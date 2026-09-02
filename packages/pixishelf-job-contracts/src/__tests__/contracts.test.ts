@@ -35,6 +35,7 @@ describe('job wire contracts', () => {
         'VIDEO_MEDIA_PROBE',
         'VIDEO_KEYFRAME_DISCOVERY',
         'VIDEO_KEYFRAME_GENERATION',
+        'ARCHIVE_UPLOADER_SCAN',
         'ARCHIVE_RESOLVE_ITEM',
         'ARCHIVE_IMPORT',
         'ARCHIVE_DEFAULT_TAG_BACKFILL',
@@ -56,6 +57,7 @@ describe('job wire contracts', () => {
     expect(SCAN_DEFINITION_VERSION).toBe(2)
     expect(SCAN_AUDIT_APPLY_DEFINITION_VERSION).toBe(3)
     expect(ARCHIVE_IMPORT_DEFINITION_VERSION).toBe(2)
+    expect(executionLaneForJobType('ARCHIVE_UPLOADER_SCAN')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_DEFAULT_TAG_BACKFILL')).toBe('BACKGROUND_WRITER')
@@ -69,6 +71,10 @@ describe('job wire contracts', () => {
     expect(parseJobPayload('ARCHIVE_RESOLVE_ITEM', { intakeItemId: 'intake-1' })).toEqual({
       intakeItemId: 'intake-1'
     })
+    expect(parseJobPayload('ARCHIVE_UPLOADER_SCAN', { scanRunId: 'scan-run-1' })).toEqual({
+      scanRunId: 'scan-run-1'
+    })
+    expect(() => parseJobPayload('ARCHIVE_UPLOADER_SCAN', { scanRunId: 'scan-run-1', limit: 500 })).toThrow()
     expect(parseJobPayload('ARCHIVE_MAINTENANCE', { action: 'CLEAN_STAGING', archiveImportId: 'import-1' })).toEqual({
       action: 'CLEAN_STAGING',
       archiveImportId: 'import-1'

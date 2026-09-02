@@ -1,7 +1,7 @@
 ---
 status: current
 scope: Prisma Schema 之外由 migration 实现的扩展、触发器、索引和维护约束
-last-verified: 2026-08-26
+last-verified: 2026-09-02
 sources:
   - schema.prisma
   - migrations/
@@ -119,7 +119,7 @@ Artist，同一 Artist 在一个 Provider 下也不能同时保存多个身份�
 
 - `system_jobs(executionLane, status, effectivePriority, availableAt, createdAt)` 是按 lane 的领取索引；优先级越小越先执行。
 - `system_jobs_single_executing_per_lane_idx` 是执行态部分唯一索引，保证 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 各自最多一条 `RUNNING/PAUSING/CANCELLING` 记录。它允许一项 resolver 和一项 writer 同时执行，但不允许同 lane 双执行。
-- `system_jobs_type_execution_lane_check` 固定 job type 到 lane：只有 `ARCHIVE_RESOLVE_ITEM` 可以进入 `ARCHIVE_RESOLVE`，其他任务全部进入 `BACKGROUND_WRITER`。
+- `system_jobs_type_execution_lane_check` 固定 job type 到 lane：`ARCHIVE_RESOLVE_ITEM` 与 `ARCHIVE_UPLOADER_SCAN` 进入 `ARCHIVE_RESOLVE`，其他任务全部进入 `BACKGROUND_WRITER`。
 - `system_jobs(status, deadlineAt)` 用于自动窗口过期，`system_jobs(status, leaseExpiresAt)` 用于崩溃租约恢复。
 - `system_jobs(scheduledTaskId, scheduledForDate)` 唯一约束防止每日计划重复物化；`system_jobs(idempotencyKey)` 为可空 API 幂等键。
 - `system_job_events(jobId, id)` 支持按全局递增游标读取单任务时间线。
@@ -203,7 +203,7 @@ Image。apply 的 stale 或身份冲突在这些领域写入之前终止。
 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择
 任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
 
-Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type；当前增加 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后为 26 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 24 类仍只注册 v1，因此共有 29 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type，加入 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后曾为 26 个 job type；当前增加 `ARCHIVE_UPLOADER_SCAN` 后为 27 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 25 类仍只注册 v1，因此共有 30 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
 
 ### 3.7 归档收件与 Provider 请求治理
 
@@ -221,6 +221,8 @@ Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 
 lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING/CANCELLING` 的 `SystemJob`，或存在未过期的 `global/background-worker` lease 时立即失败且不执行 DDL。所有既有任务通过新列默认值成为 `BACKGROUND_WRITER`；过期旧全局 lease 在 guard 后删除。迁移替换全局执行唯一索引，因此应用后不得再启动不理解 lane 的旧 Worker。
 
 `20260818170000_add_archive_operation_request_hashes` 为 submission 和 bulk command 增加请求 hash，使同一幂等键只有请求内容完全一致时才可重放。`20260818180000_add_archive_maintenance_worker_job` 增加维护任务必须位于 writer lane 的命名 CHECK。`20260818190000_add_archive_intake_retention_cleanup` 为已完成批量操作的 30 天清理增加索引；实际清理由有围栏的 writer job 分批执行，不通过级联关系删除 `SystemJob`、归档领域实体或媒体。
+
+`20260902120000_add_archive_uploader_manual_scan` 增加上传者来源、人工扫描运行和逐项候选表，并把 `ARCHIVE_UPLOADER_SCAN` 加入 `ARCHIVE_RESOLVE` lane。来源持久保存最新、增量和历史游标；运行只有在 fenced completion 中推进游标。`SEARCH` 请求与媒体下载可以并行，但仍共享 `archive_provider_throttles` 的请求间隔和 penalty；普通 `RESOLVE` 继续在活动下载 lease 存在时让行。
 
 ## 4. 审计与维护 (Audit & Maintenance)
 
@@ -283,3 +285,4 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 | `20260820210000` | 为来源核对选定同步增加父核对证据、冻结 CAS 字段、逐项 outcome/reason/retryable、完整性 CHECK 和恢复/查询索引；历史行保持兼容                    |
 | `20260825103000` | 增加艺术家多 Provider 外部身份、同步状态与 Pixiv 强证据回填；保留旧 `Artist.userId` 作为一个发布周期的回滚镜像                                  |
 | `20260826143000` | 为 Pixiv 作品外部引用增加在线同步状态、任务与磁盘快照指针；只在唯一来源及数据库快照精确匹配时清除误标文本 override                              |
+| `20260902120000` | 增加 E-Hentai 上传者来源、人工扫描运行与候选结果，扩展 SEARCH 请求类，并允许上传者扫描进入 `ARCHIVE_RESOLVE` lane                         |

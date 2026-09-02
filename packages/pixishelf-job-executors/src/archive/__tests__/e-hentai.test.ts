@@ -59,3 +59,101 @@ describe('EHentaiProvider resolution', () => {
     expect(http.text).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('EHentaiProvider uploader scan', () => {
+  it('keeps a mid-page cursor and continues without repeating the previous gallery', async () => {
+    const http = {
+      text: vi.fn(async () =>
+        [
+          '<a href="https://e-hentai.org/g/300/token300/">Gallery 300</a>',
+          '<a href="https://e-hentai.org/g/200/token200/">Gallery 200</a>'
+        ].join('')
+      ),
+      json: vi.fn(async (_url: string, options: { body: string }) => {
+        const request = JSON.parse(options.body) as { gidlist: Array<[number, string]> }
+        return {
+          gmetadata: request.gidlist.map(([gid, token]) => ({
+            gid,
+            token,
+            title: `Gallery ${gid}`,
+            uploader: 'alice',
+            filecount: '1',
+            tags: []
+          }))
+        }
+      })
+    }
+    const provider = new EHentaiProvider(http as never)
+    const first = await provider.scanUploader({
+      identityKind: 'NAME',
+      identityValue: 'Alice',
+      cursor: null,
+      stopAtExternalId: null,
+      limit: 1
+    })
+    const second = await provider.scanUploader({
+      identityKind: 'NAME',
+      identityValue: 'Alice',
+      cursor: first.nextCursor,
+      stopAtExternalId: null,
+      limit: 1
+    })
+
+    expect(first.items.map(({ externalId }) => externalId)).toEqual(['300'])
+    expect(first.nextCursor).toEqual(expect.any(String))
+    expect(second.items.map(({ externalId }) => externalId)).toEqual(['200'])
+    expect(second.nextCursor).toBeNull()
+    expect(http.text).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops before the known latest gallery and governs both search and metadata requests', async () => {
+    const http = {
+      text: vi.fn(async () =>
+        [
+          '<a href="https://e-hentai.org/g/300/token300/">Gallery 300</a>',
+          '<a href="https://e-hentai.org/g/200/token200/">Gallery 200</a>',
+          '<a href="https://e-hentai.org/g/100/token100/">Gallery 100</a>'
+        ].join('')
+      ),
+      json: vi.fn(async () => ({
+        gmetadata: [{ gid: 300, token: 'token300', title: 'Gallery 300', uploader: 'alice', filecount: '1', tags: [] }]
+      }))
+    }
+    const searchRequestSpy = vi.fn()
+    const runSearchRequest = <T>(operation: () => Promise<T>) => {
+      searchRequestSpy()
+      return operation()
+    }
+
+    const result = await new EHentaiProvider(http as never).scanUploader(
+      {
+        identityKind: 'NAME',
+        identityValue: 'alice',
+        cursor: null,
+        stopAtExternalId: '200',
+        limit: 100
+      },
+      { runSearchRequest }
+    )
+
+    expect(result.items.map(({ externalId }) => externalId)).toEqual(['300'])
+    expect(result.reachedStop).toBe(true)
+    expect(result.nextCursor).toBeNull()
+    expect(searchRequestSpy).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects an unrecognized search response instead of treating it as an empty result', async () => {
+    const http = { text: vi.fn(async () => '<html><body>challenge</body></html>'), json: vi.fn() }
+
+    await expect(
+      new EHentaiProvider(http as never).scanUploader({
+        identityKind: 'UID',
+        identityValue: '123',
+        cursor: null,
+        stopAtExternalId: null,
+        limit: 100
+      })
+    ).rejects.toMatchObject({ code: 'REMOTE_RESPONSE_INVALID', stage: 'UPLOADER_SEARCH' })
+    expect(http.json).not.toHaveBeenCalled()
+  })
+})

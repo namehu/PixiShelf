@@ -1457,6 +1457,48 @@ export class PostgresQueueRepository {
         intakeStatus,
         now
       )
+
+      if (executingJob.type === 'ARCHIVE_UPLOADER_SCAN') {
+        const scanStatus =
+          recoveredStatus === 'RETRY_WAIT'
+            ? 'RETRY_WAIT'
+            : recoveredStatus === 'FAILED'
+              ? 'FAILED'
+              : recoveredStatus === 'PAUSED'
+                ? 'PAUSED'
+                : 'CANCELLED'
+        await transaction.$executeRawUnsafe(
+          `WITH recovered_scan AS (
+             UPDATE "archive_uploader_scan_runs"
+             SET "status" = $2::"ArchiveUploaderScanRunStatus",
+                 "finishedAt" = CASE WHEN $2 IN ('FAILED', 'CANCELLED') THEN $3 ELSE NULL END,
+                 "errorCode" = CASE
+                   WHEN $2 IN ('RETRY_WAIT', 'FAILED') THEN 'WORKER_LEASE_EXPIRED'
+                   WHEN $2 = 'CANCELLED' THEN 'CANCELLED'
+                   ELSE "errorCode"
+                 END,
+                 "errorMessage" = CASE
+                   WHEN $2 IN ('RETRY_WAIT', 'FAILED') THEN 'The uploader scan worker lease expired before completion.'
+                   WHEN $2 = 'CANCELLED' THEN 'Uploader scan cancelled'
+                   ELSE "errorMessage"
+                 END,
+                 "updatedAt" = $3
+             WHERE "systemJobId" = $1
+               AND "status" IN ('PENDING', 'RUNNING', 'RETRY_WAIT', 'PAUSED')
+             RETURNING "sourceId", "id", "errorCode", "errorMessage"
+           )
+           UPDATE "archive_uploader_sources" AS source
+           SET "lastRunId" = recovered_scan."id",
+               "lastErrorCode" = recovered_scan."errorCode",
+               "lastErrorMessage" = recovered_scan."errorMessage",
+               "updatedAt" = $3
+           FROM recovered_scan
+           WHERE source."id" = recovered_scan."sourceId"`,
+          executingJob.id,
+          scanStatus,
+          now
+        )
+      }
     }
 
     if (executionLane === 'BACKGROUND_WRITER' && executingJob.type === 'ARCHIVE_IMPORT') {

@@ -77,6 +77,39 @@ export interface ArchiveProviderContext {
   runResolveRequest?<T>(operation: () => Promise<T>): Promise<T>
 }
 
+export type ArchiveUploaderIdentityKind = 'NAME' | 'UID'
+
+export interface ArchiveUploaderScanInput {
+  identityKind: ArchiveUploaderIdentityKind
+  identityValue: string
+  cursor: string | null
+  stopAtExternalId: string | null
+  limit: number
+}
+
+export interface ArchiveUploaderScanContext extends ArchiveProviderContext {
+  runSearchRequest?<T>(operation: () => Promise<T>): Promise<T>
+}
+
+export interface ArchiveUploaderGallerySummary {
+  providerKey: string
+  externalId: string
+  canonicalUrl: string
+  title: string
+  thumbnailUrl: string | null
+  uploaderName: string | null
+  postedAt: Date | null
+  metadataFingerprint: string
+  normalizedMetadata: Record<string, unknown>
+  relationships: SourceRelationshipValue[]
+}
+
+export interface ArchiveUploaderScanResult {
+  items: ArchiveUploaderGallerySummary[]
+  nextCursor: string | null
+  reachedStop: boolean
+}
+
 export interface ArchiveDownloadContext extends ArchiveProviderContext {
   quality: ArchiveQuality
   maxConcurrentDownloads?: number
@@ -96,6 +129,10 @@ export interface ArchiveProvider extends ArchiveMediaProvider {
   openMedia(item: ArchiveProviderMediaItem, context: ArchiveDownloadContext): Promise<ArchiveRemoteMedia>
 }
 
+export interface ArchiveUploaderProvider extends ArchiveProvider {
+  scanUploader(input: ArchiveUploaderScanInput, context?: ArchiveUploaderScanContext): Promise<ArchiveUploaderScanResult>
+}
+
 export type ArchiveQualityValue = ArchiveQuality
 export type ResolvedMedia = ArchiveProviderMediaItem
 export type RemoteMedia = ArchiveRemoteMedia
@@ -106,6 +143,10 @@ export interface ArchiveMediaProviderRegistry {
 
 export interface ArchiveProviderRegistry extends ArchiveMediaProviderRegistry {
   getForUrl(url: string): ArchiveProvider
+}
+
+export interface ArchiveUploaderProviderRegistry extends ArchiveProviderRegistry {
+  getUploaderScanner(providerKey: string): ArchiveUploaderProvider
 }
 
 export interface ArchiveExecutorConfig {

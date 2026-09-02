@@ -212,24 +212,26 @@ sequenceDiagram
 
 中央模式下，scheduler 在上海时间 `00:00-08:00` 窗口内按天幂等物化所有已启用 DAILY 任务，统一设置 `availableAt=00:00`、`deadlineAt=08:00`，再由队列优先级决定执行顺序。任务设置页中的 `HH:mm` 当前不参与中央 materializer 计算，不能把显示时间理解为精确触发时刻。完整任务清单、状态边界和业务流程见[后台任务业务链路](./background-job-business-flows.md)。
 
-归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。已就绪项目可以在其余项目解析期间多选入队，每个作品创建或复用一个独立 `ARCHIVE_IMPORT`。`/admin/archive` 提供任务分页、筛选、明细和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
+归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。管理员也可以保存 E-Hentai 上传者来源，人工扫描最新或更早的公开画廊，并在确认后把候选 URL 加入同一收件箱；该能力没有自动扫描或自动下载。已就绪项目可以在其余项目解析期间多选入队，每个作品创建或复用一个独立 `ARCHIVE_IMPORT`。`/admin/archive` 提供任务分页、筛选、明细和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
 
 `ARCHIVE_IMPORT` 启动时在 fenced transaction 内读取数据库系统设置并冻结 1–8 的媒体并发，默认 2；同一值控制媒体 worker 与 Provider Governor，writer lane 本身仍固定并发 1。admin layout 维护每标签页唯一的 `/api/jobs/events` SSE，使用持久 `SystemJobEvent.id` 追赶全部后台任务事件。当前归档页消费实时传输遥测，断线时回退轮询；事件 transport 的决策边界见 ADR-0006 和 ADR-0007。
 
 一个 Worker host 运行两个 Dispatcher loop：
 
-| Lane                | 固定并发 | 工作范围                                                  |
-| ------------------- | -------- | --------------------------------------------------------- |
-| `ARCHIVE_RESOLVE`   | 1        | 仅 `ARCHIVE_RESOLVE_ITEM`，不写原媒体、派生媒体或 staging |
-| `BACKGROUND_WRITER` | 1        | 其余 25 类 job；所有媒体、扫描、迁移、替换和维护写操作    |
+| Lane                | 固定并发 | 工作范围                                                                      |
+| ------------------- | -------- | ----------------------------------------------------------------------------- |
+| `ARCHIVE_RESOLVE`   | 1        | `ARCHIVE_RESOLVE_ITEM` 与 `ARCHIVE_UPLOADER_SCAN`；不写原媒体、派生媒体或 staging |
+| `BACKGROUND_WRITER` | 1        | 其余 25 类 job；所有媒体写、本地图库扫描、迁移、替换和维护操作                  |
 
-两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 26 个 job type：`SCAN` 同时注册
-v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 24 类只注册 v1，共 29 个 job type/definition-version 组合。capability audit 精确验证 type、
+两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 27 个 job type：`SCAN` 同时注册
+v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 25 类只注册 v1，共 30 个 job type/definition-version 组合。capability audit 精确验证 type、
 version 与 lane。`SCAN@v1` 承载既有设置页扫描、单作品扫描和 Webhook；`SCAN@v2` 只执行只读
 `CONSISTENCY_AUDIT`；`SCAN@v3` 只执行写入型 `AUDIT_APPLY`。这个版本隔离保证滚动部署中的旧 v2 Worker 不会领取
 v3 apply；生产开放新写入口前仍须确认新 Worker 同时报告 SCAN v1/v2/v3。归档解析主要等待 HTTP 和 PostgreSQL，
 writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待允许同一 Node.js 事件循环交替推进两项工作，但
 不构成纯 JavaScript CPU 并行承诺。
+
+上传者 `SEARCH` 与 writer lane 的媒体下载可以并行；二者仍共享 Provider 的持久请求间隔和 penalty。普通归档 `RESOLVE` 继续在活动下载期间让行，避免改变现有解析/下载优先级契约。
 
 归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。默认启用、显示时间为 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。默认启用、显示时间为 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及过期预览会话，不删除领域归档、作品或媒体；两者在中央模式下仍按统一调度窗口和优先级执行。
 
@@ -271,8 +273,8 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 1. 外部来源引用不能定义本地 Artwork 身份。
 2. 同一时间每个执行 lane 最多一个任务；只允许一个 resolver 和一个 writer，所有媒体写仍全局串行。
 3. 通用 Worker 未通过 READY 和 capability 检查时不得恢复调度。
-4. 生产 capability inventory 固定为 26 个 job type、29 个 type/version 组合；`SCAN` 支持 v1/v2/v3，
-   `ARCHIVE_IMPORT` 支持 v1/v2，其余 24 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
+4. 生产 capability inventory 固定为 27 个 job type、30 个 type/version 组合；`SCAN` 支持 v1/v2/v3，
+   `ARCHIVE_IMPORT` 支持 v1/v2，其余 25 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
 5. 普通启动和升级使用 `prisma migrate deploy`，不得用 `db:push` 替代 migration 历史。
 6. 原媒体、派生媒体、Pixiv data 和数据库需要在一致时间点备份和恢复。
 7. 网络下载、FFmpeg 和文件复制不得放在长数据库事务中。

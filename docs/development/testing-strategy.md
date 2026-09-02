@@ -92,7 +92,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 26 个 job type、29 个 type/version 组合
+健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 27 个 job type、30 个 type/version 组合
 （`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
 
 ## 变更验证矩阵
@@ -142,7 +142,7 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 - 两个 Worker 进程竞争时每 lane 最多一个 RUNNING，同时允许一个 resolver 和一个 writer；
 - 收件 create/enqueue/bulk 幂等、FIFO、暂停/重试/取消、Worker 崩溃恢复和未授权零写入；
 - `RECONCILE` 只物化子任务，回收/恢复/永久清理在 writer lane 中根目录受限、可重入并最终 fenced；
-- 30 天保留任务只删除收件、已完成批量记录和过期预览，不删除领域实体、任务与媒体。
+- 30 天保留任务只删除收件、终态上传者扫描、已完成批量记录和过期预览，不删除上传者来源/游标、领域实体、任务与媒体。
 - 归档媒体设置默认值和 1/8 边界，执行态保存冲突，以及 advisory lock 下“先保存/先启动”的两个顺序；恢复与重试读取新值，运行中执行保持冻结值；
 - Executor 活动流与 Provider permit 不超过同一冻结上限，失败流从有效字节扣除且重试不重复累计；实时事件两秒限频不吞普通阶段、警告和终态；
 - 通用 SSE 的 Session、脱敏、响应头、心跳、游标追赶/reset、断连清理与数据库异常，以及 admin 单连接、500 条上限、过滤和归档断线轮询回退。
@@ -169,7 +169,7 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 8. 运行主应用 lint 和 typecheck；
 9. 运行主应用 `test:unit`。
 
-Worker 测试和 capability 门禁包含双 lane contract，以及 26 个 job type、29 个 type/version 组合（`SCAN`
+Worker 测试和 capability 门禁包含双 lane contract，以及 27 个 job type、30 个 type/version 组合（`SCAN`
 v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
 演练。v3 的独立领取测试同时证明只声明 SCAN v2 的旧 Worker 不会领取 `AUDIT_APPLY`。
 

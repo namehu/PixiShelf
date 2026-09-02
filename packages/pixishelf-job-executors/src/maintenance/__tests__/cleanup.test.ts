@@ -11,12 +11,14 @@ describe('maintenance retention cleanup', () => {
   it('deletes intake history in bounded fenced batches and repeats every safety predicate', async () => {
     const readPages = {
       bulk: [[{ id: 'bulk-1' }], []],
+      uploaderScan: [[]],
       item: [[{ id: 'item-1' }], []],
       submission: [[{ id: 'submission-1' }], []],
       preview: [[{ id: 'preview-1' }], []]
     }
     const archiveBulkOperationFindMany = vi.fn(async (_input: unknown) => readPages.bulk.shift() ?? [])
     const archiveIntakeItemFindMany = vi.fn(async (_input: unknown) => readPages.item.shift() ?? [])
+    const archiveUploaderScanRunFindMany = vi.fn(async (_input: unknown) => readPages.uploaderScan.shift() ?? [])
     const archiveIntakeSubmissionFindMany = vi.fn(async (_input: unknown) => readPages.submission.shift() ?? [])
     const archivePreviewSessionFindMany = vi.fn(async (_input: unknown) => readPages.preview.shift() ?? [])
     const deletionOrder: string[] = []
@@ -50,6 +52,7 @@ describe('maintenance retention cleanup', () => {
     const result = await cleanupArchiveIntakeHistory({
       database: {
         archiveBulkOperation: { findMany: archiveBulkOperationFindMany },
+        archiveUploaderScanRun: { findMany: archiveUploaderScanRunFindMany },
         archiveIntakeItem: { findMany: archiveIntakeItemFindMany },
         archiveIntakeSubmission: { findMany: archiveIntakeSubmissionFindMany },
         archivePreviewSession: { findMany: archivePreviewSessionFindMany }
@@ -62,6 +65,7 @@ describe('maintenance retention cleanup', () => {
 
     expect(result).toEqual({
       deletedBulkOperations: 1,
+      deletedUploaderScanRuns: 0,
       deletedIntakeItems: 1,
       deletedSubmissions: 1,
       deletedPreviewSessions: 1,

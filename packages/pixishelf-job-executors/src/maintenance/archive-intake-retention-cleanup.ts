@@ -8,6 +8,7 @@ const TERMINAL_INTAKE_STATUSES = ['FAILED', 'ENQUEUED', 'CANCELLED', 'DUPLICATE'
 
 export interface ArchiveIntakeRetentionCleanupResult {
   deletedBulkOperations: number
+  deletedUploaderScanRuns: number
   deletedIntakeItems: number
   deletedSubmissions: number
   deletedPreviewSessions: number
@@ -31,6 +32,7 @@ export async function cleanupArchiveIntakeHistory(
   const now = input.now ?? new Date()
   const cutoff = new Date(now.getTime() - retentionDays * 24 * 60 * 60 * 1_000)
   let deletedBulkOperations = 0
+  let deletedUploaderScanRuns = 0
   let deletedIntakeItems = 0
   let deletedSubmissions = 0
   let deletedPreviewSessions = 0
@@ -62,6 +64,44 @@ export async function cleanupArchiveIntakeHistory(
     deletedBulkOperations += deleted.count
     await reportProgress(input, 25, 'BULK_OPERATIONS', '已清理归档批量操作历史', {
       deletedBulkOperations,
+      deletedUploaderScanRuns,
+      deletedIntakeItems,
+      deletedSubmissions,
+      deletedPreviewSessions
+    })
+  }
+
+  await input.progress({
+    percentage: 27,
+    stage: 'UPLOADER_SCAN_RUNS',
+    message: '正在清理已完成的上传者扫描历史...'
+  })
+  while (true) {
+    throwIfMaintenanceAborted(input.signal)
+    const batch = await input.database.archiveUploaderScanRun.findMany({
+      where: {
+        status: { in: ['COMPLETED', 'FAILED', 'CANCELLED'] },
+        finishedAt: { lt: cutoff }
+      },
+      orderBy: [{ finishedAt: 'asc' }, { id: 'asc' }],
+      take: ARCHIVE_INTAKE_RETENTION_DELETE_BATCH_SIZE,
+      select: { id: true }
+    })
+    if (batch.length === 0) break
+
+    const deleted = await input.mutate((transaction) =>
+      transaction.archiveUploaderScanRun.deleteMany({
+        where: {
+          id: { in: batch.map(({ id }) => id) },
+          status: { in: ['COMPLETED', 'FAILED', 'CANCELLED'] },
+          finishedAt: { lt: cutoff }
+        }
+      })
+    )
+    deletedUploaderScanRuns += deleted.count
+    await reportProgress(input, 29, 'UPLOADER_SCAN_RUNS', '已清理上传者扫描历史', {
+      deletedBulkOperations,
+      deletedUploaderScanRuns,
       deletedIntakeItems,
       deletedSubmissions,
       deletedPreviewSessions
@@ -99,6 +139,7 @@ export async function cleanupArchiveIntakeHistory(
     deletedIntakeItems += deleted.count
     await reportProgress(input, 55, 'INTAKE_ITEMS', '已清理终态归档收件记录', {
       deletedBulkOperations,
+      deletedUploaderScanRuns,
       deletedIntakeItems,
       deletedSubmissions,
       deletedPreviewSessions
@@ -133,6 +174,7 @@ export async function cleanupArchiveIntakeHistory(
     deletedSubmissions += deleted.count
     await reportProgress(input, 80, 'SUBMISSIONS', '已清理空的归档收件批次', {
       deletedBulkOperations,
+      deletedUploaderScanRuns,
       deletedIntakeItems,
       deletedSubmissions,
       deletedPreviewSessions
@@ -166,6 +208,7 @@ export async function cleanupArchiveIntakeHistory(
     deletedPreviewSessions += deleted.count
     await reportProgress(input, 99, 'PREVIEW_SESSIONS', '已清理过期的归档预览会话', {
       deletedBulkOperations,
+      deletedUploaderScanRuns,
       deletedIntakeItems,
       deletedSubmissions,
       deletedPreviewSessions
@@ -175,6 +218,7 @@ export async function cleanupArchiveIntakeHistory(
   throwIfMaintenanceAborted(input.signal)
   const result = {
     deletedBulkOperations,
+    deletedUploaderScanRuns,
     deletedIntakeItems,
     deletedSubmissions,
     deletedPreviewSessions,
@@ -197,7 +241,11 @@ function reportProgress(
   message: string,
   data: Pick<
     ArchiveIntakeRetentionCleanupResult,
-    'deletedBulkOperations' | 'deletedIntakeItems' | 'deletedSubmissions' | 'deletedPreviewSessions'
+    | 'deletedBulkOperations'
+    | 'deletedUploaderScanRuns'
+    | 'deletedIntakeItems'
+    | 'deletedSubmissions'
+    | 'deletedPreviewSessions'
   >
 ) {
   return input.progress({ percentage, stage, message, data })

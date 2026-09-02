@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[26 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
+    EXEC[27 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
   end
 
   subgraph Storage[文件和外部资源]
@@ -89,7 +89,7 @@ flowchart LR
   TASK --> CMD
   CMD -->|事务写入| JOB
   CMD -->|必要时同事务写入| DOMAIN
-  RESOLVE -->|claim ARCHIVE_RESOLVE_ITEM| JOB
+  RESOLVE -->|claim ARCHIVE_RESOLVE_ITEM\n或 ARCHIVE_UPLOADER_SCAN| JOB
   WRITER -->|claim 其余 25 类| JOB
   JOB --> LEASE
   RESOLVE --> EXEC
@@ -141,7 +141,7 @@ stateDiagram-v2
 1. App 对 payload 做运行时校验，并按 job type 推导 lane；调用者不能自己把任务换到另一条 lane。
 2. 入队事务写入 `SystemJob` 和 `job.queued` 事件。带幂等键的请求在 PostgreSQL advisory lock 下创建或复用。
 3. 两个 Dispatcher 分别领取自己的 lane。领取 SQL 使用 `FOR UPDATE SKIP LOCKED`，先检查 lane 执行态和资源租约，再按优先级、可执行时间、创建时间排序。
-4. `ARCHIVE_RESOLVE` 额外按收件 `queueOrder` 保证 FIFO；writer lane 在同一时间只执行一个任务。
+4. `ARCHIVE_RESOLVE_ITEM` 在同 lane 内额外按收件 `queueOrder` 保证彼此 FIFO；人工上传者扫描按普通手动任务优先级参与该 lane。writer lane 在同一时间只执行一个任务。
 5. claim 后写入 `workerId`、attempt、`executionToken`、lease 和 heartbeat。Executor 的进度、领域变更和终态都携带 fence。
 6. Worker 周期性续租并读取暂停/取消 intent。旧 Worker 丢失 lease 后，即使继续运行，也不能通过 fence 提交新的领域终态。
 7. 瞬时错误进入 `RETRY_WAIT`；Worker 重启或租约过期后由队列恢复。调度任务超过 `deadlineAt` 会变成 `SKIPPED/WINDOW_EXPIRED`。
@@ -215,9 +215,9 @@ sequenceDiagram
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 26 类 Worker 任务
+## 27 类 Worker 任务
 
-除 `ARCHIVE_RESOLVE_ITEM` 外，其他任务全部进入 `BACKGROUND_WRITER`。
+`ARCHIVE_RESOLVE_ITEM` 与 `ARCHIVE_UPLOADER_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 25 类任务全部进入 `BACKGROUND_WRITER`。
 
 | Job type                           | 主要入口                                 | 是否计划任务 | 是否创建子任务 | 主要副作用                                                    |
 | ---------------------------------- | ---------------------------------------- | ------------ | -------------- | ------------------------------------------------------------- |
@@ -236,6 +236,7 @@ sequenceDiagram
 | `VIDEO_KEYFRAME_DISCOVERY`         | 任务计划、立即运行、代表帧批量入口       | 是           | 是             | 判断 MISSING/STALE/FAILED/CURRENT；计划模式创建生成子任务     |
 | `VIDEO_KEYFRAME_GENERATION`        | discovery 或人工选中结果                 | 否           | 否             | FFmpeg 抽帧、质量筛选并发布代表帧集合                         |
 | `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                        | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态        |
+| `ARCHIVE_UPLOADER_SCAN`            | 归档收件箱中的上传者来源                 | 否           | 否             | 人工发现公开画廊、保存游标与候选分类，不自动创建下载任务       |
 | `ARCHIVE_IMPORT`                   | READY 收件项批量入队                     | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork         |
 | `ARCHIVE_DEFAULT_TAG_BACKFILL`     | 扫描设置中的历史归档标签补全             | 否           | 否             | 按冻结上界为活动链接归档作品追加缺少的人工标签关系            |
 | `ARCHIVE_MAINTENANCE`              | 计划 reconcile、归档删除/恢复/清理       | 是           | RECONCILE 会   | 清 staging、回收、恢复或永久清理归档                          |
@@ -250,8 +251,8 @@ sequenceDiagram
 
 标签、艺术家、作品和系列同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家、作品和系列的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 26 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 24 类仍只支持 v1，因此 capability audit
-实际核对 29 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
+生产 Registry 保持 27 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 25 类仍只支持 v1，因此 capability audit
+实际核对 30 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
 ## Pixiv 作品在线同步链路
@@ -702,7 +703,7 @@ flowchart TD
 | App 入队、幂等和控制命令      | `packages/pixishelf/services/background-task/job-command-service.ts`、`manual-job-singleton.ts`  |
 | claim、优先级、lease、fence   | `packages/pixishelf-job-runtime/src/queue-repository.ts`                                         |
 | 双 Dispatcher 和 Worker 启动  | `packages/pixishelf-worker/src/main.ts`、`dispatcher.ts`                                         |
-| 26 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| 27 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
 | Pixiv 艺术家补全              | `packages/pixishelf-job-executors/src/pixiv-artist/`、`pixiv-artist-enrichment-service.ts`       |
 | Pixiv 标签补全                | `packages/pixishelf-job-executors/src/pixiv-tag/`、`pixiv-tag-enrichment-service.ts`             |
 | Pixiv 作品在线同步            | `packages/pixishelf-job-executors/src/pixiv-artwork/`、`pixiv-artwork-enrichment-service.ts`     |

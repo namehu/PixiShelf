@@ -1,8 +1,13 @@
 import { ArchiveExecutorError } from './errors.ts'
 import { EHentaiProvider } from './providers/e-hentai.ts'
-import type { ArchiveMediaProvider, ArchiveProvider, ArchiveProviderRegistry } from './types.ts'
+import type {
+  ArchiveMediaProvider,
+  ArchiveProvider,
+  ArchiveUploaderProvider,
+  ArchiveUploaderProviderRegistry
+} from './types.ts'
 
-export class DefaultArchiveMediaProviderRegistry implements ArchiveProviderRegistry {
+export class DefaultArchiveMediaProviderRegistry implements ArchiveUploaderProviderRegistry {
   private readonly providers = new Map<string, ArchiveMediaProvider>()
 
   constructor(providers: readonly ArchiveMediaProvider[]) {
@@ -37,10 +42,22 @@ export class DefaultArchiveMediaProviderRegistry implements ArchiveProviderRegis
     }
     throw new ArchiveExecutorError('UNSUPPORTED_PROVIDER', 'No archive provider accepts this URL')
   }
+
+  getUploaderScanner(providerKey: string): ArchiveUploaderProvider {
+    const provider = this.get(providerKey)
+    if (!isArchiveUploaderProvider(provider)) {
+      throw new ArchiveExecutorError('UNSUPPORTED_PROVIDER', `Archive provider ${providerKey} cannot scan uploaders`)
+    }
+    return provider
+  }
 }
 
-export function createDefaultArchiveMediaProviderRegistry(): ArchiveProviderRegistry {
+export function createDefaultArchiveMediaProviderRegistry(): ArchiveUploaderProviderRegistry {
   return new DefaultArchiveMediaProviderRegistry([new EHentaiProvider()])
+}
+
+function isArchiveUploaderProvider(provider: ArchiveMediaProvider): provider is ArchiveUploaderProvider {
+  return isArchiveProvider(provider) && typeof (provider as Partial<ArchiveUploaderProvider>).scanUploader === 'function'
 }
 
 function isArchiveProvider(provider: ArchiveMediaProvider): provider is ArchiveProvider {

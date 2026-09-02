@@ -203,10 +203,10 @@ export async function enqueueJob(
   now: () => Date = () => new Date()
 ): Promise<JobDto> {
   const parsed = enqueueJobInputSchema.parse(input)
-  if (parsed.type === 'ARCHIVE_RESOLVE_ITEM') {
+  if (parsed.type === 'ARCHIVE_RESOLVE_ITEM' || parsed.type === 'ARCHIVE_UPLOADER_SCAN') {
     throw new BackgroundTaskError(
       'INVALID_STATE_TRANSITION',
-      'Archive resolver jobs must be created through the archive intake workflow'
+      'Archive resolver and uploader scan jobs must be created through their archive workflows'
     )
   }
   if (isRetiredFullReconcilePayload(parsed.type, parsed.payload)) {
@@ -317,6 +317,15 @@ export async function cancelJobCommand(
       })
       if (item.count !== 1) {
         throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Archive resolver job is not bound to an intake item')
+      }
+    }
+    if (job.type === 'ARCHIVE_UPLOADER_SCAN' && direct) {
+      const scan = await transaction.archiveUploaderScanRun.updateMany({
+        where: { systemJobId: job.id, status: { in: ['PENDING', 'RETRY_WAIT', 'PAUSED'] } },
+        data: { status: 'CANCELLED', finishedAt: timestamp, errorCode: 'CANCELLED', errorMessage: null }
+      })
+      if (scan.count !== 1) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Uploader scan job is not bound to an active run')
       }
     }
     if (direct && (job.type === 'SCAN' || job.type === 'LOCAL_DIRECTORY_IMPORT')) {
@@ -466,11 +475,21 @@ export async function pauseJobCommand(
     if (job.status === 'PAUSING' || job.status === 'PAUSED') return toJobDto(job)
     assertStatus(job, ['PENDING', 'RETRY_WAIT', 'RUNNING'], 'pause')
     const direct = job.status !== 'RUNNING'
+    const timestamp = now()
     const updated = await compareAndSetJob(transaction, job, {
       status: direct ? 'PAUSED' : 'PAUSING',
-      pauseRequestedAt: now(),
+      pauseRequestedAt: timestamp,
       ...(direct ? { workerId: null, leaseToken: null, leaseExpiresAt: null, heartbeatAt: null } : {})
     })
+    if (job.type === 'ARCHIVE_UPLOADER_SCAN' && direct) {
+      const scan = await transaction.archiveUploaderScanRun.updateMany({
+        where: { systemJobId: job.id, status: { in: ['PENDING', 'RETRY_WAIT'] } },
+        data: { status: 'PAUSED', finishedAt: null }
+      })
+      if (scan.count !== 1) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Uploader scan job is not bound to an active run')
+      }
+    }
     await writeJobEvent(transaction, {
       jobId,
       type: 'job.pause_requested',
@@ -500,15 +519,25 @@ export async function resumeJobCommand(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
     assertStatus(job, ['PAUSED'], 'resume')
+    const timestamp = now()
     const updated = await compareAndSetJob(transaction, job, {
       status: 'PENDING',
-      availableAt: now(),
+      availableAt: timestamp,
       pauseRequestedAt: null,
       workerId: null,
       leaseToken: null,
       leaseExpiresAt: null,
       heartbeatAt: null
     })
+    if (job.type === 'ARCHIVE_UPLOADER_SCAN') {
+      const scan = await transaction.archiveUploaderScanRun.updateMany({
+        where: { systemJobId: job.id, status: 'PAUSED' },
+        data: { status: 'PENDING', finishedAt: null, errorCode: null, errorMessage: null }
+      })
+      if (scan.count !== 1) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Uploader scan job is not bound to a paused run')
+      }
+    }
     await writeJobEvent(transaction, {
       jobId,
       type: 'job.queued',
@@ -531,6 +560,12 @@ export async function retryJobCommand(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
+    if (job.type === 'ARCHIVE_UPLOADER_SCAN') {
+      throw new BackgroundTaskError(
+        'INVALID_STATE_TRANSITION',
+        'Uploader scans keep cursor state on the source; start a new manual scan from the uploader source instead'
+      )
+    }
     if (job.definitionVersion !== JOB_DEFINITION_VERSION) {
       throw new BackgroundTaskError(
         'INVALID_STATE_TRANSITION',

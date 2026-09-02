@@ -34,7 +34,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
 | [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令               |
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、26 类 Worker 任务、领域状态和流程图  |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、27 类 Worker 任务、领域状态和流程图  |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |
 | [Pixiv 标签补全](./features/pixiv-tag-enrichment.md)                | `current` | 候选规则、只填空字段、任务状态和封面存储       |
 | [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)           | `current` | 外部身份、补全规则、任务状态与作者图片存储     |
@@ -77,6 +77,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)      | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |
 | [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md)   | `historical` | 本期实施前的系列身份、成员所有权和同步方案                 |
 | [归档收件队列设计](./design/archive-intake-queue.md)               | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
+| [E-Hentai 上传者人工扫描](./design/e-hentai-uploader-manual-scan.md) | `current`    | 已实施的人工来源扫描、游标、分类与收件确认契约             |
 | [多来源 URL 归档](./design/multi-source-url-archive.md)            | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
 | [视频代表帧生成](./design/video-keyframe-generation.md)            | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
 | [Pixiv 来源维护](./design/pixiv-source-maintenance.md)             | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |

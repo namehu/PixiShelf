@@ -50,7 +50,7 @@ export async function auditProductionWorkerCapabilities(
     assertProductionWorkerCapabilities(actual)
   } catch {
     throw new CapabilityAuditError(
-      'online READY Worker capability inventory does not match the 26-job/29-version dual-lane release'
+      'online READY Worker capability inventory does not match the 27-job/30-version dual-lane release'
     )
   }
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
@@ -90,7 +90,7 @@ export async function runCapabilityAudit(
     return 1
   }
   writeOutput(
-    `Worker capability audit passed: ${result.readyWorkers} READY Worker, ${result.capabilities} job types / 29 versions (SCAN v1/v2/v3, ARCHIVE_IMPORT v1/v2)`
+    `Worker capability audit passed: ${result.readyWorkers} READY Worker, ${result.capabilities} job types / 30 versions (SCAN v1/v2/v3, ARCHIVE_IMPORT v1/v2)`
   )
   return 0
 }

@@ -28,6 +28,9 @@ describe('database package', () => {
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
       [
         { tableName: 'archive_intake_items' },
+        { tableName: 'archive_uploader_scan_items' },
+        { tableName: 'archive_uploader_scan_runs' },
+        { tableName: 'archive_uploader_sources' },
         { tableName: 'archive_provider_request_leases' },
         { tableName: 'archive_provider_throttles' },
         { tableName: 'archive_resolve_queue_control' },
@@ -40,7 +43,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260826143000_add_pixiv_artwork_online_sync' }],
+      [{ migrationName: '20260902120000_add_archive_uploader_manual_scan' }],
       [expectedIndex]
     ])
 
@@ -51,15 +54,18 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260826143000_add_pixiv_artwork_online_sync, index:system_jobs_single_executing_per_lane_idx'
+      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260902120000_add_archive_uploader_manual_scan, index:system_jobs_single_executing_per_lane_idx'
     )
   })
 
-  it('rejects a database that does not have the latest Pixiv artwork sync migration', async () => {
+  it('rejects a database that does not have the latest uploader scan migration', async () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
       [
         { tableName: 'archive_intake_items' },
+        { tableName: 'archive_uploader_scan_items' },
+        { tableName: 'archive_uploader_scan_runs' },
+        { tableName: 'archive_uploader_sources' },
         { tableName: 'archive_provider_request_leases' },
         { tableName: 'archive_provider_throttles' },
         { tableName: 'archive_resolve_queue_control' },
@@ -77,7 +83,7 @@ describe('database package', () => {
     ])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing migration:20260826143000_add_pixiv_artwork_online_sync'
+      'Background queue schema is not ready: missing migration:20260902120000_add_archive_uploader_manual_scan'
     )
   })
 
@@ -86,6 +92,9 @@ describe('database package', () => {
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
       [
         { tableName: 'archive_intake_items' },
+        { tableName: 'archive_uploader_scan_items' },
+        { tableName: 'archive_uploader_scan_runs' },
+        { tableName: 'archive_uploader_sources' },
         { tableName: 'archive_provider_request_leases' },
         { tableName: 'archive_provider_throttles' },
         { tableName: 'archive_resolve_queue_control' },
@@ -98,7 +107,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260826143000_add_pixiv_artwork_online_sync' }],
+      [{ migrationName: '20260902120000_add_archive_uploader_manual_scan' }],
       []
     ])
 
@@ -112,6 +121,9 @@ describe('database package', () => {
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
       [
         { tableName: 'archive_intake_items' },
+        { tableName: 'archive_uploader_scan_items' },
+        { tableName: 'archive_uploader_scan_runs' },
+        { tableName: 'archive_uploader_sources' },
         { tableName: 'archive_provider_request_leases' },
         { tableName: 'archive_provider_throttles' },
         { tableName: 'archive_resolve_queue_control' },
@@ -124,7 +136,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260826143000_add_pixiv_artwork_online_sync' }],
+      [{ migrationName: '20260902120000_add_archive_uploader_manual_scan' }],
       [
         {
           ...expectedIndex,
@@ -143,6 +155,9 @@ describe('database package', () => {
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
       [
         { tableName: 'archive_intake_items' },
+        { tableName: 'archive_uploader_scan_items' },
+        { tableName: 'archive_uploader_scan_runs' },
+        { tableName: 'archive_uploader_sources' },
         { tableName: 'archive_provider_request_leases' },
         { tableName: 'archive_provider_throttles' },
         { tableName: 'archive_resolve_queue_control' },
@@ -155,7 +170,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260826143000_add_pixiv_artwork_online_sync' }],
+      [{ migrationName: '20260902120000_add_archive_uploader_manual_scan' }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 

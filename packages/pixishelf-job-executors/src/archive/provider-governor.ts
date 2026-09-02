@@ -2,9 +2,15 @@ import { randomUUID } from 'node:crypto'
 import type { Readable } from 'node:stream'
 import type { PrismaClient } from '@pixishelf/db'
 import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
-import type { ArchiveMediaProvider, ArchiveProvider, ArchiveProviderRegistry, ArchiveRemoteMedia } from './types.ts'
+import type {
+  ArchiveMediaProvider,
+  ArchiveProvider,
+  ArchiveRemoteMedia,
+  ArchiveUploaderProvider,
+  ArchiveUploaderProviderRegistry
+} from './types.ts'
 
-export type ArchiveProviderRequestClass = 'RESOLVE' | 'DOWNLOAD'
+export type ArchiveProviderRequestClass = 'SEARCH' | 'RESOLVE' | 'DOWNLOAD'
 
 export interface ArchiveProviderPermit {
   id: string
@@ -32,6 +38,7 @@ export interface ArchiveProviderGovernor {
 
 export interface PostgresArchiveProviderGovernorOptions {
   minimumIntervalMs?: number
+  searchMinimumIntervalMs?: number
   leaseDurationMs?: number
   maxConcurrentDownloads?: number
   now?: () => Date
@@ -40,6 +47,7 @@ export interface PostgresArchiveProviderGovernorOptions {
 
 export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor {
   private readonly minimumIntervalMs: number
+  private readonly searchMinimumIntervalMs: number
   private readonly leaseDurationMs: number
   private readonly maxConcurrentDownloads: number
   private readonly now: () => Date
@@ -50,11 +58,13 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
     options: PostgresArchiveProviderGovernorOptions = {}
   ) {
     this.minimumIntervalMs = options.minimumIntervalMs ?? 250
+    this.searchMinimumIntervalMs = options.searchMinimumIntervalMs ?? 3_000
     this.leaseDurationMs = options.leaseDurationMs ?? 5 * 60_000
     this.maxConcurrentDownloads = options.maxConcurrentDownloads ?? 2
     this.now = options.now ?? (() => new Date())
     this.sleep = options.sleep ?? abortableDelay
     assertPositiveInteger('minimumIntervalMs', this.minimumIntervalMs)
+    assertPositiveInteger('searchMinimumIntervalMs', this.searchMinimumIntervalMs)
     assertPositiveInteger('leaseDurationMs', this.leaseDurationMs)
     assertPositiveInteger('maxConcurrentDownloads', this.maxConcurrentDownloads)
   }
@@ -131,7 +141,9 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
             await transaction.archiveProviderThrottle.update({
               where: { providerKey },
               data: {
-                nextRequestAt: new Date(now.getTime() + this.minimumIntervalMs),
+                nextRequestAt: new Date(
+                  now.getTime() + (requestClass === 'SEARCH' ? this.searchMinimumIntervalMs : this.minimumIntervalMs)
+                ),
                 version: { increment: 1 }
               }
             })
@@ -146,7 +158,7 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
       }
       if ('permit' in decision) return decision.permit
       if (
-        requestClass === 'RESOLVE' &&
+        (requestClass === 'RESOLVE' || requestClass === 'SEARCH') &&
         options.yieldToDownloads &&
         (decision.reason === 'DOWNLOAD_ACTIVE' || decision.reason === 'PENALTY')
       ) {
@@ -215,11 +227,11 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
   }
 }
 
-export class GovernedArchiveProviderRegistry implements ArchiveProviderRegistry {
+export class GovernedArchiveProviderRegistry implements ArchiveUploaderProviderRegistry {
   private readonly providers = new Map<string, ArchiveProvider>()
 
   constructor(
-    private readonly delegate: ArchiveProviderRegistry,
+    private readonly delegate: ArchiveUploaderProviderRegistry,
     private readonly governor: ArchiveProviderGovernor
   ) {}
 
@@ -229,6 +241,14 @@ export class GovernedArchiveProviderRegistry implements ArchiveProviderRegistry 
 
   getForUrl(url: string): ArchiveProvider {
     return this.wrap(this.delegate.getForUrl(url))
+  }
+
+  getUploaderScanner(providerKey: string): ArchiveUploaderProvider {
+    const provider = this.wrap(this.delegate.getUploaderScanner(providerKey))
+    if (!isArchiveUploaderProvider(provider)) {
+      throw new Error(`Archive provider ${providerKey} cannot scan uploaders`)
+    }
+    return provider
   }
 
   private wrap(provider: ArchiveMediaProvider): ArchiveProvider {
@@ -243,7 +263,7 @@ export class GovernedArchiveProviderRegistry implements ArchiveProviderRegistry 
   }
 }
 
-class GovernedArchiveProvider implements ArchiveProvider {
+class GovernedArchiveProvider implements ArchiveUploaderProvider {
   readonly key: string
   readonly requestGovernance = 'PER_REQUEST' as const
 
@@ -267,6 +287,27 @@ class GovernedArchiveProvider implements ArchiveProvider {
         signal: linked.controller.signal,
         runResolveRequest: (operation) =>
           this.runWithPermit('RESOLVE', linked.controller, operation, { yieldToDownloads: true })
+      })
+    } finally {
+      linked.dispose()
+    }
+  }
+
+  async scanUploader(
+    input: Parameters<ArchiveUploaderProvider['scanUploader']>[0],
+    context: Parameters<ArchiveUploaderProvider['scanUploader']>[1] = {}
+  ) {
+    if (!isArchiveUploaderProvider(this.delegate)) {
+      throw new Error(`Archive provider ${this.key} cannot scan uploaders`)
+    }
+    const signal = context.signal ?? new AbortController().signal
+    const linked = linkedAbortController(signal)
+    try {
+      return await this.delegate.scanUploader(input, {
+        ...context,
+        signal: linked.controller.signal,
+        runSearchRequest: (operation) =>
+          this.runWithPermit('SEARCH', linked.controller, operation, { yieldToDownloads: true })
       })
     } finally {
       linked.dispose()
@@ -455,6 +496,10 @@ function isArchiveProvider(provider: ArchiveMediaProvider): provider is ArchiveP
     typeof candidate.accepts === 'function' &&
     typeof candidate.resolve === 'function'
   )
+}
+
+function isArchiveUploaderProvider(provider: ArchiveMediaProvider): provider is ArchiveUploaderProvider {
+  return isArchiveProvider(provider) && typeof (provider as Partial<ArchiveUploaderProvider>).scanUploader === 'function'
 }
 
 function normalizeProviderKey(value: string) {

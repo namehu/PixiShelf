@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-09-01
+last-verified: 2026-09-02
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -99,7 +99,7 @@ sources:
 | `/dashboard`、作品、艺术家、标签、系列、viewer、settings | Session      | 无                                     | 任一有效账户可浏览和使用对应操作         |
 | `/admin/*`                                               | Session      | Admin Layout 无角色判断                | 任一有效账户可进入全部管理页面           |
 | `/admin/scan-history/[id]/source-audit`                  | Session      | 写操作由 `adminProcedure` 复核         | 查看核对；管理员可提交选定来源同步       |
-| `/admin/archive/inbox`                                   | Session      | 写操作由 `adminProcedure` 复核         | 持久添加、解析控制、重试、取消与批量入队 |
+| `/admin/archive/inbox`                                   | Session      | 写操作由 `adminProcedure` 复核         | 持久添加、上传者人工扫描、来源管理、解析控制、重试、取消与批量入队 |
 | `/admin/archive`                                         | Session      | 写操作由 `adminProcedure` 复核         | 归档任务查询、单项及当前页批量控制       |
 | `/change-password`                                       | Session      | `authActionClient` 复核 Session        | 只能修改当前会话账户密码                 |
 | `_next/static`、`_next/image`、`favicon.ico`             | matcher 排除 | 由 Next.js/静态服务器处理              | 不应包含私有原媒体文件                   |

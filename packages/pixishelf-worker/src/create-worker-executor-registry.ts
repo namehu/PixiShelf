@@ -4,6 +4,7 @@ import {
   createArchiveExecutorRegistrations,
   createArchiveMaintenanceExecutorRegistrations,
   createArchiveResolverExecutorRegistrations,
+  createArchiveUploaderScanExecutorRegistrations,
   createDefaultArchiveMediaProviderRegistry,
   createMaintenanceExecutorRegistrations,
   createMigrationExecutorRegistrations,
@@ -49,6 +50,12 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
     new PostgresArchiveProviderGovernor(input.database)
   )
   for (const definition of createArchiveResolverExecutorRegistrations({
+    database: input.database,
+    providers: archiveProviders
+  })) {
+    registry.register(definition)
+  }
+  for (const definition of createArchiveUploaderScanExecutorRegistrations({
     database: input.database,
     providers: archiveProviders
   })) {

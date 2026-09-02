@@ -595,6 +595,7 @@ model SystemJob {
   migrationItems          MigrationJobItem[]
   archiveImport           ArchiveImport?
   archiveIntakeItem       ArchiveIntakeItem?       @relation("ArchiveIntakeCurrentJob")
+  archiveUploaderScanRun  ArchiveUploaderScanRun?
   keyframeSet             MediaVideoKeyframeSet?
   failureAcknowledgement  SystemJobFailureAcknowledgement?
 
@@ -806,6 +807,7 @@ model ArchiveIntakeItem {
   currentSystemJob      SystemJob?                   @relation("ArchiveIntakeCurrentJob", fields: [currentSystemJobId], references: [id], onDelete: SetNull)
   activeArchiveImport   ArchiveImport?               @relation("ArchiveIntakeActiveImport", fields: [activeArchiveImportId], references: [id], onDelete: SetNull)
   archiveImport         ArchiveImport?               @relation("ArchiveIntakeEnqueuedImport", fields: [archiveImportId], references: [id], onDelete: SetNull)
+  uploaderScanItem      ArchiveUploaderScanItem?     @relation("ArchiveUploaderScanIntakeItem")
 
   @@index([status, queueOrder])
   @@index([submissionId, createdAt])
@@ -839,6 +841,86 @@ model ArchiveBulkOperation {
   @@index([createdAt(sort: Desc)])
   @@index([completedAt])
   @@map("archive_bulk_operations")
+}
+
+model ArchiveUploaderSource {
+  id                        String                      @id @default(cuid())
+  providerKey               String                      @db.VarChar(50)
+  identityKind              ArchiveUploaderIdentityKind
+  identityValue             String                      @db.VarChar(180)
+  normalizedIdentity        String                      @db.VarChar(180)
+  displayName               String                      @db.VarChar(180)
+  status                    ArchiveUploaderSourceStatus @default(ACTIVE)
+  latestSeenExternalId      String?                     @db.VarChar(120)
+  incrementalCursor         String?                     @db.Text
+  incrementalHeadExternalId String?                     @db.VarChar(120)
+  historyCursor             String?                     @db.Text
+  lastScanAt                DateTime?
+  lastSuccessAt             DateTime?
+  lastErrorCode             String?                     @db.VarChar(80)
+  lastErrorMessage          String?                     @db.Text
+  lastRunId                 String?                     @db.VarChar(128)
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
+  runs                      ArchiveUploaderScanRun[]
+
+  @@unique([providerKey, identityKind, normalizedIdentity])
+  @@index([status, updatedAt(sort: Desc)])
+  @@index([lastRunId])
+  @@map("archive_uploader_sources")
+}
+
+model ArchiveUploaderScanRun {
+  id                  String                       @id @default(cuid())
+  sourceId            String
+  systemJobId         String                       @unique
+  mode                ArchiveUploaderScanMode
+  status              ArchiveUploaderScanRunStatus @default(PENDING)
+  cursorBefore        String?                      @db.Text
+  cursorAfter         String?                      @db.Text
+  itemCount           Int                          @default(0)
+  newCount            Int                          @default(0)
+  activeCount         Int                          @default(0)
+  archivedCount       Int                          @default(0)
+  possibleUpdateCount Int                          @default(0)
+  replacementCount    Int                          @default(0)
+  startedAt           DateTime?
+  finishedAt          DateTime?
+  errorCode           String?                      @db.VarChar(80)
+  errorMessage        String?                      @db.Text
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  source              ArchiveUploaderSource        @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  systemJob           SystemJob                    @relation(fields: [systemJobId], references: [id], onDelete: Cascade)
+  items               ArchiveUploaderScanItem[]
+
+  @@index([sourceId, createdAt(sort: Desc)])
+  @@index([status, createdAt])
+  @@map("archive_uploader_scan_runs")
+}
+
+model ArchiveUploaderScanItem {
+  id                  String                            @id @default(cuid())
+  runId               String
+  providerKey         String                            @db.VarChar(50)
+  externalId          String                            @db.VarChar(120)
+  canonicalUrl        String                            @db.Text
+  title               String                            @db.Text
+  thumbnailUrl        String?                           @db.Text
+  uploaderName        String?                           @db.VarChar(180)
+  postedAt            DateTime?
+  metadataFingerprint String                            @db.VarChar(64)
+  relationships       Json
+  classification      ArchiveUploaderScanClassification
+  intakeItemId        String?                           @unique
+  createdAt           DateTime                          @default(now())
+  run                 ArchiveUploaderScanRun            @relation(fields: [runId], references: [id], onDelete: Cascade)
+  intakeItem          ArchiveIntakeItem?                @relation("ArchiveUploaderScanIntakeItem", fields: [intakeItemId], references: [id], onDelete: SetNull)
+
+  @@unique([runId, providerKey, externalId])
+  @@index([runId, classification, postedAt(sort: Desc)])
+  @@index([providerKey, externalId])
+  @@map("archive_uploader_scan_items")
 }
 
 model ArchiveBulkOperationItem {
@@ -1627,8 +1709,42 @@ enum ArchiveBulkOperationResult {
 }
 
 enum ArchiveProviderRequestClass {
+  SEARCH
   RESOLVE
   DOWNLOAD
+}
+
+enum ArchiveUploaderIdentityKind {
+  NAME
+  UID
+}
+
+enum ArchiveUploaderSourceStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ArchiveUploaderScanMode {
+  LATEST
+  HISTORY
+}
+
+enum ArchiveUploaderScanRunStatus {
+  PENDING
+  RUNNING
+  RETRY_WAIT
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ArchiveUploaderScanClassification {
+  NEW
+  ACTIVE
+  ARCHIVED
+  POSSIBLE_UPDATE
+  REPLACEMENT
 }
 
 enum VideoKeyframeSetStatus {

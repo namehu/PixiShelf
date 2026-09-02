@@ -6,6 +6,7 @@ export type MaintenanceDatabase = Pick<
   | 'archiveIntakeItem'
   | 'archiveIntakeSubmission'
   | 'archivePreviewSession'
+  | 'archiveUploaderScanRun'
   | 'artwork'
   | 'artworkTag'
   | 'image'

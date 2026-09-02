@@ -2,10 +2,13 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 
-const latestRequiredMigration = '20260826143000_add_pixiv_artwork_online_sync'
+const latestRequiredMigration = '20260902120000_add_archive_uploader_manual_scan'
 
 const requiredQueueObjects = [
   'archive_intake_items',
+  'archive_uploader_scan_items',
+  'archive_uploader_scan_runs',
+  'archive_uploader_sources',
   'archive_provider_request_leases',
   'archive_provider_throttles',
   'archive_resolve_queue_control',

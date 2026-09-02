@@ -5,8 +5,11 @@ import { ArchiveError, withArchiveErrorContext } from '../errors.ts'
 import { SafeHttpClient, assertSuccessStatus, remoteHostForUrl } from '../safe-http.ts'
 import type {
   ArchiveDownloadContext,
-  ArchiveProvider,
   ArchiveProviderContext,
+  ArchiveUploaderProvider,
+  ArchiveUploaderScanContext,
+  ArchiveUploaderScanInput,
+  ArchiveUploaderScanResult,
   RemoteMedia,
   ResolvedArchive,
   ResolvedMedia,
@@ -17,6 +20,8 @@ const PROVIDER_KEY = 'e-hentai'
 const GALLERY_HOST = 'e-hentai.org'
 const API_URL = 'https://api.e-hentai.org/api.php'
 const MAX_GALLERY_PAGES = 500
+const MAX_UPLOADER_SCAN_ITEMS = 100
+const MAX_GDATA_ITEMS = 25
 const HATH_NETWORK_SUFFIX = 'hath.network'
 
 interface EhGalleryMetadata {
@@ -51,7 +56,18 @@ interface EhTokenResponse {
   error?: string
 }
 
-export class EHentaiProvider implements ArchiveProvider {
+interface UploaderSearchCursor {
+  version: 1
+  url: string
+  offset: number
+}
+
+interface GallerySearchIdentity {
+  gid: number
+  token: string
+}
+
+export class EHentaiProvider implements ArchiveUploaderProvider {
   readonly key = PROVIDER_KEY
   readonly requestGovernance = 'PER_REQUEST' as const
 
@@ -124,6 +140,98 @@ export class EHentaiProvider implements ArchiveProvider {
       warnings,
       creatorBucket
     }
+  }
+
+  async scanUploader(
+    input: ArchiveUploaderScanInput,
+    context: ArchiveUploaderScanContext = {}
+  ): Promise<ArchiveUploaderScanResult> {
+    const limit = Math.min(MAX_UPLOADER_SCAN_ITEMS, Math.max(1, Math.trunc(input.limit)))
+    const searchTerm = uploaderSearchTerm(input)
+    let cursor = input.cursor ? decodeUploaderSearchCursor(input.cursor, searchTerm) : initialUploaderSearchCursor(searchTerm)
+    const identities: GallerySearchIdentity[] = []
+    const seen = new Set<string>()
+    let reachedStop = false
+    let nextCursor: string | null = null
+
+    while (identities.length < limit && !reachedStop) {
+      const html = await runSearchRequest(context, () =>
+        this.http.text(cursor.url, {
+          ...(context.signal ? { signal: context.signal } : {}),
+          maxBytes: 8 * 1024 * 1024
+        })
+      )
+      const page = parseUploaderSearchPage(html, cursor.url, searchTerm)
+      if (page.identities.length === 0 && !page.legitimateEmpty) {
+        throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai 搜索页未包含可识别的公开画廊', {
+          recoverable: true,
+          stage: 'UPLOADER_SEARCH',
+          remoteHost: GALLERY_HOST
+        })
+      }
+
+      let index = cursor.offset
+      for (; index < page.identities.length && identities.length < limit; index += 1) {
+        const identity = page.identities[index]!
+        if (input.stopAtExternalId && String(identity.gid) === input.stopAtExternalId) {
+          reachedStop = true
+          break
+        }
+        if (seen.has(String(identity.gid))) continue
+        seen.add(String(identity.gid))
+        identities.push(identity)
+      }
+
+      if (reachedStop) {
+        nextCursor = null
+        break
+      }
+      if (identities.length >= limit) {
+        nextCursor =
+          index < page.identities.length
+            ? encodeUploaderSearchCursor({ ...cursor, offset: index })
+            : page.nextUrl
+              ? encodeUploaderSearchCursor({ version: 1, url: page.nextUrl, offset: 0 })
+              : null
+        break
+      }
+      if (!page.nextUrl) {
+        nextCursor = null
+        break
+      }
+      cursor = { version: 1, url: page.nextUrl, offset: 0 }
+    }
+
+    const metadata = await this.fetchMetadataBatch(identities, context)
+    const items = metadata.map((value) => {
+      const uploaderName = cleanText(value.uploader) || null
+      if (input.identityKind === 'NAME' && normalizeUploaderName(uploaderName) !== normalizeUploaderName(input.identityValue)) {
+        throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai 搜索结果包含不属于目标上传者的画廊', {
+          recoverable: true,
+          stage: 'UPLOADER_METADATA',
+          remoteHost: 'api.e-hentai.org'
+        })
+      }
+      const gid = parsePositiveInteger(value.gid, 'gid')
+      const token = cleanText(value.token)
+      if (!token) throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai token 无效')
+      const normalizedMetadata = normalizedDiscoveryMetadata(value, gid)
+      return {
+        providerKey: PROVIDER_KEY,
+        externalId: String(gid),
+        canonicalUrl: `https://${GALLERY_HOST}/g/${gid}/${token}/`,
+        title:
+          cleanText(value.title_jpn) || cleanText(value.title) || `E-Hentai ${gid}`,
+        thumbnailUrl: cleanText(value.thumb) || null,
+        uploaderName,
+        postedAt: parseUnixTimestamp(value.posted),
+        metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(normalizedMetadata)!,
+        normalizedMetadata,
+        relationships: normalizeRelationships(value, gid)
+      }
+    })
+
+    return { items, nextCursor, reachedStop }
   }
 
   async openMedia(item: ResolvedMedia, context: ArchiveDownloadContext): Promise<RemoteMedia> {
@@ -242,6 +350,43 @@ export class EHentaiProvider implements ArchiveProvider {
     return metadata
   }
 
+  private async fetchMetadataBatch(
+    identities: GallerySearchIdentity[],
+    context: ArchiveUploaderScanContext
+  ): Promise<EhGalleryMetadata[]> {
+    const values: EhGalleryMetadata[] = []
+    for (let index = 0; index < identities.length; index += MAX_GDATA_ITEMS) {
+      const batch = identities.slice(index, index + MAX_GDATA_ITEMS)
+      const response = await runSearchRequest(context, () =>
+        this.http.json<EhApiResponse>(API_URL, {
+          method: 'POST',
+          ...(context.signal ? { signal: context.signal } : {}),
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            method: 'gdata',
+            gidlist: batch.map(({ gid, token }) => [gid, token]),
+            namespace: 1
+          }),
+          maxBytes: 8 * 1024 * 1024
+        })
+      )
+      if (response.error) throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai API: ${response.error}`)
+      const byGid = new Map((response.gmetadata ?? []).map((value) => [Number(value.gid), value]))
+      for (const identity of batch) {
+        const metadata = byGid.get(identity.gid)
+        if (!metadata || metadata.error) {
+          throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai API 未完整返回画廊 ${identity.gid}`, {
+            recoverable: true,
+            stage: 'UPLOADER_METADATA',
+            remoteHost: 'api.e-hentai.org'
+          })
+        }
+        values.push(metadata)
+      }
+    }
+    return values
+  }
+
   private async fetchSourcePages(
     canonicalUrl: string,
     gid: number,
@@ -293,6 +438,18 @@ async function runResolveRequest<T>(context: ArchiveProviderContext, operation: 
   }
 }
 
+async function runSearchRequest<T>(context: ArchiveUploaderScanContext, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await (context.runSearchRequest ? context.runSearchRequest(operation) : operation())
+  } catch (error) {
+    if (error instanceof ArchiveError) throw error
+    if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+      throw new ArchiveError('CANCELLED', 'E-Hentai 上传者扫描已取消', { cause: error, recoverable: true })
+    }
+    throw error
+  }
+}
+
 function runDownloadRequest<T>(context: ArchiveDownloadContext, operation: () => Promise<T>): Promise<T> {
   return context.runDownloadRequest ? context.runDownloadRequest(operation) : operation()
 }
@@ -337,6 +494,29 @@ export function hashResolvedMetadata(value: Record<string, unknown>): string {
   return createHash('sha256').update(stableStringify(value)).digest('hex')
 }
 
+export function hashArchiveUploaderDiscoveryMetadata(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const source = value as Record<string, unknown>
+  if (typeof source.gid !== 'string' || !source.gid) return null
+  const projection = Object.fromEntries(
+    [
+      'gid',
+      'titles',
+      'category',
+      'uploader',
+      'thumbnailUrl',
+      'postedAt',
+      'fileCount',
+      'fileSize',
+      'rating',
+      'expunged',
+      'tags',
+      'relationships'
+    ].map((key) => [key, source[key] ?? null])
+  )
+  return createHash('sha256').update(stableStringify(projection)).digest('hex')
+}
+
 export function chooseCreatorBucket(tags: SourceTagValue[]): string {
   const artists = tags.filter((tag) => tag.namespace === 'artist')
   if (artists.length === 1) return `artist--${safeSegment(artists[0]!.name)}`
@@ -360,6 +540,122 @@ function parseSupportedUrl(input: string): URL {
   }
   url.hash = ''
   return url
+}
+
+function uploaderSearchTerm(input: ArchiveUploaderScanInput): string {
+  if (input.identityKind === 'UID') {
+    if (!/^\d{1,20}$/.test(input.identityValue) || BigInt(input.identityValue) <= 0n) {
+      throw new ArchiveError('INVALID_URL', 'E-Hentai 上传者 UID 必须是正整数')
+    }
+    return `uploaduid:${input.identityValue}`
+  }
+  const value = input.identityValue.normalize('NFKC').trim()
+  // oxlint-disable-next-line no-control-regex -- 查询语法必须拒绝控制字符
+  if (!value || value.length > 180 || /["\u0000-\u001f\u007f]/.test(value)) {
+    throw new ArchiveError('INVALID_URL', 'E-Hentai 上传者名称无效')
+  }
+  return `uploader:"${value}"`
+}
+
+function initialUploaderSearchCursor(searchTerm: string): UploaderSearchCursor {
+  const url = new URL(`https://${GALLERY_HOST}/`)
+  url.searchParams.set('f_search', searchTerm)
+  return { version: 1, url: url.toString(), offset: 0 }
+}
+
+function encodeUploaderSearchCursor(cursor: UploaderSearchCursor): string {
+  return Buffer.from(JSON.stringify(cursor)).toString('base64url')
+}
+
+function decodeUploaderSearchCursor(value: string, searchTerm: string): UploaderSearchCursor {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as UploaderSearchCursor
+    const url = new URL(parsed.url)
+    if (
+      parsed.version !== 1 ||
+      !Number.isSafeInteger(parsed.offset) ||
+      parsed.offset < 0 ||
+      url.protocol !== 'https:' ||
+      url.hostname.toLowerCase() !== GALLERY_HOST ||
+      url.pathname !== '/' ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.searchParams.get('f_search') !== searchTerm
+    ) {
+      throw new Error('Invalid uploader search cursor')
+    }
+    url.hash = ''
+    return { version: 1, url: url.toString(), offset: parsed.offset }
+  } catch (error) {
+    throw new ArchiveError('INVALID_URL', 'E-Hentai 上传者扫描游标无效', { cause: error })
+  }
+}
+
+function parseUploaderSearchPage(html: string, baseUrl: string, searchTerm: string) {
+  const identities: GallerySearchIdentity[] = []
+  const seen = new Set<number>()
+  let nextUrl: string | null = null
+  const anchorMatcher = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi
+  for (const match of html.matchAll(anchorMatcher)) {
+    const attributes = parseAttributes(`<a ${match[1] ?? ''}>`)
+    if (!attributes.href) continue
+    let url: URL
+    try {
+      url = new URL(decodeHtml(attributes.href), baseUrl)
+    } catch {
+      continue
+    }
+    if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== GALLERY_HOST) continue
+    const galleryMatch = url.pathname.match(/^\/g\/(\d+)\/([a-z0-9]+)(?:\/|$)/i)
+    if (galleryMatch) {
+      const gid = Number(galleryMatch[1])
+      if (Number.isSafeInteger(gid) && gid > 0 && !seen.has(gid)) {
+        seen.add(gid)
+        identities.push({ gid, token: galleryMatch[2]! })
+      }
+    }
+    const label = cleanText(decodeHtml((match[2] ?? '').replace(/<[^>]+>/g, ' '))).toLowerCase()
+    if (
+      !nextUrl &&
+      (attributes.id?.toLowerCase() === 'unext' || attributes.rel?.toLowerCase() === 'next' || label === 'next' || label === '>') &&
+      url.pathname === '/' &&
+      url.searchParams.get('f_search') === searchTerm
+    ) {
+      nextUrl = url.toString()
+    }
+  }
+  return {
+    identities,
+    nextUrl,
+    legitimateEmpty: /\b(?:no hits found|no matching galleries|no results found)\b/i.test(cleanText(html))
+  }
+}
+
+function normalizedDiscoveryMetadata(metadata: EhGalleryMetadata, gid: number): Record<string, unknown> {
+  const title = cleanText(metadata.title_jpn) || cleanText(metadata.title) || `E-Hentai ${gid}`
+  const aliases = Array.from(new Set([cleanText(metadata.title), cleanText(metadata.title_jpn)].filter(Boolean))).filter(
+    (value) => value !== title
+  )
+  return {
+    schemaVersion: 1,
+    gid: String(gid),
+    titles: { display: title, aliases },
+    category: cleanText(metadata.category) || null,
+    uploader: cleanText(metadata.uploader) || null,
+    thumbnailUrl: cleanText(metadata.thumb) || null,
+    postedAt: parseUnixTimestamp(metadata.posted)?.toISOString() ?? null,
+    fileCount: parsePositiveInteger(metadata.filecount, 'filecount'),
+    fileSize: typeof metadata.filesize === 'number' ? metadata.filesize : null,
+    rating: cleanText(metadata.rating) || null,
+    expunged: metadata.expunged === true,
+    tags: normalizeTags(metadata.tags ?? []),
+    relationships: normalizeRelationships(metadata, gid)
+  }
+}
+
+function normalizeUploaderName(value: string | null): string {
+  return value?.normalize('NFKC').trim().toLocaleLowerCase('en-US') ?? ''
 }
 
 function normalizeTags(values: string[]): SourceTagValue[] {

@@ -261,11 +261,18 @@ describe('background task console', () => {
       type: 'SCAN' as const,
       payload: { mode: 'ARTWORK_RESCAN', artworkId: 42 }
     }
+    const uploaderScan = {
+      ...createJob('FAILED', 'job-uploader-scan'),
+      type: 'ARCHIVE_UPLOADER_SCAN' as const,
+      executionLane: 'ARCHIVE_RESOLVE' as const,
+      payload: { scanRunId: 'uploader-run-1' }
+    }
 
     expect(canRetryJob(historicalFull)).toBe(false)
     expect(canRetryJob(clientListScan)).toBe(false)
     expect(canRetryJob(artworkRescan)).toBe(false)
     expect(canRetryJob(ordinaryScan)).toBe(true)
+    expect(canRetryJob(uploaderScan)).toBe(false)
     expect(canRetryJob(createJob('FAILED'))).toBe(true)
   })
 

@@ -1,12 +1,14 @@
 ---
 status: current
 scope: URL 归档收件箱、持久解析、批量入队、任务控制、维护与保留策略
-last-verified: 2026-09-01
+last-verified: 2026-09-02
 sources:
   - packages/pixishelf/app/admin/archive/
   - packages/pixishelf/server/routers/archive-inbox.ts
+  - packages/pixishelf/server/routers/archive-uploader.ts
   - packages/pixishelf/server/routers/archive.ts
   - packages/pixishelf/services/archive-intake/
+  - packages/pixishelf/services/archive-uploader/
   - packages/pixishelf-db/prisma/schema.prisma
   - packages/pixishelf-job-contracts/src/job-types.ts
   - packages/pixishelf-job-executors/src/archive/
@@ -23,7 +25,7 @@ sources:
 
 | 页面                   | 职责                                                         |
 | ---------------------- | ------------------------------------------------------------ |
-| `/admin/archive/inbox` | 批量追加 URL、查看 FIFO 解析状态、修正、重试、取消与批量入队 |
+| `/admin/archive/inbox` | 批量追加 URL、管理上传者来源、查看 FIFO 解析状态、修正、重试、取消与批量入队 |
 | `/admin/archive`       | 服务端分页和筛选归档任务、查看明细、单项及当前页批量控制     |
 
 “添加链接”弹窗每次接受最多 100 行；服务端重新校验 URL、幂等键和活动收件容量。活动收件项目最多 1000 个。创建 submission 后请求立即返回，远端解析不占用浏览器或 Next.js 长连接。
@@ -31,6 +33,10 @@ sources:
 收件项目平铺在全局 FIFO 中，submission 只标记一次提交和提供审计/筛选上下文，不形成必须等待全部完成的封闭批次。管理员可以在解析继续进行时选择 `READY` 项，按项目选择 `ORIGINAL` 或 `DISPLAY` 质量并批量入队。每项独立返回创建、复用、跳过、冲突或失败结果；重复命令通过持久幂等记录复用原结果。
 
 解析结果区分新归档、更新、无变化、已有活动任务和重复来源身份。解析快照到期后不能直接入队，必须重新排队解析；修正失败 URL 会创建关联的新项目，不改写原审计历史。
+
+同页的“上传者来源”页签支持保存 E-Hentai 上传者名称或数字 UID，UID 是优先的稳定身份。来源不会定时扫描，也不会自动创建收件或下载任务；管理员只能手动执行“扫描最新”或在存在历史游标时“继续扫描更早内容”。每次最多持久化 100 条结果，并区分新归档、已有活动任务、已归档且未变化、可能更新和替代版本。只有新归档、可能更新和替代版本可由管理员勾选加入既有收件箱，之后仍经过 URL 解析、质量选择和显式归档入队。
+
+上传者来源可以归档和重新启用，长期保留最新、增量和历史游标。扫描只有在完整成功后推进对应游标；失败、取消、暂停或 Worker 租约恢复不推进游标。扫描使用 `ARCHIVE_UPLOADER_SCAN@v1`，与 URL 解析共同占用 `ARCHIVE_RESOLVE` lane；E-Hentai 搜索请求保持三秒最小间隔并与下载共享 Provider penalty，但不会被活动下载 lease 阻塞。
 
 任务页支持服务端 cursor 分页、状态/Provider/新建或更新/submission/文本筛选，以及 `PAUSE`、`RESUME`、`CANCEL`、`RETRY` 的当前页批量控制。批量命令逐项重新检查最新状态，不把部分冲突扩大成整批失败。回收、恢复、永久清理和 staging 清理仍走专用归档维护命令，不属于任务批量控制。
 
@@ -40,6 +46,7 @@ sources:
 
 - `ArchiveIntakeSubmission` 与 `ArchiveIntakeItem`：保存输入、FIFO 顺序、解析状态、冻结结果、重试/取消 intent 和归档关联；
 - `ArchiveBulkOperation` 与逐项结果：保存批量入队和任务控制的请求者、幂等键、目标与结果；
+- `ArchiveUploaderSource`、`ArchiveUploaderScanRun` 与 `ArchiveUploaderScanItem`：保存上传者身份、双向游标、人工扫描状态、分类结果和收件关联；
 - `SystemJob.executionLane`：把解析工作和所有媒体写工作映射到固定资源通道；
 - Worker lease、heartbeat、attempt 与 `leaseToken`：为领取、进度和终态提供数据库执行围栏。
 
@@ -51,14 +58,14 @@ sources:
 
 | Lane                | 允许任务                     | 固定并发 |
 | ------------------- | ---------------------------- | -------- |
-| `ARCHIVE_RESOLVE`   | `ARCHIVE_RESOLVE_ITEM`       | 1        |
+| `ARCHIVE_RESOLVE`   | `ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN` | 1        |
 | `BACKGROUND_WRITER` | 其余 25 类任务，包括归档下载 | 1        |
 
 两个 lane 可以各推进一个任务；同一 lane 内不能并行。网络、数据库、文件流、Sharp/libvips 与 FFmpeg 子进程在等待时让出 Node.js 事件循环，因此链接解析可以在一个 writer 工作期间继续。该模型不承诺纯 JavaScript CPU 并行，也不开放 lane 并发。单个归档作品内部的媒体流并发可在系统设置中选择 1–8，并在每次启动、恢复或重试时冻结；运行中不能修改。
 
 所有原媒体、派生媒体、staging、发布、扫描、迁移、替换和维护写操作都在 `BACKGROUND_WRITER` 全局串行。`ARCHIVE_RESOLVE` 的 Executor 契约只访问解析所需的远端数据和数据库，不执行媒体目录写入；两个 lane 仍共用同一 Worker 进程和 `rw` 挂载，因此这是队列/capability 边界，不是操作系统权限隔离。数据库按 lane 的执行态唯一索引与 `lane/archive-resolve`、`lane/background-writer` 资源租约共同防止滚动部署或误启动第二个 Worker 时出现同 lane 双执行。
 
-生产 capability inventory 固定为 26 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 24 类只支持 v1，共 29 个
+生产 capability inventory 固定为 27 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 25 类只支持 v1，共 30 个
 type/version 组合，并同时校验 job type、definition version 和 lane。READY 证明预检通过，capability audit
 证明 Registry 精确匹配；两者都通过后才可开放 claim。`SCAN@v2/v3` 不改变归档收件任务及其 lane。
 
@@ -76,13 +83,13 @@ type/version 组合，并同时校验 job type、definition version 和 lane。R
 
 默认启用的 `archive_maintenance_reconcile` 在页面中的默认显示时间是 `02:05`。中央模式实际在上海时间 `00:00-08:00` 统一窗口内物化当天任务，并按优先级执行；当前 `HH:mm` 不参与 materializer 计算。`RECONCILE` 父任务只发现和创建按目标隔离的维护子任务，不在发现事务中做文件 I/O；子任务继续经过 writer lane、路径边界、发布互斥和 fenced 终态检查。正常作品删除与归档任务操作也写入同一中央维护流程，不依赖 Next.js 进程内队列。
 
-默认启用的 `archive_intake_retention_cleanup` 页面默认显示时间是 `02:15`，同样按中央统一窗口和优先级执行。终态收件项目、已完成批量操作、无项目的旧 submission 和过期 `ArchivePreviewSession` 保留 30 天后分批清理。它只删除操作历史和冻结预览，不删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision`、`Image` 或任何媒体文件。
+默认启用的 `archive_intake_retention_cleanup` 页面默认显示时间是 `02:15`，同样按中央统一窗口和优先级执行。终态收件项目、已完成批量操作、已完成/失败/取消的上传者扫描记录、无项目的旧 submission 和过期 `ArchivePreviewSession` 保留 30 天后分批清理。上传者来源身份和游标长期保留。该任务只删除操作历史和冻结预览，不删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision`、`Image` 或任何媒体文件。
 
 归档任务页通过 admin layout 中唯一的通用 Worker SSE 连接接收生命周期与 `archive.transfer@v1` 遥测。速度由 Worker 在媒体流写盘时累计 chunk 长度并按最近 5 秒采样，不保存 chunk、也不回读磁盘。SSE 正常时列表只做 30/60 秒一致性校准，图片明细在计数或状态变化时定向刷新；连接异常自动回退原有高频轮询。
 
 ## 权限与敏感数据
 
-两个页面都需要 Better Auth Session。`archiveInbox` 和 `archive` 的读取使用 `authProcedure`，创建、暂停/恢复、取消、重试、批量入队和任务控制使用 `adminProcedure`；当前单一信任域中二者运行能力相同，但敏感写操作保留显式管理员语义。
+两个页面都需要 Better Auth Session。`archiveInbox`、`archiveUploader` 和 `archive` 的读取使用 `authProcedure`，创建来源、扫描、来源归档/启用、结果入箱、暂停/恢复、取消、重试、批量入队和任务控制使用 `adminProcedure`；当前单一信任域中二者运行能力相同，但敏感写操作保留显式管理员语义。
 
 服务端负责 URL/行数/容量上限、Provider HTTPS allowlist、DNS/redirect/SSRF 防护、响应体限制、状态 CAS 和幂等约束。普通列表、事件、日志和错误不得泄露 Cookie、Authorization、完整 locator、token 或 URL 路径中的敏感段；归档任务序列化统一执行脱敏。
 
@@ -108,3 +115,4 @@ type/version 组合，并同时校验 job type、definition version 和 lane。R
 - [ADR-0006](../adr/0006-freeze-database-configured-archive-media-concurrency.md)
 - [ADR-0007](../adr/0007-stream-worker-job-events-over-a-persistent-cursor.md)
 - [实现设计归档](../design/archive-intake-queue.md)
+- [E-Hentai 上传者人工扫描设计](../design/e-hentai-uploader-manual-scan.md)

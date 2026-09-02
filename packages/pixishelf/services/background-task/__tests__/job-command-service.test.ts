@@ -100,16 +100,19 @@ describe('enqueueJob', () => {
     )
   })
 
-  it('rejects resolver jobs outside the archive intake workflow', async () => {
+  it.each([
+    { type: 'ARCHIVE_RESOLVE_ITEM' as const, payload: { intakeItemId: 'intake-1' } },
+    { type: 'ARCHIVE_UPLOADER_SCAN' as const, payload: { scanRunId: 'scan-run-1' } }
+  ])('rejects $type jobs outside their archive workflow', async ({ type, payload }) => {
     const harness = commandHarness([])
 
     await expect(
       enqueueJob(
         {
-          type: 'ARCHIVE_RESOLVE_ITEM',
+          type,
           triggerSource: 'SYSTEM',
           priority: 100,
-          payload: { intakeItemId: 'intake-1' }
+          payload
         },
         harness.client
       )

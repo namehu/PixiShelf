@@ -188,7 +188,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、26 个 job type / 29 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2，其余 24 类 v1）和同
+- 新 Worker READY、两个 lane、27 个 job type / 30 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2，其余 25 类 v1）和同
   lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 

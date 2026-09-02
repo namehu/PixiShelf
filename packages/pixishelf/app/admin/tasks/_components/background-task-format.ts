@@ -137,7 +137,11 @@ export function canResumeJob(job: JobDto) {
 }
 
 export function canRetryJob(job: JobDto) {
-  return !isNonRetryableScan(job.type, job.payload) && ['FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status)
+  return (
+    job.type !== 'ARCHIVE_UPLOADER_SCAN' &&
+    !isNonRetryableScan(job.type, job.payload) &&
+    ['FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status)
+  )
 }
 
 function isNonRetryableScan(type: JobType, payload: unknown) {

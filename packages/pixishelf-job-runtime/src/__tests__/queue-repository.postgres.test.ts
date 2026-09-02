@@ -24,6 +24,9 @@ const capabilities: WorkerCapability[] = [
 const resolveCapabilities: WorkerCapability[] = [
   { jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
 ]
+const uploaderResolveCapabilities: WorkerCapability[] = [
+  { jobType: 'ARCHIVE_UPLOADER_SCAN', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
+]
 const archiveWriterCapabilities: WorkerCapability[] = [
   { jobType: 'ARCHIVE_IMPORT', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
   { jobType: 'ARCHIVE_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
@@ -35,6 +38,9 @@ describePostgres('PostgresQueueRepository integration', () => {
 
   beforeEach(async () => {
     clock.set(new Date('2026-08-13T18:00:00.000Z'))
+    await client().archiveUploaderScanItem.deleteMany({ where: { run: { id: { startsWith: testPrefix } } } })
+    await client().archiveUploaderScanRun.deleteMany({ where: { id: { startsWith: testPrefix } } })
+    await client().archiveUploaderSource.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await client().archiveIntakeItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await client().archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await client().jobResourceLease.deleteMany({
@@ -50,6 +56,9 @@ describePostgres('PostgresQueueRepository integration', () => {
 
   afterAll(async () => {
     if (!prisma) return
+    await prisma.archiveUploaderScanItem.deleteMany({ where: { run: { id: { startsWith: testPrefix } } } })
+    await prisma.archiveUploaderScanRun.deleteMany({ where: { id: { startsWith: testPrefix } } })
+    await prisma.archiveUploaderSource.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.archiveIntakeItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.jobResourceLease.deleteMany({
@@ -266,6 +275,61 @@ describePostgres('PostgresQueueRepository integration', () => {
     })
     if (status === 'RETRY_WAIT') expect(recovered.queueOrder).toBeGreaterThan(queueOrderBefore)
     else expect(recovered.finishedAt).toEqual(clock.now())
+  })
+
+  it('recovers an uploader scan whose lease expires before the executor claims its domain run', async () => {
+    const jobId = await seedJob({
+      type: 'ARCHIVE_UPLOADER_SCAN',
+      executionLane: 'ARCHIVE_RESOLVE',
+      effectivePriority: 20,
+      maxAttempts: 2
+    })
+    const sourceId = `${testPrefix}-uploader-source-${randomUUID()}`
+    const runId = `${testPrefix}-uploader-run-${randomUUID()}`
+    await client().archiveUploaderSource.create({
+      data: {
+        id: sourceId,
+        providerKey: 'e-hentai',
+        identityKind: 'UID',
+        identityValue: '123',
+        normalizedIdentity: '123',
+        displayName: 'UID 123',
+        incrementalCursor: 'latest-cursor',
+        historyCursor: 'history-cursor',
+        runs: {
+          create: {
+            id: runId,
+            systemJobId: jobId,
+            mode: 'LATEST',
+            cursorBefore: 'latest-cursor'
+          }
+        }
+      }
+    })
+    const repository = createRepository(clock, 1_000)
+
+    await expect(repository.claim('queue-kernel-uploader-recovery', uploaderResolveCapabilities)).resolves.toMatchObject({
+      id: jobId
+    })
+    clock.advance(1_001)
+    await expect(repository.recoverExpiredExecution('ARCHIVE_RESOLVE')).resolves.toMatchObject({
+      jobId,
+      status: 'RETRY_WAIT'
+    })
+
+    await expect(client().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: runId } })).resolves.toMatchObject({
+      status: 'RETRY_WAIT',
+      errorCode: 'WORKER_LEASE_EXPIRED',
+      cursorBefore: 'latest-cursor',
+      cursorAfter: null
+    })
+    await expect(client().archiveUploaderSource.findUniqueOrThrow({ where: { id: sourceId } })).resolves.toMatchObject({
+      latestSeenExternalId: null,
+      incrementalCursor: 'latest-cursor',
+      historyCursor: 'history-cursor',
+      lastRunId: runId,
+      lastErrorCode: 'WORKER_LEASE_EXPIRED'
+    })
   })
 
   it.each([
