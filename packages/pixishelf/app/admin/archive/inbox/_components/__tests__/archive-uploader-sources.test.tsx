@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  addToInbox: vi.fn(),
   cancelScan: vi.fn(),
   ignoreItems: vi.fn(),
   restoreIgnoredItems: vi.fn(),
@@ -127,26 +128,32 @@ vi.mock('@tanstack/react-query', () => ({
     mutate:
       options.kind === 'cancel'
         ? mocks.cancelScan
-        : options.kind === 'ignore'
-          ? (variables: { sourceId: string; itemIds: string[] }) => {
-              mocks.ignoreItems(variables)
-              void options.onSuccess?.(
-                {
-                  ignoredItemIds: ['ignored-item-new'],
-                  ignoredCount: variables.itemIds.length,
-                  createdCount: variables.itemIds.length,
-                  reusedCount: 0
-                },
-                variables
-              )
-            }
-          : options.kind === 'restore'
-            ? (variables: { ignoredItemIds: string[] }) => {
-                mocks.restoreIgnoredItems(variables)
-                void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
+        : options.kind === 'add'
+          ? mocks.addToInbox
+          : options.kind === 'ignore'
+            ? (variables: { sourceId: string; itemIds: string[] }) => {
+                mocks.ignoreItems(variables)
+                void options.onSuccess?.(
+                  {
+                    ignoredItemIds: ['ignored-item-new'],
+                    ignoredCount: variables.itemIds.length,
+                    createdCount: variables.itemIds.length,
+                    reusedCount: 0
+                  },
+                  variables
+                )
               }
-            : vi.fn()
+            : options.kind === 'restore'
+              ? (variables: { ignoredItemIds: string[] }) => {
+                  mocks.restoreIgnoredItems(variables)
+                  void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
+                }
+              : vi.fn()
   })
+}))
+
+vi.mock('@/lib/browser-uuid', () => ({
+  createBrowserUuid: () => '8d434276-8e67-4ea5-b586-0b8afcdfc3b7'
 }))
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -229,6 +236,19 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.getByRole('img', { name: 'Gallery 302 的首图预览' }).getAttribute('src')).toBe(
       'https://ehgt.org/thumb-302.jpg'
     )
+  })
+
+  it('submits selected discoveries with a browser-compatible attempt id', () => {
+    render(<ArchiveUploaderSources />)
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
+
+    expect(mocks.addToInbox).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      submissionAttemptId: '8d434276-8e67-4ea5-b586-0b8afcdfc3b7',
+      itemIds: ['scan-item-1']
+    })
   })
 
   it('removes ignored items from the infinite cache and refreshes both result feeds', async () => {

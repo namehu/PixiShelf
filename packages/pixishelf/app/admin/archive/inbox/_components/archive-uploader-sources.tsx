@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
+import { createBrowserUuid } from '@/lib/browser-uuid'
 import { useTRPC } from '@/lib/trpc'
 import { AdminSection, AdminSectionHeader } from '@/app/admin/_components/admin-workbench'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
@@ -490,7 +491,7 @@ export function ArchiveUploaderSources() {
                             onClick={() =>
                               addMutation.mutate({
                                 sourceId: source.id,
-                                submissionAttemptId: globalThis.crypto.randomUUID(),
+                                submissionAttemptId: createBrowserUuid(),
                                 itemIds: [...selectedItemIds]
                               })
                             }
