@@ -37,5 +37,5 @@ function errorCode(error: unknown) {
 }
 
 function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Background task request failed'
+  return error instanceof Error ? error.message : '后台任务请求失败'
 }

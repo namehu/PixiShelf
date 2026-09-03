@@ -312,7 +312,7 @@ export async function triggerArchiveUploaderScan(
         jobId,
         type: 'job.queued',
         attempt: 0,
-        message: 'Uploader scan queued',
+        message: '上传者扫描已加入队列',
         data: { sourceId: source.id, scanRunId: runId, mode: parsed.mode }
       })
       const run = await transaction.archiveUploaderScanRun.create({

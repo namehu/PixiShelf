@@ -61,7 +61,7 @@ export class ArchiveTransferMeter {
   }
 
   addChunk(itemId: string, byteLength: number): void {
-    if (!Number.isSafeInteger(byteLength) || byteLength < 0) throw new Error('Chunk byte length must be non-negative')
+    if (!Number.isSafeInteger(byteLength) || byteLength < 0) throw new Error('数据块字节长度不能为负数')
     const item = this.activeItems.get(itemId)
     if (!item) return
     const bytes = BigInt(byteLength)

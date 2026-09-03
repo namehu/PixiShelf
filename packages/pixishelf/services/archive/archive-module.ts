@@ -127,7 +127,7 @@ export class ArchiveModule {
 
     return this.retryCentralArchiveImport(task, {
       requestedByUserId: requireCentralRequestedBy(options.requestedByUserId),
-      message: 'Retry selected archive media item',
+      message: '重试选中的归档媒体项',
       retryItemId: item.id
     })
   }
@@ -138,7 +138,7 @@ export class ArchiveModule {
     const now = new Date()
     // 清理暂存为独立入口：其他动作遇到 cleanupRequestedAt 会被拒绝，避免状态与清理执行器互相覆盖。
     if (task.cleanupRequestedAt && action !== 'DELETE_STAGING') {
-      throw stateConflict('暂存目录正在由归档 Worker 清理，请等待清理完成')
+      throw stateConflict('暂存目录正在由归档后台任务进程清理，请等待清理完成')
     }
     return this.requestCentralAction(task, action, {
       requestedByUserId: requireCentralRequestedBy(options.requestedByUserId),
@@ -155,7 +155,7 @@ export class ArchiveModule {
       assertActionStatus(action, task.status, ['FAILED', 'CANCELLED'])
       return this.retryCentralArchiveImport(task, {
         requestedByUserId: options.requestedByUserId,
-        message: 'Retry archive import'
+        message: '重试归档导入'
       })
     }
     if (action === 'USE_DISPLAY_QUALITY') {
@@ -163,7 +163,7 @@ export class ArchiveModule {
       if (task.status === 'FAILED') {
         return this.retryCentralArchiveImport(task, {
           requestedByUserId: options.requestedByUserId,
-          message: 'Retry archive import with display quality',
+          message: '使用展示质量重试归档导入',
           useDisplayQuality: true
         })
       }
@@ -369,13 +369,13 @@ async function transitionCentralArchiveControl(
         message:
           action === 'CANCEL'
             ? direct
-              ? 'Archive import cancelled before execution'
-              : 'Archive import cancellation requested'
+              ? '归档导入在执行前已取消'
+              : '已请求取消归档导入'
             : action === 'PAUSE'
               ? direct
-                ? 'Archive import paused before execution'
-                : 'Archive import pause requested'
-              : 'Archive import resumed',
+                ? '归档导入在执行前已暂停'
+                : '已请求暂停归档导入'
+              : '归档导入已恢复',
         ...(action === 'CANCEL' ? { cancelRequestedAt: now } : {}),
         ...(action === 'PAUSE' ? { pauseRequestedAt: now } : {}),
         ...(action === 'RESUME' ? { pauseRequestedAt: null, availableAt: now } : {}),
@@ -433,7 +433,7 @@ async function transitionCentralArchiveControl(
           lastOutcome: 'CANCELLED',
           lastOutcomeAt: now,
           lastErrorCode: 'CANCELLED',
-          lastErrorMessage: 'Archive import cancelled before execution'
+          lastErrorMessage: '归档导入在执行前已取消'
         }
       })
     }
@@ -450,7 +450,7 @@ async function transitionCentralArchiveControl(
             : 'job.queued',
       level: action === 'RESUME' ? 'INFO' : 'WARN',
       attempt: current.systemJob.attempt,
-      message: `${action.toLowerCase()} archive import`,
+      message: `归档导入操作：${action}`,
       data: action === 'RESUME' ? { reason: 'RESUME' } : null
     })
     if (action === 'PAUSE' && direct) {
@@ -459,7 +459,7 @@ async function transitionCentralArchiveControl(
         type: 'job.paused',
         level: 'WARN',
         attempt: current.systemJob.attempt,
-        message: 'Archive import paused before execution'
+        message: '归档导入在执行前已暂停'
       })
     }
   })
@@ -498,7 +498,7 @@ async function lockUploaderCatalogImport(
 }
 
 function requireCentralRequestedBy(value: string | undefined): string {
-  if (!value) throw stateConflict('Central archive command requires an authenticated administrator')
+  if (!value) throw stateConflict('归档中心命令需要已认证的管理员')
   return value
 }
 

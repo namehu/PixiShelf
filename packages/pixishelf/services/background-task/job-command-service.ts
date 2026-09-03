@@ -204,10 +204,7 @@ export async function enqueueJob(
 ): Promise<JobDto> {
   const parsed = enqueueJobInputSchema.parse(input)
   if (parsed.type === 'ARCHIVE_RESOLVE_ITEM' || parsed.type === 'ARCHIVE_UPLOADER_SCAN') {
-    throw new BackgroundTaskError(
-      'INVALID_STATE_TRANSITION',
-      'Archive resolver and uploader scan jobs must be created through their archive workflows'
-    )
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '归档解析和上传者扫描任务必须通过对应的归档流程创建')
   }
   if (isRetiredFullReconcilePayload(parsed.type, parsed.payload)) {
     throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
@@ -316,7 +313,7 @@ export async function cancelJobCommand(
         }
       })
       if (item.count !== 1) {
-        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Archive resolver job is not bound to an intake item')
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '归档解析任务未绑定收件项')
       }
     }
     if (job.type === 'ARCHIVE_UPLOADER_SCAN' && direct) {
@@ -325,7 +322,7 @@ export async function cancelJobCommand(
         data: { status: 'CANCELLED', finishedAt: timestamp, errorCode: 'CANCELLED', errorMessage: null }
       })
       if (scan.count !== 1) {
-        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Uploader scan job is not bound to an active run')
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '上传者扫描任务未绑定活动扫描记录')
       }
     }
     if (direct && (job.type === 'SCAN' || job.type === 'LOCAL_DIRECTORY_IMPORT')) {
@@ -352,7 +349,7 @@ export async function cancelJobCommand(
         jobId,
         type: 'job.cancelled',
         attempt: job.attempt,
-        message: 'Queued job cancelled before execution'
+        message: '排队任务在执行前已取消'
       })
     }
     return toJobDto(updated)
@@ -487,7 +484,7 @@ export async function pauseJobCommand(
         data: { status: 'PAUSED', finishedAt: null }
       })
       if (scan.count !== 1) {
-        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Uploader scan job is not bound to an active run')
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '上传者扫描任务未绑定活动扫描记录')
       }
     }
     await writeJobEvent(transaction, {
@@ -501,7 +498,7 @@ export async function pauseJobCommand(
         jobId,
         type: 'job.paused',
         attempt: job.attempt,
-        message: 'Queued job paused before execution'
+        message: '排队任务在执行前已暂停'
       })
     }
     return toJobDto(updated)
@@ -535,7 +532,7 @@ export async function resumeJobCommand(
         data: { status: 'PENDING', finishedAt: null, errorCode: null, errorMessage: null }
       })
       if (scan.count !== 1) {
-        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Uploader scan job is not bound to a paused run')
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '上传者扫描任务未绑定已暂停的扫描记录')
       }
     }
     await writeJobEvent(transaction, {
@@ -563,7 +560,7 @@ export async function retryJobCommand(
     if (job.type === 'ARCHIVE_UPLOADER_SCAN') {
       throw new BackgroundTaskError(
         'INVALID_STATE_TRANSITION',
-        'Uploader scans keep cursor state on the source; start a new manual scan from the uploader source instead'
+        '上传者扫描的游标保存在来源记录中，请从上传者来源重新发起手动扫描'
       )
     }
     if (job.definitionVersion !== JOB_DEFINITION_VERSION) {
@@ -594,10 +591,7 @@ export async function retryJobCommand(
     }
     const executionLane = executionLaneForJobType(retryType)
     if (job.executionLane !== executionLane) {
-      throw new BackgroundTaskError(
-        'INVALID_STATE_TRANSITION',
-        'This historical job has an invalid execution lane; repair it before retrying'
-      )
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '该历史任务的执行通道无效，请修复后再重试')
     }
     const priority = Math.min(job.queuePriority, 99)
     const timestamp = now()
@@ -644,10 +638,7 @@ export async function retryJobCommand(
         timestamp
       )
       if (reboundItems.length !== 1) {
-        throw new BackgroundTaskError(
-          'INVALID_STATE_TRANSITION',
-          'Archive resolver job is not bound to a retryable intake item'
-        )
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '归档解析任务未绑定可重试的收件项')
       }
     }
     if (job.status === 'FAILED') {
@@ -662,7 +653,7 @@ export async function retryJobCommand(
       jobId: job.id,
       type: 'job.retry_scheduled',
       attempt: job.attempt,
-      message: 'Manual retry created a new job instance',
+      message: '手动重试已创建新的任务实例',
       data: { retryJobId: retried.id }
     })
     await writeJobEvent(transaction, {

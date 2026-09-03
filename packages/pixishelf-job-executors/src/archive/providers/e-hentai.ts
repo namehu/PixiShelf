@@ -116,7 +116,7 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       relationships,
       mediaPlan: sourcePages.map((sourcePageUrl, index) => ({ index, sourcePageUrl }))
     }
-    const warnings = metadata.expunged ? ['该画廊已被标记为 expunged，远端媒体可能不完整'] : []
+    const warnings = metadata.expunged ? ['该画廊已被远端标记为删除，媒体内容可能不完整'] : []
     if (relationships.length > 0) warnings.push('检测到 E-Hentai 画廊版本替代关系，将在关联作品存在时建立显式关系')
 
     return {
@@ -223,7 +223,7 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       }
       const gid = parsePositiveInteger(value.gid, 'gid')
       const token = cleanText(value.token)
-      if (!token) throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai token 无效')
+      if (!token) throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai 访问令牌无效')
       const normalizedMetadata = normalizedDiscoveryMetadata(value, gid)
       const comparisonSnapshot = createArchiveUploaderComparisonSnapshot(normalizedMetadata)
       if (!comparisonSnapshot) throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai 比较元数据无效')
@@ -338,7 +338,11 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         maxBytes: 4 * 1024 * 1024
       })
     )
-    if (response.error) throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai API: ${response.error}`)
+    if (response.error) {
+      throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai API 返回错误', {
+        cause: new Error(response.error)
+      })
+    }
     const token = response.tokenlist?.find((value) => Number(value.gid) === gid)?.token
     if (!token) throw new ArchiveError('REMOTE_NOT_FOUND', '无法从 E-Hentai API 定位图片所属画廊')
     return { gid, token }
@@ -354,12 +358,20 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         maxBytes: 4 * 1024 * 1024
       })
     )
-    if (response.error) throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai API: ${response.error}`)
+    if (response.error) {
+      throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai API 返回错误', {
+        cause: new Error(response.error)
+      })
+    }
     const metadata = response.gmetadata?.[0]
     if (!metadata || Number(metadata.gid) !== gid) {
       throw new ArchiveError('REMOTE_NOT_FOUND', 'E-Hentai API 未返回目标画廊')
     }
-    if (metadata.error) throw new ArchiveError('REMOTE_NOT_FOUND', `E-Hentai API: ${metadata.error}`)
+    if (metadata.error) {
+      throw new ArchiveError('REMOTE_NOT_FOUND', 'E-Hentai API 返回的目标画廊不可用', {
+        cause: new Error(metadata.error)
+      })
+    }
     return metadata
   }
 
@@ -383,7 +395,11 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
           maxBytes: 8 * 1024 * 1024
         })
       )
-      if (response.error) throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai API: ${response.error}`)
+      if (response.error) {
+        throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai API 返回错误', {
+          cause: new Error(response.error)
+        })
+      }
       const byGid = new Map((response.gmetadata ?? []).map((value) => [Number(value.gid), value]))
       for (const identity of batch) {
         const metadata = byGid.get(identity.gid)
@@ -733,7 +749,7 @@ function decodeUploaderSearchCursor(value: string, searchTerm: string): Uploader
       url.port ||
       url.searchParams.get('f_search') !== searchTerm
     ) {
-      throw new Error('Invalid uploader search cursor')
+      throw new Error('上传者搜索游标无效')
     }
     url.hash = ''
     return { version: 1, url: url.toString(), offset: parsed.offset }
@@ -908,7 +924,8 @@ function cleanText(value: unknown): string {
 function parsePositiveInteger(value: unknown, field: string): number {
   const number = Number(value)
   if (!Number.isSafeInteger(number) || number <= 0) {
-    throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai ${field} 无效`)
+    const fieldName = field === 'gid' ? '画廊编号' : field === 'filecount' ? '媒体数量' : '必要字段'
+    throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai 返回的${fieldName}无效`)
   }
   return number
 }

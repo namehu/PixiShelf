@@ -67,11 +67,16 @@ describe('PostgresArchiveProviderGovernor', () => {
   })
 
   it.each([
-    ['DOWNLOAD_ACTIVE', new Date('2026-08-18T10:01:00.000Z'), 'PROVIDER_DOWNLOAD_PRIORITY'],
-    ['PENALTY', new Date('2026-08-18T10:10:00.000Z'), null]
+    [
+      'DOWNLOAD_ACTIVE',
+      new Date('2026-08-18T10:01:00.000Z'),
+      'PROVIDER_DOWNLOAD_PRIORITY',
+      '归档下载正在优先使用来源站点请求额度，当前任务稍后自动重试'
+    ],
+    ['PENALTY', new Date('2026-08-18T10:10:00.000Z'), null, '来源站点仍处于请求限流等待期']
   ] as const)(
     'fails resolver acquisition fast for %s instead of polling while RUNNING',
-    async (reason, waitUntil, decisionCode) => {
+    async (reason, waitUntil, decisionCode, message) => {
       const transaction = vi.fn().mockResolvedValue({ reason, waitUntil })
       const sleep = vi.fn(async () => undefined)
       const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, {
@@ -81,7 +86,7 @@ describe('PostgresArchiveProviderGovernor', () => {
 
       await expect(
         governor.acquire('test', 'RESOLVE', new AbortController().signal, { yieldToDownloads: true })
-      ).rejects.toMatchObject({ code: 'REMOTE_RATE_LIMITED', recoverable: true, decisionCode })
+      ).rejects.toMatchObject({ code: 'REMOTE_RATE_LIMITED', message, recoverable: true, decisionCode })
       expect(sleep).not.toHaveBeenCalled()
     }
   )
@@ -147,9 +152,7 @@ describe('GovernedArchiveProviderRegistry', () => {
     const http = {
       text: vi.fn(async () => '<a href="https://e-hentai.org/g/123/gallerytoken/">Gallery</a>'),
       json: vi.fn(async () => ({
-        gmetadata: [
-          { gid: 123, token: 'gallerytoken', title: 'Gallery', uploader: 'alice', filecount: '1', tags: [] }
-        ]
+        gmetadata: [{ gid: 123, token: 'gallerytoken', title: 'Gallery', uploader: 'alice', filecount: '1', tags: [] }]
       }))
     }
     const governor = createGovernor()

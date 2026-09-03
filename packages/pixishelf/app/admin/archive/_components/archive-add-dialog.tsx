@@ -111,7 +111,7 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
     setClipboardFeedback(null)
 
     try {
-      if (!navigator.clipboard?.readText) throw new Error('Clipboard API is unavailable')
+      if (!navigator.clipboard?.readText) throw new Error('浏览器不支持读取剪贴板')
       const clipboardText = await navigator.clipboard.readText()
       if (requestId !== clipboardRequestId.current) return
       applyClipboardText(clipboardText)

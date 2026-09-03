@@ -29,9 +29,9 @@ export async function publishArchiveImportInTransaction(
     where: { id: archiveImportId },
     include: { items: { orderBy: { pageIndex: 'asc' } }, externalRef: true }
   })
-  if (!archiveImport) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import no longer exists')
+  if (!archiveImport) throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入已不存在')
   if (archiveImport.status !== 'RUNNING') {
-    throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import is no longer running', { recoverable: true })
+    throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入已不再运行', { recoverable: true })
   }
   await lockArchiveUploaderCatalogIdentities(transaction, [
     {
@@ -46,7 +46,7 @@ export async function publishArchiveImportInTransaction(
       (item) => item.status !== 'COMPLETED' || !item.stagedPath || !item.sha256 || item.byteCount === null
     )
   ) {
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive import has incomplete media checkpoints')
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档导入存在不完整的媒体检查点')
   }
 
   const existingRef = await transaction.artworkExternalRef.findUnique({
@@ -59,13 +59,13 @@ export async function publishArchiveImportInTransaction(
     include: { artwork: true, archiveRevisions: { where: { isCurrent: true }, take: 1 } }
   })
   if (existingRef && (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')) {
-    throw new ArchiveExecutorError('STATE_CONFLICT', 'Archived artwork is in trash and cannot be updated', {
+    throw new ArchiveExecutorError('STATE_CONFLICT', '归档作品已在回收站中，无法更新', {
       recoverable: true
     })
   }
 
   const metadata = archiveImport.normalizedMetadata as Prisma.JsonObject
-  const title = nestedString(metadata, ['titles', 'display']) ?? `Archive ${archiveImport.externalId}`
+  const title = nestedString(metadata, ['titles', 'display']) ?? `归档 ${archiveImport.externalId}`
   const description = nullableString(metadata.description)
   const postedAtText = nullableString(metadata.postedAt)
   const postedAt = postedAtText ? new Date(postedAtText) : null
@@ -196,7 +196,7 @@ export async function publishArchiveImportInTransaction(
     }
   })
   if (updated.count !== 1) {
-    throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import changed during publication', { recoverable: true })
+    throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入在发布过程中发生变化', { recoverable: true })
   }
   await transaction.archiveUploaderCatalogItem.updateMany({
     where: { providerKey: archiveImport.providerKey, externalId: archiveImport.externalId },

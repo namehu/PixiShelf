@@ -31,14 +31,7 @@ type ArchiveMaintenanceResult =
   | { action: 'PURGE_ARCHIVE'; artworkId: number }
   | { action: 'RECONCILE'; discovered: number; materialized: number; reused: number; skipped: number }
 
-const ACTIVE_MAINTENANCE_JOB_STATUSES = [
-  'PENDING',
-  'RUNNING',
-  'PAUSING',
-  'PAUSED',
-  'RETRY_WAIT',
-  'CANCELLING'
-] as const
+const ACTIVE_MAINTENANCE_JOB_STATUSES = ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] as const
 const RECONCILE_BATCH_SIZE = 200
 
 export interface ArchiveMaintenanceExecutorDependencies {
@@ -50,7 +43,7 @@ export interface ArchiveMaintenanceExecutorDependencies {
 export function createArchiveMaintenanceExecutorRegistrations(
   dependencies: ArchiveMaintenanceExecutorDependencies
 ): ExecutorDefinition<ArchiveMaintenancePayload, ArchiveMaintenanceResult>[] {
-  if (!dependencies.config.scanRoot.trim()) throw new Error('Archive maintenance scanRoot is required')
+  if (!dependencies.config.scanRoot.trim()) throw new Error('归档维护需要配置扫描根目录')
   return [
     {
       jobType: 'ARCHIVE_MAINTENANCE',
@@ -67,7 +60,7 @@ export async function executeArchiveMaintenance(
   dependencies: ArchiveMaintenanceExecutorDependencies
 ): Promise<JobExecutionOutcome<ArchiveMaintenanceResult>> {
   throwIfAborted(context.signal)
-  await context.progress({ progress: 5, stage: 'PREPARING', message: 'Preparing archive maintenance' })
+  await context.progress({ progress: 5, stage: 'PREPARING', message: '正在准备归档维护...' })
   if (context.payload.action === 'CLEAN_STAGING') {
     return executeStagingCleanup(context, context.payload, dependencies)
   }
@@ -153,7 +146,7 @@ async function executeArchiveReconcile(
   }
 
   return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
-    await scope.complete({ result, message: 'Archive maintenance reconciliation completed' })
+    await scope.complete({ result, message: '归档维护协调已完成' })
   })
 }
 
@@ -219,7 +212,12 @@ async function prepareArtworkReconcileChild(
       where: { id: artworkId },
       include: { archiveRevisions: true }
     })
-    if (!artwork || artwork.createdVia !== 'URL_ARCHIVE' || !artwork.deletedAt || artwork.archiveRevisions.length === 0) {
+    if (
+      !artwork ||
+      artwork.createdVia !== 'URL_ARCHIVE' ||
+      !artwork.deletedAt ||
+      artwork.archiveRevisions.length === 0
+    ) {
       return { kind: 'SKIP' }
     }
     const action =
@@ -234,9 +232,7 @@ async function prepareArtworkReconcileChild(
     if (artwork.archiveRevisions.some((revision) => !revision.trashPath)) return { kind: 'SKIP' }
     if (
       action === 'PURGE_ARCHIVE' &&
-      artwork.archiveRevisions.some(
-        (revision) => !revision.purgeAfter || revision.purgeAfter.getTime() > now.getTime()
-      )
+      artwork.archiveRevisions.some((revision) => !revision.purgeAfter || revision.purgeAfter.getTime() > now.getTime())
     ) {
       return { kind: 'SKIP' }
     }
@@ -289,7 +285,7 @@ async function reportReconcileProgress(context: ArchiveMaintenanceContext, proce
   await context.progress({
     progress: Math.min(90, 5 + Math.round((processed / discovered) * 80)),
     stage: 'RECONCILE',
-    message: `Reconciled archive maintenance intent ${processed}/${discovered}`
+    message: `已协调归档维护任务 ${processed}/${discovered}`
   })
 }
 
@@ -315,11 +311,10 @@ async function executeArchivePurge(
       !artwork.deletedAt ||
       artwork.archiveRevisions.length === 0 ||
       artwork.archiveRevisions.some(
-        (revision) =>
-          !revision.trashPath || !revision.purgeAfter || revision.purgeAfter.getTime() > now.getTime()
+        (revision) => !revision.trashPath || !revision.purgeAfter || revision.purgeAfter.getTime() > now.getTime()
       )
     ) {
-      throw stateChanged('Archive artwork is not eligible for permanent purge')
+      throw stateChanged('归档作品不满足永久清理条件')
     }
     return artwork.archiveRevisions.map((revision) => ({
       id: revision.id,
@@ -336,7 +331,7 @@ async function executeArchivePurge(
     await context.progress({
       progress: Math.max(10, Math.round(((index + 1) / paths.length) * 80)),
       stage: 'PURGE_ARCHIVE',
-      message: `Permanently removed archive path ${index + 1}/${paths.length}`
+      message: `已永久清理归档路径 ${index + 1}/${paths.length}`
     })
   }
 
@@ -364,7 +359,7 @@ async function executeArchivePurge(
         )
       })
     ) {
-      throw stateChanged('Archive purge intent changed before finalization')
+      throw stateChanged('归档永久清理意图在完成前发生变化')
     }
     await scope.transaction.image.deleteMany({ where: { artworkId: artwork.id } })
     const changed = await scope.transaction.artwork.deleteMany({
@@ -375,10 +370,10 @@ async function executeArchivePurge(
         deletedAt: artwork.deletedAt
       }
     })
-    if (changed.count !== 1) throw stateChanged('Archive artwork changed before permanent purge')
+    if (changed.count !== 1) throw stateChanged('归档作品在永久清理前发生变化')
     await scope.complete({
       result: { action: 'PURGE_ARCHIVE', artworkId: artwork.id },
-      message: 'Archived artwork permanently purged'
+      message: '归档作品已永久清理'
     })
   })
 }
@@ -394,12 +389,12 @@ async function executeStagingCleanup(
   >(async (transaction) => {
     const current = await transaction.archiveImport.findUnique({ where: { id: payload.archiveImportId } })
     if (!current || !current.cleanupRequestedAt) {
-      throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive cleanup intent no longer exists', {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档清理意图已不存在', {
         recoverable: true
       })
     }
     if (!['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'].includes(current.status)) {
-      throw new ArchiveExecutorError('STATE_CONFLICT', `Archive cleanup cannot run from ${current.status}`, {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档清理当前状态不允许运行', {
         recoverable: true
       })
     }
@@ -420,7 +415,7 @@ async function executeStagingCleanup(
     await removeRootConfinedPath(dependencies.config.scanRoot, paths.finalRelativePath)
   }
   throwIfAborted(context.signal)
-  await context.progress({ progress: 85, stage: 'FINALIZING', message: 'Archive staging files removed' })
+  await context.progress({ progress: 85, stage: 'FINALIZING', message: '归档暂存文件已移除' })
 
   const now = (dependencies.now ?? (() => new Date()))()
   return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
@@ -435,7 +430,7 @@ async function executeStagingCleanup(
       !current.cleanupRequestedAt ||
       !['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'].includes(current.status)
     ) {
-      throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive cleanup intent changed before finalization', {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档清理意图在完成前发生变化', {
         recoverable: true
       })
     }
@@ -463,10 +458,10 @@ async function executeStagingCleanup(
       where: { id: current.id, status: current.status, cleanupRequestedAt: current.cleanupRequestedAt },
       data: { cleanupRequestedAt: null, completedItems: 0, failedItems: 0, retainUntil: null, updatedAt: now }
     })
-    if (changed.count !== 1) throw stateChanged('Archive cleanup state changed')
+    if (changed.count !== 1) throw stateChanged('归档清理状态已变化')
     await scope.complete({
       result: { action: 'CLEAN_STAGING', archiveImportId: current.id },
-      message: 'Archive staging cleanup completed'
+      message: '归档暂存清理已完成'
     })
   })
 }
@@ -486,13 +481,13 @@ async function executeArtworkMaintenance(
       include: { archiveRevisions: true }
     })
     if (!artwork || artwork.createdVia !== 'URL_ARCHIVE' || artwork.archiveLifecycleState !== expectedState) {
-      throw stateChanged(`Archive artwork is not ${expectedState}`)
+      throw stateChanged('归档作品不处于待维护状态')
     }
     if (!artwork.deletedAt || artwork.archiveRevisions.length === 0) {
-      throw stateChanged('Archive artwork maintenance intent is incomplete')
+      throw stateChanged('归档作品维护意图不完整')
     }
     return artwork.archiveRevisions.map((revision) => {
-      if (!revision.trashPath) throw stateChanged('Archive revision has no trash path')
+      if (!revision.trashPath) throw stateChanged('归档版本缺少回收站路径')
       return { id: revision.id, archivePath: revision.archivePath, trashPath: revision.trashPath }
     })
   })
@@ -505,7 +500,7 @@ async function executeArtworkMaintenance(
     await context.progress({
       progress: Math.max(10, Math.round(((index + 1) / revisions.length) * 80)),
       stage: payload.action,
-      message: `${payload.action} ${index + 1}/${revisions.length}`
+      message: `${payload.action === 'TRASH_ARCHIVE' ? '移入回收站' : '从回收站恢复'} ${index + 1}/${revisions.length}`
     })
   }
 
@@ -519,7 +514,7 @@ async function executeArtworkMaintenance(
       include: { archiveRevisions: true }
     })
     if (!artwork || artwork.archiveLifecycleState !== expectedState || !artwork.deletedAt) {
-      throw stateChanged('Archive lifecycle changed before finalization')
+      throw stateChanged('归档生命周期在完成前发生变化')
     }
     if (payload.action === 'RESTORE_ARCHIVE') {
       await scope.transaction.archiveRevision.updateMany({
@@ -534,11 +529,10 @@ async function executeArtworkMaintenance(
           ? { archiveLifecycleState: 'TRASHED', updatedAt: now }
           : { archiveLifecycleState: 'ACTIVE', deletedAt: null, updatedAt: now }
     })
-    if (changed.count !== 1) throw stateChanged('Archive lifecycle state changed')
+    if (changed.count !== 1) throw stateChanged('归档生命周期状态已变化')
     await scope.complete({
       result: { action: payload.action, artworkId: artwork.id },
-      message:
-        payload.action === 'TRASH_ARCHIVE' ? 'Archived artwork moved to trash' : 'Archived artwork restored from trash'
+      message: payload.action === 'TRASH_ARCHIVE' ? '归档作品已移入回收站' : '归档作品已从回收站恢复'
     })
   })
 }
@@ -560,8 +554,8 @@ async function moveRootConfinedDirectory(scanRoot: string, sourcePath: string, t
     await resolveExistingPathWithinRoot(scanRoot, targetPath)
     return
   }
-  if (!sourceExists && !targetExists) throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive directory is missing')
-  throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive source and target directories both exist', {
+  if (!sourceExists && !targetExists) throw new ArchiveExecutorError('MEDIA_INVALID', '归档目录不存在')
+  throw new ArchiveExecutorError('STATE_CONFLICT', '归档源目录和目标目录同时存在', {
     recoverable: true
   })
 }
@@ -602,15 +596,13 @@ function nextMaintenanceIntentAt(now: Date, previous: Date) {
 function assertNonRootArchivePath(scanRoot: string, storedPath: string): void {
   const trimmed = storedPath.trim()
   if (!trimmed || path.resolve(scanRoot, trimmed) === path.resolve(scanRoot)) {
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive maintenance path cannot target the storage root')
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档维护路径不能指向存储根目录')
   }
 }
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) {
-    throw (
-      signal.reason ?? new ArchiveExecutorError('CANCELLED', 'Archive maintenance was cancelled', { recoverable: true })
-    )
+    throw signal.reason ?? new ArchiveExecutorError('CANCELLED', '归档维护已取消', { recoverable: true })
   }
 }
 

@@ -208,7 +208,7 @@ async function applyTaskAction(
         availableAt: timestamp,
         maxAttempts: task.systemJob.maxAttempts,
         progress: taskProgress(task.completedItems, task.totalItems),
-        message: 'Retry archive import'
+        message: '重试归档导入'
       }
     })
     const changed = await transaction.archiveImport.updateMany({
@@ -241,14 +241,14 @@ async function applyTaskAction(
       jobId: task.systemJobId,
       type: 'job.retry_scheduled',
       attempt: task.systemJob.attempt,
-      message: 'Retry archive import',
+      message: '重试归档导入',
       data: { retryJobId: nextJobId }
     })
     await writeJobEvent(transaction, {
       jobId: nextJobId,
       type: 'job.queued',
       attempt: 0,
-      message: 'Retry archive import',
+      message: '重试归档导入',
       data: { retryOfJobId: task.systemJobId, archiveImportId: task.id, priority }
     })
     return { result: 'APPLIED', relatedId: nextJobId }
@@ -280,13 +280,13 @@ async function applyTaskAction(
       message:
         action === 'CANCEL'
           ? direct
-            ? 'Archive import cancelled before execution'
-            : 'Archive import cancellation requested'
+            ? '归档导入在执行前已取消'
+            : '已请求取消归档导入'
           : action === 'PAUSE'
             ? direct
-              ? 'Archive import paused before execution'
-              : 'Archive import pause requested'
-            : 'Archive import resumed',
+              ? '归档导入在执行前已暂停'
+              : '已请求暂停归档导入'
+            : '归档导入已恢复',
       ...(action === 'CANCEL' ? { cancelRequestedAt: timestamp } : {}),
       ...(action === 'PAUSE' ? { pauseRequestedAt: timestamp } : {}),
       ...(action === 'RESUME' ? { pauseRequestedAt: null, availableAt: timestamp } : {}),
@@ -349,7 +349,7 @@ async function applyTaskAction(
         lastOutcome: 'CANCELLED',
         lastOutcomeAt: timestamp,
         lastErrorCode: 'CANCELLED',
-        lastErrorMessage: 'Archive import cancelled before execution'
+        lastErrorMessage: '归档导入在执行前已取消'
       }
     })
   }
@@ -365,7 +365,7 @@ async function applyTaskAction(
           : 'job.queued',
     level: action === 'RESUME' ? 'INFO' : 'WARN',
     attempt: task.systemJob.attempt,
-    message: `${action.toLowerCase()} archive import`,
+    message: `归档导入操作：${action}`,
     data: action === 'RESUME' ? { reason: 'RESUME' } : null
   })
   if (action === 'PAUSE' && direct) {
@@ -374,7 +374,7 @@ async function applyTaskAction(
       type: 'job.paused',
       level: 'WARN',
       attempt: task.systemJob.attempt,
-      message: 'Archive import paused before execution'
+      message: '归档导入在执行前已暂停'
     })
   }
   return { result: 'APPLIED', relatedId: task.systemJobId }
@@ -481,7 +481,7 @@ function serializeTask(task: ArchiveTaskWire) {
     : task.systemJob.progress
   const message =
     task.status === 'RUNNING' && ['RUNNING', 'PAUSING'].includes(task.systemJob.status)
-      ? `Downloaded ${task.completedItems}/${task.totalItems}`
+      ? `已下载 ${task.completedItems}/${task.totalItems}`
       : archiveWireErrorMessage(task.errorCode, task.systemJob.message)
   return {
     id: task.id,
@@ -536,7 +536,7 @@ function decodeTaskCursor(value: string) {
       id: string
     }
     const createdAt = new Date(parsed.createdAt)
-    if (parsed.version !== 1 || !parsed.id || Number.isNaN(createdAt.getTime())) throw new Error('Invalid cursor')
+    if (parsed.version !== 1 || !parsed.id || Number.isNaN(createdAt.getTime())) throw new Error('分页游标无效')
     return { createdAt, id: parsed.id }
   } catch (error) {
     throw new ArchiveError('INVALID_URL', '归档任务分页游标无效', { cause: error })

@@ -93,17 +93,17 @@ export async function executeArchiveResolveItem(
           },
           data: { status: 'CANCELLED', finishedAt: cancelledAt, retryable: false }
         })
-        if (cancelled.count !== 1) throw new Error('Archive intake item changed before cancellation finalization')
+        if (cancelled.count !== 1) throw new Error('归档收件项在取消完成前发生变化')
         await updateCatalogForIntake(scope.transaction, context.payload.intakeItemId, {
           lastOutcome: 'CANCELLED',
           lastOutcomeAt: cancelledAt,
           lastErrorCode: 'CANCELLED',
-          lastErrorMessage: 'Archive resolution cancelled before provider execution'
+          lastErrorMessage: '归档解析在访问来源站点前已取消'
         })
-        await scope.cancel('Archive resolution cancelled before provider execution')
+        await scope.cancel('归档解析在访问来源站点前已取消')
         return
       }
-      await scope.skip({ reason: 'PRECONDITION_NOT_MET', message: 'Archive intake item is no longer resolvable' })
+      await scope.skip({ reason: 'PRECONDITION_NOT_MET', message: '归档收件项已不再满足解析条件' })
     })
   }
 
@@ -137,16 +137,16 @@ async function finalizeResolved(
       providerKey: resolved.providerKey,
       externalId: resolved.externalId
     })
-    await scope.cancel('Archive resolution cancelled')
+    await scope.cancel('归档解析已取消')
     return
   }
   if (scope.controlStatus === 'PAUSE_REQUESTED') {
     await moveToRetryTail(scope.transaction, context.payload.intakeItemId, context.job.id, resolvedAt, resolvedAt, {
       errorCode: 'PAUSED',
-      errorMessage: 'Archive resolution paused',
+      errorMessage: '归档解析已暂停',
       retryable: true
     })
-    await scope.pause({ reason: 'USER_REQUESTED', message: 'Archive resolution paused' })
+    await scope.pause({ reason: 'USER_REQUESTED', message: '归档解析已暂停' })
     return
   }
 
@@ -199,7 +199,7 @@ async function finalizeResolved(
         retryable: false
       }
     })
-    if (changed.count !== 1) throw new Error('Archive intake item changed before duplicate finalization')
+    if (changed.count !== 1) throw new Error('归档收件项在重复项处理完成前发生变化')
     await updateCatalogForIntake(
       scope.transaction,
       context.payload.intakeItemId,
@@ -254,7 +254,7 @@ async function finalizeResolved(
       errorStage: null
     }
   })
-  if (changed.count !== 1) throw new Error('Archive intake item changed before resolution finalization')
+  if (changed.count !== 1) throw new Error('归档收件项在解析完成前发生变化')
   await updateCatalogForIntake(
     scope.transaction,
     context.payload.intakeItemId,
@@ -268,7 +268,7 @@ async function finalizeResolved(
   )
   await scope.complete({
     result: { intakeItemId: context.payload.intakeItemId, resolutionKind },
-    message: `Archive intake item resolved as ${resolutionKind}`
+    message: '归档收件项解析完成'
   })
 }
 
@@ -284,7 +284,7 @@ async function finalizeResolutionError(
     await markCancelled(scope.transaction, context.payload.intakeItemId, context.job.id, failedAt, {
       canonicalUrl: submittedUrl
     })
-    await scope.cancel('Archive resolution cancelled')
+    await scope.cancel('归档解析已取消')
     return
   }
   if (scope.controlStatus === 'PAUSE_REQUESTED') {
@@ -294,16 +294,16 @@ async function finalizeResolutionError(
       errorStage: error.stage,
       retryable: true
     })
-    await scope.pause({ reason: 'USER_REQUESTED', message: 'Archive resolution paused' })
+    await scope.pause({ reason: 'USER_REQUESTED', message: '归档解析已暂停' })
     return
   }
   if (context.signal.aborted) {
     await moveToRetryTail(scope.transaction, context.payload.intakeItemId, context.job.id, failedAt, failedAt, {
       errorCode: 'WORKER_STOPPED',
-      errorMessage: 'Worker stopped while resolving archive metadata',
+      errorMessage: '后台任务进程在解析归档元数据时停止',
       retryable: true
     })
-    await scope.release('Worker stopped while resolving archive metadata')
+    await scope.release('后台任务进程在解析归档元数据时停止')
     return
   }
 
@@ -321,7 +321,7 @@ async function finalizeResolutionError(
       availableAt,
       errorCode: mapJobErrorCode(error.code),
       error: error.message,
-      message: 'Archive resolution retry scheduled',
+      message: '归档解析已安排重试',
       ...(schedulingYield ? { preserveAttempt: true } : {})
     })
     return
@@ -342,7 +342,7 @@ async function finalizeResolutionError(
       retryable: error.recoverable
     }
   })
-  if (changed.count !== 1) throw new Error('Archive intake item changed before failure finalization')
+  if (changed.count !== 1) throw new Error('归档收件项在失败处理完成前发生变化')
   await updateCatalogForIntake(
     scope.transaction,
     context.payload.intakeItemId,
@@ -357,7 +357,7 @@ async function finalizeResolutionError(
   await scope.fail({
     errorCode: mapJobErrorCode(error.code),
     error: error.message,
-    message: 'Archive resolution failed'
+    message: '归档解析失败'
   })
 }
 
@@ -393,7 +393,7 @@ async function moveToRetryTail(
     error.errorStage ?? null,
     error.retryable
   )
-  if (rows.length !== 1) throw new Error('Archive intake item changed before retry finalization')
+  if (rows.length !== 1) throw new Error('归档收件项在重试安排完成前发生变化')
 }
 
 async function markCancelled(
@@ -407,7 +407,7 @@ async function markCancelled(
     where: { id: intakeItemId, currentSystemJobId: systemJobId, status: 'RESOLVING' },
     data: { status: 'CANCELLED', finishedAt: cancelledAt, retryable: false }
   })
-  if (changed.count !== 1) throw new Error('Archive intake item changed before cancellation finalization')
+  if (changed.count !== 1) throw new Error('归档收件项在取消完成前发生变化')
   await updateCatalogForIntake(
     transaction,
     intakeItemId,
@@ -415,7 +415,7 @@ async function markCancelled(
       lastOutcome: 'CANCELLED',
       lastOutcomeAt: cancelledAt,
       lastErrorCode: 'CANCELLED',
-      lastErrorMessage: 'Archive resolution cancelled'
+      lastErrorMessage: '归档解析已取消'
     },
     identity
   )

@@ -120,7 +120,7 @@ describe('archive task service input contracts', () => {
     expect(taskPage.items[0]).toMatchObject({
       completedItems: 25,
       progress: 13,
-      message: 'Downloaded 25/276'
+      message: '已下载 25/276'
     })
   })
 

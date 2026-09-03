@@ -68,19 +68,19 @@ export function toArchiveExecutorError(error: unknown): ArchiveExecutorError {
   if (error instanceof ArchiveExecutorError) return error
   const nodeError = error as NodeJS.ErrnoException
   if (nodeError?.code === 'ENOSPC') {
-    return new ArchiveExecutorError('STORAGE_FULL', 'Archive storage is full', {
+    return new ArchiveExecutorError('STORAGE_FULL', '归档存储空间不足', {
       cause: error,
       recoverable: true,
       stage: 'STORAGE'
     })
   }
   if (isAbortError(error)) {
-    return new ArchiveExecutorError('CANCELLED', 'Archive execution was cancelled', {
+    return new ArchiveExecutorError('CANCELLED', '归档执行已取消', {
       cause: error,
       recoverable: true
     })
   }
-  return new ArchiveExecutorError('INTERNAL', error instanceof Error ? error.message : 'Unknown archive failure', {
+  return new ArchiveExecutorError('INTERNAL', error instanceof Error ? error.message : '未知归档错误', {
     cause: error,
     recoverable: true
   })

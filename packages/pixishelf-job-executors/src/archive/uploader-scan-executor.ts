@@ -183,10 +183,10 @@ export async function executeArchiveUploaderScan(
     return context.finalizeInTransaction<ScanTransaction>(async (scope) => {
       if (scope.controlStatus === 'CANCEL_REQUESTED') {
         await markRun(scope.transaction, context.payload.scanRunId, context.job.id, 'CANCELLED', now())
-        await scope.cancel('Uploader scan cancelled before provider execution')
+        await scope.cancel('上传者扫描在访问来源站点前已取消')
         return
       }
-      await scope.skip({ reason: 'PRECONDITION_NOT_MET', message: 'Uploader scan run is no longer executable' })
+      await scope.skip({ reason: 'PRECONDITION_NOT_MET', message: '上传者扫描已不再满足执行条件' })
     })
   }
 
@@ -221,12 +221,12 @@ async function finalizeScan(
 ) {
   if (scope.controlStatus === 'CANCEL_REQUESTED') {
     await markRun(scope.transaction, run.id, context.job.id, 'CANCELLED', completedAt)
-    await scope.cancel('Uploader scan cancelled')
+    await scope.cancel('上传者扫描已取消')
     return
   }
   if (scope.controlStatus === 'PAUSE_REQUESTED') {
     await markRun(scope.transaction, run.id, context.job.id, 'PAUSED', completedAt)
-    await scope.pause({ reason: 'USER_REQUESTED', message: 'Uploader scan paused' })
+    await scope.pause({ reason: 'USER_REQUESTED', message: '上传者扫描已暂停' })
     return
   }
 
@@ -293,9 +293,7 @@ async function finalizeScan(
         lastSeenAt: completedAt,
         lastScanRunId: run.id
       }
-      const workflowData = classified.latestWorkflow
-        ? catalogWorkflowData(classified.latestWorkflow)
-        : {}
+      const workflowData = classified.latestWorkflow ? catalogWorkflowData(classified.latestWorkflow) : {}
       const catalog = await scope.transaction.archiveUploaderCatalogItem.upsert({
         where: {
           sourceId_providerKey_externalId: {
@@ -319,10 +317,7 @@ async function finalizeScan(
         await scope.transaction.archiveUploaderCatalogItem.updateMany({
           where: {
             id: catalog.id,
-            OR: [
-              { lastOutcomeAt: null },
-              { lastOutcomeAt: { lt: classified.latestWorkflow.eventAt } }
-            ]
+            OR: [{ lastOutcomeAt: null }, { lastOutcomeAt: { lt: classified.latestWorkflow.eventAt } }]
           },
           data: catalogWorkflowData(classified.latestWorkflow)
         })
@@ -352,7 +347,7 @@ async function finalizeScan(
       errorMessage: null
     }
   })
-  if (runChanged.count !== 1) throw new Error('Uploader scan run changed before completion')
+  if (runChanged.count !== 1) throw new Error('上传者扫描记录在完成前发生变化')
 
   const firstExternalId = result.items[0]?.externalId ?? null
   const sourceData: Prisma.ArchiveUploaderSourceUpdateInput = {
@@ -383,7 +378,7 @@ async function finalizeScan(
   await scope.transaction.archiveUploaderSource.update({ where: { id: run.source.id }, data: sourceData })
   await scope.complete({
     result: { scanRunId: run.id, itemCount: result.items.length, counts },
-    message: `Uploader scan completed with ${result.items.length} galleries`
+    message: `上传者扫描完成，共发现 ${result.items.length} 个画廊`
   })
 }
 
@@ -608,17 +603,17 @@ async function finalizeScanError(
 ) {
   if (scope.controlStatus === 'CANCEL_REQUESTED') {
     await markRun(scope.transaction, run.id, context.job.id, 'CANCELLED', failedAt, error)
-    await scope.cancel('Uploader scan cancelled')
+    await scope.cancel('上传者扫描已取消')
     return
   }
   if (scope.controlStatus === 'PAUSE_REQUESTED') {
     await markRun(scope.transaction, run.id, context.job.id, 'PAUSED', failedAt, error)
-    await scope.pause({ reason: 'USER_REQUESTED', message: 'Uploader scan paused' })
+    await scope.pause({ reason: 'USER_REQUESTED', message: '上传者扫描已暂停' })
     return
   }
   if (context.signal.aborted) {
     await markRun(scope.transaction, run.id, context.job.id, 'PENDING', failedAt, error)
-    await scope.release('Worker stopped while scanning uploader')
+    await scope.release('后台任务进程在扫描上传者时停止')
     return
   }
 
@@ -630,7 +625,7 @@ async function finalizeScanError(
       availableAt,
       errorCode: mapJobErrorCode(error.code),
       error: error.message,
-      message: 'Uploader scan retry scheduled'
+      message: '上传者扫描已安排重试'
     })
     return
   }
@@ -639,7 +634,7 @@ async function finalizeScanError(
   await scope.fail({
     errorCode: mapJobErrorCode(error.code),
     error: error.message,
-    message: 'Uploader scan failed'
+    message: '上传者扫描失败'
   })
 }
 
@@ -661,7 +656,7 @@ async function markRun(
       errorMessage: error?.message ?? null
     }
   })
-  if (changed.count !== 1) throw new Error('Uploader scan run changed before job finalization')
+  if (changed.count !== 1) throw new Error('上传者扫描记录在任务完成前发生变化')
   if (error) {
     await transaction.archiveUploaderSource.updateMany({
       where: { runs: { some: { id: runId } } },

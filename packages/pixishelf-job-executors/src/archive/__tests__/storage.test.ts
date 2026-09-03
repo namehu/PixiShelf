@@ -38,7 +38,7 @@ describe('archive executor storage safety', () => {
     temporaryDirectories.push(root)
     await mkdir(path.join(root, '.archive-staging'), { recursive: true })
 
-    await expect(prepareArchiveStagingDirectory(root, '../outside')).rejects.toThrow('escapes')
+    await expect(prepareArchiveStagingDirectory(root, '../outside')).rejects.toThrow('归档路径超出了配置的根目录')
   })
 
   it('reports streamed byte counts without retaining or rereading media chunks', async () => {
@@ -116,6 +116,6 @@ describe('archive executor storage safety', () => {
         finalRelativePath: '../outside/import-1',
         finalAbsolutePath: path.resolve(root, '../outside/import-1')
       })
-    ).rejects.toThrow('escapes')
+    ).rejects.toThrow('归档路径超出了配置的根目录')
   })
 })

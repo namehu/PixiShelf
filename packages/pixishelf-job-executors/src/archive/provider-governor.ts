@@ -105,7 +105,7 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
               where: { providerKey, expiresAt: { lte: now } }
             })
             const state = states[0]
-            if (!state) throw new Error(`Provider throttle row disappeared for ${providerKey}`)
+            if (!state) throw new Error(`来源站点 ${providerKey} 的限流记录已不存在`)
             const activeDownloads = await transaction.archiveProviderRequestLease.findMany({
               where: { providerKey, requestClass: 'DOWNLOAD', expiresAt: { gt: now } },
               select: { expiresAt: true },
@@ -168,8 +168,8 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
         throw new ArchiveExecutorError(
           'REMOTE_RATE_LIMITED',
           decision.reason === 'PENALTY'
-            ? 'Provider request penalty is still active'
-            : 'Archive downloads currently have provider request priority',
+            ? '来源站点仍处于请求限流等待期'
+            : '归档下载正在优先使用来源站点请求额度，当前任务稍后自动重试',
           {
             recoverable: true,
             decisionCode: decision.reason === 'DOWNLOAD_ACTIVE' ? 'PROVIDER_DOWNLOAD_PRIORITY' : null,
@@ -195,7 +195,7 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
       data: { expiresAt: new Date(now.getTime() + this.leaseDurationMs) }
     })
     if (renewed.count !== 1) {
-      throw new ArchiveExecutorError('STATE_CONFLICT', 'Provider request permit expired before renewal', {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '来源站点请求许可在续期前已过期', {
         recoverable: true
       })
     }
@@ -246,7 +246,7 @@ export class GovernedArchiveProviderRegistry implements ArchiveUploaderProviderR
   getUploaderScanner(providerKey: string): ArchiveUploaderProvider {
     const provider = this.wrap(this.delegate.getUploaderScanner(providerKey))
     if (!isArchiveUploaderProvider(provider)) {
-      throw new Error(`Archive provider ${providerKey} cannot scan uploaders`)
+      throw new Error(`归档来源站点 ${providerKey} 不支持扫描上传者`)
     }
     return provider
   }
@@ -255,7 +255,7 @@ export class GovernedArchiveProviderRegistry implements ArchiveUploaderProviderR
     const existing = this.providers.get(provider.key)
     if (existing) return existing
     if (!isArchiveProvider(provider)) {
-      throw new Error(`Archive provider ${provider.key} cannot resolve URLs`)
+      throw new Error(`归档来源站点 ${provider.key} 不支持解析链接`)
     }
     const governed = new GovernedArchiveProvider(provider, this.governor)
     this.providers.set(provider.key, governed)
@@ -298,7 +298,7 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
     context: Parameters<ArchiveUploaderProvider['scanUploader']>[1] = {}
   ) {
     if (!isArchiveUploaderProvider(this.delegate)) {
-      throw new Error(`Archive provider ${this.key} cannot scan uploaders`)
+      throw new Error(`归档来源站点 ${this.key} 不支持扫描上传者`)
     }
     const signal = context.signal ?? new AbortController().signal
     const linked = linkedAbortController(signal)
@@ -322,32 +322,21 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
     const linked = linkedAbortController(signal)
     const governedStream: { value: Readable | null } = { value: null }
     const acquireOptions =
-      context.maxConcurrentDownloads === undefined
-        ? {}
-        : { maxConcurrentDownloads: context.maxConcurrentDownloads }
+      context.maxConcurrentDownloads === undefined ? {} : { maxConcurrentDownloads: context.maxConcurrentDownloads }
     try {
       const remote = await this.delegate.openMedia(item, {
         ...context,
         signal: linked.controller.signal,
-        runDownloadRequest: (operation) =>
-          this.runWithPermit('DOWNLOAD', linked.controller, operation, acquireOptions),
+        runDownloadRequest: (operation) => this.runWithPermit('DOWNLOAD', linked.controller, operation, acquireOptions),
         runDownloadStreamRequest: async (operation) => {
-          const response = await this.runWithStreamPermit(
-            linked.controller,
-            operation,
-            linked.dispose,
-            acquireOptions
-          )
+          const response = await this.runWithStreamPermit(linked.controller, operation, linked.dispose, acquireOptions)
           governedStream.value = response.stream
           return response
         }
       })
       if (!governedStream.value || remote.stream !== governedStream.value) {
         remote.stream.destroy()
-        throw new ArchiveExecutorError(
-          'STATE_CONFLICT',
-          `Archive provider ${this.key} returned media without per-request stream governance`
-        )
+        throw new ArchiveExecutorError('STATE_CONFLICT', `归档来源站点 ${this.key} 返回了未按请求进行流量管控的媒体流`)
       }
       // The download permit follows the returned stream, not just openMedia;
       // releasing here would allow another worker to exceed the provider cap
@@ -499,19 +488,21 @@ function isArchiveProvider(provider: ArchiveMediaProvider): provider is ArchiveP
 }
 
 function isArchiveUploaderProvider(provider: ArchiveMediaProvider): provider is ArchiveUploaderProvider {
-  return isArchiveProvider(provider) && typeof (provider as Partial<ArchiveUploaderProvider>).scanUploader === 'function'
+  return (
+    isArchiveProvider(provider) && typeof (provider as Partial<ArchiveUploaderProvider>).scanUploader === 'function'
+  )
 }
 
 function normalizeProviderKey(value: string) {
   const normalized = value.trim().toLowerCase()
   if (!normalized || normalized.length > 50 || !/^[a-z0-9][a-z0-9-]*$/.test(normalized)) {
-    throw new Error('Provider key is invalid')
+    throw new Error('来源站点标识无效')
   }
   return normalized
 }
 
 function assertPositiveInteger(name: string, value: number) {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive safe integer`)
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} 必须是正安全整数`)
 }
 
 function throwIfAborted(signal: AbortSignal) {

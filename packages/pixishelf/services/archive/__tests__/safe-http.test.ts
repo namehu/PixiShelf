@@ -63,10 +63,10 @@ describe('archive safe HTTP network policy', () => {
     ).toBe('8472')
     expect(() =>
       validateArchiveUrl('https://e-hentai.org:8472/', ['e-hentai.org', 'hath.network'], ['hath.network'])
-    ).toThrowError(expect.objectContaining({ code: 'SSRF_BLOCKED', message: '链接端口不在归档 Provider 的允许列表中' }))
+    ).toThrowError(expect.objectContaining({ code: 'SSRF_BLOCKED', message: '链接端口不在归档来源站点的允许列表中' }))
     expect(() =>
       validateArchiveUrl('https://node.hath.network.evil.test:8472/', ['hath.network'], ['hath.network'])
-    ).toThrowError(expect.objectContaining({ code: 'SSRF_BLOCKED', message: '链接主机不在归档 Provider 的允许列表中' }))
+    ).toThrowError(expect.objectContaining({ code: 'SSRF_BLOCKED', message: '链接主机不在归档来源站点的允许列表中' }))
   })
 
   it('routes Clash and Mihomo fake IPs only through an explicitly configured HTTP proxy', () => {

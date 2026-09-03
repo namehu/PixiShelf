@@ -187,7 +187,7 @@ describe('archive management UI', () => {
       />
     )
 
-    const strip = screen.getByRole('region', { name: 'Worker 执行通道' })
+    const strip = screen.getByRole('region', { name: '后台任务执行通道' })
     expect(strip.className).toContain('flex')
     expect(strip.className).toContain('flex-wrap')
     expect(screen.getByText('链接解析')).toBeTruthy()

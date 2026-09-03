@@ -105,10 +105,7 @@ export async function executeArchiveImport(
       externalId: archiveImport.externalId
     })
     if (normalizeStoredPath(archiveImport.stagingPath) !== normalizeStoredPath(paths.stagingRelativePath)) {
-      throw new ArchiveExecutorError(
-        'MEDIA_INVALID',
-        'Archive staging path does not match its deterministic import path'
-      )
+      throw new ArchiveExecutorError('MEDIA_INVALID', '归档暂存路径与确定的导入路径不一致')
     }
     const stagingDirectory = (await pathExists(paths.finalAbsolutePath))
       ? paths.finalAbsolutePath
@@ -130,14 +127,14 @@ export async function executeArchiveImport(
       report: (telemetry) =>
         context.progress({
           progress: archiveProgress(telemetry.completedItems, telemetry.totalItems),
-          message: `Downloaded ${telemetry.completedItems}/${telemetry.totalItems}`,
+          message: `已下载 ${telemetry.completedItems}/${telemetry.totalItems}`,
           data: telemetry,
           persistenceMode: 'REALTIME'
         }),
       flush: (telemetry) =>
         context.progress({
           progress: archiveProgress(telemetry.completedItems, telemetry.totalItems),
-          message: `Downloaded ${telemetry.completedItems}/${telemetry.totalItems}`,
+          message: `已下载 ${telemetry.completedItems}/${telemetry.totalItems}`,
           data: telemetry,
           persistenceMode: 'REALTIME',
           forcePersistence: true
@@ -182,7 +179,7 @@ export async function executeArchiveImport(
         await context.progress({
           progress: archiveProgress(counts.completed, archiveImport.totalItems),
           stage: 'DOWNLOADING',
-          message: `Archive download round ${round}/${maxMediaAttempts}: ${counts.completed}/${archiveImport.totalItems}`,
+          message: `归档下载第 ${round}/${maxMediaAttempts} 轮：${counts.completed}/${archiveImport.totalItems}`,
           data: { completed: counts.completed, failed: counts.failed, retrying: retryItems.length }
         })
         if (retryItems.length === 0 || round >= maxMediaAttempts) break
@@ -204,11 +201,11 @@ export async function executeArchiveImport(
       finalizationStarted = true
       return finalizeArchiveFailure(context, archiveImportId, counts, now(), {
         code: 'PARTIAL_FAILURE',
-        message: `Archive import partially failed: ${counts.completed}/${archiveImport.totalItems} completed, ${counts.failed} failed`
+        message: `归档导入部分失败：已完成 ${counts.completed}/${archiveImport.totalItems}，失败 ${counts.failed}`
       })
     }
     if (counts.pending > 0 || counts.downloading > 0) {
-      throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive import still has unfinished media checkpoints', {
+      throw new ArchiveExecutorError('MEDIA_INVALID', '归档导入仍有未完成的媒体检查点', {
         recoverable: true
       })
     }
@@ -217,7 +214,7 @@ export async function executeArchiveImport(
       transaction.archiveImportItem.findMany({ where: { archiveImportId }, orderBy: { pageIndex: 'asc' } })
     )
     if (completed.length !== archiveImport.totalItems || completed.some((item) => item.status !== 'COMPLETED')) {
-      throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive import checkpoints are incomplete', {
+      throw new ArchiveExecutorError('MEDIA_INVALID', '归档导入检查点不完整', {
         recoverable: true
       })
     }
@@ -238,7 +235,7 @@ export async function executeArchiveImport(
         now(),
         context.payload.defaultTagIds
       )
-      await scope.complete({ result, message: 'Archive import published' })
+      await scope.complete({ result, message: '归档导入已发布' })
     })
   } catch (error) {
     if (finalizationStarted) throw error
@@ -265,12 +262,12 @@ async function startArchiveImport(
       include: { items: { orderBy: { pageIndex: 'asc' } } }
     })
     if (!archiveImport || archiveImport.systemJobId !== context.job.id) {
-      throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import payload is not bound to the claimed job')
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入载荷未绑定到当前任务')
     }
     // 优先尊重 cleanupRequestedAt 门禁：清理未完成前不得再次启动下载流程，否则状态与文件会互相覆盖。
     if (archiveImport.cleanupRequestedAt) throw new ArchiveCleanupRequestedError()
     if (!['PENDING', 'RUNNING'].includes(archiveImport.status)) {
-      throw new ArchiveExecutorError('STATE_CONFLICT', `Archive import cannot start from ${archiveImport.status}`)
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入当前状态不允许启动')
     }
     await transaction.archiveImportItem.updateMany({
       where: { archiveImportId: archiveImport.id, status: 'DOWNLOADING' },
@@ -301,7 +298,7 @@ async function startArchiveImport(
       if (latest?.systemJobId === context.job.id && latest.status === 'PENDING' && latest.cleanupRequestedAt) {
         throw new ArchiveCleanupRequestedError()
       }
-      throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import start state changed')
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入的启动状态已变化')
     }
     dependencies.logger?.info('archive.execution_started', { archiveImportId: archiveImport.id, jobId: context.job.id })
     const startedArchiveImport: LoadedArchiveImport = {
@@ -350,17 +347,17 @@ async function releaseArchiveImportForCleanup(
       archiveImport.status !== 'PENDING' ||
       !archiveImport.cleanupRequestedAt
     ) {
-      throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive cleanup release state changed', {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档清理的释放状态已变化', {
         recoverable: true
       })
     }
-    await scope.release('Archive cleanup will run before import resumes')
+    await scope.release('归档导入恢复前将先执行清理')
   })
 }
 
 class ArchiveCleanupRequestedError extends ArchiveExecutorError {
   constructor() {
-    super('STATE_CONFLICT', 'Archive cleanup must run before import execution', { recoverable: true })
+    super('STATE_CONFLICT', '归档导入执行前必须先完成清理', { recoverable: true })
   }
 }
 
@@ -398,7 +395,7 @@ async function downloadArchiveItem(input: {
         remoteHost: null
       }
     })
-    if (claimed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive item checkpoint changed')
+    if (claimed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档媒体检查点已变化')
   })
   input.transferMeter.startItem({
     itemId: input.item.id,
@@ -420,7 +417,7 @@ async function downloadArchiveItem(input: {
       remote.stream.destroy(
         input.signal.reason instanceof Error
           ? input.signal.reason
-          : new ArchiveExecutorError('CANCELLED', 'Archive execution was cancelled')
+          : new ArchiveExecutorError('CANCELLED', '归档执行已取消')
       )
     if (input.signal.aborted) abortRemoteStream()
     else input.signal.addEventListener('abort', abortRemoteStream, { once: true })
@@ -468,7 +465,7 @@ async function downloadArchiveItem(input: {
           finishedAt: input.now()
         }
       })
-      if (completed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive item completion changed')
+      if (completed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档媒体完成状态已变化')
       const aggregate = await transaction.archiveImport.update({
         where: { id: input.archiveImport.id },
         data: { completedItems: { increment: 1 } },
@@ -480,7 +477,7 @@ async function downloadArchiveItem(input: {
     await input.context.progress({
       progress: archiveProgress(completedItems, input.archiveImport.totalItems),
       stage: 'DOWNLOADING',
-      message: `Downloaded ${completedItems}/${input.archiveImport.totalItems}`
+      message: `已下载 ${completedItems}/${input.archiveImport.totalItems}`
     })
     return { kind: 'COMPLETED' }
   } catch (error) {
@@ -510,7 +507,7 @@ async function downloadArchiveItem(input: {
         }
       })
       if (updated.count !== 1) {
-        throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive item failure checkpoint changed')
+        throw new ArchiveExecutorError('STATE_CONFLICT', '归档媒体失败检查点已变化')
       }
       if (terminalItemFailure) {
         await transaction.archiveImport.update({
@@ -562,23 +559,23 @@ async function handleArchiveExecutionFailure(
         counts,
         now,
         errorCode: 'CANCELLED',
-        errorMessage: 'Archive import cancelled'
+        errorMessage: '归档导入已取消'
       })
-      await scope.cancel('Archive import cancelled')
+      await scope.cancel('归档导入已取消')
     })
   }
   if (context.signal.aborted && interruption === 'PAUSE_REQUESTED') {
     return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
       if (await finalizeRequestedArchiveControl(scope, archiveImportId, now)) return
       await pauseOrReleaseArchiveImport(scope.transaction, archiveImportId, 'PAUSED')
-      await scope.pause({ reason: 'USER_REQUESTED', message: 'Archive import paused' })
+      await scope.pause({ reason: 'USER_REQUESTED', message: '归档导入已暂停' })
     })
   }
   if (context.signal.aborted && interruption === 'SHUTDOWN') {
     return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
       if (await finalizeRequestedArchiveControl(scope, archiveImportId, now)) return
       await pauseOrReleaseArchiveImport(scope.transaction, archiveImportId, 'PENDING')
-      await scope.release('Archive worker stopped; import will resume')
+      await scope.release('归档后台任务进程已停止，导入将在恢复后继续')
     })
   }
   if (context.signal.aborted) throw context.signal.reason ?? error
@@ -604,7 +601,7 @@ async function handleArchiveExecutionFailure(
           failedItems: counts.failed
         }
       })
-      if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive pause state changed')
+      if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档暂停状态已变化')
       await scope.pause({
         reason: 'ACTION_REQUIRED',
         message: classified.message,
@@ -665,14 +662,14 @@ async function finalizeRequestedArchiveControl(
       counts,
       now,
       errorCode: 'CANCELLED',
-      errorMessage: 'Archive import cancelled'
+      errorMessage: '归档导入已取消'
     })
-    await scope.cancel('Archive import cancelled')
+    await scope.cancel('归档导入已取消')
     return true
   }
   if (scope.executionStatus === 'PAUSING') {
     await pauseOrReleaseArchiveImport(scope.transaction, archiveImportId, 'PAUSED')
-    await scope.pause({ reason: 'USER_REQUESTED', message: 'Archive import paused' })
+    await scope.pause({ reason: 'USER_REQUESTED', message: '归档导入已暂停' })
     return true
   }
   return false
@@ -693,7 +690,7 @@ async function finishArchiveImport(
     where: { id: input.archiveImportId },
     select: { providerKey: true, externalId: true, canonicalUrl: true }
   })
-  if (!archiveImport) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import disappeared before transition')
+  if (!archiveImport) throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入在状态转换前已不存在')
   await lockArchiveUploaderCatalogIdentities(transaction, [
     {
       providerKey: archiveImport.providerKey,
@@ -718,7 +715,7 @@ async function finishArchiveImport(
       )
     }
   })
-  if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive terminal state changed')
+  if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档终止状态已变化')
   await transaction.archiveUploaderCatalogItem.updateMany({
     where: {
       OR: [
@@ -750,7 +747,7 @@ async function pauseOrReleaseArchiveImport(
     where: { id: archiveImportId, status: { in: ['PENDING', 'RUNNING'] } },
     data: { status, completedItems: counts.completed, failedItems: counts.failed }
   })
-  if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive lifecycle state changed')
+  if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档生命周期状态已变化')
 }
 
 async function readCounts(transaction: ArchiveTransaction, archiveImportId: string): Promise<ArchiveItemCounts> {
@@ -920,7 +917,7 @@ function relationshipValues(value: unknown): unknown[] {
 }
 
 function throwIfAborted(signal: AbortSignal): void {
-  if (signal.aborted) throw signal.reason ?? new ArchiveExecutorError('CANCELLED', 'Archive execution was interrupted')
+  if (signal.aborted) throw signal.reason ?? new ArchiveExecutorError('CANCELLED', '归档执行意外中断')
 }
 
 async function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
@@ -928,14 +925,14 @@ async function abortableDelay(milliseconds: number, signal: AbortSignal): Promis
 }
 
 function validateDependencies(dependencies: ArchiveExecutorDependencies): void {
-  if (!dependencies.config.scanRoot.trim()) throw new Error('Archive executor scanRoot is required')
+  if (!dependencies.config.scanRoot.trim()) throw new Error('归档执行器需要配置扫描根目录')
   for (const [name, value] of [
     ['mediaConcurrency', dependencies.config.mediaConcurrency],
     ['maxMediaAttempts', dependencies.config.maxMediaAttempts],
     ['maxMediaBytes', dependencies.config.maxMediaBytes]
   ] as const) {
     if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
-      throw new Error(`Archive executor ${name} must be a positive safe integer`)
+      throw new Error(`归档执行器配置 ${name} 必须是正安全整数`)
     }
   }
 }

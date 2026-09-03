@@ -179,10 +179,10 @@ export function validateArchiveUrl(
   if (url.username || url.password) throw new ArchiveError('SSRF_BLOCKED', '链接不能包含账号或密码')
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
   if (!matchesHostSuffix(hostname, allowedSuffixes)) {
-    throw new ArchiveError('SSRF_BLOCKED', '链接主机不在归档 Provider 的允许列表中')
+    throw new ArchiveError('SSRF_BLOCKED', '链接主机不在归档来源站点的允许列表中')
   }
   if (url.port && !matchesHostSuffix(hostname, nonStandardPortSuffixes)) {
-    throw new ArchiveError('SSRF_BLOCKED', '链接端口不在归档 Provider 的允许列表中')
+    throw new ArchiveError('SSRF_BLOCKED', '链接端口不在归档来源站点的允许列表中')
   }
   return url
 }

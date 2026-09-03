@@ -94,7 +94,7 @@ export class EHentaiProvider implements ArchiveProvider {
       relationships,
       mediaPlan: sourcePages.map((sourcePageUrl, index) => ({ index, sourcePageUrl }))
     }
-    const warnings = metadata.expunged ? ['该画廊已被标记为 expunged，远端媒体可能不完整'] : []
+    const warnings = metadata.expunged ? ['该画廊已被远端标记为删除，媒体内容可能不完整'] : []
     if (relationships.length > 0) warnings.push('检测到 E-Hentai 画廊版本替代关系，将在关联作品存在时建立显式关系')
 
     return {
@@ -208,7 +208,11 @@ export class EHentaiProvider implements ArchiveProvider {
       body: JSON.stringify({ method: 'gtoken', pagelist: [[gid, pageMatch[1], pageNumber]] }),
       maxBytes: 4 * 1024 * 1024
     })
-    if (response.error) throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai API: ${response.error}`)
+    if (response.error) {
+      throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai API 返回错误', {
+        cause: new Error(response.error)
+      })
+    }
     const token = response.tokenlist?.find((value) => Number(value.gid) === gid)?.token
     if (!token) throw new ArchiveError('REMOTE_NOT_FOUND', '无法从 E-Hentai API 定位图片所属画廊')
     return { gid, token }
@@ -222,12 +226,20 @@ export class EHentaiProvider implements ArchiveProvider {
       body: JSON.stringify({ method: 'gdata', gidlist: [[gid, token]], namespace: 1 }),
       maxBytes: 4 * 1024 * 1024
     })
-    if (response.error) throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai API: ${response.error}`)
+    if (response.error) {
+      throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai API 返回错误', {
+        cause: new Error(response.error)
+      })
+    }
     const metadata = response.gmetadata?.[0]
     if (!metadata || Number(metadata.gid) !== gid) {
       throw new ArchiveError('REMOTE_NOT_FOUND', 'E-Hentai API 未返回目标画廊')
     }
-    if (metadata.error) throw new ArchiveError('REMOTE_NOT_FOUND', `E-Hentai API: ${metadata.error}`)
+    if (metadata.error) {
+      throw new ArchiveError('REMOTE_NOT_FOUND', 'E-Hentai API 返回的目标画廊不可用', {
+        cause: new Error(metadata.error)
+      })
+    }
     return metadata
   }
 
@@ -423,7 +435,8 @@ function cleanText(value: unknown): string {
 function parsePositiveInteger(value: unknown, field: string): number {
   const number = Number(value)
   if (!Number.isSafeInteger(number) || number <= 0) {
-    throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai ${field} 无效`)
+    const fieldName = field === 'gid' ? '画廊编号' : field === 'filecount' ? '媒体数量' : '必要字段'
+    throw new ArchiveError('REMOTE_RESPONSE_INVALID', `E-Hentai 返回的${fieldName}无效`)
   }
   return number
 }

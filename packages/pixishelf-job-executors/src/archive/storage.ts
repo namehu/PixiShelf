@@ -71,10 +71,10 @@ export async function storeArchiveRemoteMedia(input: {
 }): Promise<StoredArchiveMedia> {
   throwIfAborted(input.signal)
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_MEDIA_BYTES
-  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('Archive max media bytes must be positive')
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('归档媒体字节上限必须为正数')
   if (input.remote.contentLength !== null && input.remote.contentLength > maxBytes) {
     input.remote.stream.destroy()
-    throw new ArchiveExecutorError('DOWNLOAD_TOO_LARGE', `Archive media exceeds ${maxBytes} bytes`, {
+    throw new ArchiveExecutorError('DOWNLOAD_TOO_LARGE', `归档媒体超过 ${maxBytes} 字节限制`, {
       stage: 'MEDIA_VALIDATION',
       remoteHost: input.remote.remoteHost
     })
@@ -110,7 +110,7 @@ export async function storeArchiveRemoteMedia(input: {
       byteCount += buffer.length
       input.onChunk?.(buffer.length)
       if (byteCount > maxBytes) {
-        throw new ArchiveExecutorError('DOWNLOAD_TOO_LARGE', `Archive media exceeds ${maxBytes} bytes`, {
+        throw new ArchiveExecutorError('DOWNLOAD_TOO_LARGE', `归档媒体超过 ${maxBytes} 字节限制`, {
           stage: 'MEDIA_STREAM',
           remoteHost: input.remote.remoteHost
         })
@@ -136,7 +136,7 @@ export async function storeArchiveRemoteMedia(input: {
 
   if (input.remote.contentLength !== null && byteCount !== input.remote.contentLength) {
     await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive media length differs from Content-Length', {
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档媒体长度与远端 Content-Length 不一致', {
       recoverable: true,
       stage: 'MEDIA_VALIDATION',
       remoteHost: input.remote.remoteHost
@@ -146,7 +146,7 @@ export async function storeArchiveRemoteMedia(input: {
   const mimeType = normalizeImageMimeType(input.remote.mimeType, filename)
   if (!mimeType.startsWith('image/')) {
     await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', `Unsupported archive media type: ${mimeType}`, {
+    throw new ArchiveExecutorError('MEDIA_INVALID', `不支持的归档媒体类型：${mimeType}`, {
       stage: 'MEDIA_VALIDATION',
       remoteHost: input.remote.remoteHost
     })
@@ -156,7 +156,7 @@ export async function storeArchiveRemoteMedia(input: {
     metadata = await sharp(partial, { animated: true }).metadata()
   } catch (error) {
     await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive media is not a decodable image', {
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档媒体不是可解码的图片', {
       cause: error,
       recoverable: true,
       stage: 'MEDIA_VALIDATION',
@@ -165,7 +165,7 @@ export async function storeArchiveRemoteMedia(input: {
   }
   if (!metadata.width || !metadata.height) {
     await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive media has no valid dimensions', {
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档媒体缺少有效尺寸', {
       recoverable: true,
       stage: 'MEDIA_VALIDATION',
       remoteHost: input.remote.remoteHost
@@ -195,12 +195,12 @@ export async function validateArchiveStoredMedia(
 ): Promise<void> {
   for (const item of items) {
     if (!item.stagedPath || !item.sha256 || item.byteCount === null) {
-      throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive checkpoint is missing a media digest')
+      throw new ArchiveExecutorError('MEDIA_INVALID', '归档检查点缺少媒体摘要')
     }
     const filePath = await resolveExistingPathWithinRoot(stagingDirectory, item.stagedPath)
     const file = await readFile(filePath)
     if (BigInt(file.length) !== item.byteCount || createHash('sha256').update(file).digest('hex') !== item.sha256) {
-      throw new ArchiveExecutorError('MEDIA_INVALID', `Archive media digest mismatch: ${item.stagedPath}`, {
+      throw new ArchiveExecutorError('MEDIA_INVALID', `归档媒体摘要校验失败：${item.stagedPath}`, {
         recoverable: true
       })
     }
@@ -224,7 +224,7 @@ export async function prepareArchiveRevisionDirectory(paths: ArchiveStoragePaths
   }
   for (const required of ['media', 'manifest.json']) {
     await resolveExistingPathWithinRoot(finalDirectory, required).catch(() => {
-      throw new ArchiveExecutorError('MEDIA_INVALID', `Prepared archive revision is missing ${required}`, {
+      throw new ArchiveExecutorError('MEDIA_INVALID', `准备好的归档版本缺少 ${required}`, {
         recoverable: true
       })
     })
@@ -270,7 +270,7 @@ function resolveCandidate(root: string, candidate: string) {
 function assertWithinRoot(root: string, candidate: string): void {
   const relative = path.relative(root, candidate)
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive path escapes its configured root')
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档路径超出了配置的根目录')
   }
 }
 
@@ -308,7 +308,7 @@ function safePathSegment(value: string): string {
     .replace(/^[.-]+|[.-]+$/g, '')
     .slice(0, 180)
   if (!safe || safe === '.' || safe === '..') {
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Invalid archive path segment')
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档路径片段无效')
   }
   return safe
 }
@@ -361,7 +361,7 @@ function classifyTransferError(error: unknown, remoteHost: string | null): Archi
   const classified = toArchiveExecutorError(error)
   if (classified.stage === 'STORAGE') return classified
   if (classified.code === 'INTERNAL') {
-    return new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'Remote archive media transfer was interrupted', {
+    return new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', '远端归档媒体传输中断', {
       cause: classified,
       recoverable: true,
       stage: 'MEDIA_STREAM',
@@ -374,7 +374,7 @@ function classifyTransferError(error: unknown, remoteHost: string | null): Archi
 }
 
 function throwIfAborted(signal: AbortSignal): void {
-  if (signal.aborted) throw signal.reason ?? new ArchiveExecutorError('CANCELLED', 'Archive execution was cancelled')
+  if (signal.aborted) throw signal.reason ?? new ArchiveExecutorError('CANCELLED', '归档执行已取消')
 }
 
 function jsonReplacer(_key: string, value: unknown) {

@@ -191,14 +191,11 @@ describe('archive maintenance executor', () => {
     const transaction = purgeTransaction()
 
     await expect(
-      executeArchiveMaintenance(
-        executionContext({ action: 'PURGE_ARCHIVE', artworkId: 7 }, transaction, true),
-        {
-          database: {} as never,
-          config: { scanRoot: root },
-          now: () => new Date('2026-08-19T00:00:00.000Z')
-        }
-      )
+      executeArchiveMaintenance(executionContext({ action: 'PURGE_ARCHIVE', artworkId: 7 }, transaction, true), {
+        database: {} as never,
+        config: { scanRoot: root },
+        now: () => new Date('2026-08-19T00:00:00.000Z')
+      })
     ).rejects.toThrow('crash after filesystem mutation')
     await expect(readFile(path.join(root, '.trash/archive/7/rev-1/media/file.jpg'))).rejects.toMatchObject({
       code: 'ENOENT'
@@ -268,7 +265,7 @@ describe('archive maintenance executor', () => {
     )
     expect(context.__scope.complete).toHaveBeenCalledWith({
       result: { action: 'RECONCILE', discovered: 3, materialized: 2, reused: 1, skipped: 0 },
-      message: 'Archive maintenance reconciliation completed'
+      message: '归档维护协调已完成'
     })
   })
 
@@ -411,15 +408,19 @@ function reconcileTransaction() {
         { id: lifecycle.id, archiveLifecycleState: lifecycle.archiveLifecycleState },
         { id: purge.id, archiveLifecycleState: purge.archiveLifecycleState }
       ]),
-      findUnique: vi.fn().mockImplementation(({ where }: { where: { id: number } }) =>
-        Promise.resolve(where.id === lifecycle.id ? lifecycle : purge)
-      ),
+      findUnique: vi
+        .fn()
+        .mockImplementation(({ where }: { where: { id: number } }) =>
+          Promise.resolve(where.id === lifecycle.id ? lifecycle : purge)
+        ),
       updateMany: vi.fn().mockResolvedValue({ count: 1 })
     },
     systemJob: {
-      findFirst: vi.fn().mockImplementation(({ where }: { where: { payload: { equals: { action: string } } } }) =>
-        Promise.resolve(where.payload.equals.action === 'TRASH_ARCHIVE' ? { id: 'active-trash' } : null)
-      )
+      findFirst: vi
+        .fn()
+        .mockImplementation(({ where }: { where: { payload: { equals: { action: string } } } }) =>
+          Promise.resolve(where.payload.equals.action === 'TRASH_ARCHIVE' ? { id: 'active-trash' } : null)
+        )
     }
   }
 }

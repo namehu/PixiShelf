@@ -265,7 +265,7 @@ describe('archive executor', () => {
       data: { completedItems: { increment: 1 } },
       select: { completedItems: true }
     })
-    expect(context.progress).toHaveBeenCalledWith(expect.objectContaining({ message: 'Downloaded 1/1', progress: 95 }))
+    expect(context.progress).toHaveBeenCalledWith(expect.objectContaining({ message: '已下载 1/1', progress: 95 }))
   })
 
   it.each([
@@ -312,7 +312,7 @@ describe('archive executor', () => {
       TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
     )
 
-    expect(context.__scope.release).toHaveBeenCalledWith('Archive cleanup will run before import resumes')
+    expect(context.__scope.release).toHaveBeenCalledWith('归档导入恢复前将先执行清理')
     expect(context.__scope.fail).not.toHaveBeenCalled()
     expect(transaction.archiveImport.updateMany).not.toHaveBeenCalled()
     expect(storageMocks.prepareArchiveStagingDirectory).not.toHaveBeenCalled()
@@ -342,10 +342,10 @@ describe('archive executor', () => {
         lastArchiveImportId: 'import-1',
         lastOutcome: 'CANCELLED',
         lastErrorCode: 'CANCELLED',
-        lastErrorMessage: 'Archive import cancelled'
+        lastErrorMessage: '归档导入已取消'
       })
     })
-    expect(context.__scope.cancel).toHaveBeenCalledWith('Archive import cancelled')
+    expect(context.__scope.cancel).toHaveBeenCalledWith('归档导入已取消')
     expect(transaction.archiveImport.findUnique).toHaveBeenCalledWith({
       where: { id: 'import-1' },
       select: { providerKey: true, externalId: true, canonicalUrl: true }
@@ -392,7 +392,7 @@ describe('archive executor', () => {
     )
     expect(context.__scope.pause).toHaveBeenCalledWith({
       reason: 'USER_REQUESTED',
-      message: 'Archive import paused'
+      message: '归档导入已暂停'
     })
     expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
   })

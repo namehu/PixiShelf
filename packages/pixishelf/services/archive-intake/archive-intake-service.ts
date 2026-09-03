@@ -411,7 +411,7 @@ async function createQueuedIntakeItem(
       availableAt: input.timestamp,
       maxAttempts: 3,
       progress: 0,
-      message: input.triggerSource === 'RETRY' ? '等待解析修正后的归档链接...' : '等待归档解析 Worker...'
+      message: input.triggerSource === 'RETRY' ? '等待解析修正后的归档链接...' : '等待归档解析后台任务进程...'
     }
   })
   await transaction.archiveIntakeItem.create({
@@ -432,7 +432,7 @@ async function createQueuedIntakeItem(
     jobId: input.jobId,
     type: 'job.queued',
     attempt: 0,
-    message: input.triggerSource === 'RETRY' ? 'Archive intake replacement item queued' : 'Archive intake item queued',
+    message: input.triggerSource === 'RETRY' ? '归档收件替代任务已加入队列' : '归档收件任务已加入队列',
     data: {
       intakeItemId: input.itemId,
       priority: 10,
@@ -665,7 +665,7 @@ async function cancelIntakeItem(
       type: 'job.cancel_requested',
       level: 'WARN',
       attempt: item.currentSystemJob.attempt,
-      message: 'Archive intake cancellation requested'
+      message: '已请求取消归档收件任务'
     })
     if (!running) {
       await writeJobEvent(transaction, {
@@ -673,7 +673,7 @@ async function cancelIntakeItem(
         type: 'job.cancelled',
         level: 'WARN',
         attempt: item.currentSystemJob.attempt,
-        message: 'Archive intake cancelled before execution'
+        message: '归档收件任务在执行前已取消'
       })
     }
   }
@@ -698,7 +698,7 @@ async function cancelIntakeItem(
         lastOutcome: 'CANCELLED',
         lastOutcomeAt: timestamp,
         lastErrorCode: 'CANCELLED',
-        lastErrorMessage: 'Archive intake cancelled'
+        lastErrorMessage: '归档收件任务已取消'
       }
     })
   }
@@ -812,7 +812,7 @@ async function retryIntakeItem(
     jobId,
     type: 'job.queued',
     attempt: 0,
-    message: 'Archive intake item manually requeued',
+    message: '归档收件项已手动重新加入队列',
     data: { intakeItemId: item.id, retryOfJobId: item.currentSystemJobId }
   })
   return { result: 'APPLIED', relatedId: jobId }
@@ -1002,10 +1002,10 @@ function decodeCursor(value: string, expectedView: IntakeCursor['view']): Intake
       typeof parsed.id !== 'string' ||
       !parsed.id
     ) {
-      throw new Error('Invalid cursor')
+      throw new Error('分页游标无效')
     }
     if (expectedView === 'ACTIVE') BigInt(parsed.sortValue)
-    else if (Number.isNaN(new Date(parsed.sortValue).getTime())) throw new Error('Invalid cursor date')
+    else if (Number.isNaN(new Date(parsed.sortValue).getTime())) throw new Error('分页游标日期无效')
     return parsed
   } catch (error) {
     throw new ArchiveError('INVALID_URL', '归档收件箱分页游标无效', { cause: error })

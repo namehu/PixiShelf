@@ -677,8 +677,8 @@ export function WorkerLaneStrip({
   if (!dashboard) {
     return (
       <Alert variant="warning">
-        <AlertTitle>Worker 通道状态不可用</AlertTitle>
-        <AlertDescription>任务列表仍可操作；开始新任务前请确认 Worker 已启动。</AlertDescription>
+        <AlertTitle>后台任务通道状态不可用</AlertTitle>
+        <AlertDescription>任务列表仍可操作；开始新任务前请确认后台任务进程已启动。</AlertDescription>
       </Alert>
     )
   }
@@ -689,7 +689,7 @@ export function WorkerLaneStrip({
   return (
     <section
       className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-background px-3 py-2"
-      aria-label="Worker 执行通道"
+      aria-label="后台任务执行通道"
     >
       {dashboard.lanes.map((lane) => (
         <div key={lane.executionLane} className="flex min-w-0 flex-wrap items-center gap-2">

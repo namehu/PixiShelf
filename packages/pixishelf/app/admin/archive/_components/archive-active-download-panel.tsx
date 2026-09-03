@@ -164,7 +164,7 @@ export function ActiveArchiveDownloadPanel({
           ) : (
             <div className="flex items-center gap-2 rounded-lg border px-3 py-4 text-sm text-muted-foreground lg:col-span-2">
               <Spinner />
-              {telemetry ? '正在准备下一批图片…' : '正在等待 Worker 传输数据…'}
+              {telemetry ? '正在准备下一批图片…' : '正在等待后台任务进程传输数据…'}
             </div>
           )}
         </div>

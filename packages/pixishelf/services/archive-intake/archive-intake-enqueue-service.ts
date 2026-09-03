@@ -181,7 +181,7 @@ async function enqueueOne(
       availableAt: timestamp,
       maxAttempts: 3,
       progress: 0,
-      message: '等待中央 Worker...'
+      message: '等待中央后台任务进程...'
     }
   })
   await transaction.archiveImport.create({
@@ -228,7 +228,7 @@ async function enqueueOne(
     jobId,
     type: 'job.queued',
     attempt: 0,
-    message: 'Archive import queued from intake',
+    message: '归档导入已从收件箱加入队列',
     data: { archiveImportId: importId, intakeItemId: item.id, priority: 10 }
   })
   return { result: 'CREATED', relatedId: importId }
