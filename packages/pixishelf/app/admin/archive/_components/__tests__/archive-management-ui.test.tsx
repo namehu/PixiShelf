@@ -4,10 +4,14 @@ import {
   ArchiveImageCounts,
   ArchiveTaskCard,
   ArchiveTaskTable,
-  ArchiveTransferStatus,
   WorkerLaneStrip,
-  canExpandArchivePublishedMedia
+  archiveImportIdFromPayload,
+  canExpandArchivePublishedMedia,
+  isActiveArchiveDownloadStatus,
+  selectActiveArchiveImportId
 } from '../archive-management'
+import { ActiveArchiveDownloadPanel } from '../archive-active-download-panel'
+import { TaskProgress } from '../archive-task-progress'
 
 vi.mock('next/link', () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>
@@ -200,32 +204,155 @@ describe('archive management UI', () => {
     expect(counts.children[2]!.className).toContain('text-destructive')
   })
 
-  it('renders live transfer speed, waiting state, and stale speed accessibly', () => {
+  it('renders a current-download panel with aggregate and per-file phases', () => {
     const telemetry = {
       version: 1 as const,
       kind: 'archive.transfer' as const,
       archiveImportId: 'archive-1',
       downloadedBytes: String(318 * 1024 * 1024),
       bytesPerSecond: 13_000_000,
-      activeDownloads: 2,
+      activeDownloads: 1,
+      activeWorkers: 4,
+      activeItems: [
+        {
+          itemId: 'item-1',
+          pageIndex: 90,
+          expectedFilename: '0091.jpg',
+          attempt: 1,
+          phase: 'DOWNLOADING' as const,
+          downloadedBytes: String(7.5 * 1024 * 1024),
+          totalBytes: String(18 * 1024 * 1024),
+          bytesPerSecond: 3_100_000
+        },
+        {
+          itemId: 'item-2',
+          pageIndex: 91,
+          expectedFilename: '0092.jpg',
+          attempt: 1,
+          phase: 'WAITING_MEDIA_RESPONSE' as const,
+          downloadedBytes: '0',
+          totalBytes: null,
+          bytesPerSecond: 0
+        },
+        {
+          itemId: 'item-3',
+          pageIndex: 92,
+          expectedFilename: '0093.jpg',
+          attempt: 1,
+          phase: 'RESOLVING_SOURCE_PAGE' as const,
+          downloadedBytes: '0',
+          totalBytes: null,
+          bytesPerSecond: 0
+        },
+        {
+          itemId: 'item-4',
+          pageIndex: 93,
+          expectedFilename: '0094.jpg',
+          attempt: 2,
+          phase: 'VERIFYING' as const,
+          downloadedBytes: String(12 * 1024 * 1024),
+          totalBytes: String(12 * 1024 * 1024),
+          bytesPerSecond: 0
+        }
+      ],
       concurrencyLimit: 4,
-      completedItems: 3,
+      completedItems: 90,
       failedItems: 0,
-      totalItems: 10,
+      totalItems: 234,
       sampledAt: '2026-09-01T00:00:00.000Z'
     }
-    const view = render(<ArchiveTransferStatus telemetry={telemetry} now={Date.parse(telemetry.sampledAt) + 1_000} />)
-    expect(screen.getByLabelText(/12.4 MB\/s · 有效已下载 318 MB · 2\/4 路/)).toBeTruthy()
-
-    view.rerender(
-      <ArchiveTransferStatus
-        telemetry={{ ...telemetry, activeDownloads: 0 }}
+    const onViewItems = vi.fn()
+    const onPause = vi.fn()
+    const onCancel = vi.fn()
+    render(
+      <ActiveArchiveDownloadPanel
+        task={{
+          ...activeTask,
+          systemJobStatus: 'RUNNING',
+          progress: 38,
+          completedItems: 90,
+          failedItems: 0,
+          totalItems: 234,
+          liveTransfer: telemetry
+        }}
         now={Date.parse(telemetry.sampledAt) + 1_000}
+        pausePending={false}
+        cancelPending={false}
+        onViewItems={onViewItems}
+        onPause={onPause}
+        onCancel={onCancel}
       />
     )
-    expect(screen.getByLabelText(/等待远端响应/)).toBeTruthy()
 
-    view.rerender(<ArchiveTransferStatus telemetry={telemetry} now={Date.parse(telemetry.sampledAt) + 6_000} />)
-    expect(screen.getByLabelText(/速度 —/)).toBeTruthy()
+    expect(screen.getByRole('region', { name: '当前归档下载' })).toBeTruthy()
+    expect(screen.getByText(/12.4 MB\/s/)).toBeTruthy()
+    expect(screen.getByText('活跃任务 4/4')).toBeTruthy()
+    expect(screen.getByText('正在传输 1')).toBeTruthy()
+    expect(screen.getByText('等待远端 2')).toBeTruthy()
+    expect(screen.getByText('校验写入 1')).toBeTruthy()
+    expect(screen.getByText('等待图片响应')).toBeTruthy()
+    expect(screen.getByText('解析图片页')).toBeTruthy()
+    expect(screen.getByText('校验并写入')).toBeTruthy()
+    expect(screen.getByLabelText('第 91 张下载 41%')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '查看全部图片' }))
+    fireEvent.click(screen.getByRole('button', { name: '暂停' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(onViewItems).toHaveBeenCalledOnce()
+    expect(onPause).toHaveBeenCalledOnce()
+    expect(onCancel).toHaveBeenCalledOnce()
+  })
+
+  it('keeps slot counts out of the historical task progress row', () => {
+    render(
+      <TaskProgress
+        task={
+          {
+            ...activeTask,
+            systemJobStatus: 'RUNNING',
+            progress: 38,
+            message: '等待远端响应',
+            liveTransfer: {
+              activeDownloads: 1,
+              concurrencyLimit: 4
+            }
+          } as any
+        }
+      />
+    )
+
+    expect(screen.getByText('等待远端响应')).toBeTruthy()
+    expect(screen.queryByText(/1\s*\/\s*4\s*路/)).toBeNull()
+  })
+
+  it('extracts only a non-empty archive import id from a job payload', () => {
+    expect(archiveImportIdFromPayload({ archiveImportId: 'archive-1' })).toBe('archive-1')
+    expect(archiveImportIdFromPayload({ archiveImportId: '' })).toBeNull()
+    expect(archiveImportIdFromPayload([])).toBeNull()
+  })
+
+  it('drops cached transfer identity when a disconnected dashboard reports the task terminal', () => {
+    expect(
+      selectActiveArchiveImportId({
+        dashboardLoaded: true,
+        dashboardArchiveImportId: null,
+        liveArchiveImportId: 'archive-old',
+        realtimeConnected: false
+      })
+    ).toBeNull()
+    expect(isActiveArchiveDownloadStatus('COMPLETED')).toBe(false)
+    expect(isActiveArchiveDownloadStatus('FAILED')).toBe(false)
+    expect(isActiveArchiveDownloadStatus('CANCELLED')).toBe(false)
+  })
+
+  it('lets the dashboard hand a disconnected panel from an old transfer to the next task', () => {
+    expect(
+      selectActiveArchiveImportId({
+        dashboardLoaded: true,
+        dashboardArchiveImportId: 'archive-new',
+        liveArchiveImportId: 'archive-old',
+        realtimeConnected: false
+      })
+    ).toBe('archive-new')
   })
 })

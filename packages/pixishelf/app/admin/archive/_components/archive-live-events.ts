@@ -29,10 +29,10 @@ export function useArchiveLiveEvents(detailSystemJobId?: string) {
   }, [stream.resetVersion])
 
   useEffect(() => {
-    if (!realtimeConnected || ![...liveJobById.values()].some((value) => value.transfer)) return
+    if (![...liveJobById.values()].some((value) => value.transfer)) return
     const timer = setInterval(() => setLiveNow(Date.now()), 1_000)
     return () => clearInterval(timer)
-  }, [liveJobById, realtimeConnected])
+  }, [liveJobById])
 
   useEffect(() => {
     let lifecycleChanged = false

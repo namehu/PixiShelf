@@ -553,6 +553,29 @@ describe('job wire contracts', () => {
       downloadedBytes: '318000000',
       bytesPerSecond: 13_000_000,
       activeDownloads: 2,
+      activeWorkers: 3,
+      activeItems: [
+        {
+          itemId: 'item-1',
+          pageIndex: 8,
+          expectedFilename: '0009',
+          attempt: 1,
+          phase: 'DOWNLOADING',
+          downloadedBytes: '7500000',
+          totalBytes: '18200000',
+          bytesPerSecond: 3_100_000
+        },
+        {
+          itemId: 'item-2',
+          pageIndex: 9,
+          expectedFilename: '0010',
+          attempt: 2,
+          phase: 'WAITING_MEDIA_RESPONSE',
+          downloadedBytes: '0',
+          totalBytes: null,
+          bytesPerSecond: 0
+        }
+      ],
       concurrencyLimit: 4,
       completedItems: 10,
       failedItems: 1,
@@ -560,6 +583,9 @@ describe('job wire contracts', () => {
       sampledAt: '2026-08-14T10:00:00.000Z'
     }
     expect(archiveTransferTelemetrySchema.parse(telemetry)).toEqual(telemetry)
+    expect(
+      archiveTransferTelemetrySchema.parse({ ...telemetry, activeWorkers: undefined, activeItems: undefined })
+    ).toEqual(expect.objectContaining({ activeDownloads: 2 }))
     expect(() => archiveTransferTelemetrySchema.parse({ ...telemetry, downloadedBytes: -1 })).toThrow()
     expect(() => jobEventStreamBatchSchema.parse({ version: 1, cursor: '0', items: Array(201).fill({}) })).toThrow()
   })

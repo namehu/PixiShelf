@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import {
   compareArchiveUploaderMetadata,
@@ -136,6 +137,38 @@ describe('EHentaiProvider resolution', () => {
 
     await expect(resolution).rejects.toMatchObject({ code: 'CANCELLED', recoverable: true })
     expect(http.text).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports the source-page and media-response phases without exposing remote addresses in telemetry', async () => {
+    const http = {
+      text: vi.fn(async () => '<img id="img" src="https://cdn.hath.network/image.jpg">'),
+      request: vi.fn(async () => ({
+        status: 200,
+        headers: { 'content-type': 'image/jpeg', 'content-length': '3' },
+        stream: Readable.from(Buffer.from('img')),
+        url: 'https://cdn.hath.network/image.jpg'
+      }))
+    }
+    const phases: string[] = []
+    const provider = new EHentaiProvider(http as never)
+
+    const remote = await provider.openMedia(
+      {
+        index: 0,
+        sourcePageUrl: 'https://e-hentai.org/s/pagetoken/123-1',
+        locator: {},
+        expectedFilename: '0001'
+      },
+      {
+        quality: 'DISPLAY',
+        onPhase: (phase) => phases.push(phase),
+        runDownloadRequest: (operation) => operation(),
+        runDownloadStreamRequest: (operation) => operation()
+      }
+    )
+
+    expect(phases).toEqual(['RESOLVING_SOURCE_PAGE', 'WAITING_MEDIA_RESPONSE'])
+    expect(remote).toMatchObject({ contentLength: 3, quality: 'DISPLAY' })
   })
 })
 

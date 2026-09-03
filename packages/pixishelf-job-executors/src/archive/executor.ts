@@ -400,15 +400,22 @@ async function downloadArchiveItem(input: {
     })
     if (claimed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive item checkpoint changed')
   })
+  input.transferMeter.startItem({
+    itemId: input.item.id,
+    pageIndex: input.item.pageIndex,
+    expectedFilename: input.item.expectedFilename,
+    attempt
+  })
 
   let mediaStored = false
   try {
     const remote = await input.provider.openMedia(toProviderMediaItem(input.item), {
       quality: input.archiveImport.selectedQuality,
       signal: input.signal,
-      maxConcurrentDownloads: input.mediaConcurrency
+      maxConcurrentDownloads: input.mediaConcurrency,
+      onPhase: (phase) => input.transferMeter.markPhase(input.item.id, phase)
     })
-    input.transferMeter.begin(input.item.id)
+    input.transferMeter.beginDownload(input.item.id, remote.contentLength)
     const abortRemoteStream = () =>
       remote.stream.destroy(
         input.signal.reason instanceof Error
@@ -429,7 +436,8 @@ async function downloadArchiveItem(input: {
           ? {}
           : { maxBytes: input.dependencies.config.maxMediaBytes }),
         partialKey: input.context.job.executionToken,
-        onChunk: (byteLength) => input.transferMeter.addChunk(input.item.id, byteLength)
+        onChunk: (byteLength) => input.transferMeter.addChunk(input.item.id, byteLength),
+        onStreamComplete: () => input.transferMeter.markVerifying(input.item.id)
       })
     } finally {
       input.signal.removeEventListener('abort', abortRemoteStream)

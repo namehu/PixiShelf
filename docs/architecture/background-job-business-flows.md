@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划、中央 Worker、扫描、本地导入、归档及派生媒体任务的当前业务链路与状态边界
-last-verified: 2026-09-01
+last-verified: 2026-09-03
 sources:
   - packages/pixishelf/app/api/internal/scheduler/tick/route.ts
   - packages/pixishelf/services/background-task/
@@ -236,7 +236,7 @@ sequenceDiagram
 | `VIDEO_KEYFRAME_DISCOVERY`         | 任务计划、立即运行、代表帧批量入口       | 是           | 是             | 判断 MISSING/STALE/FAILED/CURRENT；计划模式创建生成子任务     |
 | `VIDEO_KEYFRAME_GENERATION`        | discovery 或人工选中结果                 | 否           | 否             | FFmpeg 抽帧、质量筛选并发布代表帧集合                         |
 | `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                        | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态        |
-| `ARCHIVE_UPLOADER_SCAN`            | 归档收件箱中的上传者来源                 | 否           | 否             | 人工发现公开画廊、保存游标与候选分类，不自动创建下载任务       |
+| `ARCHIVE_UPLOADER_SCAN`            | 归档收件箱中的上传者来源                 | 否           | 否             | 人工发现公开画廊、保存游标与候选分类，不自动创建下载任务      |
 | `ARCHIVE_IMPORT`                   | READY 收件项批量入队                     | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork         |
 | `ARCHIVE_DEFAULT_TAG_BACKFILL`     | 扫描设置中的历史归档标签补全             | 否           | 否             | 按冻结上界为活动链接归档作品追加缺少的人工标签关系            |
 | `ARCHIVE_MAINTENANCE`              | 计划 reconcile、归档删除/恢复/清理       | 是           | RECONCILE 会   | 清 staging、回收、恢复或永久清理归档                          |
@@ -462,7 +462,7 @@ flowchart TD
 - 归档 `manifest.json` 是 Worker 在归档 staging/revision 中生成的发布清单。它不会出现在普通 `local-imports` 发现链路中，也不会触发本地导入默认标签。
 - 网络下载和 FFmpeg/文件流不放进长数据库事务。最终领域发布使用短 fenced transaction，避免失去 lease 的旧执行者发布结果。
 - 归档媒体并发从 `Setting.archive_media_concurrency` 读取，默认 2；Executor worker 数和 Provider permit 容量使用同一冻结值。`BACKGROUND_WRITER` 仍只有一个任务执行槽。
-- `ExecutionProgressUpdate` 的实时模式最多每两秒持久化一条传输事件，不延迟阶段、警告、控制和终态事件。管理端使用全局 `SystemJobEvent.id` 通过 `/api/jobs/events` 追赶；SSE 断线不改变 PostgreSQL 事实源。
+- `ExecutionProgressUpdate` 的实时模式最多每两秒持久化一条传输事件，不延迟阶段、警告、控制和终态事件。传输事件只包含当前活动媒体的页码、预期文件名、阶段、字节和尝试次数，不发送图片页、临时 CDN URL 或 provider token。管理端使用全局 `SystemJobEvent.id` 通过 `/api/jobs/events` 追赶，在任务页顶部展示唯一活动归档及逐文件槽位；SSE 断线不改变 PostgreSQL 事实源。
 
 ### 归档维护
 

@@ -67,6 +67,7 @@ export async function storeArchiveRemoteMedia(input: {
   maxBytes?: number
   partialKey: string
   onChunk?: (byteLength: number) => void
+  onStreamComplete?: () => void
 }): Promise<StoredArchiveMedia> {
   throwIfAborted(input.signal)
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_MEDIA_BYTES
@@ -117,6 +118,7 @@ export async function storeArchiveRemoteMedia(input: {
       hash.update(buffer)
       await handle.write(buffer)
     }
+    input.onStreamComplete?.()
     await handle.sync()
   } catch (error) {
     input.remote.stream.destroy()

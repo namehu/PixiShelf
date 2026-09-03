@@ -248,6 +248,7 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
   async openMedia(item: ResolvedMedia, context: ArchiveDownloadContext): Promise<RemoteMedia> {
     let html: string
     try {
+      context.onPhase?.('RESOLVING_SOURCE_PAGE')
       html = await runDownloadRequest(context, () =>
         this.http.text(item.sourcePageUrl, {
           ...(context.signal ? { signal: context.signal } : {}),
@@ -284,6 +285,7 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
     }
 
     try {
+      context.onPhase?.('WAITING_MEDIA_RESPONSE')
       const response = await runDownloadStreamRequest(context, async () => {
         const opened = await this.http.request(selectedUrl, {
           ...(context.signal ? { signal: context.signal } : {}),

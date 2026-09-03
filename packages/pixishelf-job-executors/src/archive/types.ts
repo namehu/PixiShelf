@@ -1,4 +1,5 @@
 import type { Readable } from 'node:stream'
+import type { ArchiveTransferItemPhase } from '@pixishelf/job-contracts'
 import type { Prisma, PrismaClient } from '@pixishelf/db'
 import type { ExecutionLogger } from '@pixishelf/job-runtime'
 
@@ -163,6 +164,7 @@ export interface ArchiveUploaderScanResult {
 export interface ArchiveDownloadContext extends ArchiveProviderContext {
   quality: ArchiveQuality
   maxConcurrentDownloads?: number
+  onPhase?(phase: Extract<ArchiveTransferItemPhase, 'RESOLVING_SOURCE_PAGE' | 'WAITING_MEDIA_RESPONSE'>): void
   runDownloadRequest?<T>(operation: () => Promise<T>): Promise<T>
   runDownloadStreamRequest?<T extends { stream: Readable }>(operation: () => Promise<T>): Promise<T>
 }

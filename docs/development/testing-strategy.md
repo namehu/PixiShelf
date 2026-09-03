@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 的测试分层、变更验证矩阵、CI 实际覆盖和已知质量缺口
-last-verified: 2026-09-01
+last-verified: 2026-09-03
 sources:
   - package.json
   - packages/*/package.json
@@ -144,7 +144,7 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 - `RECONCILE` 只物化子任务，回收/恢复/永久清理在 writer lane 中根目录受限、可重入并最终 fenced；
 - 30 天保留任务只删除收件、终态上传者扫描、已完成批量记录和过期预览，不删除上传者来源/游标、领域实体、任务与媒体。
 - 归档媒体设置默认值和 1/8 边界，执行态保存冲突，以及 advisory lock 下“先保存/先启动”的两个顺序；恢复与重试读取新值，运行中执行保持冻结值；
-- Executor 活动流与 Provider permit 不超过同一冻结上限，失败流从有效字节扣除且重试不重复累计；实时事件两秒限频不吞普通阶段、警告和终态；
+- Executor 活动 worker、活动传输流与 Provider permit 不超过同一冻结上限，失败流从有效字节扣除且重试不重复累计；逐文件实时遥测覆盖解析图片页、等待响应、下载和校验写入，不得携带远端 URL 或凭据；实时事件两秒限频不吞普通阶段、警告和终态；
 - 通用 SSE 的 Session、脱敏、响应头、心跳、游标追赶/reset、断连清理与数据库异常，以及 admin 单连接、500 条上限、过滤和归档断线轮询回退。
 
 ## 测试文件组织

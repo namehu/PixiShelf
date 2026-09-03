@@ -1,7 +1,7 @@
 ---
 status: current
 scope: URL 归档收件箱、持久解析、批量入队、任务控制、维护与保留策略
-last-verified: 2026-09-02
+last-verified: 2026-09-03
 sources:
   - packages/pixishelf/app/admin/archive/
   - packages/pixishelf/server/routers/archive-inbox.ts
@@ -23,10 +23,10 @@ sources:
 
 ## 页面与用户流程
 
-| 页面                   | 职责                                                         |
-| ---------------------- | ------------------------------------------------------------ |
+| 页面                   | 职责                                                                         |
+| ---------------------- | ---------------------------------------------------------------------------- |
 | `/admin/archive/inbox` | 批量追加 URL、管理上传者来源、查看 FIFO 解析状态、修正、重试、取消与批量入队 |
-| `/admin/archive`       | 服务端分页和筛选归档任务、查看明细、单项及当前页批量控制     |
+| `/admin/archive`       | 服务端分页和筛选归档任务、查看明细、单项及当前页批量控制                     |
 
 “添加链接”弹窗每次接受最多 100 行；服务端重新校验 URL、幂等键和活动收件容量。活动收件项目最多 1000 个。创建 submission 后请求立即返回，远端解析不占用浏览器或 Next.js 长连接。
 
@@ -56,10 +56,10 @@ sources:
 
 生产只有一个 `pixishelf-worker` 容器和进程，但它运行两个异步 Dispatcher loop：
 
-| Lane                | 允许任务                     | 固定并发 |
-| ------------------- | ---------------------------- | -------- |
+| Lane                | 允许任务                                        | 固定并发 |
+| ------------------- | ----------------------------------------------- | -------- |
 | `ARCHIVE_RESOLVE`   | `ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN` | 1        |
-| `BACKGROUND_WRITER` | 其余 25 类任务，包括归档下载 | 1        |
+| `BACKGROUND_WRITER` | 其余 25 类任务，包括归档下载                    | 1        |
 
 两个 lane 可以各推进一个任务；同一 lane 内不能并行。网络、数据库、文件流、Sharp/libvips 与 FFmpeg 子进程在等待时让出 Node.js 事件循环，因此链接解析可以在一个 writer 工作期间继续。该模型不承诺纯 JavaScript CPU 并行，也不开放 lane 并发。单个归档作品内部的媒体流并发可在系统设置中选择 1–8，并在每次启动、恢复或重试时冻结；运行中不能修改。
 
@@ -85,7 +85,7 @@ type/version 组合，并同时校验 job type、definition version 和 lane。R
 
 默认启用的 `archive_intake_retention_cleanup` 页面默认显示时间是 `02:15`，同样按中央统一窗口和优先级执行。终态收件项目、已完成批量操作、已完成/失败/取消的上传者扫描记录、无项目的旧 submission 和过期 `ArchivePreviewSession` 保留 30 天后分批清理。上传者来源身份和游标长期保留。该任务只删除操作历史和冻结预览，不删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision`、`Image` 或任何媒体文件。
 
-归档任务页通过 admin layout 中唯一的通用 Worker SSE 连接接收生命周期与 `archive.transfer@v1` 遥测。速度由 Worker 在媒体流写盘时累计 chunk 长度并按最近 5 秒采样，不保存 chunk、也不回读磁盘。SSE 正常时列表只做 30/60 秒一致性校准，图片明细在计数或状态变化时定向刷新；连接异常自动回退原有高频轮询。
+归档任务页通过 admin layout 中唯一的通用 Worker SSE 连接接收生命周期与 `archive.transfer@v1` 遥测。速度由 Worker 在媒体流写盘时累计 chunk 长度并按最近 5 秒采样，不保存 chunk、也不回读磁盘。遥测还携带当前最多 8 个媒体 worker 的页码、预期文件名、尝试次数、阶段、已接收字节和可用时的 `Content-Length`，不携带图片页、CDN 地址或 provider token。页面在通道状态下方只为当前 `ARCHIVE_IMPORT` 展示聚合进度和逐文件活动槽位；历史任务行只保留稳定总进度，完整图片历史仍从 PostgreSQL 分页读取。SSE 正常时列表只做 30/60 秒一致性校准，图片明细在计数或状态变化时定向刷新；连接异常自动回退原有高频轮询。
 
 ## 权限与敏感数据
 

@@ -20,7 +20,6 @@ import {
   MoreHorizontal,
   RefreshCw,
   RotateCcw,
-  Search,
   Square,
   Trash2
 } from 'lucide-react'
@@ -40,20 +39,19 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
-import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
+import { ActiveArchiveDownloadPanel } from './archive-active-download-panel'
 import { ArchiveAddDialog } from './archive-add-dialog'
 import { ArchiveBulkResultDialog } from './archive-bulk-result-dialog'
 import { ArchiveItemDrawer } from './archive-item-drawer'
 import { ArchivePublishedMediaPreview } from './archive-published-media-preview'
 import { ArchiveSubmissionBadge } from './archive-submission-badge'
+import { TaskFiltersForm, hasTaskFilters, normalizeTaskFilters, type TaskFilters } from './archive-task-filters'
 import { useArchiveLiveEvents } from './archive-live-events'
 import { ArchiveImageCounts, TaskProgress } from './archive-task-progress'
 import {
@@ -76,19 +74,17 @@ import {
   type ArchiveTaskBulkAction,
   type ArchiveTaskCursorState
 } from './archive-task-view-state'
-export { ArchiveImageCounts, ArchiveTransferStatus } from './archive-task-progress'
+export { ArchiveImageCounts } from './archive-task-progress'
 const PAGE_SIZE = 50
 const ACTIVE_STATUSES = new Set(['PENDING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING'])
+const LIVE_ARCHIVE_STATUSES = new Set(['RUNNING', 'PAUSING', 'CANCELLING'])
 const EMPTY_TASK_IDS = new Set<string>()
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type ArchiveTaskOutput = RouterOutputs['archive']['listTasks']['items'][number]
 type ArchiveTaskView = ArchiveTaskOutput & {
   liveTransfer?: ArchiveTransferTelemetry | null
-  liveNow?: number
 }
 type ArchiveBulkOperation = NonNullable<RouterOutputs['archive']['actionMany']>
-type ArchiveTaskStatus = 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
-type ArchiveTaskKind = 'NEW' | 'UPDATE'
 type SingleTaskAction =
   | ArchiveTaskBulkAction
   | 'USE_DISPLAY_QUALITY'
@@ -96,13 +92,6 @@ type SingleTaskAction =
   | 'DELETE_ARCHIVE'
   | 'RESTORE_ARCHIVE'
 
-interface TaskFilters {
-  status: ArchiveTaskStatus | 'ALL'
-  providerKey: string
-  kind: ArchiveTaskKind | 'ALL'
-  submissionId: string
-  search: string
-}
 interface ArchivePublishedMediaTaskLike {
   publishedArtwork?: {
     archiveLifecycleState?: string | null
@@ -115,6 +104,26 @@ export function canExpandArchivePublishedMedia(task: ArchivePublishedMediaTaskLi
       task.publishedArtwork.archiveLifecycleState === 'ACTIVE' &&
       task.publishedArtwork.deletedAt === null
   )
+}
+
+export function archiveImportIdFromPayload(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const archiveImportId = (value as { archiveImportId?: unknown }).archiveImportId
+  return typeof archiveImportId === 'string' && archiveImportId.length > 0 ? archiveImportId : null
+}
+
+export function selectActiveArchiveImportId(input: {
+  dashboardLoaded: boolean
+  dashboardArchiveImportId: string | null
+  liveArchiveImportId: string | null
+  realtimeConnected: boolean
+}): string | null {
+  if (input.dashboardLoaded) return input.dashboardArchiveImportId
+  return input.realtimeConnected ? input.liveArchiveImportId : null
+}
+
+export function isActiveArchiveDownloadStatus(status: string): boolean {
+  return LIVE_ARCHIVE_STATUSES.has(status)
 }
 
 const EMPTY_FILTERS: TaskFilters = {
@@ -188,10 +197,42 @@ export function ArchiveManagement() {
       }
     })
   )
+  const liveTransferEntry = useMemo(
+    () => [...liveJobById.values()].find((value) => value.transfer !== null) ?? null,
+    [liveJobById]
+  )
+  const writerRunningJob = dashboardQuery.data?.lanes.find(
+    (lane) => lane.executionLane === 'BACKGROUND_WRITER'
+  )?.runningJob
+  const writerLiveStatus = writerRunningJob ? liveJobById.get(writerRunningJob.id)?.item.job.status : undefined
+  const authoritativeWriterStatus = realtimeConnected
+    ? (writerLiveStatus ?? writerRunningJob?.status)
+    : writerRunningJob?.status
+  const dashboardArchiveImportId =
+    writerRunningJob?.type === 'ARCHIVE_IMPORT' &&
+    authoritativeWriterStatus &&
+    isActiveArchiveDownloadStatus(authoritativeWriterStatus)
+      ? archiveImportIdFromPayload(writerRunningJob.payload)
+      : null
+  const activeArchiveImportId = selectActiveArchiveImportId({
+    dashboardLoaded: dashboardQuery.data !== undefined,
+    dashboardArchiveImportId,
+    liveArchiveImportId: liveTransferEntry?.transfer?.archiveImportId ?? null,
+    realtimeConnected
+  })
+  const activeTaskQuery = useQuery(
+    trpc.archive.listTasks.queryOptions(
+      { taskId: activeArchiveImportId ?? undefined, limit: 1 },
+      {
+        enabled: Boolean(activeArchiveImportId),
+        refetchInterval: realtimeConnected ? false : 1_500
+      }
+    )
+  )
   const tasks = useMemo<ArchiveTaskView[]>(
     () =>
       (tasksQuery.data?.items ?? []).map((task) => {
-        const live = liveJobById.get(task.systemJobId)
+        const live = realtimeConnected ? liveJobById.get(task.systemJobId) : undefined
         const transfer = live?.transfer ?? null
         return {
           ...task,
@@ -210,12 +251,45 @@ export function ArchiveManagement() {
                 totalItems: transfer.totalItems
               }
             : {}),
-          liveTransfer: transfer,
-          liveNow
+          liveTransfer: transfer
         }
       }),
-    [liveJobById, liveNow, tasksQuery.data?.items]
+    [liveJobById, realtimeConnected, tasksQuery.data?.items]
   )
+  const activeTask = useMemo<ArchiveTaskView | null>(() => {
+    if (!activeArchiveImportId) return null
+    const queriedTask = activeTaskQuery.data?.items[0]
+    const task =
+      (queriedTask?.id === activeArchiveImportId ? queriedTask : null) ??
+      tasks.find((candidate) => candidate.id === activeArchiveImportId)
+    if (!task) return null
+    const cachedLive = liveJobById.get(task.systemJobId)
+    const live = realtimeConnected ? cachedLive : undefined
+    const authoritativeStatus = live?.item.job.status ?? task.systemJobStatus
+    if (!isActiveArchiveDownloadStatus(authoritativeStatus)) return null
+    const transfer =
+      cachedLive?.transfer ??
+      (task.id === liveTransferEntry?.transfer?.archiveImportId ? liveTransferEntry.transfer : null)
+    return {
+      ...task,
+      ...(live
+        ? {
+            progress: live.item.job.progress,
+            message: live.item.job.message,
+            systemJobStatus: live.item.job.status,
+            attempt: live.item.job.attempt
+          }
+        : {}),
+      ...(transfer
+        ? {
+            completedItems: transfer.completedItems,
+            failedItems: transfer.failedItems,
+            totalItems: transfer.totalItems
+          }
+        : {}),
+      liveTransfer: transfer
+    }
+  }, [activeArchiveImportId, activeTaskQuery.data?.items, liveJobById, liveTransferEntry, realtimeConnected, tasks])
   const currentPageIds = useMemo(() => tasks.map((task) => task.id), [tasks])
   const selectionState = currentPageSelectionState(selectedTaskIds, currentPageIds)
   const toggleTaskExpanded = (taskId: string) => {
@@ -354,6 +428,26 @@ export function ArchiveManagement() {
       </div>
 
       <WorkerLaneStrip dashboard={dashboardQuery.data} loading={dashboardQuery.isLoading} />
+
+      {activeTask && (
+        <ActiveArchiveDownloadPanel
+          task={activeTask}
+          now={liveNow}
+          pausePending={pendingSingleActions.has(singleActionKey(activeTask.id, 'PAUSE'))}
+          cancelPending={pendingSingleActions.has(singleActionKey(activeTask.id, 'CANCEL'))}
+          onViewItems={() => setDetailTask(activeTask)}
+          onPause={() =>
+            requestSingleTaskAction(activeTask, 'PAUSE', (action) =>
+              singleActionMutation.mutate({ taskId: activeTask.id, action })
+            )
+          }
+          onCancel={() =>
+            requestSingleTaskAction(activeTask, 'CANCEL', (action) =>
+              singleActionMutation.mutate({ taskId: activeTask.id, action })
+            )
+          }
+        />
+      )}
 
       {requestedTaskId &&
       (deepLinkedTaskQuery.isError ||
@@ -613,121 +707,6 @@ export function WorkerLaneStrip({
 function LaneStatusBadge({ status }: { status: 'READY' | 'RUNNING' | 'DRAINING' | 'ERROR' }) {
   if (status === 'DRAINING') return <Badge variant="warning">{archiveLaneStatusLabel(status)}</Badge>
   return <AdminStatusBadge status={status}>{archiveLaneStatusLabel(status)}</AdminStatusBadge>
-}
-
-function TaskFiltersForm({
-  value,
-  appliedValue,
-  onChange,
-  onImmediateChange,
-  onSubmit,
-  onReset
-}: {
-  value: TaskFilters
-  appliedValue: TaskFilters
-  onChange: (value: TaskFilters) => void
-  onImmediateChange: (patch: Partial<TaskFilters>) => void
-  onSubmit: () => void
-  onReset: () => void
-}) {
-  const dirty = JSON.stringify(value) !== JSON.stringify(appliedValue)
-  return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault()
-        onSubmit()
-      }}
-    >
-      <FieldGroup className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[10rem_10rem_12rem_minmax(12rem,1fr)_minmax(14rem,1.5fr)_auto]">
-        <Field>
-          <FieldLabel htmlFor="archive-task-status">状态</FieldLabel>
-          <Select
-            value={value.status}
-            onValueChange={(status) => onImmediateChange({ status: status as TaskFilters['status'] })}
-          >
-            <SelectTrigger id="archive-task-status" className="w-full">
-              <SelectValue placeholder="全部状态" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="ALL">全部状态</SelectItem>
-                <SelectItem value="PENDING">排队中</SelectItem>
-                <SelectItem value="RUNNING">下载中</SelectItem>
-                <SelectItem value="PAUSED">已暂停</SelectItem>
-                <SelectItem value="CANCELLING">正在取消</SelectItem>
-                <SelectItem value="COMPLETED">已发布</SelectItem>
-                <SelectItem value="FAILED">失败</SelectItem>
-                <SelectItem value="CANCELLED">已取消</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="archive-task-kind">归档类型</FieldLabel>
-          <Select value={value.kind} onValueChange={(kind) => onImmediateChange({ kind: kind as TaskFilters['kind'] })}>
-            <SelectTrigger id="archive-task-kind" className="w-full">
-              <SelectValue placeholder="全部类型" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="ALL">全部类型</SelectItem>
-                <SelectItem value="NEW">首次归档</SelectItem>
-                <SelectItem value="UPDATE">更新归档</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="archive-task-provider">Provider</FieldLabel>
-          <Input
-            id="archive-task-provider"
-            name="archive-task-provider"
-            value={value.providerKey}
-            onChange={(event) => onChange({ ...value, providerKey: event.target.value })}
-            placeholder="如 e-hentai…"
-            autoComplete="off"
-            maxLength={50}
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="archive-task-submission">本次加入 ID</FieldLabel>
-          <Input
-            id="archive-task-submission"
-            name="archive-task-submission"
-            value={value.submissionId}
-            onChange={(event) => onChange({ ...value, submissionId: event.target.value })}
-            placeholder="精确匹配本次加入 ID…"
-            autoComplete="off"
-            maxLength={128}
-          />
-        </Field>
-        <Field>
-          <FieldLabel htmlFor="archive-task-search">标题或来源</FieldLabel>
-          <Input
-            id="archive-task-search"
-            name="archive-task-search"
-            value={value.search}
-            onChange={(event) => onChange({ ...value, search: event.target.value })}
-            placeholder="搜索标题、作品 ID 或来源…"
-            autoComplete="off"
-            maxLength={500}
-          />
-        </Field>
-        <Field className="justify-end">
-          <FieldLabel className="sr-only">筛选操作</FieldLabel>
-          <div className="flex gap-2">
-            <Button type="submit" size="sm" disabled={!dirty}>
-              <Search data-icon="inline-start" aria-hidden="true" />
-              筛选
-            </Button>
-            <Button type="button" variant="ghost" size="sm" disabled={!hasTaskFilters(value)} onClick={onReset}>
-              清除
-            </Button>
-          </div>
-        </Field>
-      </FieldGroup>
-    </form>
-  )
 }
 
 export function ArchiveTaskTable({
@@ -1170,23 +1149,6 @@ function toggleTaskSelection(current: ReadonlySet<string>, taskId: string, check
 
 function singleActionKey(taskId: string, action: SingleTaskAction): string {
   return `${taskId}:${action}`
-}
-
-function normalizeTaskFilters(value: TaskFilters): TaskFilters {
-  return {
-    ...value,
-    providerKey: value.providerKey.trim(),
-    submissionId: value.submissionId.trim(),
-    search: value.search.trim()
-  }
-}
-
-function hasTaskFilters(value: TaskFilters): boolean {
-  return (
-    value.status !== 'ALL' ||
-    value.kind !== 'ALL' ||
-    Boolean(value.providerKey.trim() || value.submissionId.trim() || value.search.trim())
-  )
 }
 
 function createIdempotencyKey(prefix: string): string {

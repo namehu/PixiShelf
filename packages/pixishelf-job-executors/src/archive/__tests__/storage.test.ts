@@ -50,6 +50,7 @@ describe('archive executor storage safety', () => {
       'base64'
     )
     const onChunk = vi.fn()
+    const onStreamComplete = vi.fn()
 
     const stored = await storeArchiveRemoteMedia({
       remote: {
@@ -65,10 +66,13 @@ describe('archive executor storage safety', () => {
       expectedFilename: 'one.png',
       signal: new AbortController().signal,
       partialKey: 'attempt-1',
-      onChunk
+      onChunk,
+      onStreamComplete
     })
 
     expect(onChunk.mock.calls.map(([byteLength]) => byteLength)).toEqual([20, image.length - 20])
+    expect(onStreamComplete).toHaveBeenCalledOnce()
+    expect(onChunk.mock.invocationCallOrder.at(-1)).toBeLessThan(onStreamComplete.mock.invocationCallOrder[0]!)
     expect(stored.byteCount).toBe(BigInt(image.length))
   })
 
