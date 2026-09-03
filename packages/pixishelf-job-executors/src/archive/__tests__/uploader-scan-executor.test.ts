@@ -9,7 +9,7 @@ import type {
 } from '@pixishelf/job-runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { ArchiveExecutorError } from '../errors.js'
-import { hashArchiveUploaderDiscoveryMetadata } from '../providers/e-hentai.js'
+import { createArchiveUploaderComparisonSnapshot, hashArchiveUploaderDiscoveryMetadata } from '../providers/e-hentai.js'
 import { executeArchiveUploaderScan } from '../uploader-scan-executor.js'
 import type { ArchiveUploaderProvider, ArchiveUploaderScanResult } from '../types.js'
 
@@ -39,6 +39,7 @@ const scanResult: ArchiveUploaderScanResult = {
       uploaderName: 'alice',
       postedAt: null,
       metadataFingerprint: 'a'.repeat(64),
+      comparisonSnapshot: createArchiveUploaderComparisonSnapshot({ ...discovery, gid: '300' })!,
       normalizedMetadata: { ...discovery, gid: '300' },
       relationships: []
     },
@@ -51,6 +52,7 @@ const scanResult: ArchiveUploaderScanResult = {
       uploaderName: 'alice',
       postedAt: null,
       metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(discovery)!,
+      comparisonSnapshot: createArchiveUploaderComparisonSnapshot(discovery)!,
       normalizedMetadata: discovery,
       relationships: []
     }
@@ -78,7 +80,41 @@ describe('archive uploader scan executor', () => {
       incrementalHeadExternalId: null,
       displayName: 'alice'
     })
+    expect(fixture.runUpdates.at(-1)).toMatchObject({ stopReason: 'LIMIT_REACHED' })
+    expect(fixture.catalogUpserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          create: expect.objectContaining({
+            sourceId: 'source-1',
+            externalId: '200',
+            classification: 'ARCHIVED',
+            comparisonKnown: true,
+            comparisonSnapshot: createArchiveUploaderComparisonSnapshot(discovery),
+            comparisonFingerprint: hashArchiveUploaderDiscoveryMetadata(discovery),
+            firstSeenAt: new Date('2026-09-02T04:00:00.000Z'),
+            lastSeenAt: new Date('2026-09-02T04:00:00.000Z'),
+            lastScanRunId: 'scan-run-1'
+          })
+        })
+      ])
+    )
   })
+
+  it.each([
+    { reachedStop: true, nextCursor: null, expected: 'WATERMARK_REACHED' },
+    { reachedStop: false, nextCursor: null, expected: 'REMOTE_END' }
+  ])(
+    'persists $expected when the provider completes at that boundary',
+    async ({ reachedStop, nextCursor, expected }) => {
+      const fixture = createFixture({
+        scanUploader: vi.fn(async () => ({ ...scanResult, reachedStop, nextCursor }))
+      })
+
+      await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+      expect(fixture.runUpdates.at(-1)).toMatchObject({ status: 'COMPLETED', stopReason: expected })
+    }
+  )
 
   it('keeps every cursor unchanged when a recoverable provider failure schedules a retry', async () => {
     const fixture = createFixture({
@@ -113,6 +149,7 @@ describe('archive uploader scan executor', () => {
           uploaderName: 'alice',
           postedAt: null,
           metadataFingerprint: 'b'.repeat(64),
+          comparisonSnapshot: createArchiveUploaderComparisonSnapshot({ ...discovery, gid: '100' })!,
           normalizedMetadata: { ...discovery, gid: '100' },
           relationships: [
             {
@@ -143,6 +180,7 @@ describe('archive uploader scan executor', () => {
       scanUploader: vi.fn(async () => scanResult),
       activeIntake: [
         {
+          id: 'intake-300',
           externalId: null,
           submittedUrl: 'https://e-hentai.org/g/300/token300/',
           canonicalUrl: null
@@ -165,16 +203,122 @@ describe('archive uploader scan executor', () => {
         })
       })
     )
+    expect(fixture.catalogUpserts).toContainEqual(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          externalId: '300',
+          classification: 'NEW',
+          lastIntakeItemId: 'intake-300'
+        })
+      })
+    )
+  })
+
+  it('keeps a stable update recommendation while linking the active import observed by the scan', async () => {
+    const updatedMetadata = { ...discovery, fileCount: 2 }
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => ({
+        ...scanResult,
+        items: [
+          {
+            ...scanResult.items[1]!,
+            metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(updatedMetadata)!,
+            comparisonSnapshot: createArchiveUploaderComparisonSnapshot(updatedMetadata)!,
+            normalizedMetadata: updatedMetadata
+          }
+        ]
+      })),
+      activeImports: [{ id: 'import-200', externalId: '200' }]
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.createdItems).toEqual([expect.objectContaining({ classification: 'ACTIVE' })])
+    expect(fixture.catalogUpserts).toEqual([
+      expect.objectContaining({
+        update: expect.objectContaining({
+          classification: 'POSSIBLE_UPDATE',
+          changeReasons: [{ field: 'fileCount', message: '页数 1 → 2' }]
+        }),
+        create: expect.objectContaining({ lastArchiveImportId: 'import-200', lastOutcome: 'SUBMITTED' })
+      })
+    ])
+    expect(fixture.catalogWorkflowUpdates).toContainEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({ lastArchiveImportId: 'import-200', lastOutcome: 'SUBMITTED' })
+      })
+    )
+  })
+
+  it('keeps an archived gallery archived when its historical snapshot is not comparable', async () => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => scanResult),
+      storedNormalizedMetadata: { gid: '200', titles: discovery.titles }
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.createdItems).toContainEqual(
+      expect.objectContaining({ externalId: '200', classification: 'ARCHIVED' })
+    )
+    expect(fixture.catalogUpserts).toContainEqual(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          externalId: '200',
+          classification: 'ARCHIVED',
+          comparisonKnown: false,
+          changeReasons: []
+        })
+      })
+    )
+  })
+
+  it('persists an explainable stable-metadata change for a possible update', async () => {
+    const updatedMetadata = { ...discovery, fileCount: 2 }
+    const updatedResult: ArchiveUploaderScanResult = {
+      ...scanResult,
+      items: [
+        {
+          ...scanResult.items[1]!,
+          metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(updatedMetadata)!,
+          comparisonSnapshot: createArchiveUploaderComparisonSnapshot(updatedMetadata)!,
+          normalizedMetadata: updatedMetadata
+        }
+      ]
+    }
+    const fixture = createFixture({ scanUploader: vi.fn(async () => updatedResult) })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.createdItems).toEqual([expect.objectContaining({ classification: 'POSSIBLE_UPDATE' })])
+    expect(fixture.catalogUpserts[0]).toEqual(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          classification: 'POSSIBLE_UPDATE',
+          comparisonKnown: true,
+          changeReasons: [{ field: 'fileCount', message: '页数 1 → 2' }]
+        })
+      })
+    )
   })
 })
 
 function createFixture(input: {
   scanUploader: ArchiveUploaderProvider['scanUploader']
-  activeIntake?: Array<{ externalId: string | null; submittedUrl: string; canonicalUrl: string | null }>
+  activeIntake?: Array<{
+    id: string
+    externalId: string | null
+    submittedUrl: string
+    canonicalUrl: string | null
+  }>
+  activeImports?: Array<{ id: string; externalId: string }>
+  storedNormalizedMetadata?: unknown
 }) {
   const runUpdates: Array<Record<string, unknown>> = []
   const sourceUpdates: Array<Record<string, unknown>> = []
   const createdItems: Array<Record<string, unknown>> = []
+  const catalogUpserts: Array<Record<string, unknown>> = []
+  const catalogWorkflowUpdates: Array<Record<string, unknown>> = []
   let finalOutcome: unknown = null
   const run = {
     id: 'scan-run-1',
@@ -193,7 +337,7 @@ function createFixture(input: {
       incrementalHeadExternalId: null
     }
   }
-  const activeIntakeQuery = vi.fn(async () => input.activeIntake ?? [])
+  const activeIntakeQuery = vi.fn(async (_args?: unknown) => input.activeIntake ?? [])
   const transaction = {
     archiveUploaderScanRun: {
       findUnique: vi.fn(async () => run),
@@ -219,10 +363,62 @@ function createFixture(input: {
         return { count: data.length }
       })
     },
-    archiveIntakeItem: { findMany: activeIntakeQuery },
-    archiveImport: { findMany: vi.fn(async () => []) },
+    archiveUploaderCatalogItem: {
+      findMany: vi.fn(async () => []),
+      upsert: vi.fn(async (args: Record<string, unknown>) => {
+        catalogUpserts.push(args)
+        return { id: `catalog-${catalogUpserts.length}` }
+      }),
+      updateMany: vi.fn(async (args: Record<string, unknown>) => {
+        catalogWorkflowUpdates.push(args)
+        return { count: 1 }
+      })
+    },
+    archiveIntakeItem: {
+      findMany: vi.fn(async (...args: unknown[]) => {
+        await activeIntakeQuery(args[0])
+        return (input.activeIntake ?? []).map((item) => ({
+          ...item,
+          status: 'QUEUED' as const,
+          finishedAt: null,
+          updatedAt: new Date('2026-09-02T03:30:00.000Z'),
+          createdAt: new Date('2026-09-02T03:00:00.000Z'),
+          errorCode: null,
+          errorMessage: null
+        }))
+      })
+    },
+    archiveImport: {
+      findMany: vi.fn(async () =>
+        (input.activeImports ?? []).map((item) => ({
+          ...item,
+          status: 'RUNNING' as const,
+          canonicalUrl: `https://e-hentai.org/g/${item.externalId}/token${item.externalId}/`,
+          finishedAt: null,
+          updatedAt: new Date('2026-09-02T03:45:00.000Z'),
+          createdAt: new Date('2026-09-02T03:15:00.000Z'),
+          errorCode: null,
+          errorMessage: null
+        }))
+      )
+    },
     artworkExternalRef: {
-      findMany: vi.fn(async () => [{ externalId: '200', snapshots: [{ normalizedMetadata: discovery }] }])
+      findMany: vi.fn(async () => [
+        {
+          id: 'reference-200',
+          externalId: '200',
+          lastSuccessAt: new Date('2026-09-02T02:00:00.000Z'),
+          updatedAt: new Date('2026-09-02T02:00:00.000Z'),
+          createdAt: new Date('2026-09-02T02:00:00.000Z'),
+          snapshots: [
+            {
+              normalizedMetadata: Object.hasOwn(input, 'storedNormalizedMetadata')
+                ? input.storedNormalizedMetadata
+                : discovery
+            }
+          ]
+        }
+      ])
     },
     $queryRawUnsafe: vi.fn(),
     $executeRawUnsafe: vi.fn()
@@ -290,6 +486,8 @@ function createFixture(input: {
     runUpdates,
     sourceUpdates,
     createdItems,
+    catalogUpserts,
+    catalogWorkflowUpdates,
     activeIntakeQuery,
     get finalOutcome() {
       return finalOutcome

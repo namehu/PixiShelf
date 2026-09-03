@@ -47,6 +47,7 @@ describe('archive resolver executor', () => {
       resolvedTitle: 'Resolved title',
       pageCount: 1
     })
+    expect(fixture.catalogUpdates.at(-1)).toMatchObject({ lastOutcome: 'SUBMITTED', lastErrorCode: null })
   })
 
   it('marks a different URL resolving to an existing intake identity as DUPLICATE', async () => {
@@ -63,6 +64,7 @@ describe('archive resolver executor', () => {
       resolutionKind: 'DUPLICATE_IDENTITY',
       duplicateOfItemId: 'intake-existing'
     })
+    expect(fixture.catalogUpdates.at(-1)).toMatchObject({ lastOutcome: 'DUPLICATE', lastErrorCode: null })
   })
 
   it('classifies an already active archive import without creating another task', async () => {
@@ -175,6 +177,36 @@ describe('archive resolver executor', () => {
 
     expect(fixture.finalOutcome).toEqual({ kind: 'cancelled' })
     expect(fixture.intakeUpdates.at(-1)).toMatchObject({ status: 'CANCELLED' })
+    expect(fixture.catalogUpdates.at(-1)).toMatchObject({
+      lastOutcome: 'CANCELLED',
+      lastErrorCode: 'CANCELLED'
+    })
+  })
+
+  it('persists a terminal resolver failure across linked and canonical catalog workflows', async () => {
+    const fixture = createFixture({
+      jobAttempt: 3,
+      jobMaxAttempts: 3,
+      providerResolve: vi.fn(async () => {
+        throw new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'Broken provider response')
+      })
+    })
+
+    await executeArchiveResolveItem(fixture.context, fixture.dependencies)
+
+    expect(fixture.finalOutcome).toMatchObject({ kind: 'failed' })
+    expect(fixture.catalogUpdates).toEqual([
+      expect.objectContaining({
+        lastOutcome: 'FAILED',
+        lastErrorCode: 'REMOTE_RESPONSE_INVALID',
+        lastErrorMessage: 'Broken provider response'
+      })
+    ])
+    expect(fixture.catalogWhere).toEqual([
+      {
+        OR: [{ lastIntakeItemId: 'intake-1' }, { canonicalUrl: 'https://example.test/g/gallery-1' }]
+      }
+    ])
   })
 })
 
@@ -187,6 +219,8 @@ function createFixture(input: {
   activeArchiveImportId?: string
 }) {
   const intakeUpdates: Array<Record<string, unknown>> = []
+  const catalogUpdates: Array<Record<string, unknown>> = []
+  const catalogWhere: Array<Record<string, unknown>> = []
   let retrySql = ''
   let finalOutcome: unknown = null
   const transaction = {
@@ -196,11 +230,24 @@ function createFixture(input: {
         return { count: 1 }
       }),
       findUniqueOrThrow: vi.fn(async () => ({ submittedUrl: 'https://example.test/g/gallery-1' })),
+      findUnique: vi.fn(async () => ({
+        providerKey: 'test',
+        externalId: 'gallery-1',
+        submittedUrl: 'https://example.test/g/gallery-1',
+        canonicalUrl: 'https://example.test/g/gallery-1'
+      })),
       findFirst: vi.fn(async () => (input.duplicateItemId ? { id: input.duplicateItemId } : null))
     },
     artworkExternalRef: { findUnique: vi.fn(async () => null) },
     archiveImport: {
       findFirst: vi.fn(async () => (input.activeArchiveImportId ? { id: input.activeArchiveImportId } : null))
+    },
+    archiveUploaderCatalogItem: {
+      updateMany: vi.fn(async ({ where, data }: { where: Record<string, unknown>; data: Record<string, unknown> }) => {
+        catalogWhere.push(where)
+        catalogUpdates.push(data)
+        return { count: 1 }
+      })
     },
     $queryRawUnsafe: vi.fn(async (query: string) => {
       retrySql = query
@@ -265,6 +312,8 @@ function createFixture(input: {
       now: () => new Date('2026-08-18T10:00:00.000Z')
     },
     intakeUpdates,
+    catalogUpdates,
+    catalogWhere,
     get retrySql() {
       return retrySql
     },

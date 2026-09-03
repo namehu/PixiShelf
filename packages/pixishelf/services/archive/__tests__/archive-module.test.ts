@@ -15,6 +15,7 @@ const { prismaMock, writeJobEventMock } = vi.hoisted(() => {
       updateMany: vi.fn()
     },
     archiveImportItem: { findFirst: vi.fn(), findMany: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn() },
+    archiveUploaderCatalogItem: { updateMany: vi.fn() },
     archivePreviewSession: { deleteMany: vi.fn(), create: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
     systemJob: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     jobResourceLease: { deleteMany: vi.fn() },
@@ -44,6 +45,7 @@ describe('archive module', () => {
     prismaMock.archivePreviewSession.deleteMany.mockResolvedValue({ count: 0 })
     prismaMock.systemJob.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.archiveImport.updateMany.mockResolvedValue({ count: 1 })
+    prismaMock.archiveUploaderCatalogItem.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.artwork.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.$queryRawUnsafe.mockResolvedValue([])
   })
@@ -57,6 +59,9 @@ describe('archive module', () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     const task = {
       id: 'import-central',
+      providerKey: 'test-provider',
+      externalId: 'gallery-1',
+      canonicalUrl: 'https://example.test/g/gallery-1',
       systemJobId: 'job-central',
       status: 'PENDING',
       cleanupRequestedAt: null,
@@ -83,6 +88,19 @@ describe('archive module', () => {
     expect(prismaMock.archiveImport.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED', finishedAt: expect.any(Date) }) })
     )
+    expect(prismaMock.archiveUploaderCatalogItem.updateMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { lastArchiveImportId: 'import-central' },
+          { providerKey: 'test-provider', externalId: 'gallery-1' }
+        ]
+      },
+      data: expect.objectContaining({
+        lastArchiveImportId: 'import-central',
+        lastOutcome: 'CANCELLED',
+        lastErrorCode: 'CANCELLED'
+      })
+    })
     expect(writeJobEventMock).toHaveBeenCalledWith(
       prismaMock,
       expect.objectContaining({ jobId: 'job-central', type: 'job.cancelled' })
@@ -93,6 +111,9 @@ describe('archive module', () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     const task = {
       id: 'import-drifted',
+      providerKey: 'test-provider',
+      externalId: 'gallery-1',
+      canonicalUrl: 'https://example.test/g/gallery-1',
       systemJobId: 'job-paused',
       status: 'RUNNING',
       cleanupRequestedAt: null,
@@ -143,6 +164,9 @@ describe('archive module', () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     const task = {
       id: 'import-central',
+      providerKey: 'test-provider',
+      externalId: 'gallery-1',
+      canonicalUrl: 'https://example.test/g/gallery-1',
       systemJobId: 'job-failed',
       status: 'FAILED',
       cleanupRequestedAt: null,
@@ -184,6 +208,20 @@ describe('archive module', () => {
     expect(prismaMock.archiveImport.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ systemJobId: retryJobId, status: 'PENDING' }) })
     )
+    expect(prismaMock.archiveUploaderCatalogItem.updateMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { lastArchiveImportId: 'import-central' },
+          { providerKey: 'test-provider', externalId: 'gallery-1' }
+        ]
+      },
+      data: expect.objectContaining({
+        lastArchiveImportId: 'import-central',
+        lastOutcome: 'SUBMITTED',
+        lastErrorCode: null,
+        lastErrorMessage: null
+      })
+    })
     expect(writeJobEventMock).toHaveBeenCalledTimes(2)
   })
 

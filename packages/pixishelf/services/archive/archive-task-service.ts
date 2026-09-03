@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import {
   ARCHIVE_IMPORT_DEFINITION_VERSION,
-  archiveImportV2PayloadSchema
+  ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+  archiveImportV2PayloadSchema,
+  archiveUploaderIdentityLockKey,
+  archiveUploaderUrlLockKey
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { z } from 'zod'
@@ -170,6 +173,7 @@ async function applyTaskAction(
     include: { systemJob: true }
   })
   if (!task) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '归档任务不存在' }
+  await lockUploaderCatalogImport(transaction, task)
   if (task.cleanupRequestedAt) {
     return { result: 'CONFLICT', code: 'CLEANUP_IN_PROGRESS', message: '归档任务正在清理暂存文件' }
   }
@@ -221,6 +225,18 @@ async function applyTaskAction(
       }
     })
     if (changed.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变')
+    await transaction.archiveUploaderCatalogItem.updateMany({
+      where: {
+        OR: [{ lastArchiveImportId: task.id }, { providerKey: task.providerKey, externalId: task.externalId }]
+      },
+      data: {
+        lastArchiveImportId: task.id,
+        lastOutcome: 'SUBMITTED',
+        lastOutcomeAt: timestamp,
+        lastErrorCode: null,
+        lastErrorMessage: null
+      }
+    })
     await writeJobEvent(transaction, {
       jobId: task.systemJobId,
       type: 'job.retry_scheduled',
@@ -323,6 +339,20 @@ async function applyTaskAction(
     }
   })
   if (changed.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变')
+  if (action === 'CANCEL' && direct) {
+    await transaction.archiveUploaderCatalogItem.updateMany({
+      where: {
+        OR: [{ lastArchiveImportId: task.id }, { providerKey: task.providerKey, externalId: task.externalId }]
+      },
+      data: {
+        lastArchiveImportId: task.id,
+        lastOutcome: 'CANCELLED',
+        lastOutcomeAt: timestamp,
+        lastErrorCode: 'CANCELLED',
+        lastErrorMessage: 'Archive import cancelled before execution'
+      }
+    })
+  }
   await writeJobEvent(transaction, {
     jobId: task.systemJobId,
     type:
@@ -378,6 +408,25 @@ function resetArchiveImportItem(): Prisma.ArchiveImportItemUpdateManyMutationInp
 
 function taskProgress(completed: number, total: number): number {
   return Math.max(1, Math.min(95, Math.round((completed / Math.max(total, 1)) * 90) + 5))
+}
+
+async function lockUploaderCatalogImport(
+  transaction: {
+    $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>
+  },
+  archiveImport: { providerKey: string; externalId: string; canonicalUrl: string }
+) {
+  const keys = [
+    archiveUploaderIdentityLockKey(archiveImport.providerKey, archiveImport.externalId),
+    archiveUploaderUrlLockKey(archiveImport.canonicalUrl)
+  ].sort()
+  for (const key of keys) {
+    await transaction.$queryRawUnsafe(
+      'SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))::text AS "lock"',
+      ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+      key
+    )
+  }
 }
 
 function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWhereInput) {

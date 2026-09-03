@@ -35,6 +35,8 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     const archiveImportIds = submissions.flatMap((submission) =>
       submission.items.flatMap((item) => (item.archiveImportId ? [item.archiveImportId] : []))
     )
+    await database.archiveUploaderCatalogItem.deleteMany({ where: { id: { startsWith: suitePrefix } } })
+    await database.archiveUploaderSource.deleteMany({ where: { id: { startsWith: suitePrefix } } })
     await database.archiveBulkOperation.deleteMany({ where: { requestedByUserId } })
     await database.archiveIntakeSubmission.deleteMany({ where: { requestedByUserId } })
     if (archiveImportIds.length > 0) {
@@ -470,6 +472,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       { database, validateUrl }
     )
     const itemId = created.items[0]!.id
+    const catalogId = await seedCatalogItem(itemId, 'cancel', new Date('2026-08-18T00:00:00.000Z'))
     const input = { idempotencyKey: `${suitePrefix}-cancel-bulk`, itemIds: [itemId, `${suitePrefix}-missing`] }
     const [first, concurrent] = await Promise.all([
       cancelArchiveIntakeMany(input, requestedByUserId, {
@@ -508,6 +511,12 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       select: { type: true }
     })
     expect(cancelEvents).toEqual([{ type: 'job.cancel_requested' }, { type: 'job.cancelled' }])
+    await expect(
+      database.archiveUploaderCatalogItem.findUniqueOrThrow({
+        where: { id: catalogId },
+        select: { lastOutcome: true, lastOutcomeAt: true, lastErrorCode: true }
+      })
+    ).resolves.toEqual({ lastOutcome: 'CANCELLED', lastOutcomeAt: completedAt, lastErrorCode: 'CANCELLED' })
   })
 
   it('keeps a running resolver cancellation at requested without a terminal event', async () => {
@@ -584,6 +593,8 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       },
       include: { items: { orderBy: { queueOrder: 'asc' } } }
     })
+    const activeCatalogId = await seedCatalogItem(readyItems.items[0]!.id, 'active-identity', now)
+    const newCatalogId = await seedCatalogItem(readyItems.items[1]!.id, 'new-identity', now)
     await database.archiveIntakeItem.update({
       where: { id: readyItems.items[1]!.id },
       data: { resolutionKind: 'UNCHANGED' }
@@ -624,6 +635,18 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       definitionVersion: 2,
       payload: { archiveImportId: createdImport.id, defaultTagIds: [2, 9] }
     })
+    await expect(
+      database.archiveUploaderCatalogItem.findMany({
+        where: { id: { in: [activeCatalogId, newCatalogId] } },
+        orderBy: { id: 'asc' },
+        select: { id: true, lastArchiveImportId: true, lastOutcome: true, lastErrorCode: true }
+      })
+    ).resolves.toEqual(
+      [
+        { id: activeCatalogId, lastArchiveImportId: activeImportId, lastOutcome: 'SUBMITTED', lastErrorCode: null },
+        { id: newCatalogId, lastArchiveImportId: createdImport.id, lastOutcome: 'SUBMITTED', lastErrorCode: null }
+      ].sort((left, right) => left.id.localeCompare(right.id))
+    )
     await expect(
       database.archiveIntakeItem.findUniqueOrThrow({ where: { id: readyItems.items[0]!.id } })
     ).resolves.toMatchObject({
@@ -970,6 +993,40 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     }
   })
 })
+
+async function seedCatalogItem(intakeItemId: string, externalId: string, timestamp: Date) {
+  const sourceId = `${suitePrefix}-source-${randomUUID()}`
+  const catalogId = `${suitePrefix}-catalog-${randomUUID()}`
+  await database.archiveUploaderSource.create({
+    data: {
+      id: sourceId,
+      providerKey: 'test-provider',
+      identityKind: 'UID',
+      identityValue: randomUUID(),
+      normalizedIdentity: randomUUID(),
+      displayName: 'Intake lifecycle source'
+    }
+  })
+  await database.archiveUploaderCatalogItem.create({
+    data: {
+      id: catalogId,
+      sourceId,
+      providerKey: 'test-provider',
+      externalId,
+      canonicalUrl: `https://e-hentai.org/g/${externalId}/private-token/`,
+      title: `Gallery ${externalId}`,
+      relationships: [],
+      classification: 'NEW',
+      comparisonKnown: true,
+      firstSeenAt: timestamp,
+      lastSeenAt: timestamp,
+      lastIntakeItemId: intakeItemId,
+      lastOutcome: 'SUBMITTED',
+      lastOutcomeAt: timestamp
+    }
+  })
+  return catalogId
+}
 
 function readyItemData(externalId: string, now: Date): Prisma.ArchiveIntakeItemCreateWithoutSubmissionInput {
   const resolved = resolvedArchive(externalId)

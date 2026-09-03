@@ -18,6 +18,9 @@ describePostgres('archive task PostgreSQL contracts', () => {
   afterEach(async () => {
     vi.unstubAllEnvs()
     await database.archiveBulkOperation.deleteMany({ where: { requestedByUserId } })
+    await database.archiveUploaderSource.deleteMany({
+      where: { normalizedIdentity: { startsWith: suitePrefix } }
+    })
     const jobs = await database.systemJob.findMany({ where: { requestedByUserId }, select: { id: true } })
     if (jobs.length > 0) {
       await database.archiveImport.deleteMany({ where: { systemJobId: { in: jobs.map((job) => job.id) } } })
@@ -143,6 +146,97 @@ describePostgres('archive task PostgreSQL contracts', () => {
       maxAttempts: 5
     })
     expect(bulkState.items).toEqual([expect.objectContaining({ status: 'PENDING', attempts: 0, errorCode: null })])
+  })
+
+  it('propagates bulk direct cancellation to every uploader catalog source for the same provider identity', async () => {
+    const task = await seedTask('catalog-bulk-cancel', 'PENDING', 'PENDING')
+    await seedCatalogCopies(task.importId, 'catalog-bulk-cancel', 'SUBMITTED')
+    const cancelledAt = new Date('2026-08-18T01:30:00.000Z')
+
+    const operation = await actionArchiveTasksMany(
+      {
+        idempotencyKey: `${suitePrefix}-catalog-bulk-cancel-operation`,
+        taskIds: [task.importId],
+        action: 'CANCEL'
+      },
+      requestedByUserId,
+      { database, now: () => cancelledAt }
+    )
+
+    expect(operation?.items).toEqual([
+      expect.objectContaining({ targetId: task.importId, result: 'APPLIED', relatedId: task.jobId })
+    ])
+    await expect(
+      database.archiveUploaderCatalogItem.findMany({
+        where: { providerKey: 'archive-task-test-provider', externalId: 'catalog-bulk-cancel' },
+        orderBy: { sourceId: 'asc' },
+        select: {
+          lastArchiveImportId: true,
+          lastOutcome: true,
+          lastOutcomeAt: true,
+          lastErrorCode: true
+        }
+      })
+    ).resolves.toEqual([
+      {
+        lastArchiveImportId: task.importId,
+        lastOutcome: 'CANCELLED',
+        lastOutcomeAt: cancelledAt,
+        lastErrorCode: 'CANCELLED'
+      },
+      {
+        lastArchiveImportId: task.importId,
+        lastOutcome: 'CANCELLED',
+        lastOutcomeAt: cancelledAt,
+        lastErrorCode: 'CANCELLED'
+      }
+    ])
+  })
+
+  it('resets every matching uploader catalog terminal summary when bulk retry is accepted', async () => {
+    const task = await seedTask('catalog-bulk-retry', 'FAILED', 'FAILED')
+    await seedCatalogCopies(task.importId, 'catalog-bulk-retry', 'FAILED')
+    const retriedAt = new Date('2026-08-18T01:45:00.000Z')
+
+    const operation = await actionArchiveTasksMany(
+      {
+        idempotencyKey: `${suitePrefix}-catalog-bulk-retry-operation`,
+        taskIds: [task.importId],
+        action: 'RETRY'
+      },
+      requestedByUserId,
+      { database, now: () => retriedAt, uuid: randomUUID }
+    )
+
+    expect(operation?.items[0]).toMatchObject({ targetId: task.importId, result: 'APPLIED' })
+    await expect(
+      database.archiveUploaderCatalogItem.findMany({
+        where: { providerKey: 'archive-task-test-provider', externalId: 'catalog-bulk-retry' },
+        orderBy: { sourceId: 'asc' },
+        select: {
+          lastArchiveImportId: true,
+          lastOutcome: true,
+          lastOutcomeAt: true,
+          lastErrorCode: true,
+          lastErrorMessage: true
+        }
+      })
+    ).resolves.toEqual([
+      {
+        lastArchiveImportId: task.importId,
+        lastOutcome: 'SUBMITTED',
+        lastOutcomeAt: retriedAt,
+        lastErrorCode: null,
+        lastErrorMessage: null
+      },
+      {
+        lastArchiveImportId: task.importId,
+        lastOutcome: 'SUBMITTED',
+        lastOutcomeAt: retriedAt,
+        lastErrorCode: null,
+        lastErrorMessage: null
+      }
+    ])
   })
 
   it('applies eligible targets, skips ineligible targets, and audits both independently', async () => {
@@ -674,6 +768,42 @@ async function seedTask(
     }
   })
   return { jobId, importId }
+}
+
+async function seedCatalogCopies(
+  archiveImportId: string,
+  externalId: string,
+  outcome: 'SUBMITTED' | 'FAILED' | 'CANCELLED'
+) {
+  for (const sourceSuffix of ['a', 'b']) {
+    await database.archiveUploaderSource.create({
+      data: {
+        providerKey: 'archive-task-test-provider',
+        identityKind: 'NAME',
+        identityValue: `${suitePrefix}-${externalId}-${sourceSuffix}`,
+        normalizedIdentity: `${suitePrefix}-${externalId}-${sourceSuffix}`,
+        displayName: `Catalog source ${sourceSuffix}`,
+        catalogItems: {
+          create: {
+            providerKey: 'archive-task-test-provider',
+            externalId,
+            canonicalUrl: `https://e-hentai.org/g/${externalId}/private-token/`,
+            title: `Catalog ${externalId}`,
+            relationships: [],
+            classification: 'NEW',
+            firstSeenAt: new Date('2026-08-17T00:00:00.000Z'),
+            lastSeenAt: new Date('2026-08-17T00:00:00.000Z'),
+            lastArchiveImportId: archiveImportId,
+            lastOutcome: outcome,
+            lastOutcomeAt: new Date('2026-08-17T01:00:00.000Z'),
+            ...(outcome === 'FAILED'
+              ? { lastErrorCode: 'REMOTE_RESPONSE_INVALID', lastErrorMessage: 'Previous failure' }
+              : {})
+          }
+        }
+      }
+    })
+  }
 }
 
 function projectControlState(task: { status: string; systemJob: { status: string }; failedItems: number }) {

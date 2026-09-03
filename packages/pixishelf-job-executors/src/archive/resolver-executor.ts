@@ -16,6 +16,7 @@ import type {
 import { toArchiveExecutorError } from './errors.ts'
 import { hashResolvedMetadata } from './providers/e-hentai.ts'
 import type { ArchiveProviderRegistry, ResolvedArchive } from './types.ts'
+import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts'
 
 const SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1_000
 const MAX_RETRY_DELAY_MS = 30_000
@@ -83,15 +84,22 @@ export async function executeArchiveResolveItem(
   if (!item) {
     return context.finalizeInTransaction<ResolveTransaction>(async (scope) => {
       if (scope.controlStatus === 'CANCEL_REQUESTED') {
+        const cancelledAt = now()
         const cancelled = await scope.transaction.archiveIntakeItem.updateMany({
           where: {
             id: context.payload.intakeItemId,
             currentSystemJobId: context.job.id,
             status: { in: ['QUEUED', 'RESOLVING', 'RETRY_WAIT'] }
           },
-          data: { status: 'CANCELLED', finishedAt: now(), retryable: false }
+          data: { status: 'CANCELLED', finishedAt: cancelledAt, retryable: false }
         })
         if (cancelled.count !== 1) throw new Error('Archive intake item changed before cancellation finalization')
+        await updateCatalogForIntake(scope.transaction, context.payload.intakeItemId, {
+          lastOutcome: 'CANCELLED',
+          lastOutcomeAt: cancelledAt,
+          lastErrorCode: 'CANCELLED',
+          lastErrorMessage: 'Archive resolution cancelled before provider execution'
+        })
         await scope.cancel('Archive resolution cancelled before provider execution')
         return
       }
@@ -112,7 +120,7 @@ export async function executeArchiveResolveItem(
   } catch (error) {
     const classified = toArchiveExecutorError(error)
     return context.finalizeInTransaction<ResolveTransaction>((scope) =>
-      finalizeResolutionError(scope, context, classified, now(), dependencies.random ?? Math.random)
+      finalizeResolutionError(scope, context, classified, now(), dependencies.random ?? Math.random, item.submittedUrl)
     )
   }
 }
@@ -125,7 +133,10 @@ async function finalizeResolved(
   resolvedAt: Date
 ) {
   if (scope.controlStatus === 'CANCEL_REQUESTED') {
-    await markCancelled(scope.transaction, context.payload.intakeItemId, context.job.id, resolvedAt)
+    await markCancelled(scope.transaction, context.payload.intakeItemId, context.job.id, resolvedAt, {
+      providerKey: resolved.providerKey,
+      externalId: resolved.externalId
+    })
     await scope.cancel('Archive resolution cancelled')
     return
   }
@@ -189,6 +200,17 @@ async function finalizeResolved(
       }
     })
     if (changed.count !== 1) throw new Error('Archive intake item changed before duplicate finalization')
+    await updateCatalogForIntake(
+      scope.transaction,
+      context.payload.intakeItemId,
+      {
+        lastOutcome: 'DUPLICATE',
+        lastOutcomeAt: resolvedAt,
+        lastErrorCode: null,
+        lastErrorMessage: null
+      },
+      { providerKey: resolved.providerKey, externalId: resolved.externalId }
+    )
     await scope.complete({ result: { intakeItemId: context.payload.intakeItemId, status: 'DUPLICATE' } })
     return
   }
@@ -233,6 +255,17 @@ async function finalizeResolved(
     }
   })
   if (changed.count !== 1) throw new Error('Archive intake item changed before resolution finalization')
+  await updateCatalogForIntake(
+    scope.transaction,
+    context.payload.intakeItemId,
+    {
+      lastOutcome: 'SUBMITTED',
+      lastOutcomeAt: resolvedAt,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    },
+    { providerKey: resolved.providerKey, externalId: resolved.externalId }
+  )
   await scope.complete({
     result: { intakeItemId: context.payload.intakeItemId, resolutionKind },
     message: `Archive intake item resolved as ${resolutionKind}`
@@ -244,10 +277,13 @@ async function finalizeResolutionError(
   context: ResolveContext,
   error: ReturnType<typeof toArchiveExecutorError>,
   failedAt: Date,
-  random: () => number
+  random: () => number,
+  submittedUrl: string
 ) {
   if (scope.controlStatus === 'CANCEL_REQUESTED') {
-    await markCancelled(scope.transaction, context.payload.intakeItemId, context.job.id, failedAt)
+    await markCancelled(scope.transaction, context.payload.intakeItemId, context.job.id, failedAt, {
+      canonicalUrl: submittedUrl
+    })
     await scope.cancel('Archive resolution cancelled')
     return
   }
@@ -307,6 +343,17 @@ async function finalizeResolutionError(
     }
   })
   if (changed.count !== 1) throw new Error('Archive intake item changed before failure finalization')
+  await updateCatalogForIntake(
+    scope.transaction,
+    context.payload.intakeItemId,
+    {
+      lastOutcome: 'FAILED',
+      lastOutcomeAt: failedAt,
+      lastErrorCode: error.code,
+      lastErrorMessage: error.message
+    },
+    { canonicalUrl: submittedUrl }
+  )
   await scope.fail({
     errorCode: mapJobErrorCode(error.code),
     error: error.message,
@@ -353,13 +400,58 @@ async function markCancelled(
   transaction: ResolveTransaction,
   intakeItemId: string,
   systemJobId: string,
-  cancelledAt: Date
+  cancelledAt: Date,
+  identity?: { providerKey?: string; externalId?: string; canonicalUrl?: string }
 ) {
   const changed = await transaction.archiveIntakeItem.updateMany({
     where: { id: intakeItemId, currentSystemJobId: systemJobId, status: 'RESOLVING' },
     data: { status: 'CANCELLED', finishedAt: cancelledAt, retryable: false }
   })
   if (changed.count !== 1) throw new Error('Archive intake item changed before cancellation finalization')
+  await updateCatalogForIntake(
+    transaction,
+    intakeItemId,
+    {
+      lastOutcome: 'CANCELLED',
+      lastOutcomeAt: cancelledAt,
+      lastErrorCode: 'CANCELLED',
+      lastErrorMessage: 'Archive resolution cancelled'
+    },
+    identity
+  )
+}
+
+async function updateCatalogForIntake(
+  transaction: ResolveTransaction,
+  intakeItemId: string,
+  data: {
+    lastOutcome: 'SUBMITTED' | 'FAILED' | 'CANCELLED' | 'DUPLICATE'
+    lastOutcomeAt: Date
+    lastErrorCode: string | null
+    lastErrorMessage: string | null
+  },
+  identity?: { providerKey?: string; externalId?: string; canonicalUrl?: string }
+) {
+  const intake = await transaction.archiveIntakeItem.findUnique({
+    where: { id: intakeItemId },
+    select: { providerKey: true, externalId: true, submittedUrl: true, canonicalUrl: true }
+  })
+  await lockArchiveUploaderCatalogIdentities(transaction, [
+    {
+      providerKey: identity?.providerKey ?? intake?.providerKey,
+      externalId: identity?.externalId ?? intake?.externalId,
+      canonicalUrls: [identity?.canonicalUrl, intake?.canonicalUrl, intake?.submittedUrl]
+    }
+  ])
+  const identityFilters: Prisma.ArchiveUploaderCatalogItemWhereInput[] = []
+  if (identity?.providerKey && identity.externalId) {
+    identityFilters.push({ providerKey: identity.providerKey, externalId: identity.externalId })
+  }
+  if (identity?.canonicalUrl) identityFilters.push({ canonicalUrl: identity.canonicalUrl })
+  return transaction.archiveUploaderCatalogItem.updateMany({
+    where: { OR: [{ lastIntakeItemId: intakeItemId }, ...identityFilters] },
+    data: { ...data, lastIntakeItemId: intakeItemId }
+  })
 }
 
 function retryDelayMs(attempt: number, providerDelay: number | null, random: () => number) {

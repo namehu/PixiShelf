@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   addToInbox: vi.fn(),
+  createSubmissionAttempt: vi.fn(),
   cancelScan: vi.fn(),
   ignoreItems: vi.fn(),
   restoreIgnoredItems: vi.fn(),
@@ -21,6 +22,9 @@ const source = {
   latestSeenExternalId: '302',
   hasPendingLatest: false,
   canContinueHistory: true,
+  latestCoverage: 'CURRENT',
+  historyCoverage: 'HAS_MORE',
+  catalogCounts: { actionable: 1, processing: 0, archived: 0, attention: 0, total: 1 },
   lastScanAt: new Date('2026-09-02T11:11:00.000Z'),
   lastSuccessAt: new Date('2026-09-02T11:09:00.000Z'),
   lastErrorCode: null,
@@ -40,6 +44,7 @@ const activeRun = {
   archivedCount: 0,
   possibleUpdateCount: 0,
   replacementCount: 0,
+  stopReason: null,
   startedAt: new Date('2026-09-02T11:11:00.000Z'),
   finishedAt: null,
   errorCode: null,
@@ -68,7 +73,9 @@ const itemsData = {
     {
       items: [
         {
-          id: 'scan-item-1',
+          id: 'catalog-item-1',
+          sourceId: 'source-1',
+          providerKey: 'e-hentai',
           externalId: '302',
           displayUrl: 'https://e-hentai.org/g/302/[redacted]/',
           title: 'Gallery 302',
@@ -76,8 +83,23 @@ const itemsData = {
           uploaderName: 'Uploader',
           postedAt: new Date('2026-09-02T10:30:00.000Z'),
           classification: 'NEW',
-          intakeItemId: null,
-          createdAt: new Date('2026-09-02T11:10:00.000Z')
+          comparisonKnown: true,
+          changeReasons: [],
+          firstSeenAt: new Date('2026-09-02T11:10:00.000Z'),
+          lastSeenAt: new Date('2026-09-02T11:10:00.000Z'),
+          workflowStage: 'NEW',
+          workflowBucket: 'ACTIONABLE',
+          recommendation: 'NEW' as string | null,
+          actionable: true,
+          intakeItemId: null as string | null,
+          intakeStatus: null as string | null,
+          archiveImportId: null as string | null,
+          archiveImportStatus: null as string | null,
+          artworkId: null as number | null,
+          errorCode: null as string | null,
+          errorMessage: null as string | null,
+          recoverable: false,
+          sortAt: new Date('2026-09-02T10:30:00.000Z')
         }
       ],
       nextCursor: null
@@ -104,15 +126,17 @@ const ignoredItemsData = {
     }
   ]
 }
+let currentDetailData = detailData
+let currentItemsData = itemsData
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries, setQueriesData: mocks.setQueriesData }),
   useQuery: (options: { kind?: string }) =>
     options.kind === 'sources'
       ? { data: sourcesData, isPending: false, isError: false }
-      : { data: detailData, isPending: false, isError: false },
+      : { data: currentDetailData, isPending: false, isError: false },
   useInfiniteQuery: (options: { kind?: string }) => ({
-    data: options.kind === 'ignored' ? ignoredItemsData : itemsData,
+    data: options.kind === 'ignored' ? ignoredItemsData : currentItemsData,
     isLoading: false,
     isError: false,
     hasNextPage: false,
@@ -128,32 +152,33 @@ vi.mock('@tanstack/react-query', () => ({
     mutate:
       options.kind === 'cancel'
         ? mocks.cancelScan
-        : options.kind === 'add'
-          ? mocks.addToInbox
-          : options.kind === 'ignore'
-            ? (variables: { sourceId: string; itemIds: string[] }) => {
-                mocks.ignoreItems(variables)
-                void options.onSuccess?.(
-                  {
-                    ignoredItemIds: ['ignored-item-new'],
-                    ignoredCount: variables.itemIds.length,
-                    createdCount: variables.itemIds.length,
-                    reusedCount: 0
-                  },
-                  variables
-                )
-              }
-            : options.kind === 'restore'
-              ? (variables: { ignoredItemIds: string[] }) => {
-                  mocks.restoreIgnoredItems(variables)
-                  void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
+        : options.kind === 'prepare'
+          ? (variables: { sourceId: string; itemIds: string[] }) => {
+              mocks.createSubmissionAttempt(variables)
+              void options.onSuccess?.({ submissionAttemptId: '00000000-0000-4000-8000-000000000001' }, variables)
+            }
+          : options.kind === 'add'
+            ? mocks.addToInbox
+            : options.kind === 'ignore'
+              ? (variables: { sourceId: string; itemIds: string[] }) => {
+                  mocks.ignoreItems(variables)
+                  void options.onSuccess?.(
+                    {
+                      ignoredItemIds: ['ignored-item-new'],
+                      ignoredCount: variables.itemIds.length,
+                      createdCount: variables.itemIds.length,
+                      reusedCount: 0
+                    },
+                    variables
+                  )
                 }
-              : vi.fn()
+              : options.kind === 'restore'
+                ? (variables: { ignoredItemIds: string[] }) => {
+                    mocks.restoreIgnoredItems(variables)
+                    void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
+                  }
+                : vi.fn()
   })
-}))
-
-vi.mock('@/lib/browser-uuid', () => ({
-  createBrowserUuid: () => '8d434276-8e67-4ea5-b586-0b8afcdfc3b7'
 }))
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -180,6 +205,7 @@ vi.mock('@/lib/trpc', () => ({
       triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
       cancelScan: { mutationOptions: () => ({ kind: 'cancel' }) },
       setArchived: { mutationOptions: () => ({ kind: 'archive' }) },
+      createSubmissionAttempt: { mutationOptions: (options: object) => ({ kind: 'prepare', ...options }) },
       addToInbox: { mutationOptions: () => ({ kind: 'add' }) },
       ignoreItems: { mutationOptions: (options: object) => ({ kind: 'ignore', ...options }) },
       restoreIgnoredItems: { mutationOptions: (options: object) => ({ kind: 'restore', ...options }) },
@@ -201,6 +227,8 @@ describe('ArchiveUploaderSources', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    currentDetailData = detailData
+    currentItemsData = itemsData
     useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
   })
 
@@ -214,14 +242,45 @@ describe('ArchiveUploaderSources', () => {
   it('renders one aggregated virtual result feed instead of scan-run tabs', () => {
     render(<ArchiveUploaderSources />)
 
-    expect(screen.getByRole('heading', { level: 2, name: '发现结果' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2, name: '待处理' })).toBeTruthy()
     expect(screen.getByText('Gallery 302')).toBeTruthy()
-    expect(screen.getByText(/按画廊汇总最近 30 天的完成扫描并去重/)).toBeTruthy()
+    expect(screen.getByText(/尚未处理，或本地版本与当前公开信息存在稳定差异/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /2026.*已完成/ })).toBeNull()
     expect(mocks.infiniteQueryOptions).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceId: 'source-1', limit: 50 }),
+      expect.objectContaining({ sourceId: 'source-1', view: 'ACTIONABLE', limit: 50 }),
       expect.objectContaining({ initialCursor: null })
     )
+    expect(screen.getByText('最新：已追到上次水位')).toBeTruthy()
+    expect(screen.getAllByText(/仍有更早内容/).length).toBeGreaterThan(0)
+  })
+
+  it('keeps the durable catalog visible after retained scan runs have been cleaned up', () => {
+    currentDetailData = { source, runs: [] }
+
+    render(<ArchiveUploaderSources />)
+
+    expect(screen.getByText('Gallery 302')).toBeTruthy()
+    expect(screen.queryByText('尚无扫描记录')).toBeNull()
+  })
+
+  it('forces one final catalog refresh when processing reaches a terminal state', async () => {
+    currentDetailData = {
+      source: { ...source, catalogCounts: { ...source.catalogCounts, actionable: 0, processing: 1 } },
+      runs: [completedRun]
+    }
+    const rendered = render(<ArchiveUploaderSources />)
+    await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalled())
+    mocks.invalidateQueries.mockClear()
+
+    currentDetailData = {
+      source: { ...source, catalogCounts: { ...source.catalogCounts, actionable: 0, processing: 0, archived: 1 } },
+      runs: [completedRun]
+    }
+    rendered.rerender(<ArchiveUploaderSources />)
+
+    await waitFor(() => {
+      expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+    })
   })
 
   it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
@@ -238,16 +297,62 @@ describe('ArchiveUploaderSources', () => {
     )
   })
 
-  it('submits selected discoveries with a browser-compatible attempt id', () => {
+  it('submits selected catalog items without generating persistence ids in the browser', () => {
     render(<ArchiveUploaderSources />)
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
     fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
 
+    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1']
+    })
     expect(mocks.addToInbox).toHaveBeenCalledWith({
       sourceId: 'source-1',
-      submissionAttemptId: '8d434276-8e67-4ea5-b586-0b8afcdfc3b7',
-      itemIds: ['scan-item-1']
+      itemIds: ['catalog-item-1'],
+      submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+    })
+  })
+
+  it('can recreate an inbox item after terminal intake history was cleaned up', () => {
+    const archivedItem = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          items: [
+            {
+              ...archivedItem,
+              workflowStage: 'CANCELLED',
+              workflowBucket: 'ATTENTION',
+              recommendation: null,
+              actionable: false,
+              intakeItemId: null,
+              intakeStatus: null,
+              errorCode: 'CANCELLED',
+              errorMessage: 'Archive intake cancelled',
+              recoverable: true
+            }
+          ],
+          nextCursor: null
+        }
+      ]
+    }
+    currentDetailData = {
+      source: { ...source, catalogCounts: { actionable: 0, processing: 0, archived: 0, attention: 1, total: 1 } },
+      runs: [completedRun]
+    }
+    render(<ArchiveUploaderSources />)
+    fireEvent.click(screen.getByLabelText('查看异常'))
+    fireEvent.click(screen.getByRole('button', { name: '重新加入收件箱 Gallery 302' }))
+
+    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1']
+    })
+    expect(mocks.addToInbox).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1'],
+      submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
   })
 
@@ -255,7 +360,7 @@ describe('ArchiveUploaderSources', () => {
     render(<ArchiveUploaderSources />)
 
     fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
-    expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['scan-item-1'] })
+    expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['catalog-item-1'] })
     await waitFor(() => {
       expect(mocks.setQueriesData).toHaveBeenCalledWith({ queryKey: ['items-infinite'] }, expect.any(Function))
       expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
@@ -266,7 +371,7 @@ describe('ArchiveUploaderSources', () => {
     )?.[1] as (data: typeof itemsData) => typeof itemsData
     expect(removeItems(itemsData).pages[0]?.items).toEqual([])
 
-    fireEvent.click(screen.getByLabelText('查看全局已忽略画廊'))
+    fireEvent.click(screen.getByLabelText('查看全局已忽略'))
     expect(screen.getByRole('heading', { level: 2, name: '全局已忽略' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
     expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] })

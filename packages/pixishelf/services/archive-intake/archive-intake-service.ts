@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { archiveResolveItemPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+  archiveResolveItemPayloadSchema,
+  archiveUploaderIdentityLockKey,
+  archiveUploaderUrlLockKey,
+  JOB_DEFINITION_VERSION
+} from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -623,6 +629,7 @@ async function cancelIntakeItem(
     include: { currentSystemJob: true }
   })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
+  await lockUploaderCatalogItem(transaction, item)
   if (item.status === 'CANCELLED') return { result: 'REUSED', relatedId: item.id, message: '收件项目已取消' }
   if (!['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'].includes(item.status)) {
     return { result: 'SKIPPED', code: 'INVALID_STATE', message: `状态 ${item.status} 不允许取消` }
@@ -677,6 +684,24 @@ async function cancelIntakeItem(
       : { status: 'CANCELLED', cancelRequestedAt: timestamp, finishedAt: timestamp, retryable: false }
   })
   if (changedItem.count !== 1) throw new ArchiveError('STATE_CONFLICT', '收件项目状态已改变')
+  if (!running) {
+    const identityFilters: Prisma.ArchiveUploaderCatalogItemWhereInput[] = []
+    if (item.providerKey && item.externalId) {
+      identityFilters.push({ providerKey: item.providerKey, externalId: item.externalId })
+    }
+    if (item.canonicalUrl) identityFilters.push({ canonicalUrl: item.canonicalUrl })
+    identityFilters.push({ canonicalUrl: item.submittedUrl })
+    await transaction.archiveUploaderCatalogItem.updateMany({
+      where: { OR: [{ lastIntakeItemId: item.id }, ...identityFilters] },
+      data: {
+        lastIntakeItemId: item.id,
+        lastOutcome: 'CANCELLED',
+        lastOutcomeAt: timestamp,
+        lastErrorCode: 'CANCELLED',
+        lastErrorMessage: 'Archive intake cancelled'
+      }
+    })
+  }
   return { result: 'APPLIED', relatedId: item.id }
 }
 
@@ -692,6 +717,7 @@ async function retryIntakeItem(
     include: { currentSystemJob: true }
   })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
+  await lockUploaderCatalogItem(transaction, item)
   const retryStatus = effectiveStatus(item, timestamp)
   // READY 的过期快照在查询层已被映射为 STALE，所以重试分支需要基于快照状态判断。
   if (!['FAILED', 'CANCELLED', 'STALE'].includes(retryStatus)) {
@@ -766,6 +792,22 @@ async function retryIntakeItem(
     RETURNING "id"
   `)
   if (changed.length !== 1) throw new ArchiveError('STATE_CONFLICT', '收件项目状态已改变')
+  const identityFilters: Prisma.ArchiveUploaderCatalogItemWhereInput[] = []
+  if (item.providerKey && item.externalId) {
+    identityFilters.push({ providerKey: item.providerKey, externalId: item.externalId })
+  }
+  if (item.canonicalUrl) identityFilters.push({ canonicalUrl: item.canonicalUrl })
+  identityFilters.push({ canonicalUrl: item.submittedUrl })
+  await transaction.archiveUploaderCatalogItem.updateMany({
+    where: { OR: [{ lastIntakeItemId: item.id }, ...identityFilters] },
+    data: {
+      lastIntakeItemId: item.id,
+      lastOutcome: 'SUBMITTED',
+      lastOutcomeAt: timestamp,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }
+  })
   await writeJobEvent(transaction, {
     jobId,
     type: 'job.queued',
@@ -979,6 +1021,29 @@ async function lockKey(transaction: Prisma.TransactionClient, namespace: number,
   await transaction.$queryRaw(
     Prisma.sql`SELECT pg_advisory_xact_lock(${namespace}::integer, hashtext(${value}::text))::text AS "lock"`
   )
+}
+
+async function lockUploaderCatalogItem(
+  transaction: Prisma.TransactionClient,
+  item: {
+    providerKey: string | null
+    externalId: string | null
+    submittedUrl: string
+    canonicalUrl: string | null
+  }
+) {
+  const keys = [
+    ...new Set([
+      ...(item.providerKey && item.externalId
+        ? [archiveUploaderIdentityLockKey(item.providerKey, item.externalId)]
+        : []),
+      archiveUploaderUrlLockKey(item.submittedUrl),
+      ...(item.canonicalUrl ? [archiveUploaderUrlLockKey(item.canonicalUrl)] : [])
+    ])
+  ].sort()
+  for (const key of keys) {
+    await lockKey(transaction, ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE, key)
+  }
 }
 
 function isUniqueConstraintError(error: unknown) {

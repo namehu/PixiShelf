@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   setArchived: vi.fn(),
   triggerScan: vi.fn(),
   cancelScan: vi.fn(),
+  createSubmissionAttempt: vi.fn(),
   addToInbox: vi.fn(),
   ignoreItems: vi.fn(),
   restoreIgnoredItems: vi.fn()
@@ -26,6 +27,7 @@ vi.mock('@/services/archive-uploader/archive-uploader-service', async (importOri
   setArchiveUploaderSourceArchived: mocks.setArchived,
   triggerArchiveUploaderScan: mocks.triggerScan,
   cancelArchiveUploaderScan: mocks.cancelScan,
+  createArchiveUploaderSubmissionAttempt: mocks.createSubmissionAttempt,
   addArchiveUploaderScanItems: mocks.addToInbox,
   ignoreArchiveUploaderScanItems: mocks.ignoreItems,
   restoreArchiveUploaderIgnoredItems: mocks.restoreIgnoredItems
@@ -76,12 +78,20 @@ describe('archive uploader authorization boundary', () => {
       service: mocks.cancelScan
     },
     {
+      name: 'createSubmissionAttempt',
+      invoke: () =>
+        archiveUploaderRouter
+          .createCaller(unauthorized)
+          .createSubmissionAttempt({ sourceId: 'source-1', itemIds: ['item-1'] }),
+      service: mocks.createSubmissionAttempt
+    },
+    {
       name: 'addToInbox',
       invoke: () =>
         archiveUploaderRouter.createCaller(unauthorized).addToInbox({
           sourceId: 'source-1',
-          submissionAttemptId: '00000000-0000-4000-8000-000000000001',
-          itemIds: ['item-1']
+          itemIds: ['item-1'],
+          submissionAttemptId: '00000000-0000-4000-8000-000000000001'
         }),
       service: mocks.addToInbox
     },
@@ -124,16 +134,22 @@ describe('archive uploader authorization boundary', () => {
   it('passes the authenticated user id only to writes that record an actor', async () => {
     mocks.triggerScan.mockResolvedValue({ id: 'run-1' })
     mocks.cancelScan.mockResolvedValue({ id: 'run-1', status: 'CANCELLING' })
+    mocks.createSubmissionAttempt.mockResolvedValue({
+      submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+    })
     mocks.addToInbox.mockResolvedValue({ id: 'submission-1' })
     mocks.ignoreItems.mockResolvedValue({ ignoredItemIds: ['ignored-1'] })
     mocks.restoreIgnoredItems.mockResolvedValue({ restoredCount: 1 })
 
     await archiveUploaderRouter.createCaller(authorized).triggerScan({ sourceId: 'source-1', mode: 'LATEST' })
     await archiveUploaderRouter.createCaller(authorized).cancelScan({ sourceId: 'source-1', runId: 'run-1' })
+    await archiveUploaderRouter
+      .createCaller(authorized)
+      .createSubmissionAttempt({ sourceId: 'source-1', itemIds: ['item-1'] })
     await archiveUploaderRouter.createCaller(authorized).addToInbox({
       sourceId: 'source-1',
-      submissionAttemptId: '00000000-0000-4000-8000-000000000001',
-      itemIds: ['item-1']
+      itemIds: ['item-1'],
+      submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
     await archiveUploaderRouter.createCaller(authorized).ignoreItems({
       sourceId: 'source-1',
@@ -145,11 +161,12 @@ describe('archive uploader authorization boundary', () => {
 
     expect(mocks.triggerScan).toHaveBeenCalledWith({ sourceId: 'source-1', mode: 'LATEST' }, 'admin-1')
     expect(mocks.cancelScan).toHaveBeenCalledWith({ sourceId: 'source-1', runId: 'run-1' })
+    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['item-1'] })
     expect(mocks.addToInbox).toHaveBeenCalledWith(
       {
         sourceId: 'source-1',
-        submissionAttemptId: '00000000-0000-4000-8000-000000000001',
-        itemIds: ['item-1']
+        itemIds: ['item-1'],
+        submissionAttemptId: '00000000-0000-4000-8000-000000000001'
       },
       'admin-1'
     )

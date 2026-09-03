@@ -3,6 +3,7 @@ import { Prisma } from '@pixishelf/db'
 import { ArchiveExecutorError } from './errors.ts'
 import { normalizeRelativePath, type ArchiveStoragePaths } from './storage.ts'
 import type { ArchiveTransaction } from './types.ts'
+import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts'
 
 const ARCHIVE_PUBLISH_ADVISORY_LOCK_ID = 7_341_902_117
 
@@ -32,6 +33,13 @@ export async function publishArchiveImportInTransaction(
   if (archiveImport.status !== 'RUNNING') {
     throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import is no longer running', { recoverable: true })
   }
+  await lockArchiveUploaderCatalogIdentities(transaction, [
+    {
+      providerKey: archiveImport.providerKey,
+      externalId: archiveImport.externalId,
+      canonicalUrls: [archiveImport.canonicalUrl]
+    }
+  ])
   if (
     archiveImport.items.length !== archiveImport.totalItems ||
     archiveImport.items.some(
@@ -190,6 +198,19 @@ export async function publishArchiveImportInTransaction(
   if (updated.count !== 1) {
     throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import changed during publication', { recoverable: true })
   }
+  await transaction.archiveUploaderCatalogItem.updateMany({
+    where: { providerKey: archiveImport.providerKey, externalId: archiveImport.externalId },
+    data: {
+      classification: 'ARCHIVED',
+      changeReasons: [],
+      comparisonKnown: true,
+      lastArchiveImportId: archiveImport.id,
+      lastOutcome: 'ARCHIVED',
+      lastOutcomeAt: now,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }
+  })
   return { artworkId: artwork.id, revisionId: revision.id, archivePath: paths.finalRelativePath }
 }
 

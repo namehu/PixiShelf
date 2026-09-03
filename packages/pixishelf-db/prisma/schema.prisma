@@ -738,6 +738,7 @@ model ArchiveImport {
   publishedRevision  ArchiveRevision?
   intakeItems        ArchiveIntakeItem[] @relation("ArchiveIntakeEnqueuedImport")
   activeIntakeItems  ArchiveIntakeItem[] @relation("ArchiveIntakeActiveImport")
+  uploaderCatalogItems ArchiveUploaderCatalogItem[] @relation("ArchiveUploaderCatalogImport")
 
   @@index([providerKey, externalId])
   @@index([status, createdAt])
@@ -808,6 +809,7 @@ model ArchiveIntakeItem {
   activeArchiveImport   ArchiveImport?               @relation("ArchiveIntakeActiveImport", fields: [activeArchiveImportId], references: [id], onDelete: SetNull)
   archiveImport         ArchiveImport?               @relation("ArchiveIntakeEnqueuedImport", fields: [archiveImportId], references: [id], onDelete: SetNull)
   uploaderScanItem      ArchiveUploaderScanItem?     @relation("ArchiveUploaderScanIntakeItem")
+  uploaderCatalogItems  ArchiveUploaderCatalogItem[] @relation("ArchiveUploaderCatalogIntakeItem")
 
   @@index([status, queueOrder])
   @@index([submissionId, createdAt])
@@ -863,6 +865,7 @@ model ArchiveUploaderSource {
   createdAt                 DateTime                    @default(now())
   updatedAt                 DateTime                    @updatedAt
   runs                      ArchiveUploaderScanRun[]
+  catalogItems              ArchiveUploaderCatalogItem[]
   ignoredItems              ArchiveUploaderIgnoredItem[] @relation("ArchiveUploaderIgnoredSource")
 
   @@unique([providerKey, identityKind, normalizedIdentity], map: "archive_uploader_sources_provider_identity_key")
@@ -877,6 +880,7 @@ model ArchiveUploaderScanRun {
   systemJobId         String                       @unique(map: "archive_uploader_scan_runs_system_job_key")
   mode                ArchiveUploaderScanMode
   status              ArchiveUploaderScanRunStatus @default(PENDING)
+  stopReason          ArchiveUploaderScanStopReason?
   cursorBefore        String?                      @db.Text
   cursorAfter         String?                      @db.Text
   itemCount           Int                          @default(0)
@@ -894,6 +898,7 @@ model ArchiveUploaderScanRun {
   source              ArchiveUploaderSource        @relation(fields: [sourceId], references: [id], onDelete: Cascade, map: "archive_uploader_scan_runs_source_fkey")
   systemJob           SystemJob                    @relation(fields: [systemJobId], references: [id], onDelete: Cascade, map: "archive_uploader_scan_runs_system_job_fkey")
   items               ArchiveUploaderScanItem[]
+  catalogItems        ArchiveUploaderCatalogItem[] @relation("ArchiveUploaderCatalogLastScanRun")
 
   @@index([sourceId, createdAt(sort: Desc)], map: "archive_uploader_scan_runs_source_created_idx")
   @@index([status, createdAt], map: "archive_uploader_scan_runs_status_created_idx")
@@ -943,6 +948,49 @@ model ArchiveUploaderIgnoredItem {
   @@index([ignoredAt(sort: Desc), id(sort: Desc)], map: "archive_uploader_ignored_items_ignored_id_idx")
   @@index([sourceId, ignoredAt(sort: Desc)], map: "archive_uploader_ignored_items_source_ignored_idx")
   @@map("archive_uploader_ignored_items")
+}
+
+model ArchiveUploaderCatalogItem {
+  id                    String                         @id @default(cuid())
+  sourceId              String
+  providerKey           String                         @db.VarChar(50)
+  externalId            String                         @db.VarChar(120)
+  canonicalUrl          String                         @db.Text
+  title                 String                         @db.Text
+  thumbnailUrl          String?                        @db.Text
+  uploaderName          String?                        @db.VarChar(180)
+  postedAt              DateTime?
+  relationships         Json
+  classification        ArchiveUploaderScanClassification
+  changeReasons         Json                           @default("[]")
+  comparisonSnapshot    Json?
+  comparisonFingerprint String?                        @db.VarChar(64)
+  comparisonKnown       Boolean                        @default(false)
+  firstSeenAt           DateTime
+  lastSeenAt            DateTime
+  lastScanRunId         String?
+  lastIntakeItemId      String?
+  lastArchiveImportId   String?
+  lastOutcome           ArchiveUploaderCatalogOutcome?
+  lastOutcomeAt         DateTime?
+  lastErrorCode         String?                        @db.VarChar(80)
+  lastErrorMessage      String?                        @db.Text
+  createdAt             DateTime                       @default(now())
+  updatedAt             DateTime                       @updatedAt
+  source                ArchiveUploaderSource          @relation(fields: [sourceId], references: [id], onDelete: Cascade, map: "archive_uploader_catalog_items_source_fkey")
+  lastScanRun           ArchiveUploaderScanRun?        @relation("ArchiveUploaderCatalogLastScanRun", fields: [lastScanRunId], references: [id], onDelete: SetNull, map: "archive_uploader_catalog_items_last_scan_run_fkey")
+  lastIntakeItem        ArchiveIntakeItem?              @relation("ArchiveUploaderCatalogIntakeItem", fields: [lastIntakeItemId], references: [id], onDelete: SetNull, map: "archive_uploader_catalog_items_last_intake_item_fkey")
+  lastArchiveImport     ArchiveImport?                  @relation("ArchiveUploaderCatalogImport", fields: [lastArchiveImportId], references: [id], onDelete: SetNull, map: "archive_uploader_catalog_items_last_archive_import_fkey")
+
+  @@unique([sourceId, providerKey, externalId], map: "archive_uploader_catalog_items_source_provider_external_key")
+  @@index([sourceId, lastSeenAt(sort: Desc), id(sort: Desc)], map: "archive_uploader_catalog_items_source_seen_id_idx")
+  @@index([sourceId, classification, lastSeenAt(sort: Desc)], map: "archive_uploader_catalog_items_source_classification_seen_idx")
+  @@index([sourceId, lastOutcome, lastSeenAt(sort: Desc)], map: "archive_uploader_catalog_items_source_outcome_seen_idx")
+  @@index([providerKey, externalId], map: "archive_uploader_catalog_items_provider_external_idx")
+  @@index([lastScanRunId], map: "archive_uploader_catalog_items_last_scan_run_idx")
+  @@index([lastIntakeItemId], map: "archive_uploader_catalog_items_last_intake_item_idx")
+  @@index([lastArchiveImportId], map: "archive_uploader_catalog_items_last_archive_import_idx")
+  @@map("archive_uploader_catalog_items")
 }
 
 model ArchiveBulkOperationItem {
@@ -1761,12 +1809,26 @@ enum ArchiveUploaderScanRunStatus {
   CANCELLED
 }
 
+enum ArchiveUploaderScanStopReason {
+  LIMIT_REACHED
+  WATERMARK_REACHED
+  REMOTE_END
+}
+
 enum ArchiveUploaderScanClassification {
   NEW
   ACTIVE
   ARCHIVED
   POSSIBLE_UPDATE
   REPLACEMENT
+}
+
+enum ArchiveUploaderCatalogOutcome {
+  SUBMITTED
+  FAILED
+  CANCELLED
+  DUPLICATE
+  ARCHIVED
 }
 
 enum VideoKeyframeSetStatus {

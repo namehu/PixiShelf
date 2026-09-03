@@ -7,7 +7,7 @@ describe('archive uploader view state', () => {
       archiveUploaderDetailPollingInterval({
         runs: [{ status: 'COMPLETED' }, { status: 'RUNNING' }]
       })
-    ).toBe(2_000)
+    ).toBe(3_000)
   })
 
   it('stops polling after every recent run becomes terminal', () => {
@@ -16,5 +16,14 @@ describe('archive uploader view state', () => {
         runs: [{ status: 'COMPLETED' }, { status: 'FAILED' }, { status: 'CANCELLED' }]
       })
     ).toBe(false)
+  })
+
+  it('keeps polling while catalog items are being processed', () => {
+    expect(
+      archiveUploaderDetailPollingInterval({
+        source: { catalogCounts: { processing: 2 } },
+        runs: [{ status: 'COMPLETED' }]
+      })
+    ).toBe(3_000)
   })
 })

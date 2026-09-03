@@ -68,6 +68,27 @@ describePostgres('archive intake retention PostgreSQL integration', () => {
         ignoredAt: oldDate
       }
     })
+    const catalogItem = await db().archiveUploaderCatalogItem.create({
+      data: {
+        id: `${prefix}-catalog-item`,
+        sourceId: uploaderScan.sourceId,
+        providerKey,
+        externalId: 'archive-entity',
+        canonicalUrl: 'https://example.test/archive-entity',
+        title: 'Durable archived gallery',
+        relationships: [],
+        classification: 'ARCHIVED',
+        changeReasons: [],
+        comparisonKnown: true,
+        firstSeenAt: oldDate,
+        lastSeenAt: oldDate,
+        lastScanRunId: uploaderScan.runId,
+        lastIntakeItemId: `${prefix}-item-old-terminal`,
+        lastArchiveImportId: archive.archiveImportId,
+        lastOutcome: 'ARCHIVED',
+        lastOutcomeAt: oldDate
+      }
+    })
     const archiveBefore = await archiveSnapshot(archive)
 
     const result = await cleanupArchiveIntakeHistory(cleanupInput())
@@ -93,6 +114,26 @@ describePostgres('archive intake retention PostgreSQL integration', () => {
     await expect(db().archiveUploaderScanItem.findUnique({ where: { id: uploaderScan.itemId } })).resolves.toBeNull()
     await expect(db().archiveUploaderIgnoredItem.findUnique({ where: { id: ignoredItem.id } })).resolves.toMatchObject({
       sourceId: uploaderScan.sourceId
+    })
+    await expect(
+      db().archiveUploaderCatalogItem.findUniqueOrThrow({
+        where: { id: catalogItem.id },
+        select: {
+          lastScanRunId: true,
+          lastIntakeItemId: true,
+          lastArchiveImportId: true,
+          lastOutcome: true,
+          lastOutcomeAt: true,
+          classification: true
+        }
+      })
+    ).resolves.toEqual({
+      lastScanRunId: null,
+      lastIntakeItemId: null,
+      lastArchiveImportId: archive.archiveImportId,
+      lastOutcome: 'ARCHIVED',
+      lastOutcomeAt: oldDate,
+      classification: 'ARCHIVED'
     })
     expect(await archiveSnapshot(archive)).toEqual(archiveBefore)
   })
@@ -375,6 +416,7 @@ async function seedExpiredUploaderScan() {
 
 async function cleanupDatabase() {
   if (!prisma) return
+  await prisma.archiveUploaderCatalogItem.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.archiveUploaderIgnoredItem.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.archiveUploaderScanRun.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.archiveUploaderSource.deleteMany({ where: { id: { startsWith: prefix } } })

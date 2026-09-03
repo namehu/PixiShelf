@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-09-02
+last-verified: 2026-09-03
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -92,17 +92,17 @@ sources:
 
 ## 页面矩阵
 
-| 路径                                                     | 代理层       | 页面内额外角色校验                     | 当前结果                                                                                    |
-| -------------------------------------------------------- | ------------ | -------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `/`                                                      | 公共         | 无                                     | 立即跳转 `/dashboard`，后者需要 Session                                                     |
-| `/login`                                                 | 公共         | 已有 Session 时代理重定向 `/dashboard` | 登录；无账户时显示首次初始化                                                                |
-| `/dashboard`、作品、艺术家、标签、系列、viewer、settings | Session      | 无                                     | 任一有效账户可浏览和使用对应操作                                                            |
-| `/admin/*`                                               | Session      | Admin Layout 无角色判断                | 任一有效账户可进入全部管理页面                                                              |
-| `/admin/scan-history/[id]/source-audit`                  | Session      | 写操作由 `adminProcedure` 复核         | 查看核对；管理员可提交选定来源同步                                                          |
-| `/admin/archive/inbox`                                   | Session      | 写操作由 `adminProcedure` 复核         | 持久添加、上传者人工扫描、来源管理、全局忽略/恢复、首图预览、解析控制、重试、取消与批量入队 |
-| `/admin/archive`                                         | Session      | 写操作由 `adminProcedure` 复核         | 归档任务查询、单项及当前页批量控制                                                          |
-| `/change-password`                                       | Session      | `authActionClient` 复核 Session        | 只能修改当前会话账户密码                                                                    |
-| `_next/static`、`_next/image`、`favicon.ico`             | matcher 排除 | 由 Next.js/静态服务器处理              | 不应包含私有原媒体文件                                                                      |
+| 路径                                                     | 代理层       | 页面内额外角色校验                     | 当前结果                                                                                              |
+| -------------------------------------------------------- | ------------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `/`                                                      | 公共         | 无                                     | 立即跳转 `/dashboard`，后者需要 Session                                                               |
+| `/login`                                                 | 公共         | 已有 Session 时代理重定向 `/dashboard` | 登录；无账户时显示首次初始化                                                                          |
+| `/dashboard`、作品、艺术家、标签、系列、viewer、settings | Session      | 无                                     | 任一有效账户可浏览和使用对应操作                                                                      |
+| `/admin/*`                                               | Session      | Admin Layout 无角色判断                | 任一有效账户可进入全部管理页面                                                                        |
+| `/admin/scan-history/[id]/source-audit`                  | Session      | 写操作由 `adminProcedure` 复核         | 查看核对；管理员可提交选定来源同步                                                                    |
+| `/admin/archive/inbox`                                   | Session      | 写操作由 `adminProcedure` 复核         | 持久添加、上传者长期目录、人工扫描、来源管理、全局忽略/恢复、首图预览、解析控制、重试、取消与批量入队 |
+| `/admin/archive`                                         | Session      | 写操作由 `adminProcedure` 复核         | 归档任务查询、单项及当前页批量控制                                                                    |
+| `/change-password`                                       | Session      | `authActionClient` 复核 Session        | 只能修改当前会话账户密码                                                                              |
+| `_next/static`、`_next/image`、`favicon.ico`             | matcher 排除 | 由 Next.js/静态服务器处理              | 不应包含私有原媒体文件                                                                                |
 
 ## HTTP Route 矩阵
 
@@ -158,7 +158,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `migration`       | precheck、失败项                                                          | pause/resume/cancel 等控制                                                              | 读取 `authProcedure`，控制 `adminProcedure`                                                       |
 | `localImport`     | preview、status                                                           | 保存映射、启动、取消                                                                    | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
 | `archiveInbox`    | 持久收件列表与汇总                                                        | 创建/修正、暂停/恢复、重试/取消、批量归档入队                                           | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
-| `archiveUploader` | 来源、扫描摘要、发现结果与全局已忽略列表                                  | 创建/归档来源、扫描/取消、加入收件箱、忽略/恢复画廊                                     | 读取为 `authProcedure`；来源、任务与处置写入为 `adminProcedure`                                   |
+| `archiveUploader` | 来源、扫描覆盖摘要、长期目录实时状态与全局已忽略列表                      | 创建/归档来源、扫描/取消、加入收件箱、忽略/恢复画廊                                     | 读取为 `authProcedure`；来源、任务与处置写入为 `adminProcedure`                                   |
 | `archive`         | 分页任务、项目、统计和批量结果                                            | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制                                   | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
 | `pendingReplace`  | 预览与状态                                                                | 绑定、排序、执行、取消、恢复、清理备份                                                  | 全部 `adminProcedure`                                                                             |
 | `job`             | 多类状态、待处理失败、队列与 Pixiv AI 校准状态读取                        | 创建、取消、重试、逐条确认失败提醒、优先级、scheduler、Pixiv AI 预检/回填与中央任务控制 | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`                               |
@@ -202,7 +202,9 @@ Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，l
 
 归档任务 payload、结果、事件、错误与普通日志统一脱敏。不得记录 Cookie、Authorization、完整 Provider locator、token，或 URL 路径中的敏感段；列表和批量结果只返回完成管理操作所需的脱敏值。
 
-上传者发现结果只返回经过专用缩略图校验器处理的远端 URL：协议必须为 HTTPS，不得包含凭据或非标准端口，主机必须精确属于 `e-hentai.org`、`ehgt.org`、`hath.network` 或其子域，并在返回前移除 query/hash。纯列表不挂载图片元素；首图模式仅由浏览器懒加载虚拟列表可视行，使用 `Referrer-Policy: no-referrer`，不把 gallery canonical URL 或 token 发送给图片主机。该能力不新增公共 Route，仍由 `/admin/archive/inbox` 的 Session 门禁保护。
+上传者长期目录在服务端保存完整 gallery canonical URL，用于 Provider/GID 关联和提交收件箱；该字段以及其中的 token 不直接返回客户端，列表只返回经过归档脱敏规则处理的地址。目录状态关联也只使用服务端数据库查询，错误消息在出站前继续执行归档脱敏。
+
+上传者发现结果只返回经过专用缩略图校验器处理的远端 URL：协议必须为 HTTPS，不得包含凭据或非标准端口，主机必须精确属于 `e-hentai.org`、`ehgt.org`、`hath.network` 或其子域，并在返回前移除 query/hash。纯列表不挂载图片元素；首图模式仅由浏览器懒加载虚拟列表可视行，使用 `Referrer-Policy: no-referrer`，不把 gallery canonical URL 或 token 发送给图片主机。固定的待处理、处理中、已归档、异常、全部和全局已忽略筛选不新增公共 Route，仍由 `/admin/archive/inbox` 的 Session 门禁保护。入箱前置 mutation 仅向管理员签发随机 submission attempt ID；页面不自行生成该 UUID，只负责把签发值原样带入后续入箱请求以支持网络重放幂等。
 
 ## 凭据与信任头
 

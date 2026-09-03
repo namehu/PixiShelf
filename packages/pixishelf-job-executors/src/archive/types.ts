@@ -100,8 +100,58 @@ export interface ArchiveUploaderGallerySummary {
   uploaderName: string | null
   postedAt: Date | null
   metadataFingerprint: string
+  comparisonSnapshot: ArchiveUploaderComparisonSnapshot
   normalizedMetadata: Record<string, unknown>
   relationships: SourceRelationshipValue[]
+}
+
+export interface ArchiveUploaderComparisonRelationship {
+  type: SourceRelationshipValue['type']
+  direction: SourceRelationshipValue['direction']
+  providerKey: string
+  externalId: string
+}
+
+/**
+ * Provider metadata that is stable enough to decide whether an archived gallery changed.
+ * Volatile presentation fields such as rating and thumbnail URL intentionally do not belong here.
+ */
+export interface ArchiveUploaderComparisonSnapshot {
+  schemaVersion: 1
+  titles: {
+    display: string
+    aliases: string[]
+  }
+  category: string | null
+  uploader: string | null
+  postedAt: string | null
+  fileCount: number
+  fileSize: number | null
+  expunged: boolean
+  tags: SourceTagValue[]
+  relationships: ArchiveUploaderComparisonRelationship[]
+}
+
+export type ArchiveUploaderMetadataChangeField =
+  | 'titles'
+  | 'category'
+  | 'uploader'
+  | 'postedAt'
+  | 'fileCount'
+  | 'fileSize'
+  | 'expunged'
+  | 'tags'
+  | 'relationships'
+
+export interface ArchiveUploaderMetadataChangeReason {
+  field: ArchiveUploaderMetadataChangeField
+  message: string
+}
+
+export interface ArchiveUploaderMetadataComparison {
+  previous: ArchiveUploaderComparisonSnapshot
+  current: ArchiveUploaderComparisonSnapshot
+  changeReasons: ArchiveUploaderMetadataChangeReason[]
 }
 
 export interface ArchiveUploaderScanResult {
@@ -130,7 +180,10 @@ export interface ArchiveProvider extends ArchiveMediaProvider {
 }
 
 export interface ArchiveUploaderProvider extends ArchiveProvider {
-  scanUploader(input: ArchiveUploaderScanInput, context?: ArchiveUploaderScanContext): Promise<ArchiveUploaderScanResult>
+  scanUploader(
+    input: ArchiveUploaderScanInput,
+    context?: ArchiveUploaderScanContext
+  ): Promise<ArchiveUploaderScanResult>
 }
 
 export type ArchiveQualityValue = ArchiveQuality

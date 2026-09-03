@@ -1,5 +1,84 @@
 import { describe, expect, it, vi } from 'vitest'
-import { EHentaiProvider } from '../providers/e-hentai.js'
+import {
+  compareArchiveUploaderMetadata,
+  createArchiveUploaderComparisonSnapshot,
+  EHentaiProvider,
+  hashArchiveUploaderComparisonMetadata
+} from '../providers/e-hentai.js'
+
+const comparableMetadata = {
+  gid: '123',
+  titles: { display: 'Gallery', aliases: ['Alias A', 'Alias B'] },
+  category: 'Doujinshi',
+  uploader: 'alice',
+  thumbnailUrl: 'https://ehgt.org/old.jpg',
+  postedAt: '2026-09-01T00:00:00.000Z',
+  fileCount: 1,
+  fileSize: 10,
+  rating: '4.5',
+  expunged: false,
+  tags: [
+    { namespace: 'artist', name: 'Artist A' },
+    { namespace: 'group', name: 'Group A' }
+  ],
+  relationships: [
+    { type: 'REPLACES', direction: 'OUTBOUND', providerKey: 'e-hentai', externalId: '100' },
+    { type: 'REPLACES', direction: 'INBOUND', providerKey: 'e-hentai', externalId: '200' }
+  ]
+}
+
+describe('archive uploader stable metadata comparison', () => {
+  it('excludes rating and thumbnail URL and normalizes set ordering', () => {
+    const reordered = {
+      ...comparableMetadata,
+      titles: { ...comparableMetadata.titles, aliases: [...comparableMetadata.titles.aliases].reverse() },
+      thumbnailUrl: 'https://ehgt.org/new.jpg',
+      rating: '1.0',
+      tags: [...comparableMetadata.tags].reverse(),
+      relationships: [...comparableMetadata.relationships].reverse()
+    }
+
+    expect(createArchiveUploaderComparisonSnapshot(reordered)).toEqual(
+      createArchiveUploaderComparisonSnapshot(comparableMetadata)
+    )
+    expect(hashArchiveUploaderComparisonMetadata(reordered)).toBe(
+      hashArchiveUploaderComparisonMetadata(comparableMetadata)
+    )
+    expect(compareArchiveUploaderMetadata(comparableMetadata, reordered)?.changeReasons).toEqual([])
+  })
+
+  it('returns a reason for every stable field that changed', () => {
+    const changed = {
+      ...comparableMetadata,
+      titles: { display: 'Changed gallery', aliases: [] },
+      category: 'Manga',
+      uploader: 'bob',
+      postedAt: '2026-09-02T00:00:00.000Z',
+      fileCount: 2,
+      fileSize: 20,
+      expunged: true,
+      tags: [{ namespace: 'artist', name: 'Artist B' }],
+      relationships: [{ type: 'REPLACES', direction: 'OUTBOUND', providerKey: 'e-hentai', externalId: '101' }]
+    }
+
+    expect(compareArchiveUploaderMetadata(comparableMetadata, changed)?.changeReasons).toEqual([
+      { field: 'titles', message: '标题或别名变化' },
+      { field: 'category', message: '分类 Doujinshi → Manga' },
+      { field: 'uploader', message: '上传者 alice → bob' },
+      { field: 'postedAt', message: '发布时间 2026-09-01T00:00:00.000Z → 2026-09-02T00:00:00.000Z' },
+      { field: 'fileCount', message: '页数 1 → 2' },
+      { field: 'fileSize', message: '文件大小 10 → 20' },
+      { field: 'expunged', message: '下架状态 否 → 是' },
+      { field: 'tags', message: '标签变化' },
+      { field: 'relationships', message: '版本关系变化' }
+    ])
+  })
+
+  it('rejects incomplete historical metadata as not comparable', () => {
+    expect(createArchiveUploaderComparisonSnapshot({ titles: comparableMetadata.titles })).toBeNull()
+    expect(compareArchiveUploaderMetadata({ titles: comparableMetadata.titles }, comparableMetadata)).toBeNull()
+  })
+})
 
 describe('EHentaiProvider resolution', () => {
   it('resolves all gallery pages in order and governs every remote request', async () => {

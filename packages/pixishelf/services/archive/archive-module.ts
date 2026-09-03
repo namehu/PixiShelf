@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import {
   ARCHIVE_IMPORT_DEFINITION_VERSION,
-  archiveImportV2PayloadSchema
+  ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+  archiveImportV2PayloadSchema,
+  archiveUploaderIdentityLockKey,
+  archiveUploaderUrlLockKey
 } from '@pixishelf/job-contracts'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
@@ -185,6 +188,7 @@ export class ArchiveModule {
     }
   ) {
     const nextJobId = randomUUID()
+    const timestamp = new Date()
     await prisma.$transaction(async (tx) => {
       await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
       const current = await tx.archiveImport.findUnique({ where: { id: task.id }, include: { systemJob: true } })
@@ -195,6 +199,7 @@ export class ArchiveModule {
       ) {
         throw stateConflict('归档任务状态已改变，请刷新后重试')
       }
+      await lockUploaderCatalogImport(tx, current)
       if (options.retryItemId) {
         const item = await tx.archiveImportItem.updateMany({
           where: { id: options.retryItemId, archiveImportId: current.id, status: 'FAILED' },
@@ -224,7 +229,7 @@ export class ArchiveModule {
           }),
           queuePriority: priority,
           effectivePriority: priority,
-          availableAt: new Date(),
+          availableAt: timestamp,
           maxAttempts: current.systemJob.maxAttempts,
           progress: taskProgress(current.completedItems, current.totalItems),
           message: options.message
@@ -245,6 +250,21 @@ export class ArchiveModule {
         }
       })
       if (changed.count !== 1) throw stateConflict('归档任务状态已改变，请刷新后重试')
+      await tx.archiveUploaderCatalogItem.updateMany({
+        where: {
+          OR: [
+            { lastArchiveImportId: current.id },
+            { providerKey: current.providerKey, externalId: current.externalId }
+          ]
+        },
+        data: {
+          lastArchiveImportId: current.id,
+          lastOutcome: 'SUBMITTED',
+          lastOutcomeAt: timestamp,
+          lastErrorCode: null,
+          lastErrorMessage: null
+        }
+      })
       await writeArchiveJobEvent(tx, {
         jobId: current.systemJobId,
         type: 'job.retry_scheduled',
@@ -318,6 +338,7 @@ async function transitionCentralArchiveControl(
     if (!current || current.systemJobId !== task.systemJobId || current.status !== task.status) {
       throw stateConflict('归档任务状态已改变，请刷新后重试')
     }
+    await lockUploaderCatalogImport(tx, current)
 
     const running = ['RUNNING', 'PAUSING'].includes(current.systemJob.status)
     const direct = !running
@@ -399,6 +420,23 @@ async function transitionCentralArchiveControl(
       }
     })
     if (archiveImport.count !== 1) throw stateConflict('归档任务状态已改变，请刷新后重试')
+    if (action === 'CANCEL' && direct) {
+      await tx.archiveUploaderCatalogItem.updateMany({
+        where: {
+          OR: [
+            { lastArchiveImportId: current.id },
+            { providerKey: current.providerKey, externalId: current.externalId }
+          ]
+        },
+        data: {
+          lastArchiveImportId: current.id,
+          lastOutcome: 'CANCELLED',
+          lastOutcomeAt: now,
+          lastErrorCode: 'CANCELLED',
+          lastErrorMessage: 'Archive import cancelled before execution'
+        }
+      })
+    }
 
     await writeArchiveJobEvent(tx, {
       jobId: current.systemJobId,
@@ -437,6 +475,25 @@ function resetArchiveItemForRetry(): Prisma.ArchiveImportItemUpdateManyMutationI
     remoteHost: null,
     startedAt: null,
     finishedAt: null
+  }
+}
+
+async function lockUploaderCatalogImport(
+  transaction: {
+    $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>
+  },
+  archiveImport: Pick<ArchiveControlTaskRecord, 'providerKey' | 'externalId' | 'canonicalUrl'>
+) {
+  const keys = [
+    archiveUploaderIdentityLockKey(archiveImport.providerKey, archiveImport.externalId),
+    archiveUploaderUrlLockKey(archiveImport.canonicalUrl)
+  ].sort()
+  for (const key of keys) {
+    await transaction.$queryRawUnsafe(
+      'SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))::text AS "lock"',
+      ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+      key
+    )
   }
 }
 

@@ -194,13 +194,7 @@ describe('archive executor', () => {
 
     await executeArchiveImport(context, dependencies(transaction))
 
-    expect(publishMock).toHaveBeenCalledWith(
-      transaction,
-      'import-1',
-      expect.any(Object),
-      expect.any(Date),
-      [2, 5]
-    )
+    expect(publishMock).toHaveBeenCalledWith(transaction, 'import-1', expect.any(Object), expect.any(Date), [2, 5])
   })
 
   it('reconciles stale aggregate counts from durable item checkpoints before execution', async () => {
@@ -337,8 +331,25 @@ describe('archive executor', () => {
     expect(transaction.archiveImport.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED' }) })
     )
+    expect(transaction.archiveUploaderCatalogItem.updateMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { lastArchiveImportId: 'import-1' },
+          { providerKey: archiveImport.providerKey, externalId: archiveImport.externalId }
+        ]
+      },
+      data: expect.objectContaining({
+        lastArchiveImportId: 'import-1',
+        lastOutcome: 'CANCELLED',
+        lastErrorCode: 'CANCELLED',
+        lastErrorMessage: 'Archive import cancelled'
+      })
+    })
     expect(context.__scope.cancel).toHaveBeenCalledWith('Archive import cancelled')
-    expect(transaction.archiveImport.findUnique).not.toHaveBeenCalled()
+    expect(transaction.archiveImport.findUnique).toHaveBeenCalledWith({
+      where: { id: 'import-1' },
+      select: { providerKey: true, externalId: true, canonicalUrl: true }
+    })
   })
 
   it.each([
@@ -586,6 +597,9 @@ function createTransaction() {
       groupBy: vi.fn(async () => []),
       findMany: vi.fn(async () => []),
       count: vi.fn(async () => 0)
+    },
+    archiveUploaderCatalogItem: {
+      updateMany: vi.fn(async () => ({ count: 1 }))
     }
   } as unknown as Prisma.TransactionClient & {
     $queryRawUnsafe: ReturnType<typeof vi.fn>
@@ -601,6 +615,7 @@ function createTransaction() {
       findMany: ReturnType<typeof vi.fn>
       count: ReturnType<typeof vi.fn>
     }
+    archiveUploaderCatalogItem: { updateMany: ReturnType<typeof vi.fn> }
   }
 }
 

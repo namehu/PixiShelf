@@ -14,23 +14,85 @@ import type {
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import { toArchiveExecutorError } from './errors.ts'
-import { hashArchiveUploaderDiscoveryMetadata } from './providers/e-hentai.ts'
+import { compareArchiveUploaderMetadata } from './providers/e-hentai.ts'
+import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts'
 import type {
   ArchiveUploaderGallerySummary,
+  ArchiveUploaderMetadataChangeReason,
   ArchiveUploaderProviderRegistry,
-  ArchiveUploaderScanResult,
-  SourceRelationshipValue
+  ArchiveUploaderScanResult
 } from './types.ts'
 
 const SCAN_LIMIT = 100
 const MAX_RETRY_DELAY_MS = 30_000
 const ACTIVE_INTAKE_STATUSES = ['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'] as const
 const ACTIVE_IMPORT_STATUSES = ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] as const
+const ACTIVE_INTAKE_STATUS_SET = new Set<string>(ACTIVE_INTAKE_STATUSES)
+const ACTIVE_IMPORT_STATUS_SET = new Set<string>(ACTIVE_IMPORT_STATUSES)
 
 type ScanContext = ExecutionContext<ArchiveUploaderScanPayload, EnqueuedChildJob>
 type ScanTransaction = Prisma.TransactionClient & QueueSqlExecutor
 type ScanScope = FencedExecutionTransaction<ScanTransaction>
 type ScanClassification = 'NEW' | 'ACTIVE' | 'ARCHIVED' | 'POSSIBLE_UPDATE' | 'REPLACEMENT'
+type CatalogClassification = Exclude<ScanClassification, 'ACTIVE'>
+
+interface ClassifiedScanItem {
+  classification: ScanClassification
+  catalogClassification: CatalogClassification
+  comparisonKnown: boolean
+  changeReasons: ArchiveUploaderMetadataChangeReason[]
+  latestWorkflow: CatalogWorkflowSnapshot | null
+}
+
+interface CatalogWorkflowSnapshot {
+  kind: 'INTAKE' | 'IMPORT' | 'REFERENCE' | 'CATALOG'
+  id: string
+  outcome: 'SUBMITTED' | 'FAILED' | 'CANCELLED' | 'DUPLICATE' | 'ARCHIVED'
+  eventAt: Date
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+interface CatalogIntakeWorkflow {
+  id: string
+  status: string
+  externalId: string | null
+  submittedUrl: string
+  canonicalUrl: string | null
+  finishedAt: Date | null
+  updatedAt: Date
+  createdAt: Date
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+interface CatalogImportWorkflow {
+  id: string
+  status: string
+  externalId: string
+  canonicalUrl: string
+  finishedAt: Date | null
+  updatedAt: Date
+  createdAt: Date
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+interface CatalogReferenceWorkflow {
+  id: string
+  lastSuccessAt: Date | null
+  updatedAt: Date
+  createdAt: Date
+}
+
+interface CatalogDurableWorkflow {
+  id: string
+  externalId: string
+  lastOutcome: CatalogWorkflowSnapshot['outcome']
+  lastOutcomeAt: Date
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
+}
 
 interface ClaimedScanRun {
   id: string
@@ -90,6 +152,7 @@ export async function executeArchiveUploaderScan(
       where: { id: current.id, systemJobId: context.job.id, status: current.status },
       data: {
         status: 'RUNNING',
+        stopReason: null,
         startedAt,
         finishedAt: null,
         errorCode: null,
@@ -167,6 +230,14 @@ async function finalizeScan(
     return
   }
 
+  await lockArchiveUploaderCatalogIdentities(
+    scope.transaction,
+    result.items.map((item) => ({
+      providerKey: item.providerKey,
+      externalId: item.externalId,
+      canonicalUrls: [item.canonicalUrl]
+    }))
+  )
   const classifications = await classifyScanItems(scope.transaction, result.items)
   const counts: Record<ScanClassification, number> = {
     NEW: 0,
@@ -179,7 +250,7 @@ async function finalizeScan(
   if (result.items.length > 0) {
     await scope.transaction.archiveUploaderScanItem.createMany({
       data: result.items.map((item) => {
-        const classification = classifications.get(item.externalId) ?? 'NEW'
+        const classification = classifications.get(item.externalId)?.classification ?? 'NEW'
         counts[classification] += 1
         return {
           runId: run.id,
@@ -196,12 +267,79 @@ async function finalizeScan(
         }
       })
     })
+    for (const item of result.items) {
+      const classified = classifications.get(item.externalId) ?? {
+        classification: 'NEW' as const,
+        catalogClassification: 'NEW' as const,
+        comparisonKnown: true,
+        changeReasons: [],
+        latestWorkflow: null
+      }
+      const catalogData = {
+        canonicalUrl: item.canonicalUrl,
+        title: item.title,
+        thumbnailUrl: item.thumbnailUrl,
+        uploaderName: item.uploaderName,
+        postedAt: item.postedAt,
+        relationships: toJsonValue(item.relationships),
+        // ACTIVE is an observation about the workflow at scan time, not a durable
+        // recommendation. The live catalog query derives processing state from the
+        // linked Intake/Import while this stable classification survives retention.
+        classification: classified.catalogClassification,
+        changeReasons: toJsonValue(classified.changeReasons),
+        comparisonSnapshot: toJsonValue(item.comparisonSnapshot),
+        comparisonFingerprint: item.metadataFingerprint,
+        comparisonKnown: classified.comparisonKnown,
+        lastSeenAt: completedAt,
+        lastScanRunId: run.id
+      }
+      const workflowData = classified.latestWorkflow
+        ? catalogWorkflowData(classified.latestWorkflow)
+        : {}
+      const catalog = await scope.transaction.archiveUploaderCatalogItem.upsert({
+        where: {
+          sourceId_providerKey_externalId: {
+            sourceId: run.source.id,
+            providerKey: item.providerKey,
+            externalId: item.externalId
+          }
+        },
+        create: {
+          sourceId: run.source.id,
+          providerKey: item.providerKey,
+          externalId: item.externalId,
+          ...catalogData,
+          ...workflowData,
+          firstSeenAt: completedAt
+        },
+        update: catalogData,
+        select: { id: true }
+      })
+      if (classified.latestWorkflow) {
+        await scope.transaction.archiveUploaderCatalogItem.updateMany({
+          where: {
+            id: catalog.id,
+            OR: [
+              { lastOutcomeAt: null },
+              { lastOutcomeAt: { lt: classified.latestWorkflow.eventAt } }
+            ]
+          },
+          data: catalogWorkflowData(classified.latestWorkflow)
+        })
+      }
+    }
   }
 
+  const stopReason = result.reachedStop
+    ? 'WATERMARK_REACHED'
+    : result.nextCursor === null
+      ? 'REMOTE_END'
+      : 'LIMIT_REACHED'
   const runChanged = await scope.transaction.archiveUploaderScanRun.updateMany({
     where: { id: run.id, systemJobId: context.job.id, status: 'RUNNING' },
     data: {
       status: 'COMPLETED',
+      stopReason,
       cursorAfter: result.nextCursor,
       itemCount: result.items.length,
       newCount: counts.NEW,
@@ -252,7 +390,7 @@ async function finalizeScan(
 async function classifyScanItems(
   transaction: ScanTransaction,
   items: ArchiveUploaderGallerySummary[]
-): Promise<Map<string, ScanClassification>> {
+): Promise<Map<string, ClassifiedScanItem>> {
   const externalIds = [...new Set(items.map(({ externalId }) => externalId))]
   const canonicalUrls = [...new Set(items.map(({ canonicalUrl }) => canonicalUrl))]
   const relatedIds = [
@@ -263,67 +401,201 @@ async function classifyScanItems(
     )
   ]
   if (externalIds.length === 0) return new Map()
-  const [activeIntake, activeImports, references] = await Promise.all([
+  const [activeIntake, activeImports, references, durableOutcomes] = await Promise.all([
     transaction.archiveIntakeItem.findMany({
       where: {
-        status: { in: [...ACTIVE_INTAKE_STATUSES] },
         OR: [
           { providerKey: 'e-hentai', externalId: { in: externalIds } },
           { submittedUrl: { in: canonicalUrls } },
           { canonicalUrl: { in: canonicalUrls } }
         ]
       },
-      select: { externalId: true, submittedUrl: true, canonicalUrl: true }
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true,
+        status: true,
+        externalId: true,
+        submittedUrl: true,
+        canonicalUrl: true,
+        finishedAt: true,
+        updatedAt: true,
+        createdAt: true,
+        errorCode: true,
+        errorMessage: true
+      }
     }),
     transaction.archiveImport.findMany({
       where: {
         providerKey: 'e-hentai',
-        externalId: { in: externalIds },
-        status: { in: [...ACTIVE_IMPORT_STATUSES] }
+        externalId: { in: externalIds }
       },
-      select: { externalId: true }
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true,
+        status: true,
+        externalId: true,
+        canonicalUrl: true,
+        finishedAt: true,
+        updatedAt: true,
+        createdAt: true,
+        errorCode: true,
+        errorMessage: true
+      }
     }),
     transaction.artworkExternalRef.findMany({
       where: { providerKey: 'e-hentai', externalId: { in: [...new Set([...externalIds, ...relatedIds])] } },
       select: {
+        id: true,
         externalId: true,
+        lastSuccessAt: true,
+        updatedAt: true,
+        createdAt: true,
         snapshots: { orderBy: { fetchedAt: 'desc' }, take: 1, select: { normalizedMetadata: true } }
+      }
+    }),
+    transaction.archiveUploaderCatalogItem.findMany({
+      where: {
+        providerKey: 'e-hentai',
+        externalId: { in: externalIds },
+        lastOutcome: { not: null },
+        lastOutcomeAt: { not: null }
+      },
+      orderBy: [{ lastOutcomeAt: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true,
+        externalId: true,
+        lastOutcome: true,
+        lastOutcomeAt: true,
+        lastErrorCode: true,
+        lastErrorMessage: true
       }
     })
   ])
-  const activeExternalIds = new Set(
-    [...activeIntake, ...activeImports].map(({ externalId }) => externalId).filter((value) => value !== null)
-  )
-  const activeUrls = new Set(
-    activeIntake
-      .flatMap(({ submittedUrl, canonicalUrl }) => [submittedUrl, canonicalUrl])
-      .filter((value) => value !== null)
-  )
   const referencesById = new Map(references.map((reference) => [reference.externalId, reference]))
-  const classifications = new Map<string, ScanClassification>()
+  const classifications = new Map<string, ClassifiedScanItem>()
   for (const item of items) {
-    if (activeExternalIds.has(item.externalId) || activeUrls.has(item.canonicalUrl)) {
-      classifications.set(item.externalId, 'ACTIVE')
-      continue
-    }
-    const exact = referencesById.get(item.externalId)
-    if (exact) {
-      const storedFingerprint = hashArchiveUploaderDiscoveryMetadata(exact.snapshots[0]?.normalizedMetadata)
-      classifications.set(
-        item.externalId,
-        storedFingerprint && storedFingerprint !== item.metadataFingerprint ? 'POSSIBLE_UPDATE' : 'ARCHIVED'
-      )
-      continue
-    }
-    const replacesExisting = item.relationships.some(
-      (relationship) =>
-        relationship.direction === 'OUTBOUND' &&
-        relationship.providerKey === item.providerKey &&
-        referencesById.has(relationship.externalId)
+    const matchingIntakes = activeIntake.filter(
+      (candidate) =>
+        candidate.externalId === item.externalId ||
+        candidate.submittedUrl === item.canonicalUrl ||
+        candidate.canonicalUrl === item.canonicalUrl
     )
-    classifications.set(item.externalId, replacesExisting ? 'REPLACEMENT' : 'NEW')
+    const matchingImports = activeImports.filter((candidate) => candidate.externalId === item.externalId)
+    const exact = referencesById.get(item.externalId)
+    const comparison = exact
+      ? compareArchiveUploaderMetadata(exact.snapshots[0]?.normalizedMetadata, item.comparisonSnapshot)
+      : null
+    const catalogClassification: CatalogClassification = exact
+      ? comparison && comparison.changeReasons.length > 0
+        ? 'POSSIBLE_UPDATE'
+        : 'ARCHIVED'
+      : item.relationships.some(
+            (relationship) =>
+              relationship.direction === 'OUTBOUND' &&
+              relationship.providerKey === item.providerKey &&
+              referencesById.has(relationship.externalId)
+          )
+        ? 'REPLACEMENT'
+        : 'NEW'
+    const hasActiveWorkflow =
+      matchingIntakes.some((candidate) => ACTIVE_INTAKE_STATUS_SET.has(candidate.status)) ||
+      matchingImports.some((candidate) => ACTIVE_IMPORT_STATUS_SET.has(candidate.status))
+    const matchingDurableOutcomes = durableOutcomes.filter(
+      (candidate): candidate is CatalogDurableWorkflow =>
+        candidate.externalId === item.externalId && candidate.lastOutcome !== null && candidate.lastOutcomeAt !== null
+    )
+    const latestWorkflow = latestCatalogWorkflow(matchingIntakes, matchingImports, exact, matchingDurableOutcomes)
+    classifications.set(item.externalId, {
+      classification: hasActiveWorkflow ? 'ACTIVE' : catalogClassification,
+      catalogClassification,
+      comparisonKnown: !exact || comparison !== null,
+      changeReasons: comparison?.changeReasons ?? [],
+      latestWorkflow
+    })
   }
   return classifications
+}
+
+function latestCatalogWorkflow(
+  intakes: CatalogIntakeWorkflow[],
+  imports: CatalogImportWorkflow[],
+  reference: CatalogReferenceWorkflow | undefined,
+  durableOutcomes: CatalogDurableWorkflow[]
+): CatalogWorkflowSnapshot | null {
+  const candidates: Array<CatalogWorkflowSnapshot & { priority: number }> = [
+    ...intakes.map((intake) => ({
+      kind: 'INTAKE' as const,
+      id: intake.id,
+      outcome:
+        intake.status === 'FAILED'
+          ? ('FAILED' as const)
+          : intake.status === 'CANCELLED'
+            ? ('CANCELLED' as const)
+            : intake.status === 'DUPLICATE'
+              ? ('DUPLICATE' as const)
+              : ('SUBMITTED' as const),
+      eventAt: intake.finishedAt ?? intake.updatedAt ?? intake.createdAt,
+      errorCode: ['FAILED', 'CANCELLED', 'DUPLICATE'].includes(intake.status) ? intake.errorCode : null,
+      errorMessage: ['FAILED', 'CANCELLED', 'DUPLICATE'].includes(intake.status) ? intake.errorMessage : null,
+      priority: 20
+    })),
+    ...imports.map((archiveImport) => ({
+      kind: 'IMPORT' as const,
+      id: archiveImport.id,
+      outcome:
+        archiveImport.status === 'COMPLETED'
+          ? ('ARCHIVED' as const)
+          : archiveImport.status === 'FAILED'
+            ? ('FAILED' as const)
+            : archiveImport.status === 'CANCELLED'
+              ? ('CANCELLED' as const)
+              : ('SUBMITTED' as const),
+      eventAt: archiveImport.finishedAt ?? archiveImport.updatedAt ?? archiveImport.createdAt,
+      errorCode: ['FAILED', 'CANCELLED'].includes(archiveImport.status) ? archiveImport.errorCode : null,
+      errorMessage: ['FAILED', 'CANCELLED'].includes(archiveImport.status) ? archiveImport.errorMessage : null,
+      priority: 30
+    })),
+    ...(reference
+      ? [
+          {
+            kind: 'REFERENCE' as const,
+            id: reference.id,
+            outcome: 'ARCHIVED' as const,
+            eventAt: reference.lastSuccessAt ?? reference.updatedAt ?? reference.createdAt,
+            errorCode: null,
+            errorMessage: null,
+            priority: 10
+          }
+        ]
+      : []),
+    ...durableOutcomes.map((catalog) => ({
+      kind: 'CATALOG' as const,
+      id: catalog.id,
+      outcome: catalog.lastOutcome,
+      eventAt: catalog.lastOutcomeAt,
+      errorCode: catalog.lastErrorCode,
+      errorMessage: catalog.lastErrorMessage,
+      priority: 5
+    }))
+  ]
+  candidates.sort(
+    (left, right) =>
+      right.eventAt.getTime() - left.eventAt.getTime() ||
+      right.priority - left.priority ||
+      right.id.localeCompare(left.id)
+  )
+  return candidates[0] ?? null
+}
+
+function catalogWorkflowData(workflow: CatalogWorkflowSnapshot) {
+  return {
+    ...(workflow.kind === 'INTAKE' ? { lastIntakeItemId: workflow.id } : {}),
+    ...(workflow.kind === 'IMPORT' ? { lastArchiveImportId: workflow.id } : {}),
+    lastOutcome: workflow.outcome,
+    lastOutcomeAt: workflow.eventAt,
+    lastErrorCode: workflow.errorCode,
+    lastErrorMessage: workflow.errorMessage
+  }
 }
 
 async function finalizeScanError(
@@ -383,6 +655,7 @@ async function markRun(
     where: { id: runId, systemJobId, status: { in: ['PENDING', 'RUNNING', 'RETRY_WAIT', 'PAUSED'] } },
     data: {
       status,
+      stopReason: null,
       finishedAt: status === 'FAILED' || status === 'CANCELLED' ? timestamp : null,
       errorCode: error?.code ?? (status === 'CANCELLED' ? 'CANCELLED' : null),
       errorMessage: error?.message ?? null
@@ -413,6 +686,6 @@ function mapJobErrorCode(code: string): JobErrorCode {
   return 'INTERNAL_ERROR'
 }
 
-function toJsonValue(value: SourceRelationshipValue[]): Prisma.InputJsonValue {
+function toJsonValue(value: object): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
 }

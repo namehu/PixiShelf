@@ -46,6 +46,8 @@ const resolved: ResolvedArchive = {
 
 describePostgres('archive resolver PostgreSQL integration', () => {
   beforeEach(async () => {
+    await db().archiveUploaderCatalogItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
+    await db().archiveUploaderSource.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await db().archiveIntakeItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await db().archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await db().jobResourceLease.deleteMany({ where: { ownerJobId: { startsWith: testPrefix } } })
@@ -58,6 +60,8 @@ describePostgres('archive resolver PostgreSQL integration', () => {
 
   afterAll(async () => {
     if (!prisma) return
+    await prisma.archiveUploaderCatalogItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
+    await prisma.archiveUploaderSource.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.archiveIntakeItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.jobResourceLease.deleteMany({ where: { ownerJobId: { startsWith: testPrefix } } })
@@ -68,6 +72,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
   it('atomically commits READY intake state with COMPLETED job settlement', async () => {
     const clock = new MutableQueueClock(new Date('2026-08-18T10:00:00.000Z'))
     const { jobId, itemId } = await seedResolverItem(clock.now())
+    const catalogId = await seedCatalogItem(itemId, clock.now())
     const repository = createRepository(clock)
     const claimed = await repository.claim('archive-resolver-success', capabilities)
     expect(claimed?.id).toBe(jobId)
@@ -87,6 +92,12 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     expect(
       await db().systemJob.findUniqueOrThrow({ where: { id: jobId }, select: { status: true, result: true } })
     ).toMatchObject({ status: 'COMPLETED', result: { intakeItemId: itemId, resolutionKind: 'NEW' } })
+    await expect(
+      db().archiveUploaderCatalogItem.findUniqueOrThrow({
+        where: { id: catalogId },
+        select: { lastOutcome: true, lastOutcomeAt: true, lastErrorCode: true }
+      })
+    ).resolves.toEqual({ lastOutcome: 'SUBMITTED', lastOutcomeAt: clock.now(), lastErrorCode: null })
   })
 
   it('atomically marks a different submitted URL with the same resolved identity as DUPLICATE', async () => {
@@ -236,6 +247,40 @@ async function seedResolverItem(now: Date) {
     }
   })
   return { jobId, itemId }
+}
+
+async function seedCatalogItem(intakeItemId: string, timestamp: Date) {
+  const sourceId = `${testPrefix}-source-${randomUUID()}`
+  const catalogId = `${testPrefix}-catalog-${randomUUID()}`
+  await db().archiveUploaderSource.create({
+    data: {
+      id: sourceId,
+      providerKey: resolved.providerKey,
+      identityKind: 'UID',
+      identityValue: randomUUID(),
+      normalizedIdentity: randomUUID(),
+      displayName: 'Resolver lifecycle source'
+    }
+  })
+  await db().archiveUploaderCatalogItem.create({
+    data: {
+      id: catalogId,
+      sourceId,
+      providerKey: resolved.providerKey,
+      externalId: resolved.externalId,
+      canonicalUrl: resolved.canonicalUrl,
+      title: resolved.title,
+      relationships: [],
+      classification: 'NEW',
+      comparisonKnown: true,
+      firstSeenAt: timestamp,
+      lastSeenAt: timestamp,
+      lastIntakeItemId: intakeItemId,
+      lastOutcome: 'SUBMITTED',
+      lastOutcomeAt: timestamp
+    }
+  })
+  return catalogId
 }
 
 function executionContext(repository: PostgresQueueRepository, job: ClaimedJob) {

@@ -4,6 +4,8 @@ import {
   addArchiveUploaderScanItemsSchema,
   cancelArchiveUploaderScan,
   cancelArchiveUploaderScanSchema,
+  createArchiveUploaderSubmissionAttempt,
+  createArchiveUploaderSubmissionAttemptSchema,
   createArchiveUploaderSource,
   createArchiveUploaderSourceSchema,
   getArchiveUploaderSource,
@@ -57,6 +59,10 @@ export const archiveUploaderRouter = router({
   cancelScan: adminProcedure
     .input(cancelArchiveUploaderScanSchema)
     .mutation(({ input }) => runArchiveOperation(() => cancelArchiveUploaderScan(input))),
+
+  createSubmissionAttempt: adminProcedure
+    .input(createArchiveUploaderSubmissionAttemptSchema)
+    .mutation(({ input }) => runArchiveOperation(() => createArchiveUploaderSubmissionAttempt(input))),
 
   addToInbox: adminProcedure
     .input(addArchiveUploaderScanItemsSchema)

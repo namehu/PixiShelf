@@ -7,6 +7,10 @@ import type {
   ArchiveDownloadContext,
   ArchiveProviderContext,
   ArchiveUploaderProvider,
+  ArchiveUploaderComparisonSnapshot,
+  ArchiveUploaderMetadataChangeField,
+  ArchiveUploaderMetadataChangeReason,
+  ArchiveUploaderMetadataComparison,
   ArchiveUploaderScanContext,
   ArchiveUploaderScanInput,
   ArchiveUploaderScanResult,
@@ -148,7 +152,9 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
   ): Promise<ArchiveUploaderScanResult> {
     const limit = Math.min(MAX_UPLOADER_SCAN_ITEMS, Math.max(1, Math.trunc(input.limit)))
     const searchTerm = uploaderSearchTerm(input)
-    let cursor = input.cursor ? decodeUploaderSearchCursor(input.cursor, searchTerm) : initialUploaderSearchCursor(searchTerm)
+    let cursor = input.cursor
+      ? decodeUploaderSearchCursor(input.cursor, searchTerm)
+      : initialUploaderSearchCursor(searchTerm)
     const identities: GallerySearchIdentity[] = []
     const seen = new Set<string>()
     let reachedStop = false
@@ -205,7 +211,10 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
     const metadata = await this.fetchMetadataBatch(identities, context)
     const items = metadata.map((value) => {
       const uploaderName = cleanText(value.uploader) || null
-      if (input.identityKind === 'NAME' && normalizeUploaderName(uploaderName) !== normalizeUploaderName(input.identityValue)) {
+      if (
+        input.identityKind === 'NAME' &&
+        normalizeUploaderName(uploaderName) !== normalizeUploaderName(input.identityValue)
+      ) {
         throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai 搜索结果包含不属于目标上传者的画廊', {
           recoverable: true,
           stage: 'UPLOADER_METADATA',
@@ -216,16 +225,18 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       const token = cleanText(value.token)
       if (!token) throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai token 无效')
       const normalizedMetadata = normalizedDiscoveryMetadata(value, gid)
+      const comparisonSnapshot = createArchiveUploaderComparisonSnapshot(normalizedMetadata)
+      if (!comparisonSnapshot) throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai 比较元数据无效')
       return {
         providerKey: PROVIDER_KEY,
         externalId: String(gid),
         canonicalUrl: `https://${GALLERY_HOST}/g/${gid}/${token}/`,
-        title:
-          cleanText(value.title_jpn) || cleanText(value.title) || `E-Hentai ${gid}`,
+        title: cleanText(value.title_jpn) || cleanText(value.title) || `E-Hentai ${gid}`,
         thumbnailUrl: cleanText(value.thumb) || null,
         uploaderName,
         postedAt: parseUnixTimestamp(value.posted),
-        metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(normalizedMetadata)!,
+        metadataFingerprint: hashArchiveUploaderComparisonMetadata(comparisonSnapshot)!,
+        comparisonSnapshot,
         normalizedMetadata,
         relationships: normalizeRelationships(value, gid)
       }
@@ -494,27 +505,164 @@ export function hashResolvedMetadata(value: Record<string, unknown>): string {
   return createHash('sha256').update(stableStringify(value)).digest('hex')
 }
 
+export function createArchiveUploaderComparisonSnapshot(value: unknown): ArchiveUploaderComparisonSnapshot | null {
+  if (!isRecord(value)) return null
+  const requiredFields = [
+    'titles',
+    'category',
+    'uploader',
+    'postedAt',
+    'fileCount',
+    'fileSize',
+    'expunged',
+    'tags',
+    'relationships'
+  ] as const
+  if (requiredFields.some((field) => !Object.hasOwn(value, field))) return null
+
+  const titles = value.titles
+  if (!isRecord(titles) || typeof titles.display !== 'string' || !Array.isArray(titles.aliases)) return null
+  if (!titles.aliases.every((alias) => typeof alias === 'string')) return null
+  const display = cleanText(titles.display)
+  if (!display) return null
+
+  const category = nullableNormalizedText(value.category)
+  const uploader = nullableNormalizedText(value.uploader)
+  const postedAt = normalizeComparisonTimestamp(value.postedAt)
+  if (category === undefined || uploader === undefined || postedAt === undefined) return null
+  if (!Number.isSafeInteger(value.fileCount) || (value.fileCount as number) <= 0) return null
+  if (value.fileSize !== null && (!Number.isSafeInteger(value.fileSize) || (value.fileSize as number) < 0)) return null
+  if (typeof value.expunged !== 'boolean' || !Array.isArray(value.tags) || !Array.isArray(value.relationships)) {
+    return null
+  }
+
+  const tags = value.tags.map(normalizeComparisonTag)
+  const relationships = value.relationships.map(normalizeComparisonRelationship)
+  if (tags.some((tag) => tag === null) || relationships.some((relationship) => relationship === null)) return null
+
+  return {
+    schemaVersion: 1,
+    titles: {
+      display,
+      aliases: sortedUnique(titles.aliases.map((alias) => cleanText(alias)).filter(Boolean))
+    },
+    category,
+    uploader,
+    postedAt,
+    fileCount: value.fileCount as number,
+    fileSize: value.fileSize as number | null,
+    expunged: value.expunged,
+    tags: uniqueSortedObjects(tags as SourceTagValue[]),
+    relationships: uniqueSortedObjects(relationships as ArchiveUploaderComparisonSnapshot['relationships'])
+  }
+}
+
+export function hashArchiveUploaderComparisonMetadata(value: unknown): string | null {
+  const snapshot = createArchiveUploaderComparisonSnapshot(value)
+  return snapshot ? createHash('sha256').update(stableStringify(snapshot)).digest('hex') : null
+}
+
 export function hashArchiveUploaderDiscoveryMetadata(value: unknown): string | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const source = value as Record<string, unknown>
-  if (typeof source.gid !== 'string' || !source.gid) return null
-  const projection = Object.fromEntries(
-    [
-      'gid',
-      'titles',
-      'category',
-      'uploader',
-      'thumbnailUrl',
-      'postedAt',
-      'fileCount',
-      'fileSize',
-      'rating',
-      'expunged',
-      'tags',
-      'relationships'
-    ].map((key) => [key, source[key] ?? null])
-  )
-  return createHash('sha256').update(stableStringify(projection)).digest('hex')
+  return hashArchiveUploaderComparisonMetadata(value)
+}
+
+export function compareArchiveUploaderMetadata(
+  previousValue: unknown,
+  currentValue: unknown
+): ArchiveUploaderMetadataComparison | null {
+  const previous = createArchiveUploaderComparisonSnapshot(previousValue)
+  const current = createArchiveUploaderComparisonSnapshot(currentValue)
+  if (!previous || !current) return null
+  const changeReasons: ArchiveUploaderMetadataChangeReason[] = []
+
+  addComparisonReason(changeReasons, 'titles', previous.titles, current.titles, '标题或别名变化')
+  addScalarComparisonReason(changeReasons, 'category', previous.category, current.category, '分类')
+  addScalarComparisonReason(changeReasons, 'uploader', previous.uploader, current.uploader, '上传者')
+  addScalarComparisonReason(changeReasons, 'postedAt', previous.postedAt, current.postedAt, '发布时间')
+  addScalarComparisonReason(changeReasons, 'fileCount', previous.fileCount, current.fileCount, '页数')
+  addScalarComparisonReason(changeReasons, 'fileSize', previous.fileSize, current.fileSize, '文件大小')
+  addScalarComparisonReason(changeReasons, 'expunged', previous.expunged, current.expunged, '下架状态')
+  addComparisonReason(changeReasons, 'tags', previous.tags, current.tags, '标签变化')
+  addComparisonReason(changeReasons, 'relationships', previous.relationships, current.relationships, '版本关系变化')
+
+  return { previous, current, changeReasons }
+}
+
+function addScalarComparisonReason(
+  target: ArchiveUploaderMetadataChangeReason[],
+  field: ArchiveUploaderMetadataChangeField,
+  previous: string | number | boolean | null,
+  current: string | number | boolean | null,
+  label: string
+) {
+  if (previous === current) return
+  target.push({ field, message: `${label} ${displayComparisonValue(previous)} → ${displayComparisonValue(current)}` })
+}
+
+function addComparisonReason(
+  target: ArchiveUploaderMetadataChangeReason[],
+  field: ArchiveUploaderMetadataChangeField,
+  previous: unknown,
+  current: unknown,
+  message: string
+) {
+  if (stableStringify(previous) !== stableStringify(current)) target.push({ field, message })
+}
+
+function displayComparisonValue(value: string | number | boolean | null): string {
+  if (value === null) return '无'
+  if (typeof value === 'boolean') return value ? '是' : '否'
+  return String(value)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function nullableNormalizedText(value: unknown): string | null | undefined {
+  if (value === null) return null
+  if (typeof value !== 'string') return undefined
+  return cleanText(value) || null
+}
+
+function normalizeComparisonTimestamp(value: unknown): string | null | undefined {
+  if (value === null) return null
+  if (typeof value !== 'string') return undefined
+  const timestamp = new Date(value)
+  return Number.isNaN(timestamp.getTime()) ? undefined : timestamp.toISOString()
+}
+
+function normalizeComparisonTag(value: unknown): SourceTagValue | null {
+  if (!isRecord(value) || typeof value.namespace !== 'string' || typeof value.name !== 'string') return null
+  const namespace = cleanText(value.namespace).toLocaleLowerCase('en-US')
+  const name = cleanText(value.name)
+  return namespace && name ? { namespace, name } : null
+}
+
+function normalizeComparisonRelationship(
+  value: unknown
+): ArchiveUploaderComparisonSnapshot['relationships'][number] | null {
+  if (
+    !isRecord(value) ||
+    value.type !== 'REPLACES' ||
+    (value.direction !== 'OUTBOUND' && value.direction !== 'INBOUND') ||
+    typeof value.providerKey !== 'string' ||
+    typeof value.externalId !== 'string'
+  ) {
+    return null
+  }
+  const providerKey = cleanText(value.providerKey).toLocaleLowerCase('en-US')
+  const externalId = cleanText(value.externalId)
+  return providerKey && externalId ? { type: value.type, direction: value.direction, providerKey, externalId } : null
+}
+
+function sortedUnique(values: string[]): string[] {
+  return [...new Set(values)].sort((left, right) => left.localeCompare(right, 'en-US'))
+}
+
+function uniqueSortedObjects<T>(values: T[]): T[] {
+  const keyed = new Map(values.map((value) => [stableStringify(value), value]))
+  return [...keyed.entries()].sort(([left], [right]) => left.localeCompare(right, 'en-US')).map(([, value]) => value)
 }
 
 export function chooseCreatorBucket(tags: SourceTagValue[]): string {
@@ -618,7 +766,10 @@ function parseUploaderSearchPage(html: string, baseUrl: string, searchTerm: stri
     const label = cleanText(decodeHtml((match[2] ?? '').replace(/<[^>]+>/g, ' '))).toLowerCase()
     if (
       !nextUrl &&
-      (attributes.id?.toLowerCase() === 'unext' || attributes.rel?.toLowerCase() === 'next' || label === 'next' || label === '>') &&
+      (attributes.id?.toLowerCase() === 'unext' ||
+        attributes.rel?.toLowerCase() === 'next' ||
+        label === 'next' ||
+        label === '>') &&
       url.pathname === '/' &&
       url.searchParams.get('f_search') === searchTerm
     ) {
@@ -634,9 +785,9 @@ function parseUploaderSearchPage(html: string, baseUrl: string, searchTerm: stri
 
 function normalizedDiscoveryMetadata(metadata: EhGalleryMetadata, gid: number): Record<string, unknown> {
   const title = cleanText(metadata.title_jpn) || cleanText(metadata.title) || `E-Hentai ${gid}`
-  const aliases = Array.from(new Set([cleanText(metadata.title), cleanText(metadata.title_jpn)].filter(Boolean))).filter(
-    (value) => value !== title
-  )
+  const aliases = Array.from(
+    new Set([cleanText(metadata.title), cleanText(metadata.title_jpn)].filter(Boolean))
+  ).filter((value) => value !== title)
   return {
     schemaVersion: 1,
     gid: String(gid),

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { inferRouterOutputs } from '@trpc/server'
+import Link from 'next/link'
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
+  ArrowUpRightIcon,
   BanIcon,
   CheckIcon,
   CircleStopIcon,
@@ -18,7 +20,6 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
-import { createBrowserUuid } from '@/lib/browser-uuid'
 import { useTRPC } from '@/lib/trpc'
 import { AdminSection, AdminSectionHeader } from '@/app/admin/_components/admin-workbench'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
@@ -27,18 +28,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@/components/ui/dialog'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -50,7 +40,14 @@ import {
   type ArchiveUploaderPreviewItem,
   ArchiveUploaderResultViewToggle
 } from './archive-uploader-result-visuals'
-import { archiveUploaderDetailPollingInterval, isActiveArchiveUploaderRunStatus } from './archive-uploader-view-state'
+import { ArchiveUploaderCreateSourceDialog } from './archive-uploader-create-source-dialog'
+import {
+  archiveUploaderDetailPollingInterval,
+  historyCoverageLabel,
+  isActiveArchiveUploaderRunStatus,
+  latestCoverageLabel,
+  scanStopReasonLabel
+} from './archive-uploader-view-state'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type UploaderSource = RouterOutputs['archiveUploader']['listSources'][number]
@@ -59,11 +56,19 @@ type IgnoredItem = RouterOutputs['archiveUploader']['listIgnoredItems']['items']
 type ScanItemsPage = RouterOutputs['archiveUploader']['listItems']
 type IgnoredItemsPage = RouterOutputs['archiveUploader']['listIgnoredItems']
 type ScanRun = RouterOutputs['archiveUploader']['getSource']['runs'][number]
-type ResultFeed = 'discovered' | 'ignored'
+type CatalogView = 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'ATTENTION' | 'ALL'
+type ResultFeed = CatalogView | 'IGNORED'
 
-const ACTIONABLE_CLASSIFICATIONS = new Set(['NEW', 'POSSIBLE_UPDATE', 'REPLACEMENT'])
 const SCAN_RESULT_PAGE_SIZE = 50
 const MAX_SELECTED_ITEMS = 100
+const RESULT_FEEDS: Array<{ value: ResultFeed; label: string }> = [
+  { value: 'ACTIONABLE', label: '待处理' },
+  { value: 'PROCESSING', label: '处理中' },
+  { value: 'ARCHIVED', label: '已归档' },
+  { value: 'ATTENTION', label: '异常' },
+  { value: 'ALL', label: '全部' },
+  { value: 'IGNORED', label: '全局已忽略' }
+]
 
 export function ArchiveUploaderSources() {
   const trpc = useTRPC()
@@ -72,10 +77,11 @@ export function ArchiveUploaderSources() {
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [selectedIgnoredItemIds, setSelectedIgnoredItemIds] = useState<Set<string>>(new Set())
-  const [resultFeed, setResultFeed] = useState<ResultFeed>('discovered')
+  const [resultFeed, setResultFeed] = useState<ResultFeed>('ACTIONABLE')
   const [previewItem, setPreviewItem] = useState<ArchiveUploaderPreviewItem | null>(null)
   const [cancelRequestedRunId, setCancelRequestedRunId] = useState<string | null>(null)
   const refreshedCompletedRunId = useRef<string | null>(null)
+  const previousProcessingCount = useRef<{ sourceId: string; count: number } | null>(null)
   const resultView = useAdminPreferencesStore((state) => state.archiveUploaderResultView)
   const setResultView = useAdminPreferencesStore((state) => state.setArchiveUploaderResultView)
 
@@ -88,7 +94,12 @@ export function ArchiveUploaderSources() {
       { includeArchived: true },
       {
         refetchInterval: (query) =>
-          query.state.data?.some((source) => isActiveArchiveUploaderRunStatus(source.latestRun?.status)) ? 3_000 : false
+          query.state.data?.some(
+            (source) =>
+              isActiveArchiveUploaderRunStatus(source.latestRun?.status) || source.catalogCounts.processing > 0
+          )
+            ? 3_000
+            : false
       }
     )
   )
@@ -113,13 +124,19 @@ export function ArchiveUploaderSources() {
   const detail = detailQuery.data
   const activeRun = detail?.runs.find((run) => isActiveArchiveUploaderRunStatus(run.status))
   const latestRun = detail?.runs[0]
+  const catalogPolling = Boolean(activeRun) || (detail?.source.catalogCounts.processing ?? 0) > 0
   const itemsQuery = useInfiniteQuery(
     trpc.archiveUploader.listItems.infiniteQueryOptions(
-      { sourceId: selectedSourceId ?? 'unselected', limit: SCAN_RESULT_PAGE_SIZE },
+      {
+        sourceId: selectedSourceId ?? 'unselected',
+        view: resultFeed === 'IGNORED' ? 'ACTIONABLE' : resultFeed,
+        limit: SCAN_RESULT_PAGE_SIZE
+      },
       {
         initialCursor: null,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
-        enabled: Boolean(selectedSourceId)
+        enabled: Boolean(selectedSourceId) && resultFeed !== 'IGNORED',
+        refetchInterval: catalogPolling ? 3_000 : false
       }
     )
   )
@@ -130,7 +147,7 @@ export function ArchiveUploaderSources() {
       {
         initialCursor: null,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
-        enabled: resultFeed === 'ignored'
+        enabled: resultFeed === 'IGNORED'
       }
     )
   )
@@ -147,13 +164,24 @@ export function ArchiveUploaderSources() {
   }, [latestRun?.id, latestRun?.status, queryClient, trpc.archiveUploader.listItems])
 
   useEffect(() => {
+    if (!selectedSourceId || !detail) return
+    const count = detail.source.catalogCounts.processing
+    const previous = previousProcessingCount.current
+    previousProcessingCount.current = { sourceId: selectedSourceId, count }
+    if (previous?.sourceId !== selectedSourceId || previous.count === 0 || count !== 0) return
+    // The detail count can observe a terminal workflow event before this feed's
+    // request does. Force one final catalog refresh before high-frequency polling stops.
+    void queryClient.invalidateQueries({ queryKey: trpc.archiveUploader.listItems.infiniteQueryKey() })
+  }, [detail, queryClient, selectedSourceId, trpc.archiveUploader.listItems])
+
+  useEffect(() => {
     if (!cancelRequestedRunId) return
     if (!activeRun || activeRun.id !== cancelRequestedRunId) setCancelRequestedRunId(null)
   }, [activeRun, cancelRequestedRunId])
 
   useEffect(() => {
     setSelectedItemIds((current) => {
-      const available = new Set(items.filter(isActionableItem).map(({ id }) => id))
+      const available = new Set(items.filter(isSubmittableItem).map(({ id }) => id))
       return new Set([...current].filter((id) => available.has(id)))
     })
   }, [items])
@@ -225,6 +253,17 @@ export function ArchiveUploaderSources() {
         toast.error('加入收件箱失败', { description: archiveClientErrorMessage(error, '所选结果暂时无法加入收件箱。') })
     })
   )
+  const submissionAttemptMutation = useMutation(
+    trpc.archiveUploader.createSubmissionAttempt.mutationOptions({
+      onSuccess: (attempt, variables) => {
+        addMutation.mutate({ ...variables, submissionAttemptId: attempt.submissionAttemptId })
+      },
+      onError: (error) =>
+        toast.error('无法创建提交尝试', {
+          description: archiveClientErrorMessage(error, '请刷新页面后重试。')
+        })
+    })
+  )
   const restoreMutation = useMutation(
     trpc.archiveUploader.restoreIgnoredItems.mutationOptions({
       onSuccess: async (result, variables) => {
@@ -273,8 +312,8 @@ export function ArchiveUploaderSources() {
     [ignoredItemsQuery.fetchNextPage]
   )
   const retryIgnoredItems = useCallback(() => void ignoredItemsQuery.refetch(), [ignoredItemsQuery.refetch])
-  const actionableItems = items.filter(isActionableItem)
-  const bulkSelectableItems = actionableItems.slice(0, MAX_SELECTED_ITEMS)
+  const submittableItems = items.filter(isSubmittableItem)
+  const bulkSelectableItems = submittableItems.slice(0, MAX_SELECTED_ITEMS)
   const allActionableSelected =
     bulkSelectableItems.length > 0 && bulkSelectableItems.every((item) => selectedItemIds.has(item.id))
   const bulkSelectableIgnoredItems = ignoredItems.slice(0, MAX_SELECTED_ITEMS)
@@ -286,6 +325,7 @@ export function ArchiveUploaderSources() {
     cancelMutation.isPending ||
     archiveMutation.isPending ||
     addMutation.isPending ||
+    submissionAttemptMutation.isPending ||
     ignoreMutation.isPending ||
     restoreMutation.isPending
 
@@ -378,8 +418,23 @@ export function ArchiveUploaderSources() {
                         最近运行 · {latestRun.mode === 'LATEST' ? '最新扫描' : '更早内容'} ·{' '}
                         {formatTimestamp(latestRun.createdAt)} · {scanRunStatusLabel(latestRun.status)} ·{' '}
                         {latestRun.itemCount} 条
+                        {latestRun.stopReason ? ` · ${scanStopReasonLabel(latestRun.stopReason)}` : ''}
                       </p>
                     ) : null}
+                    <div className="flex flex-wrap gap-2" aria-label="扫描覆盖状态">
+                      <Badge variant={source.latestCoverage === 'HAS_MORE' ? 'warning' : 'muted'}>
+                        最新：{latestCoverageLabel(source.latestCoverage)}
+                      </Badge>
+                      <Badge variant={source.historyCoverage === 'HAS_MORE' ? 'info' : 'muted'}>
+                        历史：{historyCoverageLabel(source.historyCoverage)}
+                      </Badge>
+                      <Badge variant={source.catalogCounts.actionable > 0 ? 'success' : 'muted'}>
+                        待处理 {source.catalogCounts.actionable}
+                      </Badge>
+                      {source.catalogCounts.processing > 0 ? (
+                        <Badge variant="warning">处理中 {source.catalogCounts.processing}</Badge>
+                      ) : null}
+                    </div>
                     <div className="flex flex-wrap gap-2">
                       {source.status === 'ACTIVE' ? (
                         <>
@@ -447,12 +502,9 @@ export function ArchiveUploaderSources() {
                 ) : null}
 
                 <AdminSectionHeader
-                  title={resultFeed === 'discovered' ? '发现结果' : '全局已忽略'}
-                  description={
-                    resultFeed === 'discovered'
-                      ? `按画廊汇总最近 30 天的完成扫描并去重；已加载 ${items.length} 条。`
-                      : `跨上传者来源永久忽略的画廊；已加载 ${ignoredItems.length} 条。`
-                  }
+                  className="sm:flex-col sm:items-stretch"
+                  title={resultFeedLabel(resultFeed)}
+                  description={resultFeedDescription(resultFeed, items.length, ignoredItems.length)}
                   actions={
                     <>
                       <ToggleGroup
@@ -463,15 +515,15 @@ export function ArchiveUploaderSources() {
                         size="sm"
                         aria-label="结果范围"
                       >
-                        <ToggleGroupItem value="discovered" aria-label="查看发现结果">
-                          发现
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="ignored" aria-label="查看全局已忽略画廊">
-                          全局已忽略
-                        </ToggleGroupItem>
+                        {RESULT_FEEDS.map((feed) => (
+                          <ToggleGroupItem key={feed.value} value={feed.value} aria-label={`查看${feed.label}`}>
+                            {feed.label}
+                            {feed.value === 'IGNORED' ? '' : ` ${catalogViewCount(source, feed.value)}`}
+                          </ToggleGroupItem>
+                        ))}
                       </ToggleGroup>
                       <ArchiveUploaderResultViewToggle value={resultView} onChange={setResultView} />
-                      {resultFeed === 'discovered' ? (
+                      {resultFeed === 'ACTIONABLE' || resultFeed === 'ATTENTION' || resultFeed === 'ALL' ? (
                         <>
                           <Button
                             variant="outline"
@@ -489,9 +541,8 @@ export function ArchiveUploaderSources() {
                           </Button>
                           <Button
                             onClick={() =>
-                              addMutation.mutate({
+                              submissionAttemptMutation.mutate({
                                 sourceId: source.id,
-                                submissionAttemptId: createBrowserUuid(),
                                 itemIds: [...selectedItemIds]
                               })
                             }
@@ -502,10 +553,10 @@ export function ArchiveUploaderSources() {
                             ) : (
                               <CheckIcon data-icon="inline-start" />
                             )}
-                            加入收件箱（{selectedItemIds.size}）
+                            {resultFeed === 'ATTENTION' ? '重新加入收件箱' : '加入收件箱'}（{selectedItemIds.size}）
                           </Button>
                         </>
-                      ) : (
+                      ) : resultFeed === 'IGNORED' ? (
                         <Button
                           variant="outline"
                           onClick={() => restoreMutation.mutate({ ignoredItemIds: [...selectedIgnoredItemIds] })}
@@ -518,12 +569,13 @@ export function ArchiveUploaderSources() {
                           )}
                           恢复（{selectedIgnoredItemIds.size}）
                         </Button>
-                      )}
+                      ) : null}
                     </>
                   }
                 />
-                {resultFeed === 'discovered' ? (
+                {resultFeed !== 'IGNORED' ? (
                   <ScanResults
+                    view={resultFeed}
                     runs={detail.runs}
                     activeRun={activeRun}
                     items={items}
@@ -536,6 +588,7 @@ export function ArchiveUploaderSources() {
                     onRetry={retryItems}
                     onPreview={setPreviewItem}
                     onIgnore={(itemId) => ignoreMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
+                    onAdd={(itemId) => submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
                     mutationPending={mutationPending}
                     selectedItemIds={selectedItemIds}
                     allActionableSelected={allActionableSelected}
@@ -577,7 +630,7 @@ export function ArchiveUploaderSources() {
         </div>
       )}
 
-      <CreateSourceDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={refresh} />
+      <ArchiveUploaderCreateSourceDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={refresh} />
       <ArchiveUploaderGalleryPreviewDialog item={previewItem} onOpenChange={(open) => !open && setPreviewItem(null)} />
     </div>
   )
@@ -609,11 +662,12 @@ function SourceList({
             <span className="min-w-0 flex-1">
               <span className="block truncate font-medium">{source.displayName}</span>
               <span className="block truncate text-xs font-normal text-muted-foreground">
-                {source.latestRun
-                  ? `${scanRunStatusLabel(source.latestRun.status)} · ${source.latestRun.itemCount} 条`
-                  : '尚未扫描'}
+                待处理 {source.catalogCounts.actionable} · {historyCoverageLabel(source.historyCoverage)}
               </span>
             </span>
+            {source.catalogCounts.attention > 0 ? (
+              <Badge variant="warning">异常 {source.catalogCounts.attention}</Badge>
+            ) : null}
             {source.status === 'ARCHIVED' ? <Badge variant="muted">归档</Badge> : null}
           </Button>
         ))}
@@ -623,6 +677,7 @@ function SourceList({
 }
 
 function ScanResults({
+  view,
   runs,
   activeRun,
   items,
@@ -635,12 +690,14 @@ function ScanResults({
   onRetry,
   onPreview,
   onIgnore,
+  onAdd,
   mutationPending,
   selectedItemIds,
   allActionableSelected,
   onToggleAll,
   onToggle
 }: {
+  view: CatalogView
   runs: ScanRun[]
   activeRun?: ScanRun
   items: ScanItem[]
@@ -653,6 +710,7 @@ function ScanResults({
   onRetry: () => void
   onPreview: (item: ArchiveUploaderPreviewItem) => void
   onIgnore: (itemId: string) => void
+  onAdd: (itemId: string) => void
   mutationPending: boolean
   selectedItemIds: Set<string>
   allActionableSelected: boolean
@@ -692,25 +750,20 @@ function ScanResults({
       </Alert>
     )
   }
-  if (runs.length === 0) {
-    return (
-      <Empty className="border">
-        <EmptyHeader>
-          <EmptyTitle>尚无扫描记录</EmptyTitle>
-          <EmptyDescription>点击“扫描最新”创建第一批发现结果。</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
-  }
   if (items.length === 0) {
+    const neverScanned = runs.length === 0
     return (
       <Empty className="border">
         <EmptyHeader>
-          <EmptyTitle>{activeRun ? '正在扫描' : '没有发现结果'}</EmptyTitle>
+          <EmptyTitle>
+            {activeRun ? '正在扫描' : neverScanned ? '尚无扫描记录' : `没有${resultFeedLabel(view)}项目`}
+          </EmptyTitle>
           <EmptyDescription>
             {activeRun
-              ? '任务完成后，结果会自动汇入这里，不需要切换扫描批次。'
-              : '已完成的扫描暂未找到需要展示的公开画廊。'}
+              ? '任务完成后，画廊会自动汇入长期目录。'
+              : neverScanned
+                ? '点击“扫描最新”创建第一批发现结果。'
+                : emptyCatalogViewDescription(view)}
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -749,7 +802,7 @@ function ScanResults({
                     <Checkbox
                       checked={selectedItemIds.has(item.id)}
                       disabled={
-                        !isActionableItem(item) ||
+                        !isSubmittableItem(item) ||
                         (!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS)
                       }
                       onCheckedChange={(checked) => onToggle(item.id, checked === true)}
@@ -763,7 +816,7 @@ function ScanResults({
                         <div className="flex items-start justify-between gap-2">
                           <p className="line-clamp-2 font-medium">{item.title}</p>
                           <span className="shrink-0 sm:hidden">
-                            <ClassificationBadge classification={item.classification} />
+                            <CatalogStatusBadge item={item} />
                           </span>
                         </div>
                         <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
@@ -772,14 +825,22 @@ function ScanResults({
                         <p className="mt-1 text-xs text-muted-foreground sm:hidden">
                           {item.postedAt ? formatTimestamp(item.postedAt) : '发布时间未知'}
                         </p>
-                        {item.intakeItemId ? <p className="mt-1 text-xs text-muted-foreground">已加入收件箱</p> : null}
+                        {item.changeReasons.length > 0 ? (
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            {item.changeReasons.map(({ label }) => label).join(' · ')}
+                          </p>
+                        ) : item.workflowStage === 'ARCHIVED' && !item.comparisonKnown ? (
+                          <p className="mt-1 text-xs text-muted-foreground">旧记录缺少比较快照，下次扫描会补齐</p>
+                        ) : item.errorMessage ? (
+                          <p className="mt-1 line-clamp-2 text-xs text-destructive">{item.errorMessage}</p>
+                        ) : null}
                       </div>
                     </div>
                     <p className="hidden whitespace-nowrap text-sm text-muted-foreground sm:block">
                       {item.postedAt ? formatTimestamp(item.postedAt) : '—'}
                     </p>
                     <span className="hidden sm:block">
-                      <ClassificationBadge classification={item.classification} />
+                      <CatalogStatusBadge item={item} />
                     </span>
                     {isActionableItem(item) ? (
                       <Button
@@ -790,6 +851,28 @@ function ScanResults({
                         aria-label={`忽略 ${item.title}`}
                       >
                         <BanIcon aria-hidden="true" />
+                      </Button>
+                    ) : item.workflowBucket === 'ATTENTION' && item.intakeItemId ? (
+                      <Button variant="ghost" size="icon" asChild aria-label={`去收件箱处理 ${item.title}`}>
+                        <Link href={`/admin/archive/inbox?itemId=${encodeURIComponent(item.intakeItemId)}`}>
+                          <ArrowUpRightIcon aria-hidden="true" />
+                        </Link>
+                      </Button>
+                    ) : item.recoverable ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onAdd(item.id)}
+                        disabled={mutationPending}
+                        aria-label={`重新加入收件箱 ${item.title}`}
+                      >
+                        <RotateCcwIcon aria-hidden="true" />
+                      </Button>
+                    ) : item.workflowStage === 'ARCHIVED' && item.artworkId ? (
+                      <Button variant="ghost" size="icon" asChild aria-label={`查看已归档作品 ${item.title}`}>
+                        <Link href={`/artworks/${item.artworkId}`} target="_blank" rel="noreferrer">
+                          <ArrowUpRightIcon aria-hidden="true" />
+                        </Link>
                       </Button>
                     ) : (
                       <span aria-hidden="true" />
@@ -994,110 +1077,65 @@ function IgnoredResults({
   )
 }
 
-function CreateSourceDialog({
-  open,
-  onOpenChange,
-  onCreated
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onCreated: () => Promise<void>
-}) {
-  const trpc = useTRPC()
-  const [identityKind, setIdentityKind] = useState<'NAME' | 'UID'>('UID')
-  const [identityValue, setIdentityValue] = useState('')
-  const createMutation = useMutation(
-    trpc.archiveUploader.createSource.mutationOptions({
-      onSuccess: async () => {
-        toast.success('上传者来源已保存')
-        setIdentityValue('')
-        onOpenChange(false)
-        await onCreated()
-      },
-      onError: (error) =>
-        toast.error('保存来源失败', { description: archiveClientErrorMessage(error, '请检查上传者身份后重试。') })
-    })
-  )
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            createMutation.mutate({ identityKind, identityValue })
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>新增上传者来源</DialogTitle>
-            <DialogDescription>推荐使用数字 UID；名称适合暂时无法取得 UID 的情况。</DialogDescription>
-          </DialogHeader>
-          <FieldGroup className="py-5">
-            <Field>
-              <FieldLabel htmlFor="uploader-identity-kind">身份类型</FieldLabel>
-              <Select value={identityKind} onValueChange={(value) => setIdentityKind(value as 'NAME' | 'UID')}>
-                <SelectTrigger id="uploader-identity-kind" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="UID">数字 UID（推荐）</SelectItem>
-                    <SelectItem value="NAME">上传者名称</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="uploader-identity-value">
-                {identityKind === 'UID' ? '上传者 UID' : '上传者名称'}
-              </FieldLabel>
-              <Input
-                id="uploader-identity-value"
-                value={identityValue}
-                onChange={(event) => setIdentityValue(event.target.value)}
-                placeholder={identityKind === 'UID' ? '例如 1234567' : '输入精确上传者名称'}
-                inputMode={identityKind === 'UID' ? 'numeric' : 'text'}
-                autoComplete="off"
-                required
-              />
-              <FieldDescription>来源只会在你点击扫描按钮后访问 E-Hentai，不会定时自动扫描。</FieldDescription>
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              取消
-            </Button>
-            <Button type="submit" disabled={!identityValue.trim() || createMutation.isPending}>
-              {createMutation.isPending ? <Spinner data-icon="inline-start" /> : null}
-              保存来源
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function ClassificationBadge({ classification }: { classification: ScanItem['classification'] }) {
-  const labels = {
-    NEW: '新归档',
-    ACTIVE: '已有活动任务',
-    ARCHIVED: '已归档且未变化',
-    POSSIBLE_UPDATE: '可能更新',
-    REPLACEMENT: '替代版本'
+function CatalogStatusBadge({ item }: { item: ScanItem }) {
+  const states = {
+    NEW: { label: '新归档', variant: 'success' as const },
+    UPDATE_AVAILABLE: { label: '可能更新', variant: 'info' as const },
+    REPLACEMENT: { label: '替代版本', variant: 'warning' as const },
+    INBOX: { label: '等待解析', variant: 'warning' as const },
+    READY: { label: '待确认入队', variant: 'info' as const },
+    DOWNLOADING: { label: '下载中', variant: 'warning' as const },
+    ARCHIVED: { label: item.comparisonKnown ? '已归档' : '已归档 · 待校验', variant: 'muted' as const },
+    FAILED: { label: '处理失败', variant: 'destructive' as const },
+    CANCELLED: { label: '已取消', variant: 'muted' as const },
+    DUPLICATE: { label: '身份重复', variant: 'warning' as const }
   }
-  const variant =
-    classification === 'NEW'
-      ? 'success'
-      : classification === 'POSSIBLE_UPDATE'
-        ? 'info'
-        : classification === 'REPLACEMENT' || classification === 'ACTIVE'
-          ? 'warning'
-          : 'muted'
-  return <Badge variant={variant}>{labels[classification]}</Badge>
+  const state = states[item.workflowStage]
+  return <Badge variant={state.variant}>{state.label}</Badge>
 }
 
 function isActionableItem(item: ScanItem) {
-  return !item.intakeItemId && ACTIONABLE_CLASSIFICATIONS.has(item.classification)
+  return item.actionable
+}
+
+function isSubmittableItem(item: ScanItem) {
+  return item.actionable || item.recoverable
+}
+
+function resultFeedLabel(feed: ResultFeed) {
+  return RESULT_FEEDS.find(({ value }) => value === feed)?.label ?? '上传者目录'
+}
+
+function resultFeedDescription(feed: ResultFeed, itemCount: number, ignoredCount: number) {
+  if (feed === 'IGNORED') return `跨上传者来源永久忽略的画廊；已加载 ${ignoredCount} 条。`
+  const descriptions: Record<CatalogView, string> = {
+    ACTIONABLE: '尚未处理，或本地版本与当前公开信息存在稳定差异',
+    PROCESSING: '正在收件箱解析、等待确认或执行下载',
+    ARCHIVED: '已经完成下载并发布到本地归档',
+    ATTENTION: '解析、下载或身份检查需要处理',
+    ALL: '这个上传者长期保留的全部已发现画廊'
+  }
+  return `${descriptions[feed]}；已加载 ${itemCount} 条。`
+}
+
+function emptyCatalogViewDescription(view: CatalogView) {
+  return {
+    ACTIONABLE: '当前没有需要决定是否归档的画廊。',
+    PROCESSING: '当前没有正在解析或下载的画廊。',
+    ARCHIVED: '这个来源还没有完成归档的画廊。',
+    ATTENTION: '当前没有需要处理的异常。',
+    ALL: '已完成的扫描暂未发现公开画廊。'
+  }[view]
+}
+
+function catalogViewCount(source: { catalogCounts: UploaderSource['catalogCounts'] }, view: CatalogView) {
+  return {
+    ACTIONABLE: source.catalogCounts.actionable,
+    PROCESSING: source.catalogCounts.processing,
+    ARCHIVED: source.catalogCounts.archived,
+    ATTENTION: source.catalogCounts.attention,
+    ALL: source.catalogCounts.total
+  }[view]
 }
 
 function toggleSelection(current: Set<string>, itemId: string, checked: boolean) {

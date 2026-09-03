@@ -1,5 +1,6 @@
 export * from './audit-apply.ts'
 export * from './archive-download.ts'
+export * from './archive-uploader.ts'
 export * from './dtos.ts'
 export * from './error-codes.ts'
 export * from './job-types.ts'

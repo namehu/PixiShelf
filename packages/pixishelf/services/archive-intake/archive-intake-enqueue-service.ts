@@ -110,6 +110,7 @@ async function enqueueOne(
         selectedQuality: reusedImport.selectedQuality
       }
     })
+    await linkCatalogToArchiveImport(transaction, item, reusedImport.id, timestamp)
     return reusedResult(reusedImport, quality, '收件项目已入队')
   }
   if (item.status !== 'READY') {
@@ -143,9 +144,11 @@ async function enqueueOne(
         finishedAt: timestamp
       }
     })
-    return changed.count === 1
-      ? reusedResult(active, quality, '复用同一作品的活动归档任务')
-      : { result: 'CONFLICT', code: 'CONCURRENT_MODIFICATION', message: '收件项目状态已改变' }
+    if (changed.count !== 1) {
+      return { result: 'CONFLICT', code: 'CONCURRENT_MODIFICATION', message: '收件项目状态已改变' }
+    }
+    await linkCatalogToArchiveImport(transaction, item, active.id, timestamp)
+    return reusedResult(active, quality, '复用同一作品的活动归档任务')
   }
 
   const existingRef = await transaction.artworkExternalRef.findUnique({
@@ -220,6 +223,7 @@ async function enqueueOne(
     }
   })
   if (changed.count !== 1) throw new ArchiveError('STATE_CONFLICT', '收件项目状态已改变')
+  await linkCatalogToArchiveImport(transaction, item, importId, timestamp)
   await writeJobEvent(transaction, {
     jobId,
     type: 'job.queued',
@@ -254,6 +258,7 @@ async function recoverEnqueueRace(
         selectedQuality: reusedImport.selectedQuality
       }
     })
+    await linkCatalogToArchiveImport(transaction, item, reusedImport.id, timestamp)
     return reusedResult(reusedImport, quality, '并发命令已将收件项目入队')
   }
   if (!item.providerKey || !item.externalId || item.status !== 'READY') return null
@@ -269,9 +274,42 @@ async function recoverEnqueueRace(
       finishedAt: timestamp
     }
   })
-  return changed.count === 1
-    ? reusedResult(active, quality, '复用并发创建的活动归档任务')
-    : { result: 'CONFLICT', code: 'CONCURRENT_MODIFICATION', message: '收件项目状态已改变' }
+  if (changed.count !== 1) {
+    return { result: 'CONFLICT', code: 'CONCURRENT_MODIFICATION', message: '收件项目状态已改变' }
+  }
+  await linkCatalogToArchiveImport(transaction, item, active.id, timestamp)
+  return reusedResult(active, quality, '复用并发创建的活动归档任务')
+}
+
+function linkCatalogToArchiveImport(
+  transaction: Prisma.TransactionClient,
+  intakeItem: {
+    id: string
+    providerKey: string | null
+    externalId: string | null
+    canonicalUrl: string | null
+    submittedUrl: string
+  },
+  archiveImportId: string,
+  timestamp: Date
+) {
+  const identityFilters: Prisma.ArchiveUploaderCatalogItemWhereInput[] = []
+  if (intakeItem.providerKey && intakeItem.externalId) {
+    identityFilters.push({ providerKey: intakeItem.providerKey, externalId: intakeItem.externalId })
+  }
+  if (intakeItem.canonicalUrl) identityFilters.push({ canonicalUrl: intakeItem.canonicalUrl })
+  identityFilters.push({ canonicalUrl: intakeItem.submittedUrl })
+  return transaction.archiveUploaderCatalogItem.updateMany({
+    where: { OR: [{ lastIntakeItemId: intakeItem.id }, ...identityFilters] },
+    data: {
+      lastIntakeItemId: intakeItem.id,
+      lastArchiveImportId: archiveImportId,
+      lastOutcome: 'SUBMITTED',
+      lastOutcomeAt: timestamp,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }
+  })
 }
 
 function findActiveImport(transaction: Prisma.TransactionClient, providerKey: string, externalId: string) {

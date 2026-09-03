@@ -17,6 +17,7 @@ vi.mock('@/services/background-task/job-command-service', () => ({ cancelJobComm
 import {
   addArchiveUploaderScanItems,
   cancelArchiveUploaderScan,
+  createArchiveUploaderSubmissionAttempt,
   createArchiveUploaderSource,
   ignoreArchiveUploaderScanItems,
   listArchiveUploaderIgnoredItems,
@@ -31,6 +32,15 @@ describe('archive uploader service', () => {
     mocks.createIntake.mockReset()
     mocks.cancelJob.mockReset()
     mocks.writeJobEvent.mockReset()
+  })
+
+  it('issues submission attempt ids on the server', async () => {
+    const uuid = vi.fn(() => '00000000-0000-4000-8000-000000000001')
+
+    await expect(
+      createArchiveUploaderSubmissionAttempt({ sourceId: 'source-1', itemIds: ['catalog-item-1'] }, { uuid })
+    ).resolves.toEqual({ submissionAttemptId: '00000000-0000-4000-8000-000000000001' })
+    expect(uuid).toHaveBeenCalledOnce()
   })
 
   it('canonicalizes a numeric UID before storing a reusable source', async () => {
@@ -137,7 +147,9 @@ describe('archive uploader service', () => {
       archiveUploaderSource: { findUnique: vi.fn(async () => ({ id: 'source-1' })) },
       $queryRaw: vi.fn(async () => [
         {
-          id: 'scan-item-2',
+          id: 'catalog-item-2',
+          sourceId: 'source-1',
+          providerKey: 'e-hentai',
           externalId: '302',
           canonicalUrl: 'https://e-hentai.org/g/302/token302/',
           title: 'Gallery 302',
@@ -145,12 +157,26 @@ describe('archive uploader service', () => {
           uploaderName: 'Uploader',
           postedAt: firstCreatedAt,
           classification: 'NEW',
+          comparisonKnown: true,
+          changeReasons: [],
           intakeItemId: null,
-          createdAt: firstCreatedAt,
+          intakeStatus: null,
+          archiveImportId: null,
+          archiveImportStatus: null,
+          artworkId: null,
+          errorCode: null,
+          errorMessage: null,
+          firstSeenAt: firstCreatedAt,
+          lastSeenAt: firstCreatedAt,
+          workflowStage: 'NEW',
+          workflowBucket: 'ACTIONABLE',
+          recommendation: 'NEW',
           sortAt: firstCreatedAt
         },
         {
-          id: 'scan-item-1',
+          id: 'catalog-item-1',
+          sourceId: 'source-1',
+          providerKey: 'e-hentai',
           externalId: '301',
           canonicalUrl: 'https://e-hentai.org/g/301/token301/',
           title: 'Gallery 301',
@@ -158,8 +184,20 @@ describe('archive uploader service', () => {
           uploaderName: 'Uploader',
           postedAt: secondCreatedAt,
           classification: 'ARCHIVED',
+          comparisonKnown: true,
+          changeReasons: [],
           intakeItemId: null,
-          createdAt: secondCreatedAt,
+          intakeStatus: null,
+          archiveImportId: null,
+          archiveImportStatus: null,
+          artworkId: 1,
+          errorCode: null,
+          errorMessage: null,
+          firstSeenAt: secondCreatedAt,
+          lastSeenAt: secondCreatedAt,
+          workflowStage: 'ARCHIVED',
+          workflowBucket: 'ARCHIVED',
+          recommendation: null,
           sortAt: secondCreatedAt
         }
       ])
@@ -172,13 +210,17 @@ describe('archive uploader service', () => {
 
     expect(result.items).toHaveLength(1)
     expect(result.items[0]).toMatchObject({
-      id: 'scan-item-2',
+      id: 'catalog-item-2',
       externalId: '302',
       thumbnailUrl: 'https://ehgt.org/thumb-302.jpg'
     })
     expect(result.items[0]).not.toHaveProperty('canonicalUrl')
     expect(result.items[0]?.displayUrl).not.toContain('token302')
-    expect(result.nextCursor).toEqual({ sortAt: firstCreatedAt, createdAt: firstCreatedAt, id: 'scan-item-2' })
+    expect(result.nextCursor).toEqual({
+      sortAt: firstCreatedAt,
+      lastSeenAt: firstCreatedAt,
+      id: 'catalog-item-2'
+    })
   })
 
   it('cancels the active system job bound to the requested uploader scan', async () => {
@@ -216,10 +258,12 @@ describe('archive uploader service', () => {
       archiveUploaderSource: {
         findUnique: vi.fn(async () => ({ id: 'source-1', displayName: 'Uploader' }))
       },
-      archiveUploaderScanItem: {
+      archiveUploaderCatalogItem: {
         findMany: vi.fn(async () => [
           {
-            id: 'scan-item-1',
+            id: 'catalog-item-1',
+            sourceId: 'source-1',
+            canonicalUrl: 'https://e-hentai.org/g/300/token300/',
             providerKey: 'e-hentai',
             externalId: '300',
             title: 'Gallery 300',
@@ -227,7 +271,8 @@ describe('archive uploader service', () => {
             uploaderName: 'Uploader',
             postedAt: new Date('2026-09-02T00:00:00.000Z'),
             classification: 'NEW',
-            intakeItemId: null
+            lastIntakeItemId: null,
+            lastOutcome: null
           }
         ]),
         findFirst: vi.fn(async () => null)
@@ -239,7 +284,7 @@ describe('archive uploader service', () => {
     })
 
     await expect(
-      ignoreArchiveUploaderScanItems({ sourceId: 'source-1', itemIds: ['scan-item-1'] }, 'admin-1', {
+      ignoreArchiveUploaderScanItems({ sourceId: 'source-1', itemIds: ['catalog-item-1'] }, 'admin-1', {
         database: database as never
       })
     ).resolves.toEqual({ ignoredItemIds: ['ignored-1'], ignoredCount: 1, createdCount: 1, reusedCount: 0 })
@@ -258,16 +303,18 @@ describe('archive uploader service', () => {
     expect(createInput.data[0]).not.toHaveProperty('canonicalUrl')
   })
 
-  it('rejects a global ignore when another scan record for the Provider/GID is already linked', async () => {
+  it('rejects a global ignore while the globally linked workflow is still retained', async () => {
     const createMany = vi.fn()
     const database = transactionalDatabase({
       archiveUploaderSource: {
         findUnique: vi.fn(async () => ({ id: 'source-1', displayName: 'Uploader' }))
       },
-      archiveUploaderScanItem: {
+      archiveUploaderCatalogItem: {
         findMany: vi.fn(async () => [
           {
-            id: 'scan-item-1',
+            id: 'catalog-item-1',
+            sourceId: 'source-1',
+            canonicalUrl: 'https://e-hentai.org/g/300/token300/',
             providerKey: 'e-hentai',
             externalId: '300',
             title: 'Gallery 300',
@@ -275,16 +322,17 @@ describe('archive uploader service', () => {
             uploaderName: 'Uploader',
             postedAt: null,
             classification: 'NEW',
-            intakeItemId: null
+            lastIntakeItemId: 'intake-item-other',
+            lastOutcome: 'FAILED',
+            lastOutcomeAt: new Date('2026-09-03T00:00:00.000Z')
           }
-        ]),
-        findFirst: vi.fn(async () => ({ id: 'scan-item-other-source' }))
+        ])
       },
       archiveUploaderIgnoredItem: { createMany }
     })
 
     await expect(
-      ignoreArchiveUploaderScanItems({ sourceId: 'source-1', itemIds: ['scan-item-1'] }, 'admin-1', {
+      ignoreArchiveUploaderScanItems({ sourceId: 'source-1', itemIds: ['catalog-item-1'] }, 'admin-1', {
         database: database as never
       })
     ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
@@ -338,20 +386,22 @@ describe('archive uploader service', () => {
   })
 
   it('adds only actionable results to the existing intake workflow and links its durable items', async () => {
-    const scanItems = [
+    const catalogItems = [
       {
-        id: 'scan-item-1',
+        id: 'catalog-item-1',
+        sourceId: 'source-1',
         providerKey: 'e-hentai',
         externalId: '300',
         canonicalUrl: 'https://e-hentai.org/g/300/token300/',
         classification: 'NEW',
-        intakeItemId: null
+        lastIntakeItemId: null,
+        lastOutcome: null
       }
     ]
-    const linkUpdate = vi.fn(async () => ({ count: 1 }))
+    const linkUpdate = vi.fn(async () => catalogItems[0])
     const database = transactionalDatabase({
-      archiveUploaderScanItem: {
-        findMany: vi.fn(async () => scanItems),
+      archiveUploaderCatalogItem: {
+        findMany: vi.fn(async () => catalogItems),
         updateMany: linkUpdate
       },
       archiveIntakeSubmission: { findUnique: vi.fn(async () => null) },
@@ -370,8 +420,8 @@ describe('archive uploader service', () => {
     await addArchiveUploaderScanItems(
       {
         sourceId: 'source-1',
-        submissionAttemptId: '00000000-0000-4000-8000-000000000001',
-        itemIds: ['scan-item-1']
+        itemIds: ['catalog-item-1'],
+        submissionAttemptId: '00000000-0000-4000-8000-000000000001'
       },
       'admin-1',
       { database: database as never }
@@ -384,8 +434,64 @@ describe('archive uploader service', () => {
       expect.objectContaining({ now: undefined, uuid: undefined })
     )
     expect(linkUpdate).toHaveBeenCalledWith({
-      where: { id: 'scan-item-1', intakeItemId: null },
-      data: { intakeItemId: 'intake-item-1' }
+      where: { providerKey: 'e-hentai', externalId: '300' },
+      data: expect.objectContaining({ lastIntakeItemId: 'intake-item-1', lastOutcome: 'SUBMITTED' })
+    })
+  })
+
+  it('persists a duplicate intake audit item as attention instead of submitted', async () => {
+    const canonicalUrl = 'https://e-hentai.org/g/300/token300/'
+    const duplicateAt = new Date('2026-09-03T01:00:00.000Z')
+    const linkUpdate = vi.fn(async () => ({ count: 1 }))
+    const database = transactionalDatabase({
+      archiveUploaderCatalogItem: {
+        findMany: vi.fn(async () => [
+          {
+            id: 'catalog-item-1',
+            sourceId: 'source-1',
+            providerKey: 'e-hentai',
+            externalId: '300',
+            canonicalUrl,
+            classification: 'NEW',
+            lastIntakeItemId: null,
+            lastOutcome: null
+          }
+        ]),
+        updateMany: linkUpdate
+      },
+      archiveIntakeSubmission: { findUnique: vi.fn(async () => null) },
+      archiveUploaderIgnoredItem: { findFirst: vi.fn(async () => null) },
+      archiveIntakeItem: {
+        findMany: vi.fn(async () => [
+          { id: 'intake-duplicate', submittedUrl: canonicalUrl, status: 'DUPLICATE', updatedAt: duplicateAt }
+        ])
+      }
+    })
+    mocks.createIntake.mockResolvedValue({
+      id: 'submission-duplicate',
+      acceptedCount: 0,
+      duplicateCount: 1,
+      rejectedCount: 0
+    })
+
+    await addArchiveUploaderScanItems(
+      {
+        sourceId: 'source-1',
+        itemIds: ['catalog-item-1'],
+        submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+      },
+      'admin-1',
+      { database: database as never }
+    )
+
+    expect(linkUpdate).toHaveBeenCalledWith({
+      where: { providerKey: 'e-hentai', externalId: '300' },
+      data: expect.objectContaining({
+        lastIntakeItemId: 'intake-duplicate',
+        lastOutcome: 'DUPLICATE',
+        lastOutcomeAt: duplicateAt,
+        lastErrorCode: 'ACTIVE_DUPLICATE'
+      })
     })
   })
 
@@ -395,26 +501,40 @@ describe('archive uploader service', () => {
     const intakeFindMany = vi
       .fn()
       .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 'intake-item-2', submittedUrl: canonicalUrl }])
+    const findSubmissionAttempt = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'submission-rejected' })
+      .mockResolvedValueOnce(null)
     const database = transactionalDatabase({
-      archiveUploaderScanItem: {
+      archiveUploaderCatalogItem: {
         findMany: vi.fn(async () => [
           {
-            id: 'scan-item-1',
+            id: 'catalog-item-1',
+            sourceId: 'source-1',
             providerKey: 'e-hentai',
             externalId: '300',
             canonicalUrl,
             classification: 'NEW',
-            intakeItemId: null
+            lastIntakeItemId: null,
+            lastOutcome: null
           }
         ]),
         updateMany: linkUpdate
       },
-      archiveIntakeSubmission: { findUnique: vi.fn(async () => null) },
+      archiveIntakeSubmission: { findUnique: findSubmissionAttempt },
       archiveUploaderIgnoredItem: { findFirst: vi.fn(async () => null) },
       archiveIntakeItem: { findMany: intakeFindMany }
     })
     mocks.createIntake
+      .mockResolvedValueOnce({
+        id: 'submission-rejected',
+        acceptedCount: 0,
+        duplicateCount: 0,
+        rejectedCount: 1
+      })
       .mockResolvedValueOnce({
         id: 'submission-rejected',
         acceptedCount: 0,
@@ -427,12 +547,11 @@ describe('archive uploader service', () => {
         duplicateCount: 0,
         rejectedCount: 0
       })
-
     const first = await addArchiveUploaderScanItems(
       {
         sourceId: 'source-1',
-        submissionAttemptId: '00000000-0000-4000-8000-000000000001',
-        itemIds: ['scan-item-1']
+        itemIds: ['catalog-item-1'],
+        submissionAttemptId: '00000000-0000-4000-8000-000000000001'
       },
       'admin-1',
       { database: database as never }
@@ -440,111 +559,104 @@ describe('archive uploader service', () => {
     const second = await addArchiveUploaderScanItems(
       {
         sourceId: 'source-1',
-        submissionAttemptId: '00000000-0000-4000-8000-000000000002',
-        itemIds: ['scan-item-1']
+        itemIds: ['catalog-item-1'],
+        submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+      },
+      'admin-1',
+      { database: database as never }
+    )
+    const newAttempt = await addArchiveUploaderScanItems(
+      {
+        sourceId: 'source-1',
+        itemIds: ['catalog-item-1'],
+        submissionAttemptId: '00000000-0000-4000-8000-000000000002'
       },
       'admin-1',
       { database: database as never }
     )
 
     expect(first.rejectedCount).toBe(1)
-    expect(second.acceptedCount).toBe(1)
+    expect(second).toEqual(first)
+    expect(newAttempt.acceptedCount).toBe(1)
     const firstKey = mocks.createIntake.mock.calls[0]?.[0].idempotencyKey
-    const secondKey = mocks.createIntake.mock.calls[1]?.[0].idempotencyKey
+    const replayKey = mocks.createIntake.mock.calls[1]?.[0].idempotencyKey
+    const secondKey = mocks.createIntake.mock.calls[2]?.[0].idempotencyKey
+    expect(firstKey).toBe(replayKey)
     expect(firstKey).not.toBe(secondKey)
     expect(firstKey).toMatch(/00000000-0000-4000-8000-000000000001$/)
     expect(secondKey).toMatch(/00000000-0000-4000-8000-000000000002$/)
     expect(linkUpdate).toHaveBeenCalledOnce()
     expect(linkUpdate).toHaveBeenCalledWith({
-      where: { id: 'scan-item-1', intakeItemId: null },
-      data: { intakeItemId: 'intake-item-2' }
+      where: { providerKey: 'e-hentai', externalId: '300' },
+      data: expect.objectContaining({ lastIntakeItemId: 'intake-item-2', lastOutcome: 'SUBMITTED' })
     })
   })
 
-  it('replays the same submission attempt after its scan item has already been linked', async () => {
-    const canonicalUrl = 'https://e-hentai.org/g/300/token300/'
+  it('replays the same server-issued attempt after a response is lost', async () => {
+    const replayed = { id: 'submission-1', acceptedCount: 1, duplicateCount: 0, rejectedCount: 0 }
     const database = transactionalDatabase({
-      archiveUploaderScanItem: {
+      archiveUploaderCatalogItem: {
         findMany: vi.fn(async () => [
           {
-            id: 'scan-item-1',
-            providerKey: 'e-hentai',
-            externalId: '300',
-            canonicalUrl,
-            classification: 'NEW',
-            intakeItemId: 'intake-item-1'
-          }
-        ]),
-        updateMany: vi.fn(async () => ({ count: 0 }))
-      },
-      archiveIntakeSubmission: { findUnique: vi.fn(async () => ({ id: 'submission-1' })) },
-      archiveIntakeItem: {
-        findMany: vi.fn(async () => [{ id: 'intake-item-1', submittedUrl: canonicalUrl }])
-      }
-    })
-    mocks.createIntake.mockResolvedValue({
-      id: 'submission-1',
-      acceptedCount: 1,
-      duplicateCount: 0,
-      rejectedCount: 0
-    })
-
-    await expect(
-      addArchiveUploaderScanItems(
-        {
-          sourceId: 'source-1',
-          submissionAttemptId: '00000000-0000-4000-8000-000000000001',
-          itemIds: ['scan-item-1']
-        },
-        'admin-1',
-        { database: database as never }
-      )
-    ).resolves.toMatchObject({ id: 'submission-1', acceptedCount: 1 })
-    expect(mocks.createIntake).toHaveBeenCalledOnce()
-  })
-
-  it('rejects a new submission attempt after its scan item has already been linked', async () => {
-    const database = transactionalDatabase({
-      archiveUploaderScanItem: {
-        findMany: vi.fn(async () => [
-          {
-            id: 'scan-item-1',
+            id: 'catalog-item-1',
+            sourceId: 'source-1',
             providerKey: 'e-hentai',
             externalId: '300',
             canonicalUrl: 'https://e-hentai.org/g/300/token300/',
             classification: 'NEW',
-            intakeItemId: 'intake-item-1'
+            lastIntakeItemId: 'intake-item-1',
+            lastOutcome: 'SUBMITTED'
           }
         ])
       },
-      archiveIntakeSubmission: { findUnique: vi.fn(async () => null) }
+      archiveIntakeItem: {
+        findMany: vi.fn(async () => [
+          {
+            id: 'intake-item-1',
+            submissionId: 'submission-1',
+            submission: { idempotencyKey: 'server-issued-attempt-1', requestedByUserId: 'admin-1' }
+          }
+        ])
+      },
+      archiveIntakeSubmission: { findUnique: vi.fn(async () => ({ id: 'submission-1' })) }
     })
+    mocks.createIntake.mockResolvedValue(replayed)
 
     await expect(
       addArchiveUploaderScanItems(
         {
           sourceId: 'source-1',
-          submissionAttemptId: '00000000-0000-4000-8000-000000000002',
-          itemIds: ['scan-item-1']
+          itemIds: ['catalog-item-1'],
+          submissionAttemptId: '00000000-0000-4000-8000-000000000001'
         },
         'admin-1',
         { database: database as never }
       )
-    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
-    expect(mocks.createIntake).not.toHaveBeenCalled()
+    ).resolves.toEqual(replayed)
+    expect(mocks.createIntake).toHaveBeenCalledWith(
+      expect.objectContaining({
+        idempotencyKey: expect.stringMatching(/00000000-0000-4000-8000-000000000001$/),
+        urls: ['https://e-hentai.org/g/300/token300/']
+      }),
+      'admin-1',
+      database,
+      expect.objectContaining({ now: undefined, uuid: undefined })
+    )
   })
 
   it('rejects a new intake attempt for a globally ignored gallery', async () => {
     const database = transactionalDatabase({
-      archiveUploaderScanItem: {
+      archiveUploaderCatalogItem: {
         findMany: vi.fn(async () => [
           {
-            id: 'scan-item-1',
+            id: 'catalog-item-1',
+            sourceId: 'source-1',
             providerKey: 'e-hentai',
             externalId: '300',
             canonicalUrl: 'https://e-hentai.org/g/300/token300/',
             classification: 'NEW',
-            intakeItemId: null
+            lastIntakeItemId: null,
+            lastOutcome: null
           }
         ])
       },
@@ -556,8 +668,8 @@ describe('archive uploader service', () => {
       addArchiveUploaderScanItems(
         {
           sourceId: 'source-1',
-          submissionAttemptId: '00000000-0000-4000-8000-000000000002',
-          itemIds: ['scan-item-1']
+          itemIds: ['catalog-item-1'],
+          submissionAttemptId: '00000000-0000-4000-8000-000000000001'
         },
         'admin-1',
         { database: database as never }
@@ -568,10 +680,28 @@ describe('archive uploader service', () => {
 })
 
 function transactionalDatabase<T extends object>(delegates: T) {
-  const transaction = Object.assign(delegates, {
+  const defaults = {
+    artworkExternalRef: { findMany: vi.fn(async () => []) },
+    archiveIntakeItem: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
+    archiveImport: { findFirst: vi.fn(async () => null) },
+    archiveUploaderCatalogItem: { findFirst: vi.fn(async () => null) }
+  }
+  const provided = delegates as typeof defaults
+  const transaction = {
+    ...defaults,
+    ...delegates,
+    artworkExternalRef: { ...defaults.artworkExternalRef, ...provided.artworkExternalRef },
+    archiveIntakeItem: { ...defaults.archiveIntakeItem, ...provided.archiveIntakeItem },
+    archiveImport: { ...defaults.archiveImport, ...provided.archiveImport },
+    archiveUploaderCatalogItem: {
+      ...defaults.archiveUploaderCatalogItem,
+      ...provided.archiveUploaderCatalogItem
+    },
     $queryRaw: vi.fn(async () => [{ lock: '' }])
-  })
-  return Object.assign(transaction, {
-    $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
-  })
+  }
+  const database = transaction as typeof transaction & {
+    $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => Promise<unknown>
+  }
+  database.$transaction = (operation) => operation(database)
+  return database
 }

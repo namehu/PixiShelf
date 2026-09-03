@@ -20,6 +20,7 @@ import type {
 } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
 import { ArchiveTransferMeter, startArchiveTransferReporter } from './transfer-meter.ts'
+import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts'
 import { publishArchiveImportInTransaction } from './publisher.ts'
 import {
   buildArchiveStoragePaths,
@@ -680,6 +681,18 @@ async function finishArchiveImport(
     errorMessage: string
   }
 ) {
+  const archiveImport = await transaction.archiveImport.findUnique({
+    where: { id: input.archiveImportId },
+    select: { providerKey: true, externalId: true, canonicalUrl: true }
+  })
+  if (!archiveImport) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive import disappeared before transition')
+  await lockArchiveUploaderCatalogIdentities(transaction, [
+    {
+      providerKey: archiveImport.providerKey,
+      externalId: archiveImport.externalId,
+      canonicalUrls: [archiveImport.canonicalUrl]
+    }
+  ])
   const changed = await transaction.archiveImport.updateMany({
     where: { id: input.archiveImportId, status: { in: ['PENDING', 'RUNNING', 'CANCELLING'] } },
     data: {
@@ -698,6 +711,21 @@ async function finishArchiveImport(
     }
   })
   if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', 'Archive terminal state changed')
+  await transaction.archiveUploaderCatalogItem.updateMany({
+    where: {
+      OR: [
+        { lastArchiveImportId: input.archiveImportId },
+        { providerKey: archiveImport.providerKey, externalId: archiveImport.externalId }
+      ]
+    },
+    data: {
+      lastArchiveImportId: input.archiveImportId,
+      lastOutcome: input.status,
+      lastOutcomeAt: input.now,
+      lastErrorCode: input.errorCode,
+      lastErrorMessage: input.errorMessage
+    }
+  })
 }
 
 async function pauseOrReleaseArchiveImport(
