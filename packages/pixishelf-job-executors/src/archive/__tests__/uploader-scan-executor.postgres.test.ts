@@ -286,6 +286,72 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
   })
 })
 
+describePostgres('title scan persisted matching state', () => {
+  it('hides only its own nonmatch, preserving catalog identity and the raw head', async () => {
+    const now = new Date('2026-09-04T00:00:00Z')
+    const query = { keyword: 'Existing', matchMode: 'CONTAINS', uploaderUid: null }
+    try {
+      const source = await db().archiveUploaderSource.create({
+        data: {
+          id: `${prefix}-title-source`,
+          providerKey: 'e-hentai',
+          sourceKind: 'TITLE_QUERY',
+          displayName: 'Title source',
+          titleQuery: query,
+          queryKey: randomUUID()
+        }
+      })
+      const other = await seedSource('other-title')
+      const original = await db().archiveUploaderCatalogItem.create({
+        data: catalogData(source.id, `${prefix}-title-catalog`, now, 'NEW')
+      })
+      const unrelated = await db().archiveUploaderCatalogItem.create({
+        data: catalogData(other.id, `${prefix}-other-catalog`, now, 'NEW')
+      })
+      const runId = `${prefix}-title-run`
+      const jobId = `${prefix}-title-job`
+      await db().systemJob.create({ data: systemJobData(jobId, 'ARCHIVE_SEARCH_SCAN', { scanRunId: runId }, now) })
+      await db().archiveUploaderScanRun.create({
+        data: { id: runId, systemJobId: jobId, sourceId: source.id, mode: 'LATEST', titleQuery: query }
+      })
+      const result = scanResult()
+      result.items = result.items.map((item) => ({ ...item, matchesQuery: false }))
+      result.nextCursor = 'title-cursor'
+      await executeArchiveUploaderScan(
+        scanContext(jobId, runId),
+        {
+          database: db(),
+          providers: { getUploaderScanner: () => ({ scanTitles: vi.fn(async () => result) }) } as never,
+          now: () => now
+        },
+        'TITLE_QUERY'
+      )
+      await expect(
+        db().archiveUploaderCatalogItem.findUniqueOrThrow({ where: { id: original.id } })
+      ).resolves.toMatchObject({ matchesQuery: false, firstSeenAt: now })
+      await expect(
+        db().archiveUploaderCatalogItem.findUniqueOrThrow({ where: { id: unrelated.id } })
+      ).resolves.toMatchObject({ matchesQuery: true })
+      await expect(db().archiveUploaderSource.findUniqueOrThrow({ where: { id: source.id } })).resolves.toMatchObject({
+        displayName: 'Title source',
+        uploaderUid: null,
+        latestSeenExternalId: externalId,
+        historyCursor: 'title-cursor'
+      })
+      await expect(db().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: runId } })).resolves.toMatchObject({
+        status: 'COMPLETED',
+        checkedCount: 1,
+        matchedCount: 0,
+        stopReason: 'LIMIT_REACHED'
+      })
+      expect(await db().archiveUploaderIgnoredItem.count({ where: { externalId } })).toBe(0)
+    } finally {
+      await cleanupDatabase()
+      await prisma?.$disconnect()
+    }
+  })
+})
+
 function db() {
   if (!prisma) throw new Error('QUEUE_KERNEL_TEST_DATABASE_URL is required')
   return prisma
@@ -386,7 +452,7 @@ async function seedArchiveImport(now: Date) {
 
 function systemJobData(
   id: string,
-  type: 'ARCHIVE_UPLOADER_SCAN' | 'ARCHIVE_IMPORT',
+  type: 'ARCHIVE_UPLOADER_SCAN' | 'ARCHIVE_SEARCH_SCAN' | 'ARCHIVE_IMPORT',
   payload: Prisma.InputJsonValue,
   now: Date,
   executionLane: 'ARCHIVE_RESOLVE' | 'BACKGROUND_WRITER' = 'ARCHIVE_RESOLVE'

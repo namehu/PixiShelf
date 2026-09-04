@@ -848,9 +848,12 @@ model ArchiveBulkOperation {
 model ArchiveUploaderSource {
   id                        String                      @id @default(cuid())
   providerKey               String                      @db.VarChar(50)
-  identityKind              ArchiveUploaderIdentityKind
-  identityValue             String                      @db.VarChar(180)
-  normalizedIdentity        String                      @db.VarChar(180)
+  sourceKind                ArchiveDiscoverySourceKind  @default(UPLOADER)
+  titleQuery                Json?
+  queryKey                  String?                     @unique @db.VarChar(64)
+  identityKind              ArchiveUploaderIdentityKind?
+  identityValue             String?                     @db.VarChar(180)
+  normalizedIdentity        String?                     @db.VarChar(180)
   uploaderUid               String?                     @db.VarChar(20)
   uidRevalidationRequiredAt DateTime?
   displayName               String                      @db.VarChar(180)
@@ -882,8 +885,11 @@ model ArchiveUploaderScanRun {
   sourceId            String
   systemJobId         String                       @unique(map: "archive_uploader_scan_runs_system_job_key")
   mode                ArchiveUploaderScanMode
-  searchIdentityKind  ArchiveUploaderIdentityKind
-  searchIdentityValue String                       @db.VarChar(180)
+  searchIdentityKind  ArchiveUploaderIdentityKind?
+  searchIdentityValue String?                       @db.VarChar(180)
+  titleQuery          Json?
+  checkedCount        Int                          @default(0)
+  matchedCount        Int                          @default(0)
   status              ArchiveUploaderScanRunStatus @default(PENDING)
   stopReason          ArchiveUploaderScanStopReason?
   cursorBefore        String?                      @db.Text
@@ -912,6 +918,7 @@ model ArchiveUploaderScanRun {
 
 model ArchiveUploaderScanItem {
   id                  String                            @id @default(cuid())
+  matchesQuery        Boolean                           @default(true)
   runId               String
   providerKey         String                            @db.VarChar(50)
   externalId          String                            @db.VarChar(120)
@@ -957,6 +964,7 @@ model ArchiveUploaderIgnoredItem {
 
 model ArchiveUploaderCatalogItem {
   id                    String                         @id @default(cuid())
+  matchesQuery          Boolean                        @default(true)
   sourceId              String
   providerKey           String                         @db.VarChar(50)
   externalId            String                         @db.VarChar(120)
@@ -1787,6 +1795,11 @@ enum ArchiveProviderRequestClass {
   SEARCH
   RESOLVE
   DOWNLOAD
+}
+
+enum ArchiveDiscoverySourceKind {
+  UPLOADER
+  TITLE_QUERY
 }
 
 enum ArchiveUploaderIdentityKind {

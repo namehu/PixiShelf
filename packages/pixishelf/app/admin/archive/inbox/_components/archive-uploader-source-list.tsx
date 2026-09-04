@@ -1,5 +1,6 @@
 'use client'
 
+import { ARCHIVE_TITLE_MATCH_LABELS } from '@pixishelf/job-contracts'
 import type { inferRouterOutputs } from '@trpc/server'
 import { CopyIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
@@ -9,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { historyCoverageLabel } from './archive-uploader-view-state'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
-type UploaderSource = RouterOutputs['archiveUploader']['listSources'][number]
+type UploaderSource = RouterOutputs['archiveSearch']['listSources'][number]
 
 export function ArchiveUploaderSourceList({
   sources,
@@ -26,7 +27,7 @@ export function ArchiveUploaderSourceList({
     <Card className="h-fit gap-2 py-3">
       <CardHeader className="px-3">
         <CardTitle className="text-sm">已保存来源</CardTitle>
-        <CardDescription>{sources.length} 个来源，包含已归档项</CardDescription>
+        <CardDescription>{sources.length} 个来源，包含已停用项</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-1 px-2">
         {sources.map((source) => (
@@ -39,7 +40,11 @@ export function ArchiveUploaderSourceList({
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{source.displayName}</span>
                 <span className="block truncate text-xs font-normal text-muted-foreground">
-                  {source.uploaderUid ? `UID ${source.uploaderUid}` : `按名称：${source.identityValue}`}
+                  {source.titleQuery
+                    ? `标题${ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「${source.titleQuery.keyword}」`
+                    : source.uploaderUid
+                      ? `UID ${source.uploaderUid}`
+                      : `按名称：${source.identityValue}`}
                 </span>
                 <span className="block truncate text-xs font-normal text-muted-foreground">
                   待处理 {source.catalogCounts.actionable} ·{' '}
@@ -49,14 +54,17 @@ export function ArchiveUploaderSourceList({
                 </span>
               </span>
               <span className="flex flex-col items-end gap-1">
-                {source.uidBindingState === 'UNBOUND' ? <Badge variant="warning">未绑定 UID</Badge> : null}
+                {source.titleQuery ? <Badge variant="secondary">关键词</Badge> : null}
+                {!source.titleQuery && source.uidBindingState === 'UNBOUND' ? (
+                  <Badge variant="warning">未绑定 UID</Badge>
+                ) : null}
                 {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
                   <Badge variant="warning">UID 待校验</Badge>
                 ) : null}
                 {source.catalogCounts.attention > 0 ? (
                   <Badge variant="warning">异常 {source.catalogCounts.attention}</Badge>
                 ) : null}
-                {source.status === 'ARCHIVED' ? <Badge variant="muted">归档</Badge> : null}
+                {source.status === 'ARCHIVED' ? <Badge variant="muted">已停用</Badge> : null}
               </span>
             </Button>
             {source.uploaderUid ? (

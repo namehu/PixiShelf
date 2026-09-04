@@ -203,7 +203,11 @@ export async function enqueueJob(
   now: () => Date = () => new Date()
 ): Promise<JobDto> {
   const parsed = enqueueJobInputSchema.parse(input)
-  if (parsed.type === 'ARCHIVE_RESOLVE_ITEM' || parsed.type === 'ARCHIVE_UPLOADER_SCAN') {
+  if (
+    parsed.type === 'ARCHIVE_RESOLVE_ITEM' ||
+    parsed.type === 'ARCHIVE_UPLOADER_SCAN' ||
+    parsed.type === 'ARCHIVE_SEARCH_SCAN'
+  ) {
     throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '归档解析和上传者扫描任务必须通过对应的归档流程创建')
   }
   if (isRetiredFullReconcilePayload(parsed.type, parsed.payload)) {
@@ -316,7 +320,7 @@ export async function cancelJobCommand(
         throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '归档解析任务未绑定收件项')
       }
     }
-    if (job.type === 'ARCHIVE_UPLOADER_SCAN' && direct) {
+    if ((job.type === 'ARCHIVE_UPLOADER_SCAN' || job.type === 'ARCHIVE_SEARCH_SCAN') && direct) {
       const scan = await transaction.archiveUploaderScanRun.updateMany({
         where: { systemJobId: job.id, status: { in: ['PENDING', 'RETRY_WAIT', 'PAUSED'] } },
         data: { status: 'CANCELLED', finishedAt: timestamp, errorCode: 'CANCELLED', errorMessage: null }
@@ -478,7 +482,7 @@ export async function pauseJobCommand(
       pauseRequestedAt: timestamp,
       ...(direct ? { workerId: null, leaseToken: null, leaseExpiresAt: null, heartbeatAt: null } : {})
     })
-    if (job.type === 'ARCHIVE_UPLOADER_SCAN' && direct) {
+    if ((job.type === 'ARCHIVE_UPLOADER_SCAN' || job.type === 'ARCHIVE_SEARCH_SCAN') && direct) {
       const scan = await transaction.archiveUploaderScanRun.updateMany({
         where: { systemJobId: job.id, status: { in: ['PENDING', 'RETRY_WAIT'] } },
         data: { status: 'PAUSED', finishedAt: null }
@@ -526,7 +530,7 @@ export async function resumeJobCommand(
       leaseExpiresAt: null,
       heartbeatAt: null
     })
-    if (job.type === 'ARCHIVE_UPLOADER_SCAN') {
+    if (job.type === 'ARCHIVE_UPLOADER_SCAN' || job.type === 'ARCHIVE_SEARCH_SCAN') {
       const scan = await transaction.archiveUploaderScanRun.updateMany({
         where: { systemJobId: job.id, status: 'PAUSED' },
         data: { status: 'PENDING', finishedAt: null, errorCode: null, errorMessage: null }
@@ -557,7 +561,7 @@ export async function retryJobCommand(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
-    if (job.type === 'ARCHIVE_UPLOADER_SCAN') {
+    if (job.type === 'ARCHIVE_UPLOADER_SCAN' || job.type === 'ARCHIVE_SEARCH_SCAN') {
       throw new BackgroundTaskError(
         'INVALID_STATE_TRANSITION',
         '上传者扫描的游标保存在来源记录中，请从上传者来源重新发起手动扫描'

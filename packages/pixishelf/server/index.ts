@@ -16,6 +16,7 @@ import { pendingReplaceRouter } from './routers/pending-replace'
 import { archiveRouter } from './routers/archive'
 import { archiveInboxRouter } from './routers/archive-inbox'
 import { archiveUploaderRouter } from './routers/archive-uploader'
+import { archiveSearchRouter } from './routers/archive-search'
 import { sourceAuditRouter } from './routers/source-audit'
 
 // 挂载子路由
@@ -37,6 +38,7 @@ export const appRouter = router({
   archive: archiveRouter,
   archiveInbox: archiveInboxRouter,
   archiveUploader: archiveUploaderRouter,
+  archiveSearch: archiveSearchRouter,
   sourceAudit: sourceAuditRouter
 })
 

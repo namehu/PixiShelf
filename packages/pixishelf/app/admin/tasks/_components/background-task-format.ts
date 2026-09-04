@@ -38,6 +38,8 @@ const typeLabels: Partial<Record<JobType, string>> = {
   VIDEO_KEYFRAME_DISCOVERY: '代表帧筛选',
   VIDEO_KEYFRAME_GENERATION: '代表帧生成',
   ARCHIVE_IMPORT: '归档导入',
+  ARCHIVE_UPLOADER_SCAN: '上传者发现扫描',
+  ARCHIVE_SEARCH_SCAN: '标题关键词扫描',
   ARCHIVE_DEFAULT_TAG_BACKFILL: '补全历史归档标签',
   ARCHIVE_MAINTENANCE: '归档维护',
   ARCHIVE_INTAKE_RETENTION_CLEANUP: '归档收件历史清理',
@@ -139,6 +141,7 @@ export function canResumeJob(job: JobDto) {
 export function canRetryJob(job: JobDto) {
   return (
     job.type !== 'ARCHIVE_UPLOADER_SCAN' &&
+    job.type !== 'ARCHIVE_SEARCH_SCAN' &&
     !isNonRetryableScan(job.type, job.payload) &&
     ['FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status)
   )

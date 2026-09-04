@@ -502,6 +502,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   VIDEO_KEYFRAME_DISCOVERY: videoKeyframeDiscoveryPayloadSchema,
   VIDEO_KEYFRAME_GENERATION: videoKeyframeGenerationPayloadSchema,
   ARCHIVE_UPLOADER_SCAN: archiveUploaderScanPayloadSchema,
+  ARCHIVE_SEARCH_SCAN: archiveSearchScanPayloadSchema,
   ARCHIVE_RESOLVE_ITEM: archiveResolveItemPayloadSchema,
   ARCHIVE_IMPORT: archiveImportPayloadSchema,
   ARCHIVE_DEFAULT_TAG_BACKFILL: archiveDefaultTagBackfillPayloadSchema,
@@ -519,3 +520,4 @@ export const JOB_PAYLOAD_SCHEMAS = {
 export function parseJobPayload(type: JobType, payload: unknown) {
   return JOB_PAYLOAD_SCHEMAS[type].parse(payload)
 }
+import { archiveSearchScanPayloadSchema } from './archive-search.ts'

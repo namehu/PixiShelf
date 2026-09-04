@@ -119,7 +119,7 @@ Artist，同一 Artist 在一个 Provider 下也不能同时保存多个身份�
 
 - `system_jobs(executionLane, status, effectivePriority, availableAt, createdAt)` 是按 lane 的领取索引；优先级越小越先执行。
 - `system_jobs_single_executing_per_lane_idx` 是执行态部分唯一索引，保证 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 各自最多一条 `RUNNING/PAUSING/CANCELLING` 记录。它允许一项 resolver 和一项 writer 同时执行，但不允许同 lane 双执行。
-- `system_jobs_type_execution_lane_check` 固定 job type 到 lane：`ARCHIVE_RESOLVE_ITEM` 与 `ARCHIVE_UPLOADER_SCAN` 进入 `ARCHIVE_RESOLVE`，其他任务全部进入 `BACKGROUND_WRITER`。
+- `system_jobs_type_execution_lane_check` 固定 job type 到 lane：`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN` 与 `ARCHIVE_SEARCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他任务全部进入 `BACKGROUND_WRITER`。
 - `system_jobs(status, deadlineAt)` 用于自动窗口过期，`system_jobs(status, leaseExpiresAt)` 用于崩溃租约恢复。
 - `system_jobs(scheduledTaskId, scheduledForDate)` 唯一约束防止每日计划重复物化；`system_jobs(idempotencyKey)` 为可空 API 幂等键。
 - `system_job_events(jobId, id)` 支持按全局递增游标读取单任务时间线。
@@ -203,7 +203,7 @@ Image。apply 的 stale 或身份冲突在这些领域写入之前终止。
 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择
 任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
 
-Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type，加入 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后曾为 26 个 job type；当前增加 `ARCHIVE_UPLOADER_SCAN` 后为 27 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 25 类仍只注册 v1，因此共有 30 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type，加入 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后曾为 26 个 job type；当前增加 `ARCHIVE_UPLOADER_SCAN` 和 `ARCHIVE_SEARCH_SCAN` 后为 28 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 26 类仍只注册 v1，因此共有 31 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
 
 ### 3.7 归档收件与 Provider 请求治理
 
@@ -225,6 +225,12 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 `20260902120000_add_archive_uploader_manual_scan` 增加上传者来源、人工扫描运行和逐项候选表，并把 `ARCHIVE_UPLOADER_SCAN` 加入 `ARCHIVE_RESOLVE` lane。来源持久保存最新、增量和历史游标；运行只有在 fenced completion 中推进游标。`SEARCH` 请求与媒体下载可以并行，但仍共享 `archive_provider_throttles` 的请求间隔和 penalty；普通 `RESOLVE` 继续在活动下载 lease 存在时让行。
 
 `20260904120000_add_archive_uploader_uid_binding` 为上传者来源增加独立的稳定数字 UID 和覆盖复核时间，并为每个扫描运行冻结实际使用的 `NAME/UID` 查询身份。已有 UID 来源原地回填且保留水位；名称来源保持未绑定。名称绑定或 UID 更正只重置来源查询水位、游标和摘要，不删除长期目录、运行历史或工作流关联；重新发现继续按来源、Provider 和 GID upsert。迁移在 DDL 前拒绝活动上传者扫描，并以 `(providerKey, uploaderUid)` 唯一索引阻止跨来源重复绑定。
+
+`20260904180000_add_archive_title_search` 是事务化 expand migration：保留原表名、记录 ID、关系、上传者 UID、水位和目录，增加来源类型、JSON 查询、查询指纹、运行检查/匹配计数及候选匹配标记。旧数据默认为 `UPLOADER` 和匹配；不重建或迁移整套模块。
+
+标题来源的 UID 限制只存于查询 JSON，上传者身份列必须为空；数据库 CHECK 约束来源/运行形状和检查计数边界。指纹以 Provider、规范化关键词、匹配方式和 UID 范围计算并唯一约束；冻结条件不能通过重命名更新。目录仍以来源/Provider/GID 唯一，跨来源处置仍以 Provider/GID 全局锁串行化。入箱与计数忽略 `matchesQuery=false`，但保存该来源的原目录身份及工作流关系。
+
+迁移先拒绝任何非终态发现扫描，再执行 DDL；此 guard 不代替停止旧写入者。增加来源类型后旧版 App 不兼容混合来源，不能直接二进制降级。完整回滚恢复数据库/媒体/配置/镜像一致性检查点；优先前向修复或在兼容版本停用标题来源。
 
 ## 4. 审计与维护 (Audit & Maintenance)
 

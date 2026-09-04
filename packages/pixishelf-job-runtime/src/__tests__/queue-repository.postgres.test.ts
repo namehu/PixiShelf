@@ -24,9 +24,6 @@ const capabilities: WorkerCapability[] = [
 const resolveCapabilities: WorkerCapability[] = [
   { jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
 ]
-const uploaderResolveCapabilities: WorkerCapability[] = [
-  { jobType: 'ARCHIVE_UPLOADER_SCAN', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
-]
 const archiveWriterCapabilities: WorkerCapability[] = [
   { jobType: 'ARCHIVE_IMPORT', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
   { jobType: 'ARCHIVE_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
@@ -277,64 +274,73 @@ describePostgres('PostgresQueueRepository integration', () => {
     else expect(recovered.finishedAt).toEqual(clock.now())
   })
 
-  it('recovers an uploader scan whose lease expires before the executor claims its domain run', async () => {
-    const jobId = await seedJob({
-      type: 'ARCHIVE_UPLOADER_SCAN',
-      executionLane: 'ARCHIVE_RESOLVE',
-      effectivePriority: 20,
-      maxAttempts: 2
-    })
-    const sourceId = `${testPrefix}-uploader-source-${randomUUID()}`
-    const runId = `${testPrefix}-uploader-run-${randomUUID()}`
-    await client().archiveUploaderSource.create({
-      data: {
-        id: sourceId,
-        providerKey: 'e-hentai',
-        identityKind: 'UID',
-        identityValue: '123',
-        normalizedIdentity: '123',
-        displayName: 'UID 123',
-        incrementalCursor: 'latest-cursor',
-        historyCursor: 'history-cursor',
-        runs: {
-          create: {
-            id: runId,
-            systemJobId: jobId,
-            mode: 'LATEST',
-            searchIdentityKind: 'UID',
-            searchIdentityValue: '123',
-            cursorBefore: 'latest-cursor'
+  it.each(['ARCHIVE_UPLOADER_SCAN', 'ARCHIVE_SEARCH_SCAN'] as const)(
+    'recovers %s before its domain run is claimed without advancing progress',
+    async (jobType) => {
+      const titleQuery = { keyword: 'query', matchMode: 'CONTAINS', uploaderUid: null }
+      const jobId = await seedJob({
+        type: jobType,
+        executionLane: 'ARCHIVE_RESOLVE',
+        effectivePriority: 20,
+        maxAttempts: 2
+      })
+      const sourceId = `${testPrefix}-uploader-source-${randomUUID()}`
+      const runId = `${testPrefix}-uploader-run-${randomUUID()}`
+      await client().archiveUploaderSource.create({
+        data: {
+          id: sourceId,
+          providerKey: 'e-hentai',
+          ...(jobType === 'ARCHIVE_SEARCH_SCAN'
+            ? { sourceKind: 'TITLE_QUERY' as const, titleQuery, queryKey: randomUUID() }
+            : { identityKind: 'UID' as const, identityValue: '123', normalizedIdentity: '123' }),
+          displayName: 'UID 123',
+          incrementalCursor: 'latest-cursor',
+          historyCursor: 'history-cursor',
+          runs: {
+            create: {
+              id: runId,
+              systemJobId: jobId,
+              mode: 'LATEST',
+              ...(jobType === 'ARCHIVE_SEARCH_SCAN'
+                ? { titleQuery }
+                : { searchIdentityKind: 'UID' as const, searchIdentityValue: '123' }),
+              cursorBefore: 'latest-cursor'
+            }
           }
         }
-      }
-    })
-    const repository = createRepository(clock, 1_000)
+      })
+      const repository = createRepository(clock, 1_000)
 
-    await expect(
-      repository.claim('queue-kernel-uploader-recovery', uploaderResolveCapabilities)
-    ).resolves.toMatchObject({
-      id: jobId
-    })
-    clock.advance(1_001)
-    await expect(repository.recoverExpiredExecution('ARCHIVE_RESOLVE')).resolves.toMatchObject({
-      jobId,
-      status: 'RETRY_WAIT'
-    })
+      await expect(
+        repository.claim('queue-kernel-uploader-recovery', [
+          { jobType, executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
+        ])
+      ).resolves.toMatchObject({
+        id: jobId
+      })
+      clock.advance(1_001)
+      await expect(repository.recoverExpiredExecution('ARCHIVE_RESOLVE')).resolves.toMatchObject({
+        jobId,
+        status: 'RETRY_WAIT'
+      })
 
-    await expect(client().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: runId } })).resolves.toMatchObject({
-      status: 'RETRY_WAIT',
-      errorCode: 'WORKER_LEASE_EXPIRED',
-      cursorBefore: 'latest-cursor',
-      cursorAfter: null
-    })
-    await expect(client().archiveUploaderSource.findUniqueOrThrow({ where: { id: sourceId } })).resolves.toMatchObject({
-      latestSeenExternalId: null,
-      incrementalCursor: 'latest-cursor',
-      historyCursor: 'history-cursor',
-      lastRunId: runId,
-      lastErrorCode: 'WORKER_LEASE_EXPIRED'
-    })
-  })
+      await expect(client().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: runId } })).resolves.toMatchObject({
+        status: 'RETRY_WAIT',
+        errorCode: 'WORKER_LEASE_EXPIRED',
+        cursorBefore: 'latest-cursor',
+        cursorAfter: null
+      })
+      await expect(
+        client().archiveUploaderSource.findUniqueOrThrow({ where: { id: sourceId } })
+      ).resolves.toMatchObject({
+        latestSeenExternalId: null,
+        incrementalCursor: 'latest-cursor',
+        historyCursor: 'history-cursor',
+        lastRunId: runId,
+        lastErrorCode: 'WORKER_LEASE_EXPIRED'
+      })
+    }
+  )
 
   it.each([
     [2, 'RETRY_WAIT', 'PENDING', null],

@@ -102,7 +102,8 @@ describe('enqueueJob', () => {
 
   it.each([
     { type: 'ARCHIVE_RESOLVE_ITEM' as const, payload: { intakeItemId: 'intake-1' } },
-    { type: 'ARCHIVE_UPLOADER_SCAN' as const, payload: { scanRunId: 'scan-run-1' } }
+    { type: 'ARCHIVE_UPLOADER_SCAN' as const, payload: { scanRunId: 'scan-run-1' } },
+    { type: 'ARCHIVE_SEARCH_SCAN' as const, payload: { scanRunId: 'scan-run-1' } }
   ])('rejects $type jobs outside their archive workflow', async ({ type, payload }) => {
     const harness = commandHarness([])
 

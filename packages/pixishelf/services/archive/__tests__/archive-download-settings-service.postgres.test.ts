@@ -77,7 +77,7 @@ describePostgres('archive download settings PostgreSQL lock protocol', () => {
       data: {
         id: blockingJobId,
         type: 'ARCHIVE_IMPORT',
-        executionLane: 'ARCHIVE_RESOLVE',
+        executionLane: 'BACKGROUND_WRITER',
         definitionVersion: 1,
         status: 'RUNNING',
         triggerSource: 'MANUAL',

@@ -15,7 +15,7 @@ export function ArchiveInboxWorkspace() {
         </TabsTrigger>
         <TabsTrigger value="uploaders">
           <UserSearchIcon data-icon="inline-start" aria-hidden="true" />
-          上传者来源
+          发现来源
         </TabsTrigger>
       </TabsList>
       <TabsContent value="inbox">

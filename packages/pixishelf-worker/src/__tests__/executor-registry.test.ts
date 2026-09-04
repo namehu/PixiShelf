@@ -115,7 +115,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to 27 job capabilities and 30 type/version combinations', () => {
+  it('locks the production Worker to 28 job capabilities and 31 type/version combinations', () => {
     const registry = createWorkerExecutorRegistry({
       database: {} as PrismaClient,
       config: {
@@ -133,7 +133,7 @@ describe('ExecutorRegistry', () => {
     })
 
     const capabilities = registry.capabilities()
-    expect(capabilities).toHaveLength(27)
+    expect(capabilities).toHaveLength(28)
     expect(capabilities).toEqual(PRODUCTION_WORKER_CAPABILITIES)
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_IMPORT')?.definitionVersions).toEqual([

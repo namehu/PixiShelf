@@ -159,6 +159,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `localImport`     | preview、status                                                           | 保存映射、启动、取消                                                                    | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
 | `archiveInbox`    | 持久收件列表与汇总                                                        | 创建/修正、暂停/恢复、重试/取消、批量归档入队                                           | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
 | `archiveUploader` | 来源、扫描覆盖摘要、长期目录实时状态与全局已忽略列表                      | 创建/归档来源、绑定/更正 UID、扫描/取消、加入收件箱、忽略/恢复画廊                      | 读取为 `authProcedure`；来源、任务与处置写入为 `adminProcedure`                                   |
+| `archiveSearch`   | 两类发现来源、扫描摘要、匹配候选与全局忽略                                | 创建关键词来源、改名、停用/恢复、扫描/取消、入箱及忽略/恢复                             | 读取 authProcedure，写入 adminProcedure；固定条件不可原地修改                                     |
 | `archive`         | 分页任务、项目、统计和批量结果                                            | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制                                   | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
 | `pendingReplace`  | 预览与状态                                                                | 绑定、排序、执行、取消、恢复、清理备份                                                  | 全部 `adminProcedure`                                                                             |
 | `job`             | 多类状态、待处理失败、队列与 Pixiv AI 校准状态读取                        | 创建、取消、重试、逐条确认失败提醒、优先级、scheduler、Pixiv AI 预检/回填与中央任务控制 | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`                               |
@@ -207,6 +208,10 @@ Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，l
 E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `Artist.id` 或 gallery GID，也不是凭据。UID 写入只接受规范化正整数；人工绑定/更正使用来源锁，自动发现和人工写入共同使用 UID advisory lock，并由 `(providerKey, uploaderUid)` 唯一约束兜底。名称扫描及管理员“自动匹配”只从已验证同名上传者的画廊上传者区块读取 `forums.e-hentai.org` 的 `showuser` 正整数，不接受评论区资料链接或客户端提供的证据 URL；请求继续经过共享 Provider governor、HTTPS/主机/端口与 DNS 安全检查。自动匹配仅返回候选 UID、公开上传者名称和脱敏 GID，必须再次确认才写入。发生跨来源冲突时接口只返回已有来源 ID 供受保护页面切换，不返回 canonical token、内部查询 URL 或凭据；服务端不自动合并来源或删除既有目录。
 
 上传者发现结果只返回经过专用缩略图校验器处理的远端 URL：协议必须为 HTTPS，不得包含凭据或非标准端口，主机必须精确属于 `e-hentai.org`、`ehgt.org`、`hath.network` 或其子域，并在返回前移除 query/hash。纯列表不挂载图片元素；首图模式仅由浏览器懒加载虚拟列表可视行，使用 `Referrer-Policy: no-referrer`，不把 gallery canonical URL 或 token 发送给图片主机。固定的待处理、处理中、已归档、异常、全部和全局已忽略筛选不新增公共 Route，仍由 `/admin/archive/inbox` 的 Session 门禁保护。入箱前置 mutation 仅向管理员签发随机 submission attempt ID；页面不自行生成该 UUID，只负责把签发值原样带入后续入箱请求以支持网络重放幂等。
+
+标题关键词发现不增加公共路由。`archiveSearch` 读取使用 `authProcedure`，创建、重命名、停用/恢复、扫描/取消及候选处置使用 `adminProcedure`；统一发现列表可以读取两类来源。旧 `archiveUploader` 的来源相关接口限定 `UPLOADER`，UID 绑定和自动匹配不接受标题来源。标题查询的可选 UID 独立冻结，不借用可更正的上传者身份字段。
+
+输入不作为任意正则或站点表达式执行。后端校验后自行构造标题短语，拒绝无法安全表达的输入；源条件、运行冻结条件和游标绑定一起约束重试。列表不暴露内部游标或查询 URL。候选处置复用 Provider/GID 锁，入箱前后重新读取匹配状态及工作流；不匹配不等于全局忽略。鉴权测试验证未登录调用在服务边界前零读写。
 
 ## 凭据与信任头
 

@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 
-const latestRequiredMigration = '20260904120000_add_archive_uploader_uid_binding'
+const latestRequiredMigration = '20260904180000_add_archive_title_search'
 
 const requiredQueueObjects = [
   'archive_intake_items',

@@ -1458,7 +1458,7 @@ export class PostgresQueueRepository {
         now
       )
 
-      if (executingJob.type === 'ARCHIVE_UPLOADER_SCAN') {
+      if (executingJob.type === 'ARCHIVE_UPLOADER_SCAN' || executingJob.type === 'ARCHIVE_SEARCH_SCAN') {
         const scanStatus =
           recoveredStatus === 'RETRY_WAIT'
             ? 'RETRY_WAIT'

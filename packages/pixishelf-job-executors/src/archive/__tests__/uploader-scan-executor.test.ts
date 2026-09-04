@@ -373,8 +373,84 @@ describe('archive uploader scan executor', () => {
   })
 })
 
+describe('title scan executor', () => {
+  const titleQuery = { keyword: 'frozen', matchMode: 'CONTAINS' as const, uploaderUid: null }
+  const rawResult = { ...scanResult, items: scanResult.items.map((item) => ({ ...item, matchesQuery: false })) }
+
+  it('persists raw snapshots and hides nonmatches while advancing raw head and history', async () => {
+    const scanTitles = vi.fn(async () => rawResult)
+    const fixture = createFixture({ scanUploader: vi.fn(), scanTitles, titleQuery })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    expect(scanTitles).toHaveBeenCalledWith(
+      expect.objectContaining({ query: titleQuery, sourceId: 'source-1', limit: 100 }),
+      expect.anything()
+    )
+    expect(fixture.createdItems).toHaveLength(2)
+    expect(fixture.createdItems.every((item) => item.matchesQuery === false)).toBe(true)
+    expect(
+      fixture.catalogUpserts.every((item) => (item.update as { matchesQuery: boolean }).matchesQuery === false)
+    ).toBe(true)
+    expect(fixture.runUpdates.at(-1)).toMatchObject({
+      checkedCount: 2,
+      matchedCount: 0,
+      newCount: 0,
+      archivedCount: 0,
+      stopReason: 'LIMIT_REACHED'
+    })
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({ latestSeenExternalId: '300', historyCursor: 'older-cursor' })
+    expect(fixture.sourceUpdates.at(-1)).not.toHaveProperty('uploaderUid')
+    expect(fixture.sourceUpdates.at(-1)).not.toHaveProperty('displayName')
+  })
+
+  it('counts matches separately without filtering the raw head', async () => {
+    const result = {
+      ...rawResult,
+      items: rawResult.items.map((item, index) => ({ ...item, matchesQuery: index === 1 }))
+    }
+    const fixture = createFixture({ scanUploader: vi.fn(), scanTitles: vi.fn(async () => result), titleQuery })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    expect(fixture.runUpdates.at(-1)).toMatchObject({ checkedCount: 2, matchedCount: 1, newCount: 0, archivedCount: 1 })
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({ latestSeenExternalId: '300' })
+  })
+
+  it.each(['cancel', 'failure', 'lease'] as const)('does not commit snapshots or cursors on %s', async (kind) => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(),
+      titleQuery,
+      cancelBeforeCommit: kind === 'cancel',
+      loseLease: kind === 'lease',
+      scanTitles: vi.fn(async () => {
+        if (kind === 'failure') throw new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'Incomplete metadata')
+        return rawResult
+      })
+    })
+    const execution = executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    if (kind === 'lease') await expect(execution).rejects.toThrow('lease lost')
+    else await execution
+    expect(fixture.createdItems).toEqual([])
+    expect(fixture.catalogUpserts).toEqual([])
+    expect(
+      fixture.sourceUpdates.every(
+        (data) => !Object.hasOwn(data, 'historyCursor') && !Object.hasOwn(data, 'latestSeenExternalId')
+      )
+    ).toBe(true)
+  })
+
+  it('prevents the legacy executor from claiming a keyword source', async () => {
+    const scanTitles = vi.fn(async () => rawResult)
+    const fixture = createFixture({ scanUploader: vi.fn(), scanTitles, titleQuery })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+    expect(scanTitles).not.toHaveBeenCalled()
+    expect(fixture.finalOutcome).toMatchObject({ kind: 'skipped' })
+  })
+})
+
 function createFixture(input: {
   scanUploader: ArchiveUploaderProvider['scanUploader']
+  scanTitles?: ArchiveUploaderProvider['scanTitles']
+  titleQuery?: { keyword: string; matchMode: 'CONTAINS'; uploaderUid: null }
+  cancelBeforeCommit?: boolean
+  loseLease?: boolean
   searchIdentityKind?: 'NAME' | 'UID'
   searchIdentityValue?: string
   activeIntake?: Array<{
@@ -399,13 +475,16 @@ function createFixture(input: {
     sourceId: 'source-1',
     systemJobId: 'uploader-job-1',
     mode: 'LATEST' as const,
-    searchIdentityKind: input.searchIdentityKind ?? ('UID' as const),
-    searchIdentityValue: input.searchIdentityValue ?? '123',
+    titleQuery: input.titleQuery ?? null,
+    searchIdentityKind: input.titleQuery ? null : (input.searchIdentityKind ?? ('UID' as const)),
+    searchIdentityValue: input.titleQuery ? null : (input.searchIdentityValue ?? '123'),
     status: 'PENDING' as const,
     cursorBefore: null,
     source: {
       id: 'source-1',
       providerKey: 'e-hentai',
+      sourceKind: input.titleQuery ? 'TITLE_QUERY' : 'UPLOADER',
+      titleQuery: { keyword: 'different mutable source', matchMode: 'CONTAINS', uploaderUid: null },
       status: 'ACTIVE' as const,
       latestSeenExternalId: null,
       incrementalHeadExternalId: null
@@ -422,9 +501,7 @@ function createFixture(input: {
     },
     archiveUploaderSource: {
       findUnique: vi.fn(async () => ({ uploaderUid: input.existingUploaderUid ?? null })),
-      findFirst: vi.fn(async () =>
-        input.conflictingSourceId ? { id: input.conflictingSourceId } : null
-      ),
+      findFirst: vi.fn(async () => (input.conflictingSourceId ? { id: input.conflictingSourceId } : null)),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         sourceUpdates.push(data)
         return { id: 'source-1' }
@@ -508,6 +585,7 @@ function createFixture(input: {
     accepts: () => true,
     resolve: vi.fn(),
     openMedia: vi.fn(),
+    ...(input.scanTitles ? { scanTitles: input.scanTitles } : {}),
     scanUploader: input.scanUploader
   }
   const context = {
@@ -520,10 +598,11 @@ function createFixture(input: {
     finalizeInTransaction: async (
       operation: (scope: FencedExecutionTransaction<typeof transaction & QueueSqlExecutor>) => Promise<void>
     ) => {
+      if (input.loseLease) throw new Error('lease lost')
       await operation({
         transaction: transaction as typeof transaction & QueueSqlExecutor,
         executionStatus: 'RUNNING',
-        controlStatus: 'CONTINUE',
+        controlStatus: input.cancelBeforeCommit ? 'CANCEL_REQUESTED' : 'CONTINUE',
         complete: async (value = {}) => {
           finalOutcome = { kind: 'completed', ...value }
         },

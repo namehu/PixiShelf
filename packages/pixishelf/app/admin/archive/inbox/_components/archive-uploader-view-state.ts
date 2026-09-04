@@ -43,7 +43,8 @@ export function scanStopReasonLabel(reason: 'LIMIT_REACHED' | 'WATERMARK_REACHED
   }[reason]
 }
 
-export function scanIdentityLabel(kind: 'NAME' | 'UID', value: string) {
+export function scanIdentityLabel(kind: 'NAME' | 'UID' | null, value: string | null) {
+  if (!kind || !value) return '按标题关键词'
   return kind === 'UID' ? `按 UID ${value}` : `按名称 ${value}`
 }
 

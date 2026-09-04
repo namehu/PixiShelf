@@ -273,6 +273,8 @@ describe('background task console', () => {
     expect(canRetryJob(artworkRescan)).toBe(false)
     expect(canRetryJob(ordinaryScan)).toBe(true)
     expect(canRetryJob(uploaderScan)).toBe(false)
+    expect(canRetryJob({ ...uploaderScan, type: 'ARCHIVE_SEARCH_SCAN' })).toBe(false)
+    expect(formatBackgroundJobType('ARCHIVE_SEARCH_SCAN')).toBe('标题关键词扫描')
     expect(canRetryJob(createJob('FAILED'))).toBe(true)
   })
 

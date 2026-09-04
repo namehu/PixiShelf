@@ -1,4 +1,5 @@
 import type { Readable } from 'node:stream'
+import type { ArchiveTitleQuery } from '@pixishelf/job-contracts'
 import type { ArchiveTransferItemPhase } from '@pixishelf/job-contracts'
 import type { Prisma, PrismaClient } from '@pixishelf/db'
 import type { ExecutionLogger } from '@pixishelf/job-runtime'
@@ -93,6 +94,7 @@ export interface ArchiveUploaderScanContext extends ArchiveProviderContext {
 }
 
 export interface ArchiveUploaderGallerySummary {
+  matchesQuery?: boolean
   providerKey: string
   externalId: string
   canonicalUrl: string
@@ -183,10 +185,19 @@ export interface ArchiveProvider extends ArchiveMediaProvider {
 }
 
 export interface ArchiveUploaderProvider extends ArchiveProvider {
+  scanTitles?(input: ArchiveTitleScanInput, context?: ArchiveUploaderScanContext): Promise<ArchiveUploaderScanResult>
   scanUploader(
     input: ArchiveUploaderScanInput,
     context?: ArchiveUploaderScanContext
   ): Promise<ArchiveUploaderScanResult>
+}
+
+export interface ArchiveTitleScanInput {
+  sourceId: string
+  query: ArchiveTitleQuery
+  cursor: string | null
+  stopAtExternalId: string | null
+  limit: number
 }
 
 export type ArchiveQualityValue = ArchiveQuality

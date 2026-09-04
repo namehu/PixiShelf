@@ -2,6 +2,9 @@ import {
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
   archiveUploaderUidLockKey,
   archiveUploaderScanPayloadSchema,
+  archiveSearchScanPayloadSchema,
+  archiveTitleQuerySchema,
+  type ArchiveTitleQuery,
   JOB_DEFINITION_VERSION,
   type ArchiveUploaderScanPayload,
   type JobErrorCode
@@ -99,8 +102,9 @@ interface CatalogDurableWorkflow {
 interface ClaimedScanRun {
   id: string
   mode: 'LATEST' | 'HISTORY'
-  searchIdentityKind: 'NAME' | 'UID'
-  searchIdentityValue: string
+  searchIdentityKind: 'NAME' | 'UID' | null
+  searchIdentityValue: string | null
+  titleQuery: ArchiveTitleQuery | null
   cursorBefore: string | null
   source: {
     id: string
@@ -127,13 +131,21 @@ export function createArchiveUploaderScanExecutorRegistrations(
       definitionVersion: JOB_DEFINITION_VERSION,
       parsePayload: (payload) => archiveUploaderScanPayloadSchema.parse(payload),
       execute: (context) => executeArchiveUploaderScan(context, dependencies)
+    },
+    {
+      jobType: 'ARCHIVE_SEARCH_SCAN',
+      executionLane: 'ARCHIVE_RESOLVE',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      parsePayload: (payload) => archiveSearchScanPayloadSchema.parse(payload),
+      execute: (context) => executeArchiveUploaderScan(context, dependencies, 'TITLE_QUERY')
     }
   ]
 }
 
 export async function executeArchiveUploaderScan(
   context: ScanContext,
-  dependencies: ArchiveUploaderScanExecutorDependencies
+  dependencies: ArchiveUploaderScanExecutorDependencies,
+  sourceKind: 'UPLOADER' | 'TITLE_QUERY' = 'UPLOADER'
 ): Promise<JobExecutionOutcome> {
   const now = dependencies.now ?? (() => new Date())
   const startedAt = now()
@@ -146,7 +158,8 @@ export async function executeArchiveUploaderScan(
       !current ||
       current.systemJobId !== context.job.id ||
       !['PENDING', 'RETRY_WAIT', 'PAUSED'].includes(current.status) ||
-      current.source.status !== 'ACTIVE'
+      current.source.status !== 'ACTIVE' ||
+      (current.source.sourceKind ?? 'UPLOADER') !== sourceKind
     ) {
       return null
     }
@@ -171,6 +184,7 @@ export async function executeArchiveUploaderScan(
       mode: current.mode,
       searchIdentityKind: current.searchIdentityKind,
       searchIdentityValue: current.searchIdentityValue,
+      titleQuery: sourceKind === 'TITLE_QUERY' ? archiveTitleQuerySchema.parse(current.titleQuery) : null,
       cursorBefore: current.cursorBefore,
       source: {
         id: current.source.id,
@@ -193,18 +207,32 @@ export async function executeArchiveUploaderScan(
   }
 
   try {
-    await context.progress({ progress: 5, stage: 'UPLOADER_SEARCH', message: '正在读取上传者公开画廊列表...' })
+    await context.progress({
+      progress: 5,
+      stage: 'UPLOADER_SEARCH',
+      message: run.titleQuery ? '正在搜索标题关键词...' : '正在读取上传者公开画廊列表...'
+    })
     const provider = dependencies.providers.getUploaderScanner(run.source.providerKey)
-    const result = await provider.scanUploader(
-      {
-        identityKind: run.searchIdentityKind,
-        identityValue: run.searchIdentityValue,
-        cursor: run.cursorBefore,
-        stopAtExternalId: run.mode === 'LATEST' ? run.source.latestSeenExternalId : null,
-        limit: SCAN_LIMIT
-      },
-      { signal: context.signal }
-    )
+    const scanInput = {
+      cursor: run.cursorBefore,
+      stopAtExternalId: run.mode === 'LATEST' ? run.source.latestSeenExternalId : null,
+      limit: SCAN_LIMIT
+    }
+    let result: ArchiveUploaderScanResult
+    if (run.titleQuery) {
+      if (!provider.scanTitles) throw new Error('来源站点不支持标题搜索')
+      result = await provider.scanTitles(
+        { ...scanInput, sourceId: run.source.id, query: run.titleQuery },
+        { signal: context.signal }
+      )
+      if (result.items.some((item) => typeof item.matchesQuery !== 'boolean')) throw new Error('标题搜索缺少匹配状态')
+    } else {
+      if (!run.searchIdentityKind || !run.searchIdentityValue) throw new Error('上传者查询身份无效')
+      result = await provider.scanUploader(
+        { ...scanInput, identityKind: run.searchIdentityKind, identityValue: run.searchIdentityValue },
+        { signal: context.signal }
+      )
+    }
     return context.finalizeInTransaction<ScanTransaction>((scope) => finalizeScan(scope, context, run, result, now()))
   } catch (error) {
     const classified = toArchiveExecutorError(error)
@@ -253,8 +281,9 @@ async function finalizeScan(
     await scope.transaction.archiveUploaderScanItem.createMany({
       data: result.items.map((item) => {
         const classification = classifications.get(item.externalId)?.classification ?? 'NEW'
-        counts[classification] += 1
+        if (item.matchesQuery !== false) counts[classification] += 1
         return {
+          matchesQuery: item.matchesQuery !== false,
           runId: run.id,
           providerKey: item.providerKey,
           externalId: item.externalId,
@@ -278,6 +307,7 @@ async function finalizeScan(
         latestWorkflow: null
       }
       const catalogData = {
+        matchesQuery: item.matchesQuery !== false,
         canonicalUrl: item.canonicalUrl,
         title: item.title,
         thumbnailUrl: item.thumbnailUrl,
@@ -339,6 +369,8 @@ async function finalizeScan(
       stopReason,
       cursorAfter: result.nextCursor,
       itemCount: result.items.length,
+      checkedCount: result.items.length,
+      matchedCount: result.items.filter((item) => item.matchesQuery !== false).length,
       newCount: counts.NEW,
       activeCount: counts.ACTIVE,
       archivedCount: counts.ARCHIVED,
@@ -423,6 +455,8 @@ async function finalizeScan(
     result: {
       scanRunId: run.id,
       itemCount: result.items.length,
+      checkedCount: result.items.length,
+      matchedCount: result.items.filter((item) => item.matchesQuery !== false).length,
       counts,
       uidDiscovery: {
         outcome: uidBindingOutcome,
@@ -430,8 +464,9 @@ async function finalizeScan(
         conflictingSourceId
       }
     },
-    message:
-      uidBindingOutcome === 'BOUND'
+    message: run.titleQuery
+      ? `标题搜索完成，检查 ${result.items.length} 条，匹配 ${result.items.filter((item) => item.matchesQuery !== false).length} 条`
+      : uidBindingOutcome === 'BOUND'
         ? `上传者扫描完成，共发现 ${result.items.length} 个画廊；已自动匹配 UID ${result.discoveredUploaderUid}`
         : uidBindingOutcome === 'CONFLICT'
           ? `上传者扫描完成，共发现 ${result.items.length} 个画廊；匹配到的 UID 已属于其他来源，未自动合并`

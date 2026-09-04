@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { archiveTitleQuerySchema, archiveTitleSearchTerm, matchesArchiveTitle } from '@pixishelf/job-contracts'
 import path from 'node:path'
 import type { Readable } from 'node:stream'
 import { ArchiveError, withArchiveErrorContext } from '../errors.ts'
@@ -14,6 +15,7 @@ import type {
   ArchiveUploaderScanContext,
   ArchiveUploaderScanInput,
   ArchiveUploaderScanResult,
+  ArchiveTitleScanInput,
   RemoteMedia,
   ResolvedArchive,
   ResolvedMedia,
@@ -25,6 +27,8 @@ const GALLERY_HOST = 'e-hentai.org'
 const API_URL = 'https://api.e-hentai.org/api.php'
 const MAX_GALLERY_PAGES = 500
 const MAX_UPLOADER_SCAN_ITEMS = 100
+const MAX_SEARCH_PAGE_ITEMS = 10_000
+const MAX_SEARCH_CURSOR_LENGTH = 400_000
 const MAX_GDATA_ITEMS = 25
 const HATH_NETWORK_SUFFIX = 'hath.network'
 
@@ -61,9 +65,9 @@ interface EhTokenResponse {
 }
 
 interface UploaderSearchCursor {
-  version: 1
+  version: 2
   url: string
-  offset: number
+  checkedGids: number[]
 }
 
 interface GallerySearchIdentity {
@@ -150,8 +154,44 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
     input: ArchiveUploaderScanInput,
     context: ArchiveUploaderScanContext = {}
   ): Promise<ArchiveUploaderScanResult> {
+    return this.scanSearch(input, context)
+  }
+
+  async scanTitles(
+    input: ArchiveTitleScanInput,
+    context: ArchiveUploaderScanContext = {}
+  ): Promise<ArchiveUploaderScanResult> {
+    const query = archiveTitleQuerySchema.parse(input.query)
+    const binding = createHash('sha256')
+      .update(JSON.stringify([input.sourceId, archiveTitleSearchTerm(query), query.matchMode]))
+      .digest('hex')
+    let cursor: string | null = null
+    if (input.cursor) {
+      try {
+        if (input.cursor.length > MAX_SEARCH_CURSOR_LENGTH * 2) throw new Error('oversized cursor')
+        const decoded = JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8'))
+        if (decoded.version !== 1 || decoded.binding !== binding || typeof decoded.cursor !== 'string')
+          throw new Error('invalid cursor')
+        cursor = decoded.cursor
+      } catch {
+        throw new ArchiveError('INVALID_URL', '标题搜索游标与当前来源或条件不一致')
+      }
+    }
+    const result = await this.scanSearch({ ...input, query, cursor }, context)
+    return {
+      ...result,
+      nextCursor: result.nextCursor
+        ? Buffer.from(JSON.stringify({ version: 1, binding, cursor: result.nextCursor })).toString('base64url')
+        : null
+    }
+  }
+
+  private async scanSearch(
+    input: ArchiveUploaderScanInput | ArchiveTitleScanInput,
+    context: ArchiveUploaderScanContext
+  ): Promise<ArchiveUploaderScanResult> {
     const limit = Math.min(MAX_UPLOADER_SCAN_ITEMS, Math.max(1, Math.trunc(input.limit)))
-    const searchTerm = uploaderSearchTerm(input)
+    const searchTerm = 'query' in input ? archiveTitleSearchTerm(input.query) : uploaderSearchTerm(input)
     let cursor = input.cursor
       ? decodeUploaderSearchCursor(input.cursor, searchTerm)
       : initialUploaderSearchCursor(searchTerm)
@@ -159,8 +199,13 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
     const seen = new Set<string>()
     let reachedStop = false
     let nextCursor: string | null = null
+    const visitedPages = new Set<string>()
 
     while (identities.length < limit && !reachedStop) {
+      if (visitedPages.has(cursor.url) || visitedPages.size >= MAX_GALLERY_PAGES) {
+        throw new ArchiveError('REMOTE_RESPONSE_INVALID', '搜索分页重复或超出安全范围', { recoverable: true })
+      }
+      visitedPages.add(cursor.url)
       const html = await runSearchRequest(context, () =>
         this.http.text(cursor.url, {
           ...(context.signal ? { signal: context.signal } : {}),
@@ -168,6 +213,9 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         })
       )
       const page = parseUploaderSearchPage(html, cursor.url, searchTerm)
+      if (page.nextUrl && visitedPages.has(page.nextUrl)) {
+        throw new ArchiveError('REMOTE_RESPONSE_INVALID', '搜索分页未向前推进', { recoverable: true })
+      }
       if (page.identities.length === 0 && !page.legitimateEmpty) {
         throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai 搜索页未包含可识别的公开画廊', {
           recoverable: true,
@@ -176,13 +224,19 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         })
       }
 
-      let index = cursor.offset
+      // Page positions shift when galleries are inserted or removed between runs.
+      // Retain only stable identities still on this page, never an array offset.
+      const previousChecked = new Set(cursor.checkedGids)
+      const checkedGids = new Set(page.identities.filter(({ gid }) => previousChecked.has(gid)).map(({ gid }) => gid))
+      let index = 0
       for (; index < page.identities.length && identities.length < limit; index += 1) {
         const identity = page.identities[index]!
         if (input.stopAtExternalId && String(identity.gid) === input.stopAtExternalId) {
           reachedStop = true
           break
         }
+        if (checkedGids.has(identity.gid)) continue
+        checkedGids.add(identity.gid)
         if (seen.has(String(identity.gid))) continue
         seen.add(String(identity.gid))
         identities.push(identity)
@@ -195,9 +249,9 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       if (identities.length >= limit) {
         nextCursor =
           index < page.identities.length
-            ? encodeUploaderSearchCursor({ ...cursor, offset: index })
+            ? encodeUploaderSearchCursor({ ...cursor, checkedGids: [...checkedGids] })
             : page.nextUrl
-              ? encodeUploaderSearchCursor({ version: 1, url: page.nextUrl, offset: 0 })
+              ? encodeUploaderSearchCursor({ version: 2, url: page.nextUrl, checkedGids: [] })
               : null
         break
       }
@@ -205,13 +259,14 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         nextCursor = null
         break
       }
-      cursor = { version: 1, url: page.nextUrl, offset: 0 }
+      cursor = { version: 2, url: page.nextUrl, checkedGids: [] }
     }
 
     const metadata = await this.fetchMetadataBatch(identities, context)
     const items = metadata.map((value) => {
       const uploaderName = cleanText(value.uploader) || null
       if (
+        !('query' in input) &&
         input.identityKind === 'NAME' &&
         normalizeUploaderName(uploaderName) !== normalizeUploaderName(input.identityValue)
       ) {
@@ -228,6 +283,14 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       const comparisonSnapshot = createArchiveUploaderComparisonSnapshot(normalizedMetadata)
       if (!comparisonSnapshot) throw new ArchiveError('REMOTE_RESPONSE_INVALID', 'E-Hentai 比较元数据无效')
       return {
+        ...('query' in input
+          ? {
+              matchesQuery: matchesArchiveTitle(input.query, [
+                decodeHtml(value.title ?? ''),
+                decodeHtml(value.title_jpn ?? '')
+              ])
+            }
+          : {}),
         providerKey: PROVIDER_KEY,
         externalId: String(gid),
         canonicalUrl: `https://${GALLERY_HOST}/g/${gid}/${token}/`,
@@ -243,7 +306,7 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
     })
 
     const discoveredUploaderUid =
-      input.identityKind === 'NAME' && items[0]
+      !('query' in input) && input.identityKind === 'NAME' && items[0]
         ? await discoverUploaderUidFromGallery(items[0].canonicalUrl, input.identityValue, this.http, context)
         : null
 
@@ -731,7 +794,7 @@ function uploaderSearchTerm(input: ArchiveUploaderScanInput): string {
 function initialUploaderSearchCursor(searchTerm: string): UploaderSearchCursor {
   const url = new URL(`https://${GALLERY_HOST}/`)
   url.searchParams.set('f_search', searchTerm)
-  return { version: 1, url: url.toString(), offset: 0 }
+  return { version: 2, url: url.toString(), checkedGids: [] }
 }
 
 function encodeUploaderSearchCursor(cursor: UploaderSearchCursor): string {
@@ -740,12 +803,31 @@ function encodeUploaderSearchCursor(cursor: UploaderSearchCursor): string {
 
 function decodeUploaderSearchCursor(value: string, searchTerm: string): UploaderSearchCursor {
   try {
-    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as UploaderSearchCursor
+    if (value.length > MAX_SEARCH_CURSOR_LENGTH) throw new Error('oversized cursor')
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || typeof parsed.url !== 'string') {
+      throw new Error('invalid cursor shape')
+    }
+    let checkedGids: number[]
+    if (parsed.version === 1 && Number.isSafeInteger(parsed.offset) && parsed.offset >= 0) {
+      // Legacy offsets carry no stable identity evidence. Replay this page once;
+      // the next successful run writes v2 progress instead of risking skipped items.
+      checkedGids = []
+    } else if (
+      parsed.version === 2 &&
+      Array.isArray(parsed.checkedGids) &&
+      parsed.checkedGids.length <= MAX_SEARCH_PAGE_ITEMS &&
+      parsed.checkedGids.every((gid: unknown) => typeof gid === 'number' && Number.isSafeInteger(gid) && gid > 0) &&
+      new Set(parsed.checkedGids).size === parsed.checkedGids.length
+    ) {
+      checkedGids = parsed.checkedGids
+    } else {
+      throw new Error('invalid cursor progress')
+    }
+    const allowedKeys = parsed.version === 1 ? ['version', 'url', 'offset'] : ['version', 'url', 'checkedGids']
+    if (Object.keys(parsed).some((key) => !allowedKeys.includes(key))) throw new Error('invalid cursor fields')
     const url = new URL(parsed.url)
     if (
-      parsed.version !== 1 ||
-      !Number.isSafeInteger(parsed.offset) ||
-      parsed.offset < 0 ||
       url.protocol !== 'https:' ||
       url.hostname.toLowerCase() !== GALLERY_HOST ||
       url.pathname !== '/' ||
@@ -757,7 +839,7 @@ function decodeUploaderSearchCursor(value: string, searchTerm: string): Uploader
       throw new Error('上传者搜索游标无效')
     }
     url.hash = ''
-    return { version: 1, url: url.toString(), offset: parsed.offset }
+    return { version: 2, url: url.toString(), checkedGids }
   } catch (error) {
     throw new ArchiveError('INVALID_URL', 'E-Hentai 上传者扫描游标无效', { cause: error })
   }
@@ -784,6 +866,9 @@ function parseUploaderSearchPage(html: string, baseUrl: string, searchTerm: stri
       if (Number.isSafeInteger(gid) && gid > 0 && !seen.has(gid)) {
         seen.add(gid)
         identities.push({ gid, token: galleryMatch[2]! })
+        if (identities.length > MAX_SEARCH_PAGE_ITEMS) {
+          throw new ArchiveError('REMOTE_RESPONSE_INVALID', '搜索页画廊数量超出安全范围', { recoverable: true })
+        }
       }
     }
     const label = cleanText(decodeHtml((match[2] ?? '').replace(/<[^>]+>/g, ' '))).toLowerCase()

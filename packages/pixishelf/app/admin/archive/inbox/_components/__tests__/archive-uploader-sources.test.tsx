@@ -222,7 +222,7 @@ vi.mock('@tanstack/react-query', () => ({
                           variables
                         )
                       }
-                  : vi.fn()
+                    : vi.fn()
   })
 }))
 
@@ -256,6 +256,29 @@ vi.mock('@/lib/trpc', () => ({
       addToInbox: { mutationOptions: () => ({ kind: 'add' }) },
       ignoreItems: { mutationOptions: (options: object) => ({ kind: 'ignore', ...options }) },
       restoreIgnoredItems: { mutationOptions: (options: object) => ({ kind: 'restore', ...options }) },
+      createSource: { mutationOptions: () => ({ kind: 'create' }) }
+    },
+    archiveSearch: {
+      listSources: { queryOptions: () => ({ kind: 'sources' }), queryKey: () => ['sources'] },
+      getSource: { queryOptions: () => ({ kind: 'detail' }), queryKey: () => ['detail'] },
+      listItems: {
+        infiniteQueryOptions: mocks.infiniteQueryOptions,
+        infiniteQueryKey: () => ['items-infinite']
+      },
+      listIgnoredItems: {
+        infiniteQueryOptions: () => ({ kind: 'ignored' }),
+        infiniteQueryKey: () => ['ignored-items-infinite']
+      },
+      triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
+      cancelScan: { mutationOptions: () => ({ kind: 'cancel' }) },
+      setArchived: { mutationOptions: () => ({ kind: 'archive' }) },
+      matchUploaderUid: { mutationOptions: (options: object) => ({ kind: 'match-uid', ...options }) },
+      setUploaderUid: { mutationOptions: (options: object) => ({ kind: 'uid', ...options }) },
+      createSubmissionAttempt: { mutationOptions: (options: object) => ({ kind: 'prepare', ...options }) },
+      addToInbox: { mutationOptions: () => ({ kind: 'add' }) },
+      ignoreItems: { mutationOptions: (options: object) => ({ kind: 'ignore', ...options }) },
+      restoreIgnoredItems: { mutationOptions: (options: object) => ({ kind: 'restore', ...options }) },
+      renameSource: { mutationOptions: () => ({ kind: 'rename' }) },
       createSource: { mutationOptions: () => ({ kind: 'create' }) }
     },
     archiveInbox: {
@@ -445,6 +468,7 @@ describe('ArchiveUploaderSources', () => {
     )
     expect(screen.getByText('最新：已追到上次水位')).toBeTruthy()
     expect(screen.getAllByText(/仍有更早内容/).length).toBeGreaterThan(0)
+    expect(screen.getByRole('group', { name: '结果范围' }).className).toContain('overflow-x-auto')
   })
 
   it('keeps the durable catalog visible after retained scan runs have been cleaned up', () => {

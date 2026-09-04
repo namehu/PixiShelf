@@ -40,7 +40,10 @@ describe('archive uploader service', () => {
     const uuid = vi.fn(() => '00000000-0000-4000-8000-000000000001')
 
     await expect(
-      createArchiveUploaderSubmissionAttempt({ sourceId: 'source-1', itemIds: ['catalog-item-1'] }, { uuid })
+      createArchiveUploaderSubmissionAttempt(
+        { sourceId: 'source-1', itemIds: ['catalog-item-1'] },
+        { uuid, database: { archiveUploaderSource: { findUnique: vi.fn(async () => ({ id: 'source-1' })) } } as never }
+      )
     ).resolves.toEqual({ submissionAttemptId: '00000000-0000-4000-8000-000000000001' })
     expect(uuid).toHaveBeenCalledOnce()
   })

@@ -232,7 +232,7 @@ function catalogStateCte(scope: Prisma.Sql) {
         ORDER BY candidate."createdAt" DESC, candidate."id" DESC
         LIMIT 1
       ) AS archive_import ON TRUE
-      WHERE ${scope}
+      WHERE ${scope} AND catalog."matchesQuery" = true
         AND ignored."id" IS NULL
     ),
     "catalogStages" AS (

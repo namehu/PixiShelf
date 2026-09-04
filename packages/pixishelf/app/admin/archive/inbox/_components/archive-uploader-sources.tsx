@@ -1,5 +1,7 @@
 'use client'
 
+import { ARCHIVE_TITLE_MATCH_LABELS } from '@pixishelf/job-contracts'
+import { ArchiveSearchSourceDialog, type ArchiveSearchDialogState } from './archive-search-source-dialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -46,6 +48,7 @@ import {
 import { ArchiveUploaderCreateSourceDialog } from './archive-uploader-create-source-dialog'
 import { copyArchiveUploaderUid } from './archive-uploader-clipboard'
 import { ArchiveUploaderUidConflictAlert } from './archive-uploader-uid-conflict-alert'
+import { IgnoredResults } from './archive-discovery-ignored-results'
 import { ArchiveUploaderSourceList } from './archive-uploader-source-list'
 import { ArchiveUploaderUidDialog } from './archive-uploader-uid-dialog'
 import {
@@ -61,11 +64,10 @@ import {
 } from './archive-uploader-view-state'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
-type ScanItem = RouterOutputs['archiveUploader']['listItems']['items'][number]
-type IgnoredItem = RouterOutputs['archiveUploader']['listIgnoredItems']['items'][number]
-type ScanItemsPage = RouterOutputs['archiveUploader']['listItems']
-type IgnoredItemsPage = RouterOutputs['archiveUploader']['listIgnoredItems']
-type ScanRun = RouterOutputs['archiveUploader']['getSource']['runs'][number]
+type ScanItem = RouterOutputs['archiveSearch']['listItems']['items'][number]
+type ScanItemsPage = RouterOutputs['archiveSearch']['listItems']
+type IgnoredItemsPage = RouterOutputs['archiveSearch']['listIgnoredItems']
+type ScanRun = RouterOutputs['archiveSearch']['getSource']['runs'][number]
 type CatalogView = 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'ATTENTION' | 'ALL'
 type ResultFeed = CatalogView | 'IGNORED'
 const SCAN_RESULT_PAGE_SIZE = 50
@@ -83,6 +85,8 @@ export function ArchiveUploaderSources() {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
+  const [searchDialog, setSearchDialog] = useState<ArchiveSearchDialogState | null>(null)
+  const [sourceFilter, setSourceFilter] = useState('ALL')
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
@@ -100,7 +104,7 @@ export function ArchiveUploaderSources() {
   }, [])
 
   const sourcesQuery = useQuery(
-    trpc.archiveUploader.listSources.queryOptions(
+    trpc.archiveSearch.listSources.queryOptions(
       { includeArchived: true },
       {
         refetchInterval: (query) =>
@@ -113,7 +117,13 @@ export function ArchiveUploaderSources() {
       }
     )
   )
-  const sources = useMemo(() => sourcesQuery.data ?? [], [sourcesQuery.data])
+  const sources = useMemo(
+    () =>
+      (sourcesQuery.data ?? []).filter(
+        (source) => sourceFilter === 'ALL' || (source.sourceKind ?? 'UPLOADER') === sourceFilter
+      ),
+    [sourcesQuery.data, sourceFilter]
+  )
 
   useEffect(() => {
     if (!selectedSourceId && sources[0]) setSelectedSourceId(sources[0].id)
@@ -123,7 +133,7 @@ export function ArchiveUploaderSources() {
   }, [selectedSourceId, sources])
 
   const detailQuery = useQuery(
-    trpc.archiveUploader.getSource.queryOptions(
+    trpc.archiveSearch.getSource.queryOptions(
       { sourceId: selectedSourceId ?? 'unselected' },
       {
         enabled: Boolean(selectedSourceId),
@@ -136,7 +146,7 @@ export function ArchiveUploaderSources() {
   const latestRun = detail?.runs[0]
   const catalogPolling = Boolean(activeRun) || (detail?.source.catalogCounts.processing ?? 0) > 0
   const itemsQuery = useInfiniteQuery(
-    trpc.archiveUploader.listItems.infiniteQueryOptions(
+    trpc.archiveSearch.listItems.infiniteQueryOptions(
       {
         sourceId: selectedSourceId ?? 'unselected',
         view: resultFeed === 'IGNORED' ? 'ACTIONABLE' : resultFeed,
@@ -152,7 +162,7 @@ export function ArchiveUploaderSources() {
   )
   const items = useMemo(() => itemsQuery.data?.pages.flatMap((page) => page.items) ?? [], [itemsQuery.data])
   const ignoredItemsQuery = useInfiniteQuery(
-    trpc.archiveUploader.listIgnoredItems.infiniteQueryOptions(
+    trpc.archiveSearch.listIgnoredItems.infiniteQueryOptions(
       { limit: SCAN_RESULT_PAGE_SIZE },
       {
         initialCursor: null,
@@ -170,8 +180,8 @@ export function ArchiveUploaderSources() {
     if (latestRun?.status !== 'COMPLETED') return
     if (refreshedCompletedRunId.current === latestRun.id) return
     refreshedCompletedRunId.current = latestRun.id
-    void queryClient.invalidateQueries({ queryKey: trpc.archiveUploader.listItems.infiniteQueryKey() })
-  }, [latestRun?.id, latestRun?.status, queryClient, trpc.archiveUploader.listItems])
+    void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
+  }, [latestRun?.id, latestRun?.status, queryClient, trpc.archiveSearch.listItems])
 
   useEffect(() => {
     if (!selectedSourceId || !detail) return
@@ -181,8 +191,8 @@ export function ArchiveUploaderSources() {
     if (previous?.sourceId !== selectedSourceId || previous.count === 0 || count !== 0) return
     // The detail count can observe a terminal workflow event before this feed's
     // request does. Force one final catalog refresh before high-frequency polling stops.
-    void queryClient.invalidateQueries({ queryKey: trpc.archiveUploader.listItems.infiniteQueryKey() })
-  }, [detail, queryClient, selectedSourceId, trpc.archiveUploader.listItems])
+    void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
+  }, [detail, queryClient, selectedSourceId, trpc.archiveSearch.listItems])
 
   useEffect(() => {
     if (!cancelRequestedRunId) return
@@ -205,16 +215,16 @@ export function ArchiveUploaderSources() {
 
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: trpc.archiveUploader.listSources.queryKey() }),
-      queryClient.invalidateQueries({ queryKey: trpc.archiveUploader.getSource.queryKey() }),
-      queryClient.invalidateQueries({ queryKey: trpc.archiveUploader.listItems.infiniteQueryKey() }),
-      queryClient.invalidateQueries({ queryKey: trpc.archiveUploader.listIgnoredItems.infiniteQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listSources.queryKey() }),
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.getSource.queryKey() }),
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listIgnoredItems.infiniteQueryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveInbox.list.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveInbox.summary.queryKey() })
     ])
   }
   const scanMutation = useMutation(
-    trpc.archiveUploader.triggerScan.mutationOptions({
+    trpc.archiveSearch.triggerScan.mutationOptions({
       onSuccess: async (run) => {
         setSelectedItemIds(new Set())
         toast.success(run.mode === 'LATEST' ? '最新扫描已加入队列' : '旧页扫描已加入队列')
@@ -225,7 +235,7 @@ export function ArchiveUploaderSources() {
     })
   )
   const cancelMutation = useMutation(
-    trpc.archiveUploader.cancelScan.mutationOptions({
+    trpc.archiveSearch.cancelScan.mutationOptions({
       onSuccess: async (result) => {
         setCancelRequestedRunId(result.id)
         toast.success(result.status === 'CANCELLED' ? '扫描已取消' : '已请求取消扫描')
@@ -236,9 +246,9 @@ export function ArchiveUploaderSources() {
     })
   )
   const archiveMutation = useMutation(
-    trpc.archiveUploader.setArchived.mutationOptions({
+    trpc.archiveSearch.setArchived.mutationOptions({
       onSuccess: async (result) => {
-        toast.success(result.status === 'ARCHIVED' ? '上传者来源已归档' : '上传者来源已重新启用')
+        toast.success(result.status === 'ARCHIVED' ? '发现来源已停用' : '发现来源已重新启用')
         await refresh()
       },
       onError: (error) =>
@@ -246,7 +256,7 @@ export function ArchiveUploaderSources() {
     })
   )
   const addMutation = useMutation(
-    trpc.archiveUploader.addToInbox.mutationOptions({
+    trpc.archiveSearch.addToInbox.mutationOptions({
       onSuccess: async (submission) => {
         setSelectedItemIds(new Set())
         const description = `接收 ${submission.acceptedCount} · 重复 ${submission.duplicateCount} · 拒绝 ${submission.rejectedCount}`
@@ -264,7 +274,7 @@ export function ArchiveUploaderSources() {
     })
   )
   const submissionAttemptMutation = useMutation(
-    trpc.archiveUploader.createSubmissionAttempt.mutationOptions({
+    trpc.archiveSearch.createSubmissionAttempt.mutationOptions({
       onSuccess: (attempt, variables) => {
         addMutation.mutate({ ...variables, submissionAttemptId: attempt.submissionAttemptId })
       },
@@ -275,10 +285,10 @@ export function ArchiveUploaderSources() {
     })
   )
   const restoreMutation = useMutation(
-    trpc.archiveUploader.restoreIgnoredItems.mutationOptions({
+    trpc.archiveSearch.restoreIgnoredItems.mutationOptions({
       onSuccess: async (result, variables) => {
         queryClient.setQueriesData<InfiniteData<IgnoredItemsPage>>(
-          { queryKey: trpc.archiveUploader.listIgnoredItems.infiniteQueryKey() },
+          { queryKey: trpc.archiveSearch.listIgnoredItems.infiniteQueryKey() },
           (current) => removeInfiniteItems(current, variables.ignoredItemIds)
         )
         setSelectedIgnoredItemIds(new Set())
@@ -290,10 +300,10 @@ export function ArchiveUploaderSources() {
     })
   )
   const ignoreMutation = useMutation(
-    trpc.archiveUploader.ignoreItems.mutationOptions({
+    trpc.archiveSearch.ignoreItems.mutationOptions({
       onSuccess: async (result, variables) => {
         queryClient.setQueriesData<InfiniteData<ScanItemsPage>>(
-          { queryKey: trpc.archiveUploader.listItems.infiniteQueryKey() },
+          { queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() },
           (current) => removeInfiniteItems(current, variables.itemIds)
         )
         setSelectedItemIds(new Set())
@@ -342,20 +352,40 @@ export function ArchiveUploaderSources() {
   return (
     <div className="flex flex-col gap-6 pt-4">
       <AdminSectionHeader
-        title="E-Hentai 上传者来源"
-        description="按名称或 UID 保存来源；每次扫描都由你手动发起，结果确认后才进入归档收件箱。"
+        title="E-Hentai 发现来源"
+        description="保存上传者或标题关键词条件；每次手动扫描，确认结果后才进入归档收件箱。"
         actions={
-          <Button onClick={() => setCreateOpen(true)}>
-            <PlusIcon data-icon="inline-start" aria-hidden="true" />
-            新增来源
-          </Button>
+          <>
+            <Button variant="outline" onClick={() => setCreateOpen(true)}>
+              <PlusIcon data-icon="inline-start" />
+              新增上传者
+            </Button>
+            <Button onClick={() => setSearchDialog({ mode: 'CREATE' })}>
+              <PlusIcon data-icon="inline-start" />
+              新增关键词
+            </Button>
+          </>
         }
       />
+
+      <ToggleGroup
+        type="single"
+        value={sourceFilter}
+        onValueChange={(value) => {
+          if (value) setSourceFilter(value)
+        }}
+        variant="outline"
+        aria-label="来源类型"
+      >
+        <ToggleGroupItem value="ALL">全部来源</ToggleGroupItem>
+        <ToggleGroupItem value="UPLOADER">上传者</ToggleGroupItem>
+        <ToggleGroupItem value="TITLE_QUERY">标题关键词</ToggleGroupItem>
+      </ToggleGroup>
 
       {sourcesQuery.isError ? (
         <Alert variant="destructive">
           <AlertTitle>来源加载失败</AlertTitle>
-          <AlertDescription>上传者来源仍保存在数据库中，请稍后重新加载。</AlertDescription>
+          <AlertDescription>发现来源仍保存在数据库中，请稍后重新加载。</AlertDescription>
         </Alert>
       ) : sourcesQuery.isPending ? (
         <UploaderSourcesLoading />
@@ -365,10 +395,12 @@ export function ArchiveUploaderSources() {
             <EmptyMedia variant="icon">
               <UserSearchIcon aria-hidden="true" />
             </EmptyMedia>
-            <EmptyTitle>还没有上传者来源</EmptyTitle>
-            <EmptyDescription>先保存一个上传者名称或数字 UID，再手动扫描其公开画廊。</EmptyDescription>
+            <EmptyTitle>暂无此类型的发现来源</EmptyTitle>
+            <EmptyDescription>先保存上传者或标题关键词来源，再手动扫描公开画廊。</EmptyDescription>
           </EmptyHeader>
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button
+            onClick={() => (sourceFilter === 'TITLE_QUERY' ? setSearchDialog({ mode: 'CREATE' }) : setCreateOpen(true))}
+          >
             <PlusIcon data-icon="inline-start" aria-hidden="true" />
             新增来源
           </Button>
@@ -391,7 +423,7 @@ export function ArchiveUploaderSources() {
             ) : !source ? (
               <Empty className="border">
                 <EmptyHeader>
-                  <EmptyTitle>请选择上传者来源</EmptyTitle>
+                  <EmptyTitle>请选择发现来源</EmptyTitle>
                   <EmptyDescription>从左侧来源列表选择一项查看扫描记录。</EmptyDescription>
                 </EmptyHeader>
               </Empty>
@@ -401,13 +433,20 @@ export function ArchiveUploaderSources() {
                   <CardHeader>
                     <CardTitle className="flex flex-wrap items-center gap-2">
                       {source.displayName}
-                      {source.uidBindingState === 'UNBOUND' ? <Badge variant="warning">未绑定 UID</Badge> : null}
+                      {!source.titleQuery && source.uidBindingState === 'UNBOUND' ? (
+                        <Badge variant="warning">未绑定 UID</Badge>
+                      ) : null}
                       <Badge variant={source.status === 'ACTIVE' ? 'success' : 'muted'}>
-                        {source.status === 'ACTIVE' ? '已启用' : '已归档'}
+                        {source.status === 'ACTIVE' ? '已启用' : '已停用'}
                       </Badge>
                     </CardTitle>
                     <CardDescription className="flex flex-wrap items-center gap-2">
-                      {source.uploaderUid ? (
+                      {source.titleQuery ? (
+                        <span>
+                          标题{ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「{source.titleQuery.keyword}」 ·{' '}
+                          {source.titleQuery.uploaderUid ? `UID ${source.titleQuery.uploaderUid}` : '不限上传者'}
+                        </span>
+                      ) : source.uploaderUid ? (
                         <>
                           <span>上传者 UID {source.uploaderUid}</span>
                           <Button
@@ -448,7 +487,9 @@ export function ArchiveUploaderSources() {
                         最近运行 · {latestRun.mode === 'LATEST' ? '最新扫描' : '更早内容'} ·{' '}
                         {scanIdentityLabel(latestRun.searchIdentityKind, latestRun.searchIdentityValue)} ·{' '}
                         {formatArchiveUploaderTimestamp(latestRun.createdAt)} · {scanRunStatusLabel(latestRun.status)} ·{' '}
-                        {latestRun.itemCount} 条
+                        {source.titleQuery
+                          ? `检查 ${latestRun.checkedCount} 条，匹配 ${latestRun.matchedCount} 条`
+                          : `${latestRun.itemCount} 条`}
                         {latestRun.stopReason ? ` · ${scanStopReasonLabel(latestRun.stopReason)}` : ''}
                       </p>
                     ) : null}
@@ -514,7 +555,7 @@ export function ArchiveUploaderSources() {
                             disabled={Boolean(activeRun) || mutationPending}
                           >
                             <ArchiveIcon data-icon="inline-start" aria-hidden="true" />
-                            归档来源
+                            停用来源
                           </Button>
                         </>
                       ) : (
@@ -527,16 +568,27 @@ export function ArchiveUploaderSources() {
                           重新启用
                         </Button>
                       )}
-                      <Button
-                        variant="outline"
-                        onClick={() => setUidDialogOpen(true)}
-                        disabled={Boolean(activeRun) || mutationPending}
-                      >
-                        <FingerprintIcon data-icon="inline-start" aria-hidden="true" />
-                        {source.uploaderUid ? '更正 UID' : '绑定 UID'}
-                      </Button>
+                      {source.titleQuery ? (
+                        <>
+                          <Button variant="outline" onClick={() => setSearchDialog({ mode: 'RENAME', source })}>
+                            修改名称
+                          </Button>
+                          <Button variant="outline" onClick={() => setSearchDialog({ mode: 'COPY', source })}>
+                            另存条件
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          onClick={() => setUidDialogOpen(true)}
+                          disabled={Boolean(activeRun) || mutationPending}
+                        >
+                          <FingerprintIcon data-icon="inline-start" aria-hidden="true" />
+                          {source.uploaderUid ? '更正 UID' : '绑定 UID'}
+                        </Button>
+                      )}
                     </div>
-                    {activeRun ? (
+                    {activeRun && !source.titleQuery ? (
                       <p className="text-sm text-muted-foreground">扫描完成或取消后才能绑定或更正 UID。</p>
                     ) : null}
                   </CardContent>
@@ -553,13 +605,23 @@ export function ArchiveUploaderSources() {
                   </Alert>
                 ) : null}
 
-                {source.lastErrorMessage ? source.lastErrorCode === 'UPLOADER_UID_CONFLICT' ? (
-                  <ArchiveUploaderUidConflictAlert message={source.lastErrorMessage} />
-                ) : (
-                  <Alert variant="destructive">
-                    <AlertTitle>上次扫描未完成</AlertTitle>
-                    <AlertDescription>{source.lastErrorMessage}</AlertDescription>
+                {source.titleQuery ? (
+                  <Alert>
+                    <AlertTitle>仅筛选远端返回的标题</AlertTitle>
+                    <AlertDescription>
+                      每批最多检查 100 条；零匹配不代表后面没有内容。可继续扫描更早内容，不会自动下载。
+                    </AlertDescription>
                   </Alert>
+                ) : null}
+                {source.lastErrorMessage ? (
+                  source.lastErrorCode === 'UPLOADER_UID_CONFLICT' ? (
+                    <ArchiveUploaderUidConflictAlert message={source.lastErrorMessage} />
+                  ) : (
+                    <Alert variant="destructive">
+                      <AlertTitle>上次扫描未完成</AlertTitle>
+                      <AlertDescription>{source.lastErrorMessage}</AlertDescription>
+                    </Alert>
+                  )
                 ) : null}
 
                 <AdminSectionHeader
@@ -575,6 +637,7 @@ export function ArchiveUploaderSources() {
                         variant="outline"
                         size="sm"
                         aria-label="结果范围"
+                        className="max-w-full overflow-x-auto"
                       >
                         {RESULT_FEEDS.map((feed) => (
                           <ToggleGroupItem key={feed.value} value={feed.value} aria-label={`查看${feed.label}`}>
@@ -693,10 +756,20 @@ export function ArchiveUploaderSources() {
         </div>
       )}
 
+      <ArchiveSearchSourceDialog
+        state={searchDialog}
+        onClose={() => setSearchDialog(null)}
+        onSaved={async (sourceId) => {
+          setSourceFilter('ALL')
+          await refresh()
+          setSelectedSourceId(sourceId)
+          setSelectedItemIds(new Set())
+        }}
+      />
       <ArchiveUploaderCreateSourceDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={refresh} />
       <ArchiveUploaderUidDialog
-        source={source ?? null}
-        open={uidDialogOpen}
+        source={source?.titleQuery ? null : (source ?? null)}
+        open={uidDialogOpen && !source?.titleQuery}
         onOpenChange={setUidDialogOpen}
         onUpdated={refresh}
         onConflict={(sourceId) => {
@@ -942,175 +1015,6 @@ function ScanResults({
   )
 }
 
-function IgnoredResults({
-  items,
-  resultView,
-  isLoading,
-  isError,
-  hasNextPage,
-  isFetchingNextPage,
-  onLoadMore,
-  onRetry,
-  onPreview,
-  onRestore,
-  mutationPending,
-  selectedItemIds,
-  allSelected,
-  onToggleAll,
-  onToggle
-}: {
-  items: IgnoredItem[]
-  resultView: ArchiveUploaderResultView
-  isLoading: boolean
-  isError: boolean
-  hasNextPage: boolean
-  isFetchingNextPage: boolean
-  onLoadMore: () => void
-  onRetry: () => void
-  onPreview: (item: ArchiveUploaderPreviewItem) => void
-  onRestore: (itemId: string) => void
-  mutationPending: boolean
-  selectedItemIds: Set<string>
-  allSelected: boolean
-  onToggleAll: (checked: boolean) => void
-  onToggle: (itemId: string, checked: boolean) => void
-}) {
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const rowVirtualizer = useVirtualizer({
-    useFlushSync: false,
-    count: hasNextPage ? items.length + 1 : items.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 104,
-    overscan: 6
-  })
-  const virtualRows = rowVirtualizer.getVirtualItems()
-  const lastVirtualIndex = virtualRows.at(-1)?.index
-
-  useEffect(() => {
-    if (lastVirtualIndex == null || lastVirtualIndex < items.length - 6 || !hasNextPage || isFetchingNextPage) return
-    onLoadMore()
-  }, [hasNextPage, isFetchingNextPage, items.length, lastVirtualIndex, onLoadMore])
-
-  if (isLoading) return <Skeleton className="h-[60vh] min-h-80 w-full" />
-  if (isError) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>已忽略画廊加载失败</AlertTitle>
-        <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-          <span>忽略决定仍保存在数据库中，请稍后重试。</span>
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            <RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
-            重新加载
-          </Button>
-        </AlertDescription>
-      </Alert>
-    )
-  }
-  if (items.length === 0) {
-    return (
-      <Empty className="border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <ArchiveRestoreIcon aria-hidden="true" />
-          </EmptyMedia>
-          <EmptyTitle>还没有忽略画廊</EmptyTitle>
-          <EmptyDescription>从发现结果中忽略的画廊会集中显示在这里，并可随时恢复。</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
-  }
-
-  return (
-    <Card className="gap-0 overflow-hidden py-0">
-      <div className="grid min-h-12 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-3 border-b bg-muted/30 px-4 text-xs font-medium text-muted-foreground sm:grid-cols-[2.5rem_minmax(0,1fr)_10rem_10rem_5rem]">
-        <Checkbox
-          checked={allSelected ? true : selectedItemIds.size > 0 ? 'indeterminate' : false}
-          onCheckedChange={(checked) => onToggleAll(checked === true)}
-          aria-label="选择当前已加载的忽略画廊，最多一百条"
-        />
-        <span>画廊</span>
-        <span className="hidden sm:block">忽略来源</span>
-        <span className="hidden sm:block">忽略时间</span>
-        <span className="hidden sm:block">操作</span>
-      </div>
-      <ScrollArea className="h-[60vh] min-h-80 max-h-[44rem]" viewportRef={scrollRef}>
-        <div className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-          {virtualRows.map((virtualRow) => {
-            const item = items[virtualRow.index]
-            return (
-              <div
-                key={virtualRow.key}
-                ref={rowVirtualizer.measureElement}
-                data-index={virtualRow.index}
-                className="absolute left-0 top-0 w-full border-b bg-background px-4 py-3"
-                style={{ transform: `translateY(${virtualRow.start}px)` }}
-              >
-                {item ? (
-                  <div className="grid min-h-20 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-3 sm:grid-cols-[2.5rem_minmax(0,1fr)_10rem_10rem_5rem]">
-                    <Checkbox
-                      checked={selectedItemIds.has(item.id)}
-                      disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
-                      onCheckedChange={(checked) => onToggle(item.id, checked === true)}
-                      aria-label={`选择 ${item.title}`}
-                    />
-                    <div className="flex min-w-0 items-center gap-3">
-                      {resultView === 'preview' ? (
-                        <ArchiveUploaderGalleryThumbnail key={item.id} item={item} onPreview={onPreview} />
-                      ) : null}
-                      <div className="min-w-0 flex-1">
-                        <p className="line-clamp-2 font-medium">{item.title}</p>
-                        <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                          E-Hentai #{item.externalId}
-                        </p>
-                        <p className="mt-1 truncate text-xs text-muted-foreground sm:hidden">
-                          {item.sourceDisplayName} · {formatArchiveUploaderTimestamp(item.ignoredAt)}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="hidden truncate text-sm text-muted-foreground sm:block">{item.sourceDisplayName}</p>
-                    <p className="hidden whitespace-nowrap text-sm text-muted-foreground sm:block">
-                      {formatArchiveUploaderTimestamp(item.ignoredAt)}
-                    </p>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onRestore(item.id)}
-                      disabled={mutationPending}
-                      aria-label={`恢复 ${item.title}`}
-                    >
-                      <RotateCcwIcon aria-hidden="true" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex min-h-20 items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <Spinner aria-hidden="true" />
-                    正在加载更多结果…
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      </ScrollArea>
-      <div className="flex min-h-11 items-center justify-between gap-3 border-t px-4 text-xs text-muted-foreground">
-        <span>
-          已加载 {items.length} 条 · 单次最多选择 {MAX_SELECTED_ITEMS} 条
-        </span>
-        {isFetchingNextPage ? (
-          <span className="flex items-center gap-2">
-            <Spinner aria-hidden="true" />
-            加载中
-          </span>
-        ) : hasNextPage ? (
-          <span>继续向下滚动</span>
-        ) : (
-          <span>已加载全部</span>
-        )}
-      </div>
-    </Card>
-  )
-}
-
 function CatalogStatusBadge({ item }: { item: ScanItem }) {
   const states = {
     NEW: { label: '新归档', variant: 'success' as const },
@@ -1141,13 +1045,13 @@ function resultFeedLabel(feed: ResultFeed) {
 }
 
 function resultFeedDescription(feed: ResultFeed, itemCount: number, ignoredCount: number) {
-  if (feed === 'IGNORED') return `跨上传者来源永久忽略的画廊；已加载 ${ignoredCount} 条。`
+  if (feed === 'IGNORED') return `跨所有来源永久忽略的画廊；已加载 ${ignoredCount} 条。`
   const descriptions: Record<CatalogView, string> = {
     ACTIONABLE: '尚未处理，或本地版本与当前公开信息存在稳定差异',
     PROCESSING: '正在收件箱解析、等待确认或执行下载',
     ARCHIVED: '已经完成下载并发布到本地归档',
     ATTENTION: '解析、下载或身份检查需要处理',
-    ALL: '这个上传者长期保留的全部已发现画廊'
+    ALL: '这个来源长期保留的全部已发现画廊'
   }
   return `${descriptions[feed]}；已加载 ${itemCount} 条。`
 }

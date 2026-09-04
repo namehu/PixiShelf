@@ -69,32 +69,33 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 功能规格、草案与实施归档
 
-| 文档                                                               | 状态         | 权威范围与后续处理                                         |
-| ------------------------------------------------------------------ | ------------ | ---------------------------------------------------------- |
-| [归档收件箱](./features/archive-intake.md)                         | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
-| [历史归档默认标签补全](./features/archive-default-tag-backfill.md) | `current`    | 当前历史归档标签补全范围、快照和恢复边界                   |
-| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)          | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则             |
-| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)      | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |
-| [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md)   | `historical` | 本期实施前的系列身份、成员所有权和同步方案                 |
-| [归档收件队列设计](./design/archive-intake-queue.md)               | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
+| 文档                                                                 | 状态         | 权威范围与后续处理                                         |
+| -------------------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
+| [归档收件箱](./features/archive-intake.md)                           | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
+| [历史归档默认标签补全](./features/archive-default-tag-backfill.md)   | `current`    | 当前历史归档标签补全范围、快照和恢复边界                   |
+| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)            | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则             |
+| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)        | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |
+| [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md)     | `historical` | 本期实施前的系列身份、成员所有权和同步方案                 |
+| [归档收件队列设计](./design/archive-intake-queue.md)                 | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
 | [E-Hentai 上传者人工扫描](./design/e-hentai-uploader-manual-scan.md) | `current`    | 已实施的人工来源扫描、游标、分类与收件确认契约             |
-| [多来源 URL 归档](./design/multi-source-url-archive.md)            | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
-| [视频代表帧生成](./design/video-keyframe-generation.md)            | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
-| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)             | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |
-| [界面设计升级计划](./pixishelf-design-upgrade-plan.md)             | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
-| [媒体类型建模技术债](../todos/媒体类型后缀匹配技术债.md)           | `draft`      | 媒体类型结构化的待实施方案，后续迁入 `docs/features/`      |
-| [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)               | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |
-| `todos/多媒体设计.md`（已删除）                                    | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯 |
+| [E-Hentai 标题关键词归档](./design/e-hentai-title-keyword-scan.md)   | `draft`      | 标题包含/开头/结尾匹配、人工发现、查询冻结与收件复用       |
+| [多来源 URL 归档](./design/multi-source-url-archive.md)              | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
+| [视频代表帧生成](./design/video-keyframe-generation.md)              | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
+| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)               | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |
+| [界面设计升级计划](./pixishelf-design-upgrade-plan.md)               | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
+| [媒体类型建模技术债](../todos/媒体类型后缀匹配技术债.md)             | `draft`      | 媒体类型结构化的待实施方案，后续迁入 `docs/features/`      |
+| [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)                 | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |
+| `todos/多媒体设计.md`（已删除）                                      | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯 |
 
 ## ADR
 
-| 文档                                                                          | 状态       | 决策范围                         |
-| ----------------------------------------------------------------------------- | ---------- | -------------------------------- |
-| [ADR-0001](./adr/0001-separate-source-references-from-local-identity.md)      | `accepted` | 外部来源引用与本地作品身份分离   |
-| [ADR-0002](./adr/0002-use-a-durable-worker-and-atomic-archive-publication.md) | `accepted` | 持久 Worker 与原子归档发布       |
-| [ADR-0003](./adr/0003-unify-background-jobs-under-a-durable-single-worker.md) | `accepted` | PostgreSQL 队列上的单通用 Worker |
-| [ADR-0004](./adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)    | `accepted` | 单 Worker 内双资源执行通道       |
-| [ADR-0005](./adr/0005-retire-destructive-full-rescan.md)                      | `accepted` | 退役破坏性全量重扫并拆分来源维护 |
+| 文档                                                                           | 状态       | 决策范围                         |
+| ------------------------------------------------------------------------------ | ---------- | -------------------------------- |
+| [ADR-0001](./adr/0001-separate-source-references-from-local-identity.md)       | `accepted` | 外部来源引用与本地作品身份分离   |
+| [ADR-0002](./adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)  | `accepted` | 持久 Worker 与原子归档发布       |
+| [ADR-0003](./adr/0003-unify-background-jobs-under-a-durable-single-worker.md)  | `accepted` | PostgreSQL 队列上的单通用 Worker |
+| [ADR-0004](./adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)     | `accepted` | 单 Worker 内双资源执行通道       |
+| [ADR-0005](./adr/0005-retire-destructive-full-rescan.md)                       | `accepted` | 退役破坏性全量重扫并拆分来源维护 |
 | [ADR-0006](./adr/0006-freeze-database-configured-archive-media-concurrency.md) | `accepted` | 数据库配置并冻结归档媒体并发     |
 | [ADR-0007](./adr/0007-stream-worker-job-events-over-a-persistent-cursor.md)    | `accepted` | 持久游标上的通用 Worker SSE      |
 

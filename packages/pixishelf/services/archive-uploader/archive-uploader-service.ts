@@ -4,6 +4,8 @@ import {
   archiveUploaderIdentityLockKey,
   archiveUploaderUidLockKey,
   archiveUploaderScanPayloadSchema,
+  archiveTitleQuerySchema,
+  normalizeArchiveTitle,
   JOB_DEFINITION_VERSION
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
@@ -118,6 +120,7 @@ export const ignoreArchiveUploaderScanItemsSchema = z
 export const restoreArchiveUploaderIgnoredItemsSchema = z.object({ ignoredItemIds: scanItemIdsSchema }).strict()
 
 export interface ArchiveUploaderServiceDependencies {
+  sourceKind?: 'UPLOADER' | 'TITLE_QUERY' | 'ALL'
   database?: PrismaClient
   now?: () => Date
   uuid?: () => string
@@ -126,9 +129,14 @@ export interface ArchiveUploaderServiceDependencies {
 
 export async function createArchiveUploaderSubmissionAttempt(
   input: z.input<typeof createArchiveUploaderSubmissionAttemptSchema>,
-  dependencies: Pick<ArchiveUploaderServiceDependencies, 'uuid'> = {}
+  dependencies: ArchiveUploaderServiceDependencies = {}
 ) {
-  createArchiveUploaderSubmissionAttemptSchema.parse(input)
+  const parsed = createArchiveUploaderSubmissionAttemptSchema.parse(input)
+  const source = await getDatabase(dependencies).archiveUploaderSource.findUnique({
+    where: { id: parsed.sourceId, ...sourceScope(dependencies) },
+    select: { id: true }
+  })
+  if (!source) throw new ArchiveError('STATE_CONFLICT', '发现来源不存在')
   return { submissionAttemptId: (dependencies.uuid ?? randomUUID)() }
 }
 
@@ -167,7 +175,7 @@ export async function listArchiveUploaderSources(
   const parsed = listArchiveUploaderSourcesSchema.parse(input)
   const database = getDatabase(dependencies)
   const sources = await database.archiveUploaderSource.findMany({
-    where: parsed.includeArchived ? undefined : { status: 'ACTIVE' },
+    where: { ...sourceScope(dependencies), ...(parsed.includeArchived ? {} : { status: 'ACTIVE' }) },
     orderBy: [{ status: 'asc' }, { updatedAt: 'desc' }, { id: 'asc' }],
     select: {
       ...sourceWireSelect,
@@ -192,7 +200,7 @@ export async function getArchiveUploaderSource(
   const parsed = getArchiveUploaderSourceSchema.parse(input)
   const database = getDatabase(dependencies)
   const source = await database.archiveUploaderSource.findUnique({
-    where: { id: parsed.sourceId },
+    where: { id: parsed.sourceId, ...sourceScope(dependencies) },
     select: {
       ...sourceWireSelect,
       runs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 10, select: runSummarySelect }
@@ -214,7 +222,7 @@ export async function listArchiveUploaderScanItems(
   const parsed = listArchiveUploaderScanItemsSchema.parse(input)
   const database = getDatabase(dependencies)
   const source = await database.archiveUploaderSource.findUnique({
-    where: { id: parsed.sourceId },
+    where: { id: parsed.sourceId, ...sourceScope(dependencies) },
     select: { id: true }
   })
   if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
@@ -260,7 +268,9 @@ export async function setArchiveUploaderSourceArchived(
   const database = getDatabase(dependencies)
   return database.$transaction(async (transaction) => {
     await lockSource(transaction, parsed.sourceId)
-    const source = await transaction.archiveUploaderSource.findUnique({ where: { id: parsed.sourceId } })
+    const source = await transaction.archiveUploaderSource.findUnique({
+      where: { id: parsed.sourceId, ...sourceScope(dependencies) }
+    })
     if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
     if (parsed.archived) {
       const activeRun = await transaction.archiveUploaderScanRun.findFirst({
@@ -280,6 +290,7 @@ export async function setArchiveUploaderUid(
   input: z.input<typeof setArchiveUploaderUidSchema>,
   dependencies: ArchiveUploaderServiceDependencies = {}
 ) {
+  dependencies = { ...dependencies, sourceKind: 'UPLOADER' }
   const parsed = setArchiveUploaderUidSchema.parse(input)
   const uploaderUid = normalizeUploaderIdentity('UID', parsed.uploaderUid).value
   const database = getDatabase(dependencies)
@@ -288,7 +299,9 @@ export async function setArchiveUploaderUid(
   try {
     return await database.$transaction(async (transaction) => {
       await lockSource(transaction, parsed.sourceId)
-      const source = await transaction.archiveUploaderSource.findUnique({ where: { id: parsed.sourceId } })
+      const source = await transaction.archiveUploaderSource.findUnique({
+        where: { id: parsed.sourceId, ...sourceScope(dependencies) }
+      })
       if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
       if (source.uploaderUid === uploaderUid) {
         return { outcome: 'UNCHANGED' as const, sourceId: source.id, uploaderUid }
@@ -346,7 +359,7 @@ export async function setArchiveUploaderUid(
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error
     const source = await database.archiveUploaderSource.findUnique({
-      where: { id: parsed.sourceId },
+      where: { id: parsed.sourceId, ...sourceScope(dependencies) },
       select: { id: true, providerKey: true }
     })
     if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
@@ -370,10 +383,11 @@ export async function matchArchiveUploaderUid(
   input: z.input<typeof matchArchiveUploaderUidSchema>,
   dependencies: ArchiveUploaderServiceDependencies = {}
 ) {
+  dependencies = { ...dependencies, sourceKind: 'UPLOADER' }
   const parsed = matchArchiveUploaderUidSchema.parse(input)
   const database = getDatabase(dependencies)
   const source = await database.archiveUploaderSource.findUnique({
-    where: { id: parsed.sourceId },
+    where: { id: parsed.sourceId, ...sourceScope(dependencies) },
     select: {
       id: true,
       providerKey: true,
@@ -462,7 +476,9 @@ export async function triggerArchiveUploaderScan(
   try {
     return await database.$transaction(async (transaction) => {
       await lockSource(transaction, parsed.sourceId)
-      const source = await transaction.archiveUploaderSource.findUnique({ where: { id: parsed.sourceId } })
+      const source = await transaction.archiveUploaderSource.findUnique({
+        where: { id: parsed.sourceId, ...sourceScope(dependencies) }
+      })
       if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
       if (source.status !== 'ACTIVE') throw new ArchiveError('STATE_CONFLICT', '请先重新启用该上传者来源')
       const activeRun = await transaction.archiveUploaderScanRun.findFirst({
@@ -475,6 +491,7 @@ export async function triggerArchiveUploaderScan(
       if (parsed.mode === 'HISTORY' && !cursorBefore) {
         throw new ArchiveError('STATE_CONFLICT', '当前没有更早的扫描页可继续')
       }
+      const titleQuery = source.sourceKind === 'TITLE_QUERY' ? archiveTitleQuerySchema.parse(source.titleQuery) : null
       const searchIdentityKind = source.uploaderUid ? ('UID' as const) : source.identityKind
       const searchIdentityValue = source.uploaderUid ?? source.identityValue
       const timestamp = now()
@@ -484,7 +501,7 @@ export async function triggerArchiveUploaderScan(
       await transaction.systemJob.create({
         data: {
           id: jobId,
-          type: 'ARCHIVE_UPLOADER_SCAN',
+          type: titleQuery ? 'ARCHIVE_SEARCH_SCAN' : 'ARCHIVE_UPLOADER_SCAN',
           executionLane: 'ARCHIVE_RESOLVE',
           definitionVersion: JOB_DEFINITION_VERSION,
           status: 'PENDING',
@@ -496,7 +513,7 @@ export async function triggerArchiveUploaderScan(
           effectivePriority: 20,
           availableAt: timestamp,
           maxAttempts: 3,
-          message: '等待扫描 E-Hentai 上传者...'
+          message: titleQuery ? '等待搜索 E-Hentai 标题...' : '等待扫描 E-Hentai 上传者...'
         }
       })
       await writeJobEvent(transaction, {
@@ -514,12 +531,13 @@ export async function triggerArchiveUploaderScan(
           mode: parsed.mode,
           searchIdentityKind,
           searchIdentityValue,
+          ...(titleQuery ? { titleQuery } : {}),
           cursorBefore
         },
         select: runSummarySelect
       })
       await transaction.archiveUploaderSource.update({ where: { id: source.id }, data: { lastRunId: run.id } })
-      return run
+      return serializeRunSummary(run)
     })
   } catch (error) {
     if (isUniqueConstraintError(error)) throw new ArchiveError('STATE_CONFLICT', '该上传者已有活动扫描任务')
@@ -534,7 +552,7 @@ export async function cancelArchiveUploaderScan(
   const parsed = cancelArchiveUploaderScanSchema.parse(input)
   const database = getDatabase(dependencies)
   const run = await database.archiveUploaderScanRun.findFirst({
-    where: { id: parsed.runId, sourceId: parsed.sourceId },
+    where: { id: parsed.runId, sourceId: parsed.sourceId, source: sourceScope(dependencies) },
     select: { id: true, systemJobId: true, status: true }
   })
   if (!run) throw new ArchiveError('STATE_CONFLICT', '扫描任务不存在或不属于该上传者来源')
@@ -562,7 +580,7 @@ export async function ignoreArchiveUploaderScanItems(
   const database = getDatabase(dependencies)
   return database.$transaction(async (transaction) => {
     const source = await transaction.archiveUploaderSource.findUnique({
-      where: { id: parsed.sourceId },
+      where: { id: parsed.sourceId, ...sourceScope(dependencies) },
       select: { id: true, displayName: true }
     })
     if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
@@ -633,14 +651,14 @@ export async function addArchiveUploaderScanItems(
   const database = getDatabase(dependencies)
   return database.$transaction(async (transaction) => {
     const candidates = await transaction.archiveUploaderCatalogItem.findMany({
-      where: { id: { in: parsed.itemIds }, sourceId: parsed.sourceId },
+      where: { id: { in: parsed.itemIds }, sourceId: parsed.sourceId, source: sourceScope(dependencies) },
       orderBy: { id: 'asc' },
       select: dispositionCatalogItemSelect
     })
     assertAllDispositionItemsFound(candidates, parsed.itemIds)
     await lockDispositionItems(transaction, candidates)
     const items = await transaction.archiveUploaderCatalogItem.findMany({
-      where: { id: { in: parsed.itemIds }, sourceId: parsed.sourceId },
+      where: { id: { in: parsed.itemIds }, sourceId: parsed.sourceId, source: sourceScope(dependencies) },
       orderBy: { id: 'asc' },
       select: dispositionCatalogItemSelect
     })
@@ -701,7 +719,7 @@ export async function addArchiveUploaderScanItems(
 }
 
 function assertAllDispositionItemsFound(items: DispositionCatalogItem[], itemIds: string[]) {
-  if (items.length !== itemIds.length) {
+  if (items.length !== itemIds.length || items.some((item) => item.matchesQuery === false)) {
     throw new ArchiveError('STATE_CONFLICT', '部分扫描结果不存在或不属于该上传者来源')
   }
 }
@@ -788,6 +806,8 @@ function normalizeUploaderIdentity(kind: 'NAME' | 'UID', input: string) {
 }
 
 const sourceWireSelect = {
+  sourceKind: true,
+  titleQuery: true,
   id: true,
   providerKey: true,
   identityKind: true,
@@ -808,6 +828,9 @@ const sourceWireSelect = {
 } satisfies Prisma.ArchiveUploaderSourceSelect
 
 const runSummarySelect = {
+  titleQuery: true,
+  checkedCount: true,
+  matchedCount: true,
   id: true,
   systemJobId: true,
   mode: true,
@@ -830,6 +853,7 @@ const runSummarySelect = {
 } satisfies Prisma.ArchiveUploaderScanRunSelect
 
 const dispositionCatalogItemSelect = {
+  matchesQuery: true,
   id: true,
   sourceId: true,
   providerKey: true,
@@ -874,6 +898,7 @@ function serializeSource(source: SourceWire) {
     : ('UNBOUND' as const)
   return {
     ...wire,
+    titleQuery: source.titleQuery ? archiveTitleQuerySchema.parse(source.titleQuery) : null,
     uidBindingState,
     hasPendingLatest: incrementalCursor !== null,
     canContinueHistory: historyCursor !== null,
@@ -930,7 +955,11 @@ export function safeArchiveUploaderThumbnailUrl(input: string | null): string | 
 }
 
 function serializeRunSummary(run: RunSummaryWire) {
-  return { ...run, errorMessage: archiveWireErrorMessage(run.errorCode, run.errorMessage) }
+  return {
+    ...run,
+    titleQuery: run.titleQuery ? archiveTitleQuerySchema.parse(run.titleQuery) : null,
+    errorMessage: archiveWireErrorMessage(run.errorCode, run.errorMessage)
+  }
 }
 
 function serializeChangeReasons(value: Prisma.JsonValue): Array<{ code: string; label: string }> {
@@ -1010,4 +1039,63 @@ function isArchiveErrorCode(value: unknown): value is ArchiveErrorCode {
 
 function isUniqueConstraintError(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002'
+}
+
+function sourceScope(dependencies: ArchiveUploaderServiceDependencies) {
+  return dependencies.sourceKind === 'ALL' ? {} : { sourceKind: dependencies.sourceKind ?? ('UPLOADER' as const) }
+}
+
+export const createArchiveTitleSourceSchema = archiveTitleQuerySchema
+  .extend({
+    displayName: z.string().trim().min(1, '请输入来源名称').max(180)
+  })
+  .strict()
+
+export const renameArchiveTitleSourceSchema = z
+  .object({
+    sourceId: sourceIdSchema,
+    displayName: z.string().trim().min(1).max(180)
+  })
+  .strict()
+
+export async function createArchiveTitleSource(
+  input: z.input<typeof createArchiveTitleSourceSchema>,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const { displayName, ...query } = createArchiveTitleSourceSchema.parse(input)
+  const queryKey = createHash('sha256')
+    .update(JSON.stringify([PROVIDER_KEY, normalizeArchiveTitle(query.keyword), query.matchMode, query.uploaderUid]))
+    .digest('hex')
+  const sources = getDatabase(dependencies).archiveUploaderSource
+  try {
+    const source = await sources.upsert({
+      where: { queryKey },
+      create: { sourceKind: 'TITLE_QUERY', providerKey: PROVIDER_KEY, displayName, titleQuery: query, queryKey },
+      update: {},
+      select: sourceWireSelect
+    })
+    return serializeSource(source)
+  } catch (error) {
+    const target = error instanceof Prisma.PrismaClientKnownRequestError ? error.meta?.target : undefined
+    if (!isUniqueConstraintError(error) || !Array.isArray(target) || target.length !== 1 || target[0] !== 'queryKey') {
+      throw error
+    }
+    // Empty-update upserts can race on first creation; reuse the winner without changing its name or status.
+    const existing = await sources.findUnique({ where: { queryKey }, select: sourceWireSelect })
+    if (!existing) throw error
+    return serializeSource(existing)
+  }
+}
+
+export async function renameArchiveTitleSource(
+  input: z.input<typeof renameArchiveTitleSourceSchema>,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const parsed = renameArchiveTitleSourceSchema.parse(input)
+  const result = await getDatabase(dependencies).archiveUploaderSource.updateMany({
+    where: { id: parsed.sourceId, sourceKind: 'TITLE_QUERY' },
+    data: { displayName: parsed.displayName }
+  })
+  if (result.count !== 1) throw new ArchiveError('STATE_CONFLICT', '标题关键词来源不存在')
+  return { id: parsed.sourceId, displayName: parsed.displayName }
 }

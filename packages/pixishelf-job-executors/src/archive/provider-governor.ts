@@ -314,6 +314,26 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
     }
   }
 
+  async scanTitles(
+    input: import('./types.ts').ArchiveTitleScanInput,
+    context: import('./types.ts').ArchiveUploaderScanContext = {}
+  ) {
+    if (!isArchiveUploaderProvider(this.delegate) || !this.delegate.scanTitles) {
+      throw new Error(`归档来源站点 ${this.key} 不支持标题搜索`)
+    }
+    const linked = linkedAbortController(context.signal ?? new AbortController().signal)
+    try {
+      return await this.delegate.scanTitles(input, {
+        ...context,
+        signal: linked.controller.signal,
+        runSearchRequest: (operation) =>
+          this.runWithPermit('SEARCH', linked.controller, operation, { yieldToDownloads: true })
+      })
+    } finally {
+      linked.dispose()
+    }
+  }
+
   async openMedia(
     item: Parameters<ArchiveProvider['openMedia']>[0],
     context: Parameters<ArchiveProvider['openMedia']>[1]
