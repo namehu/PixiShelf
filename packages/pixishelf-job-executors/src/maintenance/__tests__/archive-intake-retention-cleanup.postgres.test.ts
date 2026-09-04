@@ -392,6 +392,8 @@ async function seedExpiredUploaderScan() {
       sourceId,
       systemJobId,
       mode: 'LATEST',
+      searchIdentityKind: 'UID',
+      searchIdentityValue: '123',
       status: 'COMPLETED',
       itemCount: 1,
       newCount: 1,

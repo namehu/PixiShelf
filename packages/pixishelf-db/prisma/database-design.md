@@ -224,6 +224,8 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 
 `20260902120000_add_archive_uploader_manual_scan` 增加上传者来源、人工扫描运行和逐项候选表，并把 `ARCHIVE_UPLOADER_SCAN` 加入 `ARCHIVE_RESOLVE` lane。来源持久保存最新、增量和历史游标；运行只有在 fenced completion 中推进游标。`SEARCH` 请求与媒体下载可以并行，但仍共享 `archive_provider_throttles` 的请求间隔和 penalty；普通 `RESOLVE` 继续在活动下载 lease 存在时让行。
 
+`20260904120000_add_archive_uploader_uid_binding` 为上传者来源增加独立的稳定数字 UID 和覆盖复核时间，并为每个扫描运行冻结实际使用的 `NAME/UID` 查询身份。已有 UID 来源原地回填且保留水位；名称来源保持未绑定。名称绑定或 UID 更正只重置来源查询水位、游标和摘要，不删除长期目录、运行历史或工作流关联；重新发现继续按来源、Provider 和 GID upsert。迁移在 DDL 前拒绝活动上传者扫描，并以 `(providerKey, uploaderUid)` 唯一索引阻止跨来源重复绑定。
+
 ## 4. 审计与维护 (Audit & Maintenance)
 
 ### 4.1 后台任务切换守卫与手写约束
@@ -285,4 +287,5 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 | `20260820210000` | 为来源核对选定同步增加父核对证据、冻结 CAS 字段、逐项 outcome/reason/retryable、完整性 CHECK 和恢复/查询索引；历史行保持兼容                    |
 | `20260825103000` | 增加艺术家多 Provider 外部身份、同步状态与 Pixiv 强证据回填；保留旧 `Artist.userId` 作为一个发布周期的回滚镜像                                  |
 | `20260826143000` | 为 Pixiv 作品外部引用增加在线同步状态、任务与磁盘快照指针；只在唯一来源及数据库快照精确匹配时清除误标文本 override                              |
-| `20260902120000` | 增加 E-Hentai 上传者来源、人工扫描运行与候选结果，扩展 SEARCH 请求类，并允许上传者扫描进入 `ARCHIVE_RESOLVE` lane                         |
+| `20260902120000` | 增加 E-Hentai 上传者来源、人工扫描运行与候选结果，扩展 SEARCH 请求类，并允许上传者扫描进入 `ARCHIVE_RESOLVE` lane                               |
+| `20260904120000` | 增加 E-Hentai 上传者稳定 UID、UID 覆盖复核状态与扫描运行查询身份快照；既有 UID 来源原地回填且不重置扫描水位                                     |

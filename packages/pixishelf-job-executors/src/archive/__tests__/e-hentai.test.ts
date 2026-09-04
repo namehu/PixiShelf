@@ -4,7 +4,8 @@ import {
   compareArchiveUploaderMetadata,
   createArchiveUploaderComparisonSnapshot,
   EHentaiProvider,
-  hashArchiveUploaderComparisonMetadata
+  hashArchiveUploaderComparisonMetadata,
+  parseUploaderUidFromGalleryPage
 } from '../providers/e-hentai.js'
 
 const comparableMetadata = {
@@ -173,6 +174,19 @@ describe('EHentaiProvider resolution', () => {
 })
 
 describe('EHentaiProvider uploader scan', () => {
+  it('accepts showuser only from the matching gallery uploader block', () => {
+    const html = [
+      '<div id="gdn">',
+      '<a href="https://e-hentai.org/uploader/bob">bob</a>',
+      '<a href="https://forums.e-hentai.org/index.php?showuser=123">PM</a>',
+      '</div>',
+      '<div class="comment"><a href="https://forums.e-hentai.org/index.php?showuser=456">PM</a></div>'
+    ].join('')
+
+    expect(parseUploaderUidFromGalleryPage(html, 'https://e-hentai.org/g/300/token300/', 'alice')).toBeNull()
+    expect(parseUploaderUidFromGalleryPage(html, 'https://e-hentai.org/g/300/token300/', 'bob')).toBe('123')
+  })
+
   it('keeps a mid-page cursor and continues without repeating the previous gallery', async () => {
     const http = {
       text: vi.fn(async () =>
@@ -215,7 +229,7 @@ describe('EHentaiProvider uploader scan', () => {
     expect(first.nextCursor).toEqual(expect.any(String))
     expect(second.items.map(({ externalId }) => externalId)).toEqual(['200'])
     expect(second.nextCursor).toBeNull()
-    expect(http.text).toHaveBeenCalledTimes(2)
+    expect(http.text).toHaveBeenCalledTimes(4)
   })
 
   it('stops before the known latest gallery and governs both search and metadata requests', async () => {
@@ -251,7 +265,39 @@ describe('EHentaiProvider uploader scan', () => {
     expect(result.items.map(({ externalId }) => externalId)).toEqual(['300'])
     expect(result.reachedStop).toBe(true)
     expect(result.nextCursor).toBeNull()
-    expect(searchRequestSpy).toHaveBeenCalledTimes(2)
+    expect(searchRequestSpy).toHaveBeenCalledTimes(3)
+  })
+
+  it('discovers a stable uploader UID from the verified gallery uploader block', async () => {
+    const http = {
+      text: vi.fn(async (url: string) =>
+        url.includes('/g/300/')
+          ? [
+              '<div id="gdn">',
+              '<a href="https://e-hentai.org/uploader/Alice">Alice</a>',
+              '<a href="https://forums.e-hentai.org/index.php?showuser=007065261">PM</a>',
+              '</div>'
+            ].join('')
+          : '<a href="https://e-hentai.org/g/300/token300/">Gallery 300</a>'
+      ),
+      json: vi.fn(async () => ({
+        gmetadata: [{ gid: 300, token: 'token300', title: 'Gallery 300', uploader: 'alice', filecount: '1', tags: [] }]
+      }))
+    }
+
+    const result = await new EHentaiProvider(http as never).scanUploader({
+      identityKind: 'NAME',
+      identityValue: 'alice',
+      cursor: null,
+      stopAtExternalId: null,
+      limit: 100
+    })
+
+    expect(result.discoveredUploaderUid).toBe('7065261')
+    expect(http.text).toHaveBeenCalledWith(
+      'https://e-hentai.org/g/300/token300/',
+      expect.objectContaining({ maxBytes: 8 * 1024 * 1024 })
+    )
   })
 
   it('rejects an unrecognized search response instead of treating it as an empty result', async () => {

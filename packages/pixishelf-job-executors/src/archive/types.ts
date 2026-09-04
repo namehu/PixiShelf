@@ -159,6 +159,7 @@ export interface ArchiveUploaderScanResult {
   items: ArchiveUploaderGallerySummary[]
   nextCursor: string | null
   reachedStop: boolean
+  discoveredUploaderUid: string | null
 }
 
 export interface ArchiveDownloadContext extends ArchiveProviderContext {

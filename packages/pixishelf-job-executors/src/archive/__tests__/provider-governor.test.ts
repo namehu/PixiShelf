@@ -148,7 +148,7 @@ describe('PostgresArchiveProviderGovernor', () => {
 })
 
 describe('GovernedArchiveProviderRegistry', () => {
-  it('takes a SEARCH permit for each uploader listing and metadata request', async () => {
+  it('takes a SEARCH permit for the uploader listing, metadata, and UID evidence page', async () => {
     const http = {
       text: vi.fn(async () => '<a href="https://e-hentai.org/g/123/gallerytoken/">Gallery</a>'),
       json: vi.fn(async () => ({
@@ -169,13 +169,14 @@ describe('GovernedArchiveProviderRegistry', () => {
       limit: 100
     })
 
-    expect(governor.acquire).toHaveBeenCalledTimes(2)
-    expect(governor.acquire.mock.calls.map((call) => call[1])).toEqual(['SEARCH', 'SEARCH'])
+    expect(governor.acquire).toHaveBeenCalledTimes(3)
+    expect(governor.acquire.mock.calls.map((call) => call[1])).toEqual(['SEARCH', 'SEARCH', 'SEARCH'])
     expect(governor.acquire.mock.calls.map((call) => call[3])).toEqual([
+      { yieldToDownloads: true },
       { yieldToDownloads: true },
       { yieldToDownloads: true }
     ])
-    expect(governor.release).toHaveBeenCalledTimes(2)
+    expect(governor.release).toHaveBeenCalledTimes(3)
   })
 
   it('takes and releases a governor permit for every E-Hentai resolve HTTP request', async () => {

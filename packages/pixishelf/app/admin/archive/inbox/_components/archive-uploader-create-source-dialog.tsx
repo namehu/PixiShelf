@@ -55,7 +55,7 @@ export function ArchiveUploaderCreateSourceDialog({
         >
           <DialogHeader>
             <DialogTitle>新增上传者来源</DialogTitle>
-            <DialogDescription>推荐使用数字 UID；名称适合暂时无法取得 UID 的情况。</DialogDescription>
+            <DialogDescription>推荐使用数字 UID；名称来源会标记为“未绑定 UID”，之后可原地补录。</DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-5">
             <Field>

@@ -301,6 +301,8 @@ describePostgres('PostgresQueueRepository integration', () => {
             id: runId,
             systemJobId: jobId,
             mode: 'LATEST',
+            searchIdentityKind: 'UID',
+            searchIdentityValue: '123',
             cursorBefore: 'latest-cursor'
           }
         }
@@ -308,7 +310,9 @@ describePostgres('PostgresQueueRepository integration', () => {
     })
     const repository = createRepository(clock, 1_000)
 
-    await expect(repository.claim('queue-kernel-uploader-recovery', uploaderResolveCapabilities)).resolves.toMatchObject({
+    await expect(
+      repository.claim('queue-kernel-uploader-recovery', uploaderResolveCapabilities)
+    ).resolves.toMatchObject({
       id: jobId
     })
     clock.advance(1_001)

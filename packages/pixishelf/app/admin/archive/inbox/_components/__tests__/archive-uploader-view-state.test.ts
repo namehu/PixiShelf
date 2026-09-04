@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { archiveUploaderDetailPollingInterval } from '../archive-uploader-view-state'
+import { archiveUploaderDetailPollingInterval, scanIdentityLabel } from '../archive-uploader-view-state'
 
 describe('archive uploader view state', () => {
   it('keeps polling while any run is active even when the selected run is old', () => {
@@ -25,5 +25,10 @@ describe('archive uploader view state', () => {
         runs: [{ status: 'COMPLETED' }]
       })
     ).toBe(3_000)
+  })
+
+  it('labels the frozen identity used by each scan run', () => {
+    expect(scanIdentityLabel('UID', '123')).toBe('按 UID 123')
+    expect(scanIdentityLabel('NAME', 'alice')).toBe('按名称 alice')
   })
 })

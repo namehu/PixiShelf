@@ -18,10 +18,14 @@ import {
   listArchiveUploaderIgnoredItemsSchema,
   listArchiveUploaderScanItems,
   listArchiveUploaderScanItemsSchema,
+  matchArchiveUploaderUid,
+  matchArchiveUploaderUidSchema,
   restoreArchiveUploaderIgnoredItems,
   restoreArchiveUploaderIgnoredItemsSchema,
   setArchiveUploaderSourceArchived,
   setArchiveUploaderSourceArchivedSchema,
+  setArchiveUploaderUid,
+  setArchiveUploaderUidSchema,
   triggerArchiveUploaderScan,
   triggerArchiveUploaderScanSchema
 } from '@/services/archive-uploader/archive-uploader-service'
@@ -51,6 +55,14 @@ export const archiveUploaderRouter = router({
   setArchived: adminProcedure
     .input(setArchiveUploaderSourceArchivedSchema)
     .mutation(({ input }) => runArchiveOperation(() => setArchiveUploaderSourceArchived(input))),
+
+  setUploaderUid: adminProcedure
+    .input(setArchiveUploaderUidSchema)
+    .mutation(({ input }) => runArchiveOperation(() => setArchiveUploaderUid(input))),
+
+  matchUploaderUid: adminProcedure
+    .input(matchArchiveUploaderUidSchema)
+    .mutation(({ input }) => runArchiveOperation(() => matchArchiveUploaderUid(input))),
 
   triggerScan: adminProcedure
     .input(triggerArchiveUploaderScanSchema)

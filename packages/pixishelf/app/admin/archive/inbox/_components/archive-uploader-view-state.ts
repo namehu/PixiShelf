@@ -42,3 +42,44 @@ export function scanStopReasonLabel(reason: 'LIMIT_REACHED' | 'WATERMARK_REACHED
     REMOTE_END: '已到远端末尾'
   }[reason]
 }
+
+export function scanIdentityLabel(kind: 'NAME' | 'UID', value: string) {
+  return kind === 'UID' ? `按 UID ${value}` : `按名称 ${value}`
+}
+
+export function scanRunStatusLabel(
+  status: 'PENDING' | 'RUNNING' | 'RETRY_WAIT' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+) {
+  return {
+    PENDING: '等待中',
+    RUNNING: '扫描中',
+    RETRY_WAIT: '等待重试',
+    PAUSED: '已暂停',
+    COMPLETED: '已完成',
+    FAILED: '失败',
+    CANCELLED: '已取消'
+  }[status]
+}
+
+export function formatArchiveUploaderTimestamp(value: Date | string) {
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(new Date(value))
+}
+
+export function archiveUploaderCatalogViewCount(
+  counts: { actionable: number; processing: number; archived: number; attention: number; total: number },
+  view: 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'ATTENTION' | 'ALL'
+) {
+  return {
+    ACTIONABLE: counts.actionable,
+    PROCESSING: counts.processing,
+    ARCHIVED: counts.archived,
+    ATTENTION: counts.attention,
+    ALL: counts.total
+  }[view]
+}

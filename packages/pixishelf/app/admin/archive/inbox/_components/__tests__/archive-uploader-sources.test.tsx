@@ -7,9 +7,15 @@ const mocks = vi.hoisted(() => ({
   cancelScan: vi.fn(),
   ignoreItems: vi.fn(),
   restoreIgnoredItems: vi.fn(),
+  matchUploaderUid: vi.fn(),
+  setUploaderUid: vi.fn(),
+  writeClipboard: vi.fn(),
   infiniteQueryOptions: vi.fn(() => ({ kind: 'items' })),
   invalidateQueries: vi.fn(),
-  setQueriesData: vi.fn()
+  setQueriesData: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastWarning: vi.fn()
 }))
 
 const source = {
@@ -17,6 +23,9 @@ const source = {
   providerKey: 'e-hentai',
   identityKind: 'UID',
   identityValue: '123',
+  uploaderUid: '123',
+  uidRevalidationRequiredAt: null,
+  uidBindingState: 'BOUND',
   displayName: 'UID 123',
   status: 'ACTIVE',
   latestSeenExternalId: '302',
@@ -37,6 +46,8 @@ const activeRun = {
   id: 'run-active',
   systemJobId: 'job-active',
   mode: 'LATEST',
+  searchIdentityKind: 'UID',
+  searchIdentityValue: '123',
   status: 'RUNNING',
   itemCount: 0,
   newCount: 0,
@@ -126,14 +137,29 @@ const ignoredItemsData = {
     }
   ]
 }
-let currentDetailData = detailData
+let currentDetailData: unknown = detailData
 let currentItemsData = itemsData
+let currentSourcesData: unknown = sourcesData
+let currentUidMutationResult: Record<string, unknown> = {
+  outcome: 'UPDATED',
+  sourceId: 'source-1',
+  uploaderUid: '456',
+  source: {}
+}
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+    warning: mocks.toastWarning
+  }
+}))
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries, setQueriesData: mocks.setQueriesData }),
   useQuery: (options: { kind?: string }) =>
     options.kind === 'sources'
-      ? { data: sourcesData, isPending: false, isError: false }
+      ? { data: currentSourcesData, isPending: false, isError: false }
       : { data: currentDetailData, isPending: false, isError: false },
   useInfiniteQuery: (options: { kind?: string }) => ({
     data: options.kind === 'ignored' ? ignoredItemsData : currentItemsData,
@@ -177,7 +203,26 @@ vi.mock('@tanstack/react-query', () => ({
                     mocks.restoreIgnoredItems(variables)
                     void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
                   }
-                : vi.fn()
+                : options.kind === 'uid'
+                  ? (variables: { sourceId: string; uploaderUid: string }) => {
+                      mocks.setUploaderUid(variables)
+                      void options.onSuccess?.(currentUidMutationResult, variables)
+                    }
+                  : options.kind === 'match-uid'
+                    ? (variables: { sourceId: string }) => {
+                        mocks.matchUploaderUid(variables)
+                        void options.onSuccess?.(
+                          {
+                            outcome: 'MATCHED',
+                            sourceId: 'source-1',
+                            uploaderUid: '456',
+                            uploaderName: 'alice',
+                            evidenceExternalId: '302'
+                          },
+                          variables
+                        )
+                      }
+                  : vi.fn()
   })
 }))
 
@@ -205,6 +250,8 @@ vi.mock('@/lib/trpc', () => ({
       triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
       cancelScan: { mutationOptions: () => ({ kind: 'cancel' }) },
       setArchived: { mutationOptions: () => ({ kind: 'archive' }) },
+      matchUploaderUid: { mutationOptions: (options: object) => ({ kind: 'match-uid', ...options }) },
+      setUploaderUid: { mutationOptions: (options: object) => ({ kind: 'uid', ...options }) },
       createSubmissionAttempt: { mutationOptions: (options: object) => ({ kind: 'prepare', ...options }) },
       addToInbox: { mutationOptions: () => ({ kind: 'add' }) },
       ignoreItems: { mutationOptions: (options: object) => ({ kind: 'ignore', ...options }) },
@@ -229,6 +276,17 @@ describe('ArchiveUploaderSources', () => {
     localStorage.clear()
     currentDetailData = detailData
     currentItemsData = itemsData
+    currentSourcesData = sourcesData
+    currentUidMutationResult = {
+      outcome: 'UPDATED',
+      sourceId: 'source-1',
+      uploaderUid: '456',
+      source: {}
+    }
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: mocks.writeClipboard }
+    })
     useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
   })
 
@@ -237,6 +295,141 @@ describe('ArchiveUploaderSources', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '取消扫描' }))
     expect(mocks.cancelScan).toHaveBeenCalledWith({ sourceId: 'source-1', runId: 'run-active' })
+  })
+
+  it('shows and copies the stable uploader UID from both source views', async () => {
+    render(<ArchiveUploaderSources />)
+
+    expect(screen.getAllByText('UID 123').length).toBeGreaterThan(1)
+    fireEvent.click(screen.getByRole('button', { name: '复制上传者 UID' }))
+
+    await waitFor(() => expect(mocks.writeClipboard).toHaveBeenCalledWith('123'))
+  })
+
+  it('binds an unbound NAME source through a two-step confirmation', () => {
+    const unboundSource = {
+      ...source,
+      identityKind: 'NAME' as const,
+      identityValue: 'alice',
+      displayName: 'alice',
+      uploaderUid: null,
+      uidBindingState: 'UNBOUND' as const,
+      latestRun: completedRun
+    }
+    currentSourcesData = [unboundSource]
+    currentDetailData = { source: unboundSource, runs: [completedRun] }
+    render(<ArchiveUploaderSources />)
+
+    expect(screen.getAllByText('未绑定 UID').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '绑定 UID' }))
+    fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '000456' } })
+    fireEvent.click(screen.getByRole('button', { name: '检查变更' }))
+
+    expect(screen.getByText(/alice → UID 456/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
+    expect(mocks.setUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1', uploaderUid: '456' })
+  })
+
+  it('auto-matches a UID into the editable field without saving before confirmation', () => {
+    const unboundSource = {
+      ...source,
+      identityKind: 'NAME' as const,
+      identityValue: 'alice',
+      displayName: 'alice',
+      uploaderUid: null,
+      uidBindingState: 'UNBOUND' as const,
+      latestRun: completedRun
+    }
+    currentSourcesData = [unboundSource]
+    currentDetailData = { source: unboundSource, runs: [completedRun] }
+    render(<ArchiveUploaderSources />)
+
+    fireEvent.click(screen.getByRole('button', { name: '绑定 UID' }))
+    fireEvent.click(screen.getByRole('button', { name: '自动匹配' }))
+
+    expect(mocks.matchUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1' })
+    expect((screen.getByLabelText('上传者 UID') as HTMLInputElement).value).toBe('456')
+    expect(screen.getByText(/已由 alice 的画廊 GID 302 验证/)).toBeTruthy()
+    expect(mocks.setUploaderUid).not.toHaveBeenCalled()
+  })
+
+  it('disables UID changes while the source has an active scan', () => {
+    render(<ArchiveUploaderSources />)
+
+    expect(screen.getByRole('button', { name: '更正 UID' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('扫描完成或取消后才能绑定或更正 UID。')).toBeTruthy()
+  })
+
+  it('keeps the existing catalog visible while UID coverage awaits revalidation', () => {
+    const revalidatingSource = {
+      ...source,
+      uidBindingState: 'REVALIDATION_REQUIRED' as const,
+      uidRevalidationRequiredAt: new Date('2026-09-04T00:00:00.000Z'),
+      lastScanAt: null,
+      lastSuccessAt: null,
+      latestSeenExternalId: null,
+      hasPendingLatest: false,
+      canContinueHistory: false,
+      latestCoverage: 'NOT_SCANNED' as const,
+      historyCoverage: 'NOT_SCANNED' as const,
+      latestRun: completedRun
+    }
+    currentSourcesData = [revalidatingSource]
+    currentDetailData = { source: revalidatingSource, runs: [completedRun] }
+
+    render(<ArchiveUploaderSources />)
+
+    expect(screen.getAllByText('UID 覆盖待校验').length).toBeGreaterThan(0)
+    expect(screen.getByText('UID 待校验')).toBeTruthy()
+    expect(screen.getByText('UID 覆盖：待重新验证')).toBeTruthy()
+    expect(screen.queryByText('最新：尚未扫描')).toBeNull()
+    expect(screen.queryByText('历史：尚未扫描')).toBeNull()
+    expect(screen.getByText(/现有目录、收件箱关联和归档状态仍然有效/)).toBeTruthy()
+    expect(screen.getByText('Gallery 302')).toBeTruthy()
+  })
+
+  it('offers a jump to the existing source when a UID binding conflicts', async () => {
+    const unboundSource = {
+      ...source,
+      identityKind: 'NAME' as const,
+      identityValue: 'alice',
+      displayName: 'alice',
+      uploaderUid: null,
+      uidBindingState: 'UNBOUND' as const,
+      latestRun: completedRun
+    }
+    const existingSource = {
+      ...source,
+      id: 'source-existing',
+      identityValue: '456',
+      uploaderUid: '456',
+      displayName: 'Existing uploader',
+      latestRun: completedRun
+    }
+    currentSourcesData = [unboundSource, existingSource]
+    currentDetailData = { source: unboundSource, runs: [completedRun] }
+    currentUidMutationResult = {
+      outcome: 'CONFLICT',
+      sourceId: 'source-1',
+      conflictingSourceId: 'source-existing',
+      uploaderUid: '456'
+    }
+    render(<ArchiveUploaderSources />)
+
+    fireEvent.click(screen.getByRole('button', { name: '绑定 UID' }))
+    fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '456' } })
+    fireEvent.click(screen.getByRole('button', { name: '检查变更' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
+
+    await waitFor(() => expect(mocks.toastWarning).toHaveBeenCalled())
+    const toastOptions = mocks.toastWarning.mock.calls[0]?.[1] as { action: { onClick: () => void } }
+    toastOptions.action.onClick()
+    await waitFor(() =>
+      expect(mocks.infiniteQueryOptions).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceId: 'source-existing' }),
+        expect.any(Object)
+      )
+    )
   })
 
   it('renders one aggregated virtual result feed instead of scan-run tabs', () => {

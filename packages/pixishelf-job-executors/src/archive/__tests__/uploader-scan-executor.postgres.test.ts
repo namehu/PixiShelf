@@ -1,8 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import {
-  ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
-  archiveUploaderIdentityLockKey
-} from '@pixishelf/job-contracts'
+import { ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE, archiveUploaderIdentityLockKey } from '@pixishelf/job-contracts'
 import { Prisma, PrismaClient } from '@pixishelf/db'
 import {
   TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME,
@@ -236,9 +233,7 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
       now: () => terminalAt
     })
     await vi.waitFor(async () => {
-      expect((await db().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: run.runId } })).status).toBe(
-        'RUNNING'
-      )
+      expect((await db().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: run.runId } })).status).toBe('RUNNING')
     })
     releaseTerminal.resolve()
     await Promise.all([terminal, scan])
@@ -314,7 +309,8 @@ function scanResult(): ArchiveUploaderScanResult {
       }
     ],
     nextCursor: null,
-    reachedStop: false
+    reachedStop: false,
+    discoveredUploaderUid: null
   }
 }
 
@@ -347,7 +343,15 @@ async function seedScanRun(sourceId: string, suffix: string, now: Date) {
     data: systemJobData(jobId, 'ARCHIVE_UPLOADER_SCAN', { scanRunId: runId }, now)
   })
   await db().archiveUploaderScanRun.create({
-    data: { id: runId, sourceId, systemJobId: jobId, mode: 'LATEST', status: 'PENDING' }
+    data: {
+      id: runId,
+      sourceId,
+      systemJobId: jobId,
+      mode: 'LATEST',
+      searchIdentityKind: 'UID',
+      searchIdentityValue: '123',
+      status: 'PENDING'
+    }
   })
   return { runId, jobId }
 }
@@ -404,12 +408,7 @@ function systemJobData(
   }
 }
 
-function catalogData(
-  sourceId: string,
-  id: string,
-  now: Date,
-  classification: 'NEW' | 'POSSIBLE_UPDATE'
-) {
+function catalogData(sourceId: string, id: string, now: Date, classification: 'NEW' | 'POSSIBLE_UPDATE') {
   return {
     id,
     sourceId,

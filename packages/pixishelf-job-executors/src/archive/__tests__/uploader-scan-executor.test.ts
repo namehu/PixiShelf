@@ -58,7 +58,8 @@ const scanResult: ArchiveUploaderScanResult = {
     }
   ],
   nextCursor: 'older-cursor',
-  reachedStop: false
+  reachedStop: false,
+  discoveredUploaderUid: null
 }
 
 describe('archive uploader scan executor', () => {
@@ -113,8 +114,76 @@ describe('archive uploader scan executor', () => {
       await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
 
       expect(fixture.runUpdates.at(-1)).toMatchObject({ status: 'COMPLETED', stopReason: expected })
+      if (expected === 'REMOTE_END') {
+        expect(fixture.sourceUpdates.at(-1)).toMatchObject({ uidRevalidationRequiredAt: null })
+      } else {
+        expect(fixture.sourceUpdates.at(-1)).not.toHaveProperty('uidRevalidationRequiredAt')
+      }
     }
   )
+
+  it('uses the frozen run identity instead of the mutable source identity', async () => {
+    const scanUploader = vi.fn(async () => ({ ...scanResult, nextCursor: null }))
+    const fixture = createFixture({ scanUploader, searchIdentityKind: 'UID', searchIdentityValue: '456' })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(scanUploader).toHaveBeenCalledWith(
+      expect.objectContaining({ identityKind: 'UID', identityValue: '456' }),
+      expect.anything()
+    )
+  })
+
+  it('automatically binds a UID discovered by a verified NAME scan and resets only its coverage cursors', async () => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => ({ ...scanResult, discoveredUploaderUid: '456' })),
+      searchIdentityKind: 'NAME',
+      searchIdentityValue: 'alice'
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({
+      uploaderUid: '456',
+      uidRevalidationRequiredAt: new Date('2026-09-02T04:00:00.000Z'),
+      latestSeenExternalId: null,
+      incrementalCursor: null,
+      incrementalHeadExternalId: null,
+      historyCursor: null,
+      lastSuccessAt: new Date('2026-09-02T04:00:00.000Z')
+    })
+    expect(fixture.finalOutcome).toMatchObject({
+      result: {
+        uidDiscovery: { outcome: 'BOUND', uploaderUid: '456', conflictingSourceId: null }
+      }
+    })
+  })
+
+  it('keeps a NAME source unbound and records a visible warning when the discovered UID belongs to another source', async () => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => ({ ...scanResult, discoveredUploaderUid: '456' })),
+      searchIdentityKind: 'NAME',
+      searchIdentityValue: 'alice',
+      conflictingSourceId: 'source-existing'
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.sourceUpdates.at(-1)).not.toHaveProperty('uploaderUid')
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({
+      lastErrorCode: 'UPLOADER_UID_CONFLICT',
+      lastErrorMessage: expect.stringContaining('UID 456')
+    })
+    expect(fixture.finalOutcome).toMatchObject({
+      result: {
+        uidDiscovery: {
+          outcome: 'CONFLICT',
+          uploaderUid: '456',
+          conflictingSourceId: 'source-existing'
+        }
+      }
+    })
+  })
 
   it('keeps every cursor unchanged when a recoverable provider failure schedules a retry', async () => {
     const fixture = createFixture({
@@ -164,7 +233,8 @@ describe('archive uploader scan executor', () => {
         }
       ],
       nextCursor: null,
-      reachedStop: false
+      reachedStop: false,
+      discoveredUploaderUid: null
     }
     const fixture = createFixture({
       scanUploader: vi.fn(async () => olderResult)
@@ -305,6 +375,8 @@ describe('archive uploader scan executor', () => {
 
 function createFixture(input: {
   scanUploader: ArchiveUploaderProvider['scanUploader']
+  searchIdentityKind?: 'NAME' | 'UID'
+  searchIdentityValue?: string
   activeIntake?: Array<{
     id: string
     externalId: string | null
@@ -313,6 +385,8 @@ function createFixture(input: {
   }>
   activeImports?: Array<{ id: string; externalId: string }>
   storedNormalizedMetadata?: unknown
+  existingUploaderUid?: string | null
+  conflictingSourceId?: string | null
 }) {
   const runUpdates: Array<Record<string, unknown>> = []
   const sourceUpdates: Array<Record<string, unknown>> = []
@@ -325,13 +399,13 @@ function createFixture(input: {
     sourceId: 'source-1',
     systemJobId: 'uploader-job-1',
     mode: 'LATEST' as const,
+    searchIdentityKind: input.searchIdentityKind ?? ('UID' as const),
+    searchIdentityValue: input.searchIdentityValue ?? '123',
     status: 'PENDING' as const,
     cursorBefore: null,
     source: {
       id: 'source-1',
       providerKey: 'e-hentai',
-      identityKind: 'UID' as const,
-      identityValue: '123',
       status: 'ACTIVE' as const,
       latestSeenExternalId: null,
       incrementalHeadExternalId: null
@@ -347,6 +421,10 @@ function createFixture(input: {
       })
     },
     archiveUploaderSource: {
+      findUnique: vi.fn(async () => ({ uploaderUid: input.existingUploaderUid ?? null })),
+      findFirst: vi.fn(async () =>
+        input.conflictingSourceId ? { id: input.conflictingSourceId } : null
+      ),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         sourceUpdates.push(data)
         return { id: 'source-1' }
@@ -420,6 +498,7 @@ function createFixture(input: {
         }
       ])
     },
+    $queryRaw: vi.fn(async () => [{ lock: '' }]),
     $queryRawUnsafe: vi.fn(),
     $executeRawUnsafe: vi.fn()
   }

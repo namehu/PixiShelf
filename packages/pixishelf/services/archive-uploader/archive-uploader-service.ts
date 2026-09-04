@@ -2,13 +2,20 @@ import { createHash, randomUUID } from 'node:crypto'
 import {
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
   archiveUploaderIdentityLockKey,
+  archiveUploaderUidLockKey,
   archiveUploaderScanPayloadSchema,
   JOB_DEFINITION_VERSION
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
+import {
+  createDefaultArchiveMediaProviderRegistry,
+  GovernedArchiveProviderRegistry,
+  PostgresArchiveProviderGovernor,
+  type ArchiveUploaderProviderRegistry
+} from '@pixishelf/job-executors'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { ArchiveError } from '@/services/archive/errors'
+import { ArchiveError, type ArchiveErrorCode } from '@/services/archive/errors'
 import { archiveWireErrorMessage, redactArchiveUrl } from '@/services/archive/archive-redaction'
 import { createArchiveIntakeSubmissionInTransaction } from '@/services/archive-intake/archive-intake-service'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
@@ -81,6 +88,12 @@ export const setArchiveUploaderSourceArchivedSchema = z
   .object({ sourceId: sourceIdSchema, archived: z.boolean() })
   .strict()
 
+export const setArchiveUploaderUidSchema = z
+  .object({ sourceId: sourceIdSchema, uploaderUid: z.string().trim().min(1).max(20) })
+  .strict()
+
+export const matchArchiveUploaderUidSchema = z.object({ sourceId: sourceIdSchema }).strict()
+
 export const triggerArchiveUploaderScanSchema = z
   .object({ sourceId: sourceIdSchema, mode: z.enum(['LATEST', 'HISTORY']) })
   .strict()
@@ -108,6 +121,7 @@ export interface ArchiveUploaderServiceDependencies {
   database?: PrismaClient
   now?: () => Date
   uuid?: () => string
+  uploaderProviders?: ArchiveUploaderProviderRegistry
 }
 
 export async function createArchiveUploaderSubmissionAttempt(
@@ -132,6 +146,7 @@ export async function createArchiveUploaderSource(
         identityKind: parsed.identityKind,
         identityValue: identity.value,
         normalizedIdentity: identity.normalized,
+        uploaderUid: parsed.identityKind === 'UID' ? identity.value : null,
         displayName: parsed.identityKind === 'UID' ? `UID ${identity.value}` : identity.value
       },
       select: sourceWireSelect
@@ -261,6 +276,180 @@ export async function setArchiveUploaderSourceArchived(
   })
 }
 
+export async function setArchiveUploaderUid(
+  input: z.input<typeof setArchiveUploaderUidSchema>,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const parsed = setArchiveUploaderUidSchema.parse(input)
+  const uploaderUid = normalizeUploaderIdentity('UID', parsed.uploaderUid).value
+  const database = getDatabase(dependencies)
+  const now = dependencies.now ?? (() => new Date())
+
+  try {
+    return await database.$transaction(async (transaction) => {
+      await lockSource(transaction, parsed.sourceId)
+      const source = await transaction.archiveUploaderSource.findUnique({ where: { id: parsed.sourceId } })
+      if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
+      if (source.uploaderUid === uploaderUid) {
+        return { outcome: 'UNCHANGED' as const, sourceId: source.id, uploaderUid }
+      }
+
+      const activeRun = await transaction.archiveUploaderScanRun.findFirst({
+        where: { sourceId: source.id, status: { in: [...ACTIVE_RUN_STATUSES] } },
+        select: { id: true }
+      })
+      if (activeRun) throw new ArchiveError('STATE_CONFLICT', '扫描任务仍在活动中，完成或取消后才能修改上传者 UID')
+
+      await lockUploaderUid(transaction, source.providerKey, uploaderUid)
+
+      const conflict = await transaction.archiveUploaderSource.findFirst({
+        where: { providerKey: source.providerKey, uploaderUid, id: { not: source.id } },
+        select: { id: true }
+      })
+      if (conflict) {
+        return {
+          outcome: 'CONFLICT' as const,
+          sourceId: source.id,
+          conflictingSourceId: conflict.id,
+          uploaderUid
+        }
+      }
+
+      const placeholderDisplayName =
+        source.identityKind === 'UID' && source.displayName === `UID ${source.identityValue}`
+      const changed = await transaction.archiveUploaderSource.update({
+        where: { id: source.id },
+        data: {
+          uploaderUid,
+          uidRevalidationRequiredAt: now(),
+          ...(source.identityKind === 'UID'
+            ? {
+                identityValue: uploaderUid,
+                normalizedIdentity: uploaderUid,
+                ...(placeholderDisplayName ? { displayName: `UID ${uploaderUid}` } : {})
+              }
+            : {}),
+          latestSeenExternalId: null,
+          incrementalCursor: null,
+          incrementalHeadExternalId: null,
+          historyCursor: null,
+          lastScanAt: null,
+          lastSuccessAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          lastRunId: null
+        },
+        select: sourceWireSelect
+      })
+      return { outcome: 'UPDATED' as const, sourceId: changed.id, uploaderUid, source: serializeSource(changed) }
+    })
+  } catch (error) {
+    if (!isUniqueConstraintError(error)) throw error
+    const source = await database.archiveUploaderSource.findUnique({
+      where: { id: parsed.sourceId },
+      select: { id: true, providerKey: true }
+    })
+    if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
+    const conflict = await database.archiveUploaderSource.findFirst({
+      where: { providerKey: source.providerKey, uploaderUid, id: { not: source.id } },
+      select: { id: true }
+    })
+    if (conflict) {
+      return {
+        outcome: 'CONFLICT' as const,
+        sourceId: source.id,
+        conflictingSourceId: conflict.id,
+        uploaderUid
+      }
+    }
+    throw new ArchiveError('STATE_CONFLICT', '上传者 UID 修改发生冲突，请刷新后重试')
+  }
+}
+
+export async function matchArchiveUploaderUid(
+  input: z.input<typeof matchArchiveUploaderUidSchema>,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const parsed = matchArchiveUploaderUidSchema.parse(input)
+  const database = getDatabase(dependencies)
+  const source = await database.archiveUploaderSource.findUnique({
+    where: { id: parsed.sourceId },
+    select: {
+      id: true,
+      providerKey: true,
+      identityKind: true,
+      identityValue: true,
+      uploaderUid: true,
+      displayName: true,
+      runs: {
+        where: { status: { in: [...ACTIVE_RUN_STATUSES] } },
+        take: 1,
+        select: { id: true }
+      }
+    }
+  })
+  if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
+  if (source.runs.length > 0) {
+    throw new ArchiveError('STATE_CONFLICT', '扫描任务仍在活动中，完成或取消后才能自动匹配上传者 UID')
+  }
+
+  const uploaderName =
+    source.identityKind === 'NAME'
+      ? source.identityValue
+      : source.displayName === `UID ${source.identityValue}`
+        ? null
+        : source.displayName
+  if (!uploaderName) {
+    throw new ArchiveError('STATE_CONFLICT', '当前来源还没有可验证的上传者名称，请先完成一次 UID 扫描')
+  }
+
+  let result
+  try {
+    const providers =
+      dependencies.uploaderProviders ??
+      new GovernedArchiveProviderRegistry(
+        createDefaultArchiveMediaProviderRegistry(),
+        new PostgresArchiveProviderGovernor(database)
+      )
+    result = await providers.getUploaderScanner(source.providerKey).scanUploader({
+      identityKind: 'NAME',
+      identityValue: uploaderName,
+      cursor: null,
+      stopAtExternalId: null,
+      limit: 1
+    })
+  } catch (error) {
+    throw translateUploaderProviderError(error)
+  }
+
+  const uploaderUid = result.discoveredUploaderUid
+  const matchedItem = result.items[0]
+  if (!uploaderUid || !matchedItem?.uploaderName) {
+    throw new ArchiveError('REMOTE_NOT_FOUND', '没有找到可验证的上传者 UID；你仍可手动填写')
+  }
+  const conflict = await database.archiveUploaderSource.findFirst({
+    where: { providerKey: source.providerKey, uploaderUid, id: { not: source.id } },
+    select: { id: true }
+  })
+  if (conflict) {
+    return {
+      outcome: 'CONFLICT' as const,
+      sourceId: source.id,
+      conflictingSourceId: conflict.id,
+      uploaderUid,
+      uploaderName: matchedItem.uploaderName,
+      evidenceExternalId: matchedItem.externalId
+    }
+  }
+  return {
+    outcome: 'MATCHED' as const,
+    sourceId: source.id,
+    uploaderUid,
+    uploaderName: matchedItem.uploaderName,
+    evidenceExternalId: matchedItem.externalId
+  }
+}
+
 export async function triggerArchiveUploaderScan(
   input: z.input<typeof triggerArchiveUploaderScanSchema>,
   requestedByUserId: string,
@@ -286,6 +475,8 @@ export async function triggerArchiveUploaderScan(
       if (parsed.mode === 'HISTORY' && !cursorBefore) {
         throw new ArchiveError('STATE_CONFLICT', '当前没有更早的扫描页可继续')
       }
+      const searchIdentityKind = source.uploaderUid ? ('UID' as const) : source.identityKind
+      const searchIdentityValue = source.uploaderUid ?? source.identityValue
       const timestamp = now()
       const runId = uuid()
       const jobId = uuid()
@@ -321,6 +512,8 @@ export async function triggerArchiveUploaderScan(
           sourceId: source.id,
           systemJobId: jobId,
           mode: parsed.mode,
+          searchIdentityKind,
+          searchIdentityValue,
           cursorBefore
         },
         select: runSummarySelect
@@ -599,6 +792,8 @@ const sourceWireSelect = {
   providerKey: true,
   identityKind: true,
   identityValue: true,
+  uploaderUid: true,
+  uidRevalidationRequiredAt: true,
   displayName: true,
   status: true,
   latestSeenExternalId: true,
@@ -616,6 +811,8 @@ const runSummarySelect = {
   id: true,
   systemJobId: true,
   mode: true,
+  searchIdentityKind: true,
+  searchIdentityValue: true,
   status: true,
   itemCount: true,
   newCount: true,
@@ -670,8 +867,14 @@ type RunSummaryWire = Prisma.ArchiveUploaderScanRunGetPayload<{ select: typeof r
 function serializeSource(source: SourceWire) {
   const { incrementalCursor, historyCursor, ...wire } = source
   const hasCompletedScan = source.lastSuccessAt !== null
+  const uidBindingState = source.uploaderUid
+    ? source.uidRevalidationRequiredAt
+      ? ('REVALIDATION_REQUIRED' as const)
+      : ('BOUND' as const)
+    : ('UNBOUND' as const)
   return {
     ...wire,
+    uidBindingState,
     hasPendingLatest: incrementalCursor !== null,
     canContinueHistory: historyCursor !== null,
     latestCoverage: !hasCompletedScan
@@ -752,6 +955,57 @@ async function lockSource(transaction: Prisma.TransactionClient, sourceId: strin
   await transaction.$queryRaw(
     Prisma.sql`SELECT pg_advisory_xact_lock(${SOURCE_LOCK_NAMESPACE}::integer, hashtext(${sourceId}::text))::text AS "lock"`
   )
+}
+
+async function lockUploaderUid(transaction: Prisma.TransactionClient, providerKey: string, uploaderUid: string) {
+  const key = archiveUploaderUidLockKey(providerKey, uploaderUid)
+  await transaction.$queryRaw(
+    Prisma.sql`SELECT pg_advisory_xact_lock(${ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE}::integer, hashtext(${key}::text))::text AS "lock"`
+  )
+}
+
+function translateUploaderProviderError(error: unknown): ArchiveError {
+  if (!(error instanceof Error)) {
+    return new ArchiveError('INTERNAL', '自动匹配上传者 UID 失败', { cause: error })
+  }
+  const candidate = error as Error & {
+    code?: unknown
+    recoverable?: unknown
+    retryAfterMs?: unknown
+    stage?: unknown
+    remoteHost?: unknown
+  }
+  const code = isArchiveErrorCode(candidate.code) ? candidate.code : 'INTERNAL'
+  return new ArchiveError(code, candidate.message, {
+    cause: error,
+    recoverable: candidate.recoverable === true,
+    retryAfterMs: typeof candidate.retryAfterMs === 'number' ? candidate.retryAfterMs : null,
+    remoteHost: typeof candidate.remoteHost === 'string' ? candidate.remoteHost : null
+  })
+}
+
+function isArchiveErrorCode(value: unknown): value is ArchiveErrorCode {
+  return [
+    'INVALID_URL',
+    'UNSUPPORTED_PROVIDER',
+    'SSRF_BLOCKED',
+    'REMOTE_NOT_FOUND',
+    'REMOTE_RATE_LIMITED',
+    'REMOTE_QUOTA_EXCEEDED',
+    'REMOTE_FORBIDDEN',
+    'REMOTE_RESPONSE_INVALID',
+    'ORIGINAL_UNAVAILABLE',
+    'DOWNLOAD_TOO_LARGE',
+    'MEDIA_INVALID',
+    'STORAGE_FULL',
+    'CANCELLED',
+    'PAUSED',
+    'LEASE_LOST',
+    'WORKER_STOPPED',
+    'STATE_CONFLICT',
+    'PARTIAL_FAILURE',
+    'INTERNAL'
+  ].includes(String(value))
 }
 
 function isUniqueConstraintError(error: unknown) {

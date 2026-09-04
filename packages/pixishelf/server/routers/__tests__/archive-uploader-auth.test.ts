@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
   getSource: vi.fn(),
   listItems: vi.fn(),
   listIgnoredItems: vi.fn(),
+  matchUploaderUid: vi.fn(),
   setArchived: vi.fn(),
+  setUploaderUid: vi.fn(),
   triggerScan: vi.fn(),
   cancelScan: vi.fn(),
   createSubmissionAttempt: vi.fn(),
@@ -24,7 +26,9 @@ vi.mock('@/services/archive-uploader/archive-uploader-service', async (importOri
   getArchiveUploaderSource: mocks.getSource,
   listArchiveUploaderScanItems: mocks.listItems,
   listArchiveUploaderIgnoredItems: mocks.listIgnoredItems,
+  matchArchiveUploaderUid: mocks.matchUploaderUid,
   setArchiveUploaderSourceArchived: mocks.setArchived,
+  setArchiveUploaderUid: mocks.setUploaderUid,
   triggerArchiveUploaderScan: mocks.triggerScan,
   cancelArchiveUploaderScan: mocks.cancelScan,
   createArchiveUploaderSubmissionAttempt: mocks.createSubmissionAttempt,
@@ -58,6 +62,23 @@ describe('archive uploader authorization boundary', () => {
       invoke: () =>
         archiveUploaderRouter.createCaller(unauthorized).createSource({ identityKind: 'UID', identityValue: '123' }),
       service: mocks.createSource
+    },
+    {
+      name: 'matchUploaderUid',
+      invoke: () =>
+        archiveUploaderRouter.createCaller(unauthorized).matchUploaderUid({
+          sourceId: 'source-1'
+        }),
+      service: mocks.matchUploaderUid
+    },
+    {
+      name: 'setUploaderUid',
+      invoke: () =>
+        archiveUploaderRouter.createCaller(unauthorized).setUploaderUid({
+          sourceId: 'source-1',
+          uploaderUid: '123'
+        }),
+      service: mocks.setUploaderUid
     },
     {
       name: 'setArchived',
@@ -132,6 +153,14 @@ describe('archive uploader authorization boundary', () => {
   })
 
   it('passes the authenticated user id only to writes that record an actor', async () => {
+    mocks.matchUploaderUid.mockResolvedValue({
+      outcome: 'MATCHED',
+      sourceId: 'source-1',
+      uploaderUid: '123',
+      uploaderName: 'alice',
+      evidenceExternalId: '300'
+    })
+    mocks.setUploaderUid.mockResolvedValue({ outcome: 'UNCHANGED', sourceId: 'source-1', uploaderUid: '123' })
     mocks.triggerScan.mockResolvedValue({ id: 'run-1' })
     mocks.cancelScan.mockResolvedValue({ id: 'run-1', status: 'CANCELLING' })
     mocks.createSubmissionAttempt.mockResolvedValue({
@@ -141,6 +170,8 @@ describe('archive uploader authorization boundary', () => {
     mocks.ignoreItems.mockResolvedValue({ ignoredItemIds: ['ignored-1'] })
     mocks.restoreIgnoredItems.mockResolvedValue({ restoredCount: 1 })
 
+    await archiveUploaderRouter.createCaller(authorized).matchUploaderUid({ sourceId: 'source-1' })
+    await archiveUploaderRouter.createCaller(authorized).setUploaderUid({ sourceId: 'source-1', uploaderUid: '123' })
     await archiveUploaderRouter.createCaller(authorized).triggerScan({ sourceId: 'source-1', mode: 'LATEST' })
     await archiveUploaderRouter.createCaller(authorized).cancelScan({ sourceId: 'source-1', runId: 'run-1' })
     await archiveUploaderRouter
@@ -159,6 +190,8 @@ describe('archive uploader authorization boundary', () => {
       ignoredItemIds: ['ignored-1']
     })
 
+    expect(mocks.matchUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1' })
+    expect(mocks.setUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1', uploaderUid: '123' })
     expect(mocks.triggerScan).toHaveBeenCalledWith({ sourceId: 'source-1', mode: 'LATEST' }, 'admin-1')
     expect(mocks.cancelScan).toHaveBeenCalledWith({ sourceId: 'source-1', runId: 'run-1' })
     expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['item-1'] })

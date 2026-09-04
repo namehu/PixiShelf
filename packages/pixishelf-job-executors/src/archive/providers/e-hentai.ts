@@ -242,7 +242,12 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       }
     })
 
-    return { items, nextCursor, reachedStop }
+    const discoveredUploaderUid =
+      input.identityKind === 'NAME' && items[0]
+        ? await discoverUploaderUidFromGallery(items[0].canonicalUrl, input.identityValue, this.http, context)
+        : null
+
+    return { items, nextCursor, reachedStop, discoveredUploaderUid }
   }
 
   async openMedia(item: ResolvedMedia, context: ArchiveDownloadContext): Promise<RemoteMedia> {
@@ -799,6 +804,69 @@ function parseUploaderSearchPage(html: string, baseUrl: string, searchTerm: stri
     nextUrl,
     legitimateEmpty: /\b(?:no hits found|no matching galleries|no results found)\b/i.test(cleanText(html))
   }
+}
+
+async function discoverUploaderUidFromGallery(
+  canonicalUrl: string,
+  expectedUploaderName: string,
+  http: SafeHttpClient,
+  context: ArchiveUploaderScanContext
+): Promise<string | null> {
+  const html = await runSearchRequest(context, () =>
+    http.text(canonicalUrl, {
+      ...(context.signal ? { signal: context.signal } : {}),
+      maxBytes: 8 * 1024 * 1024
+    })
+  )
+  return parseUploaderUidFromGalleryPage(html, canonicalUrl, expectedUploaderName)
+}
+
+export function parseUploaderUidFromGalleryPage(
+  html: string,
+  baseUrl: string,
+  expectedUploaderName: string
+): string | null {
+  const uploaderBlock = html.match(
+    /<div\b[^>]*(?:(?:id|class)\s*=\s*(["'])[^"']*\bgdn\b[^"']*\1)[^>]*>([\s\S]*?)<\/div>/i
+  )?.[2]
+  if (!uploaderBlock) return null
+
+  let pageUploaderName: string | null = null
+  let uploaderUid: string | null = null
+  const anchorMatcher = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi
+  for (const match of uploaderBlock.matchAll(anchorMatcher)) {
+    const attributes = parseAttributes(`<a ${match[1] ?? ''}>`)
+    if (!attributes.href) continue
+    let url: URL
+    try {
+      url = new URL(decodeHtml(attributes.href), baseUrl)
+    } catch {
+      continue
+    }
+    if (url.protocol !== 'https:' || url.username || url.password || url.port) continue
+    if (url.hostname.toLowerCase() === GALLERY_HOST) {
+      const nameMatch = url.pathname.match(/^\/uploader\/([^/]+)\/?$/i)
+      if (nameMatch) {
+        try {
+          pageUploaderName = decodeURIComponent(nameMatch[1]!.replaceAll('+', ' '))
+        } catch {
+          pageUploaderName = cleanText(decodeHtml((match[2] ?? '').replace(/<[^>]+>/g, ' '))) || null
+        }
+      }
+      continue
+    }
+    if (url.hostname.toLowerCase() !== 'forums.e-hentai.org' || url.pathname !== '/index.php') continue
+    const showUser = url.searchParams.get('showuser')
+    if (showUser && /^\d{1,20}$/.test(showUser) && BigInt(showUser) > 0n) {
+      uploaderUid = BigInt(showUser).toString(10)
+    }
+  }
+
+  return pageUploaderName &&
+    uploaderUid &&
+    normalizeUploaderName(pageUploaderName) === normalizeUploaderName(expectedUploaderName)
+    ? uploaderUid
+    : null
 }
 
 function normalizedDiscoveryMetadata(metadata: EhGalleryMetadata, gid: number): Record<string, unknown> {

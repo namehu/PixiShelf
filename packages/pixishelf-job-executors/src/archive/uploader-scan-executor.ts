@@ -1,4 +1,6 @@
 import {
+  ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+  archiveUploaderUidLockKey,
   archiveUploaderScanPayloadSchema,
   JOB_DEFINITION_VERSION,
   type ArchiveUploaderScanPayload,
@@ -97,12 +99,12 @@ interface CatalogDurableWorkflow {
 interface ClaimedScanRun {
   id: string
   mode: 'LATEST' | 'HISTORY'
+  searchIdentityKind: 'NAME' | 'UID'
+  searchIdentityValue: string
   cursorBefore: string | null
   source: {
     id: string
     providerKey: string
-    identityKind: 'NAME' | 'UID'
-    identityValue: string
     latestSeenExternalId: string | null
     incrementalHeadExternalId: string | null
   }
@@ -167,12 +169,12 @@ export async function executeArchiveUploaderScan(
     return {
       id: current.id,
       mode: current.mode,
+      searchIdentityKind: current.searchIdentityKind,
+      searchIdentityValue: current.searchIdentityValue,
       cursorBefore: current.cursorBefore,
       source: {
         id: current.source.id,
         providerKey: current.source.providerKey,
-        identityKind: current.source.identityKind,
-        identityValue: current.source.identityValue,
         latestSeenExternalId: current.source.latestSeenExternalId,
         incrementalHeadExternalId: current.source.incrementalHeadExternalId
       }
@@ -195,8 +197,8 @@ export async function executeArchiveUploaderScan(
     const provider = dependencies.providers.getUploaderScanner(run.source.providerKey)
     const result = await provider.scanUploader(
       {
-        identityKind: run.source.identityKind,
-        identityValue: run.source.identityValue,
+        identityKind: run.searchIdentityKind,
+        identityValue: run.searchIdentityValue,
         cursor: run.cursorBefore,
         stopAtExternalId: run.mode === 'LATEST' ? run.source.latestSeenExternalId : null,
         limit: SCAN_LIMIT
@@ -350,16 +352,57 @@ async function finalizeScan(
   if (runChanged.count !== 1) throw new Error('上传者扫描记录在完成前发生变化')
 
   const firstExternalId = result.items[0]?.externalId ?? null
+  let uidBindingOutcome: 'NOT_DISCOVERED' | 'BOUND' | 'ALREADY_BOUND' | 'CONFLICT' = 'NOT_DISCOVERED'
+  let conflictingSourceId: string | null = null
+  if (run.searchIdentityKind === 'NAME' && result.discoveredUploaderUid) {
+    await lockUploaderUid(scope.transaction, run.source.providerKey, result.discoveredUploaderUid)
+    const currentSource = await scope.transaction.archiveUploaderSource.findUnique({
+      where: { id: run.source.id },
+      select: { uploaderUid: true }
+    })
+    if (currentSource?.uploaderUid) {
+      uidBindingOutcome = 'ALREADY_BOUND'
+    } else {
+      const conflict = await scope.transaction.archiveUploaderSource.findFirst({
+        where: {
+          providerKey: run.source.providerKey,
+          uploaderUid: result.discoveredUploaderUid,
+          id: { not: run.source.id }
+        },
+        select: { id: true }
+      })
+      if (conflict) {
+        uidBindingOutcome = 'CONFLICT'
+        conflictingSourceId = conflict.id
+      } else {
+        uidBindingOutcome = 'BOUND'
+      }
+    }
+  }
   const sourceData: Prisma.ArchiveUploaderSourceUpdateInput = {
     lastSuccessAt: completedAt,
     lastErrorCode: null,
     lastErrorMessage: null,
     lastRunId: run.id
   }
-  if (run.source.identityKind === 'UID' && result.items[0]?.uploaderName) {
+  if (uidBindingOutcome === 'CONFLICT') {
+    sourceData.lastErrorCode = 'UPLOADER_UID_CONFLICT'
+    sourceData.lastErrorMessage = `自动匹配到上传者 UID ${result.discoveredUploaderUid}，但该 UID 已绑定到其他来源；未自动合并`
+  }
+  if ((run.searchIdentityKind === 'UID' || uidBindingOutcome === 'BOUND') && result.items[0]?.uploaderName) {
     sourceData.displayName = result.items[0].uploaderName
   }
-  if (run.mode === 'HISTORY') {
+  if (run.searchIdentityKind === 'UID' && stopReason === 'REMOTE_END') {
+    sourceData.uidRevalidationRequiredAt = null
+  }
+  if (uidBindingOutcome === 'BOUND') {
+    sourceData.uploaderUid = result.discoveredUploaderUid
+    sourceData.uidRevalidationRequiredAt = completedAt
+    sourceData.latestSeenExternalId = null
+    sourceData.incrementalCursor = null
+    sourceData.incrementalHeadExternalId = null
+    sourceData.historyCursor = null
+  } else if (run.mode === 'HISTORY') {
     sourceData.historyCursor = result.nextCursor
   } else if (run.source.latestSeenExternalId === null) {
     sourceData.latestSeenExternalId = firstExternalId
@@ -377,9 +420,30 @@ async function finalizeScan(
   }
   await scope.transaction.archiveUploaderSource.update({ where: { id: run.source.id }, data: sourceData })
   await scope.complete({
-    result: { scanRunId: run.id, itemCount: result.items.length, counts },
-    message: `上传者扫描完成，共发现 ${result.items.length} 个画廊`
+    result: {
+      scanRunId: run.id,
+      itemCount: result.items.length,
+      counts,
+      uidDiscovery: {
+        outcome: uidBindingOutcome,
+        uploaderUid: result.discoveredUploaderUid,
+        conflictingSourceId
+      }
+    },
+    message:
+      uidBindingOutcome === 'BOUND'
+        ? `上传者扫描完成，共发现 ${result.items.length} 个画廊；已自动匹配 UID ${result.discoveredUploaderUid}`
+        : uidBindingOutcome === 'CONFLICT'
+          ? `上传者扫描完成，共发现 ${result.items.length} 个画廊；匹配到的 UID 已属于其他来源，未自动合并`
+          : `上传者扫描完成，共发现 ${result.items.length} 个画廊`
   })
+}
+
+async function lockUploaderUid(transaction: ScanTransaction, providerKey: string, uploaderUid: string) {
+  const key = archiveUploaderUidLockKey(providerKey, uploaderUid)
+  await transaction.$queryRaw<{ lock: string }[]>(
+    Prisma.sql`SELECT pg_advisory_xact_lock(${ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE}::integer, hashtext(${key}::text))::text AS "lock"`
+  )
 }
 
 async function classifyScanItems(

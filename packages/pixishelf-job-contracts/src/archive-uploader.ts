@@ -4,6 +4,10 @@ export function archiveUploaderIdentityLockKey(providerKey: string, externalId: 
   return `${providerKey}\n${externalId}`
 }
 
+export function archiveUploaderUidLockKey(providerKey: string, uploaderUid: string) {
+  return `uploader-uid\n${providerKey}\n${uploaderUid}`
+}
+
 export function archiveUploaderUrlLockKey(canonicalUrl: string) {
   return `url\n${canonicalUrl}`
 }

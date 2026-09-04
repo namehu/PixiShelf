@@ -851,6 +851,8 @@ model ArchiveUploaderSource {
   identityKind              ArchiveUploaderIdentityKind
   identityValue             String                      @db.VarChar(180)
   normalizedIdentity        String                      @db.VarChar(180)
+  uploaderUid               String?                     @db.VarChar(20)
+  uidRevalidationRequiredAt DateTime?
   displayName               String                      @db.VarChar(180)
   status                    ArchiveUploaderSourceStatus @default(ACTIVE)
   latestSeenExternalId      String?                     @db.VarChar(120)
@@ -869,6 +871,7 @@ model ArchiveUploaderSource {
   ignoredItems              ArchiveUploaderIgnoredItem[] @relation("ArchiveUploaderIgnoredSource")
 
   @@unique([providerKey, identityKind, normalizedIdentity], map: "archive_uploader_sources_provider_identity_key")
+  @@unique([providerKey, uploaderUid], map: "archive_uploader_sources_provider_uid_key")
   @@index([status, updatedAt(sort: Desc)], map: "archive_uploader_sources_status_updated_idx")
   @@index([lastRunId], map: "archive_uploader_sources_last_run_idx")
   @@map("archive_uploader_sources")
@@ -879,6 +882,8 @@ model ArchiveUploaderScanRun {
   sourceId            String
   systemJobId         String                       @unique(map: "archive_uploader_scan_runs_system_job_key")
   mode                ArchiveUploaderScanMode
+  searchIdentityKind  ArchiveUploaderIdentityKind
+  searchIdentityValue String                       @db.VarChar(180)
   status              ArchiveUploaderScanRunStatus @default(PENDING)
   stopReason          ArchiveUploaderScanStopReason?
   cursorBefore        String?                      @db.Text

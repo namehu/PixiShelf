@@ -22,8 +22,10 @@ import {
   ignoreArchiveUploaderScanItems,
   listArchiveUploaderIgnoredItems,
   listArchiveUploaderScanItems,
+  matchArchiveUploaderUid,
   restoreArchiveUploaderIgnoredItems,
   safeArchiveUploaderThumbnailUrl,
+  setArchiveUploaderUid,
   triggerArchiveUploaderScan
 } from '../archive-uploader-service'
 
@@ -48,6 +50,8 @@ describe('archive uploader service', () => {
       ...data,
       id: 'source-1',
       status: 'ACTIVE',
+      uploaderUid: data.uploaderUid ?? null,
+      uidRevalidationRequiredAt: null,
       latestSeenExternalId: null,
       incrementalCursor: null,
       historyCursor: null,
@@ -66,10 +70,21 @@ describe('archive uploader service', () => {
 
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ identityValue: '123', normalizedIdentity: '123', displayName: 'UID 123' })
+        data: expect.objectContaining({
+          identityValue: '123',
+          normalizedIdentity: '123',
+          uploaderUid: '123',
+          displayName: 'UID 123'
+        })
       })
     )
-    expect(result).toMatchObject({ identityValue: '123', hasPendingLatest: false, canContinueHistory: false })
+    expect(result).toMatchObject({
+      identityValue: '123',
+      uploaderUid: '123',
+      uidBindingState: 'BOUND',
+      hasPendingLatest: false,
+      canContinueHistory: false
+    })
     expect(result).not.toHaveProperty('incrementalCursor')
     expect(result).not.toHaveProperty('historyCursor')
   })
@@ -78,10 +93,12 @@ describe('archive uploader service', () => {
     const source = {
       id: 'source-1',
       providerKey: 'e-hentai',
-      identityKind: 'UID',
-      identityValue: '123',
-      normalizedIdentity: '123',
-      displayName: 'UID 123',
+      identityKind: 'NAME',
+      identityValue: 'alice',
+      uploaderUid: '123',
+      uidRevalidationRequiredAt: null,
+      normalizedIdentity: 'alice',
+      displayName: 'alice',
       status: 'ACTIVE',
       latestSeenExternalId: '300',
       incrementalCursor: 'incremental-cursor',
@@ -94,6 +111,8 @@ describe('archive uploader service', () => {
       id: 'run-1',
       systemJobId: 'job-1',
       mode: 'LATEST',
+      searchIdentityKind: data.searchIdentityKind,
+      searchIdentityValue: data.searchIdentityValue,
       status: 'PENDING',
       itemCount: 0,
       newCount: 0,
@@ -135,9 +154,238 @@ describe('archive uploader service', () => {
       })
     })
     expect(runCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ cursorBefore: 'incremental-cursor' }) })
+      expect.objectContaining({
+        data: expect.objectContaining({
+          cursorBefore: 'incremental-cursor',
+          searchIdentityKind: 'UID',
+          searchIdentityValue: '123'
+        })
+      })
     )
     expect(mocks.writeJobEvent).toHaveBeenCalledOnce()
+  })
+
+  it('binds a NAME source to a canonical UID while preserving its durable records', async () => {
+    const timestamp = new Date('2026-09-04T00:00:00.000Z')
+    const source = {
+      id: 'source-name',
+      providerKey: 'e-hentai',
+      identityKind: 'NAME' as const,
+      identityValue: 'alice',
+      normalizedIdentity: 'alice',
+      uploaderUid: null,
+      uidRevalidationRequiredAt: null,
+      displayName: 'alice',
+      status: 'ACTIVE' as const,
+      latestSeenExternalId: '300',
+      incrementalCursor: 'incremental',
+      incrementalHeadExternalId: '400',
+      historyCursor: 'history',
+      lastScanAt: new Date('2026-09-03T00:00:00.000Z'),
+      lastSuccessAt: new Date('2026-09-03T00:01:00.000Z'),
+      lastErrorCode: 'OLD',
+      lastErrorMessage: 'old error',
+      lastRunId: 'run-old',
+      createdAt: new Date('2026-09-02T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-03T00:01:00.000Z')
+    }
+    const update = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...source,
+      ...data,
+      updatedAt: timestamp
+    }))
+    const transaction = {
+      $queryRaw: vi.fn(async () => [{ lock: '' }]),
+      archiveUploaderSource: {
+        findUnique: vi.fn(async () => source),
+        findFirst: vi.fn(async () => null),
+        update
+      },
+      archiveUploaderScanRun: { findFirst: vi.fn(async () => null) }
+    }
+    const database = {
+      $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
+    }
+
+    const result = await setArchiveUploaderUid(
+      { sourceId: source.id, uploaderUid: '000456' },
+      { database: database as never, now: () => timestamp }
+    )
+
+    expect(result).toMatchObject({
+      outcome: 'UPDATED',
+      sourceId: source.id,
+      uploaderUid: '456',
+      source: { uidBindingState: 'REVALIDATION_REQUIRED' }
+    })
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: source.id },
+        data: expect.objectContaining({
+          uploaderUid: '456',
+          uidRevalidationRequiredAt: timestamp,
+          latestSeenExternalId: null,
+          incrementalCursor: null,
+          incrementalHeadExternalId: null,
+          historyCursor: null,
+          lastScanAt: null,
+          lastSuccessAt: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          lastRunId: null
+        })
+      })
+    )
+    const updateData = update.mock.calls[0]?.[0].data
+    expect(updateData).not.toHaveProperty('identityKind')
+    expect(updateData).not.toHaveProperty('identityValue')
+  })
+
+  it('matches a NAME source UID without saving before explicit confirmation', async () => {
+    const scanUploader = vi.fn(async () => ({
+      items: [
+        {
+          externalId: '300',
+          uploaderName: 'Alice'
+        }
+      ],
+      nextCursor: null,
+      reachedStop: false,
+      discoveredUploaderUid: '456'
+    }))
+    const database = {
+      archiveUploaderSource: {
+        findUnique: vi.fn(async () => ({
+          id: 'source-1',
+          providerKey: 'e-hentai',
+          identityKind: 'NAME',
+          identityValue: 'alice',
+          uploaderUid: null,
+          displayName: 'alice',
+          runs: []
+        })),
+        findFirst: vi.fn(async () => null),
+        update: vi.fn()
+      }
+    }
+
+    await expect(
+      matchArchiveUploaderUid(
+        { sourceId: 'source-1' },
+        {
+          database: database as never,
+          uploaderProviders: { getUploaderScanner: () => ({ scanUploader }) } as never
+        }
+      )
+    ).resolves.toEqual({
+      outcome: 'MATCHED',
+      sourceId: 'source-1',
+      uploaderUid: '456',
+      uploaderName: 'Alice',
+      evidenceExternalId: '300'
+    })
+    expect(scanUploader).toHaveBeenCalledWith({
+      identityKind: 'NAME',
+      identityValue: 'alice',
+      cursor: null,
+      stopAtExternalId: null,
+      limit: 1
+    })
+    expect(database.archiveUploaderSource.update).not.toHaveBeenCalled()
+  })
+
+  it('rejects UID changes while a scan is active', async () => {
+    const source = { id: 'source-1', providerKey: 'e-hentai', uploaderUid: null }
+    const update = vi.fn()
+    const transaction = {
+      $queryRaw: vi.fn(async () => [{ lock: '' }]),
+      archiveUploaderSource: { findUnique: vi.fn(async () => source), update },
+      archiveUploaderScanRun: { findFirst: vi.fn(async () => ({ id: 'run-active' })) }
+    }
+    const database = {
+      $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
+    }
+
+    await expect(
+      setArchiveUploaderUid({ sourceId: source.id, uploaderUid: '456' }, { database: database as never })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it.each(['0', '-1', '12x', '123456789012345678901'])('rejects invalid uploader UID %s', async (uploaderUid) => {
+    const database = { $transaction: vi.fn() }
+
+    await expect(
+      setArchiveUploaderUid({ sourceId: 'source-1', uploaderUid }, { database: database as never })
+    ).rejects.toThrow()
+    expect(database.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('treats rebinding the same canonical UID as an idempotent no-op', async () => {
+    const source = { id: 'source-1', providerKey: 'e-hentai', uploaderUid: '456' }
+    const update = vi.fn()
+    const transaction = {
+      $queryRaw: vi.fn(async () => [{ lock: '' }]),
+      archiveUploaderSource: { findUnique: vi.fn(async () => source), update },
+      archiveUploaderScanRun: { findFirst: vi.fn() }
+    }
+    const database = {
+      $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
+    }
+
+    await expect(
+      setArchiveUploaderUid({ sourceId: source.id, uploaderUid: '000456' }, { database: database as never })
+    ).resolves.toEqual({ outcome: 'UNCHANGED', sourceId: source.id, uploaderUid: '456' })
+    expect(transaction.archiveUploaderScanRun.findFirst).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('returns the existing source when a UID binding conflicts', async () => {
+    const source = { id: 'source-1', providerKey: 'e-hentai', uploaderUid: null }
+    const update = vi.fn()
+    const transaction = {
+      $queryRaw: vi.fn(async () => [{ lock: '' }]),
+      archiveUploaderSource: {
+        findUnique: vi.fn(async () => source),
+        findFirst: vi.fn(async () => ({ id: 'source-existing' })),
+        update
+      },
+      archiveUploaderScanRun: { findFirst: vi.fn(async () => null) }
+    }
+    const database = {
+      $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
+    }
+
+    await expect(
+      setArchiveUploaderUid({ sourceId: source.id, uploaderUid: '456' }, { database: database as never })
+    ).resolves.toEqual({
+      outcome: 'CONFLICT',
+      sourceId: source.id,
+      conflictingSourceId: 'source-existing',
+      uploaderUid: '456'
+    })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('turns a concurrent UID unique-constraint race into a conflict result', async () => {
+    const database = {
+      $transaction: vi.fn(async () => {
+        throw { code: 'P2002' }
+      }),
+      archiveUploaderSource: {
+        findUnique: vi.fn(async () => ({ id: 'source-1', providerKey: 'e-hentai' })),
+        findFirst: vi.fn(async () => ({ id: 'source-existing' }))
+      }
+    }
+
+    await expect(
+      setArchiveUploaderUid({ sourceId: 'source-1', uploaderUid: '000456' }, { database: database as never })
+    ).resolves.toEqual({
+      outcome: 'CONFLICT',
+      sourceId: 'source-1',
+      conflictingSourceId: 'source-existing',
+      uploaderUid: '456'
+    })
   })
 
   it('paginates the source-wide deduplicated result feed without exposing canonical URLs', async () => {

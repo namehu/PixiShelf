@@ -707,6 +707,8 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
         sourceId: seeded.sourceId,
         systemJobId: rescanJobId,
         mode: 'LATEST',
+        searchIdentityKind: 'UID',
+        searchIdentityValue: '5003',
         status: 'PENDING'
       }
     })
@@ -800,6 +802,8 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
         sourceId: source.sourceId,
         systemJobId: rescanJobId,
         mode: 'LATEST',
+        searchIdentityKind: 'UID',
+        searchIdentityValue: '5004',
         status: 'PENDING'
       }
     })
@@ -894,7 +898,8 @@ function uploaderProviderRegistry(metadata: ReturnType<typeof uploaderMetadata>)
           }
         ],
         nextCursor: null,
-        reachedStop: false
+        reachedStop: false,
+        discoveredUploaderUid: null
       }))
     })
   } as never
@@ -919,7 +924,9 @@ function scanContext(jobId: string, scanRunId: string, afterArchiveImportRead?: 
     ) => {
       await db().$transaction((transaction) =>
         operation({
-          transaction: afterArchiveImportRead ? transactionWithArchiveImportHook(transaction, afterArchiveImportRead) : transaction,
+          transaction: afterArchiveImportRead
+            ? transactionWithArchiveImportHook(transaction, afterArchiveImportRead)
+            : transaction,
           executionStatus: 'RUNNING',
           controlStatus: 'CONTINUE',
           complete: vi.fn(async () => undefined)
@@ -994,6 +1001,8 @@ async function seedCompletedScan(suffix: string, uploaderUid: string) {
       sourceId,
       systemJobId: jobId,
       mode: 'LATEST',
+      searchIdentityKind: 'UID',
+      searchIdentityValue: uploaderUid,
       status: 'COMPLETED',
       itemCount: 1,
       newCount: 1,

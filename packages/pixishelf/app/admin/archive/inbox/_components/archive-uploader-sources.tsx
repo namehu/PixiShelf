@@ -12,7 +12,10 @@ import {
   BanIcon,
   CheckIcon,
   CircleStopIcon,
+  CopyIcon,
+  FingerprintIcon,
   HistoryIcon,
+  InfoIcon,
   PlusIcon,
   RefreshCwIcon,
   RotateCcwIcon,
@@ -41,16 +44,23 @@ import {
   ArchiveUploaderResultViewToggle
 } from './archive-uploader-result-visuals'
 import { ArchiveUploaderCreateSourceDialog } from './archive-uploader-create-source-dialog'
+import { copyArchiveUploaderUid } from './archive-uploader-clipboard'
+import { ArchiveUploaderUidConflictAlert } from './archive-uploader-uid-conflict-alert'
+import { ArchiveUploaderSourceList } from './archive-uploader-source-list'
+import { ArchiveUploaderUidDialog } from './archive-uploader-uid-dialog'
 import {
   archiveUploaderDetailPollingInterval,
+  archiveUploaderCatalogViewCount,
+  formatArchiveUploaderTimestamp,
   historyCoverageLabel,
   isActiveArchiveUploaderRunStatus,
   latestCoverageLabel,
+  scanIdentityLabel,
+  scanRunStatusLabel,
   scanStopReasonLabel
 } from './archive-uploader-view-state'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
-type UploaderSource = RouterOutputs['archiveUploader']['listSources'][number]
 type ScanItem = RouterOutputs['archiveUploader']['listItems']['items'][number]
 type IgnoredItem = RouterOutputs['archiveUploader']['listIgnoredItems']['items'][number]
 type ScanItemsPage = RouterOutputs['archiveUploader']['listItems']
@@ -58,7 +68,6 @@ type IgnoredItemsPage = RouterOutputs['archiveUploader']['listIgnoredItems']
 type ScanRun = RouterOutputs['archiveUploader']['getSource']['runs'][number]
 type CatalogView = 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'ATTENTION' | 'ALL'
 type ResultFeed = CatalogView | 'IGNORED'
-
 const SCAN_RESULT_PAGE_SIZE = 50
 const MAX_SELECTED_ITEMS = 100
 const RESULT_FEEDS: Array<{ value: ResultFeed; label: string }> = [
@@ -74,6 +83,7 @@ export function ArchiveUploaderSources() {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
+  const [uidDialogOpen, setUidDialogOpen] = useState(false)
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [selectedIgnoredItemIds, setSelectedIgnoredItemIds] = useState<Set<string>>(new Set())
@@ -365,9 +375,10 @@ export function ArchiveUploaderSources() {
         </Empty>
       ) : (
         <div className="grid min-w-0 gap-5 lg:grid-cols-[20rem_minmax(0,1fr)]">
-          <SourceList
+          <ArchiveUploaderSourceList
             sources={sources}
             selectedSourceId={selectedSourceId}
+            onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
             onSelect={(sourceId) => {
               setSelectedSourceId(sourceId)
               setSelectedItemIds(new Set())
@@ -390,17 +401,35 @@ export function ArchiveUploaderSources() {
                   <CardHeader>
                     <CardTitle className="flex flex-wrap items-center gap-2">
                       {source.displayName}
+                      {source.uidBindingState === 'UNBOUND' ? <Badge variant="warning">未绑定 UID</Badge> : null}
                       <Badge variant={source.status === 'ACTIVE' ? 'success' : 'muted'}>
                         {source.status === 'ACTIVE' ? '已启用' : '已归档'}
                       </Badge>
                     </CardTitle>
-                    <CardDescription>
-                      {source.identityKind === 'UID'
-                        ? `上传者 UID ${source.identityValue}`
-                        : `上传者名称 ${source.identityValue}`}
-                      {source.lastSuccessAt
-                        ? ` · 上次成功 ${formatTimestamp(source.lastSuccessAt)}`
-                        : ' · 尚未完成扫描'}
+                    <CardDescription className="flex flex-wrap items-center gap-2">
+                      {source.uploaderUid ? (
+                        <>
+                          <span>上传者 UID {source.uploaderUid}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            aria-label="复制上传者 UID"
+                            onClick={() => void copyArchiveUploaderUid(source.uploaderUid!)}
+                          >
+                            <CopyIcon aria-hidden="true" />
+                          </Button>
+                        </>
+                      ) : (
+                        <span>按名称：{source.identityValue}</span>
+                      )}
+                      <span>
+                        {source.lastSuccessAt
+                          ? `上次成功 ${formatArchiveUploaderTimestamp(source.lastSuccessAt)}`
+                          : source.uidBindingState === 'REVALIDATION_REQUIRED'
+                            ? '等待重新验证 UID 覆盖'
+                            : '尚未完成扫描'}
+                      </span>
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-3">
@@ -409,25 +438,33 @@ export function ArchiveUploaderSources() {
                         <Spinner aria-hidden="true" />
                         <span>
                           {activeRun.mode === 'LATEST' ? '最新扫描' : '更早内容扫描'} ·{' '}
-                          {formatTimestamp(activeRun.createdAt)}
+                          {scanIdentityLabel(activeRun.searchIdentityKind, activeRun.searchIdentityValue)} ·{' '}
+                          {formatArchiveUploaderTimestamp(activeRun.createdAt)}
                         </span>
                         <Badge variant="warning">{scanRunStatusLabel(activeRun.status)}</Badge>
                       </div>
                     ) : latestRun ? (
                       <p className="text-sm text-muted-foreground">
                         最近运行 · {latestRun.mode === 'LATEST' ? '最新扫描' : '更早内容'} ·{' '}
-                        {formatTimestamp(latestRun.createdAt)} · {scanRunStatusLabel(latestRun.status)} ·{' '}
+                        {scanIdentityLabel(latestRun.searchIdentityKind, latestRun.searchIdentityValue)} ·{' '}
+                        {formatArchiveUploaderTimestamp(latestRun.createdAt)} · {scanRunStatusLabel(latestRun.status)} ·{' '}
                         {latestRun.itemCount} 条
                         {latestRun.stopReason ? ` · ${scanStopReasonLabel(latestRun.stopReason)}` : ''}
                       </p>
                     ) : null}
                     <div className="flex flex-wrap gap-2" aria-label="扫描覆盖状态">
-                      <Badge variant={source.latestCoverage === 'HAS_MORE' ? 'warning' : 'muted'}>
-                        最新：{latestCoverageLabel(source.latestCoverage)}
-                      </Badge>
-                      <Badge variant={source.historyCoverage === 'HAS_MORE' ? 'info' : 'muted'}>
-                        历史：{historyCoverageLabel(source.historyCoverage)}
-                      </Badge>
+                      {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
+                        <Badge variant="warning">UID 覆盖：待重新验证</Badge>
+                      ) : (
+                        <>
+                          <Badge variant={source.latestCoverage === 'HAS_MORE' ? 'warning' : 'muted'}>
+                            最新：{latestCoverageLabel(source.latestCoverage)}
+                          </Badge>
+                          <Badge variant={source.historyCoverage === 'HAS_MORE' ? 'info' : 'muted'}>
+                            历史：{historyCoverageLabel(source.historyCoverage)}
+                          </Badge>
+                        </>
+                      )}
                       <Badge variant={source.catalogCounts.actionable > 0 ? 'success' : 'muted'}>
                         待处理 {source.catalogCounts.actionable}
                       </Badge>
@@ -490,11 +527,35 @@ export function ArchiveUploaderSources() {
                           重新启用
                         </Button>
                       )}
+                      <Button
+                        variant="outline"
+                        onClick={() => setUidDialogOpen(true)}
+                        disabled={Boolean(activeRun) || mutationPending}
+                      >
+                        <FingerprintIcon data-icon="inline-start" aria-hidden="true" />
+                        {source.uploaderUid ? '更正 UID' : '绑定 UID'}
+                      </Button>
                     </div>
+                    {activeRun ? (
+                      <p className="text-sm text-muted-foreground">扫描完成或取消后才能绑定或更正 UID。</p>
+                    ) : null}
                   </CardContent>
                 </Card>
 
-                {source.lastErrorMessage ? (
+                {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
+                  <Alert variant="info">
+                    <InfoIcon aria-hidden="true" />
+                    <AlertTitle>UID 覆盖待校验</AlertTitle>
+                    <AlertDescription>
+                      现有目录、收件箱关联和归档状态仍然有效。请从“扫描最新”开始，继续扫描到远端末尾以完成 UID
+                      覆盖验证；重复 GID 只会更新原目录项。
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {source.lastErrorMessage ? source.lastErrorCode === 'UPLOADER_UID_CONFLICT' ? (
+                  <ArchiveUploaderUidConflictAlert message={source.lastErrorMessage} />
+                ) : (
                   <Alert variant="destructive">
                     <AlertTitle>上次扫描未完成</AlertTitle>
                     <AlertDescription>{source.lastErrorMessage}</AlertDescription>
@@ -518,7 +579,9 @@ export function ArchiveUploaderSources() {
                         {RESULT_FEEDS.map((feed) => (
                           <ToggleGroupItem key={feed.value} value={feed.value} aria-label={`查看${feed.label}`}>
                             {feed.label}
-                            {feed.value === 'IGNORED' ? '' : ` ${catalogViewCount(source, feed.value)}`}
+                            {feed.value === 'IGNORED'
+                              ? ''
+                              : ` ${archiveUploaderCatalogViewCount(source.catalogCounts, feed.value)}`}
                           </ToggleGroupItem>
                         ))}
                       </ToggleGroup>
@@ -631,48 +694,19 @@ export function ArchiveUploaderSources() {
       )}
 
       <ArchiveUploaderCreateSourceDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={refresh} />
+      <ArchiveUploaderUidDialog
+        source={source ?? null}
+        open={uidDialogOpen}
+        onOpenChange={setUidDialogOpen}
+        onUpdated={refresh}
+        onConflict={(sourceId) => {
+          setSelectedSourceId(sourceId)
+          setSelectedItemIds(new Set())
+          setCancelRequestedRunId(null)
+        }}
+      />
       <ArchiveUploaderGalleryPreviewDialog item={previewItem} onOpenChange={(open) => !open && setPreviewItem(null)} />
     </div>
-  )
-}
-
-function SourceList({
-  sources,
-  selectedSourceId,
-  onSelect
-}: {
-  sources: UploaderSource[]
-  selectedSourceId: string | null
-  onSelect: (sourceId: string) => void
-}) {
-  return (
-    <Card className="h-fit gap-2 py-3">
-      <CardHeader className="px-3">
-        <CardTitle className="text-sm">已保存来源</CardTitle>
-        <CardDescription>{sources.length} 个来源，包含已归档项</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-1 px-2">
-        {sources.map((source) => (
-          <Button
-            key={source.id}
-            variant={selectedSourceId === source.id ? 'secondary' : 'ghost'}
-            className="h-auto min-h-11 justify-start px-3 py-2 text-left"
-            onClick={() => onSelect(source.id)}
-          >
-            <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{source.displayName}</span>
-              <span className="block truncate text-xs font-normal text-muted-foreground">
-                待处理 {source.catalogCounts.actionable} · {historyCoverageLabel(source.historyCoverage)}
-              </span>
-            </span>
-            {source.catalogCounts.attention > 0 ? (
-              <Badge variant="warning">异常 {source.catalogCounts.attention}</Badge>
-            ) : null}
-            {source.status === 'ARCHIVED' ? <Badge variant="muted">归档</Badge> : null}
-          </Button>
-        ))}
-      </CardContent>
-    </Card>
   )
 }
 
@@ -823,7 +857,7 @@ function ScanResults({
                           E-Hentai #{item.externalId} · {item.displayUrl}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground sm:hidden">
-                          {item.postedAt ? formatTimestamp(item.postedAt) : '发布时间未知'}
+                          {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
                         </p>
                         {item.changeReasons.length > 0 ? (
                           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
@@ -837,7 +871,7 @@ function ScanResults({
                       </div>
                     </div>
                     <p className="hidden whitespace-nowrap text-sm text-muted-foreground sm:block">
-                      {item.postedAt ? formatTimestamp(item.postedAt) : '—'}
+                      {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '—'}
                     </p>
                     <span className="hidden sm:block">
                       <CatalogStatusBadge item={item} />
@@ -1029,13 +1063,13 @@ function IgnoredResults({
                           E-Hentai #{item.externalId}
                         </p>
                         <p className="mt-1 truncate text-xs text-muted-foreground sm:hidden">
-                          {item.sourceDisplayName} · {formatTimestamp(item.ignoredAt)}
+                          {item.sourceDisplayName} · {formatArchiveUploaderTimestamp(item.ignoredAt)}
                         </p>
                       </div>
                     </div>
                     <p className="hidden truncate text-sm text-muted-foreground sm:block">{item.sourceDisplayName}</p>
                     <p className="hidden whitespace-nowrap text-sm text-muted-foreground sm:block">
-                      {formatTimestamp(item.ignoredAt)}
+                      {formatArchiveUploaderTimestamp(item.ignoredAt)}
                     </p>
                     <Button
                       variant="ghost"
@@ -1128,16 +1162,6 @@ function emptyCatalogViewDescription(view: CatalogView) {
   }[view]
 }
 
-function catalogViewCount(source: { catalogCounts: UploaderSource['catalogCounts'] }, view: CatalogView) {
-  return {
-    ACTIONABLE: source.catalogCounts.actionable,
-    PROCESSING: source.catalogCounts.processing,
-    ARCHIVED: source.catalogCounts.archived,
-    ATTENTION: source.catalogCounts.attention,
-    ALL: source.catalogCounts.total
-  }[view]
-}
-
 function toggleSelection(current: Set<string>, itemId: string, checked: boolean) {
   const next = new Set(current)
   if (checked && next.size < MAX_SELECTED_ITEMS) next.add(itemId)
@@ -1155,28 +1179,6 @@ function removeInfiniteItems<TPage extends { items: Array<{ id: string }> }>(
     ...current,
     pages: current.pages.map((page) => ({ ...page, items: page.items.filter((item) => !removed.has(item.id)) }))
   }
-}
-
-function scanRunStatusLabel(status: ScanRun['status']) {
-  return {
-    PENDING: '等待中',
-    RUNNING: '扫描中',
-    RETRY_WAIT: '等待重试',
-    PAUSED: '已暂停',
-    COMPLETED: '已完成',
-    FAILED: '失败',
-    CANCELLED: '已取消'
-  }[status]
-}
-
-function formatTimestamp(value: Date | string) {
-  return new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(value))
 }
 
 function UploaderSourcesLoading() {
