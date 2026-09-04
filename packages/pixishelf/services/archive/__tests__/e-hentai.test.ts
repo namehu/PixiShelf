@@ -12,6 +12,41 @@ function createHttpMock() {
 }
 
 describe('E-Hentai archive provider', () => {
+  it.each([
+    {
+      metadata: { parent_gid: '122', parent_key: 'parenttoken' },
+      notice: '解析时发现此画廊关联了历史版本，不影响本次归档。'
+    },
+    {
+      metadata: { current_gid: '124', current_key: 'currenttoken' },
+      notice: '解析时此链接已是旧版，远端另有更新版本；本次仍归档此链接，新版需另行添加，不会覆盖旧版。'
+    },
+    {
+      metadata: { parent_gid: '122', parent_key: 'parenttoken', current_gid: '124', current_key: 'currenttoken' },
+      notice: '解析时此链接已是旧版，远端另有更新版本；本次仍归档此链接，新版需另行添加，不会覆盖旧版。'
+    },
+    { metadata: { current_gid: '123', current_key: 'gallerytoken' }, notice: null },
+    { metadata: { parent_gid: '122' }, notice: null }
+  ])('reports version history without changing the requested gallery: $metadata', async ({ metadata, notice }) => {
+    const http = {
+      json: vi.fn().mockResolvedValue({
+        gmetadata: [{ gid: 123, token: 'gallerytoken', title: 'Gallery', filecount: '1', tags: [], ...metadata }]
+      }),
+      text: vi.fn().mockResolvedValue('<a href="https://e-hentai.org/s/pagetoken/123-1">one</a>')
+    }
+    const result = await new EHentaiProvider(http as never).resolve('https://e-hentai.org/g/123/gallerytoken/')
+    expect(result.warnings).toEqual(notice ? [notice] : [])
+    expect(result.externalId).toBe('123')
+    expect(result.canonicalUrl).toBe('https://e-hentai.org/g/123/gallerytoken/')
+    expect(result.media[0]?.sourcePageUrl).toBe('https://e-hentai.org/s/pagetoken/123-1')
+    expect(http.json).toHaveBeenCalledOnce()
+    expect(http.json).toHaveBeenCalledWith(
+      'https://api.e-hentai.org/api.php',
+      expect.objectContaining({
+        body: JSON.stringify({ method: 'gdata', gidlist: [[123, 'gallerytoken']], namespace: 1 })
+      })
+    )
+  })
   it('normalizes gallery metadata, namespaced tags and ordered pages', async () => {
     const http = createHttpMock()
     http.json.mockResolvedValue({

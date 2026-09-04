@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { getEhentaiVersionNotice } from '@pixishelf/job-contracts'
 import path from 'node:path'
 import { ArchiveError, withArchiveErrorContext } from '../errors'
 import { SafeHttpClient, assertSuccessStatus, remoteHostForUrl } from '../safe-http'
@@ -95,7 +96,8 @@ export class EHentaiProvider implements ArchiveProvider {
       mediaPlan: sourcePages.map((sourcePageUrl, index) => ({ index, sourcePageUrl }))
     }
     const warnings = metadata.expunged ? ['该画廊已被远端标记为删除，媒体内容可能不完整'] : []
-    if (relationships.length > 0) warnings.push('检测到 E-Hentai 画廊版本替代关系，将在关联作品存在时建立显式关系')
+    const versionNotice = getEhentaiVersionNotice(String(gallery.gid), relationships)
+    if (versionNotice) warnings.push(versionNotice)
 
     return {
       providerKey: PROVIDER_KEY,

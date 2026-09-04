@@ -124,89 +124,117 @@ describe('archive task service input contracts', () => {
     })
   })
 
-  it('redacts path tokens and locator text from task and bulk wire messages', async () => {
-    const timestamp = new Date('2026-08-18T00:00:00.000Z')
-    const archiveImport = {
-      id: 'task-1',
-      providerKey: 'e-hentai',
-      externalId: '123',
-      submittedUrl: 'https://e-hentai.org/g/123/submitted-path-token/',
-      normalizedMetadata: { titles: { display: 'Gallery' } },
-      status: 'FAILED',
-      requestedQuality: 'ORIGINAL',
-      selectedQuality: 'ORIGINAL',
-      decisionCode: null,
-      totalItems: 1,
-      completedItems: 0,
-      failedItems: 1,
-      warning: 'warning https://e-hentai.org/g/123/warning-path-token/',
-      errorCode: 'INTERNAL',
-      errorMessage: 'error https://e-hentai.org/g/123/error-path-token/ locator=private-locator',
-      createdAt: timestamp,
-      startedAt: timestamp,
-      finishedAt: timestamp,
-      retainUntil: null,
-      publishedArtwork: null,
-      publishedRevision: null,
-      systemJob: {
-        id: 'job-1',
-        executionLane: 'BACKGROUND_WRITER',
+  it.each([null, 'OUTBOUND', 'INBOUND'])(
+    'projects legacy version warnings without exposing tokens: %s',
+    async (direction) => {
+      const timestamp = new Date('2026-08-18T00:00:00.000Z')
+      const archiveImport = {
+        id: 'task-1',
+        providerKey: 'e-hentai',
+        externalId: '123',
+        submittedUrl: 'https://e-hentai.org/g/123/submitted-path-token/',
+        normalizedMetadata: {
+          titles: { display: 'Gallery' },
+          relationships: direction
+            ? [
+                {
+                  type: 'REPLACES',
+                  providerKey: 'e-hentai',
+                  externalId: direction === 'OUTBOUND' ? '122' : '124',
+                  direction,
+                  canonicalUrl: 'https://e-hentai.org/g/122/relation-path-token/'
+                }
+              ]
+            : []
+        },
         status: 'FAILED',
-        progress: 0,
-        message: 'job https://e-hentai.org/g/123/message-path-token/',
-        attempt: 1,
-        heartbeatAt: null
-      },
-      intakeItems: []
-    }
-    const taskPage = await listArchiveTasks(
-      { limit: 50 },
-      { database: { archiveImport: { findMany: async () => [archiveImport] } } as never }
-    )
-    const bulk = await getArchiveBulkOperation('operation-1', {
-      archiveBulkOperation: {
-        findUnique: async () => ({
-          id: 'operation-1',
-          commandType: 'CANCEL',
-          requestedCount: 1,
-          createdCount: 0,
-          appliedCount: 0,
-          reusedCount: 0,
-          skippedCount: 0,
-          conflictCount: 0,
-          failedCount: 1,
-          createdAt: timestamp,
-          completedAt: timestamp,
-          items: [
-            {
-              id: 'operation-item-1',
-              targetType: 'ARCHIVE_IMPORT',
-              targetId: 'task-1',
-              result: 'FAILED',
-              relatedId: null,
-              code: 'INTERNAL',
-              message: 'bulk https://e-hentai.org/g/123/bulk-path-token/ locator=bulk-private-locator',
-              createdAt: timestamp
-            }
-          ]
-        })
+        requestedQuality: 'ORIGINAL',
+        selectedQuality: 'ORIGINAL',
+        decisionCode: null,
+        totalItems: 1,
+        completedItems: 0,
+        failedItems: 1,
+        warning:
+          'warning https://e-hentai.org/g/123/warning-path-token/' +
+          (direction ? '\n检测到 E-Hentai 画廊版本替代关系，将在关联作品存在时建立显式关系' : ''),
+        errorCode: 'INTERNAL',
+        errorMessage: 'error https://e-hentai.org/g/123/error-path-token/ locator=private-locator',
+        createdAt: timestamp,
+        startedAt: timestamp,
+        finishedAt: timestamp,
+        retainUntil: null,
+        publishedArtwork: null,
+        publishedRevision: null,
+        systemJob: {
+          id: 'job-1',
+          executionLane: 'BACKGROUND_WRITER',
+          status: 'FAILED',
+          progress: 0,
+          message: 'job https://e-hentai.org/g/123/message-path-token/',
+          attempt: 1,
+          heartbeatAt: null
+        },
+        intakeItems: []
       }
-    } as never)
-    const serialized = JSON.stringify({ taskPage, bulk })
-    expect(taskPage.items[0]).toMatchObject({
-      message: '内部处理失败，请稍后重试或查看服务日志。',
-      errorMessage: '内部处理失败，请稍后重试或查看服务日志。'
-    })
-    for (const secret of [
-      'submitted-path-token',
-      'warning-path-token',
-      'error-path-token',
-      'message-path-token',
-      'private-locator',
-      'bulk-path-token',
-      'bulk-private-locator'
-    ]) {
-      expect(serialized).not.toContain(secret)
+      const taskPage = await listArchiveTasks(
+        { limit: 50 },
+        { database: { archiveImport: { findMany: async () => [archiveImport] } } as never }
+      )
+      const bulk = await getArchiveBulkOperation('operation-1', {
+        archiveBulkOperation: {
+          findUnique: async () => ({
+            id: 'operation-1',
+            commandType: 'CANCEL',
+            requestedCount: 1,
+            createdCount: 0,
+            appliedCount: 0,
+            reusedCount: 0,
+            skippedCount: 0,
+            conflictCount: 0,
+            failedCount: 1,
+            createdAt: timestamp,
+            completedAt: timestamp,
+            items: [
+              {
+                id: 'operation-item-1',
+                targetType: 'ARCHIVE_IMPORT',
+                targetId: 'task-1',
+                result: 'FAILED',
+                relatedId: null,
+                code: 'INTERNAL',
+                message: 'bulk https://e-hentai.org/g/123/bulk-path-token/ locator=bulk-private-locator',
+                createdAt: timestamp
+              }
+            ]
+          })
+        }
+      } as never)
+      const serialized = JSON.stringify({ taskPage, bulk })
+      if (direction) {
+        expect(taskPage.items[0]?.warning).toContain(
+          direction === 'OUTBOUND'
+            ? '解析时发现此画廊关联了历史版本，不影响本次归档。'
+            : '解析时此链接已是旧版，远端另有更新版本；本次仍归档此链接，新版需另行添加，不会覆盖旧版。'
+        )
+        expect(taskPage.items[0]?.warning).not.toContain('建立显式关系')
+        expect(archiveImport.warning).toContain('建立显式关系')
+      }
+      expect(taskPage.items[0]).toMatchObject({
+        message: '内部处理失败，请稍后重试或查看服务日志。',
+        errorMessage: '内部处理失败，请稍后重试或查看服务日志。'
+      })
+      for (const secret of [
+        'submitted-path-token',
+        'warning-path-token',
+        'error-path-token',
+        'message-path-token',
+        'private-locator',
+        'relation-path-token',
+        'bulk-path-token',
+        'bulk-private-locator'
+      ]) {
+        expect(serialized).not.toContain(secret)
+      }
     }
-  })
+  )
 })

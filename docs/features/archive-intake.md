@@ -40,6 +40,16 @@ sources:
 
 任务页支持服务端 cursor 分页、状态/Provider/新建或更新/submission/文本筛选，以及 `PAUSE`、`RESUME`、`CANCEL`、`RETRY` 的当前页批量控制。批量命令逐项重新检查最新状态，不把部分冲突扩大成整批失败。回收、恢复、永久清理和 staging 清理仍走专用归档维护命令，不属于任务批量控制。
 
+## E-Hentai 版本关系与归档身份
+
+版本关系来自解析时 `gdata` 返回的上一版/当前版字段，不是解析与下载之间的前后差异比较，也不是实时更新通知。
+仅存在上一版表示该画廊有历史版本；远端当前版 ID 与提交链接的画廊 ID 不同时，才表示解析时另有新版。
+一个中间版本可以同时关联上一版和新版，不能因为发现上一版就把当前链接视为过时。
+
+归档下载沿用已冻结的链接和媒体计划，不因版本关系自动切换目标或追加下载。若需要新版，管理员应另行添加新版链接、
+解析并确认归档；不同画廊 ID 创建独立作品，双方存在时记录 `REPLACES` 关系，不覆盖、删除或合并旧作品。
+这与同一 Provider/外部 ID 的快照更新是两种不同情况。
+
 ## 标题关键词来源
 
 “发现来源”可切换上传者和标题关键词两类。关键词来源保存一个普通文本关键词，匹配方式默认为“包含”，也可选“开头是”或“结尾是”；可独立限定一个数字上传者 UID。名称可改，查询条件只能另存来源。规范化相同的查询复用原记录，不修改原名称或停用状态；停用来源可重新启用。
@@ -71,13 +81,13 @@ sources:
 | Lane                | 允许任务                                                               | 固定并发 |
 | ------------------- | ---------------------------------------------------------------------- | -------- |
 | `ARCHIVE_RESOLVE`   | `ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` | 1        |
-| `BACKGROUND_WRITER` | 其余 26 类任务，包括归档下载                                           | 1        |
+| `BACKGROUND_WRITER` | 其余 25 类任务，包括归档下载                                           | 1        |
 
 两个 lane 可以各推进一个任务；同一 lane 内不能并行。网络、数据库、文件流、Sharp/libvips 与 FFmpeg 子进程在等待时让出 Node.js 事件循环，因此链接解析可以在一个 writer 工作期间继续。该模型不承诺纯 JavaScript CPU 并行，也不开放 lane 并发。单个归档作品内部的媒体流并发可在系统设置中选择 1–8，并在每次启动、恢复或重试时冻结；运行中不能修改。
 
 所有原媒体、派生媒体、staging、发布、扫描、迁移、替换和维护写操作都在 `BACKGROUND_WRITER` 全局串行。`ARCHIVE_RESOLVE` 的 Executor 契约只访问解析所需的远端数据和数据库，不执行媒体目录写入；两个 lane 仍共用同一 Worker 进程和 `rw` 挂载，因此这是队列/capability 边界，不是操作系统权限隔离。数据库按 lane 的执行态唯一索引与 `lane/archive-resolve`、`lane/background-writer` 资源租约共同防止滚动部署或误启动第二个 Worker 时出现同 lane 双执行。
 
-生产 capability inventory 固定为 28 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 26 类只支持 v1，共 30 个
+生产 capability inventory 固定为 28 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 26 类只支持 v1，共 31 个
 type/version 组合，并同时校验 job type、definition version 和 lane。READY 证明预检通过，capability audit
 证明 Registry 精确匹配；两者都通过后才可开放 claim。`SCAN@v2/v3` 不改变归档收件任务及其 lane。
 

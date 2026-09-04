@@ -4,7 +4,8 @@ import {
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
   archiveImportV2PayloadSchema,
   archiveUploaderIdentityLockKey,
-  archiveUploaderUrlLockKey
+  archiveUploaderUrlLockKey,
+  formatArchiveVersionWarning
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { z } from 'zod'
@@ -498,7 +499,7 @@ function serializeTask(task: ArchiveTaskWire) {
     message,
     errorCode: task.errorCode,
     errorMessage: archiveWireErrorMessage(task.errorCode, task.errorMessage),
-    warning: redactArchiveText(task.warning),
+    warning: redactArchiveText(formatArchiveVersionWarning(task)),
     totalItems: task.totalItems,
     completedItems: task.completedItems,
     failedItems: task.failedItems,

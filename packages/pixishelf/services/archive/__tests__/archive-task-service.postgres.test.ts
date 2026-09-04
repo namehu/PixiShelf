@@ -546,6 +546,29 @@ describePostgres('archive task PostgreSQL contracts', () => {
     }
   )
 
+  it.each(['OUTBOUND', 'INBOUND'])('reclassifies persisted legacy notices read-only: %s', async (direction) => {
+    const task = await seedTask(`version-notice-${direction}`, 'COMPLETED', 'COMPLETED')
+    const before = await database.archiveImport.update({
+      where: { id: task.importId },
+      data: {
+        providerKey: 'e-hentai',
+        externalId: '123',
+        warning: '检测到 E-Hentai 画廊版本替代关系，将在关联作品存在时建立显式关系',
+        normalizedMetadata: {
+          titles: { display: 'Historical gallery' },
+          relationships: [{ type: 'REPLACES', providerKey: 'e-hentai', externalId: '122', direction }]
+        }
+      }
+    })
+    const page = await listArchiveTasks({ taskId: task.importId }, { database })
+    expect(page.items[0]?.warning).toBe(
+      direction === 'OUTBOUND'
+        ? '解析时发现此画廊关联了历史版本，不影响本次归档。'
+        : '解析时此链接已是旧版，远端另有更新版本；本次仍归档此链接，新版需另行添加，不会覆盖旧版。'
+    )
+    expect(await database.archiveImport.findUniqueOrThrow({ where: { id: task.importId } })).toEqual(before)
+  })
+
   it('uses a createdAt/id keyset, composes filters, and redacts task URLs and messages', async () => {
     const createdAt = new Date('2026-08-18T05:00:00.000Z')
     const first = await seedTask('page-a', 'PENDING', 'PENDING', {
