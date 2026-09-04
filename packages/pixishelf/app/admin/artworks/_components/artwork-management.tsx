@@ -171,10 +171,11 @@ export default function ArtworkManagement() {
   const handleExportNoSeries = async () => {
     try {
       setIsExporting(true)
-      const res = await exportNoSeriesArtworksAction()
+      const result = await exportNoSeriesArtworksAction()
+      const res = result?.data
 
-      if (!res.success || !res.data) {
-        toast.error('导出失败: ' + (res.error || '未知错误'))
+      if (result?.serverError || !res?.success || !res.data) {
+        toast.error('导出失败: ' + (result?.serverError || res?.error || '未知错误'))
         return
       }
 

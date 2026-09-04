@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-09-03
+last-verified: 2026-09-04
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -118,10 +118,10 @@ sources:
 | `POST /api/scan/rescan`                         | Session（双层，`requireAdminRequest`）                  | 重扫一个 Artwork，更新目录与审计                                                                                | 高，数据库和文件关系变化                                        |
 | `POST /api/migration/stream`                    | Session（双层，`requireAdminRequest`）                  | 入队或执行迁移、复制/移动/清理                                                                                  | 最高，可能修改原媒体                                            |
 | `GET /api/jobs/events`                          | Session（双层，`requireAdminRequest`）                  | 只读 definition v1+ 的脱敏 Job 事件和实时摘要；不含 payload/result/lease token                                  | 中；长连接可观察全部后台任务状态                                |
-| `POST /api/artwork/[id]/replace`                | Session（代理）                                         | 初始化、提交或回滚媒体替换会话                                                                                  | 最高，数据库与原媒体写入                                        |
-| `GET/POST /api/artwork/upload-chunk`            | Session（代理）                                         | 查询上传状态、写入媒体分块                                                                                      | 高，原媒体写入                                                  |
-| `POST /api/artwork/media-chapters/upload`       | Session（代理）                                         | 上传章节 manifest                                                                                               | 高，数据库/派生或媒体侧写入                                     |
-| `DELETE /api/artwork/media-chapters/[image-id]` | Session（代理）                                         | 清除章节记录，可选择删除文件                                                                                    | 高，数据库与文件删除                                            |
+| `POST /api/artwork/[id]/replace`                | Session（双层，`requireAdminRequest`）                  | 初始化、提交或回滚媒体替换会话                                                                                  | 最高，数据库与原媒体写入                                        |
+| `GET/POST /api/artwork/upload-chunk`            | Session（双层，`requireAdminRequest`）                  | 查询上传状态、写入媒体分块                                                                                      | 高，原媒体写入                                                  |
+| `POST /api/artwork/media-chapters/upload`       | Session（双层，`requireAdminRequest`）                  | 上传章节 manifest                                                                                               | 高，数据库/派生或媒体侧写入                                     |
+| `DELETE /api/artwork/media-chapters/[image-id]` | Session（双层，`requireAdminRequest`）                  | 清除章节记录，可选择删除文件                                                                                    | 高，数据库与文件删除                                            |
 | `GET /api/v1/images/[...path]`                  | Session（代理）+ 路径边界检查                           | 读取并流式返回 `SCAN_PATH` 内媒体，支持 Range                                                                   | 高，原媒体内容读取                                              |
 | `GET/HEAD /api/pixiv-data/[...path]`            | Session（代理）+ 路径、根目录与文件类型检查             | 从独立于 Next `public` 和 ImgProxy 的只读挂载返回作者图片与标签封面；拒绝作品 metadata JSON                     | 中，私有来源图片读取                                            |
 | `GET /api/v1/media/[image-id]/chapters`         | Session（代理）                                         | 读取已发布章节 manifest                                                                                         | 中，私有媒体元数据读取                                          |
@@ -181,8 +181,8 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 | `toggleLikeAction`                                       | `authActionClient`                        | 修改当前账户与 Artwork 的收藏关系                       |
 | `updateProfileAction`、`updateUserSettingAction`         | `authActionClient`                        | 只修改当前 `userId` 的资料与偏好                        |
 | `batchCreateArtworksAction`、`batchRegisterImagesAction` | `authActionClient`                        | 批量写入作品与媒体记录                                  |
-| `exportNoSeriesArtworksAction`                           | 无 Action 级 Session 复核                 | 读取并导出未归系列 Artwork 标识；依赖调用页面的代理保护 |
-| `updateTagStatsAction`                                   | 无 Action 级 Session 复核                 | 重建标签计数；依赖调用页面的代理保护                    |
+| `exportNoSeriesArtworksAction`                           | `authActionClient`                        | 读取并导出未归系列 Artwork 标识                        |
+| `updateTagStatsAction`                                   | `authActionClient`                        | 重建标签计数                                          |
 
 首次初始化页面只在 `hasUsers() === false` 时显示表单，但 `initAdminAction` 目前只检查同名账户是否存在，不复核“系统仍无任何账户”。修复前不得把初始化入口暴露到不可信网络。
 
@@ -195,7 +195,7 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 | `scheduler`   | 无入站业务接口，只访问 App                  | 无                     | 无                         | 无         | 无         | 仅持有 `INTERNAL_JOB_TOKEN`                                                 |
 | `postgres`    | 默认映射宿主机 5432                         | 数据库本体             | 无                         | 无         | 无         | 用户名/密码 + 主机防火墙；Compose 未配置 TLS                                |
 | `imgproxy`    | 默认映射宿主机 5431                         | 无                     | `ro`                       | `ro`       | 无         | 仅限制 `local:///media/` 和 `local:///derived-media/` 来源；当前 URL 未签名 |
-| `zip-convert` | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 无         | 依赖执行它的主机账户；当前源码存在不应入库的外部站点会话凭据                |
+| `zip-convert` | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 无         | 依赖执行它的主机账户；可选站点会话只从运行时环境读取                          |
 
 ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。反向代理必须将它限制在受信网络或等效的认证路径；仅使用难猜文件路径不能视为授权。PostgreSQL 的宿主机端口也应由防火墙限制，不对互联网开放。
 
@@ -223,6 +223,7 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 | `SCAN_WEBHOOK_TOKEN`                          | 外部扫描调用方                 | 缺失时 Route fail closed 为 `503`；错误值 `401`                                           |
 | `INTERNAL_JOB_TOKEN`                          | scheduler                      | 缺失时 Route fail closed 为 `503`；错误值 `401`                                           |
 | `POSTGRES_PASSWORD` / `DATABASE_URL`          | App 与 Worker 数据库访问       | 只在环境和受控备份中保存；不要记录到日志或文档                                            |
+| `PIXIV_PHPSESSID`                             | `zip-convert` 可选站点会话 | 只由受控进程环境或秘密管理注入；不写入仓库、示例、命令日志或常规文档              |
 | `x-user-session` / `x-pathname`               | Next.js 代理到应用内部的上下文 | 外部反向代理必须删除客户端同名头                                                          |
 | `x-forwarded-for`                             | 进程内 IP 限流                 | 只能信任受控反向代理重写后的值                                                            |
 | `JWT_SECRET` / `JWT_TTL`                      | 遗留模板变量                   | 当前 Better Auth 浏览器会话不依赖它们，不能作为现行认证说明                               |
@@ -236,14 +237,12 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 
 1. `initAdminAction` 没有在写入时复核系统用户数为 0；首次初始化必须增加原子门禁和并发测试。
 2. 所有账户等权，而用户管理、系统设置和多类删除操作仍使用 `authProcedure`；不得向不可信用户发放账户。
-3. 媒体替换、分块上传和章节增删等 HTTP Route 只依赖代理层 Session；应逐步增加 Route 内复核与未授权测试。
-4. 三个旧 Server Action 没有使用 `authActionClient`，应补 Session 复核。
-5. ImgProxy URL 未签名且端口默认映射宿主机；必须依赖网络/反向代理限制，后续应评估签名 URL 或受保护转发。
-6. `x-user-session`、`x-pathname` 和 `x-forwarded-for` 的安全性依赖反向代理正确清理和重写。
-7. Better Auth 的 `useSecureCookies` 当前受生产模式、HTTPS URL 和 Trusted Origins 配置组合影响，部署后必须检查真实响应 Cookie 属性。
-8. `zip-convert` 的已跟踪源码含外部站点会话凭据；必须轮换该凭据、从历史和当前代码移除，并改为运行时秘密注入。
-9. 当前没有覆盖代理公共路径、内部信任头和全部接口未授权分支的统一自动化测试。
-10. Worker lane 共享同一容器文件权限；解析 lane 的最小权限当前依赖 capability 注册、类型契约和 Executor 边界，而不是独立容器挂载。
+3. ImgProxy URL 未签名且端口默认映射宿主机；必须依赖网络/反向代理限制，后续应评估签名 URL 或受保护转发。
+4. `x-user-session`、`x-pathname` 和 `x-forwarded-for` 的安全性依赖反向代理正确清理和重写。
+5. Better Auth 的 `useSecureCookies` 当前受生产模式、HTTPS URL 和 Trusted Origins 配置组合影响，部署后必须检查真实响应 Cookie 属性。
+6. `zip-convert` 的当前源码已改为运行时环境注入，但曾暴露的凭据仍需轮换，Git 历史仍需在独立操作中清理。
+7. 当前没有覆盖代理公共路径、内部信任头和全部接口未授权分支的统一自动化测试。
+8. Worker lane 共享同一容器文件权限；解析 lane 的最小权限当前依赖 capability 注册、类型契约和 Executor 边界，而不是独立容器挂载。
 
 风险修复应更新本文中的“当前事实”，并在 [TODO](../../TODO.md) 留下可执行项。涉及凭据泄露时，只记录凭据类型、轮换时间和负责人，不记录实际值。
 

@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
 import { apiError, apiSuccess } from '@/lib/api-response'
+import { ApiError } from '@/lib/api-handler'
 import { getScanPath } from '@/services/setting.service'
+import { requireAdminRequest } from '@/services/background-task/request-auth'
 import {
   MediaChapterUploadError,
   uploadMediaChapterManifest,
@@ -8,6 +10,13 @@ import {
 } from '@/services/artwork-service/media-chapter-upload'
 
 export async function POST(_req: NextRequest) {
+  try {
+    await requireAdminRequest(_req)
+  } catch (error) {
+    if (error instanceof ApiError) return apiError(error.message, { status: error.statusCode })
+    throw error
+  }
+
   try {
     const formData = await _req.formData()
     const artworkId = Number(formData.get('artworkId'))

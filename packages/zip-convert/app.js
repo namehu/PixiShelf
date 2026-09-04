@@ -5,9 +5,9 @@ const { execSync } = require('child_process');
 
 // ================= 配置区域 =================
 
-// 1. 你的 Pixiv 身份凭证 (从你提供的 Cookie 中提取)
-// 用于下载 R-18 作品或需要登录才能查看的元数据
-const MY_PHPSESSID = '118782354_TetygSZ9WztXVfIG7cu6rEnBXOGCQXwu';
+// 1. 可选 Pixiv 会话凭据。只从运行时环境读取，禁止写入源码或日志。
+// 用于下载 R-18 作品或需要登录才能查看的元数据。
+const PIXIV_PHPSESSID = process.env.PIXIV_PHPSESSID?.trim() || '';
 
 // 2. 默认输入目录 (可以通过命令行参数覆盖)
 const DEFAULT_INPUT_DIR = './download';
@@ -57,8 +57,8 @@ async function fetchPixivMeta(id) {
     'Accept': 'application/json'
   };
 
-  if (MY_PHPSESSID) {
-    headers['Cookie'] = `PHPSESSID=${MY_PHPSESSID};`;
+  if (PIXIV_PHPSESSID) {
+    headers['Cookie'] = `PHPSESSID=${PIXIV_PHPSESSID};`;
   }
 
   // Node 18+ 原生支持 fetch，如果报错请升级 Node 或 require('node-fetch')

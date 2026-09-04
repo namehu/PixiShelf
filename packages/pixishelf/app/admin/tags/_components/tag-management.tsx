@@ -127,12 +127,13 @@ export default function TagManagement() {
     try {
       setIsUpdatingStats(true)
       const result = await updateTagStatsAction()
+      const data = result?.data
 
-      if (result.success) {
+      if (data?.success) {
         toast.success('标签统计更新成功')
         setRefreshKey((prev) => prev + 1)
       } else {
-        throw new Error(result.message || '更新失败')
+        throw new Error(result?.serverError || data?.message || '更新失败')
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '标签统计更新失败'

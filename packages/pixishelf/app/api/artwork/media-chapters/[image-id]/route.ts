@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { ApiError } from '@/lib/api-handler'
+import { requireAdminRequest } from '@/services/background-task/request-auth'
 import { clearChaptersForImage } from '@/services/artwork-service/image-manager'
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ 'image-id': string }> }) {
+  try {
+    await requireAdminRequest(req)
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return NextResponse.json({ error: error.message }, { status: error.statusCode })
+    }
+    throw error
+  }
+
   try {
     const { 'image-id': imageId } = await params
     const parsedImageId = Number(imageId)

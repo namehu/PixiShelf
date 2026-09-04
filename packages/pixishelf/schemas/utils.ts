@@ -8,7 +8,8 @@ import { z } from 'zod'
 export const dateToString = z
   .date()
   .transform((d) => dayjs(d).format('YYYY-MM-DD HH:mm:ss'))
-  .or(z.string()) // FIXME: 临时解决 Zod 类型问题  prisma中有一个转换函数
+  // 同时接受 Prisma Date 和已经序列化的 DTO 字符串。
+  .or(z.string())
 
 // 处理可能为 null 的 Date
 export const nullableDateToString = z

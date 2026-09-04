@@ -1,13 +1,14 @@
 'use server'
 
 import logger from '@/lib/logger'
+import { authActionClient } from '@/lib/safe-action'
 import { getNoSeriesArtworkExternalIds } from '@/services/artwork-service'
 
 /**
  * 导出无系列作品的 External ID
  * 返回 ID 列表
  */
-export async function exportNoSeriesArtworksAction() {
+export const exportNoSeriesArtworksAction = authActionClient.action(async () => {
   try {
     const data = await getNoSeriesArtworkExternalIds()
     return {
@@ -22,4 +23,4 @@ export async function exportNoSeriesArtworksAction() {
       message: error instanceof Error ? error.message : '未知错误'
     }
   }
-}
+})

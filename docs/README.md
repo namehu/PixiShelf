@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-09-01（归档下载配置与通用 Worker SSE）
+最后核验：2026-09-04（权限收尾与待办收敛）
 
 ## 状态约定
 
@@ -34,7 +34,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
 | [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令               |
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、27 类 Worker 任务、领域状态和流程图  |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、28 类 Worker 任务、领域状态和流程图  |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |
 | [Pixiv 标签补全](./features/pixiv-tag-enrichment.md)                | `current` | 候选规则、只填空字段、任务状态和封面存储       |
 | [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)           | `current` | 外部身份、补全规则、任务状态与作者图片存储     |
@@ -83,7 +83,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [视频代表帧生成](./design/video-keyframe-generation.md)              | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
 | [Pixiv 来源维护](./design/pixiv-source-maintenance.md)               | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |
 | [界面设计升级计划](./pixishelf-design-upgrade-plan.md)               | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
-| [媒体类型建模技术债](../todos/媒体类型后缀匹配技术债.md)             | `draft`      | 媒体类型结构化的待实施方案，后续迁入 `docs/features/`      |
+| [媒体格式与兼容判断技术债](../todos/媒体类型后缀匹配技术债.md)         | `draft`      | 已实施媒体类型后的跨包推断、格式字段、fallback 与可选重命名 |
 | [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)                 | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |
 | `todos/多媒体设计.md`（已删除）                                      | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯 |
 
