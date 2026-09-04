@@ -15,6 +15,7 @@ import MultipleSelector, { type Option } from '@/components/shared/multiple-sele
 import { confirm } from '@/components/shared/global-confirm'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { cn } from '@/lib/utils'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface LocalImportStatusView {
   job: {
@@ -219,7 +220,9 @@ export default function LocalDirectoryImportManagement() {
                   <div className="flex flex-1 flex-col gap-1.5">
                     <div className="flex items-center gap-2">
                       <FolderOpen className="size-4 text-muted-foreground" aria-hidden="true" />
-                      <span className="font-medium text-foreground">{artist.artistDirectory}</span>
+                      <PrivacySensitiveText className="font-medium text-foreground">
+                        {artist.artistDirectory}
+                      </PrivacySensitiveText>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge
@@ -332,12 +335,16 @@ export default function LocalDirectoryImportManagement() {
                       ) : (
                         <HardDriveDownload className="size-4 text-muted-foreground" aria-hidden="true" />
                       )}
-                      {job.message || '等待任务更新…'}
+                      {job.message ? <PrivacySensitiveText>{job.message}</PrivacySensitiveText> : '等待任务更新…'}
                     </span>
                     <span className="font-medium text-muted-foreground">{job.progress}%</span>
                   </div>
                   <Progress value={job.progress} className="h-2" />
-                  {job.error && <p className="text-sm text-destructive font-medium mt-2">错误: {job.error}</p>}
+                  {job.error && (
+                    <p className="mt-2 text-sm font-medium text-destructive">
+                      错误：<PrivacySensitiveText>{job.error}</PrivacySensitiveText>
+                    </p>
+                  )}
                 </div>
 
                 {result && (
@@ -355,9 +362,9 @@ export default function LocalDirectoryImportManagement() {
                     <p className="text-sm font-medium text-destructive">失败详情</p>
                     <div className="flex max-h-48 flex-col gap-1 overflow-auto rounded-md border border-destructive/20 bg-destructive/10 p-3 font-mono text-xs text-destructive">
                       {result.errors.map((error, i) => (
-                        <div key={i} className="break-all">
+                        <PrivacySensitiveText as="div" key={i} className="break-all">
                           {error}
-                        </div>
+                        </PrivacySensitiveText>
                       ))}
                     </div>
                   </div>

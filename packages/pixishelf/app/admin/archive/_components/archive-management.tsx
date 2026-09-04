@@ -1,5 +1,5 @@
 'use client'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -42,6 +42,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
@@ -896,10 +897,12 @@ export function ArchiveTaskCard({
 function TaskIdentity({ task }: { task: ArchiveTaskOutput }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <p className="line-clamp-2 font-medium">{task.title || `${task.providerKey} #${task.externalId}`}</p>
-      <p className="truncate font-mono text-xs text-muted-foreground" title={task.submittedUrl}>
+      <PrivacySensitiveText as="p" className="line-clamp-2 font-medium">
+        {task.title || `${task.providerKey} #${task.externalId}`}
+      </PrivacySensitiveText>
+      <PrivacySensitiveText as="p" className="truncate font-mono text-xs text-muted-foreground">
         {task.providerKey} #{task.externalId} · {task.submittedUrl}
-      </p>
+      </PrivacySensitiveText>
       <div className="flex flex-wrap gap-1">
         {task.kind && <Badge variant="outline">{task.kind === 'UPDATE' ? '更新归档' : '首次归档'}</Badge>}
         {task.submissionId && <ArchiveSubmissionBadge submissionId={task.submissionId} />}
@@ -1117,10 +1120,16 @@ function requestSingleTaskAction(
   action: SingleTaskAction,
   execute: (action: SingleTaskAction) => void
 ) {
-  const confirmations: Partial<Record<SingleTaskAction, { title: string; description: string; confirmText: string }>> =
+  const confirmations: Partial<Record<SingleTaskAction, { title: ReactNode; description: string; confirmText: string }>> =
     {
       CANCEL: {
-        title: `取消“${task.title || `${task.providerKey} #${task.externalId}`}”？`,
+        title: task.title ? (
+          <>
+            取消“<PrivacySensitiveText>{task.title}</PrivacySensitiveText>”？
+          </>
+        ) : (
+          `取消“${task.providerKey} #${task.externalId}”？`
+        ),
         description: '任务会停止处理，已下载的暂存文件会按保留策略处理。',
         confirmText: '确认取消'
       },

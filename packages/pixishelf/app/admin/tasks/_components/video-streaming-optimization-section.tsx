@@ -15,6 +15,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { confirm } from '@/components/shared/global-confirm'
 import { cn } from '@/lib/utils'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface VideoOptimizationQueueView {
   capacity: number
@@ -172,9 +173,9 @@ function OptimizationJobRow({
                 <Badge variant="outline">历史记录</Badge>
               ) : null}
             </div>
-            <p className="break-all font-mono text-xs text-muted-foreground" title={job.targetPath ?? undefined}>
+            <PrivacySensitiveText as="p" className="break-all font-mono text-xs text-muted-foreground">
               媒体 #{job.targetImageId ?? '-'} · {job.targetPath || '路径未知'}
-            </p>
+            </PrivacySensitiveText>
             {job.createdAt && <p className="text-xs text-muted-foreground">提交于 {formatDateTime(job.createdAt)}</p>}
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -213,7 +214,11 @@ function OptimizationJobRow({
             <span className="text-xs font-medium tabular-nums text-muted-foreground">{job.progress}%</span>
           </div>
         )}
-        {job.error && <p className="break-words text-sm font-medium text-destructive">错误：{job.error}</p>}
+        {job.error && (
+          <p className="break-words text-sm font-medium text-destructive">
+            错误：<PrivacySensitiveText>{job.error}</PrivacySensitiveText>
+          </p>
+        )}
       </div>
 
       {job.status === 'COMPLETED' && result && (

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/drawer'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export interface ActionDrawerProps {
   open: boolean
@@ -30,11 +31,13 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image,
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
-          <DrawerTitle className="text-center">{image.title || '未知标题'}</DrawerTitle>
+          <PrivacySensitiveText as={DrawerTitle} className="text-center">
+            {image.title || '未知标题'}
+          </PrivacySensitiveText>
           {author && (
-            <DrawerDescription className="text-center">
+            <PrivacySensitiveText as={DrawerDescription} className="text-center">
               {author.name || author.username || '未知作者'}
-            </DrawerDescription>
+            </PrivacySensitiveText>
           )}
         </DrawerHeader>
         <Separator />

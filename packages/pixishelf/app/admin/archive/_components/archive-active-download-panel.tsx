@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { formatByteAmount } from './archive-task-progress'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export interface ActiveArchiveDownloadTask {
   id: string
@@ -71,9 +72,9 @@ export function ActiveArchiveDownloadPanel({
                 {!telemetry ? '准备中' : stale ? '实时数据中断' : '实时'}
               </Badge>
             </div>
-            <CardDescription className="mt-1 truncate" title={task.title ?? undefined}>
+            <PrivacySensitiveText as={CardDescription} className="mt-1 truncate">
               {task.title || `${task.providerKey} #${task.externalId}`}
-            </CardDescription>
+            </PrivacySensitiveText>
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onViewItems}>
@@ -182,9 +183,9 @@ function ActiveTransferItemRow({ item, totalItems }: { item: ArchiveTransferItem
         #{pageNumber}
       </Badge>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-sm font-medium" title={item.expectedFilename}>
+        <PrivacySensitiveText as="p" className="min-w-0 flex-1 truncate text-sm font-medium">
           {item.expectedFilename}
-        </p>
+        </PrivacySensitiveText>
         <Badge variant={phaseBadgeVariant(item.phase)}>{phaseLabel(item.phase)}</Badge>
         {item.attempt > 1 && <span className="text-xs text-muted-foreground">第 {item.attempt} 次</span>}
       </div>

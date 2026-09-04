@@ -16,6 +16,7 @@ import { useShallow } from 'zustand/shallow'
 import { useOptimisticAction } from 'next-safe-action/hooks'
 import { toggleLikeAction } from '@/actions/like-action'
 import { Button } from '@/components/ui/button'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ImageOverlayProps {
   isActive: boolean
@@ -129,7 +130,7 @@ export default function ImageOverlay({
                 className="mb-1 block line-clamp-2 rounded-sm text-sm leading-5 font-semibold outline-none underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-white/70"
                 onClick={stopOverlayPropagation}
               >
-                {title || '未命名作品'}
+                <PrivacySensitiveText>{title || '未命名作品'}</PrivacySensitiveText>
               </Link>
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 {author?.id ? (
@@ -141,7 +142,9 @@ export default function ImageOverlay({
                   >
                     <ArtistAvatar src={author.avatar} name={author.name} className="size-7" />
                     <span className="flex min-w-0 items-center gap-1.5 text-xs leading-none">
-                      <span className="truncate font-medium opacity-90">@{author.username}</span>
+                      <PrivacySensitiveText className="truncate font-medium opacity-90">
+                        @{author.username}
+                      </PrivacySensitiveText>
                       <span aria-hidden="true" className="opacity-35">
                         ·
                       </span>
@@ -172,7 +175,8 @@ export default function ImageOverlay({
               </div>
               {/* 图片描述 */}
               {description && (
-                <p
+                <PrivacySensitiveText
+                  as="p"
                   className="mb-2 overflow-hidden text-ellipsis text-xs leading-5 opacity-85"
                   style={{
                     display: '-webkit-box',
@@ -182,7 +186,7 @@ export default function ImageOverlay({
                   }}
                 >
                   {description}
-                </p>
+                </PrivacySensitiveText>
               )}
 
               {/* 标签和时间 */}
@@ -203,7 +207,7 @@ export default function ImageOverlay({
                         className="inline-flex min-h-11 shrink-0 items-center rounded-full bg-white/15 px-2 text-xs leading-4 outline-none transition-colors hover:bg-white/25 focus-visible:ring-2 focus-visible:ring-white/70"
                         onClick={stopOverlayPropagation}
                       >
-                        #{tag.name}
+                        <PrivacySensitiveText>#{tag.name}</PrivacySensitiveText>
                       </Link>
                     ))}
                     {tags.length > 3 && (

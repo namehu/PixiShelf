@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import MediaThumbnail from '@/components/media/media-thumbnail'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export interface SeriesCardItem {
   id: number
@@ -39,11 +40,11 @@ export default function SeriesCard({ series, priority = false, className }: Seri
         />
       </Link>
 
-      <h2 className="truncate text-sm font-semibold text-foreground">
+      <PrivacySensitiveText as="h2" className="truncate text-sm font-semibold text-foreground">
         <Link href={href} className="outline-none hover:text-primary focus-visible:text-primary">
           {title}
         </Link>
-      </h2>
+      </PrivacySensitiveText>
       <div className="font-utility mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>{artworkCount} 件作品</span>
         <span>{new Date(updatedAt).toLocaleDateString('zh-CN')} 更新</span>

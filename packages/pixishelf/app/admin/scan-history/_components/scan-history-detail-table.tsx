@@ -6,6 +6,7 @@ import { TableVirtuoso, Virtuoso } from 'react-virtuoso'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { formatAction, formatMediaCount, ItemStatusBadge, ScanRunItemStatus } from './scan-history-format'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ScanHistoryDetailItem {
   id: string
@@ -94,23 +95,22 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
               </td>
               <td className="w-72 min-w-0 whitespace-normal px-3 py-3 align-top">
                 <ArtworkDetailLink item={item} />
-                <div
-                  className="mt-1 truncate text-xs text-muted-foreground"
-                  title={item.artistName || item.externalId || undefined}
-                >
+                <PrivacySensitiveText as="div" className="mt-1 truncate text-xs text-muted-foreground">
                   {item.artistName || item.externalId || '—'}
-                </div>
+                </PrivacySensitiveText>
                 {item.errorMessage ? (
-                  <div className="mt-1 break-words text-xs text-destructive">{item.errorMessage}</div>
+                  <PrivacySensitiveText as="div" className="mt-1 break-words text-xs text-destructive">
+                    {item.errorMessage}
+                  </PrivacySensitiveText>
                 ) : null}
               </td>
               <td className="min-w-0 whitespace-normal px-3 py-3 align-top text-xs text-muted-foreground">
-                <div className="truncate" title={item.relativeDirectory || undefined}>
+                <PrivacySensitiveText as="div" className="truncate">
                   {item.relativeDirectory || '—'}
-                </div>
-                <div className="mt-1 truncate" title={item.metadataRelativePath || undefined}>
+                </PrivacySensitiveText>
+                <PrivacySensitiveText as="div" className="mt-1 truncate">
                   {item.metadataRelativePath || '—'}
-                </div>
+                </PrivacySensitiveText>
               </td>
               <td className="w-28 px-3 py-3 text-right align-top font-medium tabular-nums">
                 {formatMediaCount(item.mediaCount, item.inventoryDecision)}
@@ -139,17 +139,16 @@ export function ScanHistoryDetailTable({ items, isFetching }: { items: ScanHisto
               <h3 className="mt-2 min-w-0 text-sm font-medium text-foreground">
                 <ArtworkDetailLink item={item} />
               </h3>
-              <p className="mt-1 truncate text-xs text-muted-foreground" title={item.artistName || undefined}>
+              <PrivacySensitiveText as="p" className="mt-1 truncate text-xs text-muted-foreground">
                 {item.artistName || item.externalId || '—'}
-              </p>
-              <p
-                className="mt-2 line-clamp-2 break-all text-xs leading-5 text-muted-foreground"
-                title={item.relativeDirectory || item.metadataRelativePath || undefined}
-              >
+              </PrivacySensitiveText>
+              <PrivacySensitiveText as="p" className="mt-2 line-clamp-2 break-all text-xs leading-5 text-muted-foreground">
                 {item.relativeDirectory || item.metadataRelativePath || '未记录路径'}
-              </p>
+              </PrivacySensitiveText>
               {item.errorMessage ? (
-                <p className="mt-2 break-words text-xs leading-5 text-destructive">{item.errorMessage}</p>
+                <PrivacySensitiveText as="p" className="mt-2 break-words text-xs leading-5 text-destructive">
+                  {item.errorMessage}
+                </PrivacySensitiveText>
               ) : null}
             </article>
           )}
@@ -182,30 +181,26 @@ function ScanHistoryDetailColGroup() {
 
 function ArtworkDetailLink({ item, className }: { item: ScanHistoryDetailItem; className?: string }) {
   const label = item.title || item.externalId || '未命名作品'
-  const title = item.artistName ? `${label} - ${item.artistName}` : label
-
   if (!item.resultArtworkId) {
     return (
-      <span className={cn('block min-w-0 truncate font-medium text-foreground', className)} title={title}>
+      <PrivacySensitiveText className={cn('block min-w-0 truncate font-medium text-foreground', className)}>
         {label}
-      </span>
+      </PrivacySensitiveText>
     )
   }
 
   return (
-    <Link
-      href={`/artworks/${item.resultArtworkId}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cn(
-        'inline-flex min-w-0 max-w-full items-center gap-1 font-medium text-foreground outline-none transition-colors hover:text-primary focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring',
-        className
-      )}
-      title={title}
-      aria-label={`在新标签页打开作品 ${label}`}
-    >
-      <span className="min-w-0 truncate">{label}</span>
-      <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
-    </Link>
+    <PrivacySensitiveText className={cn('inline-flex min-w-0 max-w-full', className)}>
+      <Link
+        href={`/artworks/${item.resultArtworkId}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex min-w-0 max-w-full items-center gap-1 font-medium text-foreground outline-none transition-colors hover:text-primary focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={`在新标签页打开作品 ${label}`}
+      >
+        <span className="min-w-0 truncate">{label}</span>
+        <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
+      </Link>
+    </PrivacySensitiveText>
   )
 }

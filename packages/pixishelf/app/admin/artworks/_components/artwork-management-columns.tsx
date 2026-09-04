@@ -97,6 +97,7 @@ export function createArtworkManagementColumns({
     {
       header: '偏好',
       id: 'preferredTag',
+      privacySensitive: true,
       size: 120,
       headerClassName: 'hidden sm:table-cell',
       cellClassName: 'hidden sm:table-cell',
@@ -108,10 +109,11 @@ export function createArtworkManagementColumns({
       size: 240,
       ellipsis: true,
       copyable: true,
+      privacySensitive: true,
       cell: ({ row: { original } }) => {
         const { title } = original
         return (
-          <span className="block min-w-0 truncate font-medium" title={title}>
+          <span className="block min-w-0 truncate font-medium">
             {title}
           </span>
         )
@@ -120,6 +122,7 @@ export function createArtworkManagementColumns({
     {
       header: '作者',
       accessorKey: 'artist',
+      privacySensitive: true,
       headerClassName: 'hidden sm:table-cell',
       cellClassName: 'hidden sm:table-cell',
       cell: ({ row }) => {
@@ -132,7 +135,7 @@ export function createArtworkManagementColumns({
         return (
           <div className="min-w-0 select-text">
             <div className="flex min-w-0 items-center gap-1">
-              <span className="min-w-0 truncate" title={artist.name}>
+              <span className="min-w-0 truncate">
                 {artist.name}
               </span>
               <Link
@@ -242,7 +245,7 @@ function PixivSyncBadge({ artwork }: { artwork: ArtworkResponseDto }) {
     FAILED: { label: '失败', variant: 'destructive' as const }
   }[status]
   return (
-    <Badge variant={display.variant} title={artwork.pixivSync?.lastError ?? undefined}>
+    <Badge variant={display.variant}>
       {display.label}
     </Badge>
   )

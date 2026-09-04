@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { BookOpenIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface SeriesArtworkLink {
   id: number
@@ -29,7 +30,7 @@ function PreviousButton({ artwork }: { artwork: SeriesArtworkLink | null }) {
 
   return (
     <Button variant="ghost" size="sm" asChild>
-      <Link href={`/artworks/${artwork.id}`} title={artwork.title}>
+      <Link href={`/artworks/${artwork.id}`} aria-label={`上一篇：${artwork.title}`}>
         <ChevronLeftIcon data-icon="inline-start" aria-hidden="true" />
         上一篇
       </Link>
@@ -49,7 +50,7 @@ function NextButton({ artwork }: { artwork: SeriesArtworkLink | null }) {
 
   return (
     <Button variant="ghost" size="sm" asChild>
-      <Link href={`/artworks/${artwork.id}`} title={artwork.title}>
+      <Link href={`/artworks/${artwork.id}`} aria-label={`下一篇：${artwork.title}`}>
         下一篇
         <ChevronRightIcon data-icon="inline-end" aria-hidden="true" />
       </Link>
@@ -71,7 +72,7 @@ export default function SeriesNav({ series }: Props) {
       >
         <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
           <BookOpenIcon className="size-4 shrink-0" aria-hidden="true" />
-          <span className="truncate">{series.title}</span>
+          <PrivacySensitiveText className="truncate">{series.title}</PrivacySensitiveText>
         </span>
         <span className="font-utility text-xs text-muted-foreground">第 {series.order} 话</span>
       </Link>

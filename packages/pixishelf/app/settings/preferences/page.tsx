@@ -17,9 +17,10 @@ import {
   usePreferredTags,
   useVideoLongPressPlaybackRate,
   useVideoSeekStepSeconds,
-  useUserSettingsStore
+  useUserSettings
 } from '@/components/user-setting'
 import { useTRPC } from '@/lib/trpc'
+import { useAuthStore, useAuthUser } from '@/components/auth'
 import type {
   ArtworkDisplayMode,
   ArtworkMediaAnchorInterval,
@@ -37,13 +38,14 @@ const VIDEO_SEEK_STEP_SECONDS_KEY = 'video_seek_step_seconds'
 
 export default function SettingsPreferencesPage() {
   const trpc = useTRPC()
+  const currentUserId = useAuthUser()?.id ?? null
   const displayModeSetting = useArtworkDisplayMode()
   const preferredTagsSetting = usePreferredTags()
   const mediaAnchorIntervalSetting = useArtworkMediaAnchorInterval()
   const mediaPrivacyModeSetting = useMediaPrivacyMode()
   const videoLongPressPlaybackRateSetting = useVideoLongPressPlaybackRate()
   const videoSeekStepSecondsSetting = useVideoSeekStepSeconds()
-  const updateSettingLocally = useUserSettingsStore((state) => state.updateSettingLocally)
+  const { updateSettingLocally } = useUserSettings()
 
   const [displayMode, setDisplayMode] = useState<ArtworkDisplayMode>(displayModeSetting)
   const [preferredTags, setPreferredTags] = useState<string[]>(preferredTagsSetting)
@@ -97,6 +99,16 @@ export default function SettingsPreferencesPage() {
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingSettings = useRef(new Map<string, UpdateUserSettingDTO>())
+  const pendingOwnerUserId = useRef<string | null>(currentUserId)
+
+  useEffect(() => {
+    if (pendingOwnerUserId.current !== currentUserId) {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+      saveTimer.current = null
+      pendingSettings.current.clear()
+      pendingOwnerUserId.current = currentUserId
+    }
+  }, [currentUserId])
 
   useEffect(() => {
     return () => {
@@ -117,11 +129,18 @@ export default function SettingsPreferencesPage() {
   })
 
   const scheduleSave = (setting: UpdateUserSettingDTO) => {
+    const scheduledForUserId = currentUserId
+    pendingOwnerUserId.current = scheduledForUserId
     pendingSettings.current.set(setting.key, setting)
     if (saveTimer.current) {
       clearTimeout(saveTimer.current)
     }
     saveTimer.current = setTimeout(() => {
+      if ((useAuthStore.getState().user?.id ?? null) !== scheduledForUserId) {
+        pendingSettings.current.clear()
+        return
+      }
+
       const settings = Array.from(pendingSettings.current.values())
       pendingSettings.current.clear()
       execute({
@@ -182,8 +201,8 @@ export default function SettingsPreferencesPage() {
   return (
     <div>
       <PreferenceItem
-        title="媒体隐私模式"
-        description="开启后模糊全站媒体；关闭后，进入非管理后台时需先确认 R18 内容警告。此功能仅改变显示，不阻止媒体加载或访问"
+        title="隐私模式"
+        description="开启后遮蔽全站媒体与敏感信息；关闭后，进入浏览和管理页面时需先确认 R18 内容警告。设置页面始终可以直接访问。此功能仅改变显示，不阻止数据或媒体加载和访问"
       >
         <Field orientation="horizontal" data-disabled={isExecuting || undefined} className="min-h-9 w-auto gap-3">
           <FieldLabel htmlFor="media-privacy-mode">{mediaPrivacyMode ? '已开启' : '已关闭'}</FieldLabel>
@@ -192,7 +211,7 @@ export default function SettingsPreferencesPage() {
             checked={mediaPrivacyMode}
             onCheckedChange={onMediaPrivacyModeChange}
             disabled={isExecuting}
-            aria-label="媒体隐私模式"
+            aria-label="隐私模式"
           />
         </Field>
       </PreferenceItem>

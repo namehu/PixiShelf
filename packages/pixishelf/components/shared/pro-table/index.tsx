@@ -25,11 +25,12 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 // --- 类型定义 ---
 
 /**
- * 扩展的列定义，支持 ellipsis 和 copyable
+ * 扩展的列定义，支持 ellipsis、copyable 和隐私模式遮蔽
  */
 export type ProColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
   /**
@@ -46,6 +47,11 @@ export type ProColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
    * 自定义复制内容；未提供时复制 accessor 的显示值
    */
   copyValue?: (row: TData) => string | null | undefined
+  /**
+   * 隐私模式开启时遮蔽该列的只读内容。复制按钮仍复制真实值。
+   * @default false
+   */
+  privacySensitive?: boolean
   /**
    * 自定义表头 className
    */
@@ -545,7 +551,7 @@ export function ProTable<TData, TValue>({
                       const columnDef = cell.column.columnDef as ProColumnDef<TData, TValue>
                       const content = flexRender(columnDef.cell, cell.getContext())
 
-                      if (columnDef.ellipsis || columnDef.copyable) {
+                      if (columnDef.ellipsis || columnDef.copyable || columnDef.privacySensitive) {
                         const value = cell.getValue()
                         const displayValue =
                           typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
@@ -578,12 +584,21 @@ export function ProTable<TData, TValue>({
                                   <Copy className="size-3.5" aria-hidden="true" />
                                 </button>
                               )}
-                              <div
-                                className={cn('flex-1', columnDef.ellipsis && 'truncate')}
-                                title={columnDef.ellipsis ? displayValue : undefined}
-                              >
-                                {content}
-                              </div>
+                              {columnDef.privacySensitive ? (
+                                <PrivacySensitiveText
+                                  as="div"
+                                  className={cn('min-w-0 flex-1', columnDef.ellipsis && 'truncate')}
+                                >
+                                  {content}
+                                </PrivacySensitiveText>
+                              ) : (
+                                <div
+                                  className={cn('min-w-0 flex-1', columnDef.ellipsis && 'truncate')}
+                                  title={columnDef.ellipsis ? displayValue : undefined}
+                                >
+                                  {content}
+                                </div>
+                              )}
                             </div>
                           </TableCell>
                         )

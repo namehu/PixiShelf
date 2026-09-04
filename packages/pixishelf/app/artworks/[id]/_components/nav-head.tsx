@@ -18,6 +18,7 @@ import {
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import MediaOrderReviewDialog from './media-order-review-dialog'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
@@ -122,12 +123,12 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
         }
       >
         {showScrolledTitle && (
-          <span
+          <PrivacySensitiveText
             aria-hidden="true"
             className="pointer-events-none absolute inset-x-16 truncate text-center text-sm font-medium text-foreground sm:inset-x-24"
           >
             {data.title}
-          </span>
+          </PrivacySensitiveText>
         )}
       </PageToolbar>
 

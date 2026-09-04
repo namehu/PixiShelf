@@ -3,6 +3,7 @@
 import DOMPurify from 'isomorphic-dompurify'
 import { memo, useMemo, type FC } from 'react'
 import { cn } from '@/lib/utils'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ArtworkDescriptionProps {
   description?: string | null
@@ -65,7 +66,12 @@ const ArtworkDescription: FC<ArtworkDescriptionProps> = ({ description, classNam
       <h2 id="artwork-description-heading" className="mb-3 text-base font-semibold text-foreground sm:text-lg">
         描述
       </h2>
-      <div className="max-w-full overflow-hidden text-sm leading-7 text-muted-foreground">{content}</div>
+      <PrivacySensitiveText
+        as="div"
+        className="max-w-full overflow-hidden text-sm leading-7 text-muted-foreground"
+      >
+        {content}
+      </PrivacySensitiveText>
     </section>
   )
 }

@@ -1,20 +1,25 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useState } from 'react'
-import { ArrowRight } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { ArrowRight, ShieldCheck } from 'lucide-react'
+import { useAction } from 'next-safe-action/hooks'
 import { usePathname } from 'next/navigation'
-import { useAuthUser } from '@/components/auth'
+import { updateUserSettingAction } from '@/actions/user-setting-action'
+import { useAuthStore, useAuthUser } from '@/components/auth'
 import PLogo from '@/components/layout/p-logo'
-import { useMediaPrivacyMode } from '@/components/user-setting'
+import { useMediaPrivacyMode, useUserSettingsStore } from '@/components/user-setting'
 import {
   AlertDialog,
   AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Spinner } from '@/components/ui/spinner'
 import { isContentWarningPath } from './content-warning-routes'
 
 const CONTENT_WARNING_PENDING = 'pending'
@@ -25,16 +30,47 @@ export function ContentWarningGate() {
   const pathname = usePathname()
   const user = useAuthUser()
   const privacyMode = useMediaPrivacyMode()
+  const settingsOwnerUserId = useUserSettingsStore((state) => state.ownerUserId)
+  const updateSettingLocallyForUser = useUserSettingsStore((state) => state.updateSettingLocallyForUser)
   const eligible = Boolean(user) && isContentWarningPath(pathname)
   const [confirmedUserId, setConfirmedUserId] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const previousUserIdRef = useRef<string | null | undefined>(undefined)
+  const privacyActionRef = useRef<HTMLButtonElement>(null)
   const confirmedForCurrentUser = Boolean(user) && confirmedUserId === user?.id
-  const open = eligible && !privacyMode && !confirmedForCurrentUser
+  const privacyModeForCurrentUser = Boolean(user) && settingsOwnerUserId === user?.id && privacyMode
+  const open = eligible && !privacyModeForCurrentUser && !confirmedForCurrentUser
+  const privacyRequestUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!eligible) {
+    const userId = user?.id ?? null
+
+    if (previousUserIdRef.current !== undefined && previousUserIdRef.current !== userId) {
       setConfirmedUserId(null)
+      setSaveError(null)
+      privacyRequestUserIdRef.current = null
     }
-  }, [eligible])
+
+    previousUserIdRef.current = userId
+  }, [user?.id])
+
+  const { execute: enablePrivacyMode, isExecuting } = useAction(updateUserSettingAction, {
+    onError: ({ error }) => {
+      const requestedUserId = privacyRequestUserIdRef.current
+      privacyRequestUserIdRef.current = null
+      if (!requestedUserId || useAuthStore.getState().user?.id !== requestedUserId) return
+
+      setSaveError(error.validationErrors?.formErrors?.[0] || error.serverError || '开启隐私模式失败，请重试。')
+    },
+    onSuccess: () => {
+      const requestedUserId = privacyRequestUserIdRef.current
+      privacyRequestUserIdRef.current = null
+      if (!requestedUserId || useAuthStore.getState().user?.id !== requestedUserId) return
+
+      setSaveError(null)
+      updateSettingLocallyForUser(requestedUserId, 'media_privacy_mode', true)
+    }
+  })
 
   useLayoutEffect(() => {
     document.documentElement.dataset.contentWarning = open ? CONTENT_WARNING_PENDING : CONTENT_WARNING_CLEAR
@@ -52,9 +88,22 @@ export function ContentWarningGate() {
   })
 
   const confirmAccess = () => {
+    if (isExecuting) return
+
     if (user) {
+      setSaveError(null)
       setConfirmedUserId(user.id)
     }
+  }
+
+  const enterWithPrivacyMode = () => {
+    if (!user || isExecuting) return
+
+    setSaveError(null)
+    privacyRequestUserIdRef.current = user.id
+    enablePrivacyMode({
+      settings: [{ key: 'media_privacy_mode', value: true, type: 'boolean' }]
+    })
   }
 
   return (
@@ -63,6 +112,10 @@ export function ContentWarningGate() {
         className="fixed inset-0 left-0 top-0 z-[2147483647] block h-[100dvh] w-full max-w-none translate-x-0 translate-y-0 overflow-y-auto overscroll-contain rounded-none border-0 bg-background p-0 text-foreground shadow-none duration-300 sm:max-w-none motion-reduce:animate-none motion-reduce:transition-none"
         overlayClassName="z-[2147483646] bg-background motion-reduce:animate-none"
         onEscapeKeyDown={(event) => event.preventDefault()}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          privacyActionRef.current?.focus()
+        }}
       >
         <div className="flex min-h-full w-full flex-col bg-background">
           <header className="border-b border-border bg-background/90 backdrop-blur-xl">
@@ -100,20 +153,42 @@ export function ContentWarningGate() {
               </AlertDialogHeader>
 
               <div className="mt-5 rounded-lg bg-surface-muted px-4 py-3 text-sm leading-6 text-muted-foreground">
-                当前媒体隐私模式已关闭，确认后作品将以原始状态显示。
+                当前隐私模式已关闭。你可以先开启隐私模式，以遮蔽全站媒体和敏感信息；也可以确认成年后以原始状态进入。
               </div>
 
-              <AlertDialogFooter className="mt-6 block">
+              {saveError ? (
+                <Alert variant="destructive" className="mt-4">
+                  <AlertDescription>{saveError}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              <AlertDialogFooter className="mt-6 flex flex-col gap-2 sm:flex-col">
+                {isExecuting ? (
+                  <span className="sr-only" role="status" aria-live="polite" aria-label="正在开启隐私模式">
+                    正在开启隐私模式
+                  </span>
+                ) : null}
                 <AlertDialogAction
-                  className="group h-11 w-full touch-manipulation justify-between rounded-lg px-4 text-sm font-semibold shadow-surface transition-colors motion-reduce:transition-none"
+                  ref={privacyActionRef}
+                  className="h-11 w-full touch-manipulation justify-center rounded-lg px-4 text-sm font-semibold shadow-surface transition-colors motion-reduce:transition-none"
+                  disabled={isExecuting}
+                  onClick={enterWithPrivacyMode}
+                >
+                  {isExecuting ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <ShieldCheck data-icon="inline-start" aria-hidden="true" />}
+                  开启隐私模式并进入
+                </AlertDialogAction>
+                <AlertDialogCancel
+                  className="group h-11 w-full touch-manipulation justify-between rounded-lg px-4 text-sm font-semibold transition-colors motion-reduce:transition-none"
+                  disabled={isExecuting}
                   onClick={confirmAccess}
                 >
-                  我已年满 18 岁，继续访问
+                  我已年满 18 岁，以原始状态进入
                   <ArrowRight
-                    className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
+                    data-icon="inline-end"
+                    className="transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
                     aria-hidden="true"
                   />
-                </AlertDialogAction>
+                </AlertDialogCancel>
               </AlertDialogFooter>
 
               <p className="mt-3 text-center text-xs leading-5 text-muted-foreground">

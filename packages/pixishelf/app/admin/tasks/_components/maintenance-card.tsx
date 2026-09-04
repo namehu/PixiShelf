@@ -26,6 +26,7 @@ import { BackgroundTaskConsole } from './background-task-console'
 import { useScheduledTaskDrafts } from './use-scheduled-task-drafts'
 import { useTaskPolling } from './use-task-polling'
 import { VideoProbeTaskActions, type VideoMediaProbeResult } from './video-probe-task-actions'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface MediaDerivedTagSyncStats {
   expectedArtworks?: number
@@ -786,9 +787,9 @@ export function MaintenanceCard() {
                         {webpScanResult.failedSamples.slice(0, 5).map((sample) => (
                           <li key={sample.id} className="break-all">
                             <span className="opacity-70">
-                              #{sample.id} {sample.path}：
+                              #{sample.id} <PrivacySensitiveText>{sample.path}</PrivacySensitiveText>：
                             </span>{' '}
-                            {sample.error}
+                            <PrivacySensitiveText>{sample.error}</PrivacySensitiveText>
                           </li>
                         ))}
                       </ul>
@@ -980,9 +981,10 @@ export function MaintenanceCard() {
                         {videoProbeResult.failedSamples.slice(0, 5).map((sample) => (
                           <li key={`${sample.stage}-${sample.imageId}`} className="break-all">
                             <span className="opacity-70">
-                              {sample.stage === 'PROBE' ? '媒体探测' : '封面生成'} · #{sample.imageId} {sample.path}：
+                              {sample.stage === 'PROBE' ? '媒体探测' : '封面生成'} · #{sample.imageId}{' '}
+                              <PrivacySensitiveText>{sample.path}</PrivacySensitiveText>：
                             </span>{' '}
-                            {sample.error}
+                            <PrivacySensitiveText>{sample.error}</PrivacySensitiveText>
                           </li>
                         ))}
                       </ul>
@@ -1126,9 +1128,10 @@ export function MaintenanceCard() {
                           >
                             <span className="opacity-70">
                               #{sample.imageId}
-                              {sample.chapterOrder === null ? '' : ` 章节 ${sample.chapterOrder + 1}`} {sample.path}：
+                              {sample.chapterOrder === null ? '' : ` 章节 ${sample.chapterOrder + 1}`}{' '}
+                              <PrivacySensitiveText>{sample.path}</PrivacySensitiveText>：
                             </span>{' '}
-                            {sample.error}
+                            <PrivacySensitiveText>{sample.error}</PrivacySensitiveText>
                           </li>
                         ))}
                       </ul>

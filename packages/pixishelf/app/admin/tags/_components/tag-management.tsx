@@ -234,6 +234,7 @@ export default function TagManagement() {
     {
       header: '标签名称',
       accessorKey: 'name',
+      privacySensitive: true,
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <Link
@@ -253,6 +254,7 @@ export default function TagManagement() {
     {
       header: '中文翻译',
       accessorKey: 'name_zh',
+      privacySensitive: true,
       cell: ({ row }) => {
         const record = row.original
         const tName = getTranslateName(record)
@@ -564,7 +566,7 @@ function PixivSyncBadge({ tag }: { tag: TagListItem }) {
     FAILED: { label: '失败', variant: 'destructive' as const }
   }[tag.pixivSync.status]
   return (
-    <Badge variant={presentation.variant} title={tag.pixivSync.lastError || undefined}>
+    <Badge variant={presentation.variant}>
       {presentation.label}
     </Badge>
   )

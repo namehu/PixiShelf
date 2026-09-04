@@ -17,6 +17,7 @@ import { PageState } from '@/components/layout/page-state'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PixivSeriesReconciliationDialog } from './pixiv-series-reconciliation-dialog'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export default function SeriesManagement() {
   const trpc = useTRPC()
@@ -53,7 +54,11 @@ export default function SeriesManagement() {
 
   const handleDelete = (id: number, title: string) => {
     confirm({
-      title: `删除系列“${title}”？`,
+      title: (
+        <>
+          删除系列“<PrivacySensitiveText>{title}</PrivacySensitiveText>”？
+        </>
+      ),
       description: '系列记录会被永久删除；作品本身仍保留在图库中。',
       confirmText: '确认删除',
       variant: 'destructive',
@@ -155,13 +160,17 @@ export default function SeriesManagement() {
                   <TableCell>
                     <Avatar className="size-10 rounded">
                       <AvatarImage src={item.coverImageUrl || ''} alt={item.title} />
-                      <AvatarFallback>{item.title[0]}</AvatarFallback>
+                      <AvatarFallback>
+                        <PrivacySensitiveText>{item.title[0]}</PrivacySensitiveText>
+                      </AvatarFallback>
                     </Avatar>
                   </TableCell>
                   <TableCell>
-                    <Link href={`/admin/series/${item.id}`} className="hover:underline font-medium">
-                      {item.title}
-                    </Link>
+                    <PrivacySensitiveText className="font-medium">
+                      <Link href={`/admin/series/${item.id}`} className="hover:underline">
+                        {item.title}
+                      </Link>
+                    </PrivacySensitiveText>
                   </TableCell>
                   <TableCell>
                     {item.sourceKind === 'PIXIV' ? (
@@ -237,7 +246,7 @@ function PixivSeriesStatusBadge({
     FAILED: { label: '失败', variant: 'destructive' as const }
   }[source.status]
   return (
-    <Badge variant={display.variant} title={source.lastError ?? undefined}>
+    <Badge variant={display.variant}>
       {display.label}
     </Badge>
   )

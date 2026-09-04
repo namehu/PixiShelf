@@ -5,6 +5,7 @@ import z from 'zod'
 import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import { PageContainer } from '@/components/layout/page-container'
 import { Button } from '@/components/ui/button'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { getArtworkById } from '@/services/artwork-service'
 import ArtworkDes from './_components/artwork-des'
 import ArtworkImages from './_components/artwork-images'
@@ -31,9 +32,12 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
         <article className="max-w-full overflow-hidden">
           <PageContainer size="reading">
             <header className="mb-6 flex flex-col gap-4">
-              <h1 className="break-words text-2xl leading-tight font-semibold tracking-[-0.025em] text-foreground sm:text-3xl lg:text-4xl">
+              <PrivacySensitiveText
+                as="h1"
+                className="break-words text-2xl leading-tight font-semibold tracking-[-0.025em] text-foreground sm:text-3xl lg:text-4xl"
+              >
                 {data.title}
-              </h1>
+              </PrivacySensitiveText>
 
               <div className="flex flex-wrap items-center gap-3">
                 {data.artist && (
@@ -42,9 +46,9 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
                     className="group -ml-1 flex min-h-11 min-w-0 items-center gap-2 rounded-full p-1 pr-3 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
                     <ArtistAvatar src={artistAvatar} name={artistName} size={10} />
-                    <span className="truncate text-base font-medium text-primary underline-offset-4 group-hover:underline sm:text-lg">
+                    <PrivacySensitiveText className="truncate text-base font-medium text-primary underline-offset-4 group-hover:underline sm:text-lg">
                       {artistName}
-                    </span>
+                    </PrivacySensitiveText>
                   </Link>
                 )}
 

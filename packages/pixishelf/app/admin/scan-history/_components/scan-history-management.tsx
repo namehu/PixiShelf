@@ -8,6 +8,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, Loader2, RefreshCw, SearchX }
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useTRPC } from '@/lib/trpc'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { ScanHistoryDetailTable } from './scan-history-detail-table'
 import {
   formatDate,
@@ -313,7 +314,9 @@ export function ScanHistoryManagement() {
                         role="alert"
                       >
                         <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-                        <p className="break-words">{selectedRun.errorMessage}</p>
+                        <PrivacySensitiveText as="p" className="break-words">
+                          {selectedRun.errorMessage}
+                        </PrivacySensitiveText>
                       </div>
                     ) : null}
 

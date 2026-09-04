@@ -49,6 +49,7 @@ import {
   type ArchiveQuality
 } from '@/app/admin/archive/_components/archive-intake-view-state'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -782,7 +783,9 @@ export function ArchiveQueueControlPanel({
             {hasLaneError ? '通道异常' : summary.paused ? '已暂停' : '运行正常'}
           </Badge>
         </CardTitle>
-        <CardDescription className="max-w-3xl">{statusDescription}</CardDescription>
+        <CardDescription className="max-w-3xl" data-privacy-sensitive={summary.currentItem ? '' : undefined}>
+          {statusDescription}
+        </CardDescription>
         <CardAction>
           <Button
             size="sm"
@@ -821,12 +824,12 @@ export function ArchiveQueueControlPanel({
                 </div>
                 {summary.currentItem ? (
                   <div className="min-w-0 rounded-md bg-muted/50 px-3 py-2.5">
-                    <p className="truncate text-sm font-medium">
+                    <PrivacySensitiveText as="p" className="truncate text-sm font-medium">
                       #{summary.currentItem.queueOrder} · {summary.currentItem.resolvedTitle || '正在解析远端作品'}
-                    </p>
-                    <p className="truncate font-mono text-xs text-muted-foreground">
+                    </PrivacySensitiveText>
+                    <PrivacySensitiveText as="p" className="truncate font-mono text-xs text-muted-foreground">
                       {summary.currentItem.submittedUrl}
-                    </p>
+                    </PrivacySensitiveText>
                   </div>
                 ) : null}
               </section>
@@ -893,7 +896,13 @@ function QueueLane({
         <p className="text-sm font-medium">{label}</p>
         {lane ? <LaneBadge status={lane.status} /> : <Badge variant="muted">不可用</Badge>}
       </div>
-      <p className="text-xs leading-5 text-muted-foreground">{lane?.runningJob?.message || description}</p>
+      {lane?.runningJob?.message ? (
+        <PrivacySensitiveText as="p" className="text-xs leading-5 text-muted-foreground">
+          {lane.runningJob.message}
+        </PrivacySensitiveText>
+      ) : (
+        <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+      )}
     </div>
   )
 }
@@ -1052,8 +1061,12 @@ function QueueMarker({ item }: { item: IntakeItem }) {
 function ItemIdentity({ item }: { item: IntakeItem }) {
   return (
     <div className="min-w-0">
-      <p className="truncate font-medium">{item.resolvedTitle || '等待解析标题'}</p>
-      <p className="truncate font-mono text-xs text-muted-foreground">{item.submittedUrl}</p>
+      <PrivacySensitiveText as="p" className="truncate font-medium">
+        {item.resolvedTitle || '等待解析标题'}
+      </PrivacySensitiveText>
+      <PrivacySensitiveText as="p" className="truncate font-mono text-xs text-muted-foreground">
+        {item.submittedUrl}
+      </PrivacySensitiveText>
       <p className="mt-1 text-xs text-muted-foreground">
         {item.providerKey ? `${item.providerKey}${item.externalId ? ` #${item.externalId}` : ''}` : '等待识别来源'}
         {item.pageCount ? ` · ${item.pageCount} 页` : ''}
@@ -1062,7 +1075,11 @@ function ItemIdentity({ item }: { item: IntakeItem }) {
       <div className="mt-2">
         <ArchiveSubmissionBadge submissionId={item.submissionId} />
       </div>
-      {item.errorMessage ? <p className="mt-1 line-clamp-2 text-xs text-destructive">{item.errorMessage}</p> : null}
+      {item.errorMessage ? (
+        <PrivacySensitiveText as="p" className="mt-1 line-clamp-2 text-xs text-destructive">
+          {item.errorMessage}
+        </PrivacySensitiveText>
+      ) : null}
     </div>
   )
 }

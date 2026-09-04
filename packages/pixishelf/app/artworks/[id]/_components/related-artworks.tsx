@@ -15,6 +15,7 @@ import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from '@/components/artwork/preferred-tag'
 import { Button } from '@/components/ui/button'
 import { ArrowRightIcon } from 'lucide-react'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface RelatedArtworksProps {
   artistId: number
@@ -179,7 +180,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
                     'relative block h-32 w-32 shrink-0 overflow-hidden rounded-sm outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-ring/60',
                     !isCurrent && 'hover:opacity-90'
                   )}
-                  title={artwork.title}
+                  aria-label={`查看作品：${artwork.title}`}
                 >
                   <MediaThumbnail
                     media={cover}
@@ -191,7 +192,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
                   {isCurrent && <div className="absolute inset-0 z-10 border-2 border-primary bg-background/20" />}
                   {preferredTag && (
                     <div className="absolute top-1 left-1 z-20 max-w-[72%] rounded-sm bg-destructive px-1.5 py-0.5 text-[10px] leading-tight font-semibold text-destructive-foreground">
-                      <span className="block truncate">{preferredTag}</span>
+                      <PrivacySensitiveText className="block truncate">{preferredTag}</PrivacySensitiveText>
                     </div>
                   )}
                   {(artwork as any).isVideo ? (

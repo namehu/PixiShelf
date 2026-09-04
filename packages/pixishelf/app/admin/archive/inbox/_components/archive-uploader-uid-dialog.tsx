@@ -5,6 +5,7 @@ import { useMutation } from '@tanstack/react-query'
 import { FingerprintIcon, InfoIcon, WandSparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
@@ -161,7 +162,8 @@ export function ArchiveUploaderUidDialog({
                 </Button>
                 {matchEvidence ? (
                   <span className="text-sm text-muted-foreground">
-                    已由 {matchEvidence.uploaderName} 的画廊 GID {matchEvidence.externalId} 验证
+                    已由 <PrivacySensitiveText>{matchEvidence.uploaderName}</PrivacySensitiveText> 的画廊 GID{' '}
+                    {matchEvidence.externalId} 验证
                     {matchEvidence.conflict ? '；该 UID 已属于其他来源' : ''}
                   </span>
                 ) : null}
@@ -177,7 +179,7 @@ export function ArchiveUploaderUidDialog({
                 <AlertTitle>{isCorrection ? '确认更正稳定身份' : '确认绑定稳定身份'}</AlertTitle>
                 <AlertDescription>
                   <p>
-                    {source.displayName}
+                    <PrivacySensitiveText>{source.displayName}</PrivacySensitiveText>
                     {source.uploaderUid
                       ? `：UID ${source.uploaderUid} → UID ${normalizedUid}`
                       : ` → UID ${normalizedUid}`}

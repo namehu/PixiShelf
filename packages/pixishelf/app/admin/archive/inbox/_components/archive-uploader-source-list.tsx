@@ -4,6 +4,7 @@ import { ARCHIVE_TITLE_MATCH_LABELS } from '@pixishelf/job-contracts'
 import type { inferRouterOutputs } from '@trpc/server'
 import { CopyIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -38,13 +39,22 @@ export function ArchiveUploaderSourceList({
               onClick={() => onSelect(source.id)}
             >
               <span className="min-w-0 flex-1">
-                <span className="block truncate font-medium">{source.displayName}</span>
+                <PrivacySensitiveText className="block truncate font-medium">{source.displayName}</PrivacySensitiveText>
                 <span className="block truncate text-xs font-normal text-muted-foreground">
                   {source.titleQuery
-                    ? `标题${ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「${source.titleQuery.keyword}」`
+                    ? (
+                        <>
+                          标题{ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「
+                          <PrivacySensitiveText>{source.titleQuery.keyword}</PrivacySensitiveText>」
+                        </>
+                      )
                     : source.uploaderUid
                       ? `UID ${source.uploaderUid}`
-                      : `按名称：${source.identityValue}`}
+                      : (
+                          <>
+                            按名称：<PrivacySensitiveText>{source.identityValue}</PrivacySensitiveText>
+                          </>
+                        )}
                 </span>
                 <span className="block truncate text-xs font-normal text-muted-foreground">
                   待处理 {source.catalogCounts.actionable} ·{' '}

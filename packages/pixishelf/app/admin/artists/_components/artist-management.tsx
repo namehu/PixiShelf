@@ -327,6 +327,7 @@ export function ArtistManagement() {
       {
         accessorKey: 'name',
         header: '姓名',
+        privacySensitive: true,
         enableSorting: true,
         cell: ({ row }) => (
           <div className="grid gap-1">
@@ -425,7 +426,7 @@ export function ArtistManagement() {
                 disabled={adoptPixivNameMutation.isPending}
                 onClick={() => adoptPixivNameMutation.mutate({ artistId: row.original.id })}
                 aria-label={`采用艺术家 ${row.original.name} 的 Pixiv 来源姓名`}
-                title={`采用 Pixiv 姓名：${row.original.pixivSync.sourceName}`}
+                title="采用 Pixiv 来源姓名"
               >
                 <Check aria-hidden="true" />
               </Button>
@@ -600,7 +601,7 @@ function PixivSyncBadge({ artist }: { artist: ArtistListItem }) {
     FAILED: { label: '失败', variant: 'destructive' as const }
   }[status]
   return (
-    <Badge variant={display.variant} title={artist.pixivSync?.lastError ?? undefined}>
+    <Badge variant={display.variant}>
       {display.label}
     </Badge>
   )

@@ -30,6 +30,7 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { confirm } from '@/components/shared/global-confirm'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import {
   canCancelJob,
   canChangePriority,
@@ -320,7 +321,9 @@ function BackgroundConsoleState({
       <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <h2 className="font-semibold">无法读取后台队列</h2>
-        <p className="mt-1 break-words text-sm text-muted-foreground">{error?.message ?? '查询返回了空数据。'}</p>
+        <p className="mt-1 break-words text-sm text-muted-foreground">
+          {error?.message ? <PrivacySensitiveText>{error.message}</PrivacySensitiveText> : '查询返回了空数据。'}
+        </p>
         <Button className="mt-4" size="sm" variant="outline" onClick={onRetry}>
           <RefreshCw data-icon="inline-start" aria-hidden="true" /> 重试
         </Button>
@@ -405,7 +408,9 @@ export function BackgroundTaskConsoleView({
               role="status"
               className="m-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm sm:m-5 sm:mb-0"
             >
-              <p className="break-words text-destructive">任务详情刷新失败：{detailError.message}</p>
+              <p className="break-words text-destructive">
+                任务详情刷新失败：<PrivacySensitiveText>{detailError.message}</PrivacySensitiveText>
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 当前显示最近一次队列快照；重试以确认任务是否已进入终态。
               </p>
@@ -564,11 +569,19 @@ function ExecutionSlot({
                     {batch.failedCount > 0 ? `，其中失败 ${batch.failedCount}` : ''}
                   </p>
                   <p className="select-text break-words">
-                    {batch.currentJob?.message ? `当前：${batch.currentJob.message}` : '等待 Worker 继续处理'}
+                    {batch.currentJob?.message ? (
+                      <>
+                        当前：<PrivacySensitiveText>{batch.currentJob.message}</PrivacySensitiveText>
+                      </>
+                    ) : (
+                      '等待 Worker 继续处理'
+                    )}
                   </p>
                 </div>
               ) : visibleJob.message ? (
-                <p className="mt-2 select-text break-words text-sm text-muted-foreground">{visibleJob.message}</p>
+                <PrivacySensitiveText as="p" className="mt-2 select-text break-words text-sm text-muted-foreground">
+                  {visibleJob.message}
+                </PrivacySensitiveText>
               ) : null}
               {detailJob ? (
                 <Button
@@ -686,7 +699,9 @@ function WorkerInstanceCard({
         {historical ? '最后心跳' : '心跳'} {formatHeartbeatAge(ageMs)}
       </p>
       {worker.lastError ? (
-        <p className="mt-2 select-text break-words text-xs text-destructive">{worker.lastError}</p>
+        <PrivacySensitiveText as="p" className="mt-2 break-words text-xs text-destructive">
+          {worker.lastError}
+        </PrivacySensitiveText>
       ) : null}
     </li>
   )
@@ -725,7 +740,9 @@ function FailureAttentionList({
                     {job.errorCode ? ` · ${job.errorCode}` : ''}
                   </p>
                   {job.error ? (
-                    <p className="mt-1 line-clamp-2 break-words text-xs text-destructive">{job.error}</p>
+                    <PrivacySensitiveText as="p" className="mt-1 line-clamp-2 break-words text-xs text-destructive">
+                      {job.error}
+                    </PrivacySensitiveText>
                   ) : null}
                 </div>
                 <AdminStatusBadge status="FAILED">失败</AdminStatusBadge>
@@ -935,7 +952,11 @@ function JobDetail({
           <span className="text-xs font-semibold tabular-nums">{job.progress}%</span>
         </div>
       ) : null}
-      {job.message ? <p className="mt-3 select-text break-words text-sm text-muted-foreground">{job.message}</p> : null}
+      {job.message ? (
+        <PrivacySensitiveText as="p" className="mt-3 select-text break-words text-sm text-muted-foreground">
+          {job.message}
+        </PrivacySensitiveText>
+      ) : null}
       {job.error ? (
         <div className="mt-3 select-text rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
           <p className="font-medium">
@@ -945,7 +966,9 @@ function JobDetail({
                 ? `${job.errorCode}：任务执行失败`
                 : '任务执行失败'}
           </p>
-          <p className="mt-1 whitespace-pre-wrap break-words">{job.error}</p>
+          <PrivacySensitiveText as="p" className="mt-1 whitespace-pre-wrap break-words">
+            {job.error}
+          </PrivacySensitiveText>
         </div>
       ) : null}
 
@@ -1093,7 +1116,9 @@ function EventTimeline({
       ) : null}
       {error ? (
         <div role="status" className="mt-3 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm">
-          <p className="break-words text-destructive">事件读取失败：{error.message}</p>
+          <p className="break-words text-destructive">
+            事件读取失败：<PrivacySensitiveText>{error.message}</PrivacySensitiveText>
+          </p>
           <Button size="sm" variant="outline" className="mt-2" onClick={onRetry}>
             <RefreshCw data-icon="inline-start" aria-hidden="true" />
             重试事件查询
@@ -1157,11 +1182,18 @@ function EventItem({ event }: { event: JobEventDto }) {
         <span>尝试 {event.attempt}</span>
         {event.workerId ? <span className="select-text break-all font-mono">Worker {event.workerId}</span> : null}
       </div>
-      {event.message ? <p className="mt-1 select-text break-words text-sm">{event.message}</p> : null}
+      {event.message ? (
+        <PrivacySensitiveText as="p" className="mt-1 select-text break-words text-sm">
+          {event.message}
+        </PrivacySensitiveText>
+      ) : null}
       {dataText ? (
-        <pre className="mt-2 max-w-full select-text overflow-x-auto rounded-md bg-muted/45 p-2 text-xs leading-5 whitespace-pre-wrap break-all">
+        <PrivacySensitiveText
+          as="pre"
+          className="mt-2 max-w-full select-text overflow-x-auto rounded-md bg-muted/45 p-2 text-xs leading-5 whitespace-pre-wrap break-all"
+        >
           {dataText}
-        </pre>
+        </PrivacySensitiveText>
       ) : null}
     </li>
   )

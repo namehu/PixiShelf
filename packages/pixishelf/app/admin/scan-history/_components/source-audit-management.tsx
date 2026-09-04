@@ -27,6 +27,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { SourceAuditApplyDialog } from './source-audit-apply-dialog'
 import { SourceAuditApplyOperation } from './source-audit-apply-operation'
 import { formatDuration, formatFullDate } from './scan-history-format'
@@ -694,7 +695,9 @@ function AuditItemTable({
                 <ArtworkIdentity item={item} />
               </TableCell>
               <TableCell className="max-w-96 whitespace-normal align-top">
-                <code className="break-all text-xs text-muted-foreground">{item.metadataRelativePath}</code>
+                <PrivacySensitiveText as="code" className="break-all text-xs text-muted-foreground">
+                  {item.metadataRelativePath}
+                </PrivacySensitiveText>
               </TableCell>
               <TableCell className="max-w-80 whitespace-normal align-top">
                 <DifferenceReason item={item} />
@@ -737,15 +740,19 @@ function AuditItemCard({
             </label>
           ) : null}
         </div>
-        <CardTitle className="break-words text-sm leading-5">
+        <PrivacySensitiveText as={CardTitle} className="break-words text-sm leading-5">
           {item.title ?? item.artwork?.title ?? (item.externalId ? `Pixiv #${item.externalId}` : '未识别来源作品')}
-        </CardTitle>
-        <CardDescription className="break-words">{item.artistName ?? '作者未知'}</CardDescription>
+        </PrivacySensitiveText>
+        <PrivacySensitiveText as={CardDescription} className="break-words">
+          {item.artistName ?? '作者未知'}
+        </PrivacySensitiveText>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 px-4 text-sm">
         <div>
           <p className="text-xs text-muted-foreground">metadata 路径</p>
-          <code className="mt-1 block break-all text-xs text-foreground">{item.metadataRelativePath}</code>
+          <PrivacySensitiveText as="code" className="mt-1 block break-all text-xs text-foreground">
+            {item.metadataRelativePath}
+          </PrivacySensitiveText>
         </div>
         <DifferenceReason item={item} />
         <ItemApplyState item={item} />
@@ -804,11 +811,13 @@ function ArtworkIdentity({ item }: { item: SourceAuditItem }) {
   const title = item.title ?? item.artwork?.title ?? null
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <span className="break-words font-medium text-foreground">{title ?? '未识别作品'}</span>
-      <span className="break-words text-xs text-muted-foreground">
+      <PrivacySensitiveText className="break-words font-medium text-foreground">
+        {title ?? '未识别作品'}
+      </PrivacySensitiveText>
+      <PrivacySensitiveText className="break-words text-xs text-muted-foreground">
         {item.artistName ?? '作者未知'}
         {item.externalId ? ` · Pixiv #${item.externalId}` : ''}
-      </span>
+      </PrivacySensitiveText>
       {item.artwork ? (
         <Button asChild variant="link" size="sm" className="h-auto w-fit p-0">
           <Link href={`/artworks/${item.artwork.id}`} target="_blank" rel="noreferrer">
@@ -823,9 +832,9 @@ function ArtworkIdentity({ item }: { item: SourceAuditItem }) {
 function DifferenceReason({ item }: { item: SourceAuditItem }) {
   return (
     <div className="flex flex-col gap-1 text-sm">
-      <span className="leading-5 text-foreground">
+      <PrivacySensitiveText className="leading-5 text-foreground">
         {item.reasonSummary ?? item.reasonCode ?? getSourceAuditClassificationMeta(item.classification).description}
-      </span>
+      </PrivacySensitiveText>
       {item.expectedExternalId || item.observedExternalId ? (
         <span className="text-xs text-muted-foreground">
           预期 {item.expectedExternalId ?? '—'} · 实际 {item.observedExternalId ?? '—'}

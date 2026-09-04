@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { Spinner } from '@/components/ui/spinner'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export interface ScheduledTaskView {
   key: string
@@ -280,14 +281,24 @@ export function JobStatus({
             )}
             <AdminStatusBadge status={job?.status || 'IDLE'}>{formatJobStatus(job?.status)}</AdminStatusBadge>
             {job?.message && (
-              <span className="hidden font-normal text-muted-foreground sm:inline">· {job.message}</span>
+              <span className="hidden font-normal text-muted-foreground sm:inline">
+                · <PrivacySensitiveText>{job.message}</PrivacySensitiveText>
+              </span>
             )}
           </div>
           <span className="font-medium tabular-nums text-muted-foreground">{job?.progress ?? 0}%</span>
         </div>
-        {job?.message && <p className="text-sm text-muted-foreground sm:hidden">{job.message}</p>}
+        {job?.message && (
+          <PrivacySensitiveText as="p" className="text-sm text-muted-foreground sm:hidden">
+            {job.message}
+          </PrivacySensitiveText>
+        )}
         <Progress value={job?.progress ?? 0} className="h-2" aria-label={`任务进度 ${job?.progress ?? 0}%`} />
-        {job?.error && <p className="mt-2 break-words text-sm font-medium text-destructive">错误：{job.error}</p>}
+        {job?.error && (
+          <p className="mt-2 break-words text-sm font-medium text-destructive">
+            错误：<PrivacySensitiveText>{job.error}</PrivacySensitiveText>
+          </p>
+        )}
       </div>
       {job?.status === 'COMPLETED' && completeContent && (
         <div className="border-t bg-muted/20 px-4 py-3 text-sm">{completeContent}</div>

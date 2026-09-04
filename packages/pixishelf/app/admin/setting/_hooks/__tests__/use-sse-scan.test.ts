@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, render, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -73,7 +73,10 @@ describe('useSseScan central queued event', () => {
 
     act(() => result.current.actions.startScan({}))
 
-    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('扫描任务失败', { description: '扫描目录不可访问' }))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('扫描任务失败', expect.anything()))
+    const { container } = render(mocks.toastError.mock.calls[0]?.[1].description)
+    const description = container.querySelector('[data-privacy-sensitive]')
+    expect(description?.textContent).toBe('扫描目录不可访问')
     expect(result.current.state.streaming).toBe(false)
   })
 
@@ -90,9 +93,10 @@ describe('useSseScan central queued event', () => {
 
     act(() => result.current.actions.startScan({}))
 
-    await waitFor(() =>
-      expect(mocks.toastError).toHaveBeenCalledWith('扫描任务提交失败', { description: 'Worker 暂不可用' })
-    )
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('扫描任务提交失败', expect.anything()))
+    const { container } = render(mocks.toastError.mock.calls[0]?.[1].description)
+    const description = container.querySelector('[data-privacy-sensitive]')
+    expect(description?.textContent).toBe('Worker 暂不可用')
     expect(result.current.state.streaming).toBe(false)
   })
 

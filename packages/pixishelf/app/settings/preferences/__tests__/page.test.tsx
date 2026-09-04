@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SettingsPreferencesPage from '../page'
 import { useUserSettingsStore } from '@/components/user-setting'
+import { useAuthStore } from '@/components/auth'
 
 const testState = vi.hoisted(() => ({
   execute: vi.fn()
@@ -80,7 +81,8 @@ describe('SettingsPreferencesPage media privacy setting', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     testState.execute.mockReset()
-    useUserSettingsStore.getState().hydrateSettings({ media_privacy_mode: false })
+    useAuthStore.getState().setUser(null)
+    useUserSettingsStore.getState().hydrateSettings({ media_privacy_mode: false }, null)
   })
 
   afterEach(() => {
@@ -91,7 +93,7 @@ describe('SettingsPreferencesPage media privacy setting', () => {
   it('updates the account setting locally and includes it in the debounced save', () => {
     render(<SettingsPreferencesPage />)
 
-    fireEvent.click(screen.getByRole('switch', { name: '媒体隐私模式' }))
+    fireEvent.click(screen.getByRole('switch', { name: '隐私模式' }))
 
     expect(useUserSettingsStore.getState().settings.media_privacy_mode).toBe(true)
     expect(screen.getByText('已开启')).toBeTruthy()
@@ -120,5 +122,19 @@ describe('SettingsPreferencesPage media privacy setting', () => {
     expect(testState.execute).toHaveBeenCalledWith({
       settings: [{ key: 'video_long_press_playback_rate', value: 2, type: 'number' }]
     })
+  })
+
+  it('discards a debounced save when the authenticated user changes', () => {
+    useAuthStore.getState().setUser({ id: 'user-1', name: 'User', email: null, image: null })
+    useUserSettingsStore.getState().hydrateSettings({ media_privacy_mode: false }, 'user-1')
+    render(<SettingsPreferencesPage />)
+
+    fireEvent.click(screen.getByRole('switch', { name: '隐私模式' }))
+    act(() => {
+      useAuthStore.getState().setUser({ id: 'user-2', name: 'Other', email: null, image: null })
+      vi.advanceTimersByTime(500)
+    })
+
+    expect(testState.execute).not.toHaveBeenCalled()
   })
 })

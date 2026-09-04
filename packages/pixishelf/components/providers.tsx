@@ -67,7 +67,10 @@ export function Providers({ children, initialUser, initialSettings }: ProvidersP
     <QueryClientProvider client={queryClient}>
       <TRPCClientProvider trpcClient={trpcClient} queryClient={queryClient}>
         <AuthProvider initialUser={initialUser}>
-          <UserSettingProvider initialSettings={initialSettings}>
+          <UserSettingProvider
+            initialSettings={initialSettings}
+            initialUserId={initialUser?.id == null ? null : String(initialUser.id)}
+          >
             <Suspense fallback={null}>
               <NavigationHistoryTracker />
             </Suspense>

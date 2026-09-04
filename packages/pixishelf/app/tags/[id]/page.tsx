@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import PageToolbar from '@/components/layout/page-toolbar'
 import { PageContainer } from '@/components/layout/page-container'
 import { PageHeader } from '@/components/layout/page-header'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 const serializeViewerQuery = createSerializer({
   source: parseAsString,
@@ -44,7 +45,11 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
       <PageToolbar
         containerSize="gallery"
         leading={<NavBack />}
-        title={<span className="line-clamp-1 text-sm font-semibold text-foreground">{tag.name}</span>}
+        title={
+          <PrivacySensitiveText className="line-clamp-1 text-sm font-semibold text-foreground">
+            {tag.name}
+          </PrivacySensitiveText>
+        }
       />
 
       <PageContainer as="main" size="gallery" className="flex flex-col gap-9 py-6 sm:py-8">
@@ -59,11 +64,13 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
           <PageHeader
             className="min-w-0 flex-1"
             eyebrow="标签档案"
-            title={tag.name}
-            description={tag.description || undefined}
+            title={<PrivacySensitiveText>{tag.name}</PrivacySensitiveText>}
+            description={
+              tag.description ? <PrivacySensitiveText>{tag.description}</PrivacySensitiveText> : undefined
+            }
             metadata={
               <div className="flex flex-wrap gap-x-5 gap-y-2">
-                {getTranslateName(tag) && <span>{getTranslateName(tag)}</span>}
+                {getTranslateName(tag) && <PrivacySensitiveText>{getTranslateName(tag)}</PrivacySensitiveText>}
                 <span className="inline-flex items-center gap-1.5">
                   <WallpaperIcon className="size-3.5" aria-hidden="true" />
                   {tag.artworkCount} 件作品
@@ -97,7 +104,9 @@ export default async function TagDetailPage({ params }: PageProps<'/tags/[id]'>)
               <BookOpenTextIcon className="size-4 text-primary" aria-hidden="true" />
               Pixpedia 简介
             </h2>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{tag.abstract}</p>
+            <PrivacySensitiveText as="p" className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">
+              {tag.abstract}
+            </PrivacySensitiveText>
           </section>
         )}
 

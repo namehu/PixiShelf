@@ -21,6 +21,7 @@ import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 const ACTIVE_BATCH_STATUSES = new Set(['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'])
 
@@ -133,7 +134,9 @@ export function PixivSeriesReconciliationDialog({
         ) : summaryQuery.isError ? (
           <Alert variant="destructive">
             <AlertTitle>无法读取系列核对状态</AlertTitle>
-            <AlertDescription>{summaryQuery.error.message}</AlertDescription>
+            <AlertDescription>
+              <PrivacySensitiveText>{summaryQuery.error.message}</PrivacySensitiveText>
+            </AlertDescription>
           </Alert>
         ) : (
           <div className="grid gap-4">

@@ -5,6 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { inferRouterOutputs } from '@trpc/server'
 import { ArchiveRestoreIcon, RefreshCwIcon, RotateCcwIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -136,16 +137,21 @@ export function IgnoredResults({
                         <ArchiveUploaderGalleryThumbnail key={item.id} item={item} onPreview={onPreview} />
                       ) : null}
                       <div className="min-w-0 flex-1">
-                        <p className="line-clamp-2 font-medium">{item.title}</p>
+                        <PrivacySensitiveText as="p" className="line-clamp-2 font-medium">
+                          {item.title}
+                        </PrivacySensitiveText>
                         <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
                           E-Hentai #{item.externalId}
                         </p>
                         <p className="mt-1 truncate text-xs text-muted-foreground sm:hidden">
-                          {item.sourceDisplayName} · {formatArchiveUploaderTimestamp(item.ignoredAt)}
+                          <PrivacySensitiveText>{item.sourceDisplayName}</PrivacySensitiveText> ·{' '}
+                          {formatArchiveUploaderTimestamp(item.ignoredAt)}
                         </p>
                       </div>
                     </div>
-                    <p className="hidden truncate text-sm text-muted-foreground sm:block">{item.sourceDisplayName}</p>
+                    <PrivacySensitiveText as="p" className="hidden truncate text-sm text-muted-foreground sm:block">
+                      {item.sourceDisplayName}
+                    </PrivacySensitiveText>
                     <p className="hidden whitespace-nowrap text-sm text-muted-foreground sm:block">
                       {formatArchiveUploaderTimestamp(item.ignoredAt)}
                     </p>

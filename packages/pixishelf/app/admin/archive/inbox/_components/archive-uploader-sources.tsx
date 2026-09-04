@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -432,7 +433,7 @@ export function ArchiveUploaderSources() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex flex-wrap items-center gap-2">
-                      {source.displayName}
+                      <PrivacySensitiveText>{source.displayName}</PrivacySensitiveText>
                       {!source.titleQuery && source.uidBindingState === 'UNBOUND' ? (
                         <Badge variant="warning">未绑定 UID</Badge>
                       ) : null}
@@ -443,7 +444,8 @@ export function ArchiveUploaderSources() {
                     <CardDescription className="flex flex-wrap items-center gap-2">
                       {source.titleQuery ? (
                         <span>
-                          标题{ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「{source.titleQuery.keyword}」 ·{' '}
+                          标题{ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「
+                          <PrivacySensitiveText>{source.titleQuery.keyword}</PrivacySensitiveText>」 ·{' '}
                           {source.titleQuery.uploaderUid ? `UID ${source.titleQuery.uploaderUid}` : '不限上传者'}
                         </span>
                       ) : source.uploaderUid ? (
@@ -460,7 +462,9 @@ export function ArchiveUploaderSources() {
                           </Button>
                         </>
                       ) : (
-                        <span>按名称：{source.identityValue}</span>
+                        <span>
+                          按名称：<PrivacySensitiveText>{source.identityValue}</PrivacySensitiveText>
+                        </span>
                       )}
                       <span>
                         {source.lastSuccessAt
@@ -477,7 +481,10 @@ export function ArchiveUploaderSources() {
                         <Spinner aria-hidden="true" />
                         <span>
                           {activeRun.mode === 'LATEST' ? '最新扫描' : '更早内容扫描'} ·{' '}
-                          {scanIdentityLabel(activeRun.searchIdentityKind, activeRun.searchIdentityValue)} ·{' '}
+                          <PrivacySensitiveText>
+                            {scanIdentityLabel(activeRun.searchIdentityKind, activeRun.searchIdentityValue)}
+                          </PrivacySensitiveText>{' '}
+                          ·{' '}
                           {formatArchiveUploaderTimestamp(activeRun.createdAt)}
                         </span>
                         <Badge variant="warning">{scanRunStatusLabel(activeRun.status)}</Badge>
@@ -485,7 +492,10 @@ export function ArchiveUploaderSources() {
                     ) : latestRun ? (
                       <p className="text-sm text-muted-foreground">
                         最近运行 · {latestRun.mode === 'LATEST' ? '最新扫描' : '更早内容'} ·{' '}
-                        {scanIdentityLabel(latestRun.searchIdentityKind, latestRun.searchIdentityValue)} ·{' '}
+                        <PrivacySensitiveText>
+                          {scanIdentityLabel(latestRun.searchIdentityKind, latestRun.searchIdentityValue)}
+                        </PrivacySensitiveText>{' '}
+                        ·{' '}
                         {formatArchiveUploaderTimestamp(latestRun.createdAt)} · {scanRunStatusLabel(latestRun.status)} ·{' '}
                         {source.titleQuery
                           ? `检查 ${latestRun.checkedCount} 条，匹配 ${latestRun.matchedCount} 条`
@@ -619,7 +629,7 @@ export function ArchiveUploaderSources() {
                   ) : (
                     <Alert variant="destructive">
                       <AlertTitle>上次扫描未完成</AlertTitle>
-                      <AlertDescription>{source.lastErrorMessage}</AlertDescription>
+                      <PrivacySensitiveText as={AlertDescription}>{source.lastErrorMessage}</PrivacySensitiveText>
                     </Alert>
                   )
                 ) : null}
@@ -921,13 +931,15 @@ function ScanResults({
                       ) : null}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
-                          <p className="line-clamp-2 font-medium">{item.title}</p>
+                          <PrivacySensitiveText as="p" className="line-clamp-2 font-medium">
+                            {item.title}
+                          </PrivacySensitiveText>
                           <span className="shrink-0 sm:hidden">
                             <CatalogStatusBadge item={item} />
                           </span>
                         </div>
                         <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                          E-Hentai #{item.externalId} · {item.displayUrl}
+                          E-Hentai #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground sm:hidden">
                           {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
@@ -939,7 +951,9 @@ function ScanResults({
                         ) : item.workflowStage === 'ARCHIVED' && !item.comparisonKnown ? (
                           <p className="mt-1 text-xs text-muted-foreground">旧记录缺少比较快照，下次扫描会补齐</p>
                         ) : item.errorMessage ? (
-                          <p className="mt-1 line-clamp-2 text-xs text-destructive">{item.errorMessage}</p>
+                          <PrivacySensitiveText as="p" className="mt-1 line-clamp-2 text-xs text-destructive">
+                            {item.errorMessage}
+                          </PrivacySensitiveText>
                         ) : null}
                       </div>
                     </div>

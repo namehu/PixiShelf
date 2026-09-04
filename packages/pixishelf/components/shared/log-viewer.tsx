@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Label } from '@/components/ui/label'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface LogViewerProps {
   logs: LogEntry[]
@@ -46,7 +47,7 @@ const LogItem = memo(({ log }: { log: LogEntry }) => (
     >
       {log.level?.toUpperCase() || 'INFO'}
     </span>
-    <span
+    <PrivacySensitiveText
       className={cn(
         'min-w-0 break-all whitespace-pre-wrap pt-px',
         log.level === 'error' ? 'text-red-200' : 'text-neutral-300',
@@ -54,7 +55,7 @@ const LogItem = memo(({ log }: { log: LogEntry }) => (
       )}
     >
       {log.message}
-    </span>
+    </PrivacySensitiveText>
   </div>
 ))
 

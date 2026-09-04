@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export function ArchiveDefaultTagBackfillControl({
   hasDefaultTags,
@@ -132,7 +133,9 @@ export function ArchiveDefaultTagBackfillControl({
               <Alert variant="destructive" role="alert">
                 <AlertTriangle aria-hidden="true" />
                 <AlertTitle>无法生成补全预览</AlertTitle>
-                <AlertDescription>{previewQuery.error.message}</AlertDescription>
+                <AlertDescription>
+                  <PrivacySensitiveText>{previewQuery.error.message}</PrivacySensitiveText>
+                </AlertDescription>
               </Alert>
             ) : preview ? (
               <>
@@ -240,7 +243,11 @@ function ActiveBackfillProgress({
         <span>新增关系 {job.checkpoint?.addedRelations ?? 0}</span>
         <span>已存在 {job.checkpoint?.existingRelations ?? 0}</span>
       </div>
-      {job.message ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{job.message}</p> : null}
+      {job.message ? (
+        <PrivacySensitiveText as="p" className="mt-2 text-xs leading-5 text-muted-foreground">
+          {job.message}
+        </PrivacySensitiveText>
+      ) : null}
     </div>
   )
 }
@@ -280,7 +287,11 @@ function LatestBackfillSummary({
       {job.result?.skippedTagIds.length ? (
         <p className="mt-1">已跳过标签 ID：{job.result.skippedTagIds.join('、')}</p>
       ) : null}
-      {job.error || job.message ? <p className="mt-1 leading-5">{job.error || job.message}</p> : null}
+      {job.error || job.message ? (
+        <PrivacySensitiveText as="p" className="mt-1 leading-5">
+          {job.error || job.message}
+        </PrivacySensitiveText>
+      ) : null}
     </div>
   )
 }

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { archiveClientErrorMessage } from './archive-client-error'
 import {
   archiveItemPollingIntervals,
@@ -133,7 +134,15 @@ export function ArchiveItemDrawer({
     <SSheet
       open={open}
       onOpenChange={onOpenChange}
-      title={task?.title || (task ? `${task.providerKey} #${task.externalId}` : '图片明细')}
+      title={
+        task?.title ? (
+          <PrivacySensitiveText>{task.title}</PrivacySensitiveText>
+        ) : task ? (
+          `${task.providerKey} #${task.externalId}`
+        ) : (
+          '图片明细'
+        )
+      }
       description={
         task
           ? `${task.providerKey} #${task.externalId} · 成功 ${task.completedItems} · 失败 ${task.failedItems} · 共 ${task.totalItems} 张`
@@ -280,19 +289,28 @@ function ArchiveItemCard({
         )}
       </div>
 
-      <p className="break-all text-sm text-muted-foreground">图片页来源：{item.sourcePageUrl}</p>
+      <p className="break-all text-sm text-muted-foreground">
+        图片页来源：<PrivacySensitiveText>{item.sourcePageUrl}</PrivacySensitiveText>
+      </p>
 
-      <p className="break-all text-xs text-muted-foreground">预期文件名：{item.expectedFilename}</p>
+      <p className="break-all text-xs text-muted-foreground">
+        预期文件名：<PrivacySensitiveText>{item.expectedFilename}</PrivacySensitiveText>
+      </p>
       {(item.errorStage || item.remoteHost) && (
         <p className="break-all text-xs text-warning-foreground">
           失败位置：{failureStageLabel(item.errorStage)}
-          {item.remoteHost ? ` · ${item.remoteHost}` : ''}
+          {item.remoteHost ? (
+            <>
+              {' · '}
+              <PrivacySensitiveText>{item.remoteHost}</PrivacySensitiveText>
+            </>
+          ) : null}
         </p>
       )}
       {item.errorMessage && (
         <p className="whitespace-pre-wrap break-words text-sm text-destructive">
           {item.errorCode ? `${item.errorCode}：` : ''}
-          {item.errorMessage}
+          <PrivacySensitiveText>{item.errorMessage}</PrivacySensitiveText>
         </p>
       )}
     </div>

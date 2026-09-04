@@ -6,6 +6,7 @@ import type React from 'react'
 import type { ImageListItem } from './types'
 import { VideoKeyframePanel } from './video-keyframe-panel'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface MediaVideoMetadataDialogProps {
   open: boolean
@@ -53,13 +54,25 @@ function formatAudioState(hasAudio?: boolean | null) {
   return '未知'
 }
 
-function DetailRow({ label, value, title }: { label: string; value: React.ReactNode; title?: string }) {
+function DetailRow({
+  label,
+  value,
+  privacySensitive = false
+}: {
+  label: string
+  value: React.ReactNode
+  privacySensitive?: boolean
+}) {
   return (
     <div className="grid grid-cols-[96px_1fr] gap-3 border-b border-border py-2 last:border-b-0">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="min-w-0 text-sm text-foreground" title={title}>
-        {value ?? '-'}
-      </div>
+      {privacySensitive ? (
+        <PrivacySensitiveText as="div" className="min-w-0 text-sm text-foreground">
+          {value ?? '-'}
+        </PrivacySensitiveText>
+      ) : (
+        <div className="min-w-0 text-sm text-foreground">{value ?? '-'}</div>
+      )}
     </div>
   )
 }
@@ -73,18 +86,18 @@ export function MediaVideoMetadataDialog({ open, image, onOpenChange }: MediaVid
       open={open}
       onOpenChange={onOpenChange}
       title="视频媒体详情"
-      description={image?.path || '视频媒体详情'}
+      description={image?.path ? <PrivacySensitiveText>{image.path}</PrivacySensitiveText> : '视频媒体详情'}
       width={560}
     >
       {image ? (
         <div className="flex flex-col gap-4">
           <div className="rounded-md border border-border bg-muted/50 p-3">
-            <div className="truncate text-sm font-medium text-foreground" title={image.path}>
+            <PrivacySensitiveText as="div" className="truncate text-sm font-medium text-foreground">
               {image.path.split('/').pop()}
-            </div>
-            <div className="mt-1 truncate text-xs text-muted-foreground" title={image.path}>
+            </PrivacySensitiveText>
+            <PrivacySensitiveText as="div" className="mt-1 truncate text-xs text-muted-foreground">
               {image.path}
-            </div>
+            </PrivacySensitiveText>
           </div>
 
           <div>
@@ -103,7 +116,7 @@ export function MediaVideoMetadataDialog({ open, image, onOpenChange }: MediaVid
                 <DetailRow
                   label="失败原因"
                   value={<span className="block max-h-24 overflow-auto text-destructive">{image.probeError}</span>}
-                  title={image.probeError}
+                  privacySensitive
                 />
               )}
             </div>
@@ -131,7 +144,7 @@ export function MediaVideoMetadataDialog({ open, image, onOpenChange }: MediaVid
               <DetailRow label="章节状态" value={image.hasChapters ? '已关联' : '未关联'} />
               <DetailRow label="章节数量" value={image.chaptersCount ?? 0} />
               <DetailRow label="章节时长" value={formatDuration(image.chaptersDuration)} />
-              <DetailRow label="章节文件" value={chapterFileName || '-'} title={image.chaptersPath || undefined} />
+              <DetailRow label="章节文件" value={chapterFileName || '-'} privacySensitive />
             </div>
           </div>
 

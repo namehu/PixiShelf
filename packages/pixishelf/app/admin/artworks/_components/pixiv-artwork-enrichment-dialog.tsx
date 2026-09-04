@@ -21,6 +21,7 @@ import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 const ACTIVE_BATCH_STATUSES = new Set(['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'])
 
@@ -156,7 +157,9 @@ export function PixivArtworkEnrichmentDialog({
         ) : summaryQuery.isError ? (
           <Alert variant="destructive">
             <AlertTitle>无法读取同步状态</AlertTitle>
-            <AlertDescription>{summaryQuery.error.message}</AlertDescription>
+            <AlertDescription>
+              <PrivacySensitiveText>{summaryQuery.error.message}</PrivacySensitiveText>
+            </AlertDescription>
           </Alert>
         ) : (
           <div className="grid gap-4">
@@ -307,7 +310,7 @@ function SelectedArtworkSummary({ artworks }: { artworks: SelectedArtwork[] }) {
       <div className="flex flex-wrap gap-1.5" aria-label="已选择的作品">
         {visible.map((artwork) => (
           <Badge key={artwork.id} variant="outline" className="max-w-48 truncate font-normal">
-            {artwork.title}
+            <PrivacySensitiveText>{artwork.title}</PrivacySensitiveText>
           </Badge>
         ))}
         {artworks.length > visible.length ? (

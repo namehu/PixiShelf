@@ -1,6 +1,6 @@
 import { ROUTES } from '@/lib/constants'
 
-const EXEMPT_ROUTE_PREFIXES = [ROUTES.ADMIN, ROUTES.LOGIN, '/api'] as const
+const EXEMPT_ROUTE_PREFIXES = [ROUTES.LOGIN, '/api', '/settings'] as const
 
 function matchesRoute(pathname: string, route: string) {
   return pathname === route || pathname.startsWith(`${route}/`)

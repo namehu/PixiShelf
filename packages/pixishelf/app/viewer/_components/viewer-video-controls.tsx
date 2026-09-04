@@ -16,6 +16,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 import type { ViewerMediaItem } from '@/types/images'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 const videoNavigationTabPreferences = new Map<number, VideoNavigationTab>()
 
@@ -281,7 +282,15 @@ export default function ViewerVideoControls({
                 <ListVideoIcon className="size-3.5 shrink-0" />
               )}
               <span className="max-w-20 truncate max-[360px]:hidden">
-                {bothAvailable ? '视频导航' : keyframesAvailable ? '画面' : currentChapter?.title || '章节'}
+                {bothAvailable ? (
+                  '视频导航'
+                ) : keyframesAvailable ? (
+                  '画面'
+                ) : currentChapter ? (
+                  <PrivacySensitiveText>{currentChapter.title}</PrivacySensitiveText>
+                ) : (
+                  '章节'
+                )}
               </span>
             </button>
           )}

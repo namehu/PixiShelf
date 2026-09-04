@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
 
 export interface ArchiveUploaderPreviewItem {
@@ -100,7 +101,9 @@ export function ArchiveUploaderGalleryPreviewDialog({
     <Dialog open={Boolean(item)} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>{item?.title ?? '首图预览'}</DialogTitle>
+          <DialogTitle>
+            {item ? <PrivacySensitiveText>{item.title}</PrivacySensitiveText> : '首图预览'}
+          </DialogTitle>
           <DialogDescription>{item ? `E-Hentai #${item.externalId} · 扫描结果首图` : '扫描结果首图'}</DialogDescription>
         </DialogHeader>
         {item?.thumbnailUrl ? (

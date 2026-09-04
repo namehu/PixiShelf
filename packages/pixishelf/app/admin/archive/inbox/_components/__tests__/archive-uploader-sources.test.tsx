@@ -329,6 +329,32 @@ describe('ArchiveUploaderSources', () => {
     await waitFor(() => expect(mocks.writeClipboard).toHaveBeenCalledWith('123'))
   })
 
+  it('marks discovery source metadata and error details as privacy sensitive', () => {
+    const sensitiveSource = {
+      ...source,
+      displayName: 'Private uploader',
+      lastErrorCode: 'REMOTE_RESPONSE_INVALID',
+      lastErrorMessage: 'Private gallery scan failed'
+    }
+    currentSourcesData = [{ ...sensitiveSource, latestRun: activeRun }]
+    currentDetailData = { source: sensitiveSource, runs: [activeRun, completedRun] }
+
+    render(<ArchiveUploaderSources />)
+
+    for (const element of screen.getAllByText('Private uploader')) {
+      expect(element.getAttribute('data-privacy-sensitive')).toBe('')
+    }
+    expect(screen.getByText('Gallery 302').getAttribute('data-privacy-sensitive')).toBe('')
+    expect(screen.getByText('https://e-hentai.org/g/302/[redacted]/').getAttribute('data-privacy-sensitive')).toBe('')
+    expect(screen.getByText('Private gallery scan failed').getAttribute('data-privacy-sensitive')).toBe('')
+
+    fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    expect(screen.getByText('Ignored Gallery 301').getAttribute('data-privacy-sensitive')).toBe('')
+    const uidLabels = screen.getAllByText('UID 123')
+    expect(uidLabels.some((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
+    expect(uidLabels.some((element) => !element.hasAttribute('data-privacy-sensitive'))).toBe(true)
+  })
+
   it('binds an unbound NAME source through a two-step confirmation', () => {
     const unboundSource = {
       ...source,
@@ -348,7 +374,10 @@ describe('ArchiveUploaderSources', () => {
     fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '000456' } })
     fireEvent.click(screen.getByRole('button', { name: '检查变更' }))
 
-    expect(screen.getByText(/alice → UID 456/)).toBeTruthy()
+    const confirmationName = screen
+      .getAllByText('alice')
+      .find((element) => element.parentElement?.textContent?.includes('→ UID 456'))
+    expect(confirmationName?.getAttribute('data-privacy-sensitive')).toBe('')
     fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
     expect(mocks.setUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1', uploaderUid: '456' })
   })
@@ -372,7 +401,10 @@ describe('ArchiveUploaderSources', () => {
 
     expect(mocks.matchUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1' })
     expect((screen.getByLabelText('上传者 UID') as HTMLInputElement).value).toBe('456')
-    expect(screen.getByText(/已由 alice 的画廊 GID 302 验证/)).toBeTruthy()
+    const evidenceName = screen
+      .getAllByText('alice')
+      .find((element) => element.parentElement?.textContent?.includes('画廊 GID 302 验证'))
+    expect(evidenceName?.getAttribute('data-privacy-sensitive')).toBe('')
     expect(mocks.setUploaderUid).not.toHaveBeenCalled()
   })
 

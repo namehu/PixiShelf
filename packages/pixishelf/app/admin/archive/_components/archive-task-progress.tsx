@@ -1,4 +1,5 @@
 import { Progress } from '@/components/ui/progress'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { archiveTaskDisplayStatus, archiveTaskStatusLabel } from './archive-task-view-state'
 
 interface ArchiveTaskProgressValue {
@@ -20,14 +21,24 @@ export function TaskProgress({ task, compact = false }: { task: ArchiveTaskProgr
     <div className={compact ? 'flex w-56 min-w-0 flex-col gap-1.5' : 'flex w-full min-w-0 flex-col gap-1.5'}>
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
         <span className={compact ? 'max-w-20 min-w-0 flex-1 truncate' : 'min-w-0 flex-1 truncate'}>
-          {task.message || archiveTaskStatusLabel(displayStatus, task.errorCode)}
+          {task.message ? (
+            <PrivacySensitiveText>{task.message}</PrivacySensitiveText>
+          ) : (
+            archiveTaskStatusLabel(displayStatus, task.errorCode)
+          )}
         </span>
         <span className="tabular-nums">{task.progress}%</span>
       </div>
       <Progress value={task.progress} aria-label={`${task.title || task.externalId} 完成 ${task.progress}%`} />
-      {task.warning && <p className="line-clamp-2 whitespace-pre-wrap text-xs text-warning">{task.warning}</p>}
+      {task.warning && (
+        <PrivacySensitiveText as="p" className="line-clamp-2 whitespace-pre-wrap text-xs text-warning">
+          {task.warning}
+        </PrivacySensitiveText>
+      )}
       {task.errorMessage && (
-        <p className="line-clamp-2 whitespace-pre-wrap text-xs text-destructive">{task.errorMessage}</p>
+        <PrivacySensitiveText as="p" className="line-clamp-2 whitespace-pre-wrap text-xs text-destructive">
+          {task.errorMessage}
+        </PrivacySensitiveText>
       )}
       {task.retainUntil && task.status !== 'COMPLETED' && (
         <p className="text-xs text-muted-foreground">暂存保留至 {formatTaskTime(task.retainUntil)}</p>

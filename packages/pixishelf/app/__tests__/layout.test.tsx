@@ -77,7 +77,7 @@ describe('RootLayout media privacy state', () => {
     expect(mocks.getUserSettings).toHaveBeenCalledWith('user-1')
   })
 
-  it('server-renders the warning blocker for privacy-off non-admin pages', async () => {
+  it('server-renders the warning blocker for privacy-off browsing pages', async () => {
     mocks.headers.mockResolvedValue(
       new Headers({
         'x-pathname': '/dashboard',
@@ -99,10 +99,32 @@ describe('RootLayout media privacy state', () => {
     expect(getProtectedContent(layout)?.props['aria-hidden']).toBe(true)
   })
 
-  it('does not server-render the warning blocker for admin pages', async () => {
+  it('server-renders the warning blocker for privacy-off admin pages', async () => {
     mocks.headers.mockResolvedValue(
       new Headers({
         'x-pathname': '/admin/artworks',
+        'x-user-session': JSON.stringify({
+          userId: 'user-1',
+          username: 'tester',
+          name: 'Tester',
+          email: 'tester@example.com',
+          image: null
+        })
+      })
+    )
+    mocks.getUserSettings.mockResolvedValue({ media_privacy_mode: false })
+
+    const layout = await rootLayout({ children: <div /> })
+
+    expect(getContentWarningAttribute(layout)).toBe('pending')
+    expect(getProtectedContent(layout)?.props.inert).toBe(true)
+    expect(getProtectedContent(layout)?.props['aria-hidden']).toBe(true)
+  })
+
+  it('keeps the settings subtree available while privacy mode is disabled', async () => {
+    mocks.headers.mockResolvedValue(
+      new Headers({
+        'x-pathname': '/settings/preferences',
         'x-user-session': JSON.stringify({
           userId: 'user-1',
           username: 'tester',

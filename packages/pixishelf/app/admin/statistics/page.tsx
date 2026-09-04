@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { ROUTES } from '@/lib/constants'
 import { Progress } from '@/components/ui/progress'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { PageState } from '@/components/layout/page-state'
 import { AdminMetric, AdminSection, AdminSectionHeader, AdminWorkbench } from '../_components/admin-workbench'
 
@@ -160,9 +161,9 @@ function Leaderboard({
                     <span className="font-utility flex size-6 shrink-0 items-center justify-center rounded bg-muted text-xs font-medium text-muted-foreground tabular-nums">
                       {index + 1}
                     </span>
-                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground group-hover:text-primary">
+                    <PrivacySensitiveText className="min-w-0 flex-1 truncate text-sm font-medium text-foreground group-hover:text-primary">
                       {item.name}
-                    </span>
+                    </PrivacySensitiveText>
                     <span className="font-utility shrink-0 text-sm font-semibold text-foreground tabular-nums">{item.count}</span>
                   </span>
                   <Progress className="mt-2 h-1.5" value={percentage} aria-label={`${item.name}：${item.count}`} />

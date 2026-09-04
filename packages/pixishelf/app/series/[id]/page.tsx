@@ -9,6 +9,7 @@ import { PageContainer } from '@/components/layout/page-container'
 import { PageHeader } from '@/components/layout/page-header'
 import { PageState } from '@/components/layout/page-state'
 import { SectionHeader } from '@/components/layout/section-header'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface PageProps {
   params: Promise<{ id: string }>
@@ -27,7 +28,9 @@ export default async function SeriesDetailPage({ params }: PageProps) {
       <PageToolbar
         containerSize="gallery"
         leading={<PageBackButton fallbackHref="/series" label="返回系列列表" />}
-        title={<span className="line-clamp-1 text-sm font-semibold">{series.title}</span>}
+        title={
+          <PrivacySensitiveText className="line-clamp-1 text-sm font-semibold">{series.title}</PrivacySensitiveText>
+        }
       />
 
       <PageContainer as="main" size="gallery" className="flex flex-col gap-9 py-6 sm:py-8">
@@ -45,8 +48,14 @@ export default async function SeriesDetailPage({ params }: PageProps) {
           <PageHeader
             className="h-full"
             eyebrow="系列档案"
-            title={series.title}
-            description={series.description || '这个系列暂时没有描述。'}
+            title={<PrivacySensitiveText>{series.title}</PrivacySensitiveText>}
+            description={
+              series.description ? (
+                <PrivacySensitiveText>{series.description}</PrivacySensitiveText>
+              ) : (
+                '这个系列暂时没有描述。'
+              )
+            }
             metadata={`${series.artworks.length} 件作品 · ${series.updatedAt.toLocaleDateString('zh-CN')} 更新`}
           />
         </div>

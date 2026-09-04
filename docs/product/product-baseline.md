@@ -1,11 +1,13 @@
 ---
 status: current
 scope: PixiShelf 的目标用户、核心场景、产品范围、非目标和长期产品承诺
-last-verified: 2026-08-19
+last-verified: 2026-09-03
 sources:
   - README.md
   - CONTEXT.md
   - packages/pixishelf/app/
+  - packages/pixishelf/components/content-warning/
+  - packages/pixishelf/components/privacy/
   - packages/pixishelf-db/prisma/schema.prisma
   - docs/adr/
 ---
@@ -63,6 +65,12 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 - 支持图片、动画和视频展示；
 - 管理面提供扫描、归档、媒体管理、批量操作、任务状态和审计历史；
 - 桌面端是复杂管理操作的主要界面，移动端优先保证浏览和轻量整理。
+
+### 隐私显示
+
+- 隐私模式在浏览区、管理区和浮层中统一遮蔽图片、视频、Canvas，以及作品标题、描述、作者、系列、标签、文件路径、来源地址、归档文件名、领域日志和错误详情等敏感只读信息；
+- 登录、API 与整个用户设置区不触发 R18 进入提示，以便用户随时调整隐私模式；已登录用户在隐私模式关闭时进入其余页面，需要选择开启隐私模式或确认成年后以原始状态继续本次访问；
+- 隐私模式只提供本机屏幕上的视觉保护，不停止数据和媒体加载，不改变复制、导出或编辑保存的真实值，也不构成认证、授权或访问控制边界。
 
 ### 后台处理
 

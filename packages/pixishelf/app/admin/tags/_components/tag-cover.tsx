@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export interface TagCoverTarget {
   name: string
@@ -69,7 +70,7 @@ export function TagCoverPreviewDialog({
     <Dialog open={Boolean(tag)} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-hidden p-0 sm:max-w-3xl">
         <DialogHeader className="px-6 pt-6">
-          <DialogTitle>{tag?.name || '标签封面'}</DialogTitle>
+          <DialogTitle>{tag ? <PrivacySensitiveText>{tag.name}</PrivacySensitiveText> : '标签封面'}</DialogTitle>
           <DialogDescription>Pixiv 标签封面</DialogDescription>
         </DialogHeader>
         <div className="relative aspect-[16/10] min-h-72 w-full bg-neutral-950">

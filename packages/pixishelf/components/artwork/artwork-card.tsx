@@ -9,6 +9,7 @@ import { useMemo } from 'react'
 import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from './preferred-tag'
 import MediaThumbnail from '@/components/media/media-thumbnail'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ArtworkCardProps {
   artwork: ArtworkCardData
@@ -53,7 +54,7 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
 
         {preferredTag && (
           <div className="absolute top-2 left-2 max-w-[72%] rounded-sm bg-destructive px-2 py-0.5 text-[10px] leading-tight font-semibold text-destructive-foreground">
-            <span className="block truncate">{preferredTag}</span>
+            <PrivacySensitiveText className="block truncate">{preferredTag}</PrivacySensitiveText>
           </div>
         )}
 
@@ -78,13 +79,13 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
       {/* 作品信息 */}
       {displayMode !== 'minimal' && (
         <div className="mt-2 flex min-w-0 flex-col gap-0.5 px-0.5">
-          <h3 className="truncate text-sm leading-5 font-semibold text-foreground" title={title}>
+          <PrivacySensitiveText as="h3" className="truncate text-sm leading-5 font-semibold text-foreground">
             {title || '未命名作品'}
-          </h3>
+          </PrivacySensitiveText>
           {name && (
-            <p className="truncate text-xs leading-5 text-muted-foreground" title={name}>
+            <PrivacySensitiveText as="p" className="truncate text-xs leading-5 text-muted-foreground">
               {name}
-            </p>
+            </PrivacySensitiveText>
           )}
         </div>
       )}

@@ -448,7 +448,7 @@ describe('background task console', () => {
     expect(screen.getByText('补全批次')).toBeTruthy()
     expect(screen.getAllByText('批次执行中')).toHaveLength(2)
     expect(screen.getByText('已处理 3/10，剩余 7')).toBeTruthy()
-    expect(screen.getByText('当前：准备查询标签 間ジグレ')).toBeTruthy()
+    expect(screen.getByText('准备查询标签 間ジグレ').closest('p')?.textContent).toBe('当前：准备查询标签 間ジグレ')
     expect(screen.getByText('已处理 3/10 · 剩余 7')).toBeTruthy()
     expect(screen.queryByText('已完成')).toBeNull()
 
@@ -719,7 +719,7 @@ describe('background task console', () => {
         onRetryDetail={retry}
       />
     )
-    expect(screen.getByText('任务详情刷新失败：detail unavailable')).toBeTruthy()
+    expect(screen.getByText('detail unavailable').closest('p')?.textContent).toBe('任务详情刷新失败：detail unavailable')
     expect(screen.getByText(/当前显示最近一次队列快照/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '重试任务详情' }))
     expect(retry).toHaveBeenCalledOnce()
@@ -742,7 +742,7 @@ describe('background task console', () => {
       />
     )
 
-    expect(screen.getByText('事件读取失败：event stream unavailable')).toBeTruthy()
+    expect(screen.getByText('event stream unavailable').closest('p')?.textContent).toBe('事件读取失败：event stream unavailable')
     fireEvent.click(screen.getByRole('button', { name: '重试事件查询' }))
     expect(mocks.eventQuery.refetch).toHaveBeenCalledOnce()
 
