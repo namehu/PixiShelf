@@ -273,6 +273,28 @@ describe('background dashboard query hooks', () => {
     ).toBe(true)
   })
 
+  it('does not refetch the event page when live patches replace the same job object', async () => {
+    mocks.live.status = 'connected'
+    mocks.live.readyVersion = 1
+    mocks.fetchEvents.mockResolvedValue({ items: [], lastEventId: null })
+
+    const { rerender } = renderHook(({ job }) => useBackgroundJobEvents(job), {
+      initialProps: { job: createJob('stable-job', 'RUNNING') },
+      wrapper: createWrapper()
+    })
+    await flushQueries()
+    const initialRequestCount = mocks.fetchEvents.mock.calls.length
+
+    for (let index = 1; index <= 3; index += 1) {
+      const patchedJob = createJob('stable-job', 'RUNNING', `2026-08-17T02:00:0${index}.000Z`)
+      mocks.live.items = [createStreamItem(patchedJob, createEvent('stable-job', index))]
+      rerender({ job: patchedJob })
+      await flushQueries()
+    }
+
+    expect(mocks.fetchEvents).toHaveBeenCalledTimes(initialRequestCount)
+  })
+
   it('drains more than 100 terminal events to an empty page, resumes after failure, and then stops', async () => {
     const events = Array.from({ length: 120 }, (_, index) => createEvent('terminal', index + 1))
     let failSecondPage = true

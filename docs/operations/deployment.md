@@ -51,6 +51,10 @@ sources:
 | 宿主机 Next.js | `packages/pixishelf/.env.local` | `127.0.0.1:5432` 或 `localhost:5432`   |
 | Docker Compose | `build/.env`                    | Compose 在容器内覆盖为 `postgres:5432` |
 
+动画识别使用可选环境变量 `ANIMATION_SCAN_CONCURRENCY`（整数 1–8，默认 4）。生产首次发布或存储介质
+变化后先以 1 运行代表性样本，再以 4 比较相同分类结果和吞吐；提升不足 20% 时保持 1。该变量只控制
+任务内部探测池，不改变双 lane 或 writer 单任务约束。
+
 必须核对：
 
 - `POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 与 `DATABASE_URL` 一致；

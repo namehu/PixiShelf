@@ -5,6 +5,7 @@ import type {
   EnqueuedChildJob,
   ExecutionContext,
   ExecutionFence,
+  ExecutionProgressMutationResult,
   ExecutionProgressUpdate,
   FencedExecutionTransaction,
   QueueSqlExecutor
@@ -33,6 +34,10 @@ export interface DispatcherQueuePort {
     fence: ExecutionFence,
     operation: (transaction: TTransaction) => Promise<TResult>
   ): Promise<TResult>
+  withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<ExecutionProgressMutationResult<TResult>>
+  ): Promise<ExecutionProgressMutationResult<TResult>>
   withFencedExecutionTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor>(
     fence: ExecutionFence,
     operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<void>
@@ -298,6 +303,7 @@ export class CentralDispatcher {
       progress: progressReporter.report,
       enqueueChild: (request) => this.options.queue.enqueueChild(fence, request),
       mutateInTransaction: (operation) => this.options.queue.withFencedMutationTransaction(fence, operation),
+      checkpointInTransaction: progressReporter.checkpoint,
       finalizeInTransaction: async (operation) => {
         if (fencedFinalizationStarted) {
           throw new Error(`Execution ${job.id} already started fenced transaction finalization`)
@@ -709,6 +715,9 @@ function createProgressReporter(
   timing: DispatcherTiming,
   defaultPolicy: 'STANDARD' | 'REALTIME'
 ) {
+  // `pending` is the latest suppressed snapshot, not a counter of skipped
+  // writes. Keeping it lets a stage/terminal flush expose the freshest state
+  // without turning every executor callback into a database write.
   let lastPersisted: { progress: number; stage?: string | null; at: number } | null = null
   let pending: ExecutionProgressUpdate | null = null
   let tail = Promise.resolve()
@@ -741,6 +750,8 @@ function createProgressReporter(
       !lastPersisted || (Math.abs(update.progress - lastPersisted.progress) >= 5 && elapsed >= 5_000)
     const fallbackReady = elapsed >= 30_000
     const policy = update.persistenceMode ?? defaultPolicy
+    // REALTIME is a wall-clock guarantee for ordinary snapshots; STANDARD is
+    // intentionally quieter but still has a 30-second upper bound on silence.
     const intervalReady = policy === 'REALTIME' ? elapsed >= 2_000 : percentageReady || fallbackReady
     if (update.forcePersistence || update.progress === 100 || stageChanged || isWarning || intervalReady) {
       try {
@@ -759,14 +770,39 @@ function createProgressReporter(
     pending = update
   }
 
-  const enqueue = (operation: () => Promise<void>) => {
+  const enqueue = <T>(operation: () => Promise<T>) => {
     const result = tail.then(operation)
-    tail = result.catch(() => undefined)
+    tail = result.then(
+      () => undefined,
+      () => undefined
+    )
     return result
   }
 
   return {
     report: (update: ExecutionProgressUpdate) => enqueue(() => reportInternal(update)),
+    checkpoint: <TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+      operation: (transaction: TTransaction) => Promise<ExecutionProgressMutationResult<TResult>>
+    ) =>
+      enqueue(async () => {
+        // Any suppressed snapshot predates the domain mutation about to commit;
+        // it must never be replayed over the newer durable checkpoint.
+        pending = null
+        const checkpoint = await queue.withFencedProgressTransaction<TTransaction, TResult>(fence, operation)
+        // The repository committed the domain state, job row and matching event
+        // together, so this snapshot is already both durable and published;
+        // do not send it through persist() a second time.
+        lastPersisted = {
+          progress: checkpoint.update.progress,
+          ...(checkpoint.update.stage === undefined
+            ? lastPersisted?.stage === undefined
+              ? {}
+              : { stage: lastPersisted.stage }
+            : { stage: checkpoint.update.stage }),
+          at: timing.now().getTime()
+        }
+        return checkpoint.result
+      }),
     flush: () =>
       enqueue(async () => {
         if (!pending) return

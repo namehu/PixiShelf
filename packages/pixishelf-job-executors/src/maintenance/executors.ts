@@ -17,7 +17,13 @@ import { syncPixivAiDerivedTags } from './pixiv-ai-derived-tag-sync.ts'
 import { refillMetaSource } from './refill-meta-source.ts'
 import { cleanupScanRunHistory } from './scan-run-cleanup.ts'
 import { cleanupTriggerLogs } from './trigger-log-cleanup.ts'
-import type { MaintenanceDatabase, MaintenanceTransaction, RunMaintenanceMutation } from './types.ts'
+import type {
+  MaintenanceDatabase,
+  MaintenanceProgress,
+  MaintenanceProgressMutationResult,
+  MaintenanceTransaction,
+  RunMaintenanceMutation
+} from './types.ts'
 import { scanWebpAnimations } from './webp-animation-scan.ts'
 
 export interface MaintenanceExecutorDependencies {
@@ -108,6 +114,11 @@ export function createMaintenanceExecutorRegistrations(
         ...operationInput(context, dependencies.database),
         scanRoot: dependencies.scanRoot,
         concurrency: dependencies.animationScanConcurrency ?? 4,
+        // The previous aggregate is a recovery hint only; the executor
+        // re-derives pending work from the database before resuming.
+        ...(context.job.progressData?.kind === 'animation-scan'
+          ? { resumeProgressData: context.job.progressData }
+          : {}),
         ...(dependencies.now ? { now: dependencies.now } : {})
       })
     ) as ExecutorDefinition
@@ -144,20 +155,37 @@ function operationInput<TPayload extends Record<string, unknown>>(
 ) {
   const mutate: RunMaintenanceMutation = <T>(operation: (transaction: MaintenanceTransaction) => Promise<T>) =>
     context.mutateInTransaction<MaintenanceTransaction & QueueSqlExecutor, T>((transaction) => operation(transaction))
+  const toExecutionProgress = (update: MaintenanceProgress) => ({
+    progress: update.percentage,
+    stage: update.stage,
+    message: update.message,
+    ...(update.data ? { data: update.data } : {}),
+    ...(update.progressData ? { progressData: update.progressData } : {}),
+    ...(update.persistenceMode ? { persistenceMode: update.persistenceMode } : {}),
+    ...(update.forcePersistence === undefined ? {} : { forcePersistence: update.forcePersistence }),
+    ...(update.level ? { level: update.level } : {})
+  })
   return {
     database,
     mutate,
+    ...(context.checkpointInTransaction
+      ? {
+          checkpoint: <T>(
+            operation: (transaction: MaintenanceTransaction) => Promise<MaintenanceProgressMutationResult<T>>
+          ) =>
+            context.checkpointInTransaction!<MaintenanceTransaction & QueueSqlExecutor, T>(async (transaction) => {
+              const checkpoint = await operation(transaction)
+              return {
+                result: checkpoint.result,
+                update: {
+                  ...toExecutionProgress(checkpoint.update),
+                  progressData: checkpoint.update.progressData
+                }
+              }
+            })
+        }
+      : {}),
     signal: context.signal,
-    progress: (update: import('./types.ts').MaintenanceProgress) =>
-      context.progress({
-        progress: update.percentage,
-        stage: update.stage,
-        message: update.message,
-        ...(update.data ? { data: update.data } : {}),
-        ...(update.progressData ? { progressData: update.progressData } : {}),
-        ...(update.persistenceMode ? { persistenceMode: update.persistenceMode } : {}),
-        ...(update.forcePersistence === undefined ? {} : { forcePersistence: update.forcePersistence }),
-        ...(update.level ? { level: update.level } : {})
-      })
+    progress: (update: MaintenanceProgress) => context.progress(toExecutionProgress(update))
   }
 }

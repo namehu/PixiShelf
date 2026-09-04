@@ -12,6 +12,14 @@ export interface ExecutionProgressUpdate {
   forcePersistence?: boolean
 }
 
+export interface ExecutionProgressMutationResult<TResult> {
+  // The result is returned only after the repository has committed `update`
+  // together with the caller's domain writes and the matching job event.
+  // Executors must therefore not publish the same checkpoint again afterward.
+  result: TResult
+  update: ExecutionProgressUpdate & { progressData: JobProgressData }
+}
+
 export interface ChildJobRequest<TPayload = unknown> {
   type: string
   payload: TPayload
@@ -42,6 +50,13 @@ export type FencedExecutionMutator = <TTransaction extends QueueSqlExecutor = Qu
   operation: (transaction: TTransaction) => Promise<TResult>
 ) => Promise<TResult>
 
+export type FencedExecutionProgressMutator = <TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+  // A checkpoint is the recovery boundary for a domain micro-batch, not a
+  // faster variant of progress(). Its update must describe the state produced
+  // by the transaction passed to this callback.
+  operation: (transaction: TTransaction) => Promise<ExecutionProgressMutationResult<TResult>>
+) => Promise<TResult>
+
 export interface ExecutionContext<TPayload = unknown, TChildJob = ClaimedJob> {
   job: ClaimedJob
   payload: TPayload
@@ -49,6 +64,8 @@ export interface ExecutionContext<TPayload = unknown, TChildJob = ClaimedJob> {
   progress(update: ExecutionProgressUpdate): Promise<void>
   enqueueChild<TChildPayload = unknown>(request: ChildJobRequest<TChildPayload>): Promise<TChildJob>
   mutateInTransaction: FencedExecutionMutator
+  /** Atomically commits domain effects, the aggregate job snapshot, and its event. */
+  checkpointInTransaction?: FencedExecutionProgressMutator
   finalizeInTransaction: FencedExecutionFinalizer
   logger: ExecutionLogger
 }

@@ -93,6 +93,9 @@ async function deleteInBatches(
   where: Prisma.SystemJobEventWhereInput,
   onBatch: (deleted: number) => Promise<void>
 ): Promise<number> {
+  // Select IDs before deleting so each transaction stays bounded. Dry-run
+  // returns before this helper; the global monotonic cursor lets reconnects
+  // continue from newer IDs without requiring a retained cursor row.
   let deleted = 0
   while (true) {
     throwIfMaintenanceAborted(input.signal)

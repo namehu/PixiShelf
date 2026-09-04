@@ -30,7 +30,10 @@ export const animationScanProgressDataSchema = z
   })
   .strict()
 
-/** A plain union allows a future schema to reuse a kind with a newer version literal. */
+/**
+ * A plain union keeps decoding additive: old rows may remain null, while a
+ * future version can be added beside v1 without changing the SSE envelope.
+ */
 export const jobProgressDataSchema = z.union([animationScanProgressDataSchema])
 
 export type AnimationScanProgressStage = z.infer<typeof animationScanProgressStageSchema>

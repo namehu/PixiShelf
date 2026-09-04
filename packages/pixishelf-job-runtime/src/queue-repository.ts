@@ -21,6 +21,7 @@ import {
 import { DispatchWindowPolicy } from './dispatch-window.ts'
 import { type QueueClock, systemQueueClock } from './queue-clock.ts'
 import { redactSensitiveText } from './worker-health-state.ts'
+import type { ExecutionProgressMutationResult, ExecutionProgressUpdate } from './execution-context.ts'
 
 export const ARCHIVE_RESOLVE_LANE_RESOURCE = 'lane/archive-resolve'
 export const BACKGROUND_WRITER_LANE_RESOURCE = 'lane/background-writer'
@@ -70,6 +71,7 @@ export interface QueueJobRecord {
   status: JobStatus
   triggerSource: JobTriggerSource
   payload: unknown
+  progressData?: JobProgressData | null
   attempt: number
   maxAttempts: number
   effectivePriority: number
@@ -469,6 +471,7 @@ export class PostgresQueueRepository {
            AND "definitionVersion" > 0
          RETURNING
            "id", "type", "executionLane", "definitionVersion", "status", "triggerSource", "payload",
+           "progressData",
            "attempt", "maxAttempts", "effectivePriority", "availableAt", "deadlineAt",
            "workerId", "leaseToken"::text AS "leaseToken", "leaseExpiresAt", "heartbeatAt",
            "startedAt", "createdAt", "updatedAt"`,
@@ -569,16 +572,11 @@ export class PostgresQueueRepository {
   }
 
   async updateProgress(input: ProgressExecutionInput): Promise<void> {
+    // The job row and its event are deliberately written in one fenced
+    // transaction: a stale lease must not publish either half of a progress
+    // checkpoint that a reconnecting client could later treat as authoritative.
     assertFence(input)
-    if (!Number.isInteger(input.progress) || input.progress < 0 || input.progress > 100) {
-      throw new Error('Execution progress must be an integer from 0 through 100')
-    }
-    if (input.stage !== undefined && input.stage !== null && input.stage.length > 80) {
-      throw new Error('Execution stage cannot exceed 80 characters')
-    }
-    if (input.progressData !== undefined && input.progressData !== null) {
-      jobProgressDataSchema.parse(input.progressData)
-    }
+    validateProgressUpdate(input)
 
     const now = this.clock.now()
     await this.runTransaction(async (transaction) => {
@@ -1157,6 +1155,72 @@ export class PostgresQueueRepository {
     })
   }
 
+  async withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<ExecutionProgressMutationResult<TResult>>
+  ): Promise<ExecutionProgressMutationResult<TResult>> {
+    // This is the durable recovery boundary for a domain micro-batch. The
+    // lease is checked before and at commit; one transaction then publishes
+    // domain rows, the SystemJob aggregate, and the replayable event together.
+    assertFence(fence)
+    return this.runTransaction(async (transaction) => {
+      await this.lockRunningExecution(transaction, fence, this.clock.now())
+      const checkpoint = await operation(transaction as TTransaction)
+      validateProgressUpdate(checkpoint.update)
+      const now = this.clock.now()
+      const ownedExecution = await this.lockRunningExecution(transaction, fence, now)
+      const progress = Math.max(ownedExecution.progress, checkpoint.update.progress)
+      const stageChanged = checkpoint.update.stage !== undefined && checkpoint.update.stage !== ownedExecution.stage
+      const rows = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
+        `UPDATE "system_jobs"
+         SET
+           "progress" = $6,
+           "stage" = CASE WHEN $7::boolean THEN $8 ELSE "stage" END,
+           "message" = CASE WHEN $9::boolean THEN $10 ELSE "message" END,
+           "progressData" = $11::jsonb,
+           "updatedAt" = $5
+         WHERE "id" = $1
+           AND "workerId" = $2
+           AND "leaseToken" = $3::uuid
+           AND "attempt" = $4
+           AND "status" = 'RUNNING'
+           AND "leaseExpiresAt" > $5
+         RETURNING "id"`,
+        fence.jobId,
+        fence.workerId,
+        fence.executionToken,
+        fence.attempt,
+        now,
+        progress,
+        checkpoint.update.stage !== undefined,
+        checkpoint.update.stage ?? null,
+        checkpoint.update.message !== undefined,
+        checkpoint.update.message ?? null,
+        toJsonParameter(checkpoint.update.progressData)
+      )
+      if (rows.length !== 1) throw new JobExecutionFenceError(fence.jobId)
+      const persistedUpdate = { ...checkpoint.update, progress }
+      await this.insertEvent(transaction, {
+        jobId: fence.jobId,
+        type: stageChanged ? 'job.stage_changed' : 'job.progress',
+        level: checkpoint.update.level ?? 'INFO',
+        attempt: fence.attempt,
+        workerId: fence.workerId,
+        ...(checkpoint.update.stage === undefined ? {} : { stage: checkpoint.update.stage }),
+        progress,
+        message: checkpoint.update.message ?? null,
+        data: {
+          progress,
+          ...(checkpoint.update.stage === undefined ? {} : { stage: checkpoint.update.stage }),
+          progressData: checkpoint.update.progressData,
+          ...(checkpoint.update.data === undefined ? {} : { data: checkpoint.update.data })
+        },
+        now
+      })
+      return { ...checkpoint, update: persistedUpdate }
+    })
+  }
+
   async recoverExpiredExecution(
     executionLaneInput: ExecutionLane = 'BACKGROUND_WRITER'
   ): Promise<RecoveredExecution | null> {
@@ -1259,7 +1323,7 @@ export class PostgresQueueRepository {
     transaction: QueueSqlExecutor,
     input: ExecutionFence,
     now: Date
-  ): Promise<{ status: 'RUNNING' | 'PAUSING' | 'CANCELLING'; stage: string | null }> {
+  ): Promise<{ status: 'RUNNING' | 'PAUSING' | 'CANCELLING'; stage: string | null; progress: number }> {
     const leaseRows = await transaction.$queryRawUnsafe<Array<{ resourceKey: string }>>(
       `SELECT "resourceKey"
        FROM "job_resource_leases"
@@ -1279,9 +1343,9 @@ export class PostgresQueueRepository {
     }
 
     const jobRows = await transaction.$queryRawUnsafe<
-      Array<{ id: string; status: 'RUNNING' | 'PAUSING' | 'CANCELLING'; stage: string | null }>
+      Array<{ id: string; status: 'RUNNING' | 'PAUSING' | 'CANCELLING'; stage: string | null; progress: number }>
     >(
-      `SELECT "id", "status", "stage"
+      `SELECT "id", "status", "stage", "progress"
        FROM "system_jobs"
        WHERE "id" = $1
          AND "workerId" = $2
@@ -1303,10 +1367,16 @@ export class PostgresQueueRepository {
     return jobRows[0]!
   }
 
-  private async lockRunningExecution(transaction: QueueSqlExecutor, input: ExecutionFence, now: Date): Promise<void> {
-    if ((await this.lockOwnedExecution(transaction, input, now)).status !== 'RUNNING') {
+  private async lockRunningExecution(
+    transaction: QueueSqlExecutor,
+    input: ExecutionFence,
+    now: Date
+  ): Promise<{ status: 'RUNNING'; stage: string | null; progress: number }> {
+    const execution = await this.lockOwnedExecution(transaction, input, now)
+    if (execution.status !== 'RUNNING') {
       throw new JobExecutionFenceError(input.jobId)
     }
+    return execution as { status: 'RUNNING'; stage: string | null; progress: number }
   }
 
   private async recoverExpiredExecutionInTransaction(
@@ -1811,6 +1881,18 @@ export class PostgresQueueRepository {
       maxWait: this.transactionMaxWaitMs,
       timeout: this.transactionTimeoutMs
     })
+  }
+}
+
+function validateProgressUpdate(input: ExecutionProgressUpdate): void {
+  if (!Number.isInteger(input.progress) || input.progress < 0 || input.progress > 100) {
+    throw new Error('Execution progress must be an integer from 0 through 100')
+  }
+  if (input.stage !== undefined && input.stage !== null && input.stage.length > 80) {
+    throw new Error('Execution stage cannot exceed 80 characters')
+  }
+  if (input.progressData !== undefined && input.progressData !== null) {
+    jobProgressDataSchema.parse(input.progressData)
   }
 }
 

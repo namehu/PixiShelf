@@ -1,19 +1,10 @@
 import type { ScheduledTaskView } from './task-ui'
-import { ACTIVE_TASK_STATUSES } from './task-status'
+import { formatTaskStatus } from './task-status'
 
 export function StandaloneTaskFeedback({ task }: { task: ScheduledTaskView }) {
   if (!task.lastJobId) return null
   const result = task.lastJobResult
-  const status =
-    task.lastJobStatus && ACTIVE_TASK_STATUSES.includes(task.lastJobStatus)
-      ? '运行中'
-      : task.lastJobStatus === 'COMPLETED'
-        ? '已完成'
-        : task.lastJobStatus === 'FAILED'
-          ? '失败'
-          : task.lastJobStatus === 'CANCELLED'
-            ? '已取消'
-            : '未知'
+  const status = formatTaskStatus(task.lastJobStatus)
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
       <span>

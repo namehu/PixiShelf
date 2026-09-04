@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AnimationScanProgressData } from '@pixishelf/job-contracts'
 import {
   ANIMATION_INITIALIZE_BATCH_SIZE,
   ANIMATION_SCAN_BATCH_SIZE,
@@ -42,7 +43,8 @@ describe('webp animation scan maintenance', () => {
 
     const failure = scanWebpAnimations({
       database: {} as never,
-      mutate: vi.fn() as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
       signal: new AbortController().signal,
       progress: vi.fn(),
       scanRoot: unavailableRoot
@@ -99,6 +101,319 @@ describe('webp animation scan maintenance', () => {
     )
   })
 
+  it('resumes from durable aggregate progress without resetting or recounting prior failures', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-resume-'))
+    roots.push(root)
+    const pending = [
+      { id: 1, path: 'prior-failure.webp' },
+      { id: 3, path: 'new-static.webp' },
+      { id: 4, path: 'new-animation.webp' }
+    ]
+    await Promise.all(pending.map((image) => writeFile(path.join(root, image.path), 'fixture')))
+    let scanRead = false
+    const progress = vi.fn()
+    const result = await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(3).mockResolvedValueOnce(0),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus === null) return []
+            if (scanRead) return []
+            scanRead = true
+            return pending
+          })
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({
+          image: {
+            updateMany: vi.fn(async ({ where }: { where: { id: { in: number[] } } }) => ({
+              count: where.id.in.length
+            }))
+          }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      concurrency: 2,
+      resumeProgressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'SCANNING',
+        initializedItems: 4,
+        totalItems: 4,
+        attemptedItems: 2,
+        succeededItems: 1,
+        failedItems: 1,
+        animatedItems: 1,
+        staticItems: 0,
+        remainingItems: 3,
+        activeProbes: 0,
+        concurrencyLimit: 2,
+        itemsPerSecond: 1,
+        etaSeconds: null,
+        sampledAt: '2026-09-05T00:00:00.000Z'
+      },
+      detectAnimated: vi.fn(async (_absolutePath, mediaPath) => !mediaPath.includes('static'))
+    })
+
+    expect(result).toMatchObject({
+      initialized: 4,
+      processed: 4,
+      animated: 3,
+      static: 1,
+      failed: 0,
+      remainingPending: 0
+    })
+    const updates = progress.mock.calls.map(([update]) => update)
+    expect(updates[0]).toMatchObject({
+      percentage: 52,
+      stage: 'SCANNING',
+      progressData: { totalItems: 4, attemptedItems: 2, succeededItems: 1, failedItems: 1 }
+    })
+    expect(updates.every((update) => update.percentage >= 52)).toBe(true)
+    expect(updates.every((update) => update.progressData.totalItems === 4)).toBe(true)
+    expect(updates.at(-1)).toMatchObject({
+      percentage: 100,
+      stage: 'COMPLETED',
+      progressData: {
+        totalItems: 4,
+        attemptedItems: 4,
+        succeededItems: 4,
+        failedItems: 0,
+        animatedItems: 3,
+        staticItems: 1,
+        remainingItems: 0
+      }
+    })
+  })
+
+  it('keeps an empty INITIALIZING checkpoint at zero percent until scanning starts', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-empty-resume-'))
+    roots.push(root)
+    const progress = vi.fn()
+
+    await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([])
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      resumeProgressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'INITIALIZING',
+        initializedItems: 0,
+        totalItems: 0,
+        attemptedItems: 0,
+        succeededItems: 0,
+        failedItems: 0,
+        animatedItems: 0,
+        staticItems: 0,
+        remainingItems: 0,
+        activeProbes: 0,
+        concurrencyLimit: 4,
+        itemsPerSecond: 0,
+        etaSeconds: null,
+        sampledAt: '2026-09-05T00:00:00.000Z'
+      },
+      detectAnimated: vi.fn()
+    })
+
+    expect(progress.mock.calls[0]?.[0]).toMatchObject({
+      percentage: 0,
+      stage: 'INITIALIZING',
+      progressData: { totalItems: 0, initializedItems: 0 }
+    })
+    expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({ percentage: 100, stage: 'COMPLETED' })
+  })
+
+  it('expands a partial initialization checkpoint when new null candidates appear', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-partial-resume-'))
+    roots.push(root)
+    let initializationRead = false
+    const progress = vi.fn()
+
+    await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(4).mockResolvedValueOnce(4),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus !== null) return []
+            if (initializationRead) return []
+            initializationRead = true
+            return [{ id: 3 }, { id: 4 }]
+          })
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({
+          image: {
+            updateMany: vi.fn(async ({ where }: { where: { id: { in: number[] } } }) => ({
+              count: where.id.in.length
+            }))
+          }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      resumeProgressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'INITIALIZING',
+        initializedItems: 2,
+        totalItems: 2,
+        attemptedItems: 0,
+        succeededItems: 0,
+        failedItems: 0,
+        animatedItems: 0,
+        staticItems: 0,
+        remainingItems: 2,
+        activeProbes: 0,
+        concurrencyLimit: 4,
+        itemsPerSecond: 0,
+        etaSeconds: null,
+        sampledAt: '2026-09-05T00:00:00.000Z'
+      },
+      detectAnimated: vi.fn()
+    })
+
+    const initializationUpdates = progress.mock.calls
+      .map(([update]) => update)
+      .filter((update) => update.progressData.stage === 'INITIALIZING')
+    expect(initializationUpdates).toContainEqual(
+      expect.objectContaining({
+        progressData: expect.objectContaining({ initializedItems: 4, totalItems: 4 })
+      })
+    )
+    expect(
+      initializationUpdates.every((update) => update.progressData.initializedItems <= update.progressData.totalItems)
+    ).toBe(true)
+  })
+
+  it('recovers aggregate counts from a COMPLETED checkpoint left before generic settlement', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-completed-resume-'))
+    roots.push(root)
+    await writeFile(path.join(root, 'recovered-static.webp'), 'fixture')
+    let scanRead = false
+    const progress = vi.fn()
+
+    const result = await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1).mockResolvedValueOnce(0),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus === null || scanRead) return []
+            scanRead = true
+            return [{ id: 2, path: 'recovered-static.webp' }]
+          })
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({
+          image: { updateMany: vi.fn(async () => ({ count: 1 })) }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      resumeProgressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'COMPLETED',
+        initializedItems: 2,
+        totalItems: 2,
+        attemptedItems: 2,
+        succeededItems: 1,
+        failedItems: 1,
+        animatedItems: 1,
+        staticItems: 0,
+        remainingItems: 1,
+        activeProbes: 0,
+        concurrencyLimit: 4,
+        itemsPerSecond: 1,
+        etaSeconds: null,
+        sampledAt: '2026-09-05T00:00:00.000Z'
+      },
+      detectAnimated: vi.fn(async () => false)
+    })
+
+    expect(result).toMatchObject({ processed: 2, animated: 1, static: 1, failed: 0, remainingPending: 0 })
+    expect(progress.mock.calls.every(([update]) => update.percentage === 100)).toBe(true)
+    expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({
+      stage: 'COMPLETED',
+      progressData: { succeededItems: 2, animatedItems: 1, staticItems: 1 }
+    })
+  })
+
+  it('resumes from the same checkpoint that committed a detected domain batch before a crash', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-atomic-resume-'))
+    roots.push(root)
+    const images = [
+      { id: 1, path: 'one.webp' },
+      { id: 2, path: 'two.webp' }
+    ]
+    await Promise.all(images.map((image) => writeFile(path.join(root, image.path), 'fixture')))
+    let scanRead = false
+    let durableCheckpoint: AnimationScanProgressData | undefined
+    const updateMany = vi.fn(async ({ where }: { where: { id: { in: number[] } } }) => ({
+      count: where.id.in.length
+    }))
+
+    await expect(
+      scanWebpAnimations({
+        database: {
+          image: {
+            count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(2),
+            findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+              if (where.webpAnimationStatus === null) return []
+              if (!scanRead) {
+                scanRead = true
+                return images
+              }
+              throw new Error('simulated process crash after atomic checkpoint')
+            })
+          }
+        } as never,
+        mutate: (async (operation) => operation({ image: { updateMany } } as never)) satisfies RunMaintenanceMutation,
+        checkpoint: async (operation) => {
+          const committed = await operation({ image: { updateMany } } as never)
+          durableCheckpoint = committed.update.progressData
+          return committed.result
+        },
+        signal: new AbortController().signal,
+        progress: vi.fn(),
+        scanRoot: root,
+        detectAnimated: vi.fn(async () => true)
+      })
+    ).rejects.toThrow('simulated process crash')
+
+    expect(durableCheckpoint).toMatchObject({ attemptedItems: 2, succeededItems: 2, animatedItems: 2 })
+    if (!durableCheckpoint) throw new Error('Expected an atomic animation checkpoint')
+    const recovered = await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([])
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      scanRoot: root,
+      resumeProgressData: durableCheckpoint,
+      detectAnimated: vi.fn()
+    })
+
+    expect(recovered).toMatchObject({ processed: 2, animated: 2, static: 0, failed: 0 })
+  })
+
   it('does not commit a detected batch after cancellation wins', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-'))
     roots.push(root)
@@ -141,6 +456,7 @@ describe('webp animation scan maintenance', () => {
       announceStarted = resolve
     })
     const updateMany = vi.fn()
+    const progress = vi.fn()
     const execution = scanWebpAnimations({
       database: {
         image: {
@@ -155,7 +471,7 @@ describe('webp animation scan maintenance', () => {
       } as never,
       mutate: (async (operation) => operation({ image: { updateMany } } as never)) satisfies RunMaintenanceMutation,
       signal: controller.signal,
-      progress: vi.fn(),
+      progress,
       scanRoot: root,
       concurrency: 3,
       detectAnimated: vi.fn(async (_absolutePath, mediaPath, signal) => {
@@ -185,6 +501,12 @@ describe('webp animation scan maintenance', () => {
     await expect(execution).rejects.toThrow('cancel all probes')
     expect({ active, drained }).toEqual({ active: 0, drained: 3 })
     expect(updateMany).not.toHaveBeenCalled()
+    expect(progress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        forcePersistence: true,
+        progressData: expect.objectContaining({ activeProbes: 0 })
+      })
+    )
   })
 
   it('classifies real Sharp GIF/WebP fixtures through the isolated native pipeline', async () => {
@@ -316,7 +638,8 @@ describe('webp animation scan maintenance', () => {
           })
         }
       } as never,
-      mutate: vi.fn() as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
       signal: new AbortController().signal,
       progress,
       scanRoot: root,
@@ -358,7 +681,8 @@ describe('webp animation scan maintenance', () => {
       database: {
         image: { findMany, count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(2).mockResolvedValueOnce(2) }
       } as never,
-      mutate: vi.fn() as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
       signal: new AbortController().signal,
       progress: vi.fn(),
       scanRoot: root,

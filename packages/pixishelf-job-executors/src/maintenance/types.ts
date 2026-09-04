@@ -32,9 +32,19 @@ export interface MaintenanceProgress {
   level?: JobEventLevel
 }
 
+export interface MaintenanceProgressMutationResult<TResult> {
+  result: TResult
+  update: MaintenanceProgress & { progressData: JobProgressData }
+}
+
+export type RunMaintenanceProgressMutation = <T>(
+  operation: (transaction: MaintenanceTransaction) => Promise<MaintenanceProgressMutationResult<T>>
+) => Promise<T>
+
 export interface MaintenanceOperationInput {
   database: MaintenanceDatabase
   mutate: RunMaintenanceMutation
+  checkpoint?: RunMaintenanceProgressMutation
   signal: AbortSignal
   progress(update: MaintenanceProgress): Promise<void>
 }

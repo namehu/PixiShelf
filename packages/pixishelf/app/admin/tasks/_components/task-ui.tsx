@@ -13,7 +13,8 @@ import { Spinner } from '@/components/ui/spinner'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
-import type { JobProgressData } from '@pixishelf/job-contracts'
+import type { JobProgressData, JobStatus } from '@pixishelf/job-contracts'
+import { EXECUTING_TASK_STATUSES, formatTaskStatus, TERMINAL_TASK_STATUSES } from './task-status'
 
 export interface ScheduledTaskView {
   key: string
@@ -29,7 +30,7 @@ export interface ScheduledTaskView {
   lastTriggeredAt: string | Date | null
   lastTriggeredDate: string | null
   lastJobId: string | null
-  lastJobStatus: string | null
+  lastJobStatus: JobStatus | null
   lastJobMode?: 'FORMAL' | 'PREVIEW' | null
   lastJobResult?: {
     deletedBulkOperations?: number
@@ -61,7 +62,7 @@ export interface ScheduledTaskView {
 export interface JobView {
   id?: string
   type?: string
-  status: string
+  status: JobStatus
   progress: number
   stage?: string | null
   progressData?: JobProgressData | null
@@ -287,12 +288,12 @@ export function JobStatus({
       <div className="flex flex-col gap-3 p-4">
         <div className="flex items-center justify-between gap-3 text-sm">
           <div className="flex items-center gap-2 font-medium">
-            {isRunning ? (
+            {job && EXECUTING_TASK_STATUSES.includes(job.status) ? (
               <Spinner className="text-primary" aria-hidden="true" />
             ) : (
               <Activity className="size-4 text-muted-foreground" aria-hidden="true" />
             )}
-            <AdminStatusBadge status={job?.status || 'IDLE'}>{formatJobStatus(job?.status)}</AdminStatusBadge>
+            <AdminStatusBadge status={job?.status || 'IDLE'}>{formatTaskStatus(job?.status)}</AdminStatusBadge>
             {job?.message && (
               <span className="hidden font-normal text-muted-foreground sm:inline">
                 · <PrivacySensitiveText>{job.message}</PrivacySensitiveText>
@@ -322,6 +323,9 @@ export function JobStatus({
       )}
       {job?.status === 'CANCELLED' && (
         <div className="border-t bg-muted/20 px-4 py-3 text-sm text-muted-foreground">任务已取消</div>
+      )}
+      {job?.status === 'SKIPPED' && (
+        <div className="border-t bg-muted/20 px-4 py-3 text-sm text-muted-foreground">任务已跳过</div>
       )}
     </div>
   )
@@ -415,7 +419,7 @@ export function ScheduleSettings({
           </div>
           <div className="flex flex-col gap-1">
             <dt className="text-xs text-muted-foreground">最近任务状态</dt>
-            <dd className="font-medium text-foreground">{formatJobStatus(task.lastJobStatus || undefined)}</dd>
+            <dd className="font-medium text-foreground">{formatTaskStatus(task.lastJobStatus)}</dd>
           </div>
         </dl>
 
@@ -533,20 +537,7 @@ export function TaskNavLink({ href, children }: { href: string; children: ReactN
 }
 
 function isJobVisible(job: JobView | null | undefined, isRunning: boolean) {
-  return Boolean(job && (isRunning || ['COMPLETED', 'FAILED', 'CANCELLED'].includes(job.status)))
-}
-
-function formatJobStatus(status: string | undefined) {
-  if (status === 'PENDING') return '等待执行'
-  if (status === 'RUNNING') return '正在执行'
-  if (status === 'RETRY_WAIT') return '等待重试'
-  if (status === 'PAUSING') return '正在暂停'
-  if (status === 'PAUSED') return '已暂停'
-  if (status === 'CANCELLING') return '正在取消'
-  if (status === 'COMPLETED') return '已完成'
-  if (status === 'FAILED') return '执行失败'
-  if (status === 'CANCELLED') return '已取消'
-  return status || '状态未知'
+  return Boolean(job && (isRunning || TERMINAL_TASK_STATUSES.includes(job.status)))
 }
 
 function formatDateTime(value: string | Date | null) {

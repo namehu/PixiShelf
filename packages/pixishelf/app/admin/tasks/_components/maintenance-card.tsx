@@ -30,7 +30,7 @@ import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-tex
 import { useBackgroundJobEventSubscription } from '../../_components/background-job-event-provider'
 import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
 import { StandaloneTaskFeedback } from './standalone-task-feedback'
-import { ACTIVE_TASK_STATUSES } from './task-status'
+import { ACTIVE_TASK_STATUSES, formatTaskStatus } from './task-status'
 import { collectUnseenLiveEvents, selectLiveJobForStatusCache, type LiveEventCursor } from './live-event-reconciliation'
 import { PixivAiDerivedTagSyncFeedback, type PixivAiDerivedTagSyncResult } from './pixiv-ai-derived-tag-sync-feedback'
 
@@ -98,8 +98,8 @@ function toVideoChapterPreviewResult(result: unknown): VideoChapterPreviewResult
   return result && typeof result === 'object' ? (result as VideoChapterPreviewResult) : null
 }
 
-function getJobSummary(job: JobView | null | undefined, isRunning: boolean) {
-  if (isRunning) return `运行中 · ${job?.progress ?? 0}%`
+export function getJobSummary(job: JobView | null | undefined, isRunning: boolean) {
+  if (isRunning) return `${formatTaskStatus(job?.status)} · ${job?.progress ?? 0}%`
   if (job?.status === 'FAILED') return '需要处理 · 上次执行失败'
   return null
 }
@@ -117,11 +117,22 @@ function getScheduledSummary(task: ScheduledTaskView | undefined, job: JobView |
   return task.executionWindow ? '下次 · 上海 00:00–08:00' : `下次 · 每日 ${task.time}`
 }
 
-function getStandaloneSummary(task: ScheduledTaskView) {
-  if (task.lastJobStatus && ACTIVE_TASK_STATUSES.includes(task.lastJobStatus)) return '正在运行'
+export function getStandaloneSummary(task: ScheduledTaskView) {
+  if (task.lastJobStatus && ACTIVE_TASK_STATUSES.includes(task.lastJobStatus)) {
+    return formatTaskStatus(task.lastJobStatus)
+  }
   if (task.lastJobStatus === 'FAILED') return '需要处理 · 上次执行失败'
   if (!task.enabled) return null
   return task.executionWindow ? '下次 · 上海 00:00–08:00' : `下次 · 每日 ${task.time}`
+}
+
+export function getActiveTaskActionLabel(status: string | null | undefined, runningLabel: string) {
+  if (status === 'PENDING') return '等待执行…'
+  if (status === 'RETRY_WAIT') return '等待重试…'
+  if (status === 'PAUSING') return '正在暂停…'
+  if (status === 'PAUSED') return '任务已暂停'
+  if (status === 'CANCELLING') return '正在取消…'
+  return runningLabel
 }
 
 export function shouldPollStandaloneTasks(tasks: ScheduledTaskView[] | undefined) {
@@ -609,7 +620,7 @@ export function MaintenanceCard() {
                 ) : (
                   <PlayCircle data-icon="inline-start" aria-hidden="true" />
                 )}
-                {isMediaTagRunning ? '同步中…' : '开始同步'}
+                {isMediaTagRunning ? getActiveTaskActionLabel(mediaTagJob?.status, '同步中…') : '开始同步'}
               </Button>
             }
           >
@@ -719,7 +730,7 @@ export function MaintenanceCard() {
                 ) : (
                   <PlayCircle data-icon="inline-start" aria-hidden="true" />
                 )}
-                {isWebpScanRunning ? '识别中…' : '立即执行'}
+                {isWebpScanRunning ? getActiveTaskActionLabel(webpScanJob?.status, '识别中…') : '立即执行'}
               </Button>
             }
           >
@@ -1139,7 +1150,9 @@ export function MaintenanceCard() {
                       ) : (
                         <PlayCircle data-icon="inline-start" aria-hidden="true" />
                       )}
-                      {isTaskRunning ? '执行中…' : getStandaloneTaskActionLabel(task)}
+                      {isTaskRunning
+                        ? getActiveTaskActionLabel(task.lastJobStatus, '执行中…')
+                        : getStandaloneTaskActionLabel(task)}
                     </Button>
                   }
                 >

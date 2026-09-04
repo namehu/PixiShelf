@@ -9,6 +9,9 @@ vi.mock('../video-keyframe-section', () => ({ VideoKeyframeSection: () => null }
 vi.mock('../video-streaming-optimization-section', () => ({ VideoStreamingOptimizationSection: () => null }))
 
 import {
+  getActiveTaskActionLabel,
+  getJobSummary,
+  getStandaloneSummary,
   getStandaloneTaskActionLabel,
   requestPixivAiDerivedTagSync,
   requestStandaloneTaskTrigger,
@@ -17,7 +20,7 @@ import {
 import { PixivAiDerivedTagSyncFeedback } from '../pixiv-ai-derived-tag-sync-feedback'
 import { AnimationScanLiveFeedback } from '../animation-scan-live-feedback'
 import { StandaloneTaskFeedback } from '../standalone-task-feedback'
-import type { JobView, ScheduledTaskView } from '../task-ui'
+import { JobStatus, type JobView, type ScheduledTaskView } from '../task-ui'
 import { VideoProbeTaskActions } from '../video-probe-task-actions'
 
 afterEach(() => {
@@ -47,6 +50,23 @@ function task(overrides: Partial<ScheduledTaskView> = {}): ScheduledTaskView {
 }
 
 describe('maintenance standalone tasks', () => {
+  it('uses the exact active state in card summaries and disabled action labels', () => {
+    const cases = [
+      ['PENDING', '等待执行', '等待执行…'],
+      ['RUNNING', '正在执行', '识别中…'],
+      ['RETRY_WAIT', '等待重试', '等待重试…'],
+      ['PAUSING', '正在暂停', '正在暂停…'],
+      ['PAUSED', '已暂停', '任务已暂停'],
+      ['CANCELLING', '正在取消', '正在取消…']
+    ] as const
+
+    for (const [status, summary, action] of cases) {
+      expect(getJobSummary({ status, progress: 40 }, true)).toBe(`${summary} · 40%`)
+      expect(getStandaloneSummary(task({ lastJobStatus: status }))).toBe(summary)
+      expect(getActiveTaskActionLabel(status, '识别中…')).toBe(action)
+    }
+  })
+
   it('offers incremental probing and has-audio recalibration as distinct actions', () => {
     const onTrigger = vi.fn()
     const videoTask = task({ key: 'video_media_probe', type: 'VIDEO_MEDIA_PROBE', name: '视频媒体探测' })
@@ -135,7 +155,7 @@ describe('maintenance standalone tasks', () => {
   })
 
   it('keeps polling while a latest maintenance job is active and stops at terminal state', () => {
-    for (const status of ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING']) {
+    for (const status of ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] as const) {
       expect(shouldPollStandaloneTasks([task({ lastJobStatus: status })])).toBe(true)
     }
     expect(shouldPollStandaloneTasks([task({ lastJobStatus: 'COMPLETED' })])).toBe(false)
@@ -314,8 +334,36 @@ describe('maintenance standalone tasks', () => {
     )
 
     expect(screen.getByText('正式执行', { exact: false })).toBeTruthy()
-    expect(screen.getByText('运行中', { exact: false })).toBeTruthy()
+    expect(screen.getByText('正在执行', { exact: false })).toBeTruthy()
     expect(screen.queryByText('选中：', { exact: false })).toBeNull()
+  })
+
+  it.each([
+    ['PENDING', '等待执行'],
+    ['RUNNING', '正在执行'],
+    ['RETRY_WAIT', '等待重试'],
+    ['PAUSING', '正在暂停'],
+    ['PAUSED', '已暂停'],
+    ['CANCELLING', '正在取消'],
+    ['COMPLETED', '已完成'],
+    ['FAILED', '执行失败'],
+    ['CANCELLED', '已取消'],
+    ['SKIPPED', '已跳过']
+  ] as const)('renders the exact standalone %s state', (status, label) => {
+    render(
+      <StandaloneTaskFeedback
+        task={task({ lastJobId: `gc-${status}`, lastJobStatus: status, lastJobMode: 'FORMAL' })}
+      />
+    )
+
+    expect(screen.getByText(label, { exact: false })).toBeTruthy()
+  })
+
+  it('keeps skipped jobs visible in expanded task feedback', () => {
+    render(<JobStatus job={{ id: 'skipped-1', status: 'SKIPPED', progress: 0 }} isRunning={false} />)
+
+    expect(screen.getByText('已跳过')).toBeTruthy()
+    expect(screen.getByText('任务已跳过')).toBeTruthy()
   })
 
   it('shows mode and all GC result counters directly', () => {

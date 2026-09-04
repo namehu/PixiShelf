@@ -30,4 +30,26 @@ describe('PostgresQueueRepository claim contract', () => {
     expect(candidateQuery).toContain('archive_import."systemJobId" = job."id"')
     expect(candidateQuery).toContain('archive_import."cleanupRequestedAt" IS NOT NULL')
   })
+
+  it('returns the durable progress checkpoint with a claimed job', async () => {
+    let claimQuery = ''
+    const transaction: QueueSqlExecutor = {
+      $queryRawUnsafe: vi.fn(async (query: string) => {
+        if (query.includes('SELECT job."id", job."status"')) return [{ id: 'job-1', status: 'PENDING' }]
+        if (query.includes('UPDATE "system_jobs"')) claimQuery = query
+        return []
+      }) as QueueSqlExecutor['$queryRawUnsafe'],
+      $executeRawUnsafe: vi.fn().mockResolvedValue(0)
+    }
+    const database = {
+      ...transaction,
+      $transaction: (operation: (client: QueueSqlExecutor) => Promise<unknown>) => operation(transaction)
+    } as QueueDatabase
+
+    await expect(
+      new PostgresQueueRepository(database).claim('queue-checkpoint-worker', archiveImportCapability)
+    ).resolves.toBeNull()
+
+    expect(claimQuery).toContain('"progressData"')
+  })
 })

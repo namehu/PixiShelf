@@ -137,7 +137,7 @@ export function useBackgroundJobEvents(job: JobDto | null) {
   useEffect(() => {
     if (!job || (live.readyVersion === 0 && live.resetVersion === 0)) return
     void query.refetch()
-  }, [job, live.readyVersion, live.resetVersion, query.refetch])
+  }, [jobId, live.readyVersion, live.resetVersion, query.refetch])
 
   const liveEvents = live.items.map(({ event }) => event)
 

@@ -715,6 +715,114 @@ describePostgres('PostgresQueueRepository integration', () => {
     await repository.complete(fence(claimed))
   })
 
+  it('commits domain state, aggregate checkpoint, and its cursor event atomically', async () => {
+    const jobId = await seedJob({ type: 'WEBP_ANIMATION_SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-atomic-progress-worker', capabilities))!
+    const progressData: AnimationScanProgressData = {
+      version: 1,
+      kind: 'animation-scan',
+      stage: 'SCANNING',
+      initializedItems: 100,
+      totalItems: 100,
+      attemptedItems: 25,
+      succeededItems: 24,
+      failedItems: 1,
+      animatedItems: 10,
+      staticItems: 14,
+      remainingItems: 76,
+      activeProbes: 0,
+      concurrencyLimit: 4,
+      itemsPerSecond: 3,
+      etaSeconds: 26,
+      sampledAt: '2026-08-13T18:00:00.000Z'
+    }
+
+    await expect(
+      repository.withFencedProgressTransaction(fence(claimed), async (transaction) => {
+        await transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'domain batch committed'
+        )
+        return { result: 'committed', update: { progress: 28, progressData } }
+      })
+    ).resolves.toMatchObject({ result: 'committed' })
+
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { message: true, progress: true, progressData: true }
+      })
+    ).toEqual({ message: 'domain batch committed', progress: 28, progressData })
+    expect(await client().systemJobEvent.count({ where: { jobId, type: 'job.progress' } })).toBe(1)
+    expect(
+      await client().systemJobEvent.findFirstOrThrow({
+        where: { jobId, type: 'job.progress' },
+        select: { progress: true, data: true }
+      })
+    ).toEqual({ progress: 28, data: { progress: 28, progressData } })
+
+    await expect(
+      repository.withFencedProgressTransaction(fence(claimed), async (transaction) => {
+        await transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'must roll back'
+        )
+        throw new Error('simulated crash inside atomic checkpoint')
+      })
+    ).rejects.toThrow('simulated crash')
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).message).toBe(
+      'domain batch committed'
+    )
+    await repository.complete(fence(claimed))
+  })
+
+  it('rolls back both domain state and aggregate progress when the lease expires before checkpoint commit', async () => {
+    const jobId = await seedJob({ type: 'WEBP_ANIMATION_SCAN', effectivePriority: 10, maxAttempts: 3 })
+    const repository = createRepository(clock, 1_000)
+    const claimed = (await repository.claim('queue-kernel-expired-progress-worker', capabilities))!
+    const progressData: AnimationScanProgressData = {
+      version: 1,
+      kind: 'animation-scan',
+      stage: 'SCANNING',
+      initializedItems: 1,
+      totalItems: 1,
+      attemptedItems: 1,
+      succeededItems: 1,
+      failedItems: 0,
+      animatedItems: 1,
+      staticItems: 0,
+      remainingItems: 0,
+      activeProbes: 0,
+      concurrencyLimit: 1,
+      itemsPerSecond: 1,
+      etaSeconds: null,
+      sampledAt: '2026-08-13T18:00:00.000Z'
+    }
+
+    await expect(
+      repository.withFencedProgressTransaction(fence(claimed), async (transaction) => {
+        await transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'expired domain batch'
+        )
+        clock.advance(1_001)
+        return { result: undefined, update: { progress: 99, progressData } }
+      })
+    ).rejects.toBeInstanceOf(JobExecutionFenceError)
+
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { message: true, progress: true, progressData: true }
+      })
+    ).toEqual({ message: null, progress: 0, progressData: null })
+    expect(await repository.recoverExpiredExecution()).toMatchObject({ jobId, status: 'RETRY_WAIT' })
+  })
+
   it('redacts event messages and nested event data before persistence', async () => {
     await seedJob({ type: 'SCAN', effectivePriority: 10 })
     const repository = createRepository(clock)

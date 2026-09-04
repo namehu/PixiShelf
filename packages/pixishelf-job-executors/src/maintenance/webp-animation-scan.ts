@@ -1,11 +1,8 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
-import type { AnimationScanProgressData } from '@pixishelf/job-contracts'
-import {
-  IsolatedSharpAnimationProbePool,
-  SHARP_ANIMATION_PROBE_TIMEOUT_SECONDS
-} from './sharp-animation-probe-pool.ts'
-import type { MaintenanceOperationInput } from './types.ts'
+import { animationScanProgressDataSchema, type AnimationScanProgressData } from '@pixishelf/job-contracts'
+import { IsolatedSharpAnimationProbePool, SHARP_ANIMATION_PROBE_TIMEOUT_SECONDS } from './sharp-animation-probe-pool.ts'
+import type { MaintenanceOperationInput, MaintenanceProgress, RunMaintenanceProgressMutation } from './types.ts'
 import { throwIfMaintenanceAborted } from './types.ts'
 
 export const ANIMATION_SCAN_BATCH_SIZE = 20
@@ -57,6 +54,7 @@ export async function scanWebpAnimations(
     concurrency?: number
     now?: () => Date
     slowItemThresholdMs?: number
+    resumeProgressData?: AnimationScanProgressData | null
     detectAnimated?: (absolutePath: string, mediaPath: string, signal: AbortSignal) => Promise<boolean>
   }
 ): Promise<WebpAnimationScanResult> {
@@ -69,103 +67,178 @@ export async function scanWebpAnimations(
       detectAnimatedWithPool(sharpProbePool!, absolutePath, mediaPath, signal))
   const slowItemThresholdMs = input.slowItemThresholdMs ?? ANIMATION_SCAN_SLOW_ITEM_MS
   const now = input.now ?? (() => new Date())
-  let initialized = 0
-  await input.progress({
-    percentage: 0,
-    stage: 'INITIALIZING',
-    message: '正在统计动画识别候选图片',
-    progressData: createProgressData({
-      stage: 'INITIALIZING',
-      initialized,
-      total: 0,
-      result: emptyResult(),
-      activeProbes: 0,
-      concurrency,
-      samples: [],
-      now: now()
-    }),
-    persistenceMode: 'REALTIME',
-    forcePersistence: true
-  })
-  const initializable = await input.database.image.count({
-    where: { webpAnimationStatus: null, OR: PATH_FILTERS }
-  })
-  await input.progress({
-    percentage: 1,
-    stage: 'INITIALIZING',
-    message: initializable === 0 ? '动画识别初始化完成' : `正在初始化 ${initializable} 个候选图片`,
-    progressData: createProgressData({
-      stage: 'INITIALIZING',
-      initialized,
-      total: initializable,
-      result: emptyResult(),
-      activeProbes: 0,
-      concurrency,
-      samples: [],
-      now: now()
-    }),
-    persistenceMode: 'REALTIME',
-    forcePersistence: true
-  })
-  initialized = await initializePendingAnimationImages(input, async (count) => {
-    initialized = count
+  const parsedCheckpoint = input.resumeProgressData
+    ? animationScanProgressDataSchema.parse(input.resumeProgressData)
+    : null
+  const checkpoint = parsedCheckpoint
+  const commitProgress: RunMaintenanceProgressMutation =
+    input.checkpoint ??
+    (async (operation) => {
+      // Direct executor tests and embedders can retain the legacy adapter. The
+      // production Worker always supplies the atomic fenced implementation.
+      const durable = await input.mutate(operation)
+      await input.progress(durable.update)
+      return durable.result
+    })
+  const previousAttempted = checkpoint?.attemptedItems ?? 0
+  const previousFailed = checkpoint?.failedItems ?? 0
+  const previousSucceeded = checkpoint?.succeededItems ?? 0
+  let initialized = checkpoint?.initializedItems ?? 0
+  const result: WebpAnimationScanResult = {
+    initialized,
+    processed: previousSucceeded,
+    animated: checkpoint?.animatedItems ?? 0,
+    static: checkpoint?.staticItems ?? 0,
+    failed: 0,
+    remainingPending: checkpoint?.remainingItems ?? 0,
+    failedSamples: []
+  }
+  if (checkpoint) {
     await input.progress({
-      percentage: initializable === 0 ? 4 : Math.min(4, 1 + Math.floor((initialized / initializable) * 3)),
+      percentage: checkpointProgressPercentage(checkpoint),
+      stage: checkpoint.stage === 'COMPLETED' ? 'SCANNING' : checkpoint.stage,
+      message: `正在恢复动画识别：已尝试 ${previousAttempted} / ${checkpoint.totalItems} 个`,
+      progressData: createProgressData({
+        stage: checkpoint.stage === 'COMPLETED' ? 'SCANNING' : checkpoint.stage,
+        initialized,
+        total: checkpoint.totalItems,
+        result,
+        attempted: previousAttempted,
+        failed: previousFailed,
+        activeProbes: 0,
+        concurrency,
+        samples: [],
+        now: now()
+      }),
+      persistenceMode: 'REALTIME',
+      forcePersistence: true
+    })
+  } else {
+    await input.progress({
+      percentage: 0,
       stage: 'INITIALIZING',
-      message: `已初始化 ${initialized} / ${initializable} 个候选图片`,
+      message: '正在统计动画识别候选图片',
       progressData: createProgressData({
         stage: 'INITIALIZING',
         initialized,
-        total: initializable,
-        result: emptyResult(),
+        total: 0,
+        result,
+        activeProbes: 0,
+        concurrency,
+        samples: [],
+        now: now()
+      }),
+      persistenceMode: 'REALTIME',
+      forcePersistence: true
+    })
+  }
+  const initializable = await input.database.image.count({
+    where: { webpAnimationStatus: null, OR: PATH_FILTERS }
+  })
+  const initializationTotal = checkpoint
+    ? Math.max(checkpoint.totalItems, checkpoint.initializedItems + initializable)
+    : initializable
+  if (!checkpoint || initializable > 0) {
+    await input.progress({
+      percentage: checkpoint ? checkpointProgressPercentage(checkpoint) : 1,
+      stage: checkpoint && checkpoint.stage !== 'INITIALIZING' ? 'SCANNING' : 'INITIALIZING',
+      message: initializable === 0 ? '动画识别初始化完成' : `正在初始化 ${initializable} 个候选图片`,
+      progressData: createProgressData({
+        stage: checkpoint && checkpoint.stage !== 'INITIALIZING' ? 'SCANNING' : 'INITIALIZING',
+        initialized,
+        total: initializationTotal,
+        result,
+        attempted: previousAttempted,
+        failed: previousFailed,
+        activeProbes: 0,
+        concurrency,
+        samples: [],
+        now: now()
+      }),
+      persistenceMode: 'REALTIME',
+      forcePersistence: true
+    })
+  }
+  const initializedBeforeAttempt = initialized
+  const initializedThisAttempt = await initializePendingAnimationImages(input, commitProgress, (count) => {
+    const durableInitialized = initializedBeforeAttempt + count
+    const durableResult = { ...result, initialized: durableInitialized }
+    return {
+      percentage: checkpoint
+        ? checkpoint.stage === 'INITIALIZING'
+          ? checkpointProgressPercentage({
+              ...checkpoint,
+              initializedItems: durableInitialized,
+              totalItems: initializationTotal
+            })
+          : checkpointProgressPercentage(checkpoint)
+        : initializable === 0
+          ? 4
+          : Math.min(4, 1 + Math.floor((count / initializable) * 3)),
+      stage: checkpoint && checkpoint.stage !== 'INITIALIZING' ? 'SCANNING' : 'INITIALIZING',
+      message: checkpoint
+        ? `恢复任务已初始化 ${count} 个新增候选图片`
+        : `已初始化 ${count} / ${initializable} 个候选图片`,
+      progressData: createProgressData({
+        stage: checkpoint && checkpoint.stage !== 'INITIALIZING' ? 'SCANNING' : 'INITIALIZING',
+        initialized: durableInitialized,
+        total: initializationTotal,
+        result: durableResult,
+        attempted: previousAttempted,
+        failed: previousFailed,
         activeProbes: 0,
         concurrency,
         samples: [],
         now: now()
       }),
       persistenceMode: 'REALTIME'
-    })
+    }
   })
+  initialized = initializedBeforeAttempt + initializedThisAttempt
+  result.initialized = initialized
 
   throwIfMaintenanceAborted(input.signal)
   const pendingWhere = { webpAnimationStatus: ANIMATION_STATUS.pending, OR: PATH_FILTERS }
   const totalPending = await input.database.image.count({ where: pendingWhere })
-  const result: WebpAnimationScanResult = {
-    initialized,
-    processed: 0,
-    animated: 0,
-    static: 0,
-    failed: 0,
-    remainingPending: totalPending,
-    failedSamples: []
-  }
+  const totalItems = checkpoint ? Math.max(checkpoint.totalItems, previousSucceeded + totalPending) : totalPending
+  result.remainingPending = totalPending
   const samples: Array<{ attempted: number; at: number }> = []
+  let attemptedThisAttempt = 0
   let activeProbes = 0
   let reportingError: unknown
   const reportingOperations = new Set<Promise<void>>()
+  let commitBarrier: Promise<void> = Promise.resolve()
 
-  const progressSnapshot = async (
+  const createScanningProgress = (
+    snapshotResult: WebpAnimationScanResult,
+    attemptedInAttempt: number,
     options: {
       force?: boolean
       level?: 'INFO' | 'WARN' | 'ERROR'
       data?: Record<string, unknown>
     } = {}
-  ) => {
-    const attempted = result.processed + result.failed
+  ): MaintenanceProgress & { progressData: AnimationScanProgressData } => {
+    const attempted = Math.min(totalItems, Math.max(previousAttempted, previousSucceeded + attemptedInAttempt))
+    const failed = checkpoint ? Math.max(previousFailed, snapshotResult.failed) : snapshotResult.failed
     const sampledAt = now()
     recordRateSample(samples, attempted, sampledAt.getTime())
-    await input.progress({
-      percentage: totalPending === 0 ? 100 : Math.min(99, 5 + Math.floor((attempted / totalPending) * 94)),
+    return {
+      percentage: Math.max(
+        checkpoint ? checkpointProgressPercentage(checkpoint) : 0,
+        scanProgressPercentage(attempted, totalItems)
+      ),
       stage: 'SCANNING',
       message:
-        totalPending === 0
+        totalItems === 0
           ? '没有待识别动画图片'
-          : `已尝试 ${attempted} / ${totalPending} 个，活动探测 ${activeProbes} 个，失败 ${result.failed} 个`,
+          : `已尝试 ${attempted} / ${totalItems} 个，活动探测 ${activeProbes} 个，失败 ${failed} 个`,
       progressData: createProgressData({
         stage: 'SCANNING',
         initialized,
-        total: totalPending,
-        result,
+        total: totalItems,
+        result: snapshotResult,
+        attempted,
+        failed,
         activeProbes,
         concurrency,
         samples,
@@ -175,7 +248,21 @@ export async function scanWebpAnimations(
       ...(options.force === undefined ? {} : { forcePersistence: options.force }),
       ...(options.level ? { level: options.level } : {}),
       ...(options.data ? { data: options.data } : {})
-    })
+    }
+  }
+
+  const progressSnapshot = async (
+    options: {
+      force?: boolean
+      level?: 'INFO' | 'WARN' | 'ERROR'
+      data?: Record<string, unknown>
+    } = {}
+  ) => {
+    // Observation snapshots may lag an in-flight detection batch. Waiting on
+    // commitBarrier ensures the displayed counters never claim work that has
+    // not crossed the fenced domain checkpoint yet.
+    await commitBarrier
+    await input.progress(createScanningProgress(result, attemptedThisAttempt, options))
   }
 
   let cursor = 0
@@ -226,8 +313,16 @@ export async function scanWebpAnimations(
             }
           }),
         commit: async (outcomes) => {
-          await commitDetectionOutcomes(input, outcomes, result)
-          await progressSnapshot()
+          const nextAttemptedThisAttempt = attemptedThisAttempt + outcomes.length
+          const operation = (async () => {
+            const nextResult = await commitDetectionOutcomes(input, commitProgress, outcomes, result, (durableResult) =>
+              createScanningProgress(durableResult, nextAttemptedThisAttempt)
+            )
+            attemptedThisAttempt = nextAttemptedThisAttempt
+            Object.assign(result, nextResult)
+          })()
+          commitBarrier = operation
+          await operation
         }
       })
     }
@@ -235,14 +330,22 @@ export async function scanWebpAnimations(
     clearInterval(reportingTimer)
     await Promise.allSettled([...reportingOperations])
     await sharpProbePool?.close()
+    if (input.signal.aborted) {
+      activeProbes = 0
+      await progressSnapshot({ force: true }).catch(() => undefined)
+    }
   }
 
   if (reportingError) throw reportingError
   throwIfMaintenanceAborted(input.signal)
+  // A restart reconstructs totals from pending rows and the last durable
+  // aggregate; only this final checkpoint can advertise COMPLETED. Replaying
+  // an already-committed micro-batch is prevented by the pending-state CAS.
   result.remainingPending = await input.database.image.count({ where: pendingWhere })
+  result.failed = result.remainingPending
   result.failedSamples.sort((left, right) => left.id - right.id)
   const completedAt = now()
-  recordRateSample(samples, result.processed + result.failed, completedAt.getTime())
+  recordRateSample(samples, totalItems, completedAt.getTime())
   await input.progress({
     percentage: 100,
     stage: 'COMPLETED',
@@ -250,8 +353,10 @@ export async function scanWebpAnimations(
     progressData: createProgressData({
       stage: 'COMPLETED',
       initialized,
-      total: totalPending,
+      total: totalItems,
       result,
+      attempted: totalItems,
+      failed: result.failed,
       activeProbes: 0,
       concurrency,
       samples,
@@ -356,60 +461,55 @@ async function processDetectionBatch(input: {
 
 async function commitDetectionOutcomes(
   input: MaintenanceOperationInput,
+  commitProgress: RunMaintenanceProgressMutation,
   outcomes: DetectionOutcome[],
-  result: WebpAnimationScanResult
-): Promise<void> {
+  result: WebpAnimationScanResult,
+  createUpdate: (result: WebpAnimationScanResult) => MaintenanceProgress & { progressData: AnimationScanProgressData }
+): Promise<WebpAnimationScanResult> {
   throwIfMaintenanceAborted(input.signal)
   const animatedIds = outcomes.filter((outcome) => outcome.animated === true).map(({ image }) => image.id)
   const staticIds = outcomes.filter((outcome) => outcome.animated === false).map(({ image }) => image.id)
-  let committedAnimated = 0
-  let committedStatic = 0
-  if (animatedIds.length > 0 || staticIds.length > 0) {
-    const committed = await input.mutate(async (transaction) => {
-      let animated = 0
-      let staticImages = 0
-      if (animatedIds.length > 0) {
-        animated = (
-          await transaction.image.updateMany({
-            where: { id: { in: animatedIds }, webpAnimationStatus: ANIMATION_STATUS.pending },
-            data: { webpAnimationStatus: ANIMATION_STATUS.animated, mediaType: 'ANIMATION' }
-          })
-        ).count
-      }
-      if (staticIds.length > 0) {
-        staticImages = (
-          await transaction.image.updateMany({
-            where: { id: { in: staticIds }, webpAnimationStatus: ANIMATION_STATUS.pending },
-            data: { webpAnimationStatus: ANIMATION_STATUS.static, mediaType: 'IMAGE' }
-          })
-        ).count
-      }
-      if (animated !== animatedIds.length || staticImages !== staticIds.length) {
-        throw new Error('Animation scan result lost its pending database state')
-      }
-      return { animated, staticImages }
-    })
-    committedAnimated = committed.animated
-    committedStatic = committed.staticImages
-  }
-  result.animated += committedAnimated
-  result.static += committedStatic
-  result.processed += committedAnimated + committedStatic
-  for (const outcome of outcomes) {
-    if (!outcome.failure) continue
-    result.failed += 1
-    if (result.failedSamples.length >= FAILED_SAMPLE_LIMIT) continue
-    result.failedSamples.push({
-      id: outcome.image.id,
-      path: safeMediaReference(outcome.image.path, outcome.image.id),
-      errorCode: outcome.failure.code,
-      error: outcome.failure.summary
-    })
-  }
-}
-
-function emptyResult(): WebpAnimationScanResult {
-  return { initialized: 0, processed: 0, animated: 0, static: 0, failed: 0, remainingPending: 0, failedSamples: [] }
+  return commitProgress(async (transaction) => {
+    let committedAnimated = 0
+    let committedStatic = 0
+    if (animatedIds.length > 0) {
+      committedAnimated = (
+        await transaction.image.updateMany({
+          where: { id: { in: animatedIds }, webpAnimationStatus: ANIMATION_STATUS.pending },
+          data: { webpAnimationStatus: ANIMATION_STATUS.animated, mediaType: 'ANIMATION' }
+        })
+      ).count
+    }
+    if (staticIds.length > 0) {
+      committedStatic = (
+        await transaction.image.updateMany({
+          where: { id: { in: staticIds }, webpAnimationStatus: ANIMATION_STATUS.pending },
+          data: { webpAnimationStatus: ANIMATION_STATUS.static, mediaType: 'IMAGE' }
+        })
+      ).count
+    }
+    if (committedAnimated !== animatedIds.length || committedStatic !== staticIds.length) {
+      throw new Error('Animation scan result lost its pending database state')
+    }
+    const nextResult: WebpAnimationScanResult = {
+      ...result,
+      animated: result.animated + committedAnimated,
+      static: result.static + committedStatic,
+      processed: result.processed + committedAnimated + committedStatic,
+      failed: result.failed + outcomes.filter((outcome) => outcome.failure).length,
+      failedSamples: [...result.failedSamples]
+    }
+    for (const outcome of outcomes) {
+      if (!outcome.failure || nextResult.failedSamples.length >= FAILED_SAMPLE_LIMIT) continue
+      nextResult.failedSamples.push({
+        id: outcome.image.id,
+        path: safeMediaReference(outcome.image.path, outcome.image.id),
+        errorCode: outcome.failure.code,
+        error: outcome.failure.summary
+      })
+    }
+    return { result: nextResult, update: createUpdate(nextResult) }
+  })
 }
 
 function createProgressData(input: {
@@ -417,12 +517,15 @@ function createProgressData(input: {
   initialized: number
   total: number
   result: WebpAnimationScanResult
+  attempted?: number
+  failed?: number
   activeProbes: number
   concurrency: number
   samples: Array<{ attempted: number; at: number }>
   now: Date
 }): AnimationScanProgressData {
-  const attempted = input.result.processed + input.result.failed
+  const attempted = input.attempted ?? input.result.processed + input.result.failed
+  const failed = input.failed ?? input.result.failed
   const rate = rollingRate(input.samples)
   const advancingSamples = input.samples.filter(
     (sample, index) => index > 0 && sample.attempted > input.samples[index - 1]!.attempted
@@ -440,7 +543,7 @@ function createProgressData(input: {
     totalItems: input.total,
     attemptedItems: attempted,
     succeededItems: input.result.processed,
-    failedItems: input.result.failed,
+    failedItems: failed,
     animatedItems: input.result.animated,
     staticItems: input.result.static,
     remainingItems:
@@ -451,6 +554,19 @@ function createProgressData(input: {
     etaSeconds,
     sampledAt: input.now.toISOString()
   }
+}
+
+function scanProgressPercentage(attempted: number, total: number) {
+  return total === 0 ? 99 : Math.min(99, 5 + Math.floor((attempted / total) * 94))
+}
+
+function checkpointProgressPercentage(checkpoint: AnimationScanProgressData): number {
+  if (checkpoint.stage === 'COMPLETED') return 100
+  if (checkpoint.stage === 'SCANNING') {
+    return scanProgressPercentage(checkpoint.attemptedItems, checkpoint.totalItems)
+  }
+  if (checkpoint.totalItems === 0) return 0
+  return Math.min(4, 1 + Math.floor((checkpoint.initializedItems / checkpoint.totalItems) * 3))
 }
 
 function recordRateSample(samples: Array<{ attempted: number; at: number }>, attempted: number, at: number) {
@@ -484,7 +600,8 @@ function assertAnimationScanConcurrency(value: number): number {
 
 async function initializePendingAnimationImages(
   input: MaintenanceOperationInput,
-  onBatch: (initialized: number) => Promise<void>
+  commitProgress: RunMaintenanceProgressMutation,
+  createUpdate: (initialized: number) => MaintenanceProgress & { progressData: AnimationScanProgressData }
 ): Promise<number> {
   let initialized = 0
   let cursor = 0
@@ -498,14 +615,15 @@ async function initializePendingAnimationImages(
     })
     if (candidates.length === 0) break
     cursor = candidates.at(-1)!.id
-    const update = await input.mutate((transaction) =>
-      transaction.image.updateMany({
+    const committed = await commitProgress(async (transaction) => {
+      const update = await transaction.image.updateMany({
         where: { id: { in: candidates.map(({ id }) => id) }, webpAnimationStatus: null },
         data: { webpAnimationStatus: ANIMATION_STATUS.pending }
       })
-    )
-    initialized += update.count
-    await onBatch(initialized)
+      const nextInitialized = initialized + update.count
+      return { result: update.count, update: createUpdate(nextInitialized) }
+    })
+    initialized += committed
   }
   return initialized
 }

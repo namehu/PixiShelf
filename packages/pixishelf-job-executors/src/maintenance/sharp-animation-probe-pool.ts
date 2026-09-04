@@ -88,6 +88,9 @@ export interface IsolatedSharpAnimationProbePoolOptions {
 }
 
 export class IsolatedSharpAnimationProbePool {
+  // Native image work is isolated per child so cancellation can terminate the
+  // operation. The pool bounds both native concurrency and the number of
+  // processes left behind when a task is paused, cancelled, or fenced out.
   private readonly processes: SharpProbeProcess[]
   private readonly idle: SharpProbeProcess[]
   private readonly waiters: ProbeWaiter[] = []
@@ -194,6 +197,9 @@ class SharpProbeProcess {
         this.pending.exitError = signalError(signal)
         this.killChild()
       }
+      // Sharp's native timeout is complemented by this parent-side deadline:
+      // killing the child is the only reliable escape when native code stops
+      // servicing JavaScript cancellation callbacks.
       const timer = setTimeout(() => {
         if (this.pending?.id !== id) return
         const error = new Error(`Sharp animation probe exceeded ${this.options.timeoutSeconds} seconds`)

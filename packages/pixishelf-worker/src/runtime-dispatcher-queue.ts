@@ -5,6 +5,7 @@ import type {
   EnqueuedChildJob,
   ExecutionControlState,
   ExecutionFence,
+  ExecutionProgressMutationResult,
   ExecutionProgressUpdate,
   FencedExecutionTransaction,
   QueueSqlExecutor
@@ -25,6 +26,10 @@ export interface QueueRepositoryPort {
     fence: ExecutionFence,
     operation: (transaction: TTransaction) => Promise<TResult>
   ): Promise<TResult>
+  withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<ExecutionProgressMutationResult<TResult>>
+  ): Promise<ExecutionProgressMutationResult<TResult>>
   withFencedExecutionTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
     fence: ExecutionFence,
     operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<TResult>
@@ -76,6 +81,13 @@ export class RuntimeDispatcherQueue implements DispatcherQueuePort {
     operation: (transaction: TTransaction) => Promise<TResult>
   ) {
     return this.repository.withFencedMutationTransaction<TTransaction, TResult>(fence, operation)
+  }
+
+  withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<ExecutionProgressMutationResult<TResult>>
+  ) {
+    return this.repository.withFencedProgressTransaction<TTransaction, TResult>(fence, operation)
   }
 
   withFencedExecutionTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor>(

@@ -464,7 +464,7 @@ flowchart TD
 - 归档 `manifest.json` 是 Worker 在归档 staging/revision 中生成的发布清单。它不会出现在普通 `local-imports` 发现链路中，也不会触发本地导入默认标签。
 - 网络下载和 FFmpeg/文件流不放进长数据库事务。最终领域发布使用短 fenced transaction，避免失去 lease 的旧执行者发布结果。
 - 归档媒体并发从 `Setting.archive_media_concurrency` 读取，默认 2；Executor worker 数和 Provider permit 容量使用同一冻结值。`BACKGROUND_WRITER` 仍只有一个任务执行槽。
-- `ExecutionProgressUpdate` 的 `REALTIME` 模式最多每两秒持久化一条普通快照；`STANDARD` 在变化至少 5%且间隔至少 5 秒时写入，并以 30 秒兜底。阶段真实变化、警告、错误、控制、取消和终态立即写，结算前刷新最后一个合并快照。`progressData` 与任务进度、事件在同一 fenced transaction 中更新。管理端使用全局 `SystemJobEvent.id` 通过 `/api/jobs/events` 追赶；SSE 断线不改变 PostgreSQL 事实源。
+- `ExecutionProgressUpdate` 的 `REALTIME` 模式最多每两秒发布一条普通观察快照；`STANDARD` 在变化至少 5%且间隔至少 5 秒时发布，并以 30 秒兜底。阶段真实变化、警告、错误、控制、取消和终态立即写，结算前刷新最后一个合并快照。每条已发布快照的 `progressData`、任务进度和事件在同一 fenced transaction 中更新；动画领域微批次是恢复边界，其任务行检查点和游标事件也随领域状态原子提交，不属于定时观察快照。管理端使用全局 `SystemJobEvent.id` 通过 `/api/jobs/events` 追赶；SSE 断线不改变 PostgreSQL 事实源。
 
 ### 归档维护
 
@@ -617,7 +617,9 @@ flowchart TD
 
 ### 动画图片识别
 
-`WEBP_ANIMATION_SCAN` 在统计候选前进入 `INITIALIZING`，把符合扩展名且状态为空的记录每批 500 条初始化为 pending；随后进入 `SCANNING`，以 `ANIMATION_SCAN_CONCURRENCY` 控制 1–8 个内部探测 worker（默认 4）。结果累计 20 条或最早等待 2 秒即 fenced 提交，成功写入领域状态后才推进持久进度。WebP/GIF 由同一任务拥有的有界探测子进程池执行 Sharp 输出管线并读取页数：管线设置 60 秒原生超时，父进程另设硬终止兜底；取消、租约丢失和关停会终止对应探测进程并等待退出，不把仍运行的原生操作遗留到下一任务。探测子进程不领取队列任务，也不访问数据库。PNG/APNG 解析签名和 `acTL`；单项超过 10 秒产生一次不含媒体身份的 WARN。失败项留在 pending，后续运行会再次尝试。任务通过 `animation-scan@v1` 展示 30 秒滚动速率、活动数和满足采样门槛后的 ETA。
+`WEBP_ANIMATION_SCAN` 在统计候选前进入 `INITIALIZING`，把符合扩展名且状态为空的记录每批 500 条初始化为 pending；随后进入 `SCANNING`，以 `ANIMATION_SCAN_CONCURRENCY` 控制 1–8 个内部探测 worker（默认 4）。初始化批次以及累计 20 条或最早等待 2 秒的识别批次，都会把领域状态、聚合 `progressData` 和对应事件放在同一个 fenced transaction 中提交。这样进程在领域事务之后、通用结算之前退出时，下一次 claim 仍能从同一任务行检查点恢复准确计数，已连接 SSE 也能通过持久游标接收同一批。WebP/GIF 由同一任务拥有的有界探测子进程池执行 Sharp 输出管线并读取页数：管线设置 60 秒原生超时，父进程另设硬终止兜底；取消、租约丢失和关停会终止对应探测进程并等待退出，不把仍运行的原生操作遗留到下一任务。探测子进程不领取队列任务，也不访问数据库。PNG/APNG 解析签名和 `acTL`；单项超过 10 秒产生一次不含媒体身份的 WARN。失败项留在 pending，后续运行会再次尝试。任务通过 `animation-scan@v1` 展示 30 秒滚动速率、活动数和满足采样门槛后的 ETA。
+
+暂停或取消请求会先让 Dispatcher 停止扩展批次并向 Executor 的 abort signal 传播；已完成的 fenced 微批次保留，未提交结果不会推进领域状态。任务进入 `PAUSED` 后可从同一任务的聚合 `progressData` 恢复原总数与已提交分类计数；恢复初始化会把暂停期间新增的空状态候选纳入总数，并保证 `initializedItems <= totalItems`。失败项仍留在 pending 重新探测且不重复累计；已写入 `COMPLETED` 检查点但尚未完成通用结算的任务保留累计值重放，终态后不得再写入进度或事件。
 
 ### 媒体派生标签同步
 
