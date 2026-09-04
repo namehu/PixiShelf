@@ -8,7 +8,7 @@ import {
   type JobType,
   type WorkerCapability
 } from '@pixishelf/job-contracts'
-import type { ExecutorDefinition, WorkerJobExecutor } from '@pixishelf/job-runtime'
+import type { ExecutorDefinition, ExecutorProgressPolicy, WorkerJobExecutor } from '@pixishelf/job-runtime'
 
 export {
   jobExecutionOutcomeSchema,
@@ -23,6 +23,7 @@ export interface ResolvedExecutor<TPayload = unknown> {
   jobType: JobType
   executionLane: ExecutionLane
   definitionVersion: number
+  progressPolicy: ExecutorProgressPolicy
   payload: TPayload
   execute: WorkerJobExecutor<TPayload>
 }
@@ -31,6 +32,7 @@ interface StoredRegistration {
   jobType: JobType
   executionLane: ExecutionLane
   definitionVersion: number
+  progressPolicy: ExecutorProgressPolicy
   execute: WorkerJobExecutor
   parsePayload(payload: unknown): unknown
 }
@@ -58,6 +60,7 @@ export class ExecutorRegistry {
       jobType,
       executionLane,
       definitionVersion: registration.definitionVersion,
+      progressPolicy: registration.progressPolicy ?? 'STANDARD',
       execute: registration.execute as WorkerJobExecutor,
       parsePayload
     })
@@ -79,6 +82,7 @@ export class ExecutorRegistry {
       jobType: registration.jobType,
       executionLane: registration.executionLane,
       definitionVersion: registration.definitionVersion,
+      progressPolicy: registration.progressPolicy,
       payload: registration.parsePayload(job.payload ?? {}),
       execute: registration.execute
     }

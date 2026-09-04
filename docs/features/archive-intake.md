@@ -81,13 +81,13 @@ sources:
 | Lane                | 允许任务                                                               | 固定并发 |
 | ------------------- | ---------------------------------------------------------------------- | -------- |
 | `ARCHIVE_RESOLVE`   | `ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` | 1        |
-| `BACKGROUND_WRITER` | 其余 25 类任务，包括归档下载                                           | 1        |
+| `BACKGROUND_WRITER` | 其余 26 类任务，包括归档下载                                           | 1        |
 
 两个 lane 可以各推进一个任务；同一 lane 内不能并行。网络、数据库、文件流、Sharp/libvips 与 FFmpeg 子进程在等待时让出 Node.js 事件循环，因此链接解析可以在一个 writer 工作期间继续。该模型不承诺纯 JavaScript CPU 并行，也不开放 lane 并发。单个归档作品内部的媒体流并发可在系统设置中选择 1–8，并在每次启动、恢复或重试时冻结；运行中不能修改。
 
 所有原媒体、派生媒体、staging、发布、扫描、迁移、替换和维护写操作都在 `BACKGROUND_WRITER` 全局串行。`ARCHIVE_RESOLVE` 的 Executor 契约只访问解析所需的远端数据和数据库，不执行媒体目录写入；两个 lane 仍共用同一 Worker 进程和 `rw` 挂载，因此这是队列/capability 边界，不是操作系统权限隔离。数据库按 lane 的执行态唯一索引与 `lane/archive-resolve`、`lane/background-writer` 资源租约共同防止滚动部署或误启动第二个 Worker 时出现同 lane 双执行。
 
-生产 capability inventory 固定为 28 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 26 类只支持 v1，共 31 个
+生产 capability inventory 固定为 29 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 27 类只支持 v1，共 32 个
 type/version 组合，并同时校验 job type、definition version 和 lane。READY 证明预检通过，capability audit
 证明 Registry 精确匹配；两者都通过后才可开放 claim。`SCAN@v2/v3` 不改变归档收件任务及其 lane。
 

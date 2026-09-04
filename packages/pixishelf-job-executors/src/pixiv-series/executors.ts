@@ -20,15 +20,9 @@ import {
   PixivArtworkRequestError,
   type NormalizedPixivArtworkSeries
 } from '../pixiv-artwork/client.ts'
-import {
-  observePixivSeriesState,
-  reconcilePixivArtworkSeries
-} from '../pixiv-artwork/series-sync.ts'
+import { observePixivSeriesState, reconcilePixivArtworkSeries } from '../pixiv-artwork/series-sync.ts'
 import { storePixivArtworkSnapshot } from '../pixiv-artwork/storage.ts'
-import {
-  PixivSeriesSnapshotReadError,
-  readPixivSeriesObservationFromSnapshot
-} from './snapshot-reader.ts'
+import { PixivSeriesSnapshotReadError, readPixivSeriesObservationFromSnapshot } from './snapshot-reader.ts'
 
 const PROVIDER_KEY = 'pixiv'
 const CHILD_QUEUE_PRIORITY = 900
@@ -53,6 +47,7 @@ export function createPixivSeriesExecutorRegistrations(
     jobType: 'PIXIV_SERIES_RECONCILIATION',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => pixivSeriesReconciliationPayloadSchema.parse(payload),
     execute: (context) => executePixivSeriesReconciliation(context, dependencies)
   }
@@ -337,7 +332,10 @@ interface Failure {
 }
 
 function classifyFailure(error: unknown): Failure {
-  const message = (error instanceof Error ? error.message : 'Unknown Pixiv series failure').slice(0, ERROR_MESSAGE_LIMIT)
+  const message = (error instanceof Error ? error.message : 'Unknown Pixiv series failure').slice(
+    0,
+    ERROR_MESSAGE_LIMIT
+  )
   if (error instanceof PixivArtworkRequestError) {
     return {
       code: error.code,
@@ -366,7 +364,9 @@ function retryOrFail(
     return { kind: 'failed', errorCode: failure.jobErrorCode, error: failure.message, message }
   }
   const now = dependencies.now?.() ?? new Date()
-  const exponentialRetry = new Date(now.getTime() + Math.min(1_800_000, 15_000 * 2 ** Math.max(0, context.job.attempt - 1)))
+  const exponentialRetry = new Date(
+    now.getTime() + Math.min(1_800_000, 15_000 * 2 ** Math.max(0, context.job.attempt - 1))
+  )
   return {
     kind: 'retry',
     availableAt: failure.retryAt && failure.retryAt > exponentialRetry ? failure.retryAt : exponentialRetry,
@@ -395,5 +395,6 @@ async function randomizedDelay(signal: AbortSignal, dependencies: PixivSeriesExe
 }
 
 function throwIfAborted(signal: AbortSignal) {
-  if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('Pixiv series reconciliation interrupted')
+  if (signal.aborted)
+    throw signal.reason instanceof Error ? signal.reason : new Error('Pixiv series reconciliation interrupted')
 }

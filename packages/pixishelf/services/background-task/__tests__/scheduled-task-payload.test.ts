@@ -18,6 +18,15 @@ describe('scheduled task payload mapping', () => {
     expect(buildScheduledTaskJobDefinition(type, { trigger: 'schedule' })).toEqual({ type, payload: {} })
   })
 
+  it('keeps the first manual event-retention run read-only and scheduled runs destructive', () => {
+    expect(buildScheduledTaskJobDefinition('JOB_EVENT_RETENTION_CLEANUP', { trigger: 'manual' }).payload).toEqual({
+      dryRun: true
+    })
+    expect(buildScheduledTaskJobDefinition('JOB_EVENT_RETENTION_CLEANUP', { trigger: 'schedule' }).payload).toEqual({
+      dryRun: false
+    })
+  })
+
   it('maps media probe and chapter preview behavior explicitly', () => {
     expect(buildScheduledTaskJobDefinition('VIDEO_MEDIA_PROBE', { trigger: 'schedule' }).payload).toEqual({
       mode: 'INCREMENTAL',

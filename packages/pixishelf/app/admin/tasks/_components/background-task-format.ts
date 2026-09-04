@@ -45,6 +45,7 @@ const typeLabels: Partial<Record<JobType, string>> = {
   ARCHIVE_INTAKE_RETENTION_CLEANUP: '归档收件历史清理',
   SCAN_RUN_RETENTION_CLEANUP: '扫描记录清理',
   TRIGGER_LOG_RETENTION_CLEANUP: '触发日志清理',
+  JOB_EVENT_RETENTION_CLEANUP: '后台任务事件清理',
   DERIVED_MEDIA_GC: '衍生媒体清理'
 }
 

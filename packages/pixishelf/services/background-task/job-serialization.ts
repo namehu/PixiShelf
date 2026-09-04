@@ -3,6 +3,7 @@ import {
   jobTypeSchema,
   jobDtoSchema,
   jobEventDtoSchema,
+  jobLiveSummarySchema,
   jsonValueSchema,
   workerHealthDtoSchema,
   type JobDto,
@@ -30,6 +31,7 @@ export const systemJobWireSelect = {
   idempotencyKey: true,
   payload: true,
   progress: true,
+  progressData: true,
   stage: true,
   message: true,
   result: true,
@@ -74,6 +76,7 @@ export const systemJobLiveSummarySelect = {
   executionLane: true,
   status: true,
   progress: true,
+  progressData: true,
   stage: true,
   message: true,
   errorCode: true,
@@ -141,7 +144,7 @@ export function toJobEventDto(record: SystemJobEventWireRecord): JobEventDto {
 }
 
 export function toJobLiveSummary(record: SystemJobLiveSummaryRecord): JobLiveSummary {
-  return {
+  return jobLiveSummarySchema.parse({
     ...record,
     type: jobTypeSchema.parse(record.type),
     message: wireTextRedactor(record.type)(record.message),
@@ -149,7 +152,7 @@ export function toJobLiveSummary(record: SystemJobLiveSummaryRecord): JobLiveSum
     startedAt: iso(record.startedAt),
     finishedAt: iso(record.finishedAt),
     updatedAt: record.updatedAt.toISOString()
-  }
+  })
 }
 
 function wireTextRedactor(jobType: string): WireTextRedactor {

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import type {
   ExecutionLane,
+  JobEventLevel,
+  JobProgressData,
   JobSkipReason,
   JobStatus,
   JobTriggerSource,
@@ -10,6 +12,7 @@ import type {
 import {
   executionLaneForJobType,
   executionLaneSchema,
+  jobProgressDataSchema,
   JOB_DEFINITION_VERSION,
   jobTypeSchema,
   jsonValueSchema,
@@ -135,6 +138,8 @@ export interface ProgressExecutionInput extends ExecutionFence {
   stage?: string | null
   message?: string | null
   data?: unknown
+  progressData?: JobProgressData | null
+  level?: JobEventLevel
 }
 
 export interface RequestCancellationResult {
@@ -571,16 +576,21 @@ export class PostgresQueueRepository {
     if (input.stage !== undefined && input.stage !== null && input.stage.length > 80) {
       throw new Error('Execution stage cannot exceed 80 characters')
     }
+    if (input.progressData !== undefined && input.progressData !== null) {
+      jobProgressDataSchema.parse(input.progressData)
+    }
 
     const now = this.clock.now()
     await this.runTransaction(async (transaction) => {
-      await this.lockOwnedExecution(transaction, input, now)
+      const ownedExecution = await this.lockOwnedExecution(transaction, input, now)
+      const stageChanged = input.stage !== undefined && input.stage !== ownedExecution.stage
       const rows = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
         `UPDATE "system_jobs"
          SET
            "progress" = $6,
            "stage" = CASE WHEN $7::boolean THEN $8 ELSE "stage" END,
            "message" = CASE WHEN $9::boolean THEN $10 ELSE "message" END,
+           "progressData" = CASE WHEN $11::boolean THEN $12::jsonb ELSE "progressData" END,
            "updatedAt" = $5
          WHERE "id" = $1
            AND "workerId" = $2
@@ -598,7 +608,9 @@ export class PostgresQueueRepository {
         input.stage !== undefined,
         input.stage ?? null,
         input.message !== undefined,
-        input.message ?? null
+        input.message ?? null,
+        input.progressData !== undefined,
+        input.progressData === null ? null : toJsonParameter(input.progressData)
       )
       if (rows.length !== 1) {
         throw new JobExecutionFenceError(input.jobId)
@@ -606,8 +618,8 @@ export class PostgresQueueRepository {
 
       await this.insertEvent(transaction, {
         jobId: input.jobId,
-        type: input.stage !== undefined ? 'job.stage_changed' : 'job.progress',
-        level: 'INFO',
+        type: stageChanged ? 'job.stage_changed' : 'job.progress',
+        level: input.level ?? 'INFO',
         attempt: input.attempt,
         workerId: input.workerId,
         ...(input.stage === undefined ? {} : { stage: input.stage }),
@@ -616,6 +628,7 @@ export class PostgresQueueRepository {
         data: {
           progress: input.progress,
           ...(input.stage === undefined ? {} : { stage: input.stage }),
+          ...(input.progressData === undefined ? {} : { progressData: input.progressData }),
           ...(input.data === undefined ? {} : { data: input.data })
         },
         now
@@ -978,7 +991,7 @@ export class PostgresQueueRepository {
     assertFence(fence)
 
     return this.runTransaction(async (transaction) => {
-      const executionStatus = await this.lockOwnedExecution(transaction, fence, this.clock.now())
+      const executionStatus = (await this.lockOwnedExecution(transaction, fence, this.clock.now())).status
       // The first SELECT may have waited for a concurrent controller while its
       // timestamp parameter aged. Revalidate after both lease/job rows are ours
       // so an execution whose lease expired while waiting never enters domain code.
@@ -1246,7 +1259,7 @@ export class PostgresQueueRepository {
     transaction: QueueSqlExecutor,
     input: ExecutionFence,
     now: Date
-  ): Promise<'RUNNING' | 'PAUSING' | 'CANCELLING'> {
+  ): Promise<{ status: 'RUNNING' | 'PAUSING' | 'CANCELLING'; stage: string | null }> {
     const leaseRows = await transaction.$queryRawUnsafe<Array<{ resourceKey: string }>>(
       `SELECT "resourceKey"
        FROM "job_resource_leases"
@@ -1266,9 +1279,9 @@ export class PostgresQueueRepository {
     }
 
     const jobRows = await transaction.$queryRawUnsafe<
-      Array<{ id: string; status: 'RUNNING' | 'PAUSING' | 'CANCELLING' }>
+      Array<{ id: string; status: 'RUNNING' | 'PAUSING' | 'CANCELLING'; stage: string | null }>
     >(
-      `SELECT "id", "status"
+      `SELECT "id", "status", "stage"
        FROM "system_jobs"
        WHERE "id" = $1
          AND "workerId" = $2
@@ -1287,11 +1300,11 @@ export class PostgresQueueRepository {
     if (jobRows.length !== 1) {
       throw new JobExecutionFenceError(input.jobId)
     }
-    return jobRows[0]!.status
+    return jobRows[0]!
   }
 
   private async lockRunningExecution(transaction: QueueSqlExecutor, input: ExecutionFence, now: Date): Promise<void> {
-    if ((await this.lockOwnedExecution(transaction, input, now)) !== 'RUNNING') {
+    if ((await this.lockOwnedExecution(transaction, input, now)).status !== 'RUNNING') {
       throw new JobExecutionFenceError(input.jobId)
     }
   }

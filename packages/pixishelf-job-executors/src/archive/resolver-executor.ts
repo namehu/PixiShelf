@@ -40,6 +40,7 @@ export function createArchiveResolverExecutorRegistrations(
       jobType: 'ARCHIVE_RESOLVE_ITEM',
       executionLane: 'ARCHIVE_RESOLVE',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
       parsePayload: (payload) => archiveResolveItemPayloadSchema.parse(payload),
       execute: (context) => executeArchiveResolveItem(context, dependencies)
     }

@@ -3,10 +3,10 @@
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useTRPC } from '@/lib/trpc'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Database, Film, ImagePlay, PlayCircle, Tags, Wrench } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { VideoKeyframeSection } from './video-keyframe-section'
 import { VideoStreamingOptimizationSection } from './video-streaming-optimization-section'
 import {
@@ -27,6 +27,12 @@ import { useScheduledTaskDrafts } from './use-scheduled-task-drafts'
 import { useTaskPolling } from './use-task-polling'
 import { VideoProbeTaskActions, type VideoMediaProbeResult } from './video-probe-task-actions'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { useBackgroundJobEventSubscription } from '../../_components/background-job-event-provider'
+import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
+import { StandaloneTaskFeedback } from './standalone-task-feedback'
+import { ACTIVE_TASK_STATUSES } from './task-status'
+import { collectUnseenLiveEvents, selectLiveJobForStatusCache, type LiveEventCursor } from './live-event-reconciliation'
+import { PixivAiDerivedTagSyncFeedback, type PixivAiDerivedTagSyncResult } from './pixiv-ai-derived-tag-sync-feedback'
 
 interface MediaDerivedTagSyncStats {
   expectedArtworks?: number
@@ -39,24 +45,6 @@ interface MediaDerivedTagSyncResult {
   webp?: MediaDerivedTagSyncStats
   video?: MediaDerivedTagSyncStats
   image?: MediaDerivedTagSyncStats
-}
-
-interface PixivAiDerivedTagSyncResult {
-  dryRun?: boolean
-  scannedArtworks?: number
-  aiGeneratedArtworks?: number
-  nonAiArtworks?: number
-  unknownAiArtworks?: number
-  wouldCreateDerivedRelations?: number
-  wouldConvertSourceRelations?: number
-  wouldConvertLegacyRelations?: number
-  wouldRemoveStaleDerivedRelations?: number
-  protectedManualRelations?: number
-  protectedOtherSourceRelations?: number
-  appliedCreatedRelations?: number
-  appliedConvertedRelations?: number
-  appliedRemovedRelations?: number
-  finalDerivedRelations?: number
 }
 
 interface WebpAnimationScanFailedSample {
@@ -130,19 +118,18 @@ function getScheduledSummary(task: ScheduledTaskView | undefined, job: JobView |
 }
 
 function getStandaloneSummary(task: ScheduledTaskView) {
-  if (task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus)) return '正在运行'
+  if (task.lastJobStatus && ACTIVE_TASK_STATUSES.includes(task.lastJobStatus)) return '正在运行'
   if (task.lastJobStatus === 'FAILED') return '需要处理 · 上次执行失败'
   if (!task.enabled) return null
   return task.executionWindow ? '下次 · 上海 00:00–08:00' : `下次 · 每日 ${task.time}`
 }
 
 export function shouldPollStandaloneTasks(tasks: ScheduledTaskView[] | undefined) {
-  return Boolean(
-    tasks?.some((task) => task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus))
-  )
+  return Boolean(tasks?.some((task) => task.lastJobStatus && ACTIVE_TASK_STATUSES.includes(task.lastJobStatus)))
 }
 
 export function getStandaloneTaskActionLabel(task: ScheduledTaskView) {
+  if (task.key === 'job_event_retention_cleanup') return '运行只读预检'
   if (task.key === 'derived_media_gc') return '执行到期清理'
   if (task.key === 'derived_media_gc_reconciliation') return '开始只读核对'
   return '立即执行'
@@ -176,141 +163,38 @@ export function requestPixivAiDerivedTagSync(dryRun: boolean, onTrigger: () => v
   })
 }
 
-export function PixivAiDerivedTagSyncFeedback({ result }: { result: PixivAiDerivedTagSyncResult | null }) {
-  if (!result) return null
-  const converted = (result.wouldConvertSourceRelations ?? 0) + (result.wouldConvertLegacyRelations ?? 0)
-  const protectedRelations = (result.protectedManualRelations ?? 0) + (result.protectedOtherSourceRelations ?? 0)
-  return (
-    <div className="flex flex-col gap-2 text-sm text-muted-foreground">
-      <div className="flex flex-wrap gap-x-4 gap-y-1">
-        <span>
-          模式：
-          <strong className="font-medium text-foreground">{result.dryRun ? '只读预检' : '正式回填'}</strong>
-        </span>
-        <span>
-          已核对：<strong className="font-medium text-foreground">{result.scannedArtworks ?? 0}</strong>
-        </span>
-        <span>
-          AI 作品：<strong className="font-medium text-foreground">{result.aiGeneratedArtworks ?? 0}</strong>
-        </span>
-        <span>
-          状态未知：<strong className="font-medium text-foreground">{result.unknownAiArtworks ?? 0}</strong>
-        </span>
-      </div>
-      <p>
-        计划新增 <strong className="font-medium text-foreground">{result.wouldCreateDerivedRelations ?? 0}</strong>，
-        转换 <strong className="font-medium text-foreground">{converted}</strong>，移除过期{' '}
-        <strong className="font-medium text-foreground">{result.wouldRemoveStaleDerivedRelations ?? 0}</strong>；保护人工或其他来源{' '}
-        <strong className="font-medium text-foreground">{protectedRelations}</strong>。
-      </p>
-      {!result.dryRun ? (
-        <p>
-          实际新增 <strong className="font-medium text-foreground">{result.appliedCreatedRelations ?? 0}</strong>，
-          转换 <strong className="font-medium text-foreground">{result.appliedConvertedRelations ?? 0}</strong>，移除{' '}
-          <strong className="font-medium text-foreground">{result.appliedRemovedRelations ?? 0}</strong>；最终派生关系{' '}
-          <strong className="font-medium text-foreground">{result.finalDerivedRelations ?? 0}</strong>。
-        </p>
-      ) : null}
-    </div>
-  )
-}
-
-export function StandaloneTaskFeedback({ task }: { task: ScheduledTaskView }) {
-  if (!task.lastJobId) return null
-  const result = task.lastJobResult
-  const status =
-    task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus)
-      ? '运行中'
-      : task.lastJobStatus === 'COMPLETED'
-        ? '已完成'
-        : task.lastJobStatus === 'FAILED'
-          ? '失败'
-          : task.lastJobStatus === 'CANCELLED'
-            ? '已取消'
-            : '未知'
-  return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
-      <span>
-        模式：
-        <strong className="font-medium text-foreground">
-          {task.lastJobMode === 'PREVIEW' ? '预览（只读）' : '正式执行'}
-        </strong>
-      </span>
-      <span>
-        状态：<strong className="font-medium text-foreground">{status}</strong>
-      </span>
-      {result && task.key === 'trigger_log_retention_cleanup' && (
-        <span>
-          删除日志：<strong className="font-medium text-foreground">{result?.deletedLogs ?? 0}</strong>
-        </span>
-      )}
-      {result && task.key === 'scan_run_retention_cleanup' && (
-        <span>
-          删除扫描记录：<strong className="font-medium text-foreground">{result?.deletedRuns ?? 0}</strong>
-        </span>
-      )}
-      {result && task.key === 'archive_intake_retention_cleanup' && (
-        <>
-          <span>
-            删除批量操作：
-            <strong className="font-medium text-foreground">{result.deletedBulkOperations ?? 0}</strong>
-          </span>
-          <span>
-            删除收件记录：<strong className="font-medium text-foreground">{result.deletedIntakeItems ?? 0}</strong>
-          </span>
-          <span>
-            删除收件批次：<strong className="font-medium text-foreground">{result.deletedSubmissions ?? 0}</strong>
-          </span>
-          <span>
-            删除过期预览：
-            <strong className="font-medium text-foreground">{result.deletedPreviewSessions ?? 0}</strong>
-          </span>
-        </>
-      )}
-      {result && task.type === 'DERIVED_MEDIA_GC' && (
-        <>
-          <span>
-            选中：<strong className="font-medium text-foreground">{result?.selected ?? 0}</strong>
-          </span>
-          <span>
-            删除：<strong className="font-medium text-foreground">{result?.deleted ?? 0}</strong>
-          </span>
-          <span>
-            缺失：<strong className="font-medium text-foreground">{result?.missing ?? 0}</strong>
-          </span>
-          <span>
-            仍被引用：<strong className="font-medium text-foreground">{result?.referenced ?? 0}</strong>
-          </span>
-          <span>
-            失败：<strong className="font-medium text-destructive">{result?.failed ?? 0}</strong>
-          </span>
-          <span>
-            核对扫描：<strong className="font-medium text-foreground">{result?.reconciliationScanned ?? 0}</strong>
-          </span>
-          <span>
-            未登记候选：<strong className="font-medium text-foreground">{result?.untrackedCandidates ?? 0}</strong>
-          </span>
-        </>
-      )}
-    </div>
-  )
-}
-
 export function MaintenanceCard() {
   const trpc = useTRPC()
+  const queryClient = useQueryClient()
   const [triggeringTaskKey, setTriggeringTaskKey] = useState<string | null>(null)
   const [videoReprobePath, setVideoReprobePath] = useState('')
+  const [trackedWebpJobId, setTrackedWebpJobId] = useState<string>()
+  const requestedWebpJobId = useRef<string | null>(null)
+  const liveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
+  const jobEvents = useBackgroundJobEventSubscription()
 
-  const pollRefill = useTaskPolling<JobView | null>((job) =>
-    Boolean(job && ['PENDING', 'RUNNING', 'CANCELLING'].includes(job.status))
+  const fallbackPolling = { liveConnected: jobEvents.status === 'connected', idleInterval: 30_000 }
+  const pollRefill = useTaskPolling<JobView | null>(
+    (job) => Boolean(job && ACTIVE_TASK_STATUSES.includes(job.status)),
+    3_000,
+    fallbackPolling
   )
-  const pollMediaTags = useTaskPolling<JobView | null>((job) =>
-    Boolean(job && ['PENDING', 'RUNNING'].includes(job.status))
+  const pollMediaTags = useTaskPolling<JobView | null>(
+    (job) => Boolean(job && ACTIVE_TASK_STATUSES.includes(job.status)),
+    3_000,
+    fallbackPolling
   )
-  const pollCancellable = useTaskPolling<JobView | null>((job) =>
-    Boolean(job && ['PENDING', 'RUNNING', 'CANCELLING'].includes(job.status))
+  const pollCancellable = useTaskPolling<JobView | null>(
+    (job) => Boolean(job && ACTIVE_TASK_STATUSES.includes(job.status)),
+    3_000,
+    fallbackPolling
   )
-  const pollScheduledTasks = useTaskPolling<ScheduledTaskView[]>(shouldPollStandaloneTasks)
+  const pollWebp = useTaskPolling<JobView | null>(
+    (job) => Boolean(job && ACTIVE_TASK_STATUSES.includes(job.status)),
+    3_000,
+    fallbackPolling
+  )
+  const pollScheduledTasks = useTaskPolling<ScheduledTaskView[]>(shouldPollStandaloneTasks, 3_000, fallbackPolling)
 
   const { data: activeJob, refetch } = useQuery(
     trpc.job.getRefillMetaSourceStatus.queryOptions(undefined, {
@@ -334,14 +218,15 @@ export function MaintenanceCard() {
   const pixivAiTagJob = pixivAiTagJobQuery.data as JobView | null | undefined
   const refetchPixivAiTagJob = pixivAiTagJobQuery.refetch
 
-  const webpScanJobQuery = useQuery(
-    trpc.job.getWebpAnimationScanStatus.queryOptions(undefined, {
-      refetchInterval: pollCancellable
-    })
+  const webpScanJobQueryOptions = useMemo(
+    () => trpc.job.getWebpAnimationScanStatus.queryOptions(undefined, { refetchInterval: pollWebp }),
+    [pollWebp, trpc]
   )
+  const webpScanJobQuery = useQuery(webpScanJobQueryOptions)
   const webpScanJob = webpScanJobQuery.data as JobView | null | undefined
   const refetchWebpScanJob = webpScanJobQuery.refetch
 
+  const latestWebpEvent = [...jobEvents.items].reverse().find(({ job }) => job.type === 'WEBP_ANIMATION_SCAN')
   const videoProbeJobQuery = useQuery(
     trpc.job.getVideoMediaProbeStatus.queryOptions(undefined, {
       refetchInterval: pollCancellable
@@ -364,6 +249,91 @@ export function MaintenanceCard() {
   const scheduledTasks = (scheduledTasksQuery.data ?? []) as ScheduledTaskView[]
   const { drafts: taskDrafts, updateDraft: updateTaskDraft } = useScheduledTaskDrafts(scheduledTasks)
   const refetchScheduledTasks = scheduledTasksQuery.refetch
+
+  useEffect(() => {
+    if (!webpScanJob?.id) return
+    if (requestedWebpJobId.current && requestedWebpJobId.current !== webpScanJob.id) return
+    requestedWebpJobId.current = null
+    if (trackedWebpJobId !== webpScanJob.id) setTrackedWebpJobId(webpScanJob.id)
+  }, [trackedWebpJobId, webpScanJob?.id])
+
+  useEffect(() => {
+    if (!latestWebpEvent || !ACTIVE_TASK_STATUSES.includes(latestWebpEvent.job.status)) return
+    if (requestedWebpJobId.current && requestedWebpJobId.current !== latestWebpEvent.job.id) return
+    requestedWebpJobId.current = null
+    if (latestWebpEvent.job.id !== trackedWebpJobId) setTrackedWebpJobId(latestWebpEvent.job.id)
+  }, [latestWebpEvent, trackedWebpJobId])
+
+  useEffect(() => {
+    const unseen = collectUnseenLiveEvents(jobEvents.items, jobEvents.resetVersion, liveEventCursor.current)
+    liveEventCursor.current = unseen.cursor
+    const unseenItems = unseen.items
+    if (unseenItems.length === 0) return
+    const queryKeys = [
+      ['REFILL_META_SOURCE', trpc.job.getRefillMetaSourceStatus.queryKey()],
+      ['MEDIA_DERIVED_TAG_SYNC', trpc.job.getMediaDerivedTagSyncStatus.queryKey()],
+      ['PIXIV_AI_DERIVED_TAG_SYNC', trpc.job.getPixivAiDerivedTagSyncStatus.queryKey()],
+      ['WEBP_ANIMATION_SCAN', trpc.job.getWebpAnimationScanStatus.queryKey()],
+      ['VIDEO_MEDIA_PROBE', trpc.job.getVideoMediaProbeStatus.queryKey()],
+      ['VIDEO_CHAPTER_PREVIEW_GENERATION', trpc.job.getVideoChapterPreviewGenerationStatus.queryKey()]
+    ] as const
+    for (const [jobType, statusQueryKey] of queryKeys) {
+      const current = queryClient.getQueryData<JobView | null>(statusQueryKey)
+      const expectedJobId =
+        jobType === 'WEBP_ANIMATION_SCAN'
+          ? (requestedWebpJobId.current ?? trackedWebpJobId ?? current?.id)
+          : current?.id
+      const selection = selectLiveJobForStatusCache(unseenItems, jobType, expectedJobId)
+      if (selection.job) {
+        const liveJob = selection.job
+        queryClient.setQueryData<JobView | null>(statusQueryKey, (cached) => ({
+          ...(cached?.id === liveJob.id ? cached : {}),
+          ...liveJob
+        }))
+      } else if (selection.sawDifferentJob) {
+        void queryClient.invalidateQueries({ queryKey: statusQueryKey })
+      }
+    }
+    const latestByJobId = new Map(unseenItems.map(({ job }) => [job.id, job]))
+    queryClient.setQueryData<ScheduledTaskView[]>(trpc.job.listScheduledTasks.queryKey(), (current) =>
+      current?.map((task) => {
+        const liveJob = task.lastJobId ? latestByJobId.get(task.lastJobId) : undefined
+        return liveJob ? { ...task, lastJobStatus: liveJob.status } : task
+      })
+    )
+    const terminalTypes = new Set(
+      unseenItems
+        .filter(({ job }) => ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status))
+        .map(({ job }) => job.type)
+    )
+    if (terminalTypes.size > 0) {
+      for (const [jobType, queryKey] of queryKeys) {
+        if (terminalTypes.has(jobType)) void queryClient.invalidateQueries({ queryKey })
+      }
+      void refetchScheduledTasks()
+    }
+  }, [jobEvents.items, jobEvents.resetVersion, queryClient, refetchScheduledTasks, trackedWebpJobId, trpc])
+
+  useEffect(() => {
+    if (jobEvents.readyVersion === 0 && jobEvents.resetVersion === 0) return
+    void refetch()
+    void refetchMediaTagJob()
+    void refetchPixivAiTagJob()
+    void refetchWebpScanJob()
+    void refetchVideoProbeJob()
+    void refetchChapterPreviewJob()
+    void refetchScheduledTasks()
+  }, [
+    jobEvents.readyVersion,
+    jobEvents.resetVersion,
+    refetch,
+    refetchChapterPreviewJob,
+    refetchMediaTagJob,
+    refetchPixivAiTagJob,
+    refetchScheduledTasks,
+    refetchVideoProbeJob,
+    refetchWebpScanJob
+  ])
 
   const scheduledTasksByKey = useMemo(() => {
     return new Map(scheduledTasks.map((task) => [task.key, task]))
@@ -495,7 +465,11 @@ export function MaintenanceCard() {
 
   const triggerScheduledTaskMutation = useMutation(
     trpc.job.triggerScheduledTaskNow.mutationOptions({
-      onSuccess: (_data, variables) => {
+      onSuccess: (data, variables) => {
+        if (variables.key === 'webp_animation_scan') {
+          requestedWebpJobId.current = data.jobId
+          setTrackedWebpJobId(data.jobId)
+        }
         toast.success(
           variables.chapterPreviewMode === 'INCREMENTAL'
             ? '章节截图增量任务已启动'
@@ -519,17 +493,15 @@ export function MaintenanceCard() {
     })
   )
 
-  const isRunning = activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)
+  const isRunning = activeJob && ACTIVE_TASK_STATUSES.includes(activeJob.status)
   const isCancelling = activeJob?.status === 'CANCELLING'
-  const isMediaTagRunning = mediaTagJob && ['PENDING', 'RUNNING'].includes(mediaTagJob.status)
-  const isPixivAiTagRunning =
-    pixivAiTagJob && ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'].includes(pixivAiTagJob.status)
+  const isMediaTagRunning = mediaTagJob && ACTIVE_TASK_STATUSES.includes(mediaTagJob.status)
+  const isPixivAiTagRunning = pixivAiTagJob && ACTIVE_TASK_STATUSES.includes(pixivAiTagJob.status)
   const isPixivAiTagCancelling = pixivAiTagJob?.status === 'CANCELLING'
-  const isWebpScanRunning = webpScanJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(webpScanJob.status)
-  const isVideoProbeRunning = videoProbeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(videoProbeJob.status)
+  const isWebpScanRunning = webpScanJob && ACTIVE_TASK_STATUSES.includes(webpScanJob.status)
+  const isVideoProbeRunning = videoProbeJob && ACTIVE_TASK_STATUSES.includes(videoProbeJob.status)
   const isVideoProbeCancelling = videoProbeJob?.status === 'CANCELLING'
-  const isChapterPreviewRunning =
-    chapterPreviewJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(chapterPreviewJob.status)
+  const isChapterPreviewRunning = chapterPreviewJob && ACTIVE_TASK_STATUSES.includes(chapterPreviewJob.status)
   const isChapterPreviewCancelling = chapterPreviewJob?.status === 'CANCELLING'
   const mediaTagResult = toMediaDerivedTagSyncResult(mediaTagJob?.result)
   const pixivAiTagResult = toPixivAiDerivedTagSyncResult(pixivAiTagJob?.result)
@@ -684,9 +656,7 @@ export function MaintenanceCard() {
               isPixivAiTagRunning ? (
                 <Button
                   variant="destructive"
-                  onClick={() =>
-                    confirmTaskCancellation('校准 Pixiv AI 标签', () => cancelPixivAiTagMutation.mutate())
-                  }
+                  onClick={() => confirmTaskCancellation('校准 Pixiv AI 标签', () => cancelPixivAiTagMutation.mutate())}
                   disabled={isPixivAiTagCancelling || cancelPixivAiTagMutation.isPending}
                 >
                   {isPixivAiTagCancelling ? '正在取消…' : '取消任务'}
@@ -756,6 +726,7 @@ export function MaintenanceCard() {
             <JobStatus
               job={webpScanJob}
               isRunning={Boolean(isWebpScanRunning)}
+              progressContent={<AnimationScanLiveFeedback job={webpScanJob} />}
               completeContent={
                 <div className="flex flex-col gap-3 text-muted-foreground">
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
@@ -1147,9 +1118,7 @@ export function MaintenanceCard() {
         {standaloneScheduledTasks.length > 0 ? (
           <TaskGroup title="自动维护" description="按保留策略清理系统审计与历史数据。">
             {standaloneScheduledTasks.map((task) => {
-              const isTaskRunning = Boolean(
-                task.lastJobStatus && ['PENDING', 'RUNNING', 'CANCELLING'].includes(task.lastJobStatus)
-              )
+              const isTaskRunning = Boolean(task.lastJobStatus && ACTIVE_TASK_STATUSES.includes(task.lastJobStatus))
               return (
                 <TaskSection
                   key={task.key}

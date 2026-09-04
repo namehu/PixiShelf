@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { WorkerCapability } from '@pixishelf/job-contracts'
+import type { AnimationScanProgressData, WorkerCapability } from '@pixishelf/job-contracts'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { PrismaClient } from '../../../pixishelf-db/src/index.js'
 import { MutableQueueClock } from '../queue-clock.js'
@@ -19,6 +19,7 @@ const describePostgres = databaseUrl ? describe : describe.skip
 const testPrefix = `queue-kernel-${randomUUID()}`
 const capabilities: WorkerCapability[] = [
   { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
+  { jobType: 'WEBP_ANIMATION_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
   { jobType: 'VIDEO_MEDIA_PROBE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }
 ]
 const resolveCapabilities: WorkerCapability[] = [
@@ -656,24 +657,43 @@ describePostgres('PostgresQueueRepository integration', () => {
   })
 
   it('persists progress and stage events only under the active execution fence', async () => {
-    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const jobId = await seedJob({ type: 'WEBP_ANIMATION_SCAN', effectivePriority: 10 })
     const repository = createRepository(clock)
     const claimed = (await repository.claim('queue-kernel-progress-worker', capabilities))!
+    const progressData: AnimationScanProgressData = {
+      version: 1,
+      kind: 'animation-scan',
+      stage: 'SCANNING',
+      initializedItems: 100,
+      totalItems: 100,
+      attemptedItems: 35,
+      succeededItems: 34,
+      failedItems: 1,
+      animatedItems: 10,
+      staticItems: 24,
+      remainingItems: 65,
+      activeProbes: 4,
+      concurrencyLimit: 4,
+      itemsPerSecond: 3.5,
+      etaSeconds: 19,
+      sampledAt: '2026-08-13T18:00:00.000Z'
+    }
 
     await repository.updateProgress({
       ...fence(claimed),
       progress: 35,
       stage: 'discovering',
       message: 'Discovered the first batch',
-      data: { batch: 1 }
+      data: { batch: 1 },
+      progressData
     })
 
     expect(
       await client().systemJob.findUniqueOrThrow({
         where: { id: jobId },
-        select: { progress: true, stage: true, message: true }
+        select: { progress: true, progressData: true, stage: true, message: true }
       })
-    ).toEqual({ progress: 35, stage: 'discovering', message: 'Discovered the first batch' })
+    ).toEqual({ progress: 35, progressData, stage: 'discovering', message: 'Discovered the first batch' })
     expect(
       await client().systemJobEvent.findFirstOrThrow({
         where: { jobId, type: 'job.stage_changed' },
@@ -682,8 +702,16 @@ describePostgres('PostgresQueueRepository integration', () => {
     ).toEqual({
       progress: 35,
       stage: 'discovering',
-      data: { progress: 35, stage: 'discovering', data: { batch: 1 } }
+      data: { progress: 35, stage: 'discovering', progressData, data: { batch: 1 } }
     })
+    await repository.updateProgress({
+      ...fence(claimed),
+      progress: 36,
+      stage: 'discovering',
+      progressData: { ...progressData, attemptedItems: 36, succeededItems: 35, remainingItems: 64 }
+    })
+    expect(await client().systemJobEvent.count({ where: { jobId, type: 'job.stage_changed' } })).toBe(1)
+    expect(await client().systemJobEvent.count({ where: { jobId, type: 'job.progress' } })).toBe(1)
     await repository.complete(fence(claimed))
   })
 

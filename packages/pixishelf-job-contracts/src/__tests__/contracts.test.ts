@@ -15,10 +15,12 @@ import {
   archiveImportV2PayloadSchema,
   archiveMediaConcurrencySchema,
   archiveTransferTelemetrySchema,
+  animationScanProgressDataSchema,
   bigintStringSchema,
   canonicalizeAuditApplyInputs,
   jobEventDtoSchema,
   jobEventStreamBatchSchema,
+  jobLiveSummarySchema,
   parseJobPayload,
   scanV2PayloadSchema,
   scanV3PayloadSchema,
@@ -41,6 +43,7 @@ describe('job wire contracts', () => {
         'ARCHIVE_DEFAULT_TAG_BACKFILL',
         'ARCHIVE_MAINTENANCE',
         'ARCHIVE_INTAKE_RETENTION_CLEANUP',
+        'JOB_EVENT_RETENTION_CLEANUP',
         'PIXIV_AI_DERIVED_TAG_SYNC',
         'PIXIV_ARTWORK_ENRICHMENT',
         'PIXIV_ARTIST_ENRICHMENT',
@@ -65,6 +68,8 @@ describe('job wire contracts', () => {
     expect(executionLaneForJobType('ARCHIVE_INTAKE_RETENTION_CLEANUP')).toBe('BACKGROUND_WRITER')
     expect(parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', {})).toEqual({})
     expect(() => parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', { retentionDays: 7 })).toThrow()
+    expect(parseJobPayload('JOB_EVENT_RETENTION_CLEANUP', {})).toEqual({ dryRun: true })
+    expect(parseJobPayload('JOB_EVENT_RETENTION_CLEANUP', { dryRun: false })).toEqual({ dryRun: false })
     expect(parseJobPayload('PIXIV_AI_DERIVED_TAG_SYNC', {})).toEqual({ dryRun: true })
     expect(parseJobPayload('PIXIV_AI_DERIVED_TAG_SYNC', { dryRun: false })).toEqual({ dryRun: false })
     expect(() => parseJobPayload('PIXIV_AI_DERIVED_TAG_SYNC', { dryRun: false, unexpected: true })).toThrow()
@@ -538,6 +543,49 @@ describe('job wire contracts', () => {
     }
     expect(jobEventDtoSchema.parse(event)).toEqual(event)
     expect(() => jobEventDtoSchema.parse({ ...event, createdAt: new Date() })).toThrow()
+  })
+
+  it('keeps animation progress versioned, bounded, and aggregate-only', () => {
+    const progressData = {
+      version: 1,
+      kind: 'animation-scan',
+      stage: 'SCANNING',
+      initializedItems: 5_000,
+      totalItems: 4_000,
+      attemptedItems: 1_200,
+      succeededItems: 1_190,
+      failedItems: 10,
+      animatedItems: 80,
+      staticItems: 1_110,
+      remainingItems: 2_800,
+      activeProbes: 4,
+      concurrencyLimit: 4,
+      itemsPerSecond: 12.5,
+      etaSeconds: 224,
+      sampledAt: '2026-09-04T12:00:00.000Z'
+    } as const
+    expect(animationScanProgressDataSchema.parse(progressData)).toEqual(progressData)
+    expect(() => animationScanProgressDataSchema.parse({ ...progressData, path: '/private/image.webp' })).toThrow()
+    expect(() => animationScanProgressDataSchema.parse({ ...progressData, concurrencyLimit: 9 })).toThrow()
+    expect(
+      jobLiveSummarySchema.parse({
+        id: 'animation-1',
+        type: 'WEBP_ANIMATION_SCAN',
+        executionLane: 'BACKGROUND_WRITER',
+        status: 'RUNNING',
+        progress: 35,
+        progressData,
+        stage: 'SCANNING',
+        message: null,
+        errorCode: null,
+        attempt: 1,
+        parentJobId: null,
+        heartbeatAt: null,
+        startedAt: '2026-09-04T11:59:00.000Z',
+        finishedAt: null,
+        updatedAt: '2026-09-04T12:00:00.000Z'
+      }).progressData
+    ).toEqual(progressData)
   })
 
   it('bounds archive transfer settings and publishes versioned telemetry batches', () => {

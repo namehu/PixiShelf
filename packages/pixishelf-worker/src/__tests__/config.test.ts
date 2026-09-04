@@ -16,6 +16,7 @@ describe('worker config', () => {
       ffmpegPath: 'ffmpeg',
       ffprobePath: 'ffprobe',
       keyframeFfmpegThreads: 2,
+      animationScanConcurrency: 4,
       archiveMaxMediaBytes: 512 * 1024 * 1024,
       scanDiscoveryMaxEntries: 10_000_000,
       scanDiscoveryExcludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash'],
@@ -50,6 +51,7 @@ describe('worker config', () => {
     expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_HEARTBEAT_INTERVAL_MS: '20' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_SERVICE_VERSION: 'x'.repeat(51) })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, KEYFRAME_FFMPEG_THREADS: '9' })).toThrow()
+    expect(() => parseWorkerConfig({ ...requiredEnvironment, ANIMATION_SCAN_CONCURRENCY: '9' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, ARCHIVE_MAX_MEDIA_BYTES: '0' })).toThrow()
     expect(() => parseWorkerConfig({ ...requiredEnvironment, SCAN_DISCOVERY_MAX_ENTRIES: '100000001' })).toThrow()
     expect(() =>

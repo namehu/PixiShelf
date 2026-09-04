@@ -43,6 +43,7 @@ export function createVideoProcessingExecutorRegistrations(
     jobType: 'VIDEO_CHAPTER_PREVIEW_GENERATION',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => videoChapterPreviewPayloadSchema.parse(payload),
     execute: (context) => executeChapterPreview(context, dependencies)
   }
@@ -50,6 +51,7 @@ export function createVideoProcessingExecutorRegistrations(
     jobType: 'VIDEO_STREAMING_OPTIMIZATION',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => videoStreamingOptimizationPayloadSchema.parse(payload),
     execute: (context) => executeStreamingOptimization(context, dependencies)
   }

@@ -49,6 +49,7 @@ export function createArchiveMaintenanceExecutorRegistrations(
       jobType: 'ARCHIVE_MAINTENANCE',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => archiveMaintenancePayloadSchema.parse(payload),
       execute: (context) => executeArchiveMaintenance(context, dependencies)
     }

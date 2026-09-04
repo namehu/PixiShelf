@@ -214,7 +214,7 @@ sequenceDiagram
 
 归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。管理员也可以保存 E-Hentai 上传者来源，人工扫描最新或更早的公开画廊，并在确认后把候选 URL 加入同一收件箱；该能力没有自动扫描或自动下载。已就绪项目可以在其余项目解析期间多选入队，每个作品创建或复用一个独立 `ARCHIVE_IMPORT`。`/admin/archive` 提供任务分页、筛选、明细和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
 
-`ARCHIVE_IMPORT` 启动时在 fenced transaction 内读取数据库系统设置并冻结 1–8 的媒体并发，默认 2；同一值控制媒体 worker 与 Provider Governor，writer lane 本身仍固定并发 1。admin layout 维护每标签页唯一的 `/api/jobs/events` SSE，使用持久 `SystemJobEvent.id` 追赶全部后台任务事件。当前归档页消费聚合及逐文件阶段传输遥测，在通道状态下方展示唯一活动归档，不把远端 URL/token 放入事件；断线时回退轮询。事件 transport 的决策边界见 ADR-0006 和 ADR-0007。
+`ARCHIVE_IMPORT` 启动时在 fenced transaction 内读取数据库系统设置并冻结 1–8 的媒体并发，默认 2；同一值控制媒体 worker 与 Provider Governor，writer lane 本身仍固定并发 1。admin layout 维护每标签页唯一的 `/api/jobs/events` SSE，使用持久 `SystemJobEvent.id` 追赶全部后台任务事件。归档页、任务计划页和后台控制台消费同一事件源；SSE 健康时停止任务状态高频轮询，断线时活动任务 3 秒、空闲页面 30 秒降级。`SystemJob.progressData` 只保存版本化聚合指标，不保存路径、标题、URL 或凭据。事件 transport 的决策边界见 ADR-0006 和 ADR-0007。
 
 一个 Worker host 运行两个 Dispatcher loop：
 
@@ -223,8 +223,8 @@ sequenceDiagram
 | `ARCHIVE_RESOLVE`   | 1        | `ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN` 与 `ARCHIVE_SEARCH_SCAN`；不写原媒体、派生媒体或 staging |
 | `BACKGROUND_WRITER` | 1        | 其余 26 类 job；所有媒体写、本地图库扫描、迁移、替换和维护操作                                           |
 
-两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 28 个 job type：`SCAN` 同时注册
-v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 26 类只注册 v1，共 31 个 job type/definition-version 组合。capability audit 精确验证 type、
+两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 29 个 job type：`SCAN` 同时注册
+v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 27 类只注册 v1，共 32 个 job type/definition-version 组合。capability audit 精确验证 type、
 version 与 lane。`SCAN@v1` 承载既有设置页扫描、单作品扫描和 Webhook；`SCAN@v2` 只执行只读
 `CONSISTENCY_AUDIT`；`SCAN@v3` 只执行写入型 `AUDIT_APPLY`。这个版本隔离保证滚动部署中的旧 v2 Worker 不会领取
 v3 apply；生产开放新写入口前仍须确认新 Worker 同时报告 SCAN v1/v2/v3。归档解析主要等待 HTTP 和 PostgreSQL，
@@ -273,8 +273,8 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 1. 外部来源引用不能定义本地 Artwork 身份。
 2. 同一时间每个执行 lane 最多一个任务；只允许一个 resolver 和一个 writer，所有媒体写仍全局串行。
 3. 通用 Worker 未通过 READY 和 capability 检查时不得恢复调度。
-4. 生产 capability inventory 固定为 28 个 job type、31 个 type/version 组合；`SCAN` 支持 v1/v2/v3，
-   `ARCHIVE_IMPORT` 支持 v1/v2，其余 26 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
+4. 生产 capability inventory 固定为 29 个 job type、32 个 type/version 组合；`SCAN` 支持 v1/v2/v3，
+   `ARCHIVE_IMPORT` 支持 v1/v2，其余 27 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
 5. 普通启动和升级使用 `prisma migrate deploy`，不得用 `db:push` 替代 migration 历史。
 6. 原媒体、派生媒体、Pixiv data 和数据库需要在一致时间点备份和恢复。
 7. 网络下载、FFmpeg 和文件复制不得放在长数据库事务中。

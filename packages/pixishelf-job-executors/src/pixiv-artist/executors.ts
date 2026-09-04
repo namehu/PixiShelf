@@ -41,6 +41,7 @@ export function createPixivArtistExecutorRegistrations(
     jobType: 'PIXIV_ARTIST_ENRICHMENT',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => pixivArtistEnrichmentPayloadSchema.parse(payload),
     execute: (context) => executePixivArtistEnrichment(context, dependencies)
   }

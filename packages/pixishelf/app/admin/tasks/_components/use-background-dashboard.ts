@@ -2,21 +2,49 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { JobDto, JobEventDto, JobStatus } from '@pixishelf/job-contracts'
-import { useEffect, useReducer } from 'react'
+import { useEffect, useMemo, useReducer, useRef } from 'react'
 import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
 import { ACTIVE_JOB_STATUSES, mergeJobEvents } from './background-task-format'
+import { useOptionalBackgroundJobEventSubscription as useLiveJobEvents } from '../../_components/background-job-event-provider'
+import { collectUnseenLiveEvents, type LiveEventCursor } from './live-event-reconciliation'
 
 export function useBackgroundDashboard() {
   const trpc = useTRPC()
-  return useQuery(
+  const live = useLiveJobEvents()
+  const liveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
+  const query = useQuery(
     trpc.job.backgroundDashboard.queryOptions(undefined, {
       refetchInterval: (query) => {
+        if (live.status === 'connected') return false
         const dashboard = query.state.data
-        return dashboard && (dashboard.activeCount > 0 || dashboard.queuedCount > 0) ? 1_500 : 8_000
+        return dashboard && (dashboard.activeCount > 0 || dashboard.queuedCount > 0) ? 3_000 : 30_000
       }
     })
   )
+  useEffect(() => {
+    if (live.readyVersion > 0 || live.resetVersion > 0) void query.refetch()
+  }, [live.readyVersion, live.resetVersion, query.refetch])
+  useEffect(() => {
+    if (!query.data) return
+    const unseen = collectUnseenLiveEvents(live.items, live.resetVersion, liveEventCursor.current)
+    liveEventCursor.current = unseen.cursor
+    if (unseen.items.length === 0) return
+    const knownJobIds = new Set([
+      ...query.data.recentJobs.map((job) => job.id),
+      ...query.data.runningJobs.map((job) => job.id),
+      ...(query.data.runningJob ? [query.data.runningJob.id] : [])
+    ])
+    const needsSnapshot = unseen.items.some(
+      ({ event, job }) =>
+        !knownJobIds.has(job.id) ||
+        TERMINAL_JOB_STATUSES.includes(job.status) ||
+        !['job.progress', 'job.stage_changed'].includes(event.type)
+    )
+    if (needsSnapshot) void query.refetch()
+  }, [live.items, live.resetVersion, query.data, query.refetch])
+  const data = useMemo(() => patchDashboardJobs(query.data, live.items), [live.items, query.data])
+  return { ...query, data }
 }
 
 const TERMINAL_JOB_STATUSES: JobStatus[] = ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED']
@@ -64,6 +92,7 @@ export function useBackgroundJobEvents(job: JobDto | null) {
   const stream = jobId ? streams[jobId] : undefined
   const afterEventId = stream?.afterEventId
   const active = Boolean(job && ACTIVE_JOB_STATUSES.includes(job.status))
+  const live = useLiveJobEvents({ jobId: jobId ?? '__none__' })
   const terminalDrainComplete = Boolean(
     job && TERMINAL_JOB_STATUSES.includes(job.status) && stream?.drainedTerminalStatus === job.status
   )
@@ -75,7 +104,7 @@ export function useBackgroundJobEvents(job: JobDto | null) {
       { jobId: requestedJobId, afterEventId: requestedAfterEventId, limit: 100 },
       {
         enabled: Boolean(job) && !terminalDrainComplete,
-        refetchInterval: active ? 1_500 : false,
+        refetchInterval: live.status === 'connected' ? false : active ? 3_000 : false,
         retry: false,
         select: (data) => ({
           ...data,
@@ -105,9 +134,16 @@ export function useBackgroundJobEvents(job: JobDto | null) {
     void query.refetch()
   }, [job?.id, job?.status, query.refetch, terminalDrainComplete])
 
+  useEffect(() => {
+    if (!job || (live.readyVersion === 0 && live.resetVersion === 0)) return
+    void query.refetch()
+  }, [job, live.readyVersion, live.resetVersion, query.refetch])
+
+  const liveEvents = live.items.map(({ event }) => event)
+
   return {
     ...query,
-    events: stream?.events ?? EMPTY_EVENTS,
+    events: mergeJobEvents(stream?.events ?? EMPTY_EVENTS, liveEvents),
     isPolling: query.fetchStatus === 'fetching' && (active || !terminalDrainComplete),
     terminalDrainComplete
   }
@@ -124,6 +160,7 @@ export function reconcileBackgroundJobDetail(detail: JobDto | null | undefined, 
 
 export function useBackgroundJobDetail(jobId: string | null, dashboardJob: JobDto | null) {
   const trpc = useTRPC()
+  const live = useLiveJobEvents({ jobId: jobId ?? '__none__' })
   const query = useQuery(
     trpc.job.backgroundDetail.queryOptions(
       { jobId: jobId ?? '__none__' },
@@ -132,7 +169,8 @@ export function useBackgroundJobDetail(jobId: string | null, dashboardJob: JobDt
         refetchInterval: (detailQuery) => {
           const detail = detailQuery.state.data as JobDto | null | undefined
           const current = reconcileBackgroundJobDetail(detail, dashboardJob)
-          return current && ACTIVE_JOB_STATUSES.includes(current.status) ? 1_500 : false
+          if (live.status === 'connected') return false
+          return current && ACTIVE_JOB_STATUSES.includes(current.status) ? 3_000 : false
         },
         retry: false
       }
@@ -141,7 +179,29 @@ export function useBackgroundJobDetail(jobId: string | null, dashboardJob: JobDt
 
   const currentDetail = query.data?.id === jobId ? query.data : null
   const currentDashboardJob = dashboardJob?.id === jobId ? dashboardJob : null
-  return { ...query, data: reconcileBackgroundJobDetail(currentDetail, currentDashboardJob) }
+  const reconciled = reconcileBackgroundJobDetail(currentDetail, currentDashboardJob)
+  const liveJob = live.items.at(-1)?.job
+  return {
+    ...query,
+    data: reconciled && liveJob && reconciled.id === liveJob.id ? ({ ...reconciled, ...liveJob } as JobDto) : reconciled
+  }
+}
+
+function patchDashboardJobs<
+  TDashboard extends { recentJobs: JobDto[]; runningJobs: JobDto[]; runningJob: JobDto | null }
+>(dashboard: TDashboard | undefined, items: ReturnType<typeof useLiveJobEvents>['items']): TDashboard | undefined {
+  if (!dashboard || items.length === 0) return dashboard
+  const latestByJob = new Map(items.map(({ job }) => [job.id, job]))
+  const patch = (job: JobDto) => {
+    const live = latestByJob.get(job.id)
+    return live ? ({ ...job, ...live } as JobDto) : job
+  }
+  return {
+    ...dashboard,
+    recentJobs: dashboard.recentJobs.map(patch),
+    runningJobs: dashboard.runningJobs.map(patch),
+    runningJob: dashboard.runningJob ? patch(dashboard.runningJob) : null
+  }
 }
 
 export function useBackgroundJobControls(onSuccess: (job?: JobDto) => void) {

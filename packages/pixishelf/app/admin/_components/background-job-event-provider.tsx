@@ -16,6 +16,12 @@ interface BackgroundJobEventContextValue {
 }
 
 const BackgroundJobEventContext = createContext<BackgroundJobEventContextValue | null>(null)
+const DISCONNECTED_JOB_EVENT_CONTEXT: BackgroundJobEventContextValue = {
+  status: 'disconnected',
+  items: [],
+  readyVersion: 0,
+  resetVersion: 0
+}
 
 class FatalJobEventStreamError extends Error {}
 
@@ -56,7 +62,12 @@ export function BackgroundJobEventProvider({ children }: { children: ReactNode }
         }
         if (message.event !== 'jobs.events') return
         const parsed = jobEventStreamBatchSchema.safeParse(safeJson(message.data))
-        if (!parsed.success) return
+        if (!parsed.success) {
+          setStatus('disconnected')
+          setItems([])
+          setResetVersion((value) => value + 1)
+          return
+        }
         setItems((current) => mergeRecentEvents(current, parsed.data.items))
       },
       onclose() {
@@ -94,6 +105,22 @@ export function useBackgroundJobEventSubscription(
   filter: { jobType?: JobType; jobId?: string } = {}
 ): BackgroundJobEventContextValue {
   const value = useBackgroundJobEvents()
+  const items = useMemo(
+    () =>
+      value.items.filter(
+        (item) =>
+          (filter.jobType === undefined || item.job.type === filter.jobType) &&
+          (filter.jobId === undefined || item.job.id === filter.jobId)
+      ),
+    [filter.jobId, filter.jobType, value.items]
+  )
+  return useMemo(() => ({ ...value, items }), [items, value])
+}
+
+export function useOptionalBackgroundJobEventSubscription(
+  filter: { jobType?: JobType; jobId?: string } = {}
+): BackgroundJobEventContextValue {
+  const value = useContext(BackgroundJobEventContext) ?? DISCONNECTED_JOB_EVENT_CONTEXT
   const items = useMemo(
     () =>
       value.items.filter(

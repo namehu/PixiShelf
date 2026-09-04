@@ -22,6 +22,9 @@ export const emptyJobPayloadSchema = z.object({}).strict()
 export const pixivAiDerivedTagSyncPayloadSchema = z.object({ dryRun: z.boolean().default(true) }).strict()
 export type PixivAiDerivedTagSyncPayload = z.infer<typeof pixivAiDerivedTagSyncPayloadSchema>
 
+export const jobEventRetentionCleanupPayloadSchema = z.object({ dryRun: z.boolean().default(true) }).strict()
+export type JobEventRetentionCleanupPayload = z.infer<typeof jobEventRetentionCleanupPayloadSchema>
+
 export const relativePathSchema = z
   .string()
   .trim()
@@ -510,6 +513,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   ARCHIVE_INTAKE_RETENTION_CLEANUP: emptyJobPayloadSchema,
   SCAN_RUN_RETENTION_CLEANUP: emptyJobPayloadSchema,
   TRIGGER_LOG_RETENTION_CLEANUP: emptyJobPayloadSchema,
+  JOB_EVENT_RETENTION_CLEANUP: jobEventRetentionCleanupPayloadSchema,
   DERIVED_MEDIA_GC: derivedMediaGcPayloadSchema,
   PIXIV_ARTWORK_ENRICHMENT: pixivArtworkEnrichmentPayloadSchema,
   PIXIV_ARTIST_ENRICHMENT: pixivArtistEnrichmentPayloadSchema,

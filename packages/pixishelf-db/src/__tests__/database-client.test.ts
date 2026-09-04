@@ -25,7 +25,7 @@ function createQueryClient(results: unknown[]): PrismaClient {
 describe('database package', () => {
   it('accepts the complete background queue schema contract', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
         { tableName: 'archive_intake_items' },
         { tableName: 'archive_uploader_scan_items' },
@@ -43,7 +43,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260904180000_add_archive_title_search' }],
+      [{ migrationName: '20260904200000_add_system_job_progress_data' }],
       [expectedIndex]
     ])
 
@@ -54,13 +54,13 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260904180000_add_archive_title_search, index:system_jobs_single_executing_per_lane_idx'
+      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260904200000_add_system_job_progress_data, index:system_jobs_single_executing_per_lane_idx'
     )
   })
 
   it('rejects a database that does not have the latest uploader scan migration', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
         { tableName: 'archive_intake_items' },
         { tableName: 'archive_uploader_scan_items' },
@@ -83,13 +83,13 @@ describe('database package', () => {
     ])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing migration:20260904180000_add_archive_title_search'
+      'Background queue schema is not ready: missing migration:20260904200000_add_system_job_progress_data'
     )
   })
 
   it('rejects a migrated schema when the single-execution index is missing or invalid', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
         { tableName: 'archive_intake_items' },
         { tableName: 'archive_uploader_scan_items' },
@@ -107,7 +107,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260904180000_add_archive_title_search' }],
+      [{ migrationName: '20260904200000_add_system_job_progress_data' }],
       []
     ])
 
@@ -118,7 +118,7 @@ describe('database package', () => {
 
   it('rejects a same-name unique partial index with the wrong protected statuses', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
         { tableName: 'archive_intake_items' },
         { tableName: 'archive_uploader_scan_items' },
@@ -136,7 +136,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260904180000_add_archive_title_search' }],
+      [{ migrationName: '20260904200000_add_system_job_progress_data' }],
       [
         {
           ...expectedIndex,
@@ -152,7 +152,7 @@ describe('database package', () => {
 
   it('rejects a same-name partial index that is not keyed by execution lane', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
         { tableName: 'archive_intake_items' },
         { tableName: 'archive_uploader_scan_items' },
@@ -170,7 +170,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260904180000_add_archive_title_search' }],
+      [{ migrationName: '20260904200000_add_system_job_progress_data' }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 

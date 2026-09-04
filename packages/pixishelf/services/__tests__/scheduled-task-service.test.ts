@@ -175,6 +175,7 @@ describe('scheduled-task-service', () => {
     scheduledTaskUpsertMock.mockReset().mockResolvedValue({})
     scheduledTaskUpdateMock.mockReset().mockResolvedValue({})
     scheduledTaskFindUniqueMock.mockReset()
+    scheduledTaskFindManyMock.mockReset().mockResolvedValue([])
     systemJobFindManyMock.mockReset().mockResolvedValue([])
     getActiveJobsByTypesMock.mockReset().mockResolvedValue([])
     handlerStartMock.mockReset().mockResolvedValue({ jobId: 'job-1' })
@@ -203,11 +204,36 @@ describe('scheduled-task-service', () => {
     )
   })
 
+  it('does not rewrite unchanged default task definitions during list refreshes', async () => {
+    scheduledTaskFindManyMock.mockResolvedValueOnce([
+      {
+        key: 'scan_run_retention_cleanup',
+        type: 'SCAN_RUN_RETENTION_CLEANUP',
+        scheduleMode: 'DAILY',
+        timezone: 'UTC',
+        mutexKey: 'audit-maintenance'
+      },
+      {
+        key: 'webp_animation_scan',
+        type: 'WEBP_ANIMATION_SCAN',
+        scheduleMode: 'DAILY',
+        timezone: 'UTC',
+        mutexKey: 'media-maintenance'
+      }
+    ])
+
+    await ensureDefaultScheduledTasks()
+
+    expect(scheduledTaskUpsertMock).not.toHaveBeenCalled()
+  })
+
   it('shows the shared 00:00-08:00 Shanghai window after central cutover', async () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-02T01:00:00.000Z'))
-    scheduledTaskFindManyMock.mockResolvedValueOnce([createTask({ time: '04:30', timezone: 'UTC' })])
+    scheduledTaskFindManyMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([createTask({ time: '04:30', timezone: 'UTC' })])
 
     const [task] = await listScheduledTasks()
 
@@ -222,9 +248,11 @@ describe('scheduled-task-service', () => {
   })
 
   it('returns a safe maintenance summary for the latest scheduled job', async () => {
-    scheduledTaskFindManyMock.mockResolvedValueOnce([
-      createTask({ lastJobId: 'gc-job-1', key: 'derived_media_gc_reconciliation', type: 'DERIVED_MEDIA_GC' })
-    ])
+    scheduledTaskFindManyMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        createTask({ lastJobId: 'gc-job-1', key: 'derived_media_gc_reconciliation', type: 'DERIVED_MEDIA_GC' })
+      ])
     systemJobFindManyMock.mockResolvedValueOnce([
       {
         id: 'gc-job-1',
@@ -262,7 +290,7 @@ describe('scheduled-task-service', () => {
   })
 
   it('projects archive intake cleanup counters without exposing unrelated result data', async () => {
-    scheduledTaskFindManyMock.mockResolvedValueOnce([
+    scheduledTaskFindManyMock.mockResolvedValueOnce([]).mockResolvedValueOnce([
       createTask({
         lastJobId: 'archive-retention-job-1',
         key: 'archive_intake_retention_cleanup',
@@ -298,7 +326,7 @@ describe('scheduled-task-service', () => {
   })
 
   it('does not trigger before the configured daily time', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createTask()])
+    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createTask()])
 
     const result = await runSchedulerTick(new Date('2026-06-01T00:29:00.000Z'))
 
@@ -314,7 +342,10 @@ describe('scheduled-task-service', () => {
   })
 
   it('does not trigger twice on the same local day', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createTask({ lastTriggeredDate: '2026-06-01' })])
+    scheduledTaskFindManyMock
+      .mockReset()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([createTask({ lastTriggeredDate: '2026-06-01' })])
 
     const result = await runSchedulerTick(new Date('2026-06-01T01:00:00.000Z'))
 
@@ -326,7 +357,7 @@ describe('scheduled-task-service', () => {
   })
 
   it('triggers due tasks and records last trigger state', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createTask()])
+    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createTask()])
 
     const now = new Date('2026-06-01T00:30:00.000Z')
     const result = await runSchedulerTick(now)
@@ -347,7 +378,7 @@ describe('scheduled-task-service', () => {
   })
 
   it('triggers due scan run retention cleanup tasks', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createCleanupTask()])
+    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createCleanupTask()])
 
     const now = new Date('2026-06-01T00:10:00.000Z')
     const result = await runSchedulerTick(now)
@@ -370,7 +401,7 @@ describe('scheduled-task-service', () => {
   })
 
   it('skips due tasks when a mutex task is already running', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createTask()])
+    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createTask()])
     getActiveJobsByTypesMock.mockResolvedValueOnce([{ id: 'job-active', type: 'OTHER_MEDIA_TASK' }])
 
     const result = await runSchedulerTick(new Date('2026-06-01T00:30:00.000Z'))
@@ -383,7 +414,7 @@ describe('scheduled-task-service', () => {
   })
 
   it('skips due tasks when the same task type is already running', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([createCleanupTask()])
+    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createCleanupTask()])
     getActiveJobsByTypesMock.mockResolvedValueOnce([{ id: 'job-active', type: 'SCAN_RUN_RETENTION_CLEANUP' }])
 
     const result = await runSchedulerTick(new Date('2026-06-01T00:10:00.000Z'))

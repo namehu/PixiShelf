@@ -1,9 +1,9 @@
-import type { JobDto, JobEventDto, JobStatus } from '@pixishelf/job-contracts'
+import type { JobDto, JobEventDto, JobEventStreamItem, JobStatus } from '@pixishelf/job-contracts'
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import type { PropsWithChildren } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useBackgroundJobDetail, useBackgroundJobEvents } from '../use-background-dashboard'
+import { useBackgroundDashboard, useBackgroundJobDetail, useBackgroundJobEvents } from '../use-background-dashboard'
 
 interface EventInput {
   jobId: string
@@ -13,12 +13,33 @@ interface EventInput {
 
 const mocks = vi.hoisted(() => ({
   fetchEvents: vi.fn<(input: EventInput) => Promise<{ items: JobEventDto[]; lastEventId: string | null }>>(),
-  fetchDetail: vi.fn<(input: { jobId: string }) => Promise<JobDto | null>>()
+  fetchDetail: vi.fn<(input: { jobId: string }) => Promise<JobDto | null>>(),
+  fetchDashboard: vi.fn(),
+  live: {
+    status: 'disconnected' as 'connecting' | 'connected' | 'disconnected',
+    items: [] as JobEventStreamItem[],
+    readyVersion: 0,
+    resetVersion: 0
+  }
+}))
+
+vi.mock('../../../_components/background-job-event-provider', () => ({
+  useOptionalBackgroundJobEventSubscription: (filter: { jobId?: string } = {}) => ({
+    ...mocks.live,
+    items: filter.jobId ? mocks.live.items.filter(({ job }) => job.id === filter.jobId) : mocks.live.items
+  })
 }))
 
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
     job: {
+      backgroundDashboard: {
+        queryOptions: (_input: undefined, options: object) => ({
+          queryKey: ['background-dashboard'],
+          queryFn: () => mocks.fetchDashboard(),
+          ...options
+        })
+      },
       backgroundEvents: {
         queryOptions: (input: EventInput, options: object) => ({
           queryKey: ['background-events', input],
@@ -51,6 +72,7 @@ function createJob(id: string, status: JobStatus, updatedAt = '2026-08-17T02:00:
     idempotencyKey: null,
     payload: null,
     progress: status === 'COMPLETED' ? 100 : 30,
+    progressData: null,
     stage: null,
     message: null,
     result: null,
@@ -91,6 +113,29 @@ function createEvent(jobId: string, id: number): JobEventDto {
   }
 }
 
+function createStreamItem(job: JobDto, event: JobEventDto): JobEventStreamItem {
+  return {
+    event,
+    job: {
+      id: job.id,
+      type: job.type,
+      executionLane: job.executionLane,
+      status: job.status,
+      progress: job.progress,
+      progressData: job.progressData,
+      stage: job.stage,
+      message: job.message,
+      errorCode: job.errorCode,
+      attempt: job.attempt,
+      parentJobId: job.parentJobId,
+      heartbeatAt: job.heartbeatAt,
+      startedAt: job.startedAt,
+      finishedAt: job.finishedAt,
+      updatedAt: job.updatedAt
+    }
+  }
+}
+
 function createWrapper() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } }
@@ -115,11 +160,53 @@ describe('background dashboard query hooks', () => {
     focusManager.setFocused(true)
     mocks.fetchEvents.mockReset()
     mocks.fetchDetail.mockReset()
+    mocks.fetchDashboard.mockReset()
+    mocks.live.status = 'disconnected'
+    mocks.live.items = []
+    mocks.live.readyVersion = 0
+    mocks.live.resetVersion = 0
   })
 
   afterEach(() => {
+    cleanup()
     focusManager.setFocused(undefined)
     vi.useRealTimers()
+  })
+
+  it('refetches once when any unseen event in a connected batch changes dashboard membership', async () => {
+    const runningA = createJob('A', 'RUNNING')
+    const runningB = createJob('B', 'RUNNING')
+    const completedA = createJob('A', 'COMPLETED', '2026-08-17T02:02:00.000Z')
+    mocks.fetchDashboard
+      .mockResolvedValueOnce({
+        activeCount: 2,
+        queuedCount: 0,
+        recentJobs: [runningA, runningB],
+        runningJobs: [runningA, runningB],
+        runningJob: runningA
+      })
+      .mockResolvedValue({
+        activeCount: 1,
+        queuedCount: 0,
+        recentJobs: [completedA, runningB],
+        runningJobs: [runningB],
+        runningJob: runningB
+      })
+    const { result, rerender } = renderHook(() => useBackgroundDashboard(), { wrapper: createWrapper() })
+    await flushQueries()
+    expect(mocks.fetchDashboard).toHaveBeenCalledOnce()
+
+    mocks.live.status = 'connected'
+    mocks.live.items = [
+      createStreamItem(completedA, { ...createEvent('A', 10), type: 'job.completed', progress: 100 }),
+      createStreamItem(runningB, createEvent('B', 11))
+    ]
+    rerender()
+    await flushQueries()
+
+    expect(mocks.fetchDashboard).toHaveBeenCalledTimes(2)
+    expect(result.current.data?.runningJobs.map((job) => job.id)).toEqual(['B'])
+    expect(result.current.data?.activeCount).toBe(1)
   })
 
   it('isolates events and cursors through A → B → A → B, ignoring a late A response', async () => {
@@ -156,7 +243,7 @@ describe('background dashboard query hooks', () => {
     await flushQueries()
     expect(result.current.events).toEqual([])
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_501)
+      await vi.advanceTimersByTimeAsync(3_001)
     })
     await flushQueries()
     expect(result.current.events.map((event) => `${event.jobId}:${event.id}`)).toEqual(['B:7'])
@@ -292,7 +379,7 @@ describe('background dashboard query hooks', () => {
     expect(result.current.data?.status).toBe('RUNNING')
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_501)
+      await vi.advanceTimersByTimeAsync(3_001)
     })
     await flushQueries()
     expect(result.current.data?.status).toBe('COMPLETED')

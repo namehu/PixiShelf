@@ -15,17 +15,10 @@ import type {
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import { replacePixivSourceTags } from '../scan/pixiv-publisher.ts'
-import {
-  PIXIV_AI_GENERATED_TAG,
-  reconcilePixivAiGeneratedTag,
-  resolvePixivAiGenerated
-} from './ai-derived-tag.ts'
+import { PIXIV_AI_GENERATED_TAG, reconcilePixivAiGeneratedTag, resolvePixivAiGenerated } from './ai-derived-tag.ts'
 import { fetchPixivArtworkMetadata, PixivArtworkRequestError } from './client.ts'
 import { PixivArtworkSnapshotError, storePixivArtworkSnapshot, storePixivArtworkSyncReport } from './storage.ts'
-import {
-  buildPixivArtworkSyncReport,
-  type PixivArtworkSyncTrackedState
-} from './sync-report.ts'
+import { buildPixivArtworkSyncReport, type PixivArtworkSyncTrackedState } from './sync-report.ts'
 import { observePixivSeriesState, reconcilePixivArtworkSeries } from './series-sync.ts'
 
 const PROVIDER_KEY = 'pixiv'
@@ -71,6 +64,7 @@ export function createPixivArtworkExecutorRegistrations(
     jobType: 'PIXIV_ARTWORK_ENRICHMENT',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => pixivArtworkEnrichmentPayloadSchema.parse(payload),
     execute: (context) => executePixivArtworkEnrichment(context, dependencies)
   }

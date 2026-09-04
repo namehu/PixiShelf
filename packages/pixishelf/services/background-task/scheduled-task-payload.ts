@@ -30,6 +30,9 @@ export function buildScheduledTaskJobDefinition(
     case 'WEBP_ANIMATION_SCAN':
       candidate = {}
       break
+    case 'JOB_EVENT_RETENTION_CLEANUP':
+      candidate = { dryRun: options.trigger === 'manual' }
+      break
     case 'VIDEO_MEDIA_PROBE':
       candidate = {
         mode: options.videoProbeMode ?? 'INCREMENTAL',

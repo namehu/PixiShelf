@@ -279,7 +279,7 @@ export class CentralDispatcher {
     this.currentController = controller
     const monitor = this.monitorExecution(fence, controller, leaseState)
     const logger = createExecutionLogger(this.options.logger, job)
-    const progress = createProgressReporter(this.options.queue, fence, this.timing)
+    const progressReporter = createProgressReporter(this.options.queue, fence, this.timing, registration.progressPolicy)
     let fencedFinalizationStarted = false
     let transactionallyFinalized = false
     let fencedFinalizationError: unknown
@@ -295,13 +295,14 @@ export class CentralDispatcher {
       job,
       payload: registration.payload,
       signal: controller.signal,
-      progress,
+      progress: progressReporter.report,
       enqueueChild: (request) => this.options.queue.enqueueChild(fence, request),
       mutateInTransaction: (operation) => this.options.queue.withFencedMutationTransaction(fence, operation),
       finalizeInTransaction: async (operation) => {
         if (fencedFinalizationStarted) {
           throw new Error(`Execution ${job.id} already started fenced transaction finalization`)
         }
+        await progressReporter.flush()
         fencedFinalizationStarted = true
         try {
           await this.options.queue.withFencedExecutionTransaction(fence, operation)
@@ -356,6 +357,16 @@ export class CentralDispatcher {
         } else if (controller.signal.aborted) {
           outcome = outcomeForInterruption(controller.signal.reason)
         }
+      }
+      if (!transactionallyFinalized && !isLeaseLost(controller.signal.reason)) {
+        const flush = await this.retryLeaseOperation(
+          'progress-flush',
+          fence,
+          leaseState.expiresAt,
+          new AbortController().signal,
+          progressReporter.flush
+        )
+        if (flush.kind !== 'value') controller.abort(new DispatcherInterruption('LEASE_LOST'))
       }
     } finally {
       controller.abort()
@@ -692,54 +703,77 @@ function createExecutionLogger(logger: WorkerLogger, job: ClaimedJob) {
   }
 }
 
-function createProgressReporter(queue: DispatcherQueuePort, fence: ExecutionFence, timing: DispatcherTiming) {
-  let lastStandard: { progress: number; stage?: string | null; at: number } | null = null
-  let lastRealtimeAt: number | null = null
-  return async (update: ExecutionProgressUpdate) => {
+function createProgressReporter(
+  queue: DispatcherQueuePort,
+  fence: ExecutionFence,
+  timing: DispatcherTiming,
+  defaultPolicy: 'STANDARD' | 'REALTIME'
+) {
+  let lastPersisted: { progress: number; stage?: string | null; at: number } | null = null
+  let pending: ExecutionProgressUpdate | null = null
+  let tail = Promise.resolve()
+
+  const persist = async (update: ExecutionProgressUpdate, now: number) => {
+    await queue.updateProgress({ ...fence, ...update })
+    lastPersisted = {
+      progress: update.progress,
+      ...(update.stage === undefined
+        ? lastPersisted?.stage === undefined
+          ? {}
+          : { stage: lastPersisted.stage }
+        : { stage: update.stage }),
+      at: now
+    }
+  }
+
+  const reportInternal = async (update: ExecutionProgressUpdate) => {
     const now = timing.now().getTime()
     const isWarning =
-      typeof update.data === 'object' &&
-      update.data !== null &&
-      'level' in update.data &&
-      (update.data as { level?: unknown }).level === 'WARN'
-    const stageChanged = update.stage !== undefined && (!lastStandard || update.stage !== lastStandard.stage)
+      update.level === 'WARN' ||
+      update.level === 'ERROR' ||
+      (typeof update.data === 'object' &&
+        update.data !== null &&
+        'level' in update.data &&
+        ['WARN', 'ERROR'].includes(String((update.data as { level?: unknown }).level)))
+    const stageChanged = update.stage !== undefined && (!lastPersisted || update.stage !== lastPersisted.stage)
+    const elapsed = lastPersisted ? now - lastPersisted.at : Number.POSITIVE_INFINITY
     const percentageReady =
-      !lastStandard || (Math.abs(update.progress - lastStandard.progress) >= 5 && now - lastStandard.at >= 30_000)
-    const realtimeReady = lastRealtimeAt === null || now - lastRealtimeAt >= 2_000
-    if (update.forcePersistence) {
-      await queue.updateProgress({ ...fence, ...update })
-      if (update.persistenceMode === 'REALTIME') lastRealtimeAt = now
-      else {
-        lastStandard = {
-          progress: update.progress,
-          ...(update.stage === undefined
-            ? lastStandard?.stage === undefined
-              ? {}
-              : { stage: lastStandard.stage }
-            : { stage: update.stage }),
-          at: now
+      !lastPersisted || (Math.abs(update.progress - lastPersisted.progress) >= 5 && elapsed >= 5_000)
+    const fallbackReady = elapsed >= 30_000
+    const policy = update.persistenceMode ?? defaultPolicy
+    const intervalReady = policy === 'REALTIME' ? elapsed >= 2_000 : percentageReady || fallbackReady
+    if (update.forcePersistence || update.progress === 100 || stageChanged || isWarning || intervalReady) {
+      try {
+        if (pending && (stageChanged || update.progress === 100)) {
+          await persist(pending, now)
+          pending = null
         }
+        await persist(update, now)
+        pending = null
+      } catch (error) {
+        pending = update
+        throw error
       }
       return
     }
-    if (update.persistenceMode === 'REALTIME' && !stageChanged && !isWarning && update.progress !== 100) {
-      if (!realtimeReady) return
-      await queue.updateProgress({ ...fence, ...update })
-      lastRealtimeAt = now
-      return
-    }
-    if (!lastStandard || update.progress === 100 || stageChanged || isWarning || percentageReady) {
-      await queue.updateProgress({ ...fence, ...update })
-      lastStandard = {
-        progress: update.progress,
-        ...(update.stage === undefined
-          ? lastStandard?.stage === undefined
-            ? {}
-            : { stage: lastStandard.stage }
-          : { stage: update.stage }),
-        at: now
-      }
-    }
+    pending = update
+  }
+
+  const enqueue = (operation: () => Promise<void>) => {
+    const result = tail.then(operation)
+    tail = result.catch(() => undefined)
+    return result
+  }
+
+  return {
+    report: (update: ExecutionProgressUpdate) => enqueue(() => reportInternal(update)),
+    flush: () =>
+      enqueue(async () => {
+        if (!pending) return
+        const update = pending
+        await persist(update, timing.now().getTime())
+        pending = null
+      })
   }
 }
 

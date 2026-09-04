@@ -89,6 +89,7 @@ function createJob(status: JobStatus = 'PENDING', id = `job-${status.toLowerCase
     idempotencyKey: null,
     payload: { path: '/selectable/video.mp4' },
     progress: status === 'COMPLETED' ? 100 : 42,
+    progressData: null,
     stage: 'probe',
     message: '正在处理 /selectable/video.mp4',
     result: null,
@@ -275,6 +276,7 @@ describe('background task console', () => {
     expect(canRetryJob(uploaderScan)).toBe(false)
     expect(canRetryJob({ ...uploaderScan, type: 'ARCHIVE_SEARCH_SCAN' })).toBe(false)
     expect(formatBackgroundJobType('ARCHIVE_SEARCH_SCAN')).toBe('标题关键词扫描')
+    expect(formatBackgroundJobType('JOB_EVENT_RETENTION_CLEANUP')).toBe('后台任务事件清理')
     expect(canRetryJob(createJob('FAILED'))).toBe(true)
   })
 
@@ -525,6 +527,48 @@ describe('background task console', () => {
     expect(screen.getAllByText('/selectable/video.mp4').length).toBeGreaterThan(0)
   })
 
+  it('renders aggregate animation progress in the background job detail', () => {
+    const job: JobDto = {
+      ...createJob('RUNNING', 'animation-running'),
+      type: 'WEBP_ANIMATION_SCAN',
+      progressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'SCANNING',
+        initializedItems: 4_000,
+        totalItems: 4_000,
+        attemptedItems: 1_200,
+        succeededItems: 1_190,
+        failedItems: 10,
+        animatedItems: 80,
+        staticItems: 1_110,
+        remainingItems: 2_810,
+        activeProbes: 4,
+        concurrencyLimit: 4,
+        itemsPerSecond: 12.5,
+        etaSeconds: 225,
+        sampledAt: new Date().toISOString()
+      }
+    }
+
+    const view = render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({ runningJob: job, recentJobs: [job] })}
+        selectedJob={job}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+
+    for (const value of ['1200 / 4000', '80', '1110', '10', '4 / 4', '12.5 items/s', '2810', '4 分钟']) {
+      expect(screen.getByText(value)).toBeTruthy()
+    }
+    expect(view.container.querySelector('[data-privacy-sensitive]')).not.toBeNull()
+  })
+
   it('segments event DOM above 50 while keeping earlier events available on demand', () => {
     const job = createJob('COMPLETED', 'job-long-events')
     mocks.eventQuery.events = Array.from(
@@ -719,7 +763,9 @@ describe('background task console', () => {
         onRetryDetail={retry}
       />
     )
-    expect(screen.getByText('detail unavailable').closest('p')?.textContent).toBe('任务详情刷新失败：detail unavailable')
+    expect(screen.getByText('detail unavailable').closest('p')?.textContent).toBe(
+      '任务详情刷新失败：detail unavailable'
+    )
     expect(screen.getByText(/当前显示最近一次队列快照/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '重试任务详情' }))
     expect(retry).toHaveBeenCalledOnce()
@@ -742,7 +788,9 @@ describe('background task console', () => {
       />
     )
 
-    expect(screen.getByText('event stream unavailable').closest('p')?.textContent).toBe('事件读取失败：event stream unavailable')
+    expect(screen.getByText('event stream unavailable').closest('p')?.textContent).toBe(
+      '事件读取失败：event stream unavailable'
+    )
     fireEvent.click(screen.getByRole('button', { name: '重试事件查询' }))
     expect(mocks.eventQuery.refetch).toHaveBeenCalledOnce()
 

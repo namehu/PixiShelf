@@ -40,6 +40,7 @@ export function createPixivTagExecutorRegistrations(dependencies: PixivTagExecut
     // 封面发布属于持久化写操作，统一进入 BACKGROUND_WRITER，与其他媒体写入共享单 lane 串行约束。
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => pixivTagEnrichmentPayloadSchema.parse(payload),
     execute: (context) => executePixivTagEnrichment(context, dependencies)
   }
@@ -241,12 +242,8 @@ async function executeTag(
         eligible.name_zh === tag.name_zh &&
         eligible.name_en === tag.name_en &&
         eligible.translateType === tag.translateType
-      const publishesZh =
-        normalized.nameZh !== null &&
-        (refreshExisting ? translationsUnchanged : isEmpty(tag.name_zh))
-      const publishesEn =
-        normalized.nameEn !== null &&
-        (refreshExisting ? translationsUnchanged : isEmpty(tag.name_en))
+      const publishesZh = normalized.nameZh !== null && (refreshExisting ? translationsUnchanged : isEmpty(tag.name_zh))
+      const publishesEn = normalized.nameEn !== null && (refreshExisting ? translationsUnchanged : isEmpty(tag.name_en))
       if (publishesZh) {
         update.name_zh = normalized.nameZh
         appliedFields.push('name_zh')
@@ -255,11 +252,7 @@ async function executeTag(
         update.name_en = normalized.nameEn
         appliedFields.push('name_en')
       }
-      if (
-        refreshExisting &&
-        !translationsUnchanged &&
-        (normalized.nameZh !== null || normalized.nameEn !== null)
-      ) {
+      if (refreshExisting && !translationsUnchanged && (normalized.nameZh !== null || normalized.nameEn !== null)) {
         if (normalized.nameZh !== null) skippedConcurrentFields.push('name_zh')
         if (normalized.nameEn !== null) skippedConcurrentFields.push('name_en')
       }

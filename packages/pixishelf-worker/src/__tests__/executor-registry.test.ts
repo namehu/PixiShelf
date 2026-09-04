@@ -115,7 +115,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to 28 job capabilities and 31 type/version combinations', () => {
+  it('locks the production Worker to 29 job capabilities and 32 type/version combinations', () => {
     const registry = createWorkerExecutorRegistry({
       database: {} as PrismaClient,
       config: {
@@ -128,12 +128,13 @@ describe('ExecutorRegistry', () => {
         scanDiscoveryExcludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash'],
         ffmpegPath: 'ffmpeg',
         ffprobePath: 'ffprobe',
-        keyframeFfmpegThreads: 2
+        keyframeFfmpegThreads: 2,
+        animationScanConcurrency: 4
       }
     })
 
     const capabilities = registry.capabilities()
-    expect(capabilities).toHaveLength(28)
+    expect(capabilities).toHaveLength(29)
     expect(capabilities).toEqual(PRODUCTION_WORKER_CAPABILITIES)
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_IMPORT')?.definitionVersions).toEqual([
@@ -168,7 +169,8 @@ describe('ExecutorRegistry', () => {
         scanDiscoveryExcludedRootDirectories: ['incoming'],
         ffmpegPath: '/usr/bin/ffmpeg',
         ffprobePath: '/usr/bin/ffprobe',
-        keyframeFfmpegThreads: 3
+        keyframeFfmpegThreads: 3,
+        animationScanConcurrency: 4
       })
     ).toEqual({
       sourceMediaRoot: '/media/source',
@@ -182,7 +184,8 @@ describe('ExecutorRegistry', () => {
       pixivDataRoot: '/media/pixiv-data',
       ffmpegPath: '/usr/bin/ffmpeg',
       ffprobePath: '/usr/bin/ffprobe',
-      ffmpegThreads: 3
+      ffmpegThreads: 3,
+      animationScanConcurrency: 4
     })
   })
 

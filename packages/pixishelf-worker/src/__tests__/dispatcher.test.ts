@@ -117,7 +117,10 @@ describe('CentralDispatcher', () => {
     const registry = new ExecutorRegistry().register({
       jobType: 'SCAN',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
       execute: async (context) => {
+        await context.progress({ progress: 10 })
+        await context.progress({ progress: 11 })
         const finalized = await context.finalizeInTransaction(async ({ complete }) => {
           await complete({ result: { published: true } })
         })
@@ -138,6 +141,10 @@ describe('CentralDispatcher', () => {
     await dispatcher.stop()
 
     expect(queue.withFencedExecutionTransaction).toHaveBeenCalledOnce()
+    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([10, 11])
+    expect(queue.updateProgress.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      vi.mocked(queue.withFencedExecutionTransaction).mock.invocationCallOrder[0]!
+    )
     expect(duplicateFinalizationError).toEqual(expect.objectContaining({ message: expect.stringContaining('already') }))
     expect(queue.settle).not.toHaveBeenCalled()
     expect(queue.settlements).toEqual([])
@@ -367,7 +374,7 @@ describe('CentralDispatcher', () => {
     await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
     await dispatcher.stop()
 
-    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([0, 5, 6, 7, 100])
+    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([0, 4, 6, 6, 7, 100])
   })
 
   it('limits realtime progress independently without delaying standard events', async () => {
@@ -397,8 +404,8 @@ describe('CentralDispatcher', () => {
 
     expect(queue.updateProgress.mock.calls.map(([update]) => [update.progress, update.persistenceMode])).toEqual([
       [1, 'REALTIME'],
+      [2, 'REALTIME'],
       [2, undefined],
-      [3, 'REALTIME'],
       [4, undefined]
     ])
   })
@@ -428,6 +435,94 @@ describe('CentralDispatcher', () => {
     expect(queue.updateProgress.mock.calls.map(([update]) => [update.progress, update.forcePersistence])).toEqual([
       [10, undefined],
       [11, true]
+    ])
+  })
+
+  it('persists standard progress at five percent after five seconds and falls back after thirty seconds', async () => {
+    let now = 0
+    const queue = createQueue([claimedJob('job-standard-progress')])
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      execute: async ({ progress }) => {
+        await progress({ progress: 0 })
+        now = 4_999
+        await progress({ progress: 5 })
+        now = 5_000
+        await progress({ progress: 5 })
+        now = 34_999
+        await progress({ progress: 6 })
+        now = 35_000
+        await progress({ progress: 6 })
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, {
+      timing: { now: () => new Date(now), sleep: (_milliseconds, signal) => aborted(signal) }
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([0, 5, 6])
+  })
+
+  it('flushes the newest realtime snapshot before terminal settlement', async () => {
+    let now = 0
+    const queue = createQueue([claimedJob('job-realtime-trailing')])
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      execute: async ({ progress }) => {
+        await progress({ progress: 10 })
+        now = 100
+        await progress({ progress: 11 })
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, {
+      timing: { now: () => new Date(now), sleep: (_milliseconds, signal) => aborted(signal) }
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([10, 11])
+    expect(queue.updateProgress.mock.invocationCallOrder.at(-1)).toBeLessThan(queue.settle.mock.invocationCallOrder[0]!)
+  })
+
+  it('flushes the merged snapshot before persisting a stage transition', async () => {
+    let now = 0
+    const queue = createQueue([claimedJob('job-stage-boundary')])
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      execute: async ({ progress }) => {
+        await progress({ progress: 10, stage: 'SCANNING' })
+        now = 100
+        await progress({ progress: 11 })
+        now = 200
+        await progress({ progress: 11, stage: 'WRITING' })
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, {
+      timing: { now: () => new Date(now), sleep: (_milliseconds, signal) => aborted(signal) }
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(queue.updateProgress.mock.calls.map(([update]) => [update.progress, update.stage])).toEqual([
+      [10, 'SCANNING'],
+      [11, undefined],
+      [11, 'WRITING']
     ])
   })
 

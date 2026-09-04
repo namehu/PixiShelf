@@ -118,7 +118,7 @@ describe('Worker deployment boundary', () => {
     expect(nextPackage).not.toContain('archive:worker')
   })
 
-  it('ships the read-only 28-job capability audit and documents it as a deployment gate', () => {
+  it('ships the read-only 29-job capability audit and documents it as a deployment gate', () => {
     const buildScript = readFileSync(new URL('packages/pixishelf-worker/scripts/build.mjs', repositoryRoot), 'utf8')
     const runbook = readFileSync(new URL('docs/design/background-task-runbook.md', repositoryRoot), 'utf8')
     expect(buildScript).toContain("'capability-audit': 'src/capability-audit.ts'")

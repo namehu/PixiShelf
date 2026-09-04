@@ -31,6 +31,7 @@ export function createVideoKeyframeExecutorRegistrations(
     jobType: 'VIDEO_KEYFRAME_DISCOVERY',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => videoKeyframeDiscoveryPayloadSchema.parse(payload),
     execute: (context) => executeDiscovery(context, dependencies)
   }
@@ -38,6 +39,7 @@ export function createVideoKeyframeExecutorRegistrations(
     jobType: 'VIDEO_KEYFRAME_GENERATION',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => videoKeyframeGenerationPayloadSchema.parse(payload),
     execute: (context) => executeGeneration(context, dependencies)
   }

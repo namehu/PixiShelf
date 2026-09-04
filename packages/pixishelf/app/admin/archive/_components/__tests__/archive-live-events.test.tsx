@@ -106,6 +106,7 @@ function streamItem(
       executionLane: 'BACKGROUND_WRITER',
       status,
       progress: status === 'COMPLETED' ? 100 : 80,
+      progressData: null,
       stage: 'DOWNLOADING',
       message: null,
       errorCode: null,

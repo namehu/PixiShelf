@@ -92,7 +92,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 28 个 job type、31 个 type/version 组合
+健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 29 个 job type、32 个 type/version 组合
 （`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
 
 ## 变更验证矩阵
@@ -145,7 +145,10 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 - 30 天保留任务只删除收件、终态上传者扫描、已完成批量记录和过期预览，不删除上传者来源/游标、领域实体、任务与媒体。
 - 归档媒体设置默认值和 1/8 边界，执行态保存冲突，以及 advisory lock 下“先保存/先启动”的两个顺序；恢复与重试读取新值，运行中执行保持冻结值；
 - Executor 活动 worker、活动传输流与 Provider permit 不超过同一冻结上限，失败流从有效字节扣除且重试不重复累计；逐文件实时遥测覆盖解析图片页、等待响应、下载和校验写入，不得携带远端 URL 或凭据；实时事件两秒限频不吞普通阶段、警告和终态；
-- 通用 SSE 的 Session、脱敏、响应头、心跳、游标追赶/reset、断连清理与数据库异常，以及 admin 单连接、500 条上限、过滤和归档断线轮询回退。
+- Dispatcher 假时钟覆盖 REALTIME 两秒限频、STANDARD 的 5%/5 秒与 30 秒兜底、阶段真实变化、WARN/ERROR 直通和结算前尾部刷新；PostgreSQL 覆盖 `progressData` 与事件原子写、fence 丢失零写入和旧记录 `null`；
+- 动画识别覆盖初始化反馈、1–8 并发上限、20 条/2 秒微批次、慢项 WARN、真实 Sharp GIF/WebP fixture、原生超时与父进程硬终止、取消后等待探测进程退出、失败留 pending、计数一致性和并发 1/4 分类一致；
+- 通用 SSE 的 Session、脱敏、响应头、心跳、游标追赶/reset、断连清理与数据库异常，以及 admin 单连接、500 条上限、按 job 隔离、任务页/控制台缓存同步、隐私模式和 3 秒/30 秒断线轮询回退；
+- 事件保留覆盖 INFO 进度 7 天、阶段/警告/错误/控制/终态 90 天、每批不超过 5,000、首次手动 dry-run 和删除后游标追赶。
 
 ## 测试文件组织
 
@@ -169,7 +172,7 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 8. 运行主应用 lint 和 typecheck；
 9. 运行主应用 `test:unit`。
 
-Worker 测试和 capability 门禁包含双 lane contract，以及 28 个 job type、31 个 type/version 组合（`SCAN`
+Worker 测试和 capability 门禁包含双 lane contract，以及 29 个 job type、32 个 type/version 组合（`SCAN`
 v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
 演练。v3 的独立领取测试同时证明只声明 SCAN v2 的旧 Worker 不会领取 `AUDIT_APPLY`。
 

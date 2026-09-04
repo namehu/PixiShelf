@@ -17,6 +17,7 @@ const PRODUCTION_JOB_TYPES = [
   'ARCHIVE_SEARCH_SCAN',
   'ARCHIVE_UPLOADER_SCAN',
   'DERIVED_MEDIA_GC',
+  'JOB_EVENT_RETENTION_CLEANUP',
   'LOCAL_DIRECTORY_IMPORT',
   'MEDIA_DERIVED_TAG_SYNC',
   'MIGRATION',
@@ -71,6 +72,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 28-job/31-version dual-lane release')
+    throw new Error('Production Worker capability inventory drifted from the 29-job/32-version dual-lane release')
   }
 }

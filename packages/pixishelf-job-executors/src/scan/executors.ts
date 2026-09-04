@@ -29,6 +29,7 @@ export function createScanExecutorRegistrations(dependencies: ScanExecutorDepend
       jobType: 'SCAN',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => scanPayloadSchema.parse(payload),
       execute: (context) => executeScan(context, dependencies)
     } as ExecutorDefinition<ScanPayload>,
@@ -36,6 +37,7 @@ export function createScanExecutorRegistrations(dependencies: ScanExecutorDepend
       jobType: 'SCAN',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: SCAN_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => scanV2PayloadSchema.parse(payload),
       execute: (context) =>
         context.payload.mode === 'CONSISTENCY_AUDIT'
@@ -51,6 +53,7 @@ export function createScanExecutorRegistrations(dependencies: ScanExecutorDepend
       jobType: 'SCAN',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: SCAN_AUDIT_APPLY_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => scanV3PayloadSchema.parse(payload),
       execute: (context) => executeAuditApply(context, dependencies)
     } as ExecutorDefinition<ScanV3Payload>,
@@ -58,6 +61,7 @@ export function createScanExecutorRegistrations(dependencies: ScanExecutorDepend
       jobType: 'LOCAL_DIRECTORY_IMPORT',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => localDirectoryImportPayloadSchema.parse(payload),
       execute: (context) => executeLocalDirectoryImport(context, dependencies)
     } as ExecutorDefinition<LocalDirectoryImportPayload>

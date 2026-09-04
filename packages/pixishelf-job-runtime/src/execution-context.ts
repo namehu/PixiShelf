@@ -1,3 +1,4 @@
+import type { JobEventLevel, JobProgressData } from '@pixishelf/job-contracts'
 import type { ClaimedJob, FencedExecutionTransaction, QueueSqlExecutor } from './queue-repository.ts'
 
 export interface ExecutionProgressUpdate {
@@ -5,6 +6,8 @@ export interface ExecutionProgressUpdate {
   stage?: string | null
   message?: string | null
   data?: unknown
+  progressData?: JobProgressData | null
+  level?: JobEventLevel
   persistenceMode?: 'STANDARD' | 'REALTIME'
   forcePersistence?: boolean
 }

@@ -20,6 +20,7 @@ export function jobRecord(overrides: Partial<SystemJobWireRecord> = {}): SystemJ
     idempotencyKey: null,
     payload: {},
     progress: 0,
+    progressData: null,
     stage: null,
     message: null,
     result: null,

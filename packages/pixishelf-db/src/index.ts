@@ -2,7 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 
-const latestRequiredMigration = '20260904180000_add_archive_title_search'
+const latestRequiredMigration = '20260904200000_add_system_job_progress_data'
 
 const requiredQueueObjects = [
   'archive_intake_items',
@@ -50,7 +50,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
         FROM information_schema.columns
         WHERE table_schema = current_schema()
           AND table_name = 'system_jobs'
-          AND column_name IN ('definitionVersion', 'executionLane')
+          AND column_name IN ('definitionVersion', 'executionLane', 'progressData')
       `),
       client.$queryRaw<Array<{ tableName: string }>>(Prisma.sql`
         SELECT table_name AS "tableName"
@@ -94,6 +94,9 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   }
   if (!columnRows.some(({ columnName }) => columnName === 'executionLane')) {
     missingObjects.push('system_jobs.executionLane')
+  }
+  if (!columnRows.some(({ columnName }) => columnName === 'progressData')) {
+    missingObjects.push('system_jobs.progressData')
   }
 
   const existingTables = new Set(tableRows.map(({ tableName }) => tableName))

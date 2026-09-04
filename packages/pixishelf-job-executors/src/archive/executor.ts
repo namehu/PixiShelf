@@ -70,6 +70,7 @@ export function createArchiveExecutorRegistrations(
       jobType: 'ARCHIVE_IMPORT',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: 1,
+      progressPolicy: 'REALTIME',
       parsePayload: (payload) => ({ ...archiveImportPayloadSchema.parse(payload), defaultTagIds: [] }),
       execute: (context) => executeArchiveImport(context, dependencies)
     },
@@ -77,6 +78,7 @@ export function createArchiveExecutorRegistrations(
       jobType: 'ARCHIVE_IMPORT',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: ARCHIVE_IMPORT_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
       parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
       execute: (context) => executeArchiveImport(context, dependencies)
     }

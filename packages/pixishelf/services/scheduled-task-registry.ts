@@ -24,7 +24,8 @@ export const SCHEDULED_TASK_TYPES = {
   ARCHIVE_MAINTENANCE: 'ARCHIVE_MAINTENANCE',
   ARCHIVE_INTAKE_RETENTION_CLEANUP: 'ARCHIVE_INTAKE_RETENTION_CLEANUP',
   SCAN_RUN_RETENTION_CLEANUP: 'SCAN_RUN_RETENTION_CLEANUP',
-  TRIGGER_LOG_RETENTION_CLEANUP: 'TRIGGER_LOG_RETENTION_CLEANUP'
+  TRIGGER_LOG_RETENTION_CLEANUP: 'TRIGGER_LOG_RETENTION_CLEANUP',
+  JOB_EVENT_RETENTION_CLEANUP: 'JOB_EVENT_RETENTION_CLEANUP'
 } as const
 
 export type ScheduledTaskType = (typeof SCHEDULED_TASK_TYPES)[keyof typeof SCHEDULED_TASK_TYPES]
@@ -74,6 +75,17 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
     defaultTimezone: 'Asia/Shanghai',
     defaultPriority: 15,
     defaultEnabled: true,
+    mutexKey: 'audit-maintenance'
+  },
+  {
+    key: 'job_event_retention_cleanup',
+    type: SCHEDULED_TASK_TYPES.JOB_EVENT_RETENTION_CLEANUP,
+    name: '清理后台任务事件',
+    description: '进度事件保留 7 天，阶段、警告、控制和终态事件保留 90 天；每批最多删除 5,000 条。',
+    defaultTime: '02:20',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 18,
+    defaultEnabled: false,
     mutexKey: 'audit-maintenance'
   },
   {
@@ -189,6 +201,11 @@ export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHan
   },
   [SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP]: {
     start: startScanRunRetentionCleanupTask
+  },
+  [SCHEDULED_TASK_TYPES.JOB_EVENT_RETENTION_CLEANUP]: {
+    start: async () => {
+      throw new Error('Job event retention cleanup requires central dispatcher cutover')
+    }
   },
   [SCHEDULED_TASK_TYPES.WEBP_ANIMATION_SCAN]: {
     start: startWebpAnimationScanTask

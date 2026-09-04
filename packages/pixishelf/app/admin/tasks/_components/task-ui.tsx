@@ -13,6 +13,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import type { JobProgressData } from '@pixishelf/job-contracts'
 
 export interface ScheduledTaskView {
   key: string
@@ -37,6 +38,10 @@ export interface ScheduledTaskView {
     deletedPreviewSessions?: number
     deletedLogs?: number
     deletedRuns?: number
+    progressCandidates?: number
+    lifecycleCandidates?: number
+    deletedProgressEvents?: number
+    deletedLifecycleEvents?: number
     selected?: number
     deleted?: number
     missing?: number
@@ -54,11 +59,17 @@ export interface ScheduledTaskView {
 }
 
 export interface JobView {
+  id?: string
+  type?: string
   status: string
   progress: number
+  stage?: string | null
+  progressData?: JobProgressData | null
   message?: string | null
   error?: string | null
   result?: unknown
+  heartbeatAt?: string | null
+  updatedAt?: string
 }
 
 export interface TaskDraft {
@@ -261,10 +272,12 @@ export function TaskSection({
 export function JobStatus({
   job,
   isRunning,
+  progressContent,
   completeContent
 }: {
   job: JobView | null | undefined
   isRunning: boolean
+  progressContent?: ReactNode
   completeContent?: ReactNode
 }) {
   if (!isJobVisible(job, isRunning)) return null
@@ -294,6 +307,7 @@ export function JobStatus({
           </PrivacySensitiveText>
         )}
         <Progress value={job?.progress ?? 0} className="h-2" aria-label={`任务进度 ${job?.progress ?? 0}%`} />
+        {progressContent ? <div className="border-t pt-3">{progressContent}</div> : null}
         {job?.error && (
           <p className="mt-2 break-words text-sm font-medium text-destructive">
             错误：<PrivacySensitiveText>{job.error}</PrivacySensitiveText>
@@ -525,6 +539,9 @@ function isJobVisible(job: JobView | null | undefined, isRunning: boolean) {
 function formatJobStatus(status: string | undefined) {
   if (status === 'PENDING') return '等待执行'
   if (status === 'RUNNING') return '正在执行'
+  if (status === 'RETRY_WAIT') return '等待重试'
+  if (status === 'PAUSING') return '正在暂停'
+  if (status === 'PAUSED') return '已暂停'
   if (status === 'CANCELLING') return '正在取消'
   if (status === 'COMPLETED') return '已完成'
   if (status === 'FAILED') return '执行失败'

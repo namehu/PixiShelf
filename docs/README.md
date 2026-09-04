@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-09-04（权限收尾与待办收敛）
+最后核验：2026-09-04（权限收尾、待办收敛、后台任务结构化实时进度与事件保留）
 
 ## 状态约定
 
@@ -34,7 +34,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
 | [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令               |
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、28 类 Worker 任务、领域状态和流程图  |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、29 类 Worker 任务、领域状态和流程图  |
+| [后台任务实时进度](./features/background-job-live-progress.md)      | `current` | 结构化进度、SSE 降级、动画吞吐与事件保留       |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |
 | [Pixiv 标签补全](./features/pixiv-tag-enrichment.md)                | `current` | 候选规则、只填空字段、任务状态和封面存储       |
 | [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)           | `current` | 外部身份、补全规则、任务状态与作者图片存储     |
@@ -72,6 +73,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | 文档                                                                 | 状态         | 权威范围与后续处理                                         |
 | -------------------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
 | [归档收件箱](./features/archive-intake.md)                           | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
+| [后台任务实时进度](./features/background-job-live-progress.md)       | `current`    | 结构化进度、动画识别、SSE 缓存同步和事件分层保留           |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)   | `current`    | 当前历史归档标签补全范围、快照和恢复边界                   |
 | [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)            | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则             |
 | [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)        | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |

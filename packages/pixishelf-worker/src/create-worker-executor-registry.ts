@@ -40,6 +40,7 @@ type ExecutorWorkerConfig = Pick<
   | 'ffmpegPath'
   | 'ffprobePath'
   | 'keyframeFfmpegThreads'
+  | 'animationScanConcurrency'
 >
 
 export function createWorkerExecutorRegistry(input: { database: PrismaClient; config: ExecutorWorkerConfig }) {
@@ -79,7 +80,8 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
   }
   for (const definition of createMaintenanceExecutorRegistrations({
     database: input.database,
-    scanRoot: resolved.sourceMediaRoot
+    scanRoot: resolved.sourceMediaRoot,
+    animationScanConcurrency: resolved.animationScanConcurrency
   })) {
     registry.register(definition)
   }
@@ -185,6 +187,7 @@ export function resolveExecutorWorkerConfiguration(config: ExecutorWorkerConfig)
     pixivDataRoot: config.pixivDataRoot,
     ffmpegPath: config.ffmpegPath,
     ffprobePath: config.ffprobePath,
-    ffmpegThreads: config.keyframeFfmpegThreads
+    ffmpegThreads: config.keyframeFfmpegThreads,
+    animationScanConcurrency: config.animationScanConcurrency
   }
 }

@@ -54,10 +54,14 @@ export type WorkerJobExecutor<TPayload = unknown, TResult = unknown> = (
   context: ExecutionContext<TPayload, EnqueuedChildJob>
 ) => Promise<JobExecutionOutcome<TResult>>
 
+export type ExecutorProgressPolicy = 'STANDARD' | 'REALTIME'
+
 export interface ExecutorDefinition<TPayload = unknown, TResult = unknown> {
   jobType: JobType
   executionLane?: ExecutionLane
   definitionVersion: number
+  /** Production executors declare this explicitly; STANDARD remains the compatibility default for test/custom registries. */
+  progressPolicy?: ExecutorProgressPolicy
   execute: WorkerJobExecutor<TPayload, TResult>
   parsePayload?(payload: unknown): TPayload
 }

@@ -129,8 +129,8 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 ```
 
 Worker 必须通过 READY 和 capability 检查。后台任务页面应只显示一个当前 READY 实例。
-当前 capability inventory 为 28 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 26 类只支持 v1，
-共 31 个 type/version 组合。READY 必须覆盖
+当前 capability inventory 为 29 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 27 类只支持 v1，
+共 32 个 type/version 组合。READY 必须覆盖
 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 lane。
 
 ### 6. 启动 Next.js

@@ -1,14 +1,17 @@
 import {
   archiveDefaultTagBackfillPayloadSchema,
   emptyJobPayloadSchema,
+  jobEventRetentionCleanupPayloadSchema,
   JOB_DEFINITION_VERSION,
   pixivAiDerivedTagSyncPayloadSchema,
   type ArchiveDefaultTagBackfillPayload,
+  type JobEventRetentionCleanupPayload,
   type PixivAiDerivedTagSyncPayload
 } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, ExecutorDefinition, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { cleanupArchiveIntakeHistory } from './archive-intake-retention-cleanup.ts'
 import { executeArchiveDefaultTagBackfill } from './archive-default-tag-backfill.ts'
+import { cleanupJobEvents } from './job-event-retention-cleanup.ts'
 import { syncAllMediaDerivedTags } from './media-derived-tag-sync.ts'
 import { syncPixivAiDerivedTags } from './pixiv-ai-derived-tag-sync.ts'
 import { refillMetaSource } from './refill-meta-source.ts'
@@ -20,6 +23,7 @@ import { scanWebpAnimations } from './webp-animation-scan.ts'
 export interface MaintenanceExecutorDependencies {
   database: MaintenanceDatabase
   scanRoot: string
+  animationScanConcurrency?: number
   now?: () => Date
 }
 
@@ -58,9 +62,28 @@ export function createMaintenanceExecutorRegistrations(
       syncAllMediaDerivedTags(operationInput(context, dependencies.database))
     ) as ExecutorDefinition,
     {
+      jobType: 'JOB_EVENT_RETENTION_CLEANUP',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => jobEventRetentionCleanupPayloadSchema.parse(payload),
+      execute: async (context: ExecutionContext<JobEventRetentionCleanupPayload, EnqueuedChildJob>) => ({
+        kind: 'completed',
+        result: await cleanupJobEvents({
+          ...operationInput(context, dependencies.database),
+          dryRun: context.payload.dryRun,
+          ...(dependencies.now ? { now: dependencies.now() } : {})
+        }),
+        message: context.payload.dryRun
+          ? 'JOB_EVENT_RETENTION_CLEANUP dry run completed'
+          : 'JOB_EVENT_RETENTION_CLEANUP completed'
+      })
+    } as ExecutorDefinition,
+    {
       jobType: 'ARCHIVE_DEFAULT_TAG_BACKFILL',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => archiveDefaultTagBackfillPayloadSchema.parse(payload),
       execute: (context: ExecutionContext<ArchiveDefaultTagBackfillPayload, EnqueuedChildJob>) =>
         executeArchiveDefaultTagBackfill(context, dependencies.now ? { now: dependencies.now } : {})
@@ -69,6 +92,7 @@ export function createMaintenanceExecutorRegistrations(
       jobType: 'PIXIV_AI_DERIVED_TAG_SYNC',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => pixivAiDerivedTagSyncPayloadSchema.parse(payload),
       execute: async (context: ExecutionContext<PixivAiDerivedTagSyncPayload, EnqueuedChildJob>) => ({
         kind: 'completed',
@@ -82,7 +106,9 @@ export function createMaintenanceExecutorRegistrations(
     definition('WEBP_ANIMATION_SCAN', (context) =>
       scanWebpAnimations({
         ...operationInput(context, dependencies.database),
-        scanRoot: dependencies.scanRoot
+        scanRoot: dependencies.scanRoot,
+        concurrency: dependencies.animationScanConcurrency ?? 4,
+        ...(dependencies.now ? { now: dependencies.now } : {})
       })
     ) as ExecutorDefinition
   ]
@@ -102,6 +128,7 @@ function definition<TResult>(
     jobType,
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: jobType === 'WEBP_ANIMATION_SCAN' ? 'REALTIME' : 'STANDARD',
     parsePayload: (payload) => emptyJobPayloadSchema.parse(payload) as EmptyPayload,
     execute: async (context) => ({
       kind: 'completed',
@@ -121,12 +148,16 @@ function operationInput<TPayload extends Record<string, unknown>>(
     database,
     mutate,
     signal: context.signal,
-    progress: (update: { percentage: number; stage: string; message: string; data?: Record<string, unknown> }) =>
+    progress: (update: import('./types.ts').MaintenanceProgress) =>
       context.progress({
         progress: update.percentage,
         stage: update.stage,
         message: update.message,
-        ...(update.data ? { data: update.data } : {})
+        ...(update.data ? { data: update.data } : {}),
+        ...(update.progressData ? { progressData: update.progressData } : {}),
+        ...(update.persistenceMode ? { persistenceMode: update.persistenceMode } : {}),
+        ...(update.forcePersistence === undefined ? {} : { forcePersistence: update.forcePersistence }),
+        ...(update.level ? { level: update.level } : {})
       })
   }
 }

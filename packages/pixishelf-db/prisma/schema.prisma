@@ -555,6 +555,7 @@ model SystemJob {
   idempotencyKey          String?                  @unique @db.VarChar(180)
   payload                 Json?
   progress                Int                      @default(0)
+  progressData            Json?
   stage                   String?                  @db.VarChar(80)
   message                 String?                  @db.Text
   result                  Json?
@@ -642,6 +643,7 @@ model SystemJobEvent {
 
   @@index([jobId, id])
   @@index([createdAt])
+  @@index([type, level, createdAt, id])
   @@map("system_job_events")
 }
 

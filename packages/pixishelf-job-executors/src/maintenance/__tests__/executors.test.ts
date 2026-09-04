@@ -10,12 +10,14 @@ describe('maintenance executor registrations', () => {
       { jobType: 'SCAN_RUN_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'REFILL_META_SOURCE', definitionVersion: 1 },
       { jobType: 'MEDIA_DERIVED_TAG_SYNC', definitionVersion: 1 },
+      { jobType: 'JOB_EVENT_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'ARCHIVE_DEFAULT_TAG_BACKFILL', definitionVersion: 1 },
       { jobType: 'PIXIV_AI_DERIVED_TAG_SYNC', definitionVersion: 1 },
       { jobType: 'WEBP_ANIMATION_SCAN', definitionVersion: 1 }
     ])
     for (const definition of definitions.filter(
-      ({ jobType }) => !['ARCHIVE_DEFAULT_TAG_BACKFILL', 'PIXIV_AI_DERIVED_TAG_SYNC'].includes(jobType)
+      ({ jobType }) =>
+        !['ARCHIVE_DEFAULT_TAG_BACKFILL', 'PIXIV_AI_DERIVED_TAG_SYNC', 'JOB_EVENT_RETENTION_CLEANUP'].includes(jobType)
     )) {
       expect(definition.parsePayload?.({})).toEqual({})
       expect(() => definition.parsePayload?.({ unexpected: true })).toThrow()
@@ -36,5 +38,8 @@ describe('maintenance executor registrations', () => {
     expect(pixivAi.parsePayload?.({})).toEqual({ dryRun: true })
     expect(pixivAi.parsePayload?.({ dryRun: false })).toEqual({ dryRun: false })
     expect(() => pixivAi.parsePayload?.({ dryRun: false, unexpected: true })).toThrow()
+    const eventRetention = definitions.find(({ jobType }) => jobType === 'JOB_EVENT_RETENTION_CLEANUP')!
+    expect(eventRetention.parsePayload?.({})).toEqual({ dryRun: true })
+    expect(eventRetention.parsePayload?.({ dryRun: false })).toEqual({ dryRun: false })
   })
 })

@@ -1,5 +1,4 @@
 'use client'
-
 import type { JobDto, JobEventDto, JobStatus, WorkerHealthDto } from '@pixishelf/job-contracts'
 import {
   Activity,
@@ -31,6 +30,7 @@ import { cn } from '@/lib/utils'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { confirm } from '@/components/shared/global-confirm'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
 import {
   canCancelJob,
   canChangePriority,
@@ -52,7 +52,6 @@ import {
   useBackgroundJobDetail,
   useBackgroundJobEvents
 } from './use-background-dashboard'
-
 export interface BackgroundDashboardView {
   counts: Record<JobStatus, number>
   queuedCount: number
@@ -952,6 +951,7 @@ function JobDetail({
           <span className="text-xs font-semibold tabular-nums">{job.progress}%</span>
         </div>
       ) : null}
+      {job.progressData?.kind === 'animation-scan' ? <AnimationScanLiveFeedback job={job} className="mt-3 rounded-lg border bg-muted/10 p-3" /> : null}
       {job.message ? (
         <PrivacySensitiveText as="p" className="mt-3 select-text break-words text-sm text-muted-foreground">
           {job.message}
