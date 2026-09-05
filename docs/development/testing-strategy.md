@@ -67,6 +67,10 @@ pnpm --filter @pixishelf/next build
 pnpm --filter @pixishelf/next exec vitest run <test-path>
 ```
 
+新增或修改测试后仍须单独运行主应用 `typecheck`。Vitest 默认不执行 TypeScript 类型检查，当前 Next.js
+生产构建也会过滤 `__tests__`、`__mocks__` 和 `.test`/`.spec` 文件的类型诊断；测试运行与构建均通过，不能
+替代 CI 使用的 `next typegen && tsc --noEmit`，尤其不能证明测试代码满足 `noUncheckedIndexedAccess`。
+
 ### 数据库与 Worker 依赖链
 
 ```bash

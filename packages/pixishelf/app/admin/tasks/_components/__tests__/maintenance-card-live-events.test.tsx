@@ -142,7 +142,7 @@ describe('maintenance card live schedule updates', () => {
     )
     const action = await screen.findByRole('button', { name: actionLabel })
     expect(action.hasAttribute('disabled')).toBe(true)
-    expect(client.getQueryData<ScheduledTaskView[]>(['listScheduledTasks'])?.[0].lastJobId).toBe('new-job')
+    expect(client.getQueryData<ScheduledTaskView[]>(['listScheduledTasks'])?.[0]?.lastJobId).toBe('new-job')
     expect(mocks.fetchTasks).toHaveBeenCalledTimes(initialRequests + 1)
 
     mocks.live.items = [...mocks.live.items, streamItem('102', 'job.progress', status)]

@@ -197,7 +197,7 @@ describe('background dashboard query hooks', () => {
         })
       const { result, rerender } = renderHook(() => useBackgroundDashboard(), { wrapper: createWrapper() })
       await flushQueries()
-      expect(result.current.data?.recentJobs[0].status).toBe('RUNNING')
+      expect(result.current.data?.recentJobs[0]?.status).toBe('RUNNING')
 
       mocks.live.status = connectionStatus
       rerender()
