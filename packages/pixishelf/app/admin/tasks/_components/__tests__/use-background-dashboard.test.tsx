@@ -173,6 +173,74 @@ describe('background dashboard query hooks', () => {
     vi.useRealTimers()
   })
 
+  it.each(['connected', 'disconnected'] as const)(
+    'keeps a newer dashboard snapshot over retained SSE while %s',
+    async (connectionStatus) => {
+      const running = createJob('snapshot-race', 'RUNNING')
+      const completed = createJob('snapshot-race', 'COMPLETED', '2026-08-17T02:01:00.000Z')
+      mocks.live.status = 'connected'
+      mocks.live.items = [createStreamItem(running, createEvent(running.id, 1))]
+      mocks.fetchDashboard
+        .mockResolvedValueOnce({
+          activeCount: 1,
+          queuedCount: 0,
+          recentJobs: [running],
+          runningJobs: [running],
+          runningJob: running
+        })
+        .mockResolvedValue({
+          activeCount: 0,
+          queuedCount: 0,
+          recentJobs: [completed],
+          runningJobs: [],
+          runningJob: null
+        })
+      const { result, rerender } = renderHook(() => useBackgroundDashboard(), { wrapper: createWrapper() })
+      await flushQueries()
+      expect(result.current.data?.recentJobs[0].status).toBe('RUNNING')
+
+      mocks.live.status = connectionStatus
+      rerender()
+      await act(async () => {
+        if (connectionStatus === 'disconnected') await vi.advanceTimersByTimeAsync(3_001)
+        else await result.current.refetch()
+      })
+      await flushQueries()
+
+      expect(result.current.data?.activeCount).toBe(0)
+      expect(result.current.data?.recentJobs[0]).toMatchObject({ status: 'COMPLETED', progress: 100 })
+    }
+  )
+
+  it.each(['connected', 'disconnected'] as const)(
+    'keeps a newer detail snapshot over retained SSE while %s',
+    async (connectionStatus) => {
+      const running = createJob('detail-snapshot-race', 'RUNNING')
+      const completed = {
+        ...createJob(running.id, 'COMPLETED', '2026-08-17T02:01:00.000Z'),
+        result: { processed: 42 }
+      }
+      mocks.live.status = 'connected'
+      mocks.live.items = [createStreamItem(running, createEvent(running.id, 1))]
+      mocks.fetchDetail.mockResolvedValueOnce(running).mockResolvedValue(completed)
+      const { result, rerender } = renderHook(() => useBackgroundJobDetail(running.id, null), {
+        wrapper: createWrapper()
+      })
+      await flushQueries()
+      expect(result.current.data?.status).toBe('RUNNING')
+
+      mocks.live.status = connectionStatus
+      rerender()
+      await act(async () => {
+        if (connectionStatus === 'disconnected') await vi.advanceTimersByTimeAsync(3_001)
+        else await result.current.refetch()
+      })
+      await flushQueries()
+
+      expect(result.current.data).toMatchObject({ status: 'COMPLETED', progress: 100, result: { processed: 42 } })
+    }
+  )
+
   it('refetches once when any unseen event in a connected batch changes dashboard membership', async () => {
     const runningA = createJob('A', 'RUNNING')
     const runningB = createJob('B', 'RUNNING')

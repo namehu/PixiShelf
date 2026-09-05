@@ -7,7 +7,7 @@ import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
 import { ACTIVE_JOB_STATUSES, mergeJobEvents } from './background-task-format'
 import { useOptionalBackgroundJobEventSubscription as useLiveJobEvents } from '../../_components/background-job-event-provider'
-import { collectUnseenLiveEvents, type LiveEventCursor } from './live-event-reconciliation'
+import { collectUnseenLiveEvents, mergeLiveJobSnapshot, type LiveEventCursor } from './live-event-reconciliation'
 
 export function useBackgroundDashboard() {
   const trpc = useTRPC()
@@ -183,7 +183,7 @@ export function useBackgroundJobDetail(jobId: string | null, dashboardJob: JobDt
   const liveJob = live.items.at(-1)?.job
   return {
     ...query,
-    data: reconciled && liveJob && reconciled.id === liveJob.id ? ({ ...reconciled, ...liveJob } as JobDto) : reconciled
+    data: reconciled ? mergeLiveJobSnapshot(reconciled, liveJob) : reconciled
   }
 }
 
@@ -192,10 +192,7 @@ function patchDashboardJobs<
 >(dashboard: TDashboard | undefined, items: ReturnType<typeof useLiveJobEvents>['items']): TDashboard | undefined {
   if (!dashboard || items.length === 0) return dashboard
   const latestByJob = new Map(items.map(({ job }) => [job.id, job]))
-  const patch = (job: JobDto) => {
-    const live = latestByJob.get(job.id)
-    return live ? ({ ...job, ...live } as JobDto) : job
-  }
+  const patch = (job: JobDto) => mergeLiveJobSnapshot(job, latestByJob.get(job.id))
   return {
     ...dashboard,
     recentJobs: dashboard.recentJobs.map(patch),

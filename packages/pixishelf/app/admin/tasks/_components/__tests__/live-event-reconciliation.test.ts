@@ -1,8 +1,36 @@
 import type { JobEventStreamItem, JobLiveSummary, JobStatus, JobType } from '@pixishelf/job-contracts'
 import { describe, expect, it } from 'vitest'
-import { collectUnseenLiveEvents, selectLiveJobForStatusCache } from '../live-event-reconciliation'
+import {
+  collectUnseenLiveEvents,
+  mergeLiveJobSnapshot,
+  selectLiveJobForStatusCache
+} from '../live-event-reconciliation'
 
 describe('live event reconciliation', () => {
+  it.each(['2026-01-01T00:00:00.000Z', '2026-01-01T00:01:00.000Z'])(
+    'does not overwrite a full query snapshot with a live snapshot dated %s',
+    (timestamp) => {
+      const snapshot = {
+        ...liveJob('job-a', 'WEBP_ANIMATION_SCAN', 'COMPLETED', '2026-01-01T00:01:00.000Z'),
+        result: { processed: 42 }
+      }
+      expect(mergeLiveJobSnapshot(snapshot, liveJob('job-a', 'WEBP_ANIMATION_SCAN', 'RUNNING', timestamp))).toBe(
+        snapshot
+      )
+    }
+  )
+
+  it('applies a newer live snapshot while keeping fields omitted by SSE', () => {
+    const snapshot = {
+      ...liveJob('job-a', 'WEBP_ANIMATION_SCAN', 'RUNNING', '2026-01-01T00:00:00.000Z'),
+      payload: {},
+      result: null
+    }
+    const live = liveJob('job-a', 'WEBP_ANIMATION_SCAN', 'PAUSED', '2026-01-01T00:01:00.000Z')
+    expect(mergeLiveJobSnapshot(snapshot, live)).toEqual({ ...snapshot, ...live })
+    expect(mergeLiveJobSnapshot(snapshot, { ...live, id: 'job-b' })).toBe(snapshot)
+  })
+
   it('starts a new cursor epoch after reset even when event ids move backwards', () => {
     const beforeReset = collectUnseenLiveEvents([streamItem('100', 'job-a')], 0, {
       resetVersion: 0,

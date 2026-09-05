@@ -5,6 +5,17 @@ export interface LiveEventCursor {
   eventId: string | null
 }
 
+export function mergeLiveJobSnapshot<T extends { id?: string; updatedAt?: string }>(
+  snapshot: T,
+  live: JobLiveSummary | undefined
+): T {
+  if (!live || snapshot.id !== live.id) return snapshot
+  // Retained SSE items can predate a refetch, especially during disconnection.
+  // Equal timestamps also keep the full query snapshot authoritative.
+  if (snapshot.updatedAt && Date.parse(live.updatedAt) <= Date.parse(snapshot.updatedAt)) return snapshot
+  return { ...snapshot, ...live }
+}
+
 export function collectUnseenLiveEvents(
   items: JobEventStreamItem[],
   resetVersion: number,

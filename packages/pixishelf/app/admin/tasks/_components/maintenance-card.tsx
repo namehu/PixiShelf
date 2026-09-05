@@ -31,7 +31,12 @@ import { useBackgroundJobEventSubscription } from '../../_components/background-
 import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
 import { StandaloneTaskFeedback } from './standalone-task-feedback'
 import { ACTIVE_TASK_STATUSES, formatTaskStatus } from './task-status'
-import { collectUnseenLiveEvents, selectLiveJobForStatusCache, type LiveEventCursor } from './live-event-reconciliation'
+import {
+  collectUnseenLiveEvents,
+  mergeLiveJobSnapshot,
+  selectLiveJobForStatusCache,
+  type LiveEventCursor
+} from './live-event-reconciliation'
 import { PixivAiDerivedTagSyncFeedback, type PixivAiDerivedTagSyncResult } from './pixiv-ai-derived-tag-sync-feedback'
 
 interface MediaDerivedTagSyncStats {
@@ -182,6 +187,7 @@ export function MaintenanceCard() {
   const [trackedWebpJobId, setTrackedWebpJobId] = useState<string>()
   const requestedWebpJobId = useRef<string | null>(null)
   const liveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
+  const scheduledLiveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
   const jobEvents = useBackgroundJobEventSubscription()
 
   const fallbackPolling = { liveConnected: jobEvents.status === 'connected', idleInterval: 30_000 }
@@ -297,21 +303,13 @@ export function MaintenanceCard() {
       const selection = selectLiveJobForStatusCache(unseenItems, jobType, expectedJobId)
       if (selection.job) {
         const liveJob = selection.job
-        queryClient.setQueryData<JobView | null>(statusQueryKey, (cached) => ({
-          ...(cached?.id === liveJob.id ? cached : {}),
-          ...liveJob
-        }))
+        queryClient.setQueryData<JobView | null>(statusQueryKey, (cached) =>
+          cached?.id === liveJob.id ? mergeLiveJobSnapshot(cached, liveJob) : liveJob
+        )
       } else if (selection.sawDifferentJob) {
         void queryClient.invalidateQueries({ queryKey: statusQueryKey })
       }
     }
-    const latestByJobId = new Map(unseenItems.map(({ job }) => [job.id, job]))
-    queryClient.setQueryData<ScheduledTaskView[]>(trpc.job.listScheduledTasks.queryKey(), (current) =>
-      current?.map((task) => {
-        const liveJob = task.lastJobId ? latestByJobId.get(task.lastJobId) : undefined
-        return liveJob ? { ...task, lastJobStatus: liveJob.status } : task
-      })
-    )
     const terminalTypes = new Set(
       unseenItems
         .filter(({ job }) => ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(job.status))
@@ -321,9 +319,26 @@ export function MaintenanceCard() {
       for (const [jobType, queryKey] of queryKeys) {
         if (terminalTypes.has(jobType)) void queryClient.invalidateQueries({ queryKey })
       }
-      void refetchScheduledTasks()
     }
-  }, [jobEvents.items, jobEvents.resetVersion, queryClient, refetchScheduledTasks, trackedWebpJobId, trpc])
+  }, [jobEvents.items, jobEvents.resetVersion, queryClient, trackedWebpJobId, trpc])
+
+  useEffect(() => {
+    // Wait for the initial schedule snapshot before consuming its events.
+    if (!scheduledTasksQuery.data) return
+    const unseen = collectUnseenLiveEvents(jobEvents.items, jobEvents.resetVersion, scheduledLiveEventCursor.current)
+    scheduledLiveEventCursor.current = unseen.cursor
+    const scheduledTypes = new Set(scheduledTasksQuery.data.map((task) => task.type))
+    // Live summaries do not identify the schedule. Refresh lifecycle changes
+    // to discover its new lastJobId rather than assigning jobs by type alone.
+    const scheduleChanged = unseen.items.some(
+      ({ event, job }) =>
+        scheduledTypes.has(job.type) &&
+        (event.type.startsWith('job.') || event.type === 'worker.lease_recovered') &&
+        event.type !== 'job.progress' &&
+        event.type !== 'job.stage_changed'
+    )
+    if (scheduleChanged) void refetchScheduledTasks()
+  }, [jobEvents.items, jobEvents.resetVersion, refetchScheduledTasks, scheduledTasksQuery.data])
 
   useEffect(() => {
     if (jobEvents.readyVersion === 0 && jobEvents.resetVersion === 0) return
