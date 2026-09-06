@@ -29,6 +29,10 @@ const ANIMATED_WEBP = Buffer.from(
   'UklGRpQAAABXRUJQVlA4WAoAAAACAAAAAAAAAAAAQU5JTQYAAAD/////AABBTk1GMAAAAAAAAAAAAAAAAAAAAGQAAAJWUDggGAAAADABAJ0BKgEAAQABQCYlpAADcAD+/TZoAEFOTUYwAAAAAAAAAAAAAAAAAAAAZAAAAFZQOCAYAAAANAEAnQEqAQABAAAAJiWkAANwAP789AAA',
   'base64'
 )
+const STATIC_JPEG = Buffer.from(
+  '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAVEQEBAAAAAAAAAAAAAAAAAAAABP/aAAwDAQACEAMQAAAB6A//xAAVEAEBAAAAAAAAAAAAAAAAAAAAEf/aAAgBAQABBQJf/8QAFBEBAAAAAAAAAAAAAAAAAAAAEP/aAAgBAwEBPwEf/8QAFBEBAAAAAAAAAAAAAAAAAAAAEP/aAAgBAgEBPwEf/8QAFBABAAAAAAAAAAAAAAAAAAAAEP/aAAgBAQAGPwJf/8QAFBABAAAAAAAAAAAAAAAAAAAAEP/aAAgBAQABPyFf/9k=',
+  'base64'
+)
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
@@ -525,6 +529,15 @@ describe('webp animation scan maintenance', () => {
     await expect(detectAnimatedImage(staticGif)).resolves.toBe(false)
     await expect(detectAnimatedImage(animatedGif)).resolves.toBe(true)
     await expect(detectAnimatedImage(animatedWebp)).resolves.toBe(true)
+  })
+
+  it('falls back to generic image probing when a .png file contains JPEG data', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-mislabeled-png-'))
+    roots.push(root)
+    const target = path.join(root, 'wrong-extension.png')
+    await writeFile(target, STATIC_JPEG)
+
+    await expect(detectAnimatedImage(target)).resolves.toBe(false)
   })
 
   it('kills and drains an isolated probe process when cancellation fires', async () => {

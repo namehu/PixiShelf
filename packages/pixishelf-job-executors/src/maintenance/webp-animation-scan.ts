@@ -658,7 +658,16 @@ async function detectAnimatedWithPool(
 ): Promise<boolean> {
   throwIfMaintenanceAborted(signal)
   const extension = path.extname(mediaPath).toLowerCase()
-  if (extension === '.png' || extension === '.apng') return detectAnimatedPng(absolutePath, signal)
+  if (extension === '.png' || extension === '.apng') {
+    try {
+      return await detectAnimatedPng(absolutePath, signal)
+    } catch (error) {
+      if (!isInvalidPngProbeError(error)) throw error
+      const animated = await pool.detect(absolutePath, signal)
+      throwIfMaintenanceAborted(signal)
+      return animated
+    }
+  }
   if (extension === '.webp' || extension === '.gif') {
     const animated = await pool.detect(absolutePath, signal)
     throwIfMaintenanceAborted(signal)
@@ -773,4 +782,9 @@ function pngCrc32(data: Buffer): number {
     for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1))
   }
   return (crc ^ 0xffffffff) >>> 0
+}
+
+function isInvalidPngProbeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : ''
+  return message === 'Invalid PNG signature'
 }
