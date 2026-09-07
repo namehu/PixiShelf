@@ -1089,6 +1089,12 @@ function databaseWithFirstLockHooks(hooks: { before?: () => Promise<void>; after
                 return Reflect.get(transactionTarget, transactionProperty, transactionReceiver)
               }
               return async (...args: unknown[]) => {
+                const query = args[0] as Prisma.Sql
+                const sourceLock = query.values[0] === 20_260_902
+                // These cross-source tests coordinate at the shared Provider/GID lock.
+                if (sourceLock) {
+                  return Reflect.apply(transactionTarget.$queryRaw, transactionTarget, args)
+                }
                 if (lockCount === 0) await hooks.before?.()
                 const result = await Reflect.apply(transactionTarget.$queryRaw, transactionTarget, args)
                 if (lockCount === 0) await hooks.after?.()

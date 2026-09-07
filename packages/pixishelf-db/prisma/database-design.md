@@ -232,6 +232,12 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 
 迁移先拒绝任何非终态发现扫描，再执行 DDL；此 guard 不代替停止旧写入者。增加来源类型后旧版 App 不兼容混合来源，不能直接二进制降级。完整回滚恢复数据库/媒体/配置/镜像一致性检查点；优先前向修复或在兼容版本停用标题来源。
 
+### 发现来源的显式删除
+
+来源停用保留全部发现状态；显式删除 `ArchiveUploaderSource` 利用现有 `Cascade` 外键清除所属 `ArchiveUploaderScanRun`、`ArchiveUploaderScanItem` 和 `ArchiveUploaderCatalogItem`。关联方向不会反向删除 `ArchiveIntakeItem`、`ArchiveImport`、`SystemJob`、作品或媒体。`ArchiveUploaderIgnoredItem.sourceId` 使用 `SetNull`，全局忽略身份及 `sourceDisplayName` 快照继续保留。
+
+删除与扫描创建、入箱及忽略共用来源 advisory transaction lock（namespace `20260902`），处置按来源锁、Provider/GID 锁的固定顺序执行。事务内任一所属扫描或关联 SystemJob 非终态都会阻止删除；现有扫描任务禁止通过通用重试复活历史运行。删除提交后释放上传者身份/UID 或关键词指纹唯一键，再次新增得到新来源和空游标。此功能无需 migration；App 版本回滚不恢复已删除历史，历史恢复以删除前数据库备份为依据。
+
 ## 4. 审计与维护 (Audit & Maintenance)
 
 ### 4.1 后台任务切换守卫与手写约束

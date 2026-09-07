@@ -1,5 +1,8 @@
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import {
+  deleteArchiveDiscoverySource,
+  deleteArchiveDiscoverySourceSchema,
+  getArchiveDiscoverySourceDeletePreview,
   renameArchiveTitleSource,
   renameArchiveTitleSourceSchema,
   addArchiveUploaderScanItems,
@@ -32,6 +35,12 @@ import { runArchiveOperation } from './archive'
 const discovery = { sourceKind: 'ALL' as const }
 
 export const archiveSearchRouter = router({
+  getDeletePreview: authProcedure
+    .input(deleteArchiveDiscoverySourceSchema)
+    .query(({ input }) => runArchiveOperation(() => getArchiveDiscoverySourceDeletePreview(input, discovery))),
+  deleteSource: adminProcedure
+    .input(deleteArchiveDiscoverySourceSchema)
+    .mutation(({ input }) => runArchiveOperation(() => deleteArchiveDiscoverySource(input, discovery))),
   renameSource: adminProcedure
     .input(renameArchiveTitleSourceSchema)
     .mutation(({ input }) => runArchiveOperation(() => renameArchiveTitleSource(input))),

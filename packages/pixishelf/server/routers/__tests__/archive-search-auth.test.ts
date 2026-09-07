@@ -6,6 +6,8 @@ vi.mock('@/lib/rate-limit', () => ({ rateLimiter: { check: vi.fn(() => true) } }
 vi.mock('@/services/archive-uploader/archive-uploader-service', async (original) => ({
   ...(await original<typeof import('@/services/archive-uploader/archive-uploader-service')>()),
   createArchiveTitleSource: writes,
+  getArchiveDiscoverySourceDeletePreview: writes,
+  deleteArchiveDiscoverySource: writes,
   renameArchiveTitleSource: writes,
   setArchiveUploaderSourceArchived: writes,
   triggerArchiveUploaderScan: writes,
@@ -25,6 +27,8 @@ const caller = archiveSearchRouter.createCaller({ session: null, user: null, hea
 
 describe('archiveSearch authentication boundary', () => {
   it.each([
+    () => caller.getDeletePreview({ sourceId: 'one' }),
+    () => caller.deleteSource({ sourceId: 'one' }),
     () => caller.createSource({ displayName: 'Example', keyword: 'abc' }),
     () => caller.renameSource({ sourceId: 'one', displayName: 'New name' }),
     () => caller.setArchived({ sourceId: 'one', archived: true }),

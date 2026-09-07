@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   infiniteQueryOptions: vi.fn(() => ({ kind: 'items' })),
   invalidateQueries: vi.fn(),
   setQueriesData: vi.fn(),
+  cancelQueries: vi.fn(),
+  removeQueries: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
   toastWarning: vi.fn()
@@ -156,7 +158,12 @@ vi.mock('sonner', () => ({
 }))
 
 vi.mock('@tanstack/react-query', () => ({
-  useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries, setQueriesData: mocks.setQueriesData }),
+  useQueryClient: () => ({
+    invalidateQueries: mocks.invalidateQueries,
+    setQueriesData: mocks.setQueriesData,
+    cancelQueries: mocks.cancelQueries,
+    removeQueries: mocks.removeQueries
+  }),
   useQuery: (options: { kind?: string }) =>
     options.kind === 'sources'
       ? { data: currentSourcesData, isPending: false, isError: false }
@@ -289,6 +296,27 @@ vi.mock('@/lib/trpc', () => ({
 }))
 
 import { ArchiveUploaderSources } from '../archive-uploader-sources'
+
+vi.mock('../archive-discovery-delete-dialog', () => ({
+  ArchiveDiscoveryDeleteDialog: ({
+    sourceId,
+    onDeleted,
+    onClose
+  }: {
+    sourceId: string
+    onDeleted: (id: string) => Promise<void>
+    onClose: () => void
+  }) => (
+    <button
+      onClick={async () => {
+        await onDeleted(sourceId)
+        onClose()
+      }}
+    >
+      确认删除测试来源
+    </button>
+  )
+}))
 import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 
 afterEach(cleanup)
@@ -296,6 +324,7 @@ afterEach(cleanup)
 describe('ArchiveUploaderSources', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.setQueriesData.mockReset()
     localStorage.clear()
     currentDetailData = detailData
     currentItemsData = itemsData
@@ -318,6 +347,25 @@ describe('ArchiveUploaderSources', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '取消扫描' }))
     expect(mocks.cancelScan).toHaveBeenCalledWith({ sourceId: 'source-1', runId: 'run-active' })
+  })
+
+  it.each(['ACTIVE', 'ARCHIVED'])('removes the last %s source from the workspace after deletion', async (status) => {
+    currentSourcesData = [{ ...source, status, latestRun: completedRun }]
+    currentDetailData = { source: { ...source, status }, runs: [completedRun] }
+    mocks.setQueriesData.mockImplementation(
+      (options: { queryKey: string[] }, update: (current: unknown) => unknown) => {
+        if (options.queryKey[0] === 'sources') currentSourcesData = update(currentSourcesData)
+      }
+    )
+    render(<ArchiveUploaderSources />)
+    fireEvent.click(screen.getByRole('button', { name: '删除来源' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认删除测试来源' }))
+    await screen.findByText('暂无此类型的发现来源')
+    expect(mocks.removeQueries).toHaveBeenCalledWith({ queryKey: ['detail'] })
+    expect(mocks.removeQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('发现来源已删除，已入箱项目和本地作品已保留')
+    fireEvent.click(screen.getByRole('button', { name: '查看全局已忽略' }))
+    expect(screen.getByText('Ignored Gallery 301')).toBeTruthy()
   })
 
   it('shows and copies the stable uploader UID from both source views', async () => {
@@ -352,7 +400,20 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.getByText('Ignored Gallery 301').getAttribute('data-privacy-sensitive')).toBe('')
     const uidLabels = screen.getAllByText('UID 123')
     expect(uidLabels.some((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
-    expect(uidLabels.some((element) => !element.hasAttribute('data-privacy-sensitive'))).toBe(true)
+    expect(uidLabels.every((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
+  })
+
+  it('keeps global ignores accessible and restorable with no saved sources', async () => {
+    currentSourcesData = []
+    currentDetailData = undefined
+    render(<ArchiveUploaderSources />)
+    expect(screen.getByText('暂无此类型的发现来源')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '查看全局已忽略' }))
+    expect(screen.getByText('Ignored Gallery 301')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
+    await waitFor(() => expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] }))
+    fireEvent.click(screen.getByRole('button', { name: '返回发现来源' }))
+    expect(screen.getByText('暂无此类型的发现来源')).toBeTruthy()
   })
 
   it('binds an unbound NAME source through a two-step confirmation', () => {

@@ -68,6 +68,8 @@ export const listArchiveUploaderSourcesSchema = z.object({ includeArchived: z.bo
 
 export const getArchiveUploaderSourceSchema = z.object({ sourceId: sourceIdSchema }).strict()
 
+export const deleteArchiveDiscoverySourceSchema = getArchiveUploaderSourceSchema
+
 export const listArchiveUploaderScanItemsSchema = z
   .object({
     sourceId: sourceIdSchema,
@@ -258,6 +260,68 @@ export async function listArchiveUploaderIgnoredItems(
     items: visible.map(serializeIgnoredItem),
     nextCursor: hasMore && last ? { ignoredAt: last.ignoredAt, id: last.id } : null
   }
+}
+
+const blockingDiscoveryScanWhere = {
+  OR: [
+    { status: { in: [...ACTIVE_RUN_STATUSES] } },
+    { systemJob: { status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'] } } }
+  ]
+} satisfies Prisma.ArchiveUploaderScanRunWhereInput
+
+export async function getArchiveDiscoverySourceDeletePreview(
+  input: z.input<typeof deleteArchiveDiscoverySourceSchema>,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const { sourceId } = deleteArchiveDiscoverySourceSchema.parse(input)
+  const source = await getDatabase(dependencies).archiveUploaderSource.findUnique({
+    where: { id: sourceId, ...sourceScope(dependencies) },
+    select: {
+      id: true,
+      displayName: true,
+      _count: { select: { runs: true, catalogItems: true } },
+      runs: {
+        where: blockingDiscoveryScanWhere,
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+        select: { id: true, status: true, systemJob: { select: { id: true, status: true } } }
+      }
+    }
+  })
+  if (!source) return null
+  return {
+    sourceId: source.id,
+    displayName: source.displayName,
+    scanRunCount: source._count.runs,
+    catalogItemCount: source._count.catalogItems,
+    blockingRun: source.runs[0] ?? null
+  }
+}
+
+export async function deleteArchiveDiscoverySource(
+  input: z.input<typeof deleteArchiveDiscoverySourceSchema>,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const { sourceId } = deleteArchiveDiscoverySourceSchema.parse(input)
+  return getDatabase(dependencies).$transaction(async (transaction) => {
+    // Scan creation and source dispositions share this lock; a stale page cannot submit after deletion.
+    await lockSource(transaction, sourceId)
+    const source = await transaction.archiveUploaderSource.findUnique({
+      where: { id: sourceId, ...sourceScope(dependencies) },
+      select: { id: true }
+    })
+    if (!source) return { sourceId, deleted: false }
+    const blockingRun = await transaction.archiveUploaderScanRun.findFirst({
+      where: { sourceId, ...blockingDiscoveryScanWhere },
+      select: { id: true }
+    })
+    if (blockingRun) {
+      throw new ArchiveError('STATE_CONFLICT', '扫描任务仍在活动中，请先取消扫描，等待结束后再确认删除来源。')
+    }
+    // Only owned discovery rows cascade. Intake/import/job rows survive; global ignores use SET NULL.
+    await transaction.archiveUploaderSource.delete({ where: { id: sourceId } })
+    return { sourceId, deleted: true }
+  })
 }
 
 export async function setArchiveUploaderSourceArchived(
@@ -579,6 +643,7 @@ export async function ignoreArchiveUploaderScanItems(
   const parsed = ignoreArchiveUploaderScanItemsSchema.parse(input)
   const database = getDatabase(dependencies)
   return database.$transaction(async (transaction) => {
+    await lockSource(transaction, parsed.sourceId)
     const source = await transaction.archiveUploaderSource.findUnique({
       where: { id: parsed.sourceId, ...sourceScope(dependencies) },
       select: { id: true, displayName: true }
@@ -650,6 +715,7 @@ export async function addArchiveUploaderScanItems(
   const parsed = addArchiveUploaderScanItemsSchema.parse(input)
   const database = getDatabase(dependencies)
   return database.$transaction(async (transaction) => {
+    await lockSource(transaction, parsed.sourceId)
     const candidates = await transaction.archiveUploaderCatalogItem.findMany({
       where: { id: { in: parsed.itemIds }, sourceId: parsed.sourceId, source: sourceScope(dependencies) },
       orderBy: { id: 'asc' },

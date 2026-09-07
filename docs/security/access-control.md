@@ -159,7 +159,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `localImport`     | preview、status                                                           | 保存映射、启动、取消                                                                    | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
 | `archiveInbox`    | 持久收件列表与汇总                                                        | 创建/修正、暂停/恢复、重试/取消、批量归档入队                                           | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
 | `archiveUploader` | 来源、扫描覆盖摘要、长期目录实时状态与全局已忽略列表                      | 创建/归档来源、绑定/更正 UID、扫描/取消、加入收件箱、忽略/恢复画廊                      | 读取为 `authProcedure`；来源、任务与处置写入为 `adminProcedure`                                   |
-| `archiveSearch`   | 两类发现来源、扫描摘要、匹配候选与全局忽略                                | 创建关键词来源、改名、停用/恢复、扫描/取消、入箱及忽略/恢复                             | 读取 authProcedure，写入 adminProcedure；固定条件不可原地修改                                     |
+| `archiveSearch`   | 两类发现来源、扫描摘要、匹配候选、全局忽略与删除范围预览                  | 创建关键词来源、改名、停用/恢复、删除来源、扫描/取消、入箱及忽略/恢复                   | 读取 authProcedure，写入 adminProcedure；固定条件不可原地修改                                     |
 | `archive`         | 分页任务、项目、统计和批量结果                                            | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制                                   | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
 | `pendingReplace`  | 预览与状态                                                                | 绑定、排序、执行、取消、恢复、清理备份                                                  | 全部 `adminProcedure`                                                                             |
 | `job`             | 多类状态、待处理失败、队列与 Pixiv AI 校准状态读取                        | 创建、取消、重试、逐条确认失败提醒、优先级、scheduler、Pixiv AI 预检/回填与中央任务控制 | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`                               |
@@ -173,16 +173,16 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 
 ## Server Action 矩阵
 
-| Action                                                   | 边界                                      | 能力                                                    |
-| -------------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------- |
-| `loginUserAction`                                        | 公共 `actionClient` + 每 IP 5 次/分钟限流 | 使用用户名/密码建立 Better Auth Session                 |
-| `initAdminAction`                                        | 公共 `actionClient`                       | 创建账户；当前 Action 自身没有验证系统用户总数仍为 0    |
-| `changePasswordAction`                                   | `authActionClient` + 每 IP 5 次/分钟限流  | 修改当前账户密码                                        |
-| `toggleLikeAction`                                       | `authActionClient`                        | 修改当前账户与 Artwork 的收藏关系                       |
-| `updateProfileAction`、`updateUserSettingAction`         | `authActionClient`                        | 只修改当前 `userId` 的资料与偏好                        |
-| `batchCreateArtworksAction`、`batchRegisterImagesAction` | `authActionClient`                        | 批量写入作品与媒体记录                                  |
-| `exportNoSeriesArtworksAction`                           | `authActionClient`                        | 读取并导出未归系列 Artwork 标识                        |
-| `updateTagStatsAction`                                   | `authActionClient`                        | 重建标签计数                                          |
+| Action                                                   | 边界                                      | 能力                                                 |
+| -------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------- |
+| `loginUserAction`                                        | 公共 `actionClient` + 每 IP 5 次/分钟限流 | 使用用户名/密码建立 Better Auth Session              |
+| `initAdminAction`                                        | 公共 `actionClient`                       | 创建账户；当前 Action 自身没有验证系统用户总数仍为 0 |
+| `changePasswordAction`                                   | `authActionClient` + 每 IP 5 次/分钟限流  | 修改当前账户密码                                     |
+| `toggleLikeAction`                                       | `authActionClient`                        | 修改当前账户与 Artwork 的收藏关系                    |
+| `updateProfileAction`、`updateUserSettingAction`         | `authActionClient`                        | 只修改当前 `userId` 的资料与偏好                     |
+| `batchCreateArtworksAction`、`batchRegisterImagesAction` | `authActionClient`                        | 批量写入作品与媒体记录                               |
+| `exportNoSeriesArtworksAction`                           | `authActionClient`                        | 读取并导出未归系列 Artwork 标识                      |
+| `updateTagStatsAction`                                   | `authActionClient`                        | 重建标签计数                                         |
 
 首次初始化页面只在 `hasUsers() === false` 时显示表单，但 `initAdminAction` 目前只检查同名账户是否存在，不复核“系统仍无任何账户”。修复前不得把初始化入口暴露到不可信网络。
 
@@ -195,7 +195,7 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 | `scheduler`   | 无入站业务接口，只访问 App                  | 无                     | 无                         | 无         | 无         | 仅持有 `INTERNAL_JOB_TOKEN`                                                 |
 | `postgres`    | 默认映射宿主机 5432                         | 数据库本体             | 无                         | 无         | 无         | 用户名/密码 + 主机防火墙；Compose 未配置 TLS                                |
 | `imgproxy`    | 默认映射宿主机 5431                         | 无                     | `ro`                       | `ro`       | 无         | 仅限制 `local:///media/` 和 `local:///derived-media/` 来源；当前 URL 未签名 |
-| `zip-convert` | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 无         | 依赖执行它的主机账户；可选站点会话只从运行时环境读取                          |
+| `zip-convert` | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 无         | 依赖执行它的主机账户；可选站点会话只从运行时环境读取                        |
 
 ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。反向代理必须将它限制在受信网络或等效的认证路径；仅使用难猜文件路径不能视为授权。PostgreSQL 的宿主机端口也应由防火墙限制，不对互联网开放。
 
@@ -211,6 +211,8 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 
 标题关键词发现不增加公共路由。`archiveSearch` 读取使用 `authProcedure`，创建、重命名、停用/恢复、扫描/取消及候选处置使用 `adminProcedure`；统一发现列表可以读取两类来源。旧 `archiveUploader` 的来源相关接口限定 `UPLOADER`，UID 绑定和自动匹配不接受标题来源。标题查询的可选 UID 独立冻结，不借用可更正的上传者身份字段。
 
+`archiveSearch.getDeletePreview` 使用 `authProcedure`，只返回来源名称、所属扫描/目录数量及阻塞扫描状态；`deleteSource` 使用 `adminProcedure`，在来源事务锁内重查扫描与关联任务终态，只删除来源所属发现记录。入箱与忽略处置先获取同一来源锁，再进入已有 Provider/GID 锁域。删除不调用文件系统，不取消已入箱解析或下载，不删除全局忽略与作品来源引用；重复删除为幂等成功。弹窗名称和错误继续使用隐私敏感文本组件。
+
 输入不作为任意正则或站点表达式执行。后端校验后自行构造标题短语，拒绝无法安全表达的输入；源条件、运行冻结条件和游标绑定一起约束重试。列表不暴露内部游标或查询 URL。候选处置复用 Provider/GID 锁，入箱前后重新读取匹配状态及工作流；不匹配不等于全局忽略。鉴权测试验证未登录调用在服务边界前零读写。
 
 ## 凭据与信任头
@@ -223,7 +225,7 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 | `SCAN_WEBHOOK_TOKEN`                          | 外部扫描调用方                 | 缺失时 Route fail closed 为 `503`；错误值 `401`                                           |
 | `INTERNAL_JOB_TOKEN`                          | scheduler                      | 缺失时 Route fail closed 为 `503`；错误值 `401`                                           |
 | `POSTGRES_PASSWORD` / `DATABASE_URL`          | App 与 Worker 数据库访问       | 只在环境和受控备份中保存；不要记录到日志或文档                                            |
-| `PIXIV_PHPSESSID`                             | `zip-convert` 可选站点会话 | 只由受控进程环境或秘密管理注入；不写入仓库、示例、命令日志或常规文档              |
+| `PIXIV_PHPSESSID`                             | `zip-convert` 可选站点会话     | 只由受控进程环境或秘密管理注入；不写入仓库、示例、命令日志或常规文档                      |
 | `x-user-session` / `x-pathname`               | Next.js 代理到应用内部的上下文 | 外部反向代理必须删除客户端同名头                                                          |
 | `x-forwarded-for`                             | 进程内 IP 限流                 | 只能信任受控反向代理重写后的值                                                            |
 | `JWT_SECRET` / `JWT_TTL`                      | 遗留模板变量                   | 当前 Better Auth 浏览器会话不依赖它们，不能作为现行认证说明                               |

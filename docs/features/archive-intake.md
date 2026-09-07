@@ -1,7 +1,7 @@
 ---
 status: current
 scope: URL 归档收件箱、持久解析、批量入队、任务控制、维护与保留策略
-last-verified: 2026-09-03
+last-verified: 2026-09-07
 sources:
   - packages/pixishelf/app/admin/archive/
   - packages/pixishelf/server/routers/archive-inbox.ts
@@ -64,6 +64,18 @@ sources:
 
 ## 持久状态与恢复
 
+### 发现来源删除
+
+上传者和标题关键词来源均支持单项永久删除，启用、停用状态都可直接删除。停用继续保留身份、游标和发现历史；删除则清除来源及其扫描记录、扫描明细和长期发现目录。确认弹窗读取来源名称、扫描记录数和发现结果数，实际删除事务再次核对最新状态。
+
+排队、运行、等待重试、暂停及正在取消的扫描会阻止删除。弹窗可以取消扫描，等待领域扫描和关联任务都结束后，管理员仍须再次点击“确认删除”；取消成功不会自动删除来源。删除与创建扫描、入箱及忽略处置复用来源事务锁，避免旧页面在删除提交后继续产生收件或忽略记录。
+
+已经创建的收件项目、归档下载任务、通用任务与事件、本地作品、来源引用、媒体文件以及其他来源的发现结果均保留，活动解析或下载继续执行。全局忽略记录只解除与被删来源的关联，保留来源名称快照；“全局已忽略”入口不依赖来源列表，即使删掉最后一个来源也可查看和恢复。
+
+重复删除返回已删除结果。删除后重新新增相同上传者身份或关键词条件会创建新来源，从头扫描，不恢复旧游标；已有归档和全局忽略仍按既有身份规则识别。本功能不提供回收站或批量删除，恢复原发现历史只能依赖删除前的数据库备份。实现沿用现有外键，无数据库迁移或 Worker 契约变更；回退 App 版本不会恢复已经删除的发现历史。
+
+### 工作流持久结构
+
 核心持久结构包括：
 
 - `ArchiveIntakeSubmission` 与 `ArchiveIntakeItem`：保存输入、FIFO 顺序、解析状态、冻结结果、重试/取消 intent 和归档关联；
@@ -105,13 +117,13 @@ type/version 组合，并同时校验 job type、definition version 和 lane。R
 
 默认启用的 `archive_maintenance_reconcile` 在页面中的默认显示时间是 `02:05`。中央模式实际在上海时间 `00:00-08:00` 统一窗口内物化当天任务，并按优先级执行；当前 `HH:mm` 不参与 materializer 计算。`RECONCILE` 父任务只发现和创建按目标隔离的维护子任务，不在发现事务中做文件 I/O；子任务继续经过 writer lane、路径边界、发布互斥和 fenced 终态检查。正常作品删除与归档任务操作也写入同一中央维护流程，不依赖 Next.js 进程内队列。
 
-默认启用的 `archive_intake_retention_cleanup` 页面默认显示时间是 `02:15`，同样按中央统一窗口和优先级执行。终态收件项目、已完成批量操作、已完成/失败/取消的上传者扫描记录、无项目的旧 submission 和过期 `ArchivePreviewSession` 保留 30 天后分批清理。上传者来源身份和游标长期保留。该任务只删除操作历史和冻结预览，不删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision`、`Image` 或任何媒体文件。
+默认启用的 `archive_intake_retention_cleanup` 页面默认显示时间是 `02:15`，同样按中央统一窗口和优先级执行。终态收件项目、已完成批量操作、已完成/失败/取消的上传者扫描记录、无项目的旧 submission 和过期 `ArchivePreviewSession` 保留 30 天后分批清理。该保留任务不会删除来源身份和游标；只有管理员显式删除来源时才移除。该任务只删除操作历史和冻结预览，不删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision`、`Image` 或任何媒体文件。
 
 归档任务页通过 admin layout 中唯一的通用 Worker SSE 连接接收生命周期与 `archive.transfer@v1` 遥测。速度由 Worker 在媒体流写盘时累计 chunk 长度并按最近 5 秒采样，不保存 chunk、也不回读磁盘。遥测还携带当前最多 8 个媒体 worker 的页码、预期文件名、尝试次数、阶段、已接收字节和可用时的 `Content-Length`，不携带图片页、CDN 地址或 provider token。页面在通道状态下方只为当前 `ARCHIVE_IMPORT` 展示聚合进度和逐文件活动槽位；历史任务行只保留稳定总进度，完整图片历史仍从 PostgreSQL 分页读取。SSE 正常时列表只做 30/60 秒一致性校准，图片明细在计数或状态变化时定向刷新；连接异常自动回退原有高频轮询。
 
 ## 权限与敏感数据
 
-两个页面都需要 Better Auth Session。`archiveInbox`、`archiveUploader`、`archiveSearch` 和 `archive` 的读取使用 `authProcedure`，创建来源、扫描、来源归档/启用、结果入箱、暂停/恢复、取消、重试、批量入队和任务控制使用 `adminProcedure`；当前单一信任域中二者运行能力相同，但敏感写操作保留显式管理员语义。
+两个页面都需要 Better Auth Session。`archiveInbox`、`archiveUploader`、`archiveSearch` 和 `archive` 的读取使用 `authProcedure`，创建来源、扫描、来源停用/启用/删除、结果入箱、暂停/恢复、取消、重试、批量入队和任务控制使用 `adminProcedure`；当前单一信任域中二者运行能力相同，但敏感写操作保留显式管理员语义。
 
 服务端负责 URL/行数/容量上限、Provider HTTPS allowlist、DNS/redirect/SSRF 防护、响应体限制、状态 CAS 和幂等约束。普通列表、事件、日志和错误不得泄露 Cookie、Authorization、完整 locator、token 或 URL 路径中的敏感段；归档任务序列化统一执行脱敏。
 

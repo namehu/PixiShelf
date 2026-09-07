@@ -21,7 +21,8 @@ import {
   PlusIcon,
   RefreshCwIcon,
   RotateCcwIcon,
-  UserSearchIcon
+  UserSearchIcon,
+  Trash2Icon
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
@@ -50,6 +51,7 @@ import { ArchiveUploaderCreateSourceDialog } from './archive-uploader-create-sou
 import { copyArchiveUploaderUid } from './archive-uploader-clipboard'
 import { ArchiveUploaderUidConflictAlert } from './archive-uploader-uid-conflict-alert'
 import { IgnoredResults } from './archive-discovery-ignored-results'
+import { ArchiveDiscoveryDeleteDialog } from './archive-discovery-delete-dialog'
 import { ArchiveUploaderSourceList } from './archive-uploader-source-list'
 import { ArchiveUploaderUidDialog } from './archive-uploader-uid-dialog'
 import {
@@ -73,19 +75,19 @@ type CatalogView = 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'ATTENTION' | 'ALL
 type ResultFeed = CatalogView | 'IGNORED'
 const SCAN_RESULT_PAGE_SIZE = 50
 const MAX_SELECTED_ITEMS = 100
-const RESULT_FEEDS: Array<{ value: ResultFeed; label: string }> = [
+const RESULT_FEEDS: Array<{ value: CatalogView; label: string }> = [
   { value: 'ACTIONABLE', label: '待处理' },
   { value: 'PROCESSING', label: '处理中' },
   { value: 'ARCHIVED', label: '已归档' },
   { value: 'ATTENTION', label: '异常' },
-  { value: 'ALL', label: '全部' },
-  { value: 'IGNORED', label: '全局已忽略' }
+  { value: 'ALL', label: '全部' }
 ]
 
 export function ArchiveUploaderSources() {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
+  const [deleteSourceId, setDeleteSourceId] = useState<string | null>(null)
   const [searchDialog, setSearchDialog] = useState<ArchiveSearchDialogState | null>(null)
   const [sourceFilter, setSourceFilter] = useState('ALL')
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
@@ -357,6 +359,18 @@ export function ArchiveUploaderSources() {
         description="保存上传者或标题关键词条件；每次手动扫描，确认结果后才进入归档收件箱。"
         actions={
           <>
+            <Button
+              variant="outline"
+              aria-label={resultFeed === 'IGNORED' ? '返回发现来源' : '查看全局已忽略'}
+              onClick={() => {
+                setResultFeed(resultFeed === 'IGNORED' ? 'ACTIONABLE' : 'IGNORED')
+                setSelectedItemIds(new Set())
+                setSelectedIgnoredItemIds(new Set())
+              }}
+            >
+              <BanIcon data-icon="inline-start" />
+              {resultFeed === 'IGNORED' ? '返回发现来源' : '全局已忽略'}
+            </Button>
             <Button variant="outline" onClick={() => setCreateOpen(true)}>
               <PlusIcon data-icon="inline-start" />
               新增上传者
@@ -383,7 +397,52 @@ export function ArchiveUploaderSources() {
         <ToggleGroupItem value="TITLE_QUERY">标题关键词</ToggleGroupItem>
       </ToggleGroup>
 
-      {sourcesQuery.isError ? (
+      {resultFeed === 'IGNORED' ? (
+        <AdminSection>
+          <AdminSectionHeader
+            title="全局已忽略"
+            description={`跨所有来源永久忽略的画廊；已加载 ${ignoredItems.length} 条。`}
+            actions={
+              <>
+                <ArchiveUploaderResultViewToggle value={resultView} onChange={setResultView} />
+                <Button
+                  variant="outline"
+                  onClick={() => restoreMutation.mutate({ ignoredItemIds: [...selectedIgnoredItemIds] })}
+                  disabled={selectedIgnoredItemIds.size === 0 || mutationPending}
+                >
+                  {restoreMutation.isPending ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : (
+                    <RotateCcwIcon data-icon="inline-start" />
+                  )}
+                  恢复（{selectedIgnoredItemIds.size}）
+                </Button>
+              </>
+            }
+          />
+          <IgnoredResults
+            items={ignoredItems}
+            resultView={resultView}
+            isLoading={ignoredItemsQuery.isLoading}
+            isError={ignoredItemsQuery.isError}
+            hasNextPage={ignoredItemsQuery.hasNextPage}
+            isFetchingNextPage={ignoredItemsQuery.isFetchingNextPage}
+            onLoadMore={loadMoreIgnoredItems}
+            onRetry={retryIgnoredItems}
+            onPreview={setPreviewItem}
+            onRestore={(ignoredItemId) => restoreMutation.mutate({ ignoredItemIds: [ignoredItemId] })}
+            mutationPending={mutationPending}
+            selectedItemIds={selectedIgnoredItemIds}
+            allSelected={allIgnoredSelected}
+            onToggleAll={(checked) =>
+              setSelectedIgnoredItemIds(checked ? new Set(bulkSelectableIgnoredItems.map(({ id }) => id)) : new Set())
+            }
+            onToggle={(itemId, checked) =>
+              setSelectedIgnoredItemIds((current) => toggleSelection(current, itemId, checked))
+            }
+          />
+        </AdminSection>
+      ) : sourcesQuery.isError ? (
         <Alert variant="destructive">
           <AlertTitle>来源加载失败</AlertTitle>
           <AlertDescription>发现来源仍保存在数据库中，请稍后重新加载。</AlertDescription>
@@ -484,8 +543,7 @@ export function ArchiveUploaderSources() {
                           <PrivacySensitiveText>
                             {scanIdentityLabel(activeRun.searchIdentityKind, activeRun.searchIdentityValue)}
                           </PrivacySensitiveText>{' '}
-                          ·{' '}
-                          {formatArchiveUploaderTimestamp(activeRun.createdAt)}
+                          · {formatArchiveUploaderTimestamp(activeRun.createdAt)}
                         </span>
                         <Badge variant="warning">{scanRunStatusLabel(activeRun.status)}</Badge>
                       </div>
@@ -495,8 +553,8 @@ export function ArchiveUploaderSources() {
                         <PrivacySensitiveText>
                           {scanIdentityLabel(latestRun.searchIdentityKind, latestRun.searchIdentityValue)}
                         </PrivacySensitiveText>{' '}
+                        · {formatArchiveUploaderTimestamp(latestRun.createdAt)} · {scanRunStatusLabel(latestRun.status)}{' '}
                         ·{' '}
-                        {formatArchiveUploaderTimestamp(latestRun.createdAt)} · {scanRunStatusLabel(latestRun.status)} ·{' '}
                         {source.titleQuery
                           ? `检查 ${latestRun.checkedCount} 条，匹配 ${latestRun.matchedCount} 条`
                           : `${latestRun.itemCount} 条`}
@@ -597,6 +655,14 @@ export function ArchiveUploaderSources() {
                           {source.uploaderUid ? '更正 UID' : '绑定 UID'}
                         </Button>
                       )}
+                      <Button
+                        variant="destructive"
+                        onClick={() => setDeleteSourceId(source.id)}
+                        disabled={mutationPending}
+                      >
+                        <Trash2Icon data-icon="inline-start" />
+                        删除来源
+                      </Button>
                     </div>
                     {activeRun && !source.titleQuery ? (
                       <p className="text-sm text-muted-foreground">扫描完成或取消后才能绑定或更正 UID。</p>
@@ -652,9 +718,7 @@ export function ArchiveUploaderSources() {
                         {RESULT_FEEDS.map((feed) => (
                           <ToggleGroupItem key={feed.value} value={feed.value} aria-label={`查看${feed.label}`}>
                             {feed.label}
-                            {feed.value === 'IGNORED'
-                              ? ''
-                              : ` ${archiveUploaderCatalogViewCount(source.catalogCounts, feed.value)}`}
+                            {` ${archiveUploaderCatalogViewCount(source.catalogCounts, feed.value)}`}
                           </ToggleGroupItem>
                         ))}
                       </ToggleGroup>
@@ -692,80 +756,76 @@ export function ArchiveUploaderSources() {
                             {resultFeed === 'ATTENTION' ? '重新加入收件箱' : '加入收件箱'}（{selectedItemIds.size}）
                           </Button>
                         </>
-                      ) : resultFeed === 'IGNORED' ? (
-                        <Button
-                          variant="outline"
-                          onClick={() => restoreMutation.mutate({ ignoredItemIds: [...selectedIgnoredItemIds] })}
-                          disabled={selectedIgnoredItemIds.size === 0 || mutationPending}
-                        >
-                          {restoreMutation.isPending ? (
-                            <Spinner data-icon="inline-start" />
-                          ) : (
-                            <RotateCcwIcon data-icon="inline-start" />
-                          )}
-                          恢复（{selectedIgnoredItemIds.size}）
-                        </Button>
                       ) : null}
                     </>
                   }
                 />
-                {resultFeed !== 'IGNORED' ? (
-                  <ScanResults
-                    view={resultFeed}
-                    runs={detail.runs}
-                    activeRun={activeRun}
-                    items={items}
-                    resultView={resultView}
-                    isLoading={itemsQuery.isLoading}
-                    isError={itemsQuery.isError}
-                    hasNextPage={itemsQuery.hasNextPage}
-                    isFetchingNextPage={itemsQuery.isFetchingNextPage}
-                    onLoadMore={loadMoreItems}
-                    onRetry={retryItems}
-                    onPreview={setPreviewItem}
-                    onIgnore={(itemId) => ignoreMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
-                    onAdd={(itemId) => submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
-                    mutationPending={mutationPending}
-                    selectedItemIds={selectedItemIds}
-                    allActionableSelected={allActionableSelected}
-                    onToggleAll={(checked) =>
-                      setSelectedItemIds(checked ? new Set(bulkSelectableItems.map(({ id }) => id)) : new Set())
-                    }
-                    onToggle={(itemId, checked) =>
-                      setSelectedItemIds((current) => toggleSelection(current, itemId, checked))
-                    }
-                  />
-                ) : (
-                  <IgnoredResults
-                    items={ignoredItems}
-                    resultView={resultView}
-                    isLoading={ignoredItemsQuery.isLoading}
-                    isError={ignoredItemsQuery.isError}
-                    hasNextPage={ignoredItemsQuery.hasNextPage}
-                    isFetchingNextPage={ignoredItemsQuery.isFetchingNextPage}
-                    onLoadMore={loadMoreIgnoredItems}
-                    onRetry={retryIgnoredItems}
-                    onPreview={setPreviewItem}
-                    onRestore={(ignoredItemId) => restoreMutation.mutate({ ignoredItemIds: [ignoredItemId] })}
-                    mutationPending={mutationPending}
-                    selectedItemIds={selectedIgnoredItemIds}
-                    allSelected={allIgnoredSelected}
-                    onToggleAll={(checked) =>
-                      setSelectedIgnoredItemIds(
-                        checked ? new Set(bulkSelectableIgnoredItems.map(({ id }) => id)) : new Set()
-                      )
-                    }
-                    onToggle={(itemId, checked) =>
-                      setSelectedIgnoredItemIds((current) => toggleSelection(current, itemId, checked))
-                    }
-                  />
-                )}
+                <ScanResults
+                  view={resultFeed}
+                  runs={detail.runs}
+                  activeRun={activeRun}
+                  items={items}
+                  resultView={resultView}
+                  isLoading={itemsQuery.isLoading}
+                  isError={itemsQuery.isError}
+                  hasNextPage={itemsQuery.hasNextPage}
+                  isFetchingNextPage={itemsQuery.isFetchingNextPage}
+                  onLoadMore={loadMoreItems}
+                  onRetry={retryItems}
+                  onPreview={setPreviewItem}
+                  onIgnore={(itemId) => ignoreMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
+                  onAdd={(itemId) => submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
+                  mutationPending={mutationPending}
+                  selectedItemIds={selectedItemIds}
+                  allActionableSelected={allActionableSelected}
+                  onToggleAll={(checked) =>
+                    setSelectedItemIds(checked ? new Set(bulkSelectableItems.map(({ id }) => id)) : new Set())
+                  }
+                  onToggle={(itemId, checked) =>
+                    setSelectedItemIds((current) => toggleSelection(current, itemId, checked))
+                  }
+                />
               </>
             )}
           </AdminSection>
         </div>
       )}
 
+      {deleteSourceId ? (
+        <ArchiveDiscoveryDeleteDialog
+          key={deleteSourceId}
+          sourceId={deleteSourceId}
+          onClose={() => setDeleteSourceId(null)}
+          onDeleted={async (deletedSourceId) => {
+            setSelectedSourceId(sources.find(({ id }) => id !== deletedSourceId)?.id ?? null)
+            setSelectedItemIds(new Set())
+            setPreviewItem(null)
+            setCancelRequestedRunId(null)
+            setUidDialogOpen(false)
+            setSearchDialog(null)
+            await Promise.all([
+              queryClient.cancelQueries({
+                queryKey: trpc.archiveSearch.getSource.queryKey({ sourceId: deletedSourceId })
+              }),
+              queryClient.cancelQueries({
+                queryKey: trpc.archiveSearch.listItems.infiniteQueryKey({ sourceId: deletedSourceId })
+              })
+            ])
+            queryClient.setQueriesData<RouterOutputs['archiveSearch']['listSources']>(
+              { queryKey: trpc.archiveSearch.listSources.queryKey() },
+              (current) => current?.filter(({ id }) => id !== deletedSourceId)
+            )
+            queryClient.removeQueries({
+              queryKey: trpc.archiveSearch.getSource.queryKey({ sourceId: deletedSourceId })
+            })
+            queryClient.removeQueries({
+              queryKey: trpc.archiveSearch.listItems.infiniteQueryKey({ sourceId: deletedSourceId })
+            })
+            toast.success('发现来源已删除，已入箱项目和本地作品已保留')
+            await refresh()
+          }}
+        />
+      ) : null}
       <ArchiveSearchSourceDialog
         state={searchDialog}
         onClose={() => setSearchDialog(null)}
