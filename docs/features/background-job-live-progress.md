@@ -68,6 +68,8 @@ WebP/GIF 的 Sharp 探测运行在任务私有的有界子进程池中，输出�
 
 ## 客户端与保留
 
+任务计划页“执行动态”的历史列表使用独立游标查询与虚拟滚动；筛选、搜索、可见记录快照补偿及位置保持规则见[后台任务执行记录](./background-job-history.md)。Dashboard 的 recentJobs 仍只作为概览和完成提示快照，不承担历史浏览。
+
 admin layout 每标签页只有一个 `BackgroundJobEventProvider`。任务卡、后台 dashboard、详情和事件历史按 `jobType/jobId` 合并同一事件源；mutation 使用返回的准确 job ID。`ready/reset` 触发快照恢复。SSE 正常时停止任务状态高频轮询；断线时活动任务每 3 秒、空闲页每 30 秒兜底。
 
 任务状态合并比较 `updatedAt`：只有更新的 SSE 摘要才能覆盖查询快照，相同时间保留完整查询结果，避免断线时缓存事件遮盖轮询得到的终态。计划任务收到对应类型的入队、启动或控制事件后重新读取计划列表，由数据库确认最新 `lastJobId`；同类型的多个计划不按事件类型猜测归属，普通进度事件不触发计划列表重查。

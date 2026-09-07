@@ -48,6 +48,11 @@ vi.mock('@/lib/trpc', () => ({
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: mocks.confirm }))
 vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => true }))
 
+vi.mock('../use-background-history', () => ({
+  useBackgroundHistory: () => ({ browsing: { current: { offset: 0 } }, changeFilters: vi.fn() })
+}))
+vi.mock('../background-history-list', () => ({ BackgroundHistoryList: () => <div>执行记录</div> }))
+
 vi.mock('../use-background-dashboard', () => ({
   useBackgroundDashboard: () => mocks.dashboardQuery,
   useBackgroundJobDetail: () => ({
@@ -222,7 +227,6 @@ describe('background task console', () => {
     )
 
     expect(screen.getByText('当前没有任务占用执行槽，队列中有 0 项等待。')).toBeTruthy()
-    expect(screen.getByText('还没有后台任务记录。')).toBeTruthy()
     expect(screen.queryByText('已完成')).toBeNull()
   })
 
@@ -380,7 +384,7 @@ describe('background task console', () => {
     expect(details.textContent).toContain('artist/200/200-meta.txt [METADATA_INVALID]')
   })
 
-  it('shows the single execution slot, worker health, and native keyboard-operable recent jobs', () => {
+  it('shows the single execution slot and worker health and returns from detail', () => {
     const running = createJob('RUNNING')
     const selectJob = vi.fn()
     const dashboard = createDashboard({
@@ -403,12 +407,6 @@ describe('background task console', () => {
 
     expect(screen.getByText('唯一执行槽')).toBeTruthy()
     expect(screen.getAllByText('1 个可用').length).toBeGreaterThan(0)
-    const recentButton = screen.getByRole('button', { name: /视频媒体探测.*执行中/ })
-    recentButton.focus()
-    expect(document.activeElement).toBe(recentButton)
-    expect(recentButton.tagName).toBe('BUTTON')
-    fireEvent.click(recentButton)
-    expect(selectJob).toHaveBeenCalledWith(running.id)
 
     rerender(
       <BackgroundTaskConsoleView
@@ -448,10 +446,9 @@ describe('background task console', () => {
     )
 
     expect(screen.getByText('补全批次')).toBeTruthy()
-    expect(screen.getAllByText('批次执行中')).toHaveLength(2)
+    expect(screen.getAllByText('批次执行中')).toHaveLength(1)
     expect(screen.getByText('已处理 3/10，剩余 7')).toBeTruthy()
     expect(screen.getByText('准备查询标签 間ジグレ').closest('p')?.textContent).toBe('当前：准备查询标签 間ジグレ')
-    expect(screen.getByText('已处理 3/10 · 剩余 7')).toBeTruthy()
     expect(screen.queryByText('已完成')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: '查看当前子任务' }))
@@ -695,7 +692,7 @@ describe('background task console', () => {
     expect(screen.getByRole('button', { name: '忽略提醒' })).toBeTruthy()
   })
 
-  it('offers per-job failure acknowledgement without duplicating it in recent records', () => {
+  it('offers per-job failure acknowledgement independently of the history list', () => {
     const failed = createJob('FAILED', 'job-attention-action')
     const controls = createControls()
     const selectJob = vi.fn()

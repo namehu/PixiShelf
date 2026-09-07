@@ -46,6 +46,8 @@ describe('unified background task router integration', () => {
       'updateScheduledTask',
       'triggerScheduledTaskNow',
       'backgroundDashboard',
+      'backgroundHistory',
+      'backgroundHistorySnapshots',
       'backgroundList',
       'backgroundDetail',
       'backgroundEvents',
@@ -130,9 +132,7 @@ describe('unified background task router integration', () => {
     for (const type of ['REFILL_META_SOURCE', 'MEDIA_DERIVED_TAG_SYNC']) {
       expect(routerSource).toContain(`type: '${type}'`)
     }
-    expect(pixivAiDerivedTagServiceSource).toContain(
-      "PIXIV_AI_DERIVED_TAG_SYNC_JOB_TYPE = 'PIXIV_AI_DERIVED_TAG_SYNC'"
-    )
+    expect(pixivAiDerivedTagServiceSource).toContain("PIXIV_AI_DERIVED_TAG_SYNC_JOB_TYPE = 'PIXIV_AI_DERIVED_TAG_SYNC'")
     expect(pixivAiDerivedTagServiceSource).toContain('type: PIXIV_AI_DERIVED_TAG_SYNC_JOB_TYPE')
     expect(pixivAiDerivedTagServiceSource).toContain('enqueueSingletonManualJobWithResult({')
     expect(pixivAiDerivedTagServiceSource).toContain('requestedByUserId')

@@ -10,7 +10,6 @@ import {
   ChevronDown,
   Clock3,
   Cpu,
-  ListOrdered,
   Pause,
   Play,
   RefreshCw,
@@ -18,7 +17,10 @@ import {
   Server,
   SquareActivity
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { BackgroundHistoryList } from './background-history-list'
+import { useBackgroundHistory } from './use-background-history'
+import { emptyHistoryFilters } from './background-history-state'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
@@ -83,6 +85,9 @@ export function BackgroundTaskConsole() {
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const [open, setOpen] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [historyRefreshVersion, setHistoryRefreshVersion] = useState(0)
+  const history = useBackgroundHistory(open && !selectedJobId, historyRefreshVersion)
   const [completedNotice, setCompletedNotice] = useState<JobDto | null>(null)
   const previousActiveJobIds = useRef<Set<string> | null>(null)
   const completedNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -123,6 +128,7 @@ export function BackgroundTaskConsole() {
   const detailQuery = useBackgroundJobDetail(selectedJobId, dashboardSelectedJob ?? null)
   const selectedJob = detailQuery.data
   const controls = useBackgroundJobControls((job) => {
+    setHistoryRefreshVersion((value) => value + 1)
     if (job) setSelectedJobId(job.id)
     void dashboardQuery.refetch()
     void detailQuery.refetch()
@@ -133,15 +139,27 @@ export function BackgroundTaskConsole() {
     if (!nextOpen) setSelectedJobId(null)
   }
 
+  const selectJob = (id: string | null) => {
+    if (id && !selectedJobId && scrollRef.current) history.browsing.current.offset = scrollRef.current.scrollTop
+    setSelectedJobId(id)
+    if (id && scrollRef.current) scrollRef.current.scrollTop = 0
+  }
+
   const panelContent = dashboard ? (
     <BackgroundTaskConsoleView
       dashboard={dashboard}
       selectedJobId={selectedJobId}
       selectedJob={selectedJob}
       selectedJobLoading={detailQuery.isPending && Boolean(selectedJobId)}
-      onSelectJob={setSelectedJobId}
+      onSelectJob={selectJob}
+      historyContent={<BackgroundHistoryList history={history} scrollRef={scrollRef} onSelectJob={selectJob} />}
+      onViewFailures={() => {
+        history.changeFilters({ ...emptyHistoryFilters(), statuses: ['FAILED'] })
+        scrollRef.current?.querySelector('#background-history-section')?.scrollIntoView({ block: 'start' })
+      }}
       onRefresh={() => {
         void dashboardQuery.refetch()
+        setHistoryRefreshVersion((value) => value + 1)
         if (selectedJobId) void detailQuery.refetch()
       }}
       refreshing={dashboardQuery.isFetching || detailQuery.isFetching}
@@ -174,7 +192,9 @@ export function BackgroundTaskConsole() {
               <SheetTitle>执行动态</SheetTitle>
               <SheetDescription>查看正在执行、排队和近期后台任务。</SheetDescription>
             </SheetHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto">{panelContent}</div>
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+              {panelContent}
+            </div>
           </SheetContent>
         </Sheet>
       ) : (
@@ -184,7 +204,9 @@ export function BackgroundTaskConsole() {
               <DrawerTitle>执行动态</DrawerTitle>
               <DrawerDescription>查看正在执行、排队和近期后台任务。</DrawerDescription>
             </DrawerHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto">{panelContent}</div>
+            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+              {panelContent}
+            </div>
           </DrawerContent>
         </Drawer>
       )}
@@ -350,7 +372,9 @@ export function BackgroundTaskConsoleView({
   refreshing,
   controls,
   detailError = null,
-  onRetryDetail
+  onRetryDetail,
+  historyContent,
+  onViewFailures
 }: {
   dashboard: BackgroundDashboardView
   selectedJobId?: string | null
@@ -362,6 +386,8 @@ export function BackgroundTaskConsoleView({
   controls: BackgroundControlsView
   detailError?: { message: string } | null
   onRetryDetail?: () => void
+  historyContent?: ReactNode
+  onViewFailures?: () => void
 }) {
   const workerSummary = getWorkerSummary(dashboard.workers)
   const running = dashboard.runningJob
@@ -453,17 +479,14 @@ export function BackgroundTaskConsoleView({
                 onAcknowledge={(jobId) => controls.acknowledge.mutate({ jobId })}
                 acknowledging={controls.acknowledge.isPending}
               />
+              {onViewFailures ? (
+                <Button type="button" variant="ghost" size="sm" className="mx-4 mb-3" onClick={onViewFailures}>
+                  查看全部失败
+                </Button>
+              ) : null}
             </div>
           ) : null}
-          <div className="border-t">
-            <RecentJobs
-              jobs={dashboard.recentJobs}
-              activeBatches={dashboard.activeBatches}
-              excludedJobIds={unacknowledgedFailureIds}
-              selectedJobId={null}
-              onSelectJob={onSelectJob}
-            />
-          </div>
+          <div className="border-t">{historyContent}</div>
           <details className="group border-t">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
               <Cpu className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -778,87 +801,6 @@ function FailureAttentionList({
   )
 }
 
-function RecentJobs({
-  jobs,
-  activeBatches,
-  excludedJobIds,
-  selectedJobId,
-  onSelectJob
-}: {
-  jobs: JobDto[]
-  activeBatches: BackgroundBatchView[]
-  excludedJobIds: ReadonlySet<string>
-  selectedJobId: string | null
-  onSelectJob: (jobId: string) => void
-}) {
-  const batchByParentId = new Map(activeBatches.map((batch) => [batch.id, batch]))
-  const visibleJobs = [
-    ...activeBatches.map((batch) => batch.parentJob),
-    ...jobs.filter((job) => !batchByParentId.has(job.id) && !excludedJobIds.has(job.id))
-  ].slice(0, 10)
-
-  return (
-    <section aria-labelledby="recent-jobs-title" className="min-w-0 p-4 sm:p-5">
-      <h3 id="recent-jobs-title" className="flex items-center gap-2 text-sm font-semibold">
-        <ListOrdered className="size-4 text-primary" aria-hidden="true" />
-        执行中、排队与近期记录
-      </h3>
-      {visibleJobs.length === 0 ? (
-        <p className="mt-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">还没有后台任务记录。</p>
-      ) : (
-        <ul className="mt-3 flex flex-col gap-2">
-          {visibleJobs.map((job) => {
-            const batch = batchByParentId.get(job.id)
-            const detailJobId = batch?.currentJob?.id ?? job.id
-            return (
-              <li key={job.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelectJob(detailJobId)}
-                  aria-pressed={selectedJobId === detailJobId}
-                  className={cn(
-                    'w-full min-w-0 rounded-lg border px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    selectedJobId === detailJobId && 'border-primary/40 bg-primary/[0.04]'
-                  )}
-                >
-                  <span className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-medium">{formatBackgroundJobType(job.type, job.payload)}</span>
-                    <AdminStatusBadge status={batch?.status ?? job.status}>
-                      {batch ? formatBatchStatus(batch.status) : formatBackgroundJobStatus(job.status)}
-                    </AdminStatusBadge>
-                  </span>
-                  <span className="mt-1 block select-text break-all font-mono text-[11px] text-muted-foreground">
-                    {job.id}
-                  </span>
-                  {batch ? (
-                    <span className="mt-2 block">
-                      <span className="flex items-center gap-3">
-                        <Progress
-                          value={batch.progress}
-                          className="h-1.5 flex-1"
-                          aria-label={`批次进度 ${batch.progress}%`}
-                        />
-                        <span className="text-xs font-semibold tabular-nums">{batch.progress}%</span>
-                      </span>
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        已处理 {batch.completedCount}/{batch.totalCount} · 剩余 {batch.remainingCount}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {formatBackgroundDate(job.createdAt)} · 优先级 {job.effectivePriority}
-                    </span>
-                  )}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </section>
-  )
-}
-
 function JobDetail({
   job,
   controls,
@@ -951,7 +893,9 @@ function JobDetail({
           <span className="text-xs font-semibold tabular-nums">{job.progress}%</span>
         </div>
       ) : null}
-      {job.progressData?.kind === 'animation-scan' ? <AnimationScanLiveFeedback job={job} className="mt-3 rounded-lg border bg-muted/10 p-3" /> : null}
+      {job.progressData?.kind === 'animation-scan' ? (
+        <AnimationScanLiveFeedback job={job} className="mt-3 rounded-lg border bg-muted/10 p-3" />
+      ) : null}
       {job.message ? (
         <PrivacySensitiveText as="p" className="mt-3 select-text break-words text-sm text-muted-foreground">
           {job.message}

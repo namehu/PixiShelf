@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-09-04
+last-verified: 2026-09-07
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -139,6 +139,8 @@ HTTP Route 新增文件写入、删除、迁移或任务控制时，应使用 Ro
 Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态目录直接下载。管理端只能提交作品 ID、报告 ID 与 `before/after` 标识；服务端从当前唯一 Pixiv 身份构造固定路径，并校验已完成任务、报告身份、路径边界、符号链接、文件类型和大小后返回解析后的 JSON。
 
 ## tRPC Router 矩阵
+
+执行动态的 `job.backgroundHistory` 与 `job.backgroundHistorySnapshots` 均为 `adminProcedure` 只读查询：前者对 definition v1+ 记录执行搜索、筛选和最多 100 条的游标分页，后者接受 1–100 个任务 ID 并返回现存任务的轻量快照。摘要沿用任务文本脱敏规则，不返回完整 payload/result、事件或租约。搜索可匹配数据库中的当前消息和错误文本，但返回内容仍脱敏；不增加公共历史接口或新的账户间权限边界。完整交互与参数见[后台任务执行记录](../features/background-job-history.md)。
 
 所有标准 HTTP tRPC 调用先经过 Session 代理门禁。下表记录 procedure 自己使用的边界。
 

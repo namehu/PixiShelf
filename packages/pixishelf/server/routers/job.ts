@@ -29,6 +29,12 @@ import {
   retryFailedCentralVideoKeyframes
 } from '@/services/video-keyframe-central-service'
 import { z } from 'zod'
+import {
+  backgroundHistoryInputSchema,
+  backgroundHistorySnapshotsInputSchema,
+  listBackgroundHistory,
+  getBackgroundHistorySnapshots
+} from '@/services/background-task/job-history-service'
 import type { JobDto } from '@pixishelf/job-contracts'
 import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-service'
 import { cancelPixivArtistEnrichment } from '@/services/pixiv-artist-enrichment-service'
@@ -663,6 +669,14 @@ export const jobRouter = router({
     }),
 
   backgroundDashboard: adminProcedure.query(() => getJobDashboard()),
+
+  backgroundHistory: adminProcedure
+    .input(backgroundHistoryInputSchema)
+    .query(({ input }) => listBackgroundHistory(input)),
+
+  backgroundHistorySnapshots: adminProcedure
+    .input(backgroundHistorySnapshotsInputSchema)
+    .query(({ input }) => getBackgroundHistorySnapshots(input)),
 
   backgroundList: adminProcedure.input(listJobsInputSchema).query(({ input }) => listJobs(input)),
 
