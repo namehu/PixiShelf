@@ -8,6 +8,7 @@ import type { AnimationScanProgressData } from '@pixishelf/job-contracts'
 import {
   ANIMATION_INITIALIZE_BATCH_SIZE,
   ANIMATION_SCAN_BATCH_SIZE,
+  ANIMATION_SCAN_RESULT_FLUSH_MS,
   ANIMATION_SCAN_SHARP_TIMEOUT_SECONDS,
   detectAnimatedImage,
   scanWebpAnimations,
@@ -189,6 +190,159 @@ describe('webp animation scan maintenance', () => {
         staticItems: 1,
         remainingItems: 0
       }
+    })
+  })
+
+  it.each([false, true])(
+    'commits slow probes after a timed flush without losing results (failure=%s)',
+    async (failLast) => {
+      const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-flush-'))
+      roots.push(root)
+      const images = [1, 2, 3, 4].map((id) => ({ id, path: `${id}.webp`, webpAnimationStatus: 0 }))
+      await Promise.all(images.map((image) => writeFile(path.join(root, image.path), 'fixture')))
+      const allStarted = deferred<void>()
+      const releaseSlow = deferred<void>()
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      let started = 0
+      const progress = vi.fn()
+      const updateMany = vi.fn(
+        async ({
+          where,
+          data
+        }: {
+          where: { id: { in: number[] }; webpAnimationStatus: number }
+          data: { webpAnimationStatus: number }
+        }) => {
+          const matching = images.filter(
+            (image) => where.id.in.includes(image.id) && image.webpAnimationStatus === where.webpAnimationStatus
+          )
+          matching.forEach((image) => {
+            image.webpAnimationStatus = data.webpAnimationStatus
+          })
+          return { count: matching.length }
+        }
+      )
+      vi.useFakeTimers()
+      try {
+        const execution = scanWebpAnimations({
+          database: {
+            image: {
+              count: vi.fn(
+                async ({ where }: { where: { webpAnimationStatus: number | null } }) =>
+                  images.filter((image) => image.webpAnimationStatus === where.webpAnimationStatus).length
+              ),
+              findMany: vi.fn(
+                async ({
+                  where,
+                  take
+                }: {
+                  where: { webpAnimationStatus: number | null; id: { gt: number } }
+                  take: number
+                }) =>
+                  images
+                    .filter(
+                      (image) => image.webpAnimationStatus === where.webpAnimationStatus && image.id > where.id.gt
+                    )
+                    .slice(0, take)
+              )
+            }
+          } as never,
+          mutate: (async (operation) => operation({ image: { updateMany } } as never)) satisfies RunMaintenanceMutation,
+          checkpoint: async (operation) => {
+            const durable = await operation({ image: { updateMany } } as never)
+            progress(durable.update)
+            return durable.result
+          },
+          signal: new AbortController().signal,
+          progress,
+          scanRoot: root,
+          concurrency: 2,
+          logger,
+          detectAnimated: async (_absolutePath, mediaPath) => {
+            started += 1
+            if (started === images.length) allStarted.resolve()
+            if (Number.parseInt(mediaPath, 10) % 2 === 0) await releaseSlow.promise
+            if (failLast && mediaPath === '4.webp') throw new Error('decoder failed')
+            return true
+          }
+        })
+        await allStarted.promise
+        await vi.advanceTimersByTimeAsync(ANIMATION_SCAN_RESULT_FLUSH_MS)
+        expect(images.filter((image) => image.webpAnimationStatus === 2).map((image) => image.id)).toEqual([1, 3])
+        releaseSlow.resolve()
+        const result = await execution
+
+        expect(result).toMatchObject({
+          processed: failLast ? 3 : 4,
+          animated: failLast ? 3 : 4,
+          failed: failLast ? 1 : 0,
+          remainingPending: failLast ? 1 : 0
+        })
+        expect(result.failedSamples).toEqual(
+          failLast ? [expect.objectContaining({ id: 4, errorCode: 'ANIMATION_PROBE_FAILED' })] : []
+        )
+        expect(images.filter((image) => image.webpAnimationStatus === 0).map((image) => image.id)).toEqual(
+          failLast ? [4] : []
+        )
+        expect(updateMany.mock.calls.flatMap(([input]) => input.where.id.in).sort()).toEqual(
+          failLast ? [1, 2, 3] : [1, 2, 3, 4]
+        )
+        expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({
+          stage: 'COMPLETED',
+          progressData: {
+            attemptedItems: 4,
+            succeededItems: failLast ? 3 : 4,
+            failedItems: failLast ? 1 : 0,
+            activeProbes: 0
+          }
+        })
+        if (failLast) {
+          expect(logger.warn).toHaveBeenCalledWith('animation.probe.failed', {
+            code: 'ANIMATION_PROBE_FAILED',
+            failedItems: 1,
+            errorCodes: ['ANIMATION_PROBE_FAILED']
+          })
+          expect(progress).toHaveBeenCalledWith(
+            expect.objectContaining({
+              level: 'WARN',
+              data: { code: 'ANIMATION_PROBE_FAILED', failedItems: 1, errorCodes: ['ANIMATION_PROBE_FAILED'] }
+            })
+          )
+          expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(root)
+          expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('4.webp')
+        } else {
+          expect(logger.warn).not.toHaveBeenCalled()
+        }
+      } finally {
+        releaseSlow.resolve()
+        vi.useRealTimers()
+      }
+    }
+  )
+
+  it('does not turn newly pending inventory into probe failures or attempted items', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-inventory-'))
+    roots.push(root)
+    const progress = vi.fn()
+    const result = await scanWebpAnimations({
+      database: {
+        image: {
+          // A candidate becomes pending after the final page was read.
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(0).mockResolvedValueOnce(1),
+          findMany: vi.fn().mockResolvedValue([])
+        }
+      } as never,
+      mutate: vi.fn(),
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      detectAnimated: vi.fn()
+    })
+
+    expect(result).toMatchObject({ processed: 0, failed: 0, remainingPending: 1, failedSamples: [] })
+    expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({
+      level: 'WARN',
+      progressData: { attemptedItems: 0, failedItems: 0, remainingItems: 1 }
     })
   })
 
@@ -850,4 +1004,12 @@ interface FakeChild {
   process: ChildProcess
   setExitCode(value: number | null): void
   setSignalCode(value: NodeJS.Signals | null): void
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
 }

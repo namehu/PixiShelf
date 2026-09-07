@@ -326,6 +326,70 @@ describe('CentralDispatcher', () => {
     expect(queue.claim).toHaveBeenCalledOnce()
   })
 
+  it.each(['claim', 'settle'] as const)('retries a transaction acquisition timeout during %s', async (operation) => {
+    const queue = createQueue([claimedJob('job-after-transaction-start-timeout')])
+    queue[operation].mockRejectedValueOnce(
+      Object.assign(new Error('Transaction API error: Unable to start a transaction in the given time.'), {
+        code: 'P2028'
+      })
+    )
+    const onFatal = vi.fn()
+    const logger = createLogger()
+    const dispatcher = createDispatcher(queue, completedRegistry(), {
+      onFatal,
+      logger,
+      queueErrorBackoffMs: 200,
+      timing: recoveryTiming(200)
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(onFatal).not.toHaveBeenCalled()
+    expect(logger.info).toHaveBeenCalledWith(
+      'worker.dispatch_queue_recovered',
+      expect.objectContaining({ operation, failures: 1 })
+    )
+  })
+
+  it('bounds retries when transaction acquisition remains unavailable', async () => {
+    const queue = createQueue([])
+    queue.claim.mockRejectedValue(
+      Object.assign(new Error('Transaction API error: Unable to start a transaction in the given time.'), {
+        code: 'P2028'
+      })
+    )
+    const onFatal = vi.fn()
+    const dispatcher = createDispatcher(queue, completedRegistry(), {
+      onFatal,
+      queueErrorBackoffMs: 200,
+      timing: recoveryTiming(200)
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(onFatal).toHaveBeenCalledOnce())
+    await dispatcher.stop()
+
+    expect(queue.claim).toHaveBeenCalledTimes(3)
+    expect(queue.settlements).toEqual([])
+  })
+
+  it('does not retry an expired P2028 transaction as an acquisition timeout', async () => {
+    const queue = createQueue([])
+    queue.claim.mockRejectedValue(
+      Object.assign(new Error('Transaction already closed: expired transaction.'), { code: 'P2028' })
+    )
+    const onFatal = vi.fn()
+    const dispatcher = createDispatcher(queue, completedRegistry(), { onFatal })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(onFatal).toHaveBeenCalledOnce())
+    await dispatcher.stop()
+
+    expect(queue.claim).toHaveBeenCalledOnce()
+  })
+
   it('retries a transient settlement failure without losing the dispatcher loop', async () => {
     const queue = createQueue([claimedJob('job-settle-retry')])
     queue.settle.mockRejectedValueOnce(new Error('write conflict'))

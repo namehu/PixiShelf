@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import { animationScanProgressDataSchema, type AnimationScanProgressData } from '@pixishelf/job-contracts'
+import type { ExecutionLogger } from '@pixishelf/job-runtime'
 import { IsolatedSharpAnimationProbePool, SHARP_ANIMATION_PROBE_TIMEOUT_SECONDS } from './sharp-animation-probe-pool.ts'
 import type { MaintenanceOperationInput, MaintenanceProgress, RunMaintenanceProgressMutation } from './types.ts'
 import { throwIfMaintenanceAborted } from './types.ts'
@@ -54,6 +55,7 @@ export async function scanWebpAnimations(
     concurrency?: number
     now?: () => Date
     slowItemThresholdMs?: number
+    logger?: ExecutionLogger
     resumeProgressData?: AnimationScanProgressData | null
     detectAnimated?: (absolutePath: string, mediaPath: string, signal: AbortSignal) => Promise<boolean>
   }
@@ -314,12 +316,28 @@ export async function scanWebpAnimations(
           }),
         commit: async (outcomes) => {
           const nextAttemptedThisAttempt = attemptedThisAttempt + outcomes.length
+          const failures = outcomes.flatMap((outcome) => (outcome.failure ? [outcome.failure] : []))
+          const failureData = {
+            code: 'ANIMATION_PROBE_FAILED',
+            failedItems: failures.length,
+            errorCodes: [...new Set(failures.map((failure) => failure.code))]
+          }
           const operation = (async () => {
             const nextResult = await commitDetectionOutcomes(input, commitProgress, outcomes, result, (durableResult) =>
-              createScanningProgress(durableResult, nextAttemptedThisAttempt)
+              createScanningProgress(
+                durableResult,
+                nextAttemptedThisAttempt,
+                failures.length > 0
+                  ? {
+                      level: 'WARN',
+                      data: failureData
+                    }
+                  : {}
+              )
             )
             attemptedThisAttempt = nextAttemptedThisAttempt
             Object.assign(result, nextResult)
+            if (failures.length > 0) input.logger?.warn('animation.probe.failed', failureData)
           })()
           commitBarrier = operation
           await operation
@@ -342,20 +360,23 @@ export async function scanWebpAnimations(
   // aggregate; only this final checkpoint can advertise COMPLETED. Replaying
   // an already-committed micro-batch is prevented by the pending-state CAS.
   result.remainingPending = await input.database.image.count({ where: pendingWhere })
-  result.failed = result.remainingPending
+  // Pending inventory may change independently of this run's actual detections.
+  // Never turn unattempted rows into failures or inflate the attempted counter.
+  const attemptedItems = result.processed + result.failed
   result.failedSamples.sort((left, right) => left.id - right.id)
   const completedAt = now()
-  recordRateSample(samples, totalItems, completedAt.getTime())
+  recordRateSample(samples, attemptedItems, completedAt.getTime())
   await input.progress({
     percentage: 100,
     stage: 'COMPLETED',
-    message: `动画识别完成：动图 ${result.animated} 个，静态 ${result.static} 个，失败 ${result.failed} 个`,
+    level: result.failed > 0 || result.remainingPending > 0 ? 'WARN' : 'INFO',
+    message: `本轮动画识别结束：成功 ${result.processed} 个，探测失败 ${result.failed} 个，剩余待处理 ${result.remainingPending} 个`,
     progressData: createProgressData({
       stage: 'COMPLETED',
       initialized,
       total: totalItems,
       result,
-      attempted: totalItems,
+      attempted: attemptedItems,
       failed: result.failed,
       activeProbes: 0,
       concurrency,
@@ -430,7 +451,10 @@ async function processDetectionBatch(input: {
       }, input.slowItemThresholdMs)
       slowTimer.unref()
       try {
-        buffer.push({ image, animated: await input.detect(image, batchController.signal) })
+        const animated = await input.detect(image, batchController.signal)
+        // Resolve the current buffer after awaiting: a timed flush may have
+        // detached the previous array while this probe was still running.
+        buffer.push({ image, animated })
       } catch (error) {
         if (batchController.signal.aborted) throw abortReason(batchController.signal, error)
         buffer.push({ image, failure: classifyAnimationFailure(error) })

@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 后台任务结构化进度、动画识别实时反馈、SSE 降级和事件保留
-last-verified: 2026-09-05
+last-verified: 2026-09-07
 sources:
   - packages/pixishelf-job-contracts/src/job-progress-data.ts
   - packages/pixishelf-job-runtime/src/queue-repository.ts
@@ -33,6 +33,23 @@ sources:
 ## 动画识别
 
 `WEBP_ANIMATION_SCAN` 依次进入 `INITIALIZING`、`SCANNING`、`COMPLETED`。初始化每 500 条提交并反馈；探测使用 1–8 的内部有界 worker pool，默认由 `ANIMATION_SCAN_CONCURRENCY=4` 控制。分类结果累计 20 条或等待 2 秒即在 fenced 微批次中提交；图片状态、对应的 `progressData` 检查点和事件同事务提交。进程在领域提交后立即退出时，下一次 claim 也会从同一检查点恢复，不能漏计该批；若终态进度已经写入但通用结算尚未完成，也保留 `COMPLETED` 检查点重放结算。
+
+初始化只把数据库中后缀匹配且状态为 `null` 的记录设为 pending，不读取图片内容；识别阶段再处理全部
+pending 候选，包括之前遗留的项目。每页最多 20 条，页内按冻结的并发值探测，整页结束后再读取下一页。
+异步探测完成后才引用当前结果缓存，避免两秒提交切换数组时把慢项的成功结果写回已提交的旧数组。
+
+结束时 `failed/failedItems` 只统计本轮实际探测失败，`remainingPending/remainingItems` 独立统计结束时的
+pending 库存；已尝试数取累计成功数加本轮失败数，不再强行填成总数。恢复时成功数沿用持久检查点，
+待处理项目重新探测，先前失败不会重复累计。单项失败仍保留最多 20 条结果样例，页面展示前 5 条；
+失败微批次同时生成 WARN 进度事件与 `animation.probe.failed` Worker 日志，只记录数量和稳定错误码，
+不把路径或原始解码错误写入聚合遥测。100% 表示本轮扫描结束，仍有 pending 时完成摘要会明确说明。
+
+页面在初始化阶段明确提示尚未开始内容识别；终态隐藏活动探测、历史速率、ETA 和采样年龄，并展示
+本轮结束及待下次处理数量。执行期间显示的最近进度更新时间来自 `sampledAt`，不是任务租约心跳。
+
+Dispatcher 将 Prisma `P2028` 中明确的事务启动等待超时作为可重试队列错误，沿用领取/结算的有限次数
+和心跳操作的租约截止时间；其他 `P2028`（例如事务已经关闭）不因此获得重试资格。该处理不延长租约，
+也不重放已经开始执行的领域事务回调。
 
 WebP/GIF 的 Sharp 探测运行在任务私有的有界子进程池中，输出管线使用原生 60 秒超时，父进程同时保留硬终止兜底。取消、租约丢失或 Worker 关停时必须终止对应进程并等待退出，避免不可取消的 native metadata 操作越过 Dispatcher 的取消宽限期。该子进程只做媒体探测，不领取任务、不访问 PostgreSQL。单项超过 10 秒只产生一次不含媒体身份的 WARN。失败项继续保持 pending，后续执行会重试；路径 realpath 边界和取消检查不变。生产应先以并发 1 建立基线，再比较并发 4；代表性存储吞吐提升不足 20%时将环境变量回退为 1。
 

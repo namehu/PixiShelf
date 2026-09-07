@@ -691,10 +691,13 @@ function waitForAbort(signal: AbortSignal): Promise<{ kind: 'aborted' }> {
 function isTransientQueueError(error: unknown) {
   const code =
     typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  const message = error instanceof Error ? error.message : String(error)
+  // P2028 also covers expired/closed transactions. Only acquisition failure
+  // guarantees that the callback never started and is safe to retry here.
+  if (code === 'P2028') return /Unable to start a transaction in the given time/i.test(message)
   if (/^(?:P1001|P1002|P1008|P1017|P2024|P2034|40001|40P01|55P03|57P0[123]|08\w{3})$/.test(code)) {
     return true
   }
-  const message = error instanceof Error ? error.message : String(error)
   return /(?:connection|database unavailable|deadlock|serialization|timed? out|timeout|write conflict)/i.test(message)
 }
 

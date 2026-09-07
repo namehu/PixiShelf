@@ -109,19 +109,32 @@ export function createMaintenanceExecutorRegistrations(
         message: 'PIXIV_AI_DERIVED_TAG_SYNC completed'
       })
     } as ExecutorDefinition,
-    definition('WEBP_ANIMATION_SCAN', (context) =>
-      scanWebpAnimations({
-        ...operationInput(context, dependencies.database),
-        scanRoot: dependencies.scanRoot,
-        concurrency: dependencies.animationScanConcurrency ?? 4,
-        // The previous aggregate is a recovery hint only; the executor
-        // re-derives pending work from the database before resuming.
-        ...(context.job.progressData?.kind === 'animation-scan'
-          ? { resumeProgressData: context.job.progressData }
-          : {}),
-        ...(dependencies.now ? { now: dependencies.now } : {})
-      })
-    ) as ExecutorDefinition
+    {
+      jobType: 'WEBP_ANIMATION_SCAN',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      parsePayload: (payload) => emptyJobPayloadSchema.parse(payload),
+      execute: async (context: ExecutionContext<EmptyPayload, EnqueuedChildJob>) => {
+        const result = await scanWebpAnimations({
+          ...operationInput(context, dependencies.database),
+          scanRoot: dependencies.scanRoot,
+          logger: context.logger,
+          concurrency: dependencies.animationScanConcurrency ?? 4,
+          // The previous aggregate is a recovery hint only; the executor
+          // re-derives pending work from the database before resuming.
+          ...(context.job.progressData?.kind === 'animation-scan'
+            ? { resumeProgressData: context.job.progressData }
+            : {}),
+          ...(dependencies.now ? { now: dependencies.now } : {})
+        })
+        return {
+          kind: 'completed',
+          result,
+          message: `本轮动画识别结束：成功 ${result.processed} 个，探测失败 ${result.failed} 个，剩余待处理 ${result.remainingPending} 个`
+        }
+      }
+    } as ExecutorDefinition
   ]
 }
 
@@ -131,15 +144,14 @@ function definition<TResult>(
     | 'TRIGGER_LOG_RETENTION_CLEANUP'
     | 'SCAN_RUN_RETENTION_CLEANUP'
     | 'REFILL_META_SOURCE'
-    | 'MEDIA_DERIVED_TAG_SYNC'
-    | 'WEBP_ANIMATION_SCAN',
+    | 'MEDIA_DERIVED_TAG_SYNC',
   run: (context: ExecutionContext<EmptyPayload, EnqueuedChildJob>) => Promise<TResult>
 ): ExecutorDefinition<EmptyPayload, TResult> {
   return {
     jobType,
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
-    progressPolicy: jobType === 'WEBP_ANIMATION_SCAN' ? 'REALTIME' : 'STANDARD',
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => emptyJobPayloadSchema.parse(payload) as EmptyPayload,
     execute: async (context) => ({
       kind: 'completed',

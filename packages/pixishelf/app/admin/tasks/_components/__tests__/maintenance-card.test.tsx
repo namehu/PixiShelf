@@ -225,10 +225,10 @@ describe('maintenance standalone tasks', () => {
     )
 
     expect(screen.getByText('采样中')).toBeTruthy()
-    expect(screen.getByText('任务已暂停；最近存活更新在 0 秒前')).toBeTruthy()
+    expect(screen.getByText('任务已暂停；最近进度更新在 0 秒前')).toBeTruthy()
   })
 
-  it('shows the live sample age while animation candidates are initializing', () => {
+  it('distinguishes candidate preparation from content detection', () => {
     render(
       <AnimationScanLiveFeedback
         job={{
@@ -257,7 +257,7 @@ describe('maintenance standalone tasks', () => {
       />
     )
 
-    expect(screen.getByText('正在初始化，已完成 500 个候选；最近存活更新在 0 秒前')).toBeTruthy()
+    expect(screen.getByText('正在准备候选，已准备 500 个；尚未开始内容识别。')).toBeTruthy()
   })
 
   it('hides a stale ETA and identifies a stalled live sample', () => {
@@ -290,7 +290,49 @@ describe('maintenance standalone tasks', () => {
     )
 
     expect(screen.getByText('采样中')).toBeTruthy()
-    expect(screen.getByText(/探测暂未推进；最近存活更新在 [78] 秒前/)).toBeTruthy()
+    expect(screen.getByText(/探测暂未推进；最近进度更新在 [78] 秒前/)).toBeTruthy()
+  })
+
+  it.each([0, 2])('shows a terminal animation summary without live telemetry (pending=%s)', (remainingItems) => {
+    render(
+      <AnimationScanLiveFeedback
+        job={{
+          id: 'animation-completed',
+          status: 'COMPLETED',
+          progress: 100,
+          progressData: {
+            version: 1,
+            kind: 'animation-scan',
+            stage: 'COMPLETED',
+            initializedItems: 0,
+            totalItems: 4,
+            attemptedItems: 4,
+            succeededItems: 4 - remainingItems,
+            failedItems: remainingItems,
+            animatedItems: 4 - remainingItems,
+            staticItems: 0,
+            remainingItems,
+            activeProbes: 0,
+            concurrencyLimit: 2,
+            itemsPerSecond: 1.4,
+            etaSeconds: null,
+            sampledAt: new Date(Date.now() - 4_821_000).toISOString()
+          }
+        }}
+      />
+    )
+
+    expect(
+      screen.getByText(
+        remainingItems > 0
+          ? `本轮识别已结束，仍有 ${remainingItems} 个待处理；再次执行将处理这些项目。`
+          : '本轮识别已结束，当前没有待处理图片。'
+      )
+    ).toBeTruthy()
+    expect(screen.getByText('待下次处理：')).toBeTruthy()
+    for (const label of [/活动探测/, /items\/s/, /预计剩余/, /采样中/, /秒前/]) {
+      expect(screen.queryByText(label)).toBeNull()
+    }
   })
 
   it('hides ETA after an animation task becomes terminal', () => {
@@ -322,8 +364,9 @@ describe('maintenance standalone tasks', () => {
       />
     )
 
-    expect(screen.getByText('采样中')).toBeTruthy()
+    expect(screen.queryByText('采样中')).toBeNull()
     expect(screen.queryByText('15 秒')).toBeNull()
+    expect(screen.getByText('本轮识别已结束，已提交的结果已保留。')).toBeTruthy()
   })
 
   it('shows only the mode while an active task has no result yet', () => {
