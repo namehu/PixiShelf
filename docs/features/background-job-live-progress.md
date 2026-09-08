@@ -72,6 +72,8 @@ WebP/GIF 的 Sharp 探测运行在任务私有的有界子进程池中，输出�
 
 admin layout 每标签页只有一个 `BackgroundJobEventProvider`。任务卡、后台 dashboard、详情和事件历史按 `jobType/jobId` 合并同一事件源；mutation 使用返回的准确 job ID。`ready/reset` 触发快照恢复。SSE 正常时停止任务状态高频轮询；断线时活动任务每 3 秒、空闲页每 30 秒兜底。
 
+Web 的 SSE 连接内部仍轮询 PostgreSQL 事件表，每个连接各自读取。服务端启动环境变量 `JOB_EVENT_POLL_INTERVAL_MS` 可设置查询间隔，单位毫秒，允许 500–15000 的整数；未设置或无效时，开发环境默认 3000，其他环境默认 500。开发时可在 `packages/pixishelf/.env.local` 设置 `JOB_EVENT_POLL_INTERVAL_MS=5000` 后重启 Web；容器运行时需将变量传入 Web 容器，仅修改 Compose 的 `.env` 不会自动传入。间隔越长，实时进度出现的延迟越大；满 200 条的积压事件仍连续追赶，15 秒心跳在后续轮询时发送。此设置不改变 Worker 调度、事件写入或断线兜底频率，不需要 Worker 重启或数据库迁移。开发环境的 Prisma query 日志会逐条输出这些查询，多开后台标签页会增加查询数量；这与 Next.js 编译本身是不同路径，不能仅凭日志认定构建变慢的原因。
+
 任务状态合并比较 `updatedAt`：只有更新的 SSE 摘要才能覆盖查询快照，相同时间保留完整查询结果，避免断线时缓存事件遮盖轮询得到的终态。计划任务收到对应类型的入队、启动或控制事件后重新读取计划列表，由数据库确认最新 `lastJobId`；同类型的多个计划不按事件类型猜测归属，普通进度事件不触发计划列表重查。
 
 `JOB_EVENT_RETENTION_CLEANUP` 对 INFO 级 `job.progress` 保留 7 天，对阶段、警告、错误、控制和终态事件保留 90 天，每批事务删除最多 5,000 条，并循环处理至本次过期集合清空。计划默认关闭；首次手动执行固定为 dry-run，核对候选数和 SSE 重连后再启用计划，计划执行才会删除。

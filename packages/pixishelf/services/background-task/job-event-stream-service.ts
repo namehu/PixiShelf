@@ -1,4 +1,5 @@
 import 'server-only'
+import { z } from 'zod'
 
 import type { Prisma } from '@pixishelf/db'
 import { jobEventStreamBatchSchema, type JobEventStreamBatch } from '@pixishelf/job-contracts'
@@ -11,6 +12,13 @@ import {
 } from './job-serialization'
 
 export const JOB_EVENT_STREAM_BATCH_LIMIT = 200
+
+const pollIntervalSchema = z.coerce.number().int().min(500).max(15_000)
+
+export function getJobEventPollIntervalMs(): number {
+  const configured = pollIntervalSchema.safeParse(process.env.JOB_EVENT_POLL_INTERVAL_MS)
+  return configured.success ? configured.data : process.env.NODE_ENV === 'development' ? 3_000 : 500
+}
 
 type JobEventStreamClient = Pick<Prisma.TransactionClient, 'systemJobEvent'>
 
@@ -56,4 +64,3 @@ export class PostgresJobEventStreamSource implements JobEventStreamSource {
     })
   }
 }
-
