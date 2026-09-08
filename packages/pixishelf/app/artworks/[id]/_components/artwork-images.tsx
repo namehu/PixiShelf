@@ -17,6 +17,10 @@ import { hasReliableSingleFrameDimensions } from '@/lib/media-animation'
 import { cn } from '@/lib/utils'
 import AdaptiveMediaPreview from './adaptive-media-preview'
 import { ArtworkVideoOptimizationProvider } from './artwork-video-optimization-context'
+import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
+import { useAutoBrowseInterruption } from './use-auto-browse-interruption'
+import { getAutoBrowseViewport, useArtworkAutoScroll } from './use-artwork-auto-scroll'
+import { AutoBrowseControls } from './auto-browse-controls'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
@@ -86,6 +90,7 @@ function getPointerPosition(event: React.MouseEvent | React.TouchEvent) {
 function useMeasuredMediaContainer() {
   const [containerWidth, setContainerWidth] = useState(0)
   const [scrollMargin, setScrollMargin] = useState(0)
+  const [scrollPaddingStart, setScrollPaddingStart] = useState(NAV_HEIGHT)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const updateMeasurements = useCallback(() => {
@@ -97,6 +102,7 @@ function useMeasuredMediaContainer() {
 
     setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
     setScrollMargin((currentMargin) => (currentMargin === nextScrollMargin ? currentMargin : nextScrollMargin))
+    setScrollPaddingStart(getAutoBrowseViewport().top)
   }, [])
 
   useLayoutEffect(() => {
@@ -113,19 +119,21 @@ function useMeasuredMediaContainer() {
     }
   }, [updateMeasurements])
 
-  return { containerRef, containerWidth, scrollMargin }
+  return { containerRef, containerWidth, scrollMargin, scrollPaddingStart }
 }
 
 function useArtworkMediaVirtualizer({
   images,
   isExpanded,
   containerWidth,
-  scrollMargin
+  scrollMargin,
+  scrollPaddingStart
 }: {
   images: ArtworkImageResponseDto[]
   isExpanded: boolean
   containerWidth: number
   scrollMargin: number
+  scrollPaddingStart: number
 }) {
   const visibleCount = isExpanded ? images.length : Math.min(images.length, MAX_PREVIEW_IMAGES)
   const remainingCount = Math.max(0, images.length - MAX_PREVIEW_IMAGES)
@@ -142,7 +150,7 @@ function useArtworkMediaVirtualizer({
     estimateSize,
     overscan: 2,
     scrollMargin,
-    scrollPaddingStart: NAV_HEIGHT,
+    scrollPaddingStart,
     getItemKey,
     enabled: containerWidth > 0
   })
@@ -158,6 +166,7 @@ function usePreviewContextMenu(images: ArtworkImageResponseDto[], onOpenAdaptive
   const openContextMenu = useCallback((event: React.MouseEvent | React.TouchEvent, index: number) => {
     const position = getPointerPosition(event)
     if (!position) return
+    useArtworkAutoBrowseStore.getState().pause('overlay')
 
     setContextMenu({ ...position, index })
   }, [])
@@ -351,7 +360,8 @@ function MediaAnchorNavigation({
   total,
   open,
   onOpenChange,
-  onSelect
+  onSelect,
+  embedded = false
 }: {
   indexes: number[]
   activeIndex: number
@@ -360,6 +370,7 @@ function MediaAnchorNavigation({
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelect: (index: number) => void
+  embedded?: boolean
 }) {
   if (total <= 1) return null
 
@@ -367,20 +378,21 @@ function MediaAnchorNavigation({
   const counter = (
     <span className="font-utility flex flex-col items-center justify-center gap-0.5 text-[10px] leading-none tabular-nums">
       <span className="font-semibold">{displayedIndex}</span>
-      <Separator className="w-3 bg-primary-foreground/35" />
+      <Separator className={cn('w-3', embedded ? 'bg-foreground/25' : 'bg-primary-foreground/35')} />
       <span className="font-normal opacity-70">{total}</span>
     </span>
   )
 
   return (
-    <div className="fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+1rem)] z-40">
+    <div className={embedded ? '' : 'fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+1rem)] z-40'}>
       {indexes.length > 0 ? (
         <Popover open={open} onOpenChange={onOpenChange}>
           <PopoverTrigger asChild>
             <Button
               type="button"
+              variant={embedded ? 'ghost' : 'default'}
               size="icon"
-              className="size-11 rounded-full shadow-floating"
+              className={cn('size-11 rounded-full', !embedded && 'shadow-floating')}
               aria-label={`${open ? '关闭' : '打开'}媒体快捷导航，当前第 ${displayedIndex} 张，共 ${total} 张`}
               aria-expanded={open}
             >
@@ -399,7 +411,8 @@ function MediaAnchorNavigation({
         </Popover>
       ) : (
         <Badge
-          className="size-11 p-0 shadow-floating"
+          variant={embedded ? 'outline' : 'default'}
+          className={cn('size-11 p-0', embedded ? 'border-transparent' : 'shadow-floating')}
           aria-label={`当前第 ${displayedIndex} 张，共 ${total} 张`}
         >
           {counter}
@@ -486,17 +499,24 @@ function VirtualizedArtworkMediaList({
   const [isExpanded, setIsExpanded] = useState(false)
   const [isNavigationOpen, setIsNavigationOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
+  const [retryCounts, setRetryCounts] = useState<Record<number, number>>({})
+  const autoMode = useArtworkAutoBrowseStore((state) => state.mode)
+  const previewOpen = useArtworkAutoBrowseStore((state) => state.previewOpen)
+  const showAutoControls = autoMode === 'scroll' && !previewOpen
   const pendingScrollIndexRef = useRef<number | null>(null)
   const anchorInterval = useArtworkMediaAnchorInterval()
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const currentIndex = useArtworkStore((state) => state.currentIndex)
-  const { containerRef, containerWidth, scrollMargin } = useMeasuredMediaContainer()
+  const { containerRef, containerWidth, scrollMargin, scrollPaddingStart } = useMeasuredMediaContainer()
   const { virtualizer, visibleCount, remainingCount } = useArtworkMediaVirtualizer({
     images,
     isExpanded,
     containerWidth,
-    scrollMargin
+    scrollMargin,
+    scrollPaddingStart
   })
+  const expand = useCallback(() => setIsExpanded(true), [])
+  useArtworkAutoScroll({ containerRef, images, expanded: isExpanded, expand })
 
   const anchorIndexes = useMemo(
     () => buildMediaAnchorIndexes(images.length, anchorInterval),
@@ -553,6 +573,7 @@ function VirtualizedArtworkMediaList({
 
   const handleAnchorSelect = useCallback(
     (index: number) => {
+      useArtworkAutoBrowseStore.getState().pause('manual')
       setCurrentIndex(index)
       setIsNavigationOpen(false)
 
@@ -592,6 +613,7 @@ function VirtualizedArtworkMediaList({
               }}
             >
               <ArtworkMediaItem
+                key={`${media.id}:${media.path}:${media.updatedAt}:${retryCounts[media.id] ?? 0}`}
                 media={media}
                 index={index}
                 showExpandOverlay={isLastPreview}
@@ -606,45 +628,124 @@ function VirtualizedArtworkMediaList({
         })}
       </div>
 
-      <MediaAnchorNavigation
-        indexes={anchorIndexes}
-        activeIndex={activeAnchorIndex}
-        currentIndex={currentIndex}
-        total={images.length}
-        open={isNavigationOpen}
-        onOpenChange={setIsNavigationOpen}
-        onSelect={handleAnchorSelect}
-      />
+      {showAutoControls ? (
+        <div
+          data-auto-scroll-bar
+          className="fixed bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] right-4 z-40 lg:bottom-4"
+        >
+          <AutoBrowseControls
+            mode="scroll"
+            current={currentIndex + 1}
+            total={images.length}
+            navigation={
+              images.length > 1 ? (
+                <MediaAnchorNavigation
+                  embedded
+                  indexes={anchorIndexes}
+                  activeIndex={activeAnchorIndex}
+                  currentIndex={currentIndex}
+                  total={images.length}
+                  open={isNavigationOpen}
+                  onOpenChange={(open) => {
+                    if (open) useArtworkAutoBrowseStore.getState().pause('overlay')
+                    setIsNavigationOpen(open)
+                  }}
+                  onSelect={handleAnchorSelect}
+                />
+              ) : undefined
+            }
+            onRestart={() => {
+              const { top } = getAutoBrowseViewport()
+              if (containerRef.current) {
+                window.scrollTo({
+                  top: Math.max(0, containerRef.current.getBoundingClientRect().top + window.scrollY - top),
+                  behavior: 'instant'
+                })
+              }
+              useArtworkAutoBrowseStore.getState().start('scroll')
+            }}
+            onRetry={() => {
+              const state = useArtworkAutoBrowseStore.getState()
+              state.pause()
+              const id = state.currentMediaId
+              if (id !== null) setRetryCounts((counts) => ({ ...counts, [id]: (counts[id] ?? 0) + 1 }))
+              state.clearPauseReason()
+            }}
+            onSkip={() => {
+              const state = useArtworkAutoBrowseStore.getState()
+              state.pause()
+              const index = images.findIndex((media) => media.id === state.currentMediaId)
+              if (index < 0) return
+              state.skip(images[index]!.id)
+              if (index === images.length - 1) state.end()
+              else handleAnchorSelect(index + 1)
+            }}
+            onExit={() => useArtworkAutoBrowseStore.getState().stop()}
+          />
+        </div>
+      ) : (
+        !previewOpen && (
+          <MediaAnchorNavigation
+            indexes={anchorIndexes}
+            activeIndex={activeAnchorIndex}
+            currentIndex={currentIndex}
+            total={images.length}
+            open={isNavigationOpen}
+            onOpenChange={(open) => {
+              if (open) useArtworkAutoBrowseStore.getState().pause('overlay')
+              setIsNavigationOpen(open)
+            }}
+            onSelect={handleAnchorSelect}
+          />
+        )
+      )}
     </>
   )
 }
 
-export default function ArtworkImages({ images }: ArtworkImagesProps) {
+export default function ArtworkImages({ images, artworkId }: ArtworkImagesProps) {
+  useAutoBrowseInterruption(artworkId)
+  const autoMode = useArtworkAutoBrowseStore((state) => state.mode)
+  const autoStatus = useArtworkAutoBrowseStore((state) => state.status)
   const [previewState, setPreviewState] = useState<AdaptivePreviewState | null>(null)
   const [returnIndex, setReturnIndex] = useState<number | null>(null)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const adaptivePreviewImages = useMemo(() => images.filter((media) => !isVideoMedia(media)), [images])
   const openAdaptivePreview = useCallback(
-    (originalIndex: number, initialPreviewSrc?: string) => {
+    (originalIndex: number, initialPreviewSrc?: string, autoplay = false) => {
       const media = images[originalIndex]
       if (!media || isVideoMedia(media)) return
       const filteredIndex = adaptivePreviewImages.findIndex((candidate) => candidate.id === media.id)
       if (filteredIndex >= 0) {
+        if (!autoplay) useArtworkAutoBrowseStore.getState().pause('overlay')
+        useArtworkAutoBrowseStore.getState().setPreviewOpen(true)
+        useArtworkAutoBrowseStore.getState().setCurrentMedia(media.id)
         setPreviewState({ index: filteredIndex, ...(initialPreviewSrc ? { initialPreviewSrc } : {}) })
       }
     },
     [adaptivePreviewImages, images]
   )
+  useEffect(() => {
+    if (autoMode !== 'slideshow' || autoStatus !== 'running' || previewState) return
+    const current = useArtworkStore.getState().currentIndex
+    let index = images.findIndex((media, index) => index >= current && !isVideoMedia(media))
+    if (index < 0) index = images.findLastIndex((media) => !isVideoMedia(media))
+    if (index >= 0) openAdaptivePreview(index, undefined, true)
+    else useArtworkAutoBrowseStore.getState().stop()
+  }, [autoMode, autoStatus, images, openAdaptivePreview, previewState])
   const { contextMenu, openContextMenu, closeContextMenu, previewSelectedMedia, viewOriginalSelectedMedia } =
     usePreviewContextMenu(images, openAdaptivePreview)
 
   const handlePreviewClose = useCallback(
     (finalIndex: number) => {
+      const state = useArtworkAutoBrowseStore.getState()
+      state.closePreview()
       const returnedMedia = adaptivePreviewImages[finalIndex]
       const originalIndex = returnedMedia ? images.findIndex((media) => media.id === returnedMedia.id) : -1
       setPreviewState(null)
       if (originalIndex < 0) return
       setCurrentIndex(originalIndex)
+      useArtworkAutoBrowseStore.getState().setCurrentMedia(returnedMedia!.id)
       setReturnIndex(originalIndex)
     },
     [adaptivePreviewImages, images, setCurrentIndex]

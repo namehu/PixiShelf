@@ -19,6 +19,9 @@ import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import MediaOrderReviewDialog from './media-order-review-dialog'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { AutoBrowseEntry } from './auto-browse-entry'
+import { isVideoFile } from '@/lib/media'
+import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
@@ -63,6 +66,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   return (
     <>
       <PageToolbar
+        className="artwork-detail-toolbar"
         containerSize="reading"
         contentClassName="relative"
         leading={
@@ -72,60 +76,66 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
           </Button>
         }
         actions={
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-11"
-                aria-label="更多作品操作"
-              >
-                <EllipsisIcon data-icon="inline-start" aria-hidden="true" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuGroup>
-                <DropdownMenuItem asChild>
-                  <Link
-                    href={{
-                      pathname: '/admin/artworks',
-                      query: {
-                        id: data.id,
-                        edit: data.id,
-                        tab: 'media',
-                        returnTo: `/artworks/${data.id}`
-                      }
+          <>
+            <AutoBrowseEntry
+              disabled={!data.images.some((media) => media.mediaType !== 'video' && !isVideoFile(media.path))}
+              slideshowDisabled={
+                data.images.filter((media) => media.mediaType !== 'video' && !isVideoFile(media.path)).length < 2
+              }
+            />
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (open) useArtworkAutoBrowseStore.getState().pause('overlay')
+              }}
+            >
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" className="size-11" aria-label="更多作品操作">
+                  <EllipsisIcon data-icon="inline-start" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem asChild>
+                    <Link
+                      href={{
+                        pathname: '/admin/artworks',
+                        query: {
+                          id: data.id,
+                          edit: data.id,
+                          tab: 'media',
+                          returnTo: `/artworks/${data.id}`
+                        }
+                      }}
+                    >
+                      <Settings2Icon aria-hidden="true" />
+                      管理当前作品
+                    </Link>
+                  </DropdownMenuItem>
+                  {data.images.length > 1 && (
+                    <DropdownMenuItem onSelect={() => setOrderReviewOpen(true)}>
+                      <ListOrderedIcon aria-hidden="true" />
+                      顺序校对
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setImages(data.images)
+                      router.push('/artworks/preview')
                     }}
                   >
-                    <Settings2Icon aria-hidden="true" />
-                    管理当前作品
-                  </Link>
-                </DropdownMenuItem>
-                {data.images.length > 1 && (
-                  <DropdownMenuItem onSelect={() => setOrderReviewOpen(true)}>
-                    <ListOrderedIcon aria-hidden="true" />
-                    顺序校对
+                    <FullscreenIcon aria-hidden="true" />
+                    全屏预览
                   </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setImages(data.images)
-                    router.push('/artworks/preview')
-                  }}
-                >
-                  <FullscreenIcon aria-hidden="true" />
-                  全屏预览
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>
         }
       >
         {showScrolledTitle && (
           <PrivacySensitiveText
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-16 truncate text-center text-sm font-medium text-foreground sm:inset-x-24"
+            className="pointer-events-none block truncate text-center text-sm font-medium text-foreground"
           >
             {data.title}
           </PrivacySensitiveText>

@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-media-preview'
+import { useArtworkAutoBrowseStore as autoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 
 const swiperMocks = vi.hoisted(() => {
   const instance = {
@@ -24,6 +25,7 @@ vi.mock('next/image', () => ({
     quality,
     priority,
     onLoad,
+    onError,
     unoptimized,
     'data-testid': testId,
     'data-ready': ready
@@ -35,6 +37,7 @@ vi.mock('next/image', () => ({
     quality?: number
     priority?: boolean
     onLoad?: React.ReactEventHandler<HTMLImageElement>
+    onError?: React.ReactEventHandler<HTMLImageElement>
     unoptimized?: boolean
     'data-testid'?: string
     'data-ready'?: string
@@ -52,6 +55,7 @@ vi.mock('next/image', () => ({
         data-testid={testId}
         data-ready={ready}
         onLoad={onLoad}
+        onError={onError}
       />
     )
   }
@@ -143,7 +147,38 @@ describe('AdaptiveMediaPreview', () => {
 
   afterEach(() => {
     cleanup()
+    autoBrowseStore.getState().release(autoBrowseStore.getState().session)
+    vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  it('pauses autoplay on an image error and keeps retry under user control', () => {
+    autoBrowseStore.getState().initialize(1)
+    autoBrowseStore.getState().start('slideshow')
+    render(<AdaptiveMediaPreview images={[createMedia(0), createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)
+    fireEvent.error(screen.getByAltText('作品媒体 1'))
+    expect(autoBrowseStore.getState()).toMatchObject({ status: 'paused', reason: 'error' })
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    fireEvent.load(screen.getByAltText('作品媒体 1'))
+    expect(autoBrowseStore.getState().status).toBe('paused')
+    expect(swiperMocks.instance.slideNext).not.toHaveBeenCalled()
+  })
+
+  it('cancels autoplay when closing is requested, before history navigation finishes', () => {
+    vi.useFakeTimers()
+    vi.spyOn(history, 'back').mockImplementation(() => undefined)
+    autoBrowseStore.getState().initialize(1)
+    autoBrowseStore.getState().start('slideshow')
+    const onClose = vi.fn()
+    render(<AdaptiveMediaPreview images={[createMedia(0), createMedia(1)]} initialIndex={0} open onClose={onClose} />)
+    fireEvent.load(screen.getByAltText('作品媒体 1'))
+    act(() => vi.advanceTimersByTime(4000))
+    fireEvent.click(screen.getByRole('button', { name: '关闭适配尺寸预览' }))
+    expect(onClose).not.toHaveBeenCalled()
+    expect(autoBrowseStore.getState().status).toBe('paused')
+    act(() => vi.advanceTimersByTime(10000))
+    expect(swiperMocks.instance.slideNext).not.toHaveBeenCalled()
   })
 
   it('renders the selected slide with the raw media path so Next Image uses Imgproxy', () => {
@@ -275,9 +310,7 @@ describe('AdaptiveMediaPreview', () => {
     expect(screen.queryByText('动图静态预览')).toBeNull()
     expect(screen.queryByText('1.0MB')).toBeNull()
     expect(screen.getAllByAltText('作品 WEBP 动图 1')).toHaveLength(1)
-    expect(screen.getByAltText('作品 WEBP 动图 1').parentElement?.classList.contains('swiper-zoom-target')).toBe(
-      true
-    )
+    expect(screen.getByAltText('作品 WEBP 动图 1').parentElement?.classList.contains('swiper-zoom-target')).toBe(true)
 
     fireEvent.click(playButton)
 

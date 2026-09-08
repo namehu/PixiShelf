@@ -6,7 +6,8 @@ import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import Image from 'next/image'
-import { memo, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useArtworkAutoBrowseStore, type PreviewStatus } from '@/store/use-artwork-auto-browse-store'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
 import { hasReliableSingleFrameDimensions, isConfirmedStaticWebp } from '@/lib/media-animation'
@@ -19,12 +20,46 @@ import { useArtworkVideoOptimization } from './artwork-video-optimization-contex
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
   index: number
+  onPreviewStatusChange?: (status: PreviewStatus) => void
 }
 
 /**
  * 懒加载媒体组件
  */
-const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
+const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps) => {
+  const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('loading')
+  const live = useRef(true)
+  useEffect(() => {
+    live.current = true
+    return () => {
+      live.current = false
+    }
+  }, [])
+  const report = useCallback(
+    (status: PreviewStatus) => {
+      if (!live.current) return
+      setPreviewStatus(status)
+      onPreviewStatusChange?.(status)
+    },
+    [onPreviewStatusChange]
+  )
+  const onLoad = useCallback(
+    (event: React.SyntheticEvent<HTMLImageElement>) => {
+      const image = event.currentTarget
+      if (!image.decode) {
+        report('ready')
+        return
+      }
+      void image.decode().then(
+        () => report('ready'),
+        () => report(image.naturalWidth > 0 ? 'ready' : 'error')
+      )
+    },
+    [report]
+  )
+  const onPlayingChange = useCallback((playing: boolean) => {
+    if (playing) useArtworkAutoBrowseStore.getState().pause('manual')
+  }, [])
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
   const src = media.path
@@ -60,7 +95,12 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
 
   const trackingRef = useOnInView(
     (inView) => {
-      if (inView) setCurrentIndex(index)
+      if (inView) {
+        setCurrentIndex(index)
+        if (!useArtworkAutoBrowseStore.getState().previewOpen) {
+          useArtworkAutoBrowseStore.getState().setCurrentMedia(media.id)
+        }
+      }
     },
     { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
   )
@@ -121,12 +161,21 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
           className="w-full h-auto"
           preload="metadata"
           settingActions={videoSettingActions}
+          onPlay={() => onPlayingChange(true)}
         />
       )
     }
 
     if ((isApngFile(src) || /\.png$/i.test(src)) && media.isAnimated) {
-      return <ApngPlayer src={src} alt={`Artwork animation ${index + 1}`} />
+      return (
+        <ApngPlayer
+          src={src}
+          alt={`Artwork animation ${index + 1}`}
+          onPosterLoad={() => report('ready')}
+          onPosterError={() => report('error')}
+          onPlayingChange={onPlayingChange}
+        />
+      )
     }
 
     if ((isWebpFile(src) && !isConfirmedStaticWebp(media)) || (isGifFile(src) && media.isAnimated)) {
@@ -139,6 +188,9 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={formatLabel}
           controlMode={isWebpFile(src) ? 'badge' : 'surface'}
+          onPosterLoad={() => report('ready')}
+          onPosterError={() => report('error')}
+          onPlayingChange={onPlayingChange}
         />
       )
     }
@@ -154,6 +206,8 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
         height={0}
         sizes="100vw"
         className={hasDimensions ? 'h-auto w-full' : 'h-auto min-h-[300px] w-full sm:min-h-[500px]'}
+        onLoad={onLoad}
+        onError={() => report('error')}
       />
     )
   }
@@ -163,6 +217,8 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
       ref={trackingRef}
       className="relative flex w-full items-center justify-center overflow-hidden bg-muted"
       style={{ aspectRatio }}
+      data-auto-media-id={media.id}
+      data-preview-status={previewStatus}
     >
       {renderContent()}
     </div>
