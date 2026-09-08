@@ -14,6 +14,7 @@ import {
 import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { BackgroundTaskError } from './background-task-error'
+import { unacknowledgedFailureWhere } from './job-failure-policy'
 import { writeJobEvent } from './job-event-service'
 import { jobPayloadsHaveSameSemantics } from './job-payload-semantics'
 import { systemJobWireSelect, toJobDto, type SystemJobWireRecord } from './job-serialization'
@@ -59,10 +60,27 @@ export const retryJobInputSchema = jobIdInputSchema.extend({ requestedByUserId: 
 export const acknowledgeJobFailureInputSchema = jobIdInputSchema.extend({
   requestedByUserId: z.string().min(1)
 })
+export const acknowledgeJobFailuresRequestSchema = z.discriminatedUnion('scope', [
+  z
+    .object({
+      scope: z.literal('selected'),
+      jobIds: z
+        .array(z.string().min(1).max(128))
+        .min(1)
+        .max(100)
+        .transform((ids) => [...new Set(ids)])
+    })
+    .strict(),
+  z.object({ scope: z.literal('all') }).strict()
+])
+export type AcknowledgeJobFailuresRequest = z.input<typeof acknowledgeJobFailuresRequestSchema>
 export const changeJobPriorityInputSchema = jobIdInputSchema.extend({ priority: z.number().int().min(0).max(999) })
 
 interface CommandDatabaseClient {
-  $transaction<T>(callback: (transaction: Prisma.TransactionClient) => Promise<T>): Promise<T>
+  $transaction<T>(
+    callback: (transaction: Prisma.TransactionClient) => Promise<T>,
+    options?: { timeout?: number }
+  ): Promise<T>
 }
 
 type ParsedEnqueueInput = z.output<typeof enqueueJobInputSchema>
@@ -96,15 +114,16 @@ async function acknowledgeJobFailure(
     source: 'MANUAL' | 'RETRY'
   }
 ) {
-  await transaction.systemJobFailureAcknowledgement.upsert({
-    where: { jobId: input.jobId },
-    create: {
-      jobId: input.jobId,
-      acknowledgedAt: input.acknowledgedAt,
-      acknowledgedByUserId: input.acknowledgedByUserId,
-      source: input.source
-    },
-    update: {}
+  await transaction.systemJobFailureAcknowledgement.createMany({
+    data: [
+      {
+        jobId: input.jobId,
+        acknowledgedAt: input.acknowledgedAt,
+        acknowledgedByUserId: input.acknowledgedByUserId,
+        source: input.source
+      }
+    ],
+    skipDuplicates: true
   })
 }
 
@@ -690,6 +709,45 @@ export async function acknowledgeJobFailureCommand(
     })
     return toJobDto(job)
   })
+}
+
+export async function acknowledgeJobFailuresCommand(
+  input: AcknowledgeJobFailuresRequest,
+  requestedByUserId: string,
+  client?: CommandDatabaseClient,
+  now: () => Date = () => new Date()
+) {
+  const parsed = acknowledgeJobFailuresRequestSchema.parse(input)
+  const userId = z.string().min(1).parse(requestedByUserId)
+  return commandDatabase(client).$transaction(
+    async (transaction) => {
+      // Freeze candidates once: failures arriving during later insert batches remain unread.
+      const jobs = await transaction.systemJob.findMany({
+        where: { ...unacknowledgedFailureWhere, ...(parsed.scope === 'selected' ? { id: { in: parsed.jobIds } } : {}) },
+        select: { id: true },
+        orderBy: { id: 'asc' }
+      })
+      const acknowledgedAt = now()
+      let acknowledgedCount = 0
+      for (let offset = 0; offset < jobs.length; offset += 500) {
+        const result = await transaction.systemJobFailureAcknowledgement.createMany({
+          data: jobs.slice(offset, offset + 500).map(({ id }) => ({
+            jobId: id,
+            acknowledgedAt,
+            acknowledgedByUserId: userId,
+            source: 'MANUAL' as const
+          })),
+          skipDuplicates: true
+        })
+        acknowledgedCount += result.count
+      }
+      return {
+        acknowledgedCount,
+        skippedCount: (parsed.scope === 'selected' ? parsed.jobIds.length : jobs.length) - acknowledgedCount
+      }
+    },
+    { timeout: 30_000 }
+  )
 }
 
 export async function changeJobPriorityCommand(

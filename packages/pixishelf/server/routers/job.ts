@@ -30,6 +30,8 @@ import {
 } from '@/services/video-keyframe-central-service'
 import { z } from 'zod'
 import {
+  backgroundFailuresInputSchema,
+  listBackgroundFailures,
   backgroundHistoryInputSchema,
   backgroundHistorySnapshotsInputSchema,
   listBackgroundHistory,
@@ -48,6 +50,8 @@ import {
 import {
   assertLegacyBackgroundExecutionAllowed,
   acknowledgeJobFailureCommand,
+  acknowledgeJobFailuresCommand,
+  acknowledgeJobFailuresRequestSchema,
   BackgroundTaskError,
   cancelJobCommand,
   changeJobPriorityCommand,
@@ -55,6 +59,7 @@ import {
   enqueueJob,
   enqueueSingletonManualJob,
   getJobById,
+  getBackgroundJobDetail,
   getJobDashboard,
   incrementalJobEventsInputSchema,
   jobIdInputSchema,
@@ -680,7 +685,11 @@ export const jobRouter = router({
 
   backgroundList: adminProcedure.input(listJobsInputSchema).query(({ input }) => listJobs(input)),
 
-  backgroundDetail: adminProcedure.input(jobIdInputSchema).query(({ input }) => getJobById(input.jobId)),
+  backgroundFailures: adminProcedure
+    .input(backgroundFailuresInputSchema)
+    .query(({ input }) => listBackgroundFailures(input)),
+
+  backgroundDetail: adminProcedure.input(jobIdInputSchema).query(({ input }) => getBackgroundJobDetail(input.jobId)),
 
   backgroundEvents: adminProcedure
     .input(incrementalJobEventsInputSchema)
@@ -735,6 +744,10 @@ export const jobRouter = router({
     .mutation(({ input, ctx }) =>
       runBackgroundTaskCommand(() => acknowledgeJobFailureCommand({ ...input, requestedByUserId: ctx.userId }))
     ),
+
+  acknowledgeBackgroundJobFailures: adminProcedure
+    .input(acknowledgeJobFailuresRequestSchema)
+    .mutation(({ input, ctx }) => runBackgroundTaskCommand(() => acknowledgeJobFailuresCommand(input, ctx.userId))),
 
   changeBackgroundJobPriority: adminProcedure
     .input(changeJobPriorityInputSchema)

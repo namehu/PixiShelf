@@ -21,6 +21,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { BackgroundHistoryList } from './background-history-list'
 import { useBackgroundHistory } from './use-background-history'
 import { emptyHistoryFilters } from './background-history-state'
+import { BackgroundFailureList } from './background-failure-list'
+import { useBackgroundFailures } from './use-background-failures'
+import type { AcknowledgeJobFailuresRequest } from '@/services/background-task/job-command-service'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
@@ -80,14 +84,21 @@ export interface BackgroundBatchView {
 }
 
 export function BackgroundTaskConsole() {
-  const dashboardQuery = useBackgroundDashboard()
+  const [activeTab, setActiveTab] = useState<'tasks' | 'failures'>('tasks')
+  const [open, setOpen] = useState(false)
+  const dashboardQuery = useBackgroundDashboard(open && activeTab === 'failures')
   const dashboard = dashboardQuery.data as BackgroundDashboardView | undefined
   const isDesktop = useMediaQuery('(min-width: 768px)')
-  const [open, setOpen] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [historyRefreshVersion, setHistoryRefreshVersion] = useState(0)
-  const history = useBackgroundHistory(open && !selectedJobId, historyRefreshVersion)
+  const history = useBackgroundHistory(open && activeTab === 'tasks' && !selectedJobId, historyRefreshVersion)
+  const failures = useBackgroundFailures(
+    open && activeTab === 'failures' && !selectedJobId,
+    dashboard?.unacknowledgedFailureCount ?? 0,
+    dashboardQuery.refetch
+  )
+  const historyNavigationRequested = useRef(false)
   const [completedNotice, setCompletedNotice] = useState<JobDto | null>(null)
   const previousActiveJobIds = useRef<Set<string> | null>(null)
   const completedNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -127,52 +138,104 @@ export function BackgroundTaskConsole() {
     (dashboard?.runningJob?.id === selectedJobId ? dashboard.runningJob : null)
   const detailQuery = useBackgroundJobDetail(selectedJobId, dashboardSelectedJob ?? null)
   const selectedJob = detailQuery.data
-  const controls = useBackgroundJobControls((job) => {
+  const controls = useBackgroundJobControls(async (job) => {
     setHistoryRefreshVersion((value) => value + 1)
     if (job) setSelectedJobId(job.id)
-    void dashboardQuery.refetch()
-    void detailQuery.refetch()
+    await dashboardQuery.refetch()
+    failures.refresh(true)
+    if (selectedJobId) await detailQuery.refetch()
   })
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen)
-    if (!nextOpen) setSelectedJobId(null)
+    if (nextOpen) setActiveTab('tasks')
+    if (!nextOpen) {
+      setSelectedJobId(null)
+      failures.clearSelection()
+    }
   }
 
   const selectJob = (id: string | null) => {
-    if (id && !selectedJobId && scrollRef.current) history.browsing.current.offset = scrollRef.current.scrollTop
+    const browsing = activeTab === 'tasks' ? history.browsing : failures.browsing
+    if (id && !selectedJobId && scrollRef.current) browsing.current.offset = scrollRef.current.scrollTop
     setSelectedJobId(id)
     if (id && scrollRef.current) scrollRef.current.scrollTop = 0
   }
 
-  const panelContent = dashboard ? (
-    <BackgroundTaskConsoleView
-      dashboard={dashboard}
-      selectedJobId={selectedJobId}
-      selectedJob={selectedJob}
-      selectedJobLoading={detailQuery.isPending && Boolean(selectedJobId)}
-      onSelectJob={selectJob}
-      historyContent={<BackgroundHistoryList history={history} scrollRef={scrollRef} onSelectJob={selectJob} />}
-      onViewFailures={() => {
-        history.changeFilters({ ...emptyHistoryFilters(), statuses: ['FAILED'] })
-        scrollRef.current?.querySelector('#background-history-section')?.scrollIntoView({ block: 'start' })
-      }}
-      onRefresh={() => {
-        void dashboardQuery.refetch()
-        setHistoryRefreshVersion((value) => value + 1)
-        if (selectedJobId) void detailQuery.refetch()
-      }}
-      refreshing={dashboardQuery.isFetching || detailQuery.isFetching}
-      controls={controls}
-      detailError={detailQuery.isError ? detailQuery.error : null}
-      onRetryDetail={() => void detailQuery.refetch()}
-    />
-  ) : (
-    <BackgroundConsoleState
-      loading={dashboardQuery.isPending}
-      error={dashboardQuery.isError ? dashboardQuery.error : null}
-      onRetry={() => void dashboardQuery.refetch()}
-    />
+  const changeTab = (value: string) => {
+    if (value !== 'tasks' && value !== 'failures') return
+    if (!selectedJobId && scrollRef.current) {
+      const browsing = activeTab === 'tasks' ? history.browsing : failures.browsing
+      browsing.current.offset = scrollRef.current.scrollTop
+    }
+    setSelectedJobId(null)
+    setActiveTab(value)
+  }
+  const viewFailureHistory = () => {
+    historyNavigationRequested.current = true
+    changeTab('tasks')
+    history.changeFilters({ ...emptyHistoryFilters(), statuses: ['FAILED'] })
+  }
+
+  useEffect(() => {
+    const container = scrollRef.current
+    const section = container?.querySelector('#background-history-section')
+    if (historyNavigationRequested.current && activeTab === 'tasks' && !selectedJobId && container && section) {
+      historyNavigationRequested.current = false
+      container.scrollTop += section.getBoundingClientRect().top - container.getBoundingClientRect().top
+      history.browsing.current.offset = container.scrollTop
+    }
+  }, [activeTab, selectedJobId, history.generation, history.browsing])
+
+  const panelContent =
+    dashboard && activeTab === 'failures' && !selectedJobId ? (
+      <BackgroundFailureList
+        failures={failures}
+        totalCount={dashboard.unacknowledgedFailureCount}
+        controls={controls}
+        scrollRef={scrollRef}
+        onSelectJob={selectJob}
+        onViewHistory={viewFailureHistory}
+      />
+    ) : dashboard ? (
+      <BackgroundTaskConsoleView
+        dashboard={dashboard}
+        selectedJobId={selectedJobId}
+        selectedJob={selectedJob}
+        selectedJobLoading={detailQuery.isPending && Boolean(selectedJobId)}
+        failureNeedsAttention={detailQuery.failureNeedsAttention}
+        onSelectJob={selectJob}
+        historyContent={<BackgroundHistoryList history={history} scrollRef={scrollRef} onSelectJob={selectJob} />}
+        onRefresh={() => {
+          void dashboardQuery.refetch()
+          setHistoryRefreshVersion((value) => value + 1)
+          if (selectedJobId) void detailQuery.refetch()
+        }}
+        refreshing={dashboardQuery.isFetching || detailQuery.isFetching}
+        controls={controls}
+        detailError={detailQuery.isError ? detailQuery.error : null}
+        onRetryDetail={() => void detailQuery.refetch()}
+      />
+    ) : (
+      <BackgroundConsoleState
+        loading={dashboardQuery.isPending}
+        error={dashboardQuery.isError ? dashboardQuery.error : null}
+        onRetry={() => void dashboardQuery.refetch()}
+      />
+    )
+
+  const tabbedPanel = (
+    <Tabs value={activeTab} onValueChange={changeTab} className="min-h-0 flex-1 gap-0">
+      <div className="shrink-0 border-b px-4 py-3 sm:px-5">
+        <TabsList className="w-full">
+          <TabsTrigger value="tasks">任务</TabsTrigger>
+          <TabsTrigger value="failures">失败（{dashboard?.unacknowledgedFailureCount ?? 0}）</TabsTrigger>
+        </TabsList>
+      </div>
+      <TabsContent key={activeTab} value={activeTab} ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        {panelContent}
+      </TabsContent>
+    </Tabs>
   )
 
   return (
@@ -183,18 +246,16 @@ export function BackgroundTaskConsole() {
         error={dashboardQuery.isError}
         unreadFailureCount={dashboard?.unacknowledgedFailureCount ?? 0}
         completedNotice={completedNotice}
-        onOpen={() => setOpen(true)}
+        onOpen={() => handleOpenChange(true)}
       />
       {isDesktop ? (
         <Sheet open={open} onOpenChange={handleOpenChange}>
           <SheetContent className="w-full gap-0 p-0 sm:max-w-xl xl:max-w-2xl">
             <SheetHeader className="shrink-0 border-b pr-14 text-left">
               <SheetTitle>执行动态</SheetTitle>
-              <SheetDescription>查看正在执行、排队和近期后台任务。</SheetDescription>
+              <SheetDescription>查看任务执行记录与待处理失败。</SheetDescription>
             </SheetHeader>
-            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-              {panelContent}
-            </div>
+            {tabbedPanel}
           </SheetContent>
         </Sheet>
       ) : (
@@ -202,11 +263,9 @@ export function BackgroundTaskConsole() {
           <DrawerContent className="max-h-[92dvh]">
             <DrawerHeader className="shrink-0 border-b text-left">
               <DrawerTitle>执行动态</DrawerTitle>
-              <DrawerDescription>查看正在执行、排队和近期后台任务。</DrawerDescription>
+              <DrawerDescription>查看任务执行记录与待处理失败。</DrawerDescription>
             </DrawerHeader>
-            <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-              {panelContent}
-            </div>
+            {tabbedPanel}
           </DrawerContent>
         </Drawer>
       )}
@@ -359,6 +418,11 @@ export interface BackgroundControlsView {
   resume: { isPending: boolean; mutate: (input: { jobId: string }) => void }
   retry: { isPending: boolean; mutate: (input: { jobId: string }) => void }
   acknowledge: { isPending: boolean; mutate: (input: { jobId: string }) => void }
+  acknowledgeMany: {
+    isPending: boolean
+    mutate: (input: AcknowledgeJobFailuresRequest) => void
+    mutateAsync: (input: AcknowledgeJobFailuresRequest) => Promise<{ acknowledgedCount: number; skippedCount: number }>
+  }
   priority: { isPending: boolean; mutate: (input: { jobId: string; priority: number }) => void }
 }
 
@@ -374,7 +438,7 @@ export function BackgroundTaskConsoleView({
   detailError = null,
   onRetryDetail,
   historyContent,
-  onViewFailures
+  failureNeedsAttention = false
 }: {
   dashboard: BackgroundDashboardView
   selectedJobId?: string | null
@@ -387,13 +451,12 @@ export function BackgroundTaskConsoleView({
   detailError?: { message: string } | null
   onRetryDetail?: () => void
   historyContent?: ReactNode
-  onViewFailures?: () => void
+  failureNeedsAttention?: boolean
 }) {
   const workerSummary = getWorkerSummary(dashboard.workers)
   const running = dashboard.runningJob
   const activeBatch = primaryActiveBatch(dashboard)
   const showingDetail = Boolean(selectedJobId ?? selectedJob?.id)
-  const unacknowledgedFailureIds = new Set(dashboard.unacknowledgedFailures.map((job) => job.id))
 
   return (
     <section aria-labelledby="background-console-title" className="min-w-0">
@@ -451,11 +514,7 @@ export function BackgroundTaskConsoleView({
               正在读取任务详情…
             </div>
           ) : selectedJob ? (
-            <JobDetail
-              job={selectedJob}
-              controls={controls}
-              failureNeedsAttention={unacknowledgedFailureIds.has(selectedJob.id)}
-            />
+            <JobDetail job={selectedJob} controls={controls} failureNeedsAttention={failureNeedsAttention} />
           ) : (
             <div className="p-5 text-sm text-muted-foreground">选择一条近期任务，查看控制项和结构化事件。</div>
           )}
@@ -470,22 +529,6 @@ export function BackgroundTaskConsoleView({
               onSelectJob={onSelectJob}
             />
           </div>
-          {dashboard.unacknowledgedFailureCount > 0 ? (
-            <div className="border-t">
-              <FailureAttentionList
-                jobs={dashboard.unacknowledgedFailures}
-                totalCount={dashboard.unacknowledgedFailureCount}
-                onSelectJob={onSelectJob}
-                onAcknowledge={(jobId) => controls.acknowledge.mutate({ jobId })}
-                acknowledging={controls.acknowledge.isPending}
-              />
-              {onViewFailures ? (
-                <Button type="button" variant="ghost" size="sm" className="mx-4 mb-3" onClick={onViewFailures}>
-                  查看全部失败
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
           <div className="border-t">{historyContent}</div>
           <details className="group border-t">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
@@ -729,78 +772,6 @@ function WorkerInstanceCard({
   )
 }
 
-function FailureAttentionList({
-  jobs,
-  totalCount,
-  onSelectJob,
-  onAcknowledge,
-  acknowledging
-}: {
-  jobs: JobDto[]
-  totalCount: number
-  onSelectJob: (jobId: string) => void
-  onAcknowledge: (jobId: string) => void
-  acknowledging: boolean
-}) {
-  return (
-    <section aria-labelledby="failure-attention-title" className="min-w-0 p-4 sm:p-5">
-      <h3 id="failure-attention-title" className="flex items-center gap-2 text-sm font-semibold text-destructive">
-        <AlertTriangle className="size-4" aria-hidden="true" />
-        待处理失败（{totalCount}）
-      </h3>
-      <p className="mt-1 text-xs text-muted-foreground">失败记录会继续保留；忽略只会关闭这条提醒。</p>
-      {jobs.length > 0 ? (
-        <ul className="mt-3 flex flex-col gap-2">
-          {jobs.map((job) => (
-            <li key={job.id} className="min-w-0 rounded-lg border border-destructive/20 bg-destructive/5 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{formatBackgroundJobType(job.type, job.payload)}</p>
-                  <p className="mt-1 select-text break-all font-mono text-[11px] text-muted-foreground">{job.id}</p>
-                  <p className="mt-1 break-words text-xs text-muted-foreground">
-                    {formatBackgroundDate(job.createdAt)}
-                    {job.errorCode ? ` · ${job.errorCode}` : ''}
-                  </p>
-                  {job.error ? (
-                    <PrivacySensitiveText as="p" className="mt-1 line-clamp-2 break-words text-xs text-destructive">
-                      {job.error}
-                    </PrivacySensitiveText>
-                  ) : null}
-                </div>
-                <AdminStatusBadge status="FAILED">失败</AdminStatusBadge>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={() => onSelectJob(job.id)}>
-                  查看详情
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={acknowledging}
-                  onClick={() => onAcknowledge(job.id)}
-                >
-                  {acknowledging ? (
-                    <Spinner data-icon="inline-start" aria-hidden="true" />
-                  ) : (
-                    <BellOff data-icon="inline-start" aria-hidden="true" />
-                  )}
-                  忽略提醒
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {totalCount > jobs.length ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          当前显示最近 {jobs.length} 项；逐条处理后会继续载入更早的失败。
-        </p>
-      ) : null}
-    </section>
-  )
-}
-
 function JobDetail({
   job,
   controls,
@@ -819,6 +790,7 @@ function JobDetail({
     controls.resume.isPending ||
     controls.retry.isPending ||
     controls.acknowledge.isPending ||
+    controls.acknowledgeMany.isPending ||
     controls.priority.isPending
   const priorityNumber = Number(priority)
   const priorityRange = job.triggerSource === 'MANUAL' || job.triggerSource === 'RETRY' ? [0, 99] : [100, 999]

@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { backgroundJobLabel, backgroundJobTypeLabels, backgroundScanModeLabels } from '@/lib/background-job-labels'
 import { redactArchiveText } from '@/services/archive/archive-redaction'
 import { redactSensitiveText } from './job-redaction'
+import { dashboardVisibleWhere, unacknowledgedFailureWhere } from './job-failure-policy'
 
 const cursorValueSchema = z.object({ createdAt: z.string().datetime(), id: z.string().min(1).max(128) })
 const historyCursorSchema = z
@@ -20,6 +21,11 @@ const historyCursorSchema = z
       return z.NEVER
     }
   })
+
+export const backgroundFailuresInputSchema = z.object({
+  cursor: historyCursorSchema.optional(),
+  limit: z.number().int().min(1).max(100).default(50)
+})
 
 export const backgroundHistoryInputSchema = z
   .object({
@@ -117,16 +123,7 @@ export async function listBackgroundHistory(
 ) {
   const conditions: Prisma.SystemJobWhereInput[] = [{ definitionVersion: { gte: 1 } }]
   if (!parsed.includeBatchChildren) {
-    conditions.push({
-      NOT: {
-        OR: [
-          { type: 'PIXIV_TAG_ENRICHMENT', parentJobId: { not: null } },
-          { type: 'PIXIV_ARTIST_ENRICHMENT', parentJobId: { not: null } },
-          { type: 'PIXIV_ARTWORK_ENRICHMENT', parentJobId: { not: null } },
-          { type: 'PIXIV_SERIES_RECONCILIATION', parentJobId: { not: null } }
-        ]
-      }
-    })
+    conditions.push(dashboardVisibleWhere)
   }
   if (parsed.statuses?.length) conditions.push({ status: { in: parsed.statuses } })
   if (parsed.types?.length) conditions.push({ type: { in: parsed.types } })
@@ -140,6 +137,21 @@ export async function listBackgroundHistory(
     })
   }
   if (parsed.search) conditions.push(historySearchWhere(parsed.search))
+  return listHistoryPage(parsed, conditions, client)
+}
+
+export async function listBackgroundFailures(
+  parsed: z.output<typeof backgroundFailuresInputSchema>,
+  client: HistoryClient = prisma as unknown as HistoryClient
+) {
+  return listHistoryPage(parsed, [unacknowledgedFailureWhere], client)
+}
+
+async function listHistoryPage(
+  parsed: z.output<typeof backgroundFailuresInputSchema>,
+  conditions: Prisma.SystemJobWhereInput[],
+  client: HistoryClient
+) {
   if (parsed.cursor) {
     conditions.push({
       OR: [

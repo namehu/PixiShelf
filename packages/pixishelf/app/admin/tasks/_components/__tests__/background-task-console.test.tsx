@@ -34,6 +34,11 @@ const mocks = vi.hoisted(() => ({
     isPolling: false,
     refetch: vi.fn()
   },
+  clearSelection: vi.fn(),
+  historyEnabled: vi.fn(),
+  failuresEnabled: vi.fn(),
+  changeFilters: vi.fn(),
+  desktop: true,
   confirm: vi.fn()
 }))
 
@@ -46,10 +51,35 @@ vi.mock('@/lib/trpc', () => ({
 }))
 
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: mocks.confirm }))
-vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => true }))
+vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.desktop }))
 
 vi.mock('../use-background-history', () => ({
-  useBackgroundHistory: () => ({ browsing: { current: { offset: 0 } }, changeFilters: vi.fn() })
+  useBackgroundHistory: (enabled: boolean) => {
+    mocks.historyEnabled(enabled)
+    return { browsing: { current: { offset: 0 } }, changeFilters: mocks.changeFilters }
+  }
+}))
+vi.mock('../use-background-failures', () => ({
+  useBackgroundFailures: (enabled: boolean) => {
+    mocks.failuresEnabled(enabled)
+    return { browsing: { current: { offset: 0 } }, refresh: vi.fn(), clearSelection: mocks.clearSelection }
+  }
+}))
+vi.mock('../background-failure-list', () => ({
+  BackgroundFailureList: ({
+    totalCount,
+    onViewHistory,
+    onSelectJob
+  }: {
+    totalCount: number
+    onViewHistory: () => void
+    onSelectJob: (id: string) => void
+  }) => (
+    <div>
+      待处理失败（{totalCount}）<button onClick={onViewHistory}>查看失败历史</button>
+      <button onClick={() => onSelectJob('old-failure')}>查看旧失败</button>
+    </div>
+  )
 }))
 vi.mock('../background-history-list', () => ({ BackgroundHistoryList: () => <div>执行记录</div> }))
 
@@ -189,6 +219,10 @@ function createControls(): BackgroundControlsView {
     resume: mutation(),
     retry: mutation(),
     acknowledge: mutation(),
+    acknowledgeMany: {
+      ...mutation(),
+      mutateAsync: vi.fn().mockResolvedValue({ acknowledgedCount: 1, skippedCount: 0 })
+    },
     priority: mutation()
   }
 }
@@ -207,6 +241,9 @@ describe('background task console', () => {
     mocks.eventQuery.error = null
     mocks.eventQuery.isPolling = false
     mocks.eventQuery.refetch.mockReset()
+    mocks.desktop = true
+    mocks.clearSelection.mockClear()
+    mocks.changeFilters.mockClear()
     mocks.confirm.mockReset()
   })
 
@@ -688,36 +725,40 @@ describe('background task console', () => {
 
     expect(dock.isConnected).toBe(true)
     expect(dock.textContent).toContain('1 项失败')
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByText('待处理失败（1）')).toBeNull()
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '失败（1）' }), { button: 0 })
     expect(screen.getByText('待处理失败（1）')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '忽略提醒' })).toBeTruthy()
+    expect(mocks.historyEnabled).toHaveBeenLastCalledWith(false)
+    expect(mocks.failuresEnabled).toHaveBeenLastCalledWith(true)
   })
 
-  it('offers per-job failure acknowledgement independently of the history list', () => {
-    const failed = createJob('FAILED', 'job-attention-action')
-    const controls = createControls()
-    const selectJob = vi.fn()
-    render(
-      <BackgroundTaskConsoleView
-        dashboard={createDashboard({
-          unacknowledgedFailureCount: 12,
-          unacknowledgedFailures: [failed],
-          recentJobs: [failed]
-        })}
-        selectedJob={null}
-        selectedJobLoading={false}
-        onSelectJob={selectJob}
-        onRefresh={vi.fn()}
-        refreshing={false}
-        controls={controls}
-      />
-    )
+  it('returns to tasks after closing and routes failure history without changing notification state', () => {
+    mocks.dashboardQuery.data = createDashboard({ unacknowledgedFailureCount: 2 })
+    render(<BackgroundTaskConsole />)
+    fireEvent.click(screen.getByRole('button', { name: '2 项失败' }))
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '失败（2）' }), { button: 0 })
+    fireEvent.click(screen.getByRole('button', { name: '查看失败历史' }))
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+    expect(mocks.changeFilters).toHaveBeenCalledWith(expect.objectContaining({ statuses: ['FAILED'], search: '' }))
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '失败（2）' }), { button: 0 })
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(mocks.clearSelection).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: '2 项失败' }))
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+  })
 
-    expect(screen.getByText('当前显示最近 1 项；逐条处理后会继续载入更早的失败。')).toBeTruthy()
-    expect(screen.getAllByText('视频媒体探测与封面生成')).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
-    expect(selectJob).toHaveBeenCalledWith(failed.id)
-    fireEvent.click(screen.getByRole('button', { name: '忽略提醒' }))
-    expect(controls.acknowledge.mutate).toHaveBeenCalledWith({ jobId: failed.id })
+  it('offers the same task and failure tabs in the mobile drawer without switching on new failures', () => {
+    mocks.desktop = false
+    mocks.dashboardQuery.data = createDashboard({ unacknowledgedFailureCount: 1 })
+    const { rerender } = render(<BackgroundTaskConsole />)
+    fireEvent.click(screen.getByRole('button', { name: '1 项失败' }))
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+    mocks.dashboardQuery.data = createDashboard({ unacknowledgedFailureCount: 3 })
+    rerender(<BackgroundTaskConsole />)
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '失败（3）' }), { button: 0 })
+    expect(screen.getByText('待处理失败（3）')).toBeTruthy()
   })
 
   it('shows the acknowledgement action in an unacknowledged failed job detail', () => {
@@ -732,6 +773,7 @@ describe('background task console', () => {
         })}
         selectedJobId={failed.id}
         selectedJob={failed}
+        failureNeedsAttention
         selectedJobLoading={false}
         onSelectJob={vi.fn()}
         onRefresh={vi.fn()}

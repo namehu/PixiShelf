@@ -9,14 +9,14 @@ import { ACTIVE_JOB_STATUSES, mergeJobEvents } from './background-task-format'
 import { useOptionalBackgroundJobEventSubscription as useLiveJobEvents } from '../../_components/background-job-event-provider'
 import { collectUnseenLiveEvents, mergeLiveJobSnapshot, type LiveEventCursor } from './live-event-reconciliation'
 
-export function useBackgroundDashboard() {
+export function useBackgroundDashboard(watchFailures = false) {
   const trpc = useTRPC()
   const live = useLiveJobEvents()
   const liveEventCursor = useRef<LiveEventCursor>({ resetVersion: 0, eventId: null })
   const query = useQuery(
     trpc.job.backgroundDashboard.queryOptions(undefined, {
       refetchInterval: (query) => {
-        if (live.status === 'connected') return false
+        if (live.status === 'connected') return watchFailures ? 30_000 : false
         const dashboard = query.state.data
         return dashboard && (dashboard.activeCount > 0 || dashboard.queuedCount > 0) ? 3_000 : 30_000
       }
@@ -181,9 +181,14 @@ export function useBackgroundJobDetail(jobId: string | null, dashboardJob: JobDt
   const currentDashboardJob = dashboardJob?.id === jobId ? dashboardJob : null
   const reconciled = reconcileBackgroundJobDetail(currentDetail, currentDashboardJob)
   const liveJob = live.items.at(-1)?.job
+  useEffect(() => {
+    if (jobId && liveJob?.id === jobId && liveJob.status !== currentDetail?.status) void query.refetch()
+  }, [jobId, liveJob?.id, liveJob?.status, currentDetail?.status, query.refetch])
   return {
     ...query,
-    data: reconciled ? mergeLiveJobSnapshot(reconciled, liveJob) : reconciled
+    data: reconciled ? mergeLiveJobSnapshot(reconciled, liveJob) : reconciled,
+    // Acknowledgements do not change SystemJob.updatedAt; keep this flag separate from live snapshots.
+    failureNeedsAttention: currentDetail?.failureNeedsAttention ?? false
   }
 }
 
@@ -201,12 +206,12 @@ function patchDashboardJobs<
   }
 }
 
-export function useBackgroundJobControls(onSuccess: (job?: JobDto) => void) {
+export function useBackgroundJobControls(onSuccess: (job?: JobDto) => void | Promise<void>) {
   const trpc = useTRPC()
   const common = (message: string) => ({
-    onSuccess: (job: JobDto) => {
+    onSuccess: async (job: JobDto) => {
       toast.success(message)
-      onSuccess(job)
+      await onSuccess(job)
     },
     onError: (error: { message: string }) => {
       toast.error(`操作失败：${error.message}`)
@@ -218,16 +223,31 @@ export function useBackgroundJobControls(onSuccess: (job?: JobDto) => void) {
   const retry = useMutation(trpc.job.retryBackgroundJob.mutationOptions(common('重试任务已加入队列')))
   const acknowledge = useMutation(
     trpc.job.acknowledgeBackgroundJobFailure.mutationOptions({
-      onSuccess: () => {
+      onSuccess: async () => {
         toast.success('提醒已忽略，失败记录仍保留')
-        onSuccess()
+        await onSuccess()
       },
       onError: (error: { message: string }) => {
         toast.error(`操作失败：${error.message}`)
       }
     })
   )
+  const acknowledgeMany = useMutation(
+    trpc.job.acknowledgeBackgroundJobFailures.mutationOptions({
+      retry: false,
+      onSuccess: async (result) => {
+        toast.success(`已忽略 ${result.acknowledgedCount} 条失败提醒`, {
+          description:
+            result.skippedCount > 0
+              ? `${result.skippedCount} 条已处理或不再符合条件，失败记录仍保留。`
+              : '失败记录仍保留。'
+        })
+        await onSuccess()
+      },
+      onError: (error) => toast.error(`操作失败：${error.message}`)
+    })
+  )
   const priority = useMutation(trpc.job.changeBackgroundJobPriority.mutationOptions(common('队列优先级已更新')))
 
-  return { cancel, pause, resume, retry, acknowledge, priority }
+  return { cancel, pause, resume, retry, acknowledge, acknowledgeMany, priority }
 }
