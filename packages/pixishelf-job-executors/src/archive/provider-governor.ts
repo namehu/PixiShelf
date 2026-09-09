@@ -20,7 +20,7 @@ export interface ArchiveProviderPermit {
 }
 
 export interface ArchiveProviderAcquireOptions {
-  yieldToDownloads?: boolean
+  yieldOnPenalty?: boolean
   maxConcurrentDownloads?: number
 }
 
@@ -85,7 +85,7 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
       const now = this.now()
       let decision:
         | { permit: ArchiveProviderPermit }
-        | { waitUntil: Date; reason: 'PENALTY' | 'INTERVAL' | 'DOWNLOAD_ACTIVE' | 'DOWNLOAD_CAPACITY' }
+        | { waitUntil: Date; reason: 'PENALTY' | 'INTERVAL' | 'DOWNLOAD_CAPACITY' }
       try {
         decision = await this.database.$transaction(
           async (transaction) => {
@@ -117,9 +117,8 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
             if (state.nextRequestAt.getTime() > now.getTime()) {
               return { waitUntil: state.nextRequestAt, reason: 'INTERVAL' as const }
             }
-            if (requestClass === 'RESOLVE' && activeDownloads.length > 0) {
-              return { waitUntil: activeDownloads[0]!.expiresAt, reason: 'DOWNLOAD_ACTIVE' as const }
-            }
+            // Read requests share the provider interval and penalty, but active
+            // media streams only consume DOWNLOAD capacity.
             if (requestClass === 'DOWNLOAD' && activeDownloads.length >= maxConcurrentDownloads) {
               return { waitUntil: activeDownloads[0]!.expiresAt, reason: 'DOWNLOAD_CAPACITY' as const }
             }
@@ -159,23 +158,16 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
       if ('permit' in decision) return decision.permit
       if (
         (requestClass === 'RESOLVE' || requestClass === 'SEARCH') &&
-        options.yieldToDownloads &&
-        (decision.reason === 'DOWNLOAD_ACTIVE' || decision.reason === 'PENALTY')
+        options.yieldOnPenalty &&
+        decision.reason === 'PENALTY'
       ) {
-        // Resolver work yields explicitly instead of sleeping behind an active
-        // download; this lets the queue retry it without consuming an attempt.
+        // Return a real provider cooldown to the queue instead of occupying
+        // the read lane while sleeping through the penalty.
         const blockedMs = Math.max(1_000, decision.waitUntil.getTime() - this.now().getTime())
-        throw new ArchiveExecutorError(
-          'REMOTE_RATE_LIMITED',
-          decision.reason === 'PENALTY'
-            ? '来源站点仍处于请求限流等待期'
-            : '归档下载正在优先使用来源站点请求额度，当前任务稍后自动重试',
-          {
-            recoverable: true,
-            decisionCode: decision.reason === 'DOWNLOAD_ACTIVE' ? 'PROVIDER_DOWNLOAD_PRIORITY' : null,
-            retryAfterMs: decision.reason === 'PENALTY' ? blockedMs : Math.min(5_000, blockedMs)
-          }
-        )
+        throw new ArchiveExecutorError('REMOTE_RATE_LIMITED', '来源站点仍处于请求限流等待期', {
+          recoverable: true,
+          retryAfterMs: blockedMs
+        })
       }
       const maximumWaitMs = decision.reason === 'DOWNLOAD_CAPACITY' ? 100 : 5_000
       const waitMs = Math.max(25, Math.min(maximumWaitMs, decision.waitUntil.getTime() - this.now().getTime()))
@@ -286,7 +278,7 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
         ...context,
         signal: linked.controller.signal,
         runResolveRequest: (operation) =>
-          this.runWithPermit('RESOLVE', linked.controller, operation, { yieldToDownloads: true })
+          this.runWithPermit('RESOLVE', linked.controller, operation, { yieldOnPenalty: true })
       })
     } finally {
       linked.dispose()
@@ -307,7 +299,7 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
         ...context,
         signal: linked.controller.signal,
         runSearchRequest: (operation) =>
-          this.runWithPermit('SEARCH', linked.controller, operation, { yieldToDownloads: true })
+          this.runWithPermit('SEARCH', linked.controller, operation, { yieldOnPenalty: true })
       })
     } finally {
       linked.dispose()
@@ -327,7 +319,7 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
         ...context,
         signal: linked.controller.signal,
         runSearchRequest: (operation) =>
-          this.runWithPermit('SEARCH', linked.controller, operation, { yieldToDownloads: true })
+          this.runWithPermit('SEARCH', linked.controller, operation, { yieldOnPenalty: true })
       })
     } finally {
       linked.dispose()

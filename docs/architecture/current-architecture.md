@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前 workspace、运行组件、依赖方向、数据边界和关键调用链
-last-verified: 2026-09-05
+last-verified: 2026-09-09
 sources:
   - package.json
   - pnpm-workspace.yaml
@@ -231,7 +231,7 @@ v3 apply；生产开放新写入口前仍须确认新 Worker 同时报告 SCAN v
 writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待允许同一 Node.js 事件循环交替推进两项工作，但
 不构成纯 JavaScript CPU 并行承诺。
 
-上传者 `SEARCH` 与 writer lane 的媒体下载可以并行；二者仍共享 Provider 的持久请求间隔和 penalty。普通归档 `RESOLVE` 继续在活动下载期间让行，避免改变现有解析/下载优先级契约。
+上传者/关键词 `SEARCH`、普通归档 `RESOLVE` 均可在 writer lane 的媒体下载期间发起请求；它们共享 Provider 的持久请求间隔和 penalty。活跃下载 lease 只占用下载并发容量，不阻止读取请求。普通请求默认间隔 250ms，`SEARCH` 获准后设置 3 秒间隔；真实站点冷却仍使读取任务退避。此机制解除下载对解析的硬阻塞，不承诺请求严格轮转或防饥饿。
 
 归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。默认启用、显示时间为 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。默认启用、显示时间为 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及过期预览会话，不删除领域归档、作品或媒体；两者在中央模式下仍按统一调度窗口和优先级执行。
 

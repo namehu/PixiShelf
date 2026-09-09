@@ -14,6 +14,8 @@ import {
 } from '@pixishelf/job-runtime'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { executeArchiveResolveItem } from '../resolver-executor.js'
+import { GovernedArchiveProviderRegistry, PostgresArchiveProviderGovernor } from '../provider-governor.js'
+import { DefaultArchiveMediaProviderRegistry } from '../provider-registry.js'
 import type { ArchiveProvider, ResolvedArchive } from '../types.js'
 
 const databaseUrl =
@@ -244,6 +246,69 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     expect(
       await db().archiveImport.count({ where: { providerKey: resolved.providerKey, externalId: resolved.externalId } })
     ).toBe(1)
+  })
+
+  it('resolves and automatically enqueues exactly once while the same provider download capacity is full', async () => {
+    const clock = new MutableQueueClock(new Date('2026-09-09T10:00:00.000Z'))
+    const { jobId, itemId } = await seedResolverItem(clock.now())
+    await db().archiveIntakeItem.update({ where: { id: itemId }, data: { downloadMode: 'AUTO' } })
+    const repository = createRepository(clock)
+    const claim = (await repository.claim('auto-during-download', capabilities))!
+    const context = executionContext(repository, claim)
+    const providerKey = `auto-${randomUUID()}`
+    await db().archiveProviderThrottle.create({ data: { providerKey, nextRequestAt: clock.now() } })
+    const governor = new PostgresArchiveProviderGovernor(db(), {
+      now: () => clock.now(),
+      sleep: async (milliseconds) => {
+        clock.advance(milliseconds)
+      },
+      maxConcurrentDownloads: 1
+    })
+    const resolveRequest = vi.fn(async () => ({ ...resolved, providerKey }))
+    const testProvider: ArchiveProvider = {
+      key: providerKey,
+      requestGovernance: 'PER_REQUEST',
+      accepts: () => true,
+      resolve: async (_url, providerContext) => providerContext!.runResolveRequest!(resolveRequest),
+      openMedia: vi.fn()
+    }
+    const providers = new GovernedArchiveProviderRegistry(
+      new DefaultArchiveMediaProviderRegistry([testProvider]),
+      governor
+    )
+    const downloadPermit = await governor.acquire(providerKey, 'DOWNLOAD', context.signal)
+    try {
+      const dependencies = {
+        database: db(),
+        providers,
+        now: () => clock.now(),
+        uuid: () => `${testPrefix}-${randomUUID()}`
+      }
+      await executeArchiveResolveItem(context, dependencies)
+      expect(resolveRequest).toHaveBeenCalledOnce()
+      const item = await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })
+      expect(item).toMatchObject({ status: 'ENQUEUED', resolutionKind: 'NEW', errorCode: null })
+      expect(await db().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({
+        status: 'COMPLETED',
+        attempt: 1
+      })
+      const download = await db().archiveImport.findUniqueOrThrow({
+        where: { id: item.archiveImportId! },
+        include: { systemJob: true }
+      })
+      expect(download.systemJob).toMatchObject({
+        type: 'ARCHIVE_IMPORT',
+        status: 'PENDING',
+        executionLane: 'BACKGROUND_WRITER'
+      })
+      expect(await db().archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })).toBe(1)
+      await expect(executeArchiveResolveItem(context, dependencies)).rejects.toBeInstanceOf(JobExecutionFenceError)
+      expect(await db().archiveImport.count({ where: { providerKey } })).toBe(1)
+      expect(await db().systemJobEvent.count({ where: { jobId: download.systemJobId!, type: 'job.queued' } })).toBe(1)
+    } finally {
+      await governor.release(downloadPermit)
+      await db().archiveProviderThrottle.delete({ where: { providerKey } })
+    }
   })
 
   it.each(['UPDATE', 'UNCHANGED'] as const)('AUTO %s never creates a new download', async (classification) => {

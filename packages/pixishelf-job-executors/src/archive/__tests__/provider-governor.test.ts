@@ -66,18 +66,13 @@ describe('PostgresArchiveProviderGovernor', () => {
     expect(sleep).not.toHaveBeenCalled()
   })
 
-  it.each([
-    [
-      'DOWNLOAD_ACTIVE',
-      new Date('2026-08-18T10:01:00.000Z'),
-      'PROVIDER_DOWNLOAD_PRIORITY',
-      '归档下载正在优先使用来源站点请求额度，当前任务稍后自动重试'
-    ],
-    ['PENALTY', new Date('2026-08-18T10:10:00.000Z'), null, '来源站点仍处于请求限流等待期']
-  ] as const)(
-    'fails resolver acquisition fast for %s instead of polling while RUNNING',
-    async (reason, waitUntil, decisionCode, message) => {
-      const transaction = vi.fn().mockResolvedValue({ reason, waitUntil })
+  it.each(['RESOLVE', 'SEARCH'] as const)(
+    'yields %s acquisition during a real provider penalty instead of polling while RUNNING',
+    async (requestClass) => {
+      const transaction = vi.fn().mockResolvedValue({
+        reason: 'PENALTY',
+        waitUntil: new Date('2026-08-18T10:10:00.000Z')
+      })
       const sleep = vi.fn(async () => undefined)
       const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, {
         now: () => new Date('2026-08-18T10:00:00.000Z'),
@@ -85,47 +80,60 @@ describe('PostgresArchiveProviderGovernor', () => {
       })
 
       await expect(
-        governor.acquire('test', 'RESOLVE', new AbortController().signal, { yieldToDownloads: true })
-      ).rejects.toMatchObject({ code: 'REMOTE_RATE_LIMITED', message, recoverable: true, decisionCode })
+        governor.acquire('test', requestClass, new AbortController().signal, { yieldOnPenalty: true })
+      ).rejects.toMatchObject({
+        code: 'REMOTE_RATE_LIMITED',
+        message: '来源站点仍处于请求限流等待期',
+        recoverable: true,
+        decisionCode: null,
+        retryAfterMs: 600_000
+      })
       expect(sleep).not.toHaveBeenCalled()
     }
   )
 
-  it('grants a SEARCH permit while a download stream lease is active', async () => {
-    const now = new Date('2026-08-18T10:00:00.000Z')
-    const requestLeaseCreate = vi.fn(async () => ({}))
-    const transactionClient = {
-      archiveProviderThrottle: {
-        upsert: vi.fn(async () => ({})),
-        update: vi.fn(async () => ({}))
-      },
-      archiveProviderRequestLease: {
-        deleteMany: vi.fn(async () => ({ count: 0 })),
-        findMany: vi.fn(async () => [{ expiresAt: new Date('2026-08-18T10:05:00.000Z') }]),
-        create: requestLeaseCreate
-      },
-      $queryRawUnsafe: vi.fn(async () => [{ nextRequestAt: now, penaltyUntil: null }])
-    }
-    const database = {
-      $transaction: vi.fn(async (operation: (transaction: typeof transactionClient) => Promise<unknown>) =>
-        operation(transactionClient)
-      )
-    }
-    const sleep = vi.fn(async () => undefined)
-    const governor = new PostgresArchiveProviderGovernor(database as unknown as PrismaClient, {
-      now: () => now,
-      sleep
-    })
+  it.each(['RESOLVE', 'SEARCH'] as const)(
+    'grants a %s permit while download capacity is full',
+    async (requestClass) => {
+      const now = new Date('2026-08-18T10:00:00.000Z')
+      const requestLeaseCreate = vi.fn(async () => ({}))
+      const transactionClient = {
+        archiveProviderThrottle: {
+          upsert: vi.fn(async () => ({})),
+          update: vi.fn(async () => ({}))
+        },
+        archiveProviderRequestLease: {
+          deleteMany: vi.fn(async () => ({ count: 0 })),
+          findMany: vi.fn(async () =>
+            Array.from({ length: 2 }, () => ({ expiresAt: new Date('2026-08-18T10:05:00.000Z') }))
+          ),
+          create: requestLeaseCreate
+        },
+        $queryRawUnsafe: vi.fn(async () => [{ nextRequestAt: now, penaltyUntil: null }])
+      }
+      const database = {
+        $transaction: vi.fn(async (operation: (transaction: typeof transactionClient) => Promise<unknown>) =>
+          operation(transactionClient)
+        )
+      }
+      const sleep = vi.fn(async () => undefined)
+      const governor = new PostgresArchiveProviderGovernor(database as unknown as PrismaClient, {
+        now: () => now,
+        sleep
+      })
 
-    await expect(governor.acquire('e-hentai', 'SEARCH', new AbortController().signal)).resolves.toMatchObject({
-      providerKey: 'e-hentai',
-      requestClass: 'SEARCH'
-    })
-    expect(requestLeaseCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({ providerKey: 'e-hentai', requestClass: 'SEARCH' })
-    })
-    expect(sleep).not.toHaveBeenCalled()
-  })
+      await expect(
+        governor.acquire('e-hentai', requestClass, new AbortController().signal, { yieldOnPenalty: true })
+      ).resolves.toMatchObject({
+        providerKey: 'e-hentai',
+        requestClass
+      })
+      expect(requestLeaseCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ providerKey: 'e-hentai', requestClass })
+      })
+      expect(sleep).not.toHaveBeenCalled()
+    }
+  )
 
   it('checks download capacity again quickly while an ended stream permit is being released', async () => {
     const permit = createPermit('DOWNLOAD')
@@ -172,9 +180,9 @@ describe('GovernedArchiveProviderRegistry', () => {
     expect(governor.acquire).toHaveBeenCalledTimes(3)
     expect(governor.acquire.mock.calls.map((call) => call[1])).toEqual(['SEARCH', 'SEARCH', 'SEARCH'])
     expect(governor.acquire.mock.calls.map((call) => call[3])).toEqual([
-      { yieldToDownloads: true },
-      { yieldToDownloads: true },
-      { yieldToDownloads: true }
+      { yieldOnPenalty: true },
+      { yieldOnPenalty: true },
+      { yieldOnPenalty: true }
     ])
     expect(governor.release).toHaveBeenCalledTimes(3)
   })
@@ -206,7 +214,7 @@ describe('GovernedArchiveProviderRegistry', () => {
     expect(http.text).toHaveBeenCalledOnce()
     expect(governor.acquire).toHaveBeenCalledTimes(2)
     expect(governor.acquire).toHaveBeenNthCalledWith(1, 'e-hentai', 'RESOLVE', expect.any(AbortSignal), {
-      yieldToDownloads: true
+      yieldOnPenalty: true
     })
     expect(governor.release).toHaveBeenCalledTimes(2)
   })
@@ -369,7 +377,7 @@ function createGovernor(options: { renewAfterMs?: number } = {}) {
         _providerKey: string,
         requestClass: 'SEARCH' | 'RESOLVE' | 'DOWNLOAD',
         _signal: AbortSignal,
-        _options?: { yieldToDownloads?: boolean; maxConcurrentDownloads?: number }
+        _options?: { yieldOnPenalty?: boolean; maxConcurrentDownloads?: number }
       ) => createPermit(requestClass, options.renewAfterMs)
     ),
     renew: vi.fn(async (_permit: ArchiveProviderPermit) => undefined),
