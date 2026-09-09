@@ -4,7 +4,7 @@ import { AUTO_BROWSE_STORAGE_KEY, useArtworkAutoBrowseStore as store } from '../
 describe('artwork auto browse store', () => {
   beforeEach(() => {
     store.getState().initialize(1)
-    store.getState().setPreferences({ scrollSpeed: 40, slideSeconds: 5, loop: false })
+    store.getState().setPreferences({ scrollSpeed: 40, slideSeconds: 1.5, loop: false })
     localStorage.clear()
   })
 
@@ -43,7 +43,7 @@ describe('artwork auto browse store', () => {
   it('persists only preferences and ignores injected playback state during hydration', async () => {
     store.getState().start('scroll')
     const saved = JSON.parse(localStorage.getItem(AUTO_BROWSE_STORAGE_KEY)!)
-    expect(saved.state).toEqual({ scrollSpeed: 40, slideSeconds: 5, loop: false })
+    expect(saved.state).toEqual({ scrollSpeed: 50, slideSeconds: 1.5, loop: false })
     localStorage.setItem(
       AUTO_BROWSE_STORAGE_KEY,
       JSON.stringify({
@@ -63,8 +63,8 @@ describe('artwork auto browse store', () => {
     expect(store.getState()).toMatchObject({
       artworkId: 1,
       mode: 'scroll',
-      scrollSpeed: 80,
-      slideSeconds: 8,
+      scrollSpeed: 100,
+      slideSeconds: 3,
       loop: true
     })
     expect(typeof store.getState().start).toBe('function')
@@ -72,10 +72,32 @@ describe('artwork auto browse store', () => {
 
   it('bounds invalid settings and falls back after malformed storage', async () => {
     store.getState().setPreferences({ scrollSpeed: Infinity, slideSeconds: -5 })
-    expect(store.getState()).toMatchObject({ scrollSpeed: 40, slideSeconds: 2 })
+    expect(store.getState()).toMatchObject({ scrollSpeed: 50, slideSeconds: 0.5 })
+    store.getState().setPreferences({ slideSeconds: 1.7 })
+    expect(store.getState().slideSeconds).toBe(1.5)
     localStorage.setItem(AUTO_BROWSE_STORAGE_KEY, '{broken')
     await store.persist.rehydrate()
     store.getState().start('scroll')
     expect(store.getState().status).toBe('running')
+  })
+
+  it('normalizes scroll speeds to fifty-pixel steps up to eight hundred', () => {
+    store.getState().setPreferences({ scrollSpeed: 775 })
+    expect(store.getState().scrollSpeed).toBe(800)
+    store.getState().setPreferences({ scrollSpeed: 900 })
+    expect(store.getState().scrollSpeed).toBe(800)
+    store.getState().setPreferences({ scrollSpeed: 40 })
+    expect(store.getState().scrollSpeed).toBe(50)
+  })
+
+  it('stops preview playback on close without starting page scrolling', () => {
+    store.getState().start('slideshow')
+    store.getState().setPreviewOpen(true)
+    store.getState().closePreview()
+    expect(store.getState()).toMatchObject({ mode: null, status: 'idle', previewOpen: false })
+    store.getState().start('scroll')
+    store.getState().setPreviewOpen(true)
+    store.getState().closePreview()
+    expect(store.getState()).toMatchObject({ mode: 'scroll', status: 'paused' })
   })
 })

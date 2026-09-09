@@ -54,7 +54,9 @@ function isPlayableAnimatedWebp(media: ArtworkImageResponseDto) {
 }
 
 export function canPreloadAdaptiveNeighbor(media: ArtworkImageResponseDto, environment: AdaptivePreloadEnvironment) {
-  return canPreloadAdaptedImage({ ...media, isAnimated: isAnimatedMedia(media) }, environment)
+  // WebP/GIF preview requests resolve to static JPG posters, never animation originals.
+  const staticPoster = isWebpFile(media.path) || isGifFile(media.path)
+  return canPreloadAdaptedImage({ ...media, isAnimated: !staticPoster && isAnimatedMedia(media) }, environment)
 }
 
 function clampIndex(index: number, length: number) {
@@ -180,7 +182,7 @@ export default function AdaptiveMediaPreview({
   const activePlayableWebp = useMemo(() => (activeMedia ? isPlayableAnimatedWebp(activeMedia) : false), [activeMedia])
   const eagerNeighborIndexes = useMemo(() => {
     const indexes = new Set<number>()
-    for (const index of [currentIndex - 1, currentIndex + 1]) {
+    for (const index of [currentIndex - 1, currentIndex + 1, currentIndex + 2]) {
       const media = images[index]
       if (media && canPreloadAdaptiveNeighbor(media, preloadEnvironment)) indexes.add(index)
     }
@@ -342,7 +344,6 @@ export default function AdaptiveMediaPreview({
           {images.map((media, index) => {
             const animated = isAnimatedMedia(media)
             const playableAnimatedWebp = isPlayableAnimatedWebp(media)
-            const showAnimatedWebpPlayer = index === currentIndex && playableAnimatedWebp
             const eager = index === currentIndex || eagerNeighborIndexes.has(index)
             const priority = index === safeInitialIndex
             const decoded = decodedIndexes.has(previewResourceKey(media))
@@ -372,7 +373,7 @@ export default function AdaptiveMediaPreview({
                       )}
                     />
                   )}
-                  {showAnimatedWebpPlayer ? (
+                  {playableAnimatedWebp ? (
                     <AnimatedWebpPlayer
                       key={`${media.path}:${media.updatedAt}:${retryCounts[index] ?? 0}`}
                       src={media.path}
@@ -381,11 +382,13 @@ export default function AdaptiveMediaPreview({
                       isAnimated
                       updatedAt={media.updatedAt}
                       fillContainer
-                      posterLoading="eager"
+                      posterLoading={eager ? 'eager' : 'lazy'}
                       controlMode="external"
-                      playing={isWebpPlaying}
-                      onPlayingChange={setIsWebpPlaying}
-                      onPosterLoad={() => markImageDecoded(index)}
+                      playing={index === currentIndex && isWebpPlaying}
+                      onPlayingChange={(playing) => {
+                        if (index === currentIndex) setIsWebpPlaying(playing)
+                      }}
+                      onPosterLoad={(image) => handleImageLoad(index, image)}
                       onPosterError={() =>
                         setErrorIndexes((current) => new Set(current).add(previewResourceKey(media)))
                       }

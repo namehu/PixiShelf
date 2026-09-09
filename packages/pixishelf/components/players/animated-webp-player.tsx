@@ -18,7 +18,7 @@ interface AnimatedWebpPlayerProps {
   updatedAt?: string | null
   fillContainer?: boolean
   posterLoading?: 'eager' | 'lazy'
-  onPosterLoad?: () => void
+  onPosterLoad?: (image: HTMLImageElement) => void
   onPosterError?: () => void
   controlMode?: AnimatedWebpPlayerControlMode
   playing?: boolean
@@ -196,7 +196,7 @@ export default function AnimatedWebpPlayer({
         decoding="async"
         draggable={false}
         className={cn('block w-full object-contain', fillContainer ? 'h-full' : 'h-auto')}
-        onLoad={onPosterLoad}
+        onLoad={(event) => onPosterLoad?.(event.currentTarget)}
         onError={onPosterError}
       />
 

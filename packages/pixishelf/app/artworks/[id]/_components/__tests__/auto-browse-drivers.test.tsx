@@ -9,7 +9,7 @@ import { useAutoBrowseInterruption } from '../use-auto-browse-interruption'
 beforeEach(() => {
   vi.useFakeTimers()
   store.getState().initialize(1)
-  store.getState().setPreferences({ scrollSpeed: 40, slideSeconds: 5, loop: false })
+  store.getState().setPreferences({ scrollSpeed: 40, slideSeconds: 0.5, loop: false })
   localStorage.clear()
 })
 afterEach(() => {
@@ -46,7 +46,7 @@ describe('slideshow clock', () => {
     act(() => vi.advanceTimersByTime(10000))
     expect(onNext).not.toHaveBeenCalled()
     rerender({ ...props, ready: true })
-    act(() => vi.advanceTimersByTime(4999))
+    act(() => vi.advanceTimersByTime(499))
     expect(onNext).not.toHaveBeenCalled()
     act(() => vi.advanceTimersByTime(1))
     expect(onNext).toHaveBeenCalledTimes(1)
@@ -54,12 +54,12 @@ describe('slideshow clock', () => {
   it('cancels immediately on pause and restarts the full interval on resume', () => {
     const { rerender, props, onNext } = setup()
     rerender({ ...props, ready: true })
-    act(() => vi.advanceTimersByTime(4000))
+    act(() => vi.advanceTimersByTime(400))
     act(() => store.getState().pause())
     act(() => vi.advanceTimersByTime(10000))
     expect(onNext).not.toHaveBeenCalled()
     act(() => store.getState().resume())
-    act(() => vi.advanceTimersByTime(4999))
+    act(() => vi.advanceTimersByTime(499))
     expect(onNext).not.toHaveBeenCalled()
     act(() => vi.advanceTimersByTime(1))
     expect(onNext).toHaveBeenCalledTimes(1)
@@ -78,18 +78,18 @@ describe('slideshow clock', () => {
   it('stops at the end, loops only when enabled, and cleans up on unmount', () => {
     const { rerender, props, onFirst, onNext, unmount } = setup()
     rerender({ ...props, index: 2, ready: true })
-    act(() => vi.advanceTimersByTime(5000))
+    act(() => vi.advanceTimersByTime(500))
     expect(store.getState().status).toBe('ended')
     expect(onFirst).not.toHaveBeenCalled()
     act(() => {
       store.getState().setPreferences({ loop: true })
       store.getState().resume()
     })
-    act(() => vi.advanceTimersByTime(5000))
+    act(() => vi.advanceTimersByTime(500))
     expect(onFirst).toHaveBeenCalledTimes(1)
     rerender({ ...props, index: 0, ready: true })
     unmount()
-    act(() => vi.advanceTimersByTime(5000))
+    act(() => vi.advanceTimersByTime(500))
     expect(onNext).not.toHaveBeenCalled()
   })
   it('rejects a timer from a different artwork session', () => {
@@ -159,11 +159,11 @@ describe('scroll driver', () => {
   })
   it('accumulates fractional low-speed movement and clamps long frames', () => {
     const { advance, getY } = setup()
-    act(() => store.getState().setPreferences({ scrollSpeed: 10 }))
+    act(() => store.getState().setPreferences({ scrollSpeed: 50 }))
     for (let time = 0; time <= 1000; time += 10) advance(time)
-    expect(getY()).toBe(10)
+    expect(getY()).toBe(50)
     advance(100000)
-    expect(getY()).toBeLessThanOrEqual(11)
+    expect(getY()).toBeLessThanOrEqual(54)
   })
   it('waits for media, continues on load and pauses on an error', () => {
     const { advance, getY, container } = setup({ status: 'loading' })
@@ -224,8 +224,8 @@ describe('human takeover', () => {
     const { unmount } = renderHook(() => useAutoBrowseInterruption(4))
     expect(store.getState()).toMatchObject({
       artworkId: 4,
-      scrollSpeed: 80,
-      slideSeconds: 8,
+      scrollSpeed: 100,
+      slideSeconds: 3,
       loop: true,
       status: 'idle'
     })
@@ -238,6 +238,6 @@ describe('human takeover', () => {
     act(() => window.dispatchEvent(new Event('pagehide')))
     expect(store.getState()).toMatchObject({ status: 'paused', reason: 'hidden' })
     unmount()
-    expect(store.getState()).toMatchObject({ artworkId: null, status: 'idle', scrollSpeed: 80 })
+    expect(store.getState()).toMatchObject({ artworkId: null, status: 'idle', scrollSpeed: 100 })
   })
 })

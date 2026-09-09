@@ -427,12 +427,14 @@ function PreviewContextMenu({
   images,
   onOpenChange,
   onPreview,
+  onAutoScroll,
   onViewOriginal
 }: {
   contextMenu: PreviewMenuState | null
   images: ArtworkImageResponseDto[]
   onOpenChange: (open: boolean) => void
   onPreview: () => void
+  onAutoScroll: () => void
   onViewOriginal: () => void
 }) {
   const selectedMedia = contextMenu ? images[contextMenu.index] : null
@@ -454,6 +456,11 @@ function PreviewContextMenu({
         align="start"
         className="w-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-floating duration-(--motion-fast) ease-out data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
       >
+        {selectedMedia && !isVideoMedia(selectedMedia) && (
+          <Button variant="ghost" className="min-h-11 w-full justify-start" onClick={onAutoScroll}>
+            自动滚动
+          </Button>
+        )}
         <button
           type="button"
           onClick={onPreview}
@@ -705,19 +712,17 @@ function VirtualizedArtworkMediaList({
 
 export default function ArtworkImages({ images, artworkId }: ArtworkImagesProps) {
   useAutoBrowseInterruption(artworkId)
-  const autoMode = useArtworkAutoBrowseStore((state) => state.mode)
-  const autoStatus = useArtworkAutoBrowseStore((state) => state.status)
   const [previewState, setPreviewState] = useState<AdaptivePreviewState | null>(null)
   const [returnIndex, setReturnIndex] = useState<number | null>(null)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const adaptivePreviewImages = useMemo(() => images.filter((media) => !isVideoMedia(media)), [images])
   const openAdaptivePreview = useCallback(
-    (originalIndex: number, initialPreviewSrc?: string, autoplay = false) => {
+    (originalIndex: number, initialPreviewSrc?: string) => {
       const media = images[originalIndex]
       if (!media || isVideoMedia(media)) return
       const filteredIndex = adaptivePreviewImages.findIndex((candidate) => candidate.id === media.id)
       if (filteredIndex >= 0) {
-        if (!autoplay) useArtworkAutoBrowseStore.getState().pause('overlay')
+        useArtworkAutoBrowseStore.getState().pause('overlay')
         useArtworkAutoBrowseStore.getState().setPreviewOpen(true)
         useArtworkAutoBrowseStore.getState().setCurrentMedia(media.id)
         setPreviewState({ index: filteredIndex, ...(initialPreviewSrc ? { initialPreviewSrc } : {}) })
@@ -725,14 +730,6 @@ export default function ArtworkImages({ images, artworkId }: ArtworkImagesProps)
     },
     [adaptivePreviewImages, images]
   )
-  useEffect(() => {
-    if (autoMode !== 'slideshow' || autoStatus !== 'running' || previewState) return
-    const current = useArtworkStore.getState().currentIndex
-    let index = images.findIndex((media, index) => index >= current && !isVideoMedia(media))
-    if (index < 0) index = images.findLastIndex((media) => !isVideoMedia(media))
-    if (index >= 0) openAdaptivePreview(index, undefined, true)
-    else useArtworkAutoBrowseStore.getState().stop()
-  }, [autoMode, autoStatus, images, openAdaptivePreview, previewState])
   const { contextMenu, openContextMenu, closeContextMenu, previewSelectedMedia, viewOriginalSelectedMedia } =
     usePreviewContextMenu(images, openAdaptivePreview)
 
@@ -777,6 +774,10 @@ export default function ArtworkImages({ images, artworkId }: ArtworkImagesProps)
           if (!open) closeContextMenu()
         }}
         onPreview={previewSelectedMedia}
+        onAutoScroll={() => {
+          closeContextMenu()
+          useArtworkAutoBrowseStore.getState().start('scroll')
+        }}
         onViewOriginal={viewOriginalSelectedMedia}
       />
       {previewState !== null && (

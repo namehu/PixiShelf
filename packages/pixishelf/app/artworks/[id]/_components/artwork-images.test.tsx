@@ -5,6 +5,7 @@ import ArtworkImages, { buildMediaAnchorIndexes, getEstimatedMediaHeight } from 
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useUserSettingsStore } from '@/components/user-setting'
 import { useArtworkStore } from '@/store/use-artwork-store'
+import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 
 const virtualizerMocks = vi.hoisted(() => ({
   useWindowVirtualizer: vi.fn(),
@@ -285,6 +286,11 @@ describe('ArtworkImages', () => {
 
     expect(screen.getByText('适配尺寸预览')).toBeTruthy()
     expect(screen.getByText('查看原始文件')).toBeTruthy()
+    expect(screen.queryByText('自动轮播')).toBeNull()
+    vi.useRealTimers()
+    fireEvent.click(screen.getByRole('button', { name: '自动滚动' }))
+    expect(useArtworkAutoBrowseStore.getState()).toMatchObject({ mode: 'scroll', status: 'running' })
+    expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
   })
 
   it('does not open the adaptive preview menu on video long press', () => {

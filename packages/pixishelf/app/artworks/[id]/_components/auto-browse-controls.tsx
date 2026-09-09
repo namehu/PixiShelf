@@ -97,7 +97,7 @@ export function AutoBrowseControls({
     }
   }, [playing, collapsed, settingsOpen])
   const value = mode === 'scroll' ? state.scrollSpeed : state.slideSeconds
-  const presets = mode === 'scroll' ? [40, 100, 200] : [8, 5, 3]
+  const presets = mode === 'scroll' ? [50, 100, 200] : [3, 1.5, 0.5]
   const setValue = (next: number) =>
     state.setPreferences(mode === 'scroll' ? { scrollSpeed: next } : { slideSeconds: next })
   const description = !selected
@@ -230,9 +230,9 @@ export function AutoBrowseControls({
                     <Slider
                       aria-label={mode === 'scroll' ? '滚动速度' : '每张停留秒数'}
                       value={[value]}
-                      min={mode === 'scroll' ? 10 : 2}
-                      max={mode === 'scroll' ? 400 : 30}
-                      step={mode === 'scroll' ? 5 : 1}
+                      min={mode === 'scroll' ? 50 : 0.5}
+                      max={mode === 'scroll' ? 800 : 3}
+                      step={mode === 'scroll' ? 50 : 0.5}
                       onValueChange={([next]) => {
                         if (next !== undefined) setValue(next)
                       }}

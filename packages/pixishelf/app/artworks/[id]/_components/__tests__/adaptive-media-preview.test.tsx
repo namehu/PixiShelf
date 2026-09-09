@@ -150,6 +150,7 @@ describe('AdaptiveMediaPreview', () => {
     autoBrowseStore.getState().release(autoBrowseStore.getState().session)
     vi.useRealTimers()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('pauses autoplay on an image error and keeps retry under user control', () => {
@@ -173,7 +174,7 @@ describe('AdaptiveMediaPreview', () => {
     const onClose = vi.fn()
     render(<AdaptiveMediaPreview images={[createMedia(0), createMedia(1)]} initialIndex={0} open onClose={onClose} />)
     fireEvent.load(screen.getByAltText('作品媒体 1'))
-    act(() => vi.advanceTimersByTime(4000))
+    act(() => vi.advanceTimersByTime(1000))
     fireEvent.click(screen.getByRole('button', { name: '关闭适配尺寸预览' }))
     expect(onClose).not.toHaveBeenCalled()
     expect(autoBrowseStore.getState().status).toBe('paused')
@@ -212,7 +213,7 @@ describe('AdaptiveMediaPreview', () => {
     )
 
     const images = screen.getAllByRole('img')
-    expect(images.map((image) => image.getAttribute('loading'))).toEqual(['eager', null, 'eager', 'lazy'])
+    expect(images.map((image) => image.getAttribute('loading'))).toEqual(['eager', null, 'eager', 'eager'])
 
     fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
     expect(images.map((image) => image.getAttribute('loading'))).toEqual(['lazy', null, 'eager', 'eager'])
@@ -265,7 +266,7 @@ describe('AdaptiveMediaPreview', () => {
     expect(initialImage.getAttribute('loading')).not.toBe('lazy')
   })
 
-  it('blocks neighbor preloading for oversized, animated, or data-saving media', () => {
+  it('preloads static animation posters but blocks oversized or data-saving media', () => {
     const media = createMedia(0)
     expect(canPreloadAdaptiveNeighbor(media, { isMobile: true, saveData: false })).toBe(true)
     expect(canPreloadAdaptiveNeighbor({ ...media, size: 7 * 1024 * 1024 }, { isMobile: true, saveData: false })).toBe(
@@ -276,7 +277,7 @@ describe('AdaptiveMediaPreview', () => {
         { ...media, path: '/animated.gif', isAnimated: true },
         { isMobile: false, saveData: false }
       )
-    ).toBe(false)
+    ).toBe(true)
     expect(canPreloadAdaptiveNeighbor(media, { isMobile: false, saveData: true })).toBe(false)
   })
 
@@ -326,6 +327,50 @@ describe('AdaptiveMediaPreview', () => {
     expect(screen.getAllByAltText('作品 WEBP 动图 1')).toHaveLength(1)
   })
 
+  it('keeps the preloaded WebP poster node and URL when its slide becomes active', () => {
+    const media = { ...createMedia(2, '/next.webp'), webpAnimationStatus: 2, isAnimated: true }
+    render(
+      <AdaptiveMediaPreview images={[createMedia(0), createMedia(1), media]} initialIndex={0} open onClose={vi.fn()} />
+    )
+    const poster = screen.getByAltText('作品 WEBP 动图 3') as HTMLImageElement
+    const source = poster.src
+    expect(poster.getAttribute('loading')).toBe('eager')
+    expect(source).toContain('@jpg')
+    fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
+    expect(screen.getByAltText('作品 WEBP 动图 3')).toBe(poster)
+    expect(poster.src).toBe(source)
+    expect(screen.getAllByAltText('作品 WEBP 动图 3')).toHaveLength(1)
+  })
+
+  it('waits for the actual poster decode before starting its slideshow interval', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn() }))
+    )
+    autoBrowseStore.getState().initialize(1)
+    autoBrowseStore.getState().start('slideshow')
+    const media = { ...createMedia(0, '/active.webp'), webpAnimationStatus: 2, isAnimated: true }
+    render(<AdaptiveMediaPreview images={[media, createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)
+    let finishDecode!: () => void
+    const decode = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishDecode = resolve
+        })
+    )
+    const poster = screen.getByAltText('作品 WEBP 动图 1')
+    Object.defineProperty(poster, 'decode', { configurable: true, value: decode })
+    fireEvent.load(poster)
+    act(() => vi.advanceTimersByTime(10000))
+    expect(autoBrowseStore.getState().status).toBe('waiting')
+    expect(swiperMocks.instance.slideNext).not.toHaveBeenCalled()
+    await act(async () => finishDecode())
+    expect(autoBrowseStore.getState().status).toBe('running')
+    act(() => vi.advanceTimersByTime(5000))
+    expect(swiperMocks.instance.slideNext).toHaveBeenCalledTimes(1)
+  })
+
   it('stops the active WebP and keeps other slides static when switching media', () => {
     const images = [
       { ...createMedia(0, '/animated-1.webp'), webpAnimationStatus: 2, isAnimated: true },
@@ -342,7 +387,7 @@ describe('AdaptiveMediaPreview', () => {
 
     expect(screen.getByText('3 / 3')).toBeTruthy()
     expect(screen.getByRole('button', { name: '播放 WEBP 动图' }).getAttribute('aria-pressed')).toBe('false')
-    expect(screen.queryAllByAltText('作品 WEBP 动图 1')).toHaveLength(0)
+    expect(screen.queryAllByAltText('作品 WEBP 动图 1')).toHaveLength(1)
     expect(screen.getAllByAltText('作品 WEBP 动图 3')).toHaveLength(1)
   })
 

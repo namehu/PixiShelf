@@ -22,8 +22,8 @@ function bounded(value: unknown, fallback: number, min: number, max: number) {
 function preferences(value: unknown): AutoBrowsePreferences {
   const saved = value && typeof value === 'object' ? (value as Partial<AutoBrowsePreferences>) : {}
   return {
-    scrollSpeed: bounded(saved.scrollSpeed, 40, 10, 400),
-    slideSeconds: bounded(saved.slideSeconds, 5, 2, 30),
+    scrollSpeed: Math.round(bounded(saved.scrollSpeed, 50, 50, 800) / 50) * 50,
+    slideSeconds: Math.round(bounded(saved.slideSeconds, 1.5, 0.5, 3) * 2) / 2,
     loop: saved.loop === true
   }
 }
@@ -143,7 +143,9 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
         set({
           previewOpen: false,
           controlsCollapsed: false,
-          ...(get().mode ? { mode: 'scroll' as const, status: 'paused' as const, reason: 'overlay' as const } : {}),
+          ...(get().mode === 'scroll'
+            ? { status: 'paused' as const, reason: 'overlay' as const }
+            : { mode: null, status: 'idle' as const, reason: null }),
           revision: get().revision + 1
         }),
       clearPauseReason: () => set({ reason: null }),
