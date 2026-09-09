@@ -115,7 +115,7 @@ export function ArchiveReplaceDialog({
               maxLength={2_048}
               value={value}
               onChange={(event) => setValue(event.target.value)}
-              placeholder="https://e-hentai.org/g/1234567/token/…"
+              placeholder="粘贴新的画廊页或图片页链接"
               disabled={replaceMutation.isPending}
               aria-invalid={(value.length > 0 && !valid) || undefined}
             />

@@ -1,7 +1,7 @@
 ---
 status: current
 scope: E-Hentai 上传者来源保存、长期画廊目录、人工增量/历史扫描、结果确认与归档收件箱衔接
-last-verified: 2026-09-04
+last-verified: 2026-09-09
 sources:
   - packages/pixishelf/app/admin/archive/inbox/
   - packages/pixishelf/server/routers/archive-inbox.ts
@@ -41,7 +41,7 @@ sources:
 第一版不支持：
 
 - 定时或自动扫描；
-- 自动加入收件箱、自动选择质量或自动下载；
+- 扫描后未经人工勾选就自动加入收件箱或下载（人工勾选后的自动衔接由归档收件箱负责）；
 - ExHentai、Cookie 或登录凭据；
 - 标签、语言、页数和任意搜索表达式过滤；
 - 把 Uploader 转换为 Artist；
@@ -53,9 +53,9 @@ sources:
 保存上传者来源
   -> 人工扫描最新 / 继续扫描历史
   -> 查看并勾选结果
-  -> 加入现有归档收件箱 / 全局忽略
+  -> 选择模式与画质并加入归档收件箱 / 全局忽略
   -> 等待 ARCHIVE_RESOLVE_ITEM 解析
-  -> 人工选择 ORIGINAL / DISPLAY 并入队
+  -> 默认新作品自动入队；仅解析或更新内容等待人工确认
   -> ARCHIVE_IMPORT 下载和发布
 ```
 

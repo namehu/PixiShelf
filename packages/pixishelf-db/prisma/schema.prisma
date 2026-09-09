@@ -890,6 +890,7 @@ model ArchiveIntakeItem {
   duplicateOfItemId     String?
   activeArchiveImportId String?
   selectedQuality       ArchiveQuality               @default(ORIGINAL)
+  downloadMode          ArchiveIntakeDownloadMode    @default(MANUAL)
   resolvedAt            DateTime?
   expiresAt             DateTime?
   archiveImportId       String?
@@ -1860,6 +1861,12 @@ enum ArchiveIntakeStatus {
   ENQUEUED
   CANCELLED
   DUPLICATE
+  SKIPPED
+}
+
+enum ArchiveIntakeDownloadMode {
+  MANUAL
+  AUTO
 }
 
 enum ArchiveIntakeResolutionKind {

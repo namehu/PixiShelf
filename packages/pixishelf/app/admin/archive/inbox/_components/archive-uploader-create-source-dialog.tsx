@@ -85,7 +85,7 @@ export function ArchiveUploaderCreateSourceDialog({
                 autoComplete="off"
                 required
               />
-              <FieldDescription>来源只会在你点击扫描按钮后访问 E-Hentai，不会定时自动扫描。</FieldDescription>
+              <FieldDescription>来源只会在你点击扫描按钮后访问原站，不会定时自动扫描。</FieldDescription>
             </Field>
           </FieldGroup>
           <DialogFooter>

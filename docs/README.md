@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-09-04（权限收尾、待办收敛、后台任务结构化实时进度与事件保留）
+最后核验：2026-09-09（归档任务精简展示、作品与原站导航、解析后自动入队）
 
 ## 状态约定
 
@@ -84,6 +84,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)        | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |
 | [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md)     | `historical` | 本期实施前的系列身份、成员所有权和同步方案                 |
 | [归档收件队列设计](./design/archive-intake-queue.md)                 | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
+| [归档交互与自动入队](./design/archive-workflow-simplification.md)   | `historical` | 精简任务展示、来源跳转及自动入队的决策与验收记录           |
 | [E-Hentai 上传者人工扫描](./design/e-hentai-uploader-manual-scan.md) | `current`    | 已实施的人工来源扫描、游标、分类与收件确认契约             |
 | [E-Hentai 标题关键词归档](./design/e-hentai-title-keyword-scan.md)   | `draft`      | 标题包含/开头/结尾匹配、人工发现、查询冻结与收件复用       |
 | [多来源 URL 归档](./design/multi-source-url-archive.md)              | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |

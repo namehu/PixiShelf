@@ -623,7 +623,9 @@ function latestCatalogWorkflow(
       kind: 'INTAKE' as const,
       id: intake.id,
       outcome:
-        intake.status === 'FAILED'
+        intake.status === 'SKIPPED'
+          ? ('ARCHIVED' as const)
+          : intake.status === 'FAILED'
           ? ('FAILED' as const)
           : intake.status === 'CANCELLED'
             ? ('CANCELLED' as const)

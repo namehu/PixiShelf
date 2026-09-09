@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-09-07
+last-verified: 2026-09-09
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -118,6 +118,7 @@ sources:
 | `POST /api/scan/rescan`                         | Session（双层，`requireAdminRequest`）                  | 重扫一个 Artwork，更新目录与审计                                                                                                  | 高，数据库和文件关系变化                                        |
 | `POST /api/migration/stream`                    | Session（双层，`requireAdminRequest`）                  | 入队或执行迁移、复制/移动/清理                                                                                                    | 最高，可能修改原媒体                                            |
 | `GET /api/jobs/events`                          | Session（双层，`requireAdminRequest`）                  | 只读 definition v1+ 的脱敏 Job 事件和实时摘要；`progressData` 只允许聚合指标，不含 payload/result/error/路径/URL/凭据/lease token | 中；长连接可观察全部后台任务状态                                |
+| `GET /api/archive/tasks/[id]/source`            | Session（双层，`requireAdminRequest`）                  | 读取该任务 canonical URL，验证 E-Hentai HTTPS 固定主机、画廊路径与 GID 后重定向；不接受客户端目的地址 | 中；仅主动导航返回完整来源地址，禁止缓存及 Referrer |
 | `POST /api/artwork/[id]/replace`                | Session（双层，`requireAdminRequest`）                  | 初始化、提交或回滚媒体替换会话                                                                                                    | 最高，数据库与原媒体写入                                        |
 | `GET/POST /api/artwork/upload-chunk`            | Session（双层，`requireAdminRequest`）                  | 查询上传状态、写入媒体分块                                                                                                        | 高，原媒体写入                                                  |
 | `POST /api/artwork/media-chapters/upload`       | Session（双层，`requireAdminRequest`）                  | 上传章节 manifest                                                                                                                 | 高，数据库/派生或媒体侧写入                                     |
@@ -206,6 +207,8 @@ ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。
 Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，lane 是执行资源和 capability 边界，不是操作系统级权限隔离。`ARCHIVE_RESOLVE_ITEM` 的 Executor 不执行媒体写入，所有归档下载、回收、恢复、永久清理和其他文件操作仍由 writer lane 执行并经过根目录/符号链接边界校验。
 
 归档任务 payload、结果、事件、错误与普通日志统一脱敏。不得记录 Cookie、Authorization、完整 Provider locator、token，或 URL 路径中的敏感段；列表和批量结果只返回完成管理操作所需的脱敏值。
+
+归档“原站”入口使用 `/api/archive/tasks/[id]/source`，在独立会话验证后读取数据库地址并校验 provider、协议、主机、端口、凭据、画廊路径与任务 GID。仅允许规范化画廊导航，不跟随远端新版，也不将 query 中的 URL 用作目的地。响应设置 `Cache-Control: private, no-store` 与 `Referrer-Policy: no-referrer`；不存在/非法来源返回通用错误，数据库异常不回显或记录 locator。完整 gallery 地址仅用于用户主动发起的重定向，列表与审计继续脱敏。
 
 上传者长期目录在服务端保存完整 gallery canonical URL，用于 Provider/GID 关联和提交收件箱；该字段以及其中的 token 不直接返回客户端，列表只返回经过归档脱敏规则处理的地址。目录状态关联也只使用服务端数据库查询，错误消息在出站前继续执行归档脱敏。
 

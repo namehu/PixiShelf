@@ -1,3 +1,9 @@
+import { randomUUID } from 'node:crypto'
+import {
+  ARCHIVE_INTAKE_PUBLISH_LOCK_ID,
+  enqueueArchiveIntakeItemInTransaction,
+  parseArchiveIntakeDefaultTagIds
+} from './intake-enqueue.ts'
 import {
   archiveResolveItemPayloadSchema,
   JOB_DEFINITION_VERSION,
@@ -30,6 +36,7 @@ export interface ArchiveResolverExecutorDependencies {
   providers: ArchiveProviderRegistry
   now?: () => Date
   random?: () => number
+  uuid?: () => string
 }
 
 export function createArchiveResolverExecutorRegistrations(
@@ -116,7 +123,7 @@ export async function executeArchiveResolveItem(
     const resolved = await provider.resolve(item.submittedUrl, { signal: context.signal })
     const metadataHash = hashResolvedMetadata(resolved.normalizedMetadata)
     return context.finalizeInTransaction<ResolveTransaction>((scope) =>
-      finalizeResolved(scope, context, resolved, metadataHash, now())
+      finalizeResolved(scope, context, resolved, metadataHash, now(), dependencies.uuid ?? randomUUID)
     )
   } catch (error) {
     const classified = toArchiveExecutorError(error)
@@ -131,7 +138,8 @@ async function finalizeResolved(
   context: ResolveContext,
   resolved: ResolvedArchive,
   metadataHash: string,
-  resolvedAt: Date
+  resolvedAt: Date,
+  uuid: () => string
 ) {
   if (scope.controlStatus === 'CANCEL_REQUESTED') {
     await markCancelled(scope.transaction, context.payload.intakeItemId, context.job.id, resolvedAt, {
@@ -151,6 +159,13 @@ async function finalizeResolved(
     return
   }
 
+  // Serialize classification with publication and manual enqueue before freezing the decision.
+  await scope.transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_INTAKE_PUBLISH_LOCK_ID)
+  const intake = await scope.transaction.archiveIntakeItem.findUniqueOrThrow({
+    where: { id: context.payload.intakeItemId },
+    include: { submission: { select: { requestedByUserId: true } } }
+  })
+  const automatic = intake.downloadMode === 'AUTO'
   const [existingReference, activeImport, duplicateItem] = await Promise.all([
     scope.transaction.artworkExternalRef.findUnique({
       where: {
@@ -178,7 +193,7 @@ async function finalizeResolved(
     })
   ])
 
-  if (duplicateItem) {
+  if (duplicateItem && !(automatic && activeImport)) {
     const changed = await scope.transaction.archiveIntakeItem.updateMany({
       where: {
         id: context.payload.intakeItemId,
@@ -235,7 +250,7 @@ async function finalizeResolved(
       cancelRequestedAt: null
     },
     data: {
-      status: 'READY',
+      status: automatic && resolutionKind === 'UNCHANGED' ? 'SKIPPED' : 'READY',
       providerKey: resolved.providerKey,
       externalId: resolved.externalId,
       canonicalUrl: resolved.canonicalUrl,
@@ -260,15 +275,82 @@ async function finalizeResolved(
     scope.transaction,
     context.payload.intakeItemId,
     {
-      lastOutcome: 'SUBMITTED',
+      lastOutcome: automatic && resolutionKind === 'UNCHANGED' ? 'ARCHIVED' : 'SUBMITTED',
+      ...(automatic && resolutionKind === 'UNCHANGED' ? { classification: 'ARCHIVED' as const } : {}),
       lastOutcomeAt: resolvedAt,
       lastErrorCode: null,
       lastErrorMessage: null
     },
     { providerKey: resolved.providerKey, externalId: resolved.externalId }
   )
+  let enqueueResult
+  if (automatic && (resolutionKind === 'NEW' || resolutionKind === 'ACTIVE_TASK')) {
+    let defaultTagIds: number[] = []
+    if (resolutionKind === 'NEW') {
+      const setting = await scope.transaction.setting.findUnique({ where: { key: 'archive_default_tag_ids' } })
+      try {
+        defaultTagIds = parseArchiveIntakeDefaultTagIds(setting?.value)
+      } catch {
+        await scope.transaction.archiveIntakeItem.update({
+          where: { id: intake.id },
+          data: {
+            status: 'FAILED',
+            errorCode: 'INVALID_DEFAULT_TAGS',
+            errorMessage: '归档默认标签设置无效，请修正设置后重试',
+            retryable: true
+          }
+        })
+        await updateCatalogForIntake(
+          scope.transaction,
+          intake.id,
+          {
+            lastOutcome: 'FAILED',
+            lastOutcomeAt: resolvedAt,
+            lastErrorCode: 'INVALID_DEFAULT_TAGS',
+            lastErrorMessage: '归档默认标签设置无效，请修正设置后重试'
+          },
+          { providerKey: resolved.providerKey, externalId: resolved.externalId }
+        )
+        await scope.complete({
+          result: { intakeItemId: intake.id, resolutionKind },
+          message: '归档解析完成，默认标签设置需要修正'
+        })
+        return
+      }
+    }
+    enqueueResult = await enqueueArchiveIntakeItemInTransaction(scope.transaction, intake.id, {
+      quality: intake.selectedQuality,
+      requestedByUserId: intake.submission.requestedByUserId,
+      timestamp: resolvedAt,
+      uuid,
+      defaultTagIds,
+      autoOnly: true
+    })
+    if (enqueueResult.result === 'CONFLICT') {
+      await scope.transaction.archiveIntakeItem.update({
+        where: { id: intake.id },
+        data: {
+          status: 'FAILED',
+          errorCode: enqueueResult.code ?? 'STATE_CONFLICT',
+          errorMessage: enqueueResult.message ?? '自动归档无法入队',
+          retryable: true
+        }
+      })
+      await updateCatalogForIntake(
+        scope.transaction,
+        intake.id,
+        {
+          lastOutcome: 'FAILED',
+          lastOutcomeAt: resolvedAt,
+          lastErrorCode: enqueueResult.code ?? 'STATE_CONFLICT',
+          lastErrorMessage: enqueueResult.message ?? '自动归档无法入队'
+        },
+        { providerKey: resolved.providerKey, externalId: resolved.externalId }
+      )
+    }
+  }
   await scope.complete({
-    result: { intakeItemId: context.payload.intakeItemId, resolutionKind },
+    result: { intakeItemId: context.payload.intakeItemId, resolutionKind, ...(enqueueResult ? { enqueueResult } : {}) },
     message: '归档收件项解析完成'
   })
 }
@@ -426,7 +508,8 @@ async function updateCatalogForIntake(
   transaction: ResolveTransaction,
   intakeItemId: string,
   data: {
-    lastOutcome: 'SUBMITTED' | 'FAILED' | 'CANCELLED' | 'DUPLICATE'
+    lastOutcome: 'SUBMITTED' | 'FAILED' | 'CANCELLED' | 'DUPLICATE' | 'ARCHIVED'
+    classification?: 'ARCHIVED'
     lastOutcomeAt: Date
     lastErrorCode: string | null
     lastErrorMessage: string | null

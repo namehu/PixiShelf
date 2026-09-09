@@ -107,7 +107,9 @@ export const cancelArchiveUploaderScanSchema = z.object({ sourceId: sourceIdSche
 export const createArchiveUploaderSubmissionAttemptSchema = z
   .object({
     sourceId: sourceIdSchema,
-    itemIds: scanItemIdsSchema
+    itemIds: scanItemIdsSchema,
+    downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
+    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL')
   })
   .strict()
 
@@ -752,7 +754,9 @@ export async function addArchiveUploaderScanItems(
     const submission = await createArchiveIntakeSubmissionInTransaction(
       {
         idempotencyKey,
-        urls: items.map(({ canonicalUrl }) => canonicalUrl)
+        urls: items.map(({ canonicalUrl }) => canonicalUrl),
+        downloadMode: parsed.downloadMode,
+        quality: parsed.quality
       },
       requestedByUserId,
       transaction,

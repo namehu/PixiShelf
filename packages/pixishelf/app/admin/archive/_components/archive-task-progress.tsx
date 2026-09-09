@@ -15,12 +15,25 @@ interface ArchiveTaskProgressValue {
   retainUntil: Date | string | null
 }
 
-export function TaskProgress({ task, compact = false }: { task: ArchiveTaskProgressValue; compact?: boolean }) {
+export function TaskProgress({ task }: { task: ArchiveTaskProgressValue }) {
   const displayStatus = archiveTaskDisplayStatus(task)
+  if (displayStatus === 'FAILED') {
+    return (
+      <div className="flex min-w-0 flex-col gap-1 text-xs text-destructive">
+        {task.errorMessage && (
+          <PrivacySensitiveText as="p" className="line-clamp-2 break-words [overflow-wrap:anywhere]">
+            {task.errorMessage}
+          </PrivacySensitiveText>
+        )}
+        <p>{task.errorCode === 'PARTIAL_FAILURE' ? '打开任务详情可重试失败图片' : '可在任务操作中重试'}</p>
+      </div>
+    )
+  }
+  if (!['RUNNING', 'CANCELLING'].includes(displayStatus)) return null
   return (
-    <div className={compact ? 'flex w-56 min-w-0 flex-col gap-1.5' : 'flex w-full min-w-0 flex-col gap-1.5'}>
+    <div className="flex w-full min-w-0 flex-col gap-1.5">
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className={compact ? 'max-w-20 min-w-0 flex-1 truncate' : 'min-w-0 flex-1 truncate'}>
+        <span className="min-w-0 flex-1 truncate">
           {task.message ? (
             <PrivacySensitiveText>{task.message}</PrivacySensitiveText>
           ) : (
@@ -30,19 +43,6 @@ export function TaskProgress({ task, compact = false }: { task: ArchiveTaskProgr
         <span className="tabular-nums">{task.progress}%</span>
       </div>
       <Progress value={task.progress} aria-label={`${task.title || task.externalId} 完成 ${task.progress}%`} />
-      {task.warning && (
-        <PrivacySensitiveText as="p" className="line-clamp-2 whitespace-pre-wrap text-xs text-warning">
-          {task.warning}
-        </PrivacySensitiveText>
-      )}
-      {task.errorMessage && (
-        <PrivacySensitiveText as="p" className="line-clamp-2 whitespace-pre-wrap text-xs text-destructive">
-          {task.errorMessage}
-        </PrivacySensitiveText>
-      )}
-      {task.retainUntil && task.status !== 'COMPLETED' && (
-        <p className="text-xs text-muted-foreground">暂存保留至 {formatTaskTime(task.retainUntil)}</p>
-      )}
     </div>
   )
 }
@@ -82,9 +82,4 @@ export function formatByteAmount(value: number | string): string {
     unit = units[index]!
   }
   return `${Number(amount.toFixed(amount >= 10 ? 1 : 2))} ${unit}`
-}
-
-function formatTaskTime(value: Date | string): string {
-  const date = value instanceof Date ? value : new Date(value)
-  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString('zh-CN', { hour12: false })
 }

@@ -101,10 +101,8 @@ export function ArchiveUploaderGalleryPreviewDialog({
     <Dialog open={Boolean(item)} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>
-            {item ? <PrivacySensitiveText>{item.title}</PrivacySensitiveText> : '首图预览'}
-          </DialogTitle>
-          <DialogDescription>{item ? `E-Hentai #${item.externalId} · 扫描结果首图` : '扫描结果首图'}</DialogDescription>
+          <DialogTitle>{item ? <PrivacySensitiveText>{item.title}</PrivacySensitiveText> : '首图预览'}</DialogTitle>
+          <DialogDescription>{item ? `#${item.externalId} · 扫描结果首图` : '扫描结果首图'}</DialogDescription>
         </DialogHeader>
         {item?.thumbnailUrl ? (
           <GalleryPreviewImage key={item.thumbnailUrl} src={item.thumbnailUrl} title={item.title} />

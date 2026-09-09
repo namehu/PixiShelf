@@ -23,6 +23,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } fro
 import { Spinner } from '@/components/ui/spinner'
 import { archiveClientErrorMessage } from './archive-client-error'
 import { analyzeArchiveUrlInput } from './archive-intake-view-state'
+import { ArchiveIntakeOptions, DEFAULT_ARCHIVE_INTAKE_OPTIONS } from '../inbox/_components/archive-intake-options'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 export type ArchiveIntakeCreateResult = RouterOutputs['archiveInbox']['create']
@@ -37,6 +38,7 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState('')
+  const [options, setOptions] = useState(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
   const valueRef = useRef('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [clipboardPending, setClipboardPending] = useState(false)
@@ -133,6 +135,7 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
 
   const changeOpen = (nextOpen: boolean) => {
     setOpen(nextOpen)
+    if (nextOpen) setOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
     if (!nextOpen && !createMutation.isPending) {
       clipboardRequestId.current += 1
       manualPasteRequested.current = false
@@ -167,6 +170,7 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
             if (!analysis.nonEmptyCount || tooMany) return
             createMutation.mutate({
               idempotencyKey,
+              ...options,
               urls: analysis.lines.map((line) => line.raw)
             })
           }}
@@ -185,7 +189,7 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
                   value={value}
                   onChange={(event) => updateValue(event.target.value)}
                   onPaste={handlePaste}
-                  placeholder="粘贴 E-Hentai 画廊页或图片页链接"
+                  placeholder="粘贴画廊页或图片页链接"
                   autoComplete="off"
                   spellCheck={false}
                   disabled={createMutation.isPending}
@@ -213,6 +217,15 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
               {tooMany ? <FieldError>一次最多添加 100 行，请分次提交。</FieldError> : null}
             </Field>
           </FieldGroup>
+
+          <ArchiveIntakeOptions
+            value={options}
+            onChange={(nextOptions) => {
+              setOptions(nextOptions)
+              setIdempotencyKey(createIdempotencyKey())
+            }}
+            disabled={createMutation.isPending}
+          />
 
           <DialogFooter>
             <Button
@@ -258,7 +271,7 @@ function appendClipboardText(currentValue: string, clipboardText: string) {
 }
 
 function archiveUrlInputSummary(analysis: ReturnType<typeof analyzeArchiveUrlInput>) {
-  if (!analysis.nonEmptyCount) return '支持公开的 E-Hentai 画廊页和图片页链接。'
+  if (!analysis.nonEmptyCount) return '支持已接入来源的公开画廊页和图片页链接。'
 
   const issues = [
     analysis.invalidCount ? `${analysis.invalidCount} 条格式待检查` : null,

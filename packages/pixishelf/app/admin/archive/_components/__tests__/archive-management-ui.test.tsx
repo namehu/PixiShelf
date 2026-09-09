@@ -6,15 +6,16 @@ import {
   ArchiveTaskTable,
   WorkerLaneStrip,
   archiveImportIdFromPayload,
-  canExpandArchivePublishedMedia,
   isActiveArchiveDownloadStatus,
   selectActiveArchiveImportId
 } from '../archive-management'
 import { ActiveArchiveDownloadPanel } from '../archive-active-download-panel'
 import { TaskProgress } from '../archive-task-progress'
+import { ArchiveTaskDetails } from '../archive-item-drawer'
+import { archiveTaskArtworkHref } from '../archive-task-navigation'
 
 vi.mock('next/link', () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>
+  default: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>
 }))
 
 vi.mock('@/components/ui/checkbox', () => ({
@@ -86,86 +87,141 @@ const activeTask = createTask('active', {
 describe('archive management UI', () => {
   afterEach(() => cleanup())
 
-  it('allows expansion only for an active, non-deleted published artwork', () => {
-    expect(canExpandArchivePublishedMedia(activeTask)).toBe(true)
-    expect(canExpandArchivePublishedMedia(createTask('unpublished', null))).toBe(false)
-    expect(
-      canExpandArchivePublishedMedia(
-        createTask('trashing', { id: 43, archiveLifecycleState: 'TRASHING', deletedAt: null })
-      )
-    ).toBe(false)
-    expect(
-      canExpandArchivePublishedMedia(
-        createTask('trashed', {
-          id: 44,
-          archiveLifecycleState: 'TRASHED',
-          deletedAt: '2026-08-30T00:00:00.000Z'
-        })
-      )
-    ).toBe(false)
+  it.each(['TRASHING', 'TRASHED', 'RESTORING', 'PURGING'])('opens task details for %s artworks', (lifecycle) => {
+    const task = createTask('hidden', { id: 43, archiveLifecycleState: lifecycle, deletedAt: null })
+    const onViewItems = vi.fn()
+    render(
+      <ArchiveTaskCard
+        task={task as any}
+        selected={false}
+        pendingActions={new Set()}
+        onToggle={vi.fn()}
+        onViewItems={onViewItems}
+        onAction={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: '任务 hidden' }))
+    expect(onViewItems).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('link', { name: '查看作品' })).toBeNull()
+    expect(screen.getByRole('link', { name: '原站' }).getAttribute('href')).toBe('/api/archive/tasks/hidden/source')
   })
 
-  it('renders one eligible desktop expander, compact counts, and no standalone image action', () => {
-    const onToggleExpanded = vi.fn()
-    const tasks = [
-      activeTask,
-      createTask('unpublished', null),
-      createTask('trashing', { id: 43, archiveLifecycleState: 'TRASHING', deletedAt: null }),
-      createTask('trashed', {
-        id: 44,
-        archiveLifecycleState: 'TRASHED',
-        deletedAt: '2026-08-30T00:00:00.000Z'
-      })
-    ]
+  it('does not offer artwork navigation for unpublished, deleted or unfinished tasks', () => {
+    expect(archiveTaskArtworkHref(createTask('unpublished', null))).toBeNull()
+    expect(
+      archiveTaskArtworkHref(
+        createTask('deleted', { id: 43, archiveLifecycleState: 'ACTIVE', deletedAt: '2026-08-30' })
+      )
+    ).toBeNull()
+    expect(archiveTaskArtworkHref({ ...activeTask, status: 'RUNNING' })).toBeNull()
+    expect(archiveTaskArtworkHref(activeTask)).toBe('/artworks/42')
+  })
+
+  it('renders compact desktop rows with actionable title and persistent source links', () => {
+    const onViewItems = vi.fn()
     render(
       <ArchiveTaskTable
-        tasks={tasks as any}
+        tasks={[activeTask, createTask('unpublished', null)] as any}
         selectedTaskIds={new Set()}
-        expandedTaskIds={new Set(['active'])}
         selectionState={false}
         pendingActions={new Set()}
         onToggleAll={vi.fn()}
         onToggleTask={vi.fn()}
-        onToggleExpanded={onToggleExpanded}
-        onViewItems={vi.fn()}
+        onViewItems={onViewItems}
         onAction={vi.fn()}
       />
     )
-
-    expect(screen.getByText('成功 / 失败 / 总数').getAttribute('aria-label')).toContain('顺序为成功、失败、总数')
-    expect(screen.getAllByLabelText('图片数量：成功 8，失败 2，总数 10')).toHaveLength(4)
-    expect(screen.getAllByLabelText('图片数量：成功 8，失败 2，总数 10')[0]!.children[2]!.className).toContain(
-      'text-destructive'
-    )
-    expect(screen.getByTestId('published-media').textContent).toBe('published-42')
-    expect(screen.getAllByLabelText(/完成 100%/)[0]!.parentElement?.className).toContain('w-56')
-    expect(screen.getAllByRole('button', { name: /已发布媒体/ })).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: '查看图片明细' })).toBeNull()
-    expect(screen.getAllByText('图片明细')).toHaveLength(4)
-
-    fireEvent.click(screen.getByRole('button', { name: '收起已发布媒体' }))
-    expect(onToggleExpanded).toHaveBeenCalledWith('active')
+    expect(screen.getByRole('link', { name: '任务 active' }).getAttribute('href')).toBe('/artworks/42')
+    expect(screen.getAllByRole('link', { name: '原站' })).toHaveLength(2)
+    expect(screen.getAllByText('10 张')).toHaveLength(2)
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.queryByText('原图')).toBeNull()
+    expect(screen.queryByText(/尝试 1/)).toBeNull()
+    expect(screen.queryByTestId('published-media')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '任务 unpublished' }))
+    expect(onViewItems).toHaveBeenCalledWith(expect.objectContaining({ id: 'unpublished' }))
   })
 
-  it('uses the same inline published-media expansion in the mobile card', () => {
+  it('keeps completed mobile cards free of progress, raw URLs and detailed metadata', () => {
+    const task = { ...activeTask, title: 'long-title-'.repeat(80), failedItems: 0 }
     render(
       <ArchiveTaskCard
-        task={activeTask as any}
+        task={task as any}
         selected={false}
-        expanded
         pendingActions={new Set()}
         onToggle={vi.fn()}
-        onToggleExpanded={vi.fn()}
         onViewItems={vi.fn()}
         onAction={vi.fn()}
       />
     )
+    const title = screen.getByRole('link', { name: task.title })
+    expect(title.querySelector('[data-privacy-sensitive]')).toBeTruthy()
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.queryByText('100%')).toBeNull()
+    expect(screen.queryByText('原图')).toBeNull()
+    expect(screen.queryByText(task.submittedUrl)).toBeNull()
+    expect(screen.queryByTestId('published-media')).toBeNull()
+    const source = screen.getByRole('link', { name: '原站' })
+    expect(source.getAttribute('href')).toBe('/api/archive/tasks/active/source')
+    expect(source.getAttribute('target')).toBe('_blank')
+    expect(source.getAttribute('rel')).toContain('noreferrer')
+  })
 
-    expect(screen.getByRole('button', { name: '收起已发布媒体' })).toBeTruthy()
+  it('keeps partial failure guidance actionable without a completed progress bar', () => {
+    render(
+      <TaskProgress
+        task={{ ...activeTask, status: 'FAILED', errorCode: 'PARTIAL_FAILURE', errorMessage: '图片下载失败' } as any}
+      />
+    )
+    expect(screen.getByText('打开任务详情可重试失败图片')).toBeTruthy()
+    expect(screen.getByText('图片下载失败').hasAttribute('data-privacy-sensitive')).toBe(true)
+    expect(screen.queryByRole('progressbar')).toBeNull()
+  })
+
+  it('keeps original-quality decisions explicit while paused', () => {
+    render(
+      <ArchiveTaskCard
+        task={
+          {
+            ...activeTask,
+            status: 'PAUSED',
+            errorCode: 'ORIGINAL_UNAVAILABLE',
+            decisionCode: 'USE_DISPLAY_QUALITY'
+          } as any
+        }
+        selected={false}
+        pendingActions={new Set()}
+        onToggle={vi.fn()}
+        onViewItems={vi.fn()}
+        onAction={vi.fn()}
+      />
+    )
+    expect(screen.getByText('原图不可用，可在操作中改用展示质量')).toBeTruthy()
+    expect(screen.getByText('改用展示质量继续')).toBeTruthy()
+    expect(screen.queryByText('继续任务')).toBeNull()
+    expect(screen.queryByRole('progressbar')).toBeNull()
+  })
+
+  it('moves full timestamps, quality, attempts and media expansion into task details', () => {
+    render(<ArchiveTaskDetails task={activeTask as any} />)
+    expect(screen.getByText('原图')).toBeTruthy()
+    expect(screen.getByText('尝试 1')).toBeTruthy()
+    expect(screen.getByText(/2026/)).toBeTruthy()
+    expect(screen.queryByTestId('published-media')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '查看已发布媒体' }))
     expect(screen.getByTestId('published-media').textContent).toBe('published-42')
-    expect(screen.getByLabelText('图片数量：成功 8，失败 2，总数 10')).toBeTruthy()
-    expect(screen.getByLabelText('任务 active 完成 100%').parentElement?.className).toContain('w-full')
-    expect(screen.queryByRole('button', { name: '查看图片明细' })).toBeNull()
+  })
+
+  it('removes detail media access immediately when the artwork enters recovery', () => {
+    const view = render(<ArchiveTaskDetails task={activeTask as any} />)
+    fireEvent.click(screen.getByRole('button', { name: '查看已发布媒体' }))
+    view.rerender(
+      <ArchiveTaskDetails
+        task={createTask('active', { id: 42, archiveLifecycleState: 'RESTORING', deletedAt: null }) as any}
+      />
+    )
+    expect(screen.queryByTestId('published-media')).toBeNull()
+    expect(screen.queryByRole('button', { name: /已发布媒体/ })).toBeNull()
   })
 
   it('keeps worker lane status in a compact wrapping strip', () => {
@@ -309,6 +365,7 @@ describe('archive management UI', () => {
         task={
           {
             ...activeTask,
+            status: 'RUNNING',
             systemJobStatus: 'RUNNING',
             progress: 38,
             message: '等待远端响应',

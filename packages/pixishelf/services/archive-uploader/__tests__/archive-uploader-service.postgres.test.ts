@@ -173,19 +173,28 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
     const seeded = await seedCompletedScan('server-replay', '3004')
     const submissionAttemptId = randomUUID()
     const first = await addArchiveUploaderScanItems(
-      { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId },
+      { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId, downloadMode: 'AUTO', quality: 'DISPLAY' },
       `${prefix}-replay-admin`,
       { database: db(), uuid: prefixedUuidFactory('replay-first') }
     )
     const intakeCount = await db().archiveIntakeItem.count({ where: { submissionId: first.id } })
 
     const replayed = await addArchiveUploaderScanItems(
-      { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId },
+      { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId, downloadMode: 'AUTO', quality: 'DISPLAY' },
       `${prefix}-replay-admin`,
       { database: db(), uuid: prefixedUuidFactory('replay-second') }
     )
 
     expect(replayed).toEqual(first)
+    expect(first.items[0]).toMatchObject({ downloadMode: 'AUTO', selectedQuality: 'DISPLAY' })
+    await expect(addArchiveUploaderScanItems(
+      { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId, downloadMode: 'MANUAL', quality: 'DISPLAY' },
+      prefix + '-replay-admin', { database: db() }
+    )).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    await expect(addArchiveUploaderScanItems(
+      { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId, downloadMode: 'AUTO', quality: 'ORIGINAL' },
+      prefix + '-replay-admin', { database: db() }
+    )).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     await expect(
       db().archiveIntakeSubmission.count({ where: { requestedByUserId: `${prefix}-replay-admin` } })
     ).resolves.toBe(1)

@@ -238,7 +238,7 @@ sequenceDiagram
 | `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                        | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态        |
 | `ARCHIVE_UPLOADER_SCAN`            | 归档收件箱中的上传者来源                 | 否           | 否             | 人工发现公开画廊、保存游标与候选分类，不自动创建下载任务      |
 | `ARCHIVE_SEARCH_SCAN`              | 归档收件箱中的标题关键词来源             | 否           | 否             | 最多检查 100 个远端候选、本地标题匹配、人工决定入箱           |
-| `ARCHIVE_IMPORT`                   | READY 收件项批量入队                     | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork         |
+| `ARCHIVE_IMPORT`                   | 解析成功自动入队或 READY 收件项人工确认  | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork         |
 | `ARCHIVE_DEFAULT_TAG_BACKFILL`     | 扫描设置中的历史归档标签补全             | 否           | 否             | 按冻结上界为活动链接归档作品追加缺少的人工标签关系            |
 | `ARCHIVE_MAINTENANCE`              | 计划 reconcile、归档删除/恢复/清理       | 是           | RECONCILE 会   | 清 staging、回收、恢复或永久清理归档                          |
 | `ARCHIVE_INTAKE_RETENTION_CLEANUP` | 任务计划或立即运行                       | 是           | 否             | 只删除可丢弃的归档收件审计历史                                |
@@ -430,19 +430,23 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  URL[管理员提交最多 100 个 URL] --> CREATE[事务创建 Submission、IntakeItem\n和 ARCHIVE_RESOLVE_ITEM]
+  URL[管理员提交最多 100 个 URL\n选择模式和画质] --> CREATE[事务创建 Submission、IntakeItem\n持久模式/画质和 ARCHIVE_RESOLVE_ITEM]
   CREATE --> FIFO[resolver lane 按 queueOrder FIFO 领取]
   FIFO --> REMOTE[Provider 识别、SSRF 防护、限流和远端解析]
   REMOTE --> FROZEN[冻结规范化元数据、原始快照、媒体计划、hash\nTTL 24 小时]
   FROZEN --> CLASSIFY{分类}
-  CLASSIFY -->|NEW/UPDATE/UNCHANGED| READY[READY]
-  CLASSIFY -->|已有活动任务| ACTIVE[ACTIVE_TASK]
+  CLASSIFY -->|仅解析或 UPDATE| READY[READY 待人工确认]
+  CLASSIFY -->|AUTO + NEW| AUTO[resolver fenced 终态事务自动入队]
+  CLASSIFY -->|AUTO + UNCHANGED| SKIP[SKIPPED 不重复下载]
+  CLASSIFY -->|AUTO + 已有活动任务| ACTIVE[关联已有任务并保留画质]
   CLASSIFY -->|重复来源| DUP[DUPLICATE]
   CLASSIFY -->|瞬时失败| RETRY[RETRY_WAIT 后回队尾]
   CLASSIFY -->|永久失败| FAIL[FAILED]
 
   READY --> SELECT[管理员选择 ORIGINAL 或 DISPLAY 并入队]
   SELECT --> IMPORT[事务创建/复用 ARCHIVE_IMPORT\n冻结 import items]
+  AUTO --> IMPORT
+  ACTIVE --> IMPORT
   IMPORT --> WRITER[writer lane 领取]
   WRITER --> CONFIG[同一 advisory lock 读取后台设置\n冻结本次媒体并发 1-8]
   CONFIG --> STAGING[确定性 staging；按冻结并发流式下载\n大小/类型/hash/尺寸校验和实时字节计量]
@@ -458,9 +462,9 @@ flowchart TD
 重要边界：
 
 - submission 只是审计分组，不是必须全部解析完才能继续的封闭批次。
-- `ARCHIVE_RESOLVE_ITEM` 只做远端解析和数据库冻结，不写媒体目录；因此可以和一个 writer 任务并行。
+- `ARCHIVE_RESOLVE_ITEM` 做远端解析、数据库冻结及自动模式入队，终态与新下载任务在同一个 fenced 事务中提交；不写媒体目录，因此可以和一个 writer 任务并行。发布锁下重新裁决现有归档，防止自动覆盖已有作品。
 - `ARCHIVE_IMPORT` 才下载媒体和发布归档，必须和扫描、本地导入、视频任务共用串行 writer lane。
-- “归档默认标签”在 App 创建 `ARCHIVE_IMPORT@v2` 时冻结 ID；Worker 发布归档作品时保留来源标签，并把仍存在的默认标签以 `MANUAL` provenance 幂等追加。旧 `ARCHIVE_IMPORT@v1` 继续按空默认标签执行，避免历史队列失效。
+- “归档默认标签”在 App 手动入队或 resolver 自动创建 `ARCHIVE_IMPORT@v2` 时冻结 ID；Worker 发布归档作品时保留来源标签，并把仍存在的默认标签以 `MANUAL` provenance 幂等追加。旧 `ARCHIVE_IMPORT@v1` 继续按空默认标签执行，避免历史队列失效。
 - 归档 `manifest.json` 是 Worker 在归档 staging/revision 中生成的发布清单。它不会出现在普通 `local-imports` 发现链路中，也不会触发本地导入默认标签。
 - 网络下载和 FFmpeg/文件流不放进长数据库事务。最终领域发布使用短 fenced transaction，避免失去 lease 的旧执行者发布结果。
 - 归档媒体并发从 `Setting.archive_media_concurrency` 读取，默认 2；Executor worker 数和 Provider permit 容量使用同一冻结值。`BACKGROUND_WRITER` 仍只有一个任务执行槽。

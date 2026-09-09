@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { formatByteAmount } from './archive-task-progress'
+import { archiveSourceLabel } from './archive-source-label'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export interface ActiveArchiveDownloadTask {
@@ -73,7 +74,7 @@ export function ActiveArchiveDownloadPanel({
               </Badge>
             </div>
             <PrivacySensitiveText as={CardDescription} className="mt-1 truncate">
-              {task.title || `${task.providerKey} #${task.externalId}`}
+              {task.title || archiveSourceLabel(task.providerKey, task.externalId)}
             </PrivacySensitiveText>
           </div>
           <div className="flex flex-wrap gap-2">

@@ -140,9 +140,7 @@ export function IgnoredResults({
                         <PrivacySensitiveText as="p" className="line-clamp-2 font-medium">
                           {item.title}
                         </PrivacySensitiveText>
-                        <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                          E-Hentai #{item.externalId}
-                        </p>
+                        <p className="mt-1 truncate font-mono text-xs text-muted-foreground">#{item.externalId}</p>
                         <p className="mt-1 truncate text-xs text-muted-foreground sm:hidden">
                           <PrivacySensitiveText>{item.sourceDisplayName}</PrivacySensitiveText> ·{' '}
                           {formatArchiveUploaderTimestamp(item.ignoredAt)}

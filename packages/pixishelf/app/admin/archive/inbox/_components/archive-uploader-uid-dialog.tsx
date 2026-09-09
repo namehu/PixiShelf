@@ -125,9 +125,7 @@ export function ArchiveUploaderUidDialog({
         >
           <DialogHeader>
             <DialogTitle>{isCorrection ? '更正上传者 UID' : '绑定上传者 UID'}</DialogTitle>
-            <DialogDescription>
-              UID 是 E-Hentai 上传者的稳定数字身份，不是画廊 GID 或 PixiShelf 艺术家 ID。
-            </DialogDescription>
+            <DialogDescription>UID 是原站上传者的稳定数字身份，不是画廊 GID 或 PixiShelf 艺术家 ID。</DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-5">
             <Field data-invalid={invalid || undefined}>

@@ -4,7 +4,7 @@ import { throwIfMaintenanceAborted } from './types.ts'
 export const ARCHIVE_INTAKE_RETENTION_DAYS = 30
 export const ARCHIVE_INTAKE_RETENTION_DELETE_BATCH_SIZE = 200
 
-const TERMINAL_INTAKE_STATUSES = ['FAILED', 'ENQUEUED', 'CANCELLED', 'DUPLICATE'] as const
+const TERMINAL_INTAKE_STATUSES = ['FAILED', 'ENQUEUED', 'CANCELLED', 'DUPLICATE', 'SKIPPED'] as const
 
 export interface ArchiveIntakeRetentionCleanupResult {
   deletedBulkOperations: number

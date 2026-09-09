@@ -54,6 +54,7 @@ import { IgnoredResults } from './archive-discovery-ignored-results'
 import { ArchiveDiscoveryDeleteDialog } from './archive-discovery-delete-dialog'
 import { ArchiveUploaderSourceList } from './archive-uploader-source-list'
 import { ArchiveUploaderUidDialog } from './archive-uploader-uid-dialog'
+import { ArchiveIntakeOptions, DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
 import {
   archiveUploaderDetailPollingInterval,
   archiveUploaderCatalogViewCount,
@@ -93,6 +94,7 @@ export function ArchiveUploaderSources() {
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
+  const [intakeOptions, setIntakeOptions] = useState(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
   const [selectedIgnoredItemIds, setSelectedIgnoredItemIds] = useState<Set<string>>(new Set())
   const [resultFeed, setResultFeed] = useState<ResultFeed>('ACTIONABLE')
   const [previewItem, setPreviewItem] = useState<ArchiveUploaderPreviewItem | null>(null)
@@ -105,6 +107,10 @@ export function ArchiveUploaderSources() {
   useEffect(() => {
     void useAdminPreferencesStore.persist.rehydrate()
   }, [])
+
+  useEffect(() => {
+    setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
+  }, [selectedSourceId])
 
   const sourcesQuery = useQuery(
     trpc.archiveSearch.listSources.queryOptions(
@@ -262,6 +268,7 @@ export function ArchiveUploaderSources() {
     trpc.archiveSearch.addToInbox.mutationOptions({
       onSuccess: async (submission) => {
         setSelectedItemIds(new Set())
+        setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
         const description = `接收 ${submission.acceptedCount} · 重复 ${submission.duplicateCount} · 拒绝 ${submission.rejectedCount}`
         if (submission.rejectedCount > 0) {
           toast.warning(submission.acceptedCount > 0 ? '部分结果未进入收件箱' : '收件箱容量不足', {
@@ -355,8 +362,8 @@ export function ArchiveUploaderSources() {
   return (
     <div className="flex flex-col gap-6 pt-4">
       <AdminSectionHeader
-        title="E-Hentai 发现来源"
-        description="保存上传者或标题关键词条件；每次手动扫描，确认结果后才进入归档收件箱。"
+        title="发现来源"
+        description="保存上传者或标题关键词条件；手动扫描并勾选结果，再按所选模式加入收件箱。"
         actions={
           <>
             <Button
@@ -743,7 +750,8 @@ export function ArchiveUploaderSources() {
                             onClick={() =>
                               submissionAttemptMutation.mutate({
                                 sourceId: source.id,
-                                itemIds: [...selectedItemIds]
+                                itemIds: [...selectedItemIds],
+                                ...intakeOptions
                               })
                             }
                             disabled={selectedItemIds.size === 0 || mutationPending}
@@ -760,6 +768,9 @@ export function ArchiveUploaderSources() {
                     </>
                   }
                 />
+                {resultFeed === 'ACTIONABLE' || resultFeed === 'ATTENTION' || resultFeed === 'ALL' ? (
+                  <ArchiveIntakeOptions value={intakeOptions} onChange={setIntakeOptions} disabled={mutationPending} />
+                ) : null}
                 <ScanResults
                   view={resultFeed}
                   runs={detail.runs}
@@ -774,7 +785,9 @@ export function ArchiveUploaderSources() {
                   onRetry={retryItems}
                   onPreview={setPreviewItem}
                   onIgnore={(itemId) => ignoreMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
-                  onAdd={(itemId) => submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
+                  onAdd={(itemId) =>
+                    submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [itemId], ...intakeOptions })
+                  }
                   mutationPending={mutationPending}
                   selectedItemIds={selectedItemIds}
                   allActionableSelected={allActionableSelected}
@@ -999,7 +1012,7 @@ function ScanResults({
                           </span>
                         </div>
                         <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                          E-Hentai #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>
+                          #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground sm:hidden">
                           {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
@@ -1095,7 +1108,7 @@ function CatalogStatusBadge({ item }: { item: ScanItem }) {
     UPDATE_AVAILABLE: { label: '可能更新', variant: 'info' as const },
     REPLACEMENT: { label: '替代版本', variant: 'warning' as const },
     INBOX: { label: '等待解析', variant: 'warning' as const },
-    READY: { label: '待确认入队', variant: 'info' as const },
+    READY: { label: '待确认下载', variant: 'info' as const },
     DOWNLOADING: { label: '下载中', variant: 'warning' as const },
     ARCHIVED: { label: item.comparisonKnown ? '已归档' : '已归档 · 待校验', variant: 'muted' as const },
     FAILED: { label: '处理失败', variant: 'destructive' as const },

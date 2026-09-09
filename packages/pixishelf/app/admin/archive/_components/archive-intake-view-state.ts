@@ -8,9 +8,11 @@ export type ArchiveIntakeStatus =
   | 'ENQUEUED'
   | 'CANCELLED'
   | 'DUPLICATE'
+  | 'SKIPPED'
 
 export type ArchiveResolutionKind = 'NEW' | 'UPDATE' | 'UNCHANGED' | 'ACTIVE_TASK' | 'DUPLICATE_IDENTITY' | null
 export type ArchiveQuality = 'ORIGINAL' | 'DISPLAY'
+export type ArchiveDownloadMode = 'AUTO' | 'MANUAL'
 
 export interface ArchiveUrlInputLine {
   raw: string
@@ -33,6 +35,8 @@ export interface ArchiveIntakeSelectionItem {
   status: string
   resolutionKind: string | null
   retryable?: boolean | null
+  downloadMode?: ArchiveDownloadMode
+  selectedQuality?: ArchiveQuality | null
 }
 
 export interface ArchiveIntakeSelectionState {
@@ -87,9 +91,34 @@ export function analyzeArchiveUrlInput(input: string): ArchiveUrlInputAnalysis {
 export function isSelectableIntakeItem(item: ArchiveIntakeSelectionItem): boolean {
   if (CANCELLABLE_STATUSES.has(item.status) || isRetryableIntakeItem(item)) {
     if (item.status !== 'READY') return true
-    return ['NEW', 'UPDATE', 'UNCHANGED'].includes(item.resolutionKind ?? '')
+    return isEnqueueableIntakeItem(item)
   }
   return false
+}
+
+export function isEnqueueableIntakeItem(item: ArchiveIntakeSelectionItem): boolean {
+  if (item.status !== 'READY') return false
+  if (item.downloadMode === 'AUTO') return item.resolutionKind === 'UPDATE'
+  return ['NEW', 'UPDATE', 'UNCHANGED'].includes(item.resolutionKind ?? '')
+}
+
+export function archiveIntakeStatusLabel(item: ArchiveIntakeSelectionItem): string {
+  if (item.status === 'READY') {
+    if (item.downloadMode === 'AUTO') return item.resolutionKind === 'UPDATE' ? '待确认更新' : '正在处理归档'
+    return '待确认下载'
+  }
+  const labels: Record<string, string> = {
+    QUEUED: '等待解析',
+    RESOLVING: '解析中',
+    RETRY_WAIT: '等待重试',
+    STALE: '快照过期',
+    FAILED: '处理失败',
+    ENQUEUED: '已入队',
+    CANCELLED: '已取消',
+    DUPLICATE: '重复链接',
+    SKIPPED: '已跳过'
+  }
+  return labels[item.status] ?? item.status
 }
 
 export function isRetryableIntakeItem(item: ArchiveIntakeSelectionItem): boolean {
@@ -97,7 +126,11 @@ export function isRetryableIntakeItem(item: ArchiveIntakeSelectionItem): boolean
 }
 
 export function isDefaultSelectedIntakeItem(item: ArchiveIntakeSelectionItem): boolean {
-  return item.status === 'READY' && (item.resolutionKind === 'NEW' || item.resolutionKind === 'UPDATE')
+  return (
+    item.downloadMode !== 'AUTO' &&
+    item.status === 'READY' &&
+    (item.resolutionKind === 'NEW' || item.resolutionKind === 'UPDATE')
+  )
 }
 
 export function reconcileArchiveIntakeSelection(
@@ -116,7 +149,7 @@ export function reconcileArchiveIntakeSelection(
 
   for (const item of items) {
     if (!isSelectableIntakeItem(item)) continue
-    if (!qualityById.has(item.id)) qualityById.set(item.id, 'ORIGINAL')
+    if (!qualityById.has(item.id)) qualityById.set(item.id, item.selectedQuality ?? 'ORIGINAL')
     if (isDefaultSelectedIntakeItem(item) && !manuallyDeselectedIds.has(item.id)) selectedIds.add(item.id)
   }
   return { selectedIds, manuallyDeselectedIds, qualityById }
@@ -146,7 +179,7 @@ export function countArchiveIntakeActions(
   return items.reduce<ArchiveIntakeActionCounts>(
     (counts, item) => {
       if (!selectedIds.has(item.id) || !isSelectableIntakeItem(item)) return counts
-      if (item.status === 'READY' && ['NEW', 'UPDATE', 'UNCHANGED'].includes(item.resolutionKind ?? '')) {
+      if (isEnqueueableIntakeItem(item)) {
         counts.enqueue += 1
       }
       if (CANCELLABLE_STATUSES.has(item.status)) counts.cancel += 1

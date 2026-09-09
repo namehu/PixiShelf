@@ -37,13 +37,16 @@ const intakeStatusSchema = z.enum([
   'FAILED',
   'ENQUEUED',
   'CANCELLED',
-  'DUPLICATE'
+  'DUPLICATE',
+  'SKIPPED'
 ])
 
 export const createArchiveIntakeSchema = z
   .object({
     idempotencyKey: z.string().trim().min(1).max(180),
-    urls: z.array(z.string().max(2_048)).min(1).max(INTAKE_CREATE_LIMIT)
+    urls: z.array(z.string().max(2_048)).min(1).max(INTAKE_CREATE_LIMIT),
+    downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
+    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL')
   })
   .strict()
 
@@ -107,7 +110,11 @@ export async function createArchiveIntakeSubmissionInTransaction(
   const uuid = dependencies.uuid ?? randomUUID
   const rawUrls = parsed.urls.map((url) => url.trim()).filter(Boolean)
   if (rawUrls.length === 0) throw new ArchiveError('INVALID_URL', '至少需要一个非空归档链接')
-  const requestHash = archiveRequestFingerprint({ urls: rawUrls })
+  const requestHash = archiveRequestFingerprint({
+    urls: rawUrls,
+    downloadMode: parsed.downloadMode,
+    quality: parsed.quality
+  })
 
   // 并发场景下先锁幂等键，再锁容量队列，避免重复重放和容量竞争带来的“双重可见项目”。
   await lockKey(transaction, INTAKE_IDEMPOTENCY_LOCK_NAMESPACE, parsed.idempotencyKey)
@@ -172,6 +179,8 @@ export async function createArchiveIntakeSubmissionInTransaction(
         submittedUrl,
         normalizedUrlHash,
         duplicateOfItemId: duplicate.id,
+        downloadMode: parsed.downloadMode,
+        quality: parsed.quality,
         timestamp
       })
       firstSeen.set(submittedUrl, duplicateId)
@@ -194,7 +203,9 @@ export async function createArchiveIntakeSubmissionInTransaction(
       normalizedUrlHash,
       requestedByUserId,
       timestamp,
-      triggerSource: 'MANUAL'
+      triggerSource: 'MANUAL',
+      downloadMode: parsed.downloadMode,
+      quality: parsed.quality
     })
     firstSeen.set(submittedUrl, itemId)
     acceptedCount += 1
@@ -238,7 +249,7 @@ export async function replaceArchiveIntakeItem(
 
     const original = await transaction.archiveIntakeItem.findUnique({
       where: { id: parsed.itemId },
-      select: { id: true, status: true, submittedUrl: true }
+      select: { id: true, status: true, submittedUrl: true, downloadMode: true, selectedQuality: true }
     })
     if (!original) throw new ArchiveError('STATE_CONFLICT', '原失败收件项目不存在')
     if (original.status !== 'FAILED') {
@@ -280,6 +291,8 @@ export async function replaceArchiveIntakeItem(
         normalizedUrlHash,
         duplicateOfItemId: duplicate.id,
         supersedesItemId: original.id,
+        downloadMode: original.downloadMode,
+        quality: original.selectedQuality,
         timestamp
       })
     } else if (hasCapacity) {
@@ -292,6 +305,8 @@ export async function replaceArchiveIntakeItem(
         normalizedUrlHash,
         requestedByUserId,
         supersedesItemId: original.id,
+        downloadMode: original.downloadMode,
+        quality: original.selectedQuality,
         timestamp,
         triggerSource: 'RETRY'
       })
@@ -303,6 +318,8 @@ export async function replaceArchiveIntakeItem(
         submittedUrl,
         normalizedUrlHash,
         supersedesItemId: original.id,
+        downloadMode: original.downloadMode,
+        quality: original.selectedQuality,
         timestamp
       })
     }
@@ -332,6 +349,8 @@ async function createDuplicateAuditItem(
     normalizedUrlHash: string
     duplicateOfItemId: string
     supersedesItemId?: string
+    downloadMode: 'AUTO' | 'MANUAL'
+    quality: 'ORIGINAL' | 'DISPLAY'
     timestamp: Date
   }
 ) {
@@ -341,6 +360,8 @@ async function createDuplicateAuditItem(
       submissionId: input.submissionId,
       submittedUrl: input.submittedUrl,
       normalizedUrlHash: input.normalizedUrlHash,
+      downloadMode: input.downloadMode,
+      selectedQuality: input.quality,
       status: 'DUPLICATE',
       duplicateOfItemId: input.duplicateOfItemId,
       supersedesItemId: input.supersedesItemId,
@@ -360,6 +381,8 @@ async function createCapacityRejectedAuditItem(
     submittedUrl: string
     normalizedUrlHash: string
     supersedesItemId: string
+    downloadMode: 'AUTO' | 'MANUAL'
+    quality: 'ORIGINAL' | 'DISPLAY'
     timestamp: Date
   }
 ) {
@@ -369,6 +392,8 @@ async function createCapacityRejectedAuditItem(
       submissionId: input.submissionId,
       submittedUrl: input.submittedUrl,
       normalizedUrlHash: input.normalizedUrlHash,
+      downloadMode: input.downloadMode,
+      selectedQuality: input.quality,
       status: 'FAILED',
       supersedesItemId: input.supersedesItemId,
       finishedAt: input.timestamp,
@@ -391,6 +416,8 @@ async function createQueuedIntakeItem(
     normalizedUrlHash: string
     requestedByUserId: string
     supersedesItemId?: string
+    downloadMode: 'AUTO' | 'MANUAL'
+    quality: 'ORIGINAL' | 'DISPLAY'
     timestamp: Date
     triggerSource: 'MANUAL' | 'RETRY'
   }
@@ -420,6 +447,8 @@ async function createQueuedIntakeItem(
       submissionId: input.submissionId,
       submittedUrl: input.submittedUrl,
       normalizedUrlHash: input.normalizedUrlHash,
+      downloadMode: input.downloadMode,
+      selectedQuality: input.quality,
       status: 'QUEUED',
       currentSystemJobId: input.jobId,
       supersedesItemId: input.supersedesItemId,
@@ -880,6 +909,7 @@ const intakeItemWireSelect = {
   duplicateOfItemId: true,
   activeArchiveImportId: true,
   selectedQuality: true,
+  downloadMode: true,
   resolvedAt: true,
   expiresAt: true,
   archiveImportId: true,
@@ -976,7 +1006,7 @@ function statusesForView(
     case 'ENQUEUED':
       return ['ENQUEUED']
     case 'CANCELLED':
-      return ['CANCELLED', 'DUPLICATE']
+      return ['CANCELLED', 'DUPLICATE', 'SKIPPED']
   }
 }
 

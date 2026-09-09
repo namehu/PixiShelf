@@ -142,7 +142,12 @@ describe('archive inbox authorization boundary', () => {
       urls: ['https://e-hentai.org/g/1/token/']
     })
     expect(mocks.create).toHaveBeenCalledWith(
-      { idempotencyKey: 'request-1', urls: ['https://e-hentai.org/g/1/token/'] },
+      {
+        idempotencyKey: 'request-1',
+        urls: ['https://e-hentai.org/g/1/token/'],
+        downloadMode: 'MANUAL',
+        quality: 'ORIGINAL'
+      },
       'admin-1'
     )
   })

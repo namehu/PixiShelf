@@ -14,6 +14,11 @@ import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { archiveClientErrorMessage } from './archive-client-error'
+import { ArchivePublishedMediaPreview } from './archive-published-media-preview'
+import { ArchiveSubmissionBadge } from './archive-submission-badge'
+import { archiveSourceLabel } from './archive-source-label'
+import { archiveTaskArtworkHref, archiveTaskSourceHref } from './archive-task-navigation'
+import { archiveTaskDisplayStatus, archiveTaskStatusLabel } from './archive-task-view-state'
 import {
   archiveItemPollingIntervals,
   defaultArchiveItemFilter,
@@ -23,17 +28,7 @@ import {
 const PAGE_SIZE = 50
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
-interface ArchiveTask {
-  id: string
-  providerKey: string
-  externalId: string
-  title: string | null
-  status: string
-  errorCode: string | null
-  totalItems: number
-  completedItems: number
-  failedItems: number
-}
+type ArchiveTask = RouterOutputs['archive']['listTasks']['items'][number]
 type ArchiveItem = RouterOutputs['archive']['listTaskItems']['items'][number]
 
 export function ArchiveItemDrawer({
@@ -136,25 +131,26 @@ export function ArchiveItemDrawer({
       onOpenChange={onOpenChange}
       title={
         task?.title ? (
-          <PrivacySensitiveText>{task.title}</PrivacySensitiveText>
+          <PrivacySensitiveText className="break-words [overflow-wrap:anywhere]">{task.title}</PrivacySensitiveText>
         ) : task ? (
-          `${task.providerKey} #${task.externalId}`
+          <PrivacySensitiveText>{archiveSourceLabel(task.providerKey, task.externalId)}</PrivacySensitiveText>
         ) : (
-          '图片明细'
+          '任务详情'
         )
       }
       description={
-        task
-          ? `${task.providerKey} #${task.externalId} · 成功 ${task.completedItems} · 失败 ${task.failedItems} · 共 ${task.totalItems} 张`
-          : undefined
+        task ? (
+          <PrivacySensitiveText>{`${archiveSourceLabel(task.providerKey, task.externalId)} · 成功 ${task.completedItems} · 失败 ${task.failedItems} · 共 ${task.totalItems} 张`}</PrivacySensitiveText>
+        ) : undefined
       }
       side="right"
       className="w-[min(100vw,46rem)] sm:max-w-[46rem]"
     >
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex min-h-full min-w-0 flex-col gap-3">
+        {task && <ArchiveTaskDetails task={task} />}
         <div className="mb-3 flex shrink-0 items-start gap-2 rounded-md border bg-muted/30 p-3">
           <p className="min-w-0 flex-1 text-xs text-muted-foreground">
-            保存的是稳定的 E-Hentai 图片页链接；临时 CDN 直链不会持久化。筛选由服务端执行，向下滚动自动加载。
+            保存的是稳定的原站图片页链接；临时 CDN 直链不会持久化。筛选由服务端执行，向下滚动自动加载。
           </p>
           <Button
             type="button"
@@ -206,7 +202,7 @@ export function ArchiveItemDrawer({
             role="region"
             aria-label="图片明细列表"
             tabIndex={0}
-            className="-mr-2 min-h-0 flex-1 overflow-y-auto pr-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-[60vh] min-h-64 overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <div className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
               {virtualRows.map((virtualRow) => {
@@ -245,6 +241,76 @@ export function ArchiveItemDrawer({
         )}
       </div>
     </SSheet>
+  )
+}
+
+export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
+  const [showMedia, setShowMedia] = useState(false)
+  const artworkHref = archiveTaskArtworkHref(task)
+  useEffect(() => setShowMedia(false), [task.id])
+  const timestamps = [
+    ['创建时间', task.createdAt],
+    ['开始时间', task.startedAt],
+    ['完成时间', task.finishedAt],
+    ['暂存保留至', task.retainUntil]
+  ] as const
+  return (
+    <section className="flex min-w-0 flex-col gap-3 rounded-lg border p-3" aria-label="任务详情">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="secondary">{archiveTaskStatusLabel(archiveTaskDisplayStatus(task), task.errorCode)}</Badge>
+        <Badge variant="outline">{task.selectedQuality === 'ORIGINAL' ? '原图' : '展示质量'}</Badge>
+        {task.kind && <Badge variant="outline">{task.kind === 'UPDATE' ? '更新归档' : '首次归档'}</Badge>}
+        <span className="text-xs text-muted-foreground">尝试 {task.attempt}</span>
+      </div>
+      <PrivacySensitiveText as="p" className="break-all text-xs text-muted-foreground">
+        提交来源：{task.submittedUrl}
+      </PrivacySensitiveText>
+      {task.submissionId && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+          批次 <ArchiveSubmissionBadge submissionId={task.submissionId} />
+        </div>
+      )}
+      <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        {timestamps
+          .filter(([, value]) => value)
+          .map(([label, value]) => (
+            <div key={label} className="contents">
+              <dt>{label}</dt>
+              <dd>{new Date(value!).toLocaleString('zh-CN', { hour12: false })}</dd>
+            </div>
+          ))}
+      </dl>
+      {task.warning && (
+        <PrivacySensitiveText as="p" className="break-words text-xs text-warning">
+          {task.warning}
+        </PrivacySensitiveText>
+      )}
+      {task.errorMessage && (
+        <PrivacySensitiveText as="p" className="break-words text-xs text-destructive">
+          {task.errorMessage}
+        </PrivacySensitiveText>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button asChild variant="outline" size="sm">
+          <a
+            href={archiveTaskSourceHref(task.id)}
+            target="_blank"
+            rel="noopener noreferrer"
+            referrerPolicy="no-referrer"
+          >
+            原站
+          </a>
+        </Button>
+        {artworkHref && (
+          <Button variant="outline" size="sm" onClick={() => setShowMedia((value) => !value)} aria-expanded={showMedia}>
+            {showMedia ? '收起已发布媒体' : '查看已发布媒体'}
+          </Button>
+        )}
+      </div>
+      {showMedia && artworkHref && task.publishedArtwork && (
+        <ArchivePublishedMediaPreview artworkId={task.publishedArtwork.id} />
+      )}
+    </section>
   )
 }
 

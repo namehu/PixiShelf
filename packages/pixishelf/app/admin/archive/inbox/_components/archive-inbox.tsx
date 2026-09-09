@@ -32,7 +32,12 @@ import {
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
 import { ArchiveReplaceDialog } from '@/app/admin/archive/_components/archive-replace-dialog'
 import { ArchiveSubmissionBadge } from '@/app/admin/archive/_components/archive-submission-badge'
+import { archiveSourceLabel } from '@/app/admin/archive/_components/archive-source-label'
 import { ArchiveIntakeItemActions, ArchiveIntakeRetryActions } from './archive-intake-item-actions'
+import {
+  ArchiveIntakeResolutionBadge as ResolutionBadge,
+  ArchiveIntakeStatusBadge as StatusBadge
+} from './archive-intake-badges'
 import {
   archiveIntakePollingInterval,
   archiveIntakeItemHref,
@@ -41,6 +46,7 @@ import {
   countArchiveIntakeActions,
   getOrCreateArchiveCommandKey,
   isSelectableIntakeItem,
+  isEnqueueableIntakeItem,
   isRetryableIntakeItem,
   reconcileArchiveIntakeSelection,
   releaseArchiveCommandKey,
@@ -145,7 +151,12 @@ export function ArchiveInbox() {
   const locatedItemQuery = useQuery(
     trpc.archiveInbox.list.queryOptions(
       { itemId: locatedItemId ?? undefined, view: 'ACTIVE', limit: 1 },
-      { enabled: Boolean(locatedItemId), retry: false }
+      {
+        enabled: Boolean(locatedItemId),
+        retry: false,
+        refetchInterval: (query) =>
+          query.state.data?.items.some((item) => ACTIVE_STATUSES.has(item.status)) ? 3_000 : 8_000
+      }
     )
   )
   const items = useMemo(() => listQuery.data?.items ?? [], [listQuery.data?.items])
@@ -249,14 +260,12 @@ export function ArchiveInbox() {
 
   const enqueueSelected = () => {
     const selected = items
-      .filter(
-        (item) =>
-          selection.selectedIds.has(item.id) &&
-          item.status === 'READY' &&
-          ['NEW', 'UPDATE', 'UNCHANGED'].includes(item.resolutionKind ?? '')
-      )
+      .filter((item) => selection.selectedIds.has(item.id) && isEnqueueableIntakeItem(item))
       .slice(0, 100)
-      .map((item) => ({ itemId: item.id, quality: selection.qualityById.get(item.id) ?? 'ORIGINAL' }))
+      .map((item) => ({
+        itemId: item.id,
+        quality: selection.qualityById.get(item.id) ?? item.selectedQuality ?? 'ORIGINAL'
+      }))
     if (!selected.length) return
     enqueueMutation.mutate({ idempotencyKey: idempotencyKeyFor('ENQUEUE', selected), items: selected })
   }
@@ -301,7 +310,7 @@ export function ArchiveInbox() {
       <AdminSection className="gap-5" aria-labelledby="archive-inbox-list-title">
         <AdminSectionHeader
           title={<span id="archive-inbox-list-title">收件队列</span>}
-          description="待处理项目按加入顺序推进；历史记录按最近更新时间排列。"
+          description="新作品可自动下载；需要确认的更新和仅解析项目会保留在这里。"
           actions={
             <ArchiveAddDialog
               trigger={
@@ -324,7 +333,7 @@ export function ArchiveInbox() {
             <TabsTrigger value="ACTIVE">待处理</TabsTrigger>
             <TabsTrigger value="FAILED">失败</TabsTrigger>
             <TabsTrigger value="ENQUEUED">已入队</TabsTrigger>
-            <TabsTrigger value="CANCELLED">已取消 / 重复</TabsTrigger>
+            <TabsTrigger value="CANCELLED">已跳过 / 取消 / 重复</TabsTrigger>
           </TabsList>
           <TabsContent value={view} className="flex flex-col gap-5">
             <form
@@ -364,7 +373,7 @@ export function ArchiveInbox() {
                     <SelectContent>
                       <SelectGroup>
                         <SelectItem value="ALL">全部来源</SelectItem>
-                        <SelectItem value="e-hentai">E-Hentai</SelectItem>
+                        <SelectItem value="e-hentai">画廊来源</SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -437,7 +446,7 @@ export function ArchiveInbox() {
                     ) : (
                       <ArchiveIcon data-icon="inline-start" />
                     )}
-                    入队 {actionCounts.enqueue}
+                    确认下载 {actionCounts.enqueue}
                   </Button>
                   <Button
                     size="sm"
@@ -645,7 +654,7 @@ function LocatedIntakeItemDialog({
           <div className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2">
               <QueueMarker item={item} />
-              <StatusBadge status={item.status} />
+              <StatusBadge item={item} />
               <ResolutionBadge kind={item.resolutionKind} />
             </div>
             <ItemIdentity item={item} />
@@ -659,6 +668,8 @@ function LocatedIntakeItemDialog({
               <QueueDatum label="更新时间" value={formatTimestamp(item.updatedAt)} />
               <QueueDatum label="解析尝试" value={item.attempts} />
               <QueueDatum label="页面数" value={item.pageCount ?? '—'} />
+              <QueueDatum label="加入后" value={item.downloadMode === 'AUTO' ? '自动下载' : '仅解析'} />
+              <QueueDatum label="下载画质" value={item.selectedQuality === 'DISPLAY' ? '展示图' : '原图'} />
             </dl>
             <div className="flex flex-wrap gap-2">
               <ArchiveIntakeRetryActions
@@ -770,9 +781,11 @@ export function ArchiveQueueControlPanel({
       ? '自动解析已暂停，已添加的项目仍会保留。'
       : summary.currentItem
         ? `正在处理 #${summary.currentItem.queueOrder} · ${summary.currentItem.resolvedTitle || '远端作品'}`
-        : summary.queuedCount
-          ? `${summary.queuedCount} 个项目正在等待处理。`
-          : '当前没有待处理项目。'
+        : summary.counts.READY
+          ? `${summary.counts.READY} 个项目等待确认下载。`
+          : summary.queuedCount
+            ? `${summary.queuedCount} 个项目正在等待处理。`
+            : '当前没有待处理项目。'
 
   return (
     <Card className="gap-0 py-0" role="region" aria-labelledby="archive-processing-status-title">
@@ -801,8 +814,9 @@ export function ArchiveQueueControlPanel({
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4 px-4 pb-4 sm:px-5">
-        <dl className="grid grid-cols-3 gap-4" aria-label="处理摘要">
+        <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4" aria-label="处理摘要">
           <QueueDatum label="等待" value={summary.queuedCount} />
+          <QueueDatum label="待确认" value={summary.counts.READY ?? 0} />
           <QueueDatum label="24h 失败" value={summary.recentFailedCount} />
           <QueueDatum label="活动容量" value={`${summary.activeCount} / ${summary.capacity}`} />
         </dl>
@@ -849,6 +863,7 @@ export function ArchiveQueueControlPanel({
                 <dl className="grid grid-cols-2 gap-3">
                   <QueueDatum label="最老等待" value={formatAge(summary.oldestWaitingAt)} />
                   <QueueDatum label="剩余容量" value={summary.remainingCapacity} />
+                  <QueueDatum label="已跳过" value={summary.counts.SKIPPED ?? 0} />
                 </dl>
               </section>
             </div>
@@ -965,7 +980,7 @@ function DesktopIntakeTable({
               </TableCell>
               <TableCell>
                 <div className="flex flex-col gap-1">
-                  <StatusBadge status={item.status} />
+                  <StatusBadge item={item} />
                   <span className="font-mono text-xs text-muted-foreground tabular-nums">{formatDuration(item)}</span>
                 </div>
               </TableCell>
@@ -1028,7 +1043,7 @@ function MobileIntakeList({
             <ItemIdentity item={item} />
             <div className="flex flex-wrap items-center gap-2">
               <ResolutionBadge kind={item.resolutionKind} />
-              <StatusBadge status={item.status} />
+              <StatusBadge item={item} />
               <span className="font-mono text-xs text-muted-foreground tabular-nums">{formatDuration(item)}</span>
             </div>
             <ArchiveIntakeItemActions
@@ -1059,6 +1074,15 @@ function QueueMarker({ item }: { item: IntakeItem }) {
 }
 
 function ItemIdentity({ item }: { item: IntakeItem }) {
+  const metadata = [
+    archiveSourceLabel(item.providerKey, item.externalId) || (item.providerKey ? null : '等待识别来源'),
+    item.pageCount ? `${item.pageCount} 页` : null,
+    item.attempts ? `尝试 ${item.attempts}` : null,
+    item.downloadMode === 'AUTO' ? '自动下载' : '仅解析',
+    item.selectedQuality === 'DISPLAY' ? '展示图' : '原图'
+  ]
+    .filter(Boolean)
+    .join(' · ')
   return (
     <div className="min-w-0">
       <PrivacySensitiveText as="p" className="truncate font-medium">
@@ -1067,14 +1091,15 @@ function ItemIdentity({ item }: { item: IntakeItem }) {
       <PrivacySensitiveText as="p" className="truncate font-mono text-xs text-muted-foreground">
         {item.submittedUrl}
       </PrivacySensitiveText>
-      <p className="mt-1 text-xs text-muted-foreground">
-        {item.providerKey ? `${item.providerKey}${item.externalId ? ` #${item.externalId}` : ''}` : '等待识别来源'}
-        {item.pageCount ? ` · ${item.pageCount} 页` : ''}
-        {item.attempts ? ` · 尝试 ${item.attempts}` : ''}
-      </p>
+      <p className="mt-1 text-xs text-muted-foreground">{metadata}</p>
       <div className="mt-2">
         <ArchiveSubmissionBadge submissionId={item.submissionId} />
       </div>
+      {item.status === 'READY' && item.downloadMode === 'AUTO' && item.resolutionKind === 'UPDATE' ? (
+        <p className="mt-2 text-xs text-muted-foreground">已有作品发生变化，请勾选后确认下载更新。</p>
+      ) : item.status === 'SKIPPED' && item.resolutionKind === 'UNCHANGED' ? (
+        <p className="mt-2 text-xs text-muted-foreground">与本地归档一致，已跳过下载。</p>
+      ) : null}
       {item.errorMessage ? (
         <PrivacySensitiveText as="p" className="mt-1 line-clamp-2 text-xs text-destructive">
           {item.errorMessage}
@@ -1098,51 +1123,6 @@ function LaneBadge({ status }: { status: 'RUNNING' | 'READY' | 'DRAINING' | 'ERR
     status === 'ERROR' ? 'destructive' : status === 'DRAINING' ? 'warning' : status === 'RUNNING' ? 'info' : 'success'
   const label = { RUNNING: '运行中', READY: '就绪', DRAINING: '停止领取', ERROR: '异常' }[status]
   return <Badge variant={variant}>{label}</Badge>
-}
-
-function StatusBadge({ status }: { status: IntakeItem['status'] }) {
-  const labels: Record<string, string> = {
-    QUEUED: '等待解析',
-    RESOLVING: '解析中',
-    RETRY_WAIT: '等待重试',
-    READY: '已就绪',
-    STALE: '快照过期',
-    FAILED: '解析失败',
-    ENQUEUED: '已入队',
-    CANCELLED: '已取消',
-    DUPLICATE: '重复链接'
-  }
-  const variant =
-    status === 'FAILED'
-      ? 'destructive'
-      : status === 'STALE' || status === 'RETRY_WAIT'
-        ? 'warning'
-        : status === 'RESOLVING'
-          ? 'info'
-          : status === 'READY' || status === 'ENQUEUED'
-            ? 'success'
-            : 'muted'
-  return <Badge variant={variant}>{labels[status] ?? status}</Badge>
-}
-
-function ResolutionBadge({ kind }: { kind: IntakeItem['resolutionKind'] }) {
-  if (!kind) return <Badge variant="muted">待判断</Badge>
-  const labels = {
-    NEW: '新归档',
-    UPDATE: '新版本',
-    UNCHANGED: '未变化',
-    ACTIVE_TASK: '已有活动任务',
-    DUPLICATE_IDENTITY: '作品身份重复'
-  } as const
-  const variant =
-    kind === 'NEW'
-      ? 'success'
-      : kind === 'UPDATE'
-        ? 'info'
-        : kind === 'ACTIVE_TASK' || kind === 'DUPLICATE_IDENTITY'
-          ? 'warning'
-          : 'muted'
-  return <Badge variant={variant}>{labels[kind as keyof typeof labels] ?? kind}</Badge>
 }
 
 function InboxLoading() {

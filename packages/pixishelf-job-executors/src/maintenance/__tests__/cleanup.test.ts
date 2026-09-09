@@ -91,7 +91,7 @@ describe('maintenance retention cleanup', () => {
     expect(archiveIntakeItemDeleteMany).toHaveBeenCalledWith({
       where: {
         id: { in: ['item-1'] },
-        status: { in: ['FAILED', 'ENQUEUED', 'CANCELLED', 'DUPLICATE'] },
+        status: { in: ['FAILED', 'ENQUEUED', 'CANCELLED', 'DUPLICATE', 'SKIPPED'] },
         finishedAt: { lt: cutoff }
       }
     })

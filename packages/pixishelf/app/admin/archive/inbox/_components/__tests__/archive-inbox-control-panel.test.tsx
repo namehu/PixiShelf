@@ -7,6 +7,7 @@ const summary = {
   capacity: 1000,
   paused: false,
   queuedCount: 0,
+  counts: { READY: 0, SKIPPED: 0 },
   currentItem: null,
   oldestWaitingAt: null,
   recentFailedCount: 0,
@@ -77,5 +78,24 @@ describe('archive inbox control panel', () => {
     fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
     fireEvent.click(screen.getByRole('button', { name: '暂停解析' }))
     expect(onPause).toHaveBeenCalledOnce()
+  })
+
+  it('shows items awaiting confirmation and skipped history separately', () => {
+    render(
+      <ArchiveQueueControlPanel
+        summary={{ ...summary, counts: { READY: 2, SKIPPED: 3 } } as any}
+        lanes={lanes as any}
+        loading={false}
+        error={false}
+        pausePending={false}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+        onRetry={vi.fn()}
+      />
+    )
+    expect(screen.getByText('2 个项目等待确认下载。')).toBeTruthy()
+    expect(screen.getByText('待确认').nextElementSibling?.textContent).toBe('2')
+    fireEvent.click(screen.getByRole('button', { name: '运行详情' }))
+    expect(screen.getByText('已跳过').nextElementSibling?.textContent).toBe('3')
   })
 })

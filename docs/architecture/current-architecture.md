@@ -212,7 +212,7 @@ sequenceDiagram
 
 中央模式下，scheduler 在上海时间 `00:00-08:00` 窗口内按天幂等物化所有已启用 DAILY 任务，统一设置 `availableAt=00:00`、`deadlineAt=08:00`，再由队列优先级决定执行顺序。任务设置页中的 `HH:mm` 当前不参与中央 materializer 计算，不能把显示时间理解为精确触发时刻。完整任务清单、状态边界和业务流程见[后台任务业务链路](./background-job-business-flows.md)。
 
-归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。管理员也可以保存 E-Hentai 上传者来源，人工扫描最新或更早的公开画廊，并在确认后把候选 URL 加入同一收件箱；该能力没有自动扫描或自动下载。已就绪项目可以在其余项目解析期间多选入队，每个作品创建或复用一个独立 `ARCHIVE_IMPORT`。`/admin/archive` 提供任务分页、筛选、明细和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
+归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。管理员也可以保存 E-Hentai 上传者或标题来源，人工扫描并勾选候选 URL 加入同一收件箱。提交时持久保存模式与画质，界面默认解析并归档：新作品在 resolver fenced 终态事务中自动创建 `ARCHIVE_IMPORT`，已有任务复用，有变化的已有作品等待确认，未变化直接跳过；仅解析及历史收件保留手动入队。App 与 Worker 复用 job-executors 中的入队核心，下载仍由 writer lane 执行。`/admin/archive` 提供紧凑表格/移动卡片、分页筛选、任务详情、作品/原站导航和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
 
 `ARCHIVE_IMPORT` 启动时在 fenced transaction 内读取数据库系统设置并冻结 1–8 的媒体并发，默认 2；同一值控制媒体 worker 与 Provider Governor，writer lane 本身仍固定并发 1。`WEBP_ANIMATION_SCAN` 的探测并发由 `ANIMATION_SCAN_CONCURRENCY`（1–8，默认 4）控制，属于任务内部有界池，不会增加图片级 `SystemJob`；图片分类微批次、任务行聚合检查点和对应事件原子提交。admin layout 维护每标签页唯一的 `/api/jobs/events` SSE，使用持久 `SystemJobEvent.id` 追赶全部后台任务事件。归档页、任务计划页和后台控制台消费同一事件源；SSE 健康时停止任务状态高频轮询，断线时活动任务 3 秒、空闲页面 30 秒降级。`SystemJob.progressData` 只保存版本化聚合指标，不保存路径、标题、URL 或凭据。事件 transport 的决策边界见 ADR-0006 和 ADR-0007。
 

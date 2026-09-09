@@ -33,6 +33,41 @@ describe('ArchiveAddDialog', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
   })
 
+  it('submits new links with automatic original downloads by default', () => {
+    render(<ArchiveAddDialog />)
+    fireEvent.click(screen.getByRole('button', { name: '添加链接' }))
+    fireEvent.change(screen.getByLabelText('作品链接'), {
+      target: { value: 'https://e-hentai.org/g/123/token/' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '加入 1 条' }))
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        urls: ['https://e-hentai.org/g/123/token/'],
+        downloadMode: 'AUTO',
+        quality: 'ORIGINAL'
+      })
+    )
+  })
+
+  it('allows parse-only display quality and resets the next submission to defaults', () => {
+    render(<ArchiveAddDialog />)
+    fireEvent.click(screen.getByRole('button', { name: '添加链接' }))
+    fireEvent.change(screen.getByLabelText('作品链接'), {
+      target: { value: 'https://e-hentai.org/g/123/token/' }
+    })
+    fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
+    fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
+    expect(screen.getByText('只解析作品信息；完成后在收件箱选择项目并确认下载。')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '加入 1 条' }))
+    expect(mocks.mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ downloadMode: 'MANUAL', quality: 'DISPLAY' })
+    )
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    fireEvent.click(screen.getByRole('button', { name: '添加链接' }))
+    expect(screen.getByRole('radio', { name: '自动下载' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: '原图' }).getAttribute('aria-checked')).toBe('true')
+  })
+
   it('reads the clipboard on explicit action and appends without submitting', async () => {
     const readText = vi.fn().mockResolvedValue('https://e-hentai.org/s/page-token/1234567-1')
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText } })

@@ -51,6 +51,60 @@ describePostgres('archive intake PostgreSQL transactions', () => {
 
   afterAll(async () => disconnectDatabase(database))
 
+  it('freezes mode and quality in idempotency, retry and corrected-link lineage', async () => {
+    const input = {
+      idempotencyKey: suitePrefix + '-intent',
+      urls: ['https://e-hentai.org/g/intent/token/'],
+      downloadMode: 'AUTO' as const,
+      quality: 'DISPLAY' as const
+    }
+    const submission = await createArchiveIntakeSubmission(input, requestedByUserId, { database, validateUrl })
+    expect(submission.items[0]).toMatchObject({ downloadMode: 'AUTO', selectedQuality: 'DISPLAY' })
+    await expect(
+      createArchiveIntakeSubmission({ ...input, downloadMode: 'MANUAL' }, requestedByUserId, { database, validateUrl })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    await expect(
+      createArchiveIntakeSubmission({ ...input, quality: 'ORIGINAL' }, requestedByUserId, { database, validateUrl })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    const itemId = submission.items[0]!.id
+    await database.archiveIntakeItem.update({ where: { id: itemId }, data: { status: 'FAILED', retryable: true } })
+    await database.systemJob.update({
+      where: { id: submission.items[0]!.currentSystemJobId! },
+      data: { status: 'FAILED' }
+    })
+    const retry = await retryArchiveIntakeMany(
+      { idempotencyKey: suitePrefix + '-intent-retry', itemIds: [itemId] },
+      requestedByUserId,
+      { database }
+    )
+    expect(retry?.items[0]?.result).toBe('APPLIED')
+    expect(await database.archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })).toMatchObject({
+      downloadMode: 'AUTO',
+      selectedQuality: 'DISPLAY'
+    })
+    await database.archiveIntakeItem.update({ where: { id: itemId }, data: { status: 'FAILED', retryable: true } })
+    const replacement = await replaceArchiveIntakeItem(
+      {
+        idempotencyKey: suitePrefix + '-intent-replace',
+        itemId,
+        url: 'https://e-hentai.org/g/intent-corrected/token/'
+      },
+      requestedByUserId,
+      { database, validateUrl }
+    )
+    expect(replacement.items[0]).toMatchObject({
+      downloadMode: 'AUTO',
+      selectedQuality: 'DISPLAY',
+      supersedesItemId: itemId
+    })
+    const legacy = await createArchiveIntakeSubmission(
+      { idempotencyKey: suitePrefix + '-legacy-intent', urls: ['https://e-hentai.org/g/legacy-intent/token/'] },
+      requestedByUserId,
+      { database, validateUrl }
+    )
+    expect(legacy.items[0]).toMatchObject({ downloadMode: 'MANUAL', selectedQuality: 'ORIGINAL' })
+  })
+
   it('keeps the 1000 active cap atomic across concurrent submissions and retries', async () => {
     const seededSubmissionId = `${suitePrefix}-capacity-seed`
     await database.archiveIntakeSubmission.create({

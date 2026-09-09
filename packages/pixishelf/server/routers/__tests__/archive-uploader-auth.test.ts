@@ -112,7 +112,9 @@ describe('archive uploader authorization boundary', () => {
         archiveUploaderRouter.createCaller(unauthorized).addToInbox({
           sourceId: 'source-1',
           itemIds: ['item-1'],
-          submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+          submissionAttemptId: '00000000-0000-4000-8000-000000000001',
+          downloadMode: 'MANUAL',
+          quality: 'ORIGINAL'
         }),
       service: mocks.addToInbox
     },
@@ -194,12 +196,19 @@ describe('archive uploader authorization boundary', () => {
     expect(mocks.setUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1', uploaderUid: '123' })
     expect(mocks.triggerScan).toHaveBeenCalledWith({ sourceId: 'source-1', mode: 'LATEST' }, 'admin-1')
     expect(mocks.cancelScan).toHaveBeenCalledWith({ sourceId: 'source-1', runId: 'run-1' })
-    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['item-1'] })
+    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['item-1'],
+      downloadMode: 'MANUAL',
+      quality: 'ORIGINAL'
+    })
     expect(mocks.addToInbox).toHaveBeenCalledWith(
       {
         sourceId: 'source-1',
         itemIds: ['item-1'],
-        submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+        submissionAttemptId: '00000000-0000-4000-8000-000000000001',
+        downloadMode: 'MANUAL',
+        quality: 'ORIGINAL'
       },
       'admin-1'
     )

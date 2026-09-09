@@ -84,7 +84,7 @@ export function TaskFiltersForm({
             name="archive-task-provider"
             value={value.providerKey}
             onChange={(event) => onChange({ ...value, providerKey: event.target.value })}
-            placeholder="如 e-hentai…"
+            placeholder="输入来源标识…"
             autoComplete="off"
             maxLength={50}
           />

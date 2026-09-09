@@ -615,11 +615,15 @@ describe('ArchiveUploaderSources', () => {
 
     expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
       sourceId: 'source-1',
-      itemIds: ['catalog-item-1']
+      itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'ORIGINAL'
     })
     expect(mocks.addToInbox).toHaveBeenCalledWith({
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'ORIGINAL',
       submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
   })
@@ -657,14 +661,52 @@ describe('ArchiveUploaderSources', () => {
 
     expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
       sourceId: 'source-1',
-      itemIds: ['catalog-item-1']
+      itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'ORIGINAL'
     })
     expect(mocks.addToInbox).toHaveBeenCalledWith({
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'ORIGINAL',
       submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
   })
+
+  it.each(['UPLOADER', 'TITLE_QUERY'])(
+    'submits %s results only after selection with the chosen mode and quality',
+    (sourceKind) => {
+      const selectedSource = {
+        ...source,
+        sourceKind,
+        titleQuery:
+          sourceKind === 'TITLE_QUERY' ? { keyword: 'Gallery', matchMode: 'CONTAINS', uploaderUid: null } : null
+      }
+      currentSourcesData = [{ ...selectedSource, latestRun: completedRun }]
+      currentDetailData = { source: selectedSource, runs: [completedRun] }
+      render(<ArchiveUploaderSources />)
+      expect((screen.getByRole('button', { name: '加入收件箱（0）' }) as HTMLButtonElement).disabled).toBe(true)
+      fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
+      fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
+      expect(mocks.createSubmissionAttempt).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+      fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
+      expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
+        sourceId: 'source-1',
+        itemIds: ['catalog-item-1'],
+        downloadMode: 'MANUAL',
+        quality: 'DISPLAY'
+      })
+      expect(mocks.addToInbox).toHaveBeenCalledWith({
+        sourceId: 'source-1',
+        itemIds: ['catalog-item-1'],
+        downloadMode: 'MANUAL',
+        quality: 'DISPLAY',
+        submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+      })
+    }
+  )
 
   it('removes ignored items from the infinite cache and refreshes both result feeds', async () => {
     render(<ArchiveUploaderSources />)
