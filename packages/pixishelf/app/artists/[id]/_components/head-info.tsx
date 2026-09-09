@@ -46,7 +46,7 @@ const Component: FC<HeadInfoProps> = ({ artist, immersiveHref }) => (
 
       <PageHeader
         className="border-0 pb-0"
-        eyebrow="艺术家档案"
+        eyebrow={artist.kind === 'GROUP' ? '社团档案' : '艺术家档案'}
         title={<PrivacySensitiveText>{artist.name}</PrivacySensitiveText>}
         description={
           artist.bio ? (

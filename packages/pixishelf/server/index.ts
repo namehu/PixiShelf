@@ -1,3 +1,4 @@
+import { creatorRouter } from './routers/creator'
 import { router } from './trpc'
 import { authRouter } from './routers/auth'
 import { settingRouter } from './routers/setting'
@@ -25,6 +26,7 @@ export const appRouter = router({
   setting: settingRouter,
   user: userRouter,
   artist: artistRouter,
+  creator: creatorRouter,
   artwork: artworkRouter,
   search: searchRouter,
   tag: tagRouter,

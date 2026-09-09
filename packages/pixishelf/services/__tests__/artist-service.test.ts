@@ -109,7 +109,15 @@ describe('getDashboardArtists', () => {
 
     expect(artistFindManyMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: { gte: 1 }, artworks: { some: {} } },
+        where: {
+          id: { gte: 1 },
+          artworkMemberships: {
+            some: {
+              evidence: { some: { present: true, excludedAt: null } },
+              artwork: { deletedAt: null, archiveLifecycleState: 'ACTIVE' }
+            }
+          }
+        },
         take: 1
       })
     )

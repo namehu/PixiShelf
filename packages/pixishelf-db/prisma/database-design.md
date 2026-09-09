@@ -303,3 +303,7 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 | `20260826143000` | 为 Pixiv 作品外部引用增加在线同步状态、任务与磁盘快照指针；只在唯一来源及数据库快照精确匹配时清除误标文本 override                              |
 | `20260902120000` | 增加 E-Hentai 上传者来源、人工扫描运行与候选结果，扩展 SEARCH 请求类，并允许上传者扫描进入 `ARCHIVE_RESOLVE` lane                               |
 | `20260904120000` | 增加 E-Hentai 上传者稳定 UID、UID 覆盖复核状态与扫描运行查询身份快照；既有 UID 来源原地回填且不重置扫描水位                                     |
+
+## 创作者归属视图与兼容触发器
+
+20260908120000_unify_artwork_creators 引入 ArtworkArtist、多条 SOURCE/MANUAL/LEGACY 依据及来源标签映射。effective_artwork_creators 视图只选存在 present=true 且 excludedAt 为空的关系。seed_legacy_artwork_creator 仅在 Artwork INSERT 时为非空 artistId 建立 LEGACY 初始关系，UPDATE 不重新认领；不得把多对多关系回写为存储路径身份。CreatorMaintenancePlan/Item 保存冻结预览和逐项执行结果，完整数据库 dump 必须包含以上对象。详见[创作者关系](../../../docs/features/creator-relations.md)。

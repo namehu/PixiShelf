@@ -1,4 +1,5 @@
 'use client'
+import { creatorReviewHref } from '@/lib/creator-review-navigation'
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -49,6 +50,7 @@ export default function ArtworkManagement() {
     title: string
     description: string
     sourceDate: string | null
+    creators?: { id: number; name: string }[]
     artist: { id: number; name: string } | null
     tags: { id: number; name: string }[]
   } | null>(null)
@@ -230,6 +232,7 @@ export default function ArtworkManagement() {
       description: item.description || '',
       sourceDate: item.sourceDate || null,
       artist: item.artist ? { id: item.artist.id, name: item.artist.name } : null,
+      creators: item.creators.map((creator) => ({ id: creator.id, name: creator.name, kind: creator.kind })),
       tags: item.tags?.map((tag) => ({ id: tag.id, name: tag.name })) || []
     })
     setEditorConfig({ id: null, tab: 'info' })
@@ -384,6 +387,13 @@ export default function ArtworkManagement() {
       description="搜索、筛选并维护作品信息与媒体文件。"
       actions={
         <ArtworkManagementToolbar
+          onCreatorRelations={() => {
+            try {
+              router.push(creatorReviewHref(selectedRowKeys.map(Number)))
+            } catch {
+              toast.error('无法打开检查页面，请允许浏览器保存本页数据后重试。')
+            }
+          }}
           migrationSafety={migrationSafety}
           setMigrationSafety={setMigrationSafety}
           isExporting={isExporting}

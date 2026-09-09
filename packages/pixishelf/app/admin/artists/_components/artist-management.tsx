@@ -98,6 +98,7 @@ export function ArtistManagement() {
 
   // 1. URL 参数同步状态
   const [searchState, setSearchState] = useQueryStates({
+    kind: parseAsString,
     name: parseAsString, // 对应 API 的 search 参数
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20),
@@ -305,11 +306,7 @@ export function ArtistManagement() {
         header: '头像',
         size: 76,
         cell: ({ row }) => (
-          <ArtistAvatarThumbnail
-            name={row.original.name}
-            image={row.original.avatar}
-            onPreview={setPreviewedImage}
-          />
+          <ArtistAvatarThumbnail name={row.original.name} image={row.original.avatar} onPreview={setPreviewedImage} />
         )
       },
       {
@@ -487,6 +484,24 @@ export function ArtistManagement() {
         searchRender={() => (
           <div className="flex flex-wrap items-center gap-2 w-full">
             <Select
+              value={searchState.kind || 'all'}
+              onValueChange={(kind) => {
+                setRowSelection({})
+                setSearchState({ kind: kind === 'all' ? null : kind, page: 1 })
+              }}
+            >
+              <SelectTrigger aria-label="筛选实体类型" className="h-8 w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">全部类型</SelectItem>
+                  <SelectItem value="PERSON">艺术家</SelectItem>
+                  <SelectItem value="GROUP">社团</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <Select
               value={searchState.isStarred || 'all'}
               onValueChange={(val) => {
                 setSearchState({ isStarred: val === 'all' ? null : val, page: 1 })
@@ -559,6 +574,9 @@ export function ArtistManagement() {
               <Plus data-icon="inline-start" aria-hidden="true" />
               新增艺术家
             </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/admin/artists/relations">填写和纠正作品作者</Link>
+            </Button>
           </div>
         )}
       />
@@ -582,10 +600,7 @@ export function ArtistManagement() {
           checked: artist.pixivSync?.status != null
         }))}
       />
-      <ArtistImagePreviewDialog
-        target={previewedImage}
-        onOpenChange={(open) => !open && setPreviewedImage(null)}
-      />
+      <ArtistImagePreviewDialog target={previewedImage} onOpenChange={(open) => !open && setPreviewedImage(null)} />
     </div>
   )
 }
@@ -600,9 +615,5 @@ function PixivSyncBadge({ artist }: { artist: ArtistListItem }) {
     NO_DATA: { label: '无数据', variant: 'muted' as const },
     FAILED: { label: '失败', variant: 'destructive' as const }
   }[status]
-  return (
-    <Badge variant={display.variant}>
-      {display.label}
-    </Badge>
-  )
+  return <Badge variant={display.variant}>{display.label}</Badge>
 }

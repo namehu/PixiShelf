@@ -1,10 +1,17 @@
 import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
+export * from './creators'
 
-const latestRequiredMigration = '20260904200000_add_system_job_progress_data'
+const latestRequiredMigration = '20260908120000_unify_artwork_creators'
 
 const requiredQueueObjects = [
+  'creator_maintenance_plans',
+  'creator_maintenance_items',
+  'artwork_artists',
+  'artwork_artist_evidence',
+  'artist_source_tag_mappings',
+  'effective_artwork_creators',
   'archive_intake_items',
   'archive_uploader_scan_items',
   'archive_uploader_scan_runs',

@@ -1,3 +1,5 @@
+import type { ArtistResponseDto } from '@/schemas/artist.dto'
+import { creatorInclude, editArtworkCreators, lockCreatorCatalog } from '@pixishelf/db'
 import 'server-only'
 
 import { ArtworkCardData, ArtworkCardListResponse, EnhancedArtworksResponse } from '@/types'
@@ -131,54 +133,59 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
 
   const artworkIds = rawArtworks.map((a) => a.id)
   const artistIds = [...new Set(rawArtworks.map((artwork) => artwork.artist_id).filter(Boolean))] as number[]
-  const [allImages, allTags, artistExternalRefs, localArtistMappings, artworkExternalRefs] = await Promise.all([
-    prisma.image.findMany({
-      where: { artworkId: { in: artworkIds } },
-      orderBy: { sortOrder: 'asc' },
-      include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
-    }),
-    prisma.artworkTag.findMany({
-      where: { artworkId: { in: artworkIds } },
-      include: { tag: true }
-    }),
-    prisma.artistExternalRef.findMany({
-      where: { artistId: { in: artistIds } },
-      select: {
-        id: true,
-        artistId: true,
-        providerKey: true,
-        externalId: true,
-        sourceName: true,
-        status: true,
-        lastAttemptAt: true,
-        lastSuccessAt: true,
-        lastErrorCode: true,
-        lastError: true,
-        lastSystemJobId: true
-      }
-    }),
-    prisma.localImportArtistMapping.findMany({
-      where: { artistId: { in: artistIds } },
-      select: { id: true, artistId: true }
-    }),
-    prisma.artworkExternalRef.findMany({
-      where: { artworkId: { in: artworkIds } },
-      select: {
-        id: true,
-        artworkId: true,
-        providerKey: true,
-        externalId: true,
-        status: true,
-        lastAttemptAt: true,
-        lastSuccessAt: true,
-        lastErrorCode: true,
-        lastError: true,
-        lastSystemJobId: true,
-        onlineSnapshotHash: true,
-        onlineSnapshotPath: true
-      }
-    })
-  ])
+  const [allImages, allTags, artistExternalRefs, localArtistMappings, artworkExternalRefs, creatorRows] =
+    await Promise.all([
+      prisma.image.findMany({
+        where: { artworkId: { in: artworkIds } },
+        orderBy: { sortOrder: 'asc' },
+        include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
+      }),
+      prisma.artworkTag.findMany({
+        where: { artworkId: { in: artworkIds } },
+        include: { tag: true }
+      }),
+      prisma.artistExternalRef.findMany({
+        where: { artistId: { in: artistIds } },
+        select: {
+          id: true,
+          artistId: true,
+          providerKey: true,
+          externalId: true,
+          sourceName: true,
+          status: true,
+          lastAttemptAt: true,
+          lastSuccessAt: true,
+          lastErrorCode: true,
+          lastError: true,
+          lastSystemJobId: true
+        }
+      }),
+      prisma.localImportArtistMapping.findMany({
+        where: { artistId: { in: artistIds } },
+        select: { id: true, artistId: true }
+      }),
+      prisma.artworkExternalRef.findMany({
+        where: { artworkId: { in: artworkIds } },
+        select: {
+          id: true,
+          artworkId: true,
+          providerKey: true,
+          externalId: true,
+          status: true,
+          lastAttemptAt: true,
+          lastSuccessAt: true,
+          lastErrorCode: true,
+          lastError: true,
+          lastSystemJobId: true,
+          onlineSnapshotHash: true,
+          onlineSnapshotPath: true
+        }
+      }),
+      prisma.artworkArtist.findMany({
+        ...creatorInclude,
+        where: { ...creatorInclude.where, artworkId: { in: artworkIds } }
+      })
+    ])
 
   const imagesByArtwork = new Map<number, (typeof allImages)[number][]>()
   for (const image of allImages) {
@@ -235,6 +242,7 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
     const prismaLikeObject = {
       ...raw,
       artist: artistObj,
+      creators: creatorRows.filter((row) => row.artworkId === raw.id),
       images: artworkImages,
       artworkTags: artworkTags,
       externalRefs: externalRefsByArtwork.get(raw.id) ?? [],
@@ -410,12 +418,13 @@ export async function updateArtwork(
   data: {
     title?: string
     description?: string
+    creatorIds?: number[]
     artistId?: number | null
     tags?: number[]
     sourceDate?: Date | string | null
   }
 ) {
-  const { tags, artistId, sourceDate, ...rest } = data
+  const { tags, artistId, creatorIds, sourceDate, ...rest } = data
 
   const updateData: Prisma.ArtworkUpdateInput = { ...rest }
 
@@ -423,11 +432,9 @@ export async function updateArtwork(
     updateData.sourceDate = typeof sourceDate === 'string' ? new Date(sourceDate) : sourceDate
   }
 
-  if (artistId !== undefined) {
-    updateData.artist = artistId ? { connect: { id: artistId } } : { disconnect: true }
-  }
-
   return prisma.$transaction(async (tx) => {
+    if (creatorIds !== undefined || artistId !== undefined)
+      {await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)}
     if (data.title !== undefined || data.description !== undefined) {
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Artwork" WHERE "id" = ${id} FOR UPDATE`)
       const current = await tx.artwork.findUniqueOrThrow({
@@ -440,6 +447,13 @@ export async function updateArtwork(
       }
     }
     const artwork = await tx.artwork.update({ where: { id }, data: updateData })
+    if (creatorIds !== undefined || artistId !== undefined) {
+      await editArtworkCreators(
+        tx as unknown as Prisma.TransactionClient,
+        id,
+        creatorIds ?? (artistId ? [artistId] : [])
+      )
+    }
     if (tags !== undefined) {
       await tx.artworkTag.deleteMany({
         where: { artworkId: id, provenance: { in: ['MANUAL', 'LEGACY'] } }
@@ -461,12 +475,13 @@ export async function updateArtwork(
 export async function createArtwork(data: {
   title: string
   description?: string
+  creatorIds?: number[]
   artistId?: number | null
   tags?: number[]
   source?: ArtworkSource
   sourceDate?: Date | string | null
 }) {
-  const { tags, artistId, source, sourceDate, ...rest } = data
+  const { tags, artistId, creatorIds, source, sourceDate, ...rest } = data
   const effectiveSource = source ?? ESource.LOCAL_CREATED
 
   const artwork = await prisma.$transaction(async (tx) => {
@@ -485,6 +500,8 @@ export async function createArtwork(data: {
             : undefined
       }
     })
+    if (creatorIds !== undefined)
+      {await editArtworkCreators(tx as unknown as Prisma.TransactionClient, created.id, creatorIds)}
     if (effectiveSource !== ESource.LOCAL_CREATED) return created
     return tx.artwork.update({
       where: { id: created.id },
@@ -561,22 +578,22 @@ function mapSortOptionToSQL(sortBy: string): string {
     case 'title_desc':
       return 'ORDER BY a.title DESC, a.id DESC'
     case 'artist_asc':
-      return 'ORDER BY artist.name ASC, a.id ASC'
+      return 'ORDER BY (SELECT ca.name FROM effective_artwork_creators c JOIN "Artist" ca ON ca.id=c."artistId" WHERE c."artworkId"=a.id ORDER BY (ca.kind=\'GROUP\'), ca.name, ca.id LIMIT 1) ASC NULLS LAST, a.id ASC'
     case 'artist_desc':
-      return 'ORDER BY artist.name DESC, a.id DESC'
+      return 'ORDER BY (SELECT ca.name FROM effective_artwork_creators c JOIN "Artist" ca ON ca.id=c."artistId" WHERE c."artworkId"=a.id ORDER BY (ca.kind=\'GROUP\'), ca.name, ca.id LIMIT 1) DESC NULLS LAST, a.id DESC'
     case 'images_desc':
       return 'ORDER BY a."imageCount" DESC, a.id DESC'
     case 'images_asc':
       return 'ORDER BY a."imageCount" ASC, a.id ASC'
     case 'source_date_asc':
-      return 'ORDER BY a."sourceDate" ASC, a.id ASC'
+      return 'ORDER BY COALESCE(a."sourceDate", a."createdAt") ASC, a.id ASC'
     case 'created_at_desc':
       return 'ORDER BY a."createdAt" DESC, a.id DESC'
     case 'created_at_asc':
       return 'ORDER BY a."createdAt" ASC, a.id ASC'
     case 'source_date_desc':
     default:
-      return 'ORDER BY a."sourceDate" DESC, a.id DESC'
+      return 'ORDER BY COALESCE(a."sourceDate", a."createdAt") DESC, a.id DESC'
   }
 }
 
@@ -758,6 +775,7 @@ export async function getRandomArtworks(
         include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       },
       artist: { select: ARTIST_SELECT },
+      creators: creatorInclude,
       artworkTags: { include: { tag: true } }
     }
   })
@@ -894,7 +912,7 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
   const imageUrl = images[0]?.url ?? ''
   const isCoverVideo = images[0]?.mediaType === MediaType.VIDEO
   const artist = artwork.artist
-  const pixivUserId = artist?.externalRefs?.find(
+  const pixivUserId = artist?.pixivUserId ?? artist?.externalRefs?.find(
     (ref: { providerKey: string }) => ref.providerKey === 'pixiv'
   )?.externalId
 
@@ -906,6 +924,14 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
     imageUrl,
     mediaType: isCoverVideo ? MediaType.VIDEO : MediaType.IMAGE,
     images,
+    authors: (artwork.creators ?? []).map((creator: ArtistResponseDto) => ({
+      id: creator.id,
+      name: creator.name,
+      username: creator.username ?? '',
+      avatar: creator.avatar,
+      userId: creator.pixivUserId ?? '',
+      kind: creator.kind
+    })),
     author: artist
       ? {
           id: artist.id,
@@ -934,6 +960,7 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
         include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       },
       artist: { select: ARTIST_SELECT },
+      creators: creatorInclude,
       externalRefs: {
         select: {
           id: true,
@@ -985,13 +1012,15 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
           ? membership.series.seriesArtworks[currentIndex + 1]
           : null
 
-      return [{
-        id: membership.series.id,
-        title: membership.series.title,
-        order: currentItem.sortOrder,
-        prev: prev ? { id: prev.artwork.id, title: prev.artwork.title } : null,
-        next: next ? { id: next.artwork.id, title: next.artwork.title } : null
-      }]
+      return [
+        {
+          id: membership.series.id,
+          title: membership.series.title,
+          order: currentItem.sortOrder,
+          prev: prev ? { id: prev.artwork.id, title: prev.artwork.title } : null,
+          next: next ? { id: next.artwork.id, title: next.artwork.title } : null
+        }
+      ]
     }
     return []
   })
@@ -1002,7 +1031,12 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
     images: enhancedImages,
     tags: artwork.artworkTags.map(({ tag }) => tag),
     totalMediaSize,
-    artist: artwork.artist,
+    artist: null,
+    creators: artwork.creators
+      .map((row) => row.artist)
+      .sort(
+        (a, b) => Number(a.kind === 'GROUP') - Number(b.kind === 'GROUP') || a.name.localeCompare(b.name) || a.id - b.id
+      ),
     artworkTags: undefined,
     seriesArtworks: undefined,
     series: seriesData
@@ -1014,6 +1048,7 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
 // ==========================================
 
 const artworkCardSelect = {
+  creators: { where: creatorInclude.where, select: { artist: { select: { id: true, name: true, kind: true } } } },
   id: true,
   title: true,
   imageCount: true,
@@ -1118,6 +1153,7 @@ function transformArtworkCard(artwork: {
     mediaType: string
     videoMetadata: { posterStatus: string; posterPath: string | null; posterUpdatedAt: Date | null } | null
   }>
+  creators?: Array<{ artist: { id: number; name: string; kind: string } }>
   artist: { name: string } | null
   artworkTags: Array<{ tag: { name: string } }>
 }): ArtworkCardData {
@@ -1134,7 +1170,18 @@ function transformArtworkCard(artwork: {
     imageCount: images.some((image) => image.mediaType === 'video') ? 0 : artwork.imageCount,
     totalMediaSize: images.reduce((total, image) => total + (image.size ?? 0), 0),
     images,
-    artist: artwork.artist,
+    artist: artwork.creators?.length
+      ? {
+          name: artwork.creators
+            .map((r) => r.artist)
+            .sort(
+              (a, b) =>
+                Number(a.kind === 'GROUP') - Number(b.kind === 'GROUP') || a.name.localeCompare(b.name) || a.id - b.id
+            )
+            .map((a, i, all) => (i === 0 ? a.name + (all.length > 1 ? ' +' + (all.length - 1) : '') : ''))
+            .join('')
+        }
+      : null,
     tags: artwork.artworkTags.map(({ tag }) => tag)
   }
 }

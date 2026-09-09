@@ -11,6 +11,7 @@ datasource db {
 
 model Artist {
   id                  Int                        @id @default(autoincrement())
+  kind                CreatorKind                @default(PERSON)
   name                String
   username            String?
   userId              String? // 兼容期保留的历史来源字段；Pixiv 身份以 ArtistExternalRef 为准
@@ -21,12 +22,108 @@ model Artist {
   backgroundImg       String?
   isStarred           Boolean                    @default(false)
   artworks            Artwork[]
+  artworkMemberships  ArtworkArtist[]
+  sourceTagMappings   ArtistSourceTagMapping[]
   externalRefs        ArtistExternalRef[]
   localImportMappings LocalImportArtistMapping[]
 
   @@unique([username, userId], name: "unique_username_userid")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([isStarred])
+}
+
+enum CreatorKind {
+  PERSON
+  GROUP
+}
+
+enum CreatorEvidenceKind {
+  SOURCE
+  MANUAL
+  LEGACY
+}
+
+model ArtistSourceTagMapping {
+  id          String   @id @default(cuid())
+  providerKey String   @db.VarChar(50)
+  namespace   String   @db.VarChar(50)
+  sourceName  String
+  artistId    Int
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  artist      Artist   @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  evidence    ArtworkArtistEvidence[]
+
+  @@unique([providerKey, namespace, sourceName])
+  @@index([artistId])
+  @@map("artist_source_tag_mappings")
+}
+
+model ArtworkArtist {
+  id        String   @id @default(cuid())
+  artworkId Int
+  artistId  Int
+  artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  artist    Artist   @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  evidence  ArtworkArtistEvidence[]
+
+  @@unique([artworkId, artistId])
+  @@index([artistId, artworkId])
+  @@map("artwork_artists")
+}
+
+model ArtworkArtistEvidence {
+  id             String   @id @default(cuid())
+  membershipId   String
+  evidenceKey    String
+  provenance     CreatorEvidenceKind
+  sourceRefId    String?
+  tagMappingId   String?
+  present        Boolean  @default(true)
+  excludedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  membership     ArtworkArtist @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  sourceRef      ArtworkExternalRef? @relation(fields: [sourceRefId], references: [id], onDelete: Cascade)
+  tagMapping     ArtistSourceTagMapping? @relation(fields: [tagMappingId], references: [id], onDelete: Restrict)
+
+  @@unique([membershipId, evidenceKey])
+  @@index([sourceRefId])
+  @@index([tagMappingId])
+  @@map("artwork_artist_evidence")
+}
+
+// Frozen maintenance plans also retain per-item results for retries and audit.
+model CreatorMaintenancePlan {
+  id          String   @id @default(cuid())
+  requestedBy String
+  status      String   @default("PREPARING")
+  maximumArtworkId Int @default(0)
+  command     String
+  input       Json
+  fingerprint String
+  systemJobId String?  @unique
+  createdAt   DateTime @default(now())
+  items       CreatorMaintenanceItem[]
+
+  @@map("creator_maintenance_plans")
+}
+
+model CreatorMaintenanceItem {
+  id          Int      @id @default(autoincrement())
+  planId      String
+  artworkId   Int
+  fingerprint String
+  payload     Json
+  status      String   @default("PENDING")
+  result      Json?
+  updatedAt   DateTime @updatedAt
+  plan        CreatorMaintenancePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, artworkId])
+  @@index([planId, status, id])
+  @@map("creator_maintenance_items")
 }
 
 enum ArtistExternalRefStatus {
@@ -108,6 +205,7 @@ model Artwork {
   descriptionOverridden Boolean               @default(false)
   rawMetadata           ArtworkRawMetadata?
   artist                Artist?               @relation(fields: [artistId], references: [id])
+  creators              ArtworkArtist[]
   likes                 ArtworkLike[]
   seriesId              Int?
   series                Series?               @relation(fields: [seriesId], references: [id])
@@ -172,6 +270,7 @@ model ArtworkExternalRef {
   updatedAt            DateTime                  @updatedAt
   artwork              Artwork                   @relation(fields: [artworkId], references: [id], onDelete: Cascade)
   snapshots            ArtworkSourceSnapshot[]
+  creatorEvidence      ArtworkArtistEvidence[]
   sourceTags           ArtworkTag[]
   archiveImports       ArchiveImport[]
   archiveRevisions     ArchiveRevision[]

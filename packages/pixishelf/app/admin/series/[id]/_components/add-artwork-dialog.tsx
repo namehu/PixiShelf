@@ -10,6 +10,8 @@ import { Check, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQuery, useMutation } from '@tanstack/react-query'
 
+import { CreatorPicker, type CreatorOption } from '@/components/creators/creator-picker'
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -20,6 +22,8 @@ interface Props {
 
 export function AddArtworkDialog({ open, onOpenChange, seriesId, existingArtworkIds, onSuccess }: Props) {
   const trpc = useTRPC()
+  const [page, setPage] = useState(1)
+  const [creators, setCreators] = useState<CreatorOption[]>([])
   const [query, setQuery] = useState('')
   const debouncedQuery = useDebounce(query, 500)
 
@@ -27,6 +31,8 @@ export function AddArtworkDialog({ open, onOpenChange, seriesId, existingArtwork
     trpc.artwork.list.queryOptions(
       {
         search: debouncedQuery,
+        cursor: page,
+        artistId: creators[0]?.id,
         pageSize: 10
       },
       {
@@ -61,9 +67,20 @@ export function AddArtworkDialog({ open, onOpenChange, seriesId, existingArtwork
             autoComplete="off"
             placeholder="搜索作品标题…"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setPage(1)
+            }}
           />
         </div>
+        <CreatorPicker
+          value={creators}
+          maxSelected={1}
+          onChange={(value) => {
+            setCreators(value)
+            setPage(1)
+          }}
+        />
         <div className="flex-1 overflow-y-auto min-h-[300px]">
           {isLoading ? (
             <div className="p-4 text-center">加载中…</div>
@@ -96,6 +113,19 @@ export function AddArtworkDialog({ open, onOpenChange, seriesId, existingArtwork
               {data?.items.length === 0 && <div className="p-4 text-center text-muted-foreground">未找到作品</div>}
             </div>
           )}
+        </div>
+        <div className="flex items-center justify-end gap-2">
+          <Button variant="outline" disabled={page === 1 || isLoading} onClick={() => setPage(page - 1)}>
+            上一页
+          </Button>
+          <span>第 {page} 页</span>
+          <Button
+            variant="outline"
+            disabled={isLoading || (data?.items.length ?? 0) < 10}
+            onClick={() => setPage(page + 1)}
+          >
+            下一页
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

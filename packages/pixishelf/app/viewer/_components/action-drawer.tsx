@@ -26,6 +26,7 @@ export interface ActionDrawerProps {
 /** 当前作品的快捷操作；Feed 级设置统一由页面右上角的筛选入口管理。 */
 export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image, onEnterClearMode }) => {
   const { author } = image
+  const authors = image.authors ?? (author ? [author] : [])
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -48,14 +49,14 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image,
               查看作品详情
             </Link>
           </Button>
-          {author?.id && (
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href={`/artists/${author.id}`} onClick={() => onOpenChange(false)}>
+          {authors.map((creator) => (
+            <Button key={creator.id} variant="outline" className="w-full justify-start" asChild>
+              <Link href={'/artists/' + creator.id} onClick={() => onOpenChange(false)}>
                 <User data-icon="inline-start" aria-hidden="true" />
-                查看艺术家
+                查看艺术家{authors.length > 1 && <PrivacySensitiveText>：{creator.name}</PrivacySensitiveText>}
               </Link>
             </Button>
-          )}
+          ))}
           <Button type="button" variant="outline" className="w-full justify-start" onClick={onEnterClearMode}>
             <EyeOffIcon data-icon="inline-start" aria-hidden="true" />
             清屏播放

@@ -84,6 +84,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     return { status: 'SKIPPED' as const, newImages: 0, artworkId: sourceRef.artwork.id }
   }
 
+  const isNewArtwork = !sourceRef
   let artworkId = sourceRef?.artwork.id ?? null
   if (!artworkId) {
     const legacy = await transaction.artwork.findUnique({ where: { externalId: metadata.id }, select: { id: true } })
@@ -210,6 +211,12 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       fetchedAt: input.now
     }
   })
+  if (isNewArtwork) {
+    await transaction.artworkArtistEvidence.updateMany({
+      where: { membership: { artworkId }, evidenceKey: 'legacy-column', provenance: 'LEGACY' },
+      data: { provenance: 'SOURCE', sourceRefId: ref.id, evidenceKey: 'pixiv:' + ref.id }
+    })
+  }
   const normalizedMetadata = normalizedPixivMetadata(metadata)
   await transaction.artworkSourceSnapshot.upsert({
     where: {

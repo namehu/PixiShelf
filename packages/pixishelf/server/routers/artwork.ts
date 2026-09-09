@@ -97,10 +97,11 @@ export const artworkRouter = router({
       z.object({
         title: z.string().min(1, '标题不能为空'),
         description: z.string().optional(),
-        artistId: z.number('请选择艺术家'),
+        artistId: z.number().int().positive().nullish(),
+        creatorIds: z.array(z.number().int().positive()).max(200).optional(),
         tags: z.array(z.number()).optional(),
         source: ArtworkSourceEnum.optional(),
-        sourceDate: z.date().or(z.string())
+        sourceDate: z.date().or(z.string()).nullish()
       })
     )
     .mutation(({ input }) => {
@@ -117,9 +118,10 @@ export const artworkRouter = router({
         data: z.object({
           title: z.string().optional(),
           description: z.string().optional(),
-          artistId: z.number('请选择艺术家'),
+          artistId: z.number().int().positive().nullish(),
+          creatorIds: z.array(z.number().int().positive()).max(200).optional(),
           tags: z.array(z.number()).optional(),
-          sourceDate: z.date().or(z.string())
+          sourceDate: z.date().or(z.string()).nullish()
         })
       })
     )
@@ -155,9 +157,7 @@ export const artworkRouter = router({
       })
     )
     .query(({ input }) =>
-      withPixivSyncReportError(() =>
-        listPixivArtworkSyncReports({ ...input, cursor: input.cursor ?? undefined })
-      )
+      withPixivSyncReportError(() => listPixivArtworkSyncReports({ ...input, cursor: input.cursor ?? undefined }))
     ),
 
   pixivSyncReport: adminProcedure
@@ -381,7 +381,8 @@ async function withPixivSyncReportError<T>(operation: () => Promise<T>) {
   } catch (error) {
     if (error instanceof PixivArtworkSyncReportReadError) {
       throw new TRPCError({
-        code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : error.code === 'INVALID' ? 'BAD_REQUEST' : 'INTERNAL_SERVER_ERROR',
+        code:
+          error.code === 'NOT_FOUND' ? 'NOT_FOUND' : error.code === 'INVALID' ? 'BAD_REQUEST' : 'INTERNAL_SERVER_ERROR',
         message: error.message
       })
     }

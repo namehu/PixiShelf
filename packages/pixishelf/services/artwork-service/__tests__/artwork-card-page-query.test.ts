@@ -33,6 +33,7 @@ const cardRow = (id: number) => ({
     }
   ],
   artist: { name: 'artist' },
+  creators: [{ artist: { id: 1, name: 'artist', kind: 'PERSON' } }],
   artworkTags: [{ tag: { name: 'tag' } }]
 })
 
@@ -157,12 +158,12 @@ describe('getArtworkCardsPage', () => {
   it.each([
     ['title_asc', 'ORDER BY a.title ASC, a.id ASC'],
     ['title_desc', 'ORDER BY a.title DESC, a.id DESC'],
-    ['artist_asc', 'ORDER BY artist.name ASC, a.id ASC'],
-    ['artist_desc', 'ORDER BY artist.name DESC, a.id DESC'],
+    ['artist_asc', ') ASC NULLS LAST, a.id ASC'],
+    ['artist_desc', ') DESC NULLS LAST, a.id DESC'],
     ['images_asc', 'ORDER BY a."imageCount" ASC, a.id ASC'],
     ['images_desc', 'ORDER BY a."imageCount" DESC, a.id DESC'],
-    ['source_date_asc', 'ORDER BY a."sourceDate" ASC, a.id ASC'],
-    ['source_date_desc', 'ORDER BY a."sourceDate" DESC, a.id DESC'],
+    ['source_date_asc', 'ORDER BY COALESCE(a."sourceDate", a."createdAt") ASC, a.id ASC'],
+    ['source_date_desc', 'ORDER BY COALESCE(a."sourceDate", a."createdAt") DESC, a.id DESC'],
     ['created_at_asc', 'ORDER BY a."createdAt" ASC, a.id ASC'],
     ['created_at_desc', 'ORDER BY a."createdAt" DESC, a.id DESC']
   ] as const)('adds an id tie-breaker to %s ordering', async (sortBy, expectedOrder) => {

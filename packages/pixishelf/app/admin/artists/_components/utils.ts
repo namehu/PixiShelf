@@ -3,6 +3,7 @@ import { ArtistPixivStatusFilterSchema, ArtistsGetSchema } from '@/schemas/artis
 export function buildArtistQuery(
   params: { pageSize: number; current: number },
   searchState: {
+    kind?: string | null
     name: string | null
     sortId: string | null
     sortDesc: string | null
@@ -22,6 +23,7 @@ export function buildArtistQuery(
   const parsedPixivStatus = ArtistPixivStatusFilterSchema.safeParse(searchState.pixivStatus)
 
   return {
+    kind: searchState.kind === 'PERSON' || searchState.kind === 'GROUP' ? searchState.kind : undefined,
     cursor: params.current,
     pageSize: params.pageSize,
     search: searchState.name || undefined,

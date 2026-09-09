@@ -248,7 +248,8 @@ export const NeighboringArtworksGetSchema = z.object({
   artistId: z.coerce.number().int(),
   artworkId: z.coerce.number().int(),
   limit: z.coerce.number().int().min(1).max(50).default(12),
-  direction: z.enum(['both', 'older', 'newer']).default('both')
+  direction: z.enum(['both', 'older', 'newer']).default('both'),
+  dateMode: z.enum(['source', 'created']).default('source')
 })
 
 export type NeighboringArtworksGetSchema = z.infer<typeof NeighboringArtworksGetSchema>
@@ -332,6 +333,7 @@ export const ArtworkResponseDto = ArtworkModel.extend({
 
   // 扩展关联字段 (Relations)
   artist: ArtistResponseDto.nullable().optional(),
+  creators: z.array(ArtistResponseDto).default([]),
 
   // 图片列表
   images: z
@@ -387,6 +389,7 @@ export const ArtworkResponseDto = ArtworkModel.extend({
   const pixiv = pixivRefs.length === 1 && /^[1-9][0-9]*$/.test(pixivRefs[0]!.externalId) ? pixivRefs[0]! : null
   return {
     ...artwork,
+    artist: artwork.creators[0] ?? null,
     pixivEligible: pixiv !== null,
     pixivArtworkId: pixiv?.externalId ?? null,
     pixivSync: pixiv

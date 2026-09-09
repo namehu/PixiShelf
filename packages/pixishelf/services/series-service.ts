@@ -1,3 +1,4 @@
+import { creatorInclude } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { transformSingleArtwork } from '@/services/artwork-service/utils'
@@ -114,6 +115,7 @@ export async function getSeriesDetail(id: number) {
           artwork: {
             include: {
               artist: { select: ARTIST_SELECT },
+              creators: creatorInclude,
               images: {
                 orderBy: { sortOrder: 'asc' },
                 include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }

@@ -11,6 +11,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Info } from 'lucide-react'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface ArtistDialogProps {
   open: boolean
@@ -26,6 +27,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
   const nameInputRef = useRef<HTMLInputElement>(null)
 
   const [formData, setFormData] = useState({
+    kind: 'PERSON' as 'PERSON' | 'GROUP',
     name: '',
     username: '',
     pixivUserId: '',
@@ -50,6 +52,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
     if (open) {
       if (artist && fullArtist) {
         setFormData({
+          kind: fullArtist.kind ?? 'PERSON',
           name: fullArtist.name,
           username: fullArtist.username || '',
           pixivUserId: fullArtist.pixivUserId || '',
@@ -63,6 +66,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
       } else if (!artist) {
         // 新增模式：重置为默认空值
         setFormData({
+          kind: 'PERSON' as 'PERSON' | 'GROUP',
           name: '',
           username: '',
           pixivUserId: '',
@@ -115,6 +119,7 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
       return
     }
     const payload = {
+      kind: formData.kind,
       name: formData.name.trim(),
       username: formData.name.trim(),
       bio: formData.bio || undefined,
@@ -160,6 +165,24 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
         </div>
       ) : (
         <FieldGroup className="gap-4 py-2">
+          <Field>
+            <FieldLabel>类型</FieldLabel>
+            <Select
+              value={formData.kind}
+              disabled={isEdit}
+              onValueChange={(kind) => setFormData({ ...formData, kind: kind as 'PERSON' | 'GROUP' })}
+            >
+              <SelectTrigger aria-label="艺术家或社团类型">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="PERSON">艺术家</SelectItem>
+                  <SelectItem value="GROUP">社团</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
           {/* 名称 */}
           <Field className="gap-2">
             <FieldLabel htmlFor="artist-name">

@@ -173,6 +173,23 @@ export default function ImageOverlay({
                   </Button>
                 </div>
               </div>
+              {(image.authors?.length ?? 0) > 1 && (
+                <div className="mb-2 flex flex-wrap gap-2">
+                  {image.authors!.slice(1).map((creator) => (
+                    <Link
+                      key={creator.id}
+                      href={'/artists/' + creator.id}
+                      onClick={stopOverlayPropagation}
+                      className="text-xs underline underline-offset-4"
+                    >
+                      <PrivacySensitiveText>
+                        {creator.kind === 'GROUP' ? '社团：' : ''}
+                        {creator.name}
+                      </PrivacySensitiveText>
+                    </Link>
+                  ))}
+                </div>
+              )}
               {/* 图片描述 */}
               {description && (
                 <PrivacySensitiveText

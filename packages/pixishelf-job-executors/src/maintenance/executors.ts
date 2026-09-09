@@ -1,3 +1,5 @@
+import { creatorMaintenancePayloadSchema, type CreatorMaintenancePayload } from '@pixishelf/job-contracts'
+import { executeCreatorMaintenance } from './creator-maintenance.ts'
 import {
   archiveDefaultTagBackfillPayloadSchema,
   emptyJobPayloadSchema,
@@ -40,6 +42,15 @@ export function createMaintenanceExecutorRegistrations(
 ): ExecutorDefinition[] {
   if (!dependencies.scanRoot.trim()) throw new Error('Maintenance scanRoot is required')
   return [
+    {
+      jobType: 'CREATOR_MAINTENANCE',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => creatorMaintenancePayloadSchema.parse(payload),
+      execute: (context: ExecutionContext<CreatorMaintenancePayload, EnqueuedChildJob>) =>
+        executeCreatorMaintenance(context)
+    } as ExecutorDefinition,
     definition('ARCHIVE_INTAKE_RETENTION_CLEANUP', (context) =>
       cleanupArchiveIntakeHistory({
         ...operationInput(context, dependencies.database),

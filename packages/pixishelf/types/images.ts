@@ -47,6 +47,7 @@ export interface RandomImageItem {
   imageUrl: string
   mediaType: MediaType
   images: ViewerMediaItem[]
+  authors?: Array<{ id: number; name: string; kind?: string; avatar?: string }>
   author: {
     id: number
     userId: string

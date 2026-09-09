@@ -13,6 +13,14 @@ vi.mock('@/lib/prisma', () => ({
 import { toViewerImageItem } from '../index'
 
 describe('toViewerImageItem', () => {
+  it('preserves all transformed creator identities and the primary Pixiv identity', () => {
+    const artist = { id: 1, name: 'Artist', kind: 'PERSON', pixivUserId: '12345' }
+    const group = { id: 2, name: 'Circle', kind: 'GROUP', pixivUserId: null }
+    const item = toViewerImageItem({ id: 1, title: 'Archive', images: [], artist, creators: [artist, group] }, {})
+    expect(item.author?.userId).toBe('12345')
+    expect(item.authors?.map((creator) => [creator.id, creator.kind])).toEqual([[1, 'PERSON'], [2, 'GROUP']])
+  })
+
   it('preserves metadata for each media item in a mixed viewer artwork', () => {
     const item = toViewerImageItem(
       {

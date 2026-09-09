@@ -174,3 +174,7 @@ The important boundaries are:
 | Reproducible        | thumbnails, posters, chapter previews, keyframes, request caches | may be rebuilt, but publication pointers must remain consistent |
 
 The product boundary and non-goals are defined in [Product Baseline](./docs/product/product-baseline.md). Exact fields and enum values remain authoritative in `packages/pixishelf-db/prisma/schema.prisma`.
+
+## Creator attribution
+
+Artist represents a PERSON or GROUP. ArtworkArtist and its evidence provide the effective many-to-many attribution; Artwork.artistId remains a legacy/storage reference. Artist source tag mappings connect verified E-Hentai artist/group tags to local entities. Uploader remains a separate role. See [creator relations](docs/features/creator-relations.md).

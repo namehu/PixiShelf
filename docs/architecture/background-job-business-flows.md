@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[29 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
+    EXEC[30 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
   end
 
   subgraph Storage[文件和外部资源]
@@ -215,7 +215,7 @@ sequenceDiagram
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 29 类 Worker 任务
+## 30 类 Worker 任务
 
 `ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN` 与 `ARCHIVE_SEARCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 26 类任务全部进入 `BACKGROUND_WRITER`。
 
@@ -253,7 +253,7 @@ sequenceDiagram
 
 标签、艺术家、作品和系列同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家、作品和系列的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 29 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 27 类仍只支持 v1，因此 capability audit
+生产 Registry 保持 30 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 28 类仍只支持 v1，因此 capability audit
 实际核对 32 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
@@ -707,7 +707,7 @@ flowchart TD
 | App 入队、幂等和控制命令      | `packages/pixishelf/services/background-task/job-command-service.ts`、`manual-job-singleton.ts`  |
 | claim、优先级、lease、fence   | `packages/pixishelf-job-runtime/src/queue-repository.ts`                                         |
 | 双 Dispatcher 和 Worker 启动  | `packages/pixishelf-worker/src/main.ts`、`dispatcher.ts`                                         |
-| 29 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| 30 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
 | Pixiv 艺术家补全              | `packages/pixishelf-job-executors/src/pixiv-artist/`、`pixiv-artist-enrichment-service.ts`       |
 | Pixiv 标签补全                | `packages/pixishelf-job-executors/src/pixiv-tag/`、`pixiv-tag-enrichment-service.ts`             |
 | Pixiv 作品在线同步            | `packages/pixishelf-job-executors/src/pixiv-artwork/`、`pixiv-artwork-enrichment-service.ts`     |
@@ -726,3 +726,7 @@ flowchart TD
 - [测试策略](../development/testing-strategy.md)
 - [ADR-0003：统一后台任务 Worker](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
 - [ADR-0004：归档解析独立资源通道](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)
+
+### CREATOR_MAINTENANCE
+
+创作者整理使用 BACKGROUND_WRITER lane，PREVIEW 逐批冻结来源和人工归属，READY 后由用户确认 APPLY。每批 25 项，证据变化标 STALE，来源未知标 UNKNOWN；暂停／取消保留已提交批次，重试续跑剩余项。来源映射更正通过单事务集合更新维护身份一致性。详见[创作者关系](../features/creator-relations.md)。

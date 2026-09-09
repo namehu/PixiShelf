@@ -10,7 +10,7 @@ import { getArtworkById } from '@/services/artwork-service'
 import ArtworkDes from './_components/artwork-des'
 import ArtworkImages from './_components/artwork-images'
 import NavHead from './_components/nav-head'
-import RelatedArtworks from './_components/related-artworks'
+import CreatorTimeline from './_components/creator-timeline'
 import SeriesNav from './_components/series-nav'
 import TagArea from './_components/tag-area'
 
@@ -22,7 +22,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
     notFound()
   }
 
-  const { id: artistId, name: artistName, avatar: artistAvatar } = data.artist ?? {}
+  const creators = data.creators ?? []
 
   return (
     <div className="min-h-dvh bg-background">
@@ -40,17 +40,19 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
               </PrivacySensitiveText>
 
               <div className="flex flex-wrap items-center gap-3">
-                {data.artist && (
+                {creators.map(({ id: artistId, name: artistName, avatar: artistAvatar, kind }) => (
                   <Link
+                    key={artistId}
                     href={`/artists/${artistId}`}
                     className="group -ml-1 flex min-h-11 min-w-0 items-center gap-2 rounded-full p-1 pr-3 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
                   >
                     <ArtistAvatar src={artistAvatar} name={artistName} size={10} />
                     <PrivacySensitiveText className="truncate text-base font-medium text-primary underline-offset-4 group-hover:underline sm:text-lg">
+                      {kind === 'GROUP' ? '社团：' : ''}
                       {artistName}
                     </PrivacySensitiveText>
                   </Link>
-                )}
+                ))}
 
                 {data.externalId && (
                   <Button
@@ -89,7 +91,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
             {data.series.map((series) => (
               <SeriesNav key={series.id} series={series} />
             ))}
-            {artistId && <RelatedArtworks artistId={artistId} currentArtworkId={data.id} />}
+            <CreatorTimeline creators={creators} artworkId={data.id} />
           </PageContainer>
         </article>
       </main>

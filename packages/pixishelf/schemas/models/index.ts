@@ -31,6 +31,7 @@ const ImageSizeModel = z
  * 模型 Artist
  */
 export const ArtistModel = z.object({
+  kind: z.enum(['PERSON', 'GROUP']).default('PERSON'),
   id: z.number().int(),
   name: z.string(),
   username: z.string().nullable(),

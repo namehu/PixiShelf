@@ -38,6 +38,7 @@ describe('dashboard artwork card query', () => {
           }
         ],
         artist: { name: 'artist' },
+        creators: [{ artist: { id: 1, name: 'artist', kind: 'PERSON' } }],
         artworkTags: [{ tag: { name: 'preferred' } }]
       }
     ])

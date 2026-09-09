@@ -1,3 +1,4 @@
+import { ArtistResponseDto } from '@/schemas/artist.dto'
 import 'server-only'
 
 import path from 'path'
@@ -24,8 +25,15 @@ export function transformSingleArtwork(artwork: any) {
     (source: { providerKey?: string }) => source.providerKey === 'pixiv'
   )
   const pixiv = pixivRefs.length === 1 && /^[1-9][0-9]*$/.test(pixivRefs[0]?.externalId ?? '') ? pixivRefs[0] : null
+  const creators = (artwork.creators ?? [])
+    .map((row: any) => ArtistResponseDto.parse(row.artist))
+    .sort(
+      (a: any, b: any) =>
+        Number(a.kind === 'GROUP') - Number(b.kind === 'GROUP') || a.name.localeCompare(b.name) || a.id - b.id
+    )
   const result = {
     ...artwork,
+    creators,
     sourceDate: artwork.sourceDate ? dayjs(artwork.sourceDate).utc().format('YYYY-MM-DD HH:mm:ss') : null,
     images: images,
     tags:
@@ -53,12 +61,7 @@ export function transformSingleArtwork(artwork: any) {
         }
       : null,
     descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
-    artist: artwork.artist
-      ? {
-          ...artwork.artist,
-          artworksCount: 0 // 注意：列表查询通常不包含艺术家的作品总数，除非再联表查
-        }
-      : null
+    artist: creators[0] ?? null
   }
 
   // 清理不需要输出到前端的临时字段 (虽然 JS 中 delete 性能一般，但在这里为了通过类型检查或减少 payload 可行)

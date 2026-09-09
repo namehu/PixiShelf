@@ -274,3 +274,7 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 - [部署基线](../operations/deployment.md)
 - [备份与恢复基线](../operations/backup-and-recovery.md)
 - [扫描 Webhook 契约](../../packages/pixishelf/docs/webhook-features.md)
+
+## 创作者整理接口
+
+creator.prepare/start/status/history/mappings/mapping 均使用 adminProcedure；操作者来自 ctx.userId，浏览器不能提交自选操作者或冻结证据。start 仅接受服务端生成的 planId 和指纹；Worker 在受租约保护事务中重验逐项依据。/admin/artists/relations 沿用管理页认证，艺术家与作品浏览沿用现有登录边界。

@@ -489,7 +489,16 @@ export const pixivSeriesReconciliationPayloadSchema = z.discriminatedUnion('mode
 ])
 export type PixivSeriesReconciliationPayload = z.infer<typeof pixivSeriesReconciliationPayloadSchema>
 
+export const creatorMaintenancePayloadSchema = z
+  .object({
+    planId: z.string().min(1).max(128),
+    phase: z.enum(['PREVIEW', 'APPLY'])
+  })
+  .strict()
+export type CreatorMaintenancePayload = z.infer<typeof creatorMaintenancePayloadSchema>
+
 export const JOB_PAYLOAD_SCHEMAS = {
+  CREATOR_MAINTENANCE: creatorMaintenancePayloadSchema,
   SCAN: scanPayloadSchema,
   LOCAL_DIRECTORY_IMPORT: localDirectoryImportPayloadSchema,
   MIGRATION: migrationPayloadSchema,

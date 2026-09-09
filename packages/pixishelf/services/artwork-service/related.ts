@@ -1,118 +1,69 @@
 import 'server-only'
+import { creatorInclude, activeCreatorMembership, visibleCreatorArtwork } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
-import { NeighboringArtworksGetSchema } from '@/schemas/artwork.dto'
+import type { NeighboringArtworksGetSchema } from '@/schemas/artwork.dto'
 import { transformSingleArtwork } from './utils'
 import { VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
 
-/**
- * 获取邻近作品（前后作品）
- * @description 根据 sourceDate 排序，获取指定作品前后的作品列表
- */
 export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema) {
-  const { artistId, artworkId, limit, direction } = input
-
-  // 1. 获取当前作品（作为 cursor）的 sourceDate 和 ID
-  const cursorArtwork = await prisma.artwork.findUnique({
-    where: { id: artworkId, deletedAt: null },
-    select: { id: true, sourceDate: true }
+  const { artistId, artworkId, limit, direction, dateMode = 'source' } = input
+  const cursor = await prisma.artwork.findFirst({
+    where: { id: artworkId, ...visibleCreatorArtwork, creators: { some: { artistId, ...activeCreatorMembership } } },
+    select: { id: true, sourceDate: true, createdAt: true }
   })
-
-  if (!cursorArtwork || !cursorArtwork.sourceDate) {
-    return []
-  }
-
-  const cursorDate = cursorArtwork.sourceDate
-  const cursorId = cursorArtwork.id
-
-  // 公共关联查询配置
-  const commonInclude = {
-    images: {
-      take: 2,
-      orderBy: { sortOrder: 'asc' } as const,
-      include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
-    },
-    artist: { select: ARTIST_SELECT },
-    artworkTags: { include: { tag: true } }
-  }
-
-  // 2. 根据 direction 分支处理
-  if (direction === 'newer') {
-    // 向左加载更多（更新的作品）
-    // 条件：(sourceDate > cursorDate) OR (sourceDate = cursorDate AND id > cursorId)
-    // 排序：ASC (离 cursor 最近的先查出来)
-    const items = await prisma.artwork.findMany({
-      where: {
-        deletedAt: null,
-        artistId,
-        OR: [{ sourceDate: { gt: cursorDate } }, { sourceDate: cursorDate, id: { gt: cursorId } }]
-      },
-      orderBy: [{ sourceDate: 'asc' }, { id: 'asc' }],
-      take: limit,
-      include: commonInclude
-    })
-    // 查询结果按“由近到远”返回，前端会把整批数据插到列表头部，因此需要反转后再返回，才能保持全局降序。
-    return items.reverse().map(transformSingleArtwork)
-  }
-
-  if (direction === 'older') {
-    // 向右加载更多（更旧的作品）
-    // 条件：(sourceDate < cursorDate) OR (sourceDate = cursorDate AND id < cursorId)
-    // 排序：DESC (离 cursor 最近的先查出来)
-    const items = await prisma.artwork.findMany({
-      where: {
-        deletedAt: null,
-        artistId,
-        OR: [{ sourceDate: { lt: cursorDate } }, { sourceDate: cursorDate, id: { lt: cursorId } }]
-      },
-      orderBy: [{ sourceDate: 'desc' }, { id: 'desc' }],
-      take: limit,
-      include: commonInclude
-    })
-    // 查询结果已经按“由近到远”排列，直接追加到列表尾部即可保持全局降序。
-    return items.map(transformSingleArtwork)
-  }
-
-  // 默认分支为 both，用于首次加载。
-  // 3. 获取“前”（Newer/Previous）的作品
-  const prevItems = await prisma.artwork.findMany({
-    where: {
-      deletedAt: null,
+  if (!cursor) return []
+  const date = dateMode === 'created' ? cursor.createdAt : (cursor.sourceDate ?? cursor.createdAt)
+  const expression = dateMode === 'created' ? 'a."createdAt"' : 'COALESCE(a."sourceDate", a."createdAt")'
+  async function neighbors(newer: boolean) {
+    const comparison = newer ? '>' : '<'
+    const order = newer ? 'ASC' : 'DESC'
+    return prisma.$queryRawUnsafe<Array<{ id: number }>>(
+      'SELECT a.id FROM "Artwork" a WHERE a."deletedAt" IS NULL AND a."archiveLifecycleState" = \'ACTIVE\' ' +
+        'AND EXISTS (SELECT 1 FROM effective_artwork_creators c WHERE c."artworkId"=a.id AND c."artistId"=$1) ' +
+        'AND (' +
+        expression +
+        ', a.id) ' +
+        comparison +
+        ' ($2::timestamp, $3::integer) ' +
+        'ORDER BY ' +
+        expression +
+        ' ' +
+        order +
+        ', a.id ' +
+        order +
+        ' LIMIT $4',
       artistId,
-      OR: [{ sourceDate: { gt: cursorDate } }, { sourceDate: cursorDate, id: { gt: cursorId } }]
-    },
-    orderBy: [{ sourceDate: 'asc' }, { id: 'asc' }],
-    take: limit,
-    include: commonInclude
-  })
-
-  // 4. 获取“后”（Older/Next）的作品
-  const nextItems = await prisma.artwork.findMany({
-    where: {
-      deletedAt: null,
-      artistId,
-      OR: [{ sourceDate: { lt: cursorDate } }, { sourceDate: cursorDate, id: { lt: cursorId } }]
-    },
-    orderBy: [{ sourceDate: 'desc' }, { id: 'desc' }],
-    take: limit,
-    include: commonInclude
-  })
-
-  // 5. 获取当前作品的完整信息
-  const currentFull = await prisma.artwork.findUnique({
-    where: { id: artworkId, deletedAt: null },
+      date,
+      artworkId,
+      limit
+    )
+  }
+  const [newer, older] = await Promise.all([
+    direction === 'older' ? [] : neighbors(true),
+    direction === 'newer' ? [] : neighbors(false)
+  ])
+  const ids = [
+    ...newer.reverse().map((a) => a.id),
+    ...(direction === 'both' ? [artworkId] : []),
+    ...older.map((a) => a.id)
+  ]
+  const artworks = await prisma.artwork.findMany({
+    where: { id: { in: ids }, ...visibleCreatorArtwork },
     include: {
       images: {
+        take: 2,
         orderBy: { sortOrder: 'asc' },
         include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
       },
       artist: { select: ARTIST_SELECT },
+      creators: creatorInclude,
       artworkTags: { include: { tag: true } }
     }
   })
-
-  // 6. 组合结果
-  const allRaw = [...prevItems.reverse(), currentFull!, ...nextItems]
-
-  return allRaw.map(transformSingleArtwork)
+  const byId = new Map(artworks.map((a) => [a.id, a]))
+  return ids.flatMap((id) => {
+    const artwork = byId.get(id)
+    return artwork ? [transformSingleArtwork(artwork)] : []
+  })
 }

@@ -9,6 +9,7 @@ vi.mock('@/services/artwork-service', () => ({
     description: '作品描述',
     externalId: null,
     artist: { id: 13, name: '测试艺术家', avatar: null },
+    creators: [{ id: 13, name: '测试艺术家', avatar: null, kind: 'PERSON' }],
     images: [{ id: 1, path: '/media.jpg' }],
     tags: [{ id: 1, name: '测试标签' }],
     series: []

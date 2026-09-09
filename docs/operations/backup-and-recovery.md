@@ -188,7 +188,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、29 个 job type / 32 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2，其余 27 类 v1）和同
+- 新 Worker READY、两个 lane、30 个 job type / 33 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2，其余 28 类 v1）和同
   lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 
@@ -245,3 +245,7 @@ App / Worker image digest：
 ```
 
 演练发现的命令错误、权限缺失、耗时超标和不一致必须进入 `TODO.md` 或对应事故记录，并在修复后重新验证。没有隔离恢复证据的备份仍应标记为“未验证”。
+
+## 创作者关系发布与恢复
+
+迁移 20260908120000_unify_artwork_creators 前沿用发布前停写检查点。数据库 dump 需包含创作者关系、证据、来源映射、维护计划及逐项审计；该变更不移动媒体。映射更正可从执行记录生成恢复原映射的预览；批次取消只停止剩余工作，不撤销已提交关系。旧 App 读取 artistId，无法呈现多作者整理结果；回滚期间停用整理入口，完整恢复依赖发布前一致检查点。详见[创作者关系](../features/creator-relations.md)。

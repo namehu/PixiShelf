@@ -604,6 +604,7 @@ function pixivTransaction(existingImages: Array<{ id: number; path: string; sort
       findUnique: vi.fn(async () => null),
       create: vi.fn(async () => ({ id: 'artist-ref-1' }))
     },
+    artworkArtistEvidence: { updateMany: vi.fn(async () => ({ count: 1 })) },
     artworkSourceSnapshot: { upsert: artworkSourceSnapshotUpsert },
     pixivMetadataInventory: { findUnique: inventoryFindUnique },
     artwork: { findUnique: vi.fn(async () => null), create: artworkCreate },
@@ -718,6 +719,7 @@ function existingPixivTransaction(
       })),
       upsert: vi.fn(async () => ({ id: 'ref-pixiv' }))
     },
+    artworkArtistEvidence: { updateMany: vi.fn(async () => ({ count: 1 })) },
     artworkSourceSnapshot: { upsert: artworkSourceSnapshotUpsert },
     artwork: { update: artworkUpdate, updateMany: artworkUpdateMany },
     artist: { upsert: artistUpsert },

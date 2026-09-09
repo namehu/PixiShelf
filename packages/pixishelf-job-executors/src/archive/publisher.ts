@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { Prisma } from '@pixishelf/db'
+import { Prisma, lockCreatorCatalog, readSourceCreatorTags, syncSourceCreators } from '@pixishelf/db'
 import { ArchiveExecutorError } from './errors.ts'
 import { normalizeRelativePath, type ArchiveStoragePaths } from './storage.ts'
 import type { ArchiveTransaction } from './types.ts'
@@ -24,6 +24,7 @@ export async function publishArchiveImportInTransaction(
   now: Date,
   defaultTagIds: readonly number[]
 ): Promise<ArchivePublishResult> {
+  await lockCreatorCatalog(transaction)
   await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
   const archiveImport = await transaction.archiveImport.findUnique({
     where: { id: archiveImportId },
@@ -140,6 +141,15 @@ export async function publishArchiveImportInTransaction(
   })
 
   await replaceSourceTags(transaction, artwork.id, externalRef.id, metadata)
+  if (archiveImport.providerKey === 'e-hentai') {
+    await syncSourceCreators(
+      transaction,
+      artwork.id,
+      externalRef.id,
+      archiveImport.providerKey,
+      readSourceCreatorTags(metadata, archiveImport.rawMetadata)
+    )
+  }
   await appendArchiveDefaultTags(transaction, artwork.id, defaultTagIds)
   await syncArtworkRelationships(transaction, artwork.id, archiveImport.providerKey, metadata.relationships)
   await transaction.image.deleteMany({ where: { artworkId: artwork.id } })

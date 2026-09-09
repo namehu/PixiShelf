@@ -18,11 +18,12 @@ import { ArrowRightIcon } from 'lucide-react'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface RelatedArtworksProps {
+  dateMode?: 'source' | 'created'
   artistId: number
   currentArtworkId: number
 }
 
-export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedArtworksProps) {
+export default function RelatedArtworks({ artistId, currentArtworkId, dateMode = 'source' }: RelatedArtworksProps) {
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
   const preferredTags = usePreferredTags()
@@ -40,6 +41,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
   const { data: initialData, isLoading: isInitialLoading } = useQuery(
     trpc.artwork.getNeighbors.queryOptions({
       artistId,
+      dateMode,
       artworkId: currentArtworkId,
       limit: 20,
       direction: 'both'
@@ -85,6 +87,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
     try {
       const result = await trpcClient.artwork.getNeighbors.query({
         artistId,
+        dateMode,
         artworkId: cursorId,
         limit: 20,
         direction
@@ -142,7 +145,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId }: RelatedA
     <section aria-labelledby="related-artworks-heading" className="my-8 w-full border-t border-border py-8">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 id="related-artworks-heading" className="text-lg font-semibold text-foreground">
-          该艺术家的其他作品
+          相关创作者的其他作品
         </h2>
         <Button asChild variant="ghost" size="sm">
           <Link href={`/artists/${artistId}`}>

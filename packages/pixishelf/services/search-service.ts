@@ -78,8 +78,9 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
       a.username,
       COUNT(aw.id) as artwork_count
     FROM "Artist" a
-    LEFT JOIN "Artwork" aw ON a.id = aw."artistId" AND aw."deletedAt" IS NULL
-    WHERE (a.name ILIKE $1 OR a.username ILIKE $2)
+    LEFT JOIN effective_artwork_creators c ON c."artistId"=a.id
+    LEFT JOIN "Artwork" aw ON aw.id=c."artworkId" AND aw."deletedAt" IS NULL AND aw."archiveLifecycleState" = 'ACTIVE'
+    WHERE (a.name ILIKE $1 OR a.username ILIKE $2 OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=a.id AND sm."sourceName" ILIKE $1))
     GROUP BY a.id, a.name, a.username
     ORDER BY artwork_count DESC, a.name ASC
     LIMIT $3
@@ -121,8 +122,11 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
         a.name as artist_name,
         aw."imageCount" as image_count
       FROM "Artwork" aw
-      LEFT JOIN "Artist" a ON aw."artistId" = a.id
-      WHERE aw."deletedAt" IS NULL
+      LEFT JOIN LATERAL (
+        SELECT ca.name FROM effective_artwork_creators c JOIN "Artist" ca ON ca.id=c."artistId"
+        WHERE c."artworkId"=aw.id ORDER BY (ca.kind='GROUP'), ca.name, ca.id LIMIT 1
+      ) a ON TRUE
+      WHERE aw."deletedAt" IS NULL AND aw."archiveLifecycleState" = 'ACTIVE'
         AND (aw.title ILIKE $1 OR aw.description ILIKE $1)
       ORDER BY aw."imageCount" DESC, aw."createdAt" DESC
       LIMIT $2

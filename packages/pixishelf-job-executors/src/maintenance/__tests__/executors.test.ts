@@ -5,6 +5,7 @@ describe('maintenance executor registrations', () => {
   it('registers empty-payload, archive backfill, and Pixiv AI maintenance definitions', () => {
     const definitions = createMaintenanceExecutorRegistrations({ database: {} as never, scanRoot: '/scan' })
     expect(definitions.map(({ jobType, definitionVersion }) => ({ jobType, definitionVersion }))).toEqual([
+      { jobType: 'CREATOR_MAINTENANCE', definitionVersion: 1 },
       { jobType: 'ARCHIVE_INTAKE_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'TRIGGER_LOG_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'SCAN_RUN_RETENTION_CLEANUP', definitionVersion: 1 },
@@ -17,7 +18,12 @@ describe('maintenance executor registrations', () => {
     ])
     for (const definition of definitions.filter(
       ({ jobType }) =>
-        !['ARCHIVE_DEFAULT_TAG_BACKFILL', 'PIXIV_AI_DERIVED_TAG_SYNC', 'JOB_EVENT_RETENTION_CLEANUP'].includes(jobType)
+        ![
+          'CREATOR_MAINTENANCE',
+          'ARCHIVE_DEFAULT_TAG_BACKFILL',
+          'PIXIV_AI_DERIVED_TAG_SYNC',
+          'JOB_EVENT_RETENTION_CLEANUP'
+        ].includes(jobType)
     )) {
       expect(definition.parsePayload?.({})).toEqual({})
       expect(() => definition.parsePayload?.({ unexpected: true })).toThrow()
