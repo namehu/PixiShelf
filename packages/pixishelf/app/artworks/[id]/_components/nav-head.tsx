@@ -20,6 +20,7 @@ import { useArtworkStore } from '@/store/use-artwork-store'
 import MediaOrderReviewDialog from './media-order-review-dialog'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
+import { useArtworkMediaView } from './artwork-media-view-context'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
@@ -30,6 +31,8 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const [orderReviewOpen, setOrderReviewOpen] = useState(false)
   const [showScrolledTitle, setShowScrolledTitle] = useState(false)
+  const mediaView = useArtworkMediaView()
+  const showingLocalImages = mediaView?.view !== 'source'
 
   // 2. 确保页面滚动顶部
   useEffect(() => {
@@ -102,21 +105,23 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
                     管理当前作品
                   </Link>
                 </DropdownMenuItem>
-                {data.images.length > 1 && (
+                {showingLocalImages && data.images.length > 1 && (
                   <DropdownMenuItem onSelect={() => setOrderReviewOpen(true)}>
                     <ListOrderedIcon aria-hidden="true" />
                     顺序校对
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setImages(data.images)
-                    router.push('/artworks/preview')
-                  }}
-                >
-                  <FullscreenIcon aria-hidden="true" />
-                  全屏预览
-                </DropdownMenuItem>
+                {showingLocalImages && (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setImages(data.images)
+                      router.push('/artworks/preview')
+                    }}
+                  >
+                    <FullscreenIcon aria-hidden="true" />
+                    全屏预览
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>

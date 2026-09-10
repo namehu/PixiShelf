@@ -928,12 +928,54 @@ type IntakeItemWire = Prisma.ArchiveIntakeItemGetPayload<{ select: typeof intake
 function serializeIntakeItem(item: IntakeItemWire, now: Date) {
   return {
     ...item,
+    sourcePreviewAvailable: isSourcePreviewAvailable(item),
     submittedUrl: redactArchiveUrl(item.submittedUrl),
     canonicalUrl: item.canonicalUrl ? redactArchiveUrl(item.canonicalUrl) : null,
     thumbnailUrl: safeThumbnailUrl(item.thumbnailUrl),
     status: effectiveStatus(item, now),
     queueOrder: item.queueOrder.toString(),
     errorMessage: archiveWireErrorMessage(item.errorCode, item.errorMessage)
+  }
+}
+
+function isSourcePreviewAvailable(
+  item: Pick<IntakeItemWire, 'submittedUrl' | 'providerKey' | 'externalId' | 'canonicalUrl'>
+) {
+  if (item.providerKey && item.providerKey !== 'e-hentai') return false
+
+  if (item.externalId || item.canonicalUrl) {
+    if (item.providerKey !== 'e-hentai' || !item.externalId || !item.canonicalUrl) return false
+    try {
+      const canonical = new URL(item.canonicalUrl)
+      const match = canonical.pathname.match(/^\/g\/([1-9]\d*)\/[A-Za-z0-9]+\/$/)
+      return (
+        canonical.protocol === 'https:' &&
+        canonical.hostname.toLowerCase() === 'e-hentai.org' &&
+        !canonical.port &&
+        !canonical.username &&
+        !canonical.password &&
+        !canonical.search &&
+        !canonical.hash &&
+        match?.[1] === item.externalId
+      )
+    } catch {
+      return false
+    }
+  }
+
+  try {
+    const submitted = new URL(item.submittedUrl)
+    return (
+      submitted.protocol === 'https:' &&
+      submitted.hostname.toLowerCase() === 'e-hentai.org' &&
+      !submitted.port &&
+      !submitted.username &&
+      !submitted.password &&
+      (/^\/g\/[1-9]\d*\/[A-Za-z0-9]+\/?$/.test(submitted.pathname) ||
+        /^\/s\/[A-Za-z0-9]+\/[1-9]\d*-[1-9]\d*\/?$/.test(submitted.pathname))
+    )
+  } catch {
+    return false
   }
 }
 

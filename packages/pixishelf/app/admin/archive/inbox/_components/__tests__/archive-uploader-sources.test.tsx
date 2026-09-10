@@ -17,8 +17,12 @@ const mocks = vi.hoisted(() => ({
   removeQueries: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
-  toastWarning: vi.fn()
+  toastWarning: vi.fn(),
+  preview: vi.fn(),
+  push: vi.fn()
 }))
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 
 const source = {
   id: 'source-1',
@@ -229,7 +233,9 @@ vi.mock('@tanstack/react-query', () => ({
                           variables
                         )
                       }
-                    : vi.fn()
+                    : options.kind === 'preview'
+                      ? mocks.preview
+                      : vi.fn()
   })
 }))
 
@@ -291,6 +297,9 @@ vi.mock('@/lib/trpc', () => ({
     archiveInbox: {
       list: { queryKey: () => ['inbox-list'] },
       summary: { queryKey: () => ['inbox-summary'] }
+    },
+    archivePreview: {
+      open: { mutationOptions: (options: object) => ({ kind: 'preview', ...options }) }
     }
   })
 }))
@@ -605,6 +614,14 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.getByRole('img', { name: 'Gallery 302 的首图预览' }).getAttribute('src')).toBe(
       'https://ehgt.org/thumb-302.jpg'
     )
+  })
+
+  it('opens source preview independently from the stored cover popup', () => {
+    render(<ArchiveUploaderSources />)
+
+    fireEvent.click(screen.getByRole('button', { name: '预览原站 Gallery 302' }))
+    expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('submits selected catalog items without generating persistence ids in the browser', () => {

@@ -17,8 +17,8 @@ vi.mock('@/services/artwork-service', () => ({
 }))
 
 vi.mock('../_components/nav-head', () => ({ default: () => null }))
-vi.mock('../_components/artwork-images', () => ({
-  default: () => <div data-testid="artwork-images" />
+vi.mock('../_components/artwork-media-section', () => ({
+  ArtworkMediaSection: () => <div data-testid="artwork-images" />
 }))
 vi.mock('../_components/artwork-des', () => ({
   default: () => <div data-testid="artwork-description" />

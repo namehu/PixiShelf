@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-09-09（归档任务精简展示、作品与原站导航、解析后自动入队）
+最后核验：2026-09-10（原站缩略图纯浏览、用户绑定会话与受保护来源跳转）
 
 ## 状态约定
 
@@ -31,6 +31,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 ## 核心入口
 
 - [艺术家、社团与作品关系](./features/creator-relations.md)（current）：多创作者归属、时间线、来源映射与后台补全。
+- [原站缩略图预览](./features/source-preview.md)（current）：纯浏览入口、用户绑定会话、分页缓存、Provider governor 与来源地址保护。
 
 | 文档                                                                | 状态      | 权威范围                                       |
 | ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
@@ -38,13 +39,14 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
 | [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、30 类 Worker 任务、领域状态和流程图  |
 | [后台任务实时进度](./features/background-job-live-progress.md)      | `current` | 结构化进度、SSE 降级、动画吞吐与事件保留       |
-| [后台任务执行记录](./features/background-job-history.md) | `current` | 执行动态搜索筛选、游标分页、虚拟滚动与实时合并 |
+| [后台任务执行记录](./features/background-job-history.md)            | `current` | 执行动态搜索筛选、游标分页、虚拟滚动与实时合并 |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |
 | [Pixiv 标签补全](./features/pixiv-tag-enrichment.md)                | `current` | 候选规则、只填空字段、任务状态和封面存储       |
 | [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)           | `current` | 外部身份、补全规则、任务状态与作者图片存储     |
 | [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)       | `current` | 已有作品在线同步、来源所有权和磁盘快照         |
 | [Pixiv 系列来源与核对](./features/pixiv-series-sync.md)             | `current` | 系列外部身份、成员所有权、连续核对与多系列导航 |
 | [归档收件箱](./features/archive-intake.md)                          | `current` | 持久收件、双通道、批量操作、维护和保留策略     |
+| [原站缩略图预览](./features/source-preview.md)                      | `current` | 在线缩略图纯浏览、会话、缓存与安全边界         |
 | [领域语境](../CONTEXT.md)                                           | `current` | 作品、媒体、来源、归档与本地身份术语           |
 | [当前架构](./architecture/current-architecture.md)                  | `current` | Workspace、运行组件、依赖方向和关键数据流      |
 | [权限与接口边界](./security/access-control.md)                      | `current` | 调用者、页面、API、服务、凭据和存储权限        |
@@ -75,25 +77,26 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 - [作品详情页自动浏览](./features/artwork-auto-browse.md)（`current`）：自动滚动、适配预览轮播、暂停/加载等待与浏览器偏好。
 
-| 文档                                                                 | 状态         | 权威范围与后续处理                                         |
-| -------------------------------------------------------------------- | ------------ | ---------------------------------------------------------- |
-| [归档收件箱](./features/archive-intake.md)                           | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界         |
-| [后台任务实时进度](./features/background-job-live-progress.md)       | `current`    | 结构化进度、动画识别、SSE 缓存同步和事件分层保留           |
-| [历史归档默认标签补全](./features/archive-default-tag-backfill.md)   | `current`    | 当前历史归档标签补全范围、快照和恢复边界                   |
-| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)            | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则             |
-| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)        | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护            |
-| [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md)     | `historical` | 本期实施前的系列身份、成员所有权和同步方案                 |
-| [归档收件队列设计](./design/archive-intake-queue.md)                 | `historical` | 已实施的需求取舍、实施切片和验收设计                       |
-| [归档交互与自动入队](./design/archive-workflow-simplification.md)   | `historical` | 精简任务展示、来源跳转及自动入队的决策与验收记录           |
-| [E-Hentai 上传者人工扫描](./design/e-hentai-uploader-manual-scan.md) | `current`    | 已实施的人工来源扫描、游标、分类与收件确认契约             |
-| [E-Hentai 标题关键词归档](./design/e-hentai-title-keyword-scan.md)   | `draft`      | 标题包含/开头/结尾匹配、人工发现、查询冻结与收件复用       |
-| [多来源 URL 归档](./design/multi-source-url-archive.md)              | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构         |
-| [视频代表帧生成](./design/video-keyframe-generation.md)              | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息             |
-| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)               | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记        |
-| [界面设计升级计划](./pixishelf-design-upgrade-plan.md)               | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                     |
-| [媒体格式与兼容判断技术债](../todos/媒体类型后缀匹配技术债.md)         | `draft`      | 已实施媒体类型后的跨包推断、格式字段、fallback 与可选重命名 |
-| [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)                 | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格         |
-| `todos/多媒体设计.md`（已删除）                                      | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯 |
+| 文档                                                                 | 状态         | 权威范围与后续处理                                          |
+| -------------------------------------------------------------------- | ------------ | ----------------------------------------------------------- |
+| [归档收件箱](./features/archive-intake.md)                           | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界          |
+| [原站缩略图预览](./features/source-preview.md)                       | `current`    | 当前在线缩略图浏览入口、会话、缓存和无副作用边界            |
+| [后台任务实时进度](./features/background-job-live-progress.md)       | `current`    | 结构化进度、动画识别、SSE 缓存同步和事件分层保留            |
+| [历史归档默认标签补全](./features/archive-default-tag-backfill.md)   | `current`    | 当前历史归档标签补全范围、快照和恢复边界                    |
+| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)            | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则              |
+| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)        | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护             |
+| [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md)     | `historical` | 本期实施前的系列身份、成员所有权和同步方案                  |
+| [归档收件队列设计](./design/archive-intake-queue.md)                 | `historical` | 已实施的需求取舍、实施切片和验收设计                        |
+| [归档交互与自动入队](./design/archive-workflow-simplification.md)    | `historical` | 精简任务展示、来源跳转及自动入队的决策与验收记录            |
+| [E-Hentai 上传者人工扫描](./design/e-hentai-uploader-manual-scan.md) | `current`    | 已实施的人工来源扫描、游标、分类与收件确认契约              |
+| [E-Hentai 标题关键词归档](./design/e-hentai-title-keyword-scan.md)   | `draft`      | 标题包含/开头/结尾匹配、人工发现、查询冻结与收件复用        |
+| [多来源 URL 归档](./design/multi-source-url-archive.md)              | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构          |
+| [视频代表帧生成](./design/video-keyframe-generation.md)              | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息              |
+| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)               | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记         |
+| [界面设计升级计划](./pixishelf-design-upgrade-plan.md)               | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                      |
+| [媒体格式与兼容判断技术债](../todos/媒体类型后缀匹配技术债.md)       | `draft`      | 已实施媒体类型后的跨包推断、格式字段、fallback 与可选重命名 |
+| [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)                 | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格          |
+| `todos/多媒体设计.md`（已删除）                                      | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯  |
 
 ## ADR
 

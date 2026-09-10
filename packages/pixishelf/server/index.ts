@@ -19,6 +19,7 @@ import { archiveInboxRouter } from './routers/archive-inbox'
 import { archiveUploaderRouter } from './routers/archive-uploader'
 import { archiveSearchRouter } from './routers/archive-search'
 import { sourceAuditRouter } from './routers/source-audit'
+import { archivePreviewRouter } from './routers/archive-preview'
 
 // 挂载子路由
 export const appRouter = router({
@@ -41,6 +42,7 @@ export const appRouter = router({
   archiveInbox: archiveInboxRouter,
   archiveUploader: archiveUploaderRouter,
   archiveSearch: archiveSearchRouter,
+  archivePreview: archivePreviewRouter,
   sourceAudit: sourceAuditRouter
 })
 

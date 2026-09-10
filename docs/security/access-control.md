@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-09-09
+last-verified: 2026-09-10
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
@@ -101,6 +101,7 @@ sources:
 | `/admin/scan-history/[id]/source-audit`                  | Session      | 写操作由 `adminProcedure` 复核         | 查看核对；管理员可提交选定来源同步                                                                                        |
 | `/admin/archive/inbox`                                   | Session      | 写操作由 `adminProcedure` 复核         | 持久添加、上传者长期目录、稳定 UID 绑定/更正、人工扫描、来源管理、全局忽略/恢复、首图预览、解析控制、重试、取消与批量入队 |
 | `/admin/archive`                                         | Session      | 写操作由 `adminProcedure` 复核         | 归档任务查询、单项及当前页批量控制                                                                                        |
+| `/source-preview`                                        | Session      | 读取由 `authProcedure` 复核            | 使用账户绑定的不透明会话浏览原站缩略图；页面 query 不接收原站 URL                                                         |
 | `/change-password`                                       | Session      | `authActionClient` 复核 Session        | 只能修改当前会话账户密码                                                                                                  |
 | `_next/static`、`_next/image`、`favicon.ico`             | matcher 排除 | 由 Next.js/静态服务器处理              | 不应包含私有原媒体文件                                                                                                    |
 
@@ -118,7 +119,8 @@ sources:
 | `POST /api/scan/rescan`                         | Session（双层，`requireAdminRequest`）                  | 重扫一个 Artwork，更新目录与审计                                                                                                  | 高，数据库和文件关系变化                                        |
 | `POST /api/migration/stream`                    | Session（双层，`requireAdminRequest`）                  | 入队或执行迁移、复制/移动/清理                                                                                                    | 最高，可能修改原媒体                                            |
 | `GET /api/jobs/events`                          | Session（双层，`requireAdminRequest`）                  | 只读 definition v1+ 的脱敏 Job 事件和实时摘要；`progressData` 只允许聚合指标，不含 payload/result/error/路径/URL/凭据/lease token | 中；长连接可观察全部后台任务状态                                |
-| `GET /api/archive/tasks/[id]/source`            | Session（双层，`requireAdminRequest`）                  | 读取该任务 canonical URL，验证 E-Hentai HTTPS 固定主机、画廊路径与 GID 后重定向；不接受客户端目的地址 | 中；仅主动导航返回完整来源地址，禁止缓存及 Referrer |
+| `GET /api/archive/tasks/[id]/source`            | Session（双层，`requireAdminRequest`）                  | 读取该任务 canonical URL，验证 E-Hentai HTTPS 固定主机、画廊路径与 GID 后重定向；不接受客户端目的地址                             | 中；仅主动导航返回完整来源地址，禁止缓存及 Referrer             |
+| `GET /api/archive/preview/[id]/source`          | Session（双层，`requireAdminRequest`）                  | 先验证 Session 和预览会话账户所有权，再重定向到该会话已验证的 canonical URL；只接受路径中的不透明 ID                              | 中；进程重启或空闲过期后拒绝，禁止缓存及 Referrer               |
 | `POST /api/artwork/[id]/replace`                | Session（双层，`requireAdminRequest`）                  | 初始化、提交或回滚媒体替换会话                                                                                                    | 最高，数据库与原媒体写入                                        |
 | `GET/POST /api/artwork/upload-chunk`            | Session（双层，`requireAdminRequest`）                  | 查询上传状态、写入媒体分块                                                                                                        | 高，原媒体写入                                                  |
 | `POST /api/artwork/media-chapters/upload`       | Session（双层，`requireAdminRequest`）                  | 上传章节 manifest                                                                                                                 | 高，数据库/派生或媒体侧写入                                     |
@@ -166,6 +168,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `archiveUploader` | 来源、扫描覆盖摘要、长期目录实时状态与全局已忽略列表                      | 创建/归档来源、绑定/更正 UID、扫描/取消、加入收件箱、忽略/恢复画廊                           | 读取为 `authProcedure`；来源、任务与处置写入为 `adminProcedure`                                   |
 | `archiveSearch`   | 两类发现来源、扫描摘要、匹配候选、全局忽略与删除范围预览                  | 创建关键词来源、改名、停用/恢复、删除来源、扫描/取消、入箱及忽略/恢复                        | 读取 authProcedure，写入 adminProcedure；固定条件不可原地修改                                     |
 | `archive`         | 分页任务、项目、统计和批量结果                                            | 单项操作、重试和 `PAUSE/RESUME/CANCEL/RETRY` 批量控制                                        | 读取 `authProcedure`，写入/控制 `adminProcedure`                                                  |
+| `archivePreview`  | 作品的有效来源引用                                                        | 打开账户绑定预览、顺序读取下一页、重新加载第一页                                             | 全部为 `authProcedure`；纯远端读取，不创建任务、收件或媒体写入                                    |
 | `pendingReplace`  | 预览与状态                                                                | 绑定、排序、执行、取消、恢复、清理备份                                                       | 全部 `adminProcedure`                                                                             |
 | `job`             | 多类状态、待处理失败、队列与 Pixiv AI 校准状态读取                        | 创建、取消、重试、逐条/批量确认失败提醒、优先级、scheduler、Pixiv AI 预检/回填与中央任务控制 | 一般状态读取为 `authProcedure`；敏感后台面与控制为 `adminProcedure`                               |
 
@@ -209,6 +212,8 @@ Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，l
 归档任务 payload、结果、事件、错误与普通日志统一脱敏。不得记录 Cookie、Authorization、完整 Provider locator、token，或 URL 路径中的敏感段；列表和批量结果只返回完成管理操作所需的脱敏值。
 
 归档“原站”入口使用 `/api/archive/tasks/[id]/source`，在独立会话验证后读取数据库地址并校验 provider、协议、主机、端口、凭据、画廊路径与任务 GID。仅允许规范化画廊导航，不跟随远端新版，也不将 query 中的 URL 用作目的地。响应设置 `Cache-Control: private, no-store` 与 `Referrer-Policy: no-referrer`；不存在/非法来源返回通用错误，数据库异常不回显或记录 locator。完整 gallery 地址仅用于用户主动发起的重定向，列表与审计继续脱敏。
+
+原站缩略图预览的 `sources/open/page/reload` 全部使用 `authProcedure`。`open` 的直接 URL 只允许出现在 mutation body；独立页面 query 只携带随机预览 ID。会话在任何 Provider I/O 前严格绑定和复核当前账户，跨账户、过期或进程重启统一返回重新打开错误。作品、任务、收件和发现身份均在服务端读取并核对 provider、GID 与 canonical URL；客户端不提交 canonical 地址，旧 `Artwork.externalId` 不参与身份推断。缩略图地址必须通过 HTTPS 主机、凭据、端口、query/hash、导航路径、尺寸、crop 和分页连续性校验。完整来源只由 `/api/archive/preview/[id]/source` 在双层 Session 与会话所有权验证后重定向，响应禁止缓存及 Referrer。预览复用 PostgreSQL Provider governor，不调用完整 resolve，不创建后台任务、收件记录或媒体文件。
 
 上传者长期目录在服务端保存完整 gallery canonical URL，用于 Provider/GID 关联和提交收件箱；该字段以及其中的 token 不直接返回客户端，列表只返回经过归档脱敏规则处理的地址。目录状态关联也只使用服务端数据库查询，错误消息在出站前继续执行归档脱敏。
 

@@ -41,6 +41,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
@@ -863,12 +864,7 @@ function TaskActions({
   const active = ACTIVE_STATUSES.has(displayStatus)
   return (
     <div className="flex shrink-0 justify-end gap-1">
-      <Button asChild variant="ghost" size="sm">
-        <a href={archiveTaskSourceHref(task.id)} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
-          <ExternalLink data-icon="inline-start" aria-hidden="true" />
-          原站
-        </a>
-      </Button>
+      <SourcePreviewButton source={{ kind: 'task', taskId: task.id }} variant="ghost" size="sm" />
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="icon" aria-label="打开任务操作菜单">
@@ -880,6 +876,17 @@ function TaskActions({
             <DropdownMenuItem onSelect={onViewItems}>
               <Images aria-hidden="true" />
               任务详情
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <a
+                href={archiveTaskSourceHref(task.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                referrerPolicy="no-referrer"
+              >
+                <ExternalLink aria-hidden="true" />
+                打开原站
+              </a>
             </DropdownMenuItem>
             {['RUNNING', 'RETRY_WAIT'].includes(displayStatus) && (
               <DropdownMenuItem disabled={isPending('PAUSE')} onSelect={() => onAction('PAUSE')}>

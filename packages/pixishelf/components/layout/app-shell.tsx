@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import AppHeader from './app-header'
 import MobileBottomNavigation from './mobile-bottom-navigation'
 
-const HEADERLESS_ROUTES = [ROUTES.LOGIN, ROUTES.VIEWER, '/artworks/preview'] as const
+const HEADERLESS_ROUTES = [ROUTES.LOGIN, ROUTES.VIEWER, '/artworks/preview', '/source-preview'] as const
 
 export function isHeaderlessPath(pathname: string) {
   return HEADERLESS_ROUTES.some((route) => pathname === route || pathname.startsWith(`${route}/`))

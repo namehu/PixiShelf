@@ -36,6 +36,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -76,6 +77,7 @@ type CatalogView = 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'ATTENTION' | 'ALL
 type ResultFeed = CatalogView | 'IGNORED'
 const SCAN_RESULT_PAGE_SIZE = 50
 const MAX_SELECTED_ITEMS = 100
+const isSubmittableItem = (item: ScanItem) => item.actionable || item.recoverable
 const RESULT_FEEDS: Array<{ value: CatalogView; label: string }> = [
   { value: 'ACTIONABLE', label: '待处理' },
   { value: 'PROCESSING', label: '处理中' },
@@ -961,7 +963,7 @@ function ScanResults({
   }
   return (
     <Card className="gap-0 overflow-hidden py-0">
-      <div className="grid min-h-12 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-3 border-b bg-muted/30 px-4 text-xs font-medium text-muted-foreground sm:grid-cols-[2.5rem_minmax(0,1fr)_9rem_8rem_5rem]">
+      <div className="grid min-h-12 grid-cols-[2.5rem_minmax(0,1fr)_5rem] items-center gap-3 border-b bg-muted/30 px-4 text-xs font-medium text-muted-foreground sm:grid-cols-[2.5rem_minmax(0,1fr)_9rem_8rem_5rem]">
         <Checkbox
           checked={allActionableSelected ? true : selectedItemIds.size > 0 ? 'indeterminate' : false}
           onCheckedChange={(checked) => onToggleAll(checked === true)}
@@ -986,13 +988,13 @@ function ScanResults({
               >
                 {item ? (
                   <div
-                    className="grid min-h-20 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-3 sm:grid-cols-[2.5rem_minmax(0,1fr)_9rem_8rem_5rem]"
+                    className="grid min-h-20 grid-cols-[2.5rem_minmax(0,1fr)_5rem] items-center gap-3 sm:grid-cols-[2.5rem_minmax(0,1fr)_9rem_8rem_5rem]"
                     data-state={selectedItemIds.has(item.id) ? 'selected' : undefined}
                   >
                     <Checkbox
                       checked={selectedItemIds.has(item.id)}
                       disabled={
-                        !isSubmittableItem(item) ||
+                        !(item.actionable || item.recoverable) ||
                         (!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS)
                       }
                       onCheckedChange={(checked) => onToggle(item.id, checked === true)}
@@ -1036,41 +1038,51 @@ function ScanResults({
                     <span className="hidden sm:block">
                       <CatalogStatusBadge item={item} />
                     </span>
-                    {isActionableItem(item) ? (
-                      <Button
+                    <div className="flex items-center justify-end">
+                      <SourcePreviewButton
+                        source={{ kind: 'catalog', itemId: item.id }}
                         variant="ghost"
                         size="icon"
-                        onClick={() => onIgnore(item.id)}
-                        disabled={mutationPending}
-                        aria-label={`忽略 ${item.title}`}
+                        aria-label={`预览原站 ${item.title}`}
                       >
-                        <BanIcon aria-hidden="true" />
-                      </Button>
-                    ) : item.workflowBucket === 'ATTENTION' && item.intakeItemId ? (
-                      <Button variant="ghost" size="icon" asChild aria-label={`去收件箱处理 ${item.title}`}>
-                        <Link href={`/admin/archive/inbox?itemId=${encodeURIComponent(item.intakeItemId)}`}>
-                          <ArrowUpRightIcon aria-hidden="true" />
-                        </Link>
-                      </Button>
-                    ) : item.recoverable ? (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => onAdd(item.id)}
-                        disabled={mutationPending}
-                        aria-label={`重新加入收件箱 ${item.title}`}
-                      >
-                        <RotateCcwIcon aria-hidden="true" />
-                      </Button>
-                    ) : item.workflowStage === 'ARCHIVED' && item.artworkId ? (
-                      <Button variant="ghost" size="icon" asChild aria-label={`查看已归档作品 ${item.title}`}>
-                        <Link href={`/artworks/${item.artworkId}`} target="_blank" rel="noreferrer">
-                          <ArrowUpRightIcon aria-hidden="true" />
-                        </Link>
-                      </Button>
-                    ) : (
-                      <span aria-hidden="true" />
-                    )}
+                        <span className="sr-only">原站预览</span>
+                      </SourcePreviewButton>
+                      {item.actionable ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onIgnore(item.id)}
+                          disabled={mutationPending}
+                          aria-label={`忽略 ${item.title}`}
+                        >
+                          <BanIcon aria-hidden="true" />
+                        </Button>
+                      ) : item.workflowBucket === 'ATTENTION' && item.intakeItemId ? (
+                        <Button variant="ghost" size="icon" asChild aria-label={`去收件箱处理 ${item.title}`}>
+                          <Link href={`/admin/archive/inbox?itemId=${encodeURIComponent(item.intakeItemId)}`}>
+                            <ArrowUpRightIcon aria-hidden="true" />
+                          </Link>
+                        </Button>
+                      ) : item.recoverable ? (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => onAdd(item.id)}
+                          disabled={mutationPending}
+                          aria-label={`重新加入收件箱 ${item.title}`}
+                        >
+                          <RotateCcwIcon aria-hidden="true" />
+                        </Button>
+                      ) : item.workflowStage === 'ARCHIVED' && item.artworkId ? (
+                        <Button variant="ghost" size="icon" asChild aria-label={`查看已归档作品 ${item.title}`}>
+                          <Link href={`/artworks/${item.artworkId}`} target="_blank" rel="noreferrer">
+                            <ArrowUpRightIcon aria-hidden="true" />
+                          </Link>
+                        </Button>
+                      ) : (
+                        <span aria-hidden="true" />
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="flex min-h-20 items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -1117,14 +1129,6 @@ function CatalogStatusBadge({ item }: { item: ScanItem }) {
   }
   const state = states[item.workflowStage]
   return <Badge variant={state.variant}>{state.label}</Badge>
-}
-
-function isActionableItem(item: ScanItem) {
-  return item.actionable
-}
-
-function isSubmittableItem(item: ScanItem) {
-  return item.actionable || item.recoverable
 }
 
 function resultFeedLabel(feed: ResultFeed) {

@@ -219,6 +219,50 @@ describe('GovernedArchiveProviderRegistry', () => {
     expect(governor.release).toHaveBeenCalledTimes(2)
   })
 
+  it('governs gallery thumbnail preview HTML as a yielding RESOLVE request', async () => {
+    const http = {
+      text: vi.fn(async () =>
+        [
+          '<div id="gdt"><div class="gdtl">',
+          '<a href="/s/page/123-1"><img src="https://ehgt.org/t/thumb.jpg" width="100" height="140"></a>',
+          '</div></div>'
+        ].join('')
+      )
+    }
+    const governor = createGovernor()
+    const provider = new GovernedArchiveProviderRegistry(
+      new DefaultArchiveMediaProviderRegistry([new EHentaiProvider(http as never)]),
+      governor
+    ).getForUrl('https://e-hentai.org/g/123/gallerytoken/')
+
+    await expect(provider.previewPage?.({ url: 'https://e-hentai.org/g/123/gallerytoken/', page: 0 })).resolves.toMatchObject({
+      externalId: '123',
+      items: [{ ordinal: 0, url: 'https://ehgt.org/t/thumb.jpg', width: 100, height: 140 }]
+    })
+    expect(governor.acquire).toHaveBeenCalledOnce()
+    expect(governor.acquire).toHaveBeenCalledWith('e-hentai', 'RESOLVE', expect.any(AbortSignal), {
+      yieldOnPenalty: true
+    })
+    expect(governor.release).toHaveBeenCalledOnce()
+  })
+
+  it('penalizes an HTTP 200 throttle warning thrown inside preview governance', async () => {
+    const http = {
+      text: vi.fn(async () => '<html>Your IP address has been temporarily banned for excessive pageloads.</html>')
+    }
+    const governor = createGovernor()
+    const provider = new GovernedArchiveProviderRegistry(
+      new DefaultArchiveMediaProviderRegistry([new EHentaiProvider(http as never)]),
+      governor
+    ).getForUrl('https://e-hentai.org/g/123/gallerytoken/')
+
+    await expect(
+      provider.previewPage?.({ url: 'https://e-hentai.org/g/123/gallerytoken/', page: 0 })
+    ).rejects.toMatchObject({ code: 'REMOTE_RATE_LIMITED', recoverable: true })
+    expect(governor.penalize).toHaveBeenCalledWith('e-hentai', 'REMOTE_RATE_LIMITED', expect.any(Date))
+    expect(governor.release).toHaveBeenCalledOnce()
+  })
+
   it('takes separate permits for the E-Hentai source page and media stream requests', async () => {
     const stream = new PassThrough()
     const http = {

@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/button'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { getArtworkById } from '@/services/artwork-service'
 import ArtworkDes from './_components/artwork-des'
-import ArtworkImages from './_components/artwork-images'
 import NavHead from './_components/nav-head'
+import { ArtworkMediaSection } from './_components/artwork-media-section'
+import { ArtworkMediaViewProvider } from './_components/artwork-media-view-context'
 import CreatorTimeline from './_components/creator-timeline'
 import SeriesNav from './_components/series-nav'
 import TagArea from './_components/tag-area'
@@ -26,75 +27,77 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
 
   return (
     <div className="min-h-dvh bg-background">
-      <NavHead data={data} id={id} />
+      <ArtworkMediaViewProvider>
+        <NavHead data={data} id={id} />
 
-      <main className="mx-auto w-full max-w-reading py-6 sm:py-8">
-        <article className="max-w-full overflow-hidden">
-          <PageContainer size="reading">
-            <header className="mb-6 flex flex-col gap-4">
-              <PrivacySensitiveText
-                as="h1"
-                className="break-words text-2xl leading-tight font-semibold tracking-[-0.025em] text-foreground sm:text-3xl lg:text-4xl"
-              >
-                {data.title}
-              </PrivacySensitiveText>
+        <main className="mx-auto w-full max-w-reading py-6 sm:py-8">
+          <article className="max-w-full overflow-hidden">
+            <PageContainer size="reading">
+              <header className="mb-6 flex flex-col gap-4">
+                <PrivacySensitiveText
+                  as="h1"
+                  className="break-words text-2xl leading-tight font-semibold tracking-[-0.025em] text-foreground sm:text-3xl lg:text-4xl"
+                >
+                  {data.title}
+                </PrivacySensitiveText>
 
-              <div className="flex flex-wrap items-center gap-3">
-                {creators.map(({ id: artistId, name: artistName, avatar: artistAvatar, kind }) => (
-                  <Link
-                    key={artistId}
-                    href={`/artists/${artistId}`}
-                    className="group -ml-1 flex min-h-11 min-w-0 items-center gap-2 rounded-full p-1 pr-3 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
-                  >
-                    <ArtistAvatar src={artistAvatar} name={artistName} size={10} />
-                    <PrivacySensitiveText className="truncate text-base font-medium text-primary underline-offset-4 group-hover:underline sm:text-lg">
-                      {kind === 'GROUP' ? '社团：' : ''}
-                      {artistName}
-                    </PrivacySensitiveText>
-                  </Link>
-                ))}
-
-                {data.externalId && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    asChild
-                    className="h-9 rounded-full text-muted-foreground hover:border-primary/30 hover:bg-accent hover:text-accent-foreground"
-                  >
-                    <a
-                      href={`https://www.pixiv.net/artworks/${data.externalId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="在 Pixiv 查看该作品"
+                <div className="flex flex-wrap items-center gap-3">
+                  {creators.map(({ id: artistId, name: artistName, avatar: artistAvatar, kind }) => (
+                    <Link
+                      key={artistId}
+                      href={`/artists/${artistId}`}
+                      className="group -ml-1 flex min-h-11 min-w-0 items-center gap-2 rounded-full p-1 pr-3 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
-                      <span className="text-xs font-semibold tracking-wide uppercase">Pixiv</span>
-                      <span aria-hidden="true" className="mx-0.5 h-3 w-px bg-border" />
-                      <span className="font-utility text-xs">{data.externalId}</span>
-                      <ExternalLinkIcon data-icon="inline-end" aria-hidden="true" />
-                    </a>
-                  </Button>
-                )}
-              </div>
-            </header>
+                      <ArtistAvatar src={artistAvatar} name={artistName} size={10} />
+                      <PrivacySensitiveText className="truncate text-base font-medium text-primary underline-offset-4 group-hover:underline sm:text-lg">
+                        {kind === 'GROUP' ? '社团：' : ''}
+                        {artistName}
+                      </PrivacySensitiveText>
+                    </Link>
+                  ))}
 
-            {!!data.tags.length && (
-              <div className="mb-6">
-                <TagArea tags={data.tags} />
-              </div>
-            )}
-          </PageContainer>
+                  {data.externalId && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      asChild
+                      className="h-9 rounded-full text-muted-foreground hover:border-primary/30 hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <a
+                        href={`https://www.pixiv.net/artworks/${data.externalId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="在 Pixiv 查看该作品"
+                      >
+                        <span className="text-xs font-semibold tracking-wide uppercase">Pixiv</span>
+                        <span aria-hidden="true" className="mx-0.5 h-3 w-px bg-border" />
+                        <span className="font-utility text-xs">{data.externalId}</span>
+                        <ExternalLinkIcon data-icon="inline-end" aria-hidden="true" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+              </header>
 
-          <div id={`artwork-media-start-${data.id}`} aria-hidden="true" className="h-px" />
-          <ArtworkImages images={data.images} artworkId={data.id} />
-          <PageContainer size="reading">
-            <ArtworkDes description={data.description} className="mt-8" />
-            {data.series.map((series) => (
-              <SeriesNav key={series.id} series={series} />
-            ))}
-            <CreatorTimeline creators={creators} artworkId={data.id} />
-          </PageContainer>
-        </article>
-      </main>
+              {!!data.tags.length && (
+                <div className="mb-6">
+                  <TagArea tags={data.tags} />
+                </div>
+              )}
+            </PageContainer>
+
+            <div id={`artwork-media-start-${data.id}`} aria-hidden="true" className="h-px" />
+            <ArtworkMediaSection images={data.images} artworkId={data.id} />
+            <PageContainer size="reading">
+              <ArtworkDes description={data.description} className="mt-8" />
+              {data.series.map((series) => (
+                <SeriesNav key={series.id} series={series} />
+              ))}
+              <CreatorTimeline creators={creators} artworkId={data.id} />
+            </PageContainer>
+          </article>
+        </main>
+      </ArtworkMediaViewProvider>
     </div>
   )
 }

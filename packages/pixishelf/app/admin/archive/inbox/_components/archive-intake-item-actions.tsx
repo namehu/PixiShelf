@@ -11,6 +11,7 @@ import {
   type ArchiveQuality
 } from '@/app/admin/archive/_components/archive-intake-view-state'
 import { Button } from '@/components/ui/button'
+import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -104,6 +105,9 @@ export function ArchiveIntakeRetryActions({
 }: ArchiveIntakeRetryActionsProps) {
   return (
     <>
+      {item.sourcePreviewAvailable ? (
+        <SourcePreviewButton source={{ kind: 'intake', itemId: item.id }} variant="outline" size="sm" />
+      ) : null}
       {isRetryableIntakeItem(item) ? (
         <Button
           type="button"

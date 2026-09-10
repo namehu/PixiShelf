@@ -5,7 +5,10 @@ import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
 import type {
   ArchiveMediaProvider,
   ArchiveProvider,
+  ArchiveProviderContext,
   ArchiveRemoteMedia,
+  ArchiveThumbnailPage,
+  ArchiveThumbnailPageInput,
   ArchiveUploaderProvider,
   ArchiveUploaderProviderRegistry
 } from './types.ts'
@@ -258,12 +261,19 @@ export class GovernedArchiveProviderRegistry implements ArchiveUploaderProviderR
 class GovernedArchiveProvider implements ArchiveUploaderProvider {
   readonly key: string
   readonly requestGovernance = 'PER_REQUEST' as const
+  readonly previewPage?: (
+    input: ArchiveThumbnailPageInput,
+    context?: ArchiveProviderContext
+  ) => Promise<ArchiveThumbnailPage>
 
   constructor(
     private readonly delegate: ArchiveProvider,
     private readonly governor: ArchiveProviderGovernor
   ) {
     this.key = delegate.key
+    if (delegate.previewPage) {
+      this.previewPage = (input, context = {}) => this.runPreviewPage(input, context)
+    }
   }
 
   accepts(url: URL) {
@@ -275,6 +285,23 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
     const linked = linkedAbortController(signal)
     try {
       return await this.delegate.resolve(url, {
+        ...context,
+        signal: linked.controller.signal,
+        runResolveRequest: (operation) =>
+          this.runWithPermit('RESOLVE', linked.controller, operation, { yieldOnPenalty: true })
+      })
+    } finally {
+      linked.dispose()
+    }
+  }
+
+  private async runPreviewPage(input: ArchiveThumbnailPageInput, context: ArchiveProviderContext) {
+    if (!this.delegate.previewPage) {
+      throw new Error(`归档来源站点 ${this.key} 不支持缩略图预览`)
+    }
+    const linked = linkedAbortController(context.signal ?? new AbortController().signal)
+    try {
+      return await this.delegate.previewPage(input, {
         ...context,
         signal: linked.controller.signal,
         runResolveRequest: (operation) =>
