@@ -38,6 +38,7 @@ import {
 } from '../inventory-run.js'
 import { executeLocalDirectoryImport } from '../local-executor.js'
 import { resolveSafeScanRoot } from '../paths.js'
+import { bindPixivInventoryRoot, createPixivRootMarker } from '../root-identity.ts'
 import { publishPixivArtwork } from '../pixiv-publisher.js'
 import { executeScan } from '../scan-executor.js'
 import {
@@ -68,6 +69,153 @@ describePostgres('scan executor PostgreSQL integration', () => {
     await cleanup()
     await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })))
     await Promise.all([prisma?.$disconnect(), concurrentPrisma?.$disconnect()])
+  })
+
+  it.each(['INCREMENTAL', 'CLIENT_LIST', 'ARTWORK_RESCAN'] as const)(
+    'accepts a remount in %s and retains the bound UUID',
+    async (mode) => {
+      const root = await fixtureRoot()
+      const fixture = await frozenArtworkRescanFixture(root, 'PIXIV_IMPORTED')
+      const identity = await resolveSafeScanRoot(root)
+      const bound = await client().$transaction((tx) => bindPixivInventoryRoot(tx, identity, clock.now()))
+      await client().pixivMetadataInventoryState.update({
+        where: { id: 'pixiv' },
+        data: {
+          rootDeviceId: identity.deviceId + 2n,
+          rootInode: identity.inode + 1n
+        }
+      })
+      const payload: ScanPayload =
+        mode === 'CLIENT_LIST'
+          ? { mode, existingPolicy: 'REFRESH', inputCount: 1, inputDigest: metadataInputDigest([fixture.row]) }
+          : mode === 'INCREMENTAL'
+            ? { mode }
+            : fixture.payload
+      await client().systemJob.update({ where: { id: fixture.jobId }, data: { payload } })
+      await client().scanRun.update({
+        where: { id: fixture.run.id },
+        data: {
+          mode: mode === 'CLIENT_LIST' ? 'CLIENT_LIST' : mode === 'INCREMENTAL' ? 'INCREMENTAL' : 'RESCAN'
+        }
+      })
+      const repository = queue()
+      const claimed = await claim(repository, `uuid-remount-${mode}`)
+      const execution = context(repository, claimed, payload)
+      const warn = vi.spyOn(execution.logger, 'warn')
+      await executeScan(execution, dependencies(root))
+      expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+        status: 'COMPLETED'
+      })
+      expect(await client().pixivMetadataInventoryState.findUniqueOrThrow({ where: { id: 'pixiv' } })).toMatchObject({
+        rootIdentity: bound.state.rootIdentity,
+        rootDeviceId: identity.deviceId,
+        rootInode: identity.inode,
+        baselineGeneration: bound.state.baselineGeneration
+      })
+      expect(warn).toHaveBeenCalledWith('ROOT_REMOUNTED', { rootIdentity: bound.state.rootIdentity })
+      expect(await client().artwork.findUnique({ where: { id: fixture.artwork.id } })).not.toBeNull()
+    }
+  )
+
+  it('imports a new batch after remount while preserving previously imported inventory', async () => {
+    const root = await fixtureRoot()
+    const add = async () => {
+      const id = nextNumericId()
+      await fs.writeFile(path.join(root, `${id}-meta.json`), JSON.stringify(metadataDocument(id)))
+      await fs.writeFile(path.join(root, `${id}_p0.jpg`), 'image')
+    }
+    await add()
+    expect(await executeIncremental(root, 'uuid-first-batch')).toMatchObject({ status: 'COMPLETED' })
+    const previous = await client().pixivMetadataInventory.findMany()
+    const state = await client().pixivMetadataInventoryState.findUniqueOrThrow({ where: { id: 'pixiv' } })
+    await client().pixivMetadataInventoryState.update({
+      where: { id: state.id },
+      data: { rootDeviceId: state.rootDeviceId! + 2n }
+    })
+    await add()
+    expect(await executeIncremental(root, 'uuid-next-batch')).toMatchObject({ status: 'COMPLETED', newImages: 1 })
+    expect(await client().pixivMetadataInventory.count()).toBe(previous.length + 1)
+    expect(await client().pixivMetadataInventory.findUnique({ where: { id: previous[0]!.id } })).toMatchObject({
+      processedContentHash: previous[0]!.processedContentHash,
+      externalRefId: previous[0]!.externalRefId
+    })
+  })
+
+  it.each([false, true])('verifies UUID for consistency audit after remount (foreign=%s)', async (foreign) => {
+    const root = await fixtureRoot()
+    const externalId = nextNumericId()
+    await fs.writeFile(path.join(root, `${externalId}-meta.json`), JSON.stringify(metadataDocument(externalId)))
+    const state = await seedReadyAuditState(root)
+    const identity = await resolveSafeScanRoot(root)
+    await client().$transaction((tx) => bindPixivInventoryRoot(tx, identity, clock.now()))
+    await seedMissingAuditInventory(`missing/${nextNumericId()}-meta.json`)
+    await client().pixivMetadataInventoryState.update({
+      where: { id: state.id },
+      data: { rootDeviceId: identity.deviceId + 2n }
+    })
+    if (foreign)
+      await fs.writeFile(path.join(root, '.pixishelf-root'), JSON.stringify({ version: 1, id: randomUUID() }))
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const jobId = await seedJob('SCAN', payload, 1, 2)
+    const repository = queue()
+    const claimed = await claim(repository, 'uuid-audit')
+    const counts = await galleryDomainCounts()
+    if (foreign) {
+      await expect(
+        executeConsistencyAudit(context(repository, claimed, payload), dependencies(root))
+      ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+      expect(await client().pixivSourceAuditItem.count({ where: { differenceKind: 'MISSING' } })).toBe(0)
+    } else {
+      await executeConsistencyAudit(context(repository, claimed, payload), dependencies(root))
+      expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({
+        status: 'COMPLETED'
+      })
+    }
+    expect(await galleryDomainCounts()).toEqual(counts)
+  })
+
+  it('accepts an audit apply after root remount without relaxing frozen file evidence', async () => {
+    const fixture = await seedAuditApplyFixture({ includeMedia: true })
+    const root = await resolveSafeScanRoot(fixture.root)
+    const marker = await createPixivRootMarker(root)
+    await client().pixivMetadataInventoryState.update({
+      where: { id: 'pixiv' },
+      data: {
+        rootIdentity: marker,
+        rootDeviceId: root.deviceId + 2n,
+        rootInode: root.inode + 1n
+      }
+    })
+    const repository = queue()
+    const claimed = await claim(repository, 'uuid-apply')
+    await executeAuditApply(context(repository, claimed, fixture.payload), dependencies(fixture.root))
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: fixture.jobId } })).toMatchObject({
+      status: 'COMPLETED'
+    })
+    expect(await client().pixivMetadataInventory.findUnique({ where: { id: fixture.inventoryId } })).toMatchObject({
+      processedContentHash: fixture.contentHash
+    })
+  })
+
+  it('never emits MISSING if the UUID changes during audit execution', async () => {
+    const root = await fixtureRoot()
+    const id = nextNumericId()
+    await fs.writeFile(path.join(root, `${id}-meta.json`), JSON.stringify(metadataDocument(id)))
+    await seedReadyAuditState(root)
+    await seedMissingAuditInventory(`missing/${nextNumericId()}-meta.json`)
+    const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
+    const jobId = await seedJob('SCAN', payload, 1, 2)
+    const repository = queue()
+    const claimed = await claim(repository, 'uuid-mid-audit')
+    const execution = context(repository, claimed, payload)
+    const progress = execution.progress.bind(execution)
+    execution.progress = async (update) => {
+      await progress(update)
+      await fs.writeFile(path.join(root, '.pixishelf-root'), JSON.stringify({ version: 1, id: randomUUID() }))
+    }
+    await executeConsistencyAudit(execution, dependencies(root))
+    expect(await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({ status: 'FAILED' })
+    expect(await client().pixivSourceAuditItem.count({ where: { differenceKind: 'MISSING' } })).toBe(0)
   })
 
   it('rolls back domain publication with its checkpoint, retries idempotently, and rejects a stale fence', async () => {
@@ -2230,6 +2378,8 @@ describePostgres('scan executor PostgreSQL integration', () => {
         id: 'pixiv',
         status: 'READY',
         rootPathHash: hashScanRootIdentity(canonicalRoot),
+        rootDeviceId: (await resolveSafeScanRoot(root)).deviceId,
+        rootInode: (await resolveSafeScanRoot(root)).inode,
         baselineCompletedAt: clock.now()
       }
     })

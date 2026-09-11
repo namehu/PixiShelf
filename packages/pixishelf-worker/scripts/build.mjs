@@ -4,6 +4,7 @@ await build({
   entryPoints: {
     main: 'src/main.ts',
     healthcheck: 'src/healthcheck.ts',
+    'pixiv-root-identity': 'src/pixiv-root-identity.ts',
     'capability-audit': 'src/capability-audit.ts'
   },
   absWorkingDir: new URL('..', import.meta.url).pathname.replace(/^\/(?:([A-Za-z]):)/, '$1:'),

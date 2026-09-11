@@ -249,3 +249,7 @@ App / Worker image digest：
 ## 创作者关系发布与恢复
 
 迁移 20260908120000_unify_artwork_creators 前沿用发布前停写检查点。数据库 dump 需包含创作者关系、证据、来源映射、维护计划及逐项审计；该变更不移动媒体。映射更正可从执行记录生成恢复原映射的预览；批次取消只停止剩余工作，不撤销已提交关系。旧 App 读取 artistId，无法呈现多作者整理结果；回滚期间停用整理入口，完整恢复依赖发布前一致检查点。详见[创作者关系](../features/creator-relations.md)。
+
+## Pixiv 扫描根标记
+
+原媒体快照必须保留根目录隐藏文件 `.pixishelf-root`，并与数据库 inventory state 的 `rootIdentity` 配对保存。外部同步不得删除或覆盖标记。首次绑定前保存数据库检查点、旧标记（如存在）、实际挂载依据及命令 before/after 输出；不清空 inventory。仅标记丢失时可在核实原图库并停 Worker 后恢复数据库原 UUID；不同或损坏的标记先调查，不覆盖。完整克隆会保留 UUID，不能用标记区分克隆副本。操作、失败恢复与兼容回滚见 [Pixiv 扫描根身份](../features/pixiv-root-identity.md)。

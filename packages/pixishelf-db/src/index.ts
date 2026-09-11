@@ -3,7 +3,7 @@ import { Prisma, PrismaClient } from '@prisma/client'
 export { Prisma, PrismaClient }
 export * from './creators'
 
-const latestRequiredMigration = '20260908120000_unify_artwork_creators'
+const latestRequiredMigration = '20260911120000_add_pixiv_root_identity'
 
 const requiredQueueObjects = [
   'creator_maintenance_plans',

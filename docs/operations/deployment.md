@@ -341,3 +341,7 @@ lane migration 后，服务级回滚只能使用兼容新 schema、当前 capabi
 ## 创作者关系升级
 
 部署 20260908120000_unify_artwork_creators 前停止旧写入者并验证一致备份，执行 db:generate、db:deploy，App/Worker 同步升级。Worker schema 门禁检查新关系表、维护表和有效关系视图；capability 必须包含 CREATOR_MAINTENANCE@v1（BACKGROUND_WRITER）。旧作品的兼容归属由迁移回填；E-Hentai 历史标签补全从管理艺术家中的「来源映射与历史补全」生成逐项预览后执行。恢复限制见[功能规格](../features/creator-relations.md)。
+
+## Pixiv 根身份升级
+
+部署 `20260911120000_add_pixiv_root_identity` 前保存检查点并停止旧 Worker。新 Worker 使用图库 `.pixishelf-root` UUID；旧库设备信息变化或缺失时先完成一次人工绑定，再启动消费者导入新批次。没有新增环境变量或 App 写权限。详见 [Pixiv 扫描根身份](../features/pixiv-root-identity.md) 的部署及命令流程。

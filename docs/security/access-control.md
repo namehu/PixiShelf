@@ -286,3 +286,7 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 ## 创作者整理接口
 
 creator.prepare/start/status/history/mappings/mapping 均使用 adminProcedure；操作者来自 ctx.userId，浏览器不能提交自选操作者或冻结证据。start 仅接受服务端生成的 planId 和指纹；Worker 在受租约保护事务中重验逐项依据。/admin/artists/relations 沿用管理页认证，艺术家与作品浏览沿用现有登录边界。
+
+## Pixiv 根身份文件
+
+Worker 在媒体根创建并读取 `.pixishelf-root`，App 原媒体仍默认只读。UUID 校验不替代既有路径边界、符号链接限制、文件证据或事务 fence。维护工具仅在 Worker 容器内运行，使用现有数据库权限，不新增 HTTP 接口；人工绑定要求同库确认、检查指纹与 writer lane 锁。详见 [Pixiv 扫描根身份](../features/pixiv-root-identity.md)。

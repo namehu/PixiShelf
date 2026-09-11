@@ -45,6 +45,7 @@ describePostgres('source audit PostgreSQL singleton contract', () => {
       const data = {
         status: previousInventoryState.status,
         rootPathHash: previousInventoryState.rootPathHash,
+        rootIdentity: previousInventoryState.rootIdentity,
         rootDeviceId: previousInventoryState.rootDeviceId,
         rootInode: previousInventoryState.rootInode,
         baselineGeneration: previousInventoryState.baselineGeneration,

@@ -1,3 +1,4 @@
+import { assertPixivRootUnchanged } from './root-identity.ts'
 import { performance } from 'node:perf_hooks'
 import type { Prisma } from '@pixishelf/db'
 import type { ScanV2Payload } from '@pixishelf/job-contracts'
@@ -71,9 +72,7 @@ export async function executeConsistencyAudit(
     const rootPathHash = hashScanRootIdentity(root.absolutePath)
     const inventoryState = await ensurePixivInventoryRootIdentity({
       context,
-      rootPathHash,
-      rootDeviceId: root.deviceId,
-      rootInode: root.inode,
+      root,
       now: now()
     })
     if (inventoryState.status !== 'READY') {
@@ -168,7 +167,7 @@ export async function executeConsistencyAudit(
     }
 
     const finalRoot = await resolveSafeScanRoot(dependencies.config.scanRoot)
-    assertSameRoot(root, finalRoot)
+    await assertSameRoot(root, finalRoot)
     return await finalizeAuditSuccess({
       context,
       run,
@@ -255,6 +254,7 @@ async function freezeAuditSnapshot(input: {
     baselineGeneration: number
     status: string
     rootPathHash: string
+    rootIdentity: string | null
     rootDeviceId: bigint | null
     rootInode: bigint | null
   }
@@ -342,7 +342,7 @@ async function freezeAuditSnapshot(input: {
     )
   }
   const finalRoot = await resolveSafeScanRoot(input.dependencies.config.scanRoot)
-  assertSameRoot(input.root, finalRoot)
+  await assertSameRoot(input.root, finalRoot)
   const discoveryDurationMs = boundedMilliseconds(performance.now() - started)
   const frozenAt = input.dependencies.now?.() ?? new Date()
   return mutate(input.context, async (transaction) => {
@@ -869,6 +869,7 @@ async function finalizeAuditSuccess(input: {
     }
     const state = await scope.transaction.pixivMetadataInventoryState.findUniqueOrThrow({ where: { id: 'pixiv' } })
     assertInventoryBarrier(state, input.baselineGeneration, input.rootPathHash, input.root)
+    await assertPixivRootUnchanged(input.root)
     const missing = await scope.transaction.pixivMetadataInventory.findMany({
       where: {
         baselineGeneration: input.baselineGeneration,
@@ -974,6 +975,7 @@ async function finalizeAuditSuccess(input: {
         errorMessage: null
       }
     })
+    await assertPixivRootUnchanged(input.root)
     await scope.complete({ result, message: 'Pixiv source consistency audit completed' })
   })
 }
@@ -1087,7 +1089,8 @@ function sameFrozenState(left: StableFileState, right: StableFileState) {
   )
 }
 
-function assertSameRoot(expected: SafeScanRoot, actual: SafeScanRoot) {
+async function assertSameRoot(expected: SafeScanRoot, actual: SafeScanRoot) {
+  await assertPixivRootUnchanged(expected)
   if (
     expected.absolutePath !== actual.absolutePath ||
     expected.deviceId !== actual.deviceId ||
@@ -1102,6 +1105,7 @@ function assertInventoryBarrier(
     status: string
     baselineGeneration: number
     rootPathHash: string
+    rootIdentity: string | null
     rootDeviceId: bigint | null
     rootInode: bigint | null
   },
@@ -1113,8 +1117,8 @@ function assertInventoryBarrier(
     state.status !== 'READY' ||
     state.baselineGeneration !== generation ||
     state.rootPathHash !== rootPathHash ||
-    state.rootDeviceId !== root.deviceId ||
-    state.rootInode !== root.inode
+    !root.rootIdentity ||
+    state.rootIdentity !== root.rootIdentity
   ) {
     throw new ScanExecutorError('STATE_CONFLICT', 'Pixiv metadata inventory changed during the consistency audit')
   }

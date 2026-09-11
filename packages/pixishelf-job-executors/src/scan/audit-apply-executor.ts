@@ -1,3 +1,5 @@
+import { ensurePixivInventoryRootIdentity } from './inventory-run.ts'
+import { assertPixivRootUnchanged } from './root-identity.ts'
 import { createHash } from 'node:crypto'
 import { Prisma } from '@pixishelf/db'
 import {
@@ -53,6 +55,7 @@ export async function executeAuditApply(
     const run = await startApplyRun(context, now())
     runId = run.id
     const root = await resolveSafeScanRoot(dependencies.config.scanRoot)
+    await ensurePixivInventoryRootIdentity({ context, root, now: now() })
     const inputs = await verifyFrozenApplyInputs(context.payload, run, dependencies.database)
     await assertApplyBarrier(dependencies.database, root, run.inventoryBaselineGeneration!)
 
@@ -106,7 +109,7 @@ export async function executeAuditApply(
       }
 
       const finalRoot = await resolveSafeScanRoot(dependencies.config.scanRoot)
-      assertSameRoot(root, finalRoot)
+      await assertSameRoot(root, finalRoot)
       try {
         await applyPreparedInput({
           context,
@@ -793,11 +796,13 @@ async function summarizeResult(transaction: ScanTransaction, runId: string): Pro
 }
 
 async function assertApplyBarrier(database: ScanDatabase, root: SafeScanRoot, generation: number) {
+  await assertPixivRootUnchanged(root)
   const state = await database.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' } })
   assertBarrierState(state, root, generation)
 }
 
 async function assertBarrierInTransaction(transaction: ScanTransaction, root: SafeScanRoot, generation: number) {
+  await assertPixivRootUnchanged(root)
   const state = await transaction.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' } })
   assertBarrierState(state, root, generation)
 }
@@ -807,6 +812,7 @@ function assertBarrierState(
     status: string
     baselineGeneration: number
     rootPathHash: string
+    rootIdentity: string | null
     rootDeviceId: bigint | null
     rootInode: bigint | null
   } | null,
@@ -818,8 +824,8 @@ function assertBarrierState(
     state.status !== 'READY' ||
     state.baselineGeneration !== generation ||
     state.rootPathHash !== hashScanRootIdentity(root.absolutePath) ||
-    state.rootDeviceId !== root.deviceId ||
-    state.rootInode !== root.inode
+    !root.rootIdentity ||
+    state.rootIdentity !== root.rootIdentity
   )
     throw new ApplyBarrierError()
 }
@@ -854,7 +860,8 @@ function statData(state: StableFileState) {
   }
 }
 
-function assertSameRoot(expected: SafeScanRoot, actual: SafeScanRoot) {
+async function assertSameRoot(expected: SafeScanRoot, actual: SafeScanRoot) {
+  await assertPixivRootUnchanged(expected)
   if (
     expected.absolutePath !== actual.absolutePath ||
     expected.deviceId !== actual.deviceId ||

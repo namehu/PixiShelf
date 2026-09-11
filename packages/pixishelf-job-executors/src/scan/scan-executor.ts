@@ -1,3 +1,4 @@
+import { assertPixivRootUnchanged } from './root-identity.ts'
 import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { Prisma } from '@pixishelf/db'
@@ -84,9 +85,7 @@ export async function executeScan(
     // to the resolved root before reading a snapshot so another mount cannot reuse its path/hash facts.
     await ensurePixivInventoryRootIdentity({
       context,
-      rootPathHash: inventoryRootPathHash,
-      rootDeviceId: root.deviceId,
-      rootInode: root.inode,
+      root,
       now: now()
     })
     run = await ensureMetadataSnapshot({
@@ -110,6 +109,7 @@ export async function executeScan(
     const results: Array<{ status: 'SUCCESS' | 'SKIPPED' | 'FAILED'; newImages: number }> = []
     for await (const page of iterateFrozenMetadataPages(dependencies.database, run.id, limits.pageSize)) {
       throwIfAborted(context.signal)
+      await assertPixivRootUnchanged(root)
       const pageResults = await mapBounded(page, limits.concurrency, context.signal, async (row) => {
         try {
           return await processMetadataInput({
@@ -141,6 +141,7 @@ export async function executeScan(
         total: snapshot.count
       })
     }
+    await assertPixivRootUnchanged(root)
     const result = summarize(run.id, snapshot.metadataCandidates, results, {
       skipped: snapshot.inventoryUnchanged,
       // ScanRunItem is the idempotent source of truth across retries of the same ScanRun.
@@ -329,6 +330,7 @@ async function processMetadataInput(input: {
       ScanTransaction & QueueSqlExecutor,
       Awaited<ReturnType<typeof publishPixivArtwork>>
     >(async (transaction) => {
+      await assertPixivRootUnchanged(input.root)
       if (input.context.payload.mode === 'ARTWORK_RESCAN') {
         await assertArtworkRescanSnapshot({
           transaction,

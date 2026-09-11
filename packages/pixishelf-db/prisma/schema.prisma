@@ -1530,8 +1530,10 @@ model PixivSourceAuditItem {
 model PixivMetadataInventoryState {
   id                  String                       @id @default("pixiv") @db.VarChar(40)
   status              PixivMetadataInventoryStatus @default(INITIALIZING)
-  /// Hashing the resolved root prevents a different mount from silently inheriting an existing baseline.
+  /// Configured path boundary; the marker UUID identifies the library across remounts.
   rootPathHash        String                       @db.VarChar(64)
+  rootIdentity        String?                      @db.Uuid
+  /// Last verified environment observations, not permanent library identity.
   rootDeviceId        BigInt?
   rootInode           BigInt?
   baselineGeneration  Int                          @default(1)

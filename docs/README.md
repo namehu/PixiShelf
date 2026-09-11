@@ -30,6 +30,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
+- [Pixiv 扫描根身份](./features/pixiv-root-identity.md)（current）：稳定 UUID、重挂载兼容、旧库绑定与标记恢复。
+
 - [艺术家、社团与作品关系](./features/creator-relations.md)（current）：多创作者归属、时间线、来源映射与后台补全。
 - [原站缩略图预览](./features/source-preview.md)（current）：纯浏览入口、用户绑定会话、分页缓存、Provider governor 与来源地址保护。
 
