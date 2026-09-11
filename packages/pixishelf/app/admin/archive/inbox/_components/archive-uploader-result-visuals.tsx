@@ -32,14 +32,15 @@ export function ArchiveUploaderResultViewToggle({
       variant="outline"
       size="sm"
       aria-label="结果显示模式"
+      className="shrink-0"
     >
-      <ToggleGroupItem value="list" aria-label="使用纯列表">
+      <ToggleGroupItem value="list" aria-label="使用纯列表" title="纯列表" className="max-sm:px-2">
         <ListIcon aria-hidden="true" />
-        纯列表
+        <span className="hidden sm:inline">纯列表</span>
       </ToggleGroupItem>
-      <ToggleGroupItem value="preview" aria-label="显示首图预览">
+      <ToggleGroupItem value="preview" aria-label="显示首图预览" title="首图预览" className="max-sm:px-2">
         <ImagesIcon aria-hidden="true" />
-        首图预览
+        <span className="hidden sm:inline">首图预览</span>
       </ToggleGroupItem>
     </ToggleGroup>
   )

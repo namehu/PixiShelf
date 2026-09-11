@@ -26,18 +26,18 @@ export function ArchiveUploaderCreateSourceDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreated: () => Promise<void>
+  onCreated: (sourceId: string) => Promise<void>
 }) {
   const trpc = useTRPC()
   const [identityKind, setIdentityKind] = useState<'NAME' | 'UID'>('UID')
   const [identityValue, setIdentityValue] = useState('')
   const createMutation = useMutation(
     trpc.archiveUploader.createSource.mutationOptions({
-      onSuccess: async () => {
+      onSuccess: async (source) => {
         toast.success('上传者来源已保存')
         setIdentityValue('')
         onOpenChange(false)
-        await onCreated()
+        await onCreated(source.id)
       },
       onError: (error) =>
         toast.error('保存来源失败', { description: archiveClientErrorMessage(error, '请检查上传者身份后重试。') })

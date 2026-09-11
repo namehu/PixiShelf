@@ -1,6 +1,16 @@
 'use client'
 
-import { useId } from 'react'
+import { useId, useState } from 'react'
+import { Settings2Icon } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import type { ArchiveDownloadMode, ArchiveQuality } from '../../_components/archive-intake-view-state'
@@ -13,6 +23,53 @@ export interface ArchiveIntakeOptionsValue {
 export const DEFAULT_ARCHIVE_INTAKE_OPTIONS: ArchiveIntakeOptionsValue = {
   downloadMode: 'AUTO',
   quality: 'ORIGINAL'
+}
+
+export function archiveIntakeOptionsSummary(value: ArchiveIntakeOptionsValue) {
+  return `${value.downloadMode === 'AUTO' ? '自动下载' : '仅解析'} · ${value.quality === 'ORIGINAL' ? '原图' : '展示图'}`
+}
+
+export function ArchiveIntakeOptionsDialog({
+  value,
+  onChange,
+  disabled = false
+}: {
+  value: ArchiveIntakeOptionsValue
+  onChange: (value: ArchiveIntakeOptionsValue) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const summary = archiveIntakeOptionsSummary(value)
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="max-sm:size-8 max-sm:p-0"
+        aria-label={summary}
+        title={summary}
+        onClick={() => setOpen(true)}
+        disabled={disabled}
+      >
+        <Settings2Icon aria-hidden="true" />
+        <span className="hidden sm:inline">{summary}</span>
+      </Button>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>加入收件箱设置</DialogTitle>
+          <DialogDescription>这里的模式与画质会用于当前勾选和单项加入操作。</DialogDescription>
+        </DialogHeader>
+        <ArchiveIntakeOptions value={value} onChange={onChange} disabled={disabled} />
+        <DialogFooter>
+          <Button type="button" onClick={() => setOpen(false)}>
+            完成
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
 
 export function ArchiveIntakeOptions({

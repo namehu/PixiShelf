@@ -9,7 +9,12 @@ export const metadata = {
 
 export default function ArchiveInboxPage() {
   return (
-    <AdminWorkbench title="归档收件箱" description="粘贴作品链接；解析、判断和归档会在后台继续进行。" eyebrow={null}>
+    <AdminWorkbench
+      title="归档收件箱"
+      description="粘贴作品链接；解析、判断和归档会在后台继续进行。"
+      eyebrow={null}
+      className="max-lg:[&:has([data-mobile-discovery-detail])>[data-slot=page-header]]:hidden max-lg:[&:has([data-mobile-discovery-detail])]:pt-2"
+    >
       <Suspense fallback={<ArchiveInboxFallback />}>
         <ArchiveInboxWorkspace />
       </Suspense>

@@ -1,3 +1,4 @@
+import { useState, type ReactNode } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -19,10 +20,37 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastWarning: vi.fn(),
   preview: vi.fn(),
-  push: vi.fn()
+  push: vi.fn(),
+  navigateSource: vi.fn(),
+  navigateSourceList: vi.fn(),
+  navigateIgnored: vi.fn(),
+  navigateInboxItem: vi.fn(),
+  isDesktop: true
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
+vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.isDesktop }))
+
+vi.mock('@/components/ui/dropdown-menu', () => ({
+  DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => children,
+  DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DropdownMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DropdownMenuSeparator: () => <hr />,
+  DropdownMenuItem: ({
+    children,
+    disabled,
+    onSelect
+  }: {
+    children: ReactNode
+    disabled?: boolean
+    onSelect?: () => void
+  }) => (
+    <button type="button" disabled={disabled} onClick={onSelect}>
+      {children}
+    </button>
+  )
+}))
 
 const source = {
   id: 'source-1',
@@ -170,12 +198,13 @@ vi.mock('@tanstack/react-query', () => ({
   }),
   useQuery: (options: { kind?: string }) =>
     options.kind === 'sources'
-      ? { data: currentSourcesData, isPending: false, isError: false }
-      : { data: currentDetailData, isPending: false, isError: false },
+      ? { data: currentSourcesData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null }
+      : { data: currentDetailData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null },
   useInfiniteQuery: (options: { kind?: string }) => ({
     data: options.kind === 'ignored' ? ignoredItemsData : currentItemsData,
     isLoading: false,
     isError: false,
+    isSuccess: true,
     hasNextPage: false,
     isFetchingNextPage: false,
     fetchNextPage: vi.fn(),
@@ -239,12 +268,30 @@ vi.mock('@tanstack/react-query', () => ({
   })
 }))
 
-vi.mock('@tanstack/react-virtual', () => ({
-  useVirtualizer: () => ({
-    getVirtualItems: () => [{ index: 0, key: 'row-0', start: 0, size: 104 }],
-    getTotalSize: () => 104,
-    measureElement: vi.fn()
-  })
+vi.mock('react-virtuoso', () => ({
+  Virtuoso: ({
+    data = [],
+    itemContent,
+    useWindowScroll,
+    components
+  }: {
+    data?: Array<{ id: string }>
+    itemContent: (index: number, item: { id: string }) => ReactNode
+    useWindowScroll?: boolean
+    components?: { Footer?: () => ReactNode }
+  }) => {
+    const Footer = components?.Footer
+    return (
+      <div data-testid="discovery-virtuoso" data-window-scroll={String(Boolean(useWindowScroll))}>
+        {data.map((item, index) => (
+          <div key={item.id} data-item-index={index}>
+            {itemContent(index, item)}
+          </div>
+        ))}
+        {Footer ? <Footer /> : null}
+      </div>
+    )
+  }
 }))
 
 vi.mock('@/lib/trpc', () => ({
@@ -328,6 +375,58 @@ vi.mock('../archive-discovery-delete-dialog', () => ({
 }))
 import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 
+function SourcesHarness({
+  initialSourceId = 'source-1',
+  initialIgnored = false,
+  showTestControls = false
+}: {
+  initialSourceId?: string | null
+  initialIgnored?: boolean
+  showTestControls?: boolean
+}) {
+  const [sourceId, setSourceId] = useState<string | null>(initialSourceId)
+  const [ignored, setIgnored] = useState(initialIgnored)
+
+  return (
+    <>
+      {showTestControls ? (
+        <button type="button" onClick={() => setSourceId('source-1')}>
+          模拟前进到来源
+        </button>
+      ) : null}
+      <ArchiveUploaderSources
+        active
+        locatedSourceId={sourceId}
+        ignored={ignored}
+        onNavigateSource={(nextSourceId, history) => {
+          mocks.navigateSource(nextSourceId, history)
+          setIgnored(false)
+          setSourceId(nextSourceId)
+        }}
+        onNavigateSourceList={(history) => {
+          mocks.navigateSourceList(history)
+          setIgnored(false)
+          setSourceId(null)
+        }}
+        onNavigateIgnored={(nextIgnored, history) => {
+          mocks.navigateIgnored(nextIgnored, history)
+          setSourceId(null)
+          setIgnored(nextIgnored)
+        }}
+        onNavigateInboxItem={mocks.navigateInboxItem}
+      />
+    </>
+  )
+}
+
+function renderSources(options?: {
+  initialSourceId?: string | null
+  initialIgnored?: boolean
+  showTestControls?: boolean
+}) {
+  return render(<SourcesHarness {...options} />)
+}
+
 afterEach(cleanup)
 
 describe('ArchiveUploaderSources', () => {
@@ -344,15 +443,45 @@ describe('ArchiveUploaderSources', () => {
       uploaderUid: '456',
       source: {}
     }
+    mocks.isDesktop = true
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
       value: { writeText: mocks.writeClipboard }
     })
+    Object.defineProperty(window, 'scrollTo', { configurable: true, value: vi.fn() })
     useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
   })
 
+  it('opens a source from the mobile list with push navigation and uses window scrolling', async () => {
+    mocks.isDesktop = false
+    renderSources({ initialSourceId: null })
+
+    const sourceLabel = (await screen.findAllByText('UID 123'))[0]
+    fireEvent.click(sourceLabel!.closest('button')!)
+
+    expect(mocks.navigateSource).toHaveBeenCalledWith('source-1', 'push')
+    expect(await screen.findByRole('button', { name: '返回来源列表' })).toBeTruthy()
+    expect(screen.getByTestId('discovery-virtuoso').getAttribute('data-window-scroll')).toBe('true')
+  })
+
+  it('keeps the mobile selection when returning to the list and reopening the same source', async () => {
+    mocks.isDesktop = false
+    renderSources({ showTestControls: true })
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 Gallery 302' }))
+    expect(screen.getByRole('button', { name: '加入收件箱（1）' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '返回来源列表' }))
+    expect(mocks.navigateSourceList).toHaveBeenCalledWith('replace')
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟前进到来源' }))
+    expect((await screen.findByRole('checkbox', { name: '选择 Gallery 302' })).getAttribute('aria-checked')).toBe(
+      'true'
+    )
+    expect(screen.getByRole('button', { name: '加入收件箱（1）' })).toBeTruthy()
+  })
+
   it('offers direct cancellation for the active scan', () => {
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     fireEvent.click(screen.getByRole('button', { name: '取消扫描' }))
     expect(mocks.cancelScan).toHaveBeenCalledWith({ sourceId: 'source-1', runId: 'run-active' })
@@ -366,7 +495,7 @@ describe('ArchiveUploaderSources', () => {
         if (options.queryKey[0] === 'sources') currentSourcesData = update(currentSourcesData)
       }
     )
-    render(<ArchiveUploaderSources />)
+    renderSources()
     fireEvent.click(screen.getByRole('button', { name: '删除来源' }))
     fireEvent.click(screen.getByRole('button', { name: '确认删除测试来源' }))
     await screen.findByText('暂无此类型的发现来源')
@@ -378,7 +507,7 @@ describe('ArchiveUploaderSources', () => {
   })
 
   it('shows and copies the stable uploader UID from both source views', async () => {
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     expect(screen.getAllByText('UID 123').length).toBeGreaterThan(1)
     fireEvent.click(screen.getByRole('button', { name: '复制上传者 UID' }))
@@ -396,7 +525,7 @@ describe('ArchiveUploaderSources', () => {
     currentSourcesData = [{ ...sensitiveSource, latestRun: activeRun }]
     currentDetailData = { source: sensitiveSource, runs: [activeRun, completedRun] }
 
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     for (const element of screen.getAllByText('Private uploader')) {
       expect(element.getAttribute('data-privacy-sensitive')).toBe('')
@@ -415,7 +544,7 @@ describe('ArchiveUploaderSources', () => {
   it('keeps global ignores accessible and restorable with no saved sources', async () => {
     currentSourcesData = []
     currentDetailData = undefined
-    render(<ArchiveUploaderSources />)
+    renderSources()
     expect(screen.getByText('暂无此类型的发现来源')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '查看全局已忽略' }))
     expect(screen.getByText('Ignored Gallery 301')).toBeTruthy()
@@ -437,7 +566,7 @@ describe('ArchiveUploaderSources', () => {
     }
     currentSourcesData = [unboundSource]
     currentDetailData = { source: unboundSource, runs: [completedRun] }
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     expect(screen.getAllByText('未绑定 UID').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('button', { name: '绑定 UID' }))
@@ -464,7 +593,7 @@ describe('ArchiveUploaderSources', () => {
     }
     currentSourcesData = [unboundSource]
     currentDetailData = { source: unboundSource, runs: [completedRun] }
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     fireEvent.click(screen.getByRole('button', { name: '绑定 UID' }))
     fireEvent.click(screen.getByRole('button', { name: '自动匹配' }))
@@ -479,7 +608,7 @@ describe('ArchiveUploaderSources', () => {
   })
 
   it('disables UID changes while the source has an active scan', () => {
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     expect(screen.getByRole('button', { name: '更正 UID' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByText('扫描完成或取消后才能绑定或更正 UID。')).toBeTruthy()
@@ -502,10 +631,10 @@ describe('ArchiveUploaderSources', () => {
     currentSourcesData = [revalidatingSource]
     currentDetailData = { source: revalidatingSource, runs: [completedRun] }
 
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     expect(screen.getAllByText('UID 覆盖待校验').length).toBeGreaterThan(0)
-    expect(screen.getByText('UID 待校验')).toBeTruthy()
+    expect(screen.getAllByText('UID 待校验').length).toBeGreaterThan(0)
     expect(screen.getByText('UID 覆盖：待重新验证')).toBeTruthy()
     expect(screen.queryByText('最新：尚未扫描')).toBeNull()
     expect(screen.queryByText('历史：尚未扫描')).toBeNull()
@@ -539,7 +668,7 @@ describe('ArchiveUploaderSources', () => {
       conflictingSourceId: 'source-existing',
       uploaderUid: '456'
     }
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     fireEvent.click(screen.getByRole('button', { name: '绑定 UID' }))
     fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '456' } })
@@ -558,7 +687,7 @@ describe('ArchiveUploaderSources', () => {
   })
 
   it('renders one aggregated virtual result feed instead of scan-run tabs', () => {
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     expect(screen.getByRole('heading', { level: 2, name: '待处理' })).toBeTruthy()
     expect(screen.getByText('Gallery 302')).toBeTruthy()
@@ -576,7 +705,7 @@ describe('ArchiveUploaderSources', () => {
   it('keeps the durable catalog visible after retained scan runs have been cleaned up', () => {
     currentDetailData = { source, runs: [] }
 
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     expect(screen.getByText('Gallery 302')).toBeTruthy()
     expect(screen.queryByText('尚无扫描记录')).toBeNull()
@@ -587,7 +716,7 @@ describe('ArchiveUploaderSources', () => {
       source: { ...source, catalogCounts: { ...source.catalogCounts, actionable: 0, processing: 1 } },
       runs: [completedRun]
     }
-    const rendered = render(<ArchiveUploaderSources />)
+    const rendered = renderSources()
     await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalled())
     mocks.invalidateQueries.mockClear()
 
@@ -595,7 +724,7 @@ describe('ArchiveUploaderSources', () => {
       source: { ...source, catalogCounts: { ...source.catalogCounts, actionable: 0, processing: 0, archived: 1 } },
       runs: [completedRun]
     }
-    rendered.rerender(<ArchiveUploaderSources />)
+    rendered.rerender(<SourcesHarness />)
 
     await waitFor(() => {
       expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
@@ -603,7 +732,7 @@ describe('ArchiveUploaderSources', () => {
   })
 
   it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     expect(screen.queryByRole('button', { name: '预览 Gallery 302 的首图' })).toBeNull()
 
@@ -617,7 +746,7 @@ describe('ArchiveUploaderSources', () => {
   })
 
   it('opens source preview independently from the stored cover popup', () => {
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     fireEvent.click(screen.getByRole('button', { name: '预览原站 Gallery 302' }))
     expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
@@ -625,7 +754,7 @@ describe('ArchiveUploaderSources', () => {
   })
 
   it('submits selected catalog items without generating persistence ids in the browser', () => {
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
     fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
@@ -672,7 +801,7 @@ describe('ArchiveUploaderSources', () => {
       source: { ...source, catalogCounts: { actionable: 0, processing: 0, archived: 0, attention: 1, total: 1 } },
       runs: [completedRun]
     }
-    render(<ArchiveUploaderSources />)
+    renderSources()
     fireEvent.click(screen.getByLabelText('查看异常'))
     fireEvent.click(screen.getByRole('button', { name: '重新加入收件箱 Gallery 302' }))
 
@@ -691,6 +820,39 @@ describe('ArchiveUploaderSources', () => {
     })
   })
 
+  it('does not offer bulk ignore for a recoverable attention item', () => {
+    const recoverableItem = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          items: [
+            {
+              ...recoverableItem,
+              workflowStage: 'CANCELLED',
+              workflowBucket: 'ATTENTION',
+              recommendation: null,
+              actionable: false,
+              errorCode: 'CANCELLED',
+              errorMessage: 'Archive intake cancelled',
+              recoverable: true
+            }
+          ],
+          nextCursor: null
+        }
+      ]
+    }
+    currentDetailData = {
+      source: { ...source, catalogCounts: { actionable: 0, processing: 0, archived: 0, attention: 1, total: 1 } },
+      runs: [completedRun]
+    }
+    renderSources()
+    fireEvent.click(screen.getByLabelText('查看异常'))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+
+    expect((screen.getByRole('button', { name: '忽略（1）' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '重新加入收件箱（1）' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it.each(['UPLOADER', 'TITLE_QUERY'])(
     'submits %s results only after selection with the chosen mode and quality',
     (sourceKind) => {
@@ -702,10 +864,12 @@ describe('ArchiveUploaderSources', () => {
       }
       currentSourcesData = [{ ...selectedSource, latestRun: completedRun }]
       currentDetailData = { source: selectedSource, runs: [completedRun] }
-      render(<ArchiveUploaderSources />)
-      expect((screen.getByRole('button', { name: '加入收件箱（0）' }) as HTMLButtonElement).disabled).toBe(true)
+      renderSources()
+      expect(screen.queryByRole('button', { name: '加入收件箱（0）' })).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图' }))
       fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
       fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
+      fireEvent.click(screen.getByRole('button', { name: '完成' }))
       expect(mocks.createSubmissionAttempt).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
       fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
@@ -726,7 +890,7 @@ describe('ArchiveUploaderSources', () => {
   )
 
   it('removes ignored items from the infinite cache and refreshes both result feeds', async () => {
-    render(<ArchiveUploaderSources />)
+    renderSources()
 
     fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
     expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['catalog-item-1'] })

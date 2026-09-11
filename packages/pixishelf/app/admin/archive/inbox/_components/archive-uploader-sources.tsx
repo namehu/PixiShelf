@@ -1,71 +1,60 @@
 'use client'
 
-import { ARCHIVE_TITLE_MATCH_LABELS } from '@pixishelf/job-contracts'
-import { ArchiveSearchSourceDialog, type ArchiveSearchDialogState } from './archive-search-source-dialog'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import type { inferRouterOutputs } from '@trpc/server'
-import Link from 'next/link'
 import {
-  ArchiveIcon,
-  ArchiveRestoreIcon,
+  ArrowLeftIcon,
   ArrowUpRightIcon,
   BanIcon,
-  CheckIcon,
-  CircleStopIcon,
-  CopyIcon,
-  FingerprintIcon,
-  HistoryIcon,
   InfoIcon,
   PlusIcon,
-  RefreshCwIcon,
   RotateCcwIcon,
-  UserSearchIcon,
-  Trash2Icon
+  UserSearchIcon
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
 import { useTRPC } from '@/lib/trpc'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import { AdminSection, AdminSectionHeader } from '@/app/admin/_components/admin-workbench'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { type ArchiveUploaderResultView, useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
+import { ArchiveDiscoveryBulkBar } from './archive-discovery-bulk-bar'
+import { ArchiveDiscoveryDeleteDialog } from './archive-discovery-delete-dialog'
+import { ArchiveDiscoveryDetailHeader } from './archive-discovery-detail-header'
+import { IgnoredResults } from './archive-discovery-ignored-results'
+import { ArchiveDiscoveryResultList, type ArchiveDiscoveryListPosition } from './archive-discovery-result-list'
+import {
+  ArchiveDiscoveryResultsToolbar,
+  type ArchiveDiscoveryCatalogView,
+  resultFeedLabel
+} from './archive-discovery-results-toolbar'
+import { DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
+import { ArchiveSearchSourceDialog, type ArchiveSearchDialogState } from './archive-search-source-dialog'
+import { copyArchiveUploaderUid } from './archive-uploader-clipboard'
+import { ArchiveUploaderCreateSourceDialog } from './archive-uploader-create-source-dialog'
 import {
   ArchiveUploaderGalleryPreviewDialog,
   ArchiveUploaderGalleryThumbnail,
   type ArchiveUploaderPreviewItem,
   ArchiveUploaderResultViewToggle
 } from './archive-uploader-result-visuals'
-import { ArchiveUploaderCreateSourceDialog } from './archive-uploader-create-source-dialog'
-import { copyArchiveUploaderUid } from './archive-uploader-clipboard'
-import { ArchiveUploaderUidConflictAlert } from './archive-uploader-uid-conflict-alert'
-import { IgnoredResults } from './archive-discovery-ignored-results'
-import { ArchiveDiscoveryDeleteDialog } from './archive-discovery-delete-dialog'
 import { ArchiveUploaderSourceList } from './archive-uploader-source-list'
+import { ArchiveUploaderUidConflictAlert } from './archive-uploader-uid-conflict-alert'
 import { ArchiveUploaderUidDialog } from './archive-uploader-uid-dialog'
-import { ArchiveIntakeOptions, DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
 import {
   archiveUploaderDetailPollingInterval,
-  archiveUploaderCatalogViewCount,
   formatArchiveUploaderTimestamp,
-  historyCoverageLabel,
-  isActiveArchiveUploaderRunStatus,
-  latestCoverageLabel,
-  scanIdentityLabel,
-  scanRunStatusLabel,
-  scanStopReasonLabel
+  isActiveArchiveUploaderRunStatus
 } from './archive-uploader-view-state'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
@@ -73,51 +62,67 @@ type ScanItem = RouterOutputs['archiveSearch']['listItems']['items'][number]
 type ScanItemsPage = RouterOutputs['archiveSearch']['listItems']
 type IgnoredItemsPage = RouterOutputs['archiveSearch']['listIgnoredItems']
 type ScanRun = RouterOutputs['archiveSearch']['getSource']['runs'][number]
-type CatalogView = 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'ATTENTION' | 'ALL'
-type ResultFeed = CatalogView | 'IGNORED'
+type NavigationHistory = 'push' | 'replace'
+
 const SCAN_RESULT_PAGE_SIZE = 50
 const MAX_SELECTED_ITEMS = 100
 const isSubmittableItem = (item: ScanItem) => item.actionable || item.recoverable
-const RESULT_FEEDS: Array<{ value: CatalogView; label: string }> = [
-  { value: 'ACTIONABLE', label: '待处理' },
-  { value: 'PROCESSING', label: '处理中' },
-  { value: 'ARCHIVED', label: '已归档' },
-  { value: 'ATTENTION', label: '异常' },
-  { value: 'ALL', label: '全部' }
-]
 
-export function ArchiveUploaderSources() {
+export function ArchiveUploaderSources({
+  active,
+  locatedSourceId,
+  ignored,
+  onNavigateSource,
+  onNavigateSourceList,
+  onNavigateIgnored,
+  onNavigateInboxItem
+}: {
+  active: boolean
+  locatedSourceId: string | null
+  ignored: boolean
+  onNavigateSource: (sourceId: string, history: NavigationHistory) => void
+  onNavigateSourceList: (history: NavigationHistory) => void
+  onNavigateIgnored: (ignored: boolean, history: NavigationHistory) => void
+  onNavigateInboxItem: (itemId: string) => void
+}) {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
+  const isDesktop = useMediaQuery('(min-width: 1024px)')
+  const [layoutReady, setLayoutReady] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteSourceId, setDeleteSourceId] = useState<string | null>(null)
   const [searchDialog, setSearchDialog] = useState<ArchiveSearchDialogState | null>(null)
   const [sourceFilter, setSourceFilter] = useState('ALL')
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null)
+  const [implicitSourceId, setImplicitSourceId] = useState<string | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [intakeOptions, setIntakeOptions] = useState(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
   const [selectedIgnoredItemIds, setSelectedIgnoredItemIds] = useState<Set<string>>(new Set())
-  const [resultFeed, setResultFeed] = useState<ResultFeed>('ACTIONABLE')
+  const [resultFeed, setResultFeed] = useState<ArchiveDiscoveryCatalogView>('ACTIONABLE')
   const [previewItem, setPreviewItem] = useState<ArchiveUploaderPreviewItem | null>(null)
   const [cancelRequestedRunId, setCancelRequestedRunId] = useState<string | null>(null)
+  const activeDraftSourceIdRef = useRef<string | null>(null)
+  const enteredFromListRef = useRef(false)
+  const ignoredEnteredFromListRef = useRef(false)
+  const resultPositionsRef = useRef(new Map<string, ArchiveDiscoveryListPosition>())
+  const sourceListScrollRef = useRef(0)
+  const previousMobileViewRef = useRef<string | null>(null)
   const refreshedCompletedRunId = useRef<string | null>(null)
   const previousProcessingCount = useRef<{ sourceId: string; count: number } | null>(null)
   const resultView = useAdminPreferencesStore((state) => state.archiveUploaderResultView)
   const setResultView = useAdminPreferencesStore((state) => state.setArchiveUploaderResultView)
 
+  useEffect(() => setLayoutReady(true), [])
+
   useEffect(() => {
     void useAdminPreferencesStore.persist.rehydrate()
   }, [])
-
-  useEffect(() => {
-    setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
-  }, [selectedSourceId])
 
   const sourcesQuery = useQuery(
     trpc.archiveSearch.listSources.queryOptions(
       { includeArchived: true },
       {
+        enabled: active,
         refetchInterval: (query) =>
           query.state.data?.some(
             (source) =>
@@ -128,26 +133,59 @@ export function ArchiveUploaderSources() {
       }
     )
   )
+  const allSources = sourcesQuery.data ?? []
   const sources = useMemo(
-    () =>
-      (sourcesQuery.data ?? []).filter(
-        (source) => sourceFilter === 'ALL' || (source.sourceKind ?? 'UPLOADER') === sourceFilter
-      ),
-    [sourcesQuery.data, sourceFilter]
+    () => allSources.filter((source) => sourceFilter === 'ALL' || (source.sourceKind ?? 'UPLOADER') === sourceFilter),
+    [allSources, sourceFilter]
   )
 
   useEffect(() => {
-    if (!selectedSourceId && sources[0]) setSelectedSourceId(sources[0].id)
-    if (selectedSourceId && !sources.some(({ id }) => id === selectedSourceId)) {
-      setSelectedSourceId(sources[0]?.id ?? null)
+    if (!active || !layoutReady || !isDesktop || locatedSourceId) return
+    setImplicitSourceId((current) =>
+      current && sources.some(({ id }) => id === current) ? current : (sources[0]?.id ?? null)
+    )
+  }, [active, isDesktop, layoutReady, locatedSourceId, sources])
+
+  useEffect(() => {
+    if (locatedSourceId) setImplicitSourceId(locatedSourceId)
+  }, [locatedSourceId])
+
+  const selectedSourceId = locatedSourceId ?? (isDesktop ? implicitSourceId : null)
+
+  useLayoutEffect(() => {
+    if (!active || !layoutReady || isDesktop || sourcesQuery.isPending) return
+    const view = ignored ? 'ignored' : (locatedSourceId ?? 'list')
+    const previous = previousMobileViewRef.current
+    previousMobileViewRef.current = view
+    if (previous && previous !== view) {
+      window.scrollTo({ top: view === 'list' ? sourceListScrollRef.current : 0 })
     }
-  }, [selectedSourceId, sources])
+    if (view !== 'list') return
+    const save = () => {
+      sourceListScrollRef.current = window.scrollY
+    }
+    window.addEventListener('scroll', save, { passive: true })
+    return () => window.removeEventListener('scroll', save)
+  }, [active, ignored, isDesktop, layoutReady, locatedSourceId, sourcesQuery.isPending])
+
+  useEffect(() => {
+    if (!selectedSourceId) return
+    const previousSourceId = activeDraftSourceIdRef.current
+    if (previousSourceId && previousSourceId !== selectedSourceId) {
+      setSelectedItemIds(new Set())
+      setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
+      setResultFeed('ACTIONABLE')
+      setPreviewItem(null)
+      setCancelRequestedRunId(null)
+    }
+    activeDraftSourceIdRef.current = selectedSourceId
+  }, [selectedSourceId])
 
   const detailQuery = useQuery(
     trpc.archiveSearch.getSource.queryOptions(
       { sourceId: selectedSourceId ?? 'unselected' },
       {
-        enabled: Boolean(selectedSourceId),
+        enabled: active && Boolean(selectedSourceId),
         refetchInterval: (query) => archiveUploaderDetailPollingInterval(query.state.data)
       }
     )
@@ -158,15 +196,11 @@ export function ArchiveUploaderSources() {
   const catalogPolling = Boolean(activeRun) || (detail?.source.catalogCounts.processing ?? 0) > 0
   const itemsQuery = useInfiniteQuery(
     trpc.archiveSearch.listItems.infiniteQueryOptions(
-      {
-        sourceId: selectedSourceId ?? 'unselected',
-        view: resultFeed === 'IGNORED' ? 'ACTIONABLE' : resultFeed,
-        limit: SCAN_RESULT_PAGE_SIZE
-      },
+      { sourceId: selectedSourceId ?? 'unselected', view: resultFeed, limit: SCAN_RESULT_PAGE_SIZE },
       {
         initialCursor: null,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
-        enabled: Boolean(selectedSourceId) && resultFeed !== 'IGNORED',
+        enabled: active && Boolean(selectedSourceId),
         refetchInterval: catalogPolling ? 3_000 : false
       }
     )
@@ -178,7 +212,7 @@ export function ArchiveUploaderSources() {
       {
         initialCursor: null,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
-        enabled: resultFeed === 'IGNORED'
+        enabled: active && ignored
       }
     )
   )
@@ -188,8 +222,7 @@ export function ArchiveUploaderSources() {
   )
 
   useEffect(() => {
-    if (latestRun?.status !== 'COMPLETED') return
-    if (refreshedCompletedRunId.current === latestRun.id) return
+    if (latestRun?.status !== 'COMPLETED' || refreshedCompletedRunId.current === latestRun.id) return
     refreshedCompletedRunId.current = latestRun.id
     void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
   }, [latestRun?.id, latestRun?.status, queryClient, trpc.archiveSearch.listItems])
@@ -200,8 +233,6 @@ export function ArchiveUploaderSources() {
     const previous = previousProcessingCount.current
     previousProcessingCount.current = { sourceId: selectedSourceId, count }
     if (previous?.sourceId !== selectedSourceId || previous.count === 0 || count !== 0) return
-    // The detail count can observe a terminal workflow event before this feed's
-    // request does. Force one final catalog refresh before high-frequency polling stops.
     void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
   }, [detail, queryClient, selectedSourceId, trpc.archiveSearch.listItems])
 
@@ -211,11 +242,12 @@ export function ArchiveUploaderSources() {
   }, [activeRun, cancelRequestedRunId])
 
   useEffect(() => {
+    if (!selectedSourceId || !itemsQuery.isSuccess) return
     setSelectedItemIds((current) => {
       const available = new Set(items.filter(isSubmittableItem).map(({ id }) => id))
       return new Set([...current].filter((id) => available.has(id)))
     })
-  }, [items])
+  }, [items, itemsQuery.isSuccess, selectedSourceId])
 
   useEffect(() => {
     setSelectedIgnoredItemIds((current) => {
@@ -242,7 +274,7 @@ export function ArchiveUploaderSources() {
         await refresh()
       },
       onError: (error) =>
-        toast.error('扫描启动失败', { description: archiveClientErrorMessage(error, '暂时无法启动上传者扫描。') })
+        toast.error('扫描启动失败', { description: archiveClientErrorMessage(error, '暂时无法启动来源扫描。') })
     })
   )
   const cancelMutation = useMutation(
@@ -291,9 +323,7 @@ export function ArchiveUploaderSources() {
         addMutation.mutate({ ...variables, submissionAttemptId: attempt.submissionAttemptId })
       },
       onError: (error) =>
-        toast.error('无法创建提交尝试', {
-          description: archiveClientErrorMessage(error, '请刷新页面后重试。')
-        })
+        toast.error('无法创建提交尝试', { description: archiveClientErrorMessage(error, '请刷新页面后重试。') })
     })
   )
   const restoreMutation = useMutation(
@@ -323,10 +353,7 @@ export function ArchiveUploaderSources() {
           description: '后续扫描仍会保持忽略，直到你手动恢复。',
           action:
             result.ignoredItemIds.length > 0
-              ? {
-                  label: '撤销',
-                  onClick: () => restoreMutation.mutate({ ignoredItemIds: result.ignoredItemIds })
-                }
+              ? { label: '撤销', onClick: () => restoreMutation.mutate({ ignoredItemIds: result.ignoredItemIds }) }
               : undefined
         })
         await refresh()
@@ -336,7 +363,6 @@ export function ArchiveUploaderSources() {
     })
   )
 
-  const source = detail?.source
   const loadMoreItems = useCallback(() => void itemsQuery.fetchNextPage(), [itemsQuery.fetchNextPage])
   const retryItems = useCallback(() => void itemsQuery.refetch(), [itemsQuery.refetch])
   const loadMoreIgnoredItems = useCallback(
@@ -344,6 +370,47 @@ export function ArchiveUploaderSources() {
     [ignoredItemsQuery.fetchNextPage]
   )
   const retryIgnoredItems = useCallback(() => void ignoredItemsQuery.refetch(), [ignoredItemsQuery.refetch])
+  const saveResultPosition = useCallback((key: string, position: ArchiveDiscoveryListPosition) => {
+    resultPositionsRef.current.set(key, position)
+  }, [])
+
+  const enterSource = useCallback(
+    (sourceId: string) => {
+      if (activeDraftSourceIdRef.current && activeDraftSourceIdRef.current !== sourceId) {
+        setSelectedItemIds(new Set())
+        setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
+        setResultFeed('ACTIONABLE')
+        setPreviewItem(null)
+        setCancelRequestedRunId(null)
+      }
+      activeDraftSourceIdRef.current = sourceId
+      setImplicitSourceId(sourceId)
+      if (!locatedSourceId && !ignored) {
+        sourceListScrollRef.current = window.scrollY
+        enteredFromListRef.current = true
+        onNavigateSource(sourceId, 'push')
+      } else {
+        onNavigateSource(sourceId, locatedSourceId ? 'replace' : 'push')
+      }
+    },
+    [ignored, locatedSourceId, onNavigateSource]
+  )
+
+  const returnToSourceList = useCallback(() => {
+    if (enteredFromListRef.current && window.history.length > 1) window.history.back()
+    else onNavigateSourceList('replace')
+  }, [onNavigateSourceList])
+
+  const enterIgnored = () => {
+    ignoredEnteredFromListRef.current = true
+    setSelectedIgnoredItemIds(new Set())
+    onNavigateIgnored(true, 'push')
+  }
+  const returnFromIgnored = () => {
+    if (ignoredEnteredFromListRef.current && window.history.length > 1) window.history.back()
+    else onNavigateIgnored(false, 'replace')
+  }
+
   const submittableItems = items.filter(isSubmittableItem)
   const bulkSelectableItems = submittableItems.slice(0, MAX_SELECTED_ITEMS)
   const allActionableSelected =
@@ -360,9 +427,12 @@ export function ArchiveUploaderSources() {
     submissionAttemptMutation.isPending ||
     ignoreMutation.isPending ||
     restoreMutation.isPending
+  const mobileDetail = layoutReady && !isDesktop && (ignored || Boolean(locatedSourceId))
 
-  return (
-    <div className="flex flex-col gap-6 pt-4">
+  if (!active) return null
+
+  const globalHeader = !mobileDetail ? (
+    <>
       <AdminSectionHeader
         title="发现来源"
         description="保存上传者或标题关键词条件；手动扫描并勾选结果，再按所选模式加入收件箱。"
@@ -370,64 +440,236 @@ export function ArchiveUploaderSources() {
           <>
             <Button
               variant="outline"
-              aria-label={resultFeed === 'IGNORED' ? '返回发现来源' : '查看全局已忽略'}
-              onClick={() => {
-                setResultFeed(resultFeed === 'IGNORED' ? 'ACTIONABLE' : 'IGNORED')
-                setSelectedItemIds(new Set())
-                setSelectedIgnoredItemIds(new Set())
-              }}
+              aria-label={ignored ? '返回发现来源' : '查看全局已忽略'}
+              onClick={ignored ? returnFromIgnored : enterIgnored}
             >
-              <BanIcon data-icon="inline-start" />
-              {resultFeed === 'IGNORED' ? '返回发现来源' : '全局已忽略'}
+              {ignored ? (
+                <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
+              ) : (
+                <BanIcon data-icon="inline-start" aria-hidden="true" />
+              )}
+              {ignored ? '返回发现来源' : '全局已忽略'}
             </Button>
             <Button variant="outline" onClick={() => setCreateOpen(true)}>
-              <PlusIcon data-icon="inline-start" />
+              <PlusIcon data-icon="inline-start" aria-hidden="true" />
               新增上传者
             </Button>
             <Button onClick={() => setSearchDialog({ mode: 'CREATE' })}>
-              <PlusIcon data-icon="inline-start" />
+              <PlusIcon data-icon="inline-start" aria-hidden="true" />
               新增关键词
             </Button>
           </>
         }
       />
+      {!ignored ? (
+        <ToggleGroup
+          type="single"
+          value={sourceFilter}
+          onValueChange={(value) => value && setSourceFilter(value)}
+          variant="outline"
+          aria-label="来源类型"
+        >
+          <ToggleGroupItem value="ALL">全部来源</ToggleGroupItem>
+          <ToggleGroupItem value="UPLOADER">上传者</ToggleGroupItem>
+          <ToggleGroupItem value="TITLE_QUERY">标题关键词</ToggleGroupItem>
+        </ToggleGroup>
+      ) : null}
+    </>
+  ) : null
 
-      <ToggleGroup
-        type="single"
-        value={sourceFilter}
-        onValueChange={(value) => {
-          if (value) setSourceFilter(value)
-        }}
-        variant="outline"
-        aria-label="来源类型"
-      >
-        <ToggleGroupItem value="ALL">全部来源</ToggleGroupItem>
-        <ToggleGroupItem value="UPLOADER">上传者</ToggleGroupItem>
-        <ToggleGroupItem value="TITLE_QUERY">标题关键词</ToggleGroupItem>
-      </ToggleGroup>
+  const sourceList =
+    sources.length === 0 ? (
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <UserSearchIcon aria-hidden="true" />
+          </EmptyMedia>
+          <EmptyTitle>暂无此类型的发现来源</EmptyTitle>
+          <EmptyDescription>先保存上传者或标题关键词来源，再手动扫描公开画廊。</EmptyDescription>
+        </EmptyHeader>
+        <Button
+          onClick={() => (sourceFilter === 'TITLE_QUERY' ? setSearchDialog({ mode: 'CREATE' }) : setCreateOpen(true))}
+        >
+          <PlusIcon data-icon="inline-start" aria-hidden="true" />
+          新增来源
+        </Button>
+      </Empty>
+    ) : (
+      <ArchiveUploaderSourceList
+        sources={sources}
+        selectedSourceId={selectedSourceId}
+        onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
+        onSelect={enterSource}
+      />
+    )
 
-      {resultFeed === 'IGNORED' ? (
+  const source = detail?.source
+  const resultPositionKey = selectedSourceId ? `${selectedSourceId}:${resultFeed}` : 'unselected'
+  const detailPanel = (
+    <AdminSection>
+      {mobileDetail ? (
+        <Button
+          type="button"
+          variant="ghost"
+          className="sticky top-14 z-20 w-fit bg-background/90 backdrop-blur"
+          onClick={returnToSourceList}
+        >
+          <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
+          返回来源列表
+        </Button>
+      ) : null}
+      {(selectedSourceId && detailQuery.isPending) || !layoutReady ? (
+        <UploaderDetailLoading />
+      ) : detailQuery.isError ? (
+        <SourceDetailError
+          notFound={(detailQuery.error as { data?: { code?: string } }).data?.code === 'PRECONDITION_FAILED'}
+          onRetry={() => void detailQuery.refetch()}
+          onReturn={returnToSourceList}
+        />
+      ) : !source ? (
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>请选择发现来源</EmptyTitle>
+            <EmptyDescription>从来源列表选择一项查看扫描记录。</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <>
+          <ArchiveDiscoveryDetailHeader
+            source={source}
+            activeRun={activeRun}
+            latestRun={latestRun}
+            mutationPending={mutationPending}
+            scanPending={scanMutation.isPending}
+            cancelPending={cancelMutation.isPending}
+            cancelRequested={cancelRequestedRunId === activeRun?.id}
+            onScanLatest={() => scanMutation.mutate({ sourceId: source.id, mode: 'LATEST' })}
+            onScanHistory={() => scanMutation.mutate({ sourceId: source.id, mode: 'HISTORY' })}
+            onCancel={() => activeRun && cancelMutation.mutate({ sourceId: source.id, runId: activeRun.id })}
+            onSetArchived={(archived) => archiveMutation.mutate({ sourceId: source.id, archived })}
+            onRename={() => setSearchDialog({ mode: 'RENAME', source })}
+            onCopy={() => setSearchDialog({ mode: 'COPY', source })}
+            onEditUid={() => setUidDialogOpen(true)}
+            onDelete={() => setDeleteSourceId(source.id)}
+            onCopyUid={() => source.uploaderUid && void copyArchiveUploaderUid(source.uploaderUid)}
+          />
+
+          {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
+            <Alert variant="info">
+              <InfoIcon aria-hidden="true" />
+              <AlertTitle>UID 覆盖待校验</AlertTitle>
+              <AlertDescription>
+                现有目录、收件箱关联和归档状态仍然有效。请从“扫描最新”开始，继续扫描到远端末尾以完成 UID 覆盖验证；重复
+                GID 只会更新原目录项。
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {source.titleQuery ? (
+            <Alert>
+              <AlertTitle>仅筛选远端返回的标题</AlertTitle>
+              <AlertDescription>
+                每批最多检查 100 条；零匹配不代表后面没有内容。可继续扫描更早内容，不会自动下载。
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          {source.lastErrorMessage ? (
+            source.lastErrorCode === 'UPLOADER_UID_CONFLICT' ? (
+              <ArchiveUploaderUidConflictAlert message={source.lastErrorMessage} />
+            ) : (
+              <Alert variant="destructive">
+                <AlertTitle>上次扫描未完成</AlertTitle>
+                <PrivacySensitiveText as={AlertDescription}>{source.lastErrorMessage}</PrivacySensitiveText>
+              </Alert>
+            )
+          ) : null}
+
+          <ArchiveDiscoveryResultsToolbar
+            view={resultFeed}
+            counts={{
+              ACTIONABLE: source.catalogCounts.actionable,
+              PROCESSING: source.catalogCounts.processing,
+              ARCHIVED: source.catalogCounts.archived,
+              ATTENTION: source.catalogCounts.attention,
+              ALL: source.catalogCounts.total
+            }}
+            description={resultFeedDescription(resultFeed, items.length)}
+            resultView={resultView}
+            onViewChange={setResultFeed}
+            onResultViewChange={setResultView}
+            intakeOptions={intakeOptions}
+            onIntakeOptionsChange={setIntakeOptions}
+            disabled={mutationPending}
+          />
+          <ScanResults
+            view={resultFeed}
+            runs={detail.runs}
+            activeRun={activeRun}
+            items={items}
+            resultView={resultView}
+            isLoading={itemsQuery.isLoading}
+            isError={itemsQuery.isError}
+            hasNextPage={itemsQuery.hasNextPage}
+            isFetchingNextPage={itemsQuery.isFetchingNextPage}
+            onLoadMore={loadMoreItems}
+            onRetry={retryItems}
+            onPreview={setPreviewItem}
+            onIgnore={(itemId) => ignoreMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
+            onAdd={(itemId) =>
+              submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [itemId], ...intakeOptions })
+            }
+            onNavigateInboxItem={onNavigateInboxItem}
+            mutationPending={mutationPending}
+            selectedItemIds={selectedItemIds}
+            allActionableSelected={allActionableSelected}
+            onToggleAll={(checked) =>
+              setSelectedItemIds(checked ? new Set(bulkSelectableItems.map(({ id }) => id)) : new Set())
+            }
+            onToggle={(itemId, checked) => setSelectedItemIds((current) => toggleSelection(current, itemId, checked))}
+            isDesktop={isDesktop}
+            layoutReady={layoutReady}
+            positionKey={resultPositionKey}
+            position={resultPositionsRef.current.get(resultPositionKey)}
+            onPositionChange={(position) => saveResultPosition(resultPositionKey, position)}
+          />
+          <ArchiveDiscoveryBulkBar
+            selectedCount={selectedItemIds.size}
+            kind="catalog"
+            pending={mutationPending}
+            ignoreDisabled={items.some((item) => selectedItemIds.has(item.id) && !item.actionable)}
+            addLabel={resultFeed === 'ATTENTION' ? '重新加入收件箱' : '加入收件箱'}
+            onClear={() => setSelectedItemIds(new Set())}
+            onIgnore={() => ignoreMutation.mutate({ sourceId: source.id, itemIds: [...selectedItemIds] })}
+            onAdd={() =>
+              submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [...selectedItemIds], ...intakeOptions })
+            }
+          />
+        </>
+      )}
+    </AdminSection>
+  )
+
+  return (
+    <div className="flex min-w-0 flex-col gap-6 pt-4">
+      {globalHeader}
+      {ignored ? (
         <AdminSection>
+          {mobileDetail ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="sticky top-14 z-20 w-fit bg-background/90 backdrop-blur"
+              onClick={returnFromIgnored}
+            >
+              <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
+              返回来源列表
+            </Button>
+          ) : null}
           <AdminSectionHeader
             title="全局已忽略"
             description={`跨所有来源永久忽略的画廊；已加载 ${ignoredItems.length} 条。`}
-            actions={
-              <>
-                <ArchiveUploaderResultViewToggle value={resultView} onChange={setResultView} />
-                <Button
-                  variant="outline"
-                  onClick={() => restoreMutation.mutate({ ignoredItemIds: [...selectedIgnoredItemIds] })}
-                  disabled={selectedIgnoredItemIds.size === 0 || mutationPending}
-                >
-                  {restoreMutation.isPending ? (
-                    <Spinner data-icon="inline-start" />
-                  ) : (
-                    <RotateCcwIcon data-icon="inline-start" />
-                  )}
-                  恢复（{selectedIgnoredItemIds.size}）
-                </Button>
-              </>
-            }
+            actions={<ArchiveUploaderResultViewToggle value={resultView} onChange={setResultView} />}
           />
           <IgnoredResults
             items={ignoredItems}
@@ -449,361 +691,40 @@ export function ArchiveUploaderSources() {
             onToggle={(itemId, checked) =>
               setSelectedIgnoredItemIds((current) => toggleSelection(current, itemId, checked))
             }
+            isDesktop={isDesktop}
+            layoutReady={layoutReady}
+            position={resultPositionsRef.current.get('ignored')}
+            onPositionChange={(position) => saveResultPosition('ignored', position)}
+          />
+          <ArchiveDiscoveryBulkBar
+            selectedCount={selectedIgnoredItemIds.size}
+            kind="ignored"
+            pending={mutationPending}
+            onClear={() => setSelectedIgnoredItemIds(new Set())}
+            onRestore={() => restoreMutation.mutate({ ignoredItemIds: [...selectedIgnoredItemIds] })}
           />
         </AdminSection>
       ) : sourcesQuery.isError ? (
         <Alert variant="destructive">
           <AlertTitle>来源加载失败</AlertTitle>
-          <AlertDescription>发现来源仍保存在数据库中，请稍后重新加载。</AlertDescription>
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+            <span>发现来源仍保存在数据库中，请稍后重新加载。</span>
+            <Button variant="outline" size="sm" onClick={() => void sourcesQuery.refetch()}>
+              重新加载
+            </Button>
+          </AlertDescription>
         </Alert>
-      ) : sourcesQuery.isPending ? (
+      ) : sourcesQuery.isPending || !layoutReady ? (
         <UploaderSourcesLoading />
-      ) : sources.length === 0 ? (
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <UserSearchIcon aria-hidden="true" />
-            </EmptyMedia>
-            <EmptyTitle>暂无此类型的发现来源</EmptyTitle>
-            <EmptyDescription>先保存上传者或标题关键词来源，再手动扫描公开画廊。</EmptyDescription>
-          </EmptyHeader>
-          <Button
-            onClick={() => (sourceFilter === 'TITLE_QUERY' ? setSearchDialog({ mode: 'CREATE' }) : setCreateOpen(true))}
-          >
-            <PlusIcon data-icon="inline-start" aria-hidden="true" />
-            新增来源
-          </Button>
-        </Empty>
-      ) : (
-        <div className="grid min-w-0 gap-5 lg:grid-cols-[20rem_minmax(0,1fr)]">
-          <ArchiveUploaderSourceList
-            sources={sources}
-            selectedSourceId={selectedSourceId}
-            onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
-            onSelect={(sourceId) => {
-              setSelectedSourceId(sourceId)
-              setSelectedItemIds(new Set())
-              setCancelRequestedRunId(null)
-            }}
-          />
-          <AdminSection>
-            {detailQuery.isPending ? (
-              <UploaderDetailLoading />
-            ) : !source ? (
-              <Empty className="border">
-                <EmptyHeader>
-                  <EmptyTitle>请选择发现来源</EmptyTitle>
-                  <EmptyDescription>从左侧来源列表选择一项查看扫描记录。</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex flex-wrap items-center gap-2">
-                      <PrivacySensitiveText>{source.displayName}</PrivacySensitiveText>
-                      {!source.titleQuery && source.uidBindingState === 'UNBOUND' ? (
-                        <Badge variant="warning">未绑定 UID</Badge>
-                      ) : null}
-                      <Badge variant={source.status === 'ACTIVE' ? 'success' : 'muted'}>
-                        {source.status === 'ACTIVE' ? '已启用' : '已停用'}
-                      </Badge>
-                    </CardTitle>
-                    <CardDescription className="flex flex-wrap items-center gap-2">
-                      {source.titleQuery ? (
-                        <span>
-                          标题{ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「
-                          <PrivacySensitiveText>{source.titleQuery.keyword}</PrivacySensitiveText>」 ·{' '}
-                          {source.titleQuery.uploaderUid ? `UID ${source.titleQuery.uploaderUid}` : '不限上传者'}
-                        </span>
-                      ) : source.uploaderUid ? (
-                        <>
-                          <span>上传者 UID {source.uploaderUid}</span>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            aria-label="复制上传者 UID"
-                            onClick={() => void copyArchiveUploaderUid(source.uploaderUid!)}
-                          >
-                            <CopyIcon aria-hidden="true" />
-                          </Button>
-                        </>
-                      ) : (
-                        <span>
-                          按名称：<PrivacySensitiveText>{source.identityValue}</PrivacySensitiveText>
-                        </span>
-                      )}
-                      <span>
-                        {source.lastSuccessAt
-                          ? `上次成功 ${formatArchiveUploaderTimestamp(source.lastSuccessAt)}`
-                          : source.uidBindingState === 'REVALIDATION_REQUIRED'
-                            ? '等待重新验证 UID 覆盖'
-                            : '尚未完成扫描'}
-                      </span>
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-3">
-                    {activeRun ? (
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                        <Spinner aria-hidden="true" />
-                        <span>
-                          {activeRun.mode === 'LATEST' ? '最新扫描' : '更早内容扫描'} ·{' '}
-                          <PrivacySensitiveText>
-                            {scanIdentityLabel(activeRun.searchIdentityKind, activeRun.searchIdentityValue)}
-                          </PrivacySensitiveText>{' '}
-                          · {formatArchiveUploaderTimestamp(activeRun.createdAt)}
-                        </span>
-                        <Badge variant="warning">{scanRunStatusLabel(activeRun.status)}</Badge>
-                      </div>
-                    ) : latestRun ? (
-                      <p className="text-sm text-muted-foreground">
-                        最近运行 · {latestRun.mode === 'LATEST' ? '最新扫描' : '更早内容'} ·{' '}
-                        <PrivacySensitiveText>
-                          {scanIdentityLabel(latestRun.searchIdentityKind, latestRun.searchIdentityValue)}
-                        </PrivacySensitiveText>{' '}
-                        · {formatArchiveUploaderTimestamp(latestRun.createdAt)} · {scanRunStatusLabel(latestRun.status)}{' '}
-                        ·{' '}
-                        {source.titleQuery
-                          ? `检查 ${latestRun.checkedCount} 条，匹配 ${latestRun.matchedCount} 条`
-                          : `${latestRun.itemCount} 条`}
-                        {latestRun.stopReason ? ` · ${scanStopReasonLabel(latestRun.stopReason)}` : ''}
-                      </p>
-                    ) : null}
-                    <div className="flex flex-wrap gap-2" aria-label="扫描覆盖状态">
-                      {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
-                        <Badge variant="warning">UID 覆盖：待重新验证</Badge>
-                      ) : (
-                        <>
-                          <Badge variant={source.latestCoverage === 'HAS_MORE' ? 'warning' : 'muted'}>
-                            最新：{latestCoverageLabel(source.latestCoverage)}
-                          </Badge>
-                          <Badge variant={source.historyCoverage === 'HAS_MORE' ? 'info' : 'muted'}>
-                            历史：{historyCoverageLabel(source.historyCoverage)}
-                          </Badge>
-                        </>
-                      )}
-                      <Badge variant={source.catalogCounts.actionable > 0 ? 'success' : 'muted'}>
-                        待处理 {source.catalogCounts.actionable}
-                      </Badge>
-                      {source.catalogCounts.processing > 0 ? (
-                        <Badge variant="warning">处理中 {source.catalogCounts.processing}</Badge>
-                      ) : null}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {source.status === 'ACTIVE' ? (
-                        <>
-                          <Button
-                            onClick={() => scanMutation.mutate({ sourceId: source.id, mode: 'LATEST' })}
-                            disabled={Boolean(activeRun) || mutationPending}
-                          >
-                            {scanMutation.isPending ? (
-                              <Spinner data-icon="inline-start" />
-                            ) : (
-                              <RefreshCwIcon data-icon="inline-start" />
-                            )}
-                            {source.hasPendingLatest ? '继续最新扫描' : '扫描最新'}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            onClick={() => scanMutation.mutate({ sourceId: source.id, mode: 'HISTORY' })}
-                            disabled={!source.canContinueHistory || Boolean(activeRun) || mutationPending}
-                          >
-                            <HistoryIcon data-icon="inline-start" aria-hidden="true" />
-                            继续扫描更早内容
-                          </Button>
-                          {activeRun ? (
-                            <Button
-                              variant="outline"
-                              onClick={() => cancelMutation.mutate({ sourceId: source.id, runId: activeRun.id })}
-                              disabled={cancelMutation.isPending || cancelRequestedRunId === activeRun.id}
-                            >
-                              {cancelMutation.isPending || cancelRequestedRunId === activeRun.id ? (
-                                <Spinner data-icon="inline-start" />
-                              ) : (
-                                <CircleStopIcon data-icon="inline-start" aria-hidden="true" />
-                              )}
-                              {cancelRequestedRunId === activeRun.id ? '正在取消' : '取消扫描'}
-                            </Button>
-                          ) : null}
-                          <Button
-                            variant="ghost"
-                            onClick={() => archiveMutation.mutate({ sourceId: source.id, archived: true })}
-                            disabled={Boolean(activeRun) || mutationPending}
-                          >
-                            <ArchiveIcon data-icon="inline-start" aria-hidden="true" />
-                            停用来源
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          onClick={() => archiveMutation.mutate({ sourceId: source.id, archived: false })}
-                          disabled={mutationPending}
-                        >
-                          <ArchiveRestoreIcon data-icon="inline-start" aria-hidden="true" />
-                          重新启用
-                        </Button>
-                      )}
-                      {source.titleQuery ? (
-                        <>
-                          <Button variant="outline" onClick={() => setSearchDialog({ mode: 'RENAME', source })}>
-                            修改名称
-                          </Button>
-                          <Button variant="outline" onClick={() => setSearchDialog({ mode: 'COPY', source })}>
-                            另存条件
-                          </Button>
-                        </>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          onClick={() => setUidDialogOpen(true)}
-                          disabled={Boolean(activeRun) || mutationPending}
-                        >
-                          <FingerprintIcon data-icon="inline-start" aria-hidden="true" />
-                          {source.uploaderUid ? '更正 UID' : '绑定 UID'}
-                        </Button>
-                      )}
-                      <Button
-                        variant="destructive"
-                        onClick={() => setDeleteSourceId(source.id)}
-                        disabled={mutationPending}
-                      >
-                        <Trash2Icon data-icon="inline-start" />
-                        删除来源
-                      </Button>
-                    </div>
-                    {activeRun && !source.titleQuery ? (
-                      <p className="text-sm text-muted-foreground">扫描完成或取消后才能绑定或更正 UID。</p>
-                    ) : null}
-                  </CardContent>
-                </Card>
-
-                {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
-                  <Alert variant="info">
-                    <InfoIcon aria-hidden="true" />
-                    <AlertTitle>UID 覆盖待校验</AlertTitle>
-                    <AlertDescription>
-                      现有目录、收件箱关联和归档状态仍然有效。请从“扫描最新”开始，继续扫描到远端末尾以完成 UID
-                      覆盖验证；重复 GID 只会更新原目录项。
-                    </AlertDescription>
-                  </Alert>
-                ) : null}
-
-                {source.titleQuery ? (
-                  <Alert>
-                    <AlertTitle>仅筛选远端返回的标题</AlertTitle>
-                    <AlertDescription>
-                      每批最多检查 100 条；零匹配不代表后面没有内容。可继续扫描更早内容，不会自动下载。
-                    </AlertDescription>
-                  </Alert>
-                ) : null}
-                {source.lastErrorMessage ? (
-                  source.lastErrorCode === 'UPLOADER_UID_CONFLICT' ? (
-                    <ArchiveUploaderUidConflictAlert message={source.lastErrorMessage} />
-                  ) : (
-                    <Alert variant="destructive">
-                      <AlertTitle>上次扫描未完成</AlertTitle>
-                      <PrivacySensitiveText as={AlertDescription}>{source.lastErrorMessage}</PrivacySensitiveText>
-                    </Alert>
-                  )
-                ) : null}
-
-                <AdminSectionHeader
-                  className="sm:flex-col sm:items-stretch"
-                  title={resultFeedLabel(resultFeed)}
-                  description={resultFeedDescription(resultFeed, items.length, ignoredItems.length)}
-                  actions={
-                    <>
-                      <ToggleGroup
-                        type="single"
-                        value={resultFeed}
-                        onValueChange={(value) => value && setResultFeed(value as ResultFeed)}
-                        variant="outline"
-                        size="sm"
-                        aria-label="结果范围"
-                        className="max-w-full overflow-x-auto"
-                      >
-                        {RESULT_FEEDS.map((feed) => (
-                          <ToggleGroupItem key={feed.value} value={feed.value} aria-label={`查看${feed.label}`}>
-                            {feed.label}
-                            {` ${archiveUploaderCatalogViewCount(source.catalogCounts, feed.value)}`}
-                          </ToggleGroupItem>
-                        ))}
-                      </ToggleGroup>
-                      <ArchiveUploaderResultViewToggle value={resultView} onChange={setResultView} />
-                      {resultFeed === 'ACTIONABLE' || resultFeed === 'ATTENTION' || resultFeed === 'ALL' ? (
-                        <>
-                          <Button
-                            variant="outline"
-                            onClick={() =>
-                              ignoreMutation.mutate({ sourceId: source.id, itemIds: [...selectedItemIds] })
-                            }
-                            disabled={selectedItemIds.size === 0 || mutationPending}
-                          >
-                            {ignoreMutation.isPending ? (
-                              <Spinner data-icon="inline-start" />
-                            ) : (
-                              <BanIcon data-icon="inline-start" />
-                            )}
-                            忽略（{selectedItemIds.size}）
-                          </Button>
-                          <Button
-                            onClick={() =>
-                              submissionAttemptMutation.mutate({
-                                sourceId: source.id,
-                                itemIds: [...selectedItemIds],
-                                ...intakeOptions
-                              })
-                            }
-                            disabled={selectedItemIds.size === 0 || mutationPending}
-                          >
-                            {addMutation.isPending ? (
-                              <Spinner data-icon="inline-start" />
-                            ) : (
-                              <CheckIcon data-icon="inline-start" />
-                            )}
-                            {resultFeed === 'ATTENTION' ? '重新加入收件箱' : '加入收件箱'}（{selectedItemIds.size}）
-                          </Button>
-                        </>
-                      ) : null}
-                    </>
-                  }
-                />
-                {resultFeed === 'ACTIONABLE' || resultFeed === 'ATTENTION' || resultFeed === 'ALL' ? (
-                  <ArchiveIntakeOptions value={intakeOptions} onChange={setIntakeOptions} disabled={mutationPending} />
-                ) : null}
-                <ScanResults
-                  view={resultFeed}
-                  runs={detail.runs}
-                  activeRun={activeRun}
-                  items={items}
-                  resultView={resultView}
-                  isLoading={itemsQuery.isLoading}
-                  isError={itemsQuery.isError}
-                  hasNextPage={itemsQuery.hasNextPage}
-                  isFetchingNextPage={itemsQuery.isFetchingNextPage}
-                  onLoadMore={loadMoreItems}
-                  onRetry={retryItems}
-                  onPreview={setPreviewItem}
-                  onIgnore={(itemId) => ignoreMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
-                  onAdd={(itemId) =>
-                    submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [itemId], ...intakeOptions })
-                  }
-                  mutationPending={mutationPending}
-                  selectedItemIds={selectedItemIds}
-                  allActionableSelected={allActionableSelected}
-                  onToggleAll={(checked) =>
-                    setSelectedItemIds(checked ? new Set(bulkSelectableItems.map(({ id }) => id)) : new Set())
-                  }
-                  onToggle={(itemId, checked) =>
-                    setSelectedItemIds((current) => toggleSelection(current, itemId, checked))
-                  }
-                />
-              </>
-            )}
-          </AdminSection>
+      ) : isDesktop ? (
+        <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)]">
+          {sourceList}
+          {detailPanel}
         </div>
+      ) : locatedSourceId ? (
+        detailPanel
+      ) : (
+        sourceList
       )}
 
       {deleteSourceId ? (
@@ -812,12 +733,13 @@ export function ArchiveUploaderSources() {
           sourceId={deleteSourceId}
           onClose={() => setDeleteSourceId(null)}
           onDeleted={async (deletedSourceId) => {
-            setSelectedSourceId(sources.find(({ id }) => id !== deletedSourceId)?.id ?? null)
+            setImplicitSourceId(null)
             setSelectedItemIds(new Set())
             setPreviewItem(null)
             setCancelRequestedRunId(null)
             setUidDialogOpen(false)
             setSearchDialog(null)
+            activeDraftSourceIdRef.current = null
             await Promise.all([
               queryClient.cancelQueries({
                 queryKey: trpc.archiveSearch.getSource.queryKey({ sourceId: deletedSourceId })
@@ -836,6 +758,7 @@ export function ArchiveUploaderSources() {
             queryClient.removeQueries({
               queryKey: trpc.archiveSearch.listItems.infiniteQueryKey({ sourceId: deletedSourceId })
             })
+            onNavigateSourceList('replace')
             toast.success('发现来源已删除，已入箱项目和本地作品已保留')
             await refresh()
           }}
@@ -847,21 +770,24 @@ export function ArchiveUploaderSources() {
         onSaved={async (sourceId) => {
           setSourceFilter('ALL')
           await refresh()
-          setSelectedSourceId(sourceId)
-          setSelectedItemIds(new Set())
+          enterSource(sourceId)
         }}
       />
-      <ArchiveUploaderCreateSourceDialog open={createOpen} onOpenChange={setCreateOpen} onCreated={refresh} />
+      <ArchiveUploaderCreateSourceDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={async (sourceId) => {
+          setSourceFilter('ALL')
+          await refresh()
+          enterSource(sourceId)
+        }}
+      />
       <ArchiveUploaderUidDialog
         source={source?.titleQuery ? null : (source ?? null)}
         open={uidDialogOpen && !source?.titleQuery}
         onOpenChange={setUidDialogOpen}
         onUpdated={refresh}
-        onConflict={(sourceId) => {
-          setSelectedSourceId(sourceId)
-          setSelectedItemIds(new Set())
-          setCancelRequestedRunId(null)
-        }}
+        onConflict={(sourceId) => enterSource(sourceId)}
       />
       <ArchiveUploaderGalleryPreviewDialog item={previewItem} onOpenChange={(open) => !open && setPreviewItem(null)} />
     </div>
@@ -883,13 +809,19 @@ function ScanResults({
   onPreview,
   onIgnore,
   onAdd,
+  onNavigateInboxItem,
   mutationPending,
   selectedItemIds,
   allActionableSelected,
   onToggleAll,
-  onToggle
+  onToggle,
+  isDesktop,
+  layoutReady,
+  positionKey,
+  position,
+  onPositionChange
 }: {
-  view: CatalogView
+  view: ArchiveDiscoveryCatalogView
   runs: ScanRun[]
   activeRun?: ScanRun
   items: ScanItem[]
@@ -903,214 +835,192 @@ function ScanResults({
   onPreview: (item: ArchiveUploaderPreviewItem) => void
   onIgnore: (itemId: string) => void
   onAdd: (itemId: string) => void
+  onNavigateInboxItem: (itemId: string) => void
   mutationPending: boolean
   selectedItemIds: Set<string>
   allActionableSelected: boolean
   onToggleAll: (checked: boolean) => void
   onToggle: (itemId: string, checked: boolean) => void
+  isDesktop: boolean
+  layoutReady: boolean
+  positionKey: string
+  position?: ArchiveDiscoveryListPosition
+  onPositionChange: (position: ArchiveDiscoveryListPosition) => void
 }) {
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const rowVirtualizer = useVirtualizer({
-    useFlushSync: false,
-    count: hasNextPage ? items.length + 1 : items.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 104,
-    overscan: 6
-  })
-  const virtualRows = rowVirtualizer.getVirtualItems()
-  const lastVirtualIndex = virtualRows.at(-1)?.index
-
-  useEffect(() => {
-    if (lastVirtualIndex == null || lastVirtualIndex < items.length - 6 || !hasNextPage || isFetchingNextPage) {
-      return
-    }
-    onLoadMore()
-  }, [hasNextPage, isFetchingNextPage, items.length, lastVirtualIndex, onLoadMore])
-
-  if (isLoading) return <Skeleton className="h-[60vh] min-h-80 w-full" />
-  if (isError) {
-    return (
-      <Alert variant="destructive">
-        <AlertTitle>扫描结果加载失败</AlertTitle>
-        <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-          <span>扫描记录仍保存在数据库中，请稍后重试。</span>
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            <RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
-            重新加载
-          </Button>
-        </AlertDescription>
-      </Alert>
-    )
-  }
-  if (items.length === 0) {
-    const neverScanned = runs.length === 0
-    return (
-      <Empty className="border">
-        <EmptyHeader>
-          <EmptyTitle>
-            {activeRun ? '正在扫描' : neverScanned ? '尚无扫描记录' : `没有${resultFeedLabel(view)}项目`}
-          </EmptyTitle>
-          <EmptyDescription>
-            {activeRun
-              ? '任务完成后，画廊会自动汇入长期目录。'
-              : neverScanned
-                ? '点击“扫描最新”创建第一批发现结果。'
-                : emptyCatalogViewDescription(view)}
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
-  }
+  const neverScanned = runs.length === 0
   return (
-    <Card className="gap-0 overflow-hidden py-0">
-      <div className="grid min-h-12 grid-cols-[2.5rem_minmax(0,1fr)_5rem] items-center gap-3 border-b bg-muted/30 px-4 text-xs font-medium text-muted-foreground sm:grid-cols-[2.5rem_minmax(0,1fr)_9rem_8rem_5rem]">
-        <Checkbox
-          checked={allActionableSelected ? true : selectedItemIds.size > 0 ? 'indeterminate' : false}
-          onCheckedChange={(checked) => onToggleAll(checked === true)}
-          aria-label="选择当前已加载的可加入结果，最多一百条"
-        />
-        <span>画廊</span>
-        <span className="hidden sm:block">发布时间</span>
-        <span className="hidden sm:block">判断</span>
-        <span className="hidden sm:block">操作</span>
-      </div>
-      <ScrollArea className="h-[60vh] min-h-80 max-h-[44rem]" viewportRef={scrollRef}>
-        <div className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-          {virtualRows.map((virtualRow) => {
-            const item = items[virtualRow.index]
-            return (
-              <div
-                key={virtualRow.key}
-                ref={rowVirtualizer.measureElement}
-                data-index={virtualRow.index}
-                className="absolute left-0 top-0 w-full border-b bg-background px-4 py-3"
-                style={{ transform: `translateY(${virtualRow.start}px)` }}
-              >
-                {item ? (
-                  <div
-                    className="grid min-h-20 grid-cols-[2.5rem_minmax(0,1fr)_5rem] items-center gap-3 sm:grid-cols-[2.5rem_minmax(0,1fr)_9rem_8rem_5rem]"
-                    data-state={selectedItemIds.has(item.id) ? 'selected' : undefined}
-                  >
-                    <Checkbox
-                      checked={selectedItemIds.has(item.id)}
-                      disabled={
-                        !(item.actionable || item.recoverable) ||
-                        (!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS)
-                      }
-                      onCheckedChange={(checked) => onToggle(item.id, checked === true)}
-                      aria-label={`选择 ${item.title}`}
-                    />
-                    <div className="flex min-w-0 items-center gap-3">
-                      {resultView === 'preview' ? (
-                        <ArchiveUploaderGalleryThumbnail key={item.id} item={item} onPreview={onPreview} />
-                      ) : null}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-2">
-                          <PrivacySensitiveText as="p" className="line-clamp-2 font-medium">
-                            {item.title}
-                          </PrivacySensitiveText>
-                          <span className="shrink-0 sm:hidden">
-                            <CatalogStatusBadge item={item} />
-                          </span>
-                        </div>
-                        <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                          #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground sm:hidden">
-                          {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
-                        </p>
-                        {item.changeReasons.length > 0 ? (
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                            {item.changeReasons.map(({ label }) => label).join(' · ')}
-                          </p>
-                        ) : item.workflowStage === 'ARCHIVED' && !item.comparisonKnown ? (
-                          <p className="mt-1 text-xs text-muted-foreground">旧记录缺少比较快照，下次扫描会补齐</p>
-                        ) : item.errorMessage ? (
-                          <PrivacySensitiveText as="p" className="mt-1 line-clamp-2 text-xs text-destructive">
-                            {item.errorMessage}
-                          </PrivacySensitiveText>
-                        ) : null}
-                      </div>
-                    </div>
-                    <p className="hidden whitespace-nowrap text-sm text-muted-foreground sm:block">
-                      {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '—'}
-                    </p>
-                    <span className="hidden sm:block">
-                      <CatalogStatusBadge item={item} />
-                    </span>
-                    <div className="flex items-center justify-end">
-                      <SourcePreviewButton
-                        source={{ kind: 'catalog', itemId: item.id }}
-                        variant="ghost"
-                        size="icon"
-                        aria-label={`预览原站 ${item.title}`}
-                      >
-                        <span className="sr-only">原站预览</span>
-                      </SourcePreviewButton>
-                      {item.actionable ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => onIgnore(item.id)}
-                          disabled={mutationPending}
-                          aria-label={`忽略 ${item.title}`}
-                        >
-                          <BanIcon aria-hidden="true" />
-                        </Button>
-                      ) : item.workflowBucket === 'ATTENTION' && item.intakeItemId ? (
-                        <Button variant="ghost" size="icon" asChild aria-label={`去收件箱处理 ${item.title}`}>
-                          <Link href={`/admin/archive/inbox?itemId=${encodeURIComponent(item.intakeItemId)}`}>
-                            <ArrowUpRightIcon aria-hidden="true" />
-                          </Link>
-                        </Button>
-                      ) : item.recoverable ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => onAdd(item.id)}
-                          disabled={mutationPending}
-                          aria-label={`重新加入收件箱 ${item.title}`}
-                        >
-                          <RotateCcwIcon aria-hidden="true" />
-                        </Button>
-                      ) : item.workflowStage === 'ARCHIVED' && item.artworkId ? (
-                        <Button variant="ghost" size="icon" asChild aria-label={`查看已归档作品 ${item.title}`}>
-                          <Link href={`/artworks/${item.artworkId}`} target="_blank" rel="noreferrer">
-                            <ArrowUpRightIcon aria-hidden="true" />
-                          </Link>
-                        </Button>
-                      ) : (
-                        <span aria-hidden="true" />
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex min-h-20 items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <Spinner aria-hidden="true" />
-                    正在加载更多结果…
-                  </div>
-                )}
-              </div>
-            )
-          })}
+    <ArchiveDiscoveryResultList
+      items={items}
+      isDesktop={isDesktop}
+      layoutReady={layoutReady}
+      isLoading={isLoading}
+      isError={isError}
+      errorTitle="扫描结果加载失败"
+      errorDescription="扫描记录仍保存在数据库中，请稍后重试。"
+      hasNextPage={hasNextPage}
+      isFetchingNextPage={isFetchingNextPage}
+      onLoadMore={onLoadMore}
+      onRetry={onRetry}
+      positionKey={positionKey}
+      position={position}
+      onPositionChange={onPositionChange}
+      emptyState={
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyTitle>
+              {activeRun ? '正在扫描' : neverScanned ? '尚无扫描记录' : `没有${resultFeedLabel(view)}项目`}
+            </EmptyTitle>
+            <EmptyDescription>
+              {activeRun
+                ? '任务完成后，画廊会自动汇入长期目录。'
+                : neverScanned
+                  ? '点击“扫描最新”创建第一批发现结果。'
+                  : emptyCatalogViewDescription(view)}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      }
+      header={
+        <div className="grid min-h-12 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 border-b bg-muted/30 px-4 text-xs font-medium text-muted-foreground">
+          <Checkbox
+            checked={allActionableSelected ? true : selectedItemIds.size > 0 ? 'indeterminate' : false}
+            onCheckedChange={(checked) => onToggleAll(checked === true)}
+            aria-label="选择当前已加载的可加入结果，最多一百条"
+          />
+          <span>画廊</span>
+          <span className="text-right">操作</span>
         </div>
-      </ScrollArea>
-      <div className="flex min-h-11 items-center justify-between gap-3 border-t px-4 text-xs text-muted-foreground">
+      }
+      renderItem={(item) => (
+        <div className="border-b bg-background px-4 py-3">
+          <div
+            className="grid min-h-20 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3"
+            data-state={selectedItemIds.has(item.id) ? 'selected' : undefined}
+          >
+            <Checkbox
+              checked={selectedItemIds.has(item.id)}
+              disabled={
+                !(item.actionable || item.recoverable) ||
+                (!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS)
+              }
+              onCheckedChange={(checked) => onToggle(item.id, checked === true)}
+              aria-label={`选择 ${item.title}`}
+            />
+            <div className="flex min-w-0 items-center gap-3">
+              {resultView === 'preview' ? (
+                <ArchiveUploaderGalleryThumbnail key={item.id} item={item} onPreview={onPreview} />
+              ) : null}
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:gap-2">
+                  <PrivacySensitiveText
+                    as="p"
+                    className="w-full min-w-0 break-words font-medium sm:w-auto sm:flex-1 sm:line-clamp-2"
+                  >
+                    {item.title}
+                  </PrivacySensitiveText>
+                  <CatalogStatusBadge item={item} />
+                </div>
+                <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                  #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
+                </p>
+                {item.changeReasons.length > 0 ? (
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    {item.changeReasons.map(({ label }) => label).join(' · ')}
+                  </p>
+                ) : item.workflowStage === 'ARCHIVED' && !item.comparisonKnown ? (
+                  <p className="mt-1 text-xs text-muted-foreground">旧记录缺少比较快照，下次扫描会补齐</p>
+                ) : null}
+                {item.errorMessage ? (
+                  <PrivacySensitiveText as="p" className="mt-1 line-clamp-2 text-xs text-destructive">
+                    {item.errorMessage}
+                  </PrivacySensitiveText>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex items-center justify-end">
+              <SourcePreviewButton
+                source={{ kind: 'catalog', itemId: item.id }}
+                variant="ghost"
+                size="icon"
+                aria-label={`预览原站 ${item.title}`}
+              >
+                <span className="sr-only">原站预览</span>
+              </SourcePreviewButton>
+              {item.actionable ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onIgnore(item.id)}
+                  disabled={mutationPending}
+                  aria-label={`忽略 ${item.title}`}
+                >
+                  <BanIcon aria-hidden="true" />
+                </Button>
+              ) : item.workflowBucket === 'ATTENTION' && item.intakeItemId ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onNavigateInboxItem(item.intakeItemId!)}
+                  aria-label={`去收件箱处理 ${item.title}`}
+                >
+                  <ArrowUpRightIcon aria-hidden="true" />
+                </Button>
+              ) : item.recoverable ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => onAdd(item.id)}
+                  disabled={mutationPending}
+                  aria-label={`重新加入收件箱 ${item.title}`}
+                >
+                  <RotateCcwIcon aria-hidden="true" />
+                </Button>
+              ) : item.workflowStage === 'ARCHIVED' && item.artworkId ? (
+                <Button variant="ghost" size="icon" asChild aria-label={`查看已归档作品 ${item.title}`}>
+                  <a href={`/artworks/${item.artworkId}`} target="_blank" rel="noreferrer">
+                    <ArrowUpRightIcon aria-hidden="true" />
+                  </a>
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+    />
+  )
+}
+
+function SourceDetailError({
+  notFound,
+  onRetry,
+  onReturn
+}: {
+  notFound: boolean
+  onRetry: () => void
+  onReturn: () => void
+}) {
+  return (
+    <Alert variant="destructive">
+      <AlertTitle>{notFound ? '这个发现来源已不存在' : '发现来源加载失败'}</AlertTitle>
+      <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
         <span>
-          已加载 {items.length} 条 · 单次最多选择 {MAX_SELECTED_ITEMS} 条
+          {notFound ? '它可能已在其他页面被删除。返回列表选择仍然存在的来源。' : '来源没有被判定为删除；请重试加载。'}
         </span>
-        {isFetchingNextPage ? (
-          <span className="flex items-center gap-2">
-            <Spinner aria-hidden="true" />
-            加载中
-          </span>
-        ) : hasNextPage ? (
-          <span>继续向下滚动</span>
-        ) : (
-          <span>已加载全部</span>
-        )}
-      </div>
-    </Card>
+        <div className="flex flex-wrap gap-2">
+          {!notFound ? (
+            <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+              重试
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" size="sm" onClick={onReturn}>
+            返回来源列表
+          </Button>
+        </div>
+      </AlertDescription>
+    </Alert>
   )
 }
 
@@ -1131,13 +1041,8 @@ function CatalogStatusBadge({ item }: { item: ScanItem }) {
   return <Badge variant={state.variant}>{state.label}</Badge>
 }
 
-function resultFeedLabel(feed: ResultFeed) {
-  return RESULT_FEEDS.find(({ value }) => value === feed)?.label ?? '上传者目录'
-}
-
-function resultFeedDescription(feed: ResultFeed, itemCount: number, ignoredCount: number) {
-  if (feed === 'IGNORED') return `跨所有来源永久忽略的画廊；已加载 ${ignoredCount} 条。`
-  const descriptions: Record<CatalogView, string> = {
+function resultFeedDescription(feed: ArchiveDiscoveryCatalogView, itemCount: number) {
+  const descriptions: Record<ArchiveDiscoveryCatalogView, string> = {
     ACTIONABLE: '尚未处理，或本地版本与当前公开信息存在稳定差异',
     PROCESSING: '正在收件箱解析、等待确认或执行下载',
     ARCHIVED: '已经完成下载并发布到本地归档',
@@ -1147,7 +1052,7 @@ function resultFeedDescription(feed: ResultFeed, itemCount: number, ignoredCount
   return `${descriptions[feed]}；已加载 ${itemCount} 条。`
 }
 
-function emptyCatalogViewDescription(view: CatalogView) {
+function emptyCatalogViewDescription(view: ArchiveDiscoveryCatalogView) {
   return {
     ACTIONABLE: '当前没有需要决定是否归档的画廊。',
     PROCESSING: '当前没有正在解析或下载的画廊。',
@@ -1178,7 +1083,7 @@ function removeInfiniteItems<TPage extends { items: Array<{ id: string }> }>(
 
 function UploaderSourcesLoading() {
   return (
-    <div className="grid gap-5 lg:grid-cols-[20rem_minmax(0,1fr)]">
+    <div className="grid gap-5 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)]">
       <Skeleton className="h-72 w-full" />
       <Skeleton className="h-96 w-full" />
     </div>
