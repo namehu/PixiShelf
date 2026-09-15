@@ -25,15 +25,10 @@ import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
 import { Prisma, ScanRunMode, ScanRunType } from '@prisma/client'
 import { buildArtworkWhereClause } from './query-builder'
-import fs from 'fs/promises'
-import path from 'path'
-import { getScanPath } from '@/services/setting.service'
-import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { ESource, type ESource as ArtworkSource } from '@/enums/e-source'
 import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/services/scan-run-service'
 import { toApiImageSize } from '@/utils/image-size'
 import { buildVideoPosterUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
-import { requestArchiveArtworkMaintenance } from '@/services/archive/archive-maintenance-service'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
 
 const publishedKeyframeSummaryInclude = {
@@ -332,83 +327,7 @@ export async function getArtworkCardsPage(params: ArtworksInfiniteQuerySchema): 
   }
 }
 
-/**
- * 删除作品
- * 级联删除逻辑：
- * 1. 物理删除关联的图片文件
- * 2. 删除 Image 表记录 (无数据库级联)
- * 3. 删除 Artwork 表记录 (数据库级联删除 ArtworkTag, ArtworkLike, SeriesArtwork)
- */
-export async function deleteArtwork(id: number, options: { requestedByUserId: string }) {
-  const artwork = await prisma.artwork.findUnique({ where: { id } })
-  if (!artwork) throw new Error(`Artwork ${id} not found`)
-  if (artwork.createdVia === 'URL_ARCHIVE') {
-    await requestArchiveArtworkMaintenance({
-      artworkId: id,
-      action: 'TRASH_ARCHIVE',
-      requestedByUserId: options.requestedByUserId
-    })
-    return prisma.artwork.findUniqueOrThrow({ where: { id } })
-  }
-
-  // 1. 获取关联图片
-  const images = await prisma.image.findMany({
-    where: { artworkId: id }
-  })
-
-  // 2. 尝试删除物理文件
-  const scanRoot = await getScanPath()
-  if (scanRoot && images.length > 0) {
-    await Promise.all(
-      images.map(async (img) => {
-        const pathsToDelete: string[] = []
-
-        if (img.path) {
-          pathsToDelete.push(img.path)
-        }
-
-        if (img.chaptersPath && isChapterManifestFileName(path.basename(img.chaptersPath))) {
-          pathsToDelete.push(img.chaptersPath)
-        }
-
-        await Promise.all(
-          pathsToDelete.map(async (relativePath) => {
-            const absolutePath = resolvePathWithinScanRoot(scanRoot, relativePath)
-            try {
-              await fs.unlink(absolutePath)
-            } catch (e: any) {
-              // 忽略文件不存在等错误
-              logger.warn(`[DeleteArtwork] Failed to delete file: ${absolutePath}, error: ${e.message}`)
-            }
-          })
-        )
-      })
-    )
-    // TODO: 删除关联文件夹
-  }
-
-  // 3. 删除图片记录 (显式删除，因为没有级联)
-  await prisma.image.deleteMany({
-    where: { artworkId: id }
-  })
-
-  // 4. 删除作品
-  return prisma.artwork.delete({
-    where: { id }
-  })
-}
-
-function resolvePathWithinScanRoot(scanRoot: string, relativePath: string): string {
-  const normalizedRoot = path.resolve(scanRoot)
-  const resolvedPath = path.resolve(normalizedRoot, relativePath.replace(/^\/+/, ''))
-  const rootWithSeparator = normalizedRoot.endsWith(path.sep) ? normalizedRoot : `${normalizedRoot}${path.sep}`
-
-  if (resolvedPath !== normalizedRoot && !resolvedPath.toLowerCase().startsWith(rootWithSeparator.toLowerCase())) {
-    throw new Error(`Path escapes scan root: ${relativePath}`)
-  }
-
-  return resolvedPath
-}
+export { deleteArtwork } from './delete-artwork'
 
 /**
  * 更新作品

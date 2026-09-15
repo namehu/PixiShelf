@@ -33,6 +33,7 @@ interface ArtworkManagementColumnHandlers {
   onCopy: (item: ArtworkResponseDto) => void
   onOpenImageManager: (item: ArtworkResponseDto) => void
   onDelete: (id: number) => void
+  deletePending?: boolean
   onRefresh: () => void
   onRetryPixiv: (artworkId: number) => void
   onOpenPixivReport: (artwork: ArtworkResponseDto) => void
@@ -45,6 +46,7 @@ export function createArtworkManagementColumns({
   onCopy,
   onOpenImageManager,
   onDelete,
+  deletePending,
   onRefresh,
   onRetryPixiv,
   onOpenPixivReport,
@@ -227,6 +229,7 @@ export function createArtworkManagementColumns({
           onEdit={() => onEdit(row.original)}
           onCopy={() => onCopy(row.original)}
           onDelete={() => onDelete(row.original.id)}
+          deletePending={deletePending}
           onRescanComplete={onRefresh}
         />
       )

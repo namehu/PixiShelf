@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   },
   clearSelection: vi.fn(),
   historyEnabled: vi.fn(),
+  detailRequested: vi.fn(),
   failuresEnabled: vi.fn(),
   changeFilters: vi.fn(),
   desktop: true,
@@ -85,14 +86,17 @@ vi.mock('../background-history-list', () => ({ BackgroundHistoryList: () => <div
 
 vi.mock('../use-background-dashboard', () => ({
   useBackgroundDashboard: () => mocks.dashboardQuery,
-  useBackgroundJobDetail: () => ({
-    data: null,
-    isPending: false,
-    isFetching: false,
-    isError: false,
-    error: null,
-    refetch: vi.fn()
-  }),
+  useBackgroundJobDetail: (id: string | null) => {
+    mocks.detailRequested(id)
+    return {
+      data: null,
+      isPending: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn()
+    }
+  },
   useBackgroundJobEvents: () => mocks.eventQuery,
   useBackgroundJobControls: () => createControls()
 }))
@@ -228,6 +232,16 @@ function createControls(): BackgroundControlsView {
 }
 
 describe('background task console', () => {
+  it('opens the requested job from a deletion report link', () => {
+    window.history.replaceState(null, '', '/admin/tasks?jobId=archive-trash-42')
+    try {
+      render(<BackgroundTaskConsole />)
+      expect(mocks.detailRequested).toHaveBeenCalledWith('archive-trash-42')
+      expect(screen.getByRole('dialog')).toBeTruthy()
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
   beforeEach(() => {
     mocks.dashboardQuery.data = undefined
     mocks.dashboardQuery.isPending = false

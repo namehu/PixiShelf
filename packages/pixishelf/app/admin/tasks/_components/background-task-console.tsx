@@ -90,6 +90,13 @@ export function BackgroundTaskConsole() {
   const dashboard = dashboardQuery.data as BackgroundDashboardView | undefined
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  useEffect(() => {
+    const requestedJobId = new URLSearchParams(window.location.search).get('jobId')
+    if (requestedJobId && /^[a-zA-Z0-9_-]{1,128}$/.test(requestedJobId)) {
+      setSelectedJobId(requestedJobId)
+      setOpen(true)
+    }
+  }, [])
   const scrollRef = useRef<HTMLDivElement>(null)
   const [historyRefreshVersion, setHistoryRefreshVersion] = useState(0)
   const history = useBackgroundHistory(open && activeTab === 'tasks' && !selectedJobId, historyRefreshVersion)

@@ -25,10 +25,18 @@ interface ArtworkRowActionsProps {
   onEdit: () => void
   onCopy: () => void
   onDelete: () => void
+  deletePending?: boolean
   onRescanComplete: () => void
 }
 
-export function ArtworkRowActions({ artwork, onEdit, onCopy, onDelete, onRescanComplete }: ArtworkRowActionsProps) {
+export function ArtworkRowActions({
+  artwork,
+  onEdit,
+  onCopy,
+  onDelete,
+  onRescanComplete,
+  deletePending = false
+}: ArtworkRowActionsProps) {
   const [scanning, setScanning] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -172,7 +180,7 @@ export function ArtworkRowActions({ artwork, onEdit, onCopy, onDelete, onRescanC
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+          <DropdownMenuItem variant="destructive" onSelect={onDelete} disabled={deletePending}>
             <Trash aria-hidden="true" />
             删除作品
           </DropdownMenuItem>

@@ -30,6 +30,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
+- [作品删除与删除总结](./features/artwork-deletion.md)（current）：附属文件名单、空目录边界、逐项报告、下载和部分失败语义。
+
 - [Pixiv 扫描根身份](./features/pixiv-root-identity.md)（current）：稳定 UUID、重挂载兼容、旧库绑定与标记恢复。
 
 - [艺术家、社团与作品关系](./features/creator-relations.md)（current）：多创作者归属、时间线、来源映射与后台补全。

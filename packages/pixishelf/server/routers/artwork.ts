@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import path from 'path'
 import { z } from 'zod'
+import { ArtworkDeleteReportSchema } from '@/schemas/artwork-delete.dto'
 import {
   ArtworksInfiniteQuerySchema,
   NeighboringArtworksGetSchema,
@@ -177,9 +178,12 @@ export const artworkRouter = router({
   /**
    * 删除作品
    */
-  delete: adminProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
-    return deleteArtwork(input, { requestedByUserId: ctx.userId })
-  }),
+  delete: adminProcedure
+    .input(z.number().int().positive())
+    .output(ArtworkDeleteReportSchema)
+    .mutation(async ({ input, ctx }) => {
+      return deleteArtwork(input, { requestedByUserId: ctx.userId })
+    }),
 
   /**
    * 删除图片
