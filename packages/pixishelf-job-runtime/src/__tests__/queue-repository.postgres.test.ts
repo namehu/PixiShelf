@@ -1,3 +1,5 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
+import { recordJobDiagnostic } from '../job-diagnostics.js'
 import { randomUUID } from 'node:crypto'
 import type { AnimationScanProgressData, WorkerCapability } from '@pixishelf/job-contracts'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
@@ -69,6 +71,137 @@ describePostgres('PostgresQueueRepository integration', () => {
     await prisma.systemJob.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.systemJob.deleteMany({ where: { idempotencyKey: { startsWith: testPrefix } } })
     await prisma.$disconnect()
+  })
+
+  it('freezes diagnostics, deduplicates items and separates claims even when attempt is preserved', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const first = (await repository.claim('diagnostic-worker', capabilities))!
+    expect(first.currentDiagnosticExecutionId).toBeTruthy()
+    expect(first.currentDiagnosticExecutionId).not.toBe(first.executionToken)
+    await repository.withFencedExecutionTransaction(fence(first), async (scope) => {
+      const input = { key: 'item:1', scope: 'ITEM' as const, code: 'ENOENT' }
+      await recordJobDiagnostic(scope.transaction, id, { ...input, origin: 'INHERITED' }, clock.now())
+      await recordJobDiagnostic(scope.transaction, id, input, clock.now())
+      await recordJobDiagnostic(scope.transaction, id, input, clock.now())
+      await scope.retry({
+        availableAt: clock.now(),
+        errorCode: 'INTERNAL_ERROR',
+        error: 'yield',
+        preserveAttempt: true
+      })
+    })
+    const report = await client().systemJobDiagnosticReport.findUniqueOrThrow({
+      where: { id: first.currentDiagnosticExecutionId! }
+    })
+    expect(report).toMatchObject({
+      status: 'CLOSED',
+      entryCount: 1,
+      itemCount: 1,
+      currentCount: 1,
+      inheritedCount: 0,
+      taskFailure: false
+    })
+    const second = (await repository.claim('diagnostic-worker', capabilities))!
+    expect(second.attempt).toBe(first.attempt)
+    expect(second.currentDiagnosticExecutionId).not.toBe(first.currentDiagnosticExecutionId)
+    await repository.fail({ ...fence(second), errorCode: 'INTERNAL_ERROR', error: 'failed' })
+    expect(await client().systemJobDiagnosticReport.count({ where: { jobId: id } })).toBe(2)
+    expect(await client().systemJobDiagnosticItem.count({ where: { reportId: report.id } })).toBe(1)
+  })
+
+  it('records RESOURCE_BUSY when it is a real retry rather than explicit scheduling yield', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const first = (await repository.claim('diagnostic-worker', capabilities))!
+    await repository.retry({
+      ...fence(first),
+      availableAt: clock.now(),
+      errorCode: 'RESOURCE_BUSY',
+      error: 'resource failure'
+    })
+    const second = (await repository.claim('diagnostic-worker', capabilities))!
+    await repository.withFencedExecutionTransaction(fence(second), async (scope) => {
+      await scope.retry({ availableAt: clock.now(), errorCode: 'RESOURCE_BUSY', error: 'resource failure' })
+    })
+    const reports = await client().systemJobDiagnosticReport.findMany({
+      where: { jobId: id },
+      include: { items: true }
+    })
+    expect(reports).toHaveLength(2)
+    expect(reports.every((report) => report.taskFailure && report.items[0]?.code === 'RESOURCE_BUSY')).toBe(true)
+  })
+
+  it('persists structured diagnostics without reversing their root cause', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const job = (await repository.claim('diagnostic-worker', capabilities))!
+    const diagnostic = extractJobDiagnostic(
+      { code: 'EXTERNAL_PROCESS_FAILED', cause: { code: 'ETIMEDOUT', message: 'connect timeout' } },
+      { code: 'EXTERNAL_PROCESS_FAILED' }
+    )
+    await repository.withFencedExecutionTransaction(fence(job), (scope) =>
+      scope.fail({ errorCode: 'EXTERNAL_PROCESS_FAILED', error: 'failed', diagnostic, diagnosticComplete: false })
+    )
+    expect((await client().systemJobDiagnosticReport.findFirstOrThrow({ where: { jobId: id } })).complete).toBe(false)
+    const item = await client().systemJobDiagnosticItem.findFirstOrThrow({ where: { report: { jobId: id } } })
+    expect(item.reasonKey).toBe('errno:ETIMEDOUT')
+    expect(item.evidence).toEqual(diagnostic.evidence)
+  })
+
+  it('rejects a stale diagnostic callback after a new claim and marks shutdown capture incomplete', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const first = (await repository.claim('diagnostic-worker', capabilities))!
+    await repository.withFencedExecutionTransaction(fence(first), async (scope) => {
+      await recordJobDiagnostic(
+        scope.transaction,
+        id,
+        { key: 'item:1', scope: 'ITEM', error: new Error('missing metadata') },
+        clock.now(),
+        undefined,
+        first.currentDiagnosticExecutionId!
+      )
+      await scope.release()
+    })
+    expect(
+      (
+        await client().systemJobDiagnosticReport.findUniqueOrThrow({
+          where: { id: first.currentDiagnosticExecutionId! }
+        })
+      ).complete
+    ).toBe(false)
+    const second = (await repository.claim('diagnostic-worker', capabilities))!
+    await expect(
+      repository.withFencedMutationTransaction(fence(second), (tx) =>
+        recordJobDiagnostic(tx, id, { key: 'stale' }, clock.now(), undefined, first.currentDiagnosticExecutionId!)
+      )
+    ).rejects.toThrow('Diagnostic execution identity was superseded')
+    expect(
+      await client().systemJobDiagnosticReport.count({ where: { id: second.currentDiagnosticExecutionId! } })
+    ).toBe(0)
+    await repository.complete(fence(second))
+  })
+
+  it('rolls diagnostic inserts back when the fence expires during domain mutation', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const job = (await repository.claim('diagnostic-worker', capabilities))!
+    await expect(
+      repository.withFencedExecutionTransaction(fence(job), async (scope) => {
+        await recordJobDiagnostic(scope.transaction, id, { key: 'item:1', scope: 'ITEM', code: 'ENOENT' }, clock.now())
+        clock.set(new Date(clock.now().getTime() + 60_001))
+        await scope.complete()
+      })
+    ).rejects.toThrow(JobExecutionFenceError)
+    expect(await client().systemJobDiagnosticReport.count({ where: { jobId: id } })).toBe(0)
+    await repository.recoverExpiredExecution('BACKGROUND_WRITER')
+    const report = await client().systemJobDiagnosticReport.findFirstOrThrow({
+      where: { jobId: id },
+      include: { items: true }
+    })
+    expect(report.complete).toBe(false)
+    expect(report.items.map((item) => item.code)).toEqual(['WORKER_LEASE_EXPIRED'])
   })
 
   it('allows exactly one winner across ten concurrent claims', async () => {

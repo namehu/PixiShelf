@@ -1,3 +1,5 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
+import { recordJobDiagnostic } from '@pixishelf/job-runtime'
 import type { ExecutionLane, WorkerCapability } from '@pixishelf/job-contracts'
 import type {
   ChildJobRequest,
@@ -298,6 +300,15 @@ export class CentralDispatcher {
 
     const context: ExecutionContext<unknown, EnqueuedChildJob> = {
       job,
+      recordDiagnostic: (transaction, input) =>
+        recordJobDiagnostic(
+          transaction,
+          job.id,
+          input,
+          this.timing.now(),
+          undefined,
+          job.currentDiagnosticExecutionId ?? undefined
+        ),
       payload: registration.payload,
       signal: controller.signal,
       progress: progressReporter.report,
@@ -356,7 +367,8 @@ export class CentralDispatcher {
             : {
                 kind: 'failed',
                 errorCode: 'INTERNAL_ERROR',
-                error: executorResult.error instanceof Error ? executorResult.error.message : 'Unknown executor failure'
+                error: extractJobDiagnostic(executorResult.error).message,
+                diagnostic: extractJobDiagnostic(executorResult.error)
               }
         if (transactionallyFinalized) {
           outcome = TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
@@ -659,6 +671,7 @@ function normalizeRetryOutcome(job: ClaimedJob, outcome: DispatcherSettlement): 
     kind: 'failed',
     errorCode: outcome.errorCode,
     error: outcome.error,
+    diagnostic: outcome.diagnostic,
     message: outcome.message ?? `Retry budget exhausted after ${job.attempt} attempts`
   }
 }

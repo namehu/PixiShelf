@@ -1,3 +1,4 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import path from 'node:path'
 import type {
   EnqueuedChildJob,
@@ -87,6 +88,7 @@ export async function executePendingReplace<TTransaction extends QueueSqlExecuto
     if (error instanceof PendingReplaceActionRequiredError) {
       return context.finalizeInTransaction<TTransaction>(async (scope) => {
         await checkpointBatchForControl(scope, dependencies, context.job.id, context.payload.batchId, 'PREVIEWED')
+        await context.recordDiagnostic?.(scope.transaction, { key: 'task:action-required', scope: 'TASK', error })
         await scope.pause({
           reason: 'ACTION_REQUIRED',
           message: `Pending replacement requires manual recovery (${error.code})`,
@@ -105,6 +107,7 @@ export async function executePendingReplace<TTransaction extends QueueSqlExecuto
       if (await finalizeRequestedControl(scope, dependencies, context)) return
       await checkpointBatchForControl(scope, dependencies, context.job.id, context.payload.batchId, 'FAILED')
       await scope.fail({
+        diagnostic: extractJobDiagnostic(error),
         errorCode: errorCodeFor(error),
         error: stableErrorCode(error),
         message: 'Pending replacement failed; details are available in the rotating worker log'
@@ -398,7 +401,8 @@ async function processReplacementItem<TTransaction extends QueueSqlExecutor>(
         error: stableErrorCode(error),
         backupDirectory: null,
         finishedAt: new Date()
-      }
+      },
+      error
     )
   }
 }
@@ -827,11 +831,22 @@ async function checkpointItem<TTransaction extends QueueSqlExecutor>(
   extra: Omit<
     Parameters<PendingReplaceExecutorDependencies<TTransaction>['database']['checkpointItem']>[1],
     'itemId' | 'expectedStatuses' | 'status'
-  > = {}
+  > = {},
+  error?: unknown
 ) {
-  return context.mutateInTransaction<TTransaction>((transaction) =>
-    dependencies.database.checkpointItem(transaction, { itemId, expectedStatuses, status, ...extra })
-  )
+  return context.mutateInTransaction<TTransaction>(async (transaction) => {
+    await dependencies.database.checkpointItem(transaction, { itemId, expectedStatuses, status, ...extra })
+    if (status === 'FAILED')
+      await context.recordDiagnostic?.(transaction, {
+        key: `pending-replace:${itemId}`,
+        scope: 'ITEM',
+        targetType: 'PENDING_REPLACE_ITEM',
+        targetId: itemId,
+        stage: expectedStatuses.join('/'),
+        code: extra.error ?? undefined,
+        error
+      })
+  })
 }
 
 async function finalizeRequestedControl<TTransaction extends QueueSqlExecutor>(

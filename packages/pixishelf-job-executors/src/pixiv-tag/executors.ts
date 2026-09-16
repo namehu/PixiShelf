@@ -1,3 +1,4 @@
+import { extractJobDiagnostic, type JobDiagnostic } from '@pixishelf/job-contracts'
 import { createHash } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@pixishelf/db'
 import {
@@ -189,7 +190,7 @@ async function executeTag(
     const payloadHash = hashNormalizedPayload(normalized)
 
     let storedImage: string | null = null
-    let imageFailure: Failure | null = null
+    let imageFailure: (Failure & { error: unknown }) | null = null
     if ((refreshExisting || isEmpty(eligible.image)) && normalized.imageUrl) {
       await context.progress({ progress: 65, stage: 'DOWNLOADING_IMAGE', message: '正在保存 Pixiv 标签封面' })
       try {
@@ -201,7 +202,7 @@ async function executeTag(
         })
       } catch (error) {
         if (context.signal.aborted) throw error
-        imageFailure = classifyFailure(error)
+        imageFailure = { ...classifyFailure(error), error }
       }
     }
 
@@ -235,6 +236,18 @@ async function executeTag(
         return
       }
 
+      if (imageFailure)
+        await context.recordDiagnostic?.(scope.transaction, {
+          key: 'tag:' + payload.tagId + ':cover',
+          scope: 'ITEM',
+          targetType: 'TAG',
+          targetId: String(payload.tagId),
+          targetLabel: payload.expectedName,
+          stage: 'COVER',
+          code: imageFailure.code,
+          remoteHost: 'i.pximg.net',
+          error: imageFailure.error
+        })
       const update: Prisma.TagUpdateInput = {}
       const appliedFields: string[] = []
       const skippedConcurrentFields: string[] = []
@@ -373,6 +386,7 @@ async function finalizeControl(scope: FencedExecutionTransaction<PixivTagTransac
 }
 
 interface Failure {
+  diagnostic: JobDiagnostic
   code: string
   message: string
   retryable: boolean
@@ -381,10 +395,14 @@ interface Failure {
 }
 
 function classifyFailure(error: unknown): Failure {
+  const diagnostic = extractJobDiagnostic(error, {
+    remoteHost: error instanceof PixivTagImageError ? 'i.pximg.net' : 'www.pixiv.net'
+  })
   const rawMessage = error instanceof Error ? error.message : 'Unknown Pixiv tag enrichment failure'
   const message = rawMessage.slice(0, ERROR_MESSAGE_LIMIT)
   if (error instanceof PixivTagRequestError) {
     return {
+      diagnostic,
       code: error.code,
       message,
       retryable: error.retryable,
@@ -393,9 +411,9 @@ function classifyFailure(error: unknown): Failure {
     }
   }
   if (error instanceof PixivTagImageError) {
-    return { code: error.code, message, retryable: false, jobErrorCode: 'PRECONDITION_FAILED' }
+    return { diagnostic, code: error.code, message, retryable: false, jobErrorCode: 'PRECONDITION_FAILED' }
   }
-  return { code: 'PIXIV_INTERNAL_ERROR', message, retryable: true, jobErrorCode: 'INTERNAL_ERROR' }
+  return { diagnostic, code: 'PIXIV_INTERNAL_ERROR', message, retryable: true, jobErrorCode: 'INTERNAL_ERROR' }
 }
 
 function retryOrFail(
@@ -406,7 +424,13 @@ function retryOrFail(
 ): JobExecutionOutcome {
   // 退避与上游 Retry-After 取较晚者，避免限流时立即重试；不可重试错误直接终止。
   if (!failure.retryable || context.job.attempt >= context.job.maxAttempts) {
-    return { kind: 'failed', errorCode: failure.jobErrorCode, error: failure.message, message }
+    return {
+      kind: 'failed',
+      diagnostic: failure.diagnostic,
+      errorCode: failure.jobErrorCode,
+      error: failure.message,
+      message
+    }
   }
   const now = dependencies.now?.() ?? new Date()
   const exponentialRetry = new Date(
@@ -414,6 +438,7 @@ function retryOrFail(
   )
   return {
     kind: 'retry',
+    diagnostic: failure.diagnostic,
     availableAt: failure.retryAt && failure.retryAt > exponentialRetry ? failure.retryAt : exponentialRetry,
     errorCode: failure.jobErrorCode,
     error: failure.message,

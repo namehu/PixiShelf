@@ -6,6 +6,7 @@ import {
   archiveUploaderIdentityLockKey,
   archiveUploaderUrlLockKey
 } from '@pixishelf/job-contracts'
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
@@ -83,7 +84,13 @@ export class ArchiveModule {
         width: item.width,
         height: item.height,
         errorCode: item.errorCode,
-        errorMessage: item.errorMessage ? '图片处理失败，请根据错误码与失败阶段排查。' : null,
+        errorMessage: item.errorMessage
+          ? extractJobDiagnostic(undefined, {
+              code: item.errorCode ?? undefined,
+              message: item.errorMessage,
+              remoteHost: item.remoteHost
+            }).message
+          : null,
         errorStage: item.errorStage,
         remoteHost: item.remoteHost,
         startedAt: item.startedAt,

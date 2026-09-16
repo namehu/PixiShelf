@@ -15,10 +15,12 @@ import {
 import { Prisma } from '@pixishelf/db'
 import { redactArchiveText } from '@/services/archive/archive-redaction'
 import { redactSensitiveText, sanitizeJsonValue, type WireTextRedactor } from './job-redaction'
+import { diagnosticSummarySelect, hasPartialFailure } from './job-diagnostic-summary'
 
 export { redactSensitiveText, sanitizeJsonValue } from './job-redaction'
 
 export const systemJobWireSelect = {
+  ...diagnosticSummarySelect,
   id: true,
   type: true,
   executionLane: true,
@@ -71,6 +73,7 @@ export const systemJobEventWireSelect = {
 } satisfies Prisma.SystemJobEventSelect
 
 export const systemJobLiveSummarySelect = {
+  ...diagnosticSummarySelect,
   id: true,
   type: true,
   executionLane: true,
@@ -114,6 +117,7 @@ export function toJobDto(record: SystemJobWireRecord): JobDto {
   const redactText = wireTextRedactor(record.type)
   return jobDtoSchema.parse({
     ...record,
+    hasPartialFailure: hasPartialFailure(record),
     idempotencyKey: redactSensitiveText(record.idempotencyKey),
     payload: sanitizeJsonValue(record.payload, redactText),
     result: sanitizeJsonValue(record.result, redactText),
@@ -146,6 +150,7 @@ export function toJobEventDto(record: SystemJobEventWireRecord): JobEventDto {
 export function toJobLiveSummary(record: SystemJobLiveSummaryRecord): JobLiveSummary {
   return jobLiveSummarySchema.parse({
     ...record,
+    hasPartialFailure: hasPartialFailure(record),
     type: jobTypeSchema.parse(record.type),
     message: wireTextRedactor(record.type)(record.message),
     heartbeatAt: iso(record.heartbeatAt),

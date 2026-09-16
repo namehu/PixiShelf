@@ -23,6 +23,10 @@ describe('job event retention cleanup', () => {
     })
 
     expect(result).toEqual({
+      diagnosticReportCandidates: 0,
+      diagnosticItemCandidates: 0,
+      expiredDiagnosticReports: 0,
+      deletedDiagnosticItems: 0,
       dryRun: true,
       progressCandidates: 12,
       lifecycleCandidates: 3,

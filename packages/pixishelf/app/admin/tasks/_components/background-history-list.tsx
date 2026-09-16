@@ -229,6 +229,7 @@ export function BackgroundHistoryList({
                   <span className="text-sm font-medium">{item.label}</span>
                   <AdminStatusBadge status={item.status}>{formatBackgroundJobStatus(item.status)}</AdminStatusBadge>
                 </span>
+                {item.hasPartialFailure ? <span className="text-xs text-warning">完成但有失败项</span> : null}
                 <span className="break-all font-mono text-[11px] text-muted-foreground">{item.id}</span>
                 <span className="text-xs text-muted-foreground">
                   {formatBackgroundDate(item.createdAt)} · {backgroundTriggerLabels[item.triggerSource]} · 优先级{' '}

@@ -52,6 +52,14 @@ vi.mock('@/lib/trpc', () => ({
 }))
 
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: mocks.confirm }))
+vi.mock('../background-job-diagnostics', () => ({
+  BackgroundJobDiagnostics: ({ job }: { job: JobDto }) => (
+    <section aria-label="失败诊断">
+      <p>{job.errorCode}</p>
+      <p className="whitespace-pre-wrap">{job.error}</p>
+    </section>
+  )
+}))
 vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.desktop }))
 
 vi.mock('../use-background-history', () => ({
@@ -429,7 +437,8 @@ describe('background task console', () => {
       />
     )
 
-    expect(screen.getByText('PRECONDITION_FAILED：任务需要处理后重试')).toBeTruthy()
+    expect(screen.getByRole('region', { name: '失败诊断' })).toBeTruthy()
+    expect(screen.getByText('PRECONDITION_FAILED')).toBeTruthy()
     const details = screen.getByText(/artist\/100\/100-meta\.txt/)
     expect(details.className).toContain('whitespace-pre-wrap')
     expect(details.textContent).toContain('artist/200/200-meta.txt [METADATA_INVALID]')

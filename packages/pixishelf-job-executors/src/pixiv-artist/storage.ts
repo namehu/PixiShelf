@@ -17,11 +17,14 @@ const IMAGE_EXTENSIONS = new Map([
 ])
 
 export class PixivArtistImageError extends Error {
+  readonly status: number | undefined
   constructor(
     message: string,
-    readonly code: string
+    readonly code: string,
+    readonly diagnosticOptions?: { cause?: unknown; status?: number }
   ) {
-    super(message)
+    super(message, diagnosticOptions)
+    this.status = diagnosticOptions?.status
     this.name = 'PixivArtistImageError'
   }
 }
@@ -55,7 +58,9 @@ export async function storePixivArtistImage(input: {
     break
   }
   if (!response?.ok) {
-    throw new PixivArtistImageError('Pixiv 作者图片下载失败', 'PIXIV_IMAGE_DOWNLOAD_FAILED')
+    throw new PixivArtistImageError('Pixiv 作者图片下载失败', 'PIXIV_IMAGE_DOWNLOAD_FAILED', {
+      ...(response ? { status: response.status } : {})
+    })
   }
   const contentLength = Number(response.headers.get('content-length'))
   if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
@@ -107,7 +112,7 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, url: URL, signal: Abort
     })
   } catch (error) {
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : error
-    throw new PixivArtistImageError('Pixiv 作者图片下载超时或网络异常', 'PIXIV_IMAGE_NETWORK_ERROR')
+    throw new PixivArtistImageError('Pixiv 作者图片下载超时或网络异常', 'PIXIV_IMAGE_NETWORK_ERROR', { cause: error })
   }
 }
 

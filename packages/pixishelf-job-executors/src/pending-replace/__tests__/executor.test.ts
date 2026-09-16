@@ -56,8 +56,10 @@ describe('pending replacement executor', () => {
 
   it('rolls back both filesystem versions when database publication fails', async () => {
     const fixture = await replacementFixture()
-    fixture.database.publishReplacement = vi.fn().mockRejectedValue(new Error('database response failed'))
+    const failure = Object.assign(new Error('database response failed'), { code: 'ECONNRESET' })
+    fixture.database.publishReplacement = vi.fn().mockRejectedValue(failure)
     const { context, scope } = executionContext(fixture.payload)
+    context.recordDiagnostic = vi.fn(async () => undefined)
     await executePendingReplace(context, fixture.dependencies)
 
     expect(await readFile(path.join(fixture.root, 'artworks', '123_p0.jpg'), 'utf8')).toBe('old-content')
@@ -65,6 +67,10 @@ describe('pending replacement executor', () => {
       'new-content'
     )
     expect(fixture.statuses.at(-1)).toBe('FAILED')
+    expect(context.recordDiagnostic).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ targetId: 'item-1', error: failure })
+    )
     expect(scope.complete).toHaveBeenCalledTimes(1)
   })
 

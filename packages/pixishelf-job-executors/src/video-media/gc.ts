@@ -1,3 +1,4 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import * as fs from 'node:fs/promises'
 import {
   JobExecutionFenceError,
@@ -127,7 +128,7 @@ export async function executeDerivedMediaGc(
         const message = [errorMessage(error), compensation ? `restore failed: ${compensation}` : null]
           .filter(Boolean)
           .join('; ')
-        await markGcEntryFailed(context, entry, message)
+        await markGcEntryFailed(context, entry, message, error)
       }
       stagedCandidate = null
       activeEntry = null
@@ -162,12 +163,19 @@ export async function executeDerivedMediaGc(
     return context.job.attempt < context.job.maxAttempts
       ? {
           kind: 'retry',
+          diagnostic: extractJobDiagnostic(error),
           availableAt: new Date(now().getTime() + 60_000),
           errorCode: 'INTERNAL_ERROR',
           error: message,
           message: '派生媒体 GC 异常，等待重试'
         }
-      : { kind: 'failed', errorCode: 'INTERNAL_ERROR', error: message, message: '派生媒体 GC 失败' }
+      : {
+          kind: 'failed',
+          diagnostic: extractJobDiagnostic(error),
+          errorCode: 'INTERNAL_ERROR',
+          error: message,
+          message: '派生媒体 GC 失败'
+        }
   }
 }
 
@@ -295,6 +303,16 @@ async function finalizeDeletedGcEntry(context: GcContext, candidate: StagedGcCan
           status: 'FAILED',
           error: 'A live reference appeared after staged deletion without publishing a replacement file'
         })
+        await context.recordDiagnostic?.(transaction, {
+          key: 'gc:' + candidate.entry.id,
+          scope: 'ITEM',
+          targetType: 'DERIVED_MEDIA_GC_ENTRY',
+          targetId: candidate.entry.id,
+          targetLabel: candidate.entry.relativePath,
+          stage: 'DELETE',
+          message: 'A live reference appeared after staged deletion without publishing a replacement file',
+          itemAttempt: candidate.entry.attempt + 1
+        })
         return 'failed'
       }
       await transitionGcEntry(transaction, context.job.id, candidate.entry.id, { status: 'SKIPPED_REFERENCED' })
@@ -305,9 +323,20 @@ async function finalizeDeletedGcEntry(context: GcContext, candidate: StagedGcCan
   })
 }
 
-async function markGcEntryFailed(context: GcContext, entry: GcEntry, message: string) {
+async function markGcEntryFailed(context: GcContext, entry: GcEntry, message: string, error?: unknown) {
   await context.mutateInTransaction<GcTransaction>(async (transaction) => {
     await transitionGcEntry(transaction, context.job.id, entry.id, { status: 'FAILED', error: message })
+    await context.recordDiagnostic?.(transaction, {
+      key: 'gc:' + entry.id,
+      scope: 'ITEM',
+      targetType: 'DERIVED_MEDIA_GC_ENTRY',
+      targetId: entry.id,
+      targetLabel: entry.relativePath,
+      stage: 'DELETE',
+      message,
+      error,
+      itemAttempt: entry.attempt + 1
+    })
   })
 }
 

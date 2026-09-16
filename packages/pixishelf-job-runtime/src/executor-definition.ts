@@ -1,4 +1,6 @@
 import {
+  jobDiagnosticSchema,
+  type JobDiagnostic,
   jobErrorCodeSchema,
   jobSkipReasonSchema,
   type JobErrorCode,
@@ -12,8 +14,15 @@ import type { ExecutionContext, TransactionallyFinalizedExecutionOutcome } from 
 
 export type JobExecutionOutcome<TResult = unknown> =
   | { kind: 'completed'; result?: TResult; message?: string }
-  | { kind: 'retry'; availableAt: Date; errorCode: JobErrorCode; error: string; message?: string }
-  | { kind: 'failed'; errorCode: JobErrorCode; error: string; message?: string }
+  | {
+      kind: 'retry'
+      availableAt: Date
+      errorCode: JobErrorCode
+      error: string
+      message?: string
+      diagnostic?: JobDiagnostic | undefined
+    }
+  | { kind: 'failed'; errorCode: JobErrorCode; error: string; message?: string; diagnostic?: JobDiagnostic | undefined }
   | { kind: 'skipped'; reason: JobSkipReason; message?: string }
   | { kind: 'cancelled'; message?: string }
   | { kind: 'paused'; message?: string }
@@ -27,6 +36,7 @@ export const jobExecutionOutcomeSchema = z.discriminatedUnion('kind', [
       kind: z.literal('retry'),
       availableAt: z.date().refine((value) => !Number.isNaN(value.getTime()), 'availableAt must be a valid date'),
       errorCode: jobErrorCodeSchema,
+      diagnostic: jobDiagnosticSchema.optional(),
       error: z.string(),
       message: z.string().optional()
     })
@@ -35,6 +45,7 @@ export const jobExecutionOutcomeSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('failed'),
       errorCode: jobErrorCodeSchema,
+      diagnostic: jobDiagnosticSchema.optional(),
       error: z.string(),
       message: z.string().optional()
     })

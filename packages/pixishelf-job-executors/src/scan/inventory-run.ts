@@ -38,6 +38,8 @@ interface ObservedInventoryCandidate extends FrozenInventoryCandidate {
 }
 
 interface DiscoveryFailure {
+  error?: unknown
+  inherited?: boolean
   candidate: StattedMetadataCandidate
   inventory: PixivInventoryRecord | undefined
   code: string
@@ -155,6 +157,7 @@ export async function freezeIncrementalInventorySnapshot(input: {
         failures.push({
           candidate,
           inventory,
+          inherited: true,
           code: decision.code,
           summary: decision.summary,
           retryable: false,
@@ -200,6 +203,7 @@ export async function freezeIncrementalInventorySnapshot(input: {
         failures.push({
           candidate: result.item.candidate,
           inventory: result.item.inventory,
+          error: result.error,
           ...classified
         })
         failedInputs += 1
@@ -210,6 +214,7 @@ export async function freezeIncrementalInventorySnapshot(input: {
         failures.push({
           candidate: { ...result.item.candidate, state: result.result.state },
           inventory: result.item.inventory,
+          inherited: true,
           code: result.item.inventory!.lastErrorCode!,
           summary: result.item.inventory!.lastErrorSummary!,
           retryable: false,
@@ -344,6 +349,20 @@ export async function freezeIncrementalInventorySnapshot(input: {
             errorMessage: failure.summary,
             finishedAt: input.now
           }
+        })
+      }
+      for (const failure of failures) {
+        await input.context.recordDiagnostic?.(transaction as ScanTransaction & QueueSqlExecutor, {
+          key: `discovery:${input.run.id}:${discoveryFailureCheckpoint(failure.candidate.relativePath)}`,
+          scope: 'ITEM',
+          origin: failure.inherited ? 'INHERITED' : 'CURRENT',
+          targetType: 'METADATA',
+          targetId: failure.candidate.artworkId,
+          targetLabel: failure.candidate.relativePath,
+          stage: 'DISCOVERY',
+          code: failure.code,
+          message: failure.summary,
+          error: failure.error
         })
       }
       if (frozenRows.length > 0) {

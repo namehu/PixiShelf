@@ -38,6 +38,7 @@ export class ArchiveExecutorError extends Error {
   readonly decisionCode: string | null
   readonly stage: ArchiveErrorStage | null
   readonly remoteHost: string | null
+  readonly httpStatus: number | null
 
   constructor(
     code: ArchiveErrorCode,
@@ -50,6 +51,7 @@ export class ArchiveExecutorError extends Error {
       decisionCode?: string | null
       stage?: ArchiveErrorStage | null
       remoteHost?: string | null
+      httpStatus?: number | null
     } = {}
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -61,6 +63,7 @@ export class ArchiveExecutorError extends Error {
     this.decisionCode = options.decisionCode ?? null
     this.stage = options.stage ?? null
     this.remoteHost = sanitizeRemoteHost(options.remoteHost)
+    this.httpStatus = options.httpStatus ?? null
   }
 }
 
@@ -97,6 +100,7 @@ export function withArchiveExecutorErrorContext(
     pause: classified.pause,
     retryAfterMs: classified.retryAfterMs,
     decisionCode: classified.decisionCode,
+    httpStatus: classified.httpStatus,
     stage: classified.stage ?? context.stage ?? null,
     remoteHost: classified.remoteHost ?? context.remoteHost ?? null
   })

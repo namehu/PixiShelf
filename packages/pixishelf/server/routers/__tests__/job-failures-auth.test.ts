@@ -28,6 +28,10 @@ describe('failure notification API authorization', () => {
     const caller = jobRouter.createCaller(unauthorized)
     await expect(caller.backgroundFailures({})).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     await expect(caller.backgroundDetail({ jobId: 'old' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    await expect(caller.backgroundDiagnosticReports({ jobId: 'old' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    await expect(caller.backgroundDiagnosticItems({ jobId: 'old', reportId: 'legacy' })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED'
+    })
     await expect(caller.acknowledgeBackgroundJobFailures({ scope: 'all' })).rejects.toMatchObject({
       code: 'UNAUTHORIZED'
     })

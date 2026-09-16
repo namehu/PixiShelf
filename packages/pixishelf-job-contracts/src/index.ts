@@ -11,3 +11,5 @@ export * from './pixiv-artwork-sync-report.ts'
 export * from './archive-search.ts'
 export * from './archive-version-notice.ts'
 export * from './creator-maintenance.ts'
+
+export * from './job-diagnostics.ts'

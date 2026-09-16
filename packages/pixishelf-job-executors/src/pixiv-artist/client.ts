@@ -31,13 +31,16 @@ export interface NormalizedPixivArtistMetadata {
 }
 
 export class PixivArtistRequestError extends Error {
+  readonly status: number | undefined
   constructor(
     message: string,
     readonly code: string,
     readonly retryable: boolean,
-    readonly retryAt?: Date
+    readonly retryAt?: Date,
+    readonly diagnosticOptions?: { cause?: unknown; status?: number }
   ) {
-    super(message)
+    super(message, diagnosticOptions)
+    this.status = diagnosticOptions?.status
     this.name = 'PixivArtistRequestError'
   }
 }
@@ -69,14 +72,27 @@ export async function fetchPixivArtistMetadata(input: {
         'Pixiv 用户接口触发限流',
         'PIXIV_RATE_LIMITED',
         true,
-        parseRetryAfter(response.headers.get('retry-after'), now())
+        parseRetryAfter(response.headers.get('retry-after'), now()),
+        { status: 429 }
       )
     }
     if (response.status >= 500) {
-      throw new PixivArtistRequestError(`Pixiv 用户接口暂时不可用（${response.status}）`, 'PIXIV_UPSTREAM_ERROR', true)
+      throw new PixivArtistRequestError(
+        `Pixiv 用户接口暂时不可用（${response.status}）`,
+        'PIXIV_UPSTREAM_ERROR',
+        true,
+        undefined,
+        { status: response.status }
+      )
     }
     if (!response.ok) {
-      throw new PixivArtistRequestError(`Pixiv 用户接口请求失败（${response.status}）`, 'PIXIV_REQUEST_REJECTED', false)
+      throw new PixivArtistRequestError(
+        `Pixiv 用户接口请求失败（${response.status}）`,
+        'PIXIV_REQUEST_REJECTED',
+        false,
+        undefined,
+        { status: response.status }
+      )
     }
 
     const text = await readBoundedText(response, MAX_RESPONSE_BYTES)
@@ -140,9 +156,13 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, url: URL, signal: Abort
   } catch (error) {
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : error
     if (timeoutSignal.aborted) {
-      throw new PixivArtistRequestError('Pixiv 用户接口请求超时', 'PIXIV_REQUEST_TIMEOUT', true)
+      throw new PixivArtistRequestError('Pixiv 用户接口请求超时', 'PIXIV_REQUEST_TIMEOUT', true, undefined, {
+        cause: error
+      })
     }
-    throw new PixivArtistRequestError('Pixiv 用户接口网络请求失败', 'PIXIV_NETWORK_ERROR', true)
+    throw new PixivArtistRequestError('Pixiv 用户接口网络请求失败', 'PIXIV_NETWORK_ERROR', true, undefined, {
+      cause: error
+    })
   }
 }
 

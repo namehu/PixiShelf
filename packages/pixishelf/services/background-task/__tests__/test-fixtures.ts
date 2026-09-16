@@ -9,6 +9,8 @@ const baseTime = new Date('2026-08-14T10:00:00.000Z')
 export function jobRecord(overrides: Partial<SystemJobWireRecord> = {}): SystemJobWireRecord {
   return {
     id: 'job-1',
+    currentDiagnosticExecutionId: null,
+    diagnosticReports: [],
     type: 'SCAN',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: 1,

@@ -273,3 +273,11 @@ App / Worker image digest：
 App 与 Worker 必须协调升级：停止写入者后运行 `pnpm --filter @pixishelf/db db:generate` 和 `pnpm --filter @pixishelf/db db:deploy`，再启动同一版本的 App/Worker。Worker schema 门禁要求此迁移已完成。禁止 `db:push`，禁止旧 Worker 与新 App 同时执行扫描，以免丢失首次命中的绑定机会。
 
 回滚依据是发布前已验证的一致性检查点；不得直接删除待生效、抑制或永久操作回执。新版本开始写入后，优先前向修复；恢复旧数据库必须与备份清单中的媒体快照匹配，并接受检查点之后的写入丢失。
+
+### 20260916160000_job_diagnostics 发布检查点
+
+统一任务诊断新增 SystemJob.currentDiagnosticExecutionId、system_job_diagnostic_reports 和 system_job_diagnostic_items。发布前按本文件建立停写一致性检查点，数据库 dump 包含完整任务、报告头、明细与 migration 历史；保留与媒体快照、配置、App/Worker 镜像的配对清单。
+
+停止写入者后运行 pnpm --filter @pixishelf/db db:generate、pnpm --filter @pixishelf/db db:deploy 并核对 migration 状态，再协调启动兼容版本 App 和 Worker，禁止 db:push。旧任务不自动拥有过去执行的完整报告；旧 Worker 也不会写入新诊断。清理计划首次手动运行先核对 dry-run 的报告/明细候选数，证据关闭后保留 90 天，到期分批删除明细但保留报告头。
+
+回滚兼容代码时保留新增列和两张表，避免丢失新执行证据；优先前向修复。需要整体恢复发布前数据库时，使用验证过的配套媒体与配置检查点，恢复前保全新诊断并明确恢复点之后的写入损失。此处是发布和恢复要求，不代表已完成生产迁移或恢复演练。功能与验收边界见[后台任务失败诊断](../features/background-job-diagnostics.md)。

@@ -27,8 +27,8 @@ export async function statStableFile(absolutePath: string): Promise<StableFileSt
   let metadata: BigIntStats
   try {
     metadata = await fs.lstat(absolutePath, { bigint: true })
-  } catch {
-    throw new ScanExecutorError('SOURCE_NOT_READABLE', 'Input file could not be inspected')
+  } catch (error) {
+    throw new ScanExecutorError('SOURCE_NOT_READABLE', 'Input file could not be inspected', false, { cause: error })
   }
   if (metadata.isSymbolicLink()) {
     throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Input file must not be a symbolic link')
@@ -76,7 +76,7 @@ async function readOrHashStableFile(input: {
     if (nodeErrorCode(error) === 'ELOOP') {
       throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Input file must not be a symbolic link')
     }
-    throw new ScanExecutorError('SOURCE_NOT_READABLE', 'Input file could not be opened')
+    throw new ScanExecutorError('SOURCE_NOT_READABLE', 'Input file could not be opened', false, { cause: error })
   }
   try {
     const before = await handle.stat({ bigint: true })

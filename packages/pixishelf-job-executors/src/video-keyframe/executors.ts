@@ -1,3 +1,4 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import {
   JOB_DEFINITION_VERSION,
   videoKeyframeDiscoveryPayloadSchema,
@@ -64,6 +65,14 @@ async function executeDiscovery(
           message: update.message,
           ...(update.data ? { data: update.data } : {})
         }),
+      ...(context.recordDiagnostic
+        ? {
+            recordDiagnostic: (input: import('@pixishelf/job-contracts').JobDiagnosticInput) =>
+              context.mutateInTransaction(async (transaction) => {
+                await context.recordDiagnostic!(transaction, input)
+              })
+          }
+        : {}),
       enqueueChild: (request) => context.enqueueChild(request)
     })
     return { kind: 'completed', result, message: discoveryMessage(result) }
@@ -113,6 +122,7 @@ async function executeGeneration(
     if (retryable) {
       return {
         kind: 'retry',
+        diagnostic: extractJobDiagnostic(error),
         availableAt: retryAt(context.payload.mode, context.job.attempt, dependencies.now?.() ?? new Date()),
         errorCode: failure.errorCode,
         error: failure.message,
@@ -125,7 +135,12 @@ async function executeGeneration(
         where: { systemJobId: context.job.id, status: 'STAGING' },
         data: { status: 'FAILED', error: failure.message }
       })
-      await scope.fail({ errorCode: failure.errorCode, error: failure.message, message: '视频代表帧生成失败' })
+      await scope.fail({
+        diagnostic: extractJobDiagnostic(error),
+        errorCode: failure.errorCode,
+        error: failure.message,
+        message: '视频代表帧生成失败'
+      })
     })
   }
 }
@@ -156,10 +171,17 @@ function retryOrFail(
 ): JobExecutionOutcome {
   const failure = classifyError(error)
   if (error instanceof VideoKeyframePermanentError || context.job.attempt >= context.job.maxAttempts) {
-    return { kind: 'failed', errorCode: failure.errorCode, error: failure.message, message: '视频代表帧发现失败' }
+    return {
+      kind: 'failed',
+      diagnostic: extractJobDiagnostic(error),
+      errorCode: failure.errorCode,
+      error: failure.message,
+      message: '视频代表帧发现失败'
+    }
   }
   return {
     kind: 'retry',
+    diagnostic: extractJobDiagnostic(error),
     availableAt: retryAt('AUTO_INCREMENTAL', context.job.attempt, dependencies.now?.() ?? new Date()),
     errorCode: failure.errorCode,
     error: failure.message,

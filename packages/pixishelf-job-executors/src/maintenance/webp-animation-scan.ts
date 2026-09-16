@@ -392,7 +392,7 @@ export async function scanWebpAnimations(
 interface DetectionOutcome {
   image: { id: number; path: string }
   animated?: boolean
-  failure?: { code: WebpAnimationFailureCode; summary: string }
+  failure?: { code: WebpAnimationFailureCode; summary: string; error: unknown }
 }
 
 async function processDetectionBatch(input: {
@@ -457,7 +457,7 @@ async function processDetectionBatch(input: {
         buffer.push({ image, animated })
       } catch (error) {
         if (batchController.signal.aborted) throw abortReason(batchController.signal, error)
-        buffer.push({ image, failure: classifyAnimationFailure(error) })
+        buffer.push({ image, failure: { ...classifyAnimationFailure(error), error } })
       } finally {
         clearTimeout(slowTimer)
         input.onActiveChange(-1)
@@ -524,7 +524,19 @@ async function commitDetectionOutcomes(
       failedSamples: [...result.failedSamples]
     }
     for (const outcome of outcomes) {
-      if (!outcome.failure || nextResult.failedSamples.length >= FAILED_SAMPLE_LIMIT) continue
+      if (!outcome.failure) continue
+      await input.recordDiagnostic?.(transaction, {
+        key: 'animation:' + outcome.image.id,
+        scope: 'ITEM',
+        targetType: 'IMAGE',
+        targetId: String(outcome.image.id),
+        targetLabel: outcome.image.path,
+        stage: 'ANIMATION_PROBE',
+        code: outcome.failure.code,
+        message: outcome.failure.summary,
+        error: outcome.failure.error
+      })
+      if (nextResult.failedSamples.length >= FAILED_SAMPLE_LIMIT) continue
       nextResult.failedSamples.push({
         id: outcome.image.id,
         path: safeMediaReference(outcome.image.path, outcome.image.id),

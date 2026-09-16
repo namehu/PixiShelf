@@ -20,6 +20,7 @@ vi.mock('node:https', async () => {
 })
 
 import {
+  assertSuccessStatus,
   assertSafeResolvedAddresses,
   destroyArchiveConnectionsWithoutUnhandledErrors,
   resolveArchiveProxyUrl,
@@ -39,6 +40,26 @@ class SyntheticConnection extends EventEmitter {
 }
 
 describe('archive safe HTTP network policy', () => {
+  it('retains HTTP status and host for typed diagnostics', () => {
+    expect(() =>
+      assertSuccessStatus({
+        status: 502,
+        headers: {},
+        url: 'https://example.test/private?token=secret',
+        stream: { resume: vi.fn() } as never
+      })
+    ).toThrowError(expect.objectContaining({ httpStatus: 502, remoteHost: 'example.test:443' }))
+  })
+  it('preserves the root network errno through classification', async () => {
+    const error = Object.assign(new Error('lookup failed'), { code: 'ENOTFOUND' })
+    lookupMock.mockRejectedValueOnce(error)
+    const client = new SafeHttpClient(['example.test'], { ARCHIVE_HTTPS_PROXY: '' })
+    await expect(client.request('https://example.test/media')).rejects.toMatchObject({
+      code: 'REMOTE_RESPONSE_INVALID',
+      cause: { cause: { cause: { code: 'ENOTFOUND' } } }
+    })
+  })
+
   it('allows Mihomo IPv4 and IPv6 fake IPs only when an HTTP proxy is configured', () => {
     const proxy = resolveArchiveProxyUrl(new URL('https://e-hentai.org/'), {
       ARCHIVE_HTTPS_PROXY: 'http://127.0.0.1:7890'

@@ -19,11 +19,14 @@ const IMAGE_EXTENSIONS = new Map([
 // Pixiv 返回的 URL 只用于本次下载；数据库只记录内容哈希文件名，避免依赖远程 URL 的长期可用性。
 
 export class PixivTagImageError extends Error {
+  readonly status: number | undefined
   constructor(
     message: string,
-    readonly code: string
+    readonly code: string,
+    readonly diagnosticOptions?: { cause?: unknown; status?: number }
   ) {
-    super(message)
+    super(message, diagnosticOptions)
+    this.status = diagnosticOptions?.status
     this.name = 'PixivTagImageError'
   }
 }
@@ -57,7 +60,8 @@ export async function storePixivTagImage(input: {
   if (!response?.ok) {
     throw new PixivTagImageError(
       `Pixiv 标签封面下载失败（${response?.status ?? 'unknown'}）`,
-      'PIXIV_IMAGE_DOWNLOAD_FAILED'
+      'PIXIV_IMAGE_DOWNLOAD_FAILED',
+      { ...(response ? { status: response.status } : {}) }
     )
   }
   const contentLength = Number(response.headers.get('content-length'))
@@ -70,7 +74,7 @@ export async function storePixivTagImage(input: {
   } catch (error) {
     if (input.signal.aborted) throw input.signal.reason instanceof Error ? input.signal.reason : error
     if (error instanceof PixivTagImageError) throw error
-    throw new PixivTagImageError('Pixiv 标签封面下载超时或网络异常', 'PIXIV_IMAGE_NETWORK_ERROR')
+    throw new PixivTagImageError('Pixiv 标签封面下载超时或网络异常', 'PIXIV_IMAGE_NETWORK_ERROR', { cause: error })
   }
   const metadata = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS, animated: false })
     .metadata()

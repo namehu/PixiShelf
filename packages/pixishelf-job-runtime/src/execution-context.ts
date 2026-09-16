@@ -1,4 +1,4 @@
-import type { JobEventLevel, JobProgressData } from '@pixishelf/job-contracts'
+import type { JobDiagnosticInput, JobEventLevel, JobProgressData } from '@pixishelf/job-contracts'
 import type { ClaimedJob, FencedExecutionTransaction, QueueSqlExecutor } from './queue-repository.ts'
 
 export interface ExecutionProgressUpdate {
@@ -58,6 +58,7 @@ export type FencedExecutionProgressMutator = <TTransaction extends QueueSqlExecu
 ) => Promise<TResult>
 
 export interface ExecutionContext<TPayload = unknown, TChildJob = ClaimedJob> {
+  recordDiagnostic?: (transaction: QueueSqlExecutor, input: JobDiagnosticInput) => Promise<void>
   job: ClaimedJob
   payload: TPayload
   signal: AbortSignal

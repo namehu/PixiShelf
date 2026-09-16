@@ -1,3 +1,4 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import path from 'node:path'
 import type {
   EnqueuedChildJob,
@@ -100,7 +101,8 @@ export async function executeMigration<TTransaction extends QueueSqlExecutor>(
             await closePlan(context, dependencies, prepared, {
               status: 'FAILED',
               errorCode: failure.errorCode,
-              errorSummary: failure.message
+              errorSummary: failure.message,
+              error
             })
           }
           activePlan = null
@@ -153,7 +155,8 @@ export async function executeMigration<TTransaction extends QueueSqlExecutor>(
       await closePlan(context, dependencies, activePlan, {
         status: 'FAILED',
         errorCode: failure.errorCode,
-        errorSummary: failure.message
+        errorSummary: failure.message,
+        error
       })
       activePlan = null
       // A deterministic item failure is persisted for FAILED_FROM_JOB. The current job can
@@ -215,6 +218,15 @@ async function prepareArtworkPlan<TTransaction extends QueueSqlExecutor>(
         errorCode: 'INCOMPLETE_ARTWORK',
         errorSummary: 'Artwork requires an artist userId, externalId, and at least one image'
       })
+      await context.recordDiagnostic?.(transaction, {
+        key: `migration-artwork:${artworkId}`,
+        scope: 'ITEM',
+        targetType: 'ARTWORK',
+        targetId: String(artworkId),
+        stage: 'PLANNING',
+        code: 'INCOMPLETE_ARTWORK',
+        message: 'Artwork requires an artist userId, externalId, and at least one image'
+      })
     })
     return null
   }
@@ -249,6 +261,16 @@ async function prepareArtworkPlan<TTransaction extends QueueSqlExecutor>(
           status: 'FAILED',
           errorCode: failure.errorCode,
           errorSummary: failure.message
+        })
+        await context.recordDiagnostic?.(transaction, {
+          key: `migration-artwork:${artworkId}`,
+          scope: 'ITEM',
+          targetType: 'ARTWORK',
+          targetId: String(artworkId),
+          stage: 'PLANNING',
+          code: failure.errorCode,
+          message: failure.message,
+          error
         })
       })
       return null
@@ -401,13 +423,31 @@ async function buildPlanInput<TTransaction extends QueueSqlExecutor>(
   }
 }
 
+const activeMigrationFiles = new WeakMap<MigrationArtworkPlan, string>()
+
 async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
   context: MigrationContext,
   dependencies: MigrationExecutorDependencies<TTransaction>,
   plan: MigrationArtworkPlan
 ) {
-  if (['COMPLETED', 'SKIPPED', 'FAILED', 'CANCELLED'].includes(plan.status)) return
+  if (plan.status === 'FAILED') {
+    await context.mutateInTransaction<TTransaction>((transaction) =>
+      recordPlanDiagnostic(
+        context,
+        transaction,
+        plan,
+        plan.errorCode ?? 'PREVIOUS_FAILURE',
+        plan.errorSummary ?? '此前执行遗留的迁移失败检查点',
+        undefined,
+        true,
+        'INHERITED'
+      )
+    )
+    return
+  }
+  if (['COMPLETED', 'SKIPPED', 'CANCELLED'].includes(plan.status)) return
   if (plan.files.every(isSameFilePath)) {
+    activeMigrationFiles.delete(plan)
     await context.mutateInTransaction<TTransaction>((transaction) =>
       dependencies.database.publishArtwork(transaction, {
         itemId: plan.id,
@@ -436,6 +476,7 @@ async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
     for (const file of plan.files) {
       throwIfAborted(context.signal)
       if (isSameFilePath(file)) continue
+      activeMigrationFiles.set(plan, file.id)
       await checkpointFile(context, dependencies, file, 'STAGING')
       const fingerprint = await stageMigrationFile({
         fileSystem: dependencies.fileSystem,
@@ -450,10 +491,12 @@ async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
       await checkpointFile(context, dependencies, file, 'STAGED', fingerprint)
     }
 
+    activeMigrationFiles.delete(plan)
     await checkpointItem(context, dependencies, plan, { status: 'RUNNING', phase: 'VERIFYING_FILES' })
     for (const file of plan.files) {
       throwIfAborted(context.signal)
       if (isSameFilePath(file)) continue
+      activeMigrationFiles.set(plan, file.id)
       const expectedSha256 = requireFileHash(file)
       await publishMigrationFile({
         fileSystem: dependencies.fileSystem,
@@ -464,9 +507,11 @@ async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
       await checkpointFile(context, dependencies, file, 'PUBLISHED')
     }
 
+    activeMigrationFiles.delete(plan)
     await checkpointItem(context, dependencies, plan, { status: 'RUNNING', phase: 'PUBLISHING_DATABASE' })
     for (const file of plan.files) {
       if (isSameFilePath(file)) continue
+      activeMigrationFiles.set(plan, file.id)
       await verifyPreparedMigrationFile({
         fileSystem: dependencies.fileSystem,
         config: dependencies.config,
@@ -497,6 +542,7 @@ async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
   const removeSource = context.payload.safety.transferMode === 'move' || context.payload.safety.cleanupSource
   for (const file of plan.files) {
     throwIfAborted(context.signal)
+    activeMigrationFiles.set(plan, file.id)
     if (removeSource && !isSameFilePath(file)) {
       const expected = fingerprints.get(file.id) ?? requirePersistedFingerprint(file)
       await cleanupPublishedSource({
@@ -511,6 +557,7 @@ async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
     }
     await checkpointFile(context, dependencies, file, 'COMPLETED')
   }
+  activeMigrationFiles.delete(plan)
   await checkpointItem(context, dependencies, plan, { status: 'COMPLETED', phase: 'FINALIZING' })
 }
 
@@ -596,6 +643,17 @@ function finalizeActionRequired<TTransaction extends QueueSqlExecutor>(
         errorSummary: failure.message
       })
     }
+    await context.recordDiagnostic?.(scope.transaction, { key: 'task:action-required', scope: 'TASK', error })
+    if (activePlan)
+      await recordPlanDiagnostic(
+        context,
+        scope.transaction,
+        activePlan,
+        failure.errorCode,
+        failure.message,
+        error,
+        false
+      )
     await scope.pause({
       reason: 'ACTION_REQUIRED',
       message: failure.message,
@@ -635,16 +693,32 @@ function finalizeRetryOrFail<TTransaction extends QueueSqlExecutor>(
         })
       }
     }
+    if (activePlan)
+      await recordPlanDiagnostic(
+        context,
+        scope.transaction,
+        activePlan,
+        failure.errorCode,
+        failure.message,
+        error,
+        !retry
+      )
     if (retry) {
       const now = dependencies.now?.() ?? new Date()
       await scope.retry({
+        diagnostic: extractJobDiagnostic(error),
         availableAt: new Date(now.getTime() + Math.min(30 * 60_000, 30_000 * 2 ** (context.job.attempt - 1))),
         errorCode: failure.jobErrorCode,
         error: failure.message,
         message: '迁移执行异常，等待恢复重试'
       })
     } else {
-      await scope.fail({ errorCode: failure.jobErrorCode, error: failure.message, message: '迁移执行失败' })
+      await scope.fail({
+        diagnostic: extractJobDiagnostic(error),
+        errorCode: failure.jobErrorCode,
+        error: failure.message,
+        message: '迁移执行失败'
+      })
     }
   })
 }
@@ -765,10 +839,10 @@ async function closePlan<TTransaction extends QueueSqlExecutor>(
   context: MigrationContext,
   dependencies: MigrationExecutorDependencies<TTransaction>,
   plan: MigrationArtworkPlan,
-  transition: { status: 'FAILED' | 'CANCELLED'; errorCode: string; errorSummary: string }
+  transition: { status: 'FAILED' | 'CANCELLED'; errorCode: string; errorSummary: string; error?: unknown }
 ) {
-  await context.mutateInTransaction<TTransaction>((transaction) =>
-    dependencies.database.closeItemAndFiles(transaction, {
+  await context.mutateInTransaction<TTransaction>(async (transaction) => {
+    await dependencies.database.closeItemAndFiles(transaction, {
       itemId: plan.id,
       status: transition.status,
       phase: plan.phase,
@@ -776,7 +850,17 @@ async function closePlan<TTransaction extends QueueSqlExecutor>(
       errorCode: transition.errorCode,
       errorSummary: transition.errorSummary
     })
-  )
+    if (transition.status === 'FAILED')
+      await recordPlanDiagnostic(
+        context,
+        transaction,
+        plan,
+        transition.errorCode,
+        transition.errorSummary,
+        transition.error,
+        true
+      )
+  })
   plan.status = transition.status
 }
 
@@ -808,5 +892,49 @@ class PlannedMigrationActionRequiredError extends MigrationActionRequiredError {
   ) {
     super(error.code, error.message, error.fileId)
     this.name = 'PlannedMigrationActionRequiredError'
+  }
+}
+
+async function recordPlanDiagnostic(
+  context: MigrationContext,
+  transaction: QueueSqlExecutor,
+  plan: MigrationArtworkPlan,
+  code: string,
+  message: string,
+  error: unknown,
+  closed: boolean,
+  origin: 'CURRENT' | 'INHERITED' = 'CURRENT'
+) {
+  await context.recordDiagnostic?.(transaction, {
+    key: `migration-item:${plan.id}`,
+    scope: 'ITEM',
+    origin,
+    targetType: 'ARTWORK',
+    targetId: String(plan.artworkId),
+    targetLabel: plan.sourceDirectory ?? String(plan.artworkId),
+    stage: plan.phase,
+    code,
+    message,
+    error,
+    itemAttempt: context.job.attempt
+  })
+  for (const file of plan.files) {
+    const directFailure =
+      activeMigrationFiles.get(plan) === file.id ||
+      (error instanceof MigrationActionRequiredError && error.fileId === file.id)
+    if (file.status === 'COMPLETED' || (!closed && !directFailure)) continue
+    await context.recordDiagnostic?.(transaction, {
+      key: `migration-file:${file.id}`,
+      scope: 'ITEM',
+      origin,
+      targetType: 'MIGRATION_FILE',
+      targetId: file.id,
+      targetLabel: file.sourceRelativePath,
+      stage: plan.phase,
+      code: directFailure ? code : 'PARENT_ITEM_FAILED',
+      message: directFailure ? message : '所属作品迁移失败，文件检查点随之终止',
+      error,
+      itemAttempt: context.job.attempt
+    })
   }
 }

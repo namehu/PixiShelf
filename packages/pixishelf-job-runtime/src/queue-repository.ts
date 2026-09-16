@@ -1,3 +1,5 @@
+import { recordJobDiagnostic, closeJobDiagnosticReport } from './job-diagnostics.ts'
+import { extractJobDiagnostic, sanitizeDiagnosticText, type JobDiagnostic } from '@pixishelf/job-contracts'
 import { randomUUID } from 'node:crypto'
 import type {
   ExecutionLane,
@@ -71,6 +73,7 @@ export interface QueueJobRecord {
   status: JobStatus
   triggerSource: JobTriggerSource
   payload: unknown
+  currentDiagnosticExecutionId?: string | null
   progressData?: JobProgressData | null
   attempt: number
   maxAttempts: number
@@ -114,12 +117,14 @@ export interface CompleteExecutionInput extends ExecutionFence {
 }
 
 export interface FailExecutionInput extends ExecutionFence {
+  diagnostic?: JobDiagnostic | undefined
   errorCode: string
   error: string
   message?: string | null
 }
 
 export interface RetryExecutionInput extends ExecutionFence {
+  diagnostic?: JobDiagnostic | undefined
   availableAt: Date
   errorCode: string
   error: string
@@ -178,6 +183,8 @@ export interface TransactionBoundCompleteInput {
 }
 
 export interface TransactionBoundFailInput {
+  diagnosticComplete?: boolean | undefined
+  diagnostic?: JobDiagnostic | undefined
   errorCode: string
   error: string
   message?: string | null
@@ -231,6 +238,8 @@ interface ExecutingJobRow {
 }
 
 interface OwnedJobTransition {
+  diagnosticComplete?: boolean | undefined
+  diagnostic?: JobDiagnostic | undefined
   status: 'PENDING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'RETRY_WAIT' | 'SKIPPED' | 'CANCELLED'
   eventType: string
   eventLevel: 'INFO' | 'WARN' | 'ERROR'
@@ -448,6 +457,7 @@ export class PostgresQueueRepository {
       }
 
       const executionToken = randomUUID()
+      const currentDiagnosticExecutionId = randomUUID()
       const leaseExpiresAt = new Date(now.getTime() + this.leaseDurationMs)
       const claimedRows = await transaction.$queryRawUnsafe<QueueJobRecord[]>(
         `UPDATE "system_jobs"
@@ -455,6 +465,7 @@ export class PostgresQueueRepository {
            "status" = 'RUNNING',
            "workerId" = $2,
            "leaseToken" = $3::uuid,
+           "currentDiagnosticExecutionId" = $7::uuid,
            "leaseExpiresAt" = $4,
            "heartbeatAt" = $1,
            "attempt" = "attempt" + 1,
@@ -480,7 +491,8 @@ export class PostgresQueueRepository {
         executionToken,
         leaseExpiresAt,
         candidate.id,
-        candidate.status
+        candidate.status,
+        currentDiagnosticExecutionId
       )
       const claimed = claimedRows[0]
       if (!claimed) {
@@ -513,6 +525,7 @@ export class PostgresQueueRepository {
 
       return {
         ...claimed,
+        currentDiagnosticExecutionId,
         status: 'RUNNING',
         workerId,
         leaseToken: executionToken,
@@ -824,6 +837,7 @@ export class PostgresQueueRepository {
   async fail(input: FailExecutionInput): Promise<void> {
     await this.transitionOwnedJob(input, {
       status: 'FAILED',
+      diagnostic: input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode }),
       eventType: 'job.failed',
       eventLevel: 'ERROR',
       message: input.message ?? 'Job failed',
@@ -842,6 +856,7 @@ export class PostgresQueueRepository {
 
     await this.transitionOwnedJob(input, {
       status: 'RETRY_WAIT',
+      diagnostic: input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode }),
       eventType: 'job.retry_scheduled',
       eventLevel: 'WARN',
       message: input.message ?? 'Job retry scheduled',
@@ -1031,6 +1046,8 @@ export class PostgresQueueRepository {
         fail: (input) =>
           finalize({
             status: 'FAILED',
+            diagnosticComplete: input.diagnosticComplete,
+            diagnostic: input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode }),
             eventType: 'job.failed',
             eventLevel: 'ERROR',
             message: input.message ?? 'Job failed',
@@ -1045,6 +1062,9 @@ export class PostgresQueueRepository {
           }
           return finalize({
             status: 'RETRY_WAIT',
+            diagnostic: input.preserveAttempt
+              ? undefined
+              : (input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode })),
             eventType: 'job.retry_scheduled',
             eventLevel: 'WARN',
             message: input.message ?? 'Job retry scheduled',
@@ -1258,8 +1278,10 @@ export class PostgresQueueRepository {
   ): Promise<void> {
     const offsetValues = transition.values
     const messageParameter = `$${6 + offsetValues.length}`
-    const persistedMessage = truncate(redactSensitiveText(transition.message), 4_096)
-    const updatedRows = await transaction.$queryRawUnsafe<Array<{ id: string; attempt: number }>>(
+    const persistedMessage = sanitizeDiagnosticText(transition.message, 4_096)
+    const updatedRows = await transaction.$queryRawUnsafe<
+      Array<{ id: string; attempt: number; currentDiagnosticExecutionId?: string | null }>
+    >(
       `UPDATE "system_jobs"
        SET
          "status" = '${transition.status}',
@@ -1281,7 +1303,7 @@ export class PostgresQueueRepository {
          AND "status" IN ('RUNNING', 'PAUSING', 'CANCELLING')
          AND "leaseExpiresAt" > $5
          ${transition.extraPredicate ?? ''}
-       RETURNING "id", "attempt"`,
+       RETURNING "id", "attempt", "currentDiagnosticExecutionId"`,
       input.jobId,
       input.workerId,
       input.executionToken,
@@ -1293,6 +1315,23 @@ export class PostgresQueueRepository {
     if (updatedRows.length !== 1) {
       throw new JobExecutionFenceError(input.jobId)
     }
+
+    if (transition.diagnostic) {
+      await recordJobDiagnostic(
+        transaction,
+        input.jobId,
+        { key: 'task:failure', scope: 'TASK' },
+        now,
+        transition.diagnostic
+      )
+    }
+    await closeJobDiagnosticReport(
+      transaction,
+      input.jobId,
+      transition.status,
+      now,
+      transition.diagnosticComplete ?? ['COMPLETED', 'FAILED', 'RETRY_WAIT'].includes(transition.status)
+    )
 
     const deleted = await transaction.$executeRawUnsafe(
       `DELETE FROM "job_resource_leases"
@@ -1313,8 +1352,16 @@ export class PostgresQueueRepository {
       level: transition.eventLevel,
       attempt: input.attempt,
       workerId: input.workerId,
-      message: transition.message,
-      data: transition.eventData ?? null,
+      message: persistedMessage,
+      data:
+        transition.diagnostic && updatedRows[0]?.currentDiagnosticExecutionId
+          ? {
+              ...(typeof transition.eventData === 'object' && transition.eventData !== null
+                ? transition.eventData
+                : {}),
+              diagnosticReportId: updatedRows[0].currentDiagnosticExecutionId
+            }
+          : (transition.eventData ?? null),
       now
     })
   }
@@ -1510,6 +1557,16 @@ export class PostgresQueueRepository {
     if (updatedRows.length !== 1) {
       return null
     }
+
+    if (recoveredStatus === 'FAILED' || recoveredStatus === 'RETRY_WAIT') {
+      await recordJobDiagnostic(
+        transaction,
+        executingJob.id,
+        { key: 'task:lease-expired', code: 'WORKER_LEASE_EXPIRED', message: 'Worker 执行租约过期，未确认执行完成。' },
+        now
+      )
+    }
+    await closeJobDiagnosticReport(transaction, executingJob.id, recoveredStatus, now, false)
 
     if (executionLane === 'ARCHIVE_RESOLVE') {
       const intakeStatus =
@@ -1957,7 +2014,7 @@ function deriveLegacyJobProjection(
 }
 
 function sanitizeError(value: string): string {
-  return truncate(redactSensitiveText(value), 8_192)
+  return sanitizeDiagnosticText(value, 8_192)
 }
 
 function sanitizeEventData(value: unknown): unknown {

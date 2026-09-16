@@ -13,6 +13,17 @@ afterEach(async () => {
 })
 
 describe('bounded stable content reads', () => {
+  it('preserves the real filesystem errno when metadata inspection fails', async () => {
+    const root = await fixtureRoot()
+    await expect(
+      readStableFileContent({
+        absolutePath: path.join(root, 'missing.json'),
+        maxBytes: 1024,
+        signal: new AbortController().signal
+      })
+    ).rejects.toMatchObject({ code: 'SOURCE_NOT_READABLE', cause: { code: 'ENOENT' } })
+  })
+
   it('preserves filesystem identity signals above the safe JavaScript integer range', () => {
     const largeIdentity = 9_007_199_254_740_993n
     expect(

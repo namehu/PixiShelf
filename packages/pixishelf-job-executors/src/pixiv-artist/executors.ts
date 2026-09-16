@@ -1,3 +1,4 @@
+import { extractJobDiagnostic, type JobDiagnostic } from '@pixishelf/job-contracts'
 import { createHash } from 'node:crypto'
 import type { Prisma, PrismaClient } from '@pixishelf/db'
 import {
@@ -187,7 +188,7 @@ async function executeArtist(
     })
     const payloadHash = createHash('sha256').update(JSON.stringify(normalized)).digest('hex')
     const stored: { avatar: string | null; background: string | null } = { avatar: null, background: null }
-    const imageFailures: Failure[] = []
+    const imageFailures: Array<Failure & { kind: 'avatar' | 'background'; error: unknown }> = []
     const downloads: Array<{ kind: 'avatar' | 'background'; url: string }> = []
     if ((refreshExisting || isEmpty(eligible.artist.avatar)) && normalized.avatarUrl)
       downloads.push({ kind: 'avatar', url: normalized.avatarUrl })
@@ -211,7 +212,7 @@ async function executeArtist(
         })
       } catch (error) {
         if (context.signal.aborted) throw error
-        imageFailures.push(classifyFailure(error))
+        imageFailures.push({ ...classifyFailure(error), kind: download.kind, error })
       }
     }
 
@@ -254,6 +255,18 @@ async function executeArtist(
       }
       if (Object.keys(update).length > 0) {
         await scope.transaction.artist.update({ where: { id: ref.artist.id }, data: update })
+      }
+      for (const failure of imageFailures) {
+        await context.recordDiagnostic?.(scope.transaction, {
+          key: 'artist:' + payload.artistId + ':' + failure.kind,
+          scope: 'ITEM',
+          targetType: 'ARTIST',
+          targetId: String(payload.artistId),
+          stage: failure.kind === 'avatar' ? 'AVATAR' : 'BACKGROUND',
+          code: failure.code,
+          remoteHost: 'i.pximg.net',
+          error: failure.error
+        })
       }
       const firstFailure = imageFailures[0]
       await scope.transaction.artistExternalRef.update({
@@ -329,6 +342,7 @@ async function finalizeControl(scope: FencedExecutionTransaction<PixivArtistTran
 }
 
 interface Failure {
+  diagnostic: JobDiagnostic
   code: string
   message: string
   retryable: boolean
@@ -337,12 +351,16 @@ interface Failure {
 }
 
 function classifyFailure(error: unknown): Failure {
+  const diagnostic = extractJobDiagnostic(error, {
+    remoteHost: error instanceof PixivArtistImageError ? 'i.pximg.net' : 'www.pixiv.net'
+  })
   const message = (error instanceof Error ? error.message : 'Unknown Pixiv artist enrichment failure').slice(
     0,
     ERROR_MESSAGE_LIMIT
   )
   if (error instanceof PixivArtistRequestError) {
     return {
+      diagnostic,
       code: error.code,
       message,
       retryable: error.retryable,
@@ -351,9 +369,9 @@ function classifyFailure(error: unknown): Failure {
     }
   }
   if (error instanceof PixivArtistImageError) {
-    return { code: error.code, message, retryable: false, jobErrorCode: 'PRECONDITION_FAILED' }
+    return { diagnostic, code: error.code, message, retryable: false, jobErrorCode: 'PRECONDITION_FAILED' }
   }
-  return { code: 'PIXIV_INTERNAL_ERROR', message, retryable: true, jobErrorCode: 'INTERNAL_ERROR' }
+  return { diagnostic, code: 'PIXIV_INTERNAL_ERROR', message, retryable: true, jobErrorCode: 'INTERNAL_ERROR' }
 }
 
 function retryOrFail(
@@ -363,7 +381,13 @@ function retryOrFail(
   message: string
 ): JobExecutionOutcome {
   if (!failure.retryable || context.job.attempt >= context.job.maxAttempts) {
-    return { kind: 'failed', errorCode: failure.jobErrorCode, error: failure.message, message }
+    return {
+      kind: 'failed',
+      diagnostic: failure.diagnostic,
+      errorCode: failure.jobErrorCode,
+      error: failure.message,
+      message
+    }
   }
   const now = dependencies.now?.() ?? new Date()
   const exponentialRetry = new Date(
@@ -371,6 +395,7 @@ function retryOrFail(
   )
   return {
     kind: 'retry',
+    diagnostic: failure.diagnostic,
     availableAt: failure.retryAt && failure.retryAt > exponentialRetry ? failure.retryAt : exponentialRetry,
     errorCode: failure.jobErrorCode,
     error: failure.message,

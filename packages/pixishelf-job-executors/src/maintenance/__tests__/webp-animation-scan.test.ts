@@ -1013,3 +1013,43 @@ function deferred<T>() {
   })
   return { promise, resolve }
 }
+
+it('captures all failures beyond 20 samples in the same bounded checkpoints', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-diagnostics-'))
+  roots.push(root)
+  await writeFile(path.join(root, 'broken.webp'), 'fixture')
+  const images = Array.from({ length: 31 }, (_, i) => ({ id: i + 1, path: 'broken.webp' }))
+  const diagnostics: unknown[] = []
+  const transaction = { image: { updateMany: vi.fn() }, diagnostics }
+  const recordDiagnostic = vi.fn(async (tx: unknown, diagnostic: unknown) => {
+    expect(tx).toBe(transaction)
+    diagnostics.push(diagnostic)
+  })
+  const result = await scanWebpAnimations({
+    database: {
+      image: {
+        count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(31).mockResolvedValueOnce(31),
+        findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null; id?: { gt: number } } }) =>
+          where.webpAnimationStatus === null
+            ? []
+            : images.filter((image) => image.id > (where.id?.gt ?? 0)).slice(0, 20)
+        )
+      }
+    } as never,
+    mutate: (async (operation) => operation(transaction as never)) satisfies RunMaintenanceMutation,
+    recordDiagnostic,
+    signal: new AbortController().signal,
+    progress: vi.fn(),
+    scanRoot: root,
+    detectAnimated: async () => {
+      throw new Error('decoder failed')
+    }
+  })
+  expect(result.failed).toBe(31)
+  expect(result.failedSamples).toHaveLength(20)
+  expect(diagnostics).toHaveLength(31)
+  expect(recordDiagnostic).toHaveBeenLastCalledWith(
+    transaction,
+    expect.objectContaining({ key: 'animation:31', error: expect.any(Error) })
+  )
+})

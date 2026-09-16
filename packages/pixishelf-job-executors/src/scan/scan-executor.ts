@@ -154,6 +154,22 @@ export async function executeScan(
       })
       const failureMessage = await describeFailedMetadataInputs(dependencies, run.id, result.failed)
       await context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
+        if (context.recordDiagnostic) {
+          const failedItems = await transaction.scanRunItem.findMany({ where: { scanRunId: run.id, status: 'FAILED' } })
+          for (const item of failedItems)
+            await context.recordDiagnostic(transaction, {
+              key: item.checkpointKey?.startsWith('inventory-discovery:')
+                ? `discovery:${run.id}:${item.checkpointKey}`
+                : `scan:${run.id}:${item.checkpointKey}`,
+              scope: 'ITEM',
+              origin: 'INHERITED',
+              targetType: 'METADATA',
+              targetId: item.externalId ?? undefined,
+              targetLabel: item.metadataRelativePath ?? item.title ?? item.id,
+              stage: item.action,
+              message: item.errorMessage ?? '此前执行遗留的扫描失败检查点'
+            })
+        }
         await transaction.scanRun.update({
           where: { id: run.id },
           data: {
@@ -422,7 +438,7 @@ async function recordInputFailure(
     Awaited<ReturnType<typeof recordInventoryFailure>>
   >(async (transaction) => {
     const candidate = metadataCandidateFromPath({ relativePath: row.relativePath, absolutePath: row.relativePath })
-    return recordInventoryFailure({
+    const outcome = await recordInventoryFailure({
       transaction,
       runId,
       checkpointOrdinal: row.ordinal,
@@ -435,6 +451,17 @@ async function recordInputFailure(
       parsed,
       now
     })
+    if (outcome.status === 'FAILED')
+      await context.recordDiagnostic?.(transaction, {
+        key: `scan:${runId}:${checkpointKey(row)}`,
+        scope: 'ITEM',
+        targetType: 'METADATA',
+        targetId: candidate?.artworkId,
+        targetLabel: row.relativePath,
+        stage: parsed ? 'FAILED_COLLECT' : 'FAILED_PARSE',
+        error
+      })
+    return outcome
   })
 }
 

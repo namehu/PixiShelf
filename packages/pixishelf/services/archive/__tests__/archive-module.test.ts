@@ -90,10 +90,7 @@ describe('archive module', () => {
     )
     expect(prismaMock.archiveUploaderCatalogItem.updateMany).toHaveBeenCalledWith({
       where: {
-        OR: [
-          { lastArchiveImportId: 'import-central' },
-          { providerKey: 'test-provider', externalId: 'gallery-1' }
-        ]
+        OR: [{ lastArchiveImportId: 'import-central' }, { providerKey: 'test-provider', externalId: 'gallery-1' }]
       },
       data: expect.objectContaining({
         lastArchiveImportId: 'import-central',
@@ -210,10 +207,7 @@ describe('archive module', () => {
     )
     expect(prismaMock.archiveUploaderCatalogItem.updateMany).toHaveBeenCalledWith({
       where: {
-        OR: [
-          { lastArchiveImportId: 'import-central' },
-          { providerKey: 'test-provider', externalId: 'gallery-1' }
-        ]
+        OR: [{ lastArchiveImportId: 'import-central' }, { providerKey: 'test-provider', externalId: 'gallery-1' }]
       },
       data: expect.objectContaining({
         lastArchiveImportId: 'import-central',
@@ -573,7 +567,7 @@ describe('archive module', () => {
         expect.objectContaining({
           sourcePageUrl: 'https://archive.test/s/…',
           byteCount: '1024',
-          errorMessage: '图片处理失败，请根据错误码与失败阶段排查。'
+          errorMessage: 'failed [地址已隐藏] at [路径已隐藏]/item.webp'
         })
       ]
     })

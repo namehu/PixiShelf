@@ -38,6 +38,12 @@ import {
   getBackgroundHistorySnapshots
 } from '@/services/background-task/job-history-service'
 import type { JobDto } from '@pixishelf/job-contracts'
+import {
+  backgroundDiagnosticReportsInputSchema,
+  backgroundDiagnosticItemsInputSchema,
+  listBackgroundDiagnosticReports,
+  listBackgroundDiagnosticItems
+} from '@/services/background-task/job-diagnostic-service'
 import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-service'
 import { cancelPixivArtistEnrichment } from '@/services/pixiv-artist-enrichment-service'
 import { cancelPixivArtworkEnrichment } from '@/services/pixiv-artwork-enrichment-service'
@@ -217,7 +223,7 @@ export const jobRouter = router({
   getRefillMetaSourceStatus: authProcedure.query(async () => {
     if (isCentralDispatcherCutoverEnabled()) return getActiveCentralMaintenanceJob('REFILL_META_SOURCE')
     const job = await JobService.getActiveRefillMetaSourceJob()
-    return job ? toJobDto(job as SystemJobWireRecord) : null
+    return job ? toJobDto({ ...job, diagnosticReports: [] } as SystemJobWireRecord) : null
   }),
 
   cancelRefillMetaSource: adminProcedure.mutation(async () => {
@@ -290,7 +296,7 @@ export const jobRouter = router({
       return jobs.items[0] ?? null
     }
     const job = await JobService.getLatestMediaDerivedTagSyncJob()
-    return job ? toJobDto(job as SystemJobWireRecord) : null
+    return job ? toJobDto({ ...job, diagnosticReports: [] } as SystemJobWireRecord) : null
   }),
 
   startPixivAiDerivedTagSync: adminProcedure
@@ -690,6 +696,14 @@ export const jobRouter = router({
     .query(({ input }) => listBackgroundFailures(input)),
 
   backgroundDetail: adminProcedure.input(jobIdInputSchema).query(({ input }) => getBackgroundJobDetail(input.jobId)),
+
+  backgroundDiagnosticReports: adminProcedure
+    .input(backgroundDiagnosticReportsInputSchema)
+    .query(({ input }) => listBackgroundDiagnosticReports(input)),
+
+  backgroundDiagnosticItems: adminProcedure
+    .input(backgroundDiagnosticItemsInputSchema)
+    .query(({ input }) => listBackgroundDiagnosticItems(input)),
 
   backgroundEvents: adminProcedure
     .input(incrementalJobEventsInputSchema)

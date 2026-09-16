@@ -191,6 +191,7 @@ function operationInput<TPayload extends Record<string, unknown>>(
   return {
     database,
     mutate,
+    ...(context.recordDiagnostic ? { recordDiagnostic: context.recordDiagnostic } : {}),
     ...(context.checkpointInTransaction
       ? {
           checkpoint: <T>(

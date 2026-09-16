@@ -26,6 +26,40 @@ import { MigrationActionRequiredError } from '../types.js'
 import { MemoryMigrationFileSystem } from './memory-file-system.js'
 
 describe('migration executor', () => {
+  it('records the actual failing file and its original errno while retaining retry semantics', async () => {
+    const fixture = executorFixture({
+      selection: { mode: 'ARTWORK_IDS', artworkIds: [1] },
+      pages: [[{ id: 1, deletedAt: null }]],
+      artwork: sourceArtwork(1)
+    })
+    const failure = Object.assign(new Error('disk full'), { code: 'ENOSPC' })
+    vi.spyOn(fixture.fileSystem, 'copyFileExclusive').mockRejectedValue(failure)
+    fixture.context.recordDiagnostic = vi.fn(async () => undefined)
+    await executeMigration(fixture.context, fixture.dependencies)
+    expect(fixture.scope.retry).toHaveBeenCalledOnce()
+    expect(fixture.context.recordDiagnostic).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ targetType: 'MIGRATION_FILE', targetLabel: 'source/123_p0.jpg', error: failure })
+    )
+  })
+
+  it('records every failed artwork beyond the 20 summary samples', async () => {
+    const rows = Array.from({ length: 27 }, (_, index) => ({ id: index + 1, deletedAt: null }))
+    const fixture = executorFixture({
+      selection: { mode: 'ARTWORK_IDS', artworkIds: rows.map((row) => row.id) },
+      pages: [rows, []]
+    })
+    fixture.database.loadArtwork = vi.fn(async (id) => ({ ...canonicalArtwork(id), artistUserId: null }))
+    fixture.context.recordDiagnostic = vi.fn(async () => undefined)
+    await executeMigration(fixture.context, fixture.dependencies)
+    expect(fixture.context.recordDiagnostic).toHaveBeenCalledTimes(27)
+    expect(fixture.context.recordDiagnostic).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ targetId: '27', code: 'INCOMPLETE_ARTWORK' })
+    )
+    expect(fixture.scope.complete).toHaveBeenCalledOnce()
+  })
+
   it('uses bounded strict keyset pages, freezes QUERY selection, and processes artworks one at a time', async () => {
     const selection: MigrationSelection = {
       mode: 'QUERY',

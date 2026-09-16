@@ -6,6 +6,7 @@ import { backgroundJobLabel, backgroundJobTypeLabels, backgroundScanModeLabels }
 import { redactArchiveText } from '@/services/archive/archive-redaction'
 import { redactSensitiveText } from './job-redaction'
 import { dashboardVisibleWhere, unacknowledgedFailureWhere } from './job-failure-policy'
+import { diagnosticSummarySelect, hasPartialFailure } from './job-diagnostic-summary'
 
 const cursorValueSchema = z.object({ createdAt: z.string().datetime(), id: z.string().min(1).max(128) })
 const historyCursorSchema = z
@@ -55,6 +56,7 @@ export const backgroundHistorySnapshotsInputSchema = z.object({
 })
 
 const historySelect = {
+  ...diagnosticSummarySelect,
   id: true,
   type: true,
   status: true,
@@ -81,6 +83,7 @@ function toHistoryItem(record: HistoryRecord) {
     type: record.type as JobType,
     label: backgroundJobLabel(record.type as JobType, record.payload),
     status: record.status,
+    hasPartialFailure: hasPartialFailure(record),
     triggerSource: record.triggerSource,
     parentJobId: record.parentJobId,
     progress: record.progress,
@@ -94,7 +97,9 @@ function toHistoryItem(record: HistoryRecord) {
   }
 }
 
-export type BackgroundHistoryItem = ReturnType<typeof toHistoryItem>
+export type BackgroundHistoryItem = Omit<ReturnType<typeof toHistoryItem>, 'hasPartialFailure'> & {
+  hasPartialFailure?: boolean
+}
 
 function historySearchWhere(search: string): Prisma.SystemJobWhereInput {
   const needle = search.toLocaleLowerCase()

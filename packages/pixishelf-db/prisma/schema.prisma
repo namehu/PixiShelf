@@ -684,6 +684,8 @@ model SystemJob {
   availableAt             DateTime?                @default(now())
   deadlineAt              DateTime?
   workerId                String?                  @db.VarChar(120)
+  currentDiagnosticExecutionId String?             @db.Uuid
+  diagnosticReports       SystemJobDiagnosticReport[]
   leaseToken              String?                  @db.Uuid
   leaseExpiresAt          DateTime?
   createdAt               DateTime                 @default(now())
@@ -2187,4 +2189,54 @@ model DiscoveryCreatorSuppression {
   @@id([providerKey, externalId, artistId])
   @@index([artistId])
   @@map("discovery_creator_suppressions")
+}
+
+model SystemJobDiagnosticReport {
+  id String @id @db.Uuid
+  jobId String
+  job SystemJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attempt Int
+  version Int @default(1)
+  status String @default("OPEN") @db.VarChar(16)
+  outcome String? @db.VarChar(32)
+  entryCount Int @default(0)
+  itemCount Int @default(0)
+  currentCount Int @default(0)
+  inheritedCount Int @default(0)
+  taskFailure Boolean @default(false)
+  complete Boolean @default(false)
+  createdAt DateTime @default(now())
+  closedAt DateTime?
+  expiresAt DateTime
+  expiredAt DateTime?
+  items SystemJobDiagnosticItem[]
+  @@index([jobId, createdAt, id])
+  @@index([status, expiresAt, expiredAt])
+  @@map("system_job_diagnostic_reports")
+}
+
+model SystemJobDiagnosticItem {
+  id BigInt @id @default(autoincrement())
+  reportId String @db.Uuid
+  report SystemJobDiagnosticReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  key String @db.VarChar(240)
+  scope String @db.VarChar(16)
+  origin String @db.VarChar(16)
+  targetType String? @db.VarChar(80)
+  targetId String? @db.VarChar(240)
+  targetLabel String? @db.VarChar(500)
+  stage String? @db.VarChar(80)
+  code String @db.VarChar(80)
+  reasonKey String @db.VarChar(160)
+  message String @db.VarChar(1000)
+  suggestion String @db.VarChar(500)
+  evidence Json
+  remoteHost String? @db.VarChar(253)
+  httpStatus Int?
+  itemAttempt Int?
+  createdAt DateTime @default(now())
+  @@unique([reportId, key])
+  @@index([reportId, id])
+  @@index([reportId, reasonKey, id])
+  @@map("system_job_diagnostic_items")
 }

@@ -116,6 +116,152 @@ const completedArchiveItem = {
 }
 
 describe('archive executor', () => {
+  it.each([13, 27])('records all %i media failures exactly once without truncation', async (count) => {
+    const transaction = createTransaction()
+    const items = Array.from({ length: count }, (_, index) => ({
+      ...archiveItem,
+      id: `item-${index}`,
+      pageIndex: index,
+      expectedFilename: `${index}.jpg`
+    }))
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: count, items })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    transaction.archiveImportItem.groupBy.mockResolvedValue([{ status: 'FAILED', _count: { _all: count } }])
+    const failure = new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'remote failed', {
+      stage: 'MEDIA_STREAM',
+      remoteHost: 'example.test:443',
+      httpStatus: 502,
+      cause: Object.assign(new Error('socket closed'), { code: 'ECONNRESET' })
+    })
+    transaction.archiveImportItem.findMany.mockResolvedValue(
+      items.map((item) => ({
+        ...item,
+        status: 'FAILED',
+        errorCode: failure.code,
+        errorMessage: failure.message,
+        errorStage: failure.stage,
+        remoteHost: failure.remoteHost,
+        attempts: 1
+      }))
+    )
+    const context = createContext(transaction)
+    const recordDiagnostic = vi.fn(async () => undefined)
+    context.recordDiagnostic = recordDiagnostic
+    const deps = dependencies(transaction)
+    deps.config.maxMediaAttempts = 1
+    deps.providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => {
+          throw failure
+        })
+      }
+    ])
+    await executeArchiveImport(context, deps)
+    const current = recordDiagnostic.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { origin?: string }).origin !== 'INHERITED'
+    )
+    expect(current).toHaveLength(count)
+    expect(new Set(current.map((call: unknown[]) => (call[1] as { key: string }).key)).size).toBe(count)
+    expect(recordDiagnostic).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ error: failure, httpStatus: 502, stage: 'MEDIA_STREAM', itemAttempt: 1 })
+    )
+    const inherited = recordDiagnostic.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { origin?: string }).origin === 'INHERITED'
+    )
+    expect(inherited).toHaveLength(0)
+    expect(transaction.archiveImportItem.findMany).not.toHaveBeenCalled()
+  })
+
+  it('freezes 205 inherited failures in three bounded transactions before finalization', async () => {
+    const { transaction, context } = inheritedDiagnosticFixture(205)
+    const batchSizes: number[] = []
+    let count = 0
+    context.recordDiagnostic = vi.fn(async () => {
+      count += 1
+    })
+    const mutate = context.mutateInTransaction
+    context.mutateInTransaction = (async (operation) => {
+      const before = count
+      const result = await mutate(operation)
+      if (count > before) batchSizes.push(count - before)
+      return result
+    }) as typeof context.mutateInTransaction
+    await executeArchiveImport(context, dependencies(transaction))
+    expect(batchSizes).toEqual([100, 100, 5])
+    expect(context.recordDiagnostic).toHaveBeenCalledTimes(205)
+    expect(transaction.archiveImportItem.findMany).toHaveBeenCalledTimes(3)
+    expect(context.__scope.fail).toHaveBeenCalledOnce()
+  })
+
+  it('stops inherited freezing at a committed batch on shutdown and freezes the full set on the next execution', async () => {
+    const controller = new AbortController()
+    const { transaction, context } = inheritedDiagnosticFixture(205, controller.signal)
+    let count = 0
+    context.recordDiagnostic = vi.fn(async () => {
+      count += 1
+    })
+    const mutate = context.mutateInTransaction
+    context.mutateInTransaction = (async (operation) => {
+      const result = await mutate(operation)
+      if (count === 100) controller.abort({ reason: 'SHUTDOWN' })
+      return result
+    }) as typeof context.mutateInTransaction
+    await executeArchiveImport(context, dependencies(transaction))
+    expect(context.recordDiagnostic).toHaveBeenCalledTimes(100)
+    expect(transaction.archiveImportItem.findMany).toHaveBeenCalledTimes(1)
+    expect(context.__scope.release).toHaveBeenCalledOnce()
+    expect(context.__scope.fail).not.toHaveBeenCalled()
+    const resumed = createContext(transaction)
+    resumed.recordDiagnostic = vi.fn(async () => undefined)
+    await executeArchiveImport(resumed, dependencies(transaction))
+    expect(resumed.recordDiagnostic).toHaveBeenCalledTimes(205)
+    expect(resumed.recordDiagnostic).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ origin: 'INHERITED', targetId: 'old-204' })
+    )
+  })
+
+  it('marks the report incomplete when a later inherited batch cannot be read', async () => {
+    const { transaction, context } = inheritedDiagnosticFixture(205)
+    const read = transaction.archiveImportItem.findMany.getMockImplementation() as (
+      ...args: unknown[]
+    ) => Promise<unknown>
+    let batches = 0
+    transaction.archiveImportItem.findMany.mockImplementation(async (...args: unknown[]) => {
+      batches += 1
+      if (batches === 2) throw new Error('checkpoint read failed')
+      return read(...args)
+    })
+    context.recordDiagnostic = vi.fn(async () => undefined)
+    await executeArchiveImport(context, dependencies(transaction))
+    expect(context.recordDiagnostic).toHaveBeenCalledTimes(100)
+    expect(context.__scope.fail).toHaveBeenCalledWith(expect.objectContaining({ diagnosticComplete: false }))
+    expect(transaction.archiveImportItem.findMany).toHaveBeenCalledTimes(2)
+  })
+
+  it('copies old failed checkpoints as inherited when a later execution processes no new media', async () => {
+    const transaction = createTransaction()
+    const failed = {
+      ...archiveItem,
+      status: 'FAILED',
+      attempts: 3,
+      errorCode: 'REMOTE_NOT_FOUND',
+      errorMessage: 'previously missing'
+    }
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [failed] })
+    transaction.archiveImportItem.groupBy.mockResolvedValue([{ status: 'FAILED', _count: { _all: 1 } }])
+    transaction.archiveImportItem.findMany.mockResolvedValue([failed])
+    const context = createContext(transaction)
+    context.recordDiagnostic = vi.fn(async () => undefined)
+    await executeArchiveImport(context, dependencies(transaction))
+    expect(context.recordDiagnostic).toHaveBeenCalledExactlyOnceWith(
+      transaction,
+      expect.objectContaining({ origin: 'INHERITED', code: 'REMOTE_NOT_FOUND', message: 'previously missing' })
+    )
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     publishMock.mockResolvedValue({ artworkId: 42, revisionId: 'import-1', archivePath: 'sources/test/42' })
@@ -690,4 +836,24 @@ function createContext(
     progress: ReturnType<typeof vi.fn<(update: ExecutionProgressUpdate) => Promise<void>>>
     __scope: typeof scope
   }
+}
+
+function inheritedDiagnosticFixture(count: number, signal = new AbortController().signal) {
+  const transaction = createTransaction()
+  const items = Array.from({ length: count }, (_, index) => ({
+    ...archiveItem,
+    id: `old-${index}`,
+    pageIndex: index,
+    status: 'FAILED' as const,
+    attempts: 3,
+    errorCode: 'REMOTE_NOT_FOUND',
+    errorMessage: 'previous failure'
+  }))
+  transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: count, items })
+  transaction.archiveImportItem.groupBy.mockResolvedValue([{ status: 'FAILED', _count: { _all: count } }])
+  transaction.archiveImportItem.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) =>
+    items.filter((item) => where.id.in.includes(item.id))
+  )
+  const context = createContext(transaction, [], signal)
+  return { transaction, context }
 }

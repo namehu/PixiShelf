@@ -147,6 +147,15 @@ export async function executeVideoMediaProbe(
               where: { imageId: item.imageId, probeStatus: 'PROBING' },
               data: { probeStatus: 'FAILED', probeUpdatedAt: new Date(), probeError: message }
             })
+            await context.recordDiagnostic?.(transaction, {
+              key: 'probe:' + item.imageId,
+              scope: 'ITEM',
+              targetType: 'IMAGE',
+              targetId: String(item.imageId),
+              targetLabel: item.image.path,
+              stage: 'PROBE',
+              error
+            })
           })
           activeImageId = null
           result.probe.failed += 1

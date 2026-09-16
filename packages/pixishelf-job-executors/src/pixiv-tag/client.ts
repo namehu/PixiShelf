@@ -21,7 +21,10 @@ const responseSchema = z
       .object({
         // Pixiv uses [] (not {}) when a tag has no translations. Accept only the
         // empty tuple so a future non-empty array still fails closed as a schema change.
-        tagTranslation: z.union([z.record(z.string(), translationSchema), z.tuple([])]).nullable().optional(),
+        tagTranslation: z
+          .union([z.record(z.string(), translationSchema), z.tuple([])])
+          .nullable()
+          .optional(),
         pixpedia: z
           .object({
             abstract: z.string().nullable().optional(),
@@ -45,13 +48,16 @@ export interface NormalizedPixivTagMetadata {
 }
 
 export class PixivTagRequestError extends Error {
+  readonly status: number | undefined
   constructor(
     message: string,
     readonly code: string,
     readonly retryable: boolean,
-    readonly retryAt?: Date
+    readonly retryAt?: Date,
+    readonly diagnosticOptions?: { cause?: unknown; status?: number }
   ) {
-    super(message)
+    super(message, diagnosticOptions)
+    this.status = diagnosticOptions?.status
     this.name = 'PixivTagRequestError'
   }
 }
@@ -84,14 +90,27 @@ export async function fetchPixivTagMetadata(input: {
         'Pixiv 标签接口触发限流',
         'PIXIV_RATE_LIMITED',
         true,
-        parseRetryAfter(response.headers.get('retry-after'), now())
+        parseRetryAfter(response.headers.get('retry-after'), now()),
+        { status: 429 }
       )
     }
     if (response.status >= 500) {
-      throw new PixivTagRequestError(`Pixiv 标签接口暂时不可用（${response.status}）`, 'PIXIV_UPSTREAM_ERROR', true)
+      throw new PixivTagRequestError(
+        `Pixiv 标签接口暂时不可用（${response.status}）`,
+        'PIXIV_UPSTREAM_ERROR',
+        true,
+        undefined,
+        { status: response.status }
+      )
     }
     if (!response.ok) {
-      throw new PixivTagRequestError(`Pixiv 标签接口请求失败（${response.status}）`, 'PIXIV_REQUEST_REJECTED', false)
+      throw new PixivTagRequestError(
+        `Pixiv 标签接口请求失败（${response.status}）`,
+        'PIXIV_REQUEST_REJECTED',
+        false,
+        undefined,
+        { status: response.status }
+      )
     }
 
     const contentLength = Number(response.headers.get('content-length'))
@@ -165,12 +184,16 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, url: URL, signal: Abort
   } catch (error) {
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : error
     if (timeoutSignal.aborted) {
-      throw new PixivTagRequestError('Pixiv 标签接口请求超时', 'PIXIV_REQUEST_TIMEOUT', true)
+      throw new PixivTagRequestError('Pixiv 标签接口请求超时', 'PIXIV_REQUEST_TIMEOUT', true, undefined, {
+        cause: error
+      })
     }
     throw new PixivTagRequestError(
       error instanceof Error ? error.message : 'Pixiv 标签接口网络请求失败',
       'PIXIV_NETWORK_ERROR',
-      true
+      true,
+      undefined,
+      { cause: error }
     )
   }
 }

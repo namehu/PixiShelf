@@ -463,3 +463,53 @@ function context(payload: unknown, overrides: Record<string, unknown> = {}) {
     ...overrides
   }
 }
+
+it('records avatar and background failures separately while preserving completed PARTIAL status', async () => {
+  const recordDiagnostic = vi.fn()
+  const complete = vi.fn()
+  const transaction = {
+    artistExternalRef: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'ref-1', artist: { id: 1, avatar: null, backgroundImg: null } }),
+      update: vi.fn()
+    }
+  }
+  const [registration] = createPixivArtistExecutorRegistrations({
+    database: {
+      artistExternalRef: { findFirst: vi.fn().mockResolvedValue({ artist: { avatar: null, backgroundImg: null } }) }
+    } as never,
+    pixivDataRoot: '/pixiv-data',
+    sleep: async () => undefined,
+    fetchImpl: (async (url: string | URL) =>
+      String(url).includes('/ajax/user/')
+        ? new Response(
+            JSON.stringify({
+              error: false,
+              body: {
+                userId: '101',
+                name: 'Artist',
+                imageBig: 'https://i.pximg.net/avatar.jpg',
+                background: { url: 'https://i.pximg.net/bg.jpg' }
+              }
+            })
+          )
+        : new Response('', { status: 503 })) as typeof fetch
+  })
+  await registration!.execute(
+    context(
+      { mode: 'ARTIST', artistId: 1, expectedExternalRefId: 'ref-1', expectedPixivUserId: '101', force: false },
+      {
+        recordDiagnostic,
+        finalizeInTransaction: async (operation: (scope: unknown) => Promise<void>) => {
+          await operation({ transaction, executionStatus: 'RUNNING', controlStatus: 'CONTINUE', complete })
+          return { kind: 'transactionally-finalized' }
+        }
+      }
+    ) as never
+  )
+  expect(recordDiagnostic).toHaveBeenCalledTimes(2)
+  expect(recordDiagnostic.mock.calls.map((call) => call[1].stage)).toEqual(['AVATAR', 'BACKGROUND'])
+  expect(recordDiagnostic.mock.calls.every((call) => call[0] === transaction)).toBe(true)
+  expect(complete).toHaveBeenCalledWith(
+    expect.objectContaining({ result: expect.objectContaining({ status: 'PARTIAL' }) })
+  )
+})

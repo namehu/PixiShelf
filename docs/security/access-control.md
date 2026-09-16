@@ -296,3 +296,9 @@ Worker 在媒体根创建并读取 `.pixishelf-root`，App 原媒体仍默认只
 多上传者标题条件使用互斥的 `uploaders: [{ uid, displayName? }]`，最多 10 项；只接受正整数 UID，禁止混填旧 UID/NAME 字段。UID 集合规范化后构造固定 OR 搜索表达式，禁止任意搜索表达式输入，完整多账号查询不得超过 200 字符；展示名称不进入远端表达式。无法解析的新增名称在多账号模式下阻止保存，不能扩大权限或删除已有筛选条件。
 
 发现来源的 `archiveSearch.setDefaultCreators`、`bindCreators`、`cancelPendingCreators` 为管理写接口，`listPendingCreators` 为认证读取。批量操作的操作者使用会话 userId，不信任客户端传入的作品身份；来源 Catalog ID 必须属于指定来源并匹配查询。待生效列表与发现列表的标题和艺术家名称沿用隐私展示组件。
+
+## 后台任务诊断
+
+job.backgroundDiagnosticReports 与 job.backgroundDiagnosticItems 均使用 adminProcedure，会话必须有效；服务层校验任务存在、报告属于请求中的任务，不能用另一任务的 reportId 越过归属检查。所有登录账户仍属于同一管理员信任域，此校验不构成多租户隔离。匿名客户端和 Webhook Token 不能读取诊断。
+
+诊断写入与读取均脱敏，屏蔽完整 URL、凭据、Cookie、Authorization、Token、SQL 和堆栈；主机字段只保留校验后的主机/端口；绝对路径隐藏目录，仅保留 basename 辅助定位，目标和错误详情继续使用隐私敏感文本包装。关闭报告达到 expiresAt 后，API 隐藏证据，即使物理清理尚未完成。SSE 只携带摘要与报告标识，逐项证据经受保护接口按需读取。隐私模式遮蔽目标名称/路径和错误详情，但不替代鉴权。详见[后台任务失败诊断](../features/background-job-diagnostics.md)。

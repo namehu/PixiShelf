@@ -1,4 +1,4 @@
-import type { JobEventLevel, JobProgressData } from '@pixishelf/job-contracts'
+import type { JobDiagnosticInput, JobEventLevel, JobProgressData } from '@pixishelf/job-contracts'
 import type { Prisma, PrismaClient } from '@pixishelf/db'
 
 export type MaintenanceDatabase = Pick<
@@ -15,7 +15,8 @@ export type MaintenanceDatabase = Pick<
   | 'tag'
   | 'triggerLog'
   | 'systemJobEvent'
->
+> &
+  Partial<Pick<PrismaClient, 'systemJobDiagnosticReport' | 'systemJobDiagnosticItem'>>
 
 export type MaintenanceTransaction = Prisma.TransactionClient
 
@@ -44,6 +45,7 @@ export type RunMaintenanceProgressMutation = <T>(
 export interface MaintenanceOperationInput {
   database: MaintenanceDatabase
   mutate: RunMaintenanceMutation
+  recordDiagnostic?: (transaction: MaintenanceTransaction, input: JobDiagnosticInput) => Promise<void>
   checkpoint?: RunMaintenanceProgressMutation
   signal: AbortSignal
   progress(update: MaintenanceProgress): Promise<void>

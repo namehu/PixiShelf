@@ -210,3 +210,11 @@ CI 当前没有明确执行：
 测试失败不能通过删除断言、扩大 mock 或跳过高风险路径来“修复”。如果失败是既有问题，需要提供可复现证据，并证明本次变更没有扩大影响。
 
 涉及 migration、媒体写入、部署和破坏性工作流的恢复证据以[备份与恢复基线](../operations/backup-and-recovery.md)为准。
+
+## 统一失败诊断验收
+
+诊断变更同时覆盖 Job contract、queue/runtime、executor、migration 与管理界面，应按上文矩阵合并验证范围。必测不变量包括：每次 claim 独立报告（含 preserveAttempt）、旧 callback 不写入新执行、CURRENT 优先于 INHERITED 且同 key 不重复计数、检查点与诊断同事务、租约失效回滚、取消/关联终止不冒充新失败、13 项与超过 20 项完整记录、归档每 100 项分批及中断后报告不完整标记。
+
+查询与生命周期还需验证报告归属/未登录拒绝、报告与对象游标分页、原因分组、原始错误消息和 errno/HTTP 保留且敏感内容脱敏、旧数据仅样例/检查点的明确限制、90 天清理边界、dry-run 零删除、跨 5,000 项清理和中断恢复，以及过期后保留报告头但不可绕过 legacy 入口读取证据。真实浏览器需检查敏感文本的隐私显示及 SSE 摘要边界。
+
+测试命令通过不等于生产升级或恢复演练完成；交付须单列隔离 PostgreSQL migration/租约/清理测试、App/Worker 构建与生产演练的执行结果和缺口。详见[后台任务失败诊断](../features/background-job-diagnostics.md)。

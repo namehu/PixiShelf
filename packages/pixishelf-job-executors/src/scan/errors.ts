@@ -15,9 +15,10 @@ export class ScanExecutorError extends Error {
   constructor(
     readonly code: ScanExecutorErrorCode,
     message: string,
-    readonly recoverable = false
+    readonly recoverable = false,
+    options?: ErrorOptions
   ) {
-    super(message)
+    super(message, options)
     this.name = 'ScanExecutorError'
   }
 }

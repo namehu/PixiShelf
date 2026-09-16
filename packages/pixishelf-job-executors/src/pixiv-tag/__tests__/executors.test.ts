@@ -442,3 +442,40 @@ function context(payload: unknown, overrides: Record<string, unknown> = {}) {
     ...overrides
   }
 }
+
+it('records a failed cover in the successful partial finalization transaction', async () => {
+  const tag = { id: 7, name_zh: null, name_en: null, abstract: null, image: null, translateType: null }
+  const transaction = {
+    tag: { findFirst: vi.fn().mockResolvedValue(tag), update: vi.fn() },
+    tagExternalMetadata: { upsert: vi.fn() }
+  }
+  const recordDiagnostic = vi.fn()
+  const [registration] = createPixivTagExecutorRegistrations({
+    database: { tag: { findFirst: vi.fn().mockResolvedValue(tag) } } as never,
+    pixivDataRoot: '/pixiv-data',
+    sleep: async () => undefined,
+    fetchImpl: (async (url: string | URL) =>
+      String(url).includes('www.pixiv.net')
+        ? new Response(
+            JSON.stringify({
+              error: false,
+              body: { tagTranslation: [], pixpedia: { image: 'https://i.pximg.net/cover.jpg' } }
+            })
+          )
+        : new Response('', { status: 503 })) as typeof fetch
+  })
+  const outcome = await registration!.execute(
+    context(
+      { mode: 'TAG', tagId: 7, expectedName: 'original', force: false },
+      { recordDiagnostic, finalizeInTransaction: finalizeWith(transaction) }
+    ) as never
+  )
+  expect(outcome.kind).toBe('transactionally-finalized')
+  expect(recordDiagnostic).toHaveBeenCalledExactlyOnceWith(
+    transaction,
+    expect.objectContaining({ key: 'tag:7:cover', stage: 'COVER', error: expect.objectContaining({ status: 503 }) })
+  )
+  expect(transaction.tagExternalMetadata.upsert).toHaveBeenCalledWith(
+    expect.objectContaining({ create: expect.objectContaining({ status: 'PARTIAL' }) })
+  )
+})

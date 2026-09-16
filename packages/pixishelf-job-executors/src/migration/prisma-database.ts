@@ -529,6 +529,8 @@ function mapPlan(item: Prisma.MigrationJobItemGetPayload<{ include: typeof itemW
     status: item.status,
     phase: item.phase,
     attempt: item.attempt,
+    errorCode: item.errorCode,
+    errorSummary: item.errorSummary,
     sourceDirectory: item.sourceDirectory,
     targetDirectory: item.targetDirectory,
     files: item.files.map((file) => ({
