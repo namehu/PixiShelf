@@ -17,6 +17,22 @@ sources:
 
 # 归档收件箱
 
+## 下载明细地址
+
+下载明细逐项显示完整图片页地址和最近记录的实际下载地址，支持复制与打开。下载地址来自 Provider 收到成功媒体响应后的最终 URL，保留路径、端口和 query；记录发生在流传输与图片校验之前，因此这两个阶段失败仍可查看地址。记录同时显示尝试次数、时间及可能过期的提示。请求尚未成功建立、旧版本未记录或地址无效时显示“尚未记录”，不能从远端主机名反推原地址。旧记录可打开图片页排查，或重试此图生成新的下载地址。
+
+尚未升级时，可在生产数据库执行以下只读查询，替换任务 `jobId`，读取失败项的完整图片页地址。页面编号为零起始 `pageIndex + 1`；旧数据库没有实际下载地址，不能仅凭 `remoteHost` 还原。
+
+```sql
+SELECT i."pageIndex" + 1 AS page, i."sourcePageUrl", i."remoteHost", i."errorMessage"
+FROM archive_import_items i
+JOIN archive_imports a ON a.id = i."archiveImportId"
+WHERE a."systemJobId" = '<jobId>' AND i.status = 'FAILED'
+ORDER BY i."pageIndex";
+```
+
+`20260916200000_archive_item_download_urls` 为 `ArchiveImportItem` 增加可空 `lastDownloadUrl`、`lastDownloadAt`、`lastDownloadAttempt`；不回填历史直链。新尝试领取时清空旧记录，响应后在任务租约保护下写入，每项仅保留最近一次。部署需先按备份恢复基线建立检查点并执行 migration deploy，再升级 App 与 Worker。回退应用时可保留这三个可空字段，不应通过删列恢复。数据库中完整地址属于敏感诊断数据，仅在认证下载明细返回，普通事件和错误继续脱敏。
+
 归档收件箱把 URL 采集、远端解析和媒体写入组织为可恢复的持久流程。管理员可以持续追加链接，无需等待上一条解析完成；界面默认“解析并归档”，新作品解析成功后自动入队，也可选择“仅解析”。每个作品仍对应一个独立归档任务并在媒体写通道中串行执行。
 
 精确字段、状态和 payload 以 Prisma、Zod 与任务契约为准。本文说明用户流程、资源边界、生命周期和运维不变量。

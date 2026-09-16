@@ -401,6 +401,9 @@ async function downloadArchiveItem(input: {
       data: {
         status: 'DOWNLOADING',
         attempts: { increment: 1 },
+        lastDownloadUrl: null,
+        lastDownloadAt: null,
+        lastDownloadAttempt: null,
         startedAt: input.now(),
         finishedAt: null,
         errorCode: null,
@@ -426,6 +429,14 @@ async function downloadArchiveItem(input: {
       maxConcurrentDownloads: input.mediaConcurrency,
       onPhase: (phase) => input.transferMeter.markPhase(input.item.id, phase)
     })
+    // The response can fail while its observation is committed, before the
+    // storage consumer attaches its stream error handler.
+    let remoteStreamError = remote.stream.errored ?? undefined
+    const captureRemoteError = (error: Error) => {
+      remoteStreamError ??= error
+    }
+    remote.stream.on('error', captureRemoteError)
+    remote.stream.once('close', () => remote.stream.removeListener('error', captureRemoteError))
     input.transferMeter.beginDownload(input.item.id, remote.contentLength)
     const abortRemoteStream = () =>
       remote.stream.destroy(
@@ -437,6 +448,30 @@ async function downloadArchiveItem(input: {
     else input.signal.addEventListener('abort', abortRemoteStream, { once: true })
     let stored
     try {
+      const downloadUrl = observedDownloadUrl(remote.downloadUrl)
+      if (downloadUrl !== null) {
+        await input.context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
+          const observed = await transaction.archiveImportItem.updateMany({
+            where: {
+              id: input.item.id,
+              archiveImportId: input.archiveImport.id,
+              status: 'DOWNLOADING',
+              attempts: attempt
+            },
+            data: { lastDownloadUrl: downloadUrl, lastDownloadAt: input.now(), lastDownloadAttempt: attempt }
+          })
+          if (observed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档媒体下载响应检查点已变化')
+        })
+      }
+      throwIfAborted(input.signal)
+      if (remoteStreamError) {
+        throw new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', '远端归档媒体响应后连接中断', {
+          cause: remoteStreamError,
+          recoverable: true,
+          stage: 'MEDIA_STREAM',
+          remoteHost: remote.remoteHost
+        })
+      }
       stored = await storeArchiveRemoteMedia({
         remote,
         stagingDirectory: input.stagingDirectory,
@@ -1010,5 +1045,17 @@ function validateDependencies(dependencies: ArchiveExecutorDependencies): void {
     if (value !== undefined && (!Number.isSafeInteger(value) || value <= 0)) {
       throw new Error(`归档执行器配置 ${name} 必须是正安全整数`)
     }
+  }
+}
+
+function observedDownloadUrl(value: string | undefined): string | null {
+  if (!value || value.trim() !== value) return null
+  try {
+    const parsed = new URL(value)
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && !parsed.username && !parsed.password
+      ? value
+      : null
+  } catch {
+    return null
   }
 }

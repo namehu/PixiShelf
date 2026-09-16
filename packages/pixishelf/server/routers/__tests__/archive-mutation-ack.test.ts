@@ -20,6 +20,22 @@ const authorized = {
 } as never
 
 describe('archive mutation acknowledgement contract', () => {
+  it('does not expose item addresses without authentication', async () => {
+    const caller = archiveRouter.createCaller({
+      session: null,
+      user: null,
+      userId: null,
+      headers: new Headers()
+    } as never)
+    await expect(caller.listTaskItems({ taskId: 'task-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(mocks.listTaskItems).not.toHaveBeenCalled()
+  })
+
+  it('allows authenticated administrators to inspect item addresses', async () => {
+    const result = { items: [{ sourcePageUrl: 'https://e-hentai.org/s/token/1-1' }] }
+    mocks.listTaskItems.mockResolvedValueOnce(result)
+    await expect(archiveRouter.createCaller(authorized).listTaskItems({ taskId: 'task-1' })).resolves.toEqual(result)
+  })
   beforeEach(() => {
     vi.clearAllMocks()
     const legacyUnsafeTaskView = {

@@ -182,7 +182,7 @@ describe('EHentaiProvider resolution', () => {
         status: 200,
         headers: { 'content-type': 'image/jpeg', 'content-length': '3' },
         stream: Readable.from(Buffer.from('img')),
-        url: 'https://cdn.hath.network/image.jpg'
+        url: 'https://final.hath.network:2443/redirected/image.jpg?key=actual-download'
       }))
     }
     const phases: string[] = []
@@ -204,7 +204,12 @@ describe('EHentaiProvider resolution', () => {
     )
 
     expect(phases).toEqual(['RESOLVING_SOURCE_PAGE', 'WAITING_MEDIA_RESPONSE'])
-    expect(remote).toMatchObject({ contentLength: 3, quality: 'DISPLAY' })
+    expect(remote).toMatchObject({
+      contentLength: 3,
+      quality: 'DISPLAY',
+      downloadUrl: 'https://final.hath.network:2443/redirected/image.jpg?key=actual-download'
+    })
+    expect(http.request).toHaveBeenCalledWith('https://cdn.hath.network/image.jpg', expect.any(Object))
   })
 })
 

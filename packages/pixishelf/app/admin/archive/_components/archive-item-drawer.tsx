@@ -1,5 +1,7 @@
 'use client'
 
+import { ArchiveItemAddresses } from './archive-item-addresses'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
@@ -355,9 +357,12 @@ function ArchiveItemCard({
         )}
       </div>
 
-      <p className="break-all text-sm text-muted-foreground">
-        图片页来源：<PrivacySensitiveText>{item.sourcePageUrl}</PrivacySensitiveText>
-      </p>
+      <ArchiveItemAddresses
+        sourcePageUrl={item.sourcePageUrl}
+        lastDownloadUrl={item.lastDownloadUrl}
+        lastDownloadAt={item.lastDownloadAt}
+        lastDownloadAttempt={item.lastDownloadAttempt}
+      />
 
       <p className="break-all text-xs text-muted-foreground">
         预期文件名：<PrivacySensitiveText>{item.expectedFilename}</PrivacySensitiveText>

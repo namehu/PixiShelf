@@ -10,7 +10,7 @@ import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
-import { redactArchiveUrl } from './archive-redaction'
+import { archiveItemUrl } from './archive-item-url'
 import { ArchiveError } from './errors'
 import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from './archive-coordination'
 import type { ArchiveItemStatusFilter, ArchiveTaskAction } from './types'
@@ -48,6 +48,9 @@ export class ArchiveModule {
         id: true,
         pageIndex: true,
         sourcePageUrl: true,
+        lastDownloadUrl: true,
+        lastDownloadAt: true,
+        lastDownloadAttempt: true,
         expectedFilename: true,
         status: true,
         attempts: true,
@@ -74,7 +77,10 @@ export class ArchiveModule {
       items: items.map((item) => ({
         id: item.id,
         pageIndex: item.pageIndex,
-        sourcePageUrl: redactArchiveUrl(item.sourcePageUrl),
+        sourcePageUrl: archiveItemUrl(item.sourcePageUrl),
+        lastDownloadUrl: archiveItemUrl(item.lastDownloadUrl),
+        lastDownloadAt: item.lastDownloadAt?.toISOString() ?? null,
+        lastDownloadAttempt: item.lastDownloadAttempt ?? null,
         expectedFilename: item.expectedFilename,
         status: item.status,
         attempts: item.attempts,

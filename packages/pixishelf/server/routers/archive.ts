@@ -34,7 +34,7 @@ export const archiveRouter = router({
     .input(archiveTaskListSchema)
     .query(({ input }) => runArchiveOperation(() => listArchiveTasks(input))),
 
-  listTaskItems: authProcedure
+  listTaskItems: adminProcedure
     .input(
       z.object({
         taskId: z.string().min(1),

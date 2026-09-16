@@ -1189,6 +1189,9 @@ model ArchiveImportItem {
   archiveImportId  String
   pageIndex        Int
   sourcePageUrl    String                  @db.Text
+  lastDownloadUrl  String?                 @db.Text
+  lastDownloadAt   DateTime?
+  lastDownloadAttempt Int?
   locator          Json
   expectedFilename String
   status           ArchiveImportItemStatus @default(PENDING)

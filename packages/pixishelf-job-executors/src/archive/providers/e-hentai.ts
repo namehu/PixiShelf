@@ -414,6 +414,7 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         return opened
       })
       return {
+        downloadUrl: response.url,
         stream: response.stream,
         mimeType: headerValue(response.headers['content-type'])?.split(';')[0]?.trim() || null,
         contentLength: parseContentLength(response.headers['content-length']),

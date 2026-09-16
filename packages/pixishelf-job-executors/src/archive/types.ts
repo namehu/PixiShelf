@@ -45,6 +45,8 @@ export interface ArchiveProviderMediaItem {
 }
 
 export interface ArchiveRemoteMedia {
+  /** Final successful HTTP response address; persist only in the access-controlled item detail. */
+  downloadUrl?: string
   stream: Readable
   mimeType: string | null
   contentLength: number | null

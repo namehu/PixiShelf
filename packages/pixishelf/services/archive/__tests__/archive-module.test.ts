@@ -504,13 +504,16 @@ describe('archive module', () => {
     })
   })
 
-  it('returns cursor-based task item batches without provider tokens or staging paths', async () => {
+  it('returns full item addresses while keeping errors redacted and staging paths private', async () => {
     prismaMock.archiveImport.findUnique.mockResolvedValue({ id: 'import-1', totalItems: 101 })
     prismaMock.archiveImportItem.findMany.mockResolvedValue([
       {
         id: 'item-51',
         pageIndex: 50,
         sourcePageUrl: 'https://archive.test/s/private-token/42-51',
+        lastDownloadUrl: 'https://media.hath.network:2333/image/51?key=exact-token',
+        lastDownloadAt: new Date('2026-01-01T00:00:00.000Z'),
+        lastDownloadAttempt: 1,
         expectedFilename: '0051',
         status: 'COMPLETED',
         attempts: 1,
@@ -565,14 +568,17 @@ describe('archive module', () => {
       nextCursor: 50,
       items: [
         expect.objectContaining({
-          sourcePageUrl: 'https://archive.test/s/…',
+          sourcePageUrl: 'https://archive.test/s/private-token/42-51',
+          lastDownloadUrl: 'https://media.hath.network:2333/image/51?key=exact-token',
+          lastDownloadAt: '2026-01-01T00:00:00.000Z',
+          lastDownloadAttempt: 1,
           byteCount: '1024',
           errorMessage: 'failed [地址已隐藏] at [路径已隐藏]/item.webp'
         })
       ]
     })
     expect(result.items[0]).not.toHaveProperty('stagedPath')
-    expect(JSON.stringify(result.items[0])).not.toContain('private-token')
+    expect(result.items[0]?.errorMessage).not.toContain('private-token')
     expect(JSON.stringify(result.items[0])).not.toContain('/private/archive')
   })
 

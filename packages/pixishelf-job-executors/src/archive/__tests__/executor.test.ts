@@ -590,6 +590,211 @@ describe('archive executor', () => {
     expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
   })
 
+  it.each([
+    ['https://cdn.hath.network:2443/image.jpg?key=download-token', true],
+    ['http://cdn.hath.network:2244/image.jpg', true],
+    ['https://user:password@cdn.hath.network/image.jpg', false],
+    ['file:///private/image.jpg', false],
+    [undefined, false]
+  ] as const)(
+    'records only a valid observed response URL %s before a later media failure',
+    async (downloadUrl, valid) => {
+      const transaction = createTransaction()
+      transaction.archiveImport.findUnique.mockResolvedValue({
+        ...archiveImport,
+        totalItems: 1,
+        items: [
+          {
+            ...archiveItem,
+            lastDownloadUrl: 'https://old.test/old',
+            lastDownloadAt: new Date(),
+            lastDownloadAttempt: 0
+          }
+        ]
+      })
+      transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+      const context = createContext(transaction)
+      const recordDiagnostic = vi.fn(async () => undefined)
+      context.recordDiagnostic = recordDiagnostic
+      const stream = new PassThrough()
+      const base = dependencies(transaction)
+      const executorDependencies = {
+        ...base,
+        config: { ...base.config, maxMediaAttempts: 1 },
+        providers: new DefaultArchiveMediaProviderRegistry([
+          {
+            key: 'test',
+            openMedia: vi.fn(async () => ({
+              stream,
+              mimeType: 'image/jpeg',
+              contentLength: 1,
+              originalFilename: null,
+              quality: 'ORIGINAL' as const,
+              remoteHost: 'cdn.hath.network',
+              ...(downloadUrl ? { downloadUrl } : {})
+            }))
+          }
+        ])
+      }
+      storageMocks.storeArchiveRemoteMedia.mockRejectedValueOnce(
+        new ArchiveExecutorError('MEDIA_INVALID', 'media validation failed', { stage: 'MEDIA_VALIDATION' })
+      )
+      await executeArchiveImport(context, executorDependencies).catch(() => undefined)
+      const writes = transaction.archiveImportItem.updateMany.mock.calls.map(
+        ([call]) => call as { data: Record<string, unknown> }
+      )
+      expect(writes.find((call) => call.data.status === 'DOWNLOADING')?.data).toMatchObject({
+        lastDownloadUrl: null,
+        lastDownloadAt: null,
+        lastDownloadAttempt: null
+      })
+      const observations = writes.filter((call) => typeof call.data.lastDownloadUrl === 'string')
+      expect(observations).toHaveLength(valid ? 1 : 0)
+      if (valid)
+        expect(observations[0]?.data).toEqual({
+          lastDownloadUrl: downloadUrl,
+          lastDownloadAt: new Date('2026-08-14T01:00:00.000Z'),
+          lastDownloadAttempt: 1
+        })
+      expect(writes.find((call) => call.data.status === 'FAILED')?.data).not.toHaveProperty('lastDownloadUrl')
+      expect(stream.destroyed).toBe(true)
+      expect(
+        JSON.stringify([
+          vi.mocked(context.progress).mock.calls,
+          recordDiagnostic.mock.calls,
+          vi.mocked(context.logger.error).mock.calls
+        ])
+      ).not.toContain('download-token')
+    }
+  )
+
+  it('destroys the response stream and never stores media when its response checkpoint loses ownership', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [archiveItem] })
+    transaction.archiveImportItem.updateMany.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({
+        count: typeof data.lastDownloadUrl === 'string' ? 0 : 1
+      })
+    )
+    const stream = new PassThrough()
+    const base = dependencies(transaction)
+    const providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => ({
+          downloadUrl: 'https://cdn.hath.network:2443/image.jpg',
+          stream,
+          mimeType: 'image/jpeg',
+          contentLength: 1,
+          originalFilename: null,
+          quality: 'ORIGINAL' as const,
+          remoteHost: 'cdn.hath.network'
+        }))
+      }
+    ])
+    await executeArchiveImport(createContext(transaction), {
+      ...base,
+      providers,
+      config: { ...base.config, maxMediaAttempts: 1 }
+    }).catch(() => undefined)
+    expect(storageMocks.storeArchiveRemoteMedia).not.toHaveBeenCalled()
+    expect(stream.destroyed).toBe(true)
+    expect(transaction.archiveImportItem.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) })
+    )
+  })
+
+  it('captures a stream error during the response database checkpoint without losing the observed URL', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [archiveItem] })
+    const stream = new PassThrough()
+    const reset = Object.assign(new Error('connection reset'), { code: 'ECONNRESET' })
+    transaction.archiveImportItem.updateMany.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      if (typeof data.lastDownloadUrl === 'string') {
+        stream.destroy(reset)
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      return { count: 1 }
+    })
+    const context = createContext(transaction)
+    const recordDiagnostic = vi.fn(async () => undefined)
+    context.recordDiagnostic = recordDiagnostic
+    const base = dependencies(transaction)
+    const downloadUrl = 'https://cdn.hath.network:2443/image.jpg?key=observed'
+    const providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => ({
+          downloadUrl,
+          stream,
+          mimeType: 'image/jpeg',
+          contentLength: 1,
+          originalFilename: null,
+          quality: 'ORIGINAL' as const,
+          remoteHost: 'cdn.hath.network'
+        }))
+      }
+    ])
+    await executeArchiveImport(context, { ...base, providers, config: { ...base.config, maxMediaAttempts: 1 } }).catch(
+      () => undefined
+    )
+    expect(storageMocks.storeArchiveRemoteMedia).not.toHaveBeenCalled()
+    expect(transaction.archiveImportItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ lastDownloadUrl: downloadUrl, lastDownloadAttempt: 1 })
+      })
+    )
+    expect(recordDiagnostic).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ stage: 'MEDIA_STREAM', error: expect.objectContaining({ cause: reset }) })
+    )
+    expect(stream.listenerCount('error')).toBe(0)
+  })
+
+  it('clears previous download observations when the next request fails before a response', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({
+      ...archiveImport,
+      totalItems: 1,
+      items: [
+        {
+          ...archiveItem,
+          attempts: 1,
+          lastDownloadUrl: 'https://old.test/old',
+          lastDownloadAt: new Date(),
+          lastDownloadAttempt: 1
+        }
+      ]
+    })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    const base = dependencies(transaction)
+    const providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => {
+          throw new ArchiveExecutorError('INTERNAL', 'connection timed out', {
+            recoverable: true,
+            stage: 'MEDIA_REQUEST'
+          })
+        })
+      }
+    ])
+    await executeArchiveImport(createContext(transaction), {
+      ...base,
+      providers,
+      config: { ...base.config, maxMediaAttempts: 2 }
+    }).catch(() => undefined)
+    const writes = transaction.archiveImportItem.updateMany.mock.calls.map(
+      ([call]) => call as { data: Record<string, unknown> }
+    )
+    expect(writes.find((call) => call.data.status === 'DOWNLOADING')?.data).toMatchObject({
+      lastDownloadUrl: null,
+      lastDownloadAt: null,
+      lastDownloadAttempt: null
+    })
+    expect(writes.some((call) => typeof call.data.lastDownloadUrl === 'string')).toBe(false)
+  })
+
   it('destroys an unconsumed remote stream so a local storage failure releases its provider permit', async () => {
     const transaction = createTransaction()
     transaction.archiveImport.findUnique.mockResolvedValue({

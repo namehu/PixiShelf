@@ -4,7 +4,7 @@ export { Prisma, PrismaClient }
 export * from './creators'
 export * from './discovery-creators'
 
-const latestRequiredMigration = '20260916160000_job_diagnostics'
+const latestRequiredMigration = '20260916200000_archive_item_download_urls'
 
 const requiredQueueObjects = [
   'creator_maintenance_plans',
