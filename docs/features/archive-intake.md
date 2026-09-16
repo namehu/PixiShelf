@@ -82,7 +82,7 @@ PC 任务列表使用紧凑表格，移动端使用精简卡片，默认展示�
 
 英/日标题分别忽略大小写、首尾空白后匹配，任一满足即可，保留标点、括号和内部空白。不运行用户正则。远端只构造受限的标题短语与可选 UID 查询；不能无歧义表达的双引号、星号、下划线、百分号及控制字符会明确报错，具体校验以共享 Zod 契约为准。
 
-每次检查最多 **100 个去重远端候选**，不是收集 100 个匹配。界面分别显示检查数、匹配数及停止原因；零匹配仍可能有后续。进度依据过滤前候选计算，续扫游标绑定来源和冻结条件；扫描失败、取消或租约丢失不提交目录和游标。新任务为 `ARCHIVE_SEARCH_SCAN@v2`（保留 v1 执行兼容），与上传者扫描复用请求治理和批量元数据，不逐画廊读取媒体详情。
+每次检查最多 **100 个去重远端候选**，不是收集 100 个匹配。界面分别显示检查数、匹配数及停止原因；零匹配仍可能有后续。进度依据过滤前候选计算，续扫游标绑定来源和冻结条件；扫描失败、取消或租约丢失不提交目录和游标。新任务为 `ARCHIVE_SEARCH_SCAN@v3`（保留 v1/v2 执行兼容），与上传者扫描复用请求治理和批量元数据，不逐画廊读取媒体详情。
 
 只有当前匹配候选可见、计数及入箱；再次观察到不匹配时只隐藏本来源目录项，不删除其他来源、归档或媒体，不写全局忽略。入箱在全局身份锁下再次校验当前匹配及工作流，防止旧页面误提交。最终仍需人工勾选并选择模式与画质，再经收件解析完成归档；扫描本身不会自动提交候选。
 
@@ -129,7 +129,7 @@ PC 任务列表使用紧凑表格，移动端使用精简卡片，默认展示�
 
 所有原媒体、派生媒体、staging、发布、扫描、迁移、替换和维护写操作都在 `BACKGROUND_WRITER` 全局串行。`ARCHIVE_RESOLVE` 的 Executor 契约只访问解析所需的远端数据和数据库，不执行媒体目录写入；两个 lane 仍共用同一 Worker 进程和 `rw` 挂载，因此这是队列/capability 边界，不是操作系统权限隔离。数据库按 lane 的执行态唯一索引与 `lane/archive-resolve`、`lane/background-writer` 资源租约共同防止滚动部署或误启动第二个 Worker 时出现同 lane 双执行。
 
-生产 capability inventory 固定为 30 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 与 `ARCHIVE_SEARCH_SCAN` 支持 v1/v2，其余 27 类只支持 v1，共 34 个
+生产 capability inventory 固定为 30 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 27 类只支持 v1，共 35 个
 type/version 组合，并同时校验 job type、definition version 和 lane。READY 证明预检通过，capability audit
 证明 Registry 精确匹配；两者都通过后才可开放 claim。`SCAN@v2/v3` 不改变归档收件任务及其 lane。
 
@@ -188,3 +188,11 @@ type/version 组合，并同时校验 job type、definition version 和 lane。R
 - [ADR-0007](../adr/0007-stream-worker-job-events-over-a-persistent-cursor.md)
 - [实现设计归档](../design/archive-intake-queue.md)
 - [E-Hentai 上传者人工扫描设计](../design/e-hentai-uploader-manual-scan.md)
+
+### 多上传者 UID 限定
+
+标题关键词来源支持最多 10 个精确账号，可逐个通过名称识别、已保存候选或高级 UID 输入后点击“添加上传者”，支持移除。保存也会包含当前尚未点击添加的输入。多账号为 OR，与标题条件为 AND；UID 去前导零、按数值排序并去重，展示名称不参与查询、来源去重或游标绑定。列表只剩一个 UID 时沿用旧单账号格式及查询指纹。
+
+没有已添加账号时仍支持单个名称识别失败后按名称保存；已有账号时，未识别名称会阻止保存并保留输入，需重试识别、填写 UID 或清除此输入，不能静默忽略。整条远端多账号搜索最多 200 字符，超限明确提示缩短关键词或减少账号，不截断条件。原站查询使用标题短语和 OR 上传者项，语法与长度依据 [EHWiki Gallery Searching](https://ehwiki.org/wiki/Gallery_Searching)。
+
+条件继续不可原地修改；另存完整账号集合并从独立游标开始。列表与详情展示全部账号。新扫描任务为 ARCHIVE_SEARCH_SCAN v3，Worker 保留 v1/v2/v3；旧 Worker 不能领取 v3。无需数据库迁移或历史回填。

@@ -28,6 +28,75 @@ afterEach(cleanup)
 beforeEach(() => vi.clearAllMocks())
 
 describe('title source editor', () => {
+  it('adds multiple accounts, deduplicates them and includes the pending input on save', async () => {
+    render(<ArchiveSearchSourceDialog state={{ mode: 'CREATE' }} {...callbacks} />)
+    fireEvent.change(screen.getByLabelText('来源名称'), { target: { value: 'Collection' } })
+    fireEvent.change(screen.getByLabelText('标题关键词'), { target: { value: 'Match' } })
+    fireEvent.click(screen.getByRole('button', { name: '高级选项' }))
+    fireEvent.click(screen.getByRole('button', { name: '手动填写 UID' }))
+    fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '000123' } })
+    fireEvent.click(screen.getByRole('button', { name: '添加上传者' }))
+    await screen.findByRole('button', { name: '移除 UID 123' })
+    fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '123' } })
+    fireEvent.click(screen.getByRole('button', { name: '添加上传者' }))
+    await waitFor(() => expect((screen.getByLabelText('上传者 UID') as HTMLInputElement).value).toBe(''))
+    expect(screen.getAllByRole('button', { name: '移除 UID 123' })).toHaveLength(1)
+    fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '456' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存搜索来源' }))
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith({
+        displayName: 'Collection',
+        keyword: 'Match',
+        matchMode: 'CONTAINS',
+        uploaderUid: null,
+        uploaders: [{ uid: '123' }, { uid: '456' }]
+      })
+    )
+  })
+
+  it('copies all accounts and supports removing one without mutating the source', async () => {
+    const multi = {
+      ...source,
+      titleQuery: {
+        ...source.titleQuery,
+        uploaderUid: null,
+        uploaders: [
+          { uid: '123', displayName: 'Alice' },
+          { uid: '456', displayName: 'Bob' }
+        ]
+      }
+    }
+    render(<ArchiveSearchSourceDialog state={{ mode: 'COPY', source: multi }} {...callbacks} />)
+    expect(screen.getByText('Alice')).toBeTruthy()
+    expect(screen.getByText('Bob')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '移除 UID 123' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存搜索来源' }))
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith({
+        displayName: 'Name',
+        keyword: 'Abc',
+        matchMode: 'STARTS_WITH',
+        uploaderUid: '456',
+        uploaderDisplayName: 'Bob'
+      })
+    )
+    expect(multi.titleQuery.uploaders).toHaveLength(2)
+  })
+
+  it('keeps an unresolved name visible and blocks saving rather than dropping its restriction', async () => {
+    mocks.resolve.mockResolvedValue({ outcome: 'UNRESOLVED', reason: 'NOT_FOUND', message: '按名称搜索' })
+    const multi = {
+      ...source,
+      titleQuery: { ...source.titleQuery, uploaderUid: null, uploaders: [{ uid: '123' }, { uid: '456' }] }
+    }
+    render(<ArchiveSearchSourceDialog state={{ mode: 'COPY', source: multi }} {...callbacks} />)
+    fireEvent.change(screen.getByLabelText('继续添加上传者'), { target: { value: 'Unknown' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存搜索来源' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('尚未识别出 UID'))
+    expect(mocks.create).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('继续添加上传者') as HTMLInputElement).value).toBe('Unknown')
+    expect(screen.getByRole('button', { name: '移除 UID 123' })).toBeTruthy()
+  })
   it('copies a known UID whose display name is not valid remote name syntax', async () => {
     const named = { ...source, titleQuery: { ...source.titleQuery, uploaderDisplayName: 'Alice "Art"' } }
     render(<ArchiveSearchSourceDialog state={{ mode: 'COPY', source: named }} {...callbacks} />)

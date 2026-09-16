@@ -23,7 +23,11 @@ const capabilities: WorkerCapability[] = [
   { jobType: 'VIDEO_MEDIA_PROBE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }
 ]
 const resolveCapabilities: WorkerCapability[] = [
-  { jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
+  {
+    jobType: 'ARCHIVE_RESOLVE_ITEM',
+    executionLane: 'ARCHIVE_RESOLVE',
+    definitionVersions: [1]
+  }
 ]
 const archiveWriterCapabilities: WorkerCapability[] = [
   { jobType: 'ARCHIVE_IMPORT', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
@@ -278,7 +282,8 @@ describePostgres('PostgresQueueRepository integration', () => {
   it.each([
     ['ARCHIVE_UPLOADER_SCAN', 1],
     ['ARCHIVE_SEARCH_SCAN', 1],
-    ['ARCHIVE_SEARCH_SCAN', 2]
+    ['ARCHIVE_SEARCH_SCAN', 2],
+    ['ARCHIVE_SEARCH_SCAN', 3]
   ] as const)(
     'recovers %s v%s before its domain run is claimed without advancing progress',
     async (jobType, definitionVersion) => {
@@ -317,10 +322,10 @@ describePostgres('PostgresQueueRepository integration', () => {
       })
       const repository = createRepository(clock, 1_000)
 
-      if (definitionVersion === 2) {
+      if (definitionVersion > 1) {
         await expect(
           repository.claim('old-search-worker', [
-            { jobType, executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
+            { jobType, executionLane: 'ARCHIVE_RESOLVE', definitionVersions: definitionVersion === 3 ? [1, 2] : [1] }
           ])
         ).resolves.toBeNull()
       }

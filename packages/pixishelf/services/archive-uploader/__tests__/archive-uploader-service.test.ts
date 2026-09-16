@@ -37,18 +37,14 @@ describe('archive uploader service', () => {
       lastErrorCode: null,
       lastErrorMessage: null
     }))
-    const findFirst = vi
-      .fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        id: 'existing',
-        displayName: 'Alice',
-        status: 'ARCHIVED',
-        uploaderUid: '123',
-        lastErrorCode: null,
-        lastErrorMessage: null
-      })
+    const findFirst = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null).mockResolvedValueOnce({
+      id: 'existing',
+      displayName: 'Alice',
+      status: 'ARCHIVED',
+      uploaderUid: '123',
+      lastErrorCode: null,
+      lastErrorMessage: null
+    })
     const tx = { $queryRaw: vi.fn().mockResolvedValue([]), archiveUploaderSource: { create, findFirst } }
     const deps = { database: { $transaction: (operation: (value: typeof tx) => unknown) => operation(tx) } as never }
     const input = { identityKind: 'NAME' as const, identityValue: 'Alice', uploaderUid: '000123', displayName: 'Alice' }
@@ -227,7 +223,7 @@ describe('archive uploader service', () => {
         data: expect.objectContaining({
           id: 'job-1',
           type: sourceKind === 'TITLE_QUERY' ? 'ARCHIVE_SEARCH_SCAN' : 'ARCHIVE_UPLOADER_SCAN',
-          definitionVersion: sourceKind === 'TITLE_QUERY' ? 2 : 1,
+          definitionVersion: sourceKind === 'TITLE_QUERY' ? 3 : 1,
           executionLane: 'ARCHIVE_RESOLVE',
           triggerSource: 'MANUAL',
           requestedByUserId: 'admin-1',

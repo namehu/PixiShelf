@@ -23,6 +23,31 @@ function setup(error: unknown) {
 }
 
 describe('title source creation conflict recovery', () => {
+  it('deduplicates account sets independent of order and labels, including legacy single accounts', async () => {
+    const upsert = vi.fn(async ({ create }: { create: Record<string, unknown>; where: { queryKey: string } }) => ({
+      ...create,
+      id: 'one',
+      uploaderUid: null,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }))
+    const deps = { database: { archiveUploaderSource: { upsert } } as never }
+    await createArchiveTitleSource(
+      { ...input, uploaders: [{ uid: '456' }, { uid: '00123', displayName: 'Alice' }] },
+      deps
+    )
+    await createArchiveTitleSource({ ...input, uploaders: [{ uid: '123' }, { uid: '456', displayName: 'Bob' }] }, deps)
+    expect(upsert.mock.calls[0]?.[0].where).toEqual(upsert.mock.calls[1]?.[0].where)
+    await createArchiveTitleSource({ ...input, uploaders: [{ uid: '123' }, { uid: '00123' }] }, deps)
+    await createArchiveTitleSource({ ...input, uploaderUid: '123' }, deps)
+    expect(upsert.mock.calls[2]?.[0].where).toEqual(upsert.mock.calls[3]?.[0].where)
+    expect(upsert.mock.calls[2]?.[0].create.titleQuery).toEqual({
+      keyword: 'Example',
+      matchMode: 'CONTAINS',
+      uploaderUid: '123'
+    })
+    expect(upsert.mock.calls[0]?.[0].where).not.toEqual(upsert.mock.calls[2]?.[0].where)
+  })
   it('keeps legacy UID keys stable and separates normalized NAME conditions', async () => {
     const upsert = vi.fn(async ({ create }: { create: Record<string, unknown>; where: { queryKey: string } }) => ({
       ...create,

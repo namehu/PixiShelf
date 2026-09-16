@@ -188,7 +188,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、30 个 job type / 34 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` 与 `ARCHIVE_SEARCH_SCAN` v1/v2，其余 27 类 v1）和同
+- 新 Worker READY、两个 lane、30 个 job type / 35 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3，其余 27 类 v1）和同
   lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 
@@ -262,4 +262,6 @@ App / Worker image digest：
 
 ## 2026-09-16 上传者名称配置兼容
 
-本次无需 DDL 或历史回填，标题条件 JSON 新增可选名称条件与展示名称，新标题扫描使用 ARCHIVE_SEARCH_SCAN v2。先发布可读取新 JSON、执行 v1/v2 的 App/Worker，再开放入口；生产门禁为 30 类任务、34 个版本组合。新数据存在后不能直接回滚旧 App（旧严格校验器不能读取新字段），应保留兼容读取版本或前向修复。需要完整降级时依照同一检查点恢复数据库、媒体、配置和镜像，不原地删除新条件或历史记录。
+本次无需 DDL 或历史回填，标题条件 JSON 新增可选名称条件与展示名称，名称优先版本引入 ARCHIVE_SEARCH_SCAN v2，后续多上传者扩展升级为 v3。先发布可读取新 JSON、执行 v1/v2/v3 的 App/Worker，再开放入口；当前生产门禁为 30 类任务、35 个版本组合。新数据存在后不能直接回滚旧 App（旧严格校验器不能读取新字段），应保留兼容读取版本或前向修复。需要完整降级时依照同一检查点恢复数据库、媒体、配置和镜像，不原地删除新条件或历史记录。
+
+多上传者扩展新增 titleQuery.uploaders JSON 和 ARCHIVE_SEARCH_SCAN v3，无数据库迁移；旧数据及旧游标保持原格式。升级前保留旧镜像记录，恢复版本必须兼容新 JSON 和 v3 任务；出现新数据后不能直接用旧严格校验器读取，采用兼容版本前向修复，完整降级仍按配套检查点恢复。

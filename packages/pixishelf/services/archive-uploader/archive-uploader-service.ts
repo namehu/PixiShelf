@@ -1107,19 +1107,30 @@ export async function createArchiveTitleSource(
   input: z.input<typeof createArchiveTitleSourceSchema>,
   dependencies: ArchiveUploaderServiceDependencies = {}
 ) {
-  const { displayName, ...query } = createArchiveTitleSourceSchema.parse(input)
+  const { displayName, ...parsedQuery } = createArchiveTitleSourceSchema.parse(input)
+  const single = parsedQuery.uploaders?.length === 1 ? parsedQuery.uploaders[0] : undefined
+  const query = single
+    ? archiveTitleQuerySchema.parse({
+        keyword: parsedQuery.keyword,
+        matchMode: parsedQuery.matchMode,
+        uploaderUid: single.uid,
+        ...(single.displayName ? { uploaderDisplayName: single.displayName } : {})
+      })
+    : parsedQuery
   const queryKey = createHash('sha256')
     .update(
       JSON.stringify(
-        query.uploaderName
-          ? [
-              PROVIDER_KEY,
-              normalizeArchiveTitle(query.keyword),
-              query.matchMode,
-              null,
-              normalizeArchiveUploaderName(query.uploaderName)
-            ]
-          : [PROVIDER_KEY, normalizeArchiveTitle(query.keyword), query.matchMode, query.uploaderUid]
+        query.uploaders
+          ? [PROVIDER_KEY, normalizeArchiveTitle(query.keyword), query.matchMode, query.uploaders.map(({ uid }) => uid)]
+          : query.uploaderName
+            ? [
+                PROVIDER_KEY,
+                normalizeArchiveTitle(query.keyword),
+                query.matchMode,
+                null,
+                normalizeArchiveUploaderName(query.uploaderName)
+              ]
+            : [PROVIDER_KEY, normalizeArchiveTitle(query.keyword), query.matchMode, query.uploaderUid]
       )
     )
     .digest('hex')

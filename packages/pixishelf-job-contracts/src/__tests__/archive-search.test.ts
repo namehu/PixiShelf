@@ -3,13 +3,41 @@ import {
   ARCHIVE_SEARCH_DEFINITION_VERSION,
   archiveTitleQuerySchema,
   archiveTitleSearchTerm,
+  archiveTitleUploaderLabel,
   matchesArchiveTitle
 } from '../archive-search.js'
 import { executionLaneForJobType } from '../job-types.js'
 
 describe('title discovery query', () => {
+  it('canonicalizes an OR set of accounts without using labels in the search', () => {
+    const query = archiveTitleQuerySchema.parse({
+      keyword: 'Match',
+      uploaders: [{ uid: '456', displayName: 'Bob' }, { uid: '000123' }, { uid: '123', displayName: 'Alice' }]
+    })
+    expect(query.uploaders).toEqual([
+      { uid: '123', displayName: 'Alice' },
+      { uid: '456', displayName: 'Bob' }
+    ])
+    expect(archiveTitleSearchTerm(query)).toBe('title:"match" ~uploaduid:123 ~uploaduid:456')
+    expect(archiveTitleUploaderLabel(query)).toBe('Alice、Bob')
+    expect(
+      archiveTitleSearchTerm(archiveTitleQuerySchema.parse({ keyword: 'Match', uploaders: [{ uid: '123' }] }))
+    ).toBe('title:"match" uploaduid:123')
+  })
+  it.each([
+    { uploaders: [] },
+    { uploaders: [{ uid: '0' }] },
+    { uploaders: [{ uid: '123 OR 456' }] },
+    { uploaders: [{ uid: '123' }], uploaderUid: '456' },
+    { uploaders: [{ uid: '123' }], uploaderName: 'Alice' },
+    { uploaders: [{ uid: '123' }], uploaderDisplayName: 'Alice' },
+    { uploaders: Array.from({ length: 11 }, (_, i) => ({ uid: String(i + 1) })) },
+    { keyword: 'a'.repeat(160), uploaders: [{ uid: '1'.repeat(20) }, { uid: '2'.repeat(20) }] }
+  ])('rejects invalid or oversized account sets %j', (value) => {
+    expect(archiveTitleQuerySchema.safeParse({ keyword: 'Match', ...value }).success).toBe(false)
+  })
   it('adds an exact name constraint without modifying legacy JSON or UID queries', () => {
-    expect(ARCHIVE_SEARCH_DEFINITION_VERSION).toBe(2)
+    expect(ARCHIVE_SEARCH_DEFINITION_VERSION).toBe(3)
     const name = archiveTitleQuerySchema.parse({ keyword: 'Match', uploaderName: ' Ａlice ' })
     expect(archiveTitleSearchTerm(name)).toBe('title:"match" uploader:"alice"')
     expect(

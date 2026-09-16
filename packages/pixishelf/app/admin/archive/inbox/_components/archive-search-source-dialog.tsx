@@ -2,10 +2,20 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { ARCHIVE_TITLE_MATCH_LABELS, archiveTitleQuerySchema, type ArchiveTitleQuery } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_TITLE_MATCH_LABELS,
+  archiveTitleQuerySchema,
+  normalizeArchiveTitleUploaders,
+  MAX_ARCHIVE_TITLE_UPLOADERS,
+  type ArchiveTitleUploader,
+  type ArchiveTitleQuery
+} from '@pixishelf/job-contracts'
+import { Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import {
   Dialog,
   DialogContent,
@@ -48,6 +58,7 @@ export function ArchiveSearchSourceDialog({
   const [matchMode, setMatchMode] = useState<ArchiveTitleQuery['matchMode']>('CONTAINS')
   const identity = useArchiveUploaderIdentity(state !== null && state.mode !== 'RENAME')
   const [saving, setSaving] = useState(false)
+  const [uploaders, setUploaders] = useState<ArchiveTitleUploader[]>([])
   const [error, setError] = useState<string | null>(null)
   const renameOnly = state?.mode === 'RENAME'
   useEffect(() => {
@@ -55,6 +66,7 @@ export function ArchiveSearchSourceDialog({
     setKeyword(state?.source?.titleQuery?.keyword ?? '')
     setMatchMode(state?.source?.titleQuery?.matchMode ?? 'CONTAINS')
     const query = state?.source?.titleQuery
+    setUploaders(query?.uploaders ?? [])
     identity.change(
       query?.uploaderName
         ? { mode: 'NAME', value: query.uploaderName }
@@ -94,6 +106,26 @@ export function ArchiveSearchSourceDialog({
     })
   )
   const pending = saving || create.isPending || rename.isPending
+  const addUploader = async () => {
+    setError(null)
+    setSaving(true)
+    try {
+      const chosen = await identity.getIdentity()
+      if (!chosen) return
+      if (!chosen.resolvedUid) throw new Error('该名称尚未识别出 UID，请重试识别或手动填写 UID 后添加。')
+      const next = normalizeArchiveTitleUploaders([
+        ...uploaders,
+        { uid: chosen.resolvedUid, ...(chosen.displayName ? { displayName: chosen.displayName } : {}) }
+      ])
+      if (next.length > MAX_ARCHIVE_TITLE_UPLOADERS) throw new Error('最多限定 10 个上传者。')
+      setUploaders(next)
+      identity.change({ mode: identity.draft.mode, value: '' })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : '添加上传者失败，请重试。')
+    } finally {
+      setSaving(false)
+    }
+  }
   return (
     <Dialog
       open={state !== null}
@@ -122,18 +154,34 @@ export function ArchiveSearchSourceDialog({
             setSaving(true)
             try {
               const chosen = await identity.getIdentity()
-              const query = archiveTitleQuerySchema.parse({
-                ...parsed.data,
+              if (uploaders.length && chosen && !chosen.resolvedUid) {
+                setError('该名称尚未识别出 UID，请重试或手动填写 UID；已有上传者已保留。')
+                return
+              }
+              const selected = normalizeArchiveTitleUploaders([
+                ...uploaders,
                 ...(chosen?.resolvedUid
-                  ? {
-                      uploaderUid: chosen.resolvedUid,
-                      ...(chosen.displayName ? { uploaderDisplayName: chosen.displayName } : {})
-                    }
-                  : chosen
-                    ? { uploaderName: chosen.value }
-                    : {})
+                  ? [{ uid: chosen.resolvedUid, ...(chosen.displayName ? { displayName: chosen.displayName } : {}) }]
+                  : [])
+              ])
+              const query = archiveTitleQuerySchema.safeParse({
+                ...parsed.data,
+                ...(selected.length > 1
+                  ? { uploaders: selected }
+                  : selected[0]
+                    ? {
+                        uploaderUid: selected[0].uid,
+                        ...(selected[0].displayName ? { uploaderDisplayName: selected[0].displayName } : {})
+                      }
+                    : chosen
+                      ? { uploaderName: chosen.value }
+                      : {})
               })
-              await create.mutateAsync({ displayName, ...query })
+              if (!query.success) {
+                setError(query.error.issues[0]?.message ?? '搜索条件无效')
+                return
+              }
+              await create.mutateAsync({ displayName, ...query.data })
             } catch (cause) {
               onError(cause)
             } finally {
@@ -146,7 +194,7 @@ export function ArchiveSearchSourceDialog({
               {renameOnly ? '修改来源名称' : state?.mode === 'COPY' ? '另存搜索条件' : '新增标题关键词来源'}
             </DialogTitle>
             <DialogDescription>
-              输入上传者名称后自动识别账号。条件保存后固定不变；修改条件请另存来源，扫描仍需手动启动。
+              输入上传者名称后自动识别账号，可添加多个，匹配其中任意一个。条件保存后固定不变；修改条件请另存来源。
             </DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-5">
@@ -196,13 +244,49 @@ export function ArchiveSearchSourceDialog({
                 ))}
               </ToggleGroup>
             </Field>
+            {uploaders.length ? (
+              <Field>
+                <FieldLabel>
+                  已限定上传者（{uploaders.length}/{MAX_ARCHIVE_TITLE_UPLOADERS}）
+                </FieldLabel>
+                <ul className="flex flex-wrap gap-2" aria-label="已限定上传者">
+                  {uploaders.map((uploader) => (
+                    <li key={uploader.uid} className="flex items-center gap-1">
+                      <Badge variant="secondary">
+                        <PrivacySensitiveText>{uploader.displayName ?? `UID ${uploader.uid}`}</PrivacySensitiveText>
+                      </Badge>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={renameOnly || pending}
+                        aria-label={`移除 UID ${uploader.uid}`}
+                        onClick={() => setUploaders(uploaders.filter(({ uid }) => uid !== uploader.uid))}
+                      >
+                        <X />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <FieldDescription>匹配其中任意一个上传者；重复 UID 会自动去重。</FieldDescription>
+              </Field>
+            ) : null}
             <ArchiveUploaderIdentityField
               identity={identity}
-              label="限定上传者（可选）"
-              optional
+              label={uploaders.length ? '继续添加上传者' : '限定上传者（可选）'}
+              optional={!uploaders.length}
               sources={sources}
               disabled={renameOnly || pending}
             />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={renameOnly || pending || !identity.draft.value.trim()}
+              onClick={() => void addUploader()}
+            >
+              <Plus data-icon="inline-start" />
+              添加上传者
+            </Button>
             {error ? <FieldError role="alert">{error}</FieldError> : null}
           </FieldGroup>
           <DialogFooter>

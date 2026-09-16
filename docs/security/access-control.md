@@ -292,3 +292,5 @@ creator.prepare/start/status/history/mappings/mapping 均使用 adminProcedure�
 ## Pixiv 根身份文件
 
 Worker 在媒体根创建并读取 `.pixishelf-root`，App 原媒体仍默认只读。UUID 校验不替代既有路径边界、符号链接限制、文件证据或事务 fence。维护工具仅在 Worker 容器内运行，使用现有数据库权限，不新增 HTTP 接口；人工绑定要求同库确认、检查指纹与 writer lane 锁。详见 [Pixiv 扫描根身份](../features/pixiv-root-identity.md)。
+
+多上传者标题条件使用互斥的 `uploaders: [{ uid, displayName? }]`，最多 10 项；只接受正整数 UID，禁止混填旧 UID/NAME 字段。UID 集合规范化后构造固定 OR 搜索表达式，禁止任意搜索表达式输入，完整多账号查询不得超过 200 字符；展示名称不进入远端表达式。无法解析的新增名称在多账号模式下阻止保存，不能扩大权限或删除已有筛选条件。

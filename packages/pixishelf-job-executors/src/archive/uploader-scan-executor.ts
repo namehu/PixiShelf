@@ -145,6 +145,14 @@ export function createArchiveUploaderScanExecutorRegistrations(
     {
       jobType: 'ARCHIVE_SEARCH_SCAN',
       executionLane: 'ARCHIVE_RESOLVE',
+      definitionVersion: 2,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => archiveSearchScanPayloadSchema.parse(payload),
+      execute: (context) => executeArchiveUploaderScan(context, dependencies, 'TITLE_QUERY')
+    },
+    {
+      jobType: 'ARCHIVE_SEARCH_SCAN',
+      executionLane: 'ARCHIVE_RESOLVE',
       definitionVersion: ARCHIVE_SEARCH_DEFINITION_VERSION,
       progressPolicy: 'STANDARD',
       parsePayload: (payload) => archiveSearchScanPayloadSchema.parse(payload),

@@ -27,6 +27,29 @@ function fixture(
 }
 
 describe('E-Hentai title search', () => {
+  it('retains multi-account pagination across order/label changes and rejects changed membership', async () => {
+    const { provider, http } = fixture([300, 200, 100], () => ({ title: 'Match gallery' }))
+    const query = archiveTitleQuerySchema.parse({ keyword: 'Match', uploaders: [{ uid: '456' }, { uid: '123' }] })
+    const first = await provider.scanTitles({ ...input, query, limit: 1 })
+    expect(new URL(http.text.mock.calls[0]![0]).searchParams.get('f_search')).toBe(
+      'title:"match" ~uploaduid:123 ~uploaduid:456'
+    )
+    const second = await provider.scanTitles({
+      ...input,
+      query: { ...query, uploaders: [{ uid: '456', displayName: 'Bob' }, { uid: '123' }] },
+      cursor: first.nextCursor,
+      stopAtExternalId: '100'
+    })
+    expect(second.items.map(({ externalId }) => externalId)).toEqual(['200'])
+    expect(second.reachedStop).toBe(true)
+    await expect(
+      provider.scanTitles({
+        ...input,
+        query: { ...query, uploaders: [{ uid: '123' }, { uid: '789' }] },
+        cursor: first.nextCursor
+      })
+    ).rejects.toThrow('条件不一致')
+  })
   it('checks both title and exact uploader name without discarding nonmatching cursor candidates', async () => {
     const { provider, http } = fixture([300, 200, 100], () => ({ title: 'Match gallery' }))
     const nameQuery = archiveTitleQuerySchema.parse({ keyword: 'Match', uploaderName: ' UPLOADER-200 ' })

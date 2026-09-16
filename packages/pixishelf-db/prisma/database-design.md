@@ -203,7 +203,7 @@ Image。apply 的 stale 或身份冲突在这些领域写入之前终止。
 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择
 任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
 
-Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type，加入 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后曾为 26 个 job type，加入 `ARCHIVE_UPLOADER_SCAN` 和 `ARCHIVE_SEARCH_SCAN` 后曾为 28 个 job type；加入 `JOB_EVENT_RETENTION_CLEANUP` 和 `CREATOR_MAINTENANCE` 后当前为 30 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 和 `ARCHIVE_SEARCH_SCAN` 注册 v1/v2，其余 27 类仍只注册 v1，因此共有 34 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type，加入 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后曾为 26 个 job type，加入 `ARCHIVE_UPLOADER_SCAN` 和 `ARCHIVE_SEARCH_SCAN` 后曾为 28 个 job type；加入 `JOB_EVENT_RETENTION_CLEANUP` 和 `CREATOR_MAINTENANCE` 后当前为 30 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2、`ARCHIVE_SEARCH_SCAN` 注册 v1/v2/v3，其余 27 类仍只注册 v1，因此共有 35 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
 
 ### 3.7 归档收件与 Provider 请求治理
 
@@ -309,3 +309,5 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 ## 创作者归属视图与兼容触发器
 
 20260908120000_unify_artwork_creators 引入 ArtworkArtist、多条 SOURCE/MANUAL/LEGACY 依据及来源标签映射。effective_artwork_creators 视图只选存在 present=true 且 excludedAt 为空的关系。seed_legacy_artwork_creator 仅在 Artwork INSERT 时为非空 artistId 建立 LEGACY 初始关系，UPDATE 不重新认领；不得把多对多关系回写为存储路径身份。CreatorMaintenancePlan/Item 保存冻结预览和逐项执行结果，完整数据库 dump 必须包含以上对象。详见[创作者关系](../../../docs/features/creator-relations.md)。
+
+多上传者扩展沿用 titleQuery JSON 的可选 `uploaders: [{ uid, displayName? }]`，与旧单个 UID/NAME 字段互斥。集合按 UID 规范化、排序和去重，单元素创建沿用旧 UID JSON 与指纹；多元素指纹第四项为 UID 数组，展示名不参与。来源与运行快照保存完整集合，无 DDL。新任务为 ARCHIVE_SEARCH_SCAN v3，旧严格 JSON 读取不兼容新字段，回退要求保留兼容读取能力。

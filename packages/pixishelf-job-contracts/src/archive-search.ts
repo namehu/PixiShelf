@@ -1,6 +1,31 @@
 import { z } from 'zod'
 
-export const ARCHIVE_SEARCH_DEFINITION_VERSION = 2 as const
+export const ARCHIVE_SEARCH_DEFINITION_VERSION = 3 as const
+export const MAX_ARCHIVE_TITLE_UPLOADERS = 10
+
+const uploaderUidSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{1,20}$/, '上传者 UID 必须是正整数')
+  .refine((value) => /^\d{1,20}$/.test(value) && BigInt(value) > 0n, '上传者 UID 必须是正整数')
+  .transform((value) => BigInt(value).toString())
+export const archiveTitleUploaderSchema = z
+  .object({
+    uid: uploaderUidSchema,
+    displayName: z.string().trim().min(1).max(180).optional()
+  })
+  .strict()
+export type ArchiveTitleUploader = z.infer<typeof archiveTitleUploaderSchema>
+
+export function normalizeArchiveTitleUploaders(uploaders: readonly ArchiveTitleUploader[]): ArchiveTitleUploader[] {
+  const unique = new Map<string, ArchiveTitleUploader>()
+  for (const input of uploaders) {
+    const uploader = archiveTitleUploaderSchema.parse(input)
+    const previous = unique.get(uploader.uid)
+    if (!previous || (!previous.displayName && uploader.displayName)) unique.set(uploader.uid, uploader)
+  }
+  return [...unique.values()].sort((left, right) => (BigInt(left.uid) < BigInt(right.uid) ? -1 : 1))
+}
 
 export const archiveUploaderNameSchema = z
   .string()
@@ -46,25 +71,45 @@ export const archiveTitleQuerySchema = z
   .object({
     keyword: keywordSchema,
     matchMode: archiveTitleMatchModeSchema.default('CONTAINS'),
-    uploaderUid: z
-      .string()
-      .trim()
-      .regex(/^\d{1,20}$/, '上传者 UID 必须是正整数')
-      .refine((value) => BigInt(value) > 0n, '上传者 UID 必须是正整数')
-      .transform((value) => BigInt(value).toString())
-      .nullable()
-      .default(null),
+    uploaderUid: uploaderUidSchema.nullable().default(null),
     uploaderName: archiveUploaderNameSchema.optional(),
-    uploaderDisplayName: z.string().trim().min(1).max(180).optional()
+    uploaderDisplayName: z.string().trim().min(1).max(180).optional(),
+    uploaders: z
+      .array(archiveTitleUploaderSchema)
+      .min(1)
+      .max(MAX_ARCHIVE_TITLE_UPLOADERS, '最多限定 10 个上传者')
+      .transform(normalizeArchiveTitleUploaders)
+      .optional()
   })
   .strict()
   .refine((query) => !(query.uploaderUid && query.uploaderName), '上传者名称条件与 UID 条件不能同时填写')
   .refine((query) => !query.uploaderDisplayName || Boolean(query.uploaderUid), '上传者展示名称需要对应 UID')
+  .refine(
+    (query) => !query.uploaders || !(query.uploaderUid || query.uploaderName || query.uploaderDisplayName),
+    '不能同时填写单个上传者和上传者列表'
+  )
+  .refine(
+    (query) => !query.uploaders || buildTitleSearchTerm(query).length <= 200,
+    '搜索条件过长，请减少上传者数量或缩短关键词（原站最多 200 字符）'
+  )
 
 export type ArchiveTitleQuery = z.infer<typeof archiveTitleQuerySchema>
 
 export function archiveTitleSearchTerm(input: ArchiveTitleQuery): string {
   const query = archiveTitleQuerySchema.parse(input)
+  return buildTitleSearchTerm(query)
+}
+
+function buildTitleSearchTerm(query: {
+  keyword: string
+  uploaderUid: string | null
+  uploaderName?: string | undefined
+  uploaders?: ArchiveTitleUploader[] | undefined
+}): string {
+  if (query.uploaders) {
+    const prefix = query.uploaders.length > 1 ? '~' : ''
+    return `title:"${normalizeArchiveTitle(query.keyword)}" ${query.uploaders.map(({ uid }) => `${prefix}uploaduid:${uid}`).join(' ')}`
+  }
   const uploader = query.uploaderUid
     ? ` uploaduid:${query.uploaderUid}`
     : query.uploaderName
@@ -74,6 +119,7 @@ export function archiveTitleSearchTerm(input: ArchiveTitleQuery): string {
 }
 
 export function archiveTitleUploaderLabel(query: ArchiveTitleQuery): string {
+  if (query.uploaders) return query.uploaders.map(({ uid, displayName }) => displayName ?? `UID ${uid}`).join('、')
   return (
     query.uploaderName ?? query.uploaderDisplayName ?? (query.uploaderUid ? `UID ${query.uploaderUid}` : '不限上传者')
   )
