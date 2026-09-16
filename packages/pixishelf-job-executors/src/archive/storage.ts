@@ -153,7 +153,10 @@ export async function storeArchiveRemoteMedia(input: {
   }
   let metadata: sharp.Metadata
   try {
-    metadata = await sharp(partial, { animated: true }).metadata()
+    // Only inspect the first frame's dimensions. Loading every frame stacks their
+    // heights and can reject valid animations against Sharp's input pixel limit.
+    // This does not transform the downloaded file or disable the per-frame limit.
+    metadata = await sharp(partial, { pages: 1 }).metadata()
   } catch (error) {
     await rm(partial, { force: true })
     throw new ArchiveExecutorError('MEDIA_INVALID', '归档媒体不是可解码的图片', {
