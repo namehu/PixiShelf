@@ -96,7 +96,9 @@ export class SafeHttpClient {
     const proxyUrl = resolveArchiveProxyUrl(url, this.proxyEnvironment)
     let addresses: ResolvedNetworkAddress[]
     try {
+      options.signal?.throwIfAborted()
       addresses = await resolveNetworkAddresses(url.hostname)
+      options.signal?.throwIfAborted()
       assertSafeResolvedAddresses(addresses, proxyUrl)
     } catch (error) {
       throw classifyNetworkError(error, 'MEDIA_REQUEST', remoteHostForUrl(url))

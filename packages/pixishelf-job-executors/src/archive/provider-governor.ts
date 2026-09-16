@@ -397,6 +397,7 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
     const permit = await this.governor.acquire(this.key, requestClass, controller.signal, options)
     const stopRenewal = startPermitRenewal(this.governor, permit, (error) => controller.abort(error))
     try {
+      throwIfAborted(controller.signal)
       return await operation()
     } catch (error) {
       await this.applyPenalty(error)

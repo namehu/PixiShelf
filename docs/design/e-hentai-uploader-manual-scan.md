@@ -228,3 +228,7 @@ Provider Governor 增加 `SEARCH` 请求类。E-Hentai 搜索请求最小间隔�
 `20260904120000_add_archive_uploader_uid_binding` 使用 expand migration 增加稳定 UID、覆盖复核时间和运行查询身份快照。迁移先拒绝仍有活动上传者扫描的数据库，再回填已有 UID 来源与历史运行；名称来源保持未绑定。正式迁移前停止发起新扫描，取消或等待所有扫描进入终态，并按备份 Runbook 建立一致性检查点；仅暂停任务仍会被迁移守卫拒绝。部署顺序为 migration、重建并重启 Worker、重建并重启 App。Job payload、type/version 和 capability inventory 不变，但 Worker 的身份选择、名称刷新和复核完成逻辑已经变化，因此不得在 migration 后继续使用旧 Worker。
 
 回滚 App/Worker 前应停止新扫描并等待活动 `ARCHIVE_UPLOADER_SCAN` 终态。新增列和唯一索引可以在代码回滚期间保留；删除它们属于后续独立 contract migration，不与功能回滚绑定。旧版本无法理解新运行的冻结身份，不能在迁移后的数据库上继续领取上传者扫描。
+
+## 2026-09-16 名称优先配置
+
+新增来源默认输入完整名称，停顿一秒自动识别，单轮等待上限二十秒；保存复用本次识别结果，无证据或远端失败可按名称继续。UID 手动输入移入高级选项。已保存来源直接复用且不自动恢复停用状态，旧名称来源随人工扫描逐步识别。标题查询增加独立冻结的名称条件；交互和身份边界以[归档收件箱](../features/archive-intake.md#上传者名称识别)为准。

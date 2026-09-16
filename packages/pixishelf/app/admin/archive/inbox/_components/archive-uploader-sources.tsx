@@ -765,6 +765,7 @@ export function ArchiveUploaderSources({
         />
       ) : null}
       <ArchiveSearchSourceDialog
+        sources={allSources}
         state={searchDialog}
         onClose={() => setSearchDialog(null)}
         onSaved={async (sourceId) => {
@@ -774,6 +775,7 @@ export function ArchiveUploaderSources({
         }}
       />
       <ArchiveUploaderCreateSourceDialog
+        sources={allSources}
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={async (sourceId) => {

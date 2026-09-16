@@ -1,6 +1,6 @@
 'use client'
 
-import { ARCHIVE_TITLE_MATCH_LABELS } from '@pixishelf/job-contracts'
+import { ARCHIVE_TITLE_MATCH_LABELS, archiveTitleUploaderLabel } from '@pixishelf/job-contracts'
 import type { inferRouterOutputs } from '@trpc/server'
 import {
   ArchiveIcon,
@@ -90,17 +90,19 @@ export function ArchiveDiscoveryDetailHeader({
               <Badge variant={source.status === 'ACTIVE' ? 'success' : 'muted'}>
                 {source.status === 'ACTIVE' ? '已启用' : '已停用'}
               </Badge>
-              {!source.titleQuery && source.uidBindingState === 'UNBOUND' ? (
-                <Badge variant="warning">未绑定 UID</Badge>
+              {source.titleQuery?.uploaderName || (!source.titleQuery && source.uidBindingState === 'UNBOUND') ? (
+                <Badge variant="secondary">按名称搜索</Badge>
               ) : null}
-              {source.uidBindingState === 'REVALIDATION_REQUIRED' ? <Badge variant="warning">UID 待校验</Badge> : null}
+              {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
+                <Badge variant="warning">扫描范围待核对</Badge>
+              ) : null}
             </CardTitle>
             <CardDescription className="mt-2 flex flex-wrap items-center gap-1.5">
               {source.titleQuery ? (
                 <span>
                   标题{ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「
                   <PrivacySensitiveText>{source.titleQuery.keyword}</PrivacySensitiveText>」 ·{' '}
-                  {source.titleQuery.uploaderUid ? `UID ${source.titleQuery.uploaderUid}` : '不限上传者'}
+                  <PrivacySensitiveText>{archiveTitleUploaderLabel(source.titleQuery)}</PrivacySensitiveText>
                 </span>
               ) : source.uploaderUid ? (
                 <>
@@ -139,13 +141,13 @@ export function ArchiveDiscoveryDetailHeader({
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={onCopy} disabled={mutationPending}>
                       <SaveIcon aria-hidden="true" />
-                      另存条件
+                      {source.titleQuery.uploaderName ? '另存为精确账号筛选' : '另存条件'}
                     </DropdownMenuItem>
                   </>
                 ) : (
                   <DropdownMenuItem onSelect={onEditUid} disabled={Boolean(activeRun) || mutationPending}>
                     <FingerprintIcon aria-hidden="true" />
-                    {source.uploaderUid ? '更正 UID' : '绑定 UID'}
+                    {source.uploaderUid ? '高级：更正上传者账号' : '识别上传者账号'}
                   </DropdownMenuItem>
                 )}
                 {source.status === 'ACTIVE' ? (

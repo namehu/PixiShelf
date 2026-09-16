@@ -203,7 +203,7 @@ Image。apply 的 stale 或身份冲突在这些领域写入之前终止。
 `scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择
 任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
 
-Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type，加入 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后曾为 26 个 job type，加入 `ARCHIVE_UPLOADER_SCAN` 和 `ARCHIVE_SEARCH_SCAN` 后曾为 28 个 job type；当前再加入 `JOB_EVENT_RETENTION_CLEANUP` 后为 29 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 27 类仍只注册 v1，因此共有 32 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
+Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type，加入 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后曾为 26 个 job type，加入 `ARCHIVE_UPLOADER_SCAN` 和 `ARCHIVE_SEARCH_SCAN` 后曾为 28 个 job type；加入 `JOB_EVENT_RETENTION_CLEANUP` 和 `CREATOR_MAINTENANCE` 后当前为 30 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 和 `ARCHIVE_SEARCH_SCAN` 注册 v1/v2，其余 27 类仍只注册 v1，因此共有 34 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
 
 ### 3.7 归档收件与 Provider 请求治理
 
@@ -228,9 +228,11 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 
 `20260904180000_add_archive_title_search` 是事务化 expand migration：保留原表名、记录 ID、关系、上传者 UID、水位和目录，增加来源类型、JSON 查询、查询指纹、运行检查/匹配计数及候选匹配标记。旧数据默认为 `UPLOADER` 和匹配；不重建或迁移整套模块。
 
-标题来源的 UID 限制只存于查询 JSON，上传者身份列必须为空；数据库 CHECK 约束来源/运行形状和检查计数边界。指纹以 Provider、规范化关键词、匹配方式和 UID 范围计算并唯一约束；冻结条件不能通过重命名更新。目录仍以来源/Provider/GID 唯一，跨来源处置仍以 Provider/GID 全局锁串行化。入箱与计数忽略 `matchesQuery=false`，但保存该来源的原目录身份及工作流关系。
+标题来源的 UID 或名称限制只存于查询 JSON，上传者身份列必须为空；数据库 CHECK 约束来源/运行形状和检查计数边界。指纹以 Provider、规范化关键词、匹配方式和 UID 范围计算并唯一约束；冻结条件不能通过重命名更新。目录仍以来源/Provider/GID 唯一，跨来源处置仍以 Provider/GID 全局锁串行化。入箱与计数忽略 `matchesQuery=false`，但保存该来源的原目录身份及工作流关系。
 
 迁移先拒绝任何非终态发现扫描，再执行 DDL；此 guard 不代替停止旧写入者。增加来源类型后旧版 App 不兼容混合来源，不能直接二进制降级。完整回滚恢复数据库/媒体/配置/镜像一致性检查点；优先前向修复或在兼容版本停用标题来源。
+
+2026-09-16 名称优先配置扩展已有查询 JSON：`uploaderName` 与 `uploaderUid` 互斥，`uploaderDisplayName` 仅是 UID 的展示名称；新字段可省略，不改变旧 JSON、旧 UID 查询指纹或游标。NAME 指纹追加规范化名称维度，与 UID 查询分别去重。名称条件及展示值冻结到运行快照，展示值不参与远端查询和游标；旧来源复用只允许条件比较成功后补充缺失展示名。本次无需 DDL 或数据回填，新标题任务使用 `ARCHIVE_SEARCH_SCAN@v2`，旧 Worker 不领取；旧 App 的严格 JSON 读取不兼容新字段，不能直接二进制回退。
 
 ### 发现来源的显式删除
 

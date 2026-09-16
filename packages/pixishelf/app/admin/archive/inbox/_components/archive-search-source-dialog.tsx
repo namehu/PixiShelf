@@ -19,6 +19,12 @@ import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Spinner } from '@/components/ui/spinner'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
+import {
+  ArchiveUploaderIdentityField,
+  useArchiveUploaderIdentity,
+  emptyUploaderIdentity,
+  type SavedUploaderOption
+} from './archive-uploader-identity-field'
 
 export interface ArchiveSearchDialogState {
   mode: 'CREATE' | 'COPY' | 'RENAME'
@@ -28,31 +34,50 @@ export interface ArchiveSearchDialogState {
 export function ArchiveSearchSourceDialog({
   state,
   onClose,
-  onSaved
+  onSaved,
+  sources = []
 }: {
   state: ArchiveSearchDialogState | null
   onClose: () => void
   onSaved: (sourceId: string) => Promise<void>
+  sources?: SavedUploaderOption[]
 }) {
   const trpc = useTRPC()
   const [displayName, setDisplayName] = useState('')
   const [keyword, setKeyword] = useState('')
   const [matchMode, setMatchMode] = useState<ArchiveTitleQuery['matchMode']>('CONTAINS')
-  const [uploaderUid, setUploaderUid] = useState('')
+  const identity = useArchiveUploaderIdentity(state !== null && state.mode !== 'RENAME')
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const renameOnly = state?.mode === 'RENAME'
   useEffect(() => {
     setDisplayName(state?.source?.displayName ?? '')
     setKeyword(state?.source?.titleQuery?.keyword ?? '')
     setMatchMode(state?.source?.titleQuery?.matchMode ?? 'CONTAINS')
-    setUploaderUid(state?.source?.titleQuery?.uploaderUid ?? '')
+    const query = state?.source?.titleQuery
+    identity.change(
+      query?.uploaderName
+        ? { mode: 'NAME', value: query.uploaderName }
+        : query?.uploaderUid
+          ? query.uploaderDisplayName
+            ? {
+                mode: 'NAME',
+                value: query.uploaderDisplayName,
+                resolvedUid: query.uploaderUid,
+                displayName: query.uploaderDisplayName
+              }
+            : { mode: 'UID', value: query.uploaderUid, resolvedUid: query.uploaderUid }
+          : emptyUploaderIdentity
+    )
     setError(null)
-  }, [state])
+  }, [state, identity.change])
   const onError = (cause: unknown) => setError(archiveClientErrorMessage(cause, '保存失败，请稍后重试。'))
   const create = useMutation(
     trpc.archiveSearch.createSource.mutationOptions({
       onSuccess: async (source) => {
-        toast.success(source.status === 'ARCHIVED' ? '该条件已存在，可重新启用此来源' : '搜索来源已保存或复用')
+        toast.success(source.status === 'ARCHIVED' ? '该条件已存在，可重新启用此来源' : '搜索来源已保存或复用', {
+          description: source.titleQuery?.uploaderName ? '已保留上传者名称限制，当前按名称搜索。' : undefined
+        })
         onClose()
         await onSaved(source.id)
       },
@@ -68,7 +93,7 @@ export function ArchiveSearchSourceDialog({
       onError
     })
   )
-  const pending = create.isPending || rename.isPending
+  const pending = saving || create.isPending || rename.isPending
   return (
     <Dialog
       open={state !== null}
@@ -78,7 +103,7 @@ export function ArchiveSearchSourceDialog({
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto">
         <form
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault()
             setError(null)
             if (renameOnly && state?.source) {
@@ -88,20 +113,41 @@ export function ArchiveSearchSourceDialog({
             const parsed = archiveTitleQuerySchema.safeParse({
               keyword,
               matchMode,
-              uploaderUid: uploaderUid.trim() || null
+              uploaderUid: null
             })
             if (!parsed.success) {
               setError(parsed.error.issues[0]?.message ?? '搜索条件无效')
               return
             }
-            create.mutate({ displayName, ...parsed.data })
+            setSaving(true)
+            try {
+              const chosen = await identity.getIdentity()
+              const query = archiveTitleQuerySchema.parse({
+                ...parsed.data,
+                ...(chosen?.resolvedUid
+                  ? {
+                      uploaderUid: chosen.resolvedUid,
+                      ...(chosen.displayName ? { uploaderDisplayName: chosen.displayName } : {})
+                    }
+                  : chosen
+                    ? { uploaderName: chosen.value }
+                    : {})
+              })
+              await create.mutateAsync({ displayName, ...query })
+            } catch (cause) {
+              onError(cause)
+            } finally {
+              setSaving(false)
+            }
           }}
         >
           <DialogHeader>
             <DialogTitle>
               {renameOnly ? '修改来源名称' : state?.mode === 'COPY' ? '另存搜索条件' : '新增标题关键词来源'}
             </DialogTitle>
-            <DialogDescription>条件保存后固定不变；修改条件请另存来源。只有手动扫描才会访问站点。</DialogDescription>
+            <DialogDescription>
+              输入上传者名称后自动识别账号。条件保存后固定不变；修改条件请另存来源，扫描仍需手动启动。
+            </DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-5">
             <Field>
@@ -150,20 +196,13 @@ export function ArchiveSearchSourceDialog({
                 ))}
               </ToggleGroup>
             </Field>
-            <Field data-disabled={renameOnly || pending}>
-              <FieldLabel htmlFor="search-source-uid">限定上传者 UID（可选）</FieldLabel>
-              <Input
-                id="search-source-uid"
-                inputMode="numeric"
-                maxLength={20}
-                value={uploaderUid}
-                onChange={(event) => setUploaderUid(event.target.value)}
-                disabled={renameOnly || pending}
-              />
-              <FieldDescription>
-                留空跨上传者搜索。每次检查最多 100 个候选，匹配数可能为 0；仍可继续扫描。
-              </FieldDescription>
-            </Field>
+            <ArchiveUploaderIdentityField
+              identity={identity}
+              label="限定上传者（可选）"
+              optional
+              sources={sources}
+              disabled={renameOnly || pending}
+            />
             {error ? <FieldError role="alert">{error}</FieldError> : null}
           </FieldGroup>
           <DialogFooter>
@@ -172,7 +211,7 @@ export function ArchiveSearchSourceDialog({
             </Button>
             <Button type="submit" disabled={pending || !displayName.trim() || !keyword.trim()}>
               {pending ? <Spinner data-icon="inline-start" /> : null}
-              {renameOnly ? '保存名称' : '保存搜索来源'}
+              {renameOnly ? '保存名称' : saving && identity.pending ? '识别并保存中' : '保存搜索来源'}
             </Button>
           </DialogFooter>
         </form>

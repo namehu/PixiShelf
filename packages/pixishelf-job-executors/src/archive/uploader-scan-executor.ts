@@ -1,5 +1,6 @@
 import {
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+  ARCHIVE_SEARCH_DEFINITION_VERSION,
   archiveUploaderUidLockKey,
   archiveUploaderScanPayloadSchema,
   archiveSearchScanPayloadSchema,
@@ -137,6 +138,14 @@ export function createArchiveUploaderScanExecutorRegistrations(
       jobType: 'ARCHIVE_SEARCH_SCAN',
       executionLane: 'ARCHIVE_RESOLVE',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => archiveSearchScanPayloadSchema.parse(payload),
+      execute: (context) => executeArchiveUploaderScan(context, dependencies, 'TITLE_QUERY')
+    },
+    {
+      jobType: 'ARCHIVE_SEARCH_SCAN',
+      executionLane: 'ARCHIVE_RESOLVE',
+      definitionVersion: ARCHIVE_SEARCH_DEFINITION_VERSION,
       progressPolicy: 'STANDARD',
       parsePayload: (payload) => archiveSearchScanPayloadSchema.parse(payload),
       execute: (context) => executeArchiveUploaderScan(context, dependencies, 'TITLE_QUERY')
@@ -626,12 +635,12 @@ function latestCatalogWorkflow(
         intake.status === 'SKIPPED'
           ? ('ARCHIVED' as const)
           : intake.status === 'FAILED'
-          ? ('FAILED' as const)
-          : intake.status === 'CANCELLED'
-            ? ('CANCELLED' as const)
-            : intake.status === 'DUPLICATE'
-              ? ('DUPLICATE' as const)
-              : ('SUBMITTED' as const),
+            ? ('FAILED' as const)
+            : intake.status === 'CANCELLED'
+              ? ('CANCELLED' as const)
+              : intake.status === 'DUPLICATE'
+                ? ('DUPLICATE' as const)
+                : ('SUBMITTED' as const),
       eventAt: intake.finishedAt ?? intake.updatedAt ?? intake.createdAt,
       errorCode: ['FAILED', 'CANCELLED', 'DUPLICATE'].includes(intake.status) ? intake.errorCode : null,
       errorMessage: ['FAILED', 'CANCELLED', 'DUPLICATE'].includes(intake.status) ? intake.errorMessage : null,

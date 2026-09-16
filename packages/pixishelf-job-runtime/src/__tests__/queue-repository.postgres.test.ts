@@ -275,12 +275,17 @@ describePostgres('PostgresQueueRepository integration', () => {
     else expect(recovered.finishedAt).toEqual(clock.now())
   })
 
-  it.each(['ARCHIVE_UPLOADER_SCAN', 'ARCHIVE_SEARCH_SCAN'] as const)(
-    'recovers %s before its domain run is claimed without advancing progress',
-    async (jobType) => {
+  it.each([
+    ['ARCHIVE_UPLOADER_SCAN', 1],
+    ['ARCHIVE_SEARCH_SCAN', 1],
+    ['ARCHIVE_SEARCH_SCAN', 2]
+  ] as const)(
+    'recovers %s v%s before its domain run is claimed without advancing progress',
+    async (jobType, definitionVersion) => {
       const titleQuery = { keyword: 'query', matchMode: 'CONTAINS', uploaderUid: null }
       const jobId = await seedJob({
         type: jobType,
+        definitionVersion,
         executionLane: 'ARCHIVE_RESOLVE',
         effectivePriority: 20,
         maxAttempts: 2
@@ -312,9 +317,17 @@ describePostgres('PostgresQueueRepository integration', () => {
       })
       const repository = createRepository(clock, 1_000)
 
+      if (definitionVersion === 2) {
+        await expect(
+          repository.claim('old-search-worker', [
+            { jobType, executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
+          ])
+        ).resolves.toBeNull()
+      }
+
       await expect(
         repository.claim('queue-kernel-uploader-recovery', [
-          { jobType, executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
+          { jobType, executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [definitionVersion] }
         ])
       ).resolves.toMatchObject({
         id: jobId

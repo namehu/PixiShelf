@@ -41,35 +41,33 @@ export function ArchiveUploaderSourceList({
               <span className="min-w-0 flex-1">
                 <PrivacySensitiveText className="block truncate font-medium">{source.displayName}</PrivacySensitiveText>
                 <span className="block truncate text-xs font-normal text-muted-foreground">
-                  {source.titleQuery
-                    ? (
-                        <>
-                          标题{ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「
-                          <PrivacySensitiveText>{source.titleQuery.keyword}</PrivacySensitiveText>」
-                        </>
-                      )
-                    : source.uploaderUid
-                      ? `UID ${source.uploaderUid}`
-                      : (
-                          <>
-                            按名称：<PrivacySensitiveText>{source.identityValue}</PrivacySensitiveText>
-                          </>
-                        )}
+                  {source.titleQuery ? (
+                    <>
+                      标题{ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「
+                      <PrivacySensitiveText>{source.titleQuery.keyword}</PrivacySensitiveText>」
+                    </>
+                  ) : source.uploaderUid ? (
+                    `UID ${source.uploaderUid}`
+                  ) : (
+                    <>
+                      按名称：<PrivacySensitiveText>{source.identityValue}</PrivacySensitiveText>
+                    </>
+                  )}
                 </span>
                 <span className="block truncate text-xs font-normal text-muted-foreground">
                   待处理 {source.catalogCounts.actionable} ·{' '}
                   {source.uidBindingState === 'REVALIDATION_REQUIRED'
-                    ? 'UID 覆盖待校验'
+                    ? '扫描范围待核对'
                     : historyCoverageLabel(source.historyCoverage)}
                 </span>
               </span>
               <span className="flex flex-col items-end gap-1">
                 {source.titleQuery ? <Badge variant="secondary">关键词</Badge> : null}
-                {!source.titleQuery && source.uidBindingState === 'UNBOUND' ? (
-                  <Badge variant="warning">未绑定 UID</Badge>
+                {source.titleQuery?.uploaderName || (!source.titleQuery && source.uidBindingState === 'UNBOUND') ? (
+                  <Badge variant="secondary">按名称搜索</Badge>
                 ) : null}
                 {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
-                  <Badge variant="warning">UID 待校验</Badge>
+                  <Badge variant="warning">扫描范围待核对</Badge>
                 ) : null}
                 {source.catalogCounts.attention > 0 ? (
                   <Badge variant="warning">异常 {source.catalogCounts.attention}</Badge>

@@ -219,11 +219,11 @@ Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，l
 
 上传者长期目录在服务端保存完整 gallery canonical URL，用于 Provider/GID 关联和提交收件箱；该字段以及其中的 token 不直接返回客户端，列表只返回经过归档脱敏规则处理的地址。目录状态关联也只使用服务端数据库查询，错误消息在出站前继续执行归档脱敏。
 
-E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `Artist.id` 或 gallery GID，也不是凭据。UID 写入只接受规范化正整数；人工绑定/更正使用来源锁，自动发现和人工写入共同使用 UID advisory lock，并由 `(providerKey, uploaderUid)` 唯一约束兜底。名称扫描及管理员“自动匹配”只从已验证同名上传者的画廊上传者区块读取 `forums.e-hentai.org` 的 `showuser` 正整数，不接受评论区资料链接或客户端提供的证据 URL；请求继续经过共享 Provider governor、HTTPS/主机/端口与 DNS 安全检查。自动匹配仅返回候选 UID、公开上传者名称和脱敏 GID，必须再次确认才写入。发生跨来源冲突时接口只返回已有来源 ID 供受保护页面切换，不返回 canonical token、内部查询 URL 或凭据；服务端不自动合并来源或删除既有目录。
+E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `Artist.id` 或 gallery GID，也不是凭据。UID 写入只接受规范化正整数；人工绑定/更正使用来源锁，自动发现和人工写入共同使用 UID advisory lock，并由 `(providerKey, uploaderUid)` 唯一约束兜底。名称扫描及管理员“自动匹配”只从已验证同名上传者的画廊上传者区块读取 `forums.e-hentai.org` 的 `showuser` 正整数，不接受评论区资料链接或客户端提供的证据 URL；请求继续经过共享 Provider governor、HTTPS/主机/端口与 DNS 安全检查。创建前 `archiveUploader.resolveIdentity` 使用 `adminProcedure`，输入仅为完整名称，复用同一核验链；返回候选 UID、公开名称、脱敏 GID 及已有来源摘要，最终点击保存才写入。名称识别具有二十秒总预算和真实 AbortSignal 取消，鉴权失败不得启动远端请求。发生跨来源冲突时接口只返回已有来源 ID 供受保护页面切换，不返回 canonical token、内部查询 URL 或凭据；服务端不自动合并来源或删除既有目录。
 
 上传者发现结果只返回经过专用缩略图校验器处理的远端 URL：协议必须为 HTTPS，不得包含凭据或非标准端口，主机必须精确属于 `e-hentai.org`、`ehgt.org`、`hath.network` 或其子域，并在返回前移除 query/hash。纯列表不挂载图片元素；首图模式仅由浏览器懒加载虚拟列表可视行，使用 `Referrer-Policy: no-referrer`，不把 gallery canonical URL 或 token 发送给图片主机。固定的待处理、处理中、已归档、异常、全部和全局已忽略筛选不新增公共 Route，仍由 `/admin/archive/inbox` 的 Session 门禁保护。入箱前置 mutation 仅向管理员签发随机 submission attempt ID；页面不自行生成该 UUID，只负责把签发值原样带入后续入箱请求以支持网络重放幂等。
 
-标题关键词发现不增加公共路由。`archiveSearch` 读取使用 `authProcedure`，创建、重命名、停用/恢复、扫描/取消及候选处置使用 `adminProcedure`；统一发现列表可以读取两类来源。旧 `archiveUploader` 的来源相关接口限定 `UPLOADER`，UID 绑定和自动匹配不接受标题来源。标题查询的可选 UID 独立冻结，不借用可更正的上传者身份字段。
+标题关键词发现不增加公共路由。`archiveSearch` 读取使用 `authProcedure`，创建、重命名、停用/恢复、扫描/取消及候选处置使用 `adminProcedure`；统一发现列表可以读取两类来源。旧 `archiveUploader` 的来源相关接口限定 `UPLOADER`，UID 绑定和自动匹配不接受标题来源。标题查询的可选 UID 或名称条件独立冻结且互斥，不借用可更正的上传者身份字段；展示名称不参与查询。名称兜底同时核验远端元数据的上传者名称，不得因识别失败扩大到不限上传者。
 
 `archiveSearch.getDeletePreview` 使用 `authProcedure`，只返回来源名称、所属扫描/目录数量及阻塞扫描状态；`deleteSource` 使用 `adminProcedure`，在来源事务锁内重查扫描与关联任务终态，只删除来源所属发现记录。入箱与忽略处置先获取同一来源锁，再进入已有 Provider/GID 锁域。删除不调用文件系统，不取消已入箱解析或下载，不删除全局忽略与作品来源引用；重复删除为幂等成功。弹窗名称和错误继续使用隐私敏感文本组件。
 

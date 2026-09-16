@@ -1,5 +1,23 @@
 import { z } from 'zod'
 
+export const ARCHIVE_SEARCH_DEFINITION_VERSION = 2 as const
+
+export const archiveUploaderNameSchema = z
+  .string()
+  .transform((value) => value.normalize('NFKC').trim())
+  .pipe(
+    z
+      .string()
+      .min(1, '请输入完整上传者名称')
+      .max(180, '上传者名称最多 180 个字符')
+      // oxlint-disable-next-line no-control-regex -- prevent injecting remote search syntax
+      .refine((value) => !/["\u0000-\u001f\u007f]/.test(value), '上传者名称不能包含双引号或控制字符')
+  )
+
+export function normalizeArchiveUploaderName(value: string): string {
+  return value.normalize('NFKC').trim().toLocaleLowerCase('en-US')
+}
+
 export const archiveTitleMatchModeSchema = z.enum(['CONTAINS', 'STARTS_WITH', 'ENDS_WITH'])
 export const ARCHIVE_TITLE_MATCH_LABELS = {
   CONTAINS: '包含',
@@ -35,15 +53,30 @@ export const archiveTitleQuerySchema = z
       .refine((value) => BigInt(value) > 0n, '上传者 UID 必须是正整数')
       .transform((value) => BigInt(value).toString())
       .nullable()
-      .default(null)
+      .default(null),
+    uploaderName: archiveUploaderNameSchema.optional(),
+    uploaderDisplayName: z.string().trim().min(1).max(180).optional()
   })
   .strict()
+  .refine((query) => !(query.uploaderUid && query.uploaderName), '上传者名称条件与 UID 条件不能同时填写')
+  .refine((query) => !query.uploaderDisplayName || Boolean(query.uploaderUid), '上传者展示名称需要对应 UID')
 
 export type ArchiveTitleQuery = z.infer<typeof archiveTitleQuerySchema>
 
 export function archiveTitleSearchTerm(input: ArchiveTitleQuery): string {
   const query = archiveTitleQuerySchema.parse(input)
-  return `title:"${normalizeArchiveTitle(query.keyword)}"${query.uploaderUid ? ` uploaduid:${query.uploaderUid}` : ''}`
+  const uploader = query.uploaderUid
+    ? ` uploaduid:${query.uploaderUid}`
+    : query.uploaderName
+      ? ` uploader:"${normalizeArchiveUploaderName(query.uploaderName)}"`
+      : ''
+  return `title:"${normalizeArchiveTitle(query.keyword)}"${uploader}`
+}
+
+export function archiveTitleUploaderLabel(query: ArchiveTitleQuery): string {
+  return (
+    query.uploaderName ?? query.uploaderDisplayName ?? (query.uploaderUid ? `UID ${query.uploaderUid}` : '不限上传者')
+  )
 }
 
 export function matchesArchiveTitle(query: ArchiveTitleQuery, titles: readonly string[]): boolean {

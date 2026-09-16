@@ -1,4 +1,5 @@
 import { Prisma } from '@pixishelf/db'
+import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
@@ -22,6 +23,59 @@ function setup(error: unknown) {
 }
 
 describe('title source creation conflict recovery', () => {
+  it('keeps legacy UID keys stable and separates normalized NAME conditions', async () => {
+    const upsert = vi.fn(async ({ create }: { create: Record<string, unknown>; where: { queryKey: string } }) => ({
+      ...create,
+      id: 'one',
+      uploaderUid: null,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }))
+    const deps = { database: { archiveUploaderSource: { upsert } } as never }
+    await createArchiveTitleSource({ ...input, uploaderUid: '123', uploaderDisplayName: 'Alice' }, deps)
+    expect(upsert.mock.calls[0]?.[0]).toMatchObject({
+      where: {
+        queryKey: createHash('sha256')
+          .update(JSON.stringify(['e-hentai', 'example', 'CONTAINS', '123']))
+          .digest('hex')
+      }
+    })
+    await createArchiveTitleSource({ ...input, uploaderName: ' Ａlice ' }, deps)
+    await createArchiveTitleSource({ ...input, uploaderName: 'alice' }, deps)
+    expect(upsert.mock.calls[1]?.[0]).toMatchObject({
+      where: upsert.mock.calls[2]?.[0].where
+    })
+    expect(upsert.mock.calls[0]?.[0].where).not.toEqual(upsert.mock.calls[1]?.[0].where)
+  })
+
+  it('only fills missing UID display metadata when reusing an archived source', async () => {
+    const stored = {
+      id: 'existing',
+      sourceKind: 'TITLE_QUERY',
+      titleQuery: { keyword: 'Example', matchMode: 'CONTAINS', uploaderUid: '123' },
+      displayName: 'Original',
+      status: 'ARCHIVED',
+      uploaderUid: null,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const upsert = vi.fn().mockResolvedValue(stored)
+    const result = await createArchiveTitleSource(
+      { ...input, uploaderUid: '123', uploaderDisplayName: 'Alice' },
+      { database: { archiveUploaderSource: { upsert, updateMany } } as never }
+    )
+    expect(result).toMatchObject({
+      id: 'existing',
+      displayName: 'Original',
+      status: 'ARCHIVED',
+      titleQuery: { uploaderUid: '123', uploaderDisplayName: 'Alice' }
+    })
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 'existing', titleQuery: { equals: stored.titleQuery } },
+      data: { titleQuery: { ...stored.titleQuery, uploaderDisplayName: 'Alice' } }
+    })
+  })
   it('reads the winning query without changing its name or disabled state', async () => {
     const { upsert, findUnique, deps } = setup(databaseError('P2002', ['queryKey']))
     findUnique.mockResolvedValue({

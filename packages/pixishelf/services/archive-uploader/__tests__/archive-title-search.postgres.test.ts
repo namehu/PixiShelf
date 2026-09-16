@@ -7,6 +7,7 @@ vi.mock('server-only', () => ({}))
 import {
   addArchiveUploaderScanItems,
   createArchiveTitleSource,
+  createArchiveUploaderSource,
   getArchiveUploaderSource,
   listArchiveUploaderScanItems,
   listArchiveUploaderSources,
@@ -34,6 +35,32 @@ async function source(suffix: string) {
 }
 
 describe.skipIf(!database).sequential('title discovery PostgreSQL workflow', () => {
+  it('freezes a NAME query in v2 independently of a later uploader UID binding', async () => {
+    const name = `${prefix}-frozen-name`
+    const title = await createArchiveTitleSource({ displayName: name, keyword: 'Match', uploaderName: name }, deps)
+    sourceIds.push(title.id)
+    const run = await triggerArchiveUploaderScan({ sourceId: title.id, mode: 'LATEST' }, prefix, deps)
+    expect(await database!.systemJob.findUnique({ where: { id: run.systemJobId } })).toMatchObject({
+      type: 'ARCHIVE_SEARCH_SCAN',
+      definitionVersion: 2
+    })
+    const uploader = await createArchiveUploaderSource({ identityKind: 'NAME', identityValue: name }, deps)
+    sourceIds.push(uploader.id)
+    await setArchiveUploaderUid(
+      { sourceId: uploader.id, uploaderUid: BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 12)}`).toString() },
+      deps
+    )
+    const frozen = await database!.archiveUploaderScanRun.findUnique({ where: { id: run.id } })
+    const stored = await database!.archiveUploaderSource.findUnique({ where: { id: title.id } })
+    expect(frozen?.titleQuery).toEqual({
+      keyword: 'Match',
+      matchMode: 'CONTAINS',
+      uploaderUid: null,
+      uploaderName: name
+    })
+    expect(stored?.titleQuery).toEqual(frozen?.titleQuery)
+    expect(stored?.uploaderUid).toBeNull()
+  })
   afterAll(async () => {
     if (!database) return
     await database.archiveUploaderIgnoredItem.deleteMany({ where: { sourceId: { in: sourceIds } } })

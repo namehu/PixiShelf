@@ -7,7 +7,7 @@ import {
 import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 describe('production Worker capability audit', () => {
-  it('accepts exactly one fresh READY Worker with 30 job types and both versioned job families', async () => {
+  it('accepts exactly one fresh READY Worker with 30 job types and three versioned job families', async () => {
     const findMany = vi.fn().mockResolvedValue([{ capabilities: [...PRODUCTION_WORKER_CAPABILITIES].reverse() }])
     await expect(
       auditProductionWorkerCapabilities(database(findMany), {
@@ -23,15 +23,18 @@ describe('production Worker capability audit', () => {
     })
   })
 
-  it('rejects an incomplete inventory when SCAN only advertises v1', async () => {
-    const previousInventory = PRODUCTION_WORKER_CAPABILITIES.map((capability) =>
-      capability.jobType === 'SCAN' ? { ...capability, definitionVersions: [1] } : capability
-    )
+  it.each(['SCAN', 'ARCHIVE_SEARCH_SCAN'])(
+    'rejects an incomplete inventory when %s only advertises v1',
+    async (jobType) => {
+      const previousInventory = PRODUCTION_WORKER_CAPABILITIES.map((capability) =>
+        capability.jobType === jobType ? { ...capability, definitionVersions: [1] } : capability
+      )
 
-    await expect(
-      auditProductionWorkerCapabilities(database(vi.fn().mockResolvedValue([{ capabilities: previousInventory }])))
-    ).rejects.toThrow('30-job/33-version dual-lane release')
-  })
+      await expect(
+        auditProductionWorkerCapabilities(database(vi.fn().mockResolvedValue([{ capabilities: previousInventory }])))
+      ).rejects.toThrow('30-job/34-version dual-lane release')
+    }
+  )
 
   it('rejects missing, duplicate, or mismatched online inventories', async () => {
     const invalidInventories: Array<Array<{ capabilities: unknown }>> = [
@@ -74,7 +77,7 @@ describe('production Worker capability audit', () => {
 
     expect(exitCode).toBe(0)
     expect(writeOutput).toHaveBeenCalledWith(
-      'Worker capability audit passed: 1 READY Worker, 30 job types / 33 versions (SCAN v1/v2/v3, ARCHIVE_IMPORT v1/v2)'
+      'Worker capability audit passed: 1 READY Worker, 30 job types / 34 versions (SCAN v1/v2/v3, ARCHIVE_IMPORT v1/v2, ARCHIVE_SEARCH_SCAN v1/v2)'
     )
   })
 

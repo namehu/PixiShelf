@@ -55,7 +55,7 @@ APPLY 每批最多 25 项。执行前重验快照与人工归属指纹；变化�
 
 旧 `Artwork.artistId` 保留为历史兼容与存储身份参考；人工关系调整不改这个列，不移动目录，不更改 storageKey/storagePath 或媒体路径。数据库备份必须包括新表、视图、触发器和迁移记录。
 
-升级前按[备份与恢复](../operations/backup-and-recovery.md)停止旧写入者并建立一致检查点，使用正式 generate/deploy 流程，禁止 db:push；App 与 Worker 一起更新。能力清单为 30 个 job type / 33 个 type-version 组合。首轮历史补全先生成预览，再确认执行。
+升级前按[备份与恢复](../operations/backup-and-recovery.md)停止旧写入者并建立一致检查点，使用正式 generate/deploy 流程，禁止 db:push；App 与 Worker 一起更新。能力清单为 30 个 job type / 34 个 type-version 组合。首轮历史补全先生成预览，再确认执行。
 
 只回滚二进制可保留新增表，但旧版读取 artistId，不能展示新人工关系；不要在混合版本下继续整理。需要恢复旧版完整语义时使用发布前一致检查点，不能把新增多对多归属压回单列后声称无损回滚。
 

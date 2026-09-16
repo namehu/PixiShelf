@@ -74,6 +74,22 @@ describe('archive safe HTTP cancellation', () => {
     ).rejects.toMatchObject({ code: 'CANCELLED', recoverable: true })
     expect(requestMock).not.toHaveBeenCalled()
   })
+  it('does not open a socket when the deadline expires during DNS resolution', async () => {
+    const controller = new AbortController()
+    let finish!: (value: unknown) => void
+    lookupMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        })
+    )
+    const client = new SafeHttpClient(['example.test'], { ARCHIVE_HTTPS_PROXY: '' })
+    const request = client.request('https://example.test/media.webp', { signal: controller.signal })
+    controller.abort()
+    finish([{ address: '1.1.1.1', family: 4 }])
+    await expect(request).rejects.toMatchObject({ code: 'CANCELLED' })
+    expect(requestMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('archive safe HTTP connection cleanup', () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { FingerprintIcon, InfoIcon, WandSparklesIcon } from 'lucide-react'
 import { toast } from 'sonner'
@@ -43,6 +43,9 @@ export function ArchiveUploaderUidDialog({
   const trpc = useTRPC()
   const [uidValue, setUidValue] = useState('')
   const [confirmationReady, setConfirmationReady] = useState(false)
+  const [showManual, setShowManual] = useState(false)
+  const currentDialog = useRef({ open, sourceId: source?.id })
+  currentDialog.current = { open, sourceId: source?.id }
   const [matchEvidence, setMatchEvidence] = useState<{
     uploaderName: string
     externalId: string
@@ -58,11 +61,13 @@ export function ArchiveUploaderUidDialog({
     setUidValue(source?.uploaderUid ?? '')
     setConfirmationReady(false)
     setMatchEvidence(null)
+    setShowManual(Boolean(source?.uploaderUid))
   }, [open, source?.id, source?.uploaderUid])
 
   const matchMutation = useMutation(
     trpc.archiveUploader.matchUploaderUid.mutationOptions({
       onSuccess: (result) => {
+        if (!currentDialog.current.open || currentDialog.current.sourceId !== result.sourceId) return
         setUidValue(result.uploaderUid)
         setConfirmationReady(false)
         setMatchEvidence({
@@ -77,8 +82,8 @@ export function ArchiveUploaderUidDialog({
           })
           return
         }
-        toast.success(`已自动匹配 UID ${result.uploaderUid}`, {
-          description: '请核对结果；你仍可手动修改，确认后才会保存。'
+        toast.success('已识别上传者账号', {
+          description: '核对上传者名称后即可确认使用。'
         })
       },
       onError: (error) =>
@@ -87,6 +92,12 @@ export function ArchiveUploaderUidDialog({
         })
     })
   )
+
+  const matchRef = useRef(matchMutation.mutate)
+  matchRef.current = matchMutation.mutate
+  useEffect(() => {
+    if (open && source && !source.uploaderUid) matchRef.current({ sourceId: source.id })
+  }, [open, source?.id, source?.uploaderUid])
 
   const mutation = useMutation(
     trpc.archiveUploader.setUploaderUid.mutationOptions({
@@ -116,7 +127,7 @@ export function ArchiveUploaderUidDialog({
           onSubmit={(event) => {
             event.preventDefault()
             if (!source || !normalizedUid || unchanged) return
-            if (!confirmationReady) {
+            if ((isCorrection || showManual) && !confirmationReady) {
               setConfirmationReady(true)
               return
             }
@@ -124,26 +135,33 @@ export function ArchiveUploaderUidDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>{isCorrection ? '更正上传者 UID' : '绑定上传者 UID'}</DialogTitle>
-            <DialogDescription>UID 是原站上传者的稳定数字身份，不是画廊 GID 或 PixiShelf 艺术家 ID。</DialogDescription>
+            <DialogTitle>{isCorrection ? '更正上传者账号' : '识别上传者账号'}</DialogTitle>
+            <DialogDescription>
+              按已保存的上传者名称识别账号；确认后保留现有目录和归档，重新核对扫描范围。
+            </DialogDescription>
           </DialogHeader>
           <FieldGroup className="py-5">
             <Field data-invalid={invalid || undefined}>
-              <FieldLabel htmlFor="archive-uploader-uid">上传者 UID</FieldLabel>
-              <Input
-                id="archive-uploader-uid"
-                value={uidValue}
-                onChange={(event) => {
-                  setUidValue(event.target.value)
-                  setConfirmationReady(false)
-                  setMatchEvidence(null)
-                }}
-                placeholder="例如 1234567"
-                inputMode="numeric"
-                autoComplete="off"
-                aria-invalid={invalid || undefined}
-                required
-              />
+              <PrivacySensitiveText>{source?.displayName}</PrivacySensitiveText>
+              {showManual ? (
+                <>
+                  <FieldLabel htmlFor="archive-uploader-uid">上传者 UID</FieldLabel>
+                  <Input
+                    id="archive-uploader-uid"
+                    value={uidValue}
+                    onChange={(event) => {
+                      setUidValue(event.target.value)
+                      setConfirmationReady(false)
+                      setMatchEvidence(null)
+                    }}
+                    placeholder="例如 1234567"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    aria-invalid={invalid || undefined}
+                    required
+                  />
+                </>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
@@ -156,7 +174,7 @@ export function ArchiveUploaderUidDialog({
                   ) : (
                     <WandSparklesIcon data-icon="inline-start" aria-hidden="true" />
                   )}
-                  {matchMutation.isPending ? '正在匹配' : '自动匹配'}
+                  {matchMutation.isPending ? '正在识别' : '重新识别'}
                 </Button>
                 {matchEvidence ? (
                   <span className="text-sm text-muted-foreground">
@@ -167,9 +185,12 @@ export function ArchiveUploaderUidDialog({
                 ) : null}
               </div>
               {invalid ? <FieldError>UID 必须是 1–20 位正整数。</FieldError> : null}
-              <FieldDescription>
-                自动匹配只填入候选值，不会直接保存；绑定后未来扫描使用 uploaduid 查询，远端名称仍会自动刷新。
-              </FieldDescription>
+              {!showManual ? (
+                <Button type="button" variant="ghost" size="sm" onClick={() => setShowManual(true)}>
+                  高级：手动填写 UID
+                </Button>
+              ) : null}
+              <FieldDescription>识别不会直接修改来源。未能识别时仍可关闭弹窗，继续按名称扫描。</FieldDescription>
             </Field>
             {confirmationReady && source && normalizedUid ? (
               <Alert variant="warning">
@@ -205,7 +226,13 @@ export function ArchiveUploaderUidDialog({
               ) : (
                 <FingerprintIcon data-icon="inline-start" aria-hidden="true" />
               )}
-              {confirmationReady ? (isCorrection ? '确认更正' : '确认绑定') : '检查变更'}
+              {confirmationReady
+                ? isCorrection
+                  ? '确认更正'
+                  : '确认绑定'
+                : isCorrection || showManual
+                  ? '检查变更'
+                  : '确认使用此账号'}
             </Button>
           </DialogFooter>
         </form>

@@ -297,6 +297,7 @@ vi.mock('react-virtuoso', () => ({
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
     archiveUploader: {
+      resolveIdentity: { mutationOptions: () => ({ kind: 'resolve-identity' }) },
       listSources: { queryOptions: () => ({ kind: 'sources' }), queryKey: () => ['sources'] },
       getSource: { queryOptions: () => ({ kind: 'detail' }), queryKey: () => ['detail'] },
       listItems: {
@@ -568,8 +569,9 @@ describe('ArchiveUploaderSources', () => {
     currentDetailData = { source: unboundSource, runs: [completedRun] }
     renderSources()
 
-    expect(screen.getAllByText('未绑定 UID').length).toBeGreaterThan(0)
-    fireEvent.click(screen.getByRole('button', { name: '绑定 UID' }))
+    expect(screen.getAllByText('按名称搜索').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '识别上传者账号' }))
+    fireEvent.click(screen.getByRole('button', { name: '高级：手动填写 UID' }))
     fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '000456' } })
     fireEvent.click(screen.getByRole('button', { name: '检查变更' }))
 
@@ -595,8 +597,8 @@ describe('ArchiveUploaderSources', () => {
     currentDetailData = { source: unboundSource, runs: [completedRun] }
     renderSources()
 
-    fireEvent.click(screen.getByRole('button', { name: '绑定 UID' }))
-    fireEvent.click(screen.getByRole('button', { name: '自动匹配' }))
+    fireEvent.click(screen.getByRole('button', { name: '识别上传者账号' }))
+    fireEvent.click(screen.getByRole('button', { name: '高级：手动填写 UID' }))
 
     expect(mocks.matchUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1' })
     expect((screen.getByLabelText('上传者 UID') as HTMLInputElement).value).toBe('456')
@@ -610,7 +612,7 @@ describe('ArchiveUploaderSources', () => {
   it('disables UID changes while the source has an active scan', () => {
     renderSources()
 
-    expect(screen.getByRole('button', { name: '更正 UID' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: '高级：更正上传者账号' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByText('扫描完成或取消后才能绑定或更正 UID。')).toBeTruthy()
   })
 
@@ -633,8 +635,8 @@ describe('ArchiveUploaderSources', () => {
 
     renderSources()
 
-    expect(screen.getAllByText('UID 覆盖待校验').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('UID 待校验').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('扫描范围待核对').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('扫描范围待核对').length).toBeGreaterThan(0)
     expect(screen.getByText('UID 覆盖：待重新验证')).toBeTruthy()
     expect(screen.queryByText('最新：尚未扫描')).toBeNull()
     expect(screen.queryByText('历史：尚未扫描')).toBeNull()
@@ -670,7 +672,8 @@ describe('ArchiveUploaderSources', () => {
     }
     renderSources()
 
-    fireEvent.click(screen.getByRole('button', { name: '绑定 UID' }))
+    fireEvent.click(screen.getByRole('button', { name: '识别上传者账号' }))
+    fireEvent.click(screen.getByRole('button', { name: '高级：手动填写 UID' }))
     fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '456' } })
     fireEvent.click(screen.getByRole('button', { name: '检查变更' }))
     fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))

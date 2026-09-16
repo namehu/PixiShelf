@@ -188,7 +188,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、30 个 job type / 33 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2，其余 28 类 v1）和同
+- 新 Worker READY、两个 lane、30 个 job type / 34 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` 与 `ARCHIVE_SEARCH_SCAN` v1/v2，其余 27 类 v1）和同
   lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 
@@ -259,3 +259,7 @@ App / Worker image digest：
 ## Pixiv 扫描根标记
 
 原媒体快照必须保留根目录隐藏文件 `.pixishelf-root`，并与数据库 inventory state 的 `rootIdentity` 配对保存。外部同步不得删除或覆盖标记。首次绑定前保存数据库检查点、旧标记（如存在）、实际挂载依据及命令 before/after 输出；不清空 inventory。仅标记丢失时可在核实原图库并停 Worker 后恢复数据库原 UUID；不同或损坏的标记先调查，不覆盖。完整克隆会保留 UUID，不能用标记区分克隆副本。操作、失败恢复与兼容回滚见 [Pixiv 扫描根身份](../features/pixiv-root-identity.md)。
+
+## 2026-09-16 上传者名称配置兼容
+
+本次无需 DDL 或历史回填，标题条件 JSON 新增可选名称条件与展示名称，新标题扫描使用 ARCHIVE_SEARCH_SCAN v2。先发布可读取新 JSON、执行 v1/v2 的 App/Worker，再开放入口；生产门禁为 30 类任务、34 个版本组合。新数据存在后不能直接回滚旧 App（旧严格校验器不能读取新字段），应保留兼容读取版本或前向修复。需要完整降级时依照同一检查点恢复数据库、媒体、配置和镜像，不原地删除新条件或历史记录。

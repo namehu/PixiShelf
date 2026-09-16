@@ -90,7 +90,7 @@ flowchart LR
   CMD -->|事务写入| JOB
   CMD -->|必要时同事务写入| DOMAIN
   RESOLVE -->|claim ARCHIVE_RESOLVE_ITEM\n或 ARCHIVE_UPLOADER_SCAN / ARCHIVE_SEARCH_SCAN| JOB
-  WRITER -->|claim 其余 26 类| JOB
+  WRITER -->|claim 其余 27 类| JOB
   JOB --> LEASE
   RESOLVE --> EXEC
   WRITER --> EXEC
@@ -217,7 +217,7 @@ sequenceDiagram
 
 ## 30 类 Worker 任务
 
-`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN` 与 `ARCHIVE_SEARCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 26 类任务全部进入 `BACKGROUND_WRITER`。
+`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN` 与 `ARCHIVE_SEARCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 27 类任务全部进入 `BACKGROUND_WRITER`。
 
 | Job type                           | 主要入口                                 | 是否计划任务 | 是否创建子任务 | 主要副作用                                                    |
 | ---------------------------------- | ---------------------------------------- | ------------ | -------------- | ------------------------------------------------------------- |
@@ -253,8 +253,8 @@ sequenceDiagram
 
 标签、艺术家、作品和系列同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家、作品和系列的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 30 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 28 类仍只支持 v1，因此 capability audit
-实际核对 32 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
+生产 Registry 保持 30 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 与 `ARCHIVE_SEARCH_SCAN` 支持 v1/v2，其余 27 类仍只支持 v1，因此 capability audit
+实际核对 34 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
 ## Pixiv 作品在线同步链路

@@ -1,8 +1,30 @@
 import { describe, expect, it } from 'vitest'
-import { archiveTitleQuerySchema, archiveTitleSearchTerm, matchesArchiveTitle } from '../archive-search.js'
+import {
+  ARCHIVE_SEARCH_DEFINITION_VERSION,
+  archiveTitleQuerySchema,
+  archiveTitleSearchTerm,
+  matchesArchiveTitle
+} from '../archive-search.js'
 import { executionLaneForJobType } from '../job-types.js'
 
 describe('title discovery query', () => {
+  it('adds an exact name constraint without modifying legacy JSON or UID queries', () => {
+    expect(ARCHIVE_SEARCH_DEFINITION_VERSION).toBe(2)
+    const name = archiveTitleQuerySchema.parse({ keyword: 'Match', uploaderName: ' Ａlice ' })
+    expect(archiveTitleSearchTerm(name)).toBe('title:"match" uploader:"alice"')
+    expect(
+      archiveTitleSearchTerm(
+        archiveTitleQuerySchema.parse({ keyword: 'Match', uploaderUid: '123', uploaderDisplayName: 'Alice' })
+      )
+    ).toBe('title:"match" uploaduid:123')
+    expect(archiveTitleQuerySchema.parse({ keyword: 'Match' })).not.toHaveProperty('uploaderName')
+    expect(
+      archiveTitleQuerySchema.safeParse({ keyword: 'Match', uploaderName: 'Alice', uploaderUid: '123' }).success
+    ).toBe(false)
+    expect(archiveTitleQuerySchema.safeParse({ keyword: 'Match', uploaderName: 'Alice" OR title:x' }).success).toBe(
+      false
+    )
+  })
   it.each([
     ['CONTAINS', ' AbC ', ['prefix abc suffix'], true],
     ['STARTS_WITH', ' AbC ', [' ABC suffix '], true],

@@ -30,8 +30,15 @@ import {
   triggerArchiveUploaderScanSchema
 } from '@/services/archive-uploader/archive-uploader-service'
 import { runArchiveOperation } from './archive'
+import {
+  resolveArchiveUploaderIdentity,
+  resolveArchiveUploaderIdentitySchema
+} from '@/services/archive-uploader/archive-uploader-identity'
 
 export const archiveUploaderRouter = router({
+  resolveIdentity: adminProcedure
+    .input(resolveArchiveUploaderIdentitySchema)
+    .mutation(({ input }) => runArchiveOperation(() => resolveArchiveUploaderIdentity(input))),
   createSource: adminProcedure
     .input(createArchiveUploaderSourceSchema)
     .mutation(({ input }) => runArchiveOperation(() => createArchiveUploaderSource(input))),

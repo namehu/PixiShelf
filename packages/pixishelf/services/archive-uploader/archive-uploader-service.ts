@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+  ARCHIVE_SEARCH_DEFINITION_VERSION,
+  normalizeArchiveUploaderName,
   archiveUploaderIdentityLockKey,
   archiveUploaderUidLockKey,
   archiveUploaderScanPayloadSchema,
@@ -9,15 +11,11 @@ import {
   JOB_DEFINITION_VERSION
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
-import {
-  createDefaultArchiveMediaProviderRegistry,
-  GovernedArchiveProviderRegistry,
-  PostgresArchiveProviderGovernor,
-  type ArchiveUploaderProviderRegistry
-} from '@pixishelf/job-executors'
+import { type ArchiveUploaderProviderRegistry } from '@pixishelf/job-executors'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { ArchiveError, type ArchiveErrorCode } from '@/services/archive/errors'
+import { ArchiveError } from '@/services/archive/errors'
+import { resolveArchiveUploaderIdentity } from './archive-uploader-identity'
 import { archiveWireErrorMessage, redactArchiveUrl } from '@/services/archive/archive-redaction'
 import { createArchiveIntakeSubmissionInTransaction } from '@/services/archive-intake/archive-intake-service'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
@@ -60,7 +58,14 @@ const scanItemIdsSchema = z
 export const createArchiveUploaderSourceSchema = z
   .object({
     identityKind: z.enum(['NAME', 'UID']),
-    identityValue: z.string().trim().min(1).max(180)
+    identityValue: z.string().trim().min(1).max(180),
+    uploaderUid: z
+      .string()
+      .trim()
+      .regex(/^\d{1,20}$/)
+      .refine((value) => BigInt(value) > 0n)
+      .optional(),
+    displayName: z.string().trim().min(1).max(180).optional()
   })
   .strict()
 
@@ -151,22 +156,55 @@ export async function createArchiveUploaderSource(
   const parsed = createArchiveUploaderSourceSchema.parse(input)
   const identity = normalizeUploaderIdentity(parsed.identityKind, parsed.identityValue)
   const database = getDatabase(dependencies)
+  const uploaderUid =
+    parsed.identityKind === 'UID'
+      ? identity.value
+      : parsed.uploaderUid
+        ? normalizeUploaderIdentity('UID', parsed.uploaderUid).value
+        : null
+  const identityWhere = {
+    providerKey: PROVIDER_KEY,
+    sourceKind: 'UPLOADER' as const,
+    identityKind: parsed.identityKind,
+    normalizedIdentity: identity.normalized
+  }
+  const findExisting = async (sources: Prisma.TransactionClient['archiveUploaderSource']) => {
+    if (uploaderUid) {
+      const byUid = await sources.findFirst({
+        where: { providerKey: PROVIDER_KEY, sourceKind: 'UPLOADER', uploaderUid },
+        select: sourceWireSelect
+      })
+      if (byUid || parsed.identityKind === 'UID') return byUid
+    }
+    const byName = await sources.findFirst({ where: identityWhere, select: sourceWireSelect })
+    if (uploaderUid && byName?.uploaderUid && byName.uploaderUid !== uploaderUid) {
+      throw new ArchiveError('STATE_CONFLICT', '同名来源已对应另一个上传者账号，请在高级选项核对 UID。')
+    }
+    return byName
+  }
   try {
-    const source = await database.archiveUploaderSource.create({
-      data: {
-        providerKey: PROVIDER_KEY,
-        identityKind: parsed.identityKind,
-        identityValue: identity.value,
-        normalizedIdentity: identity.normalized,
-        uploaderUid: parsed.identityKind === 'UID' ? identity.value : null,
-        displayName: parsed.identityKind === 'UID' ? `UID ${identity.value}` : identity.value
-      },
-      select: sourceWireSelect
+    return await database.$transaction(async (transaction) => {
+      await lockSource(transaction, `create:${parsed.identityKind}:${identity.normalized}`)
+      if (uploaderUid) await lockUploaderUid(transaction, PROVIDER_KEY, uploaderUid)
+      const existing = await findExisting(transaction.archiveUploaderSource)
+      if (existing) return { ...serializeSource(existing), reused: true }
+      const source = await transaction.archiveUploaderSource.create({
+        data: {
+          providerKey: PROVIDER_KEY,
+          identityKind: parsed.identityKind,
+          identityValue: identity.value,
+          normalizedIdentity: identity.normalized,
+          uploaderUid,
+          displayName: parsed.displayName ?? (parsed.identityKind === 'UID' ? `UID ${identity.value}` : identity.value)
+        },
+        select: sourceWireSelect
+      })
+      return { ...serializeSource(source), reused: false }
     })
-    return serializeSource(source)
   } catch (error) {
     if (isUniqueConstraintError(error)) {
-      throw new ArchiveError('STATE_CONFLICT', '该上传者来源已经存在；若已归档，请直接重新启用')
+      const existing = await findExisting(database.archiveUploaderSource)
+      if (existing) return { ...serializeSource(existing), reused: true }
     }
     throw error
   }
@@ -483,30 +521,11 @@ export async function matchArchiveUploaderUid(
     throw new ArchiveError('STATE_CONFLICT', '当前来源还没有可验证的上传者名称，请先完成一次 UID 扫描')
   }
 
-  let result
-  try {
-    const providers =
-      dependencies.uploaderProviders ??
-      new GovernedArchiveProviderRegistry(
-        createDefaultArchiveMediaProviderRegistry(),
-        new PostgresArchiveProviderGovernor(database)
-      )
-    result = await providers.getUploaderScanner(source.providerKey).scanUploader({
-      identityKind: 'NAME',
-      identityValue: uploaderName,
-      cursor: null,
-      stopAtExternalId: null,
-      limit: 1
-    })
-  } catch (error) {
-    throw translateUploaderProviderError(error)
+  const result = await resolveArchiveUploaderIdentity({ name: uploaderName }, { ...dependencies, database })
+  if (result.outcome === 'UNRESOLVED') {
+    throw new ArchiveError('REMOTE_NOT_FOUND', result.message)
   }
-
-  const uploaderUid = result.discoveredUploaderUid
-  const matchedItem = result.items[0]
-  if (!uploaderUid || !matchedItem?.uploaderName) {
-    throw new ArchiveError('REMOTE_NOT_FOUND', '没有找到可验证的上传者 UID；你仍可手动填写')
-  }
+  const { uploaderUid } = result
   const conflict = await database.archiveUploaderSource.findFirst({
     where: { providerKey: source.providerKey, uploaderUid, id: { not: source.id } },
     select: { id: true }
@@ -517,16 +536,16 @@ export async function matchArchiveUploaderUid(
       sourceId: source.id,
       conflictingSourceId: conflict.id,
       uploaderUid,
-      uploaderName: matchedItem.uploaderName,
-      evidenceExternalId: matchedItem.externalId
+      uploaderName: result.uploaderName,
+      evidenceExternalId: result.evidenceExternalId
     }
   }
   return {
     outcome: 'MATCHED' as const,
     sourceId: source.id,
     uploaderUid,
-    uploaderName: matchedItem.uploaderName,
-    evidenceExternalId: matchedItem.externalId
+    uploaderName: result.uploaderName,
+    evidenceExternalId: result.evidenceExternalId
   }
 }
 
@@ -569,7 +588,7 @@ export async function triggerArchiveUploaderScan(
           id: jobId,
           type: titleQuery ? 'ARCHIVE_SEARCH_SCAN' : 'ARCHIVE_UPLOADER_SCAN',
           executionLane: 'ARCHIVE_RESOLVE',
-          definitionVersion: JOB_DEFINITION_VERSION,
+          definitionVersion: titleQuery ? ARCHIVE_SEARCH_DEFINITION_VERSION : JOB_DEFINITION_VERSION,
           status: 'PENDING',
           triggerSource: 'MANUAL',
           requestedByUserId,
@@ -1063,50 +1082,6 @@ async function lockUploaderUid(transaction: Prisma.TransactionClient, providerKe
   )
 }
 
-function translateUploaderProviderError(error: unknown): ArchiveError {
-  if (!(error instanceof Error)) {
-    return new ArchiveError('INTERNAL', '自动匹配上传者 UID 失败', { cause: error })
-  }
-  const candidate = error as Error & {
-    code?: unknown
-    recoverable?: unknown
-    retryAfterMs?: unknown
-    stage?: unknown
-    remoteHost?: unknown
-  }
-  const code = isArchiveErrorCode(candidate.code) ? candidate.code : 'INTERNAL'
-  return new ArchiveError(code, candidate.message, {
-    cause: error,
-    recoverable: candidate.recoverable === true,
-    retryAfterMs: typeof candidate.retryAfterMs === 'number' ? candidate.retryAfterMs : null,
-    remoteHost: typeof candidate.remoteHost === 'string' ? candidate.remoteHost : null
-  })
-}
-
-function isArchiveErrorCode(value: unknown): value is ArchiveErrorCode {
-  return [
-    'INVALID_URL',
-    'UNSUPPORTED_PROVIDER',
-    'SSRF_BLOCKED',
-    'REMOTE_NOT_FOUND',
-    'REMOTE_RATE_LIMITED',
-    'REMOTE_QUOTA_EXCEEDED',
-    'REMOTE_FORBIDDEN',
-    'REMOTE_RESPONSE_INVALID',
-    'ORIGINAL_UNAVAILABLE',
-    'DOWNLOAD_TOO_LARGE',
-    'MEDIA_INVALID',
-    'STORAGE_FULL',
-    'CANCELLED',
-    'PAUSED',
-    'LEASE_LOST',
-    'WORKER_STOPPED',
-    'STATE_CONFLICT',
-    'PARTIAL_FAILURE',
-    'INTERNAL'
-  ].includes(String(value))
-}
-
 function isUniqueConstraintError(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002'
 }
@@ -1116,7 +1091,7 @@ function sourceScope(dependencies: ArchiveUploaderServiceDependencies) {
 }
 
 export const createArchiveTitleSourceSchema = archiveTitleQuerySchema
-  .extend({
+  .safeExtend({
     displayName: z.string().trim().min(1, '请输入来源名称').max(180)
   })
   .strict()
@@ -1134,9 +1109,34 @@ export async function createArchiveTitleSource(
 ) {
   const { displayName, ...query } = createArchiveTitleSourceSchema.parse(input)
   const queryKey = createHash('sha256')
-    .update(JSON.stringify([PROVIDER_KEY, normalizeArchiveTitle(query.keyword), query.matchMode, query.uploaderUid]))
+    .update(
+      JSON.stringify(
+        query.uploaderName
+          ? [
+              PROVIDER_KEY,
+              normalizeArchiveTitle(query.keyword),
+              query.matchMode,
+              null,
+              normalizeArchiveUploaderName(query.uploaderName)
+            ]
+          : [PROVIDER_KEY, normalizeArchiveTitle(query.keyword), query.matchMode, query.uploaderUid]
+      )
+    )
     .digest('hex')
   const sources = getDatabase(dependencies).archiveUploaderSource
+  const withDisplayName = async (source: SourceWire) => {
+    const stored = archiveTitleQuerySchema.parse(source.titleQuery)
+    if (query.uploaderDisplayName && !stored.uploaderDisplayName && stored.uploaderUid === query.uploaderUid) {
+      const titleQuery = { ...stored, uploaderDisplayName: query.uploaderDisplayName }
+      // Only enrich missing presentation metadata; never overwrite a concurrent edit or frozen conditions.
+      const changed = await sources.updateMany({
+        where: { id: source.id, titleQuery: { equals: source.titleQuery as Prisma.InputJsonValue } },
+        data: { titleQuery }
+      })
+      if (changed.count === 1) return serializeSource({ ...source, titleQuery })
+    }
+    return serializeSource(source)
+  }
   try {
     const source = await sources.upsert({
       where: { queryKey },
@@ -1144,7 +1144,7 @@ export async function createArchiveTitleSource(
       update: {},
       select: sourceWireSelect
     })
-    return serializeSource(source)
+    return withDisplayName(source)
   } catch (error) {
     const target = error instanceof Prisma.PrismaClientKnownRequestError ? error.meta?.target : undefined
     if (!isUniqueConstraintError(error) || !Array.isArray(target) || target.length !== 1 || target[0] !== 'queryKey') {
@@ -1153,7 +1153,7 @@ export async function createArchiveTitleSource(
     // Empty-update upserts can race on first creation; reuse the winner without changing its name or status.
     const existing = await sources.findUnique({ where: { queryKey }, select: sourceWireSelect })
     if (!existing) throw error
-    return serializeSource(existing)
+    return withDisplayName(existing)
   }
 }
 

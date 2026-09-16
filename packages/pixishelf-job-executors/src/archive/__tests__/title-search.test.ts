@@ -27,6 +27,40 @@ function fixture(
 }
 
 describe('E-Hentai title search', () => {
+  it('checks both title and exact uploader name without discarding nonmatching cursor candidates', async () => {
+    const { provider, http } = fixture([300, 200, 100], () => ({ title: 'Match gallery' }))
+    const nameQuery = archiveTitleQuerySchema.parse({ keyword: 'Match', uploaderName: ' UPLOADER-200 ' })
+    const first = await provider.scanTitles({ ...input, query: nameQuery, limit: 2 })
+    expect(first.items.map((item) => [item.externalId, item.matchesQuery])).toEqual([
+      ['300', false],
+      ['200', true]
+    ])
+    expect(new URL(http.text.mock.calls[0]![0]).searchParams.get('f_search')).toBe(
+      'title:"match" uploader:"uploader-200"'
+    )
+    expect(first.discoveredUploaderUid).toBeNull()
+    const second = await provider.scanTitles({ ...input, query: nameQuery, cursor: first.nextCursor })
+    expect(second.items.map((item) => [item.externalId, item.matchesQuery])).toEqual([['100', false]])
+    await expect(
+      provider.scanTitles({ ...input, query: { ...nameQuery, uploaderName: 'other' }, cursor: first.nextCursor })
+    ).rejects.toThrow('条件不一致')
+  })
+
+  it('keeps the UID cursor valid when only the display name changes', async () => {
+    const { provider } = fixture([300, 200], () => ({ title: 'Match gallery' }))
+    const uidQuery = archiveTitleQuerySchema.parse({
+      keyword: 'Match',
+      uploaderUid: '123',
+      uploaderDisplayName: 'Alice'
+    })
+    const first = await provider.scanTitles({ ...input, query: uidQuery, limit: 1 })
+    const second = await provider.scanTitles({
+      ...input,
+      query: { ...uidQuery, uploaderDisplayName: 'Renamed' },
+      cursor: first.nextCursor
+    })
+    expect(second.items.map((item) => item.externalId)).toEqual(['200'])
+  })
   it.each([950, 901, 900])('does not skip surviving tail candidates when GID %s disappears', async (removed) => {
     const ids = Array.from({ length: 101 }, (_, i) => 1000 - i)
     const { provider } = fixture(ids)

@@ -336,10 +336,10 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       return {
         ...('query' in input
           ? {
-              matchesQuery: matchesArchiveTitle(input.query, [
-                decodeHtml(value.title ?? ''),
-                decodeHtml(value.title_jpn ?? '')
-              ])
+              matchesQuery:
+                (!input.query.uploaderName ||
+                  normalizeUploaderName(uploaderName) === normalizeUploaderName(input.query.uploaderName)) &&
+                matchesArchiveTitle(input.query, [decodeHtml(value.title ?? ''), decodeHtml(value.title_jpn ?? '')])
             }
           : {}),
         providerKey: PROVIDER_KEY,
@@ -977,7 +977,19 @@ function parseGalleryThumbnailPage(
   }
 }
 
-const VOID_HTML_ELEMENTS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source'])
+const VOID_HTML_ELEMENTS = new Set([
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'source'
+])
 
 function popHtmlStack(stack: PreviewHtmlElement[], name: string) {
   for (let index = stack.length - 1; index >= 0; index -= 1) {
@@ -1026,12 +1038,7 @@ function sourcePageOrdinal(rawHref: string, baseUrl: string, gid: number): numbe
   return Number.isSafeInteger(sourcePage) && sourcePage > 0 && sourcePage <= MAX_PREVIEW_TOTAL ? sourcePage - 1 : null
 }
 
-function galleryPageNumber(
-  rawHref: string,
-  baseUrl: string,
-  gid: number,
-  galleryToken: string
-): number | null {
+function galleryPageNumber(rawHref: string, baseUrl: string, gid: number, galleryToken: string): number | null {
   let url: URL
   try {
     url = new URL(decodeHtml(rawHref), baseUrl)
@@ -1057,9 +1064,7 @@ function galleryPageNumber(
 
 function finalizePreviewThumbnail(pending: PendingPreviewThumbnail, baseUrl: string): ArchiveThumbnail {
   const spriteSources = pending.dimensionSources.filter(({ style }) => style && /\burl\(/i.test(style))
-  const parsedSprites = spriteSources.map((attributes) =>
-    parseSpriteThumbnail(attributes, baseUrl, pending.ordinal)
-  )
+  const parsedSprites = spriteSources.map((attributes) => parseSpriteThumbnail(attributes, baseUrl, pending.ordinal))
   if (parsedSprites.some((value) => value === null)) {
     throw invalidPreviewPage(`E-Hentai 第 ${pending.ordinal + 1} 张缩略图的裁剪信息无效`)
   }
@@ -1073,13 +1078,13 @@ function finalizePreviewThumbnail(pending: PendingPreviewThumbnail, baseUrl: str
     (attributes) => attributes['data-src'] || attributes['data-original'] || attributes.src
   )
   const parsedImages = imageSources.map((attributes) => {
-      const rawUrl = attributes['data-src'] || attributes['data-original'] || attributes.src
-      if (!rawUrl) return null
-      const url = validatedThumbnailUrl(rawUrl, baseUrl)
-      const dimensions = parseVisibleDimensions([attributes, ...pending.dimensionSources])
-      if (!url || !dimensions) return null
-      return { ordinal: pending.ordinal, url, ...dimensions }
-    })
+    const rawUrl = attributes['data-src'] || attributes['data-original'] || attributes.src
+    if (!rawUrl) return null
+    const url = validatedThumbnailUrl(rawUrl, baseUrl)
+    const dimensions = parseVisibleDimensions([attributes, ...pending.dimensionSources])
+    if (!url || !dimensions) return null
+    return { ordinal: pending.ordinal, url, ...dimensions }
+  })
   if (parsedImages.some((value) => value === null)) {
     throw invalidPreviewPage(`E-Hentai 第 ${pending.ordinal + 1} 张缩略图包含无效图片`)
   }
@@ -1118,9 +1123,7 @@ function parseBackgroundPosition(style: string): { x: number; y: number } | null
   const shorthandUrl = shorthand?.match(/\burl\(\s*(["']?)(.*?)\1\s*\)/i)
   if (!shorthandUrl) return null
   const rawPosition = explicit ?? shorthand!.replace(shorthandUrl[0], ' ').split('/')[0]!
-  const match = rawPosition.match(
-    /(?:^|\s)(0|-?\d+(?:\.\d+)?px)\s+(0|-?\d+(?:\.\d+)?px)(?=\s|$)/i
-  )
+  const match = rawPosition.match(/(?:^|\s)(0|-?\d+(?:\.\d+)?px)\s+(0|-?\d+(?:\.\d+)?px)(?=\s|$)/i)
   if (!match) {
     return /(?:%|\b-?\d+(?:\.\d+)?px\b)/i.test(rawPosition) ? null : { x: 0, y: 0 }
   }
@@ -1214,10 +1217,7 @@ function parseGalleryTitle(html: string): string {
 }
 
 function parseGalleryTotal(html: string): number | null {
-  const candidateBlocks = [
-    html.match(/<div\b[^>]*\bid\s*=\s*(["'])gdd\1[^>]*>([\s\S]*?)<\/div>/i)?.[2] ?? '',
-    html
-  ]
+  const candidateBlocks = [html.match(/<div\b[^>]*\bid\s*=\s*(["'])gdd\1[^>]*>([\s\S]*?)<\/div>/i)?.[2] ?? '', html]
   let foundPageCount = false
   for (const block of candidateBlocks) {
     for (const match of block.matchAll(/>([\d,]+)\s+pages?\s*</gi)) {

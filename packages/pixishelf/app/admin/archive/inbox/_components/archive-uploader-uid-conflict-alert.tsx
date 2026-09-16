@@ -8,7 +8,7 @@ export function ArchiveUploaderUidConflictAlert({ message }: { message: string }
       <FingerprintIcon aria-hidden="true" />
       <AlertTitle>UID 自动匹配冲突</AlertTitle>
       <AlertDescription>
-        <PrivacySensitiveText>{message}</PrivacySensitiveText>；请在“绑定 UID”中重新匹配并查看已有来源。
+        <PrivacySensitiveText>{message}</PrivacySensitiveText>；请在“识别上传者账号”中重试并查看已有来源。
       </AlertDescription>
     </Alert>
   )

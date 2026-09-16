@@ -30,6 +30,45 @@ import {
 } from '../archive-uploader-service'
 
 describe('archive uploader service', () => {
+  it('creates an identified NAME source directly and reuses an archived UID without modifying it', async () => {
+    const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...data,
+      id: 'new',
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }))
+    const findFirst = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: 'existing',
+        displayName: 'Alice',
+        status: 'ARCHIVED',
+        uploaderUid: '123',
+        lastErrorCode: null,
+        lastErrorMessage: null
+      })
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([]), archiveUploaderSource: { create, findFirst } }
+    const deps = { database: { $transaction: (operation: (value: typeof tx) => unknown) => operation(tx) } as never }
+    const input = { identityKind: 'NAME' as const, identityValue: 'Alice', uploaderUid: '000123', displayName: 'Alice' }
+    await expect(createArchiveUploaderSource(input, deps)).resolves.toMatchObject({
+      reused: false,
+      uploaderUid: '123',
+      displayName: 'Alice'
+    })
+    await expect(createArchiveUploaderSource(input, deps)).resolves.toMatchObject({
+      id: 'existing',
+      reused: true,
+      status: 'ARCHIVED'
+    })
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ identityKind: 'NAME', normalizedIdentity: 'alice', uploaderUid: '123' })
+      })
+    )
+  })
   beforeEach(() => {
     mocks.createIntake.mockReset()
     mocks.cancelJob.mockReset()
@@ -46,6 +85,29 @@ describe('archive uploader service', () => {
       )
     ).resolves.toEqual({ submissionAttemptId: '00000000-0000-4000-8000-000000000001' })
     expect(uuid).toHaveBeenCalledOnce()
+  })
+
+  it('prefers an identified UID and never reuses a different account just because its name matches', async () => {
+    const existing = {
+      id: 'existing',
+      displayName: 'Alice',
+      uploaderUid: '999',
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }
+    const findFirst = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(existing)
+    const create = vi.fn()
+    const tx = { $queryRaw: vi.fn().mockResolvedValue([]), archiveUploaderSource: { findFirst, create } }
+    const deps = { database: { $transaction: (operation: (value: typeof tx) => unknown) => operation(tx) } as never }
+    await expect(
+      createArchiveUploaderSource({ identityKind: 'NAME', identityValue: 'Alice', uploaderUid: '123' }, deps)
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    expect(create).not.toHaveBeenCalled()
+    findFirst.mockResolvedValueOnce({ ...existing, uploaderUid: '123' })
+    await expect(
+      createArchiveUploaderSource({ identityKind: 'NAME', identityValue: 'Alice', uploaderUid: '123' }, deps)
+    ).resolves.toMatchObject({ id: 'existing', reused: true, uploaderUid: '123' })
+    expect(findFirst).toHaveBeenCalledTimes(3)
   })
 
   it('canonicalizes a numeric UID before storing a reusable source', async () => {
@@ -68,7 +130,15 @@ describe('archive uploader service', () => {
 
     const result = await createArchiveUploaderSource(
       { identityKind: 'UID', identityValue: '000123' },
-      { database: { archiveUploaderSource: { create } } as never }
+      {
+        database: {
+          $transaction: (operation: (tx: unknown) => Promise<unknown>) =>
+            operation({
+              $queryRaw: vi.fn(async () => []),
+              archiveUploaderSource: { create, findFirst: vi.fn(async () => null) }
+            })
+        } as never
+      }
     )
 
     expect(create).toHaveBeenCalledWith(
@@ -92,81 +162,91 @@ describe('archive uploader service', () => {
     expect(result).not.toHaveProperty('historyCursor')
   })
 
-  it('creates a manually triggered resolver-lane job and binds the frozen source cursor in one transaction', async () => {
-    const source = {
-      id: 'source-1',
-      providerKey: 'e-hentai',
-      identityKind: 'NAME',
-      identityValue: 'alice',
-      uploaderUid: '123',
-      uidRevalidationRequiredAt: null,
-      normalizedIdentity: 'alice',
-      displayName: 'alice',
-      status: 'ACTIVE',
-      latestSeenExternalId: '300',
-      incrementalCursor: 'incremental-cursor',
-      incrementalHeadExternalId: '400',
-      historyCursor: 'history-cursor'
-    }
-    const systemJobCreate = vi.fn(async () => ({ id: 'job-1' }))
-    const runCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
-      ...data,
-      id: 'run-1',
-      systemJobId: 'job-1',
-      mode: 'LATEST',
-      searchIdentityKind: data.searchIdentityKind,
-      searchIdentityValue: data.searchIdentityValue,
-      status: 'PENDING',
-      itemCount: 0,
-      newCount: 0,
-      activeCount: 0,
-      archivedCount: 0,
-      possibleUpdateCount: 0,
-      replacementCount: 0,
-      startedAt: null,
-      finishedAt: null,
-      errorCode: null,
-      errorMessage: null,
-      createdAt: new Date('2026-09-02T00:00:00.000Z'),
-      updatedAt: new Date('2026-09-02T00:00:00.000Z')
-    }))
-    const transaction = {
-      $queryRaw: vi.fn(async () => [{ lock: '' }]),
-      archiveUploaderSource: { findUnique: vi.fn(async () => source), update: vi.fn(async () => source) },
-      archiveUploaderScanRun: { findFirst: vi.fn(async () => null), create: runCreate },
-      systemJob: { create: systemJobCreate }
-    }
-    const database = {
-      $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
-    }
+  it.each(['UPLOADER', 'TITLE_QUERY'])(
+    'freezes %s and its supported resolver job version in one transaction',
+    async (sourceKind) => {
+      const source = {
+        id: 'source-1',
+        sourceKind,
+        titleQuery:
+          sourceKind === 'TITLE_QUERY'
+            ? { keyword: 'Match', matchMode: 'CONTAINS', uploaderName: 'Alice', uploaderUid: null }
+            : null,
+        providerKey: 'e-hentai',
+        identityKind: sourceKind === 'TITLE_QUERY' ? null : 'NAME',
+        identityValue: sourceKind === 'TITLE_QUERY' ? null : 'alice',
+        uploaderUid: sourceKind === 'TITLE_QUERY' ? null : '123',
+        uidRevalidationRequiredAt: null,
+        normalizedIdentity: 'alice',
+        displayName: 'alice',
+        status: 'ACTIVE',
+        latestSeenExternalId: '300',
+        incrementalCursor: 'incremental-cursor',
+        incrementalHeadExternalId: '400',
+        historyCursor: 'history-cursor'
+      }
+      const systemJobCreate = vi.fn(async () => ({ id: 'job-1' }))
+      const runCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        ...data,
+        id: 'run-1',
+        systemJobId: 'job-1',
+        mode: 'LATEST',
+        searchIdentityKind: data.searchIdentityKind,
+        searchIdentityValue: data.searchIdentityValue,
+        status: 'PENDING',
+        itemCount: 0,
+        newCount: 0,
+        activeCount: 0,
+        archivedCount: 0,
+        possibleUpdateCount: 0,
+        replacementCount: 0,
+        startedAt: null,
+        finishedAt: null,
+        errorCode: null,
+        errorMessage: null,
+        createdAt: new Date('2026-09-02T00:00:00.000Z'),
+        updatedAt: new Date('2026-09-02T00:00:00.000Z')
+      }))
+      const transaction = {
+        $queryRaw: vi.fn(async () => [{ lock: '' }]),
+        archiveUploaderSource: { findUnique: vi.fn(async () => source), update: vi.fn(async () => source) },
+        archiveUploaderScanRun: { findFirst: vi.fn(async () => null), create: runCreate },
+        systemJob: { create: systemJobCreate }
+      }
+      const database = {
+        $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
+      }
 
-    await triggerArchiveUploaderScan({ sourceId: source.id, mode: 'LATEST' }, 'admin-1', {
-      database: database as never,
-      now: () => new Date('2026-09-02T00:00:00.000Z'),
-      uuid: vi.fn().mockReturnValueOnce('run-1').mockReturnValueOnce('job-1')
-    })
-
-    expect(systemJobCreate).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        id: 'job-1',
-        type: 'ARCHIVE_UPLOADER_SCAN',
-        executionLane: 'ARCHIVE_RESOLVE',
-        triggerSource: 'MANUAL',
-        requestedByUserId: 'admin-1',
-        payload: { scanRunId: 'run-1' }
+      await triggerArchiveUploaderScan({ sourceId: source.id, mode: 'LATEST' }, 'admin-1', {
+        database: database as never,
+        now: () => new Date('2026-09-02T00:00:00.000Z'),
+        uuid: vi.fn().mockReturnValueOnce('run-1').mockReturnValueOnce('job-1')
       })
-    })
-    expect(runCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
+
+      expect(systemJobCreate).toHaveBeenCalledWith({
         data: expect.objectContaining({
-          cursorBefore: 'incremental-cursor',
-          searchIdentityKind: 'UID',
-          searchIdentityValue: '123'
+          id: 'job-1',
+          type: sourceKind === 'TITLE_QUERY' ? 'ARCHIVE_SEARCH_SCAN' : 'ARCHIVE_UPLOADER_SCAN',
+          definitionVersion: sourceKind === 'TITLE_QUERY' ? 2 : 1,
+          executionLane: 'ARCHIVE_RESOLVE',
+          triggerSource: 'MANUAL',
+          requestedByUserId: 'admin-1',
+          payload: { scanRunId: 'run-1' }
         })
       })
-    )
-    expect(mocks.writeJobEvent).toHaveBeenCalledOnce()
-  })
+      expect(runCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            cursorBefore: 'incremental-cursor',
+            searchIdentityKind: sourceKind === 'TITLE_QUERY' ? null : 'UID',
+            searchIdentityValue: sourceKind === 'TITLE_QUERY' ? null : '123',
+            ...(sourceKind === 'TITLE_QUERY' ? { titleQuery: source.titleQuery } : {})
+          })
+        })
+      )
+      expect(mocks.writeJobEvent).toHaveBeenCalledOnce()
+    }
+  )
 
   it('binds a NAME source to a canonical UID while preserving its durable records', async () => {
     const timestamp = new Date('2026-09-04T00:00:00.000Z')
@@ -287,13 +367,16 @@ describe('archive uploader service', () => {
       uploaderName: 'Alice',
       evidenceExternalId: '300'
     })
-    expect(scanUploader).toHaveBeenCalledWith({
-      identityKind: 'NAME',
-      identityValue: 'alice',
-      cursor: null,
-      stopAtExternalId: null,
-      limit: 1
-    })
+    expect(scanUploader).toHaveBeenCalledWith(
+      {
+        identityKind: 'NAME',
+        identityValue: 'alice',
+        cursor: null,
+        stopAtExternalId: null,
+        limit: 1
+      },
+      { signal: expect.any(AbortSignal) }
+    )
     expect(database.archiveUploaderSource.update).not.toHaveBeenCalled()
   })
 

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   createSource: vi.fn(),
+  resolveIdentity: vi.fn(),
   listSources: vi.fn(),
   getSource: vi.fn(),
   listItems: vi.fn(),
@@ -18,6 +19,10 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('server-only', () => ({}))
+vi.mock('@/services/archive-uploader/archive-uploader-identity', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/archive-uploader/archive-uploader-identity')>()),
+  resolveArchiveUploaderIdentity: mocks.resolveIdentity
+}))
 vi.mock('@/lib/rate-limit', () => ({ rateLimiter: { check: vi.fn(() => true) } }))
 vi.mock('@/services/archive-uploader/archive-uploader-service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/archive-uploader/archive-uploader-service')>()),
@@ -57,6 +62,11 @@ describe('archive uploader authorization boundary', () => {
   })
 
   it.each([
+    {
+      name: 'resolveIdentity',
+      invoke: () => archiveUploaderRouter.createCaller(unauthorized).resolveIdentity({ name: 'Alice' }),
+      service: mocks.resolveIdentity
+    },
     {
       name: 'createSource',
       invoke: () =>
