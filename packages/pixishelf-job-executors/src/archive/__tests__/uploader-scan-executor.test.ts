@@ -471,6 +471,7 @@ function createFixture(input: {
   const catalogWorkflowUpdates: Array<Record<string, unknown>> = []
   let finalOutcome: unknown = null
   const run = {
+    defaultCreatorIds: [],
     id: 'scan-run-1',
     sourceId: 'source-1',
     systemJobId: 'uploader-job-1',

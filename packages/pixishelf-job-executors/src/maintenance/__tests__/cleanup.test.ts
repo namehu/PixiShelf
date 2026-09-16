@@ -86,7 +86,11 @@ describe('maintenance retention cleanup', () => {
       )
     }
     expect(archiveBulkOperationDeleteMany).toHaveBeenCalledWith({
-      where: { id: { in: ['bulk-1'] }, completedAt: { lt: cutoff } }
+      where: {
+        id: { in: ['bulk-1'] },
+        completedAt: { lt: cutoff },
+        commandType: { notIn: ['BIND_CREATORS', 'CANCEL_PENDING_CREATORS'] }
+      }
     })
     expect(archiveIntakeItemDeleteMany).toHaveBeenCalledWith({
       where: {

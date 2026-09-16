@@ -10,7 +10,7 @@ import {
   type ArchiveUploaderScanPayload,
   type JobErrorCode
 } from '@pixishelf/job-contracts'
-import { Prisma, type PrismaClient } from '@pixishelf/db'
+import { Prisma, type PrismaClient, lockCreatorCatalog, bindDiscoveryCreators } from '@pixishelf/db'
 import type {
   EnqueuedChildJob,
   ExecutionContext,
@@ -101,6 +101,7 @@ interface CatalogDurableWorkflow {
 }
 
 interface ClaimedScanRun {
+  defaultCreatorIds: number[]
   id: string
   mode: 'LATEST' | 'HISTORY'
   searchIdentityKind: 'NAME' | 'UID' | null
@@ -200,6 +201,7 @@ export async function executeArchiveUploaderScan(
     })
     return {
       id: current.id,
+      defaultCreatorIds: current.defaultCreatorIds,
       mode: current.mode,
       searchIdentityKind: current.searchIdentityKind,
       searchIdentityValue: current.searchIdentityValue,
@@ -279,6 +281,11 @@ async function finalizeScan(
     return
   }
 
+  await scope.transaction.$queryRaw(
+    Prisma.sql`SELECT pg_advisory_xact_lock(20260902::integer, hashtext(${run.source.id}::text))::text`
+  )
+  await lockCreatorCatalog(scope.transaction)
+  await scope.transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock(7341902117)::text')
   await lockArchiveUploaderCatalogIdentities(
     scope.transaction,
     result.items.map((item) => ({
@@ -372,6 +379,20 @@ async function finalizeScan(
           },
           data: catalogWorkflowData(classified.latestWorkflow)
         })
+      }
+      if (item.matchesQuery !== false) {
+        const firstMatch = await scope.transaction.archiveUploaderCatalogItem.updateMany({
+          where: { id: catalog.id, firstMatchedAt: null },
+          data: { firstMatchedAt: completedAt }
+        })
+        if (firstMatch.count && run.defaultCreatorIds.length) {
+          await bindDiscoveryCreators(
+            scope.transaction,
+            { providerKey: item.providerKey, externalId: item.externalId },
+            run.defaultCreatorIds,
+            { automatic: true, title: item.title }
+          )
+        }
       }
     }
   }

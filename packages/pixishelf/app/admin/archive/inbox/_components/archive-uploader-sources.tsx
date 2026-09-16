@@ -29,6 +29,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { type ArchiveUploaderResultView, useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 import { ArchiveDiscoveryBulkBar } from './archive-discovery-bulk-bar'
+import { DiscoveryCreatorDialog, type DiscoveryCreatorDialogState } from './discovery-creator-dialog'
+import { DiscoveryPendingCreators } from './discovery-pending-creators'
 import { ArchiveDiscoveryDeleteDialog } from './archive-discovery-delete-dialog'
 import { ArchiveDiscoveryDetailHeader } from './archive-discovery-detail-header'
 import { IgnoredResults } from './archive-discovery-ignored-results'
@@ -72,6 +74,8 @@ export function ArchiveUploaderSources({
   active,
   locatedSourceId,
   ignored,
+  pendingCreators = false,
+  onNavigatePendingCreators,
   onNavigateSource,
   onNavigateSourceList,
   onNavigateIgnored,
@@ -80,6 +84,8 @@ export function ArchiveUploaderSources({
   active: boolean
   locatedSourceId: string | null
   ignored: boolean
+  pendingCreators?: boolean
+  onNavigatePendingCreators?: () => void
   onNavigateSource: (sourceId: string, history: NavigationHistory) => void
   onNavigateSourceList: (history: NavigationHistory) => void
   onNavigateIgnored: (ignored: boolean, history: NavigationHistory) => void
@@ -96,6 +102,8 @@ export function ArchiveUploaderSources({
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
   const [implicitSourceId, setImplicitSourceId] = useState<string | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
+  const [creatorDialog, setCreatorDialog] = useState<DiscoveryCreatorDialogState | null>(null)
+  const [unboundOnly, setUnboundOnly] = useState(false)
   const [intakeOptions, setIntakeOptions] = useState(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
   const [selectedIgnoredItemIds, setSelectedIgnoredItemIds] = useState<Set<string>>(new Set())
   const [resultFeed, setResultFeed] = useState<ArchiveDiscoveryCatalogView>('ACTIONABLE')
@@ -154,7 +162,7 @@ export function ArchiveUploaderSources({
 
   useLayoutEffect(() => {
     if (!active || !layoutReady || isDesktop || sourcesQuery.isPending) return
-    const view = ignored ? 'ignored' : (locatedSourceId ?? 'list')
+    const view = pendingCreators ? 'pending-creators' : ignored ? 'ignored' : (locatedSourceId ?? 'list')
     const previous = previousMobileViewRef.current
     previousMobileViewRef.current = view
     if (previous && previous !== view) {
@@ -166,7 +174,7 @@ export function ArchiveUploaderSources({
     }
     window.addEventListener('scroll', save, { passive: true })
     return () => window.removeEventListener('scroll', save)
-  }, [active, ignored, isDesktop, layoutReady, locatedSourceId, sourcesQuery.isPending])
+  }, [active, ignored, pendingCreators, isDesktop, layoutReady, locatedSourceId, sourcesQuery.isPending])
 
   useEffect(() => {
     if (!selectedSourceId) return
@@ -175,6 +183,8 @@ export function ArchiveUploaderSources({
       setSelectedItemIds(new Set())
       setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
       setResultFeed('ACTIONABLE')
+      setUnboundOnly(false)
+      setCreatorDialog(null)
       setPreviewItem(null)
       setCancelRequestedRunId(null)
     }
@@ -196,7 +206,7 @@ export function ArchiveUploaderSources({
   const catalogPolling = Boolean(activeRun) || (detail?.source.catalogCounts.processing ?? 0) > 0
   const itemsQuery = useInfiniteQuery(
     trpc.archiveSearch.listItems.infiniteQueryOptions(
-      { sourceId: selectedSourceId ?? 'unselected', view: resultFeed, limit: SCAN_RESULT_PAGE_SIZE },
+      { sourceId: selectedSourceId ?? 'unselected', view: resultFeed, limit: SCAN_RESULT_PAGE_SIZE, unboundOnly },
       {
         initialCursor: null,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -244,7 +254,7 @@ export function ArchiveUploaderSources({
   useEffect(() => {
     if (!selectedSourceId || !itemsQuery.isSuccess) return
     setSelectedItemIds((current) => {
-      const available = new Set(items.filter(isSubmittableItem).map(({ id }) => id))
+      const available = new Set(items.map(({ id }) => id))
       return new Set([...current].filter((id) => available.has(id)))
     })
   }, [items, itemsQuery.isSuccess, selectedSourceId])
@@ -412,7 +422,23 @@ export function ArchiveUploaderSources({
   }
 
   const submittableItems = items.filter(isSubmittableItem)
-  const bulkSelectableItems = submittableItems.slice(0, MAX_SELECTED_ITEMS)
+  const bulkSelectableItems = items.slice(0, MAX_SELECTED_ITEMS)
+  const selectedItems = items.filter((item) => selectedItemIds.has(item.id))
+  const selectedSubmittable = submittableItems.filter((item) => selectedItemIds.has(item.id))
+  const selectedIgnorable = selectedItems.filter((item) => item.actionable)
+  const openCreators = (mode: 'bind' | 'cancel') => {
+    if (!selectedSourceId) return
+    const pending = [
+      ...new Map(selectedItems.flatMap((item) => item.pendingCreators ?? []).map((row) => [row.id, row])).values()
+    ]
+    setCreatorDialog({
+      mode,
+      sourceId: selectedSourceId,
+      itemIds: [...selectedItemIds],
+      immediateCount: selectedItems.filter((item) => item.artworkId !== null).length,
+      initialCreators: mode === 'cancel' ? pending : []
+    })
+  }
   const allActionableSelected =
     bulkSelectableItems.length > 0 && bulkSelectableItems.every((item) => selectedItemIds.has(item.id))
   const bulkSelectableIgnoredItems = ignoredItems.slice(0, MAX_SELECTED_ITEMS)
@@ -427,7 +453,7 @@ export function ArchiveUploaderSources({
     submissionAttemptMutation.isPending ||
     ignoreMutation.isPending ||
     restoreMutation.isPending
-  const mobileDetail = layoutReady && !isDesktop && (ignored || Boolean(locatedSourceId))
+  const mobileDetail = layoutReady && !isDesktop && (ignored || pendingCreators || Boolean(locatedSourceId))
 
   if (!active) return null
 
@@ -438,6 +464,11 @@ export function ArchiveUploaderSources({
         description="保存上传者或标题关键词条件；手动扫描并勾选结果，再按所选模式加入收件箱。"
         actions={
           <>
+            {onNavigatePendingCreators ? (
+              <Button variant="outline" onClick={onNavigatePendingCreators}>
+                待生效绑定
+              </Button>
+            ) : null}
             <Button
               variant="outline"
               aria-label={ignored ? '返回发现来源' : '查看全局已忽略'}
@@ -461,7 +492,7 @@ export function ArchiveUploaderSources({
           </>
         }
       />
-      {!ignored ? (
+      {!ignored && !pendingCreators ? (
         <ToggleGroup
           type="single"
           value={sourceFilter}
@@ -504,7 +535,7 @@ export function ArchiveUploaderSources({
     )
 
   const source = detail?.source
-  const resultPositionKey = selectedSourceId ? `${selectedSourceId}:${resultFeed}` : 'unselected'
+  const resultPositionKey = selectedSourceId ? `${selectedSourceId}:${resultFeed}:${unboundOnly}` : 'unselected'
   const detailPanel = (
     <AdminSection>
       {mobileDetail ? (
@@ -588,11 +619,11 @@ export function ArchiveUploaderSources({
           <ArchiveDiscoveryResultsToolbar
             view={resultFeed}
             counts={{
-              ACTIONABLE: source.catalogCounts.actionable,
-              PROCESSING: source.catalogCounts.processing,
-              ARCHIVED: source.catalogCounts.archived,
-              ATTENTION: source.catalogCounts.attention,
-              ALL: source.catalogCounts.total
+              ACTIONABLE: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).actionable,
+              PROCESSING: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).processing,
+              ARCHIVED: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).archived,
+              ATTENTION: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).attention,
+              ALL: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).total
             }}
             description={resultFeedDescription(resultFeed, items.length)}
             resultView={resultView}
@@ -602,6 +633,33 @@ export function ArchiveUploaderSources({
             onIntakeOptionsChange={setIntakeOptions}
             disabled={mutationPending}
           />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              onClick={() =>
+                setCreatorDialog({
+                  mode: 'defaults',
+                  sourceId: source.id,
+                  itemIds: [],
+                  immediateCount: 0,
+                  initialCreators: source.defaultCreators ?? []
+                })
+              }
+            >
+              固定艺术家（{source.defaultCreators?.length ?? 0}）
+            </Button>
+            <PrivacySensitiveText>{source.defaultCreators?.map((row) => row.name).join('、')}</PrivacySensitiveText>
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={unboundOnly}
+                onCheckedChange={(checked) => {
+                  setUnboundOnly(checked === true)
+                  setSelectedItemIds(new Set())
+                }}
+              />
+              仅看未绑定
+            </label>
+          </div>
           <ScanResults
             view={resultFeed}
             runs={detail.runs}
@@ -637,12 +695,24 @@ export function ArchiveUploaderSources({
             selectedCount={selectedItemIds.size}
             kind="catalog"
             pending={mutationPending}
-            ignoreDisabled={items.some((item) => selectedItemIds.has(item.id) && !item.actionable)}
+            ignoreDisabled={selectedIgnorable.length === 0}
+            ignoreCount={selectedIgnorable.length}
+            addCount={selectedSubmittable.length}
+            onBind={() => openCreators('bind')}
+            onCancelPending={
+              selectedItems.some((item) => item.pendingCreators?.length) ? () => openCreators('cancel') : undefined
+            }
             addLabel={resultFeed === 'ATTENTION' ? '重新加入收件箱' : '加入收件箱'}
             onClear={() => setSelectedItemIds(new Set())}
-            onIgnore={() => ignoreMutation.mutate({ sourceId: source.id, itemIds: [...selectedItemIds] })}
+            onIgnore={() =>
+              ignoreMutation.mutate({ sourceId: source.id, itemIds: selectedIgnorable.map((item) => item.id) })
+            }
             onAdd={() =>
-              submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [...selectedItemIds], ...intakeOptions })
+              submissionAttemptMutation.mutate({
+                sourceId: source.id,
+                itemIds: selectedSubmittable.map((item) => item.id),
+                ...intakeOptions
+              })
             }
           />
         </>
@@ -653,7 +723,17 @@ export function ArchiveUploaderSources({
   return (
     <div className="flex min-w-0 flex-col gap-6 pt-4">
       {globalHeader}
-      {ignored ? (
+      {creatorDialog ? (
+        <DiscoveryCreatorDialog
+          key={`${creatorDialog.sourceId}:${creatorDialog.mode}`}
+          state={creatorDialog}
+          onClose={() => setCreatorDialog(null)}
+          onSaved={refresh}
+        />
+      ) : null}
+      {pendingCreators ? (
+        <DiscoveryPendingCreators onBack={() => onNavigateSourceList('push')} />
+      ) : ignored ? (
         <AdminSection>
           {mobileDetail ? (
             <Button
@@ -887,7 +967,7 @@ function ScanResults({
           <Checkbox
             checked={allActionableSelected ? true : selectedItemIds.size > 0 ? 'indeterminate' : false}
             onCheckedChange={(checked) => onToggleAll(checked === true)}
-            aria-label="选择当前已加载的可加入结果，最多一百条"
+            aria-label="选择当前已加载的结果，最多一百条"
           />
           <span>画廊</span>
           <span className="text-right">操作</span>
@@ -901,10 +981,7 @@ function ScanResults({
           >
             <Checkbox
               checked={selectedItemIds.has(item.id)}
-              disabled={
-                !(item.actionable || item.recoverable) ||
-                (!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS)
-              }
+              disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
               onCheckedChange={(checked) => onToggle(item.id, checked === true)}
               aria-label={`选择 ${item.title}`}
             />
@@ -921,6 +998,18 @@ function ScanResults({
                     {item.title}
                   </PrivacySensitiveText>
                   <CatalogStatusBadge item={item} />
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {(item.effectiveCreators ?? []).map((creator) => (
+                    <Badge key={creator.id} variant="secondary">
+                      <PrivacySensitiveText>{creator.name}</PrivacySensitiveText>
+                    </Badge>
+                  ))}
+                  {(item.pendingCreators ?? []).map((creator) => (
+                    <Badge key={creator.id} variant="outline">
+                      <PrivacySensitiveText>{creator.name}</PrivacySensitiveText> · 待生效
+                    </Badge>
+                  ))}
                 </div>
                 <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
                   #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>

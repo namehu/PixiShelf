@@ -22,11 +22,28 @@ vi.mock('@/services/archive-uploader/archive-uploader-service', async (original)
   listArchiveUploaderIgnoredItems: writes
 }))
 import { archiveSearchRouter } from '../archive-search'
+vi.mock('@/services/archive-uploader/discovery-creator-service', async (original) => ({
+  ...(await original<typeof import('@/services/archive-uploader/discovery-creator-service')>()),
+  setDiscoveryCreators: writes,
+  bindDiscoveryItems: writes,
+  cancelPendingCreators: writes,
+  listPendingCreators: writes
+}))
 
 const caller = archiveSearchRouter.createCaller({ session: null, user: null, headers: new Headers() } as never)
 
 describe('archiveSearch authentication boundary', () => {
   it.each([
+    () => caller.setDefaultCreators({ sourceId: 'one', artistIds: [] }),
+    () =>
+      caller.bindCreators({
+        sourceId: 'one',
+        artistIds: [1],
+        itemIds: ['item'],
+        requestId: '00000000-0000-4000-8000-000000000001'
+      }),
+    () => caller.cancelPendingCreators({ pendingIds: ['pending'], requestId: '00000000-0000-4000-8000-000000000001' }),
+    () => caller.listPendingCreators({}),
     () => caller.getDeletePreview({ sourceId: 'one' }),
     () => caller.deleteSource({ sourceId: 'one' }),
     () => caller.createSource({ displayName: 'Example', keyword: 'abc' }),

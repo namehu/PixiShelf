@@ -100,6 +100,35 @@ export async function editArtworkCreators(
   const artists = await tx.artist.count({ where: { id: { in: ids } } })
   if (artists !== ids.length) throw new Error('所选艺术家或社团已不存在')
   await tx.artwork.findUniqueOrThrow({ where: { id: artworkId, ...visibleCreatorArtwork } })
+  const effective = await tx.artworkArtist.findMany({
+    where: { artworkId, ...activeCreatorMembership },
+    select: { artistId: true }
+  })
+  const refs = await tx.artworkExternalRef.findMany({
+    where: { artworkId },
+    select: { providerKey: true, externalId: true }
+  })
+  const removed =
+    mode === 'REMOVE'
+      ? ids
+      : mode === 'SET'
+        ? effective.map((row) => row.artistId).filter((id) => !ids.includes(id))
+        : []
+  const added =
+    mode === 'ADD' ? ids : mode === 'SET' ? ids.filter((id) => !effective.some((row) => row.artistId === id)) : []
+  for (const ref of refs) {
+    for (const artistId of removed) {
+      const key = { ...ref, artistId }
+      await tx.discoveryCreatorSuppression.upsert({
+        where: { providerKey_externalId_artistId: key },
+        create: key,
+        update: {}
+      })
+    }
+    if (added.length) await tx.discoveryCreatorSuppression.deleteMany({ where: { ...ref, artistId: { in: added } } })
+    if (removed.length || added.length)
+      await tx.discoveryPendingCreator.deleteMany({ where: { ...ref, artistId: { in: [...removed, ...added] } } })
+  }
   if (mode !== 'ADD') {
     await tx.artworkArtistEvidence.updateMany({
       where: { membership: { artworkId, artistId: mode === 'REMOVE' ? { in: ids } : { notIn: ids } } },

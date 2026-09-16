@@ -16,7 +16,9 @@ const workspaceQueryParsers = {
 export function ArchiveInboxWorkspace() {
   const [query, setQuery] = useQueryStates(workspaceQueryParsers)
   const activeTab = query.itemId ? 'inbox' : query.tab === 'uploaders' ? 'uploaders' : 'inbox'
-  const mobileDetail = activeTab === 'uploaders' && Boolean(query.sourceId || query.discoveryView === 'ignored')
+  const mobileDetail =
+    activeTab === 'uploaders' &&
+    Boolean(query.sourceId || query.discoveryView === 'ignored' || query.discoveryView === 'pending-creators')
 
   return (
     <Tabs
@@ -49,6 +51,13 @@ export function ArchiveInboxWorkspace() {
           active={activeTab === 'uploaders'}
           locatedSourceId={query.sourceId}
           ignored={query.discoveryView === 'ignored'}
+          pendingCreators={query.discoveryView === 'pending-creators'}
+          onNavigatePendingCreators={() => {
+            void setQuery(
+              { tab: 'uploaders', sourceId: null, discoveryView: 'pending-creators', itemId: null },
+              { history: 'push' }
+            )
+          }}
           onNavigateSource={(sourceId, history) => {
             void setQuery({ tab: 'uploaders', sourceId, discoveryView: null, itemId: null }, { history })
           }}

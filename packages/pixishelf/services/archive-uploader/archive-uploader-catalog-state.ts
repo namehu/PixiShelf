@@ -64,6 +64,7 @@ export async function listArchiveUploaderCatalogState(
   input: {
     sourceId: string
     view: ArchiveUploaderCatalogView
+    unboundOnly?: boolean
     cursor?: ArchiveUploaderCatalogCursor | null
     limit: number
   }
@@ -112,6 +113,7 @@ export async function listArchiveUploaderCatalogState(
       state."sortAt"
     FROM "catalogState" AS state
     WHERE TRUE
+      ${input.unboundOnly ? Prisma.sql`AND ${unboundCondition()}` : Prisma.empty}
       ${viewCondition}
       ${cursorCondition}
     ORDER BY state."sortAt" DESC, state."lastSeenAt" DESC, state."id" DESC
@@ -128,7 +130,8 @@ export async function listArchiveUploaderCatalogState(
 
 export async function getArchiveUploaderCatalogCounts(
   database: PrismaClient,
-  sourceIds?: string[]
+  sourceIds?: string[],
+  unboundOnly = false
 ): Promise<Map<string, ArchiveUploaderCatalogCounts>> {
   if (sourceIds && sourceIds.length === 0) return new Map()
   const scope = sourceIds ? Prisma.sql`catalog."sourceId" IN (${Prisma.join(sourceIds)})` : Prisma.sql`TRUE`
@@ -151,6 +154,7 @@ export async function getArchiveUploaderCatalogCounts(
       COUNT(*) FILTER (WHERE state."workflowBucket" = 'ATTENTION')::bigint AS "attention",
       COUNT(*)::bigint AS "total"
     FROM "catalogState" AS state
+    ${unboundOnly ? Prisma.sql`WHERE ${unboundCondition()}` : Prisma.empty}
     GROUP BY state."sourceId"
   `)
   return new Map(
@@ -165,6 +169,11 @@ export async function getArchiveUploaderCatalogCounts(
       }
     ])
   )
+}
+
+function unboundCondition() {
+  return Prisma.sql`NOT EXISTS (SELECT 1 FROM discovery_pending_creators p WHERE p."providerKey" = state."providerKey" AND p."externalId" = state."externalId")
+    AND NOT EXISTS (SELECT 1 FROM effective_artwork_creators e JOIN "Artwork" a ON a.id = e."artworkId" WHERE e."artworkId" = state."artworkId" AND a."deletedAt" IS NULL AND a."archiveLifecycleState" = 'ACTIVE')`
 }
 
 function catalogStateCte(scope: Prisma.Sql) {

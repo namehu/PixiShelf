@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE, archiveUploaderIdentityLockKey } from '@pixishelf/job-contracts'
-import { Prisma, PrismaClient } from '@pixishelf/db'
+import { Prisma, PrismaClient, activeCreatorMembership, editArtworkCreators } from '@pixishelf/db'
 import {
   TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME,
   type ClaimedJob,
@@ -44,6 +44,95 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
     if (!prisma) return
     await cleanupDatabase()
     await prisma.$disconnect()
+  })
+
+  it('consumes the first matched opportunity with empty defaults and skips ignored galleries', async () => {
+    const now = new Date('2026-09-16T01:00:00Z')
+    const artist = await db().artist.create({ data: { name: `${prefix}-empty-default` } })
+    const source = await seedSource('empty-default')
+    const run = await seedScanRun(source.id, 'empty-default', now)
+    await executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    const catalog = await db().archiveUploaderCatalogItem.findFirstOrThrow({ where: { sourceId: source.id } })
+    expect(catalog.firstMatchedAt).toEqual(now)
+    const again = await seedScanRun(source.id, 'empty-default-again', now)
+    await db().archiveUploaderScanRun.update({ where: { id: again.runId }, data: { defaultCreatorIds: [artist.id] } })
+    await executeArchiveUploaderScan(scanContext(again.jobId, again.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
+    const second = await seedSource('ignored-default')
+    await db().archiveUploaderIgnoredItem.create({
+      data: { providerKey: 'e-hentai', externalId, sourceId: second.id, sourceDisplayName: prefix, title: prefix }
+    })
+    const ignored = await seedScanRun(second.id, 'ignored-default', now)
+    await db().archiveUploaderScanRun.update({ where: { id: ignored.runId }, data: { defaultCreatorIds: [artist.id] } })
+    await executeArchiveUploaderScan(scanContext(ignored.jobId, ignored.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
+    expect(
+      (await db().archiveUploaderCatalogItem.findFirstOrThrow({ where: { sourceId: second.id } })).firstMatchedAt
+    ).toEqual(now)
+  })
+
+  it('freezes defaults, consumes first-match once, unions sources and respects explicit removal', async () => {
+    const now = new Date('2026-09-16T00:00:00Z')
+    const a = await db().artist.create({ data: { name: `${prefix}-a` } })
+    const b = await db().artist.create({ data: { name: `${prefix}-b` } })
+    const source = await seedSource('default-first')
+    const run = await seedScanRun(source.id, 'default-first', now)
+    await db().archiveUploaderScanRun.update({ where: { id: run.runId }, data: { defaultCreatorIds: [a.id] } })
+    await db().discoverySourceCreator.create({ data: { sourceId: source.id, artistId: b.id } })
+    await executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().discoveryPendingCreator.findMany({ where: { providerKey: 'e-hentai', externalId } })).toEqual([
+      expect.objectContaining({ artistId: a.id })
+    ])
+    const again = await seedScanRun(source.id, 'default-again', now)
+    await db().archiveUploaderScanRun.update({ where: { id: again.runId }, data: { defaultCreatorIds: [b.id] } })
+    await executeArchiveUploaderScan(scanContext(again.jobId, again.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().discoveryPendingCreator.count({ where: { providerKey: 'e-hentai', externalId } })).toBe(1)
+    const artwork = await db().artwork.create({ data: { title: `${prefix}-default-artwork` } })
+    await db().artworkExternalRef.create({
+      data: { providerKey: 'e-hentai', externalId, artworkId: artwork.id, canonicalUrl, locator: {} }
+    })
+    await db().$transaction((tx) => editArtworkCreators(tx, artwork.id, [a.id], 'ADD'))
+    const nextSource = await seedSource('default-second')
+    const next = await seedScanRun(nextSource.id, 'default-second', now)
+    await db().archiveUploaderScanRun.update({ where: { id: next.runId }, data: { defaultCreatorIds: [a.id, b.id] } })
+    await executeArchiveUploaderScan(scanContext(next.jobId, next.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().artworkArtist.count({ where: { artworkId: artwork.id, ...activeCreatorMembership } })).toBe(2)
+    await db().$transaction((tx) => editArtworkCreators(tx, artwork.id, [a.id], 'REMOVE'))
+    const lastSource = await seedSource('default-third')
+    const last = await seedScanRun(lastSource.id, 'default-third', now)
+    await db().archiveUploaderScanRun.update({ where: { id: last.runId }, data: { defaultCreatorIds: [a.id] } })
+    await executeArchiveUploaderScan(scanContext(last.jobId, last.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().artworkArtist.findMany({ where: { artworkId: artwork.id, ...activeCreatorMembership } })).toEqual(
+      [expect.objectContaining({ artistId: b.id })]
+    )
   })
 
   it('keeps POSSIBLE_UPDATE durable when an active import is observed during a rescan', async () => {
@@ -540,12 +629,15 @@ function transactionContext(jobId: string, payload: Record<string, unknown>, sig
 
 async function cleanupDatabase() {
   if (!prisma) return
+  await prisma.archiveUploaderIgnoredItem.deleteMany({ where: { sourceDisplayName: prefix } })
   await prisma.archiveUploaderCatalogItem.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.archiveUploaderScanRun.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.archiveUploaderSource.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.systemJob.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.artwork.deleteMany({ where: { title: { startsWith: prefix } } })
+  await prisma.discoveryPendingCreator.deleteMany({ where: { artist: { name: { startsWith: prefix } } } })
+  await prisma.artist.deleteMany({ where: { name: { startsWith: prefix } } })
 }
 
 function deferred() {

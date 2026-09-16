@@ -31,10 +31,32 @@ import {
   triggerArchiveUploaderScanSchema
 } from '@/services/archive-uploader/archive-uploader-service'
 import { runArchiveOperation } from './archive'
+import {
+  setDiscoveryCreators,
+  setDiscoveryCreatorsSchema,
+  bindDiscoveryItems,
+  bindDiscoveryCreatorsSchema,
+  cancelPendingCreators,
+  cancelPendingCreatorsSchema,
+  listPendingCreators,
+  listPendingCreatorsSchema
+} from '@/services/archive-uploader/discovery-creator-service'
 
 const discovery = { sourceKind: 'ALL' as const }
 
 export const archiveSearchRouter = router({
+  setDefaultCreators: adminProcedure
+    .input(setDiscoveryCreatorsSchema)
+    .mutation(({ input }) => runArchiveOperation(() => setDiscoveryCreators(input))),
+  bindCreators: adminProcedure
+    .input(bindDiscoveryCreatorsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => bindDiscoveryItems(input, ctx.userId))),
+  cancelPendingCreators: adminProcedure
+    .input(cancelPendingCreatorsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => cancelPendingCreators(input, ctx.userId))),
+  listPendingCreators: authProcedure
+    .input(listPendingCreatorsSchema)
+    .query(({ input }) => runArchiveOperation(() => listPendingCreators(input))),
   getDeletePreview: authProcedure
     .input(deleteArchiveDiscoverySourceSchema)
     .query(({ input }) => runArchiveOperation(() => getArchiveDiscoverySourceDeletePreview(input, discovery))),

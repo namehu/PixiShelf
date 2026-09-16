@@ -1,4 +1,4 @@
-import { activeCreatorMembership, visibleCreatorArtwork } from '@pixishelf/db'
+import { activeCreatorMembership, visibleCreatorArtwork, lockCreatorCatalog } from '@pixishelf/db'
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
@@ -447,17 +447,28 @@ export async function adoptPixivSourceName(id: number): Promise<ArtistResponseDt
  * 删除艺术家
  */
 export async function deleteArtist(id: number): Promise<void> {
-  // 检查是否有关联作品
-  const artworksCount = await prisma.artwork.count({
-    where: { OR: [{ artistId: id }, { creators: { some: { artistId: id } } }] }
-  })
+  await prisma.$transaction(async (prisma) => {
+    await lockCreatorCatalog(prisma as unknown as Prisma.TransactionClient)
+    // 检查是否有关联作品
+    const artworksCount = await prisma.artwork.count({
+      where: { OR: [{ artistId: id }, { creators: { some: { artistId: id } } }] }
+    })
 
-  if (artworksCount > 0) {
-    throw new Error(`无法删除：该艺术家名下还有 ${artworksCount} 个作品`)
-  }
+    if (artworksCount > 0) {
+      throw new Error(`无法删除：该艺术家名下还有 ${artworksCount} 个作品`)
+    }
+    const [defaults, pending, runs] = await Promise.all([
+      prisma.discoverySourceCreator.count({ where: { artistId: id } }),
+      prisma.discoveryPendingCreator.count({ where: { artistId: id } }),
+      prisma.archiveUploaderScanRun.count({
+        where: { defaultCreatorIds: { has: id }, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'RETRY_WAIT'] } }
+      })
+    ])
+    if (defaults || pending || runs) throw new Error('无法删除：该艺术家仍被发现来源、待生效绑定或活动扫描引用')
 
-  await prisma.artist.delete({
-    where: { id }
+    await prisma.artist.delete({
+      where: { id }
+    })
   })
 }
 

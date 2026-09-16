@@ -73,6 +73,14 @@ export async function captureCreatorArtwork(tx: Prisma.TransactionClient, id: nu
   const state = {
     id,
     refs,
+    discoveryPending: await tx.discoveryPendingCreator.findMany({
+      where: { OR: artwork.externalRefs.map((ref) => ({ providerKey: ref.providerKey, externalId: ref.externalId })) },
+      orderBy: [{ providerKey: 'asc' }, { externalId: 'asc' }, { artistId: 'asc' }]
+    }),
+    discoverySuppressions: await tx.discoveryCreatorSuppression.findMany({
+      where: { OR: artwork.externalRefs.map((ref) => ({ providerKey: ref.providerKey, externalId: ref.externalId })) },
+      orderBy: [{ providerKey: 'asc' }, { externalId: 'asc' }, { artistId: 'asc' }]
+    }),
     evidence: artwork.creators.map((m) => ({
       artistId: m.artistId,
       evidence: m.evidence.map((e) => ({

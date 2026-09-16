@@ -2,8 +2,9 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 export * from './creators'
+export * from './discovery-creators'
 
-const latestRequiredMigration = '20260911120000_add_pixiv_root_identity'
+const latestRequiredMigration = '20260916120000_discovery_creators'
 
 const requiredQueueObjects = [
   'creator_maintenance_plans',

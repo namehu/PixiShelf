@@ -7,8 +7,15 @@ import { ArchiveError } from './errors'
 const BULK_IDEMPOTENCY_LOCK_NAMESPACE = 20_260_818
 const BULK_TARGET_LOCK_NAMESPACE = 20_260_819
 
-export type ArchiveBulkCommand = 'ENQUEUE' | 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY'
-export type ArchiveBulkTarget = 'INTAKE_ITEM' | 'ARCHIVE_IMPORT'
+export type ArchiveBulkCommand =
+  | 'ENQUEUE'
+  | 'PAUSE'
+  | 'RESUME'
+  | 'CANCEL'
+  | 'RETRY'
+  | 'BIND_CREATORS'
+  | 'CANCEL_PENDING_CREATORS'
+export type ArchiveBulkTarget = 'INTAKE_ITEM' | 'ARCHIVE_IMPORT' | 'DISCOVERY_ITEM' | 'PENDING_CREATOR_BINDING'
 export type ArchiveBulkResult = 'CREATED' | 'APPLIED' | 'REUSED' | 'SKIPPED' | 'CONFLICT' | 'FAILED'
 
 export interface ArchiveBulkTargetResult {

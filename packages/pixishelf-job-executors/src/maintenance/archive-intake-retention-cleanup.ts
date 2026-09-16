@@ -45,7 +45,7 @@ export async function cleanupArchiveIntakeHistory(
   while (true) {
     throwIfMaintenanceAborted(input.signal)
     const batch = await input.database.archiveBulkOperation.findMany({
-      where: { completedAt: { lt: cutoff } },
+      where: { completedAt: { lt: cutoff }, commandType: { notIn: ['BIND_CREATORS', 'CANCEL_PENDING_CREATORS'] } },
       orderBy: [{ completedAt: 'asc' }, { id: 'asc' }],
       take: ARCHIVE_INTAKE_RETENTION_DELETE_BATCH_SIZE,
       select: { id: true }
@@ -57,6 +57,7 @@ export async function cleanupArchiveIntakeHistory(
       transaction.archiveBulkOperation.deleteMany({
         where: {
           id: { in: batch.map(({ id }) => id) },
+          commandType: { notIn: ['BIND_CREATORS', 'CANCEL_PENDING_CREATORS'] },
           completedAt: { lt: cutoff }
         }
       })

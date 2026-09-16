@@ -53,6 +53,8 @@ describePostgres('archive intake retention PostgreSQL integration', () => {
     })
 
     const completedBulk = await seedBulkOperation('completed', oldDate)
+    const creatorBulk = await seedBulkOperation('creator-permanent', oldDate)
+    await db().archiveBulkOperation.update({ where: { id: creatorBulk.id }, data: { commandType: 'BIND_CREATORS' } })
     const incompleteBulk = await seedBulkOperation('incomplete', null)
     const expiredPreview = await seedPreview('expired', oldDate)
     const futurePreview = await seedPreview('future', futureDate)
@@ -102,6 +104,7 @@ describePostgres('archive intake retention PostgreSQL integration', () => {
       retentionDays: 30
     })
     await expect(db().archiveBulkOperation.findUnique({ where: { id: completedBulk.id } })).resolves.toBeNull()
+    await expect(db().archiveBulkOperation.findUnique({ where: { id: creatorBulk.id } })).resolves.not.toBeNull()
     await expect(db().archiveBulkOperation.findUnique({ where: { id: incompleteBulk.id } })).resolves.not.toBeNull()
     await expect(db().archiveIntakeItem.findUnique({ where: { id: activeItem.id } })).resolves.not.toBeNull()
     await expect(

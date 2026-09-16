@@ -76,7 +76,7 @@ export function ArchiveDiscoveryDeleteDialog({
           <AlertDialogTitle>删除发现来源</AlertDialogTitle>
           <AlertDialogDescription>
             删除后，该来源及其扫描进度、发现历史将永久移除。已加入收件箱的项目、归档任务和本地作品会保留。
-            重新新增相同来源将从头扫描。全局忽略记录继续保留。
+            重新新增相同来源将从头扫描。全局忽略记录和待生效艺术家绑定继续保留，可在全局列表管理。
           </AlertDialogDescription>
         </AlertDialogHeader>
         {previewQuery.isPending ? (

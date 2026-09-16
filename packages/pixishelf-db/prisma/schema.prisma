@@ -26,6 +26,9 @@ model Artist {
   sourceTagMappings   ArtistSourceTagMapping[]
   externalRefs        ArtistExternalRef[]
   localImportMappings LocalImportArtistMapping[]
+  discoveryDefaults DiscoverySourceCreator[]
+  discoveryPending DiscoveryPendingCreator[]
+  discoverySuppressions DiscoveryCreatorSuppression[]
 
   @@unique([username, userId], name: "unique_username_userid")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
@@ -948,6 +951,7 @@ model ArchiveBulkOperation {
 }
 
 model ArchiveUploaderSource {
+  defaultCreators DiscoverySourceCreator[]
   id                        String                      @id @default(cuid())
   providerKey               String                      @db.VarChar(50)
   sourceKind                ArchiveDiscoverySourceKind  @default(UPLOADER)
@@ -983,6 +987,7 @@ model ArchiveUploaderSource {
 }
 
 model ArchiveUploaderScanRun {
+  defaultCreatorIds Int[] @default([])
   id                  String                       @id @default(cuid())
   sourceId            String
   systemJobId         String                       @unique(map: "archive_uploader_scan_runs_system_job_key")
@@ -1065,6 +1070,7 @@ model ArchiveUploaderIgnoredItem {
 }
 
 model ArchiveUploaderCatalogItem {
+  firstMatchedAt DateTime?
   id                    String                         @id @default(cuid())
   matchesQuery          Boolean                        @default(true)
   sourceId              String
@@ -1880,6 +1886,8 @@ enum ArchiveIntakeResolutionKind {
 }
 
 enum ArchiveBulkOperationCommand {
+  BIND_CREATORS
+  CANCEL_PENDING_CREATORS
   ENQUEUE
   PAUSE
   RESUME
@@ -1888,6 +1896,8 @@ enum ArchiveBulkOperationCommand {
 }
 
 enum ArchiveBulkOperationTarget {
+  DISCOVERY_ITEM
+  PENDING_CREATOR_BINDING
   INTAKE_ITEM
   ARCHIVE_IMPORT
 }
@@ -2141,4 +2151,40 @@ enum SeriesArtworkProvenance {
   SOURCE
   MANUAL
   LEGACY
+}
+
+model DiscoverySourceCreator {
+  sourceId String
+  artistId Int
+  source ArchiveUploaderSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  artist Artist @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  @@id([sourceId, artistId])
+  @@index([artistId])
+  @@map("discovery_source_creators")
+}
+
+model DiscoveryPendingCreator {
+  id String @id @default(cuid())
+  providerKey String @db.VarChar(50)
+  externalId String @db.VarChar(120)
+  artistId Int
+  title String @db.Text
+  requestedByUserId String?
+  createdAt DateTime @default(now())
+  artist Artist @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  @@unique([providerKey, externalId, artistId])
+  @@index([artistId])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@map("discovery_pending_creators")
+}
+
+model DiscoveryCreatorSuppression {
+  providerKey String @db.VarChar(50)
+  externalId String @db.VarChar(120)
+  artistId Int
+  createdAt DateTime @default(now())
+  artist Artist @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  @@id([providerKey, externalId, artistId])
+  @@index([artistId])
+  @@map("discovery_creator_suppressions")
 }

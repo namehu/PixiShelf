@@ -10,7 +10,8 @@ import {
   normalizeArchiveTitle,
   JOB_DEFINITION_VERSION
 } from '@pixishelf/job-contracts'
-import { Prisma, type PrismaClient } from '@pixishelf/db'
+import { Prisma, type PrismaClient, discoveryCreatorSummaries } from '@pixishelf/db'
+import { snapshotDiscoverySourceCreators } from './discovery-creator-service'
 import { type ArchiveUploaderProviderRegistry } from '@pixishelf/job-executors'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -79,6 +80,7 @@ export const listArchiveUploaderScanItemsSchema = z
   .object({
     sourceId: sourceIdSchema,
     view: z.enum(ARCHIVE_UPLOADER_CATALOG_VIEWS).default('ACTIONABLE'),
+    unboundOnly: z.boolean().default(false),
     cursor: scanItemCursorSchema.nullish(),
     limit: z.number().int().min(1).max(SCAN_RESULT_LIMIT).default(50),
     direction: z.literal('forward').optional()
@@ -269,8 +271,16 @@ export async function listArchiveUploaderScanItems(
   })
   if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
   const result = await listArchiveUploaderCatalogState(database, parsed)
+  const summaries = await discoveryCreatorSummaries(database, result.items)
   return {
-    items: result.items.map(serializeCatalogItem),
+    items: result.items.map((item, index) => ({
+      ...serializeCatalogItem(item),
+      effectiveCreators: summaries[index]!.effectiveCreators,
+      pendingCreators: summaries[index]!.pendingCreators
+    })),
+    counts:
+      (await getArchiveUploaderCatalogCounts(database, [parsed.sourceId], parsed.unboundOnly)).get(parsed.sourceId) ??
+      emptyCatalogCounts(),
     nextCursor: result.nextCursor
   }
 }
@@ -610,6 +620,7 @@ export async function triggerArchiveUploaderScan(
       })
       const run = await transaction.archiveUploaderScanRun.create({
         data: {
+          defaultCreatorIds: await snapshotDiscoverySourceCreators(transaction, source.id),
           id: runId,
           sourceId: source.id,
           systemJobId: jobId,
@@ -895,6 +906,10 @@ function normalizeUploaderIdentity(kind: 'NAME' | 'UID', input: string) {
 }
 
 const sourceWireSelect = {
+  defaultCreators: {
+    select: { artist: { select: { id: true, name: true, kind: true } } },
+    orderBy: { artistId: 'asc' }
+  },
   sourceKind: true,
   titleQuery: true,
   id: true,
@@ -987,6 +1002,7 @@ function serializeSource(source: SourceWire) {
     : ('UNBOUND' as const)
   return {
     ...wire,
+    defaultCreators: (source.defaultCreators ?? []).map((row) => row.artist),
     titleQuery: source.titleQuery ? archiveTitleQuerySchema.parse(source.titleQuery) : null,
     uidBindingState,
     hasPendingLatest: incrementalCursor !== null,

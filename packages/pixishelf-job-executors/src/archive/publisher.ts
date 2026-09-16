@@ -1,5 +1,11 @@
 import path from 'node:path'
-import { Prisma, lockCreatorCatalog, readSourceCreatorTags, syncSourceCreators } from '@pixishelf/db'
+import {
+  Prisma,
+  lockCreatorCatalog,
+  readSourceCreatorTags,
+  syncSourceCreators,
+  consumeDiscoveryCreators
+} from '@pixishelf/db'
 import { ArchiveExecutorError } from './errors.ts'
 import { normalizeRelativePath, type ArchiveStoragePaths } from './storage.ts'
 import type { ArchiveTransaction } from './types.ts'
@@ -151,6 +157,11 @@ export async function publishArchiveImportInTransaction(
     )
   }
   await appendArchiveDefaultTags(transaction, artwork.id, defaultTagIds)
+  await consumeDiscoveryCreators(
+    transaction,
+    { providerKey: archiveImport.providerKey, externalId: archiveImport.externalId },
+    artwork.id
+  )
   await syncArtworkRelationships(transaction, artwork.id, archiveImport.providerKey, metadata.relationships)
   await transaction.image.deleteMany({ where: { artworkId: artwork.id } })
   await transaction.image.createMany({

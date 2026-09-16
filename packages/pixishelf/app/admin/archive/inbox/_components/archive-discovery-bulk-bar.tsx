@@ -13,7 +13,11 @@ export function ArchiveDiscoveryBulkBar({
   onClear,
   onIgnore,
   onAdd,
-  onRestore
+  onRestore,
+  onBind,
+  onCancelPending,
+  ignoreCount = selectedCount,
+  addCount = selectedCount
 }: {
   selectedCount: number
   kind: 'catalog' | 'ignored'
@@ -24,6 +28,10 @@ export function ArchiveDiscoveryBulkBar({
   onIgnore?: () => void
   onAdd?: () => void
   onRestore?: () => void
+  onBind?: () => void
+  onCancelPending?: () => void
+  ignoreCount?: number
+  addCount?: number
 }) {
   if (selectedCount === 0) return null
 
@@ -52,17 +60,27 @@ export function ArchiveDiscoveryBulkBar({
           </Button>
         ) : (
           <>
+            {onBind ? (
+              <Button type="button" variant="outline" onClick={onBind} disabled={pending}>
+                绑定艺术家（{selectedCount}）
+              </Button>
+            ) : null}
+            {onCancelPending ? (
+              <Button type="button" variant="outline" onClick={onCancelPending} disabled={pending}>
+                取消待生效绑定
+              </Button>
+            ) : null}
             <Button type="button" variant="outline" onClick={onIgnore} disabled={pending || ignoreDisabled}>
               {pending ? <Spinner data-icon="inline-start" /> : <BanIcon data-icon="inline-start" aria-hidden="true" />}
-              忽略（{selectedCount}）
+              忽略（{ignoreCount}）
             </Button>
-            <Button type="button" onClick={onAdd} disabled={pending}>
+            <Button type="button" onClick={onAdd} disabled={pending || addCount === 0}>
               {pending ? (
                 <Spinner data-icon="inline-start" />
               ) : (
                 <CheckIcon data-icon="inline-start" aria-hidden="true" />
               )}
-              {addLabel}（{selectedCount}）
+              {addLabel}（{addCount}）
             </Button>
           </>
         )}

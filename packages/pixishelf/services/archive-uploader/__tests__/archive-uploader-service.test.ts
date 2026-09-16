@@ -204,6 +204,8 @@ describe('archive uploader service', () => {
         updatedAt: new Date('2026-09-02T00:00:00.000Z')
       }))
       const transaction = {
+        $queryRawUnsafe: vi.fn(async () => []),
+        discoverySourceCreator: { findMany: vi.fn(async () => [{ artistId: 17 }]) },
         $queryRaw: vi.fn(async () => [{ lock: '' }]),
         archiveUploaderSource: { findUnique: vi.fn(async () => source), update: vi.fn(async () => source) },
         archiveUploaderScanRun: { findFirst: vi.fn(async () => null), create: runCreate },
@@ -234,6 +236,7 @@ describe('archive uploader service', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             cursorBefore: 'incremental-cursor',
+            defaultCreatorIds: [17],
             searchIdentityKind: sourceKind === 'TITLE_QUERY' ? null : 'UID',
             searchIdentityValue: sourceKind === 'TITLE_QUERY' ? null : '123',
             ...(sourceKind === 'TITLE_QUERY' ? { titleQuery: source.titleQuery } : {})
@@ -474,6 +477,8 @@ describe('archive uploader service', () => {
     const firstCreatedAt = new Date('2026-09-02T02:00:00.000Z')
     const secondCreatedAt = new Date('2026-09-02T01:00:00.000Z')
     const database = {
+      artworkExternalRef: { findMany: vi.fn(async () => []) },
+      discoveryPendingCreator: { findMany: vi.fn(async () => []) },
       archiveUploaderSource: { findUnique: vi.fn(async () => ({ id: 'source-1' })) },
       $queryRaw: vi.fn(async () => [
         {

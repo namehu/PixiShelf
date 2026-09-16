@@ -852,8 +852,38 @@ describe('ArchiveUploaderSources', () => {
     fireEvent.click(screen.getByLabelText('查看异常'))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
 
-    expect((screen.getByRole('button', { name: '忽略（1）' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '忽略（0）' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: '重新加入收件箱（1）' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('selects archived and actionable results together but submits only the eligible subset', () => {
+    const item = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          items: [
+            item,
+            {
+              ...item,
+              id: 'archived-item',
+              title: 'Archived gallery',
+              actionable: false,
+              recoverable: false,
+              workflowStage: 'ARCHIVED',
+              workflowBucket: 'ARCHIVED'
+            }
+          ],
+          nextCursor: null
+        }
+      ]
+    }
+    renderSources()
+    fireEvent.click(screen.getByRole('checkbox', { name: `选择 ${item.title}` }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived gallery' }))
+    expect(screen.getByRole('button', { name: '绑定艺术家（2）' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '忽略（1）' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
+    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [item.id] }))
   })
 
   it.each(['UPLOADER', 'TITLE_QUERY'])(
