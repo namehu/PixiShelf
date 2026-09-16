@@ -213,6 +213,80 @@ describe('EHentaiProvider resolution', () => {
   })
 })
 
+describe('EHentaiProvider broken-image recovery', () => {
+  const sourcePageUrl = 'https://e-hentai.org/s/pagetoken/123-1'
+  const item = { index: 0, sourcePageUrl, locator: {}, expectedFilename: '0001' }
+  const hash = '783a20d248eb362ba64b35f25ae8e344455c4dc3'
+  const url = `https://replacement.hath.network/om/123/${hash}-100-596-900-wbp/x/image.webp`
+
+  function client(handler = "return nl('45084-497100')") {
+    return {
+      text: vi
+        .fn()
+        .mockResolvedValueOnce(
+          `<img id="img" src="https://bad.hath.network/image.webp"><a id="loadfail" onclick="${handler}">Reload broken image</a>`
+        )
+        .mockResolvedValue(
+          `<img id="img" src="${url}"><a href="https://e-hentai.org/fullimg.php?gid=123">original</a>`
+        ),
+      request: vi.fn(async () => ({ status: 200, headers: {}, stream: Readable.from([]), url }))
+    }
+  }
+
+  it('refreshes once through the request governor and downloads the replacement representation', async () => {
+    const http = client()
+    const governed = vi.fn((operation: () => Promise<unknown>) => operation())
+    const remote = await new EHentaiProvider(http as never).openMedia(item, {
+      quality: 'DISPLAY',
+      reloadMedia: true,
+      runDownloadRequest: governed as never
+    })
+    expect(http.text).toHaveBeenCalledTimes(2)
+    expect(governed).toHaveBeenCalledTimes(2)
+    expect(http.text).toHaveBeenLastCalledWith(`${sourcePageUrl}?nl=45084-497100`, expect.any(Object))
+    expect(http.request).toHaveBeenCalledWith(url, expect.any(Object))
+    expect(remote).toMatchObject({ expectedSha1: hash, httpStatus: 200, quality: 'DISPLAY' })
+  })
+
+  it('preserves original quality after refreshing the page', async () => {
+    const http = client()
+    const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'ORIGINAL', reloadMedia: true })
+    expect(http.request).toHaveBeenCalledWith('https://e-hentai.org/fullimg.php?gid=123', expect.any(Object))
+    expect(remote.quality).toBe('ORIGINAL')
+  })
+
+  it.each(["return nl('https://evil.test')", "return nl('ok'); fetch('evil')", 'alert(1)', ''])(
+    'ignores unrecognized remote handlers: %s',
+    async (handler) => {
+      const http = client(handler)
+      await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY', reloadMedia: true })
+      expect(http.text).toHaveBeenCalledTimes(1)
+      expect(http.request).toHaveBeenCalledWith('https://bad.hath.network/image.webp', expect.any(Object))
+    }
+  )
+
+  it('does not refresh an initial download', async () => {
+    const http = client()
+    await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })
+    expect(http.text).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['https://evil.test', 'https://evil-hath.network', 'https://hath.network.evil.test'])(
+    'does not trust hash-like paths on %s',
+    async (host) => {
+      const http = client()
+      http.request.mockResolvedValueOnce({
+        status: 200,
+        headers: {},
+        stream: Readable.from([]),
+        url: `${host}/h/${hash}-100-596-900-wbp/image.webp`
+      })
+      const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })
+      expect(remote.expectedSha1).toBeUndefined()
+    }
+  )
+})
+
 describe('EHentaiProvider uploader scan', () => {
   it('accepts showuser only from the matching gallery uploader block', () => {
     const html = [

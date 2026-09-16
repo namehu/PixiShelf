@@ -1,7 +1,59 @@
 import { describe, expect, it } from 'vitest'
-import { extractJobDiagnostic, sanitizeDiagnosticText, sanitizeJobDiagnostic } from '../job-diagnostics.js'
+import {
+  extractJobDiagnostic,
+  jobMediaDiagnosticEvidenceSchema,
+  sanitizeDiagnosticText,
+  sanitizeJobDiagnostic
+} from '../job-diagnostics.js'
 
 describe('safe job diagnostics', () => {
+  const media = {
+    headHex: '00000000',
+    receivedBytes: 4,
+    contentLength: 4,
+    mimeType: 'image/png',
+    expectedSha1: 'a'.repeat(40),
+    actualSha1: 'b'.repeat(40),
+    hashComplete: true
+  }
+  it('keeps bounded media evidence and a stable authored explanation above decoder causes', () => {
+    const result = extractJobDiagnostic({
+      code: 'MEDIA_INVALID',
+      message: '图片内容已损坏',
+      httpStatus: 200,
+      mediaEvidence: media,
+      cause: new Error('Input buffer contains unsupported image format')
+    })
+    expect(result.message).toBe('图片内容已损坏')
+    expect(result.reasonKey).toBe('code:MEDIA_INVALID')
+    expect(result.httpStatus).toBe(200)
+    expect(result.evidence[0]?.media).toEqual(media)
+    expect(sanitizeJobDiagnostic(result)).toEqual(result)
+  })
+  it.each(['image/png secret', 'image/<png>', 'image/png\r\nAuthorization: secret', 'https://secret.test'])(
+    'rejects illegal MIME evidence %s',
+    (mimeType) => {
+      expect(jobMediaDiagnosticEvidenceSchema.safeParse({ ...media, mimeType }).success).toBe(false)
+    }
+  )
+  it('rejects oversized heads and unlisted body or URL evidence without collecting raw objects', () => {
+    for (const invalid of [
+      { ...media, headHex: '00'.repeat(33) },
+      { ...media, url: 'https://secret.test' },
+      { ...media, body: 'private content' }
+    ]) {
+      expect(jobMediaDiagnosticEvidenceSchema.safeParse(invalid).success).toBe(false)
+      expect(
+        extractJobDiagnostic({ code: 'MEDIA_INVALID', mediaEvidence: invalid }).evidence.some((item) => item.media)
+      ).toBe(false)
+    }
+  })
+  it('preserves deepest non-media reason over a generic caller summary', () => {
+    expect(
+      extractJobDiagnostic(new Error('outer', { cause: new Error('Missing artwork id') }), { message: 'Task failed' })
+        .message
+    ).toBe('Missing artwork id')
+  })
   it('hides absolute directories and retains only the filename', () => {
     expect(
       sanitizeDiagnosticText('failed https://archive.test/s/private-token/42-51 at /private/archive/item.webp')

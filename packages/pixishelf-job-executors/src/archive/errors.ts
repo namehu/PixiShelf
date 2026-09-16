@@ -1,3 +1,5 @@
+import type { JobMediaDiagnosticEvidence } from '@pixishelf/job-contracts'
+
 export type ArchiveErrorCode =
   | 'INVALID_URL'
   | 'UNSUPPORTED_PROVIDER'
@@ -39,6 +41,7 @@ export class ArchiveExecutorError extends Error {
   readonly stage: ArchiveErrorStage | null
   readonly remoteHost: string | null
   readonly httpStatus: number | null
+  readonly mediaEvidence: JobMediaDiagnosticEvidence | null
 
   constructor(
     code: ArchiveErrorCode,
@@ -52,6 +55,7 @@ export class ArchiveExecutorError extends Error {
       stage?: ArchiveErrorStage | null
       remoteHost?: string | null
       httpStatus?: number | null
+      mediaEvidence?: JobMediaDiagnosticEvidence | null
     } = {}
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -64,6 +68,7 @@ export class ArchiveExecutorError extends Error {
     this.stage = options.stage ?? null
     this.remoteHost = sanitizeRemoteHost(options.remoteHost)
     this.httpStatus = options.httpStatus ?? null
+    this.mediaEvidence = options.mediaEvidence ?? null
   }
 }
 
@@ -91,7 +96,12 @@ export function toArchiveExecutorError(error: unknown): ArchiveExecutorError {
 
 export function withArchiveExecutorErrorContext(
   error: unknown,
-  context: { stage?: ArchiveErrorStage; remoteHost?: string | null }
+  context: {
+    stage?: ArchiveErrorStage
+    remoteHost?: string | null
+    httpStatus?: number | null
+    mediaEvidence?: JobMediaDiagnosticEvidence
+  }
 ): ArchiveExecutorError {
   const classified = toArchiveExecutorError(error)
   return new ArchiveExecutorError(classified.code, classified.message, {
@@ -100,7 +110,8 @@ export function withArchiveExecutorErrorContext(
     pause: classified.pause,
     retryAfterMs: classified.retryAfterMs,
     decisionCode: classified.decisionCode,
-    httpStatus: classified.httpStatus,
+    httpStatus: classified.httpStatus ?? context.httpStatus ?? null,
+    mediaEvidence: classified.mediaEvidence ?? context.mediaEvidence ?? null,
     stage: classified.stage ?? context.stage ?? null,
     remoteHost: classified.remoteHost ?? context.remoteHost ?? null
   })

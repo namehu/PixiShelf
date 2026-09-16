@@ -47,6 +47,8 @@ export interface ArchiveProviderMediaItem {
 export interface ArchiveRemoteMedia {
   /** Final successful HTTP response address; persist only in the access-controlled item detail. */
   downloadUrl?: string
+  expectedSha1?: string
+  httpStatus?: number
   stream: Readable
   mimeType: string | null
   contentLength: number | null
@@ -204,6 +206,8 @@ export interface ArchiveUploaderScanResult {
 
 export interface ArchiveDownloadContext extends ArchiveProviderContext {
   quality: ArchiveQuality
+  /** Ask the provider to refresh a previously attempted media source once. */
+  reloadMedia?: boolean
   maxConcurrentDownloads?: number
   onPhase?(phase: Extract<ArchiveTransferItemPhase, 'RESOLVING_SOURCE_PAGE' | 'WAITING_MEDIA_RESPONSE'>): void
   runDownloadRequest?<T>(operation: () => Promise<T>): Promise<T>

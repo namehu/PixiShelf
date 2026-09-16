@@ -1,11 +1,34 @@
 import { z } from 'zod'
 
 const codeSchema = z.string().regex(/^[A-Za-z0-9_.:-]{1,80}$/)
+export const jobMediaDiagnosticEvidenceSchema = z
+  .object({
+    headHex: z
+      .string()
+      .max(64)
+      .regex(/^(?:[0-9a-f]{2})*$/),
+    receivedBytes: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+    contentLength: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable(),
+    mimeType: z
+      .string()
+      .max(120)
+      .regex(/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i)
+      .nullable(),
+    expectedSha1: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/)
+      .nullable(),
+    actualSha1: z.string().regex(/^[0-9a-f]{40}$/),
+    hashComplete: z.boolean()
+  })
+  .strict()
+export type JobMediaDiagnosticEvidence = z.infer<typeof jobMediaDiagnosticEvidenceSchema>
 export const jobDiagnosticEvidenceSchema = z
   .object({
     code: codeSchema.optional(),
     errno: codeSchema.optional(),
-    httpStatus: z.number().int().min(100).max(599).optional()
+    httpStatus: z.number().int().min(100).max(599).optional(),
+    media: jobMediaDiagnosticEvidenceSchema.optional()
   })
   .strict()
 export const jobDiagnosticSchema = z
@@ -98,7 +121,9 @@ export function extractJobDiagnostic(
     const status = read(cursor, 'httpStatus') ?? read(cursor, 'status') ?? read(cursor, 'statusCode')
     const httpStatus =
       typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined
-    if (code || errno || httpStatus) evidence.push({ code, errno, httpStatus })
+    const media = jobMediaDiagnosticEvidenceSchema.safeParse(read(cursor, 'mediaEvidence'))
+    if (code || errno || httpStatus || media.success)
+      evidence.push({ code, errno, httpStatus, ...(media.success ? { media: media.data } : {}) })
     cursor = read(cursor, 'cause')
   }
   if (typeof cursor === 'string' && cursor.trim()) messages.push(cursor.slice(0, 4096))
@@ -127,7 +152,8 @@ export function extractJobDiagnostic(
       ? input.httpStatus
       : (root.find((item) => item.httpStatus)?.httpStatus ?? null)
   const code = safeCode(input.code) ?? root.find((item) => item.code)?.code ?? 'UNKNOWN_ERROR'
-  const reasonKey = errno ? `errno:${errno}` : httpStatus ? `http:${httpStatus}` : `code:${code}`
+  const httpFailure = httpStatus !== null && httpStatus >= 400
+  const reasonKey = errno ? `errno:${errno}` : httpFailure ? `http:${httpStatus}` : `code:${code}`
   let message = '任务执行失败，未记录可识别的底层原因。'
   let suggestion = '查看对应对象状态，修复后重试。'
   const reasons: Record<string, string> = {
@@ -159,13 +185,15 @@ export function extractJobDiagnostic(
   if (errno) {
     message = (reasons[errno] ?? '底层操作失败') + '（' + errno + '）。'
     suggestion = '检查存储权限、文件可用性及网络连接后重试。'
-  } else if (httpStatus) {
+  } else if (httpFailure) {
     message = `远端服务返回 HTTP ${httpStatus}。`
     suggestion = httpStatus === 429 ? '等待远端限流解除后重试。' : '检查来源服务和访问权限后重试。'
   } else if (code !== 'UNKNOWN_ERROR')
     message = reasons[code] ? reasons[code] + '。' : `任务执行失败（${code}），未提供更具体的底层原因。`
-  const actualReason = sanitizeDiagnosticText(sourceText || input.message || '').trim()
-  if (actualReason) message = errno || httpStatus ? sanitizeDiagnosticText(message + ' ' + actualReason) : actualReason
+  const actualReason = sanitizeDiagnosticText(
+    (evidence.some((item) => item.media) ? input.message || messages[0] : sourceText || input.message) || ''
+  ).trim()
+  if (actualReason) message = errno || httpFailure ? sanitizeDiagnosticText(message + ' ' + actualReason) : actualReason
   const remoteHost = safeDiagnosticHost(input.remoteHost) ?? observedHost
   return jobDiagnosticSchema.parse({
     version: 1,

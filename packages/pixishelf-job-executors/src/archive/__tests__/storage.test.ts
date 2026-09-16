@@ -1,3 +1,5 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
+import type { ArchiveRemoteMedia } from '../types.js'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -23,7 +25,12 @@ afterAll(() => {
   sharp.cache({ memory: originalCache.memory.max, files: originalCache.files.max, items: originalCache.items.max })
 })
 
-async function storeImageFixture(image: Buffer, filename: string, mimeType: string) {
+async function storeImageFixture(
+  image: Buffer,
+  filename: string,
+  mimeType: string,
+  remoteOptions: Partial<Pick<ArchiveRemoteMedia, 'expectedSha1' | 'httpStatus' | 'contentLength' | 'stream'>> = {}
+) {
   const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-archive-storage-'))
   temporaryDirectories.push(root)
   await mkdir(path.join(root, 'media'))
@@ -35,7 +42,8 @@ async function storeImageFixture(image: Buffer, filename: string, mimeType: stri
         mimeType,
         originalFilename: filename,
         quality: 'ORIGINAL',
-        remoteHost: 'example.test'
+        remoteHost: 'example.test',
+        ...remoteOptions
       },
       stagingDirectory: root,
       index: 0,
@@ -99,10 +107,97 @@ describe('archive executor storage safety', () => {
     await expect(store()).rejects.toMatchObject({
       code: 'MEDIA_INVALID',
       stage: 'MEDIA_VALIDATION',
+      message: '归档图片单帧像素数超过安全上限',
       cause: expect.objectContaining({ message: 'Input image exceeds pixel limit' })
     })
     expect(await pathExists(path.join(root, 'media', '0001-large.svg'))).toBe(false)
     expect(await pathExists(path.join(root, 'media', '0001-large.svg.part-attempt-1'))).toBe(false)
+  })
+
+  it('rejects same-length zero-filled content with bounded digest and header evidence', async () => {
+    const original = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'red' } })
+      .png()
+      .toBuffer()
+    const damaged = Buffer.alloc(original.length)
+    const expectedSha1 = createHash('sha1').update(original).digest('hex')
+    const { root, store } = await storeImageFixture(damaged, 'zero.png', 'image/png', { expectedSha1, httpStatus: 200 })
+    const error = await store().catch((error) => error)
+    expect(error).toMatchObject({
+      code: 'MEDIA_INVALID',
+      recoverable: true,
+      stage: 'MEDIA_VALIDATION',
+      httpStatus: 200,
+      mediaEvidence: {
+        headHex: '00'.repeat(32),
+        receivedBytes: original.length,
+        contentLength: original.length,
+        mimeType: 'image/png',
+        expectedSha1,
+        actualSha1: createHash('sha1').update(damaged).digest('hex'),
+        hashComplete: true
+      }
+    })
+    expect(error.message).toContain('SHA-1')
+    expect(await pathExists(path.join(root, 'media', '0001-zero.png'))).toBe(false)
+    const diagnostic = extractJobDiagnostic(error)
+    expect(diagnostic.reasonKey).toBe('code:MEDIA_INVALID')
+    expect(diagnostic.message).toContain('下载内容已损坏')
+    expect(diagnostic.evidence[0]?.media?.headHex).toHaveLength(64)
+  })
+
+  it.each([true, false])('preserves correct image bytes when expected SHA-1 is supplied=%s', async (supplyHash) => {
+    const original = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'blue' } })
+      .png()
+      .toBuffer()
+    const expectedSha1 = createHash('sha1').update(original).digest('hex')
+    const { root, store } = await storeImageFixture(
+      original,
+      'valid.png',
+      'image/png',
+      supplyHash ? { expectedSha1 } : {}
+    )
+    const result = await store()
+    expect(await readFile(path.join(root, result.relativePath))).toEqual(original)
+    expect(result.sha256).toBe(createHash('sha256').update(original).digest('hex'))
+  })
+
+  it('retains partial-file evidence and root errno when the stream fails', async () => {
+    const body = Buffer.from('prefix bytes from media')
+    const reset = Object.assign(new Error('socket connection reset'), { code: 'ECONNRESET' })
+    const stream = Readable.from(
+      (async function* () {
+        yield body
+        throw reset
+      })()
+    )
+    const { store } = await storeImageFixture(Buffer.alloc(100), 'broken.png', 'image/png', { stream, httpStatus: 200 })
+    const error = await store().catch((error) => error)
+    expect(error).toMatchObject({
+      code: 'REMOTE_RESPONSE_INVALID',
+      stage: 'MEDIA_STREAM',
+      mediaEvidence: {
+        receivedBytes: body.length,
+        contentLength: 100,
+        headHex: body.toString('hex'),
+        hashComplete: false,
+        actualSha1: createHash('sha1').update(body).digest('hex')
+      }
+    })
+    const diagnostic = extractJobDiagnostic(error)
+    expect(diagnostic.reasonKey).toBe('errno:ECONNRESET')
+    expect(diagnostic.evidence.some((entry) => entry.media?.hashComplete === false)).toBe(true)
+    expect(JSON.stringify(diagnostic)).not.toContain(body.toString())
+  })
+
+  it('retains the stable Chinese unsupported-format explanation above the Sharp cause', async () => {
+    const { store } = await storeImageFixture(Buffer.from('unsupported binary'), 'unsupported.webp', 'image/webp', {
+      httpStatus: 200
+    })
+    const error = await store().catch((error) => error)
+    const diagnostic = extractJobDiagnostic(error)
+    expect(diagnostic.message).toContain('可能是不支持的图片格式或内容不完整')
+    expect(diagnostic.message).not.toContain('内容已损坏')
+    expect(diagnostic.message).not.toContain('Input file contains unsupported')
   })
 
   it('still rejects invalid image headers', async () => {

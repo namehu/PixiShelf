@@ -425,6 +425,7 @@ async function downloadArchiveItem(input: {
   try {
     const remote = await input.provider.openMedia(toProviderMediaItem(input.item), {
       quality: input.archiveImport.selectedQuality,
+      reloadMedia: attempt > 1,
       signal: input.signal,
       maxConcurrentDownloads: input.mediaConcurrency,
       onPhase: (phase) => input.transferMeter.markPhase(input.item.id, phase)

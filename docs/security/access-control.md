@@ -301,6 +301,8 @@ Worker 在媒体根创建并读取 `.pixishelf-root`，App 原媒体仍默认只
 
 ## 后台任务诊断
 
+归档媒体允许的额外证据仅为严格校验的 MIME、长度、前 32 字节的十六进制文件头、SHA-1 与完整性标记，不采集任意响应正文。E-Hentai 换节点仅解析固定 `loadfail` 入口内的有界 `nl` 参数并更新原图片页 query，不执行页面脚本、不接受 handler 提供的任意目标 URL；新增请求继续受 Safe HTTP 与 Provider governor 管控。
+
 job.backgroundDiagnosticReports 与 job.backgroundDiagnosticItems 均使用 adminProcedure，会话必须有效；服务层校验任务存在、报告属于请求中的任务，不能用另一任务的 reportId 越过归属检查。所有登录账户仍属于同一管理员信任域，此校验不构成多租户隔离。匿名客户端和 Webhook Token 不能读取诊断。
 
 诊断写入与读取均脱敏，屏蔽完整 URL、凭据、Cookie、Authorization、Token、SQL 和堆栈；主机字段只保留校验后的主机/端口；绝对路径隐藏目录，仅保留 basename 辅助定位，目标和错误详情继续使用隐私敏感文本包装。关闭报告达到 expiresAt 后，API 隐藏证据，即使物理清理尚未完成。SSE 只携带摘要与报告标识，逐项证据经受保护接口按需读取。隐私模式遮蔽目标名称/路径和错误详情，但不替代鉴权。详见[后台任务失败诊断](../features/background-job-diagnostics.md)。

@@ -795,6 +795,29 @@ describe('archive executor', () => {
     expect(writes.some((call) => typeof call.data.lastDownloadUrl === 'string')).toBe(false)
   })
 
+  it('refreshes media on retries without exceeding the existing item attempt budget', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [archiveItem] })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    const openMedia = vi.fn(async (_item: unknown, _context: unknown) => {
+      throw new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'connection reset', {
+        recoverable: true,
+        stage: 'MEDIA_STREAM'
+      })
+    })
+    const base = dependencies(transaction)
+    await executeArchiveImport(createContext(transaction), {
+      ...base,
+      providers: new DefaultArchiveMediaProviderRegistry([{ key: 'test', openMedia }])
+    }).catch(() => undefined)
+    expect(openMedia).toHaveBeenCalledTimes(3)
+    expect(openMedia.mock.calls.map(([, context]) => (context as { reloadMedia: boolean }).reloadMedia)).toEqual([
+      false,
+      true,
+      true
+    ])
+  })
+
   it('destroys an unconsumed remote stream so a local storage failure releases its provider permit', async () => {
     const transaction = createTransaction()
     transaction.archiveImport.findUnique.mockResolvedValue({

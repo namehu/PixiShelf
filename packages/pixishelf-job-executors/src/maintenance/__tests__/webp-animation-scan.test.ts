@@ -1048,8 +1048,11 @@ it('captures all failures beyond 20 samples in the same bounded checkpoints', as
   expect(result.failed).toBe(31)
   expect(result.failedSamples).toHaveLength(20)
   expect(diagnostics).toHaveLength(31)
-  expect(recordDiagnostic).toHaveBeenLastCalledWith(
-    transaction,
-    expect.objectContaining({ key: 'animation:31', error: expect.any(Error) })
-  )
+  // Concurrent probes may finish in any order; every item must be recorded once.
+  expect(recordDiagnostic).toHaveBeenCalledTimes(31)
+  const keys = recordDiagnostic.mock.calls.map(([, diagnostic]) => (diagnostic as { key: string }).key)
+  expect(new Set(keys)).toEqual(new Set(images.map((image) => `animation:${image.id}`)))
+  for (const diagnostic of diagnostics) {
+    expect(diagnostic).toEqual(expect.objectContaining({ error: expect.any(Error) }))
+  }
 })

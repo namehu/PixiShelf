@@ -375,6 +375,18 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
           headers: { referer: item.sourcePageUrl }
         })
       )
+      if (context.reloadMedia) {
+        const reloadUrl = brokenImageReloadUrl(html, item.sourcePageUrl)
+        if (reloadUrl) {
+          html = await runDownloadRequest(context, () =>
+            this.http.text(reloadUrl, {
+              ...(context.signal ? { signal: context.signal } : {}),
+              maxBytes: 4 * 1024 * 1024,
+              headers: { referer: item.sourcePageUrl }
+            })
+          )
+        }
+      }
     } catch (error) {
       throw withArchiveErrorContext(error, {
         stage: 'SOURCE_PAGE',
@@ -413,8 +425,11 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         assertSuccessStatus(opened)
         return opened
       })
+      const expectedSha1 = expectedHathSha1(response.url)
       return {
         downloadUrl: response.url,
+        ...(expectedSha1 ? { expectedSha1 } : {}),
+        httpStatus: response.status,
         stream: response.stream,
         mimeType: headerValue(response.headers['content-type'])?.split(';')[0]?.trim() || null,
         contentLength: parseContentLength(response.headers['content-length']),
@@ -1489,6 +1504,35 @@ function findAllLinks(html: string, baseUrl: string): string[] {
 
 function findLink(html: string, pattern: RegExp, baseUrl: string): string | null {
   return findAllLinks(html, baseUrl).find((value) => pattern.test(value)) ?? null
+}
+
+function brokenImageReloadUrl(html: string, sourcePageUrl: string): string | null {
+  const source = new URL(sourcePageUrl)
+  if (source.protocol !== 'https:' || source.hostname !== GALLERY_HOST || source.username || source.password)
+    return null
+  for (const tag of html.match(/<a\b[^>]*>/gi) ?? []) {
+    const attributes = parseAttributes(tag)
+    if (attributes.id !== 'loadfail') continue
+    // Read only the site's bounded token, never execute remote JavaScript or
+    // navigate to a URL supplied in the handler.
+    const token = decodeHtml(attributes.onclick ?? '').match(
+      /^\s*(?:return\s+)?nl\(['"]([a-zA-Z0-9-]{1,100})['"]\)\s*;?\s*$/
+    )?.[1]
+    if (!token) return null
+    source.searchParams.set('nl', token)
+    source.hash = ''
+    return source.toString()
+  }
+  return null
+}
+
+function expectedHathSha1(value: string): string | undefined {
+  const url = new URL(value)
+  if (url.protocol !== 'https:' || !url.hostname.endsWith('.hath.network') || url.username || url.password)
+    return undefined
+  // Match the exact delivered representation; a gallery/page hash can instead
+  // refer to an original image when the user chose a resized display version.
+  return url.pathname.match(/^\/(?:h\/|om\/\d+\/)([a-f0-9]{40})-\d+-\d+-\d+-[a-z0-9]+\//i)?.[1]?.toLowerCase()
 }
 
 function findImageById(html: string, id: string, baseUrl: string): string | null {

@@ -18,6 +18,8 @@ sources:
 
 ## 独立执行与冻结
 
+归档媒体错误的技术证据可包含严格校验的 `media` 字段：收到的字节数、声明长度、响应 MIME、前 32 字节十六进制文件头、期望及实际 SHA-1，以及摘要是否覆盖完整响应。中断流的摘要只代表已接收内容。摘要不符时明确标识远端内容不一致；仅解码器无法识别时保留“不支持格式或数据不完整”的不确定性。证据不包含响应文本正文、请求凭据或完整下载 URL；完整地址仅通过认证下载明细提供。
+
 每次领取任务生成独立的诊断 execution ID，存入 SystemJob.currentDiagnosticExecutionId。它与租约 executionToken、任务 ID 和 attempt 分开；即使一次让行保留 attempt，下一次领取也使用新的诊断 ID。报告在首次记录诊断时创建，以该 ID 为主键，不为完全没有诊断的执行强制创建空报告。
 
 SystemJobDiagnosticReport 保存所属任务、attempt、执行结果、完成标记、对象计数和保留时间；SystemJobDiagnosticItem 保存任务级原因或逐项对象证据。任务级条目使用 TASK，失败对象使用 ITEM，报告的对象数量不包含 TASK。父任务通过失败子任务链接进入子任务报告，不复制子任务的全部明细。
