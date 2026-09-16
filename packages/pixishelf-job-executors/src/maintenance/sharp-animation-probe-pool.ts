@@ -16,18 +16,41 @@ process.on('disconnect', () => process.exit(0))
 process.on('message', async (request) => {
   if (!request || request.type !== 'probe' || !Number.isSafeInteger(request.id)) return
   try {
-    const { info } = await sharp(request.absolutePath, {
-      animated: true,
+    const inputOptions = {
       failOn: 'error',
       limitInputPixels: ${SHARP_INPUT_PIXEL_LIMIT},
       sequentialRead: true
-    })
-      .resize({ width: 1, withoutEnlargement: true })
-      .raw()
-      .timeout({ seconds: request.timeoutSeconds })
-      .toBuffer({ resolveWithObject: true })
+    }
+    // Loading one page still exposes the total frame count, without applying
+    // the input pixel limit to the vertically stacked animation.
+    const metadata = await sharp(request.absolutePath, { ...inputOptions, pages: 1 }).metadata()
+    let pages = metadata.pages
+    if (pages === undefined) {
+      // Some loaders omit the frame count for static images. Bound fallback
+      // decoding to two pages; never turn a read/decode failure into "static".
+      // Non-paged loaders (e.g. JPEG) reject pages: 2 with missing n-pages.
+      const fallbackPages = ['gif', 'webp', 'tiff', 'pdf'].includes(metadata.format) ? 2 : 1
+      const decode = (count) => sharp(request.absolutePath, { ...inputOptions, pages: count })
+        .resize({ width: 1, withoutEnlargement: true })
+        .raw()
+        .timeout({ seconds: request.timeoutSeconds })
+        .toBuffer({ resolveWithObject: true })
+      let result
+      try {
+        result = await decode(fallbackPages)
+      } catch (error) {
+        // Static WebP also omits n-pages. Retry only this specific loader
+        // limitation, and require a successful single-page decode.
+        if (fallbackPages !== 2 || !(error instanceof Error) ||
+            error.message !== 'vips_image_get: field "n-pages" not found') throw error
+        result = await decode(1)
+      }
+      const { info } = result
+      pages = info.pages ?? 1
+    }
+    if (!Number.isSafeInteger(pages) || pages < 1) throw new Error('Invalid animation frame count')
     if (process.connected) {
-      process.send({ type: 'result', id: request.id, ok: true, pages: info.pages ?? 1 }, () => undefined)
+      process.send({ type: 'result', id: request.id, ok: true, pages }, () => undefined)
     }
   } catch (error) {
     if (process.connected) {

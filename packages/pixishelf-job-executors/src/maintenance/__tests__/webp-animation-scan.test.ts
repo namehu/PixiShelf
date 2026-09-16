@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import sharp from 'sharp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AnimationScanProgressData } from '@pixishelf/job-contracts'
 import {
@@ -673,16 +674,57 @@ describe('webp animation scan maintenance', () => {
     const staticGif = path.join(root, 'static.gif')
     const animatedGif = path.join(root, 'animated.gif')
     const animatedWebp = path.join(root, 'animated.webp')
+    const staticWebp = path.join(root, 'static.webp')
     await Promise.all([
       writeFile(staticGif, STATIC_GIF),
       writeFile(animatedGif, ANIMATED_GIF),
-      writeFile(animatedWebp, ANIMATED_WEBP)
+      writeFile(animatedWebp, ANIMATED_WEBP),
+      writeFile(staticWebp, await sharp(STATIC_GIF).webp().toBuffer())
     ])
 
     expect(ANIMATION_SCAN_SHARP_TIMEOUT_SECONDS).toBe(60)
     await expect(detectAnimatedImage(staticGif)).resolves.toBe(false)
     await expect(detectAnimatedImage(animatedGif)).resolves.toBe(true)
     await expect(detectAnimatedImage(animatedWebp)).resolves.toBe(true)
+    await expect(detectAnimatedImage(staticWebp)).resolves.toBe(false)
+  })
+
+  it('detects a WebP whose cumulative frame pixels exceed the Sharp limit', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-many-frame-webp-'))
+    roots.push(root)
+    const encoded = await sharp(ANIMATED_WEBP, { animated: true })
+      .resize(1024, 1024)
+      .webp({ lossless: true })
+      .toBuffer()
+    const frames: Buffer[] = []
+    let firstFrame = 0
+    for (let offset = 12; offset < encoded.length; ) {
+      const size = encoded.readUInt32LE(offset + 4)
+      const end = offset + 8 + size + (size % 2)
+      if (encoded.toString('ascii', offset, offset + 4) === 'ANMF') {
+        if (!firstFrame) firstFrame = offset
+        frames.push(encoded.subarray(offset, end))
+      }
+      offset = end
+    }
+    expect(frames).toHaveLength(2)
+    const image = Buffer.concat([encoded.subarray(0, firstFrame), ...Array.from({ length: 129 }, () => frames).flat()])
+    image.writeUInt32LE(image.length - 8, 4)
+    await expect(sharp(image, { animated: true }).metadata()).rejects.toThrow('Input image exceeds pixel limit')
+    const target = path.join(root, 'many-frames.webp')
+    await writeFile(target, image)
+    await expect(detectAnimatedImage(target)).resolves.toBe(true)
+  })
+
+  it('keeps oversized single-frame images and unreadable files as failures', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-invalid-probe-'))
+    roots.push(root)
+    const oversized = path.join(root, 'oversized.webp')
+    const broken = path.join(root, 'broken.webp')
+    await writeFile(oversized, '<svg xmlns="http://www.w3.org/2000/svg" width="20000" height="20000"/>')
+    await writeFile(broken, 'invalid image')
+    await expect(detectAnimatedImage(oversized)).rejects.toThrow('Input image exceeds pixel limit')
+    await expect(detectAnimatedImage(broken)).rejects.toThrow()
   })
 
   it('falls back to generic image probing when a .png file contains JPEG data', async () => {
@@ -690,6 +732,7 @@ describe('webp animation scan maintenance', () => {
     roots.push(root)
     const target = path.join(root, 'wrong-extension.png')
     await writeFile(target, STATIC_JPEG)
+    expect((await sharp(STATIC_JPEG).metadata()).pages).toBeUndefined()
 
     await expect(detectAnimatedImage(target)).resolves.toBe(false)
   })
