@@ -48,10 +48,12 @@ export function ArchiveUploaderResultViewToggle({
 
 export function ArchiveUploaderGalleryThumbnail({
   item,
-  onPreview
+  onPreview,
+  sourceHref
 }: {
   item: ArchiveUploaderPreviewItem
-  onPreview: (item: ArchiveUploaderPreviewItem) => void
+  onPreview?: (item: ArchiveUploaderPreviewItem) => void
+  sourceHref?: string
 }) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -67,16 +69,9 @@ export function ArchiveUploaderGalleryThumbnail({
     )
   }
 
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      className="relative h-20 w-16 shrink-0 overflow-hidden p-0"
-      onClick={() => onPreview(item)}
-      aria-label={`预览 ${item.title} 的首图`}
-    >
+  const content = (
+    <>
       {!loaded ? <Skeleton className="absolute inset-0 h-full w-full" /> : null}
-      {/* next/image 的项目级 loader 仅接受本地 /media 路径；远端地址已在服务端严格校验。 */}
       <img
         src={item.thumbnailUrl}
         alt=""
@@ -87,6 +82,32 @@ export function ArchiveUploaderGalleryThumbnail({
         onLoad={() => setLoaded(true)}
         onError={() => setFailed(true)}
       />
+    </>
+  )
+  if (sourceHref) {
+    return (
+      <Button variant="ghost" className="relative h-20 w-16 shrink-0 overflow-hidden p-0" asChild>
+        <a
+          href={sourceHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`在新标签页打开原站 ${item.title}`}
+          title="在新标签页打开原站"
+        >
+          {content}
+        </a>
+      </Button>
+    )
+  }
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className="relative h-20 w-16 shrink-0 overflow-hidden p-0"
+      onClick={() => onPreview?.(item)}
+      aria-label={`预览 ${item.title} 的首图`}
+    >
+      {content}
     </Button>
   )
 }

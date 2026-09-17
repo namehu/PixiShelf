@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   createSubmissionAttempt: vi.fn(),
   cancelScan: vi.fn(),
   ignoreItems: vi.fn(),
+  ignoreFail: false,
+  ignoreHold: false,
   restoreIgnoredItems: vi.fn(),
   matchUploaderUid: vi.fn(),
   setUploaderUid: vi.fn(),
@@ -143,6 +145,8 @@ const itemsData = {
           artworkId: null as number | null,
           errorCode: null as string | null,
           errorMessage: null as string | null,
+          effectiveCreators: [] as { id: number; name: string }[],
+          pendingCreators: [] as { id: number; name: string }[],
           recoverable: false,
           sortAt: new Date('2026-09-02T10:30:00.000Z')
         }
@@ -212,6 +216,8 @@ vi.mock('@tanstack/react-query', () => ({
   }),
   useMutation: (options: {
     kind?: string
+    onError?: (error: Error) => unknown
+    onSettled?: () => unknown
     onSuccess?: (result: Record<string, unknown>, variables: Record<string, unknown>) => unknown
   }) => ({
     isPending: false,
@@ -228,6 +234,12 @@ vi.mock('@tanstack/react-query', () => ({
             : options.kind === 'ignore'
               ? (variables: { sourceId: string; itemIds: string[] }) => {
                   mocks.ignoreItems(variables)
+                  if (mocks.ignoreHold) return
+                  if (mocks.ignoreFail) {
+                    options.onError?.(new Error('temporary failure'))
+                    options.onSettled?.()
+                    return
+                  }
                   void options.onSuccess?.(
                     {
                       ignoredItemIds: ['ignored-item-new'],
@@ -433,6 +445,8 @@ afterEach(cleanup)
 describe('ArchiveUploaderSources', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.ignoreFail = false
+    mocks.ignoreHold = false
     mocks.setQueriesData.mockReset()
     localStorage.clear()
     currentDetailData = detailData
@@ -741,17 +755,17 @@ describe('ArchiveUploaderSources', () => {
 
     fireEvent.click(screen.getByLabelText('显示首图预览'))
 
-    fireEvent.click(screen.getByRole('button', { name: '预览 Gallery 302 的首图' }))
-    expect(screen.getByRole('dialog')).toBeTruthy()
-    expect(screen.getByRole('img', { name: 'Gallery 302 的首图预览' }).getAttribute('src')).toBe(
-      'https://ehgt.org/thumb-302.jpg'
-    )
+    const link = screen.getByRole('link', { name: '在新标签页打开原站 Gallery 302' })
+    expect(link.getAttribute('href')).toBe('/api/archive/catalog/catalog-item-1/source')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('opens source preview independently from the stored cover popup', () => {
     renderSources()
 
-    fireEvent.click(screen.getByRole('button', { name: '预览原站 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '站内缩略图预览 Gallery 302' }))
     expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
     expect(screen.queryByRole('dialog')).toBeNull()
   })
@@ -922,10 +936,85 @@ describe('ArchiveUploaderSources', () => {
     }
   )
 
+  it('shows explicit creator states together and leaves unbound results visible', () => {
+    const item = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          ...itemsData.pages[0]!,
+          items: [
+            item,
+            {
+              ...item,
+              id: 'bound',
+              title: 'Bound',
+              effectiveCreators: [{ id: 1, name: 'Artist A' }],
+              pendingCreators: [{ id: 2, name: 'Artist B' }]
+            }
+          ]
+        }
+      ]
+    }
+    renderSources()
+    expect(screen.getByText('未绑定艺术家')).toBeTruthy()
+    expect(screen.getByText('已绑定：')).toBeTruthy()
+    expect(screen.getByText('待生效：')).toBeTruthy()
+    expect(screen.getByText('Artist A').hasAttribute('data-privacy-sensitive')).toBe(true)
+    expect(screen.getByText('Artist B')).toBeTruthy()
+  })
+
+  it('cancels ignore without submitting and confirms only the eligible bulk subset', () => {
+    const item = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          ...itemsData.pages[0]!,
+          items: [item, { ...item, id: 'archived', title: 'Archived', actionable: false, workflowStage: 'ARCHIVED' }]
+        }
+      ]
+    }
+    renderSources()
+    fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    expect(screen.getByRole('alertdialog').textContent).toContain('Gallery 302')
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(mocks.ignoreItems).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived' }))
+    fireEvent.click(screen.getByRole('button', { name: '忽略（1）' }))
+    expect(screen.getByRole('alertdialog').textContent).toContain('确认忽略 1 个作品')
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
+    expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['catalog-item-1'] })
+  })
+
+  it('keeps failed ignore targets for retry and guards duplicate submits', () => {
+    mocks.ignoreFail = true
+    renderSources()
+    fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+    expect(mocks.toastError).toHaveBeenCalled()
+    mocks.ignoreFail = false
+    mocks.ignoreHold = true
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
+    expect(mocks.ignoreItems).toHaveBeenCalledTimes(2)
+    expect(mocks.ignoreItems.mock.calls[1]).toEqual(mocks.ignoreItems.mock.calls[0])
+  })
+
+  it('retains the cover dialog in globally ignored results', () => {
+    renderSources()
+    fireEvent.click(screen.getByLabelText('显示首图预览'))
+    fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    fireEvent.click(screen.getByRole('button', { name: '预览 Ignored Gallery 301 的首图' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
   it('removes ignored items from the infinite cache and refreshes both result feeds', async () => {
     renderSources()
 
     fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    expect(mocks.ignoreItems).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
     expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['catalog-item-1'] })
     await waitFor(() => {
       expect(mocks.setQueriesData).toHaveBeenCalledWith({ queryKey: ['items-infinite'] }, expect.any(Function))

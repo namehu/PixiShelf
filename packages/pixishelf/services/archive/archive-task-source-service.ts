@@ -36,3 +36,11 @@ export async function getArchiveTaskSourceUrl(taskId: string): Promise<string | 
   })
   return task ? archiveTaskSourceUrl(task) : null
 }
+
+export async function getArchiveCatalogSourceUrl(itemId: string): Promise<string | null> {
+  const item = await prisma.archiveUploaderCatalogItem.findUnique({
+    where: { id: itemId },
+    select: { providerKey: true, externalId: true, canonicalUrl: true }
+  })
+  return item ? archiveTaskSourceUrl(item) : null
+}

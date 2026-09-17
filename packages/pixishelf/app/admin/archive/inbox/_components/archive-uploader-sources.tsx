@@ -19,7 +19,8 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { AdminSection, AdminSectionHeader } from '@/app/admin/_components/admin-workbench'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
+import { ArchiveDiscoveryIgnoreDialog, type DiscoveryIgnoreSelection } from './archive-discovery-ignore-dialog'
+import { CatalogStatusBadge, DiscoveryCreatorStatus } from './discovery-creator-status'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -102,6 +103,8 @@ export function ArchiveUploaderSources({
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
   const [implicitSourceId, setImplicitSourceId] = useState<string | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
+  const [ignoreSelection, setIgnoreSelection] = useState<DiscoveryIgnoreSelection | null>(null)
+  const ignoreSubmitting = useRef(false)
   const [creatorDialog, setCreatorDialog] = useState<DiscoveryCreatorDialogState | null>(null)
   const [unboundOnly, setUnboundOnly] = useState(false)
   const [intakeOptions, setIntakeOptions] = useState(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
@@ -353,12 +356,16 @@ export function ArchiveUploaderSources({
   )
   const ignoreMutation = useMutation(
     trpc.archiveSearch.ignoreItems.mutationOptions({
+      onSettled: () => {
+        ignoreSubmitting.current = false
+      },
       onSuccess: async (result, variables) => {
         queryClient.setQueriesData<InfiniteData<ScanItemsPage>>(
           { queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() },
           (current) => removeInfiniteItems(current, variables.itemIds)
         )
         setSelectedItemIds(new Set())
+        setIgnoreSelection(null)
         toast.success(`已忽略 ${result.ignoredCount} 个画廊`, {
           description: '后续扫描仍会保持忽略，直到你手动恢复。',
           action:
@@ -672,8 +679,12 @@ export function ArchiveUploaderSources({
             isFetchingNextPage={itemsQuery.isFetchingNextPage}
             onLoadMore={loadMoreItems}
             onRetry={retryItems}
-            onPreview={setPreviewItem}
-            onIgnore={(itemId) => ignoreMutation.mutate({ sourceId: source.id, itemIds: [itemId] })}
+            onIgnore={(itemId) =>
+              setIgnoreSelection({
+                sourceId: source.id,
+                items: items.filter((item) => item.id === itemId).map(({ id, title }) => ({ id, title }))
+              })
+            }
             onAdd={(itemId) =>
               submissionAttemptMutation.mutate({ sourceId: source.id, itemIds: [itemId], ...intakeOptions })
             }
@@ -705,7 +716,10 @@ export function ArchiveUploaderSources({
             addLabel={resultFeed === 'ATTENTION' ? '重新加入收件箱' : '加入收件箱'}
             onClear={() => setSelectedItemIds(new Set())}
             onIgnore={() =>
-              ignoreMutation.mutate({ sourceId: source.id, itemIds: selectedIgnorable.map((item) => item.id) })
+              setIgnoreSelection({
+                sourceId: source.id,
+                items: selectedIgnorable.map(({ id, title }) => ({ id, title }))
+              })
             }
             onAdd={() =>
               submissionAttemptMutation.mutate({
@@ -723,6 +737,21 @@ export function ArchiveUploaderSources({
   return (
     <div className="flex min-w-0 flex-col gap-6 pt-4">
       {globalHeader}
+      <ArchiveDiscoveryIgnoreDialog
+        selection={ignoreSelection}
+        pending={ignoreMutation.isPending}
+        onClose={() => {
+          if (!ignoreSubmitting.current) setIgnoreSelection(null)
+        }}
+        onConfirm={() => {
+          if (!ignoreSelection || ignoreSubmitting.current) return
+          ignoreSubmitting.current = true
+          ignoreMutation.mutate({
+            sourceId: ignoreSelection.sourceId,
+            itemIds: ignoreSelection.items.map(({ id }) => id)
+          })
+        }}
+      />
       {creatorDialog ? (
         <DiscoveryCreatorDialog
           key={`${creatorDialog.sourceId}:${creatorDialog.mode}`}
@@ -888,7 +917,6 @@ function ScanResults({
   isFetchingNextPage,
   onLoadMore,
   onRetry,
-  onPreview,
   onIgnore,
   onAdd,
   onNavigateInboxItem,
@@ -914,7 +942,6 @@ function ScanResults({
   isFetchingNextPage: boolean
   onLoadMore: () => void
   onRetry: () => void
-  onPreview: (item: ArchiveUploaderPreviewItem) => void
   onIgnore: (itemId: string) => void
   onAdd: (itemId: string) => void
   onNavigateInboxItem: (itemId: string) => void
@@ -987,7 +1014,11 @@ function ScanResults({
             />
             <div className="flex min-w-0 items-center gap-3">
               {resultView === 'preview' ? (
-                <ArchiveUploaderGalleryThumbnail key={item.id} item={item} onPreview={onPreview} />
+                <ArchiveUploaderGalleryThumbnail
+                  key={item.id}
+                  item={item}
+                  sourceHref={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
+                />
               ) : null}
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:gap-2">
@@ -999,18 +1030,10 @@ function ScanResults({
                   </PrivacySensitiveText>
                   <CatalogStatusBadge item={item} />
                 </div>
-                <div className="flex flex-wrap gap-1">
-                  {(item.effectiveCreators ?? []).map((creator) => (
-                    <Badge key={creator.id} variant="secondary">
-                      <PrivacySensitiveText>{creator.name}</PrivacySensitiveText>
-                    </Badge>
-                  ))}
-                  {(item.pendingCreators ?? []).map((creator) => (
-                    <Badge key={creator.id} variant="outline">
-                      <PrivacySensitiveText>{creator.name}</PrivacySensitiveText> · 待生效
-                    </Badge>
-                  ))}
-                </div>
+                <DiscoveryCreatorStatus
+                  effectiveCreators={item.effectiveCreators}
+                  pendingCreators={item.pendingCreators}
+                />
                 <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
                   #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>
                 </p>
@@ -1036,9 +1059,10 @@ function ScanResults({
                 source={{ kind: 'catalog', itemId: item.id }}
                 variant="ghost"
                 size="icon"
-                aria-label={`预览原站 ${item.title}`}
+                aria-label={`站内缩略图预览 ${item.title}`}
+                title="站内缩略图预览"
               >
-                <span className="sr-only">原站预览</span>
+                <span className="sr-only">站内缩略图预览</span>
               </SourcePreviewButton>
               {item.actionable ? (
                 <Button
@@ -1113,23 +1137,6 @@ function SourceDetailError({
       </AlertDescription>
     </Alert>
   )
-}
-
-function CatalogStatusBadge({ item }: { item: ScanItem }) {
-  const states = {
-    NEW: { label: '新归档', variant: 'success' as const },
-    UPDATE_AVAILABLE: { label: '可能更新', variant: 'info' as const },
-    REPLACEMENT: { label: '替代版本', variant: 'warning' as const },
-    INBOX: { label: '等待解析', variant: 'warning' as const },
-    READY: { label: '待确认下载', variant: 'info' as const },
-    DOWNLOADING: { label: '下载中', variant: 'warning' as const },
-    ARCHIVED: { label: item.comparisonKnown ? '已归档' : '已归档 · 待校验', variant: 'muted' as const },
-    FAILED: { label: '处理失败', variant: 'destructive' as const },
-    CANCELLED: { label: '已取消', variant: 'muted' as const },
-    DUPLICATE: { label: '身份重复', variant: 'warning' as const }
-  }
-  const state = states[item.workflowStage]
-  return <Badge variant={state.variant}>{state.label}</Badge>
 }
 
 function resultFeedDescription(feed: ArchiveDiscoveryCatalogView, itemCount: number) {
