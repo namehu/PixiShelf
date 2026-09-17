@@ -271,6 +271,36 @@ describe('EHentaiProvider broken-image recovery', () => {
     expect(http.text).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    [
+      'h/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/key/image.jpg',
+      '7a3b1f394c834d8a01a3aaabb1b90391912b3f71'
+    ],
+    [
+      'om/248788873/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/x/0/key/image.jpg',
+      '7a3b1f394c834d8a01a3aaabb1b90391912b3f71'
+    ],
+    [
+      'om/248788873/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/a95601cd3d6159c7047701aadf8ee059c06eced8-142064-1280-910-wbp/1280/2m6t6rkox1450622vsg/00061_2898990044.webp',
+      'a95601cd3d6159c7047701aadf8ee059c06eced8'
+    ],
+    ['om/248788873/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/unknown/1280/image.webp', undefined],
+    [
+      'om/248788873/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/a95601cd3d6159c7047701aadf8ee059c06eced8-invalid/1280/image.webp',
+      undefined
+    ]
+  ])('uses only the delivered representation hash for %s', async (pathname, expectedSha1) => {
+    const http = client()
+    http.request.mockResolvedValueOnce({
+      status: 200,
+      headers: {},
+      stream: Readable.from([]),
+      url: `https://praogxqcch.hath.network/${pathname}`
+    })
+    const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })
+    expect(remote.expectedSha1).toBe(expectedSha1)
+  })
+
   it.each(['https://evil.test', 'https://evil-hath.network', 'https://hath.network.evil.test'])(
     'does not trust hash-like paths on %s',
     async (host) => {

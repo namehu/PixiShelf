@@ -1530,9 +1530,16 @@ function expectedHathSha1(value: string): string | undefined {
   const url = new URL(value)
   if (url.protocol !== 'https:' || !url.hostname.endsWith('.hath.network') || url.username || url.password)
     return undefined
-  // Match the exact delivered representation; a gallery/page hash can instead
-  // refer to an original image when the user chose a resized display version.
-  return url.pathname.match(/^\/(?:h\/|om\/\d+\/)([a-f0-9]{40})-\d+-\d+-\d+-[a-z0-9]+\//i)?.[1]?.toLowerCase()
+  const segments = url.pathname.split('/')
+  const descriptorHash = (descriptor: string | undefined) =>
+    descriptor?.match(/^([a-f0-9]{40})-\d+-\d+-\d+-[a-z0-9]+$/i)?.[1]?.toLowerCase()
+  if (segments[1] === 'h' && segments.length > 3) return descriptorHash(segments[2])
+  if (segments[1] !== 'om' || !/^\d+$/.test(segments[2] ?? '') || segments.length <= 5) return undefined
+  const originalHash = descriptorHash(segments[3])
+  if (!originalHash) return undefined
+  // /om/ carries the original descriptor first, followed by the delivered
+  // derivative's descriptor (or "x" when serving the original bytes).
+  return segments[4] === 'x' ? originalHash : descriptorHash(segments[4])
 }
 
 function findImageById(html: string, id: string, baseUrl: string): string | null {

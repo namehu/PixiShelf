@@ -6,6 +6,7 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { createHash } from 'node:crypto'
 import sharp from 'sharp'
+import { EHentaiProvider } from '../providers/e-hentai.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   buildArchiveStoragePaths,
@@ -83,6 +84,35 @@ afterEach(async () => {
 })
 
 describe('archive executor storage safety', () => {
+  it.each([false, true])('validates a derived WebP using its own hash (corrupt=%s)', async (corrupt) => {
+    const image = await sharp({ create: { width: 4, height: 3, channels: 3, background: 'blue' } })
+      .webp()
+      .toBuffer()
+    const digest = createHash('sha1').update(image).digest('hex')
+    const url = `https://example.hath.network/om/123/${'a'.repeat(40)}-1000-8-6-jpg/${digest}-${image.length}-4-3-wbp/4/key/image.webp`
+    const provider = new EHentaiProvider({
+      text: async () => `<img id="img" src="${url}">`,
+      request: async () => ({ status: 200, headers: {}, stream: Readable.from([]), url })
+    } as never)
+    const remote = await provider.openMedia(
+      { index: 0, sourcePageUrl: 'https://e-hentai.org/s/token/123-1', locator: {}, expectedFilename: '0001' },
+      { quality: 'DISPLAY' }
+    )
+    expect(remote.expectedSha1).toBe(digest)
+    if (!remote.expectedSha1) throw new Error('Missing derived representation hash')
+    const body = corrupt ? Buffer.alloc(image.length) : image
+    const { root, store } = await storeImageFixture(body, 'derived.webp', 'image/webp', {
+      expectedSha1: remote.expectedSha1
+    })
+    if (corrupt) {
+      await expect(store()).rejects.toMatchObject({ code: 'MEDIA_INVALID', message: expect.stringContaining('SHA-1') })
+    } else {
+      const stored = await store()
+      expect(await readFile(path.join(root, stored.relativePath))).toEqual(image)
+      expect(stored).toMatchObject({ width: 4, height: 3 })
+    }
+  })
+
   it('archives an animated WebP over the cumulative pixel limit without changing any frame bytes', async () => {
     const image = await manyFrameWebp()
     await expect(sharp(image, { animated: true }).metadata()).rejects.toThrow('Input image exceeds pixel limit')
