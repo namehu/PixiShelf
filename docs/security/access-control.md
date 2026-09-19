@@ -308,3 +308,7 @@ job.backgroundDiagnosticReports 与 job.backgroundDiagnosticItems 均使用 admi
 诊断写入与读取均脱敏，屏蔽完整 URL、凭据、Cookie、Authorization、Token、SQL 和堆栈；主机字段只保留校验后的主机/端口；绝对路径隐藏目录，仅保留 basename 辅助定位，目标和错误详情继续使用隐私敏感文本包装。关闭报告达到 expiresAt 后，API 隐藏证据，即使物理清理尚未完成。SSE 只携带摘要与报告标识，逐项证据经受保护接口按需读取。隐私模式遮蔽目标名称/路径和错误详情，但不替代鉴权。详见[后台任务失败诊断](../features/background-job-diagnostics.md)。
 
 发现目录原站入口 `/api/archive/catalog/[id]/source` 使用独立管理员会话校验，按目录 ID 查询服务端 canonical URL，复用任务原站入口的 Provider、HTTPS、主机、端口、凭据、画廊路径及 GID 校验后重定向。忽略客户端 query 地址，响应禁止缓存和 Referrer，错误不回显或记录 locator；列表仍仅返回脱敏地址。来源封面以 `noopener noreferrer` 在新标签页打开此入口。
+
+### 归档任务艺术家管理补充
+
+`archive.listTasks` 仍使用 `authProcedure`，增加已生效／待生效创作者摘要、编辑受限原因和可选 `unboundOnly` 筛选。`archive.editTaskCreators` 使用 `adminProcedure`；严格校验任务 ID、ADD/REMOVE、1–200 个正整数艺术家 ID 和 UUID 请求编号，拒绝客户端传入来源身份或操作者。服务从任务读取原站身份、从会话取得操作者；同一身份跨任务共享关系。事务在既有创作者／发布／身份锁内复核回收站和清理状态。持久回执的指纹覆盖动作与规范化成员列表，并拒绝不同操作者复用编号；读写权限与来源页绑定能力保持一致。

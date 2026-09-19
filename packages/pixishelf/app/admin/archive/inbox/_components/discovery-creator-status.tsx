@@ -1,34 +1,6 @@
 import { Badge } from '@/components/ui/badge'
-import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
-type Creator = { id: number; name: string }
-export function DiscoveryCreatorStatus({
-  effectiveCreators,
-  pendingCreators
-}: {
-  effectiveCreators?: Creator[]
-  pendingCreators?: Creator[]
-}) {
-  return (
-    <div className="flex flex-wrap gap-1">
-      {!effectiveCreators?.length && !pendingCreators?.length ? (
-        <span className="text-xs text-muted-foreground">未绑定艺术家</span>
-      ) : null}
-      {(effectiveCreators ?? []).map((creator) => (
-        <Badge key={creator.id} className="max-w-full" variant="secondary">
-          已绑定：
-          <PrivacySensitiveText className="min-w-0 whitespace-normal break-words">{creator.name}</PrivacySensitiveText>
-        </Badge>
-      ))}
-      {(pendingCreators ?? []).map((creator) => (
-        <Badge key={creator.id} variant="outline">
-          待生效：
-          <PrivacySensitiveText className="min-w-0 whitespace-normal break-words">{creator.name}</PrivacySensitiveText>
-        </Badge>
-      ))}
-    </div>
-  )
-}
+export { DiscoveryCreatorStatus } from '../../_components/discovery-creator-status'
 
 export function CatalogStatusBadge({
   item

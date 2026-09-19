@@ -1,3 +1,4 @@
+import { Checkbox } from '@/components/ui/checkbox'
 import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -13,6 +14,7 @@ export interface TaskFilters {
   kind: ArchiveTaskKind | 'ALL'
   submissionId: string
   search: string
+  unboundOnly?: boolean
 }
 
 export function TaskFiltersForm({
@@ -38,7 +40,7 @@ export function TaskFiltersForm({
         onSubmit()
       }}
     >
-      <FieldGroup className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-[10rem_10rem_12rem_minmax(12rem,1fr)_minmax(14rem,1.5fr)_auto]">
+      <FieldGroup className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         <Field>
           <FieldLabel htmlFor="archive-task-status">状态</FieldLabel>
           <Select
@@ -114,6 +116,15 @@ export function TaskFiltersForm({
           />
         </Field>
         <Field className="justify-end">
+          <FieldLabel className="min-h-9 cursor-pointer">
+            <Checkbox
+              checked={Boolean(value.unboundOnly)}
+              onCheckedChange={(checked) => onImmediateChange({ unboundOnly: checked === true })}
+            />
+            仅看未绑定艺术家
+          </FieldLabel>
+        </Field>
+        <Field className="justify-end">
           <FieldLabel className="sr-only">筛选操作</FieldLabel>
           <div className="flex gap-2">
             <Button type="submit" size="sm" disabled={!dirty}>
@@ -141,6 +152,7 @@ export function normalizeTaskFilters(value: TaskFilters): TaskFilters {
 
 export function hasTaskFilters(value: TaskFilters): boolean {
   return (
+    Boolean(value.unboundOnly) ||
     value.status !== 'ALL' ||
     value.kind !== 'ALL' ||
     Boolean(value.providerKey.trim() || value.submissionId.trim() || value.search.trim())
