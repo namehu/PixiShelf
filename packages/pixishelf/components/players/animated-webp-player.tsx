@@ -160,13 +160,16 @@ export default function AnimatedWebpPlayer({
   )
 
   const badgeClassName =
-    'absolute right-2 top-2 z-10 flex h-5 items-center gap-1 rounded-sm bg-[#ff2f4d] px-2 text-[10px] font-semibold leading-none tabular-nums text-white shadow-sm'
+    'absolute right-2 z-10 flex items-center gap-1 rounded-sm bg-[#ff2f4d] px-2 text-[10px] font-semibold leading-none tabular-nums text-white shadow-sm'
 
   const playbackBadge =
     controlMode === 'external' ? null : controlMode === 'badge' && isAnimated ? (
       <button
         type="button"
-        className={cn(badgeClassName, 'cursor-pointer border-0')}
+        className={cn(
+          badgeClassName,
+          'bottom-2 min-h-11 min-w-11 cursor-pointer justify-center rounded-full border-0 px-3 text-xs'
+        )}
         aria-label={`${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}
         aria-pressed={isPlaying}
         aria-busy={isLoadingAnimation}
@@ -184,7 +187,7 @@ export default function AnimatedWebpPlayer({
         {badgeContent}
       </button>
     ) : (
-      <div className={badgeClassName}>{badgeContent}</div>
+      <div className={cn(badgeClassName, 'top-2 h-5')}>{badgeContent}</div>
     )
 
   const content = (
