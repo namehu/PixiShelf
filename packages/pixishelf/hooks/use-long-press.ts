@@ -7,66 +7,79 @@ interface UseLongPressOptions {
 }
 
 export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongPressOptions) {
-  const timeout = useRef<NodeJS.Timeout | null>(null)
+  const timeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startPos = useRef<{ x: number; y: number } | null>(null)
+  const ignoreMouseUntil = useRef(0)
+  const suppressClick = useRef(false)
+
+  const cancel = useCallback(() => {
+    if (timeout.current !== null) clearTimeout(timeout.current)
+    timeout.current = null
+    startPos.current = null
+  }, [])
 
   const start = useCallback(
     (event: React.MouseEvent | React.TouchEvent) => {
-      // 仅处理左键按下与触控事件，避免误触发右键等场景
-      if (event.nativeEvent instanceof MouseEvent && event.nativeEvent.button !== 0) return
+      if ('touches' in event) {
+        ignoreMouseUntil.current = Date.now() + 1000
+        if (event.touches.length !== 1) {
+          suppressClick.current = true
+          cancel()
+          return
+        }
+      } else if (event.button !== 0 || Date.now() < ignoreMouseUntil.current) {
+        return
+      }
 
-      if (event.type === 'touchstart') {
-        const touch = (event as React.TouchEvent).touches[0]!
+      cancel()
+      suppressClick.current = false
+      if ('touches' in event) {
+        const touch = event.touches[0]!
         startPos.current = { x: touch.clientX, y: touch.clientY }
-      } else {
-        startPos.current = null
       }
 
       timeout.current = setTimeout(() => {
-        event.preventDefault()
-        event.stopPropagation()
-        onLongPress(event)
         timeout.current = null
+        suppressClick.current = true
+        // Default touch behavior must be handled by CSS/contextmenu, not an expired event.
+        onLongPress(event)
       }, threshold)
     },
-    [onLongPress, threshold]
+    [cancel, onLongPress, threshold]
   )
 
   const clear = useCallback(
     (event: React.MouseEvent | React.TouchEvent, shouldTriggerClick = true) => {
-      if (timeout.current) {
-        clearTimeout(timeout.current)
-        timeout.current = null
-        if (shouldTriggerClick && onClick) {
-          onClick(event)
-        }
+      if ('touches' in event) {
+        ignoreMouseUntil.current = Date.now() + 1000
+      } else if (Date.now() < ignoreMouseUntil.current) {
+        return
       }
-      startPos.current = null
+      const wasPending = timeout.current !== null
+      cancel()
+      if (!shouldTriggerClick) suppressClick.current = true
+      if (wasPending && shouldTriggerClick && onClick) {
+        suppressClick.current = true
+        onClick(event)
+      }
     },
-    [onClick]
+    [cancel, onClick]
   )
 
   const onTouchMove = useCallback((event: React.TouchEvent) => {
-    if (startPos.current) {
-      const touch = event.touches[0]!
-      const dx = Math.abs(touch.clientX - startPos.current.x)
-      const dy = Math.abs(touch.clientY - startPos.current.y)
-      // 手指移动超过 10px 视为滑动，直接取消长按计时，避免误判
-      if (dx > 10 || dy > 10) {
-        if (timeout.current) {
-          clearTimeout(timeout.current)
-          timeout.current = null
-        }
-        startPos.current = null
-      }
+    if (!startPos.current) return
+    const touch = event.touches[0]
+    if (
+      event.touches.length !== 1 || !touch ||
+      Math.abs(touch.clientX - startPos.current.x) > 10 ||
+      Math.abs(touch.clientY - startPos.current.y) > 10
+    ) {
+      suppressClick.current = true
+      cancel()
     }
-  }, [])
+  }, [cancel])
 
-  useEffect(() => {
-    return () => {
-      if (timeout.current) clearTimeout(timeout.current)
-    }
-  }, [])
+  useEffect(() => cancel, [cancel])
 
   return {
     onMouseDown: start,
@@ -75,9 +88,14 @@ export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongP
     onMouseLeave: (e: React.MouseEvent) => clear(e, false),
     onTouchEnd: clear,
     onTouchCancel: (e: React.TouchEvent) => clear(e, false),
-    onTouchMove: onTouchMove,
-    onContextMenu: (e: React.MouseEvent) => {
-      e.preventDefault()
-    }
+    onTouchMove,
+    onClickCapture: (event: React.MouseEvent) => {
+      // A touch release can emit a compatibility click after the menu has opened.
+      if (suppressClick.current) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    },
+    onContextMenu: (event: React.MouseEvent) => event.preventDefault()
   }
 }

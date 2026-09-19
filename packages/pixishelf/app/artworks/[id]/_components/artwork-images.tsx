@@ -243,10 +243,10 @@ function PreviewableMedia({
   return (
     <div
       {...longPressProps}
-      className="select-none"
+      className="select-none [&_img]:pointer-events-none [&_img]:[-webkit-touch-callout:none]"
       draggable={false}
       onDragStart={(event) => event.preventDefault()}
-      style={{ WebkitTouchCallout: 'none' }}
+      style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
     >
       {children}
     </div>
