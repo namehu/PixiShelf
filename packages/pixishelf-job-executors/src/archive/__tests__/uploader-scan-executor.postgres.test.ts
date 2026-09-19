@@ -376,6 +376,79 @@ describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
 })
 
 describePostgres('title scan persisted matching state', () => {
+  it.each([false, true])('settles invalid queries atomically (rollback=%s)', async (rollback) => {
+    const now = new Date('2026-09-19T00:00:00Z')
+    const query = { keyword: 'invalid*keyword', matchMode: 'CONTAINS' }
+    const runId = `${prefix}-invalid-run`
+    const jobId = `${prefix}-invalid-job`
+    const scanTitles = vi.fn()
+    try {
+      const source = await db().archiveUploaderSource.create({
+        data: {
+          id: `${prefix}-invalid-source`,
+          providerKey: 'e-hentai',
+          sourceKind: 'TITLE_QUERY',
+          displayName: 'Invalid frozen query',
+          titleQuery: query,
+          queryKey: randomUUID(),
+          historyCursor: 'unchanged'
+        }
+      })
+      await db().systemJob.create({
+        data: { ...systemJobData(jobId, 'ARCHIVE_SEARCH_SCAN', { scanRunId: runId }, now), status: 'RUNNING' }
+      })
+      await db().archiveUploaderScanRun.create({
+        data: { id: runId, systemJobId: jobId, sourceId: source.id, mode: 'LATEST', titleQuery: query }
+      })
+      const context = transactionContext(jobId, { scanRunId: runId }, new AbortController().signal) as ExecutionContext<
+        { scanRunId: string },
+        EnqueuedChildJob
+      >
+      context.finalizeInTransaction = async (operation) => {
+        await db().$transaction(async (transaction) => {
+          await operation({
+            transaction,
+            controlStatus: 'CONTINUE',
+            executionStatus: 'RUNNING',
+            fail: async (failure: { errorCode: string; error: string }) => {
+              await transaction.systemJob.update({ where: { id: jobId }, data: { status: 'FAILED', ...failure } })
+              if (rollback) throw new Error('injected settlement failure')
+            }
+          } as never)
+        })
+        return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+      }
+      const execution = executeArchiveUploaderScan(
+        context,
+        {
+          database: db(),
+          providers: { getUploaderScanner: () => ({ scanTitles }) } as never,
+          now: () => now
+        },
+        'TITLE_QUERY'
+      )
+      if (rollback) await expect(execution).rejects.toThrow('injected settlement failure')
+      else await execution
+      expect(scanTitles).not.toHaveBeenCalled()
+      await expect(db().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: runId } })).resolves.toMatchObject({
+        status: rollback ? 'RUNNING' : 'FAILED',
+        checkedCount: 0,
+        finishedAt: rollback ? null : now,
+        errorCode: rollback ? null : 'STATE_CONFLICT'
+      })
+      await expect(db().systemJob.findUniqueOrThrow({ where: { id: jobId } })).resolves.toMatchObject({
+        status: rollback ? 'RUNNING' : 'FAILED'
+      })
+      await expect(db().archiveUploaderSource.findUniqueOrThrow({ where: { id: source.id } })).resolves.toMatchObject({
+        historyCursor: 'unchanged',
+        lastErrorCode: rollback ? null : 'STATE_CONFLICT'
+      })
+    } finally {
+      await cleanupDatabase()
+      await prisma?.$disconnect()
+    }
+  })
+
   it('hides only its own nonmatch, preserving catalog identity and the raw head', async () => {
     const now = new Date('2026-09-04T00:00:00Z')
     const query = { keyword: 'Existing', matchMode: 'CONTAINS', uploaderUid: null }

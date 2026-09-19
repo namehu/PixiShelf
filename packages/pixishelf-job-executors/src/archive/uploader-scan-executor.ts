@@ -19,7 +19,7 @@ import type {
   JobExecutionOutcome,
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
-import { toArchiveExecutorError } from './errors.ts'
+import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
 import { compareArchiveUploaderMetadata } from './providers/e-hentai.ts'
 import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts'
 import type {
@@ -169,7 +169,10 @@ export async function executeArchiveUploaderScan(
 ): Promise<JobExecutionOutcome> {
   const now = dependencies.now ?? (() => new Date())
   const startedAt = now()
-  const run = await context.mutateInTransaction<ScanTransaction, ClaimedScanRun | null>(async (transaction) => {
+  const claimedRun = await context.mutateInTransaction<
+    ScanTransaction,
+    (Omit<ClaimedScanRun, 'titleQuery'> & { titleQuery: Prisma.JsonValue }) | null
+  >(async (transaction) => {
     const current = await transaction.archiveUploaderScanRun.findUnique({
       where: { id: context.payload.scanRunId },
       include: { source: true }
@@ -205,7 +208,7 @@ export async function executeArchiveUploaderScan(
       mode: current.mode,
       searchIdentityKind: current.searchIdentityKind,
       searchIdentityValue: current.searchIdentityValue,
-      titleQuery: sourceKind === 'TITLE_QUERY' ? archiveTitleQuerySchema.parse(current.titleQuery) : null,
+      titleQuery: current.titleQuery,
       cursorBefore: current.cursorBefore,
       source: {
         id: current.source.id,
@@ -216,7 +219,7 @@ export async function executeArchiveUploaderScan(
     }
   })
 
-  if (!run) {
+  if (!claimedRun) {
     return context.finalizeInTransaction<ScanTransaction>(async (scope) => {
       if (scope.controlStatus === 'CANCEL_REQUESTED') {
         await markRun(scope.transaction, context.payload.scanRunId, context.job.id, 'CANCELLED', now())
@@ -228,6 +231,17 @@ export async function executeArchiveUploaderScan(
   }
 
   try {
+    // Validate inside the error-finalization boundary so invalid frozen queries
+    // settle both the scan record and its job instead of leaving an active scan.
+    let titleQuery: ArchiveTitleQuery | null = null
+    if (sourceKind === 'TITLE_QUERY') {
+      const parsed = archiveTitleQuerySchema.safeParse(claimedRun.titleQuery)
+      if (!parsed.success) {
+        throw new ArchiveExecutorError('STATE_CONFLICT', parsed.error.message, { cause: parsed.error })
+      }
+      titleQuery = parsed.data
+    }
+    const run: ClaimedScanRun = { ...claimedRun, titleQuery }
     await context.progress({
       progress: 5,
       stage: 'UPLOADER_SEARCH',
@@ -258,7 +272,7 @@ export async function executeArchiveUploaderScan(
   } catch (error) {
     const classified = toArchiveExecutorError(error)
     return context.finalizeInTransaction<ScanTransaction>((scope) =>
-      finalizeScanError(scope, context, run, classified, now(), dependencies.random ?? Math.random)
+      finalizeScanError(scope, context, claimedRun, classified, now(), dependencies.random ?? Math.random)
     )
   }
 }
@@ -737,7 +751,7 @@ function catalogWorkflowData(workflow: CatalogWorkflowSnapshot) {
 async function finalizeScanError(
   scope: ScanScope,
   context: ScanContext,
-  run: ClaimedScanRun,
+  run: Pick<ClaimedScanRun, 'id'>,
   error: ReturnType<typeof toArchiveExecutorError>,
   failedAt: Date,
   random: () => number
