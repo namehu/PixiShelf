@@ -69,10 +69,21 @@ describe('title discovery query', () => {
     expect(matchesArchiveTitle(archiveTitleQuerySchema.parse({ keyword, matchMode }), titles)).toBe(expected)
   })
 
-  it.each(['', '   ', 'a" OR title:b', 'a*b', 'a_b', 'a%b', 'a％b', 'a\nb', 'a\u0000b', '[]'])(
+  it.each(['', '   ', 'a" OR title:b', 'a*b', 'a%b', 'a％b', 'a\nb', 'a\u0000b', '[]'])(
     'rejects ambiguous remote text %j',
     (keyword) => {
       expect(archiveTitleQuerySchema.safeParse({ keyword }).success).toBe(false)
+    }
+  )
+
+  it.each(['CONTAINS', 'STARTS_WITH', 'ENDS_WITH'] as const)(
+    'accepts underscores and preserves literal matching for %s',
+    (matchMode) => {
+      const query = archiveTitleQuerySchema.parse({ keyword: ' Cornelia_winterhowl ', matchMode })
+      expect(query.keyword).toBe('Cornelia_winterhowl')
+      expect(archiveTitleSearchTerm(query)).toBe('title:"cornelia_winterhowl"')
+      expect(matchesArchiveTitle(query, ['CORNELIA_WINTERHOWL'])).toBe(true)
+      expect(matchesArchiveTitle(query, ['Cornelia winterhowl', 'CorneliaXwinterhowl'])).toBe(false)
     }
   )
 

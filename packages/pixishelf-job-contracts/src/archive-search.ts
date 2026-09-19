@@ -56,6 +56,7 @@ export function normalizeArchiveTitle(value: string): string {
 
 // E-Hentai has no literal escape for these operators inside a quoted term.
 // Reject ambiguous search syntax rather than silently changing the user's text.
+// Underscores are allowed in names; matchesArchiveTitle verifies them literally.
 const keywordSchema = z
   .string()
   .trim()
@@ -63,8 +64,8 @@ const keywordSchema = z
   .max(160, '关键词最多 160 个字符')
   .refine(
     // oxlint-disable-next-line no-control-regex -- reject remote query control characters
-    (value) => !/["*_％%\u0000-\u001f\u007f]/.test(value) && /[\p{L}\p{N}]/u.test(value),
-    '关键词须包含文字或数字，且不能包含双引号、星号、下划线、百分号或控制字符'
+    (value) => !/["*％%\u0000-\u001f\u007f]/.test(value) && /[\p{L}\p{N}]/u.test(value),
+    '关键词须包含文字或数字，且不能包含双引号、星号、百分号或控制字符'
   )
 
 export const archiveTitleQuerySchema = z
