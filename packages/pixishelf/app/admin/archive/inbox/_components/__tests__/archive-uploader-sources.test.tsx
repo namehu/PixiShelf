@@ -33,26 +33,54 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.isDesktop }))
 
-vi.mock('@/components/ui/dropdown-menu', () => ({
-  DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => children,
-  DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DropdownMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DropdownMenuSeparator: () => <hr />,
-  DropdownMenuItem: ({
-    children,
-    disabled,
-    onSelect
-  }: {
-    children: ReactNode
-    disabled?: boolean
-    onSelect?: () => void
-  }) => (
-    <button type="button" disabled={disabled} onClick={onSelect}>
-      {children}
-    </button>
-  )
-}))
+vi.mock('@/components/ui/dropdown-menu', async () => {
+  const { createContext, useContext } = await import('react')
+  const RadioContext = createContext<(value: string) => void>(() => {})
+  return {
+    DropdownMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuRadioGroup: ({
+      children,
+      onValueChange
+    }: {
+      children: ReactNode
+      onValueChange: (value: string) => void
+    }) => <RadioContext.Provider value={onValueChange}>{children}</RadioContext.Provider>,
+    DropdownMenuRadioItem: ({
+      children,
+      value,
+      'aria-label': label
+    }: {
+      children: ReactNode
+      value: string
+      'aria-label'?: string
+    }) => {
+      const onChange = useContext(RadioContext)
+      return (
+        <button type="button" aria-label={label} onClick={() => onChange(value)}>
+          {children}
+        </button>
+      )
+    },
+    DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuTrigger: ({ children }: { children: ReactNode }) => children,
+    DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuSeparator: () => <hr />,
+    DropdownMenuItem: ({
+      children,
+      disabled,
+      onSelect
+    }: {
+      children: ReactNode
+      disabled?: boolean
+      onSelect?: () => void
+    }) => (
+      <button type="button" disabled={disabled} onClick={onSelect}>
+        {children}
+      </button>
+    )
+  }
+})
 
 const source = {
   id: 'source-1',

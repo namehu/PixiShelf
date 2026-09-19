@@ -7,7 +7,15 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
 
@@ -18,6 +26,12 @@ export interface ArchiveUploaderPreviewItem {
   title: string
 }
 
+const resultViewOptions = [
+  { value: 'list', label: '纯列表', action: '使用纯列表', icon: ListIcon },
+  { value: 'preview', label: '首图预览', action: '显示首图预览', icon: ImagesIcon },
+  { value: 'cards', label: '卡片', action: '使用卡片模式', icon: LayoutGridIcon }
+] as const
+
 export function ArchiveUploaderResultViewToggle({
   value,
   onChange
@@ -25,29 +39,37 @@ export function ArchiveUploaderResultViewToggle({
   value: ArchiveUploaderResultView
   onChange: (view: ArchiveUploaderResultView) => void
 }) {
+  const current = resultViewOptions.find((option) => option.value === value) ?? resultViewOptions[0]
+  const CurrentIcon = current.icon
+  const label = `显示模式：${current.label}`
+
   return (
-    <ToggleGroup
-      type="single"
-      value={value}
-      onValueChange={(next) => next && onChange(next as ArchiveUploaderResultView)}
-      variant="outline"
-      size="sm"
-      aria-label="结果显示模式"
-      className="shrink-0"
-    >
-      <ToggleGroupItem value="list" aria-label="使用纯列表" title="纯列表" className="max-sm:px-2">
-        <ListIcon aria-hidden="true" />
-        <span className="hidden sm:inline">纯列表</span>
-      </ToggleGroupItem>
-      <ToggleGroupItem value="preview" aria-label="显示首图预览" title="首图预览" className="max-sm:px-2">
-        <ImagesIcon aria-hidden="true" />
-        <span className="hidden sm:inline">首图预览</span>
-      </ToggleGroupItem>
-      <ToggleGroupItem value="cards" aria-label="使用卡片模式" title="卡片模式" className="max-sm:px-2">
-        <LayoutGridIcon aria-hidden="true" />
-        <span className="hidden sm:inline">卡片</span>
-      </ToggleGroupItem>
-    </ToggleGroup>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" size="icon" aria-label={label} title={label}>
+          <CurrentIcon aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>显示模式</DropdownMenuLabel>
+          <DropdownMenuRadioGroup
+            value={value}
+            onValueChange={(next) => {
+              const option = resultViewOptions.find((option) => option.value === next)
+              if (option) onChange(option.value)
+            }}
+          >
+            {resultViewOptions.map(({ value, label, action, icon: Icon }) => (
+              <DropdownMenuRadioItem key={value} value={value} aria-label={action}>
+                <Icon aria-hidden="true" />
+                {label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
