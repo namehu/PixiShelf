@@ -31,6 +31,8 @@ App 只有在新鲜 READY Worker 明确报告 `PIXIV_ARTWORK_ENRICHMENT@v1 / BAC
 
 Worker 不使用 Cookie 或登录会话，只请求 `https://www.pixiv.net/ajax/illust/<id>`。请求限制目标主机和每次重定向，超时为 12 秒，响应上限为 1 MB。429、5xx 和网络故障按任务重试策略处理；404 记为“无数据”；非法重定向、异常 JSON、结构不完整或响应作品 ID 与当前外部引用不一致时不发布领域数据。
 
+metadata 请求由 Worker 使用共享 `ARCHIVE_HTTPS_PROXY` 出站策略，仍不下载或重下原图。代理失败不降级直连，HTTPS 443、精确域名和逐跳重定向校验保持有效；配置与优先顺序见[部署基线](../operations/deployment.md#环境文件边界)。
+
 同步开始和最终发布前都重新确认当前 Artwork 仍只有同一个 Pixiv 引用。引用新增、删除或改变时，旧响应不会写回。
 
 ## 磁盘快照

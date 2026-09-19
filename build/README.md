@@ -162,5 +162,8 @@ docker build -f build/Dockerfile --target production -t pixishelf .
 docker build -f build/worker.Dockerfile --target production -t pixishelf-worker .
 ```
 
-CI 构建并扫描 App 与通用 Worker 镜像。URL 归档网络请求读取
-`ARCHIVE_HTTPS_PROXY`，未设置时兼容 `HTTPS_PROXY`、`HTTP_PROXY` 与 `NO_PROXY`。
+CI 构建并扫描 App 与通用 Worker 镜像。归档、来源扫描、服务端预览 HTML，以及 Pixiv 艺术家资料和图片、作品 metadata、标签资料和封面、系列缺少有效本地快照时的请求，共用 `ARCHIVE_HTTPS_PROXY`。作品同步不会因此下载原图；浏览器远程图片/脚本、本地任务和内部服务不在此范围。
+
+优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`。专用变量显式为空时强制直连；只有未设置专用变量时才遵循 `NO_PROXY/no_proxy`。仅支持无凭据、无路径/query/hash 的 HTTP(S) 代理，代理失败不降级直连。Pixiv 经逐请求 dispatcher 使用代理，不修改全局 dispatcher；目标主机由代理解析，HTTPS 443、精确域名和逐跳重定向校验仍然生效，归档的本地 DNS/SSRF/fake-IP 检查不变。
+
+Compose 的 App/Worker 已通过 `env_file` 读取 `build/.env`，修改后须重新创建相应容器。本地 App 在 `packages/pixishelf/.env.local` 配置并重启；Compose Worker 仍需单独配置 `build/.env`。代理地址必须能从实际运行环境访问，容器内的 `127.0.0.1` 不是宿主机。发布与回滚见[部署基线](../docs/operations/deployment.md#环境文件边界)。

@@ -83,6 +83,7 @@ pnpm --filter @pixishelf/worker... build
 ```
 
 `@pixishelf/worker...` 包含 Worker 及其 workspace 依赖，覆盖 DB、job-contracts、job-runtime 和 job-executors 的相应脚本。
+Pixiv 代理传输集成测试使用本机 HTTP/HTTPS CONNECT 服务、临时 TLS 证书和图片目录；需要 `openssl` 与回环端口监听权限，不访问真实原站或数据库，不关闭 TLS 校验。它验证资料及图片经过代理、压缩响应、取消和代理故障不回退直连。
 CI 在任何 job 包 `dist` 生成前完成 Web lint、typecheck、unit test 和 production build，证明主应用只消费
 workspace 源码；随后独立构建 job-contracts、job-runtime、job-executors 的 `dist`，再打包 Worker，验证
 独立编译输出、类型声明和依赖顺序没有漂移。

@@ -211,6 +211,10 @@ ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。
 
 Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，lane 是执行资源和 capability 边界，不是操作系统级权限隔离。`ARCHIVE_RESOLVE_ITEM` 的 Executor 不执行媒体写入，所有归档下载、回收、恢复、永久清理和其他文件操作仍由 writer lane 执行并经过根目录/符号链接边界校验。
 
+出站代理 `ARCHIVE_HTTPS_PROXY` 覆盖归档、来源扫描、服务端预览 HTML，以及 Worker 的 Pixiv 艺术家资料/头像/背景、作品 metadata、标签资料/封面和系列缺少有效本地快照时的请求；浏览器远程图片/脚本、本地任务和内部服务不受影响。优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`；专用变量显式为空强制直连，只有未设置时才遵循 `NO_PROXY/no_proxy`。代理 URL 仅支持 HTTP(S)，禁止凭据、路径、query 和 hash；配置或代理失败不降级为直连。
+
+Pixiv 请求由 Worker 逐请求注入 dispatcher，不修改进程全局 dispatcher。代理 CONNECT 使用目标 hostname，由代理解析目标 DNS；请求和每次重定向仍须通过 HTTPS、443 端口、无凭据和精确域名白名单校验（API 为 `www.pixiv.net`，图片为 `i.pximg.net`）。因此代理是受控出站信任边界，不能将 Pixiv 代理链路描述为本地 DNS 钉扎。归档既有本地 DNS、SSRF 与 fake-IP 检查保持不变，不因 Pixiv 扩围放宽。
+
 归档任务 payload、结果、事件、错误与普通日志统一脱敏。不得记录 Cookie、Authorization、完整 Provider locator、token，或 URL 路径中的敏感段；列表和批量结果只返回完成管理操作所需的脱敏值。
 
 归档下载明细 `archive.listTaskItems` 是管理员主动排错的例外：经过 `adminProcedure` 验证后返回完整图片页地址，以及最近一次媒体响应的最终下载地址（含签名路径或 query）。数据库仅保存每项最近一次响应地址、时间及尝试次数，新尝试开始时清空；不保存请求 Cookie/Authorization。导航仅接受无用户名密码的有效 HTTP(S) URL，客户端展示完整地址并支持复制，打开时禁止 Referrer，不自动请求这些媒体地址。隐私模式继续遮蔽地址文本。此例外不扩展到任务列表、事件、诊断报告、错误或普通日志；下载地址可能过期，应视为敏感数据。

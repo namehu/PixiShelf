@@ -43,7 +43,11 @@ type ExecutorWorkerConfig = Pick<
   | 'animationScanConcurrency'
 >
 
-export function createWorkerExecutorRegistry(input: { database: PrismaClient; config: ExecutorWorkerConfig }) {
+export function createWorkerExecutorRegistry(input: {
+  database: PrismaClient
+  config: ExecutorWorkerConfig
+  fetchImpl: typeof fetch
+}) {
   const registry = new ExecutorRegistry()
   const resolved = resolveExecutorWorkerConfiguration(input.config)
   const archiveProviders = new GovernedArchiveProviderRegistry(
@@ -112,25 +116,29 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
   for (const definition of createPixivTagExecutorRegistrations({
     // 注册在统一后台写入注册表中，确保能力审计和线上执行器清单一致。
     database: input.database,
-    pixivDataRoot: resolved.pixivDataRoot
+    pixivDataRoot: resolved.pixivDataRoot,
+    fetchImpl: input.fetchImpl
   })) {
     registry.register(definition)
   }
   for (const definition of createPixivArtworkExecutorRegistrations({
     database: input.database,
-    pixivDataRoot: resolved.pixivDataRoot
+    pixivDataRoot: resolved.pixivDataRoot,
+    fetchImpl: input.fetchImpl
   })) {
     registry.register(definition)
   }
   for (const definition of createPixivSeriesExecutorRegistrations({
     database: input.database,
-    pixivDataRoot: resolved.pixivDataRoot
+    pixivDataRoot: resolved.pixivDataRoot,
+    fetchImpl: input.fetchImpl
   })) {
     registry.register(definition)
   }
   for (const definition of createPixivArtistExecutorRegistrations({
     database: input.database,
-    pixivDataRoot: resolved.pixivDataRoot
+    pixivDataRoot: resolved.pixivDataRoot,
+    fetchImpl: input.fetchImpl
   })) {
     registry.register(definition)
   }

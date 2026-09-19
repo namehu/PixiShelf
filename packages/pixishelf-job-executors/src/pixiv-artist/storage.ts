@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
+import { discardResponseBody, readBoundedResponseBody } from '../shared/http-response.ts'
+import { PixivProxyConfigurationError } from '../shared/pixiv-proxy-error.ts'
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024
 const MAX_INPUT_PIXELS = 40_000_000
@@ -46,6 +48,7 @@ export async function storePixivArtistImage(input: {
   for (let redirect = 0; redirect <= 3; redirect += 1) {
     assertPixivImageUrl(url)
     response = await fetchWithTimeout(fetchImpl, url, input.signal)
+    if (!response.ok) await discardResponseBody(response)
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location')
       if (!location || redirect === 3) {
@@ -64,6 +67,7 @@ export async function storePixivArtistImage(input: {
   }
   const contentLength = Number(response.headers.get('content-length'))
   if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
+    await discardResponseBody(response)
     throw new PixivArtistImageError('Pixiv 作者图片超过 8 MiB 限制', 'PIXIV_IMAGE_TOO_LARGE')
   }
   const bytes = await readBoundedBody(response)
@@ -112,30 +116,30 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, url: URL, signal: Abort
     })
   } catch (error) {
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : error
+    if (error instanceof PixivProxyConfigurationError) {
+      throw new PixivArtistImageError(error.message, 'PIXIV_PROXY_CONFIG_INVALID')
+    }
     throw new PixivArtistImageError('Pixiv 作者图片下载超时或网络异常', 'PIXIV_IMAGE_NETWORK_ERROR', { cause: error })
   }
 }
 
 async function readBoundedBody(response: Response): Promise<Buffer> {
   if (!response.body) throw new PixivArtistImageError('Pixiv 作者图片响应为空', 'PIXIV_IMAGE_EMPTY')
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > MAX_IMAGE_BYTES) {
-      await reader.cancel()
-      throw new PixivArtistImageError('Pixiv 作者图片超过 8 MiB 限制', 'PIXIV_IMAGE_TOO_LARGE')
-    }
-    chunks.push(value)
-  }
-  return Buffer.concat(chunks, total)
+  return readBoundedResponseBody(
+    response,
+    MAX_IMAGE_BYTES,
+    () => new PixivArtistImageError('Pixiv 作者图片超过 8 MiB 限制', 'PIXIV_IMAGE_TOO_LARGE')
+  )
 }
 
 function assertPixivImageUrl(url: URL) {
-  if (url.protocol !== 'https:' || url.hostname !== PIXIV_IMAGE_HOST || (url.port && url.port !== '443')) {
+  if (
+    url.protocol !== 'https:' ||
+    url.hostname !== PIXIV_IMAGE_HOST ||
+    (url.port && url.port !== '443') ||
+    url.username ||
+    url.password
+  ) {
     throw new PixivArtistImageError('Pixiv 作者图片地址不在允许列表中', 'PIXIV_IMAGE_HOST_REJECTED')
   }
 }

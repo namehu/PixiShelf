@@ -2,9 +2,26 @@ import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { PrismaClient } from '@pixishelf/db'
+import {
+  createPixivArtistExecutorRegistrations,
+  createPixivArtworkExecutorRegistrations,
+  createPixivSeriesExecutorRegistrations,
+  createPixivTagExecutorRegistrations
+} from '@pixishelf/job-executors'
 import { createWorkerExecutorRegistry, resolveExecutorWorkerConfiguration } from '../create-worker-executor-registry.js'
 import { ExecutorRegistry } from '../executor-registry.js'
 import { assertProductionWorkerCapabilities, PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
+
+vi.mock('@pixishelf/job-executors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pixishelf/job-executors')>()
+  return {
+    ...actual,
+    createPixivArtistExecutorRegistrations: vi.fn(actual.createPixivArtistExecutorRegistrations),
+    createPixivArtworkExecutorRegistrations: vi.fn(actual.createPixivArtworkExecutorRegistrations),
+    createPixivSeriesExecutorRegistrations: vi.fn(actual.createPixivSeriesExecutorRegistrations),
+    createPixivTagExecutorRegistrations: vi.fn(actual.createPixivTagExecutorRegistrations)
+  }
+})
 
 describe('ExecutorRegistry', () => {
   it('publishes only registered job type and definition version capabilities', () => {
@@ -116,7 +133,9 @@ describe('ExecutorRegistry', () => {
   })
 
   it('locks the production Worker to 30 job capabilities and 35 type/version combinations', () => {
+    const fetchImpl = vi.fn<typeof fetch>()
     const registry = createWorkerExecutorRegistry({
+      fetchImpl,
       database: {} as PrismaClient,
       config: {
         archiveRoot: '/media/archive',
@@ -134,6 +153,15 @@ describe('ExecutorRegistry', () => {
     })
 
     const capabilities = registry.capabilities()
+    for (const register of [
+      createPixivArtistExecutorRegistrations,
+      createPixivArtworkExecutorRegistrations,
+      createPixivSeriesExecutorRegistrations,
+      createPixivTagExecutorRegistrations
+    ]) {
+      expect(register).toHaveBeenCalledWith(expect.objectContaining({ fetchImpl }))
+    }
+    expect(fetchImpl).not.toHaveBeenCalled()
     expect(capabilities).toHaveLength(30)
     expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(35)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(

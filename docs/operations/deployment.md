@@ -51,6 +51,12 @@ sources:
 | 宿主机 Next.js | `packages/pixishelf/.env.local` | `127.0.0.1:5432` 或 `localhost:5432`   |
 | Docker Compose | `build/.env`                    | Compose 在容器内覆盖为 `postgres:5432` |
 
+出站代理继续使用 `ARCHIVE_HTTPS_PROXY`，覆盖归档、来源扫描、服务端预览 HTML，以及 Pixiv 艺术家资料/头像/背景、作品 metadata、标签资料/封面和系列缺少有效本地快照时的请求。它不控制浏览器远程图片、浏览器脚本、本地任务或内部服务，也不会让作品同步下载原图。优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`；专用变量显式为空强制直连，仅未设置时遵循 `NO_PROXY/no_proxy`。只接受无凭据、无路径/query/hash 的 HTTP(S) 代理，代理失败不会直连降级。
+
+Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置后须重新创建对应容器，单纯 restart 不会重新加载环境文件。本地 App 使用 `packages/pixishelf/.env.local`，与读取 `build/.env` 的 Worker 分别配置；修改后重启对应本地进程。Pixiv 代理 CONNECT 使用目标 hostname，由代理解析目标 DNS；HTTPS 443、精确域名白名单和每跳校验保持有效。归档现有本地 DNS、SSRF 与 fake-IP 校验不变，细节见[权限与接口边界](../security/access-control.md#服务、网络和存储矩阵)。
+
+本次代理扩围无需数据库迁移或数据回填。发布前记录原 App/Worker 镜像 tag 或 digest 与受控环境配置副本，作为服务级恢复依据；回滚使用扩围前的配套 App/Worker 版本并恢复原代理配置，无需回滚数据库。上线先各选一个 Pixiv 补全/同步对象验证，并确认系列已有有效快照时无需联网；现有数据恢复仍遵循[备份与恢复](./backup-and-recovery.md)。
+
 动画识别使用可选环境变量 `ANIMATION_SCAN_CONCURRENCY`（整数 1–8，默认 4）。生产首次发布或存储介质
 变化后先以 1 运行代表性样本，再以 4 比较相同分类结果和吞吐；提升不足 20% 时保持 1。该变量只控制
 任务内部探测池，不改变双 lane 或 writer 单任务约束。
