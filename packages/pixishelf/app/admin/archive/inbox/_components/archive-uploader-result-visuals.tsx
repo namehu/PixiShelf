@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { ImageOffIcon, ImagesIcon, ListIcon } from 'lucide-react'
+import { ImageOffIcon, ImagesIcon, ListIcon, LayoutGridIcon } from 'lucide-react'
+import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -42,6 +43,10 @@ export function ArchiveUploaderResultViewToggle({
         <ImagesIcon aria-hidden="true" />
         <span className="hidden sm:inline">首图预览</span>
       </ToggleGroupItem>
+      <ToggleGroupItem value="cards" aria-label="使用卡片模式" title="卡片模式" className="max-sm:px-2">
+        <LayoutGridIcon aria-hidden="true" />
+        <span className="hidden sm:inline">卡片</span>
+      </ToggleGroupItem>
     </ToggleGroup>
   )
 }
@@ -49,19 +54,28 @@ export function ArchiveUploaderResultViewToggle({
 export function ArchiveUploaderGalleryThumbnail({
   item,
   onPreview,
-  sourceHref
+  sourceHref,
+  card = false,
+  previewCatalogId
 }: {
   item: ArchiveUploaderPreviewItem
   onPreview?: (item: ArchiveUploaderPreviewItem) => void
   sourceHref?: string
+  card?: boolean
+  previewCatalogId?: string
 }) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
 
+  const frameClass = card ? 'h-72 w-full' : 'h-40 w-28 @[36rem]/discovery-results:h-52 @[36rem]/discovery-results:w-40'
+
   if (!item.thumbnailUrl || failed) {
     return (
       <div
-        className="flex h-20 w-16 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+        className={cn(
+          'flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground',
+          frameClass
+        )}
         aria-label={`${item.title} 没有可用首图`}
       >
         <ImageOffIcon aria-hidden="true" />
@@ -84,9 +98,22 @@ export function ArchiveUploaderGalleryThumbnail({
       />
     </>
   )
+  if (previewCatalogId) {
+    return (
+      <SourcePreviewButton
+        source={{ kind: 'catalog', itemId: previewCatalogId }}
+        showIcon={false}
+        variant="ghost"
+        className={cn('relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)}
+        aria-label={`预览 ${item.title} 的图片`}
+      >
+        {content}
+      </SourcePreviewButton>
+    )
+  }
   if (sourceHref) {
     return (
-      <Button variant="ghost" className="relative h-20 w-16 shrink-0 overflow-hidden p-0" asChild>
+      <Button variant="ghost" className={cn('relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)} asChild>
         <a
           href={sourceHref}
           target="_blank"
@@ -103,7 +130,7 @@ export function ArchiveUploaderGalleryThumbnail({
     <Button
       type="button"
       variant="ghost"
-      className="relative h-20 w-16 shrink-0 overflow-hidden p-0"
+      className={cn('relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)}
       onClick={() => onPreview?.(item)}
       aria-label={`预览 ${item.title} 的首图`}
     >

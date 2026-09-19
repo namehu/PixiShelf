@@ -489,6 +489,7 @@ describe('archive uploader service', () => {
           canonicalUrl: 'https://e-hentai.org/g/302/token302/',
           title: 'Gallery 302',
           thumbnailUrl: 'https://ehgt.org/thumb-302.jpg?token=private#fragment',
+          fileCount: 24,
           uploaderName: 'Uploader',
           postedAt: firstCreatedAt,
           classification: 'NEW',
@@ -547,7 +548,8 @@ describe('archive uploader service', () => {
     expect(result.items[0]).toMatchObject({
       id: 'catalog-item-2',
       externalId: '302',
-      thumbnailUrl: 'https://ehgt.org/thumb-302.jpg'
+      thumbnailUrl: 'https://ehgt.org/thumb-302.jpg',
+      fileCount: 24
     })
     expect(result.items[0]).not.toHaveProperty('canonicalUrl')
     expect(result.items[0]?.displayUrl).not.toContain('token302')

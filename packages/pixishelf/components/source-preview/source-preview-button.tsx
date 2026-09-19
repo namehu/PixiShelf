@@ -15,6 +15,7 @@ export interface SourcePreviewButtonProps extends Omit<ComponentProps<typeof But
   children?: ReactNode
   onOpened?: (result: OpenArchivePreviewDto) => void
   navigate?: boolean
+  showIcon?: boolean
 }
 
 export function SourcePreviewButton({
@@ -23,6 +24,7 @@ export function SourcePreviewButton({
   disabled,
   onOpened,
   navigate = true,
+  showIcon = true,
   ...buttonProps
 }: SourcePreviewButtonProps) {
   const trpc = useTRPC()
@@ -46,9 +48,9 @@ export function SourcePreviewButton({
     >
       {openPreview.isPending ? (
         <Spinner data-icon="inline-start" />
-      ) : (
+      ) : showIcon ? (
         <ImagesIcon data-icon="inline-start" aria-hidden="true" />
-      )}
+      ) : null}
       {children}
     </Button>
   )

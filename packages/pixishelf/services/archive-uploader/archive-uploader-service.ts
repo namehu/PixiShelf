@@ -1022,9 +1022,10 @@ function serializeSource(source: SourceWire) {
 }
 
 function serializeCatalogItem(item: ArchiveUploaderCatalogStateRow) {
-  const { canonicalUrl, thumbnailUrl, changeReasons, errorMessage, ...rest } = item
+  const { canonicalUrl, thumbnailUrl, changeReasons, errorMessage, fileCount, ...rest } = item
   return {
     ...rest,
+    ...(typeof fileCount === 'number' && Number.isSafeInteger(fileCount) && fileCount > 0 ? { fileCount } : {}),
     actionable: item.workflowBucket === 'ACTIONABLE',
     changeReasons: serializeChangeReasons(changeReasons),
     errorMessage: archiveWireErrorMessage(item.errorCode ?? null, errorMessage ?? null),

@@ -444,6 +444,14 @@ afterEach(cleanup)
 
 describe('ArchiveUploaderSources', () => {
   beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      }
+    )
     vi.clearAllMocks()
     mocks.ignoreFail = false
     mocks.ignoreHold = false
@@ -762,6 +770,21 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('uses cards with an independent source link and clickable preview while retaining selection', () => {
+    renderSources()
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByLabelText('使用卡片模式'))
+    fireEvent.click(screen.getByRole('button', { name: '预览 Gallery 302 的图片' }))
+    expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
+    expect(screen.getByRole('link', { name: '在新标签页打开原站 Gallery 302' }).getAttribute('href')).toBe(
+      '/api/archive/catalog/catalog-item-1/source'
+    )
+    expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
+    fireEvent.click(screen.getByLabelText('使用纯列表'))
+    expect(screen.queryByRole('button', { name: '预览 Gallery 302 的图片' })).toBeNull()
+    expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
+  })
+
   it('opens source preview independently from the stored cover popup', () => {
     renderSources()
 
@@ -1005,6 +1028,7 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
     fireEvent.click(screen.getByLabelText('显示首图预览'))
     fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    fireEvent.click(screen.getByLabelText('使用卡片模式'))
     fireEvent.click(screen.getByRole('button', { name: '预览 Ignored Gallery 301 的首图' }))
     expect(screen.getByRole('dialog')).toBeTruthy()
   })

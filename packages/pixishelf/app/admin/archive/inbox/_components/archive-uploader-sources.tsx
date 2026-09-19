@@ -1,17 +1,11 @@
 'use client'
 
+import { ScanResults } from './archive-discovery-scan-results'
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
-import {
-  ArrowLeftIcon,
-  ArrowUpRightIcon,
-  BanIcon,
-  InfoIcon,
-  PlusIcon,
-  RotateCcwIcon,
-  UserSearchIcon
-} from 'lucide-react'
+import { ArrowLeftIcon, BanIcon, InfoIcon, PlusIcon, UserSearchIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
 import { useTRPC } from '@/lib/trpc'
@@ -20,51 +14,39 @@ import { AdminSection, AdminSectionHeader } from '@/app/admin/_components/admin-
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { ArchiveDiscoveryIgnoreDialog, type DiscoveryIgnoreSelection } from './archive-discovery-ignore-dialog'
-import { CatalogStatusBadge, DiscoveryCreatorStatus } from './discovery-creator-status'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
-import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { type ArchiveUploaderResultView, useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
+import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 import { ArchiveDiscoveryBulkBar } from './archive-discovery-bulk-bar'
 import { DiscoveryCreatorDialog, type DiscoveryCreatorDialogState } from './discovery-creator-dialog'
 import { DiscoveryPendingCreators } from './discovery-pending-creators'
 import { ArchiveDiscoveryDeleteDialog } from './archive-discovery-delete-dialog'
 import { ArchiveDiscoveryDetailHeader } from './archive-discovery-detail-header'
 import { IgnoredResults } from './archive-discovery-ignored-results'
-import { ArchiveDiscoveryResultList, type ArchiveDiscoveryListPosition } from './archive-discovery-result-list'
-import {
-  ArchiveDiscoveryResultsToolbar,
-  type ArchiveDiscoveryCatalogView,
-  resultFeedLabel
-} from './archive-discovery-results-toolbar'
+import { type ArchiveDiscoveryListPosition } from './archive-discovery-result-list'
+import { ArchiveDiscoveryResultsToolbar, type ArchiveDiscoveryCatalogView } from './archive-discovery-results-toolbar'
 import { DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
 import { ArchiveSearchSourceDialog, type ArchiveSearchDialogState } from './archive-search-source-dialog'
 import { copyArchiveUploaderUid } from './archive-uploader-clipboard'
 import { ArchiveUploaderCreateSourceDialog } from './archive-uploader-create-source-dialog'
 import {
   ArchiveUploaderGalleryPreviewDialog,
-  ArchiveUploaderGalleryThumbnail,
   type ArchiveUploaderPreviewItem,
   ArchiveUploaderResultViewToggle
 } from './archive-uploader-result-visuals'
 import { ArchiveUploaderSourceList } from './archive-uploader-source-list'
 import { ArchiveUploaderUidConflictAlert } from './archive-uploader-uid-conflict-alert'
 import { ArchiveUploaderUidDialog } from './archive-uploader-uid-dialog'
-import {
-  archiveUploaderDetailPollingInterval,
-  formatArchiveUploaderTimestamp,
-  isActiveArchiveUploaderRunStatus
-} from './archive-uploader-view-state'
+import { archiveUploaderDetailPollingInterval, isActiveArchiveUploaderRunStatus } from './archive-uploader-view-state'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type ScanItem = RouterOutputs['archiveSearch']['listItems']['items'][number]
 type ScanItemsPage = RouterOutputs['archiveSearch']['listItems']
 type IgnoredItemsPage = RouterOutputs['archiveSearch']['listIgnoredItems']
-type ScanRun = RouterOutputs['archiveSearch']['getSource']['runs'][number]
 type NavigationHistory = 'push' | 'replace'
 
 const SCAN_RESULT_PAGE_SIZE = 50
@@ -905,209 +887,6 @@ export function ArchiveUploaderSources({
   )
 }
 
-function ScanResults({
-  view,
-  runs,
-  activeRun,
-  items,
-  resultView,
-  isLoading,
-  isError,
-  hasNextPage,
-  isFetchingNextPage,
-  onLoadMore,
-  onRetry,
-  onIgnore,
-  onAdd,
-  onNavigateInboxItem,
-  mutationPending,
-  selectedItemIds,
-  allActionableSelected,
-  onToggleAll,
-  onToggle,
-  isDesktop,
-  layoutReady,
-  positionKey,
-  position,
-  onPositionChange
-}: {
-  view: ArchiveDiscoveryCatalogView
-  runs: ScanRun[]
-  activeRun?: ScanRun
-  items: ScanItem[]
-  resultView: ArchiveUploaderResultView
-  isLoading: boolean
-  isError: boolean
-  hasNextPage: boolean
-  isFetchingNextPage: boolean
-  onLoadMore: () => void
-  onRetry: () => void
-  onIgnore: (itemId: string) => void
-  onAdd: (itemId: string) => void
-  onNavigateInboxItem: (itemId: string) => void
-  mutationPending: boolean
-  selectedItemIds: Set<string>
-  allActionableSelected: boolean
-  onToggleAll: (checked: boolean) => void
-  onToggle: (itemId: string, checked: boolean) => void
-  isDesktop: boolean
-  layoutReady: boolean
-  positionKey: string
-  position?: ArchiveDiscoveryListPosition
-  onPositionChange: (position: ArchiveDiscoveryListPosition) => void
-}) {
-  const neverScanned = runs.length === 0
-  return (
-    <ArchiveDiscoveryResultList
-      items={items}
-      isDesktop={isDesktop}
-      layoutReady={layoutReady}
-      isLoading={isLoading}
-      isError={isError}
-      errorTitle="扫描结果加载失败"
-      errorDescription="扫描记录仍保存在数据库中，请稍后重试。"
-      hasNextPage={hasNextPage}
-      isFetchingNextPage={isFetchingNextPage}
-      onLoadMore={onLoadMore}
-      onRetry={onRetry}
-      positionKey={positionKey}
-      position={position}
-      onPositionChange={onPositionChange}
-      emptyState={
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyTitle>
-              {activeRun ? '正在扫描' : neverScanned ? '尚无扫描记录' : `没有${resultFeedLabel(view)}项目`}
-            </EmptyTitle>
-            <EmptyDescription>
-              {activeRun
-                ? '任务完成后，画廊会自动汇入长期目录。'
-                : neverScanned
-                  ? '点击“扫描最新”创建第一批发现结果。'
-                  : emptyCatalogViewDescription(view)}
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      }
-      header={
-        <div className="grid min-h-12 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 border-b bg-muted/30 px-4 text-xs font-medium text-muted-foreground">
-          <Checkbox
-            checked={allActionableSelected ? true : selectedItemIds.size > 0 ? 'indeterminate' : false}
-            onCheckedChange={(checked) => onToggleAll(checked === true)}
-            aria-label="选择当前已加载的结果，最多一百条"
-          />
-          <span>画廊</span>
-          <span className="text-right">操作</span>
-        </div>
-      }
-      renderItem={(item) => (
-        <div className="border-b bg-background px-4 py-3">
-          <div
-            className="grid min-h-20 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3"
-            data-state={selectedItemIds.has(item.id) ? 'selected' : undefined}
-          >
-            <Checkbox
-              checked={selectedItemIds.has(item.id)}
-              disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
-              onCheckedChange={(checked) => onToggle(item.id, checked === true)}
-              aria-label={`选择 ${item.title}`}
-            />
-            <div className="flex min-w-0 items-center gap-3">
-              {resultView === 'preview' ? (
-                <ArchiveUploaderGalleryThumbnail
-                  key={item.id}
-                  item={item}
-                  sourceHref={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
-                />
-              ) : null}
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:gap-2">
-                  <PrivacySensitiveText
-                    as="p"
-                    className="w-full min-w-0 break-words font-medium sm:w-auto sm:flex-1 sm:line-clamp-2"
-                  >
-                    {item.title}
-                  </PrivacySensitiveText>
-                  <CatalogStatusBadge item={item} />
-                </div>
-                <DiscoveryCreatorStatus
-                  effectiveCreators={item.effectiveCreators}
-                  pendingCreators={item.pendingCreators}
-                />
-                <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                  #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
-                </p>
-                {item.changeReasons.length > 0 ? (
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {item.changeReasons.map(({ label }) => label).join(' · ')}
-                  </p>
-                ) : item.workflowStage === 'ARCHIVED' && !item.comparisonKnown ? (
-                  <p className="mt-1 text-xs text-muted-foreground">旧记录缺少比较快照，下次扫描会补齐</p>
-                ) : null}
-                {item.errorMessage ? (
-                  <PrivacySensitiveText as="p" className="mt-1 line-clamp-2 text-xs text-destructive">
-                    {item.errorMessage}
-                  </PrivacySensitiveText>
-                ) : null}
-              </div>
-            </div>
-            <div className="flex items-center justify-end">
-              <SourcePreviewButton
-                source={{ kind: 'catalog', itemId: item.id }}
-                variant="ghost"
-                size="icon"
-                aria-label={`站内缩略图预览 ${item.title}`}
-                title="站内缩略图预览"
-              >
-                <span className="sr-only">站内缩略图预览</span>
-              </SourcePreviewButton>
-              {item.actionable ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onIgnore(item.id)}
-                  disabled={mutationPending}
-                  aria-label={`忽略 ${item.title}`}
-                >
-                  <BanIcon aria-hidden="true" />
-                </Button>
-              ) : item.workflowBucket === 'ATTENTION' && item.intakeItemId ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onNavigateInboxItem(item.intakeItemId!)}
-                  aria-label={`去收件箱处理 ${item.title}`}
-                >
-                  <ArrowUpRightIcon aria-hidden="true" />
-                </Button>
-              ) : item.recoverable ? (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onAdd(item.id)}
-                  disabled={mutationPending}
-                  aria-label={`重新加入收件箱 ${item.title}`}
-                >
-                  <RotateCcwIcon aria-hidden="true" />
-                </Button>
-              ) : item.workflowStage === 'ARCHIVED' && item.artworkId ? (
-                <Button variant="ghost" size="icon" asChild aria-label={`查看已归档作品 ${item.title}`}>
-                  <a href={`/artworks/${item.artworkId}`} target="_blank" rel="noreferrer">
-                    <ArrowUpRightIcon aria-hidden="true" />
-                  </a>
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      )}
-    />
-  )
-}
-
 function SourceDetailError({
   notFound,
   onRetry,
@@ -1148,16 +927,6 @@ function resultFeedDescription(feed: ArchiveDiscoveryCatalogView, itemCount: num
     ALL: '这个来源长期保留的全部已发现画廊'
   }
   return `${descriptions[feed]}；已加载 ${itemCount} 条。`
-}
-
-function emptyCatalogViewDescription(view: ArchiveDiscoveryCatalogView) {
-  return {
-    ACTIONABLE: '当前没有需要决定是否归档的画廊。',
-    PROCESSING: '当前没有正在解析或下载的画廊。',
-    ARCHIVED: '这个来源还没有完成归档的画廊。',
-    ATTENTION: '当前没有需要处理的异常。',
-    ALL: '已完成的扫描暂未发现公开画廊。'
-  }[view]
 }
 
 function toggleSelection(current: Set<string>, itemId: string, checked: boolean) {

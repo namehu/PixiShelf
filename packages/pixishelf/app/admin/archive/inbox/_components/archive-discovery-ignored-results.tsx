@@ -1,5 +1,7 @@
 'use client'
 
+import { cn } from '@/lib/utils'
+
 import type { inferRouterOutputs } from '@trpc/server'
 import { ArchiveRestoreIcon, RotateCcwIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
@@ -59,6 +61,7 @@ export function IgnoredResults({
   return (
     <ArchiveDiscoveryResultList
       items={items}
+      view={resultView}
       isDesktop={isDesktop}
       layoutReady={layoutReady}
       isLoading={isLoading}
@@ -95,20 +98,40 @@ export function IgnoredResults({
         </div>
       }
       renderItem={(item) => (
-        <div className="border-b bg-background px-4 py-3">
-          <div className="grid min-h-20 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-3">
+        <div
+          className={cn(
+            'bg-background',
+            resultView === 'cards' ? 'h-full rounded-lg border p-3' : 'border-b px-4 py-3'
+          )}
+        >
+          <div
+            className={cn(
+              'grid min-h-20 items-start gap-3',
+              resultView === 'list' ? 'grid-cols-[1.5rem_minmax(0,1fr)_auto]' : 'grid-cols-[1.5rem_minmax(0,1fr)]'
+            )}
+          >
             <Checkbox
               checked={selectedItemIds.has(item.id)}
               disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
               onCheckedChange={(checked) => onToggle(item.id, checked === true)}
               aria-label={`选择 ${item.title}`}
             />
-            <div className="flex min-w-0 items-center gap-3">
-              {resultView === 'preview' ? (
-                <ArchiveUploaderGalleryThumbnail key={item.id} item={item} onPreview={onPreview} />
+            <div
+              className={cn(
+                'flex min-w-0 gap-3',
+                resultView === 'cards' ? 'order-3 col-span-2 flex-col' : 'items-start'
+              )}
+            >
+              {resultView !== 'list' ? (
+                <ArchiveUploaderGalleryThumbnail
+                  key={item.id}
+                  item={item}
+                  onPreview={onPreview}
+                  card={resultView === 'cards'}
+                />
               ) : null}
-              <div className="min-w-0 flex-1">
-                <PrivacySensitiveText as="p" className="break-words font-medium sm:line-clamp-2">
+              <div className="min-w-0 w-full flex-1">
+                <PrivacySensitiveText as="p" className="line-clamp-2 break-words font-medium">
                   {item.title}
                 </PrivacySensitiveText>
                 <p className="mt-1 truncate font-mono text-xs text-muted-foreground">#{item.externalId}</p>
@@ -123,6 +146,13 @@ export function IgnoredResults({
               size="icon"
               onClick={() => onRestore(item.id)}
               disabled={mutationPending}
+              className={
+                resultView === 'cards'
+                  ? 'col-start-2 row-start-1 justify-self-end'
+                  : resultView === 'preview'
+                    ? 'col-start-2 justify-self-end'
+                    : undefined
+              }
               aria-label={`恢复 ${item.title}`}
             >
               <RotateCcwIcon aria-hidden="true" />

@@ -30,6 +30,7 @@ export interface ArchiveUploaderCatalogStateRow {
   canonicalUrl: string
   title: string
   thumbnailUrl: string | null
+  fileCount?: Prisma.JsonValue
   uploaderName: string | null
   postedAt: Date | null
   classification: 'NEW' | 'ACTIVE' | 'ARCHIVED' | 'POSSIBLE_UPDATE' | 'REPLACEMENT'
@@ -92,6 +93,7 @@ export async function listArchiveUploaderCatalogState(
       state."canonicalUrl",
       state."title",
       state."thumbnailUrl",
+      state."comparisonSnapshot"->'fileCount' AS "fileCount",
       state."uploaderName",
       state."postedAt",
       state."classification",
