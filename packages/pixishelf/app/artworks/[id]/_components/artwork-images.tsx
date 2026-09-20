@@ -256,7 +256,7 @@ function PreviewableMedia({
 function ArtworkMediaItem({
   media,
   index,
-  showExpandOverlay,
+  showExpandButton,
   remainingCount,
   onExpand,
   onOpenPreviewMenu,
@@ -265,7 +265,7 @@ function ArtworkMediaItem({
 }: {
   media: ArtworkImageResponseDto
   index: number
-  showExpandOverlay: boolean
+  showExpandButton: boolean
   remainingCount: number
   onExpand: () => void
   onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
@@ -290,14 +290,14 @@ function ArtworkMediaItem({
         <LazyMedia media={media} index={index} />
       </PreviewableMedia>
 
-      {showExpandOverlay && <ExpandRemainingMediaButton remainingCount={remainingCount} onExpand={onExpand} />}
+      {showExpandButton && <ExpandRemainingMediaButton remainingCount={remainingCount} onExpand={onExpand} />}
     </div>
   )
 }
 
 function ExpandRemainingMediaButton({ remainingCount, onExpand }: { remainingCount: number; onExpand: () => void }) {
   return (
-    <div className="absolute inset-x-0 bottom-0 z-10 flex h-64 items-end justify-center bg-gradient-to-t from-background via-background/90 to-transparent">
+    <div className="flex justify-center py-3">
       <Button
         variant="secondary"
         onClick={onExpand}
@@ -623,7 +623,7 @@ function VirtualizedArtworkMediaList({
                 key={`${media.id}:${media.path}:${media.updatedAt}:${retryCounts[media.id] ?? 0}`}
                 media={media}
                 index={index}
-                showExpandOverlay={isLastPreview}
+                showExpandButton={isLastPreview}
                 remainingCount={remainingCount}
                 onExpand={() => setIsExpanded(true)}
                 onOpenPreviewMenu={onOpenPreviewMenu}

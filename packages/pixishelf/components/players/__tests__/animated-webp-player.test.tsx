@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AnimatedWebpPlayer from '../animated-webp-player'
+import { useLongPress } from '@/hooks/use-long-press'
 
 let intersectionCallback: IntersectionObserverCallback | null = null
 
@@ -29,6 +30,7 @@ describe('AnimatedWebpPlayer', () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
@@ -95,6 +97,50 @@ describe('AnimatedWebpPlayer', () => {
     expect(parentClick).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: '暂停 WEBP 动图' })).toBeTruthy()
     expect(screen.getAllByRole('img')).toHaveLength(2)
+  })
+
+  it.each(['mouseleave', 'preview', 'scroll', 'longpress'])('keeps the badge usable after a %s gesture', (gesture) => {
+    vi.useFakeTimers()
+    const onPreview = vi.fn()
+    const onLongPress = vi.fn()
+    function PreviewSurface() {
+      const handlers = useLongPress({ onClick: onPreview, onLongPress })
+      return (
+        <div {...handlers} data-testid="preview-surface">
+          <AnimatedWebpPlayer src="/sample.webp" isAnimated controlMode="badge" />
+        </div>
+      )
+    }
+    render(<PreviewSurface />)
+    const surface = screen.getByTestId('preview-surface')
+    if (gesture === 'mouseleave') fireEvent.mouseLeave(surface)
+    if (gesture === 'preview') {
+      fireEvent.mouseDown(surface)
+      fireEvent.mouseUp(surface)
+      fireEvent.click(surface)
+    }
+    if (gesture === 'scroll' || gesture === 'longpress') {
+      fireEvent.touchStart(surface, { touches: [{ clientX: 20, clientY: 30 }] })
+      if (gesture === 'scroll') fireEvent.touchMove(surface, { touches: [{ clientX: 20, clientY: 60 }] })
+      else act(() => vi.advanceTimersByTime(500))
+      fireEvent.touchEnd(surface, { touches: [] })
+      fireEvent.click(surface)
+    }
+    onPreview.mockClear()
+    onLongPress.mockClear()
+
+    const badge = screen.getByRole('button', { name: '播放 WEBP 动图' })
+    fireEvent.touchStart(badge, { touches: [{ clientX: 20, clientY: 30 }] })
+    fireEvent.touchEnd(badge, { touches: [] })
+    fireEvent.mouseDown(badge)
+    fireEvent.mouseUp(badge)
+    fireEvent.click(badge)
+    expect(screen.getByRole('button', { name: '暂停 WEBP 动图' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(badge)
+    expect(screen.getByRole('button', { name: '播放 WEBP 动图' }).getAttribute('aria-pressed')).toBe('false')
+    act(() => vi.advanceTimersByTime(600))
+    expect(onPreview).not.toHaveBeenCalled()
+    expect(onLongPress).not.toHaveBeenCalled()
   })
 
   it('supports externally controlled playback without rendering an internal badge', () => {

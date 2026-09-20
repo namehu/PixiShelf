@@ -90,6 +90,9 @@ export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongP
     onTouchCancel: (e: React.TouchEvent) => clear(e, false),
     onTouchMove,
     onClickCapture: (event: React.MouseEvent) => {
+      // Independent controls stop bubbling gestures, so a previous surface gesture
+      // must not suppress their clicks during capture.
+      if (event.target instanceof Element && event.target.closest('[data-long-press-ignore]')) return
       // A touch release can emit a compatibility click after the menu has opened.
       if (suppressClick.current) {
         event.preventDefault()

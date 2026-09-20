@@ -170,6 +170,7 @@ export default function AnimatedWebpPlayer({
           badgeClassName,
           'bottom-2 min-h-11 min-w-11 cursor-pointer justify-center rounded-full border-0 px-3 text-xs'
         )}
+        data-long-press-ignore
         aria-label={`${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}
         aria-pressed={isPlaying}
         aria-busy={isLoadingAnimation}
