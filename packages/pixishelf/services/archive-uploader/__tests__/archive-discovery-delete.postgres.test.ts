@@ -479,7 +479,10 @@ function databaseWithFirstLockHooks(
               }
               return async (...args: unknown[]) => {
                 const query = args[0] as Prisma.Sql
-                const sourceLock = query.values[0] === 20_260_902
+                // The shared scan helper uses a literal namespace; other source operations bind it.
+                const sourceLock =
+                  query.values[0] === 20_260_902 ||
+                  /pg_advisory_xact_lock\(20260902::integer,/.test(query.strings.join(''))
                 if (sourceLock !== (namespace === 'source')) {
                   return Reflect.apply(transactionTarget.$queryRaw, transactionTarget, args)
                 }
