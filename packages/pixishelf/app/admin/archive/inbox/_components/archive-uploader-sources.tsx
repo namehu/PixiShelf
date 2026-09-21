@@ -5,7 +5,7 @@ import { ScanResults } from './archive-discovery-scan-results'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
-import { ArrowLeftIcon, BanIcon, InfoIcon, PlusIcon, UserSearchIcon } from 'lucide-react'
+import { ArrowLeftIcon, BanIcon, InfoIcon, PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
 import { useTRPC } from '@/lib/trpc'
@@ -16,7 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { ArchiveDiscoveryIgnoreDialog, type DiscoveryIgnoreSelection } from './archive-discovery-ignore-dialog'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -38,7 +38,7 @@ import {
   type ArchiveUploaderPreviewItem,
   ArchiveUploaderResultViewToggle
 } from './archive-uploader-result-visuals'
-import { ArchiveUploaderSourceList } from './archive-uploader-source-list'
+import { ArchiveDiscoveryBatchSources } from './archive-discovery-batch-sources'
 import { ArchiveUploaderUidConflictAlert } from './archive-uploader-uid-conflict-alert'
 import { ArchiveUploaderUidDialog } from './archive-uploader-uid-dialog'
 import { archiveUploaderDetailPollingInterval, isActiveArchiveUploaderRunStatus } from './archive-uploader-view-state'
@@ -497,31 +497,15 @@ export function ArchiveUploaderSources({
     </>
   ) : null
 
-  const sourceList =
-    sources.length === 0 ? (
-      <Empty className="border">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <UserSearchIcon aria-hidden="true" />
-          </EmptyMedia>
-          <EmptyTitle>暂无此类型的发现来源</EmptyTitle>
-          <EmptyDescription>先保存上传者或标题关键词来源，再手动扫描公开画廊。</EmptyDescription>
-        </EmptyHeader>
-        <Button
-          onClick={() => (sourceFilter === 'TITLE_QUERY' ? setSearchDialog({ mode: 'CREATE' }) : setCreateOpen(true))}
-        >
-          <PlusIcon data-icon="inline-start" aria-hidden="true" />
-          新增来源
-        </Button>
-      </Empty>
-    ) : (
-      <ArchiveUploaderSourceList
-        sources={sources}
-        selectedSourceId={selectedSourceId}
-        onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
-        onSelect={enterSource}
-      />
-    )
+  const sourceList = (
+    <ArchiveDiscoveryBatchSources
+      allSources={allSources}
+      sources={sources}
+      selectedSourceId={selectedSourceId}
+      onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
+      onSelect={enterSource}
+    />
+  )
 
   const source = detail?.source
   const resultPositionKey = selectedSourceId ? `${selectedSourceId}:${resultFeed}:${unboundOnly}` : 'unselected'

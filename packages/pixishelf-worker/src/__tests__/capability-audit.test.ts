@@ -7,14 +7,14 @@ import {
 import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 describe('production Worker capability audit', () => {
-  it('accepts exactly one fresh READY Worker with 30 job types and three versioned job families', async () => {
+  it('accepts exactly one fresh READY Worker with 31 job types and three versioned job families', async () => {
     const findMany = vi.fn().mockResolvedValue([{ capabilities: [...PRODUCTION_WORKER_CAPABILITIES].reverse() }])
     await expect(
       auditProductionWorkerCapabilities(database(findMany), {
         now: new Date('2026-08-17T01:00:00.000Z'),
         freshnessMs: 60_000
       })
-    ).resolves.toEqual({ readyWorkers: 1, capabilities: 30 })
+    ).resolves.toEqual({ readyWorkers: 1, capabilities: 31 })
     expect(findMany).toHaveBeenCalledWith({
       where: { status: 'READY', heartbeatAt: { gte: new Date('2026-08-17T00:59:00.000Z') } },
       orderBy: { workerId: 'asc' },
@@ -32,7 +32,7 @@ describe('production Worker capability audit', () => {
 
       await expect(
         auditProductionWorkerCapabilities(database(vi.fn().mockResolvedValue([{ capabilities: previousInventory }])))
-      ).rejects.toThrow('30-job/35-version dual-lane release')
+      ).rejects.toThrow('31-job/36-version dual-lane release')
     }
   )
 
@@ -77,7 +77,7 @@ describe('production Worker capability audit', () => {
 
     expect(exitCode).toBe(0)
     expect(writeOutput).toHaveBeenCalledWith(
-      'Worker capability audit passed: 1 READY Worker, 30 job types / 35 versions (SCAN v1/v2/v3, ARCHIVE_IMPORT v1/v2, ARCHIVE_SEARCH_SCAN v1/v2/v3)'
+      'Worker capability audit passed: 1 READY Worker, 31 job types / 36 versions (SCAN v1/v2/v3, ARCHIVE_IMPORT v1/v2, ARCHIVE_SEARCH_SCAN v1/v2/v3)'
     )
   })
 

@@ -82,6 +82,14 @@ export async function cleanupArchiveIntakeHistory(
     const batch = await input.database.archiveUploaderScanRun.findMany({
       where: {
         status: { in: ['COMPLETED', 'FAILED', 'CANCELLED'] },
+        NOT: {
+          systemJob: {
+            parentJob: {
+              type: 'ARCHIVE_DISCOVERY_BATCH_SCAN',
+              status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'] }
+            }
+          }
+        },
         finishedAt: { lt: cutoff }
       },
       orderBy: [{ finishedAt: 'asc' }, { id: 'asc' }],
@@ -95,6 +103,14 @@ export async function cleanupArchiveIntakeHistory(
         where: {
           id: { in: batch.map(({ id }) => id) },
           status: { in: ['COMPLETED', 'FAILED', 'CANCELLED'] },
+          NOT: {
+            systemJob: {
+              parentJob: {
+                type: 'ARCHIVE_DISCOVERY_BATCH_SCAN',
+                status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'] }
+              }
+            }
+          },
           finishedAt: { lt: cutoff }
         }
       })

@@ -311,3 +311,7 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 20260908120000_unify_artwork_creators 引入 ArtworkArtist、多条 SOURCE/MANUAL/LEGACY 依据及来源标签映射。effective_artwork_creators 视图只选存在 present=true 且 excludedAt 为空的关系。seed_legacy_artwork_creator 仅在 Artwork INSERT 时为非空 artistId 建立 LEGACY 初始关系，UPDATE 不重新认领；不得把多对多关系回写为存储路径身份。CreatorMaintenancePlan/Item 保存冻结预览和逐项执行结果，完整数据库 dump 必须包含以上对象。详见[创作者关系](../../../docs/features/creator-relations.md)。
 
 多上传者扩展沿用 titleQuery JSON 的可选 `uploaders: [{ uid, displayName? }]`，与旧单个 UID/NAME 字段互斥。集合按 UID 规范化、排序和去重，单元素创建沿用旧 UID JSON 与指纹；多元素指纹第四项为 UID 数组，展示名不参与。来源与运行快照保存完整集合，无 DDL。新任务为 ARCHIVE_SEARCH_SCAN v3，旧严格 JSON 读取不兼容新字段，回退要求保留兼容读取能力。
+
+## 发现来源批量扫描约束
+
+20260920120000_add_discovery_batch_scan 扩展 system_jobs_type_execution_lane_check，允许 ARCHIVE_DISCOVERY_BATCH_SCAN 仅使用 ARCHIVE_RESOLVE。system_jobs_one_active_discovery_batch 部分唯一索引约束该类型的 PENDING/RUNNING/RETRY_WAIT/PAUSING/PAUSED/CANCELLING 至多一条。无新增业务表，父任务 payload/result 保存冻结输入与检查点，子扫描通过 parentJobId 关联；非终态父批次依赖的扫描历史不参与 30 天清理。

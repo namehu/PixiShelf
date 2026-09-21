@@ -132,7 +132,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to 30 job capabilities and 35 type/version combinations', () => {
+  it('locks the production Worker to 31 job capabilities and 36 type/version combinations', () => {
     const fetchImpl = vi.fn<typeof fetch>()
     const registry = createWorkerExecutorRegistry({
       fetchImpl,
@@ -162,8 +162,8 @@ describe('ExecutorRegistry', () => {
       expect(register).toHaveBeenCalledWith(expect.objectContaining({ fetchImpl }))
     }
     expect(fetchImpl).not.toHaveBeenCalled()
-    expect(capabilities).toHaveLength(30)
-    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(35)
+    expect(capabilities).toHaveLength(31)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(36)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
       [1, 2, 3]
     )

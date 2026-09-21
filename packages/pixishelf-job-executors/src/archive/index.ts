@@ -10,3 +10,7 @@ export * from './providers/e-hentai.ts'
 export * from './types.ts'
 
 export * from './intake-enqueue.ts'
+
+export * from './discovery-scan-enqueue.ts'
+export * from './discovery-batch-executor.ts'
+export * from './discovery-batch-control.ts'

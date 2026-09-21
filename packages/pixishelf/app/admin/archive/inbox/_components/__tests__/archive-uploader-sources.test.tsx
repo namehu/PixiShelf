@@ -229,9 +229,11 @@ vi.mock('@tanstack/react-query', () => ({
     removeQueries: mocks.removeQueries
   }),
   useQuery: (options: { kind?: string }) =>
-    options.kind === 'sources'
-      ? { data: currentSourcesData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null }
-      : { data: currentDetailData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null },
+    options.kind === 'batch'
+      ? { data: null, isPending: false, isError: false }
+      : options.kind === 'sources'
+        ? { data: currentSourcesData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null }
+        : { data: currentDetailData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null },
   useInfiniteQuery: (options: { kind?: string }) => ({
     data: options.kind === 'ignored' ? ignoredItemsData : currentItemsData,
     isLoading: false,
@@ -360,6 +362,10 @@ vi.mock('@/lib/trpc', () => ({
       createSource: { mutationOptions: () => ({ kind: 'create' }) }
     },
     archiveSearch: {
+      activeBatchScan: { queryOptions: () => ({ kind: 'batch' }), queryKey: () => ['batch'] },
+      startBatchScan: { mutationOptions: () => ({ kind: 'batch-start' }) },
+      controlBatchScan: { mutationOptions: () => ({ kind: 'batch-control' }) },
+      retryBatchScan: { mutationOptions: () => ({ kind: 'batch-retry' }) },
       listSources: { queryOptions: () => ({ kind: 'sources' }), queryKey: () => ['sources'] },
       getSource: { queryOptions: () => ({ kind: 'detail' }), queryKey: () => ['detail'] },
       listItems: {

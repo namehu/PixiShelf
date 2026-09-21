@@ -1,3 +1,13 @@
+import {
+  startDiscoveryBatch,
+  startDiscoveryBatchSchema,
+  getDiscoveryBatch,
+  discoveryBatchIdSchema,
+  commandDiscoveryBatch,
+  controlDiscoveryBatchSchema,
+  retryDiscoveryBatch,
+  retryDiscoveryBatchSchema
+} from '@/services/archive-uploader/discovery-batch-service'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import {
   deleteArchiveDiscoverySource,
@@ -45,6 +55,19 @@ import {
 const discovery = { sourceKind: 'ALL' as const }
 
 export const archiveSearchRouter = router({
+  startBatchScan: adminProcedure
+    .input(startDiscoveryBatchSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => startDiscoveryBatch(input, ctx.userId))),
+  activeBatchScan: authProcedure.query(() => runArchiveOperation(() => getDiscoveryBatch())),
+  batchScanDetail: authProcedure
+    .input(discoveryBatchIdSchema)
+    .query(({ input }) => runArchiveOperation(() => getDiscoveryBatch(input.batchId))),
+  controlBatchScan: adminProcedure
+    .input(controlDiscoveryBatchSchema)
+    .mutation(({ input }) => runArchiveOperation(() => commandDiscoveryBatch(input))),
+  retryBatchScan: adminProcedure
+    .input(retryDiscoveryBatchSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => retryDiscoveryBatch(input, ctx.userId))),
   setDefaultCreators: adminProcedure
     .input(setDiscoveryCreatorsSchema)
     .mutation(({ input }) => runArchiveOperation(() => setDiscoveryCreators(input))),

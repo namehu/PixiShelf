@@ -144,14 +144,12 @@ describe('discovery card rows', () => {
 
   it('preserves the captured artwork even if resize has already reset the row geometry', async () => {
     render(<ArchiveDiscoveryResultList {...props} />)
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 200))
-    })
     mocks.scrollTop = 600
-    act(() => mocks.rangeChanged({ startIndex: 0, endIndex: 3 }))
-    await waitFor(() =>
+    await waitFor(() => {
+      // Layout restoration can outlast a fixed delay when the full suite is busy.
+      act(() => mocks.rangeChanged({ startIndex: 0, endIndex: 3 }))
       expect(props.onPositionChange).toHaveBeenCalledWith(expect.objectContaining({ anchorId: 'item-4' }))
-    )
+    })
     mocks.scrollToIndex.mockClear()
     act(() => {
       mocks.scrollTop = 0

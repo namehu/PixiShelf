@@ -209,7 +209,8 @@ describe('archive uploader service', () => {
         $queryRaw: vi.fn(async () => [{ lock: '' }]),
         archiveUploaderSource: { findUnique: vi.fn(async () => source), update: vi.fn(async () => source) },
         archiveUploaderScanRun: { findFirst: vi.fn(async () => null), create: runCreate },
-        systemJob: { create: systemJobCreate }
+        systemJob: { create: systemJobCreate },
+        systemJobEvent: { create: mocks.writeJobEvent }
       }
       const database = {
         $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
@@ -217,6 +218,7 @@ describe('archive uploader service', () => {
 
       await triggerArchiveUploaderScan({ sourceId: source.id, mode: 'LATEST' }, 'admin-1', {
         database: database as never,
+        sourceKind: 'ALL',
         now: () => new Date('2026-09-02T00:00:00.000Z'),
         uuid: vi.fn().mockReturnValueOnce('run-1').mockReturnValueOnce('job-1')
       })

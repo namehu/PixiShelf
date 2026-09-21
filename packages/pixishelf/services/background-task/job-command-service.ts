@@ -1,3 +1,4 @@
+import { controlDiscoveryBatch } from '@pixishelf/job-executors'
 import { prisma } from '@/lib/prisma'
 import {
   executionLaneForJobType,
@@ -223,6 +224,7 @@ export async function enqueueJob(
 ): Promise<JobDto> {
   const parsed = enqueueJobInputSchema.parse(input)
   if (
+    parsed.type === 'ARCHIVE_DISCOVERY_BATCH_SCAN' ||
     parsed.type === 'ARCHIVE_RESOLVE_ITEM' ||
     parsed.type === 'ARCHIVE_UPLOADER_SCAN' ||
     parsed.type === 'ARCHIVE_SEARCH_SCAN'
@@ -302,6 +304,13 @@ export async function cancelJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    const batchId = await controlDiscoveryBatch(transaction, jobId, 'CANCEL', now(), job)
+    if (batchId) {
+      return toJobDto(
+        requireJob(await transaction.systemJob.findUnique({ where: { id: batchId }, select: systemJobWireSelect }))
+      )
+    }
+
     if (job.status === 'CANCELLING' || job.status === 'CANCELLED') return toJobDto(job)
     assertStatus(job, ['PENDING', 'RETRY_WAIT', 'PAUSED', 'RUNNING', 'PAUSING'], 'cancel')
     const timestamp = now()
@@ -492,6 +501,13 @@ export async function pauseJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    const batchId = await controlDiscoveryBatch(transaction, jobId, 'PAUSE', now(), job)
+    if (batchId) {
+      return toJobDto(
+        requireJob(await transaction.systemJob.findUnique({ where: { id: batchId }, select: systemJobWireSelect }))
+      )
+    }
+
     if (job.status === 'PAUSING' || job.status === 'PAUSED') return toJobDto(job)
     assertStatus(job, ['PENDING', 'RETRY_WAIT', 'RUNNING'], 'pause')
     const direct = job.status !== 'RUNNING'
@@ -538,6 +554,13 @@ export async function resumeJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    const batchId = await controlDiscoveryBatch(transaction, jobId, 'RESUME', now(), job)
+    if (batchId) {
+      return toJobDto(
+        requireJob(await transaction.systemJob.findUnique({ where: { id: batchId }, select: systemJobWireSelect }))
+      )
+    }
+
     assertStatus(job, ['PAUSED'], 'resume')
     const timestamp = now()
     const updated = await compareAndSetJob(transaction, job, {
@@ -580,7 +603,11 @@ export async function retryJobCommand(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
-    if (job.type === 'ARCHIVE_UPLOADER_SCAN' || job.type === 'ARCHIVE_SEARCH_SCAN') {
+    if (
+      job.type === 'ARCHIVE_DISCOVERY_BATCH_SCAN' ||
+      job.type === 'ARCHIVE_UPLOADER_SCAN' ||
+      job.type === 'ARCHIVE_SEARCH_SCAN'
+    ) {
       throw new BackgroundTaskError(
         'INVALID_STATE_TRANSITION',
         '上传者扫描的游标保存在来源记录中，请从上传者来源重新发起手动扫描'
