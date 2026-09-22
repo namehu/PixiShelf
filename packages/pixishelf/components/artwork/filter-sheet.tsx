@@ -246,6 +246,7 @@ export function FilterSheet(props: FilterSheetProps) {
           <Field className="gap-3">
             <FieldLabel htmlFor="filter-artist">艺术家</FieldLabel>
             <MultipleSelector
+              showOptionValue
               inputProps={{
                 id: 'filter-artist',
                 name: 'filter-artist',
