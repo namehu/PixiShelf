@@ -33,6 +33,7 @@ describe('WorkerApplication', () => {
     }
     const events: string[] = []
     const disconnectDatabase = vi.fn().mockResolvedValue(undefined)
+    const closeOutboundConnections = vi.fn().mockResolvedValue(undefined)
     const application = new WorkerApplication({
       healthState: state,
       healthServer,
@@ -43,7 +44,8 @@ describe('WorkerApplication', () => {
         error: (event) => void events.push(event)
       },
       preflight: async () => void order.push('preflight'),
-      disconnectDatabase
+      disconnectDatabase,
+      closeOutboundConnections
     })
 
     await application.start()
@@ -52,6 +54,7 @@ describe('WorkerApplication', () => {
     expect(events).toContain('worker.awaiting_dispatcher_phase')
     await Promise.all([application.shutdown('SIGTERM'), application.shutdown('SIGINT')])
     expect(disconnectDatabase).toHaveBeenCalledOnce()
+    expect(closeOutboundConnections).toHaveBeenCalledOnce()
     expect(healthServer.close).toHaveBeenCalledOnce()
     expect(records.filter((record) => record.status === 'STOPPING')).toHaveLength(1)
   })
@@ -181,7 +184,10 @@ describe('WorkerApplication', () => {
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       preflight: vi.fn().mockResolvedValue(undefined),
       disconnectDatabase: vi.fn().mockResolvedValue(undefined),
-      dispatchers: [resolver, writer]
+      dispatchers: [resolver, writer],
+      closeOutboundConnections: async () => {
+        order.push('outbound:close')
+      }
     })
 
     await application.start()
@@ -194,6 +200,12 @@ describe('WorkerApplication', () => {
 
     expect(resolver.stop).toHaveBeenCalledWith('archive_resolve-dispatcher-fatal')
     expect(writer.stop).toHaveBeenCalledWith('archive_resolve-dispatcher-fatal')
+    expect(order.indexOf('outbound:close')).toBeGreaterThan(
+      order.indexOf('writer:stop:archive_resolve-dispatcher-fatal')
+    )
+    expect(order.indexOf('outbound:close')).toBeGreaterThan(
+      order.indexOf('resolver:stop:archive_resolve-dispatcher-fatal')
+    )
     expect(order.indexOf('resolver:stop:archive_resolve-dispatcher-fatal')).toBeLessThan(
       order.indexOf('presence:STOPPING')
     )

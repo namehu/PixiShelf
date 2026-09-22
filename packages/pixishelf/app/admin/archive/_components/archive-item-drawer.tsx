@@ -1,5 +1,6 @@
 'use client'
 
+import { ArchiveTaskCreators } from './archive-task-creators'
 import { ArchiveItemAddresses } from './archive-item-addresses'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -264,6 +265,7 @@ export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
         {task.kind && <Badge variant="outline">{task.kind === 'UPDATE' ? '更新归档' : '首次归档'}</Badge>}
         <span className="text-xs text-muted-foreground">尝试 {task.attempt}</span>
       </div>
+      <ArchiveTaskCreators task={task} />
       <PrivacySensitiveText as="p" className="break-all text-xs text-muted-foreground">
         提交来源：{task.submittedUrl}
       </PrivacySensitiveText>

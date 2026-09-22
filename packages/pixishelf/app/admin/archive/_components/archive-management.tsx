@@ -48,6 +48,7 @@ import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { ActiveArchiveDownloadPanel } from './archive-active-download-panel'
 import { ArchiveAddDialog } from './archive-add-dialog'
 import { ArchiveBulkResultDialog } from './archive-bulk-result-dialog'
+import { ArchiveTaskCreators } from './archive-task-creators'
 import { ArchiveItemDrawer } from './archive-item-drawer'
 import { TaskFiltersForm, hasTaskFilters, normalizeTaskFilters, type TaskFilters } from './archive-task-filters'
 import { useArchiveLiveEvents } from './archive-live-events'
@@ -116,7 +117,8 @@ const EMPTY_FILTERS: TaskFilters = {
   providerKey: '',
   kind: 'ALL',
   submissionId: '',
-  search: ''
+  search: '',
+  unboundOnly: false
 }
 
 export function ArchiveManagement() {
@@ -145,7 +147,8 @@ export function ArchiveManagement() {
         providerKey: filters.providerKey || undefined,
         kind: filters.kind === 'ALL' ? undefined : filters.kind,
         submissionId: filters.submissionId || undefined,
-        search: filters.search || undefined
+        search: filters.search || undefined,
+        unboundOnly: filters.unboundOnly ?? false
       },
       {
         refetchInterval: (query) => archiveTaskPollingInterval(query.state.data?.items ?? [], realtimeConnected)
@@ -819,6 +822,7 @@ function TaskIdentity({ task, onViewItems }: { task: ArchiveTaskOutput; onViewIt
           {title}
         </button>
       )}
+      <ArchiveTaskCreators task={task} compact />
       <PrivacySensitiveText as="p" className="truncate text-xs text-muted-foreground">
         {archiveSourceLabel(task.providerKey, task.externalId)}
       </PrivacySensitiveText>

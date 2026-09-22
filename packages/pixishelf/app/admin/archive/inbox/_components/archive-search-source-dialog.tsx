@@ -222,7 +222,7 @@ export function ArchiveSearchSourceDialog({
                 aria-describedby="search-keyword-description"
               />
               <FieldDescription id="search-keyword-description">
-                匹配完整英/日标题，忽略大小写和首尾空白，保留括号。不是正则；不支持双引号、星号、下划线和百分号。
+                匹配完整英/日标题，忽略大小写和首尾空白，保留括号和下划线。不是正则；不支持双引号、星号和百分号。
               </FieldDescription>
             </Field>
             <Field data-disabled={renameOnly || pending}>

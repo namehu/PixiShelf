@@ -9,6 +9,18 @@ const testState = vi.hoisted(() => ({
   execute: vi.fn()
 }))
 
+beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  )
+})
+afterEach(() => vi.unstubAllGlobals())
+
 vi.mock('next-safe-action/hooks', () => ({
   useAction: () => ({
     execute: testState.execute,

@@ -398,6 +398,13 @@ export class PostgresQueueRepository {
                  SELECT jsonb_array_elements_text(capability->'definitionVersions')::integer
                )
            )
+           AND NOT EXISTS (
+             SELECT 1 FROM "system_jobs" AS batch
+             WHERE batch."id" = job."parentJobId"
+               AND batch."type" = 'ARCHIVE_DISCOVERY_BATCH_SCAN'
+               AND (batch."status" IN ('PAUSED', 'PAUSING', 'CANCELLING', 'CANCELLED', 'FAILED', 'COMPLETED')
+                 OR COALESCE(batch."result"->>'control', 'RUN') <> 'RUN')
+           )
            AND "attempt" < "maxAttempts"
            AND "cancelRequestedAt" IS NULL
            AND (

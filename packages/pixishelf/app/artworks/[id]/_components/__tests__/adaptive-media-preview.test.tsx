@@ -199,7 +199,7 @@ describe('AdaptiveMediaPreview', () => {
     expect(images[1]!.getAttribute('data-quality')).toBe('90')
     expect(images[1]!.getAttribute('data-priority')).toBe('true')
     expect(screen.getByTestId('adaptive-media-preview-swiper').getAttribute('data-direction')).toBe('vertical')
-    expect(screen.getByText('上下切换 · 双指或双击缩放')).toBeTruthy()
+    expect(screen.queryByText('上下切换 · 双指或双击缩放')).toBeNull()
   })
 
   it('preheats only the eligible adjacent images and moves the window with the active slide', () => {
@@ -293,7 +293,7 @@ describe('AdaptiveMediaPreview', () => {
     render(<AdaptiveMediaPreview images={[media]} initialIndex={0} open onClose={vi.fn()} />)
 
     expect(screen.queryByText('动图静态预览')).toBeNull()
-    expect(screen.getByText('上下切换 · 双指或双击缩放')).toBeTruthy()
+    expect(screen.queryByText('上下切换 · 双指或双击缩放')).toBeNull()
   })
 
   it('plays a confirmed animated WebP from the bottom control without an internal badge', () => {
@@ -320,7 +320,6 @@ describe('AdaptiveMediaPreview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '模拟缩放' }))
     expect(screen.getByRole('button', { name: '暂停 WEBP 动图' })).toBeTruthy()
-    expect(screen.getByText('2.0× · 拖动查看，缩小后切换')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '暂停 WEBP 动图' }))
     expect(screen.getByRole('button', { name: '播放 WEBP 动图' })).toBeTruthy()
@@ -402,7 +401,7 @@ describe('AdaptiveMediaPreview', () => {
 
     expect(screen.queryByRole('button', { name: /WEBP 动图/ })).toBeNull()
     expect(screen.getByText('动图静态预览')).toBeTruthy()
-    expect(screen.getByText('静态适配预览 · 长按原媒体可查看原文件')).toBeTruthy()
+    expect(screen.queryByText('静态适配预览 · 长按原媒体可查看原文件')).toBeNull()
   })
 
   it('keeps slide navigation disabled while zoomed and restores the final index on close', () => {

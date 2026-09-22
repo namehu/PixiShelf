@@ -13,8 +13,6 @@ import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { toast } from 'sonner'
 import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from '@/components/artwork/preferred-tag'
-import { Button } from '@/components/ui/button'
-import { ArrowRightIcon } from 'lucide-react'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface RelatedArtworksProps {
@@ -142,19 +140,7 @@ export default function RelatedArtworks({ artistId, currentArtworkId, dateMode =
   if (artworks.length === 0) return null
 
   return (
-    <section aria-labelledby="related-artworks-heading" className="my-8 w-full border-t border-border py-8">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 id="related-artworks-heading" className="text-lg font-semibold text-foreground">
-          相关创作者的其他作品
-        </h2>
-        <Button asChild variant="ghost" size="sm">
-          <Link href={`/artists/${artistId}`}>
-            查看全部
-            <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
-          </Link>
-        </Button>
-      </div>
-
+    <div className="w-full">
       <ScrollAreaPrimitive.Root className="relative w-full overflow-hidden whitespace-nowrap" ref={scrollRef}>
         <ScrollAreaPrimitive.Viewport ref={viewportRef} className="h-full w-full rounded-[inherit]" onScroll={onScroll}>
           <div className="flex w-max items-center gap-3 pb-4">
@@ -225,6 +211,6 @@ export default function RelatedArtworks({ artistId, currentArtworkId, dateMode =
         <ScrollBar orientation="horizontal" />
         <ScrollAreaPrimitive.Corner />
       </ScrollAreaPrimitive.Root>
-    </section>
+    </div>
   )
 }

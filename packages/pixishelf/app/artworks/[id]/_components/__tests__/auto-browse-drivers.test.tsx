@@ -105,7 +105,7 @@ describe('slideshow clock', () => {
 })
 
 describe('scroll driver', () => {
-  function setup({ status = 'ready', video = false, height = 2000, expanded = true } = {}) {
+  function setup({ status = 'ready', video = false, animated = false, height = 2000, expanded = true } = {}) {
     let scrollY = 0
     Object.defineProperty(window, 'scrollY', { configurable: true, get: () => scrollY })
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 800 })
@@ -113,7 +113,7 @@ describe('scroll driver', () => {
       if (typeof options === 'object') scrollY = Math.round(options.top ?? 0)
     })
     const container = document.createElement('div')
-    container.innerHTML = `<div data-index="0"><div data-preview-status="${status}"></div></div>`
+    container.innerHTML = `<div data-index="0"><div data-preview-status="${status}" data-animation-duration-ms="5000"></div></div>`
     document.body.append(container)
     const rect = () => ({
       top: -scrollY,
@@ -145,7 +145,12 @@ describe('scroll driver', () => {
       })
     const expand = vi.fn()
     const images = [
-      { id: 1, path: video ? '/1.mp4' : '/1.jpg', mediaType: video ? 'video' : 'image' }
+      {
+        id: 1,
+        path: video ? '/1.mp4' : animated ? '/1.webp' : '/1.jpg',
+        mediaType: video ? 'video' : 'image',
+        isAnimated: animated
+      }
     ] as ArtworkImageResponseDto[]
     const props = { containerRef: { current: container }, images, expanded, expand }
     store.getState().start('scroll')
@@ -195,6 +200,126 @@ describe('scroll driver', () => {
     expect(store.getState().status).toBe('ended')
     advance(10000)
     expect(getY()).toBe(0)
+  })
+  it('waits for the animation to load, plays its actual duration and continues only once per cycle', () => {
+    const { advance, container, getY } = setup({ animated: true })
+    const player = container.querySelector('[data-preview-status]')!
+    player.setAttribute('data-animation-duration-ms', '2300')
+    player.setAttribute('data-animation-status', 'loading')
+    advance(0)
+    expect(store.getState()).toMatchObject({ activeAnimationId: 1, status: 'waiting' })
+    advance(10000)
+    expect(getY()).toBe(0)
+    player.setAttribute('data-animation-status', 'ready')
+    advance(10001)
+    advance(12300)
+    expect(getY()).toBe(0)
+    expect(store.getState().activeAnimationId).toBe(1)
+    advance(12301)
+    expect(store.getState()).toMatchObject({ activeAnimationId: null, skippedIds: [1] })
+    advance(12351)
+    expect(getY()).toBeGreaterThan(0)
+    expect(store.getState().activeAnimationId).toBeNull()
+  })
+  it('cancels playback on pause and gives it a full dwell after resuming', () => {
+    const { advance, container, unmount } = setup({ animated: true })
+    container.querySelector('[data-preview-status]')!.setAttribute('data-animation-status', 'ready')
+    advance(0)
+    advance(1)
+    advance(4000)
+    act(() => store.getState().pause('hidden'))
+    expect(store.getState().activeAnimationId).toBeNull()
+    advance(20000)
+    expect(store.getState().skippedIds).toEqual([])
+    act(() => store.getState().resume())
+    advance(20001)
+    advance(20002)
+    advance(25001)
+    expect(store.getState().activeAnimationId).toBe(1)
+    unmount()
+    expect(store.getState().activeAnimationId).toBeNull()
+  })
+  it('plays the final animation before ending and replays it on the next loop', () => {
+    const { advance, container } = setup({ animated: true, height: 800 })
+    container.querySelector('[data-preview-status]')!.setAttribute('data-animation-status', 'ready')
+    act(() => store.getState().setPreferences({ loop: true }))
+    advance(0)
+    advance(1)
+    advance(5001)
+    expect(store.getState().skippedIds).toEqual([1])
+    advance(5002)
+    advance(7002)
+    expect(store.getState().skippedIds).toEqual([])
+    advance(7003)
+    expect(store.getState().activeAnimationId).toBe(1)
+  })
+  it('pauses on an animation error and allows skipping it', () => {
+    const { advance, container, getY } = setup({ animated: true })
+    container.querySelector('[data-preview-status]')!.setAttribute('data-animation-status', 'error')
+    advance(0)
+    advance(1)
+    expect(store.getState()).toMatchObject({ status: 'paused', reason: 'error', activeAnimationId: null })
+    act(() => {
+      store.getState().skip(1)
+      store.getState().resume()
+    })
+    advance(2)
+    advance(52)
+    expect(getY()).toBeGreaterThan(0)
+  })
+  it('does not auto-play static or unconfirmed WebP files', () => {
+    const { advance, props, rerender, getY } = setup()
+    rerender({
+      ...props,
+      images: [{ ...props.images[0]!, path: '/static.webp', isAnimated: false, webpAnimationStatus: 0 }]
+    })
+    advance(0)
+    advance(50)
+    expect(getY()).toBeGreaterThan(0)
+    expect(store.getState().activeAnimationId).toBeNull()
+  })
+  it('does not let an adjacent unloaded preview delay the current animation clock', () => {
+    const { advance, props, rerender, container } = setup({ animated: true })
+    const next = document.createElement('div')
+    next.dataset.index = '1'
+    next.innerHTML = '<div data-preview-status="loading"></div>'
+    next.getBoundingClientRect = () => ({ top: 600, bottom: 1000, width: 600, height: 400 }) as DOMRect
+    container.append(next)
+    rerender({ ...props, images: [...props.images, { id: 2, path: '/2.jpg' } as ArtworkImageResponseDto] })
+    container.querySelector('[data-preview-status]')!.setAttribute('data-animation-status', 'ready')
+    advance(0)
+    advance(1)
+    advance(5001)
+    expect(store.getState()).toMatchObject({ activeAnimationId: null, skippedIds: [1] })
+    advance(5002)
+    expect(store.getState().status).toBe('waiting')
+  })
+  it('plays short animations in reading order even when the viewport center is on a video', () => {
+    const { advance, props, rerender, container } = setup({ animated: true })
+    vi.spyOn(container.firstElementChild!, 'getBoundingClientRect').mockImplementation(
+      () =>
+        ({
+          top: 0,
+          bottom: 100,
+          width: 600,
+          height: 100
+        }) as DOMRect
+    )
+    const next = document.createElement('div')
+    next.dataset.index = '1'
+    next.getBoundingClientRect = () => ({ top: 100, bottom: 2000, width: 600, height: 1900 }) as DOMRect
+    container.append(next)
+    rerender({
+      ...props,
+      images: [...props.images, { id: 2, path: '/2.mp4', mediaType: 'video' } as ArtworkImageResponseDto]
+    })
+    advance(0)
+    expect(store.getState()).toMatchObject({ activeAnimationId: 1, status: 'waiting' })
+    container.querySelector('[data-preview-status]')!.setAttribute('data-animation-status', 'ready')
+    advance(1)
+    advance(5001)
+    advance(5002)
+    expect(store.getState()).toMatchObject({ activeAnimationId: null, status: 'paused', reason: 'video' })
   })
   it('does not end on an unloaded final image and clears pending frames on exit', () => {
     const { advance, frames, unmount } = setup({ height: 800, status: 'loading' })

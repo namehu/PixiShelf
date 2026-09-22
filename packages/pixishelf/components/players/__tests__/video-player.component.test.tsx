@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import VideoPlayer, { formatVideoRemainingTime } from './video-player'
+import VideoPlayer, { formatVideoRemainingTime } from '../video-player'
 
 const artplayerMock = vi.hoisted(() => ({
   constructor: vi.fn(),
@@ -20,11 +20,11 @@ vi.mock('artplayer', () => ({
   default: artplayerMock.constructor
 }))
 
-vi.mock('./use-video-chapters', () => ({
+vi.mock('../use-video-chapters', () => ({
   useVideoChapters: videoChaptersMock.useVideoChapters
 }))
 
-vi.mock('./use-video-keyframes', () => ({
+vi.mock('../use-video-keyframes', () => ({
   useVideoKeyframes: videoKeyframesMock.useVideoKeyframes
 }))
 
@@ -111,6 +111,13 @@ describe('VideoPlayer component behavior', () => {
       }
     >()
     const art = {
+      muted: false,
+      play: vi.fn(async () => {
+        emitArtplayerEvent('play')
+      }),
+      pause: vi.fn(() => {
+        emitArtplayerEvent('pause')
+      }),
       currentTime: 0,
       duration: 60,
       video,
@@ -217,6 +224,33 @@ describe('VideoPlayer component behavior', () => {
 
     await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
     expect(artplayerMock.constructor.mock.calls[0]?.[0]).toMatchObject({ gesture: false })
+  })
+
+  it('controls visibility without recreating the player or reporting automatic pauses as manual', async () => {
+    const art = setupArtplayerMock()
+    const intent = vi.fn()
+    const view = render(<VideoPlayer src="/video.mp4" hasAudio playbackActive onPlaybackIntent={intent} />)
+    await waitFor(() => expect(art.play).toHaveBeenCalledTimes(1))
+    art.currentTime = 24
+    view.rerender(<VideoPlayer src="/video.mp4" hasAudio playbackActive={false} onPlaybackIntent={intent} />)
+    expect(art.pause).toHaveBeenCalled()
+    expect(intent).not.toHaveBeenCalled()
+    view.rerender(<VideoPlayer src="/video.mp4" hasAudio playbackActive onPlaybackIntent={intent} />)
+    await waitFor(() => expect(art.play).toHaveBeenCalledTimes(2))
+    expect(artplayerMock.constructor).toHaveBeenCalledTimes(1)
+    expect(art.currentTime).toBe(24)
+    act(() => art.pause())
+    expect(intent).toHaveBeenCalledWith(false)
+  })
+
+  it('does not undo the muted autoplay fallback in its play event handler', async () => {
+    const art = setupArtplayerMock()
+    art.play.mockRejectedValueOnce(new DOMException('blocked', 'NotAllowedError'))
+    const onPlay = vi.fn()
+    render(<VideoPlayer src="/video.mp4" hasAudio playbackActive onPlay={onPlay} />)
+    await waitFor(() => expect(art.play).toHaveBeenCalledTimes(2))
+    expect(art.muted).toBe(true)
+    expect(onPlay).toHaveBeenCalledWith(true)
   })
 
   it('keeps the explicit control state when Artplayer attempts to auto-hide it', async () => {

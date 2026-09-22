@@ -283,3 +283,7 @@ App 与 Worker 必须协调升级：停止写入者后运行 `pnpm --filter @pix
 停止写入者后运行 pnpm --filter @pixishelf/db db:generate、pnpm --filter @pixishelf/db db:deploy 并核对 migration 状态，再协调启动兼容版本 App 和 Worker，禁止 db:push。旧任务不自动拥有过去执行的完整报告；旧 Worker 也不会写入新诊断。清理计划首次手动运行先核对 dry-run 的报告/明细候选数，证据关闭后保留 90 天，到期分批删除明细但保留报告头。
 
 回滚兼容代码时保留新增列和两张表，避免丢失新执行证据；优先前向修复。需要整体恢复发布前数据库时，使用验证过的配套媒体与配置检查点，恢复前保全新诊断并明确恢复点之后的写入损失。此处是发布和恢复要求，不代表已完成生产迁移或恢复演练。功能与验收边界见[后台任务失败诊断](../features/background-job-diagnostics.md)。
+
+## 批量发现扫描恢复依据
+
+批次状态、冻结来源顺序、逐轮游标、扫描目录和父子任务关系均保存在 PostgreSQL，备份必须包含完整 SystemJob payload/result 与来源扫描表。20260920120000_add_discovery_batch_scan 为约束扩展及唯一索引迁移，无数据重写。升级前建立检查点；回退应用前取消批次并等待当前子扫描终止。Worker 重启依靠 fenced 事务与原子子任务检查点恢复，禁止手工仅修改父任务为终态。父任务基础设施失败后，通过失败来源重试或取消入口收口遗留子扫描，不删除目录或清空游标。

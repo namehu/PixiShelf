@@ -61,6 +61,25 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
     if (playing) useArtworkAutoBrowseStore.getState().pause('manual')
   }, [])
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
+  const playbackActive = useArtworkAutoBrowseStore((state) => state.activeVideoId === media.id && !state.previewOpen)
+  const playbackPaused = useArtworkAutoBrowseStore((state) => state.pausedVideoIds.includes(media.id))
+  const animationActive = useArtworkAutoBrowseStore((state) => state.activeAnimationId === media.id)
+  const [manualAnimationPlaying, setManualAnimationPlaying] = useState(false)
+  useEffect(() => {
+    if (animationActive) setManualAnimationPlaying(false)
+  }, [animationActive])
+  const onAnimationPlayingChange = useCallback(
+    (playing: boolean) => {
+      const state = useArtworkAutoBrowseStore.getState()
+      setManualAnimationPlaying(playing)
+      if (playing || state.activeAnimationId === media.id) state.pause('manual')
+    },
+    [media.id]
+  )
+  const onAnimationError = useCallback(() => {
+    const state = useArtworkAutoBrowseStore.getState()
+    if (state.activeAnimationId === media.id) state.pause('error')
+  }, [media.id])
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
   const src = media.path
   const hasDimensions =
@@ -161,7 +180,19 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
           className="w-full h-auto"
           preload="metadata"
           settingActions={videoSettingActions}
-          onPlay={() => onPlayingChange(true)}
+          playbackActive={playbackActive}
+          playbackPaused={playbackPaused}
+          onPlaybackIntent={(playing) => useArtworkAutoBrowseStore.getState().setVideoPaused(media.id, !playing)}
+          onPlay={(automatic) => {
+            const state = useArtworkAutoBrowseStore.getState()
+            if (automatic) {
+              // 保留 video 暂停原因，继续按钮才能将该视频记为本轮已跳过，避免立即再次停住。
+              if (!state.skippedIds.includes(media.id)) {
+                state.setCurrentMedia(media.id)
+                state.pause('video')
+              }
+            } else onPlayingChange(true)
+          }}
         />
       )
     }
@@ -188,9 +219,13 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={formatLabel}
           controlMode={isWebpFile(src) ? 'badge' : 'surface'}
+          playing={isWebpFile(src) ? animationActive || manualAnimationPlaying : undefined}
+          playOnce={animationActive}
+          updatedAt={media.updatedAt}
           onPosterLoad={() => report('ready')}
           onPosterError={() => report('error')}
-          onPlayingChange={onPlayingChange}
+          onPlayingChange={isWebpFile(src) ? onAnimationPlayingChange : onPlayingChange}
+          onAnimationError={onAnimationError}
         />
       )
     }
@@ -218,6 +253,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
       className="relative flex w-full items-center justify-center overflow-hidden bg-muted"
       style={{ aspectRatio }}
       data-auto-media-id={media.id}
+      data-video-media={isVideoFile(src) ? 'true' : undefined}
       data-preview-status={previewStatus}
     >
       {renderContent()}

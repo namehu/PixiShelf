@@ -3,7 +3,8 @@
 import { useEffect, type RefObject } from 'react'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
-import { isVideoFile } from '@/lib/media'
+import { isVideoFile, isWebpFile } from '@/lib/media'
+import { isConfirmedStaticWebp } from '@/lib/media-animation'
 
 export function getAutoBrowseViewport() {
   const toolbar = document.querySelector('.artwork-detail-toolbar')?.getBoundingClientRect()
@@ -46,6 +47,7 @@ export function useArtworkAutoScroll({
     let position = window.scrollY
     let atEndSince: number | null = null
     let firstFrame = true
+    let animation: { id: number; readySince: number | null } | null = null
     const tick = (time: number) => {
       const state = store.getState()
       if (
@@ -77,11 +79,25 @@ export function useArtworkAutoScroll({
         return rect.bottom > top && rect.top < bottom
       })
       const focus = (top + bottom) / 2
+      // Use reading order so short animations above the viewport centre are not skipped.
+      const animationNode = visible.find((node) => {
+        const media = images[Number(node.dataset.index)]
+        return (
+          media &&
+          isWebpFile(media.path) &&
+          media.isAnimated &&
+          !isConfirmedStaticWebp(media) &&
+          !state.skippedIds.includes(media.id) &&
+          (node.getBoundingClientRect().top <= focus || bounds.bottom <= bottom + 1)
+        )
+      })
       const current =
+        animationNode ??
         visible.find((node) => {
           const rect = node.getBoundingClientRect()
           return rect.top <= focus && rect.bottom > focus
-        }) ?? visible[0]
+        }) ??
+        visible[0]
       const currentIndex = current ? Number(current.dataset.index) : -1
       const currentMedia = images[currentIndex]
       if (currentMedia) state.setCurrentMedia(currentMedia.id)
@@ -96,6 +112,8 @@ export function useArtworkAutoScroll({
       }
       // Wait for visible previews, not the whole collection; offscreen media stays lazy.
       const pending = visible.find((node) => {
+        // Adjacent previews must not delay the clock of an animation already playing.
+        if (animationNode && node !== animationNode) return false
         const media = images[Number(node.dataset.index)]
         return (
           media &&
@@ -117,6 +135,49 @@ export function useArtworkAutoScroll({
         position = window.scrollY
         frame = requestAnimationFrame(tick)
         return
+      }
+      if (animationNode) {
+        const media = images[Number(animationNode.dataset.index)]!
+        state.setCurrentMedia(media.id)
+        if (animation?.id !== media.id) {
+          animation = { id: media.id, readySince: null }
+          const rect = animationNode.getBoundingClientRect()
+          position = Math.max(0, window.scrollY + rect.top - top - Math.max(0, (bottom - top - rect.height) / 2))
+          window.scrollTo({ top: position, behavior: 'instant' })
+          state.setActiveAnimation(media.id)
+          state.wait()
+        } else {
+          const player = animationNode.querySelector('[data-animation-status]')
+          const status = player?.getAttribute('data-animation-status')
+          if (status === 'error') {
+            state.pause('error')
+            return
+          }
+          if (status === 'ready') {
+            const durationMs = Number(player?.getAttribute('data-animation-duration-ms'))
+            if (!Number.isFinite(durationMs) || durationMs <= 0) {
+              state.pause('error')
+              return
+            }
+            state.ready()
+            animation.readySince ??= time
+            if (time - animation.readySince >= durationMs) {
+              state.skip(media.id)
+              state.setActiveAnimation(null)
+              animation = null
+            }
+          } else {
+            animation.readySince = null
+            state.wait()
+          }
+        }
+        position = window.scrollY
+        frame = requestAnimationFrame(tick)
+        return
+      }
+      if (animation) {
+        state.setActiveAnimation(null)
+        animation = null
       }
       state.ready()
       const last = nodes.find((node) => Number(node.dataset.index) === images.length - 1)
@@ -143,6 +204,9 @@ export function useArtworkAutoScroll({
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(frame)
+    return () => {
+      cancelAnimationFrame(frame)
+      if (store.getState().session === session) store.getState().setActiveAnimation(null)
+    }
   }, [active, containerRef, expand, expanded, images, revision])
 }

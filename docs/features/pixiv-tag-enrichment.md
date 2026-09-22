@@ -35,6 +35,8 @@ Worker 只访问 Pixiv 公共标签 Ajax 接口，不使用 Cookie 或登录会�
 - Pixpedia `abstract`；
 - Pixpedia 封面图片。
 
+标签资料与封面请求均由 Worker 使用共享 `ARCHIVE_HTTPS_PROXY` 出站策略；代理失败不降级直连，继续沿用任务重试与封面失败的部分成功规则。HTTPS 443、精确域名和每次重定向校验保持有效，配置与优先顺序见[部署基线](../operations/deployment.md#环境文件边界)。
+
 默认发布遵循只填空字段：任何已有非空翻译、简介或封面都不会被自动覆盖，已有封面时也不会重复下载远端图片。显式刷新会用 Pixiv 本次返回的非空中文翻译、英文翻译、Pixpedia `abstract` 和成功保存的封面替换旧值；Pixiv 未返回、封面下载失败或执行期间被人工修改的字段保留现值。`name` 和用户维护的 `description` 永远不由补全或刷新覆盖，`description` 与 Pixpedia `abstract` 分开存储、分开展示。
 
 默认补全实际填入至少一种翻译且当前 `translateType=NONE` 时，翻译来源变为 `PIXIV`；已有 `MANUAL` 或 `AI` 来源不变。显式刷新成功发布至少一种翻译时，来源变为 `PIXIV`。中英文翻译与来源作为一组执行并发比较；任务查询期间任一成员被修改时整组跳过。用户在标签编辑框保存任一翻译后来源为 `MANUAL`；两种翻译都清空时来源为 `NONE`。

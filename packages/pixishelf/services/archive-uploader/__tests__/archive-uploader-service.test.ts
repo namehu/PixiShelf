@@ -209,7 +209,8 @@ describe('archive uploader service', () => {
         $queryRaw: vi.fn(async () => [{ lock: '' }]),
         archiveUploaderSource: { findUnique: vi.fn(async () => source), update: vi.fn(async () => source) },
         archiveUploaderScanRun: { findFirst: vi.fn(async () => null), create: runCreate },
-        systemJob: { create: systemJobCreate }
+        systemJob: { create: systemJobCreate },
+        systemJobEvent: { create: mocks.writeJobEvent }
       }
       const database = {
         $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => operation(transaction)
@@ -217,6 +218,7 @@ describe('archive uploader service', () => {
 
       await triggerArchiveUploaderScan({ sourceId: source.id, mode: 'LATEST' }, 'admin-1', {
         database: database as never,
+        sourceKind: 'ALL',
         now: () => new Date('2026-09-02T00:00:00.000Z'),
         uuid: vi.fn().mockReturnValueOnce('run-1').mockReturnValueOnce('job-1')
       })
@@ -489,6 +491,7 @@ describe('archive uploader service', () => {
           canonicalUrl: 'https://e-hentai.org/g/302/token302/',
           title: 'Gallery 302',
           thumbnailUrl: 'https://ehgt.org/thumb-302.jpg?token=private#fragment',
+          fileCount: 24,
           uploaderName: 'Uploader',
           postedAt: firstCreatedAt,
           classification: 'NEW',
@@ -547,7 +550,8 @@ describe('archive uploader service', () => {
     expect(result.items[0]).toMatchObject({
       id: 'catalog-item-2',
       externalId: '302',
-      thumbnailUrl: 'https://ehgt.org/thumb-302.jpg'
+      thumbnailUrl: 'https://ehgt.org/thumb-302.jpg',
+      fileCount: 24
     })
     expect(result.items[0]).not.toHaveProperty('canonicalUrl')
     expect(result.items[0]?.displayUrl).not.toContain('token302')

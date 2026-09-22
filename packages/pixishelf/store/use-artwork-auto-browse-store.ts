@@ -39,6 +39,13 @@ interface AutoBrowseState extends AutoBrowsePreferences {
   previewOpen: boolean
   controlsCollapsed: boolean
   skippedIds: number[]
+  activeVideoId: number | null
+  activeAnimationId: number | null
+  setActiveAnimation: (id: number | null) => void
+  // 跨虚拟列表卸载保留手动暂停意图，仅在作品会话结束时清空，不写入持久化偏好。
+  pausedVideoIds: number[]
+  setActiveVideo: (id: number | null) => void
+  setVideoPaused: (id: number, paused: boolean) => void
   initialize: (artworkId: number) => number
   release: (session: number) => void
   start: (mode: AutoBrowseMode) => void
@@ -66,7 +73,10 @@ const runtimeDefaults = {
   currentMediaId: null,
   previewOpen: false,
   controlsCollapsed: false,
-  skippedIds: []
+  skippedIds: [],
+  activeVideoId: null,
+  activeAnimationId: null,
+  pausedVideoIds: []
 } as const
 
 export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
@@ -75,21 +85,50 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       ...preferences(null),
       ...runtimeDefaults,
       skippedIds: [],
+      pausedVideoIds: [],
+      setActiveAnimation: (id) => {
+        if (get().activeAnimationId !== id) {
+          set({ activeAnimationId: id, ...(id !== null ? { activeVideoId: null } : {}) })
+        }
+      },
+      setActiveVideo: (id) => {
+        if (get().activeVideoId !== id) set({ activeVideoId: id })
+      },
+      setVideoPaused: (id, paused) =>
+        set((state) => ({
+          pausedVideoIds: paused
+            ? [...new Set([...state.pausedVideoIds, id])]
+            : state.pausedVideoIds.filter((value) => value !== id)
+        })),
       session: 0,
       revision: 0,
       initialize: (artworkId) => {
         const session = get().session + 1
-        set({ ...runtimeDefaults, skippedIds: [], artworkId, session, revision: get().revision + 1 })
+        set({
+          ...runtimeDefaults,
+          skippedIds: [],
+          pausedVideoIds: [],
+          artworkId,
+          session,
+          revision: get().revision + 1
+        })
         return session
       },
       release: (session) => {
         if (get().session !== session) return
-        set({ ...runtimeDefaults, skippedIds: [], session: session + 1, revision: get().revision + 1 })
+        set({
+          ...runtimeDefaults,
+          skippedIds: [],
+          pausedVideoIds: [],
+          session: session + 1,
+          revision: get().revision + 1
+        })
       },
       start: (mode) => {
         if (get().artworkId === null) return
         set({
           mode,
+          activeAnimationId: null,
           status: 'running',
           reason: null,
           controlsCollapsed: false,
@@ -99,7 +138,13 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       },
       pause: (reason = 'manual') => {
         if (!['running', 'waiting'].includes(get().status)) return
-        set({ status: 'paused', reason, controlsCollapsed: false, revision: get().revision + 1 })
+        set({
+          status: 'paused',
+          reason,
+          activeAnimationId: null,
+          controlsCollapsed: false,
+          revision: get().revision + 1
+        })
       },
       resume: () => {
         const state = get()
@@ -119,12 +164,20 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
         set({
           mode: null,
           status: 'idle',
+          activeAnimationId: null,
           reason: null,
           controlsCollapsed: false,
           skippedIds: [],
           revision: get().revision + 1
         }),
-      end: () => set({ status: 'ended', reason: null, controlsCollapsed: false, revision: get().revision + 1 }),
+      end: () =>
+        set({
+          status: 'ended',
+          reason: null,
+          activeAnimationId: null,
+          controlsCollapsed: false,
+          revision: get().revision + 1
+        }),
       wait: () => {
         if (get().status === 'running') set({ status: 'waiting' })
       },
@@ -134,7 +187,7 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       setCurrentMedia: (id) => {
         if (get().currentMediaId !== id) set({ currentMediaId: id })
       },
-      setPreviewOpen: (previewOpen) => set({ previewOpen }),
+      setPreviewOpen: (previewOpen) => set({ previewOpen, ...(previewOpen ? { activeAnimationId: null } : {}) }),
       setControlsCollapsed: (controlsCollapsed) => {
         if (controlsCollapsed && !['running', 'waiting'].includes(get().status)) return
         set({ controlsCollapsed })

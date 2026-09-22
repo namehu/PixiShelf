@@ -377,6 +377,71 @@ describe('title scan executor', () => {
   const titleQuery = { keyword: 'frozen', matchMode: 'CONTAINS' as const, uploaderUid: null }
   const rawResult = { ...scanResult, items: scanResult.items.map((item) => ({ ...item, matchesQuery: false })) }
 
+  it('settles an invalid frozen keyword without calling the provider', async () => {
+    const scanTitles = vi.fn()
+    const fixture = createFixture({
+      scanUploader: vi.fn(),
+      scanTitles,
+      titleQuery: { ...titleQuery, keyword: 'invalid*keyword' }
+    })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    expect(scanTitles).not.toHaveBeenCalled()
+    expect(fixture.runUpdates.at(-1)).toMatchObject({ status: 'FAILED', finishedAt: expect.any(Date) })
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({ lastRunId: 'scan-run-1' })
+    expect(fixture.finalOutcome).toMatchObject({ kind: 'failed' })
+  })
+
+  it.each(['cancel', 'pause', 'shutdown', 'lease'] as const)(
+    'honors %s while settling an invalid frozen query',
+    async (control) => {
+      const scanTitles = vi.fn()
+      const fixture = createFixture({
+        scanUploader: vi.fn(),
+        scanTitles,
+        titleQuery: { ...titleQuery, keyword: 'invalid*keyword' },
+        cancelBeforeCommit: control === 'cancel',
+        pauseBeforeCommit: control === 'pause',
+        loseLease: control === 'lease'
+      })
+      if (control === 'shutdown') {
+        const controller = new AbortController()
+        controller.abort()
+        fixture.context.signal = controller.signal
+      }
+      const execution = executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+      if (control === 'lease') {
+        await expect(execution).rejects.toThrow('lease lost')
+        expect(fixture.runUpdates).toHaveLength(1)
+        expect(fixture.finalOutcome).toBeNull()
+      } else {
+        await execution
+        const status = control === 'cancel' ? 'CANCELLED' : control === 'pause' ? 'PAUSED' : 'PENDING'
+        const kind = control === 'cancel' ? 'cancelled' : control === 'pause' ? 'paused' : 'released'
+        expect(fixture.runUpdates.at(-1)).toMatchObject({ status })
+        expect(fixture.finalOutcome).toMatchObject({ kind })
+      }
+      expect(scanTitles).not.toHaveBeenCalled()
+      expect(fixture.createdItems).toEqual([])
+      expect(fixture.catalogUpserts).toEqual([])
+      expect(fixture.sourceUpdates.some((data) => Object.hasOwn(data, 'historyCursor'))).toBe(false)
+    }
+  )
+
+  it('passes literal underscores to the title provider and completes the scan', async () => {
+    const scanTitles = vi.fn(async () => rawResult)
+    const fixture = createFixture({
+      scanUploader: vi.fn(),
+      scanTitles,
+      titleQuery: { ...titleQuery, keyword: 'Cornelia_winterhowl' }
+    })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    expect(scanTitles).toHaveBeenCalledWith(
+      expect.objectContaining({ query: expect.objectContaining({ keyword: 'Cornelia_winterhowl' }) }),
+      expect.anything()
+    )
+    expect(fixture.runUpdates.at(-1)).toMatchObject({ status: 'COMPLETED' })
+  })
+
   it('persists raw snapshots and hides nonmatches while advancing raw head and history', async () => {
     const scanTitles = vi.fn(async () => rawResult)
     const fixture = createFixture({ scanUploader: vi.fn(), scanTitles, titleQuery })
@@ -449,6 +514,7 @@ function createFixture(input: {
   scanUploader: ArchiveUploaderProvider['scanUploader']
   scanTitles?: ArchiveUploaderProvider['scanTitles']
   titleQuery?: { keyword: string; matchMode: 'CONTAINS'; uploaderUid: null }
+  pauseBeforeCommit?: boolean
   cancelBeforeCommit?: boolean
   loseLease?: boolean
   searchIdentityKind?: 'NAME' | 'UID'
@@ -603,7 +669,11 @@ function createFixture(input: {
       await operation({
         transaction: transaction as typeof transaction & QueueSqlExecutor,
         executionStatus: 'RUNNING',
-        controlStatus: input.cancelBeforeCommit ? 'CANCEL_REQUESTED' : 'CONTINUE',
+        controlStatus: input.cancelBeforeCommit
+          ? 'CANCEL_REQUESTED'
+          : input.pauseBeforeCommit
+            ? 'PAUSE_REQUESTED'
+            : 'CONTINUE',
         complete: async (value = {}) => {
           finalOutcome = { kind: 'completed', ...value }
         },

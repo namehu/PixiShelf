@@ -213,6 +213,10 @@ ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。
 
 Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，lane 是执行资源和 capability 边界，不是操作系统级权限隔离。`ARCHIVE_RESOLVE_ITEM` 的 Executor 不执行媒体写入，所有归档下载、回收、恢复、永久清理和其他文件操作仍由 writer lane 执行并经过根目录/符号链接边界校验。
 
+出站代理 `ARCHIVE_HTTPS_PROXY` 覆盖归档、来源扫描、服务端预览 HTML，以及 Worker 的 Pixiv 艺术家资料/头像/背景、作品 metadata、标签资料/封面和系列缺少有效本地快照时的请求；浏览器远程图片/脚本、本地任务和内部服务不受影响。优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`；专用变量显式为空强制直连，只有未设置时才遵循 `NO_PROXY/no_proxy`。代理 URL 仅支持 HTTP(S)，禁止凭据、路径、query 和 hash；配置或代理失败不降级为直连。
+
+Pixiv 请求由 Worker 逐请求注入 dispatcher，不修改进程全局 dispatcher。代理 CONNECT 使用目标 hostname，由代理解析目标 DNS；请求和每次重定向仍须通过 HTTPS、443 端口、无凭据和精确域名白名单校验（API 为 `www.pixiv.net`，图片为 `i.pximg.net`）。因此代理是受控出站信任边界，不能将 Pixiv 代理链路描述为本地 DNS 钉扎。归档既有本地 DNS、SSRF 与 fake-IP 检查保持不变，不因 Pixiv 扩围放宽。
+
 归档任务 payload、结果、事件、错误与普通日志统一脱敏。不得记录 Cookie、Authorization、完整 Provider locator、token，或 URL 路径中的敏感段；列表和批量结果只返回完成管理操作所需的脱敏值。
 
 归档下载明细 `archive.listTaskItems` 是管理员主动排错的例外：经过 `adminProcedure` 验证后返回完整图片页地址，以及最近一次媒体响应的最终下载地址（含签名路径或 query）。数据库仅保存每项最近一次响应地址、时间及尝试次数，新尝试开始时清空；不保存请求 Cookie/Authorization。导航仅接受无用户名密码的有效 HTTP(S) URL，客户端展示完整地址并支持复制，打开时禁止 Referrer，不自动请求这些媒体地址。隐私模式继续遮蔽地址文本。此例外不扩展到任务列表、事件、诊断报告、错误或普通日志；下载地址可能过期，应视为敏感数据。
@@ -310,3 +314,11 @@ job.backgroundDiagnosticReports 与 job.backgroundDiagnosticItems 均使用 admi
 诊断写入与读取均脱敏，屏蔽完整 URL、凭据、Cookie、Authorization、Token、SQL 和堆栈；主机字段只保留校验后的主机/端口；绝对路径隐藏目录，仅保留 basename 辅助定位，目标和错误详情继续使用隐私敏感文本包装。关闭报告达到 expiresAt 后，API 隐藏证据，即使物理清理尚未完成。SSE 只携带摘要与报告标识，逐项证据经受保护接口按需读取。隐私模式遮蔽目标名称/路径和错误详情，但不替代鉴权。详见[后台任务失败诊断](../features/background-job-diagnostics.md)。
 
 发现目录原站入口 `/api/archive/catalog/[id]/source` 使用独立管理员会话校验，按目录 ID 查询服务端 canonical URL，复用任务原站入口的 Provider、HTTPS、主机、端口、凭据、画廊路径及 GID 校验后重定向。忽略客户端 query 地址，响应禁止缓存和 Referrer，错误不回显或记录 locator；列表仍仅返回脱敏地址。来源封面以 `noopener noreferrer` 在新标签页打开此入口。
+
+### 归档任务艺术家管理补充
+
+`archive.listTasks` 仍使用 `authProcedure`，增加已生效／待生效创作者摘要、编辑受限原因和可选 `unboundOnly` 筛选。`archive.editTaskCreators` 使用 `adminProcedure`；严格校验任务 ID、ADD/REMOVE、1–200 个正整数艺术家 ID 和 UUID 请求编号，拒绝客户端传入来源身份或操作者。服务从任务读取原站身份、从会话取得操作者；同一身份跨任务共享关系。事务在既有创作者／发布／身份锁内复核回收站和清理状态。持久回执的指纹覆盖动作与规范化成员列表，并拒绝不同操作者复用编号；读写权限与来源页绑定能力保持一致。
+
+### 发现来源批量扫描接口
+
+archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminProcedure；activeBatchScan（优先活动批次，否则最近批次）与 batchScanDetail 为 authProcedure。启动仅接收显式来源 ID 顺序与请求 UUID，操作者取自 Session；相同请求 UUID 的来源序列和操作者必须一致。通用 enqueue/retry 禁止绕过领域入口创建批次或复制扫描 payload。批次和所属子任务的中央控制统一处理父子关系，不接管其他独立扫描。返回冻结的来源名称和脱敏摘要，不返回远端游标、凭据或原始子任务错误对象。

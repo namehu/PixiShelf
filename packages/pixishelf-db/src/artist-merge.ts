@@ -5,6 +5,7 @@ export const availableArtist = { mergedIntoId: null } as const
 const unfinished = ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] as const
 const globalCreatorJobs = new Set([
   'SCAN',
+  'ARCHIVE_DISCOVERY_BATCH_SCAN',
   'LOCAL_DIRECTORY_IMPORT',
   'MIGRATION',
   'PENDING_REPLACE',

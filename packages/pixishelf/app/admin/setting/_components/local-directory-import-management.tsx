@@ -236,6 +236,7 @@ export default function LocalDirectoryImportManagement() {
                   <div className="flex w-full flex-col sm:w-auto sm:flex-row items-center gap-3">
                     <div className="w-full sm:w-[280px]">
                       <MultipleSelector
+                        showOptionValue
                         value={mappings[artist.artistDirectory] ? [mappings[artist.artistDirectory]!] : []}
                         onChange={(options) =>
                           setMappings((current) => ({ ...current, [artist.artistDirectory]: options[0] }))

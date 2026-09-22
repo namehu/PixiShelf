@@ -46,6 +46,7 @@ export function CreatorPicker({
   return (
     <div className="flex flex-col gap-2">
       <MultipleSelector
+        showOptionValue
         inputProps={{ 'aria-label': '搜索并选择艺术家或社团' }}
         value={value.map((v) => ({
           value: String(v.id),

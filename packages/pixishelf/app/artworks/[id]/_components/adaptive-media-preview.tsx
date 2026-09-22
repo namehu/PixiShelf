@@ -97,7 +97,6 @@ export default function AdaptiveMediaPreview({
   }, [images.length, initialIndex, open])
 
   const activeMedia = images[currentIndex]
-  const activeAnimated = useMemo(() => (activeMedia ? isAnimatedMedia(activeMedia) : false), [activeMedia])
   const activePlayableWebp = useMemo(() => (activeMedia ? isPlayableAnimatedWebp(activeMedia) : false), [activeMedia])
   const eagerNeighborIndexes = useMemo(() => {
     const indexes = new Set<number>()
@@ -303,13 +302,13 @@ export default function AdaptiveMediaPreview({
         )
       }}
       bottomChrome={({ portalContainer: container }) => (
-        <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 flex flex-col items-end gap-2">
+        <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 flex items-end justify-end gap-2">
           {activePlayableWebp && !autoControlsCollapsed && (
             <Button
               type="button"
               size="sm"
-              variant="secondary"
-              className="pointer-events-auto rounded-full shadow-lg"
+              variant="ghost"
+              className="pointer-events-auto h-11 shrink-0 rounded-full p-0 hover:bg-transparent"
               aria-label={`${isWebpPlaying ? '暂停' : '播放'} WEBP 动图`}
               aria-pressed={isWebpPlaying}
               onClick={() => {
@@ -317,8 +316,10 @@ export default function AdaptiveMediaPreview({
                 setIsWebpPlaying((playing) => !playing)
               }}
             >
-              {isWebpPlaying ? <PauseIcon data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
-              {isWebpPlaying ? '暂停 WEBP' : '播放 WEBP'}
+              <span className="flex h-[22px] items-center gap-1 rounded-full bg-secondary px-2 text-xs text-secondary-foreground shadow-lg">
+                {isWebpPlaying ? <PauseIcon className="size-3" /> : <PlayIcon className="size-3" />}
+                动图
+              </span>
             </Button>
           )}
           {images.length > 1 && (
@@ -345,15 +346,6 @@ export default function AdaptiveMediaPreview({
                 else nextSlide()
               }}
             />
-          )}
-          {!autoSlideshowSelected && (
-            <span className="self-center rounded-full bg-black/35 px-3 py-1 text-xs text-white/75 backdrop-blur-md">
-              {zoomScale > 1.01
-                ? `${zoomScale.toFixed(1)}× · 拖动查看，缩小后切换`
-                : activeAnimated && !activePlayableWebp
-                  ? '静态适配预览 · 长按原媒体可查看原文件'
-                  : '上下切换 · 双指或双击缩放'}
-            </span>
           )}
         </div>
       )}

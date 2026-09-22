@@ -10,7 +10,7 @@
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
 - `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和当前全部
-  30 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 28 类只支持 v1，共 33 个 type/version 组合。
+  32 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 29 类只支持 v1，共 37 个 type/version 组合。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
 - `.env.example`：部署变量模板；为防止新环境误消费，Central Dispatcher 开关仍安全地默认关闭。
@@ -139,9 +139,9 @@ WORKER_DISPATCH_ENABLED=false
 
 两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
 `WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
-当前通用 Registry 已锁定 30 个 job type、33 个 type/version 组合，并校验 job type、definition version 和
+当前通用 Registry 已锁定 32 个 job type、37 个 type/version 组合，并校验 job type、definition version 和
 lane；任务清单中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务，
-`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 28 类只支持 v1。新部署仍须先以
+`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 29 类只支持 v1。新部署仍须先以
 `false/false` 暗启动并通过 READY/capability 门禁，然后才能恢复生产稳态的 `true/true`。
 `SCAN@v3` 专用于来源核对后的写入型 `AUDIT_APPLY`；只支持 v2 的旧 Worker 不会领取它。滚动部署的版本隔离不能
 替代发布门禁，开放新 App 写入口前仍必须确认目标 Worker 同时报告 SCAN v1/v2/v3。
@@ -162,5 +162,8 @@ docker build -f build/Dockerfile --target production -t pixishelf .
 docker build -f build/worker.Dockerfile --target production -t pixishelf-worker .
 ```
 
-CI 构建并扫描 App 与通用 Worker 镜像。URL 归档网络请求读取
-`ARCHIVE_HTTPS_PROXY`，未设置时兼容 `HTTPS_PROXY`、`HTTP_PROXY` 与 `NO_PROXY`。
+CI 构建并扫描 App 与通用 Worker 镜像。归档、来源扫描、服务端预览 HTML，以及 Pixiv 艺术家资料和图片、作品 metadata、标签资料和封面、系列缺少有效本地快照时的请求，共用 `ARCHIVE_HTTPS_PROXY`。作品同步不会因此下载原图；浏览器远程图片/脚本、本地任务和内部服务不在此范围。
+
+优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`。专用变量显式为空时强制直连；只有未设置专用变量时才遵循 `NO_PROXY/no_proxy`。仅支持无凭据、无路径/query/hash 的 HTTP(S) 代理，代理失败不降级直连。Pixiv 经逐请求 dispatcher 使用代理，不修改全局 dispatcher；目标主机由代理解析，HTTPS 443、精确域名和逐跳重定向校验仍然生效，归档的本地 DNS/SSRF/fake-IP 检查不变。
+
+Compose 的 App/Worker 已通过 `env_file` 读取 `build/.env`，修改后须重新创建相应容器。本地 App 在 `packages/pixishelf/.env.local` 配置并重启；Compose Worker 仍需单独配置 `build/.env`。代理地址必须能从实际运行环境访问，容器内的 `127.0.0.1` 不是宿主机。发布与回滚见[部署基线](../docs/operations/deployment.md#环境文件边界)。

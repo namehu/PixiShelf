@@ -141,6 +141,20 @@ describePostgres('archive intake retention PostgreSQL integration', () => {
     expect(await archiveSnapshot(archive)).toEqual(archiveBefore)
   })
 
+  it('keeps expired scan records while their batch is paused, then cleans them after batch completion', async () => {
+    const scan = await seedExpiredUploaderScan()
+    const run = await db().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: scan.runId } })
+    const parent = await db().systemJob.create({ data: {
+      id: `${prefix}-batch`, type: 'ARCHIVE_DISCOVERY_BATCH_SCAN', executionLane: 'ARCHIVE_RESOLVE',
+      status: 'PAUSED', payload: { sources: [{ id: scan.sourceId, name: 'Uploader' }] },
+    } })
+    await db().systemJob.update({ where: { id: run.systemJobId }, data: { parentJobId: parent.id } })
+    expect((await cleanupArchiveIntakeHistory(cleanupInput())).deletedUploaderScanRuns).toBe(0)
+    expect(await db().archiveUploaderScanRun.findUnique({ where: { id: scan.runId } })).not.toBeNull()
+    await db().systemJob.update({ where: { id: parent.id }, data: { status: 'COMPLETED', finishedAt: now } })
+    expect((await cleanupArchiveIntakeHistory(cleanupInput())).deletedUploaderScanRuns).toBe(1)
+  })
+
   it('rechecks mutable completion, terminal, emptiness, and expiry predicates inside each delete transaction', async () => {
     const bulk = await seedBulkOperation('racing-bulk', oldDate)
     const itemSubmission = await seedSubmission('racing-item', oldDate)

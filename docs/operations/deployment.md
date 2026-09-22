@@ -18,7 +18,7 @@ sources:
 
 ## 支持范围
 
-后台任务实时进度发布使用 `20260904200000_add_system_job_progress_data` additive migration。先停止所有旧写入者并按[备份与恢复](./backup-and-recovery.md)建立、验证 PostgreSQL 检查点，再执行 `migrate deploy`；禁止 `db:push`。回滚 App/Worker 时保留新增可空列和事件索引。配套 App/Worker 必须一起升级，两个 lane READY 且 capability audit 精确为 31 类/36 个版本组合后才开放入口。设置 `ANIMATION_SCAN_CONCURRENCY` 前先以 1 建立代表性基线；首次手动运行“清理后台任务事件”只做 dry-run，核对候选数和 SSE 重连后再启用计划删除。
+后台任务实时进度发布使用 `20260904200000_add_system_job_progress_data` additive migration。先停止所有旧写入者并按[备份与恢复](./backup-and-recovery.md)建立、验证 PostgreSQL 检查点，再执行 `migrate deploy`；禁止 `db:push`。回滚 App/Worker 时保留新增可空列和事件索引。配套 App/Worker 必须一起升级，两个 lane READY 且 capability audit 精确为 32 类/37 个版本组合后才开放入口。设置 `ANIMATION_SCAN_CONCURRENCY` 前先以 1 建立代表性基线；首次手动运行“清理后台任务事件”只做 dry-run，核对候选数和 SSE 重连后再启用计划删除。
 
 新增类型数据存在时，旧 App/Worker 不能直接回滚运行。优先保留兼容版本并停用关键词来源、关闭新入口或前向修复；完整降级必须恢复配套数据库、媒体、配置和镜像检查点。当前实施与未完成的生产验证见[标题关键词实施记录](../design/e-hentai-title-keyword-scan.md)，本机测试不代表生产已部署。
 
@@ -36,7 +36,7 @@ sources:
 | ----------- | -------------------------- | ------------------------------------------------------------------ | ------------------ |
 | `postgres`  | 数据库读写                 | 领域数据、认证、队列、租约和 migration 历史                        | 必需               |
 | `app`       | 数据库读写；原媒体默认只读 | Next.js Web/API、认证、任务控制面；启动时部署 migration            | 必需               |
-| `worker`    | 数据库和媒体读写           | 单进程双 lane；31 个 job type，SCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2 | 必需，固定一个服务 |
+| `worker`    | 数据库和媒体读写           | 单进程双 lane；32 个 job type，SCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2 | 必需，固定一个服务 |
 | `scheduler` | 无数据库权限               | 使用内部 Token 调用 App 的 scheduler tick                          | 按需启用           |
 | `imgproxy`  | 原媒体和派生媒体只读       | 图片缩放、格式处理和缓存                                           | 必需               |
 
@@ -50,6 +50,12 @@ sources:
 | -------------- | ------------------------------- | -------------------------------------- |
 | 宿主机 Next.js | `packages/pixishelf/.env.local` | `127.0.0.1:5432` 或 `localhost:5432`   |
 | Docker Compose | `build/.env`                    | Compose 在容器内覆盖为 `postgres:5432` |
+
+出站代理继续使用 `ARCHIVE_HTTPS_PROXY`，覆盖归档、来源扫描、服务端预览 HTML，以及 Pixiv 艺术家资料/头像/背景、作品 metadata、标签资料/封面和系列缺少有效本地快照时的请求。它不控制浏览器远程图片、浏览器脚本、本地任务或内部服务，也不会让作品同步下载原图。优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`；专用变量显式为空强制直连，仅未设置时遵循 `NO_PROXY/no_proxy`。只接受无凭据、无路径/query/hash 的 HTTP(S) 代理，代理失败不会直连降级。
+
+Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置后须重新创建对应容器，单纯 restart 不会重新加载环境文件。本地 App 使用 `packages/pixishelf/.env.local`，与读取 `build/.env` 的 Worker 分别配置；修改后重启对应本地进程。Pixiv 代理 CONNECT 使用目标 hostname，由代理解析目标 DNS；HTTPS 443、精确域名白名单和每跳校验保持有效。归档现有本地 DNS、SSRF 与 fake-IP 校验不变，细节见[权限与接口边界](../security/access-control.md#服务、网络和存储矩阵)。
+
+本次代理扩围无需数据库迁移或数据回填。发布前记录原 App/Worker 镜像 tag 或 digest 与受控环境配置副本，作为服务级恢复依据；回滚使用扩围前的配套 App/Worker 版本并恢复原代理配置，无需回滚数据库。上线先各选一个 Pixiv 补全/同步对象验证，并确认系列已有有效快照时无需联网；现有数据恢复仍遵循[备份与恢复](./backup-and-recovery.md)。
 
 动画识别使用可选环境变量 `ANIMATION_SCAN_CONCURRENCY`（整数 1–8，默认 4）。生产首次发布或存储介质
 变化后先以 1 运行代表性样本，再以 4 比较相同分类结果和吞吐；提升不足 20% 时保持 1。该变量只控制
@@ -109,7 +115,7 @@ sources:
 1. 把 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 纳入同一一致性检查点；
 2. 在旧数据库运行只读 `packages/pixishelf-db/prisma/diagnostics/artist-source-identity-audit.sql`，保存自动认领、重复数字 ID、无来源证据数字 ID 和 `p_` ID 计数；
 3. 停止 App/Worker 写入后执行 `prisma migrate deploy`，再运行 `artist-external-ref-verification.sql`；其中 `missing_expected_claims` 和 `duplicate_provider_identities` 必须为零；
-4. 先启动新 Worker，确认 READY 且 capability 精确为 31 个 job type / 36 个 type-version 组合，再启动新 App；
+4. 先启动新 Worker，确认 READY 且 capability 精确为 32 个 job type / 37 个 type-version 组合，再启动新 App；
 5. App 开放后先选择少量已确认艺术家试跑，核对 `artist_external_refs` 状态、`pixiv_data/artists/<user-id>/` 文件和受鉴权图片 URL；通过后再启动全部符合条件艺术家的连续补全；显式多选仍最多 200 个；
 6. 重复 ID、无作品 Pixiv 来源证据的数字 ID 和 `p_` ID 只保留在审计结果中，不能通过生产 SQL 批量猜测认领。
 
@@ -233,8 +239,8 @@ pnpm --filter @pixishelf/next archive:lane-cutover-audit
 
 退出码 `0` 才能继续；退出码 `2` 表示存在业务或消费者阻断项，退出码 `1` 表示审计本身失败。普通兼容任务的
 `PENDING`、`PAUSED`、`RETRY_WAIT` 可以保留，但其 type/version 必须在新 Worker 的 capability inventory 内；
-`FULL_RECONCILE` 是额外的 payload 级例外，必须按上一节清零。当前 inventory 为 31 个 job type、36 个
-type/version 组合，其中 `SCAN` 支持 v1/v2/v3、`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3、其余 28 类只支持 v1。专用审计只检查数据库状态；上一步“旧
+`FULL_RECONCILE` 是额外的 payload 级例外，必须按上一节清零。当前 inventory 为 32 个 job type、37 个
+type/version 组合，其中 `SCAN` 支持 v1/v2/v3、`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3、其余 29 类只支持 v1。专用审计只检查数据库状态；上一步“旧
 `archive-worker` 容器为零”的结果必须单独记录。
 
 审计通过后，在同一个停写窗口建立 PostgreSQL、原媒体、派生媒体、配置和旧/新镜像 digest 的一致性检查点。lane migration 会拒绝 `RUNNING/PAUSING/CANCELLING` 任务或未过期的 `global/background-worker` lease，并删除已经过期的旧全局 lease；它不是停止并发写入者的替代品。
@@ -267,7 +273,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml logs --tail=200 worker
 ```
 
-READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 31 个 job type、36 个 type/version 组合、
+READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 32 个 job type、37 个 type/version 组合、
 `SCAN` v1/v2/v3、其余 v1 及正确 lane；`/livez` 只能证明进程存活，不能替代上述门禁。`SCAN@v3` 把
 `AUDIT_APPLY` 与只读 `SCAN@v2` 隔离：滚动部署期间旧 v2 Worker 不会领取 v3 写任务，但发布门禁仍要求新
 Worker 明确报告 v1/v2/v3 后才能开放 App 写入口。暗启动通过后再启动 App，仍保持 `false/false` 完成登录和
@@ -292,7 +298,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 
 - App、PostgreSQL、ImgProxy 正常；
 - 只有一个当前 Worker 为 READY；
-- Worker 报告两个 lane READY，且 capability 精确为 31 个 job type / 36 个 type-version 组合（`SCAN`
+- Worker 报告两个 lane READY，且 capability 精确为 32 个 job type / 37 个 type-version 组合（`SCAN`
   v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3，其余 28 类 v1）；
 - scheduler 的启用状态符合预期；
 - 没有异常积压、重复 claim、媒体 404 或 migration 漂移。
@@ -348,8 +354,14 @@ lane migration 后，服务级回滚只能使用兼容新 schema、当前 capabi
 
 ## 2026-09-16 上传者名称配置兼容
 
-本次无需 DDL 或历史回填，标题条件 JSON 新增可选名称条件与展示名称，名称优先版本引入 ARCHIVE_SEARCH_SCAN v2，后续多上传者扩展升级为 v3。先发布可读取新 JSON、执行 v1/v2/v3 的 App/Worker，再开放入口；当前生产门禁为 31 类任务、36 个版本组合。新数据存在后不能直接回滚旧 App（旧严格校验器不能读取新字段），应保留兼容读取版本或前向修复。需要完整降级时依照同一检查点恢复数据库、媒体、配置和镜像，不原地删除新条件或历史记录。
+本次无需 DDL 或历史回填，标题条件 JSON 新增可选名称条件与展示名称，名称优先版本引入 ARCHIVE_SEARCH_SCAN v2，后续多上传者扩展升级为 v3。先发布可读取新 JSON、执行 v1/v2/v3 的 App/Worker，再开放入口；当前生产门禁为 32 类任务、37 个版本组合。新数据存在后不能直接回滚旧 App（旧严格校验器不能读取新字段），应保留兼容读取版本或前向修复。需要完整降级时依照同一检查点恢复数据库、媒体、配置和镜像，不原地删除新条件或历史记录。
 
 ### 多上传者限定升级
 
-新增标题条件 `uploaders` 与 ARCHIVE_SEARCH_SCAN v3；本次无 DDL、无历史回填。Worker 保留 v1/v2/v3，能力门禁更新为 31 类/36 个版本。开放多账号入口前先更新兼容 Worker 与 App；只支持 v1/v2 的 Worker 不会领取新任务。已有多账号来源后不得回退至不识别新 JSON 的 App/Worker，优先前向修复。
+新增标题条件 `uploaders` 与 ARCHIVE_SEARCH_SCAN v3；本次无 DDL、无历史回填。Worker 保留 v1/v2/v3，能力门禁更新为 32 类/37 个版本。开放多账号入口前先更新兼容 Worker 与 App；只支持 v1/v2 的 Worker 不会领取新任务。已有多账号来源后不得回退至不识别新 JSON 的 App/Worker，优先前向修复。
+
+## 发现来源批量扫描发布
+
+按备份与恢复基线建立发布检查点后，使用 migrate deploy 应用 20260920120000_add_discovery_batch_scan，禁止 db:push。此迁移仅扩展 system_jobs_type_execution_lane_check 并新增 system_jobs_one_active_discovery_batch 部分唯一索引，无表新增或历史回填。先升级 Worker，确认双 lane READY 及 32 类/37 个版本组合，再开放新版 App 的批量入口。旧 Worker 不具备新父任务能力，也不具备暂停父批次的子任务领取保护，因此 App/Worker 必须配套升级。
+
+回退前取消所有活动批次，等待子扫描终止并确认无遗留活动子任务，再回退 App/Worker；保留扩展约束和索引，不删除已发现目录或重置来源游标。完整恢复依赖同一发布检查点的数据库、媒体与配置，不能只恢复队列表。

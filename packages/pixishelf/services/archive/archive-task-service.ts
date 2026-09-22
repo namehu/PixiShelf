@@ -22,6 +22,9 @@ import { archiveTaskActionIneligibility, recoverAppliedArchiveTaskAction } from 
 import { archiveWireErrorMessage, redactArchiveText, redactArchiveUrl } from './archive-redaction'
 import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
 
+import { archiveTaskCreatorSummaries } from './archive-task-creators'
+import { unboundArchiveTaskIds } from './archive-task-unbound-query'
+
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
 
 export const archiveTaskListSchema = z
@@ -36,7 +39,8 @@ export const archiveTaskListSchema = z
     providerKey: z.string().trim().min(1).max(50).optional(),
     kind: z.enum(['NEW', 'UPDATE']).optional(),
     submissionId: z.string().trim().min(1).max(128).optional(),
-    search: z.string().trim().min(1).max(500).optional()
+    search: z.string().trim().min(1).max(500).optional(),
+    unboundOnly: z.boolean().default(false)
   })
   .strict()
 
@@ -71,10 +75,12 @@ export async function listArchiveTasks(
   }
   const attributionWhere: Prisma.ArchiveIntakeItemWhereInput =
     parsed.kind || parsed.submissionId ? requestedAttribution : {}
+  const unboundIds = parsed.unboundOnly && !parsed.taskId ? await unboundArchiveTaskIds(database, parsed, cursor) : null
   const records = await database.archiveImport.findMany({
     where: parsed.taskId
       ? { id: parsed.taskId }
       : {
+          ...(unboundIds ? { id: { in: unboundIds } } : {}),
           ...(parsed.statuses?.length ? { status: { in: parsed.statuses } } : {}),
           ...(parsed.providerKey ? { providerKey: parsed.providerKey } : {}),
           ...(parsed.kind || parsed.submissionId
@@ -118,8 +124,15 @@ export async function listArchiveTasks(
   const hasMore = records.length > parsed.limit
   const visible = hasMore ? records.slice(0, parsed.limit) : records
   const last = visible.at(-1)
+  const creators = await archiveTaskCreatorSummaries(database, visible)
   return {
-    items: visible.map(serializeTask),
+    items: visible.map((task, index) => ({
+      ...serializeTask(task),
+      ...creators[index]!,
+      creatorEditBlockedReason: task.cleanupRequestedAt
+        ? '归档任务正在清理，请稍后重试。'
+        : creators[index]!.creatorEditBlockedReason
+    })),
     nextCursor: hasMore && last ? encodeTaskCursor(last.createdAt, last.id) : null
   }
 }
@@ -451,6 +464,7 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
     startedAt: true,
     finishedAt: true,
     retainUntil: true,
+    cleanupRequestedAt: true,
     publishedArtwork: { select: { id: true, title: true, deletedAt: true, archiveLifecycleState: true } },
     publishedRevision: { select: { id: true } },
     systemJob: {

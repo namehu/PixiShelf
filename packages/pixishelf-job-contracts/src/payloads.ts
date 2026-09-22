@@ -1,3 +1,4 @@
+import { discoveryBatchPayloadSchema } from './archive-discovery-batch.ts'
 import { z } from 'zod'
 import { JOB_DEFINITION_VERSION, type JobType } from './job-types.ts'
 import { MEDIA_FILE_EXTENSIONS } from './media-types.ts'
@@ -501,6 +502,7 @@ export const creatorMaintenancePayloadSchema = z
 export type CreatorMaintenancePayload = z.infer<typeof creatorMaintenancePayloadSchema>
 
 export const JOB_PAYLOAD_SCHEMAS = {
+  ARCHIVE_DISCOVERY_BATCH_SCAN: discoveryBatchPayloadSchema,
   CREATOR_MAINTENANCE: creatorMaintenancePayloadSchema,
   ARTIST_MERGE: artistMergePayloadSchema,
   SCAN: scanPayloadSchema,

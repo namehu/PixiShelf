@@ -1,17 +1,14 @@
+import { enqueueDiscoveryScan, DiscoveryScanConflict } from '@pixishelf/job-executors'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
-  ARCHIVE_SEARCH_DEFINITION_VERSION,
   normalizeArchiveUploaderName,
   archiveUploaderIdentityLockKey,
   archiveUploaderUidLockKey,
-  archiveUploaderScanPayloadSchema,
   archiveTitleQuerySchema,
-  normalizeArchiveTitle,
-  JOB_DEFINITION_VERSION
+  normalizeArchiveTitle
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient, discoveryCreatorSummaries } from '@pixishelf/db'
-import { snapshotDiscoverySourceCreators } from './discovery-creator-service'
 import { type ArchiveUploaderProviderRegistry } from '@pixishelf/job-executors'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -21,7 +18,6 @@ import { archiveWireErrorMessage, redactArchiveUrl } from '@/services/archive/ar
 import { createArchiveIntakeSubmissionInTransaction } from '@/services/archive-intake/archive-intake-service'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import { cancelJobCommand } from '@/services/background-task/job-command-service'
-import { writeJobEvent } from '@/services/background-task/job-event-service'
 import {
   ARCHIVE_UPLOADER_CATALOG_VIEWS,
   getArchiveUploaderCatalogCounts,
@@ -570,72 +566,17 @@ export async function triggerArchiveUploaderScan(
   const uuid = dependencies.uuid ?? randomUUID
   try {
     return await database.$transaction(async (transaction) => {
-      await lockSource(transaction, parsed.sourceId)
-      const source = await transaction.archiveUploaderSource.findUnique({
-        where: { id: parsed.sourceId, ...sourceScope(dependencies) }
+      const run = await enqueueDiscoveryScan(transaction, {
+        ...parsed,
+        requestedByUserId,
+        sourceKind: dependencies.sourceKind ?? 'UPLOADER',
+        now: now(),
+        uuid
       })
-      if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
-      if (source.status !== 'ACTIVE') throw new ArchiveError('STATE_CONFLICT', '请先重新启用该上传者来源')
-      const activeRun = await transaction.archiveUploaderScanRun.findFirst({
-        where: { sourceId: source.id, status: { in: [...ACTIVE_RUN_STATUSES] } },
-        select: { id: true }
-      })
-      if (activeRun) throw new ArchiveError('STATE_CONFLICT', '该上传者已有活动扫描任务')
-
-      const cursorBefore = parsed.mode === 'HISTORY' ? source.historyCursor : source.incrementalCursor
-      if (parsed.mode === 'HISTORY' && !cursorBefore) {
-        throw new ArchiveError('STATE_CONFLICT', '当前没有更早的扫描页可继续')
-      }
-      const titleQuery = source.sourceKind === 'TITLE_QUERY' ? archiveTitleQuerySchema.parse(source.titleQuery) : null
-      const searchIdentityKind = source.uploaderUid ? ('UID' as const) : source.identityKind
-      const searchIdentityValue = source.uploaderUid ?? source.identityValue
-      const timestamp = now()
-      const runId = uuid()
-      const jobId = uuid()
-      const payload = archiveUploaderScanPayloadSchema.parse({ scanRunId: runId })
-      await transaction.systemJob.create({
-        data: {
-          id: jobId,
-          type: titleQuery ? 'ARCHIVE_SEARCH_SCAN' : 'ARCHIVE_UPLOADER_SCAN',
-          executionLane: 'ARCHIVE_RESOLVE',
-          definitionVersion: titleQuery ? ARCHIVE_SEARCH_DEFINITION_VERSION : JOB_DEFINITION_VERSION,
-          status: 'PENDING',
-          triggerSource: 'MANUAL',
-          requestedByUserId,
-          idempotencyKey: `archive-uploader-scan:${runId}`,
-          payload,
-          queuePriority: 20,
-          effectivePriority: 20,
-          availableAt: timestamp,
-          maxAttempts: 3,
-          message: titleQuery ? '等待搜索 E-Hentai 标题...' : '等待扫描 E-Hentai 上传者...'
-        }
-      })
-      await writeJobEvent(transaction, {
-        jobId,
-        type: 'job.queued',
-        attempt: 0,
-        message: '上传者扫描已加入队列',
-        data: { sourceId: source.id, scanRunId: runId, mode: parsed.mode }
-      })
-      const run = await transaction.archiveUploaderScanRun.create({
-        data: {
-          defaultCreatorIds: await snapshotDiscoverySourceCreators(transaction, source.id),
-          id: runId,
-          sourceId: source.id,
-          systemJobId: jobId,
-          mode: parsed.mode,
-          searchIdentityKind,
-          searchIdentityValue,
-          ...(titleQuery ? { titleQuery } : {}),
-          cursorBefore
-        },
-        select: runSummarySelect
-      })
-      await transaction.archiveUploaderSource.update({ where: { id: source.id }, data: { lastRunId: run.id } })
       return serializeRunSummary(run)
     })
   } catch (error) {
+    if (error instanceof DiscoveryScanConflict) throw new ArchiveError('STATE_CONFLICT', error.message)
     if (isUniqueConstraintError(error)) throw new ArchiveError('STATE_CONFLICT', '该上传者已有活动扫描任务')
     throw error
   }
@@ -1022,9 +963,10 @@ function serializeSource(source: SourceWire) {
 }
 
 function serializeCatalogItem(item: ArchiveUploaderCatalogStateRow) {
-  const { canonicalUrl, thumbnailUrl, changeReasons, errorMessage, ...rest } = item
+  const { canonicalUrl, thumbnailUrl, changeReasons, errorMessage, fileCount, ...rest } = item
   return {
     ...rest,
+    ...(typeof fileCount === 'number' && Number.isSafeInteger(fileCount) && fileCount > 0 ? { fileCount } : {}),
     actionable: item.workflowBucket === 'ACTIONABLE',
     changeReasons: serializeChangeReasons(changeReasons),
     errorMessage: archiveWireErrorMessage(item.errorCode ?? null, errorMessage ?? null),

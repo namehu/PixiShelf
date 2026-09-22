@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[31 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
+    EXEC[32 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
   end
 
   subgraph Storage[文件和外部资源]
@@ -215,11 +215,11 @@ sequenceDiagram
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 31 类 Worker 任务
+## 32 类 Worker 任务
 
 `ARTIST_MERGE@v1` 在 BACKGROUND_WRITER 中原子迁移艺术家关系、来源映射和归档绑定，并保存审计；入口、互斥和恢复边界见[艺术家合并](../features/artist-merge.md)。
 
-`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN` 与 `ARCHIVE_SEARCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 28 类任务全部进入 `BACKGROUND_WRITER`。
+`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` 与 `ARCHIVE_DISCOVERY_BATCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 28 类任务全部进入 `BACKGROUND_WRITER`。
 
 | Job type                           | 主要入口                                 | 是否计划任务 | 是否创建子任务 | 主要副作用                                                    |
 | ---------------------------------- | ---------------------------------------- | ------------ | -------------- | ------------------------------------------------------------- |
@@ -238,6 +238,7 @@ sequenceDiagram
 | `VIDEO_KEYFRAME_DISCOVERY`         | 任务计划、立即运行、代表帧批量入口       | 是           | 是             | 判断 MISSING/STALE/FAILED/CURRENT；计划模式创建生成子任务     |
 | `VIDEO_KEYFRAME_GENERATION`        | discovery 或人工选中结果                 | 否           | 否             | FFmpeg 抽帧、质量筛选并发布代表帧集合                         |
 | `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                        | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态        |
+| `ARCHIVE_DISCOVERY_BATCH_SCAN` | 发现来源批量勾选 | 否 | 否 | 持久父任务按来源依次调度最新增量及历史扫描，每轮让出解析通道；结果人工入箱 |
 | `ARCHIVE_UPLOADER_SCAN`            | 归档收件箱中的上传者来源                 | 否           | 否             | 人工发现公开画廊、保存游标与候选分类，不自动创建下载任务      |
 | `ARCHIVE_SEARCH_SCAN`              | 归档收件箱中的标题关键词来源             | 否           | 否             | 最多检查 100 个远端候选、本地标题匹配、人工决定入箱           |
 | `ARCHIVE_IMPORT`                   | 解析成功自动入队或 READY 收件项人工确认  | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork         |
@@ -257,8 +258,8 @@ sequenceDiagram
 
 标签、艺术家、作品和系列同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家、作品和系列的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 31 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 28 类仍只支持 v1，因此 capability audit
-实际核对 36 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
+生产 Registry 保持 32 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 29 类仍只支持 v1，因此 capability audit
+实际核对 37 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
 ## Pixiv 作品在线同步链路
@@ -715,7 +716,7 @@ flowchart TD
 | App 入队、幂等和控制命令      | `packages/pixishelf/services/background-task/job-command-service.ts`、`manual-job-singleton.ts`  |
 | claim、优先级、lease、fence   | `packages/pixishelf-job-runtime/src/queue-repository.ts`                                         |
 | 双 Dispatcher 和 Worker 启动  | `packages/pixishelf-worker/src/main.ts`、`dispatcher.ts`                                         |
-| 31 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| 32 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
 | Pixiv 艺术家补全              | `packages/pixishelf-job-executors/src/pixiv-artist/`、`pixiv-artist-enrichment-service.ts`       |
 | Pixiv 标签补全                | `packages/pixishelf-job-executors/src/pixiv-tag/`、`pixiv-tag-enrichment-service.ts`             |
 | Pixiv 作品在线同步            | `packages/pixishelf-job-executors/src/pixiv-artwork/`、`pixiv-artwork-enrichment-service.ts`     |

@@ -28,6 +28,15 @@ describe('useAdminPreferencesStore', () => {
     })
   })
 
+  it('remembers cards across rehydration', async () => {
+    useAdminPreferencesStore.getState().setArchiveUploaderResultView('cards')
+    const saved = localStorage.getItem(ADMIN_PREFERENCES_STORAGE_KEY)!
+    useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
+    localStorage.setItem(ADMIN_PREFERENCES_STORAGE_KEY, saved)
+    await useAdminPreferencesStore.persist.rehydrate()
+    expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('cards')
+  })
+
   it('rehydrates the image visibility preferences from localStorage', async () => {
     localStorage.setItem(
       ADMIN_PREFERENCES_STORAGE_KEY,

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
 export const ADMIN_PREFERENCES_STORAGE_KEY = 'pixishelf-admin-preferences'
-export type ArchiveUploaderResultView = 'list' | 'preview'
+export type ArchiveUploaderResultView = 'list' | 'preview' | 'cards'
 
 interface AdminPreferencesState {
   /** 艺术家管理页是否展示艺术家图片。 */
@@ -46,7 +46,12 @@ export const useAdminPreferencesStore = create<AdminPreferencesState>()(
         const state = persistedState as Partial<AdminPreferencesState>
         return {
           ...state,
-          archiveUploaderResultView: state.archiveUploaderResultView === 'preview' ? 'preview' : 'list'
+          archiveUploaderResultView:
+            state.archiveUploaderResultView === 'cards'
+              ? 'cards'
+              : state.archiveUploaderResultView === 'preview'
+                ? 'preview'
+                : 'list'
         } as AdminPreferencesState
       },
       // Next.js 会预渲染客户端组件；挂载后再读取 localStorage，避免 hydration 不一致。

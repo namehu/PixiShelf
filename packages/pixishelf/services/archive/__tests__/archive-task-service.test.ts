@@ -76,6 +76,8 @@ describe('archive task service input contracts', () => {
       { limit: 50 },
       {
         database: {
+          artworkExternalRef: { findMany: async () => [] },
+          discoveryPendingCreator: { findMany: async () => [] },
           archiveImport: {
             findMany: async () => [
               {
@@ -178,7 +180,13 @@ describe('archive task service input contracts', () => {
       }
       const taskPage = await listArchiveTasks(
         { limit: 50 },
-        { database: { archiveImport: { findMany: async () => [archiveImport] } } as never }
+        {
+          database: {
+            artworkExternalRef: { findMany: async () => [] },
+            discoveryPendingCreator: { findMany: async () => [] },
+            archiveImport: { findMany: async () => [archiveImport] }
+          } as never
+        }
       )
       const bulk = await getArchiveBulkOperation('operation-1', {
         archiveBulkOperation: {

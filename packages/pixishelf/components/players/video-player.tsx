@@ -46,6 +46,7 @@ import {
   type VideoInteractionPluginApi
 } from '@/components/players/video-interaction-controller'
 import './video-player.css'
+import { useManagedVideoPlayback } from './use-managed-video-playback'
 
 const VIDEO_TIME_SYNC_THRESHOLD = 0.25
 
@@ -101,10 +102,14 @@ export interface VideoPlayerProps {
   preload?: 'none' | 'metadata' | 'auto'
   className?: string
   fillParent?: boolean
-  onPlay?: () => void
+  onPlay?: (automatic?: boolean) => void
   onPause?: () => void
   onError?: (error: string) => void
   settingActions?: VideoPlayerSettingAction[]
+  /** undefined 沿用普通播放器行为；传入布尔值后由详情视口控制播放资格。 */
+  playbackActive?: boolean
+  playbackPaused?: boolean
+  onPlaybackIntent?: (playing: boolean) => void
 }
 
 export function VideoPlayer({
@@ -124,7 +129,10 @@ export function VideoPlayer({
   onPlay,
   onPause,
   onError,
-  settingActions
+  settingActions,
+  playbackActive,
+  playbackPaused = false,
+  onPlaybackIntent
 }: VideoPlayerProps) {
   const previousChapterControlName = 'chapter-previous'
   const nextChapterControlName = 'chapter-next'
@@ -193,6 +201,17 @@ export function VideoPlayer({
   const chapterMarkerMinSpacingPx = isDesktop ? 18 : 28
   const showAudioControls = shouldShowAudioControls(hasAudio)
   const showVideoMetadataTag = (size ?? 0) > 0 || showAudioControls
+  // 初始化只依赖是否接管，不依赖可见性值；视口变化由独立 hook 控制，不重建播放器。
+  const managed = playbackActive !== undefined
+  const playback = useManagedVideoPlayback(
+    artInstance,
+    playbackActive,
+    playbackPaused,
+    Boolean(error),
+    onPlaybackIntent
+  )
+  const playbackRef = useRef(playback)
+  playbackRef.current = playback
 
   useEffect(() => {
     chaptersRef.current = chapters
@@ -319,7 +338,7 @@ export function VideoPlayer({
         fullscreen: true,
         fullscreenWeb: true,
         pip: false,
-        mutex: true,
+        mutex: !managed,
         gesture: false,
         theme: '#3b82f6',
         plugins: [
@@ -411,19 +430,25 @@ export function VideoPlayer({
       })
 
       art.on('play', () => {
+        // Artplayer 销毁后仍可能收到迟到的 play Promise 结果，不能影响下一实例/作品。
+        if (!active) return
+        const result = playbackRef.current.onPlay(art)
+        if (!result.allowed) return
         // 默认播放行为来源于用户点击，不应沿用初始化时的 autoplay 静音策略
         // 否则首次手动播放时会出现“明明开始播放却听不到音频”的体验问题
-        if (showAudioControls && !autoPlay) {
+        if (showAudioControls && !autoPlay && !managed) {
           art.muted = false
         }
 
         hasStartedPlayingRef.current = true
         wasPlayingBeforeErrorRef.current = true
         setIsPlaying(true)
-        onPlayRef.current?.()
+        onPlayRef.current?.(result.automatic)
       })
 
       art.on('pause', () => {
+        if (!active) return
+        playbackRef.current.onPause()
         const video = getArtVideo(art)
         wasPlayingBeforeErrorRef.current = false
         setIsPlaying(false)
@@ -516,6 +541,7 @@ export function VideoPlayer({
     longPressPlaybackRate,
     loop,
     mediaSrc,
+    managed,
     muted,
     playerAttempt,
     preload,

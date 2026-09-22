@@ -5,6 +5,8 @@ import type { inferRouterOutputs } from '@trpc/server'
 import { CopyIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { Checkbox } from '@/components/ui/checkbox'
+import { isActiveArchiveUploaderRunStatus } from './archive-uploader-view-state'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -17,8 +19,14 @@ export function ArchiveUploaderSourceList({
   sources,
   selectedSourceId,
   onSelect,
-  onCopyUid
+  onCopyUid,
+  checkedSourceIds,
+  onCheckSource,
+  selectionDisabled
 }: {
+  checkedSourceIds?: Set<string>
+  onCheckSource?: (id: string, checked: boolean) => void
+  selectionDisabled?: boolean
   sources: UploaderSource[]
   selectedSourceId: string | null
   onSelect: (sourceId: string) => void
@@ -33,6 +41,19 @@ export function ArchiveUploaderSourceList({
       <CardContent className="flex flex-col gap-1 px-2">
         {sources.map((source) => (
           <div key={source.id} className="flex items-center gap-1">
+            {onCheckSource ? (
+              <Checkbox
+                className="mx-1"
+                aria-label={`选择来源 ${source.displayName}`}
+                checked={checkedSourceIds?.has(source.id) ?? false}
+                disabled={
+                  selectionDisabled ||
+                  source.status !== 'ACTIVE' ||
+                  isActiveArchiveUploaderRunStatus(source.latestRun?.status)
+                }
+                onCheckedChange={(checked) => onCheckSource(source.id, checked === true)}
+              />
+            ) : null}
             <Button
               variant={selectedSourceId === source.id ? 'secondary' : 'ghost'}
               className="h-auto min-h-14 min-w-0 flex-1 justify-start px-3 py-2 text-left"

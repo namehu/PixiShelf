@@ -33,26 +33,54 @@ const mocks = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.isDesktop }))
 
-vi.mock('@/components/ui/dropdown-menu', () => ({
-  DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DropdownMenuTrigger: ({ children }: { children: ReactNode }) => children,
-  DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DropdownMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  DropdownMenuSeparator: () => <hr />,
-  DropdownMenuItem: ({
-    children,
-    disabled,
-    onSelect
-  }: {
-    children: ReactNode
-    disabled?: boolean
-    onSelect?: () => void
-  }) => (
-    <button type="button" disabled={disabled} onClick={onSelect}>
-      {children}
-    </button>
-  )
-}))
+vi.mock('@/components/ui/dropdown-menu', async () => {
+  const { createContext, useContext } = await import('react')
+  const RadioContext = createContext<(value: string) => void>(() => {})
+  return {
+    DropdownMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuRadioGroup: ({
+      children,
+      onValueChange
+    }: {
+      children: ReactNode
+      onValueChange: (value: string) => void
+    }) => <RadioContext.Provider value={onValueChange}>{children}</RadioContext.Provider>,
+    DropdownMenuRadioItem: ({
+      children,
+      value,
+      'aria-label': label
+    }: {
+      children: ReactNode
+      value: string
+      'aria-label'?: string
+    }) => {
+      const onChange = useContext(RadioContext)
+      return (
+        <button type="button" aria-label={label} onClick={() => onChange(value)}>
+          {children}
+        </button>
+      )
+    },
+    DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuTrigger: ({ children }: { children: ReactNode }) => children,
+    DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuSeparator: () => <hr />,
+    DropdownMenuItem: ({
+      children,
+      disabled,
+      onSelect
+    }: {
+      children: ReactNode
+      disabled?: boolean
+      onSelect?: () => void
+    }) => (
+      <button type="button" disabled={disabled} onClick={onSelect}>
+        {children}
+      </button>
+    )
+  }
+})
 
 const source = {
   id: 'source-1',
@@ -201,9 +229,11 @@ vi.mock('@tanstack/react-query', () => ({
     removeQueries: mocks.removeQueries
   }),
   useQuery: (options: { kind?: string }) =>
-    options.kind === 'sources'
-      ? { data: currentSourcesData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null }
-      : { data: currentDetailData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null },
+    options.kind === 'batch'
+      ? { data: null, isPending: false, isError: false }
+      : options.kind === 'sources'
+        ? { data: currentSourcesData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null }
+        : { data: currentDetailData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null },
   useInfiniteQuery: (options: { kind?: string }) => ({
     data: options.kind === 'ignored' ? ignoredItemsData : currentItemsData,
     isLoading: false,
@@ -332,6 +362,10 @@ vi.mock('@/lib/trpc', () => ({
       createSource: { mutationOptions: () => ({ kind: 'create' }) }
     },
     archiveSearch: {
+      activeBatchScan: { queryOptions: () => ({ kind: 'batch' }), queryKey: () => ['batch'] },
+      startBatchScan: { mutationOptions: () => ({ kind: 'batch-start' }) },
+      controlBatchScan: { mutationOptions: () => ({ kind: 'batch-control' }) },
+      retryBatchScan: { mutationOptions: () => ({ kind: 'batch-retry' }) },
       listSources: { queryOptions: () => ({ kind: 'sources' }), queryKey: () => ['sources'] },
       getSource: { queryOptions: () => ({ kind: 'detail' }), queryKey: () => ['detail'] },
       listItems: {
@@ -444,6 +478,14 @@ afterEach(cleanup)
 
 describe('ArchiveUploaderSources', () => {
   beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      }
+    )
     vi.clearAllMocks()
     mocks.ignoreFail = false
     mocks.ignoreHold = false
@@ -762,6 +804,21 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('uses cards with an independent source link and clickable preview while retaining selection', () => {
+    renderSources()
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByLabelText('使用卡片模式'))
+    fireEvent.click(screen.getByRole('button', { name: '预览 Gallery 302 的图片' }))
+    expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
+    expect(screen.getByRole('link', { name: '在新标签页打开原站 Gallery 302' }).getAttribute('href')).toBe(
+      '/api/archive/catalog/catalog-item-1/source'
+    )
+    expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
+    fireEvent.click(screen.getByLabelText('使用纯列表'))
+    expect(screen.queryByRole('button', { name: '预览 Gallery 302 的图片' })).toBeNull()
+    expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
+  })
+
   it('opens source preview independently from the stored cover popup', () => {
     renderSources()
 
@@ -1005,6 +1062,7 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
     fireEvent.click(screen.getByLabelText('显示首图预览'))
     fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    fireEvent.click(screen.getByLabelText('使用卡片模式'))
     fireEvent.click(screen.getByRole('button', { name: '预览 Ignored Gallery 301 的首图' }))
     expect(screen.getByRole('dialog')).toBeTruthy()
   })

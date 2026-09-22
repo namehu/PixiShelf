@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useMemo, useState, type ReactNode } from 'react'
 import { Virtuoso, type ListRange, type VirtuosoHandle } from 'react-virtuoso'
 import { RefreshCwIcon } from 'lucide-react'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
 import { Spinner } from '@/components/ui/spinner'
 
 export interface ArchiveDiscoveryListPosition {
@@ -17,6 +18,7 @@ export interface ArchiveDiscoveryListPosition {
 }
 
 interface ArchiveDiscoveryResultListProps<TItem extends { id: string }> {
+  view?: ArchiveUploaderResultView
   items: TItem[]
   isDesktop: boolean
   layoutReady: boolean
@@ -38,6 +40,7 @@ interface ArchiveDiscoveryResultListProps<TItem extends { id: string }> {
 
 export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
   items,
+  view = 'list',
   isDesktop,
   layoutReady,
   isLoading,
@@ -55,6 +58,15 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
   position,
   onPositionChange
 }: ArchiveDiscoveryResultListProps<TItem>) {
+  const [cardColumns, setCardColumns] = useState(1)
+  const columns = view === 'cards' && isDesktop ? cardColumns : 1
+  const rows = useMemo(() => {
+    const result: Array<{ id: string; items: TItem[] }> = []
+    for (let index = 0; index < items.length; index += columns) {
+      result.push({ id: items[index]!.id, items: items.slice(index, index + columns) })
+    }
+    return result
+  }, [items, columns])
   const virtuosoRef = useRef<VirtuosoHandle>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const scrollerRef = useRef<HTMLElement | Window | null>(null)
@@ -63,6 +75,7 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
   const lastRequestedLengthRef = useRef<number | null>(null)
   const restoredLayoutRef = useRef<string | null>(null)
   const restoringRef = useRef(true)
+  const capturedPositionRef = useRef<{ key: string; position: ArchiveDiscoveryListPosition } | null>(null)
   const captureRef = useRef<() => void>(() => {})
 
   useEffect(() => {
@@ -85,7 +98,7 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
       let foundVisibleItem = false
       for (let index = range.startIndex; index <= range.endIndex; index += 1) {
         const element = rootRef.current.querySelector<HTMLElement>(`[data-item-index="${index}"]`)
-        const item = items[index]
+        const item = items[index * columns]
         if (!element || !item) continue
         const rect = element.getBoundingClientRect()
         if (rect.bottom <= viewportTop || rect.top >= viewportBottom) continue
@@ -102,20 +115,37 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
         : scrollerRef.current instanceof HTMLElement
           ? scrollerRef.current.scrollTop
           : 0
-    onPositionChange({
+    const captured = {
       anchorId: current?.id ?? null,
       anchorOffset: current?.offset ?? 0,
       scrollTop,
       windowScrollY: window.scrollY
-    })
-  }, [isDesktop, items, onPositionChange])
+    }
+    capturedPositionRef.current = { key: positionKey, position: captured }
+    onPositionChange(captured)
+  }, [isDesktop, items, columns, onPositionChange, positionKey])
 
   useLayoutEffect(() => {
     captureRef.current = capturePosition
   }, [capturePosition])
 
-  // Capture before React removes the old scroll host, while its row geometry is valid.
+  // Retain the last visible artwork when leaving a source or changing scroll hosts.
   useLayoutEffect(() => () => captureRef.current(), [positionKey, isDesktop])
+
+  useLayoutEffect(() => {
+    const root = rootRef.current
+    if (!root || view !== 'cards' || !isDesktop) return
+    const measure = () => {
+      const width = root.getBoundingClientRect().width
+      const next = width >= 960 ? 3 : width >= 600 ? 2 : 1
+      if (next !== cardColumns) restoringRef.current = true
+      setCardColumns(next)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [view, isDesktop, layoutReady, isLoading, isError, items.length, cardColumns])
 
   useEffect(() => {
     if (isDesktop) return
@@ -124,14 +154,18 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
     return () => window.removeEventListener('scroll', capture)
   }, [isDesktop])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!layoutReady || isLoading || items.length === 0) return
-    const restoreKey = `${positionKey}:${isDesktop ? 'desktop' : 'window'}`
-    if (restoredLayoutRef.current === restoreKey) return
+    const restoreKey = `${positionKey}:${isDesktop ? 'desktop' : 'window'}:${view}:${columns}`
+    if (restoredLayoutRef.current === restoreKey) {
+      restoringRef.current = false
+      return
+    }
     restoringRef.current = true
     let frame = 0
     let attempts = 0
-    const savedPosition = position
+    const savedPosition =
+      capturedPositionRef.current?.key === positionKey ? capturedPositionRef.current.position : position
     const anchorIndex = savedPosition?.anchorId ? items.findIndex(({ id }) => id === savedPosition.anchorId) : -1
     const restore = () => {
       if (!virtuosoRef.current) {
@@ -141,7 +175,7 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
       }
       if (anchorIndex >= 0) {
         virtuosoRef.current.scrollToIndex({
-          index: anchorIndex,
+          index: Math.floor(anchorIndex / columns),
           align: 'start',
           offset: -(savedPosition?.anchorOffset ?? 0)
         })
@@ -152,7 +186,9 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
       }
       const settle = () => {
         const anchor =
-          anchorIndex >= 0 ? rootRef.current?.querySelector<HTMLElement>(`[data-item-index="${anchorIndex}"]`) : null
+          anchorIndex >= 0
+            ? rootRef.current?.querySelector<HTMLElement>(`[data-item-index="${Math.floor(anchorIndex / columns)}"]`)
+            : null
         if (anchor) {
           const viewportTop =
             isDesktop && scrollerRef.current instanceof HTMLElement
@@ -174,8 +210,11 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
       frame = window.requestAnimationFrame(settle)
     }
     frame = window.requestAnimationFrame(restore)
-    return () => window.cancelAnimationFrame(frame)
-  }, [isDesktop, isLoading, items, layoutReady, position, positionKey])
+    return () => {
+      restoringRef.current = true
+      window.cancelAnimationFrame(frame)
+    }
+  }, [isDesktop, isLoading, items, layoutReady, position, positionKey, view, columns])
 
   if (!layoutReady || isLoading) return <Skeleton className="h-[60vh] min-h-80 w-full" />
   if (isError) {
@@ -198,12 +237,13 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
     <Card ref={rootRef} className="@container/discovery-results gap-0 overflow-hidden py-0">
       {header}
       <Virtuoso
-        key={isDesktop ? 'desktop' : 'window'}
+        key={`${isDesktop ? 'desktop' : 'window'}:${view}:${columns}`}
         ref={virtuosoRef}
-        data={items}
+        data={rows}
         computeItemKey={(_index, item) => item.id}
         useWindowScroll={!isDesktop}
-        className={isDesktop ? 'h-[60vh] min-h-80 max-h-[44rem]' : undefined}
+        className={isDesktop ? 'min-h-80 max-h-[44rem]' : undefined}
+        style={isDesktop ? { height: '60vh' } : undefined}
         overscan={600}
         scrollerRef={(element) => {
           scrollerRef.current = element
@@ -220,7 +260,18 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
           lastRequestedLengthRef.current = items.length
           onLoadMore()
         }}
-        itemContent={(_index, item) => renderItem(item)}
+        itemContent={(_index, row) => (
+          <div
+            className={view === 'cards' ? 'grid gap-3 px-3 py-1.5' : undefined}
+            style={view === 'cards' ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
+          >
+            {row.items.map((item) => (
+              <div key={item.id} className="min-w-0">
+                {renderItem(item)}
+              </div>
+            ))}
+          </div>
+        )}
         components={{
           Footer: () =>
             isFetchingNextPage ? (
