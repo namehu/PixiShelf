@@ -1,4 +1,5 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
+import { useArtworkAutoBrowseStore as autoBrowse } from '@/store/use-artwork-auto-browse-store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import LazyMedia from '../lazy-media'
 
@@ -55,6 +56,7 @@ describe('LazyMedia video cache version', () => {
 
   afterEach(() => {
     cleanup()
+    autoBrowse.getState().initialize(1)
     optimizationState.job = null
     optimizationState.isStarting = false
     optimizationState.canManage = true
@@ -196,5 +198,38 @@ describe('LazyMedia video cache version', () => {
     )
 
     expect((container.firstElementChild as HTMLElement).style.aspectRatio).toBe('')
+  })
+
+  it('controls automatic WebP playback and preserves an error pause', () => {
+    autoBrowse.getState().initialize(1)
+    autoBrowse.getState().start('scroll')
+    render(
+      <LazyMedia media={{ ...media, path: '/animation.webp', isAnimated: true, webpAnimationStatus: 2 }} index={0} />
+    )
+    act(() => autoBrowse.getState().setActiveAnimation(media.id))
+    const props = playerMocks.animatedProps.mock.calls.at(-1)![0]
+    expect(props).toMatchObject({ playing: true, playOnce: true, updatedAt: media.updatedAt })
+    expect(autoBrowse.getState().status).toBe('running')
+    act(() => {
+      props.onAnimationError()
+      props.onPlayingChange(false)
+    })
+    expect(autoBrowse.getState()).toMatchObject({ status: 'paused', reason: 'error', activeAnimationId: null })
+    expect(playerMocks.animatedProps.mock.calls.at(-1)![0]).toMatchObject({ playing: false, playOnce: false })
+  })
+
+  it('does not restore a previous manual loop after automatic playback finishes', () => {
+    autoBrowse.getState().initialize(1)
+    render(
+      <LazyMedia media={{ ...media, path: '/animation.webp', isAnimated: true, webpAnimationStatus: 2 }} index={0} />
+    )
+    act(() => playerMocks.animatedProps.mock.calls.at(-1)![0].onPlayingChange(true))
+    expect(playerMocks.animatedProps.mock.calls.at(-1)![0].playing).toBe(true)
+    act(() => {
+      autoBrowse.getState().start('scroll')
+      autoBrowse.getState().setActiveAnimation(media.id)
+    })
+    act(() => autoBrowse.getState().setActiveAnimation(null))
+    expect(playerMocks.animatedProps.mock.calls.at(-1)![0].playing).toBe(false)
   })
 })

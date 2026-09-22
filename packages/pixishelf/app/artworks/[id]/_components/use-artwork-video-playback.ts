@@ -7,6 +7,7 @@ import { getAutoBrowseViewport } from './use-artwork-auto-scroll'
 /** 以扣除工具栏后的阅读视口统一选择播放对象，避免虚拟列表中多个已挂载视频抢播。 */
 export function useArtworkVideoPlayback(root: RefObject<HTMLDivElement | null>) {
   const previewOpen = useArtworkAutoBrowseStore((state) => state.previewOpen)
+  const animationActive = useArtworkAutoBrowseStore((state) => state.activeAnimationId !== null)
   useEffect(() => {
     const element = root.current
     if (!element) return
@@ -14,7 +15,7 @@ export function useArtworkVideoPlayback(root: RefObject<HTMLDivElement | null>) 
     const update = () => {
       frame = 0
       const store = useArtworkAutoBrowseStore.getState()
-      if (document.hidden || previewOpen) {
+      if (document.hidden || previewOpen || animationActive) {
         store.setActiveVideo(null)
         return
       }
@@ -57,5 +58,5 @@ export function useArtworkVideoPlayback(root: RefObject<HTMLDivElement | null>) 
       document.removeEventListener('visibilitychange', visibility)
       useArtworkAutoBrowseStore.getState().setActiveVideo(null)
     }
-  }, [root, previewOpen])
+  }, [root, previewOpen, animationActive])
 }

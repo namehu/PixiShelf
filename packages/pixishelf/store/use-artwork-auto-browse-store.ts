@@ -40,6 +40,8 @@ interface AutoBrowseState extends AutoBrowsePreferences {
   controlsCollapsed: boolean
   skippedIds: number[]
   activeVideoId: number | null
+  activeAnimationId: number | null
+  setActiveAnimation: (id: number | null) => void
   // 跨虚拟列表卸载保留手动暂停意图，仅在作品会话结束时清空，不写入持久化偏好。
   pausedVideoIds: number[]
   setActiveVideo: (id: number | null) => void
@@ -73,6 +75,7 @@ const runtimeDefaults = {
   controlsCollapsed: false,
   skippedIds: [],
   activeVideoId: null,
+  activeAnimationId: null,
   pausedVideoIds: []
 } as const
 
@@ -83,6 +86,11 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       ...runtimeDefaults,
       skippedIds: [],
       pausedVideoIds: [],
+      setActiveAnimation: (id) => {
+        if (get().activeAnimationId !== id) {
+          set({ activeAnimationId: id, ...(id !== null ? { activeVideoId: null } : {}) })
+        }
+      },
       setActiveVideo: (id) => {
         if (get().activeVideoId !== id) set({ activeVideoId: id })
       },
@@ -120,6 +128,7 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
         if (get().artworkId === null) return
         set({
           mode,
+          activeAnimationId: null,
           status: 'running',
           reason: null,
           controlsCollapsed: false,
@@ -129,7 +138,13 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       },
       pause: (reason = 'manual') => {
         if (!['running', 'waiting'].includes(get().status)) return
-        set({ status: 'paused', reason, controlsCollapsed: false, revision: get().revision + 1 })
+        set({
+          status: 'paused',
+          reason,
+          activeAnimationId: null,
+          controlsCollapsed: false,
+          revision: get().revision + 1
+        })
       },
       resume: () => {
         const state = get()
@@ -149,12 +164,20 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
         set({
           mode: null,
           status: 'idle',
+          activeAnimationId: null,
           reason: null,
           controlsCollapsed: false,
           skippedIds: [],
           revision: get().revision + 1
         }),
-      end: () => set({ status: 'ended', reason: null, controlsCollapsed: false, revision: get().revision + 1 }),
+      end: () =>
+        set({
+          status: 'ended',
+          reason: null,
+          activeAnimationId: null,
+          controlsCollapsed: false,
+          revision: get().revision + 1
+        }),
       wait: () => {
         if (get().status === 'running') set({ status: 'waiting' })
       },
@@ -164,7 +187,7 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       setCurrentMedia: (id) => {
         if (get().currentMediaId !== id) set({ currentMediaId: id })
       },
-      setPreviewOpen: (previewOpen) => set({ previewOpen }),
+      setPreviewOpen: (previewOpen) => set({ previewOpen, ...(previewOpen ? { activeAnimationId: null } : {}) }),
       setControlsCollapsed: (controlsCollapsed) => {
         if (controlsCollapsed && !['running', 'waiting'].includes(get().status)) return
         set({ controlsCollapsed })

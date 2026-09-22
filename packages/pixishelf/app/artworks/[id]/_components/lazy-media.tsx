@@ -63,6 +63,23 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const playbackActive = useArtworkAutoBrowseStore((state) => state.activeVideoId === media.id && !state.previewOpen)
   const playbackPaused = useArtworkAutoBrowseStore((state) => state.pausedVideoIds.includes(media.id))
+  const animationActive = useArtworkAutoBrowseStore((state) => state.activeAnimationId === media.id)
+  const [manualAnimationPlaying, setManualAnimationPlaying] = useState(false)
+  useEffect(() => {
+    if (animationActive) setManualAnimationPlaying(false)
+  }, [animationActive])
+  const onAnimationPlayingChange = useCallback(
+    (playing: boolean) => {
+      const state = useArtworkAutoBrowseStore.getState()
+      setManualAnimationPlaying(playing)
+      if (playing || state.activeAnimationId === media.id) state.pause('manual')
+    },
+    [media.id]
+  )
+  const onAnimationError = useCallback(() => {
+    const state = useArtworkAutoBrowseStore.getState()
+    if (state.activeAnimationId === media.id) state.pause('error')
+  }, [media.id])
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
   const src = media.path
   const hasDimensions =
@@ -202,9 +219,13 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={formatLabel}
           controlMode={isWebpFile(src) ? 'badge' : 'surface'}
+          playing={isWebpFile(src) ? animationActive || manualAnimationPlaying : undefined}
+          playOnce={animationActive}
+          updatedAt={media.updatedAt}
           onPosterLoad={() => report('ready')}
           onPosterError={() => report('error')}
-          onPlayingChange={onPlayingChange}
+          onPlayingChange={isWebpFile(src) ? onAnimationPlayingChange : onPlayingChange}
+          onAnimationError={onAnimationError}
         />
       )
     }

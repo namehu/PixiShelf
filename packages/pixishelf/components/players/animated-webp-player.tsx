@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent 
 import { cn } from '@/lib/utils'
 import { withMediaVersion } from '@/lib/media-url'
 import { combinationApiResource } from '@/utils/combination-static'
+import { createSingleLoopWebp } from '@/lib/single-loop-webp'
 
 type AnimatedWebpPlayerControlMode = 'surface' | 'badge' | 'external'
 
@@ -20,8 +21,10 @@ interface AnimatedWebpPlayerProps {
   posterLoading?: 'eager' | 'lazy'
   onPosterLoad?: (image: HTMLImageElement) => void
   onPosterError?: () => void
+  onAnimationError?: () => void
   controlMode?: AnimatedWebpPlayerControlMode
   playing?: boolean
+  playOnce?: boolean
   onPlayingChange?: (playing: boolean) => void
 }
 
@@ -54,19 +57,25 @@ export default function AnimatedWebpPlayer({
   posterLoading = 'lazy',
   onPosterLoad,
   onPosterError,
+  onAnimationError,
   controlMode = 'surface',
   playing,
+  playOnce = false,
   onPlayingChange
 }: AnimatedWebpPlayerProps) {
   const [uncontrolledPlaying, setUncontrolledPlaying] = useState(false)
   const [isLoadingAnimation, setIsLoadingAnimation] = useState(false)
   const [animationFailed, setAnimationFailed] = useState(false)
+  const [singleLoop, setSingleLoop] = useState<{ source: string; url: string; durationMs: number } | null>(null)
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
   const containerRef = useRef<HTMLElement | null>(null)
   const originalSrc = useMemo(() => withMediaVersion(combinationApiResource(src), updatedAt), [src, updatedAt])
   const posterSrc = useMemo(() => withMediaVersion(getStaticWebpPosterUrl(src), updatedAt), [src, updatedAt])
   const fileSize = formatFileSize(size)
   const requestedPlaying = playing ?? uncontrolledPlaying
   const isPlaying = isAnimated && requestedPlaying
+  const animationSrc = playOnce ? (singleLoop?.source === originalSrc ? singleLoop.url : null) : originalSrc
+  const loadingAnimation = isPlaying && (playOnce ? !animationSrc || loadedUrl !== animationSrc : isLoadingAnimation)
 
   const setContainerNode = useCallback((node: HTMLElement | null) => {
     containerRef.current = node
@@ -116,6 +125,37 @@ export default function AnimatedWebpPlayer({
   }, [isPlaying, src])
 
   useEffect(() => {
+    if (!isPlaying || !playOnce) return
+    const controller = new AbortController()
+    let cancelled = false
+    let url: string | null = null
+    void (async () => {
+      try {
+        const response = await fetch(originalSrc, { signal: controller.signal })
+        if (!response.ok) throw new Error('动图加载失败')
+        const buffer = await response.arrayBuffer()
+        if (cancelled) return
+        const result = createSingleLoopWebp(buffer)
+        url = URL.createObjectURL(result.blob)
+        setSingleLoop({ source: originalSrc, url, durationMs: result.durationMs })
+      } catch {
+        if (cancelled) return
+        setAnimationFailed(true)
+        setIsLoadingAnimation(false)
+        onAnimationError?.()
+        setPlayback(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+      controller.abort()
+      if (url) URL.revokeObjectURL(url)
+      setSingleLoop(null)
+      setLoadedUrl(null)
+    }
+  }, [isPlaying, playOnce, originalSrc, onAnimationError, setPlayback])
+
+  useEffect(() => {
     if (!isPlaying || typeof IntersectionObserver === 'undefined') return
 
     const container = containerRef.current
@@ -142,11 +182,13 @@ export default function AnimatedWebpPlayer({
 
   const handleAnimationLoad = () => {
     setIsLoadingAnimation(false)
+    setLoadedUrl(animationSrc)
   }
 
   const handleAnimationError = () => {
     setIsLoadingAnimation(false)
     setAnimationFailed(true)
+    onAnimationError?.()
     setPlayback(false)
   }
 
@@ -168,9 +210,10 @@ export default function AnimatedWebpPlayer({
         type="button"
         className="absolute bottom-0 right-2 z-10 flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
         data-long-press-ignore
+        data-auto-browse-controls={playOnce || undefined}
         aria-label={`${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}
         aria-pressed={isPlaying}
-        aria-busy={isLoadingAnimation}
+        aria-busy={loadingAnimation}
         onClick={(event) => {
           stopControlEvent(event)
           handleTogglePlayback()
@@ -203,9 +246,10 @@ export default function AnimatedWebpPlayer({
         onError={onPosterError}
       />
 
-      {isAnimated && isPlaying && !animationFailed && (
+      {isAnimated && isPlaying && !animationFailed && animationSrc && (
         <img
-          src={originalSrc}
+          key={animationSrc}
+          src={animationSrc}
           alt={alt}
           loading="eager"
           decoding="async"
@@ -218,7 +262,7 @@ export default function AnimatedWebpPlayer({
 
       {playbackBadge}
 
-      {isAnimated && isLoadingAnimation && (
+      {loadingAnimation && !animationFailed && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20">
           <div className="rounded-full bg-white/90 p-3">
             <Loader2Icon className="h-7 w-7 animate-spin text-neutral-700" />
@@ -244,7 +288,15 @@ export default function AnimatedWebpPlayer({
 
   if (!isAnimated || controlMode !== 'surface') {
     return (
-      <div ref={setContainerNode} className={containerClassName} aria-busy={isLoadingAnimation || undefined}>
+      <div
+        ref={setContainerNode}
+        className={containerClassName}
+        aria-busy={loadingAnimation || undefined}
+        data-animation-status={
+          isPlaying ? (animationFailed ? 'error' : loadingAnimation ? 'loading' : 'ready') : 'idle'
+        }
+        data-animation-duration-ms={playOnce ? singleLoop?.durationMs : undefined}
+      >
         {content}
       </div>
     )

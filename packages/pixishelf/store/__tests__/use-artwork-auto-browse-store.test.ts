@@ -18,6 +18,24 @@ describe('artwork auto browse store', () => {
     expect(store.getState()).toMatchObject({ mode: 'slideshow', status: 'running' })
   })
 
+  it('revokes automatic animation playback on pause, mode changes, preview and exit', () => {
+    for (const interrupt of [
+      () => store.getState().pause(),
+      () => store.getState().start('slideshow'),
+      () => store.getState().setPreviewOpen(true),
+      () => store.getState().stop(),
+      () => store.getState().end()
+    ]) {
+      store.getState().initialize(1)
+      store.getState().start('scroll')
+      store.getState().setActiveVideo(8)
+      store.getState().setActiveAnimation(7)
+      expect(store.getState().activeVideoId).toBeNull()
+      interrupt()
+      expect(store.getState().activeAnimationId).toBeNull()
+    }
+  })
+
   it('acknowledges the current video on resume and clears acknowledgements for a loop', () => {
     store.getState().start('scroll')
     store.getState().setCurrentMedia(7)
