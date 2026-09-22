@@ -39,6 +39,11 @@ interface AutoBrowseState extends AutoBrowsePreferences {
   previewOpen: boolean
   controlsCollapsed: boolean
   skippedIds: number[]
+  activeVideoId: number | null
+  // 跨虚拟列表卸载保留手动暂停意图，仅在作品会话结束时清空，不写入持久化偏好。
+  pausedVideoIds: number[]
+  setActiveVideo: (id: number | null) => void
+  setVideoPaused: (id: number, paused: boolean) => void
   initialize: (artworkId: number) => number
   release: (session: number) => void
   start: (mode: AutoBrowseMode) => void
@@ -66,7 +71,9 @@ const runtimeDefaults = {
   currentMediaId: null,
   previewOpen: false,
   controlsCollapsed: false,
-  skippedIds: []
+  skippedIds: [],
+  activeVideoId: null,
+  pausedVideoIds: []
 } as const
 
 export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
@@ -75,16 +82,39 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       ...preferences(null),
       ...runtimeDefaults,
       skippedIds: [],
+      pausedVideoIds: [],
+      setActiveVideo: (id) => {
+        if (get().activeVideoId !== id) set({ activeVideoId: id })
+      },
+      setVideoPaused: (id, paused) =>
+        set((state) => ({
+          pausedVideoIds: paused
+            ? [...new Set([...state.pausedVideoIds, id])]
+            : state.pausedVideoIds.filter((value) => value !== id)
+        })),
       session: 0,
       revision: 0,
       initialize: (artworkId) => {
         const session = get().session + 1
-        set({ ...runtimeDefaults, skippedIds: [], artworkId, session, revision: get().revision + 1 })
+        set({
+          ...runtimeDefaults,
+          skippedIds: [],
+          pausedVideoIds: [],
+          artworkId,
+          session,
+          revision: get().revision + 1
+        })
         return session
       },
       release: (session) => {
         if (get().session !== session) return
-        set({ ...runtimeDefaults, skippedIds: [], session: session + 1, revision: get().revision + 1 })
+        set({
+          ...runtimeDefaults,
+          skippedIds: [],
+          pausedVideoIds: [],
+          session: session + 1,
+          revision: get().revision + 1
+        })
       },
       start: (mode) => {
         if (get().artworkId === null) return

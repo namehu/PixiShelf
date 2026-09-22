@@ -10,6 +10,7 @@ import { Field, FieldLabel } from '@/components/ui/field'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { updateUserSettingAction } from '@/actions/user-setting-action'
 import { PreferenceItem } from '../_components/preference-item'
+import { ArtworkPreviewPreference } from '../_components/artwork-preview-preference'
 import {
   useArtworkDisplayMode,
   useArtworkMediaAnchorInterval,
@@ -200,6 +201,7 @@ export default function SettingsPreferencesPage() {
 
   return (
     <div>
+      <ArtworkPreviewPreference />
       <PreferenceItem
         title="隐私模式"
         description="开启后遮蔽全站媒体与敏感信息；关闭后，进入浏览和管理页面时需先确认 R18 内容警告。设置页面始终可以直接访问。此功能仅改变显示，不阻止数据或媒体加载和访问"

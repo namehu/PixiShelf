@@ -307,8 +307,8 @@ export default function AdaptiveMediaPreview({
             <Button
               type="button"
               size="sm"
-              variant="secondary"
-              className="pointer-events-auto h-11 shrink-0 rounded-full shadow-lg"
+              variant="ghost"
+              className="pointer-events-auto h-11 shrink-0 rounded-full p-0 hover:bg-transparent"
               aria-label={`${isWebpPlaying ? '暂停' : '播放'} WEBP 动图`}
               aria-pressed={isWebpPlaying}
               onClick={() => {
@@ -316,8 +316,10 @@ export default function AdaptiveMediaPreview({
                 setIsWebpPlaying((playing) => !playing)
               }}
             >
-              {isWebpPlaying ? <PauseIcon data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
-              动图
+              <span className="flex h-[22px] items-center gap-1 rounded-full bg-secondary px-2 text-xs text-secondary-foreground shadow-lg">
+                {isWebpPlaying ? <PauseIcon className="size-3" /> : <PlayIcon className="size-3" />}
+                动图
+              </span>
             </Button>
           )}
           {images.length > 1 && (

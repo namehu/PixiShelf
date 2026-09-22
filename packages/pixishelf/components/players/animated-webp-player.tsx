@@ -166,10 +166,7 @@ export default function AnimatedWebpPlayer({
     controlMode === 'external' ? null : controlMode === 'badge' && isAnimated ? (
       <button
         type="button"
-        className={cn(
-          badgeClassName,
-          'bottom-2 min-h-11 min-w-11 cursor-pointer justify-center rounded-full border-0 px-3 text-xs'
-        )}
+        className="absolute bottom-0 right-2 z-10 flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
         data-long-press-ignore
         aria-label={`${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}
         aria-pressed={isPlaying}
@@ -185,7 +182,9 @@ export default function AnimatedWebpPlayer({
         onTouchStart={stopControlEvent}
         onTouchEnd={stopControlEvent}
       >
-        {badgeContent}
+        <span className="flex h-[22px] items-center justify-center gap-1 rounded-full bg-[#ff2f4d] px-2 text-xs font-semibold leading-none tabular-nums text-white shadow-sm">
+          {badgeContent}
+        </span>
       </button>
     ) : (
       <div className={cn(badgeClassName, 'top-2 h-5')}>{badgeContent}</div>
