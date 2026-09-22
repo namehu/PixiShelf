@@ -138,7 +138,7 @@ export async function executeCreatorMaintenance(
       }
       if (input.command === 'REMAP') {
         const current = await captureMapping(tx, input.mappingId)
-        const target = await tx.artist.findUniqueOrThrow({ where: { id: input.artistId } })
+        const target = await tx.artist.findUniqueOrThrow({ where: { id: input.artistId, mergedIntoId: null } })
         if (current.mapping.version !== input.expectedVersion) throw new Error('映射版本已变化，请重新预览')
         if (target.kind !== (current.mapping.namespace === 'group' ? 'GROUP' : 'PERSON'))
           throw new Error('目标类型不匹配')
@@ -177,7 +177,10 @@ export async function executeCreatorMaintenance(
         })
         const targets =
           'creatorIds' in input
-            ? await tx.artist.findMany({ where: { id: { in: input.creatorIds } }, select: { name: true } })
+            ? await tx.artist.findMany({
+                where: { id: { in: input.creatorIds }, mergedIntoId: null },
+                select: { name: true }
+              })
             : []
         if ('creatorIds' in input && targets.length !== new Set(input.creatorIds).size)
           throw new Error('所选创作者已不存在')

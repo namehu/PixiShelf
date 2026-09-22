@@ -143,7 +143,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       })
     } else {
       const legacyArtists = await transaction.artist.findMany({
-        where: { userId: metadata.userId },
+        where: { userId: metadata.userId, mergedIntoId: null },
         take: 2,
         select: {
           id: true,

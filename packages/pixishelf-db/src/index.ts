@@ -3,10 +3,12 @@ import { Prisma, PrismaClient } from '@prisma/client'
 export { Prisma, PrismaClient }
 export * from './creators'
 export * from './discovery-creators'
+export * from './artist-merge'
 
-const latestRequiredMigration = '20260916200000_archive_item_download_urls'
+const latestRequiredMigration = '20260921120000_artist_merge'
 
 const requiredQueueObjects = [
+  'artist_merges',
   'creator_maintenance_plans',
   'creator_maintenance_items',
   'artwork_artists',

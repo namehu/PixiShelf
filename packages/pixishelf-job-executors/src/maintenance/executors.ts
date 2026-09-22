@@ -1,5 +1,7 @@
 import { creatorMaintenancePayloadSchema, type CreatorMaintenancePayload } from '@pixishelf/job-contracts'
 import { executeCreatorMaintenance } from './creator-maintenance.ts'
+import { artistMergePayloadSchema, type ArtistMergePayload } from '@pixishelf/job-contracts'
+import { executeArtistMerge } from './artist-merge.ts'
 import {
   archiveDefaultTagBackfillPayloadSchema,
   emptyJobPayloadSchema,
@@ -42,6 +44,14 @@ export function createMaintenanceExecutorRegistrations(
 ): ExecutorDefinition[] {
   if (!dependencies.scanRoot.trim()) throw new Error('Maintenance scanRoot is required')
   return [
+    {
+      jobType: 'ARTIST_MERGE',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => artistMergePayloadSchema.parse(payload),
+      execute: (context: ExecutionContext<ArtistMergePayload, EnqueuedChildJob>) => executeArtistMerge(context)
+    } as ExecutorDefinition,
     {
       jobType: 'CREATOR_MAINTENANCE',
       executionLane: 'BACKGROUND_WRITER',

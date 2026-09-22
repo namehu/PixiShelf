@@ -1,4 +1,9 @@
-import { activeCreatorMembership, visibleCreatorArtwork, lockCreatorCatalog } from '@pixishelf/db'
+import {
+  activeCreatorMembership,
+  visibleCreatorArtwork,
+  lockCreatorCatalog,
+  requireAvailableArtist
+} from '@pixishelf/db'
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
@@ -20,7 +25,7 @@ import { Prisma } from '@prisma/client'
  */
 export async function getArtistById(id: number | string): Promise<ArtistResponseDto | null> {
   const artist = await prisma.artist.findUnique({
-    where: { id: Number(id) },
+    where: { id: Number(id), mergedIntoId: null },
     select: {
       ...ARTIST_SELECT,
       _count: {
@@ -48,7 +53,7 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
     const skip = (page - 1) * limitedPageSize
 
     // 构建搜索条件
-    const whereClause: Prisma.ArtistWhereInput = { ...(options.kind ? { kind: options.kind } : {}) }
+    const whereClause: Prisma.ArtistWhereInput = { mergedIntoId: null, ...(options.kind ? { kind: options.kind } : {}) }
     if (isStarred !== undefined) {
       whereClause.isStarred = isStarred
     }
@@ -227,6 +232,7 @@ export async function getDashboardArtists(
     const firstArtists = await prisma.artist.findMany({
       where: {
         id: { gte: pivot },
+        mergedIntoId: null,
         artworkMemberships: { some: { ...activeCreatorMembership, artwork: visibleCreatorArtwork } }
       },
       select: artistSelect,
@@ -238,6 +244,7 @@ export async function getDashboardArtists(
         ? await prisma.artist.findMany({
             where: {
               id: { lt: pivot },
+              mergedIntoId: null,
               artworkMemberships: { some: { ...activeCreatorMembership, artwork: visibleCreatorArtwork } }
             },
             select: artistSelect,
@@ -368,6 +375,8 @@ export async function updateArtist(id: number, data: ArtistUpdateSchema['data'])
   // 注意：前端目前逻辑是 username 始终跟随 name，所以这里我们也可以强制同步
   const { pixivUserId, ...artistInput } = data
   return prisma.$transaction(async (transaction) => {
+    await lockCreatorCatalog(transaction as unknown as Prisma.TransactionClient)
+    await requireAvailableArtist(transaction as unknown as Prisma.TransactionClient, id)
     if (artistInput.kind !== undefined) {
       const currentKind = await transaction.artist.findUniqueOrThrow({ where: { id }, select: { kind: true } })
       if (currentKind.kind !== artistInput.kind) throw new Error('不能更改现有实体的类型，请新建正确类型并调整映射')
@@ -431,6 +440,8 @@ export async function updateArtist(id: number, data: ArtistUpdateSchema['data'])
 
 export async function adoptPixivSourceName(id: number): Promise<ArtistResponseDto> {
   return prisma.$transaction(async (transaction) => {
+    await lockCreatorCatalog(transaction as unknown as Prisma.TransactionClient)
+    await requireAvailableArtist(transaction as unknown as Prisma.TransactionClient, id)
     const source = await transaction.artistExternalRef.findUnique({
       where: { artistId_providerKey: { artistId: id, providerKey: 'pixiv' } },
       select: { sourceName: true }
@@ -478,7 +489,7 @@ async function rankCreators(options: ArtistsGetSchema, skip: number, take: numbe
     values.push(value)
     return '$' + values.length
   }
-  const clauses = ['TRUE']
+  const clauses = ['a."mergedIntoId" IS NULL']
   if (options.kind) clauses.push('a.kind::text = ' + bind(options.kind))
   if (options.isStarred !== undefined) clauses.push('a."isStarred" = ' + bind(options.isStarred))
   if (options.search) {
@@ -501,8 +512,8 @@ async function rankCreators(options: ArtistsGetSchema, skip: number, take: numbe
   if (options.pixivStatus) {
     const base = 'SELECT 1 FROM artist_external_refs er WHERE er."artistId"=a.id AND er."providerKey"=\'pixiv\''
     if (options.pixivStatus === 'NO_IDENTITY') clauses.push('NOT EXISTS (' + base + ')')
-    else
-      {clauses.push(
+    else {
+      clauses.push(
         'EXISTS (' +
           base +
           ' AND ' +
@@ -512,7 +523,8 @@ async function rankCreators(options: ArtistsGetSchema, skip: number, take: numbe
               ? 'er.status IS NOT NULL'
               : 'er.status::text = ' + bind(options.pixivStatus)) +
           ')'
-      )}
+      )
+    }
   }
   const rows = await prisma.$queryRawUnsafe<Array<{ id: number }>>(
     'SELECT a.id FROM "Artist" a WHERE ' +

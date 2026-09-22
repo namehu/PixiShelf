@@ -22,6 +22,8 @@ sources:
 
 ## 结论
 
+艺术家合并的 previewMerge、submitMerge、getMerge、listMerges 使用 artistRouter 的 adminProcedure，要求有效管理员会话（当前与 authProcedure 同权）。操作者由服务端会话记录；被合并 ID 的旧编辑／绑定请求必须刷新，数据库触发器进一步阻止旧身份写入。详见[艺术家合并](../features/artist-merge.md)。
+
 当前权限模型是**单一信任域**：
 
 - 有效 Better Auth 会话可以进入全部普通页面和管理页面；

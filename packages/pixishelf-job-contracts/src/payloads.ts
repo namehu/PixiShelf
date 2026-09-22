@@ -489,6 +489,9 @@ export const pixivSeriesReconciliationPayloadSchema = z.discriminatedUnion('mode
 ])
 export type PixivSeriesReconciliationPayload = z.infer<typeof pixivSeriesReconciliationPayloadSchema>
 
+export const artistMergePayloadSchema = z.object({ mergeId: z.string().min(1).max(128) }).strict()
+export type ArtistMergePayload = z.infer<typeof artistMergePayloadSchema>
+
 export const creatorMaintenancePayloadSchema = z
   .object({
     planId: z.string().min(1).max(128),
@@ -499,6 +502,7 @@ export type CreatorMaintenancePayload = z.infer<typeof creatorMaintenancePayload
 
 export const JOB_PAYLOAD_SCHEMAS = {
   CREATOR_MAINTENANCE: creatorMaintenancePayloadSchema,
+  ARTIST_MERGE: artistMergePayloadSchema,
   SCAN: scanPayloadSchema,
   LOCAL_DIRECTORY_IMPORT: localDirectoryImportPayloadSchema,
   MIGRATION: migrationPayloadSchema,

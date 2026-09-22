@@ -80,7 +80,7 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
     FROM "Artist" a
     LEFT JOIN effective_artwork_creators c ON c."artistId"=a.id
     LEFT JOIN "Artwork" aw ON aw.id=c."artworkId" AND aw."deletedAt" IS NULL AND aw."archiveLifecycleState" = 'ACTIVE'
-    WHERE (a.name ILIKE $1 OR a.username ILIKE $2 OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=a.id AND sm."sourceName" ILIKE $1))
+    WHERE a."mergedIntoId" IS NULL AND (a.name ILIKE $1 OR a.username ILIKE $2 OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=a.id AND sm."sourceName" ILIKE $1))
     GROUP BY a.id, a.name, a.username
     ORDER BY artwork_count DESC, a.name ASC
     LIMIT $3

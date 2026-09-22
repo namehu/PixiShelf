@@ -27,6 +27,7 @@ describe('database package', () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
+        { tableName: 'artist_merges' },
         { tableName: 'creator_maintenance_plans' },
         { tableName: 'creator_maintenance_items' },
         { tableName: 'artwork_artists' },
@@ -49,7 +50,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260916200000_archive_item_download_urls' }],
+      [{ migrationName: '20260921120000_artist_merge' }],
       [expectedIndex]
     ])
 
@@ -60,7 +61,7 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260916200000_archive_item_download_urls, index:system_jobs_single_executing_per_lane_idx'
+      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, artist_merges, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260921120000_artist_merge, index:system_jobs_single_executing_per_lane_idx'
     )
   })
 
@@ -68,6 +69,7 @@ describe('database package', () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
+        { tableName: 'artist_merges' },
         { tableName: 'creator_maintenance_plans' },
         { tableName: 'creator_maintenance_items' },
         { tableName: 'artwork_artists' },
@@ -95,7 +97,7 @@ describe('database package', () => {
     ])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing migration:20260916200000_archive_item_download_urls'
+      'Background queue schema is not ready: missing migration:20260921120000_artist_merge'
     )
   })
 
@@ -103,6 +105,7 @@ describe('database package', () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
+        { tableName: 'artist_merges' },
         { tableName: 'creator_maintenance_plans' },
         { tableName: 'creator_maintenance_items' },
         { tableName: 'artwork_artists' },
@@ -125,7 +128,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260916200000_archive_item_download_urls' }],
+      [{ migrationName: '20260921120000_artist_merge' }],
       []
     ])
 
@@ -138,6 +141,7 @@ describe('database package', () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
+        { tableName: 'artist_merges' },
         { tableName: 'creator_maintenance_plans' },
         { tableName: 'creator_maintenance_items' },
         { tableName: 'artwork_artists' },
@@ -160,7 +164,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260916200000_archive_item_download_urls' }],
+      [{ migrationName: '20260921120000_artist_merge' }],
       [
         {
           ...expectedIndex,
@@ -178,6 +182,7 @@ describe('database package', () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
+        { tableName: 'artist_merges' },
         { tableName: 'creator_maintenance_plans' },
         { tableName: 'creator_maintenance_items' },
         { tableName: 'artwork_artists' },
@@ -200,7 +205,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260916200000_archive_item_download_urls' }],
+      [{ migrationName: '20260921120000_artist_merge' }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 

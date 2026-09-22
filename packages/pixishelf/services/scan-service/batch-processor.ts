@@ -311,6 +311,7 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
   // 2. 兼容期只认领唯一的历史数字 ID；重复 ID 保留给审计，不做猜测。
   const existingArtists = await prisma.artist.findMany({
     where: {
+      mergedIntoId: null,
       userId: {
         in: Array.from(uncachedUserIds)
       }
@@ -381,6 +382,7 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
     // 再次查询新创建的艺术家获取完整信息
     const newlyCreatedArtists = await prisma.artist.findMany({
       where: {
+        mergedIntoId: null,
         userId: {
           in: artistsToCreate
             .map((artist) => artist.userId)

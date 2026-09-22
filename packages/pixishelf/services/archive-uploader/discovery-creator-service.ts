@@ -47,7 +47,10 @@ export async function setDiscoveryCreators(
     if (!(await tx.archiveUploaderSource.findUnique({ where: { id: parsed.sourceId } }))) {
       throw new ArchiveError('STATE_CONFLICT', '发现来源不存在')
     }
-    if ((await tx.artist.count({ where: { id: { in: parsed.artistIds } } })) !== parsed.artistIds.length) {
+    if (
+      (await tx.artist.count({ where: { id: { in: parsed.artistIds }, mergedIntoId: null } })) !==
+      parsed.artistIds.length
+    ) {
       throw new ArchiveError('STATE_CONFLICT', '所选艺术家或社团已不存在')
     }
     await tx.discoverySourceCreator.deleteMany({ where: { sourceId: parsed.sourceId } })

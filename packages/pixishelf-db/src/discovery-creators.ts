@@ -32,7 +32,7 @@ export async function bindDiscoveryCreators(
     (await tx.archiveUploaderIgnoredItem.findUnique({ where: { providerKey_externalId: identity } }))
   )
     return 'SKIPPED' as const
-  if ((await tx.artist.count({ where: { id: { in: ids } } })) !== ids.length)
+  if ((await tx.artist.count({ where: { id: { in: ids }, mergedIntoId: null } })) !== ids.length)
     throw new Error('所选艺术家或社团已不存在')
   const suppressed = options.automatic
     ? await tx.discoveryCreatorSuppression.findMany({ where: { ...identity, artistId: { in: ids } } })

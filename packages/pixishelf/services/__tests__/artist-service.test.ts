@@ -61,8 +61,10 @@ describe('getArtists Pixiv enrichment filters', () => {
   ] as const)('applies the %s database filter before pagination', async (pixivStatus, where) => {
     await getArtists({ cursor: 1, pageSize: 20, sortBy: 'name_asc', pixivStatus })
 
-    expect(artistFindManyMock).toHaveBeenCalledWith(expect.objectContaining({ where }))
-    expect(artistCountMock).toHaveBeenCalledWith({ where })
+    expect(artistFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { ...where, mergedIntoId: null } })
+    )
+    expect(artistCountMock).toHaveBeenCalledWith({ where: { ...where, mergedIntoId: null } })
   })
 })
 
@@ -111,6 +113,7 @@ describe('getDashboardArtists', () => {
       expect.objectContaining({
         where: {
           id: { gte: 1 },
+          mergedIntoId: null,
           artworkMemberships: {
             some: {
               evidence: { some: { present: true, excludedAt: null } },
@@ -194,7 +197,9 @@ describe('updateArtist Pixiv identity safety', () => {
     vi.clearAllMocks()
     prismaTransactionMock.mockImplementation((operation) =>
       operation({
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
         artist: {
+          findUnique: vi.fn().mockResolvedValue({ id: 1, mergedIntoId: null }),
           findUniqueOrThrow: transactionArtistFindMock,
           update: transactionArtistUpdateMock
         },

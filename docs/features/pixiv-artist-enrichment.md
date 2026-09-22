@@ -64,4 +64,4 @@ Worker 仅接受 HTTPS `i.pximg.net`，每次重定向重新校验主机，并�
 
 ## 边界
 
-E-Hentai 本期只保留未来 Provider 扩展能力，不把 `artist/group` 标签转换成 Artist；Artwork 与 Artist 的单一关联也不在本期改造。
+E-Hentai 的 artist/group 标签及多创作者关系现由[创作者关系](./creator-relations.md)维护。艺术家可通过[艺术家合并](./artist-merge.md)迁移 Pixiv 身份；不同 Pixiv 账号之间禁止合并。未结束的相关补全任务阻塞合并，旧任务不能通过重试复活旧实体。

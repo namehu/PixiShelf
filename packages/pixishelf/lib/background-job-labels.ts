@@ -23,6 +23,7 @@ export const backgroundJobTypeLabels: Record<JobType, string> = {
   ARCHIVE_RESOLVE_ITEM: '解析归档收件',
   ARCHIVE_UPLOADER_SCAN: '上传者发现扫描',
   ARCHIVE_SEARCH_SCAN: '标题关键词扫描',
+  ARTIST_MERGE: '艺术家合并',
   CREATOR_MAINTENANCE: '创作者关系整理',
   ARCHIVE_DEFAULT_TAG_BACKFILL: '补全历史归档标签',
   ARCHIVE_MAINTENANCE: '归档维护',

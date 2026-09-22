@@ -97,7 +97,7 @@ export async function editArtworkCreators(
 ) {
   await lockCreatorCatalog(tx)
   const ids = [...new Set(artistIds)]
-  const artists = await tx.artist.count({ where: { id: { in: ids } } })
+  const artists = await tx.artist.count({ where: { id: { in: ids }, mergedIntoId: null } })
   if (artists !== ids.length) throw new Error('所选艺术家或社团已不存在')
   await tx.artwork.findUniqueOrThrow({ where: { id: artworkId, ...visibleCreatorArtwork } })
   const effective = await tx.artworkArtist.findMany({
@@ -161,7 +161,7 @@ export async function remapCreatorTag(
   await lockCreatorCatalog(tx)
   const mapping = await tx.artistSourceTagMapping.findUniqueOrThrow({ where: { id: mappingId } })
   if (mapping.version !== expectedVersion) throw new Error('来源映射已变化，请重新预览')
-  const target = await tx.artist.findUniqueOrThrow({ where: { id: artistId } })
+  const target = await tx.artist.findUniqueOrThrow({ where: { id: artistId, mergedIntoId: null } })
   if (target.kind !== (mapping.namespace === 'group' ? 'GROUP' : 'PERSON')) throw new Error('艺术家和社团不能互相映射')
   // Move evidence as a set; large source catalogs must not issue one query per artwork.
   await tx.$executeRawUnsafe(

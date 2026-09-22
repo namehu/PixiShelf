@@ -404,6 +404,11 @@ export async function createArtwork(data: {
   const effectiveSource = source ?? ESource.LOCAL_CREATED
 
   const artwork = await prisma.$transaction(async (tx) => {
+    if (artistId) {
+      await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
+      const selected = await tx.artist.findUnique({ where: { id: artistId, mergedIntoId: null }, select: { id: true } })
+      if (!selected) throw new Error('艺术家已不存在或已合并，请刷新后重新选择')
+    }
     const created = await tx.artwork.create({
       data: {
         ...rest,

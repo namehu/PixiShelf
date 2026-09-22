@@ -6,7 +6,19 @@ import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { Input } from '@/components/ui/input'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
 import { RowSelectionState, SortingState, VisibilityState } from '@tanstack/react-table'
-import { Search, RotateCcw, Edit, Trash, ExternalLink, Plus, Star, Sparkles, RefreshCw, Check } from 'lucide-react'
+import {
+  Search,
+  RotateCcw,
+  Edit,
+  Trash,
+  ExternalLink,
+  Plus,
+  Star,
+  Sparkles,
+  RefreshCw,
+  Check,
+  Merge
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ArtistDialog } from './artist-dialog'
 import { confirm } from '@/components/shared/global-confirm'
@@ -382,6 +394,15 @@ export function ArtistManagement() {
         header: '操作',
         cell: ({ row }) => (
           <div className="flex gap-1">
+            <Button asChild variant="ghost" size="icon">
+              <Link
+                href={`/admin/artists/merge?sourceId=${row.original.id}`}
+                aria-label={`合并艺术家 ${row.original.name}`}
+                title="合并到其他艺术家"
+              >
+                <Merge aria-hidden="true" />
+              </Link>
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -576,6 +597,9 @@ export function ArtistManagement() {
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link href="/admin/artists/relations">填写和纠正作品作者</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/admin/artists/merge">合并艺术家与执行记录</Link>
             </Button>
           </div>
         )}

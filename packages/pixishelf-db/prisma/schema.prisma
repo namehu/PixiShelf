@@ -11,6 +11,10 @@ datasource db {
 
 model Artist {
   id                  Int                        @id @default(autoincrement())
+  mergedIntoId        Int?
+  mergedAt            DateTime?
+  mergedInto          Artist? @relation("ArtistMergeTarget", fields: [mergedIntoId], references: [id], onDelete: Restrict)
+  mergedArtists       Artist[] @relation("ArtistMergeTarget")
   kind                CreatorKind                @default(PERSON)
   name                String
   username            String?
@@ -33,6 +37,25 @@ model Artist {
   @@unique([username, userId], name: "unique_username_userid")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([isStarred])
+  @@index([mergedIntoId])
+}
+
+model ArtistMerge {
+  id             String @id @default(cuid())
+  sourceArtistId Int
+  targetArtistId Int
+  requestedBy    String
+  status         String @default("READY")
+  fingerprint    String
+  summary        Json
+  before         Json
+  after          Json?
+  systemJobId    String? @unique
+  createdAt      DateTime @default(now())
+  completedAt    DateTime?
+
+  @@index([createdAt])
+  @@map("artist_merges")
 }
 
 enum CreatorKind {

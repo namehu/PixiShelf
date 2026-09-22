@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { unstable_cache } from 'next/cache'
 import { ImageIcon, TagsIcon, UsersIcon, WallpaperIcon } from 'lucide-react'
 import { prisma } from '@/lib/prisma'
+import { activeCreatorMembership, visibleCreatorArtwork } from '@pixishelf/db'
 import logger from '@/lib/logger'
 import { ROUTES } from '@/lib/constants'
 import { Progress } from '@/components/ui/progress'
@@ -31,12 +32,12 @@ const getCachedStats = unstable_cache(
     try {
       const [artworkCount, artistCount, imageCount, tagCount, topArtistsRaw, topTagsRaw] = await Promise.all([
         prisma.artwork.count(),
-        prisma.artist.count(),
+        prisma.artist.count({ where: { mergedIntoId: null } }),
         prisma.image.count(),
         prisma.tag.count(),
-        prisma.artwork.groupBy({
+        prisma.artworkArtist.groupBy({
           by: ['artistId'],
-          where: { artistId: { not: null } },
+          where: { artist: { mergedIntoId: null }, ...activeCreatorMembership, artwork: visibleCreatorArtwork },
           _count: { artistId: true },
           orderBy: { _count: { artistId: 'desc' } },
           take: 20
@@ -50,7 +51,7 @@ const getCachedStats = unstable_cache(
 
       const artistIds = topArtistsRaw.map((item) => item.artistId as number)
       const artists = await prisma.artist.findMany({
-        where: { id: { in: artistIds } },
+        where: { id: { in: artistIds }, mergedIntoId: null },
         select: { id: true, name: true }
       })
       const artistNames = new Map(artists.map((artist) => [artist.id, artist.name]))
@@ -97,25 +98,45 @@ export default async function StatsDashboardPage() {
           compact
         />
       ) : (
-      <div className="flex min-w-0 flex-col gap-8">
-        <section aria-label="图库核心指标" className="grid min-w-0 gap-x-6 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricLink href={ROUTES.ARTWORKS}>
-            <AdminMetric label="总收录作品" value={stats.counts.artworks.toLocaleString()} description="库内资源" icon={<WallpaperIcon className="size-4" aria-hidden="true" />} />
-          </MetricLink>
-          <MetricLink href="/artists">
-            <AdminMetric label="艺术家" value={stats.counts.artists.toLocaleString()} description="创作来源" icon={<UsersIcon className="size-4" aria-hidden="true" />} />
-          </MetricLink>
-          <AdminMetric label="图库文件" value={stats.counts.images.toLocaleString()} description="存储对象" icon={<ImageIcon className="size-4" aria-hidden="true" />} />
-          <MetricLink href="/tags">
-            <AdminMetric label="活跃标签" value={stats.counts.tags.toLocaleString()} description="分类维度" icon={<TagsIcon className="size-4" aria-hidden="true" />} />
-          </MetricLink>
-        </section>
+        <div className="flex min-w-0 flex-col gap-8">
+          <section aria-label="图库核心指标" className="grid min-w-0 gap-x-6 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricLink href={ROUTES.ARTWORKS}>
+              <AdminMetric
+                label="总收录作品"
+                value={stats.counts.artworks.toLocaleString()}
+                description="库内资源"
+                icon={<WallpaperIcon className="size-4" aria-hidden="true" />}
+              />
+            </MetricLink>
+            <MetricLink href="/artists">
+              <AdminMetric
+                label="艺术家"
+                value={stats.counts.artists.toLocaleString()}
+                description="创作来源"
+                icon={<UsersIcon className="size-4" aria-hidden="true" />}
+              />
+            </MetricLink>
+            <AdminMetric
+              label="图库文件"
+              value={stats.counts.images.toLocaleString()}
+              description="存储对象"
+              icon={<ImageIcon className="size-4" aria-hidden="true" />}
+            />
+            <MetricLink href="/tags">
+              <AdminMetric
+                label="活跃标签"
+                value={stats.counts.tags.toLocaleString()}
+                description="分类维度"
+                icon={<TagsIcon className="size-4" aria-hidden="true" />}
+              />
+            </MetricLink>
+          </section>
 
-        <div className="grid min-w-0 gap-8 xl:grid-cols-2">
-          <Leaderboard title="热门艺术家" description="按作品收录量排序" data={stats.topArtists} type="artist" />
-          <Leaderboard title="热门标签" description="按作品使用量排序" data={stats.topTags} type="tag" />
+          <div className="grid min-w-0 gap-8 xl:grid-cols-2">
+            <Leaderboard title="热门艺术家" description="按作品收录量排序" data={stats.topArtists} type="artist" />
+            <Leaderboard title="热门标签" description="按作品使用量排序" data={stats.topTags} type="tag" />
+          </div>
         </div>
-      </div>
       )}
     </AdminWorkbench>
   )
@@ -123,7 +144,10 @@ export default async function StatsDashboardPage() {
 
 function MetricLink({ href, children }: { href: string; children: React.ReactNode }) {
   return (
-    <Link href={href} className="rounded-md outline-none transition-colors hover:bg-accent/35 focus-visible:ring-2 focus-visible:ring-ring/50">
+    <Link
+      href={href}
+      className="rounded-md outline-none transition-colors hover:bg-accent/35 focus-visible:ring-2 focus-visible:ring-ring/50"
+    >
       {children}
     </Link>
   )
@@ -164,7 +188,9 @@ function Leaderboard({
                     <PrivacySensitiveText className="min-w-0 flex-1 truncate text-sm font-medium text-foreground group-hover:text-primary">
                       {item.name}
                     </PrivacySensitiveText>
-                    <span className="font-utility shrink-0 text-sm font-semibold text-foreground tabular-nums">{item.count}</span>
+                    <span className="font-utility shrink-0 text-sm font-semibold text-foreground tabular-nums">
+                      {item.count}
+                    </span>
                   </span>
                   <Progress className="mt-2 h-1.5" value={percentage} aria-label={`${item.name}：${item.count}`} />
                 </Link>

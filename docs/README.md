@@ -30,6 +30,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
+- [艺术家合并](./features/artist-merge.md)（current）：作品并集、归档绑定迁移、来源冲突、后台原子提交与恢复边界。
+
 - [后台任务失败诊断](./features/background-job-diagnostics.md)（current）：独立执行快照、全量失败对象、遗留标记、90 天证据与协调升级。
 
 - [作品删除与删除总结](./features/artwork-deletion.md)（current）：附属文件名单、空目录边界、逐项报告、下载和部分失败语义。
@@ -43,7 +45,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
 | [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令               |
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、30 类 Worker 任务、领域状态和流程图  |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、31 类 Worker 任务、领域状态和流程图  |
 | [后台任务实时进度](./features/background-job-live-progress.md)      | `current` | 结构化进度、SSE 降级、动画吞吐与事件保留       |
 | [后台任务执行记录](./features/background-job-history.md)            | `current` | 执行动态搜索筛选、游标分页、虚拟滚动与实时合并 |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |
