@@ -1,6 +1,6 @@
 'use client'
 
-import { InfoIcon, Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react'
+import { InfoIcon, PauseIcon, PlayIcon } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { cn } from '@/lib/utils'
 import { withMediaVersion } from '@/lib/media-url'
@@ -328,14 +328,6 @@ export default function AnimatedWebpPlayer({
       )}
 
       {playbackBadge}
-
-      {loadingAnimation && !animationFailed && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/20">
-          <div className="rounded-full bg-white/90 p-3">
-            <Loader2Icon className="h-7 w-7 animate-spin text-neutral-700" />
-          </div>
-        </div>
-      )}
 
       {isAnimated && animationFailed && (
         <div className="pointer-events-none absolute inset-x-3 bottom-3 flex items-center gap-2 rounded bg-black/55 px-3 py-2 text-xs text-white">
