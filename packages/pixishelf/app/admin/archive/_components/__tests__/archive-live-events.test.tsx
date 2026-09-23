@@ -58,7 +58,7 @@ describe('archive live events', () => {
     await waitFor(() => expect(view.result.current.lifecycleVersion).toBe(2))
   })
 
-  it('keeps advancing the display clock after realtime disconnects so telemetry becomes stale', async () => {
+  it('does not rerender the task list every second while retaining disconnected telemetry', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-01-01T00:00:01.000Z'))
     mocks.subscription.mockReturnValue({
@@ -67,12 +67,17 @@ describe('archive live events', () => {
       readyVersion: 1,
       resetVersion: 0
     })
-    const view = renderHook(() => useArchiveLiveEvents())
-    const initialNow = view.result.current.liveNow
+    const renders = vi.fn()
+    const view = renderHook(() => {
+      renders()
+      return useArchiveLiveEvents()
+    })
+    renders.mockClear()
 
-    await act(() => vi.advanceTimersByTimeAsync(1_000))
+    await act(() => vi.advanceTimersByTimeAsync(6_000))
 
-    expect(view.result.current.liveNow).toBe(initialNow + 1_000)
+    expect(renders).not.toHaveBeenCalled()
+    expect(view.result.current.liveJobById.get('job-1')?.transfer?.completedItems).toBe(1)
     view.unmount()
   })
 })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ArchiveTransferItem, ArchiveTransferTelemetry } from '@pixishelf/job-contracts'
 import { ChevronDown, ChevronUp, CirclePause, Images, Square } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -27,7 +27,6 @@ export interface ActiveArchiveDownloadTask {
 
 export function ActiveArchiveDownloadPanel({
   task,
-  now,
   pausePending,
   cancelPending,
   onViewItems,
@@ -35,7 +34,6 @@ export function ActiveArchiveDownloadPanel({
   onCancel
 }: {
   task: ActiveArchiveDownloadTask
-  now: number
   pausePending: boolean
   cancelPending: boolean
   onViewItems: () => void
@@ -44,6 +42,15 @@ export function ActiveArchiveDownloadPanel({
 }) {
   const [mobileExpanded, setMobileExpanded] = useState(false)
   const telemetry = task.liveTransfer
+  const [now, setNow] = useState(() => Date.now())
+  const hasTelemetry = Boolean(telemetry)
+  useEffect(() => {
+    if (!hasTelemetry) return
+    // 断线后仍需将遥测标记为过期，但秒级计时只刷新下载面板，不牵动整页任务列表。
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1_000)
+    return () => clearInterval(timer)
+  }, [hasTelemetry])
   const activeItems = telemetry?.activeItems ?? []
   const activeWorkers = telemetry?.activeWorkers ?? (activeItems.length || telemetry?.activeDownloads || 0)
   const downloading =

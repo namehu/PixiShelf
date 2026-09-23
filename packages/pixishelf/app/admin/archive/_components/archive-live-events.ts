@@ -17,7 +17,6 @@ export function useArchiveLiveEvents(detailSystemJobId?: string) {
   const stream = useBackgroundJobEventSubscription({ jobType: 'ARCHIVE_IMPORT' })
   const realtimeConnected = stream.status === 'connected'
   const liveJobById = useMemo(() => latestArchiveJobs(stream.items), [stream.items])
-  const [liveNow, setLiveNow] = useState(() => Date.now())
   const [lifecycleVersion, setLifecycleVersion] = useState(0)
   const [detailRefreshVersion, setDetailRefreshVersion] = useState(0)
   const lastHandledEventId = useRef('0')
@@ -27,12 +26,6 @@ export function useArchiveLiveEvents(detailSystemJobId?: string) {
     lastHandledEventId.current = '0'
     detailCountSignature.current = null
   }, [stream.resetVersion])
-
-  useEffect(() => {
-    if (![...liveJobById.values()].some((value) => value.transfer)) return
-    const timer = setInterval(() => setLiveNow(Date.now()), 1_000)
-    return () => clearInterval(timer)
-  }, [liveJobById])
 
   useEffect(() => {
     let lifecycleChanged = false
@@ -68,7 +61,6 @@ export function useArchiveLiveEvents(detailSystemJobId?: string) {
   return {
     realtimeConnected,
     liveJobById,
-    liveNow,
     lifecycleVersion,
     detailRefreshVersion,
     readyVersion: stream.readyVersion,

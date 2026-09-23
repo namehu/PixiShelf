@@ -43,6 +43,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { useTRPC } from '@/lib/trpc'
+import { useMediaQuery } from '@/hooks/use-media-query'
 import type { AppRouter } from '@/server'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { ActiveArchiveDownloadPanel } from './archive-active-download-panel'
@@ -122,6 +123,7 @@ const EMPTY_FILTERS: TaskFilters = {
 }
 
 export function ArchiveManagement() {
+  const isDesktop = useMediaQuery('(min-width: 768px)')
   const trpc = useTRPC()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -133,7 +135,7 @@ export function ArchiveManagement() {
   const [detailTask, setDetailTask] = useState<ArchiveTaskOutput | null>(null)
   const [detailRefreshVersion, setDetailRefreshVersion] = useState(0)
   const liveEvents = useArchiveLiveEvents(detailTask?.systemJobId)
-  const { liveJobById, liveNow, realtimeConnected } = liveEvents
+  const { liveJobById, realtimeConnected } = liveEvents
   const [bulkOperation, setBulkOperation] = useState<ArchiveBulkOperation | null>(null)
   const [pendingSingleActions, setPendingSingleActions] = useState<Set<string>>(new Set())
   const bulkIdempotencyKeys = useRef(new Map<string, string>())
@@ -410,7 +412,6 @@ export function ArchiveManagement() {
       {activeTask && (
         <ActiveArchiveDownloadPanel
           task={activeTask}
-          now={liveNow}
           pausePending={pendingSingleActions.has(singleActionKey(activeTask.id, 'PAUSE'))}
           cancelPending={pendingSingleActions.has(singleActionKey(activeTask.id, 'CANCEL'))}
           onViewItems={() => setDetailTask(activeTask)}
@@ -502,57 +503,61 @@ export function ArchiveManagement() {
             </Empty>
           ) : (
             <>
-              <div className="hidden overflow-hidden rounded-lg border md:block">
-                <ArchiveTaskTable
-                  tasks={tasks}
-                  selectedTaskIds={selectedTaskIds}
-                  selectionState={selectionState.checked}
-                  pendingActions={pendingSingleActions}
-                  onToggleAll={(checked) =>
-                    setSelectedTaskIds((current) => toggleCurrentPageSelection(current, currentPageIds, checked))
-                  }
-                  onToggleTask={(taskId, checked) =>
-                    setSelectedTaskIds((current) => toggleTaskSelection(current, taskId, checked))
-                  }
-                  onViewItems={setDetailTask}
-                  onAction={(task, action) =>
-                    requestSingleTaskAction(task, action, (confirmedAction) =>
-                      singleActionMutation.mutate({ taskId: task.id, action: confirmedAction })
-                    )
-                  }
-                />
-              </div>
-              <div className="flex flex-col gap-3 md:hidden">
-                <div className="flex items-center gap-3 rounded-lg border px-3 py-2">
-                  <Checkbox
-                    checked={selectionState.checked}
-                    onCheckedChange={(checked) =>
-                      setSelectedTaskIds((current) =>
-                        toggleCurrentPageSelection(current, currentPageIds, Boolean(checked))
-                      )
-                    }
-                    aria-label="选择当前页全部任务"
-                  />
-                  <span className="text-sm">选择当前页全部 {currentPageIds.length} 项</span>
-                </div>
-                {tasks.map((task) => (
-                  <ArchiveTaskCard
-                    key={task.id}
-                    task={task}
-                    selected={selectedTaskIds.has(task.id)}
+              {/* 仅挂载当前断点的列表，CSS 隐藏仍会创建另一套菜单、订阅与事件处理器。 */}
+              {isDesktop ? (
+                <div className="overflow-hidden rounded-lg border">
+                  <ArchiveTaskTable
+                    tasks={tasks}
+                    selectedTaskIds={selectedTaskIds}
+                    selectionState={selectionState.checked}
                     pendingActions={pendingSingleActions}
-                    onToggle={(checked) =>
-                      setSelectedTaskIds((current) => toggleTaskSelection(current, task.id, checked))
+                    onToggleAll={(checked) =>
+                      setSelectedTaskIds((current) => toggleCurrentPageSelection(current, currentPageIds, checked))
                     }
-                    onViewItems={() => setDetailTask(task)}
-                    onAction={(action) =>
+                    onToggleTask={(taskId, checked) =>
+                      setSelectedTaskIds((current) => toggleTaskSelection(current, taskId, checked))
+                    }
+                    onViewItems={setDetailTask}
+                    onAction={(task, action) =>
                       requestSingleTaskAction(task, action, (confirmedAction) =>
                         singleActionMutation.mutate({ taskId: task.id, action: confirmedAction })
                       )
                     }
                   />
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center gap-3 rounded-lg border px-3 py-2">
+                    <Checkbox
+                      checked={selectionState.checked}
+                      onCheckedChange={(checked) =>
+                        setSelectedTaskIds((current) =>
+                          toggleCurrentPageSelection(current, currentPageIds, Boolean(checked))
+                        )
+                      }
+                      aria-label="选择当前页全部任务"
+                    />
+                    <span className="text-sm">选择当前页全部 {currentPageIds.length} 项</span>
+                  </div>
+                  {tasks.map((task) => (
+                    <ArchiveTaskCard
+                      key={task.id}
+                      task={task}
+                      selected={selectedTaskIds.has(task.id)}
+                      pendingActions={pendingSingleActions}
+                      onToggle={(checked) =>
+                        setSelectedTaskIds((current) => toggleTaskSelection(current, task.id, checked))
+                      }
+                      onViewItems={() => setDetailTask(task)}
+                      onAction={(action) =>
+                        requestSingleTaskAction(task, action, (confirmedAction) =>
+                          singleActionMutation.mutate({ taskId: task.id, action: confirmedAction })
+                        )
+                      }
+                    />
+                  ))}
+                </div>
+              )}
               {selectionState.selectedCount > 0 && (
                 <BulkActionToolbar
                   selectedCount={selectionState.selectedCount}

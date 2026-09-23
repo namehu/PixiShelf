@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ArchiveImageCounts,
@@ -91,7 +91,10 @@ const activeTask = createTask('active', {
 })
 
 describe('archive management UI', () => {
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
 
   it.each(['TRASHING', 'TRASHED', 'RESTORING', 'PURGING'])('opens task details for %s artworks', (lifecycle) => {
     const task = createTask('hidden', { id: 43, archiveLifecycleState: lifecycle, deletedAt: null })
@@ -270,6 +273,8 @@ describe('archive management UI', () => {
   })
 
   it('renders a current-download panel with aggregate and per-file phases', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-01T00:00:01.000Z'))
     const telemetry = {
       version: 1 as const,
       kind: 'archive.transfer' as const,
@@ -329,7 +334,7 @@ describe('archive management UI', () => {
     const onViewItems = vi.fn()
     const onPause = vi.fn()
     const onCancel = vi.fn()
-    render(
+    const view = render(
       <ActiveArchiveDownloadPanel
         task={{
           ...activeTask,
@@ -340,7 +345,6 @@ describe('archive management UI', () => {
           totalItems: 234,
           liveTransfer: telemetry
         }}
-        now={Date.parse(telemetry.sampledAt) + 1_000}
         pausePending={false}
         cancelPending={false}
         onViewItems={onViewItems}
@@ -366,6 +370,12 @@ describe('archive management UI', () => {
     expect(onViewItems).toHaveBeenCalledOnce()
     expect(onPause).toHaveBeenCalledOnce()
     expect(onCancel).toHaveBeenCalledOnce()
+    // SSE 不再送达时，面板仍自行识别过期遥测，不依赖父级整页刷新。
+    act(() => vi.advanceTimersByTime(5_000))
+    expect(screen.getByText('实时数据中断')).toBeTruthy()
+    expect(screen.queryByText(/12.4 MB\/s/)).toBeNull()
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('keeps slot counts out of the historical task progress row', () => {
