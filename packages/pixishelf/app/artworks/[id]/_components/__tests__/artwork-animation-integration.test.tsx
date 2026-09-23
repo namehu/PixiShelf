@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
@@ -8,6 +8,14 @@ import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkAnimation } from '../use-artwork-animation'
 import { useArtworkAutoScroll } from '../use-artwork-auto-scroll'
 import { useAutoBrowseInterruption } from '../use-auto-browse-interruption'
+
+// The fallback browser path remains covered independently of the default WASM suite.
+vi.mock('@/components/players/streaming-webp-surface', () => ({
+  default: function UnsupportedSurface({ onFallback }: { onFallback: () => void }) {
+    useEffect(onFallback, [onFallback])
+    return null
+  }
+}))
 
 const media = [
   { id: 1, path: '/animated.webp', mediaType: 'image', isAnimated: true, webpAnimationStatus: 2 }
@@ -113,7 +121,7 @@ describe('real WebP player with scroll driver', () => {
     render(<Reader />)
     await start()
     loadAnimation()
-    const pause = screen.getByRole('button', { name: '暂停 WEBP 动图' })
+    const pause = screen.getByRole('button', { name: '停止本轮动图' })
     fireEvent.pointerDown(pause)
     fireEvent.click(pause)
     expect(store.getState().status).not.toBe('paused')

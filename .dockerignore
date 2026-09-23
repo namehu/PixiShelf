@@ -82,6 +82,10 @@ jspm_packages/
 
 # Gatsby files
 .cache/
+**/.cache/
+**/.next/
+packages/pixishelf-webp-player/test-results/
+packages/pixishelf/public/webp-player/
 public
 
 # Storybook build outputs

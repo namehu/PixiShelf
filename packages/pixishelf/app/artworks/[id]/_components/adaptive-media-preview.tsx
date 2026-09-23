@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
-import { PauseIcon, PlayIcon } from 'lucide-react'
+import { PauseIcon, PlayIcon, SquareIcon } from 'lucide-react'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
 import {
@@ -307,7 +307,9 @@ export default function AdaptiveMediaPreview({
               size="sm"
               variant="ghost"
               className="pointer-events-auto h-11 shrink-0 rounded-full p-0 hover:bg-transparent"
-              aria-label={`${isWebpPlaying ? '暂停' : '播放'} WEBP 动图`}
+              aria-label={
+                isWebpPlaying && animation.playOnce ? '停止本轮动图' : `${isWebpPlaying ? '暂停' : '播放'} WEBP 动图`
+              }
               data-auto-browse-controls
               aria-pressed={isWebpPlaying}
               onClick={() => {
@@ -315,7 +317,15 @@ export default function AdaptiveMediaPreview({
               }}
             >
               <span className="flex h-[22px] items-center gap-1 rounded-full bg-secondary px-2 text-xs text-secondary-foreground shadow-lg">
-                {isWebpPlaying ? <PauseIcon className="size-3" /> : <PlayIcon className="size-3" />}
+                {isWebpPlaying ? (
+                  animation.playOnce ? (
+                    <SquareIcon className="size-3" />
+                  ) : (
+                    <PauseIcon className="size-3" />
+                  )
+                ) : (
+                  <PlayIcon className="size-3" />
+                )}
                 动图
               </span>
             </Button>

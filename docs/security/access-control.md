@@ -22,6 +22,10 @@ sources:
 
 ## 结论
 
+默认启用的 WebP 播放器只读取现有同源媒体 API，Worker 使用 `credentials: same-origin`，不接受跨源媒体或解码器地址。生成的 `/webp-player/` 代码资源仍经过现有 Session 代理，没有新增公开路径。CSP 显式限定 `worker-src 'self'`；WASM 沿用现有 script 策略，不新增跨域许可、SharedArrayBuffer 或隔离响应头。Canvas 继承媒体隐私遮罩。原生解码前检查输入/像素预算，部署回滚使用原应用镜像，不涉及归档或数据库。
+
+播放器资源 manifest 的客户端缓存位于全局 Zustand store 和 sessionStorage，仅保存校验后的资源版本及账号 ID，不保存认证凭证或媒体。退出登录、账号切换会清空并取消旧请求；缓存不会替代 Worker、WASM 或原媒体请求的服务端会话校验。
+
 艺术家合并的 previewMerge、submitMerge、getMerge、listMerges 使用 artistRouter 的 adminProcedure，要求有效管理员会话（当前与 authProcedure 同权）。操作者由服务端会话记录；被合并 ID 的旧编辑／绑定请求必须刷新，数据库触发器进一步阻止旧身份写入。详见[艺术家合并](../features/artist-merge.md)。
 
 当前权限模型是**单一信任域**：

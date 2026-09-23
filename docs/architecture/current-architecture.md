@@ -21,6 +21,8 @@ sources:
 
 ## 系统定位与边界
 
+`packages/pixishelf-webp-player` 是私有浏览器库，默认用于 Next.js WebP 手动播放和作品详情自动浏览，无需构建或运行时开关。它提供单线程 libwebp WASM、同源 Worker、两帧队列和 Canvas 时钟；手动模式遵循文件循环次数，复用已下载输入原地重置合成器，自动浏览只播一轮；不依赖任务 Worker 或数据库。固定工具链仅在原生改动时生成随仓库保存的 prebuilt，每次 dev/build 校验并复制解码器、打包 JS 为版本化静态资源。规格、UML 和剩余真机/反代验证见 [WebP 流式播放器](../design/webp-streaming-player.md)。
+
 PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。目标用户、质量优先级和非目标以[产品基线](../product/product-baseline.md)为准。
 
 当前部署边界：
@@ -218,10 +220,10 @@ sequenceDiagram
 
 一个 Worker host 运行两个 Dispatcher loop：
 
-| Lane                | 固定并发 | 工作范围                                                                                                 |
-| ------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| Lane                | 固定并发 | 工作范围                                                                                                                                 |
+| ------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | `ARCHIVE_RESOLVE`   | 1        | `ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` 与 `ARCHIVE_DISCOVERY_BATCH_SCAN`；不写原媒体、派生媒体或 staging |
-| `BACKGROUND_WRITER` | 1        | 其余 28 类 job；所有媒体写、本地图库扫描、迁移、替换和维护操作                                           |
+| `BACKGROUND_WRITER` | 1        | 其余 28 类 job；所有媒体写、本地图库扫描、迁移、替换和维护操作                                                                           |
 
 两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 32 个 job type：`SCAN` 同时注册
 v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，`ARCHIVE_SEARCH_SCAN` 注册 v1/v2/v3，其余 29 类只注册 v1，共 37 个 job type/definition-version 组合。capability audit 精确验证 type、

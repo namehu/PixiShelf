@@ -1,0 +1,43 @@
+name: WebP native artifacts
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packages/pixishelf-webp-player/native/**'
+      - 'packages/pixishelf-webp-player/prebuilt/**'
+      - 'packages/pixishelf-webp-player/scripts/build-native.mjs'
+      - 'packages/pixishelf-webp-player/scripts/prebuilt.mjs'
+      - '.github/workflows/webp-native.yml'
+  push:
+    branches: ['**']
+    paths:
+      - 'packages/pixishelf-webp-player/native/**'
+      - 'packages/pixishelf-webp-player/prebuilt/**'
+      - 'packages/pixishelf-webp-player/scripts/build-native.mjs'
+      - 'packages/pixishelf-webp-player/scripts/prebuilt.mjs'
+      - '.github/workflows/webp-native.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile --filter @pixishelf/webp-player
+      - name: Rebuild, sanitize and compare without rewriting committed artifacts
+        run: pnpm --filter @pixishelf/webp-player build:native --check
+      - name: Verify rebuilt-equivalent artifacts in a real browser
+        run: |
+          pnpm --filter @pixishelf/webp-player build
+          pnpm --filter @pixishelf/webp-player exec playwright install --with-deps chromium
+          pnpm --filter @pixishelf/webp-player test:browser

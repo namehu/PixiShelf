@@ -18,6 +18,8 @@ sources:
 
 ## 支持范围
 
+WebP 流式播放器默认启用，手动播放和自动浏览均使用 WASM，无需设置环境变量、Compose environment 或 Docker build-arg。解码器和许可证随仓库保存在 `packages/pixishelf-webp-player/prebuilt/`，应用 Dockerfile 不拉取 Emscripten、不编译 C；每次 dev/build 都校验预编译产物并打包 Worker/版本化 WASM，production 从 public 复制交付。发布流水线按现有流程构建，部署新镜像即可使用。只有原生源码或工具链升级时才执行包的 `build:native`，并提交更新的产物与校验清单。浏览器能力、初始化或解码兼容限制保留首帧前回退，剩余验证见[开发方案](../design/webp-streaming-player.md)。本次没有 migration 或原媒体写入；恢复依据是原镜像/源码版本及配套 prebuilt，回滚应用镜像即可，不需要恢复数据库和收藏目录。
+
 后台任务实时进度发布使用 `20260904200000_add_system_job_progress_data` additive migration。先停止所有旧写入者并按[备份与恢复](./backup-and-recovery.md)建立、验证 PostgreSQL 检查点，再执行 `migrate deploy`；禁止 `db:push`。回滚 App/Worker 时保留新增可空列和事件索引。配套 App/Worker 必须一起升级，两个 lane READY 且 capability audit 精确为 32 类/37 个版本组合后才开放入口。设置 `ANIMATION_SCAN_CONCURRENCY` 前先以 1 建立代表性基线；首次手动运行“清理后台任务事件”只做 dry-run，核对候选数和 SSE 重连后再启用计划删除。
 
 新增类型数据存在时，旧 App/Worker 不能直接回滚运行。优先保留兼容版本并停用关键词来源、关闭新入口或前向修复；完整降级必须恢复配套数据库、媒体、配置和镜像检查点。当前实施与未完成的生产验证见[标题关键词实施记录](../design/e-hentai-title-keyword-scan.md)，本机测试不代表生产已部署。

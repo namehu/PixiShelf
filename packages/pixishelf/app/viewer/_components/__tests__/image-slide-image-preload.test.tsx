@@ -91,14 +91,7 @@ describe('viewer staged image preloading', () => {
   })
 
   it('loads the next artwork entry image eagerly after the parent unlocks it', () => {
-    render(
-      <ImageSlide
-        {...commonProps}
-        image={createArtwork([createMedia(3)])}
-        isActive={false}
-        preloadEntryMedia
-      />
-    )
+    render(<ImageSlide {...commonProps} image={createArtwork([createMedia(3)])} isActive={false} preloadEntryMedia />)
 
     expect(screen.getByAltText('image-3').getAttribute('loading')).toBe('eager')
   })
@@ -151,10 +144,7 @@ describe('viewer staged image preloading', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
 
-    expect(
-      screen
-        .getAllByAltText('image-6')
-        .some((image) => image.getAttribute('src')?.startsWith('/api/v1/images/animated.webp?v='))
-    ).toBe(true)
+    const surface = screen.getAllByRole('img', { name: 'image-6' }).find((element) => element.tagName === 'CANVAS')
+    expect(surface?.getAttribute('data-webp-player')).toBe('wasm')
   })
 })

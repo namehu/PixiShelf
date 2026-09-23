@@ -27,7 +27,7 @@ export interface ControlledAutoBrowseState {
   scrollSpeed: number
   slideSeconds: number
   loop: boolean
-  animationPhase?: 'loading' | 'playing' | null
+  animationPhase?: 'loading' | 'playing' | 'buffering' | 'paused' | null
 }
 
 export interface ControlledAutoBrowseControlsProps {
@@ -127,21 +127,23 @@ export function ControlledAutoBrowseControls({
     onSetPreferences(mode === 'scroll' ? { scrollSpeed: next } : { slideSeconds: next })
   const description = !selected
     ? '自动轮播'
-    : state.animationPhase === 'playing' && playing
-      ? '正在播放动图'
-      : state.status === 'waiting'
-        ? '等待图片加载'
-        : error
-          ? '图片加载失败'
-          : state.reason === 'video'
-            ? '视频已暂停自动滚动'
-            : blocked
-              ? '缩小图片后继续'
-              : ended
-                ? '已结束'
-                : mode === 'scroll'
-                  ? '自动滚动'
-                  : '自动轮播'
+    : state.animationPhase === 'buffering' && playing
+      ? '动图缓冲中'
+      : state.animationPhase === 'playing' && playing
+        ? '正在播放动图'
+        : state.status === 'waiting'
+          ? '等待图片加载'
+          : error
+            ? '图片加载失败'
+            : state.reason === 'video'
+              ? '视频已暂停自动滚动'
+              : blocked
+                ? '缩小图片后继续'
+                : ended
+                  ? '已结束'
+                  : mode === 'scroll'
+                    ? '自动滚动'
+                    : '自动轮播'
 
   return (
     <motion.div

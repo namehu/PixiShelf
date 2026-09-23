@@ -1,0 +1,37 @@
+sequenceDiagram
+    participant A as Manual / Auto browse
+    participant P as Player
+    participant W as Browser Worker
+    participant M as Media API
+    participant D as WASM
+    participant C as Canvas
+    A->>P: load + play
+    P->>W: start attempt
+    W->>M: authenticated stream
+    loop incoming data
+        M-->>W: bytes
+        W->>D: append
+        D-->>W: complete frame / need data
+        W-->>P: pixels + duration
+        P->>C: draw
+    end
+    A->>P: pause
+    P->>P: freeze remaining duration
+    P->>W: backpressure
+    A->>P: play
+    P->>W: resume
+    M-->>W: EOF
+    W->>D: validate complete input
+    W-->>P: input complete
+    opt Manual playback with remaining file loops
+        W->>D: repeat (reuse validated input)
+        D->>D: reset compositor, no download
+        W-->>P: next cycle frames with backpressure
+    end
+    P->>P: finish final frame duration
+    P-->>A: ended once
+    alt Auto browse
+        A->>A: next image / scroll
+    else Manual finite loops ended
+        A->>A: keep final canvas, no navigation
+    end

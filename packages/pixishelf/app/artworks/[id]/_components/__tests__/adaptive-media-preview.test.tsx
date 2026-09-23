@@ -1,9 +1,18 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useEffect } from 'react'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-media-preview'
 import { useArtworkAutoBrowseStore as autoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 import { webpFixture } from '@/lib/__tests__/webp-fixture'
+
+// Keep legacy image timing covered explicitly; WASM lifecycle has its own integration suite.
+vi.mock('@/components/players/streaming-webp-surface', () => ({
+  default: function UnsupportedSurface({ onFallback }: { onFallback: () => void }) {
+    useEffect(onFallback, [onFallback])
+    return null
+  }
+}))
 
 const swiperMocks = vi.hoisted(() => {
   const instance = {
@@ -405,7 +414,7 @@ describe('AdaptiveMediaPreview', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     fireEvent.load(screen.getAllByAltText('作品 WEBP 动图 1')[1]!)
     act(() => autoBrowseStore.getState().setControlsCollapsed(true))
-    const stopAnimation = screen.getByRole('button', { name: '暂停 WEBP 动图' })
+    const stopAnimation = screen.getByRole('button', { name: '停止本轮动图' })
     fireEvent.click(stopAnimation)
     expect(autoBrowseStore.getState()).toMatchObject({ status: 'running', stoppedAnimationIds: [1] })
     act(() => vi.advanceTimersByTime(1499))

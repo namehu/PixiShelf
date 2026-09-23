@@ -33,6 +33,15 @@ export function useArtworkAutoScroll({
       state.mode === 'scroll' && !state.previewOpen && (state.status === 'running' || state.status === 'waiting')
   )
   const revision = useArtworkAutoBrowseStore((state) => state.revision)
+  const ownerSession = useArtworkAutoBrowseStore((state) => state.session)
+
+  useEffect(
+    () => () => {
+      const state = useArtworkAutoBrowseStore.getState()
+      if (state.session === ownerSession && state.mode === 'scroll') state.setActiveAnimation(null)
+    },
+    [ownerSession]
+  )
 
   useEffect(() => {
     if (!active) return
@@ -193,11 +202,8 @@ export function useArtworkAutoScroll({
     }
     frame = requestAnimationFrame(tick)
     return () => {
-      // 清理本轮动画帧；会话仍有效时再释放播放占用，避免影响新作品。
+      // 调度取消不等于播放销毁：暂停/设置变更仍需保留当前帧。
       cancelAnimationFrame(frame)
-      if (store.getState().session === session && store.getState().mode === 'scroll') {
-        store.getState().setActiveAnimation(null)
-      }
     }
   }, [active, containerRef, expand, expanded, images, revision])
 }

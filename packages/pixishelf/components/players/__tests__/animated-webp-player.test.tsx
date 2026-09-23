@@ -3,6 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AnimatedWebpPlayer from '../animated-webp-player'
 import { useLongPress } from '@/hooks/use-long-press'
 import { webpFixture } from '@/lib/__tests__/webp-fixture'
+import { useEffect } from 'react'
+
+// Exercise the legacy path only when the streaming surface reports incompatibility.
+vi.mock('../streaming-webp-surface', () => ({
+  default: function UnsupportedSurface({ onFallback }: { onFallback: () => void }) {
+    useEffect(onFallback, [onFallback])
+    return null
+  }
+}))
 
 let intersectionCallback: IntersectionObserverCallback | null = null
 
@@ -23,7 +32,7 @@ vi.mock('@/utils/combination-static', () => ({
   combinationApiResource: (src: string) => src
 }))
 
-describe('AnimatedWebpPlayer', () => {
+describe('AnimatedWebpPlayer compatibility fallback', () => {
   beforeEach(() => {
     intersectionCallback = null
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)

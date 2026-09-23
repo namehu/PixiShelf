@@ -8,7 +8,12 @@ export function useArtworkAnimation(id: number | undefined, mode: AutoBrowseMode
   const state = store()
   const [manualId, setManualId] = useState<number | null>(null)
   const running = state.mode === mode && ['running', 'waiting'].includes(state.status)
-  const automatic = running && id !== undefined && state.activeAnimationId === id
+  const owned =
+    state.mode === mode &&
+    id !== undefined &&
+    state.activeAnimationId === id &&
+    ['running', 'waiting', 'paused'].includes(state.status)
+  const automatic = running && owned
   const { session, revision, animationAttempt } = state
   // 自动浏览接管后清除手动播放意图，避免退出自动模式时恢复旧的手动播放。
   useEffect(() => {
@@ -30,8 +35,9 @@ export function useArtworkAnimation(id: number | undefined, mode: AutoBrowseMode
   }
   return {
     playing: automatic || (!running && manualId === id && id !== undefined),
-    playOnce: automatic,
-    playbackKey: `${session}:${revision}:${animationAttempt}`,
+    playOnce: owned,
+    playbackPaused: owned && state.status === 'paused',
+    playbackKey: `${session}:${mode}:${animationAttempt}`,
     autoBrowseControl: true,
     onPlayingChange: (playing: boolean) => {
       if (id === undefined) return
@@ -40,10 +46,16 @@ export function useArtworkAnimation(id: number | undefined, mode: AutoBrowseMode
         setManualId(null)
         if (playing) store.getState().replayAnimation(id)
         else store.getState().stopAnimation(id)
-      } else setManualId(playing ? id : null)
+      } else {
+        if (playing && owned && latest.activeAnimationId === id) store.getState().stopAnimation(id)
+        setManualId(playing ? id : null)
+      }
     },
     onAnimationReady: () => {
       if (currentAttempt()) store.getState().animationReady(id!)
+    },
+    onAnimationBuffering: () => {
+      if (currentAttempt()) store.getState().animationBuffering(id!)
     },
     onAnimationComplete: () => {
       if (currentAttempt()) store.getState().finishAnimation(id!)
@@ -55,6 +67,18 @@ export function useArtworkAnimation(id: number | undefined, mode: AutoBrowseMode
     onPlaybackInterrupted: () => {
       setManualId(null)
       if (currentAttempt()) store.getState().pause(document.hidden ? 'hidden' : 'manual')
+      // Leaving the viewport releases retained progress, including while paused.
+      const latest = store.getState()
+      if (
+        !document.hidden &&
+        owned &&
+        latest.session === session &&
+        latest.mode === mode &&
+        latest.animationAttempt === animationAttempt &&
+        latest.activeAnimationId === id
+      ) {
+        latest.setActiveAnimation(null)
+      }
     },
     stopManual: () => setManualId(null)
   }

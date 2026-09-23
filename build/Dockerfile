@@ -40,6 +40,7 @@ COPY packages/pixishelf-db/package.json ./packages/pixishelf-db/package.json
 COPY packages/pixishelf-job-contracts/package.json ./packages/pixishelf-job-contracts/package.json
 COPY packages/pixishelf-job-runtime/package.json ./packages/pixishelf-job-runtime/package.json
 COPY packages/pixishelf-job-executors/package.json ./packages/pixishelf-job-executors/package.json
+COPY packages/pixishelf-webp-player/package.json ./packages/pixishelf-webp-player/package.json
 
 # 安装所有依赖（包括 devDependencies 用于构建）
 # 使用 --frozen-lockfile 确保CI/CD环境的一致性
@@ -53,6 +54,7 @@ COPY packages/pixishelf-db/ ./packages/pixishelf-db/
 COPY packages/pixishelf-job-contracts/ ./packages/pixishelf-job-contracts/
 COPY packages/pixishelf-job-runtime/ ./packages/pixishelf-job-runtime/
 COPY packages/pixishelf-job-executors/ ./packages/pixishelf-job-executors/
+COPY packages/pixishelf-webp-player/ ./packages/pixishelf-webp-player/
 
 # 生成 Prisma Client；Next.js 直接编译 workspace 中的 job 包源码。
 RUN pnpm --filter="@pixishelf/db" db:generate

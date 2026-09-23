@@ -18,9 +18,9 @@ describe('artwork auto browse store', () => {
     expect(store.getState()).toMatchObject({ mode: 'slideshow', status: 'running' })
   })
 
-  it('revokes automatic animation playback on pause, mode changes, preview and exit', () => {
+  it('releases animation on errors, mode changes, preview and exit', () => {
     for (const interrupt of [
-      () => store.getState().pause(),
+      () => store.getState().pause('error'),
       () => store.getState().start('slideshow'),
       () => store.getState().setPreviewOpen(true),
       () => store.getState().stop(),
@@ -34,6 +34,20 @@ describe('artwork auto browse store', () => {
       interrupt()
       expect(store.getState().activeAnimationId).toBeNull()
     }
+  })
+
+  it('retains the attempt while paused and rejects late ready/buffering events', () => {
+    store.getState().start('scroll')
+    store.getState().setActiveAnimation(7)
+    const attempt = store.getState().animationAttempt
+    store.getState().pause('overlay')
+    store.getState().animationReady(7)
+    store.getState().animationBuffering(7)
+    expect(store.getState()).toMatchObject({ status: 'paused', animationPhase: 'paused', activeAnimationId: 7 })
+    store.getState().resume()
+    expect(store.getState().animationAttempt).toBe(attempt)
+    store.getState().setCurrentMedia(8)
+    expect(store.getState().activeAnimationId).toBeNull()
   })
 
   it('keeps completion, manual stop and failure skip separate and resets them for a loop', () => {

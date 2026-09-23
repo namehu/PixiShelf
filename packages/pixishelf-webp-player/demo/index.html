@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WebP 流式播放器验证</title>
+  <style>
+    body {
+      font: 16px system-ui;
+      margin: 40px;
+      background: #17191d;
+      color: #eee;
+    }
+    canvas {
+      width: min(80vw, 640px);
+      height: auto;
+      image-rendering: pixelated;
+      background: repeating-conic-gradient(#444 0% 25%, #777 0% 50%) 50%/20px 20px;
+    }
+    button {
+      padding: 10px 18px;
+      margin: 8px;
+    }
+    pre {
+      white-space: pre-wrap;
+    }
+  </style>
+  <h1>WebP 流式播放器验证</h1>
+  <p>服务器先发送两帧，暂扣后续字节 2.5 秒。查看缓冲、暂停续播和结束事件。</p>
+  <canvas id="canvas" aria-label="WebP 验证动画"></canvas>
+  <div>
+    <button id="start">开始限速验证</button><button id="pause">暂停</button><button id="resume">继续</button
+    ><button id="stop">销毁</button>
+  </div>
+  <pre id="log"></pre>
+  <script type="module">
+    import { WebpPlayer, playerLimits } from '/dist/index.js'
+    window.events = []
+    window.player = null
+    window.start = async (path = '/tests/fixtures/composite.webp?gate', limits = playerLimits(false), loop = false) => {
+      window.player?.destroy()
+      window.events = []
+      const p = new WebpPlayer(document.querySelector('canvas'), {
+        workerUrl: '/assets/worker.mjs',
+        decoderUrl: '/assets/decoder.mjs',
+        limits
+      })
+      window.player = p
+      p.subscribe((e) => {
+        window.events.push({ ...e, at: performance.now() })
+        document.querySelector('#log').textContent = JSON.stringify(
+          { snapshot: p.getSnapshot(), events: window.events },
+          null,
+          2
+        )
+      })
+      const ready = p.load({ url: path, resourceKey: path, loop })
+      p.play()
+      await ready
+    }
+    document.querySelector('#start').onclick = () => window.start().catch(() => {})
+    document.querySelector('#pause').onclick = () => window.player?.pause()
+    document.querySelector('#resume').onclick = () => window.player?.play()
+    document.querySelector('#stop').onclick = () => window.player?.destroy()
+  </script>
+</html>

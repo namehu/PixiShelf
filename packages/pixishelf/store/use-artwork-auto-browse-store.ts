@@ -41,7 +41,7 @@ interface AutoBrowseState extends AutoBrowsePreferences {
   skippedIds: number[]
   activeVideoId: number | null
   activeAnimationId: number | null
-  animationPhase: 'loading' | 'playing' | null
+  animationPhase: 'loading' | 'playing' | 'buffering' | 'paused' | null
   animationAttempt: number
   completedAnimationIds: readonly number[]
   stoppedAnimationIds: readonly number[]
@@ -49,6 +49,7 @@ interface AutoBrowseState extends AutoBrowsePreferences {
   stopAnimation: (id: number) => void
   replayAnimation: (id: number) => void
   animationReady: (id: number) => void
+  animationBuffering: (id: number) => void
   setActiveAnimation: (id: number | null) => void
   // 跨虚拟列表卸载保留手动暂停意图，仅在作品会话结束时清空，不写入持久化偏好。
   pausedVideoIds: number[]
@@ -110,7 +111,14 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
         }
       },
       animationReady: (id) => {
-        if (get().activeAnimationId === id) set({ animationPhase: 'playing', status: 'running' })
+        if (get().activeAnimationId === id && ['running', 'waiting'].includes(get().status)) {
+          set({ animationPhase: 'playing', status: 'running' })
+        }
+      },
+      animationBuffering: (id) => {
+        if (get().activeAnimationId === id && ['running', 'waiting'].includes(get().status)) {
+          set({ animationPhase: 'buffering', status: 'waiting' })
+        }
       },
       // 仅当前激活动图 ID 可以登记完成；尝试号和会话校验由调用方负责。
       finishAnimation: (id) => {
@@ -190,11 +198,12 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       },
       pause: (reason = 'manual') => {
         if (!['running', 'waiting'].includes(get().status)) return
+        const retain = get().activeAnimationId !== null && reason !== 'error' && reason !== 'video'
         set({
           status: 'paused',
-          animationPhase: null,
+          animationPhase: retain ? 'paused' : null,
           reason,
-          activeAnimationId: null,
+          activeAnimationId: retain ? get().activeAnimationId : null,
           controlsCollapsed: false,
           revision: get().revision + 1
         })
@@ -207,6 +216,7 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
           controlsCollapsed: false,
           reason: null,
           revision: state.revision + 1,
+          animationPhase: state.activeAnimationId === null ? null : 'loading',
           skippedIds:
             state.reason === 'video' && state.currentMediaId !== null
               ? [...state.skippedIds, state.currentMediaId]
@@ -242,7 +252,12 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
         if (get().status === 'waiting') set({ status: 'running' })
       },
       setCurrentMedia: (id) => {
-        if (get().currentMediaId !== id) set({ currentMediaId: id })
+        if (get().currentMediaId !== id) {
+          set({
+            currentMediaId: id,
+            ...(get().activeAnimationId !== id ? { activeAnimationId: null, animationPhase: null } : {})
+          })
+        }
       },
       setPreviewOpen: (previewOpen) =>
         set({ previewOpen, ...(previewOpen ? { activeAnimationId: null, animationPhase: null } : {}) }),
@@ -262,7 +277,12 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
           revision: get().revision + 1
         }),
       clearPauseReason: () => set({ reason: null }),
-      skip: (id) => set({ skippedIds: [...get().skippedIds, id], reason: null }),
+      skip: (id) =>
+        set({
+          skippedIds: [...get().skippedIds, id],
+          reason: null,
+          ...(get().activeAnimationId === id ? { activeAnimationId: null, animationPhase: null } : {})
+        }),
       resetCycle: () => set({ skippedIds: [], completedAnimationIds: [], stoppedAnimationIds: [] }),
       setPreferences: (value) => set({ ...preferences({ ...get(), ...value }), revision: get().revision + 1 })
     }),

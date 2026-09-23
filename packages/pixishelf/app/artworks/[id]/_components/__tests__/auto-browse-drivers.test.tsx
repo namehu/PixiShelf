@@ -217,16 +217,16 @@ describe('scroll driver', () => {
     expect(getY()).toBeGreaterThan(0)
     expect(store.getState()).toMatchObject({ activeAnimationId: null, completedAnimationIds: [1], skippedIds: [] })
   })
-  it('cancels playback on pause and starts a new attempt on resume', () => {
+  it('retains the playback attempt on pause and resume', () => {
     const { advance, unmount } = setup({ animated: true })
     advance(0)
     const attempt = store.getState().animationAttempt
     act(() => store.getState().pause('hidden'))
-    expect(store.getState().activeAnimationId).toBeNull()
+    expect(store.getState()).toMatchObject({ activeAnimationId: 1, animationPhase: 'paused' })
     act(() => store.getState().resume())
     advance(1)
     expect(store.getState().activeAnimationId).toBe(1)
-    expect(store.getState().animationAttempt).toBeGreaterThan(attempt)
+    expect(store.getState().animationAttempt).toBe(attempt)
     unmount()
     expect(store.getState().activeAnimationId).toBeNull()
   })

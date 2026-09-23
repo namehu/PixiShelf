@@ -1,0 +1,60 @@
+classDiagram
+    class AutoBrowseStore {
+        pause()
+        resume()
+        stopAnimation()
+        finishAnimation()
+    }
+    class ReactAdapter {
+        manualOrSingleCycle()
+        mapIntent()
+        handleEvent()
+        fallback()
+    }
+    class WebpPlayer {
+        load(source)
+        play()
+        pause()
+        restart()
+        destroy()
+    }
+    class FrameClock {
+        remainingMs
+        start()
+        advance()
+        pause()
+        resume()
+    }
+    class PlayerAssetSessionStore {
+        manifest
+        pending
+        loadManifest()
+        setSessionOwner()
+        reset()
+    }
+    class DecoderWorker {
+        readStream()
+        requestFrame()
+        recycleBuffer()
+        cancel()
+    }
+    class WasmDecoder {
+        append(bytes)
+        next()
+        finish()
+        repeat()
+        destroy()
+    }
+    class Libwebp {
+        WebPDemuxPartial()
+        WebPDecode()
+        WebPAnimDecoderReset()
+    }
+    AutoBrowseStore --> ReactAdapter : intent
+    ReactAdapter --> AutoBrowseStore : events
+    ReactAdapter *-- WebpPlayer
+    ReactAdapter --> PlayerAssetSessionStore : shared manifest
+    WebpPlayer *-- FrameClock
+    WebpPlayer --> DecoderWorker : transferable buffers
+    DecoderWorker *-- WasmDecoder
+    WasmDecoder --> Libwebp

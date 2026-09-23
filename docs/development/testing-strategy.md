@@ -41,7 +41,7 @@ sources:
 | 构建验证           | Next.js、Worker、Extension build                            | 编译器/打包器               | 生产依赖、模块边界和产物可构建              |
 | 部署验证           | Compose config、Worker health/capability、migration status  | Docker/PostgreSQL           | 实际运行拓扑与启动门禁                      |
 
-当前没有 Playwright/Cypress 配置，也没有由 CI 驱动的真实浏览器端到端测试。不能把 `.e2e.test.tsx` 的存在解释为已经覆盖浏览器、反向代理、登录 Cookie 和真实媒体播放链路。
+`packages/pixishelf-webp-player` 现有 Playwright 测试使用真实 Worker、WASM 和分块 HTTP，CI 用 Chromium、本地 Windows 用 Edge。它不覆盖业务登录与反向代理。主应用 `.e2e.test.tsx` 仍是 jsdom，不能解释为已覆盖真实浏览器媒体链路。
 
 ## 标准命令
 
@@ -181,7 +181,10 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 6. 对数据库和 Worker 依赖链执行测试；
 7. 构建通用 Worker；
 8. 运行主应用 lint 和 typecheck；
-9. 运行主应用 `test:unit`。
+9. 运行主应用 `test:unit` 和生产 build（构建时开启实验性 WebP）；
+10. 校验仓库 WebP 预编译产物及源码一致性，运行校验器负向测试、库类型/单元检查和真实浏览器流式测试，不日常编译原生代码。
+
+独立 `webp-native.yml` 只在原生/预编译相关文件变更或手动触发时运行固定镜像编译、原生差分 ASan/UBSan、产物逐字节复现和浏览器测试；修改普通页面或播放器 TypeScript 不触发该工作流。重建不会自动改写 Git 中的预编译产物，要求贡献者提交对应更新。
 
 Worker 测试和 capability 门禁包含双 lane contract，以及 32 个 job type、37 个 type/version 组合（`SCAN`
 v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
@@ -191,12 +194,11 @@ CI 当前没有明确执行：
 
 - 主应用 `test:integration`；
 - `.e2e.test.*`；
-- 主应用生产 build；
 - zip-convert 验证；
 - Docker Compose/镜像运行冒烟；
 - 真实浏览器登录、反向代理和媒体播放。
 
-这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应评估主应用集成测试和 production build，再逐步补真实浏览器 E2E。
+这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应评估主应用集成测试，再逐步补业务真实浏览器 E2E。WebP 性能门槛需在无其他重负载任务并发时独立运行；合成样本不能替代安卓真机及真实收藏验收。
 
 ## 完成标准
 

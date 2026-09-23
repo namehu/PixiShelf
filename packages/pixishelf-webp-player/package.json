@@ -1,0 +1,30 @@
+{
+  "name": "@pixishelf/webp-player",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build:native": "node scripts/build-native.mjs",
+    "verify:prebuilt": "node scripts/verify-prebuilt.mjs",
+    "test:prebuilt": "node --test tests/prebuilt.test.mjs",
+    "build": "node scripts/build.mjs",
+    "prepare:app": "node scripts/prepare-app.mjs",
+    "test:browser": "playwright test",
+    "demo": "node scripts/serve.mjs",
+    "diagrams": "node scripts/render-diagrams.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "@types/node": "^20.19.0",
+    "esbuild": "0.25.12",
+    "mermaid": "11.12.0",
+    "sharp": "^0.33.5",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.18"
+  }
+}

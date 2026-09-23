@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "toolchain": {
+    "libwebp": "1.6.0",
+    "sourceSha256": "e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564",
+    "emscripten": "6.0.10",
+    "image": "emscripten/emsdk:6.0.10@sha256:e077d54e2b8970575ebc4f185ac1de0b95c05f2b266134d4ba27449af7aebf65"
+  },
+  "inputs": {
+    "native/toolchain.json": "26f4bf504f46823fc6788df0f54eb734f3ab0deaf629a3cc710b4bce29ddb57e",
+    "native/build.sh": "740b892bf002f37010d734c7d5ecb16377575861e7a2a9b3da5c73036c161976",
+    "native/stream-decoder.c": "7181979a2379fcb21107946377f1d88c9c444a9127046efa43775dd3855c7ac1",
+    "scripts/build-native.mjs": "6a27f566ccf041c6b292fb3a8e7b07a2c437f4ec0137017176e721ecb76d6f74"
+  },
+  "artifacts": {
+    "decoder.mjs": "2c42733942a24031ac5364e0d9626723910832a94f0ccb766d11fc1a1028cf53",
+    "decoder.wasm": "8898ed0c00963835a8f6b2a3d4f3c2f6c24ce60261350d4d19418b0168782115",
+    "libwebp-license.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
+    "libwebp-patents.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c"
+  }
+}
