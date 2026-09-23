@@ -17,6 +17,7 @@ import { canPreloadAdaptedImage, readMediaPreloadEnvironment, type MediaPreloadE
 import { cn } from '@/lib/utils'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 import { AutoBrowseControls } from './auto-browse-controls'
+import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkSlideshow } from './use-artwork-slideshow'
 
 const ADAPTIVE_PREVIEW_HISTORY_KEY = '__pixishelf_adaptive_media_preview__'
@@ -40,7 +41,7 @@ function isPlayableAnimatedWebp(media: ArtworkImageResponseDto) {
 }
 
 export function canPreloadAdaptiveNeighbor(media: ArtworkImageResponseDto, environment: AdaptivePreloadEnvironment) {
-  // WebP/GIF preview requests resolve to static JPG posters, never animation originals.
+  // WebP/GIF 的邻近预加载只请求静态 JPG 海报，避免提前下载完整动图。
   const staticPoster = isWebpFile(media.path) || isGifFile(media.path)
   return canPreloadAdaptedImage({ ...media, isAnimated: !staticPoster && isAnimatedMedia(media) }, environment)
 }
@@ -63,15 +64,13 @@ export default function AdaptiveMediaPreview({
   const safeInitialIndex = clampIndex(initialIndex, images.length)
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex)
   const [zoomScale, setZoomScale] = useState(1)
-  const [isWebpPlaying, setIsWebpPlaying] = useState(false)
+  const animation = useArtworkAnimation(images[currentIndex]?.id, 'slideshow')
+  const isWebpPlaying = animation.playing
   const [decodedIndexes, setDecodedIndexes] = useState<Set<string>>(() => new Set())
   const [errorIndexes, setErrorIndexes] = useState<Set<string>>(() => new Set())
   const [retryCounts, setRetryCounts] = useState<Record<number, number>>({})
   const [transitioning, setTransitioning] = useState(false)
   const autoSlideshowSelected = useArtworkAutoBrowseStore((state) => state.mode === 'slideshow')
-  const autoControlsCollapsed = useArtworkAutoBrowseStore(
-    (state) => state.mode === 'slideshow' && state.controlsCollapsed
-  )
   const loadGeneration = useRef(0)
   const retryGeneration = useRef<Record<number, number>>({})
   const [preloadEnvironment, setPreloadEnvironment] = useState<AdaptivePreloadEnvironment>({
@@ -86,7 +85,7 @@ export default function AdaptiveMediaPreview({
     const nextIndex = clampIndex(initialIndex, images.length)
     setCurrentIndex(nextIndex)
     setZoomScale(1)
-    setIsWebpPlaying(false)
+    animation.stopManual()
     setDecodedIndexes(new Set())
     setErrorIndexes(new Set())
     loadGeneration.current += 1
@@ -152,7 +151,7 @@ export default function AdaptiveMediaPreview({
       const media = images[nextIndex]
       if (media) useArtworkAutoBrowseStore.getState().setCurrentMedia(media.id)
       setZoomScale(1)
-      setIsWebpPlaying(false)
+      animation.stopManual()
     },
     [images]
   )
@@ -176,7 +175,9 @@ export default function AdaptiveMediaPreview({
     count: images.length,
     ready: decodedIndexes.has(previewResourceKey(activeMedia)),
     error: errorIndexes.has(previewResourceKey(activeMedia)),
-    blocked: zoomScale > 1.01 || isWebpPlaying,
+    blocked: zoomScale > 1.01,
+    mediaId: activeMedia?.id,
+    animated: activePlayableWebp,
     transitioning,
     enabled: open,
     onNext: nextSlide,
@@ -208,7 +209,7 @@ export default function AdaptiveMediaPreview({
       initialIndex={safeInitialIndex}
       open={open}
       onClose={(finalIndex) => {
-        setIsWebpPlaying(false)
+        animation.stopManual()
         onClose(finalIndex)
       }}
       historyKey={ADAPTIVE_PREVIEW_HISTORY_KEY}
@@ -263,10 +264,7 @@ export default function AdaptiveMediaPreview({
                 fillContainer
                 posterLoading={eager ? 'eager' : 'lazy'}
                 controlMode="external"
-                playing={index === currentIndex && isWebpPlaying}
-                onPlayingChange={(playing) => {
-                  if (index === currentIndex) setIsWebpPlaying(playing)
-                }}
+                {...(index === currentIndex ? animation : { playing: false })}
                 onPosterLoad={(image) => handleImageLoad(index, image)}
                 onPosterError={() => setErrorIndexes((current) => new Set(current).add(previewResourceKey(media)))}
                 className={cn(
@@ -303,17 +301,17 @@ export default function AdaptiveMediaPreview({
       }}
       bottomChrome={({ portalContainer: container }) => (
         <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 flex items-end justify-end gap-2">
-          {activePlayableWebp && !autoControlsCollapsed && (
+          {activePlayableWebp && (
             <Button
               type="button"
               size="sm"
               variant="ghost"
               className="pointer-events-auto h-11 shrink-0 rounded-full p-0 hover:bg-transparent"
               aria-label={`${isWebpPlaying ? '暂停' : '播放'} WEBP 动图`}
+              data-auto-browse-controls
               aria-pressed={isWebpPlaying}
               onClick={() => {
-                useArtworkAutoBrowseStore.getState().pause()
-                setIsWebpPlaying((playing) => !playing)
+                animation.onPlayingChange(!isWebpPlaying)
               }}
             >
               <span className="flex h-[22px] items-center gap-1 rounded-full bg-secondary px-2 text-xs text-secondary-foreground shadow-lg">
@@ -332,7 +330,7 @@ export default function AdaptiveMediaPreview({
                   {currentIndex + 1}/{images.length}
                 </span>
               }
-              blocked={zoomScale > 1.01 || isWebpPlaying}
+              blocked={zoomScale > 1.01}
               container={container}
               onRestart={() => {
                 firstSlide()
@@ -342,8 +340,7 @@ export default function AdaptiveMediaPreview({
               onSkip={() => {
                 useArtworkAutoBrowseStore.getState().pause()
                 useArtworkAutoBrowseStore.getState().clearPauseReason()
-                if (currentIndex === images.length - 1) useArtworkAutoBrowseStore.getState().end()
-                else nextSlide()
+                if (activeMedia) useArtworkAutoBrowseStore.getState().skip(activeMedia.id)
               }}
             />
           )}

@@ -36,6 +36,20 @@ describe('artwork auto browse store', () => {
     }
   })
 
+  it('keeps completion, manual stop and failure skip separate and resets them for a loop', () => {
+    store.getState().start('scroll')
+    store.getState().setActiveAnimation(1)
+    store.getState().finishAnimation(1)
+    store.getState().stopAnimation(2)
+    store.getState().skip(3)
+    expect(store.getState()).toMatchObject({ completedAnimationIds: [1], stoppedAnimationIds: [2], skippedIds: [3] })
+    store.getState().replayAnimation(2)
+    expect(store.getState()).toMatchObject({ stoppedAnimationIds: [], activeAnimationId: 2, animationPhase: 'loading' })
+    store.getState().finishAnimation(2)
+    store.getState().resetCycle()
+    expect(store.getState()).toMatchObject({ completedAnimationIds: [], stoppedAnimationIds: [], skippedIds: [] })
+  })
+
   it('acknowledges the current video on resume and clears acknowledgements for a loop', () => {
     store.getState().start('scroll')
     store.getState().setCurrentMedia(7)

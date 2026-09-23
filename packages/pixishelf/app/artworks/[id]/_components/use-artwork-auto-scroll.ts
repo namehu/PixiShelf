@@ -47,7 +47,7 @@ export function useArtworkAutoScroll({
     let position = window.scrollY
     let atEndSince: number | null = null
     let firstFrame = true
-    let animation: { id: number; readySince: number | null } | null = null
+    let animation: { id: number } | null = null
     const tick = (time: number) => {
       const state = store.getState()
       if (
@@ -79,18 +79,22 @@ export function useArtworkAutoScroll({
         return rect.bottom > top && rect.top < bottom
       })
       const focus = (top + bottom) / 2
-      // Use reading order so short animations above the viewport centre are not skipped.
-      const animationNode = visible.find((node) => {
-        const media = images[Number(node.dataset.index)]
-        return (
-          media &&
-          isWebpFile(media.path) &&
-          media.isAnimated &&
-          !isConfirmedStaticWebp(media) &&
-          !state.skippedIds.includes(media.id) &&
-          (node.getBoundingClientRect().top <= focus || bounds.bottom <= bottom + 1)
-        )
-      })
+      // 按阅读顺序优先选择目标，避免视口中心上方的短动图被直接略过。
+      const animationNode =
+        visible.find((node) => images[Number(node.dataset.index)]?.id === state.activeAnimationId) ??
+        visible.find((node) => {
+          const media = images[Number(node.dataset.index)]
+          return (
+            media &&
+            isWebpFile(media.path) &&
+            media.isAnimated &&
+            !isConfirmedStaticWebp(media) &&
+            !state.skippedIds.includes(media.id) &&
+            !state.completedAnimationIds.includes(media.id) &&
+            !state.stoppedAnimationIds.includes(media.id) &&
+            (node.getBoundingClientRect().top <= focus || bounds.bottom <= bottom + 1)
+          )
+        })
       const current =
         animationNode ??
         visible.find((node) => {
@@ -110,9 +114,9 @@ export function useArtworkAutoScroll({
         state.pause('video')
         return
       }
-      // Wait for visible previews, not the whole collection; offscreen media stays lazy.
+      // 只等待当前可见预览，屏外媒体仍保持懒加载，不阻塞滚动进度。
       const pending = visible.find((node) => {
-        // Adjacent previews must not delay the clock of an animation already playing.
+        // 不让相邻预览的加载或失败打断当前动图播放。
         if (animationNode && node !== animationNode) return false
         const media = images[Number(node.dataset.index)]
         return (
@@ -140,42 +144,26 @@ export function useArtworkAutoScroll({
         const media = images[Number(animationNode.dataset.index)]!
         state.setCurrentMedia(media.id)
         if (animation?.id !== media.id) {
-          animation = { id: media.id, readySince: null }
+          animation = { id: media.id }
           const rect = animationNode.getBoundingClientRect()
           position = Math.max(0, window.scrollY + rect.top - top - Math.max(0, (bottom - top - rect.height) / 2))
           window.scrollTo({ top: position, behavior: 'instant' })
           state.setActiveAnimation(media.id)
           state.wait()
+        } else if (state.animationPhase === 'playing') {
+          state.ready()
         } else {
-          const player = animationNode.querySelector('[data-animation-status]')
-          const status = player?.getAttribute('data-animation-status')
-          if (status === 'error') {
-            state.pause('error')
-            return
-          }
-          if (status === 'ready') {
-            const durationMs = Number(player?.getAttribute('data-animation-duration-ms'))
-            if (!Number.isFinite(durationMs) || durationMs <= 0) {
-              state.pause('error')
-              return
-            }
-            state.ready()
-            animation.readySince ??= time
-            if (time - animation.readySince >= durationMs) {
-              state.skip(media.id)
-              state.setActiveAnimation(null)
-              animation = null
-            }
-          } else {
-            animation.readySince = null
-            state.wait()
-          }
+          state.wait()
         }
         position = window.scrollY
         frame = requestAnimationFrame(tick)
         return
       }
       if (animation) {
+        if (state.activeAnimationId !== null) {
+          state.pause('manual')
+          return
+        }
         state.setActiveAnimation(null)
         animation = null
       }
@@ -205,8 +193,11 @@ export function useArtworkAutoScroll({
     }
     frame = requestAnimationFrame(tick)
     return () => {
+      // 清理本轮动画帧；会话仍有效时再释放播放占用，避免影响新作品。
       cancelAnimationFrame(frame)
-      if (store.getState().session === session) store.getState().setActiveAnimation(null)
+      if (store.getState().session === session && store.getState().mode === 'scroll') {
+        store.getState().setActiveAnimation(null)
+      }
     }
   }, [active, containerRef, expand, expanded, images, revision])
 }

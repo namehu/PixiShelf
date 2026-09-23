@@ -22,6 +22,11 @@ interface AnimatedWebpPlayerProps {
   onPosterLoad?: (image: HTMLImageElement) => void
   onPosterError?: () => void
   onAnimationError?: () => void
+  onAnimationReady?: () => void
+  onAnimationComplete?: () => void
+  onPlaybackInterrupted?: () => void
+  playbackKey?: string | number
+  autoBrowseControl?: boolean
   controlMode?: AnimatedWebpPlayerControlMode
   playing?: boolean
   playOnce?: boolean
@@ -58,6 +63,11 @@ export default function AnimatedWebpPlayer({
   onPosterLoad,
   onPosterError,
   onAnimationError,
+  onAnimationReady,
+  onAnimationComplete,
+  onPlaybackInterrupted,
+  playbackKey,
+  autoBrowseControl = false,
   controlMode = 'surface',
   playing,
   playOnce = false,
@@ -66,15 +76,42 @@ export default function AnimatedWebpPlayer({
   const [uncontrolledPlaying, setUncontrolledPlaying] = useState(false)
   const [isLoadingAnimation, setIsLoadingAnimation] = useState(false)
   const [animationFailed, setAnimationFailed] = useState(false)
-  const [singleLoop, setSingleLoop] = useState<{ source: string; url: string; durationMs: number } | null>(null)
+  const [singleLoop, setSingleLoop] = useState<{
+    source: string
+    url: string
+    durationMs: number
+    key?: string | number
+  } | null>(null)
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null)
   const containerRef = useRef<HTMLElement | null>(null)
+  const callbacks = useRef({
+    onAnimationError,
+    onAnimationReady,
+    onAnimationComplete,
+    onPlaybackInterrupted,
+    onPlayingChange
+  })
+  // 保存最新回调，避免仅回调引用变化就重启请求或计时。
+  callbacks.current = {
+    onAnimationError,
+    onAnimationReady,
+    onAnimationComplete,
+    onPlaybackInterrupted,
+    onPlayingChange
+  }
   const originalSrc = useMemo(() => withMediaVersion(combinationApiResource(src), updatedAt), [src, updatedAt])
   const posterSrc = useMemo(() => withMediaVersion(getStaticWebpPosterUrl(src), updatedAt), [src, updatedAt])
   const fileSize = formatFileSize(size)
   const requestedPlaying = playing ?? uncontrolledPlaying
   const isPlaying = isAnimated && requestedPlaying
-  const animationSrc = playOnce ? (singleLoop?.source === originalSrc ? singleLoop.url : null) : originalSrc
+  const animationSrc = playOnce
+    ? singleLoop?.source === originalSrc && singleLoop.key === playbackKey
+      ? singleLoop.url
+      : null
+    : originalSrc
+  const currentPlayback = useRef({ animationSrc, playbackKey, isPlaying })
+  // 媒体事件可能晚到；用来源、播放键和播放状态隔离过期事件。
+  currentPlayback.current = { animationSrc, playbackKey, isPlaying }
   const loadingAnimation = isPlaying && (playOnce ? !animationSrc || loadedUrl !== animationSrc : isLoadingAnimation)
 
   const setContainerNode = useCallback((node: HTMLElement | null) => {
@@ -84,9 +121,9 @@ export default function AnimatedWebpPlayer({
   const setPlayback = useCallback(
     (nextPlaying: boolean) => {
       if (playing === undefined) setUncontrolledPlaying(nextPlaying)
-      onPlayingChange?.(nextPlaying)
+      callbacks.current.onPlayingChange?.(nextPlaying)
     },
-    [onPlayingChange, playing]
+    [playing]
   )
 
   const pausePlayback = useCallback(() => {
@@ -137,23 +174,33 @@ export default function AnimatedWebpPlayer({
         if (cancelled) return
         const result = createSingleLoopWebp(buffer)
         url = URL.createObjectURL(result.blob)
-        setSingleLoop({ source: originalSrc, url, durationMs: result.durationMs })
+        setSingleLoop({ source: originalSrc, url, durationMs: result.durationMs, key: playbackKey })
       } catch {
         if (cancelled) return
         setAnimationFailed(true)
         setIsLoadingAnimation(false)
-        onAnimationError?.()
+        callbacks.current.onAnimationError?.()
         setPlayback(false)
       }
     })()
     return () => {
+      // 停播或切换尝试时中止读取，并释放本次尝试创建的 Blob URL。
       cancelled = true
       controller.abort()
       if (url) URL.revokeObjectURL(url)
       setSingleLoop(null)
       setLoadedUrl(null)
     }
-  }, [isPlaying, playOnce, originalSrc, onAnimationError, setPlayback])
+  }, [isPlaying, playOnce, originalSrc, playbackKey, setPlayback])
+
+  useEffect(() => {
+    if (!isPlaying || !playOnce || !singleLoop || loadedUrl !== animationSrc || !animationSrc) return
+    // 图片加载成功后，才按单次循环的总帧时长启动完成计时。
+    const complete = callbacks.current.onAnimationComplete
+    callbacks.current.onAnimationReady?.()
+    const timer = window.setTimeout(() => complete?.(), singleLoop.durationMs)
+    return () => window.clearTimeout(timer)
+  }, [isPlaying, playOnce, singleLoop, loadedUrl, animationSrc, playbackKey])
 
   useEffect(() => {
     if (!isPlaying || typeof IntersectionObserver === 'undefined') return
@@ -162,7 +209,10 @@ export default function AnimatedWebpPlayer({
     if (!container) return
 
     const observer = new IntersectionObserver(([entry]) => {
-      if (entry && !entry.isIntersecting) pausePlayback()
+      if (entry && !entry.isIntersecting) {
+        if (callbacks.current.onPlaybackInterrupted) callbacks.current.onPlaybackInterrupted()
+        else pausePlayback()
+      }
     })
     observer.observe(container)
 
@@ -173,7 +223,10 @@ export default function AnimatedWebpPlayer({
     if (!isPlaying) return
 
     const handleVisibilityChange = () => {
-      if (document.hidden) pausePlayback()
+      if (document.hidden) {
+        if (callbacks.current.onPlaybackInterrupted) callbacks.current.onPlaybackInterrupted()
+        else pausePlayback()
+      }
     }
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
@@ -181,14 +234,28 @@ export default function AnimatedWebpPlayer({
   }, [isPlaying, pausePlayback])
 
   const handleAnimationLoad = () => {
+    if (
+      !currentPlayback.current.isPlaying ||
+      currentPlayback.current.animationSrc !== animationSrc ||
+      currentPlayback.current.playbackKey !== playbackKey
+    ) {
+      return
+    }
     setIsLoadingAnimation(false)
     setLoadedUrl(animationSrc)
   }
 
   const handleAnimationError = () => {
+    if (
+      !currentPlayback.current.isPlaying ||
+      currentPlayback.current.animationSrc !== animationSrc ||
+      currentPlayback.current.playbackKey !== playbackKey
+    ) {
+      return
+    }
     setIsLoadingAnimation(false)
     setAnimationFailed(true)
-    onAnimationError?.()
+    callbacks.current.onAnimationError?.()
     setPlayback(false)
   }
 
@@ -210,7 +277,7 @@ export default function AnimatedWebpPlayer({
         type="button"
         className="absolute bottom-0 right-2 z-10 flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
         data-long-press-ignore
-        data-auto-browse-controls={playOnce || undefined}
+        data-auto-browse-controls={autoBrowseControl || playOnce || undefined}
         aria-label={`${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}
         aria-pressed={isPlaying}
         aria-busy={loadingAnimation}

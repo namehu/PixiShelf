@@ -836,8 +836,6 @@ function VirtualizedArtworkMediaList({
               const index = images.findIndex((media) => media.id === state.currentMediaId)
               if (index < 0) return
               state.skip(images[index]!.id)
-              if (index === images.length - 1) state.end()
-              else handleAnchorSelect(index + 1)
             }}
             onExit={() => useArtworkAutoBrowseStore.getState().stop()}
           />

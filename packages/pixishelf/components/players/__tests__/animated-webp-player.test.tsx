@@ -207,6 +207,44 @@ describe('AnimatedWebpPlayer', () => {
     expect(screen.getAllByRole('img')).toHaveLength(1)
   })
 
+  it('does not restart single-loop requests or their clock when callbacks change', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => webpFixture([1200]) })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stable-attempt')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const complete = vi.fn()
+    const { rerender } = render(
+      <AnimatedWebpPlayer
+        src="/sample.webp"
+        playing
+        playOnce
+        onAnimationComplete={complete}
+        onPlayingChange={() => {}}
+        onAnimationError={() => {}}
+      />
+    )
+    await act(async () => {})
+    fireEvent.load(screen.getAllByRole('img')[1]!)
+    act(() => vi.advanceTimersByTime(600))
+    rerender(
+      <AnimatedWebpPlayer
+        src="/sample.webp"
+        playing
+        playOnce
+        onAnimationComplete={() => complete()}
+        onPlayingChange={() => {}}
+        onAnimationError={() => {}}
+      />
+    )
+    act(() => vi.advanceTimersByTime(600))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(complete).toHaveBeenCalledTimes(1)
+    fireEvent.load(screen.getAllByRole('img')[1]!)
+    act(() => vi.advanceTimersByTime(5000))
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+
   it('cancels an in-flight copy and ignores its late result after playback stops', async () => {
     let resolve!: (response: unknown) => void
     const fetchMock = vi.fn(

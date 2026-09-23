@@ -15,6 +15,7 @@ import { combinationApiResource } from '@/utils/combination-static'
 import { Loader2, X } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
+import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkVideoOptimization } from './artwork-video-optimization-context'
 
 interface LazyMediaProps {
@@ -63,23 +64,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const playbackActive = useArtworkAutoBrowseStore((state) => state.activeVideoId === media.id && !state.previewOpen)
   const playbackPaused = useArtworkAutoBrowseStore((state) => state.pausedVideoIds.includes(media.id))
-  const animationActive = useArtworkAutoBrowseStore((state) => state.activeAnimationId === media.id)
-  const [manualAnimationPlaying, setManualAnimationPlaying] = useState(false)
-  useEffect(() => {
-    if (animationActive) setManualAnimationPlaying(false)
-  }, [animationActive])
-  const onAnimationPlayingChange = useCallback(
-    (playing: boolean) => {
-      const state = useArtworkAutoBrowseStore.getState()
-      setManualAnimationPlaying(playing)
-      if (playing || state.activeAnimationId === media.id) state.pause('manual')
-    },
-    [media.id]
-  )
-  const onAnimationError = useCallback(() => {
-    const state = useArtworkAutoBrowseStore.getState()
-    if (state.activeAnimationId === media.id) state.pause('error')
-  }, [media.id])
+  const animation = useArtworkAnimation(media.id, 'scroll')
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
   const src = media.path
   const hasDimensions =
@@ -219,13 +204,11 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={formatLabel}
           controlMode={isWebpFile(src) ? 'badge' : 'surface'}
-          playing={isWebpFile(src) ? animationActive || manualAnimationPlaying : undefined}
-          playOnce={animationActive}
+          {...(isWebpFile(src) ? animation : {})}
           updatedAt={media.updatedAt}
           onPosterLoad={() => report('ready')}
           onPosterError={() => report('error')}
-          onPlayingChange={isWebpFile(src) ? onAnimationPlayingChange : onPlayingChange}
-          onAnimationError={onAnimationError}
+          onPlayingChange={isWebpFile(src) ? animation.onPlayingChange : onPlayingChange}
         />
       )
     }

@@ -17,11 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import type {
-  AutoBrowseMode,
-  AutoBrowsePauseReason,
-  AutoBrowseStatus
-} from '@/store/use-artwork-auto-browse-store'
+import type { AutoBrowseMode, AutoBrowsePauseReason, AutoBrowseStatus } from '@/store/use-artwork-auto-browse-store'
 
 export interface ControlledAutoBrowseState {
   mode: AutoBrowseMode | null
@@ -31,6 +27,7 @@ export interface ControlledAutoBrowseState {
   scrollSpeed: number
   slideSeconds: number
   loop: boolean
+  animationPhase?: 'loading' | 'playing' | null
 }
 
 export interface ControlledAutoBrowseControlsProps {
@@ -43,7 +40,9 @@ export interface ControlledAutoBrowseControlsProps {
   onPause: (reason?: AutoBrowsePauseReason) => void
   onResume: () => void
   onSetControlsCollapsed: (collapsed: boolean) => void
-  onSetPreferences: (preferences: Partial<Pick<ControlledAutoBrowseState, 'scrollSpeed' | 'slideSeconds' | 'loop'>>) => void
+  onSetPreferences: (
+    preferences: Partial<Pick<ControlledAutoBrowseState, 'scrollSpeed' | 'slideSeconds' | 'loop'>>
+  ) => void
   onRestart: () => void
   onRetry: () => void
   onSkip: () => void
@@ -128,19 +127,21 @@ export function ControlledAutoBrowseControls({
     onSetPreferences(mode === 'scroll' ? { scrollSpeed: next } : { slideSeconds: next })
   const description = !selected
     ? '自动轮播'
-    : state.status === 'waiting'
-      ? '等待图片加载'
-      : error
-        ? '图片加载失败'
-        : state.reason === 'video'
-          ? '视频已暂停自动滚动'
-          : blocked
-            ? '缩小图片后继续'
-            : ended
-              ? '已结束'
-              : mode === 'scroll'
-                ? '自动滚动'
-                : '自动轮播'
+    : state.animationPhase === 'playing' && playing
+      ? '正在播放动图'
+      : state.status === 'waiting'
+        ? '等待图片加载'
+        : error
+          ? '图片加载失败'
+          : state.reason === 'video'
+            ? '视频已暂停自动滚动'
+            : blocked
+              ? '缩小图片后继续'
+              : ended
+                ? '已结束'
+                : mode === 'scroll'
+                  ? '自动滚动'
+                  : '自动轮播'
 
   return (
     <motion.div
@@ -160,7 +161,7 @@ export function ControlledAutoBrowseControls({
           className="size-11 flex-col gap-0 rounded-full"
           aria-label={`展开自动浏览控制，当前第 ${current} 张，共 ${total} 张`}
           aria-expanded={false}
-          title="展开自动浏览控制"
+          title={`${description} · 展开自动浏览控制`}
           onClick={() => {
             onSetControlsCollapsed(false)
             requestAnimationFrame(() => rootRef.current?.querySelector('button')?.focus({ preventScroll: true }))
@@ -180,7 +181,7 @@ export function ControlledAutoBrowseControls({
               className="size-11 rounded-full"
               disabled={blocked || (error && !playing)}
               aria-label={playing ? '暂停自动浏览' : ended ? '重新开始自动浏览' : '开始或继续自动浏览'}
-              title={playing ? '暂停' : ended ? '重新开始' : selected ? '继续' : '自动轮播'}
+              title={playing ? `${description} · 暂停` : ended ? '重新开始' : selected ? '继续' : '自动轮播'}
               onClick={() => {
                 if (playing) onPause()
                 else if (ended) onRestart()
@@ -292,7 +293,12 @@ export function ControlledAutoBrowseControls({
               </Button>
             )}
           </div>
-          <span role="status" className="sr-only">
+          <span
+            role="status"
+            className={
+              state.animationPhase && playing ? 'px-2 pb-1 text-center text-xs text-muted-foreground' : 'sr-only'
+            }
+          >
             {description}
           </span>
           {needsAttention && (

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-media-preview'
 import { useArtworkAutoBrowseStore as autoBrowseStore } from '@/store/use-artwork-auto-browse-store'
+import { webpFixture } from '@/lib/__tests__/webp-fixture'
 
 const swiperMocks = vi.hoisted(() => {
   const instance = {
@@ -341,8 +342,12 @@ describe('AdaptiveMediaPreview', () => {
     expect(screen.getAllByAltText('作品 WEBP 动图 3')).toHaveLength(1)
   })
 
-  it('waits for the actual poster decode before starting its slideshow interval', async () => {
+  it('waits for poster decode and a real single-loop playback before advancing', async () => {
     vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => webpFixture([300, 900]) })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview-loop')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     vi.stubGlobal(
       'matchMedia',
       vi.fn(() => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn() }))
@@ -364,10 +369,50 @@ describe('AdaptiveMediaPreview', () => {
     act(() => vi.advanceTimersByTime(10000))
     expect(autoBrowseStore.getState().status).toBe('waiting')
     expect(swiperMocks.instance.slideNext).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
     await act(async () => finishDecode())
-    expect(autoBrowseStore.getState().status).toBe('running')
+    expect(autoBrowseStore.getState().status).toBe('waiting')
     act(() => vi.advanceTimersByTime(5000))
+    expect(swiperMocks.instance.slideNext).not.toHaveBeenCalled()
+    fireEvent.load(screen.getAllByAltText('作品 WEBP 动图 1')[1]!)
+    expect(autoBrowseStore.getState().animationPhase).toBe('playing')
+    act(() => vi.advanceTimersByTime(1199))
+    expect(swiperMocks.instance.slideNext).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    act(() => vi.advanceTimersByTime(1))
     expect(swiperMocks.instance.slideNext).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows slideshow during manual playback and treats stopping animation as static dwell', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn() }))
+    )
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => webpFixture([1200]) })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:manual-to-auto')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    autoBrowseStore.getState().initialize(1)
+    autoBrowseStore.getState().setPreferences({ slideSeconds: 1.5 })
+    const media = { ...createMedia(0, '/active.webp'), webpAnimationStatus: 2, isAnimated: true }
+    render(<AdaptiveMediaPreview images={[media, createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)
+    fireEvent.load(screen.getByAltText('作品 WEBP 动图 1'))
+    fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
+    const start = screen.getByRole('button', { name: '开始或继续自动浏览' }) as HTMLButtonElement
+    expect(start.disabled).toBe(false)
+    await act(async () => fireEvent.click(start))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    fireEvent.load(screen.getAllByAltText('作品 WEBP 动图 1')[1]!)
+    act(() => autoBrowseStore.getState().setControlsCollapsed(true))
+    const stopAnimation = screen.getByRole('button', { name: '暂停 WEBP 动图' })
+    fireEvent.click(stopAnimation)
+    expect(autoBrowseStore.getState()).toMatchObject({ status: 'running', stoppedAnimationIds: [1] })
+    act(() => vi.advanceTimersByTime(1499))
+    expect(swiperMocks.instance.slideNext).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(swiperMocks.instance.slideNext).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   it('stops the active WebP and keeps other slides static when switching media', () => {
