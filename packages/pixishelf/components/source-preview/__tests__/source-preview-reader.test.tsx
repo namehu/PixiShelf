@@ -98,6 +98,9 @@ class IntersectionObserverMock {
   disconnect() {
     this.active = false
   }
+  observesPaginationSentinel() {
+    return this.target instanceof HTMLDivElement
+  }
   trigger() {
     this.callback(
       [{ isIntersecting: true, intersectionRatio: 1, target: this.target } as IntersectionObserverEntry],
@@ -275,12 +278,24 @@ describe('SourcePreviewReader', () => {
     mocks.reload.mockResolvedValue(page(0, [0], { title: '刷新代次', total: 2, nextPage: 1 }))
     render(<SourcePreviewReader previewId="reload-generation" initialPage={page(0, [0], { nextPage: 1 })} />)
 
-    act(() => IntersectionObserverMock.instances.findLast((item) => item.active)?.trigger())
+    const oldSentinelObserver = IntersectionObserverMock.instances.findLast(
+      (item) => item.active && item.observesPaginationSentinel()
+    )
+    expect(oldSentinelObserver).toBeDefined()
+    act(() => oldSentinelObserver!.trigger())
     await waitFor(() => expect(mocks.page).toHaveBeenCalledTimes(1))
 
     fireEvent.click(screen.getByRole('button', { name: '重新读取来源' }))
     await screen.findByText('刷新代次')
-    act(() => IntersectionObserverMock.instances.findLast((item) => item.active)?.trigger())
+    await waitFor(() => expect(screen.queryByText('正在读取下一页')).toBeNull())
+    const freshSentinelObserver = await waitFor(() => {
+      const observer = IntersectionObserverMock.instances.findLast(
+        (item) => item.active && item !== oldSentinelObserver && item.observesPaginationSentinel()
+      )
+      expect(observer).toBeDefined()
+      return observer!
+    })
+    act(() => freshSentinelObserver.trigger())
 
     await waitFor(() => expect(mocks.page).toHaveBeenCalledTimes(2))
     const freshImage = await screen.findByAltText('来源缩略图 2')
