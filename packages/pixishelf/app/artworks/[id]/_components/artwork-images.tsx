@@ -158,7 +158,41 @@ function useArtworkMediaVirtualizer({
     enabled: containerWidth > 0
   })
 
-  return { virtualizer }
+  const pendingElements = useRef(new Set<HTMLDivElement>())
+  const measurementFrame = useRef<number | null>(null)
+  const measureElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (!element) {
+        virtualizer.measureElement(null)
+        return
+      }
+      pendingElements.current.add(element)
+      if (measurementFrame.current !== null) return
+
+      // Ref 测量会同步更新虚拟范围；展开大量短媒体时，逐批挂载会超过 React 嵌套更新上限。
+      // 将同一轮挂载合并到下一帧，仍由 virtualizer 观察后续真实尺寸变化。
+      measurementFrame.current = requestAnimationFrame(() => {
+        measurementFrame.current = null
+        const elements = [...pendingElements.current]
+        pendingElements.current.clear()
+        for (const node of elements) {
+          if (node.isConnected) virtualizer.measureElement(node)
+        }
+      })
+    },
+    [virtualizer]
+  )
+
+  useLayoutEffect(
+    () => () => {
+      if (measurementFrame.current !== null) cancelAnimationFrame(measurementFrame.current)
+      measurementFrame.current = null
+      pendingElements.current.clear()
+    },
+    []
+  )
+
+  return { virtualizer, measureElement }
 }
 
 function usePreviewContextMenu(images: ArtworkImageResponseDto[], onOpenAdaptivePreview: (index: number) => void) {
@@ -573,7 +607,7 @@ function VirtualizedArtworkMediaList({
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const currentIndex = useArtworkStore((state) => state.currentIndex)
   const { containerRef, containerWidth, scrollMargin, scrollPaddingStart } = useMeasuredMediaContainer()
-  const { virtualizer } = useArtworkMediaVirtualizer({
+  const { virtualizer, measureElement } = useArtworkMediaVirtualizer({
     images,
     visibleCount,
     containerWidth,
@@ -715,7 +749,7 @@ function VirtualizedArtworkMediaList({
           return (
             <div
               key={virtualItem.key}
-              ref={virtualizer.measureElement}
+              ref={measureElement}
               data-index={index}
               className="absolute left-0 right-0 top-0"
               style={{

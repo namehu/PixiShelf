@@ -162,6 +162,7 @@ describe('ArtworkImages', () => {
 
   afterEach(() => {
     cleanup()
+    vi.restoreAllMocks()
     vi.useRealTimers()
   })
 
@@ -186,6 +187,49 @@ describe('ArtworkImages', () => {
       hasChapters: false,
       chaptersUrl: null
     }))
+
+  it.each([false, true])('expands without a synchronous measurement cascade (StrictMode: %s)', async (strict) => {
+    const { useWindowVirtualizer } =
+      await vi.importActual<typeof import('@tanstack/react-virtual')>('@tanstack/react-virtual')
+    virtualizerMocks.useWindowVirtualizer.mockImplementation(useWindowVirtualizer)
+    vi.useFakeTimers()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({
+      width: 656,
+      height: 768,
+      top: -9000,
+      left: 0,
+      right: 656,
+      bottom: -8232,
+      x: 0,
+      y: -9000,
+      toJSON() {}
+    }))
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(9000)
+    // Unloaded/collapsed media can be much shorter than their metadata estimate.
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(1)
+
+    const content = <ArtworkImages images={generateImages(1000)} artworkId={1} />
+    render(strict ? <React.StrictMode>{content}</React.StrictMode> : content)
+    fireEvent.click(screen.getByRole('button', { name: /查看剩余/ }))
+    expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('true')
+    for (let frame = 0; frame < 300; frame++) {
+      act(() => vi.advanceTimersByTime(16))
+    }
+    expect(parseFloat(screen.getByTestId('artwork-images-container').style.height)).toBeLessThan(10000)
+    expect(screen.getByText('Image 1000')).toBeTruthy()
+    const height = screen.getByTestId('artwork-images-container').style.height
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.getByTestId('artwork-images-container').style.height).toBe(height)
+  })
+
+  it('cancels queued measurements when the artwork unmounts', () => {
+    vi.useFakeTimers()
+    const { unmount } = render(<ArtworkImages images={generateImages(30)} artworkId={1} />)
+    unmount()
+    virtualizerMocks.measureElement.mockClear()
+    act(() => vi.advanceTimersByTime(32))
+    expect(virtualizerMocks.measureElement).not.toHaveBeenCalled()
+  })
 
   it('does not reserve cumulative frame height for animated or pending WebP media', () => {
     const media = { ...generateImages(1)[0]!, path: '/animated.webp', width: 696, height: 81000 }
