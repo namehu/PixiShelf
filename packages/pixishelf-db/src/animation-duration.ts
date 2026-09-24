@@ -18,11 +18,16 @@ export type AnimationDurationProbeResult =
   | { status: 'NOT_APPLICABLE'; format: 'WEBP' }
   | { status: 'FAILED'; format?: 'WEBP'; failureCode: string; transient: boolean }
 
-const webpImageWhere = { path: { endsWith: '.webp', mode: 'insensitive' as const } }
+// The animation detector owns classification: 0=pending, 1=static, 2=animated.
+// A duration probe must never classify unknown WebP files by reading them.
+const animatedWebpImageWhere = {
+  path: { endsWith: '.webp', mode: 'insensitive' as const },
+  webpAnimationStatus: 2
+}
 
 function dueCandidateWhere(now: Date): Prisma.ImageWhereInput {
   return {
-    ...webpImageWhere,
+    ...animatedWebpImageWhere,
     OR: [
       { animationMetadata: { is: null } },
       {
@@ -80,7 +85,7 @@ export async function listDueAnimationDurationRetries(
   }
   return client.image.findMany({
     where: {
-      ...webpImageWhere,
+      ...animatedWebpImageWhere,
       animationMetadata: {
         is: { status: 'FAILED', writeInProgress: false, nextRetryAt: { lte: input.now } }
       }
@@ -103,13 +108,13 @@ export async function getAnimationDurationInventory(client: AnimationDatabase, i
     client.image.count({ where: dueCandidateWhere(input.now) }),
     client.image.count({
       where: {
-        ...webpImageWhere,
+        ...animatedWebpImageWhere,
         animationMetadata: { is: { status: 'FAILED', writeInProgress: false, nextRetryAt: { gt: input.now } } }
       }
     }),
     client.imageAnimationMetadata.findFirst({
       where: {
-        image: { is: webpImageWhere },
+        image: { is: animatedWebpImageWhere },
         status: 'FAILED',
         writeInProgress: false,
         nextRetryAt: { gt: input.now }
@@ -119,16 +124,16 @@ export async function getAnimationDurationInventory(client: AnimationDatabase, i
     }),
     client.image.count({
       where: {
-        ...webpImageWhere,
+        ...animatedWebpImageWhere,
         animationMetadata: { is: { status: 'FAILED', writeInProgress: false, nextRetryAt: null } }
       }
     }),
     client.image.count({
-      where: { ...webpImageWhere, animationMetadata: { is: { status: 'FAILED' } } }
+      where: { ...animatedWebpImageWhere, animationMetadata: { is: { status: 'FAILED' } } }
     }),
-    client.image.count({ where: webpImageWhere }),
+    client.image.count({ where: animatedWebpImageWhere }),
     client.image.count({
-      where: { ...webpImageWhere, animationMetadata: { is: { writeInProgress: true } } }
+      where: { ...animatedWebpImageWhere, animationMetadata: { is: { writeInProgress: true } } }
     })
   ])
   return {
@@ -231,7 +236,7 @@ export async function retryAnimationDurationFailures(
     where: {
       status: 'FAILED',
       writeInProgress: false,
-      image: { is: webpImageWhere },
+      image: { is: animatedWebpImageWhere },
       ...(input.imageIds ? { imageId: { in: input.imageIds } } : {})
     },
     data: {
@@ -290,10 +295,10 @@ export async function publishAnimationDurationProbe(
   if (input.result.status === 'NOT_APPLICABLE' && !input.preState) return false
 
   // A row lock serializes publication with Image.path updates in scan/migration transactions.
-  const imageRows = await tx.$queryRaw<Array<{ id: number; path: string }>>(
-    Prisma.sql`SELECT id, path FROM "Image" WHERE id = ${input.imageId} FOR UPDATE`
+  const imageRows = await tx.$queryRaw<Array<{ id: number; path: string; webpAnimationStatus: number | null }>>(
+    Prisma.sql`SELECT id, path, "webpAnimationStatus" FROM "Image" WHERE id = ${input.imageId} FOR UPDATE`
   )
-  if (imageRows[0]?.path !== input.expectedPath) return false
+  if (imageRows[0]?.path !== input.expectedPath || imageRows[0]?.webpAnimationStatus !== 2) return false
   const previous = await tx.imageAnimationMetadata.findUnique({ where: { imageId: input.imageId } })
   if ((previous?.sourceRevision ?? 0) !== input.expectedRevision || previous?.writeInProgress) return false
 

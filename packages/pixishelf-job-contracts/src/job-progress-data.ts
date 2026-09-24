@@ -33,6 +33,7 @@ export const animationScanProgressDataSchema = z
 export const animationDurationProgressDataSchema = z.object({
   version: z.literal(1),
   kind: z.literal('animation-duration-probe'),
+  // YIELDING remains readable for checkpoints written before continuous probing.
   stage: z.enum(['PROBING', 'YIELDING', 'WAITING_RETRY', 'WAITING_SOURCE_WRITE', 'COMPLETED']),
   succeededItems: aggregateCountSchema,
   staticItems: aggregateCountSchema,

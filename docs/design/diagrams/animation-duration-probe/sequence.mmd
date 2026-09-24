@@ -9,8 +9,8 @@ sequenceDiagram
   participant UI as Artwork UI
   A->>Q: Start manual probe
   Q->>W: Claim with execution fence
-  loop Pages of at most 100 Image IDs
-    W->>D: Read due WebP candidates
+  loop Continuous pages of at most 100 animated Image IDs
+    W->>D: Read animated WebP candidates
     D-->>W: Path, revision, status
     W->>C: Probe request with 60 s deadline
     C->>N: stat path and handle before read
@@ -19,7 +19,7 @@ sequenceDiagram
     C-->>W: Duration, frames, loop or static/error and stats
     W->>D: Fenced transaction: path + revision + gate + stats CAS
     D-->>W: Published or stale result rejected
-    W->>Q: Check pause/cancel and yield lane
+    W->>Q: Publish progress; check pause/cancel
   end
   UI->>App: Authenticated artwork or viewer request
   App->>D: Batch join valid READY metadata

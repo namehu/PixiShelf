@@ -13,9 +13,8 @@ import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixi
 import { IsolatedDurationProbe } from './animation-duration-child.ts'
 
 export const ANIMATION_DURATION_CANDIDATE_PAGE_SIZE = 100
-export const ANIMATION_DURATION_BATCH_FILES = 10
-export const ANIMATION_DURATION_BATCH_ACTIVE_MS = 5_000
-export const ANIMATION_DURATION_YIELD_MS = 5_000
+const ANIMATION_DURATION_PROGRESS_FILES = 25
+const ANIMATION_DURATION_PROGRESS_INTERVAL_MS = 5_000
 
 type ProbeContext = ExecutionContext<Record<string, never>, EnqueuedChildJob>
 type ProbeTransaction = Prisma.TransactionClient & QueueSqlExecutor
@@ -44,8 +43,7 @@ const EMPTY_CHECKPOINT: Checkpoint = {
   probeElapsedMs: 0
 }
 
-// Writer-lane yields retain this one child across execution slices. A child
-// stuck in uninterruptible NFS I/O poisons the shared instance until it exits.
+// Retain the isolated child across executions; it owns bounded per-file reads.
 let sharedProbe: IsolatedDurationProbe | null = null
 
 export interface AnimationDurationExecutorDependencies {
@@ -62,15 +60,31 @@ export async function executeAnimationDurationProbe(
   if (!dependencies.scanRoot.trim()) throw new Error('Animation duration scan root is required')
   const now = dependencies.now ?? (() => new Date())
   const probe = dependencies.createProbe?.() ?? (sharedProbe ??= new IsolatedDurationProbe())
-  const started = Date.now()
   let processed = 0
+  let lastProgressAt = Date.now()
   let checkpoint = parseCheckpoint((await dependencies.database.systemJob.findUnique({
     where: { id: context.job.id }, select: { result: true }
   }))?.result)
   let cursor = checkpoint.afterImageId
-  let reachedEnd = false
   let childUnavailable = false
   const priorityIds = new Set<number>()
+
+  const reportRunningProgress = async () => {
+    const inventory = await getAnimationDurationInventory(dependencies.database, { now: now() })
+    await context.progress({
+      progress: progressPercent(inventory, false),
+      stage: 'PROBING',
+      message: `正在探测已识别动图：成功 ${checkpoint.succeeded}，剩余 ${inventory.dueCount + inventory.retryPendingCount + inventory.writePendingCount}`,
+      progressData: progressDataFor(checkpoint, inventory, 'PROBING', now()),
+      persistenceMode: 'REALTIME',
+      forcePersistence: true
+    })
+    lastProgressAt = Date.now()
+  }
+
+  // Replace a legacy YIELDING snapshot and its old inventory before the first
+  // potentially slow NFS read.
+  await reportRunningProgress()
 
   const processCandidate = async (candidate: AnimationDurationCandidate, advanceCursor: boolean): Promise<boolean> => {
     let outcome: Awaited<ReturnType<typeof probeCandidate>>
@@ -130,6 +144,10 @@ export async function executeAnimationDurationProbe(
     })
     if (advanceCursor) cursor = candidate.id
     processed += 1
+    if (processed % ANIMATION_DURATION_PROGRESS_FILES === 0 ||
+        Date.now() - lastProgressAt >= ANIMATION_DURATION_PROGRESS_INTERVAL_MS) {
+      await reportRunningProgress()
+    }
     if (outcome.result.status === 'FAILED') {
       context.logger.warn('animation.duration.probe.failed', {
         imageId: candidate.id,
@@ -143,26 +161,39 @@ export async function executeAnimationDurationProbe(
 
   const dueRetries = await listDueAnimationDurationRetries(dependencies.database, { limit: 2, now: now() })
   for (const candidate of dueRetries) {
-    if (context.signal.aborted || processed >= ANIMATION_DURATION_BATCH_FILES ||
-        Date.now() - started >= ANIMATION_DURATION_BATCH_ACTIVE_MS) break
+    if (context.signal.aborted) break
     priorityIds.add(candidate.id)
     if (!(await processCandidate(candidate, false))) break
   }
 
-  while (!childUnavailable && processed < ANIMATION_DURATION_BATCH_FILES && Date.now() - started < ANIMATION_DURATION_BATCH_ACTIVE_MS) {
+  while (!childUnavailable && !context.signal.aborted) {
     if (context.signal.aborted) break
     const page = await listAnimationDurationCandidates(dependencies.database, {
       afterImageId: cursor, limit: ANIMATION_DURATION_CANDIDATE_PAGE_SIZE, now: now()
     })
     if (page.length === 0) {
-      reachedEnd = true
-      break
+      const inventory = await getAnimationDurationInventory(dependencies.database, { now: now() })
+      if (inventory.dueCount === 0) break
+      // Old checkpoints and new classifications can leave due IDs below the
+      // cursor. Wrap and keep working in this execution instead of yielding.
+      if (cursor === 0) {
+        childUnavailable = true
+        break
+      }
+      checkpoint = await context.mutateInTransaction<ProbeTransaction, Checkpoint>(async (tx) => {
+        const current = parseCheckpoint((await tx.systemJob.findUniqueOrThrow({
+          where: { id: context.job.id }, select: { result: true }
+        })).result)
+        const next = { ...current, afterImageId: 0 }
+        await tx.systemJob.update({ where: { id: context.job.id }, data: { result: next as unknown as Prisma.InputJsonValue } })
+        return next
+      })
+      cursor = 0
+      priorityIds.clear()
+      continue
     }
-    let consumedInPage = 0
     for (const candidate of page) {
-      if (processed >= ANIMATION_DURATION_BATCH_FILES || Date.now() - started >= ANIMATION_DURATION_BATCH_ACTIVE_MS) break
       if (context.signal.aborted) break
-      consumedInPage += 1
       if (priorityIds.has(candidate.id)) {
         cursor = candidate.id
         continue
@@ -170,10 +201,6 @@ export async function executeAnimationDurationProbe(
       if (!(await processCandidate(candidate, true))) break
     }
     if (childUnavailable) break
-    if (consumedInPage === page.length && page.length < ANIMATION_DURATION_CANDIDATE_PAGE_SIZE) {
-      reachedEnd = true
-      break
-    }
   }
 
   return context.finalizeInTransaction<ProbeTransaction>(async (scope) => {
@@ -194,43 +221,23 @@ export async function executeAnimationDurationProbe(
     })
     checkpoint = parseCheckpoint(current.result)
     const inventory = await getAnimationDurationInventory(scope.transaction, { now: now() })
-    if (reachedEnd && inventory.dueCount > 0) {
-      checkpoint = { ...checkpoint, afterImageId: 0 }
-    }
     const remainingItems = inventory.dueCount + inventory.retryPendingCount + inventory.writePendingCount
     const stage: AnimationDurationProgressData['stage'] =
       remainingItems === 0 && !childUnavailable
         ? 'COMPLETED'
         : inventory.dueCount > 0 || childUnavailable
-          ? 'YIELDING'
+          ? 'PROBING'
           : inventory.retryPendingCount > 0
             ? 'WAITING_RETRY'
             : 'WAITING_SOURCE_WRITE'
-    const progressData: AnimationDurationProgressData = {
-      version: 1,
-      kind: 'animation-duration-probe',
-      stage,
-      succeededItems: checkpoint.succeeded,
-      staticItems: checkpoint.static,
-      failedItems: inventory.failedCount,
-      remainingItems,
-      retryPendingItems: inventory.retryPendingCount,
-      writePendingItems: inventory.writePendingCount,
-      logicalReadBytes: checkpoint.logicalReadBytes,
-      logicalReadOperations: checkpoint.logicalReadOperations,
-      unmeasuredFailureAttempts: checkpoint.unmeasuredFailureAttempts,
-      probeElapsedMs: checkpoint.probeElapsedMs,
-      sampledAt: now().toISOString()
-    }
+    const progressData = progressDataFor(checkpoint, inventory, stage, now())
     await scope.transaction.systemJob.update({
       where: { id: context.job.id },
       data: {
         result: checkpoint as unknown as Prisma.InputJsonValue,
         stage,
         progressData,
-        progress: remainingItems === 0 && !childUnavailable
-          ? 100
-          : Math.min(99, Math.max(1, Math.floor(((inventory.totalCount - remainingItems) / Math.max(1, inventory.totalCount)) * 100)))
+        progress: progressPercent(inventory, remainingItems === 0 && !childUnavailable)
       }
     })
     if (remainingItems === 0 && !childUnavailable) {
@@ -242,22 +249,52 @@ export async function executeAnimationDurationProbe(
     }
     const availableAt = childUnavailable
       ? new Date(now().getTime() + 60_000)
-      : inventory.dueCount > 0
-      ? new Date(now().getTime() + ANIMATION_DURATION_YIELD_MS)
       : inventory.nextRetryAt ?? new Date(now().getTime() + 600_000)
     await scope.retry({
       availableAt,
       errorCode: 'RESOURCE_BUSY',
       error: childUnavailable
-        ? 'Animation duration child is unavailable or the source changed during a read'
-        : 'Animation duration probe yielded after a durable batch',
+        ? 'Animation duration child is unavailable or candidate inventory changed during a read'
+        : 'Animation duration probe is waiting for a retry or source write',
       message: stage === 'WAITING_SOURCE_WRITE'
         ? `等待 ${inventory.writePendingCount} 个源文件写入结束；10 分钟后复核`
-        : `已探测 ${checkpoint.succeeded} 个动图，剩余 ${remainingItems} 个，正在让出 Worker`,
+        : `已探测 ${checkpoint.succeeded} 个动图，剩余 ${remainingItems} 个，等待重试`,
       preserveAttempt: true,
       schedulingYield: !childUnavailable
     })
   })
+}
+
+type Inventory = Awaited<ReturnType<typeof getAnimationDurationInventory>>
+
+function progressPercent(inventory: Inventory, completed: boolean): number {
+  if (completed) return 100
+  const remaining = inventory.dueCount + inventory.retryPendingCount + inventory.writePendingCount
+  return Math.min(99, Math.max(1, Math.floor(((inventory.totalCount - remaining) / Math.max(1, inventory.totalCount)) * 100)))
+}
+
+function progressDataFor(
+  checkpoint: Checkpoint,
+  inventory: Inventory,
+  stage: AnimationDurationProgressData['stage'],
+  sampledAt: Date
+): AnimationDurationProgressData {
+  return {
+    version: 1,
+    kind: 'animation-duration-probe',
+    stage,
+    succeededItems: checkpoint.succeeded,
+    staticItems: checkpoint.static,
+    failedItems: inventory.failedCount,
+    remainingItems: inventory.dueCount + inventory.retryPendingCount + inventory.writePendingCount,
+    retryPendingItems: inventory.retryPendingCount,
+    writePendingItems: inventory.writePendingCount,
+    logicalReadBytes: checkpoint.logicalReadBytes,
+    logicalReadOperations: checkpoint.logicalReadOperations,
+    unmeasuredFailureAttempts: checkpoint.unmeasuredFailureAttempts,
+    probeElapsedMs: checkpoint.probeElapsedMs,
+    sampledAt: sampledAt.toISOString()
+  }
 }
 
 async function probeCandidate(

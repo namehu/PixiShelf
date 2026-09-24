@@ -44,13 +44,13 @@ function fence(job: ClaimedJob): ExecutionFence {
   return { jobId: job.id, workerId: job.workerId, executionToken: job.executionToken, attempt: job.attempt }
 }
 
-function context(repository: PostgresQueueRepository, job: ClaimedJob): ExecutionContext<Record<string, never>, EnqueuedChildJob> {
+function context(repository: PostgresQueueRepository, job: ClaimedJob, signal = new AbortController().signal): ExecutionContext<Record<string, never>, EnqueuedChildJob> {
   const owned = fence(job)
   return {
     job,
     payload: {},
-    signal: new AbortController().signal,
-    progress: async () => undefined,
+    signal,
+    progress: (update) => repository.updateProgress({ ...owned, ...update }),
     enqueueChild: async () => { throw new Error('No child job expected') },
     mutateInTransaction: (operation) => repository.withFencedMutationTransaction(owned, operation),
     finalizeInTransaction: async (operation) => {
@@ -87,7 +87,7 @@ describePostgres('animation duration queue and database boundaries', () => {
     await database.$disconnect()
   })
 
-  it('pages 10001 real WebP rows, including old classifications, and skips persisted READY rows', async () => {
+  it('pages only classified animated WebP rows and skips persisted READY rows', async () => {
     const fixturePrefix = `${prefix}/paging/`
     for (let first = 0; first < 10_001; first += 1_000) {
       const count = Math.min(1_000, 10_001 - first)
@@ -99,7 +99,7 @@ describePostgres('animation duration queue and database boundaries', () => {
         }))
       })
     }
-    const ready = await client().image.findFirstOrThrow({ where: { path: `${fixturePrefix}0.webp` } })
+    const ready = await client().image.findFirstOrThrow({ where: { path: `${fixturePrefix}2.webp` } })
     await client().imageAnimationMetadata.create({
       data: { imageId: ready.id, status: 'READY', format: 'WEBP', durationMs: 100n,
         frameCount: 1, loopCount: 0, timingPolicyVersion: 1, sourcePath: ready.path }
@@ -122,13 +122,114 @@ describePostgres('animation duration queue and database boundaries', () => {
       cursor = page.at(-1)!.id
       pages += 1
     }
-    expect(seen).toBe(10_000)
-    expect(pages).toBeGreaterThanOrEqual(100)
-    expect(classified).toEqual(new Set([0, 1, 2]))
+    expect(seen).toBe(3_332)
+    expect(pages).toBeGreaterThanOrEqual(34)
+    expect(classified).toEqual(new Set([2]))
     await client().image.deleteMany({ where: { path: { startsWith: fixturePrefix } } })
   }, 120_000)
 
-  it('enqueues, claims, fences publication, yields its writer lane, and resumes without rereading successes', async () => {
+  it('does not read static or unknown WebP, then picks up a newly classified animation below an old checkpoint', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-duration-scope-'))
+    const fixturePrefix = `${prefix}/scope/`
+    try {
+      await mkdir(path.join(root, prefix, 'scope'), { recursive: true })
+      const filePath = path.join(root, fixturePrefix, 'unknown.webp')
+      await writeFile(filePath, await readFile(path.resolve(process.cwd(), '../pixishelf-webp-player/tests/fixtures/short.webp')))
+      const fileStat = await stat(filePath, { bigint: true })
+      const fileState = { size: fileStat.size, mtimeMs: fileStat.mtimeMs, ctimeMs: fileStat.ctimeMs,
+        deviceId: fileStat.dev, inode: fileStat.ino }
+      const images = await Promise.all([
+        client().image.create({ data: { path: `${fixturePrefix}static.webp`, webpAnimationStatus: 1 } }),
+        client().image.create({ data: { path: `${fixturePrefix}unknown.webp`, webpAnimationStatus: 0 } }),
+        client().image.create({ data: { path: `${fixturePrefix}unclassified.webp`, webpAnimationStatus: null } })
+      ])
+      const calls: string[] = []
+      const fakeProbe = { probe: async (_root: string, relativePath: string) => {
+        calls.push(relativePath)
+        return { probe: { status: 'READY', format: 'WEBP', durationMs: 200, frameCount: 2,
+          loopCount: 0, readBytes: 100, readOperations: 1, chunks: 3 },
+          preState: fileState, postState: fileState, elapsedMs: 2 }
+      } } as unknown as IsolatedDurationProbe
+      const jobId = await seedJob()
+      const repository = new PostgresQueueRepository(client() as unknown as QueueDatabase, { clock })
+      const claimed = await repository.claim(`${prefix}-worker`, capability)
+      await executeAnimationDurationProbe(context(repository, claimed!), {
+        database: client(), scanRoot: root, now: () => clock.now(), createProbe: () => fakeProbe
+      })
+      expect(calls).toEqual([])
+      expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe('COMPLETED')
+      const unknown = images[1]!
+      await client().image.update({ where: { id: unknown.id }, data: { webpAnimationStatus: 2, mediaType: 'ANIMATION' } })
+      const resumeId = await seedJob()
+      await client().systemJob.update({ where: { id: resumeId }, data: { result: {
+        kind: 'ANIMATION_DURATION_CHECKPOINT', afterImageId: images[2]!.id,
+        succeeded: 0, static: 0, failedAttempts: 0, logicalReadBytes: 0,
+        logicalReadOperations: 0, unmeasuredFailureAttempts: 0, probeElapsedMs: 0
+      } } })
+      const resumed = await repository.claim(`${prefix}-worker`, capability)
+      expect(resumed?.id).toBe(resumeId)
+      await executeAnimationDurationProbe(context(repository, resumed!), {
+        database: client(), scanRoot: root, now: () => clock.now(), createProbe: () => fakeProbe
+      })
+      expect(calls).toEqual([unknown.path])
+      expect((await client().systemJob.findUniqueOrThrow({ where: { id: resumeId } })).status).toBe('COMPLETED')
+      expect((await client().imageAnimationMetadata.findUniqueOrThrow({ where: { imageId: unknown.id } })).status).toBe('READY')
+      expect(await client().imageAnimationMetadata.count({ where: { imageId: { in: [images[0]!.id, images[2]!.id] } } })).toBe(0)
+    } finally {
+      await client().image.deleteMany({ where: { path: { startsWith: fixturePrefix } } })
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 120_000)
+
+  it('continues across 100-row pages and refreshes legacy progress without a retry', async () => {
+    const fixturePrefix = `${prefix}/continuous/`
+    try {
+      await client().image.createMany({ data: Array.from({ length: 101 }, (_, index) => ({
+        path: `${fixturePrefix}${index}.webp`, webpAnimationStatus: 2, mediaType: 'ANIMATION' as const
+      })) })
+      const jobId = await seedJob()
+      await client().systemJob.update({ where: { id: jobId }, data: {
+        stage: 'YIELDING', message: '正在让出 Worker', progress: 51,
+        progressData: {
+          version: 1, kind: 'animation-duration-probe', stage: 'YIELDING',
+          succeededItems: 0, staticItems: 0, failedItems: 0, remainingItems: 213_294,
+          retryPendingItems: 0, writePendingItems: 0, logicalReadBytes: 0,
+          logicalReadOperations: 0, unmeasuredFailureAttempts: 0, probeElapsedMs: 0,
+          sampledAt: clock.now().toISOString()
+        }
+      } })
+      const fileState = { size: 123n, mtimeMs: 1n, ctimeMs: 1n, deviceId: 1n, inode: 1n }
+      const calls: string[] = []
+      const fakeProbe = { probe: async (_root: string, relativePath: string) => {
+        calls.push(relativePath)
+        return { probe: { status: 'READY', format: 'WEBP', durationMs: 200, frameCount: 2,
+          loopCount: 0, readBytes: 100, readOperations: 1, chunks: 3 },
+          preState: fileState, postState: fileState, elapsedMs: 1 }
+      } } as unknown as IsolatedDurationProbe
+      const repository = new PostgresQueueRepository(client() as unknown as QueueDatabase, { clock })
+      const claimed = await repository.claim(`${prefix}-worker`, capability)
+      await executeAnimationDurationProbe(context(repository, claimed!), {
+        database: client(), scanRoot: 'unused', now: () => clock.now(), createProbe: () => fakeProbe
+      })
+      expect(calls).toHaveLength(101)
+      const job = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
+      expect(job.status).toBe('COMPLETED')
+      expect(job.progress).toBe(100)
+      expect(await client().systemJobEvent.count({ where: { jobId, type: 'job.retry_scheduled' } })).toBe(0)
+      const progressEvents = await client().systemJobEvent.findMany({
+        where: { jobId, type: { in: ['job.progress', 'job.stage_changed'] } }, orderBy: { id: 'asc' }
+      })
+      expect(progressEvents.length).toBeGreaterThanOrEqual(5)
+      expect(progressEvents[0]).toMatchObject({
+        stage: 'PROBING', message: expect.stringContaining('剩余 101'),
+        data: { progressData: { remainingItems: 101, stage: 'PROBING' } }
+      })
+    } finally {
+      await client().image.deleteMany({ where: { path: { startsWith: fixturePrefix } } })
+    }
+  }, 120_000)
+
+  it('enqueues, claims, fences publication, and completes beyond the old 10-file batch in one execution', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-duration-'))
     const fixturePrefix = `${prefix}/execution/`
     try {
@@ -139,8 +240,8 @@ describePostgres('animation duration queue and database boundaries', () => {
       }
       await client().image.createMany({ data: Array.from({ length: 11 }, (_, index) => ({
         path: `${fixturePrefix}${index}.webp`,
-        webpAnimationStatus: index % 2 ? 1 : 2,
-        mediaType: index % 2 ? 'IMAGE' as const : 'ANIMATION' as const
+        webpAnimationStatus: 2,
+        mediaType: 'ANIMATION' as const
       })) })
       const jobId = await seedJob()
       const repository = new PostgresQueueRepository(client() as unknown as QueueDatabase, { clock })
@@ -158,34 +259,20 @@ describePostgres('animation duration queue and database boundaries', () => {
       await executeAnimationDurationProbe(context(repository, claimed), {
         database: client(), scanRoot: root, now: () => clock.now()
       })
-      const yielded = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
-      expect(yielded.status).toBe('RETRY_WAIT')
-      expect(yielded.attempt).toBe(claimed.attempt - 1)
-      expect(yielded.errorCode).toBeNull()
-      expect(yielded.error).toBeNull()
+      const completed = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
+      expect(completed.status).toBe('COMPLETED')
+      expect(completed.errorCode).toBeNull()
+      expect(completed.error).toBeNull()
       expect(await client().systemJobDiagnosticReport.count({ where: { jobId } })).toBe(0)
-      expect(await client().systemJobEvent.findFirstOrThrow({
-        where: { jobId, type: 'job.retry_scheduled' }, orderBy: { id: 'desc' }
-      })).toMatchObject({ level: 'INFO', data: { reason: 'SCHEDULING_YIELD' } })
-      expect(await client().imageAnimationMetadata.count({ where: { image: { path: { startsWith: fixturePrefix } }, status: 'READY' } })).toBe(10)
+      expect(await client().systemJobEvent.count({ where: { jobId, type: 'job.retry_scheduled' } })).toBe(0)
+      expect(await client().imageAnimationMetadata.count({ where: { image: { path: { startsWith: fixturePrefix } }, status: 'READY' } })).toBe(11)
       expect(await repository.claim(`${prefix}-worker`, capability)).toBeNull()
       await expect(repository.withFencedMutationTransaction(fence(claimed), async (tx) => {
         await (tx as Prisma.TransactionClient).imageAnimationMetadata.create({
           data: { imageId: unpublished.id, status: 'PENDING' }
         })
       })).rejects.toThrow()
-      expect(await client().imageAnimationMetadata.findUnique({ where: { imageId: unpublished.id } })).toBeNull()
-
-      clock.set(new Date(clock.now().getTime() + 5_001))
-      const second = await repository.claim(`${prefix}-worker`, capability)
-      expect(second?.id).toBe(jobId)
-      expect(second!.executionToken).not.toBe(claimed.executionToken)
-      expect(second!.attempt).toBe(claimed.attempt)
-      await executeAnimationDurationProbe(context(repository, second!), {
-        database: client(), scanRoot: root, now: () => clock.now()
-      })
-      expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe('COMPLETED')
-      expect(await client().imageAnimationMetadata.count({ where: { image: { path: { startsWith: fixturePrefix } }, status: 'READY' } })).toBe(11)
+      expect((await client().imageAnimationMetadata.findUniqueOrThrow({ where: { imageId: unpublished.id } })).status).toBe('READY')
 
       const replayJobId = await seedJob()
       const replay = await repository.claim(`${prefix}-worker`, capability)
@@ -208,7 +295,7 @@ describePostgres('animation duration queue and database boundaries', () => {
       await mkdir(path.join(root, prefix, 'priority'), { recursive: true })
       const realFixture = await readFile(path.resolve(process.cwd(), '../pixishelf-webp-player/tests/fixtures/short.webp'))
       await client().image.createMany({
-        data: Array.from({ length: 12 }, (_, index) => ({ path: `${fixturePrefix}${index}.webp` }))
+        data: Array.from({ length: 12 }, (_, index) => ({ path: `${fixturePrefix}${index}.webp`, webpAnimationStatus: 2 }))
       })
       const images = await client().image.findMany({
         where: { path: { startsWith: fixturePrefix } }, orderBy: { id: 'asc' }
@@ -239,12 +326,69 @@ describePostgres('animation duration queue and database boundaries', () => {
       expect((await client().imageAnimationMetadata.findUniqueOrThrow({ where: { imageId: low.id } })).status).toBe('READY')
       expect((await client().imageAnimationMetadata.findUniqueOrThrow({ where: { imageId: last.id } })).status).toBe('READY')
       const checkpoint = (await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).result as Record<string, unknown>
-      expect(checkpoint.afterImageId).toBe(0)
+      expect(checkpoint.afterImageId).toBeGreaterThanOrEqual(images[10]!.id)
     } finally {
       await client().image.deleteMany({ where: { path: { startsWith: fixturePrefix } } })
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it.each(['PAUSING', 'CANCELLING'] as const)(
+    'stops at a file boundary for %s, preserves completed work and resumes a paused job', async (requestedStatus) => {
+      const fixturePrefix = `${prefix}/control-${requestedStatus.toLowerCase()}/`
+      try {
+        await client().image.createMany({ data: Array.from({ length: 3 }, (_, index) => ({
+          path: `${fixturePrefix}${index}.webp`, webpAnimationStatus: 2, mediaType: 'ANIMATION' as const
+        })) })
+        const images = await client().image.findMany({ where: { path: { startsWith: fixturePrefix } }, orderBy: { id: 'asc' } })
+        const jobId = await seedJob()
+        const repository = new PostgresQueueRepository(client() as unknown as QueueDatabase, { clock })
+        const claimed = await repository.claim(`${prefix}-worker`, capability)
+        const controller = new AbortController()
+        const calls: string[] = []
+        let interrupt = true
+        const fileState = { size: 123n, mtimeMs: 1n, ctimeMs: 1n, deviceId: 1n, inode: 1n }
+        const fakeProbe = { probe: async (_root: string, relativePath: string) => {
+          calls.push(relativePath)
+          if (interrupt && calls.length === 2) {
+            if (requestedStatus === 'PAUSING') {
+              await client().systemJob.update({ where: { id: jobId }, data: { status: 'PAUSING' } })
+            } else {
+              await repository.requestCancellation(jobId)
+            }
+            controller.abort()
+          }
+          return { probe: { status: 'READY', format: 'WEBP', durationMs: 200, frameCount: 2,
+            loopCount: 0, readBytes: 100, readOperations: 1, chunks: 3 },
+            preState: fileState, postState: fileState, elapsedMs: 1 }
+        } } as unknown as IsolatedDurationProbe
+        await executeAnimationDurationProbe(context(repository, claimed!, controller.signal), {
+          database: client(), scanRoot: 'unused', now: () => clock.now(), createProbe: () => fakeProbe
+        })
+        const stopped = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
+        expect(stopped.status).toBe(requestedStatus === 'PAUSING' ? 'PAUSED' : 'CANCELLED')
+        expect((stopped.result as Record<string, number>).succeeded).toBe(1)
+        expect(await client().imageAnimationMetadata.count({ where: { imageId: { in: images.map((item) => item.id) }, status: 'READY' } })).toBe(1)
+        expect(calls).toEqual([images[0]!.path, images[1]!.path])
+        if (requestedStatus === 'PAUSING') {
+          interrupt = false
+          await client().systemJob.update({ where: { id: jobId }, data: {
+            status: 'PENDING', pauseRequestedAt: null, availableAt: clock.now()
+          } })
+          const resumed = await repository.claim(`${prefix}-worker`, capability)
+          expect(resumed?.id).toBe(jobId)
+          await executeAnimationDurationProbe(context(repository, resumed!), {
+            database: client(), scanRoot: 'unused', now: () => clock.now(), createProbe: () => fakeProbe
+          })
+          expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe('COMPLETED')
+          expect(calls.filter((item) => item === images[0]!.path)).toHaveLength(1)
+          expect(await client().imageAnimationMetadata.count({ where: { imageId: { in: images.map((item) => item.id) }, status: 'READY' } })).toBe(3)
+        }
+      } finally {
+        await client().image.deleteMany({ where: { path: { startsWith: fixturePrefix } } })
+      }
+    }, 120_000
+  )
 
   it('records a changing first source as transient failure and still publishes the next file', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-duration-changing-'))
@@ -252,7 +396,8 @@ describePostgres('animation duration queue and database boundaries', () => {
     try {
       await mkdir(path.join(root, prefix, 'changing'), { recursive: true })
       await client().image.createMany({ data: [
-        { path: `${fixturePrefix}a.webp` }, { path: `${fixturePrefix}b.webp` }
+        { path: `${fixturePrefix}a.webp`, webpAnimationStatus: 2 },
+        { path: `${fixturePrefix}b.webp`, webpAnimationStatus: 2 }
       ] })
       const valid = await readFile(path.resolve(process.cwd(), '../pixishelf-webp-player/tests/fixtures/short.webp'))
       const validPath = path.join(root, fixturePrefix, 'b.webp')
@@ -296,7 +441,7 @@ describePostgres('animation duration queue and database boundaries', () => {
       await mkdir(path.join(root, prefix, 'write'), { recursive: true })
       const media = await readFile(path.resolve(process.cwd(), '../pixishelf-webp-player/tests/fixtures/short.webp'))
       await writeFile(path.join(root, fixturePrefix, 'item.webp'), media)
-      const image = await client().image.create({ data: { path: `${fixturePrefix}item.webp` } })
+      const image = await client().image.create({ data: { path: `${fixturePrefix}item.webp`, webpAnimationStatus: 2 } })
       await client().imageAnimationMetadata.create({
         data: { imageId: image.id, status: 'PENDING', sourcePath: image.path, writeInProgress: true }
       })

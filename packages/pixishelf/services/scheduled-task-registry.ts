@@ -115,7 +115,7 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
     key: 'animation_duration_probe',
     type: SCHEDULED_TASK_TYPES.ANIMATION_DURATION_PROBE,
     name: '动图时长探测',
-    description: '只读取 WebP 容器时间块并持久保存单周期时长；失败文件可手动重试。',
+    description: '只探测已识别为动画的 WebP，并持久保存单周期时长；失败文件可手动重试。',
     defaultTime: '03:45',
     defaultTimezone: 'Asia/Shanghai',
     defaultPriority: 35,

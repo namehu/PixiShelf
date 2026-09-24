@@ -44,7 +44,7 @@ export function AnimationDurationProbeSection({
       category="可定时"
       icon={ImagePlay}
       title={task?.name ?? '动图时长探测'}
-      description={task?.description ?? '只读取 WebP 容器时间块并持久保存单周期时长。'}
+      description={task?.description ?? '只探测已识别为动画的 WebP，并持久保存单周期时长。'}
       summary={running ? `${formatTaskStatus(job?.status)} · ${job?.progress ?? 0}%` : job?.status === 'FAILED' ? '需要处理 · 上次执行失败' : null}
       tone={running ? 'active' : job?.status === 'FAILED' ? 'error' : 'idle'}
       action={
@@ -67,7 +67,7 @@ export function AnimationDurationProbeSection({
         progressContent={progress ? (
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <span>成功 {progress.succeededItems}</span>
-            <span>静态 {progress.staticItems}</span>
+            <span>探测后非动图 {progress.staticItems}</span>
             <span>失败 {progress.failedItems}</span>
             <span>剩余 {progress.remainingItems}</span>
             <span>等待重试 {progress.retryPendingItems}</span>
