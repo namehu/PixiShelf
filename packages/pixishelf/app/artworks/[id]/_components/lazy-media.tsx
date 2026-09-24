@@ -64,7 +64,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const playbackActive = useArtworkAutoBrowseStore((state) => state.activeVideoId === media.id && !state.previewOpen)
   const playbackPaused = useArtworkAutoBrowseStore((state) => state.pausedVideoIds.includes(media.id))
-  const animation = useArtworkAnimation(media.id, 'scroll')
+  const animation = useArtworkAnimation(media.id, 'scroll', `${media.path}:${media.updatedAt}`)
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
   const src = media.path
   const hasDimensions =
@@ -201,6 +201,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
           src={src}
           alt={`Artwork ${formatLabel} ${index + 1}`}
           size={media.size}
+          animationMetadata={media.animationMetadata}
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={formatLabel}
           controlMode={isWebpFile(src) ? 'badge' : 'surface'}

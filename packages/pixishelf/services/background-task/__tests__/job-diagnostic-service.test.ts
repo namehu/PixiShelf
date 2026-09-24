@@ -146,6 +146,56 @@ describe('background failure diagnostics', () => {
     })
     expect(h.archiveImportItem.findMany).not.toHaveBeenCalled()
   })
+  it('does not manufacture a failure report for an old paused duration yield', async () => {
+    const h = harness()
+    h.systemJobDiagnosticReport.findMany.mockResolvedValue([])
+    h.systemJobDiagnosticReport.findFirst.mockResolvedValue(null)
+    h.systemJob.findUnique.mockResolvedValue({
+      ...job,
+      type: 'ANIMATION_DURATION_PROBE', status: 'PAUSED', stage: 'YIELDING',
+      errorCode: 'RESOURCE_BUSY', error: 'Animation duration probe yielded after a durable batch'
+    })
+    const reports = await listBackgroundDiagnosticReports(
+      backgroundDiagnosticReportsInputSchema.parse({ jobId: 'job' }), h as never
+    )
+    expect(reports.items).toEqual([])
+    await expect(listBackgroundDiagnosticItems(
+      backgroundDiagnosticItemsInputSchema.parse({ jobId: 'job', reportId: 'legacy' }), h as never
+    )).rejects.toMatchObject({ code: 'NOT_FOUND' })
+
+    h.systemJob.findUnique.mockResolvedValue({
+      ...job, type: 'ANIMATION_DURATION_PROBE', status: 'PAUSED', stage: 'YIELDING',
+      errorCode: 'RESOURCE_BUSY', error: 'probe child unavailable'
+    })
+    const real = await listBackgroundDiagnosticReports(
+      backgroundDiagnosticReportsInputSchema.parse({ jobId: 'job' }), h as never
+    )
+    expect(real.items[0]?.source).toBe('SUMMARY_ONLY')
+
+    h.systemJob.findUnique.mockResolvedValue({
+      ...job,
+      type: 'ANIMATION_DURATION_PROBE', status: 'PAUSED', stage: 'YIELDING',
+      errorCode: 'RESOURCE_BUSY', error: 'Animation duration probe yielded after a durable batch',
+      result: { failedSamples: [{ id: 42, code: 'ENOENT', message: '源文件不存在' }] }
+    })
+    const legacyItems = await listBackgroundDiagnosticItems(
+      backgroundDiagnosticItemsInputSchema.parse({ jobId: 'job', reportId: 'legacy' }), h as never
+    )
+    expect(legacyItems.summary.source).toBe('LEGACY_SAMPLES')
+    expect(legacyItems.items[0]?.code).toBe('ENOENT')
+    expect(legacyItems.taskError).toBeNull()
+
+    h.systemJobDiagnosticReport.findMany.mockResolvedValue([report])
+    h.systemJobDiagnosticReport.findFirst.mockResolvedValue(report)
+    const snapshot = await listBackgroundDiagnosticReports(
+      backgroundDiagnosticReportsInputSchema.parse({ jobId: 'job' }), h as never
+    )
+    expect(snapshot.items[0]).toMatchObject({ source: 'SNAPSHOT', itemCount: 13 })
+    const snapshotItems = await listBackgroundDiagnosticItems(
+      backgroundDiagnosticItemsInputSchema.parse({ jobId: 'job', reportId }), h as never
+    )
+    expect(snapshotItems.items).toHaveLength(13)
+  })
   it('hides expired evidence before retention cleanup has finished', async () => {
     const h = harness()
     h.systemJobDiagnosticReport.findFirst.mockResolvedValue({ ...report, expiresAt: new Date(0), expiredAt: null })

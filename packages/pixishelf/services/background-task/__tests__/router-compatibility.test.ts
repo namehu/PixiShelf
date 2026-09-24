@@ -31,6 +31,7 @@ describe('unified background task router integration', () => {
       'startPixivAiDerivedTagSync',
       'cancelPixivAiDerivedTagSync',
       'startWebpAnimationScan',
+      'retryAnimationDurationFailures',
       'startVideoMediaProbe',
       'cancelVideoMediaProbe',
       'cancelVideoChapterPreviewGeneration',
@@ -74,9 +75,10 @@ describe('unified background task router integration', () => {
   })
 
   it('passes the authenticated administrator to every scheduled-task manual enqueue path', () => {
-    expect(routerSource.match(/triggerScheduledTaskNow\(/g)).toHaveLength(3)
+    expect(routerSource.match(/triggerScheduledTaskNow\(/g)).toHaveLength(4)
     expect(routerSource).toContain("triggerScheduledTaskNow('webp_animation_scan', { requestedByUserId: ctx.userId })")
     expect(routerSource).toContain("triggerScheduledTaskNow('video_media_probe', { requestedByUserId: ctx.userId })")
+    expect(routerSource).toContain("triggerScheduledTaskNow('animation_duration_probe', { requestedByUserId: ctx.userId })")
     expect(routerSource).toMatch(
       /triggerScheduledTaskNow\(input\.key, \{[\s\S]*?requestedByUserId: ctx\.userId[\s\S]*?\}\)/
     )

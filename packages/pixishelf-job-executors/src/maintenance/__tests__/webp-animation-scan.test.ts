@@ -542,7 +542,9 @@ describe('webp animation scan maintenance', () => {
         mutate: (async (operation) => operation({ image: { updateMany } } as never)) satisfies RunMaintenanceMutation,
         checkpoint: async (operation) => {
           const committed = await operation({ image: { updateMany } } as never)
-          durableCheckpoint = committed.update.progressData
+          if (committed.update.progressData.kind === 'animation-scan') {
+            durableCheckpoint = committed.update.progressData
+          }
           return committed.result
         },
         signal: new AbortController().signal,

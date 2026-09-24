@@ -24,6 +24,25 @@ test('pauses the displayed frame and resumes without replay or background comple
   await run(page, 'window.player.play()')
   await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
 })
+
+test('reports partial displayed-frame progress, freezes on pause, and waits for EOF despite short metadata', async ({ page }) => {
+  await run(page, 'window.start("/tests/fixtures/composite.webp?gate",undefined,false,100)')
+  await expect.poll(() => run(page, 'window.player.getSnapshot().frameIndex')).toBe(0)
+  await page.waitForTimeout(150)
+  const beforePause = await run(page, 'window.player.getSnapshot().positionMs') as number
+  expect(beforePause).toBeGreaterThan(0)
+  expect(await run(page, 'window.player.getSnapshot().durationMs')).toBe(100)
+  await run(page, 'window.player.pause()')
+  const frozen = await run(page, 'window.player.getSnapshot().positionMs')
+  await page.waitForTimeout(200)
+  expect(await run(page, 'window.player.getSnapshot().positionMs')).toBe(frozen)
+  expect(await run(page, 'window.events.some(e=>e.type==="ended")')).toBe(false)
+  await run(page, 'window.player.play()')
+  await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
+  const progressTimes = (await run(page, 'window.events.filter(e=>e.type==="progress").map(e=>e.at)')) as number[]
+  expect(progressTimes.length).toBeGreaterThan(0)
+  expect(await run(page, 'window.events.filter(e=>e.type==="ended").length')).toBe(1)
+})
 test('truncated input reports an error, never completion', async ({ page }) => {
   await run(page, 'window.start("/tests/fixtures/truncated.webp").catch(()=>{})')
   await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('error')
@@ -157,6 +176,7 @@ test('manual loops reuse one request and Worker, pause cleanly and still start b
   await expect.poll(() => run(page, 'window.player.getSnapshot().frameIndex')).toBe(1)
   expect(await run(page, 'window.player.getSnapshot().inputComplete')).toBe(false)
   await expect.poll(() => run(page, 'window.player.getSnapshot().presentedMs')).toBeGreaterThan(2500)
+  await expect.poll(() => run(page, 'window.player.getSnapshot().cycleIndex')).toBeGreaterThan(0)
   expect(await run(page, 'window.events.some(e=>e.type==="ended")')).toBe(false)
   expect(requests).toBe(1)
   expect(await run(page, 'window.workerCount')).toBe(1)

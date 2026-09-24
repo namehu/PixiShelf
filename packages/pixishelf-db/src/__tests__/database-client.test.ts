@@ -16,6 +16,32 @@ const expectedIndex = {
   keyCount: 1
 }
 
+const completeTableRows = [
+  'artist_merges',
+  'ImageAnimationMetadata',
+  'creator_maintenance_plans',
+  'creator_maintenance_items',
+  'artwork_artists',
+  'artwork_artist_evidence',
+  'artist_source_tag_mappings',
+  'effective_artwork_creators',
+  'archive_intake_items',
+  'archive_uploader_scan_items',
+  'archive_uploader_scan_runs',
+  'archive_uploader_sources',
+  'archive_provider_request_leases',
+  'archive_provider_throttles',
+  'archive_resolve_queue_control',
+  'derived_media_gc_entries',
+  'job_resource_leases',
+  'pixiv_metadata_inventory',
+  'pixiv_metadata_inventory_state',
+  'pixiv_source_audit_items',
+  'tag_external_metadata',
+  'system_job_events',
+  'worker_instances'
+].map((tableName) => ({ tableName }))
+
 function createQueryClient(results: unknown[]): PrismaClient {
   return {
     $queryRaw: vi.fn().mockImplementation(() => Promise.resolve(results.shift()))
@@ -26,50 +52,41 @@ describe('database package', () => {
   it('accepts the complete background queue schema contract', async () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
-      [
-        { tableName: 'artist_merges' },
-        { tableName: 'creator_maintenance_plans' },
-        { tableName: 'creator_maintenance_items' },
-        { tableName: 'artwork_artists' },
-        { tableName: 'artwork_artist_evidence' },
-        { tableName: 'artist_source_tag_mappings' },
-        { tableName: 'effective_artwork_creators' },
-        { tableName: 'archive_intake_items' },
-        { tableName: 'archive_uploader_scan_items' },
-        { tableName: 'archive_uploader_scan_runs' },
-        { tableName: 'archive_uploader_sources' },
-        { tableName: 'archive_provider_request_leases' },
-        { tableName: 'archive_provider_throttles' },
-        { tableName: 'archive_resolve_queue_control' },
-        { tableName: 'derived_media_gc_entries' },
-        { tableName: 'job_resource_leases' },
-        { tableName: 'pixiv_metadata_inventory' },
-        { tableName: 'pixiv_metadata_inventory_state' },
-        { tableName: 'pixiv_source_audit_items' },
-        { tableName: 'tag_external_metadata' },
-        { tableName: 'system_job_events' },
-        { tableName: 'worker_instances' }
-      ],
-      [{ migrationName: '20260921120000_artist_merge' }],
+      completeTableRows,
+      [{ migrationName: '20260924120000_add_image_animation_duration_metadata' }],
       [expectedIndex]
     ])
 
     await expect(assertBackgroundQueueSchema(client)).resolves.toBeUndefined()
   })
 
+  it('rejects a migrated database missing the animation metadata table', async () => {
+    const client = createQueryClient([
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
+      completeTableRows.filter(({ tableName }) => tableName !== 'ImageAnimationMetadata'),
+      [{ migrationName: '20260924120000_add_image_animation_duration_metadata' }],
+      [expectedIndex]
+    ])
+
+    await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
+      'Background queue schema is not ready: missing ImageAnimationMetadata'
+    )
+  })
+
   it('reports missing required objects without exposing connection details', async () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, artist_merges, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260921120000_artist_merge, index:system_jobs_single_executing_per_lane_idx'
+      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, artist_merges, ImageAnimationMetadata, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260924120000_add_image_animation_duration_metadata, index:system_jobs_single_executing_per_lane_idx'
     )
   })
 
-  it('rejects a database that does not have the latest uploader scan migration', async () => {
+  it('rejects a database that does not have the latest animation duration migration', async () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
         { tableName: 'artist_merges' },
+        { tableName: 'ImageAnimationMetadata' },
         { tableName: 'creator_maintenance_plans' },
         { tableName: 'creator_maintenance_items' },
         { tableName: 'artwork_artists' },
@@ -97,7 +114,7 @@ describe('database package', () => {
     ])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing migration:20260921120000_artist_merge'
+      'Background queue schema is not ready: missing migration:20260924120000_add_image_animation_duration_metadata'
     )
   })
 
@@ -106,6 +123,7 @@ describe('database package', () => {
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
         { tableName: 'artist_merges' },
+        { tableName: 'ImageAnimationMetadata' },
         { tableName: 'creator_maintenance_plans' },
         { tableName: 'creator_maintenance_items' },
         { tableName: 'artwork_artists' },
@@ -128,7 +146,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260921120000_artist_merge' }],
+      [{ migrationName: '20260924120000_add_image_animation_duration_metadata' }],
       []
     ])
 
@@ -142,6 +160,7 @@ describe('database package', () => {
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
         { tableName: 'artist_merges' },
+        { tableName: 'ImageAnimationMetadata' },
         { tableName: 'creator_maintenance_plans' },
         { tableName: 'creator_maintenance_items' },
         { tableName: 'artwork_artists' },
@@ -164,7 +183,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260921120000_artist_merge' }],
+      [{ migrationName: '20260924120000_add_image_animation_duration_metadata' }],
       [
         {
           ...expectedIndex,
@@ -183,6 +202,7 @@ describe('database package', () => {
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       [
         { tableName: 'artist_merges' },
+        { tableName: 'ImageAnimationMetadata' },
         { tableName: 'creator_maintenance_plans' },
         { tableName: 'creator_maintenance_items' },
         { tableName: 'artwork_artists' },
@@ -205,7 +225,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260921120000_artist_merge' }],
+      [{ migrationName: '20260924120000_add_image_animation_duration_metadata' }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 

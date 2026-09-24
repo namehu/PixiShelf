@@ -10,6 +10,8 @@ import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { buildVideoPosterUrl } from '@/lib/media-cover'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
+import { ANIMATION_DURATION_TIMING_POLICY_VERSION } from '@pixishelf/db'
+import type { AnimationMetadataDto } from '@/schemas/artwork.dto'
 
 dayjs.extend(utc)
 
@@ -78,7 +80,10 @@ export function transformSingleArtwork(artwork: any) {
  * @param dbImageCount 数据库中记录的图片总数（可选）
  * @returns 转换后的图片 DTO 数组
  */
-export function transformImages(images: TImageModel[], dbImageCount?: number) {
+export function transformImages(
+  images: Array<TImageModel & { animationMetadata?: StoredAnimationMetadata | null }>,
+  dbImageCount?: number
+) {
   // 1. 直接转 DTO，保留数据库排序
   const allItems = images.map((image) => {
     const normalizedImage = normalizeImageSizeField(image)
@@ -100,6 +105,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
         : 0
     const hasKeyframes = keyframeCount > 0
     const videoMetadata = normalizedImage.videoMetadata
+    const animationMetadata = toAnimationMetadataDto(normalizedImage)
     const metadataFields = videoMetadata
       ? {
           probeStatus: videoMetadata.probeStatus,
@@ -122,6 +128,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
       ...normalizedImage,
       mediaType,
       isAnimated,
+      animationMetadata,
       hasChapters,
       chaptersUrl: hasChapters ? `/api/v1/media/${normalizedImage.id}/chapters` : null,
       hasKeyframes,
@@ -163,6 +170,45 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
     imageCount: hasVideo ? 0 : (dbImageCount ?? finalItems.length),
     mediaCount: hasVideo ? finalItems.length : (dbImageCount ?? finalItems.length),
     totalMediaSize
+  }
+}
+
+interface StoredAnimationMetadata {
+  format: 'GIF' | 'APNG' | 'WEBP' | null
+  durationMs: bigint | null
+  frameCount: number | null
+  loopCount: number | null
+  status: string
+  timingPolicyVersion: number | null
+  sourcePath: string | null
+  writeInProgress: boolean
+}
+
+function toAnimationMetadataDto(image: { path: string; animationMetadata?: StoredAnimationMetadata | null }): AnimationMetadataDto | null {
+  const metadata = image.animationMetadata
+  if (
+    !metadata ||
+    metadata.status !== 'READY' ||
+    metadata.writeInProgress ||
+    metadata.timingPolicyVersion !== ANIMATION_DURATION_TIMING_POLICY_VERSION ||
+    metadata.sourcePath !== image.path ||
+    !metadata.format ||
+    metadata.durationMs === null ||
+    metadata.durationMs < 0n ||
+    metadata.durationMs > BigInt(Number.MAX_SAFE_INTEGER) ||
+    !Number.isSafeInteger(metadata.frameCount) ||
+    (metadata.frameCount ?? 0) < 1 ||
+    !Number.isSafeInteger(metadata.loopCount) ||
+    (metadata.loopCount ?? -1) < 0
+  ) {
+    return null
+  }
+  return {
+    format: metadata.format,
+    durationMs: Number(metadata.durationMs),
+    frameCount: metadata.frameCount!,
+    loopCount: metadata.loopCount!,
+    timingPolicyVersion: metadata.timingPolicyVersion
   }
 }
 

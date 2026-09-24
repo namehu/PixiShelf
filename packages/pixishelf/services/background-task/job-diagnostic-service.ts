@@ -8,6 +8,7 @@ import {
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
+import { isLegacyAnimationDurationYield } from './animation-duration-yield'
 
 const idSchema = z.string().min(1).max(128)
 const cursorSchema = z
@@ -158,7 +159,7 @@ async function legacyReport(job: DiagnosticJob, client: DiagnosticClient): Promi
   const samples = legacySamples(job)
   const total = archive?.failedItems ?? legacyFailedCount(job)
   const itemCount = total ?? samples.length
-  if (!job.error && !job.errorCode && !itemCount && !samples.length) return null
+  if ((!job.error && !job.errorCode || isLegacyAnimationDurationYield(job)) && !itemCount && !samples.length) return null
   return {
     id: 'legacy',
     attempt: job.attempt,
@@ -315,7 +316,7 @@ async function legacyItems(
   const summary = await legacyReport(job, client)
   if (!summary) throw new TRPCError({ code: 'NOT_FOUND', message: '该任务没有已记录的失败诊断。' })
   const taskError: DiagnosticItemView | null =
-    job.error || job.errorCode
+    (job.error || job.errorCode) && !isLegacyAnimationDurationYield(job)
       ? {
           ...extractJobDiagnostic(undefined, { code: job.errorCode ?? undefined, message: job.error ?? undefined }),
           id: 'task',

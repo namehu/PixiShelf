@@ -135,7 +135,8 @@ describe('archive resolver executor', () => {
     expect(fixture.finalOutcome).toMatchObject({
       kind: 'retry',
       errorCode: 'RESOURCE_BUSY',
-      preserveAttempt: true
+      preserveAttempt: true,
+      schedulingYield: true
     })
   })
 
@@ -155,7 +156,7 @@ describe('archive resolver executor', () => {
         })
       })
       await executeArchiveResolveItem(yielded.context, yielded.dependencies)
-      expect(yielded.finalOutcome).toMatchObject({ kind: 'retry', preserveAttempt: true })
+      expect(yielded.finalOutcome).toMatchObject({ kind: 'retry', preserveAttempt: true, schedulingYield: true })
     }
 
     const firstBusinessFailure = createFixture({
@@ -168,6 +169,7 @@ describe('archive resolver executor', () => {
     await executeArchiveResolveItem(firstBusinessFailure.context, firstBusinessFailure.dependencies)
     expect(firstBusinessFailure.finalOutcome).toMatchObject({ kind: 'retry' })
     expect(firstBusinessFailure.finalOutcome).not.toMatchObject({ preserveAttempt: true })
+    expect(firstBusinessFailure.finalOutcome).not.toMatchObject({ schedulingYield: true })
   })
 
   it('persists CANCELLED before acknowledging a cooperative cancellation', async () => {

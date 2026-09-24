@@ -11,6 +11,8 @@ export type MaintenanceDatabase = Pick<
   | 'artwork'
   | 'artworkTag'
   | 'image'
+  | 'imageAnimationMetadata'
+  | 'systemJob'
   | 'scanRun'
   | 'tag'
   | 'triggerLog'

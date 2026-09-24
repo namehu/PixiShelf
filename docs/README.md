@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后核验：2026-09-16（补充后台任务失败诊断、独立执行证据与保留恢复边界）
+最后核验：2026-09-24（补充 WebP 动图时长探测方案与实施边界）
 
 ## 状态约定
 
@@ -45,7 +45,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
 | [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令               |
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、32 类 Worker 任务、领域状态和流程图  |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、33 类 Worker 任务、领域状态和流程图  |
 | [后台任务实时进度](./features/background-job-live-progress.md)      | `current` | 结构化进度、SSE 降级、动画吞吐与事件保留       |
 | [后台任务执行记录](./features/background-job-history.md)            | `current` | 执行动态搜索筛选、游标分页、虚拟滚动与实时合并 |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |
@@ -68,6 +68,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 ## 架构与性能
 
 - [WebP 流式播放器开发方案](./design/webp-streaming-player.md)（draft）：WASM 解码、自动浏览续播、UML 与验收门槛；未通过发布验收前不作为当前产品行为。
+- [WebP 动图时长探测方案](./design/animation-duration-probe.md)（draft）：持久时长、NFS 有界探测、源版本与写入门禁、API/播放进度、UML 和真实 NAS 验收；代码检查不等于生产发布。
 
 | 文档                                                                              | 状态         | 权威范围与后续处理                                     |
 | --------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------ |

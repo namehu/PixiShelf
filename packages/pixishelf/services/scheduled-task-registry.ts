@@ -17,6 +17,7 @@ import { runWebpAnimationScanJob } from '@/services/webp-animation-scan-service'
 
 export const SCHEDULED_TASK_TYPES = {
   WEBP_ANIMATION_SCAN: 'WEBP_ANIMATION_SCAN',
+  ANIMATION_DURATION_PROBE: 'ANIMATION_DURATION_PROBE',
   VIDEO_MEDIA_PROBE: 'VIDEO_MEDIA_PROBE',
   VIDEO_CHAPTER_PREVIEW_GENERATION: 'VIDEO_CHAPTER_PREVIEW_GENERATION',
   VIDEO_KEYFRAME_DISCOVERY: 'VIDEO_KEYFRAME_DISCOVERY',
@@ -107,6 +108,17 @@ export const SCHEDULED_TASK_DEFINITIONS: ScheduledTaskDefinition[] = [
     defaultTime: '03:30',
     defaultTimezone: 'Asia/Shanghai',
     defaultPriority: 30,
+    defaultEnabled: false,
+    mutexKey: 'media-maintenance'
+  },
+  {
+    key: 'animation_duration_probe',
+    type: SCHEDULED_TASK_TYPES.ANIMATION_DURATION_PROBE,
+    name: '动图时长探测',
+    description: '只读取 WebP 容器时间块并持久保存单周期时长；失败文件可手动重试。',
+    defaultTime: '03:45',
+    defaultTimezone: 'Asia/Shanghai',
+    defaultPriority: 35,
     defaultEnabled: false,
     mutexKey: 'media-maintenance'
   },
@@ -209,6 +221,11 @@ export const SCHEDULED_TASK_HANDLERS: Record<ScheduledTaskType, ScheduledTaskHan
   },
   [SCHEDULED_TASK_TYPES.WEBP_ANIMATION_SCAN]: {
     start: startWebpAnimationScanTask
+  },
+  [SCHEDULED_TASK_TYPES.ANIMATION_DURATION_PROBE]: {
+    start: async () => {
+      throw new Error('Animation duration probe requires central dispatcher cutover')
+    }
   },
   [SCHEDULED_TASK_TYPES.VIDEO_MEDIA_PROBE]: {
     start: startVideoMediaProbeTask

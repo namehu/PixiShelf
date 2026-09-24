@@ -29,6 +29,8 @@ import {
   retryFailedCentralVideoKeyframes
 } from '@/services/video-keyframe-central-service'
 import { z } from 'zod'
+import { Prisma, retryAnimationDurationFailures } from '@pixishelf/db'
+import { prisma } from '@/lib/prisma'
 import {
   backgroundFailuresInputSchema,
   listBackgroundFailures,
@@ -333,6 +335,27 @@ export const jobRouter = router({
   getWebpAnimationScanStatus: authProcedure.query(async () => {
     return await JobService.getLatestWebpAnimationScanJob()
   }),
+
+  getAnimationDurationProbeStatus: authProcedure.query(async () => {
+    const jobs = await listJobs({ types: ['ANIMATION_DURATION_PROBE'], limit: 1 })
+    return jobs.items[0] ?? null
+  }),
+
+  retryAnimationDurationFailures: adminProcedure
+    .input(z.object({ imageIds: z.array(z.number().int().positive()).max(100).optional() }).strict())
+    .mutation(async ({ ctx, input }) => {
+      if (!isCentralDispatcherCutoverEnabled()) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Animation duration probe requires central dispatcher' })
+      }
+      const retried = await prisma.$transaction((tx) =>
+        retryAnimationDurationFailures(tx as unknown as Prisma.TransactionClient, input)
+      )
+      if (retried === 0) return { retried, jobId: null }
+      const job = await runBackgroundTaskCommand(() =>
+        triggerScheduledTaskNow('animation_duration_probe', { requestedByUserId: ctx.userId })
+      )
+      return { retried, jobId: job.jobId }
+    }),
 
   startVideoMediaProbe: adminProcedure.mutation(async ({ ctx }) => {
     try {

@@ -405,7 +405,7 @@ async function finalizeResolutionError(
       errorCode: mapJobErrorCode(error.code),
       error: error.message,
       message: '归档解析已安排重试',
-      ...(schedulingYield ? { preserveAttempt: true } : {})
+      ...(schedulingYield ? { preserveAttempt: true, schedulingYield: true } : {})
     })
     return
   }

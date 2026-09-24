@@ -193,6 +193,7 @@ export interface TransactionBoundFailInput {
 export interface TransactionBoundRetryInput extends TransactionBoundFailInput {
   availableAt: Date
   preserveAttempt?: boolean
+  schedulingYield?: boolean
 }
 
 export interface TransactionBoundSkipInput {
@@ -1067,24 +1068,30 @@ export class PostgresQueueRepository {
           if (input.availableAt.getTime() < this.clock.now().getTime()) {
             throw new Error('Retry availableAt cannot be earlier than the current queue clock')
           }
+          if (input.schedulingYield && !input.preserveAttempt) {
+            throw new Error('Scheduling yield must preserve the current attempt')
+          }
           return finalize({
             status: 'RETRY_WAIT',
-            diagnostic: input.preserveAttempt
+            diagnostic: input.schedulingYield
               ? undefined
               : (input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode })),
             eventType: 'job.retry_scheduled',
-            eventLevel: 'WARN',
+            eventLevel: input.schedulingYield ? 'INFO' : 'WARN',
             message: input.message ?? 'Job retry scheduled',
             assignments: `"availableAt" = $6,
-                          "errorCode" = $7,
-                          "error" = $8${input.preserveAttempt ? ',\n                          "attempt" = "attempt" - 1' : ''}`,
-            values: [input.availableAt, truncate(input.errorCode, 80), sanitizeError(input.error)],
+                          "errorCode" = ${input.schedulingYield ? 'NULL' : '$7'},
+                          "error" = ${input.schedulingYield ? 'NULL' : '$8'}${input.preserveAttempt ? ',\n                          "attempt" = "attempt" - 1' : ''}`,
+            values: input.schedulingYield
+              ? [input.availableAt]
+              : [input.availableAt, truncate(input.errorCode, 80), sanitizeError(input.error)],
             extraPredicate: input.preserveAttempt
               ? `AND "status" = 'RUNNING' AND "attempt" > 0`
               : `AND "status" = 'RUNNING' AND "attempt" < "maxAttempts"`,
             eventData: {
               availableAt: input.availableAt.toISOString(),
-              ...(input.preserveAttempt ? { attemptPreserved: true } : {})
+              ...(input.preserveAttempt ? { attemptPreserved: true } : {}),
+              ...(input.schedulingYield ? { reason: 'SCHEDULING_YIELD' } : {})
             }
           })
         },

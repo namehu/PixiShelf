@@ -408,6 +408,7 @@ model Image {
   mediaType           MediaType               @default(UNKNOWN)
   artwork             Artwork?                @relation(fields: [artworkId], references: [id])
   videoMetadata       MediaVideoMetadata?
+  animationMetadata   ImageAnimationMetadata?
   chapterPreviews     MediaChapterPreview[]
   keyframeSets        MediaVideoKeyframeSet[]
 
@@ -415,6 +416,33 @@ model Image {
   @@index([webpAnimationStatus])
   @@index([chaptersPath])
   @@index([mediaType])
+}
+
+model ImageAnimationMetadata {
+  imageId             Int                     @id
+  image               Image                   @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  format              AnimationDurationFormat?
+  durationMs          BigInt?
+  frameCount          Int?
+  loopCount           Int?
+  status              AnimationDurationStatus @default(PENDING)
+  timingPolicyVersion Int?
+  probedAt            DateTime?
+  sourcePath          String?
+  sourceSize          BigInt?
+  sourceMtimeMs       BigInt?
+  sourceCtimeMs       BigInt?
+  sourceDeviceId      BigInt?
+  sourceInode         BigInt?
+  sourceRevision      Int                     @default(0)
+  failureCode         String?
+  attemptCount        Int                     @default(0)
+  nextRetryAt         DateTime?
+  writeInProgress     Boolean                 @default(false)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  @@index([status, nextRetryAt, imageId])
 }
 
 model MediaVideoMetadata {
@@ -2073,6 +2101,19 @@ enum MediaProbeStatus {
   COMPLETED
   FAILED
   SKIPPED
+}
+
+enum AnimationDurationFormat {
+  WEBP
+  GIF
+  APNG
+}
+
+enum AnimationDurationStatus {
+  PENDING
+  READY
+  NOT_APPLICABLE
+  FAILED
 }
 
 enum VideoPosterStatus {

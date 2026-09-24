@@ -79,7 +79,9 @@ describe.skipIf(!url)('persistent creator maintenance', () => {
           maximumArtworkId: ids[26]!
         }
       })
-      expect((await execute(tx, plan.id, 'PREVIEW')).retry).toHaveBeenCalledOnce()
+      expect((await execute(tx, plan.id, 'PREVIEW')).retry).toHaveBeenCalledWith(
+        expect.objectContaining({ preserveAttempt: true, schedulingYield: true })
+      )
       expect(await tx.creatorMaintenanceItem.count({ where: { planId: plan.id } })).toBe(25)
       expect((await execute(tx, plan.id, 'PREVIEW')).complete).toHaveBeenCalledOnce()
       expect(await tx.creatorMaintenancePlan.findUnique({ where: { id: plan.id } })).toMatchObject({ status: 'READY' })
@@ -91,7 +93,9 @@ describe.skipIf(!url)('persistent creator maintenance', () => {
       await tx.creatorMaintenancePlan.update({ where: { id: plan.id }, data: { status: 'APPLYING' } })
       expect((await execute(tx, plan.id, 'APPLY', 'PAUSING')).pause).toHaveBeenCalledOnce()
       expect(await tx.creatorMaintenanceItem.count({ where: { planId: plan.id, status: 'PENDING' } })).toBe(27)
-      expect((await execute(tx, plan.id, 'APPLY')).retry).toHaveBeenCalledOnce()
+      expect((await execute(tx, plan.id, 'APPLY')).retry).toHaveBeenCalledWith(
+        expect.objectContaining({ preserveAttempt: true, schedulingYield: true })
+      )
       expect((await execute(tx, plan.id, 'APPLY', 'CANCELLING')).cancel).toHaveBeenCalledOnce()
       expect((await execute(tx, plan.id, 'APPLY')).complete).toHaveBeenCalledOnce()
       const counts = await tx.creatorMaintenanceItem.groupBy({

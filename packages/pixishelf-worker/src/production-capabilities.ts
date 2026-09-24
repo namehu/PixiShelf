@@ -10,6 +10,7 @@ import {
 } from '@pixishelf/job-contracts'
 
 const PRODUCTION_JOB_TYPES = [
+  'ANIMATION_DURATION_PROBE',
   'ARCHIVE_DEFAULT_TAG_BACKFILL',
   'ARCHIVE_DISCOVERY_BATCH_SCAN',
   'ARCHIVE_IMPORT',
@@ -78,6 +79,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 32-job/37-version dual-lane release')
+    throw new Error('Production Worker capability inventory drifted from the 33-job/38-version dual-lane release')
   }
 }

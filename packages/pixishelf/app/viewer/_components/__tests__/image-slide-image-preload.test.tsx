@@ -36,7 +36,8 @@ function createMedia(id: number): ViewerMediaItem {
     size: 1024 * 1024,
     width: 1200,
     height: 1800,
-    isAnimated: false
+    isAnimated: false,
+    animationMetadata: null
   }
 }
 

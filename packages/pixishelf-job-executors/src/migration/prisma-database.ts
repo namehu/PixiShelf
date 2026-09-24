@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import { Prisma, type PrismaClient } from '@pixishelf/db'
+import { Prisma, invalidateAnimationDurationSource, type PrismaClient } from '@pixishelf/db'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { buildCanonicalTargetDirectory, normalizeStoredRelativePath } from './paths.ts'
 import { migrationPublicErrorCode, migrationPublicSummary } from './diagnostics.ts'
@@ -267,6 +267,9 @@ export function createPrismaMigrationDatabase(
         })
         if (updated.count !== 1) {
           publicationConflict('Image ownership or referenced path changed before migration publication', image.fileId)
+        }
+        if (image.currentPath !== image.targetPath && /\.webp$/i.test(image.targetPath)) {
+          await invalidateAnimationDurationSource(client, { imageId: image.id, sourcePath: image.targetPath })
         }
       }
       const artworkUpdated = await client.artwork.updateMany({

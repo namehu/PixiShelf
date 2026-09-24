@@ -20,6 +20,12 @@ sources:
 
 WebP 流式播放器默认启用，手动播放和自动浏览均使用 WASM，无需设置环境变量、Compose environment 或 Docker build-arg。解码器和许可证随仓库保存在 `packages/pixishelf-webp-player/prebuilt/`，应用 Dockerfile 不拉取 Emscripten、不编译 C；每次 dev/build 都校验预编译产物并打包 Worker/版本化 WASM，production 从 public 复制交付。发布流水线按现有流程构建，部署新镜像即可使用。只有原生源码或工具链升级时才执行包的 `build:native`，并提交更新的产物与校验清单。浏览器能力、初始化或解码兼容限制保留首帧前回退，剩余验证见[开发方案](../design/webp-streaming-player.md)。本次没有 migration 或原媒体写入；恢复依据是原镜像/源码版本及配套 prebuilt，回滚应用镜像即可，不需要恢复数据库和收藏目录。
 
+### 待发布：WebP 动图时长探测
+
+此功能代码在工作区，生产尚未发布。升级前按[备份与恢复](./backup-and-recovery.md)建立并验证数据库与原媒体同一检查点，记录旧 App/Worker 镜像 digest；先用 `migrate deploy` 应用 `20260924120000_add_image_animation_duration_metadata`，禁止 `db:push`，再成对升级 App/Worker，确认双 lane READY 与 33 类 job type / 38 个 type-version 组合。新增一对一表不回填旧 Image；`animation_duration_probe` 计划默认关闭，人工先对真实 NAS 至少 100 个代表性 WebP 验收，再决定批量探测。任务单并发、每轮 10 文件或 5 秒并让行，读取不修改原媒体；成功结果的页面读取不逐文件 stat。
+
+旧替换会话的 `.bak_session` 若无新版 manifest，不能由新版代码自动判定原文件与上传文件；应保留目录和写入门禁，按同一检查点人工核实，不允许盲目 rollback/清理。上传或替换中断的门禁也不能按时间自动解除。回滚 App/Worker 镜像时保留加法表和 migration 历史；需要恢复媒体或数据库时必须使用同一检查点。当前本地功能与构建检查通过，但独立浏览器性能 benchmark 未过 11,000 ms 门槛；真实 NAS、安卓真机和生产升级证据亦未完成，不能把本地代码验收视为发布验收。详细数值与恢复边界见[动图时长探测](../design/animation-duration-probe.md)。
+
 后台任务实时进度发布使用 `20260904200000_add_system_job_progress_data` additive migration。先停止所有旧写入者并按[备份与恢复](./backup-and-recovery.md)建立、验证 PostgreSQL 检查点，再执行 `migrate deploy`；禁止 `db:push`。回滚 App/Worker 时保留新增可空列和事件索引。配套 App/Worker 必须一起升级，两个 lane READY 且 capability audit 精确为 32 类/37 个版本组合后才开放入口。设置 `ANIMATION_SCAN_CONCURRENCY` 前先以 1 建立代表性基线；首次手动运行“清理后台任务事件”只做 dry-run，核对候选数和 SSE 重连后再启用计划删除。
 
 新增类型数据存在时，旧 App/Worker 不能直接回滚运行。优先保留兼容版本并停用关键词来源、关闭新入口或前向修复；完整降级必须恢复配套数据库、媒体、配置和镜像检查点。当前实施与未完成的生产验证见[标题关键词实施记录](../design/e-hentai-title-keyword-scan.md)，本机测试不代表生产已部署。
@@ -38,7 +44,7 @@ WebP 流式播放器默认启用，手动播放和自动浏览均使用 WASM，�
 | ----------- | -------------------------- | ------------------------------------------------------------------ | ------------------ |
 | `postgres`  | 数据库读写                 | 领域数据、认证、队列、租约和 migration 历史                        | 必需               |
 | `app`       | 数据库读写；原媒体默认只读 | Next.js Web/API、认证、任务控制面；启动时部署 migration            | 必需               |
-| `worker`    | 数据库和媒体读写           | 单进程双 lane；32 个 job type，SCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2 | 必需，固定一个服务 |
+| `worker`    | 数据库和媒体读写           | 单进程双 lane；33 个 job type，SCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2 | 必需，固定一个服务 |
 | `scheduler` | 无数据库权限               | 使用内部 Token 调用 App 的 scheduler tick                          | 按需启用           |
 | `imgproxy`  | 原媒体和派生媒体只读       | 图片缩放、格式处理和缓存                                           | 必需               |
 

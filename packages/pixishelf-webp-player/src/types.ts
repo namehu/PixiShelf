@@ -14,11 +14,17 @@ export interface WebpSource {
   size?: number
   /** Honor the file's loop count; false/omitted plays exactly one cycle. */
   loop?: boolean
+  /** Persisted one-cycle duration is only a display denominator, never an EOF signal. */
+  durationMs?: number | null
 }
 export interface PlayerSnapshot {
   status: PlayerStatus
   frameIndex: number | null
   presentedMs: number
+  /** Elapsed time in the displayed cycle, including the current frame's partial duration. */
+  positionMs: number
+  cycleIndex: number
+  durationMs: number | null
   bufferedFrames: number
   receivedBytes: number
   inputComplete: boolean
@@ -42,6 +48,7 @@ export interface PlayerFailure {
 }
 export type PlayerEvent =
   | { type: 'state'; snapshot: PlayerSnapshot }
+  | { type: 'progress'; snapshot: PlayerSnapshot }
   | { type: 'first-frame' | 'ended' }
   | { type: 'error'; error: PlayerFailure }
 export interface PlayerLimits {
@@ -66,6 +73,7 @@ export interface Frame {
   height: number
   durationMs: number
   index: number
+  cycleId: number
 }
 export type WorkerCommand =
   | { type: 'start'; source: WebpSource; decoderUrl: string; limits: PlayerLimits }

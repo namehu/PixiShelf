@@ -4,8 +4,10 @@ describe('FrameClock', () => {
   it('preserves remaining display time across pauses, without counting the pause', () => {
     const clock = new FrameClock()
     clock.start(1000, 100)
+    expect(clock.peekRemaining(400)).toBe(700)
     clock.pause(400)
     expect(clock.remainingMs).toBe(700)
+    expect(clock.peekRemaining(1400)).toBe(700)
     clock.resume(2400)
     expect(clock.advance(2600)).toBe(500)
     expect(clock.advance(3100)).toBe(0)

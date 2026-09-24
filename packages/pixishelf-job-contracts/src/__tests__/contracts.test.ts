@@ -41,6 +41,7 @@ describe('job wire contracts', () => {
         'ARCHIVE_RESOLVE_ITEM',
         'ARCHIVE_IMPORT',
         'ARCHIVE_DEFAULT_TAG_BACKFILL',
+        'ANIMATION_DURATION_PROBE',
         'ARCHIVE_MAINTENANCE',
         'ARCHIVE_INTAKE_RETENTION_CLEANUP',
         'JOB_EVENT_RETENTION_CLEANUP',
@@ -64,6 +65,7 @@ describe('job wire contracts', () => {
     expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_DEFAULT_TAG_BACKFILL')).toBe('BACKGROUND_WRITER')
+    expect(executionLaneForJobType('ANIMATION_DURATION_PROBE')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_MAINTENANCE')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_INTAKE_RETENTION_CLEANUP')).toBe('BACKGROUND_WRITER')
     expect(parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', {})).toEqual({})

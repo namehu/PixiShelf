@@ -15,6 +15,7 @@ describe('maintenance executor registrations', () => {
       { jobType: 'JOB_EVENT_RETENTION_CLEANUP', definitionVersion: 1 },
       { jobType: 'ARCHIVE_DEFAULT_TAG_BACKFILL', definitionVersion: 1 },
       { jobType: 'PIXIV_AI_DERIVED_TAG_SYNC', definitionVersion: 1 },
+      { jobType: 'ANIMATION_DURATION_PROBE', definitionVersion: 1 },
       { jobType: 'WEBP_ANIMATION_SCAN', definitionVersion: 1 }
     ])
     for (const definition of definitions.filter(

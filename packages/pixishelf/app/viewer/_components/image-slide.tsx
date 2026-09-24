@@ -268,6 +268,7 @@ export function SingleImage({
           src={media.url}
           alt={media.key || 'Artwork media'}
           size={media.size}
+          animationMetadata={media.animationMetadata}
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={isGifFile(media.url) ? 'GIF' : 'WEBP'}
           updatedAt={media.updatedAt}
@@ -419,7 +420,8 @@ export default function ImageSlide({
     isAnimated: false,
     chaptersUrl: null,
     hasAudio: null,
-    duration: null
+    duration: null,
+    animationMetadata: null
   }
   const mediaItems = image.images.length > 0 ? image.images : [fallbackMedia]
   const hasMultipleImages = mediaItems.length > 1

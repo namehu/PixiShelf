@@ -5,6 +5,46 @@ vi.mock('server-only', () => ({}))
 import { determineArtworkRelDir, transformImages } from '../utils'
 
 describe('transformImages', () => {
+  it('returns safe READY animation duration and hides stale or gated results', () => {
+    const now = new Date()
+    const path = '/artist/artwork/animated.webp'
+    const base = {
+      id: 88,
+      path,
+      width: 100,
+      height: 100,
+      size: 100,
+      sortOrder: 0,
+      artworkId: 1,
+      createdAt: now,
+      updatedAt: now,
+      webpAnimationStatus: 2,
+      chaptersPath: null,
+      chaptersCount: 0,
+      chaptersDuration: null,
+      chaptersUpdatedAt: null,
+      chaptersHash: null,
+      mediaType: 'ANIMATION' as const
+    }
+    const metadata = {
+      format: 'WEBP' as const,
+      durationMs: 1_234n,
+      frameCount: 4,
+      loopCount: 0,
+      status: 'READY',
+      timingPolicyVersion: 1,
+      sourcePath: path,
+      writeInProgress: false
+    }
+
+    expect(transformImages([{ ...base, animationMetadata: metadata }]).images[0]?.animationMetadata).toEqual({
+      format: 'WEBP', durationMs: 1234, frameCount: 4, loopCount: 0, timingPolicyVersion: 1
+    })
+    expect(transformImages([{ ...base, animationMetadata: { ...metadata, writeInProgress: true } }]).images[0]?.animationMetadata).toBeNull()
+    expect(transformImages([{ ...base, animationMetadata: { ...metadata, sourcePath: '/old.webp' } }]).images[0]?.animationMetadata).toBeNull()
+    expect(transformImages([{ ...base, animationMetadata: { ...metadata, durationMs: BigInt(Number.MAX_SAFE_INTEGER) + 1n } }]).images[0]?.animationMetadata).toBeNull()
+  })
+
   it('keeps a standalone APNG when no same-name video exists', () => {
     const now = new Date()
     const { images } = transformImages([

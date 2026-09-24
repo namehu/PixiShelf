@@ -11,6 +11,8 @@ import {
 } from './video-chapters'
 import { associateChaptersToImage } from './image-manager'
 import { determineArtworkRelDir } from './utils'
+import { assertReplaceBackupProtectsUpload } from './image-replace-session'
+import { ReplaceWriteBusyError, withReplaceWriteLock } from './replace-write-lock'
 
 export const MAX_CHAPTER_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024
 
@@ -123,31 +125,44 @@ export async function uploadMediaChapterManifest(input: MediaChapterUploadInput)
 
   const canonicalChaptersPath = resolveCanonicalChapterPath(normalizedVideoPath)
   const canonicalAbsolutePath = resolvePathWithinScanRoot(scanRoot, canonicalChaptersPath)
-  await fs.mkdir(path.dirname(canonicalAbsolutePath), { recursive: true })
-  await fs.writeFile(canonicalAbsolutePath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+  const targetDir = resolvePathWithinScanRoot(scanRoot, targetRelDir)
+  await fs.mkdir(targetDir, { recursive: true })
+  try {
+    return await withReplaceWriteLock(targetDir, async () => {
+      const candidates = getChapterPathCandidates(normalizedVideoPath)
+      for (const candidate of candidates) {
+        await assertReplaceBackupProtectsUpload(targetDir, path.basename(candidate))
+      }
+      await fs.mkdir(path.dirname(canonicalAbsolutePath), { recursive: true })
+      await fs.writeFile(canonicalAbsolutePath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 
-  for (const candidate of getChapterPathCandidates(normalizedVideoPath)) {
-    if (candidate === canonicalChaptersPath) continue
-    const candidateAbsolutePath = resolvePathWithinScanRoot(scanRoot, candidate)
-    await fs.rm(candidateAbsolutePath, { force: true }).catch(() => {})
-  }
+      for (const candidate of candidates) {
+        if (candidate === canonicalChaptersPath) continue
+        const candidateAbsolutePath = resolvePathWithinScanRoot(scanRoot, candidate)
+        await fs.rm(candidateAbsolutePath, { force: true }).catch(() => {})
+      }
 
-  const chaptersMeta = await discoverChaptersForVideoInScanRoot(scanRoot, normalizedVideoPath)
-  if (!chaptersMeta) {
-    throw new MediaChapterUploadError('Failed to discover uploaded chapter manifest', 500)
-  }
+      const chaptersMeta = await discoverChaptersForVideoInScanRoot(scanRoot, normalizedVideoPath)
+      if (!chaptersMeta) {
+        throw new MediaChapterUploadError('Failed to discover uploaded chapter manifest', 500)
+      }
 
-  if (imageId) {
-    await associateChaptersToImage({
-      imageId,
-      ...chaptersMeta
+      if (imageId) {
+        await associateChaptersToImage({ imageId, ...chaptersMeta })
+      }
+
+      return {
+        videoFileName: path.posix.basename(normalizedVideoPath.replace(/\\/g, '/')),
+        chaptersFileName: buildCanonicalChapterFileName(path.posix.basename(normalizedVideoPath.replace(/\\/g, '/'))),
+        ...chaptersMeta
+      }
     })
-  }
-
-  return {
-    videoFileName: path.posix.basename(normalizedVideoPath.replace(/\\/g, '/')),
-    chaptersFileName: buildCanonicalChapterFileName(path.posix.basename(normalizedVideoPath.replace(/\\/g, '/'))),
-    ...chaptersMeta
+  } catch (error) {
+    if (error instanceof ReplaceWriteBusyError ||
+        (error instanceof Error && 'status' in error && error.status === 409)) {
+      throw new MediaChapterUploadError(error.message, 409)
+    }
+    throw error
   }
 }
 

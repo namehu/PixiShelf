@@ -219,7 +219,8 @@ export async function executeCreatorMaintenance(
             errorCode: 'RESOURCE_BUSY',
             error: 'Preview batch yielded',
             message: '正在冻结逐件作品的来源与归属依据',
-            preserveAttempt: true
+            preserveAttempt: true,
+            schedulingYield: true
           })
           return
         }
@@ -301,7 +302,8 @@ export async function executeCreatorMaintenance(
         errorCode: 'RESOURCE_BUSY',
         error: 'Curation batch yielded',
         message: '已提交一批创作者关系整理，剩余 ' + remaining + ' 件',
-        preserveAttempt: true
+        preserveAttempt: true,
+        schedulingYield: true
       })
   })
 }

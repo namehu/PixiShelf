@@ -13,6 +13,9 @@ export class FrameClock {
     this.last = now
     return this.remaining
   }
+  peekRemaining(now: number) {
+    return this.last === null ? this.remaining : Math.max(0, this.remaining - Math.max(0, now - this.last))
+  }
   pause(now: number) {
     if (this.last !== null) this.advance(now)
     this.last = null

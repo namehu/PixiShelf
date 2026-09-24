@@ -15,6 +15,7 @@ let paused = false,
   drained = false
 let receivedBytes = 0,
   frameIndex = 0,
+  cycleId = 0,
   permits = 0
 let loop = false
 const recycled: ArrayBuffer[] = []
@@ -102,6 +103,7 @@ async function pump() {
         if (spare) recycled.push(spare)
         if (loop && decoder.repeat()) {
           frameIndex = 0
+          cycleId++
           continue
         }
         drained = true
@@ -110,7 +112,7 @@ async function pump() {
       }
       if (frame !== 0) {
         permits--
-        send({ type: 'frame', frame: { ...frame, index: frameIndex++ } }, [frame.pixels])
+        send({ type: 'frame', frame: { ...frame, index: frameIndex++, cycleId } }, [frame.pixels])
         continue
       }
       if (spare) recycled.push(spare)

@@ -1,7 +1,7 @@
 ---
 status: current
 scope: Prisma Schema 之外由 migration 实现的扩展、触发器、索引和维护约束
-last-verified: 2026-09-02
+last-verified: 2026-09-24
 sources:
   - schema.prisma
   - migrations/
@@ -10,6 +10,12 @@ sources:
 # PixiShelf 数据库设计补充文档
 
 本文档总结了 `schema.prisma` 中未体现，但通过 Migration 脚本 (`migrations/`) 直接应用到数据库中的核心逻辑、扩展和索引设计。这些逻辑对于保证数据一致性和查询性能至关重要。
+
+## Image 的 WebP 动画时长关系
+
+`20260924120000_add_image_animation_duration_metadata` 新增 `ImageAnimationMetadata`，`imageId` 是 Image 的一对一主键和外键，`ON DELETE CASCADE`。这是加法迁移，不回填历史 Image；缺少关系行的 WebP 自动成为人工探测任务候选。`durationMs` 和源文件 size/mtime/ctime/device/inode 使用 BIGINT；前端仅在 `READY`、当前时长策略、源路径匹配且 duration 能安全转成 number 时得到时长。`status,nextRetryAt,imageId` 索引用于有界候选和失败重试，不扫描原媒体来填列表。
+
+`sourceRevision` 由已登记的文件变更与人工重试递增，配合 `writeInProgress`、前后 stat 和 Worker execution fence 拒绝迟到发布；`Image.updatedAt` 也会因排序和章节修改而变化，不用作文件版本。任务中无持久 PROBING：执行期间仍 PENDING，Worker 中断可恢复。故障时不要直接改回 READY；先确认原媒体与数据库检查点，再按[动图时长方案](../../../docs/design/animation-duration-probe.md)处理门禁和失败项。
 
 ## 1. 数据库扩展 (Extensions)
 

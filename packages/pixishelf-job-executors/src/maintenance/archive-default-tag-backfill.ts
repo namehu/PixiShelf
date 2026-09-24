@@ -138,7 +138,8 @@ export async function executeArchiveDefaultTagBackfill(
       errorCode: 'RESOURCE_BUSY',
       error: 'Archive default tag backfill yielded after a durable batch',
       message: `已完成一批历史归档标签补全，累计新增 ${nextCheckpoint.addedRelations} 个标签关系`,
-      preserveAttempt: true
+      preserveAttempt: true,
+      schedulingYield: true
     })
   })
 }

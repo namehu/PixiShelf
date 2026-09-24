@@ -2,14 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
-import { PauseIcon, PlayIcon, SquareIcon } from 'lucide-react'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
+import { AnimationPlaybackCapsule } from '@/components/players/animation-playback-capsule'
 import {
   VerticalMediaPreviewCore,
   type VerticalMediaPreviewController
 } from '@/components/source-preview/vertical-media-preview-core'
-import { Button } from '@/components/ui/button'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 import { isConfirmedStaticWebp } from '@/lib/media-animation'
 import { withMediaVersion } from '@/lib/media-url'
@@ -64,14 +63,16 @@ export default function AdaptiveMediaPreview({
   const safeInitialIndex = clampIndex(initialIndex, images.length)
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex)
   const [zoomScale, setZoomScale] = useState(1)
-  const animation = useArtworkAnimation(images[currentIndex]?.id, 'slideshow')
+  const animation = useArtworkAnimation(images[currentIndex]?.id, 'slideshow', previewResourceKey(images[currentIndex]))
   const isWebpPlaying = animation.playing
   const [decodedIndexes, setDecodedIndexes] = useState<Set<string>>(() => new Set())
   const [errorIndexes, setErrorIndexes] = useState<Set<string>>(() => new Set())
   const [retryCounts, setRetryCounts] = useState<Record<number, number>>({})
   const [transitioning, setTransitioning] = useState(false)
+  const [webpProgress, setWebpProgress] = useState<{ key: string; percent: number | null } | null>(null)
   const autoSlideshowSelected = useArtworkAutoBrowseStore((state) => state.mode === 'slideshow')
   const loadGeneration = useRef(0)
+  const progressGeneration = useRef(0)
   const retryGeneration = useRef<Record<number, number>>({})
   const [preloadEnvironment, setPreloadEnvironment] = useState<AdaptivePreloadEnvironment>({
     isMobile: true,
@@ -89,13 +90,16 @@ export default function AdaptiveMediaPreview({
     setDecodedIndexes(new Set())
     setErrorIndexes(new Set())
     loadGeneration.current += 1
+    progressGeneration.current += 1
     setPreloadEnvironment(readMediaPreloadEnvironment())
     return () => {
       loadGeneration.current += 1
+      progressGeneration.current += 1
     }
   }, [images.length, initialIndex, open])
 
   const activeMedia = images[currentIndex]
+  const activeProgress = webpProgress?.key === previewResourceKey(activeMedia) ? webpProgress.percent : null
   const activePlayableWebp = useMemo(() => (activeMedia ? isPlayableAnimatedWebp(activeMedia) : false), [activeMedia])
   const eagerNeighborIndexes = useMemo(() => {
     const indexes = new Set<number>()
@@ -147,6 +151,8 @@ export default function AdaptiveMediaPreview({
   const handleSlideChange = useCallback(
     (index: number) => {
       const nextIndex = clampIndex(index, images.length)
+      progressGeneration.current += 1
+      setWebpProgress(null)
       setCurrentIndex(nextIndex)
       const media = images[nextIndex]
       if (media) useArtworkAutoBrowseStore.getState().setCurrentMedia(media.id)
@@ -227,6 +233,7 @@ export default function AdaptiveMediaPreview({
       onTransitioningChange={setTransitioning}
       onBeforeClose={() => useArtworkAutoBrowseStore.getState().pause('overlay')}
       renderSlide={(media, { index }) => {
+        const currentProgressGeneration = progressGeneration.current
         const animated = isAnimatedMedia(media)
         const playableAnimatedWebp = isPlayableAnimatedWebp(media)
         const eager = index === currentIndex || eagerNeighborIndexes.has(index)
@@ -259,11 +266,16 @@ export default function AdaptiveMediaPreview({
                 src={media.path}
                 alt={`作品 WEBP 动图 ${index + 1}`}
                 size={media.size}
+                animationMetadata={media.animationMetadata}
                 isAnimated
                 updatedAt={media.updatedAt}
                 fillContainer
                 posterLoading={eager ? 'eager' : 'lazy'}
                 controlMode="external"
+                onPlaybackProgress={(percent) => {
+                  if (progressGeneration.current !== currentProgressGeneration) return
+                  setWebpProgress({ key: previewResourceKey(media), percent })
+                }}
                 {...(index === currentIndex ? animation : { playing: false })}
                 onPosterLoad={(image) => handleImageLoad(index, image)}
                 onPosterError={() => setErrorIndexes((current) => new Set(current).add(previewResourceKey(media)))}
@@ -302,13 +314,11 @@ export default function AdaptiveMediaPreview({
       bottomChrome={({ portalContainer: container }) => (
         <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 flex items-end justify-end gap-2">
           {activePlayableWebp && (
-            <Button
+            <button
               type="button"
-              size="sm"
-              variant="ghost"
-              className="pointer-events-auto h-11 shrink-0 rounded-full p-0 hover:bg-transparent"
+              className="pointer-events-auto flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
               aria-label={
-                isWebpPlaying && animation.playOnce ? '停止本轮动图' : `${isWebpPlaying ? '暂停' : '播放'} WEBP 动图`
+                `${isWebpPlaying && animation.playOnce ? '停止本轮动图' : `${isWebpPlaying ? '暂停' : '播放'} WEBP 动图`}${activeProgress === null ? '' : `，${activeProgress}%`}`
               }
               data-auto-browse-controls
               aria-pressed={isWebpPlaying}
@@ -316,19 +326,13 @@ export default function AdaptiveMediaPreview({
                 animation.onPlayingChange(!isWebpPlaying)
               }}
             >
-              <span className="flex h-[22px] items-center gap-1 rounded-full bg-secondary px-2 text-xs text-secondary-foreground shadow-lg">
-                {isWebpPlaying ? (
-                  animation.playOnce ? (
-                    <SquareIcon className="size-3" />
-                  ) : (
-                    <PauseIcon className="size-3" />
-                  )
-                ) : (
-                  <PlayIcon className="size-3" />
-                )}
-                动图
-              </span>
-            </Button>
+              <AnimationPlaybackCapsule
+                playing={isWebpPlaying}
+                playOnce={animation.playOnce}
+                label="动图"
+                progressPercent={activeProgress}
+              />
+            </button>
           )}
           {images.length > 1 && (
             <AutoBrowseControls

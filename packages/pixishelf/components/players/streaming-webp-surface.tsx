@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { PlayerFailure, WebpPlayer } from '@pixishelf/webp-player'
+import type { PlayerFailure, PlayerSnapshot, WebpPlayer } from '@pixishelf/webp-player'
 import { useWebpPlayerStore } from '@/store/use-webp-player-store'
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
   playbackKey?: string | number
   paused: boolean
   loop: boolean
+  durationMs?: number | null
+  onProgress: (snapshot: PlayerSnapshot) => void
   onReady: () => void
   onBuffering: () => void
   onComplete: () => void
@@ -46,6 +48,7 @@ export default function StreamingWebpSurface(props: Props) {
         instance.subscribe((event) => {
           if (cancelled) return
           if (event.type === 'first-frame') setVisible(true)
+          if (event.type === 'state' || event.type === 'progress') latest.current.onProgress(event.snapshot)
           if (event.type === 'state' && event.snapshot.status === 'playing') latest.current.onReady()
           if (event.type === 'state' && event.snapshot.status === 'buffering') latest.current.onBuffering()
           if (event.type === 'ended') latest.current.onComplete()
@@ -57,7 +60,13 @@ export default function StreamingWebpSurface(props: Props) {
             else latest.current.onError()
           }
         })
-        const ready = instance.load({ url: src, resourceKey: `${src}:${playbackKey}`, size: size ?? undefined, loop })
+        const ready = instance.load({
+          url: src,
+          resourceKey: `${src}:${playbackKey}`,
+          size: size ?? undefined,
+          loop,
+          durationMs: latest.current.durationMs
+        })
         if (latest.current.paused) instance.pause()
         else instance.play()
         // Structured player errors above already decide retry versus fallback.
@@ -80,6 +89,7 @@ export default function StreamingWebpSurface(props: Props) {
   }, [src, size, playbackKey, loop])
   useEffect(() => {
     if (props.paused) player.current?.pause()
+    else if (player.current?.getSnapshot().status === 'ended') void player.current.restart().catch(() => {})
     else player.current?.play()
   }, [props.paused])
   return (

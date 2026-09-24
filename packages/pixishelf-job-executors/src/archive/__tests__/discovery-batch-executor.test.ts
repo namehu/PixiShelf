@@ -75,7 +75,7 @@ describe('discovery batch round orchestration', () => {
         data: expect.objectContaining({ result: expect.objectContaining({ childJobId: 'new-child', round: 1 }) })
       })
     )
-    expect(f.scope.retry).toHaveBeenCalledWith(expect.objectContaining({ preserveAttempt: true }))
+    expect(f.scope.retry).toHaveBeenCalledWith(expect.objectContaining({ preserveAttempt: true, schedulingYield: true }))
   })
   it.each(['PENDING', 'RUNNING', 'RETRY_WAIT', 'PAUSED'])(
     'does not duplicate a %s child after restart',

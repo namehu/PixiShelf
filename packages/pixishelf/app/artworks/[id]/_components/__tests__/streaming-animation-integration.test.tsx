@@ -29,6 +29,7 @@ class Transport {
 const media = [
   { id: 1, path: '/a.webp', mediaType: 'image', isAnimated: true, webpAnimationStatus: 2 }
 ] as ArtworkImageResponseDto[]
+const metadata = { format: 'WEBP', durationMs: 1000, frameCount: 1, loopCount: 0, timingPolicyVersion: 1 } as const
 const next = vi.fn(),
   first = vi.fn(),
   expand = () => {}
@@ -56,9 +57,20 @@ function Reader({ mode }: { mode: AutoBrowseMode }) {
     <div ref={containerRef}>
       <div data-index="0">
         <div data-preview-status="ready">
-          <AnimatedWebpPlayer src="/a.webp" controlMode="badge" {...callbacks} />
+          <AnimatedWebpPlayer src="/a.webp" controlMode="badge" animationMetadata={metadata} {...callbacks} />
         </div>
       </div>
+    </div>
+  )
+}
+function ExternalReader({ src = '/external.webp' }: { src?: string }) {
+  const animation = useArtworkAnimation(1, 'slideshow', src)
+  return (
+    <div>
+      <AnimatedWebpPlayer src={src} controlMode="external" animationMetadata={metadata} {...animation} />
+      <button type="button" onClick={() => animation.onPlayingChange(!animation.playing)}>
+        切换动图
+      </button>
     </div>
   )
 }
@@ -77,7 +89,7 @@ async function start(mode: AutoBrowseMode) {
   return Transport.instances[0]!
 }
 function frame(index: number): WorkerEvent {
-  return { type: 'frame', frame: { index, durationMs: 1000, width: 1, height: 1, pixels: new ArrayBuffer(4) } }
+  return { type: 'frame', frame: { index, cycleId: 0, durationMs: 1000, width: 1, height: 1, pixels: new ArrayBuffer(4) } }
 }
 beforeEach(() => {
   useWebpPlayerStore.getState().reset()
@@ -183,7 +195,7 @@ describe.each<AutoBrowseMode>(['scroll', 'slideshow'])('%s streaming integration
     const worker = await start(mode)
     await act(async () => worker.emit(frame(0)))
     await advance(16)
-    fireEvent.click(screen.getByRole('button', { name: '停止本轮动图' }))
+    fireEvent.click(screen.getByRole('button', { name: /停止本轮动图/ }))
     expect(store.getState().stoppedAnimationIds).toEqual([1])
     expect(worker.terminate).toHaveBeenCalledTimes(1)
     act(() => worker.emit({ type: 'drained' }))
@@ -219,6 +231,44 @@ describe.each<AutoBrowseMode>(['scroll', 'slideshow'])('%s streaming integration
 })
 
 describe('manual streaming playback', () => {
+  it('releases paused playback when the same media ID gets a new source', async () => {
+    const view = render(<ExternalReader />)
+    fireEvent.click(screen.getByRole('button', { name: '切换动图' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    const worker = Transport.instances[0]!
+    await act(async () => worker.emit(frame(0)))
+    await advance(16)
+    fireEvent.click(screen.getByRole('button', { name: '切换动图' }))
+    expect(worker.terminate).not.toHaveBeenCalled()
+    view.rerender(<ExternalReader src="/replaced.webp" />)
+    expect(worker.terminate).toHaveBeenCalledTimes(1)
+    expect(view.container.querySelector('canvas')).toBeNull()
+    expect(Transport.instances).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: '切换动图' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    expect(Transport.instances).toHaveLength(2)
+  })
+  it('retains the same Worker for the adaptive external control pause and resume', async () => {
+    const view = render(<ExternalReader />)
+    fireEvent.click(screen.getByRole('button', { name: '切换动图' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    const worker = Transport.instances[0]!
+    await act(async () => worker.emit(frame(0)))
+    await advance(200)
+    fireEvent.click(screen.getByRole('button', { name: '切换动图' }))
+    expect(view.container.querySelector('canvas')).not.toBeNull()
+    expect(worker.terminate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '切换动图' }))
+    expect(Transport.instances).toHaveLength(1)
+    view.unmount()
+    expect(worker.terminate).toHaveBeenCalledTimes(1)
+  })
   it('shares a session manifest through StrictMode, concurrent players and page remounts', async () => {
     let resolve!: (value: Response) => void
     vi.mocked(fetch).mockImplementationOnce(
@@ -276,7 +326,7 @@ describe('manual streaming playback', () => {
   it.each(['surface', 'badge'] as const)(
     'uses WASM from the %s control without automatic browsing',
     async (controlMode) => {
-      const view = render(<AnimatedWebpPlayer src="/manual.webp" controlMode={controlMode} />)
+      const view = render(<AnimatedWebpPlayer src="/manual.webp" controlMode={controlMode} animationMetadata={metadata} />)
       fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
       await act(async () => {
         await vi.dynamicImportSettled()
@@ -297,16 +347,20 @@ describe('manual streaming playback', () => {
       expect(view.container.querySelectorAll('img')).toHaveLength(1)
       expect(draw).toHaveBeenCalledTimes(1)
       expect(store.getState().completedAnimationIds).toEqual([])
-      fireEvent.click(screen.getByRole('button', { name: '暂停 WEBP 动图' }))
-      expect(worker.terminate).toHaveBeenCalledTimes(1)
-      expect(view.container.querySelector('canvas')).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
-      await act(async () => {
-        await vi.dynamicImportSettled()
-      })
-      expect(Transport.instances).toHaveLength(2)
+      await advance(300)
+      const beforePause = view.container.querySelector('[data-animation-progress-fill]')?.getAttribute('style')
+      expect(beforePause).toMatch(/width: [0-9]+%/)
+      fireEvent.click(screen.getByRole('button', { name: /暂停 WEBP 动图/ }))
+      expect(worker.terminate).not.toHaveBeenCalled()
+      expect(view.container.querySelector('canvas')).not.toBeNull()
+      const pausedProgress = view.container.querySelector('[data-animation-progress-fill]')?.getAttribute('style')
+      await advance(2000)
+      expect(view.container.querySelector('[data-animation-progress-fill]')?.getAttribute('style')).toBe(pausedProgress)
+      expect(draw).toHaveBeenCalledTimes(1)
+      fireEvent.click(screen.getByRole('button', { name: /播放 WEBP 动图/ }))
+      expect(Transport.instances).toHaveLength(1)
       view.unmount()
-      expect(Transport.instances[1]!.terminate).toHaveBeenCalledTimes(1)
+      expect(worker.terminate).toHaveBeenCalledTimes(1)
     }
   )
 
@@ -347,8 +401,28 @@ describe('manual streaming playback', () => {
     expect(complete).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps a finite final frame at 100% and restarts on the next manual play', async () => {
+    const view = render(<AnimatedWebpPlayer src="/finite.webp" controlMode="badge" animationMetadata={metadata} />)
+    fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    const worker = Transport.instances[0]!
+    await act(async () => {
+      worker.emit(frame(0))
+      worker.emit({ type: 'drained' })
+    })
+    await advance(1100)
+    expect(screen.getByRole('button', { name: '播放 WEBP 动图，100%' })).toBeTruthy()
+    expect(view.container.querySelector('canvas')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图，100%' }))
+    expect(Transport.instances).toHaveLength(2)
+    expect(worker.terminate).toHaveBeenCalledTimes(1)
+    view.unmount()
+  })
+
   it('explains manual compatibility fallback before the first frame', async () => {
-    const view = render(<AnimatedWebpPlayer src="/manual.webp" playing />)
+    const view = render(<AnimatedWebpPlayer src="/manual.webp" playing animationMetadata={metadata} />)
     await act(async () => {
       await vi.dynamicImportSettled()
     })
@@ -360,7 +434,61 @@ describe('manual streaming playback', () => {
     )
     expect(screen.getByRole('status').textContent).toContain('兼容播放：')
     expect(view.container.querySelector('canvas')).toBeNull()
+    expect(view.container.querySelector('[data-animation-progress-fill]')).toBeNull()
     expect(view.container.querySelector('img[src$="/manual.webp"]')).not.toBeNull()
+  })
+
+  it.each([
+    { name: 'unknown', animationMetadata: null },
+    { name: 'old policy', animationMetadata: { ...metadata, timingPolicyVersion: 99 } }
+  ])('hides progress for $name duration metadata', async ({ animationMetadata }) => {
+    const view = render(<AnimatedWebpPlayer src="/manual.webp" playing animationMetadata={animationMetadata} />)
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    await act(async () => Transport.instances[0]!.emit(frame(0)))
+    await advance(300)
+    expect(view.container.querySelector('[data-animation-progress-fill]')).toBeNull()
+    expect(store.getState().completedAnimationIds).toEqual([])
+  })
+
+  it('releases paused progress offscreen and ignores old A events after A→B→A', async () => {
+    let intersection: IntersectionObserverCallback | null = null
+    vi.stubGlobal(
+      'IntersectionObserver',
+      class {
+        constructor(callback: IntersectionObserverCallback) {
+          intersection = callback
+        }
+        observe() {}
+        disconnect() {}
+      }
+    )
+    const view = render(<AnimatedWebpPlayer src="/a.webp" controlMode="badge" animationMetadata={metadata} />)
+    fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    const oldA = Transport.instances[0]!
+    await act(async () => oldA.emit(frame(0)))
+    await advance(300)
+    fireEvent.click(screen.getByRole('button', { name: /暂停 WEBP 动图/ }))
+    expect(view.container.querySelector('[data-animation-progress-fill]')).not.toBeNull()
+    act(() => intersection?.([{ isIntersecting: false } as IntersectionObserverEntry], {} as IntersectionObserver))
+    expect(oldA.terminate).toHaveBeenCalledTimes(1)
+    expect(view.container.querySelector('[data-animation-progress-fill]')).toBeNull()
+
+    view.rerender(<AnimatedWebpPlayer src="/b.webp" controlMode="badge" animationMetadata={metadata} playing />)
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    view.rerender(<AnimatedWebpPlayer src="/a.webp" controlMode="badge" animationMetadata={metadata} playing />)
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    act(() => oldA.emit(frame(99)))
+    expect(view.container.querySelector('[data-animation-progress-fill]')?.getAttribute('style')).toBe('width: 0%;')
+    expect(draw).toHaveBeenCalledTimes(1)
   })
 
   it.each([

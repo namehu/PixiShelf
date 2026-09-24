@@ -29,6 +29,7 @@ import { VideoProbeTaskActions, type VideoMediaProbeResult } from './video-probe
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { useBackgroundJobEventSubscription } from '../../_components/background-job-event-provider'
 import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
+import { AnimationDurationProbeSection } from './animation-duration-probe-section'
 import { StandaloneTaskFeedback } from './standalone-task-feedback'
 import { ACTIVE_TASK_STATUSES, formatTaskStatus } from './task-status'
 import {
@@ -243,6 +244,7 @@ export function MaintenanceCard() {
   const webpScanJob = webpScanJobQuery.data as JobView | null | undefined
   const refetchWebpScanJob = webpScanJobQuery.refetch
 
+
   const latestWebpEvent = [...jobEvents.items].reverse().find(({ job }) => job.type === 'WEBP_ANIMATION_SCAN')
   const videoProbeJobQuery = useQuery(
     trpc.job.getVideoMediaProbeStatus.queryOptions(undefined, {
@@ -366,12 +368,14 @@ export function MaintenanceCard() {
   }, [scheduledTasks])
 
   const webpScheduledTask = scheduledTasksByKey.get('webp_animation_scan')
+  const durationScheduledTask = scheduledTasksByKey.get('animation_duration_probe')
   const videoScheduledTask = scheduledTasksByKey.get('video_media_probe')
   const chapterPreviewScheduledTask = scheduledTasksByKey.get('video_chapter_preview_generation')
   const standaloneScheduledTasks = scheduledTasks.filter(
     (task) =>
       ![
         'webp_animation_scan',
+        'animation_duration_probe',
         'video_media_probe',
         'video_chapter_preview_generation',
         'video_keyframe_generation'
@@ -507,6 +511,7 @@ export function MaintenanceCard() {
         )
         refetchScheduledTasks()
         refetchWebpScanJob()
+        void queryClient.invalidateQueries({ queryKey: trpc.job.getAnimationDurationProbeStatus.queryKey() })
         refetchVideoProbeJob()
         refetchChapterPreviewJob()
       },
@@ -518,6 +523,7 @@ export function MaintenanceCard() {
       }
     })
   )
+
 
   const isRunning = activeJob && ACTIVE_TASK_STATUSES.includes(activeJob.status)
   const isCancelling = activeJob?.status === 'CANCELLING'
@@ -797,6 +803,14 @@ export function MaintenanceCard() {
             />
             {webpScheduledTask && renderScheduleSettings(webpScheduledTask)}
           </TaskSection>
+
+          <AnimationDurationProbeSection
+            task={durationScheduledTask}
+            triggerPending={triggerScheduledTaskMutation.isPending}
+            triggeringKey={triggeringTaskKey}
+            onTrigger={() => durationScheduledTask && handleTriggerScheduledTask(durationScheduledTask)}
+            scheduleSettings={durationScheduledTask && renderScheduleSettings(durationScheduledTask)}
+          />
 
           <TaskSection
             id="video-probe"

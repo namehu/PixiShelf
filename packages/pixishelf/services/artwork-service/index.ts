@@ -133,7 +133,7 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
       prisma.image.findMany({
         where: { artworkId: { in: artworkIds } },
         orderBy: { sortOrder: 'asc' },
-        include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
+        include: { videoMetadata: true, animationMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       }),
       prisma.artworkTag.findMany({
         where: { artworkId: { in: artworkIds } },
@@ -696,7 +696,7 @@ export async function getRandomArtworks(
       images: {
         take: maxImageCount,
         orderBy: { sortOrder: 'asc' },
-        include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
+        include: { videoMetadata: true, animationMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       },
       artist: { select: ARTIST_SELECT },
       creators: creatorInclude,
@@ -823,6 +823,7 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
       width: typeof img.width === 'number' ? img.width : null,
       height: typeof img.height === 'number' ? img.height : null,
       isAnimated: img.isAnimated === true,
+      animationMetadata: img.animationMetadata ?? null,
       chaptersUrl: mediaType === MediaType.VIDEO ? (img.chaptersUrl ?? null) : null,
       chaptersCount: mediaType === MediaType.VIDEO ? (img.chaptersCount ?? 0) : 0,
       keyframesUrl: mediaType === MediaType.VIDEO ? (img.keyframesUrl ?? null) : null,
@@ -881,7 +882,7 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
     include: {
       images: {
         orderBy: { sortOrder: 'asc' },
-        include: { videoMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
+        include: { videoMetadata: true, animationMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       },
       artist: { select: ARTIST_SELECT },
       creators: creatorInclude,

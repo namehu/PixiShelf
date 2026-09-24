@@ -35,7 +35,7 @@
     import { WebpPlayer, playerLimits } from '/dist/index.js'
     window.events = []
     window.player = null
-    window.start = async (path = '/tests/fixtures/composite.webp?gate', limits = playerLimits(false), loop = false) => {
+    window.start = async (path = '/tests/fixtures/composite.webp?gate', limits = playerLimits(false), loop = false, durationMs = null) => {
       window.player?.destroy()
       window.events = []
       const p = new WebpPlayer(document.querySelector('canvas'), {
@@ -52,7 +52,7 @@
           2
         )
       })
-      const ready = p.load({ url: path, resourceKey: path, loop })
+      const ready = p.load({ url: path, resourceKey: path, loop, durationMs })
       p.play()
       await ready
     }

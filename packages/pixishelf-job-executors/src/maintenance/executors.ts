@@ -14,6 +14,7 @@ import {
 } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, ExecutorDefinition, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { cleanupArchiveIntakeHistory } from './archive-intake-retention-cleanup.ts'
+import { executeAnimationDurationProbe } from './animation-duration-probe.ts'
 import { executeArchiveDefaultTagBackfill } from './archive-default-tag-backfill.ts'
 import { cleanupJobEvents } from './job-event-retention-cleanup.ts'
 import { syncAllMediaDerivedTags } from './media-derived-tag-sync.ts'
@@ -129,6 +130,19 @@ export function createMaintenanceExecutorRegistrations(
         }),
         message: 'PIXIV_AI_DERIVED_TAG_SYNC completed'
       })
+    } as ExecutorDefinition,
+    {
+      jobType: 'ANIMATION_DURATION_PROBE',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      parsePayload: (payload) => emptyJobPayloadSchema.parse(payload),
+      execute: (context: ExecutionContext<EmptyPayload, EnqueuedChildJob>) =>
+        executeAnimationDurationProbe(context, {
+          database: dependencies.database,
+          scanRoot: dependencies.scanRoot,
+          ...(dependencies.now ? { now: dependencies.now } : {})
+        })
     } as ExecutorDefinition,
     {
       jobType: 'WEBP_ANIMATION_SCAN',

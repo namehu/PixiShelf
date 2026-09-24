@@ -54,7 +54,7 @@ export async function getNeighboringArtworks(input: NeighboringArtworksGetSchema
       images: {
         take: 2,
         orderBy: { sortOrder: 'asc' },
-        include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
+        include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT }, animationMetadata: true }
       },
       artist: { select: ARTIST_SELECT },
       creators: creatorInclude,

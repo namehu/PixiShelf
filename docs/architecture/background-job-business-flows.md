@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[32 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
+    EXEC[33 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
   end
 
   subgraph Storage[文件和外部资源]
@@ -209,17 +209,18 @@ sequenceDiagram
 | `archive_intake_retention_cleanup` | 清理归档收件历史       |    02:15 | 是       |     15 | 删除超过 30 天的终态收件、批量历史、空 submission 和过期预览会话 |
 | `scan_run_retention_cleanup`       | 清理扫描历史           |    02:30 | 否       |     20 | 删除超过 180 天的终态 ScanRun；另按类型只保留最近 100 条         |
 | `webp_animation_scan`              | 识别图片动画           |    03:30 | 否       |     30 | 用内容识别 WebP/GIF/PNG/APNG 是静态图还是动图                    |
+| `animation_duration_probe`         | 动图时长探测           |    03:45 | 否       |     35 | 只读 WebP RIFF 头并保存一轮时长；计划任务默认关闭               |
 | `video_media_probe`                | 视频媒体探测与封面生成 |    04:00 | 否       |     40 | 媒体分类、FFprobe、自动封面批量生成                              |
 | `video_chapter_preview_generation` | 生成视频章节截图       |    04:30 | 否       |     50 | 计划执行 `INCREMENTAL` 章节图校验和补齐                          |
 | `video_keyframe_generation`        | 生成视频代表帧         |    05:00 | 否       |     60 | 发现缺失/过期/失败视频，并创建代表帧生成子任务                   |
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 32 类 Worker 任务
+## 33 类 Worker 任务
 
 `ARTIST_MERGE@v1` 在 BACKGROUND_WRITER 中原子迁移艺术家关系、来源映射和归档绑定，并保存审计；入口、互斥和恢复边界见[艺术家合并](../features/artist-merge.md)。
 
-`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` 与 `ARCHIVE_DISCOVERY_BATCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 28 类任务全部进入 `BACKGROUND_WRITER`。
+`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` 与 `ARCHIVE_DISCOVERY_BATCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 29 类任务全部进入 `BACKGROUND_WRITER`。
 
 | Job type                           | 主要入口                                 | 是否计划任务 | 是否创建子任务 | 主要副作用                                                    |
 | ---------------------------------- | ---------------------------------------- | ------------ | -------------- | ------------------------------------------------------------- |
@@ -231,6 +232,7 @@ sequenceDiagram
 | `MEDIA_DERIVED_TAG_SYNC`           | 后台维护手动入口                         | 否           | 否             | 重算 `media:webp`、`media:video`、`media:image` 派生标签关系  |
 | `PIXIV_AI_DERIVED_TAG_SYNC`        | 后台维护的预检与回填入口                 | 否           | 否             | 分批核对并校准 Pixiv `AI生成` 派生标签，不覆盖人工关系        |
 | `WEBP_ANIMATION_SCAN`              | 任务计划或立即运行                       | 是           | 否             | 内容探测并更新图片 mediaType/动画状态                         |
+| `ANIMATION_DURATION_PROBE`         | 任务计划或人工立即运行                   | 是           | 否             | 有界读取 WebP RIFF 头，按源版本发布动画时长或静态/失败结果     |
 | `VIDEO_MEDIA_PROBE`                | 任务计划、立即运行、单视频重探测         | 是           | 否             | 分类、视频元数据探测、同任务批量生成自动封面                  |
 | `VIDEO_POSTER_GENERATION`          | 单视频显式封面生成                       | 否           | 否             | 为一个视频生成并发布自动封面                                  |
 | `VIDEO_CHAPTER_PREVIEW_GENERATION` | 任务计划或立即运行                       | 是           | 否             | 校验、生成、替换章节预览 WebP，登记旧文件 GC                  |
@@ -258,9 +260,11 @@ sequenceDiagram
 
 标签、艺术家、作品和系列同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家、作品和系列的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 32 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 29 类仍只支持 v1，因此 capability audit
-实际核对 37 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
+生产 Registry 保持 33 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 30 类仍只支持 v1，因此 capability audit
+实际核对 38 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
+
+`ANIMATION_DURATION_PROBE` 是独立的只读 WebP 时长任务，不依赖 `WEBP_ANIMATION_SCAN` 的旧分类完成。单并发按 ID 每页最多 100 项，每轮最多 10 文件或 5 秒，再让出 writer lane；每轮优先处理至多 2 个已到期的低 ID 失败项，避免前向游标使重试饥饿。失败等待与写入门禁不算完成：等待下一次到期或写入结束时进入 RETRY_WAIT，让出 lane；门禁异常持久存在须人工核对原媒体/替换会话，不按超时自动解锁。见[动图时长方案](../design/animation-duration-probe.md)。
 
 ## Pixiv 作品在线同步链路
 
@@ -716,7 +720,7 @@ flowchart TD
 | App 入队、幂等和控制命令      | `packages/pixishelf/services/background-task/job-command-service.ts`、`manual-job-singleton.ts`  |
 | claim、优先级、lease、fence   | `packages/pixishelf-job-runtime/src/queue-repository.ts`                                         |
 | 双 Dispatcher 和 Worker 启动  | `packages/pixishelf-worker/src/main.ts`、`dispatcher.ts`                                         |
-| 32 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| 33 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
 | Pixiv 艺术家补全              | `packages/pixishelf-job-executors/src/pixiv-artist/`、`pixiv-artist-enrichment-service.ts`       |
 | Pixiv 标签补全                | `packages/pixishelf-job-executors/src/pixiv-tag/`、`pixiv-tag-enrichment-service.ts`             |
 | Pixiv 作品在线同步            | `packages/pixishelf-job-executors/src/pixiv-artwork/`、`pixiv-artwork-enrichment-service.ts`     |

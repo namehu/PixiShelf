@@ -44,6 +44,7 @@ export async function executeDiscoveryBatch(
       await scope.retry({
         availableAt: new Date((dependencies.now?.() ?? new Date()).getTime() + 1000),
         preserveAttempt: true,
+        schedulingYield: true,
         errorCode: 'RESOURCE_BUSY',
         error: 'Discovery batch yielded at a durable round boundary',
         message: `已处理 ${state.index}/${context.payload.sources.length} 个来源`

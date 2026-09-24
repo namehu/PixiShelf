@@ -1,5 +1,6 @@
 import type { TRandomTagDto } from '@/schemas/tag.dto'
 import { MediaType } from './media'
+import type { AnimationMetadataDto } from '@/schemas/artwork.dto'
 
 export interface RandomImagesResponse {
   items: RandomImageItem[]
@@ -26,6 +27,7 @@ export interface ViewerMediaItem {
   width?: number | null
   height?: number | null
   isAnimated?: boolean
+  animationMetadata: AnimationMetadataDto | null
   chaptersUrl?: string | null
   chaptersCount?: number
   keyframesUrl?: string | null

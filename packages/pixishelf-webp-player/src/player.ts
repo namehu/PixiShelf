@@ -27,6 +27,9 @@ export class WebpPlayer {
     status: 'idle',
     frameIndex: null,
     presentedMs: 0,
+    positionMs: 0,
+    cycleIndex: 0,
+    durationMs: null,
     bufferedFrames: 0,
     receivedBytes: 0,
     inputComplete: false
@@ -36,6 +39,8 @@ export class WebpPlayer {
   private drained = false
   private painted = false
   private currentDuration: number | null = null
+  private cyclePresentedMs = 0
+  private lastProgressEmission = -Infinity
   private raf = 0
   private resolveLoad: (() => void) | null = null
   private rejectLoad: ((error: Error) => void) | null = null
@@ -53,7 +58,12 @@ export class WebpPlayer {
     }
   }
   getSnapshot(): PlayerSnapshot {
-    return { ...this.snapshot, bufferedFrames: this.queue.length }
+    const partial = this.currentDuration === null ? 0 : this.currentDuration - this.clock.peekRemaining(performance.now())
+    return {
+      ...this.snapshot,
+      positionMs: Math.max(0, this.cyclePresentedMs + partial),
+      bufferedFrames: this.queue.length
+    }
   }
   private emit(event: PlayerEvent) {
     for (const listener of this.listeners) listener(event)
@@ -62,6 +72,11 @@ export class WebpPlayer {
     if (this.snapshot.status === status) return
     this.snapshot.status = status
     this.emit({ type: 'state', snapshot: this.getSnapshot() })
+  }
+  private progress(now: number, force = false) {
+    if (!force && now - this.lastProgressEmission < 100) return
+    this.lastProgressEmission = now
+    this.emit({ type: 'progress', snapshot: this.getSnapshot() })
   }
   private command(command: WorkerCommand, transfer?: Transferable[]) {
     this.worker?.postMessage(command, transfer ?? [])
@@ -75,6 +90,8 @@ export class WebpPlayer {
     this.queue = []
     this.clock.reset()
     this.currentDuration = null
+    this.cyclePresentedMs = 0
+    this.lastProgressEmission = -Infinity
     this.rejectLoad?.(new DOMException('Playback cancelled', 'AbortError'))
     this.resolveLoad = null
     this.rejectLoad = null
@@ -92,6 +109,9 @@ export class WebpPlayer {
       status: 'idle',
       frameIndex: null,
       presentedMs: 0,
+      positionMs: 0,
+      cycleIndex: 0,
+      durationMs: Number.isSafeInteger(source.durationMs) && source.durationMs! > 0 ? source.durationMs! : null,
       bufferedFrames: 0,
       receivedBytes: 0,
       inputComplete: false
@@ -191,6 +211,7 @@ export class WebpPlayer {
     this.raf = 0
     this.command({ type: 'pause', paused: true })
     this.state('paused')
+    this.progress(performance.now(), true)
   }
   private schedule() {
     if (!this.desired || this.raf || ['destroyed', 'error', 'ended'].includes(this.snapshot.status)) return
@@ -210,11 +231,13 @@ export class WebpPlayer {
     const hadCurrentFrame = this.currentDuration !== null
     if (this.currentDuration !== null && this.clock.advance(now) > 0) {
       this.state('playing')
+      this.progress(now)
       this.schedule()
       return
     }
     if (this.currentDuration !== null) {
       this.snapshot.presentedMs += this.currentDuration
+      this.cyclePresentedMs += this.currentDuration
       this.currentDuration = null
     }
     const frame = this.queue.shift()
@@ -224,8 +247,12 @@ export class WebpPlayer {
         this.worker?.terminate()
         this.worker = null
         this.state('ended')
+        this.progress(now, true)
         if (generation === this.generation) this.emit({ type: 'ended' })
-      } else this.state(this.painted ? 'buffering' : 'loading')
+      } else {
+        this.state(this.painted ? 'buffering' : 'loading')
+        this.progress(now, true)
+      }
       return
     }
     if (this.canvas.width !== frame.width || this.canvas.height !== frame.height) {
@@ -235,6 +262,10 @@ export class WebpPlayer {
     const ctx = this.canvas.getContext('2d')
     if (!ctx) throw new Error('Canvas unavailable')
     ctx.putImageData(new ImageData(new Uint8ClampedArray(frame.pixels), frame.width, frame.height), 0, 0)
+    if (frame.cycleId !== this.snapshot.cycleIndex) {
+      this.snapshot.cycleIndex = frame.cycleId
+      this.cyclePresentedMs = 0
+    }
     this.snapshot.frameIndex = frame.index
     this.currentDuration = frame.durationMs
     // Preserve cadence across normal RAF quantization, but never skip a frame
@@ -247,6 +278,7 @@ export class WebpPlayer {
     }
     if (generation !== this.generation) return
     this.state('playing')
+    this.progress(now)
     this.command({ type: 'pull', recycled: frame.pixels }, [frame.pixels])
     this.schedule()
   }

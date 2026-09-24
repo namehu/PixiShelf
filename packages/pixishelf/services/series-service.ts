@@ -53,7 +53,7 @@ export async function getSeriesList(params: {
               include: {
                 images: {
                   orderBy: { sortOrder: 'asc' },
-                  include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
+                  include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT }, animationMetadata: true }
                 },
                 artworkTags: { include: { tag: true } }
               }
@@ -118,7 +118,7 @@ export async function getSeriesDetail(id: number) {
               creators: creatorInclude,
               images: {
                 orderBy: { sortOrder: 'asc' },
-                include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
+                include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT }, animationMetadata: true }
               },
               artworkTags: { include: { tag: true } }
             }

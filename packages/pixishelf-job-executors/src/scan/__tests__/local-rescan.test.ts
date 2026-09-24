@@ -4,6 +4,44 @@ import { reconcileLocalArtworkImages } from '../local-rescan.js'
 const now = new Date('2026-08-16T00:00:00.000Z')
 
 describe('reconcileLocalArtworkImages', () => {
+  it('does not invalidate an active upload gate when a rescan observes a partial chunk', async () => {
+    const transaction = {
+      image: {
+        findMany: vi.fn().mockResolvedValue([{
+          id: 11,
+          path: 'local/a/image.webp',
+          size: 100n,
+          sortOrder: 0,
+          mediaType: 'ANIMATION',
+          webpAnimationStatus: 2,
+          animationMetadata: {
+            writeInProgress: true,
+            sourcePath: 'local/a/image.webp',
+            sourceSize: null,
+            sourceMtimeMs: null,
+            sourceCtimeMs: null,
+            sourceDeviceId: null,
+            sourceInode: null,
+            status: 'PENDING'
+          }
+        }]),
+        update: vi.fn().mockResolvedValue({}),
+        createMany: vi.fn(),
+        deleteMany: vi.fn()
+      }
+    }
+
+    await reconcileLocalArtworkImages(transaction as never, 7, [
+      discoveredMedia({ relativePath: 'local/a/image.webp', size: 120n, sortOrder: 0, mediaType: 'ANIMATION', webpAnimationStatus: 2 })
+    ], now)
+
+    expect(transaction.image.update).toHaveBeenCalledWith({
+      where: { id: 11 },
+      data: expect.objectContaining({ size: 120n })
+    })
+    // A source invalidation would call $queryRaw on this minimal transaction.
+  })
+
   it('retains matching image ids and derived relations while deleting missing and creating new paths', async () => {
     const transaction = {
       image: {

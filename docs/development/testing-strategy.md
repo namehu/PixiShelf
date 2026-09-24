@@ -97,7 +97,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 32 个 job type、37 个 type/version 组合
+健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 33 个 job type、38 个 type/version 组合
 （`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
 
 ## 变更验证矩阵
@@ -186,7 +186,7 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 
 独立 `webp-native.yml` 只在原生/预编译相关文件变更或手动触发时运行固定镜像编译、原生差分 ASan/UBSan、产物逐字节复现和浏览器测试；修改普通页面或播放器 TypeScript 不触发该工作流。重建不会自动改写 Git 中的预编译产物，要求贡献者提交对应更新。
 
-Worker 测试和 capability 门禁包含双 lane contract，以及 32 个 job type、37 个 type/version 组合（`SCAN`
+Worker 测试和 capability 门禁包含双 lane contract，以及 33 个 job type、38 个 type/version 组合（`SCAN`
 v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
 演练。v3 的独立领取测试同时证明只声明 SCAN v2 的旧 Worker 不会领取 `AUDIT_APPLY`。
 

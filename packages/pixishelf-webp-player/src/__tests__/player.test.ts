@@ -28,9 +28,9 @@ function tick(time: number) {
   raf.clear()
   callbacks.forEach((fn) => fn(time))
 }
-const frame = (index: number, durationMs = 1000): WorkerEvent => ({
+const frame = (index: number, durationMs = 1000, cycleId = 0): WorkerEvent => ({
   type: 'frame',
-  frame: { index, durationMs, width: 1, height: 1, pixels: new ArrayBuffer(4) }
+  frame: { index, durationMs, cycleId, width: 1, height: 1, pixels: new ArrayBuffer(4) }
 })
 beforeEach(() => {
   now = 0
@@ -63,6 +63,84 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('player lifecycle and scheduling', () => {
+  it('reports partial frame progress and freezes it during pause and buffering', async () => {
+    const p = player(),
+      events: PlayerEvent[] = []
+    p.subscribe((event) => events.push(event))
+    const loaded = p.load({ url: '/a.webp', resourceKey: 'a', durationMs: 200 })
+    p.play()
+    const worker = FakeWorker.instances[0]!
+    worker.emit(frame(0, 100))
+    await loaded
+    tick(0)
+    tick(40)
+    expect(p.getSnapshot()).toMatchObject({ positionMs: 40, cycleIndex: 0, frameIndex: 0, durationMs: 200 })
+    now = 45
+    p.pause()
+    tick(1045)
+    expect(p.getSnapshot().positionMs).toBe(45)
+    p.play()
+    tick(1100)
+    expect(p.getSnapshot().positionMs).toBe(100)
+    expect(p.getSnapshot().status).toBe('buffering')
+    tick(1500)
+    expect(p.getSnapshot().positionMs).toBe(100)
+    expect(events.filter((event) => event.type === 'progress').length).toBeGreaterThan(0)
+    p.destroy()
+  })
+  it('holds the prior cycle at full progress until the next cycle frame is painted', async () => {
+    const p = player(),
+      loaded = p.load({ url: '/a.webp', resourceKey: 'a', durationMs: 100, loop: true })
+    p.play()
+    const worker = FakeWorker.instances[0]!
+    worker.emit(frame(0, 100))
+    await loaded
+    tick(0)
+    worker.emit(frame(0, 100, 1))
+    expect(p.getSnapshot()).toMatchObject({ cycleIndex: 0, frameIndex: 0 })
+    tick(100)
+    expect(p.getSnapshot()).toMatchObject({ cycleIndex: 1, frameIndex: 0, positionMs: 0 })
+    p.destroy()
+  })
+  it('uses metadata only for progress, never to infer completion before Worker EOF', async () => {
+    const p = player(),
+      events: PlayerEvent[] = []
+    p.subscribe((event) => events.push(event))
+    const loaded = p.load({ url: '/a.webp', resourceKey: 'a', durationMs: 50 })
+    p.play()
+    const worker = FakeWorker.instances[0]!
+    worker.emit(frame(0, 100))
+    await loaded
+    tick(0)
+    tick(100)
+    expect(p.getSnapshot()).toMatchObject({ positionMs: 100, durationMs: 50, status: 'buffering' })
+    expect(events.some((event) => event.type === 'ended')).toBe(false)
+    worker.emit({ type: 'drained' })
+    tick(116)
+    expect(p.getSnapshot().status).toBe('ended')
+    expect(events.filter((event) => event.type === 'ended')).toHaveLength(1)
+    p.destroy()
+  })
+  it('limits progress notifications to 10Hz even across rapid single-frame cycles', async () => {
+    const p = player(),
+      progressAt: number[] = []
+    p.subscribe((event) => {
+      if (event.type === 'progress') progressAt.push(now)
+    })
+    const loaded = p.load({ url: '/a.webp', resourceKey: 'a', loop: true, durationMs: 11 })
+    p.play()
+    const worker = FakeWorker.instances[0]!
+    worker.emit(frame(0, 11))
+    await loaded
+    tick(0)
+    for (let cycle = 1; cycle <= 10; cycle++) {
+      worker.emit(frame(0, 11, cycle))
+      tick(cycle * 11)
+    }
+    expect(progressAt).toEqual([0, 110])
+    expect(p.getSnapshot()).toMatchObject({ cycleIndex: 10, positionMs: 0 })
+    p.destroy()
+  })
   it('keeps the remaining frame duration on pause, and completes only after validated EOF', async () => {
     const p = player(),
       events: PlayerEvent[] = []

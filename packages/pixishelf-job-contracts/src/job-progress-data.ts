@@ -30,12 +30,30 @@ export const animationScanProgressDataSchema = z
   })
   .strict()
 
+export const animationDurationProgressDataSchema = z.object({
+  version: z.literal(1),
+  kind: z.literal('animation-duration-probe'),
+  stage: z.enum(['PROBING', 'YIELDING', 'WAITING_RETRY', 'WAITING_SOURCE_WRITE', 'COMPLETED']),
+  succeededItems: aggregateCountSchema,
+  staticItems: aggregateCountSchema,
+  failedItems: aggregateCountSchema,
+  remainingItems: aggregateCountSchema,
+  retryPendingItems: aggregateCountSchema,
+  writePendingItems: aggregateCountSchema,
+  logicalReadBytes: aggregateCountSchema,
+  logicalReadOperations: aggregateCountSchema,
+  unmeasuredFailureAttempts: aggregateCountSchema,
+  probeElapsedMs: aggregateCountSchema,
+  sampledAt: z.string().datetime({ offset: true })
+}).strict()
+
 /**
  * A plain union keeps decoding additive: old rows may remain null, while a
  * future version can be added beside v1 without changing the SSE envelope.
  */
-export const jobProgressDataSchema = z.union([animationScanProgressDataSchema])
+export const jobProgressDataSchema = z.union([animationScanProgressDataSchema, animationDurationProgressDataSchema])
 
 export type AnimationScanProgressStage = z.infer<typeof animationScanProgressStageSchema>
 export type AnimationScanProgressData = z.infer<typeof animationScanProgressDataSchema>
+export type AnimationDurationProgressData = z.infer<typeof animationDurationProgressDataSchema>
 export type JobProgressData = z.infer<typeof jobProgressDataSchema>

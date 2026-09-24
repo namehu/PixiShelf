@@ -26,6 +26,8 @@ sources:
 
 播放器资源 manifest 的客户端缓存位于全局 Zustand store 和 sessionStorage，仅保存校验后的资源版本及账号 ID，不保存认证凭证或媒体。退出登录、账号切换会清空并取消旧请求；缓存不会替代 Worker、WASM 或原媒体请求的服务端会话校验。
 
+WebP 时长探测沿用管理任务的 `adminProcedure` 入队/重试和受登录保护的作品读取；无新增公开媒体路由、跨源地址或浏览器直连数据库。Worker 隔离子进程只读已校验的扫描根内 WebP，DTO 仅含格式、时长、帧数、循环数和策略版本，不返回文件绝对路径、stat、失败详情或源 revision。分块上传和替换会话沿用管理员 Session，并在实际文件写入前更新数据库门禁。详见[动图时长方案](../design/animation-duration-probe.md)。
+
 艺术家合并的 previewMerge、submitMerge、getMerge、listMerges 使用 artistRouter 的 adminProcedure，要求有效管理员会话（当前与 authProcedure 同权）。操作者由服务端会话记录；被合并 ID 的旧编辑／绑定请求必须刷新，数据库触发器进一步阻止旧身份写入。详见[艺术家合并](../features/artist-merge.md)。
 
 当前权限模型是**单一信任域**：

@@ -66,6 +66,7 @@ describe('ArtworkImages with the real window virtualizer', () => {
       createdAt: '2026-01-01 00:00:00',
       updatedAt: '2026-01-01 00:00:00',
       webpAnimationStatus: null,
+      animationMetadata: null,
       chaptersPath: null,
       chaptersCount: 0,
       chaptersDuration: null,

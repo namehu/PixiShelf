@@ -4,11 +4,13 @@ export { Prisma, PrismaClient }
 export * from './creators'
 export * from './discovery-creators'
 export * from './artist-merge'
+export * from './animation-duration'
 
-const latestRequiredMigration = '20260921120000_artist_merge'
+const latestRequiredMigration = '20260924120000_add_image_animation_duration_metadata'
 
 const requiredQueueObjects = [
   'artist_merges',
+  'ImageAnimationMetadata',
   'creator_maintenance_plans',
   'creator_maintenance_items',
   'artwork_artists',

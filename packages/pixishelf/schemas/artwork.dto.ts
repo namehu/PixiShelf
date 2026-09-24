@@ -259,6 +259,16 @@ export type NeighboringArtworksGetSchema = z.infer<typeof NeighboringArtworksGet
  * - 时间转字符串
  * - 增加 mediaType 计算字段
  */
+export const AnimationMetadataDto = z.object({
+  format: z.enum(['GIF', 'APNG', 'WEBP']),
+  durationMs: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  frameCount: z.number().int().positive(),
+  loopCount: z.number().int().nonnegative(),
+  timingPolicyVersion: z.number().int().positive()
+})
+
+export type AnimationMetadataDto = z.infer<typeof AnimationMetadataDto>
+
 export const ArtworkImageResponseDto = ImageModel.extend({
   createdAt: dateToString,
   updatedAt: dateToString,
@@ -266,6 +276,7 @@ export const ArtworkImageResponseDto = ImageModel.extend({
   // 前端辅助字段，数据库没有，需要 Service 层计算填充
   mediaType: z.enum(['image', 'video']).default('image'),
   isAnimated: z.boolean().optional(),
+  animationMetadata: AnimationMetadataDto.nullable(),
   chaptersUrl: z.string().nullable().optional(),
   hasChapters: z.boolean().default(false),
   keyframesUrl: z.string().nullable().optional(),

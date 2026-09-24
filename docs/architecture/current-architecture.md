@@ -23,6 +23,8 @@ sources:
 
 `packages/pixishelf-webp-player` 是私有浏览器库，默认用于 Next.js WebP 手动播放和作品详情自动浏览，无需构建或运行时开关。它提供单线程 libwebp WASM、同源 Worker、两帧队列和 Canvas 时钟；手动模式遵循文件循环次数，复用已下载输入原地重置合成器，自动浏览只播一轮；不依赖任务 Worker 或数据库。固定工具链仅在原生改动时生成随仓库保存的 prebuilt，每次 dev/build 校验并复制解码器、打包 JS 为版本化静态资源。规格、UML 和剩余真机/反代验证见 [WebP 流式播放器](../design/webp-streaming-player.md)。
 
+WebP 时长是独立的只读媒体元数据：管理员手动创建 `ANIMATION_DURATION_PROBE`，通用 Worker 的 writer lane 用隔离子进程有界解析 RIFF 头，按 Image ID 分页；结果保存在一对一 `ImageAnimationMetadata`，Next App 对作品/浏览查询批量 join 后只传递有效时长。扫描、迁移和 App 媒体写入会用源 revision/门禁失效旧结果，正常页面不逐图访问 NFS。代码设计与尚待真实 NAS 验收的边界见[动图时长方案](../design/animation-duration-probe.md)。
+
 PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。目标用户、质量优先级和非目标以[产品基线](../product/product-baseline.md)为准。
 
 当前部署边界：

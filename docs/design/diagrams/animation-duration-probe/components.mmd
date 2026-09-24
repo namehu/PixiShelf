@@ -1,0 +1,12 @@
+flowchart LR
+  Admin[Admin task control] --> Queue[(SystemJob queue)]
+  Queue --> Worker[Writer lane executor]
+  Worker --> Parser[Bounded RIFF WebP parser]
+  Parser --> NAS[(NFS original media)]
+  Worker --> Meta[(ImageAnimationMetadata)]
+  Scan[Scan and migration publisher] --> Meta
+  Upload[Upload and replace source gate] --> Meta
+  Meta --> DTO[Artwork and viewer DTO]
+  DTO --> UI[WebP playback progress]
+  UI --> MediaAPI[Authenticated media API]
+  MediaAPI --> NAS

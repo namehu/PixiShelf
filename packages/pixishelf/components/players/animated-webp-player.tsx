@@ -7,7 +7,9 @@ import { withMediaVersion } from '@/lib/media-url'
 import { combinationApiResource } from '@/utils/combination-static'
 import { createSingleLoopWebp } from '@/lib/single-loop-webp'
 import { isWebpFile } from '@/lib/media'
-import type { PlayerFailure } from '@pixishelf/webp-player'
+import type { PlayerFailure, PlayerSnapshot } from '@pixishelf/webp-player'
+import type { AnimationMetadataDto } from '@/schemas/artwork.dto'
+import { AnimationPlaybackCapsule } from './animation-playback-capsule'
 import StreamingWebpSurface from './streaming-webp-surface'
 
 type AnimatedWebpPlayerControlMode = 'surface' | 'badge' | 'external'
@@ -16,6 +18,7 @@ interface AnimatedWebpPlayerProps {
   src: string
   alt?: string
   size?: number | null
+  animationMetadata?: AnimationMetadataDto | null
   isAnimated?: boolean
   formatLabel?: string
   className?: string
@@ -35,7 +38,9 @@ interface AnimatedWebpPlayerProps {
   playing?: boolean
   playOnce?: boolean
   playbackPaused?: boolean
+  manualPlaybackPaused?: boolean
   onPlayingChange?: (playing: boolean) => void
+  onPlaybackProgress?: (percent: number | null) => void
 }
 
 const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5431'
@@ -73,6 +78,7 @@ export default function AnimatedWebpPlayer({
   src,
   alt = src,
   size,
+  animationMetadata,
   isAnimated = true,
   formatLabel = 'WEBP',
   className,
@@ -92,9 +98,13 @@ export default function AnimatedWebpPlayer({
   playing,
   playOnce = false,
   playbackPaused = false,
-  onPlayingChange
+  manualPlaybackPaused = false,
+  onPlayingChange,
+  onPlaybackProgress
 }: AnimatedWebpPlayerProps) {
   const [uncontrolledPlaying, setUncontrolledPlaying] = useState(false)
+  const [manualPausedAttempt, setManualPausedAttempt] = useState<string | null>(null)
+  const [streamProgress, setStreamProgress] = useState<{ attempt: string; snapshot: PlayerSnapshot } | null>(null)
   const [isLoadingAnimation, setIsLoadingAnimation] = useState(false)
   const [animationFailed, setAnimationFailed] = useState(false)
   const [fallbackAttempt, setFallbackAttempt] = useState<string | null>(null)
@@ -116,7 +126,8 @@ export default function AnimatedWebpPlayer({
     onAnimationBuffering,
     onAnimationComplete,
     onPlaybackInterrupted,
-    onPlayingChange
+    onPlayingChange,
+    onPlaybackProgress
   })
   // 保存最新回调，避免仅回调引用变化就重启请求或计时。
   callbacks.current = {
@@ -125,7 +136,8 @@ export default function AnimatedWebpPlayer({
     onAnimationBuffering,
     onAnimationComplete,
     onPlaybackInterrupted,
-    onPlayingChange
+    onPlayingChange,
+    onPlaybackProgress
   }
   const originalSrc = useMemo(() => withMediaVersion(combinationApiResource(src), updatedAt), [src, updatedAt])
   const posterSrc = useMemo(() => withMediaVersion(getStaticWebpPosterUrl(src), updatedAt), [src, updatedAt])
@@ -138,16 +150,44 @@ export default function AnimatedWebpPlayer({
     attemptIdentity.current = { source: attemptSource, sequence: attemptIdentity.current.sequence + 1 }
   }
   const attempt = `${attemptIdentity.current.sequence}:${attemptSource}`
+  const manualPaused = manualPausedAttempt === attempt || manualPlaybackPaused
+  // Policy v1 applies the same <=10ms -> 100ms frame normalization as the WASM player.
+  const durationMs =
+    animationMetadata?.format === 'WEBP' &&
+    animationMetadata.timingPolicyVersion === 1 &&
+    Number.isSafeInteger(animationMetadata.durationMs) &&
+    animationMetadata.durationMs > 0
+      ? animationMetadata.durationMs
+      : null
+  const progressSnapshot = streamProgress?.attempt === attempt ? streamProgress.snapshot : null
+  const progressPercent =
+    durationMs !== null &&
+    progressSnapshot &&
+    isAnimated &&
+    (isPlaying || playbackPaused || manualPaused) &&
+    isWebpFile(src.split(/[?#]/)[0]) &&
+    fallbackAttempt !== attempt
+      ? progressSnapshot.status === 'ended'
+        ? 100
+        : Math.min(100, Math.max(0, Math.floor((progressSnapshot.positionMs / durationMs) * 100)))
+      : null
+  const controlLabel = `${isPlaying && playOnce ? '停止本轮动图' : `${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}${progressPercent === null ? '' : `，${progressPercent}%`}`
   useEffect(() => {
     setFallbackNotice((notice) => (notice?.attempt === attempt ? notice : null))
   }, [attempt])
+  useEffect(() => {
+    callbacks.current.onPlaybackProgress?.(null)
+  }, [attempt, durationMs, fallbackAttempt])
   useEffect(() => {
     if (fallbackNotice?.attempt !== attempt) return
     const timer = window.setTimeout(() => setFallbackNotice(null), 4000)
     return () => window.clearTimeout(timer)
   }, [fallbackNotice, attempt])
   const streaming =
-    isWebpFile(src.split(/[?#]/)[0]) && isAnimated && (isPlaying || playbackPaused) && fallbackAttempt !== attempt
+    isWebpFile(src.split(/[?#]/)[0]) &&
+    isAnimated &&
+    (isPlaying || playbackPaused || manualPaused) &&
+    fallbackAttempt !== attempt
   const animationSrc = playOnce
     ? singleLoop?.source === originalSrc && singleLoop.key === playbackKey
       ? singleLoop.url
@@ -177,20 +217,29 @@ export default function AnimatedWebpPlayer({
   )
 
   const pausePlayback = useCallback(() => {
+    setManualPausedAttempt(null)
+    setStreamProgress(null)
+    callbacks.current.onPlaybackProgress?.(null)
     if (requestedPlaying) setPlayback(false)
     setIsLoadingAnimation(false)
   }, [requestedPlaying, setPlayback])
 
   const handleTogglePlayback = useCallback(() => {
     if (isPlaying) {
-      pausePlayback()
+      if (streaming && !playOnce) {
+        setManualPausedAttempt(attempt)
+        setPlayback(false)
+        setIsLoadingAnimation(false)
+      } else pausePlayback()
       return
     }
 
+    if (!manualPaused) setStreamProgress(null)
+    setManualPausedAttempt(null)
     setAnimationFailed(false)
     setIsLoadingAnimation(true)
     setPlayback(true)
-  }, [isPlaying, pausePlayback, setPlayback])
+  }, [isPlaying, manualPaused, pausePlayback, setPlayback, streaming, playOnce, attempt])
 
   const stopControlEvent = useCallback((event: SyntheticEvent) => {
     event.stopPropagation()
@@ -253,7 +302,7 @@ export default function AnimatedWebpPlayer({
   }, [isPlaying, playOnce, singleLoop, loadedUrl, animationSrc, playbackKey])
 
   useEffect(() => {
-    if ((!isPlaying && !playbackPaused) || typeof IntersectionObserver === 'undefined') return
+    if ((!isPlaying && !playbackPaused && !manualPaused) || typeof IntersectionObserver === 'undefined') return
 
     const container = containerRef.current
     if (!container) return
@@ -267,10 +316,10 @@ export default function AnimatedWebpPlayer({
     observer.observe(container)
 
     return () => observer.disconnect()
-  }, [isPlaying, playbackPaused, pausePlayback])
+  }, [isPlaying, playbackPaused, manualPaused, pausePlayback])
 
   useEffect(() => {
-    if (!isPlaying) return
+    if (!isPlaying && !manualPaused) return
 
     const handleVisibilityChange = () => {
       if (document.hidden) {
@@ -281,7 +330,7 @@ export default function AnimatedWebpPlayer({
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [isPlaying, pausePlayback])
+  }, [isPlaying, manualPaused, pausePlayback])
 
   const handleAnimationLoad = () => {
     if (
@@ -329,6 +378,16 @@ export default function AnimatedWebpPlayer({
   const badgeClassName =
     'absolute right-2 z-10 flex items-center gap-1 rounded-sm bg-[#ff2f4d] px-2 text-[10px] font-semibold leading-none tabular-nums text-white shadow-sm'
 
+  const webpControl = isWebpFile(src.split(/[?#]/)[0])
+  const capsule = (
+    <AnimationPlaybackCapsule
+      playing={isPlaying}
+      playOnce={playOnce}
+      label={formatLabel}
+      fileSize={fileSize}
+      progressPercent={progressPercent}
+    />
+  )
   const playbackBadge =
     controlMode === 'external' ? null : controlMode === 'badge' && isAnimated ? (
       <button
@@ -336,7 +395,7 @@ export default function AnimatedWebpPlayer({
         className="absolute bottom-0 right-2 z-10 flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
         data-long-press-ignore
         data-auto-browse-controls={autoBrowseControl || playOnce || undefined}
-        aria-label={isPlaying && playOnce ? '停止本轮动图' : `${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}
+        aria-label={controlLabel}
         aria-pressed={isPlaying}
         aria-busy={loadingAnimation}
         onClick={(event) => {
@@ -350,10 +409,16 @@ export default function AnimatedWebpPlayer({
         onTouchStart={stopControlEvent}
         onTouchEnd={stopControlEvent}
       >
-        <span className="flex h-[22px] items-center justify-center gap-1 rounded-full bg-[#ff2f4d] px-2 text-xs font-semibold leading-none tabular-nums text-white shadow-sm">
-          {badgeContent}
-        </span>
+        {webpControl ? capsule : (
+          <span className="flex h-[22px] items-center justify-center gap-1 rounded-full bg-[#ff2f4d] px-2 text-xs font-semibold leading-none tabular-nums text-white shadow-sm">
+            {badgeContent}
+          </span>
+        )}
       </button>
+    ) : webpControl && isAnimated && controlMode === 'surface' ? (
+      <span className="pointer-events-none absolute bottom-0 right-2 z-10 flex min-h-11 min-w-11 items-center justify-center">
+        {capsule}
+      </span>
     ) : (
       <div className={cn(badgeClassName, 'top-2 h-5')}>{badgeContent}</div>
     )
@@ -376,9 +441,21 @@ export default function AnimatedWebpPlayer({
           src={originalSrc}
           alt={alt}
           size={size}
+          durationMs={durationMs}
           playbackKey={playbackKey}
-          paused={playbackPaused}
+          paused={playbackPaused || !isPlaying}
           loop={!playOnce}
+          onProgress={(snapshot) => {
+            if (`${attemptIdentity.current.sequence}:${attemptIdentity.current.source}` !== attempt) return
+            setStreamProgress({ attempt, snapshot })
+            const percent =
+              durationMs === null
+                ? null
+                : snapshot.status === 'ended'
+                  ? 100
+                  : Math.min(100, Math.max(0, Math.floor((snapshot.positionMs / durationMs) * 100)))
+            callbacks.current.onPlaybackProgress?.(percent)
+          }}
           onReady={() => {
             setStreamReadyAttempt(attempt)
             callbacks.current.onAnimationReady?.()
@@ -386,6 +463,10 @@ export default function AnimatedWebpPlayer({
           onBuffering={() => callbacks.current.onAnimationBuffering?.()}
           onComplete={() => {
             if (playOnce) callbacks.current.onAnimationComplete?.()
+            else {
+              setManualPausedAttempt(attempt)
+              setPlayback(false)
+            }
           }}
           onFallback={(failure) => {
             if (fallbackSeen.current === attempt) return
@@ -465,7 +546,7 @@ export default function AnimatedWebpPlayer({
       ref={setContainerNode}
       type="button"
       className={cn(containerClassName, 'block border-0 p-0 text-left')}
-      aria-label={isPlaying && playOnce ? '停止本轮动图' : `${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}
+      aria-label={controlLabel}
       aria-pressed={isPlaying}
       aria-busy={loadingAnimation}
       data-webp-fallback-reason={fallbackAttempt === attempt ? fallbackCode : undefined}

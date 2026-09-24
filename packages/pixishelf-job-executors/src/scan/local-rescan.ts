@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
+import { invalidateAnimationDurationSource } from '@pixishelf/db'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type { ScanPayload } from '@pixishelf/job-contracts'
 import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.ts'
+import { animationDurationSourceChanged } from './animation-duration-source.ts'
 import { ScanExecutorError } from './errors.ts'
 import { localWorkInputDigest } from './digests.ts'
 import type { LocalWorkInputRow, ScanRunRecord } from './run-store.ts'
@@ -112,7 +114,8 @@ export async function reconcileLocalArtworkImages(
   }
   const existing = await transaction.image.findMany({
     where: { artworkId },
-    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }]
+    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    include: { animationMetadata: true }
   })
   const existingIdentities = new Set<string>()
   for (const image of existing) {
@@ -164,6 +167,18 @@ export async function reconcileLocalArtworkImages(
     }
     if (previous) {
       retainedIds.push(previous.id)
+      if (
+        animationDurationSourceChanged({
+          previousPath: previous.path,
+          previousSize: previous.size,
+          path: item.relativePath,
+          size: item.size,
+          ...(item.sourceState ? { sourceState: item.sourceState } : {}),
+          metadata: previous.animationMetadata
+        })
+      ) {
+        await invalidateAnimationDurationSource(transaction, { imageId: previous.id, sourcePath: item.relativePath })
+      }
       if (
         previous.path !== data.path ||
         previous.size !== data.size ||

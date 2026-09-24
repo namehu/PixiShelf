@@ -47,6 +47,10 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 
 应用在替换、归档或迁移过程中产生的 staging、pending replace 和 recovery 文件是故障恢复机制的一部分，不是系统备份，不能替代上述完整备份集合。
 
+WebP 时长表只是可重新探测的派生元数据，但 `sourceRevision` 与 `writeInProgress` 必须和原媒体处于同一恢复点。替换会话的 `.bak_session/.session-manifest.json` 是中断恢复依据，应随原媒体快照保留；缺失/损坏或旧版本无 manifest 的备份不能自动删除或猜测回滚。manifest 的 `COMMITTING` 仅表示开始提交，数据库可能已提交也可能未提交，不可自动 rollback 或重复 commit；必须核对数据库 Image 行、媒体与备份后人工决定。普通上传中断可能留下持久门禁，需完成上传或核实原媒体后处理；不能靠超时自动把旧 READY 结果重新显示。上线前按本基线同时备份数据库和原媒体，详情见[动图时长方案](../design/animation-duration-probe.md)。
+
+App 图片分块、章节文件和替换会话以媒体目录中的 `.replace-write-lock` 串行。普通异常在写流关闭后自动释放；进程崩溃、NFS I/O 卡住或异常停机可能留下该目录，后续写请求等待最多 10 分钟，然后返回 `REPLACE_WRITE_LOCK_BUSY`/HTTP 409，绝不按 mtime 自动夺锁。恢复时先停止**所有** App 副本，确认旧写进程和文件流都已退出；核对锁的 `owner.json`、同目录原件、`.bak_session/.session-manifest.json` 的阶段与证据，并备份现场。仅确认没有活跃写入后，才移除该媒体目录中的**单个** `.replace-write-lock` 目录，再按 manifest 状态重试 init/rollback 或人工恢复。不要删除 `.bak_session` 来解除阻塞；`COMMITTING`、manifest 缺失/损坏或原件证据不匹配时，先核对数据库与同检查点媒体快照，不自动猜测恢复。锁只保护使用此入口的 App 写入，不能阻止 NAS 外部进程直接改文件。
+
 ## 备份类型
 
 ### 日常备份

@@ -1,9 +1,24 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { Readable } from 'stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getMediaUploadStatus, handleMediaUploadChunk } from '../media-upload'
+
+const { beginAnimationSourcePathWriteMock, finishAnimationSourcePathWriteMock } = vi.hoisted(() => ({
+  beginAnimationSourcePathWriteMock: vi.fn(),
+  finishAnimationSourcePathWriteMock: vi.fn()
+}))
+
+vi.mock('../animation-source-guard', () => ({
+  beginAnimationSourcePathWrite: beginAnimationSourcePathWriteMock,
+  finishAnimationSourcePathWrite: finishAnimationSourcePathWriteMock
+}))
+
+vi.mock('../replace-write-lock', () => ({
+  ReplaceWriteBusyError: class extends Error {},
+  withReplaceWriteLock: async (_targetDir: string, action: () => Promise<unknown>) => action()
+}))
 
 // 这些用例覆盖 media-upload 服务的关键可靠性边界：
 // 1. 用真实临时目录读写文件，验证上传结果确实落盘，而不只是在内存里返回成功。
@@ -28,6 +43,8 @@ describe('media-upload service', () => {
     scanRoot = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-media-upload-'))
     sharpMock.mockClear()
     sharpMetadataMock.mockReset()
+    beginAnimationSourcePathWriteMock.mockReset().mockResolvedValue([])
+    finishAnimationSourcePathWriteMock.mockReset().mockResolvedValue(undefined)
   })
 
   afterEach(async () => {
@@ -67,6 +84,86 @@ describe('media-upload service', () => {
     })
     await expect(readFile(path.join(scanRoot, 'Artist/Work/003-cover.jpg'), 'utf8')).resolves.toBe('image')
     expect(sharpMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the source gate before overwrite and keeps the replace-session gate after the final chunk', async () => {
+    const target = path.join(scanRoot, 'Artist/Work')
+    await mkdir(path.join(target, '.bak_session'), { recursive: true })
+    await writeFile(path.join(target, '.bak_session', 'animated.webp'), 'original')
+    await writeFile(path.join(target, '.bak_session', '.session-manifest.json'), JSON.stringify({
+      version: 1, originalFiles: ['animated.webp'], phase: 'READY'
+    }))
+    await writeFile(path.join(target, 'animated.webp'), 'old')
+    sharpMetadataMock.mockResolvedValueOnce({ width: 1, height: 1 })
+    beginAnimationSourcePathWriteMock.mockImplementationOnce(async () => {
+      await expect(readFile(path.join(target, 'animated.webp'), 'utf8')).resolves.toBe('old')
+      return [{ imageId: 7, sourceRevision: 3 }]
+    })
+
+    await handleMediaUploadChunk({
+      scanRoot,
+      fileName: 'animated.webp',
+      targetDir: 'Artist/Work',
+      targetRelDir: '/Artist/Work',
+      chunkIndex: 0,
+      totalChunks: 1,
+      offset: 0,
+      declaredFileSize: 3,
+      body: Readable.from(Buffer.from('new'))
+    })
+
+    expect(beginAnimationSourcePathWriteMock).toHaveBeenCalledWith('Artist/Work/animated.webp')
+    expect(finishAnimationSourcePathWriteMock).not.toHaveBeenCalled()
+  })
+
+  it('clears an ordinary upload gate only after final metadata succeeds', async () => {
+    sharpMetadataMock.mockResolvedValueOnce({ width: 1, height: 1 })
+    const tokens = [{ imageId: 7, sourceRevision: 2 }]
+    beginAnimationSourcePathWriteMock.mockResolvedValueOnce(tokens)
+    await handleMediaUploadChunk({
+      scanRoot,
+      fileName: 'animated.webp',
+      targetDir: 'Artist/Work',
+      targetRelDir: '/Artist/Work',
+      chunkIndex: 0,
+      totalChunks: 1,
+      offset: 0,
+      declaredFileSize: 3,
+      body: Readable.from(Buffer.from('new'))
+    })
+    expect(finishAnimationSourcePathWriteMock).toHaveBeenCalledWith(tokens)
+  })
+
+  it('refuses to truncate an original while init has not backed it up', async () => {
+    const target = path.join(scanRoot, 'Artist/Work')
+    await mkdir(path.join(target, '.bak_session'), { recursive: true })
+    await writeFile(path.join(target, 'animated.webp'), 'original')
+    await writeFile(path.join(target, '.bak_session', '.session-manifest.json'), JSON.stringify({
+      version: 1, originalFiles: ['animated.webp']
+    }))
+    await expect(handleMediaUploadChunk({
+      scanRoot, fileName: 'animated.webp', targetDir: 'Artist/Work', targetRelDir: '/Artist/Work',
+      chunkIndex: 0, totalChunks: 1, offset: 0, declaredFileSize: 3,
+      body: Readable.from(Buffer.from('new'))
+    })).rejects.toMatchObject({ status: 409 })
+    await expect(readFile(path.join(target, 'animated.webp'), 'utf8')).resolves.toBe('original')
+    expect(beginAnimationSourcePathWriteMock).not.toHaveBeenCalled()
+  })
+
+  it('waits for the file descriptor to close after an upload body error and keeps the source gate', async () => {
+    const body = new Readable({
+      read() {
+        this.push(Buffer.from('partial'))
+        this.destroy(new Error('source interrupted'))
+      }
+    })
+    beginAnimationSourcePathWriteMock.mockResolvedValueOnce([{ imageId: 7, sourceRevision: 4 }])
+    await expect(handleMediaUploadChunk({
+      scanRoot, fileName: 'animated.webp', targetDir: 'Artist/Work', targetRelDir: '/Artist/Work',
+      chunkIndex: 0, totalChunks: 1, offset: 0, declaredFileSize: 100, body
+    })).rejects.toThrow('source interrupted')
+    await expect(readdir(path.join(scanRoot, 'Artist/Work'))).resolves.not.toContain('.replace-write-lock')
+    expect(finishAnimationSourcePathWriteMock).not.toHaveBeenCalled()
   })
 
   it('writes final video chunk without probing image dimensions', async () => {

@@ -513,6 +513,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   MEDIA_DERIVED_TAG_SYNC: emptyJobPayloadSchema,
   PIXIV_AI_DERIVED_TAG_SYNC: pixivAiDerivedTagSyncPayloadSchema,
   WEBP_ANIMATION_SCAN: emptyJobPayloadSchema,
+  ANIMATION_DURATION_PROBE: emptyJobPayloadSchema,
   VIDEO_MEDIA_PROBE: videoMediaProbePayloadSchema,
   VIDEO_POSTER_GENERATION: targetImagePayloadSchema,
   VIDEO_CHAPTER_PREVIEW_GENERATION: videoChapterPreviewPayloadSchema,

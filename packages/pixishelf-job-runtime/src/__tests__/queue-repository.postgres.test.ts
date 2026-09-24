@@ -88,7 +88,8 @@ describePostgres('PostgresQueueRepository integration', () => {
         availableAt: clock.now(),
         errorCode: 'INTERNAL_ERROR',
         error: 'yield',
-        preserveAttempt: true
+        preserveAttempt: true,
+        schedulingYield: true
       })
     })
     const report = await client().systemJobDiagnosticReport.findUniqueOrThrow({
@@ -102,6 +103,12 @@ describePostgres('PostgresQueueRepository integration', () => {
       inheritedCount: 0,
       taskFailure: false
     })
+    expect(await client().systemJob.findUniqueOrThrow({
+      where: { id }, select: { status: true, attempt: true, errorCode: true, error: true }
+    })).toEqual({ status: 'RETRY_WAIT', attempt: 0, errorCode: null, error: null })
+    expect(await client().systemJobEvent.findFirstOrThrow({
+      where: { jobId: id, type: 'job.retry_scheduled' }, orderBy: { id: 'desc' }
+    })).toMatchObject({ level: 'INFO', data: { attemptPreserved: true, reason: 'SCHEDULING_YIELD' } })
     const second = (await repository.claim('diagnostic-worker', capabilities))!
     expect(second.attempt).toBe(first.attempt)
     expect(second.currentDiagnosticExecutionId).not.toBe(first.currentDiagnosticExecutionId)
@@ -130,6 +137,23 @@ describePostgres('PostgresQueueRepository integration', () => {
     })
     expect(reports).toHaveLength(2)
     expect(reports.every((report) => report.taskFailure && report.items[0]?.code === 'RESOURCE_BUSY')).toBe(true)
+  })
+
+  it('does not erase a real preserved-attempt RESOURCE_BUSY error', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('diagnostic-worker', capabilities))!
+    await repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+      await scope.retry({
+        availableAt: clock.now(), errorCode: 'RESOURCE_BUSY', error: 'provider unavailable', preserveAttempt: true
+      })
+    })
+    expect(await client().systemJob.findUniqueOrThrow({
+      where: { id }, select: { errorCode: true, error: true, attempt: true }
+    })).toEqual({ errorCode: 'RESOURCE_BUSY', error: 'provider unavailable', attempt: 0 })
+    expect(await client().systemJobDiagnosticItem.findFirstOrThrow({
+      where: { report: { jobId: id }, scope: 'TASK' }
+    })).toMatchObject({ code: 'RESOURCE_BUSY' })
   })
 
   it('persists structured diagnostics without reversing their root cause', async () => {

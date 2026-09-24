@@ -216,6 +216,8 @@ sudo bash ./scripts/update-production.sh
 - [阶段 1–7 切换记录](./docs/deployment/background-task-cutover-deployment.md)；
 - [历史兼容回滚手册](./docs/deployment/background-task-cutover-rollback.md)。
 
+替换或上传中断后如出现 `REPLACE_WRITE_LOCK_BUSY`，应按[备份与恢复基线](./docs/operations/backup-and-recovery.md)先停掉所有 App 副本并核对媒体与替换 manifest，再处理对应目录的锁；不要按锁的时间戳自动清除。
+
 ## 仓库结构
 
 ```text
