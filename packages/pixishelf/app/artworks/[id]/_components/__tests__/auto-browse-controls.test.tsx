@@ -29,11 +29,13 @@ function Controls() {
 
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.stubGlobal('ResizeObserver', class { observe() {}; unobserve() {}; disconnect() {} })
   localStorage.clear()
 })
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('auto browse control docking', () => {
@@ -65,8 +67,12 @@ describe('auto browse control docking', () => {
     act(() => store.getState().resume())
     act(() => vi.advanceTimersByTime(4000))
     act(() => store.getState().pause('error'))
-    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
     expect(store.getState().controlsCollapsed).toBe(false)
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
+    expect(screen.getByRole('status').className).toContain('sr-only')
+    fireEvent.click(screen.getByRole('button', { name: '自动浏览设置' }))
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '跳过' })).toBeTruthy()
   })
 
   it('resets the idle delay on interaction and preserves keyboard focus', () => {

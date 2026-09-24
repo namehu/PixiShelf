@@ -70,7 +70,7 @@ export function ControlledAutoBrowseControls({
   container
 }: ControlledAutoBrowseControlsProps) {
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [waitingWhenOpened, setWaitingWhenOpened] = useState(false)
+  const [recoveryWhenOpened, setRecoveryWhenOpened] = useState<'waiting' | 'error' | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const reducedMotion = useReducedMotion()
   const selected = state.mode === mode
@@ -78,7 +78,6 @@ export function ControlledAutoBrowseControls({
   const ended = selected && state.status === 'ended'
   const error = selected && state.reason === 'error'
   const collapsed = playing && state.controlsCollapsed && !settingsOpen
-  const needsAttention = error || blocked || (selected && (state.reason === 'video' || ended))
 
   useEffect(() => {
     const root = rootRef.current
@@ -154,7 +153,7 @@ export function ControlledAutoBrowseControls({
       data-auto-browse-controls
       data-auto-browse-mode={mode}
       data-collapsed={collapsed}
-      className="pointer-events-auto flex max-w-[calc(100vw-2rem)] flex-col rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md"
+      className="pointer-events-auto flex h-12 max-w-[calc(100vw-2rem)] flex-col rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md"
     >
       {collapsed ? (
         <Button
@@ -209,7 +208,9 @@ export function ControlledAutoBrowseControls({
             <Popover
               open={settingsOpen}
               onOpenChange={(open) => {
-                setWaitingWhenOpened(open && state.status === 'waiting')
+                setRecoveryWhenOpened(
+                  open && selected ? (error ? 'error' : state.status === 'waiting' ? 'waiting' : null) : null
+                )
                 if (open) onPause('overlay')
                 setSettingsOpen(open)
               }}
@@ -226,13 +227,27 @@ export function ControlledAutoBrowseControls({
                 data-auto-browse-controls
                 data-auto-browse-settings
               >
-                {selected && waitingWhenOpened && (
+                {recoveryWhenOpened && (
                   <div className="mb-3 flex items-center gap-1 text-xs text-muted-foreground">
-                    <span>等待图片加载</span>
-                    <Button variant="ghost" className="min-h-11" onClick={onRetry}>
+                    <span>{recoveryWhenOpened === 'error' ? '图片加载失败' : '等待图片加载'}</span>
+                    <Button
+                      variant="ghost"
+                      className="min-h-11"
+                      onClick={() => {
+                        onRetry()
+                        setRecoveryWhenOpened(null)
+                      }}
+                    >
                       重试
                     </Button>
-                    <Button variant="ghost" className="min-h-11" onClick={onSkip}>
+                    <Button
+                      variant="ghost"
+                      className="min-h-11"
+                      onClick={() => {
+                        onSkip()
+                        setRecoveryWhenOpened(null)
+                      }}
+                    >
                       跳过
                     </Button>
                   </div>
@@ -295,29 +310,9 @@ export function ControlledAutoBrowseControls({
               </Button>
             )}
           </div>
-          <span
-            role="status"
-            className={
-              state.animationPhase && playing ? 'px-2 pb-1 text-center text-xs text-muted-foreground' : 'sr-only'
-            }
-          >
+          <span role="status" className="sr-only">
             {description}
           </span>
-          {needsAttention && (
-            <div className="flex items-center justify-center gap-1 px-2 pb-1 text-xs text-muted-foreground">
-              <span>{description}</span>
-              {error && (
-                <>
-                  <Button variant="ghost" className="min-h-11" onClick={onRetry}>
-                    重试
-                  </Button>
-                  <Button variant="ghost" className="min-h-11" onClick={onSkip}>
-                    跳过
-                  </Button>
-                </>
-              )}
-            </div>
-          )}
         </>
       )}
     </motion.div>

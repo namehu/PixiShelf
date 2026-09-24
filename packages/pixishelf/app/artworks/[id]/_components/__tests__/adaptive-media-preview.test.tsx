@@ -155,6 +155,7 @@ function createMedia(index: number, path = `/media-${index + 1}.jpg`): ArtworkIm
 
 describe('AdaptiveMediaPreview', () => {
   beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class { observe() {}; unobserve() {}; disconnect() {} })
     swiperMocks.instance.activeIndex = 0
     swiperMocks.instance.allowSlideNext = true
     swiperMocks.instance.allowSlidePrev = true
@@ -177,8 +178,11 @@ describe('AdaptiveMediaPreview', () => {
     render(<AdaptiveMediaPreview images={[createMedia(0), createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)
     fireEvent.error(screen.getByAltText('作品媒体 1'))
     expect(autoBrowseStore.getState()).toMatchObject({ status: 'paused', reason: 'error' })
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '自动浏览设置' }))
     expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
     fireEvent.load(screen.getByAltText('作品媒体 1'))
     expect(autoBrowseStore.getState().status).toBe('paused')
     expect(swiperMocks.instance.slideNext).not.toHaveBeenCalled()
@@ -327,7 +331,8 @@ describe('AdaptiveMediaPreview', () => {
     expect(playButton.getAttribute('aria-pressed')).toBe('false')
     expect(screen.getAllByRole('button', { name: /WEBP 动图/ })).toHaveLength(1)
     expect(screen.queryByText('动图静态预览')).toBeNull()
-    expect(screen.queryByText('1.0MB')).toBeNull()
+    expect(screen.getByText('WEBP')).toBeTruthy()
+    expect(screen.getByText('1.0MB')).toBeTruthy()
     expect(screen.getAllByAltText('作品 WEBP 动图 1')).toHaveLength(1)
     expect(screen.getByAltText('作品 WEBP 动图 1').parentElement?.classList.contains('swiper-zoom-target')).toBe(true)
 
@@ -341,6 +346,7 @@ describe('AdaptiveMediaPreview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '暂停 WEBP 动图' }))
     expect(screen.getByRole('button', { name: '播放 WEBP 动图' })).toBeTruthy()
+    expect(screen.getByText('1.0MB')).toBeTruthy()
     expect(screen.getAllByAltText('作品 WEBP 动图 1')).toHaveLength(1)
   })
 

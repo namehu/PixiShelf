@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
-import { AnimationPlaybackCapsule } from '@/components/players/animation-playback-capsule'
+import {
+  AnimationPlaybackCapsule,
+  animationPlaybackLabel,
+  formatAnimationFileSize
+} from '@/components/players/animation-playback-capsule'
 import {
   VerticalMediaPreviewCore,
   type VerticalMediaPreviewController
@@ -312,14 +316,15 @@ export default function AdaptiveMediaPreview({
         )
       }}
       bottomChrome={({ portalContainer: container }) => (
-        <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 flex items-end justify-end gap-2">
+        <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 h-12">
           {activePlayableWebp && (
             <button
               type="button"
-              className="pointer-events-auto flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
-              aria-label={
-                `${isWebpPlaying && animation.playOnce ? '停止本轮动图' : `${isWebpPlaying ? '暂停' : '播放'} WEBP 动图`}${activeProgress === null ? '' : `，${activeProgress}%`}`
-              }
+              className={cn(
+                'pointer-events-auto absolute right-0 flex min-h-11 min-w-11 items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring',
+                images.length > 1 ? 'bottom-[calc(100%+0.5rem)] sm:bottom-0' : 'bottom-0'
+              )}
+              aria-label={animationPlaybackLabel(isWebpPlaying, animation.playOnce, 'WEBP', activeProgress)}
               data-auto-browse-controls
               aria-pressed={isWebpPlaying}
               onClick={() => {
@@ -329,34 +334,37 @@ export default function AdaptiveMediaPreview({
               <AnimationPlaybackCapsule
                 playing={isWebpPlaying}
                 playOnce={animation.playOnce}
-                label="动图"
+                label="WEBP"
+                fileSize={formatAnimationFileSize(activeMedia?.size)}
                 progressPercent={activeProgress}
               />
             </button>
           )}
           {images.length > 1 && (
-            <AutoBrowseControls
-              mode="slideshow"
-              current={currentIndex + 1}
-              total={images.length}
-              navigation={
-                <span className="px-2 text-sm tabular-nums">
-                  {currentIndex + 1}/{images.length}
-                </span>
-              }
-              blocked={zoomScale > 1.01}
-              container={container}
-              onRestart={() => {
-                firstSlide()
-                useArtworkAutoBrowseStore.getState().start('slideshow')
-              }}
-              onRetry={retryCurrent}
-              onSkip={() => {
-                useArtworkAutoBrowseStore.getState().pause()
-                useArtworkAutoBrowseStore.getState().clearPauseReason()
-                if (activeMedia) useArtworkAutoBrowseStore.getState().skip(activeMedia.id)
-              }}
-            />
+            <div className="pointer-events-none absolute bottom-0 left-1/2 max-w-full -translate-x-1/2">
+              <AutoBrowseControls
+                mode="slideshow"
+                current={currentIndex + 1}
+                total={images.length}
+                navigation={
+                  <span className="px-2 text-sm tabular-nums">
+                    {currentIndex + 1}/{images.length}
+                  </span>
+                }
+                blocked={zoomScale > 1.01}
+                container={container}
+                onRestart={() => {
+                  firstSlide()
+                  useArtworkAutoBrowseStore.getState().start('slideshow')
+                }}
+                onRetry={retryCurrent}
+                onSkip={() => {
+                  useArtworkAutoBrowseStore.getState().pause()
+                  useArtworkAutoBrowseStore.getState().clearPauseReason()
+                  if (activeMedia) useArtworkAutoBrowseStore.getState().skip(activeMedia.id)
+                }}
+              />
+            </div>
           )}
         </div>
       )}

@@ -9,7 +9,7 @@ import { createSingleLoopWebp } from '@/lib/single-loop-webp'
 import { isWebpFile } from '@/lib/media'
 import type { PlayerFailure, PlayerSnapshot } from '@pixishelf/webp-player'
 import type { AnimationMetadataDto } from '@/schemas/artwork.dto'
-import { AnimationPlaybackCapsule } from './animation-playback-capsule'
+import { AnimationPlaybackCapsule, animationPlaybackLabel, formatAnimationFileSize } from './animation-playback-capsule'
 import StreamingWebpSurface from './streaming-webp-surface'
 
 type AnimatedWebpPlayerControlMode = 'surface' | 'badge' | 'external'
@@ -62,16 +62,6 @@ const fallbackReason: Record<PlayerFailure['code'], string> = {
 function getStaticWebpPosterUrl(src: string, width = 1200) {
   const normalizedSrc = src.startsWith('/') ? src : `/${src}`
   return `${IMGPROXY_URL}/_/rs:fit:${width}:0/q:90/sm:1/plain/local://${encodeURIComponent(`/media${normalizedSrc}`)}@jpg`
-}
-
-function formatFileSize(size?: number | null) {
-  if (!size || size <= 0) return null
-
-  const mb = size / 1024 / 1024
-  if (mb >= 1) return `${mb.toFixed(mb >= 10 ? 0 : 1)}MB`
-
-  const kb = size / 1024
-  return `${Math.max(kb, 1).toFixed(0)}KB`
 }
 
 export default function AnimatedWebpPlayer({
@@ -141,7 +131,7 @@ export default function AnimatedWebpPlayer({
   }
   const originalSrc = useMemo(() => withMediaVersion(combinationApiResource(src), updatedAt), [src, updatedAt])
   const posterSrc = useMemo(() => withMediaVersion(getStaticWebpPosterUrl(src), updatedAt), [src, updatedAt])
-  const fileSize = formatFileSize(size)
+  const fileSize = formatAnimationFileSize(size)
   const requestedPlaying = playing ?? uncontrolledPlaying
   const isPlaying = isAnimated && requestedPlaying
   const attemptSource = `${originalSrc}:${playbackKey}`
@@ -171,7 +161,7 @@ export default function AnimatedWebpPlayer({
         ? 100
         : Math.min(100, Math.max(0, Math.floor((progressSnapshot.positionMs / durationMs) * 100)))
       : null
-  const controlLabel = `${isPlaying && playOnce ? '停止本轮动图' : `${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}${progressPercent === null ? '' : `，${progressPercent}%`}`
+  const controlLabel = animationPlaybackLabel(isPlaying, playOnce, formatLabel, progressPercent)
   useEffect(() => {
     setFallbackNotice((notice) => (notice?.attempt === attempt ? notice : null))
   }, [attempt])
