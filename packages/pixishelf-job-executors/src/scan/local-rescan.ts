@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { invalidateAnimationDurationSource } from '@pixishelf/db'
+import { invalidateAnimationDurationSource, lockArtworkForReading } from '@pixishelf/db'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type { ScanPayload } from '@pixishelf/job-contracts'
 import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.ts'
@@ -62,6 +62,7 @@ export async function executeLocalArtworkRescan(input: {
     if (checkpoint?.status === 'SUCCESS') {
       return { status: 'SUCCESS' as const, newImages: checkpoint.newImageCount }
     }
+    await lockArtworkForReading(transaction, artwork.id)
     const ordered = await reconcileLocalArtworkImages(transaction, artwork.id, media, input.now)
     await transaction.scanRunItem.upsert({
       where: { scanRunId_checkpointKey: { scanRunId: input.run.id, checkpointKey } },

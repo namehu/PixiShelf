@@ -19,6 +19,7 @@ import {
 import { toDatabaseImageSize } from '@/utils/image-size'
 import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
+import { lockArtworkForReading } from '@pixishelf/db'
 
 /**
  * 批量创建作品
@@ -140,6 +141,10 @@ export async function batchRegisterImagesService(data: BatchRegisterImageSchema)
   try {
     await prisma.$transaction(async (tx) => {
       const artworkIdsToSync = new Set<number>()
+
+      for (const artworkId of [...new Set(items.map((item) => item.artworkId))].sort((a, b) => a - b)) {
+        await lockArtworkForReading(tx, artworkId)
+      }
 
       for (const item of items) {
         const { artworkId, images } = item

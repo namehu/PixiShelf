@@ -30,9 +30,15 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   const setTotal = useArtworkStore((state) => state.setTotal)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const [orderReviewOpen, setOrderReviewOpen] = useState(false)
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [showScrolledTitle, setShowScrolledTitle] = useState(false)
   const mediaView = useArtworkMediaView()
   const showingLocalImages = mediaView?.view !== 'source'
+  const setReaderBlocked = mediaView?.setReaderBlocked
+  useEffect(() => {
+    setReaderBlocked?.(moreMenuOpen || orderReviewOpen)
+    return () => setReaderBlocked?.(false)
+  }, [moreMenuOpen, orderReviewOpen, setReaderBlocked])
 
   // 2. 确保页面滚动顶部
   useEffect(() => {
@@ -79,6 +85,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
         actions={
           <DropdownMenu
             onOpenChange={(open) => {
+              setMoreMenuOpen(open)
               if (open) useArtworkAutoBrowseStore.getState().pause('overlay')
             }}
           >
@@ -115,7 +122,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
                   <DropdownMenuItem
                     onSelect={() => {
                       setImages(data.images)
-                      router.push('/artworks/preview')
+                      router.push(`/artworks/preview?artworkId=${data.id}`)
                     }}
                   >
                     <FullscreenIcon aria-hidden="true" />

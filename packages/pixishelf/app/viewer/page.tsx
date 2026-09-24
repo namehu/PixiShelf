@@ -10,7 +10,7 @@ import PageError from './_components/page-error'
 import { useViewerStore } from '@/store/viewer-store'
 import { useShallow } from 'zustand/react/shallow'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { useTRPC, useTRPCClient } from '@/lib/trpc'
+import { useTRPCClient } from '@/lib/trpc'
 import { EMediaType } from '@/enums/e-media-type'
 import { useSafeBack } from '@/hooks/use-safe-back'
 import { FilterSheet } from '@/components/artwork/filter-sheet'
@@ -20,6 +20,8 @@ import { OSource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
 import dayjs from 'dayjs'
 import { Button } from '@/components/ui/button'
+import type { ReadingStatus } from '@pixishelf/db/reading-contract'
+import { useAuthUser } from '@/components/auth'
 
 type ViewerSource = 'all' | 'artist' | 'tag'
 type ViewerMode = 'ordered' | 'random'
@@ -38,6 +40,7 @@ const viewerQueryParsers = {
   sources: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   hasAudio: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
   mediaType: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
+  readingStatus: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
   startDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   endDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   createdStartDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
@@ -76,13 +79,18 @@ function normalizeAudioFilter(value: string): AudioFilter {
   return value === 'yes' || value === 'no' ? value : 'all'
 }
 
+function normalizeReadingStatus(value: string): ReadingStatus | 'all' {
+  return value === 'UNREAD' || value === 'IN_PROGRESS' || value === 'COMPLETED' ? value : 'all'
+}
+
 /** 沉浸式图片浏览页面。筛选状态以 URL 为准，持久化设置只作为无 URL 参数时的回退。 */
 export default function ViewerPage() {
   const safeBack = useSafeBack()
   const [viewerQuery, setViewerQuery] = useQueryStates(viewerQueryParsers)
   const [isFilterOpen, setIsFilterOpen] = useState(false)
-  const trpc = useTRPC()
   const trpcClient = useTRPCClient()
+  const ownerUserId = useAuthUser()?.id ?? null
+  const readingStatus = normalizeReadingStatus(viewerQuery.readingStatus)
   const defaultRandomSeedRef = useRef(Math.floor(Math.random() * 1000000))
 
   const {
@@ -164,6 +172,8 @@ export default function ViewerPage() {
       sources: selectedSources,
       hasAudio: hasAudio === 'all' ? undefined : hasAudio,
       mediaType: effectiveMediaType,
+      readingStatus: readingStatus === 'all' ? undefined : readingStatus,
+      expectedUserId: ownerUserId ?? undefined,
       startDate: viewerQuery.startDate || undefined,
       endDate: viewerQuery.endDate || undefined,
       createdStartDate: viewerQuery.createdStartDate || undefined,
@@ -171,20 +181,24 @@ export default function ViewerPage() {
       mediaCountMax: maxImageCount,
       pageSize: 20
     }
-  }, [hasAudio, maxImageCount, mediaType, selectedArtist, selectedSources, selectedTags, sourceContext, viewerQuery])
+  }, [hasAudio, maxImageCount, mediaType, ownerUserId, readingStatus, selectedArtist, selectedSources, selectedTags, sourceContext, viewerQuery])
 
   const feedKey = useMemo(() => JSON.stringify(feedInput), [feedInput])
-  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery(
-    trpc.artwork.viewerFeed.infiniteQueryOptions(feedInput, {
-      getNextPageParam: (lastPage) => lastPage.nextPage ?? undefined,
-      initialCursor: 1,
+  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery({
+      queryKey: ['artwork', 'viewerFeed', ownerUserId, feedInput],
+      initialPageParam: 1 as number | string,
+      queryFn: ({ pageParam, signal }) => trpcClient.artwork.viewerFeed.query({
+        ...feedInput,
+        cursor: typeof pageParam === 'number' ? pageParam : undefined,
+        readingCursor: typeof pageParam === 'string' ? pageParam : undefined
+      }, { signal }),
+      getNextPageParam: (lastPage) => feedInput.readingStatus ? lastPage.nextReadingCursor : lastPage.nextPage ?? undefined,
       staleTime: 10 * 60 * 1000,
       gcTime: 15 * 60 * 1000,
       retry: 3,
       retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
-      enabled: hasHydrated
+      enabled: hasHydrated && Boolean(ownerUserId)
     })
-  )
 
   useEffect(() => resetViewerState(), [feedKey, resetViewerState])
   useEffect(() => setImages(data?.pages.flatMap((page) => page.items) ?? []), [data, setImages])
@@ -200,6 +214,7 @@ export default function ViewerPage() {
     selectedSources.length +
     Number(hasAudio !== 'all') +
     Number(feedInput.mediaType !== EMediaType.all) +
+    Number(readingStatus !== 'all') +
     Number(Boolean(viewerQuery.startDate || viewerQuery.endDate)) +
     Number(Boolean(viewerQuery.createdStartDate || viewerQuery.createdEndDate))
 
@@ -239,6 +254,7 @@ export default function ViewerPage() {
       sources: null,
       hasAudio: null,
       mediaType: EMediaType.all,
+      readingStatus: null,
       startDate: null,
       endDate: null,
       createdStartDate: null,
@@ -248,6 +264,7 @@ export default function ViewerPage() {
 
   const handleApplyFilters = (filters: {
     mediaType: MediaTypeFilter
+    readingStatus?: ReadingStatus | 'all'
     sortBy: SortOption
     artist?: Option[]
     tags?: Option[]
@@ -280,6 +297,7 @@ export default function ViewerPage() {
       sources: filters.sources.join(',') || null,
       hasAudio: filters.hasAudio === 'all' ? null : filters.hasAudio,
       mediaType: filters.mediaType,
+      readingStatus: filters.readingStatus === 'all' ? null : filters.readingStatus,
       startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
       endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null,
       createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : null,
@@ -345,6 +363,7 @@ export default function ViewerPage() {
         onOpenChange={setIsFilterOpen}
         currentSearch={viewerQuery.search}
         currentMediaType={feedInput.mediaType as MediaTypeFilter}
+        currentReadingStatus={readingStatus}
         currentSortBy={(feedInput.mode === 'random' ? 'random' : feedInput.sortBy) as SortOption}
         currentArtist={selectedArtist}
         currentTags={selectedTags}

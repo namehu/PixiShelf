@@ -33,6 +33,22 @@ vi.mock('@/lib/trpc', () => ({
   })
 }))
 
+vi.mock('@/lib/reading/reading-provider', () => ({
+  useArtworkReading: () => ({
+    context: null,
+    summary: null,
+    resume: null,
+    isLoading: false,
+    error: null,
+    invalidated: false,
+    observationEpoch: 0,
+    observe: () => {},
+    clearSurface: () => {},
+    flush: () => Promise.resolve(),
+    reopen: () => Promise.resolve()
+  })
+}))
+
 vi.mock('@/components/source-preview/source-preview-reader', () => ({
   SourcePreviewReader: ({ previewId }: { previewId: string }) => <div data-testid="source-reader">{previewId}</div>
 }))

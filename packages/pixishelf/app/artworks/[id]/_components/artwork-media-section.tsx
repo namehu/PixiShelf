@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Globe2Icon, ImagesIcon } from 'lucide-react'
+import { BookOpenIcon, Globe2Icon, ImagesIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { PageContainer } from '@/components/layout/page-container'
@@ -13,10 +13,13 @@ import { useTRPC } from '@/lib/trpc'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import type { OpenArchivePreviewDto } from '@/services/archive-preview/archive-preview-types'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
+import { useArtworkReading } from '@/lib/reading/reading-provider'
 import ArtworkImages from './artwork-images'
 import { type ArtworkMediaView, useArtworkMediaView } from './artwork-media-view-context'
 
 export function ArtworkMediaSection({ images, artworkId }: { images: ArtworkImageResponseDto[]; artworkId: number }) {
+  const reading = useArtworkReading(artworkId)
+  const [continueRequest, setContinueRequest] = useState<{ index: number; nonce: number } | null>(null)
   const trpc = useTRPC()
   const mediaView = useArtworkMediaView()
   const view = mediaView?.view ?? 'local'
@@ -99,7 +102,49 @@ export function ArtworkMediaSection({ images, artworkId }: { images: ArtworkImag
       ) : null}
 
       <TabsContent key="local-images" value="local" className="mt-0">
-        {view === 'local' ? <ArtworkImages images={images} artworkId={artworkId} /> : null}
+        {view === 'local' ? (
+          <>
+            <PageContainer size="reading">
+              {reading.invalidated ? (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted p-3 text-sm" role="status">
+                  <span>作品媒体已更新，请重新打开阅读。</span>
+                  <Button type="button" size="sm" variant="outline" onClick={() => void reading.reopen()}>重新打开</Button>
+                </div>
+              ) : reading.summary && reading.summary.viewCount > 0 ? (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 text-sm">
+                  <span className="text-muted-foreground">
+                    已阅读 {reading.summary.viewCount} 次 · 已看 {reading.summary.seenCount}/{reading.summary.totalCount}
+                  </span>
+                  {reading.resume ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        const resume = reading.resume!
+                        const logical = reading.context?.media.find((item) =>
+                          item.mediaId === resume.mediaId || item.memberMediaIds.includes(resume.mediaId)
+                        )
+                        const displayIndex = images.findIndex((media) =>
+                          logical?.memberMediaIds.includes(media.id) || media.id === resume.mediaId
+                        )
+                        setContinueRequest((previous) => ({
+                          index: displayIndex >= 0 ? displayIndex : resume.index,
+                          nonce: (previous?.nonce ?? 0) + 1
+                        }))
+                      }}
+                    >
+                      <BookOpenIcon data-icon="inline-start" aria-hidden="true" />
+                      继续阅读
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+            </PageContainer>
+            <ArtworkImages images={images} artworkId={artworkId} reading={reading}
+              trackingActive={!mediaView?.readerBlocked} continueRequest={continueRequest} />
+          </>
+        ) : null}
       </TabsContent>
       {sources.length > 0 ? (
         <TabsContent key="source-images" value="source" className="mt-0">

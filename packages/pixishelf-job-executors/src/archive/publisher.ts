@@ -4,7 +4,8 @@ import {
   lockCreatorCatalog,
   readSourceCreatorTags,
   syncSourceCreators,
-  consumeDiscoveryCreators
+  consumeDiscoveryCreators,
+  invalidateArtworkReadingForRebuild
 } from '@pixishelf/db'
 import { ArchiveExecutorError } from './errors.ts'
 import { normalizeRelativePath, type ArchiveStoragePaths } from './storage.ts'
@@ -76,6 +77,7 @@ export async function publishArchiveImportInTransaction(
   const description = nullableString(metadata.description)
   const postedAtText = nullableString(metadata.postedAt)
   const postedAt = postedAtText ? new Date(postedAtText) : null
+  if (existingRef) await invalidateArtworkReadingForRebuild(transaction, existingRef.artworkId)
   const artwork = existingRef
     ? await transaction.artwork.update({
         where: { id: existingRef.artworkId },

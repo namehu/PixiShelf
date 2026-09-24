@@ -22,6 +22,7 @@ import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store
 import { AutoBrowseControls } from './auto-browse-controls'
 import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkSlideshow } from './use-artwork-slideshow'
+import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 
 const ADAPTIVE_PREVIEW_HISTORY_KEY = '__pixishelf_adaptive_media_preview__'
 export type AdaptivePreloadEnvironment = MediaPreloadEnvironment
@@ -32,6 +33,7 @@ interface AdaptiveMediaPreviewProps {
   initialPreviewSrc?: string
   open: boolean
   onClose: (finalIndex: number) => void
+  reading?: ArtworkReadingHandle
 }
 
 function isAnimatedMedia(media: ArtworkImageResponseDto) {
@@ -62,7 +64,8 @@ export default function AdaptiveMediaPreview({
   initialIndex,
   initialPreviewSrc,
   open,
-  onClose
+  onClose,
+  reading
 }: AdaptiveMediaPreviewProps) {
   const safeInitialIndex = clampIndex(initialIndex, images.length)
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex)
@@ -75,6 +78,7 @@ export default function AdaptiveMediaPreview({
   const [transitioning, setTransitioning] = useState(false)
   const [webpProgress, setWebpProgress] = useState<{ key: string; percent: number | null } | null>(null)
   const autoSlideshowSelected = useArtworkAutoBrowseStore((state) => state.mode === 'slideshow')
+  const autoStatus = useArtworkAutoBrowseStore((state) => state.status)
   const loadGeneration = useRef(0)
   const progressGeneration = useRef(0)
   const retryGeneration = useRef<Record<number, number>>({})
@@ -103,6 +107,26 @@ export default function AdaptiveMediaPreview({
   }, [images.length, initialIndex, open])
 
   const activeMedia = images[currentIndex]
+  const activeMediaId = activeMedia?.id
+  const activeMediaKey = previewResourceKey(activeMedia)
+  const activeMediaReady = decodedIndexes.has(activeMediaKey) && !errorIndexes.has(activeMediaKey)
+  const observe = reading?.observe
+  const clearSurface = reading?.clearSurface
+  const observationEpoch = reading?.observationEpoch
+  useEffect(() => {
+    if (!observe || !clearSurface || !activeMediaId) return
+    const surfaceId = 'adaptive-preview'
+    observe(surfaceId, {
+      mediaId: activeMediaId,
+      ready: activeMediaReady,
+      visible: open && !transitioning,
+      automatic: autoSlideshowSelected && ['running', 'waiting'].includes(autoStatus),
+      active: open,
+      priority: 100
+    })
+    return () => clearSurface(surfaceId)
+  }, [activeMediaId, activeMediaReady, autoSlideshowSelected, autoStatus, clearSurface,
+    observationEpoch, observe, open, transitioning])
   const activeProgress = webpProgress?.key === previewResourceKey(activeMedia) ? webpProgress.percent : null
   const activePlayableWebp = useMemo(() => (activeMedia ? isPlayableAnimatedWebp(activeMedia) : false), [activeMedia])
   const eagerNeighborIndexes = useMemo(() => {

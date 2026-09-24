@@ -12,12 +12,19 @@ const mocks = vi.hoisted(() => ({
   deleteArtwork: vi.fn(),
   scanPath: vi.fn(),
   maintenance: vi.fn(),
-  log: vi.fn()
+  log: vi.fn(),
+  lockArtwork: vi.fn().mockResolvedValue({ id: 1, mediaRevision: 1 })
+}))
+vi.mock('@pixishelf/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pixishelf/db')>()),
+  lockArtworkForReading: mocks.lockArtwork
 }))
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     artwork: { findUnique: mocks.findArtwork, findMany: mocks.otherArtworks, delete: mocks.deleteArtwork },
-    image: { findMany: mocks.findImages, deleteMany: mocks.deleteImages }
+    image: { findMany: mocks.findImages, deleteMany: mocks.deleteImages },
+    $transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
+      callback({ image: { deleteMany: mocks.deleteImages } })
   }
 }))
 vi.mock('@/services/setting.service', () => ({ getScanPath: mocks.scanPath }))

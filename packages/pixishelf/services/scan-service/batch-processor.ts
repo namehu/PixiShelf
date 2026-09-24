@@ -1,6 +1,7 @@
 // oxlint-disable max-lines
 import path from 'path'
 import { Prisma } from '@prisma/client'
+import { invalidateArtworkReadingForRebuild, lockArtworkForReading } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-service'
@@ -127,6 +128,10 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
             id: 'asc'
           }
         })
+
+        for (const artworkId of createdArtworks.map((artwork) => artwork.id).sort((a, b) => a - b)) {
+          await lockArtworkForReading(tx, artworkId)
+        }
 
         await tx.artworkExternalRef.createMany({
           data: createdArtworks
@@ -550,6 +555,25 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
 
   await prisma.$transaction(
     async (tx) => {
+      const pixivRefs = await tx.artworkExternalRef.findMany({
+        where: { providerKey: 'pixiv', externalId: { in: batch.map(({ metadata }) => metadata.id) } },
+        select: { externalId: true, artworkId: true }
+      })
+      const artworkIdByExternalId = new Map(pixivRefs.map((ref) => [ref.externalId, ref.artworkId]))
+      for (const { metadata } of batch) {
+        if (!context.artistCache.has(metadata.userId)) {
+          throw new Error(`Artist not found for user ID: ${metadata.userId}`)
+        }
+        if (!artworkIdByExternalId.has(metadata.id)) {
+          throw new Error(`Pixiv Source Reference ${metadata.id} not found; refusing to claim a legacy global externalId`)
+        }
+      }
+      for (const artworkId of [...new Set(artworkIdByExternalId.values())].sort((a, b) => a - b)) {
+        if (!await lockArtworkForReading(tx, artworkId)) {
+          throw new Error(`Artwork ${artworkId} disappeared during Pixiv rescan`)
+        }
+      }
+
       for (const artworkData of batch) {
         const { metadata, directoryCreatedAt, metadataFilePath } = artworkData
 
@@ -572,6 +596,11 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
             `Pixiv Source Reference ${metadata.id} not found; refusing to claim a legacy global externalId`
           )
         }
+        if (existingArtwork.id !== artworkIdByExternalId.get(metadata.id)) {
+          throw new Error(`Pixiv Source Reference ${metadata.id} changed during rescan`)
+        }
+
+        await invalidateArtworkReadingForRebuild(tx, existingArtwork.id)
 
         logger.debug('update artwork:', existingArtwork, {
           title: metadata.title,

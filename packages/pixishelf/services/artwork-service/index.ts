@@ -25,6 +25,7 @@ import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
 import { Prisma, ScanRunMode, ScanRunType } from '@prisma/client'
 import { buildArtworkWhereClause } from './query-builder'
+import { queryReadingArtworkIdsPage, queryReadingArtworkRowsPage, readingCountClause, requireReadingUserId } from './reading-page-query'
 import { ESource, type ESource as ArtworkSource } from '@/enums/e-source'
 import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/services/scan-run-service'
 import { toApiImageSize } from '@/utils/image-size'
@@ -51,11 +52,13 @@ export * from './video-chapters'
  * 使用原生 SQL 处理复杂的过滤、搜索和排序，
  * 同时复用 transformSingleArtwork 确保返回数据格式一致。
  */
-export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Promise<EnhancedArtworksResponse> {
+export async function getArtworksList(params: ArtworksInfiniteQuerySchema, userId?: string): Promise<EnhancedArtworksResponse & { nextReadingCursor?: string }> {
   const { cursor } = params
   const page = cursor ?? 1
   const pageSize = params.pageSize
-  const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
+  const { whereSQL, sqlParams } = params.readingStatus
+    ? readingCountClause(params, requireReadingUserId(userId))
+    : buildArtworkWhereClause(params)
 
   // --- 2. 获取总数 ---
   const countQuery = `
@@ -67,7 +70,7 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
   const countResult = await prisma.$queryRawUnsafe<{ count: bigint }[]>(countQuery, ...sqlParams)
   const total = Number(countResult[0]?.count || 0)
 
-  const { rows: rawArtworks } = await queryArtworkRowsPage(params)
+  const { rows: rawArtworks, nextReadingCursor } = await queryArtworkRowsPage(params, false, userId)
 
   if (rawArtworks.length === 0) {
     return { items: [], total, page, pageSize }
@@ -75,10 +78,11 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema): Prom
 
   const items = await hydrateArtworkRows(rawArtworks)
 
-  return { items, total, page, pageSize }
+  return { items, total, page, pageSize, nextReadingCursor }
 }
 
-async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfetch = false) {
+async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfetch = false, userId?: string) {
+  if (params.readingStatus) return queryReadingArtworkRowsPage(params, requireReadingUserId(userId))
   const page = params.cursor ?? 1
   const skip = (page - 1) * params.pageSize
   const { whereSQL, sqlParams, paramIndex: initialParamIndex } = buildArtworkWhereClause(params)
@@ -119,7 +123,8 @@ async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfet
 
   return {
     rows: overfetch ? rows.slice(0, params.pageSize) : rows,
-    hasNextPage: overfetch && rows.length > params.pageSize
+    hasNextPage: overfetch && rows.length > params.pageSize,
+    nextReadingCursor: undefined
   }
 }
 
@@ -255,6 +260,22 @@ export interface ArtworkCardsPageResponse {
   page: number
   pageSize: number
   hasNextPage: boolean
+  nextReadingCursor?: string
+}
+
+/** Hydrate a fixed set of card IDs without loading the full media sequence. */
+export async function getArtworkCardsByIds(artworkIds: number[]): Promise<ArtworkCardData[]> {
+  if (artworkIds.length === 0) return []
+  const artworks = await prisma.artwork.findMany({
+    where: { id: { in: artworkIds }, deletedAt: null, archiveLifecycleState: 'ACTIVE' },
+    select: artworkCardSelect
+  })
+  const resolved = await resolveArtworkCardCovers(artworks)
+  const byId = new Map(resolved.map((artwork) => [artwork.id, artwork]))
+  return artworkIds.flatMap((id) => {
+    const artwork = byId.get(id)
+    return artwork ? [transformArtworkCard(artwork)] : []
+  })
 }
 
 /**
@@ -263,7 +284,20 @@ export interface ArtworkCardsPageResponse {
  * 这里只返回 ArtworkCard 所需字段，并把每个作品的媒体关系限制为封面一条。
  * 第一页保留精确总数；后续页多取一条记录判断是否还有下一页，避免重复 COUNT。
  */
-export async function getArtworkCardsPage(params: ArtworksInfiniteQuerySchema): Promise<ArtworkCardsPageResponse> {
+export async function getArtworkCardsPage(params: ArtworksInfiniteQuerySchema, userId?: string): Promise<ArtworkCardsPageResponse> {
+  if (params.readingStatus) {
+    const page = params.cursor ?? 1
+    const result = await queryReadingArtworkIdsPage(params, requireReadingUserId(userId))
+    const items = await getArtworkCardsByIds(result.ids)
+    return {
+      items,
+      total: result.total,
+      page,
+      pageSize: params.pageSize,
+      hasNextPage: result.hasNextPage,
+      nextReadingCursor: result.nextReadingCursor
+    }
+  }
   const { cursor, sortBy } = params
   const page = cursor ?? 1
   const pageSize = params.pageSize
@@ -746,6 +780,8 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     mode,
     sortBy,
     randomSeed,
+    readingStatus,
+    readingCursor,
     search,
     artistId,
     tagIds,
@@ -777,9 +813,12 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     createdEndDate,
     mediaCountMax,
     sortBy: mode === 'random' ? 'random' : sortBy || 'source_date_desc',
-    randomSeed: mode === 'random' ? randomSeed : undefined
+    randomSeed: mode === 'random' ? randomSeed : undefined,
+    readingStatus,
+    readingCursor,
+    expectedUserId: input.expectedUserId
   })
-  const { rows, hasNextPage } = await queryArtworkRowsPage(listInput, true)
+  const { rows, hasNextPage, nextReadingCursor } = await queryArtworkRowsPage(listInput, true, userId)
   const artworks = await hydrateArtworkRows(rows)
 
   const artworkIds = artworks.map((item) => item.id)
@@ -798,7 +837,8 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     items,
     page,
     pageSize,
-    nextPage: hasNextPage ? page + 1 : null
+    nextPage: readingStatus ? null : hasNextPage ? page + 1 : null,
+    nextReadingCursor
   }
 }
 

@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 的目标用户、核心场景、产品范围、非目标和长期产品承诺
-last-verified: 2026-09-10
+last-verified: 2026-09-24
 sources:
   - README.md
   - CONTEXT.md
@@ -9,6 +9,7 @@ sources:
   - packages/pixishelf/components/content-warning/
   - packages/pixishelf/components/privacy/
   - packages/pixishelf-db/prisma/schema.prisma
+  - docs/features/artwork-reading.md
   - docs/adr/
 ---
 
@@ -71,6 +72,8 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 - 已登录账户可从作品、归档任务、收件项目和发现结果浏览受支持原站的缩略图；该能力只读取远端列表页，不创建收件、任务或媒体写入，也不把进程内预览会话当作归档记录；
 - 管理面提供扫描、归档、媒体管理、批量操作、任务状态和审计历史；
 - 桌面端是复杂管理操作的主要界面，移动端优先保证浏览和轻量整理。
+
+作品阅读记录正在隔离验收，尚不能视为已发布能力。其产品边界是按账户保存本地有效阅读次数、真实看过的逻辑媒体进度和最后位置，并提供显式继续阅读、状态筛选与最近阅读；不会把原站缩略图预览算作本地阅读，也不回填过去的浏览历史。完整替换或重建媒体必须使旧阅读记录失效，普通增删和排序须保留仍存在的媒体记录。用户语义与发布状态见[作品阅读记录与进度](../features/artwork-reading.md)。
 
 ### 隐私显示
 

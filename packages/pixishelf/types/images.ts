@@ -15,6 +15,7 @@ export interface ViewerFeedResponse {
   page: number
   pageSize: number
   nextPage: number | null
+  nextReadingCursor?: string
 }
 
 export interface ViewerMediaItem {

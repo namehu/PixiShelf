@@ -17,6 +17,7 @@ import { Slider } from '@/components/ui/slider'
 import { SearchBox } from '@/app/artworks/_components/search-box'
 import { Field, FieldGroup, FieldLabel, FieldTitle } from '@/components/ui/field'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 
 interface FilterSheetProps {
   open: boolean
@@ -26,6 +27,7 @@ interface FilterSheetProps {
   currentTags?: Option[]
   currentSources?: ArtworkSource[]
   currentHasAudio?: AudioFilter
+  currentReadingStatus?: ReadingStatus | 'all'
   currentSearch?: string
   currentMaxMediaCount?: number
   resetSortBy?: SortOption
@@ -44,6 +46,7 @@ interface FilterSheetProps {
     tags?: Option[]
     sources: ArtworkSource[]
     hasAudio: AudioFilter
+    readingStatus?: ReadingStatus | 'all'
     search?: string
     maxMediaCount?: number
     randomSeed?: number
@@ -68,6 +71,7 @@ export function FilterSheet(props: FilterSheetProps) {
     currentTags = EMPTY_OPTIONS,
     currentSources = EMPTY_SOURCES,
     currentHasAudio = 'all',
+    currentReadingStatus,
     currentSearch,
     currentMaxMediaCount,
     resetSortBy = 'source_date_desc',
@@ -87,6 +91,7 @@ export function FilterSheet(props: FilterSheetProps) {
   const [localTags, setLocalTags] = useState<Option[]>([])
   const [localSources, setLocalSources] = useState<Option[]>([])
   const [localHasAudio, setLocalHasAudio] = useState<AudioFilter>('all')
+  const [localReadingStatus, setLocalReadingStatus] = useState<ReadingStatus | 'all'>('all')
   const [localSearch, setLocalSearch] = useState('')
   const [localMaxMediaCount, setLocalMaxMediaCount] = useState(8)
   const [localRandomSeed, setLocalRandomSeed] = useState<number | undefined>(undefined)
@@ -108,6 +113,7 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalTags(currentTags)
     setLocalSources(OSource.filter((option) => currentSources.includes(option.value)))
     setLocalHasAudio(currentHasAudio)
+    setLocalReadingStatus(currentReadingStatus ?? 'all')
     setLocalSearch(currentSearch ?? '')
     setLocalMaxMediaCount(currentMaxMediaCount ?? 8)
     setLocalRandomSeed(randomSeed)
@@ -127,6 +133,7 @@ export function FilterSheet(props: FilterSheetProps) {
     currentTags,
     currentSources,
     currentHasAudio,
+    currentReadingStatus,
     currentSearch,
     currentMaxMediaCount,
     randomSeed,
@@ -153,6 +160,7 @@ export function FilterSheet(props: FilterSheetProps) {
       tags: localTags,
       sources: localSources.map((option) => option.value as ArtworkSource),
       hasAudio: localHasAudio,
+      readingStatus: currentReadingStatus === undefined ? undefined : localReadingStatus,
       search: localSearch.trim() || undefined,
       maxMediaCount: currentMaxMediaCount === undefined ? undefined : localMaxMediaCount,
       randomSeed: seed,
@@ -171,6 +179,7 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalTags([])
     setLocalSources([])
     setLocalHasAudio('all')
+    setLocalReadingStatus('all')
     setLocalSearch('')
     setLocalMaxMediaCount(8)
     setLocalRandomSeed(undefined)
@@ -348,6 +357,24 @@ export function FilterSheet(props: FilterSheetProps) {
         </Field>
 
         {/* 媒体类型 */}
+        {currentReadingStatus !== undefined && (
+          <Field className="gap-3">
+            <FieldLabel htmlFor="filter-reading-status">阅读状态</FieldLabel>
+            <Select value={localReadingStatus} onValueChange={(value) => setLocalReadingStatus(value as ReadingStatus | 'all')}>
+              <SelectTrigger id="filter-reading-status" className="w-full" aria-label="阅读状态筛选">
+                <SelectValue placeholder="全部" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">全部</SelectItem>
+                  <SelectItem value="UNREAD">未看</SelectItem>
+                  <SelectItem value="IN_PROGRESS">阅读中</SelectItem>
+                  <SelectItem value="COMPLETED">已看完</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
         <Field className="gap-3">
           <FieldLabel htmlFor="filter-media-type">媒体类型</FieldLabel>
           <MediaTypeFilterComponent

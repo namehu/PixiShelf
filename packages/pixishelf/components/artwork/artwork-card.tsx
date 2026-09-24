@@ -10,18 +10,22 @@ import { usePreferredTags } from '@/components/user-setting'
 import { getPreferredTagName } from './preferred-tag'
 import MediaThumbnail from '@/components/media/media-thumbnail'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import type { ReadingSummaryDto } from '@pixishelf/db/reading-contract'
+import { Badge } from '@/components/ui/badge'
 
 interface ArtworkCardProps {
   artwork: ArtworkCardData
   priority?: boolean
   className?: string
   displayMode?: 'card' | 'minimal'
+  reading?: ReadingSummaryDto
+  showReadingStatus?: boolean
 }
 
 /**
  * 作品卡片组件
  */
-export default function ArtworkCard({ artwork, priority = false, className, displayMode = 'card' }: ArtworkCardProps) {
+export default function ArtworkCard({ artwork, priority = false, className, displayMode = 'card', reading, showReadingStatus = false }: ArtworkCardProps) {
   const preferredTags = usePreferredTags()
   const { id, title, imageCount, totalMediaSize = 0, images = [], artist, tags = [] } = artwork
 
@@ -57,6 +61,15 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
             <PrivacySensitiveText className="block truncate">{preferredTag}</PrivacySensitiveText>
           </div>
         )}
+        {showReadingStatus ? (
+          <Badge variant="secondary" className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-sm bg-background/90 text-foreground shadow-xs">
+            {reading?.status === 'COMPLETED'
+              ? `已看完 ${reading.seenCount}/${reading.totalCount}`
+              : reading?.status === 'IN_PROGRESS'
+                ? `阅读中 ${reading.seenCount}/${reading.totalCount}`
+                : '未看'}
+          </Badge>
+        ) : null}
 
         <div className="absolute top-2 right-2 flex flex-col gap-1">
           {/* 图片数量标识 */}

@@ -1,13 +1,14 @@
 ---
 status: current
 scope: PixiShelf 单实例的备份集合、恢复目标、验证演练和灾难恢复边界
-last-verified: 2026-08-28
+last-verified: 2026-09-24
 sources:
   - build/docker-compose.deploy.yml
   - build/.env.example
   - packages/pixishelf-db/prisma/schema.prisma
   - docs/operations/deployment.md
   - docs/features/archive-intake.md
+  - docs/features/artwork-reading.md
 ---
 
 # PixiShelf 备份与恢复基线
@@ -291,3 +292,11 @@ App 与 Worker 必须协调升级：停止写入者后运行 `pnpm --filter @pix
 ## 批量发现扫描恢复依据
 
 批次状态、冻结来源顺序、逐轮游标、扫描目录和父子任务关系均保存在 PostgreSQL，备份必须包含完整 SystemJob payload/result 与来源扫描表。20260920120000_add_discovery_batch_scan 为约束扩展及唯一索引迁移，无数据重写。升级前建立检查点；回退应用前取消批次并等待当前子扫描终止。Worker 重启依靠 fenced 事务与原子子任务检查点恢复，禁止手工仅修改父任务为终态。父任务基础设施失败后，通过失败来源重试或取消入口收口遗留子扫描，不删除目录或清空游标。
+
+## 作品阅读记录发布与恢复依据
+
+`20260924130000_add_artwork_reading_tracking` 为 Artwork 增加默认值为 1 的 `mediaRevision`，新建账户作品摘要和已读媒体表，不回填历史阅读。数据库 dump 必须包含两张新表、Artwork 版本和 `_prisma_migrations`；仍须与原媒体、派生媒体、配置和 App/Worker 镜像组成同一停写检查点。正式发布先完成本文件的写入者静默与备份验证，再执行 `pnpm --filter @pixishelf/db db:generate`、`pnpm --filter @pixishelf/db db:deploy`，确认 migration 状态后协调启动兼容的 App 与 Worker；禁止 `db:push`。新 Worker 的 schema 就绪门禁要求这条 migration 已完成、Artwork.mediaRevision 与两张阅读表均存在；不能在旧库上绕过就绪检查启动媒体写任务。此流程是发布门禁，不表示生产实例已经升级。
+
+完整替换、恢复和全量重建会在媒体发布事务中递增 `mediaRevision` 并清空该作品所有账户的阅读状态。普通媒体增删和排序不重置访问次数；存续媒体的已读记录仍有效。应用代码回滚时保留新增列和表，不执行破坏性反向 migration；旧版本期间必须暂停完整重建任务、旧 App 扫描及替换入口。若旧代码已经重建媒体，保存受影响作品 ID，重新升级前逐项核对并通过兼容事务清空相应阅读记录、递增版本。影响范围不明时先审计并修复，不得直接恢复阅读入口或把旧记录当作有效。需要整体恢复发布前状态时，使用已验证的数据库、媒体、配置与镜像配套检查点，并明确接受检查点后的阅读及其他写入损失。
+
+2026-09-24 的隔离 PostgreSQL 15 演练已验证空库完整 85 条迁移和一个含 3 作品、3 媒体、2 账户的非空库从 84 条迁移升级到 85 条；升级前 custom-format dump 已校验可列出内容，SHA-256 为 `CA3AACFC9DC97FA38064BFF8F33BD21BDA24CABB71E117C8E608D25B7C31D5E8`，原行数保留，三个作品版本为 1，阅读表为空。这证明该合成 fixture 的迁移路径，不替代生产数据检查点或完整媒体恢复演练。功能验收记录见[作品阅读记录与进度](../features/artwork-reading.md)。

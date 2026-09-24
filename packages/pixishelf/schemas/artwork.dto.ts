@@ -107,6 +107,9 @@ export const ArtworksInfiniteQuerySchema = z.object({
       return getSafeSortOption(val || null)
     }),
   randomSeed: z.number().int().optional(),
+  readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
+  readingCursor: z.string().min(1).max(4096).optional(),
+  expectedUserId: z.string().min(1).optional(),
   mediaType: z
     .string()
     .optional()
@@ -188,6 +191,9 @@ export const ViewerFeedQuerySchema = z.object({
       return getSafeSortOption(val || null)
     }),
   randomSeed: z.coerce.number().int().optional(),
+  readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
+  readingCursor: z.string().min(1).max(4096).optional(),
+  expectedUserId: z.string().min(1).optional(),
   search: z
     .string()
     .nullish()

@@ -52,6 +52,12 @@ import {
   PixivArtworkSyncReportReadError
 } from '@/services/pixiv-artwork-sync-report-service'
 
+function assertReadingListAccount(userId: string, expectedUserId: string | undefined, readingStatus: string | undefined) {
+  if ((readingStatus && !expectedUserId) || (expectedUserId && expectedUserId !== userId)) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
+  }
+}
+
 /**
  * 作品路由
  */
@@ -66,13 +72,15 @@ export const artworkRouter = router({
   /**
    * 获取作品列表 (无限加载)
    */
-  list: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input }) => {
+  list: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input, ctx }) => {
+    assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
     const page = input.cursor ?? 1
-    const result = await getArtworksList(input)
+    const result = await getArtworksList(input, ctx.userId)
     const totalPages = Math.ceil(result.total / result.pageSize)
     return {
       items: result.items,
-      nextCursor: page < totalPages ? page + 1 : undefined,
+      nextCursor: input.readingStatus ? undefined : page < totalPages ? page + 1 : undefined,
+      nextReadingCursor: result.nextReadingCursor,
       total: result.total
     }
   }),
@@ -80,12 +88,14 @@ export const artworkRouter = router({
   /**
    * 获取作品卡片列表；仅第一页返回精确总数，后续页通过多取一条判断是否还有下一页。
    */
-  cardList: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input }) => {
+  cardList: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input, ctx }) => {
+    assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
     const page = input.cursor ?? 1
-    const result = await getArtworkCardsPage(input)
+    const result = await getArtworkCardsPage(input, ctx.userId)
     return {
       items: result.items,
-      nextCursor: result.hasNextPage ? page + 1 : undefined,
+      nextCursor: input.readingStatus ? undefined : result.hasNextPage ? page + 1 : undefined,
+      nextReadingCursor: result.nextReadingCursor,
       total: result.total
     }
   }),
@@ -363,6 +373,7 @@ export const artworkRouter = router({
    * 获取沉浸浏览 Feed
    */
   viewerFeed: authProcedure.input(ViewerFeedQuerySchema).query(async ({ input, ctx }) => {
+    assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
     try {
       return getViewerFeed({
         ...input,

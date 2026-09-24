@@ -28,10 +28,14 @@ import { useAutoBrowseInterruption } from './use-auto-browse-interruption'
 import { getAutoBrowseViewport, useArtworkAutoScroll } from './use-artwork-auto-scroll'
 import { AutoBrowseControls } from './auto-browse-controls'
 import { useArtworkVideoPlayback } from './use-artwork-video-playback'
+import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
   artworkId: number
+  reading?: ArtworkReadingHandle
+  trackingActive?: boolean
+  continueRequest?: { index: number; nonce: number } | null
 }
 
 const NAV_HEIGHT = 64
@@ -195,7 +199,7 @@ function useArtworkMediaVirtualizer({
   return { virtualizer, measureElement }
 }
 
-function usePreviewContextMenu(images: ArtworkImageResponseDto[], onOpenAdaptivePreview: (index: number) => void) {
+function usePreviewContextMenu(images: ArtworkImageResponseDto[], artworkId: number, onOpenAdaptivePreview: (index: number) => void) {
   const [contextMenu, setContextMenu] = useState<PreviewMenuState | null>(null)
   const router = useRouter()
   const setStoreImages = useArtworkStore((state) => state.setImages)
@@ -222,8 +226,8 @@ function usePreviewContextMenu(images: ArtworkImageResponseDto[], onOpenAdaptive
 
     setStoreImages(images)
     setContextMenu(null)
-    router.push(`/artworks/preview?index=${contextMenu.index}`)
-  }, [contextMenu, images, router, setStoreImages])
+    router.push(`/artworks/preview?artworkId=${artworkId}&index=${contextMenu.index}`)
+  }, [artworkId, contextMenu, images, router, setStoreImages])
 
   useEffect(() => {
     const handleClose = () => {
@@ -295,13 +299,17 @@ function ArtworkMediaItem({
   index,
   onOpenPreviewMenu,
   onOpenAdaptivePreview,
-  highlighted
+  highlighted,
+  reading,
+  trackingActive
 }: {
   media: ArtworkImageResponseDto
   index: number
   onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
   onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
   highlighted: boolean
+  reading?: ArtworkReadingHandle
+  trackingActive: boolean
 }) {
   return (
     <div
@@ -318,7 +326,7 @@ function ArtworkMediaItem({
         onOpenMenu={onOpenPreviewMenu}
         onPreview={onOpenAdaptivePreview}
       >
-        <LazyMedia media={media} index={index} />
+        <LazyMedia media={media} index={index} reading={reading} trackingActive={trackingActive} />
       </PreviewableMedia>
     </div>
   )
@@ -566,10 +574,14 @@ function PreviewContextMenu({
   )
 }
 
-function SingleVideoArtworkMedia({ media }: { media: ArtworkImageResponseDto }) {
+function SingleVideoArtworkMedia({ media, reading, trackingActive }: {
+  media: ArtworkImageResponseDto
+  reading?: ArtworkReadingHandle
+  trackingActive: boolean
+}) {
   return (
     <div className="w-full" data-testid="artwork-video-container">
-      <LazyMedia media={media} index={0} />
+      <LazyMedia media={media} index={0} reading={reading} trackingActive={trackingActive} />
     </div>
   )
 }
@@ -579,13 +591,17 @@ function VirtualizedArtworkMediaList({
   returnIndex,
   onReturnHandled,
   onOpenPreviewMenu,
-  onOpenAdaptivePreview
+  onOpenAdaptivePreview,
+  reading,
+  trackingActive
 }: {
   images: ArtworkImageResponseDto[]
   returnIndex: number | null
   onReturnHandled: () => void
   onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
   onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
+  reading?: ArtworkReadingHandle
+  trackingActive: boolean
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
   const previewCount = useArtworkDetailPreferences((state) => state.previewCount)
@@ -763,6 +779,8 @@ function VirtualizedArtworkMediaList({
                 onOpenPreviewMenu={onOpenPreviewMenu}
                 onOpenAdaptivePreview={onOpenAdaptivePreview}
                 highlighted={highlightedIndex === index}
+                reading={reading}
+                trackingActive={trackingActive}
               />
             </div>
           )
@@ -864,7 +882,7 @@ function VirtualizedArtworkMediaList({
   )
 }
 
-function ArtworkImagesSession({ images, artworkId }: ArtworkImagesProps) {
+function ArtworkImagesSession({ images, artworkId, reading, trackingActive = true, continueRequest }: ArtworkImagesProps) {
   useAutoBrowseInterruption(artworkId)
   const mediaRootRef = useRef<HTMLDivElement>(null)
   useArtworkVideoPlayback(mediaRootRef)
@@ -872,6 +890,15 @@ function ArtworkImagesSession({ images, artworkId }: ArtworkImagesProps) {
   const [returnIndex, setReturnIndex] = useState<number | null>(null)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const adaptivePreviewImages = useMemo(() => images.filter((media) => !isVideoMedia(media)), [images])
+  useEffect(() => {
+    if (!continueRequest) return
+    useArtworkAutoBrowseStore.getState().pause('manual')
+    if (images.length === 1) {
+      mediaRootRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' })
+      return
+    }
+    setReturnIndex(Math.min(Math.max(continueRequest.index, 0), images.length - 1))
+  }, [continueRequest, images.length])
   const openAdaptivePreview = useCallback(
     (originalIndex: number, initialPreviewSrc?: string) => {
       const media = images[originalIndex]
@@ -887,7 +914,7 @@ function ArtworkImagesSession({ images, artworkId }: ArtworkImagesProps) {
     [adaptivePreviewImages, images]
   )
   const { contextMenu, openContextMenu, closeContextMenu, previewSelectedMedia, viewOriginalSelectedMedia } =
-    usePreviewContextMenu(images, openAdaptivePreview)
+    usePreviewContextMenu(images, artworkId, openAdaptivePreview)
 
   const handlePreviewClose = useCallback(
     (finalIndex: number) => {
@@ -907,7 +934,7 @@ function ArtworkImagesSession({ images, artworkId }: ArtworkImagesProps) {
   const handleReturnHandled = useCallback(() => setReturnIndex(null), [])
 
   const mediaContent = isSingleVideoArtwork(images) ? (
-    <SingleVideoArtworkMedia media={images[0]!} />
+    <SingleVideoArtworkMedia media={images[0]!} reading={reading} trackingActive={trackingActive && !previewState && !contextMenu} />
   ) : (
     <VirtualizedArtworkMediaList
       images={images}
@@ -915,6 +942,8 @@ function ArtworkImagesSession({ images, artworkId }: ArtworkImagesProps) {
       onReturnHandled={handleReturnHandled}
       onOpenPreviewMenu={openContextMenu}
       onOpenAdaptivePreview={openAdaptivePreview}
+      reading={reading}
+      trackingActive={trackingActive && !previewState && !contextMenu}
     />
   )
 
@@ -943,6 +972,7 @@ function ArtworkImagesSession({ images, artworkId }: ArtworkImagesProps) {
           initialPreviewSrc={previewState.initialPreviewSrc}
           open
           onClose={handlePreviewClose}
+          reading={reading}
         />
       )}
     </ArtworkVideoOptimizationProvider>

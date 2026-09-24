@@ -199,6 +199,7 @@ model LocalImportArtistMapping {
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Artwork {
   id                    Int                   @id @default(autoincrement())
+  mediaRevision         Int                   @default(1)
   title                 String
   description           String?
   artistId              Int?
@@ -238,6 +239,8 @@ model Artwork {
   seriesArtworks        SeriesArtwork[]
   artworkTags           ArtworkTag[]
   images                Image[]
+  readingSummaries      ArtworkReadingSummary[]
+  readMedia             ArtworkReadMedia[]
   source                ArtworkSource         @default(PIXIV_IMPORTED)
   externalRefs          ArtworkExternalRef[]
   archiveImports        ArchiveImport[]
@@ -407,6 +410,8 @@ model Image {
   chaptersHash        String?
   mediaType           MediaType               @default(UNKNOWN)
   artwork             Artwork?                @relation(fields: [artworkId], references: [id])
+  readingSummaries    ArtworkReadingSummary[] @relation("ReadingLastMedia")
+  readMedia           ArtworkReadMedia[]
   videoMetadata       MediaVideoMetadata?
   animationMetadata   ImageAnimationMetadata?
   chapterPreviews     MediaChapterPreview[]
@@ -561,6 +566,8 @@ model UserBA {
   accounts Account[]
   sessions Session[]
   likes    ArtworkLike[]
+  readingSummaries ArtworkReadingSummary[]
+  readMedia ArtworkReadMedia[]
   settings UserSetting[]
 }
 
@@ -618,6 +625,44 @@ model ArtworkLike {
   @@unique([userId, artworkId])
   @@index([artworkId])
   @@index([userId])
+}
+
+model ArtworkReadingSummary {
+  userId          String
+  artworkId       Int
+  viewCount       Int      @default(0)
+  seenCount       Int      @default(0)
+  totalCount      Int      @default(0)
+  lastViewedAt    DateTime
+  lastActiveAt    DateTime
+  lastMediaId     Int?
+  lastMediaIndex  Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artwork         Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  lastMedia       Image?   @relation("ReadingLastMedia", fields: [lastMediaId], references: [id], onDelete: SetNull)
+
+  @@id([userId, artworkId])
+  @@index([userId, lastViewedAt(sort: Desc), artworkId(sort: Desc)], map: "artwork_reading_summaries_user_recent_idx")
+  @@index([artworkId])
+  @@index([lastMediaId])
+  @@map("artwork_reading_summaries")
+}
+
+model ArtworkReadMedia {
+  userId     String
+  artworkId  Int
+  mediaId    Int
+  firstSeenAt DateTime @default(now())
+  user       UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artwork    Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  media      Image    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@id([userId, artworkId, mediaId])
+  @@index([artworkId])
+  @@index([mediaId])
+  @@map("artwork_read_media")
 }
 
 model Setting {

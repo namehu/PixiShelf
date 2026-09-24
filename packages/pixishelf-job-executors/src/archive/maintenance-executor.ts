@@ -5,7 +5,7 @@ import {
   JOB_DEFINITION_VERSION,
   type ArchiveMaintenancePayload
 } from '@pixishelf/job-contracts'
-import type { PrismaClient } from '@pixishelf/db'
+import { lockArtworkForReading, type PrismaClient } from '@pixishelf/db'
 import type {
   EnqueuedChildJob,
   ExecutionContext,
@@ -362,6 +362,7 @@ async function executeArchivePurge(
     ) {
       throw stateChanged('归档永久清理意图在完成前发生变化')
     }
+    await lockArtworkForReading(scope.transaction, artwork.id)
     await scope.transaction.image.deleteMany({ where: { artworkId: artwork.id } })
     const changed = await scope.transaction.artwork.deleteMany({
       where: {

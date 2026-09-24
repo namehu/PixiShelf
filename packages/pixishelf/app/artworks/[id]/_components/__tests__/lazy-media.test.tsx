@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import LazyMedia from '../lazy-media'
 
 const playerMocks = vi.hoisted(() => ({ props: vi.fn(), animatedProps: vi.fn(), imageProps: vi.fn() }))
+const intersectionCallback = vi.hoisted(() => ({ current: null as null | ((inView: boolean) => void) }))
 const enqueue = vi.hoisted(() => vi.fn())
 const cancel = vi.hoisted(() => vi.fn())
 const optimizationState = vi.hoisted(() => ({
@@ -34,7 +35,12 @@ vi.mock('next/image', () => ({
     return <div data-testid="static-image" />
   }
 }))
-vi.mock('react-intersection-observer', () => ({ useOnInView: () => vi.fn() }))
+vi.mock('react-intersection-observer', () => ({
+  useOnInView: (callback: (inView: boolean) => void) => {
+    intersectionCallback.current = callback
+    return vi.fn()
+  }
+}))
 vi.mock('@/store/use-artwork-store', () => ({
   useArtworkStore: (selector: (state: { setCurrentIndex: ReturnType<typeof vi.fn> }) => unknown) =>
     selector({ setCurrentIndex: vi.fn() })
@@ -108,6 +114,27 @@ describe('LazyMedia video cache version', () => {
     expect(screen.getByText('优化处理中')).toBeTruthy()
     expect(screen.getByText('排队中 · 第 3 位')).toBeTruthy()
     expect(screen.getByRole('button', { name: '取消排队' })).toBeTruthy()
+  })
+
+  it('stops reading during optimization and waits for the restored player to become ready', () => {
+    const observe = vi.fn()
+    const reading = { observe, clearSurface: vi.fn(), observationEpoch: 0 } as never
+    const { rerender } = render(<LazyMedia media={media} index={0} reading={reading} />)
+    act(() => intersectionCallback.current?.(true))
+    act(() => playerMocks.props.mock.calls.at(-1)?.[0].onReady())
+    expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: true })
+
+    optimizationState.suspendPlayback = true
+    rerender(<LazyMedia media={{ ...media }} index={0} reading={reading} />)
+    expect(screen.queryByTestId('video-player')).toBeNull()
+    expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: false })
+
+    optimizationState.suspendPlayback = false
+    rerender(<LazyMedia media={{ ...media }} index={0} reading={reading} />)
+    expect(screen.getByTestId('video-player')).toBeTruthy()
+    expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: false })
+    act(() => playerMocks.props.mock.calls.at(-1)?.[0].onReady())
+    expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: true })
   })
 
   it('renders a confirmed static WebP as an ordinary image', () => {

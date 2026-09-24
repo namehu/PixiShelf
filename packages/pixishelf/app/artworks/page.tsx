@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { ImageUpIcon, SlidersHorizontal, X } from 'lucide-react'
 import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
@@ -18,6 +18,7 @@ import type { Option } from '@/components/shared/multiple-selector'
 import { useTRPCClient } from '@/lib/trpc'
 import { MSource, OSource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
+import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 
 const searchParamsParsers = {
   search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
@@ -33,7 +34,8 @@ const searchParamsParsers = {
   tags: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   tagLabels: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   sources: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  hasAudio: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true })
+  hasAudio: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
+  readingStatus: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true })
 }
 
 const viewerQueryParsers = {
@@ -49,6 +51,7 @@ const viewerQueryParsers = {
   tagLabels: parseAsString,
   sources: parseAsString,
   hasAudio: parseAsString,
+  readingStatus: parseAsString,
   mediaType: parseAsString,
   startDate: parseAsString,
   endDate: parseAsString,
@@ -110,6 +113,10 @@ function normalizeAudioFilter(value?: string | null): AudioFilter {
   return value === 'yes' || value === 'no' ? value : 'all'
 }
 
+function normalizeReadingStatus(value: string): ReadingStatus | 'all' {
+  return value === 'UNREAD' || value === 'IN_PROGRESS' || value === 'COMPLETED' ? value : 'all'
+}
+
 function toTagOptions(tags: string, tagLabels: string): Option[] {
   const ids = splitCsv(tags)
   const labels = decodeLabels(tagLabels)
@@ -122,6 +129,7 @@ function toTagOptions(tags: string, tagLabels: string): Option[] {
 export default function GalleryPage() {
   const trpcClient = useTRPCClient()
   const [queryStates, setQueryStates] = useQueryStates(searchParamsParsers)
+  const defaultRandomSeedRef = useRef(Math.floor(Math.random() * 1000000))
   const {
     search: searchQuery,
     sortBy,
@@ -136,9 +144,12 @@ export default function GalleryPage() {
     tags,
     tagLabels,
     sources,
-    hasAudio: hasAudioParam
+    hasAudio: hasAudioParam,
+    readingStatus: readingStatusParam
   } = queryStates
   const hasAudio = normalizeAudioFilter(hasAudioParam)
+  const readingStatus = normalizeReadingStatus(readingStatusParam)
+  const effectiveRandomSeed = randomSeed ? Number(randomSeed) : defaultRandomSeedRef.current
 
   // 控制筛选抽屉的开关
   const [isFilterOpen, setIsFilterOpen] = useState(false)
@@ -158,6 +169,7 @@ export default function GalleryPage() {
     selectedTags.length > 0 ||
     selectedSources.length > 0 ||
     hasAudio !== 'all' ||
+    readingStatus !== 'all' ||
     mediaType !== 'all' ||
     !!startDate ||
     !!endDate ||
@@ -166,7 +178,7 @@ export default function GalleryPage() {
     sortBy !== 'source_date_desc'
 
   const immersiveViewerHref = useMemo(() => {
-    const randomSeedValue = randomSeed ? Number(randomSeed) : null
+    const randomSeedValue = effectiveRandomSeed
     const firstTagId = tagIds[0]
     const source = artistId ? 'artist' : firstTagId ? 'tag' : 'all'
     const sourceId = artistId || firstTagId || null
@@ -184,6 +196,7 @@ export default function GalleryPage() {
       tagLabels: selectedTags.length > 0 ? encodeLabels(selectedTags) : null,
       sources: selectedSources.join(',') || null,
       hasAudio: hasAudio === 'all' ? null : hasAudio,
+      readingStatus: readingStatus === 'all' ? null : readingStatus,
       mediaType: mediaType || 'all',
       startDate: startDate || null,
       endDate: endDate || null,
@@ -197,8 +210,9 @@ export default function GalleryPage() {
     createdStartDate,
     endDate,
     hasAudio,
+    readingStatus,
     mediaType,
-    randomSeed,
+    effectiveRandomSeed,
     searchQuery,
     selectedSources,
     selectedTags,
@@ -294,6 +308,7 @@ export default function GalleryPage() {
     createdEndTime?: string
     sources: ArtworkSource[]
     hasAudio: AudioFilter
+    readingStatus?: ReadingStatus | 'all'
   }) => {
     if (!filters) {
       return clearAllFilters()
@@ -312,7 +327,8 @@ export default function GalleryPage() {
       createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : null,
       createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : null,
       sources: filters.sources.join(',') || null,
-      hasAudio: filters.hasAudio === 'all' ? null : filters.hasAudio
+      hasAudio: filters.hasAudio === 'all' ? null : filters.hasAudio,
+      readingStatus: filters.readingStatus === 'all' ? null : filters.readingStatus
     })
   }
 
@@ -331,7 +347,8 @@ export default function GalleryPage() {
       tags: null,
       tagLabels: null,
       sources: null,
-      hasAudio: null
+      hasAudio: null,
+      readingStatus: null
     })
   }
 
@@ -412,6 +429,12 @@ export default function GalleryPage() {
                   onRemove={() => setQueryStates({ hasAudio: null })}
                 />
               )}
+              {readingStatus !== 'all' && (
+                <FilterChip
+                  label={`阅读状态：${readingStatus === 'UNREAD' ? '未看' : readingStatus === 'IN_PROGRESS' ? '阅读中' : '已看完'}`}
+                  onRemove={() => setQueryStates({ readingStatus: null })}
+                />
+              )}
               {mediaType !== 'all' && (
                 <FilterChip
                   label={MEDIA_TYPE_LABELS[mediaType as MediaTypeFilter]}
@@ -458,7 +481,8 @@ export default function GalleryPage() {
         currentTags={selectedTags}
         currentSources={selectedSources}
         currentHasAudio={hasAudio}
-        randomSeed={randomSeed ? Number(randomSeed) : undefined}
+        currentReadingStatus={readingStatus}
+        randomSeed={sortBy === 'random' ? effectiveRandomSeed : undefined}
         startDate={startDate}
         endDate={endDate}
         createdStartDate={createdStartDate}
@@ -477,7 +501,8 @@ export default function GalleryPage() {
           artistId={artistId || undefined}
           sources={selectedSources}
           hasAudio={hasAudio === 'all' ? undefined : hasAudio}
-          randomSeed={randomSeed ? Number(randomSeed) : undefined}
+          readingStatus={readingStatus === 'all' ? undefined : readingStatus}
+          randomSeed={sortBy === 'random' ? effectiveRandomSeed : undefined}
           startDate={startDate || undefined}
           endDate={endDate || undefined}
           createdStartDate={createdStartDate || undefined}

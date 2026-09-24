@@ -11,6 +11,7 @@ export const ROUTES = {
   LOGIN: '/login',
   DASHBOARD: '/dashboard',
   ARTWORKS: '/artworks',
+  READING_HISTORY: '/reading-history',
   ARTISTS: '/artists',
   ADMIN: '/admin',
   SERIES: '/series',

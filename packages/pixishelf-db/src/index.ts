@@ -5,12 +5,15 @@ export * from './creators'
 export * from './discovery-creators'
 export * from './artist-merge'
 export * from './animation-duration'
+export * from './artwork-reading'
 
-const latestRequiredMigration = '20260924120000_add_image_animation_duration_metadata'
+const latestRequiredMigration = '20260924130000_add_artwork_reading_tracking'
 
 const requiredQueueObjects = [
   'artist_merges',
   'ImageAnimationMetadata',
+  'artwork_reading_summaries',
+  'artwork_read_media',
   'creator_maintenance_plans',
   'creator_maintenance_items',
   'artwork_artists',
@@ -58,11 +61,13 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   try {
     ;[columnRows, tableRows, migrationRows, indexRows] = await Promise.all([
       client.$queryRaw<Array<{ columnName: string }>>(Prisma.sql`
-        SELECT column_name AS "columnName"
+        SELECT CASE WHEN table_name = 'Artwork' THEN 'Artwork.mediaRevision' ELSE column_name END AS "columnName"
         FROM information_schema.columns
         WHERE table_schema = current_schema()
-          AND table_name = 'system_jobs'
-          AND column_name IN ('definitionVersion', 'executionLane', 'progressData')
+          AND (
+            (table_name = 'system_jobs' AND column_name IN ('definitionVersion', 'executionLane', 'progressData'))
+            OR (table_name = 'Artwork' AND column_name = 'mediaRevision')
+          )
       `),
       client.$queryRaw<Array<{ tableName: string }>>(Prisma.sql`
         SELECT table_name AS "tableName"
@@ -109,6 +114,9 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   }
   if (!columnRows.some(({ columnName }) => columnName === 'progressData')) {
     missingObjects.push('system_jobs.progressData')
+  }
+  if (!columnRows.some(({ columnName }) => columnName === 'Artwork.mediaRevision')) {
+    missingObjects.push('Artwork.mediaRevision')
   }
 
   const existingTables = new Set(tableRows.map(({ tableName }) => tableName))

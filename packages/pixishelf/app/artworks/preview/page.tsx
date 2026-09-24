@@ -19,25 +19,64 @@ import 'swiper/css/navigation'
 import 'swiper/css/pagination'
 
 import './styles.css' // 引入本地样式文件，用于需要时定制覆盖
-import { useShallow } from 'zustand/shallow'
 import { getMediaInfo, isApngFile } from '@/lib/media'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useSafeBack } from '@/hooks/use-safe-back'
+import { useArtworkReading } from '@/lib/reading/reading-provider'
+import { useTRPC } from '@/lib/trpc'
+import { useQuery } from '@tanstack/react-query'
+import { Button } from '@/components/ui/button'
 
 export default function ArtworkPreviewPage() {
   const safeBack = useSafeBack()
-  const { images, clearImages } = useArtworkStore(
-    useShallow((state) => ({
-      images: state.images,
-      clearImages: state.clearImages
-    }))
-  )
+  const clearImages = useArtworkStore((state) => state.clearImages)
 
   const [currentIndex, setCurrentIndex] = useQueryState('index', parseAsInteger.withDefault(0))
+  const [artworkId] = useQueryState('artworkId', parseAsInteger)
+  const trpc = useTRPC()
+  const artworkQuery = useQuery(trpc.artwork.getById.queryOptions(artworkId ?? 0, { enabled: Boolean(artworkId) }))
+  const images = artworkQuery.data?.images ?? []
+  const reading = useArtworkReading(artworkId ?? 0)
+  const [readyIds, setReadyIds] = useState<Set<number>>(() => new Set())
+  const [errorIds, setErrorIds] = useState<Set<number>>(() => new Set())
   const [mounted, setMounted] = useState(false)
   const [swiperInstance, setSwiperInstance] = useState<any>(null)
   const [isJumping, setIsJumping] = useState(false)
   const [jumpValue, setJumpValue] = useState('')
+  const activeMediaId = images[currentIndex]?.id
+  const activeMediaReady = activeMediaId !== undefined &&
+    readyIds.has(activeMediaId) && !errorIds.has(activeMediaId)
+  const observe = reading.observe
+  const clearSurface = reading.clearSurface
+  const observationEpoch = reading.observationEpoch
+  useEffect(() => {
+    if (!artworkId || !activeMediaId) return
+    const surfaceId = 'original-preview'
+    observe(surfaceId, {
+      mediaId: activeMediaId,
+      ready: activeMediaReady,
+      visible: mounted,
+      automatic: false,
+      priority: 100
+    })
+    return () => clearSurface(surfaceId)
+  }, [activeMediaId, activeMediaReady, artworkId, clearSurface, mounted, observationEpoch, observe])
+  const markReady = (mediaId: number) => {
+    setReadyIds((current) => new Set(current).add(mediaId))
+    setErrorIds((current) => {
+      const next = new Set(current)
+      next.delete(mediaId)
+      return next
+    })
+  }
+  const markError = (mediaId: number) => {
+    setErrorIds((current) => new Set(current).add(mediaId))
+    setReadyIds((current) => {
+      const next = new Set(current)
+      next.delete(mediaId)
+      return next
+    })
+  }
 
   const { ext, isApng, isVideo } = useMemo(() => {
     const it: any = images[currentIndex] ?? {}
@@ -73,7 +112,7 @@ export default function ArtworkPreviewPage() {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-black text-white">
         <div className="text-center">
-          <p className="mb-4">没有可预览的图片</p>
+          <p className="mb-4">{artworkQuery.isLoading ? '正在加载作品…' : '没有可预览的图片'}</p>
           <button type="button" onClick={safeBack} className="rounded bg-white/10 px-4 py-2 hover:bg-white/20">
             返回
           </button>
@@ -82,7 +121,7 @@ export default function ArtworkPreviewPage() {
     )
   }
 
-  function renderSwiperSlide(image: ArtworkImageResponseDto & { raw?: ArtworkImageResponseDto }, index: number) {
+  function renderSwiperSlide(image: ArtworkImageResponseDto & { raw?: ArtworkImageResponseDto | null }, index: number) {
     const imgPath = image.raw?.path || image.path
     const isVideo = isVideoFile(imgPath)
     const isApng = isApngFile(imgPath)
@@ -91,7 +130,8 @@ export default function ArtworkPreviewPage() {
       return (
         <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
           <div className="flex h-full w-full items-center justify-center">
-            <ApngPlayer src={imgPath} alt={`Preview ${index}`} />
+            <ApngPlayer src={imgPath} alt={`Preview ${index}`}
+              onPosterLoad={() => markReady(image.id)} onPosterError={() => markError(image.id)} />
           </div>
         </SwiperSlide>
       )
@@ -111,6 +151,8 @@ export default function ArtworkPreviewPage() {
               size={image.size}
               className="h-full w-full"
               fillParent={true}
+              onReady={() => markReady(image.id)}
+              onError={() => markError(image.id)}
             />
           </div>
         </SwiperSlide>
@@ -128,6 +170,8 @@ export default function ArtworkPreviewPage() {
             sizes="100vw"
             className="max-h-full w-full object-contain"
             loading={Math.abs(index - currentIndex) < 1 ? 'eager' : 'lazy'}
+            onLoad={() => markReady(image.id)}
+            onError={() => markError(image.id)}
           />
         </div>
       </SwiperSlide>
@@ -136,6 +180,12 @@ export default function ArtworkPreviewPage() {
 
   return (
     <div className="fixed inset-0 z-[100] bg-black text-white">
+      {reading.invalidated ? (
+        <div className="absolute inset-x-4 top-16 z-30 flex items-center justify-between gap-3 rounded-lg bg-background p-3 text-sm text-foreground shadow-lg" role="status">
+          <span>作品媒体已更新，请重新打开阅读。</span>
+          <Button type="button" size="sm" variant="outline" onClick={() => void reading.reopen()}>重新打开</Button>
+        </div>
+      ) : null}
       {/* 顶部控制条 */}
       <div className="absolute left-0 right-0 top-0 z-10 flex h-16 items-center justify-between bg-gradient-to-b from-black/50 to-transparent px-4">
         <div className="flex items-center gap-3">

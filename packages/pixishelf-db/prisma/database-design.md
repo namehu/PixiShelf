@@ -11,6 +11,12 @@ sources:
 
 本文档总结了 `schema.prisma` 中未体现，但通过 Migration 脚本 (`migrations/`) 直接应用到数据库中的核心逻辑、扩展和索引设计。这些逻辑对于保证数据一致性和查询性能至关重要。
 
+## Artwork 阅读版本与进度约束
+
+`20260924130000_add_artwork_reading_tracking` 为既有 Artwork 加入 `mediaRevision INTEGER NOT NULL DEFAULT 1`，数据库约束要求版本至少为 1；它不回填历史阅读。`artwork_reading_summaries` 使用 `(userId, artworkId)` 主键，保存访问次数、逻辑媒体进度快照和最后位置；`artwork_read_media` 使用 `(userId, artworkId, mediaId)` 主键，避免同一账户重复计入同一 Image。摘要计数约束要求 `0 <= seenCount <= totalCount` 且访问次数非负，最后序号不能为负。账户与作品删除级联清理两表；媒体删除级联清理已读成员，摘要的 `lastMediaId` 置空。
+
+最近阅读索引为 `(userId, lastViewedAt DESC, artworkId DESC)`；两表均有按 artworkId 的索引用于重建失效清理，摘要的 lastMediaId 和已读表的 mediaId 也有外键查询索引。阅读状态由服务层在完整逻辑媒体映射上计算，数据库原始 Image 行数不直接代表总进度。普通媒体增删、排序由写入者先锁 Artwork 再写 Image，不更改版本或清空访问次数；完整重建由 App/Worker 在原发布事务中先锁 Artwork、递增版本并清空两表。此锁序还避免阅读上报持有 Artwork 行锁后触及 Image 外键、与媒体写入形成反向等待。旧版本应用回滚期间须暂停完整重建写入者；恢复边界见[备份与恢复](../../../docs/operations/backup-and-recovery.md)。
+
 ## Image 的 WebP 动画时长关系
 
 `20260924120000_add_image_animation_duration_metadata` 新增 `ImageAnimationMetadata`，`imageId` 是 Image 的一对一主键和外键，`ON DELETE CASCADE`。这是加法迁移，不回填历史 Image；缺少关系行的 WebP 自动成为人工探测任务候选。`durationMs` 和源文件 size/mtime/ctime/device/inode 使用 BIGINT；前端仅在 `READY`、当前时长策略、源路径匹配且 duration 能安全转成 number 时得到时长。`status,nextRetryAt,imageId` 索引用于有界候选和失败重试，不扫描原媒体来填列表。

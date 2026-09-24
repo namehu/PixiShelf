@@ -105,6 +105,7 @@ export interface VideoPlayerProps {
   onPlay?: (automatic?: boolean) => void
   onPause?: () => void
   onError?: (error: string) => void
+  onReady?: () => void
   settingActions?: VideoPlayerSettingAction[]
   /** undefined 沿用普通播放器行为；传入布尔值后由详情视口控制播放资格。 */
   playbackActive?: boolean
@@ -129,6 +130,7 @@ export function VideoPlayer({
   onPlay,
   onPause,
   onError,
+  onReady,
   settingActions,
   playbackActive,
   playbackPaused = false,
@@ -165,6 +167,7 @@ export function VideoPlayer({
   const onPlayRef = useRef(onPlay)
   const onPauseRef = useRef(onPause)
   const onErrorRef = useRef(onError)
+  const onReadyRef = useRef(onReady)
   const mediaSrc = useMemo(() => combinationApiResource(src), [src])
   const longPressPlaybackRate = useVideoLongPressPlaybackRate()
   const seekStepSeconds = useVideoSeekStepSeconds()
@@ -276,7 +279,8 @@ export function VideoPlayer({
     onPlayRef.current = onPlay
     onPauseRef.current = onPause
     onErrorRef.current = onError
-  }, [onPlay, onPause, onError])
+    onReadyRef.current = onReady
+  }, [onPlay, onPause, onError, onReady])
 
   useEffect(() => {
     hasStartedPlayingRef.current = false
@@ -414,6 +418,8 @@ export function VideoPlayer({
       }
 
       art.on('ready', () => {
+        if (!active) return
+        onReadyRef.current?.()
         syncMetadata()
         updateRemainingTime()
         setProgressPortalTarget(getArtProgress(art))

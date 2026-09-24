@@ -41,4 +41,13 @@ describe('ArtworkCard', () => {
     expect(screen.queryByRole('heading')).toBeNull()
     expect(screen.queryByText('示例艺术家')).toBeNull()
   })
+
+  it('shows reading progress without changing the artwork link', () => {
+    render(<ArtworkCard artwork={artwork as never} showReadingStatus reading={{
+      artworkId: 42, viewCount: 2, seenCount: 1, totalCount: 3, status: 'IN_PROGRESS',
+      lastViewedAt: null, lastActiveAt: null, lastMediaId: 1, lastMediaIndex: 0
+    }} />)
+    expect(screen.getByText('阅读中 1/3')).toBeTruthy()
+    expect(screen.getByRole('link', { name: '查看作品：可选择的作品标题' })).toBeTruthy()
+  })
 })

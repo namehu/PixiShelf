@@ -4,7 +4,7 @@ import 'server-only'
 import path from 'path'
 import { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
-import { isApngFile, isVideoFile } from '@/lib/media'
+import { isVideoFile } from '@/lib/media'
 import { normalizeImageSizeField } from '@/utils/image-size'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -12,6 +12,7 @@ import { buildVideoPosterUrl } from '@/lib/media-cover'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import { ANIMATION_DURATION_TIMING_POLICY_VERSION } from '@pixishelf/db'
 import type { AnimationMetadataDto } from '@/schemas/artwork.dto'
+import { groupLogicalMedia } from './logical-media'
 
 dayjs.extend(utc)
 
@@ -138,26 +139,12 @@ export function transformImages(
     })
   })
 
-  // 2. 核心逻辑：过滤并挂载
-  const finalItems = allItems.filter((item) => {
-    // 普通图片、视频、无主的APNG）都保留
-    if (!isApngFile(item.path)) {
-      return true
-    }
-    // 有 APNG 需要检查是否要被合并
-    const stem = getStem(item.path)
-    // 在列表中寻找是否存在同名的视频文件 (Webm/Mp4)
-    // 注意：这里利用了引用传递，找到的 videoOwner 就是数组里的同一个对象
-    const videoOwner = allItems.find((i) => i !== item && i.mediaType === 'video' && getStem(i.path) === stem)
-
-    if (videoOwner) {
-      // 找到了主人：把自己挂载到视频对象上 (作为原始资源)
-      Object.assign(videoOwner, { raw: item })
-      return false // 从最终列表中移除这个 APNG
-    }
-
-    return true
-  })
+  // 2. Complete logical sequence and member mapping are shared with reading progress.
+  const groups = groupLogicalMedia(allItems)
+  for (const group of groups) {
+    for (const member of group.members.slice(1)) Object.assign(group.item, { raw: member })
+  }
+  const finalItems = groups.map((group) => group.item)
 
   // 3. 统计逻辑（基于合并后的 finalItems）
   const hasVideo = finalItems.some((img) => img.mediaType === 'video')

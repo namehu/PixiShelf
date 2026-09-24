@@ -7,8 +7,13 @@ import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { normalizeImageSizeField, toDatabaseImageSize } from '@/utils/image-size'
 import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
+import {
+  invalidateArtworkReadingForRebuild,
+  lockArtworkForReading,
+  type ArtworkReadingInvalidationTransaction
+} from '@pixishelf/db'
 
-export interface ArtworkImageTransactionClient {
+export interface ArtworkImageTransactionClient extends ArtworkReadingInvalidationTransaction {
   image: {
     deleteMany(args: any): Promise<any>
     createMany(args: any): Promise<any>
@@ -122,6 +127,7 @@ export async function updateArtworkImagesWithTransactionClient(
   chaptersMeta: ReplaceChapterMetaInput[] = [],
   options: { appendTagIds?: number[]; preserveExistingOrder?: boolean } = {}
 ) {
+  await invalidateArtworkReadingForRebuild(tx, artworkId)
   const orderedFiles = options.preserveExistingOrder
     ? preserveExistingMediaPathOrder(
         files,
@@ -201,10 +207,7 @@ export async function reorderArtworkImages(input: {
   const { artworkId, imageIds, expectedImageIds } = input
 
   return prisma.$transaction(async (tx) => {
-    const artwork = await tx.artwork.findUnique({
-      where: { id: artworkId },
-      select: { id: true }
-    })
+    const artwork = await lockArtworkForReading(tx, artworkId)
     if (!artwork) {
       throw new ArtworkImageOrderError('NOT_FOUND', 'Artwork not found')
     }
@@ -290,6 +293,7 @@ export async function deleteImage(imageId: number, deleteFile: boolean) {
 
   // 3. 删除数据库记录并同步媒体派生标签
   await prisma.$transaction(async (tx) => {
+    if (image.artworkId) await lockArtworkForReading(tx, image.artworkId)
     await tx.image.delete({
       where: { id: imageId }
     })
@@ -309,6 +313,7 @@ export async function deleteImage(imageId: number, deleteFile: boolean) {
  */
 export async function addImage(artworkId: number, file: ImageMeta) {
   return await prisma.$transaction(async (tx) => {
+    await lockArtworkForReading(tx, artworkId)
     const image = await tx.image.create({
       data: {
         artworkId,
@@ -336,6 +341,7 @@ export async function addImage(artworkId: number, file: ImageMeta) {
  */
 export async function addImageWithChapters(artworkId: number, file: ImageMeta, chaptersMeta?: ChapterMetaInput) {
   return await prisma.$transaction(async (tx) => {
+    await lockArtworkForReading(tx, artworkId)
     const image = await tx.image.create({
       data: {
         artworkId,

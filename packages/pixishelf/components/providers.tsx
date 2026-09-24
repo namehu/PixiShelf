@@ -12,6 +12,7 @@ import { UserSettingProvider } from '@/components/user-setting'
 import type { UserSettings } from '@/schemas/user-setting.dto'
 import { NavigationHistoryTracker } from '@/components/navigation-history-tracker'
 import AppShell from '@/components/layout/app-shell'
+import { ReadingProvider } from '@/lib/reading/reading-provider'
 
 function makeQueryClient() {
   return new QueryClient({
@@ -67,15 +68,17 @@ export function Providers({ children, initialUser, initialSettings }: ProvidersP
     <QueryClientProvider client={queryClient}>
       <TRPCClientProvider trpcClient={trpcClient} queryClient={queryClient}>
         <AuthProvider initialUser={initialUser}>
-          <UserSettingProvider
-            initialSettings={initialSettings}
-            initialUserId={initialUser?.id == null ? null : String(initialUser.id)}
-          >
-            <Suspense fallback={null}>
-              <NavigationHistoryTracker />
-            </Suspense>
-            <AppShell>{children}</AppShell>
-          </UserSettingProvider>
+          <ReadingProvider>
+            <UserSettingProvider
+              initialSettings={initialSettings}
+              initialUserId={initialUser?.id == null ? null : String(initialUser.id)}
+            >
+              <Suspense fallback={null}>
+                <NavigationHistoryTracker />
+              </Suspense>
+              <AppShell>{children}</AppShell>
+            </UserSettingProvider>
+          </ReadingProvider>
         </AuthProvider>
       </TRPCClientProvider>
     </QueryClientProvider>

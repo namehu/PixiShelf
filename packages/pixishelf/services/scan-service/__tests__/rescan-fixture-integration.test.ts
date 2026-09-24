@@ -3,6 +3,17 @@ import os from 'os'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { rescanArtwork, rescanLocalArtwork } from '../index'
+import { processRescanBatch } from '../batch-processor'
+
+const { invalidateReadingMock, lockArtworkMock } = vi.hoisted(() => ({
+  invalidateReadingMock: vi.fn(async (...args: [unknown, number]) => args[1]),
+  lockArtworkMock: vi.fn(async (...args: [unknown, number]) => ({ id: args[1], mediaRevision: 1 }))
+}))
+
+vi.mock('@pixishelf/db', () => ({
+  invalidateArtworkReadingForRebuild: invalidateReadingMock,
+  lockArtworkForReading: lockArtworkMock
+}))
 
 type ArtistRecord = {
   id: number
@@ -77,6 +88,13 @@ type ArtworkExternalRefRecord = {
   locator: unknown
 }
 
+type ArtistExternalRefRecord = {
+  id: number
+  artistId: number
+  providerKey: 'pixiv'
+  externalId: string
+}
+
 type ArtistCreateInput = Omit<ArtistRecord, 'id'>
 type ArtworkCreateInput = Omit<ArtworkRecord, 'id'>
 type TagCreateInput = Omit<TagRecord, 'id'>
@@ -109,11 +127,13 @@ const { database, prismaStub } = vi.hoisted(() => {
     artworkTags: [] as ArtworkTagRecord[],
     rawMetadata: [] as RawMetadataRecord[],
     artworkExternalRefs: [] as ArtworkExternalRefRecord[],
+    artistExternalRefs: [] as ArtistExternalRefRecord[],
     nextArtistId: 1,
     nextArtworkId: 1,
     nextTagId: 1,
     nextImageId: 1,
-    nextArtworkExternalRefId: 1
+    nextArtworkExternalRefId: 1,
+    nextArtistExternalRefId: 1
   }
 
   function valuesIn<T>(args: { where?: Record<string, unknown> }, field: string): T[] | undefined {
@@ -141,7 +161,13 @@ const { database, prismaStub } = vi.hoisted(() => {
     artist: {
       findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
         const userIds = valuesIn<string>(args, 'userId')
-        return database.artists.filter((artist) => !userIds || (artist.userId && userIds.includes(artist.userId)))
+        return database.artists
+          .filter((artist) => !userIds || (artist.userId && userIds.includes(artist.userId)))
+          .map((artist) =>
+            args.include?.externalRefs
+              ? { ...artist, externalRefs: database.artistExternalRefs.filter((ref) => ref.artistId === artist.id) }
+              : artist
+          )
       }),
       createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtistCreateInput>) => {
         let count = 0
@@ -154,6 +180,23 @@ const { database, prismaStub } = vi.hoisted(() => {
             userId: artist.userId,
             bio: artist.bio
           })
+          count++
+        }
+        return { count }
+      })
+    },
+    artistExternalRef: {
+      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
+        const externalIds = valuesIn<string>(args, 'externalId')
+        return database.artistExternalRefs
+          .filter((ref) => !externalIds || externalIds.includes(ref.externalId))
+          .map((ref) => ({ ...ref, artist: database.artists.find((artist) => artist.id === ref.artistId) }))
+      }),
+      createMany: vi.fn(async (args: PrismaCreateManyArgs<Omit<ArtistExternalRefRecord, 'id'>>) => {
+        let count = 0
+        for (const ref of args.data) {
+          if (args.skipDuplicates && database.artistExternalRefs.some((row) => row.externalId === ref.externalId)) continue
+          database.artistExternalRefs.push({ id: database.nextArtistExternalRefId++, ...ref })
           count++
         }
         return { count }
@@ -202,6 +245,12 @@ const { database, prismaStub } = vi.hoisted(() => {
       })
     },
     artworkExternalRef: {
+      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
+        const externalIds = valuesIn<string>(args, 'externalId')
+        return database.artworkExternalRefs
+          .filter((ref) => !externalIds || externalIds.includes(ref.externalId))
+          .map((ref) => selectFields(ref, args.select))
+      }),
       findUnique: vi.fn(async (args: PrismaFindArgs) => {
         const identity = args.where?.providerKey_externalId
         if (!isRecord(identity)) return null
@@ -406,11 +455,13 @@ function resetDatabase() {
   database.artworkTags = []
   database.rawMetadata = []
   database.artworkExternalRefs = []
+  database.artistExternalRefs = []
   database.nextArtistId = 1
   database.nextArtworkId = 1
   database.nextTagId = 1
   database.nextImageId = 1
   database.nextArtworkExternalRefId = 1
+  database.nextArtistExternalRefId = 1
 }
 
 function seedArtist(input: Partial<ArtistRecord> = {}) {
@@ -530,6 +581,55 @@ describe('rescan fixture integration', () => {
 
   afterEach(async () => {
     await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+  })
+
+  it('locks overlapping Pixiv rescan batches in artwork ID order while publishing in input order', async () => {
+    const scanPath = await createFixtureRoot()
+    type BatchItem = Parameters<typeof processRescanBatch>[0][number]
+    type BatchContext = Parameters<typeof processRescanBatch>[1]
+
+    for (const inputIds of [[20, 10], [10, 20]]) {
+      resetDatabase()
+      vi.clearAllMocks()
+      const artist = seedArtist({ userId: 'rescan-lock-user' })
+      for (const id of [10, 20]) {
+        const artwork = seedArtwork({ id, artistId: artist.id, externalId: String(id) })
+        seedPixivReference(artwork)
+      }
+      const published: string[] = []
+      const context: BatchContext = {
+        artistCache: new Map([[artist.userId!, artist]]),
+        tagCache: new Map(),
+        scanResult: {
+          totalArtworks: 2,
+          newArtists: 0,
+          newTags: 0,
+          skippedArtworks: 0,
+          processingTime: 0,
+          newArtworks: 0,
+          newImages: 0,
+          errors: []
+        },
+        options: {
+          scanPath,
+          audit: { recordItems: async (items) => { published.push(...items.map((item) => item.externalId!)) } }
+        }
+      }
+      const batch: BatchItem[] = inputIds.map((id) => ({
+        metadata: { id: String(id), user: artist.name, userId: artist.userId!, title: `Rescanned ${id}` },
+        mediaFiles: [],
+        directoryPath: path.join(scanPath, String(id)),
+        metadataFilePath: path.join(scanPath, `${id}-meta.json`),
+        directoryCreatedAt: new Date('2026-09-24T00:00:00.000Z')
+      }))
+
+      await processRescanBatch(batch, context)
+
+      expect(lockArtworkMock.mock.calls.map(([, id]) => id)).toEqual([10, 20])
+      expect(invalidateReadingMock.mock.calls.map(([, id]) => id)).toEqual(inputIds)
+      expect(lockArtworkMock.mock.invocationCallOrder[1]!).toBeLessThan(invalidateReadingMock.mock.invocationCallOrder[0]!)
+      expect(published).toEqual(inputIds.map(String))
+    }
   })
 
   it('rescans Pixiv metadata artwork, replaces media and raw metadata, and keeps existing tag relations', async () => {

@@ -2,6 +2,7 @@ import 'server-only'
 import { randomUUID } from 'crypto'
 import path from 'path'
 import { prisma } from '@/lib/prisma'
+import { lockArtworkForReading } from '@pixishelf/db'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
 import { requestArchiveArtworkMaintenance } from '@/services/archive/archive-maintenance-service'
@@ -183,7 +184,10 @@ export async function deleteArtwork(id: number, options: { requestedByUserId: st
     await files.prepare(await findOtherReferences(id, scopes))
     const originalsDeleted = await files.deleteOriginals()
     try {
-      const deleted = await prisma.image.deleteMany({ where: { artworkId: id } })
+      const deleted = await prisma.$transaction(async (tx) => {
+        await lockArtworkForReading(tx, id)
+        return tx.image.deleteMany({ where: { artworkId: id } })
+      })
       report.database.media = 'DELETED'
       report.database.deletedMediaCount = deleted.count
       report.database.relatedRecords.push(

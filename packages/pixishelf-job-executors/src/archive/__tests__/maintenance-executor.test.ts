@@ -354,6 +354,7 @@ function purgeTransaction(overrides: { trashPath?: string } = {}) {
     ]
   }
   return {
+    $queryRaw: vi.fn().mockResolvedValue([{ id: artwork.id, mediaRevision: 1 }]),
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     artwork: {
       findUnique: vi.fn().mockResolvedValue(artwork),

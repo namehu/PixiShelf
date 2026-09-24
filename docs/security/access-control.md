@@ -1,12 +1,13 @@
 ---
 status: current
 scope: PixiShelf 当前调用者、页面、HTTP、tRPC、Server Action、服务网络和存储权限边界
-last-verified: 2026-09-10
+last-verified: 2026-09-24
 sources:
   - packages/pixishelf/proxy.ts
   - packages/pixishelf/lib/auth/
   - packages/pixishelf/server/trpc.ts
   - packages/pixishelf/server/routers/
+  - packages/pixishelf/schemas/reading.dto.ts
   - packages/pixishelf/app/api/
   - packages/pixishelf/actions/
   - build/docker-compose.dev.yml
@@ -88,6 +89,8 @@ WebP 时长探测沿用管理任务的 `adminProcedure` 入队/重试和受登�
 
 `artwork.delete` 使用 `adminProcedure`，输入正整数作品 ID，返回当次结构化删除报告（包括部分执行结果），不再返回 Artwork 行。报告只向已认证会话提供相对路径和安全错误说明，不包含原始异常堆栈或服务器绝对路径；客户端下载遵循现有隐私模式的“视觉遮蔽不改变导出内容”规则。详见[作品删除与删除总结](../features/artwork-deletion.md)。
 
+阅读接口 `reading.context`、`reading.report`、`reading.summaries`、`reading.history` 均使用 `authProcedure`；服务端从 Session 取得实际账户，输入中的 `expectedUserId` 只用于防止切换账户期间把响应混入旧账户缓存，与当前 Session 不一致即拒绝。上报还需校验作品 `mediaRevision` 和媒体归属，客户端不能提交访问次数、完成状态或任意账户 ID。作品列表的阅读状态筛选同样要求账户一致性前置条件；不启用阅读筛选的原有列表调用保持兼容。阅读历史、摘要和缓存均按账户隔离，但当前所有账户仍拥有相同的实例管理员能力，不能因此声称存在租户级权限隔离。功能发布状态见[作品阅读记录与进度](../features/artwork-reading.md)。
+
 | 过程              | 实际校验                     | 当前含义                                 |
 | ----------------- | ---------------------------- | ---------------------------------------- |
 | `publicProcedure` | 仅进程内 IP 限流             | procedure 本身不要求 Session             |
@@ -164,6 +167,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `auth`            | 当前账户 `me`                                                             | 无                                                                                           | `authProcedure`                                                                                   |
 | `artist`          | 详情、分页                                                                | 创建、修改、收藏、删除、Pixiv 补全/取消/重试、采用来源姓名                                   | 既有读写为 `authProcedure`；Pixiv 任务控制与采用来源姓名为 `adminProcedure`                       |
 | `artwork`         | 详情、feed、相邻、随机、推荐、上传路径、Pixiv 同步汇总与受控报告/快照读取 | 创建、修改、删除、媒体增删与排序、Pixiv 同步/取消/重试                                       | 大多为 `authProcedure`；作品删除、视频重新探测、Pixiv 任务控制及报告 JSON 读取为 `adminProcedure` |
+| `reading`         | 当前账户的作品上下文、当前页批量摘要、最近阅读历史                       | 当前账户的有效阅读事件与心跳上报                                                               | 全部为 `authProcedure`；每个入口核对 `expectedUserId` 与 Session                           |
 | `search`          | 搜索建议                                                                  | 无                                                                                           | `authProcedure`                                                                                   |
 | `tag`             | 查询、管理列表与 Pixiv 补全状态                                           | 创建、修改、删除、批量补全与单标签重试                                                       | 普通管理为 `authProcedure`；Pixiv 补全读写为 `adminProcedure`                                     |
 | `series`          | `list`、`get`、Pixiv 系列核对汇总                                         | 创建、修改、删除、成员增删与排序、Pixiv 系列核对/取消/重试                                   | 普通读取为 `publicProcedure`、普通写入为 `authProcedure`；Pixiv 任务控制为 `adminProcedure`       |

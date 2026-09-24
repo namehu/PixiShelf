@@ -11,7 +11,13 @@ const mocks = vi.hoisted(() => ({
   appendScanRunItems: vi.fn(),
   completeScanRunSummary: vi.fn(),
   failScanRun: vi.fn(),
-  updateScanRunItemMedia: vi.fn()
+  updateScanRunItemMedia: vi.fn(),
+  lockArtwork: vi.fn().mockResolvedValue({ id: 10, mediaRevision: 1 })
+}))
+
+vi.mock('@pixishelf/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pixishelf/db')>()),
+  lockArtworkForReading: mocks.lockArtwork
 }))
 
 vi.mock('@/lib/prisma', () => ({

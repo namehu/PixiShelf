@@ -17,18 +17,43 @@ import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
 import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkVideoOptimization } from './artwork-video-optimization-context'
+import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
   index: number
   onPreviewStatusChange?: (status: PreviewStatus) => void
+  reading?: ArtworkReadingHandle
+  trackingActive?: boolean
 }
 
 /**
  * 懒加载媒体组件
  */
-const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps) => {
+const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, trackingActive = true }: LazyMediaProps) => {
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('loading')
+  const [visible, setVisible] = useState(false)
+  const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
+  const autoMode = useArtworkAutoBrowseStore((state) => state.mode)
+  const autoStatus = useArtworkAutoBrowseStore((state) => state.status)
+  const automatic = autoMode === 'scroll' && ['running', 'waiting'].includes(autoStatus)
+  const surfaceId = `detail-${media.id}`
+  const observe = reading?.observe
+  const clearSurface = reading?.clearSurface
+  const observationEpoch = reading?.observationEpoch
+  useEffect(() => {
+    if (!observe || !clearSurface) return
+    observe(surfaceId, {
+      mediaId: media.id,
+      ready: previewStatus === 'ready' && !suspendPlayback,
+      visible,
+      automatic,
+      active: trackingActive,
+      priority: 0
+    })
+    return () => clearSurface(surfaceId)
+  }, [automatic, clearSurface, media.id, observationEpoch, observe, previewStatus, surfaceId,
+    suspendPlayback, trackingActive, visible])
   const live = useRef(true)
   useEffect(() => {
     live.current = true
@@ -44,6 +69,9 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
     },
     [onPreviewStatusChange]
   )
+  useEffect(() => {
+    if (suspendPlayback) report('loading')
+  }, [report, suspendPlayback])
   const onLoad = useCallback(
     (event: React.SyntheticEvent<HTMLImageElement>) => {
       const image = event.currentTarget
@@ -65,7 +93,6 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
   const playbackActive = useArtworkAutoBrowseStore((state) => state.activeVideoId === media.id && !state.previewOpen)
   const playbackPaused = useArtworkAutoBrowseStore((state) => state.pausedVideoIds.includes(media.id))
   const animation = useArtworkAnimation(media.id, 'scroll', `${media.path}:${media.updatedAt}`)
-  const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
   const src = media.path
   const hasDimensions =
     hasReliableSingleFrameDimensions(media) &&
@@ -99,6 +126,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
 
   const trackingRef = useOnInView(
     (inView) => {
+      setVisible(inView)
       if (inView) {
         setCurrentIndex(index)
         if (!useArtworkAutoBrowseStore.getState().previewOpen) {
@@ -178,6 +206,8 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange }: LazyMediaProps)
               }
             } else onPlayingChange(true)
           }}
+          onReady={() => report('ready')}
+          onError={() => report('error')}
         />
       )
     }
