@@ -196,7 +196,7 @@ describe.each<AutoBrowseMode>(['scroll', 'slideshow'])('%s streaming integration
     await act(async () =>
       worker.emit({ type: 'error', error: { code: 'metadata', message: 'metadata', recoverableByLegacy: true } })
     )
-    expect(screen.getByRole('status').textContent).toContain('暂停后将从头播放')
+    expect(screen.getByRole('status').textContent).toContain('暂停后重播')
     expect(screen.getAllByRole('img').some((image) => image.getAttribute('src') === 'blob:legacy')).toBe(true)
     act(() => store.getState().pause())
     await act(async () => store.getState().resume())
@@ -271,7 +271,7 @@ describe('manual streaming playback', () => {
       })
     )
     expect(useWebpPlayerStore.getState().manifest).toBeNull()
-    expect(screen.getByRole('status').textContent).toContain('当前使用兼容播放')
+    expect(screen.getByRole('status').textContent).toContain('兼容播放：')
   })
   it.each(['surface', 'badge'] as const)(
     'uses WASM from the %s control without automatic browsing',
@@ -358,7 +358,7 @@ describe('manual streaming playback', () => {
         error: { code: 'metadata', message: 'metadata', recoverableByLegacy: true }
       })
     )
-    expect(screen.getByRole('status').textContent).toContain('当前使用兼容播放')
+    expect(screen.getByRole('status').textContent).toContain('兼容播放：')
     expect(view.container.querySelector('canvas')).toBeNull()
     expect(view.container.querySelector('img[src$="/manual.webp"]')).not.toBeNull()
   })

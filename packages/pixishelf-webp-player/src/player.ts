@@ -102,6 +102,7 @@ export class WebpPlayer {
       this.rejectLoad = reject
     })
     const generation = this.generation
+    let stage: 'capability' | 'initialization' = 'capability'
     try {
       const url = new URL(source.url, window.location.href)
       if (url.origin !== window.location.origin || !['http:', 'https:'].includes(url.protocol))
@@ -110,7 +111,8 @@ export class WebpPlayer {
         if (new URL(asset, window.location.href).origin !== window.location.origin) throw new Error('unsupported')
       }
       if (!globalThis.WebAssembly || !globalThis.Worker || !globalThis.ReadableStream) throw new Error('unsupported')
-      if (source.size && source.size > this.limits.maxInputBytes) throw new Error('budget')
+      if (source.size && source.size > this.limits.maxInputBytes) throw new Error('file-limit')
+      stage = 'initialization'
       this.worker = new Worker(this.options.workerUrl, { type: 'module', name: 'pixishelf-webp' })
       this.worker.onmessage = ({ data }: MessageEvent<WorkerEvent>) => {
         if (generation !== this.generation) return
@@ -129,7 +131,12 @@ export class WebpPlayer {
       this.command({ type: 'pull' })
       this.command({ type: 'pull' })
     } catch (error) {
-      const code = error instanceof Error && error.message === 'budget' ? 'budget' : 'unsupported'
+      const code =
+        error instanceof Error && error.message === 'file-limit'
+          ? 'file-limit'
+          : stage === 'initialization'
+            ? 'initialization'
+            : 'unsupported'
       this.fail({ code, message: code, recoverableByLegacy: true })
     }
     return promise

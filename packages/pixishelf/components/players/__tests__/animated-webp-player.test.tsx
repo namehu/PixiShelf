@@ -7,8 +7,15 @@ import { useEffect } from 'react'
 
 // Exercise the legacy path only when the streaming surface reports incompatibility.
 vi.mock('../streaming-webp-surface', () => ({
-  default: function UnsupportedSurface({ onFallback }: { onFallback: () => void }) {
-    useEffect(onFallback, [onFallback])
+  default: function UnsupportedSurface({
+    onFallback
+  }: {
+    onFallback: (failure: { code: 'metadata'; message: string; recoverableByLegacy: true }) => void
+  }) {
+    useEffect(
+      () => onFallback({ code: 'metadata', message: 'sensitive path omitted', recoverableByLegacy: true }),
+      [onFallback]
+    )
     return null
   }
 }))
@@ -43,6 +50,31 @@ describe('AnimatedWebpPlayer compatibility fallback', () => {
     vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('shows one non-interactive reason for four seconds and resets only for a new image', () => {
+    vi.useFakeTimers()
+    const { container, rerender } = render(<AnimatedWebpPlayer src="/one.webp" playing controlMode="badge" />)
+    const notice = screen.getByRole('status')
+    expect(notice.textContent).toContain('包含暂不支持的图片元数据')
+    expect(notice.textContent).not.toContain('sensitive path')
+    expect(notice.className).toContain('pointer-events-none')
+    expect(container.firstElementChild?.getAttribute('data-webp-fallback-reason')).toBe('metadata')
+    act(() => vi.advanceTimersByTime(2000))
+    rerender(<AnimatedWebpPlayer src="/one.webp" playing controlMode="badge" formatLabel="WebP" />)
+    act(() => vi.advanceTimersByTime(2000))
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(container.firstElementChild?.getAttribute('data-webp-fallback-reason')).toBe('metadata')
+    rerender(<AnimatedWebpPlayer src="/two.webp" playing controlMode="badge" />)
+    expect(screen.getByRole('status').textContent).toContain('包含暂不支持的图片元数据')
+    act(() => vi.advanceTimersByTime(1000))
+    rerender(<AnimatedWebpPlayer src="/one.webp" playing={false} controlMode="badge" />)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(container.firstElementChild?.getAttribute('data-webp-fallback-reason')).toBeNull()
+    rerender(<AnimatedWebpPlayer src="/one.webp" playing controlMode="badge" />)
+    expect(screen.getByRole('status').textContent).toContain('包含暂不支持的图片元数据')
+    act(() => vi.advanceTimersByTime(4000))
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('toggles between the static poster and animated image', () => {

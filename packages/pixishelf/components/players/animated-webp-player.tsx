@@ -7,6 +7,7 @@ import { withMediaVersion } from '@/lib/media-url'
 import { combinationApiResource } from '@/utils/combination-static'
 import { createSingleLoopWebp } from '@/lib/single-loop-webp'
 import { isWebpFile } from '@/lib/media'
+import type { PlayerFailure } from '@pixishelf/webp-player'
 import StreamingWebpSurface from './streaming-webp-surface'
 
 type AnimatedWebpPlayerControlMode = 'surface' | 'badge' | 'external'
@@ -38,6 +39,20 @@ interface AnimatedWebpPlayerProps {
 }
 
 const IMGPROXY_URL = process.env.NEXT_PUBLIC_IMGPROXY_URL || 'http://localhost:5431'
+
+const fallbackReason: Record<PlayerFailure['code'], string> = {
+  unsupported: '浏览器不支持流式播放',
+  initialization: '播放组件加载失败',
+  budget: '超出流式播放预算',
+  'file-limit': '文件超过流式播放上限',
+  'pixel-limit': '图片尺寸超过流式播放上限',
+  'memory-limit': '播放内存不足',
+  metadata: '包含暂不支持的图片元数据',
+  network: '网络错误',
+  auth: '无权访问',
+  invalid: '图片损坏',
+  internal: '播放错误'
+}
 
 function getStaticWebpPosterUrl(src: string, width = 1200) {
   const normalizedSrc = src.startsWith('/') ? src : `/${src}`
@@ -83,6 +98,9 @@ export default function AnimatedWebpPlayer({
   const [isLoadingAnimation, setIsLoadingAnimation] = useState(false)
   const [animationFailed, setAnimationFailed] = useState(false)
   const [fallbackAttempt, setFallbackAttempt] = useState<string | null>(null)
+  const [fallbackNotice, setFallbackNotice] = useState<{ attempt: string; code: PlayerFailure['code'] } | null>(null)
+  const [fallbackCode, setFallbackCode] = useState<PlayerFailure['code'] | null>(null)
+  const fallbackSeen = useRef<string | null>(null)
   const [streamReadyAttempt, setStreamReadyAttempt] = useState<string | null>(null)
   const [singleLoop, setSingleLoop] = useState<{
     source: string
@@ -114,7 +132,20 @@ export default function AnimatedWebpPlayer({
   const fileSize = formatFileSize(size)
   const requestedPlaying = playing ?? uncontrolledPlaying
   const isPlaying = isAnimated && requestedPlaying
-  const attempt = `${originalSrc}:${playbackKey}`
+  const attemptSource = `${originalSrc}:${playbackKey}`
+  const attemptIdentity = useRef({ source: attemptSource, sequence: 0 })
+  if (attemptIdentity.current.source !== attemptSource) {
+    attemptIdentity.current = { source: attemptSource, sequence: attemptIdentity.current.sequence + 1 }
+  }
+  const attempt = `${attemptIdentity.current.sequence}:${attemptSource}`
+  useEffect(() => {
+    setFallbackNotice((notice) => (notice?.attempt === attempt ? notice : null))
+  }, [attempt])
+  useEffect(() => {
+    if (fallbackNotice?.attempt !== attempt) return
+    const timer = window.setTimeout(() => setFallbackNotice(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [fallbackNotice, attempt])
   const streaming =
     isWebpFile(src.split(/[?#]/)[0]) && isAnimated && (isPlaying || playbackPaused) && fallbackAttempt !== attempt
   const animationSrc = playOnce
@@ -356,7 +387,13 @@ export default function AnimatedWebpPlayer({
           onComplete={() => {
             if (playOnce) callbacks.current.onAnimationComplete?.()
           }}
-          onFallback={() => setFallbackAttempt(attempt)}
+          onFallback={(failure) => {
+            if (fallbackSeen.current === attempt) return
+            fallbackSeen.current = attempt
+            setFallbackAttempt(attempt)
+            setFallbackCode(failure.code)
+            setFallbackNotice({ attempt, code: failure.code })
+          }}
           onError={() => {
             setAnimationFailed(true)
             callbacks.current.onAnimationError?.()
@@ -381,12 +418,12 @@ export default function AnimatedWebpPlayer({
 
       {playbackBadge}
 
-      {fallbackAttempt === attempt && !animationFailed && (
+      {fallbackNotice?.attempt === attempt && !animationFailed && (
         <div
           role="status"
-          className="pointer-events-none absolute inset-x-3 top-3 rounded bg-black/65 px-3 py-2 text-xs text-white"
+          className="pointer-events-none absolute inset-x-3 top-3 z-20 rounded bg-black/65 px-3 py-1.5 text-xs text-white"
         >
-          当前使用兼容播放：完整加载后开始，暂停后将从头播放
+          兼容播放：{fallbackReason[fallbackNotice.code]}。完整加载后开始，暂停后重播
         </div>
       )}
 
@@ -416,6 +453,7 @@ export default function AnimatedWebpPlayer({
           isPlaying ? (animationFailed ? 'error' : loadingAnimation ? 'loading' : 'ready') : 'idle'
         }
         data-animation-duration-ms={playOnce ? singleLoop?.durationMs : undefined}
+        data-webp-fallback-reason={fallbackAttempt === attempt ? fallbackCode : undefined}
       >
         {content}
       </div>
@@ -430,6 +468,7 @@ export default function AnimatedWebpPlayer({
       aria-label={isPlaying && playOnce ? '停止本轮动图' : `${isPlaying ? '暂停' : '播放'} ${formatLabel} 动图`}
       aria-pressed={isPlaying}
       aria-busy={loadingAnimation}
+      data-webp-fallback-reason={fallbackAttempt === attempt ? fallbackCode : undefined}
       onClick={handleTogglePlayback}
     >
       {content}

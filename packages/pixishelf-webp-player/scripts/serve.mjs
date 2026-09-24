@@ -22,6 +22,39 @@ createServer(async (req, res) => {
       return
     }
     const data = await readFile(file)
+    const padMiB = Number(url.searchParams.get('padMiB'))
+    if (relative === 'tests/fixtures/composite.webp' && [33, 65, 129, 257].includes(padMiB)) {
+      const padding = padMiB * 1024 * 1024
+      const total = data.length + 8 + padding
+      const header = Buffer.from(data)
+      header.writeUInt32LE(total - 8, 4)
+      const chunk = Buffer.alloc(8)
+      chunk.write('JUNK', 0)
+      chunk.writeUInt32LE(padding, 4)
+      res.writeHead(200, {
+        'content-type': 'image/webp',
+        'content-length': total,
+        'cache-control': 'no-store'
+      })
+      res.write(header)
+      res.write(chunk)
+      const zeros = Buffer.alloc(64 * 1024)
+      for (let written = 0; written < padding && !res.destroyed; written += zeros.length) {
+        if (!res.write(zeros)) {
+          await new Promise((done) => {
+            const settled = () => {
+              res.off('drain', settled)
+              res.off('close', settled)
+              done()
+            }
+            res.once('drain', settled)
+            res.once('close', settled)
+          })
+        }
+      }
+      if (!res.destroyed) res.end()
+      return
+    }
     res.writeHead(200, {
       'content-type': mime[extname(file)] ?? 'application/octet-stream',
       'content-length': data.length,

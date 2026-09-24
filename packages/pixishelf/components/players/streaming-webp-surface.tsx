@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import type { WebpPlayer } from '@pixishelf/webp-player'
+import type { PlayerFailure, WebpPlayer } from '@pixishelf/webp-player'
 import { useWebpPlayerStore } from '@/store/use-webp-player-store'
 
 interface Props {
@@ -15,7 +15,7 @@ interface Props {
   onBuffering: () => void
   onComplete: () => void
   onError: () => void
-  onFallback: () => void
+  onFallback: (failure: PlayerFailure) => void
 }
 
 /** React owns the attempt; the player owns frame time, including across pauses. */
@@ -53,7 +53,7 @@ export default function StreamingWebpSurface(props: Props) {
             if (event.error.code === 'initialization') {
               useWebpPlayerStore.getState().invalidateManifest(manifest.version)
             }
-            if (event.error.recoverableByLegacy) latest.current.onFallback()
+            if (event.error.recoverableByLegacy) latest.current.onFallback(event.error)
             else latest.current.onError()
           }
         })
@@ -63,7 +63,13 @@ export default function StreamingWebpSurface(props: Props) {
         // Structured player errors above already decide retry versus fallback.
         await ready.catch(() => {})
       } catch {
-        if (!cancelled) latest.current.onFallback()
+        if (!cancelled) {
+          latest.current.onFallback({
+            code: 'initialization',
+            message: 'WebP playback resources unavailable',
+            recoverableByLegacy: true
+          })
+        }
       }
     })()
     return () => {

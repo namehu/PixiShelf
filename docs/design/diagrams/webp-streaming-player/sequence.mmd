@@ -7,10 +7,14 @@ sequenceDiagram
     participant C as Canvas
     A->>P: load + play
     P->>W: start attempt
+    alt Streaming supported and within budget
     W->>M: authenticated stream
     loop incoming data
         M-->>W: bytes
         W->>D: append
+        opt Input capacity grows
+            D->>D: release borrowed demux / iterator before realloc
+        end
         D-->>W: complete frame / need data
         W-->>P: pixels + duration
         P->>C: draw
@@ -34,4 +38,7 @@ sequenceDiagram
         A->>A: next image / scroll
     else Manual finite loops ended
         A->>A: keep final canvas, no navigation
+    end
+    else Pre-frame compatibility fallback
+        P-->>A: reason category, four-second notice
     end

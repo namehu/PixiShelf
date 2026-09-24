@@ -8,8 +8,15 @@ import { webpFixture } from '@/lib/__tests__/webp-fixture'
 
 // Keep legacy image timing covered explicitly; WASM lifecycle has its own integration suite.
 vi.mock('@/components/players/streaming-webp-surface', () => ({
-  default: function UnsupportedSurface({ onFallback }: { onFallback: () => void }) {
-    useEffect(onFallback, [onFallback])
+  default: function UnsupportedSurface({
+    onFallback
+  }: {
+    onFallback: (failure: { code: 'unsupported'; message: string; recoverableByLegacy: true }) => void
+  }) {
+    useEffect(
+      () => onFallback({ code: 'unsupported', message: 'unsupported', recoverableByLegacy: true }),
+      [onFallback]
+    )
     return null
   }
 }))

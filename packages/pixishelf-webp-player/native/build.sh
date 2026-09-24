@@ -20,7 +20,7 @@ cmake --build .cache/wasm-build -j 4
 emcc native/stream-decoder.c -I"$source_dir" -I.cache/wasm-build \
   .cache/wasm-build/libwebpdemux.a .cache/wasm-build/libwebp.a .cache/wasm-build/libsharpyuv.a \
   -O3 -s MODULARIZE=1 -s EXPORT_ES6=1 -s ENVIRONMENT=web,worker,node \
-  -s ALLOW_MEMORY_GROWTH=1 -s IMPORTED_MEMORY=1 -s MAXIMUM_MEMORY=268435456 \
+  -s ALLOW_MEMORY_GROWTH=1 -s IMPORTED_MEMORY=1 -s MAXIMUM_MEMORY=805306368 \
   -s INITIAL_MEMORY=16777216 -s FILESYSTEM=0 -s DYNAMIC_EXECUTION=0 -s ABORTING_MALLOC=0 \
   -s EXPORTED_FUNCTIONS='["_ps_create","_ps_append","_ps_next","_ps_finish","_ps_repeat","_ps_pixels","_ps_width","_ps_height","_ps_duration","_ps_destroy","_malloc","_free"]' \
   -s EXPORTED_RUNTIME_METHODS='["HEAPU8"]' -o dist/native/decoder.mjs

@@ -136,7 +136,7 @@ flowchart TD
 
 ### 状态、完成判定与验收
 
-默认流式模式由 `@pixishelf/webp-player` 管理同源 Worker、libwebp WASM 和 Canvas。完整帧可用即绘制，缓冲不消耗展示时长；合法 EOF 和末帧时间同时满足才完成。实例键不包含普通 store revision。首帧前的能力、初始化、预算、ICC/EXIF 限制可回退一次，并提示「当前使用兼容播放：完整加载后开始，暂停后将从头播放」；鉴权、网络、损坏或已出帧后的错误不自动重播。规格、UML 和证据见[开发方案](../design/webp-streaming-player.md)。下述 Blob 计时机制仅适用于兼容路径。
+默认流式模式由 `@pixishelf/webp-player` 管理同源 Worker、libwebp WASM 和 Canvas。完整帧可用即绘制，缓冲不消耗展示时长；合法 EOF 和末帧时间同时满足才完成。实例键不包含普通 store revision。首帧前的能力、初始化、文件/像素/内存预算、ICC/EXIF 限制可回退一次，按原因短暂提示兼容播放需完整加载、暂停后重播；鉴权、网络、损坏或已出帧后的错误不自动重播。规格、UML 和证据见[开发方案](../design/webp-streaming-player.md)。下述 Blob 计时机制仅适用于兼容路径。
 
 控制条区分等待加载、正在播放动图、静态浏览、暂停、错误及结束。播放中始终允许暂停自动浏览；WebP 按钮不随控制条折叠消失。设置仍暂停自动浏览，不因修改设置或关闭面板自动恢复。
 

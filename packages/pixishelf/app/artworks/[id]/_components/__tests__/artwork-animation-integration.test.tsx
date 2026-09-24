@@ -11,8 +11,15 @@ import { useAutoBrowseInterruption } from '../use-auto-browse-interruption'
 
 // The fallback browser path remains covered independently of the default WASM suite.
 vi.mock('@/components/players/streaming-webp-surface', () => ({
-  default: function UnsupportedSurface({ onFallback }: { onFallback: () => void }) {
-    useEffect(onFallback, [onFallback])
+  default: function UnsupportedSurface({
+    onFallback
+  }: {
+    onFallback: (failure: { code: 'unsupported'; message: string; recoverableByLegacy: true }) => void
+  }) {
+    useEffect(
+      () => onFallback({ code: 'unsupported', message: 'unsupported', recoverableByLegacy: true }),
+      [onFallback]
+    )
     return null
   }
 }))

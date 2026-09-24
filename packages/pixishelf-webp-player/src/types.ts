@@ -27,6 +27,9 @@ export type PlayerErrorCode =
   | 'unsupported'
   | 'initialization'
   | 'budget'
+  | 'file-limit'
+  | 'pixel-limit'
+  | 'memory-limit'
   | 'metadata'
   | 'network'
   | 'auth'
@@ -48,12 +51,13 @@ export interface PlayerLimits {
   maxManagedBytes: number
 }
 const MiB = 1024 * 1024
-export function playerLimits(mobile: boolean): PlayerLimits {
+/** The boolean selects a viewport budget, not a device or available-memory probe. */
+export function playerLimits(narrowViewport: boolean): PlayerLimits {
   return {
-    maxInputBytes: (mobile ? 32 : 64) * MiB,
-    maxPixels: mobile ? 4_000_000 : 8_000_000,
-    maxHeapBytes: (mobile ? 128 : 256) * MiB,
-    maxManagedBytes: (mobile ? 192 : 384) * MiB
+    maxInputBytes: (narrowViewport ? 128 : 256) * MiB,
+    maxPixels: narrowViewport ? 4_000_000 : 8_000_000,
+    maxHeapBytes: (narrowViewport ? 384 : 768) * MiB,
+    maxManagedBytes: (narrowViewport ? 432 : 864) * MiB
   }
 }
 export interface Frame {

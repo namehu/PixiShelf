@@ -39,7 +39,15 @@ function fail(error: unknown, fallback: PlayerFailure['code'] = 'internal') {
     error: {
       code,
       message: `WebP playback failed: ${code}`,
-      recoverableByLegacy: ['unsupported', 'initialization', 'budget', 'metadata'].includes(code)
+      recoverableByLegacy: [
+        'unsupported',
+        'initialization',
+        'budget',
+        'file-limit',
+        'pixel-limit',
+        'memory-limit',
+        'metadata'
+      ].includes(code)
     }
   })
   cancelled = true
@@ -139,7 +147,7 @@ async function start(command: Extract<WorkerCommand, { type: 'start' }>) {
     if (!response.ok) throw new DecoderError('network')
     if (!response.body) throw new DecoderError('unsupported')
     const length = Number(response.headers.get('content-length'))
-    if (length > command.limits.maxInputBytes) throw new DecoderError('budget')
+    if (length > command.limits.maxInputBytes) throw new DecoderError('file-limit')
     reader = response.body.getReader()
     void pump()
   } catch (error) {

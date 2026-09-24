@@ -59,6 +59,54 @@ int main(int argc, char** argv) {
   StreamDecoder* limited = ps_create(12, 8000000);
   if (ps_append(limited, bytes, 12) != -2) return 11;
   ps_destroy(limited);
+  /* Keep demux/prev_iter live while a large trailing RIFF chunk repeatedly
+   * moves the compressed input, then compare every repeated composite frame. */
+  const size_t padding = 1024 * 1024;
+  const size_t padded_length = (size_t)length + 8 + padding;
+  uint8_t* padded = (uint8_t*)calloc(padded_length, 1);
+  if (!padded) return 21;
+  memcpy(padded, bytes, (size_t)length);
+  const uint32_t riff_size = (uint32_t)padded_length - 8;
+  for (int i = 0; i < 4; ++i) padded[4 + i] = (uint8_t)(riff_size >> (8 * i));
+  memcpy(padded + length, "JUNK", 4);
+  for (int i = 0; i < 4; ++i) padded[length + 4 + i] = (uint8_t)(padding >> (8 * i));
+  StreamDecoder* growing = ps_create((uint32_t)padded_length, 8000000);
+  if (!growing) return 22;
+  WebPAnimDecoderReset(reference);
+  int grown_frames = 0, moves_after_frame = 0, borrowed_before_move = 0;
+  for (size_t offset = 0; offset < padded_length;) {
+    size_t take = padded_length - offset;
+    if (take > 8192) take = 8192;
+    const size_t old_capacity = growing->capacity;
+    const uint8_t* old_input = growing->input;
+    if (grown_frames > 0 && growing->size + take > old_capacity &&
+        growing->dec.demux && growing->dec.prev_iter.fragment.bytes) ++borrowed_before_move;
+    if (ps_append(growing, padded + offset, (uint32_t)take) != 1) return 23;
+    offset += take;
+    if (growing->capacity != old_capacity && old_input != growing->input && grown_frames > 0) ++moves_after_frame;
+    int next;
+    while ((next = ps_next(growing)) == 1) {
+      uint8_t* pixels; int timestamp;
+      if (!WebPAnimDecoderGetNext(reference, &pixels, &timestamp) ||
+          memcmp(pixels, ps_pixels(growing), (size_t)info.canvas_width * info.canvas_height * 4)) return 24;
+      ++grown_frames;
+    }
+    if (next < 0) return 25;
+  }
+  if (grown_frames != (int)info.frame_count || moves_after_frame < 3 || borrowed_before_move < 3 ||
+      ps_finish(growing) != 1 || ps_next(growing) != 2) return 26;
+  for (int cycle = 0; cycle < 3; ++cycle) {
+    if (ps_repeat(growing) != 1) return 27;
+    WebPAnimDecoderReset(reference);
+    for (uint32_t frame = 0; frame < info.frame_count; ++frame) {
+      uint8_t* pixels; int timestamp;
+      if (ps_next(growing) != 1 || !WebPAnimDecoderGetNext(reference, &pixels, &timestamp) ||
+          memcmp(pixels, ps_pixels(growing), (size_t)info.canvas_width * info.canvas_height * 4)) return 28;
+    }
+    if (ps_next(growing) != 2) return 29;
+  }
+  ps_destroy(growing);
+  free(padded);
   /* A finite ANIM loop count must end without an extra iteration. */
   for (size_t offset = 12; offset + 8 <= (size_t)length;) {
     uint32_t size = GetLE32(bytes + offset + 4);

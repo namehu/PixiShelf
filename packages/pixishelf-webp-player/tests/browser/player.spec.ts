@@ -49,11 +49,55 @@ test('enforces actual decoded canvas dimensions before displaying a frame', asyn
   )
   await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('error')
   expect(await run(page, 'window.events.find(e=>e.type==="error").error')).toMatchObject({
-    code: 'budget',
+    code: 'pixel-limit',
     recoverableByLegacy: true
   })
   expect(await run(page, 'window.events.some(e=>e.type==="first-frame")')).toBe(false)
 })
+
+test('rejects an actual streamed RIFF larger than the file limit', async ({ page }) => {
+  await run(
+    page,
+    'window.start("/tests/fixtures/composite.webp?gate",{maxInputBytes:200,maxPixels:8000000,maxHeapBytes:805306368,maxManagedBytes:905969664}).catch(()=>{})'
+  )
+  await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('error')
+  expect(await run(page, 'window.events.find(e=>e.type==="error").error')).toMatchObject({
+    code: 'file-limit',
+    recoverableByLegacy: true
+  })
+  expect(await run(page, 'window.events.some(e=>e.type==="first-frame")')).toBe(false)
+})
+
+for (const [profile, padding, maxInputBytes, maxPixels, maxHeapBytes, maxManagedBytes] of [
+  ['narrow', 33, 128 * 2 ** 20, 4_000_000, 384 * 2 ** 20, 432 * 2 ** 20],
+  ['wide', 65, 256 * 2 ** 20, 8_000_000, 768 * 2 ** 20, 864 * 2 ** 20]
+] as const) {
+  test(`${profile} profile decodes valid chunked HTTP WebP beyond the old file limit`, async ({ page }) => {
+    test.setTimeout(120000)
+    await run(
+      page,
+      `window.start('/tests/fixtures/composite.webp?padMiB=${padding}',{maxInputBytes:${maxInputBytes},maxPixels:${maxPixels},maxHeapBytes:${maxHeapBytes},maxManagedBytes:${maxManagedBytes}})`
+    )
+    await expect.poll(() => run(page, 'window.player.getSnapshot().status'), { timeout: 110000 }).toBe('ended')
+    expect(await run(page, 'window.player.getSnapshot().receivedBytes')).toBe(266 + 8 + padding * 2 ** 20)
+    expect(await run(page, 'window.player.getSnapshot().inputComplete')).toBe(true)
+  })
+}
+
+for (const [profile, padding, maxInputBytes, maxPixels, maxHeapBytes, maxManagedBytes] of [
+  ['narrow', 129, 128 * 2 ** 20, 4_000_000, 384 * 2 ** 20, 432 * 2 ** 20],
+  ['wide', 257, 256 * 2 ** 20, 8_000_000, 768 * 2 ** 20, 864 * 2 ** 20]
+] as const) {
+  test(`${profile} profile rejects a streamed RIFF beyond its new hard limit`, async ({ page }) => {
+    await run(
+      page,
+      `window.start('/tests/fixtures/composite.webp?padMiB=${padding}',{maxInputBytes:${maxInputBytes},maxPixels:${maxPixels},maxHeapBytes:${maxHeapBytes},maxManagedBytes:${maxManagedBytes}}).catch(()=>{})`
+    )
+    await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('error')
+    expect(await run(page, 'window.events.find(e=>e.type==="error").error.code')).toBe('file-limit')
+    expect(await run(page, 'window.events.some(e=>e.type==="first-frame")')).toBe(false)
+  })
+}
 test('destroy during initialization cannot resurrect the old player', async ({ page }) => {
   await run(page, 'void window.start().catch(()=>{}); window.player.destroy()')
   await page.waitForTimeout(300)

@@ -8,7 +8,7 @@
 typedef struct {
   WebPAnimDecoder dec;
   uint8_t* input;
-  size_t size, capacity, parsed_size;
+  size_t size, capacity, max_input, parsed_size;
   uint32_t max_pixels;
   int finished, duration, error;
   uint32_t completed_loops;
@@ -16,13 +16,16 @@ typedef struct {
 } StreamDecoder;
 
 /* ABI results: 0 need input, 1 success/frame, 2 drained; negative is terminal:
- * -1 malformed, -2 resource budget, -3 unsupported metadata. */
-StreamDecoder* ps_create(uint32_t capacity, uint32_t max_pixels) {
+ * -1 malformed, -2 input limit, -3 unsupported metadata,
+ * -4 pixel limit, -5 memory exhaustion. */
+StreamDecoder* ps_create(uint32_t max_input, uint32_t max_pixels) {
+  if (!max_input) return NULL;
   StreamDecoder* s = (StreamDecoder*)calloc(1, sizeof(*s));
   if (!s) return NULL;
-  s->input = (uint8_t*)malloc(capacity);
+  s->capacity = max_input < 65536 ? max_input : 65536;
+  s->max_input = max_input;
+  s->input = (uint8_t*)malloc(s->capacity);
   if (!s->input) { free(s); return NULL; }
-  s->capacity = capacity;
   s->max_pixels = max_pixels;
   WebPAnimDecoderOptions options;
   DefaultDecoderOptions(&options);
@@ -33,14 +36,24 @@ StreamDecoder* ps_create(uint32_t capacity, uint32_t max_pixels) {
   return s;
 }
 
+/* demux and prev_iter borrow bytes from input. Drop both before realloc may
+ * move it; Refresh reconstructs them from the preserved compressed prefix. */
+static void InvalidateDemux(StreamDecoder* s) {
+  WebPAnimDecoder* d = &s->dec;
+  WebPDemuxReleaseIterator(&d->prev_iter);
+  memset(&d->prev_iter, 0, sizeof(d->prev_iter));
+  WebPDemuxDelete(d->demux);
+  d->demux = NULL;
+  s->parsed_size = 0;
+  s->state = WEBP_DEMUX_PARSING_HEADER;
+}
+
 static int Refresh(StreamDecoder* s) {
   if (s->size < 12) return 0;
   WebPAnimDecoder* d = &s->dec;
   if (d->demux && s->parsed_size == s->size) return 1;
+  InvalidateDemux(s);
   s->parsed_size = s->size;
-  WebPDemuxReleaseIterator(&d->prev_iter);
-  memset(&d->prev_iter, 0, sizeof(d->prev_iter));
-  WebPDemuxDelete(d->demux);
   WebPData data = {s->input, s->size};
   d->demux = WebPDemuxPartial(&data, &s->state);
   if (s->state == WEBP_DEMUX_PARSE_ERROR) return s->error = -1;
@@ -50,13 +63,13 @@ static int Refresh(StreamDecoder* s) {
   if (flags & (ICCP_FLAG | EXIF_FLAG)) return s->error = -3;
   const uint32_t w = WebPDemuxGetI(d->demux, WEBP_FF_CANVAS_WIDTH);
   const uint32_t h = WebPDemuxGetI(d->demux, WEBP_FF_CANVAS_HEIGHT);
-  if (!w || !h || (uint64_t)w * h > s->max_pixels) return s->error = -2;
+  if (!w || !h || (uint64_t)w * h > s->max_pixels) return s->error = -4;
   if (!d->curr_frame) {
     d->info.canvas_width = w;
     d->info.canvas_height = h;
     d->curr_frame = (uint8_t*)WebPSafeCalloc((uint64_t)w * 4, h);
     d->prev_frame_disposed = (uint8_t*)WebPSafeCalloc((uint64_t)w * 4, h);
-    if (!d->curr_frame || !d->prev_frame_disposed) return s->error = -2;
+    if (!d->curr_frame || !d->prev_frame_disposed) return s->error = -5;
   }
   d->info.frame_count = WebPDemuxGetI(d->demux, WEBP_FF_FRAME_COUNT);
   if (d->next_frame > 1 && !WebPDemuxGetFrame(d->demux, d->next_frame - 1, &d->prev_iter))
@@ -66,13 +79,25 @@ static int Refresh(StreamDecoder* s) {
 
 int ps_append(StreamDecoder* s, const uint8_t* bytes, uint32_t length) {
   if (!s || s->finished || s->error) return s ? (s->error ? s->error : -1) : -1;
-  if (length > s->capacity - s->size) return s->error = -2;
+  if (length > s->max_input - s->size) return s->error = -2;
+  const size_t needed = s->size + length;
+  if (needed > s->capacity) {
+    size_t capacity = s->capacity;
+    while (capacity < needed) {
+      capacity = capacity > s->max_input / 2 ? s->max_input : capacity * 2;
+    }
+    InvalidateDemux(s);
+    uint8_t* input = (uint8_t*)realloc(s->input, capacity);
+    if (!input) return s->error = -5;
+    s->input = input;
+    s->capacity = capacity;
+  }
   memcpy(s->input + s->size, bytes, length);
   s->size += length;
   if (s->size >= 12) {
     if (memcmp(s->input, "RIFF", 4) || memcmp(s->input + 8, "WEBP", 4)) return s->error = -1;
     const uint64_t total = (uint64_t)GetLE32(s->input + 4) + 8;
-    if (total > s->capacity) return s->error = -2;
+    if (total > s->max_input) return s->error = -2;
     if (total < 12 || s->size > total) return s->error = -1;
   }
   return 1;

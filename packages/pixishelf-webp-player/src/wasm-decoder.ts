@@ -20,7 +20,18 @@ export class DecoderError extends Error {
   }
 }
 function check(result: number) {
-  if (result < 0) throw new DecoderError(result === -2 ? 'budget' : result === -3 ? 'metadata' : 'invalid')
+  if (result < 0)
+    throw new DecoderError(
+      result === -2
+        ? 'file-limit'
+        : result === -3
+          ? 'metadata'
+          : result === -4
+            ? 'pixel-limit'
+            : result === -5
+              ? 'memory-limit'
+              : 'invalid'
+    )
   return result
 }
 export class WasmDecoder {
@@ -35,7 +46,7 @@ export class WasmDecoder {
     this.scratch = module._malloc(this.scratchSize)
     if (!this.handle || !this.scratch) {
       this.destroy()
-      throw new DecoderError('budget')
+      throw new DecoderError('memory-limit')
     }
   }
   append(bytes: Uint8Array) {
@@ -52,7 +63,7 @@ export class WasmDecoder {
       height = this.module._ps_height(this.handle)
     const bytes = width * height * 4
     // Two transferable frames plus the visible canvas; heap includes native input/canvases/scratch.
-    if (this.module.HEAPU8.byteLength + bytes * 3 > this.limits.maxManagedBytes) throw new DecoderError('budget')
+    if (this.module.HEAPU8.byteLength + bytes * 3 > this.limits.maxManagedBytes) throw new DecoderError('memory-limit')
     const pixels = recycled?.byteLength === bytes ? recycled : new ArrayBuffer(bytes)
     const offset = this.module._ps_pixels(this.handle)
     new Uint8Array(pixels).set(this.module.HEAPU8.subarray(offset, offset + bytes))
