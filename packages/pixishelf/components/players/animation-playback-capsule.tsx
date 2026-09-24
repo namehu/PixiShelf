@@ -52,7 +52,7 @@ export function AnimationPlaybackCapsule({
           <PlayIcon className="size-3 fill-current" />
         )}
         <span>{label}</span>
-        {!playing && fileSize && <span>{fileSize}</span>}
+        {fileSize && <span>{fileSize}</span>}
       </span>
     </span>
   )
