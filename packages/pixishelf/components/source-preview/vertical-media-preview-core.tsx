@@ -8,7 +8,8 @@ import {
   type ReactNode
 } from 'react'
 import { ChevronDownIcon, ChevronUpIcon, XIcon } from 'lucide-react'
-import { Keyboard, Virtual, Zoom } from 'swiper/modules'
+import { useReducedMotion } from 'framer-motion'
+import { EffectFade, Keyboard, Virtual, Zoom } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import type { Swiper as SwiperType } from 'swiper'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
@@ -16,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/compone
 import 'swiper/css'
 import 'swiper/css/virtual'
 import 'swiper/css/zoom'
+import 'swiper/css/effect-fade'
 
 export interface VerticalMediaPreviewController {
   slideNext: (speed?: number) => void
@@ -57,6 +59,7 @@ interface VerticalMediaPreviewCoreProps<T> {
   onControllerChange?: (controller: VerticalMediaPreviewController | null) => void
   onBeforeClose?: () => void
   onManualNavigation?: () => void
+  transitionEffect?: 'slide' | 'fade'
 }
 
 function asHistoryRecord(state: unknown): Record<string, unknown> {
@@ -93,8 +96,11 @@ export function VerticalMediaPreviewCore<T>({
   onTransitioningChange,
   onControllerChange,
   onBeforeClose,
-  onManualNavigation
+  onManualNavigation,
+  transitionEffect = 'slide'
 }: VerticalMediaPreviewCoreProps<T>) {
+  const reducedMotion = useReducedMotion()
+  const fade = transitionEffect === 'fade'
   const safeInitialIndex = clampIndex(initialIndex, items.length)
   const [activeIndex, setActiveIndex] = useState(safeInitialIndex)
   const [zoomScale, setZoomScale] = useState(1)
@@ -227,14 +233,17 @@ export function VerticalMediaPreviewCore<T>({
         </div>
 
         <Swiper
-          modules={[Keyboard, Virtual, Zoom]}
+          modules={fade ? [Keyboard, Virtual, Zoom, EffectFade] : [Keyboard, Virtual, Zoom]}
           initialSlide={safeInitialIndex}
           direction="vertical"
+          effect={transitionEffect}
+          fadeEffect={fade ? { crossFade: true } : undefined}
+          speed={fade ? (reducedMotion ? 0 : 300) : undefined}
           keyboard={{ enabled: true, onlyInViewport: false, pageUpDown: true }}
           virtual={{ addSlidesBefore: 1, addSlidesAfter: 1 }}
           zoom={{ minRatio: 1, maxRatio: 3, toggle: true }}
           resistanceRatio={0.65}
-          spaceBetween={12}
+          spaceBetween={fade ? 0 : 12}
           onSwiper={(swiper) => {
             swiperRef.current = swiper
             onControllerChange?.(swiper)

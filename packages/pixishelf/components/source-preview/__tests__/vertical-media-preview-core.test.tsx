@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VerticalMediaPreviewCore } from '../vertical-media-preview-core'
 
+const motionPreference = vi.hoisted(() => ({ reduced: false }))
 const swiper = {
   activeIndex: 0,
   allowSlideNext: true,
@@ -12,12 +13,17 @@ const swiper = {
   slideTo: vi.fn()
 }
 
-vi.mock('swiper/modules', () => ({ Keyboard: {}, Virtual: {}, Zoom: {} }))
+vi.mock('framer-motion', () => ({ useReducedMotion: () => motionPreference.reduced }))
+vi.mock('swiper/modules', () => ({ EffectFade: {}, Keyboard: {}, Virtual: {}, Zoom: {} }))
 vi.mock('swiper/react', () => ({
   Swiper: (props: {
     children: ReactNode
     initialSlide: number
     keyboard: { pageUpDown?: boolean }
+    effect: string
+    fadeEffect?: { crossFade: boolean }
+    speed?: number
+    spaceBetween: number
     onSwiper: (value: typeof swiper) => void
     onSlideChange: (value: typeof swiper) => void
     onZoomChange: (value: typeof swiper, scale: number) => void
@@ -26,7 +32,14 @@ vi.mock('swiper/react', () => ({
     swiper.activeIndex = props.initialSlide
     props.onSwiper(swiper)
     return (
-      <div data-testid={props['data-testid']} data-page-keys={String(props.keyboard.pageUpDown)}>
+      <div
+        data-testid={props['data-testid']}
+        data-page-keys={String(props.keyboard.pageUpDown)}
+        data-effect={props.effect}
+        data-cross-fade={String(props.fadeEffect?.crossFade ?? false)}
+        data-speed={props.speed}
+        data-space-between={props.spaceBetween}
+      >
         {props.children}
         <button
           type="button"
@@ -65,18 +78,21 @@ function Preview({
   items,
   initialIndex = 0,
   open = true,
-  onClose = vi.fn()
+  onClose = vi.fn(),
+  transitionEffect
 }: {
   items: number[]
   initialIndex?: number
   open?: boolean
   onClose?: (index: number) => void
+  transitionEffect?: 'slide' | 'fade'
 }) {
   return (
     <VerticalMediaPreviewCore
       items={items}
       itemKey={(item) => item}
       initialIndex={initialIndex}
+      transitionEffect={transitionEffect}
       open={open}
       onClose={onClose}
       historyKey="__preview_test__"
@@ -90,6 +106,7 @@ function Preview({
 
 describe('VerticalMediaPreviewCore', () => {
   beforeEach(() => {
+    motionPreference.reduced = false
     history.replaceState({}, '', window.location.href)
     swiper.activeIndex = 0
     swiper.allowSlideNext = true
@@ -130,6 +147,19 @@ describe('VerticalMediaPreviewCore', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: '切到第四张' }))
     expect(screen.getByText('4 / 4')).toBeTruthy()
+  })
+
+  it('uses crossfade only when requested and removes its duration for reduced motion', () => {
+    const { rerender } = render(<Preview items={[1, 2]} />)
+    const preview = screen.getByTestId('vertical-media-preview-swiper')
+    expect(preview.dataset).toMatchObject({ effect: 'slide', crossFade: 'false', spaceBetween: '12' })
+
+    rerender(<Preview items={[1, 2]} transitionEffect="fade" />)
+    expect(preview.dataset).toMatchObject({ effect: 'fade', crossFade: 'true', speed: '300', spaceBetween: '0' })
+
+    motionPreference.reduced = true
+    rerender(<Preview items={[1, 2]} transitionEffect="fade" />)
+    expect(preview.dataset.speed).toBe('0')
   })
 
   it('closes once through the owned history entry and disables paging while zoomed', () => {

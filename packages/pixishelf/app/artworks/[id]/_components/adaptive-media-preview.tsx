@@ -217,6 +217,7 @@ export default function AdaptiveMediaPreview({
       items={images}
       itemKey={(media, index) => media.id || index}
       initialIndex={safeInitialIndex}
+      transitionEffect="fade"
       open={open}
       onClose={(finalIndex) => {
         animation.stopManual()
