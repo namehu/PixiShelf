@@ -125,6 +125,26 @@ describe('reading service', () => {
     expect(state.seen).toEqual([2, 1, 3])
   })
 
+  it('keeps a visit active across devices without overwriting the last viewed position', async () => {
+    await reportReading('user-1', input([event('VIEW', 2)]))
+    vi.setSystemTime(new Date(NOW.getTime() + 20_000))
+    await reportReading('user-1', input([event('VIEW', 3, new Date())]))
+    for (let minute = 1; minute <= 31; minute++) {
+      vi.setSystemTime(new Date(NOW.getTime() + minute * 60_000))
+      const heartbeat = await reportReading('user-1', input([event('HEARTBEAT', 2, new Date())]))
+      expect(heartbeat.summary).toMatchObject({ viewCount: 1, lastMediaId: 3, lastActiveAt: new Date().toISOString() })
+    }
+    const next = await reportReading('user-1', input([event('VIEW', 2, new Date())]))
+    expect(next.summary.viewCount).toBe(1)
+  })
+
+  it('does not accept heartbeats for media without an effective view', async () => {
+    const first = await reportReading('user-1', input([event('VIEW', 2)]))
+    vi.setSystemTime(new Date(NOW.getTime() + 60_000))
+    const result = await reportReading('user-1', input([event('HEARTBEAT', 3, new Date())]))
+    expect(result.summary).toEqual(first.summary)
+  })
+
   it('reconciles ordinary media changes and resumes from the first unseen item when the last item vanished', async () => {
     await reportReading('user-1', input([event('VIEW')]))
     state.media = [

@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ReadingContextDto, ReadingSummaryDto } from '@pixishelf/db/reading-contract'
+import type { ReadingSummaryDto } from '@pixishelf/db/reading-contract'
 import { useAuthUser, useAuthStore } from '@/components/auth/auth-provider'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { ReadingCollector, type ReadingObservation } from './reading-collector'
@@ -14,14 +14,11 @@ interface ReadingProviderValue {
   collector: ReadingCollector
   ownerUserId: string | null
   revision: number
-  summaries: Map<number, ReadingSummaryDto>
   invalidated: Set<number>
   errors: Map<number, unknown>
-  reopen: (artworkId: number, context: ReadingContextDto) => void
 }
 
 const ReadingContext = createContext<ReadingProviderValue | null>(null)
-const EMPTY_SUMMARIES = new Map<number, ReadingSummaryDto>()
 const EMPTY_INVALIDATED = new Set<number>()
 const EMPTY_ERRORS = new Map<number, unknown>()
 
@@ -36,7 +33,6 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const [revision, setRevision] = useState(0)
-  const [summaries, setSummaries] = useState<Map<number, ReadingSummaryDto>>(() => new Map())
   const [invalidated, setInvalidated] = useState<Set<number>>(() => new Set())
   const [errors, setErrors] = useState<Map<number, unknown>>(() => new Map())
   const availableRef = useRef<boolean | null>(null)
@@ -46,7 +42,6 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
       report: (input, signal) => trpcClient.reading.report.mutate(input, { signal }),
       onSummary: (summary, expectedUserId) => {
         if (useAuthStore.getState().user?.id !== expectedUserId) return
-        setSummaries((prior) => new Map(prior).set(summary.artworkId, summary))
         setErrors((prior) => {
           if (!prior.has(summary.artworkId)) return prior
           const next = new Map(prior)
@@ -70,8 +65,8 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
   }, [ownerUserId, queryClient, trpcClient])
 
   useLayoutEffect(() => {
+    collector.setAccount(ownerUserId)
     stateOwnerRef.current = ownerUserId
-    setSummaries(new Map())
     setInvalidated(new Set())
     setErrors(new Map())
     setRevision((prior) => prior + 1)
@@ -99,26 +94,13 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
     }
   }, [collector])
 
-  const reopen = useCallback((artworkId: number, context: ReadingContextDto) => {
-    if (!ownerUserId) return
-    collector.resetArtwork(artworkId, context, ownerUserId)
-    setInvalidated((prior) => {
-      const next = new Set(prior)
-      next.delete(artworkId)
-      return next
-    })
-    setRevision((prior) => prior + 1)
-  }, [collector, ownerUserId])
-
   return (
     <ReadingContext.Provider value={{
       collector,
       ownerUserId,
       revision,
-      summaries: stateOwnerRef.current === ownerUserId ? summaries : EMPTY_SUMMARIES,
       invalidated: stateOwnerRef.current === ownerUserId ? invalidated : EMPTY_INVALIDATED,
-      errors: stateOwnerRef.current === ownerUserId ? errors : EMPTY_ERRORS,
-      reopen
+      errors: stateOwnerRef.current === ownerUserId ? errors : EMPTY_ERRORS
     }}>
       {children}
     </ReadingContext.Provider>
@@ -126,7 +108,7 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
 }
 
 export function useArtworkReading(artworkId: number) {
-  const { collector, ownerUserId, revision, summaries, invalidated, errors, reopen } = useReadingProvider()
+  const { collector, ownerUserId, revision, invalidated, errors } = useReadingProvider()
   const trpc = useTRPC()
   const contextQuery = useQuery(trpc.reading.context.queryOptions(
     { artworkId, expectedUserId: ownerUserId ?? '' },
@@ -144,14 +126,15 @@ export function useArtworkReading(artworkId: number) {
   }, [collector, artworkId])
   const clearSurface = useCallback((surfaceId: string) => collector.clearSurface(surfaceId), [collector])
   const flush = useCallback(() => collector.flush(), [collector])
-  const reopenReader = useCallback(async () => {
-    const result = await contextQuery.refetch()
-    if (result.isSuccess && result.data && ownerUserId) reopen(artworkId, result.data)
-  }, [artworkId, contextQuery, ownerUserId, reopen])
+  const reopenReader = useCallback(() => {
+    // Reload the displayed media and reading revision together across all reader entry points.
+    // Keep the old collector invalidated until navigation destroys it.
+    window.location.reload()
+  }, [])
 
   return {
     context,
-    summary: summaries.get(artworkId) ?? context?.summary ?? null,
+    summary: context?.summary ?? null,
     resume: context?.resume ?? null,
     isLoading: contextQuery.isLoading,
     observationEpoch: revision,
@@ -168,7 +151,7 @@ export type ArtworkReadingHandle = ReturnType<typeof useArtworkReading>
 
 /** One request per 100 artworks, independent of the number of mounted cards. */
 export function useReadingSummaries(artworkIds: number[]) {
-  const { ownerUserId, summaries } = useReadingProvider()
+  const { ownerUserId } = useReadingProvider()
   const trpcClient = useTRPCClient()
   const ids = useMemo(() => [...new Set(artworkIds)].filter((id) => id > 0).sort((a, b) => a - b), [artworkIds])
   const idsKey = ids.join(',')
@@ -187,10 +170,8 @@ export function useReadingSummaries(artworkIds: number[]) {
   })
   const byArtworkId = useMemo(() => {
     const map = new Map<number, ReadingSummaryDto>()
-    const requestedIds = new Set(ids)
     for (const summary of query.data ?? []) map.set(summary.artworkId, summary)
-    for (const [artworkId, summary] of summaries) if (requestedIds.has(artworkId)) map.set(artworkId, summary)
     return map
-  }, [ids, query.data, summaries])
+  }, [query.data])
   return { ...query, byArtworkId }
 }

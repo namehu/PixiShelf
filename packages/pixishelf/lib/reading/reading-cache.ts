@@ -60,6 +60,15 @@ export function patchReadingSummaryInCache(
   for (const query of queryClient.getQueryCache().getAll()) {
     if (!belongsToAccount(query.queryKey, ownerUserId)) continue
     if (query.state.data === undefined) continue
-    queryClient.setQueryData(query.queryKey, (value: unknown) => patch(value))
+    queryClient.setQueryData(query.queryKey, (value: unknown) => {
+      const [namespace, operation, , ids] = query.queryKey
+      // Unread artworks have no summary row yet. Insert their first accepted view
+      // into already loaded batches without changing filtered list membership.
+      if (namespace === 'reading' && operation === 'summaries' &&
+        typeof ids === 'string' && ids.split(',').includes(String(summary.artworkId)) && Array.isArray(value)) {
+        return [...value.filter((item) => !isRecord(item) || item.artworkId !== summary.artworkId), summary]
+      }
+      return patch(value)
+    })
   }
 }

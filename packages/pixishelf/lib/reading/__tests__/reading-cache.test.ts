@@ -14,6 +14,24 @@ const viewed: ReadingSummaryDto = {
 }
 
 describe('reading cache patch', () => {
+  it('inserts the first view only into matching account batches and accepts later server replacement', () => {
+    const client = new QueryClient()
+    const key = ['reading', 'summaries', 'alice', '7,8']
+    const otherAccount = ['reading', 'summaries', 'bob', '7,8']
+    const otherArtworks = ['reading', 'summaries', 'alice', '17,18']
+    for (const batchKey of [key, otherAccount, otherArtworks]) client.setQueryData(batchKey, [])
+    patchReadingSummaryInCache(client, viewed, 'alice')
+    patchReadingSummaryInCache(client, viewed, 'alice')
+    expect(client.getQueryData(key)).toEqual([viewed])
+    expect(client.getQueryData(otherAccount)).toEqual([])
+    expect(client.getQueryData(otherArtworks)).toEqual([])
+    const completed = { ...viewed, seenCount: 3, viewCount: 2, status: 'COMPLETED' }
+    client.setQueryData(key, [completed])
+    expect(client.getQueryData(key)).toEqual([completed])
+    client.setQueryData(key, [])
+    expect(client.getQueryData(key)).toEqual([])
+  })
+
   it('updates only the current account without removing or reordering loaded unread rows', () => {
     const client = new QueryClient()
     const aliceKey = ['artwork', 'cardList', 'alice', { expectedUserId: 'alice', readingStatus: 'UNREAD' }]

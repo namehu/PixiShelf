@@ -164,8 +164,11 @@ export async function reportReading(userId: string, input: ReadingReportInput): 
       const item = byMemberId.get(event.mediaId)
       if (!item) continue
       if (event.type === 'HEARTBEAT') {
-        // A heartbeat only extends the same active visit. It never opens one.
-        if (!lastActiveAt || at < lastActiveAt || at.getTime() - lastActiveAt.getTime() >= READING_VISIT_GAP_MS || !locateMedia(media, lastMediaId) || !item.memberMediaIds.includes(lastMediaId!)) continue
+        // Another device may own the last position while this device still reads a seen item.
+        // A heartbeat extends an existing visit without creating one or changing that position.
+        if (!lastActiveAt || at < lastActiveAt ||
+          at.getTime() - lastActiveAt.getTime() >= READING_VISIT_GAP_MS ||
+          !item.memberMediaIds.some((id) => seenIds.has(id) || newlySeen.has(id))) continue
         lastActiveAt = at
         accepted = true
         continue
