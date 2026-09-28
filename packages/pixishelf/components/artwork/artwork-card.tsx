@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ImageIcon, VideoIcon } from 'lucide-react'
+import { Bookmark, ImageIcon, VideoIcon } from 'lucide-react'
 import { formatFileSize } from '@/utils/media'
 import type { ArtworkCardData } from '@/types'
 import { cn } from '@/lib/utils'
@@ -11,7 +11,6 @@ import { getPreferredTagName } from './preferred-tag'
 import MediaThumbnail from '@/components/media/media-thumbnail'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import type { ReadingSummaryDto } from '@pixishelf/db/reading-contract'
-import { Badge } from '@/components/ui/badge'
 
 interface ArtworkCardProps {
   artwork: ArtworkCardData
@@ -33,12 +32,23 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
   const { mediaType } = cover ?? {}
   const { name } = artist ?? {}
   const preferredTag = useMemo(() => getPreferredTagName(preferredTags, tags), [preferredTags, tags])
+  const readingLabel = reading?.status === 'COMPLETED'
+    ? `已看完 ${reading.seenCount}/${reading.totalCount}`
+    : reading?.status === 'IN_PROGRESS'
+      ? `阅读中 ${reading.seenCount}/${reading.totalCount}`
+      : '未看'
+  const readingProgress = reading && reading.totalCount > 0
+    ? Math.min(1, Math.max(0, reading.seenCount / reading.totalCount))
+    : 0
+  const showReadingMarker = showReadingStatus && reading?.status !== 'COMPLETED'
 
   return (
     <article data-slot="artwork-card" className={cn('group min-w-0', className)}>
       <Link
         href={`/artworks/${id}`}
         aria-label={`查看作品：${title}`}
+        aria-description={showReadingStatus ? readingLabel : undefined}
+        title={showReadingStatus ? readingLabel : undefined}
         className={cn(
           'relative block aspect-[3/4] w-full overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2',
           displayMode === 'minimal' ? 'rounded-none' : 'rounded-md'
@@ -57,18 +67,25 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
         <div className="absolute inset-0 bg-foreground/0 transition-colors duration-(--motion-fast) group-hover:bg-foreground/5" />
 
         {preferredTag && (
-          <div className="absolute top-2 left-2 max-w-[72%] rounded-sm bg-destructive px-2 py-0.5 text-[10px] leading-tight font-semibold text-destructive-foreground">
+          <div className={cn('absolute left-2 max-w-[72%] rounded-sm bg-destructive px-2 py-0.5 text-[10px] leading-tight font-semibold text-destructive-foreground', showReadingMarker ? 'top-8' : 'top-2')}>
             <PrivacySensitiveText className="block truncate">{preferredTag}</PrivacySensitiveText>
           </div>
         )}
-        {showReadingStatus ? (
-          <Badge variant="secondary" className="absolute bottom-2 left-2 max-w-[calc(100%-1rem)] rounded-sm bg-background/90 text-foreground shadow-xs">
-            {reading?.status === 'COMPLETED'
-              ? `已看完 ${reading.seenCount}/${reading.totalCount}`
-              : reading?.status === 'IN_PROGRESS'
-                ? `阅读中 ${reading.seenCount}/${reading.totalCount}`
-                : '未看'}
-          </Badge>
+        {showReadingMarker ? (
+          <span
+            data-slot="reading-marker"
+            aria-hidden="true"
+            className="pointer-events-none absolute top-0 left-0 flex size-6 items-center justify-center rounded-br-lg bg-neutral-700/85 text-neutral-300 shadow-sm backdrop-blur-md"
+          >
+            {reading?.status === 'IN_PROGRESS' ? (
+              <svg className="size-3.5 -rotate-90" viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
+                <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" pathLength="1" strokeDasharray={`${readingProgress} 1`} />
+              </svg>
+            ) : (
+              <Bookmark className="size-3" strokeWidth={1.75} />
+            )}
+          </span>
         ) : null}
 
         <div className="absolute top-2 right-2 flex flex-col gap-1">
