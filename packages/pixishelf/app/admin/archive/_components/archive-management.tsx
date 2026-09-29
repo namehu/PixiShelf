@@ -810,7 +810,7 @@ export function ArchiveTaskCard({
 function TaskIdentity({ task, onViewItems }: { task: ArchiveTaskOutput; onViewItems: () => void }) {
   const artworkHref = archiveTaskArtworkHref(task)
   const title = (
-    <PrivacySensitiveText className="line-clamp-2 break-words [overflow-wrap:anywhere]">
+    <PrivacySensitiveText className="block break-words [overflow-wrap:anywhere] md:line-clamp-2">
       {task.title || archiveSourceLabel(task.providerKey, task.externalId)}
     </PrivacySensitiveText>
   )

@@ -73,18 +73,21 @@ export function ActiveArchiveDownloadPanel({
     <Card role="region" aria-label="当前归档下载" className="gap-4 overflow-hidden py-4">
       <CardHeader className="gap-3 border-b">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <CardTitle>当前下载</CardTitle>
               <Badge variant={!telemetry ? 'muted' : stale ? 'warning' : 'info'}>
                 {!telemetry ? '准备中' : stale ? '实时数据中断' : '实时'}
               </Badge>
             </div>
-            <PrivacySensitiveText as={CardDescription} className="mt-1 truncate">
+            <PrivacySensitiveText
+              as={CardDescription}
+              className="mt-1 whitespace-normal [overflow-wrap:anywhere] sm:truncate"
+            >
               {task.title || archiveSourceLabel(task.providerKey, task.externalId)}
             </PrivacySensitiveText>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onViewItems}>
               <Images data-icon="inline-start" aria-hidden="true" />
               查看全部图片
