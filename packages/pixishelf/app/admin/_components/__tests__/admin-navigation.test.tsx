@@ -53,7 +53,7 @@ describe('getActiveAdminSection', () => {
 })
 
 describe('AdminNav', () => {
-  it('groups every management destination, marks the active module, and shows inbox counters', async () => {
+  it('groups management destinations, marks the active module, and shows only inbox failures', async () => {
     vi.mocked(usePathname).mockReturnValue('/admin/artworks/42')
     renderNavigation(<AdminNav />)
 
@@ -77,9 +77,9 @@ describe('AdminNav', () => {
     expect(within(navigation).getByRole('link', { name: '作品管理' }).className).toContain('min-h-11')
     expect(within(navigation).getAllByRole('link')).toHaveLength(12)
     await waitFor(() => {
-      expect(within(navigation).getByLabelText('归档收件箱等待 3 项')).toBeTruthy()
       expect(within(navigation).getByLabelText('归档收件箱失败 2 项')).toBeTruthy()
     })
+    expect(within(navigation).queryByLabelText(/归档收件箱等待/)).toBeNull()
   })
 })
 

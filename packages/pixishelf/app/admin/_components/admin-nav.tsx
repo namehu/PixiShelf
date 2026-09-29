@@ -22,9 +22,7 @@ export function AdminNav({ className, onNavigate }: AdminNavProps) {
       refetchInterval: (query) => ((query.state.data?.activeCount ?? 0) > 0 ? 1_500 : 8_000)
     })
   )
-  const archiveCounts = archiveSummaryQuery.data
-    ? { waiting: archiveSummaryQuery.data.queuedCount, failed: archiveSummaryQuery.data.counts.FAILED }
-    : null
+  const failedCount = archiveSummaryQuery.data?.counts.FAILED ?? 0
 
   return (
     <nav aria-label="管理模块" className={cn('flex flex-col gap-5 p-4', className)}>
@@ -54,27 +52,15 @@ export function AdminNav({ className, onNavigate }: AdminNavProps) {
                 >
                   <Icon className="size-4" aria-hidden="true" />
                   <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                  {item.href === '/admin/archive/inbox' && archiveCounts ? (
-                    <span className="ml-auto flex shrink-0 items-center gap-1" translate="no">
-                      {archiveCounts.waiting > 0 ? (
-                        <Badge
-                          variant="info"
-                          className="min-w-5 justify-center px-1.5 font-mono tabular-nums"
-                          aria-label={`归档收件箱等待 ${archiveCounts.waiting} 项`}
-                        >
-                          等 {compactCount(archiveCounts.waiting)}
-                        </Badge>
-                      ) : null}
-                      {archiveCounts.failed > 0 ? (
-                        <Badge
-                          variant="destructive"
-                          className="min-w-5 justify-center px-1.5 font-mono tabular-nums"
-                          aria-label={`归档收件箱失败 ${archiveCounts.failed} 项`}
-                        >
-                          失 {compactCount(archiveCounts.failed)}
-                        </Badge>
-                      ) : null}
-                    </span>
+                  {item.href === '/admin/archive/inbox' && failedCount > 0 ? (
+                    <Badge
+                      variant="destructive"
+                      className="ml-auto min-w-5 shrink-0 justify-center px-1.5 font-mono tabular-nums"
+                      aria-label={`归档收件箱失败 ${failedCount} 项`}
+                      translate="no"
+                    >
+                      失 {compactCount(failedCount)}
+                    </Badge>
                   ) : null}
                 </Link>
               )
