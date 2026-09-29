@@ -4,7 +4,6 @@ import { ExternalLinkIcon } from 'lucide-react'
 import z from 'zod'
 import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import { PageContainer } from '@/components/layout/page-container'
-import { Button } from '@/components/ui/button'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { getArtworkById } from '@/services/artwork-service'
 import ArtworkDes from './_components/artwork-des'
@@ -42,39 +41,46 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
                 </PrivacySensitiveText>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  {creators.map(({ id: artistId, name: artistName, avatar: artistAvatar, kind }) => (
-                    <Link
-                      key={artistId}
-                      href={`/artists/${artistId}`}
-                      className="group -ml-1 flex min-h-11 min-w-0 items-center gap-2 rounded-full p-1 pr-3 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
-                    >
-                      <ArtistAvatar src={artistAvatar} name={artistName} size={10} />
-                      <PrivacySensitiveText className="truncate text-base font-medium text-primary underline-offset-4 group-hover:underline sm:text-lg">
-                        {kind === 'GROUP' ? '社团：' : ''}
-                        {artistName}
-                      </PrivacySensitiveText>
-                    </Link>
+                  {creators.map(({ id: artistId, name: artistName, avatar: artistAvatar, kind, pixivUserId }) => (
+                    <div key={artistId} className="flex min-w-0 max-w-full items-center gap-1">
+                      <Link
+                        href={`/artists/${artistId}`}
+                        className="group -ml-1 flex min-h-11 min-w-0 items-center gap-2 rounded-full p-1 pr-3 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
+                      >
+                        <ArtistAvatar src={artistAvatar} name={artistName} size={10} className="shrink-0" />
+                        <PrivacySensitiveText className="min-w-0 truncate text-base font-medium text-primary underline-offset-4 group-hover:underline sm:text-lg">
+                          {kind === 'GROUP' ? '社团：' : ''}
+                          {artistName}
+                        </PrivacySensitiveText>
+                      </Link>
+                      {pixivUserId && (
+                        <a
+                          href={`https://www.pixiv.net/users/${pixivUserId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="在 Pixiv 查看该作者主页（新标签页）"
+                          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+                        >
+                          Pixiv 主页
+                          <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+                          <span className="sr-only">（新标签页）</span>
+                        </a>
+                      )}
+                    </div>
                   ))}
 
                   {data.externalId && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      asChild
-                      className="h-9 rounded-full text-muted-foreground hover:border-primary/30 hover:bg-accent hover:text-accent-foreground"
+                    <a
+                      href={`https://www.pixiv.net/artworks/${data.externalId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="在 Pixiv 查看该作品（新标签页）"
+                      className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
-                      <a
-                        href={`https://www.pixiv.net/artworks/${data.externalId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="在 Pixiv 查看该作品"
-                      >
-                        <span className="text-xs font-semibold tracking-wide uppercase">Pixiv</span>
-                        <span aria-hidden="true" className="mx-0.5 h-3 w-px bg-border" />
-                        <span className="font-utility text-xs">{data.externalId}</span>
-                        <ExternalLinkIcon data-icon="inline-end" aria-hidden="true" />
-                      </a>
-                    </Button>
+                      Pixiv 原作
+                      <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
+                      <span className="sr-only">（新标签页）</span>
+                    </a>
                   )}
                 </div>
               </header>
