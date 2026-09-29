@@ -6,8 +6,10 @@ import type { ReadingContextDto, ReadingSummaryDto } from '@pixishelf/db/reading
 import { ReadingProvider, useArtworkReading, useReadingSummaries } from '../reading-provider'
 
 const mocks = vi.hoisted(() => ({
-  user: { id: 'alice' }, context: vi.fn(), summaries: vi.fn(), report: vi.fn()
+  user: { id: 'alice' }, context: vi.fn(), summaries: vi.fn(), report: vi.fn(), toast: vi.fn()
 }))
+
+vi.mock('sonner', () => ({ toast: { custom: mocks.toast } }))
 
 vi.mock('@/components/auth/auth-provider', () => ({
   useAuthUser: () => mocks.user,
@@ -63,6 +65,34 @@ async function recordView(handle: ReturnType<typeof useArtworkReading>) {
 }
 
 describe('ReadingProvider lifecycle and server refresh', () => {
+  it('does not record media when the page initially mounts in the background', async () => {
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
+    try {
+      const { result } = setup()
+      await waitFor(() => expect(result.current.reading.context).toBeDefined())
+      await recordView(result.current.reading)
+      expect(mocks.report).not.toHaveBeenCalled()
+      expect(mocks.toast).not.toHaveBeenCalled()
+    } finally {
+      hidden.mockRestore()
+    }
+  })
+
+  it('shows a brief bottom toast only after a newly completed report', async () => {
+    const completed: ReadingSummaryDto = { ...viewed, seenCount: 3, status: 'COMPLETED' }
+    mocks.report.mockResolvedValue({ mediaRevision: 1, summary: completed })
+    const { result } = setup()
+    await waitFor(() => expect(result.current.reading.context).toBeDefined())
+    expect(mocks.toast).not.toHaveBeenCalled()
+    await recordView(result.current.reading)
+    expect(mocks.toast).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
+      id: 'reading-completed-alice-7', position: 'bottom-center', duration: 2000
+    })
+    act(() => result.current.reading.clearSurface('detail'))
+    await recordView(result.current.reading)
+    expect(mocks.toast).toHaveBeenCalledTimes(1)
+  })
+
   it('records after StrictMode effect replay and patches the first view into an empty batch', async () => {
     const { result } = setup()
     await waitFor(() => expect(result.current.reading.context).toBeDefined())

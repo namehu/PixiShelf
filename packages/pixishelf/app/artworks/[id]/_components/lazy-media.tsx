@@ -124,9 +124,9 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
     ]
   }, [canManage, enqueue, job?.status, media, src])
 
+  const readingRef = useOnInView((inView) => setVisible(inView), { threshold: 0 })
   const trackingRef = useOnInView(
     (inView) => {
-      setVisible(inView)
       if (inView) {
         setCurrentIndex(index)
         if (!useArtworkAutoBrowseStore.getState().previewOpen) {
@@ -136,6 +136,11 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
     },
     { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
   )
+
+  const mediaRef = useCallback((node: HTMLDivElement | null) => {
+    readingRef(node)
+    trackingRef(node)
+  }, [readingRef, trackingRef])
 
   // 主渲染逻辑
   const renderContent = () => {
@@ -263,7 +268,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
 
   return (
     <div
-      ref={trackingRef}
+      ref={mediaRef}
       className="relative flex w-full items-center justify-center overflow-hidden bg-muted"
       style={{ aspectRatio }}
       data-auto-media-id={media.id}

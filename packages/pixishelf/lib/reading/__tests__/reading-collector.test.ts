@@ -32,10 +32,11 @@ function setup(report = vi.fn(async (input: ReadingReportInput, signal: AbortSig
 })) {
   const onSummary = vi.fn()
   const onInvalidated = vi.fn()
-  const collector = new ReadingCollector({ report, onSummary, onInvalidated })
+  const onCompleted = vi.fn()
+  const collector = new ReadingCollector({ report, onSummary, onInvalidated, onCompleted })
   collector.setAccount('alice')
   collector.setContext(context, 'alice')
-  return { collector, report, onSummary, onInvalidated }
+  return { collector, report, onSummary, onInvalidated, onCompleted }
 }
 
 beforeEach(() => {
@@ -48,17 +49,12 @@ afterEach(() => {
 })
 
 describe('ReadingCollector', () => {
-  it('requires 500 ms continuously ready, visible, foreground manual dwell', async () => {
+  it('records ready visible manual media immediately without a dwell timer', async () => {
     const { collector, report } = setup()
     const observation = { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false }
     collector.observe('detail', observation)
-    await vi.advanceTimersByTimeAsync(300)
     collector.observe('detail', observation)
-    await vi.advanceTimersByTimeAsync(199)
     await collector.flush()
-    expect(report).not.toHaveBeenCalled()
-    await vi.advanceTimersByTimeAsync(1)
-    await vi.advanceTimersByTimeAsync(5_000)
     expect(report).toHaveBeenCalledTimes(1)
     expect(report.mock.calls[0]?.[0].events).toMatchObject([{ type: 'VIEW', mediaId: 11 }])
 
@@ -70,37 +66,33 @@ describe('ReadingCollector', () => {
 
   it('records automatic presentation immediately and counts only the highest active surface', async () => {
     const { collector, report } = setup()
-    collector.observe('detail', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false })
-    await vi.advanceTimersByTimeAsync(250)
     collector.observe('overlay', {
       artworkId: 1, mediaId: 12, ready: true, visible: true, automatic: true, priority: 100
     })
+    collector.observe('detail', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false })
     await collector.flush()
     expect(report).toHaveBeenCalledTimes(1)
     expect(report.mock.calls[0]?.[0].events).toMatchObject([{ type: 'VIEW', mediaId: 12 }])
     await vi.advanceTimersByTimeAsync(1_000)
     expect(report).toHaveBeenCalledTimes(1)
     collector.clearSurface('overlay')
-    await vi.advanceTimersByTimeAsync(499)
-    expect(report).toHaveBeenCalledTimes(1)
-    await vi.advanceTimersByTimeAsync(1)
     await collector.flush()
     expect(report.mock.calls[1]?.[0].events).toMatchObject([{ type: 'VIEW', mediaId: 11 }])
     collector.dispose()
   })
 
-  it('cancels dwell and heartbeat offscreen and requires a fresh observation after resume', async () => {
+  it('stops heartbeat offscreen and requires a fresh observation after resume', async () => {
     const { collector, report } = setup()
     const observation = { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false }
     collector.observe('detail', observation)
-    await vi.advanceTimersByTimeAsync(250)
+    await collector.flush()
+    report.mockClear()
     collector.setAvailability(false, true)
     await vi.advanceTimersByTimeAsync(1_000)
     collector.setAvailability(true, true)
     await vi.advanceTimersByTimeAsync(61_000)
     expect(report).not.toHaveBeenCalled()
     collector.observe('detail', observation)
-    await vi.advanceTimersByTimeAsync(500)
     await collector.flush()
     expect(report).toHaveBeenCalledTimes(1)
     collector.observe('detail', { ...observation, visible: false })
@@ -109,10 +101,59 @@ describe('ReadingCollector', () => {
     collector.dispose()
   })
 
+  it('ignores unloaded, offscreen and inactive media', async () => {
+    const { collector, report } = setup()
+    const observation = { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false }
+    collector.observe('loading', { ...observation, ready: false })
+    collector.observe('offscreen', { ...observation, visible: false })
+    collector.observe('blocked', { ...observation, active: false })
+    await collector.flush()
+    expect(report).not.toHaveBeenCalled()
+    collector.dispose()
+  })
+
+  it('records all visible media when the context arrives late', async () => {
+    const { collector, report } = setup()
+    collector.setAccount('bob')
+    for (const mediaId of [11, 12]) {
+      collector.observe(`detail-${mediaId}`, { artworkId: 1, mediaId, ready: true, visible: true, automatic: false })
+    }
+    collector.setContext(context, 'bob')
+    await collector.flush()
+    expect(report.mock.calls[0]?.[0].events).toMatchObject([
+      { type: 'VIEW', mediaId: 11 }, { type: 'VIEW', mediaId: 12 }
+    ])
+    collector.dispose()
+  })
+
+  it('notifies completion once after an accepted view, not on an already completed context', async () => {
+    const completed = { ...summary, seenCount: 2, status: 'COMPLETED' as const }
+    const report = vi.fn(async (): Promise<ReadingReportResult> => ({ mediaRevision: 1, summary: completed }))
+    const { collector, onCompleted } = setup(report)
+    const observation = { artworkId: 1, mediaId: 12, ready: true, visible: true, automatic: false }
+    collector.observe('detail', observation)
+    expect(onCompleted).not.toHaveBeenCalled()
+    await collector.flush()
+    expect(onCompleted).toHaveBeenCalledExactlyOnceWith(completed, 'alice')
+    collector.clearSurface('detail')
+    collector.setContext(context, 'alice')
+    collector.observe('detail', observation)
+    await collector.flush()
+    expect(onCompleted).toHaveBeenCalledTimes(1)
+    collector.setAccount('bob')
+    collector.setContext({ ...context, summary: completed }, 'bob')
+    collector.observe('detail', observation)
+    await collector.flush()
+    expect(onCompleted).toHaveBeenCalledTimes(1)
+    collector.dispose()
+  })
+
   it('sends heartbeat only after a view was accepted and while still visible', async () => {
     const { collector, report } = setup()
     collector.observe('reader', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: true })
-    await vi.advanceTimersByTimeAsync(5_000)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(report).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(1)
     expect(report).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(60_000)
     await collector.flush()
@@ -123,11 +164,24 @@ describe('ReadingCollector', () => {
     collector.dispose()
   })
 
+  it('continues heartbeat for an already recorded neighbor when the latest visible media leaves', async () => {
+    const { collector, report } = setup()
+    for (const mediaId of [11, 12]) {
+      collector.observe(`detail-${mediaId}`, { artworkId: 1, mediaId, ready: true, visible: true, automatic: false })
+    }
+    await collector.flush()
+    collector.clearSurface('detail-12')
+    await vi.advanceTimersByTimeAsync(60_000)
+    await collector.flush()
+    expect(report.mock.calls[1]?.[0].events).toMatchObject([{ type: 'HEARTBEAT', mediaId: 11 }])
+    collector.dispose()
+  })
+
   it('drops queued observations after 60 seconds and never replays them on network recovery', async () => {
     const report = vi.fn(async () => { throw new Error('offline') })
     const { collector } = setup(report)
     collector.observe('reader', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: true })
-    await vi.advanceTimersByTimeAsync(5_000)
+    await vi.advanceTimersByTimeAsync(1_000)
     expect(report).toHaveBeenCalledTimes(1)
     collector.setAvailability(true, false)
     await vi.advanceTimersByTimeAsync(61_000)

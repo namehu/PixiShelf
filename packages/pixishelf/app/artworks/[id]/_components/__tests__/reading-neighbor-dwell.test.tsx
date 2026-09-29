@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import type { ReadingContextDto, ReadingReportInput } from '@pixishelf/db/reading-contract'
@@ -111,7 +111,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-async function assertNeighborDoesNotResetDwell(
+async function assertNeighborDoesNotDuplicateView(
   activeAlt: string,
   neighborAlt: string,
   collector: ReadingCollector,
@@ -120,27 +120,25 @@ async function assertNeighborDoesNotResetDwell(
 ) {
   fireEvent.load(screen.getByAltText(activeAlt))
   const clearsAfterReady = clearSurface.mock.calls.length
-  await act(async () => { await vi.advanceTimersByTimeAsync(250) })
   fireEvent.load(screen.getByAltText(neighborAlt))
   expect(clearSurface).toHaveBeenCalledTimes(clearsAfterReady)
-  await act(async () => { await vi.advanceTimersByTimeAsync(250) })
   await collector.flush()
   expect(report).toHaveBeenCalledTimes(1)
   expect(report.mock.calls[0]?.[0].events).toMatchObject([{ type: 'VIEW', mediaId: 1 }])
   collector.dispose()
 }
 
-describe('reading dwell while neighboring media preloads', () => {
+describe('reading observations while neighboring media preloads', () => {
   it('keeps the original preview observation alive', async () => {
     const { collector, report, clearSurface, reading } = createReading()
     previewState.reading = reading
     render(<ArtworkPreviewPage />)
-    await assertNeighborDoesNotResetDwell('Preview 0', 'Preview 1', collector, report, clearSurface)
+    await assertNeighborDoesNotDuplicateView('Preview 0', 'Preview 1', collector, report, clearSurface)
   })
 
   it('keeps the adaptive preview observation alive', async () => {
     const { collector, report, clearSurface, reading } = createReading()
     render(<AdaptiveMediaPreview images={images} initialIndex={0} open onClose={vi.fn()} reading={reading} />)
-    await assertNeighborDoesNotResetDwell('作品媒体 1', '作品媒体 2', collector, report, clearSurface)
+    await assertNeighborDoesNotDuplicateView('作品媒体 1', '作品媒体 2', collector, report, clearSurface)
   })
 })

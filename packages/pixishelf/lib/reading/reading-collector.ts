@@ -1,6 +1,5 @@
 import {
   READING_HEARTBEAT_INTERVAL_MS,
-  READING_MANUAL_VISIBLE_MS,
   READING_MEDIA_REVISION_CONFLICT_CODE,
   READING_REPORT_INTERVAL_MS,
   READING_REPORT_MAX_AGE_MS,
@@ -51,6 +50,7 @@ interface ArtworkQueue {
 export interface ReadingCollectorOptions {
   report: (input: ReadingReportInput, signal: AbortSignal) => Promise<ReadingReportResult>
   onSummary?: (summary: ReadingSummaryDto, ownerUserId: string) => void
+  onCompleted?: (summary: ReadingSummaryDto, ownerUserId: string) => void
   onInvalidated?: (artworkId: number, ownerUserId: string) => void
   onError?: (error: unknown, artworkId: number, ownerUserId: string) => void
   now?: () => number
@@ -77,12 +77,14 @@ export class ReadingCollector {
   private surfaces = new Map<string, Surface>()
   private queues = new Map<number, ArtworkQueue>()
   private invalidated = new Set<number>()
+  private completedNotifications = new Set<number>()
+  private presented = new WeakSet<Surface>()
+  private accepted = new WeakSet<Surface>()
   private active: ActiveSurface | null = null
   private order = 0
   private generation = 0
   private foreground = true
   private online = true
-  private manualTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeatTimer: ReturnType<typeof setTimeout> | null = null
   private reportTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -101,6 +103,7 @@ export class ReadingCollector {
     this.surfaces.clear()
     this.queues.clear()
     this.invalidated.clear()
+    this.completedNotifications.clear()
     this.ownerUserId = userId
   }
 
@@ -126,7 +129,7 @@ export class ReadingCollector {
     this.reconcileActive()
   }
 
-  /** Repeated observations with unchanged facts preserve the dwell timer. */
+  /** Repeated observations with unchanged facts do not create another view. */
   observe(surfaceId: string, observation: ReadingObservation) {
     const prior = this.surfaces.get(surfaceId)
     const same = prior &&
@@ -229,6 +232,15 @@ export class ReadingCollector {
       const context = this.contexts.get(artworkId)
       if (context) this.contexts.set(artworkId, { ...context, summary: result.summary })
       this.options.onSummary?.(result.summary, owner)
+      for (const surface of this.surfaces.values()) {
+        if (surface.artworkId === artworkId && events.some(({ event }) =>
+          event.type === 'VIEW' && event.mediaId === surface.mediaId)) this.accepted.add(surface)
+      }
+      if (context && context.summary.status !== 'COMPLETED' && result.summary.status === 'COMPLETED' &&
+        events.some(({ event }) => event.type === 'VIEW') && !this.completedNotifications.has(artworkId)) {
+        this.completedNotifications.add(artworkId)
+        this.options.onCompleted?.(result.summary, owner)
+      }
       if (this.active?.artworkId === artworkId && events.some(({ event }) =>
         event.type === 'VIEW' && event.mediaId === this.active?.mediaId
       )) {
@@ -258,6 +270,7 @@ export class ReadingCollector {
     queue?.controller?.abort()
     this.queues.delete(artworkId)
     this.contexts.delete(artworkId)
+    this.completedNotifications.delete(artworkId)
     this.invalidated.add(artworkId)
     for (const [id, surface] of this.surfaces) {
       if (surface.artworkId === artworkId) this.surfaces.delete(id)
@@ -280,6 +293,21 @@ export class ReadingCollector {
       }
     }
     const [surfaceId, surface] = selected ?? []
+    // A viewport can contain several media. Record every uncovered item, even when
+    // the reading context arrives after their intersection observations.
+    for (const candidate of this.surfaces.values()) {
+      const eligible = surface && candidate.ready && candidate.visible && candidate.active !== false &&
+        this.contexts.has(candidate.artworkId) && !this.invalidated.has(candidate.artworkId) &&
+        (candidate.priority ?? 0) === (surface.priority ?? 0)
+      if (!eligible) {
+        this.presented.delete(candidate)
+      } else if (!this.presented.has(candidate)) {
+        this.presented.add(candidate)
+        this.enqueue(candidate.artworkId, {
+          type: 'VIEW', mediaId: candidate.mediaId, observedAt: new Date(this.now()).toISOString()
+        })
+      }
+    }
     const active = this.active
     if (surface && active && active.surfaceId === surfaceId &&
       active.artworkId === surface.artworkId && active.mediaId === surface.mediaId &&
@@ -292,21 +320,11 @@ export class ReadingCollector {
       artworkId: surface.artworkId,
       mediaId: surface.mediaId,
       automatic: surface.automatic,
-      viewAccepted: false,
-      nextHeartbeatAt: null,
+      viewAccepted: this.accepted.has(surface),
+      nextHeartbeatAt: this.now() + READING_HEARTBEAT_INTERVAL_MS,
       generation
     }
-    if (surface.automatic) this.recordView(generation)
-    else this.manualTimer = setTimeout(() => this.recordView(generation), READING_MANUAL_VISIBLE_MS)
-  }
-
-  private recordView(generation: number) {
-    if (!this.active || this.active.generation !== generation) return
-    this.manualTimer = null
-    this.active.nextHeartbeatAt = this.now() + READING_HEARTBEAT_INTERVAL_MS
-    this.enqueue(this.active.artworkId, {
-      type: 'VIEW', mediaId: this.active.mediaId, observedAt: new Date(this.now()).toISOString()
-    })
+    if (this.active.viewAccepted) this.scheduleHeartbeat(generation)
   }
 
   private scheduleHeartbeat(generation: number) {
@@ -349,9 +367,7 @@ export class ReadingCollector {
   }
 
   private cancelObservation() {
-    if (this.manualTimer) clearTimeout(this.manualTimer)
     if (this.heartbeatTimer) clearTimeout(this.heartbeatTimer)
-    this.manualTimer = null
     this.heartbeatTimer = null
     this.active = null
   }

@@ -36,8 +36,8 @@ vi.mock('next/image', () => ({
   }
 }))
 vi.mock('react-intersection-observer', () => ({
-  useOnInView: (callback: (inView: boolean) => void) => {
-    intersectionCallback.current = callback
+  useOnInView: (callback: (inView: boolean) => void, options?: { rootMargin?: string }) => {
+    if (!options?.rootMargin) intersectionCallback.current = callback
     return vi.fn()
   }
 }))

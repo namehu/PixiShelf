@@ -1,7 +1,7 @@
 'use client'
 
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { BookOpenIcon, Globe2Icon, ImagesIcon } from 'lucide-react'
+import { ArrowRightIcon, BookOpenIcon, CircleCheckIcon, Globe2Icon, ImagesIcon } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { PageContainer } from '@/components/layout/page-container'
@@ -111,15 +111,31 @@ export function ArtworkMediaSection({ images, artworkId }: { images: ArtworkImag
                   <Button type="button" size="sm" variant="outline" onClick={() => void reading.reopen()}>重新打开</Button>
                 </div>
               ) : reading.summary && reading.summary.viewCount > 0 ? (
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3 text-sm">
-                  <span className="text-muted-foreground">
-                    已阅读 {reading.summary.viewCount} 次 · 已看 {reading.summary.seenCount}/{reading.summary.totalCount}
+                <div className="mb-4 flex min-h-9 flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                  <span className="inline-flex items-center gap-2 font-medium text-foreground">
+                    {reading.summary.status === 'COMPLETED' ? (
+                      <>
+                        <CircleCheckIcon className="size-4 text-primary" aria-hidden="true" />
+                        已看完
+                      </>
+                    ) : (
+                      <>
+                        <BookOpenIcon className="size-4 text-muted-foreground" aria-hidden="true" />
+                        已看
+                        <span className="tabular-nums">
+                          {reading.summary.seenCount}
+                          <span className="mx-1 text-muted-foreground/60">/</span>
+                          <span className="text-muted-foreground">{reading.summary.totalCount}</span>
+                        </span>
+                      </>
+                    )}
                   </span>
-                  {reading.resume ? (
+                  <span className="text-xs text-muted-foreground">阅读 {reading.summary.viewCount} 次</span>
+                  {reading.summary.status === 'IN_PROGRESS' && reading.resume ? (
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
+                      variant="ghost"
                       onClick={() => {
                         const resume = reading.resume!
                         const logical = reading.context?.media.find((item) =>
@@ -134,8 +150,8 @@ export function ArtworkMediaSection({ images, artworkId }: { images: ArtworkImag
                         }))
                       }}
                     >
-                      <BookOpenIcon data-icon="inline-start" aria-hidden="true" />
                       继续阅读
+                      <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
                     </Button>
                   ) : null}
                 </div>

@@ -2,6 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import type { ReadingSummaryDto } from '@pixishelf/db/reading-contract'
 import { useAuthUser, useAuthStore } from '@/components/auth/auth-provider'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
@@ -55,6 +56,20 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
         setInvalidated((prior) => new Set(prior).add(artworkId))
         setRevision((prior) => prior + 1)
       },
+      onCompleted: (summary, expectedUserId) => {
+        if (useAuthStore.getState().user?.id !== expectedUserId) return
+        toast.custom(() => (
+          <div className="flex w-[var(--width)] justify-center max-[600px]:w-full">
+            <span className="rounded-full border border-border bg-popover px-4 py-2 text-sm text-popover-foreground shadow-sm">
+              已看完
+            </span>
+          </div>
+        ), {
+          id: `reading-completed-${expectedUserId}-${summary.artworkId}`,
+          position: 'bottom-center',
+          duration: 2000
+        })
+      },
       onError: (error, artworkId, expectedUserId) => {
         if (useAuthStore.getState().user?.id !== expectedUserId) return
         setErrors((prior) => new Map(prior).set(artworkId, error))
@@ -66,6 +81,7 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
 
   useLayoutEffect(() => {
     collector.setAccount(ownerUserId)
+    collector.setAvailability(!document.hidden, navigator.onLine)
     stateOwnerRef.current = ownerUserId
     setInvalidated(new Set())
     setErrors(new Map())

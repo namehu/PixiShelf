@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   sources: [] as Array<{ externalRefId: string; providerKey: string; label: string }>,
   localMounts: 0,
+  readingSummary: null as null | { status: string; viewCount: number; seenCount: number; totalCount: number },
   localUnmounts: 0
 }))
 
@@ -36,8 +37,8 @@ vi.mock('@/lib/trpc', () => ({
 vi.mock('@/lib/reading/reading-provider', () => ({
   useArtworkReading: () => ({
     context: null,
-    summary: null,
-    resume: null,
+    summary: mocks.readingSummary,
+    resume: { mediaId: 11, index: 0 },
     isLoading: false,
     error: null,
     invalidated: false,
@@ -98,10 +99,26 @@ describe('ArtworkMediaSection', () => {
     mocks.requests.length = 0
     mocks.sources = []
     mocks.localMounts = 0
+    mocks.readingSummary = null
     mocks.localUnmounts = 0
   })
 
   afterEach(cleanup)
+
+  it('removes continue reading when progress becomes complete even if a resume position remains', () => {
+    mocks.readingSummary = { status: 'IN_PROGRESS', viewCount: 1, seenCount: 1, totalCount: 2 }
+    const view = renderSection()
+    expect(screen.getByRole('button', { name: '继续阅读' })).toBeTruthy()
+    mocks.readingSummary = { ...mocks.readingSummary, status: 'COMPLETED', seenCount: 2 }
+    view.rerender(
+      <ArtworkMediaViewProvider>
+        <ArtworkMediaSection images={[]} artworkId={7} />
+      </ArtworkMediaViewProvider>
+    )
+    expect(screen.getByText('已看完')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '继续阅读' })).toBeNull()
+    expect(screen.getByText('阅读 1 次')).toBeTruthy()
+  })
 
   it('keeps the local viewer mounted when the source query arrives', () => {
     const view = renderSection()

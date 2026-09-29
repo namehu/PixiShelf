@@ -1,7 +1,6 @@
 /** Browser-safe reading contracts. Keep this module free of database imports. */
 
-export const READING_MANUAL_VISIBLE_MS = 500
-export const READING_REPORT_INTERVAL_MS = 5_000
+export const READING_REPORT_INTERVAL_MS = 1_000
 export const READING_REPORT_MAX_AGE_MS = 60_000
 export const READING_HEARTBEAT_INTERVAL_MS = 60_000
 export const READING_VISIT_GAP_MS = 30 * 60_000
