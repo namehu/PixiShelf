@@ -16,11 +16,29 @@ import {
 } from '@/services/pixiv-artist-enrichment-service'
 import { PIXIV_ARTIST_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
 import { z } from 'zod'
+import {
+  previewArtistMerge,
+  submitArtistMerge,
+  getArtistMerge,
+  listArtistMerges
+} from '@/services/artist-merge-service'
 
 /**
  * 艺术家路由
  */
 export const artistRouter = router({
+  previewMerge: adminProcedure
+    .input(
+      z.object({ sourceArtistId: z.number().int().positive(), targetArtistId: z.number().int().positive() }).strict()
+    )
+    .mutation(({ input, ctx }) => previewArtistMerge(ctx.userId, input.sourceArtistId, input.targetArtistId)),
+  submitMerge: adminProcedure
+    .input(z.object({ previewId: z.string().min(1).max(128), fingerprint: z.string().length(64) }).strict())
+    .mutation(({ input, ctx }) => submitArtistMerge(ctx.userId, input.previewId, input.fingerprint)),
+  getMerge: adminProcedure
+    .input(z.object({ mergeId: z.string().min(1).max(128) }).strict())
+    .query(({ input }) => getArtistMerge(input.mergeId)),
+  listMerges: adminProcedure.query(() => listArtistMerges()),
   /**
    * 获取艺术家详情
    */

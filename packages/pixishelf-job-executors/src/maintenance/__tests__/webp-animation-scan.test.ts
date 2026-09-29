@@ -1,19 +1,44 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import type { ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import sharp from 'sharp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AnimationScanProgressData } from '@pixishelf/job-contracts'
 import {
   ANIMATION_INITIALIZE_BATCH_SIZE,
   ANIMATION_SCAN_BATCH_SIZE,
+  ANIMATION_SCAN_RESULT_FLUSH_MS,
+  ANIMATION_SCAN_SHARP_TIMEOUT_SECONDS,
+  detectAnimatedImage,
   scanWebpAnimations,
   WebpAnimationScanConfigurationError
 } from '../webp-animation-scan.js'
+import { IsolatedSharpAnimationProbePool } from '../sharp-animation-probe-pool.js'
 import type { RunMaintenanceMutation } from '../types.js'
 
 const roots: string[] = []
+const STATIC_GIF = Buffer.from(
+  '47494638396101000100800000000000ffffff21f904000a0000002c00000000010001000002024401003b',
+  'hex'
+)
+const ANIMATED_GIF = Buffer.from(
+  '47494638396101000100800000000000ffffff21f904000a0000002c000000000100010000020244010021f904000a0000002c00000000010001000002024c01003b',
+  'hex'
+)
+const ANIMATED_WEBP = Buffer.from(
+  'UklGRpQAAABXRUJQVlA4WAoAAAACAAAAAAAAAAAAQU5JTQYAAAD/////AABBTk1GMAAAAAAAAAAAAAAAAAAAAGQAAAJWUDggGAAAADABAJ0BKgEAAQABQCYlpAADcAD+/TZoAEFOTUYwAAAAAAAAAAAAAAAAAAAAZAAAAFZQOCAYAAAANAEAnQEqAQABAAAAJiWkAANwAP789AAA',
+  'base64'
+)
+const STATIC_JPEG = Buffer.from(
+  '/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAb/xAAVEQEBAAAAAAAAAAAAAAAAAAAABP/aAAwDAQACEAMQAAAB6A//xAAVEAEBAAAAAAAAAAAAAAAAAAAAEf/aAAgBAQABBQJf/8QAFBEBAAAAAAAAAAAAAAAAAAAAEP/aAAgBAwEBPwEf/8QAFBEBAAAAAAAAAAAAAAAAAAAAEP/aAAgBAgEBPwEf/8QAFBABAAAAAAAAAAAAAAAAAAAAEP/aAAgBAQAGPwJf/8QAFBABAAAAAAAAAAAAAAAAAAAAEP/aAAgBAQABPyFf/9k=',
+  'base64'
+)
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+  vi.clearAllMocks()
 })
 
 describe('webp animation scan maintenance', () => {
@@ -24,7 +49,8 @@ describe('webp animation scan maintenance', () => {
 
     const failure = scanWebpAnimations({
       database: {} as never,
-      mutate: vi.fn() as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
       signal: new AbortController().signal,
       progress: vi.fn(),
       scanRoot: unavailableRoot
@@ -64,7 +90,7 @@ describe('webp animation scan maintenance', () => {
     const updateMany = vi.fn(async ({ where }: { where: { id: { in: number[] } } }) => ({ count: where.id.in.length }))
     const result = await scanWebpAnimations({
       database: {
-        image: { findMany, count: vi.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(0) }
+        image: { findMany, count: vi.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(2).mockResolvedValueOnce(0) }
       } as never,
       mutate: (async (operation) => operation({ image: { updateMany } } as never)) satisfies RunMaintenanceMutation,
       signal: new AbortController().signal,
@@ -79,6 +105,474 @@ describe('webp animation scan maintenance', () => {
     expect(updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ webpAnimationStatus: 0 }) })
     )
+  })
+
+  it('resumes from durable aggregate progress without resetting or recounting prior failures', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-resume-'))
+    roots.push(root)
+    const pending = [
+      { id: 1, path: 'prior-failure.webp' },
+      { id: 3, path: 'new-static.webp' },
+      { id: 4, path: 'new-animation.webp' }
+    ]
+    await Promise.all(pending.map((image) => writeFile(path.join(root, image.path), 'fixture')))
+    let scanRead = false
+    const progress = vi.fn()
+    const result = await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(3).mockResolvedValueOnce(0),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus === null) return []
+            if (scanRead) return []
+            scanRead = true
+            return pending
+          })
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({
+          image: {
+            updateMany: vi.fn(async ({ where }: { where: { id: { in: number[] } } }) => ({
+              count: where.id.in.length
+            }))
+          }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      concurrency: 2,
+      resumeProgressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'SCANNING',
+        initializedItems: 4,
+        totalItems: 4,
+        attemptedItems: 2,
+        succeededItems: 1,
+        failedItems: 1,
+        animatedItems: 1,
+        staticItems: 0,
+        remainingItems: 3,
+        activeProbes: 0,
+        concurrencyLimit: 2,
+        itemsPerSecond: 1,
+        etaSeconds: null,
+        sampledAt: '2026-09-05T00:00:00.000Z'
+      },
+      detectAnimated: vi.fn(async (_absolutePath, mediaPath) => !mediaPath.includes('static'))
+    })
+
+    expect(result).toMatchObject({
+      initialized: 4,
+      processed: 4,
+      animated: 3,
+      static: 1,
+      failed: 0,
+      remainingPending: 0
+    })
+    const updates = progress.mock.calls.map(([update]) => update)
+    expect(updates[0]).toMatchObject({
+      percentage: 52,
+      stage: 'SCANNING',
+      progressData: { totalItems: 4, attemptedItems: 2, succeededItems: 1, failedItems: 1 }
+    })
+    expect(updates.every((update) => update.percentage >= 52)).toBe(true)
+    expect(updates.every((update) => update.progressData.totalItems === 4)).toBe(true)
+    expect(updates.at(-1)).toMatchObject({
+      percentage: 100,
+      stage: 'COMPLETED',
+      progressData: {
+        totalItems: 4,
+        attemptedItems: 4,
+        succeededItems: 4,
+        failedItems: 0,
+        animatedItems: 3,
+        staticItems: 1,
+        remainingItems: 0
+      }
+    })
+  })
+
+  it.each([false, true])(
+    'commits slow probes after a timed flush without losing results (failure=%s)',
+    async (failLast) => {
+      const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-flush-'))
+      roots.push(root)
+      const images = [1, 2, 3, 4].map((id) => ({ id, path: `${id}.webp`, webpAnimationStatus: 0 }))
+      await Promise.all(images.map((image) => writeFile(path.join(root, image.path), 'fixture')))
+      const allStarted = deferred<void>()
+      const releaseSlow = deferred<void>()
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+      let started = 0
+      const progress = vi.fn()
+      const updateMany = vi.fn(
+        async ({
+          where,
+          data
+        }: {
+          where: { id: { in: number[] }; webpAnimationStatus: number }
+          data: { webpAnimationStatus: number }
+        }) => {
+          const matching = images.filter(
+            (image) => where.id.in.includes(image.id) && image.webpAnimationStatus === where.webpAnimationStatus
+          )
+          matching.forEach((image) => {
+            image.webpAnimationStatus = data.webpAnimationStatus
+          })
+          return { count: matching.length }
+        }
+      )
+      vi.useFakeTimers()
+      try {
+        const execution = scanWebpAnimations({
+          database: {
+            image: {
+              count: vi.fn(
+                async ({ where }: { where: { webpAnimationStatus: number | null } }) =>
+                  images.filter((image) => image.webpAnimationStatus === where.webpAnimationStatus).length
+              ),
+              findMany: vi.fn(
+                async ({
+                  where,
+                  take
+                }: {
+                  where: { webpAnimationStatus: number | null; id: { gt: number } }
+                  take: number
+                }) =>
+                  images
+                    .filter(
+                      (image) => image.webpAnimationStatus === where.webpAnimationStatus && image.id > where.id.gt
+                    )
+                    .slice(0, take)
+              )
+            }
+          } as never,
+          mutate: (async (operation) => operation({ image: { updateMany } } as never)) satisfies RunMaintenanceMutation,
+          checkpoint: async (operation) => {
+            const durable = await operation({ image: { updateMany } } as never)
+            progress(durable.update)
+            return durable.result
+          },
+          signal: new AbortController().signal,
+          progress,
+          scanRoot: root,
+          concurrency: 2,
+          logger,
+          detectAnimated: async (_absolutePath, mediaPath) => {
+            started += 1
+            if (started === images.length) allStarted.resolve()
+            if (Number.parseInt(mediaPath, 10) % 2 === 0) await releaseSlow.promise
+            if (failLast && mediaPath === '4.webp') throw new Error('decoder failed')
+            return true
+          }
+        })
+        await allStarted.promise
+        await vi.advanceTimersByTimeAsync(ANIMATION_SCAN_RESULT_FLUSH_MS)
+        expect(images.filter((image) => image.webpAnimationStatus === 2).map((image) => image.id)).toEqual([1, 3])
+        releaseSlow.resolve()
+        const result = await execution
+
+        expect(result).toMatchObject({
+          processed: failLast ? 3 : 4,
+          animated: failLast ? 3 : 4,
+          failed: failLast ? 1 : 0,
+          remainingPending: failLast ? 1 : 0
+        })
+        expect(result.failedSamples).toEqual(
+          failLast ? [expect.objectContaining({ id: 4, errorCode: 'ANIMATION_PROBE_FAILED' })] : []
+        )
+        expect(images.filter((image) => image.webpAnimationStatus === 0).map((image) => image.id)).toEqual(
+          failLast ? [4] : []
+        )
+        expect(updateMany.mock.calls.flatMap(([input]) => input.where.id.in).sort()).toEqual(
+          failLast ? [1, 2, 3] : [1, 2, 3, 4]
+        )
+        expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({
+          stage: 'COMPLETED',
+          progressData: {
+            attemptedItems: 4,
+            succeededItems: failLast ? 3 : 4,
+            failedItems: failLast ? 1 : 0,
+            activeProbes: 0
+          }
+        })
+        if (failLast) {
+          expect(logger.warn).toHaveBeenCalledWith('animation.probe.failed', {
+            code: 'ANIMATION_PROBE_FAILED',
+            failedItems: 1,
+            errorCodes: ['ANIMATION_PROBE_FAILED']
+          })
+          expect(progress).toHaveBeenCalledWith(
+            expect.objectContaining({
+              level: 'WARN',
+              data: { code: 'ANIMATION_PROBE_FAILED', failedItems: 1, errorCodes: ['ANIMATION_PROBE_FAILED'] }
+            })
+          )
+          expect(JSON.stringify(logger.warn.mock.calls)).not.toContain(root)
+          expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('4.webp')
+        } else {
+          expect(logger.warn).not.toHaveBeenCalled()
+        }
+      } finally {
+        releaseSlow.resolve()
+        vi.useRealTimers()
+      }
+    }
+  )
+
+  it('does not turn newly pending inventory into probe failures or attempted items', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-inventory-'))
+    roots.push(root)
+    const progress = vi.fn()
+    const result = await scanWebpAnimations({
+      database: {
+        image: {
+          // A candidate becomes pending after the final page was read.
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(0).mockResolvedValueOnce(1),
+          findMany: vi.fn().mockResolvedValue([])
+        }
+      } as never,
+      mutate: vi.fn(),
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      detectAnimated: vi.fn()
+    })
+
+    expect(result).toMatchObject({ processed: 0, failed: 0, remainingPending: 1, failedSamples: [] })
+    expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({
+      level: 'WARN',
+      progressData: { attemptedItems: 0, failedItems: 0, remainingItems: 1 }
+    })
+  })
+
+  it('keeps an empty INITIALIZING checkpoint at zero percent until scanning starts', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-empty-resume-'))
+    roots.push(root)
+    const progress = vi.fn()
+
+    await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([])
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      resumeProgressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'INITIALIZING',
+        initializedItems: 0,
+        totalItems: 0,
+        attemptedItems: 0,
+        succeededItems: 0,
+        failedItems: 0,
+        animatedItems: 0,
+        staticItems: 0,
+        remainingItems: 0,
+        activeProbes: 0,
+        concurrencyLimit: 4,
+        itemsPerSecond: 0,
+        etaSeconds: null,
+        sampledAt: '2026-09-05T00:00:00.000Z'
+      },
+      detectAnimated: vi.fn()
+    })
+
+    expect(progress.mock.calls[0]?.[0]).toMatchObject({
+      percentage: 0,
+      stage: 'INITIALIZING',
+      progressData: { totalItems: 0, initializedItems: 0 }
+    })
+    expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({ percentage: 100, stage: 'COMPLETED' })
+  })
+
+  it('expands a partial initialization checkpoint when new null candidates appear', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-partial-resume-'))
+    roots.push(root)
+    let initializationRead = false
+    const progress = vi.fn()
+
+    await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(4).mockResolvedValueOnce(4),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus !== null) return []
+            if (initializationRead) return []
+            initializationRead = true
+            return [{ id: 3 }, { id: 4 }]
+          })
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({
+          image: {
+            updateMany: vi.fn(async ({ where }: { where: { id: { in: number[] } } }) => ({
+              count: where.id.in.length
+            }))
+          }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      resumeProgressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'INITIALIZING',
+        initializedItems: 2,
+        totalItems: 2,
+        attemptedItems: 0,
+        succeededItems: 0,
+        failedItems: 0,
+        animatedItems: 0,
+        staticItems: 0,
+        remainingItems: 2,
+        activeProbes: 0,
+        concurrencyLimit: 4,
+        itemsPerSecond: 0,
+        etaSeconds: null,
+        sampledAt: '2026-09-05T00:00:00.000Z'
+      },
+      detectAnimated: vi.fn()
+    })
+
+    const initializationUpdates = progress.mock.calls
+      .map(([update]) => update)
+      .filter((update) => update.progressData.stage === 'INITIALIZING')
+    expect(initializationUpdates).toContainEqual(
+      expect.objectContaining({
+        progressData: expect.objectContaining({ initializedItems: 4, totalItems: 4 })
+      })
+    )
+    expect(
+      initializationUpdates.every((update) => update.progressData.initializedItems <= update.progressData.totalItems)
+    ).toBe(true)
+  })
+
+  it('recovers aggregate counts from a COMPLETED checkpoint left before generic settlement', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-completed-resume-'))
+    roots.push(root)
+    await writeFile(path.join(root, 'recovered-static.webp'), 'fixture')
+    let scanRead = false
+    const progress = vi.fn()
+
+    const result = await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1).mockResolvedValueOnce(0),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus === null || scanRead) return []
+            scanRead = true
+            return [{ id: 2, path: 'recovered-static.webp' }]
+          })
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({
+          image: { updateMany: vi.fn(async () => ({ count: 1 })) }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      resumeProgressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'COMPLETED',
+        initializedItems: 2,
+        totalItems: 2,
+        attemptedItems: 2,
+        succeededItems: 1,
+        failedItems: 1,
+        animatedItems: 1,
+        staticItems: 0,
+        remainingItems: 1,
+        activeProbes: 0,
+        concurrencyLimit: 4,
+        itemsPerSecond: 1,
+        etaSeconds: null,
+        sampledAt: '2026-09-05T00:00:00.000Z'
+      },
+      detectAnimated: vi.fn(async () => false)
+    })
+
+    expect(result).toMatchObject({ processed: 2, animated: 1, static: 1, failed: 0, remainingPending: 0 })
+    expect(progress.mock.calls.every(([update]) => update.percentage === 100)).toBe(true)
+    expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({
+      stage: 'COMPLETED',
+      progressData: { succeededItems: 2, animatedItems: 1, staticItems: 1 }
+    })
+  })
+
+  it('resumes from the same checkpoint that committed a detected domain batch before a crash', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-atomic-resume-'))
+    roots.push(root)
+    const images = [
+      { id: 1, path: 'one.webp' },
+      { id: 2, path: 'two.webp' }
+    ]
+    await Promise.all(images.map((image) => writeFile(path.join(root, image.path), 'fixture')))
+    let scanRead = false
+    let durableCheckpoint: AnimationScanProgressData | undefined
+    const updateMany = vi.fn(async ({ where }: { where: { id: { in: number[] } } }) => ({
+      count: where.id.in.length
+    }))
+
+    await expect(
+      scanWebpAnimations({
+        database: {
+          image: {
+            count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(2),
+            findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+              if (where.webpAnimationStatus === null) return []
+              if (!scanRead) {
+                scanRead = true
+                return images
+              }
+              throw new Error('simulated process crash after atomic checkpoint')
+            })
+          }
+        } as never,
+        mutate: (async (operation) => operation({ image: { updateMany } } as never)) satisfies RunMaintenanceMutation,
+        checkpoint: async (operation) => {
+          const committed = await operation({ image: { updateMany } } as never)
+          if (committed.update.progressData.kind === 'animation-scan') {
+            durableCheckpoint = committed.update.progressData
+          }
+          return committed.result
+        },
+        signal: new AbortController().signal,
+        progress: vi.fn(),
+        scanRoot: root,
+        detectAnimated: vi.fn(async () => true)
+      })
+    ).rejects.toThrow('simulated process crash')
+
+    expect(durableCheckpoint).toMatchObject({ attemptedItems: 2, succeededItems: 2, animatedItems: 2 })
+    if (!durableCheckpoint) throw new Error('Expected an atomic animation checkpoint')
+    const recovered = await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValue(0),
+          findMany: vi.fn().mockResolvedValue([])
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      scanRoot: root,
+      resumeProgressData: durableCheckpoint,
+      detectAnimated: vi.fn()
+    })
+
+    expect(recovered).toMatchObject({ processed: 2, animated: 2, static: 0, failed: 0 })
   })
 
   it('does not commit a detected batch after cancellation wins', async () => {
@@ -109,6 +603,272 @@ describe('webp animation scan maintenance', () => {
     expect(updateMany).not.toHaveBeenCalled()
   })
 
+  it('aborts every in-flight probe and drains the pool before returning cancellation', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-cancel-'))
+    roots.push(root)
+    const images = Array.from({ length: 3 }, (_, index) => ({ id: index + 1, path: `${index + 1}.webp` }))
+    await Promise.all(images.map((image) => writeFile(path.join(root, image.path), 'fixture')))
+    const controller = new AbortController()
+    let scanRead = false
+    let active = 0
+    let drained = 0
+    let announceStarted!: () => void
+    const allStarted = new Promise<void>((resolve) => {
+      announceStarted = resolve
+    })
+    const updateMany = vi.fn()
+    const progress = vi.fn()
+    const execution = scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(3),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus === null) return []
+            if (scanRead) return []
+            scanRead = true
+            return images
+          })
+        }
+      } as never,
+      mutate: (async (operation) => operation({ image: { updateMany } } as never)) satisfies RunMaintenanceMutation,
+      signal: controller.signal,
+      progress,
+      scanRoot: root,
+      concurrency: 3,
+      detectAnimated: vi.fn(async (_absolutePath, mediaPath, signal) => {
+        active += 1
+        if (active === 3) announceStarted()
+        return await new Promise<boolean>((_resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              setTimeout(
+                () => {
+                  active -= 1
+                  drained += 1
+                  reject(signal.reason)
+                },
+                Number.parseInt(mediaPath, 10) * 4
+              )
+            },
+            { once: true }
+          )
+        })
+      })
+    })
+
+    await allStarted
+    controller.abort(new Error('cancel all probes'))
+    await expect(execution).rejects.toThrow('cancel all probes')
+    expect({ active, drained }).toEqual({ active: 0, drained: 3 })
+    expect(updateMany).not.toHaveBeenCalled()
+    expect(progress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        forcePersistence: true,
+        progressData: expect.objectContaining({ activeProbes: 0 })
+      })
+    )
+  })
+
+  it('classifies real Sharp GIF/WebP fixtures through the isolated native pipeline', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-sharp-fixtures-'))
+    roots.push(root)
+    const staticGif = path.join(root, 'static.gif')
+    const animatedGif = path.join(root, 'animated.gif')
+    const animatedWebp = path.join(root, 'animated.webp')
+    const staticWebp = path.join(root, 'static.webp')
+    await Promise.all([
+      writeFile(staticGif, STATIC_GIF),
+      writeFile(animatedGif, ANIMATED_GIF),
+      writeFile(animatedWebp, ANIMATED_WEBP),
+      writeFile(staticWebp, await sharp(STATIC_GIF).webp().toBuffer())
+    ])
+
+    expect(ANIMATION_SCAN_SHARP_TIMEOUT_SECONDS).toBe(60)
+    await expect(detectAnimatedImage(staticGif)).resolves.toBe(false)
+    await expect(detectAnimatedImage(animatedGif)).resolves.toBe(true)
+    await expect(detectAnimatedImage(animatedWebp)).resolves.toBe(true)
+    await expect(detectAnimatedImage(staticWebp)).resolves.toBe(false)
+  })
+
+  it('detects a WebP whose cumulative frame pixels exceed the Sharp limit', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-many-frame-webp-'))
+    roots.push(root)
+    const encoded = await sharp(ANIMATED_WEBP, { animated: true })
+      .resize(1024, 1024)
+      .webp({ lossless: true })
+      .toBuffer()
+    const frames: Buffer[] = []
+    let firstFrame = 0
+    for (let offset = 12; offset < encoded.length; ) {
+      const size = encoded.readUInt32LE(offset + 4)
+      const end = offset + 8 + size + (size % 2)
+      if (encoded.toString('ascii', offset, offset + 4) === 'ANMF') {
+        if (!firstFrame) firstFrame = offset
+        frames.push(encoded.subarray(offset, end))
+      }
+      offset = end
+    }
+    expect(frames).toHaveLength(2)
+    const image = Buffer.concat([encoded.subarray(0, firstFrame), ...Array.from({ length: 129 }, () => frames).flat()])
+    image.writeUInt32LE(image.length - 8, 4)
+    await expect(sharp(image, { animated: true }).metadata()).rejects.toThrow('Input image exceeds pixel limit')
+    const target = path.join(root, 'many-frames.webp')
+    await writeFile(target, image)
+    await expect(detectAnimatedImage(target)).resolves.toBe(true)
+  })
+
+  it('keeps oversized single-frame images and unreadable files as failures', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-invalid-probe-'))
+    roots.push(root)
+    const oversized = path.join(root, 'oversized.webp')
+    const broken = path.join(root, 'broken.webp')
+    await writeFile(oversized, '<svg xmlns="http://www.w3.org/2000/svg" width="20000" height="20000"/>')
+    await writeFile(broken, 'invalid image')
+    await expect(detectAnimatedImage(oversized)).rejects.toThrow('Input image exceeds pixel limit')
+    await expect(detectAnimatedImage(broken)).rejects.toThrow()
+  })
+
+  it('falls back to generic image probing when a .png file contains JPEG data', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-mislabeled-png-'))
+    roots.push(root)
+    const target = path.join(root, 'wrong-extension.png')
+    await writeFile(target, STATIC_JPEG)
+    expect((await sharp(STATIC_JPEG).metadata()).pages).toBeUndefined()
+
+    await expect(detectAnimatedImage(target)).resolves.toBe(false)
+  })
+
+  it('kills and drains an isolated probe process when cancellation fires', async () => {
+    const pool = new IsolatedSharpAnimationProbePool({
+      size: 1,
+      hardTimeoutMs: 5_000,
+      childSource: `
+        process.on('disconnect', () => process.exit(0))
+        process.on('message', () => undefined)
+      `
+    })
+    const controller = new AbortController()
+    try {
+      const detection = pool.detect('/private/fixture.webp', controller.signal)
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      controller.abort(new Error('probe cancelled'))
+      await expect(detection).rejects.toThrow('probe cancelled')
+    } finally {
+      await pool.close()
+    }
+  })
+
+  it('hard-kills a native probe process that does not respond before its deadline', async () => {
+    const pool = new IsolatedSharpAnimationProbePool({
+      size: 1,
+      timeoutSeconds: ANIMATION_SCAN_SHARP_TIMEOUT_SECONDS,
+      hardTimeoutMs: 25,
+      childSource: `
+        process.on('disconnect', () => process.exit(0))
+        process.on('message', () => undefined)
+      `
+    })
+    try {
+      await expect(pool.detect('/private/fixture.webp', new AbortController().signal)).rejects.toMatchObject({
+        name: 'SharpAnimationProbeTimeoutError',
+        message: `Sharp animation probe exceeded ${ANIMATION_SCAN_SHARP_TIMEOUT_SECONDS} seconds`
+      })
+    } finally {
+      await pool.close()
+    }
+  })
+
+  it('settles detection and close when spawning the probe process fails before exit', async () => {
+    const spawnFailure = Object.assign(new Error('spawn unavailable'), { code: 'ENOENT' })
+    const child = createFakeChild({
+      onSend: (_message, fake) => {
+        queueMicrotask(() => {
+          fake.setExitCode(-2)
+          fake.process.emit('error', spawnFailure)
+          fake.process.emit('close', -2, null)
+        })
+      },
+      onKill: () => false
+    })
+    const pool = new IsolatedSharpAnimationProbePool({
+      size: 1,
+      spawnProcess: () => child.process
+    })
+
+    await expect(pool.detect('/private/fixture.webp', new AbortController().signal)).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+    await expect(pool.close()).resolves.toBeUndefined()
+  })
+
+  it('keeps cancellation authoritative over an already queued probe result', async () => {
+    const controller = new AbortController()
+    const child = createFakeChild({
+      onSend: (message, fake) => {
+        queueMicrotask(() => {
+          controller.abort(new Error('lease lost'))
+          fake.process.emit('message', { type: 'result', id: (message as { id: number }).id, ok: true, pages: 2 })
+          queueMicrotask(() => {
+            fake.setSignalCode('SIGKILL')
+            fake.process.emit('close', null, 'SIGKILL')
+          })
+        })
+      },
+      onKill: () => true
+    })
+    const pool = new IsolatedSharpAnimationProbePool({
+      size: 1,
+      spawnProcess: () => child.process
+    })
+    try {
+      await expect(pool.detect('/private/fixture.webp', controller.signal)).rejects.toThrow('lease lost')
+    } finally {
+      await pool.close()
+    }
+  })
+
+  it('rejects a symlink that resolves outside the configured scan root', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-root-'))
+    const outside = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-outside-'))
+    roots.push(root, outside)
+    await writeFile(path.join(outside, 'private.webp'), 'fixture')
+    await symlink(path.join(outside, 'private.webp'), path.join(root, 'linked.webp'))
+    let scanRead = false
+    const detectAnimated = vi.fn()
+    const progress = vi.fn()
+
+    const result = await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1).mockResolvedValueOnce(1),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus === null) return []
+            if (scanRead) return []
+            scanRead = true
+            return [{ id: 1, path: 'linked.webp' }]
+          })
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      detectAnimated
+    })
+
+    expect(result).toMatchObject({ processed: 0, failed: 1, remainingPending: 1 })
+    expect(result.failedSamples[0]).toMatchObject({ errorCode: 'PATH_OUTSIDE_SCAN_ROOT' })
+    expect(detectAnimated).not.toHaveBeenCalled()
+    expect(progress).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        stage: 'COMPLETED',
+        progressData: expect.objectContaining({ attemptedItems: 1, failedItems: 1, remainingItems: 1 })
+      })
+    )
+  })
+
   it('reports stable failure codes without leaking absolute paths or raw filesystem errors', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-private-'))
     roots.push(root)
@@ -131,9 +891,10 @@ describe('webp animation scan maintenance', () => {
 
     const result = await scanWebpAnimations({
       database: {
-        image: { findMany, count: vi.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(2) }
+        image: { findMany, count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(2).mockResolvedValueOnce(2) }
       } as never,
-      mutate: vi.fn() as never,
+      mutate: (async (operation) =>
+        operation({ image: { updateMany: vi.fn() } } as never)) satisfies RunMaintenanceMutation,
       signal: new AbortController().signal,
       progress: vi.fn(),
       scanRoot: root,
@@ -160,4 +921,183 @@ describe('webp animation scan maintenance', () => {
     expect(JSON.stringify(result.failedSamples)).not.toContain('private/scan-root')
     expect(JSON.stringify(result.failedSamples)).not.toContain('secret token')
   })
+
+  it('keeps probes inside the configured worker-pool bound and emits aggregate realtime data', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-pool-'))
+    roots.push(root)
+    const images = Array.from({ length: 8 }, (_, index) => ({ id: index + 1, path: `${index + 1}.webp` }))
+    await Promise.all(images.map((image) => writeFile(path.join(root, image.path), 'fixture')))
+    let scanRead = false
+    let active = 0
+    let maximumActive = 0
+    const progress = vi.fn()
+    const result = await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(8).mockResolvedValueOnce(0),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus === null) return []
+            if (scanRead) return []
+            scanRead = true
+            return images
+          })
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({
+          image: { updateMany: vi.fn(async () => ({ count: 4 })) }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      concurrency: 3,
+      detectAnimated: vi.fn(async (_absolutePath, mediaPath) => {
+        active += 1
+        maximumActive = Math.max(maximumActive, active)
+        await new Promise((resolve) => setTimeout(resolve, 2))
+        active -= 1
+        return Number.parseInt(mediaPath, 10) % 2 === 0
+      })
+    })
+
+    expect(maximumActive).toBeGreaterThan(1)
+    expect(maximumActive).toBeLessThanOrEqual(3)
+    expect(result).toMatchObject({ processed: 8, animated: 4, static: 4 })
+    expect(progress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stage: 'COMPLETED',
+        progressData: expect.objectContaining({
+          kind: 'animation-scan',
+          attemptedItems: 8,
+          activeProbes: 0,
+          concurrencyLimit: 3
+        })
+      })
+    )
+  })
+
+  it('emits one privacy-safe warning when a probe exceeds the slow-item threshold', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-animation-slow-'))
+    roots.push(root)
+    await writeFile(path.join(root, 'slow.webp'), 'fixture')
+    let scanRead = false
+    const progress = vi.fn()
+
+    await scanWebpAnimations({
+      database: {
+        image: {
+          count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(1).mockResolvedValueOnce(0),
+          findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null } }) => {
+            if (where.webpAnimationStatus === null) return []
+            if (scanRead) return []
+            scanRead = true
+            return [{ id: 1, path: 'slow.webp' }]
+          })
+        }
+      } as never,
+      mutate: (async (operation) =>
+        operation({
+          image: { updateMany: vi.fn(async () => ({ count: 1 })) }
+        } as never)) satisfies RunMaintenanceMutation,
+      signal: new AbortController().signal,
+      progress,
+      scanRoot: root,
+      slowItemThresholdMs: 5,
+      detectAnimated: vi.fn(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        return true
+      })
+    })
+
+    const warnings = progress.mock.calls.map(([update]) => update).filter((update) => update.level === 'WARN')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toMatchObject({
+      forcePersistence: true,
+      data: { level: 'WARN', code: 'SLOW_ANIMATION_PROBE', thresholdSeconds: 0.005 }
+    })
+    expect(JSON.stringify(warnings)).not.toContain(root)
+    expect(JSON.stringify(warnings)).not.toContain('slow.webp')
+  })
+})
+
+function createFakeChild(options: {
+  onSend(message: unknown, child: FakeChild): void
+  onKill(signal: NodeJS.Signals): boolean
+}): FakeChild {
+  const process = new EventEmitter() as ChildProcess
+  let exitCode: number | null = null
+  let signalCode: NodeJS.Signals | null = null
+  const fake: FakeChild = {
+    process,
+    setExitCode: (value) => {
+      exitCode = value
+    },
+    setSignalCode: (value) => {
+      signalCode = value
+    }
+  }
+  Object.defineProperties(process, {
+    exitCode: { get: () => exitCode },
+    signalCode: { get: () => signalCode },
+    send: { value: (message: unknown) => options.onSend(message, fake) },
+    kill: { value: (signal: NodeJS.Signals) => options.onKill(signal) }
+  })
+  return fake
+}
+
+interface FakeChild {
+  process: ChildProcess
+  setExitCode(value: number | null): void
+  setSignalCode(value: NodeJS.Signals | null): void
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
+it('captures all failures beyond 20 samples in the same bounded checkpoints', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-diagnostics-'))
+  roots.push(root)
+  await writeFile(path.join(root, 'broken.webp'), 'fixture')
+  const images = Array.from({ length: 31 }, (_, i) => ({ id: i + 1, path: 'broken.webp' }))
+  const diagnostics: unknown[] = []
+  const transaction = { image: { updateMany: vi.fn() }, diagnostics }
+  const recordDiagnostic = vi.fn(async (tx: unknown, diagnostic: unknown) => {
+    expect(tx).toBe(transaction)
+    diagnostics.push(diagnostic)
+  })
+  const result = await scanWebpAnimations({
+    database: {
+      image: {
+        count: vi.fn().mockResolvedValueOnce(0).mockResolvedValueOnce(31).mockResolvedValueOnce(31),
+        findMany: vi.fn(async ({ where }: { where: { webpAnimationStatus: number | null; id?: { gt: number } } }) =>
+          where.webpAnimationStatus === null
+            ? []
+            : images.filter((image) => image.id > (where.id?.gt ?? 0)).slice(0, 20)
+        )
+      }
+    } as never,
+    mutate: (async (operation) => operation(transaction as never)) satisfies RunMaintenanceMutation,
+    recordDiagnostic,
+    signal: new AbortController().signal,
+    progress: vi.fn(),
+    scanRoot: root,
+    detectAnimated: async () => {
+      throw new Error('decoder failed')
+    }
+  })
+  expect(result.failed).toBe(31)
+  expect(result.failedSamples).toHaveLength(20)
+  expect(diagnostics).toHaveLength(31)
+  // Concurrent probes may finish in any order; every item must be recorded once.
+  expect(recordDiagnostic).toHaveBeenCalledTimes(31)
+  const keys = recordDiagnostic.mock.calls.map(([, diagnostic]) => (diagnostic as { key: string }).key)
+  expect(new Set(keys)).toEqual(new Set(images.map((image) => `animation:${image.id}`)))
+  for (const diagnostic of diagnostics) {
+    expect(diagnostic).toEqual(expect.objectContaining({ error: expect.any(Error) }))
+  }
 })

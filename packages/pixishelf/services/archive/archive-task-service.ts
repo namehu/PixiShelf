@@ -1,7 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import {
   ARCHIVE_IMPORT_DEFINITION_VERSION,
-  archiveImportV2PayloadSchema
+  ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+  archiveImportV2PayloadSchema,
+  archiveUploaderIdentityLockKey,
+  archiveUploaderUrlLockKey,
+  formatArchiveVersionWarning
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { z } from 'zod'
@@ -18,6 +22,9 @@ import { archiveTaskActionIneligibility, recoverAppliedArchiveTaskAction } from 
 import { archiveWireErrorMessage, redactArchiveText, redactArchiveUrl } from './archive-redaction'
 import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
 
+import { archiveTaskCreatorSummaries } from './archive-task-creators'
+import { unboundArchiveTaskIds } from './archive-task-unbound-query'
+
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000
 
 export const archiveTaskListSchema = z
@@ -32,7 +39,8 @@ export const archiveTaskListSchema = z
     providerKey: z.string().trim().min(1).max(50).optional(),
     kind: z.enum(['NEW', 'UPDATE']).optional(),
     submissionId: z.string().trim().min(1).max(128).optional(),
-    search: z.string().trim().min(1).max(500).optional()
+    search: z.string().trim().min(1).max(500).optional(),
+    unboundOnly: z.boolean().default(false)
   })
   .strict()
 
@@ -67,10 +75,12 @@ export async function listArchiveTasks(
   }
   const attributionWhere: Prisma.ArchiveIntakeItemWhereInput =
     parsed.kind || parsed.submissionId ? requestedAttribution : {}
+  const unboundIds = parsed.unboundOnly && !parsed.taskId ? await unboundArchiveTaskIds(database, parsed, cursor) : null
   const records = await database.archiveImport.findMany({
     where: parsed.taskId
       ? { id: parsed.taskId }
       : {
+          ...(unboundIds ? { id: { in: unboundIds } } : {}),
           ...(parsed.statuses?.length ? { status: { in: parsed.statuses } } : {}),
           ...(parsed.providerKey ? { providerKey: parsed.providerKey } : {}),
           ...(parsed.kind || parsed.submissionId
@@ -114,8 +124,15 @@ export async function listArchiveTasks(
   const hasMore = records.length > parsed.limit
   const visible = hasMore ? records.slice(0, parsed.limit) : records
   const last = visible.at(-1)
+  const creators = await archiveTaskCreatorSummaries(database, visible)
   return {
-    items: visible.map(serializeTask),
+    items: visible.map((task, index) => ({
+      ...serializeTask(task),
+      ...creators[index]!,
+      creatorEditBlockedReason: task.cleanupRequestedAt
+        ? '归档任务正在清理，请稍后重试。'
+        : creators[index]!.creatorEditBlockedReason
+    })),
     nextCursor: hasMore && last ? encodeTaskCursor(last.createdAt, last.id) : null
   }
 }
@@ -170,6 +187,7 @@ async function applyTaskAction(
     include: { systemJob: true }
   })
   if (!task) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '归档任务不存在' }
+  await lockUploaderCatalogImport(transaction, task)
   if (task.cleanupRequestedAt) {
     return { result: 'CONFLICT', code: 'CLEANUP_IN_PROGRESS', message: '归档任务正在清理暂存文件' }
   }
@@ -204,7 +222,7 @@ async function applyTaskAction(
         availableAt: timestamp,
         maxAttempts: task.systemJob.maxAttempts,
         progress: taskProgress(task.completedItems, task.totalItems),
-        message: 'Retry archive import'
+        message: '重试归档导入'
       }
     })
     const changed = await transaction.archiveImport.updateMany({
@@ -221,18 +239,30 @@ async function applyTaskAction(
       }
     })
     if (changed.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变')
+    await transaction.archiveUploaderCatalogItem.updateMany({
+      where: {
+        OR: [{ lastArchiveImportId: task.id }, { providerKey: task.providerKey, externalId: task.externalId }]
+      },
+      data: {
+        lastArchiveImportId: task.id,
+        lastOutcome: 'SUBMITTED',
+        lastOutcomeAt: timestamp,
+        lastErrorCode: null,
+        lastErrorMessage: null
+      }
+    })
     await writeJobEvent(transaction, {
       jobId: task.systemJobId,
       type: 'job.retry_scheduled',
       attempt: task.systemJob.attempt,
-      message: 'Retry archive import',
+      message: '重试归档导入',
       data: { retryJobId: nextJobId }
     })
     await writeJobEvent(transaction, {
       jobId: nextJobId,
       type: 'job.queued',
       attempt: 0,
-      message: 'Retry archive import',
+      message: '重试归档导入',
       data: { retryOfJobId: task.systemJobId, archiveImportId: task.id, priority }
     })
     return { result: 'APPLIED', relatedId: nextJobId }
@@ -264,13 +294,13 @@ async function applyTaskAction(
       message:
         action === 'CANCEL'
           ? direct
-            ? 'Archive import cancelled before execution'
-            : 'Archive import cancellation requested'
+            ? '归档导入在执行前已取消'
+            : '已请求取消归档导入'
           : action === 'PAUSE'
             ? direct
-              ? 'Archive import paused before execution'
-              : 'Archive import pause requested'
-            : 'Archive import resumed',
+              ? '归档导入在执行前已暂停'
+              : '已请求暂停归档导入'
+            : '归档导入已恢复',
       ...(action === 'CANCEL' ? { cancelRequestedAt: timestamp } : {}),
       ...(action === 'PAUSE' ? { pauseRequestedAt: timestamp } : {}),
       ...(action === 'RESUME' ? { pauseRequestedAt: null, availableAt: timestamp } : {}),
@@ -323,6 +353,20 @@ async function applyTaskAction(
     }
   })
   if (changed.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变')
+  if (action === 'CANCEL' && direct) {
+    await transaction.archiveUploaderCatalogItem.updateMany({
+      where: {
+        OR: [{ lastArchiveImportId: task.id }, { providerKey: task.providerKey, externalId: task.externalId }]
+      },
+      data: {
+        lastArchiveImportId: task.id,
+        lastOutcome: 'CANCELLED',
+        lastOutcomeAt: timestamp,
+        lastErrorCode: 'CANCELLED',
+        lastErrorMessage: '归档导入在执行前已取消'
+      }
+    })
+  }
   await writeJobEvent(transaction, {
     jobId: task.systemJobId,
     type:
@@ -335,7 +379,7 @@ async function applyTaskAction(
           : 'job.queued',
     level: action === 'RESUME' ? 'INFO' : 'WARN',
     attempt: task.systemJob.attempt,
-    message: `${action.toLowerCase()} archive import`,
+    message: `归档导入操作：${action}`,
     data: action === 'RESUME' ? { reason: 'RESUME' } : null
   })
   if (action === 'PAUSE' && direct) {
@@ -344,7 +388,7 @@ async function applyTaskAction(
       type: 'job.paused',
       level: 'WARN',
       attempt: task.systemJob.attempt,
-      message: 'Archive import paused before execution'
+      message: '归档导入在执行前已暂停'
     })
   }
   return { result: 'APPLIED', relatedId: task.systemJobId }
@@ -380,6 +424,25 @@ function taskProgress(completed: number, total: number): number {
   return Math.max(1, Math.min(95, Math.round((completed / Math.max(total, 1)) * 90) + 5))
 }
 
+async function lockUploaderCatalogImport(
+  transaction: {
+    $queryRawUnsafe<T = unknown>(query: string, ...values: unknown[]): Promise<T>
+  },
+  archiveImport: { providerKey: string; externalId: string; canonicalUrl: string }
+) {
+  const keys = [
+    archiveUploaderIdentityLockKey(archiveImport.providerKey, archiveImport.externalId),
+    archiveUploaderUrlLockKey(archiveImport.canonicalUrl)
+  ].sort()
+  for (const key of keys) {
+    await transaction.$queryRawUnsafe(
+      'SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))::text AS "lock"',
+      ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+      key
+    )
+  }
+}
+
 function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWhereInput) {
   return {
     id: true,
@@ -401,6 +464,7 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
     startedAt: true,
     finishedAt: true,
     retainUntil: true,
+    cleanupRequestedAt: true,
     publishedArtwork: { select: { id: true, title: true, deletedAt: true, archiveLifecycleState: true } },
     publishedRevision: { select: { id: true } },
     systemJob: {
@@ -432,7 +496,7 @@ function serializeTask(task: ArchiveTaskWire) {
     : task.systemJob.progress
   const message =
     task.status === 'RUNNING' && ['RUNNING', 'PAUSING'].includes(task.systemJob.status)
-      ? `Downloaded ${task.completedItems}/${task.totalItems}`
+      ? `已下载 ${task.completedItems}/${task.totalItems}`
       : archiveWireErrorMessage(task.errorCode, task.systemJob.message)
   return {
     id: task.id,
@@ -449,7 +513,7 @@ function serializeTask(task: ArchiveTaskWire) {
     message,
     errorCode: task.errorCode,
     errorMessage: archiveWireErrorMessage(task.errorCode, task.errorMessage),
-    warning: redactArchiveText(task.warning),
+    warning: redactArchiveText(formatArchiveVersionWarning(task)),
     totalItems: task.totalItems,
     completedItems: task.completedItems,
     failedItems: task.failedItems,
@@ -487,7 +551,7 @@ function decodeTaskCursor(value: string) {
       id: string
     }
     const createdAt = new Date(parsed.createdAt)
-    if (parsed.version !== 1 || !parsed.id || Number.isNaN(createdAt.getTime())) throw new Error('Invalid cursor')
+    if (parsed.version !== 1 || !parsed.id || Number.isNaN(createdAt.getTime())) throw new Error('分页游标无效')
     return { createdAt, id: parsed.id }
   } catch (error) {
     throw new ArchiveError('INVALID_URL', '归档任务分页游标无效', { cause: error })

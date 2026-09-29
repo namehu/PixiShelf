@@ -2,6 +2,12 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ArchiveIntakeRetryActions } from '../archive-intake-item-actions'
 
+vi.mock('@/components/source-preview/source-preview-button', () => ({
+  SourcePreviewButton: ({ source }: { source: { itemId: string } }) => (
+    <button type="button">预览 {source.itemId}</button>
+  )
+}))
+
 describe('archive intake retry actions', () => {
   afterEach(() => cleanup())
 
@@ -54,5 +60,19 @@ describe('archive intake retry actions', () => {
 
     expect((screen.getByRole('button', { name: '正在直接重试' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: '修改并重试' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('offers preview when the service marked the submitted source as available', () => {
+    render(
+      <ArchiveIntakeRetryActions
+        item={{ id: 'item-82', status: 'QUEUED', sourcePreviewAvailable: true } as any}
+        actionPending={false}
+        retrying={false}
+        onRetry={vi.fn()}
+        onReplace={vi.fn()}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: '预览 item-82' })).toBeTruthy()
   })
 })

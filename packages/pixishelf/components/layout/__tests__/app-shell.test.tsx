@@ -31,7 +31,7 @@ afterEach(() => {
 })
 
 describe('isHeaderlessPath', () => {
-  it.each(['/login', '/viewer', '/artworks/preview'])('hides application chrome for %s', (pathname) => {
+  it.each(['/login', '/viewer', '/artworks/preview', '/source-preview'])('hides application chrome for %s', (pathname) => {
     expect(isHeaderlessPath(pathname)).toBe(true)
   })
 
@@ -59,7 +59,7 @@ describe('AppShell', () => {
     )
   })
 
-  it.each(['/login', '/viewer', '/artworks/preview'])('does not render the header on %s', (pathname) => {
+  it.each(['/login', '/viewer', '/artworks/preview', '/source-preview'])('does not render the header on %s', (pathname) => {
     vi.mocked(usePathname).mockReturnValue(pathname)
     vi.mocked(useAuthUser).mockReturnValue({ id: '1', name: 'User', email: null, image: null })
 

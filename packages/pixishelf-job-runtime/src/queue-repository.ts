@@ -1,6 +1,10 @@
+import { recordJobDiagnostic, closeJobDiagnosticReport } from './job-diagnostics.ts'
+import { extractJobDiagnostic, sanitizeDiagnosticText, type JobDiagnostic } from '@pixishelf/job-contracts'
 import { randomUUID } from 'node:crypto'
 import type {
   ExecutionLane,
+  JobEventLevel,
+  JobProgressData,
   JobSkipReason,
   JobStatus,
   JobTriggerSource,
@@ -10,6 +14,7 @@ import type {
 import {
   executionLaneForJobType,
   executionLaneSchema,
+  jobProgressDataSchema,
   JOB_DEFINITION_VERSION,
   jobTypeSchema,
   jsonValueSchema,
@@ -18,6 +23,7 @@ import {
 import { DispatchWindowPolicy } from './dispatch-window.ts'
 import { type QueueClock, systemQueueClock } from './queue-clock.ts'
 import { redactSensitiveText } from './worker-health-state.ts'
+import type { ExecutionProgressMutationResult, ExecutionProgressUpdate } from './execution-context.ts'
 
 export const ARCHIVE_RESOLVE_LANE_RESOURCE = 'lane/archive-resolve'
 export const BACKGROUND_WRITER_LANE_RESOURCE = 'lane/background-writer'
@@ -67,6 +73,8 @@ export interface QueueJobRecord {
   status: JobStatus
   triggerSource: JobTriggerSource
   payload: unknown
+  currentDiagnosticExecutionId?: string | null
+  progressData?: JobProgressData | null
   attempt: number
   maxAttempts: number
   effectivePriority: number
@@ -109,12 +117,14 @@ export interface CompleteExecutionInput extends ExecutionFence {
 }
 
 export interface FailExecutionInput extends ExecutionFence {
+  diagnostic?: JobDiagnostic | undefined
   errorCode: string
   error: string
   message?: string | null
 }
 
 export interface RetryExecutionInput extends ExecutionFence {
+  diagnostic?: JobDiagnostic | undefined
   availableAt: Date
   errorCode: string
   error: string
@@ -135,6 +145,8 @@ export interface ProgressExecutionInput extends ExecutionFence {
   stage?: string | null
   message?: string | null
   data?: unknown
+  progressData?: JobProgressData | null
+  level?: JobEventLevel
 }
 
 export interface RequestCancellationResult {
@@ -171,6 +183,8 @@ export interface TransactionBoundCompleteInput {
 }
 
 export interface TransactionBoundFailInput {
+  diagnosticComplete?: boolean | undefined
+  diagnostic?: JobDiagnostic | undefined
   errorCode: string
   error: string
   message?: string | null
@@ -179,6 +193,7 @@ export interface TransactionBoundFailInput {
 export interface TransactionBoundRetryInput extends TransactionBoundFailInput {
   availableAt: Date
   preserveAttempt?: boolean
+  schedulingYield?: boolean
 }
 
 export interface TransactionBoundSkipInput {
@@ -224,6 +239,8 @@ interface ExecutingJobRow {
 }
 
 interface OwnedJobTransition {
+  diagnosticComplete?: boolean | undefined
+  diagnostic?: JobDiagnostic | undefined
   status: 'PENDING' | 'PAUSED' | 'COMPLETED' | 'FAILED' | 'RETRY_WAIT' | 'SKIPPED' | 'CANCELLED'
   eventType: string
   eventLevel: 'INFO' | 'WARN' | 'ERROR'
@@ -382,6 +399,13 @@ export class PostgresQueueRepository {
                  SELECT jsonb_array_elements_text(capability->'definitionVersions')::integer
                )
            )
+           AND NOT EXISTS (
+             SELECT 1 FROM "system_jobs" AS batch
+             WHERE batch."id" = job."parentJobId"
+               AND batch."type" = 'ARCHIVE_DISCOVERY_BATCH_SCAN'
+               AND (batch."status" IN ('PAUSED', 'PAUSING', 'CANCELLING', 'CANCELLED', 'FAILED', 'COMPLETED')
+                 OR COALESCE(batch."result"->>'control', 'RUN') <> 'RUN')
+           )
            AND "attempt" < "maxAttempts"
            AND "cancelRequestedAt" IS NULL
            AND (
@@ -441,6 +465,7 @@ export class PostgresQueueRepository {
       }
 
       const executionToken = randomUUID()
+      const currentDiagnosticExecutionId = randomUUID()
       const leaseExpiresAt = new Date(now.getTime() + this.leaseDurationMs)
       const claimedRows = await transaction.$queryRawUnsafe<QueueJobRecord[]>(
         `UPDATE "system_jobs"
@@ -448,6 +473,7 @@ export class PostgresQueueRepository {
            "status" = 'RUNNING',
            "workerId" = $2,
            "leaseToken" = $3::uuid,
+           "currentDiagnosticExecutionId" = $7::uuid,
            "leaseExpiresAt" = $4,
            "heartbeatAt" = $1,
            "attempt" = "attempt" + 1,
@@ -464,6 +490,7 @@ export class PostgresQueueRepository {
            AND "definitionVersion" > 0
          RETURNING
            "id", "type", "executionLane", "definitionVersion", "status", "triggerSource", "payload",
+           "progressData",
            "attempt", "maxAttempts", "effectivePriority", "availableAt", "deadlineAt",
            "workerId", "leaseToken"::text AS "leaseToken", "leaseExpiresAt", "heartbeatAt",
            "startedAt", "createdAt", "updatedAt"`,
@@ -472,7 +499,8 @@ export class PostgresQueueRepository {
         executionToken,
         leaseExpiresAt,
         candidate.id,
-        candidate.status
+        candidate.status,
+        currentDiagnosticExecutionId
       )
       const claimed = claimedRows[0]
       if (!claimed) {
@@ -505,6 +533,7 @@ export class PostgresQueueRepository {
 
       return {
         ...claimed,
+        currentDiagnosticExecutionId,
         status: 'RUNNING',
         workerId,
         leaseToken: executionToken,
@@ -564,23 +593,23 @@ export class PostgresQueueRepository {
   }
 
   async updateProgress(input: ProgressExecutionInput): Promise<void> {
+    // The job row and its event are deliberately written in one fenced
+    // transaction: a stale lease must not publish either half of a progress
+    // checkpoint that a reconnecting client could later treat as authoritative.
     assertFence(input)
-    if (!Number.isInteger(input.progress) || input.progress < 0 || input.progress > 100) {
-      throw new Error('Execution progress must be an integer from 0 through 100')
-    }
-    if (input.stage !== undefined && input.stage !== null && input.stage.length > 80) {
-      throw new Error('Execution stage cannot exceed 80 characters')
-    }
+    validateProgressUpdate(input)
 
     const now = this.clock.now()
     await this.runTransaction(async (transaction) => {
-      await this.lockOwnedExecution(transaction, input, now)
+      const ownedExecution = await this.lockOwnedExecution(transaction, input, now)
+      const stageChanged = input.stage !== undefined && input.stage !== ownedExecution.stage
       const rows = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
         `UPDATE "system_jobs"
          SET
            "progress" = $6,
            "stage" = CASE WHEN $7::boolean THEN $8 ELSE "stage" END,
            "message" = CASE WHEN $9::boolean THEN $10 ELSE "message" END,
+           "progressData" = CASE WHEN $11::boolean THEN $12::jsonb ELSE "progressData" END,
            "updatedAt" = $5
          WHERE "id" = $1
            AND "workerId" = $2
@@ -598,7 +627,9 @@ export class PostgresQueueRepository {
         input.stage !== undefined,
         input.stage ?? null,
         input.message !== undefined,
-        input.message ?? null
+        input.message ?? null,
+        input.progressData !== undefined,
+        input.progressData === null ? null : toJsonParameter(input.progressData)
       )
       if (rows.length !== 1) {
         throw new JobExecutionFenceError(input.jobId)
@@ -606,8 +637,8 @@ export class PostgresQueueRepository {
 
       await this.insertEvent(transaction, {
         jobId: input.jobId,
-        type: input.stage !== undefined ? 'job.stage_changed' : 'job.progress',
-        level: 'INFO',
+        type: stageChanged ? 'job.stage_changed' : 'job.progress',
+        level: input.level ?? 'INFO',
         attempt: input.attempt,
         workerId: input.workerId,
         ...(input.stage === undefined ? {} : { stage: input.stage }),
@@ -616,6 +647,7 @@ export class PostgresQueueRepository {
         data: {
           progress: input.progress,
           ...(input.stage === undefined ? {} : { stage: input.stage }),
+          ...(input.progressData === undefined ? {} : { progressData: input.progressData }),
           ...(input.data === undefined ? {} : { data: input.data })
         },
         now
@@ -813,6 +845,7 @@ export class PostgresQueueRepository {
   async fail(input: FailExecutionInput): Promise<void> {
     await this.transitionOwnedJob(input, {
       status: 'FAILED',
+      diagnostic: input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode }),
       eventType: 'job.failed',
       eventLevel: 'ERROR',
       message: input.message ?? 'Job failed',
@@ -831,6 +864,7 @@ export class PostgresQueueRepository {
 
     await this.transitionOwnedJob(input, {
       status: 'RETRY_WAIT',
+      diagnostic: input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode }),
       eventType: 'job.retry_scheduled',
       eventLevel: 'WARN',
       message: input.message ?? 'Job retry scheduled',
@@ -978,7 +1012,7 @@ export class PostgresQueueRepository {
     assertFence(fence)
 
     return this.runTransaction(async (transaction) => {
-      const executionStatus = await this.lockOwnedExecution(transaction, fence, this.clock.now())
+      const executionStatus = (await this.lockOwnedExecution(transaction, fence, this.clock.now())).status
       // The first SELECT may have waited for a concurrent controller while its
       // timestamp parameter aged. Revalidate after both lease/job rows are ours
       // so an execution whose lease expired while waiting never enters domain code.
@@ -1020,6 +1054,8 @@ export class PostgresQueueRepository {
         fail: (input) =>
           finalize({
             status: 'FAILED',
+            diagnosticComplete: input.diagnosticComplete,
+            diagnostic: input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode }),
             eventType: 'job.failed',
             eventLevel: 'ERROR',
             message: input.message ?? 'Job failed',
@@ -1032,21 +1068,30 @@ export class PostgresQueueRepository {
           if (input.availableAt.getTime() < this.clock.now().getTime()) {
             throw new Error('Retry availableAt cannot be earlier than the current queue clock')
           }
+          if (input.schedulingYield && !input.preserveAttempt) {
+            throw new Error('Scheduling yield must preserve the current attempt')
+          }
           return finalize({
             status: 'RETRY_WAIT',
+            diagnostic: input.schedulingYield
+              ? undefined
+              : (input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode })),
             eventType: 'job.retry_scheduled',
-            eventLevel: 'WARN',
+            eventLevel: input.schedulingYield ? 'INFO' : 'WARN',
             message: input.message ?? 'Job retry scheduled',
             assignments: `"availableAt" = $6,
-                          "errorCode" = $7,
-                          "error" = $8${input.preserveAttempt ? ',\n                          "attempt" = "attempt" - 1' : ''}`,
-            values: [input.availableAt, truncate(input.errorCode, 80), sanitizeError(input.error)],
+                          "errorCode" = ${input.schedulingYield ? 'NULL' : '$7'},
+                          "error" = ${input.schedulingYield ? 'NULL' : '$8'}${input.preserveAttempt ? ',\n                          "attempt" = "attempt" - 1' : ''}`,
+            values: input.schedulingYield
+              ? [input.availableAt]
+              : [input.availableAt, truncate(input.errorCode, 80), sanitizeError(input.error)],
             extraPredicate: input.preserveAttempt
               ? `AND "status" = 'RUNNING' AND "attempt" > 0`
               : `AND "status" = 'RUNNING' AND "attempt" < "maxAttempts"`,
             eventData: {
               availableAt: input.availableAt.toISOString(),
-              ...(input.preserveAttempt ? { attemptPreserved: true } : {})
+              ...(input.preserveAttempt ? { attemptPreserved: true } : {}),
+              ...(input.schedulingYield ? { reason: 'SCHEDULING_YIELD' } : {})
             }
           })
         },
@@ -1144,6 +1189,72 @@ export class PostgresQueueRepository {
     })
   }
 
+  async withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<ExecutionProgressMutationResult<TResult>>
+  ): Promise<ExecutionProgressMutationResult<TResult>> {
+    // This is the durable recovery boundary for a domain micro-batch. The
+    // lease is checked before and at commit; one transaction then publishes
+    // domain rows, the SystemJob aggregate, and the replayable event together.
+    assertFence(fence)
+    return this.runTransaction(async (transaction) => {
+      await this.lockRunningExecution(transaction, fence, this.clock.now())
+      const checkpoint = await operation(transaction as TTransaction)
+      validateProgressUpdate(checkpoint.update)
+      const now = this.clock.now()
+      const ownedExecution = await this.lockRunningExecution(transaction, fence, now)
+      const progress = Math.max(ownedExecution.progress, checkpoint.update.progress)
+      const stageChanged = checkpoint.update.stage !== undefined && checkpoint.update.stage !== ownedExecution.stage
+      const rows = await transaction.$queryRawUnsafe<Array<{ id: string }>>(
+        `UPDATE "system_jobs"
+         SET
+           "progress" = $6,
+           "stage" = CASE WHEN $7::boolean THEN $8 ELSE "stage" END,
+           "message" = CASE WHEN $9::boolean THEN $10 ELSE "message" END,
+           "progressData" = $11::jsonb,
+           "updatedAt" = $5
+         WHERE "id" = $1
+           AND "workerId" = $2
+           AND "leaseToken" = $3::uuid
+           AND "attempt" = $4
+           AND "status" = 'RUNNING'
+           AND "leaseExpiresAt" > $5
+         RETURNING "id"`,
+        fence.jobId,
+        fence.workerId,
+        fence.executionToken,
+        fence.attempt,
+        now,
+        progress,
+        checkpoint.update.stage !== undefined,
+        checkpoint.update.stage ?? null,
+        checkpoint.update.message !== undefined,
+        checkpoint.update.message ?? null,
+        toJsonParameter(checkpoint.update.progressData)
+      )
+      if (rows.length !== 1) throw new JobExecutionFenceError(fence.jobId)
+      const persistedUpdate = { ...checkpoint.update, progress }
+      await this.insertEvent(transaction, {
+        jobId: fence.jobId,
+        type: stageChanged ? 'job.stage_changed' : 'job.progress',
+        level: checkpoint.update.level ?? 'INFO',
+        attempt: fence.attempt,
+        workerId: fence.workerId,
+        ...(checkpoint.update.stage === undefined ? {} : { stage: checkpoint.update.stage }),
+        progress,
+        message: checkpoint.update.message ?? null,
+        data: {
+          progress,
+          ...(checkpoint.update.stage === undefined ? {} : { stage: checkpoint.update.stage }),
+          progressData: checkpoint.update.progressData,
+          ...(checkpoint.update.data === undefined ? {} : { data: checkpoint.update.data })
+        },
+        now
+      })
+      return { ...checkpoint, update: persistedUpdate }
+    })
+  }
+
   async recoverExpiredExecution(
     executionLaneInput: ExecutionLane = 'BACKGROUND_WRITER'
   ): Promise<RecoveredExecution | null> {
@@ -1181,8 +1292,10 @@ export class PostgresQueueRepository {
   ): Promise<void> {
     const offsetValues = transition.values
     const messageParameter = `$${6 + offsetValues.length}`
-    const persistedMessage = truncate(redactSensitiveText(transition.message), 4_096)
-    const updatedRows = await transaction.$queryRawUnsafe<Array<{ id: string; attempt: number }>>(
+    const persistedMessage = sanitizeDiagnosticText(transition.message, 4_096)
+    const updatedRows = await transaction.$queryRawUnsafe<
+      Array<{ id: string; attempt: number; currentDiagnosticExecutionId?: string | null }>
+    >(
       `UPDATE "system_jobs"
        SET
          "status" = '${transition.status}',
@@ -1204,7 +1317,7 @@ export class PostgresQueueRepository {
          AND "status" IN ('RUNNING', 'PAUSING', 'CANCELLING')
          AND "leaseExpiresAt" > $5
          ${transition.extraPredicate ?? ''}
-       RETURNING "id", "attempt"`,
+       RETURNING "id", "attempt", "currentDiagnosticExecutionId"`,
       input.jobId,
       input.workerId,
       input.executionToken,
@@ -1216,6 +1329,23 @@ export class PostgresQueueRepository {
     if (updatedRows.length !== 1) {
       throw new JobExecutionFenceError(input.jobId)
     }
+
+    if (transition.diagnostic) {
+      await recordJobDiagnostic(
+        transaction,
+        input.jobId,
+        { key: 'task:failure', scope: 'TASK' },
+        now,
+        transition.diagnostic
+      )
+    }
+    await closeJobDiagnosticReport(
+      transaction,
+      input.jobId,
+      transition.status,
+      now,
+      transition.diagnosticComplete ?? ['COMPLETED', 'FAILED', 'RETRY_WAIT'].includes(transition.status)
+    )
 
     const deleted = await transaction.$executeRawUnsafe(
       `DELETE FROM "job_resource_leases"
@@ -1236,8 +1366,16 @@ export class PostgresQueueRepository {
       level: transition.eventLevel,
       attempt: input.attempt,
       workerId: input.workerId,
-      message: transition.message,
-      data: transition.eventData ?? null,
+      message: persistedMessage,
+      data:
+        transition.diagnostic && updatedRows[0]?.currentDiagnosticExecutionId
+          ? {
+              ...(typeof transition.eventData === 'object' && transition.eventData !== null
+                ? transition.eventData
+                : {}),
+              diagnosticReportId: updatedRows[0].currentDiagnosticExecutionId
+            }
+          : (transition.eventData ?? null),
       now
     })
   }
@@ -1246,7 +1384,7 @@ export class PostgresQueueRepository {
     transaction: QueueSqlExecutor,
     input: ExecutionFence,
     now: Date
-  ): Promise<'RUNNING' | 'PAUSING' | 'CANCELLING'> {
+  ): Promise<{ status: 'RUNNING' | 'PAUSING' | 'CANCELLING'; stage: string | null; progress: number }> {
     const leaseRows = await transaction.$queryRawUnsafe<Array<{ resourceKey: string }>>(
       `SELECT "resourceKey"
        FROM "job_resource_leases"
@@ -1266,9 +1404,9 @@ export class PostgresQueueRepository {
     }
 
     const jobRows = await transaction.$queryRawUnsafe<
-      Array<{ id: string; status: 'RUNNING' | 'PAUSING' | 'CANCELLING' }>
+      Array<{ id: string; status: 'RUNNING' | 'PAUSING' | 'CANCELLING'; stage: string | null; progress: number }>
     >(
-      `SELECT "id", "status"
+      `SELECT "id", "status", "stage", "progress"
        FROM "system_jobs"
        WHERE "id" = $1
          AND "workerId" = $2
@@ -1287,13 +1425,19 @@ export class PostgresQueueRepository {
     if (jobRows.length !== 1) {
       throw new JobExecutionFenceError(input.jobId)
     }
-    return jobRows[0]!.status
+    return jobRows[0]!
   }
 
-  private async lockRunningExecution(transaction: QueueSqlExecutor, input: ExecutionFence, now: Date): Promise<void> {
-    if ((await this.lockOwnedExecution(transaction, input, now)) !== 'RUNNING') {
+  private async lockRunningExecution(
+    transaction: QueueSqlExecutor,
+    input: ExecutionFence,
+    now: Date
+  ): Promise<{ status: 'RUNNING'; stage: string | null; progress: number }> {
+    const execution = await this.lockOwnedExecution(transaction, input, now)
+    if (execution.status !== 'RUNNING') {
       throw new JobExecutionFenceError(input.jobId)
     }
+    return execution as { status: 'RUNNING'; stage: string | null; progress: number }
   }
 
   private async recoverExpiredExecutionInTransaction(
@@ -1428,6 +1572,16 @@ export class PostgresQueueRepository {
       return null
     }
 
+    if (recoveredStatus === 'FAILED' || recoveredStatus === 'RETRY_WAIT') {
+      await recordJobDiagnostic(
+        transaction,
+        executingJob.id,
+        { key: 'task:lease-expired', code: 'WORKER_LEASE_EXPIRED', message: 'Worker 执行租约过期，未确认执行完成。' },
+        now
+      )
+    }
+    await closeJobDiagnosticReport(transaction, executingJob.id, recoveredStatus, now, false)
+
     if (executionLane === 'ARCHIVE_RESOLVE') {
       const intakeStatus =
         recoveredStatus === 'CANCELLED' ? 'CANCELLED' : recoveredStatus === 'FAILED' ? 'FAILED' : 'RETRY_WAIT'
@@ -1457,6 +1611,48 @@ export class PostgresQueueRepository {
         intakeStatus,
         now
       )
+
+      if (executingJob.type === 'ARCHIVE_UPLOADER_SCAN' || executingJob.type === 'ARCHIVE_SEARCH_SCAN') {
+        const scanStatus =
+          recoveredStatus === 'RETRY_WAIT'
+            ? 'RETRY_WAIT'
+            : recoveredStatus === 'FAILED'
+              ? 'FAILED'
+              : recoveredStatus === 'PAUSED'
+                ? 'PAUSED'
+                : 'CANCELLED'
+        await transaction.$executeRawUnsafe(
+          `WITH recovered_scan AS (
+             UPDATE "archive_uploader_scan_runs"
+             SET "status" = $2::"ArchiveUploaderScanRunStatus",
+                 "finishedAt" = CASE WHEN $2 IN ('FAILED', 'CANCELLED') THEN $3 ELSE NULL END,
+                 "errorCode" = CASE
+                   WHEN $2 IN ('RETRY_WAIT', 'FAILED') THEN 'WORKER_LEASE_EXPIRED'
+                   WHEN $2 = 'CANCELLED' THEN 'CANCELLED'
+                   ELSE "errorCode"
+                 END,
+                 "errorMessage" = CASE
+                   WHEN $2 IN ('RETRY_WAIT', 'FAILED') THEN 'The uploader scan worker lease expired before completion.'
+                   WHEN $2 = 'CANCELLED' THEN 'Uploader scan cancelled'
+                   ELSE "errorMessage"
+                 END,
+                 "updatedAt" = $3
+             WHERE "systemJobId" = $1
+               AND "status" IN ('PENDING', 'RUNNING', 'RETRY_WAIT', 'PAUSED')
+             RETURNING "sourceId", "id", "errorCode", "errorMessage"
+           )
+           UPDATE "archive_uploader_sources" AS source
+           SET "lastRunId" = recovered_scan."id",
+               "lastErrorCode" = recovered_scan."errorCode",
+               "lastErrorMessage" = recovered_scan."errorMessage",
+               "updatedAt" = $3
+           FROM recovered_scan
+           WHERE source."id" = recovered_scan."sourceId"`,
+          executingJob.id,
+          scanStatus,
+          now
+        )
+      }
     }
 
     if (executionLane === 'BACKGROUND_WRITER' && executingJob.type === 'ARCHIVE_IMPORT') {
@@ -1759,6 +1955,18 @@ export class PostgresQueueRepository {
   }
 }
 
+function validateProgressUpdate(input: ExecutionProgressUpdate): void {
+  if (!Number.isInteger(input.progress) || input.progress < 0 || input.progress > 100) {
+    throw new Error('Execution progress must be an integer from 0 through 100')
+  }
+  if (input.stage !== undefined && input.stage !== null && input.stage.length > 80) {
+    throw new Error('Execution stage cannot exceed 80 characters')
+  }
+  if (input.progressData !== undefined && input.progressData !== null) {
+    jobProgressDataSchema.parse(input.progressData)
+  }
+}
+
 function assertWorkerId(workerId: string): void {
   if (workerId.length === 0 || workerId.length > 120) {
     throw new Error('workerId must contain 1-120 characters')
@@ -1820,7 +2028,7 @@ function deriveLegacyJobProjection(
 }
 
 function sanitizeError(value: string): string {
-  return truncate(redactSensitiveText(value), 8_192)
+  return sanitizeDiagnosticText(value, 8_192)
 }
 
 function sanitizeEventData(value: unknown): unknown {

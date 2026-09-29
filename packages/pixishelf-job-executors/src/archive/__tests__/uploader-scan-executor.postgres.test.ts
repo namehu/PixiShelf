@@ -1,0 +1,722 @@
+import { randomUUID } from 'node:crypto'
+import { ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE, archiveUploaderIdentityLockKey } from '@pixishelf/job-contracts'
+import { Prisma, PrismaClient, activeCreatorMembership, editArtworkCreators } from '@pixishelf/db'
+import {
+  TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME,
+  type ClaimedJob,
+  type EnqueuedChildJob,
+  type ExecutionContext,
+  type FencedExecutionTransaction
+} from '@pixishelf/job-runtime'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { executeArchiveImport } from '../executor.js'
+import { createArchiveUploaderComparisonSnapshot, hashArchiveUploaderDiscoveryMetadata } from '../providers/e-hentai.js'
+import { executeArchiveUploaderScan } from '../uploader-scan-executor.js'
+import type { ArchiveUploaderScanResult } from '../types.js'
+
+const databaseUrl =
+  process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
+const describePostgres = databaseUrl ? describe.sequential : describe.skip
+const prisma = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
+const prefix = `archive-uploader-scan-${randomUUID()}`
+const externalId = Number.parseInt(randomUUID().replaceAll('-', '').slice(0, 12), 16).toString()
+const canonicalUrl = `https://e-hentai.org/g/${externalId}/private-token/`
+const previousMetadata = {
+  gid: externalId,
+  titles: { display: 'Existing gallery', aliases: [] },
+  category: 'Manga',
+  uploader: 'alice',
+  thumbnailUrl: 'https://ehgt.org/old.jpg',
+  postedAt: '2026-09-01T00:00:00.000Z',
+  fileCount: 24,
+  fileSize: 1024,
+  rating: 3,
+  expunged: false,
+  tags: [],
+  relationships: []
+}
+const changedMetadata = { ...previousMetadata, fileCount: 27, rating: 5, thumbnailUrl: 'https://ehgt.org/new.jpg' }
+
+describePostgres('archive uploader scan catalog PostgreSQL integration', () => {
+  beforeEach(cleanupDatabase)
+
+  afterAll(async () => {
+    if (!prisma) return
+    await cleanupDatabase()
+    await prisma.$disconnect()
+  })
+
+  it('consumes the first matched opportunity with empty defaults and skips ignored galleries', async () => {
+    const now = new Date('2026-09-16T01:00:00Z')
+    const artist = await db().artist.create({ data: { name: `${prefix}-empty-default` } })
+    const source = await seedSource('empty-default')
+    const run = await seedScanRun(source.id, 'empty-default', now)
+    await executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    const catalog = await db().archiveUploaderCatalogItem.findFirstOrThrow({ where: { sourceId: source.id } })
+    expect(catalog.firstMatchedAt).toEqual(now)
+    const again = await seedScanRun(source.id, 'empty-default-again', now)
+    await db().archiveUploaderScanRun.update({ where: { id: again.runId }, data: { defaultCreatorIds: [artist.id] } })
+    await executeArchiveUploaderScan(scanContext(again.jobId, again.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
+    const second = await seedSource('ignored-default')
+    await db().archiveUploaderIgnoredItem.create({
+      data: { providerKey: 'e-hentai', externalId, sourceId: second.id, sourceDisplayName: prefix, title: prefix }
+    })
+    const ignored = await seedScanRun(second.id, 'ignored-default', now)
+    await db().archiveUploaderScanRun.update({ where: { id: ignored.runId }, data: { defaultCreatorIds: [artist.id] } })
+    await executeArchiveUploaderScan(scanContext(ignored.jobId, ignored.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
+    expect(
+      (await db().archiveUploaderCatalogItem.findFirstOrThrow({ where: { sourceId: second.id } })).firstMatchedAt
+    ).toEqual(now)
+  })
+
+  it('freezes defaults, consumes first-match once, unions sources and respects explicit removal', async () => {
+    const now = new Date('2026-09-16T00:00:00Z')
+    const a = await db().artist.create({ data: { name: `${prefix}-a` } })
+    const b = await db().artist.create({ data: { name: `${prefix}-b` } })
+    const source = await seedSource('default-first')
+    const run = await seedScanRun(source.id, 'default-first', now)
+    await db().archiveUploaderScanRun.update({ where: { id: run.runId }, data: { defaultCreatorIds: [a.id] } })
+    await db().discoverySourceCreator.create({ data: { sourceId: source.id, artistId: b.id } })
+    await executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().discoveryPendingCreator.findMany({ where: { providerKey: 'e-hentai', externalId } })).toEqual([
+      expect.objectContaining({ artistId: a.id })
+    ])
+    const again = await seedScanRun(source.id, 'default-again', now)
+    await db().archiveUploaderScanRun.update({ where: { id: again.runId }, data: { defaultCreatorIds: [b.id] } })
+    await executeArchiveUploaderScan(scanContext(again.jobId, again.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().discoveryPendingCreator.count({ where: { providerKey: 'e-hentai', externalId } })).toBe(1)
+    const artwork = await db().artwork.create({ data: { title: `${prefix}-default-artwork` } })
+    await db().artworkExternalRef.create({
+      data: { providerKey: 'e-hentai', externalId, artworkId: artwork.id, canonicalUrl, locator: {} }
+    })
+    await db().$transaction((tx) => editArtworkCreators(tx, artwork.id, [a.id], 'ADD'))
+    const nextSource = await seedSource('default-second')
+    const next = await seedScanRun(nextSource.id, 'default-second', now)
+    await db().archiveUploaderScanRun.update({ where: { id: next.runId }, data: { defaultCreatorIds: [a.id, b.id] } })
+    await executeArchiveUploaderScan(scanContext(next.jobId, next.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().artworkArtist.count({ where: { artworkId: artwork.id, ...activeCreatorMembership } })).toBe(2)
+    await db().$transaction((tx) => editArtworkCreators(tx, artwork.id, [a.id], 'REMOVE'))
+    const lastSource = await seedSource('default-third')
+    const last = await seedScanRun(lastSource.id, 'default-third', now)
+    await db().archiveUploaderScanRun.update({ where: { id: last.runId }, data: { defaultCreatorIds: [a.id] } })
+    await executeArchiveUploaderScan(scanContext(last.jobId, last.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+    expect(await db().artworkArtist.findMany({ where: { artworkId: artwork.id, ...activeCreatorMembership } })).toEqual(
+      [expect.objectContaining({ artistId: b.id })]
+    )
+  })
+
+  it('keeps POSSIBLE_UPDATE durable when an active import is observed during a rescan', async () => {
+    const now = new Date('2026-09-03T10:00:00.000Z')
+    const activeImport = await seedArchiveImport(now)
+    const source = await seedSource('update')
+    const artwork = await db().artwork.create({ data: { title: `${prefix}-artwork-update` } })
+    const externalRef = await db().artworkExternalRef.create({
+      data: {
+        id: `${prefix}-ref-update`,
+        artworkId: artwork.id,
+        providerKey: 'e-hentai',
+        externalId,
+        canonicalUrl,
+        locator: { gid: externalId, token: 'private-token' },
+        status: 'SUCCESS',
+        lastSuccessAt: new Date('2026-09-02T00:00:00.000Z'),
+        createdAt: new Date('2026-09-02T00:00:00.000Z'),
+        updatedAt: new Date('2026-09-02T00:00:00.000Z')
+      }
+    })
+    await db().artworkSourceSnapshot.create({
+      data: {
+        id: `${prefix}-snapshot-update`,
+        externalRefId: externalRef.id,
+        normalizedMetadata: previousMetadata,
+        rawMetadata: previousMetadata,
+        metadataHash: hashArchiveUploaderDiscoveryMetadata(previousMetadata)!,
+        fetchedAt: new Date('2026-09-02T00:00:00.000Z')
+      }
+    })
+    const catalog = await db().archiveUploaderCatalogItem.create({
+      data: catalogData(source.id, `${prefix}-catalog-update`, now, 'POSSIBLE_UPDATE')
+    })
+    const run = await seedScanRun(source.id, 'update', now)
+
+    await executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => now
+    })
+
+    await expect(
+      db().archiveUploaderScanItem.findFirstOrThrow({ where: { runId: run.runId }, select: { classification: true } })
+    ).resolves.toEqual({ classification: 'ACTIVE' })
+    await expect(
+      db().archiveUploaderCatalogItem.findUniqueOrThrow({
+        where: { id: catalog.id },
+        select: { classification: true, changeReasons: true, lastArchiveImportId: true }
+      })
+    ).resolves.toEqual({
+      classification: 'POSSIBLE_UPDATE',
+      changeReasons: [{ field: 'fileCount', message: '页数 24 → 27' }],
+      lastArchiveImportId: activeImport.importId
+    })
+  })
+
+  it('propagates an import cancellation to catalogs first discovered after the import started and retains it after cleanup', async () => {
+    const now = new Date('2026-09-03T11:00:00.000Z')
+    const activeImport = await seedArchiveImport(now)
+    const firstSource = await seedSource('first')
+    const secondSource = await seedSource('second')
+    const firstCatalog = await db().archiveUploaderCatalogItem.create({
+      data: catalogData(firstSource.id, `${prefix}-catalog-first`, now, 'NEW')
+    })
+    const secondCatalog = await db().archiveUploaderCatalogItem.create({
+      data: catalogData(secondSource.id, `${prefix}-catalog-second`, now, 'NEW')
+    })
+    expect(firstCatalog.lastArchiveImportId).toBeNull()
+    expect(secondCatalog.lastArchiveImportId).toBeNull()
+
+    const controller = new AbortController()
+    controller.abort({ reason: 'CANCEL_REQUESTED' })
+    await executeArchiveImport(importContext(activeImport.jobId, activeImport.importId, controller.signal), {
+      database: db(),
+      config: { scanRoot: 'D:/unused-by-cancelled-test', mediaConcurrency: 1, maxMediaAttempts: 1 },
+      providers: { get: vi.fn(), getForUrl: vi.fn() } as never,
+      now: () => now,
+      random: () => 0,
+      sleep: vi.fn(async () => undefined)
+    })
+
+    const terminal = await db().archiveUploaderCatalogItem.findMany({
+      where: { id: { in: [firstCatalog.id, secondCatalog.id] } },
+      select: { lastArchiveImportId: true, lastOutcome: true, lastErrorCode: true }
+    })
+    expect(terminal).toHaveLength(2)
+    expect(terminal.every((item) => item.lastArchiveImportId === activeImport.importId)).toBe(true)
+    expect(terminal.every((item) => item.lastOutcome === 'CANCELLED')).toBe(true)
+    expect(terminal.every((item) => item.lastErrorCode === 'CANCELLED')).toBe(true)
+
+    await db().systemJob.delete({ where: { id: activeImport.jobId } })
+    const retained = await db().archiveUploaderCatalogItem.findMany({
+      where: { id: { in: [firstCatalog.id, secondCatalog.id] } },
+      select: { lastArchiveImportId: true, lastOutcome: true, lastErrorCode: true }
+    })
+    expect(retained).toEqual(
+      expect.arrayContaining([
+        { lastArchiveImportId: null, lastOutcome: 'CANCELLED', lastErrorCode: 'CANCELLED' },
+        { lastArchiveImportId: null, lastOutcome: 'CANCELLED', lastErrorCode: 'CANCELLED' }
+      ])
+    )
+  })
+
+  it('persists an Intake failure that happened before this source first discovered the gallery', async () => {
+    const failedAt = new Date('2026-09-03T12:00:00.000Z')
+    const submission = await db().archiveIntakeSubmission.create({
+      data: {
+        id: `${prefix}-prior-failed-submission`,
+        idempotencyKey: `${prefix}-prior-failed`,
+        requestHash: 'f'.repeat(64),
+        rawCount: 1,
+        acceptedCount: 1,
+        createdAt: failedAt
+      }
+    })
+    const intake = await db().archiveIntakeItem.create({
+      data: {
+        id: `${prefix}-prior-failed-intake`,
+        submissionId: submission.id,
+        submittedUrl: canonicalUrl,
+        normalizedUrlHash: 'e'.repeat(64),
+        status: 'FAILED',
+        providerKey: 'e-hentai',
+        externalId,
+        canonicalUrl,
+        finishedAt: failedAt,
+        errorCode: 'REMOTE_FAILED',
+        errorMessage: 'failed before discovery',
+        createdAt: failedAt,
+        updatedAt: failedAt
+      }
+    })
+    const source = await seedSource('prior-failed')
+    const run = await seedScanRun(source.id, 'prior-failed', failedAt)
+
+    await executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => failedAt
+    })
+
+    const catalog = await db().archiveUploaderCatalogItem.findFirstOrThrow({
+      where: { sourceId: source.id, providerKey: 'e-hentai', externalId }
+    })
+    expect(catalog).toMatchObject({
+      classification: 'NEW',
+      lastIntakeItemId: intake.id,
+      lastOutcome: 'FAILED',
+      lastErrorCode: 'REMOTE_FAILED'
+    })
+    await db().archiveIntakeSubmission.delete({ where: { id: submission.id } })
+    await expect(
+      db().archiveUploaderCatalogItem.findUniqueOrThrow({ where: { id: catalog.id } })
+    ).resolves.toMatchObject({ lastIntakeItemId: null, lastOutcome: 'FAILED', lastErrorCode: 'REMOTE_FAILED' })
+  })
+
+  it('waits for an interleaved Import terminal commit before first-discovery upsert', async () => {
+    const terminalAt = new Date('2026-09-03T13:00:00.000Z')
+    const activeImport = await seedArchiveImport(terminalAt)
+    const source = await seedSource('interleaved')
+    const run = await seedScanRun(source.id, 'interleaved', terminalAt)
+    const terminalLocked = deferred()
+    const releaseTerminal = deferred()
+    const terminal = db().$transaction(async (transaction) => {
+      await transaction.$queryRawUnsafe(
+        'SELECT pg_advisory_xact_lock($1::integer, hashtext($2::text))::text AS "lock"',
+        ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+        archiveUploaderIdentityLockKey('e-hentai', externalId)
+      )
+      await transaction.archiveImport.update({
+        where: { id: activeImport.importId },
+        data: {
+          status: 'CANCELLED',
+          finishedAt: terminalAt,
+          errorCode: 'CANCELLED',
+          errorMessage: 'cancelled while scan was finalizing'
+        }
+      })
+      terminalLocked.resolve()
+      await releaseTerminal.promise
+    })
+    await terminalLocked.promise
+    const scan = executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => terminalAt
+    })
+    await vi.waitFor(async () => {
+      expect((await db().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: run.runId } })).status).toBe('RUNNING')
+    })
+    releaseTerminal.resolve()
+    await Promise.all([terminal, scan])
+
+    const catalog = await db().archiveUploaderCatalogItem.findFirstOrThrow({
+      where: { sourceId: source.id, providerKey: 'e-hentai', externalId }
+    })
+    expect(catalog).toMatchObject({
+      lastArchiveImportId: activeImport.importId,
+      lastOutcome: 'CANCELLED',
+      lastErrorCode: 'CANCELLED'
+    })
+    await db().systemJob.delete({ where: { id: activeImport.jobId } })
+    await expect(
+      db().archiveUploaderCatalogItem.findUniqueOrThrow({ where: { id: catalog.id } })
+    ).resolves.toMatchObject({ lastArchiveImportId: null, lastOutcome: 'CANCELLED', lastErrorCode: 'CANCELLED' })
+  })
+
+  it('inherits a retained terminal summary from another source after workflow cleanup', async () => {
+    const failedAt = new Date('2026-09-03T14:00:00.000Z')
+    const firstSource = await seedSource('retained-first')
+    await db().archiveUploaderCatalogItem.create({
+      data: {
+        ...catalogData(firstSource.id, `${prefix}-catalog-retained-first`, failedAt, 'NEW'),
+        lastOutcome: 'FAILED',
+        lastOutcomeAt: failedAt,
+        lastErrorCode: 'RETAINED_FAILURE',
+        lastErrorMessage: 'workflow rows were already cleaned'
+      }
+    })
+    const secondSource = await seedSource('retained-second')
+    const run = await seedScanRun(secondSource.id, 'retained-second', failedAt)
+
+    await executeArchiveUploaderScan(scanContext(run.jobId, run.runId), {
+      database: db(),
+      providers: uploaderProviderRegistry(scanResult()),
+      now: () => failedAt
+    })
+
+    await expect(
+      db().archiveUploaderCatalogItem.findFirstOrThrow({
+        where: { sourceId: secondSource.id, providerKey: 'e-hentai', externalId }
+      })
+    ).resolves.toMatchObject({
+      classification: 'NEW',
+      lastOutcome: 'FAILED',
+      lastOutcomeAt: failedAt,
+      lastErrorCode: 'RETAINED_FAILURE'
+    })
+  })
+})
+
+describePostgres('title scan persisted matching state', () => {
+  it.each([false, true])('settles invalid queries atomically (rollback=%s)', async (rollback) => {
+    const now = new Date('2026-09-19T00:00:00Z')
+    const query = { keyword: 'invalid*keyword', matchMode: 'CONTAINS' }
+    const runId = `${prefix}-invalid-run`
+    const jobId = `${prefix}-invalid-job`
+    const scanTitles = vi.fn()
+    try {
+      const source = await db().archiveUploaderSource.create({
+        data: {
+          id: `${prefix}-invalid-source`,
+          providerKey: 'e-hentai',
+          sourceKind: 'TITLE_QUERY',
+          displayName: 'Invalid frozen query',
+          titleQuery: query,
+          queryKey: randomUUID(),
+          historyCursor: 'unchanged'
+        }
+      })
+      await db().systemJob.create({
+        data: { ...systemJobData(jobId, 'ARCHIVE_SEARCH_SCAN', { scanRunId: runId }, now), status: 'RUNNING' }
+      })
+      await db().archiveUploaderScanRun.create({
+        data: { id: runId, systemJobId: jobId, sourceId: source.id, mode: 'LATEST', titleQuery: query }
+      })
+      const context = transactionContext(jobId, { scanRunId: runId }, new AbortController().signal) as ExecutionContext<
+        { scanRunId: string },
+        EnqueuedChildJob
+      >
+      context.finalizeInTransaction = async (operation) => {
+        await db().$transaction(async (transaction) => {
+          await operation({
+            transaction,
+            controlStatus: 'CONTINUE',
+            executionStatus: 'RUNNING',
+            fail: async (failure: { errorCode: string; error: string }) => {
+              await transaction.systemJob.update({ where: { id: jobId }, data: { status: 'FAILED', ...failure } })
+              if (rollback) throw new Error('injected settlement failure')
+            }
+          } as never)
+        })
+        return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+      }
+      const execution = executeArchiveUploaderScan(
+        context,
+        {
+          database: db(),
+          providers: { getUploaderScanner: () => ({ scanTitles }) } as never,
+          now: () => now
+        },
+        'TITLE_QUERY'
+      )
+      if (rollback) await expect(execution).rejects.toThrow('injected settlement failure')
+      else await execution
+      expect(scanTitles).not.toHaveBeenCalled()
+      await expect(db().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: runId } })).resolves.toMatchObject({
+        status: rollback ? 'RUNNING' : 'FAILED',
+        checkedCount: 0,
+        finishedAt: rollback ? null : now,
+        errorCode: rollback ? null : 'STATE_CONFLICT'
+      })
+      await expect(db().systemJob.findUniqueOrThrow({ where: { id: jobId } })).resolves.toMatchObject({
+        status: rollback ? 'RUNNING' : 'FAILED'
+      })
+      await expect(db().archiveUploaderSource.findUniqueOrThrow({ where: { id: source.id } })).resolves.toMatchObject({
+        historyCursor: 'unchanged',
+        lastErrorCode: rollback ? null : 'STATE_CONFLICT'
+      })
+    } finally {
+      await cleanupDatabase()
+      await prisma?.$disconnect()
+    }
+  })
+
+  it('hides only its own nonmatch, preserving catalog identity and the raw head', async () => {
+    const now = new Date('2026-09-04T00:00:00Z')
+    const query = { keyword: 'Existing', matchMode: 'CONTAINS', uploaderUid: null }
+    try {
+      const source = await db().archiveUploaderSource.create({
+        data: {
+          id: `${prefix}-title-source`,
+          providerKey: 'e-hentai',
+          sourceKind: 'TITLE_QUERY',
+          displayName: 'Title source',
+          titleQuery: query,
+          queryKey: randomUUID()
+        }
+      })
+      const other = await seedSource('other-title')
+      const original = await db().archiveUploaderCatalogItem.create({
+        data: catalogData(source.id, `${prefix}-title-catalog`, now, 'NEW')
+      })
+      const unrelated = await db().archiveUploaderCatalogItem.create({
+        data: catalogData(other.id, `${prefix}-other-catalog`, now, 'NEW')
+      })
+      const runId = `${prefix}-title-run`
+      const jobId = `${prefix}-title-job`
+      await db().systemJob.create({ data: systemJobData(jobId, 'ARCHIVE_SEARCH_SCAN', { scanRunId: runId }, now) })
+      await db().archiveUploaderScanRun.create({
+        data: { id: runId, systemJobId: jobId, sourceId: source.id, mode: 'LATEST', titleQuery: query }
+      })
+      const result = scanResult()
+      result.items = result.items.map((item) => ({ ...item, matchesQuery: false }))
+      result.nextCursor = 'title-cursor'
+      await executeArchiveUploaderScan(
+        scanContext(jobId, runId),
+        {
+          database: db(),
+          providers: { getUploaderScanner: () => ({ scanTitles: vi.fn(async () => result) }) } as never,
+          now: () => now
+        },
+        'TITLE_QUERY'
+      )
+      await expect(
+        db().archiveUploaderCatalogItem.findUniqueOrThrow({ where: { id: original.id } })
+      ).resolves.toMatchObject({ matchesQuery: false, firstSeenAt: now })
+      await expect(
+        db().archiveUploaderCatalogItem.findUniqueOrThrow({ where: { id: unrelated.id } })
+      ).resolves.toMatchObject({ matchesQuery: true })
+      await expect(db().archiveUploaderSource.findUniqueOrThrow({ where: { id: source.id } })).resolves.toMatchObject({
+        displayName: 'Title source',
+        uploaderUid: null,
+        latestSeenExternalId: externalId,
+        historyCursor: 'title-cursor'
+      })
+      await expect(db().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: runId } })).resolves.toMatchObject({
+        status: 'COMPLETED',
+        checkedCount: 1,
+        matchedCount: 0,
+        stopReason: 'LIMIT_REACHED'
+      })
+      expect(await db().archiveUploaderIgnoredItem.count({ where: { externalId } })).toBe(0)
+    } finally {
+      await cleanupDatabase()
+      await prisma?.$disconnect()
+    }
+  })
+})
+
+function db() {
+  if (!prisma) throw new Error('QUEUE_KERNEL_TEST_DATABASE_URL is required')
+  return prisma
+}
+
+function scanResult(): ArchiveUploaderScanResult {
+  return {
+    items: [
+      {
+        providerKey: 'e-hentai',
+        externalId,
+        canonicalUrl,
+        title: 'Existing gallery',
+        thumbnailUrl: changedMetadata.thumbnailUrl,
+        uploaderName: 'alice',
+        postedAt: new Date(changedMetadata.postedAt),
+        metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(changedMetadata)!,
+        comparisonSnapshot: createArchiveUploaderComparisonSnapshot(changedMetadata)!,
+        normalizedMetadata: changedMetadata,
+        relationships: []
+      }
+    ],
+    nextCursor: null,
+    reachedStop: false,
+    discoveredUploaderUid: null
+  }
+}
+
+function uploaderProviderRegistry(result: ArchiveUploaderScanResult) {
+  return {
+    getUploaderScanner: () => ({
+      key: 'e-hentai',
+      scanUploader: vi.fn(async () => result)
+    })
+  } as never
+}
+
+async function seedSource(suffix: string) {
+  return db().archiveUploaderSource.create({
+    data: {
+      id: `${prefix}-source-${suffix}`,
+      providerKey: 'e-hentai',
+      identityKind: 'UID',
+      identityValue: `${externalId}-${suffix}`,
+      normalizedIdentity: `${externalId}-${suffix}`,
+      displayName: `Uploader ${suffix}`
+    }
+  })
+}
+
+async function seedScanRun(sourceId: string, suffix: string, now: Date) {
+  const runId = `${prefix}-run-${suffix}`
+  const jobId = `${prefix}-scan-job-${suffix}`
+  await db().systemJob.create({
+    data: systemJobData(jobId, 'ARCHIVE_UPLOADER_SCAN', { scanRunId: runId }, now)
+  })
+  await db().archiveUploaderScanRun.create({
+    data: {
+      id: runId,
+      sourceId,
+      systemJobId: jobId,
+      mode: 'LATEST',
+      searchIdentityKind: 'UID',
+      searchIdentityValue: '123',
+      status: 'PENDING'
+    }
+  })
+  return { runId, jobId }
+}
+
+async function seedArchiveImport(now: Date) {
+  const importId = `${prefix}-import`
+  const jobId = `${prefix}-import-job`
+  await db().systemJob.create({
+    data: systemJobData(jobId, 'ARCHIVE_IMPORT', { archiveImportId: importId }, now, 'BACKGROUND_WRITER')
+  })
+  await db().archiveImport.create({
+    data: {
+      id: importId,
+      systemJobId: jobId,
+      providerKey: 'e-hentai',
+      externalId,
+      submittedUrl: canonicalUrl,
+      canonicalUrl,
+      locator: { gid: externalId, token: 'private-token' },
+      status: 'PENDING',
+      normalizedMetadata: changedMetadata,
+      rawMetadata: changedMetadata,
+      metadataHash: hashArchiveUploaderDiscoveryMetadata(changedMetadata)!,
+      creatorBucket: 'alice',
+      stagingPath: `.archive-staging/${importId}`,
+      createdAt: now,
+      updatedAt: now
+    }
+  })
+  return { importId, jobId }
+}
+
+function systemJobData(
+  id: string,
+  type: 'ARCHIVE_UPLOADER_SCAN' | 'ARCHIVE_SEARCH_SCAN' | 'ARCHIVE_IMPORT',
+  payload: Prisma.InputJsonValue,
+  now: Date,
+  executionLane: 'ARCHIVE_RESOLVE' | 'BACKGROUND_WRITER' = 'ARCHIVE_RESOLVE'
+) {
+  return {
+    id,
+    type,
+    executionLane,
+    definitionVersion: 1,
+    status: 'PENDING' as const,
+    triggerSource: 'MANUAL' as const,
+    payload,
+    queuePriority: 20,
+    effectivePriority: 20,
+    availableAt: now,
+    maxAttempts: 3,
+    createdAt: now,
+    updatedAt: now
+  }
+}
+
+function catalogData(sourceId: string, id: string, now: Date, classification: 'NEW' | 'POSSIBLE_UPDATE') {
+  return {
+    id,
+    sourceId,
+    providerKey: 'e-hentai',
+    externalId,
+    canonicalUrl,
+    title: 'Existing gallery',
+    relationships: [],
+    classification,
+    comparisonKnown: true,
+    comparisonSnapshot: jsonValue(createArchiveUploaderComparisonSnapshot(changedMetadata)!),
+    comparisonFingerprint: hashArchiveUploaderDiscoveryMetadata(changedMetadata)!,
+    firstSeenAt: now,
+    lastSeenAt: now
+  }
+}
+
+function jsonValue(value: object): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue
+}
+
+function scanContext(jobId: string, scanRunId: string) {
+  return transactionContext(jobId, { scanRunId }, new AbortController().signal) as never
+}
+
+function importContext(jobId: string, archiveImportId: string, signal: AbortSignal) {
+  return transactionContext(jobId, { archiveImportId, defaultTagIds: [] }, signal) as never
+}
+
+function transactionContext(jobId: string, payload: Record<string, unknown>, signal: AbortSignal) {
+  const job = { id: jobId, attempt: 1, maxAttempts: 3 } as ClaimedJob
+  const context: ExecutionContext<Record<string, unknown>, EnqueuedChildJob> = {
+    job,
+    payload,
+    signal,
+    progress: vi.fn(async () => undefined),
+    enqueueChild: vi.fn(async () => {
+      throw new Error('catalog integration test does not enqueue child jobs')
+    }),
+    mutateInTransaction: (operation) => db().$transaction((transaction) => operation(transaction as never)),
+    finalizeInTransaction: async (operation) => {
+      await db().$transaction(async (transaction) => {
+        const scope = {
+          transaction,
+          executionStatus: 'RUNNING',
+          controlStatus: 'CONTINUE',
+          complete: vi.fn(async () => undefined),
+          fail: vi.fn(async () => undefined),
+          retry: vi.fn(async () => undefined),
+          skip: vi.fn(async () => undefined),
+          pause: vi.fn(async () => undefined),
+          release: vi.fn(async () => undefined),
+          cancel: vi.fn(async () => undefined)
+        } as unknown as FencedExecutionTransaction<Prisma.TransactionClient>
+        await operation(scope as never)
+      })
+      return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+    },
+    logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  }
+  return context
+}
+
+async function cleanupDatabase() {
+  if (!prisma) return
+  await prisma.archiveUploaderIgnoredItem.deleteMany({ where: { sourceDisplayName: prefix } })
+  await prisma.archiveUploaderCatalogItem.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.archiveUploaderScanRun.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.archiveUploaderSource.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.systemJob.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.artwork.deleteMany({ where: { title: { startsWith: prefix } } })
+  await prisma.discoveryPendingCreator.deleteMany({ where: { artist: { name: { startsWith: prefix } } } })
+  await prisma.artist.deleteMany({ where: { name: { startsWith: prefix } } })
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((complete) => {
+    resolve = complete
+  })
+  return { promise, resolve }
+}

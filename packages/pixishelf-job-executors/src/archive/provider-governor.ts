@@ -2,9 +2,18 @@ import { randomUUID } from 'node:crypto'
 import type { Readable } from 'node:stream'
 import type { PrismaClient } from '@pixishelf/db'
 import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
-import type { ArchiveMediaProvider, ArchiveProvider, ArchiveProviderRegistry, ArchiveRemoteMedia } from './types.ts'
+import type {
+  ArchiveMediaProvider,
+  ArchiveProvider,
+  ArchiveProviderContext,
+  ArchiveRemoteMedia,
+  ArchiveThumbnailPage,
+  ArchiveThumbnailPageInput,
+  ArchiveUploaderProvider,
+  ArchiveUploaderProviderRegistry
+} from './types.ts'
 
-export type ArchiveProviderRequestClass = 'RESOLVE' | 'DOWNLOAD'
+export type ArchiveProviderRequestClass = 'SEARCH' | 'RESOLVE' | 'DOWNLOAD'
 
 export interface ArchiveProviderPermit {
   id: string
@@ -14,7 +23,7 @@ export interface ArchiveProviderPermit {
 }
 
 export interface ArchiveProviderAcquireOptions {
-  yieldToDownloads?: boolean
+  yieldOnPenalty?: boolean
   maxConcurrentDownloads?: number
 }
 
@@ -32,6 +41,7 @@ export interface ArchiveProviderGovernor {
 
 export interface PostgresArchiveProviderGovernorOptions {
   minimumIntervalMs?: number
+  searchMinimumIntervalMs?: number
   leaseDurationMs?: number
   maxConcurrentDownloads?: number
   now?: () => Date
@@ -40,6 +50,7 @@ export interface PostgresArchiveProviderGovernorOptions {
 
 export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor {
   private readonly minimumIntervalMs: number
+  private readonly searchMinimumIntervalMs: number
   private readonly leaseDurationMs: number
   private readonly maxConcurrentDownloads: number
   private readonly now: () => Date
@@ -50,11 +61,13 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
     options: PostgresArchiveProviderGovernorOptions = {}
   ) {
     this.minimumIntervalMs = options.minimumIntervalMs ?? 250
+    this.searchMinimumIntervalMs = options.searchMinimumIntervalMs ?? 3_000
     this.leaseDurationMs = options.leaseDurationMs ?? 5 * 60_000
     this.maxConcurrentDownloads = options.maxConcurrentDownloads ?? 2
     this.now = options.now ?? (() => new Date())
     this.sleep = options.sleep ?? abortableDelay
     assertPositiveInteger('minimumIntervalMs', this.minimumIntervalMs)
+    assertPositiveInteger('searchMinimumIntervalMs', this.searchMinimumIntervalMs)
     assertPositiveInteger('leaseDurationMs', this.leaseDurationMs)
     assertPositiveInteger('maxConcurrentDownloads', this.maxConcurrentDownloads)
   }
@@ -75,7 +88,7 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
       const now = this.now()
       let decision:
         | { permit: ArchiveProviderPermit }
-        | { waitUntil: Date; reason: 'PENALTY' | 'INTERVAL' | 'DOWNLOAD_ACTIVE' | 'DOWNLOAD_CAPACITY' }
+        | { waitUntil: Date; reason: 'PENALTY' | 'INTERVAL' | 'DOWNLOAD_CAPACITY' }
       try {
         decision = await this.database.$transaction(
           async (transaction) => {
@@ -95,7 +108,7 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
               where: { providerKey, expiresAt: { lte: now } }
             })
             const state = states[0]
-            if (!state) throw new Error(`Provider throttle row disappeared for ${providerKey}`)
+            if (!state) throw new Error(`来源站点 ${providerKey} 的限流记录已不存在`)
             const activeDownloads = await transaction.archiveProviderRequestLease.findMany({
               where: { providerKey, requestClass: 'DOWNLOAD', expiresAt: { gt: now } },
               select: { expiresAt: true },
@@ -107,9 +120,8 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
             if (state.nextRequestAt.getTime() > now.getTime()) {
               return { waitUntil: state.nextRequestAt, reason: 'INTERVAL' as const }
             }
-            if (requestClass === 'RESOLVE' && activeDownloads.length > 0) {
-              return { waitUntil: activeDownloads[0]!.expiresAt, reason: 'DOWNLOAD_ACTIVE' as const }
-            }
+            // Read requests share the provider interval and penalty, but active
+            // media streams only consume DOWNLOAD capacity.
             if (requestClass === 'DOWNLOAD' && activeDownloads.length >= maxConcurrentDownloads) {
               return { waitUntil: activeDownloads[0]!.expiresAt, reason: 'DOWNLOAD_CAPACITY' as const }
             }
@@ -131,7 +143,9 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
             await transaction.archiveProviderThrottle.update({
               where: { providerKey },
               data: {
-                nextRequestAt: new Date(now.getTime() + this.minimumIntervalMs),
+                nextRequestAt: new Date(
+                  now.getTime() + (requestClass === 'SEARCH' ? this.searchMinimumIntervalMs : this.minimumIntervalMs)
+                ),
                 version: { increment: 1 }
               }
             })
@@ -146,24 +160,17 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
       }
       if ('permit' in decision) return decision.permit
       if (
-        requestClass === 'RESOLVE' &&
-        options.yieldToDownloads &&
-        (decision.reason === 'DOWNLOAD_ACTIVE' || decision.reason === 'PENALTY')
+        (requestClass === 'RESOLVE' || requestClass === 'SEARCH') &&
+        options.yieldOnPenalty &&
+        decision.reason === 'PENALTY'
       ) {
-        // Resolver work yields explicitly instead of sleeping behind an active
-        // download; this lets the queue retry it without consuming an attempt.
+        // Return a real provider cooldown to the queue instead of occupying
+        // the read lane while sleeping through the penalty.
         const blockedMs = Math.max(1_000, decision.waitUntil.getTime() - this.now().getTime())
-        throw new ArchiveExecutorError(
-          'REMOTE_RATE_LIMITED',
-          decision.reason === 'PENALTY'
-            ? 'Provider request penalty is still active'
-            : 'Archive downloads currently have provider request priority',
-          {
-            recoverable: true,
-            decisionCode: decision.reason === 'DOWNLOAD_ACTIVE' ? 'PROVIDER_DOWNLOAD_PRIORITY' : null,
-            retryAfterMs: decision.reason === 'PENALTY' ? blockedMs : Math.min(5_000, blockedMs)
-          }
-        )
+        throw new ArchiveExecutorError('REMOTE_RATE_LIMITED', '来源站点仍处于请求限流等待期', {
+          recoverable: true,
+          retryAfterMs: blockedMs
+        })
       }
       const maximumWaitMs = decision.reason === 'DOWNLOAD_CAPACITY' ? 100 : 5_000
       const waitMs = Math.max(25, Math.min(maximumWaitMs, decision.waitUntil.getTime() - this.now().getTime()))
@@ -183,7 +190,7 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
       data: { expiresAt: new Date(now.getTime() + this.leaseDurationMs) }
     })
     if (renewed.count !== 1) {
-      throw new ArchiveExecutorError('STATE_CONFLICT', 'Provider request permit expired before renewal', {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '来源站点请求许可在续期前已过期', {
         recoverable: true
       })
     }
@@ -215,11 +222,11 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
   }
 }
 
-export class GovernedArchiveProviderRegistry implements ArchiveProviderRegistry {
+export class GovernedArchiveProviderRegistry implements ArchiveUploaderProviderRegistry {
   private readonly providers = new Map<string, ArchiveProvider>()
 
   constructor(
-    private readonly delegate: ArchiveProviderRegistry,
+    private readonly delegate: ArchiveUploaderProviderRegistry,
     private readonly governor: ArchiveProviderGovernor
   ) {}
 
@@ -231,11 +238,19 @@ export class GovernedArchiveProviderRegistry implements ArchiveProviderRegistry 
     return this.wrap(this.delegate.getForUrl(url))
   }
 
+  getUploaderScanner(providerKey: string): ArchiveUploaderProvider {
+    const provider = this.wrap(this.delegate.getUploaderScanner(providerKey))
+    if (!isArchiveUploaderProvider(provider)) {
+      throw new Error(`归档来源站点 ${providerKey} 不支持扫描上传者`)
+    }
+    return provider
+  }
+
   private wrap(provider: ArchiveMediaProvider): ArchiveProvider {
     const existing = this.providers.get(provider.key)
     if (existing) return existing
     if (!isArchiveProvider(provider)) {
-      throw new Error(`Archive provider ${provider.key} cannot resolve URLs`)
+      throw new Error(`归档来源站点 ${provider.key} 不支持解析链接`)
     }
     const governed = new GovernedArchiveProvider(provider, this.governor)
     this.providers.set(provider.key, governed)
@@ -243,15 +258,22 @@ export class GovernedArchiveProviderRegistry implements ArchiveProviderRegistry 
   }
 }
 
-class GovernedArchiveProvider implements ArchiveProvider {
+class GovernedArchiveProvider implements ArchiveUploaderProvider {
   readonly key: string
   readonly requestGovernance = 'PER_REQUEST' as const
+  readonly previewPage?: (
+    input: ArchiveThumbnailPageInput,
+    context?: ArchiveProviderContext
+  ) => Promise<ArchiveThumbnailPage>
 
   constructor(
     private readonly delegate: ArchiveProvider,
     private readonly governor: ArchiveProviderGovernor
   ) {
     this.key = delegate.key
+    if (delegate.previewPage) {
+      this.previewPage = (input, context = {}) => this.runPreviewPage(input, context)
+    }
   }
 
   accepts(url: URL) {
@@ -266,7 +288,65 @@ class GovernedArchiveProvider implements ArchiveProvider {
         ...context,
         signal: linked.controller.signal,
         runResolveRequest: (operation) =>
-          this.runWithPermit('RESOLVE', linked.controller, operation, { yieldToDownloads: true })
+          this.runWithPermit('RESOLVE', linked.controller, operation, { yieldOnPenalty: true })
+      })
+    } finally {
+      linked.dispose()
+    }
+  }
+
+  private async runPreviewPage(input: ArchiveThumbnailPageInput, context: ArchiveProviderContext) {
+    if (!this.delegate.previewPage) {
+      throw new Error(`归档来源站点 ${this.key} 不支持缩略图预览`)
+    }
+    const linked = linkedAbortController(context.signal ?? new AbortController().signal)
+    try {
+      return await this.delegate.previewPage(input, {
+        ...context,
+        signal: linked.controller.signal,
+        runResolveRequest: (operation) =>
+          this.runWithPermit('RESOLVE', linked.controller, operation, { yieldOnPenalty: true })
+      })
+    } finally {
+      linked.dispose()
+    }
+  }
+
+  async scanUploader(
+    input: Parameters<ArchiveUploaderProvider['scanUploader']>[0],
+    context: Parameters<ArchiveUploaderProvider['scanUploader']>[1] = {}
+  ) {
+    if (!isArchiveUploaderProvider(this.delegate)) {
+      throw new Error(`归档来源站点 ${this.key} 不支持扫描上传者`)
+    }
+    const signal = context.signal ?? new AbortController().signal
+    const linked = linkedAbortController(signal)
+    try {
+      return await this.delegate.scanUploader(input, {
+        ...context,
+        signal: linked.controller.signal,
+        runSearchRequest: (operation) =>
+          this.runWithPermit('SEARCH', linked.controller, operation, { yieldOnPenalty: true })
+      })
+    } finally {
+      linked.dispose()
+    }
+  }
+
+  async scanTitles(
+    input: import('./types.ts').ArchiveTitleScanInput,
+    context: import('./types.ts').ArchiveUploaderScanContext = {}
+  ) {
+    if (!isArchiveUploaderProvider(this.delegate) || !this.delegate.scanTitles) {
+      throw new Error(`归档来源站点 ${this.key} 不支持标题搜索`)
+    }
+    const linked = linkedAbortController(context.signal ?? new AbortController().signal)
+    try {
+      return await this.delegate.scanTitles(input, {
+        ...context,
+        signal: linked.controller.signal,
+        runSearchRequest: (operation) =>
+          this.runWithPermit('SEARCH', linked.controller, operation, { yieldOnPenalty: true })
       })
     } finally {
       linked.dispose()
@@ -281,32 +361,21 @@ class GovernedArchiveProvider implements ArchiveProvider {
     const linked = linkedAbortController(signal)
     const governedStream: { value: Readable | null } = { value: null }
     const acquireOptions =
-      context.maxConcurrentDownloads === undefined
-        ? {}
-        : { maxConcurrentDownloads: context.maxConcurrentDownloads }
+      context.maxConcurrentDownloads === undefined ? {} : { maxConcurrentDownloads: context.maxConcurrentDownloads }
     try {
       const remote = await this.delegate.openMedia(item, {
         ...context,
         signal: linked.controller.signal,
-        runDownloadRequest: (operation) =>
-          this.runWithPermit('DOWNLOAD', linked.controller, operation, acquireOptions),
+        runDownloadRequest: (operation) => this.runWithPermit('DOWNLOAD', linked.controller, operation, acquireOptions),
         runDownloadStreamRequest: async (operation) => {
-          const response = await this.runWithStreamPermit(
-            linked.controller,
-            operation,
-            linked.dispose,
-            acquireOptions
-          )
+          const response = await this.runWithStreamPermit(linked.controller, operation, linked.dispose, acquireOptions)
           governedStream.value = response.stream
           return response
         }
       })
       if (!governedStream.value || remote.stream !== governedStream.value) {
         remote.stream.destroy()
-        throw new ArchiveExecutorError(
-          'STATE_CONFLICT',
-          `Archive provider ${this.key} returned media without per-request stream governance`
-        )
+        throw new ArchiveExecutorError('STATE_CONFLICT', `归档来源站点 ${this.key} 返回了未按请求进行流量管控的媒体流`)
       }
       // The download permit follows the returned stream, not just openMedia;
       // releasing here would allow another worker to exceed the provider cap
@@ -328,6 +397,7 @@ class GovernedArchiveProvider implements ArchiveProvider {
     const permit = await this.governor.acquire(this.key, requestClass, controller.signal, options)
     const stopRenewal = startPermitRenewal(this.governor, permit, (error) => controller.abort(error))
     try {
+      throwIfAborted(controller.signal)
       return await operation()
     } catch (error) {
       await this.applyPenalty(error)
@@ -457,16 +527,22 @@ function isArchiveProvider(provider: ArchiveMediaProvider): provider is ArchiveP
   )
 }
 
+function isArchiveUploaderProvider(provider: ArchiveMediaProvider): provider is ArchiveUploaderProvider {
+  return (
+    isArchiveProvider(provider) && typeof (provider as Partial<ArchiveUploaderProvider>).scanUploader === 'function'
+  )
+}
+
 function normalizeProviderKey(value: string) {
   const normalized = value.trim().toLowerCase()
   if (!normalized || normalized.length > 50 || !/^[a-z0-9][a-z0-9-]*$/.test(normalized)) {
-    throw new Error('Provider key is invalid')
+    throw new Error('来源站点标识无效')
   }
   return normalized
 }
 
 function assertPositiveInteger(name: string, value: number) {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive safe integer`)
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} 必须是正安全整数`)
 }
 
 function throwIfAborted(signal: AbortSignal) {

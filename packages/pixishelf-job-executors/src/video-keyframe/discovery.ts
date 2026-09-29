@@ -1,3 +1,4 @@
+import type { JobDiagnosticInput } from '@pixishelf/job-contracts'
 import * as fs from 'node:fs/promises'
 import { videoKeyframeDiscoveryPayloadSchema } from '@pixishelf/job-contracts'
 import { resolveKeyframePath, resolveSourceFile } from './paths.ts'
@@ -26,6 +27,7 @@ export interface VideoKeyframeChildRequest {
 
 export async function discoverVideoKeyframes(input: {
   jobId: string
+  recordDiagnostic?: (input: JobDiagnosticInput) => Promise<void>
   payload: VideoKeyframeDiscoveryPayload
   database: VideoKeyframeDatabase
   config: VideoKeyframeRuntimeConfig
@@ -142,6 +144,16 @@ export async function discoverVideoKeyframes(input: {
         }
         shouldEnqueue = !input.payload.previewOnly
       } catch (error) {
+        if (input.signal.aborted) throw error
+        await input.recordDiagnostic?.({
+          key: 'discovery:' + image.id,
+          scope: 'ITEM',
+          targetType: 'IMAGE',
+          targetId: String(image.id),
+          targetLabel: image.path,
+          stage: 'DISCOVER',
+          error
+        })
         result.inaccessible += 1
         if (result.failedSamples.length < 20) {
           result.failedSamples.push({

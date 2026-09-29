@@ -1,6 +1,7 @@
 import type { MediaCoverSource } from '@/lib/media-cover'
 import { MediaThumbnail } from '@/components/media/media-thumbnail'
 import { formatFileSize } from '@/utils/media'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export interface ArtworkMediaThumbnailItem extends MediaCoverSource {
   id: number | string
@@ -49,9 +50,9 @@ export function ArtworkMediaThumbnailGrid({
                 />
               </div>
               <div className="flex flex-col gap-0.5 p-2 text-[10px]">
-                <div className="truncate" title={fileName}>
+                <PrivacySensitiveText as="div" className="truncate">
                   {fileName}
-                </div>
+                </PrivacySensitiveText>
                 <div className="text-muted-foreground">
                   {item.width ?? 0}×{item.height ?? 0} · {formatFileSize(Number(item.size ?? 0))}
                 </div>

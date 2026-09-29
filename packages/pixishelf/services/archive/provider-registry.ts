@@ -19,7 +19,7 @@ export class ArchiveProviderRegistry {
 
   getByKey(key: string): ArchiveProvider {
     const provider = this.providers.find((candidate) => candidate.key === key)
-    if (!provider) throw new ArchiveError('UNSUPPORTED_PROVIDER', `未注册的归档 Provider: ${key}`)
+    if (!provider) throw new ArchiveError('UNSUPPORTED_PROVIDER', `未注册的归档来源站点：${key}`)
     return provider
   }
 }

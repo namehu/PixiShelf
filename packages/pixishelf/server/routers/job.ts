@@ -29,7 +29,23 @@ import {
   retryFailedCentralVideoKeyframes
 } from '@/services/video-keyframe-central-service'
 import { z } from 'zod'
+import { Prisma, retryAnimationDurationFailures } from '@pixishelf/db'
+import { prisma } from '@/lib/prisma'
+import {
+  backgroundFailuresInputSchema,
+  listBackgroundFailures,
+  backgroundHistoryInputSchema,
+  backgroundHistorySnapshotsInputSchema,
+  listBackgroundHistory,
+  getBackgroundHistorySnapshots
+} from '@/services/background-task/job-history-service'
 import type { JobDto } from '@pixishelf/job-contracts'
+import {
+  backgroundDiagnosticReportsInputSchema,
+  backgroundDiagnosticItemsInputSchema,
+  listBackgroundDiagnosticReports,
+  listBackgroundDiagnosticItems
+} from '@/services/background-task/job-diagnostic-service'
 import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-service'
 import { cancelPixivArtistEnrichment } from '@/services/pixiv-artist-enrichment-service'
 import { cancelPixivArtworkEnrichment } from '@/services/pixiv-artwork-enrichment-service'
@@ -42,6 +58,8 @@ import {
 import {
   assertLegacyBackgroundExecutionAllowed,
   acknowledgeJobFailureCommand,
+  acknowledgeJobFailuresCommand,
+  acknowledgeJobFailuresRequestSchema,
   BackgroundTaskError,
   cancelJobCommand,
   changeJobPriorityCommand,
@@ -49,6 +67,7 @@ import {
   enqueueJob,
   enqueueSingletonManualJob,
   getJobById,
+  getBackgroundJobDetail,
   getJobDashboard,
   incrementalJobEventsInputSchema,
   jobIdInputSchema,
@@ -206,7 +225,7 @@ export const jobRouter = router({
   getRefillMetaSourceStatus: authProcedure.query(async () => {
     if (isCentralDispatcherCutoverEnabled()) return getActiveCentralMaintenanceJob('REFILL_META_SOURCE')
     const job = await JobService.getActiveRefillMetaSourceJob()
-    return job ? toJobDto(job as SystemJobWireRecord) : null
+    return job ? toJobDto({ ...job, diagnosticReports: [] } as SystemJobWireRecord) : null
   }),
 
   cancelRefillMetaSource: adminProcedure.mutation(async () => {
@@ -279,7 +298,7 @@ export const jobRouter = router({
       return jobs.items[0] ?? null
     }
     const job = await JobService.getLatestMediaDerivedTagSyncJob()
-    return job ? toJobDto(job as SystemJobWireRecord) : null
+    return job ? toJobDto({ ...job, diagnosticReports: [] } as SystemJobWireRecord) : null
   }),
 
   startPixivAiDerivedTagSync: adminProcedure
@@ -316,6 +335,27 @@ export const jobRouter = router({
   getWebpAnimationScanStatus: authProcedure.query(async () => {
     return await JobService.getLatestWebpAnimationScanJob()
   }),
+
+  getAnimationDurationProbeStatus: authProcedure.query(async () => {
+    const jobs = await listJobs({ types: ['ANIMATION_DURATION_PROBE'], limit: 1 })
+    return jobs.items[0] ?? null
+  }),
+
+  retryAnimationDurationFailures: adminProcedure
+    .input(z.object({ imageIds: z.array(z.number().int().positive()).max(100).optional() }).strict())
+    .mutation(async ({ ctx, input }) => {
+      if (!isCentralDispatcherCutoverEnabled()) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Animation duration probe requires central dispatcher' })
+      }
+      const retried = await prisma.$transaction((tx) =>
+        retryAnimationDurationFailures(tx as unknown as Prisma.TransactionClient, input)
+      )
+      if (retried === 0) return { retried, jobId: null }
+      const job = await runBackgroundTaskCommand(() =>
+        triggerScheduledTaskNow('animation_duration_probe', { requestedByUserId: ctx.userId })
+      )
+      return { retried, jobId: job.jobId }
+    }),
 
   startVideoMediaProbe: adminProcedure.mutation(async ({ ctx }) => {
     try {
@@ -664,9 +704,29 @@ export const jobRouter = router({
 
   backgroundDashboard: adminProcedure.query(() => getJobDashboard()),
 
+  backgroundHistory: adminProcedure
+    .input(backgroundHistoryInputSchema)
+    .query(({ input }) => listBackgroundHistory(input)),
+
+  backgroundHistorySnapshots: adminProcedure
+    .input(backgroundHistorySnapshotsInputSchema)
+    .query(({ input }) => getBackgroundHistorySnapshots(input)),
+
   backgroundList: adminProcedure.input(listJobsInputSchema).query(({ input }) => listJobs(input)),
 
-  backgroundDetail: adminProcedure.input(jobIdInputSchema).query(({ input }) => getJobById(input.jobId)),
+  backgroundFailures: adminProcedure
+    .input(backgroundFailuresInputSchema)
+    .query(({ input }) => listBackgroundFailures(input)),
+
+  backgroundDetail: adminProcedure.input(jobIdInputSchema).query(({ input }) => getBackgroundJobDetail(input.jobId)),
+
+  backgroundDiagnosticReports: adminProcedure
+    .input(backgroundDiagnosticReportsInputSchema)
+    .query(({ input }) => listBackgroundDiagnosticReports(input)),
+
+  backgroundDiagnosticItems: adminProcedure
+    .input(backgroundDiagnosticItemsInputSchema)
+    .query(({ input }) => listBackgroundDiagnosticItems(input)),
 
   backgroundEvents: adminProcedure
     .input(incrementalJobEventsInputSchema)
@@ -721,6 +781,10 @@ export const jobRouter = router({
     .mutation(({ input, ctx }) =>
       runBackgroundTaskCommand(() => acknowledgeJobFailureCommand({ ...input, requestedByUserId: ctx.userId }))
     ),
+
+  acknowledgeBackgroundJobFailures: adminProcedure
+    .input(acknowledgeJobFailuresRequestSchema)
+    .mutation(({ input, ctx }) => runBackgroundTaskCommand(() => acknowledgeJobFailuresCommand(input, ctx.userId))),
 
   changeBackgroundJobPriority: adminProcedure
     .input(changeJobPriorityInputSchema)

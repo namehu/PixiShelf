@@ -107,6 +107,9 @@ export const ArtworksInfiniteQuerySchema = z.object({
       return getSafeSortOption(val || null)
     }),
   randomSeed: z.number().int().optional(),
+  readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
+  readingCursor: z.string().min(1).max(4096).optional(),
+  expectedUserId: z.string().min(1).optional(),
   mediaType: z
     .string()
     .optional()
@@ -188,6 +191,9 @@ export const ViewerFeedQuerySchema = z.object({
       return getSafeSortOption(val || null)
     }),
   randomSeed: z.coerce.number().int().optional(),
+  readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
+  readingCursor: z.string().min(1).max(4096).optional(),
+  expectedUserId: z.string().min(1).optional(),
   search: z
     .string()
     .nullish()
@@ -248,7 +254,8 @@ export const NeighboringArtworksGetSchema = z.object({
   artistId: z.coerce.number().int(),
   artworkId: z.coerce.number().int(),
   limit: z.coerce.number().int().min(1).max(50).default(12),
-  direction: z.enum(['both', 'older', 'newer']).default('both')
+  direction: z.enum(['both', 'older', 'newer']).default('both'),
+  dateMode: z.enum(['source', 'created']).default('source')
 })
 
 export type NeighboringArtworksGetSchema = z.infer<typeof NeighboringArtworksGetSchema>
@@ -258,6 +265,16 @@ export type NeighboringArtworksGetSchema = z.infer<typeof NeighboringArtworksGet
  * - 时间转字符串
  * - 增加 mediaType 计算字段
  */
+export const AnimationMetadataDto = z.object({
+  format: z.enum(['GIF', 'APNG', 'WEBP']),
+  durationMs: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  frameCount: z.number().int().positive(),
+  loopCount: z.number().int().nonnegative(),
+  timingPolicyVersion: z.number().int().positive()
+})
+
+export type AnimationMetadataDto = z.infer<typeof AnimationMetadataDto>
+
 export const ArtworkImageResponseDto = ImageModel.extend({
   createdAt: dateToString,
   updatedAt: dateToString,
@@ -265,6 +282,7 @@ export const ArtworkImageResponseDto = ImageModel.extend({
   // 前端辅助字段，数据库没有，需要 Service 层计算填充
   mediaType: z.enum(['image', 'video']).default('image'),
   isAnimated: z.boolean().optional(),
+  animationMetadata: AnimationMetadataDto.nullable(),
   chaptersUrl: z.string().nullable().optional(),
   hasChapters: z.boolean().default(false),
   keyframesUrl: z.string().nullable().optional(),
@@ -332,6 +350,7 @@ export const ArtworkResponseDto = ArtworkModel.extend({
 
   // 扩展关联字段 (Relations)
   artist: ArtistResponseDto.nullable().optional(),
+  creators: z.array(ArtistResponseDto).default([]),
 
   // 图片列表
   images: z
@@ -387,6 +406,7 @@ export const ArtworkResponseDto = ArtworkModel.extend({
   const pixiv = pixivRefs.length === 1 && /^[1-9][0-9]*$/.test(pixivRefs[0]!.externalId) ? pixivRefs[0]! : null
   return {
     ...artwork,
+    artist: artwork.creators[0] ?? null,
     pixivEligible: pixiv !== null,
     pixivArtworkId: pixiv?.externalId ?? null,
     pixivSync: pixiv

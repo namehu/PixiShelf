@@ -22,6 +22,7 @@ describe('PostgresJobEventStreamSource', () => {
           executionLane: 'BACKGROUND_WRITER',
           status: 'RUNNING',
           progress: 20,
+          progressData: null,
           stage: 'DOWNLOADING',
           message: 'Downloading',
           errorCode: null,
@@ -53,4 +54,3 @@ describe('PostgresJobEventStreamSource', () => {
     expect(batch.items[0]?.job).not.toHaveProperty('leaseToken')
   })
 })
-

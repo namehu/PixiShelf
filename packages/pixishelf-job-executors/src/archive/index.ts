@@ -4,5 +4,13 @@ export * from './maintenance-executor.ts'
 export * from './provider-registry.ts'
 export * from './provider-governor.ts'
 export * from './resolver-executor.ts'
+export * from './uploader-scan-executor.ts'
+export * from './uploader-catalog-lock.ts'
 export * from './providers/e-hentai.ts'
 export * from './types.ts'
+
+export * from './intake-enqueue.ts'
+
+export * from './discovery-scan-enqueue.ts'
+export * from './discovery-batch-executor.ts'
+export * from './discovery-batch-control.ts'

@@ -1,5 +1,4 @@
 'use client'
-
 import type { JobDto, JobEventDto, JobStatus, WorkerHealthDto } from '@pixishelf/job-contracts'
 import {
   Activity,
@@ -11,7 +10,6 @@ import {
   ChevronDown,
   Clock3,
   Cpu,
-  ListOrdered,
   Pause,
   Play,
   RefreshCw,
@@ -19,7 +17,14 @@ import {
   Server,
   SquareActivity
 } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { BackgroundHistoryList } from './background-history-list'
+import { useBackgroundHistory } from './use-background-history'
+import { emptyHistoryFilters } from './background-history-state'
+import { BackgroundFailureList } from './background-failure-list'
+import { useBackgroundFailures } from './use-background-failures'
+import type { AcknowledgeJobFailuresRequest } from '@/services/background-task/job-command-service'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { Drawer, DrawerContent, DrawerDescription, DrawerHeader, DrawerTitle } from '@/components/ui/drawer'
 import { Input } from '@/components/ui/input'
@@ -30,6 +35,9 @@ import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { confirm } from '@/components/shared/global-confirm'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
+import { BackgroundJobDiagnostics } from './background-job-diagnostics'
 import {
   canCancelJob,
   canChangePriority,
@@ -51,7 +59,6 @@ import {
   useBackgroundJobDetail,
   useBackgroundJobEvents
 } from './use-background-dashboard'
-
 export interface BackgroundDashboardView {
   counts: Record<JobStatus, number>
   queuedCount: number
@@ -78,11 +85,28 @@ export interface BackgroundBatchView {
 }
 
 export function BackgroundTaskConsole() {
-  const dashboardQuery = useBackgroundDashboard()
+  const [activeTab, setActiveTab] = useState<'tasks' | 'failures'>('tasks')
+  const [open, setOpen] = useState(false)
+  const dashboardQuery = useBackgroundDashboard(open && activeTab === 'failures')
   const dashboard = dashboardQuery.data as BackgroundDashboardView | undefined
   const isDesktop = useMediaQuery('(min-width: 768px)')
-  const [open, setOpen] = useState(false)
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
+  useEffect(() => {
+    const requestedJobId = new URLSearchParams(window.location.search).get('jobId')
+    if (requestedJobId && /^[a-zA-Z0-9_-]{1,128}$/.test(requestedJobId)) {
+      setSelectedJobId(requestedJobId)
+      setOpen(true)
+    }
+  }, [])
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [historyRefreshVersion, setHistoryRefreshVersion] = useState(0)
+  const history = useBackgroundHistory(open && activeTab === 'tasks' && !selectedJobId, historyRefreshVersion)
+  const failures = useBackgroundFailures(
+    open && activeTab === 'failures' && !selectedJobId,
+    dashboard?.unacknowledgedFailureCount ?? 0,
+    dashboardQuery.refetch
+  )
+  const historyNavigationRequested = useRef(false)
   const [completedNotice, setCompletedNotice] = useState<JobDto | null>(null)
   const previousActiveJobIds = useRef<Set<string> | null>(null)
   const completedNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -122,39 +146,104 @@ export function BackgroundTaskConsole() {
     (dashboard?.runningJob?.id === selectedJobId ? dashboard.runningJob : null)
   const detailQuery = useBackgroundJobDetail(selectedJobId, dashboardSelectedJob ?? null)
   const selectedJob = detailQuery.data
-  const controls = useBackgroundJobControls((job) => {
+  const controls = useBackgroundJobControls(async (job) => {
+    setHistoryRefreshVersion((value) => value + 1)
     if (job) setSelectedJobId(job.id)
-    void dashboardQuery.refetch()
-    void detailQuery.refetch()
+    await dashboardQuery.refetch()
+    failures.refresh(true)
+    if (selectedJobId) await detailQuery.refetch()
   })
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen)
-    if (!nextOpen) setSelectedJobId(null)
+    if (nextOpen) setActiveTab('tasks')
+    if (!nextOpen) {
+      setSelectedJobId(null)
+      failures.clearSelection()
+    }
   }
 
-  const panelContent = dashboard ? (
-    <BackgroundTaskConsoleView
-      dashboard={dashboard}
-      selectedJobId={selectedJobId}
-      selectedJob={selectedJob}
-      selectedJobLoading={detailQuery.isPending && Boolean(selectedJobId)}
-      onSelectJob={setSelectedJobId}
-      onRefresh={() => {
-        void dashboardQuery.refetch()
-        if (selectedJobId) void detailQuery.refetch()
-      }}
-      refreshing={dashboardQuery.isFetching || detailQuery.isFetching}
-      controls={controls}
-      detailError={detailQuery.isError ? detailQuery.error : null}
-      onRetryDetail={() => void detailQuery.refetch()}
-    />
-  ) : (
-    <BackgroundConsoleState
-      loading={dashboardQuery.isPending}
-      error={dashboardQuery.isError ? dashboardQuery.error : null}
-      onRetry={() => void dashboardQuery.refetch()}
-    />
+  const selectJob = (id: string | null) => {
+    const browsing = activeTab === 'tasks' ? history.browsing : failures.browsing
+    if (id && !selectedJobId && scrollRef.current) browsing.current.offset = scrollRef.current.scrollTop
+    setSelectedJobId(id)
+    if (id && scrollRef.current) scrollRef.current.scrollTop = 0
+  }
+
+  const changeTab = (value: string) => {
+    if (value !== 'tasks' && value !== 'failures') return
+    if (!selectedJobId && scrollRef.current) {
+      const browsing = activeTab === 'tasks' ? history.browsing : failures.browsing
+      browsing.current.offset = scrollRef.current.scrollTop
+    }
+    setSelectedJobId(null)
+    setActiveTab(value)
+  }
+  const viewFailureHistory = () => {
+    historyNavigationRequested.current = true
+    changeTab('tasks')
+    history.changeFilters({ ...emptyHistoryFilters(), statuses: ['FAILED'] })
+  }
+
+  useEffect(() => {
+    const container = scrollRef.current
+    const section = container?.querySelector('#background-history-section')
+    if (historyNavigationRequested.current && activeTab === 'tasks' && !selectedJobId && container && section) {
+      historyNavigationRequested.current = false
+      container.scrollTop += section.getBoundingClientRect().top - container.getBoundingClientRect().top
+      history.browsing.current.offset = container.scrollTop
+    }
+  }, [activeTab, selectedJobId, history.generation, history.browsing])
+
+  const panelContent =
+    dashboard && activeTab === 'failures' && !selectedJobId ? (
+      <BackgroundFailureList
+        failures={failures}
+        totalCount={dashboard.unacknowledgedFailureCount}
+        controls={controls}
+        scrollRef={scrollRef}
+        onSelectJob={selectJob}
+        onViewHistory={viewFailureHistory}
+      />
+    ) : dashboard ? (
+      <BackgroundTaskConsoleView
+        dashboard={dashboard}
+        selectedJobId={selectedJobId}
+        selectedJob={selectedJob}
+        selectedJobLoading={detailQuery.isPending && Boolean(selectedJobId)}
+        failureNeedsAttention={detailQuery.failureNeedsAttention}
+        onSelectJob={selectJob}
+        historyContent={<BackgroundHistoryList history={history} scrollRef={scrollRef} onSelectJob={selectJob} />}
+        onRefresh={() => {
+          void dashboardQuery.refetch()
+          setHistoryRefreshVersion((value) => value + 1)
+          if (selectedJobId) void detailQuery.refetch()
+        }}
+        refreshing={dashboardQuery.isFetching || detailQuery.isFetching}
+        controls={controls}
+        detailError={detailQuery.isError ? detailQuery.error : null}
+        onRetryDetail={() => void detailQuery.refetch()}
+      />
+    ) : (
+      <BackgroundConsoleState
+        loading={dashboardQuery.isPending}
+        error={dashboardQuery.isError ? dashboardQuery.error : null}
+        onRetry={() => void dashboardQuery.refetch()}
+      />
+    )
+
+  const tabbedPanel = (
+    <Tabs value={activeTab} onValueChange={changeTab} className="min-h-0 flex-1 gap-0">
+      <div className="shrink-0 border-b px-4 py-3 sm:px-5">
+        <TabsList className="w-full">
+          <TabsTrigger value="tasks">任务</TabsTrigger>
+          <TabsTrigger value="failures">失败（{dashboard?.unacknowledgedFailureCount ?? 0}）</TabsTrigger>
+        </TabsList>
+      </div>
+      <TabsContent key={activeTab} value={activeTab} ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        {panelContent}
+      </TabsContent>
+    </Tabs>
   )
 
   return (
@@ -165,16 +254,16 @@ export function BackgroundTaskConsole() {
         error={dashboardQuery.isError}
         unreadFailureCount={dashboard?.unacknowledgedFailureCount ?? 0}
         completedNotice={completedNotice}
-        onOpen={() => setOpen(true)}
+        onOpen={() => handleOpenChange(true)}
       />
       {isDesktop ? (
         <Sheet open={open} onOpenChange={handleOpenChange}>
           <SheetContent className="w-full gap-0 p-0 sm:max-w-xl xl:max-w-2xl">
             <SheetHeader className="shrink-0 border-b pr-14 text-left">
               <SheetTitle>执行动态</SheetTitle>
-              <SheetDescription>查看正在执行、排队和近期后台任务。</SheetDescription>
+              <SheetDescription>查看任务执行记录与待处理失败。</SheetDescription>
             </SheetHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto">{panelContent}</div>
+            {tabbedPanel}
           </SheetContent>
         </Sheet>
       ) : (
@@ -182,9 +271,9 @@ export function BackgroundTaskConsole() {
           <DrawerContent className="max-h-[92dvh]">
             <DrawerHeader className="shrink-0 border-b text-left">
               <DrawerTitle>执行动态</DrawerTitle>
-              <DrawerDescription>查看正在执行、排队和近期后台任务。</DrawerDescription>
+              <DrawerDescription>查看任务执行记录与待处理失败。</DrawerDescription>
             </DrawerHeader>
-            <div className="min-h-0 flex-1 overflow-y-auto">{panelContent}</div>
+            {tabbedPanel}
           </DrawerContent>
         </Drawer>
       )}
@@ -320,7 +409,9 @@ function BackgroundConsoleState({
       <AlertTriangle className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <h2 className="font-semibold">无法读取后台队列</h2>
-        <p className="mt-1 break-words text-sm text-muted-foreground">{error?.message ?? '查询返回了空数据。'}</p>
+        <p className="mt-1 break-words text-sm text-muted-foreground">
+          {error?.message ? <PrivacySensitiveText>{error.message}</PrivacySensitiveText> : '查询返回了空数据。'}
+        </p>
         <Button className="mt-4" size="sm" variant="outline" onClick={onRetry}>
           <RefreshCw data-icon="inline-start" aria-hidden="true" /> 重试
         </Button>
@@ -335,6 +426,11 @@ export interface BackgroundControlsView {
   resume: { isPending: boolean; mutate: (input: { jobId: string }) => void }
   retry: { isPending: boolean; mutate: (input: { jobId: string }) => void }
   acknowledge: { isPending: boolean; mutate: (input: { jobId: string }) => void }
+  acknowledgeMany: {
+    isPending: boolean
+    mutate: (input: AcknowledgeJobFailuresRequest) => void
+    mutateAsync: (input: AcknowledgeJobFailuresRequest) => Promise<{ acknowledgedCount: number; skippedCount: number }>
+  }
   priority: { isPending: boolean; mutate: (input: { jobId: string; priority: number }) => void }
 }
 
@@ -348,7 +444,9 @@ export function BackgroundTaskConsoleView({
   refreshing,
   controls,
   detailError = null,
-  onRetryDetail
+  onRetryDetail,
+  historyContent,
+  failureNeedsAttention = false
 }: {
   dashboard: BackgroundDashboardView
   selectedJobId?: string | null
@@ -360,12 +458,13 @@ export function BackgroundTaskConsoleView({
   controls: BackgroundControlsView
   detailError?: { message: string } | null
   onRetryDetail?: () => void
+  historyContent?: ReactNode
+  failureNeedsAttention?: boolean
 }) {
   const workerSummary = getWorkerSummary(dashboard.workers)
   const running = dashboard.runningJob
   const activeBatch = primaryActiveBatch(dashboard)
   const showingDetail = Boolean(selectedJobId ?? selectedJob?.id)
-  const unacknowledgedFailureIds = new Set(dashboard.unacknowledgedFailures.map((job) => job.id))
 
   return (
     <section aria-labelledby="background-console-title" className="min-w-0">
@@ -405,7 +504,9 @@ export function BackgroundTaskConsoleView({
               role="status"
               className="m-4 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm sm:m-5 sm:mb-0"
             >
-              <p className="break-words text-destructive">任务详情刷新失败：{detailError.message}</p>
+              <p className="break-words text-destructive">
+                任务详情刷新失败：<PrivacySensitiveText>{detailError.message}</PrivacySensitiveText>
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 当前显示最近一次队列快照；重试以确认任务是否已进入终态。
               </p>
@@ -421,11 +522,7 @@ export function BackgroundTaskConsoleView({
               正在读取任务详情…
             </div>
           ) : selectedJob ? (
-            <JobDetail
-              job={selectedJob}
-              controls={controls}
-              failureNeedsAttention={unacknowledgedFailureIds.has(selectedJob.id)}
-            />
+            <JobDetail job={selectedJob} controls={controls} failureNeedsAttention={failureNeedsAttention} />
           ) : (
             <div className="p-5 text-sm text-muted-foreground">选择一条近期任务，查看控制项和结构化事件。</div>
           )}
@@ -440,26 +537,7 @@ export function BackgroundTaskConsoleView({
               onSelectJob={onSelectJob}
             />
           </div>
-          {dashboard.unacknowledgedFailureCount > 0 ? (
-            <div className="border-t">
-              <FailureAttentionList
-                jobs={dashboard.unacknowledgedFailures}
-                totalCount={dashboard.unacknowledgedFailureCount}
-                onSelectJob={onSelectJob}
-                onAcknowledge={(jobId) => controls.acknowledge.mutate({ jobId })}
-                acknowledging={controls.acknowledge.isPending}
-              />
-            </div>
-          ) : null}
-          <div className="border-t">
-            <RecentJobs
-              jobs={dashboard.recentJobs}
-              activeBatches={dashboard.activeBatches}
-              excludedJobIds={unacknowledgedFailureIds}
-              selectedJobId={null}
-              onSelectJob={onSelectJob}
-            />
-          </div>
+          <div className="border-t">{historyContent}</div>
           <details className="group border-t">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
               <Cpu className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -564,11 +642,19 @@ function ExecutionSlot({
                     {batch.failedCount > 0 ? `，其中失败 ${batch.failedCount}` : ''}
                   </p>
                   <p className="select-text break-words">
-                    {batch.currentJob?.message ? `当前：${batch.currentJob.message}` : '等待 Worker 继续处理'}
+                    {batch.currentJob?.message ? (
+                      <>
+                        当前：<PrivacySensitiveText>{batch.currentJob.message}</PrivacySensitiveText>
+                      </>
+                    ) : (
+                      '等待 Worker 继续处理'
+                    )}
                   </p>
                 </div>
               ) : visibleJob.message ? (
-                <p className="mt-2 select-text break-words text-sm text-muted-foreground">{visibleJob.message}</p>
+                <PrivacySensitiveText as="p" className="mt-2 select-text break-words text-sm text-muted-foreground">
+                  {visibleJob.message}
+                </PrivacySensitiveText>
               ) : null}
               {detailJob ? (
                 <Button
@@ -686,160 +772,11 @@ function WorkerInstanceCard({
         {historical ? '最后心跳' : '心跳'} {formatHeartbeatAge(ageMs)}
       </p>
       {worker.lastError ? (
-        <p className="mt-2 select-text break-words text-xs text-destructive">{worker.lastError}</p>
+        <PrivacySensitiveText as="p" className="mt-2 break-words text-xs text-destructive">
+          {worker.lastError}
+        </PrivacySensitiveText>
       ) : null}
     </li>
-  )
-}
-
-function FailureAttentionList({
-  jobs,
-  totalCount,
-  onSelectJob,
-  onAcknowledge,
-  acknowledging
-}: {
-  jobs: JobDto[]
-  totalCount: number
-  onSelectJob: (jobId: string) => void
-  onAcknowledge: (jobId: string) => void
-  acknowledging: boolean
-}) {
-  return (
-    <section aria-labelledby="failure-attention-title" className="min-w-0 p-4 sm:p-5">
-      <h3 id="failure-attention-title" className="flex items-center gap-2 text-sm font-semibold text-destructive">
-        <AlertTriangle className="size-4" aria-hidden="true" />
-        待处理失败（{totalCount}）
-      </h3>
-      <p className="mt-1 text-xs text-muted-foreground">失败记录会继续保留；忽略只会关闭这条提醒。</p>
-      {jobs.length > 0 ? (
-        <ul className="mt-3 flex flex-col gap-2">
-          {jobs.map((job) => (
-            <li key={job.id} className="min-w-0 rounded-lg border border-destructive/20 bg-destructive/5 p-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium">{formatBackgroundJobType(job.type, job.payload)}</p>
-                  <p className="mt-1 select-text break-all font-mono text-[11px] text-muted-foreground">{job.id}</p>
-                  <p className="mt-1 break-words text-xs text-muted-foreground">
-                    {formatBackgroundDate(job.createdAt)}
-                    {job.errorCode ? ` · ${job.errorCode}` : ''}
-                  </p>
-                  {job.error ? (
-                    <p className="mt-1 line-clamp-2 break-words text-xs text-destructive">{job.error}</p>
-                  ) : null}
-                </div>
-                <AdminStatusBadge status="FAILED">失败</AdminStatusBadge>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="outline" onClick={() => onSelectJob(job.id)}>
-                  查看详情
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  disabled={acknowledging}
-                  onClick={() => onAcknowledge(job.id)}
-                >
-                  {acknowledging ? (
-                    <Spinner data-icon="inline-start" aria-hidden="true" />
-                  ) : (
-                    <BellOff data-icon="inline-start" aria-hidden="true" />
-                  )}
-                  忽略提醒
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {totalCount > jobs.length ? (
-        <p className="mt-3 text-xs text-muted-foreground">
-          当前显示最近 {jobs.length} 项；逐条处理后会继续载入更早的失败。
-        </p>
-      ) : null}
-    </section>
-  )
-}
-
-function RecentJobs({
-  jobs,
-  activeBatches,
-  excludedJobIds,
-  selectedJobId,
-  onSelectJob
-}: {
-  jobs: JobDto[]
-  activeBatches: BackgroundBatchView[]
-  excludedJobIds: ReadonlySet<string>
-  selectedJobId: string | null
-  onSelectJob: (jobId: string) => void
-}) {
-  const batchByParentId = new Map(activeBatches.map((batch) => [batch.id, batch]))
-  const visibleJobs = [
-    ...activeBatches.map((batch) => batch.parentJob),
-    ...jobs.filter((job) => !batchByParentId.has(job.id) && !excludedJobIds.has(job.id))
-  ].slice(0, 10)
-
-  return (
-    <section aria-labelledby="recent-jobs-title" className="min-w-0 p-4 sm:p-5">
-      <h3 id="recent-jobs-title" className="flex items-center gap-2 text-sm font-semibold">
-        <ListOrdered className="size-4 text-primary" aria-hidden="true" />
-        执行中、排队与近期记录
-      </h3>
-      {visibleJobs.length === 0 ? (
-        <p className="mt-3 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">还没有后台任务记录。</p>
-      ) : (
-        <ul className="mt-3 flex flex-col gap-2">
-          {visibleJobs.map((job) => {
-            const batch = batchByParentId.get(job.id)
-            const detailJobId = batch?.currentJob?.id ?? job.id
-            return (
-              <li key={job.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelectJob(detailJobId)}
-                  aria-pressed={selectedJobId === detailJobId}
-                  className={cn(
-                    'w-full min-w-0 rounded-lg border px-3 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    selectedJobId === detailJobId && 'border-primary/40 bg-primary/[0.04]'
-                  )}
-                >
-                  <span className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm font-medium">{formatBackgroundJobType(job.type, job.payload)}</span>
-                    <AdminStatusBadge status={batch?.status ?? job.status}>
-                      {batch ? formatBatchStatus(batch.status) : formatBackgroundJobStatus(job.status)}
-                    </AdminStatusBadge>
-                  </span>
-                  <span className="mt-1 block select-text break-all font-mono text-[11px] text-muted-foreground">
-                    {job.id}
-                  </span>
-                  {batch ? (
-                    <span className="mt-2 block">
-                      <span className="flex items-center gap-3">
-                        <Progress
-                          value={batch.progress}
-                          className="h-1.5 flex-1"
-                          aria-label={`批次进度 ${batch.progress}%`}
-                        />
-                        <span className="text-xs font-semibold tabular-nums">{batch.progress}%</span>
-                      </span>
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        已处理 {batch.completedCount}/{batch.totalCount} · 剩余 {batch.remainingCount}
-                      </span>
-                    </span>
-                  ) : (
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {formatBackgroundDate(job.createdAt)} · 优先级 {job.effectivePriority}
-                    </span>
-                  )}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-    </section>
   )
 }
 
@@ -861,6 +798,7 @@ function JobDetail({
     controls.resume.isPending ||
     controls.retry.isPending ||
     controls.acknowledge.isPending ||
+    controls.acknowledgeMany.isPending ||
     controls.priority.isPending
   const priorityNumber = Number(priority)
   const priorityRange = job.triggerSource === 'MANUAL' || job.triggerSource === 'RETRY' ? [0, 99] : [100, 999]
@@ -935,19 +873,15 @@ function JobDetail({
           <span className="text-xs font-semibold tabular-nums">{job.progress}%</span>
         </div>
       ) : null}
-      {job.message ? <p className="mt-3 select-text break-words text-sm text-muted-foreground">{job.message}</p> : null}
-      {job.error ? (
-        <div className="mt-3 select-text rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
-          <p className="font-medium">
-            {job.errorCode === 'PRECONDITION_FAILED'
-              ? `${job.errorCode}：任务需要处理后重试`
-              : job.errorCode
-                ? `${job.errorCode}：任务执行失败`
-                : '任务执行失败'}
-          </p>
-          <p className="mt-1 whitespace-pre-wrap break-words">{job.error}</p>
-        </div>
+      {job.progressData?.kind === 'animation-scan' ? (
+        <AnimationScanLiveFeedback job={job} className="mt-3 rounded-lg border bg-muted/10 p-3" />
       ) : null}
+      {job.message && job.message !== job.error ? (
+        <PrivacySensitiveText as="p" className="mt-3 select-text break-words text-sm text-muted-foreground">
+          {job.message}
+        </PrivacySensitiveText>
+      ) : null}
+      <BackgroundJobDiagnostics key={`diagnostics-${job.id}`} job={job} />
 
       <EventTimeline
         key={job.id}
@@ -1093,7 +1027,9 @@ function EventTimeline({
       ) : null}
       {error ? (
         <div role="status" className="mt-3 rounded-lg border border-destructive/25 bg-destructive/5 p-3 text-sm">
-          <p className="break-words text-destructive">事件读取失败：{error.message}</p>
+          <p className="break-words text-destructive">
+            事件读取失败：<PrivacySensitiveText>{error.message}</PrivacySensitiveText>
+          </p>
           <Button size="sm" variant="outline" className="mt-2" onClick={onRetry}>
             <RefreshCw data-icon="inline-start" aria-hidden="true" />
             重试事件查询
@@ -1157,11 +1093,18 @@ function EventItem({ event }: { event: JobEventDto }) {
         <span>尝试 {event.attempt}</span>
         {event.workerId ? <span className="select-text break-all font-mono">Worker {event.workerId}</span> : null}
       </div>
-      {event.message ? <p className="mt-1 select-text break-words text-sm">{event.message}</p> : null}
+      {event.message ? (
+        <PrivacySensitiveText as="p" className="mt-1 select-text break-words text-sm">
+          {event.message}
+        </PrivacySensitiveText>
+      ) : null}
       {dataText ? (
-        <pre className="mt-2 max-w-full select-text overflow-x-auto rounded-md bg-muted/45 p-2 text-xs leading-5 whitespace-pre-wrap break-all">
+        <PrivacySensitiveText
+          as="pre"
+          className="mt-2 max-w-full select-text overflow-x-auto rounded-md bg-muted/45 p-2 text-xs leading-5 whitespace-pre-wrap break-all"
+        >
           {dataText}
-        </pre>
+        </PrivacySensitiveText>
       ) : null}
     </li>
   )

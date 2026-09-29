@@ -127,12 +127,13 @@ export default function TagManagement() {
     try {
       setIsUpdatingStats(true)
       const result = await updateTagStatsAction()
+      const data = result?.data
 
-      if (result.success) {
+      if (data?.success) {
         toast.success('标签统计更新成功')
         setRefreshKey((prev) => prev + 1)
       } else {
-        throw new Error(result.message || '更新失败')
+        throw new Error(result?.serverError || data?.message || '更新失败')
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '标签统计更新失败'
@@ -234,6 +235,7 @@ export default function TagManagement() {
     {
       header: '标签名称',
       accessorKey: 'name',
+      privacySensitive: true,
       cell: ({ row }) => (
         <div className="flex items-center gap-2">
           <Link
@@ -253,6 +255,7 @@ export default function TagManagement() {
     {
       header: '中文翻译',
       accessorKey: 'name_zh',
+      privacySensitive: true,
       cell: ({ row }) => {
         const record = row.original
         const tName = getTranslateName(record)
@@ -564,7 +567,7 @@ function PixivSyncBadge({ tag }: { tag: TagListItem }) {
     FAILED: { label: '失败', variant: 'destructive' as const }
   }[tag.pixivSync.status]
   return (
-    <Badge variant={presentation.variant} title={tag.pixivSync.lastError || undefined}>
+    <Badge variant={presentation.variant}>
       {presentation.label}
     </Badge>
   )

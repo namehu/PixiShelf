@@ -3,6 +3,7 @@ import {
   jobTypeSchema,
   jobDtoSchema,
   jobEventDtoSchema,
+  jobLiveSummarySchema,
   jsonValueSchema,
   workerHealthDtoSchema,
   type JobDto,
@@ -14,10 +15,13 @@ import {
 import { Prisma } from '@pixishelf/db'
 import { redactArchiveText } from '@/services/archive/archive-redaction'
 import { redactSensitiveText, sanitizeJsonValue, type WireTextRedactor } from './job-redaction'
+import { diagnosticSummarySelect, hasPartialFailure } from './job-diagnostic-summary'
+import { isLegacyAnimationDurationYield } from './animation-duration-yield'
 
 export { redactSensitiveText, sanitizeJsonValue } from './job-redaction'
 
 export const systemJobWireSelect = {
+  ...diagnosticSummarySelect,
   id: true,
   type: true,
   executionLane: true,
@@ -30,6 +34,7 @@ export const systemJobWireSelect = {
   idempotencyKey: true,
   payload: true,
   progress: true,
+  progressData: true,
   stage: true,
   message: true,
   result: true,
@@ -69,14 +74,17 @@ export const systemJobEventWireSelect = {
 } satisfies Prisma.SystemJobEventSelect
 
 export const systemJobLiveSummarySelect = {
+  ...diagnosticSummarySelect,
   id: true,
   type: true,
   executionLane: true,
   status: true,
   progress: true,
+  progressData: true,
   stage: true,
   message: true,
   errorCode: true,
+  error: true,
   attempt: true,
   parentJobId: true,
   heartbeatAt: true,
@@ -109,13 +117,16 @@ function iso(value: Date | null) {
 
 export function toJobDto(record: SystemJobWireRecord): JobDto {
   const redactText = wireTextRedactor(record.type)
+  const legacyYield = isLegacyAnimationDurationYield(record)
   return jobDtoSchema.parse({
     ...record,
+    hasPartialFailure: hasPartialFailure(record),
     idempotencyKey: redactSensitiveText(record.idempotencyKey),
     payload: sanitizeJsonValue(record.payload, redactText),
     result: sanitizeJsonValue(record.result, redactText),
     message: redactText(record.message),
-    error: redactText(record.error),
+    errorCode: legacyYield ? null : record.errorCode,
+    error: legacyYield ? null : redactText(record.error),
     availableAt: iso(record.availableAt),
     deadlineAt: iso(record.deadlineAt),
     leaseToken: null,
@@ -141,15 +152,24 @@ export function toJobEventDto(record: SystemJobEventWireRecord): JobEventDto {
 }
 
 export function toJobLiveSummary(record: SystemJobLiveSummaryRecord): JobLiveSummary {
-  return {
-    ...record,
+  return jobLiveSummarySchema.parse({
+    id: record.id,
+    executionLane: record.executionLane,
+    status: record.status,
+    hasPartialFailure: hasPartialFailure(record),
     type: jobTypeSchema.parse(record.type),
+    progress: record.progress,
+    progressData: record.progressData,
+    stage: record.stage,
     message: wireTextRedactor(record.type)(record.message),
+    errorCode: isLegacyAnimationDurationYield(record) ? null : record.errorCode,
+    attempt: record.attempt,
+    parentJobId: record.parentJobId,
     heartbeatAt: iso(record.heartbeatAt),
     startedAt: iso(record.startedAt),
     finishedAt: iso(record.finishedAt),
     updatedAt: record.updatedAt.toISOString()
-  }
+  })
 }
 
 function wireTextRedactor(jobType: string): WireTextRedactor {

@@ -1,7 +1,9 @@
 import { NextRequest } from 'next/server'
 import { Readable } from 'stream'
 import { apiError, apiJson, apiSuccess } from '@/lib/api-response'
+import { ApiError } from '@/lib/api-handler'
 import { getScanPath } from '@/services/setting.service'
+import { requireAdminRequest } from '@/services/background-task/request-auth'
 import {
   getMediaUploadStatus,
   handleMediaUploadChunk,
@@ -11,6 +13,13 @@ import {
 } from '@/services/artwork-service/media-upload'
 
 export async function POST(req: NextRequest) {
+  try {
+    await requireAdminRequest(req)
+  } catch (error) {
+    if (error instanceof ApiError) return apiError(error.message, { status: error.statusCode })
+    throw error
+  }
+
   try {
     const fileName = req.headers.get('x-file-name')
     const targetDir = req.headers.get('x-target-dir')
@@ -77,6 +86,13 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  try {
+    await requireAdminRequest(req)
+  } catch (error) {
+    if (error instanceof ApiError) return apiError(error.message, { status: error.statusCode })
+    throw error
+  }
+
   try {
     const url = new URL(req.url)
     const fileName = url.searchParams.get('fileName')

@@ -26,7 +26,8 @@ describe('viewer video lifecycle', () => {
         url: '/video.mp4',
         updatedAt: '2026-08-11T00:00:00.000Z',
         mediaType: MediaType.VIDEO,
-        hasAudio: true
+        hasAudio: true,
+        animationMetadata: null
       },
       retryKey: 0,
       onRetry: vi.fn(),
@@ -51,7 +52,8 @@ describe('viewer video lifecycle', () => {
         url: '/video-4.mp4',
         updatedAt: '2026-08-11T00:00:00.000Z',
         mediaType: MediaType.VIDEO,
-        hasAudio: true
+        hasAudio: true,
+        animationMetadata: null
       },
       retryKey: 0,
       onRetry: vi.fn(),
@@ -77,7 +79,8 @@ describe('viewer video lifecycle', () => {
           url: '/video-2.mp4',
           updatedAt: '2026-08-11T00:00:00.000Z',
           mediaType: MediaType.VIDEO,
-          hasAudio: true
+          hasAudio: true,
+          animationMetadata: null
         }}
         retryKey={0}
         onRetry={vi.fn()}
@@ -100,7 +103,8 @@ describe('viewer video lifecycle', () => {
           key: 'video-3',
           url: '/video-3.mp4',
           updatedAt: '2026-08-11T00:00:00.000Z',
-          mediaType: MediaType.VIDEO
+          mediaType: MediaType.VIDEO,
+          animationMetadata: null
         }}
         retryKey={0}
         onRetry={vi.fn()}

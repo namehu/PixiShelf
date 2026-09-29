@@ -1,3 +1,9 @@
+import {
+  activeCreatorMembership,
+  visibleCreatorArtwork,
+  lockCreatorCatalog,
+  requireAvailableArtist
+} from '@pixishelf/db'
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
@@ -19,12 +25,12 @@ import { Prisma } from '@prisma/client'
  */
 export async function getArtistById(id: number | string): Promise<ArtistResponseDto | null> {
   const artist = await prisma.artist.findUnique({
-    where: { id: Number(id) },
+    where: { id: Number(id), mergedIntoId: null },
     select: {
       ...ARTIST_SELECT,
       _count: {
         select: {
-          artworks: true
+          artworkMemberships: { where: { ...activeCreatorMembership, artwork: visibleCreatorArtwork } }
         }
       }
     }
@@ -47,7 +53,7 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
     const skip = (page - 1) * limitedPageSize
 
     // 构建搜索条件
-    const whereClause: any = {}
+    const whereClause: Prisma.ArtistWhereInput = { mergedIntoId: null, ...(options.kind ? { kind: options.kind } : {}) }
     if (isStarred !== undefined) {
       whereClause.isStarred = isStarred
     }
@@ -68,6 +74,7 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
     }
     if (search) {
       whereClause.OR = [
+        { sourceTagMappings: { some: { sourceName: { contains: search, mode: 'insensitive' } } } },
         {
           name: {
             contains: search,
@@ -100,35 +107,37 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
         orderBy = { name: 'desc' }
         break
       case 'artworks_desc':
-        orderBy = { artworks: { _count: 'desc' } }
+        orderBy = { artworkMemberships: { _count: 'desc' } }
         break
       case 'artworks_asc':
-        orderBy = { artworks: { _count: 'asc' } }
+        orderBy = { artworkMemberships: { _count: 'asc' } }
         break
       default:
         orderBy = { name: 'asc' }
     }
 
+    const rankedIds = sortBy.startsWith('artworks_') ? await rankCreators(options, skip, limitedPageSize) : null
     // 并行查询艺术家数据和总数
     const [artists, total] = await Promise.all([
       prisma.artist.findMany({
-        where: whereClause,
+        where: { ...whereClause, ...(rankedIds ? { id: { in: rankedIds } } : {}) },
         select: {
           ...ARTIST_SELECT,
           _count: {
             select: {
-              artworks: true
+              artworkMemberships: { where: { ...activeCreatorMembership, artwork: visibleCreatorArtwork } }
             }
           }
         },
         orderBy,
-        skip,
+        skip: rankedIds ? 0 : skip,
         take: limitedPageSize
       }),
       prisma.artist.count({ where: whereClause })
     ])
 
     // 转换数据格式
+    if (rankedIds) artists.sort((a, b) => rankedIds.indexOf(a.id) - rankedIds.indexOf(b.id))
     const data = artists.map((artist) => ArtistResponseDto.parse(artist))
 
     const hasNextPage = page * limitedPageSize < total
@@ -167,65 +176,11 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
  * @returns 热门艺术家响应
  */
 export async function getRecentArtists(
-  options: {
-    page?: number
-    pageSize?: number
-  } = {}
+  options: { page?: number; pageSize?: number } = {}
 ): Promise<PaginationResponseData<ArtistResponseDto>> {
-  try {
-    const { page = 1, pageSize = 10 } = options
-    const skip = (page - 1) * pageSize
-
-    // 并行查询艺术家数据和总数
-    const [artists, total] = await Promise.all([
-      prisma.artist.findMany({
-        select: {
-          ...ARTIST_SELECT,
-          _count: {
-            select: {
-              artworks: true
-            }
-          }
-        },
-        orderBy: {
-          artworks: {
-            _count: 'desc'
-          }
-        },
-        skip,
-        take: pageSize
-      }),
-      prisma.artist.count()
-    ])
-
-    // 转换数据格式
-    const items = artists.map((artist) => ArtistResponseDto.parse(artist))
-
-    return {
-      data: items,
-      pagination: {
-        page,
-        pageSize,
-        total,
-        totalPages: Math.ceil(total / pageSize),
-        hasNextPage: page * pageSize < total,
-        hasPrevPage: page > 1
-      }
-    }
-  } catch (error) {
-    logger.error('Error fetching recent artists:', error)
-    return {
-      data: [],
-      pagination: {
-        page: options.page || 1,
-        pageSize: options.pageSize || 10,
-        total: 0,
-        totalPages: 0,
-        hasNextPage: false,
-        hasPrevPage: false
-      }
-    }
-  }
+  return getArtists(
+    ArtistsGetSchema.parse({ cursor: options.page ?? 1, pageSize: options.pageSize ?? 10, sortBy: 'artworks_desc' })
+  )
 }
 
 export interface DashboardArtistArtworkPreview {
@@ -269,7 +224,7 @@ export async function getDashboardArtists(
       ...ARTIST_SELECT,
       _count: {
         select: {
-          artworks: true
+          artworkMemberships: { where: { ...activeCreatorMembership, artwork: visibleCreatorArtwork } }
         }
       }
     } as const
@@ -277,7 +232,8 @@ export async function getDashboardArtists(
     const firstArtists = await prisma.artist.findMany({
       where: {
         id: { gte: pivot },
-        artworks: { some: {} }
+        mergedIntoId: null,
+        artworkMemberships: { some: { ...activeCreatorMembership, artwork: visibleCreatorArtwork } }
       },
       select: artistSelect,
       orderBy: { id: 'asc' },
@@ -288,7 +244,8 @@ export async function getDashboardArtists(
         ? await prisma.artist.findMany({
             where: {
               id: { lt: pivot },
-              artworks: { some: {} }
+              mergedIntoId: null,
+              artworkMemberships: { some: { ...activeCreatorMembership, artwork: visibleCreatorArtwork } }
             },
             select: artistSelect,
             orderBy: { id: 'asc' },
@@ -309,11 +266,11 @@ export async function getDashboardArtists(
               SELECT preview.id, preview."artistId"
               FROM selected
               CROSS JOIN LATERAL (
-                SELECT a.id, a."artistId", a."sourceDate"
+                SELECT a.id, selected."artistId", COALESCE(a."sourceDate", a."createdAt") AS "sourceDate"
                 FROM "Artwork" a
-                WHERE a."artistId" = selected."artistId"
-                  AND a."deletedAt" IS NULL
-                ORDER BY a."sourceDate" DESC, a.id DESC
+                WHERE EXISTS (SELECT 1 FROM effective_artwork_creators c WHERE c."artworkId"=a.id AND c."artistId"=selected."artistId")
+                  AND a."deletedAt" IS NULL AND a."archiveLifecycleState" = 'ACTIVE'
+                ORDER BY COALESCE(a."sourceDate", a."createdAt") DESC, a.id DESC
                 LIMIT ${previewArtworkSize}
               ) preview
               ORDER BY selected.position, preview."sourceDate" DESC, preview.id DESC
@@ -346,11 +303,10 @@ export async function getDashboardArtists(
     const recentArtworkById = new Map(recentArtworks.map((artwork) => [artwork.id, artwork]))
 
     const artworkMap = new Map<number, DashboardArtistArtworkPreview[]>()
-    for (const { id } of recentArtworkRows) {
+    for (const { id, artistId } of recentArtworkRows) {
       const artwork = recentArtworkById.get(id)
       if (!artwork) continue
-      if (artwork.artistId == null) continue
-      const bucket = artworkMap.get(artwork.artistId)
+      const bucket = artworkMap.get(artistId)
       const preview: DashboardArtistArtworkPreview = {
         id: artwork.id,
         title: artwork.title,
@@ -367,7 +323,7 @@ export async function getDashboardArtists(
             : 'image'
           : null
       }
-      if (!bucket) artworkMap.set(artwork.artistId, [preview])
+      if (!bucket) artworkMap.set(artistId, [preview])
       else bucket.push(preview)
     }
 
@@ -419,6 +375,12 @@ export async function updateArtist(id: number, data: ArtistUpdateSchema['data'])
   // 注意：前端目前逻辑是 username 始终跟随 name，所以这里我们也可以强制同步
   const { pixivUserId, ...artistInput } = data
   return prisma.$transaction(async (transaction) => {
+    await lockCreatorCatalog(transaction as unknown as Prisma.TransactionClient)
+    await requireAvailableArtist(transaction as unknown as Prisma.TransactionClient, id)
+    if (artistInput.kind !== undefined) {
+      const currentKind = await transaction.artist.findUniqueOrThrow({ where: { id }, select: { kind: true } })
+      if (currentKind.kind !== artistInput.kind) throw new Error('不能更改现有实体的类型，请新建正确类型并调整映射')
+    }
     if (pixivUserId !== undefined) {
       const current = await transaction.artist.findUniqueOrThrow({
         where: { id },
@@ -478,6 +440,8 @@ export async function updateArtist(id: number, data: ArtistUpdateSchema['data'])
 
 export async function adoptPixivSourceName(id: number): Promise<ArtistResponseDto> {
   return prisma.$transaction(async (transaction) => {
+    await lockCreatorCatalog(transaction as unknown as Prisma.TransactionClient)
+    await requireAvailableArtist(transaction as unknown as Prisma.TransactionClient, id)
     const source = await transaction.artistExternalRef.findUnique({
       where: { artistId_providerKey: { artistId: id, providerKey: 'pixiv' } },
       select: { sourceName: true }
@@ -494,16 +458,85 @@ export async function adoptPixivSourceName(id: number): Promise<ArtistResponseDt
  * 删除艺术家
  */
 export async function deleteArtist(id: number): Promise<void> {
-  // 检查是否有关联作品
-  const artworksCount = await prisma.artwork.count({
-    where: { artistId: id }
-  })
+  await prisma.$transaction(async (prisma) => {
+    await lockCreatorCatalog(prisma as unknown as Prisma.TransactionClient)
+    // 检查是否有关联作品
+    const artworksCount = await prisma.artwork.count({
+      where: { OR: [{ artistId: id }, { creators: { some: { artistId: id } } }] }
+    })
 
-  if (artworksCount > 0) {
-    throw new Error(`无法删除：该艺术家名下还有 ${artworksCount} 个作品`)
+    if (artworksCount > 0) {
+      throw new Error(`无法删除：该艺术家名下还有 ${artworksCount} 个作品`)
+    }
+    const [defaults, pending, runs] = await Promise.all([
+      prisma.discoverySourceCreator.count({ where: { artistId: id } }),
+      prisma.discoveryPendingCreator.count({ where: { artistId: id } }),
+      prisma.archiveUploaderScanRun.count({
+        where: { defaultCreatorIds: { has: id }, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'RETRY_WAIT'] } }
+      })
+    ])
+    if (defaults || pending || runs) throw new Error('无法删除：该艺术家仍被发现来源、待生效绑定或活动扫描引用')
+
+    await prisma.artist.delete({
+      where: { id }
+    })
+  })
+}
+
+async function rankCreators(options: ArtistsGetSchema, skip: number, take: number): Promise<number[]> {
+  const values: Array<string | number | boolean> = []
+  const bind = (value: string | number | boolean) => {
+    values.push(value)
+    return '$' + values.length
   }
-
-  await prisma.artist.delete({
-    where: { id }
-  })
+  const clauses = ['a."mergedIntoId" IS NULL']
+  if (options.kind) clauses.push('a.kind::text = ' + bind(options.kind))
+  if (options.isStarred !== undefined) clauses.push('a."isStarred" = ' + bind(options.isStarred))
+  if (options.search) {
+    const p = bind('%' + options.search + '%')
+    clauses.push(
+      '(a.name ILIKE ' +
+        p +
+        ' OR a.username ILIKE ' +
+        p +
+        ' OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=a.id AND sm."sourceName" ILIKE ' +
+        p +
+        ')' +
+        ' OR EXISTS (SELECT 1 FROM artist_external_refs er WHERE er."artistId"=a.id AND (er."externalId" ILIKE ' +
+        p +
+        ' OR er."sourceName" ILIKE ' +
+        p +
+        ')))'
+    )
+  }
+  if (options.pixivStatus) {
+    const base = 'SELECT 1 FROM artist_external_refs er WHERE er."artistId"=a.id AND er."providerKey"=\'pixiv\''
+    if (options.pixivStatus === 'NO_IDENTITY') clauses.push('NOT EXISTS (' + base + ')')
+    else {
+      clauses.push(
+        'EXISTS (' +
+          base +
+          ' AND ' +
+          (options.pixivStatus === 'UNCHECKED'
+            ? 'er.status IS NULL'
+            : options.pixivStatus === 'CHECKED'
+              ? 'er.status IS NOT NULL'
+              : 'er.status::text = ' + bind(options.pixivStatus)) +
+          ')'
+      )
+    }
+  }
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+    'SELECT a.id FROM "Artist" a WHERE ' +
+      clauses.join(' AND ') +
+      ' ORDER BY (SELECT COUNT(*) FROM effective_artwork_creators c JOIN "Artwork" w ON w.id=c."artworkId"' +
+      ' WHERE c."artistId"=a.id AND w."deletedAt" IS NULL AND w."archiveLifecycleState"=\'ACTIVE\') ' +
+      (options.sortBy === 'artworks_asc' ? 'ASC' : 'DESC') +
+      ', a.id ASC LIMIT ' +
+      bind(take) +
+      ' OFFSET ' +
+      bind(skip),
+    ...values
+  )
+  return rows.map((row) => row.id)
 }

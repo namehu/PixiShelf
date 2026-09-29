@@ -1,5 +1,6 @@
 // oxlint-disable max-nested-callbacks
 import fs from 'fs'
+import type { BigIntStats } from 'fs'
 import fsPromises from 'fs/promises'
 import path from 'path'
 import { MEDIA_EXTENSIONS } from '@/lib/constant'
@@ -7,6 +8,12 @@ import { getSystemSettings } from '@/services/setting.service'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { determineArtworkRelDir } from './utils'
 import { ImageMeta, ReplaceChapterMetaInput, updateArtworkImagesTransaction } from './image-manager'
+import {
+  beginAnimationReplaceSessionWrite,
+  captureAnimationReplaceRollbackWriteTokens,
+  finishAnimationSourcePathWrite
+} from './animation-source-guard'
+import { ReplaceWriteBusyError, withReplaceWriteLock } from './replace-write-lock'
 
 // 定义 API 支持的操作类型
 export type ImageReplaceActionType = 'init' | 'commit' | 'rollback'
@@ -66,29 +73,47 @@ export function createImageReplaceSessionPaths(scanRoot: string, artwork: ImageR
 
 export async function handleImageReplaceSession(input: ImageReplaceSessionInput): Promise<ImageReplaceSessionResult> {
   const { targetRelDir, targetDir, backupDir } = createImageReplaceSessionPaths(input.scanRoot, input.artwork)
+  await fsPromises.mkdir(targetDir, { recursive: true })
+  try {
+    return await withReplaceWriteLock(targetDir, () =>
+      handleImageReplaceSessionLocked(input, targetRelDir, targetDir, backupDir)
+    )
+  } catch (error) {
+    if (error instanceof ReplaceWriteBusyError) throw new ImageReplaceSessionError(error.message, 409)
+    throw error
+  }
+}
+
+async function handleImageReplaceSessionLocked(
+  input: ImageReplaceSessionInput,
+  targetRelDir: string,
+  targetDir: string,
+  backupDir: string
+): Promise<ImageReplaceSessionResult> {
 
   // ==========================================
   // 阶段 1：初始化（备份旧文件）
   // ==========================================
   if (input.action === 'init') {
-    if (!fs.existsSync(targetDir)) {
-      await fsPromises.mkdir(targetDir, { recursive: true })
-    } else {
-      // 如果存在上次未清理的备份，先还原或清理，这里简单处理为：如果有备份则认为已备份
-      if (!fs.existsSync(backupDir)) {
-        await fsPromises.mkdir(backupDir, { recursive: true })
-        const existingFiles = await fsPromises.readdir(targetDir)
-        for (const f of existingFiles) {
-          // 排除备份文件夹本身
-          if (f === '.bak_session') continue
-
-          const ext = path.extname(f).toLowerCase()
-          if (MEDIA_EXTENSIONS.includes(ext) || isChapterManifestFileName(f)) {
-            await fsPromises.rename(path.join(targetDir, f), path.join(backupDir, f))
-          }
-        }
-      }
+    await beginAnimationReplaceSessionWrite(input.artworkId)
+    await fsPromises.mkdir(backupDir, { recursive: true })
+    await assertBackupDirectory(backupDir)
+    const manifest = await getOrCreateReplaceManifest(targetDir, backupDir)
+    if (manifest.phase === 'ROLLING_BACK' || manifest.phase === 'COMMITTING') {
+      throw new ImageReplaceSessionError('Replace session is already being finalized', 409)
     }
+    for (const fileName of manifest.originalFiles) {
+      const backupFile = path.join(backupDir, fileName)
+      if (await pathEntryExists(backupFile)) {
+        await assertOriginalIdentity(backupFile, manifest, fileName, false)
+        continue
+      }
+      const originalFile = path.join(targetDir, fileName)
+      await assertOriginalIdentity(originalFile, manifest, fileName, true)
+      await fsPromises.rename(originalFile, backupFile)
+    }
+    manifest.phase = 'READY'
+    await writeReplaceManifest(backupDir, manifest)
 
     return {
       success: true,
@@ -141,8 +166,13 @@ export async function handleImageReplaceSession(input: ImageReplaceSessionInput)
       throw new ImageReplaceSessionError('Unmatched chapter files detected', 400, unmatchedChapterFiles)
     }
 
+    const manifest = await readReplaceManifest(backupDir)
+    if (manifest.phase !== 'READY') {
+      throw new ImageReplaceSessionError('Replace commit state is incomplete or unknown; inspect database and media before recovery', 409)
+    }
+    manifest.phase = 'COMMITTING'
+    await writeReplaceManifest(backupDir, manifest)
     const systemSettings = await getSystemSettings()
-
     // 执行数据库事务
     await updateArtworkImagesTransaction(input.artworkId, allFilesMeta, chaptersMeta, {
       appendTagIds: systemSettings.replace_default_tag_ids
@@ -162,25 +192,206 @@ export async function handleImageReplaceSession(input: ImageReplaceSessionInput)
     if (!fs.existsSync(backupDir)) {
       throw new ImageReplaceSessionError('No active backup session found (cannot rollback)', 400)
     }
-
-    // 1. 删除当前目录下的所有媒体文件（这些是上传失败产生的新文件）
-    const currentFiles = await fsPromises.readdir(targetDir)
-    for (const f of currentFiles) {
-      if (f === '.bak_session') continue
-      await fsPromises.unlink(path.join(targetDir, f)).catch(() => {})
+    await assertBackupDirectory(backupDir)
+    const manifest = await readReplaceManifest(backupDir)
+    if (manifest.phase === 'COMMITTING') {
+      throw new ImageReplaceSessionError('Replace commit state is unknown; automatic rollback is unsafe', 409)
+    }
+    const writeTokens = await captureAnimationReplaceRollbackWriteTokens(input.artworkId)
+    const backupFiles = (await fsPromises.readdir(backupDir)).filter(isReplaceMediaFile)
+    const backedUpNames = new Set(backupFiles)
+    const originalNames = new Set(manifest.originalFiles)
+    if (backupFiles.some((fileName) => !originalNames.has(fileName))) {
+      throw new ImageReplaceSessionError('Replace backup contains an unrecorded media file', 409)
+    }
+    for (const fileName of manifest.originalFiles) {
+      const backupFile = path.join(backupDir, fileName)
+      const targetFile = path.join(targetDir, fileName)
+      if (await pathEntryExists(backupFile)) await assertOriginalIdentity(backupFile, manifest, fileName, false)
+      else await assertOriginalIdentity(targetFile, manifest, fileName, true)
     }
 
-    // 2. 将 .bak_session 里的东西移回来
-    const backupFiles = await fsPromises.readdir(backupDir)
+    manifest.phase = 'ROLLING_BACK'
+    await writeReplaceManifest(backupDir, manifest)
+
+    // An interrupted init may leave an original in the target directory. Preserve it.
+    const currentFiles = await fsPromises.readdir(targetDir)
+    for (const f of currentFiles) {
+      if (!isReplaceMediaFile(f)) continue
+      if (originalNames.has(f) && !backedUpNames.has(f)) continue
+      await fsPromises.unlink(path.join(targetDir, f))
+    }
+
+    // Restore each original that was already moved into the backup.
     for (const f of backupFiles) {
+      manifest.restoringFiles ??= []
+      if (!manifest.restoringFiles.includes(f)) {
+        manifest.restoringFiles.push(f)
+        await writeReplaceManifest(backupDir, manifest)
+      }
       await fsPromises.rename(path.join(backupDir, f), path.join(targetDir, f))
     }
 
     // 3. 删除备份目录
     await fsPromises.rm(backupDir, { recursive: true, force: true })
 
+    await finishAnimationSourcePathWrite(writeTokens)
+
     return { success: true, message: 'Rolled back successfully' }
   }
 
   throw new ImageReplaceSessionError('Unknown action', 400)
+}
+
+interface ReplaceManifest {
+  version: 1
+  originalFiles: string[]
+  originalStates?: Record<string, ReplaceFileState>
+  phase?: 'BACKING_UP' | 'READY' | 'ROLLING_BACK' | 'COMMITTING'
+  restoringFiles?: string[]
+}
+
+interface ReplaceFileState {
+  size: string
+  mtimeNs: string
+  ctimeNs: string
+  deviceId: string
+  inode: string
+}
+
+const replaceManifestName = '.session-manifest.json'
+const replaceManifestTempName = '.session-manifest.tmp'
+
+function isReplaceMediaFile(name: string) {
+  if (name === '.bak_session' || path.basename(name) !== name) return false
+  return MEDIA_EXTENSIONS.includes(path.extname(name).toLowerCase()) || isChapterManifestFileName(name)
+}
+
+async function getOrCreateReplaceManifest(targetDir: string, backupDir: string): Promise<ReplaceManifest> {
+  const manifestPath = path.join(backupDir, replaceManifestName)
+  if (fs.existsSync(manifestPath)) return readReplaceManifest(backupDir)
+  const backupEntries = (await fsPromises.readdir(backupDir)).filter((name) => name !== replaceManifestTempName)
+  if (backupEntries.length > 0) {
+    throw new ImageReplaceSessionError('Replace backup has no manifest; restore manually before continuing', 409)
+  }
+  const manifest: ReplaceManifest = {
+    version: 1,
+    originalFiles: (await fsPromises.readdir(targetDir)).filter(isReplaceMediaFile),
+    originalStates: {},
+    phase: 'BACKING_UP',
+    restoringFiles: []
+  }
+  for (const name of manifest.originalFiles) {
+    const stats = await fsPromises.lstat(path.join(targetDir, name), { bigint: true })
+    if (!stats.isFile()) throw new ImageReplaceSessionError('Replace original is not a regular file', 409)
+    manifest.originalStates![name] = fileState(stats)
+  }
+  await writeReplaceManifest(backupDir, manifest)
+  return manifest
+}
+
+async function writeReplaceManifest(backupDir: string, manifest: ReplaceManifest) {
+  await fsPromises.writeFile(path.join(backupDir, replaceManifestTempName), JSON.stringify(manifest), { flag: 'w' })
+  await fsPromises.rename(path.join(backupDir, replaceManifestTempName), path.join(backupDir, replaceManifestName))
+}
+
+async function assertBackupDirectory(backupDir: string) {
+  const stats = await fsPromises.lstat(backupDir)
+  if (!stats.isDirectory()) throw new ImageReplaceSessionError('Replace backup directory is not a regular directory', 409)
+}
+
+async function readReplaceManifest(backupDir: string): Promise<ReplaceManifest> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await fsPromises.readFile(path.join(backupDir, replaceManifestName), 'utf8'))
+  } catch {
+    throw new ImageReplaceSessionError('Replace backup manifest is missing or damaged', 409)
+  }
+  if (
+    typeof parsed !== 'object' ||
+    parsed === null ||
+    !('version' in parsed) ||
+    parsed.version !== 1 ||
+    !('originalFiles' in parsed) ||
+    !Array.isArray(parsed.originalFiles) ||
+    !parsed.originalFiles.every((name) => typeof name === 'string' && isReplaceMediaFile(name)) ||
+    new Set(parsed.originalFiles).size !== parsed.originalFiles.length ||
+    ('originalStates' in parsed && !validOriginalStates(parsed.originalStates, parsed.originalFiles)) ||
+    ('phase' in parsed && !['BACKING_UP', 'READY', 'ROLLING_BACK', 'COMMITTING'].includes(parsed.phase as string)) ||
+    ('restoringFiles' in parsed && (
+      !Array.isArray(parsed.restoringFiles) ||
+      !parsed.restoringFiles.every((name) => typeof name === 'string' && (parsed.originalFiles as string[]).includes(name)) ||
+      new Set(parsed.restoringFiles).size !== parsed.restoringFiles.length
+    ))
+  ) {
+    throw new ImageReplaceSessionError('Replace backup manifest is invalid', 409)
+  }
+  return parsed as ReplaceManifest
+}
+
+function fileState(stats: BigIntStats): ReplaceFileState {
+  return {
+    size: String(stats.size), mtimeNs: String(stats.mtimeNs), ctimeNs: String(stats.ctimeNs),
+    deviceId: String(stats.dev), inode: String(stats.ino)
+  }
+}
+
+async function pathEntryExists(filePath: string) {
+  try {
+    await fsPromises.lstat(filePath)
+    return true
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+function validOriginalStates(value: unknown, names: string[]): value is Record<string, ReplaceFileState> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const states = value as Record<string, ReplaceFileState>
+  if (Object.keys(states).length !== names.length) return false
+  return names.every((name) => {
+    const state = states[name]
+    return state && ['size', 'mtimeNs', 'ctimeNs', 'deviceId', 'inode'].every(
+      (key) => typeof state[key as keyof ReplaceFileState] === 'string' && /^\d+$/.test(state[key as keyof ReplaceFileState])
+    )
+  })
+}
+
+async function assertOriginalIdentity(filePath: string, manifest: ReplaceManifest, fileName: string, unmoved: boolean) {
+  let stats: BigIntStats
+  try {
+    stats = await fsPromises.lstat(filePath, { bigint: true })
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      throw new ImageReplaceSessionError('An original media file is missing from the replace backup', 409)
+    }
+    throw error
+  }
+  if (!stats.isFile()) throw new ImageReplaceSessionError('Replace original is not a regular file', 409)
+  const expected = manifest.originalStates?.[fileName]
+  // A legacy name-only manifest cannot prove that an unmoved target is still the original.
+  if (!expected && unmoved) throw new ImageReplaceSessionError('Unmoved legacy replace original needs manual recovery', 409)
+  if (!expected) return
+  const actual = fileState(stats)
+  if (
+    expected.size !== actual.size || expected.deviceId !== actual.deviceId || expected.inode !== actual.inode ||
+    expected.mtimeNs !== actual.mtimeNs ||
+    (unmoved && !manifest.restoringFiles?.includes(fileName) && expected.ctimeNs !== actual.ctimeNs)
+  ) {
+    throw new ImageReplaceSessionError('Replace original changed since its backup manifest was recorded', 409)
+  }
+}
+
+/** Called while holding the directory lock, before any upload can truncate an original. */
+export async function assertReplaceBackupProtectsUpload(targetDir: string, fileName: string) {
+  const backupDir = path.join(targetDir, '.bak_session')
+  if (!(await pathEntryExists(backupDir))) return
+  await assertBackupDirectory(backupDir)
+  const manifest = await readReplaceManifest(backupDir)
+  if (manifest.phase !== 'READY') {
+    throw new ImageReplaceSessionError('Replace backup is not ready for media uploads', 409)
+  }
+  if (!manifest.originalFiles.includes(fileName)) return
+  await assertOriginalIdentity(path.join(backupDir, fileName), manifest, fileName, false)
 }

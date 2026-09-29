@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export interface ArtistImagePreviewTarget {
   name: string
@@ -25,7 +26,9 @@ export function ArtistAvatarThumbnail({ name, image, onPreview }: ArtistImageThu
   if (!image || loadFailed) {
     return (
       <Avatar aria-label={`艺术家 ${name} 没有头像`}>
-        <AvatarFallback>{fallback}</AvatarFallback>
+        <AvatarFallback>
+          <PrivacySensitiveText>{fallback}</PrivacySensitiveText>
+        </AvatarFallback>
       </Avatar>
     )
   }
@@ -44,7 +47,9 @@ export function ArtistAvatarThumbnail({ name, image, onPreview }: ArtistImageThu
           className="transition-transform group-hover:scale-105 motion-reduce:transition-none"
           onError={() => setLoadFailed(true)}
         />
-        <AvatarFallback>{fallback}</AvatarFallback>
+        <AvatarFallback>
+          <PrivacySensitiveText>{fallback}</PrivacySensitiveText>
+        </AvatarFallback>
       </Avatar>
     </button>
   )
@@ -97,7 +102,15 @@ export function ArtistImagePreviewDialog({
     <Dialog open={Boolean(target)} onOpenChange={onOpenChange}>
       <DialogContent className="overflow-hidden p-0 sm:max-w-4xl">
         <DialogHeader className="px-6 pt-6">
-          <DialogTitle>{target ? `${target.name}的${imageTypeLabel}` : '艺术家图片预览'}</DialogTitle>
+          <DialogTitle>
+            {target ? (
+              <>
+                <PrivacySensitiveText>{target.name}</PrivacySensitiveText>的{imageTypeLabel}
+              </>
+            ) : (
+              '艺术家图片预览'
+            )}
+          </DialogTitle>
           <DialogDescription>艺术家{imageTypeLabel}大图预览</DialogDescription>
         </DialogHeader>
         <div className="h-[70vh] max-h-[768px] min-h-72 w-full bg-muted/30">

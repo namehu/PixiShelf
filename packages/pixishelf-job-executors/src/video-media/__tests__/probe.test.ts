@@ -305,3 +305,21 @@ function probeFixture(options: {
     }
   }
 }
+
+it('persists every probe failure beyond twenty samples without changing completed batch semantics', async () => {
+  mocks.processProbe.mockRejectedValue(new Error('ffprobe failed'))
+  const fixture = probeFixture({
+    probeRows: Array.from({ length: 31 }, (_, i) => ({ ...probeRow(), imageId: i + 1 })),
+    posterPages: [],
+    posterTotal: 0
+  })
+  const context = fixture.context({ mode: 'INCREMENTAL', force: false })
+  context.recordDiagnostic = vi.fn().mockResolvedValue(undefined)
+  const outcome = await executeVideoMediaProbe(context, fixture.dependencies)
+  expect(outcome).toMatchObject({ kind: 'completed', result: { probe: { failed: 31 } } })
+  expect(context.recordDiagnostic).toHaveBeenCalledTimes(31)
+  expect(context.recordDiagnostic).toHaveBeenLastCalledWith(
+    expect.objectContaining({ mediaVideoMetadata: expect.anything() }),
+    expect.objectContaining({ key: 'probe:31', stage: 'PROBE', error: expect.any(Error) })
+  )
+})

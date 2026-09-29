@@ -2,8 +2,10 @@ import path from 'node:path'
 import type { PrismaClient } from '@pixishelf/db'
 import {
   createArchiveExecutorRegistrations,
+  createDiscoveryBatchExecutorRegistration,
   createArchiveMaintenanceExecutorRegistrations,
   createArchiveResolverExecutorRegistrations,
+  createArchiveUploaderScanExecutorRegistrations,
   createDefaultArchiveMediaProviderRegistry,
   createMaintenanceExecutorRegistrations,
   createMigrationExecutorRegistrations,
@@ -39,16 +41,28 @@ type ExecutorWorkerConfig = Pick<
   | 'ffmpegPath'
   | 'ffprobePath'
   | 'keyframeFfmpegThreads'
+  | 'animationScanConcurrency'
 >
 
-export function createWorkerExecutorRegistry(input: { database: PrismaClient; config: ExecutorWorkerConfig }) {
+export function createWorkerExecutorRegistry(input: {
+  database: PrismaClient
+  config: ExecutorWorkerConfig
+  fetchImpl: typeof fetch
+}) {
   const registry = new ExecutorRegistry()
+  registry.register(createDiscoveryBatchExecutorRegistration())
   const resolved = resolveExecutorWorkerConfiguration(input.config)
   const archiveProviders = new GovernedArchiveProviderRegistry(
     createDefaultArchiveMediaProviderRegistry(),
     new PostgresArchiveProviderGovernor(input.database)
   )
   for (const definition of createArchiveResolverExecutorRegistrations({
+    database: input.database,
+    providers: archiveProviders
+  })) {
+    registry.register(definition)
+  }
+  for (const definition of createArchiveUploaderScanExecutorRegistrations({
     database: input.database,
     providers: archiveProviders
   })) {
@@ -72,7 +86,8 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
   }
   for (const definition of createMaintenanceExecutorRegistrations({
     database: input.database,
-    scanRoot: resolved.sourceMediaRoot
+    scanRoot: resolved.sourceMediaRoot,
+    animationScanConcurrency: resolved.animationScanConcurrency
   })) {
     registry.register(definition)
   }
@@ -103,25 +118,29 @@ export function createWorkerExecutorRegistry(input: { database: PrismaClient; co
   for (const definition of createPixivTagExecutorRegistrations({
     // 注册在统一后台写入注册表中，确保能力审计和线上执行器清单一致。
     database: input.database,
-    pixivDataRoot: resolved.pixivDataRoot
+    pixivDataRoot: resolved.pixivDataRoot,
+    fetchImpl: input.fetchImpl
   })) {
     registry.register(definition)
   }
   for (const definition of createPixivArtworkExecutorRegistrations({
     database: input.database,
-    pixivDataRoot: resolved.pixivDataRoot
+    pixivDataRoot: resolved.pixivDataRoot,
+    fetchImpl: input.fetchImpl
   })) {
     registry.register(definition)
   }
   for (const definition of createPixivSeriesExecutorRegistrations({
     database: input.database,
-    pixivDataRoot: resolved.pixivDataRoot
+    pixivDataRoot: resolved.pixivDataRoot,
+    fetchImpl: input.fetchImpl
   })) {
     registry.register(definition)
   }
   for (const definition of createPixivArtistExecutorRegistrations({
     database: input.database,
-    pixivDataRoot: resolved.pixivDataRoot
+    pixivDataRoot: resolved.pixivDataRoot,
+    fetchImpl: input.fetchImpl
   })) {
     registry.register(definition)
   }
@@ -178,6 +197,7 @@ export function resolveExecutorWorkerConfiguration(config: ExecutorWorkerConfig)
     pixivDataRoot: config.pixivDataRoot,
     ffmpegPath: config.ffmpegPath,
     ffprobePath: config.ffprobePath,
-    ffmpegThreads: config.keyframeFfmpegThreads
+    ffmpegThreads: config.keyframeFfmpegThreads,
+    animationScanConcurrency: config.animationScanConcurrency
   }
 }

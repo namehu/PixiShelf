@@ -1,3 +1,6 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
+import { ensurePixivInventoryRootIdentity } from './inventory-run.ts'
+import { assertPixivRootUnchanged } from './root-identity.ts'
 import { createHash } from 'node:crypto'
 import { Prisma } from '@pixishelf/db'
 import {
@@ -53,6 +56,7 @@ export async function executeAuditApply(
     const run = await startApplyRun(context, now())
     runId = run.id
     const root = await resolveSafeScanRoot(dependencies.config.scanRoot)
+    await ensurePixivInventoryRootIdentity({ context, root, now: now() })
     const inputs = await verifyFrozenApplyInputs(context.payload, run, dependencies.database)
     await assertApplyBarrier(dependencies.database, root, run.inventoryBaselineGeneration!)
 
@@ -93,6 +97,7 @@ export async function executeAuditApply(
             {
               status: 'FAILED',
               outcome: 'FAILED',
+              error,
               reasonCode: businessReasonCode(error),
               reasonSummary: businessReasonSummary(error),
               retryable: isRetryableBusinessInput(error)
@@ -106,7 +111,7 @@ export async function executeAuditApply(
       }
 
       const finalRoot = await resolveSafeScanRoot(dependencies.config.scanRoot)
-      assertSameRoot(root, finalRoot)
+      await assertSameRoot(root, finalRoot)
       try {
         await applyPreparedInput({
           context,
@@ -132,6 +137,7 @@ export async function executeAuditApply(
             {
               status: 'FAILED',
               outcome: 'CONFLICT',
+              error,
               reasonCode: 'SOURCE_IDENTITY_CHANGED',
               reasonSummary: 'Source identity changed after the audit',
               retryable: false
@@ -535,10 +541,25 @@ async function recordItemOutcome(
   result: OutcomeWrite,
   now: Date
 ) {
-  return mutate(context, (transaction) => writeOutcome(transaction, runId, itemId, ordinal, result, now))
+  return mutate(context, async (transaction) => {
+    const changed = await writeOutcome(transaction, runId, itemId, ordinal, result, now)
+    if (changed && result.status === 'FAILED')
+      await context.recordDiagnostic?.(transaction as ScanTransaction & QueueSqlExecutor, {
+        key: `audit-apply:${itemId}`,
+        scope: 'ITEM',
+        targetType: 'SCAN_RUN_ITEM',
+        targetId: itemId,
+        stage: 'AUDIT_APPLY',
+        code: result.reasonCode ?? result.outcome,
+        message: result.reasonSummary ?? undefined,
+        error: result.error
+      })
+    return changed
+  })
 }
 
 interface OutcomeWrite {
+  error?: unknown
   status: 'SUCCESS' | 'SKIPPED' | 'FAILED'
   outcome: ApplyOutcome
   reasonCode: string | null
@@ -685,12 +706,31 @@ async function finalizeApplyError(input: {
         data: { status: 'RETRY_WAIT', checkpointStage: 'RETRY_WAIT', errorMessage: safeErrorSummary(input.error) }
       })
       await scope.retry({
+        diagnostic: extractJobDiagnostic(input.error),
         availableAt: new Date(input.now.getTime() + input.retryDelayMs),
         errorCode: 'INTERNAL_ERROR',
         error: safeErrorSummary(input.error),
         message: 'Audit apply will retry from its durable checkpoint'
       })
       return
+    }
+    if (input.context.recordDiagnostic) {
+      const outstanding = await scope.transaction.scanRunItem.findMany({
+        where: { scanRunId: input.runId, applyOutcome: null }
+      })
+      for (const item of outstanding) {
+        await input.context.recordDiagnostic(scope.transaction, {
+          key: `audit-apply:${item.id}`,
+          scope: 'ITEM',
+          targetType: 'SCAN_RUN_ITEM',
+          targetId: item.id,
+          targetLabel: item.metadataRelativePath ?? item.title ?? item.id,
+          stage: 'AUDIT_APPLY',
+          code: item.id === input.currentItemId ? undefined : 'OPERATION_FAILED',
+          message: item.id === input.currentItemId ? undefined : '所属操作失败，此项尚未完成即被终止',
+          error: input.error
+        })
+      }
     }
     await terminalizeOutstanding(scope.transaction, input.runId, input.now, retryable)
     const result = await summarizeResult(scope.transaction, input.runId)
@@ -713,6 +753,7 @@ async function finalizeApplyError(input: {
       }
     })
     await scope.fail({
+      diagnostic: extractJobDiagnostic(input.error),
       errorCode: input.error instanceof ScanExecutorError ? 'PRECONDITION_FAILED' : 'INTERNAL_ERROR',
       error: safeErrorSummary(input.error),
       message: 'Audit apply failed'
@@ -793,11 +834,13 @@ async function summarizeResult(transaction: ScanTransaction, runId: string): Pro
 }
 
 async function assertApplyBarrier(database: ScanDatabase, root: SafeScanRoot, generation: number) {
+  await assertPixivRootUnchanged(root)
   const state = await database.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' } })
   assertBarrierState(state, root, generation)
 }
 
 async function assertBarrierInTransaction(transaction: ScanTransaction, root: SafeScanRoot, generation: number) {
+  await assertPixivRootUnchanged(root)
   const state = await transaction.pixivMetadataInventoryState.findUnique({ where: { id: 'pixiv' } })
   assertBarrierState(state, root, generation)
 }
@@ -807,6 +850,7 @@ function assertBarrierState(
     status: string
     baselineGeneration: number
     rootPathHash: string
+    rootIdentity: string | null
     rootDeviceId: bigint | null
     rootInode: bigint | null
   } | null,
@@ -818,8 +862,8 @@ function assertBarrierState(
     state.status !== 'READY' ||
     state.baselineGeneration !== generation ||
     state.rootPathHash !== hashScanRootIdentity(root.absolutePath) ||
-    state.rootDeviceId !== root.deviceId ||
-    state.rootInode !== root.inode
+    !root.rootIdentity ||
+    state.rootIdentity !== root.rootIdentity
   )
     throw new ApplyBarrierError()
 }
@@ -854,7 +898,8 @@ function statData(state: StableFileState) {
   }
 }
 
-function assertSameRoot(expected: SafeScanRoot, actual: SafeScanRoot) {
+async function assertSameRoot(expected: SafeScanRoot, actual: SafeScanRoot) {
+  await assertPixivRootUnchanged(expected)
   if (
     expected.absolutePath !== actual.absolutePath ||
     expected.deviceId !== actual.deviceId ||

@@ -53,21 +53,58 @@ describePostgres('archive intake retention PostgreSQL integration', () => {
     })
 
     const completedBulk = await seedBulkOperation('completed', oldDate)
+    const creatorBulk = await seedBulkOperation('creator-permanent', oldDate)
+    await db().archiveBulkOperation.update({ where: { id: creatorBulk.id }, data: { commandType: 'BIND_CREATORS' } })
     const incompleteBulk = await seedBulkOperation('incomplete', null)
     const expiredPreview = await seedPreview('expired', oldDate)
     const futurePreview = await seedPreview('future', futureDate)
+    const uploaderScan = await seedExpiredUploaderScan()
+    const ignoredItem = await db().archiveUploaderIgnoredItem.create({
+      data: {
+        id: `${prefix}-ignored-item`,
+        providerKey,
+        externalId: 'ignored-gallery',
+        sourceId: uploaderScan.sourceId,
+        sourceDisplayName: 'Uploader snapshot',
+        title: 'Ignored gallery',
+        ignoredAt: oldDate
+      }
+    })
+    const catalogItem = await db().archiveUploaderCatalogItem.create({
+      data: {
+        id: `${prefix}-catalog-item`,
+        sourceId: uploaderScan.sourceId,
+        providerKey,
+        externalId: 'archive-entity',
+        canonicalUrl: 'https://example.test/archive-entity',
+        title: 'Durable archived gallery',
+        relationships: [],
+        classification: 'ARCHIVED',
+        changeReasons: [],
+        comparisonKnown: true,
+        firstSeenAt: oldDate,
+        lastSeenAt: oldDate,
+        lastScanRunId: uploaderScan.runId,
+        lastIntakeItemId: `${prefix}-item-old-terminal`,
+        lastArchiveImportId: archive.archiveImportId,
+        lastOutcome: 'ARCHIVED',
+        lastOutcomeAt: oldDate
+      }
+    })
     const archiveBefore = await archiveSnapshot(archive)
 
     const result = await cleanupArchiveIntakeHistory(cleanupInput())
 
     expect(result).toMatchObject({
       deletedBulkOperations: 1,
+      deletedUploaderScanRuns: 1,
       deletedIntakeItems: 1,
       deletedSubmissions: 1,
       deletedPreviewSessions: 1,
       retentionDays: 30
     })
     await expect(db().archiveBulkOperation.findUnique({ where: { id: completedBulk.id } })).resolves.toBeNull()
+    await expect(db().archiveBulkOperation.findUnique({ where: { id: creatorBulk.id } })).resolves.not.toBeNull()
     await expect(db().archiveBulkOperation.findUnique({ where: { id: incompleteBulk.id } })).resolves.not.toBeNull()
     await expect(db().archiveIntakeItem.findUnique({ where: { id: activeItem.id } })).resolves.not.toBeNull()
     await expect(
@@ -76,7 +113,46 @@ describePostgres('archive intake retention PostgreSQL integration', () => {
     await expect(db().archiveIntakeItem.findUnique({ where: { id: recentTerminalItem.id } })).resolves.not.toBeNull()
     await expect(db().archivePreviewSession.findUnique({ where: { id: expiredPreview.id } })).resolves.toBeNull()
     await expect(db().archivePreviewSession.findUnique({ where: { id: futurePreview.id } })).resolves.not.toBeNull()
+    await expect(db().archiveUploaderScanRun.findUnique({ where: { id: uploaderScan.runId } })).resolves.toBeNull()
+    await expect(db().archiveUploaderScanItem.findUnique({ where: { id: uploaderScan.itemId } })).resolves.toBeNull()
+    await expect(db().archiveUploaderIgnoredItem.findUnique({ where: { id: ignoredItem.id } })).resolves.toMatchObject({
+      sourceId: uploaderScan.sourceId
+    })
+    await expect(
+      db().archiveUploaderCatalogItem.findUniqueOrThrow({
+        where: { id: catalogItem.id },
+        select: {
+          lastScanRunId: true,
+          lastIntakeItemId: true,
+          lastArchiveImportId: true,
+          lastOutcome: true,
+          lastOutcomeAt: true,
+          classification: true
+        }
+      })
+    ).resolves.toEqual({
+      lastScanRunId: null,
+      lastIntakeItemId: null,
+      lastArchiveImportId: archive.archiveImportId,
+      lastOutcome: 'ARCHIVED',
+      lastOutcomeAt: oldDate,
+      classification: 'ARCHIVED'
+    })
     expect(await archiveSnapshot(archive)).toEqual(archiveBefore)
+  })
+
+  it('keeps expired scan records while their batch is paused, then cleans them after batch completion', async () => {
+    const scan = await seedExpiredUploaderScan()
+    const run = await db().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: scan.runId } })
+    const parent = await db().systemJob.create({ data: {
+      id: `${prefix}-batch`, type: 'ARCHIVE_DISCOVERY_BATCH_SCAN', executionLane: 'ARCHIVE_RESOLVE',
+      status: 'PAUSED', payload: { sources: [{ id: scan.sourceId, name: 'Uploader' }] },
+    } })
+    await db().systemJob.update({ where: { id: run.systemJobId }, data: { parentJobId: parent.id } })
+    expect((await cleanupArchiveIntakeHistory(cleanupInput())).deletedUploaderScanRuns).toBe(0)
+    expect(await db().archiveUploaderScanRun.findUnique({ where: { id: scan.runId } })).not.toBeNull()
+    await db().systemJob.update({ where: { id: parent.id }, data: { status: 'COMPLETED', finishedAt: now } })
+    expect((await cleanupArchiveIntakeHistory(cleanupInput())).deletedUploaderScanRuns).toBe(1)
   })
 
   it('rechecks mutable completion, terminal, emptiness, and expiry predicates inside each delete transaction', async () => {
@@ -299,8 +375,70 @@ async function seedPreview(suffix: string, expiresAt: Date) {
   })
 }
 
+async function seedExpiredUploaderScan() {
+  const sourceId = `${prefix}-uploader-source`
+  const runId = `${prefix}-uploader-run`
+  const itemId = `${prefix}-uploader-item`
+  const systemJobId = `${prefix}-uploader-job`
+  await db().archiveUploaderSource.create({
+    data: {
+      id: sourceId,
+      providerKey,
+      identityKind: 'UID',
+      identityValue: '9001',
+      normalizedIdentity: '9001',
+      displayName: 'Uploader snapshot'
+    }
+  })
+  await db().systemJob.create({
+    data: {
+      id: systemJobId,
+      type: 'ARCHIVE_UPLOADER_SCAN',
+      executionLane: 'ARCHIVE_RESOLVE',
+      definitionVersion: 1,
+      status: 'COMPLETED',
+      triggerSource: 'MANUAL',
+      payload: { scanRunId: runId },
+      progress: 100,
+      finishedAt: oldDate
+    }
+  })
+  await db().archiveUploaderScanRun.create({
+    data: {
+      id: runId,
+      sourceId,
+      systemJobId,
+      mode: 'LATEST',
+      searchIdentityKind: 'UID',
+      searchIdentityValue: '123',
+      status: 'COMPLETED',
+      itemCount: 1,
+      newCount: 1,
+      finishedAt: oldDate
+    }
+  })
+  await db().archiveUploaderScanItem.create({
+    data: {
+      id: itemId,
+      runId,
+      providerKey,
+      externalId: 'ignored-gallery',
+      canonicalUrl: 'https://e-hentai.org/g/1/private-token/',
+      title: 'Ignored gallery',
+      metadataFingerprint: hash('ignored-gallery'),
+      relationships: {},
+      classification: 'NEW'
+    }
+  })
+  return { sourceId, runId, itemId }
+}
+
 async function cleanupDatabase() {
   if (!prisma) return
+  await prisma.archiveUploaderCatalogItem.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.archiveUploaderIgnoredItem.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.archiveUploaderScanRun.deleteMany({ where: { id: { startsWith: prefix } } })
+  await prisma.archiveUploaderSource.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.archiveBulkOperation.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.archiveIntakeItem.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: prefix } } })

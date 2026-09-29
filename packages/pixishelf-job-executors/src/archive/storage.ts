@@ -1,3 +1,4 @@
+import type { JobMediaDiagnosticEvidence } from '@pixishelf/job-contracts'
 import { createHash } from 'node:crypto'
 import { lstat, mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -67,15 +68,44 @@ export async function storeArchiveRemoteMedia(input: {
   maxBytes?: number
   partialKey: string
   onChunk?: (byteLength: number) => void
+  onStreamComplete?: () => void
 }): Promise<StoredArchiveMedia> {
   throwIfAborted(input.signal)
   const maxBytes = input.maxBytes ?? DEFAULT_MAX_MEDIA_BYTES
-  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('Archive max media bytes must be positive')
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('归档媒体字节上限必须为正数')
+  const sha1 = createHash('sha1')
+  let head = Buffer.alloc(0)
+  let byteCount = 0
+  let hashComplete = false
+  const expectedSha1 = /^[a-f0-9]{40}$/i.test(input.remote.expectedSha1 ?? '')
+    ? input.remote.expectedSha1!.toLowerCase()
+    : null
+  const advertisedMime = input.remote.mimeType?.split(';')[0]?.trim() ?? ''
+  const mediaEvidence = (): JobMediaDiagnosticEvidence => ({
+    headHex: head.toString('hex'),
+    receivedBytes: byteCount,
+    contentLength:
+      Number.isSafeInteger(input.remote.contentLength) && input.remote.contentLength! >= 0
+        ? input.remote.contentLength
+        : null,
+    mimeType:
+      /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/i.test(advertisedMime) && advertisedMime.length <= 120
+        ? advertisedMime
+        : null,
+    expectedSha1,
+    actualSha1: sha1.copy().digest('hex'),
+    hashComplete
+  })
+  const mediaContext = () => ({
+    remoteHost: input.remote.remoteHost,
+    httpStatus: input.remote.httpStatus ?? null,
+    mediaEvidence: mediaEvidence()
+  })
   if (input.remote.contentLength !== null && input.remote.contentLength > maxBytes) {
     input.remote.stream.destroy()
-    throw new ArchiveExecutorError('DOWNLOAD_TOO_LARGE', `Archive media exceeds ${maxBytes} bytes`, {
+    throw new ArchiveExecutorError('DOWNLOAD_TOO_LARGE', `归档媒体超过 ${maxBytes} 字节限制`, {
       stage: 'MEDIA_VALIDATION',
-      remoteHost: input.remote.remoteHost
+      ...mediaContext()
     })
   }
 
@@ -96,27 +126,30 @@ export async function storeArchiveRemoteMedia(input: {
     await rm(partial, { force: true })
     handle = await open(partial, 'wx')
   } catch (error) {
-    throw withStorageContext(error)
+    throw withArchiveExecutorErrorContext(withStorageContext(error), mediaContext())
   }
 
   const hash = createHash('sha256')
-  let byteCount = 0
   let transferError: ArchiveExecutorError | null = null
   try {
     for await (const chunk of input.remote.stream) {
       throwIfAborted(input.signal)
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      sha1.update(buffer)
+      if (head.length < 32) head = Buffer.concat([head, buffer.subarray(0, 32 - head.length)])
       byteCount += buffer.length
       input.onChunk?.(buffer.length)
       if (byteCount > maxBytes) {
-        throw new ArchiveExecutorError('DOWNLOAD_TOO_LARGE', `Archive media exceeds ${maxBytes} bytes`, {
+        throw new ArchiveExecutorError('DOWNLOAD_TOO_LARGE', `归档媒体超过 ${maxBytes} 字节限制`, {
           stage: 'MEDIA_STREAM',
-          remoteHost: input.remote.remoteHost
+          ...mediaContext()
         })
       }
       hash.update(buffer)
       await handle.write(buffer)
     }
+    hashComplete = true
+    input.onStreamComplete?.()
     await handle.sync()
   } catch (error) {
     input.remote.stream.destroy()
@@ -129,44 +162,65 @@ export async function storeArchiveRemoteMedia(input: {
   }
   if (transferError) {
     await rm(partial, { force: true }).catch(() => undefined)
-    throw transferError
+    throw withArchiveExecutorErrorContext(transferError, mediaContext())
   }
 
   if (input.remote.contentLength !== null && byteCount !== input.remote.contentLength) {
     await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive media length differs from Content-Length', {
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档媒体长度与远端 Content-Length 不一致', {
       recoverable: true,
       stage: 'MEDIA_VALIDATION',
-      remoteHost: input.remote.remoteHost
+      ...mediaContext()
+    })
+  }
+
+  if (expectedSha1 && mediaEvidence().actualSha1 !== expectedSha1) {
+    await rm(partial, { force: true })
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档媒体 SHA-1 与来源声明不一致，下载内容已损坏或与目标文件不符', {
+      recoverable: true,
+      stage: 'MEDIA_VALIDATION',
+      ...mediaContext()
     })
   }
 
   const mimeType = normalizeImageMimeType(input.remote.mimeType, filename)
   if (!mimeType.startsWith('image/')) {
     await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', `Unsupported archive media type: ${mimeType}`, {
+    throw new ArchiveExecutorError('MEDIA_INVALID', `不支持的归档媒体类型：${mimeType}`, {
+      recoverable: true,
       stage: 'MEDIA_VALIDATION',
-      remoteHost: input.remote.remoteHost
+      ...mediaContext()
     })
   }
   let metadata: sharp.Metadata
   try {
-    metadata = await sharp(partial, { animated: true }).metadata()
+    // Only inspect the first frame's dimensions. Loading every frame stacks their
+    // heights and can reject valid animations against Sharp's input pixel limit.
+    // This does not transform the downloaded file or disable the per-frame limit.
+    metadata = await sharp(partial, { pages: 1 }).metadata()
   } catch (error) {
     await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive media is not a decodable image', {
-      cause: error,
-      recoverable: true,
-      stage: 'MEDIA_VALIDATION',
-      remoteHost: input.remote.remoteHost
-    })
+    throw new ArchiveExecutorError(
+      'MEDIA_INVALID',
+      head.length > 0 && head.every((byte) => byte === 0)
+        ? '归档媒体文件头全部为零，图片内容已损坏'
+        : error instanceof Error && /Input image exceeds pixel limit/i.test(error.message)
+          ? '归档图片单帧像素数超过安全上限'
+          : '归档媒体无法解析，可能是不支持的图片格式或内容不完整',
+      {
+        cause: error,
+        recoverable: true,
+        stage: 'MEDIA_VALIDATION',
+        ...mediaContext()
+      }
+    )
   }
   if (!metadata.width || !metadata.height) {
     await rm(partial, { force: true })
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive media has no valid dimensions', {
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档媒体缺少有效尺寸', {
       recoverable: true,
       stage: 'MEDIA_VALIDATION',
-      remoteHost: input.remote.remoteHost
+      ...mediaContext()
     })
   }
 
@@ -175,7 +229,7 @@ export async function storeArchiveRemoteMedia(input: {
     await rm(target, { force: true })
     await rename(partial, target)
   } catch (error) {
-    throw withStorageContext(error)
+    throw withArchiveExecutorErrorContext(withStorageContext(error), mediaContext())
   }
   return {
     relativePath: normalizeRelativePath(path.join('media', filename)),
@@ -193,12 +247,12 @@ export async function validateArchiveStoredMedia(
 ): Promise<void> {
   for (const item of items) {
     if (!item.stagedPath || !item.sha256 || item.byteCount === null) {
-      throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive checkpoint is missing a media digest')
+      throw new ArchiveExecutorError('MEDIA_INVALID', '归档检查点缺少媒体摘要')
     }
     const filePath = await resolveExistingPathWithinRoot(stagingDirectory, item.stagedPath)
     const file = await readFile(filePath)
     if (BigInt(file.length) !== item.byteCount || createHash('sha256').update(file).digest('hex') !== item.sha256) {
-      throw new ArchiveExecutorError('MEDIA_INVALID', `Archive media digest mismatch: ${item.stagedPath}`, {
+      throw new ArchiveExecutorError('MEDIA_INVALID', `归档媒体摘要校验失败：${item.stagedPath}`, {
         recoverable: true
       })
     }
@@ -222,7 +276,7 @@ export async function prepareArchiveRevisionDirectory(paths: ArchiveStoragePaths
   }
   for (const required of ['media', 'manifest.json']) {
     await resolveExistingPathWithinRoot(finalDirectory, required).catch(() => {
-      throw new ArchiveExecutorError('MEDIA_INVALID', `Prepared archive revision is missing ${required}`, {
+      throw new ArchiveExecutorError('MEDIA_INVALID', `准备好的归档版本缺少 ${required}`, {
         recoverable: true
       })
     })
@@ -268,7 +322,7 @@ function resolveCandidate(root: string, candidate: string) {
 function assertWithinRoot(root: string, candidate: string): void {
   const relative = path.relative(root, candidate)
   if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Archive path escapes its configured root')
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档路径超出了配置的根目录')
   }
 }
 
@@ -306,7 +360,7 @@ function safePathSegment(value: string): string {
     .replace(/^[.-]+|[.-]+$/g, '')
     .slice(0, 180)
   if (!safe || safe === '.' || safe === '..') {
-    throw new ArchiveExecutorError('MEDIA_INVALID', 'Invalid archive path segment')
+    throw new ArchiveExecutorError('MEDIA_INVALID', '归档路径片段无效')
   }
   return safe
 }
@@ -359,7 +413,7 @@ function classifyTransferError(error: unknown, remoteHost: string | null): Archi
   const classified = toArchiveExecutorError(error)
   if (classified.stage === 'STORAGE') return classified
   if (classified.code === 'INTERNAL') {
-    return new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'Remote archive media transfer was interrupted', {
+    return new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', '远端归档媒体传输中断', {
       cause: classified,
       recoverable: true,
       stage: 'MEDIA_STREAM',
@@ -372,7 +426,7 @@ function classifyTransferError(error: unknown, remoteHost: string | null): Archi
 }
 
 function throwIfAborted(signal: AbortSignal): void {
-  if (signal.aborted) throw signal.reason ?? new ArchiveExecutorError('CANCELLED', 'Archive execution was cancelled')
+  if (signal.aborted) throw signal.reason ?? new ArchiveExecutorError('CANCELLED', '归档执行已取消')
 }
 
 function jsonReplacer(_key: string, value: unknown) {

@@ -1,4 +1,5 @@
 'use client'
+import { creatorReviewHref } from '@/lib/creator-review-navigation'
 
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
@@ -35,6 +36,9 @@ import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-st
 import { AdminImageVisibilitySwitch } from '../../_components/admin-image-visibility-switch'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PixivArtworkSyncReportDrawer } from './pixiv-artwork-sync-report-drawer'
+import { ArtworkDeleteReportDrawer } from './artwork-delete-report'
+import { DELETE_OUTCOME_LABELS, type ArtworkDeleteReport } from '@/schemas/artwork-delete.dto'
+import { Button } from '@/components/ui/button'
 
 export default function ArtworkManagement() {
   const router = useRouter()
@@ -42,6 +46,9 @@ export default function ArtworkManagement() {
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const [batchImportOpen, setBatchImportOpen] = useState(false)
+  const [deleteReport, setDeleteReport] = useState<ArtworkDeleteReport | null>(null)
+  const [deleteReportOpen, setDeleteReportOpen] = useState(false)
+  const deleteInFlight = useRef(false)
   const [pixivDialogOpen, setPixivDialogOpen] = useState(false)
   const [pixivReportArtwork, setPixivReportArtwork] = useState<ArtworkResponseDto | null>(null)
   const [editorConfig, setEditorConfig] = useState<{ id: number | null; tab: 'info' | 'media' } | null>(null)
@@ -49,6 +56,7 @@ export default function ArtworkManagement() {
     title: string
     description: string
     sourceDate: string | null
+    creators?: { id: number; name: string }[]
     artist: { id: number; name: string } | null
     tags: { id: number; name: string }[]
   } | null>(null)
@@ -149,11 +157,22 @@ export default function ArtworkManagement() {
 
   const deleteMutation = useMutation(
     trpc.artwork.delete.mutationOptions({
-      onSuccess: () => {
-        toast.success('删除成功')
+      retry: false,
+      onSuccess: (report) => {
+        setDeleteReport(report)
+        setDeleteReportOpen(true)
+        if (report.outcome === 'FAILED') toast.error(DELETE_OUTCOME_LABELS[report.outcome])
+        else if (report.outcome === 'PARTIAL') toast.warning('部分完成，请核对删除总结')
+        else if (report.outcome === 'QUEUED') toast.info('回收请求已提交')
+        else toast.success('删除完成')
         refreshTable()
         queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
         setRowSelection({})
+      },
+      onError: () => {
+        toast.error('未收到删除总结，结果未确认。请核对列表或服务端日志，不要重复提交。')
+        refreshTable()
+        queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
       }
     })
   )
@@ -171,10 +190,11 @@ export default function ArtworkManagement() {
   const handleExportNoSeries = async () => {
     try {
       setIsExporting(true)
-      const res = await exportNoSeriesArtworksAction()
+      const result = await exportNoSeriesArtworksAction()
+      const res = result?.data
 
-      if (!res.success || !res.data) {
-        toast.error('导出失败: ' + (res.error || '未知错误'))
+      if (result?.serverError || !res?.success || !res.data) {
+        toast.error('导出失败: ' + (result?.serverError || res?.error || '未知错误'))
         return
       }
 
@@ -205,10 +225,22 @@ export default function ArtworkManagement() {
   }
 
   const handleDelete = (id: number) => {
+    if (deleteInFlight.current) return
     confirm({
       title: '确定删除该作品吗？',
-      onConfirm: () => {
-        deleteMutation.mutate(id)
+      description:
+        '本地作品会删除已登记媒体、可确认归属的附属文件和空作品目录；未知文件保留。URL 归档移入回收站。操作后展示删除总结。',
+      variant: 'destructive',
+      onConfirm: async () => {
+        if (deleteInFlight.current) return
+        deleteInFlight.current = true
+        try {
+          await deleteMutation.mutateAsync(id)
+        } catch {
+          /* onError reports an unconfirmed outcome; never retry automatically. */
+        } finally {
+          deleteInFlight.current = false
+        }
       }
     })
   }
@@ -229,6 +261,7 @@ export default function ArtworkManagement() {
       description: item.description || '',
       sourceDate: item.sourceDate || null,
       artist: item.artist ? { id: item.artist.id, name: item.artist.name } : null,
+      creators: item.creators.map((creator) => ({ id: creator.id, name: creator.name, kind: creator.kind })),
       tags: item.tags?.map((tag) => ({ id: tag.id, name: tag.name })) || []
     })
     setEditorConfig({ id: null, tab: 'info' })
@@ -326,6 +359,7 @@ export default function ArtworkManagement() {
     onRefresh: refreshTable,
     onRetryPixiv: (artworkId) => retryPixivMutation.mutate({ artworkId }),
     onOpenPixivReport: setPixivReportArtwork,
+    deletePending: deleteMutation.isPending,
     retryingPixivArtworkId: retryPixivMutation.isPending ? (retryPixivMutation.variables?.artworkId ?? null) : null
   })
 
@@ -383,6 +417,13 @@ export default function ArtworkManagement() {
       description="搜索、筛选并维护作品信息与媒体文件。"
       actions={
         <ArtworkManagementToolbar
+          onCreatorRelations={() => {
+            try {
+              router.push(creatorReviewHref(selectedRowKeys.map(Number)))
+            } catch {
+              toast.error('无法打开检查页面，请允许浏览器保存本页数据后重试。')
+            }
+          }}
           migrationSafety={migrationSafety}
           setMigrationSafety={setMigrationSafety}
           isExporting={isExporting}
@@ -424,11 +465,18 @@ export default function ArtworkManagement() {
           onRowSelectionChange={setRowSelection}
           columnVisibility={columnVisibility}
           toolBarRender={() => (
-            <AdminImageVisibilitySwitch
-              id="artwork-pixiv-sync-column-visibility"
-              label="显示 Pixiv 同步状态"
-              preference="artwork-pixiv-sync"
-            />
+            <div className="flex flex-wrap items-center gap-3">
+              {deleteReport ? (
+                <Button variant="outline" onClick={() => setDeleteReportOpen(true)}>
+                  查看上次删除总结
+                </Button>
+              ) : null}
+              <AdminImageVisibilitySwitch
+                id="artwork-pixiv-sync-column-visibility"
+                label="显示 Pixiv 同步状态"
+                preference="artwork-pixiv-sync"
+              />
+            </div>
           )}
           renderExpandedRow={(artwork) => (
             <ArtworkRowMediaPreview artworkId={(artwork as ArtworkResponseDto).id} onSuccess={refreshTable} />
@@ -525,6 +573,7 @@ export default function ArtworkManagement() {
             if (!open) setPixivReportArtwork(null)
           }}
         />
+        <ArtworkDeleteReportDrawer report={deleteReport} open={deleteReportOpen} onOpenChange={setDeleteReportOpen} />
       </div>
     </AdminWorkbench>
   )

@@ -4,9 +4,7 @@ import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { scan } from '../index'
 
-const { loggerInfoMock } = vi.hoisted(() => ({
-  loggerInfoMock: vi.fn()
-}))
+const { loggerInfoMock } = vi.hoisted(() => ({ loggerInfoMock: vi.fn() }))
 
 type ArtistRecord = {
   id: number
@@ -79,6 +77,15 @@ type ArtworkExternalRefRecord = {
   locator: unknown
 }
 
+type ArtistExternalRefRecord = {
+  id: number
+  artistId: number
+  providerKey: 'pixiv'
+  externalId: string
+  canonicalUrl: string
+  sourceName: string | null
+}
+
 type ArtistCreateInput = Omit<ArtistRecord, 'id'>
 type ArtworkCreateInput = Omit<ArtworkRecord, 'id'>
 type TagCreateInput = Omit<TagRecord, 'id'>
@@ -86,7 +93,8 @@ type ImageCreateInput = Omit<ImageRecord, 'id'>
 type ArtworkTagCreateInput = ArtworkTagRecord
 type RawMetadataCreateInput = RawMetadataRecord
 type ArtworkExternalRefCreateInput = Omit<ArtworkExternalRefRecord, 'id'>
-type PrismaFindArgs = { where?: Record<string, unknown>; select?: Record<string, boolean> }
+type ArtistExternalRefCreateInput = Omit<ArtistExternalRefRecord, 'id'>
+type PrismaFindArgs = { where?: Record<string, unknown>; select?: Record<string, boolean>; include?: Record<string, unknown> }
 type PrismaCreateArgs<TData> = { data: TData; select?: Record<string, boolean> }
 type PrismaCreateManyArgs<TData> = { data: TData[]; skipDuplicates?: boolean }
 type PrismaUpdateArgs<TData> = {
@@ -107,11 +115,13 @@ const { database, prismaStub } = vi.hoisted(() => {
     artworkTags: [] as ArtworkTagRecord[],
     rawMetadata: [] as RawMetadataRecord[],
     artworkExternalRefs: [] as ArtworkExternalRefRecord[],
+    artistExternalRefs: [] as ArtistExternalRefRecord[],
     nextArtistId: 1,
     nextArtworkId: 1,
     nextTagId: 1,
     nextImageId: 1,
-    nextArtworkExternalRefId: 1
+    nextArtworkExternalRefId: 1,
+    nextArtistExternalRefId: 1
   }
 
   function valuesIn<T>(args: { where?: Record<string, unknown> }, field: string): T[] | undefined {
@@ -139,7 +149,13 @@ const { database, prismaStub } = vi.hoisted(() => {
     artist: {
       findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
         const userIds = valuesIn<string>(args, 'userId')
-        return database.artists.filter((artist) => !userIds || (artist.userId && userIds.includes(artist.userId)))
+        return database.artists
+          .filter((artist) => !userIds || (artist.userId && userIds.includes(artist.userId)))
+          .map((artist) =>
+            args.include?.externalRefs
+              ? { ...artist, externalRefs: database.artistExternalRefs.filter((ref) => ref.artistId === artist.id) }
+              : artist
+          )
       }),
       createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtistCreateInput>) => {
         let count = 0
@@ -152,6 +168,35 @@ const { database, prismaStub } = vi.hoisted(() => {
             userId: artist.userId,
             bio: artist.bio
           })
+          count++
+        }
+        return { count }
+      })
+    },
+    artistExternalRef: {
+      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
+        const externalIds = valuesIn<string>(args, 'externalId')
+        return database.artistExternalRefs
+          .filter(
+            (reference) =>
+              (!args.where?.providerKey || reference.providerKey === args.where.providerKey) &&
+              (!externalIds || externalIds.includes(reference.externalId))
+          )
+          .map((reference) => ({
+            externalId: reference.externalId,
+            artist: database.artists.find((artist) => artist.id === reference.artistId)
+          }))
+      }),
+      createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtistExternalRefCreateInput>) => {
+        let count = 0
+        for (const reference of args.data) {
+          if (
+            args.skipDuplicates &&
+            database.artistExternalRefs.some(
+              (item) => item.providerKey === reference.providerKey && item.externalId === reference.externalId
+            )
+          ) continue
+          database.artistExternalRefs.push({ id: database.nextArtistExternalRefId++, ...reference })
           count++
         }
         return { count }
@@ -346,15 +391,22 @@ function resetDatabase() {
   database.artworkTags = []
   database.rawMetadata = []
   database.artworkExternalRefs = []
+  database.artistExternalRefs = []
   database.nextArtistId = 1
   database.nextArtworkId = 1
   database.nextTagId = 1
   database.nextImageId = 1
   database.nextArtworkExternalRefId = 1
+  database.nextArtistExternalRefId = 1
 }
 
 vi.mock('@/lib/prisma', () => ({
   prisma: prismaStub
+}))
+
+vi.mock('@pixishelf/db', () => ({
+  lockArtworkForReading: vi.fn(async (...args: [unknown, number]) => ({ id: args[1], mediaRevision: 1 })),
+  invalidateArtworkReadingForRebuild: vi.fn(async (...args: [unknown, number]) => args[1])
 }))
 
 vi.mock('@/lib/logger', () => ({

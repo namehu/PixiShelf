@@ -16,9 +16,30 @@ const fence: ExecutionFence = {
 
 describe('PostgresQueueRepository settlement messages', () => {
   it.each([
-    ['complete', 7, (repository: PostgresQueueRepository) => repository.complete({ ...fence, result: { ok: true }, message: 'complete password=secret' })],
-    ['fail', 8, (repository: PostgresQueueRepository) => repository.fail({ ...fence, errorCode: 'TEST', error: 'failed', message: 'fail password=secret' })],
-    ['retry', 9, (repository: PostgresQueueRepository) => repository.retry({ ...fence, availableAt: new Date(Date.now() + 60_000), errorCode: 'TEST', error: 'retry', message: 'retry password=secret' })]
+    [
+      'complete',
+      7,
+      (repository: PostgresQueueRepository) =>
+        repository.complete({ ...fence, result: { ok: true }, message: 'complete password=secret' })
+    ],
+    [
+      'fail',
+      8,
+      (repository: PostgresQueueRepository) =>
+        repository.fail({ ...fence, errorCode: 'TEST', error: 'failed', message: 'fail password=secret' })
+    ],
+    [
+      'retry',
+      9,
+      (repository: PostgresQueueRepository) =>
+        repository.retry({
+          ...fence,
+          availableAt: new Date(Date.now() + 60_000),
+          errorCode: 'TEST',
+          error: 'retry',
+          message: 'retry password=secret'
+        })
+    ]
   ] as const)('persists and safely parameterizes the %s message', async (name, messageIndex, settle) => {
     const updates: Array<{ query: string; values: unknown[] }> = []
     const transaction: QueueSqlExecutor = {
@@ -44,6 +65,6 @@ describe('PostgresQueueRepository settlement messages', () => {
     expect(updates).toHaveLength(1)
     expect(updates[0]!.query).toContain(`"message" = $${messageIndex}`)
     expect(updates[0]!.values).toHaveLength(messageIndex)
-    expect(updates[0]!.values.at(-1)).toBe(`${name} password=[REDACTED]`)
+    expect(updates[0]!.values.at(-1)).toBe(`${name} [凭据已隐藏]`)
   })
 })

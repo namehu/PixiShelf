@@ -16,6 +16,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import type { TRandomTagDto } from '@/schemas/tag.dto'
 import { getTranslateName } from '@/utils/tags'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface TagsPanelProps {
   tags: TRandomTagDto[]
@@ -44,8 +45,14 @@ export default function TagsPanel({ tags, trigger }: TagsPanelProps) {
                       href={`/tags/${tag.id}`}
                       className="flex min-h-12 flex-col justify-center rounded-md px-3 py-2 text-left outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
-                      <span className="text-sm font-medium text-foreground">#{tag.name}</span>
-                      {translatedName && <span className="text-xs text-muted-foreground">{translatedName}</span>}
+                      <PrivacySensitiveText className="text-sm font-medium text-foreground">
+                        #{tag.name}
+                      </PrivacySensitiveText>
+                      {translatedName && (
+                        <PrivacySensitiveText className="text-xs text-muted-foreground">
+                          {translatedName}
+                        </PrivacySensitiveText>
+                      )}
                     </Link>
                   </DrawerClose>
                 )

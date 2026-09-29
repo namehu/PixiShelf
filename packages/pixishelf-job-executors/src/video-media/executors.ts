@@ -29,6 +29,7 @@ export function createVideoMediaExecutorRegistrations(
       jobType: 'VIDEO_MEDIA_PROBE',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => videoMediaProbePayloadSchema.parse(payload),
       execute: (context) => executeVideoMediaProbe(context, dependencies)
     } as ExecutorDefinition<VideoMediaProbePayload>,
@@ -36,6 +37,7 @@ export function createVideoMediaExecutorRegistrations(
       jobType: 'VIDEO_POSTER_GENERATION',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => targetImagePayloadSchema.parse(payload),
       execute: (context) => executeVideoPoster(context, dependencies)
     } as ExecutorDefinition<VideoPosterPayload>,
@@ -43,6 +45,7 @@ export function createVideoMediaExecutorRegistrations(
       jobType: 'DERIVED_MEDIA_GC',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => derivedMediaGcPayloadSchema.parse(payload),
       execute: (context) => executeDerivedMediaGc(context, dependencies)
     } as ExecutorDefinition<DerivedMediaGcPayload>

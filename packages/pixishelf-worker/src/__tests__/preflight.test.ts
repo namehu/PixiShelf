@@ -11,6 +11,7 @@ const config: WorkerConfig = {
   ffmpegPath: '/usr/bin/ffmpeg',
   ffprobePath: '/usr/bin/ffprobe',
   keyframeFfmpegThreads: 2,
+  animationScanConcurrency: 4,
   archiveMaxMediaBytes: 512 * 1024 * 1024,
   scanDiscoveryMaxEntries: 10_000_000,
   scanDiscoveryExcludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash'],

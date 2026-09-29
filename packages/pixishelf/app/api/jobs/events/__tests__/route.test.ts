@@ -7,7 +7,45 @@ import { GET as getJobEvents, createJobEventStreamResponse } from '../route'
 
 describe('job event SSE response', () => {
   beforeEach(() => mocks.requireAdminRequest.mockResolvedValue({ userId: 'admin-1' }))
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllEnvs()
+  })
+
+  it.each([
+    ['development', undefined, 3_000],
+    ['production', undefined, 500],
+    ['development', '5000', 5_000],
+    ['production', '15000', 15_000],
+    ['development', '0', 3_000],
+    ['production', '15001', 500],
+    ['development', '500.5', 3_000],
+    ['production', 'invalid', 500]
+  ])('polls at the configured interval (%s, %s) and stops after disconnect', async (environment, value, interval) => {
+    vi.useFakeTimers()
+    vi.stubEnv('NODE_ENV', environment)
+    vi.stubEnv('JOB_EVENT_POLL_INTERVAL_MS', value)
+    const requestController = new AbortController()
+    const source = {
+      watermark: vi.fn().mockResolvedValue('0'),
+      readAfter: vi.fn().mockResolvedValue({ version: 1, cursor: '0', items: [] })
+    }
+    const response = createJobEventStreamResponse(
+      new Request('http://localhost/api/jobs/events', { signal: requestController.signal }),
+      source,
+      null
+    )
+    const reader = response.body!.getReader()
+    await reader.read()
+    await vi.advanceTimersByTimeAsync(interval - 1)
+    expect(source.readAfter).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(source.readAfter).toHaveBeenCalledTimes(2)
+    requestController.abort()
+    await reader.cancel()
+    await vi.advanceTimersByTimeAsync(interval * 2)
+    expect(source.readAfter).toHaveBeenCalledTimes(2)
+  })
 
   it('returns 401 when the route-level Session check fails', async () => {
     mocks.requireAdminRequest.mockImplementationOnce(() => {

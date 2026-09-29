@@ -1,0 +1,24 @@
+stateDiagram-v2
+    state "Live player (load replaces the attempt)" as live {
+        [*] --> idle
+        idle --> loading: load
+        loading --> ready: first frame, no play intent
+        ready --> playing: play
+        loading --> playing: first frame + play intent
+        playing --> buffering: need data
+        buffering --> playing: frame ready
+        loading --> paused: pause
+        playing --> paused: pause
+        buffering --> paused: pause
+        ready --> paused: pause
+        paused --> playing: play + frame ready
+        paused --> buffering: play + need data
+        playing --> ended: final duration + valid EOF
+        loading --> error: failure
+        playing --> error: failure
+        buffering --> error: failure
+        error --> loading: load / restart
+        ended --> loading: load / restart
+    }
+    live --> destroyed: destroy from any state
+    destroyed --> [*]

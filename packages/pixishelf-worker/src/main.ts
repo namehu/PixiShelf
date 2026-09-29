@@ -1,6 +1,7 @@
 import { hostname } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { assertBackgroundQueueSchema, createDatabaseClient, disconnectDatabase } from '@pixishelf/db'
+import { createPixivFetchTransport } from '@pixishelf/job-executors'
 import {
   PrismaWorkerPresenceStore,
   PostgresQueueRepository,
@@ -24,7 +25,8 @@ export async function runWorkerMain(environment: NodeJS.ProcessEnv = process.env
   const config = parseWorkerConfig(environment)
   const logger = createJsonLogger()
   const database = createDatabaseClient({ datasourceUrl: config.databaseUrl })
-  const registry = createWorkerExecutorRegistry({ database, config })
+  const pixivTransport = createPixivFetchTransport(environment)
+  const registry = createWorkerExecutorRegistry({ database, config, fetchImpl: pixivTransport.fetch })
   const healthState = new WorkerHealthState()
   const workerId = config.workerId ?? createDefaultWorkerId(hostname(), process.pid, randomUUID())
   const presenceReadinessGate = new PresenceReadinessGate(
@@ -104,6 +106,7 @@ export async function runWorkerMain(environment: NodeJS.ProcessEnv = process.env
         host.signal
       ),
     disconnectDatabase: () => disconnectDatabase(database),
+    closeOutboundConnections: () => pixivTransport.close(),
     forceTerminate: (exitCode) => process.exit(exitCode),
     presenceReadinessGate,
     ...(dispatchers.length > 0 ? { dispatchers } : {})

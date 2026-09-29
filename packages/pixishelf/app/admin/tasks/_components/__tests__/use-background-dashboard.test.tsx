@@ -1,9 +1,14 @@
-import type { JobDto, JobEventDto, JobStatus } from '@pixishelf/job-contracts'
+import type { JobDto, JobEventDto, JobEventStreamItem, JobStatus } from '@pixishelf/job-contracts'
 import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, renderHook } from '@testing-library/react'
+import { act, cleanup, renderHook } from '@testing-library/react'
 import type { PropsWithChildren } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useBackgroundJobDetail, useBackgroundJobEvents } from '../use-background-dashboard'
+import {
+  useBackgroundDashboard,
+  useBackgroundJobDetail,
+  useBackgroundJobEvents,
+  useBackgroundJobControls
+} from '../use-background-dashboard'
 
 interface EventInput {
   jobId: string
@@ -13,12 +18,54 @@ interface EventInput {
 
 const mocks = vi.hoisted(() => ({
   fetchEvents: vi.fn<(input: EventInput) => Promise<{ items: JobEventDto[]; lastEventId: string | null }>>(),
-  fetchDetail: vi.fn<(input: { jobId: string }) => Promise<JobDto | null>>()
+  fetchDetail: vi.fn<(input: { jobId: string }) => Promise<(JobDto & { failureNeedsAttention?: boolean }) | null>>(),
+  fetchDashboard: vi.fn(),
+  bulk: vi.fn(),
+  successToast: vi.fn(),
+  errorToast: vi.fn(),
+  live: {
+    status: 'disconnected' as 'connecting' | 'connected' | 'disconnected',
+    items: [] as JobEventStreamItem[],
+    readyVersion: 0,
+    resetVersion: 0
+  }
 }))
+
+vi.mock('../../../_components/background-job-event-provider', () => ({
+  useOptionalBackgroundJobEventSubscription: (filter: { jobId?: string } = {}) => ({
+    ...mocks.live,
+    items: filter.jobId ? mocks.live.items.filter(({ job }) => job.id === filter.jobId) : mocks.live.items
+  })
+}))
+
+vi.mock('sonner', () => ({ toast: { success: mocks.successToast, error: mocks.errorToast } }))
 
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
     job: {
+      ...Object.fromEntries(
+        [
+          'cancelBackgroundJob',
+          'pauseBackgroundJob',
+          'resumeBackgroundJob',
+          'retryBackgroundJob',
+          'acknowledgeBackgroundJobFailure',
+          'changeBackgroundJobPriority'
+        ].map((name) => [
+          name,
+          { mutationOptions: (options: object) => ({ mutationFn: async () => null, ...options }) }
+        ])
+      ),
+      acknowledgeBackgroundJobFailures: {
+        mutationOptions: (options: object) => ({ mutationFn: mocks.bulk, ...options })
+      },
+      backgroundDashboard: {
+        queryOptions: (_input: undefined, options: object) => ({
+          queryKey: ['background-dashboard'],
+          queryFn: () => mocks.fetchDashboard(),
+          ...options
+        })
+      },
       backgroundEvents: {
         queryOptions: (input: EventInput, options: object) => ({
           queryKey: ['background-events', input],
@@ -51,6 +98,7 @@ function createJob(id: string, status: JobStatus, updatedAt = '2026-08-17T02:00:
     idempotencyKey: null,
     payload: null,
     progress: status === 'COMPLETED' ? 100 : 30,
+    progressData: null,
     stage: null,
     message: null,
     result: null,
@@ -91,6 +139,29 @@ function createEvent(jobId: string, id: number): JobEventDto {
   }
 }
 
+function createStreamItem(job: JobDto, event: JobEventDto): JobEventStreamItem {
+  return {
+    event,
+    job: {
+      id: job.id,
+      type: job.type,
+      executionLane: job.executionLane,
+      status: job.status,
+      progress: job.progress,
+      progressData: job.progressData,
+      stage: job.stage,
+      message: job.message,
+      errorCode: job.errorCode,
+      attempt: job.attempt,
+      parentJobId: job.parentJobId,
+      heartbeatAt: job.heartbeatAt,
+      startedAt: job.startedAt,
+      finishedAt: job.finishedAt,
+      updatedAt: job.updatedAt
+    }
+  }
+}
+
 function createWrapper() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } }
@@ -115,11 +186,124 @@ describe('background dashboard query hooks', () => {
     focusManager.setFocused(true)
     mocks.fetchEvents.mockReset()
     mocks.fetchDetail.mockReset()
+    mocks.fetchDashboard.mockReset()
+    mocks.bulk.mockReset()
+    mocks.successToast.mockReset()
+    mocks.errorToast.mockReset()
+    mocks.live.status = 'disconnected'
+    mocks.live.items = []
+    mocks.live.readyVersion = 0
+    mocks.live.resetVersion = 0
   })
 
   afterEach(() => {
+    cleanup()
     focusManager.setFocused(undefined)
     vi.useRealTimers()
+  })
+
+  it.each(['connected', 'disconnected'] as const)(
+    'keeps a newer dashboard snapshot over retained SSE while %s',
+    async (connectionStatus) => {
+      const running = createJob('snapshot-race', 'RUNNING')
+      const completed = createJob('snapshot-race', 'COMPLETED', '2026-08-17T02:01:00.000Z')
+      mocks.live.status = 'connected'
+      mocks.live.items = [createStreamItem(running, createEvent(running.id, 1))]
+      mocks.fetchDashboard
+        .mockResolvedValueOnce({
+          activeCount: 1,
+          queuedCount: 0,
+          recentJobs: [running],
+          runningJobs: [running],
+          runningJob: running
+        })
+        .mockResolvedValue({
+          activeCount: 0,
+          queuedCount: 0,
+          recentJobs: [completed],
+          runningJobs: [],
+          runningJob: null
+        })
+      const { result, rerender } = renderHook(() => useBackgroundDashboard(), { wrapper: createWrapper() })
+      await flushQueries()
+      expect(result.current.data?.recentJobs[0]?.status).toBe('RUNNING')
+
+      mocks.live.status = connectionStatus
+      rerender()
+      await act(async () => {
+        if (connectionStatus === 'disconnected') await vi.advanceTimersByTimeAsync(3_001)
+        else await result.current.refetch()
+      })
+      await flushQueries()
+
+      expect(result.current.data?.activeCount).toBe(0)
+      expect(result.current.data?.recentJobs[0]).toMatchObject({ status: 'COMPLETED', progress: 100 })
+    }
+  )
+
+  it.each(['connected', 'disconnected'] as const)(
+    'keeps a newer detail snapshot over retained SSE while %s',
+    async (connectionStatus) => {
+      const running = createJob('detail-snapshot-race', 'RUNNING')
+      const completed = {
+        ...createJob(running.id, 'COMPLETED', '2026-08-17T02:01:00.000Z'),
+        result: { processed: 42 }
+      }
+      mocks.live.status = 'connected'
+      mocks.live.items = [createStreamItem(running, createEvent(running.id, 1))]
+      mocks.fetchDetail.mockResolvedValueOnce(running).mockResolvedValue(completed)
+      const { result, rerender } = renderHook(() => useBackgroundJobDetail(running.id, null), {
+        wrapper: createWrapper()
+      })
+      await flushQueries()
+      expect(result.current.data?.status).toBe('RUNNING')
+
+      mocks.live.status = connectionStatus
+      rerender()
+      await act(async () => {
+        if (connectionStatus === 'disconnected') await vi.advanceTimersByTimeAsync(3_001)
+        else await result.current.refetch()
+      })
+      await flushQueries()
+
+      expect(result.current.data).toMatchObject({ status: 'COMPLETED', progress: 100, result: { processed: 42 } })
+    }
+  )
+
+  it('refetches once when any unseen event in a connected batch changes dashboard membership', async () => {
+    const runningA = createJob('A', 'RUNNING')
+    const runningB = createJob('B', 'RUNNING')
+    const completedA = createJob('A', 'COMPLETED', '2026-08-17T02:02:00.000Z')
+    mocks.fetchDashboard
+      .mockResolvedValueOnce({
+        activeCount: 2,
+        queuedCount: 0,
+        recentJobs: [runningA, runningB],
+        runningJobs: [runningA, runningB],
+        runningJob: runningA
+      })
+      .mockResolvedValue({
+        activeCount: 1,
+        queuedCount: 0,
+        recentJobs: [completedA, runningB],
+        runningJobs: [runningB],
+        runningJob: runningB
+      })
+    const { result, rerender } = renderHook(() => useBackgroundDashboard(), { wrapper: createWrapper() })
+    await flushQueries()
+    expect(mocks.fetchDashboard).toHaveBeenCalledOnce()
+
+    mocks.live.status = 'connected'
+    mocks.live.items = [
+      createStreamItem(completedA, { ...createEvent('A', 10), type: 'job.completed', progress: 100 }),
+      createStreamItem(runningB, createEvent('B', 11))
+    ]
+    rerender()
+    await flushQueries()
+
+    expect(mocks.fetchDashboard).toHaveBeenCalledTimes(2)
+    expect(result.current.data?.runningJobs.map((job) => job.id)).toEqual(['B'])
+    expect(result.current.data?.activeCount).toBe(1)
   })
 
   it('isolates events and cursors through A → B → A → B, ignoring a late A response', async () => {
@@ -156,7 +340,7 @@ describe('background dashboard query hooks', () => {
     await flushQueries()
     expect(result.current.events).toEqual([])
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_501)
+      await vi.advanceTimersByTimeAsync(3_001)
     })
     await flushQueries()
     expect(result.current.events.map((event) => `${event.jobId}:${event.id}`)).toEqual(['B:7'])
@@ -184,6 +368,28 @@ describe('background dashboard query hooks', () => {
         .filter(([input]) => input.jobId === 'B')
         .every(([input]) => input.afterEventId === undefined || input.afterEventId === '7')
     ).toBe(true)
+  })
+
+  it('does not refetch the event page when live patches replace the same job object', async () => {
+    mocks.live.status = 'connected'
+    mocks.live.readyVersion = 1
+    mocks.fetchEvents.mockResolvedValue({ items: [], lastEventId: null })
+
+    const { rerender } = renderHook(({ job }) => useBackgroundJobEvents(job), {
+      initialProps: { job: createJob('stable-job', 'RUNNING') },
+      wrapper: createWrapper()
+    })
+    await flushQueries()
+    const initialRequestCount = mocks.fetchEvents.mock.calls.length
+
+    for (let index = 1; index <= 3; index += 1) {
+      const patchedJob = createJob('stable-job', 'RUNNING', `2026-08-17T02:00:0${index}.000Z`)
+      mocks.live.items = [createStreamItem(patchedJob, createEvent('stable-job', index))]
+      rerender({ job: patchedJob })
+      await flushQueries()
+    }
+
+    expect(mocks.fetchEvents).toHaveBeenCalledTimes(initialRequestCount)
   })
 
   it('drains more than 100 terminal events to an empty page, resumes after failure, and then stops', async () => {
@@ -292,7 +498,7 @@ describe('background dashboard query hooks', () => {
     expect(result.current.data?.status).toBe('RUNNING')
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_501)
+      await vi.advanceTimersByTimeAsync(3_001)
     })
     await flushQueries()
     expect(result.current.data?.status).toBe('COMPLETED')
@@ -303,5 +509,58 @@ describe('background dashboard query hooks', () => {
     })
     await flushQueries()
     expect(mocks.fetchDetail).toHaveBeenCalledTimes(callCount)
+  })
+  it('updates attention on refetch even when the failed job timestamp does not change', async () => {
+    const failed = createJob('old-failure', 'FAILED')
+    mocks.fetchDetail
+      .mockResolvedValueOnce({ ...failed, failureNeedsAttention: true })
+      .mockResolvedValue({ ...failed, failureNeedsAttention: false })
+    const { result } = renderHook(() => useBackgroundJobDetail(failed.id, failed), { wrapper: createWrapper() })
+    await flushQueries()
+    expect(result.current.failureNeedsAttention).toBe(true)
+    await act(() => result.current.refetch())
+    await flushQueries()
+    expect(result.current.failureNeedsAttention).toBe(false)
+    expect(result.current.data?.updatedAt).toBe(failed.updatedAt)
+  })
+
+  it('refetches server attention when a live task becomes failed', async () => {
+    const running = createJob('live-failure', 'RUNNING')
+    const failed = createJob(running.id, 'FAILED', '2026-08-17T02:02:00.000Z')
+    mocks.live.status = 'connected'
+    mocks.fetchDetail
+      .mockResolvedValueOnce({ ...running, failureNeedsAttention: false })
+      .mockResolvedValue({ ...failed, failureNeedsAttention: true })
+    const { result, rerender } = renderHook(() => useBackgroundJobDetail(running.id, running), {
+      wrapper: createWrapper()
+    })
+    await flushQueries()
+    expect(result.current.failureNeedsAttention).toBe(false)
+    mocks.live.items = [createStreamItem(failed, createEvent(failed.id, 1))]
+    rerender()
+    await flushQueries()
+    expect(result.current.data?.status).toBe('FAILED')
+    expect(result.current.failureNeedsAttention).toBe(true)
+  })
+
+  it('reports bulk results and calls refresh only on success, without automatically retrying failures', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined)
+    mocks.bulk
+      .mockResolvedValueOnce({ acknowledgedCount: 12, skippedCount: 2 })
+      .mockRejectedValueOnce(new Error('offline'))
+    const { result } = renderHook(() => useBackgroundJobControls(refresh), { wrapper: createWrapper() })
+    await act(() => result.current.acknowledgeMany.mutateAsync({ scope: 'all' }))
+    expect(refresh).toHaveBeenCalledOnce()
+    expect(mocks.successToast).toHaveBeenCalledWith(
+      '已忽略 12 条失败提醒',
+      expect.objectContaining({ description: expect.stringContaining('2 条') })
+    )
+    await act(async () => {
+      await expect(result.current.acknowledgeMany.mutateAsync({ scope: 'all' })).rejects.toThrow('offline')
+    })
+    await act(() => vi.advanceTimersByTimeAsync(60_000))
+    expect(mocks.bulk).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenCalledOnce()
+    expect(mocks.errorToast).toHaveBeenCalledWith('操作失败：offline')
   })
 })

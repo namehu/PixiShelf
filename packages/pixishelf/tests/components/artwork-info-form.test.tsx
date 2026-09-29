@@ -10,6 +10,18 @@ const mutationCalls = vi.hoisted(() => ({
   invalidateQueries: vi.fn()
 }))
 
+vi.mock('@/components/creators/creator-picker', () => ({
+  CreatorPicker: ({ value }: any) => (
+    <div>
+      <input aria-label="搜索并选择艺术家或社团" />
+      {value.map((c: any) => (
+        <span key={c.id}>{c.name}</span>
+      ))}
+    </div>
+  )
+}))
+vi.mock('@/components/creators/creator-maintenance-panel', () => ({ CreatorMaintenancePanel: () => null }))
+
 vi.mock('lucide-react', () => ({
   Save: () => <span data-testid="save-icon" />
 }))
@@ -156,7 +168,7 @@ describe('ArtworkInfoForm', () => {
     expect(screen.getByDisplayValue('复制源作品')).toBeTruthy()
     expect(screen.getByDisplayValue('复制源描述')).toBeTruthy()
     expect(screen.getByDisplayValue('2026-06-05')).toBeTruthy()
-    expect(screen.getByLabelText('搜索并选择艺术家').getAttribute('name')).toBe('artwork-artist')
+    expect(screen.getByLabelText('搜索并选择艺术家或社团')).toBeTruthy()
     expect(screen.getByLabelText('发布日期').getAttribute('id')).toBe('artwork-source-date')
     expect(screen.getByLabelText('搜索并添加标签').getAttribute('name')).toBe('artwork-tags')
     expect(screen.getByText('源艺术家')).toBeTruthy()
@@ -170,7 +182,7 @@ describe('ArtworkInfoForm', () => {
       {
         title: '复制源作品',
         description: '复制源描述',
-        artistId: 12,
+        creatorIds: [12],
         tags: [1, 2],
         sourceDate: '2026-06-05',
         source: ESource.LOCAL_CREATED

@@ -32,7 +32,7 @@ export async function getLocalImportArtistMappings() {
 export async function saveLocalImportArtistMapping(input: SaveLocalImportArtistMappingInput) {
   const data = saveLocalImportArtistMappingSchema.parse(input)
   const db = prisma as any
-  const artist = await db.artist.findUnique({ where: { id: data.artistId }, select: { id: true } })
+  const artist = await db.artist.findUnique({ where: { id: data.artistId, mergedIntoId: null }, select: { id: true } })
   if (!artist) throw new Error('Artist not found')
 
   return db.localImportArtistMapping.upsert({

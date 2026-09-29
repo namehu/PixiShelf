@@ -3,7 +3,7 @@ import path from 'node:path'
 import { MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
 import sharp from 'sharp'
 import { mapBounded, throwIfAborted } from './bounded.ts'
-import { hashStableFile, statStableFile, type StableFileState } from './content-reader.ts'
+import { hashStableFile, stableFileStateFromMetadata, statStableFile, type StableFileState } from './content-reader.ts'
 import { ScanExecutorError } from './errors.ts'
 import { computeLocalWorkContentFingerprintWithinRoot } from './fingerprint.ts'
 import {
@@ -52,6 +52,7 @@ export interface StattedMetadataCandidate extends MetadataCandidate {
 export interface DiscoveredMediaFile {
   relativePath: string
   size: bigint
+  sourceState?: StableFileState
   sortOrder: number
   mediaType: 'IMAGE' | 'ANIMATION' | 'VIDEO'
   webpAnimationStatus: number | null
@@ -194,7 +195,7 @@ export async function collectArtworkMedia(
       const pageIndex = mediaPageIndex(entry.name, candidate.artworkId, extension)
       if (pageIndex === null) continue
       const absolutePath = path.join(directory, entry.name)
-      const metadata = await fs.lstat(absolutePath)
+      const metadata = await fs.lstat(absolutePath, { bigint: true })
       if (metadata.isSymbolicLink()) {
         throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Artwork media must not be a symbolic link')
       }
@@ -202,6 +203,7 @@ export async function collectArtworkMedia(
       media.push({
         relativePath: relativeFromRoot(root, await fs.realpath(absolutePath)),
         size: BigInt(metadata.size),
+        sourceState: stableFileStateFromMetadata(metadata),
         sortOrder: pageIndex,
         mediaType: inferMediaType(extension),
         webpAnimationStatus: contentScannedAnimationExtensions.has(extension) ? 0 : null,
@@ -244,7 +246,7 @@ export async function collectLocalMedia(
       const extension = path.extname(entry.name).toLowerCase()
       if (!mediaExtensions.has(extension)) continue
       const absolutePath = path.join(directory.absolutePath, entry.name)
-      const metadata = await fs.lstat(absolutePath)
+      const metadata = await fs.lstat(absolutePath, { bigint: true })
       if (metadata.isSymbolicLink()) {
         throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Local media is a symbolic link')
       }
@@ -252,6 +254,7 @@ export async function collectLocalMedia(
       media.push({
         relativePath: relativeFromRoot(root, await fs.realpath(absolutePath)),
         size: BigInt(metadata.size),
+        sourceState: stableFileStateFromMetadata(metadata),
         sortOrder: 0,
         mediaType: inferMediaType(extension),
         webpAnimationStatus: contentScannedAnimationExtensions.has(extension) ? 0 : null,
@@ -336,6 +339,7 @@ function withoutFilename(item: DiscoveredMediaFile & { filename: string }, sortO
   return {
     relativePath: item.relativePath,
     size: item.size,
+    ...(item.sourceState ? { sourceState: item.sourceState } : {}),
     sortOrder,
     mediaType: item.mediaType,
     webpAnimationStatus: item.webpAnimationStatus,

@@ -6,7 +6,8 @@ import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import Image from 'next/image'
-import { memo, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useArtworkAutoBrowseStore, type PreviewStatus } from '@/store/use-artwork-auto-browse-store'
 import { useOnInView } from 'react-intersection-observer'
 import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
 import { hasReliableSingleFrameDimensions, isConfirmedStaticWebp } from '@/lib/media-animation'
@@ -14,19 +15,84 @@ import { combinationApiResource } from '@/utils/combination-static'
 import { Loader2, X } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { Button } from '@/components/ui/button'
+import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkVideoOptimization } from './artwork-video-optimization-context'
+import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
   index: number
+  onPreviewStatusChange?: (status: PreviewStatus) => void
+  reading?: ArtworkReadingHandle
+  trackingActive?: boolean
 }
 
 /**
  * 懒加载媒体组件
  */
-const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
-  const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
+const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, trackingActive = true }: LazyMediaProps) => {
+  const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('loading')
+  const [visible, setVisible] = useState(false)
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
+  const autoMode = useArtworkAutoBrowseStore((state) => state.mode)
+  const autoStatus = useArtworkAutoBrowseStore((state) => state.status)
+  const automatic = autoMode === 'scroll' && ['running', 'waiting'].includes(autoStatus)
+  const surfaceId = `detail-${media.id}`
+  const observe = reading?.observe
+  const clearSurface = reading?.clearSurface
+  const observationEpoch = reading?.observationEpoch
+  useEffect(() => {
+    if (!observe || !clearSurface) return
+    observe(surfaceId, {
+      mediaId: media.id,
+      ready: previewStatus === 'ready' && !suspendPlayback,
+      visible,
+      automatic,
+      active: trackingActive,
+      priority: 0
+    })
+    return () => clearSurface(surfaceId)
+  }, [automatic, clearSurface, media.id, observationEpoch, observe, previewStatus, surfaceId,
+    suspendPlayback, trackingActive, visible])
+  const live = useRef(true)
+  useEffect(() => {
+    live.current = true
+    return () => {
+      live.current = false
+    }
+  }, [])
+  const report = useCallback(
+    (status: PreviewStatus) => {
+      if (!live.current) return
+      setPreviewStatus(status)
+      onPreviewStatusChange?.(status)
+    },
+    [onPreviewStatusChange]
+  )
+  useEffect(() => {
+    if (suspendPlayback) report('loading')
+  }, [report, suspendPlayback])
+  const onLoad = useCallback(
+    (event: React.SyntheticEvent<HTMLImageElement>) => {
+      const image = event.currentTarget
+      if (!image.decode) {
+        report('ready')
+        return
+      }
+      void image.decode().then(
+        () => report('ready'),
+        () => report(image.naturalWidth > 0 ? 'ready' : 'error')
+      )
+    },
+    [report]
+  )
+  const onPlayingChange = useCallback((playing: boolean) => {
+    if (playing) useArtworkAutoBrowseStore.getState().pause('manual')
+  }, [])
+  const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
+  const playbackActive = useArtworkAutoBrowseStore((state) => state.activeVideoId === media.id && !state.previewOpen)
+  const playbackPaused = useArtworkAutoBrowseStore((state) => state.pausedVideoIds.includes(media.id))
+  const animation = useArtworkAnimation(media.id, 'scroll', `${media.path}:${media.updatedAt}`)
   const src = media.path
   const hasDimensions =
     hasReliableSingleFrameDimensions(media) &&
@@ -58,12 +124,23 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
     ]
   }, [canManage, enqueue, job?.status, media, src])
 
+  const readingRef = useOnInView((inView) => setVisible(inView), { threshold: 0 })
   const trackingRef = useOnInView(
     (inView) => {
-      if (inView) setCurrentIndex(index)
+      if (inView) {
+        setCurrentIndex(index)
+        if (!useArtworkAutoBrowseStore.getState().previewOpen) {
+          useArtworkAutoBrowseStore.getState().setCurrentMedia(media.id)
+        }
+      }
     },
     { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
   )
+
+  const mediaRef = useCallback((node: HTMLDivElement | null) => {
+    readingRef(node)
+    trackingRef(node)
+  }, [readingRef, trackingRef])
 
   // 主渲染逻辑
   const renderContent = () => {
@@ -121,12 +198,35 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
           className="w-full h-auto"
           preload="metadata"
           settingActions={videoSettingActions}
+          playbackActive={playbackActive}
+          playbackPaused={playbackPaused}
+          onPlaybackIntent={(playing) => useArtworkAutoBrowseStore.getState().setVideoPaused(media.id, !playing)}
+          onPlay={(automatic) => {
+            const state = useArtworkAutoBrowseStore.getState()
+            if (automatic) {
+              // 保留 video 暂停原因，继续按钮才能将该视频记为本轮已跳过，避免立即再次停住。
+              if (!state.skippedIds.includes(media.id)) {
+                state.setCurrentMedia(media.id)
+                state.pause('video')
+              }
+            } else onPlayingChange(true)
+          }}
+          onReady={() => report('ready')}
+          onError={() => report('error')}
         />
       )
     }
 
     if ((isApngFile(src) || /\.png$/i.test(src)) && media.isAnimated) {
-      return <ApngPlayer src={src} alt={`Artwork animation ${index + 1}`} />
+      return (
+        <ApngPlayer
+          src={src}
+          alt={`Artwork animation ${index + 1}`}
+          onPosterLoad={() => report('ready')}
+          onPosterError={() => report('error')}
+          onPlayingChange={onPlayingChange}
+        />
+      )
     }
 
     if ((isWebpFile(src) && !isConfirmedStaticWebp(media)) || (isGifFile(src) && media.isAnimated)) {
@@ -136,9 +236,15 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
           src={src}
           alt={`Artwork ${formatLabel} ${index + 1}`}
           size={media.size}
+          animationMetadata={media.animationMetadata}
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={formatLabel}
           controlMode={isWebpFile(src) ? 'badge' : 'surface'}
+          {...(isWebpFile(src) ? animation : {})}
+          updatedAt={media.updatedAt}
+          onPosterLoad={() => report('ready')}
+          onPosterError={() => report('error')}
+          onPlayingChange={isWebpFile(src) ? animation.onPlayingChange : onPlayingChange}
         />
       )
     }
@@ -154,15 +260,20 @@ const LazyMedia = memo(({ media, index }: LazyMediaProps) => {
         height={0}
         sizes="100vw"
         className={hasDimensions ? 'h-auto w-full' : 'h-auto min-h-[300px] w-full sm:min-h-[500px]'}
+        onLoad={onLoad}
+        onError={() => report('error')}
       />
     )
   }
 
   return (
     <div
-      ref={trackingRef}
+      ref={mediaRef}
       className="relative flex w-full items-center justify-center overflow-hidden bg-muted"
       style={{ aspectRatio }}
+      data-auto-media-id={media.id}
+      data-video-media={isVideoFile(src) ? 'true' : undefined}
+      data-preview-status={previewStatus}
     >
       {renderContent()}
     </div>

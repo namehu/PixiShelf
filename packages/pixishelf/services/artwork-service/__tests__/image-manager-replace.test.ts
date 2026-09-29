@@ -7,7 +7,9 @@ const {
   tagFindManyMock,
   artworkTagCreateManyMock,
   transactionMock,
-  syncMediaDerivedTagMock
+  syncMediaDerivedTagMock,
+  invalidateReadingMock,
+  lockArtworkMock
 } = vi.hoisted(() => ({
   imageDeleteManyMock: vi.fn(),
   imageCreateManyMock: vi.fn(),
@@ -15,7 +17,14 @@ const {
   tagFindManyMock: vi.fn(),
   artworkTagCreateManyMock: vi.fn(),
   transactionMock: vi.fn(),
-  syncMediaDerivedTagMock: vi.fn()
+  syncMediaDerivedTagMock: vi.fn(),
+  invalidateReadingMock: vi.fn(),
+  lockArtworkMock: vi.fn().mockResolvedValue({ id: 10, mediaRevision: 1 })
+}))
+
+vi.mock('@pixishelf/db', () => ({
+  invalidateArtworkReadingForRebuild: invalidateReadingMock,
+  lockArtworkForReading: lockArtworkMock
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -56,6 +65,7 @@ describe('updateArtworkImagesTransaction', () => {
     tagFindManyMock.mockReset()
     artworkTagCreateManyMock.mockReset().mockResolvedValue({ count: 1 })
     syncMediaDerivedTagMock.mockReset().mockResolvedValue(undefined)
+    invalidateReadingMock.mockReset().mockResolvedValue(2)
     transactionMock.mockReset().mockImplementation(async (callback) => callback(tx))
   })
 
@@ -72,6 +82,8 @@ describe('updateArtworkImagesTransaction', () => {
     ])
 
     expect(imageDeleteManyMock).toHaveBeenCalledWith({ where: { artworkId: 10 } })
+    expect(invalidateReadingMock).toHaveBeenCalledWith(tx, 10)
+    expect(invalidateReadingMock.mock.invocationCallOrder[0]).toBeLessThan(imageDeleteManyMock.mock.invocationCallOrder[0]!)
     expect(imageCreateManyMock).toHaveBeenCalled()
     expect(syncMediaDerivedTagMock).toHaveBeenCalledWith(tx, 10)
     expect(tagFindManyMock).not.toHaveBeenCalled()
@@ -145,6 +157,7 @@ describe('updateArtworkImagesWithTransactionClient', () => {
     tagFindManyMock.mockReset().mockResolvedValue([{ id: 4 }])
     artworkTagCreateManyMock.mockReset().mockResolvedValue({ count: 1 })
     syncMediaDerivedTagMock.mockReset().mockResolvedValue(undefined)
+    invalidateReadingMock.mockReset().mockResolvedValue(2)
     transactionMock.mockReset()
   })
 
@@ -176,6 +189,8 @@ describe('updateArtworkImagesWithTransactionClient', () => {
     )
 
     expect(transactionMock).not.toHaveBeenCalled()
+    expect(invalidateReadingMock).toHaveBeenCalledWith(tx, 10)
+    expect(invalidateReadingMock.mock.invocationCallOrder[0]).toBeLessThan(imageDeleteManyMock.mock.invocationCallOrder[0]!)
     expect(imageDeleteManyMock).toHaveBeenCalledWith({ where: { artworkId: 10 } })
     expect(imageCreateManyMock).toHaveBeenCalledWith({
       data: [

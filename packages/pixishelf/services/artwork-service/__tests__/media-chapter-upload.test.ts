@@ -128,6 +128,27 @@ describe('media-chapter-upload service', () => {
     expect(associateChaptersToImageMock).not.toHaveBeenCalled()
   })
 
+  it('preserves original chapter files while replace backup is incomplete', async () => {
+    const target = path.join(scanRoot, 'artist/work')
+    await mkdir(path.join(target, '.bak_session'), { recursive: true })
+    await writeFile(path.join(target, 'movie.chapters.json'), 'original-chapters')
+    await writeFile(path.join(target, '.bak_session', '.session-manifest.json'), JSON.stringify({
+      version: 1, originalFiles: ['movie.chapters.json'], phase: 'BACKING_UP'
+    }))
+    artworkFindUniqueMock.mockResolvedValue({
+      id: 10, externalId: 'work', storagePath: '/artist/work', artist: { userId: 'artist' },
+      images: [{ path: '/artist/work/movie.mp4' }]
+    })
+    await expect(uploadMediaChapterManifest({
+      scanRoot, artworkId: 10, imageId: null, videoPath: '/artist/work/movie.mp4',
+      manifestText: JSON.stringify({
+        version: 1, duration: 10,
+        chapters: [{ index: 1, title: 'Only', start: 0, end: 10, duration: 10 }]
+      })
+    })).rejects.toMatchObject({ status: 409 })
+    await expect(readFile(path.join(target, 'movie.chapters.json'), 'utf8')).resolves.toBe('original-chapters')
+  })
+
   it('rejects a non-video path with the existing message', async () => {
     artworkFindUniqueMock.mockResolvedValue({
       id: 10,

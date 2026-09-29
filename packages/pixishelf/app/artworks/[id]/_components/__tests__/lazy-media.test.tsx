@@ -1,8 +1,10 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
+import { useArtworkAutoBrowseStore as autoBrowse } from '@/store/use-artwork-auto-browse-store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import LazyMedia from '../lazy-media'
 
 const playerMocks = vi.hoisted(() => ({ props: vi.fn(), animatedProps: vi.fn(), imageProps: vi.fn() }))
+const intersectionCallback = vi.hoisted(() => ({ current: null as null | ((inView: boolean) => void) }))
 const enqueue = vi.hoisted(() => vi.fn())
 const cancel = vi.hoisted(() => vi.fn())
 const optimizationState = vi.hoisted(() => ({
@@ -33,7 +35,12 @@ vi.mock('next/image', () => ({
     return <div data-testid="static-image" />
   }
 }))
-vi.mock('react-intersection-observer', () => ({ useOnInView: () => vi.fn() }))
+vi.mock('react-intersection-observer', () => ({
+  useOnInView: (callback: (inView: boolean) => void, options?: { rootMargin?: string }) => {
+    if (!options?.rootMargin) intersectionCallback.current = callback
+    return vi.fn()
+  }
+}))
 vi.mock('@/store/use-artwork-store', () => ({
   useArtworkStore: (selector: (state: { setCurrentIndex: ReturnType<typeof vi.fn> }) => unknown) =>
     selector({ setCurrentIndex: vi.fn() })
@@ -55,6 +62,7 @@ describe('LazyMedia video cache version', () => {
 
   afterEach(() => {
     cleanup()
+    autoBrowse.getState().initialize(1)
     optimizationState.job = null
     optimizationState.isStarting = false
     optimizationState.canManage = true
@@ -106,6 +114,27 @@ describe('LazyMedia video cache version', () => {
     expect(screen.getByText('优化处理中')).toBeTruthy()
     expect(screen.getByText('排队中 · 第 3 位')).toBeTruthy()
     expect(screen.getByRole('button', { name: '取消排队' })).toBeTruthy()
+  })
+
+  it('stops reading during optimization and waits for the restored player to become ready', () => {
+    const observe = vi.fn()
+    const reading = { observe, clearSurface: vi.fn(), observationEpoch: 0 } as never
+    const { rerender } = render(<LazyMedia media={media} index={0} reading={reading} />)
+    act(() => intersectionCallback.current?.(true))
+    act(() => playerMocks.props.mock.calls.at(-1)?.[0].onReady())
+    expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: true })
+
+    optimizationState.suspendPlayback = true
+    rerender(<LazyMedia media={{ ...media }} index={0} reading={reading} />)
+    expect(screen.queryByTestId('video-player')).toBeNull()
+    expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: false })
+
+    optimizationState.suspendPlayback = false
+    rerender(<LazyMedia media={{ ...media }} index={0} reading={reading} />)
+    expect(screen.getByTestId('video-player')).toBeTruthy()
+    expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: false })
+    act(() => playerMocks.props.mock.calls.at(-1)?.[0].onReady())
+    expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: true })
   })
 
   it('renders a confirmed static WebP as an ordinary image', () => {
@@ -196,5 +225,38 @@ describe('LazyMedia video cache version', () => {
     )
 
     expect((container.firstElementChild as HTMLElement).style.aspectRatio).toBe('')
+  })
+
+  it('controls automatic WebP playback and preserves an error pause', () => {
+    autoBrowse.getState().initialize(1)
+    autoBrowse.getState().start('scroll')
+    render(
+      <LazyMedia media={{ ...media, path: '/animation.webp', isAnimated: true, webpAnimationStatus: 2 }} index={0} />
+    )
+    act(() => autoBrowse.getState().setActiveAnimation(media.id))
+    const props = playerMocks.animatedProps.mock.calls.at(-1)![0]
+    expect(props).toMatchObject({ playing: true, playOnce: true, updatedAt: media.updatedAt })
+    expect(autoBrowse.getState().status).toBe('running')
+    act(() => {
+      props.onAnimationError()
+      props.onPlayingChange(false)
+    })
+    expect(autoBrowse.getState()).toMatchObject({ status: 'paused', reason: 'error', activeAnimationId: null })
+    expect(playerMocks.animatedProps.mock.calls.at(-1)![0]).toMatchObject({ playing: false, playOnce: false })
+  })
+
+  it('does not restore a previous manual loop after automatic playback finishes', () => {
+    autoBrowse.getState().initialize(1)
+    render(
+      <LazyMedia media={{ ...media, path: '/animation.webp', isAnimated: true, webpAnimationStatus: 2 }} index={0} />
+    )
+    act(() => playerMocks.animatedProps.mock.calls.at(-1)![0].onPlayingChange(true))
+    expect(playerMocks.animatedProps.mock.calls.at(-1)![0].playing).toBe(true)
+    act(() => {
+      autoBrowse.getState().start('scroll')
+      autoBrowse.getState().setActiveAnimation(media.id)
+    })
+    act(() => autoBrowse.getState().setActiveAnimation(null))
+    expect(playerMocks.animatedProps.mock.calls.at(-1)![0].playing).toBe(false)
   })
 })

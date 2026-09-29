@@ -12,6 +12,7 @@ import { isVideoImageListItem } from './utils'
 import { ImageMediaActions, ImageVideoMetadataEntry } from './columns'
 import { ImageVideoOptimizationEntry, type VideoOptimizationJob } from './video-optimization'
 import MediaThumbnail from '@/components/media/media-thumbnail'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ImageManagerThumbnailListProps {
   imageList: ImageListItem[]
@@ -165,9 +166,9 @@ export function ImageManagerThumbnailList({
               </div>
 
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/70 via-black/35 to-transparent p-2.5 text-white">
-                <div className="truncate text-xs font-medium" title={fileName}>
+                <PrivacySensitiveText as="div" className="truncate text-xs font-medium">
                   {fileName}
-                </div>
+                </PrivacySensitiveText>
                 <div className="mt-0.5 truncate text-[10px] text-white/75">
                   {img.width && img.height ? `${img.width} × ${img.height}` : '未知尺寸'}
                   {' · '}
@@ -186,7 +187,7 @@ export function ImageManagerThumbnailList({
                     onCancel={onCancelVideoOptimization}
                   />
                 </div>
-                <span className="sr-only" title={img.path}>
+                <span className="sr-only">
                   {img.path}
                 </span>
               </div>

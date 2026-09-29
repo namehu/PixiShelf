@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-08-18
 scope: 单通用 Worker 内的归档解析与媒体写入资源通道
-last-verified: 2026-08-19
+last-verified: 2026-09-09
 supersedes-in-part: ./0003-unify-background-jobs-under-a-durable-single-worker.md
 implementation: ../features/archive-intake.md
 superseded-in-part-by: ./0006-freeze-database-configured-archive-media-concurrency.md
@@ -72,12 +72,14 @@ Dispatcher 在 `await` 时会把事件循环交给另一个 lane，因此同一 
 2. 任意时刻最多一个 writer job 处于有效执行状态。
 3. 任意时刻最多一个 archive resolve job 处于有效执行状态。
 4. 单个 `ARCHIVE_IMPORT` 的媒体请求并发由数据库后台设置决定，并在每次执行启动时冻结；见 ADR-0006。
-5. 解析和下载共享 Provider 级请求预算；下载优先，解析在限流时退避。
+5. 解析和下载共享 Provider 级请求间隔和真实限流冷却；活跃下载许可只占用下载容量，不阻止解析，解析在真实站点冷却时退避。请求不保证严格轮转或防饥饿。
 6. 网络、FFmpeg 和文件复制不得放入长数据库事务。
 7. 一个 lane 的不可恢复基础设施错误终止整个 Worker，避免半存活 READY 进程。
 8. Worker 优雅停机先停止两个 lane 的 claim，再分别 drain 当前任务。
 
 ## Considered options
+
+2026-09-09 修订：初版的“下载优先”在实现中表现为任一下载流活跃时禁止解析请求，可能使默认自动入队后的后续解析反复退队。现移除这一硬阻塞，保留共享请求间隔、penalty 和下载流并发上限，不改变双 lane、完整解析或自动入队流程，也不引入等待请求队列。两个 lane 可在下载期间共同推进，但此策略不构成严格公平调度保证。
 
 ### Keep the global single execution slot
 

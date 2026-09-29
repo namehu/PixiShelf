@@ -199,6 +199,23 @@ describe('webp-animation-scan-service', () => {
     }
   })
 
+  it('falls back to generic image probing when a .png file contains non-PNG image data', async () => {
+    const tempDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-wrong-png-ext-'))
+    const filePath = path.join(tempDirectory, 'wrong-extension.png')
+
+    try {
+      await fs.writeFile(filePath, Buffer.from('ffd8ffe000104a46494600010101006000600000', 'hex'))
+
+      await expect(detectAnimatedImage(filePath, '/artist/wrong-extension.png')).resolves.toBe(false)
+      expect(sharpMock).toHaveBeenCalledWith(filePath, {
+        animated: true,
+        limitInputPixels: false
+      })
+    } finally {
+      await fs.rm(tempDirectory, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     {
       name: 'zero frame count',

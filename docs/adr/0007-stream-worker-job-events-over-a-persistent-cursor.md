@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-09-01
 scope: 管理后台通用 Worker Job 事件 SSE transport
-last-verified: 2026-09-01
+last-verified: 2026-09-04
 implementation: ../architecture/current-architecture.md
 ---
 
@@ -22,11 +22,12 @@ implementation: ../architecture/current-architecture.md
 - 事件名为 `jobs.ready`、`jobs.events`、`jobs.reset` 和 `ping`。超前游标触发 reset；15 秒心跳用于穿过代理空闲超时。
 - Route 只依赖通用事件源接口。未来可以用 `LISTEN/NOTIFY` 或其他机制唤醒读取，但重放、批次和客户端契约不变。
 - admin layout 每个标签页只挂载一个 `BackgroundJobEventProvider`，保留最近 500 条并提供通用订阅数据。页面切换不创建新连接；断线期间页面恢复原有轮询。
-- 本期只有归档页消费实时流。其他 Worker 页面迁移时必须按 JobType/jobId 过滤，不得把领域判断加入通用 Route。
+- 归档页、任务计划页和后台任务控制台消费同一实时流，并按 JobType/jobId 更新各自缓存；不得把领域判断加入通用 Route。
+- `SystemJob.progressData` 作为实时摘要中的版本化聚合数据传输，禁止包含路径、标题、URL 或凭据。它与数值进度和事件在同一个 fenced transaction 中更新。
+- 不引入 Redis。当前读取负载由单标签页连接、持久游标、两秒写入限频和断线轮询降级约束；只有实测 PostgreSQL 轮询成为瓶颈时，才考虑 `LISTEN/NOTIFY` 作为唤醒优化，持久事件表仍负责重放。
 
 ## Consequences
 
-实时速度和生命周期校准不再依赖高频整页请求，断线仍可从持久游标追赶。代价是 `SystemJobEvent` 写入量增加，因此实时进度使用独立的两秒限频；普通阶段、警告、控制和终态事件不受此限频影响。
+实时速度和生命周期校准不再依赖高频整页请求，断线仍可从持久游标追赶。代价是 `SystemJobEvent` 写入量增加，因此实时进度使用独立的两秒限频；普通阶段、警告、控制和终态事件不受此限频影响。INFO 进度事件保留 7 天，其余审计事件保留 90 天。
 
 SSE 是传输优化而不是新的事实源。客户端必须忽略未知版本或无效遥测，并定期获取快照；数据库异常关闭连接，客户端重连或回退轮询。反向代理必须禁用响应缓冲和压缩转换。
-

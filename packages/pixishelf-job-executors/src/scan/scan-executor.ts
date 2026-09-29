@@ -1,3 +1,4 @@
+import { assertPixivRootUnchanged } from './root-identity.ts'
 import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
 import { Prisma } from '@pixishelf/db'
@@ -84,9 +85,7 @@ export async function executeScan(
     // to the resolved root before reading a snapshot so another mount cannot reuse its path/hash facts.
     await ensurePixivInventoryRootIdentity({
       context,
-      rootPathHash: inventoryRootPathHash,
-      rootDeviceId: root.deviceId,
-      rootInode: root.inode,
+      root,
       now: now()
     })
     run = await ensureMetadataSnapshot({
@@ -110,6 +109,7 @@ export async function executeScan(
     const results: Array<{ status: 'SUCCESS' | 'SKIPPED' | 'FAILED'; newImages: number }> = []
     for await (const page of iterateFrozenMetadataPages(dependencies.database, run.id, limits.pageSize)) {
       throwIfAborted(context.signal)
+      await assertPixivRootUnchanged(root)
       const pageResults = await mapBounded(page, limits.concurrency, context.signal, async (row) => {
         try {
           return await processMetadataInput({
@@ -141,6 +141,7 @@ export async function executeScan(
         total: snapshot.count
       })
     }
+    await assertPixivRootUnchanged(root)
     const result = summarize(run.id, snapshot.metadataCandidates, results, {
       skipped: snapshot.inventoryUnchanged,
       // ScanRunItem is the idempotent source of truth across retries of the same ScanRun.
@@ -153,6 +154,22 @@ export async function executeScan(
       })
       const failureMessage = await describeFailedMetadataInputs(dependencies, run.id, result.failed)
       await context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
+        if (context.recordDiagnostic) {
+          const failedItems = await transaction.scanRunItem.findMany({ where: { scanRunId: run.id, status: 'FAILED' } })
+          for (const item of failedItems)
+            await context.recordDiagnostic(transaction, {
+              key: item.checkpointKey?.startsWith('inventory-discovery:')
+                ? `discovery:${run.id}:${item.checkpointKey}`
+                : `scan:${run.id}:${item.checkpointKey}`,
+              scope: 'ITEM',
+              origin: 'INHERITED',
+              targetType: 'METADATA',
+              targetId: item.externalId ?? undefined,
+              targetLabel: item.metadataRelativePath ?? item.title ?? item.id,
+              stage: item.action,
+              message: item.errorMessage ?? '此前执行遗留的扫描失败检查点'
+            })
+        }
         await transaction.scanRun.update({
           where: { id: run.id },
           data: {
@@ -329,6 +346,7 @@ async function processMetadataInput(input: {
       ScanTransaction & QueueSqlExecutor,
       Awaited<ReturnType<typeof publishPixivArtwork>>
     >(async (transaction) => {
+      await assertPixivRootUnchanged(input.root)
       if (input.context.payload.mode === 'ARTWORK_RESCAN') {
         await assertArtworkRescanSnapshot({
           transaction,
@@ -420,7 +438,7 @@ async function recordInputFailure(
     Awaited<ReturnType<typeof recordInventoryFailure>>
   >(async (transaction) => {
     const candidate = metadataCandidateFromPath({ relativePath: row.relativePath, absolutePath: row.relativePath })
-    return recordInventoryFailure({
+    const outcome = await recordInventoryFailure({
       transaction,
       runId,
       checkpointOrdinal: row.ordinal,
@@ -433,6 +451,17 @@ async function recordInputFailure(
       parsed,
       now
     })
+    if (outcome.status === 'FAILED')
+      await context.recordDiagnostic?.(transaction, {
+        key: `scan:${runId}:${checkpointKey(row)}`,
+        scope: 'ITEM',
+        targetType: 'METADATA',
+        targetId: candidate?.artworkId,
+        targetLabel: row.relativePath,
+        stage: parsed ? 'FAILED_COLLECT' : 'FAILED_PARSE',
+        error
+      })
+    return outcome
   })
 }
 

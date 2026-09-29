@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import path from 'path'
 import { z } from 'zod'
+import { ArtworkDeleteReportSchema } from '@/schemas/artwork-delete.dto'
 import {
   ArtworksInfiniteQuerySchema,
   NeighboringArtworksGetSchema,
@@ -51,6 +52,12 @@ import {
   PixivArtworkSyncReportReadError
 } from '@/services/pixiv-artwork-sync-report-service'
 
+function assertReadingListAccount(userId: string, expectedUserId: string | undefined, readingStatus: string | undefined) {
+  if ((readingStatus && !expectedUserId) || (expectedUserId && expectedUserId !== userId)) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
+  }
+}
+
 /**
  * 作品路由
  */
@@ -65,13 +72,15 @@ export const artworkRouter = router({
   /**
    * 获取作品列表 (无限加载)
    */
-  list: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input }) => {
+  list: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input, ctx }) => {
+    assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
     const page = input.cursor ?? 1
-    const result = await getArtworksList(input)
+    const result = await getArtworksList(input, ctx.userId)
     const totalPages = Math.ceil(result.total / result.pageSize)
     return {
       items: result.items,
-      nextCursor: page < totalPages ? page + 1 : undefined,
+      nextCursor: input.readingStatus ? undefined : page < totalPages ? page + 1 : undefined,
+      nextReadingCursor: result.nextReadingCursor,
       total: result.total
     }
   }),
@@ -79,12 +88,14 @@ export const artworkRouter = router({
   /**
    * 获取作品卡片列表；仅第一页返回精确总数，后续页通过多取一条判断是否还有下一页。
    */
-  cardList: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input }) => {
+  cardList: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input, ctx }) => {
+    assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
     const page = input.cursor ?? 1
-    const result = await getArtworkCardsPage(input)
+    const result = await getArtworkCardsPage(input, ctx.userId)
     return {
       items: result.items,
-      nextCursor: result.hasNextPage ? page + 1 : undefined,
+      nextCursor: input.readingStatus ? undefined : result.hasNextPage ? page + 1 : undefined,
+      nextReadingCursor: result.nextReadingCursor,
       total: result.total
     }
   }),
@@ -97,10 +108,11 @@ export const artworkRouter = router({
       z.object({
         title: z.string().min(1, '标题不能为空'),
         description: z.string().optional(),
-        artistId: z.number('请选择艺术家'),
+        artistId: z.number().int().positive().nullish(),
+        creatorIds: z.array(z.number().int().positive()).max(200).optional(),
         tags: z.array(z.number()).optional(),
         source: ArtworkSourceEnum.optional(),
-        sourceDate: z.date().or(z.string())
+        sourceDate: z.date().or(z.string()).nullish()
       })
     )
     .mutation(({ input }) => {
@@ -117,9 +129,10 @@ export const artworkRouter = router({
         data: z.object({
           title: z.string().optional(),
           description: z.string().optional(),
-          artistId: z.number('请选择艺术家'),
+          artistId: z.number().int().positive().nullish(),
+          creatorIds: z.array(z.number().int().positive()).max(200).optional(),
           tags: z.array(z.number()).optional(),
-          sourceDate: z.date().or(z.string())
+          sourceDate: z.date().or(z.string()).nullish()
         })
       })
     )
@@ -155,9 +168,7 @@ export const artworkRouter = router({
       })
     )
     .query(({ input }) =>
-      withPixivSyncReportError(() =>
-        listPixivArtworkSyncReports({ ...input, cursor: input.cursor ?? undefined })
-      )
+      withPixivSyncReportError(() => listPixivArtworkSyncReports({ ...input, cursor: input.cursor ?? undefined }))
     ),
 
   pixivSyncReport: adminProcedure
@@ -177,9 +188,12 @@ export const artworkRouter = router({
   /**
    * 删除作品
    */
-  delete: adminProcedure.input(z.number()).mutation(async ({ input, ctx }) => {
-    return deleteArtwork(input, { requestedByUserId: ctx.userId })
-  }),
+  delete: adminProcedure
+    .input(z.number().int().positive())
+    .output(ArtworkDeleteReportSchema)
+    .mutation(async ({ input, ctx }) => {
+      return deleteArtwork(input, { requestedByUserId: ctx.userId })
+    }),
 
   /**
    * 删除图片
@@ -359,6 +373,7 @@ export const artworkRouter = router({
    * 获取沉浸浏览 Feed
    */
   viewerFeed: authProcedure.input(ViewerFeedQuerySchema).query(async ({ input, ctx }) => {
+    assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
     try {
       return getViewerFeed({
         ...input,
@@ -381,7 +396,8 @@ async function withPixivSyncReportError<T>(operation: () => Promise<T>) {
   } catch (error) {
     if (error instanceof PixivArtworkSyncReportReadError) {
       throw new TRPCError({
-        code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : error.code === 'INVALID' ? 'BAD_REQUEST' : 'INTERNAL_SERVER_ERROR',
+        code:
+          error.code === 'NOT_FOUND' ? 'NOT_FOUND' : error.code === 'INVALID' ? 'BAD_REQUEST' : 'INTERNAL_SERVER_ERROR',
         message: error.message
       })
     }

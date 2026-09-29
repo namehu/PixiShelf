@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { ROUTES } from '@/lib/constants'
 import { authClient } from '@/lib/auth/client'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
+import { useWebpPlayerStore } from '@/store/use-webp-player-store'
 
 export interface AuthUser {
   id: string
@@ -44,11 +45,13 @@ const normalizeUser = (
   }
 }
 
-const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  hydrateUser: (user) => set({ user }),
-  setUser: (user) => set({ user })
-}))
+const useAuthStore = create<AuthState>((set) => {
+  const updateUser = (user: AuthUser | null) => {
+    if (typeof window !== 'undefined') useWebpPlayerStore.getState().setSessionOwner(user?.id ?? null)
+    set({ user })
+  }
+  return { user: null, hydrateUser: updateUser, setUser: updateUser }
+})
 
 function AuthSync({ children, initialUser }: PropsWithChildren<{ initialUser?: AuthUser | null }>) {
   const { data: session } = authClient.useSession()
@@ -58,7 +61,7 @@ function AuthSync({ children, initialUser }: PropsWithChildren<{ initialUser?: A
   const lastHydratedUserRef = useRef<string>(serializedInitialUser)
 
   if (!initializedRef.current) {
-    useAuthStore.setState({ user: initialSnapshot })
+    useAuthStore.getState().hydrateUser(initialSnapshot)
     initializedRef.current = true
     lastHydratedUserRef.current = serializedInitialUser
   }
@@ -80,7 +83,7 @@ function AuthSync({ children, initialUser }: PropsWithChildren<{ initialUser?: A
           email: session.user.email,
           image: session.user.image
         })
-      : initialUser ?? null
+      : (initialUser ?? null)
 
     useAuthStore.getState().setUser(nextUser)
   }, [session, initialUser])
@@ -106,6 +109,7 @@ export const useAuth = (): AuthContextType => {
     await authClient.signOut({
       fetchOptions: {
         onSuccess: () => {
+          useWebpPlayerStore.getState().reset()
           useAuthStore.getState().setUser(null)
           router.push(ROUTES.LOGIN)
         }

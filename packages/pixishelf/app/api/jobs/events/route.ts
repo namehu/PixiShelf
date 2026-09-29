@@ -2,6 +2,7 @@ import { bigintStringSchema } from '@pixishelf/job-contracts'
 import { ApiError } from '@/lib/api-handler'
 import {
   JOB_EVENT_STREAM_BATCH_LIMIT,
+  getJobEventPollIntervalMs,
   PostgresJobEventStreamSource,
   type JobEventStreamSource
 } from '@/services/background-task/job-event-stream-service'
@@ -10,7 +11,6 @@ import { requireAdminRequest } from '@/services/background-task/request-auth'
 export const dynamic = 'force-dynamic'
 
 const encoder = new TextEncoder()
-const POLL_INTERVAL_MS = 500
 const HEARTBEAT_INTERVAL_MS = 15_000
 
 export async function GET(request: Request): Promise<Response> {
@@ -48,6 +48,7 @@ export function createJobEventStreamResponse(
   source: JobEventStreamSource,
   requestedCursor: string | null
 ): Response {
+  const pollIntervalMs = getJobEventPollIntervalMs()
   const connection = new AbortController()
   const abort = () => connection.abort(request.signal.reason)
   if (request.signal.aborted) abort()
@@ -55,7 +56,7 @@ export function createJobEventStreamResponse(
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      void runEventLoop(controller, source, requestedCursor, connection.signal).finally(() => {
+      void runEventLoop(controller, source, requestedCursor, connection.signal, pollIntervalMs).finally(() => {
         request.signal.removeEventListener('abort', abort)
       })
     },
@@ -79,7 +80,8 @@ async function runEventLoop(
   controller: ReadableStreamDefaultController<Uint8Array>,
   source: JobEventStreamSource,
   requestedCursor: string | null,
-  signal: AbortSignal
+  signal: AbortSignal,
+  pollIntervalMs: number
 ): Promise<void> {
   try {
     const watermark = await source.watermark()
@@ -103,7 +105,7 @@ async function runEventLoop(
         enqueue(controller, 'ping', { sampledAt: new Date(now).toISOString() })
         lastHeartbeatAt = now
       }
-      await abortableDelay(POLL_INTERVAL_MS, signal)
+      await abortableDelay(pollIntervalMs, signal)
     }
     safeClose(controller)
   } catch (error) {

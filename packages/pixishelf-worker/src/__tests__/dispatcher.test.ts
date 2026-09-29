@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
-import { JOB_DEFINITION_VERSION, type WorkerCapability } from '@pixishelf/job-contracts'
+import { JOB_DEFINITION_VERSION, type AnimationScanProgressData, type WorkerCapability } from '@pixishelf/job-contracts'
 import {
   JobExecutionFenceError,
   type ClaimedJob,
@@ -117,7 +117,10 @@ describe('CentralDispatcher', () => {
     const registry = new ExecutorRegistry().register({
       jobType: 'SCAN',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
       execute: async (context) => {
+        await context.progress({ progress: 10 })
+        await context.progress({ progress: 11 })
         const finalized = await context.finalizeInTransaction(async ({ complete }) => {
           await complete({ result: { published: true } })
         })
@@ -138,6 +141,10 @@ describe('CentralDispatcher', () => {
     await dispatcher.stop()
 
     expect(queue.withFencedExecutionTransaction).toHaveBeenCalledOnce()
+    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([10, 11])
+    expect(queue.updateProgress.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      vi.mocked(queue.withFencedExecutionTransaction).mock.invocationCallOrder[0]!
+    )
     expect(duplicateFinalizationError).toEqual(expect.objectContaining({ message: expect.stringContaining('already') }))
     expect(queue.settle).not.toHaveBeenCalled()
     expect(queue.settlements).toEqual([])
@@ -319,6 +326,70 @@ describe('CentralDispatcher', () => {
     expect(queue.claim).toHaveBeenCalledOnce()
   })
 
+  it.each(['claim', 'settle'] as const)('retries a transaction acquisition timeout during %s', async (operation) => {
+    const queue = createQueue([claimedJob('job-after-transaction-start-timeout')])
+    queue[operation].mockRejectedValueOnce(
+      Object.assign(new Error('Transaction API error: Unable to start a transaction in the given time.'), {
+        code: 'P2028'
+      })
+    )
+    const onFatal = vi.fn()
+    const logger = createLogger()
+    const dispatcher = createDispatcher(queue, completedRegistry(), {
+      onFatal,
+      logger,
+      queueErrorBackoffMs: 200,
+      timing: recoveryTiming(200)
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(onFatal).not.toHaveBeenCalled()
+    expect(logger.info).toHaveBeenCalledWith(
+      'worker.dispatch_queue_recovered',
+      expect.objectContaining({ operation, failures: 1 })
+    )
+  })
+
+  it('bounds retries when transaction acquisition remains unavailable', async () => {
+    const queue = createQueue([])
+    queue.claim.mockRejectedValue(
+      Object.assign(new Error('Transaction API error: Unable to start a transaction in the given time.'), {
+        code: 'P2028'
+      })
+    )
+    const onFatal = vi.fn()
+    const dispatcher = createDispatcher(queue, completedRegistry(), {
+      onFatal,
+      queueErrorBackoffMs: 200,
+      timing: recoveryTiming(200)
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(onFatal).toHaveBeenCalledOnce())
+    await dispatcher.stop()
+
+    expect(queue.claim).toHaveBeenCalledTimes(3)
+    expect(queue.settlements).toEqual([])
+  })
+
+  it('does not retry an expired P2028 transaction as an acquisition timeout', async () => {
+    const queue = createQueue([])
+    queue.claim.mockRejectedValue(
+      Object.assign(new Error('Transaction already closed: expired transaction.'), { code: 'P2028' })
+    )
+    const onFatal = vi.fn()
+    const dispatcher = createDispatcher(queue, completedRegistry(), { onFatal })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(onFatal).toHaveBeenCalledOnce())
+    await dispatcher.stop()
+
+    expect(queue.claim).toHaveBeenCalledOnce()
+  })
+
   it('retries a transient settlement failure without losing the dispatcher loop', async () => {
     const queue = createQueue([claimedJob('job-settle-retry')])
     queue.settle.mockRejectedValueOnce(new Error('write conflict'))
@@ -367,7 +438,7 @@ describe('CentralDispatcher', () => {
     await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
     await dispatcher.stop()
 
-    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([0, 5, 6, 7, 100])
+    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([0, 4, 6, 6, 7, 100])
   })
 
   it('limits realtime progress independently without delaying standard events', async () => {
@@ -397,8 +468,8 @@ describe('CentralDispatcher', () => {
 
     expect(queue.updateProgress.mock.calls.map(([update]) => [update.progress, update.persistenceMode])).toEqual([
       [1, 'REALTIME'],
+      [2, 'REALTIME'],
       [2, undefined],
-      [3, 'REALTIME'],
       [4, undefined]
     ])
   })
@@ -428,6 +499,133 @@ describe('CentralDispatcher', () => {
     expect(queue.updateProgress.mock.calls.map(([update]) => [update.progress, update.forcePersistence])).toEqual([
       [10, undefined],
       [11, true]
+    ])
+  })
+
+  it('persists standard progress at five percent after five seconds and falls back after thirty seconds', async () => {
+    let now = 0
+    const queue = createQueue([claimedJob('job-standard-progress')])
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      execute: async ({ progress }) => {
+        await progress({ progress: 0 })
+        now = 4_999
+        await progress({ progress: 5 })
+        now = 5_000
+        await progress({ progress: 5 })
+        now = 34_999
+        await progress({ progress: 6 })
+        now = 35_000
+        await progress({ progress: 6 })
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, {
+      timing: { now: () => new Date(now), sleep: (_milliseconds, signal) => aborted(signal) }
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([0, 5, 6])
+  })
+
+  it('flushes the newest realtime snapshot before terminal settlement', async () => {
+    let now = 0
+    const queue = createQueue([claimedJob('job-realtime-trailing')])
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      execute: async ({ progress }) => {
+        await progress({ progress: 10 })
+        now = 100
+        await progress({ progress: 11 })
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, {
+      timing: { now: () => new Date(now), sleep: (_milliseconds, signal) => aborted(signal) }
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([10, 11])
+    expect(queue.updateProgress.mock.invocationCallOrder.at(-1)).toBeLessThan(queue.settle.mock.invocationCallOrder[0]!)
+  })
+
+  it('replaces a suppressed snapshot with the newer atomic domain checkpoint before settlement', async () => {
+    let now = 0
+    const queue = createQueue([claimedJob('job-atomic-checkpoint')])
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      execute: async ({ progress, checkpointInTransaction }) => {
+        if (!checkpointInTransaction) throw new Error('Atomic checkpoint support is required')
+        await progress({ progress: 10, stage: 'SCANNING' })
+        now = 100
+        await progress({ progress: 11, stage: 'SCANNING' })
+        await checkpointInTransaction(async () => ({
+          result: undefined,
+          update: {
+            progress: 20,
+            stage: 'SCANNING',
+            progressData: animationProgressData({ attemptedItems: 20, succeededItems: 20, remainingItems: 80 }),
+            persistenceMode: 'REALTIME'
+          }
+        }))
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, {
+      timing: { now: () => new Date(now), sleep: (_milliseconds, signal) => aborted(signal) }
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(queue.withFencedProgressTransaction).toHaveBeenCalledTimes(1)
+    expect(queue.updateProgress.mock.calls.map(([update]) => update.progress)).toEqual([10])
+    expect(vi.mocked(queue.withFencedProgressTransaction).mock.invocationCallOrder[0]).toBeLessThan(
+      queue.settle.mock.invocationCallOrder[0]!
+    )
+  })
+
+  it('flushes the merged snapshot before persisting a stage transition', async () => {
+    let now = 0
+    const queue = createQueue([claimedJob('job-stage-boundary')])
+    const registry = new ExecutorRegistry().register({
+      jobType: 'SCAN',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      execute: async ({ progress }) => {
+        await progress({ progress: 10, stage: 'SCANNING' })
+        now = 100
+        await progress({ progress: 11 })
+        now = 200
+        await progress({ progress: 11, stage: 'WRITING' })
+        return { kind: 'completed' }
+      }
+    })
+    const dispatcher = createDispatcher(queue, registry, {
+      timing: { now: () => new Date(now), sleep: (_milliseconds, signal) => aborted(signal) }
+    })
+
+    await startDispatcher(dispatcher)
+    await vi.waitFor(() => expect(queue.settlements).toHaveLength(1))
+    await dispatcher.stop()
+
+    expect(queue.updateProgress.mock.calls.map(([update]) => [update.progress, update.stage])).toEqual([
+      [10, 'SCANNING'],
+      [11, undefined],
+      [11, 'WRITING']
     ])
   })
 
@@ -750,6 +948,10 @@ function createQueue(jobs: ClaimedJob[]) {
       async (_fence: ExecutionFence, operation: (transaction: QueueSqlExecutor) => Promise<unknown>) =>
         operation({} as never)
     ) as unknown as DispatcherQueuePort['withFencedMutationTransaction'],
+    withFencedProgressTransaction: vi.fn(
+      async (_fence: ExecutionFence, operation: (transaction: QueueSqlExecutor) => Promise<unknown>) =>
+        operation({} as never)
+    ) as unknown as DispatcherQueuePort['withFencedProgressTransaction'],
     withFencedExecutionTransaction: vi.fn(
       async (_fence: ExecutionFence, operation: (scope: FencedExecutionTransaction) => Promise<void>) =>
         operation({
@@ -770,6 +972,28 @@ function createQueue(jobs: ClaimedJob[]) {
     }),
     settlements
   } satisfies DispatcherQueuePort & { settlements: typeof settlements }
+}
+
+function animationProgressData(overrides: Partial<AnimationScanProgressData> = {}): AnimationScanProgressData {
+  return {
+    version: 1,
+    kind: 'animation-scan',
+    stage: 'SCANNING',
+    initializedItems: 100,
+    totalItems: 100,
+    attemptedItems: 10,
+    succeededItems: 10,
+    failedItems: 0,
+    animatedItems: 5,
+    staticItems: 5,
+    remainingItems: 90,
+    activeProbes: 0,
+    concurrencyLimit: 4,
+    itemsPerSecond: 1,
+    etaSeconds: null,
+    sampledAt: '2026-08-14T00:00:00.000Z',
+    ...overrides
+  }
 }
 
 function claimedJob(id: string): ClaimedJob {

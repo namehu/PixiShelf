@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前 workspace、运行组件、依赖方向、数据边界和关键调用链
-last-verified: 2026-09-01
+last-verified: 2026-09-09
 sources:
   - package.json
   - pnpm-workspace.yaml
@@ -20,6 +20,10 @@ sources:
 本文只描述当前代码与部署基线。未来方案保留在 `draft` 功能规格或 ADR 中；历史切换过程保留在 `docs/archive/` 和 `docs/deployment/`，不得混入本文。
 
 ## 系统定位与边界
+
+`packages/pixishelf-webp-player` 是私有浏览器库，默认用于 Next.js WebP 手动播放和作品详情自动浏览，无需构建或运行时开关。它提供单线程 libwebp WASM、同源 Worker、两帧队列和 Canvas 时钟；手动模式遵循文件循环次数，复用已下载输入原地重置合成器，自动浏览只播一轮；不依赖任务 Worker 或数据库。固定工具链仅在原生改动时生成随仓库保存的 prebuilt，每次 dev/build 校验并复制解码器、打包 JS 为版本化静态资源。规格、UML 和剩余真机/反代验证见 [WebP 流式播放器](../design/webp-streaming-player.md)。
+
+WebP 时长是独立的只读媒体元数据：管理员手动创建 `ANIMATION_DURATION_PROBE`，通用 Worker 的 writer lane 用隔离子进程有界解析 RIFF 头，按 Image ID 分页；结果保存在一对一 `ImageAnimationMetadata`，Next App 对作品/浏览查询批量 join 后只传递有效时长。扫描、迁移和 App 媒体写入会用源 revision/门禁失效旧结果，正常页面不逐图访问 NFS。代码设计与尚待真实 NAS 验收的边界见[动图时长方案](../design/animation-duration-probe.md)。
 
 PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。目标用户、质量优先级和非目标以[产品基线](../product/product-baseline.md)为准。
 
@@ -212,24 +216,26 @@ sequenceDiagram
 
 中央模式下，scheduler 在上海时间 `00:00-08:00` 窗口内按天幂等物化所有已启用 DAILY 任务，统一设置 `availableAt=00:00`、`deadlineAt=08:00`，再由队列优先级决定执行顺序。任务设置页中的 `HH:mm` 当前不参与中央 materializer 计算，不能把显示时间理解为精确触发时刻。完整任务清单、状态边界和业务流程见[后台任务业务链路](./background-job-business-flows.md)。
 
-归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。已就绪项目可以在其余项目解析期间多选入队，每个作品创建或复用一个独立 `ARCHIVE_IMPORT`。`/admin/archive` 提供任务分页、筛选、明细和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
+归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。管理员也可以保存 E-Hentai 上传者或标题来源，人工扫描并勾选候选 URL 加入同一收件箱。提交时持久保存模式与画质，界面默认解析并归档：新作品在 resolver fenced 终态事务中自动创建 `ARCHIVE_IMPORT`，已有任务复用，有变化的已有作品等待确认，未变化直接跳过；仅解析及历史收件保留手动入队。App 与 Worker 复用 job-executors 中的入队核心，下载仍由 writer lane 执行。`/admin/archive` 提供紧凑表格/移动卡片、分页筛选、任务详情、作品/原站导航和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
 
-`ARCHIVE_IMPORT` 启动时在 fenced transaction 内读取数据库系统设置并冻结 1–8 的媒体并发，默认 2；同一值控制媒体 worker 与 Provider Governor，writer lane 本身仍固定并发 1。admin layout 维护每标签页唯一的 `/api/jobs/events` SSE，使用持久 `SystemJobEvent.id` 追赶全部后台任务事件。当前归档页消费实时传输遥测，断线时回退轮询；事件 transport 的决策边界见 ADR-0006 和 ADR-0007。
+`ARCHIVE_IMPORT` 启动时在 fenced transaction 内读取数据库系统设置并冻结 1–8 的媒体并发，默认 2；同一值控制媒体 worker 与 Provider Governor，writer lane 本身仍固定并发 1。`WEBP_ANIMATION_SCAN` 的探测并发由 `ANIMATION_SCAN_CONCURRENCY`（1–8，默认 4）控制，属于任务内部有界池，不会增加图片级 `SystemJob`；图片分类微批次、任务行聚合检查点和对应事件原子提交。admin layout 维护每标签页唯一的 `/api/jobs/events` SSE，使用持久 `SystemJobEvent.id` 追赶全部后台任务事件。归档页、任务计划页和后台控制台消费同一事件源；SSE 健康时停止任务状态高频轮询，断线时活动任务 3 秒、空闲页面 30 秒降级。`SystemJob.progressData` 只保存版本化聚合指标，不保存路径、标题、URL 或凭据。事件 transport 的决策边界见 ADR-0006 和 ADR-0007。
 
 一个 Worker host 运行两个 Dispatcher loop：
 
-| Lane                | 固定并发 | 工作范围                                                  |
-| ------------------- | -------- | --------------------------------------------------------- |
-| `ARCHIVE_RESOLVE`   | 1        | 仅 `ARCHIVE_RESOLVE_ITEM`，不写原媒体、派生媒体或 staging |
-| `BACKGROUND_WRITER` | 1        | 其余 25 类 job；所有媒体、扫描、迁移、替换和维护写操作    |
+| Lane                | 固定并发 | 工作范围                                                                                                                                 |
+| ------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `ARCHIVE_RESOLVE`   | 1        | `ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` 与 `ARCHIVE_DISCOVERY_BATCH_SCAN`；不写原媒体、派生媒体或 staging |
+| `BACKGROUND_WRITER` | 1        | 其余 28 类 job；所有媒体写、本地图库扫描、迁移、替换和维护操作                                                                           |
 
-两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 26 个 job type：`SCAN` 同时注册
-v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，其余 24 类只注册 v1，共 29 个 job type/definition-version 组合。capability audit 精确验证 type、
+两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 32 个 job type：`SCAN` 同时注册
+v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，`ARCHIVE_SEARCH_SCAN` 注册 v1/v2/v3，其余 29 类只注册 v1，共 37 个 job type/definition-version 组合。capability audit 精确验证 type、
 version 与 lane。`SCAN@v1` 承载既有设置页扫描、单作品扫描和 Webhook；`SCAN@v2` 只执行只读
 `CONSISTENCY_AUDIT`；`SCAN@v3` 只执行写入型 `AUDIT_APPLY`。这个版本隔离保证滚动部署中的旧 v2 Worker 不会领取
 v3 apply；生产开放新写入口前仍须确认新 Worker 同时报告 SCAN v1/v2/v3。归档解析主要等待 HTTP 和 PostgreSQL，
 writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待允许同一 Node.js 事件循环交替推进两项工作，但
 不构成纯 JavaScript CPU 并行承诺。
+
+上传者/关键词 `SEARCH`、普通归档 `RESOLVE` 均可在 writer lane 的媒体下载期间发起请求；它们共享 Provider 的持久请求间隔和 penalty。活跃下载 lease 只占用下载并发容量，不阻止读取请求。普通请求默认间隔 250ms，`SEARCH` 获准后设置 3 秒间隔；真实站点冷却仍使读取任务退避。此机制解除下载对解析的硬阻塞，不承诺请求严格轮转或防饥饿。
 
 归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。默认启用、显示时间为 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。默认启用、显示时间为 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及过期预览会话，不删除领域归档、作品或媒体；两者在中央模式下仍按统一调度窗口和优先级执行。
 
@@ -243,6 +249,8 @@ Worker 启动前必须通过以下预检：
 - 心跳间隔、租约和事务超时配置满足约束。
 
 ## 数据与存储边界
+
+作品列表的直接删除由 App 同步执行，按实际文件和数据库操作返回逐项报告；已登记媒体、可确认归属的附属文件及空作品目录分别记录结果。共享、未知或不安全路径保留，文件系统与数据库不构成原子事务，部分失败不会伪装成成功。URL 归档继续使用 Worker 回收流程。边界与接口见[作品删除与删除总结](../features/artwork-deletion.md)。
 
 | 数据                       | 权威来源                     | 保护规则                                                                 |
 | -------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
@@ -271,8 +279,8 @@ App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制�
 1. 外部来源引用不能定义本地 Artwork 身份。
 2. 同一时间每个执行 lane 最多一个任务；只允许一个 resolver 和一个 writer，所有媒体写仍全局串行。
 3. 通用 Worker 未通过 READY 和 capability 检查时不得恢复调度。
-4. 生产 capability inventory 固定为 26 个 job type、29 个 type/version 组合；`SCAN` 支持 v1/v2/v3，
-   `ARCHIVE_IMPORT` 支持 v1/v2，其余 24 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
+4. 生产 capability inventory 固定为 32 个 job type、37 个 type/version 组合；`SCAN` 支持 v1/v2/v3，
+   `ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 29 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
 5. 普通启动和升级使用 `prisma migrate deploy`，不得用 `db:push` 替代 migration 历史。
 6. 原媒体、派生媒体、Pixiv data 和数据库需要在一致时间点备份和恢复。
 7. 网络下载、FFmpeg 和文件复制不得放在长数据库事务中。

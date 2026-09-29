@@ -1,3 +1,4 @@
+import type { ExecutionContext } from '@pixishelf/job-runtime'
 import * as fs from 'node:fs/promises'
 import sharp from 'sharp'
 import {
@@ -55,6 +56,7 @@ export async function generateVideoChapterPreviews(input: {
   signal: AbortSignal
   progress: (progress: VideoProcessingProgress) => Promise<void>
   mutate: RunFencedVideoMutation
+  recordDiagnostic?: ExecutionContext['recordDiagnostic']
 }): Promise<VideoChapterPreviewGenerationResult> {
   const pageSize = Math.min(input.config.chapterPageSize ?? 50, MAX_PAGE_SIZE)
   const processTimeoutMs = input.config.chapterProcessTimeoutMs ?? 2 * 60_000
@@ -232,8 +234,8 @@ export async function generateVideoChapterPreviews(input: {
               const message = errorMessage(error)
               result.audioFailed += 1
               pushFailure(result, { imageId: video.id, path: video.path, chapterOrder, error: message })
-              await input.mutate((transaction) =>
-                transaction.mediaChapterPreview.upsert({
+              await input.mutate(async (transaction) => {
+                await transaction.mediaChapterPreview.upsert({
                   where: { imageId_chapterOrder: { imageId: video.id, chapterOrder } },
                   create: {
                     imageId: video.id,
@@ -253,7 +255,16 @@ export async function generateVideoChapterPreviews(input: {
                     audioProbeError: message
                   }
                 })
-              )
+                await input.recordDiagnostic?.(transaction, {
+                  key: 'chapter_audio:' + String(video.id) + ':' + chapterOrder,
+                  scope: 'ITEM',
+                  targetType: 'IMAGE',
+                  targetId: String(video.id),
+                  targetLabel: video.path,
+                  stage: 'CHAPTER_AUDIO',
+                  error
+                })
+              })
             }
           }
 
@@ -361,12 +372,21 @@ export async function generateVideoChapterPreviews(input: {
             const message = errorMessage(error)
             result.failed += 1
             pushFailure(result, { imageId: video.id, path: video.path, chapterOrder, error: message })
-            await input.mutate((transaction) =>
-              transaction.mediaChapterPreview.update({
+            await input.mutate(async (transaction) => {
+              await transaction.mediaChapterPreview.update({
                 where: { imageId_chapterOrder: { imageId: video.id, chapterOrder } },
                 data: { status: 'FAILED', error: message }
               })
-            )
+              await input.recordDiagnostic?.(transaction, {
+                key: 'chapter_preview:' + String(video.id) + ':' + chapterOrder,
+                scope: 'ITEM',
+                targetType: 'IMAGE',
+                targetId: String(video.id),
+                targetLabel: video.path,
+                stage: 'CHAPTER_PREVIEW',
+                error
+              })
+            })
           }
           await input.progress({
             percentage: Math.min(95, 5 + Math.floor((90 * result.processed) / (result.processed + 50))),
@@ -381,12 +401,21 @@ export async function generateVideoChapterPreviews(input: {
         result.failed += 1
         const message = errorMessage(error)
         pushFailure(result, { imageId: video.id, path: video.path, chapterOrder: null, error: message })
-        await input.mutate((transaction) =>
-          transaction.mediaChapterPreview.updateMany({
+        await input.mutate(async (transaction) => {
+          await transaction.mediaChapterPreview.updateMany({
             where: { imageId: video.id },
             data: { status: 'FAILED', error: message }
           })
-        )
+          await input.recordDiagnostic?.(transaction, {
+            key: 'video:' + String(video.id),
+            scope: 'ITEM',
+            targetType: 'IMAGE',
+            targetId: String(video.id),
+            targetLabel: video.path,
+            stage: 'VIDEO',
+            error
+          })
+        })
       }
     }
     if (videos.length < pageSize) break

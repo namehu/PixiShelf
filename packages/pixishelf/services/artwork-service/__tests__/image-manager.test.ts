@@ -9,7 +9,8 @@ const {
   transactionMock,
   getScanPathMock,
   unlinkMock,
-  syncMediaDerivedTagMock
+  syncMediaDerivedTagMock,
+  lockArtworkMock
 } =
   vi.hoisted(() => ({
     artworkFindUniqueMock: vi.fn(),
@@ -20,8 +21,14 @@ const {
     transactionMock: vi.fn(),
     getScanPathMock: vi.fn(),
     unlinkMock: vi.fn(),
-    syncMediaDerivedTagMock: vi.fn()
+    syncMediaDerivedTagMock: vi.fn(),
+    lockArtworkMock: vi.fn().mockResolvedValue({ id: 2, mediaRevision: 1 })
   }))
+
+vi.mock('@pixishelf/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pixishelf/db')>()),
+  lockArtworkForReading: lockArtworkMock
+}))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {

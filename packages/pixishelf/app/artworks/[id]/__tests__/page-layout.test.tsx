@@ -9,6 +9,7 @@ vi.mock('@/services/artwork-service', () => ({
     description: '作品描述',
     externalId: null,
     artist: { id: 13, name: '测试艺术家', avatar: null },
+    creators: [{ id: 13, name: '测试艺术家', avatar: null, kind: 'PERSON' }],
     images: [{ id: 1, path: '/media.jpg' }],
     tags: [{ id: 1, name: '测试标签' }],
     series: []
@@ -16,8 +17,8 @@ vi.mock('@/services/artwork-service', () => ({
 }))
 
 vi.mock('../_components/nav-head', () => ({ default: () => null }))
-vi.mock('../_components/artwork-images', () => ({
-  default: () => <div data-testid="artwork-images" />
+vi.mock('../_components/artwork-media-section', () => ({
+  ArtworkMediaSection: () => <div data-testid="artwork-images" />
 }))
 vi.mock('../_components/artwork-des', () => ({
   default: () => <div data-testid="artwork-description" />

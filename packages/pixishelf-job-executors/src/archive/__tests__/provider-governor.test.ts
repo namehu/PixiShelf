@@ -66,13 +66,13 @@ describe('PostgresArchiveProviderGovernor', () => {
     expect(sleep).not.toHaveBeenCalled()
   })
 
-  it.each([
-    ['DOWNLOAD_ACTIVE', new Date('2026-08-18T10:01:00.000Z'), 'PROVIDER_DOWNLOAD_PRIORITY'],
-    ['PENALTY', new Date('2026-08-18T10:10:00.000Z'), null]
-  ] as const)(
-    'fails resolver acquisition fast for %s instead of polling while RUNNING',
-    async (reason, waitUntil, decisionCode) => {
-      const transaction = vi.fn().mockResolvedValue({ reason, waitUntil })
+  it.each(['RESOLVE', 'SEARCH'] as const)(
+    'yields %s acquisition during a real provider penalty instead of polling while RUNNING',
+    async (requestClass) => {
+      const transaction = vi.fn().mockResolvedValue({
+        reason: 'PENALTY',
+        waitUntil: new Date('2026-08-18T10:10:00.000Z')
+      })
       const sleep = vi.fn(async () => undefined)
       const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, {
         now: () => new Date('2026-08-18T10:00:00.000Z'),
@@ -80,8 +80,57 @@ describe('PostgresArchiveProviderGovernor', () => {
       })
 
       await expect(
-        governor.acquire('test', 'RESOLVE', new AbortController().signal, { yieldToDownloads: true })
-      ).rejects.toMatchObject({ code: 'REMOTE_RATE_LIMITED', recoverable: true, decisionCode })
+        governor.acquire('test', requestClass, new AbortController().signal, { yieldOnPenalty: true })
+      ).rejects.toMatchObject({
+        code: 'REMOTE_RATE_LIMITED',
+        message: '来源站点仍处于请求限流等待期',
+        recoverable: true,
+        decisionCode: null,
+        retryAfterMs: 600_000
+      })
+      expect(sleep).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each(['RESOLVE', 'SEARCH'] as const)(
+    'grants a %s permit while download capacity is full',
+    async (requestClass) => {
+      const now = new Date('2026-08-18T10:00:00.000Z')
+      const requestLeaseCreate = vi.fn(async () => ({}))
+      const transactionClient = {
+        archiveProviderThrottle: {
+          upsert: vi.fn(async () => ({})),
+          update: vi.fn(async () => ({}))
+        },
+        archiveProviderRequestLease: {
+          deleteMany: vi.fn(async () => ({ count: 0 })),
+          findMany: vi.fn(async () =>
+            Array.from({ length: 2 }, () => ({ expiresAt: new Date('2026-08-18T10:05:00.000Z') }))
+          ),
+          create: requestLeaseCreate
+        },
+        $queryRawUnsafe: vi.fn(async () => [{ nextRequestAt: now, penaltyUntil: null }])
+      }
+      const database = {
+        $transaction: vi.fn(async (operation: (transaction: typeof transactionClient) => Promise<unknown>) =>
+          operation(transactionClient)
+        )
+      }
+      const sleep = vi.fn(async () => undefined)
+      const governor = new PostgresArchiveProviderGovernor(database as unknown as PrismaClient, {
+        now: () => now,
+        sleep
+      })
+
+      await expect(
+        governor.acquire('e-hentai', requestClass, new AbortController().signal, { yieldOnPenalty: true })
+      ).resolves.toMatchObject({
+        providerKey: 'e-hentai',
+        requestClass
+      })
+      expect(requestLeaseCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ providerKey: 'e-hentai', requestClass })
+      })
       expect(sleep).not.toHaveBeenCalled()
     }
   )
@@ -107,6 +156,37 @@ describe('PostgresArchiveProviderGovernor', () => {
 })
 
 describe('GovernedArchiveProviderRegistry', () => {
+  it('takes a SEARCH permit for the uploader listing, metadata, and UID evidence page', async () => {
+    const http = {
+      text: vi.fn(async () => '<a href="https://e-hentai.org/g/123/gallerytoken/">Gallery</a>'),
+      json: vi.fn(async () => ({
+        gmetadata: [{ gid: 123, token: 'gallerytoken', title: 'Gallery', uploader: 'alice', filecount: '1', tags: [] }]
+      }))
+    }
+    const governor = createGovernor()
+    const registry = new GovernedArchiveProviderRegistry(
+      new DefaultArchiveMediaProviderRegistry([new EHentaiProvider(http as never)]),
+      governor
+    )
+
+    await registry.getUploaderScanner('e-hentai').scanUploader({
+      identityKind: 'NAME',
+      identityValue: 'alice',
+      cursor: null,
+      stopAtExternalId: null,
+      limit: 100
+    })
+
+    expect(governor.acquire).toHaveBeenCalledTimes(3)
+    expect(governor.acquire.mock.calls.map((call) => call[1])).toEqual(['SEARCH', 'SEARCH', 'SEARCH'])
+    expect(governor.acquire.mock.calls.map((call) => call[3])).toEqual([
+      { yieldOnPenalty: true },
+      { yieldOnPenalty: true },
+      { yieldOnPenalty: true }
+    ])
+    expect(governor.release).toHaveBeenCalledTimes(3)
+  })
+
   it('takes and releases a governor permit for every E-Hentai resolve HTTP request', async () => {
     const http = {
       json: vi.fn(async () => ({
@@ -134,9 +214,53 @@ describe('GovernedArchiveProviderRegistry', () => {
     expect(http.text).toHaveBeenCalledOnce()
     expect(governor.acquire).toHaveBeenCalledTimes(2)
     expect(governor.acquire).toHaveBeenNthCalledWith(1, 'e-hentai', 'RESOLVE', expect.any(AbortSignal), {
-      yieldToDownloads: true
+      yieldOnPenalty: true
     })
     expect(governor.release).toHaveBeenCalledTimes(2)
+  })
+
+  it('governs gallery thumbnail preview HTML as a yielding RESOLVE request', async () => {
+    const http = {
+      text: vi.fn(async () =>
+        [
+          '<div id="gdt"><div class="gdtl">',
+          '<a href="/s/page/123-1"><img src="https://ehgt.org/t/thumb.jpg" width="100" height="140"></a>',
+          '</div></div>'
+        ].join('')
+      )
+    }
+    const governor = createGovernor()
+    const provider = new GovernedArchiveProviderRegistry(
+      new DefaultArchiveMediaProviderRegistry([new EHentaiProvider(http as never)]),
+      governor
+    ).getForUrl('https://e-hentai.org/g/123/gallerytoken/')
+
+    await expect(provider.previewPage?.({ url: 'https://e-hentai.org/g/123/gallerytoken/', page: 0 })).resolves.toMatchObject({
+      externalId: '123',
+      items: [{ ordinal: 0, url: 'https://ehgt.org/t/thumb.jpg', width: 100, height: 140 }]
+    })
+    expect(governor.acquire).toHaveBeenCalledOnce()
+    expect(governor.acquire).toHaveBeenCalledWith('e-hentai', 'RESOLVE', expect.any(AbortSignal), {
+      yieldOnPenalty: true
+    })
+    expect(governor.release).toHaveBeenCalledOnce()
+  })
+
+  it('penalizes an HTTP 200 throttle warning thrown inside preview governance', async () => {
+    const http = {
+      text: vi.fn(async () => '<html>Your IP address has been temporarily banned for excessive pageloads.</html>')
+    }
+    const governor = createGovernor()
+    const provider = new GovernedArchiveProviderRegistry(
+      new DefaultArchiveMediaProviderRegistry([new EHentaiProvider(http as never)]),
+      governor
+    ).getForUrl('https://e-hentai.org/g/123/gallerytoken/')
+
+    await expect(
+      provider.previewPage?.({ url: 'https://e-hentai.org/g/123/gallerytoken/', page: 0 })
+    ).rejects.toMatchObject({ code: 'REMOTE_RATE_LIMITED', recoverable: true })
+    expect(governor.penalize).toHaveBeenCalledWith('e-hentai', 'REMOTE_RATE_LIMITED', expect.any(Date))
+    expect(governor.release).toHaveBeenCalledOnce()
   })
 
   it('takes separate permits for the E-Hentai source page and media stream requests', async () => {
@@ -281,7 +405,7 @@ describe('GovernedArchiveProviderRegistry', () => {
   })
 })
 
-function createPermit(requestClass: 'RESOLVE' | 'DOWNLOAD', renewAfterMs = 1_000): ArchiveProviderPermit {
+function createPermit(requestClass: 'SEARCH' | 'RESOLVE' | 'DOWNLOAD', renewAfterMs = 1_000): ArchiveProviderPermit {
   return {
     id: `${requestClass.toLowerCase()}-${Math.random()}`,
     providerKey: 'test',
@@ -295,9 +419,9 @@ function createGovernor(options: { renewAfterMs?: number } = {}) {
     acquire: vi.fn(
       async (
         _providerKey: string,
-        requestClass: 'RESOLVE' | 'DOWNLOAD',
+        requestClass: 'SEARCH' | 'RESOLVE' | 'DOWNLOAD',
         _signal: AbortSignal,
-        _options?: { yieldToDownloads?: boolean; maxConcurrentDownloads?: number }
+        _options?: { yieldOnPenalty?: boolean; maxConcurrentDownloads?: number }
       ) => createPermit(requestClass, options.renewAfterMs)
     ),
     renew: vi.fn(async (_permit: ArchiveProviderPermit) => undefined),

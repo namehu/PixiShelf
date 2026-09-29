@@ -61,6 +61,16 @@ jobs:
       - name: Run database and Worker unit tests
         run: pnpm --filter @pixishelf/worker... test
 
+      - name: Verify prebuilt WebP decoder and browser playback
+        run: |
+          pnpm --filter @pixishelf/webp-player typecheck
+          pnpm --filter @pixishelf/webp-player test
+          pnpm --filter @pixishelf/webp-player verify:prebuilt
+          pnpm --filter @pixishelf/webp-player test:prebuilt
+          pnpm --filter @pixishelf/webp-player build
+          pnpm --filter @pixishelf/webp-player exec playwright install --with-deps chromium
+          pnpm --filter @pixishelf/webp-player test:browser
+
       - name: Verify Web consumes workspace sources without job package dist
         env:
           NEXT_PUBLIC_IMGPROXY_URL: __NEXT_PUBLIC_IMGPROXY_URL__

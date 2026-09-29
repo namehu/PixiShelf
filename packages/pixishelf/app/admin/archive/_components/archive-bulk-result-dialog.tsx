@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 export type ArchiveBulkOperationView = NonNullable<RouterOutputs['archive']['getBulkOperation']>
@@ -74,7 +75,11 @@ export function ArchiveBulkResultDialog({ operation, onOpenChange }: ArchiveBulk
                           <ResultBadge result={item.result} />
                         </TableCell>
                         <TableCell className="max-w-md whitespace-normal text-muted-foreground">
-                          {item.message || item.code || '操作已完成'}
+                          {item.message ? (
+                            <PrivacySensitiveText>{item.message}</PrivacySensitiveText>
+                          ) : (
+                            item.code || '操作已完成'
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -124,6 +129,8 @@ function commandLabel(command: ArchiveBulkOperationView['commandType']) {
   return (
     {
       ENQUEUE: '归档入队',
+      BIND_CREATORS: '绑定艺术家',
+      CANCEL_PENDING_CREATORS: '取消待生效绑定',
       PAUSE: '暂停',
       RESUME: '继续',
       CANCEL: '取消',

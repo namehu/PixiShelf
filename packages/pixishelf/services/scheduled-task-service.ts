@@ -53,6 +53,10 @@ export interface ScheduledTaskLastJobResult {
   deletedPreviewSessions?: number
   deletedLogs?: number
   deletedRuns?: number
+  progressCandidates?: number
+  lifecycleCandidates?: number
+  deletedProgressEvents?: number
+  deletedLifecycleEvents?: number
   selected?: number
   deleted?: number
   missing?: number
@@ -76,8 +80,25 @@ export interface SchedulerTickResult {
 }
 
 export async function ensureDefaultScheduledTasks() {
-  // 先幂等恢复任务定义：配置/时区/互斥键来自 registry 定义，任务项按 key 进行 upsert，避免用户删除后启动时丢失任务。
+  const existingTasks = await prisma.scheduledTask.findMany({
+    where: { key: { in: SCHEDULED_TASK_DEFINITIONS.map(({ key }) => key) } },
+    select: { key: true, type: true, scheduleMode: true, timezone: true, mutexKey: true }
+  })
+  const existingByKey = new Map(existingTasks.map((task) => [task.key, task]))
+
+  // Registry-owned fields are repaired only when missing or changed. This keeps
+  // every task-list refresh from turning into a burst of otherwise identical upserts.
   for (const definition of SCHEDULED_TASK_DEFINITIONS) {
+    const existing = existingByKey.get(definition.key)
+    if (
+      existing &&
+      existing.type === definition.type &&
+      existing.scheduleMode === ScheduleMode.DAILY &&
+      existing.timezone === definition.defaultTimezone &&
+      existing.mutexKey === definition.mutexKey
+    ) {
+      continue
+    }
     await prisma.scheduledTask.upsert({
       where: { key: definition.key },
       update: {
@@ -172,6 +193,10 @@ function getScheduledTaskLastJobResult(result: unknown): ScheduledTaskLastJobRes
     'deletedPreviewSessions',
     'deletedLogs',
     'deletedRuns',
+    'progressCandidates',
+    'lifecycleCandidates',
+    'deletedProgressEvents',
+    'deletedLifecycleEvents',
     'selected',
     'deleted',
     'missing',

@@ -25,7 +25,7 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
   const findScanRunItems = vi.fn().mockResolvedValue([])
   const queryRawUnsafe = vi.fn().mockResolvedValue([{ id: 'intake-1' }])
   const create = vi.fn().mockResolvedValue(records.at(-1))
-  const acknowledgementUpsert = vi.fn().mockResolvedValue({})
+  const acknowledgementCreateMany = vi.fn().mockResolvedValue({ count: 1 })
   let eventId = BigInt(0)
   const eventCreate = vi.fn(async ({ data }: { data: Record<string, unknown> }) =>
     eventRecord({
@@ -41,7 +41,7 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     $queryRaw: queryRaw,
     $queryRawUnsafe: queryRawUnsafe,
     systemJob: { findUnique, updateMany, create },
-    systemJobFailureAcknowledgement: { upsert: acknowledgementUpsert },
+    systemJobFailureAcknowledgement: { createMany: acknowledgementCreateMany },
     archiveIntakeItem: { updateMany: updateIntakeItems },
     scanRun: { findUnique: findScanRun, updateMany: updateScanRuns },
     scanRunItem: { updateMany: updateScanRunItems, findMany: findScanRunItems },
@@ -60,7 +60,7 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     updateScanRunItems,
     findScanRunItems,
     create,
-    acknowledgementUpsert,
+    acknowledgementCreateMany,
     eventCreate
   }
 }
@@ -100,16 +100,20 @@ describe('enqueueJob', () => {
     )
   })
 
-  it('rejects resolver jobs outside the archive intake workflow', async () => {
+  it.each([
+    { type: 'ARCHIVE_RESOLVE_ITEM' as const, payload: { intakeItemId: 'intake-1' } },
+    { type: 'ARCHIVE_UPLOADER_SCAN' as const, payload: { scanRunId: 'scan-run-1' } },
+    { type: 'ARCHIVE_SEARCH_SCAN' as const, payload: { scanRunId: 'scan-run-1' } }
+  ])('rejects $type jobs outside their archive workflow', async ({ type, payload }) => {
     const harness = commandHarness([])
 
     await expect(
       enqueueJob(
         {
-          type: 'ARCHIVE_RESOLVE_ITEM',
+          type,
           triggerSource: 'SYSTEM',
           priority: 100,
-          payload: { intakeItemId: 'intake-1' }
+          payload
         },
         harness.client
       )
@@ -721,14 +725,15 @@ describe('job commands', () => {
       })
     )
     expect(harness.eventCreate).toHaveBeenCalledTimes(2)
-    expect(harness.acknowledgementUpsert).toHaveBeenCalledWith({
-      where: { jobId: failed.id },
-      create: expect.objectContaining({
-        jobId: failed.id,
-        acknowledgedByUserId: 'admin-1',
-        source: 'RETRY'
-      }),
-      update: {}
+    expect(harness.acknowledgementCreateMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          jobId: failed.id,
+          acknowledgedByUserId: 'admin-1',
+          source: 'RETRY'
+        })
+      ],
+      skipDuplicates: true
     })
   })
 
@@ -742,15 +747,16 @@ describe('job commands', () => {
     ).resolves.toMatchObject({ id: failed.id, status: 'FAILED' })
 
     expect(harness.updateMany).not.toHaveBeenCalled()
-    expect(harness.acknowledgementUpsert).toHaveBeenCalledWith({
-      where: { jobId: failed.id },
-      create: {
-        jobId: failed.id,
-        acknowledgedAt: timestamp,
-        acknowledgedByUserId: 'admin-1',
-        source: 'MANUAL'
-      },
-      update: {}
+    expect(harness.acknowledgementCreateMany).toHaveBeenCalledWith({
+      data: [
+        {
+          jobId: failed.id,
+          acknowledgedAt: timestamp,
+          acknowledgedByUserId: 'admin-1',
+          source: 'MANUAL'
+        }
+      ],
+      skipDuplicates: true
     })
   })
 
@@ -762,7 +768,7 @@ describe('job commands', () => {
       acknowledgeJobFailureCommand({ jobId: completed.id, requestedByUserId: 'admin-1' }, harness.client)
     ).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' })
 
-    expect(harness.acknowledgementUpsert).not.toHaveBeenCalled()
+    expect(harness.acknowledgementCreateMany).not.toHaveBeenCalled()
   })
 
   it('does not clone a terminal historical FULL_RECONCILE scan', async () => {

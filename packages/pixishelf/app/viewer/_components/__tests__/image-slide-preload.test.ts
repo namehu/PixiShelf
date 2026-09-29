@@ -11,7 +11,8 @@ const image: ViewerMediaItem = {
   mediaType: MediaType.IMAGE,
   size: 1024 * 1024,
   width: 2000,
-  height: 1000
+  height: 1000,
+  animationMetadata: null
 }
 
 describe('isViewerMediaPreloadEligible', () => {

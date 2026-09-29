@@ -1,0 +1,42 @@
+erDiagram
+  Image ||--o| ImageAnimationMetadata : imageId_cascade
+  SystemJob ||--o{ SystemJobEvent : emits
+  Image {
+    int id PK
+    string path
+    bigint size
+    datetime updatedAt
+  }
+  ImageAnimationMetadata {
+    int imageId PK, FK
+    enum format
+    bigint durationMs
+    int frameCount
+    int loopCount
+    enum status
+    int timingPolicyVersion
+    datetime probedAt
+    string sourcePath
+    bigint sourceSize
+    bigint sourceMtimeMs
+    bigint sourceCtimeMs
+    bigint sourceDeviceId
+    bigint sourceInode
+    int sourceRevision
+    bool writeInProgress
+    string failureCode
+    int attemptCount
+    datetime nextRetryAt
+  }
+  SystemJob {
+    string id PK
+    string type
+    enum executionLane
+    enum status
+    string executionToken
+  }
+  SystemJobEvent {
+    string id PK
+    string systemJobId FK
+    string eventType
+  }

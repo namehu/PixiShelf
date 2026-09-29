@@ -15,6 +15,7 @@ export function createPendingReplaceExecutorRegistrations<TTransaction extends Q
     jobType: 'PENDING_REPLACE',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => pendingReplacePayloadSchema.parse(payload),
     execute: (context) => executePendingReplace(context, dependencies)
   }

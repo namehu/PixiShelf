@@ -159,4 +159,30 @@ describe('ProTable Integration', () => {
     expect(screen.queryByRole('columnheader', { name: 'Cover' })).toBeNull()
     expect(screen.queryByText('cover.webp')).toBeNull()
   })
+
+  it('marks sensitive columns, suppresses the native truncation tooltip, and preserves explicit copying', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText }
+    })
+    const columns = [
+      {
+        header: '文件名',
+        accessorKey: 'filename',
+        ellipsis: true,
+        copyable: true,
+        privacySensitive: true
+      }
+    ]
+
+    render(<ProTable columns={columns} dataSource={[{ id: 1, filename: '秘密文件.jpg' }]} rowKey="id" />)
+
+    const sensitiveText = screen.getByText('秘密文件.jpg')
+    expect(sensitiveText.getAttribute('data-privacy-sensitive')).toBe('')
+    expect(sensitiveText.getAttribute('title')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '复制 秘密文件.jpg' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('秘密文件.jpg'))
+  })
 })

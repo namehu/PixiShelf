@@ -1,3 +1,4 @@
+import { creatorRouter } from './routers/creator'
 import { router } from './trpc'
 import { authRouter } from './routers/auth'
 import { settingRouter } from './routers/setting'
@@ -15,7 +16,11 @@ import { scanRunRouter } from './routers/scan-run'
 import { pendingReplaceRouter } from './routers/pending-replace'
 import { archiveRouter } from './routers/archive'
 import { archiveInboxRouter } from './routers/archive-inbox'
+import { archiveUploaderRouter } from './routers/archive-uploader'
+import { archiveSearchRouter } from './routers/archive-search'
 import { sourceAuditRouter } from './routers/source-audit'
+import { archivePreviewRouter } from './routers/archive-preview'
+import { readingRouter } from './routers/reading'
 
 // 挂载子路由
 export const appRouter = router({
@@ -23,7 +28,9 @@ export const appRouter = router({
   setting: settingRouter,
   user: userRouter,
   artist: artistRouter,
+  creator: creatorRouter,
   artwork: artworkRouter,
+  reading: readingRouter,
   search: searchRouter,
   tag: tagRouter,
   series: seriesRouter,
@@ -35,6 +42,9 @@ export const appRouter = router({
   pendingReplace: pendingReplaceRouter,
   archive: archiveRouter,
   archiveInbox: archiveInboxRouter,
+  archiveUploader: archiveUploaderRouter,
+  archiveSearch: archiveSearchRouter,
+  archivePreview: archivePreviewRouter,
   sourceAudit: sourceAuditRouter
 })
 

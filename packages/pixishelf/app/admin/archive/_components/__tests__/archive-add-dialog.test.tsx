@@ -4,33 +4,80 @@ import { ArchiveAddDialog } from '../archive-add-dialog'
 
 const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
-  mutate: vi.fn()
+  create: vi.fn(),
+  preview: vi.fn(),
+  push: vi.fn()
 }))
 
 vi.mock('@tanstack/react-query', () => ({
-  useMutation: () => ({ isPending: false, mutate: mocks.mutate }),
+  useMutation: (options: { kind?: string }) => ({
+    isPending: false,
+    mutate: options.kind === 'preview' ? mocks.preview : mocks.create
+  }),
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries })
 }))
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
 
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
     archiveInbox: {
-      create: { mutationOptions: (options: unknown) => options },
+      create: { mutationOptions: (options: object) => ({ kind: 'create', ...options }) },
       list: { queryKey: () => ['archive-inbox', 'list'] },
       summary: { queryKey: () => ['archive-inbox', 'summary'] }
+    },
+    archivePreview: {
+      open: { mutationOptions: (options: object) => ({ kind: 'preview', ...options }) }
     }
   })
 }))
 
 describe('ArchiveAddDialog', () => {
   beforeEach(() => {
-    mocks.mutate.mockReset()
+    mocks.create.mockReset()
+    mocks.preview.mockReset()
+    mocks.push.mockReset()
     mocks.invalidateQueries.mockReset()
   })
 
   afterEach(() => {
     cleanup()
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined })
+  })
+
+  it('submits new links with automatic original downloads by default', () => {
+    render(<ArchiveAddDialog />)
+    fireEvent.click(screen.getByRole('button', { name: '添加链接' }))
+    fireEvent.change(screen.getByLabelText('作品链接'), {
+      target: { value: 'https://e-hentai.org/g/123/token/' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: '加入 1 条' }))
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        urls: ['https://e-hentai.org/g/123/token/'],
+        downloadMode: 'AUTO',
+        quality: 'ORIGINAL'
+      })
+    )
+  })
+
+  it('allows parse-only display quality and resets the next submission to defaults', () => {
+    render(<ArchiveAddDialog />)
+    fireEvent.click(screen.getByRole('button', { name: '添加链接' }))
+    fireEvent.change(screen.getByLabelText('作品链接'), {
+      target: { value: 'https://e-hentai.org/g/123/token/' }
+    })
+    fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
+    fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
+    expect(screen.getByText('只解析作品信息；完成后在收件箱选择项目并确认下载。')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '加入 1 条' }))
+    expect(mocks.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ downloadMode: 'MANUAL', quality: 'DISPLAY' })
+    )
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    fireEvent.click(screen.getByRole('button', { name: '添加链接' }))
+    expect(screen.getByRole('radio', { name: '自动下载' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('radio', { name: '原图' }).getAttribute('aria-checked')).toBe('true')
   })
 
   it('reads the clipboard on explicit action and appends without submitting', async () => {
@@ -51,7 +98,7 @@ describe('ArchiveAddDialog', () => {
     })
     expect(readText).toHaveBeenCalledOnce()
     expect(screen.getByText('已粘贴 · 2 条链接可加入')).toBeTruthy()
-    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(mocks.create).not.toHaveBeenCalled()
   })
 
   it('focuses the input and accepts the next system paste when clipboard permission is denied', async () => {
@@ -77,6 +124,24 @@ describe('ArchiveAddDialog', () => {
 
     expect(input.value).toBe('https://e-hentai.org/g/7654321/fallback-token/')
     expect(screen.getByText('已粘贴 · 1 条链接可加入')).toBeTruthy()
-    expect(mocks.mutate).not.toHaveBeenCalled()
+    expect(mocks.create).not.toHaveBeenCalled()
+  })
+
+  it('offers a pure preview only for one recognized link', () => {
+    render(<ArchiveAddDialog />)
+    fireEvent.click(screen.getByRole('button', { name: '添加链接' }))
+    const input = screen.getByLabelText('作品链接')
+    fireEvent.change(input, { target: { value: 'https://e-hentai.org/g/123/token/?p=2#page' } })
+
+    fireEvent.click(screen.getByRole('button', { name: '仅预览' }))
+    expect(mocks.preview).toHaveBeenCalledWith({
+      source: { kind: 'url', url: 'https://e-hentai.org/g/123/token/?p=2#page' }
+    })
+    expect(mocks.create).not.toHaveBeenCalled()
+
+    fireEvent.change(input, {
+      target: { value: 'https://e-hentai.org/g/123/token/\nhttps://e-hentai.org/g/124/token/' }
+    })
+    expect(screen.queryByRole('button', { name: '仅预览' })).toBeNull()
   })
 })

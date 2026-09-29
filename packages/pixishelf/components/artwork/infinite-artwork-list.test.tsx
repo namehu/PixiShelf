@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import InfiniteArtworkList from './infinite-artwork-list'
 import { useInView } from 'react-intersection-observer'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { useTRPC } from '@/lib/trpc'
+import { useTRPCClient } from '@/lib/trpc'
 import { useColumns } from '@/hooks/use-columns'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 
@@ -11,6 +11,8 @@ import { useWindowVirtualizer } from '@tanstack/react-virtual'
 vi.mock('react-intersection-observer')
 vi.mock('@tanstack/react-query')
 vi.mock('@/lib/trpc')
+vi.mock('@/components/auth', () => ({ useAuthUser: () => ({ id: 'alice' }) }))
+vi.mock('@/lib/reading/reading-provider', () => ({ useReadingSummaries: () => ({ byArtworkId: new Map() }) }))
 vi.mock('@/components/user-setting', () => ({
   useArtworkDisplayMode: vi.fn(() => 'card')
 }))
@@ -50,7 +52,6 @@ Object.defineProperty(window, 'scrollTo', {
 
 describe('InfiniteArtworkList', () => {
   const fetchNextPageMock = vi.fn().mockResolvedValue({})
-  const infiniteQueryOptionsMock = vi.fn()
   let inViewFlag = false
 
   beforeEach(() => {
@@ -69,10 +70,10 @@ describe('InfiniteArtworkList', () => {
       getVirtualItems: () => [],
       options: { scrollMargin: 0 }
     })
-    ;(useTRPC as any).mockReturnValue({
+    ;(useTRPCClient as any).mockReturnValue({
       artwork: {
         cardList: {
-          infiniteQueryOptions: infiniteQueryOptionsMock
+          query: vi.fn()
         }
       }
     })
@@ -87,12 +88,59 @@ describe('InfiniteArtworkList', () => {
       isError: false
     })
 
-    infiniteQueryOptionsMock.mockReturnValue({})
   })
 
   it('should not trigger fetchNextPage when not in view', () => {
     render(<InfiniteArtworkList />)
     expect(fetchNextPageMock).not.toHaveBeenCalled()
+  })
+
+  it('renders cards when data arrives after an initial empty render and a filtered empty state', async () => {
+    ;(useWindowVirtualizer as any).mockImplementation((options: { enabled: boolean; count: number }) => ({
+      getTotalSize: () => options.enabled ? 300 : 0,
+      getVirtualItems: () => options.enabled && options.count > 0
+        ? [{ index: 0, key: 'row-0', start: 0, size: 300 }] : [],
+      options: { scrollMargin: 0 }
+    }))
+    const { rerender } = render(<InfiniteArtworkList />)
+    expect(useWindowVirtualizer).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }))
+
+    ;(useInfiniteQuery as any).mockReturnValue({
+      data: { pages: [{ items: [{ id: 1 }], total: 1 }] },
+      fetchNextPage: fetchNextPageMock,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      isLoading: false,
+      isError: false
+    })
+    rerender(<InfiniteArtworkList />)
+
+    await waitFor(() => {
+      expect(useWindowVirtualizer).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true, count: 1 }))
+      expect(screen.getByTestId('artwork-card')).toBeTruthy()
+    })
+
+    ;(useInfiniteQuery as any).mockReturnValue({
+      data: { pages: [{ items: [], total: 0 }] },
+      fetchNextPage: fetchNextPageMock,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      isLoading: false,
+      isError: false
+    })
+    rerender(<InfiniteArtworkList searchQuery="no matches" />)
+    expect(screen.queryByTestId('artwork-card')).toBeNull()
+
+    ;(useInfiniteQuery as any).mockReturnValue({
+      data: { pages: [{ items: [{ id: 2 }], total: 1 }] },
+      fetchNextPage: fetchNextPageMock,
+      hasNextPage: false,
+      isFetchingNextPage: false,
+      isLoading: false,
+      isError: false
+    })
+    rerender(<InfiniteArtworkList searchQuery="matched again" />)
+    await waitFor(() => expect(screen.getByTestId('artwork-card')).toBeTruthy())
   })
 
   it('should trigger fetchNextPage when in view and has next page', async () => {

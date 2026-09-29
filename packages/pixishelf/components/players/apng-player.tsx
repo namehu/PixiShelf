@@ -15,10 +15,13 @@ interface ApngPlayerProps {
   /** 图片的替代文本 */
   alt?: string
   className?: string
+  onPosterLoad?: () => void
+  onPosterError?: () => void
+  onPlayingChange?: (playing: boolean) => void
 }
 
 const ApngPlayer = (props: ApngPlayerProps) => {
-  const { src, alt = src, className } = props
+  const { src, alt = src, className, onPosterLoad, onPosterError, onPlayingChange } = props
 
   const [player, setPlayer] = useState<any>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle')
@@ -40,6 +43,7 @@ const ApngPlayer = (props: ApngPlayerProps) => {
 
     // 1. 如果处于空闲状态，开始加载并初始化
     if (status === 'idle') {
+      onPlayingChange?.(true)
       try {
         setStatus('loading')
 
@@ -83,6 +87,7 @@ const ApngPlayer = (props: ApngPlayerProps) => {
         player.pause()
         setStatus('paused')
       } else {
+        onPlayingChange?.(true)
         player.play()
         setStatus('playing')
       }
@@ -118,6 +123,8 @@ const ApngPlayer = (props: ApngPlayerProps) => {
           width={0}
           height={0}
           sizes="100vw"
+          onLoad={onPosterLoad}
+          onError={onPosterError}
           className={cn(
             'h-auto w-full object-contain transition-opacity duration-300',
             status === 'loading' ? 'opacity-50' : 'opacity-100'

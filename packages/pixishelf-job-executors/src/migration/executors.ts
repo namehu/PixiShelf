@@ -11,6 +11,7 @@ export function createMigrationExecutorRegistrations<TTransaction extends QueueS
     jobType: 'MIGRATION',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => migrationPayloadSchema.parse(payload),
     execute: (context) => executeMigration(context, dependencies)
   }

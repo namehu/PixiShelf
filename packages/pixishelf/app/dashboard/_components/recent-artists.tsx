@@ -9,6 +9,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { PageState } from '@/components/layout/page-state'
 import { SectionHeader } from '@/components/layout/section-header'
 import MediaThumbnail from '@/components/media/media-thumbnail'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { ROUTES } from '@/lib/constants'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
 
@@ -74,7 +75,7 @@ function CompactArtistCard({ artist }: { artist: DashboardArtistItem }) {
         <Avatar className="size-11 shrink-0">
           <AvatarImage src={artist.avatar} alt={artist.name} loading="lazy" />
           <AvatarFallback className="bg-accent text-sm font-medium text-accent-foreground">
-            {getInitials(artist.name)}
+            <PrivacySensitiveText>{getInitials(artist.name)}</PrivacySensitiveText>
           </AvatarFallback>
         </Avatar>
 
@@ -82,11 +83,14 @@ function CompactArtistCard({ artist }: { artist: DashboardArtistItem }) {
           <Link
             href={`/artists/${artist.id}`}
             className="block truncate rounded-sm text-sm font-semibold text-foreground outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/50"
-            title={artist.name}
           >
-            {artist.name}
+            <PrivacySensitiveText>{artist.name}</PrivacySensitiveText>
           </Link>
-          {artist.username && <p className="truncate text-xs text-muted-foreground">@{artist.username}</p>}
+          {artist.username && (
+            <PrivacySensitiveText as="p" className="truncate text-xs text-muted-foreground">
+              @{artist.username}
+            </PrivacySensitiveText>
+          )}
         </div>
 
         <Badge variant="secondary" className="font-utility shrink-0 font-normal">

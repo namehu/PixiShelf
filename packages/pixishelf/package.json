@@ -8,8 +8,9 @@
     "db:migrate": "pnpm --dir ../pixishelf-db db:migrate",
     "db:deploy": "pnpm --dir ../pixishelf-db db:deploy",
     "db:studio": "pnpm --dir ../pixishelf-db db:studio",
-    "dev": "next dev  -p 5430",
-    "build": "next build",
+    "prepare:webp": "node scripts/prepare-webp.mjs",
+    "dev": "pnpm prepare:webp && next dev -p 5430",
+    "build": "pnpm prepare:webp && next build",
     "start": "next start -p 5430",
     "lint": "oxlint",
     "typecheck": "next typegen && tsc --noEmit",
@@ -31,6 +32,7 @@
     "@pixishelf/db": "workspace:*",
     "@pixishelf/job-contracts": "workspace:*",
     "@pixishelf/job-executors": "workspace:*",
+    "@pixishelf/webp-player": "workspace:*",
     "@prisma/client": "^5.17.0",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-avatar": "^1.1.10",
@@ -100,6 +102,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@next/env": "16.1.1",
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4.1.13",
     "@tailwindcss/typography": "^0.5.19",

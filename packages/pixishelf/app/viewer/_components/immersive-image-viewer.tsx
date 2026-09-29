@@ -15,6 +15,8 @@ import { useViewerStore } from '@/store/viewer-store'
 import { Placeholder } from './placeholder'
 import { useShallow } from 'zustand/react/shallow'
 import type { ViewerAudioPreference } from './viewer-video-controls'
+import { useArtworkReading } from '@/lib/reading/reading-provider'
+import { Button } from '@/components/ui/button'
 
 const VIEWER_CHAPTER_HISTORY_KEY = '__pixishelf_viewer_chapters__'
 const VIEWER_CLEAR_MODE_HISTORY_KEY = '__pixishelf_viewer_clear_mode__'
@@ -182,6 +184,7 @@ export default function ImmersiveImageViewer({
     }))
   )
   const { enterClearMode, exitClearMode } = useClearModeHistory(isChromeHidden, setChromeHidden)
+  const reading = useArtworkReading(initialImages[verticalIndex]?.id ?? 0)
 
   // 处理slide变化
   const handleSlideChange = useCallback(
@@ -274,6 +277,8 @@ export default function ImmersiveImageViewer({
                       isActive={isActive}
                       preloadEntryMedia={index === verticalIndex + 1 && preloadUnlockedIndex === verticalIndex}
                       image={image}
+                      reading={isActive ? reading : undefined}
+                      interactionLocked={interactionLocked}
                       audioPreference={audioPreference}
                       onAudioPreferenceChange={setAudioPreference}
                       chapterPanelOpen={chapterPanelOpen}
@@ -303,6 +308,12 @@ export default function ImmersiveImageViewer({
             </SwiperSlide>
           )}
         </Swiper>
+        {reading.invalidated ? (
+          <div className="absolute inset-x-4 top-16 z-40 flex items-center justify-between gap-3 rounded-lg bg-background p-3 text-sm text-foreground shadow-lg" role="status">
+            <span>作品媒体已更新，请重新打开阅读。</span>
+            <Button type="button" size="sm" variant="outline" onClick={() => void reading.reopen()}>重新打开</Button>
+          </div>
+        ) : null}
         {showClearHint && (
           <div className="pointer-events-none absolute inset-0 z-[80] flex items-center justify-center">
             <div className="rounded-full bg-black/60 px-4 py-2 text-sm text-white backdrop-blur-sm">

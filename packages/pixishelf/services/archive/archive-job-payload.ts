@@ -28,5 +28,5 @@ export function archiveImportDefaultTagIdsForRetry(
 }
 
 function invalidRetryPayload() {
-  return new ArchiveError('STATE_CONFLICT', '归档任务的执行定义或 payload 绑定无效，不能重试')
+  return new ArchiveError('STATE_CONFLICT', '归档任务的执行定义或载荷绑定无效，不能重试')
 }

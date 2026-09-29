@@ -1,7 +1,123 @@
+import { Readable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
-import { EHentaiProvider } from '../providers/e-hentai.js'
+import {
+  compareArchiveUploaderMetadata,
+  createArchiveUploaderComparisonSnapshot,
+  EHentaiProvider,
+  hashArchiveUploaderComparisonMetadata,
+  parseUploaderUidFromGalleryPage
+} from '../providers/e-hentai.js'
+
+const comparableMetadata = {
+  gid: '123',
+  titles: { display: 'Gallery', aliases: ['Alias A', 'Alias B'] },
+  category: 'Doujinshi',
+  uploader: 'alice',
+  thumbnailUrl: 'https://ehgt.org/old.jpg',
+  postedAt: '2026-09-01T00:00:00.000Z',
+  fileCount: 1,
+  fileSize: 10,
+  rating: '4.5',
+  expunged: false,
+  tags: [
+    { namespace: 'artist', name: 'Artist A' },
+    { namespace: 'group', name: 'Group A' }
+  ],
+  relationships: [
+    { type: 'REPLACES', direction: 'OUTBOUND', providerKey: 'e-hentai', externalId: '100' },
+    { type: 'REPLACES', direction: 'INBOUND', providerKey: 'e-hentai', externalId: '200' }
+  ]
+}
+
+describe('archive uploader stable metadata comparison', () => {
+  it('excludes rating and thumbnail URL and normalizes set ordering', () => {
+    const reordered = {
+      ...comparableMetadata,
+      titles: { ...comparableMetadata.titles, aliases: [...comparableMetadata.titles.aliases].reverse() },
+      thumbnailUrl: 'https://ehgt.org/new.jpg',
+      rating: '1.0',
+      tags: [...comparableMetadata.tags].reverse(),
+      relationships: [...comparableMetadata.relationships].reverse()
+    }
+
+    expect(createArchiveUploaderComparisonSnapshot(reordered)).toEqual(
+      createArchiveUploaderComparisonSnapshot(comparableMetadata)
+    )
+    expect(hashArchiveUploaderComparisonMetadata(reordered)).toBe(
+      hashArchiveUploaderComparisonMetadata(comparableMetadata)
+    )
+    expect(compareArchiveUploaderMetadata(comparableMetadata, reordered)?.changeReasons).toEqual([])
+  })
+
+  it('returns a reason for every stable field that changed', () => {
+    const changed = {
+      ...comparableMetadata,
+      titles: { display: 'Changed gallery', aliases: [] },
+      category: 'Manga',
+      uploader: 'bob',
+      postedAt: '2026-09-02T00:00:00.000Z',
+      fileCount: 2,
+      fileSize: 20,
+      expunged: true,
+      tags: [{ namespace: 'artist', name: 'Artist B' }],
+      relationships: [{ type: 'REPLACES', direction: 'OUTBOUND', providerKey: 'e-hentai', externalId: '101' }]
+    }
+
+    expect(compareArchiveUploaderMetadata(comparableMetadata, changed)?.changeReasons).toEqual([
+      { field: 'titles', message: '标题或别名变化' },
+      { field: 'category', message: '分类 Doujinshi → Manga' },
+      { field: 'uploader', message: '上传者 alice → bob' },
+      { field: 'postedAt', message: '发布时间 2026-09-01T00:00:00.000Z → 2026-09-02T00:00:00.000Z' },
+      { field: 'fileCount', message: '页数 1 → 2' },
+      { field: 'fileSize', message: '文件大小 10 → 20' },
+      { field: 'expunged', message: '下架状态 否 → 是' },
+      { field: 'tags', message: '标签变化' },
+      { field: 'relationships', message: '版本关系变化' }
+    ])
+  })
+
+  it('rejects incomplete historical metadata as not comparable', () => {
+    expect(createArchiveUploaderComparisonSnapshot({ titles: comparableMetadata.titles })).toBeNull()
+    expect(compareArchiveUploaderMetadata({ titles: comparableMetadata.titles }, comparableMetadata)).toBeNull()
+  })
+})
 
 describe('EHentaiProvider resolution', () => {
+  it.each([
+    {
+      metadata: { parent_gid: '122', parent_key: 'parenttoken' },
+      notice: '解析时发现此画廊关联了历史版本，不影响本次归档。'
+    },
+    {
+      metadata: { current_gid: '124', current_key: 'currenttoken' },
+      notice: '解析时此链接已是旧版，远端另有更新版本；本次仍归档此链接，新版需另行添加，不会覆盖旧版。'
+    },
+    {
+      metadata: { parent_gid: '122', parent_key: 'parenttoken', current_gid: '124', current_key: 'currenttoken' },
+      notice: '解析时此链接已是旧版，远端另有更新版本；本次仍归档此链接，新版需另行添加，不会覆盖旧版。'
+    },
+    { metadata: { current_gid: '123', current_key: 'gallerytoken' }, notice: null },
+    { metadata: { parent_gid: '122' }, notice: null }
+  ])('reports version history without changing the requested gallery: $metadata', async ({ metadata, notice }) => {
+    const http = {
+      json: vi.fn().mockResolvedValue({
+        gmetadata: [{ gid: 123, token: 'gallerytoken', title: 'Gallery', filecount: '1', tags: [], ...metadata }]
+      }),
+      text: vi.fn().mockResolvedValue('<a href="https://e-hentai.org/s/pagetoken/123-1">one</a>')
+    }
+    const result = await new EHentaiProvider(http as never).resolve('https://e-hentai.org/g/123/gallerytoken/')
+    expect(result.warnings).toEqual(notice ? [notice] : [])
+    expect(result.externalId).toBe('123')
+    expect(result.canonicalUrl).toBe('https://e-hentai.org/g/123/gallerytoken/')
+    expect(result.media[0]?.sourcePageUrl).toBe('https://e-hentai.org/s/pagetoken/123-1')
+    expect(http.json).toHaveBeenCalledOnce()
+    expect(http.json).toHaveBeenCalledWith(
+      'https://api.e-hentai.org/api.php',
+      expect.objectContaining({
+        body: JSON.stringify({ method: 'gdata', gidlist: [[123, 'gallerytoken']], namespace: 1 })
+      })
+    )
+  })
   it('resolves all gallery pages in order and governs every remote request', async () => {
     const http = {
       json: vi.fn(async () => ({
@@ -57,5 +173,289 @@ describe('EHentaiProvider resolution', () => {
 
     await expect(resolution).rejects.toMatchObject({ code: 'CANCELLED', recoverable: true })
     expect(http.text).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports the source-page and media-response phases without exposing remote addresses in telemetry', async () => {
+    const http = {
+      text: vi.fn(async () => '<img id="img" src="https://cdn.hath.network/image.jpg">'),
+      request: vi.fn(async () => ({
+        status: 200,
+        headers: { 'content-type': 'image/jpeg', 'content-length': '3' },
+        stream: Readable.from(Buffer.from('img')),
+        url: 'https://final.hath.network:2443/redirected/image.jpg?key=actual-download'
+      }))
+    }
+    const phases: string[] = []
+    const provider = new EHentaiProvider(http as never)
+
+    const remote = await provider.openMedia(
+      {
+        index: 0,
+        sourcePageUrl: 'https://e-hentai.org/s/pagetoken/123-1',
+        locator: {},
+        expectedFilename: '0001'
+      },
+      {
+        quality: 'DISPLAY',
+        onPhase: (phase) => phases.push(phase),
+        runDownloadRequest: (operation) => operation(),
+        runDownloadStreamRequest: (operation) => operation()
+      }
+    )
+
+    expect(phases).toEqual(['RESOLVING_SOURCE_PAGE', 'WAITING_MEDIA_RESPONSE'])
+    expect(remote).toMatchObject({
+      contentLength: 3,
+      quality: 'DISPLAY',
+      downloadUrl: 'https://final.hath.network:2443/redirected/image.jpg?key=actual-download'
+    })
+    expect(http.request).toHaveBeenCalledWith('https://cdn.hath.network/image.jpg', expect.any(Object))
+  })
+})
+
+describe('EHentaiProvider broken-image recovery', () => {
+  const sourcePageUrl = 'https://e-hentai.org/s/pagetoken/123-1'
+  const item = { index: 0, sourcePageUrl, locator: {}, expectedFilename: '0001' }
+  const hash = '783a20d248eb362ba64b35f25ae8e344455c4dc3'
+  const url = `https://replacement.hath.network/om/123/${hash}-100-596-900-wbp/x/image.webp`
+
+  function client(handler = "return nl('45084-497100')") {
+    return {
+      text: vi
+        .fn()
+        .mockResolvedValueOnce(
+          `<img id="img" src="https://bad.hath.network/image.webp"><a id="loadfail" onclick="${handler}">Reload broken image</a>`
+        )
+        .mockResolvedValue(
+          `<img id="img" src="${url}"><a href="https://e-hentai.org/fullimg.php?gid=123">original</a>`
+        ),
+      request: vi.fn(async () => ({ status: 200, headers: {}, stream: Readable.from([]), url }))
+    }
+  }
+
+  it('refreshes once through the request governor and downloads the replacement representation', async () => {
+    const http = client()
+    const governed = vi.fn((operation: () => Promise<unknown>) => operation())
+    const remote = await new EHentaiProvider(http as never).openMedia(item, {
+      quality: 'DISPLAY',
+      reloadMedia: true,
+      runDownloadRequest: governed as never
+    })
+    expect(http.text).toHaveBeenCalledTimes(2)
+    expect(governed).toHaveBeenCalledTimes(2)
+    expect(http.text).toHaveBeenLastCalledWith(`${sourcePageUrl}?nl=45084-497100`, expect.any(Object))
+    expect(http.request).toHaveBeenCalledWith(url, expect.any(Object))
+    expect(remote).toMatchObject({ expectedSha1: hash, httpStatus: 200, quality: 'DISPLAY' })
+  })
+
+  it('preserves original quality after refreshing the page', async () => {
+    const http = client()
+    const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'ORIGINAL', reloadMedia: true })
+    expect(http.request).toHaveBeenCalledWith('https://e-hentai.org/fullimg.php?gid=123', expect.any(Object))
+    expect(remote.quality).toBe('ORIGINAL')
+  })
+
+  it.each(["return nl('https://evil.test')", "return nl('ok'); fetch('evil')", 'alert(1)', ''])(
+    'ignores unrecognized remote handlers: %s',
+    async (handler) => {
+      const http = client(handler)
+      await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY', reloadMedia: true })
+      expect(http.text).toHaveBeenCalledTimes(1)
+      expect(http.request).toHaveBeenCalledWith('https://bad.hath.network/image.webp', expect.any(Object))
+    }
+  )
+
+  it('does not refresh an initial download', async () => {
+    const http = client()
+    await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })
+    expect(http.text).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [
+      'h/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/key/image.jpg',
+      '7a3b1f394c834d8a01a3aaabb1b90391912b3f71'
+    ],
+    [
+      'om/248788873/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/x/0/key/image.jpg',
+      '7a3b1f394c834d8a01a3aaabb1b90391912b3f71'
+    ],
+    [
+      'om/248788873/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/a95601cd3d6159c7047701aadf8ee059c06eced8-142064-1280-910-wbp/1280/2m6t6rkox1450622vsg/00061_2898990044.webp',
+      'a95601cd3d6159c7047701aadf8ee059c06eced8'
+    ],
+    ['om/248788873/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/unknown/1280/image.webp', undefined],
+    [
+      'om/248788873/7a3b1f394c834d8a01a3aaabb1b90391912b3f71-896790-2160-1536-jpg/a95601cd3d6159c7047701aadf8ee059c06eced8-invalid/1280/image.webp',
+      undefined
+    ]
+  ])('uses only the delivered representation hash for %s', async (pathname, expectedSha1) => {
+    const http = client()
+    http.request.mockResolvedValueOnce({
+      status: 200,
+      headers: {},
+      stream: Readable.from([]),
+      url: `https://praogxqcch.hath.network/${pathname}`
+    })
+    const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })
+    expect(remote.expectedSha1).toBe(expectedSha1)
+  })
+
+  it.each(['https://evil.test', 'https://evil-hath.network', 'https://hath.network.evil.test'])(
+    'does not trust hash-like paths on %s',
+    async (host) => {
+      const http = client()
+      http.request.mockResolvedValueOnce({
+        status: 200,
+        headers: {},
+        stream: Readable.from([]),
+        url: `${host}/h/${hash}-100-596-900-wbp/image.webp`
+      })
+      const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })
+      expect(remote.expectedSha1).toBeUndefined()
+    }
+  )
+})
+
+describe('EHentaiProvider uploader scan', () => {
+  it('accepts showuser only from the matching gallery uploader block', () => {
+    const html = [
+      '<div id="gdn">',
+      '<a href="https://e-hentai.org/uploader/bob">bob</a>',
+      '<a href="https://forums.e-hentai.org/index.php?showuser=123">PM</a>',
+      '</div>',
+      '<div class="comment"><a href="https://forums.e-hentai.org/index.php?showuser=456">PM</a></div>'
+    ].join('')
+
+    expect(parseUploaderUidFromGalleryPage(html, 'https://e-hentai.org/g/300/token300/', 'alice')).toBeNull()
+    expect(parseUploaderUidFromGalleryPage(html, 'https://e-hentai.org/g/300/token300/', 'bob')).toBe('123')
+  })
+
+  it('keeps a mid-page cursor and continues without repeating the previous gallery', async () => {
+    const http = {
+      text: vi.fn(async () =>
+        [
+          '<a href="https://e-hentai.org/g/300/token300/">Gallery 300</a>',
+          '<a href="https://e-hentai.org/g/200/token200/">Gallery 200</a>'
+        ].join('')
+      ),
+      json: vi.fn(async (_url: string, options: { body: string }) => {
+        const request = JSON.parse(options.body) as { gidlist: Array<[number, string]> }
+        return {
+          gmetadata: request.gidlist.map(([gid, token]) => ({
+            gid,
+            token,
+            title: `Gallery ${gid}`,
+            uploader: 'alice',
+            filecount: '1',
+            tags: []
+          }))
+        }
+      })
+    }
+    const provider = new EHentaiProvider(http as never)
+    const first = await provider.scanUploader({
+      identityKind: 'NAME',
+      identityValue: 'Alice',
+      cursor: null,
+      stopAtExternalId: null,
+      limit: 1
+    })
+    const second = await provider.scanUploader({
+      identityKind: 'NAME',
+      identityValue: 'Alice',
+      cursor: first.nextCursor,
+      stopAtExternalId: null,
+      limit: 1
+    })
+
+    expect(first.items.map(({ externalId }) => externalId)).toEqual(['300'])
+    expect(first.nextCursor).toEqual(expect.any(String))
+    expect(second.items.map(({ externalId }) => externalId)).toEqual(['200'])
+    expect(second.nextCursor).toBeNull()
+    expect(http.text).toHaveBeenCalledTimes(4)
+  })
+
+  it('stops before the known latest gallery and governs both search and metadata requests', async () => {
+    const http = {
+      text: vi.fn(async () =>
+        [
+          '<a href="https://e-hentai.org/g/300/token300/">Gallery 300</a>',
+          '<a href="https://e-hentai.org/g/200/token200/">Gallery 200</a>',
+          '<a href="https://e-hentai.org/g/100/token100/">Gallery 100</a>'
+        ].join('')
+      ),
+      json: vi.fn(async () => ({
+        gmetadata: [{ gid: 300, token: 'token300', title: 'Gallery 300', uploader: 'alice', filecount: '1', tags: [] }]
+      }))
+    }
+    const searchRequestSpy = vi.fn()
+    const runSearchRequest = <T>(operation: () => Promise<T>) => {
+      searchRequestSpy()
+      return operation()
+    }
+
+    const result = await new EHentaiProvider(http as never).scanUploader(
+      {
+        identityKind: 'NAME',
+        identityValue: 'alice',
+        cursor: null,
+        stopAtExternalId: '200',
+        limit: 100
+      },
+      { runSearchRequest }
+    )
+
+    expect(result.items.map(({ externalId }) => externalId)).toEqual(['300'])
+    expect(result.reachedStop).toBe(true)
+    expect(result.nextCursor).toBeNull()
+    expect(searchRequestSpy).toHaveBeenCalledTimes(3)
+  })
+
+  it('discovers a stable uploader UID from the verified gallery uploader block', async () => {
+    const http = {
+      text: vi.fn(async (url: string) =>
+        url.includes('/g/300/')
+          ? [
+              '<div id="gdn">',
+              '<a href="https://e-hentai.org/uploader/Alice">Alice</a>',
+              '<a href="https://forums.e-hentai.org/index.php?showuser=007065261">PM</a>',
+              '</div>'
+            ].join('')
+          : '<a href="https://e-hentai.org/g/300/token300/">Gallery 300</a>'
+      ),
+      json: vi.fn(async () => ({
+        gmetadata: [{ gid: 300, token: 'token300', title: 'Gallery 300', uploader: 'alice', filecount: '1', tags: [] }]
+      }))
+    }
+
+    const result = await new EHentaiProvider(http as never).scanUploader({
+      identityKind: 'NAME',
+      identityValue: 'alice',
+      cursor: null,
+      stopAtExternalId: null,
+      limit: 100
+    })
+
+    expect(result.discoveredUploaderUid).toBe('7065261')
+    expect(http.text).toHaveBeenCalledWith(
+      'https://e-hentai.org/g/300/token300/',
+      expect.objectContaining({ maxBytes: 8 * 1024 * 1024 })
+    )
+  })
+
+  it('rejects an unrecognized search response instead of treating it as an empty result', async () => {
+    const http = { text: vi.fn(async () => '<html><body>challenge</body></html>'), json: vi.fn() }
+
+    await expect(
+      new EHentaiProvider(http as never).scanUploader({
+        identityKind: 'UID',
+        identityValue: '123',
+        cursor: null,
+        stopAtExternalId: null,
+        limit: 100
+      })
+    ).rejects.toMatchObject({ code: 'REMOTE_RESPONSE_INVALID', stage: 'UPLOADER_SEARCH' })
+    expect(http.json).not.toHaveBeenCalled()
   })
 })

@@ -1,21 +1,32 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ArchiveImageCounts,
   ArchiveTaskCard,
   ArchiveTaskTable,
-  ArchiveTransferStatus,
   WorkerLaneStrip,
-  canExpandArchivePublishedMedia
+  archiveImportIdFromPayload,
+  isActiveArchiveDownloadStatus,
+  selectActiveArchiveImportId
 } from '../archive-management'
+import { ActiveArchiveDownloadPanel } from '../archive-active-download-panel'
+import { TaskProgress } from '../archive-task-progress'
+import { ArchiveTaskDetails } from '../archive-item-drawer'
+import { archiveTaskArtworkHref } from '../archive-task-navigation'
 
 vi.mock('next/link', () => ({
-  default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>
+  default: ({ children, ...props }: React.ComponentProps<'a'>) => <a {...props}>{children}</a>
 }))
 
 vi.mock('@/components/ui/checkbox', () => ({
   Checkbox: ({ 'aria-label': label }: { 'aria-label'?: string }) => (
     <button type="button" role="checkbox" aria-label={label} />
+  )
+}))
+
+vi.mock('@/components/source-preview/source-preview-button', () => ({
+  SourcePreviewButton: ({ source }: { source: { taskId: string } }) => (
+    <button type="button">原站预览 {source.taskId}</button>
   )
 }))
 
@@ -80,88 +91,149 @@ const activeTask = createTask('active', {
 })
 
 describe('archive management UI', () => {
-  afterEach(() => cleanup())
-
-  it('allows expansion only for an active, non-deleted published artwork', () => {
-    expect(canExpandArchivePublishedMedia(activeTask)).toBe(true)
-    expect(canExpandArchivePublishedMedia(createTask('unpublished', null))).toBe(false)
-    expect(
-      canExpandArchivePublishedMedia(
-        createTask('trashing', { id: 43, archiveLifecycleState: 'TRASHING', deletedAt: null })
-      )
-    ).toBe(false)
-    expect(
-      canExpandArchivePublishedMedia(
-        createTask('trashed', {
-          id: 44,
-          archiveLifecycleState: 'TRASHED',
-          deletedAt: '2026-08-30T00:00:00.000Z'
-        })
-      )
-    ).toBe(false)
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
   })
 
-  it('renders one eligible desktop expander, compact counts, and no standalone image action', () => {
-    const onToggleExpanded = vi.fn()
-    const tasks = [
-      activeTask,
-      createTask('unpublished', null),
-      createTask('trashing', { id: 43, archiveLifecycleState: 'TRASHING', deletedAt: null }),
-      createTask('trashed', {
-        id: 44,
-        archiveLifecycleState: 'TRASHED',
-        deletedAt: '2026-08-30T00:00:00.000Z'
-      })
-    ]
+  it.each(['TRASHING', 'TRASHED', 'RESTORING', 'PURGING'])('opens task details for %s artworks', (lifecycle) => {
+    const task = createTask('hidden', { id: 43, archiveLifecycleState: lifecycle, deletedAt: null })
+    const onViewItems = vi.fn()
+    render(
+      <ArchiveTaskCard
+        task={task as any}
+        selected={false}
+        pendingActions={new Set()}
+        onToggle={vi.fn()}
+        onViewItems={onViewItems}
+        onAction={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: '任务 hidden' }))
+    expect(onViewItems).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('link', { name: '查看作品' })).toBeNull()
+    expect(screen.getByRole('button', { name: '原站预览 hidden' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: '打开原站' }).getAttribute('href')).toBe('/api/archive/tasks/hidden/source')
+  })
+
+  it('does not offer artwork navigation for unpublished, deleted or unfinished tasks', () => {
+    expect(archiveTaskArtworkHref(createTask('unpublished', null))).toBeNull()
+    expect(
+      archiveTaskArtworkHref(
+        createTask('deleted', { id: 43, archiveLifecycleState: 'ACTIVE', deletedAt: '2026-08-30' })
+      )
+    ).toBeNull()
+    expect(archiveTaskArtworkHref({ ...activeTask, status: 'RUNNING' })).toBeNull()
+    expect(archiveTaskArtworkHref(activeTask)).toBe('/artworks/42')
+  })
+
+  it('renders compact desktop rows with actionable title and persistent source links', () => {
+    const onViewItems = vi.fn()
     render(
       <ArchiveTaskTable
-        tasks={tasks as any}
+        tasks={[activeTask, createTask('unpublished', null)] as any}
         selectedTaskIds={new Set()}
-        expandedTaskIds={new Set(['active'])}
         selectionState={false}
         pendingActions={new Set()}
         onToggleAll={vi.fn()}
         onToggleTask={vi.fn()}
-        onToggleExpanded={onToggleExpanded}
-        onViewItems={vi.fn()}
+        onViewItems={onViewItems}
         onAction={vi.fn()}
       />
     )
-
-    expect(screen.getByText('成功 / 失败 / 总数').getAttribute('aria-label')).toContain('顺序为成功、失败、总数')
-    expect(screen.getAllByLabelText('图片数量：成功 8，失败 2，总数 10')).toHaveLength(4)
-    expect(screen.getAllByLabelText('图片数量：成功 8，失败 2，总数 10')[0]!.children[2]!.className).toContain(
-      'text-destructive'
-    )
-    expect(screen.getByTestId('published-media').textContent).toBe('published-42')
-    expect(screen.getAllByLabelText(/完成 100%/)[0]!.parentElement?.className).toContain('w-56')
-    expect(screen.getAllByRole('button', { name: /已发布媒体/ })).toHaveLength(1)
-    expect(screen.queryByRole('button', { name: '查看图片明细' })).toBeNull()
-    expect(screen.getAllByText('图片明细')).toHaveLength(4)
-
-    fireEvent.click(screen.getByRole('button', { name: '收起已发布媒体' }))
-    expect(onToggleExpanded).toHaveBeenCalledWith('active')
+    expect(screen.getByRole('link', { name: '任务 active' }).getAttribute('href')).toBe('/artworks/42')
+    expect(screen.getAllByRole('button', { name: /原站预览/ })).toHaveLength(2)
+    expect(screen.getAllByRole('link', { name: '打开原站' })).toHaveLength(2)
+    expect(screen.getAllByText('10 张')).toHaveLength(2)
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.queryByText('原图')).toBeNull()
+    expect(screen.queryByText(/尝试 1/)).toBeNull()
+    expect(screen.queryByTestId('published-media')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '任务 unpublished' }))
+    expect(onViewItems).toHaveBeenCalledWith(expect.objectContaining({ id: 'unpublished' }))
   })
 
-  it('uses the same inline published-media expansion in the mobile card', () => {
+  it('keeps completed mobile cards free of progress, raw URLs and detailed metadata', () => {
+    const task = { ...activeTask, title: 'long-title-'.repeat(80), failedItems: 0 }
     render(
       <ArchiveTaskCard
-        task={activeTask as any}
+        task={task as any}
         selected={false}
-        expanded
         pendingActions={new Set()}
         onToggle={vi.fn()}
-        onToggleExpanded={vi.fn()}
         onViewItems={vi.fn()}
         onAction={vi.fn()}
       />
     )
+    const title = screen.getByRole('link', { name: task.title })
+    expect(title.querySelector('[data-privacy-sensitive]')).toBeTruthy()
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.queryByText('100%')).toBeNull()
+    expect(screen.queryByText('原图')).toBeNull()
+    expect(screen.queryByText(task.submittedUrl)).toBeNull()
+    expect(screen.queryByTestId('published-media')).toBeNull()
+    expect(screen.getByRole('button', { name: '原站预览 active' })).toBeTruthy()
+    const source = screen.getByRole('link', { name: '打开原站' })
+    expect(source.getAttribute('href')).toBe('/api/archive/tasks/active/source')
+    expect(source.getAttribute('target')).toBe('_blank')
+    expect(source.getAttribute('rel')).toContain('noreferrer')
+  })
 
-    expect(screen.getByRole('button', { name: '收起已发布媒体' })).toBeTruthy()
+  it('keeps partial failure guidance actionable without a completed progress bar', () => {
+    render(
+      <TaskProgress
+        task={{ ...activeTask, status: 'FAILED', errorCode: 'PARTIAL_FAILURE', errorMessage: '图片下载失败' } as any}
+      />
+    )
+    expect(screen.getByText('打开任务详情可重试失败图片')).toBeTruthy()
+    expect(screen.getByText('图片下载失败').hasAttribute('data-privacy-sensitive')).toBe(true)
+    expect(screen.queryByRole('progressbar')).toBeNull()
+  })
+
+  it('keeps original-quality decisions explicit while paused', () => {
+    render(
+      <ArchiveTaskCard
+        task={
+          {
+            ...activeTask,
+            status: 'PAUSED',
+            errorCode: 'ORIGINAL_UNAVAILABLE',
+            decisionCode: 'USE_DISPLAY_QUALITY'
+          } as any
+        }
+        selected={false}
+        pendingActions={new Set()}
+        onToggle={vi.fn()}
+        onViewItems={vi.fn()}
+        onAction={vi.fn()}
+      />
+    )
+    expect(screen.getByText('原图不可用，可在操作中改用展示质量')).toBeTruthy()
+    expect(screen.getByText('改用展示质量继续')).toBeTruthy()
+    expect(screen.queryByText('继续任务')).toBeNull()
+    expect(screen.queryByRole('progressbar')).toBeNull()
+  })
+
+  it('moves full timestamps, quality, attempts and media expansion into task details', () => {
+    render(<ArchiveTaskDetails task={activeTask as any} />)
+    expect(screen.getByText('原图')).toBeTruthy()
+    expect(screen.getByText('尝试 1')).toBeTruthy()
+    expect(screen.getByText(/2026/)).toBeTruthy()
+    expect(screen.queryByTestId('published-media')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '查看已发布媒体' }))
     expect(screen.getByTestId('published-media').textContent).toBe('published-42')
-    expect(screen.getByLabelText('图片数量：成功 8，失败 2，总数 10')).toBeTruthy()
-    expect(screen.getByLabelText('任务 active 完成 100%').parentElement?.className).toContain('w-full')
-    expect(screen.queryByRole('button', { name: '查看图片明细' })).toBeNull()
+  })
+
+  it('removes detail media access immediately when the artwork enters recovery', () => {
+    const view = render(<ArchiveTaskDetails task={activeTask as any} />)
+    fireEvent.click(screen.getByRole('button', { name: '查看已发布媒体' }))
+    view.rerender(
+      <ArchiveTaskDetails
+        task={createTask('active', { id: 42, archiveLifecycleState: 'RESTORING', deletedAt: null }) as any}
+      />
+    )
+    expect(screen.queryByTestId('published-media')).toBeNull()
+    expect(screen.queryByRole('button', { name: /已发布媒体/ })).toBeNull()
   })
 
   it('keeps worker lane status in a compact wrapping strip', () => {
@@ -183,7 +255,7 @@ describe('archive management UI', () => {
       />
     )
 
-    const strip = screen.getByRole('region', { name: 'Worker 执行通道' })
+    const strip = screen.getByRole('region', { name: '后台任务执行通道' })
     expect(strip.className).toContain('flex')
     expect(strip.className).toContain('flex-wrap')
     expect(screen.getByText('链接解析')).toBeTruthy()
@@ -200,32 +272,163 @@ describe('archive management UI', () => {
     expect(counts.children[2]!.className).toContain('text-destructive')
   })
 
-  it('renders live transfer speed, waiting state, and stale speed accessibly', () => {
+  it('renders a current-download panel with aggregate and per-file phases', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-09-01T00:00:01.000Z'))
     const telemetry = {
       version: 1 as const,
       kind: 'archive.transfer' as const,
       archiveImportId: 'archive-1',
       downloadedBytes: String(318 * 1024 * 1024),
       bytesPerSecond: 13_000_000,
-      activeDownloads: 2,
+      activeDownloads: 1,
+      activeWorkers: 4,
+      activeItems: [
+        {
+          itemId: 'item-1',
+          pageIndex: 90,
+          expectedFilename: '0091.jpg',
+          attempt: 1,
+          phase: 'DOWNLOADING' as const,
+          downloadedBytes: String(7.5 * 1024 * 1024),
+          totalBytes: String(18 * 1024 * 1024),
+          bytesPerSecond: 3_100_000
+        },
+        {
+          itemId: 'item-2',
+          pageIndex: 91,
+          expectedFilename: '0092.jpg',
+          attempt: 1,
+          phase: 'WAITING_MEDIA_RESPONSE' as const,
+          downloadedBytes: '0',
+          totalBytes: null,
+          bytesPerSecond: 0
+        },
+        {
+          itemId: 'item-3',
+          pageIndex: 92,
+          expectedFilename: '0093.jpg',
+          attempt: 1,
+          phase: 'RESOLVING_SOURCE_PAGE' as const,
+          downloadedBytes: '0',
+          totalBytes: null,
+          bytesPerSecond: 0
+        },
+        {
+          itemId: 'item-4',
+          pageIndex: 93,
+          expectedFilename: '0094.jpg',
+          attempt: 2,
+          phase: 'VERIFYING' as const,
+          downloadedBytes: String(12 * 1024 * 1024),
+          totalBytes: String(12 * 1024 * 1024),
+          bytesPerSecond: 0
+        }
+      ],
       concurrencyLimit: 4,
-      completedItems: 3,
+      completedItems: 90,
       failedItems: 0,
-      totalItems: 10,
+      totalItems: 234,
       sampledAt: '2026-09-01T00:00:00.000Z'
     }
-    const view = render(<ArchiveTransferStatus telemetry={telemetry} now={Date.parse(telemetry.sampledAt) + 1_000} />)
-    expect(screen.getByLabelText(/12.4 MB\/s · 有效已下载 318 MB · 2\/4 路/)).toBeTruthy()
-
-    view.rerender(
-      <ArchiveTransferStatus
-        telemetry={{ ...telemetry, activeDownloads: 0 }}
-        now={Date.parse(telemetry.sampledAt) + 1_000}
+    const onViewItems = vi.fn()
+    const onPause = vi.fn()
+    const onCancel = vi.fn()
+    const view = render(
+      <ActiveArchiveDownloadPanel
+        task={{
+          ...activeTask,
+          systemJobStatus: 'RUNNING',
+          progress: 38,
+          completedItems: 90,
+          failedItems: 0,
+          totalItems: 234,
+          liveTransfer: telemetry
+        }}
+        pausePending={false}
+        cancelPending={false}
+        onViewItems={onViewItems}
+        onPause={onPause}
+        onCancel={onCancel}
       />
     )
-    expect(screen.getByLabelText(/等待远端响应/)).toBeTruthy()
 
-    view.rerender(<ArchiveTransferStatus telemetry={telemetry} now={Date.parse(telemetry.sampledAt) + 6_000} />)
-    expect(screen.getByLabelText(/速度 —/)).toBeTruthy()
+    expect(screen.getByRole('region', { name: '当前归档下载' })).toBeTruthy()
+    expect(screen.getByText(/12.4 MB\/s/)).toBeTruthy()
+    expect(screen.getByText('活跃任务 4/4')).toBeTruthy()
+    expect(screen.getByText('正在传输 1')).toBeTruthy()
+    expect(screen.getByText('等待远端 2')).toBeTruthy()
+    expect(screen.getByText('校验写入 1')).toBeTruthy()
+    expect(screen.getByText('等待图片响应')).toBeTruthy()
+    expect(screen.getByText('解析图片页')).toBeTruthy()
+    expect(screen.getByText('校验并写入')).toBeTruthy()
+    expect(screen.getByLabelText('第 91 张下载 41%')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '查看全部图片' }))
+    fireEvent.click(screen.getByRole('button', { name: '暂停' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(onViewItems).toHaveBeenCalledOnce()
+    expect(onPause).toHaveBeenCalledOnce()
+    expect(onCancel).toHaveBeenCalledOnce()
+    // SSE 不再送达时，面板仍自行识别过期遥测，不依赖父级整页刷新。
+    act(() => vi.advanceTimersByTime(5_000))
+    expect(screen.getByText('实时数据中断')).toBeTruthy()
+    expect(screen.queryByText(/12.4 MB\/s/)).toBeNull()
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps slot counts out of the historical task progress row', () => {
+    render(
+      <TaskProgress
+        task={
+          {
+            ...activeTask,
+            status: 'RUNNING',
+            systemJobStatus: 'RUNNING',
+            progress: 38,
+            message: '等待远端响应',
+            liveTransfer: {
+              activeDownloads: 1,
+              concurrencyLimit: 4
+            }
+          } as any
+        }
+      />
+    )
+
+    expect(screen.getByText('等待远端响应')).toBeTruthy()
+    expect(screen.queryByText(/1\s*\/\s*4\s*路/)).toBeNull()
+  })
+
+  it('extracts only a non-empty archive import id from a job payload', () => {
+    expect(archiveImportIdFromPayload({ archiveImportId: 'archive-1' })).toBe('archive-1')
+    expect(archiveImportIdFromPayload({ archiveImportId: '' })).toBeNull()
+    expect(archiveImportIdFromPayload([])).toBeNull()
+  })
+
+  it('drops cached transfer identity when a disconnected dashboard reports the task terminal', () => {
+    expect(
+      selectActiveArchiveImportId({
+        dashboardLoaded: true,
+        dashboardArchiveImportId: null,
+        liveArchiveImportId: 'archive-old',
+        realtimeConnected: false
+      })
+    ).toBeNull()
+    expect(isActiveArchiveDownloadStatus('COMPLETED')).toBe(false)
+    expect(isActiveArchiveDownloadStatus('FAILED')).toBe(false)
+    expect(isActiveArchiveDownloadStatus('CANCELLED')).toBe(false)
+  })
+
+  it('lets the dashboard hand a disconnected panel from an old transfer to the next task', () => {
+    expect(
+      selectActiveArchiveImportId({
+        dashboardLoaded: true,
+        dashboardArchiveImportId: 'archive-new',
+        liveArchiveImportId: 'archive-old',
+        realtimeConnected: false
+      })
+    ).toBe('archive-new')
   })
 })

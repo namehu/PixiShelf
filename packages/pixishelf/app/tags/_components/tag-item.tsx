@@ -2,6 +2,7 @@ import Link from 'next/link'
 import type { Tag } from '@/types'
 import { getTranslateName } from '@/utils/tags'
 import { cn } from '@/lib/utils'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface TagItemProps {
   tag: Tag
@@ -21,14 +22,15 @@ export function TagItem({ tag, size = 'md' }: TagItemProps) {
       )}
     >
       <div className="min-w-0 flex-1 leading-tight">
-        <Link
-          href={`/tags/${tag.id}`}
-          className="block truncate font-semibold outline-none hover:text-primary focus-visible:text-primary"
-        >
-          {tag.name}
-        </Link>
+        <PrivacySensitiveText className="block truncate font-semibold">
+          <Link href={`/tags/${tag.id}`} className="outline-none hover:text-primary focus-visible:text-primary">
+            {tag.name}
+          </Link>
+        </PrivacySensitiveText>
         {size !== 'sm' && translatedName && (
-          <p className="mt-0.5 truncate text-[0.6875rem] text-muted-foreground">{translatedName}</p>
+          <PrivacySensitiveText as="p" className="mt-0.5 truncate text-[0.6875rem] text-muted-foreground">
+            {translatedName}
+          </PrivacySensitiveText>
         )}
       </div>
       <span className="font-utility shrink-0 text-xs text-muted-foreground">{tag.artworkCount}</span>

@@ -9,6 +9,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 const searchParamsParsers = {
+  kind: parseAsString.withDefault('ALL'),
   search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   sortBy: parseAsString.withDefault('name_asc').withOptions({ history: 'replace', clearOnDefault: true })
 }
@@ -68,6 +69,18 @@ const ArtistsNavigation = () => {
           )}
         </InputGroup>
 
+        <Select value={queryStates.kind} onValueChange={(kind) => setQueryStates({ kind })}>
+          <SelectTrigger aria-label="创作者类型" className="w-32">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="ALL">全部类型</SelectItem>
+              <SelectItem value="PERSON">艺术家</SelectItem>
+              <SelectItem value="GROUP">社团</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <Select value={currentSortBy} onValueChange={(value) => setQueryStates({ sortBy: value })}>
           <SelectTrigger
             className="w-11 [&>svg:last-child]:hidden sm:w-44 sm:[&>svg:last-child]:block"

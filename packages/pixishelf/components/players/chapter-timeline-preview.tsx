@@ -4,6 +4,7 @@ import Image from 'next/image'
 import { ImageOffIcon, Loader2Icon, VideoIcon } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { formatChapterTime, getCurrentChapter, type NormalizedChapter } from './video-chapters'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ChapterTimelinePreviewProps {
   target: HTMLDivElement
@@ -104,7 +105,7 @@ export default function ChapterTimelinePreview({
       </div>
       <div className="flex items-center gap-2 px-2.5 py-2 text-xs">
         <span className="shrink-0 tabular-nums text-white/60">{formatChapterTime(chapter.start)}</span>
-        <span className="min-w-0 flex-1 truncate font-medium">{chapter.title}</span>
+        <PrivacySensitiveText className="min-w-0 flex-1 truncate font-medium">{chapter.title}</PrivacySensitiveText>
       </div>
     </div>
   )

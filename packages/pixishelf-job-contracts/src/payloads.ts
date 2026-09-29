@@ -1,3 +1,4 @@
+import { discoveryBatchPayloadSchema } from './archive-discovery-batch.ts'
 import { z } from 'zod'
 import { JOB_DEFINITION_VERSION, type JobType } from './job-types.ts'
 import { MEDIA_FILE_EXTENSIONS } from './media-types.ts'
@@ -21,6 +22,9 @@ export const emptyJobPayloadSchema = z.object({}).strict()
 
 export const pixivAiDerivedTagSyncPayloadSchema = z.object({ dryRun: z.boolean().default(true) }).strict()
 export type PixivAiDerivedTagSyncPayload = z.infer<typeof pixivAiDerivedTagSyncPayloadSchema>
+
+export const jobEventRetentionCleanupPayloadSchema = z.object({ dryRun: z.boolean().default(true) }).strict()
+export type JobEventRetentionCleanupPayload = z.infer<typeof jobEventRetentionCleanupPayloadSchema>
 
 export const relativePathSchema = z
   .string()
@@ -361,6 +365,13 @@ export const archiveResolveItemPayloadSchema = z
   .strict()
 export type ArchiveResolveItemPayload = z.infer<typeof archiveResolveItemPayloadSchema>
 
+export const archiveUploaderScanPayloadSchema = z
+  .object({
+    scanRunId: boundedIdSchema
+  })
+  .strict()
+export type ArchiveUploaderScanPayload = z.infer<typeof archiveUploaderScanPayloadSchema>
+
 export const derivedMediaGcPayloadSchema = z.object({
   entryIds: z.array(z.string().min(1)).max(1_000).optional(),
   dryRun: z.boolean().default(false),
@@ -479,7 +490,21 @@ export const pixivSeriesReconciliationPayloadSchema = z.discriminatedUnion('mode
 ])
 export type PixivSeriesReconciliationPayload = z.infer<typeof pixivSeriesReconciliationPayloadSchema>
 
+export const artistMergePayloadSchema = z.object({ mergeId: z.string().min(1).max(128) }).strict()
+export type ArtistMergePayload = z.infer<typeof artistMergePayloadSchema>
+
+export const creatorMaintenancePayloadSchema = z
+  .object({
+    planId: z.string().min(1).max(128),
+    phase: z.enum(['PREVIEW', 'APPLY'])
+  })
+  .strict()
+export type CreatorMaintenancePayload = z.infer<typeof creatorMaintenancePayloadSchema>
+
 export const JOB_PAYLOAD_SCHEMAS = {
+  ARCHIVE_DISCOVERY_BATCH_SCAN: discoveryBatchPayloadSchema,
+  CREATOR_MAINTENANCE: creatorMaintenancePayloadSchema,
+  ARTIST_MERGE: artistMergePayloadSchema,
   SCAN: scanPayloadSchema,
   LOCAL_DIRECTORY_IMPORT: localDirectoryImportPayloadSchema,
   MIGRATION: migrationPayloadSchema,
@@ -488,12 +513,15 @@ export const JOB_PAYLOAD_SCHEMAS = {
   MEDIA_DERIVED_TAG_SYNC: emptyJobPayloadSchema,
   PIXIV_AI_DERIVED_TAG_SYNC: pixivAiDerivedTagSyncPayloadSchema,
   WEBP_ANIMATION_SCAN: emptyJobPayloadSchema,
+  ANIMATION_DURATION_PROBE: emptyJobPayloadSchema,
   VIDEO_MEDIA_PROBE: videoMediaProbePayloadSchema,
   VIDEO_POSTER_GENERATION: targetImagePayloadSchema,
   VIDEO_CHAPTER_PREVIEW_GENERATION: videoChapterPreviewPayloadSchema,
   VIDEO_STREAMING_OPTIMIZATION: videoStreamingOptimizationPayloadSchema,
   VIDEO_KEYFRAME_DISCOVERY: videoKeyframeDiscoveryPayloadSchema,
   VIDEO_KEYFRAME_GENERATION: videoKeyframeGenerationPayloadSchema,
+  ARCHIVE_UPLOADER_SCAN: archiveUploaderScanPayloadSchema,
+  ARCHIVE_SEARCH_SCAN: archiveSearchScanPayloadSchema,
   ARCHIVE_RESOLVE_ITEM: archiveResolveItemPayloadSchema,
   ARCHIVE_IMPORT: archiveImportPayloadSchema,
   ARCHIVE_DEFAULT_TAG_BACKFILL: archiveDefaultTagBackfillPayloadSchema,
@@ -501,6 +529,7 @@ export const JOB_PAYLOAD_SCHEMAS = {
   ARCHIVE_INTAKE_RETENTION_CLEANUP: emptyJobPayloadSchema,
   SCAN_RUN_RETENTION_CLEANUP: emptyJobPayloadSchema,
   TRIGGER_LOG_RETENTION_CLEANUP: emptyJobPayloadSchema,
+  JOB_EVENT_RETENTION_CLEANUP: jobEventRetentionCleanupPayloadSchema,
   DERIVED_MEDIA_GC: derivedMediaGcPayloadSchema,
   PIXIV_ARTWORK_ENRICHMENT: pixivArtworkEnrichmentPayloadSchema,
   PIXIV_ARTIST_ENRICHMENT: pixivArtistEnrichmentPayloadSchema,
@@ -511,3 +540,4 @@ export const JOB_PAYLOAD_SCHEMAS = {
 export function parseJobPayload(type: JobType, payload: unknown) {
   return JOB_PAYLOAD_SCHEMAS[type].parse(payload)
 }
+import { archiveSearchScanPayloadSchema } from './archive-search.ts'

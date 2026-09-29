@@ -23,7 +23,7 @@ describe('buildArtworkWhereClause', () => {
     const params = ArtworksInfiniteQuerySchema.parse({})
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL')
+    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL AND a."archiveLifecycleState" = \'ACTIVE\'')
     expect(sqlParams).toHaveLength(0)
   })
 
@@ -49,7 +49,7 @@ describe('buildArtworkWhereClause', () => {
     const params = ArtworksInfiniteQuerySchema.parse({ sources: '' })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL')
+    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL AND a."archiveLifecycleState" = \'ACTIVE\'')
     expect(sqlParams).toEqual([])
   })
 
@@ -61,7 +61,7 @@ describe('buildArtworkWhereClause', () => {
     })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toContain('a."artistId" = $1')
+    expect(whereSQL).toContain('c."artistId" = $1')
     expect(whereSQL).toContain('a.source = ANY($2::"ArtworkSource"[])')
     expect(whereSQL).toContain('a.title ILIKE $3')
     expect(sqlParams).toEqual([9, [ESource.LOCAL_CREATED, ESource.LOCAL_IMPORT], '%miku%'])
@@ -113,7 +113,7 @@ describe('buildArtworkWhereClause', () => {
     })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toContain('a."artistId" = $1')
+    expect(whereSQL).toContain('c."artistId" = $1')
     expect(whereSQL).toContain('at_ids."tagId" = ANY($2::int[])')
     expect(whereSQL).toContain('cardinality($2::int[])')
     expect(whereSQL).toContain('a.title ILIKE $3')
@@ -131,7 +131,7 @@ describe('buildArtworkWhereClause', () => {
     })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toContain('(artist.name ILIKE $1 OR artist."userId" ILIKE $1)')
+    expect(whereSQL).toContain('(ca.name ILIKE $1 OR ca."userId" ILIKE $1')
     expect(sqlParams).toEqual(['%123456%'])
   })
 
@@ -200,7 +200,7 @@ describe('buildArtworkWhereClause', () => {
     })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL')
+    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL AND a."archiveLifecycleState" = \'ACTIVE\'')
     expect(sqlParams).toHaveLength(0)
   })
 
@@ -259,7 +259,7 @@ describe('buildArtworkWhereClause', () => {
     })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL')
+    expect(whereSQL).toBe('WHERE a."deletedAt" IS NULL AND a."archiveLifecycleState" = \'ACTIVE\'')
     expect(sqlParams).toHaveLength(0)
   })
 
@@ -293,7 +293,7 @@ describe('buildArtworkWhereClause', () => {
     const params = ArtworksInfiniteQuerySchema.parse({ artistId: 9, pixivStatus: 'FAILED' })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toContain('a."artistId" = $1')
+    expect(whereSQL).toContain('c."artistId" = $1')
     expect(whereSQL).toContain('pixiv_ref."status" = $2::"ArtworkExternalRefStatus"')
     expect(sqlParams).toEqual([9, 'FAILED'])
   })

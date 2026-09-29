@@ -1,3 +1,4 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import {
   JOB_DEFINITION_VERSION,
   videoChapterPreviewPayloadSchema,
@@ -43,6 +44,7 @@ export function createVideoProcessingExecutorRegistrations(
     jobType: 'VIDEO_CHAPTER_PREVIEW_GENERATION',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => videoChapterPreviewPayloadSchema.parse(payload),
     execute: (context) => executeChapterPreview(context, dependencies)
   }
@@ -50,6 +52,7 @@ export function createVideoProcessingExecutorRegistrations(
     jobType: 'VIDEO_STREAMING_OPTIMIZATION',
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => videoStreamingOptimizationPayloadSchema.parse(payload),
     execute: (context) => executeStreamingOptimization(context, dependencies)
   }
@@ -78,6 +81,7 @@ async function executeChapterPreview(
           message: update.message,
           ...(update.data ? { data: update.data } : {})
         }),
+      ...(context.recordDiagnostic ? { recordDiagnostic: context.recordDiagnostic } : {}),
       mutate: <T>(operation: (transaction: VideoProcessingTransaction) => Promise<T>) =>
         context.mutateInTransaction<VideoProcessingTransaction & QueueSqlExecutor, T>((transaction) =>
           operation(transaction)
@@ -238,11 +242,18 @@ function retryOrFail(
 ): JobExecutionOutcome {
   const failure = classifyError(error)
   if (error instanceof VideoProcessingPermanentError || context.job.attempt >= context.job.maxAttempts) {
-    return { kind: 'failed', errorCode: failure.errorCode, error: failure.message, message }
+    return {
+      kind: 'failed',
+      diagnostic: extractJobDiagnostic(error),
+      errorCode: failure.errorCode,
+      error: failure.message,
+      message
+    }
   }
   const now = dependencies.now?.() ?? new Date()
   return {
     kind: 'retry',
+    diagnostic: extractJobDiagnostic(error),
     availableAt: new Date(now.getTime() + Math.min(30 * 60_000, 30_000 * 2 ** Math.max(0, context.job.attempt - 1))),
     errorCode: failure.errorCode,
     error: failure.message,

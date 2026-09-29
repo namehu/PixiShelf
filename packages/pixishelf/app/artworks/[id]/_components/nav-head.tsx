@@ -18,6 +18,9 @@ import {
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import MediaOrderReviewDialog from './media-order-review-dialog'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
+import { useArtworkMediaView } from './artwork-media-view-context'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
@@ -27,7 +30,15 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   const setTotal = useArtworkStore((state) => state.setTotal)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const [orderReviewOpen, setOrderReviewOpen] = useState(false)
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [showScrolledTitle, setShowScrolledTitle] = useState(false)
+  const mediaView = useArtworkMediaView()
+  const showingLocalImages = mediaView?.view !== 'source'
+  const setReaderBlocked = mediaView?.setReaderBlocked
+  useEffect(() => {
+    setReaderBlocked?.(moreMenuOpen || orderReviewOpen)
+    return () => setReaderBlocked?.(false)
+  }, [moreMenuOpen, orderReviewOpen, setReaderBlocked])
 
   // 2. 确保页面滚动顶部
   useEffect(() => {
@@ -62,6 +73,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   return (
     <>
       <PageToolbar
+        className="artwork-detail-toolbar"
         containerSize="reading"
         contentClassName="relative"
         leading={
@@ -71,15 +83,14 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
           </Button>
         }
         actions={
-          <DropdownMenu>
+          <DropdownMenu
+            onOpenChange={(open) => {
+              setMoreMenuOpen(open)
+              if (open) useArtworkAutoBrowseStore.getState().pause('overlay')
+            }}
+          >
             <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="size-11"
-                aria-label="更多作品操作"
-              >
+              <Button type="button" variant="ghost" size="icon" className="size-11" aria-label="更多作品操作">
                 <EllipsisIcon data-icon="inline-start" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
@@ -101,33 +112,35 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
                     管理当前作品
                   </Link>
                 </DropdownMenuItem>
-                {data.images.length > 1 && (
+                {showingLocalImages && data.images.length > 1 && (
                   <DropdownMenuItem onSelect={() => setOrderReviewOpen(true)}>
                     <ListOrderedIcon aria-hidden="true" />
                     顺序校对
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuItem
-                  onSelect={() => {
-                    setImages(data.images)
-                    router.push('/artworks/preview')
-                  }}
-                >
-                  <FullscreenIcon aria-hidden="true" />
-                  全屏预览
-                </DropdownMenuItem>
+                {showingLocalImages && (
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setImages(data.images)
+                      router.push(`/artworks/preview?artworkId=${data.id}`)
+                    }}
+                  >
+                    <FullscreenIcon aria-hidden="true" />
+                    全屏预览
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         }
       >
         {showScrolledTitle && (
-          <span
+          <PrivacySensitiveText
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-16 truncate text-center text-sm font-medium text-foreground sm:inset-x-24"
+            className="pointer-events-none block truncate text-center text-sm font-medium text-foreground"
           >
             {data.title}
-          </span>
+          </PrivacySensitiveText>
         )}
       </PageToolbar>
 

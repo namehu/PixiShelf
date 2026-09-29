@@ -28,7 +28,11 @@ export function buildScheduledTaskJobDefinition(
     case 'TRIGGER_LOG_RETENTION_CLEANUP':
     case 'SCAN_RUN_RETENTION_CLEANUP':
     case 'WEBP_ANIMATION_SCAN':
+    case 'ANIMATION_DURATION_PROBE':
       candidate = {}
+      break
+    case 'JOB_EVENT_RETENTION_CLEANUP':
+      candidate = { dryRun: options.trigger === 'manual' }
       break
     case 'VIDEO_MEDIA_PROBE':
       candidate = {

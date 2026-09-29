@@ -1,9 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import {
-  ADMIN_PREFERENCES_STORAGE_KEY,
-  useAdminPreferencesStore
-} from '@/store/admin/use-admin-preferences-store'
+import { ADMIN_PREFERENCES_STORAGE_KEY, useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 import { AdminImageVisibilitySwitch } from '../admin-image-visibility-switch'
 
 describe('AdminImageVisibilitySwitch', () => {
@@ -11,7 +8,8 @@ describe('AdminImageVisibilitySwitch', () => {
     useAdminPreferencesStore.setState({
       showArtistImages: true,
       showTagCovers: true,
-      showArtworkPixivSync: true
+      showArtworkPixivSync: true,
+      archiveUploaderResultView: 'list'
     })
     localStorage.clear()
   })
@@ -52,7 +50,8 @@ describe('AdminImageVisibilitySwitch', () => {
     expect(JSON.parse(localStorage.getItem(ADMIN_PREFERENCES_STORAGE_KEY) ?? '').state).toEqual({
       showArtistImages: true,
       showTagCovers: false,
-      showArtworkPixivSync: true
+      showArtworkPixivSync: true,
+      archiveUploaderResultView: 'list'
     })
   })
 })

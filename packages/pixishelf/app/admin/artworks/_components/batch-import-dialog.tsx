@@ -378,6 +378,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
               默认艺术家 <span className="text-destructive">*</span>
             </Label>
             <MultipleSelector
+              showOptionValue
               placeholder="搜索艺术家..."
               value={artist ? [artist] : []}
               onSearch={handleSearchArtist}

@@ -5,7 +5,7 @@ import { useInView } from 'react-intersection-observer'
 import { FilterIcon } from 'lucide-react'
 import ArtworkCard from '@/components/artwork/artwork-card'
 import { useInfiniteQuery } from '@tanstack/react-query'
-import { useTRPC } from '@/lib/trpc'
+import { useTRPCClient } from '@/lib/trpc'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useColumns } from '@/hooks/use-columns'
 import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
@@ -16,6 +16,9 @@ import { PageState } from '@/components/layout/page-state'
 import { useArtworkDisplayMode } from '@/components/user-setting'
 import type { ArtworkSource } from '@/schemas/models'
 import { cn } from '@/lib/utils'
+import type { ReadingStatus } from '@pixishelf/db/reading-contract'
+import { useReadingSummaries } from '@/lib/reading/reading-provider'
+import { useAuthUser } from '@/components/auth'
 
 /**
  * 无限滚动作品列表组件 (InfiniteArtworkList)
@@ -62,6 +65,7 @@ interface InfiniteArtworkListProps {
   emptyMessage?: string
   /** 随机种子，用于随机排序时的稳定性 */
   randomSeed?: number
+  readingStatus?: ReadingStatus
 }
 
 export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
@@ -81,10 +85,12 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     onTotalChange,
     onClearFilters,
     emptyMessage,
-    randomSeed
+    randomSeed,
+    readingStatus
   } = props
 
-  const trpc = useTRPC()
+  const trpcClient = useTRPCClient()
+  const ownerUserId = useAuthUser()?.id ?? null
   const displayMode = useArtworkDisplayMode()
   const containerRef = useRef<HTMLDivElement>(null)
   const virtualListRef = useRef<HTMLDivElement>(null)
@@ -96,9 +102,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   const isRequesting = useRef(false)
   const prevInView = useRef(false)
 
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } = useInfiniteQuery(
-    trpc.artwork.cardList.infiniteQueryOptions(
-      {
+  const filterInput = useMemo(() => ({
         search: searchQuery || undefined,
         sortBy,
         randomSeed: sortBy === 'random' ? randomSeed : undefined,
@@ -111,14 +115,22 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
         startDate: startDate || undefined,
         endDate: endDate || undefined,
         createdStartDate: createdStartDate || undefined,
-        createdEndDate: createdEndDate || undefined
-      },
-      {
-        getNextPageParam: (lastPage) => lastPage.nextCursor,
-        initialCursor: 1
-      }
-    )
-  )
+        createdEndDate: createdEndDate || undefined,
+        readingStatus,
+        expectedUserId: ownerUserId ?? undefined
+  }), [artistId, createdEndDate, createdStartDate, endDate, hasAudio, mediaType, ownerUserId,
+    randomSeed, readingStatus, searchQuery, sortBy, sources, startDate, tagId, tagIds])
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } = useInfiniteQuery({
+    queryKey: ['artwork', 'cardList', ownerUserId, filterInput],
+    initialPageParam: 1 as number | string,
+    enabled: Boolean(ownerUserId),
+    queryFn: ({ pageParam, signal }) => trpcClient.artwork.cardList.query({
+      ...filterInput,
+      cursor: typeof pageParam === 'number' ? pageParam : undefined,
+      readingCursor: typeof pageParam === 'string' ? pageParam : undefined
+    }, { signal }),
+    getNextPageParam: (lastPage) => readingStatus ? lastPage.nextReadingCursor : lastPage.nextCursor
+  })
 
   // 更新 Total
   useEffect(() => {
@@ -144,7 +156,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     return () => {
       resizeObserver.disconnect()
     }
-  }, [])
+  }, [isLoading, allItems.length])
 
   useLayoutEffect(() => {
     if (virtualListRef.current) {
@@ -152,7 +164,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       const scrollTop = window.scrollY || document.documentElement.scrollTop
       setOffsetTop(rect.top + scrollTop)
     }
-  }, [])
+  }, [isLoading, allItems.length])
 
   const estimateSize = useCallback(() => {
     const effectiveWidth = containerWidth
@@ -171,13 +183,17 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     overscan: 5,
     enabled: !!containerWidth
   })
+  const visibleArtworkIds = rowVirtualizer.getVirtualItems().flatMap((row) =>
+    allItems.slice(row.index * columns, (row.index + 1) * columns).map((item) => item.id)
+  )
+  const readingSummaries = useReadingSummaries(visibleArtworkIds)
 
   const { ref: loadMoreRef, inView } = useInView({
     rootMargin: '200px'
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${searchQuery}-${sortBy}-${mediaType}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}`
+  const storageKey = `artworks-scroll-${ownerUserId}-${searchQuery}-${sortBy}-${mediaType}-${readingStatus ?? ''}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {
@@ -311,6 +327,8 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
                       artwork={artwork as any}
                       priority={index < 10}
                       displayMode={displayMode}
+                      reading={readingSummaries.byArtworkId.get(artwork.id)}
+                      showReadingStatus
                     />
                   ))}
                 </div>

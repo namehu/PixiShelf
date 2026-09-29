@@ -629,3 +629,7 @@ App 聚焦服务/鉴权/查询测试 136/136、UI 测试 19/19。Next.js typeche
 6. 旧非终态 FULL job 已清空或由管理员显式处理，历史记录仍可读；
 7. 当前产品、架构、安全、测试、Webhook 和运维文档已按实际上线行为更新；
 8. 生产规模脱敏副本的性能数据、发布检查点和回滚证据已登记。
+
+## 扫描根身份修订（2026-09-11）
+
+跨执行的图库身份由 `.pixishelf-root` UUID 判定；deviceId/inode 改为已验证环境的诊断值。原文的 root 不匹配规则现在区分持久 UUID 不匹配与任务执行途中换根：后者仍严格检查 deviceId/inode。路径哈希、冻结文件证据、generation、来源 CAS 与 fence 保持约束。旧库兼容与恢复依据以 [Pixiv 扫描根身份](../features/pixiv-root-identity.md) 为准。

@@ -32,6 +32,22 @@ vi.mock('@/services/video-media-probe-service', () => ({
 vi.mock('@/services/video-media-central-service', () => ({ enqueueCentralVideoMediaReprobe: vi.fn() }))
 
 import { artworkRouter } from '../artwork'
+import { countArtworkDeleteEntries, type ArtworkDeleteReport } from '@/schemas/artwork-delete.dto'
+
+const report: ArtworkDeleteReport = {
+  reportId: 'report-42',
+  artwork: { id: 42, title: 'work', createdVia: 'LOCAL_DIRECTORY', directory: 'artist/work' },
+  startedAt: '2026-09-15T00:00:00.000Z',
+  finishedAt: '2026-09-15T00:00:01.000Z',
+  mode: 'DIRECT_DELETE',
+  outcome: 'COMPLETED',
+  entries: [],
+  database: { artwork: 'DELETED', media: 'DELETED', deletedMediaCount: 0, relatedRecords: [] },
+  counts: countArtworkDeleteEntries([]),
+  inspectionComplete: true,
+  warnings: [],
+  archive: null
+}
 
 const authorized = {
   session: { id: 'session-1' },
@@ -44,7 +60,7 @@ const unauthorized = { session: null, user: null, userId: undefined, headers: ne
 describe('artwork delete authorization boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.deleteArtwork.mockResolvedValue({ id: 42 })
+    mocks.deleteArtwork.mockResolvedValue(report)
   })
 
   it('rejects unauthenticated deletion before the write service boundary', async () => {
@@ -53,7 +69,24 @@ describe('artwork delete authorization boundary', () => {
   })
 
   it('passes the authenticated administrator identity to the delete command', async () => {
-    await expect(artworkRouter.createCaller(authorized).delete(42)).resolves.toEqual({ id: 42 })
+    await expect(artworkRouter.createCaller(authorized).delete(42)).resolves.toEqual(report)
     expect(mocks.deleteArtwork).toHaveBeenCalledWith(42, { requestedByUserId: 'admin-1' })
+  })
+
+  it('rejects invalid IDs before any delete operation', async () => {
+    await expect(artworkRouter.createCaller(authorized).delete(-1)).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(mocks.deleteArtwork).not.toHaveBeenCalled()
+  })
+
+  it('preserves a partial report instead of claiming transport success means deletion success', async () => {
+    mocks.deleteArtwork.mockResolvedValue({
+      ...report,
+      outcome: 'FAILED',
+      database: { ...report.database, artwork: 'FAILED' }
+    })
+    await expect(artworkRouter.createCaller(authorized).delete(42)).resolves.toMatchObject({
+      outcome: 'FAILED',
+      database: { artwork: 'FAILED' }
+    })
   })
 })

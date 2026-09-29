@@ -1,5 +1,5 @@
-import type { ArchiveTransferTelemetry } from '@pixishelf/job-contracts'
 import { Progress } from '@/components/ui/progress'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { archiveTaskDisplayStatus, archiveTaskStatusLabel } from './archive-task-view-state'
 
 interface ArchiveTaskProgressValue {
@@ -13,47 +13,37 @@ interface ArchiveTaskProgressValue {
   warning: string | null
   errorMessage: string | null
   retainUntil: Date | string | null
-  liveTransfer?: ArchiveTransferTelemetry | null
-  liveNow?: number
 }
 
-export function TaskProgress({ task, compact = false }: { task: ArchiveTaskProgressValue; compact?: boolean }) {
+export function TaskProgress({ task }: { task: ArchiveTaskProgressValue }) {
   const displayStatus = archiveTaskDisplayStatus(task)
-  const transfer = task.liveTransfer
-  const showTransfer =
-    transfer &&
-    ['RUNNING', 'PAUSING', 'CANCELLING'].includes(task.systemJobStatus) &&
-    !['COMPLETED', 'FAILED', 'CANCELLED'].includes(displayStatus)
+  if (displayStatus === 'FAILED') {
+    return (
+      <div className="flex min-w-0 flex-col gap-1 text-xs text-destructive">
+        {task.errorMessage && (
+          <PrivacySensitiveText as="p" className="line-clamp-2 break-words [overflow-wrap:anywhere]">
+            {task.errorMessage}
+          </PrivacySensitiveText>
+        )}
+        <p>{task.errorCode === 'PARTIAL_FAILURE' ? '打开任务详情可重试失败图片' : '可在任务操作中重试'}</p>
+      </div>
+    )
+  }
+  if (!['RUNNING', 'CANCELLING'].includes(displayStatus)) return null
   return (
-    <div className={compact ? 'flex w-56 min-w-0 flex-col gap-1.5' : 'flex w-full min-w-0 flex-col gap-1.5'}>
+    <div className="flex w-full min-w-0 flex-col gap-1.5">
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        <span className={compact ? 'max-w-20 min-w-0 flex-1 truncate' : 'min-w-0 flex-1 truncate'}>
-          {task.message || archiveTaskStatusLabel(displayStatus, task.errorCode)}
+        <span className="min-w-0 flex-1 truncate">
+          {task.message ? (
+            <PrivacySensitiveText>{task.message}</PrivacySensitiveText>
+          ) : (
+            archiveTaskStatusLabel(displayStatus, task.errorCode)
+          )}
         </span>
         <span className="tabular-nums">{task.progress}%</span>
       </div>
       <Progress value={task.progress} aria-label={`${task.title || task.externalId} 完成 ${task.progress}%`} />
-      {showTransfer ? <ArchiveTransferStatus telemetry={transfer} now={task.liveNow ?? Date.now()} /> : null}
-      {task.warning && <p className="line-clamp-2 whitespace-pre-wrap text-xs text-warning">{task.warning}</p>}
-      {task.errorMessage && (
-        <p className="line-clamp-2 whitespace-pre-wrap text-xs text-destructive">{task.errorMessage}</p>
-      )}
-      {task.retainUntil && task.status !== 'COMPLETED' && (
-        <p className="text-xs text-muted-foreground">暂存保留至 {formatTaskTime(task.retainUntil)}</p>
-      )}
     </div>
-  )
-}
-
-export function ArchiveTransferStatus({ telemetry, now }: { telemetry: ArchiveTransferTelemetry; now: number }) {
-  const stale = now - new Date(telemetry.sampledAt).getTime() > 5_000
-  const speed = stale ? '速度 —' : `${formatByteAmount(telemetry.bytesPerSecond)}/s`
-  const primary = telemetry.activeDownloads === 0 ? `等待远端响应${stale ? ' · 速度 —' : ''}` : speed
-  const text = `${primary} · 有效已下载 ${formatByteAmount(telemetry.downloadedBytes)} · ${telemetry.activeDownloads}/${telemetry.concurrencyLimit} 路`
-  return (
-    <p className="truncate text-xs text-muted-foreground" title={text} aria-label={text}>
-      {text}
-    </p>
   )
 }
 
@@ -80,7 +70,7 @@ export function ArchiveImageCounts({
   )
 }
 
-function formatByteAmount(value: number | string): string {
+export function formatByteAmount(value: number | string): string {
   const bytes = Number(value)
   if (!Number.isFinite(bytes) || bytes < 0) return '—'
   if (bytes < 1_024) return `${Math.round(bytes)} B`
@@ -92,9 +82,4 @@ function formatByteAmount(value: number | string): string {
     unit = units[index]!
   }
   return `${Number(amount.toFixed(amount >= 10 ? 1 : 2))} ${unit}`
-}
-
-function formatTaskTime(value: Date | string): string {
-  const date = value instanceof Date ? value : new Date(value)
-  return Number.isNaN(date.getTime()) ? '时间未知' : date.toLocaleString('zh-CN', { hour12: false })
 }

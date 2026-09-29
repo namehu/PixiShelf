@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { AppRouter } from '@/server'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { formatFullDate } from './scan-history-format'
 import {
   formatSourceAuditApplyItemState,
@@ -269,7 +270,9 @@ function ApplyOperationItemRow({ item }: { item: SourceAuditApplyOperationItem }
         <ApplyItemIdentity item={item} />
       </TableCell>
       <TableCell className="max-w-96 whitespace-normal align-top">
-        <code className="break-all text-xs text-muted-foreground">{item.metadataRelativePath}</code>
+        <PrivacySensitiveText as="code" className="break-all text-xs text-muted-foreground">
+          {item.metadataRelativePath}
+        </PrivacySensitiveText>
       </TableCell>
       <TableCell className="max-w-80 whitespace-normal align-top">
         <ApplyItemMessage item={item} />
@@ -283,15 +286,19 @@ function ApplyOperationItemCard({ item }: { item: SourceAuditApplyOperationItem 
     <Card className="gap-4 py-4 shadow-none">
       <CardHeader className="gap-2 px-4">
         <ApplyResultBadge state={item.state} action={item.action} />
-        <CardTitle className="break-words text-sm leading-5">
+        <PrivacySensitiveText as={CardTitle} className="break-words text-sm leading-5">
           {item.title ?? item.artwork?.title ?? (item.externalId ? `Pixiv #${item.externalId}` : '未识别来源作品')}
-        </CardTitle>
-        <CardDescription className="break-words">{item.artistName ?? '作者未知'}</CardDescription>
+        </PrivacySensitiveText>
+        <PrivacySensitiveText as={CardDescription} className="break-words">
+          {item.artistName ?? '作者未知'}
+        </PrivacySensitiveText>
       </CardHeader>
       <CardContent className="flex flex-col gap-3 px-4 text-sm">
         <div>
           <p className="text-xs text-muted-foreground">metadata 路径</p>
-          <code className="mt-1 block break-all text-xs text-foreground">{item.metadataRelativePath}</code>
+          <PrivacySensitiveText as="code" className="mt-1 block break-all text-xs text-foreground">
+            {item.metadataRelativePath}
+          </PrivacySensitiveText>
         </div>
         <ApplyItemMessage item={item} />
       </CardContent>
@@ -302,13 +309,13 @@ function ApplyOperationItemCard({ item }: { item: SourceAuditApplyOperationItem 
 function ApplyItemIdentity({ item }: { item: SourceAuditApplyOperationItem }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <span className="break-words font-medium text-foreground">
+      <PrivacySensitiveText className="break-words font-medium text-foreground">
         {item.title ?? item.artwork?.title ?? '未识别作品'}
-      </span>
-      <span className="break-words text-xs text-muted-foreground">
+      </PrivacySensitiveText>
+      <PrivacySensitiveText className="break-words text-xs text-muted-foreground">
         {item.artistName ?? '作者未知'}
         {item.externalId ? ` · Pixiv #${item.externalId}` : ''}
-      </span>
+      </PrivacySensitiveText>
       {item.artwork ? (
         <Button asChild variant="link" size="sm" className="h-auto w-fit p-0">
           <Link href={`/artworks/${item.artwork.id}`} target="_blank" rel="noreferrer">
@@ -327,7 +334,7 @@ function ApplyItemMessage({ item }: { item: SourceAuditApplyOperationItem }) {
       : getSourceAuditApplyResultCopy(item.state as SourceAuditApplyResult)
   return (
     <div className="flex flex-col gap-1">
-      <span className="leading-5 text-foreground">{item.summary ?? fallback}</span>
+      <PrivacySensitiveText className="leading-5 text-foreground">{item.summary ?? fallback}</PrivacySensitiveText>
       {item.retryable && item.state !== 'PENDING' && item.state !== 'PROCESSING' ? (
         <span className="text-xs text-muted-foreground">
           {item.state === 'STALE' || item.state === 'CONFLICT'

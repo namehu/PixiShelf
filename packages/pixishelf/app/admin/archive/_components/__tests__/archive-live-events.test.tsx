@@ -1,6 +1,6 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import type { JobEventStreamItem } from '@pixishelf/job-contracts'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ subscription: vi.fn() }))
 
@@ -11,6 +11,8 @@ vi.mock('../../../_components/background-job-event-provider', () => ({
 import { latestArchiveJobs, useArchiveLiveEvents } from '../archive-live-events'
 
 describe('archive live events', () => {
+  afterEach(() => vi.useRealTimers())
+
   it('drops transfer telemetry as soon as the current job reaches a terminal state', () => {
     const latest = latestArchiveJobs([
       streamItem('100', 'job.progress', 'RUNNING', [1, 1], transferTelemetry(8, 0, 10)),
@@ -55,6 +57,29 @@ describe('archive live events', () => {
 
     await waitFor(() => expect(view.result.current.lifecycleVersion).toBe(2))
   })
+
+  it('does not rerender the task list every second while retaining disconnected telemetry', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-01T00:00:01.000Z'))
+    mocks.subscription.mockReturnValue({
+      status: 'reconnecting',
+      items: [streamItem('100', 'job.progress', 'RUNNING', [1, 1], transferTelemetry(1, 0, 10))],
+      readyVersion: 1,
+      resetVersion: 0
+    })
+    const renders = vi.fn()
+    const view = renderHook(() => {
+      renders()
+      return useArchiveLiveEvents()
+    })
+    renders.mockClear()
+
+    await act(() => vi.advanceTimersByTimeAsync(6_000))
+
+    expect(renders).not.toHaveBeenCalled()
+    expect(view.result.current.liveJobById.get('job-1')?.transfer?.completedItems).toBe(1)
+    view.unmount()
+  })
 })
 
 function streamItem(
@@ -86,6 +111,7 @@ function streamItem(
       executionLane: 'BACKGROUND_WRITER',
       status,
       progress: status === 'COMPLETED' ? 100 : 80,
+      progressData: null,
       stage: 'DOWNLOADING',
       message: null,
       errorCode: null,

@@ -4,6 +4,7 @@ import { LayoutGrid, List as ListIcon, Plus, RefreshCw, Sparkles } from 'lucide-
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { formatFileSize } from '@/utils/media'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ImageManagerToolbarProps {
   showThumbnails: boolean
@@ -81,9 +82,9 @@ export function ImageManagerToolbar({
       </div>
       {mediaCount > 0 && (
         <div className="text-xs text-muted-foreground flex items-center gap-3">
-          <span className="font-mono" title={firstImagePath || ''}>
+          <PrivacySensitiveText className="font-mono">
             {firstImagePath ? `...${firstImagePath.slice(-20)}` : ''}
-          </span>
+          </PrivacySensitiveText>
           <span>{mediaCount} 个媒体</span>
           <span>•</span>
           <span>共: {formatFileSize(totalSize)}</span>

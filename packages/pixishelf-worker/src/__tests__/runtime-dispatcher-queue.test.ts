@@ -60,11 +60,22 @@ describe('RuntimeDispatcherQueue', () => {
     const queue = new RuntimeDispatcherQueue(repository)
     const fence = executionFence()
     const mutation = vi.fn(async () => 'checkpoint')
+    const progressMutation = vi.fn(async () => ({
+      result: 'progress-checkpoint',
+      update: {
+        progress: 25,
+        progressData: animationProgressData()
+      }
+    }))
     const finalization = vi.fn(async () => undefined)
 
     await expect(queue.withFencedMutationTransaction(fence, mutation)).resolves.toBe('checkpoint')
+    await expect(queue.withFencedProgressTransaction(fence, progressMutation)).resolves.toMatchObject({
+      result: 'progress-checkpoint'
+    })
     await expect(queue.withFencedExecutionTransaction(fence, finalization)).resolves.toBeUndefined()
     expect(repository.withFencedMutationTransaction).toHaveBeenCalledWith(fence, mutation)
+    expect(repository.withFencedProgressTransaction).toHaveBeenCalledWith(fence, progressMutation)
     expect(repository.withFencedExecutionTransaction).toHaveBeenCalledWith(fence, finalization)
     expect(() => queue.settle(fence, { kind: 'transactionally-finalized' })).toThrow('must not be settled')
   })
@@ -88,6 +99,10 @@ function createRepository() {
       async (_fence: ExecutionFence, operation: (transaction: QueueSqlExecutor) => Promise<unknown>) =>
         operation({} as never)
     ) as unknown as QueueRepositoryPort['withFencedMutationTransaction'],
+    withFencedProgressTransaction: vi.fn(
+      async (_fence: ExecutionFence, operation: (transaction: QueueSqlExecutor) => Promise<unknown>) =>
+        operation({} as never)
+    ) as unknown as QueueRepositoryPort['withFencedProgressTransaction'],
     withFencedExecutionTransaction: vi.fn(
       async (_fence: ExecutionFence, operation: (scope: FencedExecutionTransaction) => Promise<unknown>) =>
         operation({
@@ -111,6 +126,27 @@ function createRepository() {
     pause: vi.fn<QueueRepositoryPort['pause']>(async () => undefined),
     release: vi.fn<QueueRepositoryPort['release']>(async () => undefined)
   } satisfies QueueRepositoryPort
+}
+
+function animationProgressData() {
+  return {
+    version: 1 as const,
+    kind: 'animation-scan' as const,
+    stage: 'SCANNING' as const,
+    initializedItems: 100,
+    totalItems: 100,
+    attemptedItems: 25,
+    succeededItems: 25,
+    failedItems: 0,
+    animatedItems: 10,
+    staticItems: 15,
+    remainingItems: 75,
+    activeProbes: 0,
+    concurrencyLimit: 4,
+    itemsPerSecond: 1,
+    etaSeconds: null,
+    sampledAt: '2026-08-14T00:00:00.000Z'
+  }
 }
 
 function executionFence(): ExecutionFence {

@@ -1,7 +1,8 @@
 'use client'
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
+import { useAuthUser } from '@/components/auth'
 import { userSettingsWithDefaultsSchema } from '@/schemas/user-setting.dto'
 import type {
   ArtworkDisplayMode,
@@ -13,10 +14,21 @@ import type {
 } from '@/schemas/user-setting.dto'
 
 interface UserSettingState {
+  ownerUserId: string | null
   settings: UserSettingsWithDefaults
-  hydrateSettings: (nextSettings?: UserSettings) => void
+  hydrateSettings: (nextSettings?: UserSettings, ownerUserId?: string | null) => void
+  resetSettingsForUser: (ownerUserId: string | null) => void
   updateSettingLocally: <K extends keyof UserSettingsWithDefaults>(key: K, value: UserSettingsWithDefaults[K]) => void
   updateSettingsLocally: (nextSettings: Partial<UserSettingsWithDefaults>) => void
+  updateSettingLocallyForUser: <K extends keyof UserSettingsWithDefaults>(
+    ownerUserId: string | null,
+    key: K,
+    value: UserSettingsWithDefaults[K]
+  ) => void
+  updateSettingsLocallyForUser: (
+    ownerUserId: string | null,
+    nextSettings: Partial<UserSettingsWithDefaults>
+  ) => void
 }
 
 const defaultSettings = userSettingsWithDefaultsSchema.parse({})
@@ -25,7 +37,11 @@ const normalizeSettings = (settings?: UserSettings): UserSettingsWithDefaults =>
   userSettingsWithDefaultsSchema.parse(settings ?? {})
 
 function MediaPrivacyRootSync() {
-  const enabled = useUserSettingsStore((state) => state.settings.media_privacy_mode)
+  const currentUserId = useAuthUser()?.id ?? null
+  const enabled = useUserSettingsStore(
+    (state) =>
+      currentUserId !== null && state.ownerUserId === currentUserId && state.settings.media_privacy_mode
+  )
 
   useLayoutEffect(() => {
     document.documentElement.dataset.mediaPrivacy = enabled ? 'on' : 'off'
@@ -35,9 +51,16 @@ function MediaPrivacyRootSync() {
 }
 
 const useUserSettingsStore = create<UserSettingState>((set) => ({
+  ownerUserId: null,
   settings: defaultSettings,
-  hydrateSettings: (nextSettings) => {
-    set({ settings: normalizeSettings(nextSettings) })
+  hydrateSettings: (nextSettings, ownerUserId) => {
+    set((state) => ({
+      ownerUserId: ownerUserId === undefined ? state.ownerUserId : ownerUserId,
+      settings: normalizeSettings(nextSettings)
+    }))
+  },
+  resetSettingsForUser: (ownerUserId) => {
+    set({ ownerUserId, settings: defaultSettings })
   },
   updateSettingLocally: (key, value) => {
     set((state) => ({
@@ -54,34 +77,88 @@ const useUserSettingsStore = create<UserSettingState>((set) => ({
         ...nextSettings
       }
     }))
+  },
+  updateSettingLocallyForUser: (ownerUserId, key, value) => {
+    set((state) => {
+      if (state.ownerUserId !== ownerUserId) return state
+
+      return {
+        settings: {
+          ...state.settings,
+          [key]: value
+        }
+      }
+    })
+  },
+  updateSettingsLocallyForUser: (ownerUserId, nextSettings) => {
+    set((state) => {
+      if (state.ownerUserId !== ownerUserId) return state
+
+      return {
+        settings: {
+          ...state.settings,
+          ...nextSettings
+        }
+      }
+    })
   }
 }))
 
 export function UserSettingProvider({
   children,
-  initialSettings
+  initialSettings,
+  initialUserId
 }: React.PropsWithChildren<{
   initialSettings?: UserSettings
+  initialUserId?: string | null
 }>) {
+  const currentUserId = useAuthUser()?.id ?? null
+  const serverOwnerUserId = initialUserId === undefined ? currentUserId : initialUserId
   const initializedRef = useRef(false)
-  const [initialSnapshot] = useState<UserSettingsWithDefaults>(() => normalizeSettings(initialSettings))
-  const serializedInitialSettings = JSON.stringify(initialSettings ?? {})
-  const lastHydratedSnapshotRef = useRef<string>(serializedInitialSettings)
+  const [initialSnapshot] = useState(() => ({
+    ownerUserId: currentUserId,
+    settings: serverOwnerUserId === currentUserId ? normalizeSettings(initialSettings) : defaultSettings
+  }))
+  const serializedInitialSettings = JSON.stringify({
+    ownerUserId: serverOwnerUserId,
+    settings: initialSettings ?? {}
+  })
+  const lastHydratedSnapshotRef = useRef<string | null>(
+    serverOwnerUserId === currentUserId ? serializedInitialSettings : null
+  )
 
   if (!initializedRef.current) {
-    useUserSettingsStore.setState({ settings: initialSnapshot })
+    useUserSettingsStore.setState(initialSnapshot)
     initializedRef.current = true
-    lastHydratedSnapshotRef.current = JSON.stringify(initialSettings ?? {})
   }
 
+  useLayoutEffect(() => {
+    const store = useUserSettingsStore.getState()
+    if (serverOwnerUserId !== currentUserId) {
+      lastHydratedSnapshotRef.current = null
+      if (store.ownerUserId !== currentUserId || store.settings !== defaultSettings) {
+        store.resetSettingsForUser(currentUserId)
+      }
+      return
+    }
+
+    if (store.ownerUserId === currentUserId) return
+
+    lastHydratedSnapshotRef.current = null
+    store.resetSettingsForUser(currentUserId)
+  }, [currentUserId, serverOwnerUserId])
+
   useEffect(() => {
-    if (lastHydratedSnapshotRef.current === serializedInitialSettings) {
+    if (
+      serverOwnerUserId !== currentUserId ||
+      lastHydratedSnapshotRef.current === serializedInitialSettings
+    ) {
       return
     }
 
     lastHydratedSnapshotRef.current = serializedInitialSettings
-    useUserSettingsStore.getState().hydrateSettings(initialSettings)
-  }, [initialSettings, serializedInitialSettings])
+    useUserSettingsStore.getState().hydrateSettings(initialSettings, serverOwnerUserId)
+  }, [currentUserId, initialSettings, serializedInitialSettings, serverOwnerUserId])
 
   return (
     <>
@@ -92,9 +169,22 @@ export function UserSettingProvider({
 }
 
 export function useUserSettings() {
-  const settings = useUserSettingsStore((state) => state.settings)
-  const updateSettingLocally = useUserSettingsStore((state) => state.updateSettingLocally)
-  const updateSettingsLocally = useUserSettingsStore((state) => state.updateSettingsLocally)
+  const currentUserId = useAuthUser()?.id ?? null
+  const settings = useUserSettingsStore((state) =>
+    state.ownerUserId === currentUserId ? state.settings : defaultSettings
+  )
+  const updateSettingLocally = useCallback(
+    <K extends keyof UserSettingsWithDefaults>(key: K, value: UserSettingsWithDefaults[K]) => {
+      useUserSettingsStore.getState().updateSettingLocallyForUser(currentUserId, key, value)
+    },
+    [currentUserId]
+  )
+  const updateSettingsLocally = useCallback(
+    (nextSettings: Partial<UserSettingsWithDefaults>) => {
+      useUserSettingsStore.getState().updateSettingsLocallyForUser(currentUserId, nextSettings)
+    },
+    [currentUserId]
+  )
 
   return {
     settings,
@@ -104,7 +194,10 @@ export function useUserSettings() {
 }
 
 export function useUserSettingValue<K extends keyof UserSettingsWithDefaults>(key: K): UserSettingsWithDefaults[K] {
-  return useUserSettingsStore((state) => state.settings[key])
+  const currentUserId = useAuthUser()?.id ?? null
+  return useUserSettingsStore((state) =>
+    state.ownerUserId === currentUserId ? state.settings[key] : defaultSettings[key]
+  )
 }
 
 export function useArtworkDisplayMode(): ArtworkDisplayMode {

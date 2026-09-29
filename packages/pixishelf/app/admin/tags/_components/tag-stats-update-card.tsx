@@ -34,8 +34,9 @@ export function TagStatsUpdateCard({ onUpdateStats }: TagStatsUpdateCardProps) {
       setStatsUpdateError(null)
 
       const result = await updateTagStatsAction()
+      const data = result?.data
 
-      if (result.success) {
+      if (data?.success) {
         setStatsUpdateStatus('success')
         setLastStatsUpdate(new Date().toLocaleString('zh-CN'))
         toast.success('标签统计更新成功')
@@ -43,7 +44,7 @@ export function TagStatsUpdateCard({ onUpdateStats }: TagStatsUpdateCardProps) {
         // 刷新页面数据以显示最新统计
         onUpdateStats()
       } else {
-        throw new Error(result.message || '更新失败')
+        throw new Error(result?.serverError || data?.message || '更新失败')
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : '标签统计更新失败'

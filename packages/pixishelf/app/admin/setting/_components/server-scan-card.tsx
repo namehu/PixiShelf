@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { FolderOpen, Save, X, Activity } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ServerScanCardProps {
   /** 扫描路径数据 */
@@ -91,9 +92,9 @@ export function ServerScanCard({
           </div>
           <div className="flex flex-col min-w-0">
             <span className="text-xs text-muted-foreground">当前扫描目录</span>
-            <span className="font-mono text-sm font-medium truncate" title={scanPathData}>
+            <PrivacySensitiveText className="truncate font-mono text-sm font-medium">
               {scanPathData || '未配置'}
-            </span>
+            </PrivacySensitiveText>
           </div>
         </div>
         <Button variant="link" size="sm" onClick={handleStartEdit} disabled={isScanning}>

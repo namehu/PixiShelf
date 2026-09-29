@@ -1,3 +1,4 @@
+import { controlDiscoveryBatch } from '@pixishelf/job-executors'
 import { prisma } from '@/lib/prisma'
 import {
   executionLaneForJobType,
@@ -14,6 +15,7 @@ import {
 import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { BackgroundTaskError } from './background-task-error'
+import { unacknowledgedFailureWhere } from './job-failure-policy'
 import { writeJobEvent } from './job-event-service'
 import { jobPayloadsHaveSameSemantics } from './job-payload-semantics'
 import { systemJobWireSelect, toJobDto, type SystemJobWireRecord } from './job-serialization'
@@ -59,10 +61,27 @@ export const retryJobInputSchema = jobIdInputSchema.extend({ requestedByUserId: 
 export const acknowledgeJobFailureInputSchema = jobIdInputSchema.extend({
   requestedByUserId: z.string().min(1)
 })
+export const acknowledgeJobFailuresRequestSchema = z.discriminatedUnion('scope', [
+  z
+    .object({
+      scope: z.literal('selected'),
+      jobIds: z
+        .array(z.string().min(1).max(128))
+        .min(1)
+        .max(100)
+        .transform((ids) => [...new Set(ids)])
+    })
+    .strict(),
+  z.object({ scope: z.literal('all') }).strict()
+])
+export type AcknowledgeJobFailuresRequest = z.input<typeof acknowledgeJobFailuresRequestSchema>
 export const changeJobPriorityInputSchema = jobIdInputSchema.extend({ priority: z.number().int().min(0).max(999) })
 
 interface CommandDatabaseClient {
-  $transaction<T>(callback: (transaction: Prisma.TransactionClient) => Promise<T>): Promise<T>
+  $transaction<T>(
+    callback: (transaction: Prisma.TransactionClient) => Promise<T>,
+    options?: { timeout?: number }
+  ): Promise<T>
 }
 
 type ParsedEnqueueInput = z.output<typeof enqueueJobInputSchema>
@@ -96,15 +115,16 @@ async function acknowledgeJobFailure(
     source: 'MANUAL' | 'RETRY'
   }
 ) {
-  await transaction.systemJobFailureAcknowledgement.upsert({
-    where: { jobId: input.jobId },
-    create: {
-      jobId: input.jobId,
-      acknowledgedAt: input.acknowledgedAt,
-      acknowledgedByUserId: input.acknowledgedByUserId,
-      source: input.source
-    },
-    update: {}
+  await transaction.systemJobFailureAcknowledgement.createMany({
+    data: [
+      {
+        jobId: input.jobId,
+        acknowledgedAt: input.acknowledgedAt,
+        acknowledgedByUserId: input.acknowledgedByUserId,
+        source: input.source
+      }
+    ],
+    skipDuplicates: true
   })
 }
 
@@ -203,11 +223,13 @@ export async function enqueueJob(
   now: () => Date = () => new Date()
 ): Promise<JobDto> {
   const parsed = enqueueJobInputSchema.parse(input)
-  if (parsed.type === 'ARCHIVE_RESOLVE_ITEM') {
-    throw new BackgroundTaskError(
-      'INVALID_STATE_TRANSITION',
-      'Archive resolver jobs must be created through the archive intake workflow'
-    )
+  if (
+    parsed.type === 'ARCHIVE_DISCOVERY_BATCH_SCAN' ||
+    parsed.type === 'ARCHIVE_RESOLVE_ITEM' ||
+    parsed.type === 'ARCHIVE_UPLOADER_SCAN' ||
+    parsed.type === 'ARCHIVE_SEARCH_SCAN'
+  ) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '归档解析和上传者扫描任务必须通过对应的归档流程创建')
   }
   if (isRetiredFullReconcilePayload(parsed.type, parsed.payload)) {
     throw new BackgroundTaskError('INVALID_STATE_TRANSITION', FULL_SCAN_RETIRED_MESSAGE)
@@ -282,6 +304,13 @@ export async function cancelJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    const batchId = await controlDiscoveryBatch(transaction, jobId, 'CANCEL', now(), job)
+    if (batchId) {
+      return toJobDto(
+        requireJob(await transaction.systemJob.findUnique({ where: { id: batchId }, select: systemJobWireSelect }))
+      )
+    }
+
     if (job.status === 'CANCELLING' || job.status === 'CANCELLED') return toJobDto(job)
     assertStatus(job, ['PENDING', 'RETRY_WAIT', 'PAUSED', 'RUNNING', 'PAUSING'], 'cancel')
     const timestamp = now()
@@ -316,7 +345,16 @@ export async function cancelJobCommand(
         }
       })
       if (item.count !== 1) {
-        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', 'Archive resolver job is not bound to an intake item')
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '归档解析任务未绑定收件项')
+      }
+    }
+    if ((job.type === 'ARCHIVE_UPLOADER_SCAN' || job.type === 'ARCHIVE_SEARCH_SCAN') && direct) {
+      const scan = await transaction.archiveUploaderScanRun.updateMany({
+        where: { systemJobId: job.id, status: { in: ['PENDING', 'RETRY_WAIT', 'PAUSED'] } },
+        data: { status: 'CANCELLED', finishedAt: timestamp, errorCode: 'CANCELLED', errorMessage: null }
+      })
+      if (scan.count !== 1) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '上传者扫描任务未绑定活动扫描记录')
       }
     }
     if (direct && (job.type === 'SCAN' || job.type === 'LOCAL_DIRECTORY_IMPORT')) {
@@ -343,7 +381,7 @@ export async function cancelJobCommand(
         jobId,
         type: 'job.cancelled',
         attempt: job.attempt,
-        message: 'Queued job cancelled before execution'
+        message: '排队任务在执行前已取消'
       })
     }
     return toJobDto(updated)
@@ -463,14 +501,31 @@ export async function pauseJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    const batchId = await controlDiscoveryBatch(transaction, jobId, 'PAUSE', now(), job)
+    if (batchId) {
+      return toJobDto(
+        requireJob(await transaction.systemJob.findUnique({ where: { id: batchId }, select: systemJobWireSelect }))
+      )
+    }
+
     if (job.status === 'PAUSING' || job.status === 'PAUSED') return toJobDto(job)
     assertStatus(job, ['PENDING', 'RETRY_WAIT', 'RUNNING'], 'pause')
     const direct = job.status !== 'RUNNING'
+    const timestamp = now()
     const updated = await compareAndSetJob(transaction, job, {
       status: direct ? 'PAUSED' : 'PAUSING',
-      pauseRequestedAt: now(),
+      pauseRequestedAt: timestamp,
       ...(direct ? { workerId: null, leaseToken: null, leaseExpiresAt: null, heartbeatAt: null } : {})
     })
+    if ((job.type === 'ARCHIVE_UPLOADER_SCAN' || job.type === 'ARCHIVE_SEARCH_SCAN') && direct) {
+      const scan = await transaction.archiveUploaderScanRun.updateMany({
+        where: { systemJobId: job.id, status: { in: ['PENDING', 'RETRY_WAIT'] } },
+        data: { status: 'PAUSED', finishedAt: null }
+      })
+      if (scan.count !== 1) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '上传者扫描任务未绑定活动扫描记录')
+      }
+    }
     await writeJobEvent(transaction, {
       jobId,
       type: 'job.pause_requested',
@@ -482,7 +537,7 @@ export async function pauseJobCommand(
         jobId,
         type: 'job.paused',
         attempt: job.attempt,
-        message: 'Queued job paused before execution'
+        message: '排队任务在执行前已暂停'
       })
     }
     return toJobDto(updated)
@@ -499,16 +554,33 @@ export async function resumeJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    const batchId = await controlDiscoveryBatch(transaction, jobId, 'RESUME', now(), job)
+    if (batchId) {
+      return toJobDto(
+        requireJob(await transaction.systemJob.findUnique({ where: { id: batchId }, select: systemJobWireSelect }))
+      )
+    }
+
     assertStatus(job, ['PAUSED'], 'resume')
+    const timestamp = now()
     const updated = await compareAndSetJob(transaction, job, {
       status: 'PENDING',
-      availableAt: now(),
+      availableAt: timestamp,
       pauseRequestedAt: null,
       workerId: null,
       leaseToken: null,
       leaseExpiresAt: null,
       heartbeatAt: null
     })
+    if (job.type === 'ARCHIVE_UPLOADER_SCAN' || job.type === 'ARCHIVE_SEARCH_SCAN') {
+      const scan = await transaction.archiveUploaderScanRun.updateMany({
+        where: { systemJobId: job.id, status: 'PAUSED' },
+        data: { status: 'PENDING', finishedAt: null, errorCode: null, errorMessage: null }
+      })
+      if (scan.count !== 1) {
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '上传者扫描任务未绑定已暂停的扫描记录')
+      }
+    }
     await writeJobEvent(transaction, {
       jobId,
       type: 'job.queued',
@@ -531,6 +603,16 @@ export async function retryJobCommand(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
+    if (
+      job.type === 'ARCHIVE_DISCOVERY_BATCH_SCAN' ||
+      job.type === 'ARCHIVE_UPLOADER_SCAN' ||
+      job.type === 'ARCHIVE_SEARCH_SCAN'
+    ) {
+      throw new BackgroundTaskError(
+        'INVALID_STATE_TRANSITION',
+        '上传者扫描的游标保存在来源记录中，请从上传者来源重新发起手动扫描'
+      )
+    }
     if (job.definitionVersion !== JOB_DEFINITION_VERSION) {
       throw new BackgroundTaskError(
         'INVALID_STATE_TRANSITION',
@@ -559,10 +641,7 @@ export async function retryJobCommand(
     }
     const executionLane = executionLaneForJobType(retryType)
     if (job.executionLane !== executionLane) {
-      throw new BackgroundTaskError(
-        'INVALID_STATE_TRANSITION',
-        'This historical job has an invalid execution lane; repair it before retrying'
-      )
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '该历史任务的执行通道无效，请修复后再重试')
     }
     const priority = Math.min(job.queuePriority, 99)
     const timestamp = now()
@@ -609,10 +688,7 @@ export async function retryJobCommand(
         timestamp
       )
       if (reboundItems.length !== 1) {
-        throw new BackgroundTaskError(
-          'INVALID_STATE_TRANSITION',
-          'Archive resolver job is not bound to a retryable intake item'
-        )
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '归档解析任务未绑定可重试的收件项')
       }
     }
     if (job.status === 'FAILED') {
@@ -627,7 +703,7 @@ export async function retryJobCommand(
       jobId: job.id,
       type: 'job.retry_scheduled',
       attempt: job.attempt,
-      message: 'Manual retry created a new job instance',
+      message: '手动重试已创建新的任务实例',
       data: { retryJobId: retried.id }
     })
     await writeJobEvent(transaction, {
@@ -660,6 +736,45 @@ export async function acknowledgeJobFailureCommand(
     })
     return toJobDto(job)
   })
+}
+
+export async function acknowledgeJobFailuresCommand(
+  input: AcknowledgeJobFailuresRequest,
+  requestedByUserId: string,
+  client?: CommandDatabaseClient,
+  now: () => Date = () => new Date()
+) {
+  const parsed = acknowledgeJobFailuresRequestSchema.parse(input)
+  const userId = z.string().min(1).parse(requestedByUserId)
+  return commandDatabase(client).$transaction(
+    async (transaction) => {
+      // Freeze candidates once: failures arriving during later insert batches remain unread.
+      const jobs = await transaction.systemJob.findMany({
+        where: { ...unacknowledgedFailureWhere, ...(parsed.scope === 'selected' ? { id: { in: parsed.jobIds } } : {}) },
+        select: { id: true },
+        orderBy: { id: 'asc' }
+      })
+      const acknowledgedAt = now()
+      let acknowledgedCount = 0
+      for (let offset = 0; offset < jobs.length; offset += 500) {
+        const result = await transaction.systemJobFailureAcknowledgement.createMany({
+          data: jobs.slice(offset, offset + 500).map(({ id }) => ({
+            jobId: id,
+            acknowledgedAt,
+            acknowledgedByUserId: userId,
+            source: 'MANUAL' as const
+          })),
+          skipDuplicates: true
+        })
+        acknowledgedCount += result.count
+      }
+      return {
+        acknowledgedCount,
+        skippedCount: (parsed.scope === 'selected' ? parsed.jobIds.length : jobs.length) - acknowledgedCount
+      }
+    },
+    { timeout: 30_000 }
+  )
 }
 
 export async function changeJobPriorityCommand(

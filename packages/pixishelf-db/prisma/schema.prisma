@@ -11,6 +11,11 @@ datasource db {
 
 model Artist {
   id                  Int                        @id @default(autoincrement())
+  mergedIntoId        Int?
+  mergedAt            DateTime?
+  mergedInto          Artist? @relation("ArtistMergeTarget", fields: [mergedIntoId], references: [id], onDelete: Restrict)
+  mergedArtists       Artist[] @relation("ArtistMergeTarget")
+  kind                CreatorKind                @default(PERSON)
   name                String
   username            String?
   userId              String? // 兼容期保留的历史来源字段；Pixiv 身份以 ArtistExternalRef 为准
@@ -21,12 +26,130 @@ model Artist {
   backgroundImg       String?
   isStarred           Boolean                    @default(false)
   artworks            Artwork[]
+  artworkMemberships  ArtworkArtist[]
+  sourceTagMappings   ArtistSourceTagMapping[]
   externalRefs        ArtistExternalRef[]
   localImportMappings LocalImportArtistMapping[]
+  discoveryDefaults DiscoverySourceCreator[]
+  discoveryPending DiscoveryPendingCreator[]
+  discoverySuppressions DiscoveryCreatorSuppression[]
 
   @@unique([username, userId], name: "unique_username_userid")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([isStarred])
+  @@index([mergedIntoId])
+}
+
+model ArtistMerge {
+  id             String @id @default(cuid())
+  sourceArtistId Int
+  targetArtistId Int
+  requestedBy    String
+  status         String @default("READY")
+  fingerprint    String
+  summary        Json
+  before         Json
+  after          Json?
+  systemJobId    String? @unique
+  createdAt      DateTime @default(now())
+  completedAt    DateTime?
+
+  @@index([createdAt])
+  @@map("artist_merges")
+}
+
+enum CreatorKind {
+  PERSON
+  GROUP
+}
+
+enum CreatorEvidenceKind {
+  SOURCE
+  MANUAL
+  LEGACY
+}
+
+model ArtistSourceTagMapping {
+  id          String   @id @default(cuid())
+  providerKey String   @db.VarChar(50)
+  namespace   String   @db.VarChar(50)
+  sourceName  String
+  artistId    Int
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  artist      Artist   @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  evidence    ArtworkArtistEvidence[]
+
+  @@unique([providerKey, namespace, sourceName])
+  @@index([artistId])
+  @@map("artist_source_tag_mappings")
+}
+
+model ArtworkArtist {
+  id        String   @id @default(cuid())
+  artworkId Int
+  artistId  Int
+  artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  artist    Artist   @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  evidence  ArtworkArtistEvidence[]
+
+  @@unique([artworkId, artistId])
+  @@index([artistId, artworkId])
+  @@map("artwork_artists")
+}
+
+model ArtworkArtistEvidence {
+  id             String   @id @default(cuid())
+  membershipId   String
+  evidenceKey    String
+  provenance     CreatorEvidenceKind
+  sourceRefId    String?
+  tagMappingId   String?
+  present        Boolean  @default(true)
+  excludedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  membership     ArtworkArtist @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  sourceRef      ArtworkExternalRef? @relation(fields: [sourceRefId], references: [id], onDelete: Cascade)
+  tagMapping     ArtistSourceTagMapping? @relation(fields: [tagMappingId], references: [id], onDelete: Restrict)
+
+  @@unique([membershipId, evidenceKey])
+  @@index([sourceRefId])
+  @@index([tagMappingId])
+  @@map("artwork_artist_evidence")
+}
+
+// Frozen maintenance plans also retain per-item results for retries and audit.
+model CreatorMaintenancePlan {
+  id          String   @id @default(cuid())
+  requestedBy String
+  status      String   @default("PREPARING")
+  maximumArtworkId Int @default(0)
+  command     String
+  input       Json
+  fingerprint String
+  systemJobId String?  @unique
+  createdAt   DateTime @default(now())
+  items       CreatorMaintenanceItem[]
+
+  @@map("creator_maintenance_plans")
+}
+
+model CreatorMaintenanceItem {
+  id          Int      @id @default(autoincrement())
+  planId      String
+  artworkId   Int
+  fingerprint String
+  payload     Json
+  status      String   @default("PENDING")
+  result      Json?
+  updatedAt   DateTime @updatedAt
+  plan        CreatorMaintenancePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, artworkId])
+  @@index([planId, status, id])
+  @@map("creator_maintenance_items")
 }
 
 enum ArtistExternalRefStatus {
@@ -76,6 +199,7 @@ model LocalImportArtistMapping {
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model Artwork {
   id                    Int                   @id @default(autoincrement())
+  mediaRevision         Int                   @default(1)
   title                 String
   description           String?
   artistId              Int?
@@ -108,12 +232,15 @@ model Artwork {
   descriptionOverridden Boolean               @default(false)
   rawMetadata           ArtworkRawMetadata?
   artist                Artist?               @relation(fields: [artistId], references: [id])
+  creators              ArtworkArtist[]
   likes                 ArtworkLike[]
   seriesId              Int?
   series                Series?               @relation(fields: [seriesId], references: [id])
   seriesArtworks        SeriesArtwork[]
   artworkTags           ArtworkTag[]
   images                Image[]
+  readingSummaries      ArtworkReadingSummary[]
+  readMedia             ArtworkReadMedia[]
   source                ArtworkSource         @default(PIXIV_IMPORTED)
   externalRefs          ArtworkExternalRef[]
   archiveImports        ArchiveImport[]
@@ -172,6 +299,7 @@ model ArtworkExternalRef {
   updatedAt            DateTime                  @updatedAt
   artwork              Artwork                   @relation(fields: [artworkId], references: [id], onDelete: Cascade)
   snapshots            ArtworkSourceSnapshot[]
+  creatorEvidence      ArtworkArtistEvidence[]
   sourceTags           ArtworkTag[]
   archiveImports       ArchiveImport[]
   archiveRevisions     ArchiveRevision[]
@@ -282,7 +410,10 @@ model Image {
   chaptersHash        String?
   mediaType           MediaType               @default(UNKNOWN)
   artwork             Artwork?                @relation(fields: [artworkId], references: [id])
+  readingSummaries    ArtworkReadingSummary[] @relation("ReadingLastMedia")
+  readMedia           ArtworkReadMedia[]
   videoMetadata       MediaVideoMetadata?
+  animationMetadata   ImageAnimationMetadata?
   chapterPreviews     MediaChapterPreview[]
   keyframeSets        MediaVideoKeyframeSet[]
 
@@ -290,6 +421,33 @@ model Image {
   @@index([webpAnimationStatus])
   @@index([chaptersPath])
   @@index([mediaType])
+}
+
+model ImageAnimationMetadata {
+  imageId             Int                     @id
+  image               Image                   @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  format              AnimationDurationFormat?
+  durationMs          BigInt?
+  frameCount          Int?
+  loopCount           Int?
+  status              AnimationDurationStatus @default(PENDING)
+  timingPolicyVersion Int?
+  probedAt            DateTime?
+  sourcePath          String?
+  sourceSize          BigInt?
+  sourceMtimeMs       BigInt?
+  sourceCtimeMs       BigInt?
+  sourceDeviceId      BigInt?
+  sourceInode         BigInt?
+  sourceRevision      Int                     @default(0)
+  failureCode         String?
+  attemptCount        Int                     @default(0)
+  nextRetryAt         DateTime?
+  writeInProgress     Boolean                 @default(false)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  @@index([status, nextRetryAt, imageId])
 }
 
 model MediaVideoMetadata {
@@ -408,6 +566,8 @@ model UserBA {
   accounts Account[]
   sessions Session[]
   likes    ArtworkLike[]
+  readingSummaries ArtworkReadingSummary[]
+  readMedia ArtworkReadMedia[]
   settings UserSetting[]
 }
 
@@ -465,6 +625,44 @@ model ArtworkLike {
   @@unique([userId, artworkId])
   @@index([artworkId])
   @@index([userId])
+}
+
+model ArtworkReadingSummary {
+  userId          String
+  artworkId       Int
+  viewCount       Int      @default(0)
+  seenCount       Int      @default(0)
+  totalCount      Int      @default(0)
+  lastViewedAt    DateTime
+  lastActiveAt    DateTime
+  lastMediaId     Int?
+  lastMediaIndex  Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artwork         Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  lastMedia       Image?   @relation("ReadingLastMedia", fields: [lastMediaId], references: [id], onDelete: SetNull)
+
+  @@id([userId, artworkId])
+  @@index([userId, lastViewedAt(sort: Desc), artworkId(sort: Desc)], map: "artwork_reading_summaries_user_recent_idx")
+  @@index([artworkId])
+  @@index([lastMediaId])
+  @@map("artwork_reading_summaries")
+}
+
+model ArtworkReadMedia {
+  userId     String
+  artworkId  Int
+  mediaId    Int
+  firstSeenAt DateTime @default(now())
+  user       UserBA   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artwork    Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  media      Image    @relation(fields: [mediaId], references: [id], onDelete: Cascade)
+
+  @@id([userId, artworkId, mediaId])
+  @@index([artworkId])
+  @@index([mediaId])
+  @@map("artwork_read_media")
 }
 
 model Setting {
@@ -555,6 +753,7 @@ model SystemJob {
   idempotencyKey          String?                  @unique @db.VarChar(180)
   payload                 Json?
   progress                Int                      @default(0)
+  progressData            Json?
   stage                   String?                  @db.VarChar(80)
   message                 String?                  @db.Text
   result                  Json?
@@ -581,6 +780,8 @@ model SystemJob {
   availableAt             DateTime?                @default(now())
   deadlineAt              DateTime?
   workerId                String?                  @db.VarChar(120)
+  currentDiagnosticExecutionId String?             @db.Uuid
+  diagnosticReports       SystemJobDiagnosticReport[]
   leaseToken              String?                  @db.Uuid
   leaseExpiresAt          DateTime?
   createdAt               DateTime                 @default(now())
@@ -595,6 +796,7 @@ model SystemJob {
   migrationItems          MigrationJobItem[]
   archiveImport           ArchiveImport?
   archiveIntakeItem       ArchiveIntakeItem?       @relation("ArchiveIntakeCurrentJob")
+  archiveUploaderScanRun  ArchiveUploaderScanRun?
   keyframeSet             MediaVideoKeyframeSet?
   failureAcknowledgement  SystemJobFailureAcknowledgement?
 
@@ -641,6 +843,7 @@ model SystemJobEvent {
 
   @@index([jobId, id])
   @@index([createdAt])
+  @@index([type, level, createdAt, id])
   @@map("system_job_events")
 }
 
@@ -737,6 +940,7 @@ model ArchiveImport {
   publishedRevision  ArchiveRevision?
   intakeItems        ArchiveIntakeItem[] @relation("ArchiveIntakeEnqueuedImport")
   activeIntakeItems  ArchiveIntakeItem[] @relation("ArchiveIntakeActiveImport")
+  uploaderCatalogItems ArchiveUploaderCatalogItem[] @relation("ArchiveUploaderCatalogImport")
 
   @@index([providerKey, externalId])
   @@index([status, createdAt])
@@ -787,6 +991,7 @@ model ArchiveIntakeItem {
   duplicateOfItemId     String?
   activeArchiveImportId String?
   selectedQuality       ArchiveQuality               @default(ORIGINAL)
+  downloadMode          ArchiveIntakeDownloadMode    @default(MANUAL)
   resolvedAt            DateTime?
   expiresAt             DateTime?
   archiveImportId       String?
@@ -806,6 +1011,8 @@ model ArchiveIntakeItem {
   currentSystemJob      SystemJob?                   @relation("ArchiveIntakeCurrentJob", fields: [currentSystemJobId], references: [id], onDelete: SetNull)
   activeArchiveImport   ArchiveImport?               @relation("ArchiveIntakeActiveImport", fields: [activeArchiveImportId], references: [id], onDelete: SetNull)
   archiveImport         ArchiveImport?               @relation("ArchiveIntakeEnqueuedImport", fields: [archiveImportId], references: [id], onDelete: SetNull)
+  uploaderScanItem      ArchiveUploaderScanItem?     @relation("ArchiveUploaderScanIntakeItem")
+  uploaderCatalogItems  ArchiveUploaderCatalogItem[] @relation("ArchiveUploaderCatalogIntakeItem")
 
   @@index([status, queueOrder])
   @@index([submissionId, createdAt])
@@ -839,6 +1046,170 @@ model ArchiveBulkOperation {
   @@index([createdAt(sort: Desc)])
   @@index([completedAt])
   @@map("archive_bulk_operations")
+}
+
+model ArchiveUploaderSource {
+  defaultCreators DiscoverySourceCreator[]
+  id                        String                      @id @default(cuid())
+  providerKey               String                      @db.VarChar(50)
+  sourceKind                ArchiveDiscoverySourceKind  @default(UPLOADER)
+  titleQuery                Json?
+  queryKey                  String?                     @unique @db.VarChar(64)
+  identityKind              ArchiveUploaderIdentityKind?
+  identityValue             String?                     @db.VarChar(180)
+  normalizedIdentity        String?                     @db.VarChar(180)
+  uploaderUid               String?                     @db.VarChar(20)
+  uidRevalidationRequiredAt DateTime?
+  displayName               String                      @db.VarChar(180)
+  status                    ArchiveUploaderSourceStatus @default(ACTIVE)
+  latestSeenExternalId      String?                     @db.VarChar(120)
+  incrementalCursor         String?                     @db.Text
+  incrementalHeadExternalId String?                     @db.VarChar(120)
+  historyCursor             String?                     @db.Text
+  lastScanAt                DateTime?
+  lastSuccessAt             DateTime?
+  lastErrorCode             String?                     @db.VarChar(80)
+  lastErrorMessage          String?                     @db.Text
+  lastRunId                 String?                     @db.VarChar(128)
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
+  runs                      ArchiveUploaderScanRun[]
+  catalogItems              ArchiveUploaderCatalogItem[]
+  ignoredItems              ArchiveUploaderIgnoredItem[] @relation("ArchiveUploaderIgnoredSource")
+
+  @@unique([providerKey, identityKind, normalizedIdentity], map: "archive_uploader_sources_provider_identity_key")
+  @@unique([providerKey, uploaderUid], map: "archive_uploader_sources_provider_uid_key")
+  @@index([status, updatedAt(sort: Desc)], map: "archive_uploader_sources_status_updated_idx")
+  @@index([lastRunId], map: "archive_uploader_sources_last_run_idx")
+  @@map("archive_uploader_sources")
+}
+
+model ArchiveUploaderScanRun {
+  defaultCreatorIds Int[] @default([])
+  id                  String                       @id @default(cuid())
+  sourceId            String
+  systemJobId         String                       @unique(map: "archive_uploader_scan_runs_system_job_key")
+  mode                ArchiveUploaderScanMode
+  searchIdentityKind  ArchiveUploaderIdentityKind?
+  searchIdentityValue String?                       @db.VarChar(180)
+  titleQuery          Json?
+  checkedCount        Int                          @default(0)
+  matchedCount        Int                          @default(0)
+  status              ArchiveUploaderScanRunStatus @default(PENDING)
+  stopReason          ArchiveUploaderScanStopReason?
+  cursorBefore        String?                      @db.Text
+  cursorAfter         String?                      @db.Text
+  itemCount           Int                          @default(0)
+  newCount            Int                          @default(0)
+  activeCount         Int                          @default(0)
+  archivedCount       Int                          @default(0)
+  possibleUpdateCount Int                          @default(0)
+  replacementCount    Int                          @default(0)
+  startedAt           DateTime?
+  finishedAt          DateTime?
+  errorCode           String?                      @db.VarChar(80)
+  errorMessage        String?                      @db.Text
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  source              ArchiveUploaderSource        @relation(fields: [sourceId], references: [id], onDelete: Cascade, map: "archive_uploader_scan_runs_source_fkey")
+  systemJob           SystemJob                    @relation(fields: [systemJobId], references: [id], onDelete: Cascade, map: "archive_uploader_scan_runs_system_job_fkey")
+  items               ArchiveUploaderScanItem[]
+  catalogItems        ArchiveUploaderCatalogItem[] @relation("ArchiveUploaderCatalogLastScanRun")
+
+  @@index([sourceId, createdAt(sort: Desc)], map: "archive_uploader_scan_runs_source_created_idx")
+  @@index([status, createdAt], map: "archive_uploader_scan_runs_status_created_idx")
+  @@map("archive_uploader_scan_runs")
+}
+
+model ArchiveUploaderScanItem {
+  id                  String                            @id @default(cuid())
+  matchesQuery        Boolean                           @default(true)
+  runId               String
+  providerKey         String                            @db.VarChar(50)
+  externalId          String                            @db.VarChar(120)
+  canonicalUrl        String                            @db.Text
+  title               String                            @db.Text
+  thumbnailUrl        String?                           @db.Text
+  uploaderName        String?                           @db.VarChar(180)
+  postedAt            DateTime?
+  metadataFingerprint String                            @db.VarChar(64)
+  relationships       Json
+  classification      ArchiveUploaderScanClassification
+  intakeItemId        String?                           @unique(map: "archive_uploader_scan_items_intake_item_key")
+  createdAt           DateTime                          @default(now())
+  run                 ArchiveUploaderScanRun            @relation(fields: [runId], references: [id], onDelete: Cascade, map: "archive_uploader_scan_items_run_fkey")
+  intakeItem          ArchiveIntakeItem?                @relation("ArchiveUploaderScanIntakeItem", fields: [intakeItemId], references: [id], onDelete: SetNull, map: "archive_uploader_scan_items_intake_item_fkey")
+
+  @@unique([runId, providerKey, externalId], map: "archive_uploader_scan_items_run_provider_external_key")
+  @@index([runId, classification, postedAt(sort: Desc)], map: "archive_uploader_scan_items_run_classification_posted_idx")
+  @@index([providerKey, externalId], map: "archive_uploader_scan_items_provider_external_idx")
+  @@map("archive_uploader_scan_items")
+}
+
+model ArchiveUploaderIgnoredItem {
+  id                String                 @id @default(cuid())
+  providerKey       String                 @db.VarChar(50)
+  externalId        String                 @db.VarChar(120)
+  sourceId          String?
+  sourceDisplayName String                 @db.VarChar(180)
+  title             String                 @db.Text
+  thumbnailUrl      String?                @db.Text
+  uploaderName      String?                @db.VarChar(180)
+  postedAt          DateTime?
+  ignoredByUserId   String?
+  ignoredAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  source            ArchiveUploaderSource? @relation("ArchiveUploaderIgnoredSource", fields: [sourceId], references: [id], onDelete: SetNull, map: "archive_uploader_ignored_items_source_fkey")
+
+  @@unique([providerKey, externalId], map: "archive_uploader_ignored_items_provider_external_key")
+  @@index([ignoredAt(sort: Desc), id(sort: Desc)], map: "archive_uploader_ignored_items_ignored_id_idx")
+  @@index([sourceId, ignoredAt(sort: Desc)], map: "archive_uploader_ignored_items_source_ignored_idx")
+  @@map("archive_uploader_ignored_items")
+}
+
+model ArchiveUploaderCatalogItem {
+  firstMatchedAt DateTime?
+  id                    String                         @id @default(cuid())
+  matchesQuery          Boolean                        @default(true)
+  sourceId              String
+  providerKey           String                         @db.VarChar(50)
+  externalId            String                         @db.VarChar(120)
+  canonicalUrl          String                         @db.Text
+  title                 String                         @db.Text
+  thumbnailUrl          String?                        @db.Text
+  uploaderName          String?                        @db.VarChar(180)
+  postedAt              DateTime?
+  relationships         Json
+  classification        ArchiveUploaderScanClassification
+  changeReasons         Json                           @default("[]")
+  comparisonSnapshot    Json?
+  comparisonFingerprint String?                        @db.VarChar(64)
+  comparisonKnown       Boolean                        @default(false)
+  firstSeenAt           DateTime
+  lastSeenAt            DateTime
+  lastScanRunId         String?
+  lastIntakeItemId      String?
+  lastArchiveImportId   String?
+  lastOutcome           ArchiveUploaderCatalogOutcome?
+  lastOutcomeAt         DateTime?
+  lastErrorCode         String?                        @db.VarChar(80)
+  lastErrorMessage      String?                        @db.Text
+  createdAt             DateTime                       @default(now())
+  updatedAt             DateTime                       @updatedAt
+  source                ArchiveUploaderSource          @relation(fields: [sourceId], references: [id], onDelete: Cascade, map: "archive_uploader_catalog_items_source_fkey")
+  lastScanRun           ArchiveUploaderScanRun?        @relation("ArchiveUploaderCatalogLastScanRun", fields: [lastScanRunId], references: [id], onDelete: SetNull, map: "archive_uploader_catalog_items_last_scan_run_fkey")
+  lastIntakeItem        ArchiveIntakeItem?              @relation("ArchiveUploaderCatalogIntakeItem", fields: [lastIntakeItemId], references: [id], onDelete: SetNull, map: "archive_uploader_catalog_items_last_intake_item_fkey")
+  lastArchiveImport     ArchiveImport?                  @relation("ArchiveUploaderCatalogImport", fields: [lastArchiveImportId], references: [id], onDelete: SetNull, map: "archive_uploader_catalog_items_last_archive_import_fkey")
+
+  @@unique([sourceId, providerKey, externalId], map: "archive_uploader_catalog_items_source_provider_external_key")
+  @@index([sourceId, lastSeenAt(sort: Desc), id(sort: Desc)], map: "archive_uploader_catalog_items_source_seen_id_idx")
+  @@index([sourceId, classification, lastSeenAt(sort: Desc)], map: "archive_uploader_catalog_items_source_classification_seen_idx")
+  @@index([sourceId, lastOutcome, lastSeenAt(sort: Desc)], map: "archive_uploader_catalog_items_source_outcome_seen_idx")
+  @@index([providerKey, externalId], map: "archive_uploader_catalog_items_provider_external_idx")
+  @@index([lastScanRunId], map: "archive_uploader_catalog_items_last_scan_run_idx")
+  @@index([lastIntakeItemId], map: "archive_uploader_catalog_items_last_intake_item_idx")
+  @@index([lastArchiveImportId], map: "archive_uploader_catalog_items_last_archive_import_idx")
+  @@map("archive_uploader_catalog_items")
 }
 
 model ArchiveBulkOperationItem {
@@ -914,6 +1285,9 @@ model ArchiveImportItem {
   archiveImportId  String
   pageIndex        Int
   sourcePageUrl    String                  @db.Text
+  lastDownloadUrl  String?                 @db.Text
+  lastDownloadAt   DateTime?
+  lastDownloadAttempt Int?
   locator          Json
   expectedFilename String
   status           ArchiveImportItemStatus @default(PENDING)
@@ -1263,8 +1637,10 @@ model PixivSourceAuditItem {
 model PixivMetadataInventoryState {
   id                  String                       @id @default("pixiv") @db.VarChar(40)
   status              PixivMetadataInventoryStatus @default(INITIALIZING)
-  /// Hashing the resolved root prevents a different mount from silently inheriting an existing baseline.
+  /// Configured path boundary; the marker UUID identifies the library across remounts.
   rootPathHash        String                       @db.VarChar(64)
+  rootIdentity        String?                      @db.Uuid
+  /// Last verified environment observations, not permanent library identity.
   rootDeviceId        BigInt?
   rootInode           BigInt?
   baselineGeneration  Int                          @default(1)
@@ -1594,6 +1970,12 @@ enum ArchiveIntakeStatus {
   ENQUEUED
   CANCELLED
   DUPLICATE
+  SKIPPED
+}
+
+enum ArchiveIntakeDownloadMode {
+  MANUAL
+  AUTO
 }
 
 enum ArchiveIntakeResolutionKind {
@@ -1605,6 +1987,8 @@ enum ArchiveIntakeResolutionKind {
 }
 
 enum ArchiveBulkOperationCommand {
+  BIND_CREATORS
+  CANCEL_PENDING_CREATORS
   ENQUEUE
   PAUSE
   RESUME
@@ -1613,6 +1997,8 @@ enum ArchiveBulkOperationCommand {
 }
 
 enum ArchiveBulkOperationTarget {
+  DISCOVERY_ITEM
+  PENDING_CREATOR_BINDING
   INTAKE_ITEM
   ARCHIVE_IMPORT
 }
@@ -1627,8 +2013,61 @@ enum ArchiveBulkOperationResult {
 }
 
 enum ArchiveProviderRequestClass {
+  SEARCH
   RESOLVE
   DOWNLOAD
+}
+
+enum ArchiveDiscoverySourceKind {
+  UPLOADER
+  TITLE_QUERY
+}
+
+enum ArchiveUploaderIdentityKind {
+  NAME
+  UID
+}
+
+enum ArchiveUploaderSourceStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ArchiveUploaderScanMode {
+  LATEST
+  HISTORY
+}
+
+enum ArchiveUploaderScanRunStatus {
+  PENDING
+  RUNNING
+  RETRY_WAIT
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ArchiveUploaderScanStopReason {
+  LIMIT_REACHED
+  WATERMARK_REACHED
+  REMOTE_END
+}
+
+enum ArchiveUploaderScanClassification {
+  NEW
+  ACTIVE
+  ARCHIVED
+  POSSIBLE_UPDATE
+  REPLACEMENT
+}
+
+enum ArchiveUploaderCatalogOutcome {
+  SUBMITTED
+  FAILED
+  CANCELLED
+  DUPLICATE
+  ARCHIVED
 }
 
 enum VideoKeyframeSetStatus {
@@ -1707,6 +2146,19 @@ enum MediaProbeStatus {
   COMPLETED
   FAILED
   SKIPPED
+}
+
+enum AnimationDurationFormat {
+  WEBP
+  GIF
+  APNG
+}
+
+enum AnimationDurationStatus {
+  PENDING
+  READY
+  NOT_APPLICABLE
+  FAILED
 }
 
 enum VideoPosterStatus {
@@ -1813,4 +2265,90 @@ enum SeriesArtworkProvenance {
   SOURCE
   MANUAL
   LEGACY
+}
+
+model DiscoverySourceCreator {
+  sourceId String
+  artistId Int
+  source ArchiveUploaderSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  artist Artist @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  @@id([sourceId, artistId])
+  @@index([artistId])
+  @@map("discovery_source_creators")
+}
+
+model DiscoveryPendingCreator {
+  id String @id @default(cuid())
+  providerKey String @db.VarChar(50)
+  externalId String @db.VarChar(120)
+  artistId Int
+  title String @db.Text
+  requestedByUserId String?
+  createdAt DateTime @default(now())
+  artist Artist @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  @@unique([providerKey, externalId, artistId])
+  @@index([artistId])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
+  @@map("discovery_pending_creators")
+}
+
+model DiscoveryCreatorSuppression {
+  providerKey String @db.VarChar(50)
+  externalId String @db.VarChar(120)
+  artistId Int
+  createdAt DateTime @default(now())
+  artist Artist @relation(fields: [artistId], references: [id], onDelete: Cascade)
+  @@id([providerKey, externalId, artistId])
+  @@index([artistId])
+  @@map("discovery_creator_suppressions")
+}
+
+model SystemJobDiagnosticReport {
+  id String @id @db.Uuid
+  jobId String
+  job SystemJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  attempt Int
+  version Int @default(1)
+  status String @default("OPEN") @db.VarChar(16)
+  outcome String? @db.VarChar(32)
+  entryCount Int @default(0)
+  itemCount Int @default(0)
+  currentCount Int @default(0)
+  inheritedCount Int @default(0)
+  taskFailure Boolean @default(false)
+  complete Boolean @default(false)
+  createdAt DateTime @default(now())
+  closedAt DateTime?
+  expiresAt DateTime
+  expiredAt DateTime?
+  items SystemJobDiagnosticItem[]
+  @@index([jobId, createdAt, id])
+  @@index([status, expiresAt, expiredAt])
+  @@map("system_job_diagnostic_reports")
+}
+
+model SystemJobDiagnosticItem {
+  id BigInt @id @default(autoincrement())
+  reportId String @db.Uuid
+  report SystemJobDiagnosticReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  key String @db.VarChar(240)
+  scope String @db.VarChar(16)
+  origin String @db.VarChar(16)
+  targetType String? @db.VarChar(80)
+  targetId String? @db.VarChar(240)
+  targetLabel String? @db.VarChar(500)
+  stage String? @db.VarChar(80)
+  code String @db.VarChar(80)
+  reasonKey String @db.VarChar(160)
+  message String @db.VarChar(1000)
+  suggestion String @db.VarChar(500)
+  evidence Json
+  remoteHost String? @db.VarChar(253)
+  httpStatus Int?
+  itemAttempt Int?
+  createdAt DateTime @default(now())
+  @@unique([reportId, key])
+  @@index([reportId, id])
+  @@index([reportId, reasonKey, id])
+  @@map("system_job_diagnostic_items")
 }

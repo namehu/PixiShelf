@@ -4,6 +4,7 @@ import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { systemJobWireSelect, toJobDto, toWorkerHealthDto, workerInstanceWireSelect } from './job-serialization'
 import { isWorkerHeartbeatFresh } from './worker-heartbeat'
+import { dashboardVisibleWhere, unacknowledgedFailureWhere, failureNeedsAttention } from './job-failure-policy'
 
 type JobQueryClient = Pick<Prisma.TransactionClient, 'systemJob' | 'workerInstance'>
 
@@ -55,22 +56,6 @@ export async function listJobs(input: z.input<typeof listJobsInputSchema>, clien
 // lane 级状态依赖 worker 心跳，保留 now 注入便于在测试中冻结时间，避免偶发 heartbeat 边界抖动导致断言不稳。
 export async function getJobDashboard(client?: JobQueryClient, now: () => Date = () => new Date()) {
   const database = queryClient(client)
-  const dashboardVisibleWhere = {
-    definitionVersion: { gte: 1 },
-    NOT: {
-      OR: [
-        { type: 'PIXIV_TAG_ENRICHMENT', parentJobId: { not: null } },
-        { type: 'PIXIV_ARTIST_ENRICHMENT', parentJobId: { not: null } },
-        { type: 'PIXIV_ARTWORK_ENRICHMENT', parentJobId: { not: null } },
-        { type: 'PIXIV_SERIES_RECONCILIATION', parentJobId: { not: null } }
-      ]
-    }
-  } satisfies Prisma.SystemJobWhereInput
-  const unacknowledgedFailureWhere = {
-    ...dashboardVisibleWhere,
-    status: 'FAILED',
-    failureAcknowledgement: { is: null }
-  } satisfies Prisma.SystemJobWhereInput
   const [
     groups,
     running,
@@ -234,4 +219,12 @@ export async function getJobById(jobId: string, client?: JobQueryClient) {
     select: systemJobWireSelect
   })
   return record ? toJobDto(record) : null
+}
+
+export async function getBackgroundJobDetail(jobId: string, client?: JobQueryClient) {
+  const record = await queryClient(client).systemJob.findUnique({
+    where: { id: z.string().min(1).parse(jobId), definitionVersion: { gte: 1 } },
+    select: { ...systemJobWireSelect, failureAcknowledgement: { select: { jobId: true } } }
+  })
+  return record ? { ...toJobDto(record), failureNeedsAttention: failureNeedsAttention(record) } : null
 }

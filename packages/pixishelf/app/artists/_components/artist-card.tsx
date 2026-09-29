@@ -3,6 +3,7 @@ import Image from 'next/image'
 import { CalendarIcon, ImagesIcon } from 'lucide-react'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ArtistCardProps {
   artist: ArtistResponseDto
@@ -58,12 +59,16 @@ export function ArtistCard({ artist }: ArtistCardProps) {
           <AvatarFallback className="bg-primary/10 font-semibold text-primary">{initials}</AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1 pb-0.5">
-          <h2 className="truncate text-sm font-semibold text-foreground">
+          <PrivacySensitiveText as="h2" className="truncate text-sm font-semibold text-foreground">
             <Link href={href} className="outline-none hover:text-primary focus-visible:text-primary">
               {artist.name}
             </Link>
-          </h2>
-          {artist.username && <p className="truncate text-xs text-muted-foreground">@{artist.username}</p>}
+          </PrivacySensitiveText>
+          {artist.username && (
+            <PrivacySensitiveText as="p" className="truncate text-xs text-muted-foreground">
+              @{artist.username}
+            </PrivacySensitiveText>
+          )}
         </div>
       </div>
 

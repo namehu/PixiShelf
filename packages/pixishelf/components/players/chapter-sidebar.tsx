@@ -6,6 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { useActiveItemVisibility } from './use-active-item-visibility'
 import { formatChapterTime, type NormalizedChapter } from './video-chapters'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface ChapterSidebarProps {
   chapters: NormalizedChapter[]
@@ -102,7 +103,7 @@ export default function ChapterSidebar({
           </span>
         </span>
         <span data-chapter-title className="block min-h-12 px-2 py-1.5 text-xs font-medium leading-4">
-          <span className="line-clamp-2">{chapter.title}</span>
+          <PrivacySensitiveText className="line-clamp-2">{chapter.title}</PrivacySensitiveText>
           {hasKnownAudioState && (
             <span
               className={cn(

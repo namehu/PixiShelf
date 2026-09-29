@@ -31,6 +31,7 @@ interface ArtworkManagementToolbarProps {
   }
   hasMigrationLogs: boolean
   pendingReplaceCopyMode: boolean
+  onCreatorRelations?: () => void
   onCreate: () => void
   onBatchImport: () => void
   onBatchReplace: () => void
@@ -51,6 +52,7 @@ export function ArtworkManagementToolbar({
   hasMigrationLogs,
   pendingReplaceCopyMode,
   onCreate,
+  onCreatorRelations,
   onBatchImport,
   onBatchReplace,
   onExportNoSeries,
@@ -84,6 +86,9 @@ export function ArtworkManagementToolbar({
             : '从 Pixiv 同步'}
       </Button>
 
+      <Button variant="outline" size="sm" onClick={onCreatorRelations}>
+        修改作者或加入系列
+      </Button>
       <DropdownMenu modal={false}>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="flex-1 sm:flex-none">

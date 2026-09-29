@@ -1,0 +1,1092 @@
+import { useState, type ReactNode } from 'react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+  addToInbox: vi.fn(),
+  createSubmissionAttempt: vi.fn(),
+  cancelScan: vi.fn(),
+  ignoreItems: vi.fn(),
+  ignoreFail: false,
+  ignoreHold: false,
+  restoreIgnoredItems: vi.fn(),
+  matchUploaderUid: vi.fn(),
+  setUploaderUid: vi.fn(),
+  writeClipboard: vi.fn(),
+  infiniteQueryOptions: vi.fn(() => ({ kind: 'items' })),
+  invalidateQueries: vi.fn(),
+  setQueriesData: vi.fn(),
+  cancelQueries: vi.fn(),
+  removeQueries: vi.fn(),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastWarning: vi.fn(),
+  preview: vi.fn(),
+  push: vi.fn(),
+  navigateSource: vi.fn(),
+  navigateSourceList: vi.fn(),
+  navigateIgnored: vi.fn(),
+  navigateInboxItem: vi.fn(),
+  isDesktop: true
+}))
+
+vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
+vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.isDesktop }))
+
+vi.mock('@/components/ui/dropdown-menu', async () => {
+  const { createContext, useContext } = await import('react')
+  const RadioContext = createContext<(value: string) => void>(() => {})
+  return {
+    DropdownMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuRadioGroup: ({
+      children,
+      onValueChange
+    }: {
+      children: ReactNode
+      onValueChange: (value: string) => void
+    }) => <RadioContext.Provider value={onValueChange}>{children}</RadioContext.Provider>,
+    DropdownMenuRadioItem: ({
+      children,
+      value,
+      'aria-label': label
+    }: {
+      children: ReactNode
+      value: string
+      'aria-label'?: string
+    }) => {
+      const onChange = useContext(RadioContext)
+      return (
+        <button type="button" aria-label={label} onClick={() => onChange(value)}>
+          {children}
+        </button>
+      )
+    },
+    DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuTrigger: ({ children }: { children: ReactNode }) => children,
+    DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+    DropdownMenuSeparator: () => <hr />,
+    DropdownMenuItem: ({
+      children,
+      disabled,
+      onSelect
+    }: {
+      children: ReactNode
+      disabled?: boolean
+      onSelect?: () => void
+    }) => (
+      <button type="button" disabled={disabled} onClick={onSelect}>
+        {children}
+      </button>
+    )
+  }
+})
+
+const source = {
+  id: 'source-1',
+  providerKey: 'e-hentai',
+  identityKind: 'UID',
+  identityValue: '123',
+  uploaderUid: '123',
+  uidRevalidationRequiredAt: null,
+  uidBindingState: 'BOUND',
+  displayName: 'UID 123',
+  status: 'ACTIVE',
+  latestSeenExternalId: '302',
+  hasPendingLatest: false,
+  canContinueHistory: true,
+  latestCoverage: 'CURRENT',
+  historyCoverage: 'HAS_MORE',
+  catalogCounts: { actionable: 1, processing: 0, archived: 0, attention: 0, total: 1 },
+  lastScanAt: new Date('2026-09-02T11:11:00.000Z'),
+  lastSuccessAt: new Date('2026-09-02T11:09:00.000Z'),
+  lastErrorCode: null,
+  lastErrorMessage: null,
+  createdAt: new Date('2026-09-02T10:00:00.000Z'),
+  updatedAt: new Date('2026-09-02T11:11:00.000Z')
+}
+
+const activeRun = {
+  id: 'run-active',
+  systemJobId: 'job-active',
+  mode: 'LATEST',
+  searchIdentityKind: 'UID',
+  searchIdentityValue: '123',
+  status: 'RUNNING',
+  itemCount: 0,
+  newCount: 0,
+  activeCount: 0,
+  archivedCount: 0,
+  possibleUpdateCount: 0,
+  replacementCount: 0,
+  stopReason: null,
+  startedAt: new Date('2026-09-02T11:11:00.000Z'),
+  finishedAt: null,
+  errorCode: null,
+  errorMessage: null,
+  createdAt: new Date('2026-09-02T11:11:00.000Z'),
+  updatedAt: new Date('2026-09-02T11:11:00.000Z')
+}
+
+const completedRun = {
+  ...activeRun,
+  id: 'run-completed',
+  systemJobId: 'job-completed',
+  status: 'COMPLETED',
+  itemCount: 1,
+  newCount: 1,
+  startedAt: new Date('2026-09-02T11:09:00.000Z'),
+  finishedAt: new Date('2026-09-02T11:10:00.000Z'),
+  createdAt: new Date('2026-09-02T11:09:00.000Z'),
+  updatedAt: new Date('2026-09-02T11:10:00.000Z')
+}
+
+const sourcesData = [{ ...source, latestRun: activeRun }]
+const detailData = { source, runs: [activeRun, completedRun] }
+const itemsData = {
+  pages: [
+    {
+      items: [
+        {
+          id: 'catalog-item-1',
+          sourceId: 'source-1',
+          providerKey: 'e-hentai',
+          externalId: '302',
+          displayUrl: 'https://e-hentai.org/g/302/[redacted]/',
+          title: 'Gallery 302',
+          thumbnailUrl: 'https://ehgt.org/thumb-302.jpg',
+          uploaderName: 'Uploader',
+          postedAt: new Date('2026-09-02T10:30:00.000Z'),
+          classification: 'NEW',
+          comparisonKnown: true,
+          changeReasons: [],
+          firstSeenAt: new Date('2026-09-02T11:10:00.000Z'),
+          lastSeenAt: new Date('2026-09-02T11:10:00.000Z'),
+          workflowStage: 'NEW',
+          workflowBucket: 'ACTIONABLE',
+          recommendation: 'NEW' as string | null,
+          actionable: true,
+          intakeItemId: null as string | null,
+          intakeStatus: null as string | null,
+          archiveImportId: null as string | null,
+          archiveImportStatus: null as string | null,
+          artworkId: null as number | null,
+          errorCode: null as string | null,
+          errorMessage: null as string | null,
+          effectiveCreators: [] as { id: number; name: string }[],
+          pendingCreators: [] as { id: number; name: string }[],
+          recoverable: false,
+          sortAt: new Date('2026-09-02T10:30:00.000Z')
+        }
+      ],
+      nextCursor: null
+    }
+  ]
+}
+const ignoredItemsData = {
+  pages: [
+    {
+      items: [
+        {
+          id: 'ignored-item-1',
+          providerKey: 'e-hentai',
+          externalId: '301',
+          sourceDisplayName: 'UID 123',
+          title: 'Ignored Gallery 301',
+          thumbnailUrl: 'https://ehgt.org/thumb-301.jpg',
+          uploaderName: 'Uploader',
+          postedAt: new Date('2026-09-01T10:30:00.000Z'),
+          ignoredAt: new Date('2026-09-02T11:20:00.000Z')
+        }
+      ],
+      nextCursor: null
+    }
+  ]
+}
+let currentDetailData: unknown = detailData
+let currentItemsData = itemsData
+let currentSourcesData: unknown = sourcesData
+let currentUidMutationResult: Record<string, unknown> = {
+  outcome: 'UPDATED',
+  sourceId: 'source-1',
+  uploaderUid: '456',
+  source: {}
+}
+
+vi.mock('sonner', () => ({
+  toast: {
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+    warning: mocks.toastWarning
+  }
+}))
+
+vi.mock('@tanstack/react-query', () => ({
+  useQueryClient: () => ({
+    invalidateQueries: mocks.invalidateQueries,
+    setQueriesData: mocks.setQueriesData,
+    cancelQueries: mocks.cancelQueries,
+    removeQueries: mocks.removeQueries
+  }),
+  useQuery: (options: { kind?: string }) =>
+    options.kind === 'batch'
+      ? { data: null, isPending: false, isError: false }
+      : options.kind === 'sources'
+        ? { data: currentSourcesData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null }
+        : { data: currentDetailData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null },
+  useInfiniteQuery: (options: { kind?: string }) => ({
+    data: options.kind === 'ignored' ? ignoredItemsData : currentItemsData,
+    isLoading: false,
+    isError: false,
+    isSuccess: true,
+    hasNextPage: false,
+    isFetchingNextPage: false,
+    fetchNextPage: vi.fn(),
+    refetch: vi.fn()
+  }),
+  useMutation: (options: {
+    kind?: string
+    onError?: (error: Error) => unknown
+    onSettled?: () => unknown
+    onSuccess?: (result: Record<string, unknown>, variables: Record<string, unknown>) => unknown
+  }) => ({
+    isPending: false,
+    mutate:
+      options.kind === 'cancel'
+        ? mocks.cancelScan
+        : options.kind === 'prepare'
+          ? (variables: { sourceId: string; itemIds: string[] }) => {
+              mocks.createSubmissionAttempt(variables)
+              void options.onSuccess?.({ submissionAttemptId: '00000000-0000-4000-8000-000000000001' }, variables)
+            }
+          : options.kind === 'add'
+            ? mocks.addToInbox
+            : options.kind === 'ignore'
+              ? (variables: { sourceId: string; itemIds: string[] }) => {
+                  mocks.ignoreItems(variables)
+                  if (mocks.ignoreHold) return
+                  if (mocks.ignoreFail) {
+                    options.onError?.(new Error('temporary failure'))
+                    options.onSettled?.()
+                    return
+                  }
+                  void options.onSuccess?.(
+                    {
+                      ignoredItemIds: ['ignored-item-new'],
+                      ignoredCount: variables.itemIds.length,
+                      createdCount: variables.itemIds.length,
+                      reusedCount: 0
+                    },
+                    variables
+                  )
+                }
+              : options.kind === 'restore'
+                ? (variables: { ignoredItemIds: string[] }) => {
+                    mocks.restoreIgnoredItems(variables)
+                    void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
+                  }
+                : options.kind === 'uid'
+                  ? (variables: { sourceId: string; uploaderUid: string }) => {
+                      mocks.setUploaderUid(variables)
+                      void options.onSuccess?.(currentUidMutationResult, variables)
+                    }
+                  : options.kind === 'match-uid'
+                    ? (variables: { sourceId: string }) => {
+                        mocks.matchUploaderUid(variables)
+                        void options.onSuccess?.(
+                          {
+                            outcome: 'MATCHED',
+                            sourceId: 'source-1',
+                            uploaderUid: '456',
+                            uploaderName: 'alice',
+                            evidenceExternalId: '302'
+                          },
+                          variables
+                        )
+                      }
+                    : options.kind === 'preview'
+                      ? mocks.preview
+                      : vi.fn()
+  })
+}))
+
+vi.mock('react-virtuoso', () => ({
+  Virtuoso: ({
+    data = [],
+    itemContent,
+    useWindowScroll,
+    components
+  }: {
+    data?: Array<{ id: string }>
+    itemContent: (index: number, item: { id: string }) => ReactNode
+    useWindowScroll?: boolean
+    components?: { Footer?: () => ReactNode }
+  }) => {
+    const Footer = components?.Footer
+    return (
+      <div data-testid="discovery-virtuoso" data-window-scroll={String(Boolean(useWindowScroll))}>
+        {data.map((item, index) => (
+          <div key={item.id} data-item-index={index}>
+            {itemContent(index, item)}
+          </div>
+        ))}
+        {Footer ? <Footer /> : null}
+      </div>
+    )
+  }
+}))
+
+vi.mock('@/lib/trpc', () => ({
+  useTRPC: () => ({
+    archiveUploader: {
+      resolveIdentity: { mutationOptions: () => ({ kind: 'resolve-identity' }) },
+      listSources: { queryOptions: () => ({ kind: 'sources' }), queryKey: () => ['sources'] },
+      getSource: { queryOptions: () => ({ kind: 'detail' }), queryKey: () => ['detail'] },
+      listItems: {
+        infiniteQueryOptions: mocks.infiniteQueryOptions,
+        infiniteQueryKey: () => ['items-infinite']
+      },
+      listIgnoredItems: {
+        infiniteQueryOptions: () => ({ kind: 'ignored' }),
+        infiniteQueryKey: () => ['ignored-items-infinite']
+      },
+      triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
+      cancelScan: { mutationOptions: () => ({ kind: 'cancel' }) },
+      setArchived: { mutationOptions: () => ({ kind: 'archive' }) },
+      matchUploaderUid: { mutationOptions: (options: object) => ({ kind: 'match-uid', ...options }) },
+      setUploaderUid: { mutationOptions: (options: object) => ({ kind: 'uid', ...options }) },
+      createSubmissionAttempt: { mutationOptions: (options: object) => ({ kind: 'prepare', ...options }) },
+      addToInbox: { mutationOptions: () => ({ kind: 'add' }) },
+      ignoreItems: { mutationOptions: (options: object) => ({ kind: 'ignore', ...options }) },
+      restoreIgnoredItems: { mutationOptions: (options: object) => ({ kind: 'restore', ...options }) },
+      createSource: { mutationOptions: () => ({ kind: 'create' }) }
+    },
+    archiveSearch: {
+      activeBatchScan: { queryOptions: () => ({ kind: 'batch' }), queryKey: () => ['batch'] },
+      startBatchScan: { mutationOptions: () => ({ kind: 'batch-start' }) },
+      controlBatchScan: { mutationOptions: () => ({ kind: 'batch-control' }) },
+      retryBatchScan: { mutationOptions: () => ({ kind: 'batch-retry' }) },
+      listSources: { queryOptions: () => ({ kind: 'sources' }), queryKey: () => ['sources'] },
+      getSource: { queryOptions: () => ({ kind: 'detail' }), queryKey: () => ['detail'] },
+      listItems: {
+        infiniteQueryOptions: mocks.infiniteQueryOptions,
+        infiniteQueryKey: () => ['items-infinite']
+      },
+      listIgnoredItems: {
+        infiniteQueryOptions: () => ({ kind: 'ignored' }),
+        infiniteQueryKey: () => ['ignored-items-infinite']
+      },
+      triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
+      cancelScan: { mutationOptions: () => ({ kind: 'cancel' }) },
+      setArchived: { mutationOptions: () => ({ kind: 'archive' }) },
+      matchUploaderUid: { mutationOptions: (options: object) => ({ kind: 'match-uid', ...options }) },
+      setUploaderUid: { mutationOptions: (options: object) => ({ kind: 'uid', ...options }) },
+      createSubmissionAttempt: { mutationOptions: (options: object) => ({ kind: 'prepare', ...options }) },
+      addToInbox: { mutationOptions: () => ({ kind: 'add' }) },
+      ignoreItems: { mutationOptions: (options: object) => ({ kind: 'ignore', ...options }) },
+      restoreIgnoredItems: { mutationOptions: (options: object) => ({ kind: 'restore', ...options }) },
+      renameSource: { mutationOptions: () => ({ kind: 'rename' }) },
+      createSource: { mutationOptions: () => ({ kind: 'create' }) }
+    },
+    archiveInbox: {
+      list: { queryKey: () => ['inbox-list'] },
+      summary: { queryKey: () => ['inbox-summary'] }
+    },
+    archivePreview: {
+      open: { mutationOptions: (options: object) => ({ kind: 'preview', ...options }) }
+    }
+  })
+}))
+
+import { ArchiveUploaderSources } from '../archive-uploader-sources'
+
+vi.mock('../archive-discovery-delete-dialog', () => ({
+  ArchiveDiscoveryDeleteDialog: ({
+    sourceId,
+    onDeleted,
+    onClose
+  }: {
+    sourceId: string
+    onDeleted: (id: string) => Promise<void>
+    onClose: () => void
+  }) => (
+    <button
+      onClick={async () => {
+        await onDeleted(sourceId)
+        onClose()
+      }}
+    >
+      确认删除测试来源
+    </button>
+  )
+}))
+import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
+
+function SourcesHarness({
+  initialSourceId = 'source-1',
+  initialIgnored = false,
+  showTestControls = false
+}: {
+  initialSourceId?: string | null
+  initialIgnored?: boolean
+  showTestControls?: boolean
+}) {
+  const [sourceId, setSourceId] = useState<string | null>(initialSourceId)
+  const [ignored, setIgnored] = useState(initialIgnored)
+
+  return (
+    <>
+      {showTestControls ? (
+        <button type="button" onClick={() => setSourceId('source-1')}>
+          模拟前进到来源
+        </button>
+      ) : null}
+      <ArchiveUploaderSources
+        active
+        locatedSourceId={sourceId}
+        ignored={ignored}
+        onNavigateSource={(nextSourceId, history) => {
+          mocks.navigateSource(nextSourceId, history)
+          setIgnored(false)
+          setSourceId(nextSourceId)
+        }}
+        onNavigateSourceList={(history) => {
+          mocks.navigateSourceList(history)
+          setIgnored(false)
+          setSourceId(null)
+        }}
+        onNavigateIgnored={(nextIgnored, history) => {
+          mocks.navigateIgnored(nextIgnored, history)
+          setSourceId(null)
+          setIgnored(nextIgnored)
+        }}
+        onNavigateInboxItem={mocks.navigateInboxItem}
+      />
+    </>
+  )
+}
+
+function renderSources(options?: {
+  initialSourceId?: string | null
+  initialIgnored?: boolean
+  showTestControls?: boolean
+}) {
+  return render(<SourcesHarness {...options} />)
+}
+
+afterEach(cleanup)
+
+describe('ArchiveUploaderSources', () => {
+  beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+        unobserve() {}
+      }
+    )
+    vi.clearAllMocks()
+    mocks.ignoreFail = false
+    mocks.ignoreHold = false
+    mocks.setQueriesData.mockReset()
+    localStorage.clear()
+    currentDetailData = detailData
+    currentItemsData = itemsData
+    currentSourcesData = sourcesData
+    currentUidMutationResult = {
+      outcome: 'UPDATED',
+      sourceId: 'source-1',
+      uploaderUid: '456',
+      source: {}
+    }
+    mocks.isDesktop = true
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: mocks.writeClipboard }
+    })
+    Object.defineProperty(window, 'scrollTo', { configurable: true, value: vi.fn() })
+    useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
+  })
+
+  it('opens a source from the mobile list with push navigation and uses window scrolling', async () => {
+    mocks.isDesktop = false
+    renderSources({ initialSourceId: null })
+
+    const sourceLabel = (await screen.findAllByText('UID 123'))[0]
+    fireEvent.click(sourceLabel!.closest('button')!)
+
+    expect(mocks.navigateSource).toHaveBeenCalledWith('source-1', 'push')
+    expect(await screen.findByRole('button', { name: '返回来源列表' })).toBeTruthy()
+    expect(screen.getByTestId('discovery-virtuoso').getAttribute('data-window-scroll')).toBe('true')
+  })
+
+  it('keeps the mobile selection when returning to the list and reopening the same source', async () => {
+    mocks.isDesktop = false
+    renderSources({ showTestControls: true })
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: '选择 Gallery 302' }))
+    expect(screen.getByRole('button', { name: '加入收件箱（1）' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '返回来源列表' }))
+    expect(mocks.navigateSourceList).toHaveBeenCalledWith('replace')
+
+    fireEvent.click(screen.getByRole('button', { name: '模拟前进到来源' }))
+    expect((await screen.findByRole('checkbox', { name: '选择 Gallery 302' })).getAttribute('aria-checked')).toBe(
+      'true'
+    )
+    expect(screen.getByRole('button', { name: '加入收件箱（1）' })).toBeTruthy()
+  })
+
+  it('offers direct cancellation for the active scan', () => {
+    renderSources()
+
+    fireEvent.click(screen.getByRole('button', { name: '取消扫描' }))
+    expect(mocks.cancelScan).toHaveBeenCalledWith({ sourceId: 'source-1', runId: 'run-active' })
+  })
+
+  it.each(['ACTIVE', 'ARCHIVED'])('removes the last %s source from the workspace after deletion', async (status) => {
+    currentSourcesData = [{ ...source, status, latestRun: completedRun }]
+    currentDetailData = { source: { ...source, status }, runs: [completedRun] }
+    mocks.setQueriesData.mockImplementation(
+      (options: { queryKey: string[] }, update: (current: unknown) => unknown) => {
+        if (options.queryKey[0] === 'sources') currentSourcesData = update(currentSourcesData)
+      }
+    )
+    renderSources()
+    fireEvent.click(screen.getByRole('button', { name: '删除来源' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认删除测试来源' }))
+    await screen.findByText('暂无此类型的发现来源')
+    expect(mocks.removeQueries).toHaveBeenCalledWith({ queryKey: ['detail'] })
+    expect(mocks.removeQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('发现来源已删除，已入箱项目和本地作品已保留')
+    fireEvent.click(screen.getByRole('button', { name: '查看全局已忽略' }))
+    expect(screen.getByText('Ignored Gallery 301')).toBeTruthy()
+  })
+
+  it('shows and copies the stable uploader UID from both source views', async () => {
+    renderSources()
+
+    expect(screen.getAllByText('UID 123').length).toBeGreaterThan(1)
+    fireEvent.click(screen.getByRole('button', { name: '复制上传者 UID' }))
+
+    await waitFor(() => expect(mocks.writeClipboard).toHaveBeenCalledWith('123'))
+  })
+
+  it('marks discovery source metadata and error details as privacy sensitive', () => {
+    const sensitiveSource = {
+      ...source,
+      displayName: 'Private uploader',
+      lastErrorCode: 'REMOTE_RESPONSE_INVALID',
+      lastErrorMessage: 'Private gallery scan failed'
+    }
+    currentSourcesData = [{ ...sensitiveSource, latestRun: activeRun }]
+    currentDetailData = { source: sensitiveSource, runs: [activeRun, completedRun] }
+
+    renderSources()
+
+    for (const element of screen.getAllByText('Private uploader')) {
+      expect(element.getAttribute('data-privacy-sensitive')).toBe('')
+    }
+    expect(screen.getByText('Gallery 302').getAttribute('data-privacy-sensitive')).toBe('')
+    expect(screen.getByText('https://e-hentai.org/g/302/[redacted]/').getAttribute('data-privacy-sensitive')).toBe('')
+    expect(screen.getByText('Private gallery scan failed').getAttribute('data-privacy-sensitive')).toBe('')
+
+    fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    expect(screen.getByText('Ignored Gallery 301').getAttribute('data-privacy-sensitive')).toBe('')
+    const uidLabels = screen.getAllByText('UID 123')
+    expect(uidLabels.some((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
+    expect(uidLabels.every((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
+  })
+
+  it('keeps global ignores accessible and restorable with no saved sources', async () => {
+    currentSourcesData = []
+    currentDetailData = undefined
+    renderSources()
+    expect(screen.getByText('暂无此类型的发现来源')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '查看全局已忽略' }))
+    expect(screen.getByText('Ignored Gallery 301')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
+    await waitFor(() => expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] }))
+    fireEvent.click(screen.getByRole('button', { name: '返回发现来源' }))
+    expect(screen.getByText('暂无此类型的发现来源')).toBeTruthy()
+  })
+
+  it('binds an unbound NAME source through a two-step confirmation', () => {
+    const unboundSource = {
+      ...source,
+      identityKind: 'NAME' as const,
+      identityValue: 'alice',
+      displayName: 'alice',
+      uploaderUid: null,
+      uidBindingState: 'UNBOUND' as const,
+      latestRun: completedRun
+    }
+    currentSourcesData = [unboundSource]
+    currentDetailData = { source: unboundSource, runs: [completedRun] }
+    renderSources()
+
+    expect(screen.getAllByText('按名称搜索').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '识别上传者账号' }))
+    fireEvent.click(screen.getByRole('button', { name: '高级：手动填写 UID' }))
+    fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '000456' } })
+    fireEvent.click(screen.getByRole('button', { name: '检查变更' }))
+
+    const confirmationName = screen
+      .getAllByText('alice')
+      .find((element) => element.parentElement?.textContent?.includes('→ UID 456'))
+    expect(confirmationName?.getAttribute('data-privacy-sensitive')).toBe('')
+    fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
+    expect(mocks.setUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1', uploaderUid: '456' })
+  })
+
+  it('auto-matches a UID into the editable field without saving before confirmation', () => {
+    const unboundSource = {
+      ...source,
+      identityKind: 'NAME' as const,
+      identityValue: 'alice',
+      displayName: 'alice',
+      uploaderUid: null,
+      uidBindingState: 'UNBOUND' as const,
+      latestRun: completedRun
+    }
+    currentSourcesData = [unboundSource]
+    currentDetailData = { source: unboundSource, runs: [completedRun] }
+    renderSources()
+
+    fireEvent.click(screen.getByRole('button', { name: '识别上传者账号' }))
+    fireEvent.click(screen.getByRole('button', { name: '高级：手动填写 UID' }))
+
+    expect(mocks.matchUploaderUid).toHaveBeenCalledWith({ sourceId: 'source-1' })
+    expect((screen.getByLabelText('上传者 UID') as HTMLInputElement).value).toBe('456')
+    const evidenceName = screen
+      .getAllByText('alice')
+      .find((element) => element.parentElement?.textContent?.includes('画廊 GID 302 验证'))
+    expect(evidenceName?.getAttribute('data-privacy-sensitive')).toBe('')
+    expect(mocks.setUploaderUid).not.toHaveBeenCalled()
+  })
+
+  it('disables UID changes while the source has an active scan', () => {
+    renderSources()
+
+    expect(screen.getByRole('button', { name: '高级：更正上传者账号' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByText('扫描完成或取消后才能绑定或更正 UID。')).toBeTruthy()
+  })
+
+  it('keeps the existing catalog visible while UID coverage awaits revalidation', () => {
+    const revalidatingSource = {
+      ...source,
+      uidBindingState: 'REVALIDATION_REQUIRED' as const,
+      uidRevalidationRequiredAt: new Date('2026-09-04T00:00:00.000Z'),
+      lastScanAt: null,
+      lastSuccessAt: null,
+      latestSeenExternalId: null,
+      hasPendingLatest: false,
+      canContinueHistory: false,
+      latestCoverage: 'NOT_SCANNED' as const,
+      historyCoverage: 'NOT_SCANNED' as const,
+      latestRun: completedRun
+    }
+    currentSourcesData = [revalidatingSource]
+    currentDetailData = { source: revalidatingSource, runs: [completedRun] }
+
+    renderSources()
+
+    expect(screen.getAllByText('扫描范围待核对').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('扫描范围待核对').length).toBeGreaterThan(0)
+    expect(screen.getByText('UID 覆盖：待重新验证')).toBeTruthy()
+    expect(screen.queryByText('最新：尚未扫描')).toBeNull()
+    expect(screen.queryByText('历史：尚未扫描')).toBeNull()
+    expect(screen.getByText(/现有目录、收件箱关联和归档状态仍然有效/)).toBeTruthy()
+    expect(screen.getByText('Gallery 302')).toBeTruthy()
+  })
+
+  it('offers a jump to the existing source when a UID binding conflicts', async () => {
+    const unboundSource = {
+      ...source,
+      identityKind: 'NAME' as const,
+      identityValue: 'alice',
+      displayName: 'alice',
+      uploaderUid: null,
+      uidBindingState: 'UNBOUND' as const,
+      latestRun: completedRun
+    }
+    const existingSource = {
+      ...source,
+      id: 'source-existing',
+      identityValue: '456',
+      uploaderUid: '456',
+      displayName: 'Existing uploader',
+      latestRun: completedRun
+    }
+    currentSourcesData = [unboundSource, existingSource]
+    currentDetailData = { source: unboundSource, runs: [completedRun] }
+    currentUidMutationResult = {
+      outcome: 'CONFLICT',
+      sourceId: 'source-1',
+      conflictingSourceId: 'source-existing',
+      uploaderUid: '456'
+    }
+    renderSources()
+
+    fireEvent.click(screen.getByRole('button', { name: '识别上传者账号' }))
+    fireEvent.click(screen.getByRole('button', { name: '高级：手动填写 UID' }))
+    fireEvent.change(screen.getByLabelText('上传者 UID'), { target: { value: '456' } })
+    fireEvent.click(screen.getByRole('button', { name: '检查变更' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认绑定' }))
+
+    await waitFor(() => expect(mocks.toastWarning).toHaveBeenCalled())
+    const toastOptions = mocks.toastWarning.mock.calls[0]?.[1] as { action: { onClick: () => void } }
+    toastOptions.action.onClick()
+    await waitFor(() =>
+      expect(mocks.infiniteQueryOptions).toHaveBeenCalledWith(
+        expect.objectContaining({ sourceId: 'source-existing' }),
+        expect.any(Object)
+      )
+    )
+  })
+
+  it('renders one aggregated virtual result feed instead of scan-run tabs', () => {
+    renderSources()
+
+    expect(screen.getByRole('heading', { level: 2, name: '待处理' })).toBeTruthy()
+    expect(screen.getByText('Gallery 302')).toBeTruthy()
+    expect(screen.getByText(/尚未处理，或本地版本与当前公开信息存在稳定差异/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /2026.*已完成/ })).toBeNull()
+    expect(mocks.infiniteQueryOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceId: 'source-1', view: 'ACTIONABLE', limit: 50 }),
+      expect.objectContaining({ initialCursor: null })
+    )
+    expect(screen.getByText('最新：已追到上次水位')).toBeTruthy()
+    expect(screen.getAllByText(/仍有更早内容/).length).toBeGreaterThan(0)
+    expect(screen.getByRole('group', { name: '结果范围' }).className).toContain('overflow-x-auto')
+  })
+
+  it('keeps the durable catalog visible after retained scan runs have been cleaned up', () => {
+    currentDetailData = { source, runs: [] }
+
+    renderSources()
+
+    expect(screen.getByText('Gallery 302')).toBeTruthy()
+    expect(screen.queryByText('尚无扫描记录')).toBeNull()
+  })
+
+  it('forces one final catalog refresh when processing reaches a terminal state', async () => {
+    currentDetailData = {
+      source: { ...source, catalogCounts: { ...source.catalogCounts, actionable: 0, processing: 1 } },
+      runs: [completedRun]
+    }
+    const rendered = renderSources()
+    await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalled())
+    mocks.invalidateQueries.mockClear()
+
+    currentDetailData = {
+      source: { ...source, catalogCounts: { ...source.catalogCounts, actionable: 0, processing: 0, archived: 1 } },
+      runs: [completedRun]
+    }
+    rendered.rerender(<SourcesHarness />)
+
+    await waitFor(() => {
+      expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+    })
+  })
+
+  it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
+    renderSources()
+
+    expect(screen.queryByRole('button', { name: '预览 Gallery 302 的首图' })).toBeNull()
+
+    fireEvent.click(screen.getByLabelText('显示首图预览'))
+
+    const link = screen.getByRole('link', { name: '在新标签页打开原站 Gallery 302' })
+    expect(link.getAttribute('href')).toBe('/api/archive/catalog/catalog-item-1/source')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('uses cards with an independent source link and clickable preview while retaining selection', () => {
+    renderSources()
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByLabelText('使用卡片模式'))
+    fireEvent.click(screen.getByRole('button', { name: '预览 Gallery 302 的图片' }))
+    expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
+    expect(screen.getByRole('link', { name: '在新标签页打开原站 Gallery 302' }).getAttribute('href')).toBe(
+      '/api/archive/catalog/catalog-item-1/source'
+    )
+    expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
+    fireEvent.click(screen.getByLabelText('使用纯列表'))
+    expect(screen.queryByRole('button', { name: '预览 Gallery 302 的图片' })).toBeNull()
+    expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
+  })
+
+  it('opens source preview independently from the stored cover popup', () => {
+    renderSources()
+
+    fireEvent.click(screen.getByRole('button', { name: '站内缩略图预览 Gallery 302' }))
+    expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('submits selected catalog items without generating persistence ids in the browser', () => {
+    renderSources()
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
+
+    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'ORIGINAL'
+    })
+    expect(mocks.addToInbox).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'ORIGINAL',
+      submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+    })
+  })
+
+  it('can recreate an inbox item after terminal intake history was cleaned up', () => {
+    const archivedItem = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          items: [
+            {
+              ...archivedItem,
+              workflowStage: 'CANCELLED',
+              workflowBucket: 'ATTENTION',
+              recommendation: null,
+              actionable: false,
+              intakeItemId: null,
+              intakeStatus: null,
+              errorCode: 'CANCELLED',
+              errorMessage: 'Archive intake cancelled',
+              recoverable: true
+            }
+          ],
+          nextCursor: null
+        }
+      ]
+    }
+    currentDetailData = {
+      source: { ...source, catalogCounts: { actionable: 0, processing: 0, archived: 0, attention: 1, total: 1 } },
+      runs: [completedRun]
+    }
+    renderSources()
+    fireEvent.click(screen.getByLabelText('查看异常'))
+    fireEvent.click(screen.getByRole('button', { name: '重新加入收件箱 Gallery 302' }))
+
+    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'ORIGINAL'
+    })
+    expect(mocks.addToInbox).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1'],
+      downloadMode: 'AUTO',
+      quality: 'ORIGINAL',
+      submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+    })
+  })
+
+  it('does not offer bulk ignore for a recoverable attention item', () => {
+    const recoverableItem = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          items: [
+            {
+              ...recoverableItem,
+              workflowStage: 'CANCELLED',
+              workflowBucket: 'ATTENTION',
+              recommendation: null,
+              actionable: false,
+              errorCode: 'CANCELLED',
+              errorMessage: 'Archive intake cancelled',
+              recoverable: true
+            }
+          ],
+          nextCursor: null
+        }
+      ]
+    }
+    currentDetailData = {
+      source: { ...source, catalogCounts: { actionable: 0, processing: 0, archived: 0, attention: 1, total: 1 } },
+      runs: [completedRun]
+    }
+    renderSources()
+    fireEvent.click(screen.getByLabelText('查看异常'))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+
+    expect((screen.getByRole('button', { name: '忽略（0）' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '重新加入收件箱（1）' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('selects archived and actionable results together but submits only the eligible subset', () => {
+    const item = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          items: [
+            item,
+            {
+              ...item,
+              id: 'archived-item',
+              title: 'Archived gallery',
+              actionable: false,
+              recoverable: false,
+              workflowStage: 'ARCHIVED',
+              workflowBucket: 'ARCHIVED'
+            }
+          ],
+          nextCursor: null
+        }
+      ]
+    }
+    renderSources()
+    fireEvent.click(screen.getByRole('checkbox', { name: `选择 ${item.title}` }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived gallery' }))
+    expect(screen.getByRole('button', { name: '绑定艺术家（2）' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '忽略（1）' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
+    expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [item.id] }))
+  })
+
+  it.each(['UPLOADER', 'TITLE_QUERY'])(
+    'submits %s results only after selection with the chosen mode and quality',
+    (sourceKind) => {
+      const selectedSource = {
+        ...source,
+        sourceKind,
+        titleQuery:
+          sourceKind === 'TITLE_QUERY' ? { keyword: 'Gallery', matchMode: 'CONTAINS', uploaderUid: null } : null
+      }
+      currentSourcesData = [{ ...selectedSource, latestRun: completedRun }]
+      currentDetailData = { source: selectedSource, runs: [completedRun] }
+      renderSources()
+      expect(screen.queryByRole('button', { name: '加入收件箱（0）' })).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图' }))
+      fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
+      fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
+      fireEvent.click(screen.getByRole('button', { name: '完成' }))
+      expect(mocks.createSubmissionAttempt).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+      fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
+      expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
+        sourceId: 'source-1',
+        itemIds: ['catalog-item-1'],
+        downloadMode: 'MANUAL',
+        quality: 'DISPLAY'
+      })
+      expect(mocks.addToInbox).toHaveBeenCalledWith({
+        sourceId: 'source-1',
+        itemIds: ['catalog-item-1'],
+        downloadMode: 'MANUAL',
+        quality: 'DISPLAY',
+        submissionAttemptId: '00000000-0000-4000-8000-000000000001'
+      })
+    }
+  )
+
+  it('shows explicit creator states together and leaves unbound results visible', () => {
+    const item = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          ...itemsData.pages[0]!,
+          items: [
+            item,
+            {
+              ...item,
+              id: 'bound',
+              title: 'Bound',
+              effectiveCreators: [{ id: 1, name: 'Artist A' }],
+              pendingCreators: [{ id: 2, name: 'Artist B' }]
+            }
+          ]
+        }
+      ]
+    }
+    renderSources()
+    expect(screen.getByText('未绑定艺术家')).toBeTruthy()
+    expect(screen.getByText('已绑定：')).toBeTruthy()
+    expect(screen.getByText('待生效：')).toBeTruthy()
+    expect(screen.getByText('Artist A').hasAttribute('data-privacy-sensitive')).toBe(true)
+    expect(screen.getByText('Artist B')).toBeTruthy()
+  })
+
+  it('cancels ignore without submitting and confirms only the eligible bulk subset', () => {
+    const item = itemsData.pages[0]!.items[0]!
+    currentItemsData = {
+      pages: [
+        {
+          ...itemsData.pages[0]!,
+          items: [item, { ...item, id: 'archived', title: 'Archived', actionable: false, workflowStage: 'ARCHIVED' }]
+        }
+      ]
+    }
+    renderSources()
+    fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    expect(screen.getByRole('alertdialog').textContent).toContain('Gallery 302')
+    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+    expect(mocks.ignoreItems).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived' }))
+    fireEvent.click(screen.getByRole('button', { name: '忽略（1）' }))
+    expect(screen.getByRole('alertdialog').textContent).toContain('确认忽略 1 个作品')
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
+    expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['catalog-item-1'] })
+  })
+
+  it('keeps failed ignore targets for retry and guards duplicate submits', () => {
+    mocks.ignoreFail = true
+    renderSources()
+    fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+    expect(mocks.toastError).toHaveBeenCalled()
+    mocks.ignoreFail = false
+    mocks.ignoreHold = true
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
+    expect(mocks.ignoreItems).toHaveBeenCalledTimes(2)
+    expect(mocks.ignoreItems.mock.calls[1]).toEqual(mocks.ignoreItems.mock.calls[0])
+  })
+
+  it('retains the cover dialog in globally ignored results', () => {
+    renderSources()
+    fireEvent.click(screen.getByLabelText('显示首图预览'))
+    fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    fireEvent.click(screen.getByLabelText('使用卡片模式'))
+    fireEvent.click(screen.getByRole('button', { name: '预览 Ignored Gallery 301 的首图' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('removes ignored items from the infinite cache and refreshes both result feeds', async () => {
+    renderSources()
+
+    fireEvent.click(screen.getByRole('button', { name: '忽略 Gallery 302' }))
+    expect(mocks.ignoreItems).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
+    expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['catalog-item-1'] })
+    await waitFor(() => {
+      expect(mocks.setQueriesData).toHaveBeenCalledWith({ queryKey: ['items-infinite'] }, expect.any(Function))
+      expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+      expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ignored-items-infinite'] })
+    })
+    const removeItems = mocks.setQueriesData.mock.calls.find(
+      ([filter]) => filter.queryKey[0] === 'items-infinite'
+    )?.[1] as (data: typeof itemsData) => typeof itemsData
+    expect(removeItems(itemsData).pages[0]?.items).toEqual([])
+
+    fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    expect(screen.getByRole('heading', { level: 2, name: '全局已忽略' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
+    expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] })
+  })
+})

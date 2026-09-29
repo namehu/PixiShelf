@@ -2,9 +2,26 @@ import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { PrismaClient } from '@pixishelf/db'
+import {
+  createPixivArtistExecutorRegistrations,
+  createPixivArtworkExecutorRegistrations,
+  createPixivSeriesExecutorRegistrations,
+  createPixivTagExecutorRegistrations
+} from '@pixishelf/job-executors'
 import { createWorkerExecutorRegistry, resolveExecutorWorkerConfiguration } from '../create-worker-executor-registry.js'
 import { ExecutorRegistry } from '../executor-registry.js'
 import { assertProductionWorkerCapabilities, PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
+
+vi.mock('@pixishelf/job-executors', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pixishelf/job-executors')>()
+  return {
+    ...actual,
+    createPixivArtistExecutorRegistrations: vi.fn(actual.createPixivArtistExecutorRegistrations),
+    createPixivArtworkExecutorRegistrations: vi.fn(actual.createPixivArtworkExecutorRegistrations),
+    createPixivSeriesExecutorRegistrations: vi.fn(actual.createPixivSeriesExecutorRegistrations),
+    createPixivTagExecutorRegistrations: vi.fn(actual.createPixivTagExecutorRegistrations)
+  }
+})
 
 describe('ExecutorRegistry', () => {
   it('publishes only registered job type and definition version capabilities', () => {
@@ -115,8 +132,10 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to 26 job capabilities and 29 type/version combinations', () => {
+  it('locks the production Worker to 33 job capabilities and 38 type/version combinations', () => {
+    const fetchImpl = vi.fn<typeof fetch>()
     const registry = createWorkerExecutorRegistry({
+      fetchImpl,
       database: {} as PrismaClient,
       config: {
         archiveRoot: '/media/archive',
@@ -128,12 +147,26 @@ describe('ExecutorRegistry', () => {
         scanDiscoveryExcludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash'],
         ffmpegPath: 'ffmpeg',
         ffprobePath: 'ffprobe',
-        keyframeFfmpegThreads: 2
+        keyframeFfmpegThreads: 2,
+        animationScanConcurrency: 4
       }
     })
 
     const capabilities = registry.capabilities()
-    expect(capabilities).toHaveLength(26)
+    for (const register of [
+      createPixivArtistExecutorRegistrations,
+      createPixivArtworkExecutorRegistrations,
+      createPixivSeriesExecutorRegistrations,
+      createPixivTagExecutorRegistrations
+    ]) {
+      expect(register).toHaveBeenCalledWith(expect.objectContaining({ fetchImpl }))
+    }
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(capabilities).toHaveLength(33)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(38)
+    expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
+      [1, 2, 3]
+    )
     expect(capabilities).toEqual(PRODUCTION_WORKER_CAPABILITIES)
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_IMPORT')?.definitionVersions).toEqual([
@@ -144,9 +177,19 @@ describe('ExecutorRegistry', () => {
       executionLane: 'BACKGROUND_WRITER',
       definitionVersions: [1]
     })
+    expect(capabilities).toContainEqual({
+      jobType: 'ANIMATION_DURATION_PROBE',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersions: [1]
+    })
+    expect(capabilities).toContainEqual({
+      jobType: 'ARCHIVE_UPLOADER_SCAN',
+      executionLane: 'ARCHIVE_RESOLVE',
+      definitionVersions: [1]
+    })
     expect(
       capabilities
-        .filter((capability) => !['SCAN', 'ARCHIVE_IMPORT'].includes(capability.jobType))
+        .filter((capability) => !['SCAN', 'ARCHIVE_IMPORT', 'ARCHIVE_SEARCH_SCAN'].includes(capability.jobType))
         .every((capability) => capability.definitionVersions.length === 1 && capability.definitionVersions[0] === 1)
     ).toBe(true)
   })
@@ -163,7 +206,8 @@ describe('ExecutorRegistry', () => {
         scanDiscoveryExcludedRootDirectories: ['incoming'],
         ffmpegPath: '/usr/bin/ffmpeg',
         ffprobePath: '/usr/bin/ffprobe',
-        keyframeFfmpegThreads: 3
+        keyframeFfmpegThreads: 3,
+        animationScanConcurrency: 4
       })
     ).toEqual({
       sourceMediaRoot: '/media/source',
@@ -177,7 +221,8 @@ describe('ExecutorRegistry', () => {
       pixivDataRoot: '/media/pixiv-data',
       ffmpegPath: '/usr/bin/ffmpeg',
       ffprobePath: '/usr/bin/ffprobe',
-      ffmpegThreads: 3
+      ffmpegThreads: 3,
+      animationScanConcurrency: 4
     })
   })
 

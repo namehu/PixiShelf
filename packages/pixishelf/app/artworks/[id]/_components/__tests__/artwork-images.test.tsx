@@ -1,0 +1,513 @@
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import React from 'react'
+import ArtworkImages, { buildMediaAnchorIndexes, getEstimatedMediaHeight } from '../artwork-images'
+import { useArtworkDetailPreferences } from '@/store/use-artwork-detail-preferences'
+import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
+import { useUserSettingsStore } from '@/components/user-setting'
+import { useArtworkStore } from '@/store/use-artwork-store'
+import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
+
+const virtualizerMocks = vi.hoisted(() => ({
+  useWindowVirtualizer: vi.fn(),
+  scrollToIndex: vi.fn(),
+  measureElement: vi.fn()
+}))
+
+vi.mock('@tanstack/react-virtual', () => ({
+  useWindowVirtualizer: virtualizerMocks.useWindowVirtualizer
+}))
+
+vi.mock('next/navigation', () => ({
+  useRouter: vi.fn(() => ({
+    push: vi.fn()
+  }))
+}))
+
+let popoverOpen = false
+let popoverOpenChange: ((open: boolean) => void) | undefined
+
+vi.mock('@/components/ui/popover', () => ({
+  Popover: ({
+    children,
+    open,
+    onOpenChange
+  }: {
+    children: React.ReactNode
+    open?: boolean
+    onOpenChange?: (open: boolean) => void
+  }) => {
+    popoverOpen = !!open
+    popoverOpenChange = onOpenChange
+    return <div>{children}</div>
+  },
+  PopoverAnchor: (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
+  PopoverTrigger: ({ children }: { children: React.ReactElement<{ onClick?: React.MouseEventHandler }> }) => {
+    const open = popoverOpen
+    const onOpenChange = popoverOpenChange
+    return React.cloneElement(children, {
+      onClick: (event) => {
+        children.props.onClick?.(event)
+        onOpenChange?.(!open)
+      }
+    })
+  },
+  PopoverContent: ({
+    children,
+    className,
+    side,
+    align,
+    sideOffset,
+    avoidCollisions,
+    onOpenAutoFocus,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement> & {
+    side?: string
+    align?: string
+    sideOffset?: number
+    avoidCollisions?: boolean
+    onOpenAutoFocus?: (event: Event) => void
+  }) => {
+    void side
+    void align
+    void sideOffset
+    void avoidCollisions
+    void onOpenAutoFocus
+    return popoverOpen ? (
+      <div className={className} {...props}>
+        {children}
+      </div>
+    ) : null
+  }
+}))
+
+vi.mock('../lazy-media', () => ({
+  default: ({ media, index }: { media: { path: string }; index: number }) => (
+    <div data-testid="lazy-media" data-src={media.path} data-index={index}>
+      {/* oxlint-disable-next-line nextjs/no-img-element */}
+      <img src={media.path} alt="" />
+      Image {index + 1}
+    </div>
+  )
+}))
+
+vi.mock('../adaptive-media-preview', () => ({
+  default: ({
+    images,
+    initialIndex,
+    initialPreviewSrc,
+    onClose
+  }: {
+    images: Array<{ path: string }>
+    initialIndex: number
+    initialPreviewSrc?: string
+    onClose: (finalIndex: number) => void
+  }) => (
+    <div
+      data-testid="adaptive-media-preview"
+      data-initial-index={initialIndex}
+      data-initial-preview-src={initialPreviewSrc}
+      data-media-count={images.length}
+    >
+      <button type="button" onClick={() => onClose(initialIndex)}>
+        关闭适配预览
+      </button>
+      <button type="button" onClick={() => onClose(24)}>
+        关闭并返回第 25 张
+      </button>
+    </div>
+  )
+}))
+
+vi.mock('../artwork-video-optimization-context', () => ({
+  ArtworkVideoOptimizationProvider: ({ children }: { children: React.ReactNode }) => children
+}))
+
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+} as typeof ResizeObserver
+
+describe('ArtworkImages', () => {
+  beforeEach(() => {
+    localStorage.clear()
+    useArtworkDetailPreferences.getState().setPreviewCount(10)
+    Element.prototype.scrollIntoView = vi.fn()
+    window.scrollTo = vi.fn()
+    vi.useRealTimers()
+    virtualizerMocks.useWindowVirtualizer.mockImplementation(({ count }: { count: number }) => {
+      const indexes =
+        count <= 20 ? Array.from({ length: count }, (_, index) => index) : [0, 1, 2, 3, 4, Math.min(19, count - 1)]
+
+      return {
+        getTotalSize: () => count * 500,
+        getVirtualItems: () =>
+          indexes.map((index) => ({
+            index,
+            key: index,
+            start: index * 500,
+            size: 500
+          })),
+        measureElement: virtualizerMocks.measureElement,
+        scrollToIndex: virtualizerMocks.scrollToIndex
+      }
+    })
+    virtualizerMocks.useWindowVirtualizer.mockClear()
+    virtualizerMocks.scrollToIndex.mockClear()
+    virtualizerMocks.measureElement.mockClear()
+    useUserSettingsStore.getState().hydrateSettings({ artwork_media_anchor_interval: 50 })
+    useArtworkStore.getState().setCurrentIndex(0)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  const generateImages = (count: number): ArtworkImageResponseDto[] =>
+    Array.from({ length: count }, (_, i) => ({
+      id: i + 1,
+      path: `/path/to/image-${i + 1}.jpg`,
+      width: 1000,
+      height: 1500,
+      size: null,
+      sortOrder: i,
+      artworkId: 1,
+      createdAt: '2026-01-01 00:00:00',
+      updatedAt: '2026-01-01 00:00:00',
+      webpAnimationStatus: null,
+      animationMetadata: null,
+      chaptersPath: null,
+      chaptersCount: 0,
+      chaptersDuration: null,
+      chaptersUpdatedAt: null,
+      chaptersHash: null,
+      mediaType: 'image',
+      hasChapters: false,
+      chaptersUrl: null
+    }))
+
+  it.each([false, true])('expands without a synchronous measurement cascade (StrictMode: %s)', async (strict) => {
+    const { useWindowVirtualizer } =
+      await vi.importActual<typeof import('@tanstack/react-virtual')>('@tanstack/react-virtual')
+    virtualizerMocks.useWindowVirtualizer.mockImplementation(useWindowVirtualizer)
+    vi.useFakeTimers()
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(() => ({
+      width: 656,
+      height: 768,
+      top: -9000,
+      left: 0,
+      right: 656,
+      bottom: -8232,
+      x: 0,
+      y: -9000,
+      toJSON() {}
+    }))
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(9000)
+    // Unloaded/collapsed media can be much shorter than their metadata estimate.
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(1)
+
+    const content = <ArtworkImages images={generateImages(1000)} artworkId={1} />
+    render(strict ? <React.StrictMode>{content}</React.StrictMode> : content)
+    fireEvent.click(screen.getByRole('button', { name: /查看剩余/ }))
+    expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('true')
+    for (let frame = 0; frame < 300; frame++) {
+      act(() => vi.advanceTimersByTime(16))
+    }
+    expect(parseFloat(screen.getByTestId('artwork-images-container').style.height)).toBeLessThan(10000)
+    expect(screen.getByText('Image 1000')).toBeTruthy()
+    const height = screen.getByTestId('artwork-images-container').style.height
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.getByTestId('artwork-images-container').style.height).toBe(height)
+  })
+
+  it('cancels queued measurements when the artwork unmounts', () => {
+    vi.useFakeTimers()
+    const { unmount } = render(<ArtworkImages images={generateImages(30)} artworkId={1} />)
+    unmount()
+    virtualizerMocks.measureElement.mockClear()
+    act(() => vi.advanceTimersByTime(32))
+    expect(virtualizerMocks.measureElement).not.toHaveBeenCalled()
+  })
+
+  it('does not reserve cumulative frame height for animated or pending WebP media', () => {
+    const media = { ...generateImages(1)[0]!, path: '/animated.webp', width: 696, height: 81000 }
+
+    expect(getEstimatedMediaHeight({ ...media, webpAnimationStatus: 2, isAnimated: true }, 375)).toBe(300)
+    expect(getEstimatedMediaHeight({ ...media, webpAnimationStatus: 0, isAnimated: false }, 375)).toBe(300)
+  })
+
+  it('builds anchors from the first item through the last item without duplicates', () => {
+    expect(buildMediaAnchorIndexes(120, 50)).toEqual([0, 49, 99, 119])
+    expect(buildMediaAnchorIndexes(100, 50)).toEqual([0, 49, 99])
+  })
+
+  it('hides anchors when disabled or below twice the configured interval', () => {
+    expect(buildMediaAnchorIndexes(500, 0)).toEqual([])
+    expect(buildMediaAnchorIndexes(99, 50)).toEqual([])
+  })
+
+  it('renders all media when count is below the preview limit', () => {
+    render(<ArtworkImages images={generateImages(9)} artworkId={1} />)
+
+    expect(screen.getAllByTestId('lazy-media')).toHaveLength(9)
+    expect(screen.queryByRole('button', { name: /查看剩余/i })).toBeNull()
+    expect((screen.getByTestId('artwork-images-container').children[0] as HTMLElement).className).not.toContain(
+      'sm:left-2'
+    )
+  })
+
+  it('renders the first 10 media and the expand button initially', () => {
+    render(<ArtworkImages images={generateImages(15)} artworkId={1} />)
+
+    expect(screen.getAllByTestId('lazy-media')).toHaveLength(10)
+    expect(screen.getByRole('button', { name: /查看剩余\s*5\s*张图片/i })).toBeTruthy()
+    expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('false')
+  })
+
+  it('expands the virtual list without mounting every remaining media item', async () => {
+    render(<ArtworkImages images={generateImages(600)} artworkId={1} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /查看剩余\s*590\s*张图片/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('true')
+      expect(screen.getAllByTestId('lazy-media').length).toBeLessThanOrEqual(6)
+    })
+  })
+
+  it('automatically expands and jumps when selecting an anchor after the preview range', async () => {
+    render(<ArtworkImages images={generateImages(120)} artworkId={1} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /打开媒体快捷导航/ }))
+    fireEvent.click(screen.getByRole('button', { name: '跳转到第 50 张媒体' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('true')
+      expect(virtualizerMocks.scrollToIndex).toHaveBeenCalledWith(49, {
+        align: 'start',
+        behavior: 'auto'
+      })
+    })
+  })
+
+  it('shows a small tail naturally and offers no collapse action', () => {
+    render(<ArtworkImages images={generateImages(12)} artworkId={1} />)
+    expect(screen.getAllByTestId('lazy-media')).toHaveLength(12)
+    expect(screen.queryByRole('button', { name: /查看剩余/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /打开媒体快捷导航/ }))
+    expect(screen.queryByRole('button', { name: '展开全部媒体' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '收起媒体列表' })).toBeNull()
+  })
+
+  it('stops automatic scrolling and collapses to the preview tail without writing history', async () => {
+    const push = vi.spyOn(history, 'pushState')
+    render(<ArtworkImages images={generateImages(120)} artworkId={1} />)
+    fireEvent.click(screen.getByRole('button', { name: /查看剩余/ }))
+    act(() => useArtworkAutoBrowseStore.setState({ mode: 'scroll', status: 'paused' }))
+    fireEvent.click(screen.getByRole('button', { name: '收起媒体列表' }))
+    await waitFor(() =>
+      expect(virtualizerMocks.scrollToIndex).toHaveBeenCalledWith(9, { align: 'end', behavior: 'auto' })
+    )
+    expect(useArtworkAutoBrowseStore.getState().status).toBe('idle')
+    expect(screen.getAllByTestId('lazy-media')).toHaveLength(10)
+    expect(push).not.toHaveBeenCalled()
+    push.mockRestore()
+  })
+
+  it('returns to the page top without collapsing and resets expansion for another artwork', () => {
+    const images = generateImages(120)
+    const view = render(<ArtworkImages images={images} artworkId={1} />)
+    fireEvent.click(screen.getByRole('button', { name: /查看剩余/ }))
+    fireEvent.click(screen.getByRole('button', { name: /打开媒体快捷导航/ }))
+    fireEvent.click(screen.getByRole('button', { name: '回到顶部' }))
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
+    expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('true')
+    view.rerender(<ArtworkImages images={images} artworkId={2} />)
+    expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('false')
+  })
+
+  it('combines the three-digit media count with the bottom-right anchor trigger', () => {
+    render(<ArtworkImages images={generateImages(120)} artworkId={1} />)
+
+    expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
+    const trigger = screen.getByRole('button', { name: /打开媒体快捷导航，当前第 1 张，共 120 张/ })
+    const counter = trigger.querySelector('.font-utility')
+    expect(counter?.className).toContain('flex-col')
+    expect(counter?.className).toContain('text-[10px]')
+    expect(within(trigger).getByText('1')).toBeTruthy()
+    expect(within(trigger).getByText('120')).toBeTruthy()
+    expect(trigger.className).toContain('size-11')
+    expect(trigger.parentElement?.parentElement?.className).toContain('var(--app-mobile-navigation-offset)')
+    fireEvent.click(trigger)
+
+    const navigation = screen.getByRole('navigation', { name: '作品媒体快捷导航' })
+    const popover = screen.getByTestId('media-anchor-popover')
+    expect(popover.className).toContain('w-11')
+    expect(popover.className).toContain('rounded-full')
+    expect(popover.className).toContain('bg-primary')
+    expect(popover.className).toContain('shadow-floating')
+    expect(within(navigation).getByRole('button', { name: '跳转到第 1 张媒体' }).className).toContain(
+      'bg-primary-foreground'
+    )
+    expect(within(navigation).getByRole('button', { name: '跳转到第 50 张媒体' }).className).toContain(
+      'text-primary-foreground/75'
+    )
+    fireEvent.click(within(navigation).getByRole('button', { name: '跳转到第 50 张媒体' }))
+    expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
+  })
+
+  it('keeps Dock actions when page anchors are disabled', () => {
+    useUserSettingsStore.getState().updateSettingLocally('artwork_media_anchor_interval', 0)
+    render(<ArtworkImages images={generateImages(600)} artworkId={1} />)
+
+    expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
+    const counter = screen.getByRole('button', { name: /打开媒体快捷导航/ })
+    expect(within(counter).getByText('1')).toBeTruthy()
+    expect(within(counter).getByText('600')).toBeTruthy()
+    fireEvent.click(counter)
+    expect(screen.getByRole('button', { name: '展开全部媒体' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '回到顶部' })).toBeTruthy()
+    expect(screen.queryByRole('navigation', { name: '作品媒体快捷导航' })).toBeNull()
+  })
+
+  it('opens adaptive and original preview actions on image long press', () => {
+    vi.useFakeTimers()
+    render(<ArtworkImages images={generateImages(1)} artworkId={1} />)
+
+    fireEvent.mouseDown(screen.getByTestId('lazy-media'))
+    act(() => vi.advanceTimersByTime(500))
+
+    expect(screen.getByText('适配尺寸预览')).toBeTruthy()
+    expect(screen.getByText('查看原始文件')).toBeTruthy()
+    expect(screen.queryByText('自动轮播')).toBeNull()
+    vi.useRealTimers()
+    fireEvent.click(screen.getByRole('button', { name: '自动滚动' }))
+    expect(useArtworkAutoBrowseStore.getState()).toMatchObject({ mode: 'scroll', status: 'running' })
+    expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+  })
+
+  it('does not open the adaptive preview menu on video long press', () => {
+    vi.useFakeTimers()
+    const images = generateImages(1).map((image) => ({
+      ...image,
+      path: '/path/to/video.mp4',
+      mediaType: 'video' as const
+    }))
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    fireEvent.mouseDown(screen.getByTestId('lazy-media'))
+    act(() => vi.advanceTimersByTime(500))
+
+    expect(screen.queryByText('适配尺寸预览')).toBeNull()
+    expect(screen.queryByText('查看原始文件')).toBeNull()
+  })
+
+  it('excludes videos when an image opens the adaptive preview', () => {
+    const images = generateImages(3).map((image, index) =>
+      index === 1 ? { ...image, path: '/path/to/video.mp4', mediaType: 'video' as const } : image
+    )
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    const thirdMedia = screen.getAllByTestId('lazy-media')[2]!
+    fireEvent.mouseDown(thirdMedia)
+    fireEvent.mouseUp(thirdMedia)
+
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-media-count')).toBe('2')
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('1')
+  })
+
+  it('opens adaptive preview on a regular image click without opening the long-press menu', () => {
+    render(<ArtworkImages images={generateImages(2)} artworkId={1} />)
+
+    const firstMedia = screen.getAllByTestId('lazy-media')[0]!
+    fireEvent.mouseDown(firstMedia)
+    fireEvent.mouseUp(firstMedia)
+
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-preview-src')).toContain(
+      '/path/to/image-1.jpg'
+    )
+    expect(screen.queryByText('查看原始文件')).toBeNull()
+  })
+
+  it('opens adaptive preview for WebP media even when animation metadata is pending', () => {
+    const images = generateImages(1).map((image) => ({
+      ...image,
+      path: '/path/to/animation.webp',
+      webpAnimationStatus: 0,
+      isAnimated: undefined
+    }))
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    const webpMedia = screen.getByTestId('lazy-media')
+    fireEvent.mouseDown(webpMedia)
+    fireEvent.mouseUp(webpMedia)
+
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
+  })
+
+  it('opens the adaptive preview when WebP metadata confirms a static image', () => {
+    const images = generateImages(1).map((image) => ({
+      ...image,
+      path: '/path/to/static.webp',
+      webpAnimationStatus: 1,
+      isAnimated: false
+    }))
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    const webpMedia = screen.getByTestId('lazy-media')
+    fireEvent.mouseDown(webpMedia)
+    fireEvent.mouseUp(webpMedia)
+
+    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
+  })
+
+  it('cancels both click preview and long press when the finger scrolls', () => {
+    vi.useFakeTimers()
+    render(<ArtworkImages images={generateImages(2)} artworkId={1} />)
+
+    const firstMedia = screen.getAllByTestId('lazy-media')[0]!
+    fireEvent.touchStart(firstMedia, { touches: [{ clientX: 10, clientY: 10 }] })
+    fireEvent.touchMove(firstMedia, { touches: [{ clientX: 10, clientY: 30 }] })
+    act(() => vi.advanceTimersByTime(600))
+    fireEvent.touchEnd(firstMedia)
+
+    expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+    expect(screen.queryByText('适配尺寸预览')).toBeNull()
+  })
+
+  it('expands and restores the virtual list to the final previewed media', async () => {
+    render(<ArtworkImages images={generateImages(25)} artworkId={1} />)
+
+    const firstMedia = screen.getAllByTestId('lazy-media')[0]!
+    fireEvent.mouseDown(firstMedia)
+    fireEvent.mouseUp(firstMedia)
+    fireEvent.click(screen.getByRole('button', { name: '关闭并返回第 25 张' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('artwork-images-container').getAttribute('data-expanded')).toBe('true')
+      expect(virtualizerMocks.scrollToIndex).toHaveBeenCalledWith(24, {
+        align: 'start',
+        behavior: 'auto'
+      })
+    })
+  })
+
+  it('renders a single video through the thin media path without virtual list setup', () => {
+    const images = generateImages(1).map((image) => ({
+      ...image,
+      path: '/path/to/video.mp4',
+      mediaType: 'video' as const
+    }))
+
+    render(<ArtworkImages images={images} artworkId={1} />)
+
+    expect(screen.getByTestId('artwork-video-container').className).not.toContain('sm:px-2')
+    expect(screen.getByTestId('lazy-media').getAttribute('data-src')).toBe('/path/to/video.mp4')
+    expect(screen.queryByTestId('artwork-images-container')).toBeNull()
+    expect(virtualizerMocks.useWindowVirtualizer).not.toHaveBeenCalled()
+  })
+})

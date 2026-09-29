@@ -10,11 +10,14 @@ describe('ArchiveTransferMeter', () => {
       completedItems: 1,
       failedItems: 0
     })
-    meter.begin('item-a')
-    meter.begin('item-b')
+    meter.startItem({ itemId: 'item-a', pageIndex: 0, expectedFilename: '0001', attempt: 1 })
+    meter.startItem({ itemId: 'item-b', pageIndex: 1, expectedFilename: '0002', attempt: 1 })
+    meter.beginDownload('item-a', 1_200)
+    meter.markPhase('item-b', 'WAITING_MEDIA_RESPONSE')
     expect(meter.sample(new Date('2026-01-01T00:00:00.000Z'))).toMatchObject({
       downloadedBytes: '100',
-      activeDownloads: 2,
+      activeDownloads: 1,
+      activeWorkers: 2,
       bytesPerSecond: 0
     })
 
@@ -22,22 +25,43 @@ describe('ArchiveTransferMeter', () => {
     meter.addChunk('item-b', 400)
     expect(meter.sample(new Date('2026-01-01T00:00:01.000Z'))).toMatchObject({
       downloadedBytes: '1100',
-      activeDownloads: 2,
-      bytesPerSecond: 1000
+      activeDownloads: 1,
+      activeWorkers: 2,
+      bytesPerSecond: 1000,
+      activeItems: [
+        expect.objectContaining({
+          itemId: 'item-a',
+          phase: 'DOWNLOADING',
+          downloadedBytes: '600',
+          totalBytes: '1200',
+          bytesPerSecond: 600
+        }),
+        expect.objectContaining({
+          itemId: 'item-b',
+          phase: 'WAITING_MEDIA_RESPONSE',
+          downloadedBytes: '400',
+          totalBytes: null,
+          bytesPerSecond: 400
+        })
+      ]
     })
 
     meter.fail('item-b', false)
+    meter.markVerifying('item-a')
     expect(meter.sample(new Date('2026-01-01T00:00:02.000Z'))).toMatchObject({
       downloadedBytes: '700',
-      activeDownloads: 1,
+      activeDownloads: 0,
+      activeWorkers: 1,
       completedItems: 1,
-      failedItems: 0
+      failedItems: 0,
+      activeItems: [expect.objectContaining({ itemId: 'item-a', phase: 'VERIFYING' })]
     })
 
     meter.complete('item-a', 600n)
     expect(meter.sample(new Date('2026-01-01T00:00:03.000Z'))).toMatchObject({
       downloadedBytes: '700',
       activeDownloads: 0,
+      activeWorkers: 0,
       completedItems: 2
     })
   })
@@ -48,10 +72,12 @@ describe('ArchiveTransferMeter', () => {
       completedItems: 0,
       failedItems: 0
     })
-    meter.begin('item')
+    meter.startItem({ itemId: 'item', pageIndex: 0, expectedFilename: '0001', attempt: 1 })
+    meter.beginDownload('item', null)
     meter.addChunk('item', 50)
     meter.fail('item', false)
-    meter.begin('item')
+    meter.startItem({ itemId: 'item', pageIndex: 0, expectedFilename: '0001', attempt: 2 })
+    meter.beginDownload('item', null)
     meter.addChunk('item', 25)
     meter.fail('item', true)
 
@@ -93,7 +119,8 @@ describe('ArchiveTransferMeter', () => {
       completedItems: 0,
       failedItems: 0
     })
-    meter.begin('item')
+    meter.startItem({ itemId: 'item', pageIndex: 0, expectedFilename: '0001', attempt: 1 })
+    meter.beginDownload('item', null)
     meter.addChunk('item', 10)
     const reporter = startArchiveTransferReporter({
       meter,
@@ -124,7 +151,8 @@ describe('ArchiveTransferMeter', () => {
       flush,
       now: () => new Date(now)
     })
-    meter.begin('item')
+    meter.startItem({ itemId: 'item', pageIndex: 0, expectedFilename: '0001', attempt: 1 })
+    meter.beginDownload('item', null)
     meter.addChunk('item', 512)
     meter.complete('item', 512n)
     now += 1_000
@@ -140,5 +168,30 @@ describe('ArchiveTransferMeter', () => {
     expect(flush).toHaveBeenCalledWith(
       expect.objectContaining({ downloadedBytes: '512', activeDownloads: 0, completedItems: 1 })
     )
+  })
+
+  it('keeps reporting while workers are waiting so the live panel does not become stale', async () => {
+    vi.useFakeTimers()
+    let now = Date.parse('2026-01-01T00:00:00.000Z')
+    const meter = new ArchiveTransferMeter('archive-waiting', 2, 2, {
+      completedBytes: 0n,
+      completedItems: 0,
+      failedItems: 0
+    })
+    meter.startItem({ itemId: 'item', pageIndex: 0, expectedFilename: '0001', attempt: 1 })
+    meter.markPhase('item', 'WAITING_MEDIA_RESPONSE')
+    const report = vi.fn(async () => undefined)
+    const reporter = startArchiveTransferReporter({
+      meter,
+      controller: new AbortController(),
+      report,
+      now: () => new Date((now += 1_000))
+    })
+
+    await vi.advanceTimersByTimeAsync(3_000)
+    await reporter.stop()
+
+    expect(report).toHaveBeenCalledTimes(3)
+    expect(report).toHaveBeenLastCalledWith(expect.objectContaining({ activeWorkers: 1, activeDownloads: 0 }))
   })
 })

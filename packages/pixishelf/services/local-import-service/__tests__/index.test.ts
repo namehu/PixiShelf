@@ -88,7 +88,7 @@ describe('local import service', () => {
   it('validates the artist and upserts a directory mapping', async () => {
     await saveLocalImportArtistMapping({ artistDirectory: 'Artist', artistId: 3 })
 
-    expect(mocks.artistFindUnique).toHaveBeenCalledWith({ where: { id: 3 }, select: { id: true } })
+    expect(mocks.artistFindUnique).toHaveBeenCalledWith({ where: { id: 3, mergedIntoId: null }, select: { id: true } })
     expect(mocks.mappingUpsert).toHaveBeenCalledWith({
       where: { artistDirectory: 'Artist' },
       create: { artistDirectory: 'Artist', artistId: 3 },

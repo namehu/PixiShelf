@@ -16,6 +16,8 @@ import { RecentTagsList } from './recent-tags-list'
 import { Save } from 'lucide-react'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { ESource } from '@/enums/e-source'
+import { CreatorPicker } from '@/components/creators/creator-picker'
+import Link from 'next/link'
 
 export interface TagItem {
   id: number
@@ -32,6 +34,7 @@ export interface ArtworkInfoFormInitialData {
   title?: string | null
   description?: string | null
   sourceDate?: string | Date | null
+  creators?: { id: number; name: string }[]
   artist?: { id: number; name: string } | null
   tags?: TagItem[]
 }
@@ -40,14 +43,14 @@ function createEmptyFormData() {
   return {
     title: '',
     description: '',
-    sourceDate: new Date(),
-    artist: null as { id: number; name: string } | null,
+    sourceDate: undefined as Date | undefined,
+    creators: [] as { id: number; name: string }[],
     tags: [] as TagItem[]
   }
 }
 
 function parseSourceDate(value?: string | Date | null) {
-  if (!value) return new Date()
+  if (!value) return undefined
   if (value instanceof Date) return value
 
   const datePart = value.match(/^(\d{4})-(\d{2})-(\d{2})/)
@@ -68,7 +71,7 @@ function createFormDataFromInitialData(initialData?: ArtworkInfoFormInitialData 
     title: initialData.title || '',
     description: initialData.description || '',
     sourceDate: parseSourceDate(initialData.sourceDate),
-    artist: initialData.artist ? { id: initialData.artist.id, name: initialData.artist.name } : null,
+    creators: initialData.creators ?? (initialData.artist ? [initialData.artist] : []),
     tags: initialData.tags?.map((t) => ({ id: t.id, name: t.name })) || []
   }
 }
@@ -88,7 +91,7 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
         title: data.title || '',
         description: data.description || '',
         sourceDate: parseSourceDate(data.sourceDate),
-        artist: data.artist ? { id: data.artist.id, name: data.artist.name } : null,
+        creators: data.creators ?? (data.artist ? [data.artist] : []),
         tags: data.tags?.map((t: any) => ({ id: t.id, name: t.name })) || []
       })
       return
@@ -131,17 +134,13 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
       titleInputRef.current?.focus()
       return
     }
-    if (!formData.artist) {
-      toast.error('请选择艺术家')
-      return
-    }
 
     const payload = {
       title: formData.title,
       description: formData.description,
-      artistId: formData.artist.id,
+      creatorIds: formData.creators.map((creator) => creator.id),
       tags: formData.tags.map((t) => t.id),
-      sourceDate: format(formData.sourceDate, 'yyyy-MM-dd')
+      sourceDate: formData.sourceDate ? format(formData.sourceDate, 'yyyy-MM-dd') : null
     }
 
     if (data?.id) {
@@ -156,18 +155,6 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
       ...payload,
       source: ESource.LOCAL_CREATED
     })
-  }
-
-  const handleSearchArtist = async (value: string): Promise<Option[]> => {
-    const res = await trpcClient.artist.queryPage.query({
-      cursor: 1,
-      pageSize: 20,
-      search: value
-    })
-    return res.data.map((artist) => ({
-      value: artist.id.toString(),
-      label: artist.name
-    }))
   }
 
   const handleSearchTag = async (value: string): Promise<Option[]> => {
@@ -187,6 +174,13 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
 
   return (
     <div className="flex flex-col h-full">
+      {data?.id && (
+        <Button type="button" variant="outline" asChild>
+          <Link href={'/admin/artists/relations?artwork=' + data.id} target="_blank" rel="noopener noreferrer">
+            打开作者与系列检查页面
+          </Link>
+        </Button>
+      )}
       <FieldGroup className="flex-1 gap-4 overflow-y-auto px-1 py-2">
         <Field className="gap-2">
           <FieldLabel htmlFor="artwork-title">
@@ -204,32 +198,8 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
         </Field>
 
         <Field className="gap-2">
-          <FieldLabel htmlFor="artwork-artist">
-            艺术家 <span className="text-destructive">*</span>
-          </FieldLabel>
-          <MultipleSelector
-            inputProps={{
-              id: 'artwork-artist',
-              name: 'artwork-artist',
-              autoComplete: 'off',
-              'aria-label': '搜索并选择艺术家'
-            }}
-            placeholder="搜索并选择艺术家…"
-            defaultOptions={
-              formData.artist?.id ? [{ value: formData.artist.id.toString(), label: formData.artist.name }] : []
-            }
-            value={formData.artist ? [{ value: formData.artist.id.toString(), label: formData.artist.name }] : []}
-            onSearch={handleSearchArtist}
-            onChange={(options) => {
-              const selected = options[0]
-              setFormData({
-                ...formData,
-                artist: selected ? { id: parseInt(selected.value), name: selected.label } : null
-              })
-            }}
-            maxSelected={1}
-            triggerSearchOnFocus
-          />
+          <FieldLabel htmlFor="artwork-artist">艺术家／社团</FieldLabel>
+          <CreatorPicker value={formData.creators} onChange={(creators) => setFormData({ ...formData, creators })} />
         </Field>
 
         <Field className="gap-2">
@@ -239,9 +209,9 @@ export function ArtworkInfoForm({ data, initialData, onSuccess }: ArtworkInfoFor
             aria-label="发布日期"
             mode="single"
             value={formData.sourceDate}
-            onChange={(date) => setFormData({ ...formData, sourceDate: date as Date })}
+            onChange={(date) => setFormData({ ...formData, sourceDate: date as Date | undefined })}
             placeholder="选择发布日期"
-            clearable={false}
+            clearable
           />
         </Field>
 

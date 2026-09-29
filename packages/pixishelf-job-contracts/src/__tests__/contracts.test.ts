@@ -15,10 +15,12 @@ import {
   archiveImportV2PayloadSchema,
   archiveMediaConcurrencySchema,
   archiveTransferTelemetrySchema,
+  animationScanProgressDataSchema,
   bigintStringSchema,
   canonicalizeAuditApplyInputs,
   jobEventDtoSchema,
   jobEventStreamBatchSchema,
+  jobLiveSummarySchema,
   parseJobPayload,
   scanV2PayloadSchema,
   scanV3PayloadSchema,
@@ -35,11 +37,14 @@ describe('job wire contracts', () => {
         'VIDEO_MEDIA_PROBE',
         'VIDEO_KEYFRAME_DISCOVERY',
         'VIDEO_KEYFRAME_GENERATION',
+        'ARCHIVE_UPLOADER_SCAN',
         'ARCHIVE_RESOLVE_ITEM',
         'ARCHIVE_IMPORT',
         'ARCHIVE_DEFAULT_TAG_BACKFILL',
+        'ANIMATION_DURATION_PROBE',
         'ARCHIVE_MAINTENANCE',
         'ARCHIVE_INTAKE_RETENTION_CLEANUP',
+        'JOB_EVENT_RETENTION_CLEANUP',
         'PIXIV_AI_DERIVED_TAG_SYNC',
         'PIXIV_ARTWORK_ENRICHMENT',
         'PIXIV_ARTIST_ENRICHMENT',
@@ -56,19 +61,27 @@ describe('job wire contracts', () => {
     expect(SCAN_DEFINITION_VERSION).toBe(2)
     expect(SCAN_AUDIT_APPLY_DEFINITION_VERSION).toBe(3)
     expect(ARCHIVE_IMPORT_DEFINITION_VERSION).toBe(2)
+    expect(executionLaneForJobType('ARCHIVE_UPLOADER_SCAN')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_DEFAULT_TAG_BACKFILL')).toBe('BACKGROUND_WRITER')
+    expect(executionLaneForJobType('ANIMATION_DURATION_PROBE')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_MAINTENANCE')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_INTAKE_RETENTION_CLEANUP')).toBe('BACKGROUND_WRITER')
     expect(parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', {})).toEqual({})
     expect(() => parseJobPayload('ARCHIVE_INTAKE_RETENTION_CLEANUP', { retentionDays: 7 })).toThrow()
+    expect(parseJobPayload('JOB_EVENT_RETENTION_CLEANUP', {})).toEqual({ dryRun: true })
+    expect(parseJobPayload('JOB_EVENT_RETENTION_CLEANUP', { dryRun: false })).toEqual({ dryRun: false })
     expect(parseJobPayload('PIXIV_AI_DERIVED_TAG_SYNC', {})).toEqual({ dryRun: true })
     expect(parseJobPayload('PIXIV_AI_DERIVED_TAG_SYNC', { dryRun: false })).toEqual({ dryRun: false })
     expect(() => parseJobPayload('PIXIV_AI_DERIVED_TAG_SYNC', { dryRun: false, unexpected: true })).toThrow()
     expect(parseJobPayload('ARCHIVE_RESOLVE_ITEM', { intakeItemId: 'intake-1' })).toEqual({
       intakeItemId: 'intake-1'
     })
+    expect(parseJobPayload('ARCHIVE_UPLOADER_SCAN', { scanRunId: 'scan-run-1' })).toEqual({
+      scanRunId: 'scan-run-1'
+    })
+    expect(() => parseJobPayload('ARCHIVE_UPLOADER_SCAN', { scanRunId: 'scan-run-1', limit: 500 })).toThrow()
     expect(parseJobPayload('ARCHIVE_MAINTENANCE', { action: 'CLEAN_STAGING', archiveImportId: 'import-1' })).toEqual({
       action: 'CLEAN_STAGING',
       archiveImportId: 'import-1'
@@ -534,6 +547,49 @@ describe('job wire contracts', () => {
     expect(() => jobEventDtoSchema.parse({ ...event, createdAt: new Date() })).toThrow()
   })
 
+  it('keeps animation progress versioned, bounded, and aggregate-only', () => {
+    const progressData = {
+      version: 1,
+      kind: 'animation-scan',
+      stage: 'SCANNING',
+      initializedItems: 5_000,
+      totalItems: 4_000,
+      attemptedItems: 1_200,
+      succeededItems: 1_190,
+      failedItems: 10,
+      animatedItems: 80,
+      staticItems: 1_110,
+      remainingItems: 2_800,
+      activeProbes: 4,
+      concurrencyLimit: 4,
+      itemsPerSecond: 12.5,
+      etaSeconds: 224,
+      sampledAt: '2026-09-04T12:00:00.000Z'
+    } as const
+    expect(animationScanProgressDataSchema.parse(progressData)).toEqual(progressData)
+    expect(() => animationScanProgressDataSchema.parse({ ...progressData, path: '/private/image.webp' })).toThrow()
+    expect(() => animationScanProgressDataSchema.parse({ ...progressData, concurrencyLimit: 9 })).toThrow()
+    expect(
+      jobLiveSummarySchema.parse({
+        id: 'animation-1',
+        type: 'WEBP_ANIMATION_SCAN',
+        executionLane: 'BACKGROUND_WRITER',
+        status: 'RUNNING',
+        progress: 35,
+        progressData,
+        stage: 'SCANNING',
+        message: null,
+        errorCode: null,
+        attempt: 1,
+        parentJobId: null,
+        heartbeatAt: null,
+        startedAt: '2026-09-04T11:59:00.000Z',
+        finishedAt: null,
+        updatedAt: '2026-09-04T12:00:00.000Z'
+      }).progressData
+    ).toEqual(progressData)
+  })
+
   it('bounds archive transfer settings and publishes versioned telemetry batches', () => {
     expect(archiveMediaConcurrencySchema.parse('1')).toBe(1)
     expect(archiveMediaConcurrencySchema.parse(8)).toBe(8)
@@ -547,6 +603,29 @@ describe('job wire contracts', () => {
       downloadedBytes: '318000000',
       bytesPerSecond: 13_000_000,
       activeDownloads: 2,
+      activeWorkers: 3,
+      activeItems: [
+        {
+          itemId: 'item-1',
+          pageIndex: 8,
+          expectedFilename: '0009',
+          attempt: 1,
+          phase: 'DOWNLOADING',
+          downloadedBytes: '7500000',
+          totalBytes: '18200000',
+          bytesPerSecond: 3_100_000
+        },
+        {
+          itemId: 'item-2',
+          pageIndex: 9,
+          expectedFilename: '0010',
+          attempt: 2,
+          phase: 'WAITING_MEDIA_RESPONSE',
+          downloadedBytes: '0',
+          totalBytes: null,
+          bytesPerSecond: 0
+        }
+      ],
       concurrencyLimit: 4,
       completedItems: 10,
       failedItems: 1,
@@ -554,6 +633,9 @@ describe('job wire contracts', () => {
       sampledAt: '2026-08-14T10:00:00.000Z'
     }
     expect(archiveTransferTelemetrySchema.parse(telemetry)).toEqual(telemetry)
+    expect(
+      archiveTransferTelemetrySchema.parse({ ...telemetry, activeWorkers: undefined, activeItems: undefined })
+    ).toEqual(expect.objectContaining({ activeDownloads: 2 }))
     expect(() => archiveTransferTelemetrySchema.parse({ ...telemetry, downloadedBytes: -1 })).toThrow()
     expect(() => jobEventStreamBatchSchema.parse({ version: 1, cursor: '0', items: Array(201).fill({}) })).toThrow()
   })

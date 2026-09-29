@@ -1,5 +1,6 @@
-import { Prisma } from '@pixishelf/db'
+import { Prisma, invalidateAnimationDurationSource } from '@pixishelf/db'
 import { ScanExecutorError } from './errors.ts'
+import { animationDurationSourceChanged } from './animation-duration-source.ts'
 import type { DiscoveredMediaFile } from './discovery.ts'
 import type { ScanMetadata } from './metadata.ts'
 import type { ScanTransaction } from './types.ts'
@@ -84,6 +85,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     return { status: 'SKIPPED' as const, newImages: 0, artworkId: sourceRef.artwork.id }
   }
 
+  const isNewArtwork = !sourceRef
   let artworkId = sourceRef?.artwork.id ?? null
   if (!artworkId) {
     const legacy = await transaction.artwork.findUnique({ where: { externalId: metadata.id }, select: { id: true } })
@@ -142,7 +144,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       })
     } else {
       const legacyArtists = await transaction.artist.findMany({
-        where: { userId: metadata.userId },
+        where: { userId: metadata.userId, mergedIntoId: null },
         take: 2,
         select: {
           id: true,
@@ -210,6 +212,12 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       fetchedAt: input.now
     }
   })
+  if (isNewArtwork) {
+    await transaction.artworkArtistEvidence.updateMany({
+      where: { membership: { artworkId }, evidenceKey: 'legacy-column', provenance: 'LEGACY' },
+      data: { provenance: 'SOURCE', sourceRefId: ref.id, evidenceKey: 'pixiv:' + ref.id }
+    })
+  }
   const normalizedMetadata = normalizedPixivMetadata(metadata)
   await transaction.artworkSourceSnapshot.upsert({
     where: {
@@ -257,7 +265,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
   const existingImages = await transaction.image.findMany({
     where: { artworkId },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-    select: { id: true, path: true, sortOrder: true }
+    select: { id: true, path: true, size: true, sortOrder: true, animationMetadata: true }
   })
   const existingByIdentity = new Map<string, (typeof existingImages)[number]>()
   for (const image of existingImages) {
@@ -284,6 +292,18 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     }
     const existing = existingByIdentity.get(normalizeMediaIdentity(item.relativePath))
     if (existing) {
+      if (
+        animationDurationSourceChanged({
+          previousPath: existing.path,
+          previousSize: existing.size,
+          path: item.relativePath,
+          size: item.size,
+          ...(item.sourceState ? { sourceState: item.sourceState } : {}),
+          metadata: existing.animationMetadata
+        })
+      ) {
+        await invalidateAnimationDurationSource(transaction, { imageId: existing.id, sourcePath: existing.path })
+      }
       await transaction.image.update({ where: { id: existing.id }, data: sourceMediaData })
     } else {
       await transaction.image.create({

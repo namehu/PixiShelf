@@ -13,6 +13,7 @@ import {
   type VideoOptimizationJobView
 } from '@/types/video-optimization'
 import { isVideoImageListItem } from './utils'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export type VideoOptimizationJob = VideoOptimizationJobView
 export { ACTIVE_VIDEO_OPTIMIZATION_STATUSES, isActiveVideoOptimization }
@@ -61,7 +62,7 @@ export function ImageVideoOptimizationEntry({
     const cancelling = job.status === 'CANCELLING'
     const pending = job.status === 'PENDING'
     return (
-      <div className={cn('min-w-0', compact ? 'w-32' : 'w-44')} title={job.message || (cancelling ? '正在取消任务' : '正在处理')}>
+      <div className={cn('min-w-0', compact ? 'w-32' : 'w-44')}>
         <div className="mb-1 flex items-center gap-1 text-[11px] font-medium">
           {pending ? (
             <span className="size-3 shrink-0 rounded-full border border-warning" />
@@ -104,7 +105,7 @@ export function ImageVideoOptimizationEntry({
           variant="outline"
           size="sm"
           className="h-7 px-2 text-xs"
-          title={job.error || '处理失败，点击重试'}
+          title="处理失败，点击重试"
           onClick={(event) => {
             event.stopPropagation()
             onStart(image)
@@ -114,9 +115,9 @@ export function ImageVideoOptimizationEntry({
           失败，重试
         </Button>
         {!compact && (
-          <p className="mt-1 truncate text-[10px] text-destructive" title={job.error || undefined}>
+          <PrivacySensitiveText as="p" className="mt-1 truncate text-[10px] text-destructive">
             {job.error || '未知错误'}
-          </p>
+          </PrivacySensitiveText>
         )}
       </div>
     )

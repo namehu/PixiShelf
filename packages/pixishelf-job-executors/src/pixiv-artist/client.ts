@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { discardResponseBody, readBoundedResponseBody } from '../shared/http-response.ts'
+import { PixivProxyConfigurationError } from '../shared/pixiv-proxy-error.ts'
 
 const MAX_RESPONSE_BYTES = 1_000_000
 const REQUEST_TIMEOUT_MS = 12_000
@@ -31,13 +33,16 @@ export interface NormalizedPixivArtistMetadata {
 }
 
 export class PixivArtistRequestError extends Error {
+  readonly status: number | undefined
   constructor(
     message: string,
     readonly code: string,
     readonly retryable: boolean,
-    readonly retryAt?: Date
+    readonly retryAt?: Date,
+    readonly diagnosticOptions?: { cause?: unknown; status?: number }
   ) {
-    super(message)
+    super(message, diagnosticOptions)
+    this.status = diagnosticOptions?.status
     this.name = 'PixivArtistRequestError'
   }
 }
@@ -55,6 +60,7 @@ export async function fetchPixivArtistMetadata(input: {
   for (let redirect = 0; redirect <= 3; redirect += 1) {
     assertPixivApiUrl(url)
     const response = await fetchWithTimeout(fetchImpl, url, input.signal)
+    if (!response.ok) await discardResponseBody(response)
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get('location')
       if (!location || redirect === 3) {
@@ -69,14 +75,27 @@ export async function fetchPixivArtistMetadata(input: {
         'Pixiv 用户接口触发限流',
         'PIXIV_RATE_LIMITED',
         true,
-        parseRetryAfter(response.headers.get('retry-after'), now())
+        parseRetryAfter(response.headers.get('retry-after'), now()),
+        { status: 429 }
       )
     }
     if (response.status >= 500) {
-      throw new PixivArtistRequestError(`Pixiv 用户接口暂时不可用（${response.status}）`, 'PIXIV_UPSTREAM_ERROR', true)
+      throw new PixivArtistRequestError(
+        `Pixiv 用户接口暂时不可用（${response.status}）`,
+        'PIXIV_UPSTREAM_ERROR',
+        true,
+        undefined,
+        { status: response.status }
+      )
     }
     if (!response.ok) {
-      throw new PixivArtistRequestError(`Pixiv 用户接口请求失败（${response.status}）`, 'PIXIV_REQUEST_REJECTED', false)
+      throw new PixivArtistRequestError(
+        `Pixiv 用户接口请求失败（${response.status}）`,
+        'PIXIV_REQUEST_REJECTED',
+        false,
+        undefined,
+        { status: response.status }
+      )
     }
 
     const text = await readBoundedText(response, MAX_RESPONSE_BYTES)
@@ -110,23 +129,17 @@ export async function fetchPixivArtistMetadata(input: {
 async function readBoundedText(response: Response, maximumBytes: number): Promise<string> {
   const contentLength = Number(response.headers.get('content-length'))
   if (Number.isFinite(contentLength) && contentLength > maximumBytes) {
+    await discardResponseBody(response)
     throw new PixivArtistRequestError('Pixiv 用户接口响应体过大', 'PIXIV_RESPONSE_TOO_LARGE', false)
   }
   if (!response.body) return ''
-  const reader = response.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    total += value.byteLength
-    if (total > maximumBytes) {
-      await reader.cancel()
-      throw new PixivArtistRequestError('Pixiv 用户接口响应体过大', 'PIXIV_RESPONSE_TOO_LARGE', false)
-    }
-    chunks.push(value)
-  }
-  return Buffer.concat(chunks, total).toString('utf8')
+  return (
+    await readBoundedResponseBody(
+      response,
+      maximumBytes,
+      () => new PixivArtistRequestError('Pixiv 用户接口响应体过大', 'PIXIV_RESPONSE_TOO_LARGE', false)
+    )
+  ).toString('utf8')
 }
 
 async function fetchWithTimeout(fetchImpl: typeof fetch, url: URL, signal: AbortSignal) {
@@ -139,15 +152,28 @@ async function fetchWithTimeout(fetchImpl: typeof fetch, url: URL, signal: Abort
     })
   } catch (error) {
     if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : error
-    if (timeoutSignal.aborted) {
-      throw new PixivArtistRequestError('Pixiv 用户接口请求超时', 'PIXIV_REQUEST_TIMEOUT', true)
+    if (error instanceof PixivProxyConfigurationError) {
+      throw new PixivArtistRequestError(error.message, 'PIXIV_PROXY_CONFIG_INVALID', false)
     }
-    throw new PixivArtistRequestError('Pixiv 用户接口网络请求失败', 'PIXIV_NETWORK_ERROR', true)
+    if (timeoutSignal.aborted) {
+      throw new PixivArtistRequestError('Pixiv 用户接口请求超时', 'PIXIV_REQUEST_TIMEOUT', true, undefined, {
+        cause: error
+      })
+    }
+    throw new PixivArtistRequestError('Pixiv 用户接口网络请求失败', 'PIXIV_NETWORK_ERROR', true, undefined, {
+      cause: error
+    })
   }
 }
 
 function assertPixivApiUrl(url: URL) {
-  if (url.protocol !== 'https:' || url.hostname !== PIXIV_API_HOST || (url.port && url.port !== '443')) {
+  if (
+    url.protocol !== 'https:' ||
+    url.hostname !== PIXIV_API_HOST ||
+    (url.port && url.port !== '443') ||
+    url.username ||
+    url.password
+  ) {
     throw new PixivArtistRequestError('Pixiv 用户接口重定向到了未允许的地址', 'PIXIV_INVALID_REDIRECT', false)
   }
 }

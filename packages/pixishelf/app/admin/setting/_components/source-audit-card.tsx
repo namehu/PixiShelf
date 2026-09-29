@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type SourceAuditAvailability = RouterOutputs['sourceAudit']['availability']
@@ -137,7 +138,9 @@ export function SourceAuditCardView({
       {errorMessage ? (
         <Alert variant="destructive">
           <AlertTitle>无法开始来源核对</AlertTitle>
-          <AlertDescription>{errorMessage}</AlertDescription>
+          <AlertDescription>
+            <PrivacySensitiveText>{errorMessage}</PrivacySensitiveText>
+          </AlertDescription>
         </Alert>
       ) : unavailableReason ? (
         <Alert variant="warning">

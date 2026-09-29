@@ -31,6 +31,7 @@ describe('unified background task router integration', () => {
       'startPixivAiDerivedTagSync',
       'cancelPixivAiDerivedTagSync',
       'startWebpAnimationScan',
+      'retryAnimationDurationFailures',
       'startVideoMediaProbe',
       'cancelVideoMediaProbe',
       'cancelVideoChapterPreviewGeneration',
@@ -46,6 +47,8 @@ describe('unified background task router integration', () => {
       'updateScheduledTask',
       'triggerScheduledTaskNow',
       'backgroundDashboard',
+      'backgroundHistory',
+      'backgroundHistorySnapshots',
       'backgroundList',
       'backgroundDetail',
       'backgroundEvents',
@@ -72,9 +75,10 @@ describe('unified background task router integration', () => {
   })
 
   it('passes the authenticated administrator to every scheduled-task manual enqueue path', () => {
-    expect(routerSource.match(/triggerScheduledTaskNow\(/g)).toHaveLength(3)
+    expect(routerSource.match(/triggerScheduledTaskNow\(/g)).toHaveLength(4)
     expect(routerSource).toContain("triggerScheduledTaskNow('webp_animation_scan', { requestedByUserId: ctx.userId })")
     expect(routerSource).toContain("triggerScheduledTaskNow('video_media_probe', { requestedByUserId: ctx.userId })")
+    expect(routerSource).toContain("triggerScheduledTaskNow('animation_duration_probe', { requestedByUserId: ctx.userId })")
     expect(routerSource).toMatch(
       /triggerScheduledTaskNow\(input\.key, \{[\s\S]*?requestedByUserId: ctx\.userId[\s\S]*?\}\)/
     )
@@ -130,9 +134,7 @@ describe('unified background task router integration', () => {
     for (const type of ['REFILL_META_SOURCE', 'MEDIA_DERIVED_TAG_SYNC']) {
       expect(routerSource).toContain(`type: '${type}'`)
     }
-    expect(pixivAiDerivedTagServiceSource).toContain(
-      "PIXIV_AI_DERIVED_TAG_SYNC_JOB_TYPE = 'PIXIV_AI_DERIVED_TAG_SYNC'"
-    )
+    expect(pixivAiDerivedTagServiceSource).toContain("PIXIV_AI_DERIVED_TAG_SYNC_JOB_TYPE = 'PIXIV_AI_DERIVED_TAG_SYNC'")
     expect(pixivAiDerivedTagServiceSource).toContain('type: PIXIV_AI_DERIVED_TAG_SYNC_JOB_TYPE')
     expect(pixivAiDerivedTagServiceSource).toContain('enqueueSingletonManualJobWithResult({')
     expect(pixivAiDerivedTagServiceSource).toContain('requestedByUserId')

@@ -343,7 +343,9 @@ describe('chapter preview central executor core', () => {
       .mockResolvedValueOnce({ stdout: JSON.stringify({ streams: [{ nb_read_packets: '120' }] }), stderr: '' })
       .mockRejectedValueOnce(new Error('decoder failed'))
 
+    const recordDiagnostic = vi.fn()
     const result = await generateVideoChapterPreviews({
+      recordDiagnostic,
       jobId: 'chapter-job',
       attempt: 1,
       mode: 'INCREMENTAL',
@@ -355,6 +357,10 @@ describe('chapter preview central executor core', () => {
       mutate: (operation) => operation(transaction)
     })
 
+    expect(recordDiagnostic).toHaveBeenCalledExactlyOnceWith(
+      transaction,
+      expect.objectContaining({ stage: 'CHAPTER_AUDIO', error: expect.any(Error) })
+    )
     expect(result).toMatchObject({ generated: 0, reused: 1, audioProcessed: 1, audioFailed: 1 })
     expect(transaction.mediaChapterPreview.upsert).toHaveBeenCalledWith(
       expect.objectContaining({

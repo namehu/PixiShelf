@@ -3,6 +3,7 @@ import type { NextConfig } from 'next'
 const cspHeader = `
     default-src 'self';
     script-src 'self' 'unsafe-eval' 'unsafe-inline' https:;
+    worker-src 'self';
     style-src 'self' 'unsafe-inline' https:;
     img-src 'self' blob: data: http: https:;
     media-src 'self' blob: data: http: https:;
@@ -20,7 +21,8 @@ const nextConfig: NextConfig = {
     '@pixishelf/db',
     '@pixishelf/job-contracts',
     '@pixishelf/job-executors',
-    '@pixishelf/job-runtime'
+    '@pixishelf/job-runtime',
+    '@pixishelf/webp-player'
   ],
   images: {
     qualities: [75, 80, 85, 95, 100],
@@ -33,6 +35,14 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        source: '/webp-player/:version([a-f0-9]{16})/:file*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }]
+      },
+      {
+        source: '/webp-player/manifest.json',
+        headers: [{ key: 'Cache-Control', value: 'no-cache' }]
+      },
       {
         source: '/(.*)',
         headers: [

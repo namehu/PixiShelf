@@ -1,6 +1,24 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AnimatedWebpPlayer from '../animated-webp-player'
+import { useLongPress } from '@/hooks/use-long-press'
+import { webpFixture } from '@/lib/__tests__/webp-fixture'
+import { useEffect } from 'react'
+
+// Exercise the legacy path only when the streaming surface reports incompatibility.
+vi.mock('../streaming-webp-surface', () => ({
+  default: function UnsupportedSurface({
+    onFallback
+  }: {
+    onFallback: (failure: { code: 'metadata'; message: string; recoverableByLegacy: true }) => void
+  }) {
+    useEffect(
+      () => onFallback({ code: 'metadata', message: 'sensitive path omitted', recoverableByLegacy: true }),
+      [onFallback]
+    )
+    return null
+  }
+}))
 
 let intersectionCallback: IntersectionObserverCallback | null = null
 
@@ -21,7 +39,7 @@ vi.mock('@/utils/combination-static', () => ({
   combinationApiResource: (src: string) => src
 }))
 
-describe('AnimatedWebpPlayer', () => {
+describe('AnimatedWebpPlayer compatibility fallback', () => {
   beforeEach(() => {
     intersectionCallback = null
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver)
@@ -29,8 +47,34 @@ describe('AnimatedWebpPlayer', () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('shows one non-interactive reason for four seconds and resets only for a new image', () => {
+    vi.useFakeTimers()
+    const { container, rerender } = render(<AnimatedWebpPlayer src="/one.webp" playing controlMode="badge" />)
+    const notice = screen.getByRole('status')
+    expect(notice.textContent).toContain('包含暂不支持的图片元数据')
+    expect(notice.textContent).not.toContain('sensitive path')
+    expect(notice.className).toContain('pointer-events-none')
+    expect(container.firstElementChild?.getAttribute('data-webp-fallback-reason')).toBe('metadata')
+    act(() => vi.advanceTimersByTime(2000))
+    rerender(<AnimatedWebpPlayer src="/one.webp" playing controlMode="badge" formatLabel="WebP" />)
+    act(() => vi.advanceTimersByTime(2000))
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(container.firstElementChild?.getAttribute('data-webp-fallback-reason')).toBe('metadata')
+    rerender(<AnimatedWebpPlayer src="/two.webp" playing controlMode="badge" />)
+    expect(screen.getByRole('status').textContent).toContain('包含暂不支持的图片元数据')
+    act(() => vi.advanceTimersByTime(1000))
+    rerender(<AnimatedWebpPlayer src="/one.webp" playing={false} controlMode="badge" />)
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(container.firstElementChild?.getAttribute('data-webp-fallback-reason')).toBeNull()
+    rerender(<AnimatedWebpPlayer src="/one.webp" playing controlMode="badge" />)
+    expect(screen.getByRole('status').textContent).toContain('包含暂不支持的图片元数据')
+    act(() => vi.advanceTimersByTime(4000))
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('toggles between the static poster and animated image', () => {
@@ -97,6 +141,50 @@ describe('AnimatedWebpPlayer', () => {
     expect(screen.getAllByRole('img')).toHaveLength(2)
   })
 
+  it.each(['mouseleave', 'preview', 'scroll', 'longpress'])('keeps the badge usable after a %s gesture', (gesture) => {
+    vi.useFakeTimers()
+    const onPreview = vi.fn()
+    const onLongPress = vi.fn()
+    function PreviewSurface() {
+      const handlers = useLongPress({ onClick: onPreview, onLongPress })
+      return (
+        <div {...handlers} data-testid="preview-surface">
+          <AnimatedWebpPlayer src="/sample.webp" isAnimated controlMode="badge" />
+        </div>
+      )
+    }
+    render(<PreviewSurface />)
+    const surface = screen.getByTestId('preview-surface')
+    if (gesture === 'mouseleave') fireEvent.mouseLeave(surface)
+    if (gesture === 'preview') {
+      fireEvent.mouseDown(surface)
+      fireEvent.mouseUp(surface)
+      fireEvent.click(surface)
+    }
+    if (gesture === 'scroll' || gesture === 'longpress') {
+      fireEvent.touchStart(surface, { touches: [{ clientX: 20, clientY: 30 }] })
+      if (gesture === 'scroll') fireEvent.touchMove(surface, { touches: [{ clientX: 20, clientY: 60 }] })
+      else act(() => vi.advanceTimersByTime(500))
+      fireEvent.touchEnd(surface, { touches: [] })
+      fireEvent.click(surface)
+    }
+    onPreview.mockClear()
+    onLongPress.mockClear()
+
+    const badge = screen.getByRole('button', { name: '播放 WEBP 动图' })
+    fireEvent.touchStart(badge, { touches: [{ clientX: 20, clientY: 30 }] })
+    fireEvent.touchEnd(badge, { touches: [] })
+    fireEvent.mouseDown(badge)
+    fireEvent.mouseUp(badge)
+    fireEvent.click(badge)
+    expect(screen.getByRole('button', { name: '暂停 WEBP 动图' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(badge)
+    expect(screen.getByRole('button', { name: '播放 WEBP 动图' }).getAttribute('aria-pressed')).toBe('false')
+    act(() => vi.advanceTimersByTime(600))
+    expect(onPreview).not.toHaveBeenCalled()
+    expect(onLongPress).not.toHaveBeenCalled()
+  })
+
   it('supports externally controlled playback without rendering an internal badge', () => {
     const onPlayingChange = vi.fn()
     const { rerender } = render(
@@ -133,6 +221,108 @@ describe('AnimatedWebpPlayer', () => {
     render(<AnimatedWebpPlayer src="/pending.webp" isAnimated={false} />)
 
     expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getAllByRole('img')).toHaveLength(1)
+  })
+
+  it('loads a single-loop copy on demand and exposes its duration only after image loading', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => webpFixture([300, 900]) })
+    vi.stubGlobal('fetch', fetchMock)
+    const create = vi.fn(() => 'blob:single-loop')
+    const revoke = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL: create, revokeObjectURL: revoke })
+    const { container, rerender } = render(
+      <AnimatedWebpPlayer src="/sample.webp" controlMode="badge" playing={false} playOnce />
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+    await act(async () => {
+      rerender(<AnimatedWebpPlayer src="/sample.webp" controlMode="badge" playing playOnce />)
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(container.firstElementChild?.getAttribute('data-animation-status')).toBe('loading')
+    expect(screen.getAllByRole('img')[1]?.getAttribute('src')).toBe('blob:single-loop')
+    fireEvent.load(screen.getAllByRole('img')[1]!)
+    expect(container.firstElementChild?.getAttribute('data-animation-status')).toBe('ready')
+    expect(container.firstElementChild?.getAttribute('data-animation-duration-ms')).toBe('1200')
+    rerender(<AnimatedWebpPlayer src="/sample.webp" controlMode="badge" playing={false} playOnce />)
+    expect(revoke).toHaveBeenCalledWith('blob:single-loop')
+    expect(screen.getAllByRole('img')).toHaveLength(1)
+  })
+
+  it('does not restart single-loop requests or their clock when callbacks change', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => webpFixture([1200]) })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:stable-attempt')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const complete = vi.fn()
+    const { rerender } = render(
+      <AnimatedWebpPlayer
+        src="/sample.webp"
+        playing
+        playOnce
+        onAnimationComplete={complete}
+        onPlayingChange={() => {}}
+        onAnimationError={() => {}}
+      />
+    )
+    await act(async () => {})
+    fireEvent.load(screen.getAllByRole('img')[1]!)
+    act(() => vi.advanceTimersByTime(600))
+    rerender(
+      <AnimatedWebpPlayer
+        src="/sample.webp"
+        playing
+        playOnce
+        onAnimationComplete={() => complete()}
+        onPlayingChange={() => {}}
+        onAnimationError={() => {}}
+      />
+    )
+    act(() => vi.advanceTimersByTime(600))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(complete).toHaveBeenCalledTimes(1)
+    fireEvent.load(screen.getAllByRole('img')[1]!)
+    act(() => vi.advanceTimersByTime(5000))
+    expect(complete).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels an in-flight copy and ignores its late result after playback stops', async () => {
+    let resolve!: (response: unknown) => void
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const create = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL: create, revokeObjectURL: vi.fn() })
+    const { rerender } = render(<AnimatedWebpPlayer src="/sample.webp" playing playOnce />)
+    const signal = (fetchMock.mock.calls[0] as unknown as [string, { signal: AbortSignal }])[1].signal
+    rerender(<AnimatedWebpPlayer src="/sample.webp" playing={false} playOnce />)
+    expect(signal.aborted).toBe(true)
+    await act(async () => resolve({ ok: true, arrayBuffer: async () => webpFixture([100]) }))
+    expect(create).not.toHaveBeenCalled()
+    expect(screen.getAllByRole('img')).toHaveLength(1)
+  })
+
+  it('reports malformed animation data without falling back to unlimited playback', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) }))
+    const onAnimationError = vi.fn()
+    const onPlayingChange = vi.fn()
+    await act(async () => {
+      render(
+        <AnimatedWebpPlayer
+          src="/sample.webp"
+          playing
+          playOnce
+          onAnimationError={onAnimationError}
+          onPlayingChange={onPlayingChange}
+        />
+      )
+    })
+    expect(onAnimationError).toHaveBeenCalledTimes(1)
+    expect(onPlayingChange).toHaveBeenCalledWith(false)
     expect(screen.getAllByRole('img')).toHaveLength(1)
   })
 })

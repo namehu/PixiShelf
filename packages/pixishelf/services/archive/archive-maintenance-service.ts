@@ -221,14 +221,14 @@ export async function requestArchiveArtworkMaintenance(
         availableAt: intentAt,
         maxAttempts: 3,
         progress: 0,
-        message: input.action === 'TRASH_ARCHIVE' ? 'Move archived artwork to trash' : 'Restore archived artwork'
+        message: input.action === 'TRASH_ARCHIVE' ? '将归档作品移入回收站' : '从回收站恢复归档作品'
       }
     })
     await writeJobEvent(tx as unknown as Parameters<typeof writeJobEvent>[0], {
       jobId,
       type: 'job.queued',
       attempt: 0,
-      message: input.action === 'TRASH_ARCHIVE' ? 'Move archived artwork to trash' : 'Restore archived artwork',
+      message: input.action === 'TRASH_ARCHIVE' ? '将归档作品移入回收站' : '从回收站恢复归档作品',
       data: { action: input.action, artworkId: artwork.id }
     })
     return {
@@ -307,14 +307,14 @@ export async function requestArchiveStagingCleanup(
         availableAt: intentAt,
         maxAttempts: 3,
         progress: 0,
-        message: 'Clean archive staging files'
+        message: '清理归档暂存文件'
       }
     })
     await writeJobEvent(tx as unknown as Parameters<typeof writeJobEvent>[0], {
       jobId,
       type: 'job.queued',
       attempt: 0,
-      message: 'Clean archive staging files',
+      message: '清理归档暂存文件',
       data: { action: payload.action, archiveImportId: archiveImport.id }
     })
     return { archiveImportId: archiveImport.id, jobId, reused: false }
@@ -394,14 +394,14 @@ export async function requestArchivePurgeMaintenance(
         availableAt: intentAt,
         maxAttempts: 3,
         progress: 0,
-        message: 'Permanently remove archived artwork trash'
+        message: '永久清理归档作品回收站内容'
       }
     })
     await writeJobEvent(tx as unknown as Parameters<typeof writeJobEvent>[0], {
       jobId,
       type: 'job.queued',
       attempt: 0,
-      message: 'Permanently remove archived artwork trash',
+      message: '永久清理归档作品回收站内容',
       data: { action: payload.action, artworkId: artwork.id }
     })
     return { artworkId: artwork.id, jobId, reused: false }

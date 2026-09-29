@@ -12,7 +12,7 @@ PixiShelf 是一个本地优先、自托管的个人媒体收藏系统。它把�
 - 手动从 Pixiv 公共标签接口补全来源标签的翻译、Pixpedia 简介和本地封面；
 - 提供响应式画廊、筛选、详情页和沉浸浏览；
 - 通过持久 PostgreSQL 队列执行扫描、归档、迁移、替换和媒体维护；
-- 通过持久归档收件箱持续添加 URL、FIFO 解析并多选入队；
+- 通过持久归档收件箱持续添加 URL、FIFO 解析并自动归档新作品，保留仅解析与批量确认；
 - 使用 FFmpeg/FFprobe 预生成视频封面、章节图和代表帧；
 - 使用 ImgProxy 只读处理原图片和静态派生媒体；
 - 使用 Better Auth 数据库会话保护 Web 与管理界面；
@@ -129,8 +129,8 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 ```
 
 Worker 必须通过 READY 和 capability 检查。后台任务页面应只显示一个当前 READY 实例。
-当前 capability inventory 为 26 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 24 类只支持 v1，
-共 29 个 type/version 组合。READY 必须覆盖
+当前 capability inventory 为 30 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 27 类只支持 v1，
+共 35 个 type/version 组合。READY 必须覆盖
 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 lane。
 
 ### 6. 启动 Next.js
@@ -215,6 +215,8 @@ sudo bash ./scripts/update-production.sh
 - [归档收件箱切换记录](./docs/deployment/archive-intake-cutover-deployment.md)；
 - [阶段 1–7 切换记录](./docs/deployment/background-task-cutover-deployment.md)；
 - [历史兼容回滚手册](./docs/deployment/background-task-cutover-rollback.md)。
+
+替换或上传中断后如出现 `REPLACE_WRITE_LOCK_BUSY`，应按[备份与恢复基线](./docs/operations/backup-and-recovery.md)先停掉所有 App 副本并核对媒体与替换 manifest，再处理对应目录的锁；不要按锁的时间戳自动清除。
 
 ## 仓库结构
 

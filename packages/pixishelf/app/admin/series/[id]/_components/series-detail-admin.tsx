@@ -12,6 +12,7 @@ import { confirm } from '@/components/shared/global-confirm'
 import { PageState } from '@/components/layout/page-state'
 import { AdminTableFrame, AdminWorkbench } from '../../../_components/admin-workbench'
 import { Badge } from '@/components/ui/badge'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface Props {
   seriesId: number
@@ -97,9 +98,11 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
 
   return (
     <AdminWorkbench
-      title={series.title}
+      title={<PrivacySensitiveText>{series.title}</PrivacySensitiveText>}
       eyebrow="系列管理"
-      description={series.description || '管理系列内作品和显示顺序。'}
+      description={
+        series.description ? <PrivacySensitiveText>{series.description}</PrivacySensitiveText> : '管理系列内作品和显示顺序。'
+      }
       actions={
         <Button onClick={() => setAddDialogOpen(true)}>
           <Plus data-icon="inline-start" aria-hidden="true" />
@@ -155,7 +158,9 @@ export default function SeriesDetailAdmin({ seriesId }: Props) {
                     <AvatarFallback>?</AvatarFallback>
                   </Avatar>
                 </TableCell>
-                <TableCell>{artwork.title}</TableCell>
+                <TableCell>
+                  <PrivacySensitiveText>{artwork.title}</PrivacySensitiveText>
+                </TableCell>
                 <TableCell>
                   <MembershipBadge membership={artwork.seriesMembership} />
                 </TableCell>

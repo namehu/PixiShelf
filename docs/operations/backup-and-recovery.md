@@ -1,13 +1,14 @@
 ---
 status: current
 scope: PixiShelf 单实例的备份集合、恢复目标、验证演练和灾难恢复边界
-last-verified: 2026-08-28
+last-verified: 2026-09-24
 sources:
   - build/docker-compose.deploy.yml
   - build/.env.example
   - packages/pixishelf-db/prisma/schema.prisma
   - docs/operations/deployment.md
   - docs/features/archive-intake.md
+  - docs/features/artwork-reading.md
 ---
 
 # PixiShelf 备份与恢复基线
@@ -17,6 +18,8 @@ sources:
 PixiShelf 的数据库和文件系统共同构成业务状态。只备份 PostgreSQL、只复制媒体目录，或只保留容器镜像，都不能称为完整备份。
 
 ## 恢复目标
+
+艺术家合并需要备份 `artist_merges` 审计快照、Artist 合并标记、创作者关系与证据、来源映射、发现来源绑定、待生效与抑制记录及相关触发器。合并不移动媒体，但恢复仍必须使用一致检查点；不能仅恢复艺术家表，也不能假设清除合并标记等于撤销。逐项人工恢复与升级要求见[艺术家合并](../features/artist-merge.md)。
 
 当前内部运维目标是：
 
@@ -44,6 +47,10 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份 Postgr
 数据库 dump、媒体快照和配置副本必须通过同一个备份清单关联。文件名相似或处于同一天，不足以证明它们来自同一时间点。
 
 应用在替换、归档或迁移过程中产生的 staging、pending replace 和 recovery 文件是故障恢复机制的一部分，不是系统备份，不能替代上述完整备份集合。
+
+WebP 时长表只是可重新探测的派生元数据，但 `sourceRevision` 与 `writeInProgress` 必须和原媒体处于同一恢复点。替换会话的 `.bak_session/.session-manifest.json` 是中断恢复依据，应随原媒体快照保留；缺失/损坏或旧版本无 manifest 的备份不能自动删除或猜测回滚。manifest 的 `COMMITTING` 仅表示开始提交，数据库可能已提交也可能未提交，不可自动 rollback 或重复 commit；必须核对数据库 Image 行、媒体与备份后人工决定。普通上传中断可能留下持久门禁，需完成上传或核实原媒体后处理；不能靠超时自动把旧 READY 结果重新显示。上线前按本基线同时备份数据库和原媒体，详情见[动图时长方案](../design/animation-duration-probe.md)。
+
+App 图片分块、章节文件和替换会话以媒体目录中的 `.replace-write-lock` 串行。普通异常在写流关闭后自动释放；进程崩溃、NFS I/O 卡住或异常停机可能留下该目录，后续写请求等待最多 10 分钟，然后返回 `REPLACE_WRITE_LOCK_BUSY`/HTTP 409，绝不按 mtime 自动夺锁。恢复时先停止**所有** App 副本，确认旧写进程和文件流都已退出；核对锁的 `owner.json`、同目录原件、`.bak_session/.session-manifest.json` 的阶段与证据，并备份现场。仅确认没有活跃写入后，才移除该媒体目录中的**单个** `.replace-write-lock` 目录，再按 manifest 状态重试 init/rollback 或人工恢复。不要删除 `.bak_session` 来解除阻塞；`COMMITTING`、manifest 缺失/损坏或原件证据不匹配时，先核对数据库与同检查点媒体快照，不自动猜测恢复。锁只保护使用此入口的 App 写入，不能阻止 NAS 外部进程直接改文件。
 
 ## 备份类型
 
@@ -188,7 +195,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 - `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
 - 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
 - App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、26 个 job type / 29 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2，其余 24 类 v1）和同
+- 新 Worker READY、两个 lane、31 个 job type / 36 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3，其余 28 类 v1）和同
   lane 单执行证据；
 - 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
 
@@ -203,6 +210,12 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 `ARCHIVE_DEFAULT_TAG_BACKFILL` 的弹窗预览只读；点击确认后会分批新增 `ArtworkTag` 关系，属于大批量领域关系变更。正式执行前必须完成 PostgreSQL 一致性备份并记录预览摘要、冻结的标签 ID、作品 ID 上界和任务 ID。该任务不修改媒体文件，恢复单位是数据库检查点，不要求为本次操作单独回滚媒体目录。取消会保留已经提交的关系；修正配置后重新运行会依靠唯一约束跳过已存在关系。若需要撤销已提交结果，必须恢复数据库检查点，不能按标签 ID 反向删除，因为同一 `MANUAL` 关系可能已被后续人工操作继续使用。
 
 ## 局部故障边界
+
+### 作品删除与目录清理
+
+本地作品删除直接移除已登记媒体、可确认归属的附属文件和空作品目录，不进入系统回收站。文件与数据库操作非原子，删除总结逐项列出实际结果；文件已删而数据库失败时不得把再次执行当作回滚。按报告 UUID 核对服务端日志，下载报告保留路径、依据和时间，再决定恢复。
+
+删除报告只在当次页面内存中保留，不是持久历史或备份。文件恢复必须使用兼容的数据库/媒体快照；目录本身可按明细重新创建。回退应用版本仅停止新增清理，不恢复已删内容。本次功能无 migration，也不批量清理历史目录；验证仅使用临时 fixture。大批量正式清理仍须先建立本文的一致性检查点。完整规则见[作品删除与删除总结](../features/artwork-deletion.md)。
 
 ### 只有派生媒体丢失
 
@@ -245,3 +258,45 @@ App / Worker image digest：
 ```
 
 演练发现的命令错误、权限缺失、耗时超标和不一致必须进入 `TODO.md` 或对应事故记录，并在修复后重新验证。没有隔离恢复证据的备份仍应标记为“未验证”。
+
+## 创作者关系发布与恢复
+
+迁移 20260908120000_unify_artwork_creators 前沿用发布前停写检查点。数据库 dump 需包含创作者关系、证据、来源映射、维护计划及逐项审计；该变更不移动媒体。映射更正可从执行记录生成恢复原映射的预览；批次取消只停止剩余工作，不撤销已提交关系。旧 App 读取 artistId，无法呈现多作者整理结果；回滚期间停用整理入口，完整恢复依赖发布前一致检查点。详见[创作者关系](../features/creator-relations.md)。
+
+## Pixiv 扫描根标记
+
+原媒体快照必须保留根目录隐藏文件 `.pixishelf-root`，并与数据库 inventory state 的 `rootIdentity` 配对保存。外部同步不得删除或覆盖标记。首次绑定前保存数据库检查点、旧标记（如存在）、实际挂载依据及命令 before/after 输出；不清空 inventory。仅标记丢失时可在核实原图库并停 Worker 后恢复数据库原 UUID；不同或损坏的标记先调查，不覆盖。完整克隆会保留 UUID，不能用标记区分克隆副本。操作、失败恢复与兼容回滚见 [Pixiv 扫描根身份](../features/pixiv-root-identity.md)。
+
+## 2026-09-16 上传者名称配置兼容
+
+本次无需 DDL 或历史回填，标题条件 JSON 新增可选名称条件与展示名称，名称优先版本引入 ARCHIVE_SEARCH_SCAN v2，后续多上传者扩展升级为 v3。先发布可读取新 JSON、执行 v1/v2/v3 的 App/Worker，再开放入口；当前生产门禁为 31 类任务、36 个版本组合。新数据存在后不能直接回滚旧 App（旧严格校验器不能读取新字段），应保留兼容读取版本或前向修复。需要完整降级时依照同一检查点恢复数据库、媒体、配置和镜像，不原地删除新条件或历史记录。
+
+多上传者扩展新增 titleQuery.uploaders JSON 和 ARCHIVE_SEARCH_SCAN v3，无数据库迁移；旧数据及旧游标保持原格式。升级前保留旧镜像记录，恢复版本必须兼容新 JSON 和 v3 任务；出现新数据后不能直接用旧严格校验器读取，采用兼容版本前向修复，完整降级仍按配套检查点恢复。
+
+### 20260916120000_discovery_creators 发布检查点
+
+此次迁移新增发现来源固定艺术家、待生效与抑制关系，回填历史首次匹配时间及已有人工排除。迁移不会自动绑定历史发现结果。部署前按本文件建立停写一致性检查点，保存旧版本 App/Worker、数据库 dump 与媒体快照的关联清单。
+
+App 与 Worker 必须协调升级：停止写入者后运行 `pnpm --filter @pixishelf/db db:generate` 和 `pnpm --filter @pixishelf/db db:deploy`，再启动同一版本的 App/Worker。Worker schema 门禁要求此迁移已完成。禁止 `db:push`，禁止旧 Worker 与新 App 同时执行扫描，以免丢失首次命中的绑定机会。
+
+回滚依据是发布前已验证的一致性检查点；不得直接删除待生效、抑制或永久操作回执。新版本开始写入后，优先前向修复；恢复旧数据库必须与备份清单中的媒体快照匹配，并接受检查点之后的写入丢失。
+
+### 20260916160000_job_diagnostics 发布检查点
+
+统一任务诊断新增 SystemJob.currentDiagnosticExecutionId、system_job_diagnostic_reports 和 system_job_diagnostic_items。发布前按本文件建立停写一致性检查点，数据库 dump 包含完整任务、报告头、明细与 migration 历史；保留与媒体快照、配置、App/Worker 镜像的配对清单。
+
+停止写入者后运行 pnpm --filter @pixishelf/db db:generate、pnpm --filter @pixishelf/db db:deploy 并核对 migration 状态，再协调启动兼容版本 App 和 Worker，禁止 db:push。旧任务不自动拥有过去执行的完整报告；旧 Worker 也不会写入新诊断。清理计划首次手动运行先核对 dry-run 的报告/明细候选数，证据关闭后保留 90 天，到期分批删除明细但保留报告头。
+
+回滚兼容代码时保留新增列和两张表，避免丢失新执行证据；优先前向修复。需要整体恢复发布前数据库时，使用验证过的配套媒体与配置检查点，恢复前保全新诊断并明确恢复点之后的写入损失。此处是发布和恢复要求，不代表已完成生产迁移或恢复演练。功能与验收边界见[后台任务失败诊断](../features/background-job-diagnostics.md)。
+
+## 批量发现扫描恢复依据
+
+批次状态、冻结来源顺序、逐轮游标、扫描目录和父子任务关系均保存在 PostgreSQL，备份必须包含完整 SystemJob payload/result 与来源扫描表。20260920120000_add_discovery_batch_scan 为约束扩展及唯一索引迁移，无数据重写。升级前建立检查点；回退应用前取消批次并等待当前子扫描终止。Worker 重启依靠 fenced 事务与原子子任务检查点恢复，禁止手工仅修改父任务为终态。父任务基础设施失败后，通过失败来源重试或取消入口收口遗留子扫描，不删除目录或清空游标。
+
+## 作品阅读记录发布与恢复依据
+
+`20260924130000_add_artwork_reading_tracking` 为 Artwork 增加默认值为 1 的 `mediaRevision`，新建账户作品摘要和已读媒体表，不回填历史阅读。数据库 dump 必须包含两张新表、Artwork 版本和 `_prisma_migrations`；仍须与原媒体、派生媒体、配置和 App/Worker 镜像组成同一停写检查点。正式发布先完成本文件的写入者静默与备份验证，再执行 `pnpm --filter @pixishelf/db db:generate`、`pnpm --filter @pixishelf/db db:deploy`，确认 migration 状态后协调启动兼容的 App 与 Worker；禁止 `db:push`。新 Worker 的 schema 就绪门禁要求这条 migration 已完成、Artwork.mediaRevision 与两张阅读表均存在；不能在旧库上绕过就绪检查启动媒体写任务。此流程是发布门禁，不表示生产实例已经升级。
+
+完整替换、恢复和全量重建会在媒体发布事务中递增 `mediaRevision` 并清空该作品所有账户的阅读状态。普通媒体增删和排序不重置访问次数；存续媒体的已读记录仍有效。应用代码回滚时保留新增列和表，不执行破坏性反向 migration；旧版本期间必须暂停完整重建任务、旧 App 扫描及替换入口。若旧代码已经重建媒体，保存受影响作品 ID，重新升级前逐项核对并通过兼容事务清空相应阅读记录、递增版本。影响范围不明时先审计并修复，不得直接恢复阅读入口或把旧记录当作有效。需要整体恢复发布前状态时，使用已验证的数据库、媒体、配置与镜像配套检查点，并明确接受检查点后的阅读及其他写入损失。
+
+2026-09-24 的隔离 PostgreSQL 15 演练已验证空库完整 85 条迁移和一个含 3 作品、3 媒体、2 账户的非空库从 84 条迁移升级到 85 条；升级前 custom-format dump 已校验可列出内容，SHA-256 为 `CA3AACFC9DC97FA38064BFF8F33BD21BDA24CABB71E117C8E608D25B7C31D5E8`，原行数保留，三个作品版本为 1，阅读表为空。这证明该合成 fixture 的迁移路径，不替代生产数据检查点或完整媒体恢复演练。功能验收记录见[作品阅读记录与进度](../features/artwork-reading.md)。

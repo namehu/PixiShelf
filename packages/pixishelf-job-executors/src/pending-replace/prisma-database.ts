@@ -1,4 +1,4 @@
-import { Prisma, type PrismaClient } from '@pixishelf/db'
+import { Prisma, invalidateArtworkReadingForRebuild, type PrismaClient } from '@pixishelf/db'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type {
   PendingReplaceDatabasePort,
@@ -181,6 +181,7 @@ export function createPrismaPendingReplaceDatabase(
     async publishReplacement(transaction, input) {
       const client = prismaTransaction(transaction)
       await assertPersistedItem(client, input.item, ['COMMITTING'])
+      await invalidateArtworkReadingForRebuild(client, input.item.artworkId!)
       await assertMediaSnapshot(client, input.item, input.expectedOldMedia)
       await replaceMedia(client, input.item.artworkId!, input.newMedia)
       await appendManualTags(client, input.item.artworkId!, input.appendTagIds)
@@ -198,6 +199,7 @@ export function createPrismaPendingReplaceDatabase(
     async publishRestore(transaction, input) {
       const client = prismaTransaction(transaction)
       await assertPersistedItem(client, input.item, ['RESTORE_SWAPPING'])
+      await invalidateArtworkReadingForRebuild(client, input.item.artworkId!)
       await assertMediaSnapshot(client, input.item, input.expectedNewMedia)
       await replaceMedia(client, input.item.artworkId!, input.oldMedia)
       await syncDerivedMediaTags(client, input.item.artworkId!, input.oldMedia)

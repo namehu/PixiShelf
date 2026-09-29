@@ -55,7 +55,12 @@ export async function detectAnimatedWebp(absolutePath: string): Promise<boolean>
 export async function detectAnimatedImage(absolutePath: string, mediaPath = absolutePath): Promise<boolean> {
   const extension = getFileExtension(mediaPath)
   if (extension === '.png' || extension === '.apng') {
-    return detectAnimatedPng(absolutePath)
+    try {
+      return await detectAnimatedPng(absolutePath)
+    } catch (error) {
+      if (!isInvalidPngProbeError(error)) throw error
+      return detectAnimatedFrameImage(absolutePath)
+    }
   }
   if (extension === '.webp' || extension === '.gif') {
     return detectAnimatedFrameImage(absolutePath)
@@ -140,6 +145,11 @@ function calculatePngCrc32(data: Buffer): number {
   }
 
   return (crc ^ 0xffffffff) >>> 0
+}
+
+function isInvalidPngProbeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : ''
+  return message === 'Invalid PNG signature'
 }
 
 export async function runWebpAnimationScanJob(options: {

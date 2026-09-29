@@ -1,3 +1,5 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
+import { recordJobDiagnostic } from '@pixishelf/job-runtime'
 import type { ExecutionLane, WorkerCapability } from '@pixishelf/job-contracts'
 import type {
   ChildJobRequest,
@@ -5,6 +7,7 @@ import type {
   EnqueuedChildJob,
   ExecutionContext,
   ExecutionFence,
+  ExecutionProgressMutationResult,
   ExecutionProgressUpdate,
   FencedExecutionTransaction,
   QueueSqlExecutor
@@ -33,6 +36,10 @@ export interface DispatcherQueuePort {
     fence: ExecutionFence,
     operation: (transaction: TTransaction) => Promise<TResult>
   ): Promise<TResult>
+  withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+    fence: ExecutionFence,
+    operation: (transaction: TTransaction) => Promise<ExecutionProgressMutationResult<TResult>>
+  ): Promise<ExecutionProgressMutationResult<TResult>>
   withFencedExecutionTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor>(
     fence: ExecutionFence,
     operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<void>
@@ -279,7 +286,7 @@ export class CentralDispatcher {
     this.currentController = controller
     const monitor = this.monitorExecution(fence, controller, leaseState)
     const logger = createExecutionLogger(this.options.logger, job)
-    const progress = createProgressReporter(this.options.queue, fence, this.timing)
+    const progressReporter = createProgressReporter(this.options.queue, fence, this.timing, registration.progressPolicy)
     let fencedFinalizationStarted = false
     let transactionallyFinalized = false
     let fencedFinalizationError: unknown
@@ -293,15 +300,26 @@ export class CentralDispatcher {
 
     const context: ExecutionContext<unknown, EnqueuedChildJob> = {
       job,
+      recordDiagnostic: (transaction, input) =>
+        recordJobDiagnostic(
+          transaction,
+          job.id,
+          input,
+          this.timing.now(),
+          undefined,
+          job.currentDiagnosticExecutionId ?? undefined
+        ),
       payload: registration.payload,
       signal: controller.signal,
-      progress,
+      progress: progressReporter.report,
       enqueueChild: (request) => this.options.queue.enqueueChild(fence, request),
       mutateInTransaction: (operation) => this.options.queue.withFencedMutationTransaction(fence, operation),
+      checkpointInTransaction: progressReporter.checkpoint,
       finalizeInTransaction: async (operation) => {
         if (fencedFinalizationStarted) {
           throw new Error(`Execution ${job.id} already started fenced transaction finalization`)
         }
+        await progressReporter.flush()
         fencedFinalizationStarted = true
         try {
           await this.options.queue.withFencedExecutionTransaction(fence, operation)
@@ -349,13 +367,24 @@ export class CentralDispatcher {
             : {
                 kind: 'failed',
                 errorCode: 'INTERNAL_ERROR',
-                error: executorResult.error instanceof Error ? executorResult.error.message : 'Unknown executor failure'
+                error: extractJobDiagnostic(executorResult.error).message,
+                diagnostic: extractJobDiagnostic(executorResult.error)
               }
         if (transactionallyFinalized) {
           outcome = TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
         } else if (controller.signal.aborted) {
           outcome = outcomeForInterruption(controller.signal.reason)
         }
+      }
+      if (!transactionallyFinalized && !isLeaseLost(controller.signal.reason)) {
+        const flush = await this.retryLeaseOperation(
+          'progress-flush',
+          fence,
+          leaseState.expiresAt,
+          new AbortController().signal,
+          progressReporter.flush
+        )
+        if (flush.kind !== 'value') controller.abort(new DispatcherInterruption('LEASE_LOST'))
       }
     } finally {
       controller.abort()
@@ -642,6 +671,7 @@ function normalizeRetryOutcome(job: ClaimedJob, outcome: DispatcherSettlement): 
     kind: 'failed',
     errorCode: outcome.errorCode,
     error: outcome.error,
+    diagnostic: outcome.diagnostic,
     message: outcome.message ?? `Retry budget exhausted after ${job.attempt} attempts`
   }
 }
@@ -674,10 +704,13 @@ function waitForAbort(signal: AbortSignal): Promise<{ kind: 'aborted' }> {
 function isTransientQueueError(error: unknown) {
   const code =
     typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code) : ''
+  const message = error instanceof Error ? error.message : String(error)
+  // P2028 also covers expired/closed transactions. Only acquisition failure
+  // guarantees that the callback never started and is safe to retry here.
+  if (code === 'P2028') return /Unable to start a transaction in the given time/i.test(message)
   if (/^(?:P1001|P1002|P1008|P1017|P2024|P2034|40001|40P01|55P03|57P0[123]|08\w{3})$/.test(code)) {
     return true
   }
-  const message = error instanceof Error ? error.message : String(error)
   return /(?:connection|database unavailable|deadlock|serialization|timed? out|timeout|write conflict)/i.test(message)
 }
 
@@ -692,54 +725,107 @@ function createExecutionLogger(logger: WorkerLogger, job: ClaimedJob) {
   }
 }
 
-function createProgressReporter(queue: DispatcherQueuePort, fence: ExecutionFence, timing: DispatcherTiming) {
-  let lastStandard: { progress: number; stage?: string | null; at: number } | null = null
-  let lastRealtimeAt: number | null = null
-  return async (update: ExecutionProgressUpdate) => {
+function createProgressReporter(
+  queue: DispatcherQueuePort,
+  fence: ExecutionFence,
+  timing: DispatcherTiming,
+  defaultPolicy: 'STANDARD' | 'REALTIME'
+) {
+  // `pending` is the latest suppressed snapshot, not a counter of skipped
+  // writes. Keeping it lets a stage/terminal flush expose the freshest state
+  // without turning every executor callback into a database write.
+  let lastPersisted: { progress: number; stage?: string | null; at: number } | null = null
+  let pending: ExecutionProgressUpdate | null = null
+  let tail = Promise.resolve()
+
+  const persist = async (update: ExecutionProgressUpdate, now: number) => {
+    await queue.updateProgress({ ...fence, ...update })
+    lastPersisted = {
+      progress: update.progress,
+      ...(update.stage === undefined
+        ? lastPersisted?.stage === undefined
+          ? {}
+          : { stage: lastPersisted.stage }
+        : { stage: update.stage }),
+      at: now
+    }
+  }
+
+  const reportInternal = async (update: ExecutionProgressUpdate) => {
     const now = timing.now().getTime()
     const isWarning =
-      typeof update.data === 'object' &&
-      update.data !== null &&
-      'level' in update.data &&
-      (update.data as { level?: unknown }).level === 'WARN'
-    const stageChanged = update.stage !== undefined && (!lastStandard || update.stage !== lastStandard.stage)
+      update.level === 'WARN' ||
+      update.level === 'ERROR' ||
+      (typeof update.data === 'object' &&
+        update.data !== null &&
+        'level' in update.data &&
+        ['WARN', 'ERROR'].includes(String((update.data as { level?: unknown }).level)))
+    const stageChanged = update.stage !== undefined && (!lastPersisted || update.stage !== lastPersisted.stage)
+    const elapsed = lastPersisted ? now - lastPersisted.at : Number.POSITIVE_INFINITY
     const percentageReady =
-      !lastStandard || (Math.abs(update.progress - lastStandard.progress) >= 5 && now - lastStandard.at >= 30_000)
-    const realtimeReady = lastRealtimeAt === null || now - lastRealtimeAt >= 2_000
-    if (update.forcePersistence) {
-      await queue.updateProgress({ ...fence, ...update })
-      if (update.persistenceMode === 'REALTIME') lastRealtimeAt = now
-      else {
-        lastStandard = {
-          progress: update.progress,
-          ...(update.stage === undefined
-            ? lastStandard?.stage === undefined
-              ? {}
-              : { stage: lastStandard.stage }
-            : { stage: update.stage }),
-          at: now
+      !lastPersisted || (Math.abs(update.progress - lastPersisted.progress) >= 5 && elapsed >= 5_000)
+    const fallbackReady = elapsed >= 30_000
+    const policy = update.persistenceMode ?? defaultPolicy
+    // REALTIME is a wall-clock guarantee for ordinary snapshots; STANDARD is
+    // intentionally quieter but still has a 30-second upper bound on silence.
+    const intervalReady = policy === 'REALTIME' ? elapsed >= 2_000 : percentageReady || fallbackReady
+    if (update.forcePersistence || update.progress === 100 || stageChanged || isWarning || intervalReady) {
+      try {
+        if (pending && (stageChanged || update.progress === 100)) {
+          await persist(pending, now)
+          pending = null
         }
+        await persist(update, now)
+        pending = null
+      } catch (error) {
+        pending = update
+        throw error
       }
       return
     }
-    if (update.persistenceMode === 'REALTIME' && !stageChanged && !isWarning && update.progress !== 100) {
-      if (!realtimeReady) return
-      await queue.updateProgress({ ...fence, ...update })
-      lastRealtimeAt = now
-      return
-    }
-    if (!lastStandard || update.progress === 100 || stageChanged || isWarning || percentageReady) {
-      await queue.updateProgress({ ...fence, ...update })
-      lastStandard = {
-        progress: update.progress,
-        ...(update.stage === undefined
-          ? lastStandard?.stage === undefined
-            ? {}
-            : { stage: lastStandard.stage }
-          : { stage: update.stage }),
-        at: now
-      }
-    }
+    pending = update
+  }
+
+  const enqueue = <T>(operation: () => Promise<T>) => {
+    const result = tail.then(operation)
+    tail = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
+  return {
+    report: (update: ExecutionProgressUpdate) => enqueue(() => reportInternal(update)),
+    checkpoint: <TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
+      operation: (transaction: TTransaction) => Promise<ExecutionProgressMutationResult<TResult>>
+    ) =>
+      enqueue(async () => {
+        // Any suppressed snapshot predates the domain mutation about to commit;
+        // it must never be replayed over the newer durable checkpoint.
+        pending = null
+        const checkpoint = await queue.withFencedProgressTransaction<TTransaction, TResult>(fence, operation)
+        // The repository committed the domain state, job row and matching event
+        // together, so this snapshot is already both durable and published;
+        // do not send it through persist() a second time.
+        lastPersisted = {
+          progress: checkpoint.update.progress,
+          ...(checkpoint.update.stage === undefined
+            ? lastPersisted?.stage === undefined
+              ? {}
+              : { stage: lastPersisted.stage }
+            : { stage: checkpoint.update.stage }),
+          at: timing.now().getTime()
+        }
+        return checkpoint.result
+      }),
+    flush: () =>
+      enqueue(async () => {
+        if (!pending) return
+        const update = pending
+        await persist(update, timing.now().getTime())
+        pending = null
+      })
   }
 }
 

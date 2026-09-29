@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { jsonValueSchema } from './payloads.ts'
+import { jobProgressDataSchema } from './job-progress-data.ts'
 import {
   executionLaneSchema,
   jobEventLevelSchema,
@@ -19,6 +20,7 @@ export const jobDtoSchema = z.object({
   executionLane: executionLaneSchema,
   definitionVersion: z.number().int().nonnegative(),
   status: jobStatusSchema,
+  hasPartialFailure: z.boolean().optional(),
   triggerSource: jobTriggerSourceSchema,
   requestedByUserId: z.string().nullable(),
   scheduledTaskId: z.string().nullable(),
@@ -29,6 +31,7 @@ export const jobDtoSchema = z.object({
   idempotencyKey: z.string().nullable(),
   payload: jsonValueSchema.nullable(),
   progress: z.number().int().min(0).max(100),
+  progressData: jobProgressDataSchema.nullable(),
   stage: z.string().nullable(),
   message: z.string().nullable(),
   result: jsonValueSchema.nullable(),
@@ -73,7 +76,9 @@ export const jobLiveSummarySchema = z.object({
   type: jobTypeSchema,
   executionLane: executionLaneSchema,
   status: jobStatusSchema,
+  hasPartialFailure: z.boolean().optional(),
   progress: z.number().int().min(0).max(100),
+  progressData: jobProgressDataSchema.nullable(),
   stage: z.string().nullable(),
   message: z.string().nullable(),
   errorCode: z.string().nullable(),

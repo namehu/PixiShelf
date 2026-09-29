@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import { Prisma, type PrismaClient } from '@pixishelf/db'
+import { Prisma, invalidateAnimationDurationSource, lockArtworkForReading, type PrismaClient } from '@pixishelf/db'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { buildCanonicalTargetDirectory, normalizeStoredRelativePath } from './paths.ts'
 import { migrationPublicErrorCode, migrationPublicSummary } from './diagnostics.ts'
@@ -239,6 +239,7 @@ export function createPrismaMigrationDatabase(
     },
     async publishArtwork(transaction, input) {
       const client = prismaTransaction(transaction)
+      await lockArtworkForReading(client, input.artworkId)
       const [currentItem, persistedFiles, currentArtwork] = await Promise.all([
         client.migrationJobItem.findUnique({
           where: { id: input.itemId },
@@ -267,6 +268,9 @@ export function createPrismaMigrationDatabase(
         })
         if (updated.count !== 1) {
           publicationConflict('Image ownership or referenced path changed before migration publication', image.fileId)
+        }
+        if (image.currentPath !== image.targetPath && /\.webp$/i.test(image.targetPath)) {
+          await invalidateAnimationDurationSource(client, { imageId: image.id, sourcePath: image.targetPath })
         }
       }
       const artworkUpdated = await client.artwork.updateMany({
@@ -529,6 +533,8 @@ function mapPlan(item: Prisma.MigrationJobItemGetPayload<{ include: typeof itemW
     status: item.status,
     phase: item.phase,
     attempt: item.attempt,
+    errorCode: item.errorCode,
+    errorSummary: item.errorSummary,
     sourceDirectory: item.sourceDirectory,
     targetDirectory: item.targetDirectory,
     files: item.files.map((file) => ({

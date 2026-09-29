@@ -96,7 +96,9 @@ export class SafeHttpClient {
     const proxyUrl = resolveArchiveProxyUrl(url, this.proxyEnvironment)
     let addresses: ResolvedNetworkAddress[]
     try {
+      options.signal?.throwIfAborted()
       addresses = await resolveNetworkAddresses(url.hostname)
+      options.signal?.throwIfAborted()
       assertSafeResolvedAddresses(addresses, proxyUrl)
     } catch (error) {
       throw classifyNetworkError(error, 'MEDIA_REQUEST', remoteHostForUrl(url))
@@ -124,7 +126,11 @@ export function assertSuccessStatus(response: SafeHttpResponse): void {
   if (response.status >= 200 && response.status < 300) return
   response.stream.resume()
   const retryAfterMs = parseRetryAfter(response.headers['retry-after'])
-  const diagnostic = { stage: 'MEDIA_REQUEST' as const, remoteHost: remoteHostForUrl(new URL(response.url)) }
+  const diagnostic = {
+    httpStatus: response.status,
+    stage: 'MEDIA_REQUEST' as const,
+    remoteHost: remoteHostForUrl(new URL(response.url))
+  }
   if (response.status === 404) {
     throw new ArchiveError('REMOTE_NOT_FOUND', '远端作品或媒体不存在', diagnostic)
   }
@@ -188,10 +194,10 @@ export function validateArchiveUrl(
   if (url.username || url.password) throw new ArchiveError('SSRF_BLOCKED', '链接不能包含账号或密码')
   const hostname = url.hostname.toLowerCase().replace(/\.$/, '')
   if (!matchesHostSuffix(hostname, allowedSuffixes)) {
-    throw new ArchiveError('SSRF_BLOCKED', '链接主机不在归档 Provider 的允许列表中')
+    throw new ArchiveError('SSRF_BLOCKED', '链接主机不在归档来源站点的允许列表中')
   }
   if (url.port && !matchesHostSuffix(hostname, nonStandardPortSuffixes)) {
-    throw new ArchiveError('SSRF_BLOCKED', '链接端口不在归档 Provider 的允许列表中')
+    throw new ArchiveError('SSRF_BLOCKED', '链接端口不在归档来源站点的允许列表中')
   }
   return url
 }
@@ -421,6 +427,7 @@ function sendProxiedRequest(
       if (response.statusCode !== 200) {
         fail(
           new ArchiveError('REMOTE_RESPONSE_INVALID', `归档代理 CONNECT 返回 HTTP ${response.statusCode ?? 0}`, {
+            httpStatus: response.statusCode ?? null,
             recoverable: true
           })
         )
@@ -476,6 +483,7 @@ function sendProxiedRequest(
       response.resume()
       fail(
         new ArchiveError('REMOTE_RESPONSE_INVALID', `归档代理未建立 CONNECT 隧道（HTTP ${response.statusCode ?? 0}）`, {
+          httpStatus: response.statusCode ?? null,
           recoverable: true
         })
       )

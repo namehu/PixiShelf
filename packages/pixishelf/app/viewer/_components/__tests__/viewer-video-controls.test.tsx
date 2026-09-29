@@ -19,7 +19,8 @@ const videoMedia: ViewerMediaItem = {
   mediaType: MediaType.VIDEO,
   chaptersUrl: null,
   hasAudio: true,
-  duration: 95
+  duration: 95,
+  animationMetadata: null
 }
 
 beforeAll(() => {

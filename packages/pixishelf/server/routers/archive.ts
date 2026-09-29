@@ -13,6 +13,8 @@ import {
   listArchiveTasks
 } from '@/services/archive/archive-task-service'
 
+import { editArchiveTaskCreators, editTaskCreatorsSchema } from '@/services/archive/archive-task-creators'
+
 const actionSchema = z.enum([
   'PAUSE',
   'RESUME',
@@ -34,7 +36,11 @@ export const archiveRouter = router({
     .input(archiveTaskListSchema)
     .query(({ input }) => runArchiveOperation(() => listArchiveTasks(input))),
 
-  listTaskItems: authProcedure
+  editTaskCreators: adminProcedure
+    .input(editTaskCreatorsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => editArchiveTaskCreators(input, ctx.userId))),
+
+  listTaskItems: adminProcedure
     .input(
       z.object({
         taskId: z.string().min(1),

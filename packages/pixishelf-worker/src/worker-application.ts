@@ -9,6 +9,7 @@ export interface WorkerApplicationOptions {
   logger: WorkerLogger
   preflight(): Promise<void>
   disconnectDatabase(): Promise<void>
+  closeOutboundConnections?(): Promise<void>
   forceTerminate?(exitCode: number): void
   presenceReadinessGate?: { allowReady(): void }
   dispatcher?: {
@@ -147,6 +148,9 @@ export class WorkerApplication {
     }
     if (this.hostStarted) await this.options.host.shutdown()
     await this.preflightPromise?.catch(() => undefined)
+    await this.options.closeOutboundConnections?.().catch((error) => {
+      this.options.logger.warn('worker.outbound_connections_close_failed', { error })
+    })
     await this.options.healthServer.close().catch((error) => {
       this.options.logger.warn('worker.health_server_close_failed', { error })
     })

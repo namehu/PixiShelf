@@ -1,3 +1,5 @@
+import type { JobMediaDiagnosticEvidence } from '@pixishelf/job-contracts'
+
 export type ArchiveErrorCode =
   | 'INVALID_URL'
   | 'UNSUPPORTED_PROVIDER'
@@ -20,6 +22,8 @@ export type ArchiveErrorCode =
   | 'INTERNAL'
 
 export type ArchiveErrorStage =
+  | 'UPLOADER_SEARCH'
+  | 'UPLOADER_METADATA'
   | 'SOURCE_PAGE'
   | 'PROXY_CONNECT'
   | 'TLS_HANDSHAKE'
@@ -36,6 +40,8 @@ export class ArchiveExecutorError extends Error {
   readonly decisionCode: string | null
   readonly stage: ArchiveErrorStage | null
   readonly remoteHost: string | null
+  readonly httpStatus: number | null
+  readonly mediaEvidence: JobMediaDiagnosticEvidence | null
 
   constructor(
     code: ArchiveErrorCode,
@@ -48,6 +54,8 @@ export class ArchiveExecutorError extends Error {
       decisionCode?: string | null
       stage?: ArchiveErrorStage | null
       remoteHost?: string | null
+      httpStatus?: number | null
+      mediaEvidence?: JobMediaDiagnosticEvidence | null
     } = {}
   ) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -59,6 +67,8 @@ export class ArchiveExecutorError extends Error {
     this.decisionCode = options.decisionCode ?? null
     this.stage = options.stage ?? null
     this.remoteHost = sanitizeRemoteHost(options.remoteHost)
+    this.httpStatus = options.httpStatus ?? null
+    this.mediaEvidence = options.mediaEvidence ?? null
   }
 }
 
@@ -66,19 +76,19 @@ export function toArchiveExecutorError(error: unknown): ArchiveExecutorError {
   if (error instanceof ArchiveExecutorError) return error
   const nodeError = error as NodeJS.ErrnoException
   if (nodeError?.code === 'ENOSPC') {
-    return new ArchiveExecutorError('STORAGE_FULL', 'Archive storage is full', {
+    return new ArchiveExecutorError('STORAGE_FULL', '归档存储空间不足', {
       cause: error,
       recoverable: true,
       stage: 'STORAGE'
     })
   }
   if (isAbortError(error)) {
-    return new ArchiveExecutorError('CANCELLED', 'Archive execution was cancelled', {
+    return new ArchiveExecutorError('CANCELLED', '归档执行已取消', {
       cause: error,
       recoverable: true
     })
   }
-  return new ArchiveExecutorError('INTERNAL', error instanceof Error ? error.message : 'Unknown archive failure', {
+  return new ArchiveExecutorError('INTERNAL', error instanceof Error ? error.message : '未知归档错误', {
     cause: error,
     recoverable: true
   })
@@ -86,7 +96,12 @@ export function toArchiveExecutorError(error: unknown): ArchiveExecutorError {
 
 export function withArchiveExecutorErrorContext(
   error: unknown,
-  context: { stage?: ArchiveErrorStage; remoteHost?: string | null }
+  context: {
+    stage?: ArchiveErrorStage
+    remoteHost?: string | null
+    httpStatus?: number | null
+    mediaEvidence?: JobMediaDiagnosticEvidence
+  }
 ): ArchiveExecutorError {
   const classified = toArchiveExecutorError(error)
   return new ArchiveExecutorError(classified.code, classified.message, {
@@ -95,6 +110,8 @@ export function withArchiveExecutorErrorContext(
     pause: classified.pause,
     retryAfterMs: classified.retryAfterMs,
     decisionCode: classified.decisionCode,
+    httpStatus: classified.httpStatus ?? context.httpStatus ?? null,
+    mediaEvidence: classified.mediaEvidence ?? context.mediaEvidence ?? null,
     stage: classified.stage ?? context.stage ?? null,
     remoteHost: classified.remoteHost ?? context.remoteHost ?? null
   })

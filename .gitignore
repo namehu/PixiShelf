@@ -18,6 +18,9 @@ packages/**/public/pixiv_data
 dist/
 !build/
 *.tsbuildinfo
+.cache/
+packages/pixishelf/public/webp-player/
+packages/pixishelf-webp-player/test-results/
 
 packages/pixiv-automation/user_data/*
 # IDE

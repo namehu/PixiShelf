@@ -76,6 +76,7 @@ describe('archive default-tag backfill executor', () => {
       expect.objectContaining({
         availableAt: new Date('2026-08-28T08:00:01.000Z'),
         preserveAttempt: true,
+        schedulingYield: true,
         errorCode: 'RESOURCE_BUSY'
       })
     )

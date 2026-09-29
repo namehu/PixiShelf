@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
-import { Badge } from '@/components/ui/badge'
+import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  getArtworkDisplayPolicy,
+  useArtworkDetailPreferences,
+  useArtworkDetailPreferencesReady
+} from '@/store/use-artwork-detail-preferences'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import LazyMedia from './lazy-media'
@@ -17,13 +23,21 @@ import { hasReliableSingleFrameDimensions } from '@/lib/media-animation'
 import { cn } from '@/lib/utils'
 import AdaptiveMediaPreview from './adaptive-media-preview'
 import { ArtworkVideoOptimizationProvider } from './artwork-video-optimization-context'
+import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
+import { useAutoBrowseInterruption } from './use-auto-browse-interruption'
+import { getAutoBrowseViewport, useArtworkAutoScroll } from './use-artwork-auto-scroll'
+import { AutoBrowseControls } from './auto-browse-controls'
+import { useArtworkVideoPlayback } from './use-artwork-video-playback'
+import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
   artworkId: number
+  reading?: ArtworkReadingHandle
+  trackingActive?: boolean
+  continueRequest?: { index: number; nonce: number } | null
 }
 
-const MAX_PREVIEW_IMAGES = 20
 const NAV_HEIGHT = 64
 
 type PreviewMenuState = { x: number; y: number; index: number }
@@ -86,6 +100,7 @@ function getPointerPosition(event: React.MouseEvent | React.TouchEvent) {
 function useMeasuredMediaContainer() {
   const [containerWidth, setContainerWidth] = useState(0)
   const [scrollMargin, setScrollMargin] = useState(0)
+  const [scrollPaddingStart, setScrollPaddingStart] = useState(NAV_HEIGHT)
   const containerRef = useRef<HTMLDivElement>(null)
 
   const updateMeasurements = useCallback(() => {
@@ -97,6 +112,7 @@ function useMeasuredMediaContainer() {
 
     setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
     setScrollMargin((currentMargin) => (currentMargin === nextScrollMargin ? currentMargin : nextScrollMargin))
+    setScrollPaddingStart(getAutoBrowseViewport().top)
   }, [])
 
   useLayoutEffect(() => {
@@ -113,23 +129,22 @@ function useMeasuredMediaContainer() {
     }
   }, [updateMeasurements])
 
-  return { containerRef, containerWidth, scrollMargin }
+  return { containerRef, containerWidth, scrollMargin, scrollPaddingStart }
 }
 
 function useArtworkMediaVirtualizer({
   images,
-  isExpanded,
+  visibleCount,
   containerWidth,
-  scrollMargin
+  scrollMargin,
+  scrollPaddingStart
 }: {
   images: ArtworkImageResponseDto[]
-  isExpanded: boolean
+  visibleCount: number
   containerWidth: number
   scrollMargin: number
+  scrollPaddingStart: number
 }) {
-  const visibleCount = isExpanded ? images.length : Math.min(images.length, MAX_PREVIEW_IMAGES)
-  const remainingCount = Math.max(0, images.length - MAX_PREVIEW_IMAGES)
-
   const estimateSize = useCallback(
     (index: number) => getEstimatedMediaHeight(images[index]!, containerWidth),
     [containerWidth, images]
@@ -142,15 +157,49 @@ function useArtworkMediaVirtualizer({
     estimateSize,
     overscan: 2,
     scrollMargin,
-    scrollPaddingStart: NAV_HEIGHT,
+    scrollPaddingStart,
     getItemKey,
     enabled: containerWidth > 0
   })
 
-  return { virtualizer, visibleCount, remainingCount }
+  const pendingElements = useRef(new Set<HTMLDivElement>())
+  const measurementFrame = useRef<number | null>(null)
+  const measureElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      if (!element) {
+        virtualizer.measureElement(null)
+        return
+      }
+      pendingElements.current.add(element)
+      if (measurementFrame.current !== null) return
+
+      // Ref 测量会同步更新虚拟范围；展开大量短媒体时，逐批挂载会超过 React 嵌套更新上限。
+      // 将同一轮挂载合并到下一帧，仍由 virtualizer 观察后续真实尺寸变化。
+      measurementFrame.current = requestAnimationFrame(() => {
+        measurementFrame.current = null
+        const elements = [...pendingElements.current]
+        pendingElements.current.clear()
+        for (const node of elements) {
+          if (node.isConnected) virtualizer.measureElement(node)
+        }
+      })
+    },
+    [virtualizer]
+  )
+
+  useLayoutEffect(
+    () => () => {
+      if (measurementFrame.current !== null) cancelAnimationFrame(measurementFrame.current)
+      measurementFrame.current = null
+      pendingElements.current.clear()
+    },
+    []
+  )
+
+  return { virtualizer, measureElement }
 }
 
-function usePreviewContextMenu(images: ArtworkImageResponseDto[], onOpenAdaptivePreview: (index: number) => void) {
+function usePreviewContextMenu(images: ArtworkImageResponseDto[], artworkId: number, onOpenAdaptivePreview: (index: number) => void) {
   const [contextMenu, setContextMenu] = useState<PreviewMenuState | null>(null)
   const router = useRouter()
   const setStoreImages = useArtworkStore((state) => state.setImages)
@@ -158,6 +207,7 @@ function usePreviewContextMenu(images: ArtworkImageResponseDto[], onOpenAdaptive
   const openContextMenu = useCallback((event: React.MouseEvent | React.TouchEvent, index: number) => {
     const position = getPointerPosition(event)
     if (!position) return
+    useArtworkAutoBrowseStore.getState().pause('overlay')
 
     setContextMenu({ ...position, index })
   }, [])
@@ -176,8 +226,8 @@ function usePreviewContextMenu(images: ArtworkImageResponseDto[], onOpenAdaptive
 
     setStoreImages(images)
     setContextMenu(null)
-    router.push(`/artworks/preview?index=${contextMenu.index}`)
-  }, [contextMenu, images, router, setStoreImages])
+    router.push(`/artworks/preview?artworkId=${artworkId}&index=${contextMenu.index}`)
+  }, [artworkId, contextMenu, images, router, setStoreImages])
 
   useEffect(() => {
     const handleClose = () => {
@@ -234,10 +284,10 @@ function PreviewableMedia({
   return (
     <div
       {...longPressProps}
-      className="select-none"
+      className="select-none [&_img]:pointer-events-none [&_img]:[-webkit-touch-callout:none]"
       draggable={false}
       onDragStart={(event) => event.preventDefault()}
-      style={{ WebkitTouchCallout: 'none' }}
+      style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
     >
       {children}
     </div>
@@ -247,21 +297,19 @@ function PreviewableMedia({
 function ArtworkMediaItem({
   media,
   index,
-  showExpandOverlay,
-  remainingCount,
-  onExpand,
   onOpenPreviewMenu,
   onOpenAdaptivePreview,
-  highlighted
+  highlighted,
+  reading,
+  trackingActive
 }: {
   media: ArtworkImageResponseDto
   index: number
-  showExpandOverlay: boolean
-  remainingCount: number
-  onExpand: () => void
   onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
   onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
   highlighted: boolean
+  reading?: ArtworkReadingHandle
+  trackingActive: boolean
 }) {
   return (
     <div
@@ -278,17 +326,15 @@ function ArtworkMediaItem({
         onOpenMenu={onOpenPreviewMenu}
         onPreview={onOpenAdaptivePreview}
       >
-        <LazyMedia media={media} index={index} />
+        <LazyMedia media={media} index={index} reading={reading} trackingActive={trackingActive} />
       </PreviewableMedia>
-
-      {showExpandOverlay && <ExpandRemainingMediaButton remainingCount={remainingCount} onExpand={onExpand} />}
     </div>
   )
 }
 
 function ExpandRemainingMediaButton({ remainingCount, onExpand }: { remainingCount: number; onExpand: () => void }) {
   return (
-    <div className="absolute inset-x-0 bottom-0 z-10 flex h-64 items-end justify-center bg-gradient-to-t from-background via-background/90 to-transparent">
+    <div className="flex justify-center py-3">
       <Button
         variant="secondary"
         onClick={onExpand}
@@ -351,7 +397,12 @@ function MediaAnchorNavigation({
   total,
   open,
   onOpenChange,
-  onSelect
+  onSelect,
+  collapsible,
+  expanded,
+  onToggleExpanded,
+  onBackToTop,
+  embedded = false
 }: {
   indexes: number[]
   activeIndex: number
@@ -360,51 +411,105 @@ function MediaAnchorNavigation({
   open: boolean
   onOpenChange: (open: boolean) => void
   onSelect: (index: number) => void
+  collapsible: boolean
+  expanded: boolean
+  onToggleExpanded: () => void
+  onBackToTop: () => void
+  embedded?: boolean
 }) {
+  const dockRef = useRef<HTMLDivElement>(null)
   if (total <= 1) return null
 
   const displayedIndex = Math.min(Math.max(currentIndex, 0), total - 1) + 1
   const counter = (
     <span className="font-utility flex flex-col items-center justify-center gap-0.5 text-[10px] leading-none tabular-nums">
       <span className="font-semibold">{displayedIndex}</span>
-      <Separator className="w-3 bg-primary-foreground/35" />
+      <Separator className={cn('w-3', embedded ? 'bg-foreground/25' : 'bg-primary-foreground/35')} />
       <span className="font-normal opacity-70">{total}</span>
     </span>
   )
 
   return (
-    <div className="fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+1rem)] z-40">
-      {indexes.length > 0 ? (
-        <Popover open={open} onOpenChange={onOpenChange}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              size="icon"
-              className="size-11 rounded-full shadow-floating"
-              aria-label={`${open ? '关闭' : '打开'}媒体快捷导航，当前第 ${displayedIndex} 张，共 ${total} 张`}
-              aria-expanded={open}
-            >
-              {counter}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            side="top"
-            align="end"
-            sideOffset={8}
-            data-testid="media-anchor-popover"
-            className="max-h-[70dvh] w-11 overflow-y-auto rounded-full border-primary/20 bg-primary p-1 text-primary-foreground shadow-floating"
+    <div className={embedded ? '' : 'fixed right-4 bottom-[calc(var(--app-mobile-navigation-offset)+1rem)] z-40'}>
+      <Popover open={open} onOpenChange={onOpenChange}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant={embedded ? 'ghost' : 'default'}
+            size="icon"
+            className={cn('size-11 rounded-full', !embedded && 'shadow-floating')}
+            aria-label={`${open ? '关闭' : '打开'}媒体快捷导航，当前第 ${displayedIndex} 张，共 ${total} 张`}
+            aria-expanded={open}
           >
-            <MediaAnchorList indexes={indexes} activeIndex={activeIndex} onSelect={onSelect} />
-          </PopoverContent>
-        </Popover>
-      ) : (
-        <Badge
-          className="size-11 p-0 shadow-floating"
-          aria-label={`当前第 ${displayedIndex} 张，共 ${total} 张`}
+            {counter}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          ref={dockRef}
+          tabIndex={-1}
+          side="top"
+          align="end"
+          sideOffset={-44}
+          avoidCollisions={false}
+          onOpenAutoFocus={(event) => {
+            // 聚焦容器而非首个功能按钮，避免刚展开就触发按钮的焦点 tooltip。
+            event.preventDefault()
+            dockRef.current?.focus({ preventScroll: true })
+          }}
+          aria-label="作品浏览控制"
+          className="pointer-events-none relative flex min-h-24 w-[116px] origin-bottom-right justify-end border-0 bg-transparent p-0 pb-[52px] shadow-none motion-reduce:animate-none"
         >
-          {counter}
-        </Badge>
-      )}
+          {/* 弹层底边与 44px 主按钮底边重合；预留 52px，让页码与主按钮保持 8px 间隔。 */}
+          <div className="pointer-events-auto absolute bottom-0 right-[72px]">
+            <Tooltip delayDuration={350}>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  className="size-11 rounded-full shadow-floating"
+                  aria-label="回到顶部"
+                  onClick={() => {
+                    onOpenChange(false)
+                    onBackToTop()
+                  }}
+                >
+                  <ArrowUpToLine className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="top">回到顶部</TooltipContent>
+            </Tooltip>
+          </div>
+          {collapsible && (
+            <div className="pointer-events-auto absolute bottom-[52px] right-[52px]">
+              <Tooltip delayDuration={350}>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    className="size-11 rounded-full shadow-floating"
+                    aria-label={expanded ? '收起媒体列表' : '展开全部媒体'}
+                    onClick={() => {
+                      onOpenChange(false)
+                      onToggleExpanded()
+                    }}
+                  >
+                    {expanded ? <ChevronsDownUp className="size-4" /> : <ChevronsUpDown className="size-4" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">{expanded ? '收起媒体列表' : '展开全部媒体'}</TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+          {indexes.length > 0 ? (
+            <div
+              data-testid="media-anchor-popover"
+              className="pointer-events-auto max-h-[min(70dvh,calc(var(--radix-popover-content-available-height)-52px))] w-11 overflow-y-auto overscroll-contain rounded-full border border-primary/20 bg-primary p-1 text-primary-foreground shadow-floating"
+            >
+              <MediaAnchorList indexes={indexes} activeIndex={activeIndex} onSelect={onSelect} />
+            </div>
+          ) : (
+            <div className="h-11" />
+          )}
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
@@ -414,12 +519,14 @@ function PreviewContextMenu({
   images,
   onOpenChange,
   onPreview,
+  onAutoScroll,
   onViewOriginal
 }: {
   contextMenu: PreviewMenuState | null
   images: ArtworkImageResponseDto[]
   onOpenChange: (open: boolean) => void
   onPreview: () => void
+  onAutoScroll: () => void
   onViewOriginal: () => void
 }) {
   const selectedMedia = contextMenu ? images[contextMenu.index] : null
@@ -441,6 +548,11 @@ function PreviewContextMenu({
         align="start"
         className="w-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-floating duration-(--motion-fast) ease-out data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
       >
+        {selectedMedia && !isVideoMedia(selectedMedia) && (
+          <Button variant="ghost" className="min-h-11 w-full justify-start" onClick={onAutoScroll}>
+            自动滚动
+          </Button>
+        )}
         <button
           type="button"
           onClick={onPreview}
@@ -462,10 +574,14 @@ function PreviewContextMenu({
   )
 }
 
-function SingleVideoArtworkMedia({ media }: { media: ArtworkImageResponseDto }) {
+function SingleVideoArtworkMedia({ media, reading, trackingActive }: {
+  media: ArtworkImageResponseDto
+  reading?: ArtworkReadingHandle
+  trackingActive: boolean
+}) {
   return (
     <div className="w-full" data-testid="artwork-video-container">
-      <LazyMedia media={media} index={0} />
+      <LazyMedia media={media} index={0} reading={reading} trackingActive={trackingActive} />
     </div>
   )
 }
@@ -475,28 +591,90 @@ function VirtualizedArtworkMediaList({
   returnIndex,
   onReturnHandled,
   onOpenPreviewMenu,
-  onOpenAdaptivePreview
+  onOpenAdaptivePreview,
+  reading,
+  trackingActive
 }: {
   images: ArtworkImageResponseDto[]
   returnIndex: number | null
   onReturnHandled: () => void
   onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
   onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
+  reading?: ArtworkReadingHandle
+  trackingActive: boolean
 }) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const previewCount = useArtworkDetailPreferences((state) => state.previewCount)
+  const { collapsible, visibleCount, remainingCount, fullyVisible } = getArtworkDisplayPolicy(
+    images.length,
+    previewCount,
+    isExpanded
+  )
+  const collapsePendingRef = useRef(false)
+  const collapsedFooterRef = useRef<HTMLDivElement>(null)
   const [isNavigationOpen, setIsNavigationOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null)
+  const [retryCounts, setRetryCounts] = useState<Record<number, number>>({})
+  const autoMode = useArtworkAutoBrowseStore((state) => state.mode)
+  const previewOpen = useArtworkAutoBrowseStore((state) => state.previewOpen)
+  const showAutoControls = autoMode === 'scroll' && !previewOpen
   const pendingScrollIndexRef = useRef<number | null>(null)
   const anchorInterval = useArtworkMediaAnchorInterval()
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const currentIndex = useArtworkStore((state) => state.currentIndex)
-  const { containerRef, containerWidth, scrollMargin } = useMeasuredMediaContainer()
-  const { virtualizer, visibleCount, remainingCount } = useArtworkMediaVirtualizer({
+  const { containerRef, containerWidth, scrollMargin, scrollPaddingStart } = useMeasuredMediaContainer()
+  const { virtualizer, measureElement } = useArtworkMediaVirtualizer({
     images,
-    isExpanded,
+    visibleCount,
     containerWidth,
-    scrollMargin
+    scrollMargin,
+    scrollPaddingStart
   })
+  const expand = useCallback(() => setIsExpanded(true), [])
+  // 自动滚动只关心是否能浏览完整作品，自然全显不需要再触发主动展开。
+  useArtworkAutoScroll({ containerRef, images, expanded: fullyVisible, expand })
+
+  const toggleExpanded = useCallback(() => {
+    // 先结束自动滚动并清除选页/预览返回的待定位，防止收起后又被旧任务展开。
+    useArtworkAutoBrowseStore.getState().stop()
+    pendingScrollIndexRef.current = null
+    onReturnHandled()
+    setHighlightedIndex(null)
+    setIsNavigationOpen(false)
+    if (isExpanded) {
+      collapsePendingRef.current = true
+      setCurrentIndex(Math.min(images.length, previewCount) - 1)
+    }
+    setIsExpanded((value) => !value)
+  }, [images.length, isExpanded, onReturnHandled, previewCount, setCurrentIndex])
+
+  const backToTop = useCallback(() => {
+    useArtworkAutoBrowseStore.getState().pause('manual')
+    pendingScrollIndexRef.current = null
+    collapsePendingRef.current = false
+    onReturnHandled()
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }, [onReturnHandled])
+
+  useEffect(() => {
+    if (isExpanded || !collapsePendingRef.current) return
+    let followup = 0
+    // 缩短虚拟列表后先定位最后一项，下一帧再露出底部展开入口。
+    // 两帧都检查取消标记，避免覆盖用户随后执行的选页或回顶部操作。
+    const frame = requestAnimationFrame(() => {
+      if (!collapsePendingRef.current) return
+      virtualizer.scrollToIndex(Math.max(0, visibleCount - 1), { align: 'end', behavior: 'auto' })
+      followup = requestAnimationFrame(() => {
+        if (!collapsePendingRef.current) return
+        collapsedFooterRef.current?.scrollIntoView({ block: 'end', behavior: 'instant' })
+        collapsePendingRef.current = false
+      })
+    })
+    return () => {
+      cancelAnimationFrame(frame)
+      cancelAnimationFrame(followup)
+    }
+  }, [isExpanded, virtualizer, visibleCount])
 
   const anchorIndexes = useMemo(
     () => buildMediaAnchorIndexes(images.length, anchorInterval),
@@ -518,7 +696,8 @@ function VirtualizedArtworkMediaList({
     setCurrentIndex(returnIndex)
     setIsNavigationOpen(false)
 
-    if (!isExpanded && returnIndex >= MAX_PREVIEW_IMAGES) {
+    if (!fullyVisible && returnIndex >= visibleCount) {
+      // 预览使用完整媒体列表，先扩充虚拟列表范围，再在下一轮 effect 中定位。
       setIsExpanded(true)
       return
     }
@@ -530,7 +709,7 @@ function VirtualizedArtworkMediaList({
     })
 
     return () => cancelAnimationFrame(frame)
-  }, [isExpanded, onReturnHandled, returnIndex, scrollToIndex, setCurrentIndex])
+  }, [fullyVisible, visibleCount, onReturnHandled, returnIndex, scrollToIndex, setCurrentIndex])
 
   useEffect(() => {
     if (highlightedIndex === null) return
@@ -544,6 +723,7 @@ function VirtualizedArtworkMediaList({
     if (!isExpanded || targetIndex === null) return
 
     const frame = requestAnimationFrame(() => {
+      if (pendingScrollIndexRef.current !== targetIndex) return
       scrollToIndex(targetIndex, { align: 'start', behavior: 'auto' })
       pendingScrollIndexRef.current = null
     })
@@ -553,10 +733,12 @@ function VirtualizedArtworkMediaList({
 
   const handleAnchorSelect = useCallback(
     (index: number) => {
+      useArtworkAutoBrowseStore.getState().pause('manual')
       setCurrentIndex(index)
       setIsNavigationOpen(false)
 
-      if (!isExpanded && index >= MAX_PREVIEW_IMAGES) {
+      collapsePendingRef.current = false
+      if (!fullyVisible && index >= visibleCount) {
         pendingScrollIndexRef.current = index
         setIsExpanded(true)
         return
@@ -564,7 +746,7 @@ function VirtualizedArtworkMediaList({
 
       scrollToIndex(index, { align: 'start', behavior: 'auto' })
     },
-    [isExpanded, scrollToIndex, setCurrentIndex]
+    [fullyVisible, visibleCount, scrollToIndex, setCurrentIndex]
   )
 
   return (
@@ -579,12 +761,11 @@ function VirtualizedArtworkMediaList({
         {virtualizer.getVirtualItems().map((virtualItem) => {
           const index = virtualItem.index
           const media = images[index]!
-          const isLastPreview = !isExpanded && images.length > MAX_PREVIEW_IMAGES && index === MAX_PREVIEW_IMAGES - 1
 
           return (
             <div
               key={virtualItem.key}
-              ref={virtualizer.measureElement}
+              ref={measureElement}
               data-index={index}
               className="absolute left-0 right-0 top-0"
               style={{
@@ -592,59 +773,159 @@ function VirtualizedArtworkMediaList({
               }}
             >
               <ArtworkMediaItem
+                key={`${media.id}:${media.path}:${media.updatedAt}:${retryCounts[media.id] ?? 0}`}
                 media={media}
                 index={index}
-                showExpandOverlay={isLastPreview}
-                remainingCount={remainingCount}
-                onExpand={() => setIsExpanded(true)}
                 onOpenPreviewMenu={onOpenPreviewMenu}
                 onOpenAdaptivePreview={onOpenAdaptivePreview}
                 highlighted={highlightedIndex === index}
+                reading={reading}
+                trackingActive={trackingActive}
               />
             </div>
           )
         })}
       </div>
 
-      <MediaAnchorNavigation
-        indexes={anchorIndexes}
-        activeIndex={activeAnchorIndex}
-        currentIndex={currentIndex}
-        total={images.length}
-        open={isNavigationOpen}
-        onOpenChange={setIsNavigationOpen}
-        onSelect={handleAnchorSelect}
-      />
+      {collapsible && (
+        <div ref={collapsedFooterRef} className="scroll-mb-[calc(var(--app-mobile-navigation-offset)+1rem)]">
+          {isExpanded ? (
+            <div className="flex justify-center py-3">
+              <Button variant="secondary" className="h-12 rounded-full px-8" onClick={toggleExpanded}>
+                收起媒体列表
+              </Button>
+            </div>
+          ) : (
+            <ExpandRemainingMediaButton remainingCount={remainingCount} onExpand={expand} />
+          )}
+        </div>
+      )}
+
+      {showAutoControls ? (
+        <div
+          data-auto-scroll-bar
+          className="fixed bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] right-4 z-40 lg:bottom-4"
+        >
+          <AutoBrowseControls
+            mode="scroll"
+            current={currentIndex + 1}
+            total={images.length}
+            navigation={
+              images.length > 1 ? (
+                <MediaAnchorNavigation
+                  collapsible={collapsible}
+                  expanded={isExpanded}
+                  onToggleExpanded={toggleExpanded}
+                  onBackToTop={backToTop}
+                  embedded
+                  indexes={anchorIndexes}
+                  activeIndex={activeAnchorIndex}
+                  currentIndex={currentIndex}
+                  total={images.length}
+                  open={isNavigationOpen}
+                  onOpenChange={(open) => {
+                    if (open) useArtworkAutoBrowseStore.getState().pause('overlay')
+                    setIsNavigationOpen(open)
+                  }}
+                  onSelect={handleAnchorSelect}
+                />
+              ) : undefined
+            }
+            onRestart={() => {
+              const { top } = getAutoBrowseViewport()
+              if (containerRef.current) {
+                window.scrollTo({
+                  top: Math.max(0, containerRef.current.getBoundingClientRect().top + window.scrollY - top),
+                  behavior: 'instant'
+                })
+              }
+              useArtworkAutoBrowseStore.getState().start('scroll')
+            }}
+            onRetry={() => {
+              const state = useArtworkAutoBrowseStore.getState()
+              state.pause()
+              const id = state.currentMediaId
+              if (id !== null) setRetryCounts((counts) => ({ ...counts, [id]: (counts[id] ?? 0) + 1 }))
+              state.clearPauseReason()
+            }}
+            onSkip={() => {
+              const state = useArtworkAutoBrowseStore.getState()
+              state.pause()
+              const index = images.findIndex((media) => media.id === state.currentMediaId)
+              if (index < 0) return
+              state.skip(images[index]!.id)
+            }}
+            onExit={() => useArtworkAutoBrowseStore.getState().stop()}
+          />
+        </div>
+      ) : (
+        !previewOpen && (
+          <MediaAnchorNavigation
+            collapsible={collapsible}
+            expanded={isExpanded}
+            onToggleExpanded={toggleExpanded}
+            onBackToTop={backToTop}
+            indexes={anchorIndexes}
+            activeIndex={activeAnchorIndex}
+            currentIndex={currentIndex}
+            total={images.length}
+            open={isNavigationOpen}
+            onOpenChange={(open) => {
+              if (open) useArtworkAutoBrowseStore.getState().pause('overlay')
+              setIsNavigationOpen(open)
+            }}
+            onSelect={handleAnchorSelect}
+          />
+        )
+      )}
     </>
   )
 }
 
-export default function ArtworkImages({ images }: ArtworkImagesProps) {
+function ArtworkImagesSession({ images, artworkId, reading, trackingActive = true, continueRequest }: ArtworkImagesProps) {
+  useAutoBrowseInterruption(artworkId)
+  const mediaRootRef = useRef<HTMLDivElement>(null)
+  useArtworkVideoPlayback(mediaRootRef)
   const [previewState, setPreviewState] = useState<AdaptivePreviewState | null>(null)
   const [returnIndex, setReturnIndex] = useState<number | null>(null)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const adaptivePreviewImages = useMemo(() => images.filter((media) => !isVideoMedia(media)), [images])
+  useEffect(() => {
+    if (!continueRequest) return
+    useArtworkAutoBrowseStore.getState().pause('manual')
+    if (images.length === 1) {
+      mediaRootRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' })
+      return
+    }
+    setReturnIndex(Math.min(Math.max(continueRequest.index, 0), images.length - 1))
+  }, [continueRequest, images.length])
   const openAdaptivePreview = useCallback(
     (originalIndex: number, initialPreviewSrc?: string) => {
       const media = images[originalIndex]
       if (!media || isVideoMedia(media)) return
       const filteredIndex = adaptivePreviewImages.findIndex((candidate) => candidate.id === media.id)
       if (filteredIndex >= 0) {
+        useArtworkAutoBrowseStore.getState().pause('overlay')
+        useArtworkAutoBrowseStore.getState().setPreviewOpen(true)
+        useArtworkAutoBrowseStore.getState().setCurrentMedia(media.id)
         setPreviewState({ index: filteredIndex, ...(initialPreviewSrc ? { initialPreviewSrc } : {}) })
       }
     },
     [adaptivePreviewImages, images]
   )
   const { contextMenu, openContextMenu, closeContextMenu, previewSelectedMedia, viewOriginalSelectedMedia } =
-    usePreviewContextMenu(images, openAdaptivePreview)
+    usePreviewContextMenu(images, artworkId, openAdaptivePreview)
 
   const handlePreviewClose = useCallback(
     (finalIndex: number) => {
+      const state = useArtworkAutoBrowseStore.getState()
+      state.closePreview()
       const returnedMedia = adaptivePreviewImages[finalIndex]
       const originalIndex = returnedMedia ? images.findIndex((media) => media.id === returnedMedia.id) : -1
       setPreviewState(null)
       if (originalIndex < 0) return
       setCurrentIndex(originalIndex)
+      useArtworkAutoBrowseStore.getState().setCurrentMedia(returnedMedia!.id)
       setReturnIndex(originalIndex)
     },
     [adaptivePreviewImages, images, setCurrentIndex]
@@ -653,7 +934,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
   const handleReturnHandled = useCallback(() => setReturnIndex(null), [])
 
   const mediaContent = isSingleVideoArtwork(images) ? (
-    <SingleVideoArtworkMedia media={images[0]!} />
+    <SingleVideoArtworkMedia media={images[0]!} reading={reading} trackingActive={trackingActive && !previewState && !contextMenu} />
   ) : (
     <VirtualizedArtworkMediaList
       images={images}
@@ -661,6 +942,8 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
       onReturnHandled={handleReturnHandled}
       onOpenPreviewMenu={openContextMenu}
       onOpenAdaptivePreview={openAdaptivePreview}
+      reading={reading}
+      trackingActive={trackingActive && !previewState && !contextMenu}
     />
   )
 
@@ -668,7 +951,7 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
 
   return (
     <ArtworkVideoOptimizationProvider imageIds={videoImageIds}>
-      {mediaContent}
+      <div ref={mediaRootRef}>{mediaContent}</div>
       <PreviewContextMenu
         contextMenu={contextMenu}
         images={images}
@@ -676,6 +959,10 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
           if (!open) closeContextMenu()
         }}
         onPreview={previewSelectedMedia}
+        onAutoScroll={() => {
+          closeContextMenu()
+          useArtworkAutoBrowseStore.getState().start('scroll')
+        }}
         onViewOriginal={viewOriginalSelectedMedia}
       />
       {previewState !== null && (
@@ -685,8 +972,15 @@ export default function ArtworkImages({ images }: ArtworkImagesProps) {
           initialPreviewSrc={previewState.initialPreviewSrc}
           open
           onClose={handlePreviewClose}
+          reading={reading}
         />
       )}
     </ArtworkVideoOptimizationProvider>
   )
+}
+
+export default function ArtworkImages(props: ArtworkImagesProps) {
+  const ready = useArtworkDetailPreferencesReady()
+  if (!ready) return <div className="min-h-72" aria-busy="true" aria-label="正在恢复浏览偏好" />
+  return <ArtworkImagesSession key={props.artworkId} {...props} />
 }

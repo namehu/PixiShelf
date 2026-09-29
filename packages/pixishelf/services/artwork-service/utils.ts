@@ -1,14 +1,18 @@
+import { ArtistResponseDto } from '@/schemas/artist.dto'
 import 'server-only'
 
 import path from 'path'
 import { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { TImageModel } from '@/schemas/models'
-import { isApngFile, isVideoFile } from '@/lib/media'
+import { isVideoFile } from '@/lib/media'
 import { normalizeImageSizeField } from '@/utils/image-size'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { buildVideoPosterUrl } from '@/lib/media-cover'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
+import { ANIMATION_DURATION_TIMING_POLICY_VERSION } from '@pixishelf/db'
+import type { AnimationMetadataDto } from '@/schemas/artwork.dto'
+import { groupLogicalMedia } from './logical-media'
 
 dayjs.extend(utc)
 
@@ -24,8 +28,15 @@ export function transformSingleArtwork(artwork: any) {
     (source: { providerKey?: string }) => source.providerKey === 'pixiv'
   )
   const pixiv = pixivRefs.length === 1 && /^[1-9][0-9]*$/.test(pixivRefs[0]?.externalId ?? '') ? pixivRefs[0] : null
+  const creators = (artwork.creators ?? [])
+    .map((row: any) => ArtistResponseDto.parse(row.artist))
+    .sort(
+      (a: any, b: any) =>
+        Number(a.kind === 'GROUP') - Number(b.kind === 'GROUP') || a.name.localeCompare(b.name) || a.id - b.id
+    )
   const result = {
     ...artwork,
+    creators,
     sourceDate: artwork.sourceDate ? dayjs(artwork.sourceDate).utc().format('YYYY-MM-DD HH:mm:ss') : null,
     images: images,
     tags:
@@ -53,12 +64,7 @@ export function transformSingleArtwork(artwork: any) {
         }
       : null,
     descriptionLength: artwork.descriptionLength || artwork.description?.length || 0,
-    artist: artwork.artist
-      ? {
-          ...artwork.artist,
-          artworksCount: 0 // 注意：列表查询通常不包含艺术家的作品总数，除非再联表查
-        }
-      : null
+    artist: creators[0] ?? null
   }
 
   // 清理不需要输出到前端的临时字段 (虽然 JS 中 delete 性能一般，但在这里为了通过类型检查或减少 payload 可行)
@@ -75,7 +81,10 @@ export function transformSingleArtwork(artwork: any) {
  * @param dbImageCount 数据库中记录的图片总数（可选）
  * @returns 转换后的图片 DTO 数组
  */
-export function transformImages(images: TImageModel[], dbImageCount?: number) {
+export function transformImages(
+  images: Array<TImageModel & { animationMetadata?: StoredAnimationMetadata | null }>,
+  dbImageCount?: number
+) {
   // 1. 直接转 DTO，保留数据库排序
   const allItems = images.map((image) => {
     const normalizedImage = normalizeImageSizeField(image)
@@ -97,6 +106,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
         : 0
     const hasKeyframes = keyframeCount > 0
     const videoMetadata = normalizedImage.videoMetadata
+    const animationMetadata = toAnimationMetadataDto(normalizedImage)
     const metadataFields = videoMetadata
       ? {
           probeStatus: videoMetadata.probeStatus,
@@ -119,6 +129,7 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
       ...normalizedImage,
       mediaType,
       isAnimated,
+      animationMetadata,
       hasChapters,
       chaptersUrl: hasChapters ? `/api/v1/media/${normalizedImage.id}/chapters` : null,
       hasKeyframes,
@@ -128,26 +139,12 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
     })
   })
 
-  // 2. 核心逻辑：过滤并挂载
-  const finalItems = allItems.filter((item) => {
-    // 普通图片、视频、无主的APNG）都保留
-    if (!isApngFile(item.path)) {
-      return true
-    }
-    // 有 APNG 需要检查是否要被合并
-    const stem = getStem(item.path)
-    // 在列表中寻找是否存在同名的视频文件 (Webm/Mp4)
-    // 注意：这里利用了引用传递，找到的 videoOwner 就是数组里的同一个对象
-    const videoOwner = allItems.find((i) => i !== item && i.mediaType === 'video' && getStem(i.path) === stem)
-
-    if (videoOwner) {
-      // 找到了主人：把自己挂载到视频对象上 (作为原始资源)
-      Object.assign(videoOwner, { raw: item })
-      return false // 从最终列表中移除这个 APNG
-    }
-
-    return true
-  })
+  // 2. Complete logical sequence and member mapping are shared with reading progress.
+  const groups = groupLogicalMedia(allItems)
+  for (const group of groups) {
+    for (const member of group.members.slice(1)) Object.assign(group.item, { raw: member })
+  }
+  const finalItems = groups.map((group) => group.item)
 
   // 3. 统计逻辑（基于合并后的 finalItems）
   const hasVideo = finalItems.some((img) => img.mediaType === 'video')
@@ -160,6 +157,45 @@ export function transformImages(images: TImageModel[], dbImageCount?: number) {
     imageCount: hasVideo ? 0 : (dbImageCount ?? finalItems.length),
     mediaCount: hasVideo ? finalItems.length : (dbImageCount ?? finalItems.length),
     totalMediaSize
+  }
+}
+
+interface StoredAnimationMetadata {
+  format: 'GIF' | 'APNG' | 'WEBP' | null
+  durationMs: bigint | null
+  frameCount: number | null
+  loopCount: number | null
+  status: string
+  timingPolicyVersion: number | null
+  sourcePath: string | null
+  writeInProgress: boolean
+}
+
+function toAnimationMetadataDto(image: { path: string; animationMetadata?: StoredAnimationMetadata | null }): AnimationMetadataDto | null {
+  const metadata = image.animationMetadata
+  if (
+    !metadata ||
+    metadata.status !== 'READY' ||
+    metadata.writeInProgress ||
+    metadata.timingPolicyVersion !== ANIMATION_DURATION_TIMING_POLICY_VERSION ||
+    metadata.sourcePath !== image.path ||
+    !metadata.format ||
+    metadata.durationMs === null ||
+    metadata.durationMs < 0n ||
+    metadata.durationMs > BigInt(Number.MAX_SAFE_INTEGER) ||
+    !Number.isSafeInteger(metadata.frameCount) ||
+    (metadata.frameCount ?? 0) < 1 ||
+    !Number.isSafeInteger(metadata.loopCount) ||
+    (metadata.loopCount ?? -1) < 0
+  ) {
+    return null
+  }
+  return {
+    format: metadata.format,
+    durationMs: Number(metadata.durationMs),
+    frameCount: metadata.frameCount!,
+    loopCount: metadata.loopCount!,
+    timingPolicyVersion: metadata.timingPolicyVersion
   }
 }
 

@@ -7,3 +7,5 @@ export * from './queue-repository.ts'
 export * from './worker-health-state.ts'
 export * from './worker-host.ts'
 export * from './worker-presence.ts'
+
+export * from './job-diagnostics.ts'

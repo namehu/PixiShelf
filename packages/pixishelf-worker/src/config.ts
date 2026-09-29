@@ -54,6 +54,7 @@ const workerConfigSchema = z
     FFMPEG_PATH: z.string().trim().min(1).default('ffmpeg'),
     FFPROBE_PATH: z.string().trim().min(1).default('ffprobe'),
     KEYFRAME_FFMPEG_THREADS: positiveInteger(2, 1, 8),
+    ANIMATION_SCAN_CONCURRENCY: positiveInteger(4, 1, 8),
     ARCHIVE_MAX_MEDIA_BYTES: positiveInteger(512 * 1024 * 1024, 1, 2_147_483_647),
     SCAN_DISCOVERY_MAX_ENTRIES: positiveInteger(10_000_000, 1, 100_000_000),
     SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES: excludedRootDirectoryList,
@@ -97,6 +98,7 @@ export interface WorkerConfig {
   ffmpegPath: string
   ffprobePath: string
   keyframeFfmpegThreads: number
+  animationScanConcurrency: number
   archiveMaxMediaBytes: number
   scanDiscoveryMaxEntries: number
   scanDiscoveryExcludedRootDirectories: readonly string[]
@@ -140,6 +142,7 @@ export function parseWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig 
     ffmpegPath: parsed.FFMPEG_PATH,
     ffprobePath: parsed.FFPROBE_PATH,
     keyframeFfmpegThreads: parsed.KEYFRAME_FFMPEG_THREADS,
+    animationScanConcurrency: parsed.ANIMATION_SCAN_CONCURRENCY,
     archiveMaxMediaBytes: parsed.ARCHIVE_MAX_MEDIA_BYTES,
     scanDiscoveryMaxEntries: parsed.SCAN_DISCOVERY_MAX_ENTRIES,
     scanDiscoveryExcludedRootDirectories: parsed.SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES,

@@ -255,6 +255,7 @@ export function createImageManagerColumns({
     {
       header: '文件名 / 路径',
       accessorKey: 'path',
+      privacySensitive: true,
       cell: ({ getValue, row }) => {
         const val = getValue<string>()
         return (
@@ -268,7 +269,7 @@ export function createImageManagerColumns({
                 {val.split('/').pop()}
               </span>
             </span>
-            <span className="max-w-[300px] truncate text-[10px] text-muted-foreground" title={val}>
+            <span className="max-w-[300px] truncate text-[10px] text-muted-foreground">
               {val}
             </span>
           </div>

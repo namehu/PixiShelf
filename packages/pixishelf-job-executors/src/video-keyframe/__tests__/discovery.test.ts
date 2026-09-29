@@ -207,3 +207,34 @@ describe('video keyframe discovery domain', () => {
     ).rejects.toThrow('queue unavailable')
   })
 })
+
+it('records every inaccessible item beyond the bounded legacy samples', async () => {
+  resolveSourceFile.mockRejectedValue(new Error('permission denied'))
+  const images = Array.from({ length: 31 }, (_, i) => ({
+    id: i + 1,
+    path: 'videos/' + i + '.mp4',
+    videoMetadata: null,
+    keyframeSets: []
+  }))
+  const recordDiagnostic = vi.fn().mockResolvedValue(undefined)
+  const result = await discoverVideoKeyframes({
+    jobId: 'all-failures',
+    payload: { ...payload, imageIds: images.map((image) => image.id) },
+    database: {
+      image: { findMany: vi.fn().mockResolvedValue(images) },
+      systemJob: { groupBy: vi.fn().mockResolvedValue([]) }
+    } as never,
+    config: { scanRoot: '/scan', keyframeStorageRoot: '/keyframes', ffmpegThreads: 2 },
+    signal: new AbortController().signal,
+    progress: vi.fn(),
+    enqueueChild: vi.fn(),
+    recordDiagnostic
+  })
+  expect(result.inaccessible).toBe(31)
+  expect(result.failedSamples).toHaveLength(20)
+  expect(recordDiagnostic).toHaveBeenCalledTimes(31)
+  expect(new Set(recordDiagnostic.mock.calls.map((call) => call[0].key)).size).toBe(31)
+  expect(recordDiagnostic).toHaveBeenLastCalledWith(
+    expect.objectContaining({ targetId: '31', error: expect.any(Error) })
+  )
+})

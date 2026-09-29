@@ -1,0 +1,89 @@
+---
+status: current
+scope: 后台任务结构化进度、动画识别实时反馈、SSE 降级和事件保留
+last-verified: 2026-09-07
+sources:
+  - packages/pixishelf-job-contracts/src/job-progress-data.ts
+  - packages/pixishelf-job-runtime/src/queue-repository.ts
+  - packages/pixishelf-worker/src/dispatcher.ts
+  - packages/pixishelf-job-executors/src/maintenance/webp-animation-scan.ts
+  - packages/pixishelf/app/admin/_components/background-job-event-provider.tsx
+  - packages/pixishelf/app/admin/tasks/_components/maintenance-card.tsx
+---
+
+# 后台任务实时进度
+
+后台任务仍以 PostgreSQL 的 `SystemJob`、`SystemJobEvent` 和全局单调事件 ID 为唯一事实源。管理后台复用
+`GET /api/jobs/events`；没有新增 WebSocket、Redis 或第二套领域通知协议。SSE 只减少重复读取，断线和刷新后仍从数据库快照与持久游标恢复。
+
+## 写入与传输契约
+
+- `SystemJob.progressData` 是可空、版本化 JSON。旧任务保持 `null`。
+- Worker 在同一个 fenced transaction 中更新 `progress/progressData` 并插入事件；失去 lease/fence 时两者都不写。动画识别的领域微批次把图片状态、任务行聚合检查点和对应的持久游标事件放进同一事务，因此崩溃恢复与已连接 SSE 都不会落在领域状态之后。
+- `REALTIME` 普通快照最多每 2 秒持久化一次；`STANDARD` 在变化至少 5%且距离上次写入至少 5 秒时写入，并以 30 秒作为最长静默兜底。
+- 阶段真实变化、WARN/ERROR、取消相关状态、强制快照和终态不受普通限频影响。被合并的最后快照在结算前刷新。
+- SSE envelope、事件名和游标版本保持 v1；实时摘要新增 `progressData`，仍不返回 payload、result、error 或 lease token。
+
+两秒窗口描述的是普通观察快照的持久化频率，不是领域写入的恢复粒度。动画识别的领域微批次必须
+通过 atomic checkpoint 同时提交图片状态、任务聚合和事件；观察快照会等待该提交屏障，避免展示尚未
+成为 durable state 的计数。
+
+`animation-scan@v1` 只包含初始化数、总数、已尝试、成功、失败、动图、静态、剩余、活动探测数、并发上限、滚动速率、ETA 和采样时间。不得写入路径、标题、URL 或凭据。消息、错误和失败样本路径继续由隐私模式组件处理，聚合数字不遮挡。
+
+## 动画识别
+
+`WEBP_ANIMATION_SCAN` 依次进入 `INITIALIZING`、`SCANNING`、`COMPLETED`。初始化每 500 条提交并反馈；探测使用 1–8 的内部有界 worker pool，默认由 `ANIMATION_SCAN_CONCURRENCY=4` 控制。分类结果累计 20 条或等待 2 秒即在 fenced 微批次中提交；图片状态、对应的 `progressData` 检查点和事件同事务提交。进程在领域提交后立即退出时，下一次 claim 也会从同一检查点恢复，不能漏计该批；若终态进度已经写入但通用结算尚未完成，也保留 `COMPLETED` 检查点重放结算。
+
+初始化只把数据库中后缀匹配且状态为 `null` 的记录设为 pending，不读取图片内容；识别阶段再处理全部
+pending 候选，包括之前遗留的项目。每页最多 20 条，页内按冻结的并发值探测，整页结束后再读取下一页。
+异步探测完成后才引用当前结果缓存，避免两秒提交切换数组时把慢项的成功结果写回已提交的旧数组。
+
+结束时 `failed/failedItems` 只统计本轮实际探测失败，`remainingPending/remainingItems` 独立统计结束时的
+pending 库存；已尝试数取累计成功数加本轮失败数，不再强行填成总数。恢复时成功数沿用持久检查点，
+待处理项目重新探测，先前失败不会重复累计。单项失败仍保留最多 20 条结果样例，页面展示前 5 条；
+失败微批次同时生成 WARN 进度事件与 `animation.probe.failed` Worker 日志，只记录数量和稳定错误码，
+不把路径或原始解码错误写入聚合遥测。100% 表示本轮扫描结束，仍有 pending 时完成摘要会明确说明。
+
+页面在初始化阶段明确提示尚未开始内容识别；终态隐藏活动探测、历史速率、ETA 和采样年龄，并展示
+本轮结束及待下次处理数量。执行期间显示的最近进度更新时间来自 `sampledAt`，不是任务租约心跳。
+
+Dispatcher 将 Prisma `P2028` 中明确的事务启动等待超时作为可重试队列错误，沿用领取/结算的有限次数
+和心跳操作的租约截止时间；其他 `P2028`（例如事务已经关闭）不因此获得重试资格。该处理不延长租约，
+也不重放已经开始执行的领域事务回调。
+
+WebP/GIF 的 Sharp 探测运行在任务私有的有界子进程池中。先用 `pages: 1` 读取元数据里的总帧数，`pages > 1` 即判为动画，避免所有帧累计像素触发 `Input image exceeds pixel limit`。元数据未提供帧数时才解码兜底：支持分页的格式最多读取两帧，JPEG 等非分页格式只读取一帧；保留 268,402,689 输入像素上限，读取错误不判为静态。识别只判断多帧结构，不比较画面变化，也不验证全部帧能否解码。
+
+兜底输出管线使用原生 60 秒超时，父进程对包含元数据读取的整项探测保留 60 秒加 500 毫秒宽限的硬终止兜底。取消、租约丢失或 Worker 关停时必须终止对应进程并等待退出，避免不可取消的 native metadata 操作越过 Dispatcher 的取消宽限期。该子进程只做媒体探测，不领取任务、不访问 PostgreSQL。单项超过 10 秒只产生一次不含媒体身份的 WARN。失败项继续保持 pending，后续执行会重试；路径 realpath 边界和取消检查不变。生产应先以并发 1 建立基线，再比较并发 4；代表性存储吞吐提升不足 20%时将环境变量回退为 1。
+
+暂停、租约恢复或同一任务重试时，下一次 claim 会把已持久的 `progressData` 交回 Executor。恢复执行保留原总数以及已提交的成功、动图和静态计数，只扫描仍为 pending 的项目；暂停期间新出现的未初始化候选会扩展总数，且初始化数不得超过总数。先前失败项会重新探测，但不会重复累计。中止路径在探测池排空后 best-effort 强制写入 `activeProbes=0`，fence 已失效时安全忽略该尾部快照。
+
+速率取最近 30 秒。只有采样跨度至少 10 秒且存在至少 3 个推进样本时才计算 ETA；初始化、暂停、重试等待和停滞时隐藏 ETA，并显示最近存活采样时间。
+
+## 运行核验记录
+
+2026-09-05 在隔离 PostgreSQL 与临时媒体根上完成了 12,000 项混合 GIF/WebP/PNG/APNG
+回归：并发 1 与并发 4 的动图、静态图、失败项计数一致（分别为 5,994 / 5,994 / 12），
+并发 4 用时约 10.5 秒，相对并发 1 的约 18.3 秒吞吐提升约 75%、耗时下降约 43%。事件样本中的
+`activeProbes` 没有超过冻结的并发上限。真实开发库另完成了 8 张媒体扫描、刷新与多标签恢复、
+隐私遮罩和 retention dry-run 核验；暂停/继续、取消、错误恢复和事件分页在隔离库中验证。
+开发库中的真实冒烟记录予以保留，但不代表生产 NAS 或反向代理已经完成同等 I/O/网络验证。
+
+## 客户端与保留
+
+任务计划页“执行动态”的历史列表使用独立游标查询与虚拟滚动；筛选、搜索、可见记录快照补偿及位置保持规则见[后台任务执行记录](./background-job-history.md)。Dashboard 的 recentJobs 仍只作为概览和完成提示快照，不承担历史浏览。
+
+admin layout 每标签页只有一个 `BackgroundJobEventProvider`。任务卡、后台 dashboard、详情和事件历史按 `jobType/jobId` 合并同一事件源；mutation 使用返回的准确 job ID。`ready/reset` 触发快照恢复。SSE 正常时停止任务状态高频轮询；断线时活动任务每 3 秒、空闲页每 30 秒兜底。
+
+Web 的 SSE 连接内部仍轮询 PostgreSQL 事件表，每个连接各自读取。服务端启动环境变量 `JOB_EVENT_POLL_INTERVAL_MS` 可设置查询间隔，单位毫秒，允许 500–15000 的整数；未设置或无效时，开发环境默认 3000，其他环境默认 500。开发时可在 `packages/pixishelf/.env.local` 设置 `JOB_EVENT_POLL_INTERVAL_MS=5000` 后重启 Web；容器运行时需将变量传入 Web 容器，仅修改 Compose 的 `.env` 不会自动传入。间隔越长，实时进度出现的延迟越大；满 200 条的积压事件仍连续追赶，15 秒心跳在后续轮询时发送。此设置不改变 Worker 调度、事件写入或断线兜底频率，不需要 Worker 重启或数据库迁移。开发环境的 Prisma query 日志会逐条输出这些查询，多开后台标签页会增加查询数量；这与 Next.js 编译本身是不同路径，不能仅凭日志认定构建变慢的原因。
+
+任务状态合并比较 `updatedAt`：只有更新的 SSE 摘要才能覆盖查询快照，相同时间保留完整查询结果，避免断线时缓存事件遮盖轮询得到的终态。计划任务收到对应类型的入队、启动或控制事件后重新读取计划列表，由数据库确认最新 `lastJobId`；同类型的多个计划不按事件类型猜测归属，普通进度事件不触发计划列表重查。
+
+`JOB_EVENT_RETENTION_CLEANUP` 对 INFO 级 `job.progress` 保留 7 天，对阶段、警告、错误、控制和终态事件保留 90 天，每批事务删除最多 5,000 条，并循环处理至本次过期集合清空。计划默认关闭；首次手动执行固定为 dry-run，核对候选数和 SSE 重连后再启用计划，计划执行才会删除。
+
+## 发布边界
+
+部署 migration 前按备份基线建立并验证 PostgreSQL 检查点。回滚 App/Worker 时保留新增可空列和事件索引。首次生产验证必须记录并发 1/4 的相同分类结果、吞吐比较、事件 dry-run 数量和 SSE 断线重连结果。
+
+## 失败诊断与证据保留
+
+统一诊断报告独立于实时事件，按单次执行冻结，逐项内容仅由受保护的诊断接口分页查询；SSE 不携带明细证据。JOB_EVENT_RETENTION_CLEANUP 同时清理关闭超过 90 天的诊断明细，保留报告头及计数，继续遵守首次手动 dry-run 和每批最多 5,000 条规则。报告语义、旧数据限制与协调升级见[后台任务失败诊断](./background-job-diagnostics.md)。

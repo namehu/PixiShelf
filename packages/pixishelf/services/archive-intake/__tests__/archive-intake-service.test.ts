@@ -138,6 +138,44 @@ describe('archive intake input and wire safety', () => {
     expect(JSON.stringify(page)).not.toContain('Prisma')
   })
 
+  it('marks only locally recognized intake identities as source-preview available', async () => {
+    const page = await listArchiveIntakeItems(
+      { view: 'ACTIVE', limit: 10 },
+      {
+        database: {
+          archiveIntakeItem: {
+            findMany: async () => [
+              intakeRecord({ id: 'resolved', canonicalUrl: 'https://e-hentai.org/g/123/privatetoken/' }),
+              intakeRecord({
+                id: 'queued-image-page',
+                status: 'QUEUED',
+                submittedUrl: 'https://e-hentai.org/s/pagetoken/456-2?p=2#preview',
+                providerKey: null,
+                externalId: null,
+                canonicalUrl: null
+              }),
+              intakeRecord({ id: 'unsupported', providerKey: 'other-provider' }),
+              intakeRecord({
+                id: 'unsafe-port',
+                submittedUrl: 'https://e-hentai.org:8443/g/123/token/',
+                providerKey: null,
+                externalId: null,
+                canonicalUrl: null
+              })
+            ]
+          }
+        } as never
+      }
+    )
+
+    expect(page.items.map((item) => [item.id, item.sourcePreviewAvailable])).toEqual([
+      ['resolved', true],
+      ['queued-image-page', true],
+      ['unsupported', false],
+      ['unsafe-port', false]
+    ])
+  })
+
   it('uses a stable tie-break cursor and combines search with the cursor filter', async () => {
     const first = intakeRecord({ id: 'item-b', queueOrder: BigInt(10) })
     const second = intakeRecord({ id: 'item-c', queueOrder: BigInt(10) })

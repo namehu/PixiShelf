@@ -15,13 +15,18 @@ import ArtistsNavigation from './_components/artists-navigation'
 import { ArtistCard } from './_components/artist-card'
 
 function ArtistsPageContent() {
+  const [kind] = useQueryState('kind', parseAsString.withDefault('ALL'))
   const [searchTerm] = useQueryState('search', parseAsString.withDefault('').withOptions({ history: 'replace' }))
   const [sortBy] = useQueryState('sortBy', parseAsString.withDefault('name_asc').withOptions({ history: 'replace' }))
   const trpc = useTRPC()
 
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery(
     trpc.artist.queryPage.infiniteQueryOptions(
-      { search: searchTerm, sortBy: sortBy as ArtistsQuery['sortBy'] },
+      {
+        search: searchTerm,
+        sortBy: sortBy as ArtistsQuery['sortBy'],
+        kind: kind === 'PERSON' || kind === 'GROUP' ? kind : undefined
+      },
       {
         getNextPageParam: ({ nextCursor }) => nextCursor,
         initialCursor: 1,
@@ -48,7 +53,7 @@ function ArtistsPageContent() {
     <PageContainer size="gallery" className="flex flex-col gap-8 py-6 sm:py-8">
       <PageHeader
         eyebrow="创作者索引"
-        title="艺术家"
+        title="艺术家与社团"
         description="按名称或作品数量浏览收藏中的创作者。"
         metadata={isLoading ? '正在统计…' : `${totalCount} 位艺术家`}
       />

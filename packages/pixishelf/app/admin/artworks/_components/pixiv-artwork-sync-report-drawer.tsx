@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 const HISTORY_PAGE_SIZE = 20
 
@@ -129,9 +130,9 @@ export function PixivArtworkSyncReportDrawer({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <SheetTitle className="truncate text-lg">Pixiv 同步记录</SheetTitle>
-              <SheetDescription className="mt-1 truncate">
+              <PrivacySensitiveText as={SheetDescription} className="mt-1 truncate">
                 {artwork ? `${artwork.title} · Pixiv ${artwork.pixivArtworkId ?? '身份不可用'}` : '作品同步详情'}
-              </SheetDescription>
+              </PrivacySensitiveText>
             </div>
             {report ? <ChangeKindBadge kind={report.changeKind} /> : null}
           </div>
@@ -363,7 +364,9 @@ function DiffValue({ label, value }: { label: string; value: ReportValue }) {
   return (
     <div className="min-w-0 rounded-lg bg-muted/45 p-3">
       <div className="mb-1 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div className="max-h-40 overflow-auto whitespace-pre-wrap break-all text-sm">{formatReportValue(value)}</div>
+      <PrivacySensitiveText as="div" className="max-h-40 overflow-auto whitespace-pre-wrap break-all text-sm">
+        {formatReportValue(value)}
+      </PrivacySensitiveText>
       {value.truncated ? (
         <div className="mt-2 text-[10px] text-muted-foreground">
           已显示前 {String(value.value).length} / {value.originalLength} 字符 · SHA-256 {value.sha256?.slice(0, 12)}…
@@ -428,9 +431,12 @@ function SnapshotPanel({
         </Button>
       </div>
       <ScrollArea className="min-h-0 flex-1 bg-zinc-950">
-        <pre className="min-w-max p-4 font-mono text-xs leading-5 text-zinc-100 sm:p-6">
+        <PrivacySensitiveText
+          as="pre"
+          className="min-w-max p-4 font-mono text-xs leading-5 text-zinc-100 sm:p-6"
+        >
           {JSON.stringify(value, null, 2)}
-        </pre>
+        </PrivacySensitiveText>
         <ScrollBar orientation="horizontal" />
       </ScrollArea>
     </div>
@@ -486,7 +492,15 @@ function TagChangeList({ title, tags, icon }: { title: string; tags: string[]; i
         {title}（{tags.length}）
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {tags.length ? tags.map((tag) => <Badge key={tag} variant="outline">{tag}</Badge>) : <span className="text-xs text-muted-foreground">无</span>}
+        {tags.length ? (
+          tags.map((tag) => (
+            <Badge key={tag} variant="outline">
+              <PrivacySensitiveText>{tag}</PrivacySensitiveText>
+            </Badge>
+          ))
+        ) : (
+          <span className="text-xs text-muted-foreground">无</span>
+        )}
       </div>
     </div>
   )
@@ -508,7 +522,9 @@ function SnapshotReference({
       {snapshot ? (
         <>
           <div className="truncate font-mono" title={snapshot.hash}>{snapshot.hash}</div>
-          <div className="mt-1 truncate text-muted-foreground" title={snapshot.path}>{snapshot.path}</div>
+          <PrivacySensitiveText as="div" className="mt-1 truncate text-muted-foreground">
+            {snapshot.path}
+          </PrivacySensitiveText>
         </>
       ) : (
         <div className="text-muted-foreground">首次同步，无上一版</div>
@@ -532,7 +548,9 @@ function DrawerState({ title, description, destructive = false }: { title: strin
       <Alert variant={destructive ? 'destructive' : 'default'} className="max-w-xl">
         <FileJson2 aria-hidden="true" />
         <AlertTitle>{title}</AlertTitle>
-        <AlertDescription>{description}</AlertDescription>
+        <AlertDescription>
+          {destructive ? <PrivacySensitiveText>{description}</PrivacySensitiveText> : description}
+        </AlertDescription>
       </Alert>
     </div>
   )

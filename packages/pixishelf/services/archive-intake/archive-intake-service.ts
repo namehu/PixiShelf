@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { archiveResolveItemPayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+  archiveResolveItemPayloadSchema,
+  archiveUploaderIdentityLockKey,
+  archiveUploaderUrlLockKey,
+  JOB_DEFINITION_VERSION
+} from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -31,13 +37,16 @@ const intakeStatusSchema = z.enum([
   'FAILED',
   'ENQUEUED',
   'CANCELLED',
-  'DUPLICATE'
+  'DUPLICATE',
+  'SKIPPED'
 ])
 
 export const createArchiveIntakeSchema = z
   .object({
     idempotencyKey: z.string().trim().min(1).max(180),
-    urls: z.array(z.string().max(2_048)).min(1).max(INTAKE_CREATE_LIMIT)
+    urls: z.array(z.string().max(2_048)).min(1).max(INTAKE_CREATE_LIMIT),
+    downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
+    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL')
   })
   .strict()
 
@@ -84,116 +93,133 @@ export async function createArchiveIntakeSubmission(
   requestedByUserId: string,
   dependencies: ArchiveIntakeServiceDependencies = {}
 ) {
-  const parsed = createArchiveIntakeSchema.parse(input)
   const database = getDatabase(dependencies)
+  return database.$transaction((transaction) =>
+    createArchiveIntakeSubmissionInTransaction(input, requestedByUserId, transaction, dependencies)
+  )
+}
+
+export async function createArchiveIntakeSubmissionInTransaction(
+  input: z.input<typeof createArchiveIntakeSchema>,
+  requestedByUserId: string,
+  transaction: Prisma.TransactionClient,
+  dependencies: Pick<ArchiveIntakeServiceDependencies, 'now' | 'uuid' | 'validateUrl'> = {}
+) {
+  const parsed = createArchiveIntakeSchema.parse(input)
   const now = dependencies.now ?? (() => new Date())
   const uuid = dependencies.uuid ?? randomUUID
   const rawUrls = parsed.urls.map((url) => url.trim()).filter(Boolean)
   if (rawUrls.length === 0) throw new ArchiveError('INVALID_URL', '至少需要一个非空归档链接')
-  const requestHash = archiveRequestFingerprint({ urls: rawUrls })
+  const requestHash = archiveRequestFingerprint({
+    urls: rawUrls,
+    downloadMode: parsed.downloadMode,
+    quality: parsed.quality
+  })
 
   // 并发场景下先锁幂等键，再锁容量队列，避免重复重放和容量竞争带来的“双重可见项目”。
-  return database.$transaction(async (transaction) => {
-    await lockKey(transaction, INTAKE_IDEMPOTENCY_LOCK_NAMESPACE, parsed.idempotencyKey)
-    const existing = await transaction.archiveIntakeSubmission.findUnique({
-      where: { idempotencyKey: parsed.idempotencyKey }
-    })
-    if (existing) {
-      if (existing.requestHash !== requestHash || existing.requestedByUserId !== requestedByUserId) {
-        throw new ArchiveError('STATE_CONFLICT', '该幂等键已绑定到不同的归档链接提交')
-      }
-      return serializeSubmission(transaction, existing.id)
+  await lockKey(transaction, INTAKE_IDEMPOTENCY_LOCK_NAMESPACE, parsed.idempotencyKey)
+  const existing = await transaction.archiveIntakeSubmission.findUnique({
+    where: { idempotencyKey: parsed.idempotencyKey }
+  })
+  if (existing) {
+    if (existing.requestHash !== requestHash || existing.requestedByUserId !== requestedByUserId) {
+      throw new ArchiveError('STATE_CONFLICT', '该幂等键已绑定到不同的归档链接提交')
+    }
+    return serializeSubmission(transaction, existing.id)
+  }
+
+  await lockKey(transaction, INTAKE_CAPACITY_LOCK_NAMESPACE, RESOLVE_QUEUE_ID)
+  let remainingCapacity =
+    INTAKE_CAPACITY -
+    (await transaction.archiveIntakeItem.count({ where: { status: { in: [...ACTIVE_INTAKE_STATUSES] } } }))
+  const timestamp = now()
+  const submission = await transaction.archiveIntakeSubmission.create({
+    data: {
+      id: uuid(),
+      idempotencyKey: parsed.idempotencyKey,
+      requestHash,
+      requestedByUserId,
+      rawCount: rawUrls.length,
+      acceptedCount: 0,
+      invalidCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 0,
+      createdAt: timestamp
+    }
+  })
+
+  let acceptedCount = 0
+  let invalidCount = 0
+  let duplicateCount = 0
+  let rejectedCount = 0
+  // firstSeen 去重仅用于“本次提交体”内的重复 URL；全局去重由 normalizedUrlHash + 活跃状态查询负责。
+  const firstSeen = new Map<string, string | null>()
+
+  for (const submittedUrl of rawUrls) {
+    if (firstSeen.has(submittedUrl)) {
+      duplicateCount += 1
+      continue
+    }
+    firstSeen.set(submittedUrl, null)
+
+    try {
+      validateSubmittedUrl(submittedUrl, dependencies.validateUrl)
+    } catch {
+      invalidCount += 1
+      continue
     }
 
-    await lockKey(transaction, INTAKE_CAPACITY_LOCK_NAMESPACE, RESOLVE_QUEUE_ID)
-    let remainingCapacity =
-      INTAKE_CAPACITY -
-      (await transaction.archiveIntakeItem.count({ where: { status: { in: [...ACTIVE_INTAKE_STATUSES] } } }))
-    const timestamp = now()
-    const submission = await transaction.archiveIntakeSubmission.create({
-      data: {
-        id: uuid(),
-        idempotencyKey: parsed.idempotencyKey,
-        requestHash,
-        requestedByUserId,
-        rawCount: rawUrls.length,
-        acceptedCount: 0,
-        invalidCount: 0,
-        duplicateCount: 0,
-        rejectedCount: 0,
-        createdAt: timestamp
-      }
-    })
-
-    let acceptedCount = 0
-    let invalidCount = 0
-    let duplicateCount = 0
-    let rejectedCount = 0
-    // firstSeen 去重仅用于“本次提交体”内的重复 URL；全局去重由 normalizedUrlHash + 活跃状态查询负责。
-    const firstSeen = new Map<string, string | null>()
-
-    for (const submittedUrl of rawUrls) {
-      if (firstSeen.has(submittedUrl)) {
-        duplicateCount += 1
-        continue
-      }
-      firstSeen.set(submittedUrl, null)
-
-      try {
-        validateSubmittedUrl(submittedUrl, dependencies.validateUrl)
-      } catch {
-        invalidCount += 1
-        continue
-      }
-
-      const normalizedUrlHash = hashSubmittedUrl(submittedUrl)
-      const duplicate = await findActiveUrlDuplicate(transaction, submittedUrl, normalizedUrlHash)
-      if (duplicate?.submittedUrl === submittedUrl) {
-        const duplicateId = uuid()
-        await createDuplicateAuditItem(transaction, {
-          id: duplicateId,
-          submissionId: submission.id,
-          submittedUrl,
-          normalizedUrlHash,
-          duplicateOfItemId: duplicate.id,
-          timestamp
-        })
-        firstSeen.set(submittedUrl, duplicateId)
-        duplicateCount += 1
-        continue
-      }
-
-      if (remainingCapacity <= 0) {
-        rejectedCount += 1
-        continue
-      }
-
-      const itemId = uuid()
-      const jobId = uuid()
-      await createQueuedIntakeItem(transaction, {
-        itemId,
-        jobId,
+    const normalizedUrlHash = hashSubmittedUrl(submittedUrl)
+    const duplicate = await findActiveUrlDuplicate(transaction, submittedUrl, normalizedUrlHash)
+    if (duplicate?.submittedUrl === submittedUrl) {
+      const duplicateId = uuid()
+      await createDuplicateAuditItem(transaction, {
+        id: duplicateId,
         submissionId: submission.id,
         submittedUrl,
         normalizedUrlHash,
-        requestedByUserId,
-        timestamp,
-        triggerSource: 'MANUAL'
+        duplicateOfItemId: duplicate.id,
+        downloadMode: parsed.downloadMode,
+        quality: parsed.quality,
+        timestamp
       })
-      firstSeen.set(submittedUrl, itemId)
-      acceptedCount += 1
-      remainingCapacity -= 1
+      firstSeen.set(submittedUrl, duplicateId)
+      duplicateCount += 1
+      continue
     }
 
-    if (rawUrls.length !== acceptedCount + invalidCount + duplicateCount + rejectedCount) {
-      throw new ArchiveError('INTERNAL', '归档链接提交计数不一致')
+    if (remainingCapacity <= 0) {
+      rejectedCount += 1
+      continue
     }
-    await transaction.archiveIntakeSubmission.update({
-      where: { id: submission.id },
-      data: { acceptedCount, invalidCount, duplicateCount, rejectedCount }
+
+    const itemId = uuid()
+    const jobId = uuid()
+    await createQueuedIntakeItem(transaction, {
+      itemId,
+      jobId,
+      submissionId: submission.id,
+      submittedUrl,
+      normalizedUrlHash,
+      requestedByUserId,
+      timestamp,
+      triggerSource: 'MANUAL',
+      downloadMode: parsed.downloadMode,
+      quality: parsed.quality
     })
-    return serializeSubmission(transaction, submission.id)
+    firstSeen.set(submittedUrl, itemId)
+    acceptedCount += 1
+    remainingCapacity -= 1
+  }
+
+  if (rawUrls.length !== acceptedCount + invalidCount + duplicateCount + rejectedCount) {
+    throw new ArchiveError('INTERNAL', '归档链接提交计数不一致')
+  }
+  await transaction.archiveIntakeSubmission.update({
+    where: { id: submission.id },
+    data: { acceptedCount, invalidCount, duplicateCount, rejectedCount }
   })
+  return serializeSubmission(transaction, submission.id)
 }
 
 export async function replaceArchiveIntakeItem(
@@ -223,7 +249,7 @@ export async function replaceArchiveIntakeItem(
 
     const original = await transaction.archiveIntakeItem.findUnique({
       where: { id: parsed.itemId },
-      select: { id: true, status: true, submittedUrl: true }
+      select: { id: true, status: true, submittedUrl: true, downloadMode: true, selectedQuality: true }
     })
     if (!original) throw new ArchiveError('STATE_CONFLICT', '原失败收件项目不存在')
     if (original.status !== 'FAILED') {
@@ -265,6 +291,8 @@ export async function replaceArchiveIntakeItem(
         normalizedUrlHash,
         duplicateOfItemId: duplicate.id,
         supersedesItemId: original.id,
+        downloadMode: original.downloadMode,
+        quality: original.selectedQuality,
         timestamp
       })
     } else if (hasCapacity) {
@@ -277,6 +305,8 @@ export async function replaceArchiveIntakeItem(
         normalizedUrlHash,
         requestedByUserId,
         supersedesItemId: original.id,
+        downloadMode: original.downloadMode,
+        quality: original.selectedQuality,
         timestamp,
         triggerSource: 'RETRY'
       })
@@ -288,6 +318,8 @@ export async function replaceArchiveIntakeItem(
         submittedUrl,
         normalizedUrlHash,
         supersedesItemId: original.id,
+        downloadMode: original.downloadMode,
+        quality: original.selectedQuality,
         timestamp
       })
     }
@@ -317,6 +349,8 @@ async function createDuplicateAuditItem(
     normalizedUrlHash: string
     duplicateOfItemId: string
     supersedesItemId?: string
+    downloadMode: 'AUTO' | 'MANUAL'
+    quality: 'ORIGINAL' | 'DISPLAY'
     timestamp: Date
   }
 ) {
@@ -326,6 +360,8 @@ async function createDuplicateAuditItem(
       submissionId: input.submissionId,
       submittedUrl: input.submittedUrl,
       normalizedUrlHash: input.normalizedUrlHash,
+      downloadMode: input.downloadMode,
+      selectedQuality: input.quality,
       status: 'DUPLICATE',
       duplicateOfItemId: input.duplicateOfItemId,
       supersedesItemId: input.supersedesItemId,
@@ -345,6 +381,8 @@ async function createCapacityRejectedAuditItem(
     submittedUrl: string
     normalizedUrlHash: string
     supersedesItemId: string
+    downloadMode: 'AUTO' | 'MANUAL'
+    quality: 'ORIGINAL' | 'DISPLAY'
     timestamp: Date
   }
 ) {
@@ -354,6 +392,8 @@ async function createCapacityRejectedAuditItem(
       submissionId: input.submissionId,
       submittedUrl: input.submittedUrl,
       normalizedUrlHash: input.normalizedUrlHash,
+      downloadMode: input.downloadMode,
+      selectedQuality: input.quality,
       status: 'FAILED',
       supersedesItemId: input.supersedesItemId,
       finishedAt: input.timestamp,
@@ -376,6 +416,8 @@ async function createQueuedIntakeItem(
     normalizedUrlHash: string
     requestedByUserId: string
     supersedesItemId?: string
+    downloadMode: 'AUTO' | 'MANUAL'
+    quality: 'ORIGINAL' | 'DISPLAY'
     timestamp: Date
     triggerSource: 'MANUAL' | 'RETRY'
   }
@@ -396,7 +438,7 @@ async function createQueuedIntakeItem(
       availableAt: input.timestamp,
       maxAttempts: 3,
       progress: 0,
-      message: input.triggerSource === 'RETRY' ? '等待解析修正后的归档链接...' : '等待归档解析 Worker...'
+      message: input.triggerSource === 'RETRY' ? '等待解析修正后的归档链接...' : '等待归档解析后台任务进程...'
     }
   })
   await transaction.archiveIntakeItem.create({
@@ -405,6 +447,8 @@ async function createQueuedIntakeItem(
       submissionId: input.submissionId,
       submittedUrl: input.submittedUrl,
       normalizedUrlHash: input.normalizedUrlHash,
+      downloadMode: input.downloadMode,
+      selectedQuality: input.quality,
       status: 'QUEUED',
       currentSystemJobId: input.jobId,
       supersedesItemId: input.supersedesItemId,
@@ -417,7 +461,7 @@ async function createQueuedIntakeItem(
     jobId: input.jobId,
     type: 'job.queued',
     attempt: 0,
-    message: input.triggerSource === 'RETRY' ? 'Archive intake replacement item queued' : 'Archive intake item queued',
+    message: input.triggerSource === 'RETRY' ? '归档收件替代任务已加入队列' : '归档收件任务已加入队列',
     data: {
       intakeItemId: input.itemId,
       priority: 10,
@@ -614,6 +658,7 @@ async function cancelIntakeItem(
     include: { currentSystemJob: true }
   })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
+  await lockUploaderCatalogItem(transaction, item)
   if (item.status === 'CANCELLED') return { result: 'REUSED', relatedId: item.id, message: '收件项目已取消' }
   if (!['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'].includes(item.status)) {
     return { result: 'SKIPPED', code: 'INVALID_STATE', message: `状态 ${item.status} 不允许取消` }
@@ -649,7 +694,7 @@ async function cancelIntakeItem(
       type: 'job.cancel_requested',
       level: 'WARN',
       attempt: item.currentSystemJob.attempt,
-      message: 'Archive intake cancellation requested'
+      message: '已请求取消归档收件任务'
     })
     if (!running) {
       await writeJobEvent(transaction, {
@@ -657,7 +702,7 @@ async function cancelIntakeItem(
         type: 'job.cancelled',
         level: 'WARN',
         attempt: item.currentSystemJob.attempt,
-        message: 'Archive intake cancelled before execution'
+        message: '归档收件任务在执行前已取消'
       })
     }
   }
@@ -668,6 +713,24 @@ async function cancelIntakeItem(
       : { status: 'CANCELLED', cancelRequestedAt: timestamp, finishedAt: timestamp, retryable: false }
   })
   if (changedItem.count !== 1) throw new ArchiveError('STATE_CONFLICT', '收件项目状态已改变')
+  if (!running) {
+    const identityFilters: Prisma.ArchiveUploaderCatalogItemWhereInput[] = []
+    if (item.providerKey && item.externalId) {
+      identityFilters.push({ providerKey: item.providerKey, externalId: item.externalId })
+    }
+    if (item.canonicalUrl) identityFilters.push({ canonicalUrl: item.canonicalUrl })
+    identityFilters.push({ canonicalUrl: item.submittedUrl })
+    await transaction.archiveUploaderCatalogItem.updateMany({
+      where: { OR: [{ lastIntakeItemId: item.id }, ...identityFilters] },
+      data: {
+        lastIntakeItemId: item.id,
+        lastOutcome: 'CANCELLED',
+        lastOutcomeAt: timestamp,
+        lastErrorCode: 'CANCELLED',
+        lastErrorMessage: '归档收件任务已取消'
+      }
+    })
+  }
   return { result: 'APPLIED', relatedId: item.id }
 }
 
@@ -683,6 +746,7 @@ async function retryIntakeItem(
     include: { currentSystemJob: true }
   })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
+  await lockUploaderCatalogItem(transaction, item)
   const retryStatus = effectiveStatus(item, timestamp)
   // READY 的过期快照在查询层已被映射为 STALE，所以重试分支需要基于快照状态判断。
   if (!['FAILED', 'CANCELLED', 'STALE'].includes(retryStatus)) {
@@ -757,11 +821,27 @@ async function retryIntakeItem(
     RETURNING "id"
   `)
   if (changed.length !== 1) throw new ArchiveError('STATE_CONFLICT', '收件项目状态已改变')
+  const identityFilters: Prisma.ArchiveUploaderCatalogItemWhereInput[] = []
+  if (item.providerKey && item.externalId) {
+    identityFilters.push({ providerKey: item.providerKey, externalId: item.externalId })
+  }
+  if (item.canonicalUrl) identityFilters.push({ canonicalUrl: item.canonicalUrl })
+  identityFilters.push({ canonicalUrl: item.submittedUrl })
+  await transaction.archiveUploaderCatalogItem.updateMany({
+    where: { OR: [{ lastIntakeItemId: item.id }, ...identityFilters] },
+    data: {
+      lastIntakeItemId: item.id,
+      lastOutcome: 'SUBMITTED',
+      lastOutcomeAt: timestamp,
+      lastErrorCode: null,
+      lastErrorMessage: null
+    }
+  })
   await writeJobEvent(transaction, {
     jobId,
     type: 'job.queued',
     attempt: 0,
-    message: 'Archive intake item manually requeued',
+    message: '归档收件项已手动重新加入队列',
     data: { intakeItemId: item.id, retryOfJobId: item.currentSystemJobId }
   })
   return { result: 'APPLIED', relatedId: jobId }
@@ -829,6 +909,7 @@ const intakeItemWireSelect = {
   duplicateOfItemId: true,
   activeArchiveImportId: true,
   selectedQuality: true,
+  downloadMode: true,
   resolvedAt: true,
   expiresAt: true,
   archiveImportId: true,
@@ -847,12 +928,54 @@ type IntakeItemWire = Prisma.ArchiveIntakeItemGetPayload<{ select: typeof intake
 function serializeIntakeItem(item: IntakeItemWire, now: Date) {
   return {
     ...item,
+    sourcePreviewAvailable: isSourcePreviewAvailable(item),
     submittedUrl: redactArchiveUrl(item.submittedUrl),
     canonicalUrl: item.canonicalUrl ? redactArchiveUrl(item.canonicalUrl) : null,
     thumbnailUrl: safeThumbnailUrl(item.thumbnailUrl),
     status: effectiveStatus(item, now),
     queueOrder: item.queueOrder.toString(),
     errorMessage: archiveWireErrorMessage(item.errorCode, item.errorMessage)
+  }
+}
+
+function isSourcePreviewAvailable(
+  item: Pick<IntakeItemWire, 'submittedUrl' | 'providerKey' | 'externalId' | 'canonicalUrl'>
+) {
+  if (item.providerKey && item.providerKey !== 'e-hentai') return false
+
+  if (item.externalId || item.canonicalUrl) {
+    if (item.providerKey !== 'e-hentai' || !item.externalId || !item.canonicalUrl) return false
+    try {
+      const canonical = new URL(item.canonicalUrl)
+      const match = canonical.pathname.match(/^\/g\/([1-9]\d*)\/[A-Za-z0-9]+\/$/)
+      return (
+        canonical.protocol === 'https:' &&
+        canonical.hostname.toLowerCase() === 'e-hentai.org' &&
+        !canonical.port &&
+        !canonical.username &&
+        !canonical.password &&
+        !canonical.search &&
+        !canonical.hash &&
+        match?.[1] === item.externalId
+      )
+    } catch {
+      return false
+    }
+  }
+
+  try {
+    const submitted = new URL(item.submittedUrl)
+    return (
+      submitted.protocol === 'https:' &&
+      submitted.hostname.toLowerCase() === 'e-hentai.org' &&
+      !submitted.port &&
+      !submitted.username &&
+      !submitted.password &&
+      (/^\/g\/[1-9]\d*\/[A-Za-z0-9]+\/?$/.test(submitted.pathname) ||
+        /^\/s\/[A-Za-z0-9]+\/[1-9]\d*-[1-9]\d*\/?$/.test(submitted.pathname))
+    )
+  } catch {
+    return false
   }
 }
 
@@ -925,7 +1048,7 @@ function statusesForView(
     case 'ENQUEUED':
       return ['ENQUEUED']
     case 'CANCELLED':
-      return ['CANCELLED', 'DUPLICATE']
+      return ['CANCELLED', 'DUPLICATE', 'SKIPPED']
   }
 }
 
@@ -951,10 +1074,10 @@ function decodeCursor(value: string, expectedView: IntakeCursor['view']): Intake
       typeof parsed.id !== 'string' ||
       !parsed.id
     ) {
-      throw new Error('Invalid cursor')
+      throw new Error('分页游标无效')
     }
     if (expectedView === 'ACTIVE') BigInt(parsed.sortValue)
-    else if (Number.isNaN(new Date(parsed.sortValue).getTime())) throw new Error('Invalid cursor date')
+    else if (Number.isNaN(new Date(parsed.sortValue).getTime())) throw new Error('分页游标日期无效')
     return parsed
   } catch (error) {
     throw new ArchiveError('INVALID_URL', '归档收件箱分页游标无效', { cause: error })
@@ -970,6 +1093,29 @@ async function lockKey(transaction: Prisma.TransactionClient, namespace: number,
   await transaction.$queryRaw(
     Prisma.sql`SELECT pg_advisory_xact_lock(${namespace}::integer, hashtext(${value}::text))::text AS "lock"`
   )
+}
+
+async function lockUploaderCatalogItem(
+  transaction: Prisma.TransactionClient,
+  item: {
+    providerKey: string | null
+    externalId: string | null
+    submittedUrl: string
+    canonicalUrl: string | null
+  }
+) {
+  const keys = [
+    ...new Set([
+      ...(item.providerKey && item.externalId
+        ? [archiveUploaderIdentityLockKey(item.providerKey, item.externalId)]
+        : []),
+      archiveUploaderUrlLockKey(item.submittedUrl),
+      ...(item.canonicalUrl ? [archiveUploaderUrlLockKey(item.canonicalUrl)] : [])
+    ])
+  ].sort()
+  for (const key of keys) {
+    await lockKey(transaction, ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE, key)
+  }
 }
 
 function isUniqueConstraintError(error: unknown) {

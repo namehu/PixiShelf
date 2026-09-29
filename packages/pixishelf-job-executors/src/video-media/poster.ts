@@ -1,3 +1,4 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import type { JobErrorCode } from '@pixishelf/job-contracts'
@@ -260,6 +261,16 @@ async function runVideoPoster(
     const failure = classifyPosterError(error)
     if (error instanceof VideoMediaPermanentError && !claimed) {
       if (mode === 'batch') {
+        await context.mutateInTransaction(async (transaction) => {
+          await context.recordDiagnostic?.(transaction, {
+            key: 'poster:' + payload.imageId,
+            scope: 'ITEM',
+            targetType: 'IMAGE',
+            targetId: String(payload.imageId),
+            stage: 'POSTER',
+            error
+          })
+        })
         return { kind: 'failed', imageId: payload.imageId, errorCode: failure.errorCode, message: failure.message }
       }
       return { kind: 'skipped', reason: 'PRECONDITION_NOT_MET', message: failure.message }
@@ -270,6 +281,14 @@ async function runVideoPoster(
           await transaction.mediaVideoMetadata.updateMany({
             where: { imageId: payload.imageId, posterStatus: 'GENERATING' },
             data: { posterStatus: 'FAILED', posterUpdatedAt: now(), posterError: failure.message }
+          })
+          await context.recordDiagnostic?.(transaction, {
+            key: 'poster:' + payload.imageId,
+            scope: 'ITEM',
+            targetType: 'IMAGE',
+            targetId: String(payload.imageId),
+            stage: 'POSTER',
+            error
           })
         })
       }
@@ -285,6 +304,7 @@ async function runVideoPoster(
       }
       if (!(error instanceof VideoMediaPermanentError) && context.job.attempt < context.job.maxAttempts) {
         await scope.retry({
+          diagnostic: extractJobDiagnostic(error),
           availableAt: new Date(
             now().getTime() + Math.min(30 * 60_000, 30_000 * 2 ** Math.max(0, context.job.attempt - 1))
           ),
@@ -293,7 +313,12 @@ async function runVideoPoster(
           message: '视频封面生成失败，等待重试'
         })
       } else {
-        await scope.fail({ errorCode: failure.errorCode, error: failure.message, message: '视频封面生成失败' })
+        await scope.fail({
+          diagnostic: extractJobDiagnostic(error),
+          errorCode: failure.errorCode,
+          error: failure.message,
+          message: '视频封面生成失败'
+        })
       }
     })
   }

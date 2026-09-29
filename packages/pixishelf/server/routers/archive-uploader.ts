@@ -1,0 +1,97 @@
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
+import {
+  addArchiveUploaderScanItems,
+  addArchiveUploaderScanItemsSchema,
+  cancelArchiveUploaderScan,
+  cancelArchiveUploaderScanSchema,
+  createArchiveUploaderSubmissionAttempt,
+  createArchiveUploaderSubmissionAttemptSchema,
+  createArchiveUploaderSource,
+  createArchiveUploaderSourceSchema,
+  getArchiveUploaderSource,
+  getArchiveUploaderSourceSchema,
+  ignoreArchiveUploaderScanItems,
+  ignoreArchiveUploaderScanItemsSchema,
+  listArchiveUploaderSources,
+  listArchiveUploaderSourcesSchema,
+  listArchiveUploaderIgnoredItems,
+  listArchiveUploaderIgnoredItemsSchema,
+  listArchiveUploaderScanItems,
+  listArchiveUploaderScanItemsSchema,
+  matchArchiveUploaderUid,
+  matchArchiveUploaderUidSchema,
+  restoreArchiveUploaderIgnoredItems,
+  restoreArchiveUploaderIgnoredItemsSchema,
+  setArchiveUploaderSourceArchived,
+  setArchiveUploaderSourceArchivedSchema,
+  setArchiveUploaderUid,
+  setArchiveUploaderUidSchema,
+  triggerArchiveUploaderScan,
+  triggerArchiveUploaderScanSchema
+} from '@/services/archive-uploader/archive-uploader-service'
+import { runArchiveOperation } from './archive'
+import {
+  resolveArchiveUploaderIdentity,
+  resolveArchiveUploaderIdentitySchema
+} from '@/services/archive-uploader/archive-uploader-identity'
+
+export const archiveUploaderRouter = router({
+  resolveIdentity: adminProcedure
+    .input(resolveArchiveUploaderIdentitySchema)
+    .mutation(({ input }) => runArchiveOperation(() => resolveArchiveUploaderIdentity(input))),
+  createSource: adminProcedure
+    .input(createArchiveUploaderSourceSchema)
+    .mutation(({ input }) => runArchiveOperation(() => createArchiveUploaderSource(input))),
+
+  listSources: authProcedure
+    .input(listArchiveUploaderSourcesSchema)
+    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderSources(input))),
+
+  getSource: authProcedure
+    .input(getArchiveUploaderSourceSchema)
+    .query(({ input }) => runArchiveOperation(() => getArchiveUploaderSource(input))),
+
+  listItems: authProcedure
+    .input(listArchiveUploaderScanItemsSchema)
+    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderScanItems(input))),
+
+  listIgnoredItems: authProcedure
+    .input(listArchiveUploaderIgnoredItemsSchema)
+    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderIgnoredItems(input))),
+
+  setArchived: adminProcedure
+    .input(setArchiveUploaderSourceArchivedSchema)
+    .mutation(({ input }) => runArchiveOperation(() => setArchiveUploaderSourceArchived(input))),
+
+  setUploaderUid: adminProcedure
+    .input(setArchiveUploaderUidSchema)
+    .mutation(({ input }) => runArchiveOperation(() => setArchiveUploaderUid(input))),
+
+  matchUploaderUid: adminProcedure
+    .input(matchArchiveUploaderUidSchema)
+    .mutation(({ input }) => runArchiveOperation(() => matchArchiveUploaderUid(input))),
+
+  triggerScan: adminProcedure
+    .input(triggerArchiveUploaderScanSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => triggerArchiveUploaderScan(input, ctx.userId))),
+
+  cancelScan: adminProcedure
+    .input(cancelArchiveUploaderScanSchema)
+    .mutation(({ input }) => runArchiveOperation(() => cancelArchiveUploaderScan(input))),
+
+  createSubmissionAttempt: adminProcedure
+    .input(createArchiveUploaderSubmissionAttemptSchema)
+    .mutation(({ input }) => runArchiveOperation(() => createArchiveUploaderSubmissionAttempt(input))),
+
+  addToInbox: adminProcedure
+    .input(addArchiveUploaderScanItemsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => addArchiveUploaderScanItems(input, ctx.userId))),
+
+  ignoreItems: adminProcedure
+    .input(ignoreArchiveUploaderScanItemsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => ignoreArchiveUploaderScanItems(input, ctx.userId))),
+
+  restoreIgnoredItems: adminProcedure
+    .input(restoreArchiveUploaderIgnoredItemsSchema)
+    .mutation(({ input }) => runArchiveOperation(() => restoreArchiveUploaderIgnoredItems(input)))
+})

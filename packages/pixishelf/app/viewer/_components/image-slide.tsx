@@ -19,6 +19,7 @@ import { useViewerStore } from '@/store/viewer-store'
 import { useShallow } from 'zustand/react/shallow'
 import ImageOverlay from './image-overlay'
 import type { ViewerOverlayInteractionApi } from './image-overlay'
+import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 import ViewerVideoControls, { type ViewerAudioPreference, type ViewerVideoState } from './viewer-video-controls'
 import { useVideoLongPressPlaybackRate, useVideoSeekStepSeconds } from '@/components/user-setting'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
@@ -48,6 +49,8 @@ interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   onExitClearMode: () => void
   getPlaybackPosition: (mediaId: number) => number
   onPlaybackPositionChange: (mediaId: number, currentTime: number) => void
+  reading?: ArtworkReadingHandle
+  interactionLocked?: boolean
 }
 
 interface SingleImageProps {
@@ -268,6 +271,7 @@ export function SingleImage({
           src={media.url}
           alt={media.key || 'Artwork media'}
           size={media.size}
+          animationMetadata={media.animationMetadata}
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={isGifFile(media.url) ? 'GIF' : 'WEBP'}
           updatedAt={media.updatedAt}
@@ -379,7 +383,9 @@ export default function ImageSlide({
   onEnterClearMode,
   onExitClearMode,
   getPlaybackPosition,
-  onPlaybackPositionChange
+  onPlaybackPositionChange,
+  reading,
+  interactionLocked = false
 }: ImageSlideProps) {
   const [retryKey, setRetryKey] = useState(0)
   const [videoState, setVideoState] = useState<ViewerVideoState>(INITIAL_VIDEO_STATE)
@@ -419,13 +425,30 @@ export default function ImageSlide({
     isAnimated: false,
     chaptersUrl: null,
     hasAudio: null,
-    duration: null
+    duration: null,
+    animationMetadata: null
   }
   const mediaItems = image.images.length > 0 ? image.images : [fallbackMedia]
   const hasMultipleImages = mediaItems.length > 1
   const storedImageIndex = horizontalIndexes[image.key] ?? 0
   const currentImageIndex = Math.min(Math.max(storedImageIndex, 0), mediaItems.length - 1)
   const currentMedia = mediaItems[currentImageIndex] ?? fallbackMedia
+  const observeReading = reading?.observe
+  const clearReadingSurface = reading?.clearSurface
+  const observationEpoch = reading?.observationEpoch
+  useEffect(() => {
+    if (!observeReading || !clearReadingSurface) return
+    const surfaceId = 'immersive-viewer'
+    observeReading(surfaceId, {
+      mediaId: currentMedia.id,
+      ready: activeMediaStatus === 'ready' && loadedMediaIdsRef.current.has(currentMedia.id),
+      visible: isActive && !interactionLocked && !chapterPanelOpen,
+      automatic: false,
+      priority: 50
+    })
+    return () => clearReadingSurface(surfaceId)
+  }, [activeMediaStatus, chapterPanelOpen, clearReadingSurface, currentMedia.id,
+    interactionLocked, isActive, observationEpoch, observeReading])
 
   useEffect(() => {
     setVideoState({

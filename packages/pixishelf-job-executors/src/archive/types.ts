@@ -1,4 +1,6 @@
 import type { Readable } from 'node:stream'
+import type { ArchiveTitleQuery } from '@pixishelf/job-contracts'
+import type { ArchiveTransferItemPhase } from '@pixishelf/job-contracts'
 import type { Prisma, PrismaClient } from '@pixishelf/db'
 import type { ExecutionLogger } from '@pixishelf/job-runtime'
 
@@ -43,6 +45,10 @@ export interface ArchiveProviderMediaItem {
 }
 
 export interface ArchiveRemoteMedia {
+  /** Final successful HTTP response address; persist only in the access-controlled item detail. */
+  downloadUrl?: string
+  expectedSha1?: string
+  httpStatus?: number
   stream: Readable
   mimeType: string | null
   contentLength: number | null
@@ -77,9 +83,133 @@ export interface ArchiveProviderContext {
   runResolveRequest?<T>(operation: () => Promise<T>): Promise<T>
 }
 
+export interface ArchiveThumbnailCrop {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface ArchiveThumbnail {
+  /** Zero-based position in the complete remote gallery. */
+  ordinal: number
+  url: string
+  /** Visible thumbnail width in source CSS pixels. */
+  width: number
+  /** Visible thumbnail height in source CSS pixels. */
+  height: number
+  crop?: ArchiveThumbnailCrop
+}
+
+export interface ArchiveThumbnailPage {
+  providerKey: string
+  externalId: string
+  canonicalUrl: string
+  title: string
+  total: number | null
+  /** Zero-based remote gallery page, matching the E-Hentai `p` parameter. */
+  page: number
+  items: ArchiveThumbnail[]
+  nextPage: number | null
+}
+
+export interface ArchiveThumbnailPageInput {
+  url: string
+  /** Zero-based remote gallery page. */
+  page: number
+}
+
+export type ArchiveUploaderIdentityKind = 'NAME' | 'UID'
+
+export interface ArchiveUploaderScanInput {
+  identityKind: ArchiveUploaderIdentityKind
+  identityValue: string
+  cursor: string | null
+  stopAtExternalId: string | null
+  limit: number
+}
+
+export interface ArchiveUploaderScanContext extends ArchiveProviderContext {
+  runSearchRequest?<T>(operation: () => Promise<T>): Promise<T>
+}
+
+export interface ArchiveUploaderGallerySummary {
+  matchesQuery?: boolean
+  providerKey: string
+  externalId: string
+  canonicalUrl: string
+  title: string
+  thumbnailUrl: string | null
+  uploaderName: string | null
+  postedAt: Date | null
+  metadataFingerprint: string
+  comparisonSnapshot: ArchiveUploaderComparisonSnapshot
+  normalizedMetadata: Record<string, unknown>
+  relationships: SourceRelationshipValue[]
+}
+
+export interface ArchiveUploaderComparisonRelationship {
+  type: SourceRelationshipValue['type']
+  direction: SourceRelationshipValue['direction']
+  providerKey: string
+  externalId: string
+}
+
+/**
+ * Provider metadata that is stable enough to decide whether an archived gallery changed.
+ * Volatile presentation fields such as rating and thumbnail URL intentionally do not belong here.
+ */
+export interface ArchiveUploaderComparisonSnapshot {
+  schemaVersion: 1
+  titles: {
+    display: string
+    aliases: string[]
+  }
+  category: string | null
+  uploader: string | null
+  postedAt: string | null
+  fileCount: number
+  fileSize: number | null
+  expunged: boolean
+  tags: SourceTagValue[]
+  relationships: ArchiveUploaderComparisonRelationship[]
+}
+
+export type ArchiveUploaderMetadataChangeField =
+  | 'titles'
+  | 'category'
+  | 'uploader'
+  | 'postedAt'
+  | 'fileCount'
+  | 'fileSize'
+  | 'expunged'
+  | 'tags'
+  | 'relationships'
+
+export interface ArchiveUploaderMetadataChangeReason {
+  field: ArchiveUploaderMetadataChangeField
+  message: string
+}
+
+export interface ArchiveUploaderMetadataComparison {
+  previous: ArchiveUploaderComparisonSnapshot
+  current: ArchiveUploaderComparisonSnapshot
+  changeReasons: ArchiveUploaderMetadataChangeReason[]
+}
+
+export interface ArchiveUploaderScanResult {
+  items: ArchiveUploaderGallerySummary[]
+  nextCursor: string | null
+  reachedStop: boolean
+  discoveredUploaderUid: string | null
+}
+
 export interface ArchiveDownloadContext extends ArchiveProviderContext {
   quality: ArchiveQuality
+  /** Ask the provider to refresh a previously attempted media source once. */
+  reloadMedia?: boolean
   maxConcurrentDownloads?: number
+  onPhase?(phase: Extract<ArchiveTransferItemPhase, 'RESOLVING_SOURCE_PAGE' | 'WAITING_MEDIA_RESPONSE'>): void
   runDownloadRequest?<T>(operation: () => Promise<T>): Promise<T>
   runDownloadStreamRequest?<T extends { stream: Readable }>(operation: () => Promise<T>): Promise<T>
 }
@@ -93,7 +223,24 @@ export interface ArchiveProvider extends ArchiveMediaProvider {
   readonly requestGovernance: 'PER_REQUEST'
   accepts(url: URL): boolean
   resolve(url: string, context?: ArchiveProviderContext): Promise<ResolvedArchive>
+  previewPage?(input: ArchiveThumbnailPageInput, context?: ArchiveProviderContext): Promise<ArchiveThumbnailPage>
   openMedia(item: ArchiveProviderMediaItem, context: ArchiveDownloadContext): Promise<ArchiveRemoteMedia>
+}
+
+export interface ArchiveUploaderProvider extends ArchiveProvider {
+  scanTitles?(input: ArchiveTitleScanInput, context?: ArchiveUploaderScanContext): Promise<ArchiveUploaderScanResult>
+  scanUploader(
+    input: ArchiveUploaderScanInput,
+    context?: ArchiveUploaderScanContext
+  ): Promise<ArchiveUploaderScanResult>
+}
+
+export interface ArchiveTitleScanInput {
+  sourceId: string
+  query: ArchiveTitleQuery
+  cursor: string | null
+  stopAtExternalId: string | null
+  limit: number
 }
 
 export type ArchiveQualityValue = ArchiveQuality
@@ -106,6 +253,10 @@ export interface ArchiveMediaProviderRegistry {
 
 export interface ArchiveProviderRegistry extends ArchiveMediaProviderRegistry {
   getForUrl(url: string): ArchiveProvider
+}
+
+export interface ArchiveUploaderProviderRegistry extends ArchiveProviderRegistry {
+  getUploaderScanner(providerKey: string): ArchiveUploaderProvider
 }
 
 export interface ArchiveExecutorConfig {

@@ -20,6 +20,7 @@ const {
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    artworkArtist: { findMany: vi.fn().mockResolvedValue([]) },
     $queryRawUnsafe: queryRawMock,
     image: { findMany: imageFindManyMock },
     artworkTag: { findMany: artworkTagFindManyMock },

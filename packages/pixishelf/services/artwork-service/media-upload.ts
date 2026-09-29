@@ -6,6 +6,9 @@ import { assertSafeFileName, resolveCreatablePathWithinRoot, UnsafePathError } f
 import { MAX_MEDIA_UPLOAD_SIZE_BYTES, MAX_MEDIA_UPLOAD_SIZE_LABEL } from '@/lib/upload-limits'
 import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { ImageMeta } from './image-manager'
+import { beginAnimationSourcePathWrite, finishAnimationSourcePathWrite } from './animation-source-guard'
+import { assertReplaceBackupProtectsUpload } from './image-replace-session'
+import { ReplaceWriteBusyError, withReplaceWriteLock } from './replace-write-lock'
 
 export type MediaUploadChunkInput = {
   scanRoot: string
@@ -82,7 +85,7 @@ export function validateMediaUploadStatusMetadata(fileName: string) {
 }
 
 export async function handleMediaUploadChunk(input: MediaUploadChunkInput): Promise<MediaUploadChunkResult> {
-  const { scanRoot, fileName, targetDir, targetRelDir, chunkIndex, totalChunks, offset, declaredFileSize, body } = input
+  const { scanRoot, fileName, targetDir, declaredFileSize } = input
   validateMediaUploadChunkMetadata({ fileName, declaredFileSize })
   const ext = path.extname(fileName).toLowerCase()
   const { resolvedTargetDir, filePath } = await resolveUploadPaths(scanRoot, targetDir, fileName, {
@@ -90,6 +93,41 @@ export async function handleMediaUploadChunk(input: MediaUploadChunkInput): Prom
   })
 
   fs.mkdirSync(resolvedTargetDir, { recursive: true })
+  let waitingBodyError: Error | null = null
+  const onWaitingBodyError = (error: Error) => { waitingBodyError = error }
+  input.body?.on('error', onWaitingBodyError)
+
+  try {
+    return await withReplaceWriteLock(resolvedTargetDir, async () => {
+      if (waitingBodyError || isUploadBodyUnavailable(input.body)) {
+        throw new MediaUploadError('Upload body ended while waiting for the media write lock', 409)
+      }
+      await assertReplaceBackupProtectsUpload(resolvedTargetDir, fileName)
+      const storedFilePath = path.relative(scanRoot, filePath).replace(/\\/g, '/')
+      const writeTokens = await beginAnimationSourcePathWrite(storedFilePath)
+      const result = await writeMediaUploadChunk(input, filePath, ext)
+      if (result.type === 'final' && !fs.existsSync(path.join(resolvedTargetDir, '.bak_session'))) {
+        await finishAnimationSourcePathWrite(writeTokens)
+      }
+      return result
+    }, { isCancelled: () => waitingBodyError !== null || isUploadBodyUnavailable(input.body) })
+  } catch (error) {
+    if (error instanceof ReplaceWriteBusyError) throw new MediaUploadError(error.message, 409)
+    if (error instanceof Error && 'status' in error && error.status === 409) {
+      throw new MediaUploadError(error.message, 409)
+    }
+    throw error
+  } finally {
+    input.body?.removeListener('error', onWaitingBodyError)
+  }
+}
+
+async function writeMediaUploadChunk(
+  input: MediaUploadChunkInput,
+  filePath: string,
+  ext: string
+): Promise<MediaUploadChunkResult> {
+  const { fileName, targetRelDir, chunkIndex, totalChunks, offset, body } = input
 
   if (!body) {
     throw new MediaUploadError('No body provided', 400)
@@ -116,15 +154,25 @@ export async function handleMediaUploadChunk(input: MediaUploadChunkInput): Prom
 
   const writeStream = fs.createWriteStream(filePath, writeOptions)
   await new Promise<void>((resolve, reject) => {
-    body.pipe(writeStream)
-
-    body.on('error', (err: any) => {
-      writeStream.close()
-      reject(err)
+    let finished = false
+    let failure: Error | null = null
+    body.on('error', (err: Error) => {
+      failure = err
+      writeStream.destroy(err)
+    })
+    body.on('close', () => {
+      const readable = body as NodeJS.ReadableStream & { readableEnded?: boolean }
+      if (!readable.readableEnded && !finished) writeStream.destroy(new MediaUploadError('Upload body closed before completion', 409))
     })
 
-    writeStream.on('error', (err: any) => reject(err))
-    writeStream.on('finish', () => resolve())
+    writeStream.on('error', (err: Error) => { failure = err })
+    writeStream.on('finish', () => { finished = true })
+    writeStream.on('close', () => {
+      if (failure) reject(new Error(failure.message, { cause: failure }))
+      else if (finished) resolve()
+      else reject(new MediaUploadError('Upload stream closed before completion', 409))
+    })
+    body.pipe(writeStream)
   })
 
   if (chunkIndex === totalChunks - 1) {
@@ -164,6 +212,12 @@ export async function handleMediaUploadChunk(input: MediaUploadChunkInput): Prom
   }
 
   return { type: 'chunk' }
+}
+
+function isUploadBodyUnavailable(body: NodeJS.ReadableStream | null): boolean {
+  if (!body) return true
+  const state = body as NodeJS.ReadableStream & { destroyed?: boolean; aborted?: boolean; readableAborted?: boolean }
+  return state.destroyed === true || state.aborted === true || state.readableAborted === true
 }
 
 export async function getMediaUploadStatus(input: MediaUploadStatusInput): Promise<MediaUploadStatus> {

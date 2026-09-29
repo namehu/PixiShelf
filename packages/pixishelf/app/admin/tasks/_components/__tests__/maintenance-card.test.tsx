@@ -9,14 +9,18 @@ vi.mock('../video-keyframe-section', () => ({ VideoKeyframeSection: () => null }
 vi.mock('../video-streaming-optimization-section', () => ({ VideoStreamingOptimizationSection: () => null }))
 
 import {
+  getActiveTaskActionLabel,
+  getJobSummary,
+  getStandaloneSummary,
   getStandaloneTaskActionLabel,
-  PixivAiDerivedTagSyncFeedback,
   requestPixivAiDerivedTagSync,
   requestStandaloneTaskTrigger,
-  shouldPollStandaloneTasks,
-  StandaloneTaskFeedback
+  shouldPollStandaloneTasks
 } from '../maintenance-card'
-import type { ScheduledTaskView } from '../task-ui'
+import { PixivAiDerivedTagSyncFeedback } from '../pixiv-ai-derived-tag-sync-feedback'
+import { AnimationScanLiveFeedback } from '../animation-scan-live-feedback'
+import { StandaloneTaskFeedback } from '../standalone-task-feedback'
+import { JobStatus, type JobView, type ScheduledTaskView } from '../task-ui'
 import { VideoProbeTaskActions } from '../video-probe-task-actions'
 
 afterEach(() => {
@@ -46,6 +50,23 @@ function task(overrides: Partial<ScheduledTaskView> = {}): ScheduledTaskView {
 }
 
 describe('maintenance standalone tasks', () => {
+  it('uses the exact active state in card summaries and disabled action labels', () => {
+    const cases = [
+      ['PENDING', '等待执行', '等待执行…'],
+      ['RUNNING', '正在执行', '识别中…'],
+      ['RETRY_WAIT', '等待重试', '等待重试…'],
+      ['PAUSING', '正在暂停', '正在暂停…'],
+      ['PAUSED', '已暂停', '任务已暂停'],
+      ['CANCELLING', '正在取消', '正在取消…']
+    ] as const
+
+    for (const [status, summary, action] of cases) {
+      expect(getJobSummary({ status, progress: 40 }, true)).toBe(`${summary} · 40%`)
+      expect(getStandaloneSummary(task({ lastJobStatus: status }))).toBe(summary)
+      expect(getActiveTaskActionLabel(status, '识别中…')).toBe(action)
+    }
+  })
+
   it('offers incremental probing and has-audio recalibration as distinct actions', () => {
     const onTrigger = vi.fn()
     const videoTask = task({ key: 'video_media_probe', type: 'VIDEO_MEDIA_PROBE', name: '视频媒体探测' })
@@ -134,8 +155,218 @@ describe('maintenance standalone tasks', () => {
   })
 
   it('keeps polling while a latest maintenance job is active and stops at terminal state', () => {
-    expect(shouldPollStandaloneTasks([task({ lastJobStatus: 'RUNNING' })])).toBe(true)
+    for (const status of ['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'] as const) {
+      expect(shouldPollStandaloneTasks([task({ lastJobStatus: status })])).toBe(true)
+    }
     expect(shouldPollStandaloneTasks([task({ lastJobStatus: 'COMPLETED' })])).toBe(false)
+  })
+
+  it('renders aggregate live animation metrics without marking them privacy-sensitive', () => {
+    const job: JobView = {
+      id: 'animation-1',
+      type: 'WEBP_ANIMATION_SCAN',
+      status: 'RUNNING',
+      progress: 40,
+      progressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'SCANNING',
+        initializedItems: 5_000,
+        totalItems: 4_000,
+        attemptedItems: 1_200,
+        succeededItems: 1_190,
+        failedItems: 10,
+        animatedItems: 80,
+        staticItems: 1_110,
+        remainingItems: 2_800,
+        activeProbes: 4,
+        concurrencyLimit: 4,
+        itemsPerSecond: 12.5,
+        etaSeconds: 224,
+        sampledAt: new Date().toISOString()
+      }
+    }
+
+    const view = render(<AnimationScanLiveFeedback job={job} />)
+
+    for (const value of ['1200 / 4000', '80', '1110', '10', '4 / 4', '12.5 items/s', '2800', '4 分钟']) {
+      expect(screen.getByText(value)).toBeTruthy()
+    }
+    expect(view.container.querySelector('[data-privacy-sensitive]')).toBeNull()
+  })
+
+  it('hides ETA while paused and keeps showing the last live sample age', () => {
+    render(
+      <AnimationScanLiveFeedback
+        job={{
+          id: 'animation-paused',
+          status: 'PAUSED',
+          progress: 40,
+          progressData: {
+            version: 1,
+            kind: 'animation-scan',
+            stage: 'SCANNING',
+            initializedItems: 100,
+            totalItems: 100,
+            attemptedItems: 40,
+            succeededItems: 40,
+            failedItems: 0,
+            animatedItems: 4,
+            staticItems: 36,
+            remainingItems: 60,
+            activeProbes: 0,
+            concurrencyLimit: 4,
+            itemsPerSecond: 4,
+            etaSeconds: 15,
+            sampledAt: new Date().toISOString()
+          }
+        }}
+      />
+    )
+
+    expect(screen.getByText('采样中')).toBeTruthy()
+    expect(screen.getByText('任务已暂停；最近进度更新在 0 秒前')).toBeTruthy()
+  })
+
+  it('distinguishes candidate preparation from content detection', () => {
+    render(
+      <AnimationScanLiveFeedback
+        job={{
+          id: 'animation-initializing',
+          status: 'RUNNING',
+          progress: 2,
+          progressData: {
+            version: 1,
+            kind: 'animation-scan',
+            stage: 'INITIALIZING',
+            initializedItems: 500,
+            totalItems: 2_000,
+            attemptedItems: 0,
+            succeededItems: 0,
+            failedItems: 0,
+            animatedItems: 0,
+            staticItems: 0,
+            remainingItems: 2_000,
+            activeProbes: 0,
+            concurrencyLimit: 4,
+            itemsPerSecond: 0,
+            etaSeconds: null,
+            sampledAt: new Date().toISOString()
+          }
+        }}
+      />
+    )
+
+    expect(screen.getByText('正在准备候选，已准备 500 个；尚未开始内容识别。')).toBeTruthy()
+  })
+
+  it('hides a stale ETA and identifies a stalled live sample', () => {
+    render(
+      <AnimationScanLiveFeedback
+        job={{
+          id: 'animation-stalled',
+          status: 'RUNNING',
+          progress: 40,
+          progressData: {
+            version: 1,
+            kind: 'animation-scan',
+            stage: 'SCANNING',
+            initializedItems: 100,
+            totalItems: 100,
+            attemptedItems: 40,
+            succeededItems: 40,
+            failedItems: 0,
+            animatedItems: 4,
+            staticItems: 36,
+            remainingItems: 60,
+            activeProbes: 0,
+            concurrencyLimit: 4,
+            itemsPerSecond: 4,
+            etaSeconds: 15,
+            sampledAt: new Date(Date.now() - 7_000).toISOString()
+          }
+        }}
+      />
+    )
+
+    expect(screen.getByText('采样中')).toBeTruthy()
+    expect(screen.getByText(/探测暂未推进；最近进度更新在 [78] 秒前/)).toBeTruthy()
+  })
+
+  it.each([0, 2])('shows a terminal animation summary without live telemetry (pending=%s)', (remainingItems) => {
+    render(
+      <AnimationScanLiveFeedback
+        job={{
+          id: 'animation-completed',
+          status: 'COMPLETED',
+          progress: 100,
+          progressData: {
+            version: 1,
+            kind: 'animation-scan',
+            stage: 'COMPLETED',
+            initializedItems: 0,
+            totalItems: 4,
+            attemptedItems: 4,
+            succeededItems: 4 - remainingItems,
+            failedItems: remainingItems,
+            animatedItems: 4 - remainingItems,
+            staticItems: 0,
+            remainingItems,
+            activeProbes: 0,
+            concurrencyLimit: 2,
+            itemsPerSecond: 1.4,
+            etaSeconds: null,
+            sampledAt: new Date(Date.now() - 4_821_000).toISOString()
+          }
+        }}
+      />
+    )
+
+    expect(
+      screen.getByText(
+        remainingItems > 0
+          ? `本轮识别已结束，仍有 ${remainingItems} 个待处理；再次执行将处理这些项目。`
+          : '本轮识别已结束，当前没有待处理图片。'
+      )
+    ).toBeTruthy()
+    expect(screen.getByText('待下次处理：')).toBeTruthy()
+    for (const label of [/活动探测/, /items\/s/, /预计剩余/, /采样中/, /秒前/]) {
+      expect(screen.queryByText(label)).toBeNull()
+    }
+  })
+
+  it('hides ETA after an animation task becomes terminal', () => {
+    render(
+      <AnimationScanLiveFeedback
+        job={{
+          id: 'animation-cancelled',
+          status: 'CANCELLED',
+          progress: 40,
+          progressData: {
+            version: 1,
+            kind: 'animation-scan',
+            stage: 'SCANNING',
+            initializedItems: 100,
+            totalItems: 100,
+            attemptedItems: 40,
+            succeededItems: 40,
+            failedItems: 0,
+            animatedItems: 4,
+            staticItems: 36,
+            remainingItems: 60,
+            activeProbes: 0,
+            concurrencyLimit: 4,
+            itemsPerSecond: 4,
+            etaSeconds: 15,
+            sampledAt: new Date().toISOString()
+          }
+        }}
+      />
+    )
+
+    expect(screen.queryByText('采样中')).toBeNull()
+    expect(screen.queryByText('15 秒')).toBeNull()
+    expect(screen.getByText('本轮识别已结束，已提交的结果已保留。')).toBeTruthy()
   })
 
   it('shows only the mode while an active task has no result yet', () => {
@@ -146,8 +377,36 @@ describe('maintenance standalone tasks', () => {
     )
 
     expect(screen.getByText('正式执行', { exact: false })).toBeTruthy()
-    expect(screen.getByText('运行中', { exact: false })).toBeTruthy()
+    expect(screen.getByText('正在执行', { exact: false })).toBeTruthy()
     expect(screen.queryByText('选中：', { exact: false })).toBeNull()
+  })
+
+  it.each([
+    ['PENDING', '等待执行'],
+    ['RUNNING', '正在执行'],
+    ['RETRY_WAIT', '等待重试'],
+    ['PAUSING', '正在暂停'],
+    ['PAUSED', '已暂停'],
+    ['CANCELLING', '正在取消'],
+    ['COMPLETED', '已完成'],
+    ['FAILED', '执行失败'],
+    ['CANCELLED', '已取消'],
+    ['SKIPPED', '已跳过']
+  ] as const)('renders the exact standalone %s state', (status, label) => {
+    render(
+      <StandaloneTaskFeedback
+        task={task({ lastJobId: `gc-${status}`, lastJobStatus: status, lastJobMode: 'FORMAL' })}
+      />
+    )
+
+    expect(screen.getByText(label, { exact: false })).toBeTruthy()
+  })
+
+  it('keeps skipped jobs visible in expanded task feedback', () => {
+    render(<JobStatus job={{ id: 'skipped-1', status: 'SKIPPED', progress: 0 }} isRunning={false} />)
+
+    expect(screen.getByText('已跳过')).toBeTruthy()
+    expect(screen.getByText('任务已跳过')).toBeTruthy()
   })
 
   it('shows mode and all GC result counters directly', () => {

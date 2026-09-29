@@ -1,5 +1,7 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
+import { recordJobDiagnostic } from '../job-diagnostics.js'
 import { randomUUID } from 'node:crypto'
-import type { WorkerCapability } from '@pixishelf/job-contracts'
+import type { AnimationScanProgressData, WorkerCapability } from '@pixishelf/job-contracts'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { PrismaClient } from '../../../pixishelf-db/src/index.js'
 import { MutableQueueClock } from '../queue-clock.js'
@@ -19,10 +21,15 @@ const describePostgres = databaseUrl ? describe : describe.skip
 const testPrefix = `queue-kernel-${randomUUID()}`
 const capabilities: WorkerCapability[] = [
   { jobType: 'SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
+  { jobType: 'WEBP_ANIMATION_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
   { jobType: 'VIDEO_MEDIA_PROBE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }
 ]
 const resolveCapabilities: WorkerCapability[] = [
-  { jobType: 'ARCHIVE_RESOLVE_ITEM', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [1] }
+  {
+    jobType: 'ARCHIVE_RESOLVE_ITEM',
+    executionLane: 'ARCHIVE_RESOLVE',
+    definitionVersions: [1]
+  }
 ]
 const archiveWriterCapabilities: WorkerCapability[] = [
   { jobType: 'ARCHIVE_IMPORT', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] },
@@ -35,6 +42,9 @@ describePostgres('PostgresQueueRepository integration', () => {
 
   beforeEach(async () => {
     clock.set(new Date('2026-08-13T18:00:00.000Z'))
+    await client().archiveUploaderScanItem.deleteMany({ where: { run: { id: { startsWith: testPrefix } } } })
+    await client().archiveUploaderScanRun.deleteMany({ where: { id: { startsWith: testPrefix } } })
+    await client().archiveUploaderSource.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await client().archiveIntakeItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await client().archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await client().jobResourceLease.deleteMany({
@@ -50,6 +60,9 @@ describePostgres('PostgresQueueRepository integration', () => {
 
   afterAll(async () => {
     if (!prisma) return
+    await prisma.archiveUploaderScanItem.deleteMany({ where: { run: { id: { startsWith: testPrefix } } } })
+    await prisma.archiveUploaderScanRun.deleteMany({ where: { id: { startsWith: testPrefix } } })
+    await prisma.archiveUploaderSource.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.archiveIntakeItem.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.jobResourceLease.deleteMany({
@@ -58,6 +71,161 @@ describePostgres('PostgresQueueRepository integration', () => {
     await prisma.systemJob.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.systemJob.deleteMany({ where: { idempotencyKey: { startsWith: testPrefix } } })
     await prisma.$disconnect()
+  })
+
+  it('freezes diagnostics, deduplicates items and separates claims even when attempt is preserved', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const first = (await repository.claim('diagnostic-worker', capabilities))!
+    expect(first.currentDiagnosticExecutionId).toBeTruthy()
+    expect(first.currentDiagnosticExecutionId).not.toBe(first.executionToken)
+    await repository.withFencedExecutionTransaction(fence(first), async (scope) => {
+      const input = { key: 'item:1', scope: 'ITEM' as const, code: 'ENOENT' }
+      await recordJobDiagnostic(scope.transaction, id, { ...input, origin: 'INHERITED' }, clock.now())
+      await recordJobDiagnostic(scope.transaction, id, input, clock.now())
+      await recordJobDiagnostic(scope.transaction, id, input, clock.now())
+      await scope.retry({
+        availableAt: clock.now(),
+        errorCode: 'INTERNAL_ERROR',
+        error: 'yield',
+        preserveAttempt: true,
+        schedulingYield: true
+      })
+    })
+    const report = await client().systemJobDiagnosticReport.findUniqueOrThrow({
+      where: { id: first.currentDiagnosticExecutionId! }
+    })
+    expect(report).toMatchObject({
+      status: 'CLOSED',
+      entryCount: 1,
+      itemCount: 1,
+      currentCount: 1,
+      inheritedCount: 0,
+      taskFailure: false
+    })
+    expect(await client().systemJob.findUniqueOrThrow({
+      where: { id }, select: { status: true, attempt: true, errorCode: true, error: true }
+    })).toEqual({ status: 'RETRY_WAIT', attempt: 0, errorCode: null, error: null })
+    expect(await client().systemJobEvent.findFirstOrThrow({
+      where: { jobId: id, type: 'job.retry_scheduled' }, orderBy: { id: 'desc' }
+    })).toMatchObject({ level: 'INFO', data: { attemptPreserved: true, reason: 'SCHEDULING_YIELD' } })
+    const second = (await repository.claim('diagnostic-worker', capabilities))!
+    expect(second.attempt).toBe(first.attempt)
+    expect(second.currentDiagnosticExecutionId).not.toBe(first.currentDiagnosticExecutionId)
+    await repository.fail({ ...fence(second), errorCode: 'INTERNAL_ERROR', error: 'failed' })
+    expect(await client().systemJobDiagnosticReport.count({ where: { jobId: id } })).toBe(2)
+    expect(await client().systemJobDiagnosticItem.count({ where: { reportId: report.id } })).toBe(1)
+  })
+
+  it('records RESOURCE_BUSY when it is a real retry rather than explicit scheduling yield', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const first = (await repository.claim('diagnostic-worker', capabilities))!
+    await repository.retry({
+      ...fence(first),
+      availableAt: clock.now(),
+      errorCode: 'RESOURCE_BUSY',
+      error: 'resource failure'
+    })
+    const second = (await repository.claim('diagnostic-worker', capabilities))!
+    await repository.withFencedExecutionTransaction(fence(second), async (scope) => {
+      await scope.retry({ availableAt: clock.now(), errorCode: 'RESOURCE_BUSY', error: 'resource failure' })
+    })
+    const reports = await client().systemJobDiagnosticReport.findMany({
+      where: { jobId: id },
+      include: { items: true }
+    })
+    expect(reports).toHaveLength(2)
+    expect(reports.every((report) => report.taskFailure && report.items[0]?.code === 'RESOURCE_BUSY')).toBe(true)
+  })
+
+  it('does not erase a real preserved-attempt RESOURCE_BUSY error', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('diagnostic-worker', capabilities))!
+    await repository.withFencedExecutionTransaction(fence(claimed), async (scope) => {
+      await scope.retry({
+        availableAt: clock.now(), errorCode: 'RESOURCE_BUSY', error: 'provider unavailable', preserveAttempt: true
+      })
+    })
+    expect(await client().systemJob.findUniqueOrThrow({
+      where: { id }, select: { errorCode: true, error: true, attempt: true }
+    })).toEqual({ errorCode: 'RESOURCE_BUSY', error: 'provider unavailable', attempt: 0 })
+    expect(await client().systemJobDiagnosticItem.findFirstOrThrow({
+      where: { report: { jobId: id }, scope: 'TASK' }
+    })).toMatchObject({ code: 'RESOURCE_BUSY' })
+  })
+
+  it('persists structured diagnostics without reversing their root cause', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const job = (await repository.claim('diagnostic-worker', capabilities))!
+    const diagnostic = extractJobDiagnostic(
+      { code: 'EXTERNAL_PROCESS_FAILED', cause: { code: 'ETIMEDOUT', message: 'connect timeout' } },
+      { code: 'EXTERNAL_PROCESS_FAILED' }
+    )
+    await repository.withFencedExecutionTransaction(fence(job), (scope) =>
+      scope.fail({ errorCode: 'EXTERNAL_PROCESS_FAILED', error: 'failed', diagnostic, diagnosticComplete: false })
+    )
+    expect((await client().systemJobDiagnosticReport.findFirstOrThrow({ where: { jobId: id } })).complete).toBe(false)
+    const item = await client().systemJobDiagnosticItem.findFirstOrThrow({ where: { report: { jobId: id } } })
+    expect(item.reasonKey).toBe('errno:ETIMEDOUT')
+    expect(item.evidence).toEqual(diagnostic.evidence)
+  })
+
+  it('rejects a stale diagnostic callback after a new claim and marks shutdown capture incomplete', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const first = (await repository.claim('diagnostic-worker', capabilities))!
+    await repository.withFencedExecutionTransaction(fence(first), async (scope) => {
+      await recordJobDiagnostic(
+        scope.transaction,
+        id,
+        { key: 'item:1', scope: 'ITEM', error: new Error('missing metadata') },
+        clock.now(),
+        undefined,
+        first.currentDiagnosticExecutionId!
+      )
+      await scope.release()
+    })
+    expect(
+      (
+        await client().systemJobDiagnosticReport.findUniqueOrThrow({
+          where: { id: first.currentDiagnosticExecutionId! }
+        })
+      ).complete
+    ).toBe(false)
+    const second = (await repository.claim('diagnostic-worker', capabilities))!
+    await expect(
+      repository.withFencedMutationTransaction(fence(second), (tx) =>
+        recordJobDiagnostic(tx, id, { key: 'stale' }, clock.now(), undefined, first.currentDiagnosticExecutionId!)
+      )
+    ).rejects.toThrow('Diagnostic execution identity was superseded')
+    expect(
+      await client().systemJobDiagnosticReport.count({ where: { id: second.currentDiagnosticExecutionId! } })
+    ).toBe(0)
+    await repository.complete(fence(second))
+  })
+
+  it('rolls diagnostic inserts back when the fence expires during domain mutation', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const job = (await repository.claim('diagnostic-worker', capabilities))!
+    await expect(
+      repository.withFencedExecutionTransaction(fence(job), async (scope) => {
+        await recordJobDiagnostic(scope.transaction, id, { key: 'item:1', scope: 'ITEM', code: 'ENOENT' }, clock.now())
+        clock.set(new Date(clock.now().getTime() + 60_001))
+        await scope.complete()
+      })
+    ).rejects.toThrow(JobExecutionFenceError)
+    expect(await client().systemJobDiagnosticReport.count({ where: { jobId: id } })).toBe(0)
+    await repository.recoverExpiredExecution('BACKGROUND_WRITER')
+    const report = await client().systemJobDiagnosticReport.findFirstOrThrow({
+      where: { jobId: id },
+      include: { items: true }
+    })
+    expect(report.complete).toBe(false)
+    expect(report.items.map((item) => item.code)).toEqual(['WORKER_LEASE_EXPIRED'])
   })
 
   it('allows exactly one winner across ten concurrent claims', async () => {
@@ -267,6 +435,88 @@ describePostgres('PostgresQueueRepository integration', () => {
     if (status === 'RETRY_WAIT') expect(recovered.queueOrder).toBeGreaterThan(queueOrderBefore)
     else expect(recovered.finishedAt).toEqual(clock.now())
   })
+
+  it.each([
+    ['ARCHIVE_UPLOADER_SCAN', 1],
+    ['ARCHIVE_SEARCH_SCAN', 1],
+    ['ARCHIVE_SEARCH_SCAN', 2],
+    ['ARCHIVE_SEARCH_SCAN', 3]
+  ] as const)(
+    'recovers %s v%s before its domain run is claimed without advancing progress',
+    async (jobType, definitionVersion) => {
+      const titleQuery = { keyword: 'query', matchMode: 'CONTAINS', uploaderUid: null }
+      const jobId = await seedJob({
+        type: jobType,
+        definitionVersion,
+        executionLane: 'ARCHIVE_RESOLVE',
+        effectivePriority: 20,
+        maxAttempts: 2
+      })
+      const sourceId = `${testPrefix}-uploader-source-${randomUUID()}`
+      const runId = `${testPrefix}-uploader-run-${randomUUID()}`
+      await client().archiveUploaderSource.create({
+        data: {
+          id: sourceId,
+          providerKey: 'e-hentai',
+          ...(jobType === 'ARCHIVE_SEARCH_SCAN'
+            ? { sourceKind: 'TITLE_QUERY' as const, titleQuery, queryKey: randomUUID() }
+            : { identityKind: 'UID' as const, identityValue: '123', normalizedIdentity: '123' }),
+          displayName: 'UID 123',
+          incrementalCursor: 'latest-cursor',
+          historyCursor: 'history-cursor',
+          runs: {
+            create: {
+              id: runId,
+              systemJobId: jobId,
+              mode: 'LATEST',
+              ...(jobType === 'ARCHIVE_SEARCH_SCAN'
+                ? { titleQuery }
+                : { searchIdentityKind: 'UID' as const, searchIdentityValue: '123' }),
+              cursorBefore: 'latest-cursor'
+            }
+          }
+        }
+      })
+      const repository = createRepository(clock, 1_000)
+
+      if (definitionVersion > 1) {
+        await expect(
+          repository.claim('old-search-worker', [
+            { jobType, executionLane: 'ARCHIVE_RESOLVE', definitionVersions: definitionVersion === 3 ? [1, 2] : [1] }
+          ])
+        ).resolves.toBeNull()
+      }
+
+      await expect(
+        repository.claim('queue-kernel-uploader-recovery', [
+          { jobType, executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [definitionVersion] }
+        ])
+      ).resolves.toMatchObject({
+        id: jobId
+      })
+      clock.advance(1_001)
+      await expect(repository.recoverExpiredExecution('ARCHIVE_RESOLVE')).resolves.toMatchObject({
+        jobId,
+        status: 'RETRY_WAIT'
+      })
+
+      await expect(client().archiveUploaderScanRun.findUniqueOrThrow({ where: { id: runId } })).resolves.toMatchObject({
+        status: 'RETRY_WAIT',
+        errorCode: 'WORKER_LEASE_EXPIRED',
+        cursorBefore: 'latest-cursor',
+        cursorAfter: null
+      })
+      await expect(
+        client().archiveUploaderSource.findUniqueOrThrow({ where: { id: sourceId } })
+      ).resolves.toMatchObject({
+        latestSeenExternalId: null,
+        incrementalCursor: 'latest-cursor',
+        historyCursor: 'history-cursor',
+        lastRunId: runId,
+        lastErrorCode: 'WORKER_LEASE_EXPIRED'
+      })
+    }
+  )
 
   it.each([
     [2, 'RETRY_WAIT', 'PENDING', null],
@@ -582,24 +832,43 @@ describePostgres('PostgresQueueRepository integration', () => {
   })
 
   it('persists progress and stage events only under the active execution fence', async () => {
-    const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const jobId = await seedJob({ type: 'WEBP_ANIMATION_SCAN', effectivePriority: 10 })
     const repository = createRepository(clock)
     const claimed = (await repository.claim('queue-kernel-progress-worker', capabilities))!
+    const progressData: AnimationScanProgressData = {
+      version: 1,
+      kind: 'animation-scan',
+      stage: 'SCANNING',
+      initializedItems: 100,
+      totalItems: 100,
+      attemptedItems: 35,
+      succeededItems: 34,
+      failedItems: 1,
+      animatedItems: 10,
+      staticItems: 24,
+      remainingItems: 65,
+      activeProbes: 4,
+      concurrencyLimit: 4,
+      itemsPerSecond: 3.5,
+      etaSeconds: 19,
+      sampledAt: '2026-08-13T18:00:00.000Z'
+    }
 
     await repository.updateProgress({
       ...fence(claimed),
       progress: 35,
       stage: 'discovering',
       message: 'Discovered the first batch',
-      data: { batch: 1 }
+      data: { batch: 1 },
+      progressData
     })
 
     expect(
       await client().systemJob.findUniqueOrThrow({
         where: { id: jobId },
-        select: { progress: true, stage: true, message: true }
+        select: { progress: true, progressData: true, stage: true, message: true }
       })
-    ).toEqual({ progress: 35, stage: 'discovering', message: 'Discovered the first batch' })
+    ).toEqual({ progress: 35, progressData, stage: 'discovering', message: 'Discovered the first batch' })
     expect(
       await client().systemJobEvent.findFirstOrThrow({
         where: { jobId, type: 'job.stage_changed' },
@@ -608,9 +877,125 @@ describePostgres('PostgresQueueRepository integration', () => {
     ).toEqual({
       progress: 35,
       stage: 'discovering',
-      data: { progress: 35, stage: 'discovering', data: { batch: 1 } }
+      data: { progress: 35, stage: 'discovering', progressData, data: { batch: 1 } }
     })
+    await repository.updateProgress({
+      ...fence(claimed),
+      progress: 36,
+      stage: 'discovering',
+      progressData: { ...progressData, attemptedItems: 36, succeededItems: 35, remainingItems: 64 }
+    })
+    expect(await client().systemJobEvent.count({ where: { jobId, type: 'job.stage_changed' } })).toBe(1)
+    expect(await client().systemJobEvent.count({ where: { jobId, type: 'job.progress' } })).toBe(1)
     await repository.complete(fence(claimed))
+  })
+
+  it('commits domain state, aggregate checkpoint, and its cursor event atomically', async () => {
+    const jobId = await seedJob({ type: 'WEBP_ANIMATION_SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const claimed = (await repository.claim('queue-kernel-atomic-progress-worker', capabilities))!
+    const progressData: AnimationScanProgressData = {
+      version: 1,
+      kind: 'animation-scan',
+      stage: 'SCANNING',
+      initializedItems: 100,
+      totalItems: 100,
+      attemptedItems: 25,
+      succeededItems: 24,
+      failedItems: 1,
+      animatedItems: 10,
+      staticItems: 14,
+      remainingItems: 76,
+      activeProbes: 0,
+      concurrencyLimit: 4,
+      itemsPerSecond: 3,
+      etaSeconds: 26,
+      sampledAt: '2026-08-13T18:00:00.000Z'
+    }
+
+    await expect(
+      repository.withFencedProgressTransaction(fence(claimed), async (transaction) => {
+        await transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'domain batch committed'
+        )
+        return { result: 'committed', update: { progress: 28, progressData } }
+      })
+    ).resolves.toMatchObject({ result: 'committed' })
+
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { message: true, progress: true, progressData: true }
+      })
+    ).toEqual({ message: 'domain batch committed', progress: 28, progressData })
+    expect(await client().systemJobEvent.count({ where: { jobId, type: 'job.progress' } })).toBe(1)
+    expect(
+      await client().systemJobEvent.findFirstOrThrow({
+        where: { jobId, type: 'job.progress' },
+        select: { progress: true, data: true }
+      })
+    ).toEqual({ progress: 28, data: { progress: 28, progressData } })
+
+    await expect(
+      repository.withFencedProgressTransaction(fence(claimed), async (transaction) => {
+        await transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'must roll back'
+        )
+        throw new Error('simulated crash inside atomic checkpoint')
+      })
+    ).rejects.toThrow('simulated crash')
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).message).toBe(
+      'domain batch committed'
+    )
+    await repository.complete(fence(claimed))
+  })
+
+  it('rolls back both domain state and aggregate progress when the lease expires before checkpoint commit', async () => {
+    const jobId = await seedJob({ type: 'WEBP_ANIMATION_SCAN', effectivePriority: 10, maxAttempts: 3 })
+    const repository = createRepository(clock, 1_000)
+    const claimed = (await repository.claim('queue-kernel-expired-progress-worker', capabilities))!
+    const progressData: AnimationScanProgressData = {
+      version: 1,
+      kind: 'animation-scan',
+      stage: 'SCANNING',
+      initializedItems: 1,
+      totalItems: 1,
+      attemptedItems: 1,
+      succeededItems: 1,
+      failedItems: 0,
+      animatedItems: 1,
+      staticItems: 0,
+      remainingItems: 0,
+      activeProbes: 0,
+      concurrencyLimit: 1,
+      itemsPerSecond: 1,
+      etaSeconds: null,
+      sampledAt: '2026-08-13T18:00:00.000Z'
+    }
+
+    await expect(
+      repository.withFencedProgressTransaction(fence(claimed), async (transaction) => {
+        await transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "message" = $2 WHERE "id" = $1`,
+          jobId,
+          'expired domain batch'
+        )
+        clock.advance(1_001)
+        return { result: undefined, update: { progress: 99, progressData } }
+      })
+    ).rejects.toBeInstanceOf(JobExecutionFenceError)
+
+    expect(
+      await client().systemJob.findUniqueOrThrow({
+        where: { id: jobId },
+        select: { message: true, progress: true, progressData: true }
+      })
+    ).toEqual({ message: null, progress: 0, progressData: null })
+    expect(await repository.recoverExpiredExecution()).toMatchObject({ jobId, status: 'RETRY_WAIT' })
   })
 
   it('redacts event messages and nested event data before persistence', async () => {

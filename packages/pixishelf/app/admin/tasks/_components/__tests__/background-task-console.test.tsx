@@ -34,6 +34,12 @@ const mocks = vi.hoisted(() => ({
     isPolling: false,
     refetch: vi.fn()
   },
+  clearSelection: vi.fn(),
+  historyEnabled: vi.fn(),
+  detailRequested: vi.fn(),
+  failuresEnabled: vi.fn(),
+  changeFilters: vi.fn(),
+  desktop: true,
   confirm: vi.fn()
 }))
 
@@ -46,18 +52,59 @@ vi.mock('@/lib/trpc', () => ({
 }))
 
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: mocks.confirm }))
-vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => true }))
+vi.mock('../background-job-diagnostics', () => ({
+  BackgroundJobDiagnostics: ({ job }: { job: JobDto }) => (
+    <section aria-label="失败诊断">
+      <p>{job.errorCode}</p>
+      <p className="whitespace-pre-wrap">{job.error}</p>
+    </section>
+  )
+}))
+vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.desktop }))
+
+vi.mock('../use-background-history', () => ({
+  useBackgroundHistory: (enabled: boolean) => {
+    mocks.historyEnabled(enabled)
+    return { browsing: { current: { offset: 0 } }, changeFilters: mocks.changeFilters }
+  }
+}))
+vi.mock('../use-background-failures', () => ({
+  useBackgroundFailures: (enabled: boolean) => {
+    mocks.failuresEnabled(enabled)
+    return { browsing: { current: { offset: 0 } }, refresh: vi.fn(), clearSelection: mocks.clearSelection }
+  }
+}))
+vi.mock('../background-failure-list', () => ({
+  BackgroundFailureList: ({
+    totalCount,
+    onViewHistory,
+    onSelectJob
+  }: {
+    totalCount: number
+    onViewHistory: () => void
+    onSelectJob: (id: string) => void
+  }) => (
+    <div>
+      待处理失败（{totalCount}）<button onClick={onViewHistory}>查看失败历史</button>
+      <button onClick={() => onSelectJob('old-failure')}>查看旧失败</button>
+    </div>
+  )
+}))
+vi.mock('../background-history-list', () => ({ BackgroundHistoryList: () => <div>执行记录</div> }))
 
 vi.mock('../use-background-dashboard', () => ({
   useBackgroundDashboard: () => mocks.dashboardQuery,
-  useBackgroundJobDetail: () => ({
-    data: null,
-    isPending: false,
-    isFetching: false,
-    isError: false,
-    error: null,
-    refetch: vi.fn()
-  }),
+  useBackgroundJobDetail: (id: string | null) => {
+    mocks.detailRequested(id)
+    return {
+      data: null,
+      isPending: false,
+      isFetching: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn()
+    }
+  },
   useBackgroundJobEvents: () => mocks.eventQuery,
   useBackgroundJobControls: () => createControls()
 }))
@@ -89,6 +136,7 @@ function createJob(status: JobStatus = 'PENDING', id = `job-${status.toLowerCase
     idempotencyKey: null,
     payload: { path: '/selectable/video.mp4' },
     progress: status === 'COMPLETED' ? 100 : 42,
+    progressData: null,
     stage: 'probe',
     message: '正在处理 /selectable/video.mp4',
     result: null,
@@ -183,11 +231,25 @@ function createControls(): BackgroundControlsView {
     resume: mutation(),
     retry: mutation(),
     acknowledge: mutation(),
+    acknowledgeMany: {
+      ...mutation(),
+      mutateAsync: vi.fn().mockResolvedValue({ acknowledgedCount: 1, skippedCount: 0 })
+    },
     priority: mutation()
   }
 }
 
 describe('background task console', () => {
+  it('opens the requested job from a deletion report link', () => {
+    window.history.replaceState(null, '', '/admin/tasks?jobId=archive-trash-42')
+    try {
+      render(<BackgroundTaskConsole />)
+      expect(mocks.detailRequested).toHaveBeenCalledWith('archive-trash-42')
+      expect(screen.getByRole('dialog')).toBeTruthy()
+    } finally {
+      window.history.replaceState(null, '', '/')
+    }
+  })
   beforeEach(() => {
     mocks.dashboardQuery.data = undefined
     mocks.dashboardQuery.isPending = false
@@ -201,6 +263,9 @@ describe('background task console', () => {
     mocks.eventQuery.error = null
     mocks.eventQuery.isPolling = false
     mocks.eventQuery.refetch.mockReset()
+    mocks.desktop = true
+    mocks.clearSelection.mockClear()
+    mocks.changeFilters.mockClear()
     mocks.confirm.mockReset()
   })
 
@@ -221,7 +286,6 @@ describe('background task console', () => {
     )
 
     expect(screen.getByText('当前没有任务占用执行槽，队列中有 0 项等待。')).toBeTruthy()
-    expect(screen.getByText('还没有后台任务记录。')).toBeTruthy()
     expect(screen.queryByText('已完成')).toBeNull()
   })
 
@@ -261,11 +325,21 @@ describe('background task console', () => {
       type: 'SCAN' as const,
       payload: { mode: 'ARTWORK_RESCAN', artworkId: 42 }
     }
+    const uploaderScan = {
+      ...createJob('FAILED', 'job-uploader-scan'),
+      type: 'ARCHIVE_UPLOADER_SCAN' as const,
+      executionLane: 'ARCHIVE_RESOLVE' as const,
+      payload: { scanRunId: 'uploader-run-1' }
+    }
 
     expect(canRetryJob(historicalFull)).toBe(false)
     expect(canRetryJob(clientListScan)).toBe(false)
     expect(canRetryJob(artworkRescan)).toBe(false)
     expect(canRetryJob(ordinaryScan)).toBe(true)
+    expect(canRetryJob(uploaderScan)).toBe(false)
+    expect(canRetryJob({ ...uploaderScan, type: 'ARCHIVE_SEARCH_SCAN' })).toBe(false)
+    expect(formatBackgroundJobType('ARCHIVE_SEARCH_SCAN')).toBe('标题关键词扫描')
+    expect(formatBackgroundJobType('JOB_EVENT_RETENTION_CLEANUP')).toBe('后台任务事件清理')
     expect(canRetryJob(createJob('FAILED'))).toBe(true)
   })
 
@@ -363,13 +437,14 @@ describe('background task console', () => {
       />
     )
 
-    expect(screen.getByText('PRECONDITION_FAILED：任务需要处理后重试')).toBeTruthy()
+    expect(screen.getByRole('region', { name: '失败诊断' })).toBeTruthy()
+    expect(screen.getByText('PRECONDITION_FAILED')).toBeTruthy()
     const details = screen.getByText(/artist\/100\/100-meta\.txt/)
     expect(details.className).toContain('whitespace-pre-wrap')
     expect(details.textContent).toContain('artist/200/200-meta.txt [METADATA_INVALID]')
   })
 
-  it('shows the single execution slot, worker health, and native keyboard-operable recent jobs', () => {
+  it('shows the single execution slot and worker health and returns from detail', () => {
     const running = createJob('RUNNING')
     const selectJob = vi.fn()
     const dashboard = createDashboard({
@@ -392,12 +467,6 @@ describe('background task console', () => {
 
     expect(screen.getByText('唯一执行槽')).toBeTruthy()
     expect(screen.getAllByText('1 个可用').length).toBeGreaterThan(0)
-    const recentButton = screen.getByRole('button', { name: /视频媒体探测.*执行中/ })
-    recentButton.focus()
-    expect(document.activeElement).toBe(recentButton)
-    expect(recentButton.tagName).toBe('BUTTON')
-    fireEvent.click(recentButton)
-    expect(selectJob).toHaveBeenCalledWith(running.id)
 
     rerender(
       <BackgroundTaskConsoleView
@@ -437,10 +506,9 @@ describe('background task console', () => {
     )
 
     expect(screen.getByText('补全批次')).toBeTruthy()
-    expect(screen.getAllByText('批次执行中')).toHaveLength(2)
+    expect(screen.getAllByText('批次执行中')).toHaveLength(1)
     expect(screen.getByText('已处理 3/10，剩余 7')).toBeTruthy()
-    expect(screen.getByText('当前：准备查询标签 間ジグレ')).toBeTruthy()
-    expect(screen.getByText('已处理 3/10 · 剩余 7')).toBeTruthy()
+    expect(screen.getByText('准备查询标签 間ジグレ').closest('p')?.textContent).toBe('当前：准备查询标签 間ジグレ')
     expect(screen.queryByText('已完成')).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: '查看当前子任务' }))
@@ -514,6 +582,48 @@ describe('background task console', () => {
     expect(screen.getByText('开始执行')).toBeTruthy()
     expect(screen.getByText('进度更新')).toBeTruthy()
     expect(screen.getAllByText('/selectable/video.mp4').length).toBeGreaterThan(0)
+  })
+
+  it('renders aggregate animation progress in the background job detail', () => {
+    const job: JobDto = {
+      ...createJob('RUNNING', 'animation-running'),
+      type: 'WEBP_ANIMATION_SCAN',
+      progressData: {
+        version: 1,
+        kind: 'animation-scan',
+        stage: 'SCANNING',
+        initializedItems: 4_000,
+        totalItems: 4_000,
+        attemptedItems: 1_200,
+        succeededItems: 1_190,
+        failedItems: 10,
+        animatedItems: 80,
+        staticItems: 1_110,
+        remainingItems: 2_810,
+        activeProbes: 4,
+        concurrencyLimit: 4,
+        itemsPerSecond: 12.5,
+        etaSeconds: 225,
+        sampledAt: new Date().toISOString()
+      }
+    }
+
+    const view = render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard({ runningJob: job, recentJobs: [job] })}
+        selectedJob={job}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+
+    for (const value of ['1200 / 4000', '80', '1110', '10', '4 / 4', '12.5 items/s', '2810', '4 分钟']) {
+      expect(screen.getByText(value)).toBeTruthy()
+    }
+    expect(view.container.querySelector('[data-privacy-sensitive]')).not.toBeNull()
   })
 
   it('segments event DOM above 50 while keeping earlier events available on demand', () => {
@@ -638,36 +748,40 @@ describe('background task console', () => {
 
     expect(dock.isConnected).toBe(true)
     expect(dock.textContent).toContain('1 项失败')
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByText('待处理失败（1）')).toBeNull()
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '失败（1）' }), { button: 0 })
     expect(screen.getByText('待处理失败（1）')).toBeTruthy()
-    expect(screen.getByRole('button', { name: '忽略提醒' })).toBeTruthy()
+    expect(mocks.historyEnabled).toHaveBeenLastCalledWith(false)
+    expect(mocks.failuresEnabled).toHaveBeenLastCalledWith(true)
   })
 
-  it('offers per-job failure acknowledgement without duplicating it in recent records', () => {
-    const failed = createJob('FAILED', 'job-attention-action')
-    const controls = createControls()
-    const selectJob = vi.fn()
-    render(
-      <BackgroundTaskConsoleView
-        dashboard={createDashboard({
-          unacknowledgedFailureCount: 12,
-          unacknowledgedFailures: [failed],
-          recentJobs: [failed]
-        })}
-        selectedJob={null}
-        selectedJobLoading={false}
-        onSelectJob={selectJob}
-        onRefresh={vi.fn()}
-        refreshing={false}
-        controls={controls}
-      />
-    )
+  it('returns to tasks after closing and routes failure history without changing notification state', () => {
+    mocks.dashboardQuery.data = createDashboard({ unacknowledgedFailureCount: 2 })
+    render(<BackgroundTaskConsole />)
+    fireEvent.click(screen.getByRole('button', { name: '2 项失败' }))
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '失败（2）' }), { button: 0 })
+    fireEvent.click(screen.getByRole('button', { name: '查看失败历史' }))
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+    expect(mocks.changeFilters).toHaveBeenCalledWith(expect.objectContaining({ statuses: ['FAILED'], search: '' }))
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '失败（2）' }), { button: 0 })
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(mocks.clearSelection).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: '2 项失败' }))
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+  })
 
-    expect(screen.getByText('当前显示最近 1 项；逐条处理后会继续载入更早的失败。')).toBeTruthy()
-    expect(screen.getAllByText('视频媒体探测与封面生成')).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: '查看详情' }))
-    expect(selectJob).toHaveBeenCalledWith(failed.id)
-    fireEvent.click(screen.getByRole('button', { name: '忽略提醒' }))
-    expect(controls.acknowledge.mutate).toHaveBeenCalledWith({ jobId: failed.id })
+  it('offers the same task and failure tabs in the mobile drawer without switching on new failures', () => {
+    mocks.desktop = false
+    mocks.dashboardQuery.data = createDashboard({ unacknowledgedFailureCount: 1 })
+    const { rerender } = render(<BackgroundTaskConsole />)
+    fireEvent.click(screen.getByRole('button', { name: '1 项失败' }))
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+    mocks.dashboardQuery.data = createDashboard({ unacknowledgedFailureCount: 3 })
+    rerender(<BackgroundTaskConsole />)
+    expect(screen.getByRole('tab', { name: '任务' }).getAttribute('aria-selected')).toBe('true')
+    fireEvent.mouseDown(screen.getByRole('tab', { name: '失败（3）' }), { button: 0 })
+    expect(screen.getByText('待处理失败（3）')).toBeTruthy()
   })
 
   it('shows the acknowledgement action in an unacknowledged failed job detail', () => {
@@ -682,6 +796,7 @@ describe('background task console', () => {
         })}
         selectedJobId={failed.id}
         selectedJob={failed}
+        failureNeedsAttention
         selectedJobLoading={false}
         onSelectJob={vi.fn()}
         onRefresh={vi.fn()}
@@ -710,7 +825,9 @@ describe('background task console', () => {
         onRetryDetail={retry}
       />
     )
-    expect(screen.getByText('任务详情刷新失败：detail unavailable')).toBeTruthy()
+    expect(screen.getByText('detail unavailable').closest('p')?.textContent).toBe(
+      '任务详情刷新失败：detail unavailable'
+    )
     expect(screen.getByText(/当前显示最近一次队列快照/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '重试任务详情' }))
     expect(retry).toHaveBeenCalledOnce()
@@ -733,7 +850,9 @@ describe('background task console', () => {
       />
     )
 
-    expect(screen.getByText('事件读取失败：event stream unavailable')).toBeTruthy()
+    expect(screen.getByText('event stream unavailable').closest('p')?.textContent).toBe(
+      '事件读取失败：event stream unavailable'
+    )
     fireEvent.click(screen.getByRole('button', { name: '重试事件查询' }))
     expect(mocks.eventQuery.refetch).toHaveBeenCalledOnce()
 

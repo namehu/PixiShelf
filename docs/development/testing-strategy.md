@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 的测试分层、变更验证矩阵、CI 实际覆盖和已知质量缺口
-last-verified: 2026-09-01
+last-verified: 2026-09-03
 sources:
   - package.json
   - packages/*/package.json
@@ -41,7 +41,7 @@ sources:
 | 构建验证           | Next.js、Worker、Extension build                            | 编译器/打包器               | 生产依赖、模块边界和产物可构建              |
 | 部署验证           | Compose config、Worker health/capability、migration status  | Docker/PostgreSQL           | 实际运行拓扑与启动门禁                      |
 
-当前没有 Playwright/Cypress 配置，也没有由 CI 驱动的真实浏览器端到端测试。不能把 `.e2e.test.tsx` 的存在解释为已经覆盖浏览器、反向代理、登录 Cookie 和真实媒体播放链路。
+`packages/pixishelf-webp-player` 现有 Playwright 测试使用真实 Worker、WASM 和分块 HTTP，CI 用 Chromium、本地 Windows 用 Edge。它不覆盖业务登录与反向代理。主应用 `.e2e.test.tsx` 仍是 jsdom，不能解释为已覆盖真实浏览器媒体链路。
 
 ## 标准命令
 
@@ -67,6 +67,10 @@ pnpm --filter @pixishelf/next build
 pnpm --filter @pixishelf/next exec vitest run <test-path>
 ```
 
+新增或修改测试后仍须单独运行主应用 `typecheck`。Vitest 默认不执行 TypeScript 类型检查，当前 Next.js
+生产构建也会过滤 `__tests__`、`__mocks__` 和 `.test`/`.spec` 文件的类型诊断；测试运行与构建均通过，不能
+替代 CI 使用的 `next typegen && tsc --noEmit`，尤其不能证明测试代码满足 `noUncheckedIndexedAccess`。
+
 ### 数据库与 Worker 依赖链
 
 ```bash
@@ -79,6 +83,7 @@ pnpm --filter @pixishelf/worker... build
 ```
 
 `@pixishelf/worker...` 包含 Worker 及其 workspace 依赖，覆盖 DB、job-contracts、job-runtime 和 job-executors 的相应脚本。
+Pixiv 代理传输集成测试使用本机 HTTP/HTTPS CONNECT 服务、临时 TLS 证书和图片目录；需要 `openssl` 与回环端口监听权限，不访问真实原站或数据库，不关闭 TLS 校验。它验证资料及图片经过代理、压缩响应、取消和代理故障不回退直连。
 CI 在任何 job 包 `dist` 生成前完成 Web lint、typecheck、unit test 和 production build，证明主应用只消费
 workspace 源码；随后独立构建 job-contracts、job-runtime、job-executors 的 `dist`，再打包 Worker，验证
 独立编译输出、类型声明和依赖顺序没有漂移。
@@ -92,8 +97,8 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 26 个 job type、29 个 type/version 组合
-（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
+健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 33 个 job type、38 个 type/version 组合
+（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
 
 ## 变更验证矩阵
 
@@ -142,10 +147,19 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 - 两个 Worker 进程竞争时每 lane 最多一个 RUNNING，同时允许一个 resolver 和一个 writer；
 - 收件 create/enqueue/bulk 幂等、FIFO、暂停/重试/取消、Worker 崩溃恢复和未授权零写入；
 - `RECONCILE` 只物化子任务，回收/恢复/永久清理在 writer lane 中根目录受限、可重入并最终 fenced；
-- 30 天保留任务只删除收件、已完成批量记录和过期预览，不删除领域实体、任务与媒体。
+- 30 天保留任务只删除收件、终态上传者扫描、已完成批量记录和过期预览，不删除上传者来源/游标、领域实体、任务与媒体。
 - 归档媒体设置默认值和 1/8 边界，执行态保存冲突，以及 advisory lock 下“先保存/先启动”的两个顺序；恢复与重试读取新值，运行中执行保持冻结值；
-- Executor 活动流与 Provider permit 不超过同一冻结上限，失败流从有效字节扣除且重试不重复累计；实时事件两秒限频不吞普通阶段、警告和终态；
-- 通用 SSE 的 Session、脱敏、响应头、心跳、游标追赶/reset、断连清理与数据库异常，以及 admin 单连接、500 条上限、过滤和归档断线轮询回退。
+- Executor 活动 worker、活动传输流与 Provider permit 不超过同一冻结上限，失败流从有效字节扣除且重试不重复累计；逐文件实时遥测覆盖解析图片页、等待响应、下载和校验写入，不得携带远端 URL 或凭据；实时事件两秒限频不吞普通阶段、警告和终态；
+- Dispatcher 假时钟覆盖 REALTIME 两秒限频、STANDARD 的 5%/5 秒与 30 秒兜底、阶段真实变化、WARN/ERROR 直通和结算前尾部刷新；PostgreSQL 覆盖 `progressData` 与事件原子写、fence 丢失零写入和旧记录 `null`；
+- 动画识别覆盖初始化反馈、INITIALIZING 空/部分检查点与新增候选、1–8 并发上限、20 条/2 秒微批次、领域状态与聚合检查点同事务提交及 lease 过期回滚、领域提交后崩溃恢复、COMPLETED 检查点重放、慢项 WARN、真实 Sharp GIF/WebP fixture、原生超时与父进程硬终止、取消后等待探测进程退出、失败留 pending、计数一致性和并发 1/4 分类一致；
+- 通用 SSE 的 Session、脱敏、响应头、心跳、游标追赶/reset、断连清理与数据库异常，以及 admin 单连接、500 条上限、按 job 隔离、任务页/控制台缓存同步、隐私模式和 3 秒/30 秒断线轮询回退；
+
+后台实时进度的浏览器验收还应保存 job ID、事件时间线和最终 `progressData`：真实开发库至少覆盖一次
+动画识别、刷新恢复、详情分页和 retention dry-run；隔离库覆盖暂停/继续、取消后的 pending、错误根目录
+后的重试，以及 1/4 并发下相同分类结果。Chrome DevTools 对 `/api/jobs/events` 的精确阻断和真实 NAS
+大规模 I/O 仍属于发布前人工验证项，不能用本地浏览器或临时目录结果替代。
+
+- 事件保留覆盖 INFO 进度 7 天、阶段/警告/错误/控制/终态 90 天、每批不超过 5,000、首次手动 dry-run 和删除后游标追赶。
 
 ## 测试文件组织
 
@@ -167,22 +181,24 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 6. 对数据库和 Worker 依赖链执行测试；
 7. 构建通用 Worker；
 8. 运行主应用 lint 和 typecheck；
-9. 运行主应用 `test:unit`。
+9. 运行主应用 `test:unit` 和生产 build（构建时开启实验性 WebP）；
+10. 校验仓库 WebP 预编译产物及源码一致性，运行校验器负向测试、库类型/单元检查和真实浏览器流式测试，不日常编译原生代码。
 
-Worker 测试和 capability 门禁包含双 lane contract，以及 26 个 job type、29 个 type/version 组合（`SCAN`
-v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
+独立 `webp-native.yml` 只在原生/预编译相关文件变更或手动触发时运行固定镜像编译、原生差分 ASan/UBSan、产物逐字节复现和浏览器测试；修改普通页面或播放器 TypeScript 不触发该工作流。重建不会自动改写 Git 中的预编译产物，要求贡献者提交对应更新。
+
+Worker 测试和 capability 门禁包含双 lane contract，以及 33 个 job type、38 个 type/version 组合（`SCAN`
+v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
 演练。v3 的独立领取测试同时证明只声明 SCAN v2 的旧 Worker 不会领取 `AUDIT_APPLY`。
 
 CI 当前没有明确执行：
 
 - 主应用 `test:integration`；
 - `.e2e.test.*`；
-- 主应用生产 build；
 - zip-convert 验证；
 - Docker Compose/镜像运行冒烟；
 - 真实浏览器登录、反向代理和媒体播放。
 
-这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应评估主应用集成测试和 production build，再逐步补真实浏览器 E2E。
+这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应评估主应用集成测试，再逐步补业务真实浏览器 E2E。WebP 性能门槛需在无其他重负载任务并发时独立运行；合成样本不能替代安卓真机及真实收藏验收。
 
 ## 完成标准
 
@@ -197,3 +213,11 @@ CI 当前没有明确执行：
 测试失败不能通过删除断言、扩大 mock 或跳过高风险路径来“修复”。如果失败是既有问题，需要提供可复现证据，并证明本次变更没有扩大影响。
 
 涉及 migration、媒体写入、部署和破坏性工作流的恢复证据以[备份与恢复基线](../operations/backup-and-recovery.md)为准。
+
+## 统一失败诊断验收
+
+诊断变更同时覆盖 Job contract、queue/runtime、executor、migration 与管理界面，应按上文矩阵合并验证范围。必测不变量包括：每次 claim 独立报告（含 preserveAttempt）、旧 callback 不写入新执行、CURRENT 优先于 INHERITED 且同 key 不重复计数、检查点与诊断同事务、租约失效回滚、取消/关联终止不冒充新失败、13 项与超过 20 项完整记录、归档每 100 项分批及中断后报告不完整标记。
+
+查询与生命周期还需验证报告归属/未登录拒绝、报告与对象游标分页、原因分组、原始错误消息和 errno/HTTP 保留且敏感内容脱敏、旧数据仅样例/检查点的明确限制、90 天清理边界、dry-run 零删除、跨 5,000 项清理和中断恢复，以及过期后保留报告头但不可绕过 legacy 入口读取证据。真实浏览器需检查敏感文本的隐私显示及 SSE 摘要边界。
+
+测试命令通过不等于生产升级或恢复演练完成；交付须单列隔离 PostgreSQL migration/租约/清理测试、App/Worker 构建与生产演练的执行结果和缺口。详见[后台任务失败诊断](../features/background-job-diagnostics.md)。

@@ -1,3 +1,4 @@
+import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import type { JobErrorCode, LocalDirectoryImportPayload, ScanPayload, ScanV2Payload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { ScanExecutorError } from './errors.ts'
@@ -84,6 +85,11 @@ export async function finalizeScanError(input: {
       (input.error.code === 'EMPTY_CONSISTENCY_AUDIT' || input.error.code === 'AUDIT_SAFETY_LIMIT_EXCEEDED')
     ) {
       await setRunPaused(scope.transaction, input.runId, input.now)
+      await input.context.recordDiagnostic?.(scope.transaction, {
+        key: 'task:action-required',
+        scope: 'TASK',
+        error: input.error
+      })
       await scope.pause({
         reason: 'ACTION_REQUIRED',
         message: input.error.message,
@@ -97,6 +103,7 @@ export async function finalizeScanError(input: {
         data: { status: 'RETRY_WAIT', checkpointStage: 'RETRY_WAIT', errorMessage: classified.message }
       })
       await scope.retry({
+        diagnostic: extractJobDiagnostic(input.error),
         availableAt: new Date(input.now.getTime() + input.retryDelayMs),
         errorCode: classified.jobErrorCode,
         error: classified.message,
@@ -114,6 +121,7 @@ export async function finalizeScanError(input: {
       }
     })
     await scope.fail({
+      diagnostic: extractJobDiagnostic(input.error),
       errorCode: classified.jobErrorCode,
       error: classified.message,
       message: 'Scan failed'

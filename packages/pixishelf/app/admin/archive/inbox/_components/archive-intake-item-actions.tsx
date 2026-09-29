@@ -5,11 +5,13 @@ import {
   archiveIntakeItemHref,
   archiveTaskHref,
   isRetryableIntakeItem,
+  isEnqueueableIntakeItem,
   type ArchiveIntakeSelectionItem,
   type ArchiveIntakeSelectionState,
   type ArchiveQuality
 } from '@/app/admin/archive/_components/archive-intake-view-state'
 import { Button } from '@/components/ui/button'
+import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -41,7 +43,7 @@ export function ArchiveIntakeItemActions({
   selection: ArchiveIntakeSelectionState
   onSelectionChange: Dispatch<SetStateAction<ArchiveIntakeSelectionState>>
 }) {
-  const canEnqueue = item.status === 'READY' && ['NEW', 'UPDATE', 'UNCHANGED'].includes(item.resolutionKind ?? '')
+  const canEnqueue = isEnqueueableIntakeItem(item)
   const relatedTaskId = item.activeArchiveImportId || item.archiveImportId
 
   return (
@@ -55,7 +57,8 @@ export function ArchiveIntakeItemActions({
       />
       {canEnqueue ? (
         <Select
-          value={selection.qualityById.get(item.id) ?? 'ORIGINAL'}
+          value={selection.qualityById.get(item.id) ?? item.selectedQuality ?? 'ORIGINAL'}
+          disabled={actionPending}
           onValueChange={(quality) =>
             onSelectionChange((current) => ({
               ...current,
@@ -102,6 +105,9 @@ export function ArchiveIntakeRetryActions({
 }: ArchiveIntakeRetryActionsProps) {
   return (
     <>
+      {item.sourcePreviewAvailable ? (
+        <SourcePreviewButton source={{ kind: 'intake', itemId: item.id }} variant="outline" size="sm" />
+      ) : null}
       {isRetryableIntakeItem(item) ? (
         <Button
           type="button"
@@ -119,13 +125,7 @@ export function ArchiveIntakeRetryActions({
         </Button>
       ) : null}
       {item.status === 'FAILED' ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={actionPending}
-          onClick={() => onReplace(item.id)}
-        >
+        <Button type="button" variant="outline" size="sm" disabled={actionPending} onClick={() => onReplace(item.id)}>
           <PencilLineIcon data-icon="inline-start" aria-hidden="true" />
           修改并重试
         </Button>

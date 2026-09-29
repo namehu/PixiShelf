@@ -21,6 +21,7 @@ import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 const ACTIVE_BATCH_STATUSES = new Set(['PENDING', 'RUNNING', 'PAUSING', 'PAUSED', 'RETRY_WAIT', 'CANCELLING'])
 
@@ -160,7 +161,9 @@ export function PixivTagEnrichmentDialog({
         ) : summaryQuery.isError ? (
           <Alert variant="destructive">
             <AlertTitle>无法读取补全状态</AlertTitle>
-            <AlertDescription>{summaryQuery.error.message}</AlertDescription>
+            <AlertDescription>
+              <PrivacySensitiveText>{summaryQuery.error.message}</PrivacySensitiveText>
+            </AlertDescription>
           </Alert>
         ) : (
           <div className="grid gap-4">
@@ -250,7 +253,9 @@ export function PixivTagEnrichmentDialog({
             {!hasBatchSession && !active && summary?.latestBatch?.status === 'FAILED' && summary.latestBatch.error && (
               <Alert variant="destructive">
                 <AlertTitle>最近一次批量任务失败</AlertTitle>
-                <AlertDescription>{summary.latestBatch.error}</AlertDescription>
+                <AlertDescription>
+                  <PrivacySensitiveText>{summary.latestBatch.error}</PrivacySensitiveText>
+                </AlertDescription>
               </Alert>
             )}
           </div>
@@ -353,7 +358,7 @@ function SelectedTagSummary({ tags }: { tags: Array<{ id: number; name: string; 
       <div className="flex flex-wrap gap-1.5" aria-label="已选择的标签">
         {visibleTags.map((tag) => (
           <Badge key={tag.id} variant="outline" className="max-w-40 truncate font-normal">
-            {tag.name}
+            <PrivacySensitiveText>{tag.name}</PrivacySensitiveText>
           </Badge>
         ))}
         {remainingCount > 0 && <Badge variant="secondary">另有 {remainingCount} 项</Badge>}

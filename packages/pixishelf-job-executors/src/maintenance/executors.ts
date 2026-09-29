@@ -1,25 +1,40 @@
+import { creatorMaintenancePayloadSchema, type CreatorMaintenancePayload } from '@pixishelf/job-contracts'
+import { executeCreatorMaintenance } from './creator-maintenance.ts'
+import { artistMergePayloadSchema, type ArtistMergePayload } from '@pixishelf/job-contracts'
+import { executeArtistMerge } from './artist-merge.ts'
 import {
   archiveDefaultTagBackfillPayloadSchema,
   emptyJobPayloadSchema,
+  jobEventRetentionCleanupPayloadSchema,
   JOB_DEFINITION_VERSION,
   pixivAiDerivedTagSyncPayloadSchema,
   type ArchiveDefaultTagBackfillPayload,
+  type JobEventRetentionCleanupPayload,
   type PixivAiDerivedTagSyncPayload
 } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, ExecutorDefinition, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { cleanupArchiveIntakeHistory } from './archive-intake-retention-cleanup.ts'
+import { executeAnimationDurationProbe } from './animation-duration-probe.ts'
 import { executeArchiveDefaultTagBackfill } from './archive-default-tag-backfill.ts'
+import { cleanupJobEvents } from './job-event-retention-cleanup.ts'
 import { syncAllMediaDerivedTags } from './media-derived-tag-sync.ts'
 import { syncPixivAiDerivedTags } from './pixiv-ai-derived-tag-sync.ts'
 import { refillMetaSource } from './refill-meta-source.ts'
 import { cleanupScanRunHistory } from './scan-run-cleanup.ts'
 import { cleanupTriggerLogs } from './trigger-log-cleanup.ts'
-import type { MaintenanceDatabase, MaintenanceTransaction, RunMaintenanceMutation } from './types.ts'
+import type {
+  MaintenanceDatabase,
+  MaintenanceProgress,
+  MaintenanceProgressMutationResult,
+  MaintenanceTransaction,
+  RunMaintenanceMutation
+} from './types.ts'
 import { scanWebpAnimations } from './webp-animation-scan.ts'
 
 export interface MaintenanceExecutorDependencies {
   database: MaintenanceDatabase
   scanRoot: string
+  animationScanConcurrency?: number
   now?: () => Date
 }
 
@@ -30,6 +45,23 @@ export function createMaintenanceExecutorRegistrations(
 ): ExecutorDefinition[] {
   if (!dependencies.scanRoot.trim()) throw new Error('Maintenance scanRoot is required')
   return [
+    {
+      jobType: 'ARTIST_MERGE',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => artistMergePayloadSchema.parse(payload),
+      execute: (context: ExecutionContext<ArtistMergePayload, EnqueuedChildJob>) => executeArtistMerge(context)
+    } as ExecutorDefinition,
+    {
+      jobType: 'CREATOR_MAINTENANCE',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => creatorMaintenancePayloadSchema.parse(payload),
+      execute: (context: ExecutionContext<CreatorMaintenancePayload, EnqueuedChildJob>) =>
+        executeCreatorMaintenance(context)
+    } as ExecutorDefinition,
     definition('ARCHIVE_INTAKE_RETENTION_CLEANUP', (context) =>
       cleanupArchiveIntakeHistory({
         ...operationInput(context, dependencies.database),
@@ -58,9 +90,28 @@ export function createMaintenanceExecutorRegistrations(
       syncAllMediaDerivedTags(operationInput(context, dependencies.database))
     ) as ExecutorDefinition,
     {
+      jobType: 'JOB_EVENT_RETENTION_CLEANUP',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => jobEventRetentionCleanupPayloadSchema.parse(payload),
+      execute: async (context: ExecutionContext<JobEventRetentionCleanupPayload, EnqueuedChildJob>) => ({
+        kind: 'completed',
+        result: await cleanupJobEvents({
+          ...operationInput(context, dependencies.database),
+          dryRun: context.payload.dryRun,
+          ...(dependencies.now ? { now: dependencies.now() } : {})
+        }),
+        message: context.payload.dryRun
+          ? 'JOB_EVENT_RETENTION_CLEANUP dry run completed'
+          : 'JOB_EVENT_RETENTION_CLEANUP completed'
+      })
+    } as ExecutorDefinition,
+    {
       jobType: 'ARCHIVE_DEFAULT_TAG_BACKFILL',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => archiveDefaultTagBackfillPayloadSchema.parse(payload),
       execute: (context: ExecutionContext<ArchiveDefaultTagBackfillPayload, EnqueuedChildJob>) =>
         executeArchiveDefaultTagBackfill(context, dependencies.now ? { now: dependencies.now } : {})
@@ -69,6 +120,7 @@ export function createMaintenanceExecutorRegistrations(
       jobType: 'PIXIV_AI_DERIVED_TAG_SYNC',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'STANDARD',
       parsePayload: (payload) => pixivAiDerivedTagSyncPayloadSchema.parse(payload),
       execute: async (context: ExecutionContext<PixivAiDerivedTagSyncPayload, EnqueuedChildJob>) => ({
         kind: 'completed',
@@ -79,12 +131,45 @@ export function createMaintenanceExecutorRegistrations(
         message: 'PIXIV_AI_DERIVED_TAG_SYNC completed'
       })
     } as ExecutorDefinition,
-    definition('WEBP_ANIMATION_SCAN', (context) =>
-      scanWebpAnimations({
-        ...operationInput(context, dependencies.database),
-        scanRoot: dependencies.scanRoot
-      })
-    ) as ExecutorDefinition
+    {
+      jobType: 'ANIMATION_DURATION_PROBE',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      parsePayload: (payload) => emptyJobPayloadSchema.parse(payload),
+      execute: (context: ExecutionContext<EmptyPayload, EnqueuedChildJob>) =>
+        executeAnimationDurationProbe(context, {
+          database: dependencies.database,
+          scanRoot: dependencies.scanRoot,
+          ...(dependencies.now ? { now: dependencies.now } : {})
+        })
+    } as ExecutorDefinition,
+    {
+      jobType: 'WEBP_ANIMATION_SCAN',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: JOB_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      parsePayload: (payload) => emptyJobPayloadSchema.parse(payload),
+      execute: async (context: ExecutionContext<EmptyPayload, EnqueuedChildJob>) => {
+        const result = await scanWebpAnimations({
+          ...operationInput(context, dependencies.database),
+          scanRoot: dependencies.scanRoot,
+          logger: context.logger,
+          concurrency: dependencies.animationScanConcurrency ?? 4,
+          // The previous aggregate is a recovery hint only; the executor
+          // re-derives pending work from the database before resuming.
+          ...(context.job.progressData?.kind === 'animation-scan'
+            ? { resumeProgressData: context.job.progressData }
+            : {}),
+          ...(dependencies.now ? { now: dependencies.now } : {})
+        })
+        return {
+          kind: 'completed',
+          result,
+          message: `本轮动画识别结束：成功 ${result.processed} 个，探测失败 ${result.failed} 个，剩余待处理 ${result.remainingPending} 个`
+        }
+      }
+    } as ExecutorDefinition
   ]
 }
 
@@ -94,14 +179,14 @@ function definition<TResult>(
     | 'TRIGGER_LOG_RETENTION_CLEANUP'
     | 'SCAN_RUN_RETENTION_CLEANUP'
     | 'REFILL_META_SOURCE'
-    | 'MEDIA_DERIVED_TAG_SYNC'
-    | 'WEBP_ANIMATION_SCAN',
+    | 'MEDIA_DERIVED_TAG_SYNC',
   run: (context: ExecutionContext<EmptyPayload, EnqueuedChildJob>) => Promise<TResult>
 ): ExecutorDefinition<EmptyPayload, TResult> {
   return {
     jobType,
     executionLane: 'BACKGROUND_WRITER',
     definitionVersion: JOB_DEFINITION_VERSION,
+    progressPolicy: 'STANDARD',
     parsePayload: (payload) => emptyJobPayloadSchema.parse(payload) as EmptyPayload,
     execute: async (context) => ({
       kind: 'completed',
@@ -117,16 +202,38 @@ function operationInput<TPayload extends Record<string, unknown>>(
 ) {
   const mutate: RunMaintenanceMutation = <T>(operation: (transaction: MaintenanceTransaction) => Promise<T>) =>
     context.mutateInTransaction<MaintenanceTransaction & QueueSqlExecutor, T>((transaction) => operation(transaction))
+  const toExecutionProgress = (update: MaintenanceProgress) => ({
+    progress: update.percentage,
+    stage: update.stage,
+    message: update.message,
+    ...(update.data ? { data: update.data } : {}),
+    ...(update.progressData ? { progressData: update.progressData } : {}),
+    ...(update.persistenceMode ? { persistenceMode: update.persistenceMode } : {}),
+    ...(update.forcePersistence === undefined ? {} : { forcePersistence: update.forcePersistence }),
+    ...(update.level ? { level: update.level } : {})
+  })
   return {
     database,
     mutate,
+    ...(context.recordDiagnostic ? { recordDiagnostic: context.recordDiagnostic } : {}),
+    ...(context.checkpointInTransaction
+      ? {
+          checkpoint: <T>(
+            operation: (transaction: MaintenanceTransaction) => Promise<MaintenanceProgressMutationResult<T>>
+          ) =>
+            context.checkpointInTransaction!<MaintenanceTransaction & QueueSqlExecutor, T>(async (transaction) => {
+              const checkpoint = await operation(transaction)
+              return {
+                result: checkpoint.result,
+                update: {
+                  ...toExecutionProgress(checkpoint.update),
+                  progressData: checkpoint.update.progressData
+                }
+              }
+            })
+        }
+      : {}),
     signal: context.signal,
-    progress: (update: { percentage: number; stage: string; message: string; data?: Record<string, unknown> }) =>
-      context.progress({
-        progress: update.percentage,
-        stage: update.stage,
-        message: update.message,
-        ...(update.data ? { data: update.data } : {})
-      })
+    progress: (update: MaintenanceProgress) => context.progress(toExecutionProgress(update))
   }
 }

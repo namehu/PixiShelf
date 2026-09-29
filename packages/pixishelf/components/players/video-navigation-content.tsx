@@ -6,6 +6,7 @@ import VideoKeyframeSidebar from './video-keyframe-sidebar'
 import type { NormalizedChapter } from './video-chapters'
 import type { NormalizedVideoKeyframe } from './video-keyframes'
 import { cn } from '@/lib/utils'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 export type VideoNavigationTab = 'chapters' | 'keyframes'
 
@@ -187,7 +188,9 @@ function NavigationLoading({ label }: { label: string }) {
 function NavigationError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="flex h-full min-h-32 flex-col items-center justify-center gap-3 px-6 text-center">
-      <p className="text-sm text-white/65">{message}</p>
+      <PrivacySensitiveText as="p" className="text-sm text-white/65">
+        {message}
+      </PrivacySensitiveText>
       <button
         type="button"
         onClick={onRetry}

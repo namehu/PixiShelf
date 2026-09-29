@@ -6,7 +6,19 @@ import { ProTable, ProColumnDef } from '@/components/shared/pro-table'
 import { Input } from '@/components/ui/input'
 import { useQueryStates, parseAsString, parseAsInteger } from 'nuqs'
 import { RowSelectionState, SortingState, VisibilityState } from '@tanstack/react-table'
-import { Search, RotateCcw, Edit, Trash, ExternalLink, Plus, Star, Sparkles, RefreshCw, Check } from 'lucide-react'
+import {
+  Search,
+  RotateCcw,
+  Edit,
+  Trash,
+  ExternalLink,
+  Plus,
+  Star,
+  Sparkles,
+  RefreshCw,
+  Check,
+  Merge
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ArtistDialog } from './artist-dialog'
 import { confirm } from '@/components/shared/global-confirm'
@@ -98,6 +110,7 @@ export function ArtistManagement() {
 
   // 1. URL 参数同步状态
   const [searchState, setSearchState] = useQueryStates({
+    kind: parseAsString,
     name: parseAsString, // 对应 API 的 search 参数
     page: parseAsInteger.withDefault(1),
     pageSize: parseAsInteger.withDefault(20),
@@ -305,11 +318,7 @@ export function ArtistManagement() {
         header: '头像',
         size: 76,
         cell: ({ row }) => (
-          <ArtistAvatarThumbnail
-            name={row.original.name}
-            image={row.original.avatar}
-            onPreview={setPreviewedImage}
-          />
+          <ArtistAvatarThumbnail name={row.original.name} image={row.original.avatar} onPreview={setPreviewedImage} />
         )
       },
       {
@@ -327,6 +336,7 @@ export function ArtistManagement() {
       {
         accessorKey: 'name',
         header: '姓名',
+        privacySensitive: true,
         enableSorting: true,
         cell: ({ row }) => (
           <div className="grid gap-1">
@@ -384,6 +394,15 @@ export function ArtistManagement() {
         header: '操作',
         cell: ({ row }) => (
           <div className="flex gap-1">
+            <Button asChild variant="ghost" size="icon">
+              <Link
+                href={`/admin/artists/merge?sourceId=${row.original.id}`}
+                aria-label={`合并艺术家 ${row.original.name}`}
+                title="合并到其他艺术家"
+              >
+                <Merge aria-hidden="true" />
+              </Link>
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -425,7 +444,7 @@ export function ArtistManagement() {
                 disabled={adoptPixivNameMutation.isPending}
                 onClick={() => adoptPixivNameMutation.mutate({ artistId: row.original.id })}
                 aria-label={`采用艺术家 ${row.original.name} 的 Pixiv 来源姓名`}
-                title={`采用 Pixiv 姓名：${row.original.pixivSync.sourceName}`}
+                title="采用 Pixiv 来源姓名"
               >
                 <Check aria-hidden="true" />
               </Button>
@@ -485,6 +504,24 @@ export function ArtistManagement() {
         )}
         searchRender={() => (
           <div className="flex flex-wrap items-center gap-2 w-full">
+            <Select
+              value={searchState.kind || 'all'}
+              onValueChange={(kind) => {
+                setRowSelection({})
+                setSearchState({ kind: kind === 'all' ? null : kind, page: 1 })
+              }}
+            >
+              <SelectTrigger aria-label="筛选实体类型" className="h-8 w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="all">全部类型</SelectItem>
+                  <SelectItem value="PERSON">艺术家</SelectItem>
+                  <SelectItem value="GROUP">社团</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
             <Select
               value={searchState.isStarred || 'all'}
               onValueChange={(val) => {
@@ -558,6 +595,12 @@ export function ArtistManagement() {
               <Plus data-icon="inline-start" aria-hidden="true" />
               新增艺术家
             </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/admin/artists/relations">填写和纠正作品作者</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/admin/artists/merge">合并艺术家与执行记录</Link>
+            </Button>
           </div>
         )}
       />
@@ -581,10 +624,7 @@ export function ArtistManagement() {
           checked: artist.pixivSync?.status != null
         }))}
       />
-      <ArtistImagePreviewDialog
-        target={previewedImage}
-        onOpenChange={(open) => !open && setPreviewedImage(null)}
-      />
+      <ArtistImagePreviewDialog target={previewedImage} onOpenChange={(open) => !open && setPreviewedImage(null)} />
     </div>
   )
 }
@@ -599,9 +639,5 @@ function PixivSyncBadge({ artist }: { artist: ArtistListItem }) {
     NO_DATA: { label: '无数据', variant: 'muted' as const },
     FAILED: { label: '失败', variant: 'destructive' as const }
   }[status]
-  return (
-    <Badge variant={display.variant} title={artist.pixivSync?.lastError ?? undefined}>
-      {display.label}
-    </Badge>
-  )
+  return <Badge variant={display.variant}>{display.label}</Badge>
 }

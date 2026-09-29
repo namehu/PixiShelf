@@ -203,6 +203,12 @@
   html[data-media-privacy='on'] :where(img, video, canvas) {
     filter: blur(24px) grayscale(1) brightness(0.25) opacity(0.12) !important;
   }
+
+  html[data-media-privacy='on'] [data-privacy-sensitive] {
+    filter: blur(0.3rem) !important;
+    user-select: none !important;
+    -webkit-user-select: none !important;
+  }
 }
 
 @layer utilities {

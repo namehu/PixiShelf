@@ -107,7 +107,7 @@ describe('NavHead', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '全屏预览' }))
     expect(useArtworkStore.getState().images).toEqual(data.images)
-    expect(mocks.push).toHaveBeenCalledWith('/artworks/preview')
+    expect(mocks.push).toHaveBeenCalledWith('/artworks/preview?artworkId=7')
   })
 
   it('shows a centered truncated title only after the media marker crosses the toolbar', () => {

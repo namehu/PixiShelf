@@ -3,6 +3,16 @@
 
 包含处理 Pixiv 资源文件的相关工具脚本。
 
+## Pixiv ZIP 转换
+
+`app.js` 将 Pixiv ZIP 转换为 WebM、APNG 或两者。它默认只使用本地 metadata；如果以后启用需要登录的远程 metadata fallback，只能通过运行时 `PIXIV_PHPSESSID` 环境变量传入会话凭据。不要将真实值写入脚本、命令示例、日志或受版本控制的文件。
+
+```powershell
+node app.js "D:\Downloads\pixiv" --format=all
+```
+
+运行时凭据应由受控的秘密管理或进程环境注入；工具不会从仓库内的 `.env` 自动加载它。
+
 ## 1. APNG 转 WebM 工具 (apngToWebm.js)
 
 批量扫描指定目录下的 `.apng` 文件并将其转换为 `.webm` 格式。支持跳过已转换文件，并记录详细日志。

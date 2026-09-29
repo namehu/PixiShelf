@@ -2,6 +2,9 @@ import React from 'react'
 import { toast } from 'sonner'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { formatScanHttpErrorText } from '@/services/scan-service/scan-errors'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+
+const sensitiveDescription = (message: string) => React.createElement(PrivacySensitiveText, null, message)
 
 class FatalError extends Error {
   constructor(message: string) {
@@ -117,7 +120,9 @@ export function useSseScan({ onQueued }: { onQueued?: () => void } = {}): {
               if (message.event === 'error') {
                 receivedTerminalEvent = true
                 updateStreaming(false)
-                toast.error('扫描任务失败', { description: data?.error || '未知错误' })
+                toast.error('扫描任务失败', {
+                  description: data?.error ? sensitiveDescription(String(data.error)) : '未知错误'
+                })
                 return
               }
 
@@ -155,7 +160,8 @@ export function useSseScan({ onQueued }: { onQueued?: () => void } = {}): {
         updateStreaming(false)
         if (!unexpectedCloseReported) {
           toast.error('扫描任务提交失败', {
-            description: error instanceof Error ? error.message : '请检查网络连接后重试。'
+            description:
+              error instanceof Error ? sensitiveDescription(error.message) : '请检查网络连接后重试。'
           })
         }
       } finally {

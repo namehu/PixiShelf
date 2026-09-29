@@ -77,6 +77,8 @@ export interface MigrationFilePlan {
 }
 
 export interface MigrationArtworkPlan {
+  errorCode?: string | null
+  errorSummary?: string | null
   id: string
   systemJobId: string
   artworkId: number

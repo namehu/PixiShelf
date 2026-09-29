@@ -12,3 +12,12 @@ export { ScanExecutorError } from './errors.ts'
 export type { ScanDiscoveryLimits } from './discovery.ts'
 export { DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES } from './types.ts'
 export type { ScanExecutorConfig, ScanExecutorDependencies, ScanExecutionResult } from './types.ts'
+
+export {
+  readPixivRootMarker,
+  createPixivRootMarker,
+  bindPixivInventoryRoot,
+  assertScanRootUnchanged,
+  assertPixivRootUnchanged
+} from './root-identity.ts'
+export { resolveSafeScanRoot } from './paths.ts'

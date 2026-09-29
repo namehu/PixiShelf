@@ -7,6 +7,7 @@ import { useTRPC } from '@/lib/trpc'
 import { AdminStatusBadge } from '@/app/admin/_components/admin-status-badge'
 import { SCard } from '@/components/shared/s-card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Progress } from '@/components/ui/progress'
@@ -140,14 +141,18 @@ function CurrentScanStatus({ activity }: { activity: PixivScanActivity }) {
       </div>
 
       <div className="flex flex-col gap-2">
-        <p className="text-sm text-foreground">{activity.message || '等待 Worker 更新任务信息…'}</p>
+        <p className="text-sm text-foreground">
+          {activity.message ? <PrivacySensitiveText>{activity.message}</PrivacySensitiveText> : '等待 Worker 更新任务信息…'}
+        </p>
         <Progress value={activity.progress} aria-label={`扫描进度 ${activity.progress}%`} />
       </div>
 
       {activity.error ? (
         <Alert variant="destructive">
           <AlertTitle>任务报告错误</AlertTitle>
-          <AlertDescription>{activity.error}</AlertDescription>
+          <AlertDescription>
+            <PrivacySensitiveText>{activity.error}</PrivacySensitiveText>
+          </AlertDescription>
         </Alert>
       ) : null}
     </div>
@@ -209,7 +214,11 @@ function LatestScanSummary({
             {formatDate(latest.startedAt)} · 耗时 {formatDuration(latest.durationMs)}
           </p>
         </div>
-        {latest.errorMessage ? <p className="max-w-md text-sm text-destructive">{latest.errorMessage}</p> : null}
+        {latest.errorMessage ? (
+          <PrivacySensitiveText as="p" className="max-w-md text-sm text-destructive">
+            {latest.errorMessage}
+          </PrivacySensitiveText>
+        ) : null}
       </div>
 
       {sourceAudit ? (

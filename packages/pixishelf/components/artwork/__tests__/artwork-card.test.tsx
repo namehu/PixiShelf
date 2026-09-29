@@ -41,4 +41,34 @@ describe('ArtworkCard', () => {
     expect(screen.queryByRole('heading')).toBeNull()
     expect(screen.queryByText('示例艺术家')).toBeNull()
   })
+
+  it('shows reading progress without changing the artwork link', () => {
+    render(<ArtworkCard artwork={artwork as never} showReadingStatus reading={{
+      artworkId: 42, viewCount: 2, seenCount: 1, totalCount: 3, status: 'IN_PROGRESS',
+      lastViewedAt: null, lastActiveAt: null, lastMediaId: 1, lastMediaIndex: 0
+    }} />)
+    expect(screen.getByRole('link', { name: '查看作品：可选择的作品标题' }).getAttribute('aria-description')).toBe('阅读中 1/3')
+    expect(screen.queryByText('1/3')).toBeNull()
+    const marker = screen.getByRole('link').querySelector('[data-slot="reading-marker"]')
+    expect(marker?.textContent).toBe('')
+    expect(marker?.querySelector('circle[pathLength]')?.getAttribute('stroke-dasharray')).toBe(`${1 / 3} 1`)
+  })
+
+  it('marks unread covers with an icon and retains their accessible status', () => {
+    render(<ArtworkCard artwork={artwork as never} showReadingStatus />)
+    expect(screen.queryByText('未看')).toBeNull()
+    expect(screen.getByRole('link').getAttribute('aria-description')).toBe('未看')
+    expect(screen.getByRole('link').querySelector('[data-slot="reading-marker"] svg')).toBeTruthy()
+  })
+
+  it('keeps completed progress accessible in minimal mode without a repeated count label', () => {
+    render(<ArtworkCard artwork={artwork as never} displayMode="minimal" showReadingStatus reading={{
+      artworkId: 42, viewCount: 2, seenCount: 3, totalCount: 3, status: 'COMPLETED',
+      lastViewedAt: null, lastActiveAt: null, lastMediaId: 1, lastMediaIndex: 0
+    }} />)
+    expect(screen.getByRole('link').getAttribute('aria-description')).toBe('已看完 3/3')
+    expect(screen.queryByText('3/3')).toBeNull()
+    expect(screen.getByRole('link').querySelector('[data-slot="reading-marker"]')).toBeNull()
+    expect(screen.queryByRole('heading')).toBeNull()
+  })
 })

@@ -16,6 +16,34 @@ const expectedIndex = {
   keyCount: 1
 }
 
+const completeTableRows = [
+  'artist_merges',
+  'ImageAnimationMetadata',
+  'artwork_reading_summaries',
+  'artwork_read_media',
+  'creator_maintenance_plans',
+  'creator_maintenance_items',
+  'artwork_artists',
+  'artwork_artist_evidence',
+  'artist_source_tag_mappings',
+  'effective_artwork_creators',
+  'archive_intake_items',
+  'archive_uploader_scan_items',
+  'archive_uploader_scan_runs',
+  'archive_uploader_sources',
+  'archive_provider_request_leases',
+  'archive_provider_throttles',
+  'archive_resolve_queue_control',
+  'derived_media_gc_entries',
+  'job_resource_leases',
+  'pixiv_metadata_inventory',
+  'pixiv_metadata_inventory_state',
+  'pixiv_source_audit_items',
+  'tag_external_metadata',
+  'system_job_events',
+  'worker_instances'
+].map((tableName) => ({ tableName }))
+
 function createQueryClient(results: unknown[]): PrismaClient {
   return {
     $queryRaw: vi.fn().mockImplementation(() => Promise.resolve(results.shift()))
@@ -25,41 +53,81 @@ function createQueryClient(results: unknown[]): PrismaClient {
 describe('database package', () => {
   it('accepts the complete background queue schema contract', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
-      [
-        { tableName: 'archive_intake_items' },
-        { tableName: 'archive_provider_request_leases' },
-        { tableName: 'archive_provider_throttles' },
-        { tableName: 'archive_resolve_queue_control' },
-        { tableName: 'derived_media_gc_entries' },
-        { tableName: 'job_resource_leases' },
-        { tableName: 'pixiv_metadata_inventory' },
-        { tableName: 'pixiv_metadata_inventory_state' },
-        { tableName: 'pixiv_source_audit_items' },
-        { tableName: 'tag_external_metadata' },
-        { tableName: 'system_job_events' },
-        { tableName: 'worker_instances' }
-      ],
-      [{ migrationName: '20260826143000_add_pixiv_artwork_online_sync' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
+      completeTableRows,
+      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
       [expectedIndex]
     ])
 
     await expect(assertBackgroundQueueSchema(client)).resolves.toBeUndefined()
   })
 
+  it('rejects a migrated database missing the animation metadata table', async () => {
+    const client = createQueryClient([
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
+      completeTableRows.filter(({ tableName }) => tableName !== 'ImageAnimationMetadata'),
+      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+      [expectedIndex]
+    ])
+
+    await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
+      'Background queue schema is not ready: missing ImageAnimationMetadata'
+    )
+  })
+
+  it.each(['artwork_reading_summaries', 'artwork_read_media'])(
+    'rejects a migrated database missing %s',
+    async (missingTable) => {
+      const client = createQueryClient([
+        [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
+        completeTableRows.filter(({ tableName }) => tableName !== missingTable),
+        [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+        [expectedIndex]
+      ])
+
+      await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(`Background queue schema is not ready: missing ${missingTable}`)
+    }
+  )
+
+  it('rejects a migrated database missing Artwork.mediaRevision', async () => {
+    const client = createQueryClient([
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
+      completeTableRows,
+      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+      [expectedIndex]
+    ])
+
+    await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
+      'Background queue schema is not ready: missing Artwork.mediaRevision'
+    )
+  })
+
   it('reports missing required objects without exposing connection details', async () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, archive_intake_items, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260826143000_add_pixiv_artwork_online_sync, index:system_jobs_single_executing_per_lane_idx'
+      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, Artwork.mediaRevision, artist_merges, ImageAnimationMetadata, artwork_reading_summaries, artwork_read_media, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260924130000_add_artwork_reading_tracking, index:system_jobs_single_executing_per_lane_idx'
     )
   })
 
-  it('rejects a database that does not have the latest Pixiv artwork sync migration', async () => {
+  it('rejects a database that stopped before the reading migration', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
       [
+        { tableName: 'artist_merges' },
+        { tableName: 'ImageAnimationMetadata' },
+        { tableName: 'artwork_reading_summaries' },
+        { tableName: 'artwork_read_media' },
+        { tableName: 'creator_maintenance_plans' },
+        { tableName: 'creator_maintenance_items' },
+        { tableName: 'artwork_artists' },
+        { tableName: 'artwork_artist_evidence' },
+        { tableName: 'artist_source_tag_mappings' },
+        { tableName: 'effective_artwork_creators' },
         { tableName: 'archive_intake_items' },
+        { tableName: 'archive_uploader_scan_items' },
+        { tableName: 'archive_uploader_scan_runs' },
+        { tableName: 'archive_uploader_sources' },
         { tableName: 'archive_provider_request_leases' },
         { tableName: 'archive_provider_throttles' },
         { tableName: 'archive_resolve_queue_control' },
@@ -72,20 +140,33 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260820200000_add_pixiv_source_audit' }],
+      [{ migrationName: '20260924120000_add_image_animation_duration_metadata' }],
       [expectedIndex]
     ])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing migration:20260826143000_add_pixiv_artwork_online_sync'
+      'Background queue schema is not ready: missing migration:20260924130000_add_artwork_reading_tracking'
     )
   })
 
   it('rejects a migrated schema when the single-execution index is missing or invalid', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
       [
+        { tableName: 'artist_merges' },
+        { tableName: 'ImageAnimationMetadata' },
+        { tableName: 'artwork_reading_summaries' },
+        { tableName: 'artwork_read_media' },
+        { tableName: 'creator_maintenance_plans' },
+        { tableName: 'creator_maintenance_items' },
+        { tableName: 'artwork_artists' },
+        { tableName: 'artwork_artist_evidence' },
+        { tableName: 'artist_source_tag_mappings' },
+        { tableName: 'effective_artwork_creators' },
         { tableName: 'archive_intake_items' },
+        { tableName: 'archive_uploader_scan_items' },
+        { tableName: 'archive_uploader_scan_runs' },
+        { tableName: 'archive_uploader_sources' },
         { tableName: 'archive_provider_request_leases' },
         { tableName: 'archive_provider_throttles' },
         { tableName: 'archive_resolve_queue_control' },
@@ -98,7 +179,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260826143000_add_pixiv_artwork_online_sync' }],
+      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
       []
     ])
 
@@ -109,9 +190,22 @@ describe('database package', () => {
 
   it('rejects a same-name unique partial index with the wrong protected statuses', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
       [
+        { tableName: 'artist_merges' },
+        { tableName: 'ImageAnimationMetadata' },
+        { tableName: 'artwork_reading_summaries' },
+        { tableName: 'artwork_read_media' },
+        { tableName: 'creator_maintenance_plans' },
+        { tableName: 'creator_maintenance_items' },
+        { tableName: 'artwork_artists' },
+        { tableName: 'artwork_artist_evidence' },
+        { tableName: 'artist_source_tag_mappings' },
+        { tableName: 'effective_artwork_creators' },
         { tableName: 'archive_intake_items' },
+        { tableName: 'archive_uploader_scan_items' },
+        { tableName: 'archive_uploader_scan_runs' },
+        { tableName: 'archive_uploader_sources' },
         { tableName: 'archive_provider_request_leases' },
         { tableName: 'archive_provider_throttles' },
         { tableName: 'archive_resolve_queue_control' },
@@ -124,7 +218,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260826143000_add_pixiv_artwork_online_sync' }],
+      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
       [
         {
           ...expectedIndex,
@@ -140,9 +234,22 @@ describe('database package', () => {
 
   it('rejects a same-name partial index that is not keyed by execution lane', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }],
+      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
       [
+        { tableName: 'artist_merges' },
+        { tableName: 'ImageAnimationMetadata' },
+        { tableName: 'artwork_reading_summaries' },
+        { tableName: 'artwork_read_media' },
+        { tableName: 'creator_maintenance_plans' },
+        { tableName: 'creator_maintenance_items' },
+        { tableName: 'artwork_artists' },
+        { tableName: 'artwork_artist_evidence' },
+        { tableName: 'artist_source_tag_mappings' },
+        { tableName: 'effective_artwork_creators' },
         { tableName: 'archive_intake_items' },
+        { tableName: 'archive_uploader_scan_items' },
+        { tableName: 'archive_uploader_scan_runs' },
+        { tableName: 'archive_uploader_sources' },
         { tableName: 'archive_provider_request_leases' },
         { tableName: 'archive_provider_throttles' },
         { tableName: 'archive_resolve_queue_control' },
@@ -155,7 +262,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260826143000_add_pixiv_artwork_online_sync' }],
+      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 

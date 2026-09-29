@@ -8,6 +8,8 @@ export interface SafeScanRoot {
   absolutePath: string
   deviceId: bigint
   inode: bigint
+  /** Present only after the Pixiv inventory has verified its persistent marker. */
+  rootIdentity?: string
 }
 
 export interface SafeScanPath {

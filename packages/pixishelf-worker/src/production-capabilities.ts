@@ -1,5 +1,6 @@
 import {
   ARCHIVE_IMPORT_DEFINITION_VERSION,
+  ARCHIVE_SEARCH_DEFINITION_VERSION,
   executionLaneForJobType,
   JOB_DEFINITION_VERSION,
   SCAN_AUDIT_APPLY_DEFINITION_VERSION,
@@ -9,12 +10,19 @@ import {
 } from '@pixishelf/job-contracts'
 
 const PRODUCTION_JOB_TYPES = [
+  'ANIMATION_DURATION_PROBE',
   'ARCHIVE_DEFAULT_TAG_BACKFILL',
+  'ARCHIVE_DISCOVERY_BATCH_SCAN',
   'ARCHIVE_IMPORT',
   'ARCHIVE_INTAKE_RETENTION_CLEANUP',
   'ARCHIVE_MAINTENANCE',
   'ARCHIVE_RESOLVE_ITEM',
+  'ARCHIVE_SEARCH_SCAN',
+  'ARCHIVE_UPLOADER_SCAN',
+  'ARTIST_MERGE',
+  'CREATOR_MAINTENANCE',
   'DERIVED_MEDIA_GC',
+  'JOB_EVENT_RETENTION_CLEANUP',
   'LOCAL_DIRECTORY_IMPORT',
   'MEDIA_DERIVED_TAG_SYNC',
   'MIGRATION',
@@ -45,7 +53,9 @@ export const PRODUCTION_WORKER_CAPABILITIES = PRODUCTION_JOB_TYPES.map((jobType)
       ? [JOB_DEFINITION_VERSION, SCAN_DEFINITION_VERSION, SCAN_AUDIT_APPLY_DEFINITION_VERSION]
       : jobType === 'ARCHIVE_IMPORT'
         ? [JOB_DEFINITION_VERSION, ARCHIVE_IMPORT_DEFINITION_VERSION]
-        : [JOB_DEFINITION_VERSION]
+        : jobType === 'ARCHIVE_SEARCH_SCAN'
+          ? [JOB_DEFINITION_VERSION, 2, ARCHIVE_SEARCH_DEFINITION_VERSION]
+          : [JOB_DEFINITION_VERSION]
 })) satisfies readonly WorkerCapability[]
 
 export function canonicalWorkerCapabilities(
@@ -69,6 +79,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 26-job/29-version dual-lane release')
+    throw new Error('Production Worker capability inventory drifted from the 33-job/38-version dual-lane release')
   }
 }

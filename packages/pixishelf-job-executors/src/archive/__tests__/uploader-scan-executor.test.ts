@@ -1,0 +1,752 @@
+import { randomUUID } from 'node:crypto'
+import type { PrismaClient } from '@pixishelf/db'
+import type {
+  ClaimedJob,
+  EnqueuedChildJob,
+  ExecutionContext,
+  FencedExecutionTransaction,
+  QueueSqlExecutor
+} from '@pixishelf/job-runtime'
+import { describe, expect, it, vi } from 'vitest'
+import { ArchiveExecutorError } from '../errors.js'
+import { createArchiveUploaderComparisonSnapshot, hashArchiveUploaderDiscoveryMetadata } from '../providers/e-hentai.js'
+import { executeArchiveUploaderScan } from '../uploader-scan-executor.js'
+import type { ArchiveUploaderProvider, ArchiveUploaderScanResult } from '../types.js'
+
+const discovery = {
+  gid: '200',
+  titles: { display: 'Existing', aliases: [] },
+  category: null,
+  uploader: 'alice',
+  thumbnailUrl: null,
+  postedAt: null,
+  fileCount: 1,
+  fileSize: null,
+  rating: null,
+  expunged: false,
+  tags: [],
+  relationships: []
+}
+
+const scanResult: ArchiveUploaderScanResult = {
+  items: [
+    {
+      providerKey: 'e-hentai',
+      externalId: '300',
+      canonicalUrl: 'https://e-hentai.org/g/300/token300/',
+      title: 'New gallery',
+      thumbnailUrl: null,
+      uploaderName: 'alice',
+      postedAt: null,
+      metadataFingerprint: 'a'.repeat(64),
+      comparisonSnapshot: createArchiveUploaderComparisonSnapshot({ ...discovery, gid: '300' })!,
+      normalizedMetadata: { ...discovery, gid: '300' },
+      relationships: []
+    },
+    {
+      providerKey: 'e-hentai',
+      externalId: '200',
+      canonicalUrl: 'https://e-hentai.org/g/200/token200/',
+      title: 'Existing',
+      thumbnailUrl: null,
+      uploaderName: 'alice',
+      postedAt: null,
+      metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(discovery)!,
+      comparisonSnapshot: createArchiveUploaderComparisonSnapshot(discovery)!,
+      normalizedMetadata: discovery,
+      relationships: []
+    }
+  ],
+  nextCursor: 'older-cursor',
+  reachedStop: false,
+  discoveredUploaderUid: null
+}
+
+describe('archive uploader scan executor', () => {
+  it('persists classified results and advances initial latest/history cursors only on completion', async () => {
+    const fixture = createFixture({ scanUploader: vi.fn(async () => scanResult) })
+
+    const outcome = await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(outcome).toEqual({ kind: 'transactionally-finalized' })
+    expect(fixture.finalOutcome).toMatchObject({ kind: 'completed' })
+    expect(fixture.createdItems.map(({ externalId, classification }) => ({ externalId, classification }))).toEqual([
+      { externalId: '300', classification: 'NEW' },
+      { externalId: '200', classification: 'ARCHIVED' }
+    ])
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({
+      latestSeenExternalId: '300',
+      historyCursor: 'older-cursor',
+      incrementalCursor: null,
+      incrementalHeadExternalId: null,
+      displayName: 'alice'
+    })
+    expect(fixture.runUpdates.at(-1)).toMatchObject({ stopReason: 'LIMIT_REACHED' })
+    expect(fixture.catalogUpserts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          create: expect.objectContaining({
+            sourceId: 'source-1',
+            externalId: '200',
+            classification: 'ARCHIVED',
+            comparisonKnown: true,
+            comparisonSnapshot: createArchiveUploaderComparisonSnapshot(discovery),
+            comparisonFingerprint: hashArchiveUploaderDiscoveryMetadata(discovery),
+            firstSeenAt: new Date('2026-09-02T04:00:00.000Z'),
+            lastSeenAt: new Date('2026-09-02T04:00:00.000Z'),
+            lastScanRunId: 'scan-run-1'
+          })
+        })
+      ])
+    )
+  })
+
+  it.each([
+    { reachedStop: true, nextCursor: null, expected: 'WATERMARK_REACHED' },
+    { reachedStop: false, nextCursor: null, expected: 'REMOTE_END' }
+  ])(
+    'persists $expected when the provider completes at that boundary',
+    async ({ reachedStop, nextCursor, expected }) => {
+      const fixture = createFixture({
+        scanUploader: vi.fn(async () => ({ ...scanResult, reachedStop, nextCursor }))
+      })
+
+      await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+      expect(fixture.runUpdates.at(-1)).toMatchObject({ status: 'COMPLETED', stopReason: expected })
+      if (expected === 'REMOTE_END') {
+        expect(fixture.sourceUpdates.at(-1)).toMatchObject({ uidRevalidationRequiredAt: null })
+      } else {
+        expect(fixture.sourceUpdates.at(-1)).not.toHaveProperty('uidRevalidationRequiredAt')
+      }
+    }
+  )
+
+  it('uses the frozen run identity instead of the mutable source identity', async () => {
+    const scanUploader = vi.fn(async () => ({ ...scanResult, nextCursor: null }))
+    const fixture = createFixture({ scanUploader, searchIdentityKind: 'UID', searchIdentityValue: '456' })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(scanUploader).toHaveBeenCalledWith(
+      expect.objectContaining({ identityKind: 'UID', identityValue: '456' }),
+      expect.anything()
+    )
+  })
+
+  it('automatically binds a UID discovered by a verified NAME scan and resets only its coverage cursors', async () => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => ({ ...scanResult, discoveredUploaderUid: '456' })),
+      searchIdentityKind: 'NAME',
+      searchIdentityValue: 'alice'
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({
+      uploaderUid: '456',
+      uidRevalidationRequiredAt: new Date('2026-09-02T04:00:00.000Z'),
+      latestSeenExternalId: null,
+      incrementalCursor: null,
+      incrementalHeadExternalId: null,
+      historyCursor: null,
+      lastSuccessAt: new Date('2026-09-02T04:00:00.000Z')
+    })
+    expect(fixture.finalOutcome).toMatchObject({
+      result: {
+        uidDiscovery: { outcome: 'BOUND', uploaderUid: '456', conflictingSourceId: null }
+      }
+    })
+  })
+
+  it('keeps a NAME source unbound and records a visible warning when the discovered UID belongs to another source', async () => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => ({ ...scanResult, discoveredUploaderUid: '456' })),
+      searchIdentityKind: 'NAME',
+      searchIdentityValue: 'alice',
+      conflictingSourceId: 'source-existing'
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.sourceUpdates.at(-1)).not.toHaveProperty('uploaderUid')
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({
+      lastErrorCode: 'UPLOADER_UID_CONFLICT',
+      lastErrorMessage: expect.stringContaining('UID 456')
+    })
+    expect(fixture.finalOutcome).toMatchObject({
+      result: {
+        uidDiscovery: {
+          outcome: 'CONFLICT',
+          uploaderUid: '456',
+          conflictingSourceId: 'source-existing'
+        }
+      }
+    })
+  })
+
+  it('keeps every cursor unchanged when a recoverable provider failure schedules a retry', async () => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => {
+        throw new ArchiveExecutorError('REMOTE_RATE_LIMITED', 'Provider limited', {
+          recoverable: true,
+          retryAfterMs: 5_000
+        })
+      })
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.finalOutcome).toMatchObject({ kind: 'retry', errorCode: 'RESOURCE_BUSY' })
+    expect(fixture.runUpdates.at(-1)).toMatchObject({ status: 'RETRY_WAIT', errorCode: 'REMOTE_RATE_LIMITED' })
+    expect(fixture.sourceUpdates).not.toContainEqual(
+      expect.objectContaining({ latestSeenExternalId: expect.anything() })
+    )
+    expect(fixture.sourceUpdates).not.toContainEqual(expect.objectContaining({ historyCursor: expect.anything() }))
+    expect(fixture.sourceUpdates).not.toContainEqual(expect.objectContaining({ incrementalCursor: expect.anything() }))
+  })
+
+  it('does not classify an older gallery as a replacement when a stored gallery replaces it', async () => {
+    const olderResult: ArchiveUploaderScanResult = {
+      items: [
+        {
+          providerKey: 'e-hentai',
+          externalId: '100',
+          canonicalUrl: 'https://e-hentai.org/g/100/token100/',
+          title: 'Older gallery',
+          thumbnailUrl: null,
+          uploaderName: 'alice',
+          postedAt: null,
+          metadataFingerprint: 'b'.repeat(64),
+          comparisonSnapshot: createArchiveUploaderComparisonSnapshot({ ...discovery, gid: '100' })!,
+          normalizedMetadata: { ...discovery, gid: '100' },
+          relationships: [
+            {
+              type: 'REPLACES',
+              direction: 'INBOUND',
+              providerKey: 'e-hentai',
+              externalId: '200',
+              canonicalUrl: 'https://e-hentai.org/g/200/token200/',
+              locator: { gid: '200', token: 'token200' }
+            }
+          ]
+        }
+      ],
+      nextCursor: null,
+      reachedStop: false,
+      discoveredUploaderUid: null
+    }
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => olderResult)
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.createdItems).toEqual([expect.objectContaining({ externalId: '100', classification: 'NEW' })])
+  })
+
+  it('classifies an unresolved active intake item by its submitted canonical URL', async () => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => scanResult),
+      activeIntake: [
+        {
+          id: 'intake-300',
+          externalId: null,
+          submittedUrl: 'https://e-hentai.org/g/300/token300/',
+          canonicalUrl: null
+        }
+      ]
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.createdItems.map(({ externalId, classification }) => ({ externalId, classification }))).toEqual([
+      { externalId: '300', classification: 'ACTIVE' },
+      { externalId: '200', classification: 'ARCHIVED' }
+    ])
+    expect(fixture.activeIntakeQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            { submittedUrl: { in: ['https://e-hentai.org/g/300/token300/', 'https://e-hentai.org/g/200/token200/'] } }
+          ])
+        })
+      })
+    )
+    expect(fixture.catalogUpserts).toContainEqual(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          externalId: '300',
+          classification: 'NEW',
+          lastIntakeItemId: 'intake-300'
+        })
+      })
+    )
+  })
+
+  it('keeps a stable update recommendation while linking the active import observed by the scan', async () => {
+    const updatedMetadata = { ...discovery, fileCount: 2 }
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => ({
+        ...scanResult,
+        items: [
+          {
+            ...scanResult.items[1]!,
+            metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(updatedMetadata)!,
+            comparisonSnapshot: createArchiveUploaderComparisonSnapshot(updatedMetadata)!,
+            normalizedMetadata: updatedMetadata
+          }
+        ]
+      })),
+      activeImports: [{ id: 'import-200', externalId: '200' }]
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.createdItems).toEqual([expect.objectContaining({ classification: 'ACTIVE' })])
+    expect(fixture.catalogUpserts).toEqual([
+      expect.objectContaining({
+        update: expect.objectContaining({
+          classification: 'POSSIBLE_UPDATE',
+          changeReasons: [{ field: 'fileCount', message: '页数 1 → 2' }]
+        }),
+        create: expect.objectContaining({ lastArchiveImportId: 'import-200', lastOutcome: 'SUBMITTED' })
+      })
+    ])
+    expect(fixture.catalogWorkflowUpdates).toContainEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({ lastArchiveImportId: 'import-200', lastOutcome: 'SUBMITTED' })
+      })
+    )
+  })
+
+  it('keeps an archived gallery archived when its historical snapshot is not comparable', async () => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => scanResult),
+      storedNormalizedMetadata: { gid: '200', titles: discovery.titles }
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.createdItems).toContainEqual(
+      expect.objectContaining({ externalId: '200', classification: 'ARCHIVED' })
+    )
+    expect(fixture.catalogUpserts).toContainEqual(
+      expect.objectContaining({
+        create: expect.objectContaining({
+          externalId: '200',
+          classification: 'ARCHIVED',
+          comparisonKnown: false,
+          changeReasons: []
+        })
+      })
+    )
+  })
+
+  it('persists an explainable stable-metadata change for a possible update', async () => {
+    const updatedMetadata = { ...discovery, fileCount: 2 }
+    const updatedResult: ArchiveUploaderScanResult = {
+      ...scanResult,
+      items: [
+        {
+          ...scanResult.items[1]!,
+          metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(updatedMetadata)!,
+          comparisonSnapshot: createArchiveUploaderComparisonSnapshot(updatedMetadata)!,
+          normalizedMetadata: updatedMetadata
+        }
+      ]
+    }
+    const fixture = createFixture({ scanUploader: vi.fn(async () => updatedResult) })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.createdItems).toEqual([expect.objectContaining({ classification: 'POSSIBLE_UPDATE' })])
+    expect(fixture.catalogUpserts[0]).toEqual(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          classification: 'POSSIBLE_UPDATE',
+          comparisonKnown: true,
+          changeReasons: [{ field: 'fileCount', message: '页数 1 → 2' }]
+        })
+      })
+    )
+  })
+})
+
+describe('title scan executor', () => {
+  const titleQuery = { keyword: 'frozen', matchMode: 'CONTAINS' as const, uploaderUid: null }
+  const rawResult = { ...scanResult, items: scanResult.items.map((item) => ({ ...item, matchesQuery: false })) }
+
+  it('settles an invalid frozen keyword without calling the provider', async () => {
+    const scanTitles = vi.fn()
+    const fixture = createFixture({
+      scanUploader: vi.fn(),
+      scanTitles,
+      titleQuery: { ...titleQuery, keyword: 'invalid*keyword' }
+    })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    expect(scanTitles).not.toHaveBeenCalled()
+    expect(fixture.runUpdates.at(-1)).toMatchObject({ status: 'FAILED', finishedAt: expect.any(Date) })
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({ lastRunId: 'scan-run-1' })
+    expect(fixture.finalOutcome).toMatchObject({ kind: 'failed' })
+  })
+
+  it.each(['cancel', 'pause', 'shutdown', 'lease'] as const)(
+    'honors %s while settling an invalid frozen query',
+    async (control) => {
+      const scanTitles = vi.fn()
+      const fixture = createFixture({
+        scanUploader: vi.fn(),
+        scanTitles,
+        titleQuery: { ...titleQuery, keyword: 'invalid*keyword' },
+        cancelBeforeCommit: control === 'cancel',
+        pauseBeforeCommit: control === 'pause',
+        loseLease: control === 'lease'
+      })
+      if (control === 'shutdown') {
+        const controller = new AbortController()
+        controller.abort()
+        fixture.context.signal = controller.signal
+      }
+      const execution = executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+      if (control === 'lease') {
+        await expect(execution).rejects.toThrow('lease lost')
+        expect(fixture.runUpdates).toHaveLength(1)
+        expect(fixture.finalOutcome).toBeNull()
+      } else {
+        await execution
+        const status = control === 'cancel' ? 'CANCELLED' : control === 'pause' ? 'PAUSED' : 'PENDING'
+        const kind = control === 'cancel' ? 'cancelled' : control === 'pause' ? 'paused' : 'released'
+        expect(fixture.runUpdates.at(-1)).toMatchObject({ status })
+        expect(fixture.finalOutcome).toMatchObject({ kind })
+      }
+      expect(scanTitles).not.toHaveBeenCalled()
+      expect(fixture.createdItems).toEqual([])
+      expect(fixture.catalogUpserts).toEqual([])
+      expect(fixture.sourceUpdates.some((data) => Object.hasOwn(data, 'historyCursor'))).toBe(false)
+    }
+  )
+
+  it('passes literal underscores to the title provider and completes the scan', async () => {
+    const scanTitles = vi.fn(async () => rawResult)
+    const fixture = createFixture({
+      scanUploader: vi.fn(),
+      scanTitles,
+      titleQuery: { ...titleQuery, keyword: 'Cornelia_winterhowl' }
+    })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    expect(scanTitles).toHaveBeenCalledWith(
+      expect.objectContaining({ query: expect.objectContaining({ keyword: 'Cornelia_winterhowl' }) }),
+      expect.anything()
+    )
+    expect(fixture.runUpdates.at(-1)).toMatchObject({ status: 'COMPLETED' })
+  })
+
+  it('persists raw snapshots and hides nonmatches while advancing raw head and history', async () => {
+    const scanTitles = vi.fn(async () => rawResult)
+    const fixture = createFixture({ scanUploader: vi.fn(), scanTitles, titleQuery })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    expect(scanTitles).toHaveBeenCalledWith(
+      expect.objectContaining({ query: titleQuery, sourceId: 'source-1', limit: 100 }),
+      expect.anything()
+    )
+    expect(fixture.createdItems).toHaveLength(2)
+    expect(fixture.createdItems.every((item) => item.matchesQuery === false)).toBe(true)
+    expect(
+      fixture.catalogUpserts.every((item) => (item.update as { matchesQuery: boolean }).matchesQuery === false)
+    ).toBe(true)
+    expect(fixture.runUpdates.at(-1)).toMatchObject({
+      checkedCount: 2,
+      matchedCount: 0,
+      newCount: 0,
+      archivedCount: 0,
+      stopReason: 'LIMIT_REACHED'
+    })
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({ latestSeenExternalId: '300', historyCursor: 'older-cursor' })
+    expect(fixture.sourceUpdates.at(-1)).not.toHaveProperty('uploaderUid')
+    expect(fixture.sourceUpdates.at(-1)).not.toHaveProperty('displayName')
+  })
+
+  it('counts matches separately without filtering the raw head', async () => {
+    const result = {
+      ...rawResult,
+      items: rawResult.items.map((item, index) => ({ ...item, matchesQuery: index === 1 }))
+    }
+    const fixture = createFixture({ scanUploader: vi.fn(), scanTitles: vi.fn(async () => result), titleQuery })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    expect(fixture.runUpdates.at(-1)).toMatchObject({ checkedCount: 2, matchedCount: 1, newCount: 0, archivedCount: 1 })
+    expect(fixture.sourceUpdates.at(-1)).toMatchObject({ latestSeenExternalId: '300' })
+  })
+
+  it.each(['cancel', 'failure', 'lease'] as const)('does not commit snapshots or cursors on %s', async (kind) => {
+    const fixture = createFixture({
+      scanUploader: vi.fn(),
+      titleQuery,
+      cancelBeforeCommit: kind === 'cancel',
+      loseLease: kind === 'lease',
+      scanTitles: vi.fn(async () => {
+        if (kind === 'failure') throw new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'Incomplete metadata')
+        return rawResult
+      })
+    })
+    const execution = executeArchiveUploaderScan(fixture.context, fixture.dependencies, 'TITLE_QUERY')
+    if (kind === 'lease') await expect(execution).rejects.toThrow('lease lost')
+    else await execution
+    expect(fixture.createdItems).toEqual([])
+    expect(fixture.catalogUpserts).toEqual([])
+    expect(
+      fixture.sourceUpdates.every(
+        (data) => !Object.hasOwn(data, 'historyCursor') && !Object.hasOwn(data, 'latestSeenExternalId')
+      )
+    ).toBe(true)
+  })
+
+  it('prevents the legacy executor from claiming a keyword source', async () => {
+    const scanTitles = vi.fn(async () => rawResult)
+    const fixture = createFixture({ scanUploader: vi.fn(), scanTitles, titleQuery })
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+    expect(scanTitles).not.toHaveBeenCalled()
+    expect(fixture.finalOutcome).toMatchObject({ kind: 'skipped' })
+  })
+})
+
+function createFixture(input: {
+  scanUploader: ArchiveUploaderProvider['scanUploader']
+  scanTitles?: ArchiveUploaderProvider['scanTitles']
+  titleQuery?: { keyword: string; matchMode: 'CONTAINS'; uploaderUid: null }
+  pauseBeforeCommit?: boolean
+  cancelBeforeCommit?: boolean
+  loseLease?: boolean
+  searchIdentityKind?: 'NAME' | 'UID'
+  searchIdentityValue?: string
+  activeIntake?: Array<{
+    id: string
+    externalId: string | null
+    submittedUrl: string
+    canonicalUrl: string | null
+  }>
+  activeImports?: Array<{ id: string; externalId: string }>
+  storedNormalizedMetadata?: unknown
+  existingUploaderUid?: string | null
+  conflictingSourceId?: string | null
+}) {
+  const runUpdates: Array<Record<string, unknown>> = []
+  const sourceUpdates: Array<Record<string, unknown>> = []
+  const createdItems: Array<Record<string, unknown>> = []
+  const catalogUpserts: Array<Record<string, unknown>> = []
+  const catalogWorkflowUpdates: Array<Record<string, unknown>> = []
+  let finalOutcome: unknown = null
+  const run = {
+    defaultCreatorIds: [],
+    id: 'scan-run-1',
+    sourceId: 'source-1',
+    systemJobId: 'uploader-job-1',
+    mode: 'LATEST' as const,
+    titleQuery: input.titleQuery ?? null,
+    searchIdentityKind: input.titleQuery ? null : (input.searchIdentityKind ?? ('UID' as const)),
+    searchIdentityValue: input.titleQuery ? null : (input.searchIdentityValue ?? '123'),
+    status: 'PENDING' as const,
+    cursorBefore: null,
+    source: {
+      id: 'source-1',
+      providerKey: 'e-hentai',
+      sourceKind: input.titleQuery ? 'TITLE_QUERY' : 'UPLOADER',
+      titleQuery: { keyword: 'different mutable source', matchMode: 'CONTAINS', uploaderUid: null },
+      status: 'ACTIVE' as const,
+      latestSeenExternalId: null,
+      incrementalHeadExternalId: null
+    }
+  }
+  const activeIntakeQuery = vi.fn(async (_args?: unknown) => input.activeIntake ?? [])
+  const transaction = {
+    archiveUploaderScanRun: {
+      findUnique: vi.fn(async () => run),
+      updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        runUpdates.push(data)
+        return { count: 1 }
+      })
+    },
+    archiveUploaderSource: {
+      findUnique: vi.fn(async () => ({ uploaderUid: input.existingUploaderUid ?? null })),
+      findFirst: vi.fn(async () => (input.conflictingSourceId ? { id: input.conflictingSourceId } : null)),
+      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        sourceUpdates.push(data)
+        return { id: 'source-1' }
+      }),
+      updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        sourceUpdates.push(data)
+        return { count: 1 }
+      })
+    },
+    archiveUploaderScanItem: {
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+      createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => {
+        createdItems.push(...data)
+        return { count: data.length }
+      })
+    },
+    archiveUploaderCatalogItem: {
+      findMany: vi.fn(async () => []),
+      upsert: vi.fn(async (args: Record<string, unknown>) => {
+        catalogUpserts.push(args)
+        return { id: `catalog-${catalogUpserts.length}` }
+      }),
+      updateMany: vi.fn(async (args: Record<string, unknown>) => {
+        catalogWorkflowUpdates.push(args)
+        return { count: 1 }
+      })
+    },
+    archiveIntakeItem: {
+      findMany: vi.fn(async (...args: unknown[]) => {
+        await activeIntakeQuery(args[0])
+        return (input.activeIntake ?? []).map((item) => ({
+          ...item,
+          status: 'QUEUED' as const,
+          finishedAt: null,
+          updatedAt: new Date('2026-09-02T03:30:00.000Z'),
+          createdAt: new Date('2026-09-02T03:00:00.000Z'),
+          errorCode: null,
+          errorMessage: null
+        }))
+      })
+    },
+    archiveImport: {
+      findMany: vi.fn(async () =>
+        (input.activeImports ?? []).map((item) => ({
+          ...item,
+          status: 'RUNNING' as const,
+          canonicalUrl: `https://e-hentai.org/g/${item.externalId}/token${item.externalId}/`,
+          finishedAt: null,
+          updatedAt: new Date('2026-09-02T03:45:00.000Z'),
+          createdAt: new Date('2026-09-02T03:15:00.000Z'),
+          errorCode: null,
+          errorMessage: null
+        }))
+      )
+    },
+    artworkExternalRef: {
+      findMany: vi.fn(async () => [
+        {
+          id: 'reference-200',
+          externalId: '200',
+          lastSuccessAt: new Date('2026-09-02T02:00:00.000Z'),
+          updatedAt: new Date('2026-09-02T02:00:00.000Z'),
+          createdAt: new Date('2026-09-02T02:00:00.000Z'),
+          snapshots: [
+            {
+              normalizedMetadata: Object.hasOwn(input, 'storedNormalizedMetadata')
+                ? input.storedNormalizedMetadata
+                : discovery
+            }
+          ]
+        }
+      ])
+    },
+    $queryRaw: vi.fn(async () => [{ lock: '' }]),
+    $queryRawUnsafe: vi.fn(),
+    $executeRawUnsafe: vi.fn()
+  }
+  const provider: ArchiveUploaderProvider = {
+    key: 'e-hentai',
+    requestGovernance: 'PER_REQUEST',
+    accepts: () => true,
+    resolve: vi.fn(),
+    openMedia: vi.fn(),
+    ...(input.scanTitles ? { scanTitles: input.scanTitles } : {}),
+    scanUploader: input.scanUploader
+  }
+  const context = {
+    job: claimedJob(),
+    payload: { scanRunId: run.id },
+    signal: new AbortController().signal,
+    progress: vi.fn(async () => undefined),
+    enqueueChild: vi.fn(),
+    mutateInTransaction: async (operation: (value: typeof transaction) => Promise<unknown>) => operation(transaction),
+    finalizeInTransaction: async (
+      operation: (scope: FencedExecutionTransaction<typeof transaction & QueueSqlExecutor>) => Promise<void>
+    ) => {
+      if (input.loseLease) throw new Error('lease lost')
+      await operation({
+        transaction: transaction as typeof transaction & QueueSqlExecutor,
+        executionStatus: 'RUNNING',
+        controlStatus: input.cancelBeforeCommit
+          ? 'CANCEL_REQUESTED'
+          : input.pauseBeforeCommit
+            ? 'PAUSE_REQUESTED'
+            : 'CONTINUE',
+        complete: async (value = {}) => {
+          finalOutcome = { kind: 'completed', ...value }
+        },
+        retry: async (value) => {
+          finalOutcome = { kind: 'retry', ...value }
+        },
+        fail: async (value) => {
+          finalOutcome = { kind: 'failed', ...value }
+        },
+        skip: async (value) => {
+          finalOutcome = { kind: 'skipped', ...value }
+        },
+        cancel: async () => {
+          finalOutcome = { kind: 'cancelled' }
+        },
+        pause: async () => {
+          finalOutcome = { kind: 'paused' }
+        },
+        release: async () => {
+          finalOutcome = { kind: 'released' }
+        }
+      })
+      return { kind: 'transactionally-finalized' as const }
+    },
+    logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+  } as unknown as ExecutionContext<{ scanRunId: string }, EnqueuedChildJob>
+
+  return {
+    context,
+    dependencies: {
+      database: {} as PrismaClient,
+      providers: {
+        get: () => provider,
+        getForUrl: () => provider,
+        getUploaderScanner: () => provider
+      },
+      now: () => new Date('2026-09-02T04:00:00.000Z')
+    },
+    runUpdates,
+    sourceUpdates,
+    createdItems,
+    catalogUpserts,
+    catalogWorkflowUpdates,
+    activeIntakeQuery,
+    get finalOutcome() {
+      return finalOutcome
+    }
+  }
+}
+
+function claimedJob(): ClaimedJob {
+  const now = new Date('2026-09-02T04:00:00.000Z')
+  const executionToken = randomUUID()
+  return {
+    id: 'uploader-job-1',
+    type: 'ARCHIVE_UPLOADER_SCAN',
+    executionLane: 'ARCHIVE_RESOLVE',
+    definitionVersion: 1,
+    status: 'RUNNING',
+    triggerSource: 'MANUAL',
+    payload: { scanRunId: 'scan-run-1' },
+    attempt: 1,
+    maxAttempts: 3,
+    effectivePriority: 20,
+    availableAt: now,
+    deadlineAt: null,
+    workerId: 'worker-test',
+    leaseToken: executionToken,
+    leaseExpiresAt: new Date(now.getTime() + 60_000),
+    heartbeatAt: now,
+    startedAt: now,
+    createdAt: now,
+    updatedAt: now,
+    executionToken
+  }
+}

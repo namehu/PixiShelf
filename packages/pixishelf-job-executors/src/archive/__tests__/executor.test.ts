@@ -116,6 +116,152 @@ const completedArchiveItem = {
 }
 
 describe('archive executor', () => {
+  it.each([13, 27])('records all %i media failures exactly once without truncation', async (count) => {
+    const transaction = createTransaction()
+    const items = Array.from({ length: count }, (_, index) => ({
+      ...archiveItem,
+      id: `item-${index}`,
+      pageIndex: index,
+      expectedFilename: `${index}.jpg`
+    }))
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: count, items })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    transaction.archiveImportItem.groupBy.mockResolvedValue([{ status: 'FAILED', _count: { _all: count } }])
+    const failure = new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'remote failed', {
+      stage: 'MEDIA_STREAM',
+      remoteHost: 'example.test:443',
+      httpStatus: 502,
+      cause: Object.assign(new Error('socket closed'), { code: 'ECONNRESET' })
+    })
+    transaction.archiveImportItem.findMany.mockResolvedValue(
+      items.map((item) => ({
+        ...item,
+        status: 'FAILED',
+        errorCode: failure.code,
+        errorMessage: failure.message,
+        errorStage: failure.stage,
+        remoteHost: failure.remoteHost,
+        attempts: 1
+      }))
+    )
+    const context = createContext(transaction)
+    const recordDiagnostic = vi.fn(async () => undefined)
+    context.recordDiagnostic = recordDiagnostic
+    const deps = dependencies(transaction)
+    deps.config.maxMediaAttempts = 1
+    deps.providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => {
+          throw failure
+        })
+      }
+    ])
+    await executeArchiveImport(context, deps)
+    const current = recordDiagnostic.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { origin?: string }).origin !== 'INHERITED'
+    )
+    expect(current).toHaveLength(count)
+    expect(new Set(current.map((call: unknown[]) => (call[1] as { key: string }).key)).size).toBe(count)
+    expect(recordDiagnostic).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ error: failure, httpStatus: 502, stage: 'MEDIA_STREAM', itemAttempt: 1 })
+    )
+    const inherited = recordDiagnostic.mock.calls.filter(
+      (call: unknown[]) => (call[1] as { origin?: string }).origin === 'INHERITED'
+    )
+    expect(inherited).toHaveLength(0)
+    expect(transaction.archiveImportItem.findMany).not.toHaveBeenCalled()
+  })
+
+  it('freezes 205 inherited failures in three bounded transactions before finalization', async () => {
+    const { transaction, context } = inheritedDiagnosticFixture(205)
+    const batchSizes: number[] = []
+    let count = 0
+    context.recordDiagnostic = vi.fn(async () => {
+      count += 1
+    })
+    const mutate = context.mutateInTransaction
+    context.mutateInTransaction = (async (operation) => {
+      const before = count
+      const result = await mutate(operation)
+      if (count > before) batchSizes.push(count - before)
+      return result
+    }) as typeof context.mutateInTransaction
+    await executeArchiveImport(context, dependencies(transaction))
+    expect(batchSizes).toEqual([100, 100, 5])
+    expect(context.recordDiagnostic).toHaveBeenCalledTimes(205)
+    expect(transaction.archiveImportItem.findMany).toHaveBeenCalledTimes(3)
+    expect(context.__scope.fail).toHaveBeenCalledOnce()
+  })
+
+  it('stops inherited freezing at a committed batch on shutdown and freezes the full set on the next execution', async () => {
+    const controller = new AbortController()
+    const { transaction, context } = inheritedDiagnosticFixture(205, controller.signal)
+    let count = 0
+    context.recordDiagnostic = vi.fn(async () => {
+      count += 1
+    })
+    const mutate = context.mutateInTransaction
+    context.mutateInTransaction = (async (operation) => {
+      const result = await mutate(operation)
+      if (count === 100) controller.abort({ reason: 'SHUTDOWN' })
+      return result
+    }) as typeof context.mutateInTransaction
+    await executeArchiveImport(context, dependencies(transaction))
+    expect(context.recordDiagnostic).toHaveBeenCalledTimes(100)
+    expect(transaction.archiveImportItem.findMany).toHaveBeenCalledTimes(1)
+    expect(context.__scope.release).toHaveBeenCalledOnce()
+    expect(context.__scope.fail).not.toHaveBeenCalled()
+    const resumed = createContext(transaction)
+    resumed.recordDiagnostic = vi.fn(async () => undefined)
+    await executeArchiveImport(resumed, dependencies(transaction))
+    expect(resumed.recordDiagnostic).toHaveBeenCalledTimes(205)
+    expect(resumed.recordDiagnostic).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ origin: 'INHERITED', targetId: 'old-204' })
+    )
+  })
+
+  it('marks the report incomplete when a later inherited batch cannot be read', async () => {
+    const { transaction, context } = inheritedDiagnosticFixture(205)
+    const read = transaction.archiveImportItem.findMany.getMockImplementation() as (
+      ...args: unknown[]
+    ) => Promise<unknown>
+    let batches = 0
+    transaction.archiveImportItem.findMany.mockImplementation(async (...args: unknown[]) => {
+      batches += 1
+      if (batches === 2) throw new Error('checkpoint read failed')
+      return read(...args)
+    })
+    context.recordDiagnostic = vi.fn(async () => undefined)
+    await executeArchiveImport(context, dependencies(transaction))
+    expect(context.recordDiagnostic).toHaveBeenCalledTimes(100)
+    expect(context.__scope.fail).toHaveBeenCalledWith(expect.objectContaining({ diagnosticComplete: false }))
+    expect(transaction.archiveImportItem.findMany).toHaveBeenCalledTimes(2)
+  })
+
+  it('copies old failed checkpoints as inherited when a later execution processes no new media', async () => {
+    const transaction = createTransaction()
+    const failed = {
+      ...archiveItem,
+      status: 'FAILED',
+      attempts: 3,
+      errorCode: 'REMOTE_NOT_FOUND',
+      errorMessage: 'previously missing'
+    }
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [failed] })
+    transaction.archiveImportItem.groupBy.mockResolvedValue([{ status: 'FAILED', _count: { _all: 1 } }])
+    transaction.archiveImportItem.findMany.mockResolvedValue([failed])
+    const context = createContext(transaction)
+    context.recordDiagnostic = vi.fn(async () => undefined)
+    await executeArchiveImport(context, dependencies(transaction))
+    expect(context.recordDiagnostic).toHaveBeenCalledExactlyOnceWith(
+      transaction,
+      expect.objectContaining({ origin: 'INHERITED', code: 'REMOTE_NOT_FOUND', message: 'previously missing' })
+    )
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     publishMock.mockResolvedValue({ artworkId: 42, revisionId: 'import-1', archivePath: 'sources/test/42' })
@@ -194,13 +340,7 @@ describe('archive executor', () => {
 
     await executeArchiveImport(context, dependencies(transaction))
 
-    expect(publishMock).toHaveBeenCalledWith(
-      transaction,
-      'import-1',
-      expect.any(Object),
-      expect.any(Date),
-      [2, 5]
-    )
+    expect(publishMock).toHaveBeenCalledWith(transaction, 'import-1', expect.any(Object), expect.any(Date), [2, 5])
   })
 
   it('reconciles stale aggregate counts from durable item checkpoints before execution', async () => {
@@ -271,7 +411,7 @@ describe('archive executor', () => {
       data: { completedItems: { increment: 1 } },
       select: { completedItems: true }
     })
-    expect(context.progress).toHaveBeenCalledWith(expect.objectContaining({ message: 'Downloaded 1/1', progress: 95 }))
+    expect(context.progress).toHaveBeenCalledWith(expect.objectContaining({ message: '已下载 1/1', progress: 95 }))
   })
 
   it.each([
@@ -318,7 +458,7 @@ describe('archive executor', () => {
       TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
     )
 
-    expect(context.__scope.release).toHaveBeenCalledWith('Archive cleanup will run before import resumes')
+    expect(context.__scope.release).toHaveBeenCalledWith('归档导入恢复前将先执行清理')
     expect(context.__scope.fail).not.toHaveBeenCalled()
     expect(transaction.archiveImport.updateMany).not.toHaveBeenCalled()
     expect(storageMocks.prepareArchiveStagingDirectory).not.toHaveBeenCalled()
@@ -337,8 +477,25 @@ describe('archive executor', () => {
     expect(transaction.archiveImport.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED' }) })
     )
-    expect(context.__scope.cancel).toHaveBeenCalledWith('Archive import cancelled')
-    expect(transaction.archiveImport.findUnique).not.toHaveBeenCalled()
+    expect(transaction.archiveUploaderCatalogItem.updateMany).toHaveBeenCalledWith({
+      where: {
+        OR: [
+          { lastArchiveImportId: 'import-1' },
+          { providerKey: archiveImport.providerKey, externalId: archiveImport.externalId }
+        ]
+      },
+      data: expect.objectContaining({
+        lastArchiveImportId: 'import-1',
+        lastOutcome: 'CANCELLED',
+        lastErrorCode: 'CANCELLED',
+        lastErrorMessage: '归档导入已取消'
+      })
+    })
+    expect(context.__scope.cancel).toHaveBeenCalledWith('归档导入已取消')
+    expect(transaction.archiveImport.findUnique).toHaveBeenCalledWith({
+      where: { id: 'import-1' },
+      select: { providerKey: true, externalId: true, canonicalUrl: true }
+    })
   })
 
   it.each([
@@ -381,7 +538,7 @@ describe('archive executor', () => {
     )
     expect(context.__scope.pause).toHaveBeenCalledWith({
       reason: 'USER_REQUESTED',
-      message: 'Archive import paused'
+      message: '归档导入已暂停'
     })
     expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
   })
@@ -431,6 +588,234 @@ describe('archive executor', () => {
       }
     })
     expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ['https://cdn.hath.network:2443/image.jpg?key=download-token', true],
+    ['http://cdn.hath.network:2244/image.jpg', true],
+    ['https://user:password@cdn.hath.network/image.jpg', false],
+    ['file:///private/image.jpg', false],
+    [undefined, false]
+  ] as const)(
+    'records only a valid observed response URL %s before a later media failure',
+    async (downloadUrl, valid) => {
+      const transaction = createTransaction()
+      transaction.archiveImport.findUnique.mockResolvedValue({
+        ...archiveImport,
+        totalItems: 1,
+        items: [
+          {
+            ...archiveItem,
+            lastDownloadUrl: 'https://old.test/old',
+            lastDownloadAt: new Date(),
+            lastDownloadAttempt: 0
+          }
+        ]
+      })
+      transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+      const context = createContext(transaction)
+      const recordDiagnostic = vi.fn(async () => undefined)
+      context.recordDiagnostic = recordDiagnostic
+      const stream = new PassThrough()
+      const base = dependencies(transaction)
+      const executorDependencies = {
+        ...base,
+        config: { ...base.config, maxMediaAttempts: 1 },
+        providers: new DefaultArchiveMediaProviderRegistry([
+          {
+            key: 'test',
+            openMedia: vi.fn(async () => ({
+              stream,
+              mimeType: 'image/jpeg',
+              contentLength: 1,
+              originalFilename: null,
+              quality: 'ORIGINAL' as const,
+              remoteHost: 'cdn.hath.network',
+              ...(downloadUrl ? { downloadUrl } : {})
+            }))
+          }
+        ])
+      }
+      storageMocks.storeArchiveRemoteMedia.mockRejectedValueOnce(
+        new ArchiveExecutorError('MEDIA_INVALID', 'media validation failed', { stage: 'MEDIA_VALIDATION' })
+      )
+      await executeArchiveImport(context, executorDependencies).catch(() => undefined)
+      const writes = transaction.archiveImportItem.updateMany.mock.calls.map(
+        ([call]) => call as { data: Record<string, unknown> }
+      )
+      expect(writes.find((call) => call.data.status === 'DOWNLOADING')?.data).toMatchObject({
+        lastDownloadUrl: null,
+        lastDownloadAt: null,
+        lastDownloadAttempt: null
+      })
+      const observations = writes.filter((call) => typeof call.data.lastDownloadUrl === 'string')
+      expect(observations).toHaveLength(valid ? 1 : 0)
+      if (valid)
+        expect(observations[0]?.data).toEqual({
+          lastDownloadUrl: downloadUrl,
+          lastDownloadAt: new Date('2026-08-14T01:00:00.000Z'),
+          lastDownloadAttempt: 1
+        })
+      expect(writes.find((call) => call.data.status === 'FAILED')?.data).not.toHaveProperty('lastDownloadUrl')
+      expect(stream.destroyed).toBe(true)
+      expect(
+        JSON.stringify([
+          vi.mocked(context.progress).mock.calls,
+          recordDiagnostic.mock.calls,
+          vi.mocked(context.logger.error).mock.calls
+        ])
+      ).not.toContain('download-token')
+    }
+  )
+
+  it('destroys the response stream and never stores media when its response checkpoint loses ownership', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [archiveItem] })
+    transaction.archiveImportItem.updateMany.mockImplementation(
+      async ({ data }: { data: Record<string, unknown> }) => ({
+        count: typeof data.lastDownloadUrl === 'string' ? 0 : 1
+      })
+    )
+    const stream = new PassThrough()
+    const base = dependencies(transaction)
+    const providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => ({
+          downloadUrl: 'https://cdn.hath.network:2443/image.jpg',
+          stream,
+          mimeType: 'image/jpeg',
+          contentLength: 1,
+          originalFilename: null,
+          quality: 'ORIGINAL' as const,
+          remoteHost: 'cdn.hath.network'
+        }))
+      }
+    ])
+    await executeArchiveImport(createContext(transaction), {
+      ...base,
+      providers,
+      config: { ...base.config, maxMediaAttempts: 1 }
+    }).catch(() => undefined)
+    expect(storageMocks.storeArchiveRemoteMedia).not.toHaveBeenCalled()
+    expect(stream.destroyed).toBe(true)
+    expect(transaction.archiveImportItem.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) })
+    )
+  })
+
+  it('captures a stream error during the response database checkpoint without losing the observed URL', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [archiveItem] })
+    const stream = new PassThrough()
+    const reset = Object.assign(new Error('connection reset'), { code: 'ECONNRESET' })
+    transaction.archiveImportItem.updateMany.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
+      if (typeof data.lastDownloadUrl === 'string') {
+        stream.destroy(reset)
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      return { count: 1 }
+    })
+    const context = createContext(transaction)
+    const recordDiagnostic = vi.fn(async () => undefined)
+    context.recordDiagnostic = recordDiagnostic
+    const base = dependencies(transaction)
+    const downloadUrl = 'https://cdn.hath.network:2443/image.jpg?key=observed'
+    const providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => ({
+          downloadUrl,
+          stream,
+          mimeType: 'image/jpeg',
+          contentLength: 1,
+          originalFilename: null,
+          quality: 'ORIGINAL' as const,
+          remoteHost: 'cdn.hath.network'
+        }))
+      }
+    ])
+    await executeArchiveImport(context, { ...base, providers, config: { ...base.config, maxMediaAttempts: 1 } }).catch(
+      () => undefined
+    )
+    expect(storageMocks.storeArchiveRemoteMedia).not.toHaveBeenCalled()
+    expect(transaction.archiveImportItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ lastDownloadUrl: downloadUrl, lastDownloadAttempt: 1 })
+      })
+    )
+    expect(recordDiagnostic).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ stage: 'MEDIA_STREAM', error: expect.objectContaining({ cause: reset }) })
+    )
+    expect(stream.listenerCount('error')).toBe(0)
+  })
+
+  it('clears previous download observations when the next request fails before a response', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({
+      ...archiveImport,
+      totalItems: 1,
+      items: [
+        {
+          ...archiveItem,
+          attempts: 1,
+          lastDownloadUrl: 'https://old.test/old',
+          lastDownloadAt: new Date(),
+          lastDownloadAttempt: 1
+        }
+      ]
+    })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    const base = dependencies(transaction)
+    const providers = new DefaultArchiveMediaProviderRegistry([
+      {
+        key: 'test',
+        openMedia: vi.fn(async () => {
+          throw new ArchiveExecutorError('INTERNAL', 'connection timed out', {
+            recoverable: true,
+            stage: 'MEDIA_REQUEST'
+          })
+        })
+      }
+    ])
+    await executeArchiveImport(createContext(transaction), {
+      ...base,
+      providers,
+      config: { ...base.config, maxMediaAttempts: 2 }
+    }).catch(() => undefined)
+    const writes = transaction.archiveImportItem.updateMany.mock.calls.map(
+      ([call]) => call as { data: Record<string, unknown> }
+    )
+    expect(writes.find((call) => call.data.status === 'DOWNLOADING')?.data).toMatchObject({
+      lastDownloadUrl: null,
+      lastDownloadAt: null,
+      lastDownloadAttempt: null
+    })
+    expect(writes.some((call) => typeof call.data.lastDownloadUrl === 'string')).toBe(false)
+  })
+
+  it('refreshes media on retries without exceeding the existing item attempt budget', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [archiveItem] })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    const openMedia = vi.fn(async (_item: unknown, _context: unknown) => {
+      throw new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'connection reset', {
+        recoverable: true,
+        stage: 'MEDIA_STREAM'
+      })
+    })
+    const base = dependencies(transaction)
+    await executeArchiveImport(createContext(transaction), {
+      ...base,
+      providers: new DefaultArchiveMediaProviderRegistry([{ key: 'test', openMedia }])
+    }).catch(() => undefined)
+    expect(openMedia).toHaveBeenCalledTimes(3)
+    expect(openMedia.mock.calls.map(([, context]) => (context as { reloadMedia: boolean }).reloadMedia)).toEqual([
+      false,
+      true,
+      true
+    ])
   })
 
   it('destroys an unconsumed remote stream so a local storage failure releases its provider permit', async () => {
@@ -586,6 +971,9 @@ function createTransaction() {
       groupBy: vi.fn(async () => []),
       findMany: vi.fn(async () => []),
       count: vi.fn(async () => 0)
+    },
+    archiveUploaderCatalogItem: {
+      updateMany: vi.fn(async () => ({ count: 1 }))
     }
   } as unknown as Prisma.TransactionClient & {
     $queryRawUnsafe: ReturnType<typeof vi.fn>
@@ -601,6 +989,7 @@ function createTransaction() {
       findMany: ReturnType<typeof vi.fn>
       count: ReturnType<typeof vi.fn>
     }
+    archiveUploaderCatalogItem: { updateMany: ReturnType<typeof vi.fn> }
   }
 }
 
@@ -675,4 +1064,24 @@ function createContext(
     progress: ReturnType<typeof vi.fn<(update: ExecutionProgressUpdate) => Promise<void>>>
     __scope: typeof scope
   }
+}
+
+function inheritedDiagnosticFixture(count: number, signal = new AbortController().signal) {
+  const transaction = createTransaction()
+  const items = Array.from({ length: count }, (_, index) => ({
+    ...archiveItem,
+    id: `old-${index}`,
+    pageIndex: index,
+    status: 'FAILED' as const,
+    attempts: 3,
+    errorCode: 'REMOTE_NOT_FOUND',
+    errorMessage: 'previous failure'
+  }))
+  transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: count, items })
+  transaction.archiveImportItem.groupBy.mockResolvedValue([{ status: 'FAILED', _count: { _all: count } }])
+  transaction.archiveImportItem.findMany.mockImplementation(async ({ where }: { where: { id: { in: string[] } } }) =>
+    items.filter((item) => where.id.in.includes(item.id))
+  )
+  const context = createContext(transaction, [], signal)
+  return { transaction, context }
 }

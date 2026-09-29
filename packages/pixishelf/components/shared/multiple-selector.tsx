@@ -23,6 +23,8 @@ interface GroupOption {
 }
 
 interface MultipleSelectorProps {
+  /** 在候选项和已选标签中显示 label(value)，用于区分同名记录。 */
+  showOptionValue?: boolean
   value?: Option[]
   defaultOptions?: Option[]
   /** 手动受控的 `options`，配合外部状态更新。 */
@@ -166,6 +168,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
   (
     {
       value,
+      showOptionValue = false,
       onChange,
       placeholder,
       defaultOptions: arrayDefaultOptions = [],
@@ -403,8 +406,8 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
       }
 
       if (creatable) {
-        return (value: string, search: string) => {
-          return value.toLowerCase().includes(search.toLowerCase()) ? 1 : -1
+        return (value: string, search: string, keywords?: string[]) => {
+          return [value, ...(keywords ?? [])].some((text) => text.toLowerCase().includes(search.toLowerCase())) ? 1 : 0
         }
       }
       // 未配置自定义 filter 时，沿用 cmdk 默认实现即可。
@@ -450,7 +453,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
                   data-fixed={option.fixed}
                   data-disabled={disabled || undefined}
                 >
-                  {option.label}
+                  {showOptionValue ? `${option.label}(${option.value})` : option.label}
                   <button
                     type="button"
                     className={cn(
@@ -560,7 +563,8 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
                           return (
                             <CommandItem
                               key={option.value}
-                              value={option.label}
+                              value={option.value}
+                              keywords={[option.label]}
                               disabled={option.disable}
                               onMouseDown={(e) => {
                                 e.preventDefault()
@@ -582,7 +586,7 @@ const MultipleSelector = React.forwardRef<MultipleSelectorRef, MultipleSelectorP
                               }}
                               className={cn('cursor-pointer', option.disable && 'cursor-default text-muted-foreground')}
                             >
-                              {option.label}
+                              {showOptionValue ? `${option.label}(${option.value})` : option.label}
                             </CommandItem>
                           )
                         })}

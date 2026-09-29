@@ -77,7 +77,7 @@ export async function executeLocalDirectoryImport(
             })
           } catch (error) {
             context.logger.warn('local-import.input.failed', { ordinal: work.ordinal, code: safeLocalCode(error) })
-            await recordLocalFailure(context, run.id, work, safeLocalError(error), now())
+            await recordLocalFailure(context, run.id, work, error, now())
             return { status: 'FAILED' as const, newImages: 0 }
           }
         }))
@@ -176,9 +176,10 @@ async function recordLocalFailure(
   context: ExecutionContext<LocalDirectoryImportPayload, EnqueuedChildJob>,
   runId: string,
   work: LocalWorkRow,
-  message: string,
+  error: unknown,
   now: Date
 ) {
+  const message = safeLocalError(error)
   await context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
     await transaction.scanRunItem.upsert({
       where: { scanRunId_checkpointKey: { scanRunId: runId, checkpointKey: localCheckpointKey(work) } },
@@ -201,6 +202,15 @@ async function recordLocalFailure(
         finishedAt: now
       }
     })
+    if (!context.signal.aborted)
+      await context.recordDiagnostic?.(transaction, {
+        key: `local:${runId}:${localCheckpointKey(work)}`,
+        scope: 'ITEM',
+        targetType: 'LOCAL_DIRECTORY',
+        targetLabel: work.relativePath,
+        stage: 'FAILED_WRITE',
+        error
+      })
     await transaction.scanRun.updateMany({
       where: { id: runId, checkpointOrdinal: { lt: work.ordinal + 1 } },
       data: { checkpointOrdinal: work.ordinal + 1, checkpointStage: 'PROCESSING' }

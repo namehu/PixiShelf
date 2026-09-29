@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划、中央 Worker、扫描、本地导入、归档及派生媒体任务的当前业务链路与状态边界
-last-verified: 2026-09-01
+last-verified: 2026-09-03
 sources:
   - packages/pixishelf/app/api/internal/scheduler/tick/route.ts
   - packages/pixishelf/services/background-task/
@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[26 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
+    EXEC[33 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
   end
 
   subgraph Storage[文件和外部资源]
@@ -89,8 +89,8 @@ flowchart LR
   TASK --> CMD
   CMD -->|事务写入| JOB
   CMD -->|必要时同事务写入| DOMAIN
-  RESOLVE -->|claim ARCHIVE_RESOLVE_ITEM| JOB
-  WRITER -->|claim 其余 25 类| JOB
+  RESOLVE -->|claim ARCHIVE_RESOLVE_ITEM\n或 ARCHIVE_UPLOADER_SCAN / ARCHIVE_SEARCH_SCAN| JOB
+  WRITER -->|claim 其余 28 类| JOB
   JOB --> LEASE
   RESOLVE --> EXEC
   WRITER --> EXEC
@@ -141,7 +141,7 @@ stateDiagram-v2
 1. App 对 payload 做运行时校验，并按 job type 推导 lane；调用者不能自己把任务换到另一条 lane。
 2. 入队事务写入 `SystemJob` 和 `job.queued` 事件。带幂等键的请求在 PostgreSQL advisory lock 下创建或复用。
 3. 两个 Dispatcher 分别领取自己的 lane。领取 SQL 使用 `FOR UPDATE SKIP LOCKED`，先检查 lane 执行态和资源租约，再按优先级、可执行时间、创建时间排序。
-4. `ARCHIVE_RESOLVE` 额外按收件 `queueOrder` 保证 FIFO；writer lane 在同一时间只执行一个任务。
+4. `ARCHIVE_RESOLVE_ITEM` 在同 lane 内额外按收件 `queueOrder` 保证彼此 FIFO；人工上传者扫描按普通手动任务优先级参与该 lane。writer lane 在同一时间只执行一个任务。
 5. claim 后写入 `workerId`、attempt、`executionToken`、lease 和 heartbeat。Executor 的进度、领域变更和终态都携带 fence。
 6. Worker 周期性续租并读取暂停/取消 intent。旧 Worker 丢失 lease 后，即使继续运行，也不能通过 fence 提交新的领域终态。
 7. 瞬时错误进入 `RETRY_WAIT`；Worker 重启或租约过期后由队列恢复。调度任务超过 `deadlineAt` 会变成 `SKIPPED/WINDOW_EXPIRED`。
@@ -209,15 +209,18 @@ sequenceDiagram
 | `archive_intake_retention_cleanup` | 清理归档收件历史       |    02:15 | 是       |     15 | 删除超过 30 天的终态收件、批量历史、空 submission 和过期预览会话 |
 | `scan_run_retention_cleanup`       | 清理扫描历史           |    02:30 | 否       |     20 | 删除超过 180 天的终态 ScanRun；另按类型只保留最近 100 条         |
 | `webp_animation_scan`              | 识别图片动画           |    03:30 | 否       |     30 | 用内容识别 WebP/GIF/PNG/APNG 是静态图还是动图                    |
+| `animation_duration_probe`         | 动图时长探测           |    03:45 | 否       |     35 | 只读 WebP RIFF 头并保存一轮时长；计划任务默认关闭               |
 | `video_media_probe`                | 视频媒体探测与封面生成 |    04:00 | 否       |     40 | 媒体分类、FFprobe、自动封面批量生成                              |
 | `video_chapter_preview_generation` | 生成视频章节截图       |    04:30 | 否       |     50 | 计划执行 `INCREMENTAL` 章节图校验和补齐                          |
 | `video_keyframe_generation`        | 生成视频代表帧         |    05:00 | 否       |     60 | 发现缺失/过期/失败视频，并创建代表帧生成子任务                   |
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 26 类 Worker 任务
+## 33 类 Worker 任务
 
-除 `ARCHIVE_RESOLVE_ITEM` 外，其他任务全部进入 `BACKGROUND_WRITER`。
+`ARTIST_MERGE@v1` 在 BACKGROUND_WRITER 中原子迁移艺术家关系、来源映射和归档绑定，并保存审计；入口、互斥和恢复边界见[艺术家合并](../features/artist-merge.md)。
+
+`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` 与 `ARCHIVE_DISCOVERY_BATCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 29 类任务全部进入 `BACKGROUND_WRITER`。
 
 | Job type                           | 主要入口                                 | 是否计划任务 | 是否创建子任务 | 主要副作用                                                    |
 | ---------------------------------- | ---------------------------------------- | ------------ | -------------- | ------------------------------------------------------------- |
@@ -229,6 +232,7 @@ sequenceDiagram
 | `MEDIA_DERIVED_TAG_SYNC`           | 后台维护手动入口                         | 否           | 否             | 重算 `media:webp`、`media:video`、`media:image` 派生标签关系  |
 | `PIXIV_AI_DERIVED_TAG_SYNC`        | 后台维护的预检与回填入口                 | 否           | 否             | 分批核对并校准 Pixiv `AI生成` 派生标签，不覆盖人工关系        |
 | `WEBP_ANIMATION_SCAN`              | 任务计划或立即运行                       | 是           | 否             | 内容探测并更新图片 mediaType/动画状态                         |
+| `ANIMATION_DURATION_PROBE`         | 任务计划或人工立即运行                   | 是           | 否             | 有界读取 WebP RIFF 头，按源版本发布动画时长或静态/失败结果     |
 | `VIDEO_MEDIA_PROBE`                | 任务计划、立即运行、单视频重探测         | 是           | 否             | 分类、视频元数据探测、同任务批量生成自动封面                  |
 | `VIDEO_POSTER_GENERATION`          | 单视频显式封面生成                       | 否           | 否             | 为一个视频生成并发布自动封面                                  |
 | `VIDEO_CHAPTER_PREVIEW_GENERATION` | 任务计划或立即运行                       | 是           | 否             | 校验、生成、替换章节预览 WebP，登记旧文件 GC                  |
@@ -236,12 +240,18 @@ sequenceDiagram
 | `VIDEO_KEYFRAME_DISCOVERY`         | 任务计划、立即运行、代表帧批量入口       | 是           | 是             | 判断 MISSING/STALE/FAILED/CURRENT；计划模式创建生成子任务     |
 | `VIDEO_KEYFRAME_GENERATION`        | discovery 或人工选中结果                 | 否           | 否             | FFmpeg 抽帧、质量筛选并发布代表帧集合                         |
 | `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                        | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态        |
-| `ARCHIVE_IMPORT`                   | READY 收件项批量入队                     | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork         |
+| `ARCHIVE_DISCOVERY_BATCH_SCAN` | 发现来源批量勾选 | 否 | 否 | 持久父任务按来源依次调度最新增量及历史扫描，每轮让出解析通道；结果人工入箱 |
+| `ARCHIVE_UPLOADER_SCAN`            | 归档收件箱中的上传者来源                 | 否           | 否             | 人工发现公开画廊、保存游标与候选分类，不自动创建下载任务      |
+| `ARCHIVE_SEARCH_SCAN`              | 归档收件箱中的标题关键词来源             | 否           | 否             | 最多检查 100 个远端候选、本地标题匹配、人工决定入箱           |
+| `ARCHIVE_IMPORT`                   | 解析成功自动入队或 READY 收件项人工确认  | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork         |
+| `ARTIST_MERGE` | 艺术家管理中的合并预览与确认 | 否 | 否 | 原子迁移作品、来源和归档绑定，保存前后快照 |
+| `CREATOR_MAINTENANCE` | 创作者关系整理预览与确认 | 否 | 否 | 按来源或人工决定整理作品归属与映射 |
 | `ARCHIVE_DEFAULT_TAG_BACKFILL`     | 扫描设置中的历史归档标签补全             | 否           | 否             | 按冻结上界为活动链接归档作品追加缺少的人工标签关系            |
 | `ARCHIVE_MAINTENANCE`              | 计划 reconcile、归档删除/恢复/清理       | 是           | RECONCILE 会   | 清 staging、回收、恢复或永久清理归档                          |
 | `ARCHIVE_INTAKE_RETENTION_CLEANUP` | 任务计划或立即运行                       | 是           | 否             | 只删除可丢弃的归档收件审计历史                                |
 | `SCAN_RUN_RETENTION_CLEANUP`       | 任务计划或立即运行                       | 是           | 否             | 删除符合保留策略的扫描审计历史                                |
 | `TRIGGER_LOG_RETENTION_CLEANUP`    | 任务计划或立即运行                       | 是           | 否             | 删除旧触发器日志                                              |
+| `JOB_EVENT_RETENTION_CLEANUP`      | 任务计划或手动 dry-run                   | 是           | 否             | 分层、分批清理后台任务事件                                    |
 | `DERIVED_MEDIA_GC`                 | 任务计划、立即运行或指定 intent          | 是           | 否             | 复核引用后隔离并删除已登记的派生媒体候选                      |
 | `PIXIV_ARTIST_ENRICHMENT`          | 艺术家管理页批量补全、显式刷新或单项重试 | 否           | DISCOVER 会    | 查询 Pixiv 用户资料；默认只填空图片，刷新模式安全替换已有图片 |
 | `PIXIV_TAG_ENRICHMENT`             | 标签管理页批量补全或单标签重试           | 否           | DISCOVER 会    | 查询公共 Pixiv 标签数据，只填空字段并保存本地封面             |
@@ -250,9 +260,11 @@ sequenceDiagram
 
 标签、艺术家、作品和系列同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家、作品和系列的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 26 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，其余 24 类仍只支持 v1，因此 capability audit
-实际核对 29 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
+生产 Registry 保持 33 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 30 类仍只支持 v1，因此 capability audit
+实际核对 38 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
+
+`ANIMATION_DURATION_PROBE` 是独立的只读 WebP 时长任务，不依赖 `WEBP_ANIMATION_SCAN` 的旧分类完成。单并发按 ID 每页最多 100 项，每轮最多 10 文件或 5 秒，再让出 writer lane；每轮优先处理至多 2 个已到期的低 ID 失败项，避免前向游标使重试饥饿。失败等待与写入门禁不算完成：等待下一次到期或写入结束时进入 RETRY_WAIT，让出 lane；门禁异常持久存在须人工核对原媒体/替换会话，不按超时自动解锁。见[动图时长方案](../design/animation-duration-probe.md)。
 
 ## Pixiv 作品在线同步链路
 
@@ -427,19 +439,23 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  URL[管理员提交最多 100 个 URL] --> CREATE[事务创建 Submission、IntakeItem\n和 ARCHIVE_RESOLVE_ITEM]
+  URL[管理员提交最多 100 个 URL\n选择模式和画质] --> CREATE[事务创建 Submission、IntakeItem\n持久模式/画质和 ARCHIVE_RESOLVE_ITEM]
   CREATE --> FIFO[resolver lane 按 queueOrder FIFO 领取]
   FIFO --> REMOTE[Provider 识别、SSRF 防护、限流和远端解析]
   REMOTE --> FROZEN[冻结规范化元数据、原始快照、媒体计划、hash\nTTL 24 小时]
   FROZEN --> CLASSIFY{分类}
-  CLASSIFY -->|NEW/UPDATE/UNCHANGED| READY[READY]
-  CLASSIFY -->|已有活动任务| ACTIVE[ACTIVE_TASK]
+  CLASSIFY -->|仅解析或 UPDATE| READY[READY 待人工确认]
+  CLASSIFY -->|AUTO + NEW| AUTO[resolver fenced 终态事务自动入队]
+  CLASSIFY -->|AUTO + UNCHANGED| SKIP[SKIPPED 不重复下载]
+  CLASSIFY -->|AUTO + 已有活动任务| ACTIVE[关联已有任务并保留画质]
   CLASSIFY -->|重复来源| DUP[DUPLICATE]
   CLASSIFY -->|瞬时失败| RETRY[RETRY_WAIT 后回队尾]
   CLASSIFY -->|永久失败| FAIL[FAILED]
 
   READY --> SELECT[管理员选择 ORIGINAL 或 DISPLAY 并入队]
   SELECT --> IMPORT[事务创建/复用 ARCHIVE_IMPORT\n冻结 import items]
+  AUTO --> IMPORT
+  ACTIVE --> IMPORT
   IMPORT --> WRITER[writer lane 领取]
   WRITER --> CONFIG[同一 advisory lock 读取后台设置\n冻结本次媒体并发 1-8]
   CONFIG --> STAGING[确定性 staging；按冻结并发流式下载\n大小/类型/hash/尺寸校验和实时字节计量]
@@ -455,13 +471,13 @@ flowchart TD
 重要边界：
 
 - submission 只是审计分组，不是必须全部解析完才能继续的封闭批次。
-- `ARCHIVE_RESOLVE_ITEM` 只做远端解析和数据库冻结，不写媒体目录；因此可以和一个 writer 任务并行。
+- `ARCHIVE_RESOLVE_ITEM` 做远端解析、数据库冻结及自动模式入队，终态与新下载任务在同一个 fenced 事务中提交；不写媒体目录，因此可以和一个 writer 任务并行。发布锁下重新裁决现有归档，防止自动覆盖已有作品。
 - `ARCHIVE_IMPORT` 才下载媒体和发布归档，必须和扫描、本地导入、视频任务共用串行 writer lane。
-- “归档默认标签”在 App 创建 `ARCHIVE_IMPORT@v2` 时冻结 ID；Worker 发布归档作品时保留来源标签，并把仍存在的默认标签以 `MANUAL` provenance 幂等追加。旧 `ARCHIVE_IMPORT@v1` 继续按空默认标签执行，避免历史队列失效。
+- “归档默认标签”在 App 手动入队或 resolver 自动创建 `ARCHIVE_IMPORT@v2` 时冻结 ID；Worker 发布归档作品时保留来源标签，并把仍存在的默认标签以 `MANUAL` provenance 幂等追加。旧 `ARCHIVE_IMPORT@v1` 继续按空默认标签执行，避免历史队列失效。
 - 归档 `manifest.json` 是 Worker 在归档 staging/revision 中生成的发布清单。它不会出现在普通 `local-imports` 发现链路中，也不会触发本地导入默认标签。
 - 网络下载和 FFmpeg/文件流不放进长数据库事务。最终领域发布使用短 fenced transaction，避免失去 lease 的旧执行者发布结果。
 - 归档媒体并发从 `Setting.archive_media_concurrency` 读取，默认 2；Executor worker 数和 Provider permit 容量使用同一冻结值。`BACKGROUND_WRITER` 仍只有一个任务执行槽。
-- `ExecutionProgressUpdate` 的实时模式最多每两秒持久化一条传输事件，不延迟阶段、警告、控制和终态事件。管理端使用全局 `SystemJobEvent.id` 通过 `/api/jobs/events` 追赶；SSE 断线不改变 PostgreSQL 事实源。
+- `ExecutionProgressUpdate` 的 `REALTIME` 模式最多每两秒发布一条普通观察快照；`STANDARD` 在变化至少 5%且间隔至少 5 秒时发布，并以 30 秒兜底。阶段真实变化、警告、错误、控制、取消和终态立即写，结算前刷新最后一个合并快照。每条已发布快照的 `progressData`、任务进度和事件在同一 fenced transaction 中更新；动画领域微批次是恢复边界，其任务行检查点和游标事件也随领域状态原子提交，不属于定时观察快照。管理端使用全局 `SystemJobEvent.id` 通过 `/api/jobs/events` 追赶；SSE 断线不改变 PostgreSQL 事实源。
 
 ### 归档维护
 
@@ -614,7 +630,9 @@ flowchart TD
 
 ### 动画图片识别
 
-`WEBP_ANIMATION_SCAN` 先把符合扩展名且状态为空的记录每批 500 条初始化为 pending，再每批 20 条读取实际文件内容：WebP/GIF 通过 Sharp 页数判断，PNG/APNG 解析签名和 `acTL`。成功后更新动画状态和 `mediaType`；单项失败留在 pending，结果记录失败样本，后续运行会再次尝试。
+`WEBP_ANIMATION_SCAN` 在统计候选前进入 `INITIALIZING`，把符合扩展名且状态为空的记录每批 500 条初始化为 pending；随后进入 `SCANNING`，以 `ANIMATION_SCAN_CONCURRENCY` 控制 1–8 个内部探测 worker（默认 4）。初始化批次以及累计 20 条或最早等待 2 秒的识别批次，都会把领域状态、聚合 `progressData` 和对应事件放在同一个 fenced transaction 中提交。这样进程在领域事务之后、通用结算之前退出时，下一次 claim 仍能从同一任务行检查点恢复准确计数，已连接 SSE 也能通过持久游标接收同一批。WebP/GIF 由同一任务拥有的有界探测子进程池执行 Sharp 输出管线并读取页数：管线设置 60 秒原生超时，父进程另设硬终止兜底；取消、租约丢失和关停会终止对应探测进程并等待退出，不把仍运行的原生操作遗留到下一任务。探测子进程不领取队列任务，也不访问数据库。PNG/APNG 解析签名和 `acTL`；单项超过 10 秒产生一次不含媒体身份的 WARN。失败项留在 pending，后续运行会再次尝试。任务通过 `animation-scan@v1` 展示 30 秒滚动速率、活动数和满足采样门槛后的 ETA。
+
+暂停或取消请求会先让 Dispatcher 停止扩展批次并向 Executor 的 abort signal 传播；已完成的 fenced 微批次保留，未提交结果不会推进领域状态。任务进入 `PAUSED` 后可从同一任务的聚合 `progressData` 恢复原总数与已提交分类计数；恢复初始化会把暂停期间新增的空状态候选纳入总数，并保证 `initializedItems <= totalItems`。失败项仍留在 pending 重新探测且不重复累计；已写入 `COMPLETED` 检查点但尚未完成通用结算的任务保留累计值重放，终态后不得再写入进度或事件。
 
 ### 媒体派生标签同步
 
@@ -652,7 +670,7 @@ flowchart TD
 - **取消**：排队任务可以直接取消；运行任务进入 `CANCELLING`，通过 AbortSignal 协作中止，再清理临时状态或登记 GC。
 - **Worker 关闭**：可恢复 Executor 释放当前 execution，保留检查点；下一次 claim 使用新的 execution token。
 - **重试**：只有可重试错误且 attempt 未耗尽时进入 `RETRY_WAIT`。永久路径错误、输入快照失效和明确前置条件不满足不会无限重试。
-- **失败提醒**：`SystemJob=FAILED` 是不可被“忽略”改写的执行事实；实例级 `SystemJobFailureAcknowledgement` 只记录管理员是否仍需关注该失败。执行动态按未确认失败精确计数，查看面板不会自动确认。管理员可以逐条忽略；成功创建重试任务时，原失败会在同一事务中确认为已处理，新重试若再次失败会产生新的提醒。
+- **失败提醒**：`SystemJob=FAILED` 是不可被“忽略”改写的执行事实；实例级 `SystemJobFailureAcknowledgement` 只记录管理员是否仍需关注该失败。执行动态通过“任务 / 失败”标签分开浏览，按未确认失败精确计数，查看面板不会自动确认。失败页支持分页、逐条忽略、最多 100 条勾选忽略，以及确认后忽略服务端执行时全部待处理项；按一次读取的 ID 集合在同一事务内分批写确认，后续新增失败继续提醒。忽略保留失败记录和首次确认信息；成功创建重试任务时，原失败会在同一事务中确认为已处理，新重试若再次失败会产生新的提醒。交互与接口见[后台任务执行记录](../features/background-job-history.md)。
 - **逐项失败**：视频批量探测、章节图、动画识别等任务会继续处理其他项目；是否让父 job 失败由各 Executor 契约决定，不能只用 `SystemJob.status` 推断零失败。
 - **文件与数据库**：两者无法处于同一个数据库事务。当前实现使用 staging、短事务发布、fence、备份恢复和 GC intent 组合维持可恢复性。
 
@@ -702,7 +720,7 @@ flowchart TD
 | App 入队、幂等和控制命令      | `packages/pixishelf/services/background-task/job-command-service.ts`、`manual-job-singleton.ts`  |
 | claim、优先级、lease、fence   | `packages/pixishelf-job-runtime/src/queue-repository.ts`                                         |
 | 双 Dispatcher 和 Worker 启动  | `packages/pixishelf-worker/src/main.ts`、`dispatcher.ts`                                         |
-| 26 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| 33 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
 | Pixiv 艺术家补全              | `packages/pixishelf-job-executors/src/pixiv-artist/`、`pixiv-artist-enrichment-service.ts`       |
 | Pixiv 标签补全                | `packages/pixishelf-job-executors/src/pixiv-tag/`、`pixiv-tag-enrichment-service.ts`             |
 | Pixiv 作品在线同步            | `packages/pixishelf-job-executors/src/pixiv-artwork/`、`pixiv-artwork-enrichment-service.ts`     |
@@ -721,3 +739,7 @@ flowchart TD
 - [测试策略](../development/testing-strategy.md)
 - [ADR-0003：统一后台任务 Worker](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
 - [ADR-0004：归档解析独立资源通道](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)
+
+### CREATOR_MAINTENANCE
+
+创作者整理使用 BACKGROUND_WRITER lane，PREVIEW 逐批冻结来源和人工归属，READY 后由用户确认 APPLY。每批 25 项，证据变化标 STALE，来源未知标 UNKNOWN；暂停／取消保留已提交批次，重试续跑剩余项。来源映射更正通过单事务集合更新维护身份一致性。详见[创作者关系](../features/creator-relations.md)。

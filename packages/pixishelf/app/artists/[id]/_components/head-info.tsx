@@ -6,6 +6,7 @@ import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { Button } from '@/components/ui/button'
 import { PageContainer } from '@/components/layout/page-container'
 import { PageHeader } from '@/components/layout/page-header'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 
 interface HeadInfoProps {
   artist: ArtistResponseDto
@@ -45,9 +46,15 @@ const Component: FC<HeadInfoProps> = ({ artist, immersiveHref }) => (
 
       <PageHeader
         className="border-0 pb-0"
-        eyebrow="艺术家档案"
-        title={artist.name}
-        description={artist.bio ? <p className="max-w-3xl whitespace-pre-wrap">{artist.bio}</p> : undefined}
+        eyebrow={artist.kind === 'GROUP' ? '社团档案' : '艺术家档案'}
+        title={<PrivacySensitiveText>{artist.name}</PrivacySensitiveText>}
+        description={
+          artist.bio ? (
+            <PrivacySensitiveText as="p" className="max-w-3xl whitespace-pre-wrap">
+              {artist.bio}
+            </PrivacySensitiveText>
+          ) : undefined
+        }
         metadata={
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <span className="inline-flex items-center gap-1.5">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   analyzeArchiveUrlInput,
+  archiveIntakeStatusLabel,
   archiveIntakeItemHref,
   archiveReplacementNotice,
   archiveTaskHref,
@@ -74,6 +75,27 @@ https://e-hentai.org/s/page/123-1
       cancel: 2,
       retry: 2
     })
+  })
+
+  it('requires an explicit selection for automatic updates and keeps their submitted quality', () => {
+    const items: ArchiveIntakeSelectionItem[] = [
+      { id: 'auto-new', status: 'READY', resolutionKind: 'NEW', downloadMode: 'AUTO' },
+      { id: 'update', status: 'READY', resolutionKind: 'UPDATE', downloadMode: 'AUTO', selectedQuality: 'DISPLAY' },
+      { id: 'skip', status: 'SKIPPED', resolutionKind: 'UNCHANGED', downloadMode: 'AUTO' },
+      { id: 'manual', status: 'READY', resolutionKind: 'NEW', downloadMode: 'MANUAL', selectedQuality: 'DISPLAY' }
+    ]
+    const state = reconcileArchiveIntakeSelection(items, emptySelection())
+    expect([...state.selectedIds]).toEqual(['manual'])
+    expect(state.qualityById.get('update')).toBe('DISPLAY')
+    expect(state.qualityById.get('manual')).toBe('DISPLAY')
+    expect(state.qualityById.has('auto-new')).toBe(false)
+    expect(state.qualityById.has('skip')).toBe(false)
+    expect(countArchiveIntakeActions(items, new Set(items.map(({ id }) => id)))).toEqual({
+      enqueue: 2,
+      cancel: 2,
+      retry: 0
+    })
+    expect(items.map(archiveIntakeStatusLabel)).toEqual(['正在处理归档', '待确认更新', '已跳过', '待确认下载'])
   })
 
   it('does not select or retry a permanent failure with the original URL', () => {

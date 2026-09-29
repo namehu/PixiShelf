@@ -96,6 +96,10 @@ describe('Prisma migration database adapter', () => {
     const publication = publicationInput()
 
     await expect(adapter.publishArtwork(transaction as never, publication)).resolves.toBeUndefined()
+    expect(transaction.$queryRaw).toHaveBeenCalledOnce()
+    expect(transaction.$queryRaw.mock.calls[0]?.[0].sql).toContain('FOR UPDATE')
+    expect(transaction.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(transaction.artwork.findUnique.mock.invocationCallOrder[0]!)
+    expect(transaction.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(transaction.image.updateMany.mock.invocationCallOrder[0]!)
     expect(transaction.migrationFileEntry.updateMany).toHaveBeenCalledOnce()
     expect(transaction.migrationJobItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ phase: 'CLEANING_SOURCE' }) })
@@ -366,6 +370,7 @@ function publicationTransaction(
   files: ReturnType<typeof persistedFile>[]
 ) {
   return {
+    $queryRaw: vi.fn().mockResolvedValue([{ id: 1, mediaRevision: 1 }]),
     artwork: {
       findUnique: vi.fn().mockResolvedValue(artwork),
       updateMany: vi.fn().mockResolvedValue({ count: 1 })

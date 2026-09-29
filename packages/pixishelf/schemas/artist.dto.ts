@@ -33,18 +33,22 @@ const ArtistExternalRefDto = z.object({
  */
 export const ArtistResponseDto = ArtistModel.extend({
   externalRefs: z.array(ArtistExternalRefDto).default([]),
+  sourceTagMappings: z
+    .array(z.object({ providerKey: z.string(), namespace: z.string(), sourceName: z.string() }))
+    .default([]),
   localImportMappings: z.array(z.object({ id: z.number().int() })).default([]),
   createdAt: dateToString,
   updatedAt: dateToString,
   artworksCount: z.number().int().default(0),
   _count: z
     .object({
-      artworks: z.number().int().default(0)
+      artworks: z.number().int().default(0),
+      artworkMemberships: z.number().int().optional()
     })
     .default({ artworks: 0 })
     .nullable()
     .optional()
-}).transform(({ _count, externalRefs, localImportMappings, ...artist }) => {
+}).transform(({ _count, externalRefs, sourceTagMappings, localImportMappings, ...artist }) => {
   const pixiv = externalRefs.find((source) => source.providerKey === 'pixiv') ?? null
   const sources: Array<{
     type: 'PIXIV' | 'EXTERNAL' | 'LOCAL' | 'MANUAL'
@@ -57,6 +61,13 @@ export const ArtistResponseDto = ArtistModel.extend({
     externalId: source.externalId,
     sourceName: source.sourceName
   }))
+  for (const mapping of sourceTagMappings)
+    {sources.push({
+      type: 'EXTERNAL',
+      providerKey: mapping.providerKey,
+      externalId: mapping.namespace + ':' + mapping.sourceName,
+      sourceName: mapping.sourceName
+    })}
   if (localImportMappings.length > 0) {
     sources.push({ type: 'LOCAL' as const, providerKey: 'local', externalId: '', sourceName: null })
   }
@@ -82,7 +93,7 @@ export const ArtistResponseDto = ArtistModel.extend({
           lastSystemJobId: pixiv.lastSystemJobId
         }
       : null,
-    artworksCount: _count?.artworks || 0
+    artworksCount: _count?.artworkMemberships ?? _count?.artworks ?? 0
   }
 })
 
@@ -105,6 +116,7 @@ export type ArtistPixivStatusFilter = z.infer<typeof ArtistPixivStatusFilterSche
  * 获取艺术家列表查询参数
  */
 export const ArtistsGetSchema = z.object({
+  kind: z.enum(['PERSON', 'GROUP']).optional(),
   cursor: z.number().int().min(1).default(1), // 用于无限滚动的游标，对应 page
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().optional(),
@@ -120,6 +132,7 @@ export type ArtistsGetRequest = z.input<typeof ArtistsGetSchema>
  * 创建艺术家 Schema
  */
 export const ArtistCreateSchema = z.object({
+  kind: z.enum(['PERSON', 'GROUP']).default('PERSON'),
   name: z.string().min(1, '名称不能为空'),
   username: z.string().optional(),
   pixivUserId: z

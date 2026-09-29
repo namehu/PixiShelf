@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { JobEventStreamItem } from '@pixishelf/job-contracts'
 
@@ -9,7 +9,10 @@ vi.mock('@microsoft/fetch-event-source', () => ({ fetchEventSource: mocks.fetchE
 import { BackgroundJobEventProvider, mergeRecentEvents, useBackgroundJobEvents } from '../background-job-event-provider'
 
 describe('BackgroundJobEventProvider', () => {
-  afterEach(() => vi.clearAllMocks())
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
 
   it('keeps one connection while descendants rerender and aborts it on unmount', () => {
     mocks.fetchEventSource.mockReturnValue(new Promise(() => undefined))
@@ -51,13 +54,27 @@ describe('BackgroundJobEventProvider', () => {
     const options = mocks.fetchEventSource.mock.calls[0]?.[1]
 
     act(() => options.onmessage({ data: '0', event: 'jobs.ready', id: '', retry: undefined }))
-    await waitFor(() => expect(screen.getByTestId('versions').textContent).toBe('ready:1 reset:0'))
+    await waitFor(() => expect(screen.getByTestId('versions').textContent).toBe('connected ready:1 reset:0'))
 
     act(() => {
       options.onmessage({ data: '{}', event: 'jobs.reset', id: '', retry: undefined })
       options.onmessage({ data: '0', event: 'jobs.ready', id: '', retry: undefined })
     })
-    await waitFor(() => expect(screen.getByTestId('versions').textContent).toBe('ready:2 reset:1'))
+    await waitFor(() => expect(screen.getByTestId('versions').textContent).toBe('connected ready:2 reset:1'))
+  })
+
+  it('enters polling fallback and requests snapshot recovery for an invalid event batch', async () => {
+    mocks.fetchEventSource.mockReturnValue(new Promise(() => undefined))
+    render(
+      <BackgroundJobEventProvider>
+        <ConnectionVersionProbe />
+      </BackgroundJobEventProvider>
+    )
+    const options = mocks.fetchEventSource.mock.calls[0]?.[1]
+
+    act(() => options.onmessage({ data: '{"version":2}', event: 'jobs.events', id: '5', retry: undefined }))
+
+    await waitFor(() => expect(screen.getByTestId('versions').textContent).toBe('disconnected ready:0 reset:1'))
   })
 })
 
@@ -65,7 +82,7 @@ function ConnectionVersionProbe() {
   const stream = useBackgroundJobEvents()
   return (
     <span data-testid="versions">
-      ready:{stream.readyVersion} reset:{stream.resetVersion}
+      {stream.status} ready:{stream.readyVersion} reset:{stream.resetVersion}
     </span>
   )
 }
@@ -92,6 +109,7 @@ function streamItem(id: string): JobEventStreamItem {
       executionLane: 'BACKGROUND_WRITER',
       status: 'RUNNING',
       progress: 1,
+      progressData: null,
       stage: null,
       message: null,
       errorCode: null,
