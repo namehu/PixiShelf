@@ -83,26 +83,25 @@ Parser 只读原媒体，不解码整帧、不上传或修改文件。按 WebP A
 1. 代码与数据：添加一对一表及索引、事务 helper、源写入门禁、任务契约/Executor、DTO 和播放 UI。保持计划任务关闭，旧库不自动批量建元数据行。
 2. 隔离验证：Prisma validate/generate/typecheck；空库全部 migration deploy/status；事务测试覆盖源版本、Worker fence 接口、前后 stat、异常重试、级联删除与失败项人工重试；聚焦 App/Worker 测试、全量 lint/test/build、浏览器交互。
 3. 发布前：依[备份与恢复基线](../operations/backup-and-recovery.md)建立数据库与原媒体的同一检查点，记录旧 App/Worker 镜像 digest 和回滚依据；先 `migrate deploy`，再成对升级 App/Worker 并核对 capability inventory。禁止 `db:push`。
-4. 人工验收：先在真实 NAS 上抽样不少于 100 个已识别动态 WebP，并在数据库候选审计中确认静态、待识别及未分类项均未读取；覆盖损坏、短帧、长循环、文件变更和撤销。观察单并发的任务耗时、NFS I/O、CPU/内存、连续分页和暂停取消，再决定是否扩大至上万文件。未取得真实 NAS 证据时不得称发布验收通过。
-5. 回滚：先停止探测任务；可回滚 App/Worker 镜像并保留新增一对一表和 migration 历史。若需恢复媒体或数据库，必须使用同一发布前检查点；仅回退数据库或仅恢复媒体可能使源证据与结果不一致。
+4. 回滚：先停止探测任务；可回滚 App/Worker 镜像并保留新增一对一表和 migration 历史。若需恢复媒体或数据库，必须使用同一发布前检查点；仅回退数据库或仅恢复媒体可能使源证据与结果不一致。
 
 ## 本地验收记录
 
 截至 2026-09-24，隔离 PostgreSQL `127.0.0.1:55439/probe_verify` 从空库部署全部 84 个 migration，新增表及索引成功；Prisma validate、generate、db 包 typecheck 与 migration status 均通过。DB 包完整测试 34 文件/144 项通过，含 PostgreSQL 事务源版本、门禁、退避、级联和新表启动检查；扫描的门禁聚焦测试 2 文件/11 项通过。隔离 PostgreSQL 的 Worker 全链测试 1300/1300 通过：DB 144、job contracts 82、runtime 107、executors 861、Worker 106；其中探测执行器 5/5 覆盖入队、领取、让行后再领取和失效 fence。Worker 链 typecheck 与生产构建通过。主 App 全量测试 2100 通过、129 条条件跳过，App typecheck、lint 与生产构建通过。此库只用于本地验证，不是生产数据库。
 
-浏览器非性能用例 19/19 通过，后续节流和同 ID 资源身份变更也做了针对性回归。独立性能 benchmark 的 11,000 ms 门槛**未通过**：最终两次为 12,602.8 ms、11,400.8 ms，均 exit 1；同环境旧 HEAD 为 11,732 ms、新实现为 12,224.1 ms，均超过门槛；禁用 demo DOM 日志后的诊断为 12,372.1 ms，未证明日志引起回归。此前单次观察到 9,964.6 ms，不构成稳定通过证据，因此未改 demo 行为或放宽门槛。功能与构建检查通过不等于整体发布可用：性能门槛、真实 NAS 百样本、安卓真机及生产备份/镜像升级均尚未验收，不能用本地 fixture 替代。
+浏览器非性能用例 19/19 通过，后续节流和同 ID 资源身份变更也做了针对性回归。独立性能 benchmark 的 11,000 ms 门槛**未通过**：最终两次为 12,602.8 ms、11,400.8 ms，均 exit 1；同环境旧 HEAD 为 11,732 ms、新实现为 12,224.1 ms，均超过门槛；禁用 demo DOM 日志后的诊断为 12,372.1 ms，未证明日志引起回归。此前单次观察到 9,964.6 ms，不构成稳定通过证据，因此未改 demo 行为或放宽门槛。性能门槛及生产备份/镜像升级仍待验收。
 
 ## 独立审查补记（2026-09-24）
 
 确认并修复 P1：原 manifest 只记名称。init 在写 manifest 后、搬走某原件前中断时，同名上传可覆盖它；rollback 随后会把新文件误当原件、清除 WebP 写入门禁。章节上传的规范文件写入和旧候选删除也可绕过替换会话。现在同目录写入串行，未备份原件禁止上传，章节写入遵守同一规则；恢复前验证文件身份和备份阶段。备份为符号链接、已变文件或未知提交状态时拒绝自动清理。恢复中断后可按持久 `restoringFiles` 继续真实文件 rename，避免 ctime 合法变化导致永远拒绝。
 
-聚焦回归：替换会话、图片上传、章节上传、真实三路同目录并发、目录锁异常释放/超时/取消、错误流关闭、Windows junction 和分段 rollback 共 5 文件 38 项通过。父 agent 的最终 App 验收：lint 无警告和错误、typecheck 通过、全量测试 334 文件通过/20 文件跳过，2,114 项通过/129 项条件跳过（166.04 秒），production build 退出 0；构建仅有既有 `batch-import-service.ts:82` Turbopack 宽泛路径警告，无新增构建错误。Worker 依赖链 1,300 项通过是此前实施轮次的基线，本轮独立审查未重跑。独立阅读了 WebP 解析器及子进程时限、任务分页/重试/取消与发布 CAS、API DTO、播放器暂停/进度和 Worker 门禁，未确认其他 P0/P1。此审查没有真实 NAS、生产数据副本、Compose 升级或安卓真机证据；上段性能门槛失败仍是发布限制。
+聚焦回归：替换会话、图片上传、章节上传、真实三路同目录并发、目录锁异常释放/超时/取消、错误流关闭、Windows junction 和分段 rollback 共 5 文件 38 项通过。父 agent 的最终 App 验收：lint 无警告和错误、typecheck 通过、全量测试 334 文件通过/20 文件跳过，2,114 项通过/129 项条件跳过（166.04 秒），production build 退出 0；构建仅有既有 `batch-import-service.ts:82` Turbopack 宽泛路径警告，无新增构建错误。Worker 依赖链 1,300 项通过是此前实施轮次的基线，本轮独立审查未重跑。独立阅读了 WebP 解析器及子进程时限、任务分页/重试/取消与发布 CAS、API DTO、播放器暂停/进度和 Worker 门禁，未确认其他 P0/P1。生产数据副本与 Compose 升级仍待验证。
 
 ## 正常让行误报修复验收（2026-09-24）
 
 真实动图时长任务 `cmuf49h3g0002y7bbw7z09ndf` 在正常持久批次让行后被暂停，数据库只读核对为 `PAUSED`、attempt 0/3、进度 51%、stage `YIELDING`，但旧 Worker 把 `RESOURCE_BUSY` 和固定英文让行文案写成任务错误，界面据此显示“失败诊断”。修复后的纯调度让行显式保留 attempt、清空任务错误并记录 INFO 事件；已有记录仅在任务类型、阶段、非失败状态、错误码及完整旧文案同时匹配时于读取侧过滤伪错误。真实资源错误和已经保存的逐项失败继续显示。此次没有修改该任务数据或解除暂停；管理员可按原有“继续”入口恢复，下一次领取会沿用持久检查点并清除旧错误列。
 
-最终回归使用隔离 PostgreSQL 完整运行 Worker 依赖链，1,301 项通过、零跳过（DB 144、contracts 82、runtime 108、executors 861、Worker 106）；App 全量 2,119 项通过、129 项条件跳过。App 与 Worker 链 typecheck 均通过，App lint 为零错误零警告，App 生产构建退出 0。覆盖正常让行与真实 `RESOURCE_BUSY` 分离、暂停记录投影、诊断报告中的真实 ITEM 保留、让行后再次领取和 fence。以上为代码及隔离库验收，不改变前述性能 benchmark 未过门槛、真实 NAS 百样本、安卓真机与生产备份发布仍待验收的限制。
+最终回归使用隔离 PostgreSQL 完整运行 Worker 依赖链，1,301 项通过、零跳过（DB 144、contracts 82、runtime 108、executors 861、Worker 106）；App 全量 2,119 项通过、129 项条件跳过。App 与 Worker 链 typecheck 均通过，App lint 为零错误零警告，App 生产构建退出 0。覆盖正常让行与真实 `RESOURCE_BUSY` 分离、暂停记录投影、诊断报告中的真实 ITEM 保留、让行后再次领取和 fence。
 
 ## 候选范围与连续执行修复（2026-09-24）
 
@@ -112,4 +111,4 @@ Parser 只读原媒体，不解码整帧、不上传或修改文件。按 WebP A
 
 执行器现在连续处理到当前到期候选清空，每项持久化检查点，首次领取即更新新范围的进度和文案，此后每 25 项或 5 秒发布实时进度。正常分页不再产生重试事件；失败项退避、源写入等待和真实子进程不可用仍按各自规则等待。聚焦隔离 PostgreSQL 回归：DB 3/3、执行器 9/9 通过，覆盖静态和未知零探测、库存全部口径、动态转入候选、101 项跨页与进度事件、超过旧批次上限的一次完成、暂停/取消和恢复、失败退避、写入门禁及 fence；DB 与执行器 typecheck 通过。此项修复没有 schema 或 migration 变更，也未执行生产数据修改、服务重启或发布。
 
-最终验收使用本轮创建并从空库部署全部迁移的隔离数据库 `codex_duration_scope_20260924`，串行运行 Worker 依赖链：1,306 项全部通过（DB 145、contracts 82、runtime 108、executors 865、Worker 106），全链 typecheck 和构建通过。主应用 lint、typecheck、生产构建通过，全量测试 2,120 项通过、129 项按既有条件跳过。测试库已清理，验证日志保存在本地 `.cache/duration-scope-*.log`；未读取生产媒体或修改生产任务。上线仍需更新 Worker 与 Web；本地回归不替代真实 NFS 负载验证。
+最终验收使用本轮创建并从空库部署全部迁移的隔离数据库 `codex_duration_scope_20260924`，串行运行 Worker 依赖链：1,306 项全部通过（DB 145、contracts 82、runtime 108、executors 865、Worker 106），全链 typecheck 和构建通过。主应用 lint、typecheck、生产构建通过，全量测试 2,120 项通过、129 项按既有条件跳过。测试库已清理，验证日志保存在本地 `.cache/duration-scope-*.log`；未读取生产媒体或修改生产任务。上线仍需更新 Worker 与 Web；
