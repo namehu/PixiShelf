@@ -40,8 +40,8 @@ try {
 }
 
 function parseOptions(arguments_) {
-  const parsed = { scope: 'all' }
-  const allowed = new Set(['scope', 'decisions', 'manifest', 'report-dir', 'report', 'data-root'])
+  const parsed = { scope: 'all', transactionTimeoutMs: 1800000 }
+  const allowed = new Set(['scope', 'decisions', 'manifest', 'report-dir', 'report', 'data-root', 'transaction-timeout-ms'])
   for (let index = 0; index < arguments_.length; index += 1) {
     const key = arguments_[index]
     if (!key?.startsWith('--')) throw new Error(`Unexpected argument: ${key}`)
@@ -55,6 +55,13 @@ function parseOptions(arguments_) {
   if (!['all', 'artist', 'series'].includes(parsed.scope)) {
     throw new Error('--scope must be all, artist, or series')
   }
+  if (!/^\d+$/.test(String(parsed.transactionTimeoutMs))) {
+    throw new Error('--transaction-timeout-ms must be an integer between 1000 and 7200000')
+  }
+  parsed.transactionTimeoutMs = Number(parsed.transactionTimeoutMs)
+  if (!Number.isSafeInteger(parsed.transactionTimeoutMs) || parsed.transactionTimeoutMs < 1000 || parsed.transactionTimeoutMs > 7200000) {
+    throw new Error('--transaction-timeout-ms must be an integer between 1000 and 7200000')
+  }
   return parsed
 }
 
@@ -66,7 +73,8 @@ function failUsage() {
   console.error(
     'Usage: retire-legacy-fields.mjs <audit|prepare|upgrade|guard-startup> ' +
       '[--scope all|artist|series] [--decisions file.json] [--manifest file.json] ' +
-      '[--report-dir directory] [--report file.json] [--data-root directory]'
+      '[--report-dir directory] [--report file.json] [--data-root directory] ' +
+      '[--transaction-timeout-ms milliseconds (prepare; default 1800000, max 7200000)]'
   )
   process.exit(1)
 }
@@ -92,6 +100,7 @@ async function runPrepare(db, input) {
   requireOption(input, 'manifest')
   requireOption(input, 'reportDir')
   const manifest = await readAndValidateManifest(input.manifest)
+  console.error('[retire-legacy-fields] prepare: starting read-only audit')
   const before = await audit(db, { ...input, scope: 'all' })
   await writeReport(input.reportDir, 'prepare-before', { manifest: manifestSummary(manifest), report: before })
 
@@ -104,23 +113,31 @@ async function runPrepare(db, input) {
     return
   }
 
+  console.error(`[retire-legacy-fields] prepare: transaction timeout ${input.transactionTimeoutMs}ms; ${before.actions.length} automatic actions, ${before.blockers.length} decisions`)
   await db.$transaction(
     async (transaction) => {
       await transaction.$executeRawUnsafe("SELECT pg_advisory_xact_lock(hashtext('pixishelf:retire-legacy-fields'))")
       await lockLegacyTables(transaction)
+      console.error('[retire-legacy-fields] prepare: locks acquired; rechecking audit inside transaction')
       await assertAuditStillCurrent(transaction, before, input)
-      for (const action of before.actions) await applyAutomaticAction(transaction, action)
+      console.error('[retire-legacy-fields] prepare: audit unchanged; applying actions')
+      for (const [index, action] of before.actions.entries()) {
+        await applyAutomaticAction(transaction, action)
+        if ((index + 1) % 500 === 0) console.error(`[retire-legacy-fields] prepare: applied ${index + 1}/${before.actions.length} automatic actions (not committed)`)
+      }
       for (const blocker of before.blockers) {
         await applyDecision(transaction, blocker, decisionMap.get(decisionKey(blocker)))
       }
+      console.error('[retire-legacy-fields] prepare: checking result before commit')
       const transactionAfter = await audit(transaction, { ...input, scope: 'all' })
       if (transactionAfter.blockers.length > 0) {
         throw new Error('Prepare would leave retirement blockers; the transaction was rolled back')
       }
     },
-    { timeout: 120000 }
+    { timeout: input.transactionTimeoutMs }
   )
 
+  console.error('[retire-legacy-fields] prepare: transaction committed; final audit')
   const after = await audit(db, { ...input, scope: 'all' })
   await writeReport(input.reportDir, 'prepare-after', { manifest: manifestSummary(manifest), report: after })
   writeJsonToStdout(after)

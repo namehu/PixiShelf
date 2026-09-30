@@ -29,7 +29,7 @@ describe('legacy identity retirement boundary', () => {
 
   it('requires explicit fingerprints and has no force bypass', () => {
     expect(maintenance).toContain('Decision file auditFingerprint does not match the current audit')
-    expect(maintenance).toContain("const allowed = new Set(['scope', 'decisions', 'manifest', 'report-dir', 'report', 'data-root'])")
+    expect(maintenance).toContain("const allowed = new Set(['scope', 'decisions', 'manifest', 'report-dir', 'report', 'data-root', 'transaction-timeout-ms'])")
     expect(maintenance).not.toContain("allowed.add('force')")
     expect(maintenance).toContain('operatorAssertions: manifest.operatorAssertions')
     expect(maintenance).toContain('cannot independently prove that external writers are stopped')

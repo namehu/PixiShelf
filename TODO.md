@@ -18,10 +18,12 @@
 - [ ] 发布 Worker 健康面板调整，登记 App/Worker 镜像 ID、digest、切换与回归时间，并验证当前可用 Worker 数量和任务执行。
 - [ ] 按[后台任务上线后续](./docs/deployment/background-task-follow-up.md)完成尚未登记的生产稳定观察与 scheduler/GC 核对。
 - [ ] 保留至少一套最近、可验证恢复的 PostgreSQL/媒体/配置同点检查点，并在隔离环境完成恢复验证。
-- [ ] 按[艺术家与系列旧字段清理](./docs/features/legacy-identity-retirement.md)在生产完成停写备份、audit/prepare/upgrade 和配套 App/Worker 验证。
+- [x] 按[艺术家与系列旧字段清理](./docs/features/legacy-identity-retirement.md)在生产完成停写备份、audit/prepare/upgrade 和配套 App/Worker 验证。
 
 ## 退役兼容控制面
 
+- [x] 完成艺术家旧字段 `Artist.userId` 的清理实现（另一分叉已完成）。
+- [x] 完成系列旧字段 `Artwork.seriesId`、`Series.source`、`Series.externalId` 的清理实现（另一分叉已完成）。
 - [ ] 在独立发布项目中退役后台任务切换兼容层：
   - 停止 `targetImageId`、`targetPath`、`mode` 与版本化 payload 的双写，再删除旧 UI/Router/轮询兼容读取；
   - 删除 `ScheduledTask.time`、`lastTriggeredAt`、`lastTriggeredDate` 兼容语义，并收敛为唯一 enqueue/claim/control/event 模型；

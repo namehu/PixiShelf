@@ -16,6 +16,34 @@ const maintenance = path.join(packageDirectory, 'maintenance', 'retire-legacy-fi
 afterAll(async () => database?.$disconnect())
 
 describePostgres('legacy field retirement maintenance behavior', () => {
+  it('rolls back earlier writes on timeout and can retry the same decisions with a larger limit', async () => {
+    const fixture = await createFixture()
+    try {
+      await seedIdentityFixture(fixture)
+      await withSchema(fixture.schema, async (tx) => {
+        await tx.$executeRawUnsafe(`CREATE FUNCTION delay_artist_update() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(1.5); RETURN NEW; END $$`)
+        await tx.$executeRawUnsafe(`CREATE TRIGGER slow_update BEFORE UPDATE ON "Artist" FOR EACH ROW EXECUTE FUNCTION delay_artist_update()`)
+      })
+      const report = JSON.parse(runCli(fixture, 'audit').stdout)
+      const issues = report.blockers.filter((item: { kind: string }) => item.kind === 'series-membership')
+      const decisions = await writeDecisions(fixture, report, issues)
+      const timedOut = runCli(fixture, 'prepare', ['--decisions', decisions, '--transaction-timeout-ms', '1000'])
+      expect(timedOut.status).toBe(1)
+      expect(timedOut.stderr).toMatch(/expired transaction|Transaction already closed|timed out/i)
+      await expectLegacyPointers(fixture, 2)
+      await withSchema(fixture.schema, async (tx) => {
+        const rows = await tx.$queryRawUnsafe<Array<{ storagePath: string | null }>>(`SELECT "storagePath" FROM "Artwork" WHERE id=1`)
+        expect(rows[0]?.storagePath).toBeNull()
+      })
+      const retry = runCli(fixture, 'prepare', ['--decisions', decisions, '--transaction-timeout-ms', '10000'])
+      expect(retry.status, retry.stderr).toBe(0)
+      expect(JSON.parse(retry.stdout).blockers).toEqual([])
+      expect(retry.stderr).toContain('transaction committed; final audit')
+    } finally {
+      await fixture.dispose()
+    }
+  }, 30_000)
+
   it('rejects stale and missing decisions without writes, then preserves explicit membership choices', async () => {
     const fixture = await createFixture()
     try {

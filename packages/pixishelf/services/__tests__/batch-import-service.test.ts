@@ -1,3 +1,4 @@
+import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -120,7 +121,9 @@ describe('batch-import-service audit integration', () => {
       where: { id: 10 },
       data: { storageKey: 'local_10', storagePath: 'local-imports/artist-1/local_10' }
     })
-    expect(mocks.mkdir).toHaveBeenCalledWith('D:\\scan\\local-imports\\artist-1\\local_10', { recursive: true })
+    expect(mocks.mkdir).toHaveBeenCalledWith(path.join('D:/scan', 'local-imports/artist-1/local_10'), {
+      recursive: true
+    })
     expect(mocks.appendScanRunItems).toHaveBeenCalledWith([
       expect.objectContaining({
         scanRunId: 'run-1',
