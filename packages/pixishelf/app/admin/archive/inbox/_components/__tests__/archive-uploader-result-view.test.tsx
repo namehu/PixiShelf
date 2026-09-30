@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ArchiveUploaderResultViewToggle } from '../archive-uploader-result-visuals'
+import { ArchiveUploaderGalleryThumbnail, ArchiveUploaderResultViewToggle } from '../archive-uploader-result-visuals'
 import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
 
 vi.mock('@/components/source-preview/source-preview-button', () => ({ SourcePreviewButton: () => null }))
@@ -14,6 +14,28 @@ function Harness() {
 }
 
 describe('compact archive result view menu', () => {
+  it.each([false, true])(
+    'always navigates covers to the protected source, including missing or broken images (card=%s)',
+    (card) => {
+      const item = { id: 'catalog', title: 'Gallery', externalId: '123', thumbnailUrl: 'https://ehgt.org/cover.jpg' }
+      const { container, rerender } = render(
+        <ArchiveUploaderGalleryThumbnail item={item} card={card} sourceHref="/api/archive/catalog/catalog/source" />
+      )
+      const link = screen.getByRole('link', { name: '在新标签页打开原站 Gallery' })
+      expect(link.getAttribute('target')).toBe('_blank')
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+      fireEvent.error(container.querySelector('img')!)
+      expect(screen.getByRole('link').getAttribute('href')).toBe('/api/archive/catalog/catalog/source')
+      rerender(
+        <ArchiveUploaderGalleryThumbnail
+          item={{ ...item, thumbnailUrl: null }}
+          card={card}
+          sourceHref="/api/archive/catalog/catalog/source"
+        />
+      )
+      expect(screen.getByRole('link').getAttribute('href')).toBe('/api/archive/catalog/catalog/source')
+    }
+  )
   it('shows only one trigger and switches modes through the menu', async () => {
     render(<Harness />)
     expect(screen.getAllByRole('button')).toHaveLength(1)

@@ -235,7 +235,9 @@ describe('GovernedArchiveProviderRegistry', () => {
       governor
     ).getForUrl('https://e-hentai.org/g/123/gallerytoken/')
 
-    await expect(provider.previewPage?.({ url: 'https://e-hentai.org/g/123/gallerytoken/', page: 0 })).resolves.toMatchObject({
+    await expect(
+      provider.previewPage?.({ url: 'https://e-hentai.org/g/123/gallerytoken/', page: 0 })
+    ).resolves.toMatchObject({
       externalId: '123',
       items: [{ ordinal: 0, url: 'https://ehgt.org/t/thumb.jpg', width: 100, height: 140 }]
     })
@@ -244,6 +246,19 @@ describe('GovernedArchiveProviderRegistry', () => {
       yieldOnPenalty: true
     })
     expect(governor.release).toHaveBeenCalledOnce()
+    http.text.mockResolvedValueOnce('<img id="img" src="https://ehgt.org/large.jpg">')
+    await expect(
+      provider.previewImage?.({
+        canonicalUrl: 'https://e-hentai.org/g/123/gallerytoken/',
+        sourcePageUrl: 'https://e-hentai.org/s/page/123-1',
+        ordinal: 0
+      })
+    ).resolves.toEqual({ ordinal: 0, url: 'https://ehgt.org/large.jpg' })
+    expect(governor.acquire).toHaveBeenCalledTimes(2)
+    expect(governor.acquire).toHaveBeenLastCalledWith('e-hentai', 'RESOLVE', expect.any(AbortSignal), {
+      yieldOnPenalty: true
+    })
+    expect(governor.release).toHaveBeenCalledTimes(2)
   })
 
   it('penalizes an HTTP 200 throttle warning thrown inside preview governance', async () => {

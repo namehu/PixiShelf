@@ -14,6 +14,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ArchiveError, type ArchiveErrorCode } from '@/services/archive/errors'
 import type {
+  ArchivePreviewImageDto,
   ArchivePreviewPageDto,
   ArchivePreviewSourceDto,
   ArchivePreviewThumbnailDto,
@@ -65,6 +66,17 @@ export const getArchivePreviewPageSchema = z
   })
   .strict()
 export const reloadArchivePreviewSchema = z.object({ previewId: opaqueIdSchema }).strict()
+export const getArchivePreviewImageSchema = z
+  .object({
+    previewId: opaqueIdSchema,
+    ordinal: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_GALLERY_ITEMS - 1),
+    refresh: z.boolean().optional()
+  })
+  .strict()
 
 interface PreviewIdentity {
   providerKey: string
@@ -79,14 +91,17 @@ interface ResolvedPreviewSource {
   expectedCanonicalUrl: string | null
 }
 
-interface ValidatedPreviewPage extends ArchivePreviewPageDto, PreviewIdentity {}
+interface ValidatedPreviewPage extends ArchivePreviewPageDto, PreviewIdentity {
+  locators: Map<number, string>
+}
 
 interface ArchivePreviewSession extends PreviewIdentity {
   id: string
   userId: string
   updatedAt: number
   generation: number
-  pages: Map<number, ArchivePreviewPageDto>
+  pages: Map<number, ValidatedPreviewPage>
+  imageFlight: { ordinal: number; promise: Promise<ArchivePreviewImageDto> } | null
   cacheIdentities: Set<string>
   inFlight: {
     page: number
@@ -127,6 +142,8 @@ interface ArchivePreviewStoreOptions {
 
 /** Process-local, bounded preview state. A restart intentionally invalidates every opaque preview id. */
 export class ArchivePreviewStore {
+  private readonly images = new Map<string, { expiresAt: number; value: ArchivePreviewImageDto }>()
+  private readonly imageFlights = new Map<string, { invalidated: boolean; promise: Promise<ArchivePreviewImageDto> }>()
   private readonly sessions = new Map<string, ArchivePreviewSession>()
   private readonly cache = new Map<string, CacheEntry>()
   private readonly cacheFlights = new Map<string, CacheFlight>()
@@ -174,7 +191,8 @@ export class ArchivePreviewStore {
       canonicalUrl: first.canonicalUrl,
       updatedAt: this.now(),
       generation: 0,
-      pages: new Map([[0, page]]),
+      pages: new Map([[0, first]]),
+      imageFlight: null,
       cacheIdentities: new Set([inputIdentity, canonicalIdentity]),
       inFlight: null
     }
@@ -192,8 +210,12 @@ export class ArchivePreviewStore {
     this.prune()
     const session = this.ownedSession(previewId, userId)
     session.updatedAt = this.now()
+    if (session.imageFlight) {
+      await session.imageFlight.promise.catch(() => undefined)
+      if (this.ownedSession(previewId, userId) !== session) throw expiredPreviewError()
+    }
     const loaded = session.pages.get(pageNumber)
-    if (loaded) return loaded
+    if (loaded) return publicPage(loaded)
 
     if (session.inFlight) {
       if (session.inFlight.page === pageNumber && session.inFlight.generation === session.generation) {
@@ -239,7 +261,7 @@ export class ArchivePreviewStore {
           throw error
         }
         const value = publicPage(result)
-        current.pages.set(pageNumber, value)
+        current.pages.set(pageNumber, result)
         current.updatedAt = this.now()
         this.enforceSessionBudget(current.id)
         return value
@@ -263,10 +285,11 @@ export class ArchivePreviewStore {
     for (const identity of session.cacheIdentities) this.invalidateCache(identity)
 
     const stale = session.inFlight
-    session.inFlight = null
+    const staleImage = session.imageFlight
     if (stale) {
       await stale.promise.catch(() => undefined)
     }
+    if (staleImage) await staleImage.promise.catch(() => undefined)
 
     const current = this.ownedSession(previewId, userId)
     if (current !== session || current.generation !== generation) throw expiredPreviewError()
@@ -296,7 +319,7 @@ export class ArchivePreviewStore {
           throw expiredPreviewError()
         }
         const value = publicPage(result)
-        latest.pages.set(0, value)
+        latest.pages.set(0, result)
         latest.updatedAt = this.now()
         this.enforceSessionBudget(latest.id)
         return value
@@ -305,6 +328,91 @@ export class ArchivePreviewStore {
         if (session.inFlight?.generation === generation && session.inFlight.page === 0) session.inFlight = null
       })
     session.inFlight = { page: 0, generation, promise }
+    return promise
+  }
+
+  async image(
+    previewId: string,
+    userId: string,
+    ordinal: number,
+    refresh: boolean,
+    provider: ArchiveProvider
+  ): Promise<ArchivePreviewImageDto> {
+    this.prune()
+    const session = this.ownedSession(previewId, userId)
+    const generation = session.generation
+    const assertCurrent = () => {
+      if (this.ownedSession(previewId, userId) !== session || session.generation !== generation) {
+        throw expiredPreviewError()
+      }
+    }
+    session.updatedAt = this.now()
+    const locator = [...session.pages.values()].map((page) => page.locators.get(ordinal)).find(Boolean)
+    if (!locator || !provider.previewImage) throw unavailableSourceError()
+    if (session.inFlight) await session.inFlight.promise.catch(() => undefined)
+    assertCurrent()
+    if (session.imageFlight) {
+      if (session.imageFlight.ordinal === ordinal) return session.imageFlight.promise
+      throw new ArchiveError('STATE_CONFLICT', '请等待当前图片加载完成')
+    }
+    const key = `${cacheIdentity(session.canonicalUrl)}:image:${cacheIdentity(locator)}`
+    const existing = this.imageFlights.get(key)
+    if (refresh) {
+      this.images.delete(key)
+      if (existing) existing.invalidated = true
+    } else {
+      const cached = this.images.get(key)
+      if (cached && cached.expiresAt > this.now()) {
+        this.images.delete(key)
+        this.images.set(key, cached)
+        return cached.value
+      }
+    }
+    let shared = !refresh && existing && !existing.invalidated ? existing.promise : null
+    if (!shared) {
+      if (this.activeCacheFlights >= this.maxCacheInFlight) {
+        throw new ArchiveError('STATE_CONFLICT', '当前预览请求较多，请稍后重试')
+      }
+      const flight = { invalidated: false, promise: null! as Promise<ArchivePreviewImageDto> }
+      this.activeCacheFlights += 1
+      flight.promise = Promise.resolve()
+        .then(() =>
+          provider.previewImage!(
+            {
+              canonicalUrl: session.canonicalUrl,
+              sourcePageUrl: locator,
+              ordinal
+            },
+            { signal: AbortSignal.timeout(30_000) }
+          )
+        )
+        .then((result) => {
+          if (result.ordinal !== ordinal || !isSafePreviewImageUrl(result.url)) throw invalidProviderResponse()
+          const value = { ordinal, url: result.url }
+          if (!flight.invalidated) {
+            this.images.delete(key)
+            this.images.set(key, { value, expiresAt: this.now() + this.pageCacheTtlMs })
+            while (this.images.size > this.maxCachePages * 4) this.images.delete(this.images.keys().next().value!)
+          }
+          return value
+        })
+        .finally(() => {
+          this.activeCacheFlights -= 1
+          if (this.imageFlights.get(key) === flight) this.imageFlights.delete(key)
+        })
+      this.imageFlights.set(key, flight)
+      shared = flight.promise
+    }
+    const promise = shared
+      .then((value) => {
+        assertCurrent()
+        session.updatedAt = this.now()
+        return value
+      })
+      .finally(() => {
+        if (session.imageFlight?.promise === promise) session.imageFlight = null
+      })
+    session.imageFlight = { ordinal, promise }
     return promise
   }
 
@@ -360,6 +468,8 @@ export class ArchivePreviewStore {
 
   private invalidateCache(identity: string) {
     const prefix = `${identity}:`
+    for (const key of this.images.keys()) if (key.startsWith(prefix)) this.images.delete(key)
+    for (const [key, flight] of this.imageFlights) if (key.startsWith(prefix)) flight.invalidated = true
     for (const key of this.cache.keys()) {
       if (key.startsWith(prefix)) this.cache.delete(key)
     }
@@ -433,6 +543,7 @@ export class ArchivePreviewStore {
 
   private pruneCache() {
     const now = this.now()
+    for (const [key, entry] of this.images) if (entry.expiresAt <= now) this.images.delete(key)
     for (const [key, entry] of this.cache) {
       if (entry.expiresAt <= now) this.cache.delete(key)
     }
@@ -506,6 +617,25 @@ export async function getArchivePreviewPage(
     const identity = getOwnedPreviewIdentity(store, parsed.previewId, userId)
     const provider = previewProviderForFrozenIdentity(identity, getProviders(dependencies, database))
     return await store.page(parsed.previewId, userId, parsed.page, provider)
+  } catch (error) {
+    throw translatePreviewError(error)
+  }
+}
+
+export async function getArchivePreviewImage(
+  input: z.input<typeof getArchivePreviewImageSchema>,
+  userId: string,
+  dependencies: ArchivePreviewServiceDependencies = {}
+): Promise<ArchivePreviewImageDto> {
+  const parsed = getArchivePreviewImageSchema.parse(input)
+  try {
+    const store = dependencies.store ?? defaultStore
+    const identity = getOwnedPreviewIdentity(store, parsed.previewId, userId)
+    const provider = previewProviderForFrozenIdentity(
+      identity,
+      getProviders(dependencies, dependencies.database ?? (prisma as unknown as PrismaClient))
+    )
+    return await store.image(parsed.previewId, userId, parsed.ordinal, parsed.refresh ?? false, provider)
   } catch (error) {
     throw translatePreviewError(error)
   }
@@ -677,7 +807,28 @@ function validateProviderPage(
   }
 
   let previousOrdinal = -1
+  const locators = new Map<number, string>()
   const items = result.items.map((item) => {
+    if (item.sourcePageUrl !== undefined) {
+      const locator = new URL(item.sourcePageUrl)
+      const match = locator.pathname.match(/^\/s\/[a-z0-9]+\/([1-9]\d*)-([1-9]\d*)\/?$/i)
+      if (
+        locator.protocol !== 'https:' ||
+        locator.hostname !== 'e-hentai.org' ||
+        locator.port ||
+        locator.username ||
+        locator.password ||
+        locator.search ||
+        locator.hash ||
+        !match ||
+        match[1] !== result.externalId ||
+        Number(match[2]) !== item.ordinal + 1 ||
+        item.sourcePageUrl.length > 2048
+      ) {
+        throw invalidProviderResponse()
+      }
+      locators.set(item.ordinal, locator.toString())
+    }
     if (
       !Number.isInteger(item.ordinal) ||
       item.ordinal < 0 ||
@@ -733,6 +884,7 @@ function validateProviderPage(
     externalId: result.externalId,
     canonicalUrl: result.canonicalUrl,
     title: result.title.trim(),
+    locators,
     total: result.total,
     page: result.page,
     items,
@@ -797,6 +949,26 @@ function parseCanonicalGalleryUrl(input: string) {
     throw unavailableSourceError()
   }
   return { providerKey: 'e-hentai', externalId: gallery[1]! }
+}
+
+export function isSafePreviewImageUrl(input: string) {
+  try {
+    if (typeof input !== 'string' || input.length > 8192) return false
+    const url = new URL(input)
+    const hostname = url.hostname.toLowerCase()
+    return (
+      url.protocol === 'https:' &&
+      !url.port &&
+      !url.username &&
+      !url.password &&
+      !url.hash &&
+      THUMBNAIL_HOST_SUFFIXES.some((host) => hostname === host || hostname.endsWith(`.${host}`)) &&
+      /\.(?:jpe?g|png|gif|webp|avif)$/i.test(url.pathname) &&
+      !/^\/(?:g|s|fullimg(?:\.php)?)(?:\/|$)/i.test(url.pathname)
+    )
+  } catch {
+    return false
+  }
 }
 
 function isSafeThumbnailUrl(input: string) {

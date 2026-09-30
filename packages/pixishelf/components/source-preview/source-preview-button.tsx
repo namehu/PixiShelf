@@ -33,7 +33,11 @@ export function SourcePreviewButton({
     trpc.archivePreview.open.mutationOptions({
       onSuccess: (result) => {
         onOpened?.(result)
-        if (navigate) router.push(`/source-preview?preview=${encodeURIComponent(result.previewId)}`)
+        if (navigate) {
+          window.dispatchEvent(new Event('pixishelf:capture-source-position'))
+          window.dispatchEvent(new Event('pixishelf:open-source-preview'))
+          router.push(`/source-preview?preview=${encodeURIComponent(result.previewId)}`)
+        }
       },
       onError: () => toast.error('原站预览暂时无法打开，请稍后重试。')
     })

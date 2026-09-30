@@ -38,6 +38,36 @@ function spriteThumbnail(page: number, position = '-200px -300px') {
 }
 
 describe('EHentaiProvider gallery thumbnail preview', () => {
+  it('resolves only the requested display image through RESOLVE without downloading originals', async () => {
+    const http = {
+      text: vi.fn(
+        async () =>
+          '<img id="img" src="https://a.hath.network/h/token/image.jpg?key=signed"><a href="fullimg.php?secret=1">Original</a>'
+      ),
+      request: vi.fn(),
+      json: vi.fn()
+    }
+    const permit = vi.fn(async (operation: () => Promise<unknown>) => operation())
+    const provider = new EHentaiProvider(http as never)
+    await expect(
+      provider.previewImage(
+        { canonicalUrl: galleryUrl, sourcePageUrl: 'https://e-hentai.org/s/hash/123-1', ordinal: 0 },
+        { runResolveRequest: permit as never }
+      )
+    ).resolves.toEqual({ ordinal: 0, url: 'https://a.hath.network/h/token/image.jpg?key=signed' })
+    expect(http.text).toHaveBeenCalledOnce()
+    expect(permit).toHaveBeenCalledOnce()
+    expect(http.request).not.toHaveBeenCalled()
+    expect(http.json).not.toHaveBeenCalled()
+    await expect(
+      provider.previewImage({
+        canonicalUrl: galleryUrl,
+        sourcePageUrl: 'https://e-hentai.org/s/hash/999-1',
+        ordinal: 0
+      })
+    ).rejects.toMatchObject({ code: 'INVALID_URL' })
+    expect(http.text).toHaveBeenCalledOnce()
+  })
   it('parses legacy image and modern sprite thumbnails in source order without resolving image pages', async () => {
     const http = {
       text: vi.fn(async (_url: string) =>
@@ -68,10 +98,23 @@ describe('EHentaiProvider gallery thumbnail preview', () => {
       total: 43,
       page: 0,
       items: [
-        { ordinal: 0, url: 'https://t1.ehgt.org/t/123-1.jpg', width: 120, height: 180 },
-        { ordinal: 1, url: 'https://t1.ehgt.org/t/123-2.jpg', width: 120, height: 180 },
+        {
+          ordinal: 0,
+          sourcePageUrl: 'https://e-hentai.org/s/page1/123-1',
+          url: 'https://t1.ehgt.org/t/123-1.jpg',
+          width: 120,
+          height: 180
+        },
+        {
+          ordinal: 1,
+          sourcePageUrl: 'https://e-hentai.org/s/page2/123-2',
+          url: 'https://t1.ehgt.org/t/123-2.jpg',
+          width: 120,
+          height: 180
+        },
         {
           ordinal: 2,
+          sourcePageUrl: 'https://e-hentai.org/s/spritetoken/123-3',
           url: 'https://cdn.hath.network/t/sprite.jpg',
           width: 100,
           height: 150,
@@ -85,9 +128,9 @@ describe('EHentaiProvider gallery thumbnail preview', () => {
     expect(http.json).not.toHaveBeenCalled()
     expect(http.request).not.toHaveBeenCalled()
     expect(resolveRequestSpy).toHaveBeenCalledOnce()
-    expect(http.text.mock.calls.every(([url]) => !String(url).includes('/s/') && !String(url).includes('fullimg'))).toBe(
-      true
-    )
+    expect(
+      http.text.mock.calls.every(([url]) => !String(url).includes('/s/') && !String(url).includes('fullimg'))
+    ).toBe(true)
   })
 
   it('uses only gtoken for an image-page input and keeps the recovered gallery identity exact', async () => {
@@ -163,6 +206,7 @@ describe('EHentaiProvider gallery thumbnail preview', () => {
     expect(result.items).toEqual([
       {
         ordinal: 0,
+        sourcePageUrl: 'https://e-hentai.org/s/modern/123-1',
         url: 'https://t.ehgt.org/t/modern-sprite.jpg',
         width: 110,
         height: 160,
@@ -193,7 +237,10 @@ describe('EHentaiProvider gallery thumbnail preview', () => {
         '<div class="gdtl"><img src="https://ehgt.org/t/orphan.jpg" width="10" height="10"></div>' +
         ordinaryThumbnail(3)
     ],
-    ['malformed source href', '<div class="gdtl"><a href="/s/token/123-x"><img src="https://ehgt.org/t/a.jpg" width="10" height="10"></a></div>'],
+    [
+      'malformed source href',
+      '<div class="gdtl"><a href="/s/token/123-x"><img src="https://ehgt.org/t/a.jpg" width="10" height="10"></a></div>'
+    ],
     [
       'conflicting duplicate ordinal',
       ordinaryThumbnail(1, 'https://ehgt.org/t/a.jpg') + ordinaryThumbnail(1, 'https://ehgt.org/t/b.jpg')
@@ -213,9 +260,9 @@ describe('EHentaiProvider gallery thumbnail preview', () => {
     for (const page of [-1, 0.5, 500]) {
       await expect(provider.previewPage({ url: galleryUrl, page })).rejects.toMatchObject({ code: 'INVALID_URL' })
     }
-    await expect(provider.previewPage({ url: `https://e-hentai.org/g/123/${'x'.repeat(2_100)}/`, page: 0 })).rejects.toMatchObject(
-      { code: 'INVALID_URL' }
-    )
+    await expect(
+      provider.previewPage({ url: `https://e-hentai.org/g/123/${'x'.repeat(2_100)}/`, page: 0 })
+    ).rejects.toMatchObject({ code: 'INVALID_URL' })
 
     const oversized = Array.from({ length: 201 }, (_, index) => ordinaryThumbnail(index + 1)).join('')
     const outputProvider = new EHentaiProvider({ text: vi.fn(async () => pageHtml(oversized)) } as never)
@@ -231,7 +278,9 @@ describe('EHentaiProvider gallery thumbnail preview', () => {
     })
 
     const oversizedTotal = new EHentaiProvider({
-      text: vi.fn(async () => pageHtml(ordinaryThumbnail(1)).replace('</div><div id="gdt">', '</div><div>1,000,001 pages</div><div id="gdt">'))
+      text: vi.fn(async () =>
+        pageHtml(ordinaryThumbnail(1)).replace('</div><div id="gdt">', '</div><div>1,000,001 pages</div><div id="gdt">')
+      )
     } as never)
     await expect(oversizedTotal.previewPage({ url: galleryUrl, page: 0 })).rejects.toMatchObject({
       code: 'REMOTE_RESPONSE_INVALID'
@@ -240,10 +289,7 @@ describe('EHentaiProvider gallery thumbnail preview', () => {
 
   it.each([
     ['missing next page before the declared end', pageHtml(ordinaryThumbnail(1), { total: 2 })],
-    [
-      'next page after the declared end',
-      pageHtml(ordinaryThumbnail(1), { total: 1, next: '/g/123/gallerytoken/?p=1' })
-    ]
+    ['next page after the declared end', pageHtml(ordinaryThumbnail(1), { total: 1, next: '/g/123/gallerytoken/?p=1' })]
   ])('rejects contradictory pagination: %s', async (_label, html) => {
     const provider = new EHentaiProvider({ text: vi.fn(async () => html) } as never)
     await expect(provider.previewPage({ url: galleryUrl, page: 0 })).rejects.toMatchObject({
@@ -253,7 +299,9 @@ describe('EHentaiProvider gallery thumbnail preview', () => {
   })
 
   it('classifies an HTTP 200 throttle page from inside the governed operation', async () => {
-    const http = { text: vi.fn(async () => '<html>Your IP address has been temporarily banned for excessive pageloads.</html>') }
+    const http = {
+      text: vi.fn(async () => '<html>Your IP address has been temporarily banned for excessive pageloads.</html>')
+    }
     const operationErrors: unknown[] = []
     const resolveRequestSpy = vi.fn()
     const runResolveRequest = async <T>(operation: () => Promise<T>) => {

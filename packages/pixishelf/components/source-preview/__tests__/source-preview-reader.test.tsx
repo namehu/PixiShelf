@@ -6,6 +6,7 @@ import { SourcePreviewReader, updateSourcePreviewVisibility } from '../source-pr
 
 const mocks = vi.hoisted(() => ({
   page: vi.fn(),
+  image: vi.fn(),
   reload: vi.fn(),
   slideNext: vi.fn(),
   slideTo: vi.fn()
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
     archivePreview: {
+      image: { mutationOptions: () => ({ mutationFn: mocks.image }) },
       page: { mutationOptions: () => ({ mutationFn: mocks.page }) },
       reload: { mutationOptions: () => ({ mutationFn: mocks.reload }) }
     }
@@ -57,9 +59,16 @@ vi.mock('../vertical-media-preview-core', () => ({
     initialIndex: number
     open: boolean
     onClose: (index: number) => void
-    onControllerChange?: (controller: { slideNext: () => void; slidePrev: () => void; slideTo: (index: number) => void }) => void
+    onControllerChange?: (controller: {
+      slideNext: () => void
+      slidePrev: () => void
+      slideTo: (index: number) => void
+    }) => void
     bottomChrome?: (context: { portalContainer: null }) => ReactNode
-    renderSlide: (item: ArchivePreviewPageDto['items'][number], context: { eager: boolean; active: boolean; index: number }) => ReactNode
+    renderSlide: (
+      item: ArchivePreviewPageDto['items'][number],
+      context: { eager: boolean; active: boolean; index: number }
+    ) => ReactNode
   }) => {
     useEffect(() => {
       props.onControllerChange?.({ slideNext: mocks.slideNext, slidePrev: vi.fn(), slideTo: mocks.slideTo })
@@ -68,7 +77,9 @@ vi.mock('../vertical-media-preview-core', () => ({
     return props.open ? (
       <div data-testid="source-preview-swiper">
         {props.items.map((item, index) => (
-          <div key={item.ordinal}>{props.renderSlide(item, { eager: true, active: index === props.initialIndex, index })}</div>
+          <div key={item.ordinal}>
+            {props.renderSlide(item, { eager: true, active: index === props.initialIndex, index })}
+          </div>
         ))}
         {props.bottomChrome?.({ portalContainer: null })}
         <button type="button" onClick={() => props.onClose(props.initialIndex)}>
@@ -139,13 +150,20 @@ function deferred<T>() {
 describe('SourcePreviewReader', () => {
   beforeEach(() => {
     localStorage.clear()
+    mocks.image.mockReset().mockImplementation(() => new Promise(() => {}))
     mocks.page.mockReset()
     mocks.reload.mockReset()
     mocks.slideNext.mockReset()
     mocks.slideTo.mockReset()
     IntersectionObserverMock.instances = []
     vi.stubGlobal('IntersectionObserver', IntersectionObserverMock)
-    vi.stubGlobal('ResizeObserver', class { observe() {}; disconnect() {} })
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      }
+    )
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => window.setTimeout(() => callback(0), 0))
     vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id))
     window.scrollTo = vi.fn()
@@ -163,12 +181,12 @@ describe('SourcePreviewReader', () => {
     mocks.page.mockResolvedValue(page(0, [0], { total: null }))
     render(<SourcePreviewReader previewId="opaque_123" />)
 
-    await screen.findByAltText('来源缩略图 1')
+    await screen.findByAltText('来源图片 1')
     expect(mocks.page).toHaveBeenCalledWith({ previewId: 'opaque_123', page: 0 })
     expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'auto' })
     expect(screen.getByText('已载入 1 张')).toBeTruthy()
     expect(screen.getByText('私密来源标题').getAttribute('data-privacy-sensitive')).not.toBeNull()
-    const image = screen.getByAltText('来源缩略图 1')
+    const image = screen.getByAltText('来源图片 1')
     expect(image.getAttribute('loading')).toBe('lazy')
     expect(image.getAttribute('referrerpolicy')).toBe('no-referrer')
     const original = screen.getByRole('link', { name: '打开原站' })
@@ -189,7 +207,7 @@ describe('SourcePreviewReader', () => {
     render(<SourcePreviewReader previewId="append" initialPage={page(0, [0, 1], { nextPage: 1 })} />)
 
     fireEvent.click(screen.getByRole('button', { name: '全屏查看第 2 张' }))
-    await waitFor(() => expect(screen.getAllByAltText('来源缩略图 4').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByAltText('来源图片 4').length).toBeGreaterThan(0))
     expect(mocks.page).toHaveBeenCalledWith({ previewId: 'append', page: 1 })
     expect(screen.getByRole('button', { name: '全屏查看第 2 张' }).getAttribute('data-active')).not.toBeNull()
     expect(screen.getByTestId('source-preview-swiper')).toBeTruthy()
@@ -212,27 +230,31 @@ describe('SourcePreviewReader', () => {
     expect(mocks.page).toHaveBeenCalledTimes(1)
 
     fireEvent.click(within(fullscreenError).getByRole('button', { name: '重试' }))
-    await waitFor(() => expect(screen.getAllByAltText('来源缩略图 3').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByAltText('来源图片 3').length).toBeGreaterThan(0))
     expect(mocks.page).toHaveBeenCalledTimes(2)
   })
 
-  it('shows and retries an idle single-thumbnail failure without starting automatic browsing', async () => {
+  it('shows and retries a large image failure while keeping the thumbnail and automatic browsing idle', async () => {
+    mocks.image.mockRejectedValueOnce(new Error('unavailable')).mockImplementation(() => new Promise(() => {}))
     render(<SourcePreviewReader previewId="single-image-error" initialPage={page(0, [0], { total: 1 })} />)
 
     fireEvent.click(screen.getByRole('button', { name: '全屏查看第 1 张' }))
-    const imagesBeforeRetry = screen.getAllByAltText('来源缩略图 1')
-    fireEvent.error(imagesBeforeRetry.at(-1)!)
+    const imagesBeforeRetry = screen.getAllByAltText('来源图片 1')
+    await waitFor(() => expect(mocks.image).toHaveBeenCalled())
 
     const fullscreenError = await screen.findByTestId('source-preview-fullscreen-error')
-    expect(within(fullscreenError).getByText('当前缩略图加载失败，请重试。')).toBeTruthy()
+    expect(within(fullscreenError).getByText('当前大图加载失败，请重试。')).toBeTruthy()
     expect(screen.getByTestId('source-preview-thumbnail-error')).toBeTruthy()
     expect(screen.queryByTestId('auto-controls-slideshow')).toBeNull()
 
     fireEvent.click(within(fullscreenError).getByRole('button', { name: '重试' }))
     await waitFor(() => expect(screen.queryByTestId('source-preview-fullscreen-error')).toBeNull())
-    const imagesAfterRetry = screen.getAllByAltText('来源缩略图 1')
+    const imagesAfterRetry = screen.getAllByAltText('来源图片 1')
     expect(imagesAfterRetry).toHaveLength(2)
-    expect(imagesAfterRetry).not.toContain(imagesBeforeRetry.at(-1))
+    expect(imagesAfterRetry).toContain(imagesBeforeRetry.at(-1))
+    await waitFor(() =>
+      expect(mocks.image).toHaveBeenLastCalledWith({ previewId: 'single-image-error', ordinal: 0, refresh: true })
+    )
     fireEvent.load(imagesAfterRetry.at(-1)!)
     expect(screen.queryByTestId('source-preview-thumbnail-error')).toBeNull()
     expect(screen.queryByTestId('auto-controls-slideshow')).toBeNull()
@@ -250,7 +272,7 @@ describe('SourcePreviewReader', () => {
     await act(async () => Promise.resolve())
 
     expect(screen.queryByText('旧来源')).toBeNull()
-    expect(screen.getByAltText('来源缩略图 9')).toBeTruthy()
+    expect(screen.getByAltText('来源图片 9')).toBeTruthy()
   })
 
   it('reloads from the first page and ignores an older pending append', async () => {
@@ -266,8 +288,8 @@ describe('SourcePreviewReader', () => {
     act(() => pendingAppend.resolve(page(1, [2, 3])))
     await act(async () => Promise.resolve())
 
-    expect(screen.queryByAltText('来源缩略图 3')).toBeNull()
-    expect(screen.getByAltText('来源缩略图 1')).toBeTruthy()
+    expect(screen.queryByAltText('来源图片 3')).toBeNull()
+    expect(screen.getByAltText('来源图片 1')).toBeTruthy()
   })
 
   it('starts a fresh append after reload instead of reusing the prior generation request', async () => {
@@ -298,14 +320,14 @@ describe('SourcePreviewReader', () => {
     act(() => freshSentinelObserver.trigger())
 
     await waitFor(() => expect(mocks.page).toHaveBeenCalledTimes(2))
-    const freshImage = await screen.findByAltText('来源缩略图 2')
+    const freshImage = await screen.findByAltText('来源图片 2')
     expect(freshImage.getAttribute('src')).toBe('https://thumb.example.test/fresh-1.jpg')
 
     const staleAppend = page(1, [1])
     staleAppend.items[0]!.url = 'https://thumb.example.test/stale-1.jpg'
     act(() => oldAppend.resolve(staleAppend))
     await act(async () => Promise.resolve())
-    expect(screen.getByAltText('来源缩略图 2').getAttribute('src')).toBe('https://thumb.example.test/fresh-1.jpg')
+    expect(screen.getByAltText('来源图片 2').getAttribute('src')).toBe('https://thumb.example.test/fresh-1.jpg')
   })
 
   it('retries a failed reload as a fresh reload and removes pages from the prior generation', async () => {
@@ -316,17 +338,16 @@ describe('SourcePreviewReader', () => {
     render(<SourcePreviewReader previewId="reload-retry" initialPage={page(0, [0, 1], { nextPage: 1 })} />)
 
     act(() => IntersectionObserverMock.instances.findLast((item) => item.active)?.trigger())
-    await screen.findByAltText('来源缩略图 4')
+    await screen.findByAltText('来源图片 4')
     fireEvent.click(screen.getByRole('button', { name: '重新读取来源' }))
     await screen.findByText('暂时无法继续读取')
-    expect(screen.getByAltText('来源缩略图 4')).toBeTruthy()
+    expect(screen.getByAltText('来源图片 4')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     await screen.findByText('重新读取成功')
     expect(mocks.reload).toHaveBeenCalledTimes(2)
-    expect(screen.queryByAltText('来源缩略图 1')).toBeNull()
-    expect(screen.queryByAltText('来源缩略图 4')).toBeNull()
-    expect(screen.getByAltText('来源缩略图 8')).toBeTruthy()
+    expect(screen.queryByAltText('来源图片 1')).toBeNull()
+    expect(screen.queryByAltText('来源图片 4')).toBeNull()
+    expect(screen.getByAltText('来源图片 8')).toBeTruthy()
   })
-
 })

@@ -68,6 +68,21 @@ const props = {
   onPositionChange: vi.fn()
 }
 
+it('loads the saved page range before restoring a deep preview return anchor', async () => {
+  const position = { anchorId: 'item-9', anchorOffset: 0, scrollTop: 1000, windowScrollY: 0, loadedCount: 10 }
+  const { rerender } = render(<ArchiveDiscoveryResultList {...props} position={position} />)
+  await waitFor(() => expect(props.onLoadMore).toHaveBeenCalledOnce())
+  expect(mocks.scrollToIndex).not.toHaveBeenCalled()
+  rerender(
+    <ArchiveDiscoveryResultList
+      {...props}
+      items={Array.from({ length: 10 }, (_, index) => ({ id: `item-${index}` }))}
+      position={position}
+    />
+  )
+  await waitFor(() => expect(mocks.scrollToIndex).toHaveBeenCalled())
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
   vi.spyOn(window, 'scrollBy').mockImplementation(() => {})

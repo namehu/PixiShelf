@@ -1,5 +1,7 @@
 import { authProcedure, router } from '@/server/trpc'
 import {
+  getArchivePreviewImage,
+  getArchivePreviewImageSchema,
   getArchivePreviewPage,
   getArchivePreviewPageSchema,
   listArchivePreviewSources,
@@ -12,6 +14,9 @@ import {
 import { runArchiveOperation } from './archive'
 
 export const archivePreviewRouter = router({
+  image: authProcedure
+    .input(getArchivePreviewImageSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => getArchivePreviewImage(input, ctx.userId))),
   sources: authProcedure
     .input(listArchivePreviewSourcesSchema)
     .query(({ input }) => runArchiveOperation(() => listArchivePreviewSources(input))),

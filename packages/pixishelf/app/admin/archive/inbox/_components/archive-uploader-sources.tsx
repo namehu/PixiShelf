@@ -1,6 +1,8 @@
 'use client'
 
 import { ScanResults } from './archive-discovery-scan-results'
+import { useAuth } from '@/components/auth/auth-provider'
+import { readArchivePreviewReturnState, saveArchivePreviewReturnState } from './archive-preview-return-state'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -33,11 +35,7 @@ import { DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
 import { ArchiveSearchSourceDialog, type ArchiveSearchDialogState } from './archive-search-source-dialog'
 import { copyArchiveUploaderUid } from './archive-uploader-clipboard'
 import { ArchiveUploaderCreateSourceDialog } from './archive-uploader-create-source-dialog'
-import {
-  ArchiveUploaderGalleryPreviewDialog,
-  type ArchiveUploaderPreviewItem,
-  ArchiveUploaderResultViewToggle
-} from './archive-uploader-result-visuals'
+import { ArchiveUploaderResultViewToggle } from './archive-uploader-result-visuals'
 import { ArchiveDiscoveryBatchSources } from './archive-discovery-batch-sources'
 import { ArchiveUploaderUidConflictAlert } from './archive-uploader-uid-conflict-alert'
 import { ArchiveUploaderUidDialog } from './archive-uploader-uid-dialog'
@@ -75,6 +73,7 @@ export function ArchiveUploaderSources({
   onNavigateInboxItem: (itemId: string) => void
 }) {
   const trpc = useTRPC()
+  const { user } = useAuth()
   const queryClient = useQueryClient()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const [layoutReady, setLayoutReady] = useState(false)
@@ -92,7 +91,6 @@ export function ArchiveUploaderSources({
   const [intakeOptions, setIntakeOptions] = useState(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
   const [selectedIgnoredItemIds, setSelectedIgnoredItemIds] = useState<Set<string>>(new Set())
   const [resultFeed, setResultFeed] = useState<ArchiveDiscoveryCatalogView>('ACTIONABLE')
-  const [previewItem, setPreviewItem] = useState<ArchiveUploaderPreviewItem | null>(null)
   const [cancelRequestedRunId, setCancelRequestedRunId] = useState<string | null>(null)
   const activeDraftSourceIdRef = useRef<string | null>(null)
   const enteredFromListRef = useRef(false)
@@ -104,6 +102,37 @@ export function ArchiveUploaderSources({
   const previousProcessingCount = useRef<{ sourceId: string; count: number } | null>(null)
   const resultView = useAdminPreferencesStore((state) => state.archiveUploaderResultView)
   const setResultView = useAdminPreferencesStore((state) => state.setArchiveUploaderResultView)
+  const restoredPreviewRef = useRef(false)
+
+  useEffect(() => {
+    if (!user?.id) return
+    const saved = readArchivePreviewReturnState(user.id, window.location.pathname + window.location.search)
+    if (!saved) return
+    restoredPreviewRef.current = true
+    setSourceFilter(saved.sourceFilter)
+    setImplicitSourceId(saved.selectedSourceId)
+    activeDraftSourceIdRef.current = saved.selectedSourceId
+    setResultFeed(saved.resultFeed)
+    setUnboundOnly(saved.unboundOnly)
+    setResultView(saved.resultView)
+    resultPositionsRef.current = new Map(saved.positions)
+  }, [user?.id, setResultView])
+
+  useEffect(() => {
+    if (!user?.id) return
+    const save = () =>
+      saveArchivePreviewReturnState(user.id, window.location.pathname + window.location.search, {
+        savedAt: Date.now(),
+        sourceFilter,
+        selectedSourceId: locatedSourceId ?? implicitSourceId,
+        resultFeed,
+        unboundOnly,
+        resultView,
+        positions: [...resultPositionsRef.current].slice(-100)
+      })
+    window.addEventListener('pixishelf:open-source-preview', save)
+    return () => window.removeEventListener('pixishelf:open-source-preview', save)
+  }, [user?.id, sourceFilter, locatedSourceId, implicitSourceId, resultFeed, unboundOnly, resultView])
 
   useEffect(() => setLayoutReady(true), [])
 
@@ -170,7 +199,6 @@ export function ArchiveUploaderSources({
       setResultFeed('ACTIONABLE')
       setUnboundOnly(false)
       setCreatorDialog(null)
-      setPreviewItem(null)
       setCancelRequestedRunId(null)
     }
     activeDraftSourceIdRef.current = selectedSourceId
@@ -186,6 +214,17 @@ export function ArchiveUploaderSources({
     )
   )
   const detail = detailQuery.data
+  useEffect(() => {
+    if (!restoredPreviewRef.current || !selectedSourceId) return
+    if (
+      (detailQuery.isSuccess && !detail) ||
+      (detailQuery.error as { data?: { code?: string } } | null)?.data?.code === 'PRECONDITION_FAILED'
+    ) {
+      restoredPreviewRef.current = false
+      setImplicitSourceId(null)
+      onNavigateSourceList('replace')
+    }
+  }, [detail, detailQuery.error, detailQuery.isSuccess, onNavigateSourceList, selectedSourceId])
   const activeRun = detail?.runs.find((run) => isActiveArchiveUploaderRunStatus(run.status))
   const latestRun = detail?.runs[0]
   const catalogPolling = Boolean(activeRun) || (detail?.source.catalogCounts.processing ?? 0) > 0
@@ -379,7 +418,6 @@ export function ArchiveUploaderSources({
         setSelectedItemIds(new Set())
         setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
         setResultFeed('ACTIONABLE')
-        setPreviewItem(null)
         setCancelRequestedRunId(null)
       }
       activeDraftSourceIdRef.current = sourceId
@@ -755,7 +793,6 @@ export function ArchiveUploaderSources({
             isFetchingNextPage={ignoredItemsQuery.isFetchingNextPage}
             onLoadMore={loadMoreIgnoredItems}
             onRetry={retryIgnoredItems}
-            onPreview={setPreviewItem}
             onRestore={(ignoredItemId) => restoreMutation.mutate({ ignoredItemIds: [ignoredItemId] })}
             mutationPending={mutationPending}
             selectedItemIds={selectedIgnoredItemIds}
@@ -810,7 +847,6 @@ export function ArchiveUploaderSources({
           onDeleted={async (deletedSourceId) => {
             setImplicitSourceId(null)
             setSelectedItemIds(new Set())
-            setPreviewItem(null)
             setCancelRequestedRunId(null)
             setUidDialogOpen(false)
             setSearchDialog(null)
@@ -866,7 +902,6 @@ export function ArchiveUploaderSources({
         onUpdated={refresh}
         onConflict={(sourceId) => enterSource(sourceId)}
       />
-      <ArchiveUploaderGalleryPreviewDialog item={previewItem} onOpenChange={(open) => !open && setPreviewItem(null)} />
     </div>
   )
 }

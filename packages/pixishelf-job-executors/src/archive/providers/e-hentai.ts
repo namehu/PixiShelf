@@ -201,6 +201,33 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
     })
   }
 
+  async previewImage(
+    input: import('../types.ts').ArchivePreviewImageInput,
+    context: ArchiveProviderContext = {}
+  ): Promise<import('../types.ts').ArchivePreviewImage> {
+    const gallery = parseSupportedUrl(input.canonicalUrl)
+    const match = gallery.pathname.match(/^\/g\/([1-9]\d*)\/[a-z0-9]+\/$/i)
+    if (
+      !match ||
+      !Number.isSafeInteger(input.ordinal) ||
+      input.ordinal < 0 ||
+      input.sourcePageUrl.length > MAX_PREVIEW_URL_LENGTH ||
+      sourcePageOrdinal(input.sourcePageUrl, input.canonicalUrl, Number(match[1])) !== input.ordinal
+    ) {
+      throw new ArchiveError('INVALID_URL', '原站图片页身份无效')
+    }
+    return runResolveRequest(context, async () => {
+      const html = await this.http.text(input.sourcePageUrl, {
+        ...(context.signal ? { signal: context.signal } : {}),
+        maxBytes: 4 * 1024 * 1024
+      })
+      assertPreviewPageAvailable(html)
+      const url = findImageById(html, 'img', input.sourcePageUrl)
+      if (!url) throw invalidPreviewPage('无法读取原站展示图')
+      return { ordinal: input.ordinal, url }
+    })
+  }
+
   async scanUploader(
     input: ArchiveUploaderScanInput,
     context: ArchiveUploaderScanContext = {}
@@ -857,6 +884,7 @@ interface PreviewHtmlElement {
 }
 
 interface PendingPreviewThumbnail {
+  sourcePageUrl: string
   ordinal: number
   dimensionSources: Array<Record<string, string>>
   imageSources: Array<Record<string, string>>
@@ -897,7 +925,10 @@ function parseGalleryThumbnailPage(
     if (closing) {
       const name = closing[1]!.toLowerCase()
       if (name === 'a' && pending) {
-        addPreviewThumbnail(thumbnails, finalizePreviewThumbnail(pending, canonicalUrl))
+        addPreviewThumbnail(thumbnails, {
+          ...finalizePreviewThumbnail(pending, canonicalUrl),
+          sourcePageUrl: pending.sourcePageUrl
+        })
         pending = null
       }
       popHtmlStack(stack, name)
@@ -928,6 +959,7 @@ function parseGalleryThumbnailPage(
           throw invalidPreviewPage('E-Hentai 画廊缩略图标记发生了意外嵌套')
         }
         pending = {
+          sourcePageUrl: new URL(decodeHtml(attributes.href), canonicalUrl).toString(),
           ordinal,
           dimensionSources: stack
             .slice()
@@ -1044,11 +1076,13 @@ function sourcePageOrdinal(rawHref: string, baseUrl: string, gid: number): numbe
     url.hostname.toLowerCase() !== GALLERY_HOST ||
     url.username ||
     url.password ||
-    url.port
+    url.port ||
+    url.search ||
+    url.hash
   ) {
     return null
   }
-  const match = url.pathname.match(/^\/s\/[a-z0-9]+\/(\d+)-(\d+)(?:\/|$)/i)
+  const match = url.pathname.match(/^\/s\/[a-z0-9]+\/(\d+)-(\d+)\/?$/i)
   if (!match || Number(match[1]) !== gid) return null
   const sourcePage = Number(match[2])
   return Number.isSafeInteger(sourcePage) && sourcePage > 0 && sourcePage <= MAX_PREVIEW_TOTAL ? sourcePage - 1 : null

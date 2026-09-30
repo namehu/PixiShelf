@@ -1,5 +1,6 @@
 'use client'
 
+import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { cn } from '@/lib/utils'
 
 import type { inferRouterOutputs } from '@trpc/server'
@@ -11,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
 import { ArchiveDiscoveryResultList, type ArchiveDiscoveryListPosition } from './archive-discovery-result-list'
-import { ArchiveUploaderGalleryThumbnail, type ArchiveUploaderPreviewItem } from './archive-uploader-result-visuals'
+import { ArchiveUploaderGalleryThumbnail } from './archive-uploader-result-visuals'
 import { formatArchiveUploaderTimestamp } from './archive-uploader-view-state'
 
 type IgnoredItem = inferRouterOutputs<AppRouter>['archiveSearch']['listIgnoredItems']['items'][number]
@@ -26,7 +27,6 @@ export function IgnoredResults({
   isFetchingNextPage,
   onLoadMore,
   onRetry,
-  onPreview,
   onRestore,
   mutationPending,
   selectedItemIds,
@@ -46,7 +46,6 @@ export function IgnoredResults({
   isFetchingNextPage: boolean
   onLoadMore: () => void
   onRetry: () => void
-  onPreview: (item: ArchiveUploaderPreviewItem) => void
   onRestore: (itemId: string) => void
   mutationPending: boolean
   selectedItemIds: Set<string>
@@ -126,13 +125,32 @@ export function IgnoredResults({
                 <ArchiveUploaderGalleryThumbnail
                   key={item.id}
                   item={item}
-                  onPreview={onPreview}
+                  sourceHref={
+                    item.catalogItemId
+                      ? `/api/archive/catalog/${encodeURIComponent(item.catalogItemId)}/source`
+                      : undefined
+                  }
                   card={resultView === 'cards'}
                 />
               ) : null}
               <div className="min-w-0 w-full flex-1">
                 <PrivacySensitiveText as="p" className="line-clamp-2 break-words font-medium">
-                  {item.title}
+                  {item.catalogItemId ? (
+                    <a
+                      href={`/api/archive/catalog/${encodeURIComponent(item.catalogItemId)}/source`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      referrerPolicy="no-referrer"
+                      className="hover:underline focus-visible:underline"
+                      title="在新标签页打开原站"
+                    >
+                      {item.title}
+                    </a>
+                  ) : (
+                    <span aria-disabled="true" title="来源地址不可用">
+                      {item.title}
+                    </span>
+                  )}
                 </PrivacySensitiveText>
                 <p className="mt-1 truncate font-mono text-xs text-muted-foreground">#{item.externalId}</p>
                 <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -141,6 +159,9 @@ export function IgnoredResults({
                 </p>
               </div>
             </div>
+            {item.catalogItemId ? (
+              <SourcePreviewButton source={{ kind: 'catalog', itemId: item.catalogItemId }} variant="ghost" size="sm" />
+            ) : null}
             <Button
               variant="ghost"
               size="icon"

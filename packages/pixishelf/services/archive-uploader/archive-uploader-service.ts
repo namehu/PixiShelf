@@ -13,6 +13,7 @@ import { type ArchiveUploaderProviderRegistry } from '@pixishelf/job-executors'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { ArchiveError } from '@/services/archive/errors'
+import { archiveTaskSourceUrl } from '@/services/archive/archive-task-source-service'
 import { resolveArchiveUploaderIdentity } from './archive-uploader-identity'
 import { archiveWireErrorMessage, redactArchiveUrl } from '@/services/archive/archive-redaction'
 import { createArchiveIntakeSubmissionInTransaction } from '@/services/archive-intake/archive-intake-service'
@@ -302,8 +303,24 @@ export async function listArchiveUploaderIgnoredItems(
   const hasMore = rows.length > parsed.limit
   const visible = hasMore ? rows.slice(0, parsed.limit) : rows
   const last = visible.at(-1)
+  const candidates = visible.length
+    ? await getDatabase(dependencies).archiveUploaderCatalogItem.findMany({
+        where: { matchesQuery: true, OR: visible.map(({ providerKey, externalId }) => ({ providerKey, externalId })) },
+        select: { id: true, providerKey: true, externalId: true, canonicalUrl: true },
+        orderBy: { id: 'asc' }
+      })
+    : []
   return {
-    items: visible.map(serializeIgnoredItem),
+    items: visible.map((item) => ({
+      ...serializeIgnoredItem(item),
+      catalogItemId:
+        candidates.find(
+          (candidate) =>
+            candidate.providerKey === item.providerKey &&
+            candidate.externalId === item.externalId &&
+            archiveTaskSourceUrl(candidate)
+        )?.id ?? null
+    })),
     nextCursor: hasMore && last ? { ignoredAt: last.ignoredAt, id: last.id } : null
   }
 }

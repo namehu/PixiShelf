@@ -148,16 +148,22 @@ export function ScanResults({
                   key={item.id}
                   item={item}
                   card={resultView === 'cards'}
-                  previewCatalogId={resultView === 'cards' ? item.id : undefined}
-                  sourceHref={
-                    resultView === 'cards' ? undefined : `/api/archive/catalog/${encodeURIComponent(item.id)}/source`
-                  }
+                  sourceHref={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
                 />
               ) : null}
               <div className="min-w-0 w-full flex-1">
                 <div className="flex min-w-0 flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:gap-2">
                   <PrivacySensitiveText as="p" className="line-clamp-2 w-full min-w-0 break-words font-medium">
-                    {item.title}
+                    <a
+                      href={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      referrerPolicy="no-referrer"
+                      className="hover:underline focus-visible:underline"
+                      title="在新标签页打开原站"
+                    >
+                      {item.title}
+                    </a>
                   </PrivacySensitiveText>
                   <CatalogStatusBadge item={item} />
                 </div>
@@ -213,10 +219,10 @@ export function ScanResults({
                 source={{ kind: 'catalog', itemId: item.id }}
                 variant="ghost"
                 size="icon"
-                aria-label={`站内缩略图预览 ${item.title}`}
-                title="站内缩略图预览"
+                aria-label={`原站预览 ${item.title}`}
+                title="原站预览"
               >
-                <span className="sr-only">站内缩略图预览</span>
+                <span className="sr-only">原站预览</span>
               </SourcePreviewButton>
               {item.actionable ? (
                 <Button

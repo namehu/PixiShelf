@@ -19,6 +19,11 @@ export interface ArchivePreviewThumbnailDto {
   crop?: { x: number; y: number; width: number; height: number }
 }
 
+export interface ArchivePreviewImageDto {
+  ordinal: number
+  url: string
+}
+
 export interface ArchivePreviewPageDto {
   title: string
   total: number | null

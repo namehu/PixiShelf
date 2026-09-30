@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
+vi.mock('@/components/auth/auth-provider', () => ({ useAuth: () => ({ user: { id: 'preview-owner' } }) }))
 vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.isDesktop }))
 
 vi.mock('@/components/ui/dropdown-menu', async () => {
@@ -491,6 +492,7 @@ describe('ArchiveUploaderSources', () => {
     mocks.ignoreHold = false
     mocks.setQueriesData.mockReset()
     localStorage.clear()
+    sessionStorage.clear()
     currentDetailData = detailData
     currentItemsData = itemsData
     currentSourcesData = sourcesData
@@ -519,6 +521,28 @@ describe('ArchiveUploaderSources', () => {
     expect(mocks.navigateSource).toHaveBeenCalledWith('source-1', 'push')
     expect(await screen.findByRole('button', { name: '返回来源列表' })).toBeTruthy()
     expect(screen.getByTestId('discovery-virtuoso').getAttribute('data-window-scroll')).toBe('true')
+  })
+
+  it('restores the source filter and display mode after navigating back from preview', async () => {
+    const first = renderSources()
+    fireEvent.click(screen.getByLabelText('查看已归档'))
+    fireEvent.click(screen.getByLabelText('使用卡片模式'))
+    fireEvent(window, new Event('pixishelf:open-source-preview'))
+    first.unmount()
+    useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
+    renderSources()
+    await waitFor(() => expect(screen.getByLabelText('查看已归档').getAttribute('data-state')).toBe('on'))
+    expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('cards')
+  })
+
+  it('returns to the source list when the restored source has been deleted', async () => {
+    const first = renderSources()
+    fireEvent(window, new Event('pixishelf:open-source-preview'))
+    first.unmount()
+    currentDetailData = null
+    currentSourcesData = []
+    renderSources()
+    await waitFor(() => expect(mocks.navigateSourceList).toHaveBeenCalledWith('replace'))
   })
 
   it('keeps the mobile selection when returning to the list and reopening the same source', async () => {
@@ -587,12 +611,12 @@ describe('ArchiveUploaderSources', () => {
     for (const element of screen.getAllByText('Private uploader')) {
       expect(element.getAttribute('data-privacy-sensitive')).toBe('')
     }
-    expect(screen.getByText('Gallery 302').getAttribute('data-privacy-sensitive')).toBe('')
+    expect(screen.getByText('Gallery 302').closest('[data-privacy-sensitive]')).toBeTruthy()
     expect(screen.getByText('https://e-hentai.org/g/302/[redacted]/').getAttribute('data-privacy-sensitive')).toBe('')
     expect(screen.getByText('Private gallery scan failed').getAttribute('data-privacy-sensitive')).toBe('')
 
     fireEvent.click(screen.getByLabelText('查看全局已忽略'))
-    expect(screen.getByText('Ignored Gallery 301').getAttribute('data-privacy-sensitive')).toBe('')
+    expect(screen.getByText('Ignored Gallery 301').closest('[data-privacy-sensitive]')).toBeTruthy()
     const uidLabels = screen.getAllByText('UID 123')
     expect(uidLabels.some((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
     expect(uidLabels.every((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
@@ -793,6 +817,12 @@ describe('ArchiveUploaderSources', () => {
   it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
     renderSources()
 
+    const titleLink = screen.getByRole('link', { name: 'Gallery 302' })
+    expect(titleLink.getAttribute('href')).toBe('/api/archive/catalog/catalog-item-1/source')
+    expect(titleLink.getAttribute('target')).toBe('_blank')
+    expect(titleLink.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(titleLink.getAttribute('referrerpolicy')).toBe('no-referrer')
+
     expect(screen.queryByRole('button', { name: '预览 Gallery 302 的首图' })).toBeNull()
 
     fireEvent.click(screen.getByLabelText('显示首图预览'))
@@ -808,9 +838,9 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
     fireEvent.click(screen.getByLabelText('使用卡片模式'))
-    fireEvent.click(screen.getByRole('button', { name: '预览 Gallery 302 的图片' }))
+    fireEvent.click(screen.getByRole('button', { name: '原站预览 Gallery 302' }))
     expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
-    expect(screen.getByRole('link', { name: '在新标签页打开原站 Gallery 302' }).getAttribute('href')).toBe(
+    expect(screen.getAllByRole('link', { name: '在新标签页打开原站 Gallery 302' })[0]!.getAttribute('href')).toBe(
       '/api/archive/catalog/catalog-item-1/source'
     )
     expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
@@ -822,7 +852,7 @@ describe('ArchiveUploaderSources', () => {
   it('opens source preview independently from the stored cover popup', () => {
     renderSources()
 
-    fireEvent.click(screen.getByRole('button', { name: '站内缩略图预览 Gallery 302' }))
+    fireEvent.click(screen.getByRole('button', { name: '原站预览 Gallery 302' }))
     expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
     expect(screen.queryByRole('dialog')).toBeNull()
   })
@@ -1058,13 +1088,15 @@ describe('ArchiveUploaderSources', () => {
     expect(mocks.ignoreItems.mock.calls[1]).toEqual(mocks.ignoreItems.mock.calls[0])
   })
 
-  it('retains the cover dialog in globally ignored results', () => {
+  it('disables source navigation for ignored results without a recoverable address', () => {
     renderSources()
     fireEvent.click(screen.getByLabelText('显示首图预览'))
     fireEvent.click(screen.getByLabelText('查看全局已忽略'))
     fireEvent.click(screen.getByLabelText('使用卡片模式'))
-    fireEvent.click(screen.getByRole('button', { name: '预览 Ignored Gallery 301 的首图' }))
-    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Ignored Gallery 301 来源地址不可用' }).hasAttribute('disabled')).toBe(
+      true
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('removes ignored items from the infinite cache and refreshes both result feeds', async () => {

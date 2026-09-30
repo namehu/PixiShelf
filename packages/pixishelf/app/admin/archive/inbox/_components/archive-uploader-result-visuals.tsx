@@ -2,10 +2,8 @@
 
 import { useState } from 'react'
 import { ImageOffIcon, ImagesIcon, ListIcon, LayoutGridIcon } from 'lucide-react'
-import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
@@ -16,7 +14,6 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
 
 export interface ArchiveUploaderPreviewItem {
@@ -75,64 +72,42 @@ export function ArchiveUploaderResultViewToggle({
 
 export function ArchiveUploaderGalleryThumbnail({
   item,
-  onPreview,
   sourceHref,
-  card = false,
-  previewCatalogId
+  card = false
 }: {
   item: ArchiveUploaderPreviewItem
-  onPreview?: (item: ArchiveUploaderPreviewItem) => void
   sourceHref?: string
   card?: boolean
-  previewCatalogId?: string
 }) {
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
 
   const frameClass = card ? 'h-72 w-full' : 'h-40 w-28 @[36rem]/discovery-results:h-52 @[36rem]/discovery-results:w-40'
 
-  if (!item.thumbnailUrl || failed) {
-    return (
-      <div
-        className={cn(
-          'flex shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground',
-          frameClass
-        )}
-        aria-label={`${item.title} 没有可用首图`}
-      >
-        <ImageOffIcon aria-hidden="true" />
-      </div>
-    )
-  }
-
   const content = (
     <>
-      {!loaded ? <Skeleton className="absolute inset-0 h-full w-full" /> : null}
-      <img
-        src={item.thumbnailUrl}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        referrerPolicy="no-referrer"
-        className={cn('h-full w-full object-contain', !loaded && 'opacity-0')}
-        onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
-      />
+      {item.thumbnailUrl && !failed && !loaded ? <Skeleton className="absolute inset-0 h-full w-full" /> : null}
+      {item.thumbnailUrl && !failed ? (
+        <img
+          src={item.thumbnailUrl}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          className={cn('h-full w-full object-contain', !loaded && 'opacity-0')}
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <ImageOffIcon aria-label={`${item.title} 没有可用首图`} />
+      )}
+      {!sourceHref ? (
+        <span className="absolute bottom-2 rounded bg-background/90 px-2 py-1 text-xs text-foreground">
+          来源地址不可用
+        </span>
+      ) : null}
     </>
   )
-  if (previewCatalogId) {
-    return (
-      <SourcePreviewButton
-        source={{ kind: 'catalog', itemId: previewCatalogId }}
-        showIcon={false}
-        variant="ghost"
-        className={cn('relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)}
-        aria-label={`预览 ${item.title} 的图片`}
-      >
-        {content}
-      </SourcePreviewButton>
-    )
-  }
   if (sourceHref) {
     return (
       <Button variant="ghost" className={cn('relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)} asChild>
@@ -153,59 +128,11 @@ export function ArchiveUploaderGalleryThumbnail({
       type="button"
       variant="ghost"
       className={cn('relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)}
-      onClick={() => onPreview?.(item)}
-      aria-label={`预览 ${item.title} 的首图`}
+      disabled
+      title="来源地址不可用"
+      aria-label={`${item.title} 来源地址不可用`}
     >
       {content}
     </Button>
-  )
-}
-
-export function ArchiveUploaderGalleryPreviewDialog({
-  item,
-  onOpenChange
-}: {
-  item: ArchiveUploaderPreviewItem | null
-  onOpenChange: (open: boolean) => void
-}) {
-  return (
-    <Dialog open={Boolean(item)} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden sm:max-w-4xl">
-        <DialogHeader>
-          <DialogTitle>{item ? <PrivacySensitiveText>{item.title}</PrivacySensitiveText> : '首图预览'}</DialogTitle>
-          <DialogDescription>{item ? `#${item.externalId} · 扫描结果首图` : '扫描结果首图'}</DialogDescription>
-        </DialogHeader>
-        {item?.thumbnailUrl ? (
-          <GalleryPreviewImage key={item.thumbnailUrl} src={item.thumbnailUrl} title={item.title} />
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function GalleryPreviewImage({ src, title }: { src: string; title: string }) {
-  const [loaded, setLoaded] = useState(false)
-  const [failed, setFailed] = useState(false)
-
-  return (
-    <div className="relative flex min-h-72 items-center justify-center overflow-hidden rounded-md bg-muted">
-      {!loaded && !failed ? <Skeleton className="absolute inset-0 h-full w-full" /> : null}
-      {failed ? (
-        <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
-          <ImageOffIcon aria-hidden="true" />
-          首图加载失败
-        </div>
-      ) : (
-        <img
-          src={src}
-          alt={`${title} 的首图预览`}
-          decoding="async"
-          referrerPolicy="no-referrer"
-          className={cn('max-h-[70vh] max-w-full object-contain', !loaded && 'opacity-0')}
-          onLoad={() => setLoaded(true)}
-          onError={() => setFailed(true)}
-        />
-      )}
-    </div>
   )
 }

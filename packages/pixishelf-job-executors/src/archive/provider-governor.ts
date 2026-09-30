@@ -259,6 +259,7 @@ export class GovernedArchiveProviderRegistry implements ArchiveUploaderProviderR
 }
 
 class GovernedArchiveProvider implements ArchiveUploaderProvider {
+  readonly previewImage?: NonNullable<ArchiveProvider['previewImage']>
   readonly key: string
   readonly requestGovernance = 'PER_REQUEST' as const
   readonly previewPage?: (
@@ -271,6 +272,21 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
     private readonly governor: ArchiveProviderGovernor
   ) {
     this.key = delegate.key
+    if (delegate.previewImage) {
+      this.previewImage = async (input, context = {}) => {
+        const linked = linkedAbortController(context.signal ?? new AbortController().signal)
+        try {
+          return await delegate.previewImage!(input, {
+            ...context,
+            signal: linked.controller.signal,
+            runResolveRequest: (operation) =>
+              this.runWithPermit('RESOLVE', linked.controller, operation, { yieldOnPenalty: true })
+          })
+        } finally {
+          linked.dispose()
+        }
+      }
+    }
     if (delegate.previewPage) {
       this.previewPage = (input, context = {}) => this.runPreviewPage(input, context)
     }

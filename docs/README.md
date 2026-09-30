@@ -41,7 +41,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 - [Pixiv 扫描根身份](./features/pixiv-root-identity.md)（current）：稳定 UUID、重挂载兼容、旧库绑定与标记恢复。
 
 - [艺术家、社团与作品关系](./features/creator-relations.md)（current）：多创作者归属、时间线、来源映射与后台补全。
-- [原站缩略图预览](./features/source-preview.md)（current）：纯浏览入口、用户绑定会话、分页缓存、Provider governor 与来源地址保护。
+- [原站图片预览](./features/source-preview.md)（current）：纯浏览入口、用户绑定会话、分页缓存、Provider governor 与来源地址保护。
 
 | 文档                                                                | 状态      | 权威范围                                       |
 | ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
@@ -56,7 +56,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)       | `current` | 已有作品在线同步、来源所有权和磁盘快照         |
 | [Pixiv 系列来源与核对](./features/pixiv-series-sync.md)             | `current` | 系列外部身份、成员所有权、连续核对与多系列导航 |
 | [归档收件箱](./features/archive-intake.md)                          | `current` | 持久收件、双通道、批量操作、维护和保留策略     |
-| [原站缩略图预览](./features/source-preview.md)                      | `current` | 在线缩略图纯浏览、会话、缓存与安全边界         |
+| [原站图片预览](./features/source-preview.md)                        | `current` | 展示图按需浏览、会话、缓存与安全边界         |
 | [领域语境](../CONTEXT.md)                                           | `current` | 作品、媒体、来源、归档与本地身份术语           |
 | [当前架构](./architecture/current-architecture.md)                  | `current` | Workspace、运行组件、依赖方向和关键数据流      |
 | [权限与接口边界](./security/access-control.md)                      | `current` | 调用者、页面、API、服务、凭据和存储权限        |
@@ -94,7 +94,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | 文档                                                                 | 状态         | 权威范围与后续处理                                          |
 | -------------------------------------------------------------------- | ------------ | ----------------------------------------------------------- |
 | [归档收件箱](./features/archive-intake.md)                           | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界          |
-| [原站缩略图预览](./features/source-preview.md)                       | `current`    | 当前在线缩略图浏览入口、会话、缓存和无副作用边界            |
+| [原站图片预览](./features/source-preview.md)                         | `current`    | 当前展示图浏览入口、会话、缓存和无副作用边界            |
 | [后台任务实时进度](./features/background-job-live-progress.md)       | `current`    | 结构化进度、动画识别、SSE 缓存同步和事件分层保留            |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)   | `current`    | 当前历史归档标签补全范围、快照和恢复边界                    |
 | [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)            | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则              |

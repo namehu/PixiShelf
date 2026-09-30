@@ -11,6 +11,7 @@ import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferen
 import { Spinner } from '@/components/ui/spinner'
 
 export interface ArchiveDiscoveryListPosition {
+  loadedCount?: number
   anchorId: string | null
   anchorOffset: number
   scrollTop: number
@@ -116,6 +117,7 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
           ? scrollerRef.current.scrollTop
           : 0
     const captured = {
+      loadedCount: items.length,
       anchorId: current?.id ?? null,
       anchorOffset: current?.offset ?? 0,
       scrollTop,
@@ -128,6 +130,12 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
   useLayoutEffect(() => {
     captureRef.current = capturePosition
   }, [capturePosition])
+
+  useEffect(() => {
+    const capture = () => captureRef.current()
+    window.addEventListener('pixishelf:capture-source-position', capture)
+    return () => window.removeEventListener('pixishelf:capture-source-position', capture)
+  }, [])
 
   // Retain the last visible artwork when leaving a source or changing scroll hosts.
   useLayoutEffect(() => () => captureRef.current(), [positionKey, isDesktop])
@@ -167,6 +175,13 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
     const savedPosition =
       capturedPositionRef.current?.key === positionKey ? capturedPositionRef.current.position : position
     const anchorIndex = savedPosition?.anchorId ? items.findIndex(({ id }) => id === savedPosition.anchorId) : -1
+    if (anchorIndex < 0 && items.length < (savedPosition?.loadedCount ?? 0) && hasNextPage && !isError) {
+      if (!isFetchingNextPage && lastRequestedLengthRef.current !== items.length) {
+        lastRequestedLengthRef.current = items.length
+        onLoadMore()
+      }
+      return
+    }
     const restore = () => {
       if (!virtuosoRef.current) {
         if (++attempts < 30) frame = window.requestAnimationFrame(restore)
@@ -214,7 +229,20 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
       restoringRef.current = true
       window.cancelAnimationFrame(frame)
     }
-  }, [isDesktop, isLoading, items, layoutReady, position, positionKey, view, columns])
+  }, [
+    isDesktop,
+    isLoading,
+    items,
+    layoutReady,
+    position,
+    positionKey,
+    view,
+    columns,
+    hasNextPage,
+    isError,
+    isFetchingNextPage,
+    onLoadMore
+  ])
 
   if (!layoutReady || isLoading) return <Skeleton className="h-[60vh] min-h-80 w-full" />
   if (isError) {

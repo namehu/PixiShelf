@@ -682,6 +682,18 @@ describe('archive uploader service', () => {
     const ignoredAt = new Date('2026-09-02T02:00:00.000Z')
     const deleteMany = vi.fn(async () => ({ count: 1 }))
     const database = {
+      archiveUploaderCatalogItem: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            {
+              id: 'catalog-302',
+              providerKey: 'e-hentai',
+              externalId: '302',
+              canonicalUrl: 'https://e-hentai.org/g/302/token/'
+            }
+          ])
+      },
       archiveUploaderIgnoredItem: {
         findMany: vi.fn(async () => [
           {
@@ -715,7 +727,11 @@ describe('archive uploader service', () => {
       { limit: 1, direction: 'forward' },
       { database: database as never }
     )
-    expect(result.items[0]).toMatchObject({ id: 'ignored-2', thumbnailUrl: 'https://ehgt.org/thumb.jpg' })
+    expect(result.items[0]).toMatchObject({
+      id: 'ignored-2',
+      thumbnailUrl: 'https://ehgt.org/thumb.jpg',
+      catalogItemId: 'catalog-302'
+    })
     expect(result.nextCursor).toEqual({ ignoredAt, id: 'ignored-2' })
 
     await expect(

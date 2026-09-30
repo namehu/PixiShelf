@@ -91,6 +91,8 @@ export interface ArchiveThumbnailCrop {
 }
 
 export interface ArchiveThumbnail {
+  /** Server-only locator; never serialize this into the browser thumbnail DTO. */
+  sourcePageUrl?: string
   /** Zero-based position in the complete remote gallery. */
   ordinal: number
   url: string
@@ -117,6 +119,17 @@ export interface ArchiveThumbnailPageInput {
   url: string
   /** Zero-based remote gallery page. */
   page: number
+}
+
+export interface ArchivePreviewImageInput {
+  canonicalUrl: string
+  sourcePageUrl: string
+  ordinal: number
+}
+
+export interface ArchivePreviewImage {
+  ordinal: number
+  url: string
 }
 
 export type ArchiveUploaderIdentityKind = 'NAME' | 'UID'
@@ -224,6 +237,7 @@ export interface ArchiveProvider extends ArchiveMediaProvider {
   accepts(url: URL): boolean
   resolve(url: string, context?: ArchiveProviderContext): Promise<ResolvedArchive>
   previewPage?(input: ArchiveThumbnailPageInput, context?: ArchiveProviderContext): Promise<ArchiveThumbnailPage>
+  previewImage?(input: ArchivePreviewImageInput, context?: ArchiveProviderContext): Promise<ArchivePreviewImage>
   openMedia(item: ArchiveProviderMediaItem, context: ArchiveDownloadContext): Promise<ArchiveRemoteMedia>
 }
 

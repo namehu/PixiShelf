@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   sources: vi.fn(),
   open: vi.fn(),
   page: vi.fn(),
+  image: vi.fn(),
   reload: vi.fn()
 }))
 
@@ -14,6 +15,7 @@ vi.mock('@/services/archive-preview/archive-preview-service', async (importOrigi
   listArchivePreviewSources: mocks.sources,
   openArchivePreview: mocks.open,
   getArchivePreviewPage: mocks.page,
+  getArchivePreviewImage: mocks.image,
   reloadArchivePreview: mocks.reload
 }))
 
@@ -46,7 +48,9 @@ describe('archive preview authorization boundary', () => {
   it('rejects every unauthenticated operation before preview service IO', async () => {
     const caller = archivePreviewRouter.createCaller(unauthorized)
     await expect(caller.sources({ artworkId: 1 })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
-    await expect(caller.open({ source: { kind: 'url', url: 'https://e-hentai.org/g/1/token/' } })).rejects.toMatchObject({
+    await expect(
+      caller.open({ source: { kind: 'url', url: 'https://e-hentai.org/g/1/token/' } })
+    ).rejects.toMatchObject({
       code: 'UNAUTHORIZED'
     })
     await expect(caller.page({ previewId: 'preview-123456789', page: 0 })).rejects.toMatchObject({
@@ -55,6 +59,10 @@ describe('archive preview authorization boundary', () => {
     await expect(caller.reload({ previewId: 'preview-123456789' })).rejects.toMatchObject({
       code: 'UNAUTHORIZED'
     })
+    await expect(caller.image({ previewId: 'preview-123456789', ordinal: 0 })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED'
+    })
+    expect(mocks.image).not.toHaveBeenCalled()
     expect(mocks.sources).not.toHaveBeenCalled()
     expect(mocks.open).not.toHaveBeenCalled()
     expect(mocks.page).not.toHaveBeenCalled()
@@ -63,6 +71,8 @@ describe('archive preview authorization boundary', () => {
 
   it('passes only the authenticated user identity to user-bound session operations', async () => {
     const caller = archivePreviewRouter.createCaller(authorized)
+    await caller.image({ previewId: 'preview-123456789', ordinal: 0 })
+    expect(mocks.image).toHaveBeenCalledWith({ previewId: 'preview-123456789', ordinal: 0 }, 'user-1')
     await caller.sources({ artworkId: 7 })
     await caller.open({ source: { kind: 'task', taskId: 'task-1' } })
     await caller.page({ previewId: 'preview-123456789', page: 1 })

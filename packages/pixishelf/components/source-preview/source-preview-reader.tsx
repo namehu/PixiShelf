@@ -12,11 +12,9 @@ import type {
   ArchivePreviewThumbnailDto
 } from '@/services/archive-preview/archive-preview-types'
 import { ControlledAutoBrowseControls } from './controlled-auto-browse-controls'
-import { SourcePreviewThumbnail } from './source-preview-thumbnail'
-import {
-  VerticalMediaPreviewCore,
-  type VerticalMediaPreviewController
-} from './vertical-media-preview-core'
+import { SourcePreviewImage } from './source-preview-image'
+import { useSourcePreviewImages } from './use-source-preview-images'
+import { VerticalMediaPreviewCore, type VerticalMediaPreviewController } from './vertical-media-preview-core'
 import { useSourcePreviewAutoBrowse } from './use-source-preview-auto-browse'
 
 export type ArchivePreviewPage = ArchivePreviewPageDto
@@ -57,6 +55,10 @@ export function updateSourcePreviewVisibility(
 }
 
 export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewReaderProps) {
+  return <SourcePreviewReaderContent key={previewId} previewId={previewId} initialPage={initialPage} />
+}
+
+function SourcePreviewReaderContent({ previewId, initialPage }: SourcePreviewReaderProps) {
   const trpc = useTRPC()
   const pageMutation = useMutation(trpc.archivePreview.page.mutationOptions())
   const reloadMutation = useMutation(trpc.archivePreview.reload.mutationOptions())
@@ -72,9 +74,8 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
   const [previewOpen, setPreviewOpen] = useState(false)
   const [zoomScale, setZoomScale] = useState(1)
   const [transitioning, setTransitioning] = useState(false)
-  const [loadedOrdinals, setLoadedOrdinals] = useState<Set<number>>(() => new Set())
-  const [failedOrdinals, setFailedOrdinals] = useState<Set<number>>(() => new Set())
-  const [retryCounts, setRetryCounts] = useState<Record<number, number>>({})
+  const [imageGeneration, setImageGeneration] = useState(0)
+  const [visibleOrdinals, setVisibleOrdinals] = useState<number[]>([])
   const controllerRef = useRef<VerticalMediaPreviewController | null>(null)
   const listNodesRef = useRef(new Map<number, HTMLButtonElement>())
   const visibilityRatiosRef = useRef(new Map<number, number>())
@@ -99,17 +100,41 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
   const nextPage = lastPage?.nextPage ?? null
   const title = firstPage?.title ?? '来源预览'
   const activeItem = items[activeIndex]
+  const requestedOrdinals = useMemo(() => {
+    const visible = previewOpen
+      ? []
+      : visibleOrdinals.filter((ordinal) => items.some((item) => item.ordinal === ordinal))
+    const lastVisibleIndex = Math.max(
+      activeIndex,
+      ...visible.map((ordinal) => items.findIndex((item) => item.ordinal === ordinal))
+    )
+    return [
+      ...new Set(
+        [activeItem?.ordinal, ...visible, items[lastVisibleIndex + 1]?.ordinal].filter(
+          (ordinal): ordinal is number => ordinal !== undefined
+        )
+      )
+    ]
+  }, [activeIndex, activeItem, items, previewOpen, visibleOrdinals])
+  const imageLoader = useSourcePreviewImages(
+    previewId,
+    imageGeneration,
+    requestedOrdinals,
+    loadingPage === null && !reloadFailed
+  )
+  const loadedOrdinals = new Set(
+    [...imageLoader.images].filter(([, value]) => value.status === 'loaded').map(([ordinal]) => ordinal)
+  )
+  const failedOrdinals = new Set(
+    [...imageLoader.images].filter(([, value]) => value.status === 'failed').map(([ordinal]) => ordinal)
+  )
   const activeReady = activeItem ? loadedOrdinals.has(activeItem.ordinal) : false
   const activeFailed = activeItem ? failedOrdinals.has(activeItem.ordinal) : false
   const failedThumbnail = items.find((item) => failedOrdinals.has(item.ordinal)) ?? null
 
-  const markThumbnailFailed = useCallback(
-    (ordinal: number) => {
-      setFailedOrdinals((current) => new Set(current).add(ordinal))
-      auto.error()
-    },
-    [auto.error]
-  )
+  useEffect(() => {
+    if (failedThumbnail) auto.error()
+  }, [failedThumbnail, auto.error])
 
   useEffect(() => {
     mountedRef.current = true
@@ -171,9 +196,7 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
     setPages(new Map(first ? [[first.page, first]] : []))
     setActiveIndex(0)
     setPreviewOpen(false)
-    setLoadedOrdinals(new Set())
-    setFailedOrdinals(new Set())
-    setRetryCounts({})
+    setVisibleOrdinals([])
     setFailedPage(null)
     setReloadFailed(false)
     setPageError(null)
@@ -226,6 +249,7 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
             visible: entry.isIntersecting
           }))
         )
+        setVisibleOrdinals([...visibilityRatiosRef.current.keys()])
         if (ordinal === null) return
         const index = items.findIndex((item) => item.ordinal === ordinal)
         if (index >= 0 && !previewOpen) setActiveIndex(index)
@@ -333,7 +357,26 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
   ])
 
   useEffect(() => {
-    if (previewOpen || auto.state.mode !== 'scroll' || auto.state.status !== 'running') return
+    if (previewOpen || auto.state.mode !== 'scroll' || !['running', 'waiting'].includes(auto.state.status)) return
+    if (activeFailed) auto.error()
+    else if (!activeReady || loadingPage !== null) auto.wait()
+    else if (auto.state.status === 'waiting') auto.ready()
+  }, [
+    activeFailed,
+    activeReady,
+    auto.error,
+    auto.ready,
+    auto.state.mode,
+    auto.state.status,
+    auto.wait,
+    loadingPage,
+    previewOpen
+  ])
+
+  useEffect(() => {
+    if (previewOpen || auto.state.mode !== 'scroll' || auto.state.status !== 'running' || !activeReady || activeFailed) {
+      return
+    }
     let frame = 0
     let previous = performance.now()
     const tick = (now: number) => {
@@ -353,7 +396,19 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [auto.end, auto.state.loop, auto.state.mode, auto.state.scrollSpeed, auto.state.status, items.length, loadNext, nextPage, previewOpen])
+  }, [
+    activeReady,
+    activeFailed,
+    auto.end,
+    auto.state.loop,
+    auto.state.mode,
+    auto.state.scrollSpeed,
+    auto.state.status,
+    items.length,
+    loadNext,
+    nextPage,
+    previewOpen
+  ])
 
   useEffect(() => {
     const pause = () => auto.pause('manual')
@@ -403,8 +458,8 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
       if (!mountedRef.current || generationRef.current !== generation) return
       setPages(new Map([[page.page, page]]))
       setActiveIndex(0)
-      setLoadedOrdinals(new Set())
-      setFailedOrdinals(new Set())
+      setImageGeneration((value) => value + 1)
+      setVisibleOrdinals([])
       setReloadFailed(false)
       window.scrollTo({ top: 0, behavior: 'auto' })
     } catch (error) {
@@ -419,17 +474,7 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
 
   const retryThumbnail = (item: ArchivePreviewThumbnailDto) => {
     auto.recover()
-    setLoadedOrdinals((current) => {
-      const next = new Set(current)
-      next.delete(item.ordinal)
-      return next
-    })
-    setFailedOrdinals((current) => {
-      const next = new Set(current)
-      next.delete(item.ordinal)
-      return next
-    })
-    setRetryCounts((current) => ({ ...current, [item.ordinal]: (current[item.ordinal] ?? 0) + 1 }))
+    imageLoader.retry(item.ordinal)
   }
 
   const retryFailed = () => {
@@ -445,9 +490,10 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
         .catch(() => undefined)
       return
     }
-    const retryItem = activeItem && failedOrdinals.has(activeItem.ordinal)
-      ? activeItem
-      : items.find((item) => failedOrdinals.has(item.ordinal)) ?? activeItem
+    const retryItem =
+      activeItem && failedOrdinals.has(activeItem.ordinal)
+        ? activeItem
+        : (items.find((item) => failedOrdinals.has(item.ordinal)) ?? activeItem)
     if (!retryItem) return
     retryThumbnail(retryItem)
   }
@@ -512,9 +558,9 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
 
       {!pageError && failedThumbnail && (
         <Alert variant="destructive" data-testid="source-preview-thumbnail-error">
-          <AlertTitle>缩略图加载失败</AlertTitle>
+          <AlertTitle>大图加载失败</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-            <span>第 {failedThumbnail.ordinal + 1} 张缩略图暂时无法显示。</span>
+            <span>第 {failedThumbnail.ordinal + 1} 张大图暂时无法显示，已保留缩略图。</span>
             <Button type="button" variant="outline" size="sm" onClick={() => retryThumbnail(failedThumbnail)}>
               重试
             </Button>
@@ -550,12 +596,10 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
               <span className="absolute left-3 top-3 z-10 rounded-full bg-background/82 px-2.5 py-1 text-xs font-medium tabular-nums text-foreground shadow-xs backdrop-blur-sm">
                 {item.ordinal + 1}
               </span>
-              <SourcePreviewThumbnail
-                key={retryCounts[item.ordinal] ?? 0}
+              <SourcePreviewImage
                 item={item}
-                alt={`来源缩略图 ${item.ordinal + 1}`}
-                onLoad={() => setLoadedOrdinals((current) => new Set(current).add(item.ordinal))}
-                onError={() => markThumbnailFailed(item.ordinal)}
+                image={imageLoader.images.get(item.ordinal)}
+                onError={() => imageLoader.fail(item.ordinal)}
               />
             </button>
           ))}
@@ -614,7 +658,7 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
             }
           }}
           historyKey={SOURCE_PREVIEW_HISTORY_KEY}
-          title="来源缩略图全屏预览"
+          title="来源图片全屏预览"
           description="上下滑动或使用上下方向键与翻页键切换，双指或双击缩放。"
           closeLabel="关闭来源预览"
           counterTotal={total}
@@ -631,17 +675,13 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
           onTransitioningChange={setTransitioning}
           onManualNavigation={() => auto.pause('manual')}
           onBeforeClose={() => auto.pause('overlay')}
-          renderSlide={(item, { eager }) => (
+          renderSlide={(item) => (
             <div className="swiper-zoom-container flex h-full w-full items-center justify-center px-0 py-16 sm:px-12 sm:py-20">
-              <SourcePreviewThumbnail
-                key={retryCounts[item.ordinal] ?? 0}
+              <SourcePreviewImage
                 item={item}
-                alt={`来源缩略图 ${item.ordinal + 1}`}
-                eager={eager}
+                image={imageLoader.images.get(item.ordinal)}
                 fullscreen
-                zoomTarget
-                onLoad={() => setLoadedOrdinals((current) => new Set(current).add(item.ordinal))}
-                onError={() => markThumbnailFailed(item.ordinal)}
+                onError={() => imageLoader.fail(item.ordinal)}
               />
             </div>
           )}
@@ -653,7 +693,7 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
                   data-testid="source-preview-fullscreen-error"
                   className="pointer-events-auto flex max-w-sm items-center gap-3 rounded-2xl border border-destructive/30 bg-background/90 px-3 py-2 text-sm text-foreground shadow-lg backdrop-blur-md"
                 >
-                  <span>{activeFailed ? '当前缩略图加载失败，请重试。' : pageError}</span>
+                  <span>{activeFailed ? '当前大图加载失败，请重试。' : pageError}</span>
                   <Button
                     type="button"
                     variant="outline"
@@ -662,6 +702,15 @@ export function SourcePreviewReader({ previewId, initialPage }: SourcePreviewRea
                     onClick={() => (activeFailed && activeItem ? retryThumbnail(activeItem) : retryFailed())}
                   >
                     重试
+                  </Button>
+                  <Button variant="outline" size="sm" asChild>
+                    <a
+                      href={`/api/archive/preview/${encodeURIComponent(previewId)}/source`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      打开原站
+                    </a>
                   </Button>
                 </div>
               )}
