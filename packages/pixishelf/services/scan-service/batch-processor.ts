@@ -1,7 +1,7 @@
 // oxlint-disable max-lines
 import path from 'path'
 import { Prisma } from '@prisma/client'
-import { invalidateArtworkReadingForRebuild, lockArtworkForReading } from '@pixishelf/db'
+import { invalidateArtworkReadingForRebuild, lockArtworkForReading, lockCreatorCatalog } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-service'
@@ -305,7 +305,7 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
     where: { providerKey: 'pixiv', externalId: { in: Array.from(uncachedUserIds) } },
     select: {
       externalId: true,
-      artist: { select: { id: true, name: true, username: true, userId: true, bio: true } }
+      artist: { select: { id: true, name: true, username: true, bio: true } }
     }
   })
   for (const ref of confirmedRefs) {
@@ -313,112 +313,52 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
     uncachedUserIds.delete(ref.externalId)
   }
 
-  // 2. 兼容期只认领唯一的历史数字 ID；重复 ID 保留给审计，不做猜测。
-  const existingArtists = await prisma.artist.findMany({
-    where: {
-      mergedIntoId: null,
-      userId: {
-        in: Array.from(uncachedUserIds)
+  // 2. 在创作者目录锁内原子创建缺失艺术家与正式 Pixiv 身份。
+  let createdArtistCount = 0
+  const resolvedArtists = await prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
+    const remainingIds = Array.from(uncachedUserIds)
+    const existingRefs = await tx.artistExternalRef.findMany({
+      where: { providerKey: 'pixiv', externalId: { in: remainingIds } },
+      select: {
+        externalId: true,
+        artist: { select: { id: true, name: true, username: true, bio: true, mergedIntoId: true } }
       }
-    },
-    include: {
-      externalRefs: { where: { providerKey: 'pixiv' }, select: { id: true, externalId: true } }
-    }
-  })
-
-  const legacyArtistsByUserId = new Map<string, (typeof existingArtists)[number][]>()
-  for (const artist of existingArtists) {
-    if (artist.userId) {
-      const bucket = legacyArtistsByUserId.get(artist.userId)
-      if (bucket) bucket.push(artist)
-      else legacyArtistsByUserId.set(artist.userId, [artist])
-    }
-  }
-  const legacyRefsToCreate: Prisma.ArtistExternalRefCreateManyInput[] = []
-  for (const [userId, artists] of legacyArtistsByUserId) {
-    if (artists.length !== 1 || artists[0]!.externalRefs.length > 0) {
-      logger.warn('Skipping ambiguous or conflicting legacy Pixiv artist identity', {
-        userId,
-        artistCount: artists.length,
-        existingPixivIdentityCount: artists.reduce((count, artist) => count + artist.externalRefs.length, 0)
-      })
-      uncachedUserIds.delete(userId)
-      continue
-    }
-    const artist = artists[0]!
-    context.artistCache.set(userId, artist)
-    legacyRefsToCreate.push({
-      artistId: artist.id,
-      providerKey: 'pixiv',
-      externalId: userId,
-      canonicalUrl: `https://www.pixiv.net/users/${userId}`,
-      sourceName: sourceNameByUserId.get(userId) ?? null
     })
-  }
-  if (legacyRefsToCreate.length > 0) {
-    await prisma.artistExternalRef.createMany({ data: legacyRefsToCreate, skipDuplicates: true })
-  }
-
-  // 3. 筛选出需要新建的艺术家
-  const artistsToCreate: Prisma.ArtistCreateManyInput[] = []
-  for (const artwork of artworks) {
-    const userId = artwork.metadata.userId
-    if (userId && uncachedUserIds.has(userId) && !legacyArtistsByUserId.has(userId)) {
-      artistsToCreate.push({
-        name: artwork.metadata.user,
-        username: artwork.metadata.user,
-        userId: userId,
-        bio: `Artist from external source (ID: ${userId})`
+    const result = new Map(existingRefs.map((ref) => [ref.externalId, ref.artist]))
+    for (const userId of remainingIds) {
+      const existing = result.get(userId)
+      if (existing) {
+        if (existing.mergedIntoId !== null) throw new Error(`Pixiv 艺术家 ${userId} 已合并但来源身份尚未迁移`)
+        continue
+      }
+      const sourceName = sourceNameByUserId.get(userId) || `Pixiv ${userId}`
+      const artist = await tx.artist.create({
+        data: {
+          name: sourceName,
+          username: sourceName,
+          bio: `Artist from external source (ID: ${userId})`
+        },
+        select: { id: true, name: true, username: true, bio: true, mergedIntoId: true }
       })
-    }
-  }
-
-  // 4. 批量创建新艺术家
-  if (artistsToCreate.length > 0) {
-    logger.info('Creating new artists in batch:', { artistsToCreateCount: artistsToCreate.length })
-
-    await prisma.artist.createMany({
-      data: artistsToCreate,
-      skipDuplicates: true
-    })
-
-    context.scanResult.newArtists += artistsToCreate.length
-
-    // 再次查询新创建的艺术家获取完整信息
-    const newlyCreatedArtists = await prisma.artist.findMany({
-      where: {
-        mergedIntoId: null,
-        userId: {
-          in: artistsToCreate
-            .map((artist) => artist.userId)
-            .filter((userId): userId is string => typeof userId === 'string')
+      await tx.artistExternalRef.create({
+        data: {
+          artistId: artist.id,
+          providerKey: 'pixiv',
+          externalId: userId,
+          canonicalUrl: `https://www.pixiv.net/users/${userId}`,
+          sourceName: sourceNameByUserId.get(userId) ?? null
         }
-      }
-    })
-
-    // 增量更新缓存
-    for (const artist of newlyCreatedArtists) {
-      if (artist.userId) {
-        context.artistCache.set(artist.userId, artist)
-      }
+      })
+      result.set(userId, artist)
+      createdArtistCount += 1
     }
-    await prisma.artistExternalRef.createMany({
-      data: newlyCreatedArtists.flatMap((artist) =>
-        artist.userId
-          ? [
-              {
-                artistId: artist.id,
-                providerKey: 'pixiv',
-                externalId: artist.userId,
-                canonicalUrl: `https://www.pixiv.net/users/${artist.userId}`,
-                sourceName: sourceNameByUserId.get(artist.userId) ?? null
-              }
-            ]
-          : []
-      ),
-      skipDuplicates: true
-    })
+    return result
+  })
+  for (const [userId, artist] of resolvedArtists) {
+    context.artistCache.set(userId, artist)
   }
+  context.scanResult.newArtists += createdArtistCount
 
   logger.info('Batch artist processing completed:', { totalArtistsInCache: context.artistCache.size })
   logger.info('Scan performance checkpoint:', {
@@ -426,7 +366,7 @@ export async function batchProcessArtists(artworks: ArtworkData[], context: Scan
     durationMs: Date.now() - startTime,
     batchSize: artworks.length,
     uncachedArtists: uncachedUserIds.size,
-    createdArtists: artistsToCreate.length,
+    createdArtists: createdArtistCount,
     totalArtistsInCache: context.artistCache.size
   })
 }

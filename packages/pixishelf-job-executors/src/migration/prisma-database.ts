@@ -1,8 +1,15 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomInt } from 'node:crypto'
 import path from 'node:path'
-import { Prisma, invalidateAnimationDurationSource, lockArtworkForReading, type PrismaClient } from '@pixishelf/db'
+import {
+  Prisma,
+  invalidateAnimationDurationSource,
+  lockArtworkForReading,
+  lockCreatorCatalog,
+  type PrismaClient
+} from '@pixishelf/db'
+import { resolveCanonicalArtworkStoragePath } from '@pixishelf/job-contracts'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
-import { buildCanonicalTargetDirectory, normalizeStoredRelativePath } from './paths.ts'
+import { normalizeStoredRelativePath } from './paths.ts'
 import { migrationPublicErrorCode, migrationPublicSummary } from './diagnostics.ts'
 import type {
   CreateMigrationPlanInput,
@@ -36,10 +43,27 @@ interface MigrationPublicationInput {
 const publicationArtworkSelect = {
   artistId: true,
   deletedAt: true,
-  externalId: true,
+  createdVia: true,
   metaSource: true,
+  storageKey: true,
   storagePath: true,
-  artist: { select: { userId: true } },
+  externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true }, take: 2 },
+  artist: {
+    select: {
+      id: true,
+      mergedIntoId: true,
+      externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true }, take: 2 },
+      localImportMappings: { select: { artistDirectory: true } },
+      mergedInto: {
+        select: {
+          id: true,
+          mergedIntoId: true,
+          externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true }, take: 2 },
+          localImportMappings: { select: { artistDirectory: true } }
+        }
+      }
+    }
+  },
   images: {
     select: { id: true, path: true, chaptersPath: true },
     orderBy: { id: 'asc' as const }
@@ -67,21 +91,40 @@ const itemWithFiles = { files: { orderBy: { ordinal: 'asc' as const } } } as con
 
 export function createPrismaMigrationDatabase(
   database: MigrationPrismaDatabase,
-  options: { selection?: MigrationSelectionPort } = {}
+  options: { selection?: MigrationSelectionPort; generateStorageKey?: (artworkId: number) => string } = {}
 ): MigrationDatabasePort<MigrationPrismaTransaction> {
   const selection = options.selection ?? createPrismaMigrationSelectionPort(database)
+  const generateStorageKey = options.generateStorageKey ?? defaultLocalStorageKey
   return {
     selection,
-    async loadArtwork(artworkId, imageLimit) {
-      const artwork = await database.artwork.findUnique({
+    async loadArtwork(transaction, artworkId, imageLimit) {
+      const client = prismaTransaction(transaction)
+      let artwork = await client.artwork.findUnique({
         where: { id: artworkId },
         select: {
           id: true,
           deletedAt: true,
-          externalId: true,
+          createdVia: true,
           metaSource: true,
+          storageKey: true,
           storagePath: true,
-          artist: { select: { userId: true } },
+          externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true }, take: 2 },
+          artist: {
+            select: {
+              id: true,
+              mergedIntoId: true,
+              externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true }, take: 2 },
+              localImportMappings: { select: { artistDirectory: true } },
+              mergedInto: {
+                select: {
+                  id: true,
+                  mergedIntoId: true,
+                  externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true }, take: 2 },
+                  localImportMappings: { select: { artistDirectory: true } }
+                }
+              }
+            }
+          },
           images: {
             select: { id: true, path: true, chaptersPath: true },
             orderBy: { id: 'asc' },
@@ -90,15 +133,82 @@ export function createPrismaMigrationDatabase(
         }
       })
       if (!artwork) return null
-      return {
-        id: artwork.id,
-        deletedAt: artwork.deletedAt,
-        externalId: artwork.externalId,
-        artistUserId: artwork.artist?.userId ?? null,
-        metaSource: artwork.metaSource,
-        storagePath: artwork.storagePath,
-        images: artwork.images
+      if (
+        (artwork.createdVia === 'LOCAL_DIRECTORY' || artwork.createdVia === 'MANUAL_CREATE') &&
+        artwork.deletedAt === null
+      ) {
+        await lockCreatorCatalog(client)
+        if (!artwork.storageKey) {
+          const storageKey = generateStorageKey(artwork.id)
+          await client.artwork.updateMany({
+            where: { id: artwork.id, deletedAt: null, storageKey: null },
+            data: { storageKey }
+          })
+        }
+        artwork = await client.artwork.findUnique({
+          where: { id: artworkId },
+          select: {
+            id: true,
+            deletedAt: true,
+            createdVia: true,
+            metaSource: true,
+            storageKey: true,
+            storagePath: true,
+            externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true }, take: 2 },
+            artist: {
+              select: {
+                id: true,
+                mergedIntoId: true,
+                externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true }, take: 2 },
+                localImportMappings: { select: { artistDirectory: true } },
+                mergedInto: {
+                  select: {
+                    id: true,
+                    mergedIntoId: true,
+                    externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true }, take: 2 },
+                    localImportMappings: { select: { artistDirectory: true } }
+                  }
+                }
+              }
+            },
+            images: {
+              select: { id: true, path: true, chaptersPath: true },
+              orderBy: { id: 'asc' },
+              take: imageLimit
+            }
+          }
+        })
+        if (!artwork) return null
+        const activeArtistId = storageIdentity(artwork).artistId
+        if (activeArtistId !== null) {
+          const artistDirectory = `artist-${activeArtistId}`
+          let targetDirectory: string | null = null
+          try {
+            const identity = storageIdentity(artwork)
+            targetDirectory = resolveCanonicalArtworkStoragePath({
+              createdVia: artwork.createdVia,
+              artistId: identity.artistId,
+              artistPixivExternalId: identity.artistPixivExternalId,
+              artworkPixivExternalId: identity.artworkPixivExternalId,
+              storageKey: artwork.storageKey
+            })
+          } catch {
+            targetDirectory = null
+          }
+          if (!targetDirectory) return mapMigrationArtwork(artwork)
+          const existingMapping = await client.localImportArtistMapping.findUnique({ where: { artistDirectory } })
+          if (existingMapping && existingMapping.artistId !== activeArtistId) {
+            throw new MigrationActionRequiredError(
+              'DATABASE_PATH_CONFLICT',
+              'Local import directory is already bound to another artist'
+            )
+          }
+          if (!existingMapping) {
+            await client.localImportArtistMapping.create({ data: { artistDirectory, artistId: activeArtistId } })
+          }
+        }
       }
+      return mapMigrationArtwork(artwork)
     },
     async loadPlan(systemJobId, artworkId, fileLimit) {
       const item = await database.migrationJobItem.findUnique({
@@ -239,6 +349,7 @@ export function createPrismaMigrationDatabase(
     },
     async publishArtwork(transaction, input) {
       const client = prismaTransaction(transaction)
+      await lockCreatorCatalog(client)
       await lockArtworkForReading(client, input.artworkId)
       const [currentItem, persistedFiles, currentArtwork] = await Promise.all([
         client.migrationJobItem.findUnique({
@@ -277,8 +388,9 @@ export function createPrismaMigrationDatabase(
         where: {
           id: input.artworkId,
           deletedAt: null,
-          externalId: currentArtwork!.externalId,
+          createdVia: currentArtwork!.createdVia,
           artistId: currentArtwork!.artistId,
+          storageKey: currentArtwork!.storageKey,
           metaSource: publication.currentMetaSource,
           storagePath: publication.currentStoragePath
         },
@@ -368,17 +480,16 @@ export function createPrismaMigrationSelectionPort(database: MigrationPrismaData
     async precheck(selection) {
       if (selection.mode === 'FAILED_FROM_JOB') return precheckFailedSelection(database, selection.sourceJobId)
       const base = buildMigrationArtworkWhere(selection, 0)
+      const identity = migrationStorageIdentityWhere()
+      const missingArtistIdentity = migrationMissingArtistIdentityWhere()
+      const missingArtworkIdentity = migrationMissingArtworkIdentityWhere()
       const [total, eligible, missingArtist, missingExternalId, missingImages] = await Promise.all([
         database.artwork.count({ where: base }),
         database.artwork.count({
-          where: {
-            AND: [base, { artist: { is: { userId: { not: null } } }, externalId: { not: null }, images: { some: {} } }]
-          }
+          where: { AND: [base, identity, { images: { some: {} } }] }
         }),
-        database.artwork.count({
-          where: { AND: [base, { OR: [{ artist: { is: null } }, { artist: { is: { userId: null } } }] }] }
-        }),
-        database.artwork.count({ where: { AND: [base, { externalId: null }] } }),
+        database.artwork.count({ where: { AND: [base, missingArtistIdentity] } }),
+        database.artwork.count({ where: { AND: [base, missingArtworkIdentity] } }),
         database.artwork.count({ where: { AND: [base, { images: { none: {} } }] } })
       ])
       return { total, eligible, missingArtist, missingExternalId, missingImages }
@@ -413,26 +524,73 @@ export function buildMigrationArtworkWhere(
 
 function migrationFilterWhere(filters: MigrationQueryFilters): Prisma.ArtworkWhereInput {
   const where: Prisma.ArtworkWhereInput = {}
-  if (filters.externalId !== undefined) where.externalId = filters.externalId
+  if (filters.externalId !== undefined) {
+    where.externalRefs = { some: { providerKey: 'pixiv', externalId: filters.externalId } }
+  }
   if (filters.artistName !== undefined) {
     const name = filters.exactMatch
       ? filters.artistName
       : { contains: filters.artistName, mode: 'insensitive' as const }
-    where.artist = { is: { OR: [{ name }, { userId: name }] } }
+    where.artist = {
+      is: {
+        OR: [
+          { name },
+          { externalRefs: { some: { providerKey: 'pixiv', externalId: name } } },
+          { mergedInto: { is: { externalRefs: { some: { providerKey: 'pixiv', externalId: name } } } } }
+        ]
+      }
+    }
   }
   if (filters.search !== undefined) {
     if (filters.exactMatch) {
       where.OR = [
         { title: filters.search },
         { description: filters.search },
-        { artist: { is: { OR: [{ name: filters.search }, { userId: filters.search }] } } }
+        { externalRefs: { some: { providerKey: 'pixiv', externalId: filters.search } } },
+        {
+          artist: {
+            is: {
+              OR: [
+                { name: filters.search },
+                { externalRefs: { some: { providerKey: 'pixiv', externalId: filters.search } } },
+                {
+                  mergedInto: {
+                    is: { externalRefs: { some: { providerKey: 'pixiv', externalId: filters.search } } }
+                  }
+                }
+              ]
+            }
+          }
+        }
       ]
     } else {
       where.OR = [
         { title: { contains: filters.search, mode: 'insensitive' } },
         { description: { contains: filters.search, mode: 'insensitive' } },
-        { artist: { is: { name: { contains: filters.search, mode: 'insensitive' } } } },
-        { artist: { is: { userId: { contains: filters.search, mode: 'insensitive' } } } }
+        { externalRefs: { some: { providerKey: 'pixiv', externalId: { contains: filters.search } } } },
+        {
+          artist: {
+            is: {
+              OR: [
+                { name: { contains: filters.search, mode: 'insensitive' } },
+                {
+                  externalRefs: {
+                    some: { providerKey: 'pixiv', externalId: { contains: filters.search } }
+                  }
+                },
+                {
+                  mergedInto: {
+                    is: {
+                      externalRefs: {
+                        some: { providerKey: 'pixiv', externalId: { contains: filters.search } }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
       ]
     }
   }
@@ -448,6 +606,77 @@ function migrationFilterWhere(filters: MigrationQueryFilters): Prisma.ArtworkWhe
     }
   }
   return where
+}
+
+function migrationStorageIdentityWhere(): Prisma.ArtworkWhereInput {
+  const artistPixivIdentity: Prisma.ArtistWhereInput = {
+    OR: [
+      { mergedIntoId: null, externalRefs: { some: { providerKey: 'pixiv' } } },
+      {
+        mergedIntoId: { not: null },
+        mergedInto: {
+          is: { mergedIntoId: null, externalRefs: { some: { providerKey: 'pixiv' } } }
+        }
+      }
+    ]
+  }
+  const availableArtist: Prisma.ArtistWhereInput = {
+    OR: [
+      { mergedIntoId: null },
+      { mergedIntoId: { not: null }, mergedInto: { is: { mergedIntoId: null } } }
+    ]
+  }
+  return {
+    OR: [
+      {
+        createdVia: 'PIXIV_SCAN',
+        externalRefs: { some: { providerKey: 'pixiv' } },
+        artist: { is: artistPixivIdentity }
+      },
+      { createdVia: { in: ['LOCAL_DIRECTORY', 'MANUAL_CREATE'] }, artist: { is: availableArtist } }
+    ]
+  }
+}
+
+function migrationMissingArtistIdentityWhere(): Prisma.ArtworkWhereInput {
+  return {
+    OR: [
+      { artist: { is: null } },
+      {
+        artist: {
+          is: {
+            mergedIntoId: { not: null },
+            mergedInto: { is: { mergedIntoId: { not: null } } }
+          }
+        }
+      },
+      {
+        createdVia: 'PIXIV_SCAN',
+        artist: {
+          is: {
+            OR: [
+              { mergedIntoId: null, externalRefs: { none: { providerKey: 'pixiv' } } },
+              {
+                mergedIntoId: { not: null },
+                mergedInto: {
+                  is: { mergedIntoId: null, externalRefs: { none: { providerKey: 'pixiv' } } }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
+
+function migrationMissingArtworkIdentityWhere(): Prisma.ArtworkWhereInput {
+  return {
+    OR: [
+      { createdVia: 'PIXIV_SCAN', externalRefs: { none: { providerKey: 'pixiv' } } },
+      { createdVia: { in: ['UNKNOWN', 'URL_ARCHIVE'] } }
+    ]
+  }
 }
 
 async function countFailedSelection(database: MigrationPrismaDatabase, sourceJobId: string) {
@@ -490,12 +719,54 @@ async function precheckFailedSelection(database: MigrationPrismaDatabase, source
     SELECT
       COUNT(*)::bigint AS "total",
       COUNT(*) FILTER (
-        WHERE artist."userId" IS NOT NULL
-          AND artwork."externalId" IS NOT NULL
+        WHERE (
+          (
+            artwork."createdVia" = 'PIXIV_SCAN'::"ArtworkCreationMethod"
+            AND active_artist."mergedIntoId" IS NULL
+            AND EXISTS (
+              SELECT 1 FROM "artwork_external_refs" artwork_ref
+              WHERE artwork_ref."artworkId" = artwork.id AND artwork_ref."providerKey" = 'pixiv'
+            )
+            AND EXISTS (
+              SELECT 1 FROM "artist_external_refs" artist_ref
+              WHERE artist_ref."artistId" = active_artist.id AND artist_ref."providerKey" = 'pixiv'
+            )
+          )
+          OR (
+            artwork."createdVia" IN (
+              'LOCAL_DIRECTORY'::"ArtworkCreationMethod",
+              'MANUAL_CREATE'::"ArtworkCreationMethod"
+            )
+            AND active_artist.id IS NOT NULL
+            AND active_artist."mergedIntoId" IS NULL
+          )
+        )
           AND EXISTS (SELECT 1 FROM "Image" image WHERE image."artworkId" = artwork.id)
       )::bigint AS "eligible",
-      COUNT(*) FILTER (WHERE artist.id IS NULL OR artist."userId" IS NULL)::bigint AS "missingArtist",
-      COUNT(*) FILTER (WHERE artwork."externalId" IS NULL)::bigint AS "missingExternalId",
+      COUNT(*) FILTER (
+        WHERE active_artist.id IS NULL
+          OR active_artist."mergedIntoId" IS NOT NULL
+          OR (
+            artwork."createdVia" = 'PIXIV_SCAN'::"ArtworkCreationMethod"
+            AND NOT EXISTS (
+              SELECT 1 FROM "artist_external_refs" artist_ref
+              WHERE artist_ref."artistId" = active_artist.id AND artist_ref."providerKey" = 'pixiv'
+            )
+          )
+      )::bigint AS "missingArtist",
+      COUNT(*) FILTER (
+        WHERE (
+          artwork."createdVia" = 'PIXIV_SCAN'::"ArtworkCreationMethod"
+          AND NOT EXISTS (
+            SELECT 1 FROM "artwork_external_refs" artwork_ref
+            WHERE artwork_ref."artworkId" = artwork.id AND artwork_ref."providerKey" = 'pixiv'
+          )
+        )
+        OR artwork."createdVia" IN (
+          'UNKNOWN'::"ArtworkCreationMethod",
+          'URL_ARCHIVE'::"ArtworkCreationMethod"
+        )
+      )::bigint AS "missingExternalId",
       COUNT(*) FILTER (
         WHERE NOT EXISTS (SELECT 1 FROM "Image" image WHERE image."artworkId" = artwork.id)
       )::bigint AS "missingImages"
@@ -503,6 +774,7 @@ async function precheckFailedSelection(database: MigrationPrismaDatabase, source
     INNER JOIN "migration_job_items" AS source_item
       ON source_item."artworkIdSnapshot" = artwork.id
     LEFT JOIN "Artist" AS artist ON artist.id = artwork."artistId"
+    LEFT JOIN "Artist" AS active_artist ON active_artist.id = COALESCE(artist."mergedIntoId", artist.id)
     WHERE ${predicate}
   `)
   const row = rows[0]
@@ -676,10 +948,7 @@ function assertPublicationSnapshot(
 ): PublicationState {
   const plannedImageIds = sortedUniqueIds(input.plannedImageIds)
   const currentImageIds = artwork?.images.map((image) => image.id) ?? []
-  const currentTargetDirectory =
-    artwork?.externalId && artwork.artist?.userId
-      ? tryBuildTargetDirectory(artwork.artist.userId, artwork.externalId)
-      : null
+  const currentTargetDirectory = artwork ? tryResolveTargetDirectory(artwork) : null
   if (
     !artwork ||
     artwork.deletedAt !== null ||
@@ -732,10 +1001,7 @@ function assertPublishedSnapshot(
   input: MigrationPublicationInput,
   expected: PublicationState
 ) {
-  const currentTargetDirectory =
-    artwork?.externalId && artwork.artist?.userId
-      ? tryBuildTargetDirectory(artwork.artist.userId, artwork.externalId)
-      : null
+  const currentTargetDirectory = artwork ? tryResolveTargetDirectory(artwork) : null
   if (
     !artwork ||
     artwork.deletedAt !== null ||
@@ -771,7 +1037,7 @@ function referenceTransition(current: string | null, files: MigrationPublishFile
 }
 
 function storageTransition(current: string | null, input: MigrationPublicationInput) {
-  if (current === null) return { target: null }
+  if (current === null) return { target: input.targetDirectory }
   const currentKey = canonicalReference(current, 'Artwork.storagePath')
   const targetKey = canonicalReference(input.targetDirectory, 'Artwork.storagePath')
   const sourceDirectories = new Set(
@@ -811,12 +1077,92 @@ function publicationConflict(message: string, fileId?: string): never {
   throw new MigrationActionRequiredError('DATABASE_PATH_CONFLICT', message, fileId)
 }
 
-function tryBuildTargetDirectory(artistUserId: string, externalId: string) {
+function tryResolveTargetDirectory(artwork: PublicationArtwork) {
   try {
-    return buildCanonicalTargetDirectory(artistUserId, externalId)
+    const identity = storageIdentity(artwork)
+    const target = resolveCanonicalArtworkStoragePath({
+      createdVia: artwork.createdVia,
+      artistId: identity.artistId,
+      artistPixivExternalId: identity.artistPixivExternalId,
+      artworkPixivExternalId: identity.artworkPixivExternalId,
+      storageKey: artwork.storageKey
+    })
+    if (
+      target &&
+      (artwork.createdVia === 'LOCAL_DIRECTORY' || artwork.createdVia === 'MANUAL_CREATE') &&
+      !identity.localArtistDirectories.includes(`artist-${identity.artistId}`)
+    ) {
+      return null
+    }
+    return target
   } catch {
     return null
   }
+}
+
+function storageIdentity(artwork: {
+  externalRefs: Array<{ externalId: string }>
+  artist: {
+    id: number
+    mergedIntoId: number | null
+    externalRefs: Array<{ externalId: string }>
+    localImportMappings: Array<{ artistDirectory: string }>
+    mergedInto: {
+      id: number
+      mergedIntoId: number | null
+      externalRefs: Array<{ externalId: string }>
+      localImportMappings: Array<{ artistDirectory: string }>
+    } | null
+  } | null
+}) {
+  const activeArtistId =
+    artwork.artist?.mergedIntoId && artwork.artist.mergedInto?.mergedIntoId === null
+      ? artwork.artist.mergedInto.id
+      : artwork.artist?.mergedIntoId
+        ? null
+        : artwork.artist?.id ?? null
+  const artistRefs = artwork.artist?.mergedIntoId
+    ? artwork.artist.mergedInto?.externalRefs ?? []
+    : artwork.artist?.externalRefs ?? []
+  const localMappings = artwork.artist?.mergedIntoId
+    ? artwork.artist.mergedInto?.localImportMappings ?? []
+    : artwork.artist?.localImportMappings ?? []
+  return {
+    artistId: activeArtistId,
+    artistPixivExternalId: artistRefs.length === 1 ? artistRefs[0]!.externalId : null,
+    artworkPixivExternalId: artwork.externalRefs.length === 1 ? artwork.externalRefs[0]!.externalId : null,
+    localArtistDirectories: localMappings.map(({ artistDirectory }) => artistDirectory)
+  }
+}
+
+function mapMigrationArtwork(artwork: {
+  id: number
+  deletedAt: Date | null
+  createdVia: PublicationArtwork['createdVia']
+  storageKey: string | null
+  metaSource: string | null
+  storagePath: string | null
+  externalRefs: PublicationArtwork['externalRefs']
+  artist: PublicationArtwork['artist']
+  images: Array<{ id: number; path: string; chaptersPath: string | null }>
+}) {
+  const identity = storageIdentity(artwork)
+  return {
+    id: artwork.id,
+    deletedAt: artwork.deletedAt,
+    createdVia: artwork.createdVia,
+    artistId: identity.artistId,
+    artistPixivExternalId: identity.artistPixivExternalId,
+    artworkPixivExternalId: identity.artworkPixivExternalId,
+    storageKey: artwork.storageKey,
+    metaSource: artwork.metaSource,
+    storagePath: artwork.storagePath,
+    images: artwork.images
+  }
+}
+
+function defaultLocalStorageKey(artworkId: number) {
+  return `e_${artworkId}_${randomInt(1_000_000, 10_000_000)}`
 }
 
 function prismaTransaction(transaction: MigrationPrismaTransaction) {

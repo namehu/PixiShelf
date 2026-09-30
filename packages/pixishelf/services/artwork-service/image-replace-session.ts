@@ -24,7 +24,6 @@ export type ImageReplaceSessionInput = {
   artwork: {
     storagePath?: string | null
     images?: { path: string }[]
-    artist?: { userId: string | null } | null
     externalId: string | null
   }
   action: ImageReplaceActionType

@@ -5,7 +5,6 @@ const baseArtist = {
   id: 7,
   name: 'Main Name',
   username: 'main-name',
-  userId: '123',
   bio: null,
   createdAt: new Date('2026-08-25T00:00:00.000Z'),
   updatedAt: new Date('2026-08-25T00:00:00.000Z'),
@@ -15,7 +14,7 @@ const baseArtist = {
 }
 
 describe('ArtistResponseDto source identity', () => {
-  it('does not expose a numeric legacy userId as a confirmed Pixiv identity', () => {
+  it('does not expose a Pixiv identity without a formal external reference', () => {
     const artist = ArtistResponseDto.parse(baseArtist)
 
     expect(artist.pixivUserId).toBeNull()

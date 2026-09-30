@@ -44,7 +44,6 @@ export function determineDeleteDirectory(input: {
   storageKey: string | null
   externalId: string | null
   metaSource: string | null
-  artist: { userId: string | null } | null
   images: DeleteMediaInput[]
 }): string | null {
   try {
@@ -52,10 +51,7 @@ export function determineDeleteDirectory(input: {
     const candidate =
       input.storagePath ||
       (first ? path.posix.dirname(normalizeDeletePath(first.path)) : null) ||
-      (input.metaSource ? path.posix.dirname(normalizeDeletePath(input.metaSource)) : null) ||
-      (input.artist?.userId && (input.storageKey || input.externalId)
-        ? `${input.artist.userId}/${input.storageKey || input.externalId}`
-        : null)
+      (input.metaSource ? path.posix.dirname(normalizeDeletePath(input.metaSource)) : null)
     if (!candidate) return null
     const directory = normalizeDeletePath(candidate)
     const parts = directory.split('/')

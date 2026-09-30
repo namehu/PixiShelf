@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 的测试分层、变更验证矩阵、CI 实际覆盖和已知质量缺口
-last-verified: 2026-09-03
+last-verified: 2026-09-30
 sources:
   - package.json
   - packages/*/package.json
@@ -201,6 +201,8 @@ CI 当前没有明确执行：
 这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应评估主应用集成测试，再逐步补业务真实浏览器 E2E。WebP 性能门槛需在无其他重负载任务并发时独立运行。
 
 ## 完成标准
+
+艺术家与系列旧字段清理须实际执行隔离 PostgreSQL 测试，并覆盖空库完整迁移、非空旧库的 audit/prepare/upgrade、旧值指纹变化、未收口文件迁移、系列人工排除、两份迁移之间失败及备份恢复。生产镜像须验证维护入口的依赖、非 root 运行和普通启动阻断；相关测试跳过不能计为验收通过。历史 migration 使用独立旧 schema fixture，不在业务库临时加回旧列。完整范围见[旧字段清理](../features/legacy-identity-retirement.md)。
 
 变更完成时应记录：
 

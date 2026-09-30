@@ -1,7 +1,7 @@
 ---
 status: current
 scope: Pixiv 系列外部身份、作品成员关系、核对任务与管理端行为
-last-verified: 2026-08-27
+last-verified: 2026-09-30
 sources:
   - packages/pixishelf-db/prisma/schema.prisma
   - packages/pixishelf-job-executors/src/pixiv-artwork/series-sync.ts
@@ -16,8 +16,7 @@ PixiShelf 使用 `SeriesExternalRef` 保存系列的 Provider 身份。Pixiv 系
 `providerKey=pixiv + externalId=<series-id>` 唯一标识，不按标题匹配或合并；因此同名但 Pixiv ID 不同的系列保持独立，
 本地手工系列也可以与 Pixiv 系列同时存在。
 
-`Series.source/externalId` 与 `Artwork.seriesId` 只保留为一个发布周期的回滚兼容字段。新的管理端写入、作品详情和系列导航
-以 `SeriesArtwork` 为事实源，一个作品可以同时属于多个系列。
+管理端写入、作品详情和系列导航以 `SeriesArtwork` 为事实源，一个作品可以同时属于多个系列。旧 `Series.source/externalId` 与 `Artwork.seriesId` 的清理使用[分步检查与升级](./legacy-identity-retirement.md)。
 
 ## 成员与字段所有权
 
@@ -71,16 +70,8 @@ Pixiv 标题默认只在 `titleOverridden=false` 时更新。管理端只有标�
 系列列表支持本地/Pixiv 来源和 Pixiv 核对状态筛选，并展示正式 Pixiv ID。系列详情展示每个成员是 Pixiv 来源、手工添加
 还是历史关系，以及来源关系是否采用了本地排序。
 
-作品详情读取全部未排除的 `SeriesArtwork`，为每个系列分别计算上一项和下一项。旧 `Artwork.seriesId` 不再决定浏览页只能
-显示一个系列。
+作品详情读取全部未排除的 `SeriesArtwork`，为每个系列分别计算上一项和下一项。
 
-## 迁移与发布
+## 旧库升级
 
-上线前运行 `series-source-identity-audit.sql`。Migration 只把 `source=LOCAL` 的既有关系认定为 `MANUAL`；旧 Pixiv 系列
-只有在旧记录明确声明 `source=PIXIV`、数字 external ID 全局唯一、每个成员作品都具有唯一数字 Pixiv 引用，且成员作品
-不存在第二条系列关系时，才自动建立 `SeriesExternalRef` 并将整个系列的既有关系认领为 `SOURCE`。生产不要求
-`ArtworkRawMetadata`：在线作品响应保存在 `pixiv_data` 磁盘快照，数据库旧表可能为空。重复系列 ID、多 Pixiv 引用、
-多系列成员和无成员系列仍保守保留为 `LEGACY`，等待管理员核对。
-
-发布顺序为：一致性备份 → `prisma migrate deploy` → `series-external-ref-verification.sql` → Worker → READY/capability →
-App。先少量核对并验证多系列导航、来源关系和本地排除，再启动全部未检查作品。
+按[旧字段清理](./legacy-identity-retirement.md)检查并准备数据，仅补齐明确的来源身份，保留已有成员归属、排序及排除。旧指针缺少对应关系时需明确确认，不能重放初始身份迁移来恢复成员或重写其归属。

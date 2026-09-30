@@ -7,6 +7,7 @@ const queueKernelDatabaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const describePostgres = queueKernelDatabaseUrl ? describe : describe.skip
 const postgresClient = queueKernelDatabaseUrl ? new PrismaClient({ datasourceUrl: queueKernelDatabaseUrl }) : null
+const latestMigration = '20260930121000_retire_series_legacy_fields'
 
 const expectedIndex = {
   indexName: 'system_jobs_single_executing_per_lane_idx',
@@ -55,7 +56,7 @@ describe('database package', () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
       completeTableRows,
-      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+      [{ migrationName: latestMigration }],
       [expectedIndex]
     ])
 
@@ -66,7 +67,7 @@ describe('database package', () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
       completeTableRows.filter(({ tableName }) => tableName !== 'ImageAnimationMetadata'),
-      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+      [{ migrationName: latestMigration }],
       [expectedIndex]
     ])
 
@@ -81,7 +82,7 @@ describe('database package', () => {
       const client = createQueryClient([
         [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
         completeTableRows.filter(({ tableName }) => tableName !== missingTable),
-        [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+        [{ migrationName: latestMigration }],
         [expectedIndex]
       ])
 
@@ -93,7 +94,7 @@ describe('database package', () => {
     const client = createQueryClient([
       [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }],
       completeTableRows,
-      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+      [{ migrationName: latestMigration }],
       [expectedIndex]
     ])
 
@@ -102,11 +103,31 @@ describe('database package', () => {
     )
   })
 
+  it.each(['userId', 'seriesId', 'source', 'externalId'])(
+    'rejects the retired legacy column %s even when current queue objects exist',
+    async (retiredColumn) => {
+      const client = createQueryClient([
+        [
+          { columnName: 'definitionVersion' },
+          { columnName: 'executionLane' },
+          { columnName: 'progressData' },
+          { columnName: 'Artwork.mediaRevision' },
+          { columnName: retiredColumn }
+        ],
+        completeTableRows,
+        [{ migrationName: latestMigration }],
+        [expectedIndex]
+      ])
+
+      await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(`retired-column:${retiredColumn}`)
+    }
+  )
+
   it('reports missing required objects without exposing connection details', async () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, Artwork.mediaRevision, artist_merges, ImageAnimationMetadata, artwork_reading_summaries, artwork_read_media, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:20260924130000_add_artwork_reading_tracking, index:system_jobs_single_executing_per_lane_idx'
+      `Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, Artwork.mediaRevision, artist_merges, ImageAnimationMetadata, artwork_reading_summaries, artwork_read_media, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:${latestMigration}, index:system_jobs_single_executing_per_lane_idx`
     )
   })
 
@@ -145,7 +166,7 @@ describe('database package', () => {
     ])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      'Background queue schema is not ready: missing migration:20260924130000_add_artwork_reading_tracking'
+      `Background queue schema is not ready: missing migration:${latestMigration}`
     )
   })
 
@@ -179,7 +200,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+      [{ migrationName: latestMigration }],
       []
     ])
 
@@ -218,7 +239,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+      [{ migrationName: latestMigration }],
       [
         {
           ...expectedIndex,
@@ -262,7 +283,7 @@ describe('database package', () => {
         { tableName: 'system_job_events' },
         { tableName: 'worker_instances' }
       ],
-      [{ migrationName: '20260924130000_add_artwork_reading_tracking' }],
+      [{ migrationName: latestMigration }],
       [{ ...expectedIndex, indexExpression: 'id' }]
     ])
 
@@ -292,5 +313,20 @@ describePostgres('database package PostgreSQL integration', () => {
 
   it('accepts the migrated single-execution expression index from the PostgreSQL catalog', async () => {
     await expect(assertBackgroundQueueSchema(postgresClient!)).resolves.toBeUndefined()
+  })
+
+  it('rejects a real migrated catalog when Artwork.seriesId reappears', async () => {
+    const rollback = new Error('rollback retired column fixture')
+    try {
+      await postgresClient!.$transaction(async (transaction) => {
+        await transaction.$executeRawUnsafe('ALTER TABLE "Artwork" ADD COLUMN "seriesId" INTEGER')
+        await expect(assertBackgroundQueueSchema(transaction as unknown as PrismaClient)).rejects.toThrow(
+          'retired-column:seriesId'
+        )
+        throw rollback
+      })
+    } catch (error) {
+      if (error !== rollback) throw error
+    }
   })
 })

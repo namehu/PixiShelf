@@ -3,6 +3,7 @@ import { apiError, apiJson } from '@/lib/api-response'
 import { ApiError } from '@/lib/api-handler'
 import { getScanPath } from '@/services/setting.service'
 import { getArtworkById } from '@/services/artwork-service'
+import { ensureManualArtworkStorage } from '@/services/artwork-service/manual-storage'
 import { requireAdminRequest } from '@/services/background-task/request-auth'
 import {
   handleImageReplaceSession,
@@ -32,10 +33,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const scanRoot = await getScanPath()
   if (!scanRoot) return apiError('No SCAN_ROOT')
 
-  const artwork = await getArtworkById(artworkId)
-  if (!artwork) return apiError('Not found', { status: 404 })
-
   try {
+    if (action === 'init') await ensureManualArtworkStorage(artworkId)
+    const artwork = await getArtworkById(artworkId)
+    if (!artwork) return apiError('Not found', { status: 404 })
     const result = await handleImageReplaceSession({
       scanRoot,
       artworkId,

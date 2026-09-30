@@ -35,7 +35,6 @@ export const ArtistModel = z.object({
   id: z.number().int(),
   name: z.string(),
   username: z.string().nullable(),
-  userId: z.string().nullable(), // [cite: 2]
   bio: z.string().nullable(),
   createdAt: z.date(), // [cite: 3]
   updatedAt: z.date(),
@@ -74,7 +73,6 @@ export const ArtworkModel = z.object({
   pixivType: z.number().int().nullable(),
   sanityLevel: z.number().int().nullable(),
   storagePath: z.string().nullable(),
-  seriesId: z.number().int().nullable(),
   source: ArtworkSourceEnum.default(ESource.PIXIV_IMPORTED)
 })
 
@@ -86,8 +84,6 @@ export const SeriesModel = z.object({
   title: z.string(),
   description: z.string().nullable(),
   coverImageUrl: z.string().nullable(),
-  source: z.string().default('LOCAL'),
-  externalId: z.string().nullable(),
   createdAt: z.date(),
   updatedAt: z.date()
 })

@@ -6,7 +6,6 @@ export const ARTIST_SELECT = {
   kind: true,
   name: true,
   username: true,
-  userId: true,
   bio: true,
   createdAt: true,
   updatedAt: true,

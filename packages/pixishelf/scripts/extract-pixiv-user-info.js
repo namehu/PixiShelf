@@ -30,7 +30,7 @@
  *
  * SQL:
  * --- 数据库查询用户ids ---
- * SELECT "userId" FROM public."Artist";
+ * SELECT "externalId" FROM public.artist_external_refs WHERE "providerKey" = 'pixiv';
  */
 (function () {
   // --- 第 1 部分: 配置 ---
@@ -55,7 +55,7 @@
 
     // [已更新] 根据您的表结构信息配置
     DB_TABLE_NAME: '"Artist"', // 你的表名
-    DB_USERID_COL: '"userId"', // 你的用户ID列名
+    DB_EXTERNAL_REF_TABLE_NAME: 'artist_external_refs', // 正式外部身份表
     DB_AVATAR_COL: '"avatar"', // 你的头像URL列名
     DB_BACKGROUND_COL: '"backgroundImg"' // 你的背景图URL列名
   };
@@ -322,7 +322,7 @@
           // 总是更新背景图字段，以便将没有背景的用户设置为 NULL
           updates.push(`${CONFIG.DB_BACKGROUND_COL} = ${escapeSql(localBackgroundPath)}`);
 
-          sqlStatements.push(`UPDATE ${CONFIG.DB_TABLE_NAME} SET ${updates.join(', ')} WHERE ${CONFIG.DB_USERID_COL} = '${user.userId}';`);
+          sqlStatements.push(`UPDATE ${CONFIG.DB_TABLE_NAME} AS artist SET ${updates.join(', ')} FROM ${CONFIG.DB_EXTERNAL_REF_TABLE_NAME} AS ref WHERE ref."artistId" = artist.id AND ref."providerKey" = 'pixiv' AND ref."externalId" = ${escapeSql(user.userId)};`);
         }
       }
 

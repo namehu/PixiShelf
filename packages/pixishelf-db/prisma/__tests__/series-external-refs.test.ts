@@ -8,6 +8,10 @@ const migration = readFileSync(
   path.join(prismaDirectory, 'migrations/20260827090000_add_series_external_refs/migration.sql'),
   'utf8'
 )
+const retirementMigration = readFileSync(
+  path.join(prismaDirectory, 'migrations/20260930121000_retire_series_legacy_fields/migration.sql'),
+  'utf8'
+)
 const audit = readFileSync(path.join(prismaDirectory, 'diagnostics/series-source-identity-audit.sql'), 'utf8')
 const verification = readFileSync(
   path.join(prismaDirectory, 'diagnostics/series-external-ref-verification.sql'),
@@ -15,13 +19,18 @@ const verification = readFileSync(
 )
 
 describe('series external identity migration', () => {
-  it('adds provider-scoped Series identities and keeps legacy columns for compatibility', () => {
+  it('uses provider-scoped identities after retiring the legacy Series columns', () => {
     expect(schema).toContain('model SeriesExternalRef {')
     expect(schema).toContain('@@unique([providerKey, externalId])')
     expect(schema).toContain('@@unique([seriesId, providerKey])')
-    expect(schema).toMatch(/source\s+String\s+@default\("LOCAL"\)/)
-    expect(schema).toMatch(/externalId\s+String\?/)
+    const seriesModel = schema.slice(schema.indexOf('model Series {'), schema.indexOf('enum SeriesExternalRefStatus'))
+    expect(seriesModel).not.toMatch(/\bsource\s+String/)
+    expect(seriesModel).not.toMatch(/\bexternalId\s+String/)
     expect(migration).not.toMatch(/DROP\s+COLUMN\s+"(?:source|externalId|seriesId)"/i)
+    expect(retirementMigration).toContain('direct_series_blocker_count')
+    expect(retirementMigration).toContain('series_identity_blocker_count')
+    expect(retirementMigration).toContain('ALTER TABLE "Artwork" DROP COLUMN "seriesId"')
+    expect(retirementMigration).toContain('ALTER TABLE "Series" DROP COLUMN "source", DROP COLUMN "externalId"')
   })
 
   it('makes the join table the provenance-aware source of membership truth', () => {

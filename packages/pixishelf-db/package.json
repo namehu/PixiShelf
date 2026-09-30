@@ -17,6 +17,7 @@
     "db:deploy": "node scripts/run-prisma.mjs migrate deploy --schema prisma/schema.prisma",
     "db:status": "node scripts/run-prisma.mjs migrate status --schema prisma/schema.prisma",
     "db:studio": "node scripts/run-prisma.mjs studio --schema prisma/schema.prisma",
+    "maintenance:retire-legacy-fields": "node maintenance/retire-legacy-fields.mjs",
     "generate": "pnpm db:generate",
     "validate": "pnpm db:validate",
     "push": "pnpm db:push",

@@ -52,8 +52,11 @@ export interface MigrationImageSnapshot {
 export interface MigrationArtworkSnapshot {
   id: number
   deletedAt: Date | null
-  externalId: string | null
-  artistUserId: string | null
+  createdVia: 'UNKNOWN' | 'PIXIV_SCAN' | 'URL_ARCHIVE' | 'LOCAL_DIRECTORY' | 'MANUAL_CREATE'
+  artistId: number | null
+  artistPixivExternalId: string | null
+  artworkPixivExternalId: string | null
+  storageKey: string | null
   metaSource: string | null
   storagePath: string | null
   images: MigrationImageSnapshot[]
@@ -187,7 +190,11 @@ export interface MigrationSelectionPrecheck {
  */
 export interface MigrationDatabasePort<TTransaction extends QueueSqlExecutor = QueueSqlExecutor> {
   selection: MigrationSelectionPort
-  loadArtwork(artworkId: number, imageLimit: number): Promise<MigrationArtworkSnapshot | null>
+  loadArtwork(
+    transaction: TTransaction,
+    artworkId: number,
+    imageLimit: number
+  ): Promise<MigrationArtworkSnapshot | null>
   loadPlan(systemJobId: string, artworkId: number, fileLimit: number): Promise<MigrationArtworkPlan | null>
   recordUnplannableItem(
     transaction: TTransaction,

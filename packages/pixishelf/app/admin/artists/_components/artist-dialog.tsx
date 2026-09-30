@@ -9,7 +9,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { Spinner } from '@/components/ui/spinner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
 import { Info } from 'lucide-react'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
@@ -142,7 +141,6 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
 
   const isLoading = isEdit ? isLoadingDetail : false
   const isSubmitting = updateMutation.isPending || createMutation.isPending
-  const ambiguousLegacyPixivId = isEdit && !fullArtist?.pixivUserId && /^[1-9][0-9]*$/.test(fullArtist?.userId ?? '')
   const confirmedPixivIdentityChange =
     isEdit &&
     pixivIdentityTouched &&
@@ -219,27 +217,6 @@ export function ArtistDialog({ open, onOpenChange, artist, onSuccess }: ArtistDi
               留空表示不绑定 Pixiv；新建艺术家不会再生成历史 p_ ID。
             </FieldDescription>
           </Field>
-
-          {ambiguousLegacyPixivId && !pixivIdentityTouched ? (
-            <Alert variant="warning">
-              <Info aria-hidden="true" />
-              <AlertTitle>发现未确认的历史 ID</AlertTitle>
-              <AlertDescription className="flex flex-col items-start gap-2">
-                <span>旧字段中保存了 {fullArtist?.userId}，但缺少 Pixiv 来源证据，系统不会自动认领。</span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setFormData((current) => ({ ...current, pixivUserId: fullArtist?.userId ?? '' }))
-                    setPixivIdentityTouched(true)
-                  }}
-                >
-                  确认它是 Pixiv UserID
-                </Button>
-              </AlertDescription>
-            </Alert>
-          ) : null}
 
           {confirmedPixivIdentityChange ? (
             <Alert variant="warning">

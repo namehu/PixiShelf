@@ -12,12 +12,16 @@ const mocks = vi.hoisted(() => ({
   completeScanRunSummary: vi.fn(),
   failScanRun: vi.fn(),
   updateScanRunItemMedia: vi.fn(),
-  lockArtwork: vi.fn().mockResolvedValue({ id: 10, mediaRevision: 1 })
+  lockArtwork: vi.fn().mockResolvedValue({ id: 10, mediaRevision: 1 }),
+  lockCreatorCatalog: vi.fn(),
+  requireAvailableArtist: vi.fn()
 }))
 
 vi.mock('@pixishelf/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pixishelf/db')>()),
-  lockArtworkForReading: mocks.lockArtwork
+  lockArtworkForReading: mocks.lockArtwork,
+  lockCreatorCatalog: mocks.lockCreatorCatalog,
+  requireAvailableArtist: mocks.requireAvailableArtist
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -69,14 +73,23 @@ describe('batch-import-service audit integration', () => {
     mocks.completeScanRunSummary.mockResolvedValue({ id: 'run-1' })
     mocks.updateScanRunItemMedia.mockResolvedValue({ count: 1 })
     mocks.syncMediaDerivedTagsForArtworks.mockResolvedValue(undefined)
+    mocks.requireAvailableArtist.mockResolvedValue({ id: 1, mergedIntoId: null })
   })
 
   it('returns a scanRunId and records created batch import items', async () => {
+    const artworkUpdate = vi.fn().mockResolvedValue({ id: 10 })
+    const mappingCreate = vi.fn().mockResolvedValue({ id: 1 })
     mocks.transaction.mockImplementation(async (callback) =>
       callback({
+        $queryRawUnsafe: vi.fn(),
+        artist: { findUnique: vi.fn().mockResolvedValue({ id: 1, mergedIntoId: null }) },
+        localImportArtistMapping: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: mappingCreate
+        },
         artwork: {
           create: vi.fn().mockResolvedValue({ id: 10, title: 'Work' }),
-          update: vi.fn().mockResolvedValue({ id: 10 })
+          update: artworkUpdate
         },
         artworkTag: {
           createMany: vi.fn().mockResolvedValue({ count: 1 })
@@ -90,7 +103,6 @@ describe('batch-import-service audit integration', () => {
           tempId: 'tmp-1',
           title: 'Work',
           artistId: 1,
-          artistUserId: 'artist',
           tagIds: [2],
           sourceDate: '2024-01-02'
         }
@@ -99,6 +111,16 @@ describe('batch-import-service audit integration', () => {
 
     expect(result.scanRunId).toBe('run-1')
     expect(result.artworks).toHaveLength(1)
+    expect(mocks.lockCreatorCatalog).toHaveBeenCalledOnce()
+    expect(mocks.lockCreatorCatalog.mock.invocationCallOrder[0]!).toBeLessThan(
+      mappingCreate.mock.invocationCallOrder[0]!
+    )
+    expect(mappingCreate).toHaveBeenCalledWith({ data: { artistDirectory: 'artist-1', artistId: 1 } })
+    expect(artworkUpdate).toHaveBeenCalledWith({
+      where: { id: 10 },
+      data: { storageKey: 'local_10', storagePath: 'local-imports/artist-1/local_10' }
+    })
+    expect(mocks.mkdir).toHaveBeenCalledWith('D:\\scan\\local-imports\\artist-1\\local_10', { recursive: true })
     expect(mocks.appendScanRunItems).toHaveBeenCalledWith([
       expect.objectContaining({
         scanRunId: 'run-1',
@@ -114,6 +136,52 @@ describe('batch-import-service audit integration', () => {
       durationMs: undefined,
       newImages: 0
     })
+  })
+
+  it('rejects a local directory mapping owned by another artist', async () => {
+    mocks.transaction.mockImplementation(async (callback) =>
+      callback({
+        $queryRawUnsafe: vi.fn(),
+        artist: { findUnique: vi.fn().mockResolvedValue({ id: 1, mergedIntoId: null }) },
+        localImportArtistMapping: {
+          findUnique: vi.fn().mockResolvedValue({ artistId: 2 }),
+          create: vi.fn()
+        }
+      })
+    )
+
+    await expect(
+      batchCreateArtworksService({
+        artworks: [{ tempId: 'tmp-1', title: 'Work', artistId: 1, tagIds: [], sourceDate: '2024-01-02' }]
+      })
+    ).rejects.toThrow('已绑定到其他艺术家')
+    expect(mocks.failScanRun).toHaveBeenCalledWith('run-1', expect.stringContaining('已绑定到其他艺术家'))
+  })
+
+  it('rolls back the database transaction when the upload directory cannot be created', async () => {
+    mocks.mkdir.mockRejectedValueOnce(new Error('permission denied'))
+    mocks.transaction.mockImplementation(async (callback) =>
+      callback({
+        $queryRawUnsafe: vi.fn(),
+        artist: { findUnique: vi.fn().mockResolvedValue({ id: 1, mergedIntoId: null }) },
+        localImportArtistMapping: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({ id: 1 })
+        },
+        artwork: {
+          create: vi.fn().mockResolvedValue({ id: 10, title: 'Work' }),
+          update: vi.fn().mockResolvedValue({ id: 10 })
+        },
+        artworkTag: { createMany: vi.fn() }
+      })
+    )
+
+    await expect(
+      batchCreateArtworksService({
+        artworks: [{ tempId: 'tmp-1', title: 'Work', artistId: 1, tagIds: [], sourceDate: '2024-01-02' }]
+      })
+    ).rejects.toThrow('permission denied')
+    expect(mocks.failScanRun).toHaveBeenCalledWith('run-1', 'permission denied')
   })
 
   it('updates batch import items with registered image counts and completes the run', async () => {

@@ -74,7 +74,7 @@ export interface GlobMetadataFile extends MetadataCandidateFile {
   metadataFormat: MetadataFormat
 }
 
-export type ArtistCacheEntry = Pick<Artist, 'id' | 'name' | 'username' | 'userId' | 'bio'>
+export type ArtistCacheEntry = Pick<Artist, 'id' | 'name' | 'username' | 'bio'>
 
 /**
  * 扫描上下文接口

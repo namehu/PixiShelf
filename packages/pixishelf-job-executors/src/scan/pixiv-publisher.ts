@@ -143,28 +143,10 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
         }
       })
     } else {
-      const legacyArtists = await transaction.artist.findMany({
-        where: { userId: metadata.userId, mergedIntoId: null },
-        take: 2,
-        select: {
-          id: true,
-          externalRefs: { where: { providerKey: 'pixiv' }, select: { id: true } }
-        }
+      const artist = await transaction.artist.create({
+        data: { name: metadata.user, username: metadata.user },
+        select: { id: true }
       })
-      // 当前 Pixiv 元数据提供了来源证据，但重复历史 ID 仍不能猜测归属。
-      // 只有唯一且尚未绑定其他 Pixiv 身份的旧记录可以被认领；歧义时创建正式来源记录，旧行留给审计。
-      const legacyArtist =
-        legacyArtists.length === 1 && legacyArtists[0]!.externalRefs.length === 0 ? legacyArtists[0] : null
-      const artist =
-        legacyArtist ??
-        (await transaction.artist.create({
-          data: {
-            name: metadata.user,
-            username: metadata.user,
-            userId: legacyArtists.length === 0 ? metadata.userId : null
-          },
-          select: { id: true }
-        }))
       artistId = artist.id
       await transaction.artistExternalRef.create({
         data: {

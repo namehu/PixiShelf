@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 单实例的备份集合、恢复目标、验证演练和灾难恢复边界
-last-verified: 2026-09-24
+last-verified: 2026-09-30
 sources:
   - build/docker-compose.deploy.yml
   - build/.env.example
@@ -18,6 +18,8 @@ sources:
 PixiShelf 的数据库和文件系统共同构成业务状态。只备份 PostgreSQL、只复制媒体目录，或只保留容器镜像，都不能称为完整备份。
 
 ## 恢复目标
+
+艺术家与系列旧字段清理前，先由旧版本收口文件迁移，再创建本节要求的一致性检查点。两份删列 migration 分别提交；部分成功后也不能直接启动依赖旧字段的 App/Worker。优先修复后继续；需要回退时恢复同点数据库、媒体、配置与镜像。维护工具的清单校验不代替操作者确认外部写入者已停止或实际恢复演练。执行入口见[旧字段清理](../features/legacy-identity-retirement.md)。
 
 艺术家合并需要备份 `artist_merges` 审计快照、Artist 合并标记、创作者关系与证据、来源映射、发现来源绑定、待生效与抑制记录及相关触发器。合并不移动媒体，但恢复仍必须使用一致检查点；不能仅恢复艺术家表，也不能假设清除合并标记等于撤销。逐项人工恢复与升级要求见[艺术家合并](../features/artist-merge.md)。
 

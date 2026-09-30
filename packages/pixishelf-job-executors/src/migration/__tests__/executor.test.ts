@@ -49,7 +49,10 @@ describe('migration executor', () => {
       selection: { mode: 'ARTWORK_IDS', artworkIds: rows.map((row) => row.id) },
       pages: [rows, []]
     })
-    fixture.database.loadArtwork = vi.fn(async (id) => ({ ...canonicalArtwork(id), artistUserId: null }))
+    fixture.database.loadArtwork = vi.fn(async (_transaction, id) => ({
+      ...canonicalArtwork(id),
+      artistPixivExternalId: null
+    }))
     fixture.context.recordDiagnostic = vi.fn(async () => undefined)
     await executeMigration(fixture.context, fixture.dependencies)
     expect(fixture.context.recordDiagnostic).toHaveBeenCalledTimes(27)
@@ -543,12 +546,53 @@ describe('migration executor', () => {
 
     await executeMigration(fixture.context, fixture.dependencies)
 
-    expect(fixture.database.loadArtwork).toHaveBeenCalledWith(1, 2)
+    expect(fixture.database.loadArtwork).toHaveBeenCalledWith(expect.anything(), 1, 2)
     expect(listDirectory).not.toHaveBeenCalled()
     expect(fixture.database.createOrLoadPlan).not.toHaveBeenCalled()
     expect(fixture.database.recordUnplannableItem).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ status: 'ACTION_REQUIRED', errorCode: 'CANDIDATE_LIMIT_EXCEEDED' })
+    )
+  })
+
+  it('plans local artworks under the stable local artist and storage key directory', async () => {
+    const fixture = executorFixture({
+      selection: { mode: 'ARTWORK_IDS', artworkIds: [1] },
+      pages: [[{ id: 1, deletedAt: null }], []],
+      artwork: {
+        ...sourceArtwork(1),
+        createdVia: 'MANUAL_CREATE',
+        artistId: 77,
+        artistPixivExternalId: null,
+        artworkPixivExternalId: null,
+        storageKey: 'e_1_1234567'
+      }
+    })
+
+    await executeMigration(fixture.context, fixture.dependencies)
+
+    expect(fixture.database.createOrLoadPlan).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        targetDirectory: 'local-imports/artist-77/e_1_1234567',
+        files: [expect.objectContaining({ targetStoredPath: '/local-imports/artist-77/e_1_1234567/123_p0.jpg' })]
+      })
+    )
+  })
+
+  it.each(['UNKNOWN', 'URL_ARCHIVE'] as const)('does not guess a migration target for %s artwork', async (createdVia) => {
+    const fixture = executorFixture({
+      selection: { mode: 'ARTWORK_IDS', artworkIds: [1] },
+      pages: [[{ id: 1, deletedAt: null }], []],
+      artwork: { ...sourceArtwork(1), createdVia }
+    })
+
+    await executeMigration(fixture.context, fixture.dependencies)
+
+    expect(fixture.database.createOrLoadPlan).not.toHaveBeenCalled()
+    expect(fixture.database.recordUnplannableItem).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ status: 'FAILED', errorCode: 'INCOMPLETE_ARTWORK' })
     )
   })
 })
@@ -650,7 +694,7 @@ function executorFixture(options: {
       }),
       selectPage
     },
-    loadArtwork: vi.fn().mockImplementation(async (id) => options.artwork ?? canonicalArtwork(id)),
+    loadArtwork: vi.fn().mockImplementation(async (_transaction, id) => options.artwork ?? canonicalArtwork(id)),
     loadPlan: vi.fn().mockImplementation(async (_jobId, artworkId) => plans.get(artworkId) ?? null),
     recordUnplannableItem: vi.fn(async (_transaction, input) => {
       const item: MigrationArtworkPlan = {
@@ -774,8 +818,11 @@ function canonicalArtwork(id: number): MigrationArtworkSnapshot {
   return {
     id,
     deletedAt: null,
-    externalId: String(id),
-    artistUserId: 'artist',
+    createdVia: 'PIXIV_SCAN',
+    artistId: 7,
+    artistPixivExternalId: 'artist',
+    artworkPixivExternalId: String(id),
+    storageKey: null,
     metaSource: null,
     storagePath: null,
     images: [{ id: id * 10, path: `/artist/${id}/${id}_p0.jpg`, chaptersPath: null }]
@@ -786,8 +833,11 @@ function sourceArtwork(id: number): MigrationArtworkSnapshot {
   return {
     id,
     deletedAt: null,
-    externalId: '123',
-    artistUserId: 'artist',
+    createdVia: 'PIXIV_SCAN',
+    artistId: 7,
+    artistPixivExternalId: 'artist',
+    artworkPixivExternalId: '123',
+    storageKey: null,
     metaSource: null,
     storagePath: null,
     images: [{ id: 11, path: '/source/123_p0.jpg', chaptersPath: null }]

@@ -55,8 +55,6 @@ describe('Pixiv artwork series synchronization', () => {
       title: 'Remote series',
       description: null,
       coverImageUrl: null,
-      source: 'PIXIV',
-      externalId: '88',
       titleOverridden: false,
       descriptionOverridden: false,
       createdAt: checkedAt,

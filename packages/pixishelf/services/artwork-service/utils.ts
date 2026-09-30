@@ -254,27 +254,25 @@ export const generateLocalExternalId = generateLocalStorageKey
 
 /**
  * 确定作品的相对存储路径
- * 逻辑：
- * 1. 如果已有图片，取第一张图片的目录
- * 2. 如果没有图片，根据 Artist ID + Artwork External ID 拼接
+ * 优先使用已登记目录，否则只接受全部媒体共有的目录。
  */
 export function determineArtworkRelDir(artwork: {
   storagePath?: string | null
-  storageKey?: string | null
   images?: { path: string }[]
-  artist?: { userId: string | null } | null
-  externalId: string | null
 }): string | null {
-  let targetRelDir = ''
+  let targetRelDir: string | null = null
   if (artwork.storagePath) {
     targetRelDir = artwork.storagePath
-  } else if (artwork.images && artwork.images.length > 0 && artwork.images[0]?.path) {
-    targetRelDir = path.dirname(artwork.images[0].path)
-  } else if (artwork.artist?.userId && (artwork.storageKey || artwork.externalId)) {
-    targetRelDir = `/${artwork.artist.userId}/${artwork.storageKey || artwork.externalId}`
   } else {
-    return null
+    const directories = new Set(
+      (artwork.images ?? [])
+        .map((image) => image.path)
+        .filter(Boolean)
+        .map((imagePath) => path.posix.dirname(imagePath.replace(/\\/g, '/')))
+    )
+    if (directories.size === 1) targetRelDir = directories.values().next().value ?? null
   }
+  if (!targetRelDir || targetRelDir === '.') return null
 
   // 统一路径分隔符为 /
   return targetRelDir.replace(/\\/g, '/')

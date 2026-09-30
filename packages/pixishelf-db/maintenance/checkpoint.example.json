@@ -1,0 +1,18 @@
+{
+  "checkpointId": "replace-with-checkpoint-id",
+  "createdAt": "replace-with-ISO-8601-time",
+  "databaseDumpSha256": "replace-with-64-character-sha256-digest",
+  "originalMediaSnapshot": "replace-with-original-media-snapshot-id",
+  "derivedMediaSnapshot": "replace-with-derived-media-snapshot-id",
+  "pixivDataSnapshot": "replace-with-pixiv-data-snapshot-id",
+  "configSnapshot": "replace-with-config-snapshot-reference",
+  "appImageDigest": "replace-with-app-image-digest",
+  "workerImageDigest": "replace-with-worker-image-digest",
+  "writesStoppedAt": "replace-with-ISO-8601-time",
+  "operatorAssertions": {
+    "schedulerStopped": false,
+    "appStopped": false,
+    "workersStopped": false,
+    "externalWritersStopped": false
+  }
+}

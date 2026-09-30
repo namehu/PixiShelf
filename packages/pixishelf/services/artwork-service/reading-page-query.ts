@@ -26,7 +26,6 @@ export async function queryReadingArtworkRowsPage(params: ArtworksInfiniteQueryS
       artist.id as artist_id,
       artist.name as artist_name,
       artist.username as artist_username,
-      artist."userId" as artist_userId,
       artist.bio as artist_bio,
       artist.avatar as artist_avatar,
       artist."backgroundImg" as artist_background_img,

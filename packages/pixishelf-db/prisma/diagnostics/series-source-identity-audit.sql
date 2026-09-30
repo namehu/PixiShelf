@@ -1,5 +1,6 @@
--- Read-only production audit for the Series external identity cutover.
--- Run every statement before migration. The file never changes data.
+-- Historical read-only audit for databases that still contain Series.source,
+-- Series.externalId, and Artwork.seriesId. Run only before
+-- 20260930121000_retire_series_legacy_fields. The file never changes data.
 
 -- 1. Current Series source and external-id distribution.
 SELECT

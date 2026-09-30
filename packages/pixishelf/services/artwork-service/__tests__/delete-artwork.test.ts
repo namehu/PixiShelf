@@ -51,7 +51,6 @@ let artwork: {
   storageKey: string | null
   metaSource: string | null
   externalId: string | null
-  artist: { userId: string }
   externalRefs: Array<{ externalId: string }>
 }
 const directory = 'local-imports/artist/work'
@@ -84,7 +83,6 @@ beforeEach(async () => {
     storageKey: null,
     externalId: null,
     metaSource: null,
-    artist: { userId: 'artist' },
     externalRefs: []
   }
   media = [{ path: `${directory}/1.jpg`, chaptersPath: null }]

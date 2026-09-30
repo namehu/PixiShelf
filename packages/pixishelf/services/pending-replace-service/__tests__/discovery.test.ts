@@ -156,7 +156,7 @@ describe('preparePendingReplaceBinding', () => {
       externalId: 'external-42',
       title: 'Target artwork',
       storagePath: '/artist/work',
-      artist: { name: 'Artist', userId: 'artist' },
+      artist: { name: 'Artist' },
       images: [
         {
           path: '/artist/work/old.jpg',
@@ -204,7 +204,7 @@ describe('preparePendingReplaceBinding', () => {
       storageKey: 'e_43_20260811',
       title: 'Local artwork',
       storagePath: '/local-artist/local-work',
-      artist: { name: 'Local artist', userId: null },
+      artist: { name: 'Local artist' },
       images: []
     })
 

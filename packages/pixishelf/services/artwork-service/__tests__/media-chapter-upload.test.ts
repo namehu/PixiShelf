@@ -51,7 +51,6 @@ describe('media-chapter-upload service', () => {
       id: 10,
       externalId: 'work',
       storagePath: '/artist/work',
-      artist: { userId: 'artist' },
       images: [{ path: '/artist/work/movie.mp4' }]
     })
     imageFindUniqueMock.mockResolvedValue({
@@ -106,7 +105,6 @@ describe('media-chapter-upload service', () => {
       id: 10,
       externalId: 'work',
       storagePath: '/artist/work',
-      artist: { userId: 'artist' },
       images: [{ path: '/artist/work/movie.mp4' }]
     })
 
@@ -136,7 +134,7 @@ describe('media-chapter-upload service', () => {
       version: 1, originalFiles: ['movie.chapters.json'], phase: 'BACKING_UP'
     }))
     artworkFindUniqueMock.mockResolvedValue({
-      id: 10, externalId: 'work', storagePath: '/artist/work', artist: { userId: 'artist' },
+      id: 10, externalId: 'work', storagePath: '/artist/work',
       images: [{ path: '/artist/work/movie.mp4' }]
     })
     await expect(uploadMediaChapterManifest({
@@ -154,7 +152,6 @@ describe('media-chapter-upload service', () => {
       id: 10,
       externalId: 'work',
       storagePath: '/artist/work',
-      artist: { userId: 'artist' },
       images: [{ path: '/artist/work/cover.jpg' }]
     })
 
@@ -174,7 +171,6 @@ describe('media-chapter-upload service', () => {
       id: 10,
       externalId: 'work',
       storagePath: '/artist/work',
-      artist: { userId: 'artist' },
       images: [{ path: '/artist/work/movie.mp4' }]
     })
 

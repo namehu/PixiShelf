@@ -1,7 +1,7 @@
 ---
 status: current
 scope: PixiShelf 当前本地运行、生产 Compose 拓扑、升级顺序、验证与回滚入口
-last-verified: 2026-09-01
+last-verified: 2026-09-30
 sources:
   - build/docker-compose.dev.yml
   - build/docker-compose.deploy.yml
@@ -116,18 +116,11 @@ Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置
 备份位置、校验值和镜像 digest 必须记录在本次发布记录中。“命令成功”不能代替恢复验证。
 完整备份集合、停写检查点和隔离恢复演练见[备份与恢复基线](./backup-and-recovery.md)。
 
-### 艺术家外部身份版本的附加门禁
+### 艺术家与系列旧字段清理
 
-首次部署 `ArtistExternalRef` 和 `PIXIV_ARTIST_ENRICHMENT` 时还必须：
+已有旧字段的数据库必须先执行[专用检查与升级流程](../features/legacy-identity-retirement.md)，确认旧消费者、导出工具及依赖旧字段的回滚版本已经退出。不要直接运行普通 `migrate deploy` 或重放初始身份认领迁移。
 
-1. 把 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 纳入同一一致性检查点；
-2. 在旧数据库运行只读 `packages/pixishelf-db/prisma/diagnostics/artist-source-identity-audit.sql`，保存自动认领、重复数字 ID、无来源证据数字 ID 和 `p_` ID 计数；
-3. 停止 App/Worker 写入后执行 `prisma migrate deploy`，再运行 `artist-external-ref-verification.sql`；其中 `missing_expected_claims` 和 `duplicate_provider_identities` 必须为零；
-4. 先启动新 Worker，确认 READY 且 capability 精确为 32 个 job type / 37 个 type-version 组合，再启动新 App；
-5. App 开放后先选择少量已确认艺术家试跑，核对 `artist_external_refs` 状态、`pixiv_data/artists/<user-id>/` 文件和受鉴权图片 URL；通过后再启动全部符合条件艺术家的连续补全；显式多选仍最多 200 个；
-6. 重复 ID、无作品 Pixiv 来源证据的数字 ID 和 `p_` ID 只保留在审计结果中，不能通过生产 SQL 批量猜测认领。
-
-旧 `Artist.userId` 本版本不会删除。只有稳定运行一个发布周期并确认回滚镜像、旧消费者和导出工具不再读取它后，才允许使用独立 migration 做物理清理。
+升级后运行 `artist-external-ref-verification.sql` 和 `series-external-ref-verification.sql`，检查正式身份、成员关系及持久目录。开放后抽样验证艺术家身份搜索、资料补全、同名不同 ID 系列、多系列导航和人工排除。
 
 ### Pixiv 作品在线同步版本的附加门禁
 
@@ -140,22 +133,11 @@ Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置
 5. 再用少量作品验证“刷新已有资料”，确认标题和描述会采用 Pixiv 当前值，同时任务期间的新人工编辑不会被覆盖；
 6. 上述证据通过后，才启动全部未检查作品。刷新全部会逐项处理所有有效 Pixiv 身份，可能持续较长时间，但 writer lane 并发仍为 1。
 
-### Pixiv 系列来源身份版本的附加门禁
-
-首次部署 `SeriesExternalRef` 和 `PIXIV_SERIES_RECONCILIATION` 时还必须：
-
-1. 在停写窗口把 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 纳入同一一致性检查点；系列核对会读取其中的作品 metadata 快照；
-2. 在旧数据库运行只读 `packages/pixishelf-db/prisma/diagnostics/series-source-identity-audit.sql`，保存来源分布、重复 Pixiv 系列 ID、单作品多系列数量、direct/join 漂移和强证据候选；
-3. 使用目标 App 镜像执行 `prisma migrate deploy`，确认 `20260827090000_add_series_external_refs` 已登记完成，再运行 `series-external-ref-verification.sql`；所有 invalid/duplicate 计数必须为零；
-4. 先启动 Worker，确认 capability 包含 `PIXIV_SERIES_RECONCILIATION@v1 / BACKGROUND_WRITER`，再开放新 App；
-5. 先从任务中心对少量作品执行系列核对，验证同名不同 ID 不合并、`SOURCE`/`MANUAL` 关系不互相覆盖、作品详情可显示多个系列，以及本地排除不会被普通核对恢复；
-6. 通过后再从系列管理页连续核对全部未检查作品；刷新全部会恢复来源标题和来源顺序，但任务期间发生的新人工编辑仍优先保留。
-
-旧 `Artwork.seriesId`、`Series.source` 和 `Series.externalId` 本版本不会删除。只有新关系稳定运行一个发布周期并确认旧消费者不再读取后，才能用独立 contract migration 清理。
-
 ## 一键生产升级
 
-日常生产升级优先使用仓库内的一键脚本。它把 App 与通用 Worker 作为同一个发布单元：先检查执行中的后台任务，拉取两份镜像，停止写入者，以一次性 App 容器执行 `prisma migrate deploy`，再启动 Worker 并通过 READY/capability 门禁，最后启动 App。脚本只显式编排 `app`、`worker` 和原本已在运行的可选 `scheduler`。
+**包含旧身份字段清理的首次升级须先执行[专用检查与升级流程](../features/legacy-identity-retirement.md)。** 普通 App 启动会阻止已有旧字段数据库直接迁移；`--force` 不授权跳过本次检查。完成专用升级后，后续正常版本继续使用下方一键脚本。
+
+日常生产升级优先使用仓库内的一键脚本。它先检查数据库和执行中的后台任务，拉取 App/Worker 镜像并停止写入者；由 App 启动入口完成 migration，再启动 Worker，通过 READY/capability 门禁后恢复原本运行的 scheduler。脚本只显式编排 `app`、`worker` 和可选 `scheduler`。
 
 从部署目录执行：
 

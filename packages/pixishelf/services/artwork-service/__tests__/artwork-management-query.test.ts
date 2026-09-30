@@ -145,7 +145,10 @@ describe('buildArtworkWhereClause', () => {
     })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toContain('(ca.name ILIKE $1 OR ca."userId" ILIKE $1')
+    expect(whereSQL).toContain('artist_external_refs er')
+    expect(whereSQL).toContain('er."providerKey"=\'pixiv\'')
+    expect(whereSQL).not.toContain('"LocalImportArtistMapping"')
+    expect(whereSQL).not.toContain('ca."userId"')
     expect(sqlParams).toEqual(['%123456%'])
   })
 

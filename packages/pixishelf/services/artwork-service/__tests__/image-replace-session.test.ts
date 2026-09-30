@@ -54,6 +54,17 @@ describe('image-replace-session service', () => {
     await rm(scanRoot, { recursive: true, force: true })
   })
 
+  it('initializes and rolls back the first upload to an empty manual artwork', async () => {
+    const artwork = { externalId: null, storagePath: 'local-imports/unassigned/e_83_1544954', images: [] }
+    const input = { scanRoot, artworkId: 83, artwork }
+    const result = await handleImageReplaceSession({ ...input, action: 'init' })
+    expect(result).toMatchObject({ success: true, targetRelDir: artwork.storagePath })
+    const target = path.join(scanRoot, artwork.storagePath)
+    await writeFile(path.join(target, 'new.jpg'), 'new-upload')
+    await handleImageReplaceSession({ ...input, action: 'rollback' })
+    await expect(readdir(target)).resolves.toEqual([])
+  })
+
   it('initializes a replace session by backing up media and chapter files only', async () => {
     await mkdir(path.join(scanRoot, 'artist/work/.bak_session'), { recursive: true })
     await rm(path.join(scanRoot, 'artist/work/.bak_session'), { recursive: true, force: true })
@@ -355,7 +366,6 @@ function artworkWithStoragePath(storagePath: string) {
   return {
     externalId: 'work',
     storagePath,
-    artist: { userId: 'artist' },
     images: [{ path: `${storagePath}/old.jpg` }]
   }
 }

@@ -37,6 +37,7 @@ import { enqueueCentralVideoMediaReprobe } from '@/services/video-media-central-
 import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
+import { ensureManualArtworkStorage } from '@/services/artwork-service/manual-storage'
 import { ArtworkSourceEnum } from '@/schemas/models'
 import { PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
 import {
@@ -309,6 +310,7 @@ export const artworkRouter = router({
    * 获取上传路径
    */
   getUploadPath: authProcedure.input(z.number()).query(async ({ input }) => {
+    await ensureManualArtworkStorage(input)
     // 返回“相对路径”和“绝对路径”双重信息，便于前端拼接表单上传目标；
     // 其中 targetRelDir 由作品元数据推导，若无法判定则直接拒绝，避免上传落到无效目录。
     const artwork = await getArtworkById(input)

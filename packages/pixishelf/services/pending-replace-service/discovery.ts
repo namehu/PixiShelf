@@ -42,7 +42,7 @@ interface ArtworkForPendingReplace {
   storageKey: string | null
   title: string
   storagePath: string | null
-  artist: { name: string; userId: string | null } | null
+  artist: { name: string } | null
   images: Array<{
     path: string
     sortOrder: number
@@ -82,7 +82,7 @@ export async function previewPendingReplacements(scanPath: string) {
       storageKey: true,
       title: true,
       storagePath: true,
-      artist: { select: { name: true, userId: true } },
+      artist: { select: { name: true } },
       images: {
         orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
         select: {
@@ -213,7 +213,7 @@ export async function preparePendingReplaceBinding(input: {
       storageKey: true,
       title: true,
       storagePath: true,
-      artist: { select: { name: true, userId: true } },
+      artist: { select: { name: true } },
       images: {
         orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
         select: {

@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 作品删除、附属文件与空目录清理、当次总结及失败边界
-last-verified: 2026-09-15
+last-verified: 2026-09-30
 sources:
   - packages/pixishelf/services/artwork-service/delete-artwork.ts
   - packages/pixishelf/services/artwork-service/delete-artwork-files.ts
@@ -16,7 +16,7 @@ sources:
 ## 直接删除范围
 
 - 覆盖本地导入、手工、Pixiv 扫描等非 `URL_ARCHIVE` 创建方式。
-- 目录依次从 `storagePath`、首个有序媒体的父目录、`metaSource` 的父目录、艺术家 `userId` 与作品 `storageKey/externalId` 确定。媒体分散时不推算公共祖先。
+- 目录依次从 `storagePath`、首个有序媒体的父目录、`metaSource` 的父目录确定。媒体分散时不推算公共祖先；无法定位时保留目录。
 - 保留扫描根、第一层艺术家目录、`local-imports` 及其艺术家层级，以及根目录下的 `sources`、`.trash`、`.archive-staging`。共享或无法定位的目录不执行新增清理。
 - 删除登记媒体和合法命名的已登记章节文件。其他作品或媒体引用的文件保留，不跟随符号链接或 junction。
 - 附属文件限目录内已登记 `metaSource`、匹配可信 Pixiv ID 的 `<ID>-meta.json/txt`、`<ID>_pN-meta.json/txt`，以及现有视频章节命名规则确定的候选。元数据需通过解析，有可信 Pixiv ID 时内容必须一致；未登记章节候选必须通过章节校验。身份冲突、解析失败或检查后变化的文件保留。

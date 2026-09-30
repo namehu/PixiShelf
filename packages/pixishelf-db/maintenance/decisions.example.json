@@ -1,0 +1,12 @@
+{
+  "auditFingerprint": "copy-fingerprint-from-the-current-audit",
+  "decisions": [
+    {
+      "kind": "series-membership",
+      "artworkId": 0,
+      "legacySeriesId": 0,
+      "fingerprint": "copy-item-fingerprint-from-the-current-audit",
+      "action": "KEEP_CURRENT"
+    }
+  ]
+}

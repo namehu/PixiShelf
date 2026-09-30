@@ -57,11 +57,11 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
   // 1.1.2 艺术家名称筛选
   if (artistName) {
     if (exactMatch) {
-      whereSQL += ` AND (EXISTS (SELECT 1 FROM effective_artwork_creators c JOIN "Artist" ca ON ca.id=c."artistId" WHERE c."artworkId"=a.id AND (ca.name = $${paramIndex} OR ca."userId" = $${paramIndex} OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=ca.id AND sm."sourceName" = $${paramIndex}))))`
+      whereSQL += ` AND (EXISTS (SELECT 1 FROM effective_artwork_creators c JOIN "Artist" ca ON ca.id=c."artistId" WHERE c."artworkId"=a.id AND (ca.name = $${paramIndex} OR EXISTS (SELECT 1 FROM artist_external_refs er WHERE er."artistId"=ca.id AND er."providerKey"='pixiv' AND er."externalId" ~ '^[1-9][0-9]*$' AND er."externalId" = $${paramIndex}) OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=ca.id AND sm."sourceName" = $${paramIndex}))))`
       sqlParams.push(artistName)
       paramIndex++
     } else {
-      whereSQL += ` AND (EXISTS (SELECT 1 FROM effective_artwork_creators c JOIN "Artist" ca ON ca.id=c."artistId" WHERE c."artworkId"=a.id AND (ca.name ILIKE $${paramIndex} OR ca."userId" ILIKE $${paramIndex} OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=ca.id AND sm."sourceName" ILIKE $${paramIndex}))))`
+      whereSQL += ` AND (EXISTS (SELECT 1 FROM effective_artwork_creators c JOIN "Artist" ca ON ca.id=c."artistId" WHERE c."artworkId"=a.id AND (ca.name ILIKE $${paramIndex} OR EXISTS (SELECT 1 FROM artist_external_refs er WHERE er."artistId"=ca.id AND er."providerKey"='pixiv' AND er."externalId" ~ '^[1-9][0-9]*$' AND er."externalId" ILIKE $${paramIndex}) OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=ca.id AND sm."sourceName" ILIKE $${paramIndex}))))`
       sqlParams.push(`%${artistName}%`)
       paramIndex++
     }
@@ -130,7 +130,7 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
       whereSQL += ` AND (
         a.title ILIKE $${paramIndex} OR
         a.description ILIKE $${paramIndex} OR
-        EXISTS (SELECT 1 FROM effective_artwork_creators c JOIN "Artist" ca ON ca.id=c."artistId" WHERE c."artworkId"=a.id AND (ca.name ILIKE $${paramIndex} OR ca."userId" ILIKE $${paramIndex} OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=ca.id AND sm."sourceName" ILIKE $${paramIndex})))
+        EXISTS (SELECT 1 FROM effective_artwork_creators c JOIN "Artist" ca ON ca.id=c."artistId" WHERE c."artworkId"=a.id AND (ca.name ILIKE $${paramIndex} OR EXISTS (SELECT 1 FROM artist_external_refs er WHERE er."artistId"=ca.id AND er."providerKey"='pixiv' AND er."externalId" ~ '^[1-9][0-9]*$' AND er."externalId" ILIKE $${paramIndex}) OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=ca.id AND sm."sourceName" ILIKE $${paramIndex})))
       )`
       sqlParams.push(searchCondition)
       paramIndex++

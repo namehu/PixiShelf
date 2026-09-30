@@ -12,15 +12,16 @@ const { invalidateReadingMock, lockArtworkMock } = vi.hoisted(() => ({
 
 vi.mock('@pixishelf/db', () => ({
   invalidateArtworkReadingForRebuild: invalidateReadingMock,
-  lockArtworkForReading: lockArtworkMock
+  lockArtworkForReading: lockArtworkMock,
+  lockCreatorCatalog: vi.fn()
 }))
 
 type ArtistRecord = {
   id: number
   name: string
   username: string
-  userId: string | null
   bio: string | null
+  mergedIntoId: number | null
 }
 
 type ArtworkRecord = {
@@ -95,7 +96,7 @@ type ArtistExternalRefRecord = {
   externalId: string
 }
 
-type ArtistCreateInput = Omit<ArtistRecord, 'id'>
+type ArtistCreateInput = Omit<ArtistRecord, 'id' | 'mergedIntoId'>
 type ArtworkCreateInput = Omit<ArtworkRecord, 'id'>
 type TagCreateInput = Omit<TagRecord, 'id'>
 type ImageCreateInput = Omit<ImageRecord, 'id'>
@@ -159,26 +160,21 @@ const { database, prismaStub } = vi.hoisted(() => {
 
   const prismaStub = {
     artist: {
-      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
-        const userIds = valuesIn<string>(args, 'userId')
-        return database.artists
-          .filter((artist) => !userIds || (artist.userId && userIds.includes(artist.userId)))
-          .map((artist) =>
-            args.include?.externalRefs
-              ? { ...artist, externalRefs: database.artistExternalRefs.filter((ref) => ref.artistId === artist.id) }
-              : artist
-          )
+      findMany: vi.fn(async () => database.artists),
+      create: vi.fn(async (args: PrismaCreateArgs<ArtistCreateInput>) => {
+        const artist = { id: database.nextArtistId++, mergedIntoId: null, ...args.data }
+        database.artists.push(artist)
+        return artist
       }),
       createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtistCreateInput>) => {
         let count = 0
         for (const artist of args.data) {
-          if (args.skipDuplicates && database.artists.some((item) => item.userId === artist.userId)) continue
           database.artists.push({
             id: database.nextArtistId++,
             name: artist.name,
             username: artist.username,
-            userId: artist.userId,
-            bio: artist.bio
+            bio: artist.bio,
+            mergedIntoId: null
           })
           count++
         }
@@ -200,6 +196,11 @@ const { database, prismaStub } = vi.hoisted(() => {
           count++
         }
         return { count }
+      }),
+      create: vi.fn(async (args: PrismaCreateArgs<Omit<ArtistExternalRefRecord, 'id'>>) => {
+        const reference = { id: database.nextArtistExternalRefId++, ...args.data }
+        database.artistExternalRefs.push(reference)
+        return reference
       })
     },
     artwork: {
@@ -464,16 +465,25 @@ function resetDatabase() {
   database.nextArtistExternalRefId = 1
 }
 
-function seedArtist(input: Partial<ArtistRecord> = {}) {
+function seedArtist(input: Partial<Omit<ArtistRecord, 'id' | 'mergedIntoId'>> & { pixivUserId?: string | null } = {}) {
+  const { pixivUserId = '20001', ...artistInput } = input
   const artist: ArtistRecord = {
     id: database.nextArtistId++,
     name: 'Seed Artist',
     username: 'Seed Artist',
-    userId: '20001',
     bio: null,
-    ...input
+    mergedIntoId: null,
+    ...artistInput
   }
   database.artists.push(artist)
+  if (pixivUserId) {
+    database.artistExternalRefs.push({
+      id: database.nextArtistExternalRefId++,
+      artistId: artist.id,
+      providerKey: 'pixiv',
+      externalId: pixivUserId
+    })
+  }
   return artist
 }
 
@@ -591,14 +601,15 @@ describe('rescan fixture integration', () => {
     for (const inputIds of [[20, 10], [10, 20]]) {
       resetDatabase()
       vi.clearAllMocks()
-      const artist = seedArtist({ userId: 'rescan-lock-user' })
+      const pixivUserId = 'rescan-lock-user'
+      const artist = seedArtist({ pixivUserId })
       for (const id of [10, 20]) {
         const artwork = seedArtwork({ id, artistId: artist.id, externalId: String(id) })
         seedPixivReference(artwork)
       }
       const published: string[] = []
       const context: BatchContext = {
-        artistCache: new Map([[artist.userId!, artist]]),
+        artistCache: new Map([[pixivUserId, artist]]),
         tagCache: new Map(),
         scanResult: {
           totalArtworks: 2,
@@ -616,7 +627,7 @@ describe('rescan fixture integration', () => {
         }
       }
       const batch: BatchItem[] = inputIds.map((id) => ({
-        metadata: { id: String(id), user: artist.name, userId: artist.userId!, title: `Rescanned ${id}` },
+        metadata: { id: String(id), user: artist.name, userId: pixivUserId, title: `Rescanned ${id}` },
         mediaFiles: [],
         directoryPath: path.join(scanPath, String(id)),
         metadataFilePath: path.join(scanPath, `${id}-meta.json`),
@@ -636,7 +647,7 @@ describe('rescan fixture integration', () => {
     const scanPath = await createFixtureRoot()
     const pixivDirectory = path.join(scanPath, 'pixiv')
     await mkdir(pixivDirectory, { recursive: true })
-    const originalArtist = seedArtist({ userId: '20001', name: 'Original Artist', username: 'Original Artist' })
+    const originalArtist = seedArtist({ pixivUserId: '20001', name: 'Original Artist', username: 'Original Artist' })
     const artwork = seedArtwork({
       artistId: originalArtist.id,
       externalId: '2001',
@@ -723,7 +734,7 @@ describe('rescan fixture integration', () => {
     const scanPath = await createFixtureRoot()
     const localDirectory = path.join(scanPath, 'local')
     await mkdir(localDirectory, { recursive: true })
-    const artist = seedArtist({ userId: null, name: 'Manual Artist', username: 'Manual Artist' })
+    const artist = seedArtist({ pixivUserId: null, name: 'Manual Artist', username: 'Manual Artist' })
     const artwork = seedArtwork({
       id: 42,
       artistId: artist.id,

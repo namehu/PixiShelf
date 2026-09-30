@@ -106,17 +106,25 @@ sources:
 Artist，同一 Artist 在一个 Provider 下也不能同时保存多个身份。本地目录来源仍由 `LocalImportArtistMapping`
 表达，不占用外部 Provider 身份。
 
-迁移只回填“唯一数字 `Artist.userId` + 名下 Artwork 具有 Pixiv 外部引用”的强证据记录；重复数字 ID、没有
-作品来源证据的数字 ID 和历史 `p_` ID 保持未认领。`Artist.userId` 在兼容发布周期内不删除，新写入逻辑以
-`artist_external_refs` 为来源真值。
+历史迁移只回填“唯一数字 `Artist.userId` + 名下 Artwork 具有 Pixiv 外部引用”的强证据记录。2026-09-30 的
+退役流程先通过维护工具核对未认领身份、全部媒体路径和旧目录迁移现场，再删除 `Artist.userId`。
+`artist_external_refs` 是当前外部身份来源真值；本地目录身份继续由 `LocalImportArtistMapping` 和
+`Artwork.storagePath` 表达。
 
-### 3.3 标签反查作品
+### 3.4 系列外部身份与成员关系
+
+`series_external_refs` 保存 Provider 身份，`SeriesArtwork` 保存多系列成员、排序、来源证据和排除状态。
+`20260930121000_retire_series_legacy_fields` 删除 `Series.source`、`Series.externalId` 和 `Artwork.seriesId`；
+当前代码不得重新建立单系列直连字段。历史 direct-only 关系只可在带审计指纹的维护决定中明确丢弃旧指针，
+或以 `LEGACY` 成员追加到当前排序末尾。
+
+### 3.5 标签反查作品
 
 - **索引名**: `ArtworkTag_tagId_artworkId_idx`
 - **定义**: B-tree (`tagId`, `artworkId`)
 - **用途**: 加速按标签反查作品、标签计数和删除标签关联；与现有 (`artworkId`, `tagId`) 唯一索引互补。
 
-### 3.4 媒体类型筛选与候选索引
+### 3.6 媒体类型筛选与候选索引
 
 - 粗粒度“图片/视频”筛选读取 `Image.mediaType`，不在请求期间对 `path` 执行扩展名匹配。
 - 新媒体入库时按扩展名写入 `IMAGE`、`VIDEO` 或 `ANIMATION`；历史 `UNKNOWN` 由“视频媒体探测”维护任务批量分类。
@@ -127,7 +135,7 @@ Artist，同一 Artist 在一个 Provider 下也不能同时保存多个身份�
 - `MediaChapterPreview.hasAudibleAudio` 保存章节级可听结果；`audioChaptersHash` 将结果绑定到章节清单，避免仅补音频时把旧截图错误标成当前；`audioProbeError` 保存失败原因。三个字段均可空，以兼容旧清单和滚动部署。
 - 章节 API 只在 `audioChaptersHash` 匹配当前清单时使用数据库结果。未校准或失败的 v1/v2 音频声明按未知处理；v3 清单可作为初始值，当前 hash 的数据库实测拥有最高优先级。
 
-### 3.5 后台任务队列与执行 lane 索引
+### 3.7 后台任务队列与执行 lane 索引
 
 - `system_jobs(executionLane, status, effectivePriority, availableAt, createdAt)` 是按 lane 的领取索引；优先级越小越先执行。
 - `system_jobs_single_executing_per_lane_idx` 是执行态部分唯一索引，保证 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 各自最多一条 `RUNNING/PAUSING/CANCELLING` 记录。它允许一项 resolver 和一项 writer 同时执行，但不允许同 lane 双执行。
@@ -139,7 +147,7 @@ Artist，同一 Artist 在一个 Provider 下也不能同时保存多个身份�
 - `worker_instances(status, heartbeatAt)` 支持在没有任务运行时仍判断独立 Worker 的就绪状态与心跳新鲜度；它不依赖 `system_jobs.workerId`，因此空闲 Worker 也有可观测记录。
 - 未增加 `targetImageId` 新索引。兼容列的查询收益需要生产执行计划证明后再单独处理，避免无依据增加写放大。
 
-### 3.6 高风险任务的冻结输入与增量检查点
+### 3.8 高风险任务的冻结输入与增量检查点
 
 扫描、本地目录导入、目录迁移和批量替换会同时修改数据库与媒体目录。它们不能依赖内存游标恢复，也不能把数千条输入直接塞入 `system_jobs.payload`。`20260815010000` 先提交旧枚举扩展，`20260815011000` 再建立以下纯增量结构：
 
@@ -217,7 +225,7 @@ Image。apply 的 stale 或身份冲突在这些领域写入之前终止。
 
 Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type，加入 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后曾为 26 个 job type，加入 `ARCHIVE_UPLOADER_SCAN` 和 `ARCHIVE_SEARCH_SCAN` 后曾为 28 个 job type；加入 `JOB_EVENT_RETENTION_CLEANUP` 和 `CREATOR_MAINTENANCE` 后曾为 30 个 job type；加入 `ARTIST_MERGE` 后当前为 31 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2、`ARCHIVE_SEARCH_SCAN` 注册 v1/v2/v3，其余 28 类仍只注册 v1，因此共有 36 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
 
-### 3.7 归档收件与 Provider 请求治理
+### 3.9 归档收件与 Provider 请求治理
 
 `20260818120000_add_archive_intake_worker_lanes` 在同一次协调切换中增加收件持久结构和执行 lane：
 
@@ -315,8 +323,11 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 | `20260820210000` | 为来源核对选定同步增加父核对证据、冻结 CAS 字段、逐项 outcome/reason/retryable、完整性 CHECK 和恢复/查询索引；历史行保持兼容                    |
 | `20260825103000` | 增加艺术家多 Provider 外部身份、同步状态与 Pixiv 强证据回填；保留旧 `Artist.userId` 作为一个发布周期的回滚镜像                                  |
 | `20260826143000` | 为 Pixiv 作品外部引用增加在线同步状态、任务与磁盘快照指针；只在唯一来源及数据库快照精确匹配时清除误标文本 override                              |
+| `20260827090000` | 增加系列多 Provider 外部身份、成员来源、远端排序、人工覆盖与排除状态；保留旧来源和单系列字段作为兼容镜像                                      |
 | `20260902120000` | 增加 E-Hentai 上传者来源、人工扫描运行与候选结果，扩展 SEARCH 请求类，并允许上传者扫描进入 `ARCHIVE_RESOLVE` lane                               |
 | `20260904120000` | 增加 E-Hentai 上传者稳定 UID、UID 覆盖复核状态与扫描运行查询身份快照；既有 UID 来源原地回填且不重置扫描水位                                     |
+| `20260930120000` | 联合检查艺术家、系列和旧目录迁移现场已收口后，删除 `Artist.userId` 与旧复合唯一索引                                                            |
+| `20260930121000` | 再次检查系列身份、direct pointer 和旧目录迁移现场后，删除 `Artwork.seriesId`、`Series.source/externalId` 及旧约束                             |
 
 ## 创作者归属视图与兼容触发器
 

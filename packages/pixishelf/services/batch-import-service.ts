@@ -8,7 +8,7 @@ import logger from '@/lib/logger'
 import { generateLocalStorageKey } from './artwork-service/utils'
 import { syncMediaDerivedTagsForArtworks } from './media-derived-tag-service'
 import { ESource } from '@/enums/e-source'
-import { ScanRunMode, ScanRunType } from '@prisma/client'
+import { Prisma, ScanRunMode, ScanRunType } from '@prisma/client'
 import {
   appendScanRunItems,
   completeScanRunSummary,
@@ -19,7 +19,8 @@ import {
 import { toDatabaseImageSize } from '@/utils/image-size'
 import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
-import { lockArtworkForReading } from '@pixishelf/db'
+import { lockArtworkForReading, lockCreatorCatalog, requireAvailableArtist } from '@pixishelf/db'
+import { resolveCanonicalArtworkStoragePath } from '@pixishelf/job-contracts'
 
 /**
  * 批量创建作品
@@ -38,12 +39,27 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
     type: ScanRunType.BATCH_IMPORT,
     mode: ScanRunMode.BATCH_CREATE
   })
+  const createdUploadDirectories: string[] = []
 
   // 使用交互式事务，因为需要先创建获取 ID，再更新 externalId
   try {
     await prisma.$transaction(
       async (tx) => {
+        await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
         for (const item of artworks) {
+          await requireAvailableArtist(tx as unknown as Prisma.TransactionClient, item.artistId)
+          const artistDirectory = `artist-${item.artistId}`
+          const existingMapping = await tx.localImportArtistMapping.findUnique({
+            where: { artistDirectory },
+            select: { artistId: true }
+          })
+          if (existingMapping && existingMapping.artistId !== item.artistId) {
+            throw new Error(`本地导入目录 ${artistDirectory} 已绑定到其他艺术家`)
+          }
+          if (!existingMapping) {
+            await tx.localImportArtistMapping.create({ data: { artistDirectory, artistId: item.artistId } })
+          }
+
           // 1. 创建基础作品记录
           const artwork = await tx.artwork.create({
             data: {
@@ -57,11 +73,20 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
 
           // 2. 生成 externalId 并更新
           const storageKey = generateLocalStorageKey(artwork.id)
+          const targetRelDir = resolveCanonicalArtworkStoragePath({
+            createdVia: 'MANUAL_CREATE',
+            artistId: item.artistId,
+            artistPixivExternalId: null,
+            artworkPixivExternalId: null,
+            storageKey
+          })
+          if (!targetRelDir) throw new Error('无法生成本地作品目录')
 
           await tx.artwork.update({
             where: { id: artwork.id },
             data: {
-              storageKey
+              storageKey,
+              storagePath: targetRelDir
             }
           })
           logger.info(`Created artwork: ${artwork.id} with storageKey: ${storageKey}`)
@@ -79,14 +104,10 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
           }
 
           // 4. 准备上传目录
-          const targetRelDir = `/${item.artistUserId}/${storageKey}`
           const uploadTargetDir = path.join(scanRoot, targetRelDir)
           logger.info(`Creating directory: ${uploadTargetDir}`)
-          try {
-            await fs.mkdir(uploadTargetDir, { recursive: true })
-          } catch (_e) {
-            logger.warn(`Failed to create directory: ${uploadTargetDir}`)
-          }
+          const firstCreatedDirectory = await fs.mkdir(uploadTargetDir, { recursive: true })
+          if (firstCreatedDirectory) createdUploadDirectories.push(uploadTargetDir)
 
           results.push(
             BatchImportArtworkSchema.parse({
@@ -105,6 +126,10 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
       }
     )
   } catch (error) {
+    for (const directory of createdUploadDirectories.reverse()) {
+      await fs.rmdir(directory).catch(() => undefined)
+      await fs.rmdir(path.dirname(directory)).catch(() => undefined)
+    }
     const message = error instanceof Error ? error.message : '批量创建作品失败'
     await failScanRun(scanRun.id, message)
     throw error

@@ -29,7 +29,6 @@ const baseArtwork = {
   pixivType: null,
   sanityLevel: null,
   storagePath: null,
-  seriesId: null,
   source: 'PIXIV_IMPORTED' as const,
   images: [],
   tags: [],

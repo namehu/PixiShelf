@@ -97,7 +97,6 @@ async function discoverLocalImportsWithState(
   const [existingRows, mappingRows] = await Promise.all([
     db.artwork.findMany({
       where: {
-        createdVia: 'LOCAL_DIRECTORY',
         storagePath: { not: null }
       },
       select: { storagePath: true }
@@ -111,7 +110,8 @@ async function discoverLocalImportsWithState(
   for (const row of existingRows as Array<{ storagePath: string | null }>) {
     if (!row.storagePath) continue
     try {
-      existingPaths.add(canonicalizeLocalImportStoragePath(row.storagePath))
+      const normalized = canonicalizeLocalImportStoragePath(row.storagePath.replace(/^[/\\]+/, ''))
+      if (normalized.startsWith(`${LOCAL_IMPORT_DIRECTORY}/`)) existingPaths.add(normalized)
     } catch {
       // 忽略旧版无效路径：它们无法匹配标准化的候选路径。
     }

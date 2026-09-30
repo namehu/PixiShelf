@@ -89,6 +89,7 @@ RUN apk add --no-cache curl ffmpeg openssl \
 
 # 复制 Prisma Schema (用于迁移)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf-db/prisma ./packages/pixishelf-db/prisma
+COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf-db/maintenance ./packages/pixishelf-db/maintenance
 
 # 复制 public 文件夹 (注意 monorepo 路径)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/public ./packages/pixishelf/public
@@ -105,6 +106,13 @@ COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/scripts ./pack
 # Standalone 文件夹结构会自动包含 monorepo 的结构 (packages/pixishelf/...)
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf/.next/static ./packages/pixishelf/.next/static
+
+# Next.js standalone keeps the pnpm virtual-store copy of Prisma Client, but it
+# does not create the root package link needed by the standalone maintenance CLI.
+RUN mkdir -p /app/node_modules/@prisma \
+    && prisma_client="$(find /app/node_modules/.pnpm -path '*/node_modules/@prisma/client' -type d -print -quit)" \
+    && test -n "$prisma_client" \
+    && ln -s "$prisma_client" /app/node_modules/@prisma/client
 
 # 切换用户
 USER nextjs

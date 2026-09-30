@@ -125,6 +125,51 @@ executing_job_count() {
   printf '%s\n' "$count"
 }
 
+identity_retirement_state() {
+  local sql raw state has_artist
+  has_artist=$("${COMPOSE[@]}" exec -T postgres sh -c \
+    'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$1"' sh \
+    "SELECT CASE WHEN to_regclass(format('%I.%I', current_schema(), 'Artist')) IS NULL THEN 'no' ELSE 'yes' END;")
+  has_artist=$(printf '%s' "$has_artist" | tr -d '[:space:]')
+  if [ "$has_artist" = "no" ]; then
+    printf 'EMPTY\n'
+    return 0
+  fi
+  if [ "$has_artist" != "yes" ]; then
+    log_error "Could not inspect the Artist table: $has_artist"
+    return 1
+  fi
+  sql="WITH schema_state AS (
+    SELECT
+      (
+        SELECT count(*)
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND (
+            (table_name = 'Artist' AND column_name = 'userId')
+            OR (table_name = 'Artwork' AND column_name = 'seriesId')
+            OR (table_name = 'Series' AND column_name IN ('source', 'externalId'))
+          )
+      ) AS legacy_columns,
+      EXISTS (
+        SELECT 1 FROM \"_prisma_migrations\"
+        WHERE migration_name = '20260930121000_retire_series_legacy_fields'
+          AND finished_at IS NOT NULL
+          AND rolled_back_at IS NULL
+      ) AS migration_complete
+  )
+  SELECT CASE WHEN legacy_columns = 0 AND migration_complete THEN 'READY' ELSE 'PENDING' END
+  FROM schema_state;"
+  raw=$("${COMPOSE[@]}" exec -T postgres sh -c \
+    'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$1"' sh "$sql")
+  state=$(printf '%s' "$raw" | tr -d '[:space:]')
+  if [[ "$state" != "EMPTY" && "$state" != "READY" && "$state" != "PENDING" ]]; then
+    log_error "Could not determine legacy identity retirement state: $raw"
+    return 1
+  fi
+  printf '%s\n' "$state"
+}
+
 restore_scheduler_after_preflight_abort() {
   if [ "$SCHEDULER_WAS_RUNNING" = true ] && [ "$SCHEDULER_STOPPED" = true ]; then
     log_info "Restoring scheduler after aborted preflight..."
@@ -258,6 +303,14 @@ fi
 
 log_info "Compose file: $COMPOSE_FILE"
 log_info "Environment file: $ENV_FILE"
+
+IDENTITY_RETIREMENT_STATE=$(identity_retirement_state)
+if [ "$IDENTITY_RETIREMENT_STATE" = "PENDING" ]; then
+  log_error "This database must complete the legacy identity maintenance flow before the normal update script can run."
+  log_error "Use the new App image to run retire-legacy-fields audit, prepare, and upgrade while all writers remain stopped."
+  log_error "--force does not bypass this database migration boundary."
+  exit 2
+fi
 
 EXECUTING_JOBS=$(executing_job_count)
 if [ "$EXECUTING_JOBS" -gt 0 ] && [ "$FORCE" = false ]; then

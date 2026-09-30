@@ -1,7 +1,7 @@
 ---
 status: current
-scope: 艺术家多来源身份、Pixiv 资料人工补全、图片发布与兼容迁移
-last-verified: 2026-08-25
+scope: 艺术家多来源身份、Pixiv 资料人工补全与图片发布
+last-verified: 2026-09-30
 sources:
   - packages/pixishelf-db/prisma/schema.prisma
   - packages/pixishelf/server/routers/artist.ts
@@ -14,19 +14,13 @@ sources:
 
 艺术家来源身份由 `ArtistExternalRef` 表达，不再把 `Artist.userId` 解释为 Pixiv 身份。一个 Artist 可以同时具有本地目录映射、Pixiv 身份或其他未来 Provider 身份；同一 Provider 在一个 Artist 上最多一条身份，同一个 Provider 外部 ID 也最多归属一个 Artist。本地目录来源继续由 `LocalImportArtistMapping` 维护，手工创建且没有任何来源关系的艺术家显示为“手工”。
 
-`Artist.userId` 只在兼容发布周期内保留为回滚镜像。新建手工艺术家不再生成 `p_{id}`，创建和编辑接口使用 `pixivUserId` 管理正式 Pixiv 身份。物理删列必须等稳定运行一个发布周期后，通过独立 migration 完成。
+创建和编辑接口使用 `pixivUserId` 管理正式 Pixiv 身份，不再保存旧 `Artist.userId`。新建手工作品使用本地艺术家 ID 生成稳定目录；已有媒体目录保持原样。旧库必须先完成[旧字段清理检查](./legacy-identity-retirement.md)，不能直接启动新镜像自动删列。
 
 ## 迁移与审计
 
-迁移只自动认领同时满足以下条件的历史 Artist：
+旧值认领和冲突处理统一通过[旧字段清理流程](./legacy-identity-retirement.md)完成。编辑框仅管理正式 Pixiv 身份。
 
-- `userId` 是不以零开头的正整数字符串；
-- 名下至少一个 Artwork 具有 `providerKey=pixiv` 的正式作品来源引用；
-- 整个 Artist 表中只有一个 Artist 使用该数字 ID。
-
-重复数字 ID、没有作品来源证据的数字 ID 和 `p_{id}` 都不会被自动认领。管理员可在编辑框看到未确认的历史数字 ID，并必须点击确认后才会建立 Pixiv 外部身份。
-
-上线前运行只读 [artist-source-identity-audit.sql](../../packages/pixishelf-db/prisma/diagnostics/artist-source-identity-audit.sql)，记录自动认领数量、重复 ID 和无来源证据 ID；迁移后运行 [artist-external-ref-verification.sql](../../packages/pixishelf-db/prisma/diagnostics/artist-external-ref-verification.sql)，`missing_expected_claims` 和 `duplicate_provider_identities` 必须为零。审计 SQL 不修改数据。
+升级后运行只读 [artist-external-ref-verification.sql](../../packages/pixishelf-db/prisma/diagnostics/artist-external-ref-verification.sql)，检查重复身份、已合并艺术家残留身份及缺失的持久目录。
 
 ## 补全任务
 

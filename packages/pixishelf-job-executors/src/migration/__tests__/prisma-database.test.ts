@@ -28,7 +28,7 @@ describe('Prisma migration database adapter', () => {
     expect(where).toMatchObject({
       deletedAt: null,
       id: { gt: 100, lte: 500 },
-      externalId: '123',
+      externalRefs: { some: { providerKey: 'pixiv', externalId: '123' } },
       artist: { is: { OR: expect.any(Array) } },
       OR: expect.any(Array),
       images: { some: { OR: expect.any(Array) } },
@@ -61,8 +61,16 @@ describe('Prisma migration database adapter', () => {
     const artworkFindUnique = vi.fn().mockResolvedValue({
       id: 1,
       deletedAt: null,
-      externalId: '123',
-      artist: { userId: 'artist' },
+      createdVia: 'PIXIV_SCAN',
+      storageKey: null,
+      externalRefs: [{ externalId: '123' }],
+      artist: {
+        id: 7,
+        mergedIntoId: null,
+        mergedInto: null,
+        externalRefs: [{ externalId: 'artist' }],
+        localImportMappings: []
+      },
       images: []
     })
     const planFindUnique = vi.fn().mockResolvedValue(null)
@@ -78,7 +86,7 @@ describe('Prisma migration database adapter', () => {
       })
     )
 
-    await adapter.loadArtwork(1, 101)
+    await adapter.loadArtwork({ artwork: { findUnique: artworkFindUnique, updateMany: vi.fn() } } as never, 1, 101)
     await adapter.loadPlan('job-1', 1, 101)
 
     expect(artworkFindUnique).toHaveBeenCalledWith(
@@ -89,8 +97,75 @@ describe('Prisma migration database adapter', () => {
     )
   })
 
+  it('persists a missing local storage key once inside the planning transaction', async () => {
+    const before = {
+      ...publicationArtwork(),
+      id: 1,
+      createdVia: 'MANUAL_CREATE' as const,
+      storageKey: null,
+      images: []
+    }
+    const after = { ...before, storageKey: 'e_1_1234567' }
+    const findUnique = vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after)
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 })
+    const mappingCreate = vi.fn().mockResolvedValue({})
+    const adapter = createPrismaMigrationDatabase(databaseMock(), {
+      generateStorageKey: () => 'e_1_1234567'
+    })
+
+    const result = await adapter.loadArtwork(
+      {
+        $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+        artwork: { findUnique, updateMany },
+        localImportArtistMapping: { findUnique: vi.fn().mockResolvedValue(null), create: mappingCreate }
+      } as never,
+      1,
+      101
+    )
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: 1, deletedAt: null, storageKey: null },
+      data: { storageKey: 'e_1_1234567' }
+    })
+    expect(result).toMatchObject({
+      createdVia: 'MANUAL_CREATE',
+      artistId: 7,
+      storageKey: 'e_1_1234567'
+    })
+    expect(mappingCreate).toHaveBeenCalledWith({ data: { artistDirectory: 'artist-7', artistId: 7 } })
+  })
+
+  it('resolves a merged artist to its active local and Pixiv identity without rebinding mappings', async () => {
+    const artwork = {
+      ...publicationArtwork(),
+      id: 1,
+      artist: {
+        id: 7,
+        mergedIntoId: 8,
+        externalRefs: [],
+        localImportMappings: [],
+        mergedInto: {
+          id: 8,
+          mergedIntoId: null,
+          externalRefs: [{ externalId: 'active-pixiv-artist' }],
+          localImportMappings: []
+        }
+      },
+      images: []
+    }
+    const adapter = createPrismaMigrationDatabase(databaseMock())
+
+    const result = await adapter.loadArtwork(
+      { artwork: { findUnique: vi.fn().mockResolvedValue(artwork), updateMany: vi.fn() } } as never,
+      1,
+      101
+    )
+
+    expect(result).toMatchObject({ artistId: 8, artistPixivExternalId: 'active-pixiv-artist' })
+  })
+
   it('treats an already-published target as CAS recovery but rejects a third path', async () => {
-    const targetArtwork = publicationArtwork({ imagePath: '/artist/123/page.jpg' })
+    const targetArtwork = publicationArtwork({ imagePath: '/artist/123/page.jpg', storagePath: 'artist/123' })
     const transaction = publicationTransaction(targetArtwork, [persistedFile()])
     const adapter = createPrismaMigrationDatabase(databaseMock())
     const publication = publicationInput()
@@ -121,10 +196,108 @@ describe('Prisma migration database adapter', () => {
     })
     expect(transaction.image.updateMany).not.toHaveBeenCalled()
 
+    transaction.artwork.findUnique.mockResolvedValue(publicationArtwork({ artistExternalId: 'changed-artist' }))
+    await expect(adapter.publishArtwork(transaction as never, publication)).rejects.toMatchObject({
+      code: 'DATABASE_PATH_CONFLICT'
+    })
+
     transaction.artwork.findUnique.mockResolvedValue(publicationArtwork({ extraImage: true }))
     await expect(adapter.publishArtwork(transaction as never, publication)).rejects.toMatchObject({
       code: 'DATABASE_PATH_CONFLICT'
     })
+  })
+
+  it('requires the active local artist mapping to remain stable through publication', async () => {
+    const adapter = createPrismaMigrationDatabase(databaseMock())
+    const localTarget = '/local-imports/artist-7/e_1_1234567/page.jpg'
+    const localArtwork = {
+      ...publicationArtwork({ imagePath: localTarget, storagePath: 'local-imports/artist-7/e_1_1234567' }),
+      createdVia: 'MANUAL_CREATE' as const,
+      storageKey: 'e_1_1234567',
+      externalRefs: [],
+      artist: {
+        ...publicationArtwork().artist,
+        externalRefs: [],
+        localImportMappings: [{ artistDirectory: 'artist-7' }]
+      }
+    }
+    const localFile = persistedFile({ sourceRelativePath: localTarget, targetRelativePath: localTarget })
+    const transaction = publicationTransaction(localArtwork, [localFile])
+    const input = {
+      ...publicationInput([localFile]),
+      targetDirectory: 'local-imports/artist-7/e_1_1234567',
+      terminalStatus: 'SKIPPED' as const,
+      files: [
+        {
+          fileId: localFile.id,
+          imageId: localFile.imageId,
+          sourceStoredPath: localFile.sourceRelativePath,
+          targetStoredPath: localFile.targetRelativePath,
+          sourceSha256: null
+        }
+      ]
+    }
+
+    await expect(adapter.publishArtwork(transaction as never, input)).resolves.toBeUndefined()
+
+    transaction.artwork.findUnique.mockResolvedValue({
+      ...localArtwork,
+      artist: { ...localArtwork.artist, localImportMappings: [] }
+    })
+    await expect(adapter.publishArtwork(transaction as never, input)).rejects.toMatchObject({
+      code: 'DATABASE_PATH_CONFLICT'
+    })
+  })
+
+  it('publishes a missing local storage path and accepts an idempotent retry', async () => {
+    const adapter = createPrismaMigrationDatabase(databaseMock())
+    const targetDirectory = 'local-imports/artist-7/e_1_1234567'
+    const sourcePath = '/legacy/page.jpg'
+    const targetPath = `/${targetDirectory}/page.jpg`
+    const localIdentity = {
+      createdVia: 'MANUAL_CREATE' as const,
+      storageKey: 'e_1_1234567',
+      externalRefs: [],
+      artist: {
+        ...publicationArtwork().artist,
+        externalRefs: [],
+        localImportMappings: [{ artistDirectory: 'artist-7' }]
+      }
+    }
+    const sourceArtwork = {
+      ...publicationArtwork({ imagePath: sourcePath, storagePath: null }),
+      ...localIdentity
+    }
+    const targetArtwork = {
+      ...publicationArtwork({ imagePath: targetPath, storagePath: targetDirectory }),
+      ...localIdentity
+    }
+    const file = persistedFile({ sourceRelativePath: sourcePath, targetRelativePath: targetPath })
+    const transaction = publicationTransaction(sourceArtwork, [file])
+    transaction.artwork.findUnique
+      .mockResolvedValueOnce(sourceArtwork)
+      .mockResolvedValueOnce(targetArtwork)
+      .mockResolvedValueOnce(targetArtwork)
+      .mockResolvedValueOnce(targetArtwork)
+    const input = { ...publicationInput([file]), targetDirectory }
+
+    await expect(adapter.publishArtwork(transaction as never, input)).resolves.toBeUndefined()
+    await expect(adapter.publishArtwork(transaction as never, input)).resolves.toBeUndefined()
+
+    expect(transaction.artwork.updateMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({ storagePath: null }),
+        data: expect.objectContaining({ storagePath: targetDirectory })
+      })
+    )
+    expect(transaction.artwork.updateMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({ storagePath: targetDirectory }),
+        data: expect.objectContaining({ storagePath: targetDirectory })
+      })
+    )
   })
 
   it('CAS-updates chaptersPath, metaSource, and storagePath and rechecks their final values', async () => {
@@ -225,7 +398,7 @@ describe('Prisma migration database adapter', () => {
 
   it('validates an all-canonical artwork and its complete file set before atomically marking it skipped', async () => {
     const adapter = createPrismaMigrationDatabase(databaseMock())
-    const canonical = publicationArtwork({ imagePath: '/artist/123/page.jpg' })
+    const canonical = publicationArtwork({ imagePath: '/artist/123/page.jpg', storagePath: 'artist/123' })
     const canonicalFile = persistedFile({
       sourceRelativePath: '/artist/123/page.jpg',
       targetRelativePath: '/artist/123/page.jpg'
@@ -283,7 +456,7 @@ describe('Prisma migration database adapter', () => {
     expect(Buffer.byteLength(persisted.errorSummary, 'utf8')).toBeLessThanOrEqual(512)
   })
 
-  it('uses one canonical predicate for precheck counts including artist.userId', async () => {
+  it('uses formal source identities for canonical precheck counts', async () => {
     const count = vi
       .fn()
       .mockResolvedValueOnce(10)
@@ -298,7 +471,13 @@ describe('Prisma migration database adapter', () => {
     expect(count.mock.calls[1]![0]).toEqual(
       expect.objectContaining({
         where: expect.objectContaining({
-          AND: expect.arrayContaining([expect.objectContaining({ artist: { is: { userId: { not: null } } } })])
+          AND: expect.arrayContaining([
+            expect.objectContaining({
+              OR: expect.arrayContaining([
+                expect.objectContaining({ createdVia: 'PIXIV_SCAN', externalRefs: { some: { providerKey: 'pixiv' } } })
+              ])
+            })
+          ])
         })
       })
     )
@@ -342,6 +521,7 @@ function publicationInput(files = [persistedFile()]) {
 function publicationArtwork(
   overrides: Partial<{
     externalId: string
+    artistExternalId: string
     imagePath: string
     chaptersPath: string | null
     metaSource: string | null
@@ -357,20 +537,29 @@ function publicationArtwork(
   return {
     artistId: 7,
     deletedAt: null,
-    externalId: overrides.externalId ?? '123',
+    createdVia: 'PIXIV_SCAN' as const,
+    storageKey: null,
+    externalRefs: [{ externalId: overrides.externalId ?? '123' }],
     metaSource: overrides.metaSource ?? null,
     storagePath: overrides.storagePath ?? null,
-    artist: { userId: 'artist' },
+    artist: {
+      id: 7,
+      mergedIntoId: null,
+      mergedInto: null,
+      externalRefs: [{ externalId: overrides.artistExternalId ?? 'artist' }],
+      localImportMappings: []
+    },
     images: overrides.extraImage ? [image, { id: 12, path: '/old/page-2.jpg', chaptersPath: null }] : [image]
   }
 }
 
 function publicationTransaction(
-  artwork: ReturnType<typeof publicationArtwork>,
+  artwork: object,
   files: ReturnType<typeof persistedFile>[]
 ) {
   return {
     $queryRaw: vi.fn().mockResolvedValue([{ id: 1, mediaRevision: 1 }]),
+    $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     artwork: {
       findUnique: vi.fn().mockResolvedValue(artwork),
       updateMany: vi.fn().mockResolvedValue({ count: 1 })

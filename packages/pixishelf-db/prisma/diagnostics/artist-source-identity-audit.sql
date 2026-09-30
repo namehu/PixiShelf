@@ -1,5 +1,5 @@
--- Read-only production audit for the Artist external identity cutover.
--- Run before and after migration; every statement is SELECT-only.
+-- Historical read-only audit for databases that still contain Artist.userId.
+-- Run only before 20260930120000_retire_artist_legacy_identity.
 
 SELECT
   count(*) FILTER (WHERE "userId" ~ '^[1-9][0-9]*$') AS numeric_legacy_ids,

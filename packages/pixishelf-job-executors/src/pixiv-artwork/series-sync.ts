@@ -117,8 +117,6 @@ export async function reconcilePixivArtworkSeries(
     const created = await transaction.series.create({
       data: {
         title: remote.title!,
-        source: 'PIXIV',
-        externalId: remote.id,
         externalRefs: {
           create: {
             providerKey: PROVIDER_KEY,

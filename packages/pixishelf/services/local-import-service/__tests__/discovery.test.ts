@@ -51,6 +51,16 @@ describe('local import discovery', () => {
     expect(() => canonicalizeLocalImportStoragePath('/absolute/path')).toThrow()
   })
 
+  it('skips registered manual works without assigning a synthetic artist', async () => {
+    const storagePath = 'local-imports/unassigned/e_83_1544954'
+    await fs.mkdir(path.join(scanPath, storagePath), { recursive: true })
+    await fs.writeFile(path.join(scanPath, storagePath, 'page.jpg'), 'media')
+    artworkFindManyMock.mockResolvedValue([{ storagePath }])
+    const result = await discoverLocalImports({ scanPath })
+    expect(result.counts).toMatchObject({ works: 1, existing: 1, new: 0 })
+    expect(result.artists[0]?.mapping).toBeNull()
+  })
+
   it('discovers only shallow direct media and skips existing work before reading it', async () => {
     const root = path.join(scanPath, 'local-imports')
     const newWork = path.join(root, 'ArtistCase', 'NewWork')
@@ -66,7 +76,7 @@ describe('local import discovery', () => {
     await fs.writeFile(path.join(existingWork, 'existing.png'), 'image')
     await fs.symlink(newWork, path.join(root, 'linked-artist'), 'junction')
 
-    artworkFindManyMock.mockResolvedValue([{ storagePath: 'local-imports/ArtistCase/ExistingWork' }])
+    artworkFindManyMock.mockResolvedValue([{ storagePath: '\\local-imports\\ArtistCase\\ExistingWork' }])
     mappingFindManyMock.mockResolvedValue([
       { artistDirectory: 'ArtistCase', artistId: 7, artist: { id: 7, name: 'Mapped Artist' } }
     ])
@@ -76,7 +86,6 @@ describe('local import discovery', () => {
 
     expect(artworkFindManyMock).toHaveBeenCalledWith({
       where: {
-        createdVia: 'LOCAL_DIRECTORY',
         storagePath: { not: null }
       },
       select: { storagePath: true }

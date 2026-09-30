@@ -18,6 +18,7 @@
 - [ ] 发布 Worker 健康面板调整，登记 App/Worker 镜像 ID、digest、切换与回归时间，并验证当前可用 Worker 数量和任务执行。
 - [ ] 按[后台任务上线后续](./docs/deployment/background-task-follow-up.md)完成尚未登记的生产稳定观察与 scheduler/GC 核对。
 - [ ] 保留至少一套最近、可验证恢复的 PostgreSQL/媒体/配置同点检查点，并在隔离环境完成恢复验证。
+- [ ] 按[艺术家与系列旧字段清理](./docs/features/legacy-identity-retirement.md)在生产完成停写备份、audit/prepare/upgrade 和配套 App/Worker 验证。
 
 ## 退役兼容控制面
 
@@ -28,8 +29,6 @@
   - 先验证并修复历史数据，再用独立 migration 收紧 `availableAt`、租约、`SKIPPED` 和计划字段约束；
   - 旧列物理删除至少延后一个发布周期，并在删除前审计回滚消费者。
 - [ ] 在生产数据副本完成 migration、28 类 job type / 31 个 type-version capability、任务竞态、媒体任务、GC 和应用回滚演练。
-- [ ] 艺术家外部身份稳定运行一个发布周期后，审计回滚镜像并用独立 migration 删除 `Artist.userId`。
-- [ ] 系列来源身份稳定运行一个发布周期后，审计 direct/join 漂移并用独立 migration 删除 `Artwork.seriesId`、`Series.source`、`Series.externalId`。
 - [ ] 根据真实生产数据调整任务告警阈值、GC 批量、日志保留和 Worker 资源限制。
 
 ## 可选媒体格式扩展

@@ -42,10 +42,6 @@ export function toDatabaseStoredPath(relativePath: string): string {
   return `/${normalizeStoredRelativePath(relativePath)}`
 }
 
-export function buildCanonicalTargetDirectory(artistUserId: string, externalId: string): string {
-  return `${assertSafePathSegment(artistUserId, 'artist.userId')}/${assertSafePathSegment(externalId, 'artwork.externalId')}`
-}
-
 export function buildCanonicalTargetPath(targetDirectory: string, sourceRelativePath: string): string {
   const filename = path.posix.basename(normalizeStoredRelativePath(sourceRelativePath))
   assertSafePathSegment(filename, 'image filename')

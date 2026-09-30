@@ -1,12 +1,22 @@
 import path from 'path'
 import fs from 'fs/promises'
-import { constants as fsConstants } from 'fs'
+import { constants as fsConstants, createReadStream } from 'fs'
+import { createHash } from 'crypto'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { migrationLogger } from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
 import { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
-import { migrationFilterSchema, migrationSelectionSchema, type MigrationSelection } from '@pixishelf/job-contracts'
+import {
+  migrationFilterSchema,
+  migrationSelectionSchema,
+  resolveCanonicalArtworkStoragePath,
+  type MigrationSelection
+} from '@pixishelf/job-contracts'
 import { buildMigrationArtworkWhere, createPrismaMigrationSelectionPort } from '@pixishelf/job-executors'
+import { lockArtworkForReading, lockCreatorCatalog } from '@pixishelf/db'
+import { generateLocalStorageKey } from './artwork-service/utils'
+import { resolveCreatablePathWithinRoot, resolveExistingPathWithinRoot } from '@/lib/safe-path'
 
 // 状态定义
 export type MigrationStatus = 'PENDING' | 'SKIPPED' | 'SUCCESS' | 'FAILED'
@@ -83,6 +93,97 @@ const resolveSafetyOptions = (options?: MigrationSafetyOptions) => {
   }
 }
 
+function normalizeMigrationStoredPath(storedPath: string): string {
+  if (/^(?:[/\\]){2}/.test(storedPath)) throw new Error('持久路径不能是 UNC 或网络绝对路径')
+  const normalized = storedPath.replace(/\\/g, '/').replace(/^\/+/, '')
+  if (!normalized || /^[A-Za-z]:/.test(normalized)) throw new Error('持久路径必须位于媒体根目录内')
+  const segments = normalized.split('/')
+  if (
+    segments.some(
+      (segment) =>
+        !segment ||
+        segment === '.' ||
+        segment === '..' ||
+        /[<>:"|?*]/.test(segment) ||
+        [...segment].some((character) => character.charCodeAt(0) <= 0x1f)
+    )
+  ) {
+    throw new Error('持久路径包含不安全的目录段')
+  }
+  return segments.join('/')
+}
+
+async function hashMigrationFile(filePath: string): Promise<string> {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk)
+  return hash.digest('hex')
+}
+
+async function assertExclusiveMigrationPathOwnership(
+  tx: Prisma.TransactionClient,
+  artworkId: number,
+  storedPaths: string[],
+  label: '源路径' | '目标路径'
+): Promise<void> {
+  const canonicalPaths = [
+    ...new Set(
+      storedPaths.map((storedPath) =>
+        normalizeMigrationStoredPath(storedPath).normalize('NFC').toLocaleLowerCase('en-US')
+      )
+    )
+  ]
+  if (canonicalPaths.length === 0) return
+  const rows = await tx.$queryRaw<Array<{ ownedByOther: boolean }>>(Prisma.sql`
+    SELECT EXISTS (
+      SELECT 1
+      FROM "Image" AS image
+      WHERE image."artworkId" <> ${artworkId}
+        AND (
+          LOWER(NORMALIZE(REGEXP_REPLACE(REPLACE(image.path, CHR(92), '/'), '^/+', ''), NFC))
+            IN (${Prisma.join(canonicalPaths)})
+          OR LOWER(NORMALIZE(REGEXP_REPLACE(REPLACE(image."chaptersPath", CHR(92), '/'), '^/+', ''), NFC))
+            IN (${Prisma.join(canonicalPaths)})
+        )
+      UNION ALL
+      SELECT 1
+      FROM "Artwork" AS other_artwork
+      WHERE other_artwork.id <> ${artworkId}
+        AND (
+          LOWER(NORMALIZE(REGEXP_REPLACE(REPLACE(other_artwork."metaSource", CHR(92), '/'), '^/+', ''), NFC))
+            IN (${Prisma.join(canonicalPaths)})
+          OR LOWER(NORMALIZE(REGEXP_REPLACE(REPLACE(other_artwork."storagePath", CHR(92), '/'), '^/+', ''), NFC))
+            IN (${Prisma.join(canonicalPaths)})
+        )
+    ) AS "ownedByOther"
+  `)
+  if (rows[0]?.ownedByOther) throw new Error(`${label}已被其他作品引用`)
+}
+
+async function resolveMigrationArtist(
+  tx: Prisma.TransactionClient,
+  artistId: number
+): Promise<{ id: number; externalRefs: Array<{ externalId: string }> }> {
+  const source = await tx.artist.findUniqueOrThrow({
+    where: { id: artistId },
+    select: {
+      mergedIntoId: true,
+      externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } }
+    }
+  })
+  if (source.mergedIntoId === null) return { id: artistId, externalRefs: source.externalRefs }
+  const target = await tx.artist.findUniqueOrThrow({
+    where: { id: source.mergedIntoId },
+    select: {
+      mergedIntoId: true,
+      externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } }
+    }
+  })
+  if (target.mergedIntoId !== null) {
+    throw new Error('艺术家合并关系异常，请先完成维护再迁移')
+  }
+  return { id: source.mergedIntoId, externalRefs: target.externalRefs }
+}
+
 export async function precheckMigration(input: MigrationPrecheckInput): Promise<MigrationPrecheckResult> {
   const selection = input.selection ?? (await buildMigrationSelection(input))
   const selectionPort = createPrismaMigrationSelectionPort(
@@ -133,31 +234,238 @@ export async function migrateArtwork(
   }
 
   // 1. 获取数据
-  const artwork = await prisma.artwork.findUnique({
-    where: { id: artworkId },
-    include: { images: true, artist: true }
+  const artwork = await prisma.$transaction(async (tx) => {
+    const current = await tx.artwork.findUnique({
+      where: { id: artworkId },
+      include: {
+        images: true,
+        externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } },
+        artist: {
+          select: {
+            id: true,
+            externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } }
+          }
+        }
+      }
+    })
+    if (!current) return current
+    if (!current.artistId) return { ...current, originalArtistId: current.artistId }
+    const transaction = tx as unknown as Prisma.TransactionClient
+    await lockCreatorCatalog(transaction)
+    const targetArtist = await resolveMigrationArtist(transaction, current.artistId)
+    if (current.createdVia !== 'LOCAL_DIRECTORY' && current.createdVia !== 'MANUAL_CREATE') {
+      return { ...current, originalArtistId: current.artistId, artistId: targetArtist.id, artist: targetArtist }
+    }
+    const targetArtistId = targetArtist.id
+    const artistDirectory = `artist-${targetArtistId}`
+    const mapping = await tx.localImportArtistMapping.findUnique({
+      where: { artistDirectory },
+      select: { artistId: true }
+    })
+    if (mapping && mapping.artistId !== targetArtistId) {
+      throw new Error(`本地导入目录 ${artistDirectory} 已绑定到其他艺术家`)
+    }
+    if (!mapping) {
+      await tx.localImportArtistMapping.create({ data: { artistDirectory, artistId: targetArtistId } })
+    }
+    if (current.storageKey) {
+      return {
+        ...current,
+        originalArtistId: current.artistId,
+        artistId: targetArtistId,
+        artist: targetArtist
+      }
+    }
+    const storageKey = generateLocalStorageKey(current.id)
+    await tx.artwork.update({ where: { id: current.id }, data: { storageKey } })
+    return {
+      ...current,
+      originalArtistId: current.artistId,
+      artistId: targetArtistId,
+      artist: targetArtist,
+      storageKey
+    }
   })
 
-  if (!artwork || !artwork.artist?.userId || !artwork.externalId || !artwork.images.length) {
+  if (!artwork || !artwork.images.length) {
     return { artworkId, status: 'FAILED', msg: ['数据不完整 (Artist或Images缺失)'] }
   }
+  const artistPixivRefs = artwork.artist?.externalRefs ?? []
+  const artworkPixivRefs = artwork.externalRefs
+  const targetRelDir = resolveCanonicalArtworkStoragePath({
+    createdVia: artwork.createdVia,
+    artistId: artwork.artistId,
+    artistPixivExternalId: artistPixivRefs.length === 1 ? artistPixivRefs[0]!.externalId : null,
+    artworkPixivExternalId: artworkPixivRefs.length === 1 ? artworkPixivRefs[0]!.externalId : null,
+    storageKey: artwork.storageKey
+  })
+  if (!targetRelDir) return { artworkId, status: 'FAILED', msg: ['缺少可确认的来源身份或本地存储键'] }
+  const targetAbsDir = path.join(scanRoot, targetRelDir)
 
-  const targetRelDirFs = path.join(artwork.artist.userId, artwork.externalId)
-  const targetRelDir = targetRelDirFs.replace(/\\/g, '/')
-  const targetAbsDir = path.join(scanRoot, targetRelDirFs)
-
-  // 假设第一张图代表当前位置
-  const currentRelPath = artwork.images[0]!.path
-  const currentAbsPath = path.join(scanRoot, currentRelPath)
-  const sourceAbsDir = path.dirname(currentAbsPath)
+  const mediaDirectories = new Set(
+    artwork.images.map((image) => path.posix.dirname(image.path.replace(/\\/g, '/').replace(/^\/+/, '')))
+  )
+  if (mediaDirectories.size !== 1) {
+    return { artworkId, status: 'FAILED', msg: ['作品媒体不在同一目录，无法安全迁移'] }
+  }
+  const targetStoredPath = (current: string) => {
+    const target = path.posix.join(targetRelDir, path.posix.basename(current.replace(/\\/g, '/')))
+    return current.startsWith('/') || current.startsWith('\\') ? `/${target}` : target
+  }
+  const persistedPaths = [
+    ...artwork.images.flatMap((image) => [image.path, ...(image.chaptersPath ? [image.chaptersPath] : [])]),
+    ...(artwork.metaSource ? [artwork.metaSource] : [])
+  ]
+  const transitions = new Map<string, { sourceStoredPath: string; sourceRelativePath: string; targetStoredPath: string }>()
+  const targetOwners = new Map<string, string>()
+  for (const sourceStoredPath of persistedPaths) {
+    let sourceRelativePath: string
+    try {
+      sourceRelativePath = normalizeMigrationStoredPath(sourceStoredPath)
+    } catch (error) {
+      return {
+        artworkId,
+        status: 'FAILED',
+        msg: [error instanceof Error ? error.message : '持久路径无效']
+      }
+    }
+    const nextStoredPath = targetStoredPath(sourceStoredPath)
+    const targetRelativePath = nextStoredPath.replace(/^\/+/, '')
+    const existingSource = targetOwners.get(targetRelativePath.toLocaleLowerCase('en-US'))
+    if (existingSource && existingSource !== sourceRelativePath.toLocaleLowerCase('en-US')) {
+      return { artworkId, status: 'FAILED', msg: ['多个持久文件会迁移到同一目标路径'] }
+    }
+    targetOwners.set(targetRelativePath.toLocaleLowerCase('en-US'), sourceRelativePath.toLocaleLowerCase('en-US'))
+    transitions.set(sourceRelativePath.toLocaleLowerCase('en-US'), {
+      sourceStoredPath,
+      sourceRelativePath,
+      targetStoredPath: nextStoredPath
+    })
+  }
+  const fileTransitions = [...transitions.values()]
+  const sourceOwnershipPaths = [
+    ...fileTransitions.map((file) => file.sourceStoredPath),
+    ...(artwork.storagePath ? [artwork.storagePath] : [])
+  ]
+  const targetOwnershipPaths = [...fileTransitions.map((file) => file.targetStoredPath), targetRelDir]
+  const assertExclusivePathOwnership = async (tx: Prisma.TransactionClient) => {
+    await assertExclusiveMigrationPathOwnership(tx, artworkId, sourceOwnershipPaths, '源路径')
+    await assertExclusiveMigrationPathOwnership(tx, artworkId, targetOwnershipPaths, '目标路径')
+  }
+  try {
+    await prisma.$transaction(async (tx) => {
+      await assertExclusivePathOwnership(tx as unknown as Prisma.TransactionClient)
+    })
+  } catch (error) {
+    return {
+      artworkId,
+      status: 'FAILED',
+      msg: [error instanceof Error ? error.message : '迁移路径所有权检查失败']
+    }
+  }
+  const persistReferences = async () => {
+    await prisma.$transaction(async (tx) => {
+      const transaction = tx as unknown as Prisma.TransactionClient
+      await lockCreatorCatalog(transaction)
+      if (!(await lockArtworkForReading(transaction, artworkId))) {
+        throw new Error('作品在迁移发布前已不存在')
+      }
+      await assertExclusivePathOwnership(transaction)
+      const current = await tx.artwork.findUnique({
+        where: { id: artworkId },
+        select: {
+          id: true,
+          deletedAt: true,
+          createdVia: true,
+          artistId: true,
+          storageKey: true,
+          metaSource: true,
+          storagePath: true,
+          externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } },
+          images: { select: { id: true, path: true, chaptersPath: true }, orderBy: { id: 'asc' } }
+        }
+      })
+      if (
+        !current ||
+        current.deletedAt !== null ||
+        current.artistId === null ||
+        current.artistId !== artwork.originalArtistId ||
+        current.createdVia !== artwork.createdVia ||
+        current.storageKey !== artwork.storageKey ||
+        current.metaSource !== artwork.metaSource ||
+        current.storagePath !== artwork.storagePath
+      ) {
+        throw new Error('作品身份或持久路径在迁移期间发生变化')
+      }
+      const activeArtist = await resolveMigrationArtist(transaction, current.artistId)
+      const currentTarget = resolveCanonicalArtworkStoragePath({
+        createdVia: current.createdVia,
+        artistId: activeArtist.id,
+        artistPixivExternalId:
+          activeArtist.externalRefs.length === 1 ? activeArtist.externalRefs[0]!.externalId : null,
+        artworkPixivExternalId:
+          current.externalRefs.length === 1 ? current.externalRefs[0]!.externalId : null,
+        storageKey: current.storageKey
+      })
+      if (currentTarget !== targetRelDir) throw new Error('作品来源身份在迁移期间发生变化')
+      if (current.createdVia === 'LOCAL_DIRECTORY' || current.createdVia === 'MANUAL_CREATE') {
+        const mapping = await tx.localImportArtistMapping.findUnique({
+          where: { artistDirectory: `artist-${activeArtist.id}` },
+          select: { artistId: true }
+        })
+        if (mapping?.artistId !== activeArtist.id) throw new Error('本地艺术家目录绑定在迁移期间发生变化')
+      }
+      const expectedImages = [...artwork.images].sort((left, right) => left.id - right.id)
+      if (
+        current.images.length !== expectedImages.length ||
+        current.images.some(
+          (image, index) =>
+            image.id !== expectedImages[index]!.id ||
+            image.path !== expectedImages[index]!.path ||
+            image.chaptersPath !== expectedImages[index]!.chaptersPath
+        )
+      ) {
+        throw new Error('作品媒体引用在迁移期间发生变化')
+      }
+      for (const image of artwork.images) {
+        const updated = await tx.image.updateMany({
+          where: {
+            id: image.id,
+            artworkId,
+            path: image.path,
+            chaptersPath: image.chaptersPath
+          },
+          data: {
+            path: targetStoredPath(image.path),
+            chaptersPath: image.chaptersPath ? targetStoredPath(image.chaptersPath) : null
+          }
+        })
+        if (updated.count !== 1) throw new Error('作品媒体引用在迁移发布时发生变化')
+      }
+      const updated = await tx.artwork.updateMany({
+        where: {
+          id: artworkId,
+          deletedAt: null,
+          createdVia: artwork.createdVia,
+          artistId: artwork.originalArtistId,
+          storageKey: artwork.storageKey,
+          metaSource: artwork.metaSource,
+          storagePath: artwork.storagePath
+        },
+        data: {
+          metaSource: artwork.metaSource ? targetStoredPath(artwork.metaSource) : null,
+          storagePath: targetRelDir
+        }
+      })
+      if (updated.count !== 1) throw new Error('作品持久路径在迁移发布时发生变化')
+    })
+  }
 
   // 2. 幂等性检查：如果已经在目标路径下
   // Windows 下路径可能包含反斜杠，统一替换为正斜杠后比较。
-  const normalizedCurrent = currentRelPath.replace(/\\/g, '/').replace(/^\//, '')
-  const normalizedTarget = targetRelDir.replace(/\\/g, '/')
-
-  if (normalizedCurrent.startsWith(normalizedTarget)) {
-    return { artworkId, status: 'SKIPPED', msg: [`路径已符合规范: ${currentRelPath}`] }
+  if (fileTransitions.every((file) => file.sourceRelativePath === file.targetStoredPath.replace(/^\/+/, ''))) {
+    await persistReferences()
+    return { artworkId, status: 'SKIPPED', msg: [`路径已符合规范: ${artwork.images[0]!.path}`] }
   }
 
   let rolledBack = false
@@ -169,6 +477,14 @@ export async function migrateArtwork(
     for (let i = moves.length - 1; i >= 0; i--) {
       const move = moves[i]!
       try {
+        const sourceWasRecreated = await fs.access(move.src).then(
+          () => true,
+          () => false
+        )
+        if (sourceWasRecreated) {
+          log(`回滚失败: 源路径已被重新占用 ${move.src}`, 'error')
+          continue
+        }
         await fs.rename(move.dest, move.src)
       } catch (e: any) {
         log(`回滚失败: ${move.dest} -> ${move.src} (${e.message})`, 'error')
@@ -189,90 +505,55 @@ export async function migrateArtwork(
   }
 
   try {
-    try {
-      await fs.access(sourceAbsDir)
-    } catch {
-      try {
-        await fs.access(targetAbsDir)
-        const targetFiles = await fs.readdir(targetAbsDir)
-        if (targetFiles.length > 0) {
-          const expectedFiles = artwork.images.map((img) => path.basename(img.path))
-          const targetFileSet = new Set(targetFiles)
-          const allMatched = expectedFiles.every((file) => targetFileSet.has(file))
-          if (allMatched) {
-            await prisma.$transaction(async (tx) => {
-              for (const img of artwork.images) {
-                const fileName = path.basename(img.path)
-                const newPath = path.posix.join(targetRelDir, fileName)
-                await tx.image.update({
-                  where: { id: img.id },
-                  data: { path: '/' + newPath }
-                })
-              }
-            })
-            logs.push(`已修复路径至 ${targetRelDir}`)
-            return { artworkId, status: 'SUCCESS', msg: logs }
-          }
-          return { artworkId, status: 'FAILED', msg: ['源目录不存在，目标目录已有文件'] }
+    const copySourcesToCleanup: string[] = []
+    for (const file of fileTransitions) {
+      const src = await resolveExistingPathWithinRoot(scanRoot, file.sourceRelativePath).catch(() => {
+        throw new Error(`持久文件不存在或路径不安全: ${file.sourceStoredPath}`)
+      })
+      const dest = await resolveCreatablePathWithinRoot(scanRoot, file.targetStoredPath.replace(/^\/+/, '')).catch(
+        () => {
+          throw new Error(`目标路径不安全: ${file.targetStoredPath}`)
         }
-      } catch {}
-      return { artworkId, status: 'FAILED', msg: ['源目录不存在'] }
-    }
-
-    const sourceFiles = await fs.readdir(sourceAbsDir)
-    const relatedFiles = sourceFiles.filter((f) => f.startsWith(artwork.externalId!))
-
-    if (relatedFiles.length === 0) {
-      return { artworkId, status: 'FAILED', msg: ['源目录中未找到相关文件'] }
-    }
-
-    await fs.mkdir(targetAbsDir, { recursive: true })
-
-    for (const file of relatedFiles) {
-      const src = path.join(sourceAbsDir, file)
-      const dest = path.join(targetAbsDir, file)
-
+      )
       if (src !== dest) {
+        const targetExists = await fs.access(dest).then(
+          () => true,
+          () => false
+        )
+        if (targetExists) throw new Error(`目标文件已存在: ${file.targetStoredPath}`)
+        await fs.mkdir(path.dirname(dest), { recursive: true })
+        let createdDestination = false
         try {
+          await fs.copyFile(src, dest, fsConstants.COPYFILE_EXCL)
+          createdDestination = true
+          const shouldVerify = safety.transferMode === 'move' || safety.verifyAfterCopy || safety.cleanupSource
+          if (shouldVerify) {
+            const [srcStat, destStat, srcHash, destHash] = await Promise.all([
+              fs.stat(src),
+              fs.stat(dest),
+              hashMigrationFile(src),
+              hashMigrationFile(dest)
+            ])
+            if (srcStat.size !== destStat.size || srcHash !== destHash) {
+              throw new Error(`拷贝校验失败: ${path.basename(src)}`)
+            }
+          }
           if (safety.transferMode === 'copy') {
-            await fs.copyFile(src, dest, fsConstants.COPYFILE_EXCL)
             copies.push({ src, dest })
+            copySourcesToCleanup.push(src)
           } else {
-            await fs.rename(src, dest)
+            await fs.unlink(src)
             moves.push({ src, dest })
           }
         } catch (e: any) {
-          if (e.code === 'EEXIST' && safety.transferMode === 'copy') {
-            continue
-          }
+          if (createdDestination) await fs.unlink(dest).catch(() => undefined)
           throw e
         }
       }
     }
 
-    if (safety.transferMode === 'copy' && safety.verifyAfterCopy) {
-      for (const file of relatedFiles) {
-        const src = path.join(sourceAbsDir, file)
-        const dest = path.join(targetAbsDir, file)
-        if (src === dest) continue
-        const [srcStat, destStat] = await Promise.all([fs.stat(src), fs.stat(dest)])
-        if (srcStat.size !== destStat.size) {
-          throw new Error(`拷贝校验失败: ${file}`)
-        }
-      }
-    }
-
     try {
-      await prisma.$transaction(async (tx) => {
-        for (const img of artwork.images) {
-          const fileName = path.basename(img.path)
-          const newPath = path.posix.join(targetRelDir, fileName)
-          await tx.image.update({
-            where: { id: img.id },
-            data: { path: '/' + newPath }
-          })
-        }
-      })
+      await persistReferences()
     } catch (e: any) {
       await rollbackMoves()
       log(`[Migrate] 数据库更新失败: ${e.message}`, 'error')
@@ -281,16 +562,25 @@ export async function migrateArtwork(
 
     if (safety.cleanupSource) {
       if (safety.transferMode === 'copy') {
-        for (const file of relatedFiles) {
+        for (const source of copySourcesToCleanup) {
           try {
-            await fs.unlink(path.join(sourceAbsDir, file))
+            await fs.unlink(source)
           } catch (e: any) {
-            log(`[Migrate] 清理源文件失败: ${file} (${e.message})`, 'warn')
+            log(`[Migrate] 清理源文件失败: ${source} (${e.message})`, 'warn')
           }
         }
       }
 
-      if (path.relative(scanRoot, sourceAbsDir) !== '') {
+      const sourceDirectories = new Set(
+        fileTransitions.map((file) => path.dirname(path.join(scanRoot, file.sourceRelativePath)))
+      )
+      for (const sourceAbsDir of sourceDirectories) {
+        if (path.relative(scanRoot, sourceAbsDir) === '' || path.resolve(sourceAbsDir) === path.resolve(targetAbsDir)) {
+          if (path.relative(scanRoot, sourceAbsDir) === '') {
+            log(`[Migrate] 源目录为根目录，跳过删除: ${sourceAbsDir} （防止删除根目录） ${scanRoot}`, 'info')
+          }
+          continue
+        }
         try {
           const deleteCandidates = new Set(['@eaDir', '.DS_Store', 'Thumbs.db'])
           const entries = await fs.readdir(sourceAbsDir)
@@ -314,8 +604,6 @@ export async function migrateArtwork(
         } catch (e: any) {
           log(`[Migrate] 尝试删除源目录失败: ${sourceAbsDir}, Error: ${e.message}`, 'warn')
         }
-      } else {
-        log(`[Migrate] 源目录为根目录，跳过删除: ${sourceAbsDir} （防止删除根目录） ${scanRoot}`, 'info')
       }
     }
 
@@ -369,10 +657,20 @@ export async function runMigrationJob(
     },
     0
   )
-  const where: any = {
+  const where: Prisma.ArtworkWhereInput = {
     AND: [
       canonicalWhere,
-      { artist: { is: { userId: { not: null } } }, externalId: { not: null }, images: { some: {} } }
+      {
+        images: { some: {} },
+        OR: [
+          {
+            createdVia: 'PIXIV_SCAN',
+            artist: { is: { externalRefs: { some: { providerKey: 'pixiv' } } } },
+            externalRefs: { some: { providerKey: 'pixiv' } }
+          },
+          { createdVia: { in: ['LOCAL_DIRECTORY', 'MANUAL_CREATE'] }, artistId: { not: null } }
+        ]
+      }
     ]
   }
 

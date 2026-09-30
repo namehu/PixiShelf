@@ -1,4 +1,4 @@
-import { extractJobDiagnostic } from '@pixishelf/job-contracts'
+import { extractJobDiagnostic, resolveCanonicalArtworkStoragePath } from '@pixishelf/job-contracts'
 import path from 'node:path'
 import type {
   EnqueuedChildJob,
@@ -8,7 +8,6 @@ import type {
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import {
-  buildCanonicalTargetDirectory,
   buildCanonicalTargetPath,
   buildStagedRelativePath,
   caseFoldPath,
@@ -192,7 +191,9 @@ async function prepareArtworkPlan<TTransaction extends QueueSqlExecutor>(
     }
     return existing
   }
-  const artwork = await dependencies.database.loadArtwork(artworkId, maxArtworkFiles + 1)
+  const artwork = await context.mutateInTransaction<TTransaction, MigrationArtworkSnapshot | null>((transaction) =>
+    dependencies.database.loadArtwork(transaction, artworkId, maxArtworkFiles + 1)
+  )
   if (!artwork || artwork.deletedAt) {
     await context.mutateInTransaction<TTransaction>(async (transaction) => {
       await dependencies.database.recordUnplannableItem(transaction, {
@@ -207,7 +208,8 @@ async function prepareArtworkPlan<TTransaction extends QueueSqlExecutor>(
     })
     return null
   }
-  if (!artwork.artistUserId || !artwork.externalId || artwork.images.length === 0) {
+  const targetDirectory = resolveMigrationTargetDirectory(artwork)
+  if (!targetDirectory || artwork.images.length === 0) {
     await context.mutateInTransaction<TTransaction>(async (transaction) => {
       await dependencies.database.recordUnplannableItem(transaction, {
         systemJobId: context.job.id,
@@ -216,7 +218,7 @@ async function prepareArtworkPlan<TTransaction extends QueueSqlExecutor>(
         attempt: context.job.attempt,
         status: 'FAILED',
         errorCode: 'INCOMPLETE_ARTWORK',
-        errorSummary: 'Artwork requires an artist userId, externalId, and at least one image'
+        errorSummary: 'Artwork requires a supported persistent storage identity and at least one image'
       })
       await context.recordDiagnostic?.(transaction, {
         key: `migration-artwork:${artworkId}`,
@@ -225,7 +227,7 @@ async function prepareArtworkPlan<TTransaction extends QueueSqlExecutor>(
         targetId: String(artworkId),
         stage: 'PLANNING',
         code: 'INCOMPLETE_ARTWORK',
-        message: 'Artwork requires an artist userId, externalId, and at least one image'
+        message: 'Artwork requires a supported persistent storage identity and at least one image'
       })
     })
     return null
@@ -233,7 +235,7 @@ async function prepareArtworkPlan<TTransaction extends QueueSqlExecutor>(
 
   let planInput: CreateMigrationPlanInput
   try {
-    planInput = await buildPlanInput(context, dependencies, artwork, selectionOrdinal)
+    planInput = await buildPlanInput(context, dependencies, artwork, targetDirectory, selectionOrdinal)
   } catch (error) {
     if (error instanceof MigrationActionRequiredError) {
       const failure = publicFailure(error.code)
@@ -286,9 +288,9 @@ async function buildPlanInput<TTransaction extends QueueSqlExecutor>(
   context: MigrationContext,
   dependencies: MigrationExecutorDependencies<TTransaction>,
   artwork: MigrationArtworkSnapshot,
+  targetDirectory: string,
   selectionOrdinal: number
 ): Promise<CreateMigrationPlanInput> {
-  const targetDirectory = buildCanonicalTargetDirectory(artwork.artistUserId!, artwork.externalId!)
   const targetPaths = new Set<string>()
   const sourcePaths = new Set<string>()
   const sourceDirectories = new Set<string>()
@@ -401,7 +403,9 @@ async function buildPlanInput<TTransaction extends QueueSqlExecutor>(
     }
     remainingDirectoryEntries -= listing.names.length
     for (const filename of listing.names.sort()) {
-      if (!isExternalIdOwnedFilename(filename, artwork.externalId!)) continue
+      if (!artwork.artworkPixivExternalId || !isExternalIdOwnedFilename(filename, artwork.artworkPixivExternalId)) {
+        continue
+      }
       const sourceRelativePath = sourceDirectory === '.' ? filename : `${sourceDirectory}/${filename}`
       if (sourcePaths.has(caseFoldPath(sourceRelativePath))) continue
       await resolveSafeExistingFile(dependencies.fileSystem, dependencies.config.scanRoot, sourceRelativePath)
@@ -420,6 +424,20 @@ async function buildPlanInput<TTransaction extends QueueSqlExecutor>(
     sourceDirectory: sourceDirectories.size === 1 ? [...sourceDirectories][0]! : null,
     targetDirectory,
     files
+  }
+}
+
+function resolveMigrationTargetDirectory(artwork: MigrationArtworkSnapshot): string | null {
+  try {
+    return resolveCanonicalArtworkStoragePath({
+      createdVia: artwork.createdVia,
+      artistId: artwork.artistId,
+      artistPixivExternalId: artwork.artistPixivExternalId,
+      artworkPixivExternalId: artwork.artworkPixivExternalId,
+      storageKey: artwork.storageKey
+    })
+  } catch (error) {
+    return null
   }
 }
 

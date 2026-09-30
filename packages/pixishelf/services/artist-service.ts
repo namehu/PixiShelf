@@ -73,6 +73,7 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
       }
     }
     if (search) {
+      const formalPixivId = /^[1-9][0-9]*$/.test(search) ? search : null
       whereClause.OR = [
         { sourceTagMappings: { some: { sourceName: { contains: search, mode: 'insensitive' } } } },
         {
@@ -91,7 +92,7 @@ export async function getArtists(options: ArtistsGetSchema): Promise<PaginationR
           externalRefs: {
             some: {
               OR: [
-                { externalId: { contains: search, mode: 'insensitive' } },
+                ...(formalPixivId ? [{ providerKey: 'pixiv', externalId: formalPixivId }] : []),
                 { sourceName: { contains: search, mode: 'insensitive' } }
               ]
             }
@@ -344,12 +345,11 @@ export async function getDashboardArtists(
 export async function createArtist(data: ArtistCreateSchema): Promise<ArtistResponseDto> {
   const { pixivUserId, ...artistInput } = data
   return prisma.$transaction(async (transaction) => {
+    await lockCreatorCatalog(transaction as unknown as Prisma.TransactionClient)
     const artist = await transaction.artist.create({
       data: {
         ...artistInput,
-        username: artistInput.username || artistInput.name,
-        // 旧字段仅作为一个发布周期的回滚镜像；来源判断只读取 ArtistExternalRef。
-        userId: pixivUserId ?? null
+        username: artistInput.username || artistInput.name
       }
     })
     if (pixivUserId) {
@@ -403,8 +403,7 @@ export async function updateArtist(id: number, data: ArtistUpdateSchema['data'])
       where: { id },
       data: {
         ...artistInput,
-        ...(artistInput.name && !artistInput.username ? { username: artistInput.name } : {}),
-        ...(pixivUserId !== undefined ? { userId: pixivUserId } : {})
+        ...(artistInput.name && !artistInput.username ? { username: artistInput.name } : {})
       }
     })
     if (pixivUserId === null) {
@@ -494,6 +493,9 @@ async function rankCreators(options: ArtistsGetSchema, skip: number, take: numbe
   if (options.isStarred !== undefined) clauses.push('a."isStarred" = ' + bind(options.isStarred))
   if (options.search) {
     const p = bind('%' + options.search + '%')
+    const pixivIdentityClause = /^[1-9][0-9]*$/.test(options.search)
+      ? ' OR (er."providerKey"=\'pixiv\' AND er."externalId" = ' + bind(options.search) + ')'
+      : ''
     clauses.push(
       '(a.name ILIKE ' +
         p +
@@ -502,10 +504,9 @@ async function rankCreators(options: ArtistsGetSchema, skip: number, take: numbe
         ' OR EXISTS (SELECT 1 FROM artist_source_tag_mappings sm WHERE sm."artistId"=a.id AND sm."sourceName" ILIKE ' +
         p +
         ')' +
-        ' OR EXISTS (SELECT 1 FROM artist_external_refs er WHERE er."artistId"=a.id AND (er."externalId" ILIKE ' +
+        ' OR EXISTS (SELECT 1 FROM artist_external_refs er WHERE er."artistId"=a.id AND (er."sourceName" ILIKE ' +
         p +
-        ' OR er."sourceName" ILIKE ' +
-        p +
+        pixivIdentityClause +
         ')))'
     )
   }

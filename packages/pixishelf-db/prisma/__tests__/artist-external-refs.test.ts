@@ -8,6 +8,10 @@ const migration = readFileSync(
   path.join(prismaDirectory, 'migrations/20260825103000_add_artist_external_refs/migration.sql'),
   'utf8'
 )
+const retirementMigration = readFileSync(
+  path.join(prismaDirectory, 'migrations/20260930120000_retire_artist_legacy_identity/migration.sql'),
+  'utf8'
+)
 const audit = readFileSync(path.join(prismaDirectory, 'diagnostics/artist-source-identity-audit.sql'), 'utf8')
 const verification = readFileSync(
   path.join(prismaDirectory, 'diagnostics/artist-external-ref-verification.sql'),
@@ -30,10 +34,15 @@ describe('artist external identity migration', () => {
     expect(migration).not.toContain("LIKE 'p\\_%'")
   })
 
-  it('keeps the legacy Artist.userId column for the compatibility release', () => {
-    expect(schema).toMatch(/userId\s+String\?/)
+  it('retires Artist.userId only after the joint identity gate passes', () => {
+    const artistModel = schema.slice(schema.indexOf('model Artist {'), schema.indexOf('model ArtistMerge {'))
+    expect(artistModel).not.toMatch(/\buserId\b/)
     expect(migration).not.toMatch(/DROP\s+COLUMN\s+"userId"/i)
     expect(migration).not.toMatch(/UPDATE\s+"Artist"/i)
+    expect(retirementMigration).toContain('artist_blocker_count')
+    expect(retirementMigration).toContain('direct_series_blocker_count')
+    expect(retirementMigration).toContain('series_identity_blocker_count')
+    expect(retirementMigration).toContain('ALTER TABLE "Artist" DROP COLUMN "userId"')
   })
 
   it('ships a read-only audit for duplicates and ambiguous ids', () => {
@@ -41,7 +50,9 @@ describe('artist external identity migration', () => {
     expect(audit).toContain('automatic_claim_count')
     expect(audit).toContain("LIKE 'p\\_%'")
     expect(audit).not.toMatch(/^\s*(?:INSERT|UPDATE|DELETE|ALTER|DROP)\b/im)
-    expect(verification).toContain('missing_expected_claims')
+    expect(verification).toContain('duplicate_provider_identity_count')
+    expect(verification).toContain('artwork_without_durable_storage_path_count')
+    expect(verification).not.toContain('"userId"')
     expect(verification).not.toMatch(/^\s*(?:INSERT|UPDATE|DELETE|ALTER|DROP)\b/im)
   })
 })

@@ -143,4 +143,24 @@ describe('Worker deployment boundary', () => {
     expect(worker).toBeLessThan(workerReady)
     expect(workerReady).toBeLessThan(capability)
   })
+
+  it('guards normal App startup before migration while allowing the maintenance CLI to run directly', () => {
+    const appEntrypoint = readFileSync(new URL('build/entrypoint.sh', repositoryRoot), 'utf8')
+    const webDockerfile = readFileSync(new URL('build/Dockerfile', repositoryRoot), 'utf8')
+    const maintenancePath = 'packages/pixishelf-db/maintenance/retire-legacy-fields.mjs'
+    const bypass = appEntrypoint.indexOf(`if [ "$1" = "node" ] && [ "$2" = "${maintenancePath}" ]`)
+    const guard = appEntrypoint.indexOf(`node ${maintenancePath} guard-startup`)
+    const deploy = appEntrypoint.indexOf('prisma migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma')
+
+    expect(bypass).toBeGreaterThan(-1)
+    expect(appEntrypoint.slice(bypass, guard)).toContain('exec "$@"')
+    expect(guard).toBeGreaterThan(bypass)
+    expect(guard).toBeLessThan(deploy)
+    expect(webDockerfile).toContain(
+      'COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf-db/maintenance ./packages/pixishelf-db/maintenance'
+    )
+    expect(webDockerfile).toContain(
+      'COPY --from=builder --chown=nextjs:nodejs /app/packages/pixishelf-db/prisma ./packages/pixishelf-db/prisma'
+    )
+  })
 })

@@ -2,7 +2,6 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   assertSafePathSegment,
-  buildCanonicalTargetDirectory,
   isExternalIdOwnedFilename,
   isPathInExactDirectory,
   normalizeStoredRelativePath,
@@ -12,8 +11,7 @@ import {
 import { MemoryMigrationFileSystem } from './memory-file-system.js'
 
 describe('migration path policy', () => {
-  it('requires artist and external ids to be one strict safe segment', () => {
-    expect(buildCanonicalTargetDirectory('artist-1', '123')).toBe('artist-1/123')
+  it('requires canonical directory segments to be strict safe segments', () => {
     for (const value of ['../artist', 'artist/name', 'artist\\name', 'CON', 'name.', 'C:']) {
       expect(() => assertSafePathSegment(value, 'segment')).toThrow('safe path segment')
     }

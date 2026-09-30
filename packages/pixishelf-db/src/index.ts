@@ -7,7 +7,7 @@ export * from './artist-merge'
 export * from './animation-duration'
 export * from './artwork-reading'
 
-const latestRequiredMigration = '20260924130000_add_artwork_reading_tracking'
+const latestRequiredMigration = '20260930121000_retire_series_legacy_fields'
 
 const requiredQueueObjects = [
   'artist_merges',
@@ -61,12 +61,18 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   try {
     ;[columnRows, tableRows, migrationRows, indexRows] = await Promise.all([
       client.$queryRaw<Array<{ columnName: string }>>(Prisma.sql`
-        SELECT CASE WHEN table_name = 'Artwork' THEN 'Artwork.mediaRevision' ELSE column_name END AS "columnName"
+        SELECT CASE
+          WHEN table_name = 'Artwork' AND column_name = 'mediaRevision' THEN 'Artwork.mediaRevision'
+          ELSE column_name
+        END AS "columnName"
         FROM information_schema.columns
         WHERE table_schema = current_schema()
           AND (
             (table_name = 'system_jobs' AND column_name IN ('definitionVersion', 'executionLane', 'progressData'))
             OR (table_name = 'Artwork' AND column_name = 'mediaRevision')
+            OR (table_name = 'Artist' AND column_name = 'userId')
+            OR (table_name = 'Artwork' AND column_name = 'seriesId')
+            OR (table_name = 'Series' AND column_name IN ('source', 'externalId'))
           )
       `),
       client.$queryRaw<Array<{ tableName: string }>>(Prisma.sql`
@@ -117,6 +123,11 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   }
   if (!columnRows.some(({ columnName }) => columnName === 'Artwork.mediaRevision')) {
     missingObjects.push('Artwork.mediaRevision')
+  }
+  for (const retiredColumn of ['userId', 'seriesId', 'source', 'externalId']) {
+    if (columnRows.some(({ columnName }) => columnName === retiredColumn)) {
+      missingObjects.push(`retired-column:${retiredColumn}`)
+    }
   }
 
   const existingTables = new Set(tableRows.map(({ tableName }) => tableName))

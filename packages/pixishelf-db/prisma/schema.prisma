@@ -18,7 +18,6 @@ model Artist {
   kind                CreatorKind                @default(PERSON)
   name                String
   username            String?
-  userId              String? // 兼容期保留的历史来源字段；Pixiv 身份以 ArtistExternalRef 为准
   bio                 String?
   createdAt           DateTime                   @default(now())
   updatedAt           DateTime                   @updatedAt
@@ -34,7 +33,6 @@ model Artist {
   discoveryPending DiscoveryPendingCreator[]
   discoverySuppressions DiscoveryCreatorSuppression[]
 
-  @@unique([username, userId], name: "unique_username_userid")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([isStarred])
   @@index([mergedIntoId])
@@ -234,8 +232,6 @@ model Artwork {
   artist                Artist?               @relation(fields: [artistId], references: [id])
   creators              ArtworkArtist[]
   likes                 ArtworkLike[]
-  seriesId              Int?
-  series                Series?               @relation(fields: [seriesId], references: [id])
   seriesArtworks        SeriesArtwork[]
   artworkTags           ArtworkTag[]
   images                Image[]
@@ -2180,18 +2176,13 @@ model Series {
   title                 String
   description           String?
   coverImageUrl         String?
-  source                String              @default("LOCAL") // 兼容期历史来源字段；正式来源身份以 SeriesExternalRef 为准
-  externalId            String? // 兼容期历史 Pixiv 系列 ID
   titleOverridden       Boolean             @default(false)
   descriptionOverridden Boolean             @default(false)
   createdAt             DateTime            @default(now())
   updatedAt             DateTime            @updatedAt
-  artworks              Artwork[]
   seriesArtworks        SeriesArtwork[]
   externalRefs          SeriesExternalRef[]
 
-  // 这个索引让数据库知道：同一个来源下的同一个外部ID，只能有一条记录
-  @@unique([source, externalId])
 }
 
 enum SeriesExternalRefStatus {

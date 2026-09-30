@@ -66,6 +66,22 @@ describe('getArtists Pixiv enrichment filters', () => {
     )
     expect(artistCountMock).toHaveBeenCalledWith({ where: { ...where, mergedIntoId: null } })
   })
+
+  it('searches formal Pixiv ids without treating every provider id as an artist alias', async () => {
+    await getArtists({ cursor: 1, pageSize: 20, sortBy: 'name_asc', search: '123456' })
+
+    const where = artistFindManyMock.mock.calls[0]?.[0].where
+    expect(where.OR).toContainEqual({
+      externalRefs: {
+        some: {
+          OR: [
+            { providerKey: 'pixiv', externalId: '123456' },
+            { sourceName: { contains: '123456', mode: 'insensitive' } }
+          ]
+        }
+      }
+    })
+  })
 })
 
 describe('getDashboardArtists', () => {
@@ -82,7 +98,6 @@ describe('getDashboardArtists', () => {
         id: 1,
         name: 'artist',
         username: 'artist',
-        userId: '1000',
         bio: null,
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
         updatedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -139,7 +154,6 @@ describe('getDashboardArtists', () => {
         id: 1,
         name: 'artist',
         username: 'artist',
-        userId: '1000',
         bio: null,
         createdAt: new Date('2026-01-01T00:00:00.000Z'),
         updatedAt: new Date('2026-01-01T00:00:00.000Z'),

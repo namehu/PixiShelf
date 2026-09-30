@@ -164,7 +164,6 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
     })
     return res.data.map((artist) => ({
       value: artist.id.toString(),
-      userId: artist.userId,
       label: artist.name
     }))
   }
@@ -204,7 +203,6 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
           tempId: item.id,
           title: item.title,
           artistId: parseInt(artist.value),
-          artistUserId: artist.userId as any,
           tagIds: item.tags.map((t) => parseInt(t.value)), // 使用条目自身标签（支持异构标签集）
           sourceDate: format(item.parsedDate, 'yyyy-MM-dd') // 使用条目自身归档日期
         }))

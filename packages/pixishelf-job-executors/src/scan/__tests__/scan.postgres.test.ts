@@ -2451,8 +2451,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const oldArtist = await client().artist.create({
       data: {
         name: `${testPrefix}-curated-artist`,
-        username: `${testPrefix}-curated-artist`,
-        userId: `curated-${externalId}`
+        username: `${testPrefix}-curated-artist`
       }
     })
     const artwork = await client().artwork.create({
@@ -2578,7 +2577,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       { path: `/pixiv/${externalId}_p0.jpg`, sortOrder: 10 },
       { path: `pixiv/${externalId}_p1.jpg`, sortOrder: 11 }
     ])
-    expect(await client().artist.count({ where: { userId: externalId } })).toBe(0)
+    expect(await client().artistExternalRef.count({ where: { artistId: oldArtist.id, providerKey: 'pixiv' } })).toBe(0)
   })
 
   it('rejects an artwork rescan when its source changes after the snapshot is frozen', async () => {

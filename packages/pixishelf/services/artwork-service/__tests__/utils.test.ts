@@ -331,10 +331,15 @@ describe('determineArtworkRelDir', () => {
     expect(
       determineArtworkRelDir({
         storagePath: '\\local\\imported-artwork',
-        images: [{ path: '/legacy/path/image.jpg' }],
-        artist: { userId: 'legacy-artist' },
-        externalId: 'legacy-artwork'
+        images: [{ path: '/legacy/path/image.jpg' }]
       })
     ).toBe('/local/imported-artwork')
+  })
+
+  it('uses media paths only when every media item has the same directory', () => {
+    expect(determineArtworkRelDir({ images: [{ path: 'old/work/1.jpg' }, { path: 'old/work/2.jpg' }] })).toBe(
+      'old/work'
+    )
+    expect(determineArtworkRelDir({ images: [{ path: 'old/work/1.jpg' }, { path: 'other/work/2.jpg' }] })).toBeNull()
   })
 })

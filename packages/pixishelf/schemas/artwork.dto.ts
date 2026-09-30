@@ -437,7 +437,6 @@ export const BatchCreateArtworkSchema = z.object({
       tempId: z.string(), // 前端临时ID
       title: z.string().min(1),
       artistId: z.number().int(),
-      artistUserId: z.string(),
       tagIds: z.array(z.number().int()).default([]),
       sourceDate: z
         .string()

@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   requireAdminRequest: vi.fn(),
   getScanPath: vi.fn(),
   getArtworkById: vi.fn(),
+  ensureManualArtworkStorage: vi.fn(),
   handleImageReplaceSession: vi.fn(),
   getMediaUploadStatus: vi.fn(),
   handleMediaUploadChunk: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/services/background-task/request-auth', () => ({ requireAdminRequest: mocks.requireAdminRequest }))
 vi.mock('@/services/setting.service', () => ({ getScanPath: mocks.getScanPath }))
 vi.mock('@/services/artwork-service', () => ({ getArtworkById: mocks.getArtworkById }))
+vi.mock('@/services/artwork-service/manual-storage', () => ({ ensureManualArtworkStorage: mocks.ensureManualArtworkStorage }))
 vi.mock('@/services/artwork-service/image-replace-session', () => ({
   handleImageReplaceSession: mocks.handleImageReplaceSession,
   ImageReplaceSessionError: class extends Error {}
@@ -44,6 +46,7 @@ import { POST as uploadChapterManifest } from '../media-chapters/upload/route'
 import { DELETE as deleteChapterManifest } from '../media-chapters/[image-id]/route'
 
 const businessCalls = [
+  mocks.ensureManualArtworkStorage,
   mocks.getScanPath,
   mocks.getArtworkById,
   mocks.handleImageReplaceSession,
@@ -60,6 +63,21 @@ describe('artwork HTTP Route authorization boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.requireAdminRequest.mockRejectedValue(new ApiError('Unauthorized', 401))
+  })
+
+  it('prepares an empty manual artwork directory before initializing replacement', async () => {
+    mocks.requireAdminRequest.mockResolvedValue(undefined)
+    mocks.getScanPath.mockResolvedValue('/scan')
+    const artwork = { id: 83, externalId: null, storagePath: 'local-imports/unassigned/e_83_1544954', images: [] }
+    mocks.getArtworkById.mockResolvedValue(artwork)
+    mocks.handleImageReplaceSession.mockResolvedValue({ success: true, targetRelDir: artwork.storagePath })
+    const response = await replaceArtwork(new NextRequest('http://localhost/api/artwork/83/replace?action=init', { method: 'POST' }), {
+      params: Promise.resolve({ id: '83' })
+    })
+    expect(response.status).toBe(200)
+    expect(mocks.ensureManualArtworkStorage).toHaveBeenCalledWith(83)
+    expect(mocks.ensureManualArtworkStorage.mock.invocationCallOrder[0]).toBeLessThan(mocks.getArtworkById.mock.invocationCallOrder[0]!)
+    expect(mocks.handleImageReplaceSession).toHaveBeenCalledWith(expect.objectContaining({ artwork, action: 'init' }))
   })
 
   it.each([

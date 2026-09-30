@@ -10,8 +10,8 @@ type ArtistRecord = {
   id: number
   name: string
   username: string
-  userId: string | null
   bio: string | null
+  mergedIntoId: number | null
 }
 
 type ArtworkRecord = {
@@ -86,7 +86,7 @@ type ArtistExternalRefRecord = {
   sourceName: string | null
 }
 
-type ArtistCreateInput = Omit<ArtistRecord, 'id'>
+type ArtistCreateInput = Omit<ArtistRecord, 'id' | 'mergedIntoId'>
 type ArtworkCreateInput = Omit<ArtworkRecord, 'id'>
 type TagCreateInput = Omit<TagRecord, 'id'>
 type ImageCreateInput = Omit<ImageRecord, 'id'>
@@ -147,26 +147,21 @@ const { database, prismaStub } = vi.hoisted(() => {
 
   const prismaStub = {
     artist: {
-      findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
-        const userIds = valuesIn<string>(args, 'userId')
-        return database.artists
-          .filter((artist) => !userIds || (artist.userId && userIds.includes(artist.userId)))
-          .map((artist) =>
-            args.include?.externalRefs
-              ? { ...artist, externalRefs: database.artistExternalRefs.filter((ref) => ref.artistId === artist.id) }
-              : artist
-          )
+      findMany: vi.fn(async () => database.artists),
+      create: vi.fn(async (args: PrismaCreateArgs<ArtistCreateInput>) => {
+        const artist = { id: database.nextArtistId++, mergedIntoId: null, ...args.data }
+        database.artists.push(artist)
+        return artist
       }),
       createMany: vi.fn(async (args: PrismaCreateManyArgs<ArtistCreateInput>) => {
         let count = 0
         for (const artist of args.data) {
-          if (args.skipDuplicates && database.artists.some((item) => item.userId === artist.userId)) continue
           database.artists.push({
             id: database.nextArtistId++,
             name: artist.name,
             username: artist.username,
-            userId: artist.userId,
-            bio: artist.bio
+            bio: artist.bio,
+            mergedIntoId: null
           })
           count++
         }
@@ -200,6 +195,11 @@ const { database, prismaStub } = vi.hoisted(() => {
           count++
         }
         return { count }
+      }),
+      create: vi.fn(async (args: PrismaCreateArgs<ArtistExternalRefCreateInput>) => {
+        const reference = { id: database.nextArtistExternalRefId++, ...args.data }
+        database.artistExternalRefs.push(reference)
+        return reference
       })
     },
     artwork: {
@@ -405,6 +405,7 @@ vi.mock('@/lib/prisma', () => ({
 }))
 
 vi.mock('@pixishelf/db', () => ({
+  lockCreatorCatalog: vi.fn(),
   lockArtworkForReading: vi.fn(async (...args: [unknown, number]) => ({ id: args[1], mediaRevision: 1 })),
   invalidateArtworkReadingForRebuild: vi.fn(async (...args: [unknown, number]) => args[1])
 }))
@@ -635,7 +636,9 @@ describe('scan fixture integration', () => {
       Title: 'Database failure artwork'
     })
     await writeFile(path.join(pixivDirectory, '1401.png'), 'db-error-image')
-    prismaStub.$transaction.mockRejectedValueOnce(new Error('database unavailable'))
+    prismaStub.$transaction
+      .mockImplementationOnce(async (callback: PrismaTransactionCallback) => callback(prismaStub))
+      .mockRejectedValueOnce(new Error('database unavailable'))
 
     const result = await scan({
       scanPath

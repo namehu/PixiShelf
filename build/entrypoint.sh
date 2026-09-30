@@ -4,6 +4,16 @@
 # 严格模式，任何命令失败则脚本退出
 set -e
 
+# Maintenance commands must run before the normal startup guard and application
+# entrypoint. They still use the same non-root production user and image.
+if [ "$1" = "node" ] && [ "$2" = "packages/pixishelf-db/maintenance/retire-legacy-fields.mjs" ]; then
+  exec "$@"
+fi
+
+# Existing databases must complete the explicit audit/prepare/upgrade flow.
+# Empty databases are allowed through so Prisma can deploy the full migration chain.
+node packages/pixishelf-db/maintenance/retire-legacy-fields.mjs guard-startup
+
 # The Web process owns schema deployment. Other runtime images never run this entrypoint.
 echo "Running database migrations..."
 prisma migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma

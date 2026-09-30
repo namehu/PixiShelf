@@ -24,10 +24,3 @@ SELECT name, name_zh, name_en, abstract
 FROM "Tag"
 WHERE "translateType" = 'PIXIV';
 ```
-
-## Artist
-
-```sql
--- 查询所有Artist用户ID
-SELECT "userId" FROM public."Artist";
-```

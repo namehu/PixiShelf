@@ -21,7 +21,8 @@ import { getUserArtworkLikeStatus } from '@/services/like-service'
 import logger from '@/lib/logger'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import { EMediaType } from '@/enums/e-media-type'
-import { generateLocalStorageKey, shuffleArray, transformImages, transformSingleArtwork } from './utils'
+import { shuffleArray, transformImages, transformSingleArtwork } from './utils'
+import { assignManualArtworkStorage } from './manual-storage'
 import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
 import { Prisma, ScanRunMode, ScanRunType } from '@prisma/client'
@@ -104,7 +105,6 @@ async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfet
         artist.id as artist_id,
         artist.name as artist_name,
         artist.username as artist_username,
-        artist."userId" as artist_userId,
         artist.bio as artist_bio,
         artist.avatar as artist_avatar,
         artist."backgroundImg" as artist_background_img,
@@ -225,7 +225,6 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
           id: raw.artist_id,
           name: raw.artist_name,
           username: raw.artist_username,
-          userId: raw.artist_userId,
           bio: raw.artist_bio,
           avatar: raw.artist_avatar,
           backgroundImg: raw.artist_background_img,
@@ -439,8 +438,8 @@ export async function createArtwork(data: {
   const effectiveSource = source ?? ESource.LOCAL_CREATED
 
   const artwork = await prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     if (artistId) {
-      await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
       const selected = await tx.artist.findUnique({ where: { id: artistId, mergedIntoId: null }, select: { id: true } })
       if (!selected) throw new Error('艺术家已不存在或已合并，请刷新后重新选择')
     }
@@ -462,10 +461,7 @@ export async function createArtwork(data: {
     if (creatorIds !== undefined)
       {await editArtworkCreators(tx as unknown as Prisma.TransactionClient, created.id, creatorIds)}
     if (effectiveSource !== ESource.LOCAL_CREATED) return created
-    return tx.artwork.update({
-      where: { id: created.id },
-      data: { storageKey: generateLocalStorageKey(created.id) }
-    })
+    return assignManualArtworkStorage(tx as unknown as Prisma.TransactionClient, created)
   })
 
   if (effectiveSource === ESource.LOCAL_CREATED && artwork.storageKey) {

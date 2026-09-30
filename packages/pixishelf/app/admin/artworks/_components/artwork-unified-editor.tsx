@@ -122,7 +122,7 @@ export function ArtworkUnifiedEditor({
               <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
                 <CopyMetaItem label="外部ID" value={artwork?.externalId || '-'} />
                 <CopyMetaItem label="内部ID" value={String(currentArtworkId)} />
-                <CopyMetaItem label="作者ID" value={artwork?.artist?.userId || '-'} />
+                <CopyMetaItem label="Pixiv ID" value={artwork?.artist?.pixivUserId || '-'} />
                 <CopyMetaItem label="来源" value={artwork?.metaSource || '-'} className="min-w-0 flex-1" />
                 <CopyMetaItem label="路径" value={artworkDirectory || '-'} className="min-w-0 flex-1" />
                 <span className="shrink-0 truncate">艺术家: {artwork?.artist?.name || '未知'}</span>
@@ -215,6 +215,8 @@ async function copyText(value: string, label: string) {
 }
 
 function getArtworkDirectory(artwork: ArtworkResponseDto | null): string {
+  if (artwork?.storagePath) return artwork.storagePath.replace(/\\/g, '/')
+
   const firstImagePath = artwork?.images?.[0]?.path
   if (firstImagePath) {
     const normalizedPath = firstImagePath.replace(/\\/g, '/')
@@ -223,11 +225,6 @@ function getArtworkDirectory(artwork: ArtworkResponseDto | null): string {
     if (index > 0) {
       return normalizedPath.slice(0, index)
     }
-  }
-
-  const storageIdentity = artwork?.storageKey ?? artwork?.externalId
-  if (artwork?.artist?.userId && storageIdentity) {
-    return `/${artwork.artist.userId}/${storageIdentity}`
   }
 
   return ''

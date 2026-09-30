@@ -85,7 +85,6 @@ export async function deleteArtwork(id: number, options: { requestedByUserId: st
   const artwork = await prisma.artwork.findUnique({
     where: { id },
     include: {
-      artist: { select: { userId: true } },
       externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } }
     }
   })
