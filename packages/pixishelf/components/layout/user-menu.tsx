@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { APP_VERSION } from '@/_config'
 import { ROUTES } from '@/lib/constants'
 import {
   Menubar,
@@ -34,7 +35,7 @@ const UserMenu = () => {
           <span className="hidden max-w-28 truncate text-sm text-foreground xl:inline">{user?.name || '用户'}</span>
         </MenubarTrigger>
 
-        <MenubarContent align="end">
+        <MenubarContent align="end" className="max-w-[calc(100vw-2rem)]">
           <MenubarGroup>
             <MenubarItem asChild>
               <Link href={ROUTES.SETTINGS_PROFILE}>
@@ -56,6 +57,10 @@ const UserMenu = () => {
               退出登录
             </MenubarItem>
           </MenubarGroup>
+          <MenubarSeparator />
+          <p className="max-w-64 wrap-anywhere px-2 py-1.5 text-xs text-muted-foreground">
+            版本 {APP_VERSION}
+          </p>
         </MenubarContent>
       </MenubarMenu>
     </Menubar>
