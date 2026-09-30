@@ -19,6 +19,20 @@ vi.mock('@/lib/prisma', () => ({
 }))
 
 describe('buildArtworkWhereClause', () => {
+  it('finds persisted animation types and detected animations with correctly numbered parameters', () => {
+    const params = ArtworksInfiniteQuerySchema.parse({
+      mediaType: 'animation',
+      artistId: 9,
+      startDate: '2026-09-01'
+    })
+    const { whereSQL, sqlParams } = buildArtworkWhereClause(params, 3)
+    expect(whereSQL).toContain('c."artistId" = $3')
+    expect(whereSQL).toContain('(i."mediaType" = \'ANIMATION\' OR i."webpAnimationStatus" = $4)')
+    expect(whereSQL).toContain('a."sourceDate" >= $5::date')
+    expect(whereSQL).not.toContain('LOWER(i.path)')
+    expect(sqlParams).toEqual([9, 2, '2026-09-01'])
+  })
+
   it('should build basic query without tags', () => {
     const params = ArtworksInfiniteQuerySchema.parse({})
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)

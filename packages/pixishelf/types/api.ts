@@ -70,6 +70,7 @@ export type SortOption =
 export type MediaTypeFilter =
   | 'all' // 全部类型（默认）
   | 'image' // 仅图片
+  | 'animation' // 包含动图
   | 'video' // 仅视频
 
 export type AudioFilter = 'all' | 'yes' | 'no'

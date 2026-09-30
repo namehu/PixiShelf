@@ -3,7 +3,7 @@
 import React from 'react'
 import { MediaTypeFilter as MediaTypeFilterType } from '@/types'
 import { cn } from '@/lib/utils'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 // ============================================================================
 // MediaTypeFilter 组件
@@ -29,10 +29,11 @@ export interface MediaTypeFilterProps {
 /**
  * 媒体类型筛选选项配置
  */
-const MEDIA_TYPE_OPTIONS: { value: MediaTypeFilterType; label: string; icon: string }[] = [
-  { value: 'all', label: '全部类型', icon: '🎨' },
-  { value: 'image', label: '仅图片', icon: '🖼️' },
-  { value: 'video', label: '仅视频', icon: '🎬' }
+const MEDIA_TYPE_OPTIONS: { value: MediaTypeFilterType; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'image', label: '图片' },
+  { value: 'animation', label: '动图' },
+  { value: 'video', label: '视频' }
 ]
 
 /**
@@ -47,38 +48,27 @@ export const MediaTypeFilter: React.FC<MediaTypeFilterProps> = ({
   className,
   disabled = false
 }) => {
-  // 将自定义尺寸映射到 shadcn Select 的尺寸
-  const selectSize = size === 'lg' ? 'default' : size === 'sm' ? 'sm' : 'default'
-
-  const currentOption = MEDIA_TYPE_OPTIONS.find((option) => option.value === value)
-
   return (
-    <Select value={value} onValueChange={onChange} disabled={disabled}>
-      <SelectTrigger id={id} aria-label={ariaLabel} className={cn('w-fit min-w-[120px]', className)} size={selectSize}>
-        <SelectValue>
-          {currentOption ? (
-            <span className="flex items-center gap-2">
-              <span>{currentOption.icon}</span>
-              <span>{currentOption.label}</span>
-            </span>
-          ) : (
-            '请选择类型'
-          )}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectGroup>
-          {MEDIA_TYPE_OPTIONS.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
-              <span className="flex items-center gap-2">
-                <span>{option.icon}</span>
-                <span>{option.label}</span>
-              </span>
-            </SelectItem>
-          ))}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
+    <ToggleGroup
+      id={id}
+      aria-label={ariaLabel ?? '媒体类型'}
+      type="single"
+      variant="outline"
+      size={size === 'md' ? 'default' : size}
+      value={value}
+      onValueChange={(next) => {
+        const option = MEDIA_TYPE_OPTIONS.find((item) => item.value === next)
+        if (option) onChange(option.value)
+      }}
+      disabled={disabled}
+      className={cn('grid w-full grid-cols-4', className)}
+    >
+      {MEDIA_TYPE_OPTIONS.map((option) => (
+        <ToggleGroupItem key={option.value} value={option.value} className="min-h-11">
+          {option.label}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
   )
 }
 

@@ -19,6 +19,7 @@ import { combinationApiResource } from '@/utils/combination-static'
 import { buildPixivArtistAvatarUrl } from '@/lib/pixiv-data'
 import { getUserArtworkLikeStatus } from '@/services/like-service'
 import logger from '@/lib/logger'
+import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import { EMediaType } from '@/enums/e-media-type'
 import { generateLocalStorageKey, shuffleArray, transformImages, transformSingleArtwork } from './utils'
 import { fetchRandomIds } from './dao'
@@ -668,6 +669,15 @@ export async function getRandomArtworks(
   const buildMediaFilter = (type: EMediaType) => {
     if (type === EMediaType.all) {
       return {}
+    }
+    if (type === EMediaType.animation) {
+      return {
+        images: {
+          some: {
+            OR: [{ mediaType: 'ANIMATION' as const }, { webpAnimationStatus: EMediaAnimationStatus.animated }]
+          }
+        }
+      }
     }
     return {
       images: {

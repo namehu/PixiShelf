@@ -1,4 +1,5 @@
 import 'server-only'
+import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 
 /**
@@ -180,6 +181,17 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
     } else {
       whereSQL += ` AND NOT ${videoCheckSQL}`
     }
+  }
+
+  // 动图沿用展示层的持久化类型与内容探测结果。
+  if (mediaType === 'animation') {
+    whereSQL += ` AND EXISTS (
+      SELECT 1 FROM "Image" i
+      WHERE i."artworkId" = a.id
+        AND (i."mediaType" = 'ANIMATION' OR i."webpAnimationStatus" = $${paramIndex})
+    )`
+    sqlParams.push(EMediaAnimationStatus.animated)
+    paramIndex++
   }
 
   // 1.6 时间范围筛选

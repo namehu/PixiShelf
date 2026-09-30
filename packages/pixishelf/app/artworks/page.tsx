@@ -64,6 +64,7 @@ const serializeViewerQuery = createSerializer(viewerQueryParsers)
 const MEDIA_TYPE_LABELS: Record<MediaTypeFilter, string> = {
   all: '全部类型',
   image: '仅图片',
+  animation: '包含动图',
   video: '仅视频'
 }
 
