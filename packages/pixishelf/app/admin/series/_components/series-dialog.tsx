@@ -13,7 +13,7 @@ interface SeriesDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   series?: { id: number; title: string; description?: string | null; coverImageUrl?: string | null } | null
-  onSuccess: () => void
+  onSuccess: (id: number) => void
 }
 
 export function SeriesDialog({ open, onOpenChange, series, onSuccess }: SeriesDialogProps) {
@@ -40,9 +40,9 @@ export function SeriesDialog({ open, onOpenChange, series, onSuccess }: SeriesDi
 
   const createMutation = useMutation(
     trpc.series.create.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (created) => {
         toast.success('创建成功')
-        onSuccess()
+        onSuccess(created.id)
         onOpenChange(false)
         queryClient.invalidateQueries({ queryKey: trpc.series.list.queryKey() })
       }
@@ -51,9 +51,9 @@ export function SeriesDialog({ open, onOpenChange, series, onSuccess }: SeriesDi
 
   const updateMutation = useMutation(
     trpc.series.update.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (updated) => {
         toast.success('更新成功')
-        onSuccess()
+        onSuccess(updated.id)
         onOpenChange(false)
         queryClient.invalidateQueries({ queryKey: trpc.series.list.queryKey() })
       }

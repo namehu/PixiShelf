@@ -99,6 +99,8 @@ WebP 时长探测沿用管理任务的 `adminProcedure` 入队/重试和受登�
 
 `/api/trpc/*` 在传输层仍受 `proxy.ts` 保护，因此当前 `series.list` 和 `series.get` 虽使用 `publicProcedure`，通过标准 HTTP 入口访问时仍需要 Session。如果以后增加绕过 Next.js 代理的新 transport 或服务端直接调用，不能继续假设这两个 procedure 会自动鉴权。
 
+系列管理的 `series.getManagementDetail` 与 `series.saveManagementChanges` 使用 `authProcedure`，在 procedure 层复核 Session。统一保存只修改成员关系与顺序，不删除 Artwork 或写入媒体；完整成员指纹保护并发整理，旧排序入口同样必须携带指纹。详见[系列管理](../features/series-management.md)。
+
 ### Server Action 层
 
 `authActionClient` 会重新读取 Better Auth Session 并提供 `userId`；普通 `actionClient` 不做会话校验。页面是否在 `/admin` 下不是 Server Action 的授权替代品。
@@ -170,7 +172,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `reading`         | 当前账户的作品上下文、当前页批量摘要、最近阅读历史                        | 当前账户的有效阅读事件与心跳上报                                                             | 全部为 `authProcedure`；每个入口核对 `expectedUserId` 与 Session                                  |
 | `search`          | 搜索建议                                                                  | 无                                                                                           | `authProcedure`                                                                                   |
 | `tag`             | 查询、管理列表与 Pixiv 补全状态                                           | 创建、修改、删除、批量补全与单标签重试                                                       | 普通管理为 `authProcedure`；Pixiv 补全读写为 `adminProcedure`                                     |
-| `series`          | `list`、`get`、Pixiv 系列核对汇总                                         | 创建、修改、删除、成员增删与排序、Pixiv 系列核对/取消/重试                                   | 普通读取为 `publicProcedure`、普通写入为 `authProcedure`；Pixiv 任务控制为 `adminProcedure`       |
+| `series`          | `list`、`get`、Pixiv 系列核对汇总                                         | 创建、修改、删除、管理详情、成员草稿提交与排序、Pixiv 系列核对/取消/重试                                   | 普通读取为 `publicProcedure`，管理详情和写入为 `authProcedure`；Pixiv 任务控制为 `adminProcedure`       |
 | `setting`         | 健康、扫描路径、系统设置、归档下载并发、历史归档标签补全状态              | 修改扫描路径/系统设置/归档下载并发；预览、启动和取消历史归档标签补全                         | 归档下载并发读写和补全控制为 `adminProcedure`；其余既有设置边界保持不变                           |
 | `user`            | 全部账户                                                                  | 创建、删除其他账户                                                                           | 全部 `authProcedure`；新增账户拥有同等管理员能力                                                  |
 | `userSetting`     | 当前账户设置                                                              | 写入主要通过 Server Action                                                                   | `authProcedure`，以 `userId` 限定当前账户                                                         |

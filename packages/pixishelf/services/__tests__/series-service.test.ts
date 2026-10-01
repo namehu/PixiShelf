@@ -9,7 +9,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => {
   const transactionClient = {
+    $executeRaw: vi.fn().mockResolvedValue(0),
+    $queryRaw: vi.fn().mockResolvedValue([{ id: 7 }]),
     seriesArtwork: {
+      findMany: vi.fn().mockResolvedValue([]),
       findUnique: mocks.membershipFindUnique,
       update: mocks.membershipUpdate,
       delete: mocks.membershipDelete

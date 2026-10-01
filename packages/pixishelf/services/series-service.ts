@@ -4,6 +4,8 @@ import { Prisma } from '@prisma/client'
 import { transformSingleArtwork } from '@/services/artwork-service/utils'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
 import { resolveMediaCoverUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
+import { withSeriesMembershipLock, saveSeriesManagementChanges } from './series-management-service'
+import { TRPCError } from '@trpc/server'
 
 export async function getSeriesList(params: {
   page: number
@@ -52,6 +54,7 @@ export async function getSeriesList(params: {
             artwork: {
               include: {
                 images: {
+                  take: 1,
                   orderBy: { sortOrder: 'asc' },
                   include: { videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT }, animationMetadata: true }
                 },
@@ -203,7 +206,9 @@ export async function deleteSeries(id: number) {
 }
 
 export async function addArtworkToSeries(seriesId: number, artworkId: number) {
-  return prisma.$transaction(async (tx) => {
+  return withSeriesMembershipLock(seriesId, [artworkId], async (tx) => {
+    const artwork = await tx.artwork.findUnique({ where: { id: artworkId }, select: { deletedAt: true } })
+    if (!artwork || artwork.deletedAt) throw new TRPCError({ code: 'CONFLICT', message: '作品已删除或不存在' })
     // 检查是否已存在
     const exists = await tx.seriesArtwork.findUnique({
       where: { seriesId_artworkId: { seriesId, artworkId } }
@@ -238,7 +243,7 @@ export async function addArtworkToSeries(seriesId: number, artworkId: number) {
 }
 
 export async function removeArtworkFromSeries(seriesId: number, artworkId: number) {
-  return prisma.$transaction(async (tx) => {
+  return withSeriesMembershipLock(seriesId, [artworkId], async (tx) => {
     const membership = await tx.seriesArtwork.findUnique({
       where: { seriesId_artworkId: { seriesId, artworkId } }
     })
@@ -254,16 +259,9 @@ export async function removeArtworkFromSeries(seriesId: number, artworkId: numbe
   })
 }
 
-export async function reorderArtworks(seriesId: number, artworkIds: number[]) {
-  // artworkIds 为新的排序顺序
-  return prisma.$transaction((tx) =>
-    Promise.all(
-      artworkIds.map((id, index) =>
-        tx.seriesArtwork.update({
-          where: { seriesId_artworkId: { seriesId, artworkId: id } },
-          data: { sortOrder: index + 1, orderOverridden: true }
-        })
-      )
-    )
+export async function reorderArtworks(seriesId: number, artworkIds: number[], expectedFingerprint: string) {
+  return saveSeriesManagementChanges(
+    { seriesId, finalArtworkIds: artworkIds, expectedFingerprint, explicitReorder: true },
+    true
   )
 }

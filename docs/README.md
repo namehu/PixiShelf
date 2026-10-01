@@ -30,6 +30,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
+- [系列管理](./features/series-management.md)（current）：全宽系列列表与作品抽屉、统一增删排序草稿、虚拟列表与指纹保护的原子提交。
+
 - [艺术家与系列旧字段清理](./features/legacy-identity-retirement.md)（current）：四个旧字段的依赖替换、数据审计与分步上线检查。
 
 - [作品阅读记录与进度](./features/artwork-reading.md)（draft）：账户级阅读次数、进度、继续阅读与隔离验收；生产发布尚未核验。
