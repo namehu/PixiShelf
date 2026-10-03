@@ -24,8 +24,14 @@
 镜像的 entrypoint 或显式 `pnpm --filter @pixishelf/db db:deploy` 管理。
 
 Web `Dockerfile` 直接由 Next.js 编译 job-contracts、job-runtime 和 job-executors 的 workspace 源码，
-不依赖或复制宿主机 `dist`。三个包的独立 `dist`、类型声明和公开包依赖仍由 GitHub CI 在 Web 源码边界
-验证完成后按顺序构建；它们不是 Web 镜像的构建前置条件。
+不依赖或复制宿主机 `dist`。三个包的独立 `dist`、类型声明和公开包依赖由 GitHub CI 的独立 Worker job 按顺序构建，
+与 Web 源码边界验证并行执行；它们不是 Web 镜像的构建前置条件。
+
+## Web 构建缓存
+
+`APP_VERSION` / `NEXT_PUBLIC_APP_VERSION` 在依赖安装、源码复制与 Prisma Client 生成之后，紧邻 Next.js build 注入。新版本号会重新生成前端版本信息，但不会单独使前面的依赖层失效；依赖、源码或基础镜像变化仍按 Docker 缓存规则重新执行相应层。
+
+发布后用两个不同版本标签、相同依赖的构建日志确认依赖安装层命中缓存，并核对前端显示的新版本号。此调整不改变镜像运行入口、数据库或媒体；恢复依据是 Git 中修改前的 Dockerfile，回退其指令位置并重建即可恢复原构建方式。生产版本回退仍遵循部署与备份恢复基线。
 
 ## 存储与运行边界
 

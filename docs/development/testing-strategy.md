@@ -171,18 +171,17 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 
 ## CI 当前事实
 
-`.github/workflows/ci.yml` 当前执行：
+`.github/workflows/ci.yml` 使用 Node.js 20、pnpm 8.15.1 和 frozen lockfile，在独立 runner 上并行执行三路检查：
 
-1. 安装 Node.js 20 和 pnpm 8.15.1；
-2. 启动 PostgreSQL 15；
-3. 生成 Prisma Client 并验证 Schema；
-4. 对 Worker 依赖链执行 typecheck；
-5. 从空数据库部署完整 migration 并检查 status；
-6. 对数据库和 Worker 依赖链执行测试；
-7. 构建通用 Worker；
-8. 运行主应用 lint 和 typecheck；
-9. 运行主应用 `test:unit` 和生产 build（构建时开启实验性 WebP）；
-10. 校验仓库 WebP 预编译产物及源码一致性，运行校验器负向测试、库类型/单元检查和真实浏览器流式测试，不日常编译原生代码。
+- `web`：生成 Prisma Client，在独立 PostgreSQL 15 空库部署完整 migration 并检查 status；确认 job 包没有 `dist` 后，分别运行主应用 lint、typecheck、`test:unit` 和生产 build。WebP 资源由主应用 `prepare:webp` 自行构建，不依赖另一路 job 的文件。
+- `worker`：生成和验证 Prisma Client/Schema，对 Worker 依赖链执行 typecheck，在独立 PostgreSQL 15 空库部署完整 migration 并检查 status，执行数据库及 Worker 依赖链测试，依次构建三个共享 job 包与独立 Worker。
+- `webp`：校验仓库 WebP 预编译产物及源码一致性，运行校验器负向测试、库类型/单元检查、构建和真实浏览器流式测试，不日常编译原生代码。
+
+`web` 和 `worker` 各自保留数据库服务与完整迁移，确保拆分后主应用中使用 `DATABASE_URL` 的测试仍可连接已迁移的隔离库。三个 job 不共享构建目录，因此 Worker 生成的 `dist` 不会污染 Web 源码边界验证。
+
+汇总 job 继续使用原检查名称 `test`，通过 `always()` 收集三路结果，只有三路全部 `success` 才通过；失败、取消或跳过均不能放行。已有要求 `test` 的分支保护无需更名。发布工作流的既有验证仍保留，尚未与 CI 合并复用。
+
+性能验收应在 GitHub runner 上比较多次成功运行的中位耗时，同时检查三路结果和 `test` 汇总状态；并行化降低墙钟时间，但重复初始化可能增加 runner 总用量。回退本次工作流配置即可恢复串行执行，不涉及生产数据恢复。
 
 独立 `webp-native.yml` 只在原生/预编译相关文件变更或手动触发时运行固定镜像编译、原生差分 ASan/UBSan、产物逐字节复现和浏览器测试；修改普通页面或播放器 TypeScript 不触发该工作流。重建不会自动改写 Git 中的预编译产物，要求贡献者提交对应更新。
 

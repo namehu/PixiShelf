@@ -11,10 +11,6 @@ ARG REGISTRY_URL=https://registry.npmmirror.com
 # 设置占位符
 ENV NEXT_PUBLIC_IMGPROXY_URL=__NEXT_PUBLIC_IMGPROXY_URL__
 
-# 应用版本号 (构建时注入)
-ARG APP_VERSION
-ENV NEXT_PUBLIC_APP_VERSION=${APP_VERSION}
-
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
@@ -58,6 +54,10 @@ COPY packages/pixishelf-webp-player/ ./packages/pixishelf-webp-player/
 
 # 生成 Prisma Client；Next.js 直接编译 workspace 中的 job 包源码。
 RUN pnpm --filter="@pixishelf/db" db:generate
+# 版本号仅影响 Next.js 构建，避免每次发布使工具、依赖与 Prisma 层缓存失效。
+ARG APP_VERSION
+ENV NEXT_PUBLIC_APP_VERSION=${APP_VERSION}
+
 # 使用缓存挂载加速 Next.js 构建
 RUN --mount=type=cache,target=/app/packages/pixishelf/.next/cache \
     pnpm --filter="@pixishelf/next" build

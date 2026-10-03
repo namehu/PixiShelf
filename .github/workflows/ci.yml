@@ -8,7 +8,71 @@ on:
   workflow_dispatch: # 手动触发
 
 jobs:
-  test:
+  web:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_IMGPROXY_URL: __NEXT_PUBLIC_IMGPROXY_URL__
+      # Prisma commands and the migration gate connect to the PostgreSQL service below.
+      DATABASE_URL: postgresql://pixishelf:pixishelf@127.0.0.1:5432/pixishelf
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: pixishelf
+          POSTGRES_PASSWORD: pixishelf
+          POSTGRES_DB: pixishelf
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pixishelf -d pixishelf"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.1
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        run: pnpm --filter @pixishelf/db db:generate
+
+      - name: Deploy and verify the complete PostgreSQL migration chain
+        run: |
+          pnpm --filter @pixishelf/db db:deploy
+          pnpm --filter @pixishelf/db exec prisma migrate status --schema prisma/schema.prisma
+
+      - name: Verify job package dist is absent
+        run: |
+          test ! -d packages/pixishelf-job-contracts/dist
+          test ! -d packages/pixishelf-job-runtime/dist
+          test ! -d packages/pixishelf-job-executors/dist
+
+      - name: Lint Web
+        run: pnpm --filter @pixishelf/next lint
+
+      - name: Typecheck Web
+        run: pnpm --filter @pixishelf/next typecheck
+
+      - name: Test Web
+        run: pnpm --filter @pixishelf/next test
+
+      - name: Build Web from workspace sources
+        run: pnpm --filter @pixishelf/next build
+
+  worker:
     runs-on: ubuntu-latest
     env:
       # Prisma commands and the migration gate connect to the PostgreSQL service below.
@@ -61,6 +125,34 @@ jobs:
       - name: Run database and Worker unit tests
         run: pnpm --filter @pixishelf/worker... test
 
+      - name: Build shared job package contracts
+        run: |
+          pnpm --filter @pixishelf/job-contracts build
+          pnpm --filter @pixishelf/job-runtime build
+          pnpm --filter @pixishelf/job-executors build
+
+      - name: Build standalone Worker
+        run: pnpm --filter @pixishelf/worker build
+
+  webp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8.15.1
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter @pixishelf/webp-player
+
       - name: Verify prebuilt WebP decoder and browser playback
         run: |
           pnpm --filter @pixishelf/webp-player typecheck
@@ -71,23 +163,18 @@ jobs:
           pnpm --filter @pixishelf/webp-player exec playwright install --with-deps chromium
           pnpm --filter @pixishelf/webp-player test:browser
 
-      - name: Verify Web consumes workspace sources without job package dist
+  # Preserve the existing required check; skipped or cancelled jobs must not pass it.
+  test:
+    runs-on: ubuntu-latest
+    needs: [web, worker, webp]
+    if: ${{ always() }}
+    steps:
+      - name: Require all CI jobs to succeed
         env:
-          NEXT_PUBLIC_IMGPROXY_URL: __NEXT_PUBLIC_IMGPROXY_URL__
+          WEB_RESULT: ${{ needs.web.result }}
+          WORKER_RESULT: ${{ needs.worker.result }}
+          WEBP_RESULT: ${{ needs.webp.result }}
         run: |
-          test ! -d packages/pixishelf-job-contracts/dist
-          test ! -d packages/pixishelf-job-runtime/dist
-          test ! -d packages/pixishelf-job-executors/dist
-          pnpm --filter @pixishelf/next lint
-          pnpm --filter @pixishelf/next typecheck
-          pnpm --filter @pixishelf/next test
-          pnpm --filter @pixishelf/next build
-
-      - name: Build shared job package contracts
-        run: |
-          pnpm --filter @pixishelf/job-contracts build
-          pnpm --filter @pixishelf/job-runtime build
-          pnpm --filter @pixishelf/job-executors build
-
-      - name: Build standalone Worker
-        run: pnpm --filter @pixishelf/worker build
+          test "$WEB_RESULT" = success
+          test "$WORKER_RESULT" = success
+          test "$WEBP_RESULT" = success
