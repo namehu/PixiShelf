@@ -1,5 +1,37 @@
 import { z } from 'zod'
 
+export const ArtworkDeleteInputSchema = z.object({
+  artworkId: z.number().int().positive(),
+  selectedPaths: z.array(z.string().min(1).max(4096)).max(100_000).optional()
+})
+export type ArtworkDeleteInput = z.infer<typeof ArtworkDeleteInputSchema>
+
+export const ArtworkDeletePreviewSchema = z.object({
+  artwork: z.object({
+    id: z.number().int(),
+    title: z.string(),
+    createdVia: z.string(),
+    directory: z.string().nullable()
+  }),
+  mode: z.enum(['DIRECT_DELETE', 'ARCHIVE_TRASH']),
+  directoryMode: z.enum(['WORK_DIRECTORY', 'SHARED_DIRECTORY', 'REGISTERED_ONLY']),
+  canDelete: z.boolean(),
+  inspectionComplete: z.boolean(),
+  warnings: z.array(z.string()),
+  entries: z.array(
+    z.object({
+      path: z.string(),
+      kind: z.enum(['MEDIA', 'CHAPTER', 'METADATA', 'DIRECTORY', 'OTHER']),
+      selection: z.enum(['REQUIRED', 'OPTIONAL', 'BLOCKED', 'DIRECTORY']),
+      missing: z.boolean(),
+      reason: z.string(),
+      code: z.string().optional()
+    })
+  )
+})
+export type ArtworkDeletePreview = z.infer<typeof ArtworkDeletePreviewSchema>
+export type ArtworkDeletePreviewEntry = ArtworkDeletePreview['entries'][number]
+
 export const ArtworkDeleteEntryStatusSchema = z.enum(['DELETED', 'MISSING', 'RETAINED', 'FAILED', 'NOT_ATTEMPTED'])
 export const ArtworkDeleteReportSchema = z.object({
   reportId: z.string(),
@@ -60,7 +92,7 @@ export const DELETE_KIND_LABELS = {
   OTHER: '其他文件'
 } as const
 export const DELETE_OUTCOME_LABELS = {
-  COMPLETED: '删除完成',
+  COMPLETED: '已按选择完成',
   PARTIAL: '部分完成',
   FAILED: '删除失败',
   QUEUED: '回收请求已提交'

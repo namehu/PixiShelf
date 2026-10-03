@@ -3,9 +3,12 @@ import fs from 'fs/promises'
 import path from 'path'
 import type { Stats } from 'fs'
 import { resolveExistingPathWithinRoot, UnsafePathError } from '@/lib/safe-path'
-import type { ArtworkDeleteEntry, ArtworkDeleteReport } from '@/schemas/artwork-delete.dto'
-import { getChapterPathCandidates, validateChapterManifest } from './video-chapters'
-import { parseMetadataFile } from '@/services/scan-service/metadata-parser'
+import type {
+  ArtworkDeleteEntry,
+  ArtworkDeleteReport,
+  ArtworkDeletePreview,
+  ArtworkDeletePreviewEntry
+} from '@/schemas/artwork-delete.dto'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 
 export interface DeleteMediaInput {
@@ -73,11 +76,14 @@ export function fileErrorCode(error: unknown): string {
 export class ArtworkFileDeletion {
   private root: string | null = null
   private readonly entries = new Map<string, number>()
+  private readonly candidates = new Map<string, Candidate>()
+  private readonly previewEntries = new Map<string, ArtworkDeletePreviewEntry>()
   private readonly originals = new Map<string, Candidate>()
-  private readonly sidecars = new Map<string, Candidate>()
   private readonly directories: string[] = []
   private references: DeleteFileReference[] = []
   private cleanupAllowed = false
+  private canDelete = false
+  private directoryMode: ArtworkDeletePreview['directoryMode'] = 'REGISTERED_ONLY'
 
   constructor(
     private readonly report: ArtworkDeleteReport,
@@ -86,8 +92,6 @@ export class ArtworkFileDeletion {
       directory: string | null
       media: DeleteMediaInput[]
       metaSource: string | null
-      pixivId: string | null
-      metadataIdentityConflict?: boolean
     }
   ) {
     for (const image of input.media) {
@@ -96,13 +100,7 @@ export class ArtworkFileDeletion {
         if (isChapterManifestFileName(path.posix.basename(image.chaptersPath.replace(/\\/g, '/')))) {
           this.addOriginal(image.chaptersPath, 'CHAPTER', '数据库登记的章节文件')
         } else {
-          this.record({
-            path: image.chaptersPath,
-            kind: 'CHAPTER',
-            status: 'RETAINED',
-            reason: '章节路径不符合章节文件命名',
-            code: 'INVALID_CHAPTER_PATH'
-          })
+          this.block(image.chaptersPath, 'CHAPTER', '章节路径不符合章节文件命名', 'INVALID_CHAPTER_PATH')
         }
       }
     }
@@ -111,9 +109,13 @@ export class ArtworkFileDeletion {
   private addOriginal(value: string, kind: Candidate['kind'], reason: string) {
     try {
       const normalized = normalizeDeletePath(value)
-      if (!this.originals.has(key(normalized))) this.originals.set(key(normalized), { path: normalized, kind, reason })
+      // A media path takes precedence if another row also registers it as a chapter.
+      if (!this.originals.has(key(normalized)) || kind === 'MEDIA') {
+        this.originals.set(key(normalized), { path: normalized, kind, reason })
+      }
     } catch {
-      this.record({ path: value, kind, status: 'FAILED', reason: '不安全的存储路径，未执行删除', code: 'UNSAFE_PATH' })
+      // Do not return a potentially absolute, malformed stored path to the browser.
+      this.block(path.posix.basename(value.replace(/\\/g, '/')), kind, '不安全的存储路径，保留文件', 'UNSAFE_PATH')
     }
   }
 
@@ -125,6 +127,16 @@ export class ArtworkFileDeletion {
     } else this.report.entries[index] = entry
   }
 
+  private block(relative: string, kind: Candidate['kind'], reason: string, code?: string) {
+    try {
+      relative = normalizeDeletePath(relative)
+    } catch {
+      relative = path.posix.basename(relative.replace(/\\/g, '/'))
+    }
+    this.previewEntries.set(key(relative), { path: relative, kind, selection: 'BLOCKED', missing: false, reason, code })
+    this.record({ path: relative, kind, status: 'RETAINED', reason, code })
+  }
+
   private referenced(value: string) {
     return this.references.some(
       (reference) =>
@@ -132,204 +144,205 @@ export class ArtworkFileDeletion {
     )
   }
 
-  /** All segments below the configured root must be real directories, never symlinks/junctions. */
+  private reserved(value: string) {
+    return value
+      .split('/')
+      .some((part) => RESERVED_ROOTS.has(part.toLowerCase()) || part.toLowerCase() === '.pixishelf-root')
+  }
+
+  /** Every segment is checked before resolving, so a link within the root is also rejected. */
   private async safePath(relative: string): Promise<string> {
     if (!this.root) throw new UnsafePathError('Scan root unavailable')
     let current = this.root
     for (const part of normalizeDeletePath(relative).split('/')) {
       current = path.join(current, part)
-      const stat = await fs.lstat(current)
-      if (stat.isSymbolicLink()) throw new UnsafePathError('Symbolic link')
+      if ((await fs.lstat(current)).isSymbolicLink()) throw new UnsafePathError('Symbolic link')
     }
     return resolveExistingPathWithinRoot(this.root, current)
   }
 
-  async prepare(references: DeleteFileReference[]) {
-    this.references = references.flatMap((reference) => {
-      try {
-        return [{ ...reference, path: normalizeDeletePath(reference.path) }]
-      } catch {
-        return []
-      }
-    })
-    if (!this.input.scanRoot) {
-      this.report.warnings.push('未配置扫描根目录，未执行物理文件和目录清理。')
+  private async inspectFile(candidate: Candidate, required: boolean) {
+    if (this.reserved(candidate.path)) {
+      this.block(candidate.path, candidate.kind, '系统保留路径，不允许删除', 'RESERVED_PATH')
       return
     }
+    if (this.referenced(candidate.path)) {
+      this.block(candidate.path, candidate.kind, '其他作品或媒体仍引用此路径', 'SHARED_FILE')
+      return
+    }
+    let missing = false
     try {
+      const snapshot = await fs.lstat(await this.safePath(candidate.path))
+      if (!snapshot.isFile()) throw new UnsafePathError('Not a regular file')
+      candidate.snapshot = snapshot
+    } catch (error) {
+      const code = fileErrorCode(error)
+      if (code === 'ENOENT') missing = true
+      else {
+        this.block(candidate.path, candidate.kind, '文件无法安全检查，保留文件', code)
+        if (code !== 'UNSAFE_PATH') this.canDelete = false
+        return
+      }
+    }
+    this.candidates.set(key(candidate.path), candidate)
+    this.previewEntries.set(key(candidate.path), {
+      path: candidate.path,
+      kind: candidate.kind,
+      selection: required ? 'REQUIRED' : 'OPTIONAL',
+      missing,
+      reason: missing ? '文件原本不存在；可完成记录删除' : candidate.reason
+    })
+    this.record({
+      path: candidate.path,
+      kind: candidate.kind,
+      status: missing ? 'MISSING' : 'NOT_ATTEMPTED',
+      reason: missing ? '文件原本不存在' : '等待确认选择'
+    })
+  }
+
+  async prepare(references: DeleteFileReference[]) {
+    this.references = references.map((reference) => ({ ...reference, path: normalizeDeletePath(reference.path) }))
+    try {
+      if (!this.input.scanRoot) throw new UnsafePathError('Scan root unavailable')
       this.root = await fs.realpath(this.input.scanRoot)
       if (!(await fs.stat(this.root)).isDirectory()) throw new UnsafePathError('Not a directory')
     } catch (error) {
-      this.report.warnings.push(`扫描根目录不可用（${fileErrorCode(error)}），未执行物理清理。`)
-      this.root = null
+      this.report.warnings.push(`扫描根目录不可用（${fileErrorCode(error)}），无法确认删除清单。`)
+      for (const candidate of this.originals.values()) this.block(candidate.path, candidate.kind, '扫描根目录不可用')
       return
     }
+    this.canDelete = true
+    for (const candidate of this.originals.values()) await this.inspectFile(candidate, candidate.kind === 'MEDIA')
     const directory = this.input.directory
-    if (!directory) {
-      this.report.warnings.push('无法确认独立的作品目录，跳过附属文件和空目录清理。')
+    if (!directory || this.reserved(directory)) {
+      this.report.warnings.push('无法确认独立作品目录：仅处理登记文件，其他文件未检查；共享文件保留。')
       return
     }
-    if (
-      this.references.some(
-        (reference) =>
-          withinDeleteDirectory(directory, reference.path) ||
-          (reference.directory && withinDeleteDirectory(reference.path, directory))
-      )
-    ) {
-      this.record({
-        path: directory,
-        kind: 'DIRECTORY',
-        status: 'RETAINED',
-        reason: '其他作品或媒体引用此目录，内部未检查',
-        code: 'SHARED_DIRECTORY'
-      })
-      this.report.warnings.push('作品目录存在共享引用，跳过新增清理；目录内部未检查。')
-      return
-    }
+    const shared = this.references.some(
+      (reference) =>
+        withinDeleteDirectory(directory, reference.path) ||
+        (reference.directory && withinDeleteDirectory(reference.path, directory))
+    )
+    this.directoryMode = shared ? 'SHARED_DIRECTORY' : 'WORK_DIRECTORY'
+    this.cleanupAllowed = !shared
+    if (shared) this.report.warnings.push('目录被其他作品或媒体共用：额外文件仅供查看，不可选择，目录保留。')
     try {
-      await this.safePath(directory)
-      this.cleanupAllowed = true
-      await this.inspect(directory)
-      this.report.inspectionComplete = true
+      await this.inspect(directory, shared)
+      this.report.inspectionComplete = this.canDelete
     } catch (error) {
       const code = fileErrorCode(error)
       this.cleanupAllowed = false
-      this.report.inspectionComplete = false
-      this.record({
-        path: directory,
-        kind: 'DIRECTORY',
-        status: code === 'ENOENT' ? 'MISSING' : 'RETAINED',
-        reason: code === 'ENOENT' ? '作品目录原本不存在' : '目录未完整检查，跳过新增清理',
-        code
-      })
-      if (code !== 'ENOENT') this.report.warnings.push(`作品目录未完整检查（${code}），跳过新增清理。`)
+      // A missing top-level directory is a complete observation, including on a retry.
+      if (code === 'ENOENT' && this.directories.length === 0) {
+        this.report.inspectionComplete = true
+        this.previewEntries.set(key(directory), {
+          path: directory,
+          kind: 'DIRECTORY',
+          selection: 'BLOCKED',
+          missing: true,
+          reason: '作品目录原本不存在'
+        })
+        this.record({ path: directory, kind: 'DIRECTORY', status: 'MISSING', reason: '作品目录原本不存在', code })
+      } else {
+        this.canDelete = false
+        this.report.inspectionComplete = false
+        this.block(directory, 'DIRECTORY', '目录未完整检查，禁止删除', code)
+        this.report.warnings.push(`作品目录未完整检查（${code}），请解决问题后重新加载。`)
+      }
     }
   }
 
-  private async inspect(directory: string) {
+  private async inspect(directory: string, shared: boolean) {
     const pending = [{ directory, depth: 0 }]
     let visited = 0
-    const chapterPaths = new Set(
-      this.input.media
-        .flatMap((media) => getChapterPathCandidates(media.path))
-        .map((value) => {
-          try {
-            return key(normalizeDeletePath(value))
-          } catch {
-            return ''
-          }
-        })
-    )
-    let metaSource: string | null = null
-    try {
-      metaSource = this.input.metaSource ? normalizeDeletePath(this.input.metaSource) : null
-    } catch {
-      /* untrusted path */
-    }
     while (pending.length) {
       const next = pending.pop()!
       if (next.depth > MAX_DEPTH) throw Object.assign(new Error('Directory depth limit'), { code: 'INSPECTION_LIMIT' })
-      this.directories.push(next.directory)
       const absolute = await this.safePath(next.directory)
       const handle = await fs.opendir(absolute)
+      this.directories.push(next.directory)
+      this.previewEntries.set(key(next.directory), {
+        path: next.directory,
+        kind: 'DIRECTORY',
+        selection: shared ? 'BLOCKED' : 'DIRECTORY',
+        missing: false,
+        reason: shared ? '共享目录保留' : '只在清空后删除目录'
+      })
+      this.record({
+        path: next.directory,
+        kind: 'DIRECTORY',
+        status: shared ? 'RETAINED' : 'NOT_ATTEMPTED',
+        reason: shared ? '共享目录保留' : '等待文件和数据库处理完成'
+      })
       for await (const entry of handle) {
         if (++visited > MAX_ENTRIES) {
           throw Object.assign(new Error('Directory entry limit'), { code: 'INSPECTION_LIMIT' })
         }
         const relative = `${next.directory}/${entry.name}`
-        if (this.originals.has(key(relative))) continue
-        if (entry.isSymbolicLink()) {
-          this.record({
-            path: relative,
-            kind: 'OTHER',
-            status: 'RETAINED',
-            reason: '符号链接或 junction 保留，不检查目标',
-            code: 'SYMLINK'
-          })
+        if (this.previewEntries.has(key(relative))) continue
+        if (this.reserved(relative)) {
+          this.block(
+            relative,
+            entry.isDirectory() ? 'DIRECTORY' : 'OTHER',
+            '系统保留路径，不检查内部、不允许删除',
+            'RESERVED_PATH'
+          )
+        } else if (entry.isSymbolicLink()) {
+          this.block(relative, 'OTHER', '符号链接或 junction 保留，不检查目标', 'SYMLINK')
         } else if (entry.isDirectory()) pending.push({ directory: relative, depth: next.depth + 1 })
         else if (entry.isFile()) {
-          const match = entry.name.match(/^(\d+)(?:_p\d+)?-meta\.(json|txt)$/i)
-          const registeredMeta =
-            metaSource && key(metaSource) === key(relative) && /-meta\.(json|txt)$/i.test(entry.name)
-          const namedMeta = match && this.input.pixivId && match[1] === this.input.pixivId
-          const chapter = chapterPaths.has(key(relative))
-          if (!registeredMeta && !namedMeta && !chapter) {
-            if (!this.entries.has(key(relative))) {
-              this.record({
-                path: relative,
-                kind: 'OTHER',
-                status: 'RETAINED',
-                reason: '未登记或不在可确认归属的附属文件名单内'
-              })
-            }
-            continue
-          }
-          const kind = chapter ? 'CHAPTER' : 'METADATA'
-          try {
-            const file = await this.safePath(relative)
-            const snapshot = await fs.lstat(file)
-            if (!snapshot.isFile()) throw new UnsafePathError('Not a regular file')
-            const maxSize = chapter ? 5 * 1024 * 1024 : 16 * 1024 * 1024
-            if (snapshot.size > maxSize) {
-              throw Object.assign(new Error('Sidecar size limit'), { code: 'SIDECAR_TOO_LARGE' })
-            }
-            if (chapter) await validateChapterManifest(JSON.parse(await fs.readFile(file, 'utf8')))
-            else {
-              const parsed = await parseMetadataFile(file)
-              if (
-                this.input.metadataIdentityConflict ||
-                !parsed.success ||
-                (this.input.pixivId && parsed.metadata?.id !== this.input.pixivId)
-              ) {
-                throw Object.assign(new Error('Identity mismatch'), { code: 'METADATA_IDENTITY_MISMATCH' })
-              }
-            }
-            const candidate = {
-              path: relative,
-              kind,
-              reason: chapter
-                ? '与已登记视频同名且通过校验的章节文件'
-                : registeredMeta
-                  ? '数据库登记的作品元数据'
-                  : '文件名和内容匹配该作品 Pixiv 身份',
-              snapshot
-            } satisfies Candidate
-            this.sidecars.set(key(relative), candidate)
-            this.record({
-              path: relative,
-              kind,
-              status: 'NOT_ATTEMPTED',
-              reason: '已确认候选，等待原文件和数据库删除完成'
-            })
-          } catch (error) {
-            this.record({
-              path: relative,
-              kind,
-              status: 'RETAINED',
-              reason: '附属文件校验失败，保留文件',
-              code: fileErrorCode(error)
-            })
-          }
-        } else this.record({ path: relative, kind: 'OTHER', status: 'RETAINED', reason: '非普通文件，保留' })
+          const kind = isChapterManifestFileName(entry.name)
+            ? 'CHAPTER'
+            : /-meta\.(json|txt)$/i.test(entry.name)
+              ? 'METADATA'
+              : 'OTHER'
+          if (shared) this.block(relative, kind, '共享目录中的额外文件保留', 'SHARED_DIRECTORY')
+          else await this.inspectFile({ path: relative, kind, reason: '用户在作品目录清单中选中的附属文件' }, false)
+        } else this.block(relative, 'OTHER', '非普通文件，保留')
       }
     }
   }
 
+  preview(): ArtworkDeletePreview {
+    return {
+      artwork: this.report.artwork,
+      mode: this.report.mode,
+      directoryMode: this.directoryMode,
+      canDelete: this.canDelete,
+      inspectionComplete: this.report.inspectionComplete,
+      warnings: this.report.warnings,
+      entries: [...this.previewEntries.values()].sort((a, b) => a.path.localeCompare(b.path))
+    }
+  }
+
+  /** Validate the whole selection before the first unlink; never widen it to newly found files. */
+  async deleteSelected(selectedPaths: string[]): Promise<boolean> {
+    if (!this.canDelete) throw new Error('Incomplete delete inspection')
+    const selected = new Set<string>()
+    for (const relative of selectedPaths) {
+      if (normalizeDeletePath(relative) !== relative || !this.candidates.has(key(relative))) {
+        throw new UnsafePathError('Invalid selection')
+      }
+      selected.add(key(relative))
+    }
+    for (const entry of this.previewEntries.values()) {
+      if (entry.selection === 'REQUIRED' && !selected.has(key(entry.path))) {
+        throw new UnsafePathError('Required media missing')
+      }
+    }
+    for (const candidate of this.candidates.values()) {
+      if (!selected.has(key(candidate.path))) {
+        this.record({ path: candidate.path, kind: candidate.kind, status: 'RETAINED', reason: '用户选择保留' })
+      }
+    }
+    let succeeded = true
+    for (const candidate of this.candidates.values()) {
+      if (selected.has(key(candidate.path)) && !(await this.remove(candidate))) succeeded = false
+    }
+    return succeeded
+  }
+
   private async remove(candidate: Candidate): Promise<boolean> {
-    if (!this.root) {
-      this.record({ path: candidate.path, kind: candidate.kind, status: 'NOT_ATTEMPTED', reason: '扫描根目录不可用' })
-      return false
-    }
-    if (this.referenced(candidate.path)) {
-      this.record({
-        path: candidate.path,
-        kind: candidate.kind,
-        status: 'RETAINED',
-        reason: '其他作品或媒体仍引用此路径',
-        code: 'SHARED_FILE'
-      })
-      return false
-    }
     try {
       const absolute = await this.safePath(candidate.path)
       const current = await fs.lstat(absolute)
@@ -354,48 +367,18 @@ export class ArtworkFileDeletion {
         path: candidate.path,
         kind: candidate.kind,
         status: code === 'ENOENT' ? 'MISSING' : 'FAILED',
-        reason: code === 'ENOENT' ? '文件原本不存在，本次未删除' : '文件删除未完成，未强制重试',
+        reason: code === 'ENOENT' ? '文件原本不存在，本次未删除' : '文件删除未完成，作品记录保留供重试',
         code
       })
       return code === 'ENOENT'
     }
   }
 
-  async deleteOriginals(): Promise<boolean> {
-    let succeeded = !this.report.entries.some((entry) => entry.status === 'FAILED')
-    for (const candidate of this.originals.values()) {
-      if (!(await this.remove(candidate))) succeeded = false
-    }
-    return succeeded
-  }
-
-  async cleanup(allowed: boolean) {
-    if (!allowed || !this.cleanupAllowed) {
-      for (const candidate of this.sidecars.values()) {
-        this.record({
-          path: candidate.path,
-          kind: candidate.kind,
-          status: 'NOT_ATTEMPTED',
-          reason: '原文件、数据库或目录检查未全部完成，保留附属文件'
-        })
-      }
-      for (const directory of this.directories) {
-        if (!this.entries.has(key(directory))) {
-          this.record({
-            path: directory,
-            kind: 'DIRECTORY',
-            status: 'NOT_ATTEMPTED',
-            reason: '前置步骤未全部完成，未清理目录'
-          })
-        }
-      }
-      return
-    }
-    for (const candidate of this.sidecars.values()) await this.remove(candidate)
+  async cleanupDirectories() {
+    if (!this.cleanupAllowed) return
     for (const directory of this.directories.sort((a, b) => b.split('/').length - a.split('/').length)) {
       try {
-        const absolute = await this.safePath(directory)
-        await fs.rmdir(absolute)
+        await fs.rmdir(await this.safePath(directory))
         this.record({ path: directory, kind: 'DIRECTORY', status: 'DELETED', reason: '作品范围内的空目录' })
       } catch (error) {
         const code = fileErrorCode(error)
@@ -411,14 +394,6 @@ export class ArtworkFileDeletion {
                 : '空目录清理失败，未强制删除',
           code
         })
-      }
-    }
-  }
-
-  markUnattempted(reason: string) {
-    for (const candidate of this.originals.values()) {
-      if (!this.entries.has(key(candidate.path))) {
-        this.record({ path: candidate.path, kind: candidate.kind, status: 'NOT_ATTEMPTED', reason })
       }
     }
   }

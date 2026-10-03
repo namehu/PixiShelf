@@ -2,12 +2,15 @@ import 'server-only'
 import { randomUUID } from 'crypto'
 import path from 'path'
 import { prisma } from '@/lib/prisma'
-import { lockArtworkForReading } from '@pixishelf/db'
+import { lockArtworkForReading, lockCreatorCatalog, type Prisma } from '@pixishelf/db'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
 import { requestArchiveArtworkMaintenance } from '@/services/archive/archive-maintenance-service'
 import {
   ArtworkDeleteReportSchema,
+  ArtworkDeletePreviewSchema,
+  ArtworkDeleteInputSchema,
+  type ArtworkDeleteInput,
   countArtworkDeleteEntries,
   type ArtworkDeleteReport
 } from '@/schemas/artwork-delete.dto'
@@ -81,14 +84,16 @@ async function findOtherReferences(artworkId: number, scopes: string[]): Promise
   ]
 }
 
-export async function deleteArtwork(id: number, options: { requestedByUserId: string }): Promise<ArtworkDeleteReport> {
+async function loadArtwork(id: number) {
   const artwork = await prisma.artwork.findUnique({
-    where: { id },
-    include: {
-      externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } }
-    }
+    where: { id }
   })
   if (!artwork) throw new Error(`Artwork ${id} not found`)
+  return artwork
+}
+
+function createReport(artwork: Awaited<ReturnType<typeof loadArtwork>>): ArtworkDeleteReport {
+  const id = artwork.id
   const report: ArtworkDeleteReport = {
     reportId: randomUUID(),
     artwork: { id, title: artwork.title, createdVia: artwork.createdVia, directory: null },
@@ -103,6 +108,67 @@ export async function deleteArtwork(id: number, options: { requestedByUserId: st
     warnings: [],
     archive: null
   }
+  return report
+}
+
+async function prepareFiles(artwork: Awaited<ReturnType<typeof loadArtwork>>, report: ArtworkDeleteReport) {
+  const images = await prisma.image.findMany({
+    where: { artworkId: artwork.id },
+    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+    select: { id: true, path: true, chaptersPath: true }
+  })
+  const directory = determineDeleteDirectory({ ...artwork, images })
+  report.artwork.directory = directory
+  const files = new ArtworkFileDeletion(report, {
+    scanRoot: await getScanPath(),
+    directory,
+    media: images,
+    metaSource: artwork.metaSource
+  })
+  const scopes = [
+    directory,
+    ...images.flatMap((image) =>
+      [image.path, image.chaptersPath].flatMap((value) => {
+        try {
+          if (!value) return []
+          const normalized = normalizeDeletePath(value)
+          const parent = path.posix.dirname(normalized)
+          return [parent === '.' ? normalized : parent]
+        } catch {
+          return []
+        }
+      })
+    )
+  ].filter((value): value is string => Boolean(value && value !== '.'))
+  await files.prepare(await findOtherReferences(artwork.id, scopes))
+  return { files, images }
+}
+
+export async function previewDeleteArtwork(id: number) {
+  const artwork = await loadArtwork(id)
+  const report = createReport(artwork)
+  if (artwork.createdVia === 'URL_ARCHIVE') {
+    return ArtworkDeletePreviewSchema.parse({
+      artwork: report.artwork,
+      mode: report.mode,
+      directoryMode: 'REGISTERED_ONLY',
+      canDelete: true,
+      inspectionComplete: false,
+      entries: [],
+      warnings: ['归档作品整包移入回收站，保留 7 天。']
+    })
+  }
+  const { files } = await prepareFiles(artwork, report)
+  return ArtworkDeletePreviewSchema.parse(files.preview())
+}
+
+export async function deleteArtwork(
+  input: ArtworkDeleteInput,
+  options: { requestedByUserId: string }
+): Promise<ArtworkDeleteReport> {
+  const { artworkId: id, selectedPaths } = ArtworkDeleteInputSchema.parse(input)
+  const artwork = await loadArtwork(id)
+  const report = createReport(artwork)
   const finish = () => {
     report.finishedAt = new Date().toISOString()
     report.counts = countArtworkDeleteEntries(report.entries)
@@ -141,91 +207,52 @@ export async function deleteArtwork(id: number, options: { requestedByUserId: st
     return finish()
   }
 
-  let files: ArtworkFileDeletion | null = null
   try {
-    const images = await prisma.image.findMany({
-      where: { artworkId: id },
-      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-      select: { path: true, chaptersPath: true }
-    })
-    const directory = determineDeleteDirectory({ ...artwork, images })
-    report.artwork.directory = directory
-    const pixivRefs = artwork.externalRefs
-    const sourceId =
-      pixivRefs.length === 1
-        ? pixivRefs[0]!.externalId
-        : pixivRefs.length === 0 && artwork.createdVia === 'PIXIV_SCAN'
-          ? artwork.externalId
-          : null
-    files = new ArtworkFileDeletion(report, {
-      scanRoot: await getScanPath(),
-      directory,
-      media: images,
-      metaSource: artwork.metaSource,
-      pixivId: sourceId && /^\d+$/.test(sourceId) ? sourceId : null,
-      metadataIdentityConflict: pixivRefs.length > 1 || Boolean(sourceId && !/^\d+$/.test(sourceId))
-    })
-    const scopes = [
-      directory,
-      ...images.flatMap((image) =>
-        [image.path, image.chaptersPath].flatMap((value) => {
-          try {
-            if (!value) return []
-            const normalized = normalizeDeletePath(value)
-            const parent = path.posix.dirname(normalized)
-            return [parent === '.' ? normalized : parent]
-          } catch {
-            return []
-          }
-        })
-      )
-    ].filter((value): value is string => Boolean(value && value !== '.'))
-    await files.prepare(await findOtherReferences(id, scopes))
-    const originalsDeleted = await files.deleteOriginals()
-    try {
-      const deleted = await prisma.$transaction(async (tx) => {
-        await lockArtworkForReading(tx, id)
-        return tx.image.deleteMany({ where: { artworkId: id } })
-      })
-      report.database.media = 'DELETED'
-      report.database.deletedMediaCount = deleted.count
-      report.database.relatedRecords.push(
-        '媒体的探测信息、章节预览、代表帧等数据库关联随媒体记录级联移除；派生媒体目录不在本次文件清理范围内。'
-      )
-    } catch (error) {
-      report.database.media = 'FAILED'
-      throw error
+    if (!selectedPaths) throw new Error('A file selection is required')
+    const { files, images } = await prepareFiles(artwork, report)
+    const filesDeleted = await files.deleteSelected(selectedPaths)
+    if (!filesDeleted) {
+      report.database.artwork = 'RETAINED'
+      report.database.media = 'RETAINED'
+      report.warnings.push('部分选中文件删除失败，作品及媒体记录已保留。重新打开删除预览可重试；已删文件不会自动恢复。')
+      report.outcome = report.entries.some((entry) => entry.status === 'DELETED') ? 'PARTIAL' : 'FAILED'
+      return finish()
     }
     try {
-      await prisma.artwork.delete({ where: { id } })
+      const deleted = await prisma.$transaction(async (tx) => {
+        // Image triggers update Artwork; always acquire the catalog lock before its row lock.
+        await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
+        await lockArtworkForReading(tx as unknown as Prisma.TransactionClient, id)
+        const current = await tx.image.findMany({
+          where: { artworkId: id },
+          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+          select: { id: true, path: true, chaptersPath: true }
+        })
+        if (JSON.stringify(current) !== JSON.stringify(images)) throw new Error('Media records changed')
+        const result = await tx.image.deleteMany({ where: { artworkId: id } })
+        await tx.artwork.delete({ where: { id } })
+        return result
+      })
+      report.database.media = 'DELETED'
       report.database.artwork = 'DELETED'
+      report.database.deletedMediaCount = deleted.count
       report.database.relatedRecords.push(
+        '媒体的探测信息、章节预览、代表帧等数据库关联随媒体记录级联移除；派生媒体目录不在本次文件清理范围内。',
         '作品的标签、收藏、创作者、系列成员、来源引用、来源快照、原始元数据及作品关系随作品记录级联移除。'
       )
     } catch (error) {
+      report.database.media = 'FAILED'
       report.database.artwork = 'FAILED'
+      report.warnings.push('数据库删除事务失败，作品及媒体记录均保留；已删除的文件不会自动恢复。')
       throw error
     }
-    await files.cleanup(originalsDeleted)
-    if (!originalsDeleted) report.warnings.push('部分原文件未删除，新增附属文件和空目录清理已跳过。')
-    report.outcome =
-      !originalsDeleted ||
-      report.warnings.length ||
-      report.entries.some(
-        (entry) =>
-          entry.status === 'FAILED' ||
-          entry.status === 'NOT_ATTEMPTED' ||
-          (entry.status === 'RETAINED' && entry.code && !['ENOTEMPTY', 'EEXIST', 'SYMLINK'].includes(entry.code))
-      )
-        ? 'PARTIAL'
-        : 'COMPLETED'
+    await files.cleanupDirectories()
+    report.outcome = report.entries.some((entry) => entry.status === 'FAILED') ? 'PARTIAL' : 'COMPLETED'
   } catch (error) {
-    report.warnings.push(
-      `删除流程未完成（${fileErrorCode(error)}）。已完成的文件或数据库删除不会自动撤销，请核对明细。`
-    )
-    files?.markUnattempted('前置步骤失败，未执行删除')
-    await files?.cleanup(false)
-    report.outcome = report.database.artwork === 'DELETED' ? 'PARTIAL' : 'FAILED'
+    report.warnings.push(`删除流程未完成（${fileErrorCode(error)}）。请核对明细后重新预览。`)
+    if (report.database.artwork === 'NOT_ATTEMPTED') report.database.artwork = 'RETAINED'
+    if (report.database.media === 'NOT_ATTEMPTED') report.database.media = 'RETAINED'
+    report.outcome = report.entries.some((entry) => entry.status === 'DELETED') ? 'PARTIAL' : 'FAILED'
   }
   return finish()
 }

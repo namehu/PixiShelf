@@ -37,7 +37,8 @@ import { AdminImageVisibilitySwitch } from '../../_components/admin-image-visibi
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PixivArtworkSyncReportDrawer } from './pixiv-artwork-sync-report-drawer'
 import { ArtworkDeleteReportDrawer } from './artwork-delete-report'
-import { DELETE_OUTCOME_LABELS, type ArtworkDeleteReport } from '@/schemas/artwork-delete.dto'
+import { ArtworkDeletePreviewDrawer } from './artwork-delete-preview'
+import { DELETE_OUTCOME_LABELS, type ArtworkDeleteReport, type ArtworkDeleteInput } from '@/schemas/artwork-delete.dto'
 import { Button } from '@/components/ui/button'
 
 export default function ArtworkManagement() {
@@ -49,6 +50,8 @@ export default function ArtworkManagement() {
   const [deleteReport, setDeleteReport] = useState<ArtworkDeleteReport | null>(null)
   const [deleteReportOpen, setDeleteReportOpen] = useState(false)
   const deleteInFlight = useRef(false)
+  const [deleteArtworkId, setDeleteArtworkId] = useState<number | null>(null)
+  const loadDeletePreview = useCallback((id: number) => trpcClient.artwork.previewDelete.query(id), [trpcClient])
   const [pixivDialogOpen, setPixivDialogOpen] = useState(false)
   const [pixivReportArtwork, setPixivReportArtwork] = useState<ArtworkResponseDto | null>(null)
   const [editorConfig, setEditorConfig] = useState<{ id: number | null; tab: 'info' | 'media' } | null>(null)
@@ -164,7 +167,11 @@ export default function ArtworkManagement() {
         if (report.outcome === 'FAILED') toast.error(DELETE_OUTCOME_LABELS[report.outcome])
         else if (report.outcome === 'PARTIAL') toast.warning('部分完成，请核对删除总结')
         else if (report.outcome === 'QUEUED') toast.info('回收请求已提交')
-        else toast.success('删除完成')
+        else {
+          toast.success(
+            `已按选择完成删除，保留 ${report.entries.filter((entry) => entry.kind !== 'DIRECTORY' && entry.status === 'RETAINED').length} 个文件`
+          )
+        }
         refreshTable()
         queryClient.invalidateQueries({ queryKey: trpc.artwork.cardList.queryKey() })
         setRowSelection({})
@@ -225,24 +232,18 @@ export default function ArtworkManagement() {
   }
 
   const handleDelete = (id: number) => {
+    if (!deleteInFlight.current) setDeleteArtworkId(id)
+  }
+
+  const submitDelete = async (input: ArtworkDeleteInput) => {
     if (deleteInFlight.current) return
-    confirm({
-      title: '确定删除该作品吗？',
-      description:
-        '本地作品会删除已登记媒体、可确认归属的附属文件和空作品目录；未知文件保留。URL 归档移入回收站。操作后展示删除总结。',
-      variant: 'destructive',
-      onConfirm: async () => {
-        if (deleteInFlight.current) return
-        deleteInFlight.current = true
-        try {
-          await deleteMutation.mutateAsync(id)
-        } catch {
-          /* onError reports an unconfirmed outcome; never retry automatically. */
-        } finally {
-          deleteInFlight.current = false
-        }
-      }
-    })
+    deleteInFlight.current = true
+    try {
+      await deleteMutation.mutateAsync(input)
+      setDeleteArtworkId(null)
+    } finally {
+      deleteInFlight.current = false
+    }
   }
 
   const handleEdit = (item: ArtworkResponseDto) => {
@@ -572,6 +573,12 @@ export default function ArtworkManagement() {
           onOpenChange={(open) => {
             if (!open) setPixivReportArtwork(null)
           }}
+        />
+        <ArtworkDeletePreviewDrawer
+          artworkId={deleteArtworkId}
+          loadPreview={loadDeletePreview}
+          onDelete={submitDelete}
+          onClose={() => setDeleteArtworkId(null)}
         />
         <ArtworkDeleteReportDrawer report={deleteReport} open={deleteReportOpen} onOpenChange={setDeleteReportOpen} />
       </div>

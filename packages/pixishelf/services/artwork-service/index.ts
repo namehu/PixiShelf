@@ -361,7 +361,7 @@ export async function getArtworkCardsPage(params: ArtworksInfiniteQuerySchema, u
   }
 }
 
-export { deleteArtwork } from './delete-artwork'
+export { deleteArtwork, previewDeleteArtwork } from './delete-artwork'
 
 /**
  * 更新作品

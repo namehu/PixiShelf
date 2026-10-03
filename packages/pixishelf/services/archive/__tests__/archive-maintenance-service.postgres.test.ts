@@ -146,7 +146,9 @@ describePostgres('archive maintenance command PostgreSQL contracts', () => {
   it('routes an ordinary artwork.delete call for URL archives through durable central maintenance', async () => {
     const fixture = await seedPublishedArchive('artwork-delete')
 
-    await expect(deleteArtwork(fixture.artworkId, { requestedByUserId: `${prefix}-admin` })).resolves.toMatchObject({
+    await expect(
+      deleteArtwork({ artworkId: fixture.artworkId }, { requestedByUserId: `${prefix}-admin` })
+    ).resolves.toMatchObject({
       artwork: { id: fixture.artworkId },
       outcome: 'QUEUED',
       archive: { lifecycleState: 'TRASHING' }

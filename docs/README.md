@@ -40,7 +40,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 - [后台任务失败诊断](./features/background-job-diagnostics.md)（current）：独立执行快照、全量失败对象、遗留标记、90 天证据与协调升级。
 
-- [作品删除与删除总结](./features/artwork-deletion.md)（current）：附属文件名单、空目录边界、逐项报告、下载和部分失败语义。
+- [作品删除与删除总结](./features/artwork-deletion.md)（current）：删除前清单、文件选择、空目录边界、逐项报告和失败重试。
 
 - [Pixiv 扫描根身份](./features/pixiv-root-identity.md)（current）：稳定 UUID、重挂载兼容、旧库绑定与标记恢复。
 

@@ -87,7 +87,7 @@ WebP 时长探测沿用管理任务的 `adminProcedure` 入队/重试和受登�
 
 ### tRPC 过程层
 
-`artwork.delete` 使用 `adminProcedure`，输入正整数作品 ID，返回当次结构化删除报告（包括部分执行结果），不再返回 Artwork 行。报告只向已认证会话提供相对路径和安全错误说明，不包含原始异常堆栈或服务器绝对路径；客户端下载遵循现有隐私模式的“视觉遮蔽不改变导出内容”规则。详见[作品删除与删除总结](../features/artwork-deletion.md)。
+`artwork.previewDelete` 和 `artwork.delete` 均使用 `adminProcedure`。预览输入正整数作品 ID，仅只读列举受限目录和登记文件；执行输入 `{ artworkId, selectedPaths? }`，本地删除必须提交明确选择，归档继续整包回收。服务端在写入前校验整份选择、必选媒体、根目录、共享引用和禁选路径；客户端不能通过相对路径参数扩大删除范围。共享目录额外文件、系统保留项、符号链接和非普通文件不可选，普通目录检查不完整时禁止执行。预览和当次结构化报告只向已认证会话提供相对路径和安全错误说明，不包含原始异常堆栈或服务器绝对路径；客户端下载遵循现有隐私模式的“视觉遮蔽不改变导出内容”规则。详见[作品删除与删除总结](../features/artwork-deletion.md)。
 
 阅读接口 `reading.context`、`reading.report`、`reading.summaries`、`reading.history` 均使用 `authProcedure`；服务端从 Session 取得实际账户，输入中的 `expectedUserId` 只用于防止切换账户期间把响应混入旧账户缓存，与当前 Session 不一致即拒绝。上报还需校验作品 `mediaRevision` 和媒体归属，客户端不能提交访问次数、完成状态或任意账户 ID。作品列表的阅读状态筛选同样要求账户一致性前置条件；不启用阅读筛选的原有列表调用保持兼容。阅读历史、摘要和缓存均按账户隔离，但当前所有账户仍拥有相同的实例管理员能力，不能因此声称存在租户级权限隔离。功能发布状态见[作品阅读记录与进度](../features/artwork-reading.md)。
 

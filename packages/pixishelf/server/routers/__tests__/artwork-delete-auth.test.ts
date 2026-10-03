@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  deleteArtwork: vi.fn()
+  deleteArtwork: vi.fn(),
+  previewDeleteArtwork: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -11,6 +12,7 @@ vi.mock('@/services/setting.service', () => ({ getScanPath: vi.fn() }))
 vi.mock('@/services/artwork-service', () => ({
   createArtwork: vi.fn(),
   deleteArtwork: mocks.deleteArtwork,
+  previewDeleteArtwork: mocks.previewDeleteArtwork,
   getArtworkById: vi.fn(),
   getArtworkCardsPage: vi.fn(),
   getArtworksList: vi.fn(),
@@ -64,18 +66,49 @@ describe('artwork delete authorization boundary', () => {
   })
 
   it('rejects unauthenticated deletion before the write service boundary', async () => {
-    await expect(artworkRouter.createCaller(unauthorized).delete(42)).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    await expect(
+      artworkRouter.createCaller(unauthorized).delete({ artworkId: 42, selectedPaths: [] })
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     expect(mocks.deleteArtwork).not.toHaveBeenCalled()
+  })
+
+  it('rejects unauthenticated previews before any filesystem reads', async () => {
+    await expect(artworkRouter.createCaller(unauthorized).previewDelete(42)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED'
+    })
+    expect(mocks.previewDeleteArtwork).not.toHaveBeenCalled()
   })
 
   it('passes the authenticated administrator identity to the delete command', async () => {
-    await expect(artworkRouter.createCaller(authorized).delete(42)).resolves.toEqual(report)
-    expect(mocks.deleteArtwork).toHaveBeenCalledWith(42, { requestedByUserId: 'admin-1' })
+    await expect(artworkRouter.createCaller(authorized).delete({ artworkId: 42, selectedPaths: [] })).resolves.toEqual(
+      report
+    )
+    expect(mocks.deleteArtwork).toHaveBeenCalledWith(
+      { artworkId: 42, selectedPaths: [] },
+      { requestedByUserId: 'admin-1' }
+    )
   })
 
   it('rejects invalid IDs before any delete operation', async () => {
-    await expect(artworkRouter.createCaller(authorized).delete(-1)).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(artworkRouter.createCaller(authorized).delete({ artworkId: -1 })).rejects.toMatchObject({
+      code: 'BAD_REQUEST'
+    })
     expect(mocks.deleteArtwork).not.toHaveBeenCalled()
+  })
+
+  it('does not expose raw database or filesystem errors from either endpoint', async () => {
+    mocks.previewDeleteArtwork.mockRejectedValue(new Error('secret /absolute/storage connection details'))
+    mocks.deleteArtwork.mockRejectedValue(new Error('secret database connection details'))
+    await expect(artworkRouter.createCaller(authorized).previewDelete(42)).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: '无法读取删除清单，请重新加载。'
+    })
+    await expect(
+      artworkRouter.createCaller(authorized).delete({ artworkId: 42, selectedPaths: [] })
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: '未收到删除总结，请核对列表或服务端日志。'
+    })
   })
 
   it('preserves a partial report instead of claiming transport success means deletion success', async () => {
@@ -84,7 +117,9 @@ describe('artwork delete authorization boundary', () => {
       outcome: 'FAILED',
       database: { ...report.database, artwork: 'FAILED' }
     })
-    await expect(artworkRouter.createCaller(authorized).delete(42)).resolves.toMatchObject({
+    await expect(
+      artworkRouter.createCaller(authorized).delete({ artworkId: 42, selectedPaths: [] })
+    ).resolves.toMatchObject({
       outcome: 'FAILED',
       database: { artwork: 'FAILED' }
     })

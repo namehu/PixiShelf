@@ -3,7 +3,11 @@ import { revalidatePath } from 'next/cache'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import path from 'path'
 import { z } from 'zod'
-import { ArtworkDeleteReportSchema } from '@/schemas/artwork-delete.dto'
+import {
+  ArtworkDeleteReportSchema,
+  ArtworkDeletePreviewSchema,
+  ArtworkDeleteInputSchema
+} from '@/schemas/artwork-delete.dto'
 import {
   ArtworksInfiniteQuerySchema,
   NeighboringArtworksGetSchema,
@@ -19,6 +23,7 @@ import {
   getRandomArtworks,
   getViewerFeed,
   deleteArtwork,
+  previewDeleteArtwork,
   updateArtwork,
   getArtworkById,
   createArtwork
@@ -189,11 +194,26 @@ export const artworkRouter = router({
   /**
    * 删除作品
    */
-  delete: adminProcedure
+  previewDelete: adminProcedure
     .input(z.number().int().positive())
+    .output(ArtworkDeletePreviewSchema)
+    .query(async ({ input }) => {
+      try {
+        return await previewDeleteArtwork(input)
+      } catch {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '无法读取删除清单，请重新加载。' })
+      }
+    }),
+
+  delete: adminProcedure
+    .input(ArtworkDeleteInputSchema)
     .output(ArtworkDeleteReportSchema)
     .mutation(async ({ input, ctx }) => {
-      return deleteArtwork(input, { requestedByUserId: ctx.userId })
+      try {
+        return await deleteArtwork(input, { requestedByUserId: ctx.userId })
+      } catch {
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '未收到删除总结，请核对列表或服务端日志。' })
+      }
     }),
 
   /**
