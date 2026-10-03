@@ -33,6 +33,21 @@ Web `Dockerfile` 直接由 Next.js 编译 job-contracts、job-runtime 和 job-ex
 
 发布后用两个不同版本标签、相同依赖的构建日志确认依赖安装层命中缓存，并核对前端显示的新版本号。此调整不改变镜像运行入口、数据库或媒体；恢复依据是 Git 中修改前的 Dockerfile，回退其指令位置并重建即可恢复原构建方式。生产版本回退仍遵循部署与备份恢复基线。
 
+## GitHub 发布流水线
+
+`.github/workflows/build-and-deploy.yml` 对同一次 tag/manual 运行并行执行：
+
+- `validate`：依赖安装、Prisma generate/validate、PostgreSQL 空库完整迁移与 status、Worker 依赖链 typecheck/test、共享包与 Worker 构建；各阶段独立计时。
+- `Build pixishelf` / `Build pixishelf-worker`：独立 runner 构建 `linux/amd64` OCI 镜像包，各自复用原 GHCR `:cache`。构建阶段只更新构建缓存，不推送版本、SHA 或 `latest` 镜像标签。
+- `Publish pixishelf` / `Publish pixishelf-worker`：必须等待 `validate` 和两个构建全部成功。下载本次运行的镜像包、校验 SHA-256 后，用 `skopeo copy --all --preserve-digests` 原样复制到 GHCR 与 Docker Hub；保留镜像清单及构建证明，不重新执行 Docker build。
+- 两个发布都成功后才创建 Release 和扫描镜像。`Release timings` 在成功或失败后汇总当前 attempt 的 job、step 耗时；并行步骤时间不能相加当作总耗时。
+
+镜像 artifact 不做额外 ZIP 压缩，保留 3 天；名称包含镜像名和 workflow run ID。完整重跑会覆盖对应产物，重跑失败 job 可以复用同次运行成功的产物；过期后必须重跑全部 jobs，不能从其他运行借用镜像。版本标签和镜像标签规则保持一致。
+
+验收应比较多次运行的端到端时间，并分别记录验证、构建及缓存导出、artifact 上传/下载、工具安装、推送和扫描耗时；OCI 传输和额外 runner 初始化会抵消部分并行收益，不预先承诺固定节省比例。
+
+发布仍不是跨镜像、跨仓库的原子事务：验证失败时不会进入推送；推送中途失败可能已有部分标签更新，此时不会创建 Release，需修复后重跑失败发布 job。`latest` 的更新顺序仍不保证跨不同 workflow run 串行，生产部署应使用明确版本或 digest。本次不修改数据库、媒体或运行时；恢复流水线可回退此工作流配置，生产恢复继续遵循[备份与恢复基线](../docs/operations/backup-and-recovery.md)。
+
 ## 存储与运行边界
 
 Worker 需要以下挂载：

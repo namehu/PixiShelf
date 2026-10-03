@@ -84,8 +84,8 @@ pnpm --filter @pixishelf/worker... build
 
 `@pixishelf/worker...` 包含 Worker 及其 workspace 依赖，覆盖 DB、job-contracts、job-runtime 和 job-executors 的相应脚本。
 Pixiv 代理传输集成测试使用本机 HTTP/HTTPS CONNECT 服务、临时 TLS 证书和图片目录；需要 `openssl` 与回环端口监听权限，不访问真实原站或数据库，不关闭 TLS 校验。它验证资料及图片经过代理、压缩响应、取消和代理故障不回退直连。
-CI 在任何 job 包 `dist` 生成前完成 Web lint、typecheck、unit test 和 production build，证明主应用只消费
-workspace 源码；随后独立构建 job-contracts、job-runtime、job-executors 的 `dist`，再打包 Worker，验证
+CI 的 Web job 在没有 job 包 `dist` 的独立 runner 上完成 lint、typecheck、unit test 和 production build，证明主应用只消费
+workspace 源码；并行的 Worker job 独立构建 job-contracts、job-runtime、job-executors 的 `dist`，再打包 Worker，验证
 独立编译输出、类型声明和依赖顺序没有漂移。
 
 ### Compose 与 Worker 运行门禁
@@ -180,6 +180,8 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 `web` 和 `worker` 各自保留数据库服务与完整迁移，确保拆分后主应用中使用 `DATABASE_URL` 的测试仍可连接已迁移的隔离库。三个 job 不共享构建目录，因此 Worker 生成的 `dist` 不会污染 Web 源码边界验证。
 
 汇总 job 继续使用原检查名称 `test`，通过 `always()` 收集三路结果，只有三路全部 `success` 才通过；失败、取消或跳过均不能放行。已有要求 `test` 的分支保护无需更名。发布工作流的既有验证仍保留，尚未与 CI 合并复用。
+
+`Build and Deploy` 独立保留原发布验证，并与 Web/Worker 两路 OCI 镜像构建并行。只有验证和两路构建全部成功，发布 jobs 才会下载同次运行的 artifact 并推送原有镜像标签，随后创建 Release 和扫描；不会在发布阶段重新构建。当前 attempt 的耗时由 `Release timings` 汇总，artifact 传输与发布开销必须纳入端到端性能对比。具体产物保留、失败重跑和恢复边界见 [Build 与部署](../../build/README.md#github-发布流水线)。
 
 性能验收应在 GitHub runner 上比较多次成功运行的中位耗时，同时检查三路结果和 `test` 汇总状态；并行化降低墙钟时间，但重复初始化可能增加 runner 总用量。回退本次工作流配置即可恢复串行执行，不涉及生产数据恢复。
 
