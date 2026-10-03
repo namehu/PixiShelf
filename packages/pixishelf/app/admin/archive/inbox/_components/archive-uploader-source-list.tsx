@@ -7,6 +7,7 @@ import type { AppRouter } from '@/server'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Checkbox } from '@/components/ui/checkbox'
 import { isActiveArchiveUploaderRunStatus } from './archive-uploader-view-state'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -76,7 +77,13 @@ export function ArchiveUploaderSourceList({
                   )}
                 </span>
                 <span className="block truncate text-xs font-normal text-muted-foreground">
-                  待处理 {source.catalogCounts.actionable} ·{' '}
+                  待处理{' '}
+                  {source.catalogCounts ? (
+                    source.catalogCounts.actionable
+                  ) : (
+                    <Skeleton className="inline-block h-3 w-6" aria-label="待处理数量加载中" />
+                  )}{' '}
+                  ·{' '}
                   {source.uidBindingState === 'REVALIDATION_REQUIRED'
                     ? '扫描范围待核对'
                     : historyCoverageLabel(source.historyCoverage)}
@@ -90,8 +97,8 @@ export function ArchiveUploaderSourceList({
                 {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
                   <Badge variant="warning">扫描范围待核对</Badge>
                 ) : null}
-                {source.catalogCounts.attention > 0 ? (
-                  <Badge variant="warning">异常 {source.catalogCounts.attention}</Badge>
+                {(source.catalogCounts?.attention ?? 0) > 0 ? (
+                  <Badge variant="warning">异常 {source.catalogCounts?.attention}</Badge>
                 ) : null}
                 {source.status === 'ARCHIVED' ? <Badge variant="muted">已停用</Badge> : null}
               </span>

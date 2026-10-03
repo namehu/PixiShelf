@@ -4,7 +4,7 @@ import React, { Suspense } from 'react'
 import { AuthProvider } from '@/components/auth'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createTRPCClient, httpBatchLink, loggerLink } from '@trpc/client'
+import { createTRPCClient, loggerLink } from '@trpc/client'
 import { useState } from 'react'
 import { TRPCProvider as TRPCClientProvider } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
@@ -12,6 +12,7 @@ import { UserSettingProvider } from '@/components/user-setting'
 import type { UserSettings } from '@/schemas/user-setting.dto'
 import { NavigationHistoryTracker } from '@/components/navigation-history-tracker'
 import AppShell from '@/components/layout/app-shell'
+import { createTRPCTransport } from '@/lib/trpc-transport'
 import { ReadingProvider } from '@/lib/reading/reading-provider'
 
 function makeQueryClient() {
@@ -58,9 +59,7 @@ export function Providers({ children, initialUser, initialSettings }: ProvidersP
           enabled: (opts) =>
             process.env.NODE_ENV === 'development' || (opts.direction === 'down' && opts.result instanceof Error)
         }),
-        httpBatchLink({
-          url: `${getBaseUrl()}/api/trpc`
-        })
+        createTRPCTransport(`${getBaseUrl()}/api/trpc`)
       ]
     })
   )

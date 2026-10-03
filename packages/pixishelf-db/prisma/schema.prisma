@@ -1013,6 +1013,8 @@ model ArchiveIntakeItem {
   @@index([status, queueOrder])
   @@index([submissionId, createdAt])
   @@index([normalizedUrlHash, status])
+  @@index([submittedUrl], type: Hash, map: "archive_intake_items_submitted_url_hash_idx")
+  @@index([canonicalUrl], type: Hash, map: "archive_intake_items_canonical_url_hash_idx")
   @@index([providerKey, externalId])
   @@index([archiveImportId])
   @@index([activeArchiveImportId])

@@ -7,7 +7,7 @@ export function isActiveArchiveUploaderRunStatus(status: string | null | undefin
 export function archiveUploaderDetailPollingInterval(
   detail:
     | {
-        source?: { catalogCounts?: { processing: number } }
+        source?: { catalogCounts?: { processing: number } | null }
         runs: ReadonlyArray<{ status: string }>
       }
     | null

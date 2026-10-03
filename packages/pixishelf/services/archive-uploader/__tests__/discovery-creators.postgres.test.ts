@@ -149,7 +149,7 @@ describe.skipIf(!url)('discovery creator binding PostgreSQL', () => {
     await setDiscoveryCreators({ sourceId, artistIds: [artistId] }, db!)
     expect(await db!.archiveUploaderScanRun.count({ where: { sourceId } })).toBe(0)
     const deps = { database: db!, sourceKind: 'ALL' as const }
-    expect((await listArchiveUploaderScanItems({ sourceId, unboundOnly: true }, deps)).counts.total).toBe(1)
+    expect((await listArchiveUploaderScanItems({ sourceId, unboundOnly: true }, deps)).counts?.total).toBe(1)
     await bindDiscoveryItems(
       { sourceId, itemIds: [itemId], artistIds: [artistId], requestId: requestId() },
       'test',

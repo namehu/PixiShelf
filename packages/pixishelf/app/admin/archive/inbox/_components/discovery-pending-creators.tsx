@@ -53,7 +53,8 @@ export function DiscoveryPendingCreators({ onBack }: { onBack: () => void }) {
         )
         await Promise.all([
           client.invalidateQueries({ queryKey: trpc.archiveSearch.listPendingCreators.infiniteQueryKey() }),
-          client.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
+          client.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() }),
+          client.invalidateQueries({ queryKey: trpc.archiveSearch.catalogCounts.queryKey() })
         ])
       },
       onError: () => toast.error('结果尚未确认，请重试原操作')

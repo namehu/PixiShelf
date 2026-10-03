@@ -56,6 +56,7 @@ export function ArchiveDiscoveryBatchSources({ allSources, ...listProps }: ListP
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.activeBatchScan.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listSources.queryKey() }),
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.catalogCounts.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.getSource.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
     ])
@@ -66,6 +67,7 @@ export function ArchiveDiscoveryBatchSources({ allSources, ...listProps }: ListP
     const key = `${batch.id}:${batch.processed}:${batch.status}`
     if (previousProgress.current && previousProgress.current !== key) {
       void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listSources.queryKey() })
+      void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.catalogCounts.queryKey() })
       void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.getSource.queryKey() })
       void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
     }

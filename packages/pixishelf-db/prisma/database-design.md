@@ -338,3 +338,14 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 ## 发现来源批量扫描约束
 
 20260920120000_add_discovery_batch_scan 扩展 system_jobs_type_execution_lane_check，允许 ARCHIVE_DISCOVERY_BATCH_SCAN 仅使用 ARCHIVE_RESOLVE。system_jobs_one_active_discovery_batch 部分唯一索引约束该类型的 PENDING/RUNNING/RETRY_WAIT/PAUSING/PAUSED/CANCELLING 至多一条。无新增业务表，父任务 payload/result 保存冻结输入与检查点，子扫描通过 parentJobId 关联；非终态父批次依赖的扫描历史不参与 30 天清理。
+
+## 归档收件 URL 等值匹配索引
+
+迁移 `20261003120000_index_archive_intake_url_matching` 为 `archive_intake_items` 的 `submittedUrl`
+和 `canonicalUrl` 分别添加非唯一 Hash 索引。目录状态的 LATERAL 收件查询包含 ID、Provider/GID、
+提交 URL 和规范 URL 四种匹配；两个 URL 分支原先没有索引，生产计划对收件表重复全扫描 3,861 次。
+Hash 索引服务于现有 Text 字段的完整等值查询，避免长 URL 的 B-tree 索引项长度限制。
+保留完整字符串比较，由 PostgreSQL 复核索引候选；不把散列相等当作业务身份相等。
+
+本迁移不改变匹配优先级、NULL 排序、`lastOutcomeAt` 严格时间边界、唯一性或任何领域数据。
+按现有停写发布流程执行普通索引创建；回滚应用时保留索引和迁移记录，无需媒体或数据回填。

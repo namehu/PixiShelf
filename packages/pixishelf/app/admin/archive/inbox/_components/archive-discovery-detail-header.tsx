@@ -249,11 +249,11 @@ export function ArchiveDiscoveryDetailHeader({
                   </Badge>
                 </>
               )}
-              <Badge variant={source.catalogCounts.actionable > 0 ? 'success' : 'muted'}>
-                待处理 {source.catalogCounts.actionable}
+              <Badge variant={(source.catalogCounts?.actionable ?? 0) > 0 ? 'success' : 'muted'}>
+                待处理 {source.catalogCounts?.actionable ?? '…'}
               </Badge>
-              {source.catalogCounts.processing > 0 ? (
-                <Badge variant="warning">处理中 {source.catalogCounts.processing}</Badge>
+              {(source.catalogCounts?.processing ?? 0) > 0 ? (
+                <Badge variant="warning">处理中 {source.catalogCounts?.processing}</Badge>
               ) : null}
             </div>
             {latestRun ? (

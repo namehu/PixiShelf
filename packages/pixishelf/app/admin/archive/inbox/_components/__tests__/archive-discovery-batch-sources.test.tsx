@@ -31,6 +31,7 @@ const trpc = {
     startBatchScan: { mutationOptions: () => ({ kind: 'start' }) },
     controlBatchScan: { mutationOptions: () => ({ kind: 'control' }) },
     retryBatchScan: { mutationOptions: () => ({ kind: 'retry' }) },
+    catalogCounts: { queryKey: () => ['counts'] },
     listSources: { queryKey: () => ['sources'] },
     getSource: { queryKey: () => ['source'] },
     listItems: { infiniteQueryKey: () => ['items'] }

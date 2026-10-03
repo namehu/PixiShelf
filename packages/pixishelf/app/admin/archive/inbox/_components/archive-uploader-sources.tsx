@@ -98,7 +98,7 @@ export function ArchiveUploaderSources({
   const resultPositionsRef = useRef(new Map<string, ArchiveDiscoveryListPosition>())
   const sourceListScrollRef = useRef(0)
   const previousMobileViewRef = useRef<string | null>(null)
-  const refreshedCompletedRunId = useRef<string | null>(null)
+  const observedRuns = useRef(new Map<string, { id: string; status: string }>())
   const previousProcessingCount = useRef<{ sourceId: string; count: number } | null>(null)
   const resultView = useAdminPreferencesStore((state) => state.archiveUploaderResultView)
   const setResultView = useAdminPreferencesStore((state) => state.setArchiveUploaderResultView)
@@ -142,20 +142,38 @@ export function ArchiveUploaderSources({
 
   const sourcesQuery = useQuery(
     trpc.archiveSearch.listSources.queryOptions(
-      { includeArchived: true },
+      { includeArchived: true, includeCounts: false },
       {
         enabled: active,
         refetchInterval: (query) =>
-          query.state.data?.some(
-            (source) =>
-              isActiveArchiveUploaderRunStatus(source.latestRun?.status) || source.catalogCounts.processing > 0
-          )
+          active && query.state.data?.some((source) => isActiveArchiveUploaderRunStatus(source.latestRun?.status))
             ? 3_000
             : false
       }
     )
   )
-  const allSources = sourcesQuery.data ?? []
+  const scanning =
+    sourcesQuery.data?.some((source) => isActiveArchiveUploaderRunStatus(source.latestRun?.status)) ?? false
+  const countsQuery = useQuery(
+    trpc.archiveSearch.catalogCounts.queryOptions(
+      {},
+      {
+        enabled: active,
+        refetchInterval: (query) =>
+          active && (scanning || Object.values(query.state.data ?? {}).some((counts) => counts.processing > 0))
+            ? 3_000
+            : false
+      }
+    )
+  )
+  const allSources = useMemo(
+    () =>
+      (sourcesQuery.data ?? []).map((source) => ({
+        ...source,
+        catalogCounts: countsQuery.data?.[source.id] ?? null
+      })),
+    [sourcesQuery.data, countsQuery.data]
+  )
   const sources = useMemo(
     () => allSources.filter((source) => sourceFilter === 'ALL' || (source.sourceKind ?? 'UPLOADER') === sourceFilter),
     [allSources, sourceFilter]
@@ -206,14 +224,35 @@ export function ArchiveUploaderSources({
 
   const detailQuery = useQuery(
     trpc.archiveSearch.getSource.queryOptions(
-      { sourceId: selectedSourceId ?? 'unselected' },
+      { sourceId: selectedSourceId ?? 'unselected', includeCounts: false },
       {
         enabled: active && Boolean(selectedSourceId),
-        refetchInterval: (query) => archiveUploaderDetailPollingInterval(query.state.data)
+        refetchInterval: (query) =>
+          active
+            ? archiveUploaderDetailPollingInterval(
+                query.state.data
+                  ? {
+                      ...query.state.data,
+                      source: { catalogCounts: countsQuery.data?.[selectedSourceId ?? ''] }
+                    }
+                  : undefined
+              )
+            : false
       }
     )
   )
   const detail = detailQuery.data
+  const selectedCounts = countsQuery.data?.[selectedSourceId ?? '']
+  const unboundCountsQuery = useQuery(
+    trpc.archiveSearch.catalogCounts.queryOptions(
+      { sourceId: selectedSourceId ?? 'unselected', unboundOnly: true },
+      {
+        enabled: active && Boolean(selectedSourceId) && unboundOnly,
+        refetchInterval: active && unboundOnly && (scanning || (selectedCounts?.processing ?? 0) > 0) ? 3_000 : false
+      }
+    )
+  )
+  const resultCounts = unboundOnly ? unboundCountsQuery.data?.[selectedSourceId ?? ''] : selectedCounts
   useEffect(() => {
     if (!restoredPreviewRef.current || !selectedSourceId) return
     if (
@@ -227,15 +266,21 @@ export function ArchiveUploaderSources({
   }, [detail, detailQuery.error, detailQuery.isSuccess, onNavigateSourceList, selectedSourceId])
   const activeRun = detail?.runs.find((run) => isActiveArchiveUploaderRunStatus(run.status))
   const latestRun = detail?.runs[0]
-  const catalogPolling = Boolean(activeRun) || (detail?.source.catalogCounts.processing ?? 0) > 0
+  const catalogPolling = Boolean(activeRun) || (selectedCounts?.processing ?? 0) > 0
   const itemsQuery = useInfiniteQuery(
     trpc.archiveSearch.listItems.infiniteQueryOptions(
-      { sourceId: selectedSourceId ?? 'unselected', view: resultFeed, limit: SCAN_RESULT_PAGE_SIZE, unboundOnly },
+      {
+        sourceId: selectedSourceId ?? 'unselected',
+        view: resultFeed,
+        limit: SCAN_RESULT_PAGE_SIZE,
+        unboundOnly,
+        includeCounts: false
+      },
       {
         initialCursor: null,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
         enabled: active && Boolean(selectedSourceId),
-        refetchInterval: catalogPolling ? 3_000 : false
+        refetchInterval: active && catalogPolling ? 3_000 : false
       }
     )
   )
@@ -256,19 +301,36 @@ export function ArchiveUploaderSources({
   )
 
   useEffect(() => {
-    if (latestRun?.status !== 'COMPLETED' || refreshedCompletedRunId.current === latestRun.id) return
-    refreshedCompletedRunId.current = latestRun.id
+    if (!selectedSourceId || !latestRun) return
+    const previous = observedRuns.current.get(selectedSourceId)
+    observedRuns.current.set(selectedSourceId, { id: latestRun.id, status: latestRun.status })
+    // A completed run on first mount is already represented by the initial query.
+    if (
+      !previous ||
+      latestRun.status !== 'COMPLETED' ||
+      (previous.id === latestRun.id && previous.status === 'COMPLETED')
+    ) {
+      return
+    }
     void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
-  }, [latestRun?.id, latestRun?.status, queryClient, trpc.archiveSearch.listItems])
+    void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.catalogCounts.queryKey() })
+  }, [
+    selectedSourceId,
+    latestRun?.id,
+    latestRun?.status,
+    queryClient,
+    trpc.archiveSearch.listItems,
+    trpc.archiveSearch.catalogCounts
+  ])
 
   useEffect(() => {
-    if (!selectedSourceId || !detail) return
-    const count = detail.source.catalogCounts.processing
+    if (!selectedSourceId || !selectedCounts) return
+    const count = selectedCounts.processing
     const previous = previousProcessingCount.current
     previousProcessingCount.current = { sourceId: selectedSourceId, count }
     if (previous?.sourceId !== selectedSourceId || previous.count === 0 || count !== 0) return
     void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
-  }, [detail, queryClient, selectedSourceId, trpc.archiveSearch.listItems])
+  }, [selectedCounts, queryClient, selectedSourceId, trpc.archiveSearch.listItems])
 
   useEffect(() => {
     if (!cancelRequestedRunId) return
@@ -293,6 +355,7 @@ export function ArchiveUploaderSources({
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listSources.queryKey() }),
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.catalogCounts.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.getSource.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listIgnoredItems.infiniteQueryKey() }),
@@ -545,7 +608,7 @@ export function ArchiveUploaderSources({
     />
   )
 
-  const source = detail?.source
+  const source = detail ? { ...detail.source, catalogCounts: selectedCounts ?? null } : undefined
   const resultPositionKey = selectedSourceId ? `${selectedSourceId}:${resultFeed}:${unboundOnly}` : 'unselected'
   const detailPanel = (
     <AdminSection>
@@ -630,11 +693,11 @@ export function ArchiveUploaderSources({
           <ArchiveDiscoveryResultsToolbar
             view={resultFeed}
             counts={{
-              ACTIONABLE: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).actionable,
-              PROCESSING: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).processing,
-              ARCHIVED: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).archived,
-              ATTENTION: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).attention,
-              ALL: (itemsQuery.data?.pages[0]?.counts ?? source.catalogCounts).total
+              ACTIONABLE: resultCounts?.actionable ?? null,
+              PROCESSING: resultCounts?.processing ?? null,
+              ARCHIVED: resultCounts?.archived ?? null,
+              ATTENTION: resultCounts?.attention ?? null,
+              ALL: resultCounts?.total ?? null
             }}
             description={resultFeedDescription(resultFeed, items.length)}
             resultView={resultView}
@@ -673,7 +736,7 @@ export function ArchiveUploaderSources({
           </div>
           <ScanResults
             view={resultFeed}
-            runs={detail.runs}
+            runs={detail?.runs ?? []}
             activeRun={activeRun}
             items={items}
             resultView={resultView}
@@ -741,6 +804,24 @@ export function ArchiveUploaderSources({
   return (
     <div className="flex min-w-0 flex-col gap-6 pt-4">
       {globalHeader}
+      {countsQuery.isError || (unboundOnly && unboundCountsQuery.isError) ? (
+        <Alert variant="destructive">
+          <AlertTitle>统计刷新失败</AlertTitle>
+          <AlertDescription>
+            已有数字暂时保留；来源和作品仍可浏览。
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (countsQuery.isError) void countsQuery.refetch()
+                if (unboundOnly && unboundCountsQuery.isError) void unboundCountsQuery.refetch()
+              }}
+            >
+              重试统计
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
       <ArchiveDiscoveryIgnoreDialog
         selection={ignoreSelection}
         pending={ignoreMutation.isPending}

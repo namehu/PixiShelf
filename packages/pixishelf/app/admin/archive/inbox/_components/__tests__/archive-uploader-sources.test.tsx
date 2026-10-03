@@ -1,3 +1,4 @@
+import { source, activeRun, completedRun } from './archive-uploader-sources-fixtures'
 import { useState, type ReactNode } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -27,6 +28,12 @@ const mocks = vi.hoisted(() => ({
   navigateSourceList: vi.fn(),
   navigateIgnored: vi.fn(),
   navigateInboxItem: vi.fn(),
+  countsOptions: vi.fn((input: { sourceId?: string; unboundOnly?: boolean }, options: Record<string, unknown>) => ({
+    kind: input.unboundOnly ? 'unbound-counts' : 'counts',
+    ...options
+  })),
+  countsPending: false,
+  countsError: false,
   isDesktop: true
 }))
 
@@ -82,65 +89,6 @@ vi.mock('@/components/ui/dropdown-menu', async () => {
     )
   }
 })
-
-const source = {
-  id: 'source-1',
-  providerKey: 'e-hentai',
-  identityKind: 'UID',
-  identityValue: '123',
-  uploaderUid: '123',
-  uidRevalidationRequiredAt: null,
-  uidBindingState: 'BOUND',
-  displayName: 'UID 123',
-  status: 'ACTIVE',
-  latestSeenExternalId: '302',
-  hasPendingLatest: false,
-  canContinueHistory: true,
-  latestCoverage: 'CURRENT',
-  historyCoverage: 'HAS_MORE',
-  catalogCounts: { actionable: 1, processing: 0, archived: 0, attention: 0, total: 1 },
-  lastScanAt: new Date('2026-09-02T11:11:00.000Z'),
-  lastSuccessAt: new Date('2026-09-02T11:09:00.000Z'),
-  lastErrorCode: null,
-  lastErrorMessage: null,
-  createdAt: new Date('2026-09-02T10:00:00.000Z'),
-  updatedAt: new Date('2026-09-02T11:11:00.000Z')
-}
-
-const activeRun = {
-  id: 'run-active',
-  systemJobId: 'job-active',
-  mode: 'LATEST',
-  searchIdentityKind: 'UID',
-  searchIdentityValue: '123',
-  status: 'RUNNING',
-  itemCount: 0,
-  newCount: 0,
-  activeCount: 0,
-  archivedCount: 0,
-  possibleUpdateCount: 0,
-  replacementCount: 0,
-  stopReason: null,
-  startedAt: new Date('2026-09-02T11:11:00.000Z'),
-  finishedAt: null,
-  errorCode: null,
-  errorMessage: null,
-  createdAt: new Date('2026-09-02T11:11:00.000Z'),
-  updatedAt: new Date('2026-09-02T11:11:00.000Z')
-}
-
-const completedRun = {
-  ...activeRun,
-  id: 'run-completed',
-  systemJobId: 'job-completed',
-  status: 'COMPLETED',
-  itemCount: 1,
-  newCount: 1,
-  startedAt: new Date('2026-09-02T11:09:00.000Z'),
-  finishedAt: new Date('2026-09-02T11:10:00.000Z'),
-  createdAt: new Date('2026-09-02T11:09:00.000Z'),
-  updatedAt: new Date('2026-09-02T11:10:00.000Z')
-}
 
 const sourcesData = [{ ...source, latestRun: activeRun }]
 const detailData = { source, runs: [activeRun, completedRun] }
@@ -204,6 +152,7 @@ const ignoredItemsData = {
     }
   ]
 }
+let currentCountsData = { 'source-1': source.catalogCounts }
 let currentDetailData: unknown = detailData
 let currentItemsData = itemsData
 let currentSourcesData: unknown = sourcesData
@@ -230,11 +179,32 @@ vi.mock('@tanstack/react-query', () => ({
     removeQueries: mocks.removeQueries
   }),
   useQuery: (options: { kind?: string }) =>
-    options.kind === 'batch'
-      ? { data: null, isPending: false, isError: false }
-      : options.kind === 'sources'
-        ? { data: currentSourcesData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null }
-        : { data: currentDetailData, isPending: false, isError: false, isSuccess: true, refetch: vi.fn(), error: null },
+    options.kind === 'counts' || options.kind === 'unbound-counts'
+      ? {
+          data: mocks.countsPending ? undefined : currentCountsData,
+          isPending: mocks.countsPending,
+          isError: mocks.countsError,
+          refetch: vi.fn()
+        }
+      : options.kind === 'batch'
+        ? { data: null, isPending: false, isError: false }
+        : options.kind === 'sources'
+          ? {
+              data: currentSourcesData,
+              isPending: false,
+              isError: false,
+              isSuccess: true,
+              refetch: vi.fn(),
+              error: null
+            }
+          : {
+              data: currentDetailData,
+              isPending: false,
+              isError: false,
+              isSuccess: true,
+              refetch: vi.fn(),
+              error: null
+            },
   useInfiniteQuery: (options: { kind?: string }) => ({
     data: options.kind === 'ignored' ? ignoredItemsData : currentItemsData,
     isLoading: false,
@@ -363,6 +333,7 @@ vi.mock('@/lib/trpc', () => ({
       createSource: { mutationOptions: () => ({ kind: 'create' }) }
     },
     archiveSearch: {
+      catalogCounts: { queryOptions: mocks.countsOptions, queryKey: () => ['counts'] },
       activeBatchScan: { queryOptions: () => ({ kind: 'batch' }), queryKey: () => ['batch'] },
       startBatchScan: { mutationOptions: () => ({ kind: 'batch-start' }) },
       controlBatchScan: { mutationOptions: () => ({ kind: 'batch-control' }) },
@@ -426,11 +397,13 @@ import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-st
 function SourcesHarness({
   initialSourceId = 'source-1',
   initialIgnored = false,
-  showTestControls = false
+  showTestControls = false,
+  active = true
 }: {
   initialSourceId?: string | null
   initialIgnored?: boolean
   showTestControls?: boolean
+  active?: boolean
 }) {
   const [sourceId, setSourceId] = useState<string | null>(initialSourceId)
   const [ignored, setIgnored] = useState(initialIgnored)
@@ -443,7 +416,7 @@ function SourcesHarness({
         </button>
       ) : null}
       <ArchiveUploaderSources
-        active
+        active={active}
         locatedSourceId={sourceId}
         ignored={ignored}
         onNavigateSource={(nextSourceId, history) => {
@@ -479,6 +452,9 @@ afterEach(cleanup)
 
 describe('ArchiveUploaderSources', () => {
   beforeEach(() => {
+    currentCountsData = { 'source-1': source.catalogCounts }
+    mocks.countsPending = false
+    mocks.countsError = false
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -799,14 +775,16 @@ describe('ArchiveUploaderSources', () => {
       source: { ...source, catalogCounts: { ...source.catalogCounts, actionable: 0, processing: 1 } },
       runs: [completedRun]
     }
+    currentCountsData = { 'source-1': { ...source.catalogCounts, actionable: 0, processing: 1 } }
     const rendered = renderSources()
-    await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalled())
+    expect(mocks.invalidateQueries).not.toHaveBeenCalled()
     mocks.invalidateQueries.mockClear()
 
     currentDetailData = {
       source: { ...source, catalogCounts: { ...source.catalogCounts, actionable: 0, processing: 0, archived: 1 } },
       runs: [completedRun]
     }
+    currentCountsData = { 'source-1': { ...source.catalogCounts, actionable: 0, processing: 0, archived: 1 } }
     rendered.rerender(<SourcesHarness />)
 
     await waitFor(() => {
@@ -814,6 +792,69 @@ describe('ArchiveUploaderSources', () => {
     })
   })
 
+  it('keys unbound statistics by source and does not key counts by catalog view', () => {
+    renderSources()
+    const calls = () => mocks.countsOptions.mock.calls
+    expect(calls().find(([input]) => !input.unboundOnly)?.[1].enabled).toBe(true)
+    expect(calls().find(([input]) => input.unboundOnly)?.[1].enabled).toBe(false)
+    fireEvent.click(screen.getByRole('checkbox', { name: '仅看未绑定' }))
+    expect(
+      calls()
+        .filter(([input]) => input.unboundOnly)
+        .at(-1)
+    ).toEqual([{ sourceId: 'source-1', unboundOnly: true }, expect.objectContaining({ enabled: true })])
+    fireEvent.click(screen.getByRole('radio', { name: '查看全部' }))
+    expect(calls().every(([input]) => !('view' in input) && !('cursor' in input))).toBe(true)
+    expect(mocks.infiniteQueryOptions).toHaveBeenCalledWith(
+      expect.objectContaining({ includeCounts: false }),
+      expect.anything()
+    )
+  })
+
+  it('polls processing counts but disables statistics fetching on an inactive tab', () => {
+    currentDetailData = { source, runs: [completedRun] }
+    currentSourcesData = [{ ...source, latestRun: completedRun }]
+    const rendered = renderSources()
+    const options = () => mocks.countsOptions.mock.calls.filter(([input]) => !input.unboundOnly).at(-1)![1]
+    const interval = () =>
+      options().refetchInterval as (query: { state: { data: typeof currentCountsData } }) => number | false
+    expect(interval()({ state: { data: currentCountsData } })).toBe(false)
+    expect(interval()({ state: { data: { 'source-1': { ...source.catalogCounts, processing: 1 } } } })).toBe(3000)
+    rendered.rerender(<SourcesHarness active={false} />)
+    expect(options().enabled).toBe(false)
+    expect(interval()({ state: { data: { 'source-1': { ...source.catalogCounts, processing: 1 } } } })).toBe(false)
+  })
+  it('renders sources and results while independent counts are still pending', () => {
+    mocks.countsPending = true
+    renderSources()
+    expect(screen.getByText('Gallery 302')).toBeTruthy()
+    expect(screen.getByRole('radio', { name: '查看待处理' }).textContent).toContain('…')
+    expect(screen.getAllByLabelText('待处理数量加载中').length).toBeGreaterThan(0)
+  })
+
+  it('keeps cached counts and browsing available when a statistics refresh fails', () => {
+    mocks.countsError = true
+    renderSources()
+    expect(screen.getByText('统计刷新失败')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重试统计' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: '查看待处理' }).textContent).toContain('1')
+    expect(screen.getByText('Gallery 302')).toBeTruthy()
+  })
+
+  it('does not refetch the initial catalog for a previously completed run', () => {
+    currentDetailData = { source, runs: [completedRun] }
+    renderSources()
+    expect(mocks.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+  })
+
+  it('refreshes items and independent counts on a real run completion', async () => {
+    currentDetailData = { source, runs: [activeRun] }
+    const rendered = renderSources()
+    currentDetailData = { source, runs: [{ ...activeRun, status: 'COMPLETED' }] }
+    rendered.rerender(<SourcesHarness />)
+    await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['counts'] }))
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+  })
   it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
     renderSources()
 

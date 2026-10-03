@@ -28,7 +28,7 @@ export function ArchiveDiscoveryResultsToolbar({
   disabled
 }: {
   view: ArchiveDiscoveryCatalogView
-  counts: Record<ArchiveDiscoveryCatalogView, number>
+  counts: Record<ArchiveDiscoveryCatalogView, number | null>
   description: string
   resultView: ArchiveUploaderResultView
   onViewChange: (view: ArchiveDiscoveryCatalogView) => void
@@ -57,7 +57,7 @@ export function ArchiveDiscoveryResultsToolbar({
           >
             {RESULT_FEEDS.map((feed) => (
               <ToggleGroupItem key={feed.value} value={feed.value} aria-label={`查看${feed.label}`}>
-                {feed.label} {counts[feed.value]}
+                {feed.label} {counts[feed.value] ?? '…'}
               </ToggleGroupItem>
             ))}
           </ToggleGroup>

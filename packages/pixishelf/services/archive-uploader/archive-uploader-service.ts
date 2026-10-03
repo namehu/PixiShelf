@@ -130,6 +130,7 @@ export const restoreArchiveUploaderIgnoredItemsSchema = z.object({ ignoredItemId
 export interface ArchiveUploaderServiceDependencies {
   sourceKind?: 'UPLOADER' | 'TITLE_QUERY' | 'ALL'
   database?: PrismaClient
+  includeCounts?: boolean
   now?: () => Date
   uuid?: () => string
   uploaderProviders?: ArchiveUploaderProviderRegistry
@@ -209,6 +210,36 @@ export async function createArchiveUploaderSource(
   }
 }
 
+export const archiveDiscoveryCatalogCountsSchema = z
+  .object({
+    sourceId: sourceIdSchema.optional(),
+    unboundOnly: z.boolean().default(false)
+  })
+  .strict()
+  .refine((input) => !input.unboundOnly || Boolean(input.sourceId), {
+    message: '未绑定筛选必须指定来源',
+    path: ['sourceId']
+  })
+
+export async function getArchiveDiscoveryCatalogCounts(
+  input: z.input<typeof archiveDiscoveryCatalogCountsSchema>,
+  dependencies: ArchiveUploaderServiceDependencies = {}
+) {
+  const parsed = archiveDiscoveryCatalogCountsSchema.parse(input)
+  const database = getDatabase(dependencies)
+  const sources = await database.archiveUploaderSource.findMany({
+    where: { ...sourceScope(dependencies), ...(parsed.sourceId ? { id: parsed.sourceId } : {}) },
+    select: { id: true }
+  })
+  if (parsed.sourceId && !sources.length) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
+  const counts = await getArchiveUploaderCatalogCounts(
+    database,
+    sources.map(({ id }) => id),
+    parsed.unboundOnly
+  )
+  return Object.fromEntries(sources.map(({ id }) => [id, counts.get(id) ?? emptyCatalogCounts()]))
+}
+
 export async function listArchiveUploaderSources(
   input: z.input<typeof listArchiveUploaderSourcesSchema>,
   dependencies: ArchiveUploaderServiceDependencies = {}
@@ -223,14 +254,17 @@ export async function listArchiveUploaderSources(
       runs: { orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 1, select: runSummarySelect }
     }
   })
-  const countsBySource = await getArchiveUploaderCatalogCounts(
-    database,
-    sources.map(({ id }) => id)
-  )
+  const countsBySource =
+    dependencies.includeCounts === false
+      ? null
+      : await getArchiveUploaderCatalogCounts(
+          database,
+          sources.map(({ id }) => id)
+        )
   return sources.map(({ runs, ...source }) => ({
     ...serializeSource(source),
     latestRun: runs[0] ? serializeRunSummary(runs[0]) : null,
-    catalogCounts: countsBySource.get(source.id) ?? emptyCatalogCounts()
+    catalogCounts: countsBySource ? (countsBySource.get(source.id) ?? emptyCatalogCounts()) : null
   }))
 }
 
@@ -249,9 +283,13 @@ export async function getArchiveUploaderSource(
   })
   if (!source) throw new ArchiveError('STATE_CONFLICT', '上传者来源不存在')
   const { runs, ...wireSource } = source
-  const counts = await getArchiveUploaderCatalogCounts(database, [source.id])
+  const counts =
+    dependencies.includeCounts === false ? null : await getArchiveUploaderCatalogCounts(database, [source.id])
   return {
-    source: { ...serializeSource(wireSource), catalogCounts: counts.get(source.id) ?? emptyCatalogCounts() },
+    source: {
+      ...serializeSource(wireSource),
+      catalogCounts: counts ? (counts.get(source.id) ?? emptyCatalogCounts()) : null
+    },
     runs: runs.map(serializeRunSummary)
   }
 }
@@ -276,8 +314,11 @@ export async function listArchiveUploaderScanItems(
       pendingCreators: summaries[index]!.pendingCreators
     })),
     counts:
-      (await getArchiveUploaderCatalogCounts(database, [parsed.sourceId], parsed.unboundOnly)).get(parsed.sourceId) ??
-      emptyCatalogCounts(),
+      dependencies.includeCounts === false
+        ? null
+        : ((await getArchiveUploaderCatalogCounts(database, [parsed.sourceId], parsed.unboundOnly)).get(
+            parsed.sourceId
+          ) ?? emptyCatalogCounts()),
     nextCursor: result.nextCursor
   }
 }

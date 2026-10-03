@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const writes = vi.hoisted(() => vi.fn())
 vi.mock('server-only', () => ({}))
@@ -16,6 +16,7 @@ vi.mock('@/services/archive-uploader/archive-uploader-service', async (original)
   addArchiveUploaderScanItems: writes,
   ignoreArchiveUploaderScanItems: writes,
   restoreArchiveUploaderIgnoredItems: writes,
+  getArchiveDiscoveryCatalogCounts: writes,
   listArchiveUploaderSources: writes,
   getArchiveUploaderSource: writes,
   listArchiveUploaderScanItems: writes,
@@ -31,6 +32,8 @@ vi.mock('@/services/archive-uploader/discovery-creator-service', async (original
 }))
 
 const caller = archiveSearchRouter.createCaller({ session: null, user: null, headers: new Headers() } as never)
+
+beforeEach(() => writes.mockReset())
 
 describe('archiveSearch authentication boundary', () => {
   it.each([
@@ -60,12 +63,40 @@ describe('archiveSearch authentication boundary', () => {
       }),
     () => caller.ignoreItems({ sourceId: 'one', itemIds: ['item'] }),
     () => caller.restoreIgnoredItems({ ignoredItemIds: ['item'] }),
+    () => caller.catalogCounts({}),
     () => caller.listSources({}),
     () => caller.getSource({ sourceId: 'one' }),
     () => caller.listItems({ sourceId: 'one' }),
     () => caller.listIgnoredItems({})
   ])('rejects unauthenticated access without invoking services', async (invoke) => {
     await expect(invoke()).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(writes).not.toHaveBeenCalled()
+  })
+})
+
+describe('archiveSearch count options', () => {
+  const authenticated = archiveSearchRouter.createCaller({
+    session: { id: 'session' },
+    user: { id: 'user' },
+    headers: new Headers()
+  } as never)
+
+  it.each([undefined, true, false])('passes includeCounts=%s independently of source scope', async (includeCounts) => {
+    const deps = { sourceKind: 'ALL', includeCounts: includeCounts ?? true }
+    await authenticated.listSources({ includeCounts })
+    expect(writes).toHaveBeenLastCalledWith({ includeArchived: true }, deps)
+    await authenticated.getSource({ sourceId: 'one', includeCounts })
+    expect(writes).toHaveBeenLastCalledWith({ sourceId: 'one' }, deps)
+    await authenticated.listItems({ sourceId: 'one', includeCounts })
+    expect(writes).toHaveBeenLastCalledWith(expect.objectContaining({ sourceId: 'one' }), deps)
+    expect(writes.mock.lastCall?.[0]).not.toHaveProperty('includeCounts')
+  })
+
+  it('uses the authenticated all-source scope and validates unbound inputs', async () => {
+    await authenticated.catalogCounts({})
+    expect(writes).toHaveBeenLastCalledWith({ unboundOnly: false }, { sourceKind: 'ALL' })
+    writes.mockClear()
+    await expect(authenticated.catalogCounts({ unboundOnly: true })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(writes).not.toHaveBeenCalled()
   })
 })

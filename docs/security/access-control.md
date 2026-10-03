@@ -334,3 +334,14 @@ job.backgroundDiagnosticReports 与 job.backgroundDiagnosticItems 均使用 admi
 ### 发现来源批量扫描接口
 
 archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminProcedure；activeBatchScan（优先活动批次，否则最近批次）与 batchScanDetail 为 authProcedure。启动仅接收显式来源 ID 顺序与请求 UUID，操作者取自 Session；相同请求 UUID 的来源序列和操作者必须一致。通用 enqueue/retry 禁止绕过领域入口创建批次或复制扫描 payload。批次和所属子任务的中央控制统一处理父子关系，不接管其他独立扫描。返回冻结的来源名称和脱敏摘要，不返回远端游标、凭据或原始子任务错误对象。
+
+## 发现来源独立统计接口
+
+`archiveSearch.catalogCounts` 使用 `authProcedure`，不增加公共 Route。输入为可选 `sourceId`
+及默认 `false` 的 `unboundOnly`；未绑定筛选必须指定来源。指定来源不存在沿用现有来源错误契约；
+未指定来源时统计当前实例全部发现来源（含停用来源），返回按来源 ID 映射的五类计数，空来源返回零。
+接口不返回 URL、凭据或媒体信息。
+
+`archiveSearch.listSources/getSource/listItems` 增加默认 `true` 的 `includeCounts`。传 `false` 时跳过
+统计查询，分别返回 `catalogCounts: null` 或 `counts: null`；旧请求和 `archiveUploader` 行为保持不变。
+页面采用独立统计缓存，统计失败不扩大写操作权限，原有写接口仍复核实际领域状态。

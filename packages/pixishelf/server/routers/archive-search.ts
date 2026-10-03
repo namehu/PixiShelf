@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import {
   startDiscoveryBatch,
   startDiscoveryBatchSchema,
@@ -10,6 +11,8 @@ import {
 } from '@/services/archive-uploader/discovery-batch-service'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import {
+  archiveDiscoveryCatalogCountsSchema,
+  getArchiveDiscoveryCatalogCounts,
   deleteArchiveDiscoverySource,
   deleteArchiveDiscoverySourceSchema,
   getArchiveDiscoverySourceDeletePreview,
@@ -93,17 +96,27 @@ export const archiveSearchRouter = router({
     .input(createArchiveTitleSourceSchema)
     .mutation(({ input }) => runArchiveOperation(() => createArchiveTitleSource(input))),
 
+  catalogCounts: authProcedure
+    .input(archiveDiscoveryCatalogCountsSchema)
+    .query(({ input }) => runArchiveOperation(() => getArchiveDiscoveryCatalogCounts(input, discovery))),
+
   listSources: authProcedure
-    .input(listArchiveUploaderSourcesSchema)
-    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderSources(input, discovery))),
+    .input(listArchiveUploaderSourcesSchema.extend({ includeCounts: z.boolean().default(true) }))
+    .query(({ input: { includeCounts, ...input } }) =>
+      runArchiveOperation(() => listArchiveUploaderSources(input, { ...discovery, includeCounts }))
+    ),
 
   getSource: authProcedure
-    .input(getArchiveUploaderSourceSchema)
-    .query(({ input }) => runArchiveOperation(() => getArchiveUploaderSource(input, discovery))),
+    .input(getArchiveUploaderSourceSchema.extend({ includeCounts: z.boolean().default(true) }))
+    .query(({ input: { includeCounts, ...input } }) =>
+      runArchiveOperation(() => getArchiveUploaderSource(input, { ...discovery, includeCounts }))
+    ),
 
   listItems: authProcedure
-    .input(listArchiveUploaderScanItemsSchema)
-    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderScanItems(input, discovery))),
+    .input(listArchiveUploaderScanItemsSchema.extend({ includeCounts: z.boolean().default(true) }))
+    .query(({ input: { includeCounts, ...input } }) =>
+      runArchiveOperation(() => listArchiveUploaderScanItems(input, { ...discovery, includeCounts }))
+    ),
 
   listIgnoredItems: authProcedure
     .input(listArchiveUploaderIgnoredItemsSchema)
