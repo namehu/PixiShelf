@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { createDatabaseClient, disconnectDatabase } from '@pixishelf/db'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as failurePolicy from '@/services/background-task/job-failure-policy'
 import { archiveModule } from '../archive-module'
 import { archiveRequestFingerprint } from '../archive-bulk-operation'
 import { actionArchiveTasksMany, listArchiveTasks } from '../archive-task-service'
@@ -93,6 +94,147 @@ describePostgres('archive task PostgreSQL contracts', () => {
       database.archiveImport.findUniqueOrThrow({ where: { id: bulk.importId }, include: { systemJob: true } })
     ])
     expect(projectControlState(bulkState)).toEqual(projectControlState(singleState))
+  })
+
+  it('resumes both records from the background control and clears stale errors while retaining quality', async () => {
+    const task = await seedTask('background-resume', 'PAUSED', 'PAUSED', { decisionCode: 'USE_DISPLAY_QUALITY' })
+    await database.systemJob.update({
+      where: { id: task.jobId },
+      data: { errorCode: 'ORIGINAL_UNAVAILABLE', error: 'old error' }
+    })
+    await archiveModule.requestJobAction(task.jobId, 'RESUME', requestedByUserId)
+    const current = await database.archiveImport.findUniqueOrThrow({
+      where: { id: task.importId },
+      include: { systemJob: true }
+    })
+    expect(current).toMatchObject({
+      status: 'PENDING',
+      selectedQuality: 'ORIGINAL',
+      decisionCode: null,
+      errorCode: null,
+      errorMessage: null
+    })
+    expect(current.systemJob).toMatchObject({ status: 'PENDING', errorCode: null, error: null })
+  })
+
+  it.each(['background', 'archive', 'bulk'] as const)(
+    'repairs paused-import drift through %s retry and preserves completed files',
+    async (entry) => {
+      const task = await seedTask('background-retry-drift', 'PAUSED', 'FAILED', {
+        withFailedItem: true,
+        completedItems: 1,
+        failedItems: 1,
+        totalItems: 2
+      })
+      await database.archiveImportItem.create({
+        data: {
+          archiveImportId: task.importId,
+          pageIndex: 0,
+          sourcePageUrl: 'https://e-hentai.org/s/completed/123-1',
+          locator: {},
+          expectedFilename: '0000.jpg',
+          status: 'COMPLETED',
+          attempts: 1,
+          stagedPath: 'media/0000.jpg',
+          byteCount: 128n,
+          sha256: 'a'.repeat(64),
+          quality: 'ORIGINAL'
+        }
+      })
+      const completedBefore = await database.archiveImportItem.findMany({
+        where: { archiveImportId: task.importId, status: 'COMPLETED' }
+      })
+      expect(completedBefore).toHaveLength(1)
+      if (entry === 'background') await archiveModule.requestJobAction(task.jobId, 'RETRY', requestedByUserId)
+      else if (entry === 'archive') await archiveModule.requestAction(task.importId, 'RETRY', { requestedByUserId })
+      else {
+        const operation = await actionArchiveTasksMany(
+          { idempotencyKey: `${suitePrefix}-drift-retry`, taskIds: [task.importId], action: 'RETRY' },
+          requestedByUserId,
+          { database }
+        )
+        expect(operation?.items[0]?.result).toBe('APPLIED')
+      }
+      const current = await database.archiveImport.findUniqueOrThrow({
+        where: { id: task.importId },
+        include: { systemJob: true }
+      })
+      expect(current.systemJobId).not.toBe(task.jobId)
+      expect(current.systemJob).toMatchObject({ status: 'PENDING', parentJobId: task.jobId, definitionVersion: 2 })
+      expect(current.status).toBe('PENDING')
+      expect(await database.systemJobFailureAcknowledgement.findUnique({ where: { jobId: task.jobId } })).toMatchObject(
+        {
+          source: 'RETRY',
+          acknowledgedByUserId: requestedByUserId
+        }
+      )
+      expect(
+        await database.archiveImportItem.findMany({ where: { archiveImportId: task.importId, status: 'COMPLETED' } })
+      ).toEqual(completedBefore)
+      await expect(archiveModule.requestJobAction(task.jobId, 'RETRY', requestedByUserId)).rejects.toMatchObject({
+        code: 'STATE_CONFLICT'
+      })
+    }
+  )
+
+  it('preserves the first failure acknowledgement when retrying an already acknowledged task', async () => {
+    const task = await seedTask('retry-acknowledged', 'FAILED', 'FAILED')
+    const first = await database.systemJobFailureAcknowledgement.create({
+      data: {
+        jobId: task.jobId,
+        acknowledgedAt: new Date('2026-10-01T00:00:00Z'),
+        acknowledgedByUserId: 'first-admin',
+        source: 'MANUAL'
+      }
+    })
+    await archiveModule.requestJobAction(task.jobId, 'RETRY', requestedByUserId)
+    expect(await database.systemJobFailureAcknowledgement.findUnique({ where: { jobId: task.jobId } })).toEqual(first)
+  })
+
+  it('rolls back retry linkage and item resets if failure acknowledgement cannot be saved', async () => {
+    const task = await seedTask('retry-ack-failure', 'FAILED', 'FAILED', { withFailedItem: true })
+    const fault = vi.spyOn(failurePolicy, 'acknowledgeJobFailure').mockRejectedValueOnce(new Error('ack write failed'))
+    try {
+      await expect(archiveModule.requestJobAction(task.jobId, 'RETRY', requestedByUserId)).rejects.toThrow(
+        'ack write failed'
+      )
+    } finally {
+      fault.mockRestore()
+    }
+    expect(await database.archiveImport.findUniqueOrThrow({ where: { id: task.importId } })).toMatchObject({
+      status: 'FAILED',
+      systemJobId: task.jobId
+    })
+    expect(await database.systemJob.count({ where: { parentJobId: task.jobId } })).toBe(0)
+    expect(await database.archiveImportItem.findFirst({ where: { archiveImportId: task.importId } })).toMatchObject({
+      status: 'FAILED',
+      attempts: 3
+    })
+    expect(await database.systemJobFailureAcknowledgement.findUnique({ where: { jobId: task.jobId } })).toBeNull()
+  })
+
+  it('allows only one concurrent resume and leaves both records queued', async () => {
+    const task = await seedTask('background-resume-race', 'PAUSED', 'PAUSED')
+    const results = await Promise.allSettled([
+      archiveModule.requestJobAction(task.jobId, 'RESUME', requestedByUserId),
+      archiveModule.requestJobAction(task.jobId, 'RESUME', requestedByUserId)
+    ])
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1)
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1)
+    const current = await database.archiveImport.findUniqueOrThrow({
+      where: { id: task.importId },
+      include: { systemJob: true }
+    })
+    expect(current.status).toBe('PENDING')
+    expect(current.systemJob.status).toBe('PENDING')
+  })
+
+  it('rolls back queue changes when resume encounters an incompatible import state', async () => {
+    const task = await seedTask('background-conflict', 'COMPLETED', 'PAUSED')
+    await expect(archiveModule.requestJobAction(task.jobId, 'RESUME', requestedByUserId)).rejects.toMatchObject({
+      code: 'STATE_CONFLICT'
+    })
+    expect((await database.systemJob.findUniqueOrThrow({ where: { id: task.jobId } })).status).toBe('PAUSED')
   })
 
   it('matches legacy retry linkage, priority, progress, max-attempt, item reset, and decision cleanup', async () => {

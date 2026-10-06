@@ -1,3 +1,4 @@
+import { acknowledgeJobFailure } from '@/services/background-task/job-failure-policy'
 import { randomUUID } from 'node:crypto'
 import {
   ARCHIVE_IMPORT_DEFINITION_VERSION,
@@ -145,6 +146,20 @@ export class ArchiveModule {
     })
   }
 
+  async requestJobAction(jobId: string, action: 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY', requestedByUserId: string) {
+    const task = await prisma.archiveImport.findUnique({ where: { systemJobId: jobId }, include: { systemJob: true } })
+    if (!task) throw stateConflict('该后台任务已不再绑定归档，请从归档详情查看当前任务')
+    if (task.cleanupRequestedAt) throw stateConflict('暂存目录正在清理，请等待清理完成')
+    if (action === 'RETRY') {
+      assertActionStatus(action, task.systemJob.status, ['FAILED', 'CANCELLED'])
+      // Older resume commands could leave a paused import bound to a failed job.
+      assertActionStatus(action, task.status, ['FAILED', 'CANCELLED', 'PAUSED'])
+      return this.retryCentralArchiveImport(task, { requestedByUserId, message: '按原质量重试归档导入' })
+    }
+    await transitionCentralArchiveControl(task, action, new Date())
+    return archiveMutationAck(task.id)
+  }
+
   async requestAction(taskId: string, action: ArchiveTaskAction, options: { requestedByUserId?: string } = {}) {
     const task = await prisma.archiveImport.findUnique({ where: { id: taskId }, include: { systemJob: true } })
     if (!task) throw new ArchiveError('INTERNAL', '归档任务不存在')
@@ -165,7 +180,11 @@ export class ArchiveModule {
     options: { requestedByUserId: string; now: Date }
   ) {
     if (action === 'RETRY') {
-      assertActionStatus(action, task.status, ['FAILED', 'CANCELLED'])
+      assertActionStatus(
+        action,
+        task.status,
+        task.systemJob.status === 'FAILED' ? ['FAILED', 'CANCELLED', 'PAUSED'] : ['FAILED', 'CANCELLED']
+      )
       return this.retryCentralArchiveImport(task, {
         requestedByUserId: options.requestedByUserId,
         message: '重试归档导入'
@@ -208,6 +227,8 @@ export class ArchiveModule {
       if (
         !current ||
         current.systemJobId !== task.systemJobId ||
+        Boolean(current.cleanupRequestedAt) ||
+        current.systemJob.status !== task.systemJob.status ||
         !['FAILED', 'CANCELLED', 'PAUSED'].includes(current.status)
       ) {
         throw stateConflict('归档任务状态已改变，请刷新后重试')
@@ -263,6 +284,14 @@ export class ArchiveModule {
         }
       })
       if (changed.count !== 1) throw stateConflict('归档任务状态已改变，请刷新后重试')
+      if (current.systemJob.status === 'FAILED') {
+        await acknowledgeJobFailure(tx, {
+          jobId: current.systemJobId,
+          acknowledgedAt: timestamp,
+          acknowledgedByUserId: options.requestedByUserId,
+          source: 'RETRY'
+        })
+      }
       await tx.archiveUploaderCatalogItem.updateMany({
         where: {
           OR: [
@@ -348,7 +377,12 @@ async function transitionCentralArchiveControl(
   await prisma.$transaction(async (tx) => {
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
     const current = await tx.archiveImport.findUnique({ where: { id: task.id }, include: { systemJob: true } })
-    if (!current || current.systemJobId !== task.systemJobId || current.status !== task.status) {
+    if (
+      !current ||
+      current.cleanupRequestedAt ||
+      current.systemJobId !== task.systemJobId ||
+      current.status !== task.status
+    ) {
       throw stateConflict('归档任务状态已改变，请刷新后重试')
     }
     await lockUploaderCatalogImport(tx, current)
@@ -391,7 +425,7 @@ async function transitionCentralArchiveControl(
               : '归档导入已恢复',
         ...(action === 'CANCEL' ? { cancelRequestedAt: now } : {}),
         ...(action === 'PAUSE' ? { pauseRequestedAt: now } : {}),
-        ...(action === 'RESUME' ? { pauseRequestedAt: null, availableAt: now } : {}),
+        ...(action === 'RESUME' ? { pauseRequestedAt: null, availableAt: now, errorCode: null, error: null } : {}),
         ...(direct || action === 'RESUME'
           ? { workerId: null, leaseToken: null, leaseExpiresAt: null, heartbeatAt: null }
           : {}),
@@ -425,7 +459,14 @@ async function transitionCentralArchiveControl(
         status: nextImportStatus,
         ...(options.useDisplayQuality ? { selectedQuality: 'DISPLAY' as const, decisionCode: null } : {}),
         ...(action === 'RESUME'
-          ? { errorCode: null, errorMessage: null, failedItems: 0, finishedAt: null, retainUntil: null }
+          ? {
+              decisionCode: null,
+              errorCode: null,
+              errorMessage: null,
+              failedItems: 0,
+              finishedAt: null,
+              retainUntil: null
+            }
           : {}),
         ...(action === 'CANCEL' && direct
           ? { finishedAt: now, retainUntil: new Date(now.getTime() + FAILED_STAGING_RETENTION_MS) }

@@ -844,7 +844,7 @@ function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
         {archiveTaskStatusLabel(displayStatus, task.errorCode)}
       </AdminStatusBadge>
       {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
-        <span className="text-xs text-warning">原图不可用，可在操作中改用展示质量</span>
+        <span className="text-xs text-warning">可按原质量继续，或在操作中改用展示质量</span>
       )}
       {lifecycleState === 'TRASHING' && <span className="text-xs text-warning">正在移入回收站</span>}
       {lifecycleState === 'RESTORING' && <span className="text-xs text-warning">正在从回收站恢复</span>}
@@ -902,7 +902,7 @@ function TaskActions({
                 {isPending('PAUSE') ? <Spinner /> : <CirclePause aria-hidden="true" />}暂停任务
               </DropdownMenuItem>
             )}
-            {displayStatus === 'PAUSED' && task.decisionCode !== 'USE_DISPLAY_QUALITY' && (
+            {displayStatus === 'PAUSED' && (
               <DropdownMenuItem disabled={isPending('RESUME')} onSelect={() => onAction('RESUME')}>
                 {isPending('RESUME') ? <Spinner /> : <CirclePlay aria-hidden="true" />}继续任务
               </DropdownMenuItem>

@@ -1,3 +1,5 @@
+import { archiveModule } from '@/services/archive/archive-module'
+import { runArchiveOperation } from './archive'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import * as JobService from '@/services/job-service'
 import { refillMetaSource } from '@/services/scan-service/refill-meta-source'
@@ -345,7 +347,10 @@ export const jobRouter = router({
     .input(z.object({ imageIds: z.array(z.number().int().positive()).max(100).optional() }).strict())
     .mutation(async ({ ctx, input }) => {
       if (!isCentralDispatcherCutoverEnabled()) {
-        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Animation duration probe requires central dispatcher' })
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Animation duration probe requires central dispatcher'
+        })
       }
       const retried = await prisma.$transaction((tx) =>
         retryAnimationDurationFailures(tx as unknown as Prisma.TransactionClient, input)
@@ -736,9 +741,10 @@ export const jobRouter = router({
     .input(manualEnqueueJobRequestSchema)
     .mutation(({ input, ctx }) => enqueueJob({ ...input, requestedByUserId: ctx.userId })),
 
-  cancelBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input }) =>
+  cancelBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
+      if (job?.type === 'ARCHIVE_IMPORT') return controlArchiveJob(input.jobId, 'CANCEL', ctx.userId)
       if (job?.type === 'PIXIV_ARTWORK_ENRICHMENT') {
         const cancelled = await cancelPixivArtworkEnrichment(input.jobId)
         if (!cancelled.job) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Background job not found')
@@ -762,19 +768,29 @@ export const jobRouter = router({
     })
   ),
 
-  pauseBackgroundJob: adminProcedure
-    .input(jobIdInputSchema)
-    .mutation(({ input }) => runBackgroundTaskCommand(() => pauseJobCommand(input))),
+  pauseBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
+    runBackgroundTaskCommand(async () => {
+      const job = await getJobById(input.jobId)
+      if (job?.type === 'ARCHIVE_IMPORT') return controlArchiveJob(input.jobId, 'PAUSE', ctx.userId)
+      return pauseJobCommand(input)
+    })
+  ),
 
-  resumeBackgroundJob: adminProcedure
-    .input(jobIdInputSchema)
-    .mutation(({ input }) => runBackgroundTaskCommand(() => resumeJobCommand(input))),
+  resumeBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
+    runBackgroundTaskCommand(async () => {
+      const job = await getJobById(input.jobId)
+      if (job?.type === 'ARCHIVE_IMPORT') return controlArchiveJob(input.jobId, 'RESUME', ctx.userId)
+      return resumeJobCommand(input)
+    })
+  ),
 
-  retryBackgroundJob: adminProcedure
-    .input(jobIdInputSchema)
-    .mutation(({ input, ctx }) =>
-      runBackgroundTaskCommand(() => retryJobCommand({ ...input, requestedByUserId: ctx.userId }))
-    ),
+  retryBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
+    runBackgroundTaskCommand(async () => {
+      const job = await getJobById(input.jobId)
+      if (job?.type === 'ARCHIVE_IMPORT') return controlArchiveJob(input.jobId, 'RETRY', ctx.userId)
+      return retryJobCommand({ ...input, requestedByUserId: ctx.userId })
+    })
+  ),
 
   acknowledgeBackgroundJobFailure: adminProcedure
     .input(jobIdInputSchema)
@@ -790,3 +806,14 @@ export const jobRouter = router({
     .input(changeJobPriorityInputSchema)
     .mutation(({ input }) => runBackgroundTaskCommand(() => changeJobPriorityCommand(input)))
 })
+
+async function controlArchiveJob(jobId: string, action: 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY', userId: string) {
+  const result = await runArchiveOperation(() => archiveModule.requestJobAction(jobId, action, userId))
+  const task = await prisma.archiveImport.findUniqueOrThrow({
+    where: { id: result.taskId },
+    select: { systemJobId: true }
+  })
+  const job = await getJobById(task.systemJobId)
+  if (!job) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Background job not found')
+  return job
+}

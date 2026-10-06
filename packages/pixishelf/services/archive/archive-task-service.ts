@@ -1,3 +1,4 @@
+import { acknowledgeJobFailure } from '@/services/background-task/job-failure-policy'
 import { randomUUID } from 'node:crypto'
 import {
   ARCHIVE_IMPORT_DEFINITION_VERSION,
@@ -191,7 +192,8 @@ async function applyTaskAction(
   if (task.cleanupRequestedAt) {
     return { result: 'CONFLICT', code: 'CLEANUP_IN_PROGRESS', message: '归档任务正在清理暂存文件' }
   }
-  const ineligibility = archiveTaskActionIneligibility(task.status, action)
+  const retryPausedDrift = action === 'RETRY' && task.status === 'PAUSED' && task.systemJob.status === 'FAILED'
+  const ineligibility = retryPausedDrift ? null : archiveTaskActionIneligibility(task.status, action)
   if (ineligibility) return ineligibility
 
   if (action === 'RETRY') {
@@ -239,6 +241,14 @@ async function applyTaskAction(
       }
     })
     if (changed.count !== 1) throw new ArchiveError('STATE_CONFLICT', '归档任务状态已改变')
+    if (task.systemJob.status === 'FAILED') {
+      await acknowledgeJobFailure(transaction, {
+        jobId: task.systemJobId,
+        acknowledgedAt: timestamp,
+        acknowledgedByUserId: requestedByUserId,
+        source: 'RETRY'
+      })
+    }
     await transaction.archiveUploaderCatalogItem.updateMany({
       where: {
         OR: [{ lastArchiveImportId: task.id }, { providerKey: task.providerKey, externalId: task.externalId }]
@@ -303,7 +313,7 @@ async function applyTaskAction(
             : '归档导入已恢复',
       ...(action === 'CANCEL' ? { cancelRequestedAt: timestamp } : {}),
       ...(action === 'PAUSE' ? { pauseRequestedAt: timestamp } : {}),
-      ...(action === 'RESUME' ? { pauseRequestedAt: null, availableAt: timestamp } : {}),
+      ...(action === 'RESUME' ? { pauseRequestedAt: null, availableAt: timestamp, errorCode: null, error: null } : {}),
       ...(direct || action === 'RESUME'
         ? { workerId: null, leaseToken: null, leaseExpiresAt: null, heartbeatAt: null }
         : {}),
@@ -337,6 +347,7 @@ async function applyTaskAction(
       status: nextImportStatus,
       ...(action === 'RESUME'
         ? {
+            decisionCode: null,
             failedItems: 0,
             errorCode: null,
             errorMessage: null,

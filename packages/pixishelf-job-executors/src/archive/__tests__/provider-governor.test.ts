@@ -319,6 +319,34 @@ describe('GovernedArchiveProviderRegistry', () => {
     expect(governor.release).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps parent cancellation linked while a provider recovers a failed stream request', async () => {
+    const controller = new AbortController()
+    const cancelled = new Error('user paused')
+    const delegate = createProvider({
+      openMedia: vi.fn(async (_item, context) => {
+        await expect(
+          context.runDownloadStreamRequest!(async () => {
+            throw new ArchiveExecutorError('REMOTE_FORBIDDEN', '403', { httpStatus: 403 })
+          })
+        ).rejects.toMatchObject({ code: 'REMOTE_FORBIDDEN' })
+        expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1)
+        controller.abort(cancelled)
+        expect(context.signal?.aborted).toBe(true)
+        throw context.signal?.reason
+      })
+    })
+    const governor = createGovernor()
+    const provider = new GovernedArchiveProviderRegistry(
+      new DefaultArchiveMediaProviderRegistry([delegate]),
+      governor
+    ).get('test')
+    await expect(provider.openMedia(mediaItem(), { quality: 'ORIGINAL', signal: controller.signal })).rejects.toBe(
+      cancelled
+    )
+    expect(governor.release).toHaveBeenCalledOnce()
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+  })
+
   it('renews a long media stream lease and removes the parent abort listener after settlement', async () => {
     vi.useFakeTimers()
     const stream = new PassThrough()

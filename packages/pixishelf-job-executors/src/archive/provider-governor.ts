@@ -449,7 +449,8 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
       try {
         await this.applyPenalty(error)
       } finally {
-        onSettlement()
+        // The provider may recover this request. Keep parent cancellation linked
+        // until openMedia fails or the final successful stream settles.
         await this.governor.release(permit)
       }
       throw error

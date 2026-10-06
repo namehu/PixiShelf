@@ -15,7 +15,7 @@ import {
 import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { BackgroundTaskError } from './background-task-error'
-import { unacknowledgedFailureWhere } from './job-failure-policy'
+import { acknowledgeJobFailure, unacknowledgedFailureWhere } from './job-failure-policy'
 import { writeJobEvent } from './job-event-service'
 import { jobPayloadsHaveSameSemantics } from './job-payload-semantics'
 import { systemJobWireSelect, toJobDto, type SystemJobWireRecord } from './job-serialization'
@@ -104,28 +104,6 @@ function assertStatus(job: SystemJobWireRecord, allowed: readonly JobStatus[], a
       `Cannot ${action} a ${job.status.toLowerCase()} background job`
     )
   }
-}
-
-async function acknowledgeJobFailure(
-  transaction: Prisma.TransactionClient,
-  input: {
-    jobId: string
-    acknowledgedAt: Date
-    acknowledgedByUserId?: string
-    source: 'MANUAL' | 'RETRY'
-  }
-) {
-  await transaction.systemJobFailureAcknowledgement.createMany({
-    data: [
-      {
-        jobId: input.jobId,
-        acknowledgedAt: input.acknowledgedAt,
-        acknowledgedByUserId: input.acknowledgedByUserId,
-        source: input.source
-      }
-    ],
-    skipDuplicates: true
-  })
 }
 
 function isFrozenScanSnapshotPayload(type: string, payload: unknown) {

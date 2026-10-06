@@ -94,9 +94,11 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
   readonly requestGovernance = 'PER_REQUEST' as const
 
   constructor(
-    private readonly http = new SafeHttpClient(['e-hentai.org', 'ehgt.org', HATH_NETWORK_SUFFIX], process.env, [
-      HATH_NETWORK_SUFFIX
-    ])
+    private readonly http: Pick<SafeHttpClient, 'text' | 'json' | 'request'> = new SafeHttpClient(
+      ['e-hentai.org', 'ehgt.org', HATH_NETWORK_SUFFIX],
+      process.env,
+      [HATH_NETWORK_SUFFIX]
+    )
   ) {}
 
   accepts(url: URL): boolean {
@@ -465,19 +467,30 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         remoteHost: remoteHostForUrl(new URL(response.url))
       }
     } catch (error) {
-      if (
-        context.quality === 'ORIGINAL' &&
-        error instanceof ArchiveError &&
-        ['REMOTE_FORBIDDEN', 'REMOTE_QUOTA_EXCEEDED'].includes(error.code)
-      ) {
-        throw new ArchiveError('ORIGINAL_UNAVAILABLE', '原图当前不可用；请明确选择展示质量后继续', {
-          cause: error,
-          recoverable: true,
-          pause: true,
-          decisionCode: 'USE_DISPLAY_QUALITY',
-          stage: error.stage,
-          remoteHost: error.remoteHost
-        })
+      if (error instanceof ArchiveError && error.code === 'REMOTE_FORBIDDEN' && !context.reloadMedia) {
+        // Refresh the source page / broken-image node once, retaining quality.
+        return this.openMedia(item, { ...context, reloadMedia: true })
+      }
+      if (error instanceof ArchiveError && ['REMOTE_FORBIDDEN', 'REMOTE_QUOTA_EXCEEDED'].includes(error.code)) {
+        throw new ArchiveError(
+          error.code,
+          error.code === 'REMOTE_FORBIDDEN'
+            ? '图片下载节点拒绝访问（HTTP 403）；可按原质量重试'
+            : '远端图片额度不足（HTTP 509）；请等待额度恢复后继续',
+          {
+            cause: error,
+            recoverable: true,
+            pause: true,
+            decisionCode:
+              context.quality === 'ORIGINAL' && originalUrl && error.code === 'REMOTE_FORBIDDEN'
+                ? 'USE_DISPLAY_QUALITY'
+                : null,
+            httpStatus: error.httpStatus,
+            retryAfterMs: error.retryAfterMs,
+            stage: error.stage,
+            remoteHost: error.remoteHost
+          }
+        )
       }
       throw error
     }
@@ -1406,7 +1419,7 @@ function parseUploaderSearchPage(html: string, baseUrl: string, searchTerm: stri
 async function discoverUploaderUidFromGallery(
   canonicalUrl: string,
   expectedUploaderName: string,
-  http: SafeHttpClient,
+  http: Pick<SafeHttpClient, 'text'>,
   context: ArchiveUploaderScanContext
 ): Promise<string | null> {
   const html = await runSearchRequest(context, () =>

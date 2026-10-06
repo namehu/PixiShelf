@@ -2,6 +2,8 @@ import { Readable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 import { EHentaiProvider, chooseCreatorBucket, hashResolvedMetadata } from '../providers/e-hentai'
 import type { SafeHttpClient } from '../safe-http'
+import { ArchiveError } from '../errors'
+import { EHentaiProvider as SharedEHentaiProvider } from '@pixishelf/job-executors'
 
 function createHttpMock() {
   return {
@@ -90,19 +92,17 @@ describe('E-Hentai archive provider', () => {
 
   it('resolves an image-page URL through the documented gtoken API', async () => {
     const http = createHttpMock()
-    http.json
-      .mockResolvedValueOnce({ tokenlist: [{ gid: 123, token: 'gallery1234' }] })
-      .mockResolvedValueOnce({
-        gmetadata: [
-          {
-            gid: 123,
-            token: 'gallery1234',
-            title: 'Gallery',
-            filecount: '1',
-            tags: []
-          }
-        ]
-      })
+    http.json.mockResolvedValueOnce({ tokenlist: [{ gid: 123, token: 'gallery1234' }] }).mockResolvedValueOnce({
+      gmetadata: [
+        {
+          gid: 123,
+          token: 'gallery1234',
+          title: 'Gallery',
+          filecount: '1',
+          tags: []
+        }
+      ]
+    })
     http.text.mockResolvedValue('<a href="https://e-hentai.org/s/page123456/123-1">one</a>')
     const provider = new EHentaiProvider(http as unknown as SafeHttpClient)
 
@@ -161,7 +161,7 @@ describe('E-Hentai archive provider', () => {
         { quality: 'ORIGINAL' }
       )
     ).rejects.toMatchObject({
-      code: 'ORIGINAL_UNAVAILABLE',
+      code: 'REMOTE_FORBIDDEN',
       pause: true,
       decisionCode: 'USE_DISPLAY_QUALITY'
     })
@@ -187,6 +187,37 @@ describe('E-Hentai archive provider', () => {
         { quality: 'ORIGINAL' }
       )
     ).rejects.toMatchObject({ code: 'REMOTE_NOT_FOUND', pause: false })
+  })
+
+  it('shares the Worker provider while preserving the Web ArchiveError boundary', async () => {
+    const provider = new EHentaiProvider(createHttpMock() as never)
+    expect(provider).toBeInstanceOf(SharedEHentaiProvider)
+    await expect(provider.resolve('https://example.com/g/123/token/')).rejects.toBeInstanceOf(ArchiveError)
+  })
+
+  it('recovers a media 403 through the shared implementation without changing quality', async () => {
+    const http = createHttpMock()
+    http.text.mockResolvedValue('<img id="img" src="https://cdn.hath.network/image.jpg">')
+    http.request
+      .mockImplementationOnce(async () => ({
+        status: 403,
+        headers: {},
+        stream: Readable.from([]),
+        url: 'https://cdn.hath.network/image.jpg'
+      }))
+      .mockImplementationOnce(async () => ({
+        status: 200,
+        headers: {},
+        stream: Readable.from([]),
+        url: 'https://cdn.hath.network/fresh.jpg'
+      }))
+    const remote = await new EHentaiProvider(http as never).openMedia(
+      { index: 0, sourcePageUrl: 'https://e-hentai.org/s/a/123-1', locator: {}, expectedFilename: '0001' },
+      { quality: 'ORIGINAL' }
+    )
+    expect(remote.quality).toBe('ORIGINAL')
+    expect(http.text).toHaveBeenCalledTimes(2)
+    expect(http.request).toHaveBeenCalledTimes(2)
   })
 
   it('uses immutable creator bucket fallback rules', () => {

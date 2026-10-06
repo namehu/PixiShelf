@@ -653,6 +653,28 @@ async function handleArchiveExecutionFailure(
     // reject that controlled execution, so re-read the locked queue state here
     // before classifying the checkpoint error as a business failure.
     if (await finalizeRequestedArchiveControl(scope, archiveImportId, now)) return
+    if (classified.code === 'STATE_CONFLICT') {
+      const current = await scope.transaction.archiveImport.findUnique({ where: { id: archiveImportId } })
+      // Respect a paused domain record left by an older control endpoint. Do not
+      // attempt an illegal PAUSED -> FAILED transition or stop the dispatcher.
+      if (current?.systemJobId === context.job.id && current.status === 'PAUSED') {
+        await scope.pause({ reason: 'ACTION_REQUIRED', message: '归档记录仍为暂停状态，请从归档详情继续' })
+        return
+      }
+      if (
+        !current ||
+        current.systemJobId !== context.job.id ||
+        ['COMPLETED', 'FAILED', 'CANCELLED'].includes(current.status)
+      ) {
+        await scope.fail({
+          diagnostic: extractJobDiagnostic(classified),
+          errorCode: 'STATE_CONFLICT',
+          error: classified.message,
+          message: classified.message
+        })
+        return
+      }
+    }
     const counts = await readCounts(scope.transaction, archiveImportId)
     if (classified.pause) {
       const changed = await scope.transaction.archiveImport.updateMany({
@@ -678,7 +700,7 @@ async function handleArchiveExecutionFailure(
         message: classified.message,
         data: {
           errorCode: classified.code,
-          decisionCode: classified.decisionCode ?? 'ORIGINAL_UNAVAILABLE'
+          decisionCode: classified.decisionCode
         }
       })
       return

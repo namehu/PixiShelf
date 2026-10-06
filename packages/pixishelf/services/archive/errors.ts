@@ -20,6 +20,8 @@ export type ArchiveErrorCode =
   | 'INTERNAL'
 
 export type ArchiveErrorStage =
+  | 'UPLOADER_SEARCH'
+  | 'UPLOADER_METADATA'
   | 'SOURCE_PAGE'
   | 'PROXY_CONNECT'
   | 'TLS_HANDSHAKE'

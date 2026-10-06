@@ -116,6 +116,31 @@ const completedArchiveItem = {
 }
 
 describe('archive executor', () => {
+  it('settles a legacy paused import without a fatal finalization or media writes', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, status: 'PAUSED' })
+    const context = createContext(transaction)
+    await expect(executeArchiveImport(context, dependencies(transaction))).resolves.toEqual(
+      TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+    )
+    expect(context.__scope.pause).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ACTION_REQUIRED' }))
+    expect(transaction.archiveImport.updateMany).not.toHaveBeenCalled()
+    expect(transaction.archiveImportItem.updateMany).not.toHaveBeenCalled()
+    expect(context.__scope.fail).not.toHaveBeenCalled()
+  })
+
+  it('fails only the stale queue job when the archive belongs to a newer job', async () => {
+    const transaction = createTransaction()
+    transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, systemJobId: 'new-job' })
+    const context = createContext(transaction)
+    await expect(executeArchiveImport(context, dependencies(transaction))).resolves.toEqual(
+      TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+    )
+    expect(context.__scope.fail).toHaveBeenCalledWith(expect.objectContaining({ errorCode: 'STATE_CONFLICT' }))
+    expect(transaction.archiveImport.updateMany).not.toHaveBeenCalled()
+    expect(transaction.archiveImportItem.updateMany).not.toHaveBeenCalled()
+  })
+
   it.each([13, 27])('records all %i media failures exactly once without truncation', async (count) => {
     const transaction = createTransaction()
     const items = Array.from({ length: count }, (_, index) => ({

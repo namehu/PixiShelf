@@ -3,6 +3,7 @@ import { ArchiveModule } from '../archive-module'
 
 const { prismaMock, writeJobEventMock } = vi.hoisted(() => {
   const prismaMock = {
+    systemJobFailureAcknowledgement: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     artwork: { findUnique: vi.fn(), updateMany: vi.fn() },
     artworkExternalRef: { findUnique: vi.fn() },
     archiveRevision: { update: vi.fn() },
@@ -104,7 +105,7 @@ describe('archive module', () => {
     )
   })
 
-  it('resumes a legacy pause whose queue status settled before the archive status', async () => {
+  it.each(['archive', 'background'] as const)('resumes a legacy pause through the %s control', async (entry) => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     const task = {
       id: 'import-drifted',
@@ -120,7 +121,11 @@ describe('archive module', () => {
     prismaMock.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.jobResourceLease.deleteMany.mockResolvedValue({ count: 1 })
 
-    await expect(module.requestAction('import-drifted', 'RESUME', { requestedByUserId: 'admin-1' })).resolves.toEqual({
+    await expect(
+      entry === 'archive'
+        ? module.requestAction('import-drifted', 'RESUME', { requestedByUserId: 'admin-1' })
+        : module.requestJobAction('job-paused', 'RESUME', 'admin-1')
+    ).resolves.toEqual({
       taskId: 'import-drifted'
     })
 
@@ -137,6 +142,24 @@ describe('archive module', () => {
       prismaMock,
       expect.objectContaining({ jobId: 'job-paused', type: 'job.queued', data: { reason: 'RESUME' } })
     )
+  })
+
+  it('rejects cleanup that begins between the background resume request and its transaction', async () => {
+    const task = {
+      id: 'import-race',
+      systemJobId: 'job-paused',
+      status: 'PAUSED',
+      cleanupRequestedAt: null,
+      systemJob: { id: 'job-paused', status: 'PAUSED' }
+    }
+    prismaMock.archiveImport.findUnique
+      .mockResolvedValueOnce(task)
+      .mockResolvedValueOnce({ ...task, cleanupRequestedAt: new Date() })
+    await expect(module.requestJobAction('job-paused', 'RESUME', 'admin-1')).rejects.toMatchObject({
+      code: 'STATE_CONFLICT'
+    })
+    expect(prismaMock.systemJob.updateMany).not.toHaveBeenCalled()
+    expect(prismaMock.archiveImportItem.updateMany).not.toHaveBeenCalled()
   })
 
   it('does not treat a genuinely running archive task as a recoverable paused drift', async () => {
@@ -157,7 +180,7 @@ describe('archive module', () => {
     expect(prismaMock.archiveImport.updateMany).not.toHaveBeenCalled()
   })
 
-  it('retries a terminal central archive task as a new linked SystemJob', async () => {
+  it.each(['FAILED', 'PAUSED'])('retries a failed job with a %s archive as a new linked SystemJob', async (status) => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     const task = {
       id: 'import-central',
@@ -165,7 +188,7 @@ describe('archive module', () => {
       externalId: 'gallery-1',
       canonicalUrl: 'https://example.test/g/gallery-1',
       systemJobId: 'job-failed',
-      status: 'FAILED',
+      status,
       cleanupRequestedAt: null,
       completedItems: 1,
       failedItems: 1,
@@ -187,7 +210,7 @@ describe('archive module', () => {
     prismaMock.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
     prismaMock.systemJob.create.mockResolvedValue({ id: 'job-retry' })
 
-    await module.requestAction('import-central', 'RETRY', { requestedByUserId: 'admin-1' })
+    await module.requestJobAction('job-failed', 'RETRY', 'admin-1')
 
     expect(prismaMock.systemJob.updateMany).not.toHaveBeenCalled()
     expect(prismaMock.systemJob.create).toHaveBeenCalledWith({

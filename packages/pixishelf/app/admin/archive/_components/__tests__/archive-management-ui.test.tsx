@@ -208,9 +208,9 @@ describe('archive management UI', () => {
         onAction={vi.fn()}
       />
     )
-    expect(screen.getByText('原图不可用，可在操作中改用展示质量')).toBeTruthy()
+    expect(screen.getByText('可按原质量继续，或在操作中改用展示质量')).toBeTruthy()
     expect(screen.getByText('改用展示质量继续')).toBeTruthy()
-    expect(screen.queryByText('继续任务')).toBeNull()
+    expect(screen.getByText('继续任务')).toBeTruthy()
     expect(screen.queryByRole('progressbar')).toBeNull()
   })
 

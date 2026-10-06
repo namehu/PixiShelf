@@ -265,6 +265,53 @@ describe('EHentaiProvider broken-image recovery', () => {
     }
   )
 
+  it('recovers a media 403 once using a fresh page without changing original quality', async () => {
+    const http = client()
+    http.request.mockResolvedValueOnce({
+      status: 403,
+      headers: {},
+      stream: Readable.from([]),
+      url: 'https://bad.hath.network/image.webp'
+    })
+    const remote = await new EHentaiProvider(http as never).openMedia(item, { quality: 'ORIGINAL' })
+    expect(remote.quality).toBe('ORIGINAL')
+    expect(http.request).toHaveBeenCalledTimes(2)
+    expect(http.request).toHaveBeenLastCalledWith('https://e-hentai.org/fullimg.php?gid=123', expect.any(Object))
+  })
+
+  it.each([true, false])(
+    'bounds persistent 403 recovery and offers display only with a separate original link: %s',
+    async (separateOriginal) => {
+      const http = client()
+      http.text
+        .mockReset()
+        .mockResolvedValue(
+          `<img id="img" src="${url}">${separateOriginal ? '<a href="/fullimg.php?gid=123">original</a>' : ''}`
+        )
+      http.request.mockImplementation(async () => ({ status: 403, headers: {}, stream: Readable.from([]), url }))
+      await expect(new EHentaiProvider(http as never).openMedia(item, { quality: 'ORIGINAL' })).rejects.toMatchObject({
+        code: 'REMOTE_FORBIDDEN',
+        httpStatus: 403,
+        pause: true,
+        decisionCode: separateOriginal ? 'USE_DISPLAY_QUALITY' : null
+      })
+      expect(http.request).toHaveBeenCalledTimes(2)
+    }
+  )
+
+  it('preserves quota diagnostics without refreshing or suggesting lower quality', async () => {
+    const http = client()
+    http.request.mockImplementation(async () => ({ status: 509, headers: {}, stream: Readable.from([]), url }))
+    await expect(new EHentaiProvider(http as never).openMedia(item, { quality: 'ORIGINAL' })).rejects.toMatchObject({
+      code: 'REMOTE_QUOTA_EXCEEDED',
+      httpStatus: 509,
+      pause: true,
+      decisionCode: null
+    })
+    expect(http.request).toHaveBeenCalledTimes(1)
+    expect(http.text).toHaveBeenCalledTimes(1)
+  })
+
   it('does not refresh an initial download', async () => {
     const http = client()
     await new EHentaiProvider(http as never).openMedia(item, { quality: 'DISPLAY' })

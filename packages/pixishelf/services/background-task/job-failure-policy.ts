@@ -32,3 +32,32 @@ export function failureNeedsAttention(job: {
     !(job.parentJobId !== null && hiddenChildTypes.includes(job.type))
   )
 }
+
+export async function acknowledgeJobFailure(
+  transaction: {
+    systemJobFailureAcknowledgement: {
+      createMany(args: {
+        data: Prisma.SystemJobFailureAcknowledgementCreateManyInput[]
+        skipDuplicates: true
+      }): PromiseLike<{ count: number }>
+    }
+  },
+  input: {
+    jobId: string
+    acknowledgedAt: Date
+    acknowledgedByUserId?: string
+    source: 'MANUAL' | 'RETRY'
+  }
+) {
+  await transaction.systemJobFailureAcknowledgement.createMany({
+    data: [
+      {
+        jobId: input.jobId,
+        acknowledgedAt: input.acknowledgedAt,
+        acknowledgedByUserId: input.acknowledgedByUserId,
+        source: input.source
+      }
+    ],
+    skipDuplicates: true
+  })
+}
