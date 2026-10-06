@@ -1101,3 +1101,19 @@ it('captures all failures beyond 20 samples in the same bounded checkpoints', as
     expect(diagnostic).toEqual(expect.objectContaining({ error: expect.any(Error) }))
   }
 })
+
+it('detects real APNG content under a PNG filename and distinguishes a static PNG', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-png-content-'))
+  roots.push(root)
+  // Two 1x1 RGBA frames, with valid fcTL/fdAT sequencing and CRCs.
+  const animatedPng = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACGFjVEwAAAACAAAAAPONk3AAAAAaZmNUTAAAAAAAAAABAAAAAQAAAAAAAAAAAAEACgAAWn8w0AAAAA1JREFUeJxj+M/A8B8ABQAB/4mZPR0AAAAaZmNUTAAAAAEAAAABAAAAAQAAAAAAAAAAAAEACgAAwQzaBAAAABFmZEFUAAAAAnicY2D4z/AfAAQBAf9i5+mcAAAAAElFTkSuQmCC',
+    'base64'
+  )
+  const animatedPath = path.join(root, 'animation.PNG')
+  const staticPath = path.join(root, 'static.png')
+  await writeFile(animatedPath, animatedPng)
+  await writeFile(staticPath, await sharp(STATIC_GIF).png().toBuffer())
+  await expect(detectAnimatedImage(animatedPath)).resolves.toBe(true)
+  await expect(detectAnimatedImage(staticPath)).resolves.toBe(false)
+})

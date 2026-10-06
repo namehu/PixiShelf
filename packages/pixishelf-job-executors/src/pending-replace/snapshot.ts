@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { createHash } from 'node:crypto'
-import { MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
+import { MEDIA_FILE_EXTENSIONS, inferMediaTypeFromPath } from '@pixishelf/job-contracts'
 import { MAX_PENDING_REPLACE_WARNINGS } from './schemas.ts'
 import {
   caseFoldPath,
@@ -20,7 +20,6 @@ import type {
 import { PendingReplacePermanentError } from './types.ts'
 
 const mediaExtensions = new Set<string>(MEDIA_FILE_EXTENSIONS)
-const videoExtensions = new Set<string>(VIDEO_FILE_EXTENSIONS)
 export const PENDING_DIRECTORY = 'pending-replaces'
 export const WORK_DIRECTORY = '.replace-work'
 export const BACKUP_DIRECTORY = 'replace-backups'
@@ -115,7 +114,7 @@ export async function scanPendingSource<TTransaction extends QueueSqlExecutor>(
       height: 0,
       order,
       mtimeMs: file.mtimeMs,
-      mediaType: inferMediaType(extension)
+      mediaType: inferMediaTypeFromPath(extension)
     }
   })
   const mediaByName = new Map(mediaFiles.map((file) => [file.name, file]))
@@ -290,11 +289,4 @@ function isChapterFile(name: string) {
 
 function chapterCandidates(mediaName: string) {
   return [`${mediaName}.chapters.json`, `${mediaName}.chapters.v1.json`]
-}
-
-function inferMediaType(extension: string): 'IMAGE' | 'VIDEO' | 'ANIMATION' | 'UNKNOWN' {
-  if (videoExtensions.has(extension)) return 'VIDEO'
-  if (extension === '.gif' || extension === '.webp' || extension === '.apng') return 'ANIMATION'
-  if (mediaExtensions.has(extension)) return 'IMAGE'
-  return 'UNKNOWN'
 }

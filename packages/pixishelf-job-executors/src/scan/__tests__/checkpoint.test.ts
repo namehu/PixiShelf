@@ -1,3 +1,4 @@
+import { confirmedAnimationFixture } from './classification-fixture.ts'
 import type { Prisma } from '@pixishelf/db'
 import { describe, expect, it, vi } from 'vitest'
 import { publishLocalMediaWork } from '../local-publisher.js'
@@ -755,3 +756,32 @@ function existingPixivTransaction(
     imageDeleteMany
   }
 }
+
+it('retains a confirmed animation when Pixiv refresh proves the same complete source identity', async () => {
+  const media = confirmedAnimationFixture('11/42/42_p0.webp')
+  const fixture = existingPixivTransaction({ existingImages: [media.previous] })
+  await publishPixivArtwork({
+    transaction: fixture.transaction,
+    runId: 'run-1',
+    checkpointOrdinal: 0,
+    checkpointKey: 'metadata:0:refresh',
+    metadataRelativePath: '11/42/42-meta.json',
+    metadataContentHash: 'a'.repeat(64),
+    metadata: pixivMetadata(),
+    media: [
+      {
+        ...pixivMedia(media.previous.path),
+        size: 100n,
+        mediaType: 'IMAGE',
+        webpAnimationStatus: 0,
+        sourceState: media.sourceState
+      }
+    ],
+    existingPolicy: 'REFRESH',
+    now
+  })
+  expect(fixture.imageUpdate).toHaveBeenCalledWith({
+    where: { id: 11 },
+    data: expect.objectContaining({ mediaType: 'ANIMATION', webpAnimationStatus: 2 })
+  })
+})

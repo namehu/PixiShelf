@@ -25,6 +25,11 @@ sources:
 
 WebP 时长是独立的只读媒体元数据：管理员手动创建 `ANIMATION_DURATION_PROBE`，通用 Worker 的 writer lane 用隔离子进程有界解析 RIFF 头，按 Image ID 分页；结果保存在一对一 `ImageAnimationMetadata`，Next App 对作品/浏览查询批量 join 后只传递有效时长。扫描、迁移和 App 媒体写入会用源 revision/门禁失效旧结果，正常页面不逐图访问 NFS。代码设计与尚待真实 NAS 验收的边界见[动图时长方案](../design/animation-duration-probe.md)。
 
+媒体初始分类统一由 `@pixishelf/job-contracts` 的 `inferMediaTypeFromPath` 与 `needsAnimationContentScan` 提供，App 入库、Worker 扫描、待替换发现和历史 `UNKNOWN` 分类共用现有接纳白名单。PNG/WebP 初始为 `IMAGE`，GIF/APNG 初始为 `ANIMATION`，四类均以 `webpAnimationStatus=0` 待内容探测，完成后 1/2 分别对应静态 `IMAGE` / 动态 `ANIMATION`；其他受支持图片不进入动画探测，视频为 `VIDEO`，未支持后缀为 `UNKNOWN`。SVG 保持既有支持；AVIF 不在接纳白名单，历史 UNKNOWN 记录也不再由视频分类正则单独接纳。分类函数只提供初始提示，不覆盖已有确认内容结果；Worker 重扫仅在已确认类型/状态一致且源路径、大小、mtime、ctime、device、inode 全部有证据且未变时保留确认，缺少源证据或源失效时重新探测。
+
+待替换快照格式不变。新 WebP 快照使用 `IMAGE`，已有冻结 WebP `ANIMATION` 快照按原值发布和校验，不在读取时改写；发布和恢复重建媒体时均显式重新初始化内容探测。冻结类型与当前类型不同，仅对 PNG/WebP/GIF/APNG 且当前内容状态 1/2 与类型一致、冻结类型不是 VIDEO 时允许视为探测纠正；其他路径、尺寸、大小、顺序、章节及文件 hash 检查仍生效。此次无需数据库迁移或批量重写媒体，回退代码不会撤销已发布分类，旧消费者仍可读取未扩展的快照；旧版本会恢复原有粗分类差异及探测后恢复冲突，应优先前向修复，真正媒体恢复继续遵循配套数据库/媒体检查点。
+
+
 PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。目标用户、质量优先级和非目标以[产品基线](../product/product-baseline.md)为准。
 
 当前部署边界：

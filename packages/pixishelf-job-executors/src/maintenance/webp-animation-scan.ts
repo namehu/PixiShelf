@@ -1,6 +1,10 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
-import { animationScanProgressDataSchema, type AnimationScanProgressData } from '@pixishelf/job-contracts'
+import {
+  ANIMATION_CONTENT_SCAN_EXTENSIONS,
+  animationScanProgressDataSchema,
+  type AnimationScanProgressData
+} from '@pixishelf/job-contracts'
 import type { ExecutionLogger } from '@pixishelf/job-runtime'
 import { IsolatedSharpAnimationProbePool, SHARP_ANIMATION_PROBE_TIMEOUT_SECONDS } from './sharp-animation-probe-pool.ts'
 import type { MaintenanceOperationInput, MaintenanceProgress, RunMaintenanceProgressMutation } from './types.ts'
@@ -16,8 +20,7 @@ export const ANIMATION_SCAN_SLOW_ITEM_MS = 10_000
 export const ANIMATION_SCAN_SHARP_TIMEOUT_SECONDS = SHARP_ANIMATION_PROBE_TIMEOUT_SECONDS
 const FAILED_SAMPLE_LIMIT = 20
 const ANIMATION_STATUS = { pending: 0, static: 1, animated: 2 } as const
-const ANIMATION_EXTENSIONS = ['.webp', '.gif', '.png', '.apng']
-const PATH_FILTERS = ANIMATION_EXTENSIONS.map((extension) => ({
+const PATH_FILTERS = ANIMATION_CONTENT_SCAN_EXTENSIONS.map((extension) => ({
   path: { endsWith: extension, mode: 'insensitive' as const }
 }))
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])

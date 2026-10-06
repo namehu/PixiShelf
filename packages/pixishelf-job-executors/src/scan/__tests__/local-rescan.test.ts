@@ -1,3 +1,4 @@
+import { confirmedAnimationFixture } from './classification-fixture.ts'
 import { describe, expect, it, vi } from 'vitest'
 import { reconcileLocalArtworkImages } from '../local-rescan.js'
 
@@ -7,33 +8,46 @@ describe('reconcileLocalArtworkImages', () => {
   it('does not invalidate an active upload gate when a rescan observes a partial chunk', async () => {
     const transaction = {
       image: {
-        findMany: vi.fn().mockResolvedValue([{
-          id: 11,
-          path: 'local/a/image.webp',
-          size: 100n,
-          sortOrder: 0,
-          mediaType: 'ANIMATION',
-          webpAnimationStatus: 2,
-          animationMetadata: {
-            writeInProgress: true,
-            sourcePath: 'local/a/image.webp',
-            sourceSize: null,
-            sourceMtimeMs: null,
-            sourceCtimeMs: null,
-            sourceDeviceId: null,
-            sourceInode: null,
-            status: 'PENDING'
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 11,
+            path: 'local/a/image.webp',
+            size: 100n,
+            sortOrder: 0,
+            mediaType: 'ANIMATION',
+            webpAnimationStatus: 2,
+            animationMetadata: {
+              writeInProgress: true,
+              sourcePath: 'local/a/image.webp',
+              sourceSize: null,
+              sourceMtimeMs: null,
+              sourceCtimeMs: null,
+              sourceDeviceId: null,
+              sourceInode: null,
+              status: 'PENDING'
+            }
           }
-        }]),
+        ]),
         update: vi.fn().mockResolvedValue({}),
         createMany: vi.fn(),
         deleteMany: vi.fn()
       }
     }
 
-    await reconcileLocalArtworkImages(transaction as never, 7, [
-      discoveredMedia({ relativePath: 'local/a/image.webp', size: 120n, sortOrder: 0, mediaType: 'ANIMATION', webpAnimationStatus: 2 })
-    ], now)
+    await reconcileLocalArtworkImages(
+      transaction as never,
+      7,
+      [
+        discoveredMedia({
+          relativePath: 'local/a/image.webp',
+          size: 120n,
+          sortOrder: 0,
+          mediaType: 'ANIMATION',
+          webpAnimationStatus: 2
+        })
+      ],
+      now
+    )
 
     expect(transaction.image.update).toHaveBeenCalledWith({
       where: { id: 11 },
@@ -371,3 +385,34 @@ function discoveredMedia(overrides: {
     ...overrides
   }
 }
+
+it('retains a confirmed animation when local rescan proves the same complete source identity', async () => {
+  const fixture = confirmedAnimationFixture('local/a/image.webp')
+  const transaction = {
+    image: {
+      findMany: vi.fn().mockResolvedValue([fixture.previous]),
+      update: vi.fn(),
+      createMany: vi.fn(),
+      deleteMany: vi.fn()
+    }
+  }
+  await reconcileLocalArtworkImages(
+    transaction as never,
+    7,
+    [
+      {
+        ...discoveredMedia({
+          relativePath: fixture.previous.path,
+          size: 100n,
+          sortOrder: 0,
+          mediaType: 'IMAGE',
+          webpAnimationStatus: 0
+        }),
+        sourceState: fixture.sourceState
+      }
+    ],
+    now
+  )
+  // Every persisted field is unchanged; importantly no IMAGE/pending rewrite occurs.
+  expect(transaction.image.update).not.toHaveBeenCalled()
+})

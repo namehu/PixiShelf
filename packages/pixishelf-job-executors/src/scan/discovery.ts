@@ -1,6 +1,6 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
-import { MEDIA_FILE_EXTENSIONS, VIDEO_FILE_EXTENSIONS } from '@pixishelf/job-contracts'
+import { MEDIA_FILE_EXTENSIONS, inferMediaTypeFromPath, needsAnimationContentScan } from '@pixishelf/job-contracts'
 import sharp from 'sharp'
 import { mapBounded, throwIfAborted } from './bounded.ts'
 import { hashStableFile, stableFileStateFromMetadata, statStableFile, type StableFileState } from './content-reader.ts'
@@ -20,9 +20,6 @@ import { VideoProcessingPermanentError } from '../video-processing/types.ts'
 
 const metadataSuffix = /-meta\.(?:json|txt)$/i
 const mediaExtensions = new Set<string>(MEDIA_FILE_EXTENSIONS)
-const videoExtensions = new Set<string>(VIDEO_FILE_EXTENSIONS)
-const animationExtensions = new Set(['.gif', '.apng'])
-const contentScannedAnimationExtensions = new Set(['.webp', '.gif', '.png', '.apng'])
 
 export interface ScanDiscoveryLimits {
   pageSize: number
@@ -54,7 +51,7 @@ export interface DiscoveredMediaFile {
   size: bigint
   sourceState?: StableFileState
   sortOrder: number
-  mediaType: 'IMAGE' | 'ANIMATION' | 'VIDEO'
+  mediaType: 'IMAGE' | 'ANIMATION' | 'VIDEO' | 'UNKNOWN'
   webpAnimationStatus: number | null
   chaptersPath: string | null
   chaptersCount: number
@@ -205,8 +202,8 @@ export async function collectArtworkMedia(
         size: BigInt(metadata.size),
         sourceState: stableFileStateFromMetadata(metadata),
         sortOrder: pageIndex,
-        mediaType: inferMediaType(extension),
-        webpAnimationStatus: contentScannedAnimationExtensions.has(extension) ? 0 : null,
+        mediaType: inferMediaTypeFromPath(extension),
+        webpAnimationStatus: needsAnimationContentScan(extension) ? 0 : null,
         chaptersPath: null,
         chaptersCount: 0,
         chaptersDuration: null,
@@ -256,8 +253,8 @@ export async function collectLocalMedia(
         size: BigInt(metadata.size),
         sourceState: stableFileStateFromMetadata(metadata),
         sortOrder: 0,
-        mediaType: inferMediaType(extension),
-        webpAnimationStatus: contentScannedAnimationExtensions.has(extension) ? 0 : null,
+        mediaType: inferMediaTypeFromPath(extension),
+        webpAnimationStatus: needsAnimationContentScan(extension) ? 0 : null,
         chaptersPath: null,
         chaptersCount: 0,
         chaptersDuration: null,
@@ -323,12 +320,6 @@ function mediaPageIndex(filename: string, artworkId: string, extension: string):
   const match = filename.match(new RegExp(`^${escapedId}_p(\\d+)${escapedExtension}$`, 'i'))
   const page = match?.[1] ? Number(match[1]) : Number.NaN
   return Number.isSafeInteger(page) && page >= 0 ? page : null
-}
-
-function inferMediaType(extension: string): 'IMAGE' | 'ANIMATION' | 'VIDEO' {
-  if (videoExtensions.has(extension)) return 'VIDEO'
-  if (animationExtensions.has(extension)) return 'ANIMATION'
-  return 'IMAGE'
 }
 
 function naturalNameCompare(left: string, right: string): number {

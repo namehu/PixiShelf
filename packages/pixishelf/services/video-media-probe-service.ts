@@ -5,7 +5,7 @@ import * as childProcess from 'node:child_process'
 import * as fs from 'node:fs/promises'
 import { prisma } from '@/lib/prisma'
 import { isVideoFile } from '@/lib/media'
-import { inferMediaTypeFromPath } from '@/lib/media-type'
+import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
 import { createChapterManifestHash, validateChapterManifest } from '@/services/artwork-service/video-chapters'
 import {
   buildChapterAudioSamplePlans,
@@ -150,7 +150,7 @@ export async function classifyUnknownMediaImages(
       },
       orderBy: { id: 'asc' },
       take: CLASSIFY_BATCH_SIZE,
-      select: { id: true, path: true }
+      select: { id: true, path: true, webpAnimationStatus: true }
     })
 
     if (batch.length === 0) break
@@ -159,52 +159,60 @@ export async function classifyUnknownMediaImages(
     processed += batch.length
 
     const videoIds: number[] = []
-    const imageIds: number[] = []
-    const animationIds: number[] = []
+    const imageGroups = new Map<
+      string,
+      { ids: number[]; mediaType: 'IMAGE' | 'ANIMATION'; animationStatus: number | null | undefined }
+    >()
 
     for (const image of batch) {
-      switch (inferMediaTypeFromPath(image.path)) {
-        case 'VIDEO':
-          videoIds.push(image.id)
-          break
-        case 'ANIMATION':
-          animationIds.push(image.id)
-          break
-        case 'IMAGE':
-          imageIds.push(image.id)
-          break
-        default:
-          result.unknown += 1
+      let mediaType = inferMediaTypeFromPath(image.path)
+      if (mediaType === 'VIDEO') {
+        videoIds.push(image.id)
+        continue
       }
+      if (mediaType === 'UNKNOWN') {
+        result.unknown += 1
+        continue
+      }
+
+      const animationStatus = needsAnimationContentScan(image.path) ? image.webpAnimationStatus : undefined
+      // Confirmed content takes precedence over extension hints, including single-frame GIF/APNG.
+      if (animationStatus === 1) mediaType = 'IMAGE'
+      if (animationStatus === 2) mediaType = 'ANIMATION'
+      const key = `${mediaType}:${animationStatus}`
+      const group = imageGroups.get(key) ?? { ids: [], mediaType, animationStatus }
+      group.ids.push(image.id)
+      imageGroups.set(key, group)
     }
 
     if (videoIds.length > 0) {
-      await prisma.image.updateMany({
-        where: { id: { in: videoIds } },
+      const updated = await prisma.image.updateMany({
+        where: { id: { in: videoIds }, mediaType: 'UNKNOWN' },
         data: { mediaType: 'VIDEO' }
       })
       const createResult = await prisma.mediaVideoMetadata.createMany({
         data: videoIds.map((imageId) => ({ imageId, probeStatus: 'PENDING' })),
         skipDuplicates: true
       })
-      result.classifiedVideos += videoIds.length
+      result.classifiedVideos += updated.count
       result.metadataRowsCreated += createResult.count
     }
 
-    if (imageIds.length > 0) {
-      await prisma.image.updateMany({
-        where: { id: { in: imageIds } },
-        data: { mediaType: 'IMAGE' }
+    for (const { ids, mediaType, animationStatus } of imageGroups.values()) {
+      const updated = await prisma.image.updateMany({
+        where: {
+          id: { in: ids },
+          mediaType: 'UNKNOWN',
+          // A probe completing after the read must not be replaced by a stale extension hint.
+          ...(animationStatus !== undefined ? { webpAnimationStatus: animationStatus } : {})
+        },
+        data: {
+          mediaType,
+          ...(animationStatus === null ? { webpAnimationStatus: 0 } : {})
+        }
       })
-      result.classifiedImages += imageIds.length
-    }
-
-    if (animationIds.length > 0) {
-      await prisma.image.updateMany({
-        where: { id: { in: animationIds } },
-        data: { mediaType: 'ANIMATION' }
-      })
-      result.classifiedAnimations += animationIds.length
+      if (mediaType === 'IMAGE') result.classifiedImages += updated.count
+      else result.classifiedAnimations += updated.count
     }
 
     await options.onProgress?.({ processed, total, result: { ...result } })

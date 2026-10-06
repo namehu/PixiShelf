@@ -1,3 +1,4 @@
+import { mediaClassificationCases } from '../../../pixishelf-job-contracts/src/__tests__/fixtures/media-classification'
 import { describe, expect, it } from 'vitest'
 import { inferMediaTypeFromPath, needsAnimationContentScan } from '../media-type'
 
@@ -25,4 +26,9 @@ describe('inferMediaTypeFromPath', () => {
     expect(needsAnimationContentScan('/work/image.jpg')).toBe(false)
     expect(needsAnimationContentScan('/work/video.webm')).toBe(false)
   })
+})
+
+it.each(mediaClassificationCases)('App shares initial classification for %s', (name, kind, scan) => {
+  expect(inferMediaTypeFromPath(name)).toBe(kind)
+  expect(needsAnimationContentScan(name)).toBe(scan)
 })

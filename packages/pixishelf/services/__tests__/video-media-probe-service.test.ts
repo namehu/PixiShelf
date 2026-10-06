@@ -105,26 +105,27 @@ describe('video-media-probe-service', () => {
 
   it('classifies unknown images and creates pending metadata rows for videos', async () => {
     mediaVideoMetadataCreateManyMock.mockResolvedValueOnce({ count: 1 })
+    updateManyMock.mockResolvedValue({ count: 1 })
     findManyMock.mockResolvedValueOnce([
       { id: 1, path: '/artist/work/video.mp4' },
-      { id: 2, path: '/artist/work/page.webp' },
-      { id: 3, path: '/artist/work/anim.gif' },
+      { id: 2, path: '/artist/work/page.webp', webpAnimationStatus: null },
+      { id: 3, path: '/artist/work/anim.gif', webpAnimationStatus: null },
       { id: 4, path: '/artist/work/archive.bin' }
     ])
 
     const result = await classifyUnknownMediaImages()
 
     expect(updateManyMock).toHaveBeenCalledWith({
-      where: { id: { in: [1] } },
+      where: { id: { in: [1] }, mediaType: 'UNKNOWN' },
       data: { mediaType: 'VIDEO' }
     })
     expect(updateManyMock).toHaveBeenCalledWith({
-      where: { id: { in: [2] } },
-      data: { mediaType: 'IMAGE' }
+      where: { id: { in: [2] }, mediaType: 'UNKNOWN', webpAnimationStatus: null },
+      data: { mediaType: 'IMAGE', webpAnimationStatus: 0 }
     })
     expect(updateManyMock).toHaveBeenCalledWith({
-      where: { id: { in: [3] } },
-      data: { mediaType: 'ANIMATION' }
+      where: { id: { in: [3] }, mediaType: 'UNKNOWN', webpAnimationStatus: null },
+      data: { mediaType: 'ANIMATION', webpAnimationStatus: 0 }
     })
     expect(mediaVideoMetadataCreateManyMock).toHaveBeenCalledWith({
       data: [{ imageId: 1, probeStatus: 'PENDING' }],
@@ -138,6 +139,91 @@ describe('video-media-probe-service', () => {
       metadataRowsCreated: 1
     })
   })
+
+  it.each(['webp', 'png', 'gif', 'apng'])('preserves confirmed content classification for %s', async (extension) => {
+    findManyMock.mockResolvedValueOnce([
+      { id: 1, path: `/work/static.${extension}`, webpAnimationStatus: 1 },
+      { id: 2, path: `/work/animated.${extension}`, webpAnimationStatus: 2 }
+    ])
+    updateManyMock.mockResolvedValue({ count: 1 })
+
+    const result = await classifyUnknownMediaImages()
+
+    expect(updateManyMock).toHaveBeenCalledWith({
+      where: { id: { in: [1] }, mediaType: 'UNKNOWN', webpAnimationStatus: 1 },
+      data: { mediaType: 'IMAGE' }
+    })
+    expect(updateManyMock).toHaveBeenCalledWith({
+      where: { id: { in: [2] }, mediaType: 'UNKNOWN', webpAnimationStatus: 2 },
+      data: { mediaType: 'ANIMATION' }
+    })
+    expect(result).toMatchObject({ classifiedImages: 1, classifiedAnimations: 1 })
+  })
+
+  it.each([
+    ['WEBP', 'IMAGE'],
+    ['PNG', 'IMAGE'],
+    ['GIF', 'ANIMATION'],
+    ['APNG', 'ANIMATION']
+  ])('initializes only missing content status for %s', async (extension, mediaType) => {
+    findManyMock.mockResolvedValueOnce([
+      { id: 1, path: `/work/missing.${extension}`, webpAnimationStatus: null },
+      { id: 2, path: `/work/pending.${extension}`, webpAnimationStatus: 0 }
+    ])
+    updateManyMock.mockResolvedValue({ count: 1 })
+
+    await classifyUnknownMediaImages()
+
+    expect(updateManyMock).toHaveBeenCalledWith({
+      where: { id: { in: [1] }, mediaType: 'UNKNOWN', webpAnimationStatus: null },
+      data: { mediaType, webpAnimationStatus: 0 }
+    })
+    expect(updateManyMock).toHaveBeenCalledWith({
+      where: { id: { in: [2] }, mediaType: 'UNKNOWN', webpAnimationStatus: 0 },
+      data: { mediaType }
+    })
+  })
+
+  it('keeps unsupported formats unknown and does not queue ordinary images for animation scans', async () => {
+    findManyMock.mockResolvedValueOnce([
+      { id: 1, path: '/work/image.AVIF', webpAnimationStatus: 2 },
+      { id: 2, path: '/work/archive.bin', webpAnimationStatus: null },
+      { id: 3, path: '/work/image.SVG', webpAnimationStatus: null },
+      { id: 4, path: '/work/image.JPG', webpAnimationStatus: null }
+    ])
+    updateManyMock.mockResolvedValue({ count: 2 })
+
+    const result = await classifyUnknownMediaImages()
+
+    expect(updateManyMock).toHaveBeenCalledExactlyOnceWith({
+      where: { id: { in: [3, 4] }, mediaType: 'UNKNOWN' },
+      data: { mediaType: 'IMAGE' }
+    })
+    expect(result).toMatchObject({ classifiedImages: 2, unknown: 2 })
+  })
+
+  it.each([
+    ['ANIMATION', 2],
+    ['UNKNOWN', 2],
+    ['IMAGE', 0]
+  ])(
+    'does not overwrite a concurrent change to type %s and probe status %s',
+    async (mediaType, webpAnimationStatus) => {
+      findManyMock.mockResolvedValueOnce([{ id: 1, path: '/work/image.webp', webpAnimationStatus: 0 }])
+      const persisted = { mediaType, webpAnimationStatus }
+      updateManyMock.mockImplementation(async ({ where, data }) => {
+        const matches =
+          persisted.mediaType === where.mediaType && persisted.webpAnimationStatus === where.webpAnimationStatus
+        if (matches) Object.assign(persisted, data)
+        return { count: matches ? 1 : 0 }
+      })
+
+      const result = await classifyUnknownMediaImages()
+
+      expect(persisted).toEqual({ mediaType, webpAnimationStatus })
+      expect(result).toMatchObject({ classifiedImages: 0, classifiedAnimations: 0 })
+    }
+  )
 
   it('parses ffprobe output into flattened video metadata', async () => {
     execFileMock

@@ -261,7 +261,7 @@ function probeFixture(options: {
   const metadataUpdateMany = vi.fn().mockResolvedValue({ count: 1 })
   const chapterPreviewUpsert = vi.fn().mockResolvedValue(undefined)
   const transaction = {
-    image: { updateMany: vi.fn() },
+    image: { updateMany: vi.fn().mockImplementation(async (query) => ({ count: query.where.id.in?.length ?? 1 })) },
     mediaVideoMetadata: {
       createMany: vi.fn().mockResolvedValue({ count: 0 }),
       updateMany: metadataUpdateMany,
@@ -279,6 +279,7 @@ function probeFixture(options: {
   } as never
   return {
     dependencies,
+    imageUpdateMany: transaction.image.updateMany,
     imageFindMany,
     metadataUpsert,
     metadataFindMany,
@@ -322,4 +323,46 @@ it('persists every probe failure beyond twenty samples without changing complete
     expect.objectContaining({ mediaVideoMetadata: expect.anything() }),
     expect.objectContaining({ key: 'probe:31', stage: 'PROBE', error: expect.any(Error) })
   )
+})
+
+it('classifies legacy UNKNOWN using the admission list and preserves confirmed content results', async () => {
+  const fixture = probeFixture({ probeRows: [], posterPages: [], posterTotal: 0 })
+  fixture.imageFindMany.mockResolvedValueOnce([
+    { id: 1, path: 'static.gif', webpAnimationStatus: 1 },
+    { id: 2, path: 'animated.webp', webpAnimationStatus: 2 },
+    { id: 3, path: 'page.avif', webpAnimationStatus: null },
+    { id: 4, path: 'page.svg', webpAnimationStatus: null },
+    { id: 5, path: 'page.PNG', webpAnimationStatus: null }
+  ])
+  const outcome = await executeVideoMediaProbe(
+    fixture.context({ mode: 'INCREMENTAL', force: false }),
+    fixture.dependencies
+  )
+  expect(outcome).toMatchObject({
+    kind: 'completed',
+    result: { classification: { images: 3, animations: 1, unknown: 1 } }
+  })
+  expect(fixture.imageUpdateMany).toHaveBeenCalledWith({
+    where: { id: { in: [5] }, mediaType: 'UNKNOWN', webpAnimationStatus: null },
+    data: { mediaType: 'IMAGE', webpAnimationStatus: 0 }
+  })
+  expect(fixture.imageUpdateMany).toHaveBeenCalledWith({
+    where: { id: { in: [1] }, mediaType: 'UNKNOWN', webpAnimationStatus: 1 },
+    data: { mediaType: 'IMAGE' }
+  })
+  expect(fixture.imageUpdateMany).toHaveBeenCalledWith({
+    where: { id: { in: [2] }, mediaType: 'UNKNOWN', webpAnimationStatus: 2 },
+    data: { mediaType: 'ANIMATION' }
+  })
+})
+
+it('does not count classification writes rejected by the original probe state CAS', async () => {
+  const fixture = probeFixture({ probeRows: [], posterPages: [], posterTotal: 0 })
+  fixture.imageFindMany.mockResolvedValueOnce([{ id: 1, path: 'page.webp', webpAnimationStatus: null }])
+  fixture.imageUpdateMany.mockResolvedValue({ count: 0 })
+  const outcome = await executeVideoMediaProbe(
+    fixture.context({ mode: 'INCREMENTAL', force: false }),
+    fixture.dependencies
+  )
+  expect(outcome).toMatchObject({ kind: 'completed', result: { classification: { images: 0, animations: 0 } } })
 })

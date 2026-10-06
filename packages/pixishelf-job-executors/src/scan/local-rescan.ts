@@ -3,7 +3,7 @@ import { invalidateAnimationDurationSource, lockArtworkForReading } from '@pixis
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type { ScanPayload } from '@pixishelf/job-contracts'
 import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.ts'
-import { animationDurationSourceChanged } from './animation-duration-source.ts'
+import { animationDurationSourceChanged, canPreserveAnimationClassification } from './animation-duration-source.ts'
 import { ScanExecutorError } from './errors.ts'
 import { localWorkInputDigest } from './digests.ts'
 import type { LocalWorkInputRow, ScanRunRecord } from './run-store.ts'
@@ -144,7 +144,7 @@ export async function reconcileLocalArtworkImages(
     path: string
     size: bigint
     sortOrder: number
-    mediaType: 'IMAGE' | 'ANIMATION' | 'VIDEO'
+    mediaType: 'IMAGE' | 'ANIMATION' | 'VIDEO' | 'UNKNOWN'
     webpAnimationStatus: number | null
     chaptersPath: string | null
     chaptersCount: number
@@ -167,6 +167,21 @@ export async function reconcileLocalArtworkImages(
       chaptersHash: item.chaptersHash
     }
     if (previous) {
+      if (
+        canPreserveAnimationClassification({
+          previousPath: previous.path,
+          previousSize: previous.size,
+          path: item.relativePath,
+          size: item.size,
+          ...(item.sourceState ? { sourceState: item.sourceState } : {}),
+          metadata: previous.animationMetadata,
+          mediaType: previous.mediaType,
+          webpAnimationStatus: previous.webpAnimationStatus
+        })
+      ) {
+        data.mediaType = previous.mediaType
+        data.webpAnimationStatus = previous.webpAnimationStatus
+      }
       retainedIds.push(previous.id)
       if (
         animationDurationSourceChanged({
@@ -233,12 +248,7 @@ async function loadFrozenWork(
 }
 
 function normalizePath(value: string) {
-  return value
-    .replace(/\\/g, '/')
-    .replace(/\/+/g, '/')
-    .replace(/^\/+/, '')
-    .normalize('NFC')
-    .toLocaleLowerCase('und')
+  return value.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/+/, '').normalize('NFC').toLocaleLowerCase('und')
 }
 
 function localRescanCheckpointKey(artworkId: number, relativePath: string) {

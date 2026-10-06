@@ -1,3 +1,4 @@
+import { inferMediaTypeFromPath, needsAnimationContentScan } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type { Prisma } from '@pixishelf/db'
 import type { VideoMediaProbePayload } from './executors.ts'
@@ -374,7 +375,7 @@ async function prepareTargetedVideoProbe(context: ProbeContext, database: VideoM
     select: { id: true, path: true, mediaType: true }
   })
   if (!image) throw new VideoMediaPermanentError('SOURCE_NOT_FOUND', 'Video image was not found')
-  if (image.mediaType !== 'VIDEO' && inferMediaType(image.path) !== 'VIDEO') {
+  if (image.mediaType !== 'VIDEO' && inferMediaTypeFromPath(image.path) !== 'VIDEO') {
     throw new VideoMediaPermanentError('NOT_A_VIDEO', 'Image is not a video')
   }
   await context.mutateInTransaction<VideoMediaTransaction & QueueSqlExecutor>(async (transaction) => {
@@ -412,53 +413,71 @@ async function classifyUnknownMedia(context: ProbeContext, database: VideoMediaD
       where: { mediaType: 'UNKNOWN', id: { gt: cursor } },
       orderBy: { id: 'asc' },
       take: CLASSIFICATION_BATCH_SIZE,
-      select: { id: true, path: true }
+      select: { id: true, path: true, webpAnimationStatus: true }
     })
     if (batch.length === 0) break
     cursor = batch.at(-1)!.id
     const videos: number[] = []
-    const images: number[] = []
-    const animations: number[] = []
+    const groups = new Map<
+      string,
+      { ids: number[]; mediaType: 'IMAGE' | 'ANIMATION'; status: number | null | undefined }
+    >()
     for (const image of batch) {
-      const kind = inferMediaType(image.path)
-      if (kind === 'VIDEO') videos.push(image.id)
-      else if (kind === 'IMAGE') images.push(image.id)
-      else if (kind === 'ANIMATION') animations.push(image.id)
-      else result.unknown += 1
+      let kind = inferMediaTypeFromPath(image.path)
+      if (kind === 'VIDEO') {
+        videos.push(image.id)
+        continue
+      }
+      if (kind === 'UNKNOWN') {
+        result.unknown += 1
+        continue
+      }
+      const status = needsAnimationContentScan(image.path) ? image.webpAnimationStatus : undefined
+      if (status === 1) kind = 'IMAGE'
+      if (status === 2) kind = 'ANIMATION'
+      const key = `${kind}:${status}`
+      const group = groups.get(key) ?? { ids: [], mediaType: kind, status }
+      group.ids.push(image.id)
+      groups.set(key, group)
     }
-    const created = await context.mutateInTransaction<VideoMediaTransaction & QueueSqlExecutor, number>(
-      async (transaction) => {
-        if (videos.length > 0) {
+    const committed = await context.mutateInTransaction<
+      VideoMediaTransaction & QueueSqlExecutor,
+      { videos: number; images: number; animations: number; metadataRowsCreated: number }
+    >(async (transaction) => {
+      const counts = { videos: 0, images: 0, animations: 0, metadataRowsCreated: 0 }
+      if (videos.length > 0) {
+        counts.videos = (
           await transaction.image.updateMany({
             where: { id: { in: videos }, mediaType: 'UNKNOWN' },
             data: { mediaType: 'VIDEO' }
           })
-        }
-        if (images.length > 0) {
-          await transaction.image.updateMany({
-            where: { id: { in: images }, mediaType: 'UNKNOWN' },
-            data: { mediaType: 'IMAGE' }
-          })
-        }
-        if (animations.length > 0) {
-          await transaction.image.updateMany({
-            where: { id: { in: animations }, mediaType: 'UNKNOWN' },
-            data: { mediaType: 'ANIMATION' }
-          })
-        }
-        if (videos.length === 0) return 0
-        return (
+        ).count
+        counts.metadataRowsCreated = (
           await transaction.mediaVideoMetadata.createMany({
             data: videos.map((imageId) => ({ imageId, probeStatus: 'PENDING' as const })),
             skipDuplicates: true
           })
         ).count
       }
-    )
-    result.classifiedVideos += videos.length
-    result.classifiedImages += images.length
-    result.classifiedAnimations += animations.length
-    result.metadataRowsCreated += created
+      for (const { ids, mediaType, status } of groups.values()) {
+        const updated = await transaction.image.updateMany({
+          where: {
+            id: { in: ids },
+            mediaType: 'UNKNOWN',
+            ...(status !== undefined ? { webpAnimationStatus: status } : {})
+          },
+          // Compare the read probe state and publish the initial state atomically.
+          data: { mediaType, ...(status === null ? { webpAnimationStatus: 0 } : {}) }
+        })
+        if (mediaType === 'IMAGE') counts.images += updated.count
+        else counts.animations += updated.count
+      }
+      return counts
+    })
+    result.classifiedVideos += committed.videos
+    result.classifiedImages += committed.images
+    result.classifiedAnimations += committed.animations
+    result.metadataRowsCreated += committed.metadataRowsCreated
   }
   await context.progress({
     progress: 10,
@@ -488,13 +507,6 @@ async function ensureMissingVideoMetadata(context: ProbeContext, database: Video
       })
     })
   }
-}
-
-function inferMediaType(relativePath: string): 'VIDEO' | 'IMAGE' | 'ANIMATION' | 'UNKNOWN' {
-  if (/\.(?:mp4|webm|mkv|mov|avi|m4v|wmv|flv)$/i.test(relativePath)) return 'VIDEO'
-  if (/\.(?:gif|apng)$/i.test(relativePath)) return 'ANIMATION'
-  if (/\.(?:jpe?g|png|webp|avif|bmp|tiff?)$/i.test(relativePath)) return 'IMAGE'
-  return 'UNKNOWN'
 }
 
 function normalizeRelativePath(value: string) {

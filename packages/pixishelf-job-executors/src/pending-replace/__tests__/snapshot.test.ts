@@ -1,5 +1,12 @@
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { mediaClassificationCases } from '../../../../pixishelf-job-contracts/src/__tests__/fixtures/media-classification.ts'
+import { collectLocalMedia } from '../../scan/discovery.ts'
+import { resolveSafeScanRoot } from '../../scan/paths.ts'
+import { createNodePendingReplaceFileSystem } from '../file-system.ts'
 import { describe, expect, it } from 'vitest'
-import { buildArtworkSnapshots, buildInstalledMedia } from '../snapshot.js'
+import { buildArtworkSnapshots, buildInstalledMedia, scanPendingSource } from '../snapshot.js'
 import type { PendingReplaceExecutorDependencies, PendingReplaceMediaSnapshot } from '../types.js'
 
 const digest = 'a'.repeat(64)
@@ -65,4 +72,40 @@ describe('pending replacement snapshots', () => {
       })
     ).rejects.toThrow('outside its stable target directory')
   })
+})
+
+it('uses the same initial types and admission list for scan and pending replacement', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'media-classification-'))
+  try {
+    const directory = 'pending-replaces/work__ext-123'
+    await mkdir(path.join(root, directory), { recursive: true })
+    for (const [name] of mediaClassificationCases) await writeFile(path.join(root, directory, name), 'fixture')
+    const pending = await scanPendingSource(
+      {
+        config: { scanRoot: root },
+        fileSystem: createNodePendingReplaceFileSystem()
+      } as PendingReplaceExecutorDependencies,
+      'work__ext-123',
+      '123'
+    )
+    const scanned = await collectLocalMedia(
+      await resolveSafeScanRoot(root),
+      directory,
+      { maxEntries: 100, maxMediaPerArtwork: 100 },
+      new AbortController().signal
+    )
+    for (const [name, kind, scan] of mediaClassificationCases) {
+      const replacement = pending.media.find((item) => item.sourceName === name)
+      const discovered = scanned.find((item) => item.relativePath.endsWith('/' + name))
+      if (kind === 'UNKNOWN') {
+        expect(replacement).toBeUndefined()
+        expect(discovered).toBeUndefined()
+      } else {
+        expect(replacement).toMatchObject({ mediaType: kind })
+        expect(discovered).toMatchObject({ mediaType: kind, webpAnimationStatus: scan ? 0 : null })
+      }
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })

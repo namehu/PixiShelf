@@ -1,3 +1,4 @@
+import { needsAnimationContentScan } from '@pixishelf/job-contracts'
 import type { StableFileState } from './content-reader.ts'
 
 interface StoredAnimationSource {
@@ -34,5 +35,40 @@ export function animationDurationSourceChanged(input: {
   return (
     (metadata.status === 'READY' || metadata.status === 'NOT_APPLICABLE') &&
     (metadata.sourceSize === null || metadata.sourceMtimeMs === null)
+  )
+}
+
+/** A confirmed type can survive a rescan only with complete, unchanged source identity. */
+export function canPreserveAnimationClassification(input: {
+  previousPath: string
+  previousSize: bigint | null
+  path: string
+  size: bigint
+  sourceState?: StableFileState
+  metadata: StoredAnimationSource | null
+  mediaType: string
+  webpAnimationStatus: number | null
+}): boolean {
+  const { metadata, sourceState } = input
+  return (
+    needsAnimationContentScan(input.path) &&
+    ((input.webpAnimationStatus === 1 && input.mediaType === 'IMAGE') ||
+      (input.webpAnimationStatus === 2 && input.mediaType === 'ANIMATION')) &&
+    metadata != null &&
+    !metadata.writeInProgress &&
+    sourceState !== undefined &&
+    (metadata.status === 'READY' || metadata.status === 'NOT_APPLICABLE') &&
+    input.previousPath === input.path &&
+    metadata.sourcePath === input.path &&
+    input.previousSize === input.size &&
+    metadata.sourceSize === input.size &&
+    sourceState.ctimeMs !== null &&
+    sourceState.deviceId !== null &&
+    sourceState.inode !== null &&
+    metadata.sourceSize === sourceState.sizeBytes &&
+    metadata.sourceMtimeMs === sourceState.mtimeMs &&
+    metadata.sourceCtimeMs === sourceState.ctimeMs &&
+    metadata.sourceDeviceId === sourceState.deviceId &&
+    metadata.sourceInode === sourceState.inode
   )
 }

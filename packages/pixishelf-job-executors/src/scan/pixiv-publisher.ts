@@ -1,6 +1,6 @@
 import { Prisma, invalidateAnimationDurationSource } from '@pixishelf/db'
 import { ScanExecutorError } from './errors.ts'
-import { animationDurationSourceChanged } from './animation-duration-source.ts'
+import { animationDurationSourceChanged, canPreserveAnimationClassification } from './animation-duration-source.ts'
 import type { DiscoveredMediaFile } from './discovery.ts'
 import type { ScanMetadata } from './metadata.ts'
 import type { ScanTransaction } from './types.ts'
@@ -247,7 +247,15 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
   const existingImages = await transaction.image.findMany({
     where: { artworkId },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-    select: { id: true, path: true, size: true, sortOrder: true, animationMetadata: true }
+    select: {
+      id: true,
+      path: true,
+      size: true,
+      sortOrder: true,
+      mediaType: true,
+      webpAnimationStatus: true,
+      animationMetadata: true
+    }
   })
   const existingByIdentity = new Map<string, (typeof existingImages)[number]>()
   for (const image of existingImages) {
@@ -274,6 +282,21 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     }
     const existing = existingByIdentity.get(normalizeMediaIdentity(item.relativePath))
     if (existing) {
+      if (
+        canPreserveAnimationClassification({
+          previousPath: existing.path,
+          previousSize: existing.size,
+          path: item.relativePath,
+          size: item.size,
+          ...(item.sourceState ? { sourceState: item.sourceState } : {}),
+          metadata: existing.animationMetadata,
+          mediaType: existing.mediaType,
+          webpAnimationStatus: existing.webpAnimationStatus
+        })
+      ) {
+        sourceMediaData.mediaType = existing.mediaType
+        sourceMediaData.webpAnimationStatus = existing.webpAnimationStatus
+      }
       if (
         animationDurationSourceChanged({
           previousPath: existing.path,

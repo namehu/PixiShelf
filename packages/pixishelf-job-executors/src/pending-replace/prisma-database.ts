@@ -1,3 +1,4 @@
+import { needsAnimationContentScan } from '@pixishelf/job-contracts'
 import { Prisma, invalidateArtworkReadingForRebuild, type PrismaClient } from '@pixishelf/db'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type {
@@ -282,7 +283,16 @@ async function assertMediaSnapshot(
   const images = await client.image.findMany({
     where: { artworkId: item.artworkId },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-    select: { path: true, sortOrder: true, width: true, height: true, size: true, mediaType: true, chaptersPath: true }
+    select: {
+      path: true,
+      sortOrder: true,
+      width: true,
+      height: true,
+      size: true,
+      mediaType: true,
+      webpAnimationStatus: true,
+      chaptersPath: true
+    }
   })
   const normalizedExpected = [...expected].sort((left, right) => left.order - right.order)
   if (
@@ -295,7 +305,11 @@ async function assertMediaSnapshot(
         bigintToSafeNumber(image.size, 'image.size') !== (snapshot.databaseSize ?? snapshot.size) ||
         image.width !== snapshot.width ||
         image.height !== snapshot.height ||
-        image.mediaType !== (snapshot.mediaType ?? 'UNKNOWN') ||
+        (image.mediaType !== (snapshot.mediaType ?? 'UNKNOWN') &&
+          !(
+            snapshot.mediaType !== 'VIDEO' &&
+            matchesConfirmedAnimationType(image.path, image.mediaType, image.webpAnimationStatus)
+          )) ||
         normalizeNullablePath(image.chaptersPath) !== normalizeNullablePath(snapshot.chaptersPath)
       )
     })
@@ -318,6 +332,8 @@ async function replaceMedia(client: Prisma.TransactionClient, artworkId: number,
         height: entry.height,
         size: BigInt(entry.size),
         mediaType: entry.mediaType ?? 'UNKNOWN',
+        // Snapshots intentionally omit probe metadata, so republished files must be probed again.
+        webpAnimationStatus: needsAnimationContentScan(entry.path) ? 0 : null,
         chaptersPath: entry.chaptersPath ?? null
       }))
   })
@@ -416,7 +432,8 @@ function bigintToSafeNumber(value: bigint | null, label: string): number | null 
 }
 
 function normalizePath(value: string) {
-  return value.replace(/\\/g, '/').replace(/\/+/g, '/').toLocaleLowerCase('en-US')
+  // Scan publishers store relative paths; frozen replacement snapshots prefix them with '/'.
+  return value.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/^\/+/, '').toLocaleLowerCase('en-US')
 }
 
 function normalizeNullablePath(value: string | null | undefined) {
@@ -426,4 +443,11 @@ function normalizeNullablePath(value: string | null | undefined) {
 function sanitizeSummary(value: string | null): string | null {
   if (value === null) return null
   return value.replace(/[\r\n\t]+/g, ' ').slice(0, 240)
+}
+
+function matchesConfirmedAnimationType(mediaPath: string, mediaType: string, status: number | null): boolean {
+  return (
+    needsAnimationContentScan(mediaPath) &&
+    ((status === 1 && mediaType === 'IMAGE') || (status === 2 && mediaType === 'ANIMATION'))
+  )
 }
