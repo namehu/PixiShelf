@@ -6,12 +6,13 @@ const mocks = vi.hoisted(() => ({
   fetchEventSource: vi.fn(),
   confirm: vi.fn(),
   toastInfo: vi.fn(),
-  toastSuccess: vi.fn()
+  toastSuccess: vi.fn(),
+  toastError: vi.fn()
 }))
 
 vi.mock('@microsoft/fetch-event-source', () => ({ fetchEventSource: mocks.fetchEventSource }))
 vi.mock('sonner', () => ({
-  toast: { info: mocks.toastInfo, success: mocks.toastSuccess, error: vi.fn() }
+  toast: { info: mocks.toastInfo, success: mocks.toastSuccess, error: mocks.toastError }
 }))
 vi.mock('@/components/shared/global-confirm', () => ({ confirm: mocks.confirm }))
 vi.mock('next/link', () => ({
@@ -77,6 +78,26 @@ describe('ArtworkRowActions central queued event', () => {
         })
       })
     })
+  })
+
+  it.each([
+    { body: JSON.stringify({ code: 409, message: '扫描任务冲突' }), message: '扫描任务冲突' },
+    { body: JSON.stringify({ error: '扫描任务冲突' }), message: '扫描任务冲突' },
+    { body: '', message: '重新扫描请求失败（HTTP 409）' }
+  ])('shows the HTTP failure message without a raw JSON envelope: $body', async ({ body, message }) => {
+    mocks.fetchEventSource.mockImplementationOnce(async (_url, options) => {
+      await options.onopen?.(new Response(body, { status: 409 }))
+    })
+    const onRescanComplete = vi.fn()
+    render(<ArtworkRowActions
+      artwork={{ id: 7, title: '测试作品', source: 'PIXIV_IMPORTED' } as any}
+      onEdit={vi.fn()} onCopy={vi.fn()} onDelete={vi.fn()} onRescanComplete={onRescanComplete}
+    />)
+    fireEvent.click(screen.getByText('重新扫描'))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('重新扫描失败', { description: message }))
+    expect(screen.getByText('重新扫描（上次失败）')).toBeTruthy()
+    expect(onRescanComplete).not.toHaveBeenCalled()
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
   })
 
   it('shows queued state and does not refresh as if the rescan completed', async () => {

@@ -55,8 +55,12 @@ export function formatScanUserError(error: unknown): string {
 
 export function formatScanHttpErrorText(responseText: string): string {
   try {
-    const parsed = JSON.parse(responseText) as { error?: unknown; message?: unknown }
-    const parsedMessage = typeof parsed.error === 'string' ? parsed.error : parsed.message
+    const parsed: unknown = JSON.parse(responseText)
+    if (parsed === null || typeof parsed !== 'object') return formatScanUserError(responseText)
+    const parsedMessage =
+      'message' in parsed && typeof parsed.message === 'string'
+        ? parsed.message
+        : 'error' in parsed ? parsed.error : undefined
     if (typeof parsedMessage === 'string') {
       return formatScanUserError(parsedMessage)
     }

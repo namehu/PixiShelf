@@ -40,6 +40,26 @@ WebP 时长探测沿用管理任务的 `adminProcedure` 入队/重试和受登�
 - Worker、PostgreSQL、ImgProxy 等服务依赖 Compose 网络、端口暴露和文件挂载形成基础设施边界；
 - 当前不能把任一账户交给不可信用户，也不能把 App、PostgreSQL 或 ImgProxy 直接暴露到不可信网络后仍声称存在完整权限隔离。
 
+## 扫描 HTTP 失败响应
+
+`POST /api/scan/stream` 与 `POST /api/scan/rescan` 在建立 SSE 前统一返回
+`{ code: number, message: string, data?: unknown }`，其中失败 `code` 等于 HTTP 状态码。
+参数/路径/配置错误使用 400，缺失会话使用 401，作品不存在使用 404，任务冲突使用 409；
+未分类异常使用 500 和固定 `Internal Server Error`（`data: null`），原始异常只写服务端日志。
+Zod 校验错误的说明位于 `data.details`。这些 HTTP 响应不再附加 `success/errorCode/error` 别名。
+
+声明 `Content-Type: application/json` 时必须提供合法 JSON 对象：无内容、非法 JSON、数组、null
+或原始值均返回 400，不能落入扫描请求默认值而触发全目录扫描。合法空对象 `{}` 保留默认目录发现行为；
+未声明 JSON 内容类型仍按原有参数合并规则执行。校验顺序仍为代理认证、Route 输入校验、Route 会话复核。
+
+已建立连接后的 `connection/progress/complete/error/cancelled/queued` SSE 事件保持原结构，
+包括事件中的 `success/error` 字段；此轮不改变队列、取消和权限行为。扫描设置与作品重扫入口优先读取
+HTTP `message`，同时兼容旧 `{ error }` 响应。
+
+这是 `apiHandler` 的渐进迁移：上述两条路由显式选择 `responseContract: 'canonical'`；
+尚未迁移的 Webhook、migration 路由维持默认 legacy 响应和请求解析。其他使用 `lib/api-response.ts`
+的 API 仍沿用其既有 `success/error` 契约，不能据此宣称全局 API 已统一。
+
 ## 调用者与凭证
 
 | 调用者          | 当前凭证                                     | 允许范围                                                                       | 不允许假设                                                                               |

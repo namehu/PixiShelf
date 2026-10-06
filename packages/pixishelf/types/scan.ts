@@ -45,3 +45,13 @@ export interface LogEntry {
   data: any
   message: string
 }
+
+/** legacy 执行模式建立扫描 SSE 连接后的事件；中央入队事件由 queuedSseResponse 定义。 */
+export interface ScanSseEventMap {
+  ping: Record<string, never>
+  connection: { success: true; result: string }
+  progress: ScanProgress
+  complete: { success: true; result: ScanResult }
+  cancelled: { success: false; error: string }
+  error: { success: false; error: string }
+}

@@ -2,7 +2,7 @@ import 'server-only'
 
 import { NextResponse } from 'next/server'
 import { scan } from '@/services/scan-service'
-import { ScanProgress } from '@/types'
+import { ScanProgress, ScanSseEventMap } from '@/types'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
 import * as JobService from '@/services/job-service'
@@ -14,7 +14,7 @@ import {
   failScanRun,
   startScanRun
 } from '@/services/scan-run-service'
-import { apiHandler } from '@/lib/api-handler'
+import { ApiError, apiHandler } from '@/lib/api-handler'
 import { ScanStreamSchema } from '@/schemas/scan.dto'
 import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from '@/services/scan-service/scan-errors'
 import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
@@ -27,7 +27,7 @@ import { runBackgroundTaskApi } from '@/services/background-task/api-error-mappi
  * SSE 事件发送器：将事件名与负载格式化为 SSE 原始文本分块发送
  */
 function createEventSender(controller: ReadableStreamDefaultController, encoder: TextEncoder) {
-  return (event: string, data: any) => {
+  return <TEvent extends keyof ScanSseEventMap>(event: TEvent, data: ScanSseEventMap[TEvent]) => {
     const safeData = data === undefined ? {} : data
     const message = `event: ${event}\ndata: ${JSON.stringify(safeData)}\n\n`
     controller.enqueue(encoder.encode(message))
@@ -55,7 +55,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
 
   const scanPath = await getScanPath()
   if (!scanPath) {
-    return NextResponse.json({ error: formatScanUserError('SCAN_PATH is not configured') }, { status: 400 })
+    throw new ApiError(formatScanUserError('SCAN_PATH is not configured'), 400)
   }
 
   const encoder = new TextEncoder()
@@ -140,7 +140,7 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
           await completeScanRun(currentScanRunId, result)
         }
         sendEvent('complete', { success: true, result })
-      } catch (error: any) {
+      } catch (error: unknown) {
         logger.error('Scan stream error:', error)
         const errorMsg = getRawErrorMessage(error)
         const userErrorMsg = formatScanUserError(error)
@@ -186,4 +186,4 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
       'Access-Control-Allow-Origin': '*'
     }
   })
-})
+}, { responseContract: 'canonical' })

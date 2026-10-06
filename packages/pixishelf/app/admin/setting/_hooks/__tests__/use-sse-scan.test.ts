@@ -80,10 +80,10 @@ describe('useSseScan central queued event', () => {
     expect(result.current.state.streaming).toBe(false)
   })
 
-  it('reports a non-success HTTP response as a final submission failure', async () => {
+  it.each([{ code: 409, message: 'Worker 暂不可用' }, { error: 'Worker 暂不可用' }])('reports HTTP error %j as a final submission failure', async (body) => {
     mocks.fetchEventSource.mockImplementationOnce(async (_url, options) => {
       await options.onopen?.(
-        new Response(JSON.stringify({ error: 'Worker 暂不可用' }), {
+        new Response(JSON.stringify(body), {
           status: 503,
           headers: { 'Content-Type': 'application/json' }
         })

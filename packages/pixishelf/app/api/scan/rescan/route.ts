@@ -1,11 +1,11 @@
 import 'server-only'
 import { NextResponse } from 'next/server'
 import { rescanArtwork, rescanLocalArtwork } from '@/services/scan-service'
-import { ScanProgress } from '@/types'
+import { ScanProgress, ScanSseEventMap } from '@/types'
 import logger from '@/lib/logger'
 import { getScanPath } from '@/services/setting.service'
 import * as JobService from '@/services/job-service'
-import { apiHandler } from '@/lib/api-handler'
+import { ApiError, apiHandler } from '@/lib/api-handler'
 import { ScanRescanSchema } from '@/schemas/scan.dto'
 import { prisma } from '@/lib/prisma'
 import { determineArtworkRelDir } from '@/services/artwork-service/utils'
@@ -33,7 +33,7 @@ function createEventSender(
   encoder: TextEncoder,
   streamState: { closed: boolean }
 ) {
-  return (event: string, data: any) => {
+  return <TEvent extends keyof ScanSseEventMap>(event: TEvent, data: ScanSseEventMap[TEvent]) => {
     if (streamState.closed) return false
     const safeData = data === undefined ? {} : data
     const message = `event: ${event}\ndata: ${JSON.stringify(safeData)}\n\n`
@@ -64,7 +64,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
       where: artworkId !== undefined ? { id: artworkId } : { externalId: externalId! },
       select: { id: true }
     })
-    if (!target) return NextResponse.json({ error: 'Artwork not found' }, { status: 404 })
+    if (!target) throw new ApiError('Artwork not found', 404)
     const queued = await runBackgroundTaskApi(() =>
       enqueueCentralArtworkRescan({ artworkId: target.id, requestedByUserId: userId })
     )
@@ -73,7 +73,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
 
   const scanPath = await getScanPath()
   if (!scanPath) {
-    return NextResponse.json({ error: formatScanUserError('SCAN_PATH is not configured') }, { status: 400 })
+    throw new ApiError(formatScanUserError('SCAN_PATH is not configured'), 400)
   }
 
   // 服务端查询获取相对路径，防止路径穿透
@@ -90,17 +90,17 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
   })
 
   if (!artwork) {
-    return NextResponse.json({ error: 'Artwork not found' }, { status: 404 })
+    throw new ApiError('Artwork not found', 404)
   }
 
   const relativePath = determineArtworkRelDir(artwork)
   if (!relativePath) {
-    return NextResponse.json({ error: 'Cannot determine artwork path' }, { status: 400 })
+    throw new ApiError('Cannot determine artwork path', 400)
   }
 
   // 简单的安全检查：确保路径不包含 ..
   if (relativePath.includes('..')) {
-    return NextResponse.json({ error: 'Invalid path detected' }, { status: 400 })
+    throw new ApiError('Invalid path detected', 400)
   }
 
   const encoder = new TextEncoder()
@@ -173,7 +173,7 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
           await completeScanRun(currentScanRunId, result)
         }
         sendEvent('complete', { success: true, result })
-      } catch (error: any) {
+      } catch (error: unknown) {
         logger.error('Rescan stream error:', error)
         const errorMsg = getRawErrorMessage(error)
         const userErrorMsg = formatScanUserError(error)
@@ -210,4 +210,4 @@ export const POST = apiHandler(ScanRescanSchema, async (req, data) => {
       'Access-Control-Allow-Origin': '*'
     }
   })
-})
+}, { responseContract: 'canonical' })

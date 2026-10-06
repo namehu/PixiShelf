@@ -46,6 +46,7 @@ vi.mock('@/services/background-task/dispatcher-cutover', () => ({
 vi.mock('@/services/media-root-central-service', () => ({ enqueueCentralScan: mocks.enqueueCentralScan }))
 
 import { POST } from '../route'
+import { ApiError } from '@/lib/api-handler'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 
 const post = POST
@@ -77,6 +78,33 @@ describe('scan stream failure state', () => {
       removedArtworks: 0,
       errors: []
     })
+  })
+
+  it.each([
+    { status: 401, setup: () => mocks.requireAdminRequest.mockRejectedValue(new ApiError('Unauthorized', 401)), message: 'Unauthorized' },
+    { status: 400, setup: () => mocks.getScanPath.mockResolvedValue(null), message: '扫描路径未配置，请先在设置中配置扫描目录' },
+    { status: 500, setup: () => mocks.getScanPath.mockRejectedValue(new Error('private database failure')), message: 'Internal Server Error' }
+  ])('normalizes pre-stream HTTP $status failures', async ({ status, setup, message }) => {
+    setup()
+    const response = await post(new NextRequest('http://localhost/api/scan/stream', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}'
+    }), { params: Promise.resolve({}) })
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual({ code: status, message, ...(status === 500 ? { data: null } : {}) })
+    if (status === 401) expect(mocks.getScanPath).not.toHaveBeenCalled()
+    expect(mocks.createScanJob).not.toHaveBeenCalled()
+    expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
+  })
+
+  it.each(['{', '', 'null', '[]', 'true'])('does not turn invalid JSON %s into a full scan', async (body) => {
+    const response = await post(new NextRequest('http://localhost/api/scan/stream', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body
+    }), { params: Promise.resolve({}) })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ code: 400, message: 'Invalid Request Parameters' })
+    expect(mocks.requireAdminRequest).not.toHaveBeenCalled()
+    expect(mocks.createScanJob).not.toHaveBeenCalled()
+    expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
   })
 
   it('only queues and closes the SSE stream after central cutover', async () => {
@@ -117,7 +145,7 @@ describe('scan stream failure state', () => {
     const response = await post(request, { params: Promise.resolve({}) })
 
     expect(response.status).toBe(409)
-    await expect(response.json()).resolves.toMatchObject({ error: 'Active scan snapshot differs' })
+    await expect(response.json()).resolves.toEqual({ code: 409, message: 'Active scan snapshot differs' })
   })
 
   it('maps a central snapshot precondition failure to HTTP 400 instead of 500', async () => {
@@ -134,7 +162,7 @@ describe('scan stream failure state', () => {
     const response = await post(request, { params: Promise.resolve({}) })
 
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({ error: 'Metadata path cannot be read' })
+    await expect(response.json()).resolves.toEqual({ code: 400, message: 'Metadata path cannot be read' })
   })
 
   it.each([
@@ -152,11 +180,10 @@ describe('scan stream failure state', () => {
     const response = await post(request, { params: Promise.resolve({}) })
 
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({
+    await expect(response.json()).resolves.toEqual({
       code: 400,
-      errorCode: 400,
-      success: false,
-      error: 'Invalid Request Parameters'
+      message: 'Invalid Request Parameters',
+      data: { details: expect.any(String) }
     })
     expect(mocks.requireAdminRequest).not.toHaveBeenCalled()
     expect(mocks.getScanPath).not.toHaveBeenCalled()

@@ -11,13 +11,37 @@ interface RouteContext {
  * 定义业务处理函数的签名
  * 泛型 T 为 Zod 结构推导出的数据类型
  */
-type AppRouteHandler<T = any> = (
+type AppRouteHandler<T, TResult> = (
   req: NextRequest,
   data: T, // ✨ 这里直接拿到校验后的数据，且有类型提示
   context: RouteContext
-) => Promise<NextResponse | any>
+) => Promise<TResult | Response>
 
-export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHandler<z.infer<T>>) {
+export interface ApiHandlerResponse<T = unknown> {
+  code: number
+  message: string
+  data?: T
+}
+
+interface ApiHandlerOptions {
+  // 未迁移的 webhook/migration 消费者仍依赖旧字段；仅显式迁移的路由关闭别名。
+  responseContract?: 'legacy' | 'canonical'
+}
+
+export function apiHandler<T extends ZodSchema, TResult>(
+  schema: T,
+  handler: AppRouteHandler<z.infer<T>, TResult>,
+  { responseContract = 'legacy' }: ApiHandlerOptions = {}
+) {
+  const canonical = responseContract === 'canonical'
+  const failure = (status: number, message: string, data?: unknown) => {
+    const payload: ApiHandlerResponse = { code: status, message }
+    if (data !== undefined) payload.data = data
+    return NextResponse.json(
+      canonical ? payload : { ...payload, success: false, errorCode: status, error: message },
+      { status }
+    )
+  }
   return async (req: NextRequest, context: RouteContext) => {
     try {
       // --- 1. 数据收集与合并 ---
@@ -29,12 +53,18 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
       const searchParams = Object.fromEntries(req.nextUrl.searchParams.entries())
 
       // 仅为非 GET/DELETE 请求读取 JSON 请求体。
-      let body = {}
+      let body: object = {}
       const contentType = req.headers.get('content-type')
       if (req.method !== 'GET' && req.method !== 'DELETE' && contentType?.includes('application/json')) {
         try {
-          body = await req.json()
+          const parsed: unknown = await req.json()
+          if (canonical && (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))) {
+            throw new ApiError('Invalid Request Parameters', 400)
+          }
+          // Object 保留旧模式对非对象 JSON 的展开语义。
+          body = Object(parsed)
         } catch {
+          if (canonical) throw new ApiError('Invalid Request Parameters', 400)
           // 请求体为空或 JSON 格式错误时先按空对象处理，最终交由统一结构校验决定是否报错。
           // 这里简单处理为空对象
         }
@@ -54,29 +84,21 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
       const result = await handler(req, validatedData, context)
 
       // --- 4. 响应归一化 ---
-      if (result instanceof NextResponse) {
+      if (result instanceof Response) {
         return result
       }
 
-      return NextResponse.json({
-        code: 0,
-        data: result,
-        message: '',
-
-        // 兼容 后续迭代废弃字段
-        success: true,
-        errorCode: 0
-      })
-    } catch (err: any) {
-      // --- 5. 错误处理 ---
+      const payload: ApiHandlerResponse<TResult> = { code: 0, data: result, message: '' }
+      return NextResponse.json(canonical ? payload : { ...payload, success: true, errorCode: 0 })
+    } catch (err: unknown) {
       if (err instanceof ZodError) {
+        if (canonical) return failure(400, 'Invalid Request Parameters', { details: z.prettifyError(err) })
+        // 旧模式的 validation details 位于顶层，迁移前保持原 wire 格式。
         return NextResponse.json(
           {
             code: 400,
             message: 'Invalid Request Parameters',
-            details: z.prettifyError(err), // 返回具体的字段错误
-
-            // 兼容 后续迭代废弃字段
+            details: z.prettifyError(err),
             success: false,
             errorCode: 400,
             error: 'Invalid Request Parameters'
@@ -85,46 +107,20 @@ export function apiHandler<T extends ZodSchema>(schema: T, handler: AppRouteHand
         )
       }
 
-      if (err instanceof ApiError) {
-        return NextResponse.json(
-          {
-            code: err.statusCode ?? 501,
-            data: err.details,
-            message: err.message,
-
-            // 兼容 后续迭代废弃字段
-            success: false,
-            errorCode: err.statusCode ?? 501,
-            error: err.message
-          },
-          { status: err.statusCode }
-        )
-      }
+      if (err instanceof ApiError) return failure(err.statusCode, err.message, err.details)
 
       logger.error(`API Error [${req.method} ${req.nextUrl.pathname}]:`, err)
 
-      return NextResponse.json(
-        {
-          code: 500,
-          data: null,
-          message: 'Internal Server Error',
-
-          // 兼容 后续迭代废弃字段
-          success: false,
-          errorCode: 500,
-          error: 'Internal Server Error'
-        },
-        { status: 500 }
-      )
+      return failure(500, 'Internal Server Error', null)
     }
   }
 }
 
 export class ApiError extends Error {
   statusCode: number
-  details?: any
+  details?: unknown
 
-  constructor(message: string, statusCode = 400, details?: any) {
+  constructor(message: string, statusCode = 400, details?: unknown) {
     super(message)
     this.statusCode = statusCode
     this.details = details
@@ -134,7 +130,7 @@ export class ApiError extends Error {
 export function responseSuccess<T>(data?: { data?: T; code?: number; message?: string }) {
   const { code = 0, message, data: responseData } = data ?? {}
 
-  const result: any = {
+  const result: ApiHandlerResponse<T> = {
     code,
     message: message ?? 'success'
   }
@@ -150,7 +146,7 @@ export function responseSuccess<T>(data?: { data?: T; code?: number; message?: s
 export function responseUnauthorized<T>(data?: { data?: T; code?: number; message?: string }) {
   const { code = 401, message, data: responseData } = data ?? {}
 
-  const result: any = {
+  const result: ApiHandlerResponse<T> = {
     code,
     message: message ?? 'Unauthorized'
   }

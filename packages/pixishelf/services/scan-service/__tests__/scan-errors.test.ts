@@ -33,6 +33,13 @@ describe('scan error formatting', () => {
     )
   })
 
+  it('reads canonical message before legacy aliases and tolerates unrelated JSON', () => {
+    expect(formatScanHttpErrorText('{"code":409,"message":"任务冲突","error":"旧消息"}')).toBe('任务冲突')
+    expect(formatScanHttpErrorText('{"code":400,"message":"SCAN_PATH is not configured"}')).toBe('扫描路径未配置，请先在设置中配置扫描目录')
+    expect(formatScanHttpErrorText('null')).toBe('null')
+    expect(formatScanHttpErrorText('{"message":42,"error":"旧错误"}')).toBe('旧错误')
+  })
+
   it('extracts user-visible scan errors from JSON HTTP error responses', () => {
     expect(formatScanHttpErrorText('{"error":"扫描路径未配置，请先在设置中配置扫描目录"}')).toBe(
       '扫描路径未配置，请先在设置中配置扫描目录'

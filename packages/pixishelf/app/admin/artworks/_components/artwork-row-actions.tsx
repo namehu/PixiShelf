@@ -18,6 +18,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { confirm } from '@/components/shared/global-confirm'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import type { ScanProgress } from '@/types'
+import { formatScanHttpErrorText } from '@/services/scan-service/scan-errors'
 import { isLocalDirectoryArtworkSource } from '@/utils/artwork/artwork-source'
 
 interface ArtworkRowActionsProps {
@@ -61,7 +62,7 @@ export function ArtworkRowActions({
         onopen: async (response) => {
           if (!response.ok) {
             const errorText = await response.text().catch(() => 'Unknown error')
-            throw new Error(`Failed to start scan: ${response.status} ${response.statusText} - ${errorText}`)
+            throw new Error(formatScanHttpErrorText(errorText).trim() || `重新扫描请求失败（HTTP ${response.status}）`)
           }
         },
         onmessage: (message) => {
