@@ -229,8 +229,7 @@ packages/
 ├── pixishelf-job-contracts/   后台任务契约
 ├── pixishelf-job-runtime/     队列与 Worker 运行时
 ├── pixishelf-job-executors/   后台任务实现
-├── pixishelf-worker/          通用 Worker 进程
-└── zip-convert/               Pixiv zip/APNG 转换工具
+└── pixishelf-worker/          通用 Worker 进程
 
 build/                         Dockerfile、Compose 和环境模板
 docs/                          架构、设计、ADR、运维和历史记录

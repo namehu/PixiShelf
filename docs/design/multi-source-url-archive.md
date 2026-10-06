@@ -247,7 +247,6 @@ Trash is retained for seven days. Permanent cleanup only handles fully `TRASHED`
 - Sanitize every remote path segment and keep final paths under the resolved media root.
 - Never log Cookie values, authorization headers, full gallery locators, or unredacted provider tokens.
 - Keep the Web process read-only and isolate write access in the worker.
-- Rotate and remove the hard-coded Pixiv session currently present in `packages/zip-convert/app.js` before release.
 
 ## Migration and rollout
 

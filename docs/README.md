@@ -154,7 +154,6 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [Webhook 扫描](../packages/pixishelf/docs/webhook-features.md)            | `current` | 扫描 Webhook 负载契约；权限边界以安全矩阵为准  |
 | [ProTable](../packages/pixishelf/components/shared/pro-table/readme.md)   | `current` | 共置组件使用说明                               |
 | [Pixiv 信息提取脚本](../packages/pixishelf/scripts/extract-pixiv-info.md) | `current` | 共置脚本输入、输出与用法                       |
-| [Zip Convert](../packages/zip-convert/README.md)                          | `draft`   | 工具用法存在，尚未核验测试与平台边界           |
 | [辅助脚本](../scripts/README.md)                                          | `draft`   | 使用前需核验脚本、参数和基准数据               |
 
 ## 文档维护门禁

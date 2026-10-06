@@ -97,7 +97,6 @@ flowchart LR
 | `@pixishelf/job-runtime`   | 队列仓储、Worker 心跳、生命周期和运行时协议             |
 | `@pixishelf/job-executors` | 归档、扫描、迁移、替换、维护和视频任务实现              |
 | `@pixishelf/worker`        | 独立进程入口、配置、预检、健康服务和 Central Dispatcher |
-| `@pixishelf/zip-convert`   | Pixiv zip/APNG 转换工具                                 |
 
 核心依赖方向：
 

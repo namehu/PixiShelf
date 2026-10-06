@@ -242,7 +242,6 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 | `scheduler`   | 无入站业务接口，只访问 App                  | 无                     | 无                         | 无         | 无         | 仅持有 `INTERNAL_JOB_TOKEN`                                                 |
 | `postgres`    | 默认映射宿主机 5432                         | 数据库本体             | 无                         | 无         | 无         | 用户名/密码 + 主机防火墙；Compose 未配置 TLS                                |
 | `imgproxy`    | 默认映射宿主机 5431                         | 无                     | `ro`                       | `ro`       | 无         | 仅限制 `local:///media/` 和 `local:///derived-media/` 来源；当前 URL 未签名 |
-| `zip-convert` | 本地 CLI，无服务端口                        | 无                     | 读写指定本地目录           | 写转换结果 | 无         | 依赖执行它的主机账户；可选站点会话只从运行时环境读取                        |
 
 ImgProxy Compose 没有配置签名 Key/Salt，且默认发布宿主机端口。反向代理必须将它限制在受信网络或等效的认证路径；仅使用难猜文件路径不能视为授权。PostgreSQL 的宿主机端口也应由防火墙限制，不对互联网开放。
 
@@ -284,7 +283,6 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 | `SCAN_WEBHOOK_TOKEN`                          | 外部扫描调用方                 | 缺失时 Route fail closed 为 `503`；错误值 `401`                                           |
 | `INTERNAL_JOB_TOKEN`                          | scheduler                      | 缺失时 Route fail closed 为 `503`；错误值 `401`                                           |
 | `POSTGRES_PASSWORD` / `DATABASE_URL`          | App 与 Worker 数据库访问       | 只在环境和受控备份中保存；不要记录到日志或文档                                            |
-| `PIXIV_PHPSESSID`                             | `zip-convert` 可选站点会话     | 只由受控进程环境或秘密管理注入；不写入仓库、示例、命令日志或常规文档                      |
 | `x-user-session` / `x-pathname`               | Next.js 代理到应用内部的上下文 | 外部反向代理必须删除客户端同名头                                                          |
 | `x-forwarded-for`                             | 进程内 IP 限流                 | 只能信任受控反向代理重写后的值                                                            |
 | `JWT_SECRET` / `JWT_TTL`                      | 遗留模板变量                   | 当前 Better Auth 浏览器会话不依赖它们，不能作为现行认证说明                               |
@@ -301,7 +299,7 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 3. ImgProxy URL 未签名且端口默认映射宿主机；必须依赖网络/反向代理限制，后续应评估签名 URL 或受保护转发。
 4. `x-user-session`、`x-pathname` 和 `x-forwarded-for` 的安全性依赖反向代理正确清理和重写。
 5. Better Auth 的 `useSecureCookies` 当前受生产模式、HTTPS URL 和 Trusted Origins 配置组合影响，部署后必须检查真实响应 Cookie 属性。
-6. `zip-convert` 的当前源码已改为运行时环境注入，但曾暴露的凭据仍需轮换，Git 历史仍需在独立操作中清理。
+6. 曾暴露的外部站点凭据仍需轮换，Git 历史仍需在独立操作中清理。
 7. 代理与共享认证门禁已有隔离回归，但尚未穷举全部接口未授权分支；真实 Next.js 异常包装、已授权业务错误及日志敏感值脱敏仍需扩展验证。
 8. Worker lane 共享同一容器文件权限；解析 lane 的最小权限当前依赖 capability 注册、类型契约和 Executor 边界，而不是独立容器挂载。
 

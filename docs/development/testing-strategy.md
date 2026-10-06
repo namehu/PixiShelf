@@ -121,7 +121,6 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 | Pixiv 作品在线同步        | migration、payload、全量分页、远端响应、磁盘快照、来源字段、文本保护和精确标签同步 | PostgreSQL + 临时目录：5000+ 子任务、claim/整批取消竞态、身份/人工编辑 CAS、文件成功而数据库失败后的恢复     |
 | 媒体播放/派生媒体         | 组件/服务测试                                                                      | 图片、视频、封面缺失、动画、FFmpeg 失败和实际浏览器抽样                                                      |
 | Compose/Dockerfile/env    | Compose config、相关 package build                                                 | 镜像构建、非 root 权限、挂载、migration、READY/capability 冒烟                                               |
-| zip-convert               | 启动或工具级聚焦验证                                                               | 当前缺少可靠自动化测试，必须记录 fixture 和人工结果                                                          |
 
 “最小验证”是进入评审前的底线。跨多个类型的变更需要合并各行要求，而不是只选择最轻的一行。
 
@@ -195,7 +194,6 @@ CI 当前没有明确执行：
 
 - 主应用 `test:integration`；
 - `.e2e.test.*`；
-- zip-convert 验证；
 - Docker Compose/镜像运行冒烟；
 - 真实浏览器登录、反向代理和媒体播放。
 

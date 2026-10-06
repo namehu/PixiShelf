@@ -6,7 +6,6 @@ PixiShelf 是一个使用 pnpm 的本地图片画廊工作区，主要包包括�
 - `packages/pixishelf-db`：Prisma 架构、迁移和客户端。
 - `packages/pixishelf-job-*`：任务契约、运行时和执行器。
 - `packages/pixishelf-worker`：调度 Worker。
-- `packages/zip-convert`：Pixiv zip/APNG 转换服务。
 
 ## 工作规则
 
