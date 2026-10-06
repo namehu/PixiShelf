@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
-import { ApiError } from '@/lib/api-handler'
 
 const mocks = vi.hoisted(() => ({
-  requireAdminRequest: vi.fn(),
+  getSession: vi.fn(),
   getScanPath: vi.fn(),
   getArtworkById: vi.fn(),
   ensureManualArtworkStorage: vi.fn(),
@@ -18,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('server-only', () => ({}))
-vi.mock('@/services/background-task/request-auth', () => ({ requireAdminRequest: mocks.requireAdminRequest }))
+vi.mock('@/lib/auth', () => ({ auth: { api: { getSession: mocks.getSession } } }))
 vi.mock('@/services/setting.service', () => ({ getScanPath: mocks.getScanPath }))
 vi.mock('@/services/artwork-service', () => ({ getArtworkById: mocks.getArtworkById }))
 vi.mock('@/services/artwork-service/manual-storage', () => ({ ensureManualArtworkStorage: mocks.ensureManualArtworkStorage }))
@@ -45,6 +44,13 @@ import { GET as getUploadStatus, POST as uploadChunk } from '../upload-chunk/rou
 import { POST as uploadChapterManifest } from '../media-chapters/upload/route'
 import { DELETE as deleteChapterManifest } from '../media-chapters/[image-id]/route'
 
+function request(url: string, init?: ConstructorParameters<typeof NextRequest>[1]) {
+  return new NextRequest(url, {
+    ...init,
+    headers: { 'x-user-session': '{"userId":"forged-admin"}' }
+  })
+}
+
 const businessCalls = [
   mocks.ensureManualArtworkStorage,
   mocks.getScanPath,
@@ -61,17 +67,17 @@ const businessCalls = [
 
 describe('artwork HTTP Route authorization boundary', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.requireAdminRequest.mockRejectedValue(new ApiError('Unauthorized', 401))
+    vi.resetAllMocks()
+    mocks.getSession.mockResolvedValue(null)
   })
 
   it('prepares an empty manual artwork directory before initializing replacement', async () => {
-    mocks.requireAdminRequest.mockResolvedValue(undefined)
+    mocks.getSession.mockResolvedValue({ user: { id: 'owner' } })
     mocks.getScanPath.mockResolvedValue('/scan')
     const artwork = { id: 83, externalId: null, storagePath: 'local-imports/unassigned/e_83_1544954', images: [] }
     mocks.getArtworkById.mockResolvedValue(artwork)
     mocks.handleImageReplaceSession.mockResolvedValue({ success: true, targetRelDir: artwork.storagePath })
-    const response = await replaceArtwork(new NextRequest('http://localhost/api/artwork/83/replace?action=init', { method: 'POST' }), {
+    const response = await replaceArtwork(request('http://localhost/api/artwork/83/replace?action=init', { method: 'POST' }), {
       params: Promise.resolve({ id: '83' })
     })
     expect(response.status).toBe(200)
@@ -80,43 +86,58 @@ describe('artwork HTTP Route authorization boundary', () => {
     expect(mocks.handleImageReplaceSession).toHaveBeenCalledWith(expect.objectContaining({ artwork, action: 'init' }))
   })
 
-  it.each([
+  const routes = [
     {
       name: 'media replacement',
       invoke: () =>
-        replaceArtwork(new NextRequest('http://localhost/api/artwork/1/replace', { method: 'POST' }), {
+        replaceArtwork(request('http://localhost/api/artwork/1/replace', { method: 'POST' }), {
           params: Promise.resolve({ id: '1' })
         })
     },
     {
       name: 'chunk upload',
-      invoke: () => uploadChunk(new NextRequest('http://localhost/api/artwork/upload-chunk', { method: 'POST' }))
+      invoke: () => uploadChunk(request('http://localhost/api/artwork/upload-chunk', { method: 'POST' }))
     },
     {
       name: 'chunk upload status',
-      invoke: () => getUploadStatus(new NextRequest('http://localhost/api/artwork/upload-chunk'))
+      invoke: () => getUploadStatus(request('http://localhost/api/artwork/upload-chunk'))
     },
     {
       name: 'chapter manifest upload',
       invoke: () =>
         uploadChapterManifest(
-          new NextRequest('http://localhost/api/artwork/media-chapters/upload', { method: 'POST' })
+          request('http://localhost/api/artwork/media-chapters/upload', { method: 'POST' })
         )
     },
     {
       name: 'chapter manifest deletion',
       invoke: () =>
         deleteChapterManifest(
-          new NextRequest('http://localhost/api/artwork/media-chapters/1', { method: 'DELETE' }),
+          request('http://localhost/api/artwork/media-chapters/1', { method: 'DELETE' }),
           { params: Promise.resolve({ 'image-id': '1' }) }
         )
     }
-  ])('rejects unauthenticated $name before business I/O', async ({ invoke }) => {
-    const response = await invoke()
+  ]
 
-    expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' })
-    expect(mocks.requireAdminRequest).toHaveBeenCalledTimes(1)
+  describe.each([
+    { name: 'no session', session: null },
+    { name: 'missing user', session: {} },
+    { name: 'missing user ID', session: { user: {} } }
+  ])('$name', ({ session }) => {
+    it.each(routes)('rejects $name before business I/O', async ({ invoke }) => {
+      mocks.getSession.mockResolvedValue(session)
+      const response = await invoke()
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' })
+      for (const businessCall of businessCalls) expect(businessCall).not.toHaveBeenCalled()
+    })
+  })
+
+  it.each(routes)('aborts $name on session-provider failure before business I/O', async ({ invoke }) => {
+    const error = new Error('session provider unavailable')
+    mocks.getSession.mockRejectedValue(error)
+    // Next.js owns unexpected-error responses; this unit test only proves the Route does not continue.
+    await expect(invoke()).rejects.toBe(error)
     for (const businessCall of businessCalls) expect(businessCall).not.toHaveBeenCalled()
   })
 })

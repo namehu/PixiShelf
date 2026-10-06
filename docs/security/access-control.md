@@ -103,6 +103,9 @@ HTTP `message`，同时兼容旧 `{ error }` 响应。
 - 未登录 API 请求返回 `401`；
 - 已登录请求由代理覆盖写入 `x-user-session` 和 `x-pathname`，Root Layout 用它们初始化用户状态。
 
+公共路径匹配沿用完整路径或以 `/` 分隔的子路径规则，例如 `/login/help` 也会放行，
+但 `/login-extra`、`/api/webhooks/scanner` 不会因为相似前缀而放行。新增这些公共前缀下的 Route 时仍须审查其独立认证。
+
 反向代理必须清除来自外部客户端的 `x-user-session` 和 `x-pathname`，只允许 PixiShelf 自己注入。`x-forwarded-for` 只有在 App 仅接受可信反向代理流量时才能作为限流身份；直接暴露 App 时客户端可以伪造该头。
 
 ### tRPC 过程层
@@ -299,10 +302,22 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 4. `x-user-session`、`x-pathname` 和 `x-forwarded-for` 的安全性依赖反向代理正确清理和重写。
 5. Better Auth 的 `useSecureCookies` 当前受生产模式、HTTPS URL 和 Trusted Origins 配置组合影响，部署后必须检查真实响应 Cookie 属性。
 6. `zip-convert` 的当前源码已改为运行时环境注入，但曾暴露的凭据仍需轮换，Git 历史仍需在独立操作中清理。
-7. 当前没有覆盖代理公共路径、内部信任头和全部接口未授权分支的统一自动化测试。
+7. 代理与共享认证门禁已有隔离回归，但尚未穷举全部接口未授权分支；真实 Next.js 异常包装、已授权业务错误及日志敏感值脱敏仍需扩展验证。
 8. Worker lane 共享同一容器文件权限；解析 lane 的最小权限当前依赖 capability 注册、类型契约和 Executor 边界，而不是独立容器挂载。
 
 风险修复应更新本文中的“当前事实”，并在 [TODO](../../TODO.md) 留下可执行项。涉及凭据泄露时，只记录凭据类型、轮换时间和负责人，不记录实际值。
+
+## 权限回归测试
+
+以下测试运行真实代理、共享门禁或 Route/Action，仅用 mock 隔离会话提供方、限流决策与业务服务，不依赖数据库、网络或 Docker：
+
+- `packages/pixishelf/__tests__/proxy.test.ts`：公共路径和子路径、相似前缀拒绝、API 401 与页面跳转、会话查询故障时拒绝受保护请求、伪造上下文头不能登录、有效会话覆盖客户端头，以及限流拒绝。
+- `packages/pixishelf/server/__tests__/auth-boundary.test.ts`：真实 `createTRPCContext` 不信任客户端身份头，`authProcedure` / `adminProcedure` 在缺 Session 或 User 时不进入读写服务，合法会话提供操作者，限流阻断业务。既有 router 鉴权测试继续验证具体接口绑定。
+- `packages/pixishelf/app/api/artwork/__tests__/route-auth.test.ts`：真实 `requireAdminRequest` 保护媒体替换、分块上传及状态、章节上传和删除；缺会话、缺用户或用户 ID、伪造身份头和认证提供方故障均不调用业务服务。未知认证异常由 Route 继续抛给 Next.js，这组单测不证明框架生成的 HTTP 500 内容。
+- `packages/pixishelf/actions/__tests__/protected-actions.test.ts`：真实 safe-action 门禁保护作品导出与标签统计重建，未登录及认证提供方异常不读写业务；客户端收到通用错误，不包含提供方错误详情。
+- `packages/pixishelf/app/api/internal/scheduler/tick/__tests__/route.test.ts`：配置缺失和错误 Token 不物化计划，合法请求执行，GET 只检查健康状态。
+
+这些测试证明所列入口的服务调用边界，不代替 Better Auth 本身的 Cookie/签名验证、所有接口覆盖、生产反向代理头清理或浏览器登录验收。限流测试注入允许/拒绝决策，不测真实时间窗口或部署网络身份可信性。已授权业务异常的消息回显及日志脱敏仍是独立待办。
 
 ## 变更门禁
 

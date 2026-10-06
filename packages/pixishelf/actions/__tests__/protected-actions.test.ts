@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_SERVER_ERROR_MESSAGE } from 'next-safe-action'
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -22,8 +23,8 @@ import { updateTagStatsAction } from '../tag-action'
 
 describe('protected maintenance actions', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-    mocks.headers.mockResolvedValue(new Headers())
+    vi.resetAllMocks()
+    mocks.headers.mockResolvedValue(new Headers({ 'x-user-session': '{"userId":"forged-admin"}' }))
   })
 
   it('rejects an unauthenticated artwork export before reading artworks', async () => {
@@ -31,7 +32,7 @@ describe('protected maintenance actions', () => {
 
     const result = await exportNoSeriesArtworksAction()
 
-    expect(result?.serverError).toBeTruthy()
+    expect(result?.serverError).toBe(DEFAULT_SERVER_ERROR_MESSAGE)
     expect(mocks.getNoSeriesArtworkExternalIds).not.toHaveBeenCalled()
   })
 
@@ -49,7 +50,7 @@ describe('protected maintenance actions', () => {
 
     const result = await updateTagStatsAction()
 
-    expect(result?.serverError).toBeTruthy()
+    expect(result?.serverError).toBe(DEFAULT_SERVER_ERROR_MESSAGE)
     expect(mocks.rebuildTagArtworkCounts).not.toHaveBeenCalled()
   })
 
@@ -60,5 +61,16 @@ describe('protected maintenance actions', () => {
     const result = await updateTagStatsAction()
 
     expect(result?.data).toMatchObject({ success: true, updatedTags: 3 })
+  })
+
+  it.each([
+    { name: 'artwork export', invoke: () => exportNoSeriesArtworksAction() },
+    { name: 'tag rebuild', invoke: () => updateTagStatsAction() }
+  ])('fails closed and hides session-provider errors for $name', async ({ invoke }) => {
+    mocks.getSession.mockRejectedValue(new Error('postgres://secret-password@private-host'))
+    const result = await invoke()
+    expect(result?.serverError).toBe(DEFAULT_SERVER_ERROR_MESSAGE)
+    expect(mocks.getNoSeriesArtworkExternalIds).not.toHaveBeenCalled()
+    expect(mocks.rebuildTagArtworkCounts).not.toHaveBeenCalled()
   })
 })
