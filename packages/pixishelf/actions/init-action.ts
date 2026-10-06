@@ -1,7 +1,9 @@
 'use server'
 
-import { auth } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
+import { initializeAdmin, AlreadyInitializedError } from '@/services/init-admin-service'
+import { parseSetCookieHeader } from 'better-auth/cookies'
+import { APIError } from 'better-auth/api'
+import { cookies } from 'next/headers'
 import { actionClient } from '@/lib/safe-action'
 import { z } from 'zod'
 
@@ -14,29 +16,28 @@ export const initAdminAction = actionClient
   .inputSchema(initAdminSchema)
   .action(async ({ parsedInput: { username, password } }) => {
     try {
-      // 检查用户是否已存在
-      const existingUser = await prisma.userBA.findFirst({
-        where: {
-          OR: [{ email: `${username}@pixishelf.local` }, { name: username }]
-        }
-      })
-
-      if (existingUser) {
-        return { success: false, error: '用户已存在' }
-      }
-
-      await auth.api.signUpEmail({
-        body: {
-          email: `${username}@pixishelf.local`,
-          password,
-          name: username
-        }
+      const result = await initializeAdmin(username, password)
+      const cookieStore = await cookies()
+      parseSetCookieHeader(result.headers.get('set-cookie') ?? '').forEach((value, key) => {
+        cookieStore.set(key, decodeURIComponent(value.value), {
+          sameSite: value.samesite,
+          secure: value.secure,
+          maxAge: value['max-age'],
+          httpOnly: value.httponly,
+          domain: value.domain,
+          path: value.path
+        })
       })
 
       return { success: true }
-    } catch (error: any) {
-      console.error('Init admin error:', error)
-      const errorMessage = error?.body?.message || error?.message || '创建管理员失败'
+    } catch (error) {
+      console.error('Init admin failed:', error instanceof Error ? error.name : 'UnknownError')
+      const errorMessage =
+        error instanceof AlreadyInitializedError
+          ? error.message
+          : error instanceof APIError
+            ? error.body?.message || '创建管理员失败'
+            : '创建管理员失败'
       return { success: false, error: errorMessage }
     }
   })

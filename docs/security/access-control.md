@@ -200,7 +200,7 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 | Action                                                   | 边界                                      | 能力                                                 |
 | -------------------------------------------------------- | ----------------------------------------- | ---------------------------------------------------- |
 | `loginUserAction`                                        | 公共 `actionClient` + 每 IP 5 次/分钟限流 | 使用用户名/密码建立 Better Auth Session              |
-| `initAdminAction`                                        | 公共 `actionClient`                       | 创建账户；当前 Action 自身没有验证系统用户总数仍为 0 |
+| `initAdminAction`                                        | 公共 `actionClient`                       | 仅无账户时原子创建首个账户、凭据与 Session |
 | `changePasswordAction`                                   | `authActionClient` + 每 IP 5 次/分钟限流  | 修改当前账户密码                                     |
 | `toggleLikeAction`                                       | `authActionClient`                        | 修改当前账户与 Artwork 的收藏关系                    |
 | `updateProfileAction`、`updateUserSettingAction`         | `authActionClient`                        | 只修改当前 `userId` 的资料与偏好                     |
@@ -208,7 +208,7 @@ inventory 与 `SCAN@v3` Worker readiness。读取接口只返回相对 metadata 
 | `exportNoSeriesArtworksAction`                           | `authActionClient`                        | 读取并导出未归系列 Artwork 标识                      |
 | `updateTagStatsAction`                                   | `authActionClient`                        | 重建标签计数                                         |
 
-首次初始化页面只在 `hasUsers() === false` 时显示表单，但 `initAdminAction` 目前只检查同名账户是否存在，不复核“系统仍无任何账户”。修复前不得把初始化入口暴露到不可信网络。
+首次初始化页面只在 `hasUsers() === false` 时显示表单。`initAdminAction` 通过 PostgreSQL `ReadCommitted` 事务先取得 `UserBA` 表的 `SHARE ROW EXCLUSIVE` 锁，再复核系统无任何账户；同一事务绑定 Better Auth adapter，完整创建账户、密码凭据与 Session。并发初始化仅一个成功；已有账户时拒绝，任一步骤失败全部回滚。表锁也等待普通账户写入，锁后的查询可见其已提交结果；初始化事务提交后才向浏览器设置认证 Cookie。常规已登录账户管理仍允许添加多个账户。
 
 ## 服务、网络和存储矩阵
 
@@ -271,7 +271,7 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 
 以下内容是现状，不代表已解决：
 
-1. `initAdminAction` 没有在写入时复核系统用户数为 0；首次初始化必须增加原子门禁和并发测试。
+1. 首次初始化的真实浏览器登录与反向代理仍需发布前验证，隔离 PostgreSQL 与 Action 测试不代替这一门禁。
 2. 所有账户等权，而用户管理、系统设置和多类删除操作仍使用 `authProcedure`；不得向不可信用户发放账户。
 3. ImgProxy URL 未签名且端口默认映射宿主机；必须依赖网络/反向代理限制，后续应评估签名 URL 或受保护转发。
 4. `x-user-session`、`x-pathname` 和 `x-forwarded-for` 的安全性依赖反向代理正确清理和重写。
