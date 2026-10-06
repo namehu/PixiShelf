@@ -1088,7 +1088,7 @@ function ItemIdentity({ item }: { item: IntakeItem }) {
       <PrivacySensitiveText as="p" className="truncate font-medium">
         {item.resolvedTitle || '等待解析标题'}
       </PrivacySensitiveText>
-      <PrivacySensitiveText as="p" className="truncate font-mono text-xs text-muted-foreground">
+      <PrivacySensitiveText as="p" className="break-all font-mono text-xs text-muted-foreground">
         {item.submittedUrl}
       </PrivacySensitiveText>
       <p className="mt-1 text-xs text-muted-foreground">{metadata}</p>

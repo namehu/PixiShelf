@@ -108,7 +108,7 @@ describe('archive intake input and wire safety', () => {
     )
   })
 
-  it('never exposes locator tokens or query values in a list URL', () => {
+  it('redacts URL paths and query values when explicitly requested', () => {
     const masked = redactArchiveUrl('https://e-hentai.org/g/123/private-token/?token=secret')
     expect(masked).toBe('https://e-hentai.org/g/…')
     expect(masked).not.toContain('private-token')
@@ -124,6 +124,7 @@ describe('archive intake input and wire safety', () => {
             findMany: async () => [
               intakeRecord({
                 status: 'FAILED',
+                canonicalUrl: null,
                 errorCode: 'INTERNAL',
                 errorMessage: 'Prisma failed at /private/archive/secret/item.webp'
               })
@@ -134,6 +135,8 @@ describe('archive intake input and wire safety', () => {
     )
 
     expect(page.items[0]?.errorMessage).toBe('内部处理失败，请稍后重试或查看服务日志。')
+    expect(page.items[0]?.submittedUrl).toBe('https://e-hentai.org/g/123/private-token/?token=secret')
+    expect(page.items[0]?.canonicalUrl).toBeNull()
     expect(JSON.stringify(page)).not.toContain('/private/archive')
     expect(JSON.stringify(page)).not.toContain('Prisma')
   })
@@ -188,11 +191,10 @@ describe('archive intake input and wire safety', () => {
     )
     expect(page.items[0]).toMatchObject({
       id: 'item-b',
-      submittedUrl: 'https://e-hentai.org/g/…',
-      canonicalUrl: 'https://e-hentai.org/g/…',
+      submittedUrl: first.submittedUrl,
+      canonicalUrl: first.canonicalUrl,
       queueOrder: '10'
     })
-    expect(JSON.stringify(page)).not.toContain('private-token')
     expect(JSON.stringify(page)).not.toContain('error-path-token')
     expect(JSON.stringify(page)).not.toContain('private-locator')
 

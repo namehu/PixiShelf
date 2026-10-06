@@ -249,11 +249,13 @@ Worker 两个 lane 共用同一容器的数据库凭据和 `rw` 媒体挂载，l
 
 Pixiv 请求由 Worker 逐请求注入 dispatcher，不修改进程全局 dispatcher。代理 CONNECT 使用目标 hostname，由代理解析目标 DNS；请求和每次重定向仍须通过 HTTPS、443 端口、无凭据和精确域名白名单校验（API 为 `www.pixiv.net`，图片为 `i.pximg.net`）。因此代理是受控出站信任边界，不能将 Pixiv 代理链路描述为本地 DNS 钉扎。归档既有本地 DNS、SSRF 与 fake-IP 检查保持不变，不因 Pixiv 扩围放宽。
 
-归档任务 payload、结果、事件、错误与普通日志统一脱敏。不得记录 Cookie、Authorization、完整 Provider locator、token，或 URL 路径中的敏感段；列表和批量结果只返回完成管理操作所需的脱敏值。
+归档任务 payload、结果、事件、错误与普通日志统一脱敏。不得记录 Cookie、Authorization、完整 Provider locator、token，或 URL 路径中的敏感段；除以下明确例外，列表和批量结果只返回完成管理操作所需的脱敏值。
+
+归档收件接口在现有 Session 认证后完整返回收件项目的 `submittedUrl` 和 `canonicalUrl`，包括路径及查询参数，便于核对提交内容和排查失败；创建、修正、列表等返回收件项目的响应采用同一序列化规则。未解析的 canonical URL 保持 `null`，页面仍遵循隐私模式。该规则仅放开来源 URL 字段，不放开 Provider locator、错误文案、事件或日志中的敏感信息。
 
 归档下载明细 `archive.listTaskItems` 是管理员主动排错的例外：经过 `adminProcedure` 验证后返回完整图片页地址，以及最近一次媒体响应的最终下载地址（含签名路径或 query）。数据库仅保存每项最近一次响应地址、时间及尝试次数，新尝试开始时清空；不保存请求 Cookie/Authorization。导航仅接受无用户名密码的有效 HTTP(S) URL，客户端展示完整地址并支持复制，打开时禁止 Referrer，不自动请求这些媒体地址。隐私模式继续遮蔽地址文本。此例外不扩展到任务列表、事件、诊断报告、错误或普通日志；下载地址可能过期，应视为敏感数据。
 
-归档“原站”入口使用 `/api/archive/tasks/[id]/source`，在独立会话验证后读取数据库地址并校验 provider、协议、主机、端口、凭据、画廊路径与任务 GID。仅允许规范化画廊导航，不跟随远端新版，也不将 query 中的 URL 用作目的地。响应设置 `Cache-Control: private, no-store` 与 `Referrer-Policy: no-referrer`；不存在/非法来源返回通用错误，数据库异常不回显或记录 locator。完整 gallery 地址仅用于用户主动发起的重定向，列表与审计继续脱敏。
+归档“原站”入口使用 `/api/archive/tasks/[id]/source`，在独立会话验证后读取数据库地址并校验 provider、协议、主机、端口、凭据、画廊路径与任务 GID。仅允许规范化画廊导航，不跟随远端新版，也不将 query 中的 URL 用作目的地。响应设置 `Cache-Control: private, no-store` 与 `Referrer-Policy: no-referrer`；不存在/非法来源返回通用错误，数据库异常不回显或记录 locator。该任务入口通过用户主动发起的重定向提供完整 gallery 地址，归档下载任务列表与审计继续脱敏。
 
 原站图片预览的 `sources/open/page/image/reload` 全部使用 `authProcedure`。`open` 的直接 URL 只允许出现在 mutation body；独立页面 query 只携带随机预览 ID。会话在任何 Provider I/O 前严格绑定和复核当前账户，跨账户、过期或进程重启统一返回重新打开错误。作品、任务、收件和发现身份均在服务端读取并核对 provider、GID 与 canonical URL；客户端不提交 canonical 地址，旧 `Artwork.externalId` 不参与身份推断。缩略图地址必须通过 HTTPS 主机、凭据、端口、query/hash、导航路径、尺寸、crop 和分页连续性校验。完整来源只由 `/api/archive/preview/[id]/source` 在双层 Session 与会话所有权验证后重定向，响应禁止缓存及 Referrer。预览复用 PostgreSQL Provider governor。单图 image 接口在任何远端请求前校验账户、会话和已加载序号，服务器保留 /s locator 并仅解析展示图；RESOLVE 请求与分页按会话互斥。展示图地址使用独立 HTTPS 图片主机/路径校验，允许必要签名 query，不返回图片页地址、不记录完整媒体地址；浏览器 no-referrer 直连，无图片代理。不调用完整 resolve、fullimg 或下载流，不创建后台任务、收件记录或媒体文件。
 

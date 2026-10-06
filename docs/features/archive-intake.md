@@ -175,9 +175,9 @@ type/version 组合，并同时校验 job type、definition version 和 lane。R
 
 两个页面都需要 Better Auth Session。`archiveInbox`、`archiveUploader`、`archiveSearch` 和 `archive` 的读取使用 `authProcedure`，创建来源、扫描、来源停用/启用/删除、结果入箱、暂停/恢复、取消、重试、批量入队和任务控制使用 `adminProcedure`；当前单一信任域中二者运行能力相同，但敏感写操作保留显式管理员语义。
 
-服务端负责 URL/行数/容量上限、Provider HTTPS allowlist、DNS/redirect/SSRF 防护、响应体限制、状态 CAS 和幂等约束。普通列表、事件、日志和错误不得泄露 Cookie、Authorization、完整 locator、token 或 URL 路径中的敏感段；归档任务序列化统一执行脱敏。
+服务端负责 URL/行数/容量上限、Provider HTTPS allowlist、DNS/redirect/SSRF 防护、响应体限制、状态 CAS 和幂等约束。已认证的归档收件接口完整返回收件项目的 `submittedUrl` 和 `canonicalUrl`（包括路径及查询参数），用于核对和排错；列表与创建、修正等返回收件项目的响应使用同一规则，尚未解析的 `canonicalUrl` 保持 `null`。收件列表的提交地址自动换行显示，仍遵循隐私模式。其他归档列表、事件、日志和错误继续脱敏，不返回 Cookie、Authorization 或完整 Provider locator。
 
-`GET /api/archive/tasks/[id]/source` 在验证会话后从任务读取 canonical URL，只接受与任务 GID 一致的 E-Hentai HTTPS 画廊地址，返回禁止缓存的重定向并设置 `Referrer-Policy: no-referrer`。客户端不能指定重定向目的地；完整来源地址仅在用户主动打开原站时交给其浏览器导航，不进入列表 DTO。
+`GET /api/archive/tasks/[id]/source` 在验证会话后从任务读取 canonical URL，只接受与任务 GID 一致的 E-Hentai HTTPS 画廊地址，返回禁止缓存的重定向并设置 `Referrer-Policy: no-referrer`。客户端不能指定重定向目的地；归档下载任务列表仍使用脱敏地址，通过用户主动打开原站时的重定向提供完整地址。
 
 ## 自动入队升级与恢复
 

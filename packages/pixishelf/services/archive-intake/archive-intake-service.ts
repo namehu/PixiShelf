@@ -16,7 +16,7 @@ import {
   type ArchiveBulkTargetResult
 } from '@/services/archive/archive-bulk-operation'
 import { ArchiveError } from '@/services/archive/errors'
-import { archiveWireErrorMessage, redactArchiveUrl } from '@/services/archive/archive-redaction'
+import { archiveWireErrorMessage } from '@/services/archive/archive-redaction'
 import { validateArchiveUrl } from '@/services/archive/safe-http'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
 
@@ -929,8 +929,6 @@ function serializeIntakeItem(item: IntakeItemWire, now: Date) {
   return {
     ...item,
     sourcePreviewAvailable: isSourcePreviewAvailable(item),
-    submittedUrl: redactArchiveUrl(item.submittedUrl),
-    canonicalUrl: item.canonicalUrl ? redactArchiveUrl(item.canonicalUrl) : null,
     thumbnailUrl: safeThumbnailUrl(item.thumbnailUrl),
     status: effectiveStatus(item, now),
     queueOrder: item.queueOrder.toString(),
