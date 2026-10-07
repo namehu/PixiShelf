@@ -1,5 +1,7 @@
 'use client'
 
+import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
+import { ArchiveSubmittedSourceLink } from './archive-submitted-source-link'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -418,6 +420,13 @@ export function ArchiveInbox() {
                   已选择当前页 {selection.selectedIds.size} 项
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
+                  {items.some((item) => item.status === 'FAILED') ? (
+                    <ArchiveDeleteFailedDialog
+                      targetType="INTAKE_ITEM"
+                      itemIds={selectedForStatus(new Set(['FAILED'])).map((item) => item.id)}
+                      disabled={anyMutationPending}
+                    />
+                  ) : null}
                   <Select
                     value="KEEP"
                     onValueChange={(quality) => {
@@ -1088,9 +1097,7 @@ function ItemIdentity({ item }: { item: IntakeItem }) {
       <PrivacySensitiveText as="p" className="truncate font-medium">
         {item.resolvedTitle || '等待解析标题'}
       </PrivacySensitiveText>
-      <PrivacySensitiveText as="p" className="break-all font-mono text-xs text-muted-foreground">
-        {item.submittedUrl}
-      </PrivacySensitiveText>
+      <ArchiveSubmittedSourceLink url={item.submittedUrl} />
       <p className="mt-1 text-xs text-muted-foreground">{metadata}</p>
       <div className="mt-2">
         <ArchiveSubmissionBadge submissionId={item.submissionId} />

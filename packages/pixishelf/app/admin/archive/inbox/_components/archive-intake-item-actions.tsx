@@ -1,3 +1,4 @@
+import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import Link from 'next/link'
 import type { Dispatch, SetStateAction } from 'react'
 import { ExternalLinkIcon, PencilLineIcon, RotateCcwIcon } from 'lucide-react'
@@ -123,6 +124,9 @@ export function ArchiveIntakeRetryActions({
           )}
           直接重试
         </Button>
+      ) : null}
+      {item.status === 'FAILED' ? (
+        <ArchiveDeleteFailedDialog targetType="INTAKE_ITEM" itemIds={[item.id]} disabled={actionPending} />
       ) : null}
       {item.status === 'FAILED' ? (
         <Button type="button" variant="outline" size="sm" disabled={actionPending} onClick={() => onReplace(item.id)}>

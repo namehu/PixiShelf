@@ -37,6 +37,7 @@ export interface ArchiveIntakeSelectionItem {
   providerKey?: string | null
   externalId?: string | null
   sourcePreviewAvailable?: boolean
+  errorCode?: string | null
   retryable?: boolean | null
   downloadMode?: ArchiveDownloadMode
   selectedQuality?: ArchiveQuality | null
@@ -92,7 +93,7 @@ export function analyzeArchiveUrlInput(input: string): ArchiveUrlInputAnalysis {
 }
 
 export function isSelectableIntakeItem(item: ArchiveIntakeSelectionItem): boolean {
-  if (CANCELLABLE_STATUSES.has(item.status) || isRetryableIntakeItem(item)) {
+  if (item.status === 'FAILED' || CANCELLABLE_STATUSES.has(item.status) || isRetryableIntakeItem(item)) {
     if (item.status !== 'READY') return true
     return isEnqueueableIntakeItem(item)
   }
@@ -125,7 +126,10 @@ export function archiveIntakeStatusLabel(item: ArchiveIntakeSelectionItem): stri
 }
 
 export function isRetryableIntakeItem(item: ArchiveIntakeSelectionItem): boolean {
-  return RETRYABLE_STATUSES.has(item.status) || (item.status === 'FAILED' && item.retryable === true)
+  return (
+    RETRYABLE_STATUSES.has(item.status) ||
+    (item.status === 'FAILED' && (item.retryable === true || item.errorCode === 'REMOTE_NOT_FOUND'))
+  )
 }
 
 export function isDefaultSelectedIntakeItem(item: ArchiveIntakeSelectionItem): boolean {

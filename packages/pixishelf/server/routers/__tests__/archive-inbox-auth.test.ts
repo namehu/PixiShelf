@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   pause: vi.fn(),
   cancelMany: vi.fn(),
   retryMany: vi.fn(),
+  deleteFailedMany: vi.fn(),
   enqueueMany: vi.fn(),
   actionMany: vi.fn()
 }))
@@ -23,6 +24,10 @@ vi.mock('@/services/archive-intake/archive-intake-service', async (importOrigina
   setArchiveIntakePaused: mocks.pause,
   cancelArchiveIntakeMany: mocks.cancelMany,
   retryArchiveIntakeMany: mocks.retryMany
+}))
+vi.mock('@/services/archive-intake/archive-failed-record-delete-service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/services/archive-intake/archive-failed-record-delete-service')>()),
+  deleteArchiveFailedRecords: mocks.deleteFailedMany
 }))
 vi.mock('@/services/archive-intake/archive-intake-enqueue-service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/services/archive-intake/archive-intake-enqueue-service')>()),
@@ -45,6 +50,12 @@ const authorized = {
 const unauthorized = { session: null, user: null, userId: undefined, headers: new Headers() } as never
 
 describe('archive inbox authorization boundary', () => {
+  it('uses the session actor for failure deletion', async () => {
+    const input = { idempotencyKey: 'delete-auth', targetType: 'DISCOVERY_ITEM' as const, itemIds: ['catalog-1'] }
+    await archiveInboxRouter.createCaller(authorized).deleteFailedMany(input)
+    expect(mocks.deleteFailedMany).toHaveBeenCalledWith(input, 'admin-1')
+  })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mocks.create.mockResolvedValue({ id: 'submission-1' })
@@ -53,6 +64,14 @@ describe('archive inbox authorization boundary', () => {
   })
 
   it.each([
+    {
+      mutation: 'deleteFailedMany',
+      invoke: () =>
+        archiveInboxRouter
+          .createCaller(unauthorized)
+          .deleteFailedMany({ idempotencyKey: 'delete-1', targetType: 'INTAKE_ITEM', itemIds: ['item-1'] }),
+      service: mocks.deleteFailedMany
+    },
     {
       mutation: 'create',
       invoke: () =>

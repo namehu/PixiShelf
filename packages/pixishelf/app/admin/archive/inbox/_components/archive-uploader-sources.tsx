@@ -1,5 +1,6 @@
 'use client'
 
+import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import { ScanResults } from './archive-discovery-scan-results'
 import { useAuth } from '@/components/auth/auth-provider'
 import { readArchivePreviewReturnState, saveArchivePreviewReturnState } from './archive-preview-return-state'
@@ -770,6 +771,15 @@ export function ArchiveUploaderSources({
             onPositionChange={(position) => saveResultPosition(resultPositionKey, position)}
           />
           <ArchiveDiscoveryBulkBar
+            deleteAction={
+              selectedItems.some((item) => item.deletableFailure) ? (
+                <ArchiveDeleteFailedDialog
+                  targetType="DISCOVERY_ITEM"
+                  itemIds={selectedItems.filter((item) => item.deletableFailure).map((item) => item.id)}
+                  disabled={mutationPending}
+                />
+              ) : undefined
+            }
             selectedCount={selectedItemIds.size}
             kind="catalog"
             pending={mutationPending}

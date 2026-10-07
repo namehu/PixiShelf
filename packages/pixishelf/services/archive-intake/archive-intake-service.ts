@@ -752,7 +752,8 @@ async function retryIntakeItem(
   if (!['FAILED', 'CANCELLED', 'STALE'].includes(retryStatus)) {
     return { result: 'SKIPPED', code: 'INVALID_STATE', message: `状态 ${item.status} 不允许重试` }
   }
-  if (retryStatus === 'FAILED' && item.retryable !== true) {
+  // 远端不存在只停止自动重试；管理员确认来源恢复后仍可人工重新解析。
+  if (retryStatus === 'FAILED' && item.retryable !== true && item.errorCode !== 'REMOTE_NOT_FOUND') {
     return {
       result: 'SKIPPED',
       code: 'PERMANENT_FAILURE',

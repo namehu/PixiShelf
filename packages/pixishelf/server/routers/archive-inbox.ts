@@ -1,3 +1,7 @@
+import {
+  deleteArchiveFailedRecords,
+  deleteArchiveFailedRecordsSchema
+} from '@/services/archive-intake/archive-failed-record-delete-service'
 import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import {
   archiveIntakeListSchema,
@@ -22,6 +26,10 @@ import { runArchiveOperation } from './archive'
  * 持久归档收件箱边界。读取沿用单信任域会话，所有状态变更保留显式管理员语义。
  */
 export const archiveInboxRouter = router({
+  deleteFailedMany: adminProcedure
+    .input(deleteArchiveFailedRecordsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => deleteArchiveFailedRecords(input, ctx.userId))),
+
   create: adminProcedure
     .input(createArchiveIntakeSchema)
     .mutation(({ input, ctx }) => runArchiveOperation(() => createArchiveIntakeSubmission(input, ctx.userId))),

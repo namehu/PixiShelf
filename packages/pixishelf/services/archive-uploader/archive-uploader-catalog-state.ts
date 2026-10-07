@@ -48,6 +48,7 @@ export interface ArchiveUploaderCatalogStateRow {
   artworkId: number | null
   errorCode: string | null
   errorMessage: string | null
+  deletableFailure: boolean
   recoverable: boolean
   sortAt: Date
 }
@@ -112,6 +113,7 @@ export async function listArchiveUploaderCatalogState(
       state."errorCode",
       state."errorMessage",
       state."recoverable",
+      state."deletableFailure",
       state."sortAt"
     FROM "catalogState" AS state
     WHERE TRUE
@@ -320,7 +322,12 @@ function catalogStateCte(scope: Prisma.Sql) {
         (
           stage."workflowStage" IN ('FAILED', 'CANCELLED', 'DUPLICATE')
           AND stage."intakeItemId" IS NULL
-        ) AS "recoverable"
+        ) AS "recoverable",
+        (
+          stage."workflowStage" = 'FAILED'
+          AND (stage."intakeStatus" IS NULL OR stage."intakeStatus" = 'FAILED')
+          AND (stage."archiveImportStatus" IS NULL OR stage."archiveImportStatus" NOT IN ('PENDING', 'RUNNING', 'PAUSED', 'CANCELLING', 'FAILED'))
+        ) AS "deletableFailure"
       FROM "catalogStages" AS stage
     )
   `

@@ -51,6 +51,50 @@ describePostgres('archive intake PostgreSQL transactions', () => {
 
   afterAll(async () => disconnectDatabase(database))
 
+  it('requeues an old remote-not-found failure once and preserves its download choices', async () => {
+    const submission = await createArchiveIntakeSubmission(
+      {
+        idempotencyKey: `${suitePrefix}-missing`,
+        urls: ['https://e-hentai.org/g/123/token/'],
+        downloadMode: 'AUTO',
+        quality: 'ORIGINAL'
+      },
+      requestedByUserId,
+      { database, validateUrl }
+    )
+    const original = submission.items[0]!
+    await database.archiveIntakeItem.update({
+      where: { id: original.id },
+      data: {
+        status: 'FAILED',
+        retryable: false,
+        errorCode: 'REMOTE_NOT_FOUND',
+        errorStage: 'MEDIA_REQUEST',
+        attempts: 1,
+        finishedAt: new Date()
+      }
+    })
+    await database.systemJob.update({ where: { id: original.currentSystemJobId! }, data: { status: 'FAILED' } })
+    const input = { idempotencyKey: `${suitePrefix}-missing-retry`, itemIds: [original.id] }
+    const result = await retryArchiveIntakeMany(input, requestedByUserId, { database })
+    expect(result?.items[0]?.result).toBe('APPLIED')
+    const retried = await database.archiveIntakeItem.findUniqueOrThrow({ where: { id: original.id } })
+    expect(retried).toMatchObject({
+      status: 'QUEUED',
+      attempts: 0,
+      errorCode: null,
+      retryable: null,
+      errorStage: null,
+      finishedAt: null,
+      downloadMode: 'AUTO',
+      selectedQuality: 'ORIGINAL'
+    })
+    expect(retried.queueOrder).toBeGreaterThan(BigInt(original.queueOrder))
+    expect(retried.currentSystemJobId).not.toBe(original.currentSystemJobId)
+    await retryArchiveIntakeMany(input, requestedByUserId, { database })
+    expect(await database.systemJob.count({ where: { parentJobId: original.currentSystemJobId } })).toBe(1)
+  })
+
   it('freezes mode and quality in idempotency, retry and corrected-link lineage', async () => {
     const input = {
       idempotencyKey: suitePrefix + '-intent',

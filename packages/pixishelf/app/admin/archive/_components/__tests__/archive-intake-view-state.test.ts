@@ -98,7 +98,21 @@ https://e-hentai.org/s/page/123-1
     expect(items.map(archiveIntakeStatusLabel)).toEqual(['正在处理归档', '待确认更新', '已跳过', '待确认下载'])
   })
 
-  it('does not select or retry a permanent failure with the original URL', () => {
+  it('keeps remote-not-found failures selectable for bulk manual retry', () => {
+    const item: ArchiveIntakeSelectionItem = {
+      id: 'missing',
+      status: 'FAILED',
+      resolutionKind: null,
+      retryable: false,
+      errorCode: 'REMOTE_NOT_FOUND'
+    }
+    const selection = { ...emptySelection(), selectedIds: new Set([item.id]) }
+    const state = reconcileArchiveIntakeSelection([item], selection)
+    expect([...state.selectedIds]).toEqual([item.id])
+    expect(countArchiveIntakeActions([item], state.selectedIds)).toEqual({ enqueue: 0, cancel: 0, retry: 1 })
+  })
+
+  it('allows selecting a permanent failure for deletion without enabling direct retry', () => {
     const permanentFailure: ArchiveIntakeSelectionItem = {
       id: 'permanent',
       status: 'FAILED',
@@ -108,6 +122,11 @@ https://e-hentai.org/s/page/123-1
 
     const state = reconcileArchiveIntakeSelection([permanentFailure], emptySelection())
     expect(state.selectedIds.size).toBe(0)
+    const selected = reconcileArchiveIntakeSelection([permanentFailure], {
+      ...state,
+      selectedIds: new Set(['permanent'])
+    })
+    expect([...selected.selectedIds]).toEqual(['permanent'])
     expect(countArchiveIntakeActions([permanentFailure], new Set(['permanent']))).toEqual({
       enqueue: 0,
       cancel: 0,

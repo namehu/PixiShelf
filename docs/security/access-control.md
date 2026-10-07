@@ -380,3 +380,8 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 `archiveSearch.listSources/getSource/listItems` 增加默认 `true` 的 `includeCounts`。传 `false` 时跳过
 统计查询，分别返回 `catalogCounts: null` 或 `counts: null`；旧请求和 `archiveUploader` 行为保持不变。
 页面采用独立统计缓存，统计失败不扩大写操作权限，原有写接口仍复核实际领域状态。
+
+
+## 失败收件记录删除
+
+`archiveInbox.deleteFailedMany` 使用 adminProcedure，接收 `targetType`（INTAKE_ITEM / DISCOVERY_ITEM）、1–100 个记录 ID 及幂等键；操作者来自 Session。发现来源入口复用同一服务。服务端从记录解析身份与 URL，重新检查失败状态、关联下载及活动扫描/收件，不能由客户端指定作品 ID、URL 或删除范围。每个目标独立事务，持久回执保留结果；删除不涉及本地作品、媒体、下载任务或日志。收件原站链接仅使用经协议、主机、凭据、端口及路径校验的提交地址，不增加公共重定向接口。

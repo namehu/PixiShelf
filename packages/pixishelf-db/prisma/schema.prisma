@@ -1985,6 +1985,7 @@ enum ArchiveIntakeResolutionKind {
 }
 
 enum ArchiveBulkOperationCommand {
+  DELETE_FAILED_RECORDS
   BIND_CREATORS
   CANCEL_PENDING_CREATORS
   ENQUEUE

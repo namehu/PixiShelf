@@ -2,6 +2,10 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ArchiveIntakeRetryActions } from '../archive-intake-item-actions'
 
+vi.mock('../archive-delete-failed-dialog', () => ({
+  ArchiveDeleteFailedDialog: ({ disabled }: { disabled: boolean }) => <button disabled={disabled}>删除失败记录</button>
+}))
+
 vi.mock('@/components/source-preview/source-preview-button', () => ({
   SourcePreviewButton: ({ source }: { source: { itemId: string } }) => (
     <button type="button">预览 {source.itemId}</button>
@@ -30,6 +34,27 @@ describe('archive intake retry actions', () => {
 
     expect(onRetry).toHaveBeenCalledWith('item-79')
     expect(onReplace).toHaveBeenCalledWith('item-79')
+  })
+
+  it('allows a manual retry of a remote-not-found failure', () => {
+    const onRetry = vi.fn()
+    render(
+      <ArchiveIntakeRetryActions
+        item={{
+          id: 'missing',
+          status: 'FAILED',
+          resolutionKind: null,
+          retryable: false,
+          errorCode: 'REMOTE_NOT_FOUND'
+        }}
+        actionPending={false}
+        retrying={false}
+        onRetry={onRetry}
+        onReplace={vi.fn()}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: '直接重试' }))
+    expect(onRetry).toHaveBeenCalledWith('missing')
   })
 
   it('requires a corrected link for a permanent failure', () => {

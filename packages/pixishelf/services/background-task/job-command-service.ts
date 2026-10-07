@@ -666,7 +666,7 @@ export async function retryJobCommand(
         timestamp
       )
       if (reboundItems.length !== 1) {
-        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '归档解析任务未绑定可重试的收件项')
+        throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '收件记录已删除或不再可重试，请从收件箱重新添加链接')
       }
     }
     if (job.status === 'FAILED') {

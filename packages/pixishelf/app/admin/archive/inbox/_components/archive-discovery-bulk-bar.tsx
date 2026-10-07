@@ -1,10 +1,12 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { BanIcon, CheckIcon, RotateCcwIcon, XIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
 export function ArchiveDiscoveryBulkBar({
+  deleteAction,
   selectedCount,
   kind,
   pending,
@@ -19,6 +21,7 @@ export function ArchiveDiscoveryBulkBar({
   ignoreCount = selectedCount,
   addCount = selectedCount
 }: {
+  deleteAction?: ReactNode
   selectedCount: number
   kind: 'catalog' | 'ignored'
   pending: boolean
@@ -60,6 +63,7 @@ export function ArchiveDiscoveryBulkBar({
           </Button>
         ) : (
           <>
+            {deleteAction}
             {onBind ? (
               <Button type="button" variant="outline" onClick={onBind} disabled={pending}>
                 绑定艺术家（{selectedCount}）

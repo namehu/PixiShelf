@@ -1,5 +1,6 @@
 'use client'
 
+import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import type { inferRouterOutputs } from '@trpc/server'
 import { ArrowUpRightIcon, BanIcon, RotateCcwIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
@@ -224,6 +225,9 @@ export function ScanResults({
               >
                 <span className="sr-only">原站预览</span>
               </SourcePreviewButton>
+              {item.deletableFailure ? (
+                <ArchiveDeleteFailedDialog targetType="DISCOVERY_ITEM" itemIds={[item.id]} disabled={mutationPending} />
+              ) : null}
               {item.actionable ? (
                 <Button
                   variant="ghost"

@@ -52,6 +52,7 @@ vi.mock('@/lib/trpc', () => ({
         enqueueMany: mutation,
         cancelMany: mutation,
         retryMany: mutation,
+        deleteFailedMany: mutation,
         pause: mutation,
         resume: mutation,
         replace: mutation
@@ -110,6 +111,34 @@ describe('archive inbox download flow', () => {
     )
     await waitFor(() =>
       expect(screen.getAllByRole('combobox', { name: '队列项目 1 的归档质量' })[0]!.textContent).toBe('展示图')
+    )
+  })
+
+  it('opens original failed URLs on both layouts and confirms deletion of non-retryable failures', () => {
+    const url = 'https://e-hentai.org/g/3453089/fa7a38a99c/'
+    mocks.items = [
+      {
+        ...item,
+        status: 'FAILED',
+        resolutionKind: null,
+        retryable: false,
+        submittedUrl: url,
+        providerKey: null,
+        externalId: null
+      }
+    ]
+    render(<ArchiveInbox />)
+    expect(screen.getAllByRole('link', { name: url })).toHaveLength(2)
+    const selection = screen.getAllByRole('checkbox', { name: '选择队列项目 1' })[0]!
+    expect((selection as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(selection)
+    const buttons = screen.getAllByRole('button', { name: '删除失败记录' })
+    expect(buttons).toHaveLength(3)
+    fireEvent.click(buttons[0]!)
+    expect(mocks.mutate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '确认删除' }))
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ targetType: 'INTAKE_ITEM', itemIds: ['item-1'] })
     )
   })
 

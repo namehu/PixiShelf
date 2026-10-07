@@ -1,0 +1,1 @@
+ALTER TYPE "ArchiveBulkOperationCommand" ADD VALUE 'DELETE_FAILED_RECORDS';

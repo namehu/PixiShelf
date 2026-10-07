@@ -128,6 +128,7 @@ function ResultBadge({ result }: { result: keyof typeof resultLabel }) {
 function commandLabel(command: ArchiveBulkOperationView['commandType']) {
   return (
     {
+      DELETE_FAILED_RECORDS: '删除失败记录',
       ENQUEUE: '归档入队',
       BIND_CREATORS: '绑定艺术家',
       CANCEL_PENDING_CREATORS: '取消待生效绑定',
