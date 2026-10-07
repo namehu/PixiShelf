@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
+import { WebpDiagnosticsPanel, type WebpDiagnosticResult } from '@/components/players/webp-diagnostics-panel'
+import { combinationApiResource } from '@/utils/combination-static'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
 import {
   AnimationPlaybackCapsule,
@@ -71,6 +73,14 @@ export default function AdaptiveMediaPreview({
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex)
   const [zoomScale, setZoomScale] = useState(1)
   const animation = useArtworkAnimation(images[currentIndex]?.id, 'slideshow', previewResourceKey(images[currentIndex]))
+  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false)
+  const [diagnosticRunning, setDiagnosticRunning] = useState(false)
+  const [diagnosticVisible, setDiagnosticVisible] = useState(false)
+  const [diagnosticResults, setDiagnosticResults] = useState<WebpDiagnosticResult[]>([])
+  const diagnosticCanvas = useRef<HTMLCanvasElement>(null)
+  useEffect(() => {
+    setDiagnosticsEnabled(new URLSearchParams(window.location.search).get('webpDiagnostics') === '1')
+  }, [])
   const isWebpPlaying = animation.playing
   const [decodedIndexes, setDecodedIndexes] = useState<Set<string>>(() => new Set())
   const [errorIndexes, setErrorIndexes] = useState<Set<string>>(() => new Set())
@@ -119,14 +129,14 @@ export default function AdaptiveMediaPreview({
     observe(surfaceId, {
       mediaId: activeMediaId,
       ready: activeMediaReady,
-      visible: open && !transitioning,
+      visible: open && !transitioning && !diagnosticRunning,
       automatic: autoSlideshowSelected && ['running', 'waiting'].includes(autoStatus),
       active: open,
       priority: 100
     })
     return () => clearSurface(surfaceId)
   }, [activeMediaId, activeMediaReady, autoSlideshowSelected, autoStatus, clearSurface,
-    observationEpoch, observe, open, transitioning])
+    observationEpoch, observe, open, transitioning, diagnosticRunning])
   const activeProgress = webpProgress?.key === previewResourceKey(activeMedia) ? webpProgress.percent : null
   const activePlayableWebp = useMemo(() => (activeMedia ? isPlayableAnimatedWebp(activeMedia) : false), [activeMedia])
   const eagerNeighborIndexes = useMemo(() => {
@@ -213,7 +223,7 @@ export default function AdaptiveMediaPreview({
     mediaId: activeMedia?.id,
     animated: activePlayableWebp,
     transitioning,
-    enabled: open,
+    enabled: open && !diagnosticRunning,
     onNext: nextSlide,
     onFirst: firstSlide
   })
@@ -332,6 +342,12 @@ export default function AdaptiveMediaPreview({
                 onError={() => setErrorIndexes((current) => new Set(current).add(previewResourceKey(media)))}
               />
             )}
+            {diagnosticsEnabled && index === currentIndex && playableAnimatedWebp && (
+              <div className="pointer-events-none absolute inset-0 px-0 py-16 sm:px-12 sm:py-20">
+                <canvas ref={diagnosticCanvas} data-webp-diagnostic-canvas aria-label="WebP 诊断画面"
+                  className={cn('h-full w-full object-contain', !diagnosticVisible && 'invisible')} />
+              </div>
+            )}
             {animated && !playableAnimatedWebp && !autoSlideshowSelected && (
               <span className="pointer-events-none absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-xs text-white/85 backdrop-blur-md">
                 动图静态预览
@@ -342,7 +358,23 @@ export default function AdaptiveMediaPreview({
       }}
       bottomChrome={({ portalContainer: container }) => (
         <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 h-12">
-          {activePlayableWebp && (
+          {diagnosticsEnabled && open && activePlayableWebp && activeMedia && (
+            <WebpDiagnosticsPanel
+              src={withMediaVersion(combinationApiResource(activeMedia.path), activeMedia.updatedAt)}
+              size={activeMedia.size}
+              canvas={diagnosticCanvas}
+              results={diagnosticResults}
+              onResult={(result) => setDiagnosticResults((current) => [...current, result].slice(-10))}
+              onRunning={setDiagnosticRunning}
+              onVisible={setDiagnosticVisible}
+              onStart={() => {
+                useArtworkAutoBrowseStore.getState().pause('manual')
+                useArtworkAutoBrowseStore.getState().setActiveAnimation(null)
+                animation.stopManual()
+              }}
+            />
+          )}
+          {activePlayableWebp && !diagnosticRunning && (
             <button
               type="button"
               className={cn(
@@ -365,7 +397,7 @@ export default function AdaptiveMediaPreview({
               />
             </button>
           )}
-          {images.length > 1 && (
+          {images.length > 1 && !diagnosticRunning && (
             <div className="pointer-events-none absolute bottom-0 left-1/2 max-w-full -translate-x-1/2">
               <AutoBrowseControls
                 mode="slideshow"

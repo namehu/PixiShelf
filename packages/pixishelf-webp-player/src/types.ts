@@ -1,3 +1,4 @@
+import type { WorkerMetric } from './diagnostics'
 export type PlayerStatus =
   | 'idle'
   | 'loading'
@@ -76,12 +77,13 @@ export interface Frame {
   cycleId: number
 }
 export type WorkerCommand =
-  | { type: 'start'; source: WebpSource; decoderUrl: string; limits: PlayerLimits }
+  | { type: 'start'; source: WebpSource; decoderUrl: string; limits: PlayerLimits; diagnostics?: boolean }
   | { type: 'pull'; recycled?: ArrayBuffer }
   | { type: 'pause'; paused: boolean }
   | { type: 'destroy' }
 export type WorkerEvent =
-  | { type: 'frame'; frame: Frame }
+  | { type: 'frame'; frame: Frame; sentAt?: number }
+  | { type: 'metrics'; values: Partial<Record<WorkerMetric, number>> }
   | { type: 'input'; receivedBytes: number; inputComplete: boolean }
   | { type: 'drained' }
   | { type: 'error'; error: PlayerFailure }

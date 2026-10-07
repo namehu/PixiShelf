@@ -222,3 +222,132 @@ describe('player lifecycle and scheduling', () => {
     p.destroy()
   })
 })
+
+describe('timeline scheduling', () => {
+  it.each([60, 30, 20])(
+    'keeps a two second animation on time at %iHz with asynchronous two-frame delivery',
+    async (hz) => {
+      const p = player()
+      let index = 0
+      const loaded = p.load({ url: '/a.webp', resourceKey: 'a' })
+      const w = FakeWorker.instances[0]!
+      const deliveries: (() => void)[] = []
+      const supply = () => {
+        if (index < 120) w.emit(frame(index++, 1000 / 60))
+        else w.emit({ type: 'drained' })
+      }
+      w.postMessage.mockImplementation((command) => {
+        if (command.type === 'pull') deliveries.push(supply)
+      })
+      supply()
+      supply()
+      await loaded
+      p.play()
+      tick(0)
+      // Drain asynchronous Worker replies independently of the display clock.
+      const flush = () => {
+        while (deliveries.length) deliveries.shift()!()
+      }
+      flush()
+      for (let step = 1; step < 1000 && p.getSnapshot().status !== 'ended'; step++) {
+        // Messages can arrive between RAFs; this is critical at 20Hz.
+        now = (step * 1000) / hz - 0.1
+        flush()
+        tick((step * 1000) / hz)
+        flush()
+      }
+      expect(p.getSnapshot().status).toBe('ended')
+      expect(now).toBeGreaterThanOrEqual(2000 - 0.001)
+      expect(now).toBeLessThanOrEqual(2000 + 2000 / hz + 0.001)
+      expect(p.getSnapshot().frameIndex).toBe(119)
+      expect(p.getSnapshot().presentedMs).toBeCloseTo(2000)
+      if (hz < 60) expect(draw.mock.calls.length).toBeLessThan(120)
+      expect(p.getDiagnostics()).toBeNull()
+      p.destroy()
+    }
+  )
+
+  it('retains legacy half-speed as a diagnostic control and exports no resource URL', async () => {
+    vi.stubGlobal('crypto', { randomUUID: () => 'anonymous-run' })
+    vi.stubGlobal('navigator', { userAgent: 'test-browser' })
+    const p = new WebpPlayer(
+      { width: 0, height: 0, getContext: () => ({ putImageData: draw }) } as unknown as HTMLCanvasElement,
+      {
+        workerUrl: '/worker.mjs',
+        decoderUrl: '/decoder.mjs',
+        diagnostics: { mode: 'legacy', resourceVersion: 'version' }
+      }
+    )
+    const loaded = p.load({ url: '/private-name.webp', resourceKey: 'secret' })
+    const w = FakeWorker.instances[0]!
+    w.emit(frame(0, 1000 / 60))
+    w.emit(frame(1, 1000 / 60))
+    await loaded
+    let index = 2
+    w.postMessage.mockImplementation((command) => {
+      if (command.type === 'pull') {
+        if (index < 120) w.emit(frame(index++, 1000 / 60))
+        else w.emit({ type: 'drained' })
+      }
+    })
+    p.play()
+    for (let step = 0; step <= 120; step++) tick((step * 1000) / 30)
+    expect(p.getSnapshot().status).toBe('ended')
+    const report = p.getDiagnostics()!
+    expect(report.playbackWallMs).toBeCloseTo(4000)
+    expect(report.drawnFrames).toBe(120)
+    expect(report.skippedFrames).toBe(0)
+    expect(JSON.stringify(report)).not.toMatch(/private-name|secret|worker.mjs|decoder.mjs/)
+    p.destroy()
+  })
+
+  it('skips expired intermediate frames but preserves a loop boundary and final frame', async () => {
+    const p = player()
+    const loaded = p.load({ url: '/a.webp', resourceKey: 'a' })
+    const w = FakeWorker.instances[0]!
+    w.emit(frame(0, 20))
+    w.emit(frame(1, 20))
+    await loaded
+    p.play()
+    tick(0)
+    w.emit(frame(2, 20))
+    tick(55)
+    expect(p.getSnapshot()).toMatchObject({ frameIndex: 2, positionMs: 55 })
+    w.emit(frame(0, 20, 1))
+    w.emit({ type: 'drained' })
+    tick(80)
+    expect(p.getSnapshot()).toMatchObject({ frameIndex: 0, cycleIndex: 1, status: 'playing' })
+    tick(100)
+    expect(p.getSnapshot().status).toBe('ended')
+    p.destroy()
+  })
+})
+
+it('keeps irregular frame durations and freezes accumulated display debt across repeated pauses', async () => {
+  const p = player()
+  const loaded = p.load({ url: '/a.webp', resourceKey: 'a' })
+  const w = FakeWorker.instances[0]!
+  w.emit(frame(0, 30))
+  w.emit(frame(1, 20))
+  await loaded
+  p.play()
+  tick(0)
+  now = 55
+  w.emit(frame(2, 70))
+  // First frame and expired second frame have been consumed between RAFs.
+  expect(p.getSnapshot().presentedMs).toBe(50)
+  p.pause()
+  const frozen = p.getSnapshot()
+  now = 2055
+  p.pause()
+  expect(p.getSnapshot()).toEqual(frozen)
+  p.play()
+  tick(2055)
+  expect(p.getSnapshot()).toMatchObject({ frameIndex: 2, positionMs: 55 })
+  w.emit({ type: 'drained' })
+  tick(2119)
+  expect(p.getSnapshot().status).toBe('playing')
+  tick(2120)
+  expect(p.getSnapshot()).toMatchObject({ status: 'ended', presentedMs: 120 })
+  p.destroy()
+})

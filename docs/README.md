@@ -78,6 +78,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 - [发现来源查询性能](./design/archive-discovery-query-performance.md)（current）：URL 索引、独立统计请求、合成性能基线与生产验收边界。
 
+- [WebP 手机播放调度与诊断](./design/webp-mobile-playback.md)（draft）：时间轴调度已实现，手机性能待实测；含本地报告入口与操作说明。
 - [WebP 流式播放器开发方案](./design/webp-streaming-player.md)（draft）：WASM 解码、自动浏览续播与性能验收。
 - [WebP 动图时长探测方案](./design/animation-duration-probe.md)（draft）：持久时长、NFS 有界探测、源版本与写入门禁。
 

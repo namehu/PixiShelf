@@ -25,11 +25,13 @@ test('pauses the displayed frame and resumes without replay or background comple
   await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
 })
 
-test('reports partial displayed-frame progress, freezes on pause, and waits for EOF despite short metadata', async ({ page }) => {
+test('reports partial displayed-frame progress, freezes on pause, and waits for EOF despite short metadata', async ({
+  page
+}) => {
   await run(page, 'window.start("/tests/fixtures/composite.webp?gate",undefined,false,100)')
   await expect.poll(() => run(page, 'window.player.getSnapshot().frameIndex')).toBe(0)
   await page.waitForTimeout(150)
-  const beforePause = await run(page, 'window.player.getSnapshot().positionMs') as number
+  const beforePause = (await run(page, 'window.player.getSnapshot().positionMs')) as number
   expect(beforePause).toBeGreaterThan(0)
   expect(await run(page, 'window.player.getSnapshot().durationMs')).toBe(100)
   await run(page, 'window.player.pause()')
@@ -201,3 +203,54 @@ for (const loops of [1, 2]) {
     expect(await run(page, 'window.events.filter(e=>e.type==="ended").length')).toBe(1)
   })
 }
+
+test('timeline skips drawings while preserving real composite pixels, and no-draw retains decoding', async ({
+  page
+}) => {
+  const body = Buffer.from(await readFile(new URL('../fixtures/composite.webp', import.meta.url)))
+  for (let offset = 12; offset + 8 <= body.length; ) {
+    const length = body.readUInt32LE(offset + 4)
+    if (body.toString('ascii', offset, offset + 4) === 'ANMF') body.writeUIntLE(50, offset + 20, 3)
+    offset += 8 + length + (length & 1)
+  }
+  await page.route('**/fast-composite.webp', (route) => route.fulfill({ contentType: 'image/webp', body }))
+  await run(
+    page,
+    `window.pixelFrames=[];const put=CanvasRenderingContext2D.prototype.putImageData;
+    CanvasRenderingContext2D.prototype.putImageData=function(image,...args){window.pixelFrames.push(Array.from(image.data));return put.call(this,image,...args)}`
+  )
+  await run(page, 'window.start("/fast-composite.webp",undefined,false,null,{mode:"legacy"})')
+  await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
+  const reference = (await run(page, 'window.pixelFrames')) as number[][]
+  expect(reference).toHaveLength(4)
+  await run(
+    page,
+    `window.pixelFrames=[];window.originalRAF=window.requestAnimationFrame;
+    window.requestAnimationFrame=fn=>setTimeout(()=>fn(performance.now()),100);
+    window.cancelAnimationFrame=clearTimeout;
+    window.start('/fast-composite.webp',undefined,false,null,{mode:'timeline'})`
+  )
+  await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
+  const actual = (await run(page, 'window.pixelFrames')) as number[][]
+  expect(actual.length).toBeLessThan(reference.length)
+  expect(actual[0]).toEqual(reference[0])
+  expect(actual.at(-1)).toEqual(reference.at(-1))
+  for (const pixels of actual) expect(reference).toContainEqual(pixels)
+  const report = (await run(
+    page,
+    'window.player.getDiagnostics()'
+  )) as import('../../src/diagnostics').DiagnosticsReport
+  expect(report.skippedFrames).toBeGreaterThan(0)
+  expect(report.decodedFrames).toBe(4)
+  expect(report.timings.decode.count).toBeGreaterThanOrEqual(4)
+  expect(report.timings.copy.count).toBe(4)
+  expect(report.timings.delivery.count).toBe(4)
+  expect(report.timings.readWait.count).toBeGreaterThan(0)
+  expect(report.timings.append.count).toBeGreaterThan(0)
+  await run(page, `window.pixelFrames=[];window.start('/fast-composite.webp',undefined,false,null,{mode:'no-draw'})`)
+  await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
+  expect(await run(page, 'window.pixelFrames.length')).toBe(0)
+  expect(await run(page, 'window.player.getDiagnostics().decodedFrames')).toBe(4)
+  expect(await run(page, 'window.player.getDiagnostics().timings.copy.count')).toBe(4)
+  expect(await run(page, 'window.player.getDiagnostics().drawnFrames')).toBe(0)
+})

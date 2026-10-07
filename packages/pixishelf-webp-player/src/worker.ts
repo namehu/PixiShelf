@@ -18,6 +18,7 @@ let receivedBytes = 0,
   cycleId = 0,
   permits = 0
 let loop = false
+let diagnostics = false
 const recycled: ArrayBuffer[] = []
 let pendingRead: Promise<ReadableStreamReadResult<Uint8Array>> | undefined
 const send = (event: WorkerEvent, transfer?: Transferable[]) => {
@@ -63,6 +64,7 @@ async function appendInput() {
     pendingRead ??= reader!.read()
     let item: ReadableStreamReadResult<Uint8Array> | null
     let timer: ReturnType<typeof setTimeout> | undefined
+    const readStarted = diagnostics ? performance.now() : 0
     try {
       item =
         bytes === 0
@@ -77,9 +79,11 @@ async function appendInput() {
       throw new DecoderError('network')
     } finally {
       if (timer !== undefined) clearTimeout(timer)
+      if (diagnostics) send({ type: 'metrics', values: { readWait: performance.now() - readStarted } })
     }
     if (item === null || cancelled) return
     pendingRead = undefined
+    const appendStarted = diagnostics ? performance.now() : 0
     if (item.done) {
       decoder!.finish()
       finished = true
@@ -88,6 +92,7 @@ async function appendInput() {
       receivedBytes += item.value.byteLength
       bytes += item.value.byteLength
     }
+    if (diagnostics) send({ type: 'metrics', values: { append: performance.now() - appendStarted } })
     send({ type: 'input', receivedBytes, inputComplete: finished })
     if (finished || bytes >= 256 * 1024 || performance.now() >= deadline) return
   }
@@ -112,7 +117,14 @@ async function pump() {
       }
       if (frame !== 0) {
         permits--
-        send({ type: 'frame', frame: { ...frame, index: frameIndex++, cycleId } }, [frame.pixels])
+        send(
+          {
+            type: 'frame',
+            frame: { ...frame, index: frameIndex++, cycleId },
+            ...(diagnostics ? { sentAt: performance.timeOrigin + performance.now() } : {})
+          },
+          [frame.pixels]
+        )
         continue
       }
       if (spare) recycled.push(spare)
@@ -127,6 +139,7 @@ async function pump() {
 }
 async function start(command: Extract<WorkerCommand, { type: 'start' }>) {
   loop = command.source.loop === true
+  diagnostics = command.diagnostics === true
   try {
     const { default: factory } = await import(/* @vite-ignore */ command.decoderUrl)
     if (cancelled) return
@@ -136,7 +149,11 @@ async function start(command: Extract<WorkerCommand, { type: 'start' }>) {
       locateFile: (file: string) => new URL(file, command.decoderUrl).href
     })
     if (cancelled) return
-    decoder = new WasmDecoder(module, command.limits)
+    decoder = new WasmDecoder(
+      module,
+      command.limits,
+      diagnostics ? (metric, elapsed) => send({ type: 'metrics', values: { [metric]: elapsed } }) : undefined
+    )
   } catch (error) {
     fail(error, 'initialization')
     return

@@ -1,3 +1,4 @@
+import type { WorkerMetric } from './diagnostics'
 import type { PlayerLimits, PlayerErrorCode } from './types'
 export interface NativeModule {
   HEAPU8: Uint8Array
@@ -40,7 +41,8 @@ export class WasmDecoder {
   private readonly scratchSize = 64 * 1024
   constructor(
     private module: NativeModule,
-    private limits: PlayerLimits
+    private limits: PlayerLimits,
+    private measure?: (metric: WorkerMetric, elapsed: number) => void
   ) {
     this.handle = module._ps_create(limits.maxInputBytes, limits.maxPixels)
     this.scratch = module._malloc(this.scratchSize)
@@ -57,16 +59,20 @@ export class WasmDecoder {
     }
   }
   next(recycled?: ArrayBuffer) {
+    const started = this.measure ? performance.now() : 0
     const result = check(this.module._ps_next(this.handle))
+    this.measure?.('decode', performance.now() - started)
     if (result === 0 || result === 2) return result
     const width = this.module._ps_width(this.handle),
       height = this.module._ps_height(this.handle)
     const bytes = width * height * 4
     // Two transferable frames plus the visible canvas; heap includes native input/canvases/scratch.
     if (this.module.HEAPU8.byteLength + bytes * 3 > this.limits.maxManagedBytes) throw new DecoderError('memory-limit')
+    const copyStarted = this.measure ? performance.now() : 0
     const pixels = recycled?.byteLength === bytes ? recycled : new ArrayBuffer(bytes)
     const offset = this.module._ps_pixels(this.handle)
     new Uint8Array(pixels).set(this.module.HEAPU8.subarray(offset, offset + bytes))
+    this.measure?.('copy', performance.now() - copyStarted)
     return { pixels, width, height, durationMs: this.module._ps_duration(this.handle) }
   }
   finish() {

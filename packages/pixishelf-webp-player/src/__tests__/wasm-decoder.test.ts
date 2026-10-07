@@ -46,6 +46,14 @@ describe('native memory boundary', () => {
     expect(() => limited.next()).toThrow('memory-limit')
     limited.destroy()
   })
+  it('does not read a performance clock or emit metrics when diagnostics are disabled', () => {
+    const decoder = new WasmDecoder(native({ _ps_next: () => 1 }), playerLimits(true))
+    const clock = vi.spyOn(performance, 'now')
+    decoder.next()
+    expect(clock).not.toHaveBeenCalled()
+    clock.mockRestore()
+    decoder.destroy()
+  })
   it('keeps viewport budgets within the compiled 768 MiB heap ceiling', () => {
     const narrow = playerLimits(true),
       wide = playerLimits(false)

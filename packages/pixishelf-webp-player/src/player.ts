@@ -1,3 +1,4 @@
+import { PlaybackDiagnostics, type DiagnosticMode } from './diagnostics'
 import { FrameClock } from './clock'
 import {
   playerLimits,
@@ -16,6 +17,7 @@ export interface PlayerOptions {
   workerUrl: string
   decoderUrl: string
   limits?: PlayerLimits
+  diagnostics?: { mode?: DiagnosticMode; resourceVersion?: string }
 }
 export class WebpPlayer {
   private worker: Worker | null = null
@@ -41,6 +43,9 @@ export class WebpPlayer {
   private currentDuration: number | null = null
   private cyclePresentedMs = 0
   private lastProgressEmission = -Infinity
+  private debt = 0
+  private debtAt: number | null = null
+  private diagnostics: PlaybackDiagnostics | null = null
   private raf = 0
   private resolveLoad: (() => void) | null = null
   private rejectLoad: ((error: Error) => void) | null = null
@@ -57,8 +62,15 @@ export class WebpPlayer {
       this.listeners.delete(listener)
     }
   }
+  getDiagnostics() {
+    return this.diagnostics?.report() ?? null
+  }
+  private get legacy() {
+    return this.options.diagnostics?.mode === 'legacy'
+  }
   getSnapshot(): PlayerSnapshot {
-    const partial = this.currentDuration === null ? 0 : this.currentDuration - this.clock.peekRemaining(performance.now())
+    const partial =
+      this.currentDuration === null ? 0 : this.currentDuration - this.clock.peekRemaining(performance.now())
     return {
       ...this.snapshot,
       positionMs: Math.max(0, this.cyclePresentedMs + partial),
@@ -70,6 +82,7 @@ export class WebpPlayer {
   }
   private state(status: PlayerStatus) {
     if (this.snapshot.status === status) return
+    this.diagnostics?.state(status)
     this.snapshot.status = status
     this.emit({ type: 'state', snapshot: this.getSnapshot() })
   }
@@ -89,6 +102,8 @@ export class WebpPlayer {
     this.worker = null
     this.queue = []
     this.clock.reset()
+    this.debt = 0
+    this.debtAt = null
     this.currentDuration = null
     this.cyclePresentedMs = 0
     this.lastProgressEmission = -Infinity
@@ -99,6 +114,12 @@ export class WebpPlayer {
   load(source: WebpSource): Promise<void> {
     if (this.snapshot.status === 'destroyed') return Promise.reject(new Error('Player destroyed'))
     this.release()
+    this.diagnostics = this.options.diagnostics
+      ? new PlaybackDiagnostics(
+          this.options.diagnostics.mode ?? 'timeline',
+          this.options.diagnostics.resourceVersion ?? 'unknown'
+        )
+      : null
     this.source = source
     this.desired = false
     this.drained = false
@@ -146,7 +167,8 @@ export class WebpPlayer {
         type: 'start',
         source: { ...source, url: url.href },
         decoderUrl: new URL(this.options.decoderUrl, location.href).href,
-        limits: this.limits
+        limits: this.limits,
+        ...(this.diagnostics ? { diagnostics: true } : {})
       })
       this.command({ type: 'pull' })
       this.command({ type: 'pull' })
@@ -162,6 +184,14 @@ export class WebpPlayer {
     return promise
   }
   private receive(event: WorkerEvent) {
+    if (event.type === 'metrics') {
+      if (this.diagnostics) {
+        for (const [metric, value] of Object.entries(event.values)) {
+          this.diagnostics.timings[metric as keyof typeof event.values].add(value!)
+        }
+      }
+      return
+    }
     if (event.type === 'error') {
       this.fail(event.error)
       return
@@ -169,6 +199,7 @@ export class WebpPlayer {
     if (event.type === 'input') {
       this.snapshot.receivedBytes = event.receivedBytes
       this.snapshot.inputComplete = event.inputComplete
+      if (event.inputComplete && this.diagnostics) this.diagnostics.inputComplete ??= performance.now()
       return
     }
     if (event.type === 'drained') this.drained = true
@@ -177,7 +208,18 @@ export class WebpPlayer {
         this.fail({ code: 'internal', message: 'Frame queue overflow', recoverableByLegacy: false })
         return
       }
+      if (this.diagnostics) {
+        this.diagnostics.decodedFrames++
+        this.diagnostics.decodedMediaMs += event.frame.durationMs
+        this.diagnostics.width = event.frame.width
+        this.diagnostics.height = event.frame.height
+        if (event.sentAt !== undefined)
+          this.diagnostics.timings.delivery.add(performance.timeOrigin + performance.now() - event.sentAt)
+      }
       this.queue.push(event.frame)
+      // Return expired frames between RAFs too: a two-frame queue must not cap
+      // decoding throughput at twice the display callback frequency.
+      if (!this.legacy && this.desired && this.painted) this.advanceTimeline(performance.now())
       this.resolveLoad?.()
       this.resolveLoad = null
       this.rejectLoad = null
@@ -200,11 +242,13 @@ export class WebpPlayer {
     if (this.desired) return
     this.desired = true
     this.clock.resume(performance.now())
+    if (this.debtAt !== null) this.debtAt = performance.now()
     this.command({ type: 'pause', paused: false })
     this.schedule()
   }
   pause() {
     if (['destroyed', 'error', 'ended', 'idle'].includes(this.snapshot.status)) return
+    if (this.desired && !this.legacy && this.painted) this.advanceTimeline(performance.now())
     this.desired = false
     this.clock.pause(performance.now())
     cancelAnimationFrame(this.raf)
@@ -220,15 +264,50 @@ export class WebpPlayer {
       this.raf = 0
       if (generation !== this.generation || !this.desired) return
       try {
-        this.tick(now)
+        // Worker messages use performance.now(); use the same monotonic clock
+        // rather than the RAF timestamp, which can precede a message handled this turn.
+        const tickTime = this.legacy ? now : performance.now()
+        if (this.snapshot.status === 'playing') this.diagnostics?.raf(tickTime)
+        this.tick(tickTime)
       } catch {
         this.fail({ code: 'internal', message: 'Canvas playback failed', recoverableByLegacy: false })
       }
     })
   }
+  private consume(frame: Pick<Frame, 'durationMs' | 'cycleId'>) {
+    if (frame.cycleId !== this.snapshot.cycleIndex) {
+      this.snapshot.cycleIndex = frame.cycleId
+      this.cyclePresentedMs = 0
+    }
+    this.snapshot.presentedMs += frame.durationMs
+    this.cyclePresentedMs += frame.durationMs
+  }
+  private advanceTimeline(now: number) {
+    if (this.currentDuration !== null) {
+      if (this.clock.advance(now) > 0) return
+      this.debt = this.clock.overdueMs
+      this.consume({ durationMs: this.currentDuration, cycleId: this.snapshot.cycleIndex })
+      this.currentDuration = null
+      this.debtAt = now
+    } else if (this.debtAt !== null) {
+      this.debt += Math.max(0, now - this.debtAt)
+      this.debtAt = now
+    }
+    // Keep an unconfirmed last frame, and display both sides of a loop boundary.
+    while (this.queue.length > 1) {
+      const frame = this.queue[0]!
+      if (frame.index === 0 || this.queue[1]!.cycleId !== frame.cycleId || this.debt < frame.durationMs) break
+      this.queue.shift()
+      this.debt -= frame.durationMs
+      this.consume(frame)
+      if (this.diagnostics) this.diagnostics.skippedFrames++
+      this.command({ type: 'pull', recycled: frame.pixels }, [frame.pixels])
+    }
+  }
   private tick(now: number) {
     const generation = this.generation
     const hadCurrentFrame = this.currentDuration !== null
+    if (!this.legacy) this.advanceTimeline(now)
     if (this.currentDuration !== null && this.clock.advance(now) > 0) {
       this.state('playing')
       this.progress(now)
@@ -250,6 +329,8 @@ export class WebpPlayer {
         this.progress(now, true)
         if (generation === this.generation) this.emit({ type: 'ended' })
       } else {
+        this.debt = 0
+        this.debtAt = null
         this.state(this.painted ? 'buffering' : 'loading')
         this.progress(now, true)
       }
@@ -259,21 +340,35 @@ export class WebpPlayer {
       this.canvas.width = frame.width
       this.canvas.height = frame.height
     }
-    const ctx = this.canvas.getContext('2d')
-    if (!ctx) throw new Error('Canvas unavailable')
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(frame.pixels), frame.width, frame.height), 0, 0)
+    if (this.options.diagnostics?.mode !== 'no-draw') {
+      const drawStarted = this.diagnostics ? performance.now() : 0
+      const ctx = this.canvas.getContext('2d')
+      if (!ctx) throw new Error('Canvas unavailable')
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(frame.pixels), frame.width, frame.height), 0, 0)
+      if (this.diagnostics) {
+        this.diagnostics.drawnFrames++
+        this.diagnostics.timings.draw.add(performance.now() - drawStarted)
+      }
+    }
     if (frame.cycleId !== this.snapshot.cycleIndex) {
       this.snapshot.cycleIndex = frame.cycleId
       this.cyclePresentedMs = 0
     }
     this.snapshot.frameIndex = frame.index
     this.currentDuration = frame.durationMs
-    // Preserve cadence across normal RAF quantization, but never skip a frame
-    // or carry network buffering time into the next frame's duration.
-    const correction = hadCurrentFrame ? Math.min(this.clock.overdueMs, frame.durationMs - 1) : 0
+    // Legacy is diagnostic-only; the default carries all display lateness.
+    // A real empty queue resets this debt, so network stalls are never chased.
+    const correction = this.legacy
+      ? hadCurrentFrame
+        ? Math.min(this.clock.overdueMs, frame.durationMs - 1)
+        : 0
+      : this.debt
+    this.debt = 0
+    this.debtAt = null
     this.clock.start(frame.durationMs - correction, now)
     if (!this.painted) {
       this.painted = true
+      if (this.diagnostics) this.diagnostics.firstFrame = performance.now()
       this.emit({ type: 'first-frame' })
     }
     if (generation !== this.generation) return

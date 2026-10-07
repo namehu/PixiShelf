@@ -35,13 +35,13 @@
     import { WebpPlayer, playerLimits } from '/dist/index.js'
     window.events = []
     window.player = null
-    window.start = async (path = '/tests/fixtures/composite.webp?gate', limits = playerLimits(false), loop = false, durationMs = null) => {
+    window.start = async (path = '/tests/fixtures/composite.webp?gate', limits = playerLimits(false), loop = false, durationMs = null, diagnostics = undefined) => {
       window.player?.destroy()
       window.events = []
       const p = new WebpPlayer(document.querySelector('canvas'), {
         workerUrl: '/assets/worker.mjs',
         decoderUrl: '/assets/decoder.mjs',
-        limits
+        limits, diagnostics
       })
       window.player = p
       p.subscribe((e) => {

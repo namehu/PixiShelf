@@ -172,6 +172,20 @@ describe('AdaptiveMediaPreview', () => {
     vi.unstubAllGlobals()
   })
 
+  it('only exposes diagnostics for the current WebP with an explicit URL flag', () => {
+    const media = { ...createMedia(0, '/diagnostic.webp'), webpAnimationStatus: 2, isAnimated: true }
+    const view = render(<AdaptiveMediaPreview images={[media, createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'WebP 性能诊断' })).toBeNull()
+    view.unmount()
+    history.replaceState({}, '', '?webpDiagnostics=1')
+    const enabled = render(<AdaptiveMediaPreview images={[media, createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'WebP 性能诊断' })).toBeTruthy()
+    enabled.unmount()
+    render(<AdaptiveMediaPreview images={[createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'WebP 性能诊断' })).toBeNull()
+    history.replaceState({}, '', window.location.pathname)
+  })
+
   it('pauses autoplay on an image error and keeps retry under user control', () => {
     autoBrowseStore.getState().initialize(1)
     autoBrowseStore.getState().start('slideshow')
