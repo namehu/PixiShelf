@@ -752,7 +752,8 @@ export function createArchiveUploaderComparisonSnapshot(value: unknown): Archive
 
 export function hashArchiveUploaderComparisonMetadata(value: unknown): string | null {
   const snapshot = createArchiveUploaderComparisonSnapshot(value)
-  return snapshot ? createHash('sha256').update(stableStringify(snapshot)).digest('hex') : null
+  if (!snapshot) return null
+  return hashResolvedMetadata(Object.fromEntries(Object.entries(snapshot).filter(([key]) => key !== 'tags')))
 }
 
 export function hashArchiveUploaderDiscoveryMetadata(value: unknown): string | null {
@@ -775,7 +776,6 @@ export function compareArchiveUploaderMetadata(
   addScalarComparisonReason(changeReasons, 'fileCount', previous.fileCount, current.fileCount, '页数')
   addScalarComparisonReason(changeReasons, 'fileSize', previous.fileSize, current.fileSize, '文件大小')
   addScalarComparisonReason(changeReasons, 'expunged', previous.expunged, current.expunged, '下架状态')
-  addComparisonReason(changeReasons, 'tags', previous.tags, current.tags, '标签变化')
   addComparisonReason(changeReasons, 'relationships', previous.relationships, current.relationships, '版本关系变化')
 
   return { previous, current, changeReasons }

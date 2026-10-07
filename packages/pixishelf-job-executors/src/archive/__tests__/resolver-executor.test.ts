@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ArchiveExecutorError } from '../errors.js'
 import { executeArchiveResolveItem } from '../resolver-executor.js'
 import type { ArchiveProvider, ResolvedArchive } from '../types.js'
+import { hashResolvedMetadata } from '../providers/e-hentai.js'
 
 const resolved: ResolvedArchive = {
   providerKey: 'test',
@@ -49,6 +50,40 @@ describe('archive resolver executor', () => {
     })
     expect(fixture.catalogUpdates.at(-1)).toMatchObject({ lastOutcome: 'SUBMITTED', lastErrorCode: null })
   })
+
+  it.each(['AUTO', 'MANUAL'] as const)(
+    'classifies tag/rating-only changes as UNCHANGED in %s mode',
+    async (downloadMode) => {
+      const previous = {
+        title: 'Resolved title',
+        fileCount: 1,
+        fileSize: 10,
+        mediaPlan: [{ index: 0, sourcePageUrl: resolved.media[0]!.sourcePageUrl }],
+        tags: [],
+        rating: '4.48'
+      }
+      const current = {
+        ...resolved,
+        providerKey: 'e-hentai',
+        normalizedMetadata: { ...previous, tags: [{ namespace: 'female', name: 'sole female' }], rating: '4.49' }
+      }
+      const fixture = createFixture({
+        providerResolve: vi.fn(async () => current),
+        downloadMode,
+        publishedMetadata: previous
+      })
+
+      await executeArchiveResolveItem(fixture.context, fixture.dependencies)
+
+      expect(fixture.intakeUpdates.at(-1)).toMatchObject({
+        status: downloadMode === 'AUTO' ? 'SKIPPED' : 'READY',
+        resolutionKind: 'UNCHANGED',
+        metadataHash: hashResolvedMetadata(current.normalizedMetadata),
+        resolvedSnapshot: expect.objectContaining({ normalizedMetadata: current.normalizedMetadata })
+      })
+      expect(fixture.finalOutcome).toMatchObject({ kind: 'completed' })
+    }
+  )
 
   it('marks a different URL resolving to an existing intake identity as DUPLICATE', async () => {
     const fixture = createFixture({
@@ -219,6 +254,8 @@ function createFixture(input: {
   jobMaxAttempts?: number
   duplicateItemId?: string
   activeArchiveImportId?: string
+  downloadMode?: 'AUTO' | 'MANUAL'
+  publishedMetadata?: Record<string, unknown>
 }) {
   const intakeUpdates: Array<Record<string, unknown>> = []
   const catalogUpdates: Array<Record<string, unknown>> = []
@@ -231,7 +268,11 @@ function createFixture(input: {
         intakeUpdates.push(data)
         return { count: 1 }
       }),
-      findUniqueOrThrow: vi.fn(async () => ({ submittedUrl: 'https://example.test/g/gallery-1' })),
+      findUniqueOrThrow: vi.fn(async () => ({
+        id: 'intake-1',
+        submittedUrl: 'https://example.test/g/gallery-1',
+        downloadMode: input.downloadMode ?? 'MANUAL'
+      })),
       findUnique: vi.fn(async () => ({
         providerKey: 'test',
         externalId: 'gallery-1',
@@ -240,7 +281,17 @@ function createFixture(input: {
       })),
       findFirst: vi.fn(async () => (input.duplicateItemId ? { id: input.duplicateItemId } : null))
     },
-    artworkExternalRef: { findUnique: vi.fn(async () => null) },
+    artworkExternalRef: {
+      findUnique: vi.fn(async () =>
+        input.publishedMetadata
+          ? {
+              id: 'reference-1',
+              archiveRevisions: [{ metadataHash: hashResolvedMetadata(input.publishedMetadata) }]
+            }
+          : null
+      )
+    },
+    artworkSourceSnapshot: { findUnique: vi.fn(async () => ({ normalizedMetadata: input.publishedMetadata })) },
     archiveImport: {
       findFirst: vi.fn(async () => (input.activeArchiveImportId ? { id: input.activeArchiveImportId } : null))
     },

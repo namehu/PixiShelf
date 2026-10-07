@@ -1,5 +1,5 @@
 import { ARCHIVE_INTAKE_PUBLISH_LOCK_ID, enqueueArchiveIntakeItemInTransaction } from '../intake-enqueue.ts'
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import type { WorkerCapability } from '@pixishelf/job-contracts'
 import { Prisma, PrismaClient } from '@pixishelf/db'
 import {
@@ -14,6 +14,7 @@ import {
 } from '@pixishelf/job-runtime'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { executeArchiveResolveItem } from '../resolver-executor.js'
+import { hashResolvedMetadata } from '../providers/e-hentai.js'
 import { GovernedArchiveProviderRegistry, PostgresArchiveProviderGovernor } from '../provider-governor.js'
 import { DefaultArchiveMediaProviderRegistry } from '../provider-registry.js'
 import type { ArchiveProvider, ResolvedArchive } from '../types.js'
@@ -333,6 +334,55 @@ describePostgres('archive resolver PostgreSQL integration', () => {
       await db().archiveImport.count({ where: { providerKey: resolved.providerKey, externalId: resolved.externalId } })
     ).toBe(1)
   })
+
+  it.each(['AUTO', 'MANUAL'] as const)(
+    'ignores tag/rating-only changes against an existing published archive in %s mode',
+    async (downloadMode) => {
+      const clock = new MutableQueueClock(new Date('2026-08-18T10:00:00.000Z'))
+      const previous: ResolvedArchive = {
+        ...resolved,
+        providerKey: 'e-hentai',
+        normalizedMetadata: {
+          title: resolved.title,
+          fileCount: 1,
+          fileSize: 10,
+          mediaPlan: resolved.media.map(({ index, sourcePageUrl }) => ({ index, sourcePageUrl })),
+          tags: [],
+          rating: '4.48'
+        }
+      }
+      await seedPublishedArchive(true, previous)
+      const { itemId } = await seedResolverItem(clock.now())
+      await db().archiveIntakeItem.update({ where: { id: itemId }, data: { downloadMode } })
+      const current = {
+        ...previous,
+        normalizedMetadata: {
+          ...previous.normalizedMetadata,
+          tags: [{ namespace: 'female', name: 'sole female' }],
+          rating: '4.49'
+        }
+      }
+      const repository = createRepository(clock)
+      const claim = (await repository.claim('metadata-noise', capabilities))!
+
+      await executeArchiveResolveItem(executionContext(repository, claim), {
+        database: db(),
+        providers: providerRegistry(vi.fn(async () => current)),
+        now: () => clock.now()
+      })
+
+      expect(await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })).toMatchObject({
+        status: downloadMode === 'AUTO' ? 'SKIPPED' : 'READY',
+        resolutionKind: 'UNCHANGED',
+        metadataHash: hashResolvedMetadata(current.normalizedMetadata),
+        archiveImportId: null,
+        resolvedSnapshot: expect.objectContaining({ normalizedMetadata: current.normalizedMetadata })
+      })
+      expect(
+        await db().archiveImport.count({ where: { providerKey: current.providerKey, externalId: current.externalId } })
+      ).toBe(1)
+    }
+  )
 
   it('AUTO ACTIVE_TASK reuses the existing quality even when default tag settings are invalid', async () => {
     const clock = new MutableQueueClock(new Date('2026-08-18T10:00:00.000Z'))
@@ -695,14 +745,18 @@ function withDefaultTagSetting(context: ReturnType<typeof executionContext>, con
   return context
 }
 
-async function seedArchiveImport(quality: 'ORIGINAL' | 'DISPLAY', status: 'PENDING' | 'COMPLETED') {
+async function seedArchiveImport(
+  quality: 'ORIGINAL' | 'DISPLAY',
+  status: 'PENDING' | 'COMPLETED',
+  archive: ResolvedArchive = resolved
+) {
   return db().archiveImport.create({
     data: {
       id: testPrefix + '-import-' + randomUUID(),
-      providerKey: resolved.providerKey,
-      externalId: resolved.externalId,
-      submittedUrl: resolved.canonicalUrl,
-      canonicalUrl: resolved.canonicalUrl,
+      providerKey: archive.providerKey,
+      externalId: archive.externalId,
+      submittedUrl: archive.canonicalUrl,
+      canonicalUrl: archive.canonicalUrl,
       locator: {},
       requestedQuality: quality,
       selectedQuality: quality,
@@ -727,18 +781,28 @@ async function seedArchiveImport(quality: 'ORIGINAL' | 'DISPLAY', status: 'PENDI
   })
 }
 
-async function seedPublishedArchive(unchanged: boolean) {
-  const archive = await seedArchiveImport('ORIGINAL', 'COMPLETED')
+async function seedPublishedArchive(unchanged: boolean, published: ResolvedArchive = resolved) {
+  const archive = await seedArchiveImport('ORIGINAL', 'COMPLETED', published)
   const artwork = await db().artwork.create({
     data: { title: testPrefix + '-published', source: 'URL_ARCHIVE', createdVia: 'URL_ARCHIVE' }
   })
   const reference = await db().artworkExternalRef.create({
     data: {
       artworkId: artwork.id,
-      providerKey: resolved.providerKey,
-      externalId: resolved.externalId,
-      canonicalUrl: resolved.canonicalUrl,
+      providerKey: published.providerKey,
+      externalId: published.externalId,
+      canonicalUrl: published.canonicalUrl,
       locator: {}
+    }
+  })
+  const metadataHash = unchanged ? hashResolvedMetadata(published.normalizedMetadata) : 'a'.repeat(64)
+  await db().artworkSourceSnapshot.create({
+    data: {
+      externalRefId: reference.id,
+      normalizedMetadata: JSON.parse(JSON.stringify(published.normalizedMetadata)),
+      rawMetadata: {},
+      metadataHash,
+      fetchedAt: new Date('2026-08-17T10:00:00Z')
     }
   })
   await db().archiveRevision.create({
@@ -749,9 +813,7 @@ async function seedPublishedArchive(unchanged: boolean) {
       archivePath: 'test/archive',
       manifestPath: 'test/archive/manifest.json',
       mediaSnapshot: [],
-      metadataHash: unchanged
-        ? createHash('sha256').update(JSON.stringify(resolved.normalizedMetadata)).digest('hex')
-        : 'a'.repeat(64),
+      metadataHash,
       isCurrent: true
     }
   })

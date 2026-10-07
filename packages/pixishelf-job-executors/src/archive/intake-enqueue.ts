@@ -5,6 +5,7 @@ import { redactSensitiveText } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError } from './errors.ts'
 import { buildArchiveStoragePaths } from './storage.ts'
 import type { ResolvedArchive } from './types.ts'
+import { isPublishedArchiveUnchanged } from './metadata-comparison.ts'
 
 export const ARCHIVE_INTAKE_PUBLISH_LOCK_ID = 7_341_902_117
 const ARCHIVE_PUBLISH_ADVISORY_LOCK_ID = ARCHIVE_INTAKE_PUBLISH_LOCK_ID
@@ -100,7 +101,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
     return { result: 'CONFLICT', code: 'ARCHIVE_TRASHED', message: '该作品在归档回收站中，请先恢复' }
   }
   if (options.autoOnly && existingRef) {
-    const unchanged = existingRef.archiveRevisions[0]?.metadataHash === item.metadataHash
+    const unchanged = await isPublishedArchiveUnchanged(transaction, existingRef, resolved, item.metadataHash)
     await transaction.archiveIntakeItem.update({
       where: { id: item.id },
       data: { status: unchanged ? 'SKIPPED' : 'READY', resolutionKind: unchanged ? 'UNCHANGED' : 'UPDATE' }

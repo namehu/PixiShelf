@@ -371,6 +371,37 @@ describe('archive uploader scan executor', () => {
       })
     )
   })
+
+  it('keeps an existing gallery archived when only tags and rating change', async () => {
+    const updatedMetadata = { ...discovery, tags: [{ namespace: 'female', name: 'sole female' }], rating: '4.49' }
+    const fixture = createFixture({
+      scanUploader: vi.fn(async () => ({
+        ...scanResult,
+        items: [
+          {
+            ...scanResult.items[1]!,
+            metadataFingerprint: hashArchiveUploaderDiscoveryMetadata(updatedMetadata)!,
+            comparisonSnapshot: createArchiveUploaderComparisonSnapshot(updatedMetadata)!,
+            normalizedMetadata: updatedMetadata
+          }
+        ]
+      }))
+    })
+
+    await executeArchiveUploaderScan(fixture.context, fixture.dependencies)
+
+    expect(fixture.createdItems).toEqual([expect.objectContaining({ classification: 'ARCHIVED' })])
+    expect(fixture.catalogUpserts).toEqual([
+      expect.objectContaining({
+        update: expect.objectContaining({
+          classification: 'ARCHIVED',
+          comparisonKnown: true,
+          changeReasons: [],
+          comparisonSnapshot: expect.objectContaining({ tags: updatedMetadata.tags })
+        })
+      })
+    ])
+  })
 })
 
 describe('title scan executor', () => {

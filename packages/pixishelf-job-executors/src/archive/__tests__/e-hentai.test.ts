@@ -71,9 +71,22 @@ describe('archive uploader stable metadata comparison', () => {
       { field: 'fileCount', message: '页数 1 → 2' },
       { field: 'fileSize', message: '文件大小 10 → 20' },
       { field: 'expunged', message: '下架状态 否 → 是' },
-      { field: 'tags', message: '标签变化' },
       { field: 'relationships', message: '版本关系变化' }
     ])
+  })
+
+  it('retains changed tags in the snapshot without changing the update fingerprint or recommendation', () => {
+    const changed = {
+      ...comparableMetadata,
+      tags: [{ namespace: 'female', name: 'very long hair' }],
+      rating: '4.49'
+    }
+
+    expect(createArchiveUploaderComparisonSnapshot(changed)?.tags).toEqual(changed.tags)
+    expect(hashArchiveUploaderComparisonMetadata(changed)).toBe(
+      hashArchiveUploaderComparisonMetadata(comparableMetadata)
+    )
+    expect(compareArchiveUploaderMetadata(comparableMetadata, changed)?.changeReasons).toEqual([])
   })
 
   it('rejects incomplete historical metadata as not comparable', () => {

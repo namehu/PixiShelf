@@ -21,6 +21,7 @@ import type {
 } from '@pixishelf/job-runtime'
 import { toArchiveExecutorError } from './errors.ts'
 import { hashResolvedMetadata } from './providers/e-hentai.ts'
+import { isPublishedArchiveUnchanged } from './metadata-comparison.ts'
 import type { ArchiveProviderRegistry, ResolvedArchive } from './types.ts'
 import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts'
 
@@ -231,16 +232,11 @@ async function finalizeResolved(
     return
   }
 
-  const currentHash = existingReference?.archiveRevisions[0]?.metadataHash
-  // The metadata hash makes classification stable across retries: unchanged
-  // remote metadata stays UNCHANGED until an explicit enqueue decision is made.
-  const resolutionKind = activeImport
-    ? 'ACTIVE_TASK'
-    : !existingReference
-      ? 'NEW'
-      : currentHash === metadataHash
-        ? 'UNCHANGED'
-        : 'UPDATE'
+  const unchanged =
+    !activeImport && existingReference
+      ? await isPublishedArchiveUnchanged(scope.transaction, existingReference, resolved, metadataHash)
+      : false
+  const resolutionKind = activeImport ? 'ACTIVE_TASK' : !existingReference ? 'NEW' : unchanged ? 'UNCHANGED' : 'UPDATE'
   const expiresAt = new Date(resolvedAt.getTime() + SNAPSHOT_TTL_MS)
   const changed = await scope.transaction.archiveIntakeItem.updateMany({
     where: {
