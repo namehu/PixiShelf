@@ -1,10 +1,6 @@
 'use client'
 
-import { useRef } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import type { inferRouterOutputs } from '@trpc/server'
-import { ArrowRight, ShieldCheck } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { SCard } from '@/components/shared/s-card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -12,15 +8,17 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
 import type { AppRouter } from '@/server'
-import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import type { inferRouterOutputs } from '@trpc/server'
+import { ArrowRight, ShieldCheck } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { useRef } from 'react'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type SourceAuditAvailability = RouterOutputs['sourceAudit']['availability']
 type AvailabilityReason = SourceAuditAvailability['reason']
 
 const unavailableCopy: Record<Exclude<AvailabilityReason, 'AUDIT_ACTIVE' | null>, string> = {
-  CUTOVER_DISABLED: '中央任务调度尚未启用，暂时不能发起核对。',
-  DISPATCH_DISABLED: 'Worker 任务调度尚未启用，暂时不能发起核对。',
   SCAN_ROOT_NOT_CONFIGURED: '请先配置服务端扫描目录。',
   SCAN_ROOT_UNAVAILABLE: '扫描目录当前不可访问，请检查目录挂载。',
   INVENTORY_NOT_READY: '请先运行“扫描新作品”，完成来源基线后再核对。',

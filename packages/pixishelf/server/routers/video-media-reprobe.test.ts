@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
   cancelCentralVideoMediaProbeMock,
@@ -94,9 +94,9 @@ vi.mock('@/services/scheduled-task-service', () => ({
   updateScheduledTask: vi.fn()
 }))
 
+import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import { artworkRouter } from './artwork'
 import { jobRouter } from './job'
-import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 
 const ctx = {
   session: { id: 'session-1' },
@@ -141,27 +141,6 @@ describe('video media reprobe routers', () => {
       path: '/artist/work/video.mp4',
       mediaType: 'VIDEO'
     })
-  })
-
-  it('reprobes a video by image id through artwork router', async () => {
-    const caller = artworkRouter.createCaller(ctx)
-
-    await expect(caller.reprobeVideoMedia({ imageId: 9 })).resolves.toMatchObject({
-      mode: 'COMPLETED',
-      metadata: { imageId: 9, probeStatus: 'COMPLETED', hasAudio: false }
-    })
-    expect(reprobeVideoMediaByImageIdMock).toHaveBeenCalledWith(9, '/scan-root')
-  })
-
-  it('resolves a path and reprobes the matched video through job router', async () => {
-    const caller = jobRouter.createCaller(ctx)
-
-    await expect(caller.reprobeVideoMediaByPath({ path: '/artist/work/video.mp4' })).resolves.toMatchObject({
-      mode: 'COMPLETED',
-      metadata: { imageId: 9, probeStatus: 'COMPLETED' }
-    })
-    expect(resolveVideoImageForReprobePathMock).toHaveBeenCalledWith('/artist/work/video.mp4', '/scan-root')
-    expect(reprobeVideoMediaByImageIdMock).toHaveBeenCalledWith(9, '/scan-root')
   })
 
   it('maps invalid reprobe targets to bad request errors', async () => {
@@ -209,12 +188,12 @@ describe('video media reprobe routers', () => {
     })
   })
 
-  it('uses unified cancellation centrally and preserves the legacy fallback before cutover', async () => {
+  it('always uses central cancellation even with obsolete flags disabled', async () => {
     const caller = jobRouter.createCaller(ctx)
 
     await expect(caller.cancelVideoMediaProbe()).resolves.toEqual({ success: true })
-    expect(cancelJobMock).toHaveBeenCalledWith('probe-legacy')
-    expect(markAsCancelledMock).toHaveBeenCalledWith('probe-legacy')
+    expect(cancelJobMock).not.toHaveBeenCalled()
+    expect(markAsCancelledMock).not.toHaveBeenCalled()
 
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     await expect(caller.cancelVideoMediaProbe()).resolves.toEqual({ success: true })

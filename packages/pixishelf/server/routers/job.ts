@@ -1,64 +1,7 @@
-import { archiveModule } from '@/services/archive/archive-module'
-import { runArchiveOperation } from './archive'
-import { adminProcedure, authProcedure, router } from '@/server/trpc'
-import * as JobService from '@/services/job-service'
-import { refillMetaSource } from '@/services/scan-service/refill-meta-source'
-import { getScanPath } from '@/services/setting.service'
-import { TRPCError } from '@trpc/server'
-import logger from '@/lib/logger'
-import { syncAllMediaDerivedTags } from '@/services/media-derived-tag-service'
-import { listScheduledTasks, triggerScheduledTaskNow, updateScheduledTask } from '@/services/scheduled-task-service'
-import { reprobeVideoMediaByImageId, resolveVideoImageForReprobePath } from '@/services/video-media-probe-service'
-import { cancelCentralVideoMediaProbe, enqueueCentralVideoMediaReprobe } from '@/services/video-media-central-service'
-import { cancelVideoOptimization, enqueueVideoOptimization } from '@/services/video-streaming-optimization-queue'
-import { cancelActiveCentralVideoChapterPreview } from '@/services/video-processing-central-service'
-import {
-  controlVideoKeyframeJob,
-  enqueueSingleVideoKeyframe,
-  enqueueVideoKeyframeBatch,
-  getLatestVideoKeyframeJobsByImageIds,
-  getVideoKeyframeDetails,
-  listVideoKeyframeQueue,
-  retryFailedVideoKeyframeJobs,
-  retryVideoKeyframeJob,
-  selectVideoKeyframePoster
-} from '@/services/video-keyframe-queue'
-import {
-  controlCentralVideoKeyframeJob,
-  enqueueCentralVideoKeyframeDiscovery,
-  enqueueCentralVideoKeyframeGeneration,
-  retryCentralVideoKeyframeJob,
-  retryFailedCentralVideoKeyframes
-} from '@/services/video-keyframe-central-service'
-import { z } from 'zod'
-import { Prisma, retryAnimationDurationFailures } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
+import { archiveModule } from '@/services/archive/archive-module'
 import {
-  backgroundFailuresInputSchema,
-  listBackgroundFailures,
-  backgroundHistoryInputSchema,
-  backgroundHistorySnapshotsInputSchema,
-  listBackgroundHistory,
-  getBackgroundHistorySnapshots
-} from '@/services/background-task/job-history-service'
-import type { JobDto } from '@pixishelf/job-contracts'
-import {
-  backgroundDiagnosticReportsInputSchema,
-  backgroundDiagnosticItemsInputSchema,
-  listBackgroundDiagnosticReports,
-  listBackgroundDiagnosticItems
-} from '@/services/background-task/job-diagnostic-service'
-import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-service'
-import { cancelPixivArtistEnrichment } from '@/services/pixiv-artist-enrichment-service'
-import { cancelPixivArtworkEnrichment } from '@/services/pixiv-artwork-enrichment-service'
-import { cancelPixivSeriesReconciliation } from '@/services/pixiv-series-reconciliation-service'
-import {
-  cancelPixivAiDerivedTagSync,
-  getLatestPixivAiDerivedTagSyncJob,
-  startPixivAiDerivedTagSync
-} from '@/services/pixiv-ai-derived-tag-service'
-import {
-  assertLegacyBackgroundExecutionAllowed,
   acknowledgeJobFailureCommand,
   acknowledgeJobFailuresCommand,
   acknowledgeJobFailuresRequestSchema,
@@ -68,8 +11,8 @@ import {
   changeJobPriorityInputSchema,
   enqueueJob,
   enqueueSingletonManualJob,
-  getJobById,
   getBackgroundJobDetail,
+  getJobById,
   getJobDashboard,
   incrementalJobEventsInputSchema,
   jobIdInputSchema,
@@ -81,12 +24,54 @@ import {
   resumeJobCommand,
   retryJobCommand
 } from '@/services/background-task'
-import { toJobDto, type SystemJobWireRecord } from '@/services/background-task/job-serialization'
 import {
-  isCentralDispatcherCutoverEnabled,
-  LegacyBackgroundExecutionDisabledError
-} from '@/services/background-task/dispatcher-cutover'
-
+  backgroundDiagnosticItemsInputSchema,
+  backgroundDiagnosticReportsInputSchema,
+  listBackgroundDiagnosticItems,
+  listBackgroundDiagnosticReports
+} from '@/services/background-task/job-diagnostic-service'
+import {
+  backgroundFailuresInputSchema,
+  backgroundHistoryInputSchema,
+  backgroundHistorySnapshotsInputSchema,
+  getBackgroundHistorySnapshots,
+  listBackgroundFailures,
+  listBackgroundHistory
+} from '@/services/background-task/job-history-service'
+import * as JobService from '@/services/job-service'
+import {
+  cancelPixivAiDerivedTagSync,
+  getLatestPixivAiDerivedTagSyncJob,
+  startPixivAiDerivedTagSync
+} from '@/services/pixiv-ai-derived-tag-service'
+import { cancelPixivArtistEnrichment } from '@/services/pixiv-artist-enrichment-service'
+import { cancelPixivArtworkEnrichment } from '@/services/pixiv-artwork-enrichment-service'
+import { cancelPixivSeriesReconciliation } from '@/services/pixiv-series-reconciliation-service'
+import { cancelPixivTagEnrichment } from '@/services/pixiv-tag-enrichment-service'
+import { listScheduledTasks, triggerScheduledTaskNow, updateScheduledTask } from '@/services/scheduled-task-service'
+import { getScanPath } from '@/services/setting.service'
+import {
+  controlCentralVideoKeyframeJob,
+  enqueueCentralVideoKeyframeDiscovery,
+  enqueueCentralVideoKeyframeGeneration,
+  retryCentralVideoKeyframeJob,
+  retryFailedCentralVideoKeyframes
+} from '@/services/video-keyframe-central-service'
+import {
+  getLatestVideoKeyframeJobsByImageIds,
+  getVideoKeyframeDetails,
+  listVideoKeyframeQueue,
+  selectVideoKeyframePoster
+} from '@/services/video-keyframe-queue'
+import { cancelCentralVideoMediaProbe, enqueueCentralVideoMediaReprobe } from '@/services/video-media-central-service'
+import { resolveVideoImageForReprobePath } from '@/services/video-media-probe-service'
+import { cancelActiveCentralVideoChapterPreview } from '@/services/video-processing-central-service'
+import { cancelVideoOptimization, enqueueVideoOptimization } from '@/services/video-streaming-optimization-queue'
+import { Prisma, retryAnimationDurationFailures } from '@pixishelf/db'
+import type { JobDto } from '@pixishelf/job-contracts'
+import { TRPCError } from '@trpc/server'
+import { z } from 'zod'
+import { runArchiveOperation } from './archive'
 const videoKeyframeFilterSchema = z.object({
   minDuration: z.number().nonnegative().nullable().default(null),
   maxDuration: z.number().nonnegative().nullable().default(null),
@@ -98,7 +83,6 @@ const videoKeyframeFilterSchema = z.object({
     .max(3)
     .default(['MISSING', 'STALE', 'FAILED'])
 })
-
 const CENTRAL_MAINTENANCE_ACTIVE_STATUSES = [
   'PENDING',
   'RUNNING',
@@ -107,14 +91,12 @@ const CENTRAL_MAINTENANCE_ACTIVE_STATUSES = [
   'RETRY_WAIT',
   'CANCELLING'
 ] as const
-
 async function getActiveCentralMaintenanceJob(
   type: 'REFILL_META_SOURCE' | 'MEDIA_DERIVED_TAG_SYNC'
 ): Promise<JobDto | null> {
   const page = await listJobs({ types: [type], statuses: [...CENTRAL_MAINTENANCE_ACTIVE_STATUSES], limit: 1 })
   return page.items[0] ?? null
 }
-
 async function runBackgroundTaskCommand<T>(command: () => Promise<T>): Promise<T> {
   try {
     return await command()
@@ -128,18 +110,6 @@ async function runBackgroundTaskCommand<T>(command: () => Promise<T>): Promise<T
     throw error
   }
 }
-
-function assertLegacyRouterExecutionAllowed(operation: string) {
-  try {
-    assertLegacyBackgroundExecutionAllowed(operation)
-  } catch (error) {
-    if (error instanceof LegacyBackgroundExecutionDisabledError) {
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
-    }
-    throw error
-  }
-}
-
 /**
  * 后台任务路由：主要承载异步作业触发与状态查询，不包含可直接返回最终结果的长耗时流程。
  */
@@ -149,7 +119,7 @@ export const jobRouter = router({
    * central 模式在事务 advisory lock 内复用等价活跃任务；不同语义明确返回 CONFLICT。
    */
   startRefillMetaSource: adminProcedure.mutation(async ({ ctx }) => {
-    if (isCentralDispatcherCutoverEnabled()) {
+    {
       const scanPath = await getScanPath()
       if (!scanPath) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
@@ -166,92 +136,23 @@ export const jobRouter = router({
       )
       return { jobId: job.id }
     }
-
-    assertLegacyRouterExecutionAllowed('REFILL_META_SOURCE')
-    // 1. 检查是否已有任务在运行
-    const activeJob = await JobService.getActiveRefillMetaSourceJob()
-    if (activeJob) {
-      throw new TRPCError({
-        code: 'CONFLICT',
-        message: 'A refill meta source job is already running'
-      })
-    }
-
-    // 2. 获取扫描路径
-    const scanPath = await getScanPath()
-    if (!scanPath) {
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message: 'Scan path is not configured'
-      })
-    }
-
-    // 3. 创建任务记录
-    const job = await JobService.createRefillMetaSourceJob()
-
-    // 4. 异步执行任务（不 await，避免阻塞请求）。上方 cutover 守卫必须先通过，central=true 禁止启动此 IIFE。
-    // 注意：不要 await 这个 Promise，否则会阻塞请求
-    ;(async () => {
-      try {
-        await refillMetaSource({
-          scanPath,
-          checkCancelled: async () => {
-            const current = await JobService.getJob(job.id)
-            // 检查是否为 CANCELLING 状态
-            return current?.status === 'CANCELLING'
-          },
-          onProgress: async (progress) => {
-            // 更新数据库进度
-            await JobService.updateProgress(job.id, progress.percentage, progress.message)
-          }
-        })
-        // 任务成功完成
-        await JobService.completeJob(job.id, { success: true })
-      } catch (error) {
-        logger.error('Refill meta source job failed', { error })
-
-        // 检查当前状态，如果是 CANCELLING，则标记为 CANCELLED
-        // 或者如果错误消息明确是 Task cancelled
-        const current = await JobService.getJob(job.id)
-        if (current?.status === 'CANCELLING' || (error instanceof Error && error.message === 'Task cancelled')) {
-          await JobService.markAsCancelled(job.id)
-        } else {
-          await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
-        }
-      }
-    })()
-
-    return { jobId: job.id }
   }),
-
   getRefillMetaSourceStatus: authProcedure.query(async () => {
-    if (isCentralDispatcherCutoverEnabled()) return getActiveCentralMaintenanceJob('REFILL_META_SOURCE')
-    const job = await JobService.getActiveRefillMetaSourceJob()
-    return job ? toJobDto({ ...job, diagnosticReports: [] } as SystemJobWireRecord) : null
+    return getActiveCentralMaintenanceJob('REFILL_META_SOURCE')
   }),
-
   cancelRefillMetaSource: adminProcedure.mutation(async () => {
-    if (isCentralDispatcherCutoverEnabled()) {
+    {
       const activeJob = await getActiveCentralMaintenanceJob('REFILL_META_SOURCE')
       if (!activeJob) return { success: false, message: 'No active job' }
       await runBackgroundTaskCommand(() => cancelJobCommand({ jobId: activeJob.id }))
       return { success: true }
     }
-
-    assertLegacyRouterExecutionAllowed('CANCEL_REFILL_META_SOURCE')
-    const activeJob = await JobService.getActiveRefillMetaSourceJob()
-    if (activeJob) {
-      await JobService.cancelJob(activeJob.id)
-      return { success: true }
-    }
-    return { success: false, message: 'No active job' }
   }),
-
   /**
    * 标签派生同步同样是异步作业；central 模式使用同一事务 singleton 边界避免检查后创建竞态。
    */
   startMediaDerivedTagSync: adminProcedure.mutation(async ({ ctx }) => {
-    if (isCentralDispatcherCutoverEnabled()) {
+    {
       const job = await runBackgroundTaskCommand(() =>
         enqueueSingletonManualJob({
           type: 'MEDIA_DERIVED_TAG_SYNC',
@@ -264,60 +165,25 @@ export const jobRouter = router({
       )
       return { jobId: job.id }
     }
-
-    assertLegacyRouterExecutionAllowed('MEDIA_DERIVED_TAG_SYNC')
-    const activeJob = await JobService.getLatestMediaDerivedTagSyncJob()
-    if (activeJob && ['PENDING', 'RUNNING', 'CANCELLING'].includes(activeJob.status)) {
-      throw new TRPCError({
-        code: 'CONFLICT',
-        message: 'Media derived tag sync job is already running'
-      })
-    }
-
-    const job = await JobService.createMediaDerivedTagSyncJob()
-
-    // cutover 守卫必须先通过，central=true 禁止启动此 IIFE，避免 Next 与独立 Worker 双消费。
-    ;(async () => {
-      try {
-        const result = await syncAllMediaDerivedTags({
-          onProgress: async (progress) => {
-            await JobService.updateProgress(job.id, progress.percentage, progress.message)
-          }
-        })
-        await JobService.completeJob(job.id, result)
-      } catch (error) {
-        logger.error('Media derived tag sync job failed', { error })
-        await JobService.failJob(job.id, error instanceof Error ? error.message : 'Unknown error')
-      }
-    })()
-
-    return { jobId: job.id }
   }),
-
   getMediaDerivedTagSyncStatus: authProcedure.query(async () => {
-    if (isCentralDispatcherCutoverEnabled()) {
+    {
       const jobs = await listJobs({ types: ['MEDIA_DERIVED_TAG_SYNC'], limit: 1 })
       return jobs.items[0] ?? null
     }
-    const job = await JobService.getLatestMediaDerivedTagSyncJob()
-    return job ? toJobDto({ ...job, diagnosticReports: [] } as SystemJobWireRecord) : null
   }),
-
   startPixivAiDerivedTagSync: adminProcedure
     .input(z.object({ dryRun: z.boolean() }).strict())
     .mutation(async ({ ctx, input }) => {
       const result = await startPixivAiDerivedTagSync(ctx.userId, input)
       return { jobId: result.job.id, reused: result.reused }
     }),
-
   getPixivAiDerivedTagSyncStatus: authProcedure.query(async () => {
     return getLatestPixivAiDerivedTagSyncJob()
   }),
-
   cancelPixivAiDerivedTagSync: adminProcedure.mutation(async () => {
     return cancelPixivAiDerivedTagSync()
   }),
-
   startWebpAnimationScan: adminProcedure.mutation(async ({ ctx }) => {
     try {
       return await runBackgroundTaskCommand(() =>
@@ -333,25 +199,16 @@ export const jobRouter = router({
       throw error
     }
   }),
-
   getWebpAnimationScanStatus: authProcedure.query(async () => {
     return await JobService.getLatestWebpAnimationScanJob()
   }),
-
   getAnimationDurationProbeStatus: authProcedure.query(async () => {
     const jobs = await listJobs({ types: ['ANIMATION_DURATION_PROBE'], limit: 1 })
     return jobs.items[0] ?? null
   }),
-
   retryAnimationDurationFailures: adminProcedure
     .input(z.object({ imageIds: z.array(z.number().int().positive()).max(100).optional() }).strict())
     .mutation(async ({ ctx, input }) => {
-      if (!isCentralDispatcherCutoverEnabled()) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'Animation duration probe requires central dispatcher'
-        })
-      }
       const retried = await prisma.$transaction((tx) =>
         retryAnimationDurationFailures(tx as unknown as Prisma.TransactionClient, input)
       )
@@ -361,7 +218,6 @@ export const jobRouter = router({
       )
       return { retried, jobId: job.jobId }
     }),
-
   startVideoMediaProbe: adminProcedure.mutation(async ({ ctx }) => {
     try {
       return await runBackgroundTaskCommand(() =>
@@ -377,17 +233,14 @@ export const jobRouter = router({
       throw error
     }
   }),
-
   getVideoMediaProbeStatus: authProcedure.query(async () => {
     return await JobService.getLatestVideoMediaProbeJob()
   }),
-
   getVideoChapterPreviewGenerationStatus: authProcedure.query(async () => {
     return await JobService.getLatestVideoChapterPreviewGenerationJob()
   }),
-
   cancelVideoMediaProbe: adminProcedure.mutation(async () => {
-    if (isCentralDispatcherCutoverEnabled()) {
+    {
       const active = await listJobs({
         types: ['VIDEO_MEDIA_PROBE'],
         statuses: [...CENTRAL_MAINTENANCE_ACTIVE_STATUSES],
@@ -398,30 +251,13 @@ export const jobRouter = router({
       await runBackgroundTaskCommand(() => cancelCentralVideoMediaProbe(job.id))
       return { success: true }
     }
-    assertLegacyRouterExecutionAllowed('CANCEL_VIDEO_MEDIA_PROBE')
-    const activeJob = await JobService.getActiveJobByType('VIDEO_MEDIA_PROBE')
-    if (activeJob) {
-      await JobService.cancelJob(activeJob.id)
-      await JobService.markAsCancelled(activeJob.id)
-      return { success: true }
-    }
-    return { success: false, message: 'No active job' }
   }),
-
   cancelVideoChapterPreviewGeneration: adminProcedure.mutation(async () => {
-    if (isCentralDispatcherCutoverEnabled()) {
+    {
       const cancelled = await runBackgroundTaskCommand(() => cancelActiveCentralVideoChapterPreview())
       return cancelled ? { success: true } : { success: false, message: 'No active job' }
     }
-    assertLegacyRouterExecutionAllowed('CANCEL_VIDEO_CHAPTER_PREVIEW_GENERATION')
-    const activeJob = await JobService.getActiveJobByType('VIDEO_CHAPTER_PREVIEW_GENERATION')
-    if (activeJob) {
-      await JobService.cancelJob(activeJob.id)
-      return { success: true }
-    }
-    return { success: false, message: 'No active job' }
   }),
-
   reprobeVideoMediaByPath: adminProcedure
     .input(
       z.object({
@@ -434,16 +270,12 @@ export const jobRouter = router({
       if (!scanPath) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
       }
-
       try {
         const image = await resolveVideoImageForReprobePath(input.path, scanPath)
-        if (isCentralDispatcherCutoverEnabled()) {
+        {
           const queued = await enqueueCentralVideoMediaReprobe({ imageId: image.id, requestedByUserId: ctx.userId })
           return { mode: 'QUEUED' as const, ...queued }
         }
-        assertLegacyRouterExecutionAllowed('VIDEO_MEDIA_REPROBE')
-        const metadata = await reprobeVideoMediaByImageId(image.id, scanPath)
-        return { mode: 'COMPLETED' as const, metadata }
       } catch (error) {
         if (error instanceof BackgroundTaskError && error.code === 'ACTIVE_JOB_CONFLICT') {
           throw new TRPCError({ code: 'CONFLICT', message: error.message })
@@ -462,7 +294,6 @@ export const jobRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
       }
     }),
-
   startVideoStreamingOptimization: adminProcedure
     .input(
       z.object({
@@ -496,11 +327,9 @@ export const jobRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
       }
     }),
-
   getVideoStreamingOptimizationStatus: authProcedure.query(async () => {
     return await JobService.getLatestVideoStreamingOptimizationJob()
   }),
-
   getVideoStreamingOptimizationStatuses: authProcedure
     .input(
       z.object({
@@ -511,11 +340,9 @@ export const jobRouter = router({
       // 去重 imageIds 后查询“每张图片最近一次任务”，确保前端即使带重复 id 也返回单行状态。
       return await JobService.getLatestVideoStreamingOptimizationJobsByImageIds([...new Set(input.imageIds)])
     }),
-
   getVideoStreamingOptimizationQueue: authProcedure.query(async () => {
     return await JobService.listVideoStreamingOptimizationQueue()
   }),
-
   cancelVideoStreamingOptimization: adminProcedure
     .input(z.object({ jobId: z.string().min(1) }))
     .mutation(async ({ input }) => {
@@ -525,17 +352,13 @@ export const jobRouter = router({
       }
       return { success: result.changed, status: result.job.status }
     }),
-
   startVideoKeyframeGeneration: adminProcedure
     .input(z.object({ imageId: z.number().int().positive(), force: z.boolean().default(false) }))
     .mutation(async ({ input, ctx }) => {
       try {
-        if (isCentralDispatcherCutoverEnabled()) {
+        {
           return await enqueueCentralVideoKeyframeGeneration({ ...input, requestedByUserId: ctx.userId })
         }
-        assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_GENERATION')
-        const result = await enqueueSingleVideoKeyframe(input.imageId, input.force)
-        return { jobId: result.job.id, status: result.job.status, reused: result.reused }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error'
         if (message === 'Image not found') throw new TRPCError({ code: 'NOT_FOUND', message })
@@ -546,7 +369,6 @@ export const jobRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
       }
     }),
-
   /**
    * 批量触发 keyframe 时，未启用 previewOnly 且未传 imageIds 会在验证阶段直接拒绝；
    * 否则透传到服务层构造触发策略（manual/force/previewOnly）。
@@ -571,7 +393,7 @@ export const jobRouter = router({
         })
     )
     .mutation(async ({ input, ctx }) => {
-      if (isCentralDispatcherCutoverEnabled()) {
+      {
         return enqueueCentralVideoKeyframeDiscovery({
           force: input.force,
           previewOnly: input.previewOnly,
@@ -580,67 +402,44 @@ export const jobRouter = router({
           requestedByUserId: ctx.userId
         })
       }
-      assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_BATCH')
-      return enqueueVideoKeyframeBatch({
-        trigger: 'manual',
-        force: input.force,
-        previewOnly: input.previewOnly,
-        imageIds: input.imageIds,
-        filter: input.filter
-      })
     }),
-
   /**
    * 关键帧队列视图为纯查询 API，仅返回全局容量、活跃队列与最近任务。
    */
   getVideoKeyframeQueue: authProcedure.query(() => listVideoKeyframeQueue()),
-
   getVideoKeyframeStatuses: authProcedure
     .input(z.object({ imageIds: z.array(z.number().int().positive()).max(1000) }))
     .query(({ input }) => getLatestVideoKeyframeJobsByImageIds([...new Set(input.imageIds)])),
-
   getVideoKeyframeDetails: authProcedure
     .input(z.object({ imageId: z.number().int().positive() }))
     .query(({ input }) => getVideoKeyframeDetails(input.imageId)),
-
   controlVideoKeyframe: adminProcedure
     .input(z.object({ jobId: z.string().min(1), action: z.enum(['pause', 'resume', 'cancel']) }))
     .mutation(async ({ input }) => {
       let job
-      if (isCentralDispatcherCutoverEnabled()) {
+      {
         job = await runBackgroundTaskCommand(() => controlCentralVideoKeyframeJob(input.jobId, input.action))
-      } else {
-        assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_CONTROL')
-        job = await controlVideoKeyframeJob(input.jobId, input.action)
       }
       if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Video keyframe job not found' })
       return { jobId: job.id, status: job.status }
     }),
-
   retryVideoKeyframe: adminProcedure.input(z.object({ jobId: z.string().min(1) })).mutation(async ({ input, ctx }) => {
     let job
-    if (isCentralDispatcherCutoverEnabled()) {
+    {
       job = await runBackgroundTaskCommand(() => retryCentralVideoKeyframeJob(input.jobId, ctx.userId))
-    } else {
-      assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_RETRY')
-      job = await retryVideoKeyframeJob(input.jobId)
     }
     if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Video keyframe job not found' })
     return { jobId: job.id, status: job.status }
   }),
-
   retryFailedVideoKeyframes: adminProcedure
     .input(z.object({ filter: videoKeyframeFilterSchema.optional() }))
     .mutation(({ input, ctx }) => {
-      if (isCentralDispatcherCutoverEnabled()) {
+      {
         return runBackgroundTaskCommand(() =>
           retryFailedCentralVideoKeyframes({ filter: input.filter, requestedByUserId: ctx.userId })
         )
       }
-      assertLegacyRouterExecutionAllowed('VIDEO_KEYFRAME_RETRY_FAILED')
-      return retryFailedVideoKeyframeJobs(input.filter)
     }),
-
   selectVideoKeyframePoster: adminProcedure
     .input(z.object({ imageId: z.number().int().positive(), frameId: z.string().min(1) }))
     .mutation(async ({ input }) => {
@@ -652,29 +451,24 @@ export const jobRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
       }
     }),
-
   listScheduledTasks: authProcedure.query(async () => {
     return listScheduledTasks()
   }),
-
   updateScheduledTask: adminProcedure
     .input(
-      z.object({
-        key: z.string().min(1),
-        enabled: z.boolean().optional(),
-        time: z
-          .string()
-          .regex(/^\d{2}:\d{2}$/)
-          .optional(),
-        priority: z.number().int().min(0).max(999).optional(),
-        config: videoKeyframeFilterSchema.optional()
-      })
+      z
+        .object({
+          key: z.string().min(1),
+          enabled: z.boolean().optional(),
+          priority: z.number().int().min(0).max(999).optional(),
+          config: videoKeyframeFilterSchema.optional()
+        })
+        .strict()
     )
     .mutation(async ({ input }) => {
       await updateScheduledTask(input)
       return { success: true }
     }),
-
   /**
    * 触发调度任务接口会透传任务 key 到服务层；
    * 常见失败分支为任务已运行（返回 CONFLICT）和环境依赖缺失（返回 PRECONDITION_FAILED）。
@@ -706,41 +500,30 @@ export const jobRouter = router({
         throw error
       }
     }),
-
   backgroundDashboard: adminProcedure.query(() => getJobDashboard()),
-
   backgroundHistory: adminProcedure
     .input(backgroundHistoryInputSchema)
     .query(({ input }) => listBackgroundHistory(input)),
-
   backgroundHistorySnapshots: adminProcedure
     .input(backgroundHistorySnapshotsInputSchema)
     .query(({ input }) => getBackgroundHistorySnapshots(input)),
-
   backgroundList: adminProcedure.input(listJobsInputSchema).query(({ input }) => listJobs(input)),
-
   backgroundFailures: adminProcedure
     .input(backgroundFailuresInputSchema)
     .query(({ input }) => listBackgroundFailures(input)),
-
   backgroundDetail: adminProcedure.input(jobIdInputSchema).query(({ input }) => getBackgroundJobDetail(input.jobId)),
-
   backgroundDiagnosticReports: adminProcedure
     .input(backgroundDiagnosticReportsInputSchema)
     .query(({ input }) => listBackgroundDiagnosticReports(input)),
-
   backgroundDiagnosticItems: adminProcedure
     .input(backgroundDiagnosticItemsInputSchema)
     .query(({ input }) => listBackgroundDiagnosticItems(input)),
-
   backgroundEvents: adminProcedure
     .input(incrementalJobEventsInputSchema)
     .query(({ input }) => listIncrementalJobEvents(input)),
-
   enqueueBackgroundJob: adminProcedure
     .input(manualEnqueueJobRequestSchema)
     .mutation(({ input, ctx }) => enqueueJob({ ...input, requestedByUserId: ctx.userId })),
-
   cancelBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
@@ -761,13 +544,11 @@ export const jobRouter = router({
         return cancelled.job
       }
       if (job?.type !== 'PIXIV_TAG_ENRICHMENT') return cancelJobCommand(input)
-
       const cancelled = await cancelPixivTagEnrichment(input.jobId)
       if (!cancelled.job) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Background job not found')
       return cancelled.job
     })
   ),
-
   pauseBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
@@ -775,7 +556,6 @@ export const jobRouter = router({
       return pauseJobCommand(input)
     })
   ),
-
   resumeBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
@@ -783,7 +563,6 @@ export const jobRouter = router({
       return resumeJobCommand(input)
     })
   ),
-
   retryBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
@@ -791,22 +570,18 @@ export const jobRouter = router({
       return retryJobCommand({ ...input, requestedByUserId: ctx.userId })
     })
   ),
-
   acknowledgeBackgroundJobFailure: adminProcedure
     .input(jobIdInputSchema)
     .mutation(({ input, ctx }) =>
       runBackgroundTaskCommand(() => acknowledgeJobFailureCommand({ ...input, requestedByUserId: ctx.userId }))
     ),
-
   acknowledgeBackgroundJobFailures: adminProcedure
     .input(acknowledgeJobFailuresRequestSchema)
     .mutation(({ input, ctx }) => runBackgroundTaskCommand(() => acknowledgeJobFailuresCommand(input, ctx.userId))),
-
   changeBackgroundJobPriority: adminProcedure
     .input(changeJobPriorityInputSchema)
     .mutation(({ input }) => runBackgroundTaskCommand(() => changeJobPriorityCommand(input)))
 })
-
 async function controlArchiveJob(jobId: string, action: 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY', userId: string) {
   const result = await runArchiveOperation(() => archiveModule.requestJobAction(jobId, action, userId))
   const task = await prisma.archiveImport.findUniqueOrThrow({

@@ -1,15 +1,12 @@
-import 'server-only'
+import { prisma } from '@/lib/prisma'
+import { enqueueSingletonManualJobWithResult } from '@/services/background-task'
+import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
 import { PrismaClient, artistMergeBlockers, captureArtistMerge, lockCreatorCatalog, mergeJson } from '@pixishelf/db'
 import { workerCapabilitySchema } from '@pixishelf/job-contracts'
-import { prisma } from '@/lib/prisma'
-import { enqueueSingletonManualJobWithResult, isCentralDispatcherCutoverEnabled } from '@/services/background-task'
-import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
-
+import 'server-only'
 const database = prisma as unknown as PrismaClient
 type MergeSummary = Awaited<ReturnType<typeof captureArtistMerge>>['summary']
-
 async function assertReady() {
-  if (!isCentralDispatcherCutoverEnabled()) throw new Error('中央 Worker 调度尚未启用')
   const workers = await database.workerInstance.findMany({
     where: { status: 'READY', heartbeatAt: { gte: new Date(Date.now() - WORKER_HEARTBEAT_STALE_AFTER_MS) } },
     select: { capabilities: true }
@@ -32,7 +29,6 @@ async function assertReady() {
     throw new Error('请先启动支持艺术家合并的 READY Worker')
   }
 }
-
 export async function previewArtistMerge(requestedBy: string, sourceArtistId: number, targetArtistId: number) {
   return database.$transaction(
     async (tx) => {
@@ -54,7 +50,6 @@ export async function previewArtistMerge(requestedBy: string, sourceArtistId: nu
     { timeout: 30000 }
   )
 }
-
 export async function submitArtistMerge(requestedByUserId: string, previewId: string, fingerprint: string) {
   const existing = await database.artistMerge.findUniqueOrThrow({ where: { id: previewId } })
   if (existing.fingerprint !== fingerprint) throw new Error('预览不匹配，请重新预览')
@@ -99,7 +94,6 @@ export async function submitArtistMerge(requestedByUserId: string, previewId: st
   })
   return { mergeId: previewId, jobId: queued.job.id }
 }
-
 export async function getArtistMerge(mergeId: string) {
   const plan = await database.artistMerge.findUniqueOrThrow({
     where: { id: mergeId },
@@ -113,7 +107,6 @@ export async function getArtistMerge(mergeId: string) {
     : null
   return { ...plan, summary: plan.summary as unknown as MergeSummary, job }
 }
-
 export async function listArtistMerges() {
   const plans = await database.artistMerge.findMany({
     where: { systemJobId: { not: null } },

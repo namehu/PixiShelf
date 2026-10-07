@@ -1,19 +1,19 @@
 'use client'
 
-import { createContext, type ReactNode, useContext } from 'react'
-import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import Link from 'next/link'
-import { Activity, ChevronDown, Clock, type LucideIcon } from 'lucide-react'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Button } from '@/components/ui/button'
+import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
+import { Spinner } from '@/components/ui/spinner'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { Spinner } from '@/components/ui/spinner'
-import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { AdminStatusBadge } from '../../_components/admin-status-badge'
-import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import type { JobProgressData, JobStatus } from '@pixishelf/job-contracts'
+import { Activity, ChevronDown, Clock, type LucideIcon } from 'lucide-react'
+import Link from 'next/link'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
+import { createContext, type ReactNode, useContext } from 'react'
+import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { EXECUTING_TASK_STATUSES, formatTaskStatus, TERMINAL_TASK_STATUSES } from './task-status'
 
 export interface ScheduledTaskView {
@@ -23,12 +23,10 @@ export interface ScheduledTaskView {
   description: string
   enabled: boolean
   scheduleMode: string
-  time: string
   timezone: string
   priority: number
-  mutexKey: string | null
-  lastTriggeredAt: string | Date | null
-  lastTriggeredDate: string | null
+  lastMaterializedAt: string | Date | null
+  lastMaterializedDate: string | null
   lastJobId: string | null
   lastJobStatus: JobStatus | null
   lastJobMode?: 'FORMAL' | 'PREVIEW' | null
@@ -75,7 +73,6 @@ export interface JobView {
 
 export interface TaskDraft {
   enabled: boolean
-  time: string
   priority: string
 }
 
@@ -96,7 +93,6 @@ export function getDraftForTask(task: ScheduledTaskView, drafts: Record<string, 
   return (
     drafts[task.key] ?? {
       enabled: task.enabled,
-      time: task.time,
       priority: String(task.priority)
     }
   )
@@ -106,7 +102,6 @@ export function getScheduledTaskUpdate(task: ScheduledTaskView, draft: TaskDraft
   return {
     key: task.key,
     enabled: draft.enabled,
-    ...(task.executionWindow ? {} : { time: draft.time }),
     priority: Number(draft.priority)
   }
 }
@@ -345,14 +340,11 @@ export function ScheduleSettings({
   isSaving: boolean
 }) {
   const priority = Number(draft.priority)
-  const centralScheduling = Boolean(task.executionWindow)
   const priorityMinimum = SCHEDULED_TASK_PRIORITY_MINIMUM
   const priorityMaximum = SCHEDULED_TASK_PRIORITY_MAXIMUM
   const priorityInvalid = !isScheduledTaskPriorityValid(draft.priority)
-  const changed =
-    draft.enabled !== task.enabled || (!centralScheduling && draft.time !== task.time) || priority !== task.priority
+  const changed = draft.enabled !== task.enabled || priority !== task.priority
   const enabledId = `schedule-${task.key}-enabled`
-  const timeId = `schedule-${task.key}-time`
   const priorityId = `schedule-${task.key}-priority`
 
   return (
@@ -362,13 +354,7 @@ export function ScheduleSettings({
           <Clock className="size-4 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0">
             <h3 className="text-sm font-medium">计划设置</h3>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {task.executionWindow
-                ? '中央串行窗口 · 上海 00:00–08:00'
-                : task.enabled
-                  ? `每日 ${task.time}`
-                  : '未启用自动计划'}
-            </p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">{'中央串行窗口 · 00:00–08:00'}</p>
           </div>
         </div>
         <AdminStatusBadge status={task.enabled ? 'ACTIVE' : 'IDLE'}>
@@ -391,9 +377,7 @@ export function ScheduleSettings({
         <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-3 lg:grid-cols-4">
           <div className="flex flex-col gap-1">
             <dt className="text-xs text-muted-foreground">执行模式</dt>
-            <dd className="font-medium text-foreground">
-              {task.executionWindow ? '中央串行窗口' : task.scheduleMode === 'DAILY' ? '每日' : task.scheduleMode}
-            </dd>
+            <dd className="font-medium text-foreground">中央串行窗口</dd>
           </div>
           <div className="flex flex-col gap-1">
             <dt className="text-xs text-muted-foreground">时区</dt>
@@ -404,18 +388,12 @@ export function ScheduleSettings({
             <dd className="font-medium text-foreground">{task.nextRunAt || '—'}</dd>
           </div>
           <div className="flex flex-col gap-1">
-            <dt className="text-xs text-muted-foreground">上次触发时间</dt>
-            <dd className="font-medium text-foreground">{formatDateTime(task.lastTriggeredAt)}</dd>
+            <dt className="text-xs text-muted-foreground">上次计划入队</dt>
+            <dd className="font-medium text-foreground">{formatDateTime(task.lastMaterializedAt)}</dd>
           </div>
-          {task.mutexKey && (
-            <div className="flex flex-col gap-1">
-              <dt className="text-xs text-muted-foreground">互斥组</dt>
-              <dd className="break-words font-medium text-foreground">{task.mutexKey}</dd>
-            </div>
-          )}
           <div className="flex flex-col gap-1">
             <dt className="text-xs text-muted-foreground">上次自动日期</dt>
-            <dd className="font-medium text-foreground">{task.lastTriggeredDate || '—'}</dd>
+            <dd className="font-medium text-foreground">{task.lastMaterializedDate || '—'}</dd>
           </div>
           <div className="flex flex-col gap-1">
             <dt className="text-xs text-muted-foreground">最近任务状态</dt>
@@ -438,26 +416,9 @@ export function ScheduleSettings({
             </FieldLabel>
           </Field>
           <div className="flex flex-1 flex-wrap items-end gap-3">
-            {task.executionWindow ? (
-              <div className="flex min-h-9 items-center rounded-md border bg-muted/25 px-3 text-sm text-muted-foreground">
-                全局窗口 00:00–08:00
-              </div>
-            ) : (
-              <Field className="w-auto gap-1.5">
-                <FieldLabel htmlFor={timeId} className="text-xs text-muted-foreground">
-                  执行时间
-                </FieldLabel>
-                <Input
-                  id={timeId}
-                  name={`${task.key}-time`}
-                  type="time"
-                  autoComplete="off"
-                  value={draft.time}
-                  onChange={(event) => onDraftChange({ time: event.target.value })}
-                  className="h-9 w-[120px]"
-                />
-              </Field>
-            )}
+            <div className="flex min-h-9 items-center rounded-md border bg-muted/25 px-3 text-sm text-muted-foreground">
+              全局窗口 00:00–08:00
+            </div>
             <Field className="w-auto gap-1.5" data-invalid={priorityInvalid}>
               <FieldLabel htmlFor={priorityId} className="text-xs text-muted-foreground">
                 优先级

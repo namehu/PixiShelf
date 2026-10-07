@@ -320,3 +320,7 @@ App 与 Worker 必须协调升级：停止写入者后运行 `pnpm --filter @pix
 该实例部署目录为 `/vol1/1001/docker-compose/pixivShelf`，已确认 Worker 容器名为 `pixivshelf-worker-1`。
 读取现场日志使用 `sudo docker logs --timestamps pixivshelf-worker-1`，不假定 NAS 存在仓库的 deploy Compose 文件。
 容器名仅为本次现场记录，后续实例应先通过 `sudo docker ps -a` 核对。
+
+## 后台任务退役恢复边界
+
+第一阶段增加 legacyDisplay 和查询索引，保留旧列与双写。停写后通过只读 after 审计可回退至经验证的 v0.50.8 配套 App/Worker，保留新增列，不反向 migration；旧部署配置必须保持中央模式。第二阶段尚未实施，物理删列后不能仅换旧镜像。升级与恢复均需数据库、原媒体、派生媒体、Pixiv data、配置和镜像的同点清单。具体步骤见[退役发布手册](../deployment/background-task-retirement.md)。

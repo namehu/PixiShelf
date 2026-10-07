@@ -757,6 +757,7 @@ model SystemJob {
   error                   String?                  @db.Text
   skipReason              JobSkipReason?
   skippedAt               DateTime?
+  legacyDisplay           Json?
   targetImageId           Int?
   targetPath              String?                  @db.Text
   mode                    String?                  @db.VarChar(50)

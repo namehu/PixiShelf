@@ -66,31 +66,29 @@ export async function runWorkerMain(environment: NodeJS.ProcessEnv = process.env
       transactionTimeoutMs: config.queueTransactionTimeoutMs
     })
   )
-  const dispatchers = config.dispatchEnabled
-    ? (['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'] as const).map(
-        (executionLane) =>
-          new CentralDispatcher({
-            enabled: true,
-            workerId,
-            executionLane,
-            queue,
-            registry,
-            logger,
-            pollIntervalMs: config.dispatchPollIntervalMs,
-            heartbeatIntervalMs: config.jobHeartbeatIntervalMs,
-            drainGraceMs: config.dispatchDrainGraceMs,
-            onFatal: (error) => {
-              process.exitCode = 1
-              host.fail(error)
-              void application
-                .shutdown(`${executionLane.toLowerCase()}-dispatcher-fatal`, {
-                  forceAfterMs: config.dispatchDrainGraceMs + Math.min(5_000, config.dispatchDrainGraceMs) + 5_000
-                })
-                .finally(() => resolveStopped?.())
-            }
-          })
-      )
-    : []
+  const dispatchers = (['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'] as const).map(
+    (executionLane) =>
+      new CentralDispatcher({
+        enabled: true,
+        workerId,
+        executionLane,
+        queue,
+        registry,
+        logger,
+        pollIntervalMs: config.dispatchPollIntervalMs,
+        heartbeatIntervalMs: config.jobHeartbeatIntervalMs,
+        drainGraceMs: config.dispatchDrainGraceMs,
+        onFatal: (error) => {
+          process.exitCode = 1
+          host.fail(error)
+          void application
+            .shutdown(`${executionLane.toLowerCase()}-dispatcher-fatal`, {
+              forceAfterMs: config.dispatchDrainGraceMs + Math.min(5_000, config.dispatchDrainGraceMs) + 5_000
+            })
+            .finally(() => resolveStopped?.())
+        }
+      })
+  )
   application = new WorkerApplication({
     healthState,
     healthServer,
@@ -109,7 +107,7 @@ export async function runWorkerMain(environment: NodeJS.ProcessEnv = process.env
     closeOutboundConnections: () => pixivTransport.close(),
     forceTerminate: (exitCode) => process.exit(exitCode),
     presenceReadinessGate,
-    ...(dispatchers.length > 0 ? { dispatchers } : {})
+    dispatchers
   })
 
   const requestShutdown = (signal: 'SIGINT' | 'SIGTERM') => {

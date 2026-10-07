@@ -77,7 +77,7 @@ cp packages/pixishelf/.env.example packages/pixishelf/.env.local
 - `PIXISHELF_DATA_PATH`、`SCAN_PATH` 与 `ARCHIVE_STORAGE_PATH` 应指向同一份原媒体；
 - `DERIVED_MEDIA_HOST_PATH` 与 `DERIVED_MEDIA_STORAGE_PATH` 应指向同一份持久化派生媒体目录；
 - `PIXISHELF_PUBLIC_DATA_PATH` 是既有 Pixiv 作者/标签图片目录；App 只读，Worker 对同一宿主目录读写；
-- 本地完整功能验证时，App 的 `CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 Worker 的 `WORKER_DISPATCH_ENABLED` 必须同时为 `true`；
+- App 固定中央入队，Worker 启动即消费；本地维护时停止 Worker，不再依赖切换开关；
 - 修改 `BETTER_AUTH_SECRET`、`INTERNAL_JOB_TOKEN` 和 `SCAN_WEBHOOK_TOKEN`，不要复用环境模板中保留的遗留 `JWT_SECRET`；
 - `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 当前不会自动创建账户，首次账户在 `/login` 初始化页面设置；
 - 本地 ImgProxy 地址使用 `NEXT_PUBLIC_IMGPROXY_URL=http://127.0.0.1:5431`。
@@ -208,7 +208,7 @@ CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类�
 sudo bash ./scripts/update-production.sh
 ```
 
-升级、暗启动、消费者切换、验证和回滚入口见：
+升级、消费者启停、验证和回滚入口见：
 
 - [部署基线](./docs/operations/deployment.md)；
 - [备份与恢复基线](./docs/operations/backup-and-recovery.md)；

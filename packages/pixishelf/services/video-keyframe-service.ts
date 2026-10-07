@@ -1,25 +1,14 @@
+import { buildDerivedMediaPublicUrl } from '@/lib/derived-media'
+import { isVideoFile } from '@/lib/media'
+import { prisma } from '@/lib/prisma'
+import { resolveExistingPathWithinRoot } from '@/lib/safe-path'
+import { resolveDerivedMediaStoragePath, VIDEO_POSTER_STORAGE_ROOT } from '@/services/derived-media-storage-paths'
+import { VIDEO_POSTER_LOCK_NAMESPACE } from '@/services/video-poster-lock'
 import * as childProcess from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
-import { prisma } from '@/lib/prisma'
-import { buildDerivedMediaPublicUrl } from '@/lib/derived-media'
-import { isVideoFile } from '@/lib/media'
-import { resolveExistingPathWithinRoot } from '@/lib/safe-path'
-import {
-  resolveDerivedMediaStoragePath,
-  VIDEO_KEYFRAME_STORAGE_ROOT,
-  VIDEO_POSTER_STORAGE_ROOT
-} from '@/services/derived-media-storage-paths'
-import { VIDEO_POSTER_LOCK_NAMESPACE } from '@/services/video-poster-lock'
-import {
-  buildVideoKeyframeCandidateTimes,
-  getVideoKeyframeTargetCount,
-  selectRepresentativeKeyframes,
-  VIDEO_KEYFRAME_POLICY_VERSION,
-  VIDEO_KEYFRAME_QUEUE_LOCK_ID
-} from '@/services/video-keyframe-policy'
 
 const FRAME_TIMEOUT_MS = 2 * 60 * 1000
 const PROBE_TIMEOUT_MS = 2 * 60 * 1000
@@ -102,243 +91,6 @@ export async function resolveVideoKeyframeTarget(imageId: number, scanPath: stri
     sourcePath,
     fingerprint: sourceFingerprintFromStat(stat)
   }
-}
-
-export async function generateVideoKeyframes(options: {
-  jobId: string
-  attempt: number
-  imageId: number
-  scanPath: string
-  ffmpegThreads: number
-  signal?: AbortSignal
-  onProgress?: (progress: VideoKeyframeProgress) => Promise<void> | void
-}): Promise<VideoKeyframeGenerationResult> {
-  const report = (percentage: number, message: string) => options.onProgress?.({ percentage, message })
-  await report(1, '正在校验视频和源文件指纹...')
-
-  const target = await resolveVideoKeyframeTarget(options.imageId, options.scanPath)
-  const duration = await probeVideoDuration(target.sourcePath, options.signal)
-  const targetCount = getVideoKeyframeTargetCount(duration)
-  if (targetCount <= 0) throw new VideoKeyframePermanentError('INVALID_DURATION', 'Video duration is unavailable')
-  const candidateTimes = buildVideoKeyframeCandidateTimes(duration, targetCount)
-  if (candidateTimes.length === 0) {
-    throw new VideoKeyframePermanentError('NO_CANDIDATES', 'No keyframe candidate timestamps could be generated')
-  }
-
-  const alreadyPublished = await resolveAlreadyPublishedJobResult({
-    jobId: options.jobId,
-    imageId: target.id,
-    path: target.path,
-    fingerprint: target.fingerprint,
-    duration,
-    targetCount
-  })
-  if (alreadyPublished) {
-    await report(100, alreadyPublished.warning || `代表帧已经发布：${alreadyPublished.publishedCount} 张`)
-    return alreadyPublished
-  }
-
-  const set = await getOrCreateStagingSet({
-    jobId: options.jobId,
-    imageId: target.id,
-    fingerprint: target.fingerprint,
-    duration,
-    targetCount,
-    candidateTimes
-  })
-  const setDirectory = resolveKeyframeSetDirectory(target.id, set.id)
-  await fs.mkdir(setDirectory, { recursive: true })
-
-  const frames = await prisma.mediaVideoKeyframe.findMany({
-    where: { setId: set.id },
-    orderBy: { candidateIndex: 'asc' }
-  })
-  await repairInvalidCompletedFrameCheckpoints(frames)
-  let completed = frames.filter((frame) => frame.status === 'COMPLETED' || frame.status === 'REJECTED').length
-
-  for (const frame of frames) {
-    throwIfAborted(options.signal)
-    if (frame.status === 'COMPLETED' || frame.status === 'REJECTED') continue
-
-    const relativePath = `${target.id}/${set.id}/${String(frame.candidateIndex).padStart(3, '0')}.webp`
-    const outputPath = resolveDerivedMediaStoragePath(VIDEO_KEYFRAME_STORAGE_ROOT, relativePath)
-    const temporaryPath = `${outputPath}.tmp.webp`
-
-    // 工作进程可能在文件落盘后、保存候选检查点前中断。
-    // 暂存文件未对外发布，因此需要重新生成。
-    await fs.rm(outputPath, { force: true }).catch(() => undefined)
-
-    await prisma.mediaVideoKeyframe.update({
-      where: { id: frame.id },
-      data: { status: 'GENERATING', error: null, rejectionReason: null }
-    })
-
-    try {
-      await extractVideoFrame({
-        sourcePath: target.sourcePath,
-        outputPath: temporaryPath,
-        captureTime: frame.captureTime,
-        width: 640,
-        threads: options.ffmpegThreads,
-        signal: options.signal
-      })
-      const { metrics, rejectionReason } = await finalizeExtractedVideoKeyframeCandidate(temporaryPath, outputPath)
-
-      await prisma.mediaVideoKeyframe.update({
-        where: { id: frame.id },
-        data: {
-          status: rejectionReason ? 'REJECTED' : 'COMPLETED',
-          path: rejectionReason ? null : relativePath,
-          luma: metrics.luma,
-          sharpness: metrics.sharpness,
-          perceptualHash: metrics.perceptualHash,
-          rejectionReason,
-          error: null
-        }
-      })
-    } catch (error) {
-      await fs.rm(temporaryPath, { force: true }).catch(() => undefined)
-      if (error instanceof VideoKeyframeControlError) {
-        await prisma.mediaVideoKeyframe.update({
-          where: { id: frame.id },
-          data: { status: 'PENDING', error: null }
-        })
-        throw error
-      }
-      const message = error instanceof Error ? error.message : 'Unknown keyframe extraction error'
-      await prisma.mediaVideoKeyframe.update({
-        where: { id: frame.id },
-        data: { status: 'FAILED', error: message }
-      })
-    }
-
-    completed += 1
-    await prisma.mediaVideoKeyframeSet.update({
-      where: { id: set.id },
-      data: { completedCandidates: completed }
-    })
-    const percentage = Math.min(90, 5 + Math.floor((completed / frames.length) * 85))
-    await report(percentage, `正在抽取候选帧 ${completed}/${frames.length}`)
-  }
-
-  throwIfAborted(options.signal)
-  await report(92, '正在筛选代表帧...')
-  const completedFrames = await prisma.mediaVideoKeyframe.findMany({
-    where: { setId: set.id, status: 'COMPLETED', path: { not: null } },
-    orderBy: { candidateIndex: 'asc' }
-  })
-  const selected = selectRepresentativeKeyframes(
-    completedFrames.flatMap((frame) =>
-      frame.path && frame.luma !== null && frame.sharpness !== null && frame.perceptualHash
-        ? [
-            {
-              candidateIndex: frame.candidateIndex,
-              captureTime: frame.captureTime,
-              path: frame.path,
-              luma: frame.luma,
-              sharpness: frame.sharpness,
-              perceptualHash: frame.perceptualHash
-            }
-          ]
-        : []
-    ),
-    targetCount
-  )
-
-  const failedCandidates = await prisma.mediaVideoKeyframe.count({ where: { setId: set.id, status: 'FAILED' } })
-  const selectionWarning = getVideoKeyframeSelectionWarning(selected.length, targetCount, failedCandidates)
-
-  const selectedIndexes = new Map(selected.map((frame, index) => [frame.candidateIndex, index]))
-
-  const finalStat = await fs.stat(target.sourcePath)
-  const finalFingerprint = sourceFingerprintFromStat(finalStat)
-  if (!sameSourceFingerprint(target.fingerprint, finalFingerprint)) {
-    throw new Error('Source video changed during keyframe generation')
-  }
-  await verifySelectedKeyframeFiles(selected)
-  throwIfAborted(options.signal)
-
-  const publishStat = await fs.stat(target.sourcePath)
-  if (!sameSourceFingerprint(target.fingerprint, sourceFingerprintFromStat(publishStat))) {
-    throw new Error('Source video changed before keyframe publication')
-  }
-  await verifySelectedKeyframeFiles(selected)
-
-  const warning = selectionWarning
-  const publishedResult: VideoKeyframeGenerationResult = {
-    imageId: target.id,
-    setId: set.id,
-    path: target.path,
-    duration,
-    targetCount,
-    publishedCount: selected.length,
-    warning
-  }
-  const previousSets = await prisma.mediaVideoKeyframeSet.findMany({
-    where: { imageId: target.id, status: 'PUBLISHED', id: { not: set.id } },
-    select: { id: true }
-  })
-
-  await prisma.$transaction(async (tx) => {
-    await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', VIDEO_KEYFRAME_QUEUE_LOCK_ID)
-    const leaseUpdate = await tx.systemJob.updateMany({
-      where: {
-        id: options.jobId,
-        type: 'VIDEO_KEYFRAME_GENERATION',
-        status: 'RUNNING',
-        targetImageId: target.id,
-        attempt: options.attempt
-      },
-      data: {
-        status: 'COMPLETED',
-        progress: 100,
-        message: '视频代表帧生成完成',
-        result: publishedResult,
-        error: null,
-        finishedAt: new Date(),
-        heartbeatAt: new Date()
-      }
-    })
-    if (leaseUpdate.count !== 1) {
-      throw new VideoKeyframeControlError('LEASE_LOST', 'Video keyframe job is no longer publishable')
-    }
-    await tx.mediaVideoKeyframe.updateMany({
-      where: {
-        setId: set.id,
-        status: 'COMPLETED',
-        candidateIndex: { notIn: [...selectedIndexes.keys()] }
-      },
-      data: { status: 'REJECTED', selectedOrder: null, rejectionReason: 'NOT_SELECTED' }
-    })
-    for (const frame of selected) {
-      await tx.mediaVideoKeyframe.updateMany({
-        where: { setId: set.id, candidateIndex: frame.candidateIndex, status: 'COMPLETED' },
-        data: { selectedOrder: selectedIndexes.get(frame.candidateIndex)!, rejectionReason: null }
-      })
-    }
-    await tx.mediaVideoKeyframeSet.updateMany({
-      where: { imageId: target.id, status: 'PUBLISHED', id: { not: set.id } },
-      data: { status: 'FAILED', error: 'Superseded by a newer published generation' }
-    })
-    await tx.mediaVideoKeyframeSet.update({
-      where: { id: set.id },
-      data: {
-        status: 'PUBLISHED',
-        publishedCount: selected.length,
-        warning,
-        error: null,
-        publishedAt: new Date()
-      }
-    })
-  })
-
-  await cleanupUnselectedKeyframeFiles(set.id)
-  for (const previous of previousSets) {
-    await removeKeyframeSetDirectory(target.id, previous.id).catch(() => undefined)
-    await prisma.mediaVideoKeyframeSet.delete({ where: { id: previous.id } }).catch(() => undefined)
-  }
-
-  return publishedResult
 }
 
 export async function getPublishedVideoKeyframes(imageId: number) {
@@ -499,124 +251,12 @@ export async function lockVideoPosterForKeyframe(
   )
 }
 
-export async function removeJobStagingSet(jobId: string) {
-  const set = await prisma.mediaVideoKeyframeSet.findUnique({
-    where: { systemJobId: jobId },
-    select: { id: true, imageId: true, status: true }
-  })
-  if (!set || set.status === 'PUBLISHED') return
-  await removeKeyframeSetDirectory(set.imageId, set.id)
-  await prisma.mediaVideoKeyframeSet.delete({ where: { id: set.id } }).catch(() => undefined)
-}
-
 export function sourceFingerprintFromStat(stat: { size: number; mtimeMs: number }): VideoKeyframeSourceFingerprint {
   return { size: BigInt(stat.size), mtimeMs: BigInt(Math.round(stat.mtimeMs)) }
 }
 
 export function sameSourceFingerprint(left: VideoKeyframeSourceFingerprint, right: VideoKeyframeSourceFingerprint) {
   return left.size === right.size && left.mtimeMs === right.mtimeMs
-}
-
-async function resolveAlreadyPublishedJobResult(input: {
-  jobId: string
-  imageId: number
-  path: string
-  fingerprint: VideoKeyframeSourceFingerprint
-  duration: number
-  targetCount: number
-}): Promise<VideoKeyframeGenerationResult | null> {
-  const set = await prisma.mediaVideoKeyframeSet.findUnique({
-    where: { systemJobId: input.jobId },
-    include: {
-      frames: {
-        where: { status: 'COMPLETED', selectedOrder: { not: null }, path: { not: null } }
-      }
-    }
-  })
-  if (
-    !set ||
-    set.status !== 'PUBLISHED' ||
-    set.imageId !== input.imageId ||
-    set.sourceSize !== input.fingerprint.size ||
-    set.sourceMtimeMs !== input.fingerprint.mtimeMs ||
-    set.policyVersion !== VIDEO_KEYFRAME_POLICY_VERSION
-  ) {
-    return null
-  }
-
-  const allFilesExist = await Promise.all(set.frames.flatMap((frame) => (frame.path ? [isValidWebp(frame.path)] : [])))
-  if (set.frames.length !== set.publishedCount || allFilesExist.some((exists) => !exists)) return null
-
-  return {
-    imageId: input.imageId,
-    setId: set.id,
-    path: input.path,
-    duration: input.duration,
-    targetCount: input.targetCount,
-    publishedCount: set.publishedCount,
-    warning: set.warning
-  }
-}
-
-async function getOrCreateStagingSet(input: {
-  jobId: string
-  imageId: number
-  fingerprint: VideoKeyframeSourceFingerprint
-  duration: number
-  targetCount: number
-  candidateTimes: number[]
-}) {
-  const existing = await prisma.mediaVideoKeyframeSet.findUnique({
-    where: { systemJobId: input.jobId }
-  })
-  if (
-    existing &&
-    existing.status === 'STAGING' &&
-    existing.sourceSize === input.fingerprint.size &&
-    existing.sourceMtimeMs === input.fingerprint.mtimeMs &&
-    existing.policyVersion === VIDEO_KEYFRAME_POLICY_VERSION
-  ) {
-    await prisma.mediaVideoKeyframe.updateMany({
-      where: { setId: existing.id, status: 'REJECTED', rejectionReason: 'NOT_SELECTED', path: { not: null } },
-      data: { status: 'COMPLETED', selectedOrder: null, rejectionReason: null, error: null }
-    })
-    await prisma.mediaVideoKeyframe.updateMany({
-      where: { setId: existing.id, status: { in: ['GENERATING', 'FAILED'] } },
-      data: { status: 'PENDING', error: null }
-    })
-    return existing
-  }
-
-  if (existing) {
-    await removeKeyframeSetDirectory(existing.imageId, existing.id)
-    await prisma.mediaVideoKeyframeSet.delete({ where: { id: existing.id } })
-  }
-
-  const obsoleteSets = await prisma.mediaVideoKeyframeSet.findMany({
-    where: { imageId: input.imageId, status: { in: ['FAILED', 'CANCELLED'] } },
-    select: { id: true, imageId: true }
-  })
-  for (const obsolete of obsoleteSets) {
-    await removeKeyframeSetDirectory(obsolete.imageId, obsolete.id)
-    await prisma.mediaVideoKeyframeSet.delete({ where: { id: obsolete.id } })
-  }
-
-  return prisma.mediaVideoKeyframeSet.create({
-    data: {
-      imageId: input.imageId,
-      systemJobId: input.jobId,
-      status: 'STAGING',
-      sourceSize: input.fingerprint.size,
-      sourceMtimeMs: input.fingerprint.mtimeMs,
-      policyVersion: VIDEO_KEYFRAME_POLICY_VERSION,
-      duration: input.duration,
-      targetCount: input.targetCount,
-      candidateCount: input.candidateTimes.length,
-      frames: {
-        create: input.candidateTimes.map((captureTime, candidateIndex) => ({ candidateIndex, captureTime }))
-      }
-    }
-  })
 }
 
 export async function probeVideoDuration(sourcePath: string, signal?: AbortSignal) {
@@ -647,44 +287,6 @@ export function getVideoKeyframeSelectionWarning(selectedCount: number, targetCo
     ...(failedCandidates > 0 ? [`${failedCandidates} 个候选帧抽取失败`] : [])
   ]
   return warningParts.length > 0 ? warningParts.join('；') : null
-}
-
-async function repairInvalidCompletedFrameCheckpoints(
-  frames: Array<{ id: string; status: string; path: string | null }>
-) {
-  for (const frame of frames) {
-    if (frame.status !== 'COMPLETED') continue
-    const valid = frame.path ? await isValidWebp(frame.path) : false
-    if (valid) continue
-    if (frame.path) await removeKeyframeFile(frame.path)
-    await prisma.mediaVideoKeyframe.update({
-      where: { id: frame.id },
-      data: {
-        status: 'PENDING',
-        path: null,
-        luma: null,
-        sharpness: null,
-        perceptualHash: null,
-        selectedOrder: null,
-        rejectionReason: null,
-        error: null
-      }
-    })
-    frame.status = 'PENDING'
-    frame.path = null
-  }
-}
-
-async function verifySelectedKeyframeFiles(selected: Array<{ path: string }>) {
-  for (const frame of selected) {
-    if (!(await isValidWebp(frame.path))) throw new Error(`Selected keyframe is missing or invalid: ${frame.path}`)
-  }
-}
-
-async function isValidWebp(relativePath: string) {
-  return validateWebpWithRetry(resolveDerivedMediaStoragePath(VIDEO_KEYFRAME_STORAGE_ROOT, relativePath))
-    .then(() => true)
-    .catch(() => false)
 }
 
 async function extractVideoFrame(input: {
@@ -822,37 +424,6 @@ function classifyQualityRejection(metrics: { luma: number; sharpness: number }) 
   if (metrics.luma > 247) return 'TOO_BRIGHT'
   if (metrics.sharpness < 4) return 'LOW_INFORMATION'
   return null
-}
-
-function resolveKeyframeSetDirectory(imageId: number, setId: string) {
-  return resolveDerivedMediaStoragePath(VIDEO_KEYFRAME_STORAGE_ROOT, `${imageId}/${setId}`)
-}
-
-async function removeKeyframeSetDirectory(imageId: number, setId: string) {
-  await fs.rm(resolveKeyframeSetDirectory(imageId, setId), { recursive: true, force: true })
-}
-
-async function removeKeyframeFile(relativePath: string) {
-  await fs
-    .rm(resolveDerivedMediaStoragePath(VIDEO_KEYFRAME_STORAGE_ROOT, relativePath), { force: true })
-    .catch(() => undefined)
-}
-
-async function cleanupUnselectedKeyframeFiles(setId: string) {
-  const discarded = await prisma.mediaVideoKeyframe.findMany({
-    where: { setId, selectedOrder: null, path: { not: null } },
-    select: { id: true, path: true }
-  })
-  for (const frame of discarded) {
-    if (!frame.path) continue
-    const removed = await fs
-      .rm(resolveDerivedMediaStoragePath(VIDEO_KEYFRAME_STORAGE_ROOT, frame.path), { force: true })
-      .then(() => true)
-      .catch(() => false)
-    if (removed) {
-      await prisma.mediaVideoKeyframe.update({ where: { id: frame.id }, data: { path: null } })
-    }
-  }
 }
 
 function throwIfAborted(signal?: AbortSignal) {

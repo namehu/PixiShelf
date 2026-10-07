@@ -117,12 +117,7 @@ vi.mock('@/services/scheduled-task-registry', () => ({
       : null
 }))
 
-import {
-  ensureDefaultScheduledTasks,
-  listScheduledTasks,
-  runSchedulerTick,
-  triggerScheduledTaskNow
-} from '../scheduled-task-service'
+import { ensureDefaultScheduledTasks, listScheduledTasks, triggerScheduledTaskNow } from '../scheduled-task-service'
 
 function createTask(overrides: Record<string, unknown> = {}) {
   return {
@@ -135,8 +130,10 @@ function createTask(overrides: Record<string, unknown> = {}) {
     timezone: 'UTC',
     priority: 30,
     mutexKey: 'media-maintenance',
-    lastTriggeredAt: null,
-    lastTriggeredDate: null,
+    lastTriggeredAt: new Date('2020-01-01'),
+    lastMaterializedAt: new Date('2026-06-01'),
+    lastTriggeredDate: '2020-01-01',
+    lastMaterializedDate: '2026-06-01',
     lastJobId: null,
     config: null,
     createdAt: new Date('2026-06-01T00:00:00.000Z'),
@@ -325,122 +322,6 @@ describe('scheduled-task-service', () => {
     expect(task?.lastJobResult).not.toHaveProperty('internalPath')
   })
 
-  it('does not trigger before the configured daily time', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createTask()])
-
-    const result = await runSchedulerTick(new Date('2026-06-01T00:29:00.000Z'))
-
-    expect(handlerStartMock).not.toHaveBeenCalled()
-    expect(result.decisions).toEqual([
-      {
-        key: 'webp_animation_scan',
-        type: 'WEBP_ANIMATION_SCAN',
-        action: 'skipped',
-        reason: 'not_due'
-      }
-    ])
-  })
-
-  it('does not trigger twice on the same local day', async () => {
-    scheduledTaskFindManyMock
-      .mockReset()
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([createTask({ lastTriggeredDate: '2026-06-01' })])
-
-    const result = await runSchedulerTick(new Date('2026-06-01T01:00:00.000Z'))
-
-    expect(handlerStartMock).not.toHaveBeenCalled()
-    expect(result.decisions[0]).toMatchObject({
-      action: 'skipped',
-      reason: 'already_triggered'
-    })
-  })
-
-  it('triggers due tasks and records last trigger state', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createTask()])
-
-    const now = new Date('2026-06-01T00:30:00.000Z')
-    const result = await runSchedulerTick(now)
-
-    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'schedule', taskConfig: null })
-    expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
-      where: { key: 'webp_animation_scan' },
-      data: {
-        lastTriggeredAt: now,
-        lastTriggeredDate: '2026-06-01',
-        lastJobId: 'job-1'
-      }
-    })
-    expect(result.decisions[0]).toMatchObject({
-      action: 'triggered',
-      jobId: 'job-1'
-    })
-  })
-
-  it('triggers due scan run retention cleanup tasks', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createCleanupTask()])
-
-    const now = new Date('2026-06-01T00:10:00.000Z')
-    const result = await runSchedulerTick(now)
-
-    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'schedule', taskConfig: null })
-    expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
-      where: { key: 'scan_run_retention_cleanup' },
-      data: {
-        lastTriggeredAt: now,
-        lastTriggeredDate: '2026-06-01',
-        lastJobId: 'job-1'
-      }
-    })
-    expect(result.decisions[0]).toMatchObject({
-      key: 'scan_run_retention_cleanup',
-      type: 'SCAN_RUN_RETENTION_CLEANUP',
-      action: 'triggered',
-      jobId: 'job-1'
-    })
-  })
-
-  it('skips due tasks when a mutex task is already running', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createTask()])
-    getActiveJobsByTypesMock.mockResolvedValueOnce([{ id: 'job-active', type: 'OTHER_MEDIA_TASK' }])
-
-    const result = await runSchedulerTick(new Date('2026-06-01T00:30:00.000Z'))
-
-    expect(handlerStartMock).not.toHaveBeenCalled()
-    expect(result.decisions[0]).toMatchObject({
-      action: 'skipped',
-      reason: 'mutex_busy'
-    })
-  })
-
-  it('skips due tasks when the same task type is already running', async () => {
-    scheduledTaskFindManyMock.mockReset().mockResolvedValueOnce([]).mockResolvedValueOnce([createCleanupTask()])
-    getActiveJobsByTypesMock.mockResolvedValueOnce([{ id: 'job-active', type: 'SCAN_RUN_RETENTION_CLEANUP' }])
-
-    const result = await runSchedulerTick(new Date('2026-06-01T00:10:00.000Z'))
-
-    expect(handlerStartMock).not.toHaveBeenCalled()
-    expect(result.decisions[0]).toMatchObject({
-      action: 'skipped',
-      reason: 'already_running'
-    })
-  })
-
-  it('triggers scheduled tasks manually and records the job id', async () => {
-    scheduledTaskFindUniqueMock.mockResolvedValueOnce(createCleanupTask())
-
-    const result = await triggerScheduledTaskNow('scan_run_retention_cleanup')
-
-    expect(handlerStartMock).toHaveBeenCalledWith({ trigger: 'manual', taskConfig: null })
-    expect(scheduledTaskUpdateMock).toHaveBeenCalledWith({
-      where: { key: 'scan_run_retention_cleanup' },
-      data: {
-        lastJobId: 'job-1'
-      }
-    })
-    expect(result).toEqual({ jobId: 'job-1' })
-  })
-
   it('only enqueues a manual job after central dispatcher cutover', async () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     scheduledTaskFindUniqueMock.mockResolvedValueOnce(createCleanupTask())
@@ -477,28 +358,6 @@ describe('scheduled-task-service', () => {
       triggerScheduledTaskNow('scan_run_retention_cleanup', { requestedByUserId: 'admin-1' })
     ).rejects.toThrow('scheduled task metadata update failed')
     expect(enqueueJobMock).toHaveBeenCalledOnce()
-    expect(handlerStartMock).not.toHaveBeenCalled()
-  })
-
-  it('forwards an explicit incremental chapter preview mode for manual execution', async () => {
-    scheduledTaskFindUniqueMock.mockResolvedValueOnce(createTask())
-
-    await triggerScheduledTaskNow('webp_animation_scan', { chapterPreviewMode: 'INCREMENTAL' })
-
-    expect(handlerStartMock).toHaveBeenCalledWith({
-      trigger: 'manual',
-      taskConfig: null,
-      chapterPreviewMode: 'INCREMENTAL'
-    })
-  })
-
-  it('blocks manual execution when another task holds the same mutex', async () => {
-    scheduledTaskFindUniqueMock.mockResolvedValueOnce(createTask())
-    getActiveJobsByTypesMock.mockResolvedValueOnce([{ id: 'job-active', type: 'OTHER_MEDIA_TASK' }])
-
-    await expect(triggerScheduledTaskNow('webp_animation_scan')).rejects.toThrow(
-      'Scheduled task mutex is busy: media-maintenance'
-    )
     expect(handlerStartMock).not.toHaveBeenCalled()
   })
 })

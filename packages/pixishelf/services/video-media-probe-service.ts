@@ -1,11 +1,8 @@
 import 'server-only'
 
-import path from 'path'
-import * as childProcess from 'node:child_process'
-import * as fs from 'node:fs/promises'
-import { prisma } from '@/lib/prisma'
 import { isVideoFile } from '@/lib/media'
 import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
+import { prisma } from '@/lib/prisma'
 import { createChapterManifestHash, validateChapterManifest } from '@/services/artwork-service/video-chapters'
 import {
   buildChapterAudioSamplePlans,
@@ -15,10 +12,11 @@ import {
   parseVolumedetectMaxVolume,
   type AudioSampleWindow
 } from '@pixishelf/job-executors/video-audio'
+import * as childProcess from 'node:child_process'
+import * as fs from 'node:fs/promises'
+import path from 'path'
 
 const CLASSIFY_BATCH_SIZE = 500
-const PROBE_BATCH_SIZE = 20
-const FAILED_SAMPLE_LIMIT = 20
 
 export interface VideoProbeMetadata {
   hasAudio: boolean
@@ -265,9 +263,7 @@ export async function probeVideoFile(absolutePath: string): Promise<VideoProbeMe
     try {
       const chapters = []
       for (const plan of plans) {
-        const hasAudibleAudio = audioStream
-          ? await detectAudibleAudioWindows(absolutePath, plan.windows)
-          : false
+        const hasAudibleAudio = audioStream ? await detectAudibleAudioWindows(absolutePath, plan.windows) : false
         chapters.push({
           chapterOrder: plan.chapterOrder,
           chapterIndex: plan.index,
@@ -412,199 +408,6 @@ export async function resolveVideoImageForReprobePath(inputPath: string, scanPat
   return image
 }
 
-export async function runVideoMediaProbeJob(options: {
-  scanPath: string
-  mode?: 'INCREMENTAL' | 'RECHECK_HAS_AUDIO'
-  force?: boolean
-  checkpointCreatedAt?: Date
-  onProgress?: (progress: VideoMediaProbeProgress) => Promise<void> | void
-  checkCancelled?: () => Promise<boolean> | boolean
-}): Promise<VideoMediaProbeResult> {
-  const mode = options.mode ?? 'INCREMENTAL'
-  const recheckHasAudio = mode === 'RECHECK_HAS_AUDIO'
-  if (recheckHasAudio && !options.force) {
-    throw new Error('Audio recalibration must be an explicit force run')
-  }
-  const checkpointCreatedAt = options.checkpointCreatedAt ?? new Date()
-  const reportProgress = async (percentage: number, message: string) => {
-    await options.onProgress?.({ percentage, message })
-  }
-
-  const ensureNotCancelled = async () => {
-    if (await options.checkCancelled?.()) {
-      throw new Error('Task cancelled')
-    }
-  }
-
-  await reportProgress(1, '正在统计待分类媒体...')
-  const classification = recheckHasAudio
-    ? {
-        classifiedVideos: 0,
-        classifiedImages: 0,
-        classifiedAnimations: 0,
-        unknown: 0,
-        metadataRowsCreated: 0
-      }
-    : await classifyUnknownMediaImages({
-        onProgress: async ({ processed, total, result }) => {
-          const percentage = total > 0 ? Math.min(29, 1 + Math.floor((processed / total) * 28)) : 2
-          await reportProgress(
-            percentage,
-            total > 0
-              ? `正在分类媒体 ${processed}/${total}：视频 ${result.classifiedVideos} 个，图片 ${result.classifiedImages} 个，动图 ${result.classifiedAnimations} 个，未知 ${result.unknown} 个`
-              : '没有待分类媒体'
-          )
-        }
-      })
-
-  // 新入库媒体已经直接写入 mediaType；为这些视频补齐探测队列，避免依赖 UNKNOWN 分类流程。
-  if (!recheckHasAudio) {
-    const videosWithoutMetadata = await prisma.image.findMany({
-      where: {
-        mediaType: 'VIDEO',
-        videoMetadata: null
-      },
-      select: { id: true }
-    })
-    if (videosWithoutMetadata.length > 0) {
-      await prisma.mediaVideoMetadata.createMany({
-        data: videosWithoutMetadata.map(({ id }) => ({ imageId: id, probeStatus: 'PENDING' })),
-        skipDuplicates: true
-      })
-    }
-  }
-
-  // Failed probes are deliberately sticky. Reprocessing every failure on each scheduled run creates
-  // an unbounded failure storm; only an explicit force run may make them pending again.
-  if (!recheckHasAudio && options.force) {
-    await prisma.mediaVideoMetadata.updateMany({
-      where: { probeStatus: 'FAILED' },
-      data: { probeStatus: 'PENDING' }
-    })
-  }
-
-  await ensureNotCancelled()
-  const candidateWhere = recheckHasAudio
-    ? {
-        hasAudio: true,
-        OR: [
-          { probeStatus: { in: ['PENDING' as const, 'PROBING' as const, 'FAILED' as const] } },
-          {
-            probeStatus: 'COMPLETED' as const,
-            OR: [{ probeUpdatedAt: null }, { probeUpdatedAt: { lt: checkpointCreatedAt } }]
-          }
-        ]
-      }
-    : { probeStatus: 'PENDING' as const }
-  const totalPending = await prisma.mediaVideoMetadata.count({ where: candidateWhere })
-
-  const result: VideoMediaProbeResult = {
-    ...classification,
-    mode,
-    processed: 0,
-    failed: 0,
-    remainingPending: totalPending,
-    failedSamples: []
-  }
-
-  if (totalPending === 0) {
-    await reportProgress(100, `没有待探测视频，本次分类视频 ${classification.classifiedVideos} 个`)
-    return result
-  }
-
-  await reportProgress(30, `待探测视频 ${totalPending} 个，每批 ${PROBE_BATCH_SIZE} 个`)
-
-  let lastSeenImageId = 0
-  while (true) {
-    await ensureNotCancelled()
-
-    const batch = await prisma.mediaVideoMetadata.findMany({
-      where: { ...candidateWhere, imageId: { gt: lastSeenImageId } },
-      orderBy: { imageId: 'asc' },
-      take: PROBE_BATCH_SIZE,
-      select: {
-        imageId: true,
-        image: {
-          select: { path: true }
-        }
-      }
-    })
-
-    if (batch.length === 0) break
-    lastSeenImageId = batch[batch.length - 1]!.imageId
-
-    for (const item of batch) {
-      await ensureNotCancelled()
-
-      try {
-        await prisma.mediaVideoMetadata.update({
-          where: { imageId: item.imageId },
-          data: {
-            probeStatus: 'PROBING',
-            probeUpdatedAt: new Date(),
-            probeError: null
-          }
-        })
-
-        const absolutePath = resolvePathWithinScanRoot(options.scanPath, item.image.path)
-        const metadata = await probeVideoFile(absolutePath)
-        if (metadata.chapterAudio) {
-          await persistChapterAudioMeasurements(item.imageId, metadata.chapterAudio)
-        }
-        const videoMetadata = toPersistedVideoMetadata(metadata)
-
-        await prisma.mediaVideoMetadata.update({
-          where: { imageId: item.imageId },
-          data: {
-            probeStatus: 'COMPLETED',
-            probeUpdatedAt: new Date(),
-            probeError: null,
-            ...videoMetadata
-          }
-        })
-
-        result.processed += 1
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Unknown error'
-        if (error instanceof VideoChapterAudioProbeError) {
-          await persistChapterAudioFailure(item.imageId, error.chapterAudio, message)
-        }
-        result.failed += 1
-        if (result.failedSamples.length < FAILED_SAMPLE_LIMIT) {
-          result.failedSamples.push({
-            imageId: item.imageId,
-            path: item.image.path,
-            error: message
-          })
-        }
-        await prisma.mediaVideoMetadata.update({
-          where: { imageId: item.imageId },
-          data: {
-            probeStatus: 'FAILED',
-            probeUpdatedAt: new Date(),
-            probeError: message
-          }
-        })
-      }
-    }
-
-    const attempts = result.processed + result.failed
-    const percentage = Math.min(99, 30 + Math.floor((attempts / totalPending) * 69))
-    await reportProgress(
-      percentage,
-      `已探测 ${attempts}/${totalPending} 个：成功 ${result.processed} 个，失败 ${result.failed} 个`
-    )
-  }
-
-  result.remainingPending = await prisma.mediaVideoMetadata.count({
-    where: candidateWhere
-  })
-
-  await reportProgress(100, `视频媒体探测完成：成功 ${result.processed} 个，失败 ${result.failed} 个`)
-
-  return result
-}
-
 function execFfprobe(args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     childProcess.execFile('ffprobe', args, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
@@ -745,11 +548,7 @@ function toPersistedVideoMetadata(metadata: VideoProbeMetadata): Omit<VideoProbe
   }
 }
 
-async function persistChapterAudioFailure(
-  imageId: number,
-  chapterAudio: VideoChapterAudioReference,
-  message: string
-) {
+async function persistChapterAudioFailure(imageId: number, chapterAudio: VideoChapterAudioReference, message: string) {
   await persistChapterAudioInBatches(imageId, chapterAudio, () => ({
     hasAudibleAudio: null,
     audioProbeError: message

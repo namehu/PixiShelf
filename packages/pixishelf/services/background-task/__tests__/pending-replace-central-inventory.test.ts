@@ -19,8 +19,10 @@ describe('pending replacement central cutover inventory', () => {
     expect(central).not.toContain('setInterval(')
   })
 
-  it('hard-branches before legacy IIFEs and keeps the status route read-only/admin-only', () => {
-    expect(compatibility.match(/if \(isCentralDispatcherCutoverEnabled\(\)\)/g)?.length).toBeGreaterThanOrEqual(6)
+  it('removes legacy IIFEs and keeps the status route read-only/admin-only', () => {
+    expect(compatibility).not.toContain('isCentralDispatcherCutoverEnabled')
+    expect(compatibility).not.toContain('setInterval(')
+    expect(compatibility).not.toMatch(/void\s*\(async/)
     expect(router).not.toContain('authProcedure')
     expect(router).toContain('status: adminProcedure')
     expect(router).toContain('scanPathForExecution()')

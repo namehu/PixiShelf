@@ -78,7 +78,7 @@ Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置
 - `BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`、`BETTER_AUTH_TRUSTED_ORIGINS` 符合实际入口；
 - `INTERNAL_JOB_TOKEN` 与 `SCAN_WEBHOOK_TOKEN` 使用彼此独立的强随机值；
 - `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 当前不参与自动初始化，遗留 `JWT_SECRET` 也不负责当前浏览器会话；
-- `CENTRAL_DISPATCHER_CUTOVER_ENABLED` 与 `WORKER_DISPATCH_ENABLED` 始终成对切换；
+- App 固定中央入队，Worker 启动即消费；维护通过停止服务隔离；
 - 生产反向代理使用 HTTPS，清除外部 `x-user-session`/`x-pathname`，并将 `NEXT_PUBLIC_IMGPROXY_URL` 限制在受信网络或等效保护路径。
 - 反向代理对 `/api/jobs/events` 禁用响应缓冲和转换，保留长连接；应用已发送 `X-Accel-Buffering: no` 与 `Cache-Control: no-cache, no-transform`，代理仍需允许至少 15 秒心跳穿过。
 
@@ -235,12 +235,7 @@ type/version 组合，其中 `SCAN` 支持 v1/v2/v3、`ARCHIVE_IMPORT` 支持 v1
 
 审计通过后，在同一个停写窗口建立 PostgreSQL、原媒体、派生媒体、配置和旧/新镜像 digest 的一致性检查点。lane migration 会拒绝 `RUNNING/PAUSING/CANCELLING` 任务或未过期的 `global/background-worker` lease，并删除已经过期的旧全局 lease；它不是停止并发写入者的替代品。
 
-停止写入者并完成一致性备份后，先把两枚开关设为暗启动状态：
-
-```dotenv
-CENTRAL_DISPATCHER_CUTOVER_ENABLED=false
-WORKER_DISPATCH_ENABLED=false
-```
+停止写入者并完成一致性备份后执行迁移。新版没有停止消费的环境开关，Worker 启动前须准备好处理等待队列。退役第一阶段按[专用手册](../deployment/background-task-retirement.md)补充预检。
 
 拉取镜像并启动基础服务。迁移必须由一次性目标 Web 镜像执行完成，不能先开放会接收请求的 App：
 
@@ -254,7 +249,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d wo
 
 普通版本中 App entrypoint 也会在启动 Next.js 前执行 `prisma migrate deploy`，但 lane 直切必须把 migration 与开放 App 分开。migration 失败时立即停止，不得使用 `db:push`、手工删列或盲目标记 migration 完成。迁移一旦替换为按 lane 的执行索引，就禁止启动不理解双 lane 的旧消费者。
 
-暗启动验证：
+启动后的运行验证（此时 Worker 已可能消费）：
 
 ```bash
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml ps
@@ -266,8 +261,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml logs --t
 READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 33 个 job type、38 个 type/version 组合、
 `SCAN` v1/v2/v3、其余 v1 及正确 lane；`/livez` 只能证明进程存活，不能替代上述门禁。`SCAN@v3` 把
 `AUDIT_APPLY` 与只读 `SCAN@v2` 隔离：滚动部署期间旧 v2 Worker 不会领取 v3 写任务，但发布门禁仍要求新
-Worker 明确报告 v1/v2/v3 后才能开放 App 写入口。暗启动通过后再启动 App，仍保持 `false/false` 完成登录和
-只读媒体抽样。
+Worker 明确报告 v1/v2/v3 后才能开放 App 写入口。验证通过后启动 App 并完成登录和媒体抽样。
 
 ```bash
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d app
@@ -275,10 +269,9 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d ap
 
 同时验证登录、画廊查询、原图片、静态视频封面、封面缺失占位和原视频播放。
 
-确认无阻断后，把两枚开关同时改为 `true` 并重建 App 与 Worker：
+确认无阻断后，复核 Worker 并启动 scheduler：
 
 ```bash
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d --force-recreate app worker
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/healthcheck.cjs --mode=ready
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/capability-audit.cjs
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d scheduler
@@ -308,8 +301,8 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d sc
 出现重复消费、任务异常或 Worker 不稳定时，先执行可逆隔离：
 
 1. 停止 scheduler；
-2. 把两枚 Dispatcher 开关改回 `false`；
-3. 重建 App/Worker，停止新的任务创建和 claim；
+2. 停止 App、Worker 和外部写入者；
+3. 核对执行态与租约，确认没有新的任务创建和 claim；
 4. 保存 App、Worker、PostgreSQL 日志和任务状态；
 5. 不在存在活动任务时强制回滚 Schema。
 
@@ -319,7 +312,7 @@ lane migration 后，服务级回滚只能使用兼容新 schema、当前 capabi
 
 ## 当前安全开关与历史边界
 
-- 两枚 Dispatcher 开关仍保留，生产稳态为 `true/true`，暗启动和故障隔离为 `false/false`；
+- 两枚 Dispatcher 开关已删除，旧 false 配置不能阻止消费；维护必须停止服务；
 - App 镜像负责 migration，Worker 镜像只做 Schema 预检；
 - `ArchivePreviewSession` 表暂时保留用于兼容观察，过期记录由收件保留任务清理；本次不做破坏性 Schema contract；
 
@@ -355,3 +348,5 @@ lane migration 后，服务级回滚只能使用兼容新 schema、当前 capabi
 按备份与恢复基线建立发布检查点后，使用 migrate deploy 应用 20260920120000_add_discovery_batch_scan，禁止 db:push。此迁移仅扩展 system_jobs_type_execution_lane_check 并新增 system_jobs_one_active_discovery_batch 部分唯一索引，无表新增或历史回填。先升级 Worker，确认双 lane READY 及 33 类/38 个版本组合，再开放新版 App 的批量入口。旧 Worker 不具备新父任务能力，也不具备暂停父批次的子任务领取保护，因此 App/Worker 必须配套升级。
 
 回退前取消所有活动批次，等待子扫描终止并确认无遗留活动子任务，再回退 App/Worker；保留扩展约束和索引，不删除已发现目录或重置来源游标。完整恢复依赖同一发布检查点的数据库、媒体与配置，不能只恢复队列表。
+
+后台任务退役第一阶段保留旧列双写，仅支持经验证的 v0.50.8 中央模式回退。第二阶段另行发布，见[退役手册](../deployment/background-task-retirement.md)。

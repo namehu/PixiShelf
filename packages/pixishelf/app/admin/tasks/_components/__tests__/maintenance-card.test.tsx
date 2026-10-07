@@ -8,6 +8,7 @@ vi.mock('@/lib/trpc', () => ({ useTRPC: vi.fn() }))
 vi.mock('../video-keyframe-section', () => ({ VideoKeyframeSection: () => null }))
 vi.mock('../video-streaming-optimization-section', () => ({ VideoStreamingOptimizationSection: () => null }))
 
+import { AnimationScanLiveFeedback } from '../animation-scan-live-feedback'
 import {
   getActiveTaskActionLabel,
   getJobSummary,
@@ -18,7 +19,6 @@ import {
   shouldPollStandaloneTasks
 } from '../maintenance-card'
 import { PixivAiDerivedTagSyncFeedback } from '../pixiv-ai-derived-tag-sync-feedback'
-import { AnimationScanLiveFeedback } from '../animation-scan-live-feedback'
 import { StandaloneTaskFeedback } from '../standalone-task-feedback'
 import { JobStatus, type JobView, type ScheduledTaskView } from '../task-ui'
 import { VideoProbeTaskActions } from '../video-probe-task-actions'
@@ -36,12 +36,10 @@ function task(overrides: Partial<ScheduledTaskView> = {}): ScheduledTaskView {
     description: 'test',
     enabled: false,
     scheduleMode: 'DAILY',
-    time: '05:30',
     timezone: 'Asia/Shanghai',
     priority: 70,
-    mutexKey: 'media-maintenance',
-    lastTriggeredAt: null,
-    lastTriggeredDate: null,
+    lastMaterializedAt: null,
+    lastMaterializedDate: null,
     lastJobId: null,
     lastJobStatus: null,
     nextRunAt: null,

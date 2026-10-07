@@ -7,7 +7,7 @@ export * from './artist-merge'
 export * from './animation-duration'
 export * from './artwork-reading'
 
-const latestRequiredMigration = '20260930121000_retire_series_legacy_fields'
+const latestRequiredMigration = '20261007100000_background_task_retirement_read_model'
 
 const requiredQueueObjects = [
   'artist_merges',
@@ -68,7 +68,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
         FROM information_schema.columns
         WHERE table_schema = current_schema()
           AND (
-            (table_name = 'system_jobs' AND column_name IN ('definitionVersion', 'executionLane', 'progressData'))
+            (table_name = 'system_jobs' AND column_name IN ('definitionVersion', 'executionLane', 'progressData', 'legacyDisplay'))
             OR (table_name = 'Artwork' AND column_name = 'mediaRevision')
             OR (table_name = 'Artist' AND column_name = 'userId')
             OR (table_name = 'Artwork' AND column_name = 'seriesId')
@@ -120,6 +120,9 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   }
   if (!columnRows.some(({ columnName }) => columnName === 'progressData')) {
     missingObjects.push('system_jobs.progressData')
+  }
+  if (!columnRows.some(({ columnName }) => columnName === 'legacyDisplay')) {
+    missingObjects.push('system_jobs.legacyDisplay')
   }
   if (!columnRows.some(({ columnName }) => columnName === 'Artwork.mediaRevision')) {
     missingObjects.push('Artwork.mediaRevision')

@@ -1,4 +1,6 @@
-import * as fs from 'node:fs/promises'
+import { prisma } from '@/lib/prisma'
+import { lockSingletonJobType } from '@/services/background-task/manual-job-singleton'
+import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
 import {
   ACTIVE_JOB_STATUSES,
   EXECUTION_LANES,
@@ -7,10 +9,8 @@ import {
   workerCapabilitySchema,
   type JobStatus
 } from '@pixishelf/job-contracts'
-import { prisma } from '@/lib/prisma'
-import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
-import { lockSingletonJobType } from '@/services/background-task/manual-job-singleton'
-import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
+import * as fs from 'node:fs/promises'
+import { decideSourceAuditItemApply, sourceAuditLatestApplyResult } from './apply-item-policy'
 import {
   SOURCE_AUDIT_CLASSIFICATION_VALUES,
   listSourceAuditItemsInputSchema,
@@ -23,15 +23,13 @@ import {
   type SourceAuditAvailability,
   type SourceAuditClassification
 } from './contracts'
-import { decideSourceAuditItemApply, sourceAuditLatestApplyResult } from './apply-item-policy'
 import { decodeSourceAuditCursor, encodeSourceAuditCursor } from './cursor'
-
 const ACTIVE_STATUSES = [...ACTIVE_JOB_STATUSES]
 const SOURCE_AUDIT_OPERATION = 'CONSISTENCY_AUDIT'
 const SOURCE_AUDIT_PAYLOAD = { mode: SOURCE_AUDIT_OPERATION, verification: 'FAST' } as const
 const SOURCE_AUDIT_PRIORITY = 10
 const SOURCE_AUDIT_MAX_ATTEMPTS = 3
-const DEFAULT_ROOT_PROBE_TIMEOUT_MS = 3_000
+const DEFAULT_ROOT_PROBE_TIMEOUT_MS = 3000
 const KNOWN_REASON_CODES = new Set([
   'DUPLICATE_METADATA_IDENTITY',
   'IDENTITY_CONFLICT',
@@ -39,22 +37,42 @@ const KNOWN_REASON_CODES = new Set([
   'METADATA_TOO_LARGE',
   'SOURCE_MISSING'
 ])
-
 export type SourceAuditDatabase = typeof prisma
 interface ReadinessClient {
   pixivMetadataInventoryState: {
-    findUnique(input: { where: { id: string }; select: { status: true } }): Promise<{ status: string } | null>
+    findUnique(input: {
+      where: {
+        id: string
+      }
+      select: {
+        status: true
+      }
+    }): Promise<{
+      status: string
+    } | null>
   }
   workerInstance: {
     findMany(input: {
-      where: { status: 'READY'; heartbeatAt: { gte: Date } }
-      orderBy: { heartbeatAt: 'desc' }
+      where: {
+        status: 'READY'
+        heartbeatAt: {
+          gte: Date
+        }
+      }
+      orderBy: {
+        heartbeatAt: 'desc'
+      }
       take: number
-      select: { capabilities: true }
-    }): Promise<Array<{ capabilities: unknown }>>
+      select: {
+        capabilities: true
+      }
+    }): Promise<
+      Array<{
+        capabilities: unknown
+      }>
+    >
   }
 }
-
 export class SourceAuditServiceError extends Error {
   constructor(
     readonly code: 'BLOCKED' | 'CONFLICT' | 'NOT_FOUND' | 'INVALID_CURSOR',
@@ -64,12 +82,7 @@ export class SourceAuditServiceError extends Error {
     this.name = 'SourceAuditServiceError'
   }
 }
-
-interface SourceAuditEnvironment {
-  CENTRAL_DISPATCHER_CUTOVER_ENABLED?: string
-  WORKER_DISPATCH_ENABLED?: string
-}
-
+interface SourceAuditEnvironment {}
 export interface SourceAuditServiceOptions {
   database?: SourceAuditDatabase
   environment?: SourceAuditEnvironment
@@ -78,12 +91,10 @@ export interface SourceAuditServiceOptions {
   getScanRoot?: () => Promise<string | null>
   rootProbeTimeoutMs?: number
 }
-
 export async function getSourceAuditAvailability(
   options: SourceAuditServiceOptions = {}
 ): Promise<SourceAuditAvailability> {
   const database = options.database ?? prisma
-  const environment = options.environment ?? process.env
   const now = options.now?.() ?? new Date()
   const active = await findActiveScan(database)
   if (active) {
@@ -97,24 +108,13 @@ export async function getSourceAuditAvailability(
     }
     return blockedAvailability('SCAN_BUSY')
   }
-  if (
-    !isCentralDispatcherCutoverEnabled({
-      CENTRAL_DISPATCHER_CUTOVER_ENABLED: environment.CENTRAL_DISPATCHER_CUTOVER_ENABLED
-    })
-  ) {
-    return blockedAvailability('CUTOVER_DISABLED')
-  }
-  if (!environmentFlagEnabled(environment.WORKER_DISPATCH_ENABLED)) return blockedAvailability('DISPATCH_DISABLED')
-
   const configuredRoot = await readConfiguredScanRoot(database, options)
   if (!configuredRoot) return blockedAvailability('SCAN_ROOT_NOT_CONFIGURED')
-
   const inventoryState = await database.pixivMetadataInventoryState.findUnique({
     where: { id: 'pixiv' },
     select: { status: true }
   })
   if (inventoryState?.status !== 'READY') return blockedAvailability('INVENTORY_NOT_READY')
-
   const workers = await database.workerInstance.findMany({
     where: {
       status: 'READY',
@@ -127,12 +127,12 @@ export async function getSourceAuditAvailability(
   if (!workers.some((worker) => supportsScanV2(worker.capabilities))) {
     return blockedAvailability('WORKER_NOT_READY')
   }
-
   return sourceAuditAvailabilitySchema.parse({ available: true, reason: null, activeAudit: null })
 }
-
 export async function startSourceAudit(
-  input: { requestId: string },
+  input: {
+    requestId: string
+  },
   requestedByUserId: string,
   options: SourceAuditServiceOptions = {}
 ) {
@@ -157,7 +157,6 @@ export async function startSourceAudit(
       activeAuditReference(existingActive) ? 'A source audit is already active' : 'Another scan is already active'
     )
   }
-
   const availability = await getSourceAuditAvailability(options)
   if (!availability.available) {
     throw new SourceAuditServiceError(
@@ -175,10 +174,8 @@ export async function startSourceAudit(
   } catch {
     throw new SourceAuditServiceError('BLOCKED', 'Scan root is not safely accessible')
   }
-
   return database.$transaction(async (transaction) => {
     await lockSingletonJobType(transaction, 'SCAN')
-
     const idempotent = await transaction.systemJob.findUnique({
       where: { idempotencyKey },
       include: { scanRun: { select: { id: true, operationKind: true } } }
@@ -190,7 +187,6 @@ export async function startSourceAudit(
       }
       return startSourceAuditResultSchema.parse({ ...audit, reused: true })
     }
-
     const active = await transaction.systemJob.findFirst({
       where: { type: 'SCAN', status: { in: ACTIVE_STATUSES } },
       orderBy: { createdAt: 'desc' },
@@ -202,9 +198,7 @@ export async function startSourceAudit(
         activeAuditReference(active) ? 'A source audit is already active' : 'Another scan is already active'
       )
     }
-
     await assertTransactionalReadiness(transaction, options.now?.() ?? new Date())
-
     const timestamp = options.now?.() ?? new Date()
     const job = await transaction.systemJob.create({
       data: {
@@ -266,8 +260,12 @@ export async function startSourceAudit(
     })
   })
 }
-
-export async function getSourceAudit(input: { auditRunId: string }, options: SourceAuditServiceOptions = {}) {
+export async function getSourceAudit(
+  input: {
+    auditRunId: string
+  },
+  options: SourceAuditServiceOptions = {}
+) {
   const parsed = sourceAuditRunIdInputSchema.parse(input)
   const database = options.database ?? prisma
   const run = await database.scanRun.findFirst({
@@ -308,7 +306,6 @@ export async function getSourceAudit(input: { auditRunId: string }, options: Sou
     }
   })
   if (!run?.systemJob || !run.systemJobId) return null
-
   const status = run.systemJob.status
   return sourceAuditSummarySchema.parse({
     id: run.id,
@@ -337,7 +334,6 @@ export async function getSourceAudit(input: { auditRunId: string }, options: Sou
     }
   })
 }
-
 export async function listSourceAuditItems(
   input: {
     auditRunId: string
@@ -357,7 +353,6 @@ export async function listSourceAuditItems(
   if (run.status !== 'COMPLETED' || run.systemJob?.status !== 'COMPLETED') {
     throw new SourceAuditServiceError('BLOCKED', 'Source audit results are not complete')
   }
-
   let cursor: ReturnType<typeof decodeSourceAuditCursor> | undefined
   if (parsed.cursor) {
     try {
@@ -369,7 +364,6 @@ export async function listSourceAuditItems(
       throw new SourceAuditServiceError('INVALID_CURSOR', 'Source audit cursor is invalid')
     }
   }
-
   const rows = await database.pixivSourceAuditItem.findMany({
     where: {
       scanRunId: run.id,
@@ -435,7 +429,6 @@ export async function listSourceAuditItems(
           select: { id: true, title: true }
         })
   const artworkById = new Map(artworks.map((artwork) => [artwork.id, artwork]))
-
   return sourceAuditItemPageSchema.parse({
     items: visible.map((row) => {
       const classification = sourceAuditClassification(row.differenceKind)
@@ -473,15 +466,9 @@ export async function listSourceAuditItems(
       : null
   })
 }
-
 function blockedAvailability(reason: Exclude<SourceAuditAvailability['reason'], null>): SourceAuditAvailability {
   return sourceAuditAvailabilitySchema.parse({ available: false, reason, activeAudit: null })
 }
-
-function environmentFlagEnabled(value: string | undefined) {
-  return value?.trim().toLowerCase() === 'true'
-}
-
 export async function inspectSafeScanRoot(configuredRoot: string) {
   const metadata = await fs.lstat(configuredRoot)
   if (metadata.isSymbolicLink() || !metadata.isDirectory()) throw new Error('Unsafe scan root')
@@ -489,14 +476,12 @@ export async function inspectSafeScanRoot(configuredRoot: string) {
   const resolvedMetadata = await fs.lstat(resolved)
   if (!resolvedMetadata.isDirectory()) throw new Error('Unsafe scan root')
 }
-
 export async function readConfiguredScanRoot(database: SourceAuditDatabase, options: SourceAuditServiceOptions) {
   const value = options.getScanRoot
     ? await options.getScanRoot()
     : (await database.setting.findUnique({ where: { key: 'scanPath' }, select: { value: true } }))?.value
   return value?.trim() || null
 }
-
 export async function assertTransactionalReadiness(
   transaction: ReadinessClient,
   now: Date,
@@ -522,9 +507,8 @@ export async function assertTransactionalReadiness(
     throw new SourceAuditServiceError('BLOCKED', `No fresh READY Worker supports SCAN v${definitionVersion}`)
   }
 }
-
 export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new Error('Invalid source audit root probe timeout')
   }
   let timeout: ReturnType<typeof setTimeout> | undefined
@@ -540,11 +524,9 @@ export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Pr
     if (timeout) clearTimeout(timeout)
   }
 }
-
 function supportsScanV2(value: unknown) {
   return supportsScanVersion(value, SCAN_DEFINITION_VERSION)
 }
-
 export function supportsScanVersion(value: unknown, definitionVersion: number) {
   if (!Array.isArray(value)) return false
   return value.some((entry) => {
@@ -557,7 +539,6 @@ export function supportsScanVersion(value: unknown, definitionVersion: number) {
     )
   })
 }
-
 async function findActiveScan(database: SourceAuditDatabase) {
   return database.systemJob.findFirst({
     where: { type: 'SCAN', status: { in: ACTIVE_STATUSES } },
@@ -565,18 +546,19 @@ async function findActiveScan(database: SourceAuditDatabase) {
     include: { scanRun: { select: { id: true, operationKind: true } } }
   })
 }
-
 function activeAuditReference(job: Awaited<ReturnType<typeof findActiveScan>> | null) {
   if (!job || !ACTIVE_JOB_STATUSES.has(job.status as JobStatus)) return null
   return activeOrHistoricalAuditReference(job)
 }
-
 function activeOrHistoricalAuditReference(job: {
   id: string
   status: string
   definitionVersion: number
   payload: unknown
-  scanRun: { id: string; operationKind: string | null } | null
+  scanRun: {
+    id: string
+    operationKind: string | null
+  } | null
 }) {
   const payload = scanV2PayloadSchema.safeParse(job.payload)
   if (
@@ -589,13 +571,8 @@ function activeOrHistoricalAuditReference(job: {
   }
   return { auditRunId: job.scanRun.id, jobId: job.id, status: job.status }
 }
-
 function availabilityMessage(reason: SourceAuditAvailability['reason']) {
   switch (reason) {
-    case 'CUTOVER_DISABLED':
-      return 'Central Dispatcher is not enabled'
-    case 'DISPATCH_DISABLED':
-      return 'Worker dispatch is not enabled'
     case 'SCAN_ROOT_NOT_CONFIGURED':
       return 'Scan root is not configured'
     case 'SCAN_ROOT_UNAVAILABLE':
@@ -610,17 +587,14 @@ function availabilityMessage(reason: SourceAuditAvailability['reason']) {
       return 'Source audit cannot be started'
   }
 }
-
 function sourceAuditClassification(value: string): SourceAuditClassification {
   const parsed = SOURCE_AUDIT_CLASSIFICATION_VALUES.find((classification) => classification === value)
   if (!parsed) throw new Error('Unexpected source audit classification')
   return parsed
 }
-
 function safeReasonCode(value: string | null) {
   return value && KNOWN_REASON_CODES.has(value) ? value : value ? 'SOURCE_DIFFERENCE' : null
 }
-
 function reasonSummary(code: string) {
   switch (code) {
     case 'DUPLICATE_METADATA_IDENTITY':
@@ -637,11 +611,9 @@ function reasonSummary(code: string) {
       return '该来源差异需要人工检查。'
   }
 }
-
 function actionForClassification(classification: SourceAuditClassification) {
   return classification === 'NEW' ? ('IMPORT' as const) : classification === 'CHANGED' ? ('SYNC' as const) : null
 }
-
 function actionRequiredReason(status: string, errorCode: string | null, pausedEventData: unknown) {
   if (status === 'CANCELLED' || status === 'CANCELLING') return 'CANCELLED'
   if (status === 'COMPLETED' || status === 'SKIPPED') return null
@@ -655,18 +627,15 @@ function actionRequiredReason(status: string, errorCode: string | null, pausedEv
   if (status === 'FAILED' || errorCode === 'INTERNAL_ERROR') return 'EXECUTION_FAILED'
   return null
 }
-
 function readDecisionCode(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   if ('decisionCode' in value && typeof value.decisionCode === 'string') return value.decisionCode
   if (!('data' in value) || !value.data || typeof value.data !== 'object' || Array.isArray(value.data)) return null
   return 'decisionCode' in value.data && typeof value.data.decisionCode === 'string' ? value.data.decisionCode : null
 }
-
 function nonnegative(value: number | null) {
   return Math.max(0, value ?? 0)
 }
-
 function iso(value: Date | null) {
   return value?.toISOString() ?? null
 }

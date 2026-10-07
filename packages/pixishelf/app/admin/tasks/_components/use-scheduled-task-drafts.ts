@@ -13,7 +13,6 @@ export function useScheduledTaskDrafts(tasks: ScheduledTaskView[]) {
       for (const task of tasks) {
         next[task.key] ??= {
           enabled: task.enabled,
-          time: task.time,
           priority: String(task.priority)
         }
       }
@@ -26,7 +25,6 @@ export function useScheduledTaskDrafts(tasks: ScheduledTaskView[]) {
       ...current,
       [key]: {
         enabled: false,
-        time: '03:30',
         priority: '100',
         ...current[key],
         ...patch

@@ -1,14 +1,28 @@
 'use client'
 
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { confirm } from '@/components/shared/global-confirm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Spinner } from '@/components/ui/spinner'
 import { useTRPC } from '@/lib/trpc'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
 import { Database, Film, ImagePlay, PlayCircle, Tags, Wrench } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { VideoKeyframeSection } from './video-keyframe-section'
-import { VideoStreamingOptimizationSection } from './video-streaming-optimization-section'
+import { toast } from 'sonner'
+import { useBackgroundJobEventSubscription } from '../../_components/background-job-event-provider'
+import { AnimationDurationProbeSection } from './animation-duration-probe-section'
+import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
+import { BackgroundTaskConsole } from './background-task-console'
+import {
+  collectUnseenLiveEvents,
+  mergeLiveJobSnapshot,
+  selectLiveJobForStatusCache,
+  type LiveEventCursor
+} from './live-event-reconciliation'
+import { PixivAiDerivedTagSyncFeedback, type PixivAiDerivedTagSyncResult } from './pixiv-ai-derived-tag-sync-feedback'
+import { StandaloneTaskFeedback } from './standalone-task-feedback'
+import { ACTIVE_TASK_STATUSES, formatTaskStatus } from './task-status'
 import {
   getDraftForTask,
   getScheduledTaskUpdate,
@@ -20,25 +34,11 @@ import {
   type JobView,
   type ScheduledTaskView
 } from './task-ui'
-import { Spinner } from '@/components/ui/spinner'
-import { confirm } from '@/components/shared/global-confirm'
-import { BackgroundTaskConsole } from './background-task-console'
 import { useScheduledTaskDrafts } from './use-scheduled-task-drafts'
 import { useTaskPolling } from './use-task-polling'
+import { VideoKeyframeSection } from './video-keyframe-section'
 import { VideoProbeTaskActions, type VideoMediaProbeResult } from './video-probe-task-actions'
-import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
-import { useBackgroundJobEventSubscription } from '../../_components/background-job-event-provider'
-import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
-import { AnimationDurationProbeSection } from './animation-duration-probe-section'
-import { StandaloneTaskFeedback } from './standalone-task-feedback'
-import { ACTIVE_TASK_STATUSES, formatTaskStatus } from './task-status'
-import {
-  collectUnseenLiveEvents,
-  mergeLiveJobSnapshot,
-  selectLiveJobForStatusCache,
-  type LiveEventCursor
-} from './live-event-reconciliation'
-import { PixivAiDerivedTagSyncFeedback, type PixivAiDerivedTagSyncResult } from './pixiv-ai-derived-tag-sync-feedback'
+import { VideoStreamingOptimizationSection } from './video-streaming-optimization-section'
 
 interface MediaDerivedTagSyncStats {
   expectedArtworks?: number
@@ -120,7 +120,7 @@ function getScheduledSummary(task: ScheduledTaskView | undefined, job: JobView |
   const jobSummary = getJobSummary(job, isRunning)
   if (jobSummary) return jobSummary
   if (!task?.enabled) return null
-  return task.executionWindow ? '下次 · 上海 00:00–08:00' : `下次 · 每日 ${task.time}`
+  return '下次 · 上海 00:00–08:00'
 }
 
 export function getStandaloneSummary(task: ScheduledTaskView) {
@@ -129,7 +129,7 @@ export function getStandaloneSummary(task: ScheduledTaskView) {
   }
   if (task.lastJobStatus === 'FAILED') return '需要处理 · 上次执行失败'
   if (!task.enabled) return null
-  return task.executionWindow ? '下次 · 上海 00:00–08:00' : `下次 · 每日 ${task.time}`
+  return '下次 · 上海 00:00–08:00'
 }
 
 export function getActiveTaskActionLabel(status: string | null | undefined, runningLabel: string) {
@@ -243,7 +243,6 @@ export function MaintenanceCard() {
   const webpScanJobQuery = useQuery(webpScanJobQueryOptions)
   const webpScanJob = webpScanJobQuery.data as JobView | null | undefined
   const refetchWebpScanJob = webpScanJobQuery.refetch
-
 
   const latestWebpEvent = [...jobEvents.items].reverse().find(({ job }) => job.type === 'WEBP_ANIMATION_SCAN')
   const videoProbeJobQuery = useQuery(
@@ -465,13 +464,7 @@ export function MaintenanceCard() {
   const reprobeVideoByPathMutation = useMutation(
     trpc.job.reprobeVideoMediaByPath.mutationOptions({
       onSuccess: (result) => {
-        if (result.mode === 'QUEUED') {
-          toast.success(result.reused ? '已复用队列中的视频重探测任务' : '视频重探测任务已加入队列')
-        } else {
-          toast.success(
-            `视频重新探测完成：${result.metadata.hasAudio ? '有音频' : '无音频'}，状态 ${result.metadata.probeStatus}`
-          )
-        }
+        toast.success(result.reused ? '已复用队列中的视频重探测任务' : '视频重探测任务已加入队列')
         setVideoReprobePath('')
         refetchVideoProbeJob()
       },
@@ -523,7 +516,6 @@ export function MaintenanceCard() {
       }
     })
   )
-
 
   const isRunning = activeJob && ACTIVE_TASK_STATUSES.includes(activeJob.status)
   const isCancelling = activeJob?.status === 'CANCELLING'

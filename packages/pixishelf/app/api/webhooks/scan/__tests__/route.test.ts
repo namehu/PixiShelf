@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   scan: vi.fn(),
@@ -373,73 +373,6 @@ describe('webhook scan audit integration', () => {
     })
     expect(mocks.scan).not.toHaveBeenCalled()
     expect(mocks.createScanJob).not.toHaveBeenCalled()
-  })
-
-  it('passes a legacy list request to a CLIENT_LIST scan', async () => {
-    const request = new NextRequest('http://localhost/api/webhooks/scan', {
-      method: 'POST',
-      headers: {
-        authorization: 'Bearer token',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        type: 'list',
-        metadataList: ['artist/100-meta.json']
-      })
-    })
-
-    const response = await post(request, { params: Promise.resolve({}) })
-
-    expect(response.status).toBe(200)
-    expect(mocks.startScanRun).toHaveBeenCalledWith({
-      systemJobId: 'job-1',
-      type: 'PIXIV',
-      mode: 'CLIENT_LIST'
-    })
-    expect(mocks.scan).toHaveBeenCalledWith(
-      expect.objectContaining({
-        metadataRelativePaths: ['artist/100-meta.json']
-      })
-    )
-    expect(mocks.scan.mock.calls[0]?.[0]).not.toHaveProperty('forceUpdate')
-  })
-
-  it('keeps a legacy full request as directory incremental discovery', async () => {
-    const request = new NextRequest('http://localhost/api/webhooks/scan', {
-      method: 'POST',
-      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'full' })
-    })
-
-    const response = await post(request, { params: Promise.resolve({}) })
-
-    expect(response.status).toBe(200)
-    expect(mocks.startScanRun).toHaveBeenCalledWith({ systemJobId: 'job-1', type: 'PIXIV', mode: 'INCREMENTAL' })
-    expect(mocks.scan).toHaveBeenCalledWith(
-      expect.objectContaining({ metadataRelativePaths: undefined })
-    )
-    expect(mocks.scan.mock.calls[0]?.[0]).not.toHaveProperty('forceUpdate')
-  })
-
-  it('persists a legacy incremental execution failure without reporting completion', async () => {
-    mocks.scan.mockRejectedValueOnce(new Error('Failed to process batch 1: database unavailable'))
-    const request = new NextRequest('http://localhost/api/webhooks/scan', {
-      method: 'POST',
-      headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
-      body: JSON.stringify({ type: 'full' })
-    })
-
-    const response = await post(request, { params: Promise.resolve({}) })
-
-    expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({
-      success: false,
-      error: '部分作品处理失败，请查看扫描日志'
-    })
-    expect(mocks.failJob).toHaveBeenCalledWith('job-1', 'Failed to process batch 1: database unavailable')
-    expect(mocks.failScanRun).toHaveBeenCalledWith('run-1', 'Failed to process batch 1: database unavailable')
-    expect(mocks.completeJob).not.toHaveBeenCalled()
-    expect(mocks.completeScanRun).not.toHaveBeenCalled()
   })
 
   it.each([

@@ -26,7 +26,8 @@
     "status": "pnpm db:status",
     "studio": "pnpm db:studio",
     "test": "vitest run prisma/__tests__ src/__tests__",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "maintenance:audit-background-task-retirement": "node maintenance/audit-background-task-retirement.mjs"
   },
   "dependencies": {
     "@prisma/client": "^5.17.0"

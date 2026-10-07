@@ -22,10 +22,7 @@ vi.mock('@pixishelf/job-executors', () => ({
   runVideoProcess: vi.fn()
 }))
 
-import {
-  optimizeVideoForStreaming,
-  resolveVideoStreamingOptimizationTarget
-} from '../video-streaming-optimization-service'
+import { resolveVideoStreamingOptimizationTarget } from '../video-streaming-optimization-service'
 
 describe('video streaming optimization request validation', () => {
   beforeEach(() => {
@@ -56,33 +53,5 @@ describe('video streaming optimization request validation', () => {
 
     await expect(resolveVideoStreamingOptimizationTarget(7, '/scan')).rejects.toThrow('Only MP4')
     expect(mocks.resolvePath).not.toHaveBeenCalled()
-  })
-
-  it('keeps legacy execution available only before central cutover', async () => {
-    mocks.imageFindUnique.mockResolvedValue({ id: 7, path: 'video.mp4', mediaType: 'VIDEO' })
-    await expect(
-      optimizeVideoForStreaming({ imageId: 7, scanPath: '/scan', operationId: 'legacy-job' })
-    ).resolves.toMatchObject({ imageId: 7 })
-    expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({ jobId: 'legacy-job' }))
-    expect(mocks.prepare.mock.calls[0]![0]).not.toHaveProperty('systemJobId')
-    expect(mocks.publish).toHaveBeenCalled()
-
-    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
-    await expect(optimizeVideoForStreaming({ imageId: 7, scanPath: '/scan' })).rejects.toThrow(
-      'Legacy background execution is disabled'
-    )
-  })
-
-  it('surfaces a legacy publication rollback failure', async () => {
-    mocks.imageFindUnique.mockResolvedValue({ id: 7, path: 'video.mp4', mediaType: 'VIDEO' })
-    mocks.publish.mockRejectedValue(new Error('publication failed'))
-    mocks.rollback.mockRejectedValue(new Error('restore failed'))
-
-    await expect(
-      optimizeVideoForStreaming({ imageId: 7, scanPath: '/scan', operationId: 'legacy-job' })
-    ).rejects.toMatchObject({
-      name: 'AggregateError',
-      message: 'Video streaming optimization failed and the original file could not be restored'
-    })
   })
 })

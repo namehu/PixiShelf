@@ -9,6 +9,9 @@ set -e
 if [ "$1" = "node" ] && [ "$2" = "packages/pixishelf-db/maintenance/retire-legacy-fields.mjs" ]; then
   exec "$@"
 fi
+if [ "$1" = "node" ] && [ "$2" = "packages/pixishelf-db/maintenance/audit-background-task-retirement.mjs" ]; then
+  exec "$@"
+fi
 
 # Existing databases must complete the explicit audit/prepare/upgrade flow.
 # Empty databases are allowed through so Prisma can deploy the full migration chain.

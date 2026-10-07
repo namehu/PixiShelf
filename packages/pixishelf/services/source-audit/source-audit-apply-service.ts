@@ -1,4 +1,6 @@
-import { createHash } from 'node:crypto'
+import { prisma } from '@/lib/prisma'
+import { lockSingletonJobType } from '@/services/background-task/manual-job-singleton'
+import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
 import {
   ACTIVE_JOB_STATUSES,
   EXECUTION_LANES,
@@ -8,21 +10,18 @@ import {
   type AuditApplyInputEvidence,
   type JobStatus
 } from '@pixishelf/job-contracts'
-import { prisma } from '@/lib/prisma'
-import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
-import { lockSingletonJobType } from '@/services/background-task/manual-job-singleton'
-import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
+import { createHash } from 'node:crypto'
+import { decideSourceAuditItemApply, safeApplyResultCode, safeApplyResultSummary } from './apply-item-policy'
 import {
+  sourceAuditApplyOperationInputSchema,
   sourceAuditApplyOperationSchema,
   sourceAuditApplyOverviewInputSchema,
   sourceAuditApplyOverviewSchema,
-  sourceAuditApplyOperationInputSchema,
   startSourceAuditApplyInputSchema,
   startSourceAuditApplyResultSchema,
   type SourceAuditApplyOperation,
   type StartSourceAuditApplyResult
 } from './contracts'
-import { decideSourceAuditItemApply, safeApplyResultCode, safeApplyResultSummary } from './apply-item-policy'
 import {
   SourceAuditServiceError,
   inspectSafeScanRoot,
@@ -32,21 +31,27 @@ import {
   type SourceAuditDatabase,
   type SourceAuditServiceOptions
 } from './source-audit-service'
-
 const APPLY_OPERATION = 'AUDIT_APPLY'
 const AUDIT_OPERATION = 'CONSISTENCY_AUDIT'
 const APPLY_PRIORITY = 20
 const APPLY_MAX_ATTEMPTS = 3
-const APPLY_ROOT_PROBE_TIMEOUT_MS = 3_000
+const APPLY_ROOT_PROBE_TIMEOUT_MS = 3000
 const ACTIVE_STATUSES = [...ACTIVE_JOB_STATUSES]
 const TERMINAL_JOB_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED', 'SKIPPED'])
 const TERMINAL_RUN_STATUSES = new Set(['COMPLETED', 'FAILED', 'CANCELLED'])
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
-
-type ApplyBlockedReason = Extract<StartSourceAuditApplyResult, { outcome: 'BLOCKED' }>['reason']
-
+type ApplyBlockedReason = Extract<
+  StartSourceAuditApplyResult,
+  {
+    outcome: 'BLOCKED'
+  }
+>['reason']
 export async function startSourceAuditApply(
-  input: { auditRunId: string; itemIds: string[]; idempotencyKey: string },
+  input: {
+    auditRunId: string
+    itemIds: string[]
+    idempotencyKey: string
+  },
   requestedByUserId: string,
   options: SourceAuditServiceOptions = {}
 ): Promise<StartSourceAuditApplyResult> {
@@ -55,17 +60,6 @@ export async function startSourceAuditApply(
   const idempotencyKey = `source-audit-apply:${parsed.idempotencyKey}`
   const existing = await findApplyByIdempotencyKey(database, idempotencyKey)
   if (existing) return replayApply(existing, parsed, requestedByUserId)
-
-  const environment = options.environment ?? process.env
-  if (
-    !isCentralDispatcherCutoverEnabled({
-      CENTRAL_DISPATCHER_CUTOVER_ENABLED: environment.CENTRAL_DISPATCHER_CUTOVER_ENABLED
-    })
-  ) {
-    return blocked('CUTOVER_DISABLED')
-  }
-  if (environment.WORKER_DISPATCH_ENABLED?.trim().toLowerCase() !== 'true') return blocked('DISPATCH_DISABLED')
-
   const configuredRoot = await readConfiguredScanRoot(database, options)
   if (!configuredRoot) return blocked('SCAN_ROOT_NOT_CONFIGURED')
   try {
@@ -76,20 +70,15 @@ export async function startSourceAuditApply(
   } catch {
     return blocked('SOURCE_ROOT_UNAVAILABLE')
   }
-
   return database.$transaction(async (transaction) => {
     await lockSingletonJobType(transaction, 'SCAN')
-
     const existing = await findApplyByIdempotencyKey(transaction as SourceAuditDatabase, idempotencyKey)
     if (existing) return replayApply(existing, parsed, requestedByUserId)
-
     const active = await findActiveScan(transaction as SourceAuditDatabase)
     if (active) return activeScanBlocked(active, parsed.auditRunId)
-
     const timestamp = options.now?.() ?? new Date()
     const readiness = await readApplyReadiness(transaction as SourceAuditDatabase, timestamp)
     if (readiness.reason) return blocked(readiness.reason)
-
     const audit = await transaction.scanRun.findFirst({
       where: { id: parsed.auditRunId, type: 'PIXIV', operationKind: AUDIT_OPERATION },
       select: {
@@ -155,7 +144,6 @@ export async function startSourceAuditApply(
     if (readiness.baselineGeneration !== audit.inventoryBaselineGeneration) {
       return blocked('ITEMS_NOT_ELIGIBLE')
     }
-
     const evidence = freezeSelectedEvidence(audit, parsed.itemIds)
     if (!evidence) return blocked('ITEMS_NOT_ELIGIBLE')
     const applyHistory = await transaction.scanRunItem.findMany({
@@ -186,7 +174,6 @@ export async function startSourceAuditApply(
       return decideSourceAuditItemApply(action, historyByAuditItemId.get(item.id) ?? []).state === 'ELIGIBLE'
     })
     if (!allItemsEligible) return blocked('ITEMS_NOT_ELIGIBLE')
-
     const inputDigest = createHash('sha256').update(canonicalizeAuditApplyInputs(audit.id, evidence.rows)).digest('hex')
     const payload = scanAuditApplyPayloadSchema.parse({
       mode: APPLY_OPERATION,
@@ -194,7 +181,6 @@ export async function startSourceAuditApply(
       inputCount: evidence.rows.length,
       inputDigest
     })
-
     const job = await transaction.systemJob.create({
       data: {
         type: 'SCAN',
@@ -296,9 +282,10 @@ export async function startSourceAuditApply(
     })
   })
 }
-
 export async function getSourceAuditApplyOverview(
-  input: { auditRunId: string },
+  input: {
+    auditRunId: string
+  },
   options: SourceAuditServiceOptions = {}
 ) {
   const parsed = sourceAuditApplyOverviewInputSchema.parse(input)
@@ -323,9 +310,10 @@ export async function getSourceAuditApplyOverview(
     latestOperation: references[0] ?? null
   })
 }
-
 export async function getSourceAuditApplyOperation(
-  input: { operationId: string },
+  input: {
+    operationId: string
+  },
   options: SourceAuditServiceOptions = {}
 ): Promise<SourceAuditApplyOperation> {
   const parsed = sourceAuditApplyOperationInputSchema.parse(input)
@@ -372,7 +360,6 @@ export async function getSourceAuditApplyOperation(
   if (!run?.systemJob || !run.systemJobId || !run.sourceAuditRunId) {
     throw new SourceAuditServiceError('NOT_FOUND', 'Source audit apply operation was not found')
   }
-
   const itemByAuditId = new Map(
     run.items.flatMap((item) => (item.sourceAuditItemId ? [[item.sourceAuditItemId, item]] : []))
   )
@@ -434,7 +421,6 @@ export async function getSourceAuditApplyOperation(
     items
   })
 }
-
 async function findApplyByIdempotencyKey(database: SourceAuditDatabase, idempotencyKey: string) {
   return database.systemJob.findUnique({
     where: { idempotencyKey },
@@ -453,10 +439,12 @@ async function findApplyByIdempotencyKey(database: SourceAuditDatabase, idempote
     }
   })
 }
-
 function replayApply(
   job: NonNullable<Awaited<ReturnType<typeof findApplyByIdempotencyKey>>>,
-  input: { auditRunId: string; itemIds: string[] },
+  input: {
+    auditRunId: string
+    itemIds: string[]
+  },
   requestedByUserId: string
 ): StartSourceAuditApplyResult {
   const payload = scanAuditApplyPayloadSchema.safeParse(job.payload)
@@ -486,7 +474,6 @@ function replayApply(
     reused: true
   })
 }
-
 async function findActiveScan(database: SourceAuditDatabase) {
   return database.systemJob.findFirst({
     where: { type: 'SCAN', status: { in: ACTIVE_STATUSES } },
@@ -494,13 +481,11 @@ async function findActiveScan(database: SourceAuditDatabase) {
     include: { scanRun: { select: { id: true, operationKind: true, sourceAuditRunId: true } } }
   })
 }
-
 function activeScanBlocked(job: Awaited<ReturnType<typeof findActiveScan>>, requestedAuditRunId: string) {
   return job?.scanRun?.operationKind === APPLY_OPERATION && job.scanRun.sourceAuditRunId === requestedAuditRunId
     ? blocked('APPLY_ACTIVE', job.scanRun.id)
     : blocked('SCAN_BUSY')
 }
-
 async function readApplyReadiness(database: SourceAuditDatabase, now: Date) {
   const inventory = await database.pixivMetadataInventoryState.findUnique({
     where: { id: 'pixiv' },
@@ -523,7 +508,6 @@ async function readApplyReadiness(database: SourceAuditDatabase, now: Date) {
   }
   return { reason: null, baselineGeneration: inventory.baselineGeneration }
 }
-
 function freezeSelectedEvidence(
   audit: {
     id: string
@@ -631,23 +615,19 @@ function freezeSelectedEvidence(
     changedCount: audit.sourceAuditItems.filter((item) => item.differenceKind === 'CHANGED').length
   }
 }
-
 function blocked(reason: ApplyBlockedReason, activeOperationId: string | null = null): StartSourceAuditApplyResult {
   return startSourceAuditApplyResultSchema.parse({ outcome: 'BLOCKED', reason, activeOperationId })
 }
-
 function sameSortedStrings(left: readonly string[], right: readonly string[]) {
   if (left.length !== right.length) return false
   const sortedLeft = [...left].sort()
   const sortedRight = [...right].sort()
   return sortedLeft.every((value, index) => value === sortedRight[index])
 }
-
 function applyClassification(value: string | null) {
   if (value === 'NEW' || value === 'CHANGED') return value
   throw new Error('Invalid source audit apply classification')
 }
-
 function applyItemState(status: string, outcome: string | null, code: string | null) {
   if (outcome === 'APPLIED') return 'APPLIED' as const
   if (outcome === 'SKIPPED') return code === 'STALE_SOURCE_INPUT' ? ('STALE' as const) : ('SKIPPED' as const)
@@ -655,7 +635,6 @@ function applyItemState(status: string, outcome: string | null, code: string | n
   if (outcome === 'FAILED') return 'FAILED' as const
   return status === 'PROCESSING' || status === 'RETRY_WAIT' ? ('PROCESSING' as const) : ('PENDING' as const)
 }
-
 function countApplyStates(states: Array<ReturnType<typeof applyItemState>>) {
   return {
     pending: states.filter((state) => state === 'PENDING').length,
@@ -667,7 +646,6 @@ function countApplyStates(states: Array<ReturnType<typeof applyItemState>>) {
     failed: states.filter((state) => state === 'FAILED').length
   }
 }
-
 function safeApplyStage(value: string | null, status: string) {
   if (status === 'PAUSED') return 'PAUSED'
   if (status === 'COMPLETED') return 'COMPLETED'
@@ -676,7 +654,6 @@ function safeApplyStage(value: string | null, status: string) {
   if (value === 'VERIFYING' || value === 'APPLYING' || value === 'FINALIZING') return value
   return 'QUEUED'
 }
-
 function iso(value: Date | null) {
   return value?.toISOString() ?? null
 }

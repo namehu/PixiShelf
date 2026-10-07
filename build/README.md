@@ -3,7 +3,7 @@
 本目录维护 PixiShelf 的容器构建、Compose 和发布配置。通用 `pixishelf-worker` 是唯一后台消费者；
 同一个 Node.js 进程运行 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个固定并发为 1 的执行 lane。
 
-当前标准发布、暗启动、验证和回滚入口见[部署基线](../docs/operations/deployment.md)。本文件只说明
+当前标准发布、启动、验证和回滚入口见[部署基线](../docs/operations/deployment.md)。本文件只说明
 `build/` 内的镜像、Compose、挂载和运行边界。
 
 ## 文件边界
@@ -13,10 +13,9 @@
   33 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 30 类只支持 v1，共 38 个 type/version 组合。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
-- `.env.example`：部署变量模板；为防止新环境误消费，Central Dispatcher 开关仍安全地默认关闭。
+- `.env.example`：部署变量模板；Worker 启动即消费，维护窗口必须保持容器停止。
 
-生产稳态中 `CENTRAL_DISPATCHER_CUTOVER_ENABLED=true` 与 `WORKER_DISPATCH_ENABLED=true` 必须成对设置。
-暗启动或故障隔离使用 `false/false`，不允许只切换一枚开关。旧 `archive-worker` 镜像、workspace、Compose
+App 固定中央入队，Worker 启动即消费；维护通过停止服务完成。旧 `archive-worker` 镜像、workspace、Compose
 服务和 CI 发布入口已退出当前部署边界；双 lane migration 后也不能在新 schema 上启动旧消费者。
 
 `worker.Dockerfile` 不复制 `packages/pixishelf`（Next.js 应用）源码。Worker 只从独立 workspace
@@ -96,7 +95,7 @@ metadata 和媒体文件，不等于作品数；冻结进数据库的 metadata �
 ```bash
 cd build
 cp .env.example .env
-# 修改数据库口令、PIXISHELF_DATA_PATH、安全密钥，并在完整功能验证时将两枚 Dispatcher 开关设为 true
+# 修改数据库口令、PIXISHELF_DATA_PATH、安全密钥，并在准备恢复消费后启动 Worker
 
 docker compose -f docker-compose.dev.yml up -d postgres imgproxy
 
@@ -123,7 +122,7 @@ docker compose -f docker-compose.dev.yml exec worker \
 docker compose -f docker-compose.dev.yml logs -f worker
 ```
 
-开发模板出于升级安全默认 `false/false`；完整功能验证必须在 App 和 Compose 两侧成对改为 `true/true`。
+开发模板启动 Worker 即消费，测试应使用隔离数据库与临时媒体。
 `db:push` 不写 `_prisma_migrations`，不能代替 migration deploy 满足 Worker 预检。
 
 ## 生产部署与恢复边界
@@ -143,34 +142,26 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml <command
 
 高风险发布仍建议显式指定服务集合，便于审查本次实际重建范围。
 
-升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH`、`DERIVED_MEDIA_HOST_PATH` 和 `PIXISHELF_PUBLIC_DATA_PATH`。新镜像暗启动阶段必须保持：
-
-```dotenv
-CENTRAL_DISPATCHER_CUTOVER_ENABLED=false
-WORKER_DISPATCH_ENABLED=false
-```
+升级前备份 PostgreSQL、`PIXISHELF_DATA_PATH`、`DERIVED_MEDIA_HOST_PATH` 和 `PIXISHELF_PUBLIC_DATA_PATH`。执行 migration 和预检期间停止全部写入者，准备消费后才启动 Worker。
 
 数据库 dump、三个媒体快照、配置和镜像 digest 必须组成同一套恢复点；频率、验证和演练要求见
 [备份与恢复基线](../docs/operations/backup-and-recovery.md)。
 
 生产部署必须先停止写入者、执行专用 `archive:lane-cutover-audit`、创建数据库与媒体一致性备份，再以
-一次性新 Web 镜像执行 migration 和 Worker 暗启动。lane migration 应用后，旧 Worker 不再是应用级回滚
+一次性新 Web 镜像执行 migration 和 Worker 启动。lane migration 应用后，旧 Worker 不再是应用级回滚
 选项；事故处理和完整 checkpoint 恢复边界见[部署基线](../docs/operations/deployment.md)与
 [备份与恢复](../docs/operations/backup-and-recovery.md)。
 
-两个开关用途不同：`CENTRAL_DISPATCHER_CUTOVER_ENABLED` 让 Next.js 只创建/控制统一队列任务；
-`WORKER_DISPATCH_ENABLED` 才允许通用 Worker claim。开关默认 false，避免镜像升级时意外开始消费。
 当前通用 Registry 已锁定 33 个 job type、38 个 type/version 组合，并校验 job type、definition version 和
 lane；任务清单中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务，
-`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 30 类只支持 v1。新部署仍须先以
-`false/false` 暗启动并通过 READY/capability 门禁，然后才能恢复生产稳态的 `true/true`。
+`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 30 类只支持 v1。新部署应完成迁移与备份后启动 Worker，验证 READY/capability，再开放 App 和 scheduler。
 `SCAN@v3` 专用于来源核对后的写入型 `AUDIT_APPLY`；只支持 v2 的旧 Worker 不会领取它。滚动部署的版本隔离不能
 替代发布门禁，开放新 App 写入口前仍必须确认目标 Worker 同时报告 SCAN v1/v2/v3。
 
 归档收件箱切换必须一次完成：停止新任务和旧写入者，通过 audit 和一致性 checkpoint，应用 lane migration，
 验证双 lane READY 与当前 capability inventory，再同时启用 Next 控制面与通用 Worker Dispatcher。
 
-发生问题时先把两个开关恢复为 false 并重建 `app`/`worker`，停止新入队与领取；不要在存在
+发生问题时先停止 scheduler、App 和 Worker，停止新入队与领取；不要在存在
 RUNNING、PAUSING 或 CANCELLING 任务时强制回滚 schema。数据库和媒体必须从同一时间点的已验证
 快照恢复，不能只回滚其中一侧。
 
@@ -188,3 +179,5 @@ CI 构建并扫描 App 与通用 Worker 镜像。归档、来源扫描、服务�
 优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`。专用变量显式为空时强制直连；只有未设置专用变量时才遵循 `NO_PROXY/no_proxy`。仅支持无凭据、无路径/query/hash 的 HTTP(S) 代理，代理失败不降级直连。Pixiv 经逐请求 dispatcher 使用代理，不修改全局 dispatcher；目标主机由代理解析，HTTPS 443、精确域名和逐跳重定向校验仍然生效，归档的本地 DNS/SSRF/fake-IP 检查不变。
 
 Compose 的 App/Worker 已通过 `env_file` 读取 `build/.env`，修改后须重新创建相应容器。本地 App 在 `packages/pixishelf/.env.local` 配置并重启；Compose Worker 仍需单独配置 `build/.env`。代理地址必须能从实际运行环境访问，容器内的 `127.0.0.1` 不是宿主机。发布与回滚见[部署基线](../docs/operations/deployment.md#环境文件边界)。
+
+后台任务退役第一阶段的升级和 v0.50.8 回退见[发布手册](../docs/deployment/background-task-retirement.md)。

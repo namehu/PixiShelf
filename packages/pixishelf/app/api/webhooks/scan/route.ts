@@ -1,30 +1,15 @@
-import 'server-only'
-
-import { NextResponse } from 'next/server'
-import { scan } from '@/services/scan-service'
-import { prisma } from '@/lib/prisma'
-import { getScanPath } from '@/services/setting.service'
-import * as JobService from '@/services/job-service'
-import { JobStatus, ScanRunMode, ScanRunType } from '@prisma/client'
 import { apiHandler } from '@/lib/api-handler'
-import { ScanStreamSchema, ScanWebhookJobQuerySchema } from '@/schemas/scan.dto'
 import logger from '@/lib/logger'
-import { formatScanUserError, getRawErrorMessage, isScanCancelledError } from '@/services/scan-service/scan-errors'
-import {
-  cancelScanRun,
-  completeScanRun,
-  createScanRunItemBuffer,
-  failScanRun,
-  startScanRun
-} from '@/services/scan-run-service'
-import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
-import { enqueueCentralScan } from '@/services/media-root-central-service'
+import { prisma } from '@/lib/prisma'
+import { ScanStreamSchema, ScanWebhookJobQuerySchema } from '@/schemas/scan.dto'
 import { runBackgroundTaskApi } from '@/services/background-task/api-error-mapping'
-
+import { enqueueCentralScan } from '@/services/media-root-central-service'
+import { formatScanUserError } from '@/services/scan-service/scan-errors'
+import { NextResponse } from 'next/server'
+import 'server-only'
 function validateWebhookAuth(req: Request) {
   const authHeader = req.headers.get('Authorization')
   const expectedToken = process.env.SCAN_WEBHOOK_TOKEN
-
   if (!expectedToken) {
     logger.warn('Webhook scan attempted but SCAN_WEBHOOK_TOKEN is not set')
     return NextResponse.json(
@@ -32,18 +17,14 @@ function validateWebhookAuth(req: Request) {
       { status: 503 }
     )
   }
-
   if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
   }
-
   return null
 }
-
 export async function GET(req: Request) {
   const authError = validateWebhookAuth(req)
   if (authError) return authError
-
   const url = new URL(req.url)
   // 同一条 GET 接口通过是否带 jobId 区分：带 jobId 才做状态查询，不带则返回 webhook 可达性健康检查
   if (url.searchParams.has('jobId')) {
@@ -51,7 +32,6 @@ export async function GET(req: Request) {
     if (!query.success) {
       return NextResponse.json({ success: false, error: 'Invalid jobId' }, { status: 400 })
     }
-
     const job = await prisma.systemJob.findFirst({
       where: {
         id: query.data.jobId,
@@ -95,11 +75,9 @@ export async function GET(req: Request) {
         }
       }
     })
-
     if (!job?.scanRun) {
       return NextResponse.json({ success: false, error: 'Scan job not found' }, { status: 404 })
     }
-
     return NextResponse.json({
       success: true,
       jobId: job.id,
@@ -134,7 +112,6 @@ export async function GET(req: Request) {
       }
     })
   }
-
   return NextResponse.json({
     success: true,
     data: {
@@ -142,14 +119,11 @@ export async function GET(req: Request) {
     }
   })
 }
-
 export async function HEAD(req: Request) {
   const authError = validateWebhookAuth(req)
   if (authError) return authError
-
   return new NextResponse(null, { status: 204 })
 }
-
 /**
  * POST /api/webhooks/scan
  * 使用 Bearer Token 认证通过 Webhook 触发扫描
@@ -158,10 +132,8 @@ export async function HEAD(req: Request) {
 export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
   const authError = validateWebhookAuth(req)
   if (authError) return authError
-
   const { type, metadataList } = data
-
-  if (isCentralDispatcherCutoverEnabled()) {
+  {
     // Central Dispatcher 下，排队行为是幂等可重试的；scan 直接执行已迁移到中央服务完成，避免本地阻塞超时
     const queued = await runBackgroundTaskApi(() =>
       enqueueCentralScan({
@@ -171,132 +143,5 @@ export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
       })
     )
     return NextResponse.json({ success: true, queued: true, ...queued }, { status: 202 })
-  }
-
-  const scanPath = await getScanPath()
-  if (!scanPath) {
-    return NextResponse.json(
-      { success: false, error: formatScanUserError('SCAN_PATH is not configured') },
-      { status: 400 }
-    )
-  }
-
-  let job: Awaited<ReturnType<typeof JobService.createScanJob>>
-  try {
-    job = await JobService.createScanJob()
-  } catch (error) {
-    if (error instanceof Error && error.message === 'Scan already in progress') {
-      return NextResponse.json({ success: false, error: 'Scan already in progress' }, { status: 409 })
-    }
-    throw error
-  }
-  logger.info(`Webhook scan job started: ${job.id} (type: ${type})`)
-  const scanRun = await startScanRun({
-    systemJobId: job.id,
-    type: ScanRunType.PIXIV,
-    mode: type === 'list' ? ScanRunMode.CLIENT_LIST : ScanRunMode.INCREMENTAL
-  })
-  const auditBuffer = createScanRunItemBuffer(scanRun.id)
-  const pendingProgressWrites = new Set<Promise<void>>()
-  const flushProgressWrites = async () => {
-    if (pendingProgressWrites.size === 0) return
-    await Promise.allSettled(Array.from(pendingProgressWrites))
-  }
-
-  try {
-    let lastDbUpdate = 0
-    const DB_UPDATE_INTERVAL = 2000 // Webhook 场景下减少数据库更新频率
-
-    // 3. 执行扫描（阻塞式）
-    // 注意：Vercel/Serverless 函数存在超时限制（通常 10-60 秒）。
-    // 若扫描耗时更长，可能会触发超时；大规模扫描建议改为异步处理。
-    const result = await scan({
-      scanPath,
-      // 当 type 为 'list' 时，使用传入的 metadataList
-      metadataRelativePaths: type === 'list' ? metadataList : undefined,
-      audit: {
-        recordItems: auditBuffer.recordItems
-      },
-      checkCancelled: async () => {
-        const currentJob = await JobService.getJob(job.id)
-        return currentJob?.status === JobStatus.CANCELLING
-      },
-      onProgress: (progress) => {
-        const now = Date.now()
-        // 定时将任务进度更新到数据库
-        if (now - lastDbUpdate > DB_UPDATE_INTERVAL) {
-          let progressWrite: Promise<void>
-          progressWrite = JobService.updateProgress(job.id, progress.percentage || 0, progress.message || '')
-            .catch((err) => {
-              // 进度写库为 best-effort：失败只会影响外部展示状态，不应导致扫描本体失败或中断
-              logger.error('Failed to update job progress', err)
-            })
-            .finally(() => {
-              pendingProgressWrites.delete(progressWrite)
-            })
-          pendingProgressWrites.add(progressWrite)
-          lastDbUpdate = now
-        }
-      }
-    })
-
-    const isCancelled = result.errors.some(isScanCancelledError)
-    if (isCancelled) {
-      await auditBuffer.flush()
-      await flushProgressWrites()
-      await JobService.markAsCancelled(job.id)
-      await cancelScanRun(scanRun.id, result)
-      return NextResponse.json(
-        {
-          success: false,
-          jobId: job.id,
-          error: formatScanUserError('Scan cancelled')
-        },
-        { status: 409 }
-      )
-    }
-
-    await auditBuffer.flush()
-    await flushProgressWrites()
-    await JobService.completeJob(job.id, result)
-    await completeScanRun(scanRun.id, result)
-
-    return NextResponse.json({
-      success: true,
-      jobId: job.id,
-      data: result
-    })
-  } catch (error: any) {
-    logger.error('Webhook scan error:', error)
-    const errorMsg = getRawErrorMessage(error)
-
-    if (isScanCancelledError(error)) {
-      await auditBuffer.flush()
-      await flushProgressWrites()
-      await JobService.markAsCancelled(job.id)
-      await cancelScanRun(scanRun.id)
-      return NextResponse.json(
-        {
-          success: false,
-          jobId: job.id,
-          error: formatScanUserError(error)
-        },
-        { status: 409 }
-      )
-    }
-
-    await auditBuffer.flush()
-    await flushProgressWrites()
-    await JobService.failJob(job.id, errorMsg)
-    await failScanRun(scanRun.id, errorMsg)
-
-    return NextResponse.json(
-      {
-        success: false,
-        jobId: job.id,
-        error: formatScanUserError(error)
-      },
-      { status: 500 }
-    )
   }
 })

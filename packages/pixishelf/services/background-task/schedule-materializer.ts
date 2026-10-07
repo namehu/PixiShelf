@@ -1,11 +1,8 @@
-import 'server-only'
-
-import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
-import { ensureDefaultScheduledTasks, runSchedulerTick } from '@/services/scheduled-task-service'
-import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import { ensureDefaultScheduledTasks } from '@/services/scheduled-task-service'
 import { Prisma } from '@pixishelf/db'
-import { isCentralDispatcherCutoverEnabled } from './dispatcher-cutover'
+import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import 'server-only'
 import { enqueueJob } from './job-command-service'
 import {
   getShanghaiScheduleWindow,
@@ -13,10 +10,8 @@ import {
   type ShanghaiScheduleWindow
 } from './schedule-window'
 import { buildScheduledTaskJobDefinition } from './scheduled-task-payload'
-
-const SCHEDULER_LOCK_NAMESPACE = 80_432_026
-const SCHEDULER_LOCK_KEY = 8_140
-
+const SCHEDULER_LOCK_NAMESPACE = 80432026
+const SCHEDULER_LOCK_KEY = 8140
 interface MaterializableScheduledTask {
   id: string
   key: string
@@ -24,23 +19,13 @@ interface MaterializableScheduledTask {
   priority: number
   config: unknown
 }
-
-interface LegacySchedulerResult {
-  now: string
-  decisions: Array<{ key: string; type: string; action: 'triggered' | 'skipped'; reason?: string; jobId?: string }>
-}
-
 interface MaterializerDatabaseClient {
   $transaction<T>(callback: (transaction: Prisma.TransactionClient) => Promise<T>): Promise<T>
 }
-
 interface ScheduleMaterializerDependencies {
   database?: MaterializerDatabaseClient
-  cutoverEnabled?: boolean
   ensureDefaults?: typeof ensureDefaultScheduledTasks
-  runLegacyTick?: (now: Date) => Promise<LegacySchedulerResult>
 }
-
 export interface ScheduleMaterializationDecision {
   key: string
   type: string
@@ -48,26 +33,21 @@ export interface ScheduleMaterializationDecision {
   jobId?: string
   reason?: 'invalid_definition' | 'not_scheduled_today'
 }
-
 export interface ScheduleMaterializerTickResult {
   now: string
-  mode: 'CENTRAL' | 'LEGACY'
+  mode: 'CENTRAL'
   scheduledForDate: string
-  windowState: 'OPEN' | 'CLOSED' | 'LEGACY'
+  windowState: 'OPEN' | 'CLOSED'
   requiresDispatcherExpiryCleanup: boolean
-  decisions: Array<ScheduleMaterializationDecision | LegacySchedulerResult['decisions'][number]>
+  decisions: ScheduleMaterializationDecision[]
 }
-
 function clamp(value: number, minimum: number, maximum: number) {
   return Math.min(maximum, Math.max(minimum, value))
 }
-
 export function toScheduledQueuePriority(priority: number) {
   return priority < 100 ? 100 + clamp(priority, 0, 99) : clamp(priority, 100, 999)
 }
-
 export { getShanghaiScheduleWindow } from './schedule-window'
-
 function reuseTransaction(transaction: Prisma.TransactionClient) {
   return {
     $transaction<T>(callback: (current: Prisma.TransactionClient) => Promise<T>) {
@@ -75,7 +55,6 @@ function reuseTransaction(transaction: Prisma.TransactionClient) {
     }
   }
 }
-
 async function materializeTask(
   transaction: Prisma.TransactionClient,
   task: MaterializableScheduledTask,
@@ -85,7 +64,6 @@ async function materializeTask(
   if (task.key === 'derived_media_gc_reconciliation' && !isShanghaiWeeklyReconciliationDate(window.scheduledForDate)) {
     return { key: task.key, type: task.type, action: 'skipped', reason: 'not_scheduled_today' }
   }
-
   const existing = await transaction.systemJob.findFirst({
     where: {
       scheduledTaskId: task.id,
@@ -96,7 +74,6 @@ async function materializeTask(
   if (existing) {
     return { key: task.key, type: task.type, action: 'existing', jobId: existing.id }
   }
-
   let definition: ReturnType<typeof buildScheduledTaskJobDefinition>
   try {
     definition = buildScheduledTaskJobDefinition(task.type, {
@@ -107,7 +84,6 @@ async function materializeTask(
   } catch {
     return { key: task.key, type: task.type, action: 'skipped', reason: 'invalid_definition' }
   }
-
   const job = await enqueueJob(
     {
       type: definition.type,
@@ -124,7 +100,6 @@ async function materializeTask(
     reuseTransaction(transaction),
     () => now
   )
-
   await transaction.scheduledTask.update({
     where: { id: task.id },
     data: {
@@ -133,32 +108,13 @@ async function materializeTask(
       lastJobId: job.id
     }
   })
-
   return { key: task.key, type: task.type, action: 'materialized', jobId: job.id }
 }
-
 export async function runScheduleMaterializerTick(
   now = new Date(),
   dependencies: ScheduleMaterializerDependencies = {}
 ): Promise<ScheduleMaterializerTickResult> {
   const window = getShanghaiScheduleWindow(now)
-  const cutoverEnabled = dependencies.cutoverEnabled ?? isCentralDispatcherCutoverEnabled()
-
-  if (!cutoverEnabled) {
-    logger.warn('scheduler.tick.legacy_dispatch_path', {
-      centralDispatcherCutoverEnabled: false,
-      warning: 'Legacy scheduled handlers may start detached in-process work until dispatcher cutover is enabled'
-    })
-    const legacy = await (dependencies.runLegacyTick ?? runSchedulerTick)(now)
-    return {
-      ...legacy,
-      mode: 'LEGACY',
-      scheduledForDate: window.scheduledForDate,
-      windowState: 'LEGACY',
-      requiresDispatcherExpiryCleanup: false
-    }
-  }
-
   if (!window.isOpen) {
     return {
       now: now.toISOString(),
@@ -169,7 +125,6 @@ export async function runScheduleMaterializerTick(
       decisions: []
     }
   }
-
   await (dependencies.ensureDefaults ?? ensureDefaultScheduledTasks)()
   const database = dependencies.database ?? (prisma as unknown as MaterializerDatabaseClient)
   const decisions = await database.$transaction(async (transaction) => {
@@ -181,14 +136,12 @@ export async function runScheduleMaterializerTick(
       orderBy: [{ priority: 'asc' }, { key: 'asc' }],
       select: { id: true, key: true, type: true, priority: true, config: true }
     })
-
     const materialized: ScheduleMaterializationDecision[] = []
     for (const task of tasks) {
       materialized.push(await materializeTask(transaction, task, window, now))
     }
     return materialized
   })
-
   return {
     now: now.toISOString(),
     mode: 'CENTRAL',

@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PendingReplaceBatchStatus, PendingReplaceItemStatus } from '@prisma/client'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   batch: null as any,
@@ -52,6 +52,7 @@ vi.mock('@/services/background-task/dispatcher-cutover', () => ({
 }))
 
 vi.mock('@/services/pending-replace-central-service', () => ({
+  enqueueCentralPendingReplaceBatch: mocks.createJob,
   lockCentralPendingReplacePreviewMutation: mocks.centralPreviewLock
 }))
 
@@ -60,7 +61,7 @@ vi.mock('../discovery', () => ({
   previewPendingReplacements: vi.fn()
 }))
 
-vi.mock('../executor', () => ({
+vi.mock('../batch-counters', () => ({
   PendingReplaceCommitOutcomeUnknownError: class extends Error {},
   PendingReplaceLeaseLostError: class extends Error {},
   cleanupPendingReplaceBackups: vi.fn(),
@@ -134,54 +135,29 @@ beforeEach(() => {
 })
 
 describe('startPendingReplaceBatch', () => {
-  it('excludes unselected ready items when retrying a cancelled batch subset', async () => {
-    await startPendingReplaceBatch({
-      scanPath: 'D:/media',
-      batchId: 'batch-1',
-      itemIds: ['failed-item']
-    })
-
-    expect(mocks.itemUpdateMany).toHaveBeenNthCalledWith(1, {
-      where: { batchId: 'batch-1', id: { in: ['failed-item'] } },
-      data: {
-        status: PendingReplaceItemStatus.READY,
-        included: true,
-        error: null,
-        finishedAt: null
-      }
-    })
-    expect(mocks.itemUpdateMany).toHaveBeenNthCalledWith(2, {
-      where: {
-        batchId: 'batch-1',
-        status: PendingReplaceItemStatus.READY,
-        id: { notIn: ['failed-item'] }
-      },
-      data: { status: PendingReplaceItemStatus.EXCLUDED, included: false }
-    })
-    await vi.waitFor(() => {
-      expect(mocks.runBatch).toHaveBeenCalledWith({
-        scanPath: 'D:/media',
-        batchId: 'batch-1',
-        jobId: 'job-1',
-        leaseAttempt: 1,
-        appendTagIds: [2, 5]
-      })
-    })
-    expect(mocks.getSystemSettings).toHaveBeenCalledOnce()
-  })
-
-  it('does not create a job when the default tag snapshot cannot be read', async () => {
-    mocks.getSystemSettings.mockRejectedValueOnce(new Error('settings unavailable'))
-
+  it('queues the explicit selection centrally without running an App executor', async () => {
+    mocks.createJob.mockResolvedValueOnce({ batchId: 'batch-1', jobId: 'central-1' })
     await expect(
       startPendingReplaceBatch({
         scanPath: 'D:/media',
-        batchId: 'batch-1'
+        batchId: 'batch-1',
+        itemIds: ['failed-item'],
+        requestedByUserId: 'admin-1'
       })
-    ).rejects.toThrow('settings unavailable')
-
-    expect(mocks.createJob).not.toHaveBeenCalled()
+    ).resolves.toEqual({ batchId: 'batch-1', jobId: 'central-1' })
+    expect(mocks.createJob).toHaveBeenCalledWith({
+      batchId: 'batch-1',
+      itemIds: ['failed-item'],
+      requestedByUserId: 'admin-1'
+    })
     expect(mocks.runBatch).not.toHaveBeenCalled()
+  })
+
+  it('requires an authenticated actor before enqueueing', async () => {
+    await expect(startPendingReplaceBatch({ scanPath: 'D:/media', batchId: 'batch-1' })).rejects.toThrow(
+      'authenticated administrator'
+    )
+    expect(mocks.createJob).not.toHaveBeenCalled()
   })
 })
 

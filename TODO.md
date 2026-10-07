@@ -24,13 +24,10 @@
 
 - [x] 完成艺术家旧字段 `Artist.userId` 的清理实现（另一分叉已完成）。
 - [x] 完成系列旧字段 `Artwork.seriesId`、`Series.source`、`Series.externalId` 的清理实现（另一分叉已完成）。
-- [ ] 在独立发布项目中退役后台任务切换兼容层：
-  - 停止 `targetImageId`、`targetPath`、`mode` 与版本化 payload 的双写，再删除旧 UI/Router/轮询兼容读取；
-  - 删除 `ScheduledTask.time`、`lastTriggeredAt`、`lastTriggeredDate` 兼容语义，并收敛为唯一 enqueue/claim/control/event 模型；
-  - 在 legacy/central 分支全部退出后删除两枚 cutover 开关；
-  - 先验证并修复历史数据，再用独立 migration 收紧 `availableAt`、租约、`SKIPPED` 和计划字段约束；
-  - 旧列物理删除至少延后一个发布周期，并在删除前审计回滚消费者。
-- [ ] 在生产数据副本完成 migration、28 类 job type / 31 个 type-version capability、任务竞态、媒体任务、GC 和应用回滚演练。
+- [x] 后台任务退役第一阶段实现：固定中央执行、移除两枚开关、迁移历史展示与查询，保留旧列双写；见[退役规格](./docs/features/background-task-retirement.md)。
+- [ ] 按[退役发布手册](./docs/deployment/background-task-retirement.md)完成 v0.50.8 基线确认、生产升级及至少 7 天观察。
+- [ ] 观察通过后独立实施第二阶段：停止目标字段双写、删除旧任务/计划列、审计并收紧数据库约束；不能提前发布删列 migration。
+- [ ] 在生产数据副本完成 migration、33 类 job type / 38 个 type-version capability、任务竞态、媒体任务、GC 和应用回滚演练。
 - [ ] 根据真实生产数据调整任务告警阈值、GC 批量、日志保留和 Worker 资源限制。
 
 ## 可选媒体格式扩展

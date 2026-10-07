@@ -196,7 +196,7 @@ sequenceDiagram
 - `derived_media_gc_reconciliation` 只在周一物化，其余已启用任务每天物化。
 - “立即运行”走 `MANUAL`，不要求任务已启用，也不受 `00:00-08:00` deadline 限制。
 - 禁用任务只阻止未来物化。已经创建的当天 job 当前不会因为随后禁用而自动取消或跳过。
-- `CENTRAL_DISPATCHER_CUTOVER_ENABLED=false` 会重新进入遗留 Next.js 进程内异步 handler。生产稳态必须是 App 和 Worker 的中央开关成对开启。
+- 后台任务兼容层第一阶段退役后，App 只向中央队列提交任务，Worker 启动即消费；两枚切换开关已移除。维护时停止对应服务，发布与回退见[退役发布手册](../deployment/background-task-retirement.md)。
 
 ### 计划任务清单
 

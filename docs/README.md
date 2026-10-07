@@ -30,6 +30,9 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
+- [后台任务兼容层退役](./features/background-task-retirement.md)（current）：第一阶段中央执行、历史快照与保留双写；第二阶段尚未实施。
+- [后台任务退役发布手册](./deployment/background-task-retirement.md)（draft）：v0.50.8 基线、只读预检、回退和至少 7 天观察。
+
 - [系列管理](./features/series-management.md)（current）：全宽系列列表与作品抽屉、统一增删排序草稿、虚拟列表与指纹保护的原子提交。
 
 - [艺术家与系列旧字段清理](./features/legacy-identity-retirement.md)（current）：四个旧字段的依赖替换、数据审计与分步上线检查。

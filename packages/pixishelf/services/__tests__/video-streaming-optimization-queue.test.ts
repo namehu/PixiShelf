@@ -64,17 +64,8 @@ describe('video streaming queue cutover adapter', () => {
     mocks.deleteExpired.mockResolvedValue({ count: 0 })
   })
 
-  it('preserves the legacy consumer while cutover is false', async () => {
-    await expect(enqueueVideoOptimization(7, 'admin-1')).resolves.toMatchObject({
-      jobId: 'legacy-job',
-      status: 'PENDING'
-    })
-    expect(mocks.enqueueLegacy).toHaveBeenCalledWith({ imageId: 7, path: 'video.mp4' })
-    expect(mocks.enqueueCentral).not.toHaveBeenCalled()
-  })
-
-  it('only enqueues central work when cutover is true', async () => {
-    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
+  it('only enqueues central work even when an obsolete flag is false', async () => {
+    vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
     mocks.enqueueCentral.mockResolvedValue({
       jobId: 'central-job',
       imageId: 7,

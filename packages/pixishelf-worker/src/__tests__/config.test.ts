@@ -22,7 +22,6 @@ describe('worker config', () => {
       scanDiscoveryExcludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash'],
       healthPort: 3011,
       heartbeatIntervalMs: 30_000,
-      dispatchEnabled: false,
       dispatchPollIntervalMs: 1_000,
       jobLeaseDurationMs: 60_000,
       jobHeartbeatIntervalMs: 20_000,
@@ -74,12 +73,6 @@ describe('worker config', () => {
       })
     ).toThrow('less than the job lease')
     expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS: '99' })).toThrow()
-    expect(() => parseWorkerConfig({ ...requiredEnvironment, WORKER_DISPATCH_ENABLED: 'yes' })).toThrow()
-  })
-
-  it('parses the dispatch opt-in explicitly', () => {
-    expect(parseWorkerConfig({ ...requiredEnvironment, WORKER_DISPATCH_ENABLED: 'true' }).dispatchEnabled).toBe(true)
-    expect(parseWorkerConfig({ ...requiredEnvironment, WORKER_DISPATCH_ENABLED: '0' }).dispatchEnabled).toBe(false)
   })
 
   it('allows the Pixiv discovery traversal limit to be tuned independently', () => {

@@ -118,7 +118,6 @@ describe('schedule materializer', () => {
     const now = new Date('2026-06-01T17:00:00.000Z')
 
     const result = await runScheduleMaterializerTick(now, {
-      cutoverEnabled: true,
       database: harness.database as never,
       ensureDefaults: ensureDefaultsMock
     })
@@ -172,7 +171,6 @@ describe('schedule materializer', () => {
     ])
     const now = new Date('2026-06-01T18:00:00.000Z')
     const dependencies = {
-      cutoverEnabled: true,
       database: harness.database as never,
       ensureDefaults: ensureDefaultsMock
     }
@@ -207,12 +205,10 @@ describe('schedule materializer', () => {
     const monday = new Date('2026-06-07T16:01:00.000Z')
 
     const first = await runScheduleMaterializerTick(monday, {
-      cutoverEnabled: true,
       database: mondayHarness.database as never,
       ensureDefaults: ensureDefaultsMock
     })
     const duplicate = await runScheduleMaterializerTick(monday, {
-      cutoverEnabled: true,
       database: mondayHarness.database as never,
       ensureDefaults: ensureDefaultsMock
     })
@@ -237,7 +233,6 @@ describe('schedule materializer', () => {
     enqueueJobMock.mockClear()
     const tuesdayHarness = createDatabase([task])
     const ordinaryDay = await runScheduleMaterializerTick(new Date('2026-06-08T16:01:00.000Z'), {
-      cutoverEnabled: true,
       database: tuesdayHarness.database as never,
       ensureDefaults: ensureDefaultsMock
     })
@@ -252,9 +247,7 @@ describe('schedule materializer', () => {
   })
 
   it('returns the dispatcher expiry boundary at and after 08:00 without enqueueing', async () => {
-    const result = await runScheduleMaterializerTick(new Date('2026-06-02T00:00:00.000Z'), {
-      cutoverEnabled: true
-    })
+    const result = await runScheduleMaterializerTick(new Date('2026-06-02T00:00:00.000Z'), {})
 
     expect(result).toMatchObject({
       mode: 'CENTRAL',
@@ -266,18 +259,13 @@ describe('schedule materializer', () => {
     expect(ensureDefaultsMock).not.toHaveBeenCalled()
   })
 
-  it('keeps legacy scheduling behavior by default and logs the detached-work boundary', async () => {
+  it('always materializes centrally even when obsolete environment flags are false', async () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
     const result = await runScheduleMaterializerTick(new Date('2026-06-01T18:00:00.000Z'), {
-      runLegacyTick: legacyTickMock
+      database: createDatabase([]).database as never,
+      ensureDefaults: ensureDefaultsMock
     })
-
-    expect(legacyTickMock).toHaveBeenCalledOnce()
-    expect(enqueueJobMock).not.toHaveBeenCalled()
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      'scheduler.tick.legacy_dispatch_path',
-      expect.objectContaining({ centralDispatcherCutoverEnabled: false })
-    )
-    expect(result.mode).toBe('LEGACY')
+    expect(result.mode).toBe('CENTRAL')
+    expect(legacyTickMock).not.toHaveBeenCalled()
   })
 })

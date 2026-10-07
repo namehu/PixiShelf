@@ -1,19 +1,17 @@
-import 'server-only'
-import { randomUUID } from 'node:crypto'
+import { creatorReviewSummary } from '@/lib/creator-review-summary'
+import { prisma } from '@/lib/prisma'
+import { enqueueSingletonManualJobWithResult } from '@/services/background-task'
+import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
 import { Prisma, PrismaClient, creatorFingerprint } from '@pixishelf/db'
 import {
   creatorMaintenanceInputSchema,
   workerCapabilitySchema,
   type CreatorMaintenanceInput
 } from '@pixishelf/job-contracts'
-import { prisma } from '@/lib/prisma'
-import { creatorReviewSummary } from '@/lib/creator-review-summary'
-import { enqueueSingletonManualJobWithResult, isCentralDispatcherCutoverEnabled } from '@/services/background-task'
-import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
-
+import { randomUUID } from 'node:crypto'
+import 'server-only'
 const database = prisma as unknown as PrismaClient
 async function assertReady() {
-  if (!isCentralDispatcherCutoverEnabled()) throw new Error('中央 Worker 调度尚未启用')
   const workers = await database.workerInstance.findMany({
     where: { status: 'READY', heartbeatAt: { gte: new Date(Date.now() - WORKER_HEARTBEAT_STALE_AFTER_MS) } },
     select: { capabilities: true }
@@ -33,7 +31,6 @@ async function assertReady() {
   )
   if (!ready) throw new Error('请先启动支持创作者整理的 READY Worker')
 }
-
 export async function prepareCreatorMaintenance(requestedByUserId: string, value: CreatorMaintenanceInput) {
   const input = creatorMaintenanceInputSchema.parse(value)
   await assertReady()
@@ -68,7 +65,6 @@ export async function prepareCreatorMaintenance(requestedByUserId: string, value
   )
   return { planId, jobId: queued.job.id }
 }
-
 export async function startCreatorMaintenance(requestedByUserId: string, planId: string, fingerprint: string) {
   await assertReady()
   const queued = await enqueueSingletonManualJobWithResult(
@@ -95,7 +91,6 @@ export async function startCreatorMaintenance(requestedByUserId: string, planId:
   )
   return { planId, jobId: queued.job.id }
 }
-
 export async function getCreatorMaintenance(planId: string, afterId = 0) {
   const plan = await database.creatorMaintenancePlan.findUniqueOrThrow({ where: { id: planId } })
   const [job, counts, items] = await Promise.all([
@@ -141,7 +136,6 @@ export async function getCreatorMaintenance(planId: string, afterId = 0) {
     nextCursor: items.length > 50 ? items[49]!.id : null
   }
 }
-
 export async function listCreatorMaintenance() {
   return database.creatorMaintenancePlan.findMany({
     orderBy: { createdAt: 'desc' },
@@ -149,11 +143,9 @@ export async function listCreatorMaintenance() {
     select: { id: true, command: true, status: true, createdAt: true }
   })
 }
-
 export async function getCreatorMapping(id: string) {
   return database.artistSourceTagMapping.findUniqueOrThrow({ where: { id } })
 }
-
 export async function listCreatorMappings(search: string, afterId?: string) {
   const mappings = await database.artistSourceTagMapping.findMany({
     where: {

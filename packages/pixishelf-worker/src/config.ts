@@ -4,11 +4,6 @@ import { DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES } from '@pixishelf/job
 const positiveInteger = (fallback: number, minimum: number, maximum: number) =>
   z.coerce.number().int().min(minimum).max(maximum).default(fallback)
 
-const environmentBoolean = z
-  .enum(['true', 'false', '1', '0'])
-  .default('false')
-  .transform((value) => value === 'true' || value === '1')
-
 const excludedRootDirectoryList = z
   .string()
   .default(DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES.join(','))
@@ -64,7 +59,6 @@ const workerConfigSchema = z
     WORKER_HEALTH_PORT: positiveInteger(3011, 1, 65_535),
     WORKER_HEARTBEAT_INTERVAL_MS: positiveInteger(30_000, 1_000, 300_000),
     WORKER_PREFLIGHT_TIMEOUT_MS: positiveInteger(10_000, 100, 120_000),
-    WORKER_DISPATCH_ENABLED: environmentBoolean,
     WORKER_DISPATCH_POLL_INTERVAL_MS: positiveInteger(1_000, 100, 60_000),
     WORKER_JOB_LEASE_DURATION_MS: positiveInteger(60_000, 10_000, 600_000),
     WORKER_JOB_HEARTBEAT_INTERVAL_MS: positiveInteger(20_000, 1_000, 300_000),
@@ -108,7 +102,6 @@ export interface WorkerConfig {
   healthPort: number
   heartbeatIntervalMs: number
   preflightTimeoutMs: number
-  dispatchEnabled: boolean
   dispatchPollIntervalMs: number
   jobLeaseDurationMs: number
   jobHeartbeatIntervalMs: number
@@ -152,7 +145,6 @@ export function parseWorkerConfig(environment: NodeJS.ProcessEnv): WorkerConfig 
     healthPort: parsed.WORKER_HEALTH_PORT,
     heartbeatIntervalMs: parsed.WORKER_HEARTBEAT_INTERVAL_MS,
     preflightTimeoutMs: parsed.WORKER_PREFLIGHT_TIMEOUT_MS,
-    dispatchEnabled: parsed.WORKER_DISPATCH_ENABLED,
     dispatchPollIntervalMs: parsed.WORKER_DISPATCH_POLL_INTERVAL_MS,
     jobLeaseDurationMs: parsed.WORKER_JOB_LEASE_DURATION_MS,
     jobHeartbeatIntervalMs: parsed.WORKER_JOB_HEARTBEAT_INTERVAL_MS,

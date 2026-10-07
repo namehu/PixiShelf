@@ -11,11 +11,6 @@ const localImportRouterSource = readFileSync(
   'utf8'
 )
 const archiveRouterSource = readFileSync(join(serviceRoot, '..', '..', 'server', 'routers', 'archive.ts'), 'utf8')
-const videoOptimizationQueueSource = readFileSync(
-  join(serviceRoot, '..', 'video-streaming-optimization-queue.ts'),
-  'utf8'
-)
-const pendingReplaceServiceSource = readFileSync(join(serviceRoot, '..', 'pending-replace-service', 'index.ts'), 'utf8')
 const pixivAiDerivedTagServiceSource = readFileSync(join(serviceRoot, '..', 'pixiv-ai-derived-tag-service.ts'), 'utf8')
 const schedulerRouteSource = readFileSync(
   join(serviceRoot, '..', '..', 'app', 'api', 'internal', 'scheduler', 'tick', 'route.ts'),
@@ -78,7 +73,9 @@ describe('unified background task router integration', () => {
     expect(routerSource.match(/triggerScheduledTaskNow\(/g)).toHaveLength(4)
     expect(routerSource).toContain("triggerScheduledTaskNow('webp_animation_scan', { requestedByUserId: ctx.userId })")
     expect(routerSource).toContain("triggerScheduledTaskNow('video_media_probe', { requestedByUserId: ctx.userId })")
-    expect(routerSource).toContain("triggerScheduledTaskNow('animation_duration_probe', { requestedByUserId: ctx.userId })")
+    expect(routerSource).toContain(
+      "triggerScheduledTaskNow('animation_duration_probe', { requestedByUserId: ctx.userId })"
+    )
     expect(routerSource).toMatch(
       /triggerScheduledTaskNow\(input\.key, \{[\s\S]*?requestedByUserId: ctx\.userId[\s\S]*?\}\)/
     )
@@ -97,37 +94,10 @@ describe('unified background task router integration', () => {
     expect(schedulerRouteSource).not.toContain('wakeVideoOptimizationQueue')
   })
 
-  it('hard-guards the remaining router IIFEs after central cutover', () => {
-    for (const operation of [
-      'REFILL_META_SOURCE',
-      'CANCEL_REFILL_META_SOURCE',
-      'MEDIA_DERIVED_TAG_SYNC',
-      'CANCEL_VIDEO_MEDIA_PROBE',
-      'CANCEL_VIDEO_CHAPTER_PREVIEW_GENERATION',
-      'VIDEO_MEDIA_REPROBE',
-      'VIDEO_KEYFRAME_GENERATION',
-      'VIDEO_KEYFRAME_BATCH',
-      'VIDEO_KEYFRAME_CONTROL',
-      'VIDEO_KEYFRAME_RETRY',
-      'VIDEO_KEYFRAME_RETRY_FAILED'
-    ]) {
-      expect(routerSource).toContain(`assertLegacyRouterExecutionAllowed('${operation}')`)
-    }
-    expect(localImportRouterSource).toContain("assertLegacyBackgroundExecutionAllowed('LOCAL_DIRECTORY_IMPORT')")
-    expect(archiveRouterSource).toContain(
-      'archiveModule.retryTaskItem(input.taskId, input.itemId, { requestedByUserId: ctx.userId })'
-    )
-    expect(archiveRouterSource).toContain(
-      'archiveModule.requestAction(input.taskId, input.action, { requestedByUserId: ctx.userId })'
-    )
-    expect(
-      videoOptimizationQueueSource.match(/assertLegacyBackgroundExecutionAllowed\('VIDEO_STREAMING_OPTIMIZATION'\)/g)
-    ).toHaveLength(4)
-    expect(routerSource).toContain('enqueueVideoOptimization(input.imageId, ctx.userId)')
-    expect(routerSource).toContain('cancelVideoOptimization(input.jobId)')
-    expect(
-      pendingReplaceServiceSource.match(/assertLegacyBackgroundExecutionAllowed\('PENDING_REPLACE'\)/g)
-    ).toHaveLength(4)
+  it('removes legacy execution and flag branches from the router', () => {
+    expect(routerSource).not.toContain('isCentralDispatcherCutoverEnabled')
+    expect(routerSource).not.toContain('assertLegacy')
+    expect(routerSource).not.toMatch(/void\s*\(async/)
   })
 
   it('uses durable manual enqueue for migrated maintenance tasks after central cutover', () => {
@@ -138,12 +108,8 @@ describe('unified background task router integration', () => {
     expect(pixivAiDerivedTagServiceSource).toContain('type: PIXIV_AI_DERIVED_TAG_SYNC_JOB_TYPE')
     expect(pixivAiDerivedTagServiceSource).toContain('enqueueSingletonManualJobWithResult({')
     expect(pixivAiDerivedTagServiceSource).toContain('requestedByUserId')
-    expect(routerSource).toMatch(
-      /if \(isCentralDispatcherCutoverEnabled\(\)\)[\s\S]*?type: 'REFILL_META_SOURCE'[\s\S]*?requestedByUserId: ctx\.userId/
-    )
-    expect(routerSource).toMatch(
-      /if \(isCentralDispatcherCutoverEnabled\(\)\)[\s\S]*?type: 'MEDIA_DERIVED_TAG_SYNC'[\s\S]*?requestedByUserId: ctx\.userId/
-    )
+    expect(routerSource).toMatch(/type: 'REFILL_META_SOURCE'[\s\S]*?requestedByUserId: ctx\.userId/)
+    expect(routerSource).toMatch(/type: 'MEDIA_DERIVED_TAG_SYNC'[\s\S]*?requestedByUserId: ctx\.userId/)
     expect(routerSource).toContain("triggerScheduledTaskNow('webp_animation_scan', { requestedByUserId: ctx.userId })")
   })
 })

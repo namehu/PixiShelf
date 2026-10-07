@@ -971,3 +971,28 @@ describe('job commands', () => {
     })
   })
 })
+
+describe('legacy history is read-only', () => {
+  it.each(['pause', 'resume', 'cancel', 'priority', 'retry'])(
+    'rejects %s without writes for v0 history',
+    async (action) => {
+      const harness = commandHarness([
+        jobRecord({ definitionVersion: 0, status: action === 'retry' ? 'FAILED' : 'PAUSED' })
+      ])
+      const input = { jobId: 'job-1' }
+      const operation =
+        action === 'pause'
+          ? pauseJobCommand(input, harness.client)
+          : action === 'resume'
+            ? resumeJobCommand(input, harness.client)
+            : action === 'cancel'
+              ? cancelJobCommand(input, harness.client)
+              : action === 'priority'
+                ? changeJobPriorityCommand({ ...input, priority: 10 }, harness.client)
+                : retryJobCommand(input, harness.client)
+      await expect(operation).rejects.toBeInstanceOf(BackgroundTaskError)
+      expect(harness.updateMany).not.toHaveBeenCalled()
+      expect(harness.create).not.toHaveBeenCalled()
+    }
+  )
+})

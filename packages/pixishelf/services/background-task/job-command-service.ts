@@ -1,25 +1,25 @@
-import { controlDiscoveryBatch } from '@pixishelf/job-executors'
 import { prisma } from '@/lib/prisma'
+import { FULL_SCAN_RETIRED_MESSAGE, isRetiredFullReconcilePayload } from '@/services/scan-source-policy'
+import { Prisma } from '@pixishelf/db'
 import {
   executionLaneForJobType,
   JOB_DEFINITION_VERSION,
-  SCAN_AUDIT_APPLY_DEFINITION_VERSION,
   jobTypeSchema,
   jsonValueSchema,
   parseJobPayload,
+  SCAN_AUDIT_APPLY_DEFINITION_VERSION,
   scanAuditApplyPayloadSchema,
-  type ScanAuditApplyPayload,
   type JobDto,
-  type JobStatus
+  type JobStatus,
+  type ScanAuditApplyPayload
 } from '@pixishelf/job-contracts'
-import { Prisma } from '@pixishelf/db'
+import { controlDiscoveryBatch } from '@pixishelf/job-executors'
 import { z } from 'zod'
 import { BackgroundTaskError } from './background-task-error'
-import { acknowledgeJobFailure, unacknowledgedFailureWhere } from './job-failure-policy'
 import { writeJobEvent } from './job-event-service'
+import { acknowledgeJobFailure, unacknowledgedFailureWhere } from './job-failure-policy'
 import { jobPayloadsHaveSameSemantics } from './job-payload-semantics'
 import { systemJobWireSelect, toJobDto, type SystemJobWireRecord } from './job-serialization'
-import { FULL_SCAN_RETIRED_MESSAGE, isRetiredFullReconcilePayload } from '@/services/scan-source-policy'
 
 const commonEnqueueFields = {
   type: jobTypeSchema,
@@ -282,6 +282,9 @@ export async function cancelJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (job.definitionVersion === 0) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
+    }
     const batchId = await controlDiscoveryBatch(transaction, jobId, 'CANCEL', now(), job)
     if (batchId) {
       return toJobDto(
@@ -479,6 +482,9 @@ export async function pauseJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (job.definitionVersion === 0) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
+    }
     const batchId = await controlDiscoveryBatch(transaction, jobId, 'PAUSE', now(), job)
     if (batchId) {
       return toJobDto(
@@ -532,6 +538,9 @@ export async function resumeJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (job.definitionVersion === 0) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
+    }
     const batchId = await controlDiscoveryBatch(transaction, jobId, 'RESUME', now(), job)
     if (batchId) {
       return toJobDto(
@@ -764,6 +773,9 @@ export async function changeJobPriorityCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: parsed.jobId }, select: systemJobWireSelect })
     )
+    if (job.definitionVersion === 0) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
+    }
     assertStatus(job, ['PENDING', 'RETRY_WAIT', 'PAUSED'], 'change priority for')
     const range = job.triggerSource === 'MANUAL' || job.triggerSource === 'RETRY' ? [0, 99] : [100, 999]
     if (parsed.priority < range[0]! || parsed.priority > range[1]!) {

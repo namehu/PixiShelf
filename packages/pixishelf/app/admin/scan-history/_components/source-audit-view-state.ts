@@ -20,8 +20,6 @@ export type SourceAuditApplyBlockedReason =
   | 'SCAN_BUSY'
   | 'AUDIT_NOT_COMPLETE'
   | 'ITEMS_NOT_ELIGIBLE'
-  | 'CUTOVER_DISABLED'
-  | 'DISPATCH_DISABLED'
   | 'SCAN_ROOT_NOT_CONFIGURED'
   | 'SOURCE_ROOT_UNAVAILABLE'
   | 'INVENTORY_NOT_READY'
@@ -231,8 +229,6 @@ export function getSourceAuditApplyBlockedCopy(reason: SourceAuditApplyBlockedRe
     SCAN_BUSY: '当前有其他扫描任务正在运行，请等待完成后重试。',
     AUDIT_NOT_COMPLETE: '这次来源核对尚未形成完整结果，不能开始同步。',
     ITEMS_NOT_ELIGIBLE: '所选项目已被处理或不再适合同步，请刷新当前页后重新选择。',
-    CUTOVER_DISABLED: '中央任务调度尚未启用，暂时不能同步来源。',
-    DISPATCH_DISABLED: '后台 Worker 调度尚未启用，暂时不能同步来源。',
     SCAN_ROOT_NOT_CONFIGURED: '扫描目录尚未配置，暂时不能同步来源。',
     SOURCE_ROOT_UNAVAILABLE: '扫描目录当前不可访问，请检查挂载后重试。',
     INVENTORY_NOT_READY: '来源清单尚未准备完成，请先完成增量扫描。',

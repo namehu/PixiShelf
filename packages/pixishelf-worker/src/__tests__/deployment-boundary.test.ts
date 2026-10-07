@@ -1,10 +1,37 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 const repositoryRoot = new URL('../../../..', import.meta.url)
 
 describe('Worker deployment boundary', () => {
+  it.each(['--before', '--after', '--help'])(
+    'runs the retirement audit %s without deploying migrations or running startup guards',
+    (argument) => {
+      const directory = mkdtempSync(join(tmpdir(), 'pixishelf-entrypoint-test-'))
+      const auditPath = 'packages/pixishelf-db/maintenance/audit-background-task-retirement.mjs'
+      try {
+        // A distinct exit status also verifies that an audit blocker reaches Compose.
+        writeFileSync(join(directory, 'node'), '#!/bin/sh\nprintf "%s\\n" "$*"\nexit 23\n', { mode: 0o755 })
+        writeFileSync(join(directory, 'prisma'), '#!/bin/sh\nprintf "unexpected migration\\n"\nexit 99\n', { mode: 0o755 })
+        const result = spawnSync('/bin/sh', [fileURLToPath(new URL('build/entrypoint.sh', repositoryRoot)), 'node', auditPath, argument], {
+          env: { PATH: directory },
+          encoding: 'utf8'
+        })
+        expect(result.error).toBeUndefined()
+        expect(result.status).toBe(23)
+        expect(result.stdout).toBe(`${auditPath} ${argument}\n`)
+        expect(result.stderr).toBe('')
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+      }
+    }
+  )
+
   it.each(['docker-compose.dev.yml', 'docker-compose.deploy.yml'])(
     'caps every long-running service at 10 MB x 5 in %s',
     (filename) => {
@@ -45,7 +72,7 @@ describe('Worker deployment boundary', () => {
       expect(worker).toBeDefined()
       expect(worker).toMatch(/depends_on:\s*\r?\n\s+postgres:/)
       expect(worker).not.toMatch(/depends_on:\s*\r?\n\s+app:/)
-      expect(worker).toContain('WORKER_DISPATCH_ENABLED: ${WORKER_DISPATCH_ENABLED:-false}')
+      expect(worker).not.toContain('WORKER_DISPATCH_ENABLED')
       expect(worker).toContain('WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS: ${WORKER_QUEUE_TRANSACTION_MAX_WAIT_MS:-5000}')
       expect(worker).toContain('WORKER_QUEUE_TRANSACTION_TIMEOUT_MS: ${WORKER_QUEUE_TRANSACTION_TIMEOUT_MS:-30000}')
       expect(worker).toContain(':/app/data:rw')

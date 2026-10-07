@@ -195,12 +195,11 @@ title/description override，保留既有 Artist、MANUAL/DERIVED、未被当前
 
 ## 归档收件与后台执行
 
-生产稳态使用两段开关：
+后台任务固定使用中央队列：App 物化计划并创建/控制任务，Worker 启动即执行两个 lane。
+两枚切换开关已删除，维护必须停止 Worker；归档等领域任务仍经专用事务同步控制，不能退回通用状态更新。
+第一阶段保留目标旧列双写供 v0.50.8 回退，读取由 payload/legacyDisplay 提供；见[退役规格](../features/background-task-retirement.md)。
 
-- `CENTRAL_DISPATCHER_CUTOVER_ENABLED=true`：App 只物化、创建和控制中央队列任务；
-- `WORKER_DISPATCH_ENABLED=true`：通用 Worker 才会 claim 和执行任务。
-
-两者必须成对管理。正常链路是：
+正常链路是：
 
 ```mermaid
 sequenceDiagram

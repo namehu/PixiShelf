@@ -1,12 +1,8 @@
-import 'server-only'
-import { revalidatePath } from 'next/cache'
-import { adminProcedure, authProcedure, router } from '@/server/trpc'
-import path from 'path'
-import { z } from 'zod'
+import logger from '@/lib/logger'
 import {
-  ArtworkDeleteReportSchema,
+  ArtworkDeleteInputSchema,
   ArtworkDeletePreviewSchema,
-  ArtworkDeleteInputSchema
+  ArtworkDeleteReportSchema
 } from '@/schemas/artwork-delete.dto'
 import {
   ArtworksInfiniteQuerySchema,
@@ -15,36 +11,30 @@ import {
   RecommendationsGetSchema,
   ViewerFeedQuerySchema
 } from '@/schemas/artwork.dto'
+import { ArtworkSourceEnum } from '@/schemas/models'
+import { adminProcedure, authProcedure, router } from '@/server/trpc'
 import {
+  createArtwork,
+  deleteArtwork,
+  getArtworkById,
   getArtworkCardsPage,
   getArtworksList,
   getNeighboringArtworks,
-  getRecommendedArtworks,
   getRandomArtworks,
+  getRecommendedArtworks,
   getViewerFeed,
-  deleteArtwork,
   previewDeleteArtwork,
-  updateArtwork,
-  getArtworkById,
-  createArtwork
+  updateArtwork
 } from '@/services/artwork-service'
-import logger from '@/lib/logger'
-import { TRPCError } from '@trpc/server'
 import {
-  ArtworkImageOrderError,
   addImageWithChapters,
+  ArtworkImageOrderError,
   deleteImage,
   reorderArtworkImages
 } from '@/services/artwork-service/image-manager'
-import { getScanPath } from '@/services/setting.service'
-import { reprobeVideoMediaByImageId, resolveVideoImageForReprobeId } from '@/services/video-media-probe-service'
-import { enqueueCentralVideoMediaReprobe } from '@/services/video-media-central-service'
-import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
-import { BackgroundTaskError } from '@/services/background-task/background-task-error'
-import { determineArtworkRelDir } from '@/services/artwork-service/utils'
 import { ensureManualArtworkStorage } from '@/services/artwork-service/manual-storage'
-import { ArtworkSourceEnum } from '@/schemas/models'
-import { PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
+import { determineArtworkRelDir } from '@/services/artwork-service/utils'
+import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import {
   cancelPixivArtworkEnrichment,
   getPixivArtworkEnrichmentSummary,
@@ -57,13 +47,24 @@ import {
   listPixivArtworkSyncReports,
   PixivArtworkSyncReportReadError
 } from '@/services/pixiv-artwork-sync-report-service'
-
-function assertReadingListAccount(userId: string, expectedUserId: string | undefined, readingStatus: string | undefined) {
+import { getScanPath } from '@/services/setting.service'
+import { enqueueCentralVideoMediaReprobe } from '@/services/video-media-central-service'
+import { resolveVideoImageForReprobeId } from '@/services/video-media-probe-service'
+import { PIXIV_ARTWORK_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
+import { TRPCError } from '@trpc/server'
+import { revalidatePath } from 'next/cache'
+import path from 'path'
+import 'server-only'
+import { z } from 'zod'
+function assertReadingListAccount(
+  userId: string,
+  expectedUserId: string | undefined,
+  readingStatus: string | undefined
+) {
   if ((readingStatus && !expectedUserId) || (expectedUserId && expectedUserId !== userId)) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
   }
 }
-
 /**
  * 作品路由
  */
@@ -74,7 +75,6 @@ export const artworkRouter = router({
   getById: authProcedure.input(z.number()).query(async ({ input }) => {
     return getArtworkById(input)
   }),
-
   /**
    * 获取作品列表 (无限加载)
    */
@@ -90,7 +90,6 @@ export const artworkRouter = router({
       total: result.total
     }
   }),
-
   /**
    * 获取作品卡片列表；仅第一页返回精确总数，后续页通过多取一条判断是否还有下一页。
    */
@@ -105,7 +104,6 @@ export const artworkRouter = router({
       total: result.total
     }
   }),
-
   /**
    * 创建作品
    */
@@ -124,7 +122,6 @@ export const artworkRouter = router({
     .mutation(({ input }) => {
       return createArtwork(input)
     }),
-
   /**
    * 更新作品
    */
@@ -145,9 +142,7 @@ export const artworkRouter = router({
     .mutation(async ({ input }) => {
       return updateArtwork(input.id, input.data)
     }),
-
   pixivEnrichmentSummary: adminProcedure.query(() => getPixivArtworkEnrichmentSummary()),
-
   startPixivEnrichment: adminProcedure
     .input(
       z.object({
@@ -156,15 +151,12 @@ export const artworkRouter = router({
       })
     )
     .mutation(({ input, ctx }) => startPixivArtworkEnrichment(ctx.userId, input.artworkIds, input.refreshExisting)),
-
   cancelPixivEnrichment: adminProcedure
     .input(z.object({ jobId: z.string().min(1).optional() }).optional())
     .mutation(({ input }) => cancelPixivArtworkEnrichment(input?.jobId)),
-
   retryPixivEnrichment: adminProcedure
     .input(z.object({ artworkId: z.number().int().positive() }))
     .mutation(({ input, ctx }) => retryPixivArtworkEnrichment(input.artworkId, ctx.userId)),
-
   pixivSyncReportHistory: adminProcedure
     .input(
       z.object({
@@ -176,11 +168,9 @@ export const artworkRouter = router({
     .query(({ input }) =>
       withPixivSyncReportError(() => listPixivArtworkSyncReports({ ...input, cursor: input.cursor ?? undefined }))
     ),
-
   pixivSyncReport: adminProcedure
     .input(z.object({ artworkId: z.number().int().positive(), reportId: z.string().min(1).max(128) }))
     .query(({ input }) => withPixivSyncReportError(() => getPixivArtworkSyncReport(input))),
-
   pixivSyncSnapshot: adminProcedure
     .input(
       z.object({
@@ -190,7 +180,6 @@ export const artworkRouter = router({
       })
     )
     .query(({ input }) => withPixivSyncReportError(() => getPixivArtworkSyncSnapshot(input))),
-
   /**
    * 删除作品
    */
@@ -204,7 +193,6 @@ export const artworkRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '无法读取删除清单，请重新加载。' })
       }
     }),
-
   delete: adminProcedure
     .input(ArtworkDeleteInputSchema)
     .output(ArtworkDeleteReportSchema)
@@ -215,7 +203,6 @@ export const artworkRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '未收到删除总结，请核对列表或服务端日志。' })
       }
     }),
-
   /**
    * 删除图片
    */
@@ -229,7 +216,6 @@ export const artworkRouter = router({
     .mutation(async ({ input }) => {
       return deleteImage(input.id, input.deleteFile)
     }),
-
   /**
    * 新增图片
    */
@@ -258,7 +244,6 @@ export const artworkRouter = router({
     .mutation(async ({ input }) => {
       return addImageWithChapters(input.artworkId, input.file, input.chaptersMeta)
     }),
-
   reorderImages: authProcedure
     .input(
       z.object({
@@ -289,7 +274,6 @@ export const artworkRouter = router({
         throw error
       }
     }),
-
   // 仅在有扫描根目录时才能重探测视频元信息；服务内部不允许越权访问 scan root 外路径，
   // 所以此处把“路径逃逸/非视频文件”等错误统一转为 BAD_REQUEST。
   reprobeVideoMedia: adminProcedure
@@ -299,9 +283,8 @@ export const artworkRouter = router({
       if (!scanPath) {
         throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
       }
-
       try {
-        if (isCentralDispatcherCutoverEnabled()) {
+        {
           const image = await resolveVideoImageForReprobeId(input.imageId, scanPath)
           const queued = await enqueueCentralVideoMediaReprobe({
             imageId: image.id,
@@ -309,8 +292,6 @@ export const artworkRouter = router({
           })
           return { mode: 'QUEUED' as const, ...queued }
         }
-        const metadata = await reprobeVideoMediaByImageId(input.imageId, scanPath)
-        return { mode: 'COMPLETED' as const, metadata }
       } catch (error) {
         if (error instanceof BackgroundTaskError && error.code === 'ACTIVE_JOB_CONFLICT') {
           throw new TRPCError({ code: 'CONFLICT', message: error.message })
@@ -325,7 +306,6 @@ export const artworkRouter = router({
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message })
       }
     }),
-
   /**
    * 获取上传路径
    */
@@ -337,30 +317,23 @@ export const artworkRouter = router({
     if (!artwork) {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
     }
-
     const scanPath = await getScanPath()
     if (!scanPath) {
       throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'SCAN_PATH not set' })
     }
-
     const targetRelDir = determineArtworkRelDir(artwork)
-
     if (!targetRelDir) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot determine upload path' })
     }
-
     const targetDir = path.join(scanPath, targetRelDir)
-
     return { targetDir, targetRelDir }
   }),
-
   /**
    * 获取邻近作品（前后作品）
    */
   getNeighbors: authProcedure.input(NeighboringArtworksGetSchema).query(async ({ input }) => {
     return await getNeighboringArtworks(input)
   }),
-
   /**
    * 获取推荐作品
    */
@@ -371,7 +344,6 @@ export const artworkRouter = router({
       tagNames: input.tagNames
     })
   }),
-
   /**
    * 随机获取单张图片作品的API接口 (已优化为真随机)
    */
@@ -390,7 +362,6 @@ export const artworkRouter = router({
       })
     }
   }),
-
   /**
    * 获取沉浸浏览 Feed
    */
@@ -411,7 +382,6 @@ export const artworkRouter = router({
     }
   })
 })
-
 async function withPixivSyncReportError<T>(operation: () => Promise<T>) {
   try {
     return await operation()

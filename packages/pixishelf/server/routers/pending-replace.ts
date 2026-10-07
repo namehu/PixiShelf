@@ -1,5 +1,3 @@
-import { TRPCError } from '@trpc/server'
-import { adminProcedure, router } from '@/server/trpc'
 import {
   bindPendingReplaceItemSchema,
   pendingReplaceBatchIdSchema,
@@ -7,8 +5,7 @@ import {
   reorderPendingReplaceItemSchema,
   startPendingReplaceSchema
 } from '@/schemas/pending-replace.dto'
-import { getScanPath } from '@/services/setting.service'
-import { isCentralDispatcherCutoverEnabled } from '@/services/background-task/dispatcher-cutover'
+import { adminProcedure, router } from '@/server/trpc'
 import {
   bindPendingReplaceItem,
   cancelPendingReplaceBatch,
@@ -21,18 +18,17 @@ import {
   startPendingReplaceBatch,
   unbindPendingReplaceItem
 } from '@/services/pending-replace-service'
-
+import { getScanPath } from '@/services/setting.service'
+import { TRPCError } from '@trpc/server'
 async function requireScanPath() {
   // 大部分替换动作依赖扫描根目录；未配置时返回前置条件失败，避免操作发生在错误路径下。
   const scanPath = await getScanPath()
   if (!scanPath) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'Scan path is not configured' })
   return scanPath
 }
-
 async function scanPathForExecution() {
-  return isCentralDispatcherCutoverEnabled() ? '' : requireScanPath()
+  return ''
 }
-
 function wrapPendingReplaceError(error: unknown): never {
   // 服务抛错并非结构化时，按字符串规则进行分类映射：
   // - 已存在进行中/未找到/状态不允许 -> 对应 CONFLICT/NOT_FOUND/PRECONDITION_FAILED
@@ -45,7 +41,6 @@ function wrapPendingReplaceError(error: unknown): never {
   }
   throw new TRPCError({ code: 'BAD_REQUEST', message })
 }
-
 export const pendingReplaceRouter = router({
   preview: adminProcedure.mutation(async ({ ctx }) => {
     try {
@@ -54,11 +49,9 @@ export const pendingReplaceRouter = router({
       wrapPendingReplaceError(error)
     }
   }),
-
   status: adminProcedure.input(pendingReplaceBatchIdSchema.partial()).query(async ({ input }) => {
     return getPendingReplaceBatch(input.batchId)
   }),
-
   reorder: adminProcedure.input(reorderPendingReplaceItemSchema).mutation(async ({ input }) => {
     try {
       return await reorderPendingReplaceItem(input)
@@ -66,7 +59,6 @@ export const pendingReplaceRouter = router({
       wrapPendingReplaceError(error)
     }
   }),
-
   bind: adminProcedure.input(bindPendingReplaceItemSchema).mutation(async ({ input }) => {
     try {
       return await bindPendingReplaceItem({
@@ -78,7 +70,6 @@ export const pendingReplaceRouter = router({
       wrapPendingReplaceError(error)
     }
   }),
-
   unbind: adminProcedure.input(pendingReplaceItemIdSchema).mutation(async ({ input }) => {
     try {
       return await unbindPendingReplaceItem(input)
@@ -86,7 +77,6 @@ export const pendingReplaceRouter = router({
       wrapPendingReplaceError(error)
     }
   }),
-
   start: adminProcedure.input(startPendingReplaceSchema).mutation(async ({ input, ctx }) => {
     try {
       return await startPendingReplaceBatch({
@@ -99,11 +89,9 @@ export const pendingReplaceRouter = router({
       wrapPendingReplaceError(error)
     }
   }),
-
   cancel: adminProcedure.input(pendingReplaceBatchIdSchema).mutation(async ({ input }) => {
     return cancelPendingReplaceBatch(input.batchId)
   }),
-
   recover: adminProcedure.input(pendingReplaceBatchIdSchema).mutation(async ({ input, ctx }) => {
     try {
       return await recoverInterruptedPendingReplaceBatchById(await scanPathForExecution(), input.batchId, ctx.userId)
@@ -111,7 +99,6 @@ export const pendingReplaceRouter = router({
       wrapPendingReplaceError(error)
     }
   }),
-
   restore: adminProcedure.input(pendingReplaceItemIdSchema).mutation(async ({ input, ctx }) => {
     try {
       return await restorePendingReplaceItemById(await scanPathForExecution(), input.itemId, ctx.userId)
@@ -119,7 +106,6 @@ export const pendingReplaceRouter = router({
       wrapPendingReplaceError(error)
     }
   }),
-
   cleanupBackups: adminProcedure.input(pendingReplaceBatchIdSchema).mutation(async ({ input, ctx }) => {
     try {
       return await cleanupPendingReplaceBatchBackups(await scanPathForExecution(), input.batchId, ctx.userId)

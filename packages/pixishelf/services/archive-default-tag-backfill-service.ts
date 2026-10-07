@@ -1,13 +1,9 @@
-import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
-import { getSystemSettings } from '@/services/setting.service'
-import {
-  cancelJobCommand,
-  enqueueSingletonManualJobWithResult,
-  isCentralDispatcherCutoverEnabled
-} from '@/services/background-task'
+import { cancelJobCommand, enqueueSingletonManualJobWithResult } from '@/services/background-task'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
+import { getSystemSettings } from '@/services/setting.service'
+import type { Prisma, PrismaClient } from '@pixishelf/db'
 import {
   ACTIVE_JOB_STATUSES,
   archiveDefaultTagBackfillCheckpointSchema,
@@ -17,17 +13,14 @@ import {
   JOB_DEFINITION_VERSION,
   workerCapabilitySchema
 } from '@pixishelf/job-contracts'
-import type { Prisma, PrismaClient } from '@pixishelf/db'
-
+import { createHash } from 'node:crypto'
 export const ARCHIVE_DEFAULT_TAG_BACKFILL_JOB_TYPE = 'ARCHIVE_DEFAULT_TAG_BACKFILL' as const
 export const ARCHIVE_DEFAULT_TAG_BACKFILL_PRIORITY = 99
-
 const TARGET_WHERE = {
   createdVia: 'URL_ARCHIVE' as const,
   deletedAt: null,
   archiveLifecycleState: 'ACTIVE' as const
 }
-
 const jobStatusSelect = {
   id: true,
   status: true,
@@ -39,7 +32,6 @@ const jobStatusSelect = {
   createdAt: true,
   finishedAt: true
 } as const
-
 export class ArchiveDefaultTagBackfillServiceError extends Error {
   constructor(
     readonly code: 'NO_DEFAULT_TAGS' | 'NO_MISSING_RELATIONS' | 'STALE_PREVIEW' | 'WORKER_UNAVAILABLE',
@@ -48,11 +40,12 @@ export class ArchiveDefaultTagBackfillServiceError extends Error {
     super(message)
   }
 }
-
 export async function previewArchiveDefaultTagBackfill(
   options: {
     database?: PrismaClient
-    settings?: { archive_default_tag_ids: number[] }
+    settings?: {
+      archive_default_tag_ids: number[]
+    }
   } = {}
 ) {
   const database = options.database ?? (prisma as unknown as PrismaClient)
@@ -99,7 +92,6 @@ export async function previewArchiveDefaultTagBackfill(
     snapshotDigest: createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
   }
 }
-
 export async function getArchiveDefaultTagBackfillStatus(database: PrismaClient = prisma as unknown as PrismaClient) {
   const [activeJob, latestJob, capabilityAvailable] = await Promise.all([
     database.systemJob.findFirst({
@@ -112,7 +104,7 @@ export async function getArchiveDefaultTagBackfillStatus(database: PrismaClient 
       orderBy: { createdAt: 'desc' },
       select: jobStatusSelect
     }),
-    isCentralDispatcherCutoverEnabled() ? hasReadyArchiveDefaultTagBackfillWorker(database) : Promise.resolve(false)
+    hasReadyArchiveDefaultTagBackfillWorker(database)
   ])
   return {
     capabilityAvailable,
@@ -120,7 +112,6 @@ export async function getArchiveDefaultTagBackfillStatus(database: PrismaClient 
     latestJob: serializeBackfillJob(latestJob)
   }
 }
-
 export async function startArchiveDefaultTagBackfill(input: {
   requestedByUserId: string
   snapshotDigest: string
@@ -129,19 +120,12 @@ export async function startArchiveDefaultTagBackfill(input: {
   const database = input.database ?? (prisma as unknown as PrismaClient)
   const activeJob = await findActiveJob(database)
   if (activeJob) return { jobId: activeJob.id, status: activeJob.status, reused: true }
-  if (!isCentralDispatcherCutoverEnabled()) {
-    throw new ArchiveDefaultTagBackfillServiceError(
-      'WORKER_UNAVAILABLE',
-      '中央 Worker 调度尚未启用，暂时不能补全历史归档标签'
-    )
-  }
   if (!(await hasReadyArchiveDefaultTagBackfillWorker(database))) {
     throw new ArchiveDefaultTagBackfillServiceError(
       'WORKER_UNAVAILABLE',
       '当前没有支持历史归档标签补全的 READY Worker，请先部署并确认 Worker capability'
     )
   }
-
   const preview = await previewArchiveDefaultTagBackfill({ database })
   if (preview.snapshotDigest !== input.snapshotDigest) {
     throw new ArchiveDefaultTagBackfillServiceError('STALE_PREVIEW', '历史归档或默认标签已经变化，请重新预览')
@@ -152,7 +136,6 @@ export async function startArchiveDefaultTagBackfill(input: {
   if (preview.missingRelations === 0) {
     throw new ArchiveDefaultTagBackfillServiceError('NO_MISSING_RELATIONS', '历史归档作品已经包含当前默认标签')
   }
-
   const payload = archiveDefaultTagBackfillPayloadSchema.parse({
     defaultTagIds: preview.configuredTagIds,
     targetMaxArtworkId: preview.targetMaxArtworkId,
@@ -161,7 +144,6 @@ export async function startArchiveDefaultTagBackfill(input: {
     expectedMissingRelations: preview.missingRelations,
     snapshotDigest: preview.snapshotDigest
   })
-
   try {
     const queued = await enqueueSingletonManualJobWithResult(
       {
@@ -183,7 +165,6 @@ export async function startArchiveDefaultTagBackfill(input: {
     throw error
   }
 }
-
 export async function cancelArchiveDefaultTagBackfill(
   jobId: string,
   database: PrismaClient = prisma as unknown as PrismaClient
@@ -196,7 +177,6 @@ export async function cancelArchiveDefaultTagBackfill(
   const cancelled = await cancelJobCommand({ jobId }, database)
   return { success: true, jobId: cancelled.id, status: cancelled.status }
 }
-
 export async function hasReadyArchiveDefaultTagBackfillWorker(database: PrismaClient, now: Date = new Date()) {
   const workers = await database.workerInstance.findMany({
     where: {
@@ -209,7 +189,6 @@ export async function hasReadyArchiveDefaultTagBackfillWorker(database: PrismaCl
   })
   return workers.some((worker) => supportsArchiveDefaultTagBackfill(worker.capabilities))
 }
-
 export function supportsArchiveDefaultTagBackfill(value: unknown) {
   if (!Array.isArray(value)) return false
   return value.some((entry) => {
@@ -222,7 +201,6 @@ export function supportsArchiveDefaultTagBackfill(value: unknown) {
     )
   })
 }
-
 async function findActiveJob(database: PrismaClient) {
   return database.systemJob.findFirst({
     where: { type: ARCHIVE_DEFAULT_TAG_BACKFILL_JOB_TYPE, status: { in: [...ACTIVE_JOB_STATUSES] } },
@@ -230,9 +208,9 @@ async function findActiveJob(database: PrismaClient) {
     select: { id: true, status: true }
   })
 }
-
-type BackfillJobRecord = Prisma.SystemJobGetPayload<{ select: typeof jobStatusSelect }>
-
+type BackfillJobRecord = Prisma.SystemJobGetPayload<{
+  select: typeof jobStatusSelect
+}>
 function serializeBackfillJob(job: BackfillJobRecord | null) {
   if (!job) return null
   const checkpoint = archiveDefaultTagBackfillCheckpointSchema.safeParse(job.result)

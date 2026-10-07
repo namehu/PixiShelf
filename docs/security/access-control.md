@@ -385,3 +385,7 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 ## 失败收件记录删除
 
 `archiveInbox.deleteFailedMany` 使用 adminProcedure，接收 `targetType`（INTAKE_ITEM / DISCOVERY_ITEM）、1–100 个记录 ID 及幂等键；操作者来自 Session。发现来源入口复用同一服务。服务端从记录解析身份与 URL，重新检查失败状态、关联下载及活动扫描/收件，不能由客户端指定作品 ID、URL 或删除范围。每个目标独立事务，持久回执保留结果；删除不涉及本地作品、媒体、下载任务或日志。收件原站链接仅使用经协议、主机、凭据、端口及路径校验的提交地址，不增加公共重定向接口。
+
+## 后台任务退役第一阶段
+
+所有旧执行入口固定中央入队，鉴权门禁不变；归档控制保留专用领域事务。v0 历史拒绝执行控制与重试，失败确认记录保留。计划更新不再接受 time，列表使用 lastMaterializedAt/Date。旧目标只读快照不作为执行输入，展示沿用脱敏和隐私规则。切换开关不再提供隔离能力，维护必须停止服务。

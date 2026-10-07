@@ -15,18 +15,16 @@ const task: ScheduledTaskView = {
   description: '探测视频',
   enabled: true,
   scheduleMode: 'DAILY',
-  time: '04:00',
   timezone: 'Asia/Shanghai',
   priority: 70,
-  mutexKey: 'media-maintenance',
-  lastTriggeredAt: null,
-  lastTriggeredDate: null,
+  lastMaterializedAt: null,
+  lastMaterializedDate: null,
   lastJobId: null,
   lastJobStatus: null,
   nextRunAt: '2026-08-18 00:00 Asia/Shanghai'
 }
 
-const draft: TaskDraft = { enabled: true, time: '06:30', priority: '70' }
+const draft: TaskDraft = { enabled: true, priority: '70' }
 
 describe('ScheduleSettings cutover semantics', () => {
   afterEach(cleanup)
@@ -55,12 +53,10 @@ describe('ScheduleSettings cutover semantics', () => {
     })
   })
 
-  it('keeps the daily time input in legacy mode', () => {
+  it('never exposes retired per-task scheduling controls', () => {
     render(<ScheduleSettings task={task} draft={draft} onDraftChange={vi.fn()} onSave={vi.fn()} isSaving={false} />)
-
-    expect(screen.getByLabelText('执行时间')).toHaveProperty('value', '06:30')
-    expect((screen.getByRole('button', { name: '保存计划' }) as HTMLButtonElement).disabled).toBe(false)
-    expect(getScheduledTaskUpdate(task, draft)).toMatchObject({ time: '06:30' })
+    expect(screen.queryByLabelText('执行时间')).toBeNull()
+    expect(getScheduledTaskUpdate(task, draft)).not.toHaveProperty('time')
   })
 
   it('does not let the enabled field occupy the full desktop settings row', () => {
@@ -91,7 +87,7 @@ describe('ScheduleSettings cutover semantics', () => {
     render(
       <ScheduleSettings
         task={centralTask}
-        draft={{ ...draft, time: task.time }}
+        draft={{ ...draft }}
         onDraftChange={vi.fn()}
         onSave={vi.fn()}
         isSaving={false}
@@ -127,7 +123,7 @@ describe('ScheduleSettings cutover semantics', () => {
         const { unmount } = render(
           <ScheduleSettings
             task={{ ...task, executionWindow }}
-            draft={{ ...draft, time: task.time, priority: value }}
+            draft={{ ...draft, priority: value }}
             onDraftChange={vi.fn()}
             onSave={vi.fn()}
             isSaving={false}

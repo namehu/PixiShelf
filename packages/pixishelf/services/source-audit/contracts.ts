@@ -8,8 +8,6 @@ export const sourceAuditStatusSchema = jobStatusSchema
 
 export const sourceAuditAvailabilityReasonSchema = z.enum([
   'AUDIT_ACTIVE',
-  'CUTOVER_DISABLED',
-  'DISPATCH_DISABLED',
   'SCAN_ROOT_NOT_CONFIGURED',
   'SCAN_ROOT_UNAVAILABLE',
   'INVENTORY_NOT_READY',
@@ -168,8 +166,6 @@ export const sourceAuditApplyBlockedReasonSchema = z.enum([
   'SCAN_BUSY',
   'AUDIT_NOT_COMPLETE',
   'ITEMS_NOT_ELIGIBLE',
-  'CUTOVER_DISABLED',
-  'DISPATCH_DISABLED',
   'SCAN_ROOT_NOT_CONFIGURED',
   'SOURCE_ROOT_UNAVAILABLE',
   'INVENTORY_NOT_READY',

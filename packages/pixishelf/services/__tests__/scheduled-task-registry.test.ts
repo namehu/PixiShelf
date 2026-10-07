@@ -86,7 +86,7 @@ vi.mock('@/services/webp-animation-scan-service', () => ({
   runWebpAnimationScanJob: vi.fn()
 }))
 
-import { getScheduledTaskHandler, SCHEDULED_TASK_DEFINITIONS, SCHEDULED_TASK_TYPES } from '../scheduled-task-registry'
+import { SCHEDULED_TASK_DEFINITIONS, SCHEDULED_TASK_TYPES } from '../scheduled-task-registry'
 
 describe('scheduled-task-registry', () => {
   beforeEach(() => {
@@ -166,38 +166,6 @@ describe('scheduled-task-registry', () => {
     )
   })
 
-  it('registers archive intake retention cleanup as an enabled daily writer task', () => {
-    expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          key: 'archive_intake_retention_cleanup',
-          type: SCHEDULED_TASK_TYPES.ARCHIVE_INTAKE_RETENTION_CLEANUP,
-          defaultTime: '02:15',
-          defaultPriority: 15,
-          defaultEnabled: true,
-          mutexKey: 'audit-maintenance'
-        })
-      ])
-    )
-    expect(getScheduledTaskHandler(SCHEDULED_TASK_TYPES.ARCHIVE_INTAKE_RETENTION_CLEANUP)?.start).toBeTypeOf('function')
-  })
-
-  it('registers archive reconciliation as enabled daily writer maintenance', () => {
-    expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          key: 'archive_maintenance_reconcile',
-          type: SCHEDULED_TASK_TYPES.ARCHIVE_MAINTENANCE,
-          defaultTime: '02:05',
-          defaultPriority: 12,
-          defaultEnabled: true,
-          mutexKey: 'audit-maintenance'
-        })
-      ])
-    )
-    expect(getScheduledTaskHandler(SCHEDULED_TASK_TYPES.ARCHIVE_MAINTENANCE)?.start).toBeTypeOf('function')
-  })
-
   it('registers chapter preview generation after video probing and disabled by default', () => {
     expect(SCHEDULED_TASK_DEFINITIONS).toEqual(
       expect.arrayContaining([
@@ -254,145 +222,5 @@ describe('scheduled-task-registry', () => {
         })
       ])
     )
-  })
-
-  it('refuses to run derived-media GC through the detached legacy handler', async () => {
-    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC)
-
-    await expect(handler?.start({ trigger: 'manual' })).rejects.toThrow(
-      'Derived media GC requires central dispatcher cutover'
-    )
-  })
-
-  it('runs keyframe discovery with the scheduled task filter', async () => {
-    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY)
-    const config = { minDuration: 600, maxDuration: null, includePaths: [], excludePaths: [] }
-
-    await expect(handler?.start({ trigger: 'schedule', taskConfig: config })).resolves.toEqual({
-      jobId: 'job-keyframes'
-    })
-    expect(enqueueVideoKeyframeBatchMock).toHaveBeenCalledWith({
-      trigger: 'schedule',
-      previewOnly: false,
-      filter: config
-    })
-  })
-
-  it('turns a manual scheduled-task trigger into a preview instead of direct generation', async () => {
-    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY)
-
-    await handler?.start({ trigger: 'manual', taskConfig: {} })
-
-    expect(enqueueVideoKeyframeBatchMock).toHaveBeenCalledWith({
-      trigger: 'manual',
-      previewOnly: true,
-      filter: {}
-    })
-  })
-
-  it('runs trigger log retention cleanup and records its result', async () => {
-    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.TRIGGER_LOG_RETENTION_CLEANUP)
-
-    const result = await handler?.start({ trigger: 'schedule' })
-
-    expect(getActiveJobByTypeMock).toHaveBeenCalledWith(SCHEDULED_TASK_TYPES.TRIGGER_LOG_RETENTION_CLEANUP)
-    expect(createTriggerLogRetentionCleanupJobMock).toHaveBeenCalled()
-    expect(result).toEqual({ jobId: 'job-trigger-cleanup' })
-    await vi.waitFor(() => {
-      expect(cleanupTriggerLogsMock).toHaveBeenCalled()
-      expect(completeJobMock).toHaveBeenCalledWith('job-trigger-cleanup', {
-        deletedLogs: 12,
-        retentionDays: 30,
-        cutoff: '2026-07-09T00:00:00.000Z',
-        trigger: 'schedule'
-      })
-    })
-  })
-
-  it('starts scan run retention cleanup in the background and stores the deleted count in job result', async () => {
-    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP)
-
-    const result = await handler?.start({ trigger: 'manual' })
-
-    expect(getActiveJobByTypeMock).toHaveBeenCalledWith(SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP)
-    expect(createScanRunRetentionCleanupJobMock).toHaveBeenCalled()
-    expect(result).toEqual({ jobId: 'job-cleanup' })
-    await vi.waitFor(() => {
-      expect(cleanupScanRunHistoryMock).toHaveBeenCalled()
-      expect(completeJobMock).toHaveBeenCalledWith('job-cleanup', {
-        deletedRuns: 7,
-        trigger: 'manual'
-      })
-    })
-  })
-
-  it('marks the cleanup job as failed when cleanup throws', async () => {
-    cleanupScanRunHistoryMock.mockRejectedValueOnce(new Error('cleanup failed'))
-    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP)
-
-    const result = await handler?.start({ trigger: 'schedule' })
-
-    expect(result).toEqual({ jobId: 'job-cleanup' })
-    await vi.waitFor(() => {
-      expect(failJobMock).toHaveBeenCalledWith('job-cleanup', 'cleanup failed')
-      expect(completeJobMock).not.toHaveBeenCalled()
-    })
-  })
-
-  it('runs the daily chapter preview task in incremental mode', async () => {
-    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION)
-
-    const result = await handler?.start({ trigger: 'schedule' })
-
-    expect(result).toEqual({ jobId: 'job-chapter-preview' })
-    await vi.waitFor(() => {
-      expect(runVideoChapterPreviewGenerationJobMock).toHaveBeenCalledWith(
-        expect.objectContaining({
-          scanPath: 'C:/scan',
-          mode: 'INCREMENTAL'
-        })
-      )
-      expect(completeJobMock).toHaveBeenCalledWith(
-        'job-chapter-preview',
-        expect.objectContaining({ mode: 'INCREMENTAL', trigger: 'schedule' })
-      )
-    })
-  })
-
-  it('keeps manual chapter preview execution full by default', async () => {
-    runVideoChapterPreviewGenerationJobMock.mockResolvedValueOnce({
-      mode: 'FULL',
-      pending: 0,
-      processed: 0,
-      reused: 0,
-      generated: 0,
-      failed: 0,
-      orphanedFilesDeleted: 0,
-      failedSamples: []
-    })
-    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION)
-
-    await handler?.start({ trigger: 'manual' })
-
-    await vi.waitFor(() => {
-      expect(runVideoChapterPreviewGenerationJobMock).toHaveBeenCalledWith(expect.objectContaining({ mode: 'FULL' }))
-    })
-  })
-
-  it('runs audio recalibration without generating completed posters', async () => {
-    const handler = getScheduledTaskHandler(SCHEDULED_TASK_TYPES.VIDEO_MEDIA_PROBE)
-
-    await handler?.start({ trigger: 'manual', videoProbeMode: 'RECHECK_HAS_AUDIO' })
-
-    await vi.waitFor(() => {
-      expect(runVideoMediaProbeJobMock).toHaveBeenCalledWith(
-        expect.objectContaining({ mode: 'RECHECK_HAS_AUDIO', force: true })
-      )
-      expect(runVideoPosterGenerationJobMock).not.toHaveBeenCalled()
-      expect(completeJobMock).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ mode: 'RECHECK_HAS_AUDIO', trigger: 'manual' })
-      )
-    })
   })
 })

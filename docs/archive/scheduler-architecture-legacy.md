@@ -7,7 +7,7 @@ replaced-by: ../architecture/current-architecture.md
 
 # PixiShelf 旧版通用计划任务系统架构
 
-> 本文描述 `CENTRAL_DISPATCHER_CUTOVER_ENABLED=false` 时仍保留的兼容路径，不代表生产稳态。
+> 本文描述退役前 `CENTRAL_DISPATCHER_CUTOVER_ENABLED=false` 的历史兼容路径；该执行路径现已移除。
 > 当前调度链路请阅读[当前架构](../architecture/current-architecture.md#计划任务与后台执行)。
 
 > 本文描述当前已实现的调度架构。已确认但尚未完成的目标架构见

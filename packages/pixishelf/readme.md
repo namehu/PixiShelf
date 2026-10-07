@@ -61,7 +61,7 @@ pnpm db:studio
 - 浏览器登录使用 Better Auth 数据库会话；
 - 当前单用户部署中，已登录用户即实例管理员；
 - Webhook 与 scheduler 分别使用独立 Bearer Token；
-- `CENTRAL_DISPATCHER_CUTOVER_ENABLED=true` 时，App 创建和控制任务，但不消费中央队列；
+- App 固定创建和控制中央任务，Worker 启动即消费；维护时停止 Worker，两枚切换开关已退役；
 - `/admin/archive/inbox` 持久接收 URL，远端解析由 Worker 的 `ARCHIVE_RESOLVE` lane 串行执行；
 - `/admin/archive` 提供归档任务分页、筛选、明细和当前页批量控制；
 - 任务执行、FFmpeg、扫描和受控文件写入由 `BACKGROUND_WRITER` lane 全局串行负责。
