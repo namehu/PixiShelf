@@ -39,6 +39,47 @@ afterEach(() => {
 })
 
 describe('auto browse control docking', () => {
+  it('keeps pause available while loading and buffering without changing its icon', () => {
+    render(<Controls />)
+    act(() => store.getState().start('scroll'))
+    const pause = screen.getByRole('button', { name: '暂停自动浏览' })
+    const icon = pause.querySelector('svg')
+    expect(icon?.classList.contains('lucide-pause')).toBe(true)
+    act(() => {
+      store.getState().setActiveAnimation(12)
+      store.getState().wait()
+    })
+    expect(store.getState().status).toBe('waiting')
+    expect(pause.querySelector('svg')).toBe(icon)
+    for (let index = 0; index < 3; index++) {
+      act(() => store.getState().animationReady(12))
+      expect(pause.querySelector('svg')).toBe(icon)
+      act(() => store.getState().animationBuffering(12))
+      expect(store.getState().status).toBe('waiting')
+      expect(pause.querySelector('svg')).toBe(icon)
+    }
+    fireEvent.click(pause)
+    expect(store.getState().status).toBe('paused')
+    expect(screen.getByRole('button', { name: '开始或继续自动浏览' }).querySelector('.lucide-play')).toBeTruthy()
+  })
+
+  it('keeps the collapsed entry stable during buffering and expands without pausing', () => {
+    render(<Controls />)
+    act(() => {
+      store.getState().start('scroll')
+      store.getState().setActiveAnimation(12)
+      store.getState().setControlsCollapsed(true)
+    })
+    const dock = screen.getByRole('button', { name: '展开自动浏览控制，当前第 12 张，共 75 张' })
+    const icon = dock.querySelector('svg')
+    expect(icon?.classList.contains('lucide-play')).toBe(true)
+    act(() => store.getState().animationBuffering(12))
+    expect(dock.querySelector('svg')).toBe(icon)
+    fireEvent.click(dock)
+    expect(store.getState().status).toBe('waiting')
+    expect(screen.getByRole('button', { name: '暂停自动浏览' }).querySelector('.lucide-pause')).toBeTruthy()
+  })
+
   it('docks after four seconds across media changes and expands without interrupting playback', () => {
     render(<Controls />)
     act(() => store.getState().start('scroll'))

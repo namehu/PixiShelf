@@ -31,52 +31,94 @@ last-verified: 2026-10-07
 
 ## NAS 上照着执行
 
-这次先不用 `scripts/update-production.sh`，它没有退役前后的审计步骤。先把本次代码发布成同一版本的 App 和 Worker 镜像；下面的 `IMAGE_TAG` 必须填这个已发布版本，不能直接拿 v0.50.8 当新版。
+实际部署目录是 `/vol1/1001/docker-compose/pixivShelf`，配置文件为同目录 `.env` 和 `docker-compose.yml`，备份放在已有的 `backups/` 下。这里不使用仓库的 `build/` 或 `docker-compose.deploy.yml`。
 
-在 NAS 的 `build` 目录执行。先将 `.env` 的 `IMAGE_TAG` 改为新版本，保留旧 `.env` 和 v0.50.8 镜像用于回退：
+2026-10-07 用户已在 NAS 执行 `sudo docker compose --env-file .env -f docker-compose.yml config --services`，确认服务为 `postgres`、`app`、`imgproxy`、`worker`，没有 `scheduler`。以下命令按该结果编写，只停止和更新 App/Worker，保留 PostgreSQL 与 ImgProxy 运行。若 NAS 另有定时脚本或外部触发，也应在停写窗口暂停。
+
+这次先不调用 NAS 目录下的 `./update-production.sh`，按下面的显式步骤执行。审计脚本来自新版 App 镜像，不使用 NAS 根目录已有的 `retire-legacy-fields.mjs`。
+
+### 1. 保存旧配置，再选择新版本
+
+后续在同一个 root shell 中操作。如果提示符已经是 `root@...#`，跳过提权；否则**单独执行**下面这一条，等 root 提示符出现后再复制后面的命令，不要把提权和后续命令整段一起粘贴：
 
 ```bash
-set -e
-dc() { docker compose --env-file .env -f docker-compose.deploy.yml "$@"; }
-
-# 先下载，缩短停机时间
-dc pull app worker
-
-# 先在页面确认没有正在执行的任务，再停写
-dc stop scheduler app worker
-
-# 备份数据库和配置；三个媒体目录另做同点 NAS 快照
-umask 077
-retirement_backup="../backups/task-retirement-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$retirement_backup"
-dc exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$retirement_backup/database.dump"
-cp .env docker-compose.deploy.yml "$retirement_backup/"
-dc exec -T postgres pg_restore --list < "$retirement_backup/database.dump" > "$retirement_backup/dump-list.txt"
-# 完成三个媒体目录快照，并登记到这个备份目录后再继续。
-# PostgreSQL 保持运行；不要 down -v。
-
-dc run --rm --no-deps --entrypoint node app \
-  packages/pixishelf-db/maintenance/audit-background-task-retirement.mjs --before
-
-dc run --rm --no-deps --entrypoint prisma app \
-  migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma
-
-dc run --rm --no-deps --entrypoint node app \
-  packages/pixishelf-db/maintenance/audit-background-task-retirement.mjs --after
-
-# 上面全部成功才启动消费者
-dc up -d --no-deps worker
-dc exec -T worker node dist/healthcheck.cjs --mode=ready
-dc exec -T worker node dist/capability-audit.cjs
-
-dc up -d --no-deps app
-# 打开网页确认登录、任务页和历史记录正常，再恢复定时触发
-dc up -d scheduler
+sudo -s
 ```
 
-Worker 启动后可能需要数秒完成预检，READY 若尚未通过，先看 `dc logs --tail=100 worker`，确认后重新检查，不要直接跳过。
+下面全部使用完整 Docker 命令，不依赖临时 shell 函数。
+先把本次代码发布成同一版本的 App 和 Worker 镜像，再操作。新版 tag 目前不在本手册中预设，v0.50.8 是回退基线而不是本次新版。
+
+```bash
+cd /vol1/1001/docker-compose/pixivShelf
+set -e
+umask 077
+
+retirement_backup="$PWD/backups/task-retirement-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$retirement_backup"
+chmod 700 "$retirement_backup"
+cp -p .env docker-compose.yml "$retirement_backup/"
+docker compose --env-file .env -f docker-compose.yml images > "$retirement_backup/images-before.txt"
+```
+
+现在编辑 `.env`，将 `IMAGE_TAG` 改成本次已发布的版本。如果 Compose 写死了镜像 tag，应修改 `docker-compose.yml` 中 App/Worker 两个镜像引用。不要覆盖其他配置。旧配置已在修改前备份。
+
+```bash
+# 核对解析后的两个镜像确实是本次新版，然后拉取
+docker compose --env-file .env -f docker-compose.yml config --images
+docker compose --env-file .env -f docker-compose.yml pull app worker
+```
+
+### 2. 停写与备份
+
+先在页面确认没有正在执行的任务，再运行：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml stop app worker
+
+docker compose --env-file .env -f docker-compose.yml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$retirement_backup/database.dump"
+docker compose --env-file .env -f docker-compose.yml exec -T postgres pg_restore --list < "$retirement_backup/database.dump" > "$retirement_backup/dump-list.txt"
+sha256sum "$retirement_backup/database.dump" > "$retirement_backup/database.dump.sha256"
+```
+
+**停在这里，先完成三个实际媒体挂载目录的同点 NAS 快照，并将快照标识记入备份目录，再继续。** 媒体路径从实际 Compose 挂载确认，不根据 `artists/` 等目录名猜测。PostgreSQL 保持运行，不执行 `down -v`。
+
+### 3. 检查与迁移
+
+```bash
+docker compose --env-file .env -f docker-compose.yml run --rm --no-deps --entrypoint node app \
+  packages/pixishelf-db/maintenance/audit-background-task-retirement.mjs --before
+
+docker compose --env-file .env -f docker-compose.yml run --rm --no-deps --entrypoint prisma app \
+  migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma
+
+docker compose --env-file .env -f docker-compose.yml run --rm --no-deps --entrypoint node app \
+  packages/pixishelf-db/maintenance/audit-background-task-retirement.mjs --after
+```
+
+### 4. 恢复服务
+
+上面全部成功才启动 Worker：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml up -d --no-deps worker
+```
+
+等几秒，再检查。失败时查看 `docker compose --env-file .env -f docker-compose.yml logs --tail=100 worker`，排查后重试，不跳过：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml exec -T worker node dist/healthcheck.cjs --mode=ready
+docker compose --env-file .env -f docker-compose.yml exec -T worker node dist/capability-audit.cjs
+docker compose --env-file .env -f docker-compose.yml up -d --no-deps app
+```
+
+打开网页确认登录、任务页和历史记录正常后，恢复先前暂停的外部触发（如有），并退出 root shell。本实例没有 scheduler 服务，不执行 scheduler 命令：
+
+```bash
+exit
+```
+
 镜像已包含生成好的 Prisma Client，NAS 不需要安装 pnpm 或执行 generate。
-任一步报错就停在那一步，不启动后面的服务，也不手工删除任务或迁移记录。
+任一步报错就停在那一步，不启动后面的服务，也不手工删除任务或迁移记录。`set -e` 可能使 root shell 在错误后退出；恢复操作前重新进入，并将 `retirement_backup` 设置为先前已创建的备份目录，不能重新备份新版配置冒充旧配置。
 
 ## 第一阶段回退
 

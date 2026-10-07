@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import {
   ChevronRightIcon,
-  LoaderCircleIcon,
   PauseIcon,
   PlayIcon,
   RotateCcwIcon,
@@ -168,7 +167,7 @@ export function ControlledAutoBrowseControls({
             requestAnimationFrame(() => rootRef.current?.querySelector('button')?.focus({ preventScroll: true }))
           }}
         >
-          {state.status === 'waiting' ? <LoaderCircleIcon className="motion-safe:animate-spin" /> : <PlayIcon />}
+          <PlayIcon />
           <span className="text-[10px] leading-3 tabular-nums">
             {current}/{total}
           </span>
@@ -190,9 +189,7 @@ export function ControlledAutoBrowseControls({
                 else onStart(mode)
               }}
             >
-              {playing && state.status === 'waiting' ? (
-                <LoaderCircleIcon className="motion-safe:animate-spin" />
-              ) : playing ? (
+              {playing ? (
                 <PauseIcon data-icon="inline-start" />
               ) : ended ? (
                 <RotateCcwIcon data-icon="inline-start" />
