@@ -7,6 +7,7 @@ import {
   INDEPENDENT_HEAP,
   MiB,
   independentHeader,
+  independentChunkKind,
   independentFrame,
   type IndependentHeader,
   type EncodedFrame
@@ -246,6 +247,19 @@ async function fill() {
       const size = new DataView(chunk.buffer).getUint32(4, true),
         padded = size + (size % 2)
       if (padded > header!.totalBytes - input.position) throw new DecoderError('invalid')
+      const kind = independentChunkKind(chunk)
+      if (kind === 'invalid') throw new DecoderError('invalid')
+      if (kind === 'unknown' || kind === 'ignored') {
+        // Unknown chunks, undeclared metadata and valid repeated ANIM are
+        // ignored by libwebp, but still obey RIFF size, padding and EOF.
+        if (!(await input.skip(size))) throw new DecoderError('invalid')
+        if (size % 2) {
+          const padding = await input.take(1)
+          if (!padding || padding[0] !== 0) throw new DecoderError('invalid')
+        }
+        if (cancelled) return
+        continue
+      }
       if (padded > FRAME_LIMIT) {
         reading = false
         await fallback('frame-budget')

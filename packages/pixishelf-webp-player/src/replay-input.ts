@@ -83,6 +83,33 @@ export class ReplayInput {
     }
     return out
   }
+  /** Advance without allocating a chunk-sized temporary; retained replay input stays budgeted. */
+  async skip(size: number): Promise<boolean> {
+    let remaining = size,
+      batch = 0
+    while (remaining > 0) {
+      if (this.chunk >= this.chunks.length) {
+        await this.readMore()
+        if (this.chunk >= this.chunks.length && this.done) return false
+        continue
+      }
+      const bytes = this.chunks[this.chunk]!
+      const n = Math.min(remaining, bytes.length - this.offset)
+      this.offset += n
+      this.position += n
+      remaining -= n
+      batch += n
+      if (this.offset === bytes.length) {
+        this.chunk++
+        this.offset = 0
+      }
+      if (batch >= 1024 * 1024) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        batch = 0
+      }
+    }
+    return true
+  }
   async eof() {
     while (!this.done && this.received === this.position) await this.readMore()
     if (this.received !== this.position) throw new DecoderError('invalid')

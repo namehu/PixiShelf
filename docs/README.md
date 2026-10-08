@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后更新：2026-09-30
+最后更新：2026-10-08
 
 ## 状态约定
 
@@ -76,13 +76,13 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 架构与性能
 
-- [WebP 独立帧生产接入](./design/webp-mobile-production.md)（current，未发布）：独立帧并行、自适应省略、顺序回退、诊断用法与最终手机验收。
+- [WebP 独立帧生产接入](./design/webp-mobile-production.md)（current，部署状态待核实）：独立帧并行、自适应省略、顺序回退、诊断用法与最终手机验收。
 
 
 
 - [发现来源查询性能](./design/archive-discovery-query-performance.md)（current）：URL 索引、独立统计请求、合成性能基线与生产验收边界。
 
-- [WebP 流式播放器开发方案](./design/webp-streaming-player.md)（draft）：WASM 解码、自动浏览续播与性能验收。
+- [WebP 流式播放器架构](./design/webp-streaming-player.md)（current）：WASM 解码、双 Worker、播放时钟、回退与历史验证。
 - [WebP 动图时长探测方案](./design/animation-duration-probe.md)（draft）：持久时长、NFS 有界探测、源版本与写入门禁。
 
 | 文档                                                                              | 状态         | 权威范围与后续处理                                     |

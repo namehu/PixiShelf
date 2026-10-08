@@ -22,6 +22,21 @@ export interface EncodedFrame {
 }
 const tag = (b: Uint8Array, p: number) => String.fromCharCode(...b.subarray(p, p + 4))
 const u24 = (b: Uint8Array, p: number) => b[p]! + b[p + 1]! * 256 + b[p + 2]! * 65536
+/** Classification after the initial VP8X/ANIM in an animation. Declared metadata
+ * flags are rejected by independentHeader before this fast-path helper is used. */
+export function independentChunkKind(chunk: Uint8Array): 'frame' | 'unknown' | 'ignored' | 'invalid' {
+  if (chunk.length !== 8) throw new RangeError('Expected an eight-byte RIFF chunk header')
+  const kind = tag(chunk, 0)
+  if (kind === 'ANMF') return 'frame'
+  if (['VP8X', 'ALPH', 'VP8 ', 'VP8L'].includes(kind)) return 'invalid'
+  if (kind === 'ANIM') {
+    const size = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength).getUint32(4, true)
+    // Match libwebp 1.6.0 ParseVP8XChunks, which checks padded payload size.
+    return size + (size % 2) >= 6 ? 'ignored' : 'invalid'
+  }
+  if (['ICCP', 'EXIF', 'XMP '].includes(kind)) return 'ignored'
+  return 'unknown'
+}
 export function independentHeader(b: Uint8Array): IndependentHeader | null {
   if (b.length !== 44) return null
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength)

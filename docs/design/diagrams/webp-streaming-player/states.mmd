@@ -1,24 +1,31 @@
 stateDiagram-v2
-    state "Live player (load replaces the attempt)" as live {
+    state "Live player (load replaces attempt)" as live {
         [*] --> idle
         idle --> loading: load
         loading --> ready: first frame, no play intent
         ready --> playing: play
         loading --> playing: first frame + play intent
-        playing --> buffering: need data
-        buffering --> playing: frame ready
+        playing --> playing: independent decode lag, clock continues
+        playing --> buffering: actual input wait OR sequential queue empty
+        buffering --> playing: usable input / frame
         loading --> paused: pause
         playing --> paused: pause
         buffering --> paused: pause
         ready --> paused: pause
         paused --> playing: play + frame ready
-        paused --> buffering: play + need data
-        playing --> ended: final duration + valid EOF
+        paused --> buffering: play + waiting
+        playing --> ended: endpoint + valid EOF + last frame + later callback
         loading --> error: failure
         playing --> error: failure
         buffering --> error: failure
         error --> loading: load / restart
         ended --> loading: load / restart
+        note right of playing
+            Independent: MediaClock, two children, four permits
+            Direct sequential: FrameClock, two permits
+            Midstream fallback: MediaClock + decoded horizon, four permits
+            Replay is internal; no new UI state or repeated first-frame event
+        end note
     }
     live --> destroyed: destroy from any state
     destroyed --> [*]

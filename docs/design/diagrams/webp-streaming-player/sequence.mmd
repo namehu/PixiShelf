@@ -1,44 +1,51 @@
 sequenceDiagram
     participant A as Manual / Auto browse
-    participant P as Player
-    participant W as Browser Worker
+    participant P as Player + clocks
+    participant W as Coordinator Worker
     participant M as Media API
-    participant D as WASM
+    participant D as Two independent Workers
+    participant S as Sequential decoder
     participant C as Canvas
     A->>P: load + play
     P->>W: start attempt
-    alt Streaming supported and within budget
-    W->>M: authenticated stream
-    loop incoming data
-        M-->>W: bytes
-        W->>D: append
-        opt Input capacity grows
-            D->>D: release borrowed demux / iterator before realloc
+    W->>M: one authenticated stream
+    M-->>W: bytes (retain within input budget)
+    alt Independent gate and budget pass
+        loop Up to four queued frames / 2 MiB threshold
+            W->>W: verify frame and retain latest candidate
+            P->>W: media target time
+            W->>W: omit expired independent work
+            W->>D: decode within four output permits
+            D-->>W: indexed RGBA
+            W-->>P: ordered frame + media interval
+            P->>C: draw when due
+            P->>W: return output permit / buffer
         end
-        D-->>W: complete frame / need data
-        W-->>P: pixels + duration
-        P->>C: draw
+        Note over P,D: First paint starts MediaClock, decode lag does not freeze it
+        opt Midstream dependency or recoverable child failure
+            W->>D: stop children after settling in-flight work
+            W->>S: retained input + delivered frame position
+            S->>S: replay history to restore canvas (may take seconds)
+            Note over W,S: No second HTTP request, replayed frames are not displayed again
+            S-->>P: composed frames + decoded horizon, four permits
+            Note over P,S: MediaClock retained, available horizon follows decode
+        end
+    else Gate or budget fails before independent playback
+        W->>S: sequential stream, two permits
+        S-->>P: composed frames
+        Note over P,S: FrameClock can slow playback when the decoded queue runs dry
     end
-    A->>P: pause
-    P->>P: freeze remaining duration
-    P->>W: backpressure
-    A->>P: play
-    P->>W: resume
+    A->>P: pause / resume
+    P->>P: freeze / resume clock, retain instance
+    P->>W: backpressure / resume
     M-->>W: EOF
-    W->>D: validate complete input
-    W-->>P: input complete
-    opt Manual playback with remaining file loops
-        W->>D: repeat (reuse validated input)
-        D->>D: reset compositor, no download
-        W-->>P: next cycle frames with backpressure
+    W->>W: validate complete RIFF
+    opt Manual playback with remaining loops
+        W->>W: wait for outputs, reuse retained input
+        Note over W,D: Loop boundary may wait for next decode
     end
-    P->>P: finish final frame duration
-    P-->>A: ended once
-    alt Auto browse
-        A->>A: next image / scroll
-    else Manual finite loops ended
-        A->>A: keep final canvas, no navigation
-    end
-    else Pre-frame compatibility fallback
-        P-->>A: reason category, four-second notice
+    P->>C: final frame + later draw callback
+    P-->>A: ended once after media endpoint and valid EOF
+    opt Auto browse
+        A->>A: advance image / scroll
     end

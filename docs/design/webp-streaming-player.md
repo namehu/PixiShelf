@@ -1,10 +1,12 @@
 ---
-status: draft
+status: current
 scope: WebP WASM 流式播放器、自动浏览续播与兼容回退
-last-verified: 2026-09-23
+last-verified: 2026-10-08
 ---
 
-# WebP 流式播放器开发方案
+# WebP 流式播放器架构
+
+独立帧路径基线为提交 `533ee6f3`，本文同时反映后续工作区修正；生产部署状态待核实。本文描述代码行为，历史验证不代表当前线上版本。
 
 ## 需求与已确认决策
 
@@ -12,21 +14,21 @@ last-verified: 2026-09-23
 
 自动浏览下，同一媒体内暂停、设置、缩放、切后台保留当前帧与剩余时间，用户主动继续才恢复。切图、离屏卸载、切模式、关预览、退出或换作品释放；不保存跨刷新进度。自动浏览控制条负责暂停续播，动图小按钮明确为「停止本轮动图」，停止后本轮作为静态图浏览。
 
-每张自动动图只播放一轮，末帧展示完且输入校验成功后通知推进；原文件循环次数不影响自动浏览。0–10ms 帧时长沿用当前规则解释为 100ms。缓冲不消耗播放时长；2026-10 起默认使用时间轴调度，省略已过期帧的绘制以维持正常速度，满足门禁的独立帧还可在解码前省略，依赖帧仍按顺序合成。首帧、末帧及循环边界保留，详见[独立帧生产接入](./webp-mobile-production.md)。
+每张自动动图只播放一轮，末帧展示完且输入校验成功后通知推进；原文件循环次数不影响自动浏览。0–10ms 帧时长沿用当前规则解释为 100ms。快速路径使用独立媒体时钟：解码慢不停钟，实际缺输入才冻结；满足门禁的独立帧可在解码前省略。直接顺序路径使用 FrameClock，逐帧合成并可省略过期显示，队列耗尽时冻结；中途回退保留 MediaClock，但可用范围由逐帧解码推进，因此吞吐不足时两者仍可能慢播。首帧、末帧及循环边界保留，详见[独立帧生产接入](./webp-mobile-production.md)。
 
-手动播放遵循原文件 ANIM 循环次数（0 为无限），使用同一 Worker 和 WASM 实例原地重置官方合成器，复用已验证的压缩输入及画布，不再次请求媒体、不缓存整段 RGBA。手动暂停沿用停止并恢复海报、再次点击从头播放的交互；自动浏览接管时创建新的单轮尝试。手动播放结束不会通知自动浏览推进。Canvas 带 `data-webp-player="wasm"`，首帧显示后 `data-frame-visible="true"`，海报 img 仍保留。
+手动播放遵循原文件 ANIM 循环次数（0 为无限），快速路径在输出额度归还后重新读取已保留的压缩输入，顺序路径原地重置官方合成器，复用同一实例及已验证输入，不再次请求媒体、不缓存整段 RGBA。手动暂停沿用停止并恢复海报、再次点击从头播放的交互；自动浏览接管时创建新的单轮尝试。手动播放结束不会通知自动浏览推进。Canvas 带 `data-webp-player="wasm"`，首帧显示后 `data-frame-visible="true"`，海报 img 仍保留。
 
 不改写归档，不新增数据库、API、服务端转码、远端代理、相邻动图预取、跨作品缓存、任意进度跳转或 npm 发布。
 
 ## 架构
 
-React 适配层负责海报、Canvas、按钮与自动浏览 store；独立 TypeScript 播放器负责时钟、状态和绘制；浏览器 Worker 负责同源媒体流、背压、WASM 生命周期；C 封装使用固定版本 libwebp 的部分 demux 和官方动画合成逻辑。
+React 适配层负责海报、Canvas、按钮与自动浏览 store；独立 TypeScript 播放器负责时钟、状态和绘制；协调 Worker 负责单个同源媒体流、逐帧门禁、预读与背压；独立帧交给两个子 Worker 单独解码，四个输出额度贯穿在途及等待显示的 RGBA。主线程 MediaClock 与解码吞吐分离；直接顺序路径使用 FrameClock；中途回退保留 MediaClock 并由解码结果推进可用范围。两种顺序入口都使用固定 libwebp 的部分 demux／官方合成器。中途回退重放已交付范围以恢复画布，不重复显示、不重新请求媒体，但可能停顿数秒。
 
 资源清单由全局 Zustand `useWebpPlayerStore` 管理，已校验版本及账号 ID 持久化到 sessionStorage，跨页面和刷新复用；不持久化请求 Promise、AbortController、媒体或认证凭证。并发初始化共用请求，组件卸载只取消自身初始化，不取消其他消费者的请求。读取失败允许后续重试；退出登录或账号变化重置缓存、取消旧请求并拒绝迟到响应。Worker/解码器初始化失败使对应资源版本失效，下次初始化重新取清单。HTTP 清单仍为 no-cache，版本化资源仍长期缓存。
 
 `WebPAnimDecoder` 不能直接作为追加输入接口。采用 `WebPDemuxPartial`，仅解码完整帧。每次重建 demux 前释放旧 iterator，再为上一帧恢复迭代元数据；不让旧指针引用已释放的解析器。锁定上游版本的合成实现，保留许可证并与完整文件解码输出做差分测试。
 
-媒体继续使用现有带版本参数的同源 API 与会话。SSR 不触碰浏览器 API；单线程 WASM 不依赖 SharedArrayBuffer、COOP/COEP 或 SIMD。Worker/WASM 使用同源版本化静态资源，禁止运行时 CDN。
+媒体继续使用现有带版本参数的同源 API 与会话。SSR 不触碰浏览器 API；各 WASM 实例单线程运行，不依赖 SharedArrayBuffer 或 COOP/COEP；支持 SIMD 时选 SIMD 产物，否则选 scalar。Worker/WASM 使用同源版本化静态资源，禁止运行时 CDN。
 
 ### UML 类图
 
@@ -56,7 +58,7 @@ React 适配层负责海报、Canvas、按钮与自动浏览 store；独立 Type
 
 ## 缓冲、内存与兼容
 
-输入使用 response.body reader，媒体不调用 arrayBuffer/blob。以下原生堆扩容说明针对直接顺序合成路径；独立帧路径另见下方接入记录。压缩数据从 64 KiB 容量起步、按倍数扩容且严格受文件上限约束；扩容前释放借用输入地址的 demux 和迭代器，随后从已接收前缀重建。Worker 通过可转移缓冲给主线程，直接顺序路径最多预解码两帧并回收输出缓冲；独立帧路径及其中途顺序回退使用四个输出额度；暂停/队列满时停止主动读取与解码，允许一次在途读取完成。
+输入使用 response.body reader，媒体不调用 arrayBuffer/blob。以下原生堆扩容说明针对直接顺序合成路径；独立帧路径另见下方接入记录。压缩数据从 64 KiB 容量起步、按倍数扩容且严格受文件上限约束；扩容前释放借用输入地址的 demux 和迭代器，随后从已接收前缀重建。Worker 通过可转移缓冲给主线程，直接顺序路径最多预解码两帧并回收输出缓冲；独立帧路径及其中途顺序回退使用四个输出额度；暂停时停止主动读取与解码，允许一次在途读取完成；快速路径另有最多四帧、达到 2MiB 停止入队的压缩预读。单轮播放也保留完整已收压缩输入用于回退，队列上限不代表总输入内存。
 
 | 预算           | 移动    | 桌面    |
 | -------------- | ------- | ------- |
@@ -92,22 +94,22 @@ WASM/Worker/流能力不可用、资源加载或初始化失败、文件/像素/
 
 ## 实施证据
 
-P0–P3 已实现，P4 工程构建已验证，代码已默认启用；正式发布验收仍有缺口，本 draft 不代表已上线。
+P0–P3 已实现，P4 工程构建已验证，本地代码默认启用。生产部署版本及完整部署环境验收待核实；下列历史记录保留当时的测试范围，最新手机结论见[生产接入记录](./webp-mobile-production.md)。
 
 ### 代码落点
 
 | 文件/目录                                                                                 | 职责                                                                |
 | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `packages/pixishelf-webp-player/native/`                                                  | 固定源码校验、部分输入 C ABI、官方合成器复用、原生差分与 ASan/UBSan |
-| `packages/pixishelf-webp-player/src/worker.ts`                                            | 同源流、256 KiB / 50ms 小块聚合、两帧背压、取消                     |
-| `packages/pixishelf-webp-player/src/player.ts`、`clock.ts`                                | 状态机、绘制、剩余时间、尝试隔离、一次完成                          |
+| `packages/pixishelf-webp-player/src/worker.ts`                                            | 单请求协调、逐帧门禁、双子 Worker／四额度、顺序回退                     |
+| `packages/pixishelf-webp-player/src/player.ts`、`media-clock.ts`、`clock.ts`                                | 状态机、独立媒体时钟／顺序时钟、绘制、尝试隔离、一次完成                          |
 | `packages/pixishelf-webp-player/scripts/`                                                 | 固定 Docker 工具链、bundle、哈希资源、演示服务、图表重建            |
 | `packages/pixishelf/components/players/streaming-webp-surface.tsx`                        | React 实例生命周期、事件适配                                        |
 | `packages/pixishelf/components/players/animated-webp-player.tsx`                          | 默认 WASM、海报、兼容回退、控制按钮                                 |
 | `packages/pixishelf/store/use-artwork-auto-browse-store.ts` 与 `use-artwork-animation.ts` | 暂停保留占用，错误/离开释放，稳定尝试键                             |
 | `build/Dockerfile`、`.github/workflows/ci.yml`                                            | 编译、交付资源和 CI 验证                                            |
 
-### 2026-09-23 本机验证
+### 2026-09-23 本机验证（历史）
 
 - Windows x64，Intel i7-13700H、20 逻辑线程、64 GiB；Node 22.17.0。Docker 构建使用 Node 20。
 - 固定 libwebp 1.6.0，源码 SHA-256 `e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564`；Emscripten 6.0.10 镜像 digest 固定于 `native/toolchain.json`，日常应用构建不使用该镜像。
@@ -154,10 +156,10 @@ Zustand store、认证边界和播放器联动合计 42 项定向用例通过，
 
 最终应用检查：lint 无错误、无警告；全量单元测试 332 文件、2087 项通过，20 文件、129 项 PostgreSQL 条件测试跳过；Next production build（含类型检查）通过，仍有既有批量导入动态路径匹配过宽的构建警告。最终生成资源版本为 `66a94f8eea6a57ad`，WASM 138699 字节。时序图源文件与 SVG 已同步，图表渲染、路径命名与 diff 检查通过。没有执行生产部署。
 
-### 剩余发布门槛
+### 部署核验与后续验证
 
-1. 完整性能剖析：冷/热资源分别记录首帧/接收结束、demux/解码耗时与浏览器/受管内存峰值。11,000 ms benchmark 仍需复测，见[时长探测验收](./animation-duration-probe.md#本地验收记录)。
-2. CI 工作流已经更新，远端 GitHub Actions 执行结果仍待登记。
+1. 当前手机样本已通过客观及人工验收；图库覆盖率、混合帧回退停顿、长时间温控和浏览器进程内存尚未完整验证，不保证所有 WebP 或设备实时。
+2. 核实目标环境部署版本、资源 hash、远端 CI 和详情页播放／暂停续播／自动切图；不得用本地提交或历史镜像构建推断线上状态。
 
 开发直接运行 `pnpm --filter @pixishelf/next dev`；无需环境变量或原生编译，不在仓库根目录运行无过滤的 `pnpm dev`。镜像验证使用 `docker build -f build/Dockerfile .`，普通发布镜像即包含并默认启用播放器。仅修改原生实现时执行 `pnpm --filter @pixishelf/webp-player build:native` 并提交预编译产物，使用 `build:native --check` 复核字节一致性。回滚使用原应用镜像，无数据库/媒体恢复操作。
 

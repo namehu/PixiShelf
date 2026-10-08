@@ -2,11 +2,9 @@ classDiagram
     class AutoBrowseStore {
         pause()
         resume()
-        stopAnimation()
         finishAnimation()
     }
     class ReactAdapter {
-        manualOrSingleCycle()
         mapIntent()
         handleEvent()
         fallback()
@@ -15,46 +13,53 @@ classDiagram
         load(source)
         play()
         pause()
-        restart()
         destroy()
     }
-    class FrameClock {
-        remainingMs
-        start()
-        advance()
+    class MediaClock {
+        position
+        tick(now, inputHorizon)
         pause()
         resume()
     }
+    class FrameClock {
+        remainingMs
+        advance()
+        pause()
+    }
     class PlayerAssetSessionStore {
-        manifest
-        pending
         loadManifest()
         setSessionOwner()
         reset()
     }
-    class DecoderWorker {
+    class CoordinatorWorker {
+        independentGate()
+        boundedReadAhead()
+        omitExpiredFrames()
+        fourOutputPermits()
+        fallbackSequential()
+    }
+    class ReplayInput {
         readStream()
-        requestFrame()
+        retainCompressedBlocks()
+        rewind()
+    }
+    class IndependentWorker {
+        decodeVP8()
         recycleBuffer()
-        cancel()
     }
-    class WasmDecoder {
-        append(bytes)
-        next()
-        finish()
+    class SequentialDecoder {
+        append()
+        replayDeliveredFrames()
+        compositeNext()
         repeat()
-        destroy()
     }
-    class Libwebp {
-        WebPDemuxPartial()
-        WebPDecode()
-        WebPAnimDecoderReset()
-    }
-    AutoBrowseStore --> ReactAdapter : intent
-    ReactAdapter --> AutoBrowseStore : events
+    AutoBrowseStore --> ReactAdapter : intent / events
     ReactAdapter *-- WebpPlayer
     ReactAdapter --> PlayerAssetSessionStore : shared manifest
-    WebpPlayer *-- FrameClock
-    WebpPlayer --> DecoderWorker : transferable buffers
-    DecoderWorker *-- WasmDecoder
-    WasmDecoder --> Libwebp
+    WebpPlayer *-- MediaClock : independent and midstream fallback
+    WebpPlayer *-- FrameClock : direct sequential path
+    WebpPlayer --> CoordinatorWorker : target time / transferable buffers
+    CoordinatorWorker *-- ReplayInput : one media request
+    CoordinatorWorker *-- "2" IndependentWorker : scalar or SIMD WASM
+    CoordinatorWorker --> SequentialDecoder : unsupported or midstream fallback
+    SequentialDecoder --> ReplayInput : reuse retained input

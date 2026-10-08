@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { independentHeader, independentFrame } from '../independent-frame'
+import { independentHeader, independentFrame, independentChunkKind } from '../independent-frame'
 import { MediaClock } from '../media-clock'
 import { ReplayInput } from '../replay-input'
 const fixture = new Uint8Array(readFileSync(new URL('../../tests/fixtures/independent.webp', import.meta.url)))
@@ -69,4 +69,50 @@ it('requires a real EOF and rejects trailing bytes and input limits', async () =
   await input.take(44)
   await expect(input.eof()).rejects.toThrow('invalid')
   await expect(make(10).take(44)).rejects.toThrow('file-limit')
+})
+
+it('classifies animation top-level chunks consistently with libwebp', () => {
+  const chunk = (kind: string, size = 0) => {
+    const bytes = new Uint8Array([...Buffer.from(kind), 0, 0, 0, 0])
+    new DataView(bytes.buffer).setUint32(4, size, true)
+    return bytes
+  }
+  expect(independentChunkKind(chunk('ANMF'))).toBe('frame')
+  for (const kind of ['TEST', 'RIFF', 'WEBP']) expect(independentChunkKind(chunk(kind))).toBe('unknown')
+  for (const kind of ['VP8X', 'ALPH', 'VP8 ', 'VP8L']) expect(independentChunkKind(chunk(kind))).toBe('invalid')
+  for (const kind of ['ICCP', 'EXIF', 'XMP ']) expect(independentChunkKind(chunk(kind))).toBe('ignored')
+  for (const size of [0, 1, 4]) expect(independentChunkKind(chunk('ANIM', size))).toBe('invalid')
+  for (const size of [5, 6, 7, 100]) expect(independentChunkKind(chunk('ANIM', size))).toBe('ignored')
+})
+it('declared metadata remains outside the independent header gate', () => {
+  for (const flag of [4, 8, 32]) {
+    const prefix = fixture.slice(0, 44)
+    prefix[20] = prefix[20]! | flag
+    expect(independentHeader(prefix)).toBeNull()
+  }
+})
+it('skips large streamed chunks without take allocations, preserving replay, padding and truncation', async () => {
+  const bytes = new Uint8Array(2 * 1024 * 1024 + 3)
+  bytes[bytes.length - 1] = 71
+  let offset = 0
+  const input = new ReplayInput(
+    new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (offset === bytes.length) c.close()
+        else {
+          const end = Math.min(bytes.length, offset + 4093)
+          c.enqueue(bytes.slice(offset, end))
+          offset = end
+        }
+      }
+    }).getReader(),
+    bytes.length,
+    () => {}
+  )
+  expect(await input.skip(bytes.length - 1)).toBe(true)
+  expect(await input.take(1)).toEqual(new Uint8Array([71]))
+  await input.eof()
+  input.rewind()
+  expect(await input.take(4)).toEqual(bytes.slice(0, 4))
+  expect(await input.skip(bytes.length)).toBe(false)
 })
