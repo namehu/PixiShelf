@@ -2,7 +2,14 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 
 export const packageRoot = new URL('../', import.meta.url)
-export const artifactFiles = ['decoder.mjs', 'decoder.wasm', 'libwebp-license.txt', 'libwebp-patents.txt']
+export const artifactFiles = [
+  'decoder.mjs',
+  'decoder.wasm',
+  'decoder-simd.mjs',
+  'decoder-simd.wasm',
+  'libwebp-license.txt',
+  'libwebp-patents.txt'
+]
 export const buildInputs = [
   'native/toolchain.json',
   'native/build.sh',
@@ -45,6 +52,8 @@ export async function verifyPrebuilt(root = packageRoot) {
   for (const [file, hash] of Object.entries(await artifactHashes(directory))) {
     if (manifest.artifacts?.[file] !== hash) reject(`artifact: ${file}`)
   }
-  if (!WebAssembly.validate(await readFile(new URL('decoder.wasm', directory)))) reject('invalid WASM')
+  for (const file of ['decoder.wasm', 'decoder-simd.wasm']) {
+    if (!WebAssembly.validate(await readFile(new URL(file, directory)))) reject(`invalid WASM: ${file}`)
+  }
   return { directory, toolchain }
 }

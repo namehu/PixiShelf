@@ -81,6 +81,25 @@ describe('WebP session manifest cache', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it('invalidates pre-independent-worker asset URLs once on upgrade', async () => {
+    sessionStorage.setItem(
+      WEBP_PLAYER_SESSION_KEY,
+      JSON.stringify({
+        state: { ownerId: 'alice', manifest: { version } },
+        version: 0
+      })
+    )
+    const current = 'fedcba9876543210'
+    const fetch = vi.fn().mockResolvedValue(response({ version: current }))
+    vi.stubGlobal('fetch', fetch)
+    await store.persist.rehydrate()
+    expect(store.getState()).toMatchObject({ ownerId: 'alice', manifest: null })
+    await expect(store.getState().loadManifest()).resolves.toEqual({ version: current })
+    await store.getState().loadManifest()
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(JSON.parse(sessionStorage.getItem(WEBP_PLAYER_SESSION_KEY)!).version).toBe(1)
+  })
+
   it('rejects stale responses after a session change without erasing the new request', async () => {
     const old = deferred(),
       next = deferred()

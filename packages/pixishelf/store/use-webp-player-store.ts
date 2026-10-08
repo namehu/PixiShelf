@@ -78,6 +78,13 @@ export const useWebpPlayerStore = create<WebpPlayerState>()(
     }),
     {
       name: WEBP_PLAYER_SESSION_KEY,
+      // Old cached Workers cannot negotiate independent-frame decoding. Refresh
+      // their URLs once on this protocol upgrade, retaining normal session reuse.
+      version: 1,
+      migrate: (saved) => {
+        const value = saved && typeof saved === 'object' ? (saved as { ownerId?: unknown }) : {}
+        return { ownerId: typeof value.ownerId === 'string' ? value.ownerId : null, manifest: null }
+      },
       storage: createJSONStorage(() => ({
         getItem: (name) => {
           try {

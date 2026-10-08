@@ -254,3 +254,75 @@ test('timeline skips drawings while preserving real composite pixels, and no-dra
   expect(await run(page, 'window.player.getDiagnostics().timings.copy.count')).toBe(4)
   expect(await run(page, 'window.player.getDiagnostics().drawnFrames')).toBe(0)
 })
+
+for (const fallback of [null, 'mjs', 'wasm'] as const) {
+  test(`selects ${fallback ? `scalar when SIMD ${fallback} fails` : 'SIMD'} and completes playback`, async ({
+    page
+  }) => {
+    if (fallback) await page.route(`**/decoder-simd.${fallback}`, (route) => route.abort())
+    await run(page, `window.start('/tests/fixtures/short.webp',undefined,false,null,{mode:'timeline'})`)
+    await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
+    expect(await run(page, 'window.player.getDiagnostics().decoderVariant')).toBe(fallback ? 'scalar' : 'simd')
+  })
+}
+
+test('SIMD and scalar decoders produce identical frames for lossy and transparent partial animations', async ({
+  page
+}) => {
+  test.setTimeout(60000)
+  const results = await page.evaluate(async () => {
+    const decode = async (variant: string, fixture: string) => {
+      const url = `/assets/decoder${variant}.mjs`
+      const { default: factory } = await import(/* @vite-ignore */ url)
+      const m = await factory({
+        wasmMemory: new WebAssembly.Memory({ initial: 256, maximum: 12288 }),
+        locateFile: (file: string) => `/assets/${file}`
+      })
+      const bytes = new Uint8Array(await (await fetch(`/tests/fixtures/${fixture}.webp`)).arrayBuffer())
+      const handle = m._ps_create(256 * 2 ** 20, 8_000_000)
+      const ptr = m._malloc(bytes.length)
+      const hashes = []
+      try {
+        m.HEAPU8.set(bytes, ptr)
+        if (m._ps_append(handle, ptr, bytes.length) < 0 || m._ps_finish(handle) < 0) throw new Error('input')
+        for (;;) {
+          const result = m._ps_next(handle)
+          if (result === 2) break
+          if (result !== 1) throw new Error(`decode: ${result}`)
+          const offset = m._ps_pixels(handle),
+            length = m._ps_width(handle) * m._ps_height(handle) * 4
+          const hash = await crypto.subtle.digest('SHA-256', m.HEAPU8.slice(offset, offset + length))
+          hashes.push({ duration: m._ps_duration(handle), hash: Array.from(new Uint8Array(hash)) })
+        }
+      } finally {
+        m._ps_destroy(handle)
+        m._free(ptr)
+      }
+      return hashes
+    }
+    const results = []
+    for (const fixture of ['composite', 'benchmark']) {
+      results.push([await decode('', fixture), await decode('-simd', fixture)] as const)
+    }
+    return results
+  })
+  for (const [scalar, simd] of results) {
+    expect(scalar.length).toBeGreaterThan(1)
+    expect(simd).toEqual(scalar)
+  }
+})
+
+test('an unsupported SIMD runtime requests only the scalar decoder', async ({ page }) => {
+  await page.route('**/worker.mjs', async (route) => {
+    const response = await route.fetch()
+    await route.fulfill({ response, body: 'WebAssembly.validate = () => false;\n' + (await response.text()) })
+  })
+  const simdRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('decoder-simd')) simdRequests.push(request.url())
+  })
+  await run(page, `window.start('/tests/fixtures/short.webp',undefined,false,null,{mode:'timeline'})`)
+  await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
+  expect(await run(page, 'window.player.getDiagnostics().decoderVariant')).toBe('scalar')
+  expect(simdRequests).toEqual([])
+})

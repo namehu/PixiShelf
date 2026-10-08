@@ -25,7 +25,7 @@ sources:
 
 默认启用的 WebP 播放器只读取现有同源媒体 API，Worker 使用 `credentials: same-origin`，不接受跨源媒体或解码器地址。生成的 `/webp-player/` 代码资源仍经过现有 Session 代理，没有新增公开路径。CSP 显式限定 `worker-src 'self'`；WASM 沿用现有 script 策略，不新增跨域许可、SharedArrayBuffer 或隔离响应头。Canvas 继承媒体隐私遮罩。原生解码前检查输入/像素预算，部署回滚使用原应用镜像，不涉及归档或数据库。
 
-播放器资源 manifest 的客户端缓存位于全局 Zustand store 和 sessionStorage，仅保存校验后的资源版本及账号 ID，不保存认证凭证或媒体。退出登录、账号切换会清空并取消旧请求；缓存不会替代 Worker、WASM 或原媒体请求的服务端会话校验。
+播放器资源 manifest 的客户端缓存位于全局 Zustand store 和 sessionStorage，仅保存校验后的资源版本及账号 ID，不保存认证凭证或媒体。退出登录、账号切换会清空并取消旧请求；缓存不会替代 Worker、WASM 或原媒体请求的服务端会话校验。2026-10 独立帧 Worker 协议升级将会话缓存 schema 提升为 1，旧 schema 的资源地址一次性失效并重新获取，保留账户归属；不更改认证凭证或媒体。
 
 WebP 时长探测沿用管理任务的 `adminProcedure` 入队/重试和受登录保护的作品读取；无新增公开媒体路由、跨源地址或浏览器直连数据库。Worker 隔离子进程只读已校验的扫描根内 WebP，DTO 仅含格式、时长、帧数、循环数和策略版本，不返回文件绝对路径、stat、失败详情或源 revision。分块上传和替换会话沿用管理员 Session，并在实际文件写入前更新数据库门禁。详见[动图时长方案](../design/animation-duration-probe.md)。
 

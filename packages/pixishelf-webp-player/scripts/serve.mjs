@@ -21,7 +21,28 @@ createServer(async (req, res) => {
       res.writeHead(403).end()
       return
     }
-    const data = await readFile(file)
+    let data = await readFile(file)
+    // Fault injection belongs to the local test server, never the production Worker API.
+    if (relative === 'dist/assets/independent-worker.mjs') {
+      if (url.searchParams.has('testFailure')) {
+        res.writeHead(503).end()
+        return
+      }
+      if (url.searchParams.get('testErrorIndex') === '2')
+        data = Buffer.concat([
+          data,
+          Buffer.from(
+            '\nconst originalHandler = onmessage; onmessage = e => { if(e.data.type === "decode" && e.data.frame.index === 2) setTimeout(() => postMessage({type:"error",code:"invalid"}),50); else originalHandler(e); };'
+          )
+        ])
+      if (url.searchParams.get('testDelay') === '80')
+        data = Buffer.concat([
+          data,
+          Buffer.from(
+            '\nconst originalHandler = onmessage; onmessage = e => { if(e.data.type === "decode") setTimeout(() => originalHandler(e),80); else originalHandler(e); };'
+          )
+        ])
+    }
     const padMiB = Number(url.searchParams.get('padMiB'))
     if (relative === 'tests/fixtures/composite.webp' && [33, 65, 129, 257].includes(padMiB)) {
       const padding = padMiB * 1024 * 1024

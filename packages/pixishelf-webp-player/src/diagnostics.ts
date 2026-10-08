@@ -46,6 +46,10 @@ export interface DiagnosticsReport {
   version: 1
   runId: string
   mode: DiagnosticMode
+  pipeline?: 'independent' | 'sequential'
+  fallbackReason?: string
+  decodeOmittedFrames?: number
+  decoderVariant?: 'scalar' | 'simd'
   resourceVersion: string
   browser: string
   viewport: { width: number; height: number; dpr: number }
@@ -72,6 +76,10 @@ export class PlaybackDiagnostics {
     typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : Array.from(crypto.getRandomValues(new Uint32Array(4)), (value) => value.toString(16).padStart(8, '0')).join('-')
+  decoderVariant?: 'scalar' | 'simd'
+  pipeline?: 'independent' | 'sequential'
+  fallbackReason?: string
+  decodeOmittedFrames = 0
   firstFrame: number | null = null
   inputComplete: number | null = null
   finished: number | null = null
@@ -122,6 +130,10 @@ export class PlaybackDiagnostics {
       runId: this.runId,
       mode: this.mode,
       resourceVersion: this.resourceVersion,
+      decoderVariant: this.decoderVariant,
+      pipeline: this.pipeline,
+      fallbackReason: this.fallbackReason,
+      decodeOmittedFrames: this.decodeOmittedFrames,
       browser: navigator.userAgent,
       viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
       width: this.width,

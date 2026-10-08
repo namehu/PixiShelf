@@ -76,3 +76,19 @@ for (let i = 0; i < 240; i++)
     )
   )
 await writeFile('tests/fixtures/benchmark.webp', animation(1920, 1080, benchmark))
+
+// Small deterministic independent/dependency fixtures for the production fast path.
+const full = await frame(8, 8, { r: 255, g: 255, b: 0, alpha: 1 }, { duration: 40, flags: 2, lossless: false })
+const withLoops = (parts, count = 1) => {
+  const bytes = animation(8, 8, parts)
+  bytes.writeUInt16LE(count, 42)
+  return bytes
+}
+const independent = withLoops(Array(12).fill(full))
+await writeFile('tests/fixtures/independent.webp', independent)
+await writeFile('tests/fixtures/independent-loop.webp', withLoops(Array(4).fill(full), 2))
+await writeFile('tests/fixtures/independent-mixed.webp', withLoops([...Array(6).fill(full), ...frames.slice(1)]))
+await writeFile('tests/fixtures/independent-truncated.webp', independent.subarray(0, independent.length - 3))
+const fast = Buffer.from(full)
+u24(fast, 20, 16)
+await writeFile('tests/fixtures/independent-fast.webp', withLoops(Array(120).fill(fast)))

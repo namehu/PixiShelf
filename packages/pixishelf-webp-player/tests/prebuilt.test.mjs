@@ -55,3 +55,12 @@ test('rejects missing licenses and toolchain drift', async (t) => {
   await rm(new URL('libwebp-license.txt', output))
   await assert.rejects(verifyPrebuilt(root), /ENOENT/)
 })
+
+test('rejects a changed SIMD WASM byte', async (t) => {
+  const { root, output } = await fixture(t)
+  const file = new URL('decoder-simd.wasm', output)
+  const bytes = await readFile(file)
+  bytes[bytes.length - 1] ^= 1
+  await writeFile(file, bytes)
+  await assert.rejects(verifyPrebuilt(root), /artifact: decoder-simd.wasm/)
+})

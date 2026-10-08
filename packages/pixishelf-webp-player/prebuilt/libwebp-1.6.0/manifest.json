@@ -8,13 +8,15 @@
   },
   "inputs": {
     "native/toolchain.json": "26f4bf504f46823fc6788df0f54eb734f3ab0deaf629a3cc710b4bce29ddb57e",
-    "native/build.sh": "8073bd483295a01fc3d0a9ea65979055c2a15bf63e1d0678f9c098f6c9a2e12e",
+    "native/build.sh": "e57058e89fc43bd601e5cf5c0f924938a373d2736365019f4031f424e192554c",
     "native/stream-decoder.c": "fb8620976d24acadc3b2b7f19b1329abaf8cb3d9c0d5d39fde4079e6cdd2b3be",
     "scripts/build-native.mjs": "6a27f566ccf041c6b292fb3a8e7b07a2c437f4ec0137017176e721ecb76d6f74"
   },
   "artifacts": {
-    "decoder.mjs": "d372ea229f143b6028c5386f1a7950f1f8b3a4b21b16be88ea8749788a7dcc73",
-    "decoder.wasm": "ede834084d8e5abacb8f254228f2f66d3af28070e346b808f9131fd7541de24e",
+    "decoder.mjs": "0731736ab415b51d297d8986d528a636668b1f02d904e0480b469e7971f2ebaf",
+    "decoder.wasm": "95974f813ff798c2b1e1c39be996481596d939e33c73d39aeee8f3f6da3d0255",
+    "decoder-simd.mjs": "b5ed483db43067f046225ae74a82e45f43d0768cc389e1d4074711afbab3d724",
+    "decoder-simd.wasm": "4180f44c80e2ce49e11ba3a3b0e131ba8130bb55dfedac0dcf2b550675c81927",
     "libwebp-license.txt": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf",
     "libwebp-patents.txt": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c"
   }

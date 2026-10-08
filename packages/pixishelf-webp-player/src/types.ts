@@ -75,14 +75,28 @@ export interface Frame {
   durationMs: number
   index: number
   cycleId: number
+  startMs?: number
+  endMs?: number
+  cycleStartMs?: number
 }
 export type WorkerCommand =
-  | { type: 'start'; source: WebpSource; decoderUrl: string; limits: PlayerLimits; diagnostics?: boolean }
+  | {
+      type: 'start'
+      source: WebpSource
+      decoderUrl: string
+      limits: PlayerLimits
+      diagnostics?: boolean
+      sequential?: boolean
+    }
   | { type: 'pull'; recycled?: ArrayBuffer }
   | { type: 'pause'; paused: boolean }
   | { type: 'destroy' }
+  | { type: 'target'; positionMs: number; started: boolean }
 export type WorkerEvent =
+  | { type: 'pipeline'; credits: 4; mode: 'independent' | 'sequential'; reason?: string }
+  | { type: 'availability'; endMs: number; omitted: number; waitingInput?: boolean }
   | { type: 'frame'; frame: Frame; sentAt?: number }
+  | { type: 'decoder'; variant: 'scalar' | 'simd' }
   | { type: 'metrics'; values: Partial<Record<WorkerMetric, number>> }
   | { type: 'input'; receivedBytes: number; inputComplete: boolean }
   | { type: 'drained' }

@@ -18,6 +18,15 @@ await build({
 })
 await build({
   absWorkingDir: root,
+  entryPoints: ['src/independent-worker.ts'],
+  outfile: 'dist/assets/independent-worker.mjs',
+  bundle: true,
+  format: 'esm',
+  platform: 'browser',
+  target: 'es2022'
+})
+await build({
+  absWorkingDir: root,
   entryPoints: ['src/index.ts'],
   outfile: 'dist/index.js',
   bundle: true,
@@ -29,7 +38,8 @@ for (const name of artifactFiles) {
   await copyFile(new URL(name, prebuilt), `dist/assets/${name}`)
 }
 const hash = createHash('sha256')
-for (const file of ['worker.mjs', 'decoder.mjs', 'decoder.wasm']) hash.update(await readFile(`dist/assets/${file}`))
+for (const file of ['worker.mjs', 'independent-worker.mjs', ...artifactFiles])
+  hash.update(await readFile(`dist/assets/${file}`))
 await writeFile(
   'dist/manifest.json',
   JSON.stringify(

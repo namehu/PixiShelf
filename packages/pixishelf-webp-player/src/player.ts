@@ -1,5 +1,6 @@
 import { PlaybackDiagnostics, type DiagnosticMode } from './diagnostics'
 import { FrameClock } from './clock'
+import { MediaClock } from './media-clock'
 import {
   playerLimits,
   type Frame,
@@ -16,6 +17,7 @@ import {
 export interface PlayerOptions {
   workerUrl: string
   decoderUrl: string
+  decodeStrategy?: 'auto' | 'sequential'
   limits?: PlayerLimits
   diagnostics?: { mode?: DiagnosticMode; resourceVersion?: string }
 }
@@ -25,6 +27,14 @@ export class WebpPlayer {
   private listeners = new Set<(event: PlayerEvent) => void>()
   private queue: Frame[] = []
   private clock = new FrameClock()
+  private mediaClock = new MediaClock()
+  private timeline = false
+  private creditLimit = 2
+  private availableEnd = 0
+  private waitingInput = true
+  private currentFrame: Frame | null = null
+  private timelineTick = 0
+  private lastPaintTick = -1
   private snapshot: PlayerSnapshot = {
     status: 'idle',
     frameIndex: null,
@@ -69,6 +79,15 @@ export class WebpPlayer {
     return this.options.diagnostics?.mode === 'legacy'
   }
   getSnapshot(): PlayerSnapshot {
+    if (this.timeline)
+      return {
+        ...this.snapshot,
+        positionMs: Math.max(
+          0,
+          this.mediaClock.peek(performance.now(), this.mediaHorizon) - (this.currentFrame?.cycleStartMs ?? 0)
+        ),
+        bufferedFrames: this.queue.length
+      }
     const partial =
       this.currentDuration === null ? 0 : this.currentDuration - this.clock.peekRemaining(performance.now())
     return {
@@ -102,6 +121,14 @@ export class WebpPlayer {
     this.worker = null
     this.queue = []
     this.clock.reset()
+    this.mediaClock.reset()
+    this.timeline = false
+    this.creditLimit = 2
+    this.availableEnd = 0
+    this.waitingInput = true
+    this.currentFrame = null
+    this.timelineTick = 0
+    this.lastPaintTick = -1
     this.debt = 0
     this.debtAt = null
     this.currentDuration = null
@@ -168,6 +195,7 @@ export class WebpPlayer {
         source: { ...source, url: url.href },
         decoderUrl: new URL(this.options.decoderUrl, location.href).href,
         limits: this.limits,
+        sequential: this.legacy || this.options.decodeStrategy === 'sequential',
         ...(this.diagnostics ? { diagnostics: true } : {})
       })
       this.command({ type: 'pull' })
@@ -184,6 +212,30 @@ export class WebpPlayer {
     return promise
   }
   private receive(event: WorkerEvent) {
+    if (event.type === 'pipeline') {
+      this.timeline = true
+      const additional = event.credits - this.creditLimit
+      this.creditLimit = event.credits
+      if (this.diagnostics) {
+        this.diagnostics.pipeline = event.mode
+        this.diagnostics.fallbackReason = event.reason
+      }
+      for (let i = 0; i < additional; i++) this.command({ type: 'pull' })
+      return
+    }
+    if (event.type === 'availability') {
+      // Never rewind time when switching to sequential state reconstruction.
+      this.waitingInput = event.waitingInput !== false
+      this.availableEnd = event.endMs
+      if (this.diagnostics)
+        this.diagnostics.decodeOmittedFrames = Math.max(this.diagnostics.decodeOmittedFrames, event.omitted)
+      this.schedule()
+      return
+    }
+    if (event.type === 'decoder') {
+      if (this.diagnostics) this.diagnostics.decoderVariant = event.variant
+      return
+    }
     if (event.type === 'metrics') {
       if (this.diagnostics) {
         for (const [metric, value] of Object.entries(event.values)) {
@@ -202,9 +254,12 @@ export class WebpPlayer {
       if (event.inputComplete && this.diagnostics) this.diagnostics.inputComplete ??= performance.now()
       return
     }
-    if (event.type === 'drained') this.drained = true
+    if (event.type === 'drained') {
+      this.drained = true
+      if (this.timeline) this.mediaClock.position = Math.min(this.mediaClock.position, this.availableEnd)
+    }
     if (event.type === 'frame') {
-      if (this.queue.length >= 2) {
+      if (this.queue.length >= this.creditLimit) {
         this.fail({ code: 'internal', message: 'Frame queue overflow', recoverableByLegacy: false })
         return
       }
@@ -214,12 +269,12 @@ export class WebpPlayer {
         this.diagnostics.width = event.frame.width
         this.diagnostics.height = event.frame.height
         if (event.sentAt !== undefined)
-          this.diagnostics.timings.delivery.add(performance.timeOrigin + performance.now() - event.sentAt)
+          this.diagnostics.timings.delivery.add(Math.max(0, performance.timeOrigin + performance.now() - event.sentAt))
       }
       this.queue.push(event.frame)
       // Return expired frames between RAFs too: a two-frame queue must not cap
       // decoding throughput at twice the display callback frequency.
-      if (!this.legacy && this.desired && this.painted) this.advanceTimeline(performance.now())
+      if (!this.timeline && !this.legacy && this.desired && this.painted) this.advanceTimeline(performance.now())
       this.resolveLoad?.()
       this.resolveLoad = null
       this.rejectLoad = null
@@ -242,15 +297,17 @@ export class WebpPlayer {
     if (this.desired) return
     this.desired = true
     this.clock.resume(performance.now())
+    this.mediaClock.resume(performance.now())
     if (this.debtAt !== null) this.debtAt = performance.now()
     this.command({ type: 'pause', paused: false })
     this.schedule()
   }
   pause() {
     if (['destroyed', 'error', 'ended', 'idle'].includes(this.snapshot.status)) return
-    if (this.desired && !this.legacy && this.painted) this.advanceTimeline(performance.now())
+    if (this.desired && !this.timeline && !this.legacy && this.painted) this.advanceTimeline(performance.now())
     this.desired = false
     this.clock.pause(performance.now())
+    this.mediaClock.pause(performance.now(), this.mediaHorizon)
     cancelAnimationFrame(this.raf)
     this.raf = 0
     this.command({ type: 'pause', paused: true })
@@ -305,6 +362,10 @@ export class WebpPlayer {
     }
   }
   private tick(now: number) {
+    if (this.timeline) {
+      this.tickMedia(now)
+      return
+    }
     const generation = this.generation
     const hadCurrentFrame = this.currentDuration !== null
     if (!this.legacy) this.advanceTimeline(now)
@@ -375,6 +436,85 @@ export class WebpPlayer {
     this.state('playing')
     this.progress(now)
     this.command({ type: 'pull', recycled: frame.pixels }, [frame.pixels])
+    this.schedule()
+  }
+  private get mediaHorizon() {
+    return this.waitingInput || this.drained ? this.availableEnd : Infinity
+  }
+  private tickMedia(now: number) {
+    const generation = this.generation
+    const tick = ++this.timelineTick
+    const position = this.mediaClock.tick(now, this.mediaHorizon)
+    if (this.currentFrame && position >= this.currentFrame.endMs!)
+      this.snapshot.presentedMs = Math.max(this.snapshot.presentedMs, this.currentFrame.endMs!)
+    // Keep the first and last picture of each cycle, even after a long callback gap.
+    while (
+      this.queue.length > 1 &&
+      this.queue[0]!.index !== 0 &&
+      this.queue[0]!.cycleId === this.queue[1]!.cycleId &&
+      this.queue[1]!.startMs! <= position
+    ) {
+      const frame = this.queue.shift()!
+      this.snapshot.presentedMs = Math.max(this.snapshot.presentedMs, frame.endMs!)
+      if (this.diagnostics) this.diagnostics.skippedFrames++
+      this.command({ type: 'pull', recycled: frame.pixels }, [frame.pixels])
+    }
+    if (this.queue.length && (!this.painted || this.queue[0]!.startMs! <= position)) {
+      const frame = this.queue.shift()!
+      if (this.canvas.width !== frame.width || this.canvas.height !== frame.height) {
+        this.canvas.width = frame.width
+        this.canvas.height = frame.height
+      }
+      if (this.options.diagnostics?.mode !== 'no-draw') {
+        const at = this.diagnostics ? performance.now() : 0
+        const ctx = this.canvas.getContext('2d')
+        if (!ctx) throw Error('Canvas unavailable')
+        ctx.putImageData(new ImageData(new Uint8ClampedArray(frame.pixels), frame.width, frame.height), 0, 0)
+        if (this.diagnostics) {
+          this.diagnostics.drawnFrames++
+          this.diagnostics.timings.draw.add(performance.now() - at)
+        }
+      }
+      this.currentFrame = { ...frame, pixels: new ArrayBuffer(0) }
+      this.lastPaintTick = tick
+      this.snapshot.frameIndex = frame.index
+      this.snapshot.cycleIndex = frame.cycleId
+      this.snapshot.presentedMs = Math.max(this.snapshot.presentedMs, frame.startMs!)
+      if (!this.painted) {
+        this.painted = true
+        this.mediaClock.start(performance.now())
+        if (this.diagnostics) this.diagnostics.firstFrame = performance.now()
+        this.emit({ type: 'first-frame' })
+      }
+      if (generation !== this.generation) return
+      this.command({ type: 'pull', recycled: frame.pixels }, [frame.pixels])
+    }
+    if (
+      this.drained &&
+      !this.queue.length &&
+      this.currentFrame?.endMs === this.availableEnd &&
+      position >= this.availableEnd &&
+      tick > this.lastPaintTick
+    ) {
+      this.desired = false
+      this.mediaClock.pause(now, this.availableEnd)
+      this.command({ type: 'destroy' })
+      this.worker?.terminate()
+      this.worker = null
+      this.state('ended')
+      this.progress(now, true)
+      if (generation === this.generation) this.emit({ type: 'ended' })
+      return
+    }
+    this.state(
+      this.painted
+        ? this.waitingInput && position >= this.availableEnd && !this.drained
+          ? 'buffering'
+          : 'playing'
+        : 'loading'
+    )
+    this.progress(now)
+    this.command({ type: 'target', positionMs: position, started: this.mediaClock.started })
     this.schedule()
   }
   restart() {
