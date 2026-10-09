@@ -27,7 +27,9 @@ vi.mock('@/components/user-setting', () => ({ useArtworkDisplayMode: () => 'card
 vi.mock('@/hooks/use-columns', () => ({ useColumns: () => 4 }))
 vi.mock('@tanstack/react-virtual', () => ({
   useWindowVirtualizer: () => ({
-    getTotalSize: () => 0,
+    measure: vi.fn(),
+      measureElement: vi.fn(),
+      getTotalSize: () => 0,
     getVirtualItems: () => [],
     options: { scrollMargin: 0 }
   })

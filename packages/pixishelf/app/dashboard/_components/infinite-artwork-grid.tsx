@@ -71,7 +71,7 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
     return () => {
       resizeObserver.disconnect()
     }
-  }, [])
+  }, [status, allItems.length])
 
   useLayoutEffect(() => {
     if (virtualListRef.current) {
@@ -79,7 +79,7 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
       const scrollTop = window.scrollY || document.documentElement.scrollTop
       setOffsetTop(rect.top + scrollTop)
     }
-  }, [])
+  }, [status, allItems.length, containerWidth, columns, displayMode])
 
   const estimateSize = useCallback(() => {
     const effectiveWidth = containerWidth
@@ -87,7 +87,8 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
     const gap = displayMode === 'minimal' ? 2 : 16
     const gapTotal = (safeColumns - 1) * gap
     const cardWidth = (effectiveWidth - gapTotal) / safeColumns
-    return displayMode === 'minimal' ? cardWidth * 1.33 + 2 : cardWidth * 1.33 + 60
+    // Cover is 3:4; allow two title lines, author, metadata spacing and the row gutter.
+    return cardWidth * (4 / 3) + (displayMode === 'minimal' ? 2 : 86)
   }, [containerWidth, columns, displayMode])
 
   const rowVirtualizer = useWindowVirtualizer({
@@ -98,6 +99,10 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
     overscan: 2,
     enabled: !!containerWidth
   })
+
+  useLayoutEffect(() => {
+    rowVirtualizer.measure()
+  }, [containerWidth, columns, displayMode, rowVirtualizer])
 
   const { ref: loadMoreRef, inView } = useInView({
     rootMargin: '200px'
@@ -182,10 +187,10 @@ export default function InfiniteArtworkGrid({ initialData, selectedTags = [] }: 
           return (
             <div
               key={virtualRow.key}
+              ref={rowVirtualizer.measureElement}
               data-index={virtualRow.index}
-              className={cn('absolute top-0 left-0 grid w-full', displayMode === 'minimal' ? 'gap-[2px]' : 'gap-4')}
+              className={cn('absolute top-0 left-0 grid w-full', displayMode === 'minimal' ? 'gap-[2px] pb-[2px]' : 'gap-4 pb-4')}
               style={{
-                height: `${virtualRow.size}px`,
                 transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
                 gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`
               }}

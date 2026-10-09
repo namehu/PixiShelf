@@ -94,7 +94,7 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
       {/* 作品信息 */}
       {displayMode !== 'minimal' && (
         <div className="mt-2 flex min-w-0 flex-col gap-0.5 px-0.5">
-          <PrivacySensitiveText as="h3" className="truncate text-sm leading-5 font-semibold text-foreground">
+          <PrivacySensitiveText as="h3" className="line-clamp-2 break-words text-sm leading-5 font-semibold text-foreground">
             {title || '未命名作品'}
           </PrivacySensitiveText>
           {name && (

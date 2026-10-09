@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor, cleanup } from '@testing-library/react'
 import InfiniteArtworkList from './infinite-artwork-list'
 import { useInView } from 'react-intersection-observer'
 import { useInfiniteQuery } from '@tanstack/react-query'
@@ -51,6 +51,7 @@ Object.defineProperty(window, 'scrollTo', {
 })
 
 describe('InfiniteArtworkList', () => {
+  afterEach(cleanup)
   const fetchNextPageMock = vi.fn().mockResolvedValue({})
   let inViewFlag = false
 
@@ -66,6 +67,8 @@ describe('InfiniteArtworkList', () => {
     })
     ;(useColumns as any).mockReturnValue(4)
     ;(useWindowVirtualizer as any).mockReturnValue({
+      measure: vi.fn(),
+      measureElement: vi.fn(),
       getTotalSize: () => 1000,
       getVirtualItems: () => [],
       options: { scrollMargin: 0 }
@@ -97,6 +100,8 @@ describe('InfiniteArtworkList', () => {
 
   it('renders cards when data arrives after an initial empty render and a filtered empty state', async () => {
     ;(useWindowVirtualizer as any).mockImplementation((options: { enabled: boolean; count: number }) => ({
+      measure: vi.fn(),
+      measureElement: vi.fn(),
       getTotalSize: () => options.enabled ? 300 : 0,
       getVirtualItems: () => options.enabled && options.count > 0
         ? [{ index: 0, key: 'row-0', start: 0, size: 300 }] : [],
@@ -141,6 +146,31 @@ describe('InfiniteArtworkList', () => {
     })
     rerender(<InfiniteArtworkList searchQuery="matched again" />)
     await waitFor(() => expect(screen.getByTestId('artwork-card')).toBeTruthy())
+  })
+
+  it('measures natural row heights and clears measurements when responsive columns change', () => {
+    const measure = vi.fn()
+    const measureElement = vi.fn()
+    const virtualizer = {
+      measure, measureElement,
+      getTotalSize: () => 1000,
+      getVirtualItems: () => [{ index: 0, key: 'row-0', start: 0, size: 300 }],
+      options: { scrollMargin: 0 }
+    }
+    vi.mocked(useWindowVirtualizer).mockReturnValue(virtualizer as never)
+    vi.mocked(useInfiniteQuery).mockReturnValue({
+      data: { pages: [{ items: [{ id: 1 }], total: 1 }] }, fetchNextPage: fetchNextPageMock,
+      hasNextPage: false, isFetchingNextPage: false, isLoading: false, isError: false
+    } as never)
+    const view = render(<InfiniteArtworkList />)
+    const row = screen.getByTestId('artwork-card').parentElement!
+    expect(row.style.height).toBe('')
+    expect(measureElement).toHaveBeenCalledWith(row)
+    const before = measure.mock.calls.length
+    vi.mocked(useColumns).mockReturnValue(2)
+    view.rerender(<InfiniteArtworkList />)
+    expect(measure.mock.calls.length).toBeGreaterThan(before)
+    expect(row.style.gridTemplateColumns).toBe('repeat(2, minmax(0, 1fr))')
   })
 
   it('should trigger fetchNextPage when in view and has next page', async () => {

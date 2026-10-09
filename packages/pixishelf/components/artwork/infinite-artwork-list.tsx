@@ -164,7 +164,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       const scrollTop = window.scrollY || document.documentElement.scrollTop
       setOffsetTop(rect.top + scrollTop)
     }
-  }, [isLoading, allItems.length])
+  }, [isLoading, allItems.length, containerWidth, columns, displayMode])
 
   const estimateSize = useCallback(() => {
     const effectiveWidth = containerWidth
@@ -172,7 +172,8 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     const gap = displayMode === 'minimal' ? 2 : 12
     const gapTotal = (safeColumns - 1) * gap
     const cardWidth = (effectiveWidth - gapTotal) / safeColumns
-    return displayMode === 'minimal' ? cardWidth * 1.33 + 2 : cardWidth * 1.33 + 60
+    // Cover is 3:4; allow two title lines, author, metadata spacing and the row gutter.
+    return cardWidth * (4 / 3) + (displayMode === 'minimal' ? 2 : 82)
   }, [containerWidth, columns, displayMode])
 
   const rowVirtualizer = useWindowVirtualizer({
@@ -183,6 +184,10 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     overscan: 5,
     enabled: !!containerWidth
   })
+  useLayoutEffect(() => {
+    rowVirtualizer.measure()
+  }, [containerWidth, columns, displayMode, rowVirtualizer])
+
   const visibleArtworkIds = rowVirtualizer.getVirtualItems().flatMap((row) =>
     allItems.slice(row.index * columns, (row.index + 1) * columns).map((item) => item.id)
   )
@@ -313,10 +318,10 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
               return (
                 <div
                   key={virtualRow.key}
+                  ref={rowVirtualizer.measureElement}
                   data-index={virtualRow.index}
-                  className={cn('absolute top-0 left-0 grid w-full', displayMode === 'minimal' ? 'gap-[2px]' : 'gap-3')}
+                  className={cn('absolute top-0 left-0 grid w-full', displayMode === 'minimal' ? 'gap-[2px] pb-[2px]' : 'gap-3 pb-3')}
                   style={{
-                    height: `${virtualRow.size}px`,
                     transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
                     gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`
                   }}
