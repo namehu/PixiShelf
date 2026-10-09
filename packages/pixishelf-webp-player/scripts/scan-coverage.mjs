@@ -150,8 +150,8 @@ export async function inspectFile(path, gate, options = {}) {
             reject(
               u24(body, 0) || u24(body, 3) || u24(body, 6) + 1 !== header.width || u24(body, 9) + 1 !== header.height
                 ? 'partial-frame'
-                : body[15] !== 2
-                  ? 'blend-dispose-or-reserved-flags'
+                : body[15] !== 0 && body[15] !== 2
+                  ? 'dispose-or-reserved-flags'
                   : tag(body.subarray(16)) !== 'VP8 '
                     ? 'non-opaque-vp8-layout'
                     : 'vp8-layout-or-dimensions'
@@ -187,6 +187,7 @@ export async function scan(paths, options = {}) {
   const limit = options.limit ?? 100
   const report = {
     schemaVersion: 1,
+    gateVersion: 'opaque-vp8-flags-0-or-2-v1',
     scope: 'container-and-current-fast-path-gate-not-decode-validity-or-realtime-coverage',
     selection: 'filesystem-order-first-N-not-random',
     limits: {

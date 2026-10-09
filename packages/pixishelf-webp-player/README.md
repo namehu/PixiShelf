@@ -67,7 +67,7 @@ pnpm --filter @pixishelf/webp-player diagrams
 
 ## 独立帧生产路径
 
-默认逐帧检查独立性，不预下载全图判断。合格的完整 VP8 帧使用两个解码子 Worker、四个输出额度；实际落后时省略过期独立帧，原尺寸不变。局部、透明、清除、混合等帧转回现有 libwebp 合成器，复用已收字节恢复状态，不重新下载或重复显示已交付帧。直接顺序路径保持原行为。`decodeStrategy: "sequential"` 仅供内部对照，应用无需额外配置。
+默认逐帧检查独立性，不预下载全图判断。合格的完整、不透明 VP8 帧（flags 为 0 或 2，允许混合但不允许清除）使用两个解码子 Worker、四个输出额度；实际落后时省略过期独立帧，原尺寸不变。局部、透明、清除等帧转回现有 libwebp 合成器，复用已收字节恢复状态，不重新下载或重复显示已交付帧。直接顺序路径保持原行为。`decodeStrategy: "sequential"` 仅供内部对照，应用无需额外配置。
 
 已进入快速路径后，顶层未知块及未声明的 ICCP／EXIF／XMP 会跳过；声明元数据的文件仍由头部门禁交给顺序路径。重复 ANIM 沿用 libwebp 的填充后长度至少六字节规则，仍校验完整输入与零填充。动画顶层 ALPH／VP8／VP8L／重复 VP8X 或过短 ANIM 直接报错，不通过重放尝试修复。扫描工具复用相同分类。
 
@@ -81,6 +81,8 @@ pnpm --filter @pixishelf/webp-player diagrams
 node packages/pixishelf-webp-player/scripts/scan-coverage.mjs --path /absolute/library --limit 100 --max-entries 10000 --rate-mib 8 > /tmp/webp-coverage.json
 node --test packages/pixishelf-webp-player/tests/scan-coverage.test.mjs
 ```
+
+需要无工作区依赖的便携脚本时，运行 `node packages/pixishelf-webp-player/scripts/build-coverage-scanner.mjs /tmp/scan-coverage.mjs`，再在目标机器执行生成脚本。门禁变更后必须重新生成；报告 `gateVersion: opaque-vp8-flags-0-or-2-v1` 标识本次规则，旧报告保持原有含义。生成文件留在仓库外。
 
 `--path` 可重复，必须显式指定；目录只选择 `.webp`（不区分大小写），不跟随符号链接（包括路径祖先）。默认最多 100 个候选文件、10000 个遍历条目、64 层目录，单文件超过 256MiB 则记为未检查，可用 `--max-file-mib` 调整。按目录遍历顺序取前 N 个，**不是随机抽样或全库覆盖率**。读取串行且默认限速 8MiB/s；仍有 NAS 读取成本。Ctrl-C 会输出部分报告；`partial`、错误计数和各项限额状态表明检查是否完整。
 

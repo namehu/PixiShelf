@@ -43,11 +43,12 @@ test('extracts an independent still WebP without changing frame duration', async
 test('normalizes short durations and permits unused global alpha flag', () => {
   assert.equal(parseFullFrames(sample({ duration: 10, flags: 18 })).frames[0].durationMs, 100)
 })
-test('rejects partial, blended, disposal, profile and pixel budget cases', () => {
+test('rejects partial, disposal, reserved flags, profile and pixel budget cases', () => {
   for (const options of [
     { x: 1 },
     { width: 3 },
-    { frameFlags: 0 },
+    { frameFlags: 1 },
+    { frameFlags: 4 },
     { frameFlags: 3 },
     { metadata: true },
     { flags: 34 }
@@ -69,3 +70,12 @@ test('rejects truncation, trailing data, huge chunk and mismatched VP8 dimension
   assert.throws(() => parseFullFrames(dimensions))
 })
 
+
+test('accepts opaque full-canvas blending without changing the extracted payload', async () => {
+  const input = sample({ frameFlags: 0 })
+  const original = sample({ frameFlags: 2 })
+  const blend = parseFullFrames(input)
+  const replace = parseFullFrames(original)
+  assert.deepEqual(blend, replace)
+  assert.deepEqual(await frameBlob(input, blend.frames[0]).arrayBuffer(), await frameBlob(original, replace.frames[0]).arrayBuffer())
+})

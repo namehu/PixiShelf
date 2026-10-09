@@ -46,7 +46,7 @@ export function parseFullFrames(buffer, maxPixels = 4_000_000) {
         u24(start + 3) ||
         u24(start + 6) + 1 !== width ||
         u24(start + 9) + 1 !== height ||
-        bytes[start + 15] !== 2
+        (bytes[start + 15] !== 0 && bytes[start + 15] !== 2)
       )
         invalid()
       const payload = start + 16,

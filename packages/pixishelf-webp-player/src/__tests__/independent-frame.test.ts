@@ -13,7 +13,7 @@ it('checks every frame, not just the first eligible frame', () => {
   for (const [offset, value] of [
     [0, 1],
     [6, 2],
-    [15, 0],
+    [15, 1],
     [16, 0],
     [27, 0]
   ]) {
@@ -24,6 +24,29 @@ it('checks every frame, not just the first eligible frame', () => {
   const short = body.slice()
   short.fill(0, 12, 15)
   expect(independentFrame(header, chunk, short)?.durationMs).toBe(100)
+})
+it('accepts opaque full-canvas blend and no-blend only, keeping dependency gates', () => {
+  const header = independentHeader(fixture.slice(0, 44))!
+  const chunk = fixture.slice(44, 52)
+  const body = fixture.slice(52, 52 + new DataView(chunk.buffer).getUint32(4, true))
+  for (const flags of [0, 2]) {
+    const changed = body.slice()
+    changed[15] = flags
+    expect(independentFrame(header, chunk, changed)).not.toBeNull()
+    changed[0] = 1 // Nonzero placement remains dependent, regardless of blend.
+    expect(independentFrame(header, chunk, changed)).toBeNull()
+  }
+  for (const flags of [1, 3, 4, 6, 128, 130, 255]) {
+    const changed = body.slice()
+    changed[15] = flags
+    expect(independentFrame(header, chunk, changed)).toBeNull()
+  }
+  for (const kind of ['ALPH', 'VP8L']) {
+    const changed = body.slice()
+    changed[15] = 0
+    changed.set(new TextEncoder().encode(kind), 16)
+    expect(independentFrame(header, chunk, changed)).toBeNull()
+  }
 })
 it('media time advances without frames, freezes at input horizon and excludes pauses', () => {
   const clock = new MediaClock()

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile, readFile, symlink, rm, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL, fileURLToPath } from 'node:url'
+import { execFileSync } from 'node:child_process'
 import { inspectFile, loadGate, scan } from '../scripts/scan-coverage.mjs'
 const gate = await loadGate()
 const original = await readFile(new URL('./fixtures/independent.webp', import.meta.url))
@@ -68,7 +70,7 @@ test('distinguishes initial vs late dependent frame and normalizes duration', as
     const bytes = Buffer.from(original)
     let offset = 44
     for (let i = 0; i < index; i++) offset += 8 + bytes.readUInt32LE(offset + 4) + (bytes.readUInt32LE(offset + 4) % 2)
-    bytes[offset + 8 + 15] = 0
+    bytes[offset + 8 + 15] = 1
     const { path } = await fixture(t, bytes)
     const r = await inspectFile(path, gate, { rateMiB: 0 })
     assert.equal(r.classification, index ? 'midstream-fallback' : 'initial-fallback')
@@ -124,4 +126,55 @@ test('interrupting a rate-limited read produces a partial aggregate instead of r
   assert.equal(result.partial, true)
   assert.equal(result.interrupted, true)
   assert.deepEqual(result.errors, {})
+})
+
+test('all-frame scanning accepts alternating opaque blend flags, but still rejects disposal and reserved bits', async (t) => {
+  const bytes = Buffer.from(original)
+  let offset = 44,
+    index = 0
+  const offsets = []
+  while (offset < bytes.length) {
+    offsets.push(offset)
+    bytes[offset + 23] = index++ % 2 ? 2 : 0
+    const size = bytes.readUInt32LE(offset + 4)
+    offset += 8 + size + (size % 2)
+  }
+  const valid = await fixture(t, bytes)
+  assert.equal((await inspectFile(valid.path, gate, { rateMiB: 0 })).classification, 'whole-fast-path')
+  for (const flags of [1, 3, 4, 6, 128]) {
+    const changed = Buffer.from(bytes)
+    changed[offsets[7] + 23] = flags
+    const invalid = await fixture(t, changed)
+    const result = await inspectFile(invalid.path, gate, { rateMiB: 0 })
+    assert.equal(result.classification, 'midstream-fallback')
+    assert.equal(result.firstFailureFrame, 8)
+    assert.equal(result.reason, 'dispose-or-reserved-flags')
+  }
+})
+
+test('opaque blend does not admit ALPH layouts, including in the portable scanner', async (t) => {
+  const bytes = Buffer.from(original)
+  bytes[67] = 0
+  bytes.write('ALPH', 68)
+  const { path, dir } = await fixture(t, bytes)
+  const portable = join(dir, 'scan-coverage.mjs')
+  execFileSync(process.execPath, [
+    fileURLToPath(new URL('../scripts/build-coverage-scanner.mjs', import.meta.url)),
+    portable
+  ])
+  const module = await import(pathToFileURL(portable).href)
+  const portableGate = await module.loadGate()
+  const cli = JSON.parse(execFileSync(process.execPath, [portable, '--path', path], { encoding: 'utf8' }))
+  const imported = await module.scan([path], { gate: portableGate })
+  assert.deepEqual(cli, imported)
+  assert.equal(cli.reasons['non-opaque-vp8-layout'], 1)
+  for (const currentGate of [gate, portableGate]) {
+    const result = await inspectFile(path, currentGate, { rateMiB: 0 })
+    assert.equal(result.classification, 'initial-fallback')
+    assert.equal(result.reason, 'non-opaque-vp8-layout')
+    const changed = Buffer.from(original)
+    changed[67] = 0
+    const valid = await fixture(t, changed)
+    assert.equal((await inspectFile(valid.path, currentGate, { rateMiB: 0 })).classification, 'whole-fast-path')
+  }
 })

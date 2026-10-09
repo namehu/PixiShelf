@@ -71,7 +71,8 @@ export function independentFrame(header: IndependentHeader, chunk: Uint8Array, b
     u24(body, 3) ||
     u24(body, 6) + 1 !== header.width ||
     u24(body, 9) + 1 !== header.height ||
-    body[15] !== 2 ||
+    // Opaque full-canvas VP8 overwrites every pixel even with blending enabled.
+    (body[15] !== 0 && body[15] !== 2) ||
     tag(body, 16) !== 'VP8 '
   )
     return null
