@@ -116,7 +116,7 @@ HTTP `message`，同时兼容旧 `{ error }` 响应。
 
 `artwork.previewDelete` 和 `artwork.delete` 均使用 `adminProcedure`。预览输入正整数作品 ID，仅只读列举受限目录和登记文件；执行输入 `{ artworkId, selectedPaths? }`，本地删除必须提交明确选择，归档继续整包回收。服务端在写入前校验整份选择、必选媒体、根目录、共享引用和禁选路径；客户端不能通过相对路径参数扩大删除范围。共享目录额外文件、系统保留项、符号链接和非普通文件不可选，普通目录检查不完整时禁止执行。预览和当次结构化报告只向已认证会话提供相对路径和安全错误说明，不包含原始异常堆栈或服务器绝对路径；客户端下载遵循现有隐私模式的“视觉遮蔽不改变导出内容”规则。详见[作品删除与删除总结](../features/artwork-deletion.md)。
 
-阅读接口 `reading.context`、`reading.report`、`reading.summaries`、`reading.history` 均使用 `authProcedure`；服务端从 Session 取得实际账户，输入中的 `expectedUserId` 只用于防止切换账户期间把响应混入旧账户缓存，与当前 Session 不一致即拒绝。上报还需校验作品 `mediaRevision` 和媒体归属，客户端不能提交访问次数、完成状态或任意账户 ID。作品列表的阅读状态筛选同样要求账户一致性前置条件；不启用阅读筛选的原有列表调用保持兼容。阅读历史、摘要和缓存均按账户隔离，但当前所有账户仍拥有相同的实例管理员能力，不能因此声称存在租户级权限隔离。功能发布状态见[作品阅读记录与进度](../features/artwork-reading.md)。
+阅读接口 `reading.context`、`reading.report`、`reading.markRead`、`reading.summaries`、`reading.history` 均使用 `authProcedure`；服务端从 Session 取得实际账户，输入中的 `expectedUserId` 只用于防止切换账户期间把响应混入旧账户缓存，与当前 Session 不一致即拒绝。上报还需校验作品 `mediaRevision` 和媒体归属，客户端不能提交访问次数、完成状态或任意账户 ID。作品列表的阅读状态筛选同样要求账户一致性前置条件；不启用阅读筛选的原有列表调用保持兼容。阅读历史、摘要和缓存均按账户隔离，但当前所有账户仍拥有相同的实例管理员能力，不能因此声称存在租户级权限隔离。功能发布状态见[作品阅读记录与进度](../features/artwork-reading.md)。
 
 | 过程              | 实际校验                     | 当前含义                                 |
 | ----------------- | ---------------------------- | ---------------------------------------- |
@@ -196,7 +196,7 @@ Pixiv 作品 metadata 和同步报告仍不得通过 `/api/pixiv-data` 或静态
 | `auth`            | 当前账户 `me`                                                             | 无                                                                                           | `authProcedure`                                                                                   |
 | `artist`          | 详情、分页                                                                | 创建、修改、收藏、删除、Pixiv 补全/取消/重试、采用来源姓名                                   | 既有读写为 `authProcedure`；Pixiv 任务控制与采用来源姓名为 `adminProcedure`                       |
 | `artwork`         | 详情、feed、相邻、随机、推荐、上传路径、Pixiv 同步汇总与受控报告/快照读取 | 创建、修改、删除、媒体增删与排序、Pixiv 同步/取消/重试                                       | 大多为 `authProcedure`；作品删除、视频重新探测、Pixiv 任务控制及报告 JSON 读取为 `adminProcedure` |
-| `reading`         | 当前账户的作品上下文、当前页批量摘要、最近阅读历史                        | 当前账户的有效阅读事件与心跳上报                                                             | 全部为 `authProcedure`；每个入口核对 `expectedUserId` 与 Session                                  |
+| `reading`         | 当前账户的作品上下文、当前页批量摘要、最近阅读历史                        | 当前账户的有效阅读事件、心跳上报及手动标已读                                                             | 全部为 `authProcedure`；每个入口核对 `expectedUserId` 与 Session                                  |
 | `search`          | 搜索建议                                                                  | 无                                                                                           | `authProcedure`                                                                                   |
 | `tag`             | 查询、管理列表与 Pixiv 补全状态                                           | 创建、修改、删除、批量补全与单标签重试                                                       | 普通管理为 `authProcedure`；Pixiv 补全读写为 `adminProcedure`                                     |
 | `series`          | `list`、`get`、Pixiv 系列核对汇总                                         | 创建、修改、删除、管理详情、成员草稿提交与排序、Pixiv 系列核对/取消/重试                                   | 普通读取为 `publicProcedure`，管理详情和写入为 `authProcedure`；Pixiv 任务控制为 `adminProcedure`       |
@@ -393,3 +393,8 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 ## 后台任务退役第一阶段
 
 所有旧执行入口固定中央入队，鉴权门禁不变；归档控制保留专用领域事务。v0 历史拒绝执行控制与重试，失败确认记录保留。计划更新不再接受 time，列表使用 lastMaterializedAt/Date。旧目标只读快照不作为执行输入，展示沿用脱敏和隐私规则。切换开关不再提供隔离能力，维护必须停止服务。
+
+
+## 阅读进度手动修正
+
+`reading.markRead` 使用 `authProcedure`，归属仅来自服务端会话，`expectedUserId` 仅作账户切换前置校验。输入限定作品 ID、媒体版本与 `ALL` / `MEDIA` 目标；单项媒体必须属于指定作品，整部集合由服务端查询，客户端不能提交已读数量、阅读次数或时间。作品须处于 ACTIVE 且未删除，写入先锁 Artwork，再校验媒体版本；跨作品媒体或版本冲突不产生写入。该接口不开放给匿名请求或 Webhook Token。

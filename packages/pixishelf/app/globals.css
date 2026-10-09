@@ -252,3 +252,14 @@
     transition-duration: 1ms !important;
   }
 }
+
+@keyframes reading-resume-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+@media (max-width: 639px) {
+  [data-sonner-toast][data-y-position="bottom"].reading-resume-toast {
+    bottom: calc(4rem + env(safe-area-inset-bottom));
+  }
+}

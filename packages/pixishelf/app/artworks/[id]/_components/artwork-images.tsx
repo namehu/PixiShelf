@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import LazyMedia from './lazy-media'
+import { ReadingMediaStatus, readingMediaPosition } from './reading-media-status'
 import { useLongPress } from '@/hooks/use-long-press'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useRouter } from 'next/navigation'
@@ -40,7 +41,7 @@ interface ArtworkImagesProps {
 
 const NAV_HEIGHT = 64
 
-type PreviewMenuState = { x: number; y: number; index: number }
+type PreviewMenuState = { x: number; y: number; index: number; loadFailed: boolean }
 type AdaptivePreviewState = { index: number; initialPreviewSrc?: string }
 
 export function buildMediaAnchorIndexes(total: number, interval: number) {
@@ -204,12 +205,12 @@ function usePreviewContextMenu(images: ArtworkImageResponseDto[], artworkId: num
   const router = useRouter()
   const setStoreImages = useArtworkStore((state) => state.setImages)
 
-  const openContextMenu = useCallback((event: React.MouseEvent | React.TouchEvent, index: number) => {
+  const openContextMenu = useCallback((event: React.MouseEvent | React.TouchEvent, index: number, loadFailed = false) => {
     const position = getPointerPosition(event)
     if (!position) return
     useArtworkAutoBrowseStore.getState().pause('overlay')
 
-    setContextMenu({ ...position, index })
+    setContextMenu({ ...position, index, loadFailed })
   }, [])
 
   const closeContextMenu = useCallback(() => setContextMenu(null), [])
@@ -305,12 +306,14 @@ function ArtworkMediaItem({
 }: {
   media: ArtworkImageResponseDto
   index: number
-  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
+  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number, loadFailed?: boolean) => void
   onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
   highlighted: boolean
   reading?: ArtworkReadingHandle
   trackingActive: boolean
 }) {
+  const [loadFailed, setLoadFailed] = useState(false)
+  const onPreviewStatusChange = useCallback((status: 'loading' | 'ready' | 'error') => setLoadFailed(status === 'error'), [])
   return (
     <div
       className={cn(
@@ -323,10 +326,10 @@ function ArtworkMediaItem({
         index={index}
         enabled={!isVideoMedia(media)}
         tapPreviewEnabled={canPreviewFullSize(media) && !keepsSurfacePlaybackControl(media)}
-        onOpenMenu={onOpenPreviewMenu}
+        onOpenMenu={(event, itemIndex) => onOpenPreviewMenu(event, itemIndex, loadFailed)}
         onPreview={onOpenAdaptivePreview}
       >
-        <LazyMedia media={media} index={index} reading={reading} trackingActive={trackingActive} />
+        <LazyMedia onPreviewStatusChange={onPreviewStatusChange} media={media} index={index} reading={reading} trackingActive={trackingActive} />
       </PreviewableMedia>
     </div>
   )
@@ -349,8 +352,10 @@ function ExpandRemainingMediaButton({ remainingCount, onExpand }: { remainingCou
 function MediaAnchorList({
   indexes,
   activeIndex,
-  onSelect
+  onSelect,
+  originalIndexes
 }: {
+  originalIndexes?: number[]
   indexes: number[]
   activeIndex: number
   onSelect: (index: number) => void
@@ -372,7 +377,7 @@ function MediaAnchorList({
               ref={isActive ? activeButtonRef : undefined}
               type="button"
               aria-current={isActive ? 'true' : undefined}
-              aria-label={`跳转到第 ${index + 1} 张媒体`}
+              aria-label={`跳转到第 ${(originalIndexes?.[index] ?? index) + 1} 张媒体`}
               onClick={() => onSelect(index)}
               className={cn(
                 'font-utility flex size-9 items-center justify-center rounded-full px-1 text-center text-xs tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary-foreground/50',
@@ -381,7 +386,7 @@ function MediaAnchorList({
                   : 'text-primary-foreground/75 hover:bg-primary-foreground/15 hover:text-primary-foreground'
               )}
             >
-              {index + 1}
+              {(originalIndexes?.[index] ?? index) + 1}
             </button>
           )
         })}
@@ -402,7 +407,9 @@ function MediaAnchorNavigation({
   expanded,
   onToggleExpanded,
   onBackToTop,
-  embedded = false
+  embedded = false,
+  originalIndexes,
+  originalTotal
 }: {
   indexes: number[]
   activeIndex: number
@@ -416,16 +423,20 @@ function MediaAnchorNavigation({
   onToggleExpanded: () => void
   onBackToTop: () => void
   embedded?: boolean
+  originalIndexes?: number[]
+  originalTotal?: number
 }) {
   const dockRef = useRef<HTMLDivElement>(null)
   if (total <= 1) return null
 
-  const displayedIndex = Math.min(Math.max(currentIndex, 0), total - 1) + 1
+  const sequenceIndex = Math.min(Math.max(currentIndex, 0), total - 1)
+  const displayedIndex = (originalIndexes?.[sequenceIndex] ?? sequenceIndex) + 1
+  const displayedTotal = originalTotal ?? total
   const counter = (
     <span className="font-utility flex flex-col items-center justify-center gap-0.5 text-[10px] leading-none tabular-nums">
       <span className="font-semibold">{displayedIndex}</span>
       <Separator className={cn('w-3', embedded ? 'bg-foreground/25' : 'bg-primary-foreground/35')} />
-      <span className="font-normal opacity-70">{total}</span>
+      <span className="font-normal opacity-70">{displayedTotal}</span>
     </span>
   )
 
@@ -438,7 +449,7 @@ function MediaAnchorNavigation({
             variant={embedded ? 'ghost' : 'default'}
             size="icon"
             className={cn('size-11 rounded-full', !embedded && 'shadow-floating')}
-            aria-label={`${open ? '关闭' : '打开'}媒体快捷导航，当前第 ${displayedIndex} 张，共 ${total} 张`}
+            aria-label={`${open ? '关闭' : '打开'}媒体快捷导航，当前第 ${displayedIndex} 张，共 ${displayedTotal} 张`}
             aria-expanded={open}
           >
             {counter}
@@ -503,7 +514,7 @@ function MediaAnchorNavigation({
               data-testid="media-anchor-popover"
               className="pointer-events-auto max-h-[min(70dvh,calc(var(--radix-popover-content-available-height)-52px))] w-11 overflow-y-auto overscroll-contain rounded-full border border-primary/20 bg-primary p-1 text-primary-foreground shadow-floating"
             >
-              <MediaAnchorList indexes={indexes} activeIndex={activeIndex} onSelect={onSelect} />
+              <MediaAnchorList originalIndexes={originalIndexes} indexes={indexes} activeIndex={activeIndex} onSelect={onSelect} />
             </div>
           ) : (
             <div className="h-11" />
@@ -520,9 +531,11 @@ function PreviewContextMenu({
   onOpenChange,
   onPreview,
   onAutoScroll,
-  onViewOriginal
+  onViewOriginal,
+  reading
 }: {
   contextMenu: PreviewMenuState | null
+  reading?: ArtworkReadingHandle
   images: ArtworkImageResponseDto[]
   onOpenChange: (open: boolean) => void
   onPreview: () => void
@@ -548,6 +561,7 @@ function PreviewContextMenu({
         align="start"
         className="w-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-floating duration-(--motion-fast) ease-out data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
       >
+        {selectedMedia && <ReadingMediaStatus reading={reading} mediaId={selectedMedia.id} loadFailed={contextMenu?.loadFailed} />}
         {selectedMedia && !isVideoMedia(selectedMedia) && (
           <Button variant="ghost" className="min-h-11 w-full justify-start" onClick={onAutoScroll}>
             自动滚动
@@ -580,7 +594,7 @@ function SingleVideoArtworkMedia({ media, reading, trackingActive }: {
   trackingActive: boolean
 }) {
   return (
-    <div className="w-full" data-testid="artwork-video-container">
+    <div className="relative w-full" data-testid="artwork-video-container">
       <LazyMedia media={media} index={0} reading={reading} trackingActive={trackingActive} />
     </div>
   )
@@ -598,11 +612,13 @@ function VirtualizedArtworkMediaList({
   images: ArtworkImageResponseDto[]
   returnIndex: number | null
   onReturnHandled: () => void
-  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
+  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number, loadFailed?: boolean) => void
   onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
   reading?: ArtworkReadingHandle
   trackingActive: boolean
 }) {
+  const originalIndexes = images.map((media, index) => readingMediaPosition(reading, media.id)?.index ?? index)
+  const originalTotal = reading?.context?.media.length ?? images.length
   const [isExpanded, setIsExpanded] = useState(false)
   const previewCount = useArtworkDetailPreferences((state) => state.previewCount)
   const { collapsible, visibleCount, remainingCount, fullyVisible } = getArtworkDisplayPolicy(
@@ -808,11 +824,11 @@ function VirtualizedArtworkMediaList({
         >
           <AutoBrowseControls
             mode="scroll"
-            current={currentIndex + 1}
-            total={images.length}
+            current={(originalIndexes[currentIndex] ?? currentIndex) + 1}
+            total={originalTotal}
             navigation={
               images.length > 1 ? (
-                <MediaAnchorNavigation
+                <MediaAnchorNavigation originalIndexes={originalIndexes} originalTotal={originalTotal}
                   collapsible={collapsible}
                   expanded={isExpanded}
                   onToggleExpanded={toggleExpanded}
@@ -860,7 +876,7 @@ function VirtualizedArtworkMediaList({
         </div>
       ) : (
         !previewOpen && (
-          <MediaAnchorNavigation
+          <MediaAnchorNavigation originalIndexes={originalIndexes} originalTotal={originalTotal}
             collapsible={collapsible}
             expanded={isExpanded}
             onToggleExpanded={toggleExpanded}
@@ -954,6 +970,7 @@ function ArtworkImagesSession({ images, artworkId, reading, trackingActive = tru
       <div ref={mediaRootRef}>{mediaContent}</div>
       <PreviewContextMenu
         contextMenu={contextMenu}
+        reading={reading}
         images={images}
         onOpenChange={(open) => {
           if (!open) closeContextMenu()

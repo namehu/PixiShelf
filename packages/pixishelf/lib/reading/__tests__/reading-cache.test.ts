@@ -1,14 +1,14 @@
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 import type { ReadingSummaryDto } from '@pixishelf/db/reading-contract'
-import { patchReadingSummaryInCache } from '../reading-cache'
+import { patchReadingSummaryInCache, reconcileReadingCache } from '../reading-cache'
 
 const unread: ReadingSummaryDto = {
-  artworkId: 7, viewCount: 0, seenCount: 0, totalCount: 3, status: 'UNREAD',
+  artworkId: 7, mediaRevision: 1, stateVersion: 0, viewCount: 0, seenCount: 0, totalCount: 3, status: 'UNREAD',
   lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null
 }
 const viewed: ReadingSummaryDto = {
-  ...unread, viewCount: 1, seenCount: 1, status: 'IN_PROGRESS',
+  ...unread, stateVersion: 1, viewCount: 1, seenCount: 1, status: 'IN_PROGRESS',
   lastViewedAt: '2026-09-24T00:00:00.000Z', lastActiveAt: '2026-09-24T00:00:00.000Z',
   lastMediaId: 10, lastMediaIndex: 0
 }
@@ -80,4 +80,25 @@ describe('reading cache patch', () => {
     expect(client.getQueryData<ReadingSummaryDto[]>(summariesOwnerKey)).toEqual([viewed])
     expect(client.getQueryData<ReadingSummaryDto[]>(summariesOtherKey)).toEqual([unread])
   })
+  it('rejects late report and query snapshots but accepts a rebuild resetting progress', () => {
+    const client = new QueryClient()
+    const key = [['reading', 'context'], { input: { artworkId: 7, expectedUserId: 'alice' }, type: 'query' }]
+    const initial = { artworkId: 7, mediaRevision: 1, media: [{ mediaId: 10, memberMediaIds: [10], index: 0 }],
+      resume: null, seenMediaIds: [] as number[], summary: unread }
+    client.setQueryData(key, initial)
+    const completed = { ...viewed, stateVersion: 2, seenCount: 3, status: 'COMPLETED' as const }
+    patchReadingSummaryInCache(client, completed, 'alice', { mediaRevision: 1, summary: completed, seenMediaIds: [10, 11, 12] })
+    patchReadingSummaryInCache(client, viewed, 'alice', { mediaRevision: 1, summary: viewed, seenMediaIds: [10] })
+    client.setQueryData(key, initial)
+    reconcileReadingCache(client, 'alice')
+    expect(client.getQueryData(key)).toMatchObject({ summary: completed, seenMediaIds: [10, 11, 12] })
+    const rebuilt = { ...initial, mediaRevision: 2, summary: { ...unread, mediaRevision: 2 } }
+    client.setQueryData(key, rebuilt)
+    reconcileReadingCache(client, 'alice')
+    expect(client.getQueryData(key)).toEqual(rebuilt)
+    client.setQueryData(key, initial)
+    reconcileReadingCache(client, 'alice')
+    expect(client.getQueryData(key)).toEqual(rebuilt)
+  })
+
 })

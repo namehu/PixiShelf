@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const service = vi.hoisted(() => ({
   getReadingContext: vi.fn(),
   reportReading: vi.fn(),
+  markReadingRead: vi.fn(),
   getReadingSummaries: vi.fn(),
   getReadingHistory: vi.fn()
 }))
@@ -29,6 +30,7 @@ describe('reading router session ownership', () => {
 
   it('rejects all unauthenticated reads and writes before reaching the service', async () => {
     const caller = readingRouter.createCaller(unauthorized as never)
+    await expect(caller.markRead({ artworkId: 10, expectedUserId: 'user-1', mediaRevision: 1, target: { kind: 'ALL' } })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     await expect(caller.context({ artworkId: 10, expectedUserId: 'user-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     await expect(caller.report({ artworkId: 10, expectedUserId: 'user-1', mediaRevision: 1, events: [{ type: 'VIEW', mediaId: 1, observedAt: '2026-09-24T12:00:00.000Z' }] })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     await expect(caller.summaries({ artworkIds: [10], expectedUserId: 'user-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
@@ -38,6 +40,7 @@ describe('reading router session ownership', () => {
 
   it('rejects a switched account for all procedures before reading or writing', async () => {
     const caller = readingRouter.createCaller(authorized as never)
+    await expect(caller.markRead({ artworkId: 10, expectedUserId: 'user-2', mediaRevision: 1, target: { kind: 'ALL' } })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(caller.context({ artworkId: 10, expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(caller.report({ artworkId: 10, expectedUserId: 'user-2', mediaRevision: 1, events: [{ type: 'VIEW', mediaId: 1, observedAt: '2026-09-24T12:00:00.000Z' }] })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(caller.summaries({ artworkIds: [10], expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })

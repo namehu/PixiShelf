@@ -74,9 +74,9 @@ export function appendReadingFilterAndCursor(
   let { whereSQL, sqlParams, paramIndex } = base
   const status = params.readingStatus
   if (!status) throw new Error('Reading status required')
-  const summary = `SELECT 1 FROM artwork_reading_summaries rs WHERE rs."artworkId" = a.id AND rs."userId" = $${paramIndex} AND rs."viewCount" > 0`
+  const summary = `SELECT 1 FROM artwork_reading_summaries rs WHERE rs."artworkId" = a.id AND rs."userId" = $${paramIndex} AND rs."seenCount" > 0`
   if (status === 'UNREAD') whereSQL += ` AND NOT EXISTS (${summary})`
-  else if (status === 'IN_PROGRESS') whereSQL += ` AND EXISTS (${summary} AND (rs."totalCount" = 0 OR rs."seenCount" < rs."totalCount"))`
+  else if (status === 'IN_PROGRESS') whereSQL += ` AND EXISTS (${summary} AND rs."seenCount" < rs."totalCount")`
   else whereSQL += ` AND EXISTS (${summary} AND rs."totalCount" > 0 AND rs."seenCount" >= rs."totalCount")`
   sqlParams = [...sqlParams, userId]
   paramIndex++

@@ -45,6 +45,8 @@ interface VerticalMediaPreviewCoreProps<T> {
   historyKey: string
   testId?: string
   counterTotal?: number | null
+  /** Optional zero-based position in the full source when items is a filtered sequence. */
+  counterIndex?: number
   bottomChrome?: (context: VerticalMediaPreviewChromeContext) => ReactNode
   onActiveIndexChange?: (index: number) => void
   onZoomChange?: (scale: number) => void
@@ -83,6 +85,7 @@ export function VerticalMediaPreviewCore<T>({
   historyKey,
   testId = 'vertical-media-preview-swiper',
   counterTotal,
+  counterIndex,
   bottomChrome,
   onActiveIndexChange,
   onZoomChange,
@@ -214,7 +217,7 @@ export function VerticalMediaPreviewCore<T>({
             className="rounded-full bg-black/35 px-3 py-1.5 text-sm font-medium tabular-nums backdrop-blur-md"
             aria-live="polite"
           >
-            {activeIndex + 1} / {displayTotal}
+            {(counterIndex ?? activeIndex) + 1} / {displayTotal}
           </div>
           <button
             type="button"

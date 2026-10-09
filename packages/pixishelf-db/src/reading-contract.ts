@@ -18,6 +18,8 @@ export interface ReadingMediaItem {
 }
 
 export interface ReadingSummaryDto {
+  mediaRevision: number
+  stateVersion: number
   artworkId: number
   viewCount: number
   seenCount: number
@@ -42,6 +44,7 @@ export interface ReadingContextDto {
   artworkId: number
   mediaRevision: number
   media: ReadingMediaItem[]
+  seenMediaIds: number[]
   summary: ReadingSummaryDto
   resume: ReadingResumePosition | null
 }
@@ -68,7 +71,15 @@ export interface ReadingReportInput {
   events: ReadingReportEvent[]
 }
 
+export interface ReadingMarkReadInput {
+  artworkId: number
+  expectedUserId: string
+  mediaRevision: number
+  target: { kind: 'ALL' } | { kind: 'MEDIA'; mediaId: number }
+}
+
 export interface ReadingReportResult {
+  seenMediaIds: number[]
   mediaRevision: number
   summary: ReadingSummaryDto
 }
@@ -80,4 +91,9 @@ export interface ReadingBatchSummariesResult {
 export interface ReadingHistoryCursor {
   lastViewedAt: string
   artworkId: number
+}
+
+/** Rebuilt media supersedes all older progress, including a reset to zero. */
+export function compareReadingVersion(a: ReadingSummaryDto, b: ReadingSummaryDto): number {
+  return a.mediaRevision - b.mediaRevision || a.stateVersion - b.stateVersion
 }

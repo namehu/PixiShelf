@@ -37,3 +37,11 @@ export const ReadingHistoryInputSchema = z.object({
 export type ReadingContextInput = z.infer<typeof ReadingContextInputSchema>
 export type ReadingReportInputValidated = z.infer<typeof ReadingReportInputSchema>
 export type ReadingHistoryInput = z.infer<typeof ReadingHistoryInputSchema>
+
+export const ReadingMarkReadInputSchema = ReadingContextInputSchema.extend({
+  mediaRevision: positiveId,
+  target: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('ALL') }),
+    z.object({ kind: z.literal('MEDIA'), mediaId: positiveId })
+  ])
+})

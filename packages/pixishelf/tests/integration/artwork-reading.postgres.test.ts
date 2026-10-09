@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrismaClient, invalidateArtworkReadingForRebuild } from '@pixishelf/db'
+import { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 
 const databaseUrl = process.env.READING_VALIDATION_DATABASE_URL
 function isDedicatedDatabase(value: string | undefined) {
@@ -106,7 +107,7 @@ describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
     const nextVisit = await report(fixture.userId, [event(fixture.otherId)])
     expect(nextVisit.summary).toMatchObject({ viewCount: 2, seenCount: 2, totalCount: 2, status: 'COMPLETED' })
     expect((await readingService.getReadingContext(fixture.otherUserId, fixture.artworkId)).summary.status).toBe('UNREAD')
-    expect((await readingService.getReadingSummaries(fixture.otherUserId, [fixture.artworkId])).summaries).toEqual([])
+    expect((await readingService.getReadingSummaries(fixture.otherUserId, [fixture.artworkId])).summaries).toMatchObject([{ status: 'UNREAD', viewCount: 0, seenCount: 0 }])
     expect((await readingService.getReadingHistory(fixture.otherUserId, 10)).items).toEqual([])
     const history = await readingService.getReadingHistory(fixture.userId, 10)
     expect(history.items[0]).toMatchObject({ artwork: { id: fixture.artworkId }, reading: { viewCount: 2 } })
@@ -143,4 +144,37 @@ describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
     expect(await db!.artworkReadMedia.count({ where: { artworkId: fixture.artworkId } })).toBe(0)
     expect((await readingService.getReadingContext(fixture.userId, fixture.artworkId)).mediaRevision).toBe(2)
   })
+  const mark = (mediaId?: number) => readingService.markReadingRead(fixture.userId, {
+    artworkId: fixture.artworkId, expectedUserId: fixture.userId, mediaRevision: 1,
+    target: mediaId === undefined ? { kind: 'ALL' } : { kind: 'MEDIA', mediaId }
+  })
+
+  it('persists manual progress without history and later records the first real visit', async () => {
+    const first = await mark(fixture.apngId)
+    expect(first.summary).toMatchObject({ viewCount: 0, seenCount: 1, lastViewedAt: null, lastActiveAt: null, lastMediaId: null })
+    expect(first.seenMediaIds).toEqual([fixture.videoId])
+    const { queryReadingArtworkIdsPage } = await import('@/services/artwork-service/reading-page-query')
+    const progressing = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'IN_PROGRESS' }), fixture.userId)
+    expect(progressing.ids).toContain(fixture.artworkId)
+    const completed = await mark()
+    expect(completed.summary).toMatchObject({ status: 'COMPLETED', viewCount: 0, seenCount: 2 })
+    expect(await mark()).toEqual(completed)
+    const finished = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'COMPLETED' }), fixture.userId)
+    expect(finished.ids).toContain(fixture.artworkId)
+    const unread = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'UNREAD' }), fixture.userId)
+    expect(unread.ids).not.toContain(fixture.artworkId)
+    expect((await readingService.getReadingHistory(fixture.userId, 10)).items).toEqual([])
+    expect((await readingService.getReadingContext(fixture.otherUserId, fixture.artworkId)).summary.seenCount).toBe(0)
+    await report(fixture.userId, [event(fixture.otherId)])
+    expect((await readingService.getReadingHistory(fixture.userId, 10)).items[0]?.reading.viewCount).toBe(1)
+  })
+
+  it('serializes manual completion and automatic views without losing progress or duplicating visits', async () => {
+    const [a, b] = await Promise.all([mark(), report(fixture.userId, [event(fixture.videoId)])])
+    const final = await readingService.getReadingContext(fixture.userId, fixture.artworkId)
+    expect(final.summary).toMatchObject({ viewCount: 1, seenCount: 2, totalCount: 2, status: 'COMPLETED', lastMediaId: fixture.videoId })
+    expect(final.summary.stateVersion).toBe(Math.max(a.summary.stateVersion, b.summary.stateVersion))
+    expect(await db!.artworkReadMedia.count({ where: { userId: fixture.userId, artworkId: fixture.artworkId } })).toBe(3)
+  })
+
 })

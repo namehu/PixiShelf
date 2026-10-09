@@ -3,11 +3,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { ReadingSummaryDto } from '@pixishelf/db/reading-contract'
+import type { ReadingSummaryDto, ReadingMarkReadInput } from '@pixishelf/db/reading-contract'
 import { useAuthUser, useAuthStore } from '@/components/auth/auth-provider'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
-import { ReadingCollector, type ReadingObservation } from './reading-collector'
-import { patchReadingSummaryInCache } from './reading-cache'
+import { ReadingCollector, isRevisionConflict, type ReadingObservation } from './reading-collector'
+import { patchReadingSummaryInCache, reconcileReadingCache } from './reading-cache'
 
 type SurfaceObservation = Omit<ReadingObservation, 'artworkId'>
 
@@ -41,7 +41,7 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
   const collector = useMemo(() => {
     const engine = new ReadingCollector({
       report: (input, signal) => trpcClient.reading.report.mutate(input, { signal }),
-      onSummary: (summary, expectedUserId) => {
+      onSummary: (summary, expectedUserId, result) => {
         if (useAuthStore.getState().user?.id !== expectedUserId) return
         setErrors((prior) => {
           if (!prior.has(summary.artworkId)) return prior
@@ -49,7 +49,7 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
           next.delete(summary.artworkId)
           return next
         })
-        patchReadingSummaryInCache(queryClient, summary, expectedUserId)
+        patchReadingSummaryInCache(queryClient, summary, expectedUserId, result)
       },
       onInvalidated: (artworkId, expectedUserId) => {
         if (useAuthStore.getState().user?.id !== expectedUserId) return
@@ -90,6 +90,16 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
   }, [collector, ownerUserId])
 
   useEffect(() => {
+    if (!ownerUserId) return
+    let reconciling = false
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (reconciling || event.type !== 'updated' || event.action.type !== 'success') return
+      reconciling = true
+      try { reconcileReadingCache(queryClient, ownerUserId) } finally { reconciling = false }
+    })
+  }, [queryClient, ownerUserId])
+
+  useEffect(() => {
     const syncAvailability = () => {
       const available = !document.hidden && navigator.onLine
       collector.setAvailability(!document.hidden, navigator.onLine)
@@ -126,6 +136,11 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
 export function useArtworkReading(artworkId: number) {
   const { collector, ownerUserId, revision, invalidated, errors } = useReadingProvider()
   const trpc = useTRPC()
+  const trpcClient = useTRPCClient()
+  const queryClient = useQueryClient()
+  const markingRef = useRef(false)
+  const [marking, setMarking] = useState(false)
+  const [markError, setMarkError] = useState<string | null>(null)
   const contextQuery = useQuery(trpc.reading.context.queryOptions(
     { artworkId, expectedUserId: ownerUserId ?? '' },
     { enabled: Boolean(ownerUserId && artworkId > 0), staleTime: 0 }
@@ -148,7 +163,35 @@ export function useArtworkReading(artworkId: number) {
     window.location.reload()
   }, [])
 
+  const markRead = useCallback(async (target: ReadingMarkReadInput['target']) => {
+    if (!context || !ownerUserId || markingRef.current || invalidated.has(artworkId)) return
+    markingRef.current = true
+    setMarking(true)
+    setMarkError(null)
+    try {
+      const result = await trpcClient.reading.markRead.mutate({
+        artworkId, expectedUserId: ownerUserId, mediaRevision: context.mediaRevision, target
+      })
+      if (useAuthStore.getState().user?.id !== ownerUserId) return
+      patchReadingSummaryInCache(queryClient, result.summary, ownerUserId, result)
+      collector.setContext({ ...context, ...result }, ownerUserId)
+    } catch (error) {
+      if (useAuthStore.getState().user?.id !== ownerUserId) return
+      if (isRevisionConflict(error)) collector.invalidateArtwork(artworkId)
+      else setMarkError('标记未保存，请重试。')
+    } finally {
+      markingRef.current = false
+      setMarking(false)
+    }
+  }, [artworkId, collector, context, invalidated, ownerUserId, queryClient, trpcClient])
+
+  useEffect(() => { setMarkError(null) }, [ownerUserId, artworkId])
+
   return {
+    ownerUserId,
+    markRead,
+    marking,
+    markError,
     context,
     summary: context?.summary ?? null,
     resume: context?.resume ?? null,

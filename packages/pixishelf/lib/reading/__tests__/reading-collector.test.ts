@@ -3,7 +3,7 @@ import type { ReadingContextDto, ReadingReportInput, ReadingReportResult } from 
 import { ReadingCollector } from '../reading-collector'
 
 const summary = {
-  artworkId: 1,
+  artworkId: 1, mediaRevision: 1, stateVersion: 0,
   viewCount: 1,
   seenCount: 1,
   totalCount: 2,
@@ -17,6 +17,7 @@ const summary = {
 const context: ReadingContextDto = {
   artworkId: 1,
   mediaRevision: 1,
+  seenMediaIds: [],
   media: [
     { mediaId: 11, memberMediaIds: [11], index: 0 },
     { mediaId: 12, memberMediaIds: [12], index: 1 }
@@ -28,7 +29,7 @@ const context: ReadingContextDto = {
 function setup(report = vi.fn(async (input: ReadingReportInput, signal: AbortSignal): Promise<ReadingReportResult> => {
   expect(input.artworkId).toBe(1)
   expect(signal).toBeInstanceOf(AbortSignal)
-  return { mediaRevision: 1, summary }
+  return { mediaRevision: 1, seenMediaIds: [11], summary }
 })) {
   const onSummary = vi.fn()
   const onInvalidated = vi.fn()
@@ -128,7 +129,7 @@ describe('ReadingCollector', () => {
 
   it('notifies completion once after an accepted view, not on an already completed context', async () => {
     const completed = { ...summary, seenCount: 2, status: 'COMPLETED' as const }
-    const report = vi.fn(async (): Promise<ReadingReportResult> => ({ mediaRevision: 1, summary: completed }))
+    const report = vi.fn(async (): Promise<ReadingReportResult> => ({ mediaRevision: 1, seenMediaIds: [], summary: completed }))
     const { collector, onCompleted } = setup(report)
     const observation = { artworkId: 1, mediaId: 12, ready: true, visible: true, automatic: false }
     collector.observe('detail', observation)
@@ -202,7 +203,7 @@ describe('ReadingCollector', () => {
     collector.observe('reader', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: true })
     const flushing = collector.flush()
     collector.setAccount('bob')
-    resolveReport({ mediaRevision: 1, summary })
+    resolveReport({ mediaRevision: 1, seenMediaIds: [11], summary })
     await flushing
     expect(onSummary).not.toHaveBeenCalled()
     collector.dispose()

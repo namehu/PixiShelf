@@ -71,9 +71,10 @@ const images = [media(1), media(2)]
 const context: ReadingContextDto = {
   artworkId: 1,
   mediaRevision: 1,
+  seenMediaIds: [],
   media: images.map((item, index) => ({ mediaId: item.id, memberMediaIds: [item.id], index })),
   summary: {
-    artworkId: 1, viewCount: 0, seenCount: 0, totalCount: 2, status: 'UNREAD',
+    artworkId: 1, mediaRevision: 1, stateVersion: 0, viewCount: 0, seenCount: 0, totalCount: 2, status: 'UNREAD',
     lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null
   },
   resume: null
@@ -82,7 +83,7 @@ const context: ReadingContextDto = {
 function createReading() {
   const report = vi.fn(async (input: ReadingReportInput) => {
     expect(input.expectedUserId).toBe('user-1')
-    return { mediaRevision: 1, summary: context.summary }
+    return { mediaRevision: 1, seenMediaIds: [], summary: context.summary }
   })
   const collector = new ReadingCollector({ report })
   collector.setAccount('user-1')

@@ -31,6 +31,7 @@ interface LazyMediaProps {
  * 懒加载媒体组件
  */
 const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, trackingActive = true }: LazyMediaProps) => {
+  const displayIndex = reading?.context?.media.find((item) => item.memberMediaIds.includes(media.id))?.index ?? index
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('loading')
   const [visible, setVisible] = useState(false)
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
@@ -221,7 +222,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
       return (
         <ApngPlayer
           src={src}
-          alt={`Artwork animation ${index + 1}`}
+          alt={`Artwork animation ${displayIndex + 1}`}
           onPosterLoad={() => report('ready')}
           onPosterError={() => report('error')}
           onPlayingChange={onPlayingChange}
@@ -234,7 +235,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
       return (
         <AnimatedWebpPlayer
           src={src}
-          alt={`Artwork ${formatLabel} ${index + 1}`}
+          alt={`Artwork ${formatLabel} ${displayIndex + 1}`}
           size={media.size}
           animationMetadata={media.animationMetadata}
           isAnimated={Boolean(media.isAnimated)}
@@ -254,7 +255,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
     return (
       <Image
         src={src}
-        alt={`Artwork part ${index + 1}`}
+        alt={`Artwork part ${displayIndex + 1}`}
         priority={index < 4}
         loading={index < 4 || automatic ? 'eager' : 'lazy'}
         width={0}

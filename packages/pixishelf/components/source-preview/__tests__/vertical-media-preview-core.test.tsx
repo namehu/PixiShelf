@@ -191,4 +191,16 @@ describe('VerticalMediaPreviewCore', () => {
 
     expect(back).toHaveBeenCalledTimes(1)
   })
+  it('displays original page numbers while navigation stays inside the filtered sequence', () => {
+    render(<VerticalMediaPreviewCore
+      items={[237, 599]} itemKey={(item) => item} initialIndex={1} open
+      counterIndex={598} counterTotal={600} onClose={vi.fn()}
+      historyKey="__filtered_preview__" title="预览" description="未读图片" closeLabel="关闭预览"
+      renderSlide={(item) => <span>图片 {item}</span>}
+    />)
+    expect(screen.getByText('599 / 600')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '下一张媒体' }).hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: '上一张媒体' }).hasAttribute('disabled')).toBe(false)
+  })
+
 })

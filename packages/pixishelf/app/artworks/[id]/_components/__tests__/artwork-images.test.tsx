@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React from 'react'
+import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 import ArtworkImages, { buildMediaAnchorIndexes, getEstimatedMediaHeight } from '../artwork-images'
 import { useArtworkDetailPreferences } from '@/store/use-artwork-detail-preferences'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
@@ -82,10 +83,10 @@ vi.mock('@/components/ui/popover', () => ({
 }))
 
 vi.mock('../lazy-media', () => ({
-  default: ({ media, index }: { media: { path: string }; index: number }) => (
+  default: ({ media, index, onPreviewStatusChange }: { media: { path: string }; index: number; onPreviewStatusChange?: (status: 'ready' | 'error') => void }) => (
     <div data-testid="lazy-media" data-src={media.path} data-index={index}>
       {/* oxlint-disable-next-line nextjs/no-img-element */}
-      <img src={media.path} alt="" />
+      <img src={media.path} alt="" onError={() => onPreviewStatusChange?.('error')} onLoad={() => onPreviewStatusChange?.('ready')} />
       Image {index + 1}
     </div>
   )
@@ -387,6 +388,34 @@ describe('ArtworkImages', () => {
     fireEvent.click(screen.getByRole('button', { name: '自动滚动' }))
     expect(useArtworkAutoBrowseStore.getState()).toMatchObject({ mode: 'scroll', status: 'running' })
     expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+  })
+
+  it.each(['loading', 'ready', 'error'] as const)('only offers manual marking for failed images in the menu: %s', (status) => {
+    vi.useFakeTimers()
+    const images = generateImages(2)
+    const markRead = vi.fn()
+    const reading = {
+      context: { media: images.map((image, index) => ({ mediaId: image.id, memberMediaIds: [image.id], index })), seenMediaIds: [] },
+      markRead, observe: vi.fn(), clearSurface: vi.fn(), flush: vi.fn()
+    } as unknown as ArtworkReadingHandle
+    render(<ArtworkImages images={images} artworkId={1} reading={reading} />)
+    expect(screen.queryByText('第 1 张')).toBeNull()
+    expect(screen.queryByText('未读')).toBeNull()
+    expect(screen.queryByRole('button', { name: '标记第 1 张已读' })).toBeNull()
+    const media = screen.getAllByTestId('lazy-media')[0]!
+    if (status === 'error') fireEvent.error(media.querySelector('img')!)
+    if (status === 'ready') fireEvent.load(media.querySelector('img')!)
+    fireEvent.mouseDown(media)
+    act(() => vi.advanceTimersByTime(500))
+    expect(screen.getByText('第 1 张')).toBeTruthy()
+    expect(screen.queryByText('已读')).toBeNull()
+    expect(screen.queryByText('未读')).toBeNull()
+    if (status === 'error') {
+      fireEvent.click(screen.getByRole('button', { name: '标记第 1 张已读' }))
+      expect(markRead).toHaveBeenCalledWith({ kind: 'MEDIA', mediaId: images[0]!.id })
+    } else {
+      expect(screen.queryByRole('button', { name: '标记第 1 张已读' })).toBeNull()
+    }
   })
 
   it('does not open the adaptive preview menu on video long press', () => {

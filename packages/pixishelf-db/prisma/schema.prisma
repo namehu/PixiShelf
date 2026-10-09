@@ -629,8 +629,9 @@ model ArtworkReadingSummary {
   viewCount       Int      @default(0)
   seenCount       Int      @default(0)
   totalCount      Int      @default(0)
-  lastViewedAt    DateTime
-  lastActiveAt    DateTime
+  stateVersion    Int      @default(0)
+  lastViewedAt    DateTime?
+  lastActiveAt    DateTime?
   lastMediaId     Int?
   lastMediaIndex  Int?
   createdAt       DateTime @default(now())

@@ -44,7 +44,7 @@ describe('ArtworkCard', () => {
 
   it('shows reading progress without changing the artwork link', () => {
     render(<ArtworkCard artwork={artwork as never} showReadingStatus reading={{
-      artworkId: 42, viewCount: 2, seenCount: 1, totalCount: 3, status: 'IN_PROGRESS',
+      artworkId: 42, mediaRevision: 1, stateVersion: 0, viewCount: 2, seenCount: 1, totalCount: 3, status: 'IN_PROGRESS',
       lastViewedAt: null, lastActiveAt: null, lastMediaId: 1, lastMediaIndex: 0
     }} />)
     expect(screen.getByRole('link', { name: '查看作品：可选择的作品标题' }).getAttribute('aria-description')).toBe('阅读中 1/3')
@@ -63,7 +63,7 @@ describe('ArtworkCard', () => {
 
   it('keeps completed progress accessible in minimal mode without a repeated count label', () => {
     render(<ArtworkCard artwork={artwork as never} displayMode="minimal" showReadingStatus reading={{
-      artworkId: 42, viewCount: 2, seenCount: 3, totalCount: 3, status: 'COMPLETED',
+      artworkId: 42, mediaRevision: 1, stateVersion: 0, viewCount: 2, seenCount: 3, totalCount: 3, status: 'COMPLETED',
       lastViewedAt: null, lastActiveAt: null, lastMediaId: 1, lastMediaIndex: 0
     }} />)
     expect(screen.getByRole('link').getAttribute('aria-description')).toBe('已看完 3/3')

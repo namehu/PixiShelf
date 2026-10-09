@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
+import { ArtworkMediaViewProvider, useArtworkMediaView } from '../artwork-media-view-context'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
@@ -34,6 +35,7 @@ vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DropdownMenuTrigger: ({ children }: { children: ReactNode }) => children,
   DropdownMenuContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DropdownMenuSeparator: () => <hr />,
   DropdownMenuGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DropdownMenuItem: ({
     children,
@@ -108,6 +110,22 @@ describe('NavHead', () => {
     fireEvent.click(screen.getByRole('button', { name: '全屏预览' }))
     expect(useArtworkStore.getState().images).toEqual(data.images)
     expect(mocks.push).toHaveBeenCalledWith('/artworks/preview?artworkId=7')
+  })
+
+  it('routes reading actions through the top-right menu', () => {
+    function ReadingState() {
+      const view = useArtworkMediaView()!
+      const setMenu = view.setReadingMenu
+      useEffect(() => { setMenu({ unreadOnly: true, remaining: 2, disabled: false }) }, [setMenu])
+      return <output>{view.readingRequest?.action}</output>
+    }
+    render(<ArtworkMediaViewProvider><ReadingState /><NavHead data={data} id="7" /></ArtworkMediaViewProvider>)
+    fireEvent.click(screen.getByRole('button', { name: '查看全部' }))
+    expect(screen.getByRole('status').textContent).toBe('filter')
+    fireEvent.click(screen.getByRole('button', { name: '刷新未读' }))
+    expect(screen.getByRole('status').textContent).toBe('refresh')
+    fireEvent.click(screen.getByRole('button', { name: '标记全部已读' }))
+    expect(screen.getByRole('status').textContent).toBe('mark-all')
   })
 
   it('shows a centered truncated title only after the media marker crosses the toolbar', () => {

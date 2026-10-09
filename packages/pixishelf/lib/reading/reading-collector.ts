@@ -1,4 +1,5 @@
 import {
+  compareReadingVersion,
   READING_HEARTBEAT_INTERVAL_MS,
   READING_MEDIA_REVISION_CONFLICT_CODE,
   READING_REPORT_INTERVAL_MS,
@@ -49,14 +50,14 @@ interface ArtworkQueue {
 
 export interface ReadingCollectorOptions {
   report: (input: ReadingReportInput, signal: AbortSignal) => Promise<ReadingReportResult>
-  onSummary?: (summary: ReadingSummaryDto, ownerUserId: string) => void
+  onSummary?: (summary: ReadingSummaryDto, ownerUserId: string, result: ReadingReportResult) => void
   onCompleted?: (summary: ReadingSummaryDto, ownerUserId: string) => void
   onInvalidated?: (artworkId: number, ownerUserId: string) => void
   onError?: (error: unknown, artworkId: number, ownerUserId: string) => void
   now?: () => number
 }
 
-function isRevisionConflict(error: unknown) {
+export function isRevisionConflict(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const value = error as { message?: unknown; data?: { code?: unknown }; code?: unknown }
   return (
@@ -111,9 +112,10 @@ export class ReadingCollector {
     if (!this.ownerUserId || this.ownerUserId !== expectedUserId || this.invalidated.has(context.artworkId)) return
     const prior = this.contexts.get(context.artworkId)
     if (prior && prior.mediaRevision !== context.mediaRevision) {
-      this.dropArtwork(context.artworkId)
+      this.invalidateArtwork(context.artworkId)
       return
     }
+    if (prior && compareReadingVersion(context.summary, prior.summary) < 0) return
     this.contexts.set(context.artworkId, context)
     this.reconcileActive()
   }
@@ -226,17 +228,18 @@ export class ReadingCollector {
       }, controller.signal)
       if (epoch !== this.epoch || owner !== this.ownerUserId || this.queues.get(artworkId) !== queue) return
       if (result.mediaRevision !== queue.revision) {
-        this.dropArtwork(artworkId)
+        this.invalidateArtwork(artworkId)
         return
       }
       const context = this.contexts.get(artworkId)
-      if (context) this.contexts.set(artworkId, { ...context, summary: result.summary })
-      this.options.onSummary?.(result.summary, owner)
+      const current = !context || compareReadingVersion(result.summary, context.summary) >= 0
+      if (context && current) this.contexts.set(artworkId, { ...context, summary: result.summary, seenMediaIds: result.seenMediaIds })
+      if (current) this.options.onSummary?.(result.summary, owner, result)
       for (const surface of this.surfaces.values()) {
         if (surface.artworkId === artworkId && events.some(({ event }) =>
           event.type === 'VIEW' && event.mediaId === surface.mediaId)) this.accepted.add(surface)
       }
-      if (context && context.summary.status !== 'COMPLETED' && result.summary.status === 'COMPLETED' &&
+      if (current && context && context.summary.status !== 'COMPLETED' && result.summary.status === 'COMPLETED' &&
         events.some(({ event }) => event.type === 'VIEW') && !this.completedNotifications.has(artworkId)) {
         this.completedNotifications.add(artworkId)
         this.options.onCompleted?.(result.summary, owner)
@@ -250,7 +253,7 @@ export class ReadingCollector {
     } catch (error) {
       if (epoch !== this.epoch || owner !== this.ownerUserId || this.queues.get(artworkId) !== queue) return
       if (isRevisionConflict(error)) {
-        this.dropArtwork(artworkId)
+        this.invalidateArtwork(artworkId)
         return
       }
       queue.events.unshift(...events.filter((entry) => this.now() - entry.createdAt < READING_REPORT_MAX_AGE_MS))
@@ -265,7 +268,7 @@ export class ReadingCollector {
     }
   }
 
-  private dropArtwork(artworkId: number) {
+  invalidateArtwork(artworkId: number) {
     const queue = this.queues.get(artworkId)
     queue?.controller?.abort()
     this.queues.delete(artworkId)
@@ -350,7 +353,7 @@ export class ReadingCollector {
       this.queues.set(artworkId, queue)
     }
     if (queue.revision !== context.mediaRevision) {
-      this.dropArtwork(artworkId)
+      this.invalidateArtwork(artworkId)
       return
     }
     queue.events.push({ event, createdAt: this.now() })

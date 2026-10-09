@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
+import { Button } from '@/components/ui/button'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { WebpDiagnosticsPanel, type WebpDiagnosticResult } from '@/components/players/webp-diagnostics-panel'
 import { combinationApiResource } from '@/utils/combination-static'
@@ -24,6 +25,7 @@ import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store
 import { AutoBrowseControls } from './auto-browse-controls'
 import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkSlideshow } from './use-artwork-slideshow'
+import { readingMediaPosition } from './reading-media-status'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 
 const ADAPTIVE_PREVIEW_HISTORY_KEY = '__pixishelf_adaptive_media_preview__'
@@ -117,6 +119,8 @@ export default function AdaptiveMediaPreview({
   }, [images.length, initialIndex, open])
 
   const activeMedia = images[currentIndex]
+  const originalIndex = activeMedia ? readingMediaPosition(reading, activeMedia.id)?.index ?? currentIndex : currentIndex
+  const originalTotal = reading?.context?.media.length ?? images.length
   const activeMediaId = activeMedia?.id
   const activeMediaKey = previewResourceKey(activeMedia)
   const activeMediaReady = decodedIndexes.has(activeMediaKey) && !errorIndexes.has(activeMediaKey)
@@ -282,6 +286,8 @@ export default function AdaptiveMediaPreview({
       items={images}
       itemKey={(media, index) => media.id || index}
       initialIndex={safeInitialIndex}
+      counterIndex={originalIndex}
+      counterTotal={originalTotal}
       transitionEffect="fade"
       open={open}
       onClose={(finalIndex) => {
@@ -358,7 +364,7 @@ export default function AdaptiveMediaPreview({
               <Image
                 key={`${media.path}:${media.updatedAt}:${retryCounts[index] ?? 0}`}
                 src={withMediaVersion(media.path, media.updatedAt)}
-                alt={`作品媒体 ${index + 1}`}
+                alt={`作品媒体 ${(readingMediaPosition(reading, media.id)?.index ?? index) + 1}`}
                 fill
                 sizes="100vw"
                 quality={90}
@@ -393,6 +399,17 @@ export default function AdaptiveMediaPreview({
       }}
       bottomChrome={({ portalContainer: container }) => (
         <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 h-12">
+          {reading && (reading.invalidated || reading.markError) && (
+            <div className="pointer-events-auto absolute inset-x-0 bottom-14 mx-auto w-fit max-w-full rounded-lg bg-background text-foreground">
+              {reading.invalidated ? (
+                <div className="flex flex-wrap items-center gap-2 p-3 text-sm" role="status">
+                  <span>作品媒体已更新，请重新打开阅读。</span>
+                  <Button size="sm" variant="outline" onClick={reading.reopen}>重新打开</Button>
+                </div>
+              ) : null}
+              {reading.markError && <p role="alert" className="px-3 pb-2 text-sm text-destructive">{reading.markError}</p>}
+            </div>
+          )}
           {diagnosticsEnabled && open && activePlayableWebp && activeMedia && (
             <WebpDiagnosticsPanel
               src={withMediaVersion(combinationApiResource(activeMedia.path), activeMedia.updatedAt)}
@@ -415,11 +432,11 @@ export default function AdaptiveMediaPreview({
                 <AutoBrowseControls
                   mode="slideshow"
                   trailingControl={activePlayableWebp ? webpControl : undefined}
-                  current={currentIndex + 1}
-                  total={images.length}
+                  current={originalIndex + 1}
+                  total={originalTotal}
                   navigation={
                     <span className="px-2 text-sm tabular-nums">
-                      {currentIndex + 1}/{images.length}
+                      {originalIndex + 1}/{originalTotal}
                     </span>
                   }
                   blocked={zoomScale > 1.01}

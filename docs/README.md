@@ -39,7 +39,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 - [艺术家与系列旧字段清理](./features/legacy-identity-retirement.md)（current）：四个旧字段的依赖替换、数据审计与分步上线检查。
 
-- [作品阅读记录与进度](./features/artwork-reading.md)（draft）：账户级阅读次数、进度、继续阅读与隔离验收；生产发布尚未核验。
+- [作品阅读记录与进度](./features/artwork-reading.md)（draft）：账户级阅读次数、进度、补看与手动完成、继续阅读及隔离验收；生产发布尚未核验。
 
 - [艺术家合并](./features/artist-merge.md)（current）：作品并集、归档绑定迁移、来源冲突、后台原子提交与恢复边界。
 
