@@ -76,7 +76,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 架构与性能
 
-- [WebP 独立帧生产接入](./design/webp-mobile-production.md)（current，部署状态待核实）：独立帧并行、自适应省略、顺序回退、诊断用法与最终手机验收。
+- [WebP 独立帧生产接入](./design/webp-mobile-production.md)（current，用户确认已发布）：独立帧并行、自适应省略、顺序回退、诊断用法与最终手机验收。
 
 
 
