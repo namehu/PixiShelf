@@ -83,8 +83,10 @@ export function useArtworkAutoScroll({
       const delta = previousTime === null ? 0 : Math.min(64, Math.max(0, time - previousTime))
       previousTime = time
       const nodes = Array.from(container.querySelectorAll<HTMLElement>(':scope > [data-index]'))
+      // Read layout once before any store update can cause a React commit.
+      const rects = new Map(nodes.map((node) => [node, node.getBoundingClientRect()]))
       const visible = nodes.filter((node) => {
-        const rect = node.getBoundingClientRect()
+        const rect = rects.get(node)!
         return rect.bottom > top && rect.top < bottom
       })
       const focus = (top + bottom) / 2
@@ -101,13 +103,13 @@ export function useArtworkAutoScroll({
             !state.skippedIds.includes(media.id) &&
             !state.completedAnimationIds.includes(media.id) &&
             !state.stoppedAnimationIds.includes(media.id) &&
-            (node.getBoundingClientRect().top <= focus || bounds.bottom <= bottom + 1)
+            (rects.get(node)!.top <= focus || bounds.bottom <= bottom + 1)
           )
         })
       const current =
         animationNode ??
         visible.find((node) => {
-          const rect = node.getBoundingClientRect()
+          const rect = rects.get(node)!
           return rect.top <= focus && rect.bottom > focus
         }) ??
         visible[0]
@@ -154,7 +156,7 @@ export function useArtworkAutoScroll({
         state.setCurrentMedia(media.id)
         if (animation?.id !== media.id) {
           animation = { id: media.id }
-          const rect = animationNode.getBoundingClientRect()
+          const rect = rects.get(animationNode)!
           position = Math.max(0, window.scrollY + rect.top - top - Math.max(0, (bottom - top - rect.height) / 2))
           window.scrollTo({ top: position, behavior: 'instant' })
           state.setActiveAnimation(media.id)
@@ -178,7 +180,7 @@ export function useArtworkAutoScroll({
       }
       state.ready()
       const last = nodes.find((node) => Number(node.dataset.index) === images.length - 1)
-      if (last && last.getBoundingClientRect().bottom <= bottom + 1) {
+      if (last && rects.get(last)!.bottom <= bottom + 1) {
         if (!state.loop) {
           state.end()
           return

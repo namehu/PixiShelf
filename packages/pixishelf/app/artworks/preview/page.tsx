@@ -1,6 +1,5 @@
 'use client'
 
-import { PrivacyControl } from '@/components/privacy/privacy-control'
 import React, { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import { Swiper, SwiperSlide } from 'swiper/react'
@@ -236,19 +235,14 @@ export default function ArtworkPreviewPage() {
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="rounded-md bg-background text-foreground">
-            <PrivacyControl compact />
-          </div>
-          <button
-            type="button"
-            aria-label="关闭作品预览"
-            onClick={safeBack}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-colors hover:bg-black/40"
-          >
-            <X aria-hidden="true" size={24} />
-          </button>
-        </div>
+        <button
+          type="button"
+          aria-label="关闭作品预览"
+          onClick={safeBack}
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-colors hover:bg-black/40"
+        >
+          <X aria-hidden="true" size={24} />
+        </button>
       </div>
 
       {/* Swiper 轮播容器 */}

@@ -135,8 +135,18 @@ export default function AdaptiveMediaPreview({
       priority: 100
     })
     return () => clearSurface(surfaceId)
-  }, [activeMediaId, activeMediaReady, autoSlideshowSelected, autoStatus, clearSurface,
-    observationEpoch, observe, open, transitioning, diagnosticRunning])
+  }, [
+    activeMediaId,
+    activeMediaReady,
+    autoSlideshowSelected,
+    autoStatus,
+    clearSurface,
+    observationEpoch,
+    observe,
+    open,
+    transitioning,
+    diagnosticRunning
+  ])
   const activeProgress = webpProgress?.key === previewResourceKey(activeMedia) ? webpProgress.percent : null
   const activePlayableWebp = useMemo(() => (activeMedia ? isPlayableAnimatedWebp(activeMedia) : false), [activeMedia])
   const eagerNeighborIndexes = useMemo(() => {
@@ -246,6 +256,27 @@ export default function AdaptiveMediaPreview({
 
   if (!images.length) return null
 
+  const webpControl = (
+    <button
+      type="button"
+      className="pointer-events-auto flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
+      aria-label={animationPlaybackLabel(isWebpPlaying, animation.playOnce, 'WEBP', activeProgress)}
+      data-auto-browse-controls
+      aria-pressed={isWebpPlaying}
+      onClick={() => {
+        animation.onPlayingChange(!isWebpPlaying)
+      }}
+    >
+      <AnimationPlaybackCapsule
+        playing={isWebpPlaying}
+        playOnce={animation.playOnce}
+        label="WEBP"
+        fileSize={formatAnimationFileSize(activeMedia?.size)}
+        progressPercent={activeProgress}
+      />
+    </button>
+  )
+
   return (
     <VerticalMediaPreviewCore
       items={images}
@@ -344,8 +375,12 @@ export default function AdaptiveMediaPreview({
             )}
             {diagnosticsEnabled && index === currentIndex && playableAnimatedWebp && (
               <div className="pointer-events-none absolute inset-0 px-0 py-16 sm:px-12 sm:py-20">
-                <canvas ref={diagnosticCanvas} data-webp-diagnostic-canvas aria-label="WebP 诊断画面"
-                  className={cn('h-full w-full object-contain', !diagnosticVisible && 'invisible')} />
+                <canvas
+                  ref={diagnosticCanvas}
+                  data-webp-diagnostic-canvas
+                  aria-label="WebP 诊断画面"
+                  className={cn('h-full w-full object-contain', !diagnosticVisible && 'invisible')}
+                />
               </div>
             )}
             {animated && !playableAnimatedWebp && !autoSlideshowSelected && (
@@ -374,53 +409,35 @@ export default function AdaptiveMediaPreview({
               }}
             />
           )}
-          {activePlayableWebp && !diagnosticRunning && (
-            <button
-              type="button"
-              className={cn(
-                'pointer-events-auto absolute right-0 flex min-h-11 min-w-11 items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring',
-                images.length > 1 ? 'bottom-[calc(100%+0.5rem)] sm:bottom-0' : 'bottom-0'
-              )}
-              aria-label={animationPlaybackLabel(isWebpPlaying, animation.playOnce, 'WEBP', activeProgress)}
-              data-auto-browse-controls
-              aria-pressed={isWebpPlaying}
-              onClick={() => {
-                animation.onPlayingChange(!isWebpPlaying)
-              }}
-            >
-              <AnimationPlaybackCapsule
-                playing={isWebpPlaying}
-                playOnce={animation.playOnce}
-                label="WEBP"
-                fileSize={formatAnimationFileSize(activeMedia?.size)}
-                progressPercent={activeProgress}
-              />
-            </button>
-          )}
-          {images.length > 1 && !diagnosticRunning && (
+          {!diagnosticRunning && (images.length > 1 || activePlayableWebp) && (
             <div className="pointer-events-none absolute bottom-0 left-1/2 max-w-full -translate-x-1/2">
-              <AutoBrowseControls
-                mode="slideshow"
-                current={currentIndex + 1}
-                total={images.length}
-                navigation={
-                  <span className="px-2 text-sm tabular-nums">
-                    {currentIndex + 1}/{images.length}
-                  </span>
-                }
-                blocked={zoomScale > 1.01}
-                container={container}
-                onRestart={() => {
-                  firstSlide()
-                  useArtworkAutoBrowseStore.getState().start('slideshow')
-                }}
-                onRetry={retryCurrent}
-                onSkip={() => {
-                  useArtworkAutoBrowseStore.getState().pause()
-                  useArtworkAutoBrowseStore.getState().clearPauseReason()
-                  if (activeMedia) useArtworkAutoBrowseStore.getState().skip(activeMedia.id)
-                }}
-              />
+              {images.length > 1 ? (
+                <AutoBrowseControls
+                  mode="slideshow"
+                  trailingControl={activePlayableWebp ? webpControl : undefined}
+                  current={currentIndex + 1}
+                  total={images.length}
+                  navigation={
+                    <span className="px-2 text-sm tabular-nums">
+                      {currentIndex + 1}/{images.length}
+                    </span>
+                  }
+                  blocked={zoomScale > 1.01}
+                  container={container}
+                  onRestart={() => {
+                    firstSlide()
+                    useArtworkAutoBrowseStore.getState().start('slideshow')
+                  }}
+                  onRetry={retryCurrent}
+                  onSkip={() => {
+                    useArtworkAutoBrowseStore.getState().pause()
+                    useArtworkAutoBrowseStore.getState().clearPauseReason()
+                    if (activeMedia) useArtworkAutoBrowseStore.getState().skip(activeMedia.id)
+                  }}
+                />
+              ) : (
+                webpControl
+              )}
             </div>
           )}
         </div>

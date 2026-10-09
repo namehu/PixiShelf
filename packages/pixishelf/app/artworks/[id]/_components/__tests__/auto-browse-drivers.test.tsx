@@ -170,6 +170,20 @@ describe('scroll driver', () => {
     advance(100000)
     expect(getY()).toBeLessThanOrEqual(54)
   })
+  it('keeps 500 px/s continuous across 60 Hz frames without repeated item layout reads', () => {
+    const { advance, getY, container } = setup()
+    act(() => store.getState().setPreferences({ scrollSpeed: 500 }))
+    const measure = vi.mocked(container.firstElementChild!.getBoundingClientRect)
+    measure.mockClear()
+    let previous = 0
+    for (let frame = 0; frame <= 60; frame++) {
+      advance(frame * 1000 / 60)
+      if (frame > 0) expect(getY() - previous).toBeGreaterThanOrEqual(8)
+      previous = getY()
+    }
+    expect(getY()).toBe(500)
+    expect(measure).toHaveBeenCalledTimes(61)
+  })
   it('waits for media, continues on load and pauses on an error', () => {
     const { advance, getY, container } = setup({ status: 'loading' })
     advance(0)

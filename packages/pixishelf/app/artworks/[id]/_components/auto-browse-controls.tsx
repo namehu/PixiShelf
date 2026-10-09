@@ -9,6 +9,7 @@ interface AutoBrowseControlsProps {
   current: number
   total: number
   navigation?: ReactNode
+  trailingControl?: ReactNode
   onRestart: () => void
   onRetry: () => void
   onSkip: () => void
@@ -22,6 +23,7 @@ export function AutoBrowseControls({
   current,
   total,
   navigation,
+  trailingControl,
   onRestart,
   onRetry,
   onSkip,
@@ -37,6 +39,7 @@ export function AutoBrowseControls({
       total={total}
       state={state}
       navigation={navigation}
+      trailingControl={trailingControl}
       onStart={state.start}
       onPause={state.pause}
       onResume={state.resume}

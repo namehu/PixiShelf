@@ -2,14 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import {
-  ChevronRightIcon,
-  PauseIcon,
-  PlayIcon,
-  RotateCcwIcon,
-  Settings2Icon,
-  XIcon
-} from 'lucide-react'
+import { ChevronRightIcon, PauseIcon, PlayIcon, RotateCcwIcon, Settings2Icon, XIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -35,6 +28,7 @@ export interface ControlledAutoBrowseControlsProps {
   total: number
   state: ControlledAutoBrowseState
   navigation?: ReactNode
+  trailingControl?: ReactNode
   onStart: (mode: AutoBrowseMode) => void
   onPause: (reason?: AutoBrowsePauseReason) => void
   onResume: () => void
@@ -56,6 +50,7 @@ export function ControlledAutoBrowseControls({
   total,
   state,
   navigation,
+  trailingControl,
   onStart,
   onPause,
   onResume,
@@ -152,165 +147,170 @@ export function ControlledAutoBrowseControls({
       data-auto-browse-controls
       data-auto-browse-mode={mode}
       data-collapsed={collapsed}
-      className="pointer-events-auto flex h-12 max-w-[calc(100vw-2rem)] flex-col rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md"
+      className="pointer-events-auto flex h-12 max-w-[calc(100vw-2rem)] items-center rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md"
     >
-      {collapsed ? (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-11 flex-col gap-0 rounded-full"
-          aria-label={`展开自动浏览控制，当前第 ${current} 张，共 ${total} 张`}
-          aria-expanded={false}
-          title={`${description} · 展开自动浏览控制`}
-          onClick={() => {
-            onSetControlsCollapsed(false)
-            requestAnimationFrame(() => rootRef.current?.querySelector('button')?.focus({ preventScroll: true }))
-          }}
-        >
-          <PlayIcon />
-          <span className="text-[10px] leading-3 tabular-nums">
-            {current}/{total}
-          </span>
-        </Button>
-      ) : (
-        <>
-          <div className="flex items-center justify-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-11 rounded-full"
-              disabled={blocked || (error && !playing)}
-              aria-label={playing ? '暂停自动浏览' : ended ? '重新开始自动浏览' : '开始或继续自动浏览'}
-              title={playing ? `${description} · 暂停` : ended ? '重新开始' : selected ? '继续' : '自动轮播'}
-              onClick={() => {
-                if (playing) onPause()
-                else if (ended) onRestart()
-                else if (selected) onResume()
-                else onStart(mode)
-              }}
-            >
-              {playing ? (
-                <PauseIcon data-icon="inline-start" />
-              ) : ended ? (
-                <RotateCcwIcon data-icon="inline-start" />
-              ) : (
-                <PlayIcon data-icon="inline-start" />
-              )}
-            </Button>
-            {navigation ?? (
-              <span className="px-2 text-sm tabular-nums" aria-label={`当前第 ${current} 张，共 ${total} 张`}>
-                {current} / {total}
-              </span>
-            )}
-            <Popover
-              open={settingsOpen}
-              onOpenChange={(open) => {
-                setRecoveryWhenOpened(
-                  open && selected ? (error ? 'error' : state.status === 'waiting' ? 'waiting' : null) : null
-                )
-                if (open) onPause('overlay')
-                setSettingsOpen(open)
-              }}
-            >
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="size-11" aria-label="自动浏览设置">
-                  <Settings2Icon />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent
-                container={container}
-                side="top"
-                align="center"
-                data-auto-browse-controls
-                data-auto-browse-settings
-              >
-                {recoveryWhenOpened && (
-                  <div className="mb-3 flex items-center gap-1 text-xs text-muted-foreground">
-                    <span>{recoveryWhenOpened === 'error' ? '图片加载失败' : '等待图片加载'}</span>
-                    <Button
-                      variant="ghost"
-                      className="min-h-11"
-                      onClick={() => {
-                        onRetry()
-                        setRecoveryWhenOpened(null)
-                      }}
-                    >
-                      重试
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      className="min-h-11"
-                      onClick={() => {
-                        onSkip()
-                        setRecoveryWhenOpened(null)
-                      }}
-                    >
-                      跳过
-                    </Button>
-                  </div>
-                )}
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel>
-                      {mode === 'scroll' ? `滚动速度：${value} 像素/秒` : `每张停留：${value} 秒`}
-                    </FieldLabel>
-                    <ToggleGroup
-                      type="single"
-                      value={presets.includes(value) ? String(value) : ''}
-                      onValueChange={(next) => {
-                        if (next) setValue(Number(next))
-                      }}
-                      aria-label="浏览速度档位"
-                    >
-                      {presets.map((preset, index) => (
-                        <ToggleGroupItem key={preset} value={String(preset)} className="min-h-11">
-                          {['慢', '中', '快'][index]}
-                        </ToggleGroupItem>
-                      ))}
-                    </ToggleGroup>
-                    <Slider
-                      aria-label={mode === 'scroll' ? '滚动速度' : '每张停留秒数'}
-                      value={[value]}
-                      min={mode === 'scroll' ? 50 : 0.5}
-                      max={mode === 'scroll' ? 800 : 3}
-                      step={mode === 'scroll' ? 50 : 0.5}
-                      onValueChange={([next]) => {
-                        if (next !== undefined) setValue(next)
-                      }}
-                    />
-                  </Field>
-                  <Field orientation="horizontal">
-                    <FieldLabel htmlFor={`auto-browse-loop-${mode}`}>循环当前作品</FieldLabel>
-                    <Switch
-                      id={`auto-browse-loop-${mode}`}
-                      checked={state.loop}
-                      onCheckedChange={(loop) => onSetPreferences({ loop })}
-                    />
-                  </Field>
-                </FieldGroup>
-              </PopoverContent>
-            </Popover>
-            {onExit && (
-              <Button variant="ghost" size="icon" className="size-11" aria-label="退出自动浏览" onClick={onExit}>
-                <XIcon />
-              </Button>
-            )}
-            {playing && (
+      <div className="min-w-0">
+        {collapsed ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-11 flex-col gap-0 rounded-full"
+            aria-label={`展开自动浏览控制，当前第 ${current} 张，共 ${total} 张`}
+            aria-expanded={false}
+            title={`${description} · 展开自动浏览控制`}
+            onClick={() => {
+              onSetControlsCollapsed(false)
+              requestAnimationFrame(() => rootRef.current?.querySelector('button')?.focus({ preventScroll: true }))
+            }}
+          >
+            <PlayIcon />
+            <span className="text-[10px] leading-3 tabular-nums">
+              {current}/{total}
+            </span>
+          </Button>
+        ) : (
+          <>
+            <div className="flex items-center justify-center gap-1">
               <Button
                 variant="ghost"
                 size="icon"
                 className="size-11 rounded-full"
-                aria-label="收起自动浏览控制"
-                onClick={() => onSetControlsCollapsed(true)}
+                disabled={blocked || (error && !playing)}
+                aria-label={playing ? '暂停自动浏览' : ended ? '重新开始自动浏览' : '开始或继续自动浏览'}
+                title={playing ? `${description} · 暂停` : ended ? '重新开始' : selected ? '继续' : '自动轮播'}
+                onClick={() => {
+                  if (playing) onPause()
+                  else if (ended) onRestart()
+                  else if (selected) onResume()
+                  else onStart(mode)
+                }}
               >
-                <ChevronRightIcon />
+                {playing ? (
+                  <PauseIcon data-icon="inline-start" />
+                ) : ended ? (
+                  <RotateCcwIcon data-icon="inline-start" />
+                ) : (
+                  <PlayIcon data-icon="inline-start" />
+                )}
               </Button>
-            )}
-          </div>
-          <span role="status" className="sr-only">
-            {description}
-          </span>
-        </>
+              {navigation ?? (
+                <span className="px-2 text-sm tabular-nums" aria-label={`当前第 ${current} 张，共 ${total} 张`}>
+                  {current} / {total}
+                </span>
+              )}
+              <Popover
+                open={settingsOpen}
+                onOpenChange={(open) => {
+                  setRecoveryWhenOpened(
+                    open && selected ? (error ? 'error' : state.status === 'waiting' ? 'waiting' : null) : null
+                  )
+                  if (open) onPause('overlay')
+                  setSettingsOpen(open)
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-11" aria-label="自动浏览设置">
+                    <Settings2Icon />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  container={container}
+                  side="top"
+                  align="center"
+                  data-auto-browse-controls
+                  data-auto-browse-settings
+                >
+                  {recoveryWhenOpened && (
+                    <div className="mb-3 flex items-center gap-1 text-xs text-muted-foreground">
+                      <span>{recoveryWhenOpened === 'error' ? '图片加载失败' : '等待图片加载'}</span>
+                      <Button
+                        variant="ghost"
+                        className="min-h-11"
+                        onClick={() => {
+                          onRetry()
+                          setRecoveryWhenOpened(null)
+                        }}
+                      >
+                        重试
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        className="min-h-11"
+                        onClick={() => {
+                          onSkip()
+                          setRecoveryWhenOpened(null)
+                        }}
+                      >
+                        跳过
+                      </Button>
+                    </div>
+                  )}
+                  <FieldGroup>
+                    <Field>
+                      <FieldLabel>
+                        {mode === 'scroll' ? `滚动速度：${value} 像素/秒` : `每张停留：${value} 秒`}
+                      </FieldLabel>
+                      <ToggleGroup
+                        type="single"
+                        value={presets.includes(value) ? String(value) : ''}
+                        onValueChange={(next) => {
+                          if (next) setValue(Number(next))
+                        }}
+                        aria-label="浏览速度档位"
+                      >
+                        {presets.map((preset, index) => (
+                          <ToggleGroupItem key={preset} value={String(preset)} className="min-h-11">
+                            {['慢', '中', '快'][index]}
+                          </ToggleGroupItem>
+                        ))}
+                      </ToggleGroup>
+                      <Slider
+                        aria-label={mode === 'scroll' ? '滚动速度' : '每张停留秒数'}
+                        value={[value]}
+                        min={mode === 'scroll' ? 50 : 0.5}
+                        max={mode === 'scroll' ? 800 : 3}
+                        step={mode === 'scroll' ? 50 : 0.5}
+                        onValueChange={([next]) => {
+                          if (next !== undefined) setValue(next)
+                        }}
+                      />
+                    </Field>
+                    <Field orientation="horizontal">
+                      <FieldLabel htmlFor={`auto-browse-loop-${mode}`}>循环当前作品</FieldLabel>
+                      <Switch
+                        id={`auto-browse-loop-${mode}`}
+                        checked={state.loop}
+                        onCheckedChange={(loop) => onSetPreferences({ loop })}
+                      />
+                    </Field>
+                  </FieldGroup>
+                </PopoverContent>
+              </Popover>
+              {onExit && (
+                <Button variant="ghost" size="icon" className="size-11" aria-label="退出自动浏览" onClick={onExit}>
+                  <XIcon />
+                </Button>
+              )}
+              {playing && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-11 rounded-full"
+                  aria-label="收起自动浏览控制"
+                  onClick={() => onSetControlsCollapsed(true)}
+                >
+                  <ChevronRightIcon />
+                </Button>
+              )}
+            </div>
+            <span role="status" className="sr-only">
+              {description}
+            </span>
+          </>
+        )}
+      </div>
+      {trailingControl && (
+        <div className="flex h-11 shrink-0 items-center border-l border-border/40 px-2">{trailingControl}</div>
       )}
     </motion.div>
   )

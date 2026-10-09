@@ -34,9 +34,9 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('loading')
   const [visible, setVisible] = useState(false)
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
-  const autoMode = useArtworkAutoBrowseStore((state) => state.mode)
-  const autoStatus = useArtworkAutoBrowseStore((state) => state.status)
-  const automatic = autoMode === 'scroll' && ['running', 'waiting'].includes(autoStatus)
+  const automatic = useArtworkAutoBrowseStore(
+    (state) => state.mode === 'scroll' && (state.status === 'running' || state.status === 'waiting')
+  )
   const surfaceId = `detail-${media.id}`
   const observe = reading?.observe
   const clearSurface = reading?.clearSurface
@@ -242,6 +242,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
           controlMode={isWebpFile(src) ? 'badge' : 'surface'}
           {...(isWebpFile(src) ? animation : {})}
           updatedAt={media.updatedAt}
+          posterLoading={automatic ? 'eager' : 'lazy'}
           onPosterLoad={() => report('ready')}
           onPosterError={() => report('error')}
           onPlayingChange={isWebpFile(src) ? animation.onPlayingChange : onPlayingChange}
@@ -255,7 +256,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
         src={src}
         alt={`Artwork part ${index + 1}`}
         priority={index < 4}
-        loading={index < 4 ? 'eager' : 'lazy'}
+        loading={index < 4 || automatic ? 'eager' : 'lazy'}
         width={0}
         height={0}
         sizes="100vw"

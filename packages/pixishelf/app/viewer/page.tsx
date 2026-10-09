@@ -1,6 +1,5 @@
 'use client'
 
-import { PrivacyControl } from '@/components/privacy/privacy-control'
 import ImmersiveImageViewer from './_components/immersive-image-viewer'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeftIcon, SlidersHorizontal } from 'lucide-react'
@@ -321,9 +320,6 @@ export default function ViewerPage() {
           >
             <ChevronLeftIcon aria-hidden="true" />
           </Button>
-          <div className="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-[max(4rem,calc(env(safe-area-inset-right)+3.25rem))] z-50 rounded-md bg-background text-foreground">
-            <PrivacyControl compact />
-          </div>
           <Button
             type="button"
             variant="ghost"

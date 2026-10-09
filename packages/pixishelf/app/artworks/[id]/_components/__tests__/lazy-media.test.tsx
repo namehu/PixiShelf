@@ -74,6 +74,22 @@ describe('LazyMedia video cache version', () => {
     playerMocks.imageProps.mockReset()
   })
 
+  it('preloads mounted neighboring images only while automatic scrolling is active', () => {
+    autoBrowse.getState().initialize(1)
+    render(<LazyMedia media={{ ...media, path: '/next.jpg', mediaType: 'image' }} index={12} />)
+    expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('lazy')
+    act(() => autoBrowse.getState().start('scroll'))
+    expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('eager')
+    act(() => autoBrowse.getState().pause())
+    expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('lazy')
+  })
+
+  it('preloads the WebP poster without starting offscreen animation', () => {
+    render(<LazyMedia media={{ ...media, path: '/next.webp', mediaType: 'image', isAnimated: true }} index={12} />)
+    act(() => autoBrowse.getState().start('scroll'))
+    expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0]).toMatchObject({ posterLoading: 'eager', playing: false })
+  })
+
   it('uses image updatedAt to version the immutable video URL', () => {
     render(<LazyMedia media={media} index={0} />)
 
