@@ -25,30 +25,13 @@ interface UserSettingState {
     key: K,
     value: UserSettingsWithDefaults[K]
   ) => void
-  updateSettingsLocallyForUser: (
-    ownerUserId: string | null,
-    nextSettings: Partial<UserSettingsWithDefaults>
-  ) => void
+  updateSettingsLocallyForUser: (ownerUserId: string | null, nextSettings: Partial<UserSettingsWithDefaults>) => void
 }
 
 const defaultSettings = userSettingsWithDefaultsSchema.parse({})
 
 const normalizeSettings = (settings?: UserSettings): UserSettingsWithDefaults =>
   userSettingsWithDefaultsSchema.parse(settings ?? {})
-
-function MediaPrivacyRootSync() {
-  const currentUserId = useAuthUser()?.id ?? null
-  const enabled = useUserSettingsStore(
-    (state) =>
-      currentUserId !== null && state.ownerUserId === currentUserId && state.settings.media_privacy_mode
-  )
-
-  useLayoutEffect(() => {
-    document.documentElement.dataset.mediaPrivacy = enabled ? 'on' : 'off'
-  }, [enabled])
-
-  return null
-}
 
 const useUserSettingsStore = create<UserSettingState>((set) => ({
   ownerUserId: null,
@@ -149,10 +132,7 @@ export function UserSettingProvider({
   }, [currentUserId, serverOwnerUserId])
 
   useEffect(() => {
-    if (
-      serverOwnerUserId !== currentUserId ||
-      lastHydratedSnapshotRef.current === serializedInitialSettings
-    ) {
+    if (serverOwnerUserId !== currentUserId || lastHydratedSnapshotRef.current === serializedInitialSettings) {
       return
     }
 
@@ -160,12 +140,7 @@ export function UserSettingProvider({
     useUserSettingsStore.getState().hydrateSettings(initialSettings, serverOwnerUserId)
   }, [currentUserId, initialSettings, serializedInitialSettings, serverOwnerUserId])
 
-  return (
-    <>
-      <MediaPrivacyRootSync />
-      {children}
-    </>
-  )
+  return children
 }
 
 export function useUserSettings() {
@@ -210,10 +185,6 @@ export function usePreferredTags(): string[] {
 
 export function useArtworkMediaAnchorInterval(): ArtworkMediaAnchorInterval {
   return useUserSettingValue('artwork_media_anchor_interval')
-}
-
-export function useMediaPrivacyMode(): boolean {
-  return useUserSettingValue('media_privacy_mode')
 }
 
 export function useVideoLongPressPlaybackRate(): VideoLongPressPlaybackRate {

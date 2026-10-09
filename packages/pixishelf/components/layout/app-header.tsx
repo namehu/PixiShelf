@@ -1,5 +1,6 @@
 'use client'
 
+import { PrivacyControl } from '@/components/privacy/privacy-control'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ROUTES } from '@/lib/constants'
@@ -61,6 +62,7 @@ export default function AppHeader() {
 
         <div className="ml-auto flex items-center gap-2">
           <NavigationLink item={ADMIN_NAVIGATION_ITEM} pathname={pathname} />
+          <PrivacyControl />
           <UserMenu />
         </div>
       </PageContainer>

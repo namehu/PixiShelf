@@ -23,6 +23,8 @@ sources:
 
 ## 结论
 
+隐私显示与 R18 进入选择只保存在浏览器同源空间，不属于账户权限或认证状态。服务端首屏默认遮蔽媒体，并在受保护页面设置不透明 blocker 和 inert，浏览器完成状态恢复后先应用模式再放行。选择不随登出或切换账户清除，也不影响 API 鉴权、数据加载、复制、导出或阅读记录。`media_privacy_mode` 历史账户行不再读取为有效偏好；更新 DTO 和设置服务拒绝该旧键的新写入，整批校验失败时不写入任何配置。无数据库迁移或历史行删除。详见[浏览器隐私偏好](../features/browser-privacy.md)。
+
 默认启用的 WebP 播放器只读取现有同源媒体 API，Worker 使用 `credentials: same-origin`，不接受跨源媒体或解码器地址。生成的 `/webp-player/` 代码资源仍经过现有 Session 代理，没有新增公开路径。CSP 显式限定 `worker-src 'self'`；WASM 沿用现有 script 策略，不新增跨域许可、SharedArrayBuffer 或隔离响应头。Canvas 继承媒体隐私遮罩。原生解码前检查输入/像素预算，部署回滚使用原应用镜像，不涉及归档或数据库。
 
 播放器资源 manifest 的客户端缓存位于全局 Zustand store 和 sessionStorage，仅保存校验后的资源版本及账号 ID，不保存认证凭证或媒体。退出登录、账号切换会清空并取消旧请求；缓存不会替代 Worker、WASM 或原媒体请求的服务端会话校验。2026-10 独立帧 Worker 协议升级将会话缓存 schema 提升为 1，旧 schema 的资源地址一次性失效并重新获取，保留账户归属；不更改认证凭证或媒体。

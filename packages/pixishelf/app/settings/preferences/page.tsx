@@ -5,8 +5,6 @@ import { useAction } from 'next-safe-action/hooks'
 import { toast } from 'sonner'
 import { useQuery } from '@tanstack/react-query'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
-import { Field, FieldLabel } from '@/components/ui/field'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { updateUserSettingAction } from '@/actions/user-setting-action'
 import { PreferenceItem } from '../_components/preference-item'
@@ -14,7 +12,6 @@ import { ArtworkPreviewPreference } from '../_components/artwork-preview-prefere
 import {
   useArtworkDisplayMode,
   useArtworkMediaAnchorInterval,
-  useMediaPrivacyMode,
   usePreferredTags,
   useVideoLongPressPlaybackRate,
   useVideoSeekStepSeconds,
@@ -33,7 +30,6 @@ import type {
 const DISPLAY_MODE_KEY = 'artwork_display_mode'
 const PREFERRED_TAGS_KEY = 'preferred_tags'
 const MEDIA_ANCHOR_INTERVAL_KEY = 'artwork_media_anchor_interval'
-const MEDIA_PRIVACY_MODE_KEY = 'media_privacy_mode'
 const VIDEO_LONG_PRESS_PLAYBACK_RATE_KEY = 'video_long_press_playback_rate'
 const VIDEO_SEEK_STEP_SECONDS_KEY = 'video_seek_step_seconds'
 
@@ -43,7 +39,6 @@ export default function SettingsPreferencesPage() {
   const displayModeSetting = useArtworkDisplayMode()
   const preferredTagsSetting = usePreferredTags()
   const mediaAnchorIntervalSetting = useArtworkMediaAnchorInterval()
-  const mediaPrivacyModeSetting = useMediaPrivacyMode()
   const videoLongPressPlaybackRateSetting = useVideoLongPressPlaybackRate()
   const videoSeekStepSecondsSetting = useVideoSeekStepSeconds()
   const { updateSettingLocally } = useUserSettings()
@@ -51,7 +46,6 @@ export default function SettingsPreferencesPage() {
   const [displayMode, setDisplayMode] = useState<ArtworkDisplayMode>(displayModeSetting)
   const [preferredTags, setPreferredTags] = useState<string[]>(preferredTagsSetting)
   const [mediaAnchorInterval, setMediaAnchorInterval] = useState<ArtworkMediaAnchorInterval>(mediaAnchorIntervalSetting)
-  const [mediaPrivacyMode, setMediaPrivacyMode] = useState(mediaPrivacyModeSetting)
   const [videoLongPressPlaybackRate, setVideoLongPressPlaybackRate] = useState<VideoLongPressPlaybackRate>(
     videoLongPressPlaybackRateSetting
   )
@@ -68,10 +62,6 @@ export default function SettingsPreferencesPage() {
   useEffect(() => {
     setMediaAnchorInterval(mediaAnchorIntervalSetting)
   }, [mediaAnchorIntervalSetting])
-
-  useEffect(() => {
-    setMediaPrivacyMode(mediaPrivacyModeSetting)
-  }, [mediaPrivacyModeSetting])
 
   useEffect(() => {
     setVideoLongPressPlaybackRate(videoLongPressPlaybackRateSetting)
@@ -179,12 +169,6 @@ export default function SettingsPreferencesPage() {
     scheduleSave({ key: MEDIA_ANCHOR_INTERVAL_KEY, value: nextValue, type: 'number' })
   }
 
-  const onMediaPrivacyModeChange = (checked: boolean) => {
-    setMediaPrivacyMode(checked)
-    updateSettingLocally(MEDIA_PRIVACY_MODE_KEY, checked)
-    scheduleSave({ key: MEDIA_PRIVACY_MODE_KEY, value: checked, type: 'boolean' })
-  }
-
   const onVideoLongPressPlaybackRateChange = (value: string) => {
     const nextValue = Number(value) as VideoLongPressPlaybackRate
     setVideoLongPressPlaybackRate(nextValue)
@@ -202,22 +186,6 @@ export default function SettingsPreferencesPage() {
   return (
     <div>
       <ArtworkPreviewPreference />
-      <PreferenceItem
-        title="隐私模式"
-        description="开启后遮蔽全站媒体与敏感信息；关闭后，进入浏览和管理页面时需先确认 R18 内容警告。设置页面始终可以直接访问。此功能仅改变显示，不阻止数据或媒体加载和访问"
-      >
-        <Field orientation="horizontal" data-disabled={isExecuting || undefined} className="min-h-9 w-auto gap-3">
-          <FieldLabel htmlFor="media-privacy-mode">{mediaPrivacyMode ? '已开启' : '已关闭'}</FieldLabel>
-          <Switch
-            id="media-privacy-mode"
-            checked={mediaPrivacyMode}
-            onCheckedChange={onMediaPrivacyModeChange}
-            disabled={isExecuting}
-            aria-label="隐私模式"
-          />
-        </Field>
-      </PreferenceItem>
-
       <PreferenceItem
         title="作品列表显示模式"
         description="卡片模式显示标题和作者；极简模式使用 2px 间距并隐藏文字信息"

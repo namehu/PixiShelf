@@ -8,7 +8,7 @@ import { isContentWarningPath } from '@/components/content-warning/content-warni
 import { headers } from 'next/headers'
 import './globals.css'
 import type { AuthMeResponseDTO } from '@/schemas/auth.dto'
-import { userSettingsWithDefaultsSchema, type UserSettings } from '@/schemas/user-setting.dto'
+import { type UserSettings } from '@/schemas/user-setting.dto'
 import { getUserSettings } from '@/services/user-setting-service'
 
 export const metadata: Metadata = {
@@ -59,16 +59,10 @@ export default async function RootLayout({ children }: RootLayoutProps) {
     initialSettings = await getUserSettings(String(initialUser.id))
   }
 
-  const mediaPrivacyMode = userSettingsWithDefaultsSchema.parse(initialSettings).media_privacy_mode
-  const contentWarningPending =
-    Boolean(initialUser) && !mediaPrivacyMode && (pathname ? isContentWarningPath(pathname) : true)
+  const contentWarningPending = Boolean(initialUser) && (pathname ? isContentWarningPath(pathname) : true)
 
   return (
-    <html
-      lang="zh-CN"
-      data-media-privacy={mediaPrivacyMode ? 'on' : 'off'}
-      data-content-warning={contentWarningPending ? 'pending' : 'clear'}
-    >
+    <html lang="zh-CN" data-media-privacy="on" data-content-warning={contentWarningPending ? 'pending' : 'clear'}>
       <body suppressHydrationWarning={true}>
         <div id="content-warning-initial-blocker" aria-hidden="true" />
         <div

@@ -2,12 +2,14 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowRight, ShieldCheck } from 'lucide-react'
-import { useAction } from 'next-safe-action/hooks'
 import { usePathname } from 'next/navigation'
-import { updateUserSettingAction } from '@/actions/user-setting-action'
-import { useAuthStore, useAuthUser } from '@/components/auth'
+import { useAuthUser } from '@/components/auth'
 import PLogo from '@/components/layout/p-logo'
-import { useMediaPrivacyMode, useUserSettingsStore } from '@/components/user-setting'
+import { usePrivacyStore } from '@/store/privacy-store'
+import { privacySession } from '@/lib/privacy-session'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { toast } from 'sonner'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +21,6 @@ import {
   AlertDialogTitle
 } from '@/components/ui/alert-dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Spinner } from '@/components/ui/spinner'
 import { isContentWarningPath } from './content-warning-routes'
 
 const CONTENT_WARNING_PENDING = 'pending'
@@ -29,57 +30,48 @@ const PROTECTED_CONTENT_ID = 'content-warning-protected-content'
 export function ContentWarningGate() {
   const pathname = usePathname()
   const user = useAuthUser()
-  const privacyMode = useMediaPrivacyMode()
-  const settingsOwnerUserId = useUserSettingsStore((state) => state.ownerUserId)
-  const updateSettingLocallyForUser = useUserSettingsStore((state) => state.updateSettingLocallyForUser)
-  const eligible = Boolean(user) && isContentWarningPath(pathname)
-  const [confirmedUserId, setConfirmedUserId] = useState<string | null>(null)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const previousUserIdRef = useRef<string | null | undefined>(undefined)
+  const status = usePrivacyStore((state) => state.status)
+  const storageError = usePrivacyStore((state) => state.storageError)
+  const [remember, setRemember] = useState(false)
   const privacyActionRef = useRef<HTMLButtonElement>(null)
-  const confirmedForCurrentUser = Boolean(user) && confirmedUserId === user?.id
-  const privacyModeForCurrentUser = Boolean(user) && settingsOwnerUserId === user?.id && privacyMode
-  const open = eligible && !privacyModeForCurrentUser && !confirmedForCurrentUser
-  const privacyRequestUserIdRef = useRef<string | null>(null)
+  const eligible = Boolean(user) && isContentWarningPath(pathname)
+  const blocked = eligible && (status === 'initializing' || status === 'pending')
+  const open = eligible && status === 'pending'
+
+  useEffect(
+    () =>
+      privacySession.start({
+        get localStorage() {
+          return window.localStorage
+        },
+        get sessionStorage() {
+          return window.sessionStorage
+        },
+        addEventListener: window.addEventListener.bind(window),
+        removeEventListener: window.removeEventListener.bind(window),
+        createChannel: typeof BroadcastChannel === 'undefined' ? undefined : (name) => new BroadcastChannel(name)
+      }),
+    []
+  )
 
   useEffect(() => {
-    const userId = user?.id ?? null
-
-    if (previousUserIdRef.current !== undefined && previousUserIdRef.current !== userId) {
-      setConfirmedUserId(null)
-      setSaveError(null)
-      privacyRequestUserIdRef.current = null
+    if (storageError && !blocked) {
+      toast.warning('浏览器存储不可用，当前选择仍有效，但无法保证刷新后或下次访问时记住。', {
+        id: 'privacy-storage-unavailable'
+      })
     }
-
-    previousUserIdRef.current = userId
-  }, [user?.id])
-
-  const { execute: enablePrivacyMode, isExecuting } = useAction(updateUserSettingAction, {
-    onError: ({ error }) => {
-      const requestedUserId = privacyRequestUserIdRef.current
-      privacyRequestUserIdRef.current = null
-      if (!requestedUserId || useAuthStore.getState().user?.id !== requestedUserId) return
-
-      setSaveError(error.validationErrors?.formErrors?.[0] || error.serverError || '开启隐私模式失败，请重试。')
-    },
-    onSuccess: () => {
-      const requestedUserId = privacyRequestUserIdRef.current
-      privacyRequestUserIdRef.current = null
-      if (!requestedUserId || useAuthStore.getState().user?.id !== requestedUserId) return
-
-      setSaveError(null)
-      updateSettingLocallyForUser(requestedUserId, 'media_privacy_mode', true)
-    }
-  })
+  }, [storageError, blocked])
 
   useLayoutEffect(() => {
-    document.documentElement.dataset.contentWarning = open ? CONTENT_WARNING_PENDING : CONTENT_WARNING_CLEAR
+    // Apply masking before releasing the server-rendered blocker, including after RSC updates.
+    document.documentElement.dataset.mediaPrivacy = status === 'direct' ? 'off' : 'on'
+    document.documentElement.dataset.contentWarning = blocked ? CONTENT_WARNING_PENDING : CONTENT_WARNING_CLEAR
     const protectedContent = document.getElementById(PROTECTED_CONTENT_ID)
 
     if (protectedContent) {
-      protectedContent.inert = open
+      protectedContent.inert = blocked
 
-      if (open) {
+      if (blocked) {
         protectedContent.setAttribute('aria-hidden', 'true')
       } else {
         protectedContent.removeAttribute('aria-hidden')
@@ -87,24 +79,8 @@ export function ContentWarningGate() {
     }
   })
 
-  const confirmAccess = () => {
-    if (isExecuting) return
-
-    if (user) {
-      setSaveError(null)
-      setConfirmedUserId(user.id)
-    }
-  }
-
-  const enterWithPrivacyMode = () => {
-    if (!user || isExecuting) return
-
-    setSaveError(null)
-    privacyRequestUserIdRef.current = user.id
-    enablePrivacyMode({
-      settings: [{ key: 'media_privacy_mode', value: true, type: 'boolean' }]
-    })
-  }
+  const confirmAccess = () => privacySession.choose('direct', remember)
+  const enterWithPrivacyMode = () => privacySession.choose('privacy', remember)
 
   return (
     <AlertDialog open={open} onOpenChange={() => undefined}>
@@ -133,56 +109,44 @@ export function ContentWarningGate() {
             <section className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-background p-6 shadow-floating sm:p-8">
               <div className="absolute inset-x-0 top-0 h-1 bg-primary" aria-hidden="true" />
 
-              <div className="mb-6 flex items-center gap-3">
-                <span className="flex h-11 min-w-11 items-center justify-center rounded-xl bg-accent px-3 text-base font-bold text-primary">
-                  18+
-                </span>
-                <div>
-                  <p className="text-sm font-semibold text-foreground">R18 内容提示</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">确认年龄后即可继续</p>
-                </div>
-              </div>
-
               <AlertDialogHeader className="gap-0 text-left sm:text-left">
                 <AlertDialogTitle className="text-balance text-2xl font-bold tracking-tight text-foreground">
-                  浏览前的小提示
+                  内容提示
                 </AlertDialogTitle>
                 <AlertDialogDescription className="mt-3 max-w-md text-pretty text-sm leading-6 text-muted-foreground sm:text-base sm:leading-7">
-                  此区域可能包含仅适合成年人浏览的内容。继续访问即表示你已年满 18 岁，并了解相关内容可能具有敏感性。
+                  继续即确认已成年。隐私模式会遮蔽媒体和敏感信息。
                 </AlertDialogDescription>
               </AlertDialogHeader>
 
-              <div className="mt-5 rounded-lg bg-surface-muted px-4 py-3 text-sm leading-6 text-muted-foreground">
-                当前隐私模式已关闭。你可以先开启隐私模式，以遮蔽全站媒体和敏感信息；也可以确认成年后以原始状态进入。
-              </div>
-
-              {saveError ? (
+              {storageError ? (
                 <Alert variant="destructive" className="mt-4">
-                  <AlertDescription>{saveError}</AlertDescription>
+                  <AlertDescription>浏览器存储不可用，当前页面仍可继续，但无法记住选择。</AlertDescription>
                 </Alert>
               ) : null}
 
+              <Field orientation="horizontal" className="mt-5">
+                <Checkbox
+                  id="remember-privacy"
+                  checked={remember}
+                  onCheckedChange={(value) => setRemember(value === true)}
+                />
+                <FieldLabel htmlFor="remember-privacy">记住本次选择，30 天内不再询问</FieldLabel>
+              </Field>
+
               <AlertDialogFooter className="mt-6 flex flex-col gap-2 sm:flex-col">
-                {isExecuting ? (
-                  <span className="sr-only" role="status" aria-live="polite" aria-label="正在开启隐私模式">
-                    正在开启隐私模式
-                  </span>
-                ) : null}
                 <AlertDialogAction
                   ref={privacyActionRef}
                   className="h-11 w-full touch-manipulation justify-center rounded-lg px-4 text-sm font-semibold shadow-surface transition-colors motion-reduce:transition-none"
-                  disabled={isExecuting}
                   onClick={enterWithPrivacyMode}
                 >
-                  {isExecuting ? <Spinner data-icon="inline-start" aria-hidden="true" /> : <ShieldCheck data-icon="inline-start" aria-hidden="true" />}
-                  开启隐私模式并进入
+                  <ShieldCheck data-icon="inline-start" aria-hidden="true" />
+                  隐私模式进入
                 </AlertDialogAction>
                 <AlertDialogCancel
                   className="group h-11 w-full touch-manipulation justify-between rounded-lg px-4 text-sm font-semibold transition-colors motion-reduce:transition-none"
-                  disabled={isExecuting}
                   onClick={confirmAccess}
                 >
-                  我已年满 18 岁，以原始状态进入
+                  原始模式进入
                   <ArrowRight
                     data-icon="inline-end"
                     className="transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none"
@@ -190,10 +154,6 @@ export function ContentWarningGate() {
                   />
                 </AlertDialogCancel>
               </AlertDialogFooter>
-
-              <p className="mt-3 text-center text-xs leading-5 text-muted-foreground">
-                未满 18 岁时，请不要继续浏览此区域。
-              </p>
             </section>
           </div>
         </div>

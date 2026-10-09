@@ -89,12 +89,12 @@ vi.mock('@/components/ui/switch', () => ({
   )
 }))
 
-describe('SettingsPreferencesPage media privacy setting', () => {
+describe('SettingsPreferencesPage account preferences', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     testState.execute.mockReset()
     useAuthStore.getState().setUser(null)
-    useUserSettingsStore.getState().hydrateSettings({ media_privacy_mode: false }, null)
+    useUserSettingsStore.getState().hydrateSettings({}, null)
   })
 
   afterEach(() => {
@@ -102,24 +102,10 @@ describe('SettingsPreferencesPage media privacy setting', () => {
     vi.useRealTimers()
   })
 
-  it('updates the account setting locally and includes it in the debounced save', () => {
+  it('does not offer an account privacy setting', () => {
     render(<SettingsPreferencesPage />)
-
-    fireEvent.click(screen.getByRole('switch', { name: '隐私模式' }))
-
-    expect(useUserSettingsStore.getState().settings.media_privacy_mode).toBe(true)
-    expect(screen.getByText('已开启')).toBeTruthy()
-
-    act(() => {
-      vi.advanceTimersByTime(500)
-    })
-
-    expect(testState.execute).toHaveBeenCalledTimes(1)
-    expect(testState.execute.mock.calls[0]?.[0]?.settings).toContainEqual({
-      key: 'media_privacy_mode',
-      value: true,
-      type: 'boolean'
-    })
+    expect(screen.queryByRole('switch', { name: '隐私模式' })).toBeNull()
+    expect(testState.execute).not.toHaveBeenCalled()
   })
 
   it('persists the video long-press rate as an account preference', () => {
@@ -138,10 +124,10 @@ describe('SettingsPreferencesPage media privacy setting', () => {
 
   it('discards a debounced save when the authenticated user changes', () => {
     useAuthStore.getState().setUser({ id: 'user-1', name: 'User', email: null, image: null })
-    useUserSettingsStore.getState().hydrateSettings({ media_privacy_mode: false }, 'user-1')
+    useUserSettingsStore.getState().hydrateSettings({}, 'user-1')
     render(<SettingsPreferencesPage />)
 
-    fireEvent.click(screen.getByRole('switch', { name: '隐私模式' }))
+    fireEvent.click(screen.getByRole('button', { name: '更改选择 3' }))
     act(() => {
       useAuthStore.getState().setUser({ id: 'user-2', name: 'Other', email: null, image: null })
       vi.advanceTimersByTime(500)

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { userSettingsSchema } from '@/schemas/user-setting.dto'
+import { userSettingsSchema, updateUserSettingSchema } from '@/schemas/user-setting.dto'
 import type { SettingType, UpdateProfileDTO, UpdateUserSettingDTO, UserSettings } from '@/schemas/user-setting.dto'
 
 function inferSettingType(value: UpdateUserSettingDTO['value']): SettingType {
@@ -55,8 +55,9 @@ export async function getUserSettings(userId: string): Promise<UserSettings> {
 export async function upsertUserSettings(userId: string, settings: UpdateUserSettingDTO[]) {
   if (settings.length === 0) return
 
+  const validated = updateUserSettingSchema.parse({ settings })
   await prisma.$transaction(
-    settings.map((item) => {
+    validated.settings.map((item) => {
       const type = item.type ?? inferSettingType(item.value)
       return prisma.userSetting.upsert({
         where: {

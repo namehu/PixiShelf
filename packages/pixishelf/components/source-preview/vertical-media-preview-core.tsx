@@ -1,12 +1,7 @@
 'use client'
 
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode
-} from 'react'
+import { PrivacyControl } from '@/components/privacy/privacy-control'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDownIcon, ChevronUpIcon, XIcon } from 'lucide-react'
 import { useReducedMotion } from 'framer-motion'
 import { EffectFade, Keyboard, Virtual, Zoom } from 'swiper/modules'
@@ -222,14 +217,19 @@ export function VerticalMediaPreviewCore<T>({
           >
             {activeIndex + 1} / {displayTotal}
           </div>
-          <button
-            type="button"
-            onClick={requestClose}
-            className="pointer-events-auto flex size-11 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            aria-label={closeLabel}
-          >
-            <XIcon className="size-6" aria-hidden="true" />
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="pointer-events-auto rounded-md bg-background text-foreground">
+              <PrivacyControl compact portalContainer={portalContainer} />
+            </div>
+            <button
+              type="button"
+              onClick={requestClose}
+              className="pointer-events-auto flex size-11 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              aria-label={closeLabel}
+            >
+              <XIcon className="size-6" aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
         <Swiper

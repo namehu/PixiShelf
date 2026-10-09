@@ -1,5 +1,6 @@
 'use client'
 
+import { PrivacyControl } from '@/components/privacy/privacy-control'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { ExternalLinkIcon, LoaderCircleIcon, RefreshCwIcon } from 'lucide-react'
@@ -374,7 +375,13 @@ function SourcePreviewReaderContent({ previewId, initialPage }: SourcePreviewRea
   ])
 
   useEffect(() => {
-    if (previewOpen || auto.state.mode !== 'scroll' || auto.state.status !== 'running' || !activeReady || activeFailed) {
+    if (
+      previewOpen ||
+      auto.state.mode !== 'scroll' ||
+      auto.state.status !== 'running' ||
+      !activeReady ||
+      activeFailed
+    ) {
       return
     }
     let frame = 0
@@ -518,6 +525,7 @@ function SourcePreviewReaderContent({ previewId, initialPage }: SourcePreviewRea
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            <PrivacyControl compact />
             <Button
               type="button"
               variant="ghost"

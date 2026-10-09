@@ -2,6 +2,9 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { usePathname } from 'next/navigation'
+import { APP_VERSION } from '@/_config'
+import { privacySession } from '@/lib/privacy-session'
+import { privacyStore } from '@/store/privacy-store'
 import AppHeader from '../app-header'
 import MobileBottomNavigation from '../mobile-bottom-navigation'
 import PageToolbar from '../page-toolbar'
@@ -89,6 +92,7 @@ describe('MobileBottomNavigation', () => {
     expect(within(primaryNavigation).getByRole('link', { name: '首页' }).getAttribute('href')).toBe('/dashboard')
     expect(within(primaryNavigation).getByRole('link', { name: '作品' }).getAttribute('href')).toBe('/artworks')
     expect(within(primaryNavigation).getByRole('link', { name: '沉浸浏览' }).getAttribute('href')).toBe('/viewer')
+    expect(within(primaryNavigation).queryByRole('button', { name: /隐私/ })).toBeNull()
 
     fireEvent.click(within(primaryNavigation).getByRole('button', { name: /更多/ }))
 
@@ -100,6 +104,37 @@ describe('MobileBottomNavigation', () => {
     expect(screen.getByRole('link', { name: '个人设置' }).getAttribute('href')).toBe('/settings/profile')
     expect(document.querySelectorAll('[data-slot="separator"]')).toHaveLength(2)
     expect(screen.getByRole('button', { name: '关闭更多导航' }).className).toContain('size-11')
+    expect(screen.getByText(`版本 ${APP_VERSION}`)).toBeTruthy()
+    expect(within(moreNavigation).getByRole('button', { name: /隐私模式/ })).toBeTruthy()
+  })
+
+  it('keeps More open when toggling privacy and hosts its memory settings inside the sheet', () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    })
+    try {
+      vi.mocked(usePathname).mockReturnValue('/artworks')
+      privacyStore.setState({ remembered: null, storageError: false })
+      privacySession.choose('direct')
+      render(<MobileBottomNavigation />)
+      fireEvent.click(screen.getByRole('button', { name: /更多/ }))
+      const sheet = screen.getByRole('dialog')
+      fireEvent.click(within(sheet).getByRole('button', { name: '开启隐私模式' }))
+      expect(privacyStore.getState().status).toBe('privacy')
+      expect(within(sheet).getByText('已开启')).toBeTruthy()
+      fireEvent.click(within(sheet).getByRole('button', { name: '隐私记忆设置' }))
+      fireEvent.click(within(sheet).getByRole('button', { name: '记住当前选择 30 天' }))
+      expect(privacyStore.getState().remembered?.mode).toBe('privacy')
+      expect(screen.getByRole('button', { name: '关闭更多导航' })).toBeTruthy()
+    } finally {
+      cleanup()
+      vi.unstubAllGlobals()
+      privacyStore.setState({ status: 'pending', visit: null, remembered: null, storageError: false })
+      localStorage.clear()
+      sessionStorage.clear()
+    }
   })
 
   it('marks the active utility destination inside More navigation', () => {

@@ -1,10 +1,12 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { KeyRoundIcon, LogOutIcon, SlidersHorizontalIcon } from 'lucide-react'
 import { useAuth, useAuthUser } from '@/components/auth'
+import { APP_VERSION } from '@/_config'
+import { PrivacyControl } from '@/components/privacy/privacy-control'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -84,11 +86,13 @@ export default function MobileNavigationMenu({ trigger }: MobileNavigationMenuPr
   const pathname = usePathname()
   const user = useAuthUser()
   const { logout } = useAuth()
+  const [portalContainer, setPortalContainer] = useState<HTMLDivElement | null>(null)
 
   return (
     <Sheet>
       <SheetTrigger asChild>{trigger}</SheetTrigger>
       <SheetContent
+        ref={setPortalContainer}
         side="bottom"
         closeLabel="关闭更多导航"
         className="max-h-[85dvh] overflow-hidden rounded-t-surface border-border bg-surface-raised p-0 shadow-floating"
@@ -101,7 +105,10 @@ export default function MobileNavigationMenu({ trigger }: MobileNavigationMenuPr
               </AvatarFallback>
             </Avatar>
             <div className="min-w-0">
-              <SheetTitle className="truncate">{user?.name || '用户'}</SheetTitle>
+              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                <SheetTitle className="truncate">{user?.name || '用户'}</SheetTitle>
+                <span className="text-xs wrap-anywhere text-muted-foreground">版本 {APP_VERSION}</span>
+              </div>
               <SheetDescription className="truncate">浏览收藏与管理工具</SheetDescription>
             </div>
           </div>
@@ -120,6 +127,7 @@ export default function MobileNavigationMenu({ trigger }: MobileNavigationMenuPr
             <p className="font-utility px-3 py-2 text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase">
               工具
             </p>
+            <PrivacyControl mobile portalContainer={portalContainer} />
             <MobileNavigationLink item={ADMIN_NAVIGATION_ITEM} pathname={pathname} />
             <UtilityLink
               href={ROUTES.SETTINGS_PROFILE}

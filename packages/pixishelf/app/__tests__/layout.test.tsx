@@ -45,17 +45,17 @@ describe('RootLayout media privacy state', () => {
     mocks.getUserSettings.mockReset()
   })
 
-  it('renders media privacy off when no authenticated setting exists', async () => {
+  it('defaults to masking before browser initialization even on login', async () => {
     mocks.headers.mockResolvedValue(new Headers({ 'x-pathname': '/login' }))
 
     const layout = await rootLayout({ children: <div /> })
 
-    expect(getMediaPrivacyAttribute(layout)).toBe('off')
+    expect(getMediaPrivacyAttribute(layout)).toBe('on')
     expect(getContentWarningAttribute(layout)).toBe('clear')
     expect(mocks.getUserSettings).not.toHaveBeenCalled()
   })
 
-  it('renders media privacy on in the server response for an enabled account', async () => {
+  it('blocks the server response even when a historical account setting is enabled', async () => {
     mocks.headers.mockResolvedValue(
       new Headers({
         'x-pathname': '/dashboard',
@@ -73,7 +73,7 @@ describe('RootLayout media privacy state', () => {
     const layout = await rootLayout({ children: <div /> })
 
     expect(getMediaPrivacyAttribute(layout)).toBe('on')
-    expect(getContentWarningAttribute(layout)).toBe('clear')
+    expect(getContentWarningAttribute(layout)).toBe('pending')
     expect(mocks.getUserSettings).toHaveBeenCalledWith('user-1')
   })
 

@@ -30,6 +30,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
+- [浏览器隐私偏好](./features/browser-privacy.md)（current）：浏览器会话共享、固定 30 天记忆、全局快捷开关、首屏遮挡与生命周期边界。
+
 - [后台任务兼容层退役](./features/background-task-retirement.md)（current）：第一阶段中央执行、历史快照与保留双写；第二阶段尚未实施。
 - [后台任务退役发布手册](./deployment/background-task-retirement.md)（draft）：v0.50.8 基线、只读预检、回退和至少 7 天观察。
 

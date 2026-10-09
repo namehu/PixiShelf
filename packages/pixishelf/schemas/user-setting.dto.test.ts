@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   artworkMediaAnchorIntervalSchema,
   userSettingsSchema,
+  updateUserSettingSchema,
   userSettingsWithDefaultsSchema
 } from './user-setting.dto'
 
@@ -22,16 +23,16 @@ describe('artwork media anchor interval settings', () => {
   })
 })
 
-describe('media privacy settings', () => {
-  it('defaults media privacy mode to disabled', () => {
-    expect(userSettingsWithDefaultsSchema.parse({}).media_privacy_mode).toBe(false)
+describe('retired account privacy setting', () => {
+  it('strips historical values from account reads and defaults', () => {
+    expect(userSettingsSchema.parse({ media_privacy_mode: true })).toEqual({})
+    expect(userSettingsWithDefaultsSchema.parse({ media_privacy_mode: true })).not.toHaveProperty('media_privacy_mode')
   })
 
-  it('accepts persisted media privacy mode values', () => {
-    expect(userSettingsSchema.parse({ media_privacy_mode: true })).toEqual({
-      media_privacy_mode: true
-    })
-    expect(userSettingsWithDefaultsSchema.parse({ media_privacy_mode: true }).media_privacy_mode).toBe(true)
+  it('rejects new writes, including whitespace around the old key', () => {
+    for (const key of ['media_privacy_mode', ' media_privacy_mode ']) {
+      expect(() => updateUserSettingSchema.parse({ settings: [{ key, value: true }] })).toThrow()
+    }
   })
 })
 
