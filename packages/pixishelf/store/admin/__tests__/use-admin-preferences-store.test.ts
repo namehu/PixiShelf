@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ADMIN_PREFERENCES_STORAGE_KEY, useAdminPreferencesStore } from '../use-admin-preferences-store'
 
 describe('useAdminPreferencesStore', () => {
@@ -57,6 +57,23 @@ describe('useAdminPreferencesStore', () => {
       showArtworkPixivSync: true,
       archiveUploaderResultView: 'list'
     })
+  })
+
+  it('keeps display switching usable when browser storage is blocked', async () => {
+    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    try {
+      await useAdminPreferencesStore.persist.rehydrate()
+      expect(() => useAdminPreferencesStore.getState().setArchiveUploaderResultView('cards')).not.toThrow()
+      expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('cards')
+    } finally {
+      get.mockRestore()
+      set.mockRestore()
+    }
   })
 
   it('migrates old preferences to the default pure-list uploader view', async () => {

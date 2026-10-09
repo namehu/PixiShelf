@@ -1,3 +1,4 @@
+import { registerDiscoveryNavigationCases } from './archive-discovery-navigation-cases'
 import { source, activeRun, completedRun } from './archive-uploader-sources-fixtures'
 import { useState, type ReactNode } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -167,6 +168,7 @@ vi.mock('sonner', () => ({
   toast: {
     error: mocks.toastError,
     success: mocks.toastSuccess,
+    info: vi.fn(),
     warning: mocks.toastWarning
   }
 }))
@@ -440,6 +442,11 @@ function SourcesHarness({
   )
 }
 
+function openIgnored() {
+  if (!screen.queryByLabelText('查看全局已忽略')) fireEvent.click(screen.getByRole('button', { name: '返回来源列表' }))
+  fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+}
+
 function renderSources(options?: {
   initialSourceId?: string | null
   initialIgnored?: boolean
@@ -487,6 +494,15 @@ describe('ArchiveUploaderSources', () => {
     useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
   })
 
+  registerDiscoveryNavigationCases({
+    renderSources,
+    setSources: (sources) => {
+      currentSourcesData = sources
+    },
+    navigateSource: mocks.navigateSource,
+    infiniteQueryOptions: mocks.infiniteQueryOptions
+  })
+
   it('opens a source from the mobile list with push navigation and uses window scrolling', async () => {
     mocks.isDesktop = false
     renderSources({ initialSourceId: null })
@@ -499,7 +515,7 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.getByTestId('discovery-virtuoso').getAttribute('data-window-scroll')).toBe('true')
   })
 
-  it('restores the source filter and display mode after navigating back from preview', async () => {
+  it('restores result filters without overriding the latest local display preference', async () => {
     const first = renderSources()
     fireEvent.click(screen.getByLabelText('查看已归档'))
     fireEvent.click(screen.getByLabelText('使用卡片模式'))
@@ -508,7 +524,7 @@ describe('ArchiveUploaderSources', () => {
     useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
     renderSources()
     await waitFor(() => expect(screen.getByLabelText('查看已归档').getAttribute('data-state')).toBe('on'))
-    expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('cards')
+    expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('list')
   })
 
   it('returns to the source list when the restored source has been deleted', async () => {
@@ -555,7 +571,7 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
     fireEvent.click(screen.getByRole('button', { name: '删除来源' }))
     fireEvent.click(screen.getByRole('button', { name: '确认删除测试来源' }))
-    await screen.findByText('暂无此类型的发现来源')
+    await screen.findByText('还没有发现来源')
     expect(mocks.removeQueries).toHaveBeenCalledWith({ queryKey: ['detail'] })
     expect(mocks.removeQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
     expect(mocks.toastSuccess).toHaveBeenCalledWith('发现来源已删除，已入箱项目和本地作品已保留')
@@ -566,7 +582,7 @@ describe('ArchiveUploaderSources', () => {
   it('shows and copies the stable uploader UID from both source views', async () => {
     renderSources()
 
-    expect(screen.getAllByText('UID 123').length).toBeGreaterThan(1)
+    expect(screen.getByText('UID 123')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '复制上传者 UID' }))
 
     await waitFor(() => expect(mocks.writeClipboard).toHaveBeenCalledWith('123'))
@@ -591,7 +607,7 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.getByText('https://e-hentai.org/g/302/[redacted]/').getAttribute('data-privacy-sensitive')).toBe('')
     expect(screen.getByText('Private gallery scan failed').getAttribute('data-privacy-sensitive')).toBe('')
 
-    fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    openIgnored()
     expect(screen.getByText('Ignored Gallery 301').closest('[data-privacy-sensitive]')).toBeTruthy()
     const uidLabels = screen.getAllByText('UID 123')
     expect(uidLabels.some((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
@@ -601,14 +617,14 @@ describe('ArchiveUploaderSources', () => {
   it('keeps global ignores accessible and restorable with no saved sources', async () => {
     currentSourcesData = []
     currentDetailData = undefined
-    renderSources()
-    expect(screen.getByText('暂无此类型的发现来源')).toBeTruthy()
+    renderSources({ initialSourceId: null })
+    expect(screen.getByText('还没有发现来源')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '查看全局已忽略' }))
     expect(screen.getByText('Ignored Gallery 301')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
     await waitFor(() => expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] }))
-    fireEvent.click(screen.getByRole('button', { name: '返回发现来源' }))
-    expect(screen.getByText('暂无此类型的发现来源')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '返回来源列表' }))
+    expect(screen.getByText('还没有发现来源')).toBeTruthy()
   })
 
   it('binds an unbound NAME source through a two-step confirmation', () => {
@@ -796,13 +812,18 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
     const calls = () => mocks.countsOptions.mock.calls
     expect(calls().find(([input]) => !input.unboundOnly)?.[1].enabled).toBe(true)
-    expect(calls().find(([input]) => input.unboundOnly)?.[1].enabled).toBe(false)
+    expect(calls().find(([input]) => input.sourceId)?.[1].enabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '筛选' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '仅看未绑定' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
     expect(
       calls()
         .filter(([input]) => input.unboundOnly)
         .at(-1)
-    ).toEqual([{ sourceId: 'source-1', unboundOnly: true }, expect.objectContaining({ enabled: true })])
+    ).toEqual([
+      expect.objectContaining({ sourceId: 'source-1', unboundOnly: true }),
+      expect.objectContaining({ enabled: true })
+    ])
     fireEvent.click(screen.getByRole('radio', { name: '查看全部' }))
     expect(calls().every(([input]) => !('view' in input) && !('cursor' in input))).toBe(true)
     expect(mocks.infiniteQueryOptions).toHaveBeenCalledWith(
@@ -815,7 +836,7 @@ describe('ArchiveUploaderSources', () => {
     currentDetailData = { source, runs: [completedRun] }
     currentSourcesData = [{ ...source, latestRun: completedRun }]
     const rendered = renderSources()
-    const options = () => mocks.countsOptions.mock.calls.filter(([input]) => !input.unboundOnly).at(-1)![1]
+    const options = () => mocks.countsOptions.mock.calls.filter(([input]) => !input.sourceId).at(-1)![1]
     const interval = () =>
       options().refetchInterval as (query: { state: { data: typeof currentCountsData } }) => number | false
     expect(interval()({ state: { data: currentCountsData } })).toBe(false)
@@ -829,6 +850,7 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
     expect(screen.getByText('Gallery 302')).toBeTruthy()
     expect(screen.getByRole('radio', { name: '查看待处理' }).textContent).toContain('…')
+    fireEvent.click(screen.getByRole('button', { name: '返回来源列表' }))
     expect(screen.getAllByLabelText('待处理数量加载中').length).toBeGreaterThan(0)
   })
 
@@ -1132,7 +1154,7 @@ describe('ArchiveUploaderSources', () => {
   it('disables source navigation for ignored results without a recoverable address', () => {
     renderSources()
     fireEvent.click(screen.getByLabelText('显示首图预览'))
-    fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    openIgnored()
     fireEvent.click(screen.getByLabelText('使用卡片模式'))
     expect(screen.getByRole('button', { name: 'Ignored Gallery 301 来源地址不可用' }).hasAttribute('disabled')).toBe(
       true
@@ -1157,7 +1179,7 @@ describe('ArchiveUploaderSources', () => {
     )?.[1] as (data: typeof itemsData) => typeof itemsData
     expect(removeItems(itemsData).pages[0]?.items).toEqual([])
 
-    fireEvent.click(screen.getByLabelText('查看全局已忽略'))
+    openIgnored()
     expect(screen.getByRole('heading', { level: 2, name: '全局已忽略' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '恢复 Ignored Gallery 301' }))
     expect(mocks.restoreIgnoredItems).toHaveBeenCalledWith({ ignoredItemIds: ['ignored-item-1'] })

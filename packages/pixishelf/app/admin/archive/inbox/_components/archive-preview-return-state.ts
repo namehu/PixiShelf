@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { sourceListFiltersSchema, discoveryFilterDraftSchema } from './archive-discovery-filter-state'
 
 const stateSchema = z.object({
   savedAt: z.number(),
@@ -6,7 +7,12 @@ const stateSchema = z.object({
   selectedSourceId: z.string().nullable(),
   resultFeed: z.enum(['ACTIONABLE', 'PROCESSING', 'ARCHIVED', 'ATTENTION', 'ALL']),
   unboundOnly: z.boolean(),
-  resultView: z.enum(['list', 'preview', 'cards']),
+  // Accepted for old snapshots only; display preferences belong to localStorage.
+  resultView: z.enum(['list', 'preview', 'cards']).optional(),
+  sourceFilters: sourceListFiltersSchema.optional(),
+  sourcePage: z.number().int().positive().optional(),
+  sourceListScroll: z.number().nonnegative().optional(),
+  contentFilters: discoveryFilterDraftSchema.optional(),
   positions: z
     .array(
       z.tuple([

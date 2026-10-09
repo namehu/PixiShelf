@@ -4,6 +4,7 @@ import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import type { inferRouterOutputs } from '@trpc/server'
 import { ArrowUpRightIcon, BanIcon, RotateCcwIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
+import { DISCOVERY_LANGUAGES } from '@/lib/archive-discovery-filters'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -23,6 +24,10 @@ type ScanRun = RouterOutputs['archiveSearch']['getSource']['runs'][number]
 const MAX_SELECTED_ITEMS = 100
 
 export function ScanResults({
+  filtered = false,
+  onClearFilters,
+  onScan,
+  canScan = false,
   view,
   runs,
   activeRun,
@@ -48,6 +53,10 @@ export function ScanResults({
   position,
   onPositionChange
 }: {
+  filtered?: boolean
+  onClearFilters?: () => void
+  onScan?: () => void
+  canScan?: boolean
   view: ArchiveDiscoveryCatalogView
   runs: ScanRun[]
   activeRun?: ScanRun
@@ -95,16 +104,33 @@ export function ScanResults({
         <Empty className="border">
           <EmptyHeader>
             <EmptyTitle>
-              {activeRun ? '正在扫描' : neverScanned ? '尚无扫描记录' : `没有${resultFeedLabel(view)}项目`}
+              {activeRun
+                ? '正在扫描'
+                : filtered
+                  ? '没有匹配的内容'
+                  : neverScanned
+                    ? '尚无扫描记录'
+                    : `没有${resultFeedLabel(view)}项目`}
             </EmptyTitle>
             <EmptyDescription>
               {activeRun
                 ? '任务完成后，画廊会自动汇入长期目录。'
-                : neverScanned
-                  ? '点击“扫描最新”创建第一批发现结果。'
-                  : emptyCatalogViewDescription(view)}
+                : filtered
+                  ? '尝试调整标题或筛选条件。'
+                  : neverScanned
+                    ? '点击“扫描最新”创建第一批发现结果。'
+                    : emptyCatalogViewDescription(view)}
             </EmptyDescription>
           </EmptyHeader>
+          {filtered ? (
+            <Button variant="outline" onClick={onClearFilters}>
+              清空筛选
+            </Button>
+          ) : canScan ? (
+            <Button variant="outline" onClick={onScan}>
+              扫描最新
+            </Button>
+          ) : null}
         </Empty>
       }
       header={
@@ -128,7 +154,9 @@ export function ScanResults({
           <div
             className={cn(
               'grid min-h-20 items-start gap-3',
-              resultView === 'list' ? 'grid-cols-[1.5rem_minmax(0,1fr)_auto]' : 'grid-cols-[1.5rem_minmax(0,1fr)]'
+              resultView === 'list'
+                ? 'grid-cols-[1.5rem_minmax(0,1fr)] sm:grid-cols-[1.5rem_minmax(0,1fr)_auto]'
+                : 'grid-cols-[1.5rem_minmax(0,1fr)]'
             )}
             data-state={selectedItemIds.has(item.id) ? 'selected' : undefined}
           >
@@ -176,7 +204,13 @@ export function ScanResults({
                   #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {item.fileCount ? `${item.fileCount} 页 · ` : ''}
+                  <PrivacySensitiveText>
+                    {item.category ?? '分类未知'} ·{' '}
+                    {item.languages?.length
+                      ? item.languages.map((language) => DISCOVERY_LANGUAGES[language] ?? language).join('、')
+                      : '语言未知'}
+                  </PrivacySensitiveText>{' '}
+                  · {item.fileCount ? `${item.fileCount} 页 · ` : ''}
                   {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
                 </p>
                 {item.changeReasons.length > 0 ? (
@@ -200,7 +234,7 @@ export function ScanResults({
                   ? 'col-start-2 row-start-1'
                   : resultView === 'preview'
                     ? 'col-start-2'
-                    : undefined
+                    : 'col-start-2 sm:col-start-3'
               )}
             >
               {resultView === 'cards' ? (

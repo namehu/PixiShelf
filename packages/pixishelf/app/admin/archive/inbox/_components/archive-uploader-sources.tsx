@@ -18,11 +18,19 @@ import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archi
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { ArchiveDiscoveryIgnoreDialog, type DiscoveryIgnoreSelection } from './archive-discovery-ignore-dialog'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { ArchiveDiscoverySourceFilters } from './archive-discovery-source-filters'
+import { ArchiveDiscoveryContentFilters } from './archive-discovery-content-filters'
+import {
+  DEFAULT_SOURCE_FILTERS,
+  DEFAULT_DISCOVERY_FILTERS,
+  discoveryQueryFilters,
+  filterDiscoverySources,
+  type DiscoveryFilterDraft
+} from './archive-discovery-filter-state'
+import { hasDiscoveryFilters } from '@/lib/archive-discovery-filters'
 import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 import { ArchiveDiscoveryBulkBar } from './archive-discovery-bulk-bar'
 import { DiscoveryCreatorDialog, type DiscoveryCreatorDialogState } from './discovery-creator-dialog'
@@ -81,14 +89,17 @@ export function ArchiveUploaderSources({
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteSourceId, setDeleteSourceId] = useState<string | null>(null)
   const [searchDialog, setSearchDialog] = useState<ArchiveSearchDialogState | null>(null)
-  const [sourceFilter, setSourceFilter] = useState('ALL')
+  const [sourceFilters, setSourceFilters] = useState(DEFAULT_SOURCE_FILTERS)
+  const [sourcePage, setSourcePage] = useState(1)
+  const [contentFilters, setContentFilters] = useState(DEFAULT_DISCOVERY_FILTERS)
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
-  const [implicitSourceId, setImplicitSourceId] = useState<string | null>(null)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
   const [ignoreSelection, setIgnoreSelection] = useState<DiscoveryIgnoreSelection | null>(null)
   const ignoreSubmitting = useRef(false)
   const [creatorDialog, setCreatorDialog] = useState<DiscoveryCreatorDialogState | null>(null)
-  const [unboundOnly, setUnboundOnly] = useState(false)
+  const unboundOnly = contentFilters.unboundOnly
+  const queryFilters = useMemo(() => discoveryQueryFilters(contentFilters), [contentFilters])
+  const contentFiltered = unboundOnly || hasDiscoveryFilters(queryFilters)
   const [intakeOptions, setIntakeOptions] = useState(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
   const [selectedIgnoredItemIds, setSelectedIgnoredItemIds] = useState<Set<string>>(new Set())
   const [resultFeed, setResultFeed] = useState<ArchiveDiscoveryCatalogView>('ACTIONABLE')
@@ -98,7 +109,7 @@ export function ArchiveUploaderSources({
   const ignoredEnteredFromListRef = useRef(false)
   const resultPositionsRef = useRef(new Map<string, ArchiveDiscoveryListPosition>())
   const sourceListScrollRef = useRef(0)
-  const previousMobileViewRef = useRef<string | null>(null)
+  const previousViewRef = useRef<string | null>(null)
   const observedRuns = useRef(new Map<string, { id: string; status: string }>())
   const previousProcessingCount = useRef<{ sourceId: string; count: number } | null>(null)
   const resultView = useAdminPreferencesStore((state) => state.archiveUploaderResultView)
@@ -110,30 +121,33 @@ export function ArchiveUploaderSources({
     const saved = readArchivePreviewReturnState(user.id, window.location.pathname + window.location.search)
     if (!saved) return
     restoredPreviewRef.current = true
-    setSourceFilter(saved.sourceFilter)
-    setImplicitSourceId(saved.selectedSourceId)
+    setSourceFilters(saved.sourceFilters ?? DEFAULT_SOURCE_FILTERS)
+    setSourcePage(saved.sourcePage ?? 1)
+    sourceListScrollRef.current = saved.sourceListScroll ?? 0
     activeDraftSourceIdRef.current = saved.selectedSourceId
     setResultFeed(saved.resultFeed)
-    setUnboundOnly(saved.unboundOnly)
-    setResultView(saved.resultView)
+    setContentFilters(saved.contentFilters ?? { ...DEFAULT_DISCOVERY_FILTERS, unboundOnly: saved.unboundOnly })
     resultPositionsRef.current = new Map(saved.positions)
-  }, [user?.id, setResultView])
+  }, [user?.id])
 
   useEffect(() => {
     if (!user?.id) return
     const save = () =>
       saveArchivePreviewReturnState(user.id, window.location.pathname + window.location.search, {
         savedAt: Date.now(),
-        sourceFilter,
-        selectedSourceId: locatedSourceId ?? implicitSourceId,
+        sourceFilter: sourceFilters.kind,
+        sourceFilters,
+        sourcePage,
+        sourceListScroll: sourceListScrollRef.current,
+        contentFilters,
+        selectedSourceId: locatedSourceId,
         resultFeed,
         unboundOnly,
-        resultView,
         positions: [...resultPositionsRef.current].slice(-100)
       })
     window.addEventListener('pixishelf:open-source-preview', save)
     return () => window.removeEventListener('pixishelf:open-source-preview', save)
-  }, [user?.id, sourceFilter, locatedSourceId, implicitSourceId, resultFeed, unboundOnly, resultView])
+  }, [user?.id, sourceFilters, sourcePage, contentFilters, locatedSourceId, resultFeed, unboundOnly])
 
   useEffect(() => setLayoutReady(true), [])
 
@@ -175,31 +189,24 @@ export function ArchiveUploaderSources({
       })),
     [sourcesQuery.data, countsQuery.data]
   )
-  const sources = useMemo(
-    () => allSources.filter((source) => sourceFilter === 'ALL' || (source.sourceKind ?? 'UPLOADER') === sourceFilter),
-    [allSources, sourceFilter]
-  )
-
-  useEffect(() => {
-    if (!active || !layoutReady || !isDesktop || locatedSourceId) return
-    setImplicitSourceId((current) =>
-      current && sources.some(({ id }) => id === current) ? current : (sources[0]?.id ?? null)
-    )
-  }, [active, isDesktop, layoutReady, locatedSourceId, sources])
-
-  useEffect(() => {
-    if (locatedSourceId) setImplicitSourceId(locatedSourceId)
-  }, [locatedSourceId])
-
-  const selectedSourceId = locatedSourceId ?? (isDesktop ? implicitSourceId : null)
+  const sources = useMemo(() => filterDiscoverySources(allSources, sourceFilters), [allSources, sourceFilters])
+  const sourcePageCount = Math.max(1, Math.ceil(sources.length / 50))
+  const currentSourcePage = Math.min(sourcePage, sourcePageCount)
+  const pagedSources = sources.slice((currentSourcePage - 1) * 50, currentSourcePage * 50)
+  const selectedSourceId = locatedSourceId
 
   useLayoutEffect(() => {
-    if (!active || !layoutReady || isDesktop || sourcesQuery.isPending) return
+    if (!active || !layoutReady || sourcesQuery.isPending) return
     const view = pendingCreators ? 'pending-creators' : ignored ? 'ignored' : (locatedSourceId ?? 'list')
-    const previous = previousMobileViewRef.current
-    previousMobileViewRef.current = view
+    const previous = previousViewRef.current
+    previousViewRef.current = view
     if (previous && previous !== view) {
       window.scrollTo({ top: view === 'list' ? sourceListScrollRef.current : 0 })
+      if (view === 'list') {
+        Array.from(document.querySelectorAll<HTMLButtonElement>('[data-source-id]'))
+          .find((element) => element.dataset.sourceId === previous)
+          ?.focus({ preventScroll: true })
+      }
     }
     if (view !== 'list') return
     const save = () => {
@@ -216,7 +223,7 @@ export function ArchiveUploaderSources({
       setSelectedItemIds(new Set())
       setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
       setResultFeed('ACTIONABLE')
-      setUnboundOnly(false)
+      setContentFilters(DEFAULT_DISCOVERY_FILTERS)
       setCreatorDialog(null)
       setCancelRequestedRunId(null)
     }
@@ -244,16 +251,17 @@ export function ArchiveUploaderSources({
   )
   const detail = detailQuery.data
   const selectedCounts = countsQuery.data?.[selectedSourceId ?? '']
-  const unboundCountsQuery = useQuery(
+  const filteredCountsQuery = useQuery(
     trpc.archiveSearch.catalogCounts.queryOptions(
-      { sourceId: selectedSourceId ?? 'unselected', unboundOnly: true },
+      { sourceId: selectedSourceId ?? 'unselected', unboundOnly, filters: queryFilters },
       {
-        enabled: active && Boolean(selectedSourceId) && unboundOnly,
-        refetchInterval: active && unboundOnly && (scanning || (selectedCounts?.processing ?? 0) > 0) ? 3_000 : false
+        enabled: active && Boolean(selectedSourceId) && contentFiltered,
+        refetchInterval:
+          active && contentFiltered && (scanning || (selectedCounts?.processing ?? 0) > 0) ? 3_000 : false
       }
     )
   )
-  const resultCounts = unboundOnly ? unboundCountsQuery.data?.[selectedSourceId ?? ''] : selectedCounts
+  const resultCounts = contentFiltered ? filteredCountsQuery.data?.[selectedSourceId ?? ''] : selectedCounts
   useEffect(() => {
     if (!restoredPreviewRef.current || !selectedSourceId) return
     if (
@@ -261,7 +269,6 @@ export function ArchiveUploaderSources({
       (detailQuery.error as { data?: { code?: string } } | null)?.data?.code === 'PRECONDITION_FAILED'
     ) {
       restoredPreviewRef.current = false
-      setImplicitSourceId(null)
       onNavigateSourceList('replace')
     }
   }, [detail, detailQuery.error, detailQuery.isSuccess, onNavigateSourceList, selectedSourceId])
@@ -275,6 +282,7 @@ export function ArchiveUploaderSources({
         view: resultFeed,
         limit: SCAN_RESULT_PAGE_SIZE,
         unboundOnly,
+        filters: queryFilters,
         includeCounts: false
       },
       {
@@ -482,10 +490,10 @@ export function ArchiveUploaderSources({
         setSelectedItemIds(new Set())
         setIntakeOptions(DEFAULT_ARCHIVE_INTAKE_OPTIONS)
         setResultFeed('ACTIONABLE')
+        setContentFilters(DEFAULT_DISCOVERY_FILTERS)
         setCancelRequestedRunId(null)
       }
       activeDraftSourceIdRef.current = sourceId
-      setImplicitSourceId(sourceId)
       if (!locatedSourceId && !ignored) {
         sourceListScrollRef.current = window.scrollY
         enteredFromListRef.current = true
@@ -544,11 +552,20 @@ export function ArchiveUploaderSources({
     submissionAttemptMutation.isPending ||
     ignoreMutation.isPending ||
     restoreMutation.isPending
-  const mobileDetail = layoutReady && !isDesktop && (ignored || pendingCreators || Boolean(locatedSourceId))
+  const discoveryDetail = ignored || pendingCreators || Boolean(locatedSourceId)
+  const clearResultSelection = () => {
+    if (selectedItemIds.size) toast.info('筛选已更新，已清空勾选')
+    setSelectedItemIds(new Set())
+  }
+  const applyContentFilters = (next: DiscoveryFilterDraft) => {
+    clearResultSelection()
+    resultPositionsRef.current.clear()
+    setContentFilters(next)
+  }
 
   if (!active) return null
 
-  const globalHeader = !mobileDetail ? (
+  const globalHeader = !discoveryDetail ? (
     <>
       <AdminSectionHeader
         title="发现来源"
@@ -583,37 +600,94 @@ export function ArchiveUploaderSources({
           </>
         }
       />
-      {!ignored && !pendingCreators ? (
-        <ToggleGroup
-          type="single"
-          value={sourceFilter}
-          onValueChange={(value) => value && setSourceFilter(value)}
-          variant="outline"
-          aria-label="来源类型"
-        >
-          <ToggleGroupItem value="ALL">全部来源</ToggleGroupItem>
-          <ToggleGroupItem value="UPLOADER">上传者</ToggleGroupItem>
-          <ToggleGroupItem value="TITLE_QUERY">标题关键词</ToggleGroupItem>
-        </ToggleGroup>
-      ) : null}
+      <ArchiveDiscoverySourceFilters
+        value={sourceFilters}
+        countsReady={Boolean(countsQuery.data)}
+        onChange={(next) => {
+          setSourceFilters(next)
+          setSourcePage(1)
+        }}
+      />
     </>
   ) : null
 
   const sourceList = (
-    <ArchiveDiscoveryBatchSources
-      allSources={allSources}
-      sources={sources}
-      selectedSourceId={selectedSourceId}
-      onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
-      onSelect={enterSource}
-    />
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground" aria-live="polite">
+        {sources.length} 个来源{allSources.length !== sources.length ? ` · 共 ${allSources.length} 个` : ''}
+      </p>
+      {(sourceFilters.actionable || sourceFilters.attention) && !countsQuery.data ? (
+        <Skeleton className="h-24 w-full" aria-label="正在加载来源统计" />
+      ) : (
+        <ArchiveDiscoveryBatchSources
+          allSources={allSources}
+          sources={pagedSources}
+          selectionResetKey={JSON.stringify(sourceFilters)}
+          selectedSourceId={selectedSourceId}
+          onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
+          onSelect={enterSource}
+          onSetArchived={(sourceId, archived) => archiveMutation.mutate({ sourceId, archived })}
+          onDelete={setDeleteSourceId}
+          emptyState={
+            <Empty className="border">
+              <EmptyHeader>
+                <EmptyTitle>{allSources.length ? '没有匹配的来源' : '还没有发现来源'}</EmptyTitle>
+                <EmptyDescription>
+                  {allSources.length ? '调整筛选条件，或查看已停用的来源。' : '保存上传者或关键词，开始发现内容。'}
+                </EmptyDescription>
+              </EmptyHeader>
+              {allSources.length ? (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSourceFilters(DEFAULT_SOURCE_FILTERS)
+                    setSourcePage(1)
+                  }}
+                >
+                  重置来源筛选
+                </Button>
+              ) : (
+                <Button onClick={() => setCreateOpen(true)}>新增上传者</Button>
+              )}
+            </Empty>
+          }
+        />
+      )}
+      {sources.length > 0 ? (
+        <nav aria-label="来源分页" className="flex items-center justify-between gap-3">
+          <span className="text-sm tabular-nums text-muted-foreground">
+            第 {currentSourcePage} / {sourcePageCount} 页 · 每页 50 条
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentSourcePage === 1}
+              onClick={() => setSourcePage(currentSourcePage - 1)}
+            >
+              上一页
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentSourcePage === sourcePageCount}
+              onClick={() => setSourcePage(currentSourcePage + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </nav>
+      ) : null}
+    </div>
   )
 
   const source = detail ? { ...detail.source, catalogCounts: selectedCounts ?? null } : undefined
-  const resultPositionKey = selectedSourceId ? `${selectedSourceId}:${resultFeed}:${unboundOnly}` : 'unselected'
+  const resultPositionKey = selectedSourceId
+    ? `${selectedSourceId}:${resultFeed}:${JSON.stringify(contentFilters)}`
+    : 'unselected'
   const detailPanel = (
     <AdminSection>
-      {mobileDetail ? (
+      {discoveryDetail ? (
         <Button
           type="button"
           variant="ghost"
@@ -691,6 +765,32 @@ export function ArchiveUploaderSources({
             )
           ) : null}
 
+          <details className="rounded-lg border px-4 py-3 text-sm">
+            <summary className="cursor-pointer font-medium">
+              固定艺术家（{source.defaultCreators?.length ?? 0}）
+            </summary>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <PrivacySensitiveText>
+                {source.defaultCreators?.map((row) => row.name).join('、') || '未设置固定艺术家'}
+              </PrivacySensitiveText>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setCreatorDialog({
+                    mode: 'defaults',
+                    sourceId: source.id,
+                    itemIds: [],
+                    immediateCount: 0,
+                    initialCreators: source.defaultCreators ?? []
+                  })
+                }
+              >
+                设置固定艺术家
+              </Button>
+            </div>
+          </details>
+
           <ArchiveDiscoveryResultsToolbar
             view={resultFeed}
             counts={{
@@ -702,40 +802,26 @@ export function ArchiveUploaderSources({
             }}
             description={resultFeedDescription(resultFeed, items.length)}
             resultView={resultView}
-            onViewChange={setResultFeed}
+            onViewChange={(next) => {
+              clearResultSelection()
+              resultPositionsRef.current.clear()
+              setResultFeed(next)
+            }}
             onResultViewChange={setResultView}
             intakeOptions={intakeOptions}
             onIntakeOptionsChange={setIntakeOptions}
             disabled={mutationPending}
           />
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="outline"
-              onClick={() =>
-                setCreatorDialog({
-                  mode: 'defaults',
-                  sourceId: source.id,
-                  itemIds: [],
-                  immediateCount: 0,
-                  initialCreators: source.defaultCreators ?? []
-                })
-              }
-            >
-              固定艺术家（{source.defaultCreators?.length ?? 0}）
-            </Button>
-            <PrivacySensitiveText>{source.defaultCreators?.map((row) => row.name).join('、')}</PrivacySensitiveText>
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={unboundOnly}
-                onCheckedChange={(checked) => {
-                  setUnboundOnly(checked === true)
-                  setSelectedItemIds(new Set())
-                }}
-              />
-              仅看未绑定
-            </label>
-          </div>
+          <ArchiveDiscoveryContentFilters
+            key={`${selectedSourceId}:${contentFilters.search}`}
+            value={contentFilters}
+            onChange={applyContentFilters}
+          />
           <ScanResults
+            filtered={contentFiltered}
+            onClearFilters={() => applyContentFilters(DEFAULT_DISCOVERY_FILTERS)}
+            onScan={() => scanMutation.mutate({ sourceId: source.id, mode: 'LATEST' })}
+            canScan={source.status === 'ACTIVE' && !activeRun && !mutationPending}
             view={resultFeed}
             runs={detail?.runs ?? []}
             activeRun={activeRun}
@@ -814,7 +900,7 @@ export function ArchiveUploaderSources({
   return (
     <div className="flex min-w-0 flex-col gap-6 pt-4">
       {globalHeader}
-      {countsQuery.isError || (unboundOnly && unboundCountsQuery.isError) ? (
+      {countsQuery.isError || (contentFiltered && filteredCountsQuery.isError) ? (
         <Alert variant="destructive">
           <AlertTitle>统计刷新失败</AlertTitle>
           <AlertDescription>
@@ -824,7 +910,7 @@ export function ArchiveUploaderSources({
               size="sm"
               onClick={() => {
                 if (countsQuery.isError) void countsQuery.refetch()
-                if (unboundOnly && unboundCountsQuery.isError) void unboundCountsQuery.refetch()
+                if (contentFiltered && filteredCountsQuery.isError) void filteredCountsQuery.refetch()
               }}
             >
               重试统计
@@ -859,7 +945,7 @@ export function ArchiveUploaderSources({
         <DiscoveryPendingCreators onBack={() => onNavigateSourceList('push')} />
       ) : ignored ? (
         <AdminSection>
-          {mobileDetail ? (
+          {discoveryDetail ? (
             <Button
               type="button"
               variant="ghost"
@@ -919,11 +1005,6 @@ export function ArchiveUploaderSources({
         </Alert>
       ) : sourcesQuery.isPending || !layoutReady ? (
         <UploaderSourcesLoading />
-      ) : isDesktop ? (
-        <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)]">
-          {sourceList}
-          {detailPanel}
-        </div>
       ) : locatedSourceId ? (
         detailPanel
       ) : (
@@ -936,7 +1017,6 @@ export function ArchiveUploaderSources({
           sourceId={deleteSourceId}
           onClose={() => setDeleteSourceId(null)}
           onDeleted={async (deletedSourceId) => {
-            setImplicitSourceId(null)
             setSelectedItemIds(new Set())
             setCancelRequestedRunId(null)
             setUidDialogOpen(false)
@@ -971,7 +1051,8 @@ export function ArchiveUploaderSources({
         state={searchDialog}
         onClose={() => setSearchDialog(null)}
         onSaved={async (sourceId) => {
-          setSourceFilter('ALL')
+          setSourceFilters(DEFAULT_SOURCE_FILTERS)
+          setSourcePage(1)
           await refresh()
           enterSource(sourceId)
         }}
@@ -981,7 +1062,8 @@ export function ArchiveUploaderSources({
         open={createOpen}
         onOpenChange={setCreateOpen}
         onCreated={async (sourceId) => {
-          setSourceFilter('ALL')
+          setSourceFilters(DEFAULT_SOURCE_FILTERS)
+          setSourcePage(1)
           await refresh()
           enterSource(sourceId)
         }}
@@ -1060,9 +1142,10 @@ function removeInfiniteItems<TPage extends { items: Array<{ id: string }> }>(
 
 function UploaderSourcesLoading() {
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)]">
-      <Skeleton className="h-72 w-full" />
-      <Skeleton className="h-96 w-full" />
+    <div className="flex flex-col gap-3" aria-label="正在加载来源">
+      <Skeleton className="h-20 w-full" />
+      <Skeleton className="h-20 w-full" />
+      <Skeleton className="h-20 w-full" />
     </div>
   )
 }

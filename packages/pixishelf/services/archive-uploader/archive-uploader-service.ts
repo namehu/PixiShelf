@@ -1,3 +1,4 @@
+import { archiveDiscoveryFiltersSchema, archiveDiscoveryCatalogCountsSchema } from '@/lib/archive-discovery-filters'
 import { enqueueDiscoveryScan, DiscoveryScanConflict } from '@pixishelf/job-executors'
 import { createHash, randomUUID } from 'node:crypto'
 import {
@@ -78,6 +79,7 @@ export const listArchiveUploaderScanItemsSchema = z
     sourceId: sourceIdSchema,
     view: z.enum(ARCHIVE_UPLOADER_CATALOG_VIEWS).default('ACTIONABLE'),
     unboundOnly: z.boolean().default(false),
+    filters: archiveDiscoveryFiltersSchema.optional(),
     cursor: scanItemCursorSchema.nullish(),
     limit: z.number().int().min(1).max(SCAN_RESULT_LIMIT).default(50),
     direction: z.literal('forward').optional()
@@ -210,16 +212,7 @@ export async function createArchiveUploaderSource(
   }
 }
 
-export const archiveDiscoveryCatalogCountsSchema = z
-  .object({
-    sourceId: sourceIdSchema.optional(),
-    unboundOnly: z.boolean().default(false)
-  })
-  .strict()
-  .refine((input) => !input.unboundOnly || Boolean(input.sourceId), {
-    message: '未绑定筛选必须指定来源',
-    path: ['sourceId']
-  })
+export { archiveDiscoveryCatalogCountsSchema } from '@/lib/archive-discovery-filters'
 
 export async function getArchiveDiscoveryCatalogCounts(
   input: z.input<typeof archiveDiscoveryCatalogCountsSchema>,
@@ -235,7 +228,8 @@ export async function getArchiveDiscoveryCatalogCounts(
   const counts = await getArchiveUploaderCatalogCounts(
     database,
     sources.map(({ id }) => id),
-    parsed.unboundOnly
+    parsed.unboundOnly,
+    parsed.filters
   )
   return Object.fromEntries(sources.map(({ id }) => [id, counts.get(id) ?? emptyCatalogCounts()]))
 }
@@ -316,7 +310,7 @@ export async function listArchiveUploaderScanItems(
     counts:
       dependencies.includeCounts === false
         ? null
-        : ((await getArchiveUploaderCatalogCounts(database, [parsed.sourceId], parsed.unboundOnly)).get(
+        : ((await getArchiveUploaderCatalogCounts(database, [parsed.sourceId], parsed.unboundOnly, parsed.filters)).get(
             parsed.sourceId
           ) ?? emptyCatalogCounts()),
     nextCursor: result.nextCursor
@@ -1025,6 +1019,8 @@ function serializeCatalogItem(item: ArchiveUploaderCatalogStateRow) {
   return {
     ...rest,
     ...(typeof fileCount === 'number' && Number.isSafeInteger(fileCount) && fileCount > 0 ? { fileCount } : {}),
+    category: item.category ?? null,
+    languages: item.languages ?? [],
     actionable: item.workflowBucket === 'ACTIONABLE',
     changeReasons: serializeChangeReasons(changeReasons),
     errorMessage: archiveWireErrorMessage(item.errorCode ?? null, errorMessage ?? null),

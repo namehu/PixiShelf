@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ComponentProps } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type ComponentProps } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
@@ -39,10 +39,23 @@ const labels: Record<string, string> = {
   SKIPPED: '已跳过'
 }
 
-export function ArchiveDiscoveryBatchSources({ allSources, ...listProps }: ListProps & { allSources: Source[] }) {
+export function ArchiveDiscoveryBatchSources({
+  allSources,
+  selectionResetKey,
+  emptyState,
+  ...listProps
+}: ListProps & { allSources: Source[]; selectionResetKey?: string; emptyState?: ReactNode }) {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const previousFilter = useRef(selectionResetKey)
+  useEffect(() => {
+    if (previousFilter.current !== selectionResetKey) {
+      previousFilter.current = selectionResetKey
+      if (selected.size) toast.info('筛选已更新，已清空来源勾选')
+      setSelected(new Set())
+    }
+  }, [selectionResetKey, selected.size])
   const [draft, setDraft] = useState<{ sources: Source[]; requestId: string } | null>(null)
   const retryRequest = useRef<{ batchId: string; requestId: string } | null>(null)
   const batchQuery = useQuery(
@@ -243,7 +256,7 @@ export function ArchiveDiscoveryBatchSources({ allSources, ...listProps }: ListP
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
-            aria-label="全选当前筛选的可扫描来源"
+            aria-label="全选当前页的可扫描来源"
             checked={allChecked ? true : someChecked ? 'indeterminate' : false}
             disabled={visible.length === 0 || Boolean(batch?.active)}
             onCheckedChange={(checked) =>
@@ -257,11 +270,11 @@ export function ArchiveDiscoveryBatchSources({ allSources, ...listProps }: ListP
               })
             }
           />
-          全选当前筛选
+          全选当前页
         </label>
         <span className="text-sm text-muted-foreground">
           已选 {chosen.length}
-          {hiddenCount ? `（隐藏 ${hiddenCount}）` : ''}
+          {hiddenCount ? `（其他页 ${hiddenCount}）` : ''}
         </span>
         {chosen.length ? (
           <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
@@ -270,6 +283,7 @@ export function ArchiveDiscoveryBatchSources({ allSources, ...listProps }: ListP
         ) : null}
         <Button
           size="sm"
+          className={chosen.length ? undefined : 'hidden'}
           disabled={!chosen.length || Boolean(batch?.active) || batchQuery.isPending || batchQuery.isError || busy}
           onClick={() => setDraft({ sources: [...chosen], requestId: crypto.randomUUID() })}
         >
@@ -284,7 +298,7 @@ export function ArchiveDiscoveryBatchSources({ allSources, ...listProps }: ListP
           selectionDisabled={Boolean(batch?.active)}
         />
       ) : (
-        <p className="text-sm text-muted-foreground">暂无此类型的发现来源</p>
+        (emptyState ?? <p className="text-sm text-muted-foreground">暂无此类型的发现来源</p>)
       )}
       <Dialog
         open={Boolean(draft)}

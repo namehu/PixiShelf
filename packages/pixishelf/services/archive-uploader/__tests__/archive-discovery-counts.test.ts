@@ -82,6 +82,17 @@ describe('independent discovery counts', () => {
     expect(mocks.counts).not.toHaveBeenCalled()
   })
 
+  it('scopes content filters to a source and passes the same filters to items and counts', async () => {
+    const filters = { search: 'hello', languages: ['chinese'] }
+    expect(archiveDiscoveryCatalogCountsSchema.safeParse({ filters }).success).toBe(false)
+    const db = database()
+    await listArchiveUploaderScanItems({ sourceId: 'source', filters }, { database: db as never })
+    const itemFilters = mocks.items.mock.calls[0]?.[1].filters
+    expect(mocks.counts).toHaveBeenLastCalledWith(db, ['source'], false, itemFilters)
+    await getArchiveDiscoveryCatalogCounts({ sourceId: 'source', filters }, { database: db as never })
+    expect(mocks.counts).toHaveBeenLastCalledWith(db, ['source'], false, itemFilters)
+  })
+
   it('passes only the selected source and unbound filter to the aggregate', async () => {
     const db = database()
     await getArchiveDiscoveryCatalogCounts(
@@ -89,6 +100,6 @@ describe('independent discovery counts', () => {
       { database: db as never, sourceKind: 'ALL' }
     )
     expect(db.archiveUploaderSource.findMany).toHaveBeenCalledWith({ where: { id: 'source' }, select: { id: true } })
-    expect(mocks.counts).toHaveBeenCalledWith(db, ['source'], true)
+    expect(mocks.counts).toHaveBeenCalledWith(db, ['source'], true, undefined)
   })
 })

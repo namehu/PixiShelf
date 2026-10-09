@@ -1,4 +1,5 @@
 import { Prisma, type PrismaClient } from '@pixishelf/db'
+import { DISCOVERY_LANGUAGES, DISCOVERY_UNKNOWN, type ArchiveDiscoveryFilters } from '@/lib/archive-discovery-filters'
 
 export const ARCHIVE_UPLOADER_CATALOG_VIEWS = ['ACTIONABLE', 'PROCESSING', 'ARCHIVED', 'ATTENTION', 'ALL'] as const
 
@@ -31,6 +32,8 @@ export interface ArchiveUploaderCatalogStateRow {
   title: string
   thumbnailUrl: string | null
   fileCount?: Prisma.JsonValue
+  category?: string | null
+  languages?: string[]
   uploaderName: string | null
   postedAt: Date | null
   classification: 'NEW' | 'ACTIVE' | 'ARCHIVED' | 'POSSIBLE_UPDATE' | 'REPLACEMENT'
@@ -67,6 +70,7 @@ export async function listArchiveUploaderCatalogState(
     sourceId: string
     view: ArchiveUploaderCatalogView
     unboundOnly?: boolean
+    filters?: ArchiveDiscoveryFilters
     cursor?: ArchiveUploaderCatalogCursor | null
     limit: number
   }
@@ -85,7 +89,7 @@ export async function listArchiveUploaderCatalogState(
   const viewCondition = input.view === 'ALL' ? Prisma.empty : Prisma.sql`AND state."workflowBucket" = ${input.view}`
 
   const rows = await database.$queryRaw<ArchiveUploaderCatalogStateRow[]>(Prisma.sql`
-    ${catalogStateCte(Prisma.sql`catalog."sourceId" = ${input.sourceId}`)}
+    ${catalogStateCte(Prisma.sql`catalog."sourceId" = ${input.sourceId} AND ${catalogFilterCondition(input.filters)}`)}
     SELECT
       state."id",
       state."sourceId",
@@ -95,6 +99,8 @@ export async function listArchiveUploaderCatalogState(
       state."title",
       state."thumbnailUrl",
       state."comparisonSnapshot"->'fileCount' AS "fileCount",
+      NULLIF(state."comparisonSnapshot"->>'category', '') AS "category",
+      ${catalogLanguages('state')} AS "languages",
       state."uploaderName",
       state."postedAt",
       state."classification",
@@ -135,7 +141,8 @@ export async function listArchiveUploaderCatalogState(
 export async function getArchiveUploaderCatalogCounts(
   database: PrismaClient,
   sourceIds?: string[],
-  unboundOnly = false
+  unboundOnly = false,
+  filters?: ArchiveDiscoveryFilters
 ): Promise<Map<string, ArchiveUploaderCatalogCounts>> {
   if (sourceIds && sourceIds.length === 0) return new Map()
   const scope = sourceIds ? Prisma.sql`catalog."sourceId" IN (${Prisma.join(sourceIds)})` : Prisma.sql`TRUE`
@@ -149,7 +156,7 @@ export async function getArchiveUploaderCatalogCounts(
       total: bigint
     }>
   >(Prisma.sql`
-    ${catalogStateCte(scope)}
+    ${catalogStateCte(Prisma.sql`${scope} AND ${catalogFilterCondition(filters)}`)}
     SELECT
       state."sourceId",
       COUNT(*) FILTER (WHERE state."workflowBucket" = 'ACTIONABLE')::bigint AS "actionable",
@@ -173,6 +180,48 @@ export async function getArchiveUploaderCatalogCounts(
       }
     ])
   )
+}
+
+// Keep language extraction identical for the DTO, filtering and unknown-language detection.
+function catalogLanguages(alias: 'catalog' | 'state') {
+  const snapshot =
+    alias === 'catalog' ? Prisma.sql`catalog."comparisonSnapshot"` : Prisma.sql`state."comparisonSnapshot"`
+  return Prisma.sql`ARRAY(SELECT DISTINCT lower(tag->>'name') FROM jsonb_array_elements(
+    CASE WHEN jsonb_typeof(${snapshot}->'tags') = 'array' THEN ${snapshot}->'tags' ELSE '[]'::jsonb END
+  ) AS tag WHERE lower(tag->>'namespace') = 'language' AND lower(tag->>'name') IN (${Prisma.join(Object.keys(DISCOVERY_LANGUAGES))}) ORDER BY 1)`
+}
+
+function catalogFilterCondition(filters?: ArchiveDiscoveryFilters) {
+  if (!filters) return Prisma.sql`TRUE`
+  const conditions: Prisma.Sql[] = [Prisma.sql`TRUE`]
+  if (filters.search?.trim()) {
+    // strpos treats %, _ and backslashes as literal title characters.
+    const search = filters.search.trim().toLowerCase()
+    conditions.push(Prisma.sql`(strpos(lower(catalog."title"), ${search}) > 0 OR EXISTS (
+      SELECT 1 FROM jsonb_array_elements_text(CASE
+        WHEN jsonb_typeof(catalog."comparisonSnapshot"->'titles'->'aliases') = 'array'
+        THEN catalog."comparisonSnapshot"->'titles'->'aliases' ELSE '[]'::jsonb END) AS alias
+      WHERE strpos(lower(alias), ${search}) > 0
+    ))`)
+  }
+  if (filters.categories?.length) {
+    conditions.push(
+      Prisma.sql`COALESCE(NULLIF(catalog."comparisonSnapshot"->>'category', ''), ${DISCOVERY_UNKNOWN}) IN (${Prisma.join(filters.categories)})`
+    )
+  }
+  if (filters.languages?.length) {
+    const known = filters.languages.filter((language) => language !== DISCOVERY_UNKNOWN)
+    const matches = known.length
+      ? Prisma.sql`${catalogLanguages('catalog')} && ARRAY[${Prisma.join(known)}]::text[]`
+      : Prisma.sql`FALSE`
+    conditions.push(
+      Prisma.sql`(${matches} OR (${filters.languages.includes(DISCOVERY_UNKNOWN)} AND cardinality(${catalogLanguages('catalog')}) = 0))`
+    )
+  }
+  if (filters.unknownDate) conditions.push(Prisma.sql`catalog."postedAt" IS NULL`)
+  if (filters.postedFrom) conditions.push(Prisma.sql`catalog."postedAt" >= ${filters.postedFrom}`)
+  if (filters.postedBefore) conditions.push(Prisma.sql`catalog."postedAt" < ${filters.postedBefore}`)
+  return Prisma.join(conditions, ' AND ')
 }
 
 function unboundCondition() {

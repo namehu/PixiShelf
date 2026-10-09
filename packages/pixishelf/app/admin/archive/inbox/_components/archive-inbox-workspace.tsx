@@ -17,7 +17,7 @@ const workspaceQueryParsers = {
 export function ArchiveInboxWorkspace() {
   const [query, setQuery] = useQueryStates(workspaceQueryParsers)
   const activeTab = query.itemId ? 'inbox' : query.tab === 'uploaders' ? 'uploaders' : 'inbox'
-  const mobileDetail =
+  const discoveryDetail =
     activeTab === 'uploaders' &&
     Boolean(query.sourceId || query.discoveryView === 'ignored' || query.discoveryView === 'pending-creators')
 
@@ -33,9 +33,9 @@ export function ArchiveInboxWorkspace() {
           }
         }}
         className={activeTab === 'uploaders' ? 'mx-auto w-full pt-4' : 'mx-auto w-full max-w-7xl pt-4'}
-        data-mobile-discovery-detail={mobileDetail ? '' : undefined}
+        data-mobile-discovery-detail={discoveryDetail ? '' : undefined}
       >
-        <TabsList aria-label="归档收件工作区" className={mobileDetail ? 'max-lg:hidden' : undefined}>
+        <TabsList aria-label="归档收件工作区" className={discoveryDetail ? 'hidden' : undefined}>
           <TabsTrigger value="inbox">
             <ArchiveIcon data-icon="inline-start" aria-hidden="true" />
             收件队列

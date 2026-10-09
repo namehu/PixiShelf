@@ -33,7 +33,29 @@ export const useAdminPreferencesStore = create<AdminPreferencesState>()(
     }),
     {
       name: ADMIN_PREFERENCES_STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => ({
+        getItem: (name) => {
+          try {
+            return localStorage.getItem(name)
+          } catch {
+            return null
+          }
+        },
+        setItem: (name, value) => {
+          try {
+            localStorage.setItem(name, value)
+          } catch {
+            /* Keep in-memory preferences when storage is unavailable. */
+          }
+        },
+        removeItem: (name) => {
+          try {
+            localStorage.removeItem(name)
+          } catch {
+            /* Storage is optional. */
+          }
+        }
+      })),
       version: 2,
       // 只持久化用户配置；action 是运行时函数，无法也无需写入 localStorage。
       partialize: (state) => ({
