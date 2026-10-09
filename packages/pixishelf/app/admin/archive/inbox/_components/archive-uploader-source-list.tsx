@@ -2,7 +2,7 @@
 
 import { ARCHIVE_TITLE_MATCH_LABELS } from '@pixishelf/job-contracts'
 import type { inferRouterOutputs } from '@trpc/server'
-import { CopyIcon, MoreHorizontalIcon } from 'lucide-react'
+import { CopyIcon, MoreHorizontalIcon, TypeIcon, UserRoundIcon } from 'lucide-react'
 import { ArchiveDiscoveryResultList, type ArchiveDiscoveryListPosition } from './archive-discovery-result-list'
 import type { AppRouter } from '@/server'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
@@ -84,7 +84,10 @@ export function ArchiveUploaderSourceList({
           }
         }}
         renderItem={(source) => (
-          <div key={source.id} className="flex items-center gap-2 border-b px-3 hover:bg-muted/30 lg:gap-3 lg:px-4">
+          <div
+            key={source.id}
+            className="@container/source-row flex items-center gap-2 border-b px-3 hover:bg-muted/30 lg:gap-3 lg:px-4"
+          >
             {onCheckSource ? (
               <span className="flex w-8 shrink-0 justify-center">
                 <Checkbox
@@ -101,19 +104,30 @@ export function ArchiveUploaderSourceList({
             ) : null}
             <Button
               variant="ghost"
-              className="flex h-auto min-h-28 min-w-0 flex-1 flex-col items-stretch gap-2 whitespace-normal px-2 py-4 text-left"
+              className="flex h-auto min-h-12 min-w-0 flex-1 flex-col items-stretch gap-1.5 whitespace-normal px-2 py-2 text-left @3xl/source-row:flex-row @3xl/source-row:items-center @3xl/source-row:gap-4"
               onClick={() => onSelect(source.id)}
               data-source-id={source.id}
             >
-              <span className="min-w-0">
-                <span className="flex flex-wrap items-center gap-2">
+              <span className="flex min-w-0 flex-1 flex-col gap-1 @3xl/source-row:flex-row @3xl/source-row:items-center @3xl/source-row:gap-3">
+                <span className="flex min-w-0 items-center gap-2 @3xl/source-row:max-w-[55%]">
+                  <span
+                    role="img"
+                    aria-label={source.titleQuery ? '关键词来源' : '上传者来源'}
+                    title={source.titleQuery ? '关键词来源' : '上传者来源'}
+                    className="shrink-0 text-muted-foreground"
+                  >
+                    {source.titleQuery ? (
+                      <TypeIcon strokeWidth={3} aria-hidden="true" />
+                    ) : (
+                      <UserRoundIcon fill="currentColor" aria-hidden="true" />
+                    )}
+                  </span>
                   <PrivacySensitiveText className="min-w-0 max-w-full truncate font-medium">
                     {source.displayName}
                   </PrivacySensitiveText>
-                  <Badge variant="secondary">{source.titleQuery ? '关键词' : '上传者'}</Badge>
                   {source.status === 'ARCHIVED' ? <Badge variant="muted">已停用</Badge> : null}
                 </span>
-                <PrivacySensitiveText className="mt-1 block truncate text-xs font-normal text-muted-foreground">
+                <PrivacySensitiveText className="block min-w-0 truncate text-xs font-normal text-muted-foreground @3xl/source-row:flex-1">
                   {source.titleQuery
                     ? `标题${ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「${source.titleQuery.keyword}」${source.titleQuery.uploaderName ? ` · ${source.titleQuery.uploaderName}` : source.titleQuery.uploaderUid ? ` · UID ${source.titleQuery.uploaderUid}` : ''}`
                     : source.uploaderUid
@@ -121,7 +135,7 @@ export function ArchiveUploaderSourceList({
                       : `按名称：${source.identityValue}`}
                 </PrivacySensitiveText>
               </span>
-              <span className="flex flex-wrap items-center gap-x-4 gap-y-2">
+              <span className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 @3xl/source-row:flex-nowrap">
                 <span className="flex items-center gap-1 tabular-nums">
                   <span className="text-xs font-normal text-muted-foreground">待处理</span>
                   {source.catalogCounts ? (
@@ -142,7 +156,7 @@ export function ArchiveUploaderSourceList({
                     <Skeleton className="h-4 w-8" aria-label="异常数量加载中" />
                   )}
                 </span>
-                <span className="min-w-0 whitespace-normal text-xs font-normal">
+                <span className="min-w-0 whitespace-nowrap text-xs font-normal">
                   {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
                     <Badge variant="warning">扫描范围待核对</Badge>
                   ) : source.latestRun ? (
@@ -151,7 +165,7 @@ export function ArchiveUploaderSourceList({
                     '未扫描'
                   )}
                 </span>
-                <span className="whitespace-normal text-xs font-normal text-muted-foreground">
+                <span className="whitespace-nowrap text-xs font-normal text-muted-foreground">
                   {source.lastScanAt ? `最近扫描 ${formatArchiveUploaderTimestamp(source.lastScanAt)}` : '尚未扫描'}
                 </span>
               </span>

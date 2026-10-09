@@ -37,7 +37,7 @@ describe('source list virtualization', () => {
       })
     )
     render(
-      <VirtuosoMockContext.Provider value={{ viewportHeight: 600, itemHeight: 112 }}>
+      <VirtuosoMockContext.Provider value={{ viewportHeight: 600, itemHeight: 48 }}>
         <ArchiveUploaderSourceList sources={sources} selectedSourceId={null} onSelect={vi.fn()} onCopyUid={vi.fn()} />
       </VirtuosoMockContext.Provider>
     )
