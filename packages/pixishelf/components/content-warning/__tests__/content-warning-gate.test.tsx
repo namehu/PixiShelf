@@ -6,7 +6,10 @@ import { privacySession } from '@/lib/privacy-session'
 import { ContentWarningGate } from '../content-warning-gate'
 
 const state = vi.hoisted(() => ({ pathname: '/dashboard', user: { id: 'user-1' } as { id: string } | null }))
-vi.mock('next/navigation', () => ({ usePathname: () => state.pathname }))
+vi.mock('next/navigation', () => ({
+  usePathname: () => state.pathname,
+  useSearchParams: () => new URLSearchParams(window.location.search)
+}))
 vi.mock('@/components/auth', () => ({ useAuthUser: () => state.user }))
 vi.mock('sonner', () => ({ toast: { warning: vi.fn() } }))
 
@@ -18,6 +21,7 @@ beforeEach(() => {
   privacyStore.setState({ status: 'initializing', visit: null, remembered: null, storageError: false })
   state.pathname = '/dashboard'
   state.user = { id: 'user-1' }
+  window.history.replaceState(null, '', '/dashboard')
   protectedContent = document.createElement('div')
   protectedContent.id = 'content-warning-protected-content'
   document.body.appendChild(protectedContent)
@@ -33,6 +37,51 @@ function pending() {
 }
 
 describe('browser content warning', () => {
+  it.each(['direct', 'privacy'] as const)('forces %s from the URL and consumes only the entry parameter', (mode) => {
+    pending()
+    window.history.replaceState({ marker: 'preserved' }, '', `/dashboard?entry=${mode}&page=2#items`)
+    const view = render(<ContentWarningGate />)
+    expect(privacyStore.getState().status).toBe(mode)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(document.documentElement.dataset.mediaPrivacy).toBe(mode === 'direct' ? 'off' : 'on')
+    expect(protectedContent.inert).toBe(false)
+    expect(window.location.search).toBe('?page=2')
+    expect(window.location.hash).toBe('#items')
+    expect(window.history.state).toEqual({ marker: 'preserved' })
+    act(() => privacySession.toggle())
+    view.rerender(<ContentWarningGate />)
+    expect(privacyStore.getState().status).not.toBe(mode)
+  })
+
+  it('handles query-only navigation and overrides an existing mode', () => {
+    privacySession.choose('privacy')
+    const view = render(<ContentWarningGate />)
+    window.history.replaceState(null, '', '/dashboard?entry=direct')
+    view.rerender(<ContentWarningGate />)
+    expect(privacyStore.getState().status).toBe('direct')
+  })
+
+  it.each(['entry=invalid', 'entry=', 'entry=direct&entry=privacy'])('ignores invalid or ambiguous %s', (query) => {
+    pending()
+    window.history.replaceState(null, '', `/dashboard?${query}`)
+    render(<ContentWarningGate />)
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+    expect(privacyStore.getState().status).toBe('pending')
+  })
+
+  it('waits for authentication before consuming an entry choice', () => {
+    state.user = null
+    state.pathname = '/login'
+    window.history.replaceState(null, '', '/login?entry=direct')
+    const view = render(<ContentWarningGate />)
+    expect(privacyStore.getState().status).toBe('initializing')
+    expect(window.location.search).toBe('?entry=direct')
+    state.user = { id: 'user-1' }
+    view.rerender(<ContentWarningGate />)
+    expect(privacyStore.getState().status).toBe('direct')
+    expect(window.location.search).toBe('')
+  })
+
   it('keeps initialization covered and inert without prematurely displaying the choice', () => {
     render(<ContentWarningGate />)
     expect(screen.queryByRole('alertdialog')).toBeNull()

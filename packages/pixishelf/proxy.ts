@@ -44,6 +44,10 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
       if (session) {
         const dashboardUrl = new URL(ROUTES.DASHBOARD, request.url)
+        const entries = request.nextUrl.searchParams.getAll('entry')
+        if (entries.length === 1 && (entries[0] === 'direct' || entries[0] === 'privacy')) {
+          dashboardUrl.searchParams.set('entry', entries[0])
+        }
         return NextResponse.redirect(dashboardUrl)
       }
     } catch (error) {
@@ -104,7 +108,7 @@ function handleUnauthenticated(request: NextRequest, pathname: string): NextResp
 
   // 保存原始请求的URL，登录后可以重定向回来
   if (pathname !== ROUTES.LOGIN) {
-    loginUrl.searchParams.set('redirect', pathname)
+    loginUrl.searchParams.set('redirect', pathname + request.nextUrl.search)
   }
 
   const response = NextResponse.redirect(loginUrl)

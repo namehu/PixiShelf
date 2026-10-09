@@ -45,6 +45,8 @@ sources:
 
 ## 标准命令
 
+开发与 computer use 可用 `/artworks?entry=direct` 预先强制原始模式进入，或 `?entry=privacy` 验证遮蔽。该选择同步同源标签，不绕过登录；无需手写隐私存储。URL 入口须回归登录跳转保留参数、消费后清理参数、同路径查询导航，以及已有 30 天期限不续期，详见[浏览器隐私偏好](../features/browser-privacy.md)。
+
 ### 主应用
 
 ```bash

@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowRight, ShieldCheck } from 'lucide-react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { useAuthUser } from '@/components/auth'
 import PLogo from '@/components/layout/p-logo'
 import { usePrivacyStore } from '@/store/privacy-store'
@@ -29,6 +29,7 @@ const PROTECTED_CONTENT_ID = 'content-warning-protected-content'
 
 export function ContentWarningGate() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const user = useAuthUser()
   const status = usePrivacyStore((state) => state.status)
   const storageError = usePrivacyStore((state) => state.storageError)
@@ -38,7 +39,7 @@ export function ContentWarningGate() {
   const blocked = eligible && (status === 'initializing' || status === 'pending')
   const open = eligible && status === 'pending'
 
-  useEffect(
+  useLayoutEffect(
     () =>
       privacySession.start({
         get localStorage() {
@@ -53,6 +54,16 @@ export function ContentWarningGate() {
       }),
     []
   )
+
+  useLayoutEffect(() => {
+    const url = new URL(window.location.href)
+    const entries = url.searchParams.getAll('entry')
+    const mode = entries[0]
+    if (!user || entries.length !== 1 || (mode !== 'direct' && mode !== 'privacy')) return
+    privacySession.enter(mode)
+    url.searchParams.delete('entry')
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+  }, [pathname, searchParams, user])
 
   useEffect(() => {
     if (storageError && !blocked) {

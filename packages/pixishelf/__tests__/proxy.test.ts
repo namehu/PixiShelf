@@ -38,7 +38,7 @@ describe('proxy authorization boundary', () => {
     }
   )
 
-  it.each(['/login-extra', '/dashboard', '/artworks/42'])(
+  it.each(['/login-extra', '/dashboard', '/artworks/42', '/artworks/42?entry=direct&page=2'])(
     'redirects unauthenticated page %s to login', async (path) => {
       const response = await proxy(request(path))
       expect(response.status).toBe(307)
@@ -77,6 +77,16 @@ describe('proxy authorization boundary', () => {
     const response = await proxy(request('/login'))
     expect(response.status).toBe(307)
     expect(response.headers.get('location')).toBe('http://localhost/dashboard')
+  })
+
+  it('preserves an explicit entry mode through an authenticated login redirect', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'owner' } })
+    const response = await proxy(request('/login?entry=privacy'))
+    expect(response.headers.get('location')).toBe('http://localhost/dashboard?entry=privacy')
+  })
+
+  it('does not use entry parameters to bypass API authentication', async () => {
+    expect((await proxy(request('/api/artworks?entry=direct'))).status).toBe(401)
   })
 
   it.each(['/login', '/api/scan/rescan'])('rate limits %s before authentication or forwarding', async (path) => {

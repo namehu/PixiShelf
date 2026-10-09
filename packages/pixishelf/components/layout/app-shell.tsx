@@ -1,6 +1,6 @@
 'use client'
 
-import type { PropsWithChildren } from 'react'
+import { Suspense, type PropsWithChildren } from 'react'
 import { usePathname } from 'next/navigation'
 import { useAuthUser } from '@/components/auth'
 import { ContentWarningGate } from '@/components/content-warning/content-warning-gate'
@@ -22,7 +22,9 @@ export default function AppShell({ children }: PropsWithChildren) {
 
   return (
     <>
-      <ContentWarningGate />
+      <Suspense fallback={null}>
+        <ContentWarningGate />
+      </Suspense>
       {showHeader && (
         <a
           href="#main-content"

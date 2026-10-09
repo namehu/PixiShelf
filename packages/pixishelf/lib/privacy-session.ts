@@ -221,6 +221,11 @@ export function createPrivacySession(store: Store) {
 
   return {
     start,
+    enter(mode: PrivacyMode) {
+      // Explicit URL choices override discovery, but retain the existing fixed memory deadline.
+      const remembered = browser ? freshMemory() : store.getState().remembered
+      publish(mode, remembered && remembered.expiresAt > Date.now() ? { ...remembered, mode } : null)
+    },
     choose(mode: PrivacyMode, remember = false) {
       publish(mode, remember ? { mode, expiresAt: Date.now() + PRIVACY_MEMORY_DURATION } : null)
     },

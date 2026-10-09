@@ -39,6 +39,8 @@ rg --files packages/pixishelf | rg '[A-Z]'
 - `build/.env` 用于 Compose，`packages/pixishelf/.env.local` 用于本地应用；两者的数据库主机通常不同。
 - 启动或升级时禁止使用 `db:push`，因为它不会更新 `_prisma_migrations`；应使用文档中的 generate/deploy 流程。
 
+- 开发验证或 computer use 时，在 URL 添加 `entry=direct`，使用直连模式跳过内容提示，例如 `/artworks?entry=direct`。
+
 ## 文档与风险
 
 - 先查看 `docs/README.md`，确认文档的权威性和状态。

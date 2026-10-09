@@ -113,6 +113,40 @@ afterEach(() => {
 })
 
 describe('browser privacy visits', () => {
+  it.each([true, false])('forces entry during discovery and synchronizes peers without renewing memory (channel=%s)', (channel) => {
+    const browser = setup(channel)
+    const a = browser.tab()
+    a.controller.choose('privacy', true)
+    const expiresAt = a.store.getState().remembered!.expiresAt
+    vi.advanceTimersByTime(1000)
+    const b = browser.tab()
+    b.controller.enter('direct')
+    expect(b.store.getState().status).toBe('direct')
+    vi.advanceTimersByTime(600)
+    expect(a.store.getState().status).toBe('direct')
+    expect(b.store.getState().remembered).toEqual({ mode: 'direct', expiresAt })
+    a.controller.enter('privacy')
+    flush()
+    expect(b.store.getState().status).toBe('privacy')
+    expect(a.store.getState().remembered?.expiresAt).toBe(expiresAt)
+  })
+
+  it('does not create or renew memory for explicit entry and resumes it on refresh', () => {
+    const browser = setup()
+    const a = browser.tab()
+    a.controller.enter('direct')
+    vi.advanceTimersByTime(600)
+    expect(a.store.getState().status).toBe('direct')
+    expect(a.store.getState().remembered).toBeNull()
+    a.stop()
+    const b = browser.tab(a.sessionStorage)
+    expect(b.store.getState().status).toBe('direct')
+    b.controller.remember()
+    vi.advanceTimersByTime(PRIVACY_MEMORY_DURATION + 1)
+    b.controller.enter('privacy')
+    expect(b.store.getState().remembered).toBeNull()
+  })
+
   it.each([true, false])(
     'shares choices with new and pending tabs, then synchronizes both directions (BroadcastChannel=%s)',
     (channel) => {
@@ -304,6 +338,8 @@ describe('browser privacy visits', () => {
     controller.toggle()
     expect(store.getState().status).toBe('direct')
     expect(store.getState().storageError).toBe(true)
+    expect(() => controller.enter('privacy')).not.toThrow()
+    expect(store.getState().status).toBe('privacy')
     stop()
   })
 
