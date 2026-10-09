@@ -74,6 +74,23 @@ function ExternalReader({ src = '/external.webp' }: { src?: string }) {
     </div>
   )
 }
+function ManualReader({ id, mode, label }: { id: number; mode: AutoBrowseMode; label: string }) {
+  const animation = useArtworkAnimation(id, mode, `/${label}.webp`)
+  return (
+    <div data-testid={label}>
+      <AnimatedWebpPlayer src={`/${label}.webp`} controlMode="external" animationMetadata={metadata} {...animation} />
+      <button type="button" onClick={() => animation.onPlayingChange(!animation.playing)}>
+        {label}: {animation.playing ? '暂停' : '播放'}
+      </button>
+      <button type="button" onClick={animation.onAnimationError}>
+        {label}: 迟到错误
+      </button>
+      <button type="button" onClick={() => animation.onPlayingChange(false)}>
+        {label}: 迟到停止
+      </button>
+    </div>
+  )
+}
 async function advance(ms: number) {
   await act(async () => {
     vi.advanceTimersByTime(ms)
@@ -89,7 +106,10 @@ async function start(mode: AutoBrowseMode) {
   return Transport.instances[0]!
 }
 function frame(index: number): WorkerEvent {
-  return { type: 'frame', frame: { index, cycleId: 0, durationMs: 1000, width: 1, height: 1, pixels: new ArrayBuffer(4) } }
+  return {
+    type: 'frame',
+    frame: { index, cycleId: 0, durationMs: 1000, width: 1, height: 1, pixels: new ArrayBuffer(4) }
+  }
 }
 beforeEach(() => {
   useWebpPlayerStore.getState().reset()
@@ -231,6 +251,101 @@ describe.each<AutoBrowseMode>(['scroll', 'slideshow'])('%s streaming integration
 })
 
 describe('manual streaming playback', () => {
+  it.each([false, true])('allows only one manual player across detail and preview (StrictMode: %s)', async (strict) => {
+    const readers = (
+      <>
+        <ManualReader id={1} mode="scroll" label="first" />
+        <ManualReader id={2} mode="scroll" label="second" />
+        <ManualReader id={2} mode="slideshow" label="preview" />
+      </>
+    )
+    const view = render(strict ? <React.StrictMode>{readers}</React.StrictMode> : readers)
+    for (const [index, label] of ['first', 'second', 'preview'].entries()) {
+      fireEvent.click(screen.getByRole('button', { name: `${label}: 播放` }))
+      await act(async () => {
+        await vi.dynamicImportSettled()
+      })
+      expect(view.container.querySelectorAll('canvas')).toHaveLength(1)
+      expect(screen.getByRole('button', { name: `${label}: 暂停` })).toBeTruthy()
+      if (index > 0) expect(Transport.instances[index - 1]!.terminate).toHaveBeenCalledTimes(1)
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'first: 迟到错误' }))
+    fireEvent.click(screen.getByRole('button', { name: 'second: 迟到停止' }))
+    expect(screen.getByRole('button', { name: 'preview: 暂停' })).toBeTruthy()
+    expect(Transport.instances[2]!.terminate).not.toHaveBeenCalled()
+  })
+
+  it('releases a superseded paused player and restarts it only on a new play request', async () => {
+    render(
+      <>
+        <ManualReader id={1} mode="scroll" label="first" />
+        <ManualReader id={2} mode="scroll" label="second" />
+      </>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'first: 播放' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    const first = Transport.instances[0]!
+    fireEvent.click(screen.getByRole('button', { name: 'first: 暂停' }))
+    expect(first.terminate).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'second: 播放' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    expect(first.terminate).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('first').querySelector('canvas')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'first: 播放' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    expect(Transport.instances).toHaveLength(3)
+    expect(Transport.instances[1]!.terminate).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not stop the new owner when an old player unmounts', async () => {
+    const first = render(<ManualReader id={1} mode="scroll" label="first" />)
+    render(<ManualReader id={2} mode="scroll" label="second" />)
+    fireEvent.click(screen.getByRole('button', { name: 'first: 播放' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'second: 播放' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    first.unmount()
+    expect(screen.getByRole('button', { name: 'second: 暂停' })).toBeTruthy()
+    expect(Transport.instances[1]!.terminate).not.toHaveBeenCalled()
+  })
+
+  it('clears manual playback in another mode when automatic browsing takes over', async () => {
+    const view = render(
+      <>
+        <Reader mode="scroll" />
+        <ManualReader id={2} mode="slideshow" label="preview" />
+      </>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'preview: 播放' }))
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    const manual = Transport.instances[0]!
+    act(() => store.getState().start('scroll'))
+    await advance(32)
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
+    expect(manual.terminate).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'preview: 播放' })).toBeTruthy()
+    expect(view.container.querySelectorAll('canvas')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'preview: 迟到停止' }))
+    expect(store.getState().status).toBe('waiting')
+    expect(Transport.instances[1]!.terminate).not.toHaveBeenCalled()
+    act(() => store.getState().stop())
+    expect(view.container.querySelectorAll('canvas')).toHaveLength(0)
+  })
+
   it('releases paused playback when the same media ID gets a new source', async () => {
     const view = render(<ExternalReader />)
     fireEvent.click(screen.getByRole('button', { name: '切换动图' }))
@@ -326,7 +441,9 @@ describe('manual streaming playback', () => {
   it.each(['surface', 'badge'] as const)(
     'uses WASM from the %s control without automatic browsing',
     async (controlMode) => {
-      const view = render(<AnimatedWebpPlayer src="/manual.webp" controlMode={controlMode} animationMetadata={metadata} />)
+      const view = render(
+        <AnimatedWebpPlayer src="/manual.webp" controlMode={controlMode} animationMetadata={metadata} />
+      )
       fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
       await act(async () => {
         await vi.dynamicImportSettled()

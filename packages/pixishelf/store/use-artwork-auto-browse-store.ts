@@ -15,6 +15,13 @@ interface AutoBrowsePreferences {
   loop: boolean
 }
 
+interface ManualAnimationAttempt {
+  owner: string
+  id: number
+  resourceIdentity: string
+  paused: boolean
+}
+
 function bounded(value: unknown, fallback: number, min: number, max: number) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback
 }
@@ -45,6 +52,9 @@ interface AutoBrowseState extends AutoBrowsePreferences {
   animationAttempt: number
   completedAnimationIds: readonly number[]
   stoppedAnimationIds: readonly number[]
+  manualAnimation: ManualAnimationAttempt | null
+  setManualAnimation: (attempt: ManualAnimationAttempt) => void
+  clearManualAnimation: (owner: string) => void
   finishAnimation: (id: number) => void
   stopAnimation: (id: number) => void
   replayAnimation: (id: number) => void
@@ -88,6 +98,7 @@ const runtimeDefaults = {
   animationPhase: null,
   completedAnimationIds: [],
   stoppedAnimationIds: [],
+  manualAnimation: null,
   pausedVideoIds: []
 } as const
 
@@ -99,6 +110,11 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       skippedIds: [],
       pausedVideoIds: [],
       animationAttempt: 0,
+      setManualAnimation: (manualAnimation) => set({ manualAnimation }),
+      // 旧播放器的卸载或迟到回调不能停止已经接管的新播放器。
+      clearManualAnimation: (owner) => {
+        if (get().manualAnimation?.owner === owner) set({ manualAnimation: null })
+      },
       // 每次激活/重播都递增尝试号，供播放器拒绝上一轮迟到的事件。
       setActiveAnimation: (id) => {
         if (get().activeAnimationId !== id) {
@@ -189,6 +205,7 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
           stoppedAnimationIds: [],
           animationPhase: null,
           activeAnimationId: null,
+          manualAnimation: null,
           status: 'running',
           reason: null,
           controlsCollapsed: false,
@@ -213,6 +230,7 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
         if (!state.mode || state.artworkId === null) return
         set({
           status: 'running',
+          manualAnimation: null,
           controlsCollapsed: false,
           reason: null,
           revision: state.revision + 1,
@@ -260,7 +278,10 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
         }
       },
       setPreviewOpen: (previewOpen) =>
-        set({ previewOpen, ...(previewOpen ? { activeAnimationId: null, animationPhase: null } : {}) }),
+        set({
+          previewOpen,
+          ...(previewOpen ? { activeAnimationId: null, animationPhase: null, manualAnimation: null } : {})
+        }),
       setControlsCollapsed: (controlsCollapsed) => {
         if (controlsCollapsed && !['running', 'waiting'].includes(get().status)) return
         set({ controlsCollapsed })
@@ -268,6 +289,7 @@ export const useArtworkAutoBrowseStore = create<AutoBrowseState>()(
       closePreview: () =>
         set({
           previewOpen: false,
+          manualAnimation: null,
           activeAnimationId: null,
           animationPhase: null,
           controlsCollapsed: false,

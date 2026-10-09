@@ -95,6 +95,25 @@ function loadAnimation() {
 }
 
 describe('real WebP player with scroll driver', () => {
+  it('stops the previous manual animation in compatibility playback', () => {
+    function Animation({ id }: { id: number }) {
+      const playback = useArtworkAnimation(id, 'scroll')
+      return <AnimatedWebpPlayer src={`/${id}.webp`} alt={`animation-${id}`} controlMode="badge" {...playback} />
+    }
+    const view = render(
+      <>
+        <Animation id={1} />
+        <Animation id={2} />
+      </>
+    )
+    fireEvent.click(screen.getAllByRole('button', { name: '播放 WEBP 动图' })[0]!)
+    expect(view.container.querySelector('img[src$="/1.webp"]')).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
+    expect(view.container.querySelector('img[src$="/1.webp"]')).toBeNull()
+    expect(view.container.querySelector('img[src$="/2.webp"]')).not.toBeNull()
+    expect(screen.getAllByRole('button', { name: '暂停 WEBP 动图' })).toHaveLength(1)
+  })
+
   it.each([false, true])(
     'adopts manual playback and resumes after exactly one loaded loop (StrictMode: %s)',
     async (strict) => {

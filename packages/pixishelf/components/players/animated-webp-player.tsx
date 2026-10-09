@@ -140,7 +140,7 @@ export default function AnimatedWebpPlayer({
     attemptIdentity.current = { source: attemptSource, sequence: attemptIdentity.current.sequence + 1 }
   }
   const attempt = `${attemptIdentity.current.sequence}:${attemptSource}`
-  const manualPaused = manualPausedAttempt === attempt || manualPlaybackPaused
+  const manualPaused = playing === undefined ? manualPausedAttempt === attempt : manualPlaybackPaused
   // Policy v1 applies the same <=10ms -> 100ms frame normalization as the WASM player.
   const durationMs =
     animationMetadata?.format === 'WEBP' &&

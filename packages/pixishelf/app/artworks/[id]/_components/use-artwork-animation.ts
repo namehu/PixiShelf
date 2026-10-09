@@ -1,15 +1,19 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useId } from 'react'
 import { useArtworkAutoBrowseStore as store, type AutoBrowseMode } from '@/store/use-artwork-auto-browse-store'
 
 /** 两种阅读模式共用播放意图；完成回调必须仍属于当前播放尝试。 */
 export function useArtworkAnimation(id: number | undefined, mode: AutoBrowseMode, resourceIdentity = '') {
   const state = store()
-  const [manualAttempt, setManualAttempt] = useState<{ id: number; resourceIdentity: string } | null>(null)
-  const [manualPausedAttempt, setManualPausedAttempt] = useState<{ id: number; resourceIdentity: string } | null>(null)
-  const manualPlaying = manualAttempt?.id === id && manualAttempt?.resourceIdentity === resourceIdentity
-  const manualPaused = manualPausedAttempt?.id === id && manualPausedAttempt?.resourceIdentity === resourceIdentity
+  const owner = useId()
+  const manualOwned =
+    state.manualAnimation?.owner === owner &&
+    state.manualAnimation.id === id &&
+    state.manualAnimation.resourceIdentity === resourceIdentity
+  const manualPlaying = manualOwned && !state.manualAnimation?.paused
+  const manualPaused = manualOwned && state.manualAnimation?.paused === true
+  const autoRunning = ['running', 'waiting'].includes(state.status)
   const running = state.mode === mode && ['running', 'waiting'].includes(state.status)
   const owned =
     state.mode === mode &&
@@ -18,17 +22,7 @@ export function useArtworkAnimation(id: number | undefined, mode: AutoBrowseMode
     ['running', 'waiting', 'paused'].includes(state.status)
   const automatic = running && owned
   const { session, revision, animationAttempt } = state
-  // 自动浏览接管后清除手动播放意图，避免退出自动模式时恢复旧的手动播放。
-  useEffect(() => {
-    if (running) {
-      setManualAttempt(null)
-      setManualPausedAttempt(null)
-    }
-  }, [running])
-  useEffect(() => {
-    setManualAttempt(null)
-    setManualPausedAttempt(null)
-  }, [id, resourceIdentity])
+  useEffect(() => () => store.getState().clearManualAnimation(owner), [owner, id, resourceIdentity])
 
   // revision 是状态版本；会话、状态版本或尝试号变化都会使旧回调失效。
   const currentAttempt = () => {
@@ -44,24 +38,24 @@ export function useArtworkAnimation(id: number | undefined, mode: AutoBrowseMode
     )
   }
   return {
-    playing: automatic || (!running && manualPlaying && id !== undefined),
+    playing: automatic || (!autoRunning && manualPlaying && id !== undefined),
     playOnce: owned,
     playbackPaused: owned && state.status === 'paused',
-    manualPlaybackPaused: !owned && !running && manualPaused && id !== undefined,
+    manualPlaybackPaused: !owned && !autoRunning && manualPaused && id !== undefined,
     playbackKey: `${session}:${mode}:${animationAttempt}`,
     autoBrowseControl: true,
     onPlayingChange: (playing: boolean) => {
       if (id === undefined) return
       const latest = store.getState()
       if (latest.mode === mode && ['running', 'waiting'].includes(latest.status)) {
-        setManualAttempt(null)
-        setManualPausedAttempt(null)
         if (playing) store.getState().replayAnimation(id)
-        else store.getState().stopAnimation(id)
+        else if (currentAttempt()) store.getState().stopAnimation(id)
       } else {
+        if (playing && ['running', 'waiting'].includes(latest.status)) latest.pause('manual')
         if (playing && owned && latest.activeAnimationId === id) store.getState().stopAnimation(id)
-        setManualPausedAttempt(playing ? null : manualPlaying ? { id, resourceIdentity } : null)
-        setManualAttempt(playing ? { id, resourceIdentity } : null)
+        if (playing || (manualPlaying && latest.manualAnimation?.owner === owner)) {
+          store.getState().setManualAnimation({ owner, id, resourceIdentity, paused: !playing })
+        } else store.getState().clearManualAnimation(owner)
       }
     },
     onAnimationReady: () => {
@@ -74,13 +68,11 @@ export function useArtworkAnimation(id: number | undefined, mode: AutoBrowseMode
       if (currentAttempt()) store.getState().finishAnimation(id!)
     },
     onAnimationError: () => {
-      setManualAttempt(null)
-      setManualPausedAttempt(null)
+      store.getState().clearManualAnimation(owner)
       if (currentAttempt()) store.getState().pause('error')
     },
     onPlaybackInterrupted: () => {
-      setManualAttempt(null)
-      setManualPausedAttempt(null)
+      store.getState().clearManualAnimation(owner)
       if (currentAttempt()) store.getState().pause(document.hidden ? 'hidden' : 'manual')
       // Leaving the viewport releases retained progress, including while paused.
       const latest = store.getState()
@@ -96,8 +88,7 @@ export function useArtworkAnimation(id: number | undefined, mode: AutoBrowseMode
       }
     },
     stopManual: () => {
-      setManualAttempt(null)
-      setManualPausedAttempt(null)
+      store.getState().clearManualAnimation(owner)
     }
   }
 }
