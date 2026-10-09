@@ -9,24 +9,17 @@ export const metadata = {
 
 export default function ArchiveInboxPage() {
   return (
-    <AdminWorkbench
-      title="归档收件箱"
-      description="粘贴作品链接；解析、判断和归档会在后台继续进行。"
-      eyebrow={null}
-      className="max-lg:[&:has([data-mobile-discovery-detail])>[data-slot=page-header]]:hidden max-lg:[&:has([data-mobile-discovery-detail])]:pt-2"
-    >
-      <Suspense fallback={<ArchiveInboxFallback />}>
-        <ArchiveInboxWorkspace />
-      </Suspense>
-    </AdminWorkbench>
+    <Suspense fallback={<ArchiveInboxFallback />}>
+      <ArchiveInboxWorkspace />
+    </Suspense>
   )
 }
 
 function ArchiveInboxFallback() {
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-8 pt-6">
+    <AdminWorkbench title="归档收件箱" eyebrow={null}>
       <Skeleton className="h-32 w-full" />
       <Skeleton className="h-96 w-full" />
-    </div>
+    </AdminWorkbench>
   )
 }

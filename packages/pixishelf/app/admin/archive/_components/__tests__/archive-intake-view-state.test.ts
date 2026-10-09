@@ -138,9 +138,9 @@ https://e-hentai.org/s/page/123-1
     expect(archiveIntakeItemHref('item/with spaces')).toBe('/admin/archive/inbox?itemId=item%2Fwith+spaces')
     expect(archiveTaskHref('task?private')).toBe('/admin/archive?taskId=task%3Fprivate')
     expect(clearArchiveIntakeItemHref('itemId=item-1&providerKey=e-hentai')).toBe(
-      '/admin/archive/inbox?providerKey=e-hentai'
+      '/admin/archive/inbox?providerKey=e-hentai&tab=inbox'
     )
-    expect(clearArchiveIntakeItemHref('itemId=item-1')).toBe('/admin/archive/inbox')
+    expect(clearArchiveIntakeItemHref('itemId=item-1')).toBe('/admin/archive/inbox?tab=inbox')
   })
 
   it('reuses a command key after failure and releases it after success', () => {

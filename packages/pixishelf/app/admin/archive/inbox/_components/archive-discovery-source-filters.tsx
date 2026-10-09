@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -10,38 +11,43 @@ import { DEFAULT_SOURCE_FILTERS, type SourceListFilters } from './archive-discov
 export function ArchiveDiscoverySourceFilters({
   value,
   onChange,
-  countsReady
+  countsReady,
+  actions
 }: {
   value: SourceListFilters
   onChange: (value: SourceListFilters) => void
+  actions?: ReactNode
   countsReady: boolean
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-3">
-        <Input
-          className="w-full sm:max-w-sm"
-          type="search"
-          aria-label="搜索来源"
-          placeholder="搜索名称、UID 或关键词"
-          value={value.search}
-          onChange={(event) => onChange({ ...value, search: event.target.value })}
-        />
-        <Select
-          value={value.status}
-          onValueChange={(status: SourceListFilters['status']) => onChange({ ...value, status })}
-        >
-          <SelectTrigger aria-label="来源启停状态">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectGroup>
-              <SelectItem value="ACTIVE">启用来源</SelectItem>
-              <SelectItem value="ALL">全部状态</SelectItem>
-              <SelectItem value="ARCHIVED">已停用</SelectItem>
-            </SelectGroup>
-          </SelectContent>
-        </Select>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-1 basis-80 items-center gap-3">
+          <Input
+            className="min-w-0 flex-1 sm:max-w-sm"
+            type="search"
+            aria-label="搜索来源"
+            placeholder="搜索名称、UID 或关键词"
+            value={value.search}
+            onChange={(event) => onChange({ ...value, search: event.target.value })}
+          />
+          <Select
+            value={value.status}
+            onValueChange={(status: SourceListFilters['status']) => onChange({ ...value, status })}
+          >
+            <SelectTrigger aria-label="来源启停状态">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="ACTIVE">启用来源</SelectItem>
+                <SelectItem value="ALL">全部状态</SelectItem>
+                <SelectItem value="ARCHIVED">已停用</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
       <div className="flex flex-wrap items-center gap-4">
         <ToggleGroup

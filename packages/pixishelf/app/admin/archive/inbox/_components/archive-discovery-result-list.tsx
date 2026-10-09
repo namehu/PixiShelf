@@ -28,6 +28,8 @@ interface ArchiveDiscoveryResultListProps<TItem extends { id: string }> {
   errorTitle: string
   errorDescription: string
   emptyState: ReactNode
+  footer?: ReactNode
+  onPositionRestored?: () => void
   header: ReactNode
   renderItem: (item: TItem) => ReactNode
   hasNextPage: boolean
@@ -50,6 +52,8 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
   errorDescription,
   emptyState,
   header,
+  footer,
+  onPositionRestored,
   renderItem,
   hasNextPage,
   isFetchingNextPage,
@@ -59,6 +63,8 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
   position,
   onPositionChange
 }: ArchiveDiscoveryResultListProps<TItem>) {
+  const restoredCallbackRef = useRef(onPositionRestored)
+  restoredCallbackRef.current = onPositionRestored
   const [cardColumns, setCardColumns] = useState(1)
   const columns = view === 'cards' && isDesktop ? cardColumns : 1
   const rows = useMemo(() => {
@@ -218,6 +224,7 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
         // Window scrolling needs a few frames for Virtuoso to measure the target rows.
         if (++attempts < 8) frame = window.requestAnimationFrame(settle)
         else {
+          restoredCallbackRef.current?.()
           restoredLayoutRef.current = restoreKey
           restoringRef.current = false
         }
@@ -310,19 +317,23 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
             ) : null
         }}
       />
-      <div className="flex min-h-11 items-center justify-between gap-3 border-t px-4 text-xs text-muted-foreground">
-        <span>已加载 {items.length} 条 · 单次最多选择 100 条</span>
-        {isFetchingNextPage ? (
-          <span className="flex items-center gap-2">
-            <Spinner aria-hidden="true" />
-            加载中
-          </span>
-        ) : hasNextPage ? (
-          <span>继续向下滚动</span>
-        ) : (
-          <span>已加载全部</span>
-        )}
-      </div>
+      {footer !== undefined ? (
+        footer
+      ) : (
+        <div className="flex min-h-11 items-center justify-between gap-3 border-t px-4 text-xs text-muted-foreground">
+          <span>已加载 {items.length} 条 · 单次最多选择 100 条</span>
+          {isFetchingNextPage ? (
+            <span className="flex items-center gap-2">
+              <Spinner aria-hidden="true" />
+              加载中
+            </span>
+          ) : hasNextPage ? (
+            <span>继续向下滚动</span>
+          ) : (
+            <span>已加载全部</span>
+          )}
+        </div>
+      )}
     </Card>
   )
 }

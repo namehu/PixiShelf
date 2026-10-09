@@ -24,7 +24,7 @@ export function registerDiscoveryNavigationCases({
     expect(screen.queryByRole('searchbox', { name: '搜索来源' })).toBeNull()
   })
 
-  it('preserves source filtering, page and scroll position across detail navigation', () => {
+  it('preserves source filtering and scroll position across detail navigation', () => {
     setSources(
       Array.from({ length: 65 }, (_, index) => ({
         ...source,
@@ -35,14 +35,17 @@ export function registerDiscoveryNavigationCases({
     )
     renderSources({ initialSourceId: null })
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索来源' }), { target: { value: 'Saved' } })
-    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
-    expect(screen.getByText('第 2 / 2 页 · 每页 50 条')).toBeTruthy()
+    expect(screen.queryByRole('navigation', { name: '来源分页' })).toBeNull()
+    expect(screen.getByTestId('discovery-virtuoso').getAttribute('data-window-scroll')).toBe('true')
+    expect(screen.getByText('Saved 65')).toBeTruthy()
     Object.defineProperty(window, 'scrollY', { configurable: true, value: 320 })
     fireEvent.scroll(window)
     fireEvent.click(screen.getByText('Saved 51').closest('button')!)
     fireEvent.click(screen.getByRole('button', { name: '返回来源列表' }))
     expect((screen.getByRole('searchbox', { name: '搜索来源' }) as HTMLInputElement).value).toBe('Saved')
-    expect(screen.getByText('第 2 / 2 页 · 每页 50 条')).toBeTruthy()
+    expect(screen.queryByRole('navigation', { name: '来源分页' })).toBeNull()
+    expect(screen.getByTestId('discovery-virtuoso').getAttribute('data-window-scroll')).toBe('true')
+    expect(screen.getByText('Saved 65')).toBeTruthy()
     expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 320 })
     expect(document.activeElement?.getAttribute('data-source-id')).toBe('source-51')
   })

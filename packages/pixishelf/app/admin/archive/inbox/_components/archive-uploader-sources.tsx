@@ -90,7 +90,6 @@ export function ArchiveUploaderSources({
   const [deleteSourceId, setDeleteSourceId] = useState<string | null>(null)
   const [searchDialog, setSearchDialog] = useState<ArchiveSearchDialogState | null>(null)
   const [sourceFilters, setSourceFilters] = useState(DEFAULT_SOURCE_FILTERS)
-  const [sourcePage, setSourcePage] = useState(1)
   const [contentFilters, setContentFilters] = useState(DEFAULT_DISCOVERY_FILTERS)
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
@@ -122,7 +121,6 @@ export function ArchiveUploaderSources({
     if (!saved) return
     restoredPreviewRef.current = true
     setSourceFilters(saved.sourceFilters ?? DEFAULT_SOURCE_FILTERS)
-    setSourcePage(saved.sourcePage ?? 1)
     sourceListScrollRef.current = saved.sourceListScroll ?? 0
     activeDraftSourceIdRef.current = saved.selectedSourceId
     setResultFeed(saved.resultFeed)
@@ -137,7 +135,6 @@ export function ArchiveUploaderSources({
         savedAt: Date.now(),
         sourceFilter: sourceFilters.kind,
         sourceFilters,
-        sourcePage,
         sourceListScroll: sourceListScrollRef.current,
         contentFilters,
         selectedSourceId: locatedSourceId,
@@ -147,7 +144,7 @@ export function ArchiveUploaderSources({
       })
     window.addEventListener('pixishelf:open-source-preview', save)
     return () => window.removeEventListener('pixishelf:open-source-preview', save)
-  }, [user?.id, sourceFilters, sourcePage, contentFilters, locatedSourceId, resultFeed, unboundOnly])
+  }, [user?.id, sourceFilters, contentFilters, locatedSourceId, resultFeed, unboundOnly])
 
   useEffect(() => setLayoutReady(true), [])
 
@@ -190,9 +187,6 @@ export function ArchiveUploaderSources({
     [sourcesQuery.data, countsQuery.data]
   )
   const sources = useMemo(() => filterDiscoverySources(allSources, sourceFilters), [allSources, sourceFilters])
-  const sourcePageCount = Math.max(1, Math.ceil(sources.length / 50))
-  const currentSourcePage = Math.min(sourcePage, sourcePageCount)
-  const pagedSources = sources.slice((currentSourcePage - 1) * 50, currentSourcePage * 50)
   const selectedSourceId = locatedSourceId
 
   useLayoutEffect(() => {
@@ -566,10 +560,11 @@ export function ArchiveUploaderSources({
   if (!active) return null
 
   const globalHeader = !discoveryDetail ? (
-    <>
-      <AdminSectionHeader
-        title="发现来源"
-        description="保存上传者或标题关键词条件；手动扫描并勾选结果，再按所选模式加入收件箱。"
+    <div className="sticky top-14 z-30 border-b border-border bg-background py-3 lg:top-16">
+      <ArchiveDiscoverySourceFilters
+        value={sourceFilters}
+        countsReady={Boolean(countsQuery.data)}
+        onChange={setSourceFilters}
         actions={
           <>
             {onNavigatePendingCreators ? (
@@ -600,15 +595,7 @@ export function ArchiveUploaderSources({
           </>
         }
       />
-      <ArchiveDiscoverySourceFilters
-        value={sourceFilters}
-        countsReady={Boolean(countsQuery.data)}
-        onChange={(next) => {
-          setSourceFilters(next)
-          setSourcePage(1)
-        }}
-      />
-    </>
+    </div>
   ) : null
 
   const sourceList = (
@@ -621,7 +608,11 @@ export function ArchiveUploaderSources({
       ) : (
         <ArchiveDiscoveryBatchSources
           allSources={allSources}
-          sources={pagedSources}
+          sources={sources}
+          positionKey={`sources:${JSON.stringify(sourceFilters)}`}
+          position={resultPositionsRef.current.get(`sources:${JSON.stringify(sourceFilters)}`)}
+          onPositionChange={(position) => saveResultPosition(`sources:${JSON.stringify(sourceFilters)}`, position)}
+          focusSourceId={activeDraftSourceIdRef.current}
           selectionResetKey={JSON.stringify(sourceFilters)}
           selectedSourceId={selectedSourceId}
           onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
@@ -641,7 +632,6 @@ export function ArchiveUploaderSources({
                   variant="outline"
                   onClick={() => {
                     setSourceFilters(DEFAULT_SOURCE_FILTERS)
-                    setSourcePage(1)
                   }}
                 >
                   重置来源筛选
@@ -653,31 +643,6 @@ export function ArchiveUploaderSources({
           }
         />
       )}
-      {sources.length > 0 ? (
-        <nav aria-label="来源分页" className="flex items-center justify-between gap-3">
-          <span className="text-sm tabular-nums text-muted-foreground">
-            第 {currentSourcePage} / {sourcePageCount} 页 · 每页 50 条
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentSourcePage === 1}
-              onClick={() => setSourcePage(currentSourcePage - 1)}
-            >
-              上一页
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={currentSourcePage === sourcePageCount}
-              onClick={() => setSourcePage(currentSourcePage + 1)}
-            >
-              下一页
-            </Button>
-          </div>
-        </nav>
-      ) : null}
     </div>
   )
 
@@ -898,7 +863,7 @@ export function ArchiveUploaderSources({
   )
 
   return (
-    <div className="flex min-w-0 flex-col gap-6 pt-4">
+    <div className="flex min-w-0 flex-col gap-4">
       {globalHeader}
       {countsQuery.isError || (contentFiltered && filteredCountsQuery.isError) ? (
         <Alert variant="destructive">
@@ -1052,7 +1017,6 @@ export function ArchiveUploaderSources({
         onClose={() => setSearchDialog(null)}
         onSaved={async (sourceId) => {
           setSourceFilters(DEFAULT_SOURCE_FILTERS)
-          setSourcePage(1)
           await refresh()
           enterSource(sourceId)
         }}
@@ -1063,7 +1027,6 @@ export function ArchiveUploaderSources({
         onOpenChange={setCreateOpen}
         onCreated={async (sourceId) => {
           setSourceFilters(DEFAULT_SOURCE_FILTERS)
-          setSourcePage(1)
           await refresh()
           enterSource(sourceId)
         }}

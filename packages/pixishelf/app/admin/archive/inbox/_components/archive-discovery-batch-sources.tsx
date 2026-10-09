@@ -256,7 +256,7 @@ export function ArchiveDiscoveryBatchSources({
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-sm">
           <Checkbox
-            aria-label="全选当前页的可扫描来源"
+            aria-label="全选筛选结果中的可扫描来源"
             checked={allChecked ? true : someChecked ? 'indeterminate' : false}
             disabled={visible.length === 0 || Boolean(batch?.active)}
             onCheckedChange={(checked) =>
@@ -270,11 +270,11 @@ export function ArchiveDiscoveryBatchSources({
               })
             }
           />
-          全选当前页
+          全选筛选结果
         </label>
         <span className="text-sm text-muted-foreground">
           已选 {chosen.length}
-          {hiddenCount ? `（其他页 ${hiddenCount}）` : ''}
+          {hiddenCount ? `（当前筛选外 ${hiddenCount}）` : ''}
         </span>
         {chosen.length ? (
           <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>

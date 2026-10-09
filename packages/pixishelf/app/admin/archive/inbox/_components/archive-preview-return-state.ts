@@ -10,7 +10,6 @@ const stateSchema = z.object({
   // Accepted for old snapshots only; display preferences belong to localStorage.
   resultView: z.enum(['list', 'preview', 'cards']).optional(),
   sourceFilters: sourceListFiltersSchema.optional(),
-  sourcePage: z.number().int().positive().optional(),
   sourceListScroll: z.number().nonnegative().optional(),
   contentFilters: discoveryFilterDraftSchema.optional(),
   positions: z

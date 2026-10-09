@@ -15,6 +15,21 @@ vi.mock('@/components/privacy/privacy-sensitive-text', () => ({
     <span className={className}>{children}</span>
   )
 }))
+vi.mock('react-virtuoso', () => ({
+  Virtuoso: ({
+    data = [],
+    itemContent
+  }: {
+    data?: Array<{ id: string }>
+    itemContent: (index: number, item: { id: string }) => ReactNode
+  }) => (
+    <div>
+      {data.map((item, index) => (
+        <div key={item.id}>{itemContent(index, item)}</div>
+      ))}
+    </div>
+  )
+}))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), info: vi.fn(), error: vi.fn() } }))
 const queryClient = { invalidateQueries: vi.fn(async () => {}) }
 vi.mock('@tanstack/react-query', () => ({
@@ -88,20 +103,36 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('discovery batch source selection', () => {
+  it('selects the complete filtered collection beyond the former 50-source page', () => {
+    const collection = Array.from({ length: 65 }, (_, index) => ({
+      ...sources[0]!,
+      id: `source-${index}`,
+      displayName: `来源 ${index}`
+    }))
+    render(<ArchiveDiscoveryBatchSources {...props} allSources={collection} sources={collection} />)
+    fireEvent.click(screen.getByRole('checkbox', { name: '全选筛选结果中的可扫描来源' }))
+    expect(screen.getByText('已选 65')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '批量扫描最新' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: '开始扫描' }))
+    expect(mocks.start).toHaveBeenCalledWith({
+      sourceIds: collection.map(({ id }) => id),
+      requestId: expect.any(String)
+    })
+  })
   it('selects only eligible visible sources without navigating into a detail', () => {
     render(<ArchiveDiscoveryBatchSources {...props} />)
-    fireEvent.click(screen.getByRole('checkbox', { name: '全选当前页的可扫描来源' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '全选筛选结果中的可扫描来源' }))
     expect(screen.getByText('已选 2')).toBeTruthy()
     expect(screen.getByRole('checkbox', { name: '选择来源 已停用 C' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('checkbox', { name: '选择来源 扫描中 D' }).hasAttribute('disabled')).toBe(true)
     expect(mocks.select).not.toHaveBeenCalled()
   })
-  it('keeps selections across pages and freezes the reviewed order and request ID', () => {
+  it('keeps selections across data refreshes and freezes the reviewed order and request ID', () => {
     const view = render(<ArchiveDiscoveryBatchSources {...props} sources={[sources[0]!]} />)
     fireEvent.click(screen.getByRole('checkbox', { name: '选择来源 Alice' }))
     view.rerender(<ArchiveDiscoveryBatchSources {...props} sources={[sources[1]!]} />)
-    expect(screen.getByText('已选 1（其他页 1）')).toBeTruthy()
-    fireEvent.click(screen.getByRole('checkbox', { name: '全选当前页的可扫描来源' }))
+    expect(screen.getByText('已选 1（当前筛选外 1）')).toBeTruthy()
+    fireEvent.click(screen.getByRole('checkbox', { name: '全选筛选结果中的可扫描来源' }))
     fireEvent.click(screen.getByRole('button', { name: '批量扫描最新' }))
     view.rerender(
       <ArchiveDiscoveryBatchSources

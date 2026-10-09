@@ -237,6 +237,7 @@ export function archiveTaskHref(taskId: string): string {
 export function clearArchiveIntakeItemHref(searchParams: string): string {
   const params = new URLSearchParams(searchParams)
   params.delete('itemId')
+  params.set('tab', 'inbox')
   const query = params.toString()
   return query ? `/admin/archive/inbox?${query}` : '/admin/archive/inbox'
 }

@@ -390,7 +390,7 @@ export function ArchiveManagement() {
         </p>
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline">
-            <Link href="/admin/archive/inbox">
+            <Link href="/admin/archive/inbox?tab=inbox">
               <Inbox data-icon="inline-start" aria-hidden="true" />
               收件箱
             </Link>
@@ -496,7 +496,7 @@ export function ArchiveManagement() {
                   </Button>
                 ) : (
                   <Button asChild variant="outline">
-                    <Link href="/admin/archive/inbox">打开收件箱</Link>
+                    <Link href="/admin/archive/inbox?tab=inbox">打开收件箱</Link>
                   </Button>
                 )}
               </EmptyContent>
