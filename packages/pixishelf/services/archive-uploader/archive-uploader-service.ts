@@ -1,3 +1,9 @@
+import { sourceWireSelect, serializeSource, type SourceWire } from './archive-source-wire'
+import {
+  sourceCreationArtistIdsSchema,
+  validateSourceCreationCreators,
+  sourceCreationCreators
+} from './source-creation-creators'
 import { archiveDiscoveryFiltersSchema, archiveDiscoveryCatalogCountsSchema } from '@/lib/archive-discovery-filters'
 import { enqueueDiscoveryScan, DiscoveryScanConflict } from '@pixishelf/job-executors'
 import { createHash, randomUUID } from 'node:crypto'
@@ -56,6 +62,7 @@ const scanItemIdsSchema = z
 
 export const createArchiveUploaderSourceSchema = z
   .object({
+    artistIds: sourceCreationArtistIdsSchema,
     identityKind: z.enum(['NAME', 'UID']),
     identityValue: z.string().trim().min(1).max(180),
     uploaderUid: z
@@ -190,8 +197,10 @@ export async function createArchiveUploaderSource(
       if (uploaderUid) await lockUploaderUid(transaction, PROVIDER_KEY, uploaderUid)
       const existing = await findExisting(transaction.archiveUploaderSource)
       if (existing) return { ...serializeSource(existing), reused: true }
+      await validateSourceCreationCreators(transaction, parsed.artistIds ?? [])
       const source = await transaction.archiveUploaderSource.create({
         data: {
+          ...sourceCreationCreators(parsed.artistIds),
           providerKey: PROVIDER_KEY,
           identityKind: parsed.identityKind,
           identityValue: identity.value,
@@ -898,32 +907,6 @@ function normalizeUploaderIdentity(kind: 'NAME' | 'UID', input: string) {
   return { value, normalized: value.toLocaleLowerCase('en-US') }
 }
 
-const sourceWireSelect = {
-  defaultCreators: {
-    select: { artist: { select: { id: true, name: true, kind: true } } },
-    orderBy: { artistId: 'asc' }
-  },
-  sourceKind: true,
-  titleQuery: true,
-  id: true,
-  providerKey: true,
-  identityKind: true,
-  identityValue: true,
-  uploaderUid: true,
-  uidRevalidationRequiredAt: true,
-  displayName: true,
-  status: true,
-  latestSeenExternalId: true,
-  incrementalCursor: true,
-  historyCursor: true,
-  lastScanAt: true,
-  lastSuccessAt: true,
-  lastErrorCode: true,
-  lastErrorMessage: true,
-  createdAt: true,
-  updatedAt: true
-} satisfies Prisma.ArchiveUploaderSourceSelect
-
 const runSummarySelect = {
   titleQuery: true,
   checkedCount: true,
@@ -978,41 +961,11 @@ const ignoredItemWireSelect = {
   ignoredAt: true
 } satisfies Prisma.ArchiveUploaderIgnoredItemSelect
 
-type SourceWire = Prisma.ArchiveUploaderSourceGetPayload<{ select: typeof sourceWireSelect }>
 type DispositionCatalogItem = Prisma.ArchiveUploaderCatalogItemGetPayload<{
   select: typeof dispositionCatalogItemSelect
 }>
 type IgnoredItemWire = Prisma.ArchiveUploaderIgnoredItemGetPayload<{ select: typeof ignoredItemWireSelect }>
 type RunSummaryWire = Prisma.ArchiveUploaderScanRunGetPayload<{ select: typeof runSummarySelect }>
-
-function serializeSource(source: SourceWire) {
-  const { incrementalCursor, historyCursor, ...wire } = source
-  const hasCompletedScan = source.lastSuccessAt !== null
-  const uidBindingState = source.uploaderUid
-    ? source.uidRevalidationRequiredAt
-      ? ('REVALIDATION_REQUIRED' as const)
-      : ('BOUND' as const)
-    : ('UNBOUND' as const)
-  return {
-    ...wire,
-    defaultCreators: (source.defaultCreators ?? []).map((row) => row.artist),
-    titleQuery: source.titleQuery ? archiveTitleQuerySchema.parse(source.titleQuery) : null,
-    uidBindingState,
-    hasPendingLatest: incrementalCursor !== null,
-    canContinueHistory: historyCursor !== null,
-    latestCoverage: !hasCompletedScan
-      ? ('NOT_SCANNED' as const)
-      : incrementalCursor
-        ? ('HAS_MORE' as const)
-        : ('CURRENT' as const),
-    historyCoverage: !hasCompletedScan
-      ? ('NOT_SCANNED' as const)
-      : historyCursor
-        ? ('HAS_MORE' as const)
-        : ('EXHAUSTED' as const),
-    lastErrorMessage: archiveWireErrorMessage(source.lastErrorCode, source.lastErrorMessage)
-  }
-}
 
 function serializeCatalogItem(item: ArchiveUploaderCatalogStateRow) {
   const { canonicalUrl, thumbnailUrl, changeReasons, errorMessage, fileCount, ...rest } = item
@@ -1104,9 +1057,11 @@ function sourceScope(dependencies: ArchiveUploaderServiceDependencies) {
 
 export const createArchiveTitleSourceSchema = archiveTitleQuerySchema
   .safeExtend({
-    displayName: z.string().trim().min(1, '请输入来源名称').max(180)
+    artistIds: sourceCreationArtistIdsSchema,
+    displayName: z.string().trim().max(180).optional()
   })
   .strict()
+  .transform((value) => ({ ...value, displayName: value.displayName || value.keyword }))
 
 export const renameArchiveTitleSourceSchema = z
   .object({
@@ -1119,7 +1074,37 @@ export async function createArchiveTitleSource(
   input: z.input<typeof createArchiveTitleSourceSchema>,
   dependencies: ArchiveUploaderServiceDependencies = {}
 ) {
-  const { displayName, ...parsedQuery } = createArchiveTitleSourceSchema.parse(input)
+  const parsed = createArchiveTitleSourceSchema.parse(input)
+  const database = getDatabase(dependencies)
+  if (parsed.artistIds?.length) {
+    const create = () =>
+      database.$transaction(async (tx) => {
+        await validateSourceCreationCreators(tx, parsed.artistIds!)
+        return createTitleSourceRecord(parsed, tx.archiveUploaderSource)
+      })
+    try {
+      return await create()
+    } catch (error) {
+      const target = error instanceof Prisma.PrismaClientKnownRequestError ? error.meta?.target : undefined
+      if (
+        !isUniqueConstraintError(error) ||
+        !Array.isArray(target) ||
+        target.length !== 1 ||
+        target[0] !== 'queryKey'
+      ) {
+        throw error
+      }
+      // A failed transaction cannot read the concurrent winner; retry in a fresh transaction.
+      return create()
+    }
+  }
+  return createTitleSourceRecord(parsed, database.archiveUploaderSource)
+}
+
+async function createTitleSourceRecord(
+  { displayName, artistIds, ...parsedQuery }: z.output<typeof createArchiveTitleSourceSchema>,
+  sources: Prisma.TransactionClient['archiveUploaderSource']
+) {
   const single = parsedQuery.uploaders?.length === 1 ? parsedQuery.uploaders[0] : undefined
   const query = single
     ? archiveTitleQuerySchema.parse({
@@ -1146,7 +1131,6 @@ export async function createArchiveTitleSource(
       )
     )
     .digest('hex')
-  const sources = getDatabase(dependencies).archiveUploaderSource
   const withDisplayName = async (source: SourceWire) => {
     const stored = archiveTitleQuerySchema.parse(source.titleQuery)
     if (query.uploaderDisplayName && !stored.uploaderDisplayName && stored.uploaderUid === query.uploaderUid) {
@@ -1163,7 +1147,14 @@ export async function createArchiveTitleSource(
   try {
     const source = await sources.upsert({
       where: { queryKey },
-      create: { sourceKind: 'TITLE_QUERY', providerKey: PROVIDER_KEY, displayName, titleQuery: query, queryKey },
+      create: {
+        ...sourceCreationCreators(artistIds),
+        sourceKind: 'TITLE_QUERY',
+        providerKey: PROVIDER_KEY,
+        displayName,
+        titleQuery: query,
+        queryKey
+      },
       update: {},
       select: sourceWireSelect
     })
@@ -1173,6 +1164,7 @@ export async function createArchiveTitleSource(
     if (!isUniqueConstraintError(error) || !Array.isArray(target) || target.length !== 1 || target[0] !== 'queryKey') {
       throw error
     }
+    if (artistIds?.length) throw error
     // Empty-update upserts can race on first creation; reuse the winner without changing its name or status.
     const existing = await sources.findUnique({ where: { queryKey }, select: sourceWireSelect })
     if (!existing) throw error

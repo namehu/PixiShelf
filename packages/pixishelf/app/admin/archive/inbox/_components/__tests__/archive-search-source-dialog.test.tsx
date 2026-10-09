@@ -1,3 +1,10 @@
+vi.mock('@/components/creators/creator-picker', () => ({
+  CreatorPicker: ({ onChange }: { onChange: (value: { id: number; name: string }[]) => void }) => (
+    <button type="button" onClick={() => onChange([{ id: 7, name: 'Artist' }])}>
+      选择艺术家
+    </button>
+  )
+}))
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({ create: vi.fn(), rename: vi.fn(), resolve: vi.fn() }))
@@ -28,6 +35,24 @@ afterEach(cleanup)
 beforeEach(() => vi.clearAllMocks())
 
 describe('title source editor', () => {
+  it.each(['', '   '])('uses the keyword when the optional name is %j', async (name) => {
+    render(<ArchiveSearchSourceDialog state={{ mode: 'CREATE' }} {...callbacks} />)
+    const keyword = screen.getByLabelText('标题关键词')
+    const displayName = screen.getByLabelText('来源名称')
+    expect(keyword.compareDocumentPosition(displayName) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(displayName.hasAttribute('required')).toBe(false)
+    fireEvent.change(keyword, { target: { value: '  Example  ' } })
+    fireEvent.change(displayName, { target: { value: name } })
+    fireEvent.click(screen.getByRole('button', { name: '保存搜索来源' }))
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith({
+        displayName: 'Example',
+        keyword: 'Example',
+        matchMode: 'CONTAINS',
+        uploaderUid: null
+      })
+    )
+  })
   it('adds multiple accounts, deduplicates them and includes the pending input on save', async () => {
     render(<ArchiveSearchSourceDialog state={{ mode: 'CREATE' }} {...callbacks} />)
     fireEvent.change(screen.getByLabelText('来源名称'), { target: { value: 'Collection' } })

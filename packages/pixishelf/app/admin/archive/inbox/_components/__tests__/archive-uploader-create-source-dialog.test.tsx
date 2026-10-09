@@ -1,3 +1,10 @@
+vi.mock('@/components/creators/creator-picker', () => ({
+  CreatorPicker: ({ onChange }: { onChange: (value: { id: number; name: string }[]) => void }) => (
+    <button type="button" onClick={() => onChange([{ id: 7, name: 'Artist' }])}>
+      选择艺术家
+    </button>
+  )
+}))
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({ create: vi.fn(), resolve: vi.fn() }))

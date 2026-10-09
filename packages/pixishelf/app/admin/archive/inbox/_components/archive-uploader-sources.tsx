@@ -43,7 +43,7 @@ import { ArchiveDiscoveryResultsToolbar, type ArchiveDiscoveryCatalogView } from
 import { DEFAULT_ARCHIVE_INTAKE_OPTIONS } from './archive-intake-options'
 import { ArchiveSearchSourceDialog, type ArchiveSearchDialogState } from './archive-search-source-dialog'
 import { copyArchiveUploaderUid } from './archive-uploader-clipboard'
-import { ArchiveUploaderCreateSourceDialog } from './archive-uploader-create-source-dialog'
+import { ArchiveCreateSourceDialog } from './archive-create-source-dialog'
 import { ArchiveUploaderResultViewToggle } from './archive-uploader-result-visuals'
 import { ArchiveDiscoveryBatchSources } from './archive-discovery-batch-sources'
 import { ArchiveUploaderUidConflictAlert } from './archive-uploader-uid-conflict-alert'
@@ -584,13 +584,9 @@ export function ArchiveUploaderSources({
               )}
               {ignored ? '返回发现来源' : '全局已忽略'}
             </Button>
-            <Button variant="outline" onClick={() => setCreateOpen(true)}>
+            <Button onClick={() => setCreateOpen(true)}>
               <PlusIcon data-icon="inline-start" aria-hidden="true" />
-              新增上传者
-            </Button>
-            <Button onClick={() => setSearchDialog({ mode: 'CREATE' })}>
-              <PlusIcon data-icon="inline-start" aria-hidden="true" />
-              新增关键词
+              新增来源
             </Button>
           </>
         }
@@ -637,7 +633,7 @@ export function ArchiveUploaderSources({
                   重置来源筛选
                 </Button>
               ) : (
-                <Button onClick={() => setCreateOpen(true)}>新增上传者</Button>
+                <Button onClick={() => setCreateOpen(true)}>新增来源</Button>
               )}
             </Empty>
           }
@@ -1021,7 +1017,7 @@ export function ArchiveUploaderSources({
           enterSource(sourceId)
         }}
       />
-      <ArchiveUploaderCreateSourceDialog
+      <ArchiveCreateSourceDialog
         sources={allSources}
         open={createOpen}
         onOpenChange={setCreateOpen}

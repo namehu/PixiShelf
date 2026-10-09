@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
 
-import { createArchiveTitleSource } from '../archive-uploader-service'
+import { createArchiveTitleSource, createArchiveTitleSourceSchema } from '../archive-uploader-service'
 
 const input = { displayName: 'New name', keyword: 'Example' }
 
@@ -23,6 +23,14 @@ function setup(error: unknown) {
 }
 
 describe('title source creation conflict recovery', () => {
+  it.each([undefined, '', '   '])('defaults an omitted or blank name (%j) to the keyword', (displayName) => {
+    expect(createArchiveTitleSourceSchema.parse({ keyword: '  Example  ', displayName }).displayName).toBe('Example')
+  })
+  it('preserves an explicitly supplied name', () => {
+    expect(
+      createArchiveTitleSourceSchema.parse({ keyword: 'Example', displayName: '  My collection  ' }).displayName
+    ).toBe('My collection')
+  })
   it('deduplicates account sets independent of order and labels, including legacy single accounts', async () => {
     const upsert = vi.fn(async ({ create }: { create: Record<string, unknown>; where: { queryKey: string } }) => ({
       ...create,
