@@ -4,66 +4,42 @@ import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
-import type { ArchiveTransferTelemetry } from '@pixishelf/job-contracts'
 import { createBrowserUuid } from '@/lib/browser-uuid'
-import {
-  Archive,
-  ChevronLeft,
-  ChevronRight,
-  CirclePause,
-  CirclePlay,
-  ExternalLink,
-  Images,
-  Inbox,
-  MoreHorizontal,
-  RefreshCw,
-  RotateCcw,
-  Square,
-  Trash2
-} from 'lucide-react'
+import { Archive, ChevronLeft, ChevronRight, CirclePause, CirclePlay, RotateCcw, Square } from 'lucide-react'
 import { toast } from 'sonner'
 import { confirm } from '@/components/shared/global-confirm'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger
-} from '@/components/ui/dropdown-menu'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
-import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { useTRPC } from '@/lib/trpc'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import type { AppRouter } from '@/server'
-import { AdminStatusBadge } from '../../_components/admin-status-badge'
-import { ActiveArchiveDownloadPanel } from './archive-active-download-panel'
-import { ArchiveAddDialog } from './archive-add-dialog'
+import { AdminWorkbench } from '../../_components/admin-workbench'
+import { ArchiveDownloadFloater } from './archive-download-floater'
+import { ArchivePageActions, WorkerLaneStrip } from './archive-page-header'
+import { ArchiveTaskToolbar } from './archive-task-toolbar'
+import {
+  ArchiveTaskTable,
+  ArchiveTaskCard,
+  type ArchiveTaskOutput,
+  type ArchiveTaskView,
+  type SingleTaskAction
+} from './archive-task-list'
 import { ArchiveBulkResultDialog } from './archive-bulk-result-dialog'
-import { ArchiveTaskCreators } from './archive-task-creators'
 import { ArchiveItemDrawer } from './archive-item-drawer'
-import { TaskFiltersForm, hasTaskFilters, normalizeTaskFilters, type TaskFilters } from './archive-task-filters'
+import { hasTaskFilters, normalizeTaskFilters, type TaskFilters } from './archive-task-filters'
 import { useArchiveLiveEvents } from './archive-live-events'
-import { TaskProgress } from './archive-task-progress'
-import { archiveTaskArtworkHref, archiveTaskSourceHref } from './archive-task-navigation'
 import { archiveSourceLabel } from './archive-source-label'
 import {
-  archiveLaneStatusLabel,
-  archiveMaintenanceRetryAction,
   archiveTaskDeepLinkId,
   archiveTaskDisplayStatus,
   archiveTaskPageWithoutDetail,
   archiveTaskPollingInterval,
-  archiveTaskStatusLabel,
   currentPageSelectionState,
   eligibleArchiveTaskIds,
   goToNextArchiveTaskPage,
@@ -77,21 +53,13 @@ import {
   type ArchiveTaskCursorState
 } from './archive-task-view-state'
 export { ArchiveImageCounts } from './archive-task-progress'
+export { WorkerLaneStrip } from './archive-page-header'
+export { ArchiveTaskTable, ArchiveTaskCard } from './archive-task-list'
 const PAGE_SIZE = 50
 const ACTIVE_STATUSES = new Set(['PENDING', 'RUNNING', 'RETRY_WAIT', 'CANCELLING'])
 const LIVE_ARCHIVE_STATUSES = new Set(['RUNNING', 'PAUSING', 'CANCELLING'])
 type RouterOutputs = inferRouterOutputs<AppRouter>
-type ArchiveTaskOutput = RouterOutputs['archive']['listTasks']['items'][number]
-type ArchiveTaskView = ArchiveTaskOutput & {
-  liveTransfer?: ArchiveTransferTelemetry | null
-}
 type ArchiveBulkOperation = NonNullable<RouterOutputs['archive']['actionMany']>
-type SingleTaskAction =
-  | ArchiveTaskBulkAction
-  | 'USE_DISPLAY_QUALITY'
-  | 'DELETE_STAGING'
-  | 'DELETE_ARCHIVE'
-  | 'RESTORE_ARCHIVE'
 
 export function archiveImportIdFromPayload(value: unknown): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
@@ -132,6 +100,7 @@ export function ArchiveManagement() {
   const [draftFilters, setDraftFilters] = useState<TaskFilters>(EMPTY_FILTERS)
   const [cursorState, setCursorState] = useState<ArchiveTaskCursorState>(resetArchiveTaskBrowseState)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
+  const [bulkToolbarHeight, setBulkToolbarHeight] = useState(0)
   const [detailTask, setDetailTask] = useState<ArchiveTaskOutput | null>(null)
   const [detailRefreshVersion, setDetailRefreshVersion] = useState(0)
   const liveEvents = useArchiveLiveEvents(detailTask?.systemJobId)
@@ -383,35 +352,25 @@ export function ArchiveManagement() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[92rem] flex-col gap-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-          任务按创建时间倒序显示。解析收件与媒体写入分别占用独立通道，归档下载仍逐个执行。
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild variant="outline">
-            <Link href="/admin/archive/inbox?tab=inbox">
-              <Inbox data-icon="inline-start" aria-hidden="true" />
-              收件箱
-            </Link>
-          </Button>
-          <ArchiveAddDialog
-            trigger={
-              <Button>
-                <Archive data-icon="inline-start" aria-hidden="true" />
-                添加链接
-              </Button>
-            }
-            onCreated={() => void dashboardQuery.refetch()}
-          />
-        </div>
-      </div>
-
-      <WorkerLaneStrip dashboard={dashboardQuery.data} loading={dashboardQuery.isLoading} />
-
+    <AdminWorkbench
+      title="归档任务"
+      eyebrow={null}
+      className="[&>[data-slot=page-header]]:sm:items-start"
+      contentClassName="flex flex-col gap-4"
+      metadata={<WorkerLaneStrip dashboard={dashboardQuery.data} loading={dashboardQuery.isLoading} />}
+      actions={
+        <ArchivePageActions
+          refreshing={tasksQuery.isFetching}
+          onRefresh={() => void refreshPage()}
+          onCreated={() => void dashboardQuery.refetch()}
+        />
+      }
+    >
       {activeTask && (
-        <ActiveArchiveDownloadPanel
+        <ArchiveDownloadFloater
+          key={activeTask.id}
           task={activeTask}
+          bottomOffset={bulkToolbarHeight}
           pausePending={pendingSingleActions.has(singleActionKey(activeTask.id, 'PAUSE'))}
           cancelPending={pendingSingleActions.has(singleActionKey(activeTask.id, 'CANCEL'))}
           onViewItems={() => setDetailTask(activeTask)}
@@ -437,178 +396,159 @@ export function ArchiveManagement() {
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader className="gap-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex flex-col gap-1">
-              <CardTitle>归档任务</CardTitle>
-              <CardDescription>
-                支持当前页选择与状态安全的批量控制；回收站、恢复和暂存清理仍按单个任务操作。
-              </CardDescription>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => void refreshPage()} disabled={tasksQuery.isFetching}>
-              {tasksQuery.isFetching ? (
-                <Spinner data-icon="inline-start" />
+      <ArchiveTaskToolbar
+        value={draftFilters}
+        appliedValue={filters}
+        onChange={setDraftFilters}
+        onImmediateChange={(patch) => {
+          setDraftFilters((current) => ({ ...current, ...patch }))
+          setFilters((current) => ({ ...current, ...patch }))
+          resetBrowseState()
+        }}
+        onSubmit={() => applyFilters(normalizeTaskFilters(draftFilters))}
+        onReset={() => applyFilters(EMPTY_FILTERS)}
+      />
+      <section aria-label="归档任务列表" className="flex min-w-0 flex-col gap-4">
+        {tasksQuery.isError ? (
+          <Alert variant="destructive">
+            <AlertTitle>无法读取归档任务</AlertTitle>
+            <AlertDescription>请检查服务状态后重试，当前筛选条件已保留。</AlertDescription>
+          </Alert>
+        ) : tasksQuery.isLoading ? (
+          <TaskListSkeleton />
+        ) : tasks.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Archive aria-hidden="true" />
+              </EmptyMedia>
+              <EmptyTitle>{hasTaskFilters(filters) ? '没有匹配的任务' : '还没有归档任务'}</EmptyTitle>
+              <EmptyDescription>
+                {hasTaskFilters(filters)
+                  ? '调整筛选条件，或返回收件箱查看解析进度。'
+                  : '添加作品链接后，可在收件箱中选择已解析项目入队。'}
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              {hasTaskFilters(filters) ? (
+                <Button variant="outline" onClick={() => applyFilters(EMPTY_FILTERS)}>
+                  清除筛选
+                </Button>
               ) : (
-                <RefreshCw data-icon="inline-start" aria-hidden="true" />
+                <Button asChild variant="outline">
+                  <Link href="/admin/archive/inbox?tab=inbox">打开收件箱</Link>
+                </Button>
               )}
-              刷新
-            </Button>
-          </div>
-          <TaskFiltersForm
-            value={draftFilters}
-            appliedValue={filters}
-            onChange={setDraftFilters}
-            onImmediateChange={(patch) => {
-              setDraftFilters((current) => ({ ...current, ...patch }))
-              setFilters((current) => ({ ...current, ...patch }))
-              resetBrowseState()
-            }}
-            onSubmit={() => applyFilters(normalizeTaskFilters(draftFilters))}
-            onReset={() => applyFilters(EMPTY_FILTERS)}
-          />
-        </CardHeader>
-        <CardContent className="flex min-w-0 flex-col gap-4 px-3 sm:px-6">
-          {tasksQuery.isError ? (
-            <Alert variant="destructive">
-              <AlertTitle>无法读取归档任务</AlertTitle>
-              <AlertDescription>请检查服务状态后重试，当前筛选条件已保留。</AlertDescription>
-            </Alert>
-          ) : tasksQuery.isLoading ? (
-            <TaskListSkeleton />
-          ) : tasks.length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <Archive aria-hidden="true" />
-                </EmptyMedia>
-                <EmptyTitle>{hasTaskFilters(filters) ? '没有匹配的任务' : '还没有归档任务'}</EmptyTitle>
-                <EmptyDescription>
-                  {hasTaskFilters(filters)
-                    ? '调整筛选条件，或返回收件箱查看解析进度。'
-                    : '添加作品链接后，可在收件箱中选择已解析项目入队。'}
-                </EmptyDescription>
-              </EmptyHeader>
-              <EmptyContent>
-                {hasTaskFilters(filters) ? (
-                  <Button variant="outline" onClick={() => applyFilters(EMPTY_FILTERS)}>
-                    清除筛选
-                  </Button>
-                ) : (
-                  <Button asChild variant="outline">
-                    <Link href="/admin/archive/inbox?tab=inbox">打开收件箱</Link>
-                  </Button>
-                )}
-              </EmptyContent>
-            </Empty>
-          ) : (
-            <>
-              {/* 仅挂载当前断点的列表，CSS 隐藏仍会创建另一套菜单、订阅与事件处理器。 */}
-              {isDesktop ? (
-                <div className="overflow-hidden rounded-lg border">
-                  <ArchiveTaskTable
-                    tasks={tasks}
-                    selectedTaskIds={selectedTaskIds}
-                    selectionState={selectionState.checked}
+            </EmptyContent>
+          </Empty>
+        ) : (
+          <>
+            {/* 仅挂载当前断点的列表，CSS 隐藏仍会创建另一套菜单、订阅与事件处理器。 */}
+            {isDesktop ? (
+              <div className="overflow-hidden rounded-lg border">
+                <ArchiveTaskTable
+                  tasks={tasks}
+                  selectedTaskIds={selectedTaskIds}
+                  selectionState={selectionState.checked}
+                  pendingActions={pendingSingleActions}
+                  onToggleAll={(checked) =>
+                    setSelectedTaskIds((current) => toggleCurrentPageSelection(current, currentPageIds, checked))
+                  }
+                  onToggleTask={(taskId, checked) =>
+                    setSelectedTaskIds((current) => toggleTaskSelection(current, taskId, checked))
+                  }
+                  onViewItems={setDetailTask}
+                  onAction={(task, action) =>
+                    requestSingleTaskAction(task, action, (confirmedAction) =>
+                      singleActionMutation.mutate({ taskId: task.id, action: confirmedAction })
+                    )
+                  }
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-3 rounded-lg border px-3 py-2">
+                  <Checkbox
+                    checked={selectionState.checked}
+                    onCheckedChange={(checked) =>
+                      setSelectedTaskIds((current) =>
+                        toggleCurrentPageSelection(current, currentPageIds, Boolean(checked))
+                      )
+                    }
+                    aria-label="选择当前页全部任务"
+                  />
+                  <span className="text-sm">选择当前页全部 {currentPageIds.length} 项</span>
+                </div>
+                {tasks.map((task) => (
+                  <ArchiveTaskCard
+                    key={task.id}
+                    task={task}
+                    selected={selectedTaskIds.has(task.id)}
                     pendingActions={pendingSingleActions}
-                    onToggleAll={(checked) =>
-                      setSelectedTaskIds((current) => toggleCurrentPageSelection(current, currentPageIds, checked))
+                    onToggle={(checked) =>
+                      setSelectedTaskIds((current) => toggleTaskSelection(current, task.id, checked))
                     }
-                    onToggleTask={(taskId, checked) =>
-                      setSelectedTaskIds((current) => toggleTaskSelection(current, taskId, checked))
-                    }
-                    onViewItems={setDetailTask}
-                    onAction={(task, action) =>
+                    onViewItems={() => setDetailTask(task)}
+                    onAction={(action) =>
                       requestSingleTaskAction(task, action, (confirmedAction) =>
                         singleActionMutation.mutate({ taskId: task.id, action: confirmedAction })
                       )
                     }
                   />
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center gap-3 rounded-lg border px-3 py-2">
-                    <Checkbox
-                      checked={selectionState.checked}
-                      onCheckedChange={(checked) =>
-                        setSelectedTaskIds((current) =>
-                          toggleCurrentPageSelection(current, currentPageIds, Boolean(checked))
-                        )
-                      }
-                      aria-label="选择当前页全部任务"
-                    />
-                    <span className="text-sm">选择当前页全部 {currentPageIds.length} 项</span>
-                  </div>
-                  {tasks.map((task) => (
-                    <ArchiveTaskCard
-                      key={task.id}
-                      task={task}
-                      selected={selectedTaskIds.has(task.id)}
-                      pendingActions={pendingSingleActions}
-                      onToggle={(checked) =>
-                        setSelectedTaskIds((current) => toggleTaskSelection(current, task.id, checked))
-                      }
-                      onViewItems={() => setDetailTask(task)}
-                      onAction={(action) =>
-                        requestSingleTaskAction(task, action, (confirmedAction) =>
-                          singleActionMutation.mutate({ taskId: task.id, action: confirmedAction })
-                        )
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-              {selectionState.selectedCount > 0 && (
-                <BulkActionToolbar
-                  selectedCount={selectionState.selectedCount}
-                  eligibleCounts={{
-                    PAUSE: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'PAUSE').length,
-                    RESUME: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'RESUME').length,
-                    RETRY: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'RETRY').length,
-                    CANCEL: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'CANCEL').length
-                  }}
-                  pending={bulkActionMutation.isPending}
-                  pendingAction={bulkActionMutation.variables?.action}
-                  onAction={runBulkAction}
-                  onClear={() => setSelectedTaskIds(new Set())}
-                />
-              )}
-            </>
-          )}
+                ))}
+              </div>
+            )}
+            {selectionState.selectedCount > 0 && (
+              <BulkActionToolbar
+                onHeightChange={setBulkToolbarHeight}
+                selectedCount={selectionState.selectedCount}
+                eligibleCounts={{
+                  PAUSE: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'PAUSE').length,
+                  RESUME: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'RESUME').length,
+                  RETRY: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'RETRY').length,
+                  CANCEL: eligibleArchiveTaskIds(tasks, selectedTaskIds, 'CANCEL').length
+                }}
+                pending={bulkActionMutation.isPending}
+                pendingAction={bulkActionMutation.variables?.action}
+                onAction={runBulkAction}
+                onClear={() => setSelectedTaskIds(new Set())}
+              />
+            )}
+          </>
+        )}
 
-          <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-muted-foreground">
-              第 {cursorState.previousCursors.length + 1} 页 · 每页最多 {PAGE_SIZE} 项
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={cursorState.previousCursors.length === 0 || tasksQuery.isFetching}
-                onClick={() => {
-                  setCursorState((current) => goToPreviousArchiveTaskPage(current))
-                  setSelectedTaskIds(new Set())
-                }}
-              >
-                <ChevronLeft data-icon="inline-start" aria-hidden="true" />
-                上一页
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!tasksQuery.data?.nextCursor || tasksQuery.isFetching}
-                onClick={() => {
-                  setCursorState((current) => goToNextArchiveTaskPage(current, tasksQuery.data?.nextCursor ?? null))
-                  setSelectedTaskIds(new Set())
-                }}
-              >
-                下一页
-                <ChevronRight data-icon="inline-end" aria-hidden="true" />
-              </Button>
-            </div>
+        <div className="flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-muted-foreground">
+            第 {cursorState.previousCursors.length + 1} 页 · 每页最多 {PAGE_SIZE} 项
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={cursorState.previousCursors.length === 0 || tasksQuery.isFetching}
+              onClick={() => {
+                setCursorState((current) => goToPreviousArchiveTaskPage(current))
+                setSelectedTaskIds(new Set())
+              }}
+            >
+              <ChevronLeft data-icon="inline-start" aria-hidden="true" />
+              上一页
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!tasksQuery.data?.nextCursor || tasksQuery.isFetching}
+              onClick={() => {
+                setCursorState((current) => goToNextArchiveTaskPage(current, tasksQuery.data?.nextCursor ?? null))
+                setSelectedTaskIds(new Set())
+              }}
+            >
+              下一页
+              <ChevronRight data-icon="inline-end" aria-hidden="true" />
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       <ArchiveItemDrawer
         key={`${detailTask?.id ?? 'archive-item-drawer'}:${detailRefreshVersion}`}
@@ -634,355 +574,12 @@ export function ArchiveManagement() {
           if (!open) setBulkOperation(null)
         }}
       />
-    </div>
-  )
-}
-
-export function WorkerLaneStrip({
-  dashboard,
-  loading
-}: {
-  dashboard: RouterOutputs['job']['backgroundDashboard'] | undefined
-  loading: boolean
-}) {
-  if (loading) {
-    return (
-      <div className="flex flex-wrap gap-2 rounded-lg border px-3 py-2">
-        <Skeleton className="h-7 w-56" />
-        <Skeleton className="h-7 w-56" />
-      </div>
-    )
-  }
-  if (!dashboard) {
-    return (
-      <Alert variant="warning">
-        <AlertTitle>后台任务通道状态不可用</AlertTitle>
-        <AlertDescription>任务列表仍可操作；开始新任务前请确认后台任务进程已启动。</AlertDescription>
-      </Alert>
-    )
-  }
-  const laneNames: Record<string, string> = {
-    ARCHIVE_RESOLVE: '链接解析',
-    BACKGROUND_WRITER: '媒体写入'
-  }
-  return (
-    <section
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-background px-3 py-2"
-      aria-label="后台任务执行通道"
-    >
-      {dashboard.lanes.map((lane) => (
-        <div key={lane.executionLane} className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{laneNames[lane.executionLane] ?? lane.executionLane}</span>
-          <LaneStatusBadge status={lane.status} />
-          <span className="max-w-64 truncate font-mono text-xs text-muted-foreground">
-            {lane.runningJob ? `${lane.runningJob.type} · ${lane.runningJob.progress}%` : '等待领取任务'}
-          </span>
-        </div>
-      ))}
-    </section>
-  )
-}
-
-function LaneStatusBadge({ status }: { status: 'READY' | 'RUNNING' | 'DRAINING' | 'ERROR' }) {
-  if (status === 'DRAINING') return <Badge variant="warning">{archiveLaneStatusLabel(status)}</Badge>
-  return <AdminStatusBadge status={status}>{archiveLaneStatusLabel(status)}</AdminStatusBadge>
-}
-
-export function ArchiveTaskTable({
-  tasks,
-  selectedTaskIds,
-  selectionState,
-  pendingActions,
-  onToggleAll,
-  onToggleTask,
-  onViewItems,
-  onAction
-}: {
-  tasks: ArchiveTaskView[]
-  selectedTaskIds: ReadonlySet<string>
-  selectionState: boolean | 'indeterminate'
-  pendingActions: ReadonlySet<string>
-  onToggleAll: (checked: boolean) => void
-  onToggleTask: (taskId: string, checked: boolean) => void
-  onViewItems: (task: ArchiveTaskOutput) => void
-  onAction: (task: ArchiveTaskOutput, action: SingleTaskAction) => void
-}) {
-  return (
-    <Table className="table-fixed">
-      <TableHeader>
-        <TableRow>
-          <TableHead className="w-10">
-            <Checkbox
-              checked={selectionState}
-              onCheckedChange={(checked) => onToggleAll(Boolean(checked))}
-              aria-label="选择当前页全部任务"
-            />
-          </TableHead>
-          <TableHead>作品 / 来源</TableHead>
-          <TableHead className="w-44">状态</TableHead>
-          <TableHead className="w-20">图片</TableHead>
-          <TableHead className="w-28">创建时间</TableHead>
-          <TableHead className="w-32 text-right">操作</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {tasks.map((task) => (
-          <TableRow key={task.id} data-state={selectedTaskIds.has(task.id) ? 'selected' : undefined}>
-            <TableCell>
-              <Checkbox
-                checked={selectedTaskIds.has(task.id)}
-                onCheckedChange={(checked) => onToggleTask(task.id, Boolean(checked))}
-                aria-label={`选择 ${task.title || archiveSourceLabel(task.providerKey, task.externalId)}`}
-              />
-            </TableCell>
-            <TableCell className="min-w-0 whitespace-normal">
-              <TaskIdentity task={task} onViewItems={() => onViewItems(task)} />
-            </TableCell>
-            <TableCell className="whitespace-normal">
-              <div className="flex min-w-0 flex-col gap-2">
-                <TaskStatus task={task} />
-                <TaskProgress task={task} />
-              </div>
-            </TableCell>
-            <TableCell className="text-xs tabular-nums">{task.totalItems} 张</TableCell>
-            <TableCell className="text-xs text-muted-foreground">{formatTaskTime(task.createdAt)}</TableCell>
-            <TableCell>
-              <TaskActions
-                task={task}
-                pendingActions={pendingActions}
-                onViewItems={() => onViewItems(task)}
-                onAction={(action) => onAction(task, action)}
-              />
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  )
-}
-
-export function ArchiveTaskCard({
-  task,
-  selected,
-  pendingActions,
-  onToggle,
-  onViewItems,
-  onAction
-}: {
-  task: ArchiveTaskView
-  selected: boolean
-  pendingActions: ReadonlySet<string>
-  onToggle: (checked: boolean) => void
-  onViewItems: () => void
-  onAction: (action: SingleTaskAction) => void
-}) {
-  return (
-    <Card
-      data-state={selected ? 'selected' : undefined}
-      className="min-w-0 gap-3 py-3 data-[state=selected]:ring-2 data-[state=selected]:ring-ring"
-    >
-      <CardHeader className="min-w-0 px-3">
-        <div className="flex min-w-0 items-start gap-2">
-          <Checkbox
-            checked={selected}
-            onCheckedChange={(checked) => onToggle(Boolean(checked))}
-            aria-label={`选择 ${task.title || archiveSourceLabel(task.providerKey, task.externalId)}`}
-          />
-          <div className="min-w-0 flex-1">
-            <TaskIdentity task={task} onViewItems={onViewItems} />
-          </div>
-          <TaskActions task={task} pendingActions={pendingActions} onViewItems={onViewItems} onAction={onAction} />
-        </div>
-      </CardHeader>
-      <CardContent className="flex min-w-0 flex-col gap-2 px-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <TaskStatus task={task} />
-          <span className="text-xs tabular-nums text-muted-foreground">
-            {task.totalItems} 张 · {formatTaskTime(task.createdAt)}
-          </span>
-        </div>
-        <TaskProgress task={task} />
-      </CardContent>
-    </Card>
-  )
-}
-
-function TaskIdentity({ task, onViewItems }: { task: ArchiveTaskOutput; onViewItems: () => void }) {
-  const artworkHref = archiveTaskArtworkHref(task)
-  const title = (
-    <PrivacySensitiveText className="block break-words [overflow-wrap:anywhere] md:line-clamp-2">
-      {task.title || archiveSourceLabel(task.providerKey, task.externalId)}
-    </PrivacySensitiveText>
-  )
-  const titleClass =
-    'block min-w-0 w-full rounded-sm text-left font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      {artworkHref ? (
-        <Link href={artworkHref} className={titleClass}>
-          {title}
-        </Link>
-      ) : (
-        <button type="button" className={titleClass} onClick={onViewItems}>
-          {title}
-        </button>
-      )}
-      <ArchiveTaskCreators task={task} compact />
-      <PrivacySensitiveText as="p" className="truncate text-xs text-muted-foreground">
-        {archiveSourceLabel(task.providerKey, task.externalId)}
-      </PrivacySensitiveText>
-    </div>
-  )
-}
-
-function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
-  const lifecycleState = task.publishedArtwork?.archiveLifecycleState
-  const displayStatus = archiveTaskDisplayStatus(task)
-  return (
-    <div className="flex flex-col items-start gap-1">
-      <AdminStatusBadge status={displayStatus}>
-        {archiveTaskStatusLabel(displayStatus, task.errorCode)}
-      </AdminStatusBadge>
-      {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
-        <span className="text-xs text-warning">可按原质量继续，或在操作中改用展示质量</span>
-      )}
-      {lifecycleState === 'TRASHING' && <span className="text-xs text-warning">正在移入回收站</span>}
-      {lifecycleState === 'RESTORING' && <span className="text-xs text-warning">正在从回收站恢复</span>}
-      {lifecycleState === 'TRASHED' && <span className="text-xs text-muted-foreground">作品已在回收站</span>}
-    </div>
-  )
-}
-
-function TaskActions({
-  task,
-  pendingActions,
-  onViewItems,
-  onAction
-}: {
-  task: ArchiveTaskOutput
-  pendingActions: ReadonlySet<string>
-  onViewItems: () => void
-  onAction: (action: SingleTaskAction) => void
-}) {
-  const isPending = (action: SingleTaskAction) => pendingActions.has(singleActionKey(task.id, action))
-  const lifecycleState = task.publishedArtwork?.archiveLifecycleState
-  const deleted = lifecycleState === 'TRASHED'
-  const lifecyclePending = lifecycleState === 'TRASHING' || lifecycleState === 'RESTORING'
-  const maintenanceRetryAction = archiveMaintenanceRetryAction(lifecycleState)
-  const displayStatus = archiveTaskDisplayStatus(task)
-  const active = ACTIVE_STATUSES.has(displayStatus)
-  return (
-    <div className="flex shrink-0 justify-end gap-1">
-      <SourcePreviewButton source={{ kind: 'task', taskId: task.id }} variant="ghost" size="sm" />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="打开任务操作菜单">
-            <MoreHorizontal data-icon="inline-start" aria-hidden="true" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52">
-          <DropdownMenuGroup>
-            <DropdownMenuItem onSelect={onViewItems}>
-              <Images aria-hidden="true" />
-              任务详情
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <a
-                href={archiveTaskSourceHref(task.id)}
-                target="_blank"
-                rel="noopener noreferrer"
-                referrerPolicy="no-referrer"
-              >
-                <ExternalLink aria-hidden="true" />
-                打开原站
-              </a>
-            </DropdownMenuItem>
-            {['RUNNING', 'RETRY_WAIT'].includes(displayStatus) && (
-              <DropdownMenuItem disabled={isPending('PAUSE')} onSelect={() => onAction('PAUSE')}>
-                {isPending('PAUSE') ? <Spinner /> : <CirclePause aria-hidden="true" />}暂停任务
-              </DropdownMenuItem>
-            )}
-            {displayStatus === 'PAUSED' && (
-              <DropdownMenuItem disabled={isPending('RESUME')} onSelect={() => onAction('RESUME')}>
-                {isPending('RESUME') ? <Spinner /> : <CirclePlay aria-hidden="true" />}继续任务
-              </DropdownMenuItem>
-            )}
-            {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
-              <DropdownMenuItem
-                disabled={isPending('USE_DISPLAY_QUALITY')}
-                onSelect={() => onAction('USE_DISPLAY_QUALITY')}
-              >
-                {isPending('USE_DISPLAY_QUALITY') ? <Spinner /> : <CirclePlay aria-hidden="true" />}改用展示质量继续
-              </DropdownMenuItem>
-            )}
-            {['FAILED', 'CANCELLED'].includes(task.status) && (
-              <DropdownMenuItem disabled={isPending('RETRY')} onSelect={() => onAction('RETRY')}>
-                {isPending('RETRY') ? <Spinner /> : <RotateCcw aria-hidden="true" />}重试任务
-              </DropdownMenuItem>
-            )}
-            {archiveTaskArtworkHref(task) && (
-              <DropdownMenuItem asChild>
-                <Link href={archiveTaskArtworkHref(task)!}>
-                  <ExternalLink aria-hidden="true" />
-                  查看作品
-                </Link>
-              </DropdownMenuItem>
-            )}
-            {task.status === 'COMPLETED' && deleted && (
-              <DropdownMenuItem disabled={isPending('RESTORE_ARCHIVE')} onSelect={() => onAction('RESTORE_ARCHIVE')}>
-                {isPending('RESTORE_ARCHIVE') ? <Spinner /> : <RotateCcw aria-hidden="true" />}从回收站恢复
-              </DropdownMenuItem>
-            )}
-            {task.status === 'COMPLETED' && maintenanceRetryAction && (
-              <DropdownMenuItem
-                disabled={isPending(maintenanceRetryAction)}
-                onSelect={() => onAction(maintenanceRetryAction)}
-              >
-                {isPending(maintenanceRetryAction) ? <Spinner /> : <RefreshCw aria-hidden="true" />}
-                {lifecycleState === 'TRASHING' ? '继续移入回收站' : '继续恢复归档'}
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuGroup>
-          {(['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'].includes(task.status) ||
-            (task.status === 'COMPLETED' && task.publishedArtwork && !deleted && !lifecyclePending) ||
-            (!active && task.status !== 'COMPLETED')) && <DropdownMenuSeparator />}
-          <DropdownMenuGroup>
-            {['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'].includes(task.status) && (
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={task.status === 'CANCELLING' || isPending('CANCEL')}
-                onSelect={() => onAction('CANCEL')}
-              >
-                {isPending('CANCEL') ? <Spinner /> : <Square aria-hidden="true" />}
-                {task.status === 'CANCELLING' ? '正在取消' : '取消任务'}
-              </DropdownMenuItem>
-            )}
-            {task.status === 'COMPLETED' && task.publishedArtwork && !deleted && !lifecyclePending && (
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={isPending('DELETE_ARCHIVE')}
-                onSelect={() => onAction('DELETE_ARCHIVE')}
-              >
-                {isPending('DELETE_ARCHIVE') ? <Spinner /> : <Trash2 aria-hidden="true" />}移入回收站
-              </DropdownMenuItem>
-            )}
-            {!active && task.status !== 'COMPLETED' && (
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={isPending('DELETE_STAGING')}
-                onSelect={() => onAction('DELETE_STAGING')}
-              >
-                {isPending('DELETE_STAGING') ? <Spinner /> : <Trash2 aria-hidden="true" />}清理暂存文件
-              </DropdownMenuItem>
-            )}
-          </DropdownMenuGroup>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+    </AdminWorkbench>
   )
 }
 
 function BulkActionToolbar({
+  onHeightChange,
   selectedCount,
   eligibleCounts,
   pending,
@@ -990,6 +587,7 @@ function BulkActionToolbar({
   onAction,
   onClear
 }: {
+  onHeightChange: (height: number) => void
   selectedCount: number
   eligibleCounts: Record<ArchiveTaskBulkAction, number>
   pending: boolean
@@ -997,6 +595,20 @@ function BulkActionToolbar({
   onAction: (action: ArchiveTaskBulkAction) => void
   onClear: () => void
 }) {
+  const toolbarRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    const toolbar = toolbarRef.current
+    if (!toolbar) return
+    const measure = () => onHeightChange(toolbar.getBoundingClientRect().height)
+    measure()
+    // 批量按钮在窄屏换行后，用实际高度为浮球让位。
+    const observer = new ResizeObserver(measure)
+    observer.observe(toolbar)
+    return () => {
+      observer.disconnect()
+      onHeightChange(0)
+    }
+  }, [onHeightChange])
   const actionButton = (action: ArchiveTaskBulkAction, label: string, icon: React.ReactNode, destructive = false) => (
     <Button
       key={action}
@@ -1011,6 +623,7 @@ function BulkActionToolbar({
   )
   return (
     <section
+      ref={toolbarRef}
       className="sticky bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] flex flex-col gap-3 rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:flex-row sm:items-center sm:justify-between lg:bottom-4"
       aria-label="当前页批量操作"
     >
@@ -1097,17 +710,4 @@ function singleActionKey(taskId: string, action: SingleTaskAction): string {
 
 function createIdempotencyKey(prefix: string): string {
   return `${prefix}-${createBrowserUuid()}`
-}
-
-function formatTaskTime(value: Date | string): string {
-  const date = value instanceof Date ? value : new Date(value)
-  return Number.isNaN(date.getTime())
-    ? '时间未知'
-    : date.toLocaleString('zh-CN', {
-        month: 'numeric',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
-      })
 }

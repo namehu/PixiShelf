@@ -258,10 +258,11 @@ describe('archive management UI', () => {
     const strip = screen.getByRole('region', { name: '后台任务执行通道' })
     expect(strip.className).toContain('flex')
     expect(strip.className).toContain('flex-wrap')
-    expect(screen.getByText('链接解析')).toBeTruthy()
-    expect(screen.getByText('ARCHIVE_INTAKE_RESOLVE · 35%')).toBeTruthy()
-    expect(screen.getByText('媒体写入')).toBeTruthy()
-    expect(screen.getByText('等待领取任务')).toBeTruthy()
+    expect(screen.getByText(/链接解析 · 运行中/)).toBeTruthy()
+    expect(screen.getByText('35%')).toBeTruthy()
+    expect(screen.getByText('媒体写入 · 就绪')).toBeTruthy()
+    expect(screen.queryByText(/ARCHIVE_INTAKE_RESOLVE/)).toBeNull()
+    expect(screen.queryByText('等待领取任务')).toBeNull()
   })
 
   it('renders failed counts in destructive text', () => {

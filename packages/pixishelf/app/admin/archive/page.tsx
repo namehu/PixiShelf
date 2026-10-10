@@ -8,10 +8,8 @@ export const metadata = {
 
 export default function ArchivePage() {
   return (
-    <AdminWorkbench title="归档任务" description="筛选、追踪并批量控制作品归档任务。">
-      <Suspense fallback={null}>
-        <ArchiveManagement />
-      </Suspense>
-    </AdminWorkbench>
+    <Suspense fallback={<AdminWorkbench title="归档任务" eyebrow={null} />}>
+      <ArchiveManagement />
+    </Suspense>
   )
 }

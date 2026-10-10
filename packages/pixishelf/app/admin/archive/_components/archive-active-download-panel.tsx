@@ -70,7 +70,7 @@ export function ActiveArchiveDownloadPanel({
   const cancelling = task.systemJobStatus === 'CANCELLING'
 
   return (
-    <Card role="region" aria-label="当前归档下载" className="gap-4 overflow-hidden py-4">
+    <Card role="region" aria-label="当前归档下载" className="gap-4 overflow-hidden border-0 py-4 shadow-none">
       <CardHeader className="gap-3 border-b">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">

@@ -148,6 +148,7 @@ describe('task creator dialog', () => {
       </>
     )
     expect(screen.getByText('未绑定艺术家')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /更多筛选/ }))
     fireEvent.click(screen.getByRole('checkbox', { name: '仅看未绑定艺术家' }))
     expect(change).toHaveBeenCalledWith({ unboundOnly: false })
     expect(hasTaskFilters({ ...filters, unboundOnly: true })).toBe(true)

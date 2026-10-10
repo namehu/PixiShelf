@@ -19,7 +19,7 @@ vi.mock('../archive-task-creators', () => ({
     useEffect(() => {
       mocks.mounted(task.id)
     }, [])
-    return <button>管理艺术家</button>
+    return <span data-testid="task-creators">艺术家</span>
   }
 }))
 vi.mock('../../../_components/background-job-event-provider', () => {
@@ -120,13 +120,13 @@ describe('archive task page mounting', () => {
     desktop = isDesktop
     const first = mountPage()
     // 统计全部已挂载节点（包括 CSS 隐藏节点），无需对整页逐个计算可访问名称。
-    expect(screen.getAllByText('管理艺术家', { selector: 'button' })).toHaveLength(50)
+    expect(screen.getAllByTestId('task-creators')).toHaveLength(50)
     expect(mocks.mounted).toHaveBeenCalledTimes(50)
     expect(Boolean(screen.queryByRole('table'))).toBe(isDesktop)
     first.unmount()
     mocks.mounted.mockClear()
     mountPage()
-    expect(screen.getAllByText('管理艺术家', { selector: 'button' })).toHaveLength(50)
+    expect(screen.getAllByTestId('task-creators')).toHaveLength(50)
     expect(mocks.mounted).toHaveBeenCalledTimes(50)
     expect(Boolean(screen.queryByRole('table'))).toBe(isDesktop)
   })
@@ -138,6 +138,6 @@ describe('archive task page mounting', () => {
       listeners.forEach((callback) => callback())
     })
     expect(screen.queryByRole('table')).toBeNull()
-    expect(screen.getAllByText('管理艺术家', { selector: 'button' })).toHaveLength(50)
+    expect(screen.getAllByTestId('task-creators')).toHaveLength(50)
   })
 })

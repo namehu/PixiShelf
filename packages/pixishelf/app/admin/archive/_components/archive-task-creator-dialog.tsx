@@ -30,7 +30,7 @@ export function ArchiveTaskCreatorDialog({
 }: {
   taskId: string
   onClose: () => void
-  onUpdated: (task: ArchiveCreatorTask) => void
+  onUpdated?: (task: ArchiveCreatorTask) => void
 }) {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
@@ -95,7 +95,7 @@ export function ArchiveTaskCreatorDialog({
         )
         // The receipt is already confirmed; refresh failures must not turn it into an unknown write.
         const refreshed = await query.refetch()
-        if (refreshed.data?.items[0]) onUpdated(refreshed.data.items[0])
+        if (refreshed.data?.items[0]) onUpdated?.(refreshed.data.items[0])
         await Promise.allSettled([
           queryClient.invalidateQueries({ queryKey: trpc.archive.listTasks.queryKey() }),
           queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.pathKey() }),
