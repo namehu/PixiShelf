@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ExternalLinkIcon } from 'lucide-react'
+import { ExternalLinkIcon, UserRoundIcon } from 'lucide-react'
 import z from 'zod'
 import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import { PageContainer } from '@/components/layout/page-container'
@@ -58,12 +58,11 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
                           href={`https://www.pixiv.net/users/${pixivUserId}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          title="在 Pixiv 查看该作者主页（新标签页）"
-                          className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+                          title="Pixiv 作者主页"
+                          aria-label="在 Pixiv 查看该作者主页（新标签页）"
+                          className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                         >
-                          Pixiv 主页
-                          <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-                          <span className="sr-only">（新标签页）</span>
+                          <UserRoundIcon className="size-4" aria-hidden="true" />
                         </a>
                       )}
                     </div>
@@ -74,12 +73,11 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
                       href={`https://www.pixiv.net/artworks/${data.externalId}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      title="在 Pixiv 查看该作品（新标签页）"
-                      className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-2 text-sm text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50"
+                      title="Pixiv 原作"
+                      aria-label="在 Pixiv 查看该作品（新标签页）"
+                      className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                     >
-                      Pixiv 原作
-                      <ExternalLinkIcon className="size-3.5" aria-hidden="true" />
-                      <span className="sr-only">（新标签页）</span>
+                      <ExternalLinkIcon className="size-4" aria-hidden="true" />
                     </a>
                   )}
                 </div>

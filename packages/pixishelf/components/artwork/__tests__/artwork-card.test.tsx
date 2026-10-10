@@ -54,7 +54,7 @@ describe('ArtworkCard', () => {
     const marker = screen.getByRole('link').querySelector('[data-slot="reading-marker"]')
     expect(marker?.textContent).toBe('')
     expect(marker?.querySelector('circle')).toBeNull()
-    expect(marker?.getAttribute('class')).toContain('text-warning')
+    expect(marker?.getAttribute('class')).toContain('text-primary')
   })
 
   it('marks unread covers with a small triangle without additional status text', () => {
@@ -63,7 +63,7 @@ describe('ArtworkCard', () => {
     expect(screen.getByRole('link').getAttribute('aria-description')).toBeNull()
     const marker = screen.getByRole('link').querySelector('[data-slot="reading-marker"]')
     expect(marker?.querySelector('path')).toBeTruthy()
-    expect(marker?.getAttribute('class')).toContain('text-primary')
+    expect(marker?.getAttribute('class')).toContain('text-destructive')
   })
 
   it('keeps the preferred tag in its original position when reading status is enabled', () => {

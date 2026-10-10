@@ -67,7 +67,7 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
             aria-hidden="true"
             viewBox="0 0 12 12"
             className={cn('pointer-events-none absolute top-0 left-0 size-3',
-              reading?.status === 'IN_PROGRESS' ? 'text-warning' : 'text-primary')}
+              reading?.status === 'IN_PROGRESS' ? 'text-primary' : 'text-destructive')}
           >
             <path d="M0 0H12L0 12Z" fill="currentColor" />
           </svg>
