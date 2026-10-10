@@ -256,6 +256,7 @@ describe('execution history queries', () => {
 
   it('renders a bounded number of DOM rows for 1,000 loaded records', async () => {
     const selectJob = vi.fn()
+    const refreshStatus = vi.fn()
     mocks.list.mockResolvedValue({ items: Array.from({ length: 1000 }, (_, index) => item(index)), nextCursor: null })
     vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
     vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(640)
@@ -266,7 +267,12 @@ describe('execution history queries', () => {
       const history = useBackgroundHistory(true, 0)
       return (
         <div ref={scrollRef} data-testid="history-scroll">
-          <BackgroundHistoryList history={history} scrollRef={scrollRef} onSelectJob={selectJob} />
+          <BackgroundHistoryList
+            history={history}
+            scrollRef={scrollRef}
+            onSelectJob={selectJob}
+            onRefreshStatus={refreshStatus}
+          />
         </div>
       )
     }
@@ -286,6 +292,7 @@ describe('execution history queries', () => {
     vi.spyOn(section, 'getBoundingClientRect').mockReturnValue({ top: -1400 } as DOMRect)
     fireEvent.click(screen.getByRole('button', { name: '刷新执行记录' }))
     expect(scroll.scrollTop).toBe(100)
+    expect(refreshStatus).toHaveBeenCalledTimes(1)
   })
 
   it('measures the tall overview after the ancestor scroll ref attaches and renders the beginning of the list', async () => {

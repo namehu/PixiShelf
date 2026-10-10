@@ -1,7 +1,7 @@
 'use client'
 
 import { defaultRangeExtractor, useVirtualizer } from '@tanstack/react-virtual'
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { ListOrdered, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -18,11 +18,17 @@ import type { BackgroundHistoryController } from './use-background-history'
 export function BackgroundHistoryList({
   history,
   scrollRef,
-  onSelectJob
+  onSelectJob,
+  executionContent,
+  onRefreshStatus,
+  refreshingStatus = false
 }: {
   history: BackgroundHistoryController
   scrollRef: RefObject<HTMLDivElement | null>
   onSelectJob: (id: string) => void
+  executionContent?: ReactNode
+  onRefreshStatus?: () => void
+  refreshingStatus?: boolean
 }) {
   const { query, items } = history
   const listRef = useRef<HTMLDivElement>(null)
@@ -155,7 +161,7 @@ export function BackgroundHistoryList({
 
   return (
     <section id="background-history-section" aria-labelledby="background-history-title" className="min-w-0">
-      <div ref={toolbarRef} className="sticky top-0 z-10 flex flex-col gap-3 border-b bg-background p-4 sm:p-5">
+      <div ref={toolbarRef} className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-background px-4 py-3 sm:px-5">
         <div className="flex items-center justify-between gap-2">
           <h3 id="background-history-title" className="flex items-center gap-2 text-sm font-semibold">
             <ListOrdered className="size-4" aria-hidden="true" />
@@ -167,21 +173,30 @@ export function BackgroundHistoryList({
           filters={history.filters}
           onChange={changeFilters}
           dateInvalid={history.dateInvalid}
+          actions={
+            <Button
+              type="button"
+              variant="outline"
+              aria-label={history.hasUpdates ? '记录有更新，点击载入' : '刷新执行记录'}
+              disabled={refreshingStatus}
+              onClick={() => {
+                history.refresh()
+                onRefreshStatus?.()
+                setFocusedIndex(null)
+                scrollToRecords()
+              }}
+            >
+              {refreshingStatus ? (
+                <Spinner data-icon="inline-start" aria-hidden="true" />
+              ) : (
+                <RefreshCw data-icon="inline-start" aria-hidden="true" />
+              )}
+              {history.hasUpdates ? '载入更新' : '刷新'}
+            </Button>
+          }
         />
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            history.refresh()
-            setFocusedIndex(null)
-            scrollToRecords()
-          }}
-        >
-          <RefreshCw data-icon="inline-start" aria-hidden="true" />
-          {history.hasUpdates ? '记录有更新，点击载入' : '刷新执行记录'}
-        </Button>
       </div>
+      {executionContent}
       {history.snapshotError ? (
         <Alert className="my-3">
           <AlertTitle>实时状态暂未同步</AlertTitle>

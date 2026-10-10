@@ -1,12 +1,13 @@
 'use client'
 
 import { JOB_STATUS_VALUES, JOB_TYPE_VALUES } from '@pixishelf/job-contracts'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Filter, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Field, FieldGroup, FieldLabel, FieldSet, FieldLegend } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { backgroundJobLabel, backgroundTriggerLabels } from '@/lib/background-job-labels'
 import { formatBackgroundJobStatus } from './background-task-format'
@@ -57,11 +58,13 @@ function MultiFilter<Value extends string>({
 export function BackgroundHistoryFilters({
   filters,
   onChange,
-  dateInvalid
+  dateInvalid,
+  actions
 }: {
   filters: HistoryFilters
   onChange: (filters: HistoryFilters) => void
   dateInvalid: boolean
+  actions?: ReactNode
 }) {
   const [draft, setDraft] = useState(filters.search)
   const [composing, setComposing] = useState(false)
@@ -86,13 +89,15 @@ export function BackgroundHistoryFilters({
         event.preventDefault()
         if (!composingRef.current && draft.trim() !== filters.search) onChange({ ...filters, search: draft.trim() })
       }}
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-2"
     >
-      <FieldGroup className="gap-3">
-        <Field>
-          <FieldLabel htmlFor="history-search">搜索执行记录</FieldLabel>
-          <div className="flex gap-2">
-            <Input
+      <FieldGroup className="flex-row items-center gap-2">
+        <Field className="min-w-0 flex-1">
+          <FieldLabel className="sr-only" htmlFor="history-search">
+            搜索执行记录
+          </FieldLabel>
+          <InputGroup>
+            <InputGroupInput
               id="history-search"
               value={draft}
               maxLength={500}
@@ -109,11 +114,14 @@ export function BackgroundHistoryFilters({
                 setDraft(event.currentTarget.value)
               }}
             />
-            <Button type="submit" size="icon" variant="outline" aria-label="搜索执行记录">
-              <Search aria-hidden="true" />
-            </Button>
-          </div>
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton type="submit" size="icon-sm" aria-label="搜索执行记录">
+                <Search aria-hidden="true" />
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
         </Field>
+        {actions ? <Field className="w-auto shrink-0">{actions}</Field> : null}
       </FieldGroup>
       <div className="flex flex-wrap items-center gap-2">
         <MultiFilter

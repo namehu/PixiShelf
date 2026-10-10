@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { BackgroundHistoryList } from './background-history-list'
+import { BackgroundExecutionRow } from './background-execution-row'
 import { useBackgroundHistory } from './use-background-history'
 import { emptyHistoryFilters } from './background-history-state'
 import { BackgroundFailureList } from './background-failure-list'
@@ -213,7 +214,16 @@ export function BackgroundTaskConsole() {
         selectedJobLoading={detailQuery.isPending && Boolean(selectedJobId)}
         failureNeedsAttention={detailQuery.failureNeedsAttention}
         onSelectJob={selectJob}
-        historyContent={<BackgroundHistoryList history={history} scrollRef={scrollRef} onSelectJob={selectJob} />}
+        historyContent={(executionContent) => (
+          <BackgroundHistoryList
+            history={history}
+            scrollRef={scrollRef}
+            onSelectJob={selectJob}
+            executionContent={executionContent}
+            onRefreshStatus={() => void dashboardQuery.refetch()}
+            refreshingStatus={dashboardQuery.isFetching}
+          />
+        )}
         onRefresh={() => {
           void dashboardQuery.refetch()
           setHistoryRefreshVersion((value) => value + 1)
@@ -234,12 +244,19 @@ export function BackgroundTaskConsole() {
 
   const tabbedPanel = (
     <Tabs value={activeTab} onValueChange={changeTab} className="min-h-0 flex-1 gap-0">
-      <div className="shrink-0 border-b px-4 py-3 sm:px-5">
-        <TabsList className="w-full">
-          <TabsTrigger value="tasks">任务</TabsTrigger>
-          <TabsTrigger value="failures">失败（{dashboard?.unacknowledgedFailureCount ?? 0}）</TabsTrigger>
-        </TabsList>
-      </div>
+      {isDesktop ? (
+        <SheetHeader className="shrink-0 flex-row items-center justify-between gap-3 border-b py-3 pr-14 text-left">
+          <SheetTitle className="shrink-0">执行动态</SheetTitle>
+          <SheetDescription className="sr-only">查看任务执行记录与待处理失败。</SheetDescription>
+          <ConsoleTabs failureCount={dashboard?.unacknowledgedFailureCount ?? 0} />
+        </SheetHeader>
+      ) : (
+        <DrawerHeader className="shrink-0 flex-row items-center justify-between gap-3 border-b py-3 text-left">
+          <DrawerTitle className="shrink-0">执行动态</DrawerTitle>
+          <DrawerDescription className="sr-only">查看任务执行记录与待处理失败。</DrawerDescription>
+          <ConsoleTabs failureCount={dashboard?.unacknowledgedFailureCount ?? 0} />
+        </DrawerHeader>
+      )}
       <TabsContent key={activeTab} value={activeTab} ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {panelContent}
       </TabsContent>
@@ -258,26 +275,23 @@ export function BackgroundTaskConsole() {
       />
       {isDesktop ? (
         <Sheet open={open} onOpenChange={handleOpenChange}>
-          <SheetContent className="w-full gap-0 p-0 sm:max-w-xl xl:max-w-2xl">
-            <SheetHeader className="shrink-0 border-b pr-14 text-left">
-              <SheetTitle>执行动态</SheetTitle>
-              <SheetDescription>查看任务执行记录与待处理失败。</SheetDescription>
-            </SheetHeader>
-            {tabbedPanel}
-          </SheetContent>
+          <SheetContent className="w-full gap-0 p-0 sm:max-w-xl xl:max-w-2xl">{tabbedPanel}</SheetContent>
         </Sheet>
       ) : (
         <Drawer open={open} onOpenChange={handleOpenChange}>
-          <DrawerContent className="max-h-[92dvh]">
-            <DrawerHeader className="shrink-0 border-b text-left">
-              <DrawerTitle>执行动态</DrawerTitle>
-              <DrawerDescription>查看任务执行记录与待处理失败。</DrawerDescription>
-            </DrawerHeader>
-            {tabbedPanel}
-          </DrawerContent>
+          <DrawerContent className="max-h-[92dvh]">{tabbedPanel}</DrawerContent>
         </Drawer>
       )}
     </>
+  )
+}
+
+function ConsoleTabs({ failureCount }: { failureCount: number }) {
+  return (
+    <TabsList aria-label="执行动态视图" className="shrink-0">
+      <TabsTrigger value="tasks">任务</TabsTrigger>
+      <TabsTrigger value="failures">失败（{failureCount}）</TabsTrigger>
+    </TabsList>
   )
 }
 
@@ -458,19 +472,27 @@ export function BackgroundTaskConsoleView({
   controls: BackgroundControlsView
   detailError?: { message: string } | null
   onRetryDetail?: () => void
-  historyContent?: ReactNode
+  historyContent?: (executionContent: ReactNode) => ReactNode
   failureNeedsAttention?: boolean
 }) {
   const workerSummary = getWorkerSummary(dashboard.workers)
   const running = dashboard.runningJob
   const activeBatch = primaryActiveBatch(dashboard)
   const showingDetail = Boolean(selectedJobId ?? selectedJob?.id)
+  const executionContent = (
+    <BackgroundExecutionRow
+      job={running}
+      batch={activeBatch}
+      queuedCount={dashboard.queuedCount}
+      onSelectJob={onSelectJob}
+    />
+  )
 
   return (
-    <section aria-labelledby="background-console-title" className="min-w-0">
-      <header className="flex items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3 sm:px-5">
-        <div className="flex min-w-0 items-center gap-2">
-          {showingDetail ? (
+    <section aria-label={showingDetail ? '任务详情' : '后台任务'} className="min-w-0">
+      {showingDetail ? (
+        <header className="flex items-center justify-between gap-3 border-b bg-muted/20 px-4 py-3 sm:px-5">
+          <div className="flex min-w-0 items-center gap-2">
             <Button
               type="button"
               size="icon"
@@ -480,22 +502,20 @@ export function BackgroundTaskConsoleView({
             >
               <ArrowLeft aria-hidden="true" />
             </Button>
-          ) : (
-            <SquareActivity className="size-5 text-primary" aria-hidden="true" />
-          )}
-          <h2 id="background-console-title" className="truncate text-sm font-semibold tracking-tight">
-            {showingDetail ? '任务详情' : '队列概览'}
-          </h2>
-        </div>
-        <Button type="button" size="sm" variant="outline" onClick={onRefresh} disabled={refreshing}>
-          <RefreshCw
-            data-icon="inline-start"
-            className={cn(refreshing && 'animate-spin motion-reduce:animate-none')}
-            aria-hidden="true"
-          />
-          刷新状态
-        </Button>
-      </header>
+            <h2 id="background-console-title" className="truncate text-sm font-semibold tracking-tight">
+              任务详情
+            </h2>
+          </div>
+          <Button type="button" size="sm" variant="outline" onClick={onRefresh} disabled={refreshing}>
+            <RefreshCw
+              data-icon="inline-start"
+              className={cn(refreshing && 'animate-spin motion-reduce:animate-none')}
+              aria-hidden="true"
+            />
+            刷新状态
+          </Button>
+        </header>
+      ) : null}
 
       {showingDetail ? (
         <div className="min-w-0">
@@ -529,15 +549,7 @@ export function BackgroundTaskConsoleView({
         </div>
       ) : (
         <div className="flex min-w-0 flex-col">
-          <div className="p-4 sm:p-5">
-            <ExecutionSlot
-              job={running}
-              batch={activeBatch}
-              queuedCount={dashboard.queuedCount}
-              onSelectJob={onSelectJob}
-            />
-          </div>
-          <div className="border-t">{historyContent}</div>
+          {historyContent ? historyContent(executionContent) : executionContent}
           <details className="group border-t">
             <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm outline-none transition-colors hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5 [&::-webkit-details-marker]:hidden">
               <Cpu className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -563,119 +575,6 @@ function primaryActiveBatch(dashboard: BackgroundDashboardView) {
   return (
     dashboard.activeBatches.find((batch) => batch.currentJob?.id === runningJobId) ??
     (dashboard.runningJob ? null : (dashboard.activeBatches[0] ?? null))
-  )
-}
-
-function formatBatchStatus(status: JobStatus) {
-  if (status === 'RUNNING') return '批次执行中'
-  if (status === 'PENDING') return '批次排队中'
-  if (status === 'RETRY_WAIT') return '批次等待重试'
-  if (status === 'PAUSING') return '批次暂停中'
-  if (status === 'PAUSED') return '批次已暂停'
-  if (status === 'CANCELLING') return '批次取消中'
-  return formatBackgroundJobStatus(status)
-}
-
-function ExecutionSlot({
-  job,
-  batch,
-  queuedCount,
-  onSelectJob
-}: {
-  job: JobDto | null
-  batch: BackgroundBatchView | null
-  queuedCount: number
-  onSelectJob: (jobId: string) => void
-}) {
-  const visibleJob = batch?.parentJob ?? job
-  const detailJob = batch?.currentJob ?? visibleJob
-  const progress = batch?.progress ?? visibleJob?.progress ?? 0
-  const active = Boolean(visibleJob)
-  return (
-    <div
-      className={cn(
-        'relative overflow-hidden rounded-lg border p-4',
-        active ? 'border-primary/35 bg-primary/[0.035]' : 'border-dashed bg-muted/10'
-      )}
-    >
-      <div className="absolute inset-y-0 left-0 w-1 bg-border" aria-hidden="true">
-        {active ? <span className="block h-1/3 w-full animate-pulse bg-primary motion-reduce:animate-none" /> : null}
-      </div>
-      <div className="flex min-w-0 items-start gap-3 pl-1">
-        <div
-          className={cn(
-            'flex size-10 shrink-0 items-center justify-center rounded-lg',
-            active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-          )}
-        >
-          {active ? (
-            <Activity className="size-5" aria-hidden="true" />
-          ) : (
-            <Clock3 className="size-5" aria-hidden="true" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-              {batch ? '补全批次' : '唯一执行槽'}
-            </span>
-            <AdminStatusBadge status={batch?.status ?? visibleJob?.status ?? 'IDLE'}>
-              {batch
-                ? formatBatchStatus(batch.status)
-                : visibleJob
-                  ? formatBackgroundJobStatus(visibleJob.status)
-                  : '空闲'}
-            </AdminStatusBadge>
-          </div>
-          {visibleJob ? (
-            <>
-              <p className="mt-2 font-semibold">{formatBackgroundJobType(visibleJob.type, visibleJob.payload)}</p>
-              <p className="mt-1 select-text break-all font-mono text-xs text-muted-foreground">{visibleJob.id}</p>
-              <div className="mt-3 flex items-center gap-3">
-                <Progress value={progress} className="h-2 flex-1" aria-label={`任务进度 ${progress}%`} />
-                <span className="text-xs font-semibold tabular-nums">{progress}%</span>
-              </div>
-              {batch ? (
-                <div className="mt-2 space-y-1 text-sm text-muted-foreground">
-                  <p>
-                    已处理 {batch.completedCount}/{batch.totalCount}，剩余 {batch.remainingCount}
-                    {batch.failedCount > 0 ? `，其中失败 ${batch.failedCount}` : ''}
-                  </p>
-                  <p className="select-text break-words">
-                    {batch.currentJob?.message ? (
-                      <>
-                        当前：<PrivacySensitiveText>{batch.currentJob.message}</PrivacySensitiveText>
-                      </>
-                    ) : (
-                      '等待 Worker 继续处理'
-                    )}
-                  </p>
-                </div>
-              ) : visibleJob.message ? (
-                <PrivacySensitiveText as="p" className="mt-2 select-text break-words text-sm text-muted-foreground">
-                  {visibleJob.message}
-                </PrivacySensitiveText>
-              ) : null}
-              {detailJob ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="mt-3"
-                  onClick={() => onSelectJob(detailJob.id)}
-                >
-                  {batch?.currentJob ? '查看当前子任务' : '查看当前任务'}
-                </Button>
-              ) : null}
-            </>
-          ) : (
-            <p className="mt-2 text-sm text-muted-foreground">
-              当前没有任务占用执行槽，队列中有 {queuedCount} 项等待。
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
   )
 }
 

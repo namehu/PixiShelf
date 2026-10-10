@@ -271,7 +271,7 @@ describe('background task console', () => {
 
   afterEach(cleanup)
 
-  it('keeps normal completion counts out of the queue overview', () => {
+  it('keeps normal completion counts out of the execution status row', () => {
     const dashboard = createDashboard({ counts: { ...createDashboard().counts, COMPLETED: 8 }, queuedCount: 0 })
     render(
       <BackgroundTaskConsoleView
@@ -285,7 +285,8 @@ describe('background task console', () => {
       />
     )
 
-    expect(screen.getByText('当前没有任务占用执行槽，队列中有 0 项等待。')).toBeTruthy()
+    expect(screen.getByText('空闲')).toBeTruthy()
+    expect(screen.getByText('0 项等待')).toBeTruthy()
     expect(screen.queryByText('已完成')).toBeNull()
   })
 
@@ -467,6 +468,8 @@ describe('background task console', () => {
 
     expect(screen.getByText('唯一执行槽')).toBeTruthy()
     expect(screen.getAllByText('1 个可用').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: '查看当前任务' }))
+    expect(selectJob).toHaveBeenCalledWith(running.id)
 
     rerender(
       <BackgroundTaskConsoleView
