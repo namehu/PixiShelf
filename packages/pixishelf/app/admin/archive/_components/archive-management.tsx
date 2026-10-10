@@ -32,7 +32,8 @@ import {
 } from './archive-task-list'
 import { ArchiveBulkResultDialog } from './archive-bulk-result-dialog'
 import { ArchiveItemDrawer } from './archive-item-drawer'
-import { hasTaskFilters, normalizeTaskFilters, type TaskFilters } from './archive-task-filters'
+import { hasTaskFilters, type TaskFilters } from './archive-task-filters'
+import { useArchiveTaskFilters } from './use-archive-task-filters'
 import { useArchiveLiveEvents } from './archive-live-events'
 import { archiveSourceLabel } from './archive-source-label'
 import {
@@ -81,23 +82,22 @@ export function isActiveArchiveDownloadStatus(status: string): boolean {
   return LIVE_ARCHIVE_STATUSES.has(status)
 }
 
-const EMPTY_FILTERS: TaskFilters = {
-  status: 'ALL',
-  providerKey: '',
-  kind: 'ALL',
-  submissionId: '',
-  search: '',
-  unboundOnly: false
-}
-
 export function ArchiveManagement() {
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const trpc = useTRPC()
   const router = useRouter()
   const searchParams = useSearchParams()
   const requestedTaskId = archiveTaskDeepLinkId(searchParams.get('taskId'))
-  const [filters, setFilters] = useState<TaskFilters>(EMPTY_FILTERS)
-  const [draftFilters, setDraftFilters] = useState<TaskFilters>(EMPTY_FILTERS)
+  const {
+    filters,
+    filterKey,
+    draftFilters,
+    setDraftFilters,
+    applyFilters: commitFilters,
+    applyImmediateFilters,
+    resetFilters
+  } = useArchiveTaskFilters()
+  const [browseFilterKey, setBrowseFilterKey] = useState(filterKey)
   const [cursorState, setCursorState] = useState<ArchiveTaskCursorState>(resetArchiveTaskBrowseState)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [bulkToolbarHeight, setBulkToolbarHeight] = useState(0)
@@ -109,11 +109,18 @@ export function ArchiveManagement() {
   const [pendingSingleActions, setPendingSingleActions] = useState<Set<string>>(new Set())
   const bulkIdempotencyKeys = useRef(new Map<string, string>())
 
+  // 浏览器前进/后退也会切换筛选，不能把旧游标或旧选择带入新的查询。
+  if (browseFilterKey !== filterKey) {
+    setBrowseFilterKey(filterKey)
+    setCursorState(resetArchiveTaskBrowseState())
+    setSelectedTaskIds(new Set())
+  }
+
   const tasksQuery = useQuery(
     trpc.archive.listTasks.queryOptions(
       {
         limit: PAGE_SIZE,
-        cursor: cursorState.cursor,
+        cursor: browseFilterKey === filterKey ? cursorState.cursor : undefined,
         statuses: filters.status === 'ALL' ? undefined : [filters.status],
         providerKey: filters.providerKey || undefined,
         kind: filters.kind === 'ALL' ? undefined : filters.kind,
@@ -284,8 +291,11 @@ export function ArchiveManagement() {
     setSelectedTaskIds(new Set())
   }
   const applyFilters = (next: TaskFilters) => {
-    setFilters(next)
-    setDraftFilters(next)
+    commitFilters(next)
+    resetBrowseState()
+  }
+  const clearFilters = () => {
+    resetFilters()
     resetBrowseState()
   }
 
@@ -401,12 +411,11 @@ export function ArchiveManagement() {
         appliedValue={filters}
         onChange={setDraftFilters}
         onImmediateChange={(patch) => {
-          setDraftFilters((current) => ({ ...current, ...patch }))
-          setFilters((current) => ({ ...current, ...patch }))
+          applyImmediateFilters(patch)
           resetBrowseState()
         }}
-        onSubmit={() => applyFilters(normalizeTaskFilters(draftFilters))}
-        onReset={() => applyFilters(EMPTY_FILTERS)}
+        onSubmit={() => applyFilters(draftFilters)}
+        onReset={clearFilters}
       />
       <section aria-label="归档任务列表" className="flex min-w-0 flex-col gap-4">
         {tasksQuery.isError ? (
@@ -431,7 +440,7 @@ export function ArchiveManagement() {
             </EmptyHeader>
             <EmptyContent>
               {hasTaskFilters(filters) ? (
-                <Button variant="outline" onClick={() => applyFilters(EMPTY_FILTERS)}>
+                <Button variant="outline" onClick={clearFilters}>
                   清除筛选
                 </Button>
               ) : (

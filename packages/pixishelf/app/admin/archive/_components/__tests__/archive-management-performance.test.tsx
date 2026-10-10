@@ -2,6 +2,7 @@ import { useEffect, type ComponentProps, type ReactNode } from 'react'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { NuqsTestingAdapter } from 'nuqs/adapters/testing'
 import { ArchiveManagement, type ArchiveTaskCard } from '../archive-management'
 
 const mocks = vi.hoisted(() => ({ mounted: vi.fn(), items: [] as unknown[] }))
@@ -110,7 +111,11 @@ afterEach(() => {
 
 function mountPage() {
   function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    return (
+      <NuqsTestingAdapter>
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      </NuqsTestingAdapter>
+    )
   }
   return render(<ArchiveManagement />, { wrapper: Wrapper })
 }
