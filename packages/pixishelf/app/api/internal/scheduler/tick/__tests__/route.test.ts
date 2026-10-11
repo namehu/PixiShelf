@@ -10,13 +10,14 @@ vi.mock('@/lib/logger', () => ({ default: { warn: vi.fn(), error: vi.fn() } }))
 import { GET as get, POST as post } from '../route'
 
 const token = 'isolated-scheduler-test-token'
-const request = (method: string, authorization?: string) => new Request('http://localhost/api/internal/scheduler/tick', {
-  method,
-  headers: {
-    'x-user-session': JSON.stringify({ userId: 'forged-admin' }),
-    ...(authorization === undefined ? {} : { authorization })
-  }
-})
+const request = (method: string, authorization?: string) =>
+  new Request('http://localhost/api/internal/scheduler/tick', {
+    method,
+    headers: {
+      'x-user-session': JSON.stringify({ userId: 'forged-admin' }),
+      ...(authorization === undefined ? {} : { authorization })
+    }
+  })
 
 describe('internal scheduler token boundary', () => {
   beforeEach(() => {
@@ -25,7 +26,10 @@ describe('internal scheduler token boundary', () => {
   })
   afterEach(() => vi.unstubAllEnvs())
 
-  for (const [method, handler] of [['GET', get], ['POST', post]] as const) {
+  for (const [method, handler] of [
+    ['GET', get],
+    ['POST', post]
+  ] as const) {
     it(`${method} fails closed when the token is not configured`, async () => {
       vi.stubEnv('INTERNAL_JOB_TOKEN', '')
       const response = await handler(request(method, `Bearer ${token}`))
@@ -38,7 +42,8 @@ describe('internal scheduler token boundary', () => {
     })
 
     it.each([undefined, 'Bearer wrong-token', token, `Basic ${token}`])(
-      `${method} rejects invalid credentials without materializing schedules: %s`, async (authorization) => {
+      `${method} rejects invalid credentials without materializing schedules: %s`,
+      async (authorization) => {
         const response = await handler(request(method, authorization))
         expect(response.status).toBe(401)
         expect(await response.json()).toEqual({ success: false, error: 'Unauthorized' })
@@ -61,5 +66,11 @@ describe('internal scheduler token boundary', () => {
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ success: true, data: result })
     expect(mocks.materialize).toHaveBeenCalled()
+  })
+  it('hides unexpected materializer failures from an authenticated caller', async () => {
+    mocks.materialize.mockRejectedValue(new Error('password=synthetic-scheduler-secret'))
+    const response = await post(request('POST', `Bearer ${token}`))
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ success: false, error: 'Internal Server Error' })
   })
 })

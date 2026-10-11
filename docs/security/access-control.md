@@ -49,7 +49,7 @@ WebP 时长探测沿用管理任务的 `adminProcedure` 入队/重试和受登�
 `POST /api/scan/stream`、`POST /api/scan/rescan` 与 `POST /api/migration/stream` 在建立 SSE 前统一返回
 `{ code: number, message: string, data?: unknown }`，其中失败 `code` 等于 HTTP 状态码。
 参数/路径/配置错误使用 400，缺失会话使用 401，作品不存在使用 404，任务冲突使用 409；
-未分类异常使用 500 和固定 `Internal Server Error`（`data: null`），原始异常只写服务端日志。
+未分类异常使用 500 和固定 `Internal Server Error`（`data: null`），异常经应用 logger 脱敏后写入服务端日志。
 Zod 校验错误的说明位于 `data.details`。这些 HTTP 响应不再附加 `success/errorCode/error` 别名。
 
 声明 `Content-Type: application/json` 时必须提供合法 JSON 对象：无内容、非法 JSON、数组、null
@@ -317,7 +317,7 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 4. `x-user-session`、`x-pathname` 和 `x-forwarded-for` 的安全性依赖反向代理正确清理和重写。
 5. Better Auth 的 `useSecureCookies` 当前受生产模式、HTTPS URL 和 Trusted Origins 配置组合影响，部署后必须检查真实响应 Cookie 属性。
 6. 曾暴露的外部站点凭据仍需轮换，Git 历史仍需在独立操作中清理。
-7. 代理与共享认证门禁已有隔离回归，但尚未穷举全部接口未授权分支；真实 Next.js 异常包装、已授权业务错误及日志敏感值脱敏仍需扩展验证。
+7. 权限回归覆盖下列具体入口，但未穷举所有接口；领域错误映射中的动态消息仍须逐项审查，不能把共享 INTERNAL_SERVER_ERROR 格式化视为全站错误脱敏保证。
 8. Worker lane 共享同一容器文件权限；解析 lane 的最小权限当前依赖 capability 注册、类型契约和 Executor 边界，而不是独立容器挂载。
 
 风险修复应更新本文中的“当前事实”，并在 [TODO](../../TODO.md) 留下可执行项。涉及凭据泄露时，只记录凭据类型、轮换时间和负责人，不记录实际值。
@@ -328,11 +328,20 @@ E-Hentai 上传者 UID 是公开的远端账号数字标识，不是 PixiShelf `
 
 - `packages/pixishelf/__tests__/proxy.test.ts`：公共路径和子路径、相似前缀拒绝、API 401 与页面跳转、会话查询故障时拒绝受保护请求、伪造上下文头不能登录、有效会话覆盖客户端头，以及限流拒绝。
 - `packages/pixishelf/server/__tests__/auth-boundary.test.ts`：真实 `createTRPCContext` 不信任客户端身份头，`authProcedure` / `adminProcedure` 在缺 Session 或 User 时不进入读写服务，合法会话提供操作者，限流阻断业务。既有 router 鉴权测试继续验证具体接口绑定。
-- `packages/pixishelf/app/api/artwork/__tests__/route-auth.test.ts`：真实 `requireAdminRequest` 保护媒体替换、分块上传及状态、章节上传和删除；缺会话、缺用户或用户 ID、伪造身份头和认证提供方故障均不调用业务服务。未知认证异常由 Route 继续抛给 Next.js，这组单测不证明框架生成的 HTTP 500 内容。
-- `packages/pixishelf/actions/__tests__/protected-actions.test.ts`：真实 safe-action 门禁保护作品导出与标签统计重建，未登录及认证提供方异常不读写业务；客户端收到通用错误，不包含提供方错误详情。
+- `packages/pixishelf/app/api/artwork/__tests__/route-auth.test.ts`：真实 `requireAdminRequest` 保护媒体替换、分块上传及状态、章节上传和删除；缺会话、缺用户或用户 ID、伪造身份头和认证提供方故障均不调用业务服务。认证提供方异常在真实门禁中记录脱敏日志并映射通用 500；有效会话的配置、替换、分块和章节业务未知异常同样返回通用 500，已知领域错误保留原状态。
+- `packages/pixishelf/actions/__tests__/protected-actions.test.ts`：真实 safe-action 门禁保护导出、标签统计、点赞、资料/偏好、批量作品/图片与修改密码；缺失/无效身份和提供方异常不调用业务服务或 revalidate，已授权未知业务错误不回显原文。
 - `packages/pixishelf/app/api/internal/scheduler/tick/__tests__/route.test.ts`：配置缺失和错误 Token 不物化计划，合法请求执行，GET 只检查健康状态。
 
-这些测试证明所列入口的服务调用边界，不代替 Better Auth 本身的 Cookie/签名验证、所有接口覆盖、生产反向代理头清理或浏览器登录验收。限流测试注入允许/拒绝决策，不测真实时间窗口或部署网络身份可信性。已授权业务异常的消息回显及日志脱敏仍是独立待办。
+这些测试证明所列入口的服务调用边界，不代替 Better Auth 本身的 Cookie/签名验证、所有接口覆盖、生产反向代理头清理或浏览器登录验收。限流测试注入允许/拒绝决策，不测真实时间窗口或部署网络身份可信性。日志测试覆盖大小写敏感字段、Authorization、完整 Cookie/Set-Cookie、带空白/转义引号的值、嵌套 Error cause 与循环元数据；不承诺识别无字段标签的任意秘密文本。
+
+### 错误传输与生产 Next.js 回归
+
+- `server/routers/__tests__/user-auth.test.ts` 通过真实 tRPC fetch adapter 覆盖账号查询/创建/删除：无效会话不调用服务，认证提供方故障与已授权未知业务异常返回通用 500，显式自删限制保留 400 文案。
+- `app/api/migration/stream/__tests__/route-auth.test.ts` 使用真实会话门禁，验证拒绝时不提交迁移任务、合法操作者取自服务端身份。
+- `server/routers/__tests__/pending-replace-error-boundary.test.ts` 验证待替换错误只公开精确匹配的固定领域文案；未知异常即使含领域关键词也进入 INTERNAL_SERVER_ERROR。带目录名的动态异常不直接公开。
+- `tests/integration/security-next.test.ts` 在临时目录复制实际 proxy、章节删除 Route、会话门禁、tRPC 与 logger 源码，执行 `next build --webpack` 和 `next start`；使用合成会话与抛错业务服务，捕获真实 HTTP 与 stdout/stderr。覆盖代理拒绝、代理成功后 Route 二次认证失败、已授权业务异常和 tRPC 500；合成数据库凭据、Cookie、Authorization 不出现在响应或日志中。
+
+该生产框架测试不继承应用环境文件，不连接数据库或收藏目录。它验证框架与应用错误边界，未验证 Better Auth 实际签名/过期计算、生产 Cookie、反向代理，也未构建全部业务页面。tRPC 仅对 INTERNAL_SERVER_ERROR 隐藏消息及 stack，明确的业务/校验/权限错误继续按各入口契约返回。修改密码失败使用固定可读提示，不返回认证提供方原始消息。
 
 ## 变更门禁
 

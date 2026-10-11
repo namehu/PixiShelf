@@ -82,7 +82,7 @@ export async function bindPendingReplaceItem(input: { scanPath: string; itemId: 
         select: { sourceDirectoryName: true }
       })
       if (duplicate) {
-        throw new Error(`该作品已绑定目录：${duplicate.sourceDirectoryName}`)
+        throw new Error('该作品已绑定其他目录，请先解除配对')
       }
       const updated = await tx.pendingReplaceItem.updateMany({
         where: {

@@ -1,3 +1,4 @@
+import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import {
   bindPendingReplaceItemSchema,
   pendingReplaceBatchIdSchema,
@@ -29,11 +30,52 @@ async function requireScanPath() {
 async function scanPathForExecution() {
   return ''
 }
+const publicPendingReplaceErrors = new Set([
+  '该作品已绑定其他目录，请先解除配对',
+  'Pending replacement batch cannot be queued from its current state',
+  'Pending replacement batch not found',
+  'Pending replacement job already in progress',
+  '历史替换任务缺少可验证的冻结输入',
+  '发现任务已写入项目，不能重复覆盖批次',
+  '只有待执行项目可以调整顺序',
+  '媒体顺序必须完整且不能重复',
+  '当前目录状态不能解除配对',
+  '当前目录状态不能调整配对',
+  '待替换资源必须是普通目录，不能使用符号链接',
+  '批次已开始，不能再调整顺序',
+  '批次已开始，不能解除目录配对',
+  '批次已开始，不能调整目录配对',
+  '无法确定作品目标目录',
+  '替换项目缺少 externalId',
+  '未找到待绑定作品',
+  '未找到待配对目录',
+  '没有可恢复的中央替换任务',
+  '没有可恢复的备份清理阶段',
+  '没有可恢复的替换阶段',
+  '没有可恢复的还原阶段',
+  '没有可执行的替换项目',
+  '没有可清理的旧媒体备份',
+  '目录中没有可替换的直属媒体文件',
+  '目录配对状态已经变化，请刷新后重试',
+  '该作品没有可恢复的旧媒体备份',
+  '该作品缺少可验证的旧媒体备份',
+  '该目录尚未绑定作品',
+  '请求项目不属于当前批次或状态不可执行'
+])
 function wrapPendingReplaceError(error: unknown): never {
-  // 服务抛错并非结构化时，按字符串规则进行分类映射：
-  // - 已存在进行中/未找到/状态不允许 -> 对应 CONFLICT/NOT_FOUND/PRECONDITION_FAILED
-  // - 其他错误默认 BAD_REQUEST，避免将内部异常直接泄露。
+  if (error instanceof TRPCError) throw error
+  if (error instanceof BackgroundTaskError && error.code === 'ACTIVE_JOB_CONFLICT') {
+    const message =
+      error.message === 'An active pending replacement has different frozen input'
+        ? error.message
+        : 'A pending replacement job is already active'
+    throw new TRPCError({ code: 'CONFLICT', message })
+  }
+  // Only exact, reviewed domain messages may cross the transport boundary.
   const message = error instanceof Error ? error.message : 'Unknown error'
+  if (!publicPendingReplaceErrors.has(message)) {
+    throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', cause: error })
+  }
   if (message.includes('already in progress')) throw new TRPCError({ code: 'CONFLICT', message })
   if (message.includes('not found') || message.includes('未找到')) throw new TRPCError({ code: 'NOT_FOUND', message })
   if (message.includes('运行中') || message.includes('不能') || message.includes('无法') || message.includes('没有')) {

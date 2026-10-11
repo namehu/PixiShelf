@@ -1,3 +1,4 @@
+import logger from '@/lib/logger'
 import { NextRequest } from 'next/server'
 import { Readable } from 'stream'
 import { apiError, apiJson, apiSuccess } from '@/lib/api-response'
@@ -75,13 +76,13 @@ export async function POST(req: NextRequest) {
     }
 
     return apiSuccess()
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof MediaUploadError) {
       return apiError(error.message, { status: error.status })
     }
 
-    console.error('Upload chunk error:', error)
-    return apiError(error.message)
+    logger.error('Media chunk upload failed', { error })
+    return apiError('Internal Server Error')
   }
 }
 
@@ -118,11 +119,12 @@ export async function GET(req: NextRequest) {
     })
 
     return apiJson(status)
-  } catch (e: any) {
+  } catch (e) {
     if (e instanceof MediaUploadError) {
       return apiError(e.message, { status: e.status })
     }
 
-    return apiError(e.message)
+    logger.error('Media upload status failed', { error: e })
+    return apiError('Internal Server Error')
   }
 }

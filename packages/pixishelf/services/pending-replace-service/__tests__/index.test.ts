@@ -243,3 +243,18 @@ describe('unbindPendingReplaceItem', () => {
     )
   })
 })
+
+it('rejects duplicate binding with a safe explanation before changing the item', async () => {
+  mocks.item = {
+    id: 'item-1',
+    batchId: 'batch-1',
+    status: PendingReplaceItemStatus.READY,
+    sourceDirectoryName: 'fixture',
+    batch: { status: PendingReplaceBatchStatus.PREVIEWED }
+  }
+  mocks.duplicateBinding = { sourceDirectoryName: 'Cookie: session=synthetic-directory-secret' }
+  await expect(bindPendingReplaceItem({ scanPath: '/fixture', itemId: 'item-1', artworkId: 42 })).rejects.toThrow(
+    '该作品已绑定其他目录，请先解除配对'
+  )
+  expect(mocks.itemUpdateMany).not.toHaveBeenCalled()
+})

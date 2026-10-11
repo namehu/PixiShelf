@@ -7,7 +7,7 @@
 - [ ] 限制 PostgreSQL 与 ImgProxy 的宿主机端口；评估 ImgProxy 签名 URL 或受保护转发。
 - [ ] 在反向代理清除外部 `x-user-session`/`x-pathname`，重写可信 `x-forwarded-for`，并检查生产 Cookie 安全属性。
 - [ ] 轮换曾暴露的外部站点会话凭据，并在单独、有恢复依据的操作中清理 Git 历史。
-- [ ] 扩展其余 HTTP/tRPC/Server Action 的未授权覆盖，并验证真实 Next.js 异常响应、已授权业务错误与日志的敏感值脱敏；已有范围见[权限回归测试](./docs/security/access-control.md#权限回归测试)。
+- [ ] 逐项审查尚未覆盖的 HTTP/tRPC 领域错误映射及动态消息，补充对应入口未授权零副作用回归。
 
 ## 部署实例证据
 

@@ -4,7 +4,12 @@ import { rateLimiter } from '@/lib/rate-limit'
 
 // 不要导出完整的 t 对象（含义不直观）。
 // 例如，很多 i18n 库都把“t”作为通用变量名，语义会冲突。
-const t = initTRPC.context<Context>().create()
+const t = initTRPC.context<Context>().create({
+  errorFormatter({ shape, error }) {
+    if (error.code !== 'INTERNAL_SERVER_ERROR') return shape
+    return { ...shape, message: 'Internal Server Error', data: { ...shape.data, stack: undefined } }
+  }
+})
 
 // 基础的 router/procedure 入口
 export const router = t.router
@@ -31,7 +36,7 @@ export const publicProcedure = t.procedure.use(rateLimitMiddleware)
  *受保护的过程
  */
 export const authProcedure = publicProcedure.use(({ ctx, next }) => {
-  if (!ctx.session || !ctx.user) {
+  if (!ctx.session || !ctx.user?.id) {
     throw new TRPCError({ code: 'UNAUTHORIZED' })
   }
   return next({

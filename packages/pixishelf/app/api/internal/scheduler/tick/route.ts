@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     return apiSuccess({ data: result })
   } catch (error) {
     logger.error('Scheduler tick failed', { error })
-    return apiFailure(error instanceof Error ? error.message : 'Unknown scheduler error')
+    return apiFailure('Internal Server Error')
   }
 }
 

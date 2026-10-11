@@ -2,6 +2,7 @@ import { createUserResponseDTO, createUserSchema, getUsersResponseDTO } from '@/
 import { authProcedure, router } from '@/server/trpc'
 import { addUser, deleteUser, queryUsers } from '@/services/user-service'
 import z from 'zod'
+import { TRPCError } from '@trpc/server'
 
 export const userRouter = router({
   /**
@@ -29,7 +30,7 @@ export const userRouter = router({
     .mutation(async ({ ctx: { userId }, input }) => {
       // 防止删除自己
       if (userId === input) {
-        throw new Error('Cannot delete yourself')
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Cannot delete yourself' })
       }
       await deleteUser(input)
     })

@@ -63,9 +63,9 @@ export const changePasswordAction = authActionClient
         },
         headers: await headers()
       })
-    } catch (error) {
+    } catch {
       return returnValidationErrors(changePasswordSchema, {
-        _errors: [(error as Error).message]
+        _errors: ['修改密码失败，请确认当前密码后重试']
       })
     }
 

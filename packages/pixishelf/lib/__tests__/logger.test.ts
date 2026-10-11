@@ -51,6 +51,46 @@ describe('application logger', () => {
     expect(JSON.parse(output)).toMatchObject({ nested: { authorization: '[REDACTED]' } })
   })
 
+  it('redacts complete Cookie headers, quoted values, nested causes and cyclic metadata', () => {
+    const cause = new Error('cOoKiE: session=first-secret; csrf=second-secret')
+    const error = new Error('password="two word secret"', { cause })
+    error.stack = 'Set-Cookie: session=third-secret; HttpOnly\nAuthorization: Bearer fourth-secret'
+    const nested: Record<string, unknown> = { error, PASSWORD: 'fifth-secret' }
+    nested.self = nested
+    const output = formatProductionLog({ level: 'error', message: 'failed', nested })
+    for (const secret of [
+      'first-secret',
+      'second-secret',
+      'two word secret',
+      'third-secret',
+      'fourth-secret',
+      'fifth-secret'
+    ]) {
+      expect(output).not.toContain(secret)
+    }
+    expect(output).toContain('[Circular]')
+    expect(JSON.parse(output).nested.error.cause.name).toBe('Error')
+  })
+
+  it.each(['apiKey', 'connectionString', 'DATABASE_URL', 'private-key', 'password'])(
+    'redacts escaped quotes and whitespace for %s',
+    (key) => {
+      const value = `${key}="first\\" second secret"`
+      const output = formatProductionLog({ level: 'error', message: value, error: new Error(value) })
+      expect(output).not.toContain('first')
+      expect(output).not.toContain('second')
+      expect(output).toContain('[REDACTED]')
+    }
+  )
+
+  it.each(['Cookie', 'Set-Cookie', 'Authorization'])('redacts escaped quoted %s headers completely', (key) => {
+    const value = `${key}: "a=synthetic-first\\"; b=synthetic-second"`
+    const output = formatProductionLog({ level: 'error', message: value, error: new Error(value) })
+    expect(output).not.toContain('synthetic-first')
+    expect(output).not.toContain('synthetic-second')
+    expect(output).toContain('[REDACTED]')
+  })
+
   it('uses stdout-only console transports and has no import-time file logging', () => {
     const source = readFileSync(join(process.cwd(), 'lib', 'logger.ts'), 'utf8')
     expect(source).toContain('stderrLevels: []')

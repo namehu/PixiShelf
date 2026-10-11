@@ -1,132 +1,111 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+// @vitest-environment node
+import { randomUUID } from 'node:crypto'
+import { describe, it, expect } from 'vitest'
 import { PrismaClient } from '@prisma/client'
 
-// 注意：运行此测试前需要先应用 migration
-// npx prisma migrate dev
+// Apply the complete migration history with migrate deploy to a disposable local
+// database. Never fall back to the application's DATABASE_URL.
+const databaseUrl = process.env.PIXISHELF_TEST_DATABASE_URL
 
-const prisma = new PrismaClient()
+type Fixture = {
+  prisma: PrismaClient
+  artworkId: number
+  createArtwork: () => Promise<number>
+  createImages: (count: number, artworkId?: number | null) => Promise<number[]>
+}
 
-describe('Artwork Image Count Trigger', () => {
-  let artistId: number
-  let artworkId: number
-
-  beforeAll(async () => {
-    // 创建测试用的 Artist
-    const artist = await prisma.artist.create({
-      data: {
-        name: 'Test Artist for Image Count',
+const test = it.extend<{ fixture: Fixture }>({
+  fixture: async ({ task }, use) => {
+    const prisma = new PrismaClient({ datasourceUrl: databaseUrl! })
+    const artistIds: number[] = []
+    const artworkIds: number[] = []
+    const imageIds: number[] = []
+    const token = randomUUID()
+    const failures: unknown[] = []
+    try {
+      const artist = await prisma.artist.create({ data: { name: `image-count-${token}: ${task.name}` } })
+      artistIds.push(artist.id)
+      const createArtwork = async () => {
+        const artwork = await prisma.artwork.create({ data: { title: `image-count-${token}`, artistId: artist.id } })
+        artworkIds.push(artwork.id)
+        return artwork.id
       }
-    })
-    artistId = artist.id
-  })
-
-  afterAll(async () => {
-    // 清理数据
-    if (artistId) {
-      // 级联删除会删除 artwork 和 images
-      try {
-        await prisma.artist.delete({ where: { id: artistId } })
-      } catch (e) {
-        console.error('Cleanup failed:', e)
-      }
-    }
-    await prisma.$disconnect()
-  })
-
-  it('should auto-increment imageCount when adding images', async () => {
-    // 1. 创建 Artwork
-    const artwork = await prisma.artwork.create({
-      data: {
-        title: 'Test Artwork',
-        artistId: artistId,
-        imageCount: 0 // 显式设为 0
-      }
-    })
-    artworkId = artwork.id
-    expect(artwork.imageCount).toBe(0)
-
-    // 2. 添加 3 张图片
-    await prisma.image.createMany({
-      data: [
-        { path: 'test/1.jpg', artworkId: artwork.id, sortOrder: 0 },
-        { path: 'test/2.jpg', artworkId: artwork.id, sortOrder: 1 },
-        { path: 'test/3.jpg', artworkId: artwork.id, sortOrder: 2 },
-      ]
-    })
-
-    // 3. 验证 imageCount
-    const updatedArtwork = await prisma.artwork.findUnique({
-      where: { id: artwork.id }
-    })
-    expect(updatedArtwork?.imageCount).toBe(3)
-  })
-
-  it('should auto-decrement imageCount when deleting images', async () => {
-    // 删除 1 张图片
-    const image = await prisma.image.findFirst({
-      where: { artworkId: artworkId }
-    })
-    if (image) {
-      await prisma.image.delete({ where: { id: image.id } })
-    }
-
-    const updatedArtwork = await prisma.artwork.findUnique({
-      where: { id: artworkId }
-    })
-    expect(updatedArtwork?.imageCount).toBe(2)
-  })
-
-  it('should handle concurrent image insertions', async () => {
-    // 并发插入 10 张图片
-    const promises = []
-    for (let i = 0; i < 10; i++) {
-      promises.push(
-        prisma.image.create({
-          data: {
-            path: `test/concurrent_${i}.jpg`,
-            artworkId: artworkId,
-            sortOrder: 10 + i
-          }
+      const artworkId = await createArtwork()
+      const createImages = async (count: number, owner: number | null = artworkId) => {
+        const rows = await prisma.image.createManyAndReturn({
+          data: Array.from({ length: count }, (_, index) => ({
+            path: `image-count-${token}/${randomUUID()}.jpg`,
+            artworkId: owner,
+            sortOrder: index
+          })),
+          select: { id: true }
         })
-      )
-    }
-    await Promise.all(promises)
-
-    const updatedArtwork = await prisma.artwork.findUnique({
-      where: { id: artworkId }
-    })
-    // 之前 2 + 10 = 12
-    expect(updatedArtwork?.imageCount).toBe(12)
-  })
-  
-  it('should update imageCount when moving image to another artwork', async () => {
-     // 创建另一个 Artwork
-     const artwork2 = await prisma.artwork.create({
-      data: {
-        title: 'Test Artwork 2',
-        artistId: artistId,
-        imageCount: 0
+        const ids = rows.map(({ id }) => id)
+        imageIds.push(...ids)
+        return ids
       }
-    })
-    
-    // 从 artworkId 移动一张图片到 artwork2.id
-    const imageToMove = await prisma.image.findFirst({
-        where: { artworkId: artworkId }
-    })
-    
-    if (imageToMove) {
-        await prisma.image.update({
-            where: { id: imageToMove.id },
-            data: { artworkId: artwork2.id }
-        })
+      await use({ prisma, artworkId, createArtwork, createImages })
+    } catch (error) {
+      failures.push(error)
+    } finally {
+      // Images may have moved or become ownerless. Track their own IDs, not only
+      // artworkId. Artwork deletion releases creator relations before Artist.
+      for (const cleanup of [
+        () => prisma.image.deleteMany({ where: { id: { in: imageIds } } }),
+        () => prisma.artwork.deleteMany({ where: { id: { in: artworkIds } } }),
+        () => prisma.artist.deleteMany({ where: { id: { in: artistIds } } }),
+        () => prisma.$disconnect()
+      ]) {
+        try {
+          await cleanup()
+        } catch (error) {
+          failures.push(error)
+        }
+      }
     }
-    
-    // 验证源作品计数 -1 (12 -> 11)
-    const sourceArtwork = await prisma.artwork.findUnique({ where: { id: artworkId } })
-    expect(sourceArtwork?.imageCount).toBe(11)
-    
-    // 验证目标作品计数 +1 (0 -> 1)
-    const targetArtwork = await prisma.artwork.findUnique({ where: { id: artwork2.id } })
-    expect(targetArtwork?.imageCount).toBe(1)
+    if (failures.length) throw new AggregateError(failures, 'Image count fixture setup or cleanup failed')
+  }
+})
+
+describe.skipIf(!databaseUrl)('Artwork Image Count Trigger', () => {
+  test('auto-increments imageCount when adding images', async ({ fixture }) => {
+    const { prisma, artworkId, createImages } = fixture
+    expect((await prisma.artwork.findUniqueOrThrow({ where: { id: artworkId } })).imageCount).toBe(0)
+    await createImages(3)
+    expect((await prisma.artwork.findUniqueOrThrow({ where: { id: artworkId } })).imageCount).toBe(3)
+  })
+
+  test('auto-decrements imageCount when deleting images', async ({ fixture }) => {
+    const { prisma, artworkId, createImages } = fixture
+    const [imageId] = await createImages(3)
+    await prisma.image.delete({ where: { id: imageId! } })
+    expect((await prisma.artwork.findUniqueOrThrow({ where: { id: artworkId } })).imageCount).toBe(2)
+  })
+
+  test('handles concurrent image insertions', async ({ fixture }) => {
+    const { prisma, artworkId, createImages } = fixture
+    // Wait for every writer even if one fails before allowing fixture teardown.
+    const results = await Promise.allSettled(Array.from({ length: 10 }, () => createImages(1)))
+    const failures = results.filter((result) => result.status === 'rejected')
+    expect(failures).toEqual([])
+    expect((await prisma.artwork.findUniqueOrThrow({ where: { id: artworkId } })).imageCount).toBe(10)
+  })
+
+  test('updates both counts when moving an image to another artwork', async ({ fixture }) => {
+    const { prisma, artworkId, createArtwork, createImages } = fixture
+    const targetId = await createArtwork()
+    const [imageId] = await createImages(3)
+    await prisma.image.update({ where: { id: imageId! }, data: { artworkId: targetId } })
+    expect((await prisma.artwork.findUniqueOrThrow({ where: { id: artworkId } })).imageCount).toBe(2)
+    expect((await prisma.artwork.findUniqueOrThrow({ where: { id: targetId } })).imageCount).toBe(1)
+  })
+
+  test('updates counts when an image becomes ownerless and leaves no untracked image', async ({ fixture }) => {
+    const { prisma, artworkId, createImages } = fixture
+    const [imageId] = await createImages(1)
+    await createImages(1, null)
+    await prisma.image.update({ where: { id: imageId! }, data: { artworkId: null } })
+    expect((await prisma.artwork.findUniqueOrThrow({ where: { id: artworkId } })).imageCount).toBe(0)
+    expect((await prisma.image.findUniqueOrThrow({ where: { id: imageId! } })).artworkId).toBeNull()
   })
 })

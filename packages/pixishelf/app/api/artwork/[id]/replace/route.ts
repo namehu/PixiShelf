@@ -1,3 +1,4 @@
+import logger from '@/lib/logger'
 import { NextRequest } from 'next/server'
 import { apiError, apiJson } from '@/lib/api-response'
 import { ApiError } from '@/lib/api-handler'
@@ -30,10 +31,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!artworkId || isNaN(artworkId)) {
     return apiError('Invalid ID', { status: 400 })
   }
-  const scanRoot = await getScanPath()
-  if (!scanRoot) return apiError('No SCAN_ROOT')
-
   try {
+    const scanRoot = await getScanPath()
+    if (!scanRoot) return apiError('No SCAN_ROOT')
     if (action === 'init') await ensureManualArtworkStorage(artworkId)
     const artwork = await getArtworkById(artworkId)
     if (!artwork) return apiError('Not found', { status: 404 })
@@ -46,12 +46,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     })
 
     return apiJson(result)
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof ImageReplaceSessionError) {
       return apiError(error.message, { status: error.status, details: error.details })
     }
 
-    console.error('API Error:', error)
-    return apiError(error.message)
+    logger.error('Media replacement failed', { error })
+    return apiError('Internal Server Error')
   }
 }

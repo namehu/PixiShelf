@@ -9,8 +9,9 @@ function redactSensitiveText(value: string) {
     value
       // Authorization values can contain whitespace and comma-separated Digest parameters.
       // Redact the complete header value first so the generic key rule cannot leave credentials behind.
+      .replace(/(\b(?:authorization|set-cookie|cookie)["']?\s*[:=]\s*)[^\r\n]*/gi, '$1[REDACTED]')
       .replace(
-        /(\bauthorization["']?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|(?:Bearer|Basic|Digest|Token)\s+[^\r\n]*)/gi,
+        /((?:access[_-]?token|api[_-]?key|authorization|connection[_-]?string|cookie|credential|database[_-]?url|dsn|password|private[_-]?key|secret|token)["']?\s*[:=]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/gi,
         '$1[REDACTED]'
       )
       .replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/@]+@/gi, '$1[REDACTED]@')
@@ -26,22 +27,27 @@ function redactSensitiveText(value: string) {
   )
 }
 
-export function serializeLogValue(value: unknown): unknown {
+export function serializeLogValue(value: unknown, seen = new WeakSet<object>()): unknown {
+  if (value && typeof value === 'object') {
+    if (seen.has(value)) return '[Circular]'
+    seen.add(value)
+  }
   if (value instanceof Error) {
     return {
-      name: value.name,
+      name: redactSensitiveText(value.name),
       message: redactSensitiveText(value.message),
-      stack: value.stack ? redactSensitiveText(value.stack) : undefined
+      stack: value.stack ? redactSensitiveText(value.stack) : undefined,
+      cause: value.cause === undefined ? undefined : serializeLogValue(value.cause, seen)
     }
   }
   if (typeof value === 'bigint') return value.toString(10)
   if (typeof value === 'string') return redactSensitiveText(value)
-  if (Array.isArray(value)) return value.map(serializeLogValue)
+  if (Array.isArray(value)) return value.map((nested) => serializeLogValue(nested, seen))
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value).map(([key, nested]) => [
         key,
-        sensitiveField.test(key) ? '[REDACTED]' : serializeLogValue(nested)
+        sensitiveField.test(key) ? '[REDACTED]' : serializeLogValue(nested, seen)
       ])
     )
   }

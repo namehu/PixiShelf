@@ -1,3 +1,4 @@
+import logger from '@/lib/logger'
 import { NextRequest } from 'next/server'
 import { apiError, apiSuccess } from '@/lib/api-response'
 import { ApiError } from '@/lib/api-handler'
@@ -53,11 +54,12 @@ export async function POST(_req: NextRequest) {
     })
 
     return apiSuccess({ meta })
-  } catch (error: any) {
+  } catch (error) {
     if (error instanceof MediaChapterUploadError) {
       return apiError(error.message, { status: error.status })
     }
 
-    return apiError(error.message || 'Unknown error')
+    logger.error('Media chapter upload failed', { error })
+    return apiError('Internal Server Error')
   }
 }

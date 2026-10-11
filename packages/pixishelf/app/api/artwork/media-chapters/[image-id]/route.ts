@@ -1,3 +1,4 @@
+import logger from '@/lib/logger'
 import { NextRequest, NextResponse } from 'next/server'
 import { ApiError } from '@/lib/api-handler'
 import { requireAdminRequest } from '@/services/background-task/request-auth'
@@ -29,11 +30,12 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ '
     })
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
-    if (error?.message === 'Image not found') {
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Image not found') {
       return NextResponse.json({ error: 'Image not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ error: error.message || 'Unknown error' }, { status: 500 })
+    logger.error('Media chapter deletion failed', { error })
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }
 }

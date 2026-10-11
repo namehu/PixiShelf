@@ -73,6 +73,14 @@ pnpm --filter @pixishelf/next exec vitest run <test-path>
 生产构建也会过滤 `__tests__`、`__mocks__` 和 `.test`/`.spec` 文件的类型诊断；测试运行与构建均通过，不能
 替代 CI 使用的 `next typegen && tsc --noEmit`，尤其不能证明测试代码满足 `noUncheckedIndexedAccess`。
 
+### 隔离生产框架权限回归
+
+```bash
+pnpm --filter @pixishelf/next exec vitest run tests/integration/security-next.test.ts
+```
+
+该测试构建并启动临时 Next.js 生产实例，复用实际安全边界源码，仅替换认证提供方与业务 I/O。使用白名单环境和合成凭据，不读取应用 `.env`、数据库或真实媒体。需要本机端口监听与子进程权限，受限沙箱应提升权限运行。它属于 integration 层，不包含在默认 `test:unit` 中；修改代理、HTTP 会话门禁、tRPC 错误格式或 logger 时须单独执行。范围与限制见[权限回归](../security/access-control.md#错误传输与生产-nextjs-回归)。
+
 ### 数据库与 Worker 依赖链
 
 ```bash

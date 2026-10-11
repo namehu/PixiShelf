@@ -27,7 +27,7 @@ export const updateTagStatsAction = authActionClient.action(async () => {
     return {
       success: false,
       error: 'Internal server error',
-      message: error instanceof Error ? error.message : '未知错误'
+      message: '操作失败，请稍后重试'
     }
   }
 })

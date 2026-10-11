@@ -30,7 +30,7 @@ export const authActionClient = actionClient.use(async ({ next }) => {
     headers: await headers()
   })
 
-  if (!session) {
+  if (!session?.user?.id) {
     throw new Error('Not authenticated')
   }
 

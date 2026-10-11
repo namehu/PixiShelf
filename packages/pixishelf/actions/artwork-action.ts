@@ -20,7 +20,7 @@ export const exportNoSeriesArtworksAction = authActionClient.action(async () => 
     return {
       success: false,
       error: '导出失败',
-      message: error instanceof Error ? error.message : '未知错误'
+      message: '操作失败，请稍后重试'
     }
   }
 })

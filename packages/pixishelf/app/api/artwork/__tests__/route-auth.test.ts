@@ -20,7 +20,9 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/lib/auth', () => ({ auth: { api: { getSession: mocks.getSession } } }))
 vi.mock('@/services/setting.service', () => ({ getScanPath: mocks.getScanPath }))
 vi.mock('@/services/artwork-service', () => ({ getArtworkById: mocks.getArtworkById }))
-vi.mock('@/services/artwork-service/manual-storage', () => ({ ensureManualArtworkStorage: mocks.ensureManualArtworkStorage }))
+vi.mock('@/services/artwork-service/manual-storage', () => ({
+  ensureManualArtworkStorage: mocks.ensureManualArtworkStorage
+}))
 vi.mock('@/services/artwork-service/image-replace-session', () => ({
   handleImageReplaceSession: mocks.handleImageReplaceSession,
   ImageReplaceSessionError: class extends Error {}
@@ -77,12 +79,17 @@ describe('artwork HTTP Route authorization boundary', () => {
     const artwork = { id: 83, externalId: null, storagePath: 'local-imports/unassigned/e_83_1544954', images: [] }
     mocks.getArtworkById.mockResolvedValue(artwork)
     mocks.handleImageReplaceSession.mockResolvedValue({ success: true, targetRelDir: artwork.storagePath })
-    const response = await replaceArtwork(request('http://localhost/api/artwork/83/replace?action=init', { method: 'POST' }), {
-      params: Promise.resolve({ id: '83' })
-    })
+    const response = await replaceArtwork(
+      request('http://localhost/api/artwork/83/replace?action=init', { method: 'POST' }),
+      {
+        params: Promise.resolve({ id: '83' })
+      }
+    )
     expect(response.status).toBe(200)
     expect(mocks.ensureManualArtworkStorage).toHaveBeenCalledWith(83)
-    expect(mocks.ensureManualArtworkStorage.mock.invocationCallOrder[0]).toBeLessThan(mocks.getArtworkById.mock.invocationCallOrder[0]!)
+    expect(mocks.ensureManualArtworkStorage.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.getArtworkById.mock.invocationCallOrder[0]!
+    )
     expect(mocks.handleImageReplaceSession).toHaveBeenCalledWith(expect.objectContaining({ artwork, action: 'init' }))
   })
 
@@ -105,17 +112,14 @@ describe('artwork HTTP Route authorization boundary', () => {
     {
       name: 'chapter manifest upload',
       invoke: () =>
-        uploadChapterManifest(
-          request('http://localhost/api/artwork/media-chapters/upload', { method: 'POST' })
-        )
+        uploadChapterManifest(request('http://localhost/api/artwork/media-chapters/upload', { method: 'POST' }))
     },
     {
       name: 'chapter manifest deletion',
       invoke: () =>
-        deleteChapterManifest(
-          request('http://localhost/api/artwork/media-chapters/1', { method: 'DELETE' }),
-          { params: Promise.resolve({ 'image-id': '1' }) }
-        )
+        deleteChapterManifest(request('http://localhost/api/artwork/media-chapters/1', { method: 'DELETE' }), {
+          params: Promise.resolve({ 'image-id': '1' })
+        })
     }
   ]
 
@@ -136,8 +140,80 @@ describe('artwork HTTP Route authorization boundary', () => {
   it.each(routes)('aborts $name on session-provider failure before business I/O', async ({ invoke }) => {
     const error = new Error('session provider unavailable')
     mocks.getSession.mockRejectedValue(error)
-    // Next.js owns unexpected-error responses; this unit test only proves the Route does not continue.
-    await expect(invoke()).rejects.toBe(error)
+    const response = await invoke()
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'Internal Server Error' })
     for (const businessCall of businessCalls) expect(businessCall).not.toHaveBeenCalled()
+  })
+})
+
+describe('authenticated media failures', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    mocks.getSession.mockResolvedValue({ user: { id: 'owner' } })
+    mocks.getScanPath.mockResolvedValue('/synthetic-scan-root')
+    mocks.getArtworkById.mockResolvedValue({ id: 1 })
+  })
+  const cases = [
+    {
+      name: 'replacement configuration',
+      fail: mocks.getScanPath,
+      invoke: () =>
+        replaceArtwork(request('http://localhost/api/artwork/1/replace', { method: 'POST' }), {
+          params: Promise.resolve({ id: '1' })
+        })
+    },
+    {
+      name: 'replacement service',
+      fail: mocks.handleImageReplaceSession,
+      invoke: () =>
+        replaceArtwork(request('http://localhost/api/artwork/1/replace', { method: 'POST' }), {
+          params: Promise.resolve({ id: '1' })
+        })
+    },
+    {
+      name: 'chunk upload',
+      fail: mocks.handleMediaUploadChunk,
+      invoke: () =>
+        uploadChunk(
+          new NextRequest('http://localhost/api/artwork/upload-chunk', {
+            method: 'POST',
+            headers: { 'x-file-name': 'fixture.png', 'x-target-dir': 'fixture' }
+          })
+        )
+    },
+    {
+      name: 'chunk status',
+      fail: mocks.getMediaUploadStatus,
+      invoke: () =>
+        getUploadStatus(request('http://localhost/api/artwork/upload-chunk?fileName=fixture.png&targetDir=fixture'))
+    },
+    {
+      name: 'chapter deletion',
+      fail: mocks.clearChaptersForImage,
+      invoke: () =>
+        deleteChapterManifest(request('http://localhost/api/artwork/media-chapters/1', { method: 'DELETE' }), {
+          params: Promise.resolve({ 'image-id': '1' })
+        })
+    },
+    {
+      name: 'chapter upload',
+      fail: mocks.uploadMediaChapterManifest,
+      invoke: () => {
+        const req = request('http://localhost/api/artwork/media-chapters/upload', { method: 'POST' })
+        const form = new FormData()
+        form.set('artworkId', '1')
+        form.set('file', new File(['{}'], 'chapters.json', { type: 'application/json' }))
+        vi.spyOn(req, 'formData').mockResolvedValue(form)
+        return uploadChapterManifest(req)
+      }
+    }
+  ]
+  it.each(cases)('masks unknown $name errors', async ({ fail, invoke }) => {
+    fail.mockRejectedValue(new Error('Cookie: session=synthetic-one; csrf=synthetic-two'))
+    const response = await invoke()
+    expect(fail).toHaveBeenCalledOnce()
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: 'Internal Server Error' })
   })
 })
