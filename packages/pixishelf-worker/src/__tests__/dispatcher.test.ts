@@ -1010,7 +1010,7 @@ function claimedJob(id: string): ClaimedJob {
     attempt: 1,
     maxAttempts: 3,
     effectivePriority: 10,
-    availableAt: null,
+    availableAt: new Date(0),
     deadlineAt: null,
     workerId: 'worker-test',
     leaseToken: executionToken,

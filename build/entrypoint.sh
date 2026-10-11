@@ -16,6 +16,7 @@ fi
 # Existing databases must complete the explicit audit/prepare/upgrade flow.
 # Empty databases are allowed through so Prisma can deploy the full migration chain.
 node packages/pixishelf-db/maintenance/retire-legacy-fields.mjs guard-startup
+node packages/pixishelf-db/maintenance/audit-background-task-retirement.mjs guard-startup
 
 # The Web process owns schema deployment. Other runtime images never run this entrypoint.
 echo "Running database migrations..."

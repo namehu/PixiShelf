@@ -78,7 +78,7 @@ export interface QueueJobRecord {
   attempt: number
   maxAttempts: number
   effectivePriority: number
-  availableAt: Date | null
+  availableAt: Date
   deadlineAt: Date | null
   workerId: string | null
   leaseToken: string | null
@@ -421,10 +421,10 @@ export class PostgresQueueRepository {
              "status" = 'PENDING'
              OR (
                "status" = 'RETRY_WAIT'
-               AND ("availableAt" IS NULL OR "availableAt" <= $1)
+               AND "availableAt" <= $1
              )
            )
-           AND ("availableAt" IS NULL OR "availableAt" <= $1)
+           AND "availableAt" <= $1
            AND ("deadlineAt" IS NULL OR "deadlineAt" > $1)
            AND (
              (
@@ -451,7 +451,7 @@ export class PostgresQueueRepository {
              FROM "archive_intake_items" AS intake
              WHERE intake."currentSystemJobId" = job."id"
            ) END ASC NULLS LAST,
-           job."effectivePriority" ASC, job."availableAt" ASC NULLS FIRST, job."createdAt" ASC, job."id" ASC
+           job."effectivePriority" ASC, job."availableAt" ASC, job."createdAt" ASC, job."id" ASC
          LIMIT 1
          FOR UPDATE SKIP LOCKED`,
         now,
@@ -695,7 +695,6 @@ export class PostgresQueueRepository {
       definitionVersion === JOB_DEFINITION_VERSION
         ? parseJobPayload(type, input.payload ?? {})
         : jsonValueSchema.parse(input.payload ?? {})
-    const legacyProjection = deriveLegacyJobProjection(type, definitionVersion, normalizedPayload)
     const childId = randomUUID()
     return this.runTransaction(async (transaction) => {
       // A parent that is pausing or cancelling must stop expanding its batch immediately.
@@ -704,11 +703,11 @@ export class PostgresQueueRepository {
         `INSERT INTO "system_jobs" (
            "id", "type", "executionLane", "definitionVersion", "status", "triggerSource", "idempotencyKey",
            "payload", "parentJobId", "queuePriority", "effectivePriority", "availableAt",
-           "deadlineAt", "maxAttempts", "targetImageId", "targetPath", "mode", "createdAt", "updatedAt"
+           "deadlineAt", "maxAttempts", "createdAt", "updatedAt"
          ) VALUES (
            $1, $2, $3::"JobExecutionLane", $4, 'PENDING', 'SYSTEM', $5,
            $6::jsonb, $7, $8, $9, $10,
-           $11, $12, $13, $14, $15, $16, $16
+           $11, $12, $13, $13
          )
          ON CONFLICT ("idempotencyKey") DO NOTHING
          RETURNING "id"`,
@@ -724,9 +723,6 @@ export class PostgresQueueRepository {
         availableAt,
         input.deadlineAt ?? null,
         maxAttempts,
-        legacyProjection.targetImageId,
-        legacyProjection.targetPath,
-        legacyProjection.mode,
         now
       )
       const inserted = insertedRows[0]
@@ -1859,10 +1855,10 @@ export class PostgresQueueRepository {
              "status" = 'PENDING'
              OR (
                "status" = 'RETRY_WAIT'
-               AND ("availableAt" IS NULL OR "availableAt" <= $1)
+               AND "availableAt" <= $1
              )
            )
-           AND ("availableAt" IS NULL OR "availableAt" <= $1)
+           AND "availableAt" <= $1
            AND ("deadlineAt" IS NULL OR "deadlineAt" > $1)
            AND (
              (
@@ -1883,7 +1879,7 @@ export class PostgresQueueRepository {
                AND "queuePriority" BETWEEN 100 AND 999
              )
            )
-         ORDER BY "agedPriority" ASC, "availableAt" ASC NULLS FIRST, "createdAt" ASC, "id" ASC
+         ORDER BY "agedPriority" ASC, "availableAt" ASC, "createdAt" ASC, "id" ASC
          LIMIT 200
          FOR UPDATE SKIP LOCKED
        )
@@ -2003,28 +1999,6 @@ function toJsonParameter(value: unknown): string | null {
     return null
   }
   return JSON.stringify(value)
-}
-
-function deriveLegacyJobProjection(
-  type: JobType,
-  definitionVersion: number,
-  payload: unknown
-): { targetImageId: number | null; targetPath: string | null; mode: string | null } {
-  if (
-    definitionVersion !== JOB_DEFINITION_VERSION ||
-    (type !== 'VIDEO_KEYFRAME_GENERATION' && type !== 'VIDEO_STREAMING_OPTIMIZATION') ||
-    payload === null ||
-    typeof payload !== 'object'
-  ) {
-    return { targetImageId: null, targetPath: null, mode: null }
-  }
-
-  const generationPayload = payload as { imageId: number; relativePath: string; mode: string }
-  return {
-    targetImageId: generationPayload.imageId,
-    targetPath: generationPayload.relativePath,
-    mode: generationPayload.mode
-  }
 }
 
 function sanitizeError(value: string): string {

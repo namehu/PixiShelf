@@ -80,8 +80,6 @@ describePostgres('background task PostgreSQL concurrency', () => {
         type: 'SCAN_RUN_RETENTION_CLEANUP',
         enabled: true,
         scheduleMode: 'DAILY',
-        time: '05:00',
-        timezone: 'Asia/Shanghai',
         priority: 20
       }
     })

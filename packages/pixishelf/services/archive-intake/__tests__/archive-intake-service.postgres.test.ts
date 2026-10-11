@@ -10,7 +10,6 @@ import {
   retryArchiveIntakeMany
 } from '../archive-intake-service'
 import { enqueueArchiveIntakeMany } from '../archive-intake-enqueue-service'
-
 const testDatabaseUrl = Reflect.get(process.env, 'PIXISHELF_TEST_DATABASE_URL') as string | undefined
 const describePostgres = testDatabaseUrl ? describe : describe.skip
 const suitePrefix = `archive-intake-stage2-${randomUUID()}`
@@ -20,10 +19,8 @@ const validateUrl = (value: string) => {
   const parsed = new URL(value)
   if (parsed.protocol !== 'https:' || parsed.hostname !== 'e-hentai.org') throw new Error('unsupported')
 }
-
 describePostgres('archive intake PostgreSQL transactions', () => {
   beforeAll(async () => database.$connect())
-
   afterEach(async () => {
     const submissions = await database.archiveIntakeSubmission.findMany({
       where: { requestedByUserId },
@@ -48,9 +45,7 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     })
     vi.unstubAllEnvs()
   })
-
   afterAll(async () => disconnectDatabase(database))
-
   it('requeues an old remote-not-found failure once and preserves its download choices', async () => {
     const submission = await createArchiveIntakeSubmission(
       {
@@ -94,7 +89,6 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     await retryArchiveIntakeMany(input, requestedByUserId, { database })
     expect(await database.systemJob.count({ where: { parentJobId: original.currentSystemJobId } })).toBe(1)
   })
-
   it('freezes mode and quality in idempotency, retry and corrected-link lineage', async () => {
     const input = {
       idempotencyKey: suitePrefix + '-intent',
@@ -148,7 +142,6 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     )
     expect(legacy.items[0]).toMatchObject({ downloadMode: 'MANUAL', selectedQuality: 'ORIGINAL' })
   })
-
   it('keeps the 1000 active cap atomic across concurrent submissions and retries', async () => {
     const seededSubmissionId = `${suitePrefix}-capacity-seed`
     await database.archiveIntakeSubmission.create({
@@ -629,7 +622,13 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     const timestamp = new Date('2026-08-18T03:00:00.000Z')
     await database.systemJob.update({
       where: { id: item.currentSystemJobId! },
-      data: { status: 'RUNNING', startedAt: timestamp }
+      data: {
+        status: 'RUNNING',
+        startedAt: timestamp,
+        workerId: `${suitePrefix}-worker`,
+        leaseToken: randomUUID(),
+        leaseExpiresAt: new Date(timestamp.getTime() + 60_000)
+      }
     })
     await database.archiveIntakeItem.update({
       where: { id: item.id },

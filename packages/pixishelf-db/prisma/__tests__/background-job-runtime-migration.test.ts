@@ -193,7 +193,7 @@ describe('background job runtime migration contract', () => {
     expect(queueMigration).not.toMatch(
       /ALTER COLUMN "availableAt" SET NOT NULL/,
     )
-    expect(schema).toMatch(/availableAt\s+DateTime\?\s+@default\(now\(\)\)/)
+    expect(schema).toMatch(/availableAt\s+DateTime\s+@default\(now\(\)\)/)
   })
 
   it('keeps the Prisma schema aligned with the migration contract', () => {

@@ -142,7 +142,7 @@ describe('enqueueJob', () => {
     expect(harness.eventCreate).not.toHaveBeenCalled()
   })
 
-  it('projects canonical keyframe generation payload fields into legacy columns', async () => {
+  it('stores canonical keyframe targets only in payload', async () => {
     const created = jobRecord({ type: 'VIDEO_KEYFRAME_GENERATION' })
     const harness = commandHarness([created])
     harness.create.mockResolvedValue(created)
@@ -165,15 +165,16 @@ describe('enqueueJob', () => {
     expect(harness.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          targetImageId: 42,
-          targetPath: 'videos/example.mp4',
-          mode: 'MANUAL_FORCE'
+          payload: { imageId: 42, relativePath: 'videos/example.mp4', mode: 'MANUAL_FORCE' }
         })
       })
     )
+    for (const key of ['targetImageId', 'targetPath', 'mode']) {
+      expect(harness.create.mock.calls[0]?.[0].data).not.toHaveProperty(key)
+    }
   })
 
-  it('projects canonical streaming optimization payload fields into legacy columns', async () => {
+  it('stores canonical streaming targets only in payload', async () => {
     const created = jobRecord({ type: 'VIDEO_STREAMING_OPTIMIZATION' })
     const harness = commandHarness([created])
     harness.create.mockResolvedValue(created)
@@ -196,12 +197,13 @@ describe('enqueueJob', () => {
     expect(harness.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          targetImageId: 43,
-          targetPath: 'videos/streaming.mp4',
-          mode: 'REMUX_FASTSTART'
+          payload: { imageId: 43, relativePath: 'videos/streaming.mp4', mode: 'REMUX_FASTSTART' }
         })
       })
     )
+    for (const key of ['targetImageId', 'targetPath', 'mode']) {
+      expect(harness.create.mock.calls[0]?.[0].data).not.toHaveProperty(key)
+    }
   })
 
   it('enforces separate manual and scheduled priority bands', async () => {
@@ -845,7 +847,7 @@ describe('job commands', () => {
     )
   })
 
-  it('projects canonical keyframe generation payload fields when creating a retry', async () => {
+  it('stores canonical keyframe retry targets only in payload', async () => {
     const failed = jobRecord({
       type: 'VIDEO_KEYFRAME_GENERATION',
       status: 'FAILED',
@@ -872,12 +874,13 @@ describe('job commands', () => {
     expect(harness.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          targetImageId: 84,
-          targetPath: 'videos/retry.mp4',
-          mode: 'MANUAL_INCREMENTAL'
+          payload: { imageId: 84, relativePath: 'videos/retry.mp4', mode: 'MANUAL_INCREMENTAL' }
         })
       })
     )
+    for (const key of ['targetImageId', 'targetPath', 'mode']) {
+      expect(harness.create.mock.calls[0]?.[0].data).not.toHaveProperty(key)
+    }
   })
 
   it('canonicalizes a valid high-risk payload before creating a retry', async () => {

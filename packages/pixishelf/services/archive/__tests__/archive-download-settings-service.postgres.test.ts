@@ -84,6 +84,8 @@ describePostgres('archive download settings PostgreSQL lock protocol', () => {
         payload: { archiveImportId: `${suitePrefix}-import` },
         attempt: 1,
         workerId: `${suitePrefix}-worker`,
+        leaseToken: randomUUID(),
+        leaseExpiresAt: new Date(Date.now() + 60_000),
         startedAt: new Date()
       }
     })

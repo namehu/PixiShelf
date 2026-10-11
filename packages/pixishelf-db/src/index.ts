@@ -7,7 +7,7 @@ export * from './artist-merge'
 export * from './animation-duration'
 export * from './artwork-reading'
 
-const latestRequiredMigration = '20261007100000_background_task_retirement_read_model'
+const latestRequiredMigration = '20261011000000_background_task_retirement_contract'
 
 const requiredQueueObjects = [
   'artist_merges',
@@ -57,9 +57,10 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   let tableRows: Array<{ tableName: string }>
   let migrationRows: Array<{ migrationName: string }>
   let indexRows: QueueFenceIndexRow[]
+  let contractRows: Array<{ name: string }>
 
   try {
-    ;[columnRows, tableRows, migrationRows, indexRows] = await Promise.all([
+    ;[columnRows, tableRows, migrationRows, indexRows, contractRows] = await Promise.all([
       client.$queryRaw<Array<{ columnName: string }>>(Prisma.sql`
         SELECT CASE
           WHEN table_name = 'Artwork' AND column_name = 'mediaRevision' THEN 'Artwork.mediaRevision'
@@ -105,13 +106,35 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
           AND index_metadata.indisvalid
           AND index_metadata.indisready
           AND index_metadata.indpred IS NOT NULL
+      `),
+      client.$queryRaw<Array<{ name: string }>>(Prisma.sql`
+        SELECT c.conname AS name FROM pg_constraint c
+        JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace
+        WHERE n.nspname = current_schema() AND t.relname = 'system_jobs' AND c.contype = 'c' AND c.convalidated
+        UNION ALL
+        SELECT 'availableAt_not_null' AS name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'system_jobs' AND column_name = 'availableAt' AND is_nullable = 'NO'
+        UNION ALL
+        SELECT 'retired-column:' || table_name || '.' || column_name AS name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND ((table_name = 'system_jobs' AND column_name IN ('targetImageId','targetPath','mode')) OR (table_name = 'scheduled_tasks' AND column_name IN ('time','timezone','mutexKey','lastTriggeredAt','lastTriggeredDate')))
       `)
     ])
   } catch {
     throw new Error('Unable to verify the background queue database schema')
   }
 
-  const missingObjects: string[] = []
+  const missingObjects: string[] = contractRows
+    .filter((row) => row.name.startsWith('retired-column:'))
+    .map((row) => row.name)
+  for (const name of [
+    'system_jobs_legacy_terminal_check',
+    'system_jobs_central_lease_check',
+    'system_jobs_central_skip_check',
+    'system_jobs_central_schedule_check',
+    'availableAt_not_null'
+  ]) {
+    if (!contractRows.some((row) => row.name === name)) missingObjects.push(`constraint:${name}`)
+  }
   if (!columnRows.some(({ columnName }) => columnName === 'definitionVersion')) {
     missingObjects.push('system_jobs.definitionVersion')
   }

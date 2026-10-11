@@ -1088,12 +1088,9 @@ describePostgres('PostgresQueueRepository integration', () => {
     expect(
       await client().systemJob.findUniqueOrThrow({
         where: { id: keyframeChild.id },
-        select: { targetImageId: true, targetPath: true, mode: true, payload: true }
+        select: { payload: true }
       })
     ).toEqual({
-      targetImageId: 42,
-      targetPath: 'videos/example.mp4',
-      mode: 'MANUAL_INCREMENTAL',
       payload: {
         imageId: 42,
         relativePath: 'videos/example.mp4',
@@ -1113,12 +1110,9 @@ describePostgres('PostgresQueueRepository integration', () => {
     expect(
       await client().systemJob.findUniqueOrThrow({
         where: { id: streamingChild.id },
-        select: { targetImageId: true, targetPath: true, mode: true, payload: true }
+        select: { payload: true }
       })
     ).toEqual({
-      targetImageId: 43,
-      targetPath: 'videos/streaming.mp4',
-      mode: 'REMUX_FASTSTART',
       payload: {
         imageId: 43,
         relativePath: 'videos/streaming.mp4',
@@ -1426,18 +1420,18 @@ describePostgres('PostgresQueueRepository integration', () => {
     }
   )
 
-  it('cleans a dirty global lease when a queued job is cancelled directly', async () => {
+  it('rejects queued execution fields and cleans an orphaned resource lease on direct cancellation', async () => {
     const jobId = await seedJob({ type: 'SCAN', effectivePriority: 10 })
     const executionToken = randomUUID()
     const expiresAt = new Date(clock.now().getTime() + 60_000)
-    await client().systemJob.update({
+    await expect(client().systemJob.update({
       where: { id: jobId },
       data: {
         workerId: 'queue-kernel-dirty-worker',
         leaseToken: executionToken,
         leaseExpiresAt: expiresAt
       }
-    })
+    })).rejects.toThrow('system_jobs_central_lease_check')
     await client().jobResourceLease.create({
       data: {
         resourceKey: GLOBAL_BACKGROUND_WORKER_RESOURCE,

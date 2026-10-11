@@ -40,7 +40,7 @@ describe('video keyframe discovery domain', () => {
     ]
     const database = {
       image: { findMany: vi.fn().mockResolvedValue(images) },
-      systemJob: { groupBy: vi.fn().mockResolvedValue([]) }
+      systemJob: { findMany: vi.fn().mockResolvedValue([]) }
     }
     const keys = new Set<string>()
     const requests: Array<{ idempotencyKey: string; payload: unknown }> = []
@@ -76,10 +76,14 @@ describe('video keyframe discovery domain', () => {
       relativePath: 'videos/1.mp4',
       mode: 'MANUAL_INCREMENTAL'
     })
-    expect(database.systemJob.groupBy).toHaveBeenCalledWith(
+    expect(database.systemJob.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        by: ['targetImageId'],
-        where: expect.objectContaining({ targetImageId: { in: [1, 2] } })
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([
+            { definitionVersion: 0, legacyDisplay: { path: ['targetImageId'], equals: 1 } },
+            { definitionVersion: 1, payload: { path: ['imageId'], equals: 2 } }
+          ])
+        })
       })
     )
   })
@@ -111,7 +115,11 @@ describe('video keyframe discovery domain', () => {
     ]
     const database = {
       image: { findMany: vi.fn().mockResolvedValue(images) },
-      systemJob: { groupBy: vi.fn().mockResolvedValue([{ targetImageId: 3 }]) }
+      systemJob: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([{ definitionVersion: 0, legacyDisplay: { targetImageId: 3 }, payload: null }])
+      }
     }
     const enqueueChild = vi.fn()
 
@@ -140,6 +148,44 @@ describe('video keyframe discovery domain', () => {
     expect(enqueueChild).not.toHaveBeenCalled()
   })
 
+  it('recognizes validated modern failures and legacy snapshots without accepting malformed payloads', async () => {
+    const images = [1, 2, 3].map((id) => ({
+      id,
+      path: `videos/${id}.mp4`,
+      videoMetadata: null,
+      keyframeSets: []
+    }))
+    const result = await discoverVideoKeyframes({
+      jobId: 'mixed-failures',
+      payload: { ...payload, previewOnly: true, imageIds: [1, 2, 3] },
+      database: {
+        image: { findMany: vi.fn().mockResolvedValue(images) },
+        systemJob: {
+          findMany: vi.fn().mockResolvedValue([
+            { definitionVersion: 0, legacyDisplay: { targetImageId: 1 }, payload: null },
+            {
+              definitionVersion: 1,
+              legacyDisplay: null,
+              payload: { imageId: 2, relativePath: 'videos/2.mp4', mode: 'MANUAL_FORCE' }
+            },
+            { definitionVersion: 1, legacyDisplay: null, payload: { imageId: 3 } }
+          ])
+        }
+      } as never,
+      config: { scanRoot: '/scan', keyframeStorageRoot: '/keyframes', ffmpegThreads: 2 },
+      signal: new AbortController().signal,
+      progress: vi.fn(),
+      enqueueChild: vi.fn()
+    })
+    expect(result).toMatchObject({
+      candidates: [
+        { imageId: 1, status: 'FAILED' },
+        { imageId: 2, status: 'FAILED' },
+        { imageId: 3, status: 'MISSING' }
+      ]
+    })
+  })
+
   it('caps persisted preview candidates at 1000 while preserving the total match count', async () => {
     const images = Array.from({ length: 1_001 }, (_, index) => ({
       id: index + 1,
@@ -155,7 +201,7 @@ describe('video keyframe discovery domain', () => {
       payload: { ...payload, previewOnly: true, imageIds: undefined },
       database: {
         image: { findMany },
-        systemJob: { groupBy: vi.fn().mockResolvedValue([]) }
+        systemJob: { findMany: vi.fn().mockResolvedValue([]) }
       } as never,
       config: { scanRoot: '/scan', keyframeStorageRoot: '/keyframes', ffmpegThreads: 2 },
       signal: new AbortController().signal,
@@ -175,7 +221,7 @@ describe('video keyframe discovery domain', () => {
       discoverVideoKeyframes({
         jobId: 'discovery-1',
         payload,
-        database: { image: { findMany }, systemJob: { groupBy: vi.fn() } } as never,
+        database: { image: { findMany }, systemJob: { findMany: vi.fn() } } as never,
         config: { scanRoot: '/scan', keyframeStorageRoot: '/keyframes', ffmpegThreads: 2 },
         signal: controller.signal,
         progress: vi.fn().mockResolvedValue(undefined),
@@ -192,7 +238,7 @@ describe('video keyframe discovery domain', () => {
           .fn()
           .mockResolvedValue([{ id: 1, path: 'videos/1.mp4', videoMetadata: { duration: 30 }, keyframeSets: [] }])
       },
-      systemJob: { groupBy: vi.fn().mockResolvedValue([]) }
+      systemJob: { findMany: vi.fn().mockResolvedValue([]) }
     }
     await expect(
       discoverVideoKeyframes({
@@ -222,7 +268,7 @@ it('records every inaccessible item beyond the bounded legacy samples', async ()
     payload: { ...payload, imageIds: images.map((image) => image.id) },
     database: {
       image: { findMany: vi.fn().mockResolvedValue(images) },
-      systemJob: { groupBy: vi.fn().mockResolvedValue([]) }
+      systemJob: { findMany: vi.fn().mockResolvedValue([]) }
     } as never,
     config: { scanRoot: '/scan', keyframeStorageRoot: '/keyframes', ffmpegThreads: 2 },
     signal: new AbortController().signal,

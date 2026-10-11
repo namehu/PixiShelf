@@ -140,7 +140,10 @@ async function importFixture(gid: string, status: 'COMPLETED' | 'FAILED' | 'RUNN
     data: {
       id: uid(),
       type: 'ARCHIVE_IMPORT',
-      status: status === 'RUNNING' ? 'RUNNING' : status,
+      status,
+      ...(status === 'RUNNING'
+        ? { workerId: suite, leaseToken: randomUUID(), leaseExpiresAt: new Date(Date.now() + 60_000) }
+        : {}),
       requestedByUserId: suite
     }
   })

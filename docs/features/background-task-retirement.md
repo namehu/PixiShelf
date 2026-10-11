@@ -1,7 +1,7 @@
 ---
 status: current
-scope: 后台任务兼容层退役第一阶段实现、两阶段发布边界与待验收事项
-last-verified: 2026-10-07
+scope: 后台任务兼容层两阶段实现、数据约束与发布边界
+last-verified: 2026-10-11
 ---
 
 # 后台任务兼容层退役
@@ -27,20 +27,27 @@ REMOTE_NOT_FOUND 的人工重试不改变自动重试规则。
 输出继续使用原展示字段名称并脱敏。媒体查询使用 JSON 表达式索引；代表帧保持活跃任务优先，视频优化保持最新创建任务优先，同时间由 id 稳定排序。
 
 v0 历史不能暂停、继续、取消、重试或改优先级，已有失败确认不被重置。
-旧 `SystemJob.targetImageId/targetPath/mode`、旧索引和全部计划列保留；App 与 Runtime 仍双写三列，供 v0.50.8 回退读取。
+第一阶段曾保留旧目标列与双写供 v0.50.8 回退。第二阶段删除这些列，接口展示字段仍由 payload/legacyDisplay 投影，不能将展示字段误当数据库列。
 
 计划列表显示 `lastMaterializedAt/Date`（上次计划入队），移除逐任务执行时间编辑和 time 更新输入。
 统一上海 00:00–08:00 窗口与每周核对规则不变；lastJobId 仍可能指向手动触发任务。
 
-## 第二阶段（尚未实施）
+## 第二阶段实现（生产待发布）
 
-第一阶段生产至少观察 7 天，通过日常任务、一次周级 GC、归档恢复、重启恢复和历史查询后，另行发布：
+`20261011000000_background_task_retirement_contract` 在单个事务中锁定任务、计划和资源租约表，先检查再回填、加约束、删列；异常整体回滚。
 
-- 停止旧三列双写，删除旧三列与索引；
-- 删除计划 time/timezone/mutexKey/lastTriggeredAt/lastTriggeredDate；
-- 审计后收紧 availableAt、中央租约、SKIPPED 和计划来源约束，保留 v0 历史与计划删除后的日期；
-- 保留双 lane 并发边界，合法的已删除收件历史不能视为需重建的孤儿。
+- App 入队/重试与 Runtime 子任务停止目标三列双写，删除 `targetImageId/targetPath/mode` 与旧目标索引；Worker 关键帧失败发现同样使用 payload/legacyDisplay。
+- 删除计划 `time/timezone/mutexKey/lastTriggeredAt/lastTriggeredDate` 和 mutex 索引；保留 `scheduleMode`、启用、优先级、配置、物化记录及统一上海时区展示。
+- `availableAt` 非空；旧空值只按该行 `createdAt` 回填。
+- v0 只能为终态；历史快照、失败确认、事件与诊断保留，不提供执行控制。
+- 中央任务执行态必须同时具有 workerId/leaseToken/leaseExpiresAt，非执行态三者均为空；不要求清空历史 heartbeatAt。
+- 中央任务 SKIPPED 必须有 skipReason/skippedAt，其他状态两者均为空。
+- 中央 SCHEDULE 任务必须有 scheduledForDate，计划删除后允许 scheduledTaskId 为空并保留日期；其他来源两者均为空。
 
-当前 migration 链没有第二阶段删列或强约束迁移。不得把本文待办解释为已执行。
+约束不对 v0 历史强行补租约、跳过原因或计划日期。合法的已删除收件历史不重建、不删除。除 availableAt 外，违规数据只报告并阻断，不自动修复。
+
+二阶段可以先实施并在开发环境验证；生产仍需一阶段至少 7 天观察、一次周级 GC、归档与重启恢复验收及问题闭环。用户已确认一阶段生产部署完成，准确发布时点和观察证据由生产记录确定，不能由代码提交日期推断。
+
+已有库普通 App 启动在二阶段未完成时阻断，必须显式审计并迁移；空库允许初始化。Worker 要求二阶段 migration、删列和已验证约束满足后才能 READY。二阶段删列后不能仅换旧镜像回退。
 
 发布、只读审计和恢复步骤见[两阶段发布手册](../deployment/background-task-retirement.md)。

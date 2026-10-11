@@ -29,7 +29,6 @@ WebP 时长是独立的只读媒体元数据：管理员手动创建 `ANIMATION_
 
 待替换快照格式不变。新 WebP 快照使用 `IMAGE`，已有冻结 WebP `ANIMATION` 快照按原值发布和校验，不在读取时改写；发布和恢复重建媒体时均显式重新初始化内容探测。冻结类型与当前类型不同，仅对 PNG/WebP/GIF/APNG 且当前内容状态 1/2 与类型一致、冻结类型不是 VIDEO 时允许视为探测纠正；其他路径、尺寸、大小、顺序、章节及文件 hash 检查仍生效。此次无需数据库迁移或批量重写媒体，回退代码不会撤销已发布分类，旧消费者仍可读取未扩展的快照；旧版本会恢复原有粗分类差异及探测后恢复冲突，应优先前向修复，真正媒体恢复继续遵循配套数据库/媒体检查点。
 
-
 PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。目标用户、质量优先级和非目标以[产品基线](../product/product-baseline.md)为准。
 
 当前部署边界：
@@ -197,7 +196,7 @@ title/description override，保留既有 Artist、MANUAL/DERIVED、未被当前
 
 后台任务固定使用中央队列：App 物化计划并创建/控制任务，Worker 启动即执行两个 lane。
 两枚切换开关已删除，维护必须停止 Worker；归档等领域任务仍经专用事务同步控制，不能退回通用状态更新。
-第一阶段保留目标旧列双写供 v0.50.8 回退，读取由 payload/legacyDisplay 提供；见[退役规格](../features/background-task-retirement.md)。
+第二阶段移除目标旧列双写和旧计划字段，读取由 payload/legacyDisplay 提供；删列后回退需要完整检查点；见[退役规格](../features/background-task-retirement.md)。
 
 正常链路是：
 

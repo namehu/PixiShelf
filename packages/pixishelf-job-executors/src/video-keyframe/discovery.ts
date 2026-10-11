@@ -1,6 +1,6 @@
 import type { JobDiagnosticInput } from '@pixishelf/job-contracts'
 import * as fs from 'node:fs/promises'
-import { videoKeyframeDiscoveryPayloadSchema } from '@pixishelf/job-contracts'
+import { videoKeyframeDiscoveryPayloadSchema, videoKeyframeGenerationPayloadSchema } from '@pixishelf/job-contracts'
 import { resolveKeyframePath, resolveSourceFile } from './paths.ts'
 import { matchesVideoKeyframeFilter, type VideoKeyframeFilter } from './policy.ts'
 import type {
@@ -89,15 +89,32 @@ export async function discoverVideoKeyframes(input: {
     cursor = page.at(-1)!.id
     result.discovered += page.length
 
-    const failures = await input.database.systemJob.groupBy({
-      by: ['targetImageId'],
+    const failures = await input.database.systemJob.findMany({
       where: {
         type: 'VIDEO_KEYFRAME_GENERATION',
         status: 'FAILED',
-        targetImageId: { in: page.map((image) => image.id) }
-      }
+        OR: page.flatMap((image) => [
+          { definitionVersion: 0, legacyDisplay: { path: ['targetImageId'], equals: image.id } },
+          { definitionVersion: 1, payload: { path: ['imageId'], equals: image.id } }
+        ])
+      },
+      select: { definitionVersion: true, legacyDisplay: true, payload: true }
     })
-    const failedImageIds = new Set(failures.flatMap((job) => (job.targetImageId ? [job.targetImageId] : [])))
+    const failedImageIds = new Set<number>()
+    for (const job of failures) {
+      if (job.definitionVersion === 0) {
+        const snapshot = job.legacyDisplay
+        if (snapshot && typeof snapshot === 'object' && !Array.isArray(snapshot)) {
+          const imageId = snapshot.targetImageId
+          if (typeof imageId === 'number' && Number.isSafeInteger(imageId) && imageId > 0) {
+            failedImageIds.add(imageId)
+          }
+        }
+      } else {
+        const parsed = videoKeyframeGenerationPayloadSchema.safeParse(job.payload)
+        if (parsed.success) failedImageIds.add(parsed.data.imageId)
+      }
+    }
 
     for (const image of page) {
       throwIfAborted(input.signal)

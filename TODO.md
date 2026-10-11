@@ -26,7 +26,8 @@
 - [x] 完成系列旧字段 `Artwork.seriesId`、`Series.source`、`Series.externalId` 的清理实现（另一分叉已完成）。
 - [x] 后台任务退役第一阶段实现：固定中央执行、移除两枚开关、迁移历史展示与查询，保留旧列双写；见[退役规格](./docs/features/background-task-retirement.md)。
 - [ ] 按[退役发布手册](./docs/deployment/background-task-retirement.md)完成 v0.50.8 基线确认、生产升级及至少 7 天观察。
-- [ ] 观察通过后独立实施第二阶段：停止目标字段双写、删除旧任务/计划列、审计并收紧数据库约束；不能提前发布删列 migration。
+- [x] 后台任务退役第二阶段代码与开发验证：移除旧目标双写、删列、收紧约束，加入显式审计/启动保护；开发库升级和 Worker 重建通过。
+- [ ] 后台任务退役第二阶段生产发布：代码和开发验证先行；一阶段至少 7 天观察及问题闭环后，按退役手册显式审计、备份、迁移。
 - [ ] 在生产数据副本完成 migration、33 类 job type / 38 个 type-version capability、任务竞态、媒体任务、GC 和应用回滚演练。
 - [ ] 根据真实生产数据调整任务告警阈值、GC 批量、日志保留和 Worker 资源限制。
 

@@ -395,7 +395,13 @@ describePostgres('title scan persisted matching state', () => {
         }
       })
       await db().systemJob.create({
-        data: { ...systemJobData(jobId, 'ARCHIVE_SEARCH_SCAN', { scanRunId: runId }, now), status: 'RUNNING' }
+        data: {
+          ...systemJobData(jobId, 'ARCHIVE_SEARCH_SCAN', { scanRunId: runId }, now),
+          status: 'RUNNING',
+          workerId: 'test-uploader-worker',
+          leaseToken: randomUUID(),
+          leaseExpiresAt: new Date(now.getTime() + 60_000)
+        }
       })
       await db().archiveUploaderScanRun.create({
         data: { id: runId, systemJobId: jobId, sourceId: source.id, mode: 'LATEST', titleQuery: query }
@@ -411,7 +417,7 @@ describePostgres('title scan persisted matching state', () => {
             controlStatus: 'CONTINUE',
             executionStatus: 'RUNNING',
             fail: async (failure: { errorCode: string; error: string }) => {
-              await transaction.systemJob.update({ where: { id: jobId }, data: { status: 'FAILED', ...failure } })
+              await transaction.systemJob.update({ where: { id: jobId }, data: { status: 'FAILED', ...failure, workerId: null, leaseToken: null, leaseExpiresAt: null } })
               if (rollback) throw new Error('injected settlement failure')
             }
           } as never)

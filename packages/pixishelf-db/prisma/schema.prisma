@@ -759,9 +759,6 @@ model SystemJob {
   skipReason              JobSkipReason?
   skippedAt               DateTime?
   legacyDisplay           Json?
-  targetImageId           Int?
-  targetPath              String?                  @db.Text
-  mode                    String?                  @db.VarChar(50)
   startedAt               DateTime?
   lastAttemptStartedAt    DateTime?
   heartbeatAt             DateTime?
@@ -775,7 +772,7 @@ model SystemJob {
   childJobs               SystemJob[]              @relation("SystemJobChildren")
   queuePriority           Int                      @default(100)
   effectivePriority       Int                      @default(100)
-  availableAt             DateTime?                @default(now())
+  availableAt             DateTime                 @default(now())
   deadlineAt              DateTime?
   workerId                String?                  @db.VarChar(120)
   currentDiagnosticExecutionId String?             @db.Uuid
@@ -803,7 +800,6 @@ model SystemJob {
   @@index([executionLane, status, effectivePriority, availableAt, createdAt], map: "system_jobs_lane_claim_idx")
   @@index([type, status, createdAt])
   @@index([type, status, finishedAt])
-  @@index([type, targetImageId, createdAt])
   @@index([parentJobId, status])
   @@index([type, status, queuePriority, availableAt, createdAt])
   @@index([status, effectivePriority, availableAt, createdAt])
@@ -1876,12 +1872,7 @@ model ScheduledTask {
   type                 String       @db.VarChar(80)
   enabled              Boolean      @default(false)
   scheduleMode         ScheduleMode @default(DAILY)
-  time                 String       @db.VarChar(5)
-  timezone             String       @default("Asia/Shanghai") @db.VarChar(50)
   priority             Int          @default(100)
-  mutexKey             String?      @db.VarChar(80)
-  lastTriggeredAt      DateTime?
-  lastTriggeredDate    String?      @db.VarChar(10)
   lastMaterializedAt   DateTime?
   lastMaterializedDate String?      @db.VarChar(10)
   lastJobId            String?
@@ -1892,7 +1883,6 @@ model ScheduledTask {
 
   @@index([enabled, priority])
   @@index([type])
-  @@index([mutexKey])
   @@map("scheduled_tasks")
 }
 

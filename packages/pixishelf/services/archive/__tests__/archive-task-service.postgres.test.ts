@@ -876,6 +876,9 @@ async function seedTask(
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: 1,
       status: jobStatus,
+      ...(['RUNNING', 'CANCELLING'].includes(jobStatus)
+        ? { workerId: `${suitePrefix}-worker`, leaseToken: randomUUID(), leaseExpiresAt: new Date(Date.now() + 60_000) }
+        : {}),
       triggerSource: 'MANUAL',
       requestedByUserId,
       payload: { archiveImportId: importId },

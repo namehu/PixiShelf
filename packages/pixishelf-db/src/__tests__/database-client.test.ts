@@ -7,7 +7,7 @@ const queueKernelDatabaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const describePostgres = queueKernelDatabaseUrl ? describe : describe.skip
 const postgresClient = queueKernelDatabaseUrl ? new PrismaClient({ datasourceUrl: queueKernelDatabaseUrl }) : null
-const latestMigration = '20261007100000_background_task_retirement_read_model'
+const latestMigration = '20261011000000_background_task_retirement_contract'
 
 const expectedIndex = {
   indexName: 'system_jobs_single_executing_per_lane_idx',
@@ -45,16 +45,64 @@ const completeTableRows = [
   'worker_instances'
 ].map((tableName) => ({ tableName }))
 
+const completeContracts = [
+  'system_jobs_legacy_terminal_check',
+  'system_jobs_central_lease_check',
+  'system_jobs_central_skip_check',
+  'system_jobs_central_schedule_check',
+  'availableAt_not_null'
+].map((name) => ({ name }))
+
 function createQueryClient(results: unknown[]): PrismaClient {
+  if (results.length === 4) results.push(completeContracts)
   return {
     $queryRaw: vi.fn().mockImplementation(() => Promise.resolve(results.shift()))
   } as unknown as PrismaClient
 }
 
 describe('database package', () => {
+  it('rejects missing validated retirement constraints despite a completed migration', async () => {
+    const client = createQueryClient([
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
+      completeTableRows,
+      [{ migrationName: latestMigration }],
+      [expectedIndex],
+      []
+    ])
+    await expect(assertBackgroundQueueSchema(client)).rejects.toThrow('constraint:system_jobs_central_lease_check')
+  })
+  it('rejects retired task columns even with valid migration and constraints', async () => {
+    const client = createQueryClient([
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
+      completeTableRows,
+      [{ migrationName: latestMigration }],
+      [expectedIndex],
+      [...completeContracts, { name: 'retired-column:system_jobs.targetImageId' }]
+    ])
+    await expect(assertBackgroundQueueSchema(client)).rejects.toThrow('retired-column:system_jobs.targetImageId')
+  })
+
   it('accepts the complete background queue schema contract', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'legacyDisplay' }, { columnName: 'Artwork.mediaRevision' }],
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
       completeTableRows,
       [{ migrationName: latestMigration }],
       [expectedIndex]
@@ -65,7 +113,13 @@ describe('database package', () => {
 
   it('rejects a migrated database missing the animation metadata table', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'legacyDisplay' }, { columnName: 'Artwork.mediaRevision' }],
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
       completeTableRows.filter(({ tableName }) => tableName !== 'ImageAnimationMetadata'),
       [{ migrationName: latestMigration }],
       [expectedIndex]
@@ -80,19 +134,32 @@ describe('database package', () => {
     'rejects a migrated database missing %s',
     async (missingTable) => {
       const client = createQueryClient([
-        [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'legacyDisplay' }, { columnName: 'Artwork.mediaRevision' }],
+        [
+          { columnName: 'definitionVersion' },
+          { columnName: 'executionLane' },
+          { columnName: 'progressData' },
+          { columnName: 'legacyDisplay' },
+          { columnName: 'Artwork.mediaRevision' }
+        ],
         completeTableRows.filter(({ tableName }) => tableName !== missingTable),
         [{ migrationName: latestMigration }],
         [expectedIndex]
       ])
 
-      await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(`Background queue schema is not ready: missing ${missingTable}`)
+      await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
+        `Background queue schema is not ready: missing ${missingTable}`
+      )
     }
   )
 
   it('rejects a database missing the retirement snapshot column', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'Artwork.mediaRevision' }],
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
       completeTableRows,
       [{ migrationName: latestMigration }],
       [expectedIndex]
@@ -102,7 +169,13 @@ describe('database package', () => {
 
   it('rejects a pre-retirement database even if its columns were manually added', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'legacyDisplay' }, { columnName: 'Artwork.mediaRevision' }],
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
       completeTableRows,
       [{ migrationName: '20261007000000_delete_archive_failed_records' }],
       [expectedIndex]
@@ -112,7 +185,12 @@ describe('database package', () => {
 
   it('rejects a migrated database missing Artwork.mediaRevision', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'legacyDisplay' }],
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' }
+      ],
       completeTableRows,
       [{ migrationName: latestMigration }],
       [expectedIndex]
@@ -130,7 +208,8 @@ describe('database package', () => {
         [
           { columnName: 'definitionVersion' },
           { columnName: 'executionLane' },
-          { columnName: 'progressData' }, { columnName: 'legacyDisplay' },
+          { columnName: 'progressData' },
+          { columnName: 'legacyDisplay' },
           { columnName: 'Artwork.mediaRevision' },
           { columnName: retiredColumn }
         ],
@@ -153,7 +232,13 @@ describe('database package', () => {
 
   it('rejects a database that stopped before the reading migration', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'legacyDisplay' }, { columnName: 'Artwork.mediaRevision' }],
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
       [
         { tableName: 'artist_merges' },
         { tableName: 'ImageAnimationMetadata' },
@@ -192,7 +277,13 @@ describe('database package', () => {
 
   it('rejects a migrated schema when the single-execution index is missing or invalid', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'legacyDisplay' }, { columnName: 'Artwork.mediaRevision' }],
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
       [
         { tableName: 'artist_merges' },
         { tableName: 'ImageAnimationMetadata' },
@@ -231,7 +322,13 @@ describe('database package', () => {
 
   it('rejects a same-name unique partial index with the wrong protected statuses', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'legacyDisplay' }, { columnName: 'Artwork.mediaRevision' }],
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
       [
         { tableName: 'artist_merges' },
         { tableName: 'ImageAnimationMetadata' },
@@ -275,7 +372,13 @@ describe('database package', () => {
 
   it('rejects a same-name partial index that is not keyed by execution lane', async () => {
     const client = createQueryClient([
-      [{ columnName: 'definitionVersion' }, { columnName: 'executionLane' }, { columnName: 'progressData' }, { columnName: 'legacyDisplay' }, { columnName: 'Artwork.mediaRevision' }],
+      [
+        { columnName: 'definitionVersion' },
+        { columnName: 'executionLane' },
+        { columnName: 'progressData' },
+        { columnName: 'legacyDisplay' },
+        { columnName: 'Artwork.mediaRevision' }
+      ],
       [
         { tableName: 'artist_merges' },
         { tableName: 'ImageAnimationMetadata' },
@@ -333,6 +436,22 @@ describePostgres('database package PostgreSQL integration', () => {
 
   it('accepts the migrated single-execution expression index from the PostgreSQL catalog', async () => {
     await expect(assertBackgroundQueueSchema(postgresClient!)).resolves.toBeUndefined()
+  })
+
+  it.each([
+    ['system_jobs', 'targetImageId'],
+    ['scheduled_tasks', 'time']
+  ])('rejects reintroduced %s.%s in the real catalog', async (table, column) => {
+    const rollback = new Error('rollback retired task column fixture')
+    await expect(
+      postgresClient!.$transaction(async (transaction) => {
+        await transaction.$executeRawUnsafe(`ALTER TABLE "${table}" ADD COLUMN "${column}" TEXT`)
+        await expect(assertBackgroundQueueSchema(transaction as unknown as PrismaClient)).rejects.toThrow(
+          `retired-column:${table}.${column}`
+        )
+        throw rollback
+      })
+    ).rejects.toBe(rollback)
   })
 
   it('rejects a real migrated catalog when Artwork.seriesId reappears', async () => {

@@ -1,7 +1,7 @@
 ---
 status: draft
-scope: 从 v0.50.8 到后台任务退役第一阶段的发布与回退，以及第二阶段门禁
-last-verified: 2026-10-07
+scope: 后台任务退役两阶段发布、显式审计与恢复
+last-verified: 2026-10-11
 ---
 
 # 后台任务退役发布手册
@@ -131,7 +131,7 @@ exit
 ## 观察与第二阶段门禁
 
 至少运行 7 天，记录日常计划、一次周级 GC、两个 lane 的串行性、扫描/归档/替换/视频任务、重启恢复、失败确认和历史查询。
-任何异常未闭环则延后删列。第二阶段需单独代码变更、非空库演练和新的同点备份，禁止提前打包进第一阶段镜像。
+任何异常未闭环则延后删列。第二阶段需单独代码变更、非空库演练和新的同点备份，禁止提前打包进第一阶段镜像。2026-10-10 用户选择代码实施/开发验证先行，生产仍保持至少 7 天观察门槛。
 第二阶段物理删除后，不支持仅换回旧镜像；需要匹配的数据库、媒体、配置和镜像恢复。
 
 ## 验证证据
@@ -155,8 +155,8 @@ exit
 `pnpm --filter @pixishelf/worker... typecheck`、`test`、`build`。PostgreSQL 套件应显式设置对应测试环境变量，
 不能只提供 DATABASE_URL 就把被跳过的套件计为通过。初始化测试要求独立的 `init_admin_test` 数据库。
 
-以上是隔离合成 fixture、构建产物和客户端级证据。尚未验证真实生产数据副本、App/Worker Docker 镜像升级与镜像级回退、
-NAS 媒体同点恢复、真实浏览器媒体链路或 7 天观察；这些仍是生产发布门禁。当前未执行生产升级、生产数据修复或删列。
+以上为第一阶段初次验证时点的隔离合成 fixture、构建产物和客户端级证据。该时点尚未验证真实生产数据副本、App/Worker Docker 镜像升级与镜像级回退、
+NAS 媒体同点恢复、真实浏览器媒体链路或 7 天观察；这些仍是相应发布门禁。此后用户确认一阶段已部署生产；二阶段生产未执行。
 
 ## 本次开发环境实操
 
@@ -167,3 +167,107 @@ NAS 媒体同点恢复、真实浏览器媒体链路或 7 天观察；这些仍�
 开发 Docker Worker 已重新构建并重启，镜像 ID 为 `sha256:bd31428449fe7d34649ddb198372f8b2bf7ff32130df6d42ef8aae31c31fe869`，READY 和 33 类/38 版本 capability 检查通过。宿主机 App 在 `http://localhost:5430` 运行。
 
 浏览器回归由 GPT-6.1 Sol（high）在本地 Chrome 执行：确认计划设置不再编辑旧时间，历史筛选、详情、媒体空队列正常；通过页面提交 Pixiv AI 标签只读预检 `cmuxsygc20002nph6twvmqclw`，新 Docker Worker 在 1 秒内完成，`dryRun=true`，核对 5/5、应用新增/移除/转换均为 0，历史和实时更新可见。测试未执行正式回填或清理。开发库无失败归档收件、无 v0 关键帧/优化任务样本，这些路径的证据仍由隔离 PostgreSQL 回归提供。
+
+## 第二阶段：NAS 显式升级（观察通过后执行）
+
+2026-10-11 开始二阶段实施。用户已确认一阶段生产部署完成；二阶段生产尚未执行。先完成至少 7 天观察、周级 GC、日常任务与恢复验收，再发布同版本 App/Worker 镜像。以下流程替代本页第一阶段操作，不混用 `--before/--after` 与二阶段参数。
+
+本实例服务仍按用户核实的 `postgres/app/imgproxy/worker` 操作，没有 scheduler。外部触发或 NAS 脚本若存在，另行暂停。不要使用未经核验的 NAS `update-production.sh` 代替本次流程。
+
+### 保存旧配置并拉取新镜像
+
+非 root 时**单独**执行，等 root 提示符出现再继续；已经是 root 则跳过：
+
+```bash
+sudo -s
+```
+
+后续都在同一 root shell 执行，不依赖 `dc` 函数：
+
+```bash
+cd /vol1/1001/docker-compose/pixivShelf
+set -e
+umask 077
+phase2_backup="$PWD/backups/task-retirement-phase2-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$phase2_backup"
+chmod 700 "$phase2_backup"
+cp -p .env docker-compose.yml "$phase2_backup/"
+docker compose --env-file .env -f docker-compose.yml images > "$phase2_backup/images-before.txt"
+docker compose --env-file .env -f docker-compose.yml ps -q app worker | xargs -r docker inspect --format '{{.Name}} {{.Image}} {{.Config.Image}}' > "$phase2_backup/image-ids-before.txt"
+```
+
+将旧镜像保存为可取得的不可变 digest 或本机保留标签，升级期间不要清理。现在再修改 `.env` 的 `IMAGE_TAG`（或 Compose 中写死的两个引用）到实际已发布二阶段版本，不预设版本号、不覆盖其他配置。
+
+```bash
+docker compose --env-file .env -f docker-compose.yml config --images
+docker compose --env-file .env -f docker-compose.yml pull app worker
+```
+
+### 停写、建立新恢复点
+
+等待任务通过业务入口完成或安全暂停，暂停外部写入，再停 App/Worker。PostgreSQL 与 ImgProxy 保持运行。
+
+```bash
+docker compose --env-file .env -f docker-compose.yml stop app worker
+docker compose --env-file .env -f docker-compose.yml exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$phase2_backup/database.dump"
+docker compose --env-file .env -f docker-compose.yml exec -T postgres pg_restore --list < "$phase2_backup/database.dump" > "$phase2_backup/dump-list.txt"
+sha256sum "$phase2_backup/database.dump" > "$phase2_backup/database.dump.sha256"
+```
+
+**此处先完成三个实际媒体挂载的同点 NAS 快照，把路径、快照 ID、时间和数据库哈希登记到本备份目录。** 使用隔离恢复库验证 dump 可恢复并抽样核对数据库与媒体。`pg_restore --list` 只证明 dump 可读，不代替恢复演练。不能拿一阶段旧备份代替本次检查点。
+
+### 审计、迁移、复核
+
+维护命令显式绕过 App entrypoint，防止检查之前先执行 migration：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml run --rm --no-deps --entrypoint node app \
+  packages/pixishelf-db/maintenance/audit-background-task-retirement.mjs --phase2-before \
+  > "$phase2_backup/audit-before.json"
+cat "$phase2_backup/audit-before.json"
+
+docker compose --env-file .env -f docker-compose.yml run --rm --no-deps --entrypoint prisma app \
+  migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma
+
+docker compose --env-file .env -f docker-compose.yml run --rm --no-deps --entrypoint node app \
+  packages/pixishelf-db/maintenance/audit-background-task-retirement.mjs --phase2-after \
+  > "$phase2_backup/audit-after.json"
+cat "$phase2_backup/audit-after.json"
+```
+
+审计退出 0 且 `ready=true` 才继续；退出 1 表示阻断/失败，2 表示参数或环境错误。迁移 `20261011000000_background_task_retirement_contract` 自身也会在事务中再次检查，无执行任务和活跃资源租约后才删列。只有 availableAt 空值按 createdAt 回填，其余异常不得通过清空历史、猜测状态或重建收件绕过。
+
+已有数据库普通 App 启动在缺少二阶段 migration 时失败，这是保护行为。空库可走正常初始化。不使用 `db:push`，不手工修改 `_prisma_migrations`。
+
+### 恢复服务与回退边界
+
+```bash
+docker compose --env-file .env -f docker-compose.yml up -d --no-deps worker
+```
+
+稍等后检查；失败先看 Worker 日志并排查，不启动 App：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml exec -T worker node dist/healthcheck.cjs --mode=ready
+docker compose --env-file .env -f docker-compose.yml exec -T worker node dist/capability-audit.cjs
+docker compose --env-file .env -f docker-compose.yml up -d --no-deps app
+```
+
+检查任务历史、失败确认、媒体队列、计划上次入队、一个低风险任务的入队与完成，以及两条 lane。通过后恢复外部触发，再 `exit` 退出 root shell。失败时保留本次报告和日志。若 `set -e` 退出 shell，重新进入并将 `phase2_backup` 指向原备份目录，不能用新版配置重建“旧配置备份”。
+
+删列完成后，一阶段或 v0.50.8 镜像均不能直接连接新库运行。优先修复当前版本；需要回退时停止写入、保存现场，在隔离环境验证后恢复到本次检查点的新空库，并恢复匹配的媒体、配置与镜像。正式覆盖需评估并确认检查点后数据损失，执行入口遵循[备份恢复基线](../operations/backup-and-recovery.md)。
+
+## 二阶段开发验证记录（2026-10-11）
+
+- 子 agent 分别实现 App、DB 和 Runtime/Executor，交叉独立审查后未发现阻断问题；补齐了 Worker 关键帧失败发现和旧 cutover 审计的旧列依赖。
+- 空库完整 92 条 migration 通过；开发检查点恢复至隔离 PostgreSQL 后，before/upgrade/after 通过。新增迁移测试覆盖违规数据拒绝、事务回滚、v0 历史、失败确认、计划删除与约束正反例。
+- DB 全套 189 项通过，增强门禁后聚焦 35 项通过；Job contracts 102、Runtime 108、Executor 常规 787 与 PostgreSQL 132、Worker 112 项通过。上述数字为各次套件结果，聚焦重跑不重复相加。
+- App 全量 2,456 项通过，另外 5 项因沙箱禁止监听/tsx IPC 首次失败，在提权的 35 项定向复验中全部通过；172 项 PostgreSQL 测试显式启用并串行执行通过。App lint/typecheck/build、Worker 依赖链 typecheck/build、Prisma validate、路径规范与 diff 检查通过。
+- App integration 13 项通过；20 项专用阅读/删除/系列用例未配置各自环境而跳过，不计通过。image-count 既有清理继续输出 Artist 外键错误，不能视为其清理流程验收；与本次任务相关的归档删除等 PostgreSQL 套件另已执行。
+- 开发检查点 `.local-data/retirement-phase2-backup-20261011` 保存数据库 dump/哈希、配置、142 个媒体文件的核对清单和旧 Worker 标签 `pixishelf-worker:retirement-before-phase2-dev-20261011`；备份成功恢复到隔离库。未修改生产环境。
+- 开发库实际只新增应用 `20261011000000_background_task_retirement_contract`，before/after 均 ready，92 条 migration 同步。新 Docker Worker 镜像 `sha256:7e0a08f0d3d4ceee368b1b0c6faf49f6a3fcf4be6bd0bbc5c3e1d5692f9e99b1` 已启动，READY 与 33 类/38 版本 capability 检查通过；App 运行于 localhost:5430。
+- 真实生产数据副本、NAS 媒体恢复和生产至少 7 天观察仍需在生产发布前完成；开发证据不替代这些门禁。
+
+浏览器验收由 GPT-6.1 Sol high 在真实 Chrome 完成（`entry=direct`、既有登录会话）：计划窗口/优先级/上次入队、历史失败详情、媒体队列和归档页显示正常。只读预检 `cmv33eqcm0001ihyv3fy9561c` 核对 5/5，实际新增/移除/转换均为 0，新 Worker 执行事件 707–712 完整，页面无需刷新即完成。报告与截图位于 `/tmp/pixishelf-phase2-browser-20261011/report.md`。原生浏览器工具无法检查控制台和网络，SSE 传输未独立验证；媒体/归档没有记录，未覆盖单项控制；未保存计划或触发自动计划。相应业务约束由隔离 PostgreSQL 回归覆盖，不将空页面检查计作完整业务验收。
+
+最后补充的 12 项迁移回归使用真实外键验证：失败确认完整保留，迁移后删除计划触发 `ON DELETE SET NULL`，任务原计划日期、状态和来源保留，删除后审计通过；DB typecheck 再次通过。隔离测试容器已停止，开发 App/Worker 保持运行。

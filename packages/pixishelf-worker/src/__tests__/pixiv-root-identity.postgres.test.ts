@@ -18,7 +18,7 @@ let root: string
 
 async function cleanup() {
   await database.jobResourceLease.deleteMany({ where: { workerId: prefix } })
-  await database.systemJob.deleteMany({ where: { workerId: prefix } })
+  await database.systemJob.deleteMany({ where: { OR: [{ workerId: prefix }, { id: { startsWith: prefix } }] } })
   await database.workerInstance.deleteMany({ where: { workerId: prefix } })
   await database.pixivMetadataInventoryState.deleteMany({ where: { id: 'pixiv' } })
 }
@@ -168,10 +168,11 @@ suite('root identity maintenance with PostgreSQL', () => {
     const job = await database.systemJob.create({
       data: {
         type: 'SCAN',
-        workerId: prefix,
+        id: `${prefix}-${kind}`,
+        workerId: kind === 'job' ? prefix : null,
         status: kind === 'job' ? 'RUNNING' : 'PENDING',
-        leaseToken: randomUUID(),
-        leaseExpiresAt: new Date(Date.now() + 60_000),
+        leaseToken: kind === 'job' ? randomUUID() : null,
+        leaseExpiresAt: kind === 'job' ? new Date(Date.now() + 60_000) : null,
         heartbeatAt: new Date(),
         attempt: 1
       }
@@ -182,7 +183,7 @@ suite('root identity maintenance with PostgreSQL', () => {
           resourceKey: 'lane/background-writer',
           ownerJobId: job.id,
           workerId: prefix,
-          leaseToken: job.leaseToken!,
+          leaseToken: randomUUID(),
           expiresAt: new Date(Date.now() + 60_000),
           heartbeatAt: new Date()
         }

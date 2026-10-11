@@ -146,8 +146,7 @@ describe('scheduled-task-registry', () => {
         expect.objectContaining({
           key: 'scan_run_retention_cleanup',
           type: SCHEDULED_TASK_TYPES.SCAN_RUN_RETENTION_CLEANUP,
-          defaultEnabled: false,
-          mutexKey: 'audit-maintenance'
+          defaultEnabled: false
         })
       ])
     )
@@ -159,8 +158,7 @@ describe('scheduled-task-registry', () => {
         expect.objectContaining({
           key: 'trigger_log_retention_cleanup',
           type: SCHEDULED_TASK_TYPES.TRIGGER_LOG_RETENTION_CLEANUP,
-          defaultEnabled: true,
-          mutexKey: 'audit-maintenance'
+          defaultEnabled: true
         })
       ])
     )
@@ -172,10 +170,8 @@ describe('scheduled-task-registry', () => {
         expect.objectContaining({
           key: 'video_chapter_preview_generation',
           type: SCHEDULED_TASK_TYPES.VIDEO_CHAPTER_PREVIEW_GENERATION,
-          defaultTime: '04:30',
           defaultPriority: 50,
-          defaultEnabled: false,
-          mutexKey: 'media-maintenance'
+          defaultEnabled: false
         })
       ])
     )
@@ -187,9 +183,7 @@ describe('scheduled-task-registry', () => {
         expect.objectContaining({
           key: 'video_keyframe_generation',
           type: SCHEDULED_TASK_TYPES.VIDEO_KEYFRAME_DISCOVERY,
-          defaultTime: '05:00',
-          defaultEnabled: false,
-          mutexKey: 'media-maintenance'
+          defaultEnabled: false
         })
       ])
     )
@@ -201,10 +195,8 @@ describe('scheduled-task-registry', () => {
         expect.objectContaining({
           key: 'derived_media_gc',
           type: SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC,
-          defaultTime: '05:30',
           defaultPriority: 70,
-          defaultEnabled: false,
-          mutexKey: 'media-maintenance'
+          defaultEnabled: false
         })
       ])
     )
@@ -217,8 +209,7 @@ describe('scheduled-task-registry', () => {
           key: 'derived_media_gc_reconciliation',
           type: SCHEDULED_TASK_TYPES.DERIVED_MEDIA_GC,
           defaultPriority: 71,
-          defaultEnabled: false,
-          mutexKey: 'media-maintenance'
+          defaultEnabled: false
         })
       ])
     )

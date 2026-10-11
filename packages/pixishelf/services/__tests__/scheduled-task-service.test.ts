@@ -51,22 +51,16 @@ vi.mock('@/services/scheduled-task-registry', () => ({
       type: 'SCAN_RUN_RETENTION_CLEANUP',
       name: '清理扫描历史',
       description: 'cleanup task',
-      defaultTime: '00:10',
-      defaultTimezone: 'UTC',
       defaultPriority: 20,
-      defaultEnabled: false,
-      mutexKey: 'audit-maintenance'
+      defaultEnabled: false
     },
     {
       key: 'webp_animation_scan',
       type: 'WEBP_ANIMATION_SCAN',
       name: '识别 WebP 动图',
       description: 'test task',
-      defaultTime: '00:30',
-      defaultTimezone: 'UTC',
       defaultPriority: 30,
-      defaultEnabled: false,
-      mutexKey: 'media-maintenance'
+      defaultEnabled: false
     }
   ],
   getScheduledTaskDefinition: (key: string) =>
@@ -76,11 +70,8 @@ vi.mock('@/services/scheduled-task-registry', () => ({
           type: 'SCAN_RUN_RETENTION_CLEANUP',
           name: '清理扫描历史',
           description: 'cleanup task',
-          defaultTime: '00:10',
-          defaultTimezone: 'UTC',
           defaultPriority: 20,
-          defaultEnabled: false,
-          mutexKey: 'audit-maintenance'
+          defaultEnabled: false
         }
       : key === 'webp_animation_scan'
         ? {
@@ -88,11 +79,8 @@ vi.mock('@/services/scheduled-task-registry', () => ({
             type: 'WEBP_ANIMATION_SCAN',
             name: '识别 WebP 动图',
             description: 'test task',
-            defaultTime: '00:30',
-            defaultTimezone: 'UTC',
             defaultPriority: 30,
-            defaultEnabled: false,
-            mutexKey: 'media-maintenance'
+            defaultEnabled: false
           }
         : null,
   getScheduledTaskDefinitionByType: (type: string) =>
@@ -102,11 +90,8 @@ vi.mock('@/services/scheduled-task-registry', () => ({
           type,
           name: 'Other',
           description: 'Other media task',
-          defaultTime: '00:30',
-          defaultTimezone: 'UTC',
           defaultPriority: 20,
-          defaultEnabled: false,
-          mutexKey: 'media-maintenance'
+          defaultEnabled: false
         }
       : null,
   getScheduledTaskHandler: (type: string) =>
@@ -126,13 +111,8 @@ function createTask(overrides: Record<string, unknown> = {}) {
     type: 'WEBP_ANIMATION_SCAN',
     enabled: true,
     scheduleMode: 'DAILY',
-    time: '00:30',
-    timezone: 'UTC',
     priority: 30,
-    mutexKey: 'media-maintenance',
-    lastTriggeredAt: new Date('2020-01-01'),
     lastMaterializedAt: new Date('2026-06-01'),
-    lastTriggeredDate: '2020-01-01',
     lastMaterializedDate: '2026-06-01',
     lastJobId: null,
     config: null,
@@ -147,9 +127,7 @@ function createCleanupTask(overrides: Record<string, unknown> = {}) {
     id: 'task-cleanup',
     key: 'scan_run_retention_cleanup',
     type: 'SCAN_RUN_RETENTION_CLEANUP',
-    time: '00:10',
     priority: 20,
-    mutexKey: 'audit-maintenance',
     ...overrides
   })
 }
@@ -206,16 +184,12 @@ describe('scheduled-task-service', () => {
       {
         key: 'scan_run_retention_cleanup',
         type: 'SCAN_RUN_RETENTION_CLEANUP',
-        scheduleMode: 'DAILY',
-        timezone: 'UTC',
-        mutexKey: 'audit-maintenance'
+        scheduleMode: 'DAILY'
       },
       {
         key: 'webp_animation_scan',
         type: 'WEBP_ANIMATION_SCAN',
-        scheduleMode: 'DAILY',
-        timezone: 'UTC',
-        mutexKey: 'media-maintenance'
+        scheduleMode: 'DAILY'
       }
     ])
 
@@ -228,9 +202,7 @@ describe('scheduled-task-service', () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-06-02T01:00:00.000Z'))
-    scheduledTaskFindManyMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([createTask({ time: '04:30', timezone: 'UTC' })])
+    scheduledTaskFindManyMock.mockResolvedValueOnce([]).mockResolvedValueOnce([createTask()])
 
     const [task] = await listScheduledTasks()
 

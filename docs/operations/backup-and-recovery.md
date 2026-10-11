@@ -182,7 +182,7 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T 
 6. 使用 NAS/文件系统工具恢复三个媒体目录到目标快照；
 7. 将数据库恢复到新建的空库或新实例；
 8. 恢复匹配版本的配置和不可变镜像，不混用旧数据库与不兼容的新应用；
-9. scheduler 保持关闭，两枚 Dispatcher 开关先保持 `false/false`；
+9. scheduler（若配置）与 Worker 保持停止；当前版本启动 Worker 即消费，已退役的 Dispatcher 开关不能阻止执行；
 10. 验证 migration、登录、目录查询、原图、视频、派生媒体、任务状态、两个 lane 与当前 capability inventory；
 11. 再按[部署基线](./deployment.md)明确启动正确消费者和 scheduler。
 
@@ -323,8 +323,7 @@ App 与 Worker 必须协调升级：停止写入者后运行 `pnpm --filter @pix
 
 ## 后台任务退役恢复边界
 
-第一阶段增加 legacyDisplay 和查询索引，保留旧列与双写。停写后通过只读 after 审计可回退至经验证的 v0.50.8 配套 App/Worker，保留新增列，不反向 migration；旧部署配置必须保持中央模式。第二阶段尚未实施，物理删列后不能仅换旧镜像。升级与恢复均需数据库、原媒体、派生媒体、Pixiv data、配置和镜像的同点清单。具体步骤见[退役发布手册](../deployment/background-task-retirement.md)。
-
+第一阶段增加 legacyDisplay 和查询索引，保留旧列与双写。停写后通过只读 after 审计可回退至经验证的 v0.50.8 配套 App/Worker，保留新增列，不反向 migration；旧部署配置必须保持中央模式。二阶段通过显式审计后物理删列，不能仅换旧镜像。恢复到迁移前新建空库并使用匹配的媒体、配置和镜像；保留故障现场并评估检查点后的数据损失。升级与恢复均需数据库、原媒体、派生媒体、Pixiv data、配置和镜像的同点清单。具体步骤见[退役发布手册](../deployment/background-task-retirement.md)。
 
 ## 阅读进度手动修正迁移
 

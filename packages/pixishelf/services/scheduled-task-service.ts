@@ -55,39 +55,28 @@ export interface ScheduledTaskLastJobResult {
 export async function ensureDefaultScheduledTasks() {
   const existingTasks = await prisma.scheduledTask.findMany({
     where: { key: { in: SCHEDULED_TASK_DEFINITIONS.map(({ key }) => key) } },
-    select: { key: true, type: true, scheduleMode: true, timezone: true, mutexKey: true }
+    select: { key: true, type: true, scheduleMode: true }
   })
   const existingByKey = new Map(existingTasks.map((task) => [task.key, task]))
   // Registry-owned fields are repaired only when missing or changed. This keeps
   // every task-list refresh from turning into a burst of otherwise identical upserts.
   for (const definition of SCHEDULED_TASK_DEFINITIONS) {
     const existing = existingByKey.get(definition.key)
-    if (
-      existing &&
-      existing.type === definition.type &&
-      existing.scheduleMode === ScheduleMode.DAILY &&
-      existing.timezone === definition.defaultTimezone &&
-      existing.mutexKey === definition.mutexKey
-    ) {
+    if (existing && existing.type === definition.type && existing.scheduleMode === ScheduleMode.DAILY) {
       continue
     }
     await prisma.scheduledTask.upsert({
       where: { key: definition.key },
       update: {
         type: definition.type,
-        scheduleMode: ScheduleMode.DAILY,
-        timezone: definition.defaultTimezone,
-        mutexKey: definition.mutexKey
+        scheduleMode: ScheduleMode.DAILY
       },
       create: {
         key: definition.key,
         type: definition.type,
         enabled: definition.defaultEnabled,
         scheduleMode: ScheduleMode.DAILY,
-        time: definition.defaultTime,
-        timezone: definition.defaultTimezone,
         priority: definition.defaultPriority,
-        mutexKey: definition.mutexKey,
         ...(definition.defaultConfig !== undefined
           ? { config: JSON.parse(JSON.stringify(definition.defaultConfig)) as Prisma.InputJsonValue }
           : {})

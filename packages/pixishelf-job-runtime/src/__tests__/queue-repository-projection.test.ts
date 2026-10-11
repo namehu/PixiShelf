@@ -14,9 +14,10 @@ const parentFence: ExecutionFence = {
   attempt: 1
 }
 
-describe('PostgresQueueRepository legacy projections', () => {
-  it('projects streaming optimization payload fields into child job columns', async () => {
+describe('PostgresQueueRepository child payload persistence', () => {
+  it('persists the validated streaming optimization target only in payload', async () => {
     let insertValues: unknown[] = []
+    let insertQuery = ''
     const transaction: QueueSqlExecutor = {
       $queryRawUnsafe: vi.fn(async (query: string, ...values: unknown[]) => {
         if (query.includes('FROM "job_resource_leases"')) {
@@ -25,6 +26,7 @@ describe('PostgresQueueRepository legacy projections', () => {
         if (query.includes('SELECT "id", "status"')) return [{ id: parentFence.jobId, status: 'RUNNING' }]
         if (query.includes('INSERT INTO "system_jobs"')) {
           insertValues = values
+          insertQuery = query
           return [{ id: 'streaming-child' }]
         }
         throw new Error(`Unexpected query: ${query}`)
@@ -48,8 +50,12 @@ describe('PostgresQueueRepository legacy projections', () => {
       })
     ).resolves.toEqual({ id: 'streaming-child', created: true })
 
-    expect(insertValues[12]).toBe(43)
-    expect(insertValues[13]).toBe('videos/streaming.mp4')
-    expect(insertValues[14]).toBe('REMUX_FASTSTART')
+    expect(JSON.parse(insertValues[5] as string)).toEqual({
+      imageId: 43,
+      relativePath: 'videos/streaming.mp4',
+      mode: 'REMUX_FASTSTART'
+    })
+    expect(insertQuery).not.toMatch(/targetImageId|targetPath|"mode"/)
+    expect(insertValues).toHaveLength(13)
   })
 })

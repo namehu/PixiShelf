@@ -39,7 +39,7 @@ pg('media task payload read model', () => {
   }
   it('keeps active-first keyframe ordering and projects payload instead of obsolete columns', async () => {
     await seed('completed', { createdAt: new Date('2026-02-01'), updatedAt: new Date('2026-02-01') })
-    const active = await seed('paused', { status: 'PAUSED', targetImageId: 8 })
+    const active = await seed('paused', { status: 'PAUSED' })
     const rows = await latestMediaJobs('VIDEO_KEYFRAME_GENERATION', [2147000001])
     expect(rows).toEqual([
       expect.objectContaining({ id: active.id, targetImageId: 2147000001, targetPath: 'fixture.mp4' })
@@ -85,7 +85,7 @@ pg('media task payload read model', () => {
       })
     ])
   })
-  it('continues dual-writing both initial enqueue and retry for rollback consumers', async () => {
+  it('keeps initial enqueue and retry targets in payload after dropping legacy columns', async () => {
     const job = await enqueueJob(
       {
         type: 'VIDEO_STREAMING_OPTIMIZATION',
@@ -97,12 +97,17 @@ pg('media task payload read model', () => {
       database
     )
     const initial = await database.systemJob.findUniqueOrThrow({ where: { id: job.id } })
-    expect(initial).toMatchObject({ targetImageId: 2147000004, targetPath: 'rollback.mp4', mode: 'REMUX_FASTSTART' })
+    expect(initial.payload).toMatchObject({
+      imageId: 2147000004,
+      relativePath: 'rollback.mp4',
+      mode: 'REMUX_FASTSTART'
+    })
+    expect(initial).not.toHaveProperty('targetImageId')
     await database.systemJob.update({ where: { id: job.id }, data: { status: 'FAILED' } })
     const retried = await retryJobCommand({ jobId: job.id, requestedByUserId: prefix }, database)
-    expect(await database.systemJob.findUniqueOrThrow({ where: { id: retried.id } })).toMatchObject({
-      targetImageId: 2147000004,
-      targetPath: 'rollback.mp4',
+    expect((await database.systemJob.findUniqueOrThrow({ where: { id: retried.id } })).payload).toMatchObject({
+      imageId: 2147000004,
+      relativePath: 'rollback.mp4',
       mode: 'REMUX_FASTSTART'
     })
   })

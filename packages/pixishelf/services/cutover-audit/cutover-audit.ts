@@ -1,3 +1,4 @@
+import { projectJobTarget } from '../background-task/job-target'
 import {
   ArchiveImportItemStatus,
   ArchiveImportStatus,
@@ -151,21 +152,38 @@ async function readChecksInSnapshot(
       blockingValues: SYSTEM_JOB_BLOCKING_STATUSES,
       count: () => client.systemJob.count({ where: { status: { in: [...SYSTEM_JOB_BLOCKING_STATUSES] } } }),
       samples: () =>
-        client.systemJob.findMany({
-          where: { status: { in: [...SYSTEM_JOB_BLOCKING_STATUSES] } },
-          select: {
-            id: true,
-            type: true,
-            status: true,
-            targetImageId: true,
-            targetPath: true,
-            createdAt: true,
-            startedAt: true,
-            heartbeatAt: true
-          },
-          orderBy: { id: 'asc' },
-          take: sampleLimit
-        })
+        client.systemJob
+          .findMany({
+            where: { status: { in: [...SYSTEM_JOB_BLOCKING_STATUSES] } },
+            select: {
+              id: true,
+              type: true,
+              status: true,
+              definitionVersion: true,
+              payload: true,
+              legacyDisplay: true,
+              createdAt: true,
+              startedAt: true,
+              heartbeatAt: true
+            },
+            orderBy: { id: 'asc' },
+            take: sampleLimit
+          })
+          .then((jobs) =>
+            jobs.map((job) => {
+              const target = projectJobTarget(job)
+              return {
+                id: job.id,
+                type: job.type,
+                status: job.status,
+                targetImageId: target.targetImageId,
+                targetPath: target.targetPath,
+                createdAt: job.createdAt,
+                startedAt: job.startedAt,
+                heartbeatAt: job.heartbeatAt
+              }
+            })
+          )
     }),
     readCheck({
       key: 'archive-import-status',

@@ -9,7 +9,7 @@ import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 const repositoryRoot = new URL('../../../..', import.meta.url)
 
 describe('Worker deployment boundary', () => {
-  it.each(['--before', '--after', '--help'])(
+  it.each(['--before', '--after', '--phase2-before', '--phase2-after', '--help'])(
     'runs the retirement audit %s without deploying migrations or running startup guards',
     (argument) => {
       const directory = mkdtempSync(join(tmpdir(), 'pixishelf-entrypoint-test-'))
@@ -17,11 +17,17 @@ describe('Worker deployment boundary', () => {
       try {
         // A distinct exit status also verifies that an audit blocker reaches Compose.
         writeFileSync(join(directory, 'node'), '#!/bin/sh\nprintf "%s\\n" "$*"\nexit 23\n', { mode: 0o755 })
-        writeFileSync(join(directory, 'prisma'), '#!/bin/sh\nprintf "unexpected migration\\n"\nexit 99\n', { mode: 0o755 })
-        const result = spawnSync('/bin/sh', [fileURLToPath(new URL('build/entrypoint.sh', repositoryRoot)), 'node', auditPath, argument], {
-          env: { PATH: directory },
-          encoding: 'utf8'
+        writeFileSync(join(directory, 'prisma'), '#!/bin/sh\nprintf "unexpected migration\\n"\nexit 99\n', {
+          mode: 0o755
         })
+        const result = spawnSync(
+          '/bin/sh',
+          [fileURLToPath(new URL('build/entrypoint.sh', repositoryRoot)), 'node', auditPath, argument],
+          {
+            env: { PATH: directory },
+            encoding: 'utf8'
+          }
+        )
         expect(result.error).toBeUndefined()
         expect(result.status).toBe(23)
         expect(result.stdout).toBe(`${auditPath} ${argument}\n`)
@@ -31,6 +37,30 @@ describe('Worker deployment boundary', () => {
       }
     }
   )
+
+  it('refuses automatic destructive migration when the phase two startup guard fails', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'pixishelf-contract-startup-'))
+    try {
+      writeFileSync(
+        join(directory, 'node'),
+        '#!/bin/sh\ncase "$1" in *audit-background-task-retirement.mjs) exit 23;; *) exit 0;; esac\n',
+        { mode: 0o755 }
+      )
+      writeFileSync(join(directory, 'prisma'), '#!/bin/sh\nprintf "unexpected migration\\n"\nexit 99\n', {
+        mode: 0o755
+      })
+      const result = spawnSync(
+        '/bin/sh',
+        [fileURLToPath(new URL('build/entrypoint.sh', repositoryRoot)), 'node', 'server.js'],
+        { env: { PATH: directory }, encoding: 'utf8' }
+      )
+      expect(result.status).toBe(23)
+      expect(result.stdout).not.toContain('Running database migrations')
+      expect(result.stdout).not.toContain('unexpected migration')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
 
   it.each(['docker-compose.dev.yml', 'docker-compose.deploy.yml'])(
     'caps every long-running service at 10 MB x 5 in %s',

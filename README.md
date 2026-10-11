@@ -97,6 +97,8 @@ PostgreSQL 应显示 `healthy`，`http://127.0.0.1:5431/health` 应返回 200。
 
 已有数据库若仍含艺术家或系列旧身份字段，先按[旧字段清理流程](./docs/features/legacy-identity-retirement.md)执行检查、准备和升级；不要直接用以下 `db:deploy` 命令跨过该版本。全新空库继续使用完整 migration 链。
 
+已有一阶段后台任务数据库升级到二阶段时，先按[退役发布手册](./docs/deployment/background-task-retirement.md)停写、备份并执行 `--phase2-before`，再显式 deploy 和 `--phase2-after`；这是删列迁移，不能仅换旧镜像回退。普通容器启动会阻断尚未完成该流程的已有库。
+
 `db:generate` 只生成 Prisma Client，不要求数据库地址。其他需要数据库连接的 `@pixishelf/db` 脚本
 优先使用当前终端显式提供的 `DATABASE_URL`；未提供时会读取 `packages/pixishelf/.env.local`。宿主机运行时
 必须确认该文件使用 `127.0.0.1:5432` 或 `localhost:5432`，不要误用 Docker 容器内部的
