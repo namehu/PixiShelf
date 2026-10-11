@@ -482,7 +482,8 @@ describe('AdaptiveMediaPreview', () => {
     render(<AdaptiveMediaPreview images={[media]} initialIndex={0} open onClose={vi.fn()} />)
 
     expect(screen.queryByRole('button', { name: /WEBP 动图/ })).toBeNull()
-    expect(screen.getByText('动图静态预览')).toBeTruthy()
+    expect(screen.queryByText('动图静态预览')).toBeNull()
+    expect(screen.getByAltText('作品媒体 1')).toBeTruthy()
     expect(screen.queryByText('静态适配预览 · 长按原媒体可查看原文件')).toBeNull()
   })
 

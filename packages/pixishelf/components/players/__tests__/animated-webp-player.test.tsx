@@ -217,12 +217,23 @@ describe('AnimatedWebpPlayer compatibility fallback', () => {
     expect(screen.getAllByRole('img')).toHaveLength(1)
   })
 
-  it('keeps non-animated pending media non-interactive', () => {
-    render(<AnimatedWebpPlayer src="/pending.webp" isAnimated={false} />)
+  it.each(['badge', 'surface'] as const)(
+    'hides pending WebP format and size in %s mode while retaining playback after identification',
+    (controlMode) => {
+      const { rerender } = render(
+        <AnimatedWebpPlayer src="/pending.webp" size={2048} isAnimated={false} controlMode={controlMode} />
+      )
 
-    expect(screen.queryByRole('button')).toBeNull()
-    expect(screen.getAllByRole('img')).toHaveLength(1)
-  })
+      expect(screen.queryByText('WEBP')).toBeNull()
+      expect(screen.queryByText(/KB/)).toBeNull()
+      expect(screen.queryByRole('button')).toBeNull()
+      expect(screen.getAllByRole('img')).toHaveLength(1)
+
+      rerender(<AnimatedWebpPlayer src="/pending.webp" size={2048} isAnimated controlMode={controlMode} />)
+      fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
+      expect(screen.getByRole('button', { name: '暂停 WEBP 动图' }).getAttribute('aria-pressed')).toBe('true')
+    }
+  )
 
   it('loads a single-loop copy on demand and exposes its duration only after image loading', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => webpFixture([300, 900]) })

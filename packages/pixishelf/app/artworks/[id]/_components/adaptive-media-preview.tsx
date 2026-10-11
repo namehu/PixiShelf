@@ -310,7 +310,6 @@ export default function AdaptiveMediaPreview({
       onBeforeClose={() => useArtworkAutoBrowseStore.getState().pause('overlay')}
       renderSlide={(media, { index }) => {
         const currentProgressGeneration = progressGeneration.current
-        const animated = isAnimatedMedia(media)
         const playableAnimatedWebp = isPlayableAnimatedWebp(media)
         const eager = index === currentIndex || eagerNeighborIndexes.has(index)
         const priority = index === safeInitialIndex
@@ -388,11 +387,6 @@ export default function AdaptiveMediaPreview({
                   className={cn('h-full w-full object-contain', !diagnosticVisible && 'invisible')}
                 />
               </div>
-            )}
-            {animated && !playableAnimatedWebp && !autoSlideshowSelected && (
-              <span className="pointer-events-none absolute bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 rounded-full bg-black/65 px-3 py-1 text-xs text-white/85 backdrop-blur-md">
-                动图静态预览
-              </span>
             )}
           </div>
         )

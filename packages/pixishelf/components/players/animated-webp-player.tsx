@@ -379,7 +379,7 @@ export default function AnimatedWebpPlayer({
     />
   )
   const playbackBadge =
-    controlMode === 'external' ? null : controlMode === 'badge' && isAnimated ? (
+    controlMode === 'external' || (webpControl && !isAnimated) ? null : controlMode === 'badge' && isAnimated ? (
       <button
         type="button"
         className="absolute bottom-0 right-2 z-10 flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
