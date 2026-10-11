@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { ApiError } from '@/lib/api-handler'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -103,7 +104,13 @@ describe('webhook scan audit integration', () => {
     )
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ success: true, data: { status: 'ok' } })
+    await expect(response.json()).resolves.toEqual({
+      code: 0,
+      message: '',
+      success: true,
+      errorCode: 0,
+      data: { status: 'ok' }
+    })
     expect(mocks.findScanJob).not.toHaveBeenCalled()
     expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
     expect(mocks.createScanJob).not.toHaveBeenCalled()
@@ -149,7 +156,13 @@ describe('webhook scan audit integration', () => {
     )
 
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toEqual({ success: false, error: 'Invalid jobId' })
+    await expect(response.json()).resolves.toEqual({
+      code: 400,
+      message: 'Invalid jobId',
+      success: false,
+      errorCode: 400,
+      error: 'Invalid jobId'
+    })
     expect(mocks.findScanJob).not.toHaveBeenCalled()
   })
 
@@ -278,6 +291,9 @@ describe('webhook scan audit integration', () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
+    expect(body.message).toBeNull()
+    expect(body.error).toBeNull()
+    expect(body).not.toHaveProperty('code')
     expect(body.data).toMatchObject({
       walkedEntries: null,
       contentHashed: null,
@@ -296,7 +312,13 @@ describe('webhook scan audit integration', () => {
     )
 
     expect(response.status).toBe(404)
-    await expect(response.json()).resolves.toEqual({ success: false, error: 'Scan job not found' })
+    await expect(response.json()).resolves.toEqual({
+      code: 404,
+      message: 'Scan job not found',
+      success: false,
+      errorCode: 404,
+      error: 'Scan job not found'
+    })
   })
 
   it('returns 202 queued without executing scan after central cutover', async () => {
@@ -311,7 +333,17 @@ describe('webhook scan audit integration', () => {
     const response = await post(request, { params: Promise.resolve({}) })
 
     expect(response.status).toBe(202)
-    await expect(response.json()).resolves.toMatchObject({ queued: true, jobId: 'job-central' })
+    await expect(response.json()).resolves.toEqual({
+      code: 0,
+      message: '',
+      success: true,
+      errorCode: 0,
+      queued: true,
+      jobId: 'job-central',
+      status: 'PENDING',
+      reused: false,
+      data: { queued: true, jobId: 'job-central', status: 'PENDING', reused: false }
+    })
     expect(mocks.enqueueCentralScan).toHaveBeenCalledWith({
       triggerSource: 'SYSTEM',
       type: 'all',
@@ -420,5 +452,81 @@ describe('webhook scan audit integration', () => {
     expect(mocks.getScanPath).not.toHaveBeenCalled()
     expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
     expect(mocks.createScanJob).not.toHaveBeenCalled()
+  })
+
+  it.each(['{', '', 'null', '[]', '42'])('preserves deployed permissive webhook JSON parsing for %s', async (body) => {
+    mocks.enqueueCentralScan.mockResolvedValue({ jobId: 'job-compatible', status: 'PENDING', reused: false })
+    const response = await post(
+      new NextRequest('http://localhost/api/webhooks/scan', {
+        method: 'POST',
+        headers: { authorization: 'Bearer token', 'content-type': 'application/json' },
+        body
+      }),
+      { params: Promise.resolve({}) }
+    )
+    expect(response.status).toBe(202)
+    expect(await response.json()).toMatchObject({
+      code: 0,
+      success: true,
+      jobId: 'job-compatible',
+      data: { jobId: 'job-compatible' }
+    })
+    expect(mocks.enqueueCentralScan).toHaveBeenCalledWith({ triggerSource: 'SYSTEM', type: 'all', metadataList: [] })
+  })
+
+  it.each([401, 503, 409, 500])('keeps canonical and legacy POST failure fields consistent for %s', async (status) => {
+    if (status === 503) delete process.env.SCAN_WEBHOOK_TOKEN
+    if (status === 409) mocks.enqueueCentralScan.mockRejectedValueOnce(new ApiError('Conflict', 409))
+    if (status === 500) mocks.enqueueCentralScan.mockRejectedValueOnce(new Error('private database path'))
+    const response = await post(
+      new NextRequest('http://localhost/api/webhooks/scan', {
+        method: 'POST',
+        headers: {
+          authorization: status === 401 ? 'Bearer wrong' : 'Bearer token',
+          'content-type': 'application/json'
+        },
+        body: '{}'
+      }),
+      { params: Promise.resolve({}) }
+    )
+    expect(response.status).toBe(status)
+    const body = await response.json()
+    expect(body).toMatchObject({
+      code: status,
+      message: expect.any(String),
+      success: false,
+      errorCode: status,
+      error: body.message
+    })
+    if (status === 500) {
+      expect(body).toEqual({
+        code: 500,
+        message: 'Internal Server Error',
+        data: null,
+        success: false,
+        errorCode: 500,
+        error: 'Internal Server Error'
+      })
+    }
+    if (status === 401 || status === 503) expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
+  })
+
+  it('masks a failed status read with the compatible error contract', async () => {
+    mocks.findScanJob.mockRejectedValueOnce(new Error('private database path'))
+    const response = await get(
+      new NextRequest('http://localhost/api/webhooks/scan?jobId=job-1', {
+        headers: { authorization: 'Bearer token' }
+      })
+    )
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({
+      code: 500,
+      message: 'Internal Server Error',
+      data: null,
+      success: false,
+      errorCode: 500,
+      error: 'Internal Server Error'
+    })
+    expect(mocks.enqueueCentralScan).not.toHaveBeenCalled()
   })
 })

@@ -63,4 +63,30 @@ describe('useMigration central queued event', () => {
     expect(mocks.toastSuccess).not.toHaveBeenCalled()
     expect(mocks.fetchEventSource.mock.calls[0]?.[1].signal.aborted).toBe(true)
   })
+
+  it.each([
+    [{ code: 409, message: 'Canonical conflict', error: 'Legacy conflict' }, 'Canonical conflict'],
+    [{ error: 'Legacy conflict' }, 'Legacy conflict'],
+    [{ message: '', error: 'Legacy fallback' }, 'Legacy fallback'],
+    [{ message: { private: 'invalid' }, error: 42 }, '迁移请求失败 (409)'],
+    [null, '迁移请求失败 (409)']
+  ])('displays the JSON error message with legacy compatibility: %j', async (body, expected) => {
+    mocks.fetchEventSource.mockImplementation(async (_url, options) => {
+      await options.onopen(new Response(JSON.stringify(body), { status: 409 }))
+    })
+    const { result } = renderHook(() => useMigration())
+    act(() => result.current.actions.startMigration({ targetIds: [7] }))
+    await waitFor(() => expect(result.current.state.error).toBe(expected))
+    expect(result.current.state.migrating).toBe(false)
+    expect(mocks.fetchEventSource).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not display a proxy HTML body as the migration error', async () => {
+    mocks.fetchEventSource.mockImplementation(async (_url, options) => {
+      await options.onopen(new Response('<html>private proxy details</html>', { status: 403 }))
+    })
+    const { result } = renderHook(() => useMigration())
+    act(() => result.current.actions.startMigration())
+    await waitFor(() => expect(result.current.state.error).toBe('迁移请求失败 (403)'))
+  })
 })

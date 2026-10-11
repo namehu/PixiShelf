@@ -44,9 +44,9 @@ WebP 时长探测沿用管理任务的 `adminProcedure` 入队/重试和受登�
 - Worker、PostgreSQL、ImgProxy 等服务依赖 Compose 网络、端口暴露和文件挂载形成基础设施边界；
 - 当前不能把任一账户交给不可信用户，也不能把 App、PostgreSQL 或 ImgProxy 直接暴露到不可信网络后仍声称存在完整权限隔离。
 
-## 扫描 HTTP 失败响应
+## 扫描与迁移 HTTP 响应
 
-`POST /api/scan/stream` 与 `POST /api/scan/rescan` 在建立 SSE 前统一返回
+`POST /api/scan/stream`、`POST /api/scan/rescan` 与 `POST /api/migration/stream` 在建立 SSE 前统一返回
 `{ code: number, message: string, data?: unknown }`，其中失败 `code` 等于 HTTP 状态码。
 参数/路径/配置错误使用 400，缺失会话使用 401，作品不存在使用 404，任务冲突使用 409；
 未分类异常使用 500 和固定 `Internal Server Error`（`data: null`），原始异常只写服务端日志。
@@ -58,11 +58,24 @@ Zod 校验错误的说明位于 `data.details`。这些 HTTP 响应不再附加 
 
 已建立连接后的 `connection/progress/complete/error/cancelled/queued` SSE 事件保持原结构，
 包括事件中的 `success/error` 字段；此轮不改变队列、取消和权限行为。扫描设置与作品重扫入口优先读取
-HTTP `message`，同时兼容旧 `{ error }` 响应。
+HTTP `message`，同时兼容旧 `{ error }` 响应。迁移页面对不可重试的 4xx（不含 429）同样读取 `message`，再回退到 `error`；非 JSON 或无有效文案时显示带 HTTP 状态码的通用提示。本次未调整 429/5xx 的既有连接处理。
 
-这是 `apiHandler` 的渐进迁移：上述两条路由显式选择 `responseContract: 'canonical'`；
-尚未迁移的 Webhook、migration 路由维持默认 legacy 响应和请求解析。其他使用 `lib/api-response.ts`
-的 API 仍沿用其既有 `success/error` 契约，不能据此宣称全局 API 已统一。
+`apiHandler` 默认使用 canonical 响应，浏览器和服务端共用 `types/http-response.ts` 的 `ApiResponse<T>`。
+Webhook POST 显式使用 `responseContract: 'compatible'`：失败补齐 `code/message/data`，同时保留
+`success/errorCode/error` 与顶层校验 `details`（同样放在 `data.details`）；成功 202 的入队 DTO 放在
+`data`，同时保留原顶层 `queued/jobId/scanRunId/status/reused`。Webhook GET 健康检查及所有显式失败
+响应采用同样字段，HEAD 成功仍为无正文 204。Webhook 保留原有宽松 JSON 解析，不在响应迁移中收紧
+请求；调用方应发送明确的合法对象 `{}`，不能依赖错误 JSON 触发默认扫描。
+
+Webhook GET 状态查询成功是明确的兼容例外：`LegacyScanWebhookStatusResponse` 保留可空的任务
+`message/error` 与 `data` 统计，不能将它们解释为请求失败或通用 envelope；不新增 `code`、不搬移统计。
+查询失败仍使用上述兼容错误，数据库未知异常返回通用 500。外部脚本应先检查 HTTP 状态，再判断任务
+`status`。待外部消费者具备版本协商后再迁移该成功 DTO，不能无计划覆盖领域字段。
+
+`lib/api-response.ts` 的媒体上传、分块状态、媒体替换和 scheduler API 仍沿用既有 `success/error`
+及顶层业务字段；其 `ApiSuccessResponse/ApiErrorResponse` 不是本次 canonical 类型。下一步须按
+各路由与消费端成对迁移，覆盖上传分块/完成、替换冲突详情和 scheduler Token 响应；不能直接改共享
+helper 令所有路由换壳。此轮没有改变 SSE、tRPC、队列、文件操作或认证门禁，不能宣称全局 API 已统一。
 
 ## 调用者与凭证
 

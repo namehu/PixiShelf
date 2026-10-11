@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import { ApiError } from '@/lib/api-handler'
 
 const mocks = vi.hoisted(() => ({
   central: true,
@@ -54,9 +55,51 @@ describe('migration central stream', () => {
     const response = await post(request, { params: Promise.resolve({}) })
 
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({
-      error: 'batchSize and concurrency overrides are not supported by the central dispatcher'
+    await expect(response.json()).resolves.toEqual({
+      code: 400,
+      message: 'batchSize and concurrency overrides are not supported by the central dispatcher'
     })
     expect(mocks.enqueue).not.toHaveBeenCalled()
   })
+
+  it.each([401, 409, 500])('returns canonical HTTP %s errors before opening SSE', async (status) => {
+    if (status === 401) mocks.requireAdmin.mockRejectedValueOnce(new ApiError('Unauthorized', 401))
+    else {
+      mocks.enqueue.mockRejectedValueOnce(
+        status === 409 ? new ApiError('Conflict', 409) : new Error('private database path')
+      )
+    }
+    const response = await post(
+      new NextRequest('http://localhost/api/migration/stream', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}'
+      }),
+      { params: Promise.resolve({}) }
+    )
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual(
+      status === 500
+        ? { code: 500, message: 'Internal Server Error', data: null }
+        : { code: status, message: status === 401 ? 'Unauthorized' : 'Conflict' }
+    )
+    if (status === 401) expect(mocks.enqueue).not.toHaveBeenCalled()
+  })
+
+  it.each(['{', '', 'null', '[]', '{"targetIds":"all"}'])(
+    'rejects invalid JSON input %s before enqueue',
+    async (body) => {
+      const response = await post(
+        new NextRequest('http://localhost/api/migration/stream', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body
+        }),
+        { params: Promise.resolve({}) }
+      )
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 400, message: 'Invalid Request Parameters' })
+      expect(mocks.enqueue).not.toHaveBeenCalled()
+    }
+  )
 })

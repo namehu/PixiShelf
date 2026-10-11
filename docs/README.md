@@ -32,8 +32,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 - [浏览器隐私偏好](./features/browser-privacy.md)（current）：浏览器会话共享、固定 30 天记忆、全局快捷开关、首屏遮挡与生命周期边界。
 
-- [后台任务兼容层退役](./features/background-task-retirement.md)（current）：中央执行、历史快照与二阶段删列/约束；二阶段生产待发布。
-- [后台任务退役发布手册](./deployment/background-task-retirement.md)（draft）：v0.50.8 基线、只读预检、回退和至少 7 天观察。
+- [后台任务兼容层退役](./features/background-task-retirement.md)（current）：中央执行、历史快照与二阶段删列/约束；二阶段用户确认已部署生产。
+- [后台任务退役发布手册](./deployment/background-task-retirement.md)（current）：两阶段操作、审计、恢复边界与用户确认的生产结果。
 
 - [系列管理](./features/series-management.md)（current）：全宽系列列表与作品抽屉、统一增删排序草稿、虚拟列表与指纹保护的原子提交。
 

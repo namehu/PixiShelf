@@ -1,7 +1,7 @@
 ---
 status: current
 scope: GET/HEAD/POST /api/webhooks/scan 的认证、扫描入队、状态查询和调用示例
-last-verified: 2026-08-24
+last-verified: 2026-10-11
 sources:
   - ../app/api/webhooks/scan/route.ts
 ---
@@ -62,7 +62,17 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 
 ```json
 {
+  "code": 0,
+  "message": "",
+  "data": {
+    "queued": true,
+    "jobId": "cmsz...",
+    "scanRunId": "cmsz...",
+    "status": "PENDING",
+    "reused": false
+  },
   "success": true,
+  "errorCode": 0,
   "queued": true,
   "jobId": "cmsz...",
   "scanRunId": "cmsz...",
@@ -71,7 +81,9 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 }
 ```
 
-调用方必须使用返回的 `jobId` 查询最终状态，不能把 `202` 当作扫描已经完成。任务状态响应：
+新调用方从 `data.jobId` 读取任务；顶层 `queued/jobId/scanRunId/status/reused` 与 `success/errorCode` 保留用于兼容外部脚本。调用方必须查询最终状态，不能把 `202` 当作扫描已经完成。
+
+任务状态成功响应继续使用独立 `LegacyScanWebhookStatusResponse`，保留以下完整形状，不添加 `code`；`message/error` 是可空任务状态而非请求级错误，`data` 仍为统计：
 
 ```json
 {
@@ -113,27 +125,14 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 0 伪装“没有读取或变化”。旧调用方不需要读取这些字段，仍以 `status` 和既有结果字段判断终态。
 
 状态查询只允许读取由 Webhook 使用的 `SYSTEM + SCAN` 任务，不会返回其他后台任务的 payload 或内部结果。
-Dispatcher 未启用时，仅保留故障隔离所需的旧同步执行路径；它同样拒绝请求体中的 `force` 字段，但成功时使用历史 `200`
-响应：
+失败时 `code` 和 `errorCode` 等于 HTTP 状态，`message` 与兼容 `error` 一致；客户端先检查 HTTP 状态。未知服务端异常为通用 `Internal Server Error`、HTTP 500 和 `data: null`，不回显内部异常。普通失败响应示例：
 
 ```json
 {
-  "success": true,
-  "jobId": "clt...",
-  "data": {
-    "totalArtworks": 10,
-    "newArtworks": 2,
-    "newImages": 5,
-    ...
-  }
-}
-```
-
-普通失败响应：
-
-```json
-{
+  "code": 401,
+  "message": "错误信息",
   "success": false,
+  "errorCode": 401,
   "error": "错误信息"
 }
 ```
@@ -144,12 +143,17 @@ Dispatcher 未启用时，仅保留故障隔离所需的旧同步执行路径；
 {
   "code": 400,
   "message": "Invalid Request Parameters",
+  "data": { "details": "..." },
   "details": "...",
   "success": false,
   "errorCode": 400,
   "error": "Invalid Request Parameters"
 }
 ```
+
+无 `jobId` 的健康 GET 返回 `{ "code": 0, "message": "", "data": { "status": "ok" }, "success": true, "errorCode": 0 }`。HEAD 成功继续无正文返回 204。
+
+本次只扩展响应：POST 保留既有宽松 JSON 解析（声明 JSON 却无内容、非法 JSON 或部分非对象值仍可能使用默认值）。脚本应始终发送合法对象；明确 `{}` 是目录发现请求。迁移页面使用的 `/api/migration/stream` 则已采用 canonical 输入/错误契约，不适用 Webhook 兼容例外。
 
 常见状态码：
 

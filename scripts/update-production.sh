@@ -1,63 +1,43 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
-set -Eeuo pipefail
+set -euo pipefail
 
-SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
+# ================= 配置区域 =================
+SOURCE_DIR="${PIXIV_SOURCE_DIR:-$HOME/Downloads/pixiv}"
+BACKUP_DIR="${PIXIV_BACKUP_DIR:-/Volumes/Aria2/pixiv/}"
+CONVERT_DIR="${PIXIV_CONVERT_DIR:-$HOME/Downloads/zip-convert/}"
+META_OUTPUT_DIR="${PIXIV_META_OUTPUT_DIR:-$HOME/Desktop}"
 
-FORCE=false
-PULL_IMAGES=true
-COMPOSE_FILE="${PIXISHELF_COMPOSE_FILE:-}"
-ENV_FILE="${PIXISHELF_ENV_FILE:-}"
-WAIT_TIMEOUT_SECONDS="${PIXISHELF_UPDATE_WAIT_TIMEOUT_SECONDS:-180}"
-READY_POLL_SECONDS="${PIXISHELF_UPDATE_READY_POLL_SECONDS:-5}"
-PRE_UPDATE_HOOK="${PIXISHELF_PRE_UPDATE_HOOK:-}"
+WEBHOOK_URL="${PIXISHELF_SCAN_WEBHOOK_URL:-http://you-domain/api/webhooks/scan}"
+WEBHOOK_TOKEN="${PIXISHELF_SCAN_WEBHOOK_TOKEN:-${SCAN_WEBHOOK_TOKEN:-yourtoken}}"
+WEBHOOK_WAIT_TIMEOUT_SECONDS="${PIXISHELF_SCAN_WEBHOOK_TIMEOUT_SECONDS:-7200}"
+WEBHOOK_REQUEST_TIMEOUT_SECONDS="${PIXISHELF_SCAN_WEBHOOK_REQUEST_TIMEOUT_SECONDS:-60}"
+WEBHOOK_POLL_INTERVAL_SECONDS="${PIXISHELF_SCAN_WEBHOOK_POLL_INTERVAL_SECONDS:-3}"
 
-SCHEDULER_WAS_RUNNING=false
-SCHEDULER_STOPPED=false
-UPDATE_PHASE="preflight"
+DATE_STR=$(date +"%Y-%m-%d_%H-%M-%S")
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
 log_info() {
-  printf '[INFO] %s\n' "$*"
+  printf '%b\n' "${GREEN}[INFO] $1${NC}"
 }
 
 log_warn() {
-  printf '[WARN] %s\n' "$*" >&2
+  printf '%b\n' "${YELLOW}[WARN] $1${NC}"
 }
 
 log_error() {
-  printf '[ERROR] %s\n' "$*" >&2
-}
-
-usage() {
-  cat <<'EOF'
-Usage: sudo bash ./scripts/update-production.sh [options]
-
-Safely updates the PixiShelf App and general Worker as one release unit.
-
-Options:
-  --force                Continue even when executing background jobs exist.
-  --no-pull              Recreate services from already available local images.
-  --compose-file PATH    Override the production Compose file.
-  --env-file PATH        Override the Compose environment file.
-  -h, --help             Show this help.
-
-Environment:
-  PIXISHELF_COMPOSE_FILE
-  PIXISHELF_ENV_FILE
-  PIXISHELF_PRE_UPDATE_HOOK
-  PIXISHELF_UPDATE_WAIT_TIMEOUT_SECONDS     (default: 180)
-  PIXISHELF_UPDATE_READY_POLL_SECONDS       (default: 5)
-
-PIXISHELF_PRE_UPDATE_HOOK must name an executable backup/checkpoint script.
-It runs after all application writers stop and before the new App starts.
-EOF
+  printf '%b\n' "${RED}[ERROR] $1${NC}" >&2
 }
 
 require_command() {
-  local command_name="$1"
-  if ! command -v "$command_name" >/dev/null 2>&1; then
-    log_error "Missing required command: $command_name"
+  local cmd="$1"
+
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    log_error "缺少依赖命令: $cmd"
     exit 1
   fi
 }
@@ -65,324 +45,518 @@ require_command() {
 require_positive_integer() {
   local name="$1"
   local value="$2"
+
   if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
-    log_error "$name must be a positive integer; received: $value"
+    log_error "$name 必须是正整数，当前值: $value"
     exit 1
   fi
 }
 
-resolve_existing_file() {
-  local path_value="$1"
-  local resolved
-  if [[ "$path_value" = /* ]]; then
-    resolved="$path_value"
-  else
-    resolved="$(pwd)/$path_value"
+WEBHOOK_PAYLOAD_FILE=""
+WEBHOOK_RESPONSE_FILE=""
+
+cleanup() {
+  if [ -n "$WEBHOOK_PAYLOAD_FILE" ]; then
+    rm -f -- "$WEBHOOK_PAYLOAD_FILE"
   fi
-  if [ ! -f "$resolved" ]; then
-    log_error "File does not exist: $resolved"
-    exit 1
+
+  if [ -n "$WEBHOOK_RESPONSE_FILE" ]; then
+    rm -f -- "$WEBHOOK_RESPONSE_FILE"
   fi
-  printf '%s\n' "$resolved"
 }
 
-detect_compose_file() {
-  local candidate
-  for candidate in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
-    if [ -f "$(pwd)/$candidate" ]; then
-      printf '%s\n' "$(pwd)/$candidate"
-      return 0
-    fi
-  done
-  if [ -f "$REPO_ROOT/build/docker-compose.deploy.yml" ]; then
-    printf '%s\n' "$REPO_ROOT/build/docker-compose.deploy.yml"
-    return 0
-  fi
-  log_error "No production Compose file found. Use --compose-file or PIXISHELF_COMPOSE_FILE."
+trap cleanup EXIT
+
+# ================= 开始执行 =================
+
+for cmd in npm rsync node curl find sed mktemp date sleep rm mkdir ls; do
+  require_command "$cmd"
+done
+
+require_positive_integer \
+  "PIXISHELF_SCAN_WEBHOOK_TIMEOUT_SECONDS" \
+  "$WEBHOOK_WAIT_TIMEOUT_SECONDS"
+
+require_positive_integer \
+  "PIXISHELF_SCAN_WEBHOOK_REQUEST_TIMEOUT_SECONDS" \
+  "$WEBHOOK_REQUEST_TIMEOUT_SECONDS"
+
+require_positive_integer \
+  "PIXISHELF_SCAN_WEBHOOK_POLL_INTERVAL_SECONDS" \
+  "$WEBHOOK_POLL_INTERVAL_SECONDS"
+
+# 0. 检查源目录
+if [ ! -d "$SOURCE_DIR" ]; then
+  log_error "源目录不存在: $SOURCE_DIR"
   exit 1
-}
+fi
 
-service_exists() {
-  local service="$1"
-  "${COMPOSE[@]}" config --services | grep -Fxq "$service"
-}
+if [ -z "$(ls -A "$SOURCE_DIR")" ]; then
+  log_warn "源目录是空的，无需操作。"
+  exit 0
+fi
 
-service_is_running() {
-  local service="$1"
-  "${COMPOSE[@]}" ps --status running --services | grep -Fxq "$service"
-}
+# 0. 检查外部硬盘
+if [ ! -d "/Volumes/Aria2" ]; then
+  log_error "外部硬盘 /Volumes/Aria2 未挂载！请插入硬盘。"
+  exit 1
+fi
 
-executing_job_count() {
-  local sql raw count
-  sql="SELECT count(*) FROM system_jobs WHERE status IN ('RUNNING', 'PAUSING', 'CANCELLING');"
-  raw=$("${COMPOSE[@]}" exec -T postgres sh -c \
-    'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$1"' sh "$sql")
-  count=$(printf '%s' "$raw" | tr -d '[:space:]')
-  if [[ ! "$count" =~ ^[0-9]+$ ]]; then
-    log_error "Could not parse the executing background job count: $raw"
-    return 1
+# 0. 检查 Webhook Token
+if [ -z "$WEBHOOK_TOKEN" ]; then
+  log_error "未设置 Webhook Token。请配置 PIXISHELF_SCAN_WEBHOOK_TOKEN 或 SCAN_WEBHOOK_TOKEN。"
+  exit 1
+fi
+
+log_info "开始处理 Pixiv 下载流程..."
+
+# 1. 执行 APNG 转 WebM
+log_info "步骤 1/5: 执行 APNG 转 WebM..."
+
+cd "$CONVERT_DIR"
+npm run a2w
+
+# 2. 提取 Meta 文件路径
+log_info "步骤 2/5: 查找 Meta 文件并导出..."
+
+# 将输出目录转为绝对路径，日志显示实际保存位置。
+mkdir -p -- "$META_OUTPUT_DIR"
+META_OUTPUT_DIR=$(cd "$META_OUTPUT_DIR" && pwd -P)
+META_FILE="${META_OUTPUT_DIR}/meta_files_${DATE_STR}.txt"
+log_info "Meta 清单保存路径: $META_FILE"
+
+require_meta_list() {
+  if [ ! -f "$META_FILE" ]; then
+    log_error "Meta 清单不存在，停止执行，保留源目录: $META_FILE"
+    exit 1
   fi
-  printf '%s\n' "$count"
+  if [ ! -s "$META_FILE" ]; then
+    log_error "Meta 清单为空，停止执行，保留源目录: $META_FILE"
+    exit 1
+  fi
 }
 
-identity_retirement_state() {
-  local sql raw state has_artist
-  has_artist=$("${COMPOSE[@]}" exec -T postgres sh -c \
-    'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$1"' sh \
-    "SELECT CASE WHEN to_regclass(format('%I.%I', current_schema(), 'Artist')) IS NULL THEN 'no' ELSE 'yes' END;")
-  has_artist=$(printf '%s' "$has_artist" | tr -d '[:space:]')
-  if [ "$has_artist" = "no" ]; then
-    printf 'EMPTY\n'
-    return 0
-  fi
-  if [ "$has_artist" != "yes" ]; then
-    log_error "Could not inspect the Artist table: $has_artist"
-    return 1
-  fi
-  sql="WITH schema_state AS (
-    SELECT
-      (
-        SELECT count(*)
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND (
-            (table_name = 'Artist' AND column_name = 'userId')
-            OR (table_name = 'Artwork' AND column_name = 'seriesId')
-            OR (table_name = 'Series' AND column_name IN ('source', 'externalId'))
-          )
-      ) AS legacy_columns,
-      EXISTS (
-        SELECT 1 FROM \"_prisma_migrations\"
-        WHERE migration_name = '20260930121000_retire_series_legacy_fields'
-          AND finished_at IS NOT NULL
-          AND rolled_back_at IS NULL
-      ) AS migration_complete
+# -H 允许 SOURCE_DIR 本身是符号链接；末尾 / 确保读取目录内容。
+# 使用 Node 去除路径前缀，避免 sed 将目录中的特殊字符当作正则。
+if ! find -H "${SOURCE_DIR%/}/" -maxdepth 4 -type f \
+  \( -name "*-meta.json" -o -name "*-meta.txt" \) \
+  | node -e '
+const fs = require("fs")
+const prefix = process.argv[1].replace(/\/+$/, "") + "/"
+const paths = fs.readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean)
+for (const path of paths) {
+  if (!path.startsWith(prefix)) {
+    console.error("[ERROR] Meta 路径不属于源目录: " + path)
+    process.exit(1)
+  }
+}
+if (paths.length) process.stdout.write(paths.map(path => path.slice(prefix.length)).join("\n") + "\n")
+' "$SOURCE_DIR" > "$META_FILE"; then
+  log_error "生成 Meta 清单失败，停止执行，保留源目录: $META_FILE"
+  exit 1
+fi
+
+require_meta_list
+
+if ! META_COUNTS=$(node - "$META_FILE" <<'NODE'
+const fs = require('fs')
+const paths = fs.readFileSync(process.argv[2], 'utf8')
+  .split(/\r?\n/).map(line => line.trim()).filter(Boolean)
+const artworks = new Set()
+for (const path of paths) {
+  const match = path.match(/(?:^|\/)([0-9]+)(?:_p[0-9]+)?-meta\.(?:json|txt)$/)
+  if (!match) {
+    console.error(`[ERROR] 无法识别作品 ID，停止执行: ${path}`)
+    process.exit(1)
+  }
+  artworks.add(match[1])
+}
+if (!paths.length || !artworks.size) {
+  console.error('[ERROR] Meta 清单没有有效作品，停止执行')
+  process.exit(1)
+}
+process.stdout.write(`${paths.length}\t${artworks.size}`)
+NODE
+); then
+  log_error "统计 Meta 清单失败，停止执行，保留源目录。"
+  exit 1
+fi
+
+IFS=$'\t' read -r META_COUNT ARTWORK_COUNT <<< "$META_COUNTS"
+log_info "Meta 清单已生成: $META_FILE"
+log_info "本次作品数量: ${ARTWORK_COUNT}（按作品 ID 去重），Meta 文件数量: ${META_COUNT}"
+
+# 3. 执行 Rsync 备份
+log_info "步骤 3/5: 同步文件到 Aria2..."
+
+rsync -avh --progress "$SOURCE_DIR/" "$BACKUP_DIR"
+
+# 4. 安全删除
+# 同步完成后、清理源目录前，再次检查清单。
+require_meta_list
+log_info "步骤 4/5: 同步成功，正在清理源目录..."
+
+if [[ "$SOURCE_DIR" == *"/Downloads/pixiv"* && -n "$SOURCE_DIR" ]]; then
+  rm -rf -- "$SOURCE_DIR"
+  mkdir -p -- "$SOURCE_DIR"
+  log_info "清理完成！"
+else
+  log_error "路径校验失败，跳过删除操作以保护系统安全: $SOURCE_DIR"
+  exit 1
+fi
+
+# 5. 调用 Webhook，并在异步模式下轮询最终结果
+log_info "步骤 5/5: 调用 Webhook 执行扫描并等待结果..."
+
+require_meta_list
+
+WEBHOOK_PAYLOAD_FILE=$(mktemp)
+WEBHOOK_RESPONSE_FILE=$(mktemp)
+
+node - "$META_FILE" > "$WEBHOOK_PAYLOAD_FILE" <<'NODE'
+const fs = require('fs')
+
+const metaFile = process.argv[2]
+
+const metadataList = fs
+  .readFileSync(metaFile, 'utf8')
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter(Boolean)
+
+process.stdout.write(
+  JSON.stringify({
+    type: 'list',
+    metadataList
+  })
+)
+NODE
+
+# 提交扫描任务
+if ! HTTP_STATUS=$(curl \
+  -sS \
+  -m "$WEBHOOK_REQUEST_TIMEOUT_SECONDS" \
+  -o "$WEBHOOK_RESPONSE_FILE" \
+  -w "%{http_code}" \
+  -X POST "$WEBHOOK_URL" \
+  -H "Authorization: Bearer $WEBHOOK_TOKEN" \
+  -H "Content-Type: application/json" \
+  --data-binary "@$WEBHOOK_PAYLOAD_FILE"); then
+
+  log_error "Webhook 请求失败，请检查服务是否可达: $WEBHOOK_URL"
+  exit 1
+fi
+
+# 解析提交响应，同时兼容旧版同步响应
+PARSED_RESPONSE=$(node - "$WEBHOOK_RESPONSE_FILE" "$HTTP_STATUS" <<'NODE'
+const fs = require('fs')
+
+const responseFile = process.argv[2]
+const statusCode = Number(process.argv[3] || 0)
+const content = fs.readFileSync(responseFile, 'utf8').trim()
+
+function fail(message) {
+  console.error(`[ERROR] ${message}`)
+  process.exit(1)
+}
+
+function requiredNumber(value, name) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    fail(`Webhook 响应缺少有效字段 ${name}`)
+  }
+
+  return value
+}
+
+if (!content) {
+  fail(`Webhook 返回空响应，HTTP ${statusCode}`)
+}
+
+let data
+
+try {
+  data = JSON.parse(content)
+} catch {
+  fail(`Webhook 响应不是有效 JSON，HTTP ${statusCode}: ${content}`)
+}
+
+if (
+  !data ||
+  !data.success ||
+  statusCode < 200 ||
+  statusCode >= 300
+) {
+  fail(
+    `Webhook 扫描请求失败，HTTP ${statusCode}，error=${
+      data?.error || 'Unknown error'
+    }`
   )
-  SELECT CASE WHEN legacy_columns = 0 AND migration_complete THEN 'READY' ELSE 'PENDING' END
-  FROM schema_state;"
-  raw=$("${COMPOSE[@]}" exec -T postgres sh -c \
-    'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "$1"' sh "$sql")
-  state=$(printf '%s' "$raw" | tr -d '[:space:]')
-  if [[ "$state" != "EMPTY" && "$state" != "READY" && "$state" != "PENDING" ]]; then
-    log_error "Could not determine legacy identity retirement state: $raw"
-    return 1
-  fi
-  printf '%s\n' "$state"
 }
 
-restore_scheduler_after_preflight_abort() {
-  if [ "$SCHEDULER_WAS_RUNNING" = true ] && [ "$SCHEDULER_STOPPED" = true ]; then
-    log_info "Restoring scheduler after aborted preflight..."
-    "${COMPOSE[@]}" up -d scheduler
-    SCHEDULER_STOPPED=false
-  fi
+const jobId =
+  typeof data.jobId === 'string' && data.jobId
+    ? data.jobId
+    : '-'
+
+if (data.queued === true || statusCode === 202) {
+  if (jobId === '-') {
+    fail('Webhook 入队响应缺少 jobId')
+  }
+
+  const status =
+    typeof data.status === 'string' && data.status
+      ? data.status
+      : 'PENDING'
+
+  process.stdout.write(`QUEUED\t${jobId}\t${status}`)
+  process.exit(0)
 }
 
-abort_for_executing_jobs() {
-  local count="$1"
-  log_error "$count background job(s) are RUNNING, PAUSING, or CANCELLING."
-  log_error "Wait for a safe terminal state, or explicitly rerun with --force."
-  restore_scheduler_after_preflight_abort
-  exit 2
+const result = data.data
+
+if (!result || typeof result !== 'object') {
+  fail('Webhook 同步成功响应缺少 data')
 }
 
-wait_for_worker_ready() {
-  local started_at current_at elapsed output
-  started_at=$(date +%s)
+process.stdout.write(
+  [
+    'COMPLETED',
+    jobId,
+    'COMPLETED',
+    requiredNumber(
+      result.totalArtworks,
+      'data.totalArtworks'
+    ),
+    requiredNumber(
+      result.newArtworks,
+      'data.newArtworks'
+    ),
+    requiredNumber(
+      result.newImages,
+      'data.newImages'
+    )
+  ].join('\t')
+)
+NODE
+)
+
+IFS=$'\t' read -r \
+  RESPONSE_KIND \
+  JOB_ID \
+  JOB_STATUS \
+  VALUE_1 \
+  VALUE_2 \
+  VALUE_3 \
+  <<< "$PARSED_RESPONSE"
+
+# 旧版同步模式直接输出结果
+if [ "$RESPONSE_KIND" = "COMPLETED" ]; then
+  log_info "Webhook 同步扫描完成，jobId=${JOB_ID}，totalArtworks=${VALUE_1}，newArtworks=${VALUE_2}，newImages=$VALUE_3"
+else
+  log_info "Webhook 扫描任务已入队，jobId=${JOB_ID}，status=$JOB_STATUS"
+
+  POLL_STARTED_AT=$(date +%s)
+  LAST_STATE=""
+
   while true; do
-    if output=$("${COMPOSE[@]}" exec -T worker node dist/healthcheck.cjs --mode=ready 2>&1); then
-      printf '%s\n' "$output"
-      return 0
-    fi
-    current_at=$(date +%s)
-    elapsed=$((current_at - started_at))
-    if [ "$elapsed" -ge "$WAIT_TIMEOUT_SECONDS" ]; then
-      log_error "Worker did not become READY within ${WAIT_TIMEOUT_SECONDS}s."
-      printf '%s\n' "$output" >&2
-      return 1
-    fi
-    sleep "$READY_POLL_SECONDS"
-  done
-}
+    # 查询异步任务状态
+    if ! HTTP_STATUS=$(curl \
+      -sS \
+      -m "$WEBHOOK_REQUEST_TIMEOUT_SECONDS" \
+      -o "$WEBHOOK_RESPONSE_FILE" \
+      -w "%{http_code}" \
+      --get "$WEBHOOK_URL" \
+      -H "Authorization: Bearer $WEBHOOK_TOKEN" \
+      --data-urlencode "jobId=$JOB_ID"); then
 
-on_error() {
-  local exit_code=$?
-  trap - ERR
-  log_error "Production update failed during phase: $UPDATE_PHASE"
-  if [ "$SCHEDULER_STOPPED" = true ]; then
-    log_warn "Scheduler remains stopped to prevent new work until the failure is reviewed."
-  fi
-  if [ "${COMPOSE+x}" = x ]; then
-    "${COMPOSE[@]}" ps || true
-  fi
-  exit "$exit_code"
-}
-
-trap on_error ERR
-
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --force)
-      FORCE=true
-      shift
-      ;;
-    --no-pull)
-      PULL_IMAGES=false
-      shift
-      ;;
-    --compose-file)
-      if [ "$#" -lt 2 ]; then
-        log_error "--compose-file requires a path"
-        exit 1
-      fi
-      COMPOSE_FILE="$2"
-      shift 2
-      ;;
-    --env-file)
-      if [ "$#" -lt 2 ]; then
-        log_error "--env-file requires a path"
-        exit 1
-      fi
-      ENV_FILE="$2"
-      shift 2
-      ;;
-    -h | --help)
-      usage
-      exit 0
-      ;;
-    *)
-      log_error "Unknown option: $1"
-      usage >&2
+      log_error "Webhook 状态查询失败，jobId=$JOB_ID"
       exit 1
-      ;;
-  esac
-done
+    fi
 
-require_command docker
-require_command grep
-require_command tr
-require_command date
-require_command sleep
-require_positive_integer "PIXISHELF_UPDATE_WAIT_TIMEOUT_SECONDS" "$WAIT_TIMEOUT_SECONDS"
-require_positive_integer "PIXISHELF_UPDATE_READY_POLL_SECONDS" "$READY_POLL_SECONDS"
+    POLL_RESULT=$(node - "$WEBHOOK_RESPONSE_FILE" "$HTTP_STATUS" <<'NODE'
+const fs = require('fs')
 
-if [ -n "$PRE_UPDATE_HOOK" ] && [ ! -x "$PRE_UPDATE_HOOK" ]; then
-  log_error "PIXISHELF_PRE_UPDATE_HOOK is not executable: $PRE_UPDATE_HOOK"
-  exit 1
+const responseFile = process.argv[2]
+const statusCode = Number(process.argv[3] || 0)
+const content = fs.readFileSync(responseFile, 'utf8').trim()
+
+function fail(message) {
+  console.error(`[ERROR] ${message}`)
+  process.exit(1)
+}
+
+function clean(value) {
+  const text =
+    value === null ||
+    value === undefined ||
+    value === ''
+      ? '-'
+      : String(value)
+
+  return (
+    text
+      .replace(/[\t\r\n]+/g, ' ')
+      .trim() || '-'
+  )
+}
+
+function metric(value, name, required) {
+  if (
+    typeof value === 'number' &&
+    Number.isFinite(value)
+  ) {
+    return value
+  }
+
+  if (required) {
+    fail(
+      `Webhook 状态响应缺少有效字段 data.${name}`
+    )
+  }
+
+  return 0
+}
+
+if (!content) {
+  fail(
+    `Webhook 状态查询返回空响应，HTTP ${statusCode}`
+  )
+}
+
+let data
+
+try {
+  data = JSON.parse(content)
+} catch {
+  fail(
+    `Webhook 状态响应不是有效 JSON，HTTP ${statusCode}: ${content}`
+  )
+}
+
+if (
+  !data ||
+  !data.success ||
+  statusCode < 200 ||
+  statusCode >= 300
+) {
+  fail(
+    `Webhook 状态查询失败，HTTP ${statusCode}，error=${
+      data?.error || 'Unknown error'
+    }`
+  )
+}
+
+const status = clean(data.status)
+
+const result =
+  data.data &&
+  typeof data.data === 'object'
+    ? data.data
+    : {}
+
+const completed = status === 'COMPLETED'
+
+process.stdout.write(
+  [
+    status,
+    metric(data.progress, 'progress', false),
+    metric(
+      result.totalArtworks,
+      'totalArtworks',
+      completed
+    ),
+    metric(
+      result.processedArtworks,
+      'processedArtworks',
+      completed
+    ),
+    metric(
+      result.succeededArtworks,
+      'succeededArtworks',
+      completed
+    ),
+    metric(
+      result.skippedArtworks,
+      'skippedArtworks',
+      completed
+    ),
+    metric(
+      result.failedArtworks,
+      'failedArtworks',
+      completed
+    ),
+    metric(
+      result.newImages,
+      'newImages',
+      completed
+    ),
+    result.durationMs === null ||
+    result.durationMs === undefined
+      ? '-'
+      : clean(result.durationMs),
+    clean(data.error),
+    clean(data.message)
+  ].join('\t')
+)
+NODE
+)
+
+    IFS=$'\t' read -r \
+      JOB_STATUS \
+      JOB_PROGRESS \
+      TOTAL_ARTWORKS \
+      PROCESSED_ARTWORKS \
+      SUCCEEDED_ARTWORKS \
+      SKIPPED_ARTWORKS \
+      FAILED_ARTWORKS \
+      NEW_IMAGES \
+      DURATION_MS \
+      JOB_ERROR \
+      JOB_MESSAGE \
+      <<< "$POLL_RESULT"
+
+    case "$JOB_STATUS" in
+      COMPLETED)
+        log_info "Webhook 扫描完成，jobId=${JOB_ID}，totalArtworks=${TOTAL_ARTWORKS}，processedArtworks=${PROCESSED_ARTWORKS}，succeededArtworks=${SUCCEEDED_ARTWORKS}，skippedArtworks=${SKIPPED_ARTWORKS}，failedArtworks=${FAILED_ARTWORKS}，newImages=${NEW_IMAGES}，durationMs=$DURATION_MS"
+        break
+        ;;
+
+      FAILED | CANCELLED | SKIPPED)
+        log_error "Webhook 扫描未成功完成，jobId=${JOB_ID}，status=${JOB_STATUS}，error=$JOB_ERROR"
+        exit 1
+        ;;
+
+      PAUSED)
+        log_error "Webhook 扫描已暂停，需要管理员处理，jobId=${JOB_ID}，message=$JOB_MESSAGE"
+        exit 1
+        ;;
+
+      PENDING | RUNNING | PAUSING | RETRY_WAIT | CANCELLING)
+        CURRENT_STATE="${JOB_STATUS}:${JOB_PROGRESS}:${JOB_MESSAGE}"
+
+        if [ "$CURRENT_STATE" != "$LAST_STATE" ]; then
+          log_info "等待扫描完成，jobId=${JOB_ID}，status=${JOB_STATUS}，progress=${JOB_PROGRESS}%，message=$JOB_MESSAGE"
+          LAST_STATE="$CURRENT_STATE"
+        fi
+        ;;
+
+      *)
+        log_error "Webhook 返回未知任务状态，jobId=${JOB_ID}，status=$JOB_STATUS"
+        exit 1
+        ;;
+    esac
+
+    CURRENT_EPOCH=$(date +%s)
+    ELAPSED_SECONDS=$((CURRENT_EPOCH - POLL_STARTED_AT))
+
+    if [ "$ELAPSED_SECONDS" -ge "$WEBHOOK_WAIT_TIMEOUT_SECONDS" ]; then
+      log_error "等待扫描结果超时，jobId=${JOB_ID}，已等待 ${ELAPSED_SECONDS} 秒"
+      exit 1
+    fi
+
+    sleep "$WEBHOOK_POLL_INTERVAL_SECONDS"
+  done
 fi
 
-if [ -n "$COMPOSE_FILE" ]; then
-  COMPOSE_FILE=$(resolve_existing_file "$COMPOSE_FILE")
-else
-  COMPOSE_FILE=$(detect_compose_file)
-fi
-
-COMPOSE_DIRECTORY=$(cd -- "$(dirname -- "$COMPOSE_FILE")" && pwd)
-if [ -n "$ENV_FILE" ]; then
-  ENV_FILE=$(resolve_existing_file "$ENV_FILE")
-elif [ -f "$COMPOSE_DIRECTORY/.env" ]; then
-  ENV_FILE="$COMPOSE_DIRECTORY/.env"
-else
-  log_error "No Compose environment file found beside $COMPOSE_FILE. Use --env-file or PIXISHELF_ENV_FILE."
-  exit 1
-fi
-
-COMPOSE=(docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
-
-"${COMPOSE[@]}" version >/dev/null
-for required_service in postgres app worker; do
-  if ! service_exists "$required_service"; then
-    log_error "Required service is missing from Compose: $required_service"
-    exit 1
-  fi
-done
-
-if service_exists scheduler && service_is_running scheduler; then
-  SCHEDULER_WAS_RUNNING=true
-fi
-
-log_info "Compose file: $COMPOSE_FILE"
-log_info "Environment file: $ENV_FILE"
-
-IDENTITY_RETIREMENT_STATE=$(identity_retirement_state)
-if [ "$IDENTITY_RETIREMENT_STATE" = "PENDING" ]; then
-  log_error "This database must complete the legacy identity maintenance flow before the normal update script can run."
-  log_error "Use the new App image to run retire-legacy-fields audit, prepare, and upgrade while all writers remain stopped."
-  log_error "--force does not bypass this database migration boundary."
-  exit 2
-fi
-
-EXECUTING_JOBS=$(executing_job_count)
-if [ "$EXECUTING_JOBS" -gt 0 ] && [ "$FORCE" = false ]; then
-  abort_for_executing_jobs "$EXECUTING_JOBS"
-fi
-if [ "$EXECUTING_JOBS" -gt 0 ]; then
-  log_warn "--force accepted: $EXECUTING_JOBS executing job(s) will be interrupted through the Worker drain path."
-fi
-
-if [ "$PULL_IMAGES" = true ]; then
-  UPDATE_PHASE="pull-images"
-  log_info "Pulling App and Worker images before the downtime window..."
-  "${COMPOSE[@]}" pull app worker
-else
-  log_warn "--no-pull accepted: using images already present on this host."
-fi
-
-if [ "$SCHEDULER_WAS_RUNNING" = true ]; then
-  UPDATE_PHASE="stop-scheduler"
-  log_info "Stopping scheduler..."
-  "${COMPOSE[@]}" stop scheduler
-  SCHEDULER_STOPPED=true
-fi
-
-# Recheck after image pulling closes the normal scheduler race before writers stop.
-EXECUTING_JOBS=$(executing_job_count)
-if [ "$EXECUTING_JOBS" -gt 0 ] && [ "$FORCE" = false ]; then
-  abort_for_executing_jobs "$EXECUTING_JOBS"
-fi
-
-UPDATE_PHASE="stop-writers"
-log_info "Stopping App and Worker..."
-"${COMPOSE[@]}" stop app worker
-
-if [ -n "$PRE_UPDATE_HOOK" ]; then
-  UPDATE_PHASE="pre-update-hook"
-  log_info "Running the configured backup/checkpoint hook..."
-  "$PRE_UPDATE_HOOK"
-else
-  log_warn "No PIXISHELF_PRE_UPDATE_HOOK is configured. This script does not create the required database/media checkpoint."
-fi
-
-UPDATE_PHASE="start-app"
-log_info "Starting App first so prisma migrate deploy completes before Worker startup..."
-"${COMPOSE[@]}" up -d --force-recreate --wait --wait-timeout "$WAIT_TIMEOUT_SECONDS" app
-
-UPDATE_PHASE="start-worker"
-log_info "Starting the general Worker..."
-"${COMPOSE[@]}" up -d --force-recreate --wait --wait-timeout "$WAIT_TIMEOUT_SECONDS" worker
-
-UPDATE_PHASE="worker-ready"
-log_info "Waiting for Worker READY state..."
-wait_for_worker_ready
-
-UPDATE_PHASE="capability-audit"
-log_info "Verifying Worker capabilities..."
-"${COMPOSE[@]}" exec -T worker node dist/capability-audit.cjs
-
-if [ "$SCHEDULER_WAS_RUNNING" = true ]; then
-  UPDATE_PHASE="restore-scheduler"
-  log_info "Restoring scheduler..."
-  "${COMPOSE[@]}" up -d scheduler
-  SCHEDULER_STOPPED=false
-fi
-
-UPDATE_PHASE="final-verification"
-log_info "Updated image inventory:"
-"${COMPOSE[@]}" images app worker
-log_info "Final service state:"
-"${COMPOSE[@]}" ps
-log_info "Recent App and Worker logs:"
-"${COMPOSE[@]}" logs --tail=100 app worker
-
-trap - ERR
-log_info "PixiShelf production update completed successfully."
+printf '%s\n' '------------------------------------------------'
+log_info "🎉 所有操作执行完毕！"

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z, ZodError, ZodSchema } from 'zod'
 import logger from '@/lib/logger'
+import type { ApiResponse, CompatibleApiFailure } from '@/types/http-response'
 
 // 定义通用的 Context 类型 (Next.js 15+ params 是 Promise)
 interface RouteContext {
@@ -17,30 +18,30 @@ type AppRouteHandler<T, TResult> = (
   context: RouteContext
 ) => Promise<TResult | Response>
 
-export interface ApiHandlerResponse<T = unknown> {
-  code: number
-  message: string
-  data?: T
-}
+export type ApiHandlerResponse<T = unknown> = ApiResponse<T>
 
 interface ApiHandlerOptions {
-  // 未迁移的 webhook/migration 消费者仍依赖旧字段；仅显式迁移的路由关闭别名。
-  responseContract?: 'legacy' | 'canonical'
+  // Webhook 外部脚本仍依赖别名及原有请求解析；迁移响应时保留这两项兼容行为。
+  responseContract?: 'compatible' | 'canonical'
+}
+
+export function responseFailure(status: number, message: string, data?: unknown, compatible = false) {
+  const payload: ApiResponse = { code: status, message }
+  if (data !== undefined) payload.data = data
+  const body: ApiResponse | CompatibleApiFailure = compatible
+    ? { ...payload, success: false, errorCode: status, error: message }
+    : payload
+  return NextResponse.json(body, { status })
 }
 
 export function apiHandler<T extends ZodSchema, TResult>(
   schema: T,
   handler: AppRouteHandler<z.infer<T>, TResult>,
-  { responseContract = 'legacy' }: ApiHandlerOptions = {}
+  { responseContract = 'canonical' }: ApiHandlerOptions = {}
 ) {
   const canonical = responseContract === 'canonical'
   const failure = (status: number, message: string, data?: unknown) => {
-    const payload: ApiHandlerResponse = { code: status, message }
-    if (data !== undefined) payload.data = data
-    return NextResponse.json(
-      canonical ? payload : { ...payload, success: false, errorCode: status, error: message },
-      { status }
-    )
+    return responseFailure(status, message, data, !canonical)
   }
   return async (req: NextRequest, context: RouteContext) => {
     try {
@@ -98,6 +99,7 @@ export function apiHandler<T extends ZodSchema, TResult>(
           {
             code: 400,
             message: 'Invalid Request Parameters',
+            data: { details: z.prettifyError(err) },
             details: z.prettifyError(err),
             success: false,
             errorCode: 400,

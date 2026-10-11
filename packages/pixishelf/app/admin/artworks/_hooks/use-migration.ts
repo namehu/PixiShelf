@@ -4,6 +4,7 @@ import { useTRPCClient } from '@/lib/trpc'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { useLogger } from '@/hooks/use-logger'
 import { create } from 'zustand'
+import { readApiErrorMessage } from '@/lib/api-error-message'
 
 /**
  * 迁移相关类型
@@ -319,8 +320,7 @@ export function useMigration(): {
               setError(null)
               return
             } else if (response.status >= 400 && response.status < 500 && response.status !== 429) {
-              const errorText = await response.text()
-              throw new FatalError(errorText)
+              throw new FatalError(await readApiErrorMessage(response, `迁移请求失败 (${response.status})`))
             }
           },
 

@@ -13,7 +13,7 @@
 ## P2：类型与质量门禁
 
 - [ ] API response 类型统一
-  - 剩余范围：迁移 apiHandler 的 Webhook/migration legacy 消费者，再评估更广泛 API（含 api-response.ts）的失败响应。scan/rescan 已采用 code/message/data 契约，细节见 docs/security/access-control.md。
+  - 剩余范围：Webhook GET 状态成功 DTO（保留任务 message/error 和 data 统计，需先规划外部版本协商）；lib/api-response.ts 的媒体上传/分块、替换与 scheduler 按路由和消费者逐对迁移。接口边界见[权限与接口边界](../docs/security/access-control.md)。
   - 验收：
     - 前端调用能拿到明确类型；
     - 错误 response 包含稳定的 `message`；

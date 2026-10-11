@@ -1,4 +1,6 @@
-import { apiHandler } from '@/lib/api-handler'
+import { apiHandler, responseFailure } from '@/lib/api-handler'
+import type { CompatibleApiSuccess } from '@/types/http-response'
+import type { LegacyScanWebhookStatusResponse } from '@/types/scan-webhook'
 import logger from '@/lib/logger'
 import { prisma } from '@/lib/prisma'
 import { ScanStreamSchema, ScanWebhookJobQuerySchema } from '@/schemas/scan.dto'
@@ -12,17 +14,14 @@ function validateWebhookAuth(req: Request) {
   const expectedToken = process.env.SCAN_WEBHOOK_TOKEN
   if (!expectedToken) {
     logger.warn('Webhook scan attempted but SCAN_WEBHOOK_TOKEN is not set')
-    return NextResponse.json(
-      { success: false, error: 'Webhook service is not configured (SCAN_WEBHOOK_TOKEN missing)' },
-      { status: 503 }
-    )
+    return responseFailure(503, 'Webhook service is not configured (SCAN_WEBHOOK_TOKEN missing)', undefined, true)
   }
   if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    return responseFailure(401, 'Unauthorized', undefined, true)
   }
   return null
 }
-export async function GET(req: Request) {
+async function getWebhookResponse(req: Request) {
   const authError = validateWebhookAuth(req)
   if (authError) return authError
   const url = new URL(req.url)
@@ -30,7 +29,7 @@ export async function GET(req: Request) {
   if (url.searchParams.has('jobId')) {
     const query = ScanWebhookJobQuerySchema.safeParse({ jobId: url.searchParams.get('jobId') })
     if (!query.success) {
-      return NextResponse.json({ success: false, error: 'Invalid jobId' }, { status: 400 })
+      return responseFailure(400, 'Invalid jobId', undefined, true)
     }
     const job = await prisma.systemJob.findFirst({
       where: {
@@ -76,9 +75,9 @@ export async function GET(req: Request) {
       }
     })
     if (!job?.scanRun) {
-      return NextResponse.json({ success: false, error: 'Scan job not found' }, { status: 404 })
+      return responseFailure(404, 'Scan job not found', undefined, true)
     }
-    return NextResponse.json({
+    return NextResponse.json<LegacyScanWebhookStatusResponse>({
       success: true,
       jobId: job.id,
       scanRunId: job.scanRun.id,
@@ -112,12 +111,23 @@ export async function GET(req: Request) {
       }
     })
   }
-  return NextResponse.json({
+  return NextResponse.json<CompatibleApiSuccess<{ status: 'ok' }>>({
+    code: 0,
+    message: '',
     success: true,
+    errorCode: 0,
     data: {
       status: 'ok'
     }
   })
+}
+export async function GET(req: Request) {
+  try {
+    return await getWebhookResponse(req)
+  } catch (error) {
+    logger.error('Webhook scan status failed:', error)
+    return responseFailure(500, 'Internal Server Error', null, true)
+  }
 }
 export async function HEAD(req: Request) {
   const authError = validateWebhookAuth(req)
@@ -127,21 +137,29 @@ export async function HEAD(req: Request) {
 /**
  * POST /api/webhooks/scan
  * 使用 Bearer Token 认证通过 Webhook 触发扫描
- * 在中央调度切换开启时，保持 202 入队语义：本接口只确认提交成功，不代表扫描已执行完成
+ * 保持 202 入队语义：本接口只确认提交成功，不代表扫描已执行完成
  */
-export const POST = apiHandler(ScanStreamSchema, async (req, data) => {
-  const authError = validateWebhookAuth(req)
-  if (authError) return authError
-  const { type, metadataList } = data
-  {
-    // Central Dispatcher 下，排队行为是幂等可重试的；scan 直接执行已迁移到中央服务完成，避免本地阻塞超时
-    const queued = await runBackgroundTaskApi(() =>
-      enqueueCentralScan({
-        triggerSource: 'SYSTEM',
-        type: type === 'list' ? 'list' : 'all',
-        metadataList
-      })
-    )
-    return NextResponse.json({ success: true, queued: true, ...queued }, { status: 202 })
-  }
-})
+export const POST = apiHandler(
+  ScanStreamSchema,
+  async (req, data) => {
+    const authError = validateWebhookAuth(req)
+    if (authError) return authError
+    const { type, metadataList } = data
+    {
+      // Central Dispatcher 下，排队行为是幂等可重试的；scan 直接执行已迁移到中央服务完成，避免本地阻塞超时
+      const queued = await runBackgroundTaskApi(() =>
+        enqueueCentralScan({
+          triggerSource: 'SYSTEM',
+          type: type === 'list' ? 'list' : 'all',
+          metadataList
+        })
+      )
+      const result = { queued: true as const, ...queued }
+      return NextResponse.json<CompatibleApiSuccess<typeof result> & typeof result>(
+        { code: 0, message: '', data: result, success: true, errorCode: 0, ...result },
+        { status: 202 }
+      )
+    }
+  },
+  { responseContract: 'compatible' }
+)
