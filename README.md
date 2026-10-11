@@ -204,11 +204,9 @@ CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类�
 
 生产只有一个通用 Worker 服务。它允许一项归档 URL 解析与一项 writer 工作同时推进，但所有媒体写仍在 writer lane 全局串行。执行 lane migration 前必须停止写入者、运行专用 audit 并建立数据库与媒体一致性检查点；迁移后不能启动旧消费者。
 
-日常更新可以使用一键脚本，它会按独立 migration → Worker READY/capability → App 的顺序更新同一版本的两个镜像，并在存在执行中任务时默认拒绝操作：
+镜像升级按[部署基线的手动流程](./docs/operations/deployment.md#标准生产升级手动流程)执行。
 
-```bash
-sudo bash ./scripts/update-production.sh
-```
+`scripts/update-production.sh` 是实例的 Pixiv 转换、元数据清单、rsync、清理与 Webhook 扫描脚本，不用于升级镜像。涉及首次迁移或专用发布门禁时，仍须执行部署基线中的对应流程。
 
 升级、消费者启停、验证和回滚入口见：
 

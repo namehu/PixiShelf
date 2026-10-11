@@ -182,25 +182,6 @@ describe('Worker deployment boundary', () => {
     expect(runbook).toContain('node dist/capability-audit.cjs')
   })
 
-  it('starts the App migration owner before Worker readiness and the capability gate', () => {
-    const updateScript = readFileSync(new URL('scripts/update-production.sh', repositoryRoot), 'utf8')
-    const appEntrypoint = readFileSync(new URL('build/entrypoint.sh', repositoryRoot), 'utf8')
-    const webDockerfile = readFileSync(new URL('build/Dockerfile', repositoryRoot), 'utf8')
-    const app = updateScript.indexOf('UPDATE_PHASE="start-app"')
-    const worker = updateScript.indexOf('UPDATE_PHASE="start-worker"')
-    const workerReady = updateScript.indexOf('UPDATE_PHASE="worker-ready"')
-    const capability = updateScript.indexOf('UPDATE_PHASE="capability-audit"')
-
-    expect(webDockerfile).toContain('ENTRYPOINT ["/app/entrypoint.sh"]')
-    expect(appEntrypoint).toContain('prisma migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma')
-    expect(updateScript).toContain('up -d --force-recreate --wait --wait-timeout "$WAIT_TIMEOUT_SECONDS" app')
-    expect(updateScript).not.toContain('run --rm --no-deps --entrypoint prisma app')
-    expect(app).toBeGreaterThan(-1)
-    expect(app).toBeLessThan(worker)
-    expect(worker).toBeLessThan(workerReady)
-    expect(workerReady).toBeLessThan(capability)
-  })
-
   it('guards normal App startup before migration while allowing the maintenance CLI to run directly', () => {
     const appEntrypoint = readFileSync(new URL('build/entrypoint.sh', repositoryRoot), 'utf8')
     const webDockerfile = readFileSync(new URL('build/Dockerfile', repositoryRoot), 'utf8')

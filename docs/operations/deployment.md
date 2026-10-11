@@ -9,7 +9,6 @@ sources:
   - build/Dockerfile
   - build/worker.Dockerfile
   - build/entrypoint.sh
-  - scripts/update-production.sh
 ---
 
 # PixiShelf 部署基线
@@ -110,7 +109,7 @@ Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置
 - 阅读目标版本 migration，确认是否存在不可逆数据变更；
 - 对执行 lane 迁移运行 `archive:lane-cutover-audit`，阻断执行中的任务、活跃旧全局 lease、新鲜旧 Worker、执行中归档和新 Worker 不支持的等待任务。
 - 安装不再支持 `FULL_RECONCILE` 的 Worker 前，使用下文的只读数据库命令确认该 payload 在所有非终态状态中的
-  数量为零；这个一次性 contract 门禁由发布人员执行，不扩展通用升级脚本，也不可用 `--force` 绕过。
+  数量为零；这个一次性 contract 门禁由发布人员执行，不可跳过。
 - 在应用 lane migration 前移除同一 Compose project 中的 orphan 服务，并用容器标签确认旧 `archive-worker` 容器数量为零。数据库审计无法发现仍存活但空闲的旧消费者，不能替代这项容器门禁。
 
 备份位置、校验值和镜像 digest 必须记录在本次发布记录中。“命令成功”不能代替恢复验证。
@@ -133,42 +132,13 @@ Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置
 5. 再用少量作品验证“刷新已有资料”，确认标题和描述会采用 Pixiv 当前值，同时任务期间的新人工编辑不会被覆盖；
 6. 上述证据通过后，才启动全部未检查作品。刷新全部会逐项处理所有有效 Pixiv 身份，可能持续较长时间，但 writer lane 并发仍为 1。
 
-## 一键生产升级
+## 生产升级门禁
 
-**包含旧身份字段清理的首次升级须先执行[专用检查与升级流程](../features/legacy-identity-retirement.md)。** 普通 App 启动会阻止已有旧字段数据库直接迁移；`--force` 不授权跳过本次检查。完成专用升级后，后续正常版本继续使用下方一键脚本。
+**包含旧身份字段清理的首次升级须先执行[专用检查与升级流程](../features/legacy-identity-retirement.md)。** 普通 App 启动会阻止已有旧字段数据库直接迁移；完成专用升级后，后续正常版本按下方手动流程执行。
 
-日常生产升级优先使用仓库内的一键脚本。它先检查数据库和执行中的后台任务，拉取 App/Worker 镜像并停止写入者；由 App 启动入口完成 migration，再启动 Worker，通过 READY/capability 门禁后恢复原本运行的 scheduler。脚本只显式编排 `app`、`worker` 和可选 `scheduler`。
+`scripts/update-production.sh` 是实例的 Pixiv 转换、元数据清单、rsync、清理与 Webhook 扫描入口，不编排 Compose。镜像升级须执行下方手动流程及对应版本的专用门禁。
 
-从部署目录执行：
-
-```bash
-sudo bash ./scripts/update-production.sh
-```
-
-脚本优先使用当前目录的 `docker-compose.yml` / `compose.yml`；在仓库根目录执行且没有默认 Compose 文件时，会自动使用 `build/docker-compose.deploy.yml` 和同目录 `.env`。也可以显式指定：
-
-```bash
-sudo bash ./scripts/update-production.sh \
-  --compose-file build/docker-compose.deploy.yml \
-  --env-file build/.env
-```
-
-默认行为和参数：
-
-- 查询 `system_jobs`，发现 `RUNNING`、`PAUSING` 或 `CANCELLING` 时拒绝升级；`--force` 明确允许通过 Worker drain 路径中断这些任务；
-- 默认同时拉取 `app` 和 `worker`；`--no-pull` 仅用宿主机已有镜像强制重建；
-- 记录 scheduler 原始状态，只在升级前本来就在运行时恢复它；
-- 任一 migration、健康检查、READY 或 capability 门禁失败时保持 scheduler 停止，不自动假装回滚成功；
-- `--wait` 只能证明容器 healthcheck 通过，脚本还会额外执行 Worker READY 和 capability audit。
-
-发布前一致性备份仍是独立门禁，不能由“镜像更新成功”替代。可以把实例自己的 PostgreSQL dump、NAS 原媒体快照、派生媒体快照和清单校验封装成可执行文件，再作为停写窗口内的 Hook：
-
-```bash
-sudo PIXISHELF_PRE_UPDATE_HOOK=/absolute/path/pixishelf-backup-checkpoint.sh \
-  bash ./scripts/update-production.sh
-```
-
-未配置 Hook 时脚本会明确警告，但不会伪造备份证据。完整备份集合和验证要求仍以[备份与恢复基线](./backup-and-recovery.md)为准。
+发布前须在停写窗口建立数据库、媒体、配置和镜像的一致性检查点，要求见[备份与恢复基线](./backup-and-recovery.md)。任一 migration、健康检查、READY 或 capability 门禁失败时，保持 scheduler 停止并排查；容器健康不能替代 Worker READY 和 capability audit。
 
 ### 退役 FULL contract 审计
 
@@ -190,8 +160,7 @@ sudo docker compose \
 ```
 
 结果必须是 `(0 rows)`。终态 `COMPLETED / FAILED / CANCELLED / SKIPPED` 记录无需删除，它们继续用于历史展示。
-如果存在非终态记录，先保持旧 Worker，逐项确认后完成或取消；不得直接改 payload、伪造终态或用
-`--force` 跳过。确认结果为零后应立即执行升级；通用升级脚本不会代替这项版本专用审计。
+如果存在非终态记录，先保持旧 Worker，逐项确认后完成或取消；不得直接改 payload、伪造终态或跳过审计。确认结果为零后应立即执行升级。
 
 ### 静音音轨语义迁移与一次性校准
 
