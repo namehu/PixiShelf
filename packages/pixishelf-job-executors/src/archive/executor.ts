@@ -1,3 +1,4 @@
+import { assertArchiveImportNotDeleted } from './deletion-policy.ts'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
   extractJobDiagnostic,
@@ -278,6 +279,7 @@ async function startArchiveImport(
     if (!archiveImport || archiveImport.systemJobId !== context.job.id) {
       throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入载荷未绑定到当前任务')
     }
+    await assertArchiveImportNotDeleted(transaction, archiveImport)
     // 优先尊重 cleanupRequestedAt 门禁：清理未完成前不得再次启动下载流程，否则状态与文件会互相覆盖。
     if (archiveImport.cleanupRequestedAt) throw new ArchiveCleanupRequestedError()
     if (!['PENDING', 'RUNNING'].includes(archiveImport.status)) {

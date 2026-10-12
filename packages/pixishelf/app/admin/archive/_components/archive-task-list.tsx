@@ -210,9 +210,13 @@ function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
   const displayStatus = archiveTaskDisplayStatus(task)
   return (
     <div className="flex flex-col items-start gap-1">
-      <AdminStatusBadge status={displayStatus}>
-        {archiveTaskStatusLabel(displayStatus, task.errorCode)}
-      </AdminStatusBadge>
+      {task.publishedArtworkDeletedAt || task.publishedArtwork?.deletedAt ? (
+        <span className="text-sm text-muted-foreground">已删除</span>
+      ) : (
+        <AdminStatusBadge status={displayStatus}>
+          {archiveTaskStatusLabel(displayStatus, task.errorCode)}
+        </AdminStatusBadge>
+      )}
       {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
         <span className="text-xs text-warning">可按原质量继续，或在操作中改用展示质量</span>
       )}

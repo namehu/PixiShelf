@@ -5,7 +5,7 @@ const stateSchema = z.object({
   savedAt: z.number(),
   sourceFilter: z.string(),
   selectedSourceId: z.string().nullable(),
-  resultFeed: z.enum(['ACTIONABLE', 'PROCESSING', 'ARCHIVED', 'ATTENTION', 'ALL']),
+  resultFeed: z.enum(['ACTIONABLE', 'PROCESSING', 'ARCHIVED', 'DELETED', 'ATTENTION', 'ALL']),
   unboundOnly: z.boolean(),
   // Accepted for old snapshots only; display preferences belong to localStorage.
   resultView: z.enum(['list', 'preview', 'cards']).optional(),

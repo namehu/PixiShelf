@@ -73,13 +73,21 @@ export function formatArchiveUploaderTimestamp(value: Date | string) {
 }
 
 export function archiveUploaderCatalogViewCount(
-  counts: { actionable: number; processing: number; archived: number; attention: number; total: number },
-  view: 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'ATTENTION' | 'ALL'
+  counts: {
+    actionable: number
+    processing: number
+    archived: number
+    deleted?: number
+    attention: number
+    total: number
+  },
+  view: 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'DELETED' | 'ATTENTION' | 'ALL'
 ) {
   return {
     ACTIONABLE: counts.actionable,
     PROCESSING: counts.processing,
     ARCHIVED: counts.archived,
+    DELETED: counts.deleted ?? 0,
     ATTENTION: counts.attention,
     ALL: counts.total
   }[view]

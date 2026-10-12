@@ -167,6 +167,25 @@ async function finalizeResolved(
     include: { submission: { select: { requestedByUserId: true } } }
   })
   const automatic = intake.downloadMode === 'AUTO'
+  const deletion = await scope.transaction.archiveDeletedIdentity.findUnique({
+    where: { providerKey_externalId: { providerKey: resolved.providerKey, externalId: resolved.externalId } }
+  })
+  if (deletion && (automatic || !deletion.purgedAt || intake.createdAt <= deletion.purgedAt)) {
+    await scope.transaction.archiveIntakeItem.update({
+      where: { id: intake.id },
+      data: {
+        status: 'SKIPPED',
+        providerKey: resolved.providerKey,
+        externalId: resolved.externalId,
+        errorCode: 'ARCHIVE_DELETED',
+        errorMessage: '该作品已删除，文件清理完成后请手动重新提交归档',
+        retryable: false,
+        finishedAt: resolvedAt
+      }
+    })
+    await scope.complete({ result: { intakeItemId: intake.id, status: 'SKIPPED' }, message: '已跳过已删除作品' })
+    return
+  }
   const [existingReference, activeImport, duplicateItem] = await Promise.all([
     scope.transaction.artworkExternalRef.findUnique({
       where: {

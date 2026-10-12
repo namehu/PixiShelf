@@ -683,16 +683,14 @@ describe('archive uploader service', () => {
     const deleteMany = vi.fn(async () => ({ count: 1 }))
     const database = {
       archiveUploaderCatalogItem: {
-        findMany: vi
-          .fn()
-          .mockResolvedValue([
-            {
-              id: 'catalog-302',
-              providerKey: 'e-hentai',
-              externalId: '302',
-              canonicalUrl: 'https://e-hentai.org/g/302/token/'
-            }
-          ])
+        findMany: vi.fn().mockResolvedValue([
+          {
+            id: 'catalog-302',
+            providerKey: 'e-hentai',
+            externalId: '302',
+            canonicalUrl: 'https://e-hentai.org/g/302/token/'
+          }
+        ])
       },
       archiveUploaderIgnoredItem: {
         findMany: vi.fn(async () => [
@@ -1036,6 +1034,7 @@ describe('archive uploader service', () => {
 
 function transactionalDatabase<T extends object>(delegates: T) {
   const defaults = {
+    archiveDeletedIdentity: { findMany: vi.fn(async () => []) },
     artworkExternalRef: { findMany: vi.fn(async () => []) },
     archiveIntakeItem: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
     archiveImport: { findFirst: vi.fn(async () => null) },

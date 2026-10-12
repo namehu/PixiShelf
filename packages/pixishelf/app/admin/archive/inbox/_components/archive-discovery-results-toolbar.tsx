@@ -6,12 +6,13 @@ import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferen
 import { ArchiveIntakeOptionsDialog, type ArchiveIntakeOptionsValue } from './archive-intake-options'
 import { ArchiveUploaderResultViewToggle } from './archive-uploader-result-visuals'
 
-export type ArchiveDiscoveryCatalogView = 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'ATTENTION' | 'ALL'
+export type ArchiveDiscoveryCatalogView = 'ACTIONABLE' | 'PROCESSING' | 'ARCHIVED' | 'DELETED' | 'ATTENTION' | 'ALL'
 
 const RESULT_FEEDS: Array<{ value: ArchiveDiscoveryCatalogView; label: string }> = [
   { value: 'ACTIONABLE', label: '待处理' },
   { value: 'PROCESSING', label: '处理中' },
   { value: 'ARCHIVED', label: '已归档' },
+  { value: 'DELETED', label: '已删除' },
   { value: 'ATTENTION', label: '异常' },
   { value: 'ALL', label: '全部' }
 ]

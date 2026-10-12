@@ -70,6 +70,15 @@ export async function enqueueArchiveIntakeItemInTransaction(
   // runArchiveBulkOperation 已先取得稳定 target lock；随后统一取得 publish lock，保持
   // target -> publish 的固定顺序，并与 trash/restore/publication 串行化身份与生命周期裁决。
   await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+  const deletion = await transaction.archiveDeletedIdentity.findUnique({
+    where: { providerKey_externalId: { providerKey: item.providerKey, externalId: item.externalId } }
+  })
+  if (
+    deletion &&
+    (options.autoOnly || item.downloadMode === 'AUTO' || !deletion.purgedAt || item.createdAt <= deletion.purgedAt)
+  ) {
+    return { result: 'CONFLICT', code: 'ARCHIVE_DELETED', message: '该作品已删除，文件清理完成后请手动重新提交归档' }
+  }
   const active = await findActiveImport(transaction, item.providerKey, item.externalId)
   if (active) {
     // 同一作品已有活动归档任务时，入队动作复用已有任务而不是创建重复任务。

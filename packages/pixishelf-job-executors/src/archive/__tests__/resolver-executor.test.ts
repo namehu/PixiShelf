@@ -35,6 +35,29 @@ const resolved: ResolvedArchive = {
 }
 
 describe('archive resolver executor', () => {
+  it.each(['AUTO', 'MANUAL'] as const)(
+    'skips a deleted archive during its retention window in %s mode',
+    async (downloadMode) => {
+      const fixture = createFixture({
+        providerResolve: vi.fn(async () => resolved),
+        downloadMode,
+        deletion: { purgedAt: null }
+      })
+      await executeArchiveResolveItem(fixture.context, fixture.dependencies)
+      expect(fixture.intakeUpdates.at(-1)).toMatchObject({ status: 'SKIPPED', errorCode: 'ARCHIVE_DELETED' })
+    }
+  )
+  it('keeps a purged archive blocked for automatic submissions but accepts a new manual submission', async () => {
+    for (const downloadMode of ['AUTO', 'MANUAL'] as const) {
+      const fixture = createFixture({
+        providerResolve: vi.fn(async () => resolved),
+        downloadMode,
+        deletion: { purgedAt: new Date('2026-10-10T00:00:00Z') }
+      })
+      await executeArchiveResolveItem(fixture.context, fixture.dependencies)
+      expect(fixture.intakeUpdates.at(-1)).toMatchObject({ status: downloadMode === 'AUTO' ? 'SKIPPED' : 'READY' })
+    }
+  })
   it('atomically writes READY and completes the owning job', async () => {
     const fixture = createFixture({ providerResolve: vi.fn(async () => resolved) })
 
@@ -254,6 +277,7 @@ function createFixture(input: {
   jobMaxAttempts?: number
   duplicateItemId?: string
   activeArchiveImportId?: string
+  deletion?: { purgedAt: Date | null }
   downloadMode?: 'AUTO' | 'MANUAL'
   publishedMetadata?: Record<string, unknown>
 }) {
@@ -263,13 +287,19 @@ function createFixture(input: {
   let retrySql = ''
   let finalOutcome: unknown = null
   const transaction = {
+    archiveDeletedIdentity: { findUnique: vi.fn(async () => input.deletion ?? null) },
     archiveIntakeItem: {
+      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        intakeUpdates.push(data)
+        return data
+      }),
       updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         intakeUpdates.push(data)
         return { count: 1 }
       }),
       findUniqueOrThrow: vi.fn(async () => ({
         id: 'intake-1',
+        createdAt: new Date('2026-10-12T00:00:00Z'),
         submittedUrl: 'https://example.test/g/gallery-1',
         downloadMode: input.downloadMode ?? 'MANUAL'
       })),

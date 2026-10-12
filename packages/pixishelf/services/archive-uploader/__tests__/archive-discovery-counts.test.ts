@@ -67,7 +67,7 @@ describe('independent discovery counts', () => {
     db.archiveUploaderSource.findMany.mockResolvedValue([{ ...source, id: 'empty' }, source])
     expect(await getArchiveDiscoveryCatalogCounts({}, { database: db as never, sourceKind: 'ALL' })).toEqual({
       source: counts,
-      empty: { actionable: 0, processing: 0, archived: 0, attention: 0, total: 0 }
+      empty: { actionable: 0, processing: 0, archived: 0, deleted: 0, attention: 0, total: 0 }
     })
     expect(db.archiveUploaderSource.findMany).toHaveBeenCalledWith({ where: {}, select: { id: true } })
   })

@@ -9,6 +9,10 @@ sources:
 
 # PixiShelf 数据库设计补充文档
 
+## 归档删除意图
+
+`20261012160000_archive_deleted_identities` 增加独立来源身份删除表及归档任务历史删除字段。`artwork_preserve_archive_deletion` 在作品生命周期更新和删除前原子保存/解除删除意图；`archive_import_clear_published_deletion` 仅在成功发布时解除对应身份的删除标记。表不引用 Artwork 或发现来源，永久清理不级联移除删除意图。迁移还创建正常任务和回收站分页的部分索引；这些部分索引不能完整表示在 Prisma Schema 中。保留期及文件操作仍由服务/Worker 负责，触发器不操作文件。完整生命周期、回填边界和回退要求见[归档回收站](../../../docs/features/archive-trash.md)。
+
 本文档总结了 `schema.prisma` 中未体现，但通过 Migration 脚本 (`migrations/`) 直接应用到数据库中的核心逻辑、扩展和索引设计。这些逻辑对于保证数据一致性和查询性能至关重要。
 
 ## Artwork 阅读版本与进度约束
@@ -323,11 +327,11 @@ lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING
 | `20260820210000` | 为来源核对选定同步增加父核对证据、冻结 CAS 字段、逐项 outcome/reason/retryable、完整性 CHECK 和恢复/查询索引；历史行保持兼容                    |
 | `20260825103000` | 增加艺术家多 Provider 外部身份、同步状态与 Pixiv 强证据回填；保留旧 `Artist.userId` 作为一个发布周期的回滚镜像                                  |
 | `20260826143000` | 为 Pixiv 作品外部引用增加在线同步状态、任务与磁盘快照指针；只在唯一来源及数据库快照精确匹配时清除误标文本 override                              |
-| `20260827090000` | 增加系列多 Provider 外部身份、成员来源、远端排序、人工覆盖与排除状态；保留旧来源和单系列字段作为兼容镜像                                      |
+| `20260827090000` | 增加系列多 Provider 外部身份、成员来源、远端排序、人工覆盖与排除状态；保留旧来源和单系列字段作为兼容镜像                                        |
 | `20260902120000` | 增加 E-Hentai 上传者来源、人工扫描运行与候选结果，扩展 SEARCH 请求类，并允许上传者扫描进入 `ARCHIVE_RESOLVE` lane                               |
 | `20260904120000` | 增加 E-Hentai 上传者稳定 UID、UID 覆盖复核状态与扫描运行查询身份快照；既有 UID 来源原地回填且不重置扫描水位                                     |
-| `20260930120000` | 联合检查艺术家、系列和旧目录迁移现场已收口后，删除 `Artist.userId` 与旧复合唯一索引                                                            |
-| `20260930121000` | 再次检查系列身份、direct pointer 和旧目录迁移现场后，删除 `Artwork.seriesId`、`Series.source/externalId` 及旧约束                             |
+| `20260930120000` | 联合检查艺术家、系列和旧目录迁移现场已收口后，删除 `Artist.userId` 与旧复合唯一索引                                                             |
+| `20260930121000` | 再次检查系列身份、direct pointer 和旧目录迁移现场后，删除 `Artwork.seriesId`、`Series.source/externalId` 及旧约束                               |
 
 ## 创作者归属视图与兼容触发器
 

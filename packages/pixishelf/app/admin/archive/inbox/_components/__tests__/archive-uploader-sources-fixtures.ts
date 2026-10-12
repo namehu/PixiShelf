@@ -13,7 +13,7 @@ export const source = {
   canContinueHistory: true,
   latestCoverage: 'CURRENT',
   historyCoverage: 'HAS_MORE',
-  catalogCounts: { actionable: 1, processing: 0, archived: 0, attention: 0, total: 1 },
+  catalogCounts: { actionable: 1, processing: 0, archived: 0, deleted: 0, attention: 0, total: 1 },
   lastScanAt: new Date('2026-09-02T11:11:00.000Z'),
   lastSuccessAt: new Date('2026-09-02T11:09:00.000Z'),
   lastErrorCode: null,

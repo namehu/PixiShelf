@@ -81,6 +81,7 @@ export async function listArchiveTasks(
     where: parsed.taskId
       ? { id: parsed.taskId }
       : {
+          publishedArtworkDeletedAt: null,
           ...(unboundIds ? { id: { in: unboundIds } } : {}),
           ...(parsed.statuses?.length ? { status: { in: parsed.statuses } } : {}),
           ...(parsed.providerKey ? { providerKey: parsed.providerKey } : {}),
@@ -476,6 +477,8 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
     finishedAt: true,
     retainUntil: true,
     cleanupRequestedAt: true,
+    publishedArtworkDeletedAt: true,
+    publishedArtworkPurgedAt: true,
     publishedArtwork: { select: { id: true, title: true, deletedAt: true, archiveLifecycleState: true } },
     publishedRevision: { select: { id: true } },
     systemJob: {
@@ -537,6 +540,8 @@ function serializeTask(task: ArchiveTaskWire) {
     finishedAt: task.finishedAt,
     retainUntil: task.retainUntil,
     publishedArtwork: task.publishedArtwork,
+    publishedArtworkDeletedAt: task.publishedArtworkDeletedAt,
+    publishedArtworkPurgedAt: task.publishedArtworkPurgedAt,
     revisionId: task.publishedRevision?.id ?? null,
     submissionId: task.intakeItems[0]?.submissionId ?? null,
     kind: task.intakeItems[0]?.resolutionKind ?? null

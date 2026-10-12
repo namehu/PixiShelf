@@ -93,7 +93,7 @@ postgres('indexed catalog state matching', () => {
         })
         const client = tx as PrismaClient
         const counts = await getArchiveUploaderCatalogCounts(client, [sourceId])
-        expect(counts.get(sourceId)).toEqual({ actionable: 0, processing: 1, archived: 0, attention: 0, total: 1 })
+        expect(counts.get(sourceId)).toEqual({ actionable: 0, processing: 1, archived: 0, deleted: 0, attention: 0, total: 1 })
         const result = await listArchiveUploaderCatalogState(client, { sourceId, view: 'PROCESSING', limit: 50 })
         expect(result.items).toHaveLength(1)
         expect(result.items[0]).toMatchObject({ intakeItemId: intake.id, workflowStage: 'READY' })

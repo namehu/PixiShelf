@@ -169,6 +169,14 @@ export async function createArchiveIntakeSubmissionInTransaction(
       continue
     }
 
+    const deleted = await transaction.archiveDeletedIdentity.findFirst({
+      where: { canonicalUrl: submittedUrl },
+      select: { purgedAt: true }
+    })
+    if (deleted && (parsed.downloadMode === 'AUTO' || !deleted.purgedAt)) {
+      rejectedCount += 1
+      continue
+    }
     const normalizedUrlHash = hashSubmittedUrl(submittedUrl)
     const duplicate = await findActiveUrlDuplicate(transaction, submittedUrl, normalizedUrlHash)
     if (duplicate?.submittedUrl === submittedUrl) {

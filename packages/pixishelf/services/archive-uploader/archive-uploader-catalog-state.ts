@@ -1,7 +1,14 @@
 import { Prisma, type PrismaClient } from '@pixishelf/db'
 import { DISCOVERY_LANGUAGES, DISCOVERY_UNKNOWN, type ArchiveDiscoveryFilters } from '@/lib/archive-discovery-filters'
 
-export const ARCHIVE_UPLOADER_CATALOG_VIEWS = ['ACTIONABLE', 'PROCESSING', 'ARCHIVED', 'ATTENTION', 'ALL'] as const
+export const ARCHIVE_UPLOADER_CATALOG_VIEWS = [
+  'ACTIONABLE',
+  'PROCESSING',
+  'ARCHIVED',
+  'DELETED',
+  'ATTENTION',
+  'ALL'
+] as const
 
 export type ArchiveUploaderCatalogView = (typeof ARCHIVE_UPLOADER_CATALOG_VIEWS)[number]
 
@@ -13,6 +20,7 @@ export type ArchiveUploaderWorkflowStage =
   | 'READY'
   | 'DOWNLOADING'
   | 'ARCHIVED'
+  | 'DELETED'
   | 'FAILED'
   | 'CANCELLED'
   | 'DUPLICATE'
@@ -53,6 +61,7 @@ export interface ArchiveUploaderCatalogStateRow {
   errorMessage: string | null
   deletableFailure: boolean
   recoverable: boolean
+  canRearchive: boolean
   sortAt: Date
 }
 
@@ -60,6 +69,7 @@ export interface ArchiveUploaderCatalogCounts {
   actionable: number
   processing: number
   archived: number
+  deleted: number
   attention: number
   total: number
 }
@@ -119,6 +129,7 @@ export async function listArchiveUploaderCatalogState(
       state."errorCode",
       state."errorMessage",
       state."recoverable",
+      state."canRearchive",
       state."deletableFailure",
       state."sortAt"
     FROM "catalogState" AS state
@@ -152,6 +163,7 @@ export async function getArchiveUploaderCatalogCounts(
       actionable: bigint
       processing: bigint
       archived: bigint
+      deleted: bigint
       attention: bigint
       total: bigint
     }>
@@ -162,6 +174,7 @@ export async function getArchiveUploaderCatalogCounts(
       COUNT(*) FILTER (WHERE state."workflowBucket" = 'ACTIONABLE')::bigint AS "actionable",
       COUNT(*) FILTER (WHERE state."workflowBucket" = 'PROCESSING')::bigint AS "processing",
       COUNT(*) FILTER (WHERE state."workflowBucket" = 'ARCHIVED')::bigint AS "archived",
+      COUNT(*) FILTER (WHERE state."workflowBucket" = 'DELETED')::bigint AS "deleted",
       COUNT(*) FILTER (WHERE state."workflowBucket" = 'ATTENTION')::bigint AS "attention",
       COUNT(*)::bigint AS "total"
     FROM "catalogState" AS state
@@ -175,6 +188,7 @@ export async function getArchiveUploaderCatalogCounts(
         actionable: Number(row.actionable),
         processing: Number(row.processing),
         archived: Number(row.archived),
+        deleted: Number(row.deleted),
         attention: Number(row.attention),
         total: Number(row.total)
       }
@@ -235,6 +249,11 @@ function catalogStateCte(scope: Prisma.Sql) {
       SELECT
         catalog.*,
         reference."artworkId",
+        deletion."deletedAt" AS "identityDeletedAt",
+        deletion."purgedAt" AS "identityPurgedAt",
+        intake."createdAt" AS "intakeCreatedAt",
+        intake."downloadMode"::text AS "intakeDownloadMode",
+        archive_import."createdAt" AS "importCreatedAt",
         intake."id" AS "intakeItemId",
         intake."status"::text AS "intakeStatus",
         intake."updatedAt" AS "intakeUpdatedAt",
@@ -253,6 +272,8 @@ function catalogStateCte(scope: Prisma.Sql) {
       LEFT JOIN "artwork_external_refs" AS reference
         ON reference."providerKey" = catalog."providerKey"
         AND reference."externalId" = catalog."externalId"
+      LEFT JOIN "archive_deleted_identities" AS deletion
+        ON deletion."providerKey" = catalog."providerKey" AND deletion."externalId" = catalog."externalId"
       LEFT JOIN LATERAL (
         SELECT intake_item.*
         FROM "archive_intake_items" AS intake_item
@@ -301,6 +322,13 @@ function catalogStateCte(scope: Prisma.Sql) {
       SELECT
         base.*,
         CASE
+          WHEN base."identityDeletedAt" IS NOT NULL AND NOT (
+            base."identityPurgedAt" IS NOT NULL AND (
+              (base."importCreatedAt" > base."identityPurgedAt" AND base."archiveImportStatus" IN ('PENDING', 'RUNNING', 'PAUSED', 'CANCELLING', 'FAILED', 'CANCELLED'))
+              OR (base."intakeCreatedAt" > base."identityPurgedAt" AND base."intakeDownloadMode" = 'MANUAL'
+                AND base."intakeStatus" IN ('QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE', 'FAILED', 'CANCELLED'))
+            ) IS TRUE
+          ) THEN 'DELETED'
           WHEN base."archiveImportStatus" IN ('PENDING', 'RUNNING', 'PAUSED', 'CANCELLING') THEN 'DOWNLOADING'
           WHEN base."intakeStatus" IN ('READY', 'STALE') THEN 'READY'
           WHEN base."intakeStatus" IN ('QUEUED', 'RESOLVING', 'RETRY_WAIT') THEN 'INBOX'
@@ -350,6 +378,7 @@ function catalogStateCte(scope: Prisma.Sql) {
           WHEN stage."workflowStage" IN ('NEW', 'UPDATE_AVAILABLE', 'REPLACEMENT') THEN 'ACTIONABLE'
           WHEN stage."workflowStage" IN ('INBOX', 'READY', 'DOWNLOADING') THEN 'PROCESSING'
           WHEN stage."workflowStage" = 'ARCHIVED' THEN 'ARCHIVED'
+          WHEN stage."workflowStage" = 'DELETED' THEN 'DELETED'
           ELSE 'ATTENTION'
         END AS "workflowBucket",
         CASE
@@ -372,6 +401,7 @@ function catalogStateCte(scope: Prisma.Sql) {
           stage."workflowStage" IN ('FAILED', 'CANCELLED', 'DUPLICATE')
           AND stage."intakeItemId" IS NULL
         ) AS "recoverable",
+        (stage."workflowStage" = 'DELETED' AND stage."identityPurgedAt" IS NOT NULL) AS "canRearchive",
         (
           stage."workflowStage" = 'FAILED'
           AND (stage."intakeStatus" IS NULL OR stage."intakeStatus" = 'FAILED')

@@ -262,7 +262,11 @@ export function ScanResults({
               {item.deletableFailure ? (
                 <ArchiveDeleteFailedDialog targetType="DISCOVERY_ITEM" itemIds={[item.id]} disabled={mutationPending} />
               ) : null}
-              {item.actionable ? (
+              {item.canRearchive ? (
+                <Button variant="outline" size="sm" disabled={mutationPending} onClick={() => onAdd(item.id)}>
+                  重新归档
+                </Button>
+              ) : item.actionable ? (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -311,6 +315,7 @@ function emptyCatalogViewDescription(view: ArchiveDiscoveryCatalogView) {
     ACTIONABLE: '当前没有需要决定是否归档的画廊。',
     PROCESSING: '当前没有正在解析或下载的画廊。',
     ARCHIVED: '这个来源还没有完成归档的画廊。',
+    DELETED: '这个来源没有已删除的作品。',
     ATTENTION: '当前没有需要处理的异常。',
     ALL: '已完成的扫描暂未发现公开画廊。'
   }[view]
