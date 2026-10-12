@@ -137,13 +137,15 @@ require_meta_list() {
 }
 
 # -H 允许 SOURCE_DIR 本身是符号链接；末尾 / 确保读取目录内容。
+# BSD find 可能在目录与文件之间输出双斜杠；先统一分隔符，再按完整目录前缀截取。
 # 使用 Node 去除路径前缀，避免 sed 将目录中的特殊字符当作正则。
 if ! find -H "${SOURCE_DIR%/}/" -maxdepth 4 -type f \
   \( -name "*-meta.json" -o -name "*-meta.txt" \) \
   | node -e '
 const fs = require("fs")
-const prefix = process.argv[1].replace(/\/+$/, "") + "/"
-const paths = fs.readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean)
+const normalizeSeparators = value => value.replace(/\/+/g, "/")
+const prefix = normalizeSeparators(process.argv[1]).replace(/\/+$/, "") + "/"
+const paths = fs.readFileSync(0, "utf8").split(/\r?\n/).filter(Boolean).map(normalizeSeparators)
 for (const path of paths) {
   if (!path.startsWith(prefix)) {
     console.error("[ERROR] Meta 路径不属于源目录: " + path)
@@ -164,6 +166,11 @@ const paths = fs.readFileSync(process.argv[2], 'utf8')
   .split(/\r?\n/).map(line => line.trim()).filter(Boolean)
 const artworks = new Set()
 for (const path of paths) {
+  const normalized = path.replace(/\\/g, '/')
+  if (normalized.startsWith('/') || /^[A-Za-z]:/.test(normalized) || normalized.split('/').includes('..')) {
+    console.error(`[ERROR] Meta 路径必须是扫描根目录内的相对路径，停止执行: ${path}`)
+    process.exit(1)
+  }
   const match = path.match(/(?:^|\/)([0-9]+)(?:_p[0-9]+)?-meta\.(?:json|txt)$/)
   if (!match) {
     console.error(`[ERROR] 无法识别作品 ID，停止执行: ${path}`)
