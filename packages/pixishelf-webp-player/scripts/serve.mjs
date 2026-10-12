@@ -15,6 +15,8 @@ createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://127.0.0.1')
     let relative = url.pathname === '/' ? 'demo/index.html' : url.pathname.slice(1)
+    if (/^api\/v1\/images\/(independent|independent-mixed|independent-truncated|composite)\.webp$/.test(relative))
+      relative = `tests/fixtures/${relative.split('/').at(-1)}`
     if (relative.startsWith('assets/')) relative = `dist/${relative}`
     const file = resolve(root, relative)
     if (!file.startsWith(root.endsWith(sep) ? root : root + sep)) {
@@ -22,6 +24,8 @@ createServer(async (req, res) => {
       return
     }
     let data = await readFile(file)
+    if (relative === 'tests/fixtures/independent.webp' && url.searchParams.get('loops') === '2')
+      data.writeUInt16LE(2, 42)
     // Fault injection belongs to the local test server, never the production Worker API.
     if (relative === 'dist/assets/independent-worker.mjs') {
       if (url.searchParams.has('testFailure')) {

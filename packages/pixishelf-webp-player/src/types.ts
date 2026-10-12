@@ -75,6 +75,7 @@ export interface Frame {
   durationMs: number
   index: number
   cycleId: number
+  presentationMs?: number
   startMs?: number
   endMs?: number
   cycleStartMs?: number
@@ -82,17 +83,22 @@ export interface Frame {
 export type WorkerCommand =
   | {
       type: 'start'
+      inputPort?: MessagePort
       source: WebpSource
       decoderUrl: string
       limits: PlayerLimits
       diagnostics?: boolean
       sequential?: boolean
     }
+  | { type: 'reduce-load' }
   | { type: 'pull'; recycled?: ArrayBuffer }
   | { type: 'pause'; paused: boolean }
   | { type: 'destroy' }
   | { type: 'target'; positionMs: number; started: boolean }
 export type WorkerEvent =
+  | { type: 'input-source'; cached: boolean }
+  | { type: 'validated-input' }
+  | { type: 'pressure'; ratio: number; sourceFps: number; samples: number }
   | { type: 'pipeline'; credits: 4; mode: 'independent' | 'sequential'; reason?: string }
   | { type: 'availability'; endMs: number; omitted: number; waitingInput?: boolean }
   | { type: 'frame'; frame: Frame; sentAt?: number }

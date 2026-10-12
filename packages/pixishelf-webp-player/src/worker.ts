@@ -1,3 +1,5 @@
+import { openPortInput } from './port-input'
+import { DecodeCadence } from './decode-cadence'
 import { sequentialWorker } from './sequential-worker'
 import { ReplayInput } from './replay-input'
 import { DecoderError } from './wasm-decoder'
@@ -50,6 +52,7 @@ const queued: EncodedFrame[] = [],
   spare: ArrayBuffer[] = [],
   ready = new Map<number, Frame>()
 const slots: { worker: Worker; ready: boolean; busy: boolean; task: number }[] = []
+const cadence = new DecodeCadence()
 let childFailed = false
 let readingInput = false
 const waiters = new Set<() => void>()
@@ -145,10 +148,19 @@ function pump() {
       input.received > input.position
     )
       break
+    const before = omitted
+    while (queued.length > 1 && cadence.skip(queued[0]!, queued[1])) {
+      queuedBytes -= queued.shift()!.encoded.byteLength
+      omitted++
+    }
+    if (command.diagnostics && omitted !== before) availability()
+    const last = input.position === header?.totalBytes && queued.length === 1
+    if (queued.length === 1 && cadence.needsSuccessor(queued[0]!, last || finished)) break
     const slot = slots.find((s) => s.ready && !s.busy)
     if (!slot) break
     const frame = queued.shift()!
     queuedBytes -= frame.encoded.byteLength
+    cadence.dispatched(frame, last)
     const recycled = spare.pop(),
       transfer: Transferable[] = [frame.encoded]
     if (recycled) transfer.push(recycled)
@@ -224,6 +236,7 @@ async function fill() {
         await input.eof()
         if (cancelled) return
         if (!index) throw new DecoderError('invalid')
+        if (cycle === 0) send({ type: 'validated-input' })
         if (command.source.loop && (!header!.loops || cycle + 1 < header!.loops)) {
           if (held || queued.length) {
             availability()
@@ -286,6 +299,7 @@ async function fill() {
         startMs,
         endMs: mediaEnd
       })
+      cadence.observeFrame(frame.durationMs)
       queuedBytes += frame.encoded.byteLength
       availability()
       pump()
@@ -310,15 +324,28 @@ async function fill() {
 async function start() {
   controller = new AbortController()
   try {
-    const response = await fetch(command.source.url, { credentials: 'same-origin', signal: controller.signal })
-    if (cancelled) return
-    if (response.status === 401 || response.status === 403) throw new DecoderError('auth')
-    if (!response.ok) throw new DecoderError('network')
-    if (!response.body) throw new DecoderError('unsupported')
-    if (Number(response.headers.get('content-length')) > command.limits.maxInputBytes)
-      throw new DecoderError('file-limit')
+    let reader: ReadableStreamDefaultReader<Uint8Array>
+    if (command.inputPort) {
+      const opened = await openPortInput(command.inputPort)
+      if (cancelled) {
+        void opened.reader.cancel()
+        return
+      }
+      send({ type: 'input-source', cached: opened.cached })
+      reader = opened.reader
+      command = { ...command, limits: opened.limits }
+    } else {
+      const response = await fetch(command.source.url, { credentials: 'same-origin', signal: controller.signal })
+      if (cancelled) return
+      if (response.status === 401 || response.status === 403) throw new DecoderError('auth')
+      if (!response.ok) throw new DecoderError('network')
+      if (!response.body) throw new DecoderError('unsupported')
+      if (Number(response.headers.get('content-length')) > command.limits.maxInputBytes)
+        throw new DecoderError('file-limit')
+      reader = response.body.getReader()
+    }
     input = new ReplayInput(
-      response.body.getReader(),
+      reader,
       command.limits.maxInputBytes,
       (receivedBytes, inputComplete) => {
         send({ type: 'input', receivedBytes, inputComplete })
@@ -372,6 +399,7 @@ async function start() {
           slot.ready = true
           if (command.diagnostics) send({ type: 'decoder', variant: data.variant })
         } else if (data.type === 'frame') {
+          send({ type: 'pressure', ...cadence.observeDecode(data.decodeMs) })
           slot.busy = false
           changed()
           estimate = estimate ? 0.8 * estimate + 0.2 * data.decodeMs : data.decodeMs
@@ -407,6 +435,7 @@ host.onmessage = ({ data }) => {
     void start()
     return
   }
+  if (data.type === 'reduce-load') cadence.enable()
   if (data.type === 'pause') paused = data.paused
   if (data.type === 'target') {
     target = data.positionMs

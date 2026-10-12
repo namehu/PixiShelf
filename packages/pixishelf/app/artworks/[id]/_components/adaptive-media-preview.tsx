@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { WebpDiagnosticsPanel, type WebpDiagnosticResult } from '@/components/players/webp-diagnostics-panel'
 import { combinationApiResource } from '@/utils/combination-static'
+import { WebpPreviewSession } from '@/components/players/webp-preview-session'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
 import {
   AnimationPlaybackCapsule,
@@ -63,7 +64,7 @@ function previewResourceKey(media: ArtworkImageResponseDto | undefined) {
   return media ? `${media.id}:${media.path}:${media.updatedAt}` : ''
 }
 
-export default function AdaptiveMediaPreview({
+function AdaptiveMediaPreviewContent({
   images,
   initialIndex,
   initialPreviewSrc,
@@ -454,5 +455,13 @@ export default function AdaptiveMediaPreview({
         </div>
       )}
     />
+  )
+}
+
+export default function AdaptiveMediaPreview(props: AdaptiveMediaPreviewProps) {
+  return (
+    <WebpPreviewSession open={props.open} scopeKey={String(props.images[0]?.id ?? 'empty')}>
+      <AdaptiveMediaPreviewContent {...props} />
+    </WebpPreviewSession>
   )
 }

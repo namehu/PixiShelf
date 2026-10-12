@@ -10,6 +10,7 @@ export interface IndependentHeader {
   loops: number
 }
 export interface EncodedFrame {
+  presentationMs?: number
   encoded: ArrayBuffer
   width: number
   height: number

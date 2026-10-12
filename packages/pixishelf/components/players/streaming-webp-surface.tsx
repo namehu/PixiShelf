@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { PlayerFailure, PlayerSnapshot, WebpPlayer } from '@pixishelf/webp-player'
+import { useWebpPreviewSession } from './webp-preview-session'
 import { useWebpPlayerStore } from '@/store/use-webp-player-store'
 
 interface Props {
@@ -22,6 +23,7 @@ interface Props {
 
 /** React owns the attempt; the player owns frame time, including across pauses. */
 export default function StreamingWebpSurface(props: Props) {
+  const session = useWebpPreviewSession()
   const canvas = useRef<HTMLCanvasElement>(null)
   const player = useRef<WebpPlayer | null>(null)
   const latest = useRef(props)
@@ -41,6 +43,7 @@ export default function StreamingWebpSurface(props: Props) {
         if (cancelled || !canvas.current) return
         const base = `/webp-player/${manifest.version}`
         instance = new WebpPlayer(canvas.current, {
+          ...session,
           workerUrl: `${base}/worker.mjs`,
           decoderUrl: `${base}/decoder.mjs`
         })
@@ -53,6 +56,7 @@ export default function StreamingWebpSurface(props: Props) {
           if (event.type === 'state' && event.snapshot.status === 'buffering') latest.current.onBuffering()
           if (event.type === 'ended') latest.current.onComplete()
           if (event.type === 'error') {
+            if (event.error.code === 'auth') useWebpPlayerStore.getState().reset()
             if (event.error.code === 'initialization') {
               useWebpPlayerStore.getState().invalidateManifest(manifest.version)
             }
@@ -86,7 +90,7 @@ export default function StreamingWebpSurface(props: Props) {
       instance?.destroy()
       if (player.current === instance) player.current = null
     }
-  }, [src, size, playbackKey, loop])
+  }, [src, size, playbackKey, loop, session])
   useEffect(() => {
     if (props.paused) player.current?.pause()
     else if (player.current?.getSnapshot().status === 'ended') void player.current.restart().catch(() => {})

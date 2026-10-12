@@ -81,12 +81,12 @@ describe('WebP session manifest cache', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
-  it('invalidates pre-independent-worker asset URLs once on upgrade', async () => {
+  it.each([0, 1])('invalidates pre-input-port asset URLs from schema %i once on upgrade', async (schemaVersion) => {
     sessionStorage.setItem(
       WEBP_PLAYER_SESSION_KEY,
       JSON.stringify({
         state: { ownerId: 'alice', manifest: { version } },
-        version: 0
+        version: schemaVersion
       })
     )
     const current = 'fedcba9876543210'
@@ -97,7 +97,7 @@ describe('WebP session manifest cache', () => {
     await expect(store.getState().loadManifest()).resolves.toEqual({ version: current })
     await store.getState().loadManifest()
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(JSON.parse(sessionStorage.getItem(WEBP_PLAYER_SESSION_KEY)!).version).toBe(1)
+    expect(JSON.parse(sessionStorage.getItem(WEBP_PLAYER_SESSION_KEY)!).version).toBe(2)
   })
 
   it('rejects stale responses after a session change without erasing the new request', async () => {

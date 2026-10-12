@@ -27,9 +27,11 @@ sources:
 
 隐私显示与 R18 进入选择只保存在浏览器同源空间，不属于账户权限或认证状态。服务端首屏默认遮蔽媒体，并在受保护页面设置不透明 blocker 和 inert，浏览器完成状态恢复后先应用模式再放行。选择不随登出或切换账户清除，也不影响 API 鉴权、数据加载、复制、导出或阅读记录。`media_privacy_mode` 历史账户行不再读取为有效偏好；更新 DTO 和设置服务拒绝该旧键的新写入，整批校验失败时不写入任何配置。无数据库迁移或历史行删除。详见[浏览器隐私偏好](../features/browser-privacy.md)。
 
-默认启用的 WebP 播放器只读取现有同源媒体 API，Worker 使用 `credentials: same-origin`，不接受跨源媒体或解码器地址。生成的 `/webp-player/` 代码资源仍经过现有 Session 代理，没有新增公开路径。CSP 显式限定 `worker-src 'self'`；WASM 沿用现有 script 策略，不新增跨域许可、SharedArrayBuffer 或隔离响应头。Canvas 继承媒体隐私遮罩。原生解码前检查输入/像素预算，部署回滚使用原应用镜像，不涉及归档或数据库。
+默认启用的 WebP 播放器只读取现有同源媒体 API，Worker 直读或预览输入池使用 `credentials: same-origin`，不接受跨源媒体或解码器地址。生成的 `/webp-player/` 代码资源仍经过现有 Session 代理，没有新增公开路径。CSP 显式限定 `worker-src 'self'`；WASM 沿用现有 script 策略，不新增跨域许可、SharedArrayBuffer 或隔离响应头。Canvas 继承媒体隐私遮罩。原生解码前检查输入/像素预算，部署回滚使用原应用镜像，不涉及归档或数据库。
 
-播放器资源 manifest 的客户端缓存位于全局 Zustand store 和 sessionStorage，仅保存校验后的资源版本及账号 ID，不保存认证凭证或媒体。退出登录、账号切换会清空并取消旧请求；缓存不会替代 Worker、WASM 或原媒体请求的服务端会话校验。2026-10 独立帧 Worker 协议升级将会话缓存 schema 提升为 1，旧 schema 的资源地址一次性失效并重新获取，保留账户归属；不更改认证凭证或媒体。
+播放器资源 manifest 的客户端缓存位于全局 Zustand store 和 sessionStorage，仅保存校验后的资源版本及账号 ID，不保存认证凭证或媒体。退出登录、账号切换会清空并取消旧请求；缓存不会替代 Worker、WASM 或原媒体请求的服务端会话校验。2026-10 独立帧 Worker 协议升级将会话缓存 schema 提升为 2，旧 schema 的资源地址一次性失效并重新获取，保留账户归属；不更改认证凭证或媒体。
+
+活动作品预览另有仅内存的原始压缩输入池，最多 128MiB／8 条、单条 64MiB，并按解码预算进一步收缩；只复用带版本的同源媒体完整响应。账户、作品、弹窗作用域隔离，关闭／pagehide／已知会话失效清除，切账户同步撤销端口与实例；不进 sessionStorage、IndexedDB 或报告。命中可不发媒体请求，因此不能自行发现客户端未知的远端撤权或未更新版本的文件替换；首次及未命中仍经过服务端鉴权。详见[接入记录](../design/webp-mobile-production.md#持续播放接入2026-10-12)。
 
 WebP 时长探测沿用管理任务的 `adminProcedure` 入队/重试和受登录保护的作品读取；无新增公开媒体路由、跨源地址或浏览器直连数据库。Worker 隔离子进程只读已校验的扫描根内 WebP，DTO 仅含格式、时长、帧数、循环数和策略版本，不返回文件绝对路径、stat、失败详情或源 revision。分块上传和替换会话沿用管理员 Session，并在实际文件写入前更新数据库门禁。详见[动图时长方案](../design/animation-duration-probe.md)。
 

@@ -15,6 +15,23 @@ classDiagram
         pause()
         destroy()
     }
+    class PreviewSession {
+        clearOnAccountOrScopeChange()
+    }
+    class PlaybackPressure {
+        observeServiceTime()
+        accumulateEffectiveMediaTime()
+    }
+    class CompressedInputCache {
+        connect()
+        validateEOF()
+        release()
+        clear()
+    }
+    class DecodeCadence {
+        selectIndependentFrame()
+        presentationDeadline()
+    }
     class MediaClock {
         position
         tick(now, inputHorizon)
@@ -55,6 +72,13 @@ classDiagram
     }
     AutoBrowseStore --> ReactAdapter : intent / events
     ReactAdapter *-- WebpPlayer
+    ReactAdapter --> PreviewSession
+    PreviewSession *-- PlaybackPressure
+    PreviewSession *-- CompressedInputCache
+    WebpPlayer --> PlaybackPressure : reduce after sustained load
+    WebpPlayer --> CompressedInputCache : optional input lease
+    CompressedInputCache --> ReplayInput : bounded MessagePort reads
+    CoordinatorWorker *-- DecodeCadence : independent frames only
     ReactAdapter --> PlayerAssetSessionStore : shared manifest
     WebpPlayer *-- MediaClock : independent and midstream fallback
     WebpPlayer *-- FrameClock : direct sequential path

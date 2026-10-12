@@ -128,6 +128,7 @@ export function sequentialWorker(
         const spare = recycled.pop()
         const frame = decoder.next(spare)
         if (frame === 2) {
+          send({ type: 'validated-input' })
           if (spare) recycled.push(spare)
           if (loop && decoder.repeat()) {
             frameIndex = 0

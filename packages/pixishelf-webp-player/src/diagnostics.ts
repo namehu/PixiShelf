@@ -1,3 +1,4 @@
+import type { Frame } from './types'
 export interface TimingSummary {
   count: number
   samples: number
@@ -42,7 +43,19 @@ export class TimingSamples {
 export type DiagnosticMode = 'legacy' | 'timeline' | 'no-draw'
 export type WorkerMetric = 'decode' | 'copy' | 'readWait' | 'append'
 export type DiagnosticMetric = WorkerMetric | 'delivery' | 'draw' | 'raf'
+export interface PresentationSample {
+  index: number
+  cycle: number
+  startMs: number | null
+  presentationMs: number | null
+  arrivedMs: number
+  drawnMs: number | null
+  mediaPositionMs: number | null
+}
 export interface DiagnosticsReport {
+  inputSource?: 'network' | 'memory'
+  loadReductionRequestedMs?: number | null
+  presentationTrace?: PresentationSample[]
   version: 1
   runId: string
   mode: DiagnosticMode
@@ -71,6 +84,31 @@ export interface DiagnosticsReport {
   notes: string[]
 }
 export class PlaybackDiagnostics {
+  inputSource: 'network' | 'memory' = 'network'
+  loadReductionRequestedMs: number | null = null
+  private presentationTrace: PresentationSample[] = []
+  private presentations = new WeakMap<Frame, PresentationSample>()
+  frameAvailable(frame: Frame) {
+    if (this.presentationTrace.length >= 4096) return
+    const sample: PresentationSample = {
+      index: frame.index,
+      cycle: frame.cycleId,
+      startMs: frame.startMs ?? null,
+      presentationMs: frame.presentationMs ?? frame.startMs ?? null,
+      arrivedMs: performance.now() - this.started,
+      drawnMs: null,
+      mediaPositionMs: null
+    }
+    this.presentationTrace.push(sample)
+    this.presentations.set(frame, sample)
+  }
+  frameDrawn(frame: Frame, position: number) {
+    const sample = this.presentations.get(frame)
+    if (sample) {
+      sample.drawnMs = performance.now() - this.started
+      sample.mediaPositionMs = position
+    }
+  }
   readonly started = performance.now()
   readonly runId =
     typeof crypto.randomUUID === 'function'
@@ -126,6 +164,9 @@ export class PlaybackDiagnostics {
   report(): DiagnosticsReport {
     const now = this.finished ?? performance.now()
     return {
+      inputSource: this.inputSource,
+      loadReductionRequestedMs: this.loadReductionRequestedMs,
+      presentationTrace: this.presentationTrace.map((sample) => ({ ...sample })),
       version: 1,
       runId: this.runId,
       mode: this.mode,

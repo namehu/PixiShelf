@@ -351,3 +351,63 @@ it('keeps irregular frame durations and freezes accumulated display debt across 
   expect(p.getSnapshot()).toMatchObject({ status: 'ended', presentedMs: 120 })
   p.destroy()
 })
+
+describe('independent-frame presentation phase audit', () => {
+  it.each([0, 4])('isolates container rounding at RAF phase %ims with all decoding ready', async (phaseMs) => {
+    const p = player(),
+      times: number[] = []
+    draw.mockImplementation(() => times.push(now))
+    const loaded = p.load({ url: '/synthetic.webp', resourceKey: 'synthetic' })
+    const w = FakeWorker.instances[0]!
+    w.emit({ type: 'pipeline', credits: 4, mode: 'independent' })
+    w.emit({ type: 'availability', endMs: 5067, omitted: 151, waitingInput: false })
+    const indices = [...Array.from({ length: 152 }, (_, i) => i * 2), 303]
+    let next = 0,
+      pending = 0
+    const supply = () => {
+      const index = indices[next++]
+      if (index === undefined) return
+      const startMs = Math.round((index * 1000) / 60),
+        endMs = Math.round(((index + 1) * 1000) / 60)
+      w.emit({
+        type: 'frame',
+        frame: {
+          index,
+          startMs,
+          endMs,
+          durationMs: endMs - startMs,
+          cycleId: 0,
+          cycleStartMs: 0,
+          width: 1,
+          height: 1,
+          pixels: new ArrayBuffer(4)
+        }
+      })
+      if (next === indices.length) w.emit({ type: 'drained' })
+    }
+    // Reply outside the render stack, with exactly the four negotiated credits.
+    w.postMessage.mockImplementation((command) => {
+      if (command.type === 'pull') pending++
+    })
+    for (let i = 0; i < 4; i++) supply()
+    await loaded
+    p.play()
+    tick(0)
+    for (let step = 1; step < 400 && p.getSnapshot().status !== 'ended'; step++) {
+      while (pending > 0) {
+        pending--
+        supply()
+      }
+      tick((step * 1000) / 60 + phaseMs)
+    }
+    expect(p.getSnapshot()).toMatchObject({ status: 'ended', frameIndex: 303, presentedMs: 5067 })
+    const gaps = times
+      .slice(1, -1)
+      .flatMap((time, i) => (times[i]! >= 500 ? [time - times[i]!] : []))
+      .sort((a, b) => a - b)
+    expect(gaps[Math.ceil(gaps.length * 0.95) - 1]).toBeCloseTo(phaseMs === 0 ? 50 : 1000 / 30)
+    expect(times.length).toBe(153)
+    p.destroy()
+    draw.mockReset()
+  })
+})

@@ -1,3 +1,5 @@
+import type { CompressedInputCache, InputLease } from './compressed-input'
+import { PlaybackPressure } from './playback-pressure'
 import { PlaybackDiagnostics, type DiagnosticMode } from './diagnostics'
 import { FrameClock } from './clock'
 import { MediaClock } from './media-clock'
@@ -15,6 +17,9 @@ import {
 } from './types'
 
 export interface PlayerOptions {
+  inputCache?: CompressedInputCache
+  pressure?: PlaybackPressure
+  sustainable?: boolean
   workerUrl: string
   decoderUrl: string
   decodeStrategy?: 'auto' | 'sequential'
@@ -22,6 +27,10 @@ export interface PlayerOptions {
   diagnostics?: { mode?: DiagnosticMode; resourceVersion?: string }
 }
 export class WebpPlayer {
+  private inputLease: InputLease | null = null
+  private pressure: PlaybackPressure
+  private pressureToken: object | null = null
+  private reductionSent = false
   private worker: Worker | null = null
   private source: WebpSource | null = null
   private listeners = new Set<(event: PlayerEvent) => void>()
@@ -64,6 +73,7 @@ export class WebpPlayer {
     private canvas: HTMLCanvasElement,
     private options: PlayerOptions
   ) {
+    this.pressure = options.pressure ?? new PlaybackPressure()
     this.limits = options.limits ?? playerLimits(window.innerWidth < 768)
   }
   subscribe(listener: (event: PlayerEvent) => void) {
@@ -114,7 +124,12 @@ export class WebpPlayer {
     this.worker?.postMessage(command, transfer ?? [])
   }
   private release() {
+    if (this.pressureToken) this.pressure.inactive(this.pressureToken, performance.now())
+    this.pressureToken = null
+    this.reductionSent = false
     ++this.generation
+    this.inputLease?.release()
+    this.inputLease = null
     cancelAnimationFrame(this.raf)
     this.raf = 0
     this.worker?.terminate()
@@ -147,6 +162,7 @@ export class WebpPlayer {
           this.options.diagnostics.resourceVersion ?? 'unknown'
         )
       : null
+    this.pressureToken = this.pressure.begin(performance.now())
     this.source = source
     this.desired = false
     this.drained = false
@@ -181,6 +197,10 @@ export class WebpPlayer {
       if (!globalThis.WebAssembly || !globalThis.Worker || !globalThis.ReadableStream) throw new Error('unsupported')
       if (source.size && source.size > this.limits.maxInputBytes) throw new Error('file-limit')
       stage = 'initialization'
+      this.inputLease =
+        this.options.inputCache?.connect(url.href, this.limits, () => {
+          if (generation === this.generation) this.destroy()
+        }) ?? null
       this.worker = new Worker(this.options.workerUrl, { type: 'module', name: 'pixishelf-webp' })
       this.worker.onmessage = ({ data }: MessageEvent<WorkerEvent>) => {
         if (generation !== this.generation) return
@@ -190,14 +210,18 @@ export class WebpPlayer {
         if (generation === this.generation)
           this.fail({ code: 'initialization', message: 'WebP worker unavailable', recoverableByLegacy: !this.painted })
       }
-      this.command({
-        type: 'start',
-        source: { ...source, url: url.href },
-        decoderUrl: new URL(this.options.decoderUrl, location.href).href,
-        limits: this.limits,
-        sequential: this.legacy || this.options.decodeStrategy === 'sequential',
-        ...(this.diagnostics ? { diagnostics: true } : {})
-      })
+      this.command(
+        {
+          type: 'start',
+          ...(this.inputLease ? { inputPort: this.inputLease.port } : {}),
+          source: { ...source, url: url.href },
+          decoderUrl: new URL(this.options.decoderUrl, location.href).href,
+          limits: this.limits,
+          sequential: this.legacy || this.options.decodeStrategy === 'sequential',
+          ...(this.diagnostics ? { diagnostics: true } : {})
+        },
+        this.inputLease ? [this.inputLease.port] : undefined
+      )
       this.command({ type: 'pull' })
       this.command({ type: 'pull' })
     } catch (error) {
@@ -212,6 +236,19 @@ export class WebpPlayer {
     return promise
   }
   private receive(event: WorkerEvent) {
+    if (event.type === 'input-source') {
+      if (this.diagnostics) this.diagnostics.inputSource = event.cached ? 'memory' : 'network'
+      return
+    }
+    if (event.type === 'validated-input') {
+      this.inputLease?.validate()
+      return
+    }
+    if (event.type === 'pressure') {
+      if (this.pressureToken && this.options.sustainable !== false && !this.legacy)
+        this.pressure.observe(this.pressureToken, event.ratio, event.sourceFps, event.samples)
+      return
+    }
     if (event.type === 'pipeline') {
       this.timeline = true
       const additional = event.credits - this.creditLimit
@@ -259,6 +296,7 @@ export class WebpPlayer {
       if (this.timeline) this.mediaClock.position = Math.min(this.mediaClock.position, this.availableEnd)
     }
     if (event.type === 'frame') {
+      this.diagnostics?.frameAvailable(event.frame)
       if (this.queue.length >= this.creditLimit) {
         this.fail({ code: 'internal', message: 'Frame queue overflow', recoverableByLegacy: false })
         return
@@ -283,6 +321,7 @@ export class WebpPlayer {
     this.schedule()
   }
   private fail(error: PlayerFailure) {
+    this.inputLease?.invalidate()
     if (this.snapshot.status === 'error' || this.snapshot.status === 'destroyed') return
     this.desired = false
     this.rejectLoad?.(new Error(error.message))
@@ -296,6 +335,7 @@ export class WebpPlayer {
     if (['destroyed', 'error', 'ended', 'idle'].includes(this.snapshot.status)) return
     if (this.desired) return
     this.desired = true
+    if (this.pressureToken) this.pressure.active(this.pressureToken, performance.now())
     this.clock.resume(performance.now())
     this.mediaClock.resume(performance.now())
     if (this.debtAt !== null) this.debtAt = performance.now()
@@ -306,6 +346,7 @@ export class WebpPlayer {
     if (['destroyed', 'error', 'ended', 'idle'].includes(this.snapshot.status)) return
     if (this.desired && !this.timeline && !this.legacy && this.painted) this.advanceTimeline(performance.now())
     this.desired = false
+    if (this.pressureToken) this.pressure.inactive(this.pressureToken, performance.now())
     this.clock.pause(performance.now())
     this.mediaClock.pause(performance.now(), this.mediaHorizon)
     cancelAnimationFrame(this.raf)
@@ -386,6 +427,9 @@ export class WebpPlayer {
         this.desired = false
         this.worker?.terminate()
         this.worker = null
+        if (this.pressureToken) this.pressure.inactive(this.pressureToken, now)
+        this.inputLease?.release()
+        this.inputLease = null
         this.state('ended')
         this.progress(now, true)
         if (generation === this.generation) this.emit({ type: 'ended' })
@@ -408,6 +452,7 @@ export class WebpPlayer {
       ctx.putImageData(new ImageData(new Uint8ClampedArray(frame.pixels), frame.width, frame.height), 0, 0)
       if (this.diagnostics) {
         this.diagnostics.drawnFrames++
+        this.diagnostics.frameDrawn(frame, frame.cycleId === this.snapshot.cycleIndex ? this.cyclePresentedMs : 0)
         this.diagnostics.timings.draw.add(performance.now() - drawStarted)
       }
     }
@@ -445,6 +490,16 @@ export class WebpPlayer {
     const generation = this.generation
     const tick = ++this.timelineTick
     const position = this.mediaClock.tick(now, this.mediaHorizon)
+    if (
+      this.pressureToken &&
+      this.options.sustainable !== false &&
+      !this.reductionSent &&
+      this.pressure.advance(this.pressureToken, position)
+    ) {
+      this.reductionSent = true
+      if (this.diagnostics) this.diagnostics.loadReductionRequestedMs = position
+      this.command({ type: 'reduce-load' })
+    }
     if (this.currentFrame && position >= this.currentFrame.endMs!)
       this.snapshot.presentedMs = Math.max(this.snapshot.presentedMs, this.currentFrame.endMs!)
     // Keep the first and last picture of each cycle, even after a long callback gap.
@@ -452,14 +507,17 @@ export class WebpPlayer {
       this.queue.length > 1 &&
       this.queue[0]!.index !== 0 &&
       this.queue[0]!.cycleId === this.queue[1]!.cycleId &&
-      this.queue[1]!.startMs! <= position
+      (this.queue[1]!.presentationMs ?? this.queue[1]!.startMs!) <= position
     ) {
       const frame = this.queue.shift()!
       this.snapshot.presentedMs = Math.max(this.snapshot.presentedMs, frame.endMs!)
       if (this.diagnostics) this.diagnostics.skippedFrames++
       this.command({ type: 'pull', recycled: frame.pixels }, [frame.pixels])
     }
-    if (this.queue.length && (!this.painted || this.queue[0]!.startMs! <= position)) {
+    if (
+      this.queue.length &&
+      (!this.painted || (this.queue[0]!.presentationMs ?? this.queue[0]!.startMs!) <= position)
+    ) {
       const frame = this.queue.shift()!
       if (this.canvas.width !== frame.width || this.canvas.height !== frame.height) {
         this.canvas.width = frame.width
@@ -472,6 +530,7 @@ export class WebpPlayer {
         ctx.putImageData(new ImageData(new Uint8ClampedArray(frame.pixels), frame.width, frame.height), 0, 0)
         if (this.diagnostics) {
           this.diagnostics.drawnFrames++
+          this.diagnostics.frameDrawn(frame, position)
           this.diagnostics.timings.draw.add(performance.now() - at)
         }
       }
@@ -501,6 +560,9 @@ export class WebpPlayer {
       this.command({ type: 'destroy' })
       this.worker?.terminate()
       this.worker = null
+      if (this.pressureToken) this.pressure.inactive(this.pressureToken, now)
+      this.inputLease?.release()
+      this.inputLease = null
       this.state('ended')
       this.progress(now, true)
       if (generation === this.generation) this.emit({ type: 'ended' })

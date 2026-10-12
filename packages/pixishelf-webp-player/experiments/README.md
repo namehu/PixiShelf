@@ -1,6 +1,6 @@
 # WebP 生产构建手机复核
 
-这里只保留最终生产路径验收工具。播放器实现和验收结论见[生产接入记录](../../../docs/design/webp-mobile-production.md)。原生读回、固定抽帧、单 Worker 自适应、并行额度和内部插桩等历史实验已归档到本机 Git 忽略的 `.local-data/webp-investigation-2026-10-08/experiment-source/`，不作为构建或测试依赖。
+这里保留生产路径验收工具，以及不依赖私人素材的节奏复现实验。播放器实现和验收结论见[生产接入记录](../../../docs/design/webp-mobile-production.md)。原生读回、固定抽帧、单 Worker 自适应、并行额度和内部插桩等历史实验已归档到本机 Git 忽略的 `.local-data/webp-investigation-2026-10-08/experiment-source/`，不作为构建或测试依赖。
 
 ## 保留内容
 
@@ -8,6 +8,17 @@
 - `lan/production.html` / `production.js`：生产播放器单轮测试三次，支持停止、后台中止及本地 JSON 导出；没有遮挡或像素读回。
 - `full-frame-webp.mjs`：当前复核样本的严格独立 VP8 帧元数据解析器，拒绝透明、局部及其他布局。它不是通用 WebP 检查器，不限制正式播放器的格式支持。
 - `phone-ui.py` / `phone-batch.py`：可选 adb 操作和报告拉取，设备由 `ANDROID_SERIAL` 显式指定。
+- `cadence-audit.mjs`：匿名 17／16／17ms 时间序列，复现旧实验的切换网格错误和刷新相位影响，对照整数网格及独立显示时刻；不模拟实际吞吐，不属于生产入口。
+
+## 无素材节奏核对
+
+```bash
+node packages/pixishelf-webp-player/experiments/cadence-audit.mjs
+node --test packages/pixishelf-webp-player/tests/cadence-audit.test.mjs
+pnpm --filter @pixishelf/webp-player exec vitest run src/__tests__/player.test.ts
+```
+
+前两项验证选择和呈现时间模型，后一项包含实际播放器在可控时钟、四额度假 Worker 下的相位复现。模型的帧均提前就绪，不能将结果解释为 Worker/WASM 性能或手机屏幕呈现。生产接入与手机放行条件见生产接入记录的“持续播放下一步设计”。
 
 ## 使用
 

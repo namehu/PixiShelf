@@ -1,12 +1,12 @@
 ---
 status: current
 scope: WebP WASM 流式播放器、自动浏览续播与兼容回退
-last-verified: 2026-10-09
+last-verified: 2026-10-12
 ---
 
 # WebP 流式播放器架构
 
-独立帧路径基线为提交 `533ee6f3`，本文同时反映后续工作区修正；生产部署状态待核实。本文描述代码行为，历史验证不代表当前线上版本。
+独立帧路径基线为提交 `533ee6f3`，本文同时反映后续工作区修正；基线发布由用户确认，本轮持续降载与压缩复用尚未发布。本文描述代码行为，历史验证不代表当前线上版本。
 
 ## 需求与已确认决策
 
@@ -29,6 +29,8 @@ React 适配层负责海报、Canvas、按钮与自动浏览 store；独立 Type
 `WebPAnimDecoder` 不能直接作为追加输入接口。采用 `WebPDemuxPartial`，仅解码完整帧。每次重建 demux 前释放旧 iterator，再为上一帧恢复迭代元数据；不让旧指针引用已释放的解析器。锁定上游版本的合成实现，保留许可证并与完整文件解码输出做差分测试。
 
 媒体继续使用现有带版本参数的同源 API 与会话。SSR 不触碰浏览器 API；各 WASM 实例单线程运行，不依赖 SharedArrayBuffer 或 COOP/COEP；支持 SIMD 时选 SIMD 产物，否则选 scalar。Worker/WASM 使用同源版本化静态资源，禁止运行时 CDN。
+
+活动预览提供共享 `PlaybackPressure` 与 `CompressedInputCache`：前者累计有效高负载时间并通知协调 Worker 启用约 30fps 整数网格，后者通过有背压 MessagePort 提供字节；Worker 保留直接 fetch 的无缓存接口。缓存最多 128MiB／8 条／单条 64MiB，受当前解码预留进一步限制，有效 EOF 后提交，账户或预览结束时撤销。像素、媒体时间与独立帧门禁不变，具体规则和待手机验收状态见[本轮接入](./webp-mobile-production.md#持续播放接入2026-10-12)。
 
 ### UML 类图
 

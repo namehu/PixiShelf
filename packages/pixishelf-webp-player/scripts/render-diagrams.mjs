@@ -11,7 +11,9 @@ const bundled = await build({
   format: 'iife',
   write: false
 })
-const browser = await chromium.launch({ channel: process.platform === 'win32' ? 'msedge' : undefined })
+const browser = await chromium.launch({
+  channel: process.env.WEBP_BROWSER_CHANNEL || (process.platform === 'win32' ? 'msedge' : undefined)
+})
 try {
   const page = await browser.newPage()
   await page.setContent('<!doctype html><html><body></body></html>')
