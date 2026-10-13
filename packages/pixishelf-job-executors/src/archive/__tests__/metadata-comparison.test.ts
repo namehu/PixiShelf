@@ -126,6 +126,7 @@ describe('published archive update comparison', () => {
         })),
         update
       },
+      archiveDeletedIdentity: { findUnique: vi.fn(async () => null) },
       archiveImport: { findFirst: vi.fn(async () => null), create: createImport },
       artworkExternalRef: {
         findUnique: vi.fn(async () => ({

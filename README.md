@@ -206,7 +206,7 @@ CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类�
 
 镜像升级按[部署基线的手动流程](./docs/operations/deployment.md#标准生产升级手动流程)执行。
 
-`scripts/update-production.sh` 是实例的 Pixiv 转换、元数据清单、rsync、清理与 Webhook 扫描脚本，不用于升级镜像。涉及首次迁移或专用发布门禁时，仍须执行部署基线中的对应流程。
+`scripts/update-production.sh` 是 App 与通用 Worker 的生产镜像升级脚本，已恢复到提交 `7db6ba993cc268763b6cf090593f28203d65b72f` 的版本。日常使用与恢复依据见[生产升级门禁](./docs/operations/deployment.md#生产升级门禁)；涉及首次迁移或专用发布门禁时，仍须先执行对应流程。
 
 升级、消费者启停、验证和回滚入口见：
 

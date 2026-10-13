@@ -136,7 +136,17 @@ Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置
 
 **包含旧身份字段清理的首次升级须先执行[专用检查与升级流程](../features/legacy-identity-retirement.md)。** 普通 App 启动会阻止已有旧字段数据库直接迁移；完成专用升级后，后续正常版本按下方手动流程执行。
 
-`scripts/update-production.sh` 是实例的 Pixiv 转换、元数据清单、rsync、清理与 Webhook 扫描入口，不编排 Compose。镜像升级须执行下方手动流程及对应版本的专用门禁。
+`scripts/update-production.sh` 已精确恢复到提交 `7db6ba993cc268763b6cf090593f28203d65b72f` 的版本，用于成对升级 App 与通用 Worker。误拷贝的 Pixiv 转换、rsync、源目录清理和 Webhook 扫描代码及其专用测试已移除；本次发布不执行该脚本，也不迁移数据库或操作媒体。源码恢复依据是该提交中的脚本；需要撤销本次修复时使用 Git revert，生产恢复仍按[备份与恢复基线](./backup-and-recovery.md)执行。
+
+完成对应版本的专用审计与迁移后，日常升级可执行：
+
+```bash
+sudo bash ./scripts/update-production.sh \
+  --compose-file build/docker-compose.deploy.yml \
+  --env-file build/.env
+```
+
+脚本默认拉取 App/Worker 镜像，检查旧身份字段清理状态和执行中任务，停止原本运行的 scheduler 与 App/Worker，再由 App 启动入口执行 migration，启动 Worker 并检查 READY/capability，最后恢复原本运行的 scheduler。`--no-pull` 使用宿主机现有镜像；`--force` 仅允许中断执行中任务，不授权绕过一次性审计或迁移门禁。`PIXISHELF_PRE_UPDATE_HOOK` 可指定停写后、启动 App 前执行的备份检查点脚本；未配置时只警告，不会创建备份。首次升级涉及旧字段清理、后台任务二阶段退役或执行 lane 变更时，必须先完成专用流程，不能直接依赖通用脚本。
 
 发布前须在停写窗口建立数据库、媒体、配置和镜像的一致性检查点，要求见[备份与恢复基线](./backup-and-recovery.md)。任一 migration、健康检查、READY 或 capability 门禁失败时，保持 scheduler 停止并排查；容器健康不能替代 Worker READY 和 capability audit。
 
