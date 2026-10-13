@@ -5,7 +5,7 @@ import type { inferRouterOutputs } from '@trpc/server'
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
-  CircleStopIcon,
+  XIcon,
   CopyIcon,
   FingerprintIcon,
   HistoryIcon,
@@ -196,7 +196,7 @@ export function ArchiveDiscoveryDetailHeader({
                 {cancelPending || cancelRequested ? (
                   <Spinner data-icon="inline-start" />
                 ) : (
-                  <CircleStopIcon data-icon="inline-start" aria-hidden="true" />
+                  <XIcon data-icon="inline-start" aria-hidden="true" />
                 )}
                 {cancelRequested ? '正在取消' : '取消扫描'}
               </Button>

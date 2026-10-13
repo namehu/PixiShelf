@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type ComponentProps, type CSSProperties } from 'react'
-import { Download, X } from 'lucide-react'
+import { Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { ActiveArchiveDownloadPanel } from './archive-active-download-panel'
@@ -40,16 +40,11 @@ export function ArchiveDownloadFloater({
           sideOffset={12}
           collisionPadding={16}
           aria-label="当前下载详情"
-          className="max-h-[min(38rem,var(--radix-popover-content-available-height))] w-[min(36rem,calc(100vw-2rem))] overflow-y-auto p-0"
+          className="flex max-h-[min(38rem,var(--radix-popover-content-available-height))] w-[min(26rem,calc(100vw-2rem))] flex-col overflow-hidden p-0"
         >
-          <div className="flex items-center justify-between border-b px-4 py-2">
-            <h2 className="text-sm font-medium">下载详情</h2>
-            <Button variant="ghost" size="icon" aria-label="收起当前下载" onClick={() => setOpen(false)}>
-              <X aria-hidden="true" />
-            </Button>
-          </div>
           <ActiveArchiveDownloadPanel
             {...props}
+            onClose={() => setOpen(false)}
             onViewItems={() => {
               setOpen(false)
               props.onViewItems()

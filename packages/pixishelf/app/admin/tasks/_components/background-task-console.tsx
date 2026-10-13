@@ -4,7 +4,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowLeft,
-  Ban,
+  X,
   BellOff,
   CheckCircle2,
   ChevronDown,
@@ -870,7 +870,7 @@ function JobActions({
             })
           }
         >
-          <Ban data-icon="inline-start" aria-hidden="true" />
+          <X data-icon="inline-start" aria-hidden="true" />
           取消
         </Button>
       ) : null}

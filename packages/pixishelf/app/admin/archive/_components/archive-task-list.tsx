@@ -12,7 +12,7 @@ import {
   MoreHorizontal,
   RefreshCw,
   RotateCcw,
-  Square,
+  X,
   Trash2,
   Users
 } from 'lucide-react'
@@ -332,7 +332,7 @@ function TaskActions({
                 disabled={task.status === 'CANCELLING' || isPending('CANCEL')}
                 onSelect={() => onAction('CANCEL')}
               >
-                {isPending('CANCEL') ? <Spinner /> : <Square aria-hidden="true" />}
+                {isPending('CANCEL') ? <Spinner /> : <X aria-hidden="true" />}
                 {task.status === 'CANCELLING' ? '正在取消' : '取消任务'}
               </DropdownMenuItem>
             )}

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, CircleStop, Clock3, Info, LibraryBig } from 'lucide-react'
+import { CheckCircle2, CircleStop, Clock3, Info, LibraryBig, X } from 'lucide-react'
 import { PIXIV_SERIES_RECONCILIATION_BATCH_LIMIT } from '@pixishelf/job-contracts'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -220,7 +220,11 @@ export function PixivSeriesReconciliationDialog({
           </Button>
           {active ? (
             <Button variant="destructive" onClick={() => cancelMutation.mutate({})} disabled={cancelMutation.isPending}>
-              {cancelMutation.isPending ? <Spinner data-icon="inline-start" /> : <CircleStop data-icon="inline-start" />}
+              {cancelMutation.isPending ? (
+                <Spinner data-icon="inline-start" />
+              ) : (
+                <X data-icon="inline-start" aria-hidden="true" />
+              )}
               {cancelMutation.isPending ? '正在取消整批任务' : '取消整批任务'}
             </Button>
           ) : null}

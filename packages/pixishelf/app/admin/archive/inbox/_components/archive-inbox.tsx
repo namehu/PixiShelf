@@ -20,7 +20,7 @@ import {
   ListFilterIcon,
   RotateCcwIcon,
   SearchIcon,
-  Trash2Icon
+  XIcon
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
@@ -476,7 +476,7 @@ export function ArchiveInbox() {
                     onClick={() => setCancelConfirmationOpen(true)}
                     disabled={!actionCounts.cancel || anyMutationPending}
                   >
-                    <Trash2Icon data-icon="inline-start" />
+                    <XIcon data-icon="inline-start" aria-hidden="true" />
                     取消 {actionCounts.cancel}
                   </Button>
                 </div>

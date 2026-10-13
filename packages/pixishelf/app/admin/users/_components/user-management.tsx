@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { UserPlus, Trash2, User as UserIcon } from 'lucide-react'
+import { UserPlus, Trash2, User as UserIcon, X } from 'lucide-react'
 import { useTRPC } from '@/lib/trpc'
 import { toast } from 'sonner'
 import { confirm } from '@/components/shared/global-confirm'
@@ -82,7 +82,11 @@ function UserManagement() {
     <div className="mx-auto flex max-w-5xl flex-col gap-6">
       <div className="flex justify-end">
           <Button onClick={() => setShowForm(!showForm)} className="sm:w-auto">
-            <UserPlus data-icon="inline-start" aria-hidden="true" />
+            {showForm ? (
+              <X data-icon="inline-start" aria-hidden="true" />
+            ) : (
+              <UserPlus data-icon="inline-start" aria-hidden="true" />
+            )}
             {showForm ? '取消' : '添加用户'}
           </Button>
       </div>

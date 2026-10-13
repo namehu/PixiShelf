@@ -41,7 +41,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
-  Square,
+  CircleStop,
   Trash2,
   Video,
   XCircle
@@ -292,7 +292,7 @@ export default function BatchReplaceManagement() {
                   disabled={batch?.systemJob?.status === 'CANCELLING'}
                   className="flex-1 sm:flex-none"
                 >
-                  <Square aria-hidden="true" />
+                  <CircleStop data-icon="inline-start" aria-hidden="true" />
                   {batch?.systemJob?.status === 'CANCELLING' ? '正在安全停止…' : '停止任务'}
                 </Button>
               </>

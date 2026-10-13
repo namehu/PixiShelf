@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { CircleStopIcon, Trash2Icon } from 'lucide-react'
+import { XIcon, Trash2Icon } from 'lucide-react'
 import { useTRPC } from '@/lib/trpc'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
@@ -144,7 +144,7 @@ export function ArchiveDiscoveryDeleteDialog({
                   {busy || cancelling ? (
                     <Spinner data-icon="inline-start" />
                   ) : (
-                    <CircleStopIcon data-icon="inline-start" />
+                    <XIcon data-icon="inline-start" aria-hidden="true" />
                   )}
                   {cancelling ? '正在取消' : '取消扫描'}
                 </Button>

@@ -356,10 +356,12 @@ describe('archive management UI', () => {
 
     expect(screen.getByRole('region', { name: '当前归档下载' })).toBeTruthy()
     expect(screen.getByText(/12.4 MB\/s/)).toBeTruthy()
-    expect(screen.getByText('活跃任务 4/4')).toBeTruthy()
-    expect(screen.getByText('正在传输 1')).toBeTruthy()
-    expect(screen.getByText('等待远端 2')).toBeTruthy()
-    expect(screen.getByText('校验写入 1')).toBeTruthy()
+    expect(screen.getByText('并发 4/4')).toBeTruthy()
+    expect(screen.getByRole('list', { name: '活跃下载文件' }).children).toHaveLength(4)
+    expect(
+      screen.getByRole('listitem', { name: '第 91 张图片' }).querySelector('[data-privacy-sensitive]')?.textContent
+    ).toBe('0091.jpg')
+    expect(screen.queryByRole('button', { name: /展开文件进度/ })).toBeNull()
     expect(screen.getByText('等待图片响应')).toBeTruthy()
     expect(screen.getByText('解析图片页')).toBeTruthy()
     expect(screen.getByText('校验并写入')).toBeTruthy()
@@ -375,6 +377,7 @@ describe('archive management UI', () => {
     act(() => vi.advanceTimersByTime(5_000))
     expect(screen.getByText('实时数据中断')).toBeTruthy()
     expect(screen.queryByText(/12.4 MB\/s/)).toBeNull()
+    expect(screen.queryByText(/2.96 MB\/s/)).toBeNull()
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)
   })

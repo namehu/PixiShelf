@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
 import { createBrowserUuid } from '@/lib/browser-uuid'
-import { Archive, ChevronLeft, ChevronRight, CirclePause, CirclePlay, RotateCcw, Square } from 'lucide-react'
+import { Archive, ChevronLeft, ChevronRight, CirclePause, CirclePlay, RotateCcw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { confirm } from '@/components/shared/global-confirm'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -678,7 +678,7 @@ function BulkActionToolbar({
         {actionButton('PAUSE', '暂停', <CirclePause data-icon="inline-start" aria-hidden="true" />)}
         {actionButton('RESUME', '继续', <CirclePlay data-icon="inline-start" aria-hidden="true" />)}
         {actionButton('RETRY', '重试', <RotateCcw data-icon="inline-start" aria-hidden="true" />)}
-        {actionButton('CANCEL', '取消', <Square data-icon="inline-start" aria-hidden="true" />, true)}
+        {actionButton('CANCEL', '取消', <X data-icon="inline-start" aria-hidden="true" />, true)}
       </div>
     </section>
   )

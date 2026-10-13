@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, CircleStop, Clock3, Info, Sparkles } from 'lucide-react'
+import { CheckCircle2, CircleStop, Clock3, Info, Sparkles, X } from 'lucide-react'
 import { PIXIV_TAG_ENRICHMENT_BATCH_LIMIT } from '@pixishelf/job-contracts'
 import { toast } from 'sonner'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -270,7 +270,7 @@ export function PixivTagEnrichmentDialog({
               {cancelMutation.isPending ? (
                 <Spinner data-icon="inline-start" />
               ) : (
-                <CircleStop data-icon="inline-start" />
+                <X data-icon="inline-start" aria-hidden="true" />
               )}
               {cancelMutation.isPending ? '正在取消整批任务' : '取消整批任务'}
             </Button>

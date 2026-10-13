@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { FolderSearch, Play, Square, UserPlus, FolderOpen, AlertCircle, HardDriveDownload } from 'lucide-react'
+import { FolderSearch, Play, X, UserPlus, FolderOpen, AlertCircle, HardDriveDownload } from 'lucide-react'
 import { toast } from 'sonner'
 import { ACTIVE_JOB_STATUSES, type JobStatus } from '@pixishelf/job-contracts'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
@@ -300,7 +300,7 @@ export default function LocalDirectoryImportManagement() {
                 {job?.status === 'CANCELLING' ? (
                   <Spinner data-icon="inline-start" aria-hidden="true" />
                 ) : (
-                  <Square data-icon="inline-start" aria-hidden="true" />
+                  <X data-icon="inline-start" aria-hidden="true" />
                 )}
                 {job?.status === 'CANCELLING' ? '正在取消' : '取消任务'}
               </Button>
