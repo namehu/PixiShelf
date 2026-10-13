@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -30,6 +30,7 @@ import { getAutoBrowseViewport, useArtworkAutoScroll } from './use-artwork-auto-
 import { AutoBrowseControls } from './auto-browse-controls'
 import { useArtworkVideoPlayback } from './use-artwork-video-playback'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
+import { getArtworkMediaRange } from './artwork-media-range'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
@@ -100,6 +101,7 @@ function getPointerPosition(event: React.MouseEvent | React.TouchEvent) {
 
 function useMeasuredMediaContainer() {
   const [containerWidth, setContainerWidth] = useState(0)
+  const [viewportHeight, setViewportHeight] = useState(0)
   const [scrollMargin, setScrollMargin] = useState(0)
   const [scrollPaddingStart, setScrollPaddingStart] = useState(NAV_HEIGHT)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -112,6 +114,7 @@ function useMeasuredMediaContainer() {
     const nextScrollMargin = rect.top + window.scrollY
 
     setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
+    setViewportHeight(window.innerHeight)
     setScrollMargin((currentMargin) => (currentMargin === nextScrollMargin ? currentMargin : nextScrollMargin))
     setScrollPaddingStart(getAutoBrowseViewport().top)
   }, [])
@@ -130,19 +133,21 @@ function useMeasuredMediaContainer() {
     }
   }, [updateMeasurements])
 
-  return { containerRef, containerWidth, scrollMargin, scrollPaddingStart }
+  return { containerRef, containerWidth, viewportHeight, scrollMargin, scrollPaddingStart }
 }
 
 function useArtworkMediaVirtualizer({
   images,
   visibleCount,
   containerWidth,
+  viewportHeight,
   scrollMargin,
   scrollPaddingStart
 }: {
   images: ArtworkImageResponseDto[]
   visibleCount: number
   containerWidth: number
+  viewportHeight: number
   scrollMargin: number
   scrollPaddingStart: number
 }) {
@@ -151,12 +156,30 @@ function useArtworkMediaVirtualizer({
     [containerWidth, images]
   )
   const getItemKey = useCallback((index: number) => images[index]?.id ?? index, [images])
+  const measuredSizes = useMemo(() => new Map<number, number>(), [containerWidth, images])
+  const [measurementRevision, setMeasurementRevision] = useState(0)
+  const rangeExtractor = useMemo(
+    () => (range: Parameters<typeof getArtworkMediaRange>[0]) =>
+      getArtworkMediaRange(range, viewportHeight, (index) => measuredSizes.get(index) ?? estimateSize(index)),
+    // A resize can change the preload distance without changing the visible indexes.
+    [viewportHeight, estimateSize, measuredSizes, measurementRevision]
+  )
+  const measureSize = useCallback((element: HTMLDivElement, entry: ResizeObserverEntry | undefined) => {
+    const size = Math.round(entry?.borderBoxSize?.[0]?.blockSize ?? element.offsetHeight)
+    const index = Number(element.dataset.index)
+    if (size > 0 && measuredSizes.get(index) !== size) {
+      measuredSizes.set(index, size)
+      setMeasurementRevision((value) => value + 1)
+    }
+    return size
+  }, [measuredSizes])
 
   const virtualizer = useWindowVirtualizer({
     useFlushSync: false,
     count: visibleCount,
     estimateSize,
-    overscan: 2,
+    rangeExtractor,
+    measureElement: measureSize,
     scrollMargin,
     scrollPaddingStart,
     getItemKey,
@@ -295,7 +318,7 @@ function PreviewableMedia({
   )
 }
 
-function ArtworkMediaItem({
+const ArtworkMediaItem = memo(function ArtworkMediaItem({
   media,
   index,
   onOpenPreviewMenu,
@@ -314,6 +337,10 @@ function ArtworkMediaItem({
 }) {
   const [loadFailed, setLoadFailed] = useState(false)
   const onPreviewStatusChange = useCallback((status: 'loading' | 'ready' | 'error') => setLoadFailed(status === 'error'), [])
+  const onOpenMenu = useCallback(
+    (event: React.MouseEvent | React.TouchEvent, itemIndex: number) => onOpenPreviewMenu(event, itemIndex, loadFailed),
+    [onOpenPreviewMenu, loadFailed]
+  )
   return (
     <div
       className={cn(
@@ -326,14 +353,14 @@ function ArtworkMediaItem({
         index={index}
         enabled={!isVideoMedia(media)}
         tapPreviewEnabled={canPreviewFullSize(media) && !keepsSurfacePlaybackControl(media)}
-        onOpenMenu={(event, itemIndex) => onOpenPreviewMenu(event, itemIndex, loadFailed)}
+        onOpenMenu={onOpenMenu}
         onPreview={onOpenAdaptivePreview}
       >
         <LazyMedia onPreviewStatusChange={onPreviewStatusChange} media={media} index={index} reading={reading} trackingActive={trackingActive} />
       </PreviewableMedia>
     </div>
   )
-}
+})
 
 function ExpandRemainingMediaButton({ remainingCount, onExpand }: { remainingCount: number; onExpand: () => void }) {
   return (
@@ -638,11 +665,12 @@ function VirtualizedArtworkMediaList({
   const anchorInterval = useArtworkMediaAnchorInterval()
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const currentIndex = useArtworkStore((state) => state.currentIndex)
-  const { containerRef, containerWidth, scrollMargin, scrollPaddingStart } = useMeasuredMediaContainer()
+  const { containerRef, containerWidth, viewportHeight, scrollMargin, scrollPaddingStart } = useMeasuredMediaContainer()
   const { virtualizer, measureElement } = useArtworkMediaVirtualizer({
     images,
     visibleCount,
     containerWidth,
+    viewportHeight,
     scrollMargin,
     scrollPaddingStart
   })

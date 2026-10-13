@@ -27,6 +27,8 @@ interface LazyMediaProps {
   trackingActive?: boolean
 }
 
+const READING_IMAGE_SIZES = '(max-width: 45rem) 100vw, 45rem'
+
 /**
  * 懒加载媒体组件
  */
@@ -222,6 +224,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
       return (
         <ApngPlayer
           src={src}
+          posterSizes={READING_IMAGE_SIZES}
           alt={`Artwork animation ${displayIndex + 1}`}
           onPosterLoad={() => report('ready')}
           onPosterError={() => report('error')}
@@ -243,7 +246,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
           controlMode={isWebpFile(src) ? 'badge' : 'surface'}
           {...(isWebpFile(src) ? animation : {})}
           updatedAt={media.updatedAt}
-          posterLoading={automatic ? 'eager' : 'lazy'}
+          posterLoading="eager"
           onPosterLoad={() => report('ready')}
           onPosterError={() => report('error')}
           onPlayingChange={isWebpFile(src) ? animation.onPlayingChange : onPlayingChange}
@@ -257,10 +260,10 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
         src={src}
         alt={`Artwork part ${displayIndex + 1}`}
         priority={index < 4}
-        loading={index < 4 || automatic ? 'eager' : 'lazy'}
+        loading="eager"
         width={0}
         height={0}
-        sizes="100vw"
+        sizes={READING_IMAGE_SIZES}
         className={hasDimensions ? 'h-auto w-full' : 'h-auto min-h-[300px] w-full sm:min-h-[500px]'}
         onLoad={onLoad}
         onError={() => report('error')}

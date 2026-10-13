@@ -3,7 +3,7 @@ import { useArtworkAutoBrowseStore as autoBrowse } from '@/store/use-artwork-aut
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import LazyMedia from '../lazy-media'
 
-const playerMocks = vi.hoisted(() => ({ props: vi.fn(), animatedProps: vi.fn(), imageProps: vi.fn() }))
+const playerMocks = vi.hoisted(() => ({ props: vi.fn(), animatedProps: vi.fn(), imageProps: vi.fn(), apngProps: vi.fn() }))
 const intersectionCallback = vi.hoisted(() => ({ current: null as null | ((inView: boolean) => void) }))
 const enqueue = vi.hoisted(() => vi.fn())
 const cancel = vi.hoisted(() => vi.fn())
@@ -22,7 +22,10 @@ vi.mock('@/components/players/video-player', () => ({
     return <div data-testid="video-player" data-src={props.src} />
   }
 }))
-vi.mock('@/components/players/apng-player', () => ({ default: () => null }))
+vi.mock('@/components/players/apng-player', () => ({ default: (props: unknown) => {
+  playerMocks.apngProps(props)
+  return null
+} }))
 vi.mock('@/components/players/animated-webp-player', () => ({
   default: (props: { isAnimated?: boolean; controlMode?: string }) => {
     playerMocks.animatedProps(props)
@@ -72,22 +75,35 @@ describe('LazyMedia video cache version', () => {
     playerMocks.props.mockReset()
     playerMocks.animatedProps.mockReset()
     playerMocks.imageProps.mockReset()
+    playerMocks.apngProps.mockReset()
   })
 
-  it('preloads mounted neighboring images only while automatic scrolling is active', () => {
+  it('keeps mounted images eager at reading width across start, pause and exit', () => {
     autoBrowse.getState().initialize(1)
     render(<LazyMedia media={{ ...media, path: '/next.jpg', mediaType: 'image' }} index={12} />)
-    expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('lazy')
+    expect(playerMocks.imageProps.mock.calls.at(-1)?.[0]).toMatchObject({
+      loading: 'eager', sizes: '(max-width: 45rem) 100vw, 45rem'
+    })
     act(() => autoBrowse.getState().start('scroll'))
     expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('eager')
     act(() => autoBrowse.getState().pause())
-    expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('lazy')
+    expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('eager')
+    act(() => autoBrowse.getState().stop())
+    expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('eager')
   })
 
   it('preloads the WebP poster without starting offscreen animation', () => {
     render(<LazyMedia media={{ ...media, path: '/next.webp', mediaType: 'image', isAnimated: true }} index={12} />)
+    expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0]).toMatchObject({ posterLoading: 'eager', playing: false })
     act(() => autoBrowse.getState().start('scroll'))
     expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0]).toMatchObject({ posterLoading: 'eager', playing: false })
+    act(() => autoBrowse.getState().pause())
+    expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0]).toMatchObject({ posterLoading: 'eager', playing: false })
+  })
+
+  it('sizes APNG posters for the reading column', () => {
+    render(<LazyMedia media={{ ...media, path: '/next.png', mediaType: 'image', isAnimated: true }} index={12} />)
+    expect(playerMocks.apngProps.mock.calls.at(-1)?.[0].posterSizes).toBe('(max-width: 45rem) 100vw, 45rem')
   })
 
   it('uses image updatedAt to version the immutable video URL', () => {

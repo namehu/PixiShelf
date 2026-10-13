@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import type { HTMLAttributes } from 'react'
+import { Profiler, type HTMLAttributes } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useArtworkAutoBrowseStore as store } from '@/store/use-artwork-auto-browse-store'
 import { AutoBrowseControls } from '../auto-browse-controls'
@@ -39,6 +39,25 @@ afterEach(() => {
 })
 
 describe('auto browse control docking', () => {
+  it('ignores unrelated media updates but renders waiting and preference changes', () => {
+    store.getState().initialize(1)
+    store.getState().start('scroll')
+    const committed = vi.fn()
+    render(
+      <Profiler id="controls" onRender={committed}>
+        <AutoBrowseControls mode="scroll" current={1} total={75} onRestart={vi.fn()} onRetry={vi.fn()} onSkip={vi.fn()} />
+      </Profiler>
+    )
+    committed.mockClear()
+    act(() => store.getState().setCurrentMedia(2))
+    expect(committed).not.toHaveBeenCalled()
+    act(() => store.getState().wait())
+    expect(committed).toHaveBeenCalled()
+    committed.mockClear()
+    act(() => store.getState().setPreferences({ scrollSpeed: 800 }))
+    expect(committed).toHaveBeenCalled()
+  })
+
   it('keeps pause available while loading and buffering without changing its icon', () => {
     render(<Controls />)
     act(() => store.getState().start('scroll'))

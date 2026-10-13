@@ -1,6 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { ControlledAutoBrowseControls } from '@/components/source-preview/controlled-auto-browse-controls'
 import { useArtworkAutoBrowseStore, type AutoBrowseMode } from '@/store/use-artwork-auto-browse-store'
 
@@ -31,7 +32,21 @@ export function AutoBrowseControls({
   blocked,
   container
 }: AutoBrowseControlsProps) {
-  const state = useArtworkAutoBrowseStore()
+  const state = useArtworkAutoBrowseStore(useShallow((state) => ({
+    mode: state.mode,
+    status: state.status,
+    reason: state.reason,
+    controlsCollapsed: state.controlsCollapsed,
+    scrollSpeed: state.scrollSpeed,
+    slideSeconds: state.slideSeconds,
+    loop: state.loop,
+    animationPhase: state.animationPhase,
+    start: state.start,
+    pause: state.pause,
+    resume: state.resume,
+    setControlsCollapsed: state.setControlsCollapsed,
+    setPreferences: state.setPreferences
+  })))
   return (
     <ControlledAutoBrowseControls
       mode={mode}

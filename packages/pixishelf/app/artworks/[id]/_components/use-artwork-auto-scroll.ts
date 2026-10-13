@@ -115,45 +115,58 @@ export function useArtworkAutoScroll({
         visible[0]
       const currentIndex = current ? Number(current.dataset.index) : -1
       const currentMedia = images[currentIndex]
-      if (currentMedia) state.setCurrentMedia(currentMedia.id)
 
       if (
         currentMedia &&
         (currentMedia.mediaType === 'video' || isVideoFile(currentMedia.path)) &&
         !state.skippedIds.includes(currentMedia.id)
       ) {
+        state.setCurrentMedia(currentMedia.id)
         state.pause('video')
         return
       }
-      // 只等待当前可见预览，屏外媒体仍保持懒加载，不阻塞滚动进度。
-      const pending = visible.find((node) => {
+      const last = nodes.find((node) => Number(node.dataset.index) === images.length - 1)
+      const atEnd = Boolean(last && rects.get(last)!.bottom <= bottom + 1)
+      const previewStatuses = new Map(nodes.map((node) => [
+        node, node.querySelector('[data-preview-status]')?.getAttribute('data-preview-status')
+      ]))
+      const unready = nodes.filter((node) => {
         // 不让相邻预览的加载或失败打断当前动图播放。
         if (animationNode && node !== animationNode) return false
         const media = images[Number(node.dataset.index)]
         return (
           media &&
+          rects.get(node)!.bottom > top &&
           media.mediaType !== 'video' &&
           !isVideoFile(media.path) &&
           !state.skippedIds.includes(media.id) &&
-          node.querySelector('[data-preview-status]')?.getAttribute('data-preview-status') !== 'ready'
+          previewStatuses.get(node) !== 'ready'
+        )
+      })
+      // 露出下半屏不阻塞；末尾的短图可能永远到不了中线，结束前仍须就绪。
+      const pending = unready.find((node) => {
+        const rect = rects.get(node)!
+        return rect.top < bottom && (
+          previewStatuses.get(node) === 'error' || rect.top <= focus + 0.5 || atEnd || node === animationNode
         )
       })
       if (pending) {
         const media = images[Number(pending.dataset.index)]!
         state.setCurrentMedia(media.id)
-        const failed = pending.querySelector('[data-preview-status]')?.getAttribute('data-preview-status') === 'error'
+        const failed = previewStatuses.get(pending) === 'error'
         if (failed) {
           state.pause('error')
           return
         }
         state.wait()
+        atEndSince = null
         position = window.scrollY
         frame = requestAnimationFrame(tick)
         return
       }
+      if (currentMedia) state.setCurrentMedia(currentMedia.id)
       if (animationNode) {
         const media = images[Number(animationNode.dataset.index)]!
-        state.setCurrentMedia(media.id)
         if (animation?.id !== media.id) {
           animation = { id: media.id }
           const rect = rects.get(animationNode)!
@@ -179,8 +192,7 @@ export function useArtworkAutoScroll({
         animation = null
       }
       state.ready()
-      const last = nodes.find((node) => Number(node.dataset.index) === images.length - 1)
-      if (last && rects.get(last)!.bottom <= bottom + 1) {
+      if (atEnd) {
         if (!state.loop) {
           state.end()
           return
@@ -197,7 +209,12 @@ export function useArtworkAutoScroll({
         atEndSince = null
         if (Math.abs(position - window.scrollY) > 2) position = window.scrollY
         const end = Math.max(0, bounds.bottom + window.scrollY - bottom)
-        position = Math.min(end, position + (state.scrollSpeed * delta) / 1000)
+        // 从当前实际位置计算屏障，避免高速、长帧或像素取整跨过未就绪短图。
+        const waitingLine = unready.reduce(
+          (limit, node) => Math.min(limit, window.scrollY + Math.max(0, rects.get(node)!.top - focus)),
+          Infinity
+        )
+        position = Math.min(end, waitingLine, position + (state.scrollSpeed * delta) / 1000)
         window.scrollTo({ top: position, behavior: 'instant' })
       }
       frame = requestAnimationFrame(tick)

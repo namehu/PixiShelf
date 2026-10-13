@@ -297,6 +297,9 @@ describe('scroll driver', () => {
     advance(5001)
     expect(store.getState()).toMatchObject({ activeAnimationId: null, completedAnimationIds: [1] })
     advance(5002)
+    expect(store.getState().status).toBe('running')
+    next.getBoundingClientRect = () => ({ top: 400, bottom: 800, width: 600, height: 400 }) as DOMRect
+    advance(5003)
     expect(store.getState().status).toBe('waiting')
   })
   it('plays short animations in reading order even when the viewport center is on a video', () => {
@@ -334,6 +337,94 @@ describe('scroll driver', () => {
     expect(frames.size).toBe(1)
     unmount()
     expect(frames.size).toBe(0)
+  })
+
+  function setupRows(rows: { height: number; status?: string }[]) {
+    const result = setup({ height: rows.reduce((sum, row) => sum + row.height, 0) })
+    result.container.replaceChildren()
+    let offset = 0
+    const images = rows.map((row, index) => {
+      const start = offset
+      offset += row.height
+      const node = document.createElement('div')
+      node.dataset.index = String(index)
+      node.innerHTML = `<div data-preview-status="${row.status ?? 'ready'}"></div>`
+      node.getBoundingClientRect = () => ({
+        top: start - result.getY(), bottom: start + row.height - result.getY(), height: row.height, width: 600
+      }) as DOMRect
+      result.container.append(node)
+      return { id: index + 1, path: `/${index + 1}.jpg`, mediaType: 'image' } as ArtworkImageResponseDto
+    })
+    result.rerender({ ...result.props, images })
+    return { ...result, images }
+  }
+
+  it('passes a loading edge and waits only when its top reaches the reading center', () => {
+    const { advance, getY } = setupRows([{ height: 799 }, { height: 1000, status: 'loading' }])
+    act(() => store.getState().setPreferences({ scrollSpeed: 800 }))
+    advance(0)
+    for (let time = 64; time <= 640; time += 64) advance(time)
+    expect(getY()).toBe(399)
+    expect(store.getState()).toMatchObject({ status: 'waiting', currentMediaId: 2 })
+  })
+
+  it('cannot step over an unloaded short image even on a long frame', () => {
+    const { advance, getY, container } = setupRows([
+      { height: 410 }, { height: 1, status: 'loading' }, { height: 2000 }
+    ])
+    act(() => store.getState().setPreferences({ scrollSpeed: 800 }))
+    advance(0)
+    advance(10000)
+    expect(getY()).toBe(10)
+    advance(20000)
+    expect(store.getState().status).toBe('waiting')
+    container.children[1]!.firstElementChild!.setAttribute('data-preview-status', 'ready')
+    advance(20016)
+    expect(getY()).toBe(23)
+    expect(store.getState().status).toBe('running')
+  })
+
+  it('waits for a final short image below the center before ending or starting the loop dwell', () => {
+    const { advance, container } = setupRows([{ height: 600 }, { height: 100, status: 'loading' }])
+    act(() => store.getState().setPreferences({ loop: true }))
+    advance(0)
+    advance(10000)
+    expect(store.getState()).toMatchObject({ status: 'waiting', currentMediaId: 2 })
+    container.children[1]!.firstElementChild!.setAttribute('data-preview-status', 'ready')
+    advance(10001)
+    advance(12000)
+    expect(store.getState().status).toBe('running')
+    act(() => store.getState().setPreferences({ loop: false }))
+    advance(12001)
+    expect(store.getState().status).toBe('ended')
+  })
+
+  it('pauses on a visible error below the center and requires explicit continuation after loading', () => {
+    const { advance, getY, container, frames } = setupRows([{ height: 799 }, { height: 1000, status: 'error' }])
+    advance(0)
+    expect(store.getState()).toMatchObject({ status: 'paused', reason: 'error', currentMediaId: 2 })
+    container.children[1]!.firstElementChild!.setAttribute('data-preview-status', 'ready')
+    advance(10000)
+    expect(getY()).toBe(0)
+    expect(frames.size).toBe(0)
+    act(() => store.getState().resume())
+    advance(10001)
+    advance(10051)
+    expect(getY()).toBeGreaterThan(0)
+  })
+
+  it('does not alternate current media on every waiting frame', () => {
+    const { advance } = setupRows([{ height: 300, status: 'loading' }, { height: 2000 }])
+    advance(0)
+    const changes: number[] = []
+    const unsubscribe = store.subscribe((state, previous) => {
+      if (state.currentMediaId !== previous.currentMediaId) changes.push(state.currentMediaId!)
+    })
+    advance(16)
+    advance(32)
+    expect(store.getState().currentMediaId).toBe(1)
+    expect(changes).toEqual([])
+    unsubscribe()
   })
 })
 

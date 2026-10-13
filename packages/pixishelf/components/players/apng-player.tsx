@@ -15,13 +15,14 @@ interface ApngPlayerProps {
   /** 图片的替代文本 */
   alt?: string
   className?: string
+  posterSizes?: string
   onPosterLoad?: () => void
   onPosterError?: () => void
   onPlayingChange?: (playing: boolean) => void
 }
 
 const ApngPlayer = (props: ApngPlayerProps) => {
-  const { src, alt = src, className, onPosterLoad, onPosterError, onPlayingChange } = props
+  const { src, alt = src, className, posterSizes = '100vw', onPosterLoad, onPosterError, onPlayingChange } = props
 
   const [player, setPlayer] = useState<any>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle')
@@ -122,7 +123,7 @@ const ApngPlayer = (props: ApngPlayerProps) => {
           priority
           width={0}
           height={0}
-          sizes="100vw"
+          sizes={posterSizes}
           onLoad={onPosterLoad}
           onError={onPosterError}
           className={cn(
