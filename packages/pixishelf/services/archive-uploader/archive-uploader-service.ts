@@ -763,7 +763,20 @@ export async function addArchiveUploaderScanItems(
       select: dispositionCatalogItemSelect
     })
     assertAllDispositionItemsFound(items, parsed.itemIds)
-
+    const deletions = await transaction.archiveDeletedIdentity.findMany({
+      where: { OR: items.map(({ providerKey, externalId }) => ({ providerKey, externalId })) }
+    })
+    if (deletions.some((item) => !item.purgedAt)) {
+      throw new ArchiveError('STATE_CONFLICT', '所选作品已删除，文件清理完成后才能重新归档')
+    }
+    const actionItems = items.map((item) => {
+      const deletion = deletions.find(
+        (row) => row.providerKey === item.providerKey && row.externalId === item.externalId
+      )
+      return deletion
+        ? { ...item, lastOutcome: 'ARCHIVED' as const, lastIntakeItemId: null, lastOutcomeAt: deletion.purgedAt }
+        : item
+    })
     const digest = createHash('sha256')
       .update(`${parsed.sourceId}\n${[...parsed.itemIds].sort().join('\n')}`)
       .digest('hex')
@@ -773,7 +786,7 @@ export async function addArchiveUploaderScanItems(
       select: { id: true }
     })
     if (!existingAttempt) {
-      await assertCatalogItemsActionable(transaction, items)
+      await assertCatalogItemsActionable(transaction, actionItems)
       const ignoredItem = await transaction.archiveUploaderIgnoredItem.findFirst({
         where: {
           OR: items.map((item) => ({ providerKey: item.providerKey, externalId: item.externalId }))
@@ -787,7 +800,7 @@ export async function addArchiveUploaderScanItems(
       {
         idempotencyKey,
         urls: items.map(({ canonicalUrl }) => canonicalUrl),
-        downloadMode: parsed.downloadMode,
+        downloadMode: deletions.length ? 'MANUAL' : parsed.downloadMode,
         quality: parsed.quality
       },
       requestedByUserId,
@@ -1027,7 +1040,7 @@ function serializeChangeReasons(value: Prisma.JsonValue): Array<{ code: string; 
 }
 
 function emptyCatalogCounts() {
-  return { actionable: 0, processing: 0, archived: 0, attention: 0, total: 0 }
+  return { actionable: 0, processing: 0, archived: 0, deleted: 0, attention: 0, total: 0 }
 }
 
 function getDatabase(dependencies: ArchiveUploaderServiceDependencies) {

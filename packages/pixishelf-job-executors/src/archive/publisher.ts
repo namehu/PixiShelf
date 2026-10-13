@@ -1,3 +1,4 @@
+import { assertArchiveImportNotDeleted } from './deletion-policy.ts'
 import path from 'node:path'
 import {
   Prisma,
@@ -38,6 +39,7 @@ export async function publishArchiveImportInTransaction(
     include: { items: { orderBy: { pageIndex: 'asc' } }, externalRef: true }
   })
   if (!archiveImport) throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入已不存在')
+  await assertArchiveImportNotDeleted(transaction, archiveImport)
   if (archiveImport.status !== 'RUNNING') {
     throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入已不再运行', { recoverable: true })
   }

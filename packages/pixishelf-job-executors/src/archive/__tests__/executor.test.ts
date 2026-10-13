@@ -986,6 +986,7 @@ function createTransaction() {
     setting: {
       findUnique: vi.fn(async () => ({ value: '4' }))
     },
+    archiveDeletedIdentity: { findUnique: vi.fn(async () => null) },
     archiveImport: {
       findUnique: vi.fn(async () => archiveImport),
       updateMany: vi.fn(async () => ({ count: 1 })),

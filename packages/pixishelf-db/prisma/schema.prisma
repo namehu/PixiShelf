@@ -921,6 +921,8 @@ model ArchiveImport {
   errorCode          String?             @db.VarChar(80)
   errorMessage       String?             @db.Text
   publishedArtworkId Int?
+  publishedArtworkDeletedAt DateTime?
+  publishedArtworkPurgedAt DateTime?
   startedAt          DateTime?
   finishedAt         DateTime?
   retainUntil        DateTime?
@@ -1308,6 +1310,21 @@ model ArchiveImportItem {
   @@unique([archiveImportId, pageIndex])
   @@index([archiveImportId, status])
   @@map("archive_import_items")
+}
+
+// Intentionally independent of Artwork and discovery sources: deletion intent survives their removal.
+model ArchiveDeletedIdentity {
+  providerKey String @db.VarChar(50)
+  externalId String
+  canonicalUrl String @db.Text
+  artworkId Int
+  deletedAt DateTime
+  purgedAt DateTime?
+
+  @@id([providerKey, externalId])
+  @@index([artworkId])
+  @@index([canonicalUrl])
+  @@map("archive_deleted_identities")
 }
 
 model ArchiveRevision {
@@ -1977,6 +1994,7 @@ enum ArchiveIntakeResolutionKind {
 }
 
 enum ArchiveBulkOperationCommand {
+  RESTORE_ARCHIVE
   DELETE_FAILED_RECORDS
   BIND_CREATORS
   CANCEL_PENDING_CREATORS
@@ -1988,6 +2006,7 @@ enum ArchiveBulkOperationCommand {
 }
 
 enum ArchiveBulkOperationTarget {
+  ARCHIVE_ARTWORK
   DISCOVERY_ITEM
   PENDING_CREATOR_BINDING
   INTAKE_ITEM

@@ -758,6 +758,7 @@ export function ArchiveUploaderSources({
               ACTIONABLE: resultCounts?.actionable ?? null,
               PROCESSING: resultCounts?.processing ?? null,
               ARCHIVED: resultCounts?.archived ?? null,
+              DELETED: resultCounts?.deleted ?? null,
               ATTENTION: resultCounts?.attention ?? null,
               ALL: resultCounts?.total ?? null
             }}
@@ -1074,6 +1075,7 @@ function resultFeedDescription(feed: ArchiveDiscoveryCatalogView, itemCount: num
     ACTIONABLE: '尚未处理，或本地版本与当前公开信息存在稳定差异',
     PROCESSING: '正在收件箱解析、等待确认或执行下载',
     ARCHIVED: '已经完成下载并发布到本地归档',
+    DELETED: '已删除的作品；文件清理完成后可手动重新归档',
     ATTENTION: '解析、下载或身份检查需要处理',
     ALL: '这个来源长期保留的全部已发现画廊'
   }

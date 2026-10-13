@@ -15,6 +15,7 @@ export function CatalogStatusBadge({
       | 'READY'
       | 'DOWNLOADING'
       | 'ARCHIVED'
+      | 'DELETED'
       | 'FAILED'
       | 'CANCELLED'
       | 'DUPLICATE'
@@ -28,6 +29,7 @@ export function CatalogStatusBadge({
     READY: { label: '待确认下载', variant: 'info' as const },
     DOWNLOADING: { label: '下载中', variant: 'warning' as const },
     ARCHIVED: { label: item.comparisonKnown ? '已归档' : '已归档 · 待校验', variant: 'muted' as const },
+    DELETED: { label: '已删除', variant: 'muted' as const },
     FAILED: { label: '处理失败', variant: 'destructive' as const },
     CANCELLED: { label: '已取消', variant: 'muted' as const },
     DUPLICATE: { label: '身份重复', variant: 'warning' as const }

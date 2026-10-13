@@ -260,7 +260,11 @@ export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
   return (
     <section className="flex min-w-0 flex-col gap-3 rounded-lg border p-3" aria-label="任务详情">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant="secondary">{archiveTaskStatusLabel(archiveTaskDisplayStatus(task), task.errorCode)}</Badge>
+        <Badge variant="secondary">
+          {task.publishedArtworkDeletedAt || task.publishedArtwork?.deletedAt
+            ? '已删除'
+            : archiveTaskStatusLabel(archiveTaskDisplayStatus(task), task.errorCode)}
+        </Badge>
         <Badge variant="outline">{task.selectedQuality === 'ORIGINAL' ? '原图' : '展示质量'}</Badge>
         {task.kind && <Badge variant="outline">{task.kind === 'UPDATE' ? '更新归档' : '首次归档'}</Badge>}
         <span className="text-xs text-muted-foreground">尝试 {task.attempt}</span>

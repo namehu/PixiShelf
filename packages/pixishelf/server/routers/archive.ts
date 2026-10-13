@@ -14,6 +14,16 @@ import {
 } from '@/services/archive/archive-task-service'
 
 import { editArchiveTaskCreators, editTaskCreatorsSchema } from '@/services/archive/archive-task-creators'
+import {
+  archiveTrashListSchema,
+  archiveTrashRestoreSchema,
+  listArchiveTrash,
+  restoreArchiveTrash
+} from '@/services/archive/archive-trash-service'
+import {
+  requestArchiveArtworkMaintenance,
+  requestArchivePurgeMaintenance
+} from '@/services/archive/archive-maintenance-service'
 
 const actionSchema = z.enum([
   'PAUSE',
@@ -32,6 +42,28 @@ const archiveMutationAckSchema = z.object({ taskId: z.string().min(1) })
  * 归档任务路由：变更操作走显式管理员边界，并将归档服务层的领域错误统一转换为 tRPC 错误码。
  */
 export const archiveRouter = router({
+  listTrash: adminProcedure
+    .input(archiveTrashListSchema)
+    .query(({ input }) => runArchiveOperation(() => listArchiveTrash(input))),
+  restoreTrash: adminProcedure
+    .input(archiveTrashRestoreSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => restoreArchiveTrash(input, ctx.userId))),
+  retryTrash: adminProcedure
+    .input(
+      z
+        .object({
+          artworkId: z.number().int().positive(),
+          action: z.enum(['TRASH_ARCHIVE', 'RESTORE_ARCHIVE', 'PURGE_ARCHIVE'])
+        })
+        .strict()
+    )
+    .mutation(({ input, ctx }) =>
+      runArchiveOperation(async () =>
+        input.action === 'PURGE_ARCHIVE'
+          ? await requestArchivePurgeMaintenance({ artworkId: input.artworkId, requestedByUserId: ctx.userId })
+          : await requestArchiveArtworkMaintenance({ ...input, action: input.action, requestedByUserId: ctx.userId })
+      )
+    ),
   listTasks: authProcedure
     .input(archiveTaskListSchema)
     .query(({ input }) => runArchiveOperation(() => listArchiveTasks(input))),

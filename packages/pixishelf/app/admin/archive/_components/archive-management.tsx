@@ -36,6 +36,8 @@ import { hasTaskFilters, type TaskFilters } from './archive-task-filters'
 import { useArchiveTaskFilters } from './use-archive-task-filters'
 import { useArchiveLiveEvents } from './archive-live-events'
 import { archiveSourceLabel } from './archive-source-label'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { ArchiveTrash } from './archive-trash'
 import {
   archiveTaskDeepLinkId,
   archiveTaskDisplayStatus,
@@ -83,6 +85,35 @@ export function isActiveArchiveDownloadStatus(status: string): boolean {
 }
 
 export function ArchiveManagement() {
+  const router = useRouter()
+  const params = useSearchParams()
+  const tab = params.get('tab') === 'trash' && !params.get('taskId') ? 'trash' : 'tasks'
+  return (
+    <Tabs
+      value={tab}
+      onValueChange={(value) => {
+        const next = new URLSearchParams(params.toString())
+        next.delete('taskId')
+        if (value === 'trash') next.set('tab', 'trash')
+        else next.delete('tab')
+        router.push(`/admin/archive${next.size ? `?${next}` : ''}`, { scroll: false })
+      }}
+    >
+      <TabsList aria-label="归档视图" className="mx-4 mt-6 sm:mx-6 lg:mx-8">
+        <TabsTrigger value="tasks">归档任务</TabsTrigger>
+        <TabsTrigger value="trash">回收站</TabsTrigger>
+      </TabsList>
+      <TabsContent value="tasks">
+        <ArchiveTaskManagement />
+      </TabsContent>
+      <TabsContent value="trash">
+        <ArchiveTrash />
+      </TabsContent>
+    </Tabs>
+  )
+}
+
+function ArchiveTaskManagement() {
   const isDesktop = useMediaQuery('(min-width: 768px)')
   const trpc = useTRPC()
   const router = useRouter()

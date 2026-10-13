@@ -22,6 +22,11 @@ export async function bindDiscoveryCreators(
   options: { automatic: boolean; title: string; requestedByUserId?: string }
 ) {
   const ids = [...new Set(artistIds)]
+  if (
+    options.automatic &&
+    (await tx.archiveDeletedIdentity.findUnique({ where: { providerKey_externalId: identity } }))
+  )
+    return 'SKIPPED' as const
   const ref = await tx.artworkExternalRef.findUnique({
     where: { providerKey_externalId: identity },
     include: { artwork: true }

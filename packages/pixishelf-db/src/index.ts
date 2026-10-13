@@ -7,7 +7,7 @@ export * from './artist-merge'
 export * from './animation-duration'
 export * from './artwork-reading'
 
-const latestRequiredMigration = '20261011000000_background_task_retirement_contract'
+const latestRequiredMigration = '20261012160000_archive_deleted_identities'
 
 const requiredQueueObjects = [
   'artist_merges',
@@ -21,6 +21,7 @@ const requiredQueueObjects = [
   'artist_source_tag_mappings',
   'effective_artwork_creators',
   'archive_intake_items',
+  'archive_deleted_identities',
   'archive_uploader_scan_items',
   'archive_uploader_scan_runs',
   'archive_uploader_sources',
@@ -64,6 +65,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
       client.$queryRaw<Array<{ columnName: string }>>(Prisma.sql`
         SELECT CASE
           WHEN table_name = 'Artwork' AND column_name = 'mediaRevision' THEN 'Artwork.mediaRevision'
+          WHEN table_name = 'archive_imports' THEN 'archive_imports.' || column_name
           ELSE column_name
         END AS "columnName"
         FROM information_schema.columns
@@ -71,6 +73,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
           AND (
             (table_name = 'system_jobs' AND column_name IN ('definitionVersion', 'executionLane', 'progressData', 'legacyDisplay'))
             OR (table_name = 'Artwork' AND column_name = 'mediaRevision')
+            OR (table_name = 'archive_imports' AND column_name IN ('publishedArtworkDeletedAt', 'publishedArtworkPurgedAt'))
             OR (table_name = 'Artist' AND column_name = 'userId')
             OR (table_name = 'Artwork' AND column_name = 'seriesId')
             OR (table_name = 'Series' AND column_name IN ('source', 'externalId'))
@@ -149,6 +152,9 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   }
   if (!columnRows.some(({ columnName }) => columnName === 'Artwork.mediaRevision')) {
     missingObjects.push('Artwork.mediaRevision')
+  }
+  for (const columnName of ['archive_imports.publishedArtworkDeletedAt', 'archive_imports.publishedArtworkPurgedAt']) {
+    if (!columnRows.some((row) => row.columnName === columnName)) missingObjects.push(columnName)
   }
   for (const retiredColumn of ['userId', 'seriesId', 'source', 'externalId']) {
     if (columnRows.some(({ columnName }) => columnName === retiredColumn)) {
