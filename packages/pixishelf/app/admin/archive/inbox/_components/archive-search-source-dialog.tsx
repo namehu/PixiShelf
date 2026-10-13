@@ -26,8 +26,11 @@ export function ArchiveSearchSourceDialog({
         if (!open && !pending) onClose()
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent
+        fitViewport={state !== null}
+        className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-xl [&>[data-slot=dialog-close]]:top-2 [&>[data-slot=dialog-close]]:right-2 [&>[data-slot=dialog-close]]:flex [&>[data-slot=dialog-close]]:size-11 [&>[data-slot=dialog-close]]:items-center [&>[data-slot=dialog-close]]:justify-center"
+      >
+        <DialogHeader className="shrink-0 border-b px-5 pt-5 pb-4 text-left">
           <DialogTitle>
             {state?.mode === 'RENAME' ? '修改来源名称' : state?.mode === 'COPY' ? '另存搜索条件' : '新增标题关键词来源'}
           </DialogTitle>

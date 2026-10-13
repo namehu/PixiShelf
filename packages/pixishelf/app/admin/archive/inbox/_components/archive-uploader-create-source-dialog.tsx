@@ -25,8 +25,11 @@ export function ArchiveUploaderCreateSourceDialog({
         if (!pending) onOpenChange(value)
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent
+        fitViewport={open}
+        className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-xl [&>[data-slot=dialog-close]]:top-2 [&>[data-slot=dialog-close]]:right-2 [&>[data-slot=dialog-close]]:flex [&>[data-slot=dialog-close]]:size-11 [&>[data-slot=dialog-close]]:items-center [&>[data-slot=dialog-close]]:justify-center"
+      >
+        <DialogHeader className="shrink-0 border-b px-5 pt-5 pb-4 text-left">
           <DialogTitle>新增上传者来源</DialogTitle>
           <DialogDescription>输入原站上的完整上传者名称，系统自动识别账号。</DialogDescription>
         </DialogHeader>

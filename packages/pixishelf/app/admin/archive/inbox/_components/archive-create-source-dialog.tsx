@@ -25,10 +25,13 @@ export function ArchiveCreateSourceDialog(props: Props) {
         if (!pending) props.onOpenChange(open)
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent
+        fitViewport={props.open}
+        className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-xl [&>[data-slot=dialog-close]]:top-2 [&>[data-slot=dialog-close]]:right-2 [&>[data-slot=dialog-close]]:flex [&>[data-slot=dialog-close]]:size-11 [&>[data-slot=dialog-close]]:items-center [&>[data-slot=dialog-close]]:justify-center"
+      >
+        <DialogHeader className="shrink-0 border-b px-5 pt-5 pb-4 text-left">
           <DialogTitle>新增来源</DialogTitle>
-          <DialogDescription>选择来源类型，可同时绑定艺术家。保存后手动启动扫描。</DialogDescription>
+          <DialogDescription>保存来源后，手动启动扫描。</DialogDescription>
         </DialogHeader>
         <CreateSourceForms
           {...props}
@@ -65,11 +68,12 @@ function CreateSourceForms({
   return (
     <Tabs
       value={kind}
+      className="flex min-h-0 flex-1 flex-col gap-0"
       onValueChange={(value) => {
         if (!pending) setKind(value)
       }}
     >
-      <TabsList aria-label="新增来源类型">
+      <TabsList aria-label="新增来源类型" className="mx-5 mt-4 grid h-11 w-auto shrink-0 grid-cols-2">
         <TabsTrigger value="uploader" disabled={pending}>
           上传者
         </TabsTrigger>
@@ -77,7 +81,12 @@ function CreateSourceForms({
           标题关键词
         </TabsTrigger>
       </TabsList>
-      <TabsContent value="uploader" hidden={kind !== 'uploader'} forceMount className="data-[state=inactive]:hidden">
+      <TabsContent
+        value="uploader"
+        hidden={kind !== 'uploader'}
+        forceMount
+        className="min-h-0 flex flex-1 flex-col data-[state=inactive]:hidden"
+      >
         <ArchiveUploaderSourceForm
           open={open}
           onOpenChange={onOpenChange}
@@ -88,7 +97,12 @@ function CreateSourceForms({
           onPendingChange={updatePending}
         />
       </TabsContent>
-      <TabsContent value="keyword" hidden={kind !== 'keyword'} forceMount className="data-[state=inactive]:hidden">
+      <TabsContent
+        value="keyword"
+        hidden={kind !== 'keyword'}
+        forceMount
+        className="min-h-0 flex flex-1 flex-col data-[state=inactive]:hidden"
+      >
         <ArchiveSearchSourceForm
           state={createSearchState}
           onClose={() => onOpenChange(false)}

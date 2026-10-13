@@ -38,16 +38,17 @@ export function ArchiveUploaderSourceForm({
   }, [pending, onPendingChange])
   return (
     <form
+      className="flex min-h-0 flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
       }}
     >
-      <FieldGroup className="py-5">
+      <FieldGroup className="min-h-0 flex-1 gap-5 overflow-y-auto overscroll-contain px-5 py-5">
         <ArchiveUploaderIdentityField identity={identity} sources={sources} disabled={pending} />
         <SourceCreatorField value={creators} onChange={onCreatorsChange} disabled={pending} />
       </FieldGroup>
-      <DialogFooter>
+      <DialogFooter className="grid shrink-0 grid-cols-2 gap-2 border-t px-5 py-4 sm:flex sm:flex-row [&>button]:h-11">
         <Button type="button" variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>
           取消
         </Button>

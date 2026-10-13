@@ -12,13 +12,11 @@ export function SourceCreatorField({
   disabled: boolean
 }) {
   return (
-    <fieldset disabled={disabled} className="min-w-0">
+    <fieldset disabled={disabled} className="min-w-0 border-t pt-5">
       <Field data-disabled={disabled}>
         <FieldLabel>绑定艺术家（可选）</FieldLabel>
-        <CreatorPicker value={value} onChange={onChange} />
-        <FieldDescription>
-          保存为固定艺术家，后续扫描沿用此绑定；可在来源详情中调整。来源已存在时保留原绑定。
-        </FieldDescription>
+        <CreatorPicker value={value} onChange={onChange} presentation="dialog" disabled={disabled} />
+        <FieldDescription>后续扫描沿用此绑定，可在来源详情调整。已有来源保留原绑定。</FieldDescription>
       </Field>
     </fieldset>
   )

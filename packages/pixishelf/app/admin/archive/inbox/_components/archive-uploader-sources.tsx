@@ -560,20 +560,27 @@ export function ArchiveUploaderSources({
   if (!active) return null
 
   const globalHeader = !discoveryDetail ? (
-    <div className="sticky top-14 z-30 border-b border-border bg-background py-3 lg:top-16">
+    <div className="sticky top-14 z-30 bg-background py-3 lg:top-16">
       <ArchiveDiscoverySourceFilters
+        summary={
+          <p className="text-sm text-muted-foreground" aria-live="polite">
+            已保存 <span className="font-medium text-foreground">{sources.length}</span> 个来源
+            {allSources.length !== sources.length ? ` · 共 ${allSources.length} 个` : ''}
+          </p>
+        }
         value={sourceFilters}
         countsReady={Boolean(countsQuery.data)}
         onChange={setSourceFilters}
         actions={
           <>
             {onNavigatePendingCreators ? (
-              <Button variant="outline" onClick={onNavigatePendingCreators}>
+              <Button variant="ghost" className="h-11 sm:h-9" onClick={onNavigatePendingCreators}>
                 待生效绑定
               </Button>
             ) : null}
             <Button
-              variant="outline"
+              variant="ghost"
+              className="h-11 sm:h-9"
               aria-label={ignored ? '返回发现来源' : '查看全局已忽略'}
               onClick={ignored ? returnFromIgnored : enterIgnored}
             >
@@ -584,7 +591,7 @@ export function ArchiveUploaderSources({
               )}
               {ignored ? '返回发现来源' : '全局已忽略'}
             </Button>
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button className="h-11 sm:h-9" onClick={() => setCreateOpen(true)}>
               <PlusIcon data-icon="inline-start" aria-hidden="true" />
               新增来源
             </Button>
@@ -596,9 +603,6 @@ export function ArchiveUploaderSources({
 
   const sourceList = (
     <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground" aria-live="polite">
-        {sources.length} 个来源{allSources.length !== sources.length ? ` · 共 ${allSources.length} 个` : ''}
-      </p>
       {(sourceFilters.actionable || sourceFilters.attention) && !countsQuery.data ? (
         <Skeleton className="h-24 w-full" aria-label="正在加载来源统计" />
       ) : (

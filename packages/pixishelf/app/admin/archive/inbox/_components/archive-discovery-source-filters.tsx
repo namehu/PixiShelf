@@ -12,76 +12,91 @@ export function ArchiveDiscoverySourceFilters({
   value,
   onChange,
   countsReady,
-  actions
+  actions,
+  summary
 }: {
   value: SourceListFilters
   onChange: (value: SourceListFilters) => void
   actions?: ReactNode
+  summary?: ReactNode
   countsReady: boolean
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-1 basis-80 items-center gap-3">
-          <Input
-            className="min-w-0 flex-1 sm:max-w-sm"
-            type="search"
-            aria-label="搜索来源"
-            placeholder="搜索名称、UID 或关键词"
-            value={value.search}
-            onChange={(event) => onChange({ ...value, search: event.target.value })}
-          />
-          <Select
-            value={value.status}
-            onValueChange={(status: SourceListFilters['status']) => onChange({ ...value, status })}
-          >
-            <SelectTrigger aria-label="来源启停状态">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="ACTIVE">启用来源</SelectItem>
-                <SelectItem value="ALL">全部状态</SelectItem>
-                <SelectItem value="ARCHIVED">已停用</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+      {(actions || summary) && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {summary}
+          {actions && <div className="flex flex-wrap items-center gap-1">{actions}</div>}
         </div>
-        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
-      </div>
-      <div className="flex flex-wrap items-center gap-4">
-        <ToggleGroup
-          type="single"
-          value={value.kind}
-          onValueChange={(kind: SourceListFilters['kind']) => kind && onChange({ ...value, kind })}
-          variant="outline"
-          aria-label="来源类型"
-        >
-          <ToggleGroupItem value="ALL">全部来源</ToggleGroupItem>
-          <ToggleGroupItem value="UPLOADER">上传者</ToggleGroupItem>
-          <ToggleGroupItem value="TITLE_QUERY">标题关键词</ToggleGroupItem>
-        </ToggleGroup>
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={value.actionable}
-            disabled={!countsReady}
-            onCheckedChange={(checked) => onChange({ ...value, actionable: checked === true })}
-          />
-          有待处理
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox
-            checked={value.attention}
-            disabled={!countsReady}
-            onCheckedChange={(checked) => onChange({ ...value, attention: checked === true })}
-          />
-          有异常
-        </label>
-        {JSON.stringify(value) !== JSON.stringify(DEFAULT_SOURCE_FILTERS) ? (
-          <Button size="sm" variant="ghost" onClick={() => onChange(DEFAULT_SOURCE_FILTERS)}>
-            重置来源筛选
-          </Button>
-        ) : null}
+      )}
+      <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <Input
+              className="h-11 min-w-0 flex-1 sm:h-9"
+              type="search"
+              aria-label="搜索来源"
+              placeholder="搜索名称、UID 或关键词"
+              value={value.search}
+              onChange={(event) => onChange({ ...value, search: event.target.value })}
+            />
+            <Select
+              value={value.status}
+              onValueChange={(status: SourceListFilters['status']) => onChange({ ...value, status })}
+            >
+              <SelectTrigger aria-label="来源启停状态" className="h-11 shrink-0 sm:h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="ACTIVE">启用来源</SelectItem>
+                  <SelectItem value="ALL">全部状态</SelectItem>
+                  <SelectItem value="ARCHIVED">已停用</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-4">
+          <ToggleGroup
+            type="single"
+            value={value.kind}
+            onValueChange={(kind: SourceListFilters['kind']) => kind && onChange({ ...value, kind })}
+            variant="outline"
+            aria-label="来源类型"
+          >
+            <ToggleGroupItem value="ALL" className="h-11 sm:h-9">
+              全部来源
+            </ToggleGroupItem>
+            <ToggleGroupItem value="UPLOADER" className="h-11 sm:h-9">
+              上传者
+            </ToggleGroupItem>
+            <ToggleGroupItem value="TITLE_QUERY" className="h-11 sm:h-9">
+              标题关键词
+            </ToggleGroupItem>
+          </ToggleGroup>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={value.actionable}
+              disabled={!countsReady}
+              onCheckedChange={(checked) => onChange({ ...value, actionable: checked === true })}
+            />
+            有待处理
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={value.attention}
+              disabled={!countsReady}
+              onCheckedChange={(checked) => onChange({ ...value, attention: checked === true })}
+            />
+            有异常
+          </label>
+          {JSON.stringify(value) !== JSON.stringify(DEFAULT_SOURCE_FILTERS) ? (
+            <Button size="sm" variant="ghost" onClick={() => onChange(DEFAULT_SOURCE_FILTERS)}>
+              重置来源筛选
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   )

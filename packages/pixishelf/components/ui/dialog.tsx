@@ -39,10 +39,30 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  fitViewport = false,
+  style,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  /** Keep opted-in forms within the visible area when the mobile keyboard opens. */
+  fitViewport?: boolean
 }) {
+  const [viewport, setViewport] = React.useState<{ height: number; top: number } | null>(null)
+  React.useEffect(() => {
+    if (!fitViewport) return
+    const visualViewport = window.visualViewport
+    const update = () =>
+      setViewport({ height: visualViewport?.height ?? window.innerHeight, top: visualViewport?.offsetTop ?? 0 })
+    update()
+    visualViewport?.addEventListener('resize', update)
+    visualViewport?.addEventListener('scroll', update)
+    window.addEventListener('resize', update)
+    return () => {
+      visualViewport?.removeEventListener('resize', update)
+      visualViewport?.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [fitViewport])
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -52,6 +72,11 @@ function DialogContent({
           'bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 outline-none sm:max-w-lg',
           className
         )}
+        style={
+          fitViewport && viewport
+            ? { top: viewport.top + viewport.height / 2, maxHeight: Math.max(0, viewport.height - 32), ...style }
+            : style
+        }
         {...props}
       >
         {children}

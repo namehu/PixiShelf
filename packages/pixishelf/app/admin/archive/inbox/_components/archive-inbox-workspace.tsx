@@ -38,15 +38,16 @@ export function ArchiveInboxWorkspace() {
       >
         <AdminWorkbench
           title="归档收件箱"
-          description="粘贴作品链接；解析、判断和归档会在后台继续进行。"
+          description="保存来源并扫描发现内容，或直接添加作品链接。"
           eyebrow={null}
           className={
             discoveryDetail
-              ? 'max-lg:pt-2 max-lg:[&>[data-slot=page-header]]:hidden'
-              : '[&>[data-slot=page-header]]:sm:items-start'
+              ? 'mx-auto w-full max-w-7xl max-lg:pt-2 max-lg:[&>[data-slot=page-header]]:hidden'
+              : 'mx-auto w-full max-w-7xl [&>[data-slot=page-header]]:pb-4'
           }
-          actions={
-            <TabsList aria-label="归档收件工作区" className={discoveryDetail ? 'hidden' : undefined}>
+        >
+          <div className={discoveryDetail ? 'hidden' : 'pt-4 pb-2'}>
+            <TabsList aria-label="归档收件工作区" className="grid h-11 w-full max-w-md grid-cols-2">
               <TabsTrigger value="uploaders">
                 <UserSearchIcon data-icon="inline-start" aria-hidden="true" />
                 发现来源
@@ -56,8 +57,7 @@ export function ArchiveInboxWorkspace() {
                 收件队列
               </TabsTrigger>
             </TabsList>
-          }
-        >
+          </div>
           <TabsContent value="inbox" className="mx-auto w-full max-w-7xl">
             <ArchiveInbox />
           </TabsContent>

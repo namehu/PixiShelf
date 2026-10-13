@@ -10,6 +10,7 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { CreatorSelectionDialog } from './creator-selection-dialog'
 
 export interface CreatorOption {
   id: number
@@ -20,11 +21,15 @@ export interface CreatorOption {
 export function CreatorPicker({
   value,
   onChange,
-  maxSelected = 200
+  maxSelected = 200,
+  presentation = 'dropdown',
+  disabled = false
 }: {
   value: CreatorOption[]
   onChange: (value: CreatorOption[]) => void
   maxSelected?: number
+  presentation?: 'dropdown' | 'dialog'
+  disabled?: boolean
 }) {
   const trpc = useTRPC()
   const client = useTRPCClient()
@@ -45,48 +50,68 @@ export function CreatorPicker({
   )
   return (
     <div className="flex flex-col gap-2">
-      <MultipleSelector
-        showOptionValue
-        inputProps={{ 'aria-label': '搜索并选择艺术家或社团' }}
-        value={value.map((v) => ({
-          value: String(v.id),
-          label: (v.kind === 'GROUP' ? '社团：' : '') + v.name,
-          creatorName: v.name,
-          kind: v.kind ?? 'PERSON'
-        }))}
-        defaultOptions={value.map((v) => ({
-          value: String(v.id),
-          label: v.name,
-          creatorName: v.name,
-          kind: v.kind ?? 'PERSON'
-        }))}
-        onSearch={async (search) => {
-          const response = await client.artist.queryPage.query({ search, pageSize: 30 })
-          return response.data.map((artist) => ({
-            value: String(artist.id),
-            label: (artist.kind === 'GROUP' ? '社团：' : '') + artist.name,
-            creatorName: artist.name,
-            kind: artist.kind
-          }))
-        }}
-        onChange={(options) =>
-          onChange(
-            options.map((o) => ({
-              id: Number(o.value),
-              name: String(o.creatorName ?? o.label),
-              kind: String(o.kind ?? 'PERSON')
+      {presentation === 'dialog' ? (
+        <CreatorSelectionDialog
+          value={value}
+          onChange={onChange}
+          onCreate={() => setOpen(true)}
+          disabled={disabled}
+          maxSelected={maxSelected}
+        />
+      ) : (
+        <MultipleSelector
+          disabled={disabled}
+          showOptionValue
+          inputProps={{ 'aria-label': '搜索并选择艺术家或社团' }}
+          value={value.map((v) => ({
+            value: String(v.id),
+            label: (v.kind === 'GROUP' ? '社团：' : '') + v.name,
+            creatorName: v.name,
+            kind: v.kind ?? 'PERSON'
+          }))}
+          defaultOptions={value.map((v) => ({
+            value: String(v.id),
+            label: v.name,
+            creatorName: v.name,
+            kind: v.kind ?? 'PERSON'
+          }))}
+          onSearch={async (search) => {
+            const response = await client.artist.queryPage.query({ search, pageSize: 30 })
+            return response.data.map((artist) => ({
+              value: String(artist.id),
+              label: (artist.kind === 'GROUP' ? '社团：' : '') + artist.name,
+              creatorName: artist.name,
+              kind: artist.kind
             }))
-          )
-        }
-        maxSelected={maxSelected}
-        triggerSearchOnFocus
-        placeholder="输入作者或社团名称，不知道可以留空"
-      />
-      <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => setOpen(true)}>
-        找不到？新建作者／社团
-      </Button>
+          }}
+          onChange={(options) =>
+            onChange(
+              options.map((o) => ({
+                id: Number(o.value),
+                name: String(o.creatorName ?? o.label),
+                kind: String(o.kind ?? 'PERSON')
+              }))
+            )
+          }
+          maxSelected={maxSelected}
+          triggerSearchOnFocus
+          placeholder="输入作者或社团名称，不知道可以留空"
+        />
+      )}
+      {presentation === 'dropdown' && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="self-start"
+          disabled={disabled}
+          onClick={() => setOpen(true)}
+        >
+          找不到？新建作者／社团
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent fitViewport={open} className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>新建艺术家／社团</DialogTitle>
           </DialogHeader>

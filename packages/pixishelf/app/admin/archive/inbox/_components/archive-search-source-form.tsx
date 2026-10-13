@@ -58,12 +58,13 @@ export function ArchiveSearchSourceForm({
   }, [pending, onPendingChange])
   return (
     <form
+      className="flex min-h-0 flex-1 flex-col"
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
       }}
     >
-      <FieldGroup className="py-5">
+      <FieldGroup className="min-h-0 flex-1 gap-5 overflow-y-auto overscroll-contain px-5 py-5">
         <Field data-disabled={renameOnly || pending} data-invalid={Boolean(error)}>
           <FieldLabel htmlFor="search-source-keyword">标题关键词</FieldLabel>
           <Input
@@ -77,7 +78,7 @@ export function ArchiveSearchSourceForm({
             aria-describedby="search-keyword-description"
           />
           <FieldDescription id="search-keyword-description">
-            匹配完整英/日标题，忽略大小写和首尾空白，保留括号和下划线。不是正则；不支持双引号、星号和百分号。
+            忽略大小写和首尾空白，保留括号与下划线。不支持正则、双引号、星号和百分号。
           </FieldDescription>
         </Field>
         <Field>
@@ -93,9 +94,7 @@ export function ArchiveSearchSourceForm({
             disabled={pending}
           />
           {!renameOnly ? (
-            <FieldDescription id="search-source-name-description">
-              可选；不填则使用标题关键词作为来源名称。
-            </FieldDescription>
+            <FieldDescription id="search-source-name-description">仅用于显示，不影响搜索条件。</FieldDescription>
           ) : null}
         </Field>
         <Field data-disabled={renameOnly || pending}>
@@ -117,53 +116,60 @@ export function ArchiveSearchSourceForm({
             ))}
           </ToggleGroup>
         </Field>
-        {uploaders.length ? (
-          <Field>
-            <FieldLabel>
-              已限定上传者（{uploaders.length}/{MAX_ARCHIVE_TITLE_UPLOADERS}）
-            </FieldLabel>
-            <ul className="flex flex-wrap gap-2" aria-label="已限定上传者">
-              {uploaders.map((uploader) => (
-                <li key={uploader.uid} className="flex items-center gap-1">
-                  <Badge variant="secondary">
-                    <PrivacySensitiveText>{uploader.displayName ?? `UID ${uploader.uid}`}</PrivacySensitiveText>
-                  </Badge>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={renameOnly || pending}
-                    aria-label={`移除 UID ${uploader.uid}`}
-                    onClick={() => setUploaders(uploaders.filter(({ uid }) => uid !== uploader.uid))}
-                  >
-                    <X />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-            <FieldDescription>匹配其中任意一个上传者；重复 UID 会自动去重。</FieldDescription>
-          </Field>
-        ) : null}
-        <ArchiveUploaderIdentityField
-          identity={identity}
-          label={uploaders.length ? '继续添加上传者' : '限定上传者（可选）'}
-          optional={!uploaders.length}
-          sources={sources}
-          disabled={renameOnly || pending}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          disabled={renameOnly || pending || !identity.draft.value.trim()}
-          onClick={() => void addUploader()}
-        >
-          <Plus data-icon="inline-start" />
-          添加上传者
-        </Button>
+        <details open={renameOnly || undefined} className="group border-t pt-4">
+          <summary className="cursor-pointer rounded-sm py-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            限定上传者（可选）{uploaders.length > 0 ? ` · ${uploaders.length} 位` : ''}
+          </summary>
+          <div className="mt-4 flex flex-col gap-4">
+            {uploaders.length ? (
+              <Field>
+                <FieldLabel>
+                  已限定上传者（{uploaders.length}/{MAX_ARCHIVE_TITLE_UPLOADERS}）
+                </FieldLabel>
+                <ul className="flex flex-wrap gap-2" aria-label="已限定上传者">
+                  {uploaders.map((uploader) => (
+                    <li key={uploader.uid} className="flex items-center gap-1">
+                      <Badge variant="secondary">
+                        <PrivacySensitiveText>{uploader.displayName ?? `UID ${uploader.uid}`}</PrivacySensitiveText>
+                      </Badge>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={renameOnly || pending}
+                        aria-label={`移除 UID ${uploader.uid}`}
+                        onClick={() => setUploaders(uploaders.filter(({ uid }) => uid !== uploader.uid))}
+                      >
+                        <X />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                <FieldDescription>匹配其中任意一个上传者；重复 UID 会自动去重。</FieldDescription>
+              </Field>
+            ) : null}
+            <ArchiveUploaderIdentityField
+              identity={identity}
+              label={uploaders.length ? '继续添加上传者' : '限定上传者（可选）'}
+              optional={!uploaders.length}
+              sources={sources}
+              disabled={renameOnly || pending}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={renameOnly || pending || !identity.draft.value.trim()}
+              onClick={() => void addUploader()}
+            >
+              <Plus data-icon="inline-start" />
+              添加上传者
+            </Button>
+          </div>
+        </details>
         {!renameOnly ? <SourceCreatorField value={creators} onChange={onCreatorsChange} disabled={pending} /> : null}
         {error ? <FieldError role="alert">{error}</FieldError> : null}
       </FieldGroup>
-      <DialogFooter>
+      <DialogFooter className="grid shrink-0 grid-cols-2 gap-2 border-t px-5 py-4 sm:flex sm:flex-row [&>button]:h-11">
         <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
           取消
         </Button>
