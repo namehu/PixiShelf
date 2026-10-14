@@ -19,6 +19,8 @@ export default function AppShell({ children }: PropsWithChildren) {
   const pathname = usePathname()
   const user = useAuthUser()
   const showHeader = Boolean(user) && !isHeaderlessPath(pathname)
+  const isArtworkDetail = /^\/artworks\/\d+\/?$/.test(pathname)
+  const showMobileNavigation = showHeader && !isArtworkDetail
 
   return (
     <>
@@ -37,11 +39,14 @@ export default function AppShell({ children }: PropsWithChildren) {
       <div
         id="main-content"
         tabIndex={-1}
-        className={cn(showHeader && 'pb-[var(--app-mobile-navigation-offset)] outline-none lg:pb-0')}
+        className={cn(
+          showHeader && 'pb-[var(--app-mobile-navigation-offset)] outline-none lg:pb-0',
+          isArtworkDetail && 'max-lg:[--app-mobile-navigation-offset:env(safe-area-inset-bottom)]'
+        )}
       >
         {children}
       </div>
-      {showHeader && <MobileBottomNavigation />}
+      {showMobileNavigation && <MobileBottomNavigation />}
     </>
   )
 }
