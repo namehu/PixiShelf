@@ -4,6 +4,7 @@ import { createContext, useContext, useRef, useState, type ReactNode } from 'rea
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import { useTRPC } from '@/lib/trpc'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -44,11 +45,13 @@ export function ArchiveDeleteFailedDialog({
   itemIds,
   targetType,
   disabled = false,
-  onDeleted
+  onDeleted,
+  compact
 }: {
   itemIds: string[]
   targetType: 'INTAKE_ITEM' | 'DISCOVERY_ITEM'
   disabled?: boolean
+  compact?: 'mobile' | 'always'
   onDeleted?: () => void
 }) {
   const trpc = useTRPC()
@@ -87,11 +90,16 @@ export function ArchiveDeleteFailedDialog({
         type="button"
         variant="outline"
         size="sm"
+        aria-label={compact ? '删除失败记录' : undefined}
+        title="删除失败记录"
+        className={cn(compact && 'size-11 p-0', compact === 'mobile' && 'sm:h-9 sm:w-auto sm:px-3')}
         disabled={disabled || mutation.isPending || itemIds.length === 0}
         onClick={() => setTargets([...itemIds].sort())}
       >
         <Trash2Icon data-icon="inline-start" aria-hidden="true" />
-        删除失败记录{itemIds.length > 1 ? `（${itemIds.length}）` : ''}
+        <span className={compact === 'always' ? 'sr-only' : compact === 'mobile' ? 'hidden sm:inline' : undefined}>
+          删除失败记录{!compact && itemIds.length > 1 ? `（${itemIds.length}）` : ''}
+        </span>
       </Button>
       <AlertDialog
         open={targets !== null}

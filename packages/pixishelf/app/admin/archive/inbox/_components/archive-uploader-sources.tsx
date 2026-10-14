@@ -828,6 +828,7 @@ export function ArchiveUploaderSources({
                 <ArchiveDeleteFailedDialog
                   targetType="DISCOVERY_ITEM"
                   itemIds={selectedItems.filter((item) => item.deletableFailure).map((item) => item.id)}
+                  compact="mobile"
                   disabled={mutationPending}
                 />
               ) : undefined
@@ -836,7 +837,6 @@ export function ArchiveUploaderSources({
             kind="catalog"
             pending={mutationPending}
             ignoreDisabled={selectedIgnorable.length === 0}
-            ignoreCount={selectedIgnorable.length}
             addCount={selectedSubmittable.length}
             onBind={() => openCreators('bind')}
             onCancelPending={

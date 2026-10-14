@@ -86,7 +86,7 @@ export function IgnoredResults({
         </Empty>
       }
       header={
-        <div className="grid min-h-12 grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-3 border-b bg-muted/30 px-4 text-xs font-medium text-muted-foreground">
+        <div className="grid min-h-12 grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2 border-b bg-muted/30 px-3 sm:gap-3 sm:px-4 text-xs font-medium text-muted-foreground">
           <Checkbox
             checked={allSelected ? true : selectedItemIds.size > 0 ? 'indeterminate' : false}
             onCheckedChange={(checked) => onToggleAll(checked === true)}
@@ -99,17 +99,28 @@ export function IgnoredResults({
       renderItem={(item) => (
         <div
           className={cn(
-            'bg-background',
-            resultView === 'cards' ? 'h-full rounded-lg border p-3' : 'border-b px-4 py-3'
+            'relative bg-background transition-colors hover:bg-muted/40',
+            selectedItemIds.has(item.id) && 'bg-accent/50',
+            resultView === 'cards' ? 'h-full rounded-lg border p-3' : 'border-b px-3 py-3 sm:px-4'
           )}
         >
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            onMouseDown={(event) => event.preventDefault()}
+            className="absolute inset-0 size-full cursor-pointer rounded-[inherit] disabled:cursor-default"
+            disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
+            onClick={() => onToggle(item.id, !selectedItemIds.has(item.id))}
+          />
           <div
             className={cn(
-              'grid min-h-20 items-start gap-3',
-              resultView === 'list' ? 'grid-cols-[1.5rem_minmax(0,1fr)_auto]' : 'grid-cols-[1.5rem_minmax(0,1fr)]'
+              'pointer-events-none relative grid items-start gap-2 sm:gap-3',
+              resultView === 'cards' ? 'grid-cols-[1.5rem_minmax(0,1fr)]' : 'grid-cols-[1.5rem_minmax(0,1fr)_auto]'
             )}
           >
             <Checkbox
+              className="pointer-events-auto mt-1"
               checked={selectedItemIds.has(item.id)}
               disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
               onCheckedChange={(checked) => onToggle(item.id, checked === true)}
@@ -141,7 +152,7 @@ export function IgnoredResults({
                       target="_blank"
                       rel="noopener noreferrer"
                       referrerPolicy="no-referrer"
-                      className="hover:underline focus-visible:underline"
+                      className="pointer-events-auto hover:underline focus-visible:underline"
                       title="在新标签页打开原站"
                     >
                       {item.title}
@@ -152,32 +163,41 @@ export function IgnoredResults({
                     </span>
                   )}
                 </PrivacySensitiveText>
-                <p className="mt-1 truncate font-mono text-xs text-muted-foreground">#{item.externalId}</p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  <span className="tabular-nums">#{item.externalId}</span> ·{' '}
                   <PrivacySensitiveText>{item.sourceDisplayName}</PrivacySensitiveText> ·{' '}
                   {formatArchiveUploaderTimestamp(item.ignoredAt)}
                 </p>
               </div>
             </div>
-            {item.catalogItemId ? (
-              <SourcePreviewButton source={{ kind: 'catalog', itemId: item.catalogItemId }} variant="ghost" size="sm" />
-            ) : null}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => onRestore(item.id)}
-              disabled={mutationPending}
-              className={
-                resultView === 'cards'
-                  ? 'col-start-2 row-start-1 justify-self-end'
-                  : resultView === 'preview'
-                    ? 'col-start-2 justify-self-end'
-                    : undefined
-              }
-              aria-label={`恢复 ${item.title}`}
+            <div
+              className={cn(
+                'pointer-events-auto flex items-center justify-end [&_button]:size-11 sm:[&_button]:size-9',
+                resultView === 'cards' ? 'col-start-2 row-start-1' : 'col-start-3 row-start-1 max-sm:flex-col'
+              )}
             >
-              <RotateCcwIcon aria-hidden="true" />
-            </Button>
+              {item.catalogItemId ? (
+                <SourcePreviewButton
+                  source={{ kind: 'catalog', itemId: item.catalogItemId }}
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`原站预览 ${item.title}`}
+                  title="原站预览"
+                >
+                  <span className="sr-only">原站预览</span>
+                </SourcePreviewButton>
+              ) : null}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => onRestore(item.id)}
+                disabled={mutationPending}
+                aria-label={`恢复 ${item.title}`}
+                title="恢复"
+              >
+                <RotateCcwIcon aria-hidden="true" />
+              </Button>
+            </div>
           </div>
         </div>
       )}

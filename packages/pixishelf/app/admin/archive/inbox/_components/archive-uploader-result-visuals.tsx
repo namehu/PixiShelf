@@ -82,7 +82,7 @@ export function ArchiveUploaderGalleryThumbnail({
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
 
-  const frameClass = card ? 'h-72 w-full' : 'h-40 w-28 @[36rem]/discovery-results:h-52 @[36rem]/discovery-results:w-40'
+  const frameClass = card ? 'h-72 w-full' : 'row-span-2 h-24 w-16 sm:h-28 sm:w-20'
 
   const content = (
     <>
@@ -110,7 +110,11 @@ export function ArchiveUploaderGalleryThumbnail({
   )
   if (sourceHref) {
     return (
-      <Button variant="ghost" className={cn('relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)} asChild>
+      <Button
+        variant="ghost"
+        className={cn('pointer-events-auto relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)}
+        asChild
+      >
         <a
           href={sourceHref}
           target="_blank"
@@ -127,7 +131,7 @@ export function ArchiveUploaderGalleryThumbnail({
     <Button
       type="button"
       variant="ghost"
-      className={cn('relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)}
+      className={cn('pointer-events-auto relative shrink-0 overflow-hidden bg-muted/40 p-0', frameClass)}
       disabled
       title="来源地址不可用"
       aria-label={`${item.title} 来源地址不可用`}

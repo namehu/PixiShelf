@@ -2,7 +2,7 @@
 
 import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import type { inferRouterOutputs } from '@trpc/server'
-import { ArrowUpRightIcon, BanIcon, RotateCcwIcon } from 'lucide-react'
+import { ArrowUpRightIcon, BanIcon, BookOpenIcon, RotateCcwIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { DISCOVERY_LANGUAGES } from '@/lib/archive-discovery-filters'
 import { cn } from '@/lib/utils'
@@ -134,7 +134,7 @@ export function ScanResults({
         </Empty>
       }
       header={
-        <div className="grid min-h-12 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 border-b bg-muted/30 px-4 text-xs font-medium text-muted-foreground">
+        <div className="grid min-h-12 grid-cols-[1.5rem_minmax(0,1fr)_auto] items-center gap-2 border-b bg-muted/30 px-3 sm:gap-3 sm:px-4 text-xs font-medium text-muted-foreground">
           <Checkbox
             checked={allActionableSelected ? true : selectedItemIds.size > 0 ? 'indeterminate' : false}
             onCheckedChange={(checked) => onToggleAll(checked === true)}
@@ -146,21 +146,31 @@ export function ScanResults({
       }
       renderItem={(item) => (
         <div
+          data-discovery-item={item.id}
           className={cn(
-            'bg-background',
-            resultView === 'cards' ? 'h-full rounded-lg border p-3' : 'border-b px-4 py-3'
+            'relative bg-background transition-colors hover:bg-muted/40',
+            selectedItemIds.has(item.id) && 'bg-accent/50',
+            resultView === 'cards' ? 'h-full rounded-lg border p-3' : 'border-b px-3 py-3 sm:px-4'
           )}
         >
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-hidden="true"
+            onMouseDown={(event) => event.preventDefault()}
+            className="absolute inset-0 size-full cursor-pointer rounded-[inherit] disabled:cursor-default"
+            disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
+            onClick={() => onToggle(item.id, !selectedItemIds.has(item.id))}
+          />
           <div
             className={cn(
-              'grid min-h-20 items-start gap-3',
-              resultView === 'list'
-                ? 'grid-cols-[1.5rem_minmax(0,1fr)] sm:grid-cols-[1.5rem_minmax(0,1fr)_auto]'
-                : 'grid-cols-[1.5rem_minmax(0,1fr)]'
+              'pointer-events-none relative grid items-start gap-x-2 gap-y-2 sm:gap-x-3',
+              resultView === 'cards' ? 'grid-cols-[1.5rem_minmax(0,1fr)]' : 'grid-cols-[1.5rem_minmax(0,1fr)_auto]'
             )}
             data-state={selectedItemIds.has(item.id) ? 'selected' : undefined}
           >
             <Checkbox
+              className="pointer-events-auto mt-1"
               checked={selectedItemIds.has(item.id)}
               disabled={!selectedItemIds.has(item.id) && selectedItemIds.size >= MAX_SELECTED_ITEMS}
               onCheckedChange={(checked) => onToggle(item.id, checked === true)}
@@ -168,8 +178,12 @@ export function ScanResults({
             />
             <div
               className={cn(
-                'flex min-w-0 gap-3',
-                resultView === 'cards' ? 'order-3 col-span-2 flex-col' : 'items-start'
+                'min-w-0',
+                resultView === 'cards'
+                  ? 'order-3 col-span-2 flex flex-col gap-3'
+                  : resultView === 'preview'
+                    ? 'grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1 sm:flex sm:gap-3'
+                    : 'flex items-start gap-3'
               )}
             >
               {resultView !== 'list' ? (
@@ -180,30 +194,30 @@ export function ScanResults({
                   sourceHref={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
                 />
               ) : null}
-              <div className="min-w-0 w-full flex-1">
-                <div className="flex min-w-0 flex-col items-start gap-1.5 sm:flex-row sm:flex-wrap sm:gap-2">
+              <div className={cn('min-w-0 w-full flex-1', resultView === 'preview' && 'contents sm:block')}>
+                <div className="flex min-w-0 flex-col items-start gap-1.5">
                   <PrivacySensitiveText as="p" className="line-clamp-2 w-full min-w-0 break-words font-medium">
                     <a
                       href={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
                       target="_blank"
                       rel="noopener noreferrer"
                       referrerPolicy="no-referrer"
-                      className="hover:underline focus-visible:underline"
+                      className="pointer-events-auto hover:underline focus-visible:underline"
                       title="在新标签页打开原站"
                     >
                       {item.title}
                     </a>
                   </PrivacySensitiveText>
-                  <CatalogStatusBadge item={item} />
                 </div>
-                <DiscoveryCreatorStatus
-                  effectiveCreators={item.effectiveCreators}
-                  pendingCreators={item.pendingCreators}
-                />
-                <p className="mt-1 truncate font-mono text-xs text-muted-foreground">
-                  #{item.externalId} · <PrivacySensitiveText>{item.displayUrl}</PrivacySensitiveText>
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <CatalogStatusBadge item={item} />
+                  <DiscoveryCreatorStatus
+                    effectiveCreators={item.effectiveCreators}
+                    pendingCreators={item.pendingCreators}
+                  />
+                </div>
+                <p className="col-span-2 mt-1 text-xs leading-relaxed text-muted-foreground">
+                  <span className="tabular-nums">#{item.externalId}</span> ·{' '}
                   <PrivacySensitiveText>
                     {item.category ?? '分类未知'} ·{' '}
                     {item.languages?.length
@@ -211,17 +225,19 @@ export function ScanResults({
                       : '语言未知'}
                   </PrivacySensitiveText>{' '}
                   · {item.fileCount ? `${item.fileCount} 页 · ` : ''}
-                  {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
+                  <span className="whitespace-nowrap">
+                    {item.postedAt ? formatArchiveUploaderTimestamp(item.postedAt) : '发布时间未知'}
+                  </span>
                 </p>
                 {item.changeReasons.length > 0 ? (
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                  <p className="col-span-2 mt-1 line-clamp-2 text-xs text-muted-foreground">
                     {item.changeReasons.map(({ label }) => label).join(' · ')}
                   </p>
                 ) : item.workflowStage === 'ARCHIVED' && !item.comparisonKnown ? (
-                  <p className="mt-1 text-xs text-muted-foreground">旧记录缺少比较快照，下次扫描会补齐</p>
+                  <p className="col-span-2 mt-1 text-xs text-muted-foreground">旧记录缺少比较快照，下次扫描会补齐</p>
                 ) : null}
                 {item.errorMessage ? (
-                  <PrivacySensitiveText as="p" className="mt-1 line-clamp-2 text-xs text-destructive">
+                  <PrivacySensitiveText as="p" className="col-span-2 mt-1 line-clamp-2 text-xs text-destructive">
                     {item.errorMessage}
                   </PrivacySensitiveText>
                 ) : null}
@@ -229,24 +245,18 @@ export function ScanResults({
             </div>
             <div
               className={cn(
-                'flex flex-wrap items-center justify-end',
-                resultView === 'cards'
-                  ? 'col-start-2 row-start-1'
-                  : resultView === 'preview'
-                    ? 'col-start-2'
-                    : 'col-start-2 sm:col-start-3'
+                'pointer-events-auto flex shrink-0 items-center justify-end [&_button]:size-11 [&_a]:size-11 sm:[&_button]:size-9 sm:[&_a]:size-9',
+                resultView === 'cards' ? 'col-start-2 row-start-1' : 'col-start-3 row-start-1 max-sm:flex-col'
               )}
             >
-              {resultView === 'cards' ? (
-                <Button variant="ghost" size="sm" asChild>
+              {item.artworkId && item.workflowStage !== 'DELETED' ? (
+                <Button variant="ghost" size="icon" asChild>
                   <a
-                    href={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    aria-label={`在新标签页打开原站 ${item.title}`}
+                    href={`/artworks/${item.artworkId}`}
+                    aria-label={`查看本地作品 ${item.title}`}
+                    title="查看本地作品"
                   >
-                    <ArrowUpRightIcon aria-hidden="true" />
-                    打开原站
+                    <BookOpenIcon aria-hidden="true" />
                   </a>
                 </Button>
               ) : null}
@@ -260,11 +270,23 @@ export function ScanResults({
                 <span className="sr-only">原站预览</span>
               </SourcePreviewButton>
               {item.deletableFailure ? (
-                <ArchiveDeleteFailedDialog targetType="DISCOVERY_ITEM" itemIds={[item.id]} disabled={mutationPending} />
+                <ArchiveDeleteFailedDialog
+                  targetType="DISCOVERY_ITEM"
+                  itemIds={[item.id]}
+                  disabled={mutationPending}
+                  compact="always"
+                />
               ) : null}
               {item.canRearchive ? (
-                <Button variant="outline" size="sm" disabled={mutationPending} onClick={() => onAdd(item.id)}>
-                  重新归档
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={mutationPending}
+                  onClick={() => onAdd(item.id)}
+                  aria-label={`重新归档 ${item.title}`}
+                  title="重新归档"
+                >
+                  <RotateCcwIcon aria-hidden="true" />
                 </Button>
               ) : item.actionable ? (
                 <Button
@@ -294,12 +316,6 @@ export function ScanResults({
                   aria-label={`重新加入收件箱 ${item.title}`}
                 >
                   <RotateCcwIcon aria-hidden="true" />
-                </Button>
-              ) : item.workflowStage === 'ARCHIVED' && item.artworkId ? (
-                <Button variant="ghost" size="icon" asChild aria-label={`查看已归档作品 ${item.title}`}>
-                  <a href={`/artworks/${item.artworkId}`} target="_blank" rel="noreferrer">
-                    <ArrowUpRightIcon aria-hidden="true" />
-                  </a>
                 </Button>
               ) : null}
             </div>

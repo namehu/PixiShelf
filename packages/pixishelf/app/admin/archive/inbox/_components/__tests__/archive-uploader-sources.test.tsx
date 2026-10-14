@@ -1,3 +1,4 @@
+import { registerDiscoveryRowCases } from './archive-discovery-row-cases'
 import { registerDiscoveryNavigationCases } from './archive-discovery-navigation-cases'
 import { source, activeRun, completedRun } from './archive-uploader-sources-fixtures'
 import { useState, type ReactNode } from 'react'
@@ -542,7 +543,7 @@ describe('ArchiveUploaderSources', () => {
     renderSources({ showTestControls: true })
 
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 Gallery 302' }))
-    expect(screen.getByRole('button', { name: '加入收件箱（1）' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '加入收件箱' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '返回来源列表' }))
     expect(mocks.navigateSourceList).toHaveBeenCalledWith('replace')
 
@@ -550,7 +551,7 @@ describe('ArchiveUploaderSources', () => {
     expect((await screen.findByRole('checkbox', { name: '选择 Gallery 302' })).getAttribute('aria-checked')).toBe(
       'true'
     )
-    expect(screen.getByRole('button', { name: '加入收件箱（1）' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '加入收件箱' })).toBeTruthy()
   })
 
   it('offers direct cancellation for the active scan', () => {
@@ -604,7 +605,7 @@ describe('ArchiveUploaderSources', () => {
       expect(element.getAttribute('data-privacy-sensitive')).toBe('')
     }
     expect(screen.getByText('Gallery 302').closest('[data-privacy-sensitive]')).toBeTruthy()
-    expect(screen.getByText('https://e-hentai.org/g/302/[redacted]/').getAttribute('data-privacy-sensitive')).toBe('')
+    expect(screen.queryByText('https://e-hentai.org/g/302/[redacted]/')).toBeNull()
     expect(screen.getByText('Private gallery scan failed').getAttribute('data-privacy-sensitive')).toBe('')
 
     openIgnored()
@@ -924,7 +925,7 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
 
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
-    fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
+    fireEvent.click(screen.getByRole('button', { name: '加入收件箱' }))
 
     expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
       sourceId: 'source-1',
@@ -1016,8 +1017,16 @@ describe('ArchiveUploaderSources', () => {
     fireEvent.click(screen.getByLabelText('查看异常'))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
 
-    expect((screen.getByRole('button', { name: '忽略（0）' }) as HTMLButtonElement).disabled).toBe(true)
-    expect((screen.getByRole('button', { name: '重新加入收件箱（1）' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: '忽略' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '重新加入收件箱' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  registerDiscoveryRowCases({
+    renderSources,
+    getItem: () => itemsData.pages[0]!.items[0]!,
+    setItems: (items) => {
+      currentItemsData = { pages: [{ items, nextCursor: null }] }
+    }
   })
 
   it('selects archived and actionable results together but submits only the eligible subset', () => {
@@ -1044,9 +1053,9 @@ describe('ArchiveUploaderSources', () => {
     renderSources()
     fireEvent.click(screen.getByRole('checkbox', { name: `选择 ${item.title}` }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived gallery' }))
-    expect(screen.getByRole('button', { name: '绑定艺术家（2）' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: '忽略（1）' })).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
+    expect(screen.getByRole('button', { name: '绑定艺术家' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '忽略' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '加入收件箱' }))
     expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith(expect.objectContaining({ itemIds: [item.id] }))
   })
 
@@ -1062,14 +1071,14 @@ describe('ArchiveUploaderSources', () => {
       currentSourcesData = [{ ...selectedSource, latestRun: completedRun }]
       currentDetailData = { source: selectedSource, runs: [completedRun] }
       renderSources()
-      expect(screen.queryByRole('button', { name: '加入收件箱（0）' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '加入收件箱' })).toBeNull()
       fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图' }))
       fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
       fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
       fireEvent.click(screen.getByRole('button', { name: '完成' }))
       expect(mocks.createSubmissionAttempt).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
-      fireEvent.click(screen.getByRole('button', { name: '加入收件箱（1）' }))
+      fireEvent.click(screen.getByRole('button', { name: '加入收件箱' }))
       expect(mocks.createSubmissionAttempt).toHaveBeenCalledWith({
         sourceId: 'source-1',
         itemIds: ['catalog-item-1'],
@@ -1130,7 +1139,7 @@ describe('ArchiveUploaderSources', () => {
     expect(mocks.ignoreItems).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived' }))
-    fireEvent.click(screen.getByRole('button', { name: '忽略（1）' }))
+    fireEvent.click(screen.getByRole('button', { name: '忽略' }))
     expect(screen.getByRole('alertdialog').textContent).toContain('确认忽略 1 个作品')
     fireEvent.click(screen.getByRole('button', { name: '确认忽略' }))
     expect(mocks.ignoreItems).toHaveBeenCalledWith({ sourceId: 'source-1', itemIds: ['catalog-item-1'] })
