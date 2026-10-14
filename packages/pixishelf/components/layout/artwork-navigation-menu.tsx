@@ -79,6 +79,9 @@ export function ArtworkNavigationMenu({ mobile = false }: { mobile?: boolean }) 
           aria-current={active ? 'page' : undefined}
           aria-haspopup={mobile ? 'menu' : undefined}
           aria-expanded={mobile ? open : undefined}
+          draggable={mobile ? false : undefined}
+          onDragStart={mobile ? (event) => event.preventDefault() : undefined}
+          style={mobile ? { WebkitTouchCallout: 'none', WebkitUserSelect: 'none' } : undefined}
           onKeyDown={(e) => {
             if (mobile && e.key === 'ArrowDown') {
               e.preventDefault()
@@ -97,7 +100,7 @@ export function ArtworkNavigationMenu({ mobile = false }: { mobile?: boolean }) 
             : {})}
           className={cn(
             mobile
-              ? 'relative flex min-h-16 w-full select-none flex-col items-center justify-center gap-1 px-2 text-[0.6875rem] font-medium text-muted-foreground outline-none transition-colors before:absolute before:inset-x-5 before:top-0 before:h-0.5 before:rounded-full before:bg-transparent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50 [-webkit-touch-callout:none]'
+              ? 'relative flex min-h-16 w-full select-none flex-col items-center justify-center gap-1 px-2 text-[0.6875rem] font-medium text-muted-foreground outline-none transition-colors before:absolute before:inset-x-5 before:top-0 before:h-0.5 before:rounded-full before:bg-transparent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50'
               : 'relative flex h-10 items-center gap-2 rounded-md py-2 pr-1 pl-3 text-sm font-medium text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
             active &&
               (mobile
