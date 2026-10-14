@@ -82,6 +82,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 架构与性能
 
+- [统计页查询性能](./design/statistics-query-performance.md)（current，生产性能未核验）：分区加载、60 秒缓存、文件计数只读校验与快速模式启用门禁。
+
 - [WebP 独立帧生产接入](./design/webp-mobile-production.md)（current，用户确认已发布）：独立帧并行、自适应省略、顺序回退、诊断用法与最终手机验收。
 
 - [发现来源查询性能](./design/archive-discovery-query-performance.md)（current）：URL 索引、独立统计请求、合成性能基线与生产验收边界。

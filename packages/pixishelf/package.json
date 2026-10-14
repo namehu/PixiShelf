@@ -19,6 +19,7 @@
     "test:unit": "vitest run --exclude \"tests/integration/**\" --exclude \"**/*.e2e.test.*\" --exclude \"services/scan-service/__tests__/*fixture-integration.test.ts\"",
     "test:integration": "vitest run tests/integration services/scan-service/__tests__/scan-fixture-integration.test.ts services/scan-service/__tests__/rescan-fixture-integration.test.ts",
     "archive:migration-report": "tsx scripts/archive-identity-report.ts",
+    "statistics:diagnose": "tsx scripts/statistics-diagnostics.ts",
     "background-task:cutover-audit": "tsx scripts/background-task-cutover-audit.ts",
     "archive:lane-cutover-audit": "tsx scripts/archive-lane-cutover-audit.ts",
     "check:full": "pnpm check:quick && pnpm test:unit && pnpm build",
