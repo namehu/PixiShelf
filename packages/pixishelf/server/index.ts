@@ -1,3 +1,4 @@
+import { artworkQuickFilterRouter } from './routers/artwork-quick-filter'
 import { creatorRouter } from './routers/creator'
 import { router } from './trpc'
 import { authRouter } from './routers/auth'
@@ -31,6 +32,7 @@ export const appRouter = router({
   creator: creatorRouter,
   artwork: artworkRouter,
   reading: readingRouter,
+  artworkQuickFilter: artworkQuickFilterRouter,
   search: searchRouter,
   tag: tagRouter,
   series: seriesRouter,

@@ -103,7 +103,7 @@ describe('FilterSheet artwork sources', () => {
         onOpenChange={vi.fn()}
       />
     )
-    const trigger = screen.getByRole('button', { name: '更多筛选 · 2 项' })
+    const trigger = screen.getByRole('button', { name: '更多筛选 · 1 项' })
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
     fireEvent.click(trigger)
     expect(trigger.getAttribute('aria-expanded')).toBe('false')

@@ -30,6 +30,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
+- [作品快捷筛选](./features/artwork-quick-filters.md)（current，生产发布未核验）：常用阅读状态、账户级预设管理、导航快捷菜单和并发约束。
+
 - [归档回收站](./features/archive-trash.md)（current，生产发布未核验）：归档任务与回收站分离、来源已删除状态、持久删除意图与手动重新归档。
 
 - [浏览器隐私偏好](./features/browser-privacy.md)（current）：浏览器会话共享、固定 30 天记忆、全局快捷开关、首屏遮挡与生命周期边界。

@@ -424,3 +424,7 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 ## 阅读进度手动修正
 
 `reading.markRead` 使用 `authProcedure`，归属仅来自服务端会话，`expectedUserId` 仅作账户切换前置校验。输入限定作品 ID、媒体版本与 `ALL` / `MEDIA` 目标；单项媒体必须属于指定作品，整部集合由服务端查询，客户端不能提交已读数量、阅读次数或时间。作品须处于 ACTIVE 且未删除，写入先锁 Artwork，再校验媒体版本；跨作品媒体或版本冲突不产生写入。该接口不开放给匿名请求或 Webhook Token。
+
+## 作品快捷筛选账户边界
+
+`artworkQuickFilter` 的 list/create/update/delete/setNavigation 全部使用 `authProcedure`，所有请求必须携带与会话相同的 `expectedUserId`，实际持久化身份始终取 `ctx.userId`。预设和导航顺序存入账户自己的 `UserSetting`；通用设置读写分别排除、拒绝 `artwork_quick_filter:` 保留前缀，不能绕过专用 Zod、版本及数量校验。事务锁定账户行后检查名称、总量和版本，禁止跨账户读写与过期覆盖；客户端缓存按账户隔离。名称和条件摘要遵循全局隐私文本规则，但隐私遮蔽不构成授权边界。详见[作品快捷筛选](../features/artwork-quick-filters.md)。

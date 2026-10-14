@@ -1,5 +1,6 @@
 'use client'
 
+import { ArtworkNavigationMenu } from './artwork-navigation-menu'
 import { PrivacyControl } from '@/components/privacy/privacy-control'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -55,9 +56,13 @@ export default function AppHeader() {
         </Link>
 
         <nav aria-label="主导航" className="ml-2 hidden flex-1 items-center gap-1 lg:flex">
-          {PRIMARY_NAVIGATION_ITEMS.map((item) => (
-            <NavigationLink key={item.href} item={item} pathname={pathname} />
-          ))}
+          {PRIMARY_NAVIGATION_ITEMS.map((item) =>
+            item.href === ROUTES.ARTWORKS ? (
+              <ArtworkNavigationMenu key={item.href} />
+            ) : (
+              <NavigationLink key={item.href} item={item} pathname={pathname} />
+            )
+          )}
         </nav>
 
         <div className="ml-auto flex items-center gap-2">

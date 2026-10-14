@@ -1,3 +1,4 @@
+import { QUICK_FILTER_PREFIX } from './artwork-quick-filter.dto'
 import { z } from 'zod'
 
 export const settingTypeSchema = z.enum(['string', 'boolean', 'number', 'json'])
@@ -39,6 +40,7 @@ export const updateUserSettingItemSchema = z.object({
     .trim()
     .min(1, '配置项键不能为空')
     .max(120, '配置项键过长')
+    .refine((key) => !key.startsWith(QUICK_FILTER_PREFIX), '快捷筛选必须使用专用接口')
     .refine((key) => key !== 'media_privacy_mode', '隐私模式已改为浏览器偏好，不再保存到账户'),
   value: z.union([
     z.string(),

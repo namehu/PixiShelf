@@ -1,12 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImageUpIcon, SlidersHorizontal, X } from 'lucide-react'
 import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
 import { SearchBox } from './_components/search-box'
-import { FilterSheet } from '@/components/artwork/filter-sheet'
+import { GalleryFilterSheet } from '@/components/artwork/gallery-filter-sheet'
+import { artworkQueryParsers, snapshotToQuery } from '@/lib/artwork-query-snapshot'
+import { artworkQuerySnapshotSchema, type ArtworkQuerySnapshot } from '@/schemas/artwork-quick-filter.dto'
+import { toast } from 'sonner'
 import { PageContainer } from '@/components/layout/page-container'
 import PageToolbar from '@/components/layout/page-toolbar'
 import { Button } from '@/components/ui/button'
@@ -20,23 +24,7 @@ import { MSource, OSource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
 import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 
-const searchParamsParsers = {
-  search: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  sortBy: parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace', clearOnDefault: true }),
-  randomSeed: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  mediaType: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
-  startDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  endDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  createdStartDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  createdEndDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  artistId: parseAsInteger.withOptions({ history: 'replace', clearOnDefault: true }),
-  artistLabel: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  tags: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  tagLabels: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  sources: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
-  hasAudio: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
-  readingStatus: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true })
-}
+const searchParamsParsers = artworkQueryParsers
 
 const viewerQueryParsers = {
   source: parseAsString,
@@ -154,6 +142,33 @@ export default function GalleryPage() {
 
   // 控制筛选抽屉的开关
   const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const [filterTab, setFilterTab] = useState<'conditions' | 'saved'>('conditions')
+  const navigationParams = useSearchParams()
+  const [listRevision, setListRevision] = useState(0)
+  // Consume navigation commands from Next's committed URL, not nuqs' optimistic state.
+  // Otherwise a pending router.push can restore a command after nuqs clears it.
+  useEffect(() => {
+    const manage = navigationParams.get('quickFilters') === 'manage'
+    const apply = navigationParams.has('quickApply')
+    if (!manage && !apply) return
+    if (manage) {
+      setFilterTab('saved')
+      setIsFilterOpen(true)
+    }
+    if (apply) {
+      setListRevision(Date.now())
+      window.scrollTo({ top: 0, behavior: 'instant' })
+    }
+    const url = new URL(window.location.href)
+    url.searchParams.delete('quickFilters')
+    url.searchParams.delete('quickApply')
+    window.history.replaceState(null, '', url.pathname + url.search + url.hash)
+  }, [navigationParams])
+  const applySnapshot = (query: ArtworkQuerySnapshot) => {
+    void setQueryStates(snapshotToQuery(query))
+    setListRevision(Date.now())
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  }
   // 用于显示总数的本地状态
   const [total, setTotal] = useState(0)
 
@@ -310,27 +325,26 @@ export default function GalleryPage() {
     sources: ArtworkSource[]
     hasAudio: AudioFilter
     readingStatus?: ReadingStatus | 'all'
+    search?: string
   }) => {
     if (!filters) {
       return clearAllFilters()
     }
 
-    setQueryStates({
-      mediaType: filters.mediaType,
-      sortBy: filters.sortBy,
-      artistId: filters.artist?.[0] ? Number(filters.artist[0].value) : null,
-      artistLabel: filters.artist?.[0]?.label || null,
-      tags: filters.tags?.map((tag) => tag.value).join(',') || null,
-      tagLabels: filters.tags ? encodeLabels(filters.tags) || null : null,
-      randomSeed: filters.randomSeed ? filters.randomSeed.toString() : null,
-      startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
-      endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null,
-      createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : null,
-      createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : null,
-      sources: filters.sources.join(',') || null,
-      hasAudio: filters.hasAudio === 'all' ? null : filters.hasAudio,
-      readingStatus: filters.readingStatus === 'all' ? null : filters.readingStatus
+    const result = artworkQuerySnapshotSchema.safeParse({
+      ...filters,
+      startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : '',
+      endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : '',
+      createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : '',
+      createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : ''
     })
+    if (!result.success) {
+      toast.error('筛选条件无效，请检查日期范围。')
+      return
+    }
+    void setQueryStates(snapshotToQuery(result.data, filters.randomSeed))
+    setListRevision(Date.now())
+    window.scrollTo({ top: 0, behavior: 'instant' })
   }
 
   const clearAllFilters = () => {
@@ -432,7 +446,7 @@ export default function GalleryPage() {
               )}
               {readingStatus !== 'all' && (
                 <FilterChip
-                  label={`阅读状态：${readingStatus === 'UNREAD' ? '未看' : readingStatus === 'IN_PROGRESS' ? '阅读中' : '已看完'}`}
+                  label={`阅读状态：${readingStatus === 'UNREAD' ? '未读' : readingStatus === 'IN_PROGRESS' ? '阅读中' : '已读完'}`}
                   onRemove={() => setQueryStates({ readingStatus: null })}
                 />
               )}
@@ -473,9 +487,15 @@ export default function GalleryPage() {
         </div>
       )}
 
-      <FilterSheet
+      <GalleryFilterSheet
+        initialTab={filterTab}
+        onApplySnapshot={applySnapshot}
+        currentSearch={searchQuery}
         open={isFilterOpen}
-        onOpenChange={setIsFilterOpen}
+        onOpenChange={(open) => {
+          setIsFilterOpen(open)
+          if (!open) setFilterTab('conditions')
+        }}
         currentMediaType={mediaType as MediaTypeFilter}
         currentSortBy={sortBy as SortOption}
         currentArtist={selectedArtist}
@@ -495,6 +515,8 @@ export default function GalleryPage() {
 
       <PageContainer as="main" size="gallery" className="pt-4 pb-10 sm:pt-6">
         <InfiniteArtworkList
+          key={listRevision}
+          queryGeneration={listRevision}
           searchQuery={searchQuery}
           sortBy={sortBy as SortOption}
           mediaType={mediaType as MediaTypeFilter}

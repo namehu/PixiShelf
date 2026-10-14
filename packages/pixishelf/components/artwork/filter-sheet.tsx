@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
@@ -13,7 +13,11 @@ import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import dayjs from 'dayjs'
 import { OSource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  artworkQuerySnapshotSchema,
+  readingFilterLabels,
+  type ArtworkQuerySnapshot
+} from '@/schemas/artwork-quick-filter.dto'
 import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { SearchBox } from '@/app/artworks/_components/search-box'
@@ -21,7 +25,8 @@ import { Field, FieldGroup, FieldLabel, FieldTitle } from '@/components/ui/field
 import { useMediaQuery } from '@/hooks/use-media-query'
 import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 
-interface FilterSheetProps {
+export interface FilterSheetProps {
+  renderFrame?: (parts: { content: ReactNode; footer: ReactNode; getSnapshot: () => ArtworkQuerySnapshot }) => ReactNode
   open: boolean
   currentMediaType: MediaTypeFilter
   currentSortBy: SortOption
@@ -110,15 +115,7 @@ export function FilterSheet(props: FilterSheetProps) {
       return
     }
 
-    setAdvancedOpen(
-      Boolean(
-        (currentReadingStatus !== undefined && currentReadingStatus !== 'all') ||
-          startDate ||
-          endDate ||
-          createdStartDate ||
-          createdEndDate
-      )
-    )
+    setAdvancedOpen(Boolean(startDate || endDate || createdStartDate || createdEndDate))
     setLocalMediaType(currentMediaType)
     setLocalSortBy(currentSortBy)
     setLocalArtist(currentArtist)
@@ -224,248 +221,264 @@ export function FilterSheet(props: FilterSheetProps) {
     props.createdStartDate !== undefined ||
     props.createdEndDate !== undefined
 
-  const advancedCount =
-    Number(currentReadingStatus !== undefined && localReadingStatus !== 'all') +
-    Number(localDateRange.some(Boolean)) +
-    Number(localCreatedDateRange.some(Boolean))
+  const advancedCount = Number(localDateRange.some(Boolean)) + Number(localCreatedDateRange.some(Boolean))
 
+  const getSnapshot = () =>
+    artworkQuerySnapshotSchema.parse({
+      search: localSearch,
+      mediaType: localMediaType,
+      sortBy: localSortBy,
+      artist: localArtist,
+      tags: localTags,
+      sources: localSources.map((s) => s.value),
+      hasAudio: localHasAudio,
+      readingStatus: localReadingStatus,
+      startDate: localDateRange[0] ? dayjs(localDateRange[0]).format('YYYY-MM-DD') : '',
+      endDate: localDateRange[1] ? dayjs(localDateRange[1]).format('YYYY-MM-DD') : '',
+      createdStartDate: localCreatedDateRange[0] ? dayjs(localCreatedDateRange[0]).format('YYYY-MM-DD') : '',
+      createdEndDate: localCreatedDateRange[1] ? dayjs(localCreatedDateRange[1]).format('YYYY-MM-DD') : ''
+    })
+  const footer = (
+    <div className="flex w-full gap-3">
+      <Button variant="outline" className="min-h-11 flex-1" onClick={handleReset}>
+        重置
+      </Button>
+      <Button className="min-h-11 flex-[2]" onClick={handleApply}>
+        应用筛选
+      </Button>
+    </div>
+  )
+  const content = (
+    <FieldGroup className="gap-5 pb-4">
+      {currentReadingStatus !== undefined && (
+        <Field className="gap-3">
+          <FieldTitle>阅读状态</FieldTitle>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            aria-label="阅读状态筛选"
+            value={localReadingStatus}
+            onValueChange={(value) => {
+              if (value in readingFilterLabels) setLocalReadingStatus(value as ReadingStatus | 'all')
+            }}
+            className="grid w-full grid-cols-4"
+          >
+            {Object.entries(readingFilterLabels).map(([value, label]) => (
+              <ToggleGroupItem key={value} value={value} className="min-h-11">
+                {label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </Field>
+      )}
+
+      <Field className="gap-3">
+        <FieldTitle>媒体类型</FieldTitle>
+        <MediaTypeFilterComponent
+          id="filter-media-type"
+          aria-label="媒体类型"
+          value={localMediaType}
+          onChange={setLocalMediaType}
+          className="w-full"
+        />
+        <p className="text-xs text-muted-foreground">图片包含动图；选择动图可单独查找已识别的动画作品。</p>
+      </Field>
+      {/* 排序控制 */}
+      <Field className="gap-3">
+        <FieldLabel htmlFor="filter-sort">排序方式</FieldLabel>
+        <SortControl
+          id="filter-sort"
+          aria-label="排序方式"
+          value={localSortBy}
+          onChange={setLocalSortBy}
+          className="w-full"
+        />
+      </Field>
+
+      {currentSearch !== undefined && (
+        <Field className="gap-3">
+          <FieldLabel htmlFor="filter-search">关键词</FieldLabel>
+          <SearchBox
+            inputId="filter-search"
+            inputName="filter-search"
+            ariaLabel="搜索作品、艺术家或标签"
+            value={localSearch}
+            onValueChange={setLocalSearch}
+            onSearch={setLocalSearch}
+            onSuggestionClick={handleSuggestionClick}
+            placeholder="搜索作品、艺术家或标签"
+            className="w-full"
+          />
+        </Field>
+      )}
+
+      {/* 艺术家 */}
+      {onSearchArtist && (
+        <Field className="gap-3">
+          <FieldLabel htmlFor="filter-artist">艺术家</FieldLabel>
+          <MultipleSelector
+            showOptionValue
+            inputProps={{
+              id: 'filter-artist',
+              name: 'filter-artist',
+              autoComplete: 'off',
+              'aria-label': '搜索艺术家'
+            }}
+            value={localArtist}
+            defaultOptions={localArtist}
+            onChange={setLocalArtist}
+            onSearch={onSearchArtist}
+            maxSelected={1}
+            placeholder="搜索艺术家"
+            emptyIndicator="没有找到艺术家"
+            className="min-h-10"
+          />
+        </Field>
+      )}
+
+      {/* 标签 */}
+      {onSearchTag && (
+        <Field className="gap-3">
+          <FieldLabel htmlFor="filter-tags">标签</FieldLabel>
+          <MultipleSelector
+            inputProps={{
+              id: 'filter-tags',
+              name: 'filter-tags',
+              autoComplete: 'off',
+              'aria-label': '搜索并添加标签'
+            }}
+            value={localTags}
+            defaultOptions={localTags}
+            onChange={setLocalTags}
+            onSearch={onSearchTag}
+            placeholder="搜索并添加标签"
+            emptyIndicator="没有找到标签"
+            className="min-h-10"
+          />
+        </Field>
+      )}
+
+      {showExtendedFilters && (
+        <Field className="gap-3">
+          <FieldTitle>创建类型</FieldTitle>
+          <ToggleGroup
+            id="filter-sources"
+            aria-label="创建类型筛选"
+            type="multiple"
+            variant="outline"
+            spacing={2}
+            value={localSources.map((option) => option.value)}
+            onValueChange={(values) => setLocalSources(OSource.filter((option) => values.includes(option.value)))}
+            className="grid w-full grid-cols-2 gap-2"
+          >
+            {OSource.map((option) => (
+              <ToggleGroupItem key={option.value} value={option.value} className="min-h-11">
+                {option.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <p className="text-xs text-muted-foreground">可多选，不选表示全部。</p>
+        </Field>
+      )}
+
+      {showExtendedFilters && (
+        <Field className="gap-3">
+          <FieldTitle>视频音频</FieldTitle>
+          <ToggleGroup
+            id="filter-audio"
+            aria-label="视频音频筛选"
+            type="single"
+            variant="outline"
+            value={localHasAudio}
+            onValueChange={(value) => {
+              if (value === 'all' || value === 'yes' || value === 'no') setLocalHasAudio(value)
+            }}
+            className="grid w-full grid-cols-3"
+          >
+            <ToggleGroupItem value="all" className="min-h-11">
+              全部
+            </ToggleGroupItem>
+            <ToggleGroupItem value="yes" className="min-h-11">
+              有音频
+            </ToggleGroupItem>
+            <ToggleGroupItem value="no" className="min-h-11">
+              无音频
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </Field>
+      )}
+
+      {currentMaxMediaCount !== undefined && (
+        <Field className="gap-3">
+          <div className="flex items-center justify-between">
+            <FieldTitle>单个作品最多媒体数</FieldTitle>
+            <span className="text-sm text-muted-foreground">{localMaxMediaCount}</span>
+          </div>
+          <Slider
+            aria-label="单个作品最多媒体数"
+            value={[localMaxMediaCount]}
+            onValueChange={(value) => setLocalMaxMediaCount(value[0] ?? 8)}
+            min={1}
+            max={100}
+            step={1}
+          />
+        </Field>
+      )}
+      <div className="flex flex-col gap-3">
+        <Button
+          variant="ghost"
+          className="min-h-11 w-full justify-between"
+          aria-expanded={advancedOpen}
+          aria-controls="artwork-advanced-filters"
+          onClick={() => setAdvancedOpen((value) => !value)}
+        >
+          更多筛选{advancedCount > 0 ? ' · ' + advancedCount + ' 项' : ''}
+          <ChevronDown data-icon="inline-end" className={advancedOpen ? 'rotate-180' : undefined} />
+        </Button>
+        <FieldGroup id="artwork-advanced-filters" hidden={!advancedOpen} className="gap-5">
+          {/* 作品原始时间范围 */}
+          <Field className="gap-3">
+            <FieldLabel htmlFor="filter-source-date">作品原始时间</FieldLabel>
+            <DatePickerRange
+              id="filter-source-date"
+              aria-label="作品原始时间范围"
+              value={localDateRange}
+              onChange={setLocalDateRange}
+              className="w-full sm:w-[240px]"
+              placeholder="选择原始时间范围"
+            />
+          </Field>
+
+          {showExtendedFilters && (
+            <Field className="gap-3">
+              <FieldLabel htmlFor="filter-created-date">入库创建时间</FieldLabel>
+              <DatePickerRange
+                id="filter-created-date"
+                aria-label="入库创建时间范围"
+                value={localCreatedDateRange}
+                onChange={setLocalCreatedDateRange}
+                className="w-full sm:w-[240px]"
+                placeholder="选择入库时间范围"
+              />
+            </Field>
+          )}
+        </FieldGroup>
+      </div>
+    </FieldGroup>
+  )
+  if (props.renderFrame) return props.renderFrame({ content, footer, getSnapshot })
   return (
     <SSheet
       open={open}
       onOpenChange={onOpenChange}
       side={isDesktop ? 'right' : 'bottom'}
-      className="h-[90dvh] max-h-[90dvh] rounded-t-[20px] sm:h-full sm:max-h-dvh sm:max-w-md sm:rounded-none [&>[data-slot=sheet-header]]:shrink-0 [&>[data-slot=sheet-footer]]:shrink-0 [&>[data-slot=sheet-footer]]:pb-[max(1rem,env(safe-area-inset-bottom))] [&>.overflow-y-auto]:min-h-0 [&>.overflow-y-auto]:overscroll-contain"
+      className="h-[90dvh] max-h-[90dvh] rounded-t-[20px] sm:h-full sm:max-h-dvh sm:max-w-md sm:rounded-none [&>[data-slot=sheet-footer]]:pb-[max(1rem,env(safe-area-inset-bottom))] [&>.overflow-y-auto]:min-h-0 [&>.overflow-y-auto]:overscroll-contain"
       preventOpenAutoFocus
       title="筛选作品"
       description="选择条件后应用，关闭面板不会保存修改。"
-      footer={
-        <div className="flex w-full gap-3">
-          <Button variant="outline" className="min-h-11 flex-1" onClick={handleReset}>
-            重置
-          </Button>
-          <Button className="min-h-11 flex-[2]" onClick={handleApply}>
-            应用筛选
-          </Button>
-        </div>
-      }
+      footer={footer}
     >
-      <FieldGroup className="gap-5 pb-4">
-        <Field className="gap-3">
-          <FieldTitle>媒体类型</FieldTitle>
-          <MediaTypeFilterComponent
-            id="filter-media-type"
-            aria-label="媒体类型"
-            value={localMediaType}
-            onChange={setLocalMediaType}
-            className="w-full"
-          />
-          <p className="text-xs text-muted-foreground">图片包含动图；选择动图可单独查找已识别的动画作品。</p>
-        </Field>
-        {/* 排序控制 */}
-        <Field className="gap-3">
-          <FieldLabel htmlFor="filter-sort">排序方式</FieldLabel>
-          <SortControl
-            id="filter-sort"
-            aria-label="排序方式"
-            value={localSortBy}
-            onChange={setLocalSortBy}
-            className="w-full"
-          />
-        </Field>
-
-        {currentSearch !== undefined && (
-          <Field className="gap-3">
-            <FieldLabel htmlFor="filter-search">关键词</FieldLabel>
-            <SearchBox
-              inputId="filter-search"
-              inputName="filter-search"
-              ariaLabel="搜索作品、艺术家或标签"
-              value={localSearch}
-              onValueChange={setLocalSearch}
-              onSearch={setLocalSearch}
-              onSuggestionClick={handleSuggestionClick}
-              placeholder="搜索作品、艺术家或标签"
-              className="w-full"
-            />
-          </Field>
-        )}
-
-        {/* 艺术家 */}
-        {onSearchArtist && (
-          <Field className="gap-3">
-            <FieldLabel htmlFor="filter-artist">艺术家</FieldLabel>
-            <MultipleSelector
-              showOptionValue
-              inputProps={{
-                id: 'filter-artist',
-                name: 'filter-artist',
-                autoComplete: 'off',
-                'aria-label': '搜索艺术家'
-              }}
-              value={localArtist}
-              defaultOptions={localArtist}
-              onChange={setLocalArtist}
-              onSearch={onSearchArtist}
-              maxSelected={1}
-              placeholder="搜索艺术家"
-              emptyIndicator="没有找到艺术家"
-              className="min-h-10"
-            />
-          </Field>
-        )}
-
-        {/* 标签 */}
-        {onSearchTag && (
-          <Field className="gap-3">
-            <FieldLabel htmlFor="filter-tags">标签</FieldLabel>
-            <MultipleSelector
-              inputProps={{
-                id: 'filter-tags',
-                name: 'filter-tags',
-                autoComplete: 'off',
-                'aria-label': '搜索并添加标签'
-              }}
-              value={localTags}
-              defaultOptions={localTags}
-              onChange={setLocalTags}
-              onSearch={onSearchTag}
-              placeholder="搜索并添加标签"
-              emptyIndicator="没有找到标签"
-              className="min-h-10"
-            />
-          </Field>
-        )}
-
-        {showExtendedFilters && (
-          <Field className="gap-3">
-            <FieldTitle>创建类型</FieldTitle>
-            <ToggleGroup
-              id="filter-sources"
-              aria-label="创建类型筛选"
-              type="multiple"
-              variant="outline"
-              spacing={2}
-              value={localSources.map((option) => option.value)}
-              onValueChange={(values) => setLocalSources(OSource.filter((option) => values.includes(option.value)))}
-              className="grid w-full grid-cols-2 gap-2"
-            >
-              {OSource.map((option) => (
-                <ToggleGroupItem key={option.value} value={option.value} className="min-h-11">
-                  {option.label}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
-            <p className="text-xs text-muted-foreground">可多选，不选表示全部。</p>
-          </Field>
-        )}
-
-        {showExtendedFilters && (
-          <Field className="gap-3">
-            <FieldTitle>视频音频</FieldTitle>
-            <ToggleGroup
-              id="filter-audio"
-              aria-label="视频音频筛选"
-              type="single"
-              variant="outline"
-              value={localHasAudio}
-              onValueChange={(value) => {
-                if (value === 'all' || value === 'yes' || value === 'no') setLocalHasAudio(value)
-              }}
-              className="grid w-full grid-cols-3"
-            >
-              <ToggleGroupItem value="all" className="min-h-11">
-                全部
-              </ToggleGroupItem>
-              <ToggleGroupItem value="yes" className="min-h-11">
-                有音频
-              </ToggleGroupItem>
-              <ToggleGroupItem value="no" className="min-h-11">
-                无音频
-              </ToggleGroupItem>
-            </ToggleGroup>
-          </Field>
-        )}
-
-        {currentMaxMediaCount !== undefined && (
-          <Field className="gap-3">
-            <div className="flex items-center justify-between">
-              <FieldTitle>单个作品最多媒体数</FieldTitle>
-              <span className="text-sm text-muted-foreground">{localMaxMediaCount}</span>
-            </div>
-            <Slider
-              aria-label="单个作品最多媒体数"
-              value={[localMaxMediaCount]}
-              onValueChange={(value) => setLocalMaxMediaCount(value[0] ?? 8)}
-              min={1}
-              max={100}
-              step={1}
-            />
-          </Field>
-        )}
-        <div className="flex flex-col gap-3">
-          <Button
-            variant="ghost"
-            className="min-h-11 w-full justify-between"
-            aria-expanded={advancedOpen}
-            aria-controls="artwork-advanced-filters"
-            onClick={() => setAdvancedOpen((value) => !value)}
-          >
-            更多筛选{advancedCount > 0 ? ' · ' + advancedCount + ' 项' : ''}
-            <ChevronDown data-icon="inline-end" className={advancedOpen ? 'rotate-180' : undefined} />
-          </Button>
-          <FieldGroup id="artwork-advanced-filters" hidden={!advancedOpen} className="gap-5">
-            {/* 阅读状态 */}
-            {currentReadingStatus !== undefined && (
-              <Field className="gap-3">
-                <FieldLabel htmlFor="filter-reading-status">阅读状态</FieldLabel>
-                <Select
-                  value={localReadingStatus}
-                  onValueChange={(value) => setLocalReadingStatus(value as ReadingStatus | 'all')}
-                >
-                  <SelectTrigger id="filter-reading-status" className="w-full" aria-label="阅读状态筛选">
-                    <SelectValue placeholder="全部" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      <SelectItem value="all">全部</SelectItem>
-                      <SelectItem value="UNREAD">未看</SelectItem>
-                      <SelectItem value="IN_PROGRESS">阅读中</SelectItem>
-                      <SelectItem value="COMPLETED">已看完</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-            )}
-
-            {/* 作品原始时间范围 */}
-            <Field className="gap-3">
-              <FieldLabel htmlFor="filter-source-date">作品原始时间</FieldLabel>
-              <DatePickerRange
-                id="filter-source-date"
-                aria-label="作品原始时间范围"
-                value={localDateRange}
-                onChange={setLocalDateRange}
-                className="w-full sm:w-[240px]"
-                placeholder="选择原始时间范围"
-              />
-            </Field>
-
-            {showExtendedFilters && (
-              <Field className="gap-3">
-                <FieldLabel htmlFor="filter-created-date">入库创建时间</FieldLabel>
-                <DatePickerRange
-                  id="filter-created-date"
-                  aria-label="入库创建时间范围"
-                  value={localCreatedDateRange}
-                  onChange={setLocalCreatedDateRange}
-                  className="w-full sm:w-[240px]"
-                  placeholder="选择入库时间范围"
-                />
-              </Field>
-            )}
-          </FieldGroup>
-        </div>
-      </FieldGroup>
+      {content}
     </SSheet>
   )
 }

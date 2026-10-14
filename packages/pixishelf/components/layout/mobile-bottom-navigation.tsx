@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { ArtworkNavigationMenu } from './artwork-navigation-menu'
 import { usePathname } from 'next/navigation'
 import { EllipsisIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -18,6 +19,7 @@ export default function MobileBottomNavigation() {
     >
       <div className="mx-auto grid min-h-16 max-w-md grid-cols-4">
         {MOBILE_BOTTOM_NAVIGATION_ITEMS.map((item) => {
+          if (item.href === '/artworks') return <ArtworkNavigationMenu key={item.href} mobile />
           const active = isNavigationItemActive(pathname, item.href)
           const Icon = item.icon
 

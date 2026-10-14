@@ -12,12 +12,23 @@ import { getNavigationContainerSize, isMoreNavigationActive, isNavigationItemAct
 
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn(),
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: vi.fn() })
 }))
 
 vi.mock('@/components/auth', () => ({
   useAuthUser: () => ({ id: '1', name: 'User', email: null, image: null }),
   useAuth: () => ({ logout: vi.fn() })
+}))
+
+vi.mock('@/hooks/use-artwork-quick-filters', () => ({
+  useArtworkQuickFilters: () => ({
+    userId: '1',
+    items: [],
+    navigation: { revision: 0, ids: [] },
+    loading: false,
+    error: ''
+  })
 }))
 
 vi.mock('../user-menu', () => ({
@@ -109,11 +120,14 @@ describe('MobileBottomNavigation', () => {
   })
 
   it('keeps More open when toggling privacy and hosts its memory settings inside the sheet', () => {
-    vi.stubGlobal('ResizeObserver', class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    })
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+    )
     try {
       vi.mocked(usePathname).mockReturnValue('/artworks')
       privacyStore.setState({ remembered: null, storageError: false })

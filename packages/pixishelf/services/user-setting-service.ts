@@ -1,3 +1,4 @@
+import { QUICK_FILTER_PREFIX } from '@/schemas/artwork-quick-filter.dto'
 import { prisma } from '@/lib/prisma'
 import { userSettingsSchema, updateUserSettingSchema } from '@/schemas/user-setting.dto'
 import type { SettingType, UpdateProfileDTO, UpdateUserSettingDTO, UserSettings } from '@/schemas/user-setting.dto'
@@ -36,7 +37,7 @@ function decodeSettingValue(value: string | null, type: string): unknown {
 
 export async function getUserSettings(userId: string): Promise<UserSettings> {
   const settings: Array<{ key: string; value: string | null; type: string }> = await prisma.userSetting.findMany({
-    where: { userId },
+    where: { userId, key: { not: { startsWith: QUICK_FILTER_PREFIX } } },
     select: {
       key: true,
       value: true,

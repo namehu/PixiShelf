@@ -33,6 +33,7 @@ import { useAuthUser } from '@/components/auth'
  * 6. **交互反馈**: 内置加载中 (Skeleton)、空状态、错误重试等交互状态。
  */
 interface InfiniteArtworkListProps {
+  queryGeneration?: number
   /** 搜索关键词 */
   searchQuery?: string
   /** 排序方式 (如：最新发布、最旧发布、最多浏览等) */
@@ -90,6 +91,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   } = props
 
   const trpcClient = useTRPCClient()
+  const queryGeneration = props.queryGeneration ?? 0
   const ownerUserId = useAuthUser()?.id ?? null
   const displayMode = useArtworkDisplayMode()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -121,7 +123,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   }), [artistId, createdEndDate, createdStartDate, endDate, hasAudio, mediaType, ownerUserId,
     randomSeed, readingStatus, searchQuery, sortBy, sources, startDate, tagId, tagIds])
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } = useInfiniteQuery({
-    queryKey: ['artwork', 'cardList', ownerUserId, filterInput],
+    queryKey: ['artwork', 'cardList', ownerUserId, filterInput, ...(queryGeneration ? [queryGeneration] : [])],
     initialPageParam: 1 as number | string,
     enabled: Boolean(ownerUserId),
     queryFn: ({ pageParam, signal }) => trpcClient.artwork.cardList.query({
@@ -207,7 +209,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       window.history.scrollRestoration = 'manual'
     }
 
-    const savedPosition = sessionStorage.getItem(storageKey)
+    const savedPosition = queryGeneration ? null : sessionStorage.getItem(storageKey)
 
     // 如果没有保存的位置，直接标记为准备就绪
     if (!savedPosition) {
@@ -223,7 +225,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
         setIsReady(true)
       })
     }
-  }, [containerWidth, allItems.length, storageKey])
+  }, [containerWidth, allItems.length, storageKey, queryGeneration])
 
   // 2. 保存滚动位置
   useEffect(() => {

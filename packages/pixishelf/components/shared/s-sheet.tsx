@@ -23,6 +23,7 @@ export interface SSheetProps {
   description?: React.ReactNode
   /** 底部内容 (通常放置按钮) */
   footer?: React.ReactNode
+  headerExtra?: React.ReactNode
   /** 抽屉弹出的方向 */
   side?: 'top' | 'bottom' | 'left' | 'right'
   /** 内容区域的类名，用于覆盖宽度、圆角等 */
@@ -41,6 +42,7 @@ export function SSheet(props: SSheetProps) {
     title,
     description,
     footer,
+    headerExtra,
     side = 'right', // 默认为右侧
     className,
     preventOpenAutoFocus = false,
@@ -63,6 +65,8 @@ export function SSheet(props: SSheetProps) {
             {description && <SheetDescription>{description}</SheetDescription>}
           </SheetHeader>
         )}
+
+        {headerExtra}
 
         {/* 内容区域：自动占据剩余空间并支持滚动 */}
         <div className="flex-1 overflow-y-auto px-4">{children}</div>

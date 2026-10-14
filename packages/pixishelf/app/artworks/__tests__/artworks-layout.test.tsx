@@ -22,6 +22,9 @@ const { queryState } = vi.hoisted(() => ({
   }
 }))
 
+const navigation = vi.hoisted(() => ({ params: new URLSearchParams() }))
+vi.mock('next/navigation', () => ({ useSearchParams: () => navigation.params }))
+
 vi.mock('nuqs', () => {
   const parser = {
     withDefault: () => parser,
@@ -47,16 +50,24 @@ vi.mock('../_components/search-box', () => ({
   SearchBox: () => <div>搜索作品</div>
 }))
 
-vi.mock('@/components/artwork/filter-sheet', () => ({
-  FilterSheet: () => null
+vi.mock('@/components/artwork/gallery-filter-sheet', () => ({
+  GalleryFilterSheet: ({ open, initialTab }: { open: boolean; initialTab: string }) =>
+    open ? <div data-testid="filter-sheet">{initialTab}</div> : null
 }))
 
 vi.mock('@/components/artwork/infinite-artwork-list', () => ({
-  default: () => <div>作品列表</div>
+  default: ({ queryGeneration }: { queryGeneration: number }) => (
+    <div data-testid="artworks-list" data-generation={queryGeneration}>
+      作品列表
+    </div>
+  )
 }))
 
 beforeEach(() => {
   queryState.search = ''
+  navigation.params = new URLSearchParams()
+  window.history.replaceState(null, '', '/artworks')
+  window.scrollTo = vi.fn()
 })
 
 afterEach(() => {
@@ -89,5 +100,21 @@ describe('GalleryPage layout', () => {
     })
     expect(screen.getByText('当前筛选')).toBeTruthy()
     expect(screen.getByRole('button', { name: '移除筛选：关键词：蓝色' })).toBeTruthy()
+  })
+  it('consumes committed management commands without losing the current query', () => {
+    navigation.params = new URLSearchParams('search=keep&quickFilters=manage')
+    window.history.replaceState(null, '', '/artworks?' + navigation.params.toString())
+    render(<GalleryPage />)
+    expect(screen.getByTestId('filter-sheet').textContent).toBe('saved')
+    expect(window.location.search).toBe('?search=keep')
+  })
+
+  it('consumes apply commands and starts a new list generation at the top', () => {
+    navigation.params = new URLSearchParams('readingStatus=UNREAD&quickApply=once')
+    window.history.replaceState(null, '', '/artworks?' + navigation.params.toString())
+    render(<GalleryPage />)
+    expect(window.location.search).toBe('?readingStatus=UNREAD')
+    expect(Number(screen.getByTestId('artworks-list').getAttribute('data-generation'))).toBeGreaterThan(0)
+    expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
   })
 })
