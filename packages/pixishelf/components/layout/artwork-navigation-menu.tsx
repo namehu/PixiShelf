@@ -28,7 +28,7 @@ export function ArtworkNavigationMenu({ mobile = false }: { mobile?: boolean }) 
   const api = useArtworkQuickFilters(open)
   const enterTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const link = useRef<HTMLAnchorElement>(null)
+  const mobileTrigger = useRef<HTMLButtonElement>(null)
   const active = pathname === '/artworks' || pathname.startsWith('/artworks/')
   const clearTimers = () => {
     if (enterTimer.current) clearTimeout(enterTimer.current)
@@ -73,44 +73,52 @@ export function ArtworkNavigationMenu({ mobile = false }: { mobile?: boolean }) 
           if (e.pointerType === 'mouse') leave()
         }}
       >
-        <Link
-          ref={link}
-          href="/artworks"
-          aria-current={active ? 'page' : undefined}
-          aria-haspopup={mobile ? 'menu' : undefined}
-          aria-expanded={mobile ? open : undefined}
-          draggable={mobile ? false : undefined}
-          onDragStart={mobile ? (event) => event.preventDefault() : undefined}
-          style={mobile ? { WebkitTouchCallout: 'none', WebkitUserSelect: 'none' } : undefined}
-          onKeyDown={(e) => {
-            if (mobile && e.key === 'ArrowDown') {
-              e.preventDefault()
-              setOpen(true)
-            }
-          }}
-          {...(mobile
-            ? {
-                onTouchStart: longPress.onTouchStart,
-                onTouchMove: longPress.onTouchMove,
-                onTouchEnd: longPress.onTouchEnd,
-                onTouchCancel: longPress.onTouchCancel,
-                onClickCapture: longPress.onClickCapture,
-                onContextMenu: longPress.onContextMenu
+        {mobile ? (
+          // A real link lets Android offer its own link preview before the gesture completes.
+          <button
+            ref={mobileTrigger}
+            type="button"
+            aria-current={active ? 'page' : undefined}
+            aria-haspopup="menu"
+            aria-expanded={open}
+            draggable={false}
+            onDragStart={(event) => event.preventDefault()}
+            style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                setOpen(true)
               }
-            : {})}
-          className={cn(
-            mobile
-              ? 'relative flex min-h-16 w-full select-none flex-col items-center justify-center gap-1 px-2 text-[0.6875rem] font-medium text-muted-foreground outline-none transition-colors before:absolute before:inset-x-5 before:top-0 before:h-0.5 before:rounded-full before:bg-transparent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50'
-              : 'relative flex h-10 items-center gap-2 rounded-md py-2 pr-1 pl-3 text-sm font-medium text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
-            active &&
-              (mobile
-                ? 'text-primary before:bg-brand-accent'
-                : 'bg-accent text-accent-foreground after:absolute after:inset-x-3 after:-bottom-[0.8125rem] after:h-0.5 after:rounded-full after:bg-brand-accent')
-          )}
-        >
-          <ImageIcon className={mobile ? 'size-5' : 'size-4'} aria-hidden="true" />
-          <span>作品</span>
-        </Link>
+            }}
+            onTouchStart={longPress.onTouchStart}
+            onTouchMove={longPress.onTouchMove}
+            onTouchEnd={longPress.onTouchEnd}
+            onTouchCancel={longPress.onTouchCancel}
+            onClickCapture={longPress.onClickCapture}
+            onContextMenu={longPress.onContextMenu}
+            onClick={() => router.push('/artworks')}
+            className={cn(
+              'relative flex min-h-16 w-full select-none flex-col items-center justify-center gap-1 px-2 text-[0.6875rem] font-medium text-muted-foreground outline-none transition-colors before:absolute before:inset-x-5 before:top-0 before:h-0.5 before:rounded-full before:bg-transparent focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50',
+              active && 'text-primary before:bg-brand-accent'
+            )}
+          >
+            <ImageIcon className="pointer-events-none size-5" aria-hidden="true" />
+            <span className="pointer-events-none">作品</span>
+          </button>
+        ) : (
+          <Link
+            href="/artworks"
+            aria-current={active ? 'page' : undefined}
+            className={cn(
+              'relative flex h-10 items-center gap-2 rounded-md py-2 pr-1 pl-3 text-sm font-medium text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50',
+              active &&
+                'bg-accent text-accent-foreground after:absolute after:inset-x-3 after:-bottom-[0.8125rem] after:h-0.5 after:rounded-full after:bg-brand-accent'
+            )}
+          >
+            <ImageIcon className="size-4" aria-hidden="true" />
+            <span>作品</span>
+          </Link>
+        )}
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
@@ -134,7 +142,7 @@ export function ArtworkNavigationMenu({ mobile = false }: { mobile?: boolean }) 
         onCloseAutoFocus={(event) => {
           if (mobile) {
             event.preventDefault()
-            link.current?.focus()
+            mobileTrigger.current?.focus()
           }
         }}
       >

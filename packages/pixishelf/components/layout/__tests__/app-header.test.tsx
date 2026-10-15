@@ -101,7 +101,7 @@ describe('MobileBottomNavigation', () => {
 
     const primaryNavigation = screen.getByRole('navigation', { name: '手机主导航' })
     expect(within(primaryNavigation).getByRole('link', { name: '首页' }).getAttribute('href')).toBe('/dashboard')
-    expect(within(primaryNavigation).getByRole('link', { name: '作品' }).getAttribute('href')).toBe('/artworks')
+    expect(within(primaryNavigation).getByRole('button', { name: '作品' }).getAttribute('aria-haspopup')).toBe('menu')
     expect(within(primaryNavigation).getByRole('link', { name: '沉浸浏览' }).getAttribute('href')).toBe('/viewer')
     expect(within(primaryNavigation).queryByRole('button', { name: /隐私/ })).toBeNull()
 
