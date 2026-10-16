@@ -15,6 +15,10 @@ sources:
 
 本文档总结了 `schema.prisma` 中未体现，但通过 Migration 脚本 (`migrations/`) 直接应用到数据库中的核心逻辑、扩展和索引设计。这些逻辑对于保证数据一致性和查询性能至关重要。
 
+## 作品浏览索引
+
+`20261016090000_artwork_browse_indexes` 创建仅覆盖未删除且 ACTIVE 作品的 `artwork_active_random_v1_idx`，表达式为 `md5(id::text || ':artwork-random-v1') COLLATE "C"`，以 id 决胜。它不能完整表示在 Prisma Schema 中，SQL migration 和查询构造器必须保持表达式／排序规则一致。另建 `Image_artworkId_sortOrder_id_idx`，用于数据库内每作品 LIMIT 1 的封面读取。两者为增量索引，不回填业务数据；普通创建期间需停写，回退旧应用可保留。详见[性能与部署边界](../../../docs/design/artwork-feed-query-performance.md)。
+
 ## Artwork 阅读版本与进度约束
 
 `20260924130000_add_artwork_reading_tracking` 为既有 Artwork 加入 `mediaRevision INTEGER NOT NULL DEFAULT 1`，数据库约束要求版本至少为 1；它不回填历史阅读。`artwork_reading_summaries` 使用 `(userId, artworkId)` 主键，保存访问次数、逻辑媒体进度快照和最后位置；`artwork_read_media` 使用 `(userId, artworkId, mediaId)` 主键，避免同一账户重复计入同一 Image。摘要计数约束要求 `0 <= seenCount <= totalCount` 且访问次数非负，最后序号不能为负。账户与作品删除级联清理两表；媒体删除级联清理已读成员，摘要的 `lastMediaId` 置空。

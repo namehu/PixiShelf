@@ -414,6 +414,7 @@ model Image {
   keyframeSets        MediaVideoKeyframeSet[]
 
   @@unique([artworkId, path], name: "unique_artwork_path")
+  @@index([artworkId, sortOrder, id], map: "Image_artworkId_sortOrder_id_idx")
   @@index([webpAnimationStatus])
   @@index([chaptersPath])
   @@index([mediaType])

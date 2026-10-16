@@ -53,24 +53,14 @@ export async function queryReadingArtworkIdsPage(params: ArtworksInfiniteQuerySc
   const query = appendReadingFilterAndCursor(params, userId, buildArtworkWhereClause(params))
   const idQuery = `SELECT a.id, ${query.sortValueSQL} AS reading_sort_value
     FROM "Artwork" a
-    LEFT JOIN "Artist" artist ON a."artistId" = artist.id
     ${query.whereSQL}
     ${query.orderBySQL}
     LIMIT $${query.paramIndex}`
-  const [countRows, rawRows] = await Promise.all([
-    !params.readingCursor
-      ? prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-          `SELECT COUNT(*) AS count FROM "Artwork" a LEFT JOIN "Artist" artist ON a."artistId" = artist.id ${query.countWhereSQL}`,
-          ...query.countParams
-        )
-      : Promise.resolve(undefined),
-    prisma.$queryRawUnsafe<ReadingPageRow[]>(idQuery, ...query.sqlParams, params.pageSize + 1)
-  ])
+  const rawRows = await prisma.$queryRawUnsafe<ReadingPageRow[]>(idQuery, ...query.sqlParams, params.pageSize + 1)
   const visible = rawRows.slice(0, params.pageSize)
   const last = visible.at(-1)
   return {
     ids: visible.map((row) => row.id),
-    total: countRows ? Number(countRows[0]?.count ?? 0) : undefined,
     hasNextPage: rawRows.length > params.pageSize,
     nextReadingCursor: rawRows.length > params.pageSize && last ? encodeReadingCursor(params, userId, last) : undefined
   }

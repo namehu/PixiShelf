@@ -5,7 +5,11 @@ import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 /**
  * 构建作品查询的 WHERE 子句
  */
-export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, initialParamIndex = 1) {
+export function buildArtworkWhereClause(
+  params: ArtworksInfiniteQuerySchema,
+  initialParamIndex = 1,
+  tagStrategy: 'grouped' | 'exists' = 'grouped'
+) {
   const {
     id,
     tags,
@@ -97,7 +101,17 @@ export function buildArtworkWhereClause(params: ArtworksInfiniteQuerySchema, ini
   }
 
   // 1.2.8 多标签 ID 精确收窄：作品必须同时包含所选的全部标签
-  if (tagIds && tagIds.length > 0) {
+  if (tagIds && tagIds.length > 0 && tagStrategy === 'exists') {
+    // A random index scan can stop after one page; avoid aggregating every tag match first.
+    for (const selectedTagId of new Set(tagIds)) {
+      whereSQL += ` AND EXISTS (
+        SELECT 1 FROM "ArtworkTag" at_required
+        WHERE at_required."artworkId" = a.id AND at_required."tagId" = $${paramIndex}
+      )`
+      sqlParams.push(selectedTagId)
+      paramIndex++
+    }
+  } else if (tagIds && tagIds.length > 0) {
     whereSQL += ` AND a.id IN (
       SELECT at_ids."artworkId"
       FROM "ArtworkTag" at_ids

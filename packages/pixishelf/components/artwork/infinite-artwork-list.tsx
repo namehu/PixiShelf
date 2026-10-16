@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } fr
 import { useInView } from 'react-intersection-observer'
 import { FilterIcon } from 'lucide-react'
 import ArtworkCard from '@/components/artwork/artwork-card'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useTRPCClient } from '@/lib/trpc'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useColumns } from '@/hooks/use-columns'
@@ -58,8 +58,6 @@ interface InfiniteArtworkListProps {
   createdStartDate?: string
   /** 数据库创建结束日期 (格式: YYYY-MM-DD) */
   createdEndDate?: string
-  /** 总数变化回调，用于通知父组件更新统计信息 */
-  onTotalChange?: (total: number) => void
   /** 清除筛选回调，当用户点击空状态下的"清除筛选"按钮时触发 */
   onClearFilters?: () => void
   /** 自定义空状态文案 (默认: "没有找到相关作品") */
@@ -83,7 +81,6 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     endDate,
     createdStartDate,
     createdEndDate,
-    onTotalChange,
     onClearFilters,
     emptyMessage,
     randomSeed,
@@ -91,6 +88,9 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   } = props
 
   const trpcClient = useTRPCClient()
+  const queryClient = useQueryClient()
+  const fallbackSeed = useRef(Math.floor(Math.random() * 1000000))
+  const effectiveSeed = randomSeed ?? fallbackSeed.current
   const queryGeneration = props.queryGeneration ?? 0
   const ownerUserId = useAuthUser()?.id ?? null
   const displayMode = useArtworkDisplayMode()
@@ -107,7 +107,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   const filterInput = useMemo(() => ({
         search: searchQuery || undefined,
         sortBy,
-        randomSeed: sortBy === 'random' ? randomSeed : undefined,
+        randomSeed: sortBy === 'random' ? effectiveSeed : undefined,
         mediaType,
         tagId,
         tagIds,
@@ -121,25 +121,28 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
         readingStatus,
         expectedUserId: ownerUserId ?? undefined
   }), [artistId, createdEndDate, createdStartDate, endDate, hasAudio, mediaType, ownerUserId,
-    randomSeed, readingStatus, searchQuery, sortBy, sources, startDate, tagId, tagIds])
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError } = useInfiniteQuery({
-    queryKey: ['artwork', 'cardList', ownerUserId, filterInput, ...(queryGeneration ? [queryGeneration] : [])],
+    effectiveSeed, readingStatus, searchQuery, sortBy, sources, startDate, tagId, tagIds])
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, error } = useInfiniteQuery({
+    queryKey: ['artwork', 'cardList', 'random-v1', ownerUserId, filterInput, ...(queryGeneration ? [queryGeneration] : [])],
     initialPageParam: 1 as number | string,
     enabled: Boolean(ownerUserId),
     queryFn: ({ pageParam, signal }) => trpcClient.artwork.cardList.query({
       ...filterInput,
       cursor: typeof pageParam === 'number' ? pageParam : undefined,
-      readingCursor: typeof pageParam === 'string' ? pageParam : undefined
+      readingCursor: sortBy !== 'random' && typeof pageParam === 'string' ? pageParam : undefined,
+      randomCursor: sortBy === 'random' && typeof pageParam === 'string' ? pageParam : undefined
     }, { signal }),
-    getNextPageParam: (lastPage) => readingStatus ? lastPage.nextReadingCursor : lastPage.nextCursor
+    getNextPageParam: (lastPage) => sortBy === 'random' ? lastPage.nextRandomCursor : readingStatus ? lastPage.nextReadingCursor : lastPage.nextCursor,
+    retry: (attempt, failure) => !failure.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') && attempt < 3
   })
 
-  // 更新 Total
+  const resetContext = JSON.stringify([ownerUserId, filterInput, queryGeneration])
+  const recoveredContext = useRef<string | null>(null)
   useEffect(() => {
-    if (data?.pages[0]?.total !== undefined && onTotalChange) {
-      onTotalChange(data.pages[0].total)
-    }
-  }, [data?.pages, onTotalChange])
+    if (!error?.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') || recoveredContext.current === resetContext) return
+    recoveredContext.current = resetContext
+    void queryClient.resetQueries({ queryKey: ['artwork', 'cardList', 'random-v1', ownerUserId, filterInput, ...(queryGeneration ? [queryGeneration] : [])], exact: true })
+  }, [error, filterInput, ownerUserId, queryClient, queryGeneration, resetContext])
 
   const allItems = useMemo(() => data?.pages.flatMap((page) => page.items) || [], [data])
   const rowCount = Math.ceil(allItems.length / columns)

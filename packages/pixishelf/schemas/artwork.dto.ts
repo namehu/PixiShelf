@@ -72,11 +72,8 @@ export const ArtworksInfiniteQuerySchema = z.object({
     .nullish()
     .transform((val) => {
       if (!val) return []
-      if (Array.isArray(val)) return val.filter((item) => Number.isFinite(item))
-      return val
-        .split(',')
-        .map((item) => Number(item))
-        .filter((item) => Number.isInteger(item))
+      if (Array.isArray(val)) return Array.from(new Set(val.filter((item) => Number.isFinite(item))))
+      return Array.from(new Set(val.split(',').map(Number).filter(Number.isInteger)))
     }),
   excludeTags: z
     .string()
@@ -109,6 +106,7 @@ export const ArtworksInfiniteQuerySchema = z.object({
   randomSeed: z.number().int().optional(),
   readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
   readingCursor: z.string().min(1).max(4096).optional(),
+  randomCursor: z.string().min(1).max(4096).optional(),
   expectedUserId: z.string().min(1).optional(),
   mediaType: z
     .string()
@@ -193,6 +191,7 @@ export const ViewerFeedQuerySchema = z.object({
   randomSeed: z.coerce.number().int().optional(),
   readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
   readingCursor: z.string().min(1).max(4096).optional(),
+  randomCursor: z.string().min(1).max(4096).optional(),
   expectedUserId: z.string().min(1).optional(),
   search: z
     .string()

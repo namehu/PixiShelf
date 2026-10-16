@@ -35,7 +35,6 @@ const serializeViewerQuery = createSerializer(viewerQueryParsers)
 export default function ArtistDetailPage({ artist, id }: { artist: ArtistResponseDto; id: string }) {
   const safeBack = useSafeBack('/artists')
   const [isFilterOpen, setIsFilterOpen] = useState(false)
-  const [total, setTotal] = useState(0)
 
   const [{ sortBy, startDate, endDate, search, mediaType, randomSeed }, setQuery] = useQueryStates(
     {
@@ -62,7 +61,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
     setQuery({
       mediaType: filters.mediaType,
       sortBy: filters.sortBy,
-      randomSeed: filters.randomSeed ? String(filters.randomSeed) : null,
+      randomSeed: filters.randomSeed !== undefined ? String(filters.randomSeed) : null,
       startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
       endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null
     })
@@ -136,7 +135,7 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
 
       <HeadInfo artist={artist} immersiveHref={immersiveViewerHref} />
       <PageContainer size="gallery" className="flex flex-col gap-6 py-8">
-        <SectionHeader title="作品" description={`共 ${total} 件作品`} />
+        <SectionHeader title="作品" />
 
         <InfiniteArtworkList
           artistId={id}
@@ -146,7 +145,6 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
           mediaType={mediaType as MediaTypeFilter}
           startDate={startDate || undefined}
           endDate={endDate || undefined}
-          onTotalChange={setTotal}
           onClearFilters={clearAllFilters}
           emptyMessage="该艺术家还没有上传任何作品"
         />

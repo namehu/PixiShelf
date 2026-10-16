@@ -72,14 +72,8 @@ export function appendReadingFilterAndCursor(
   base: { whereSQL: string; sqlParams: unknown[]; paramIndex: number }
 ) {
   let { whereSQL, sqlParams, paramIndex } = base
-  const status = params.readingStatus
-  if (!status) throw new Error('Reading status required')
-  const summary = `SELECT 1 FROM artwork_reading_summaries rs WHERE rs."artworkId" = a.id AND rs."userId" = $${paramIndex} AND rs."seenCount" > 0`
-  if (status === 'UNREAD') whereSQL += ` AND NOT EXISTS (${summary})`
-  else if (status === 'IN_PROGRESS') whereSQL += ` AND EXISTS (${summary} AND rs."seenCount" < rs."totalCount")`
-  else whereSQL += ` AND EXISTS (${summary} AND rs."totalCount" > 0 AND rs."seenCount" >= rs."totalCount")`
-  sqlParams = [...sqlParams, userId]
-  paramIndex++
+  const reading = appendReadingPredicate(params.readingStatus, userId, { whereSQL, sqlParams, paramIndex })
+  ;({ whereSQL, sqlParams, paramIndex } = reading)
 
   const seedPlaceholder = `$${paramIndex}`
   const spec = sortSpec(params.sortBy ?? 'source_date_desc', params.randomSeed, seedPlaceholder)
@@ -115,4 +109,21 @@ export function appendReadingFilterAndCursor(
     sortValueSQL: spec.value,
     orderBySQL: `ORDER BY reading_sort_value ${spec.direction}${spec.nullable ? ' NULLS LAST' : ''}, a.id ${spec.direction}`
   }
+}
+
+/** Shared account predicate; deliberately independent of pagination and sorting. */
+export function appendReadingPredicate(
+  status: ArtworksInfiniteQuerySchema['readingStatus'], userId: string,
+  base: { whereSQL: string; sqlParams: unknown[]; paramIndex: number }
+) {
+  let { whereSQL, sqlParams, paramIndex } = base
+  if (!status) throw new Error('Reading status required')
+  const summary = `SELECT 1 FROM artwork_reading_summaries rs WHERE rs."artworkId" = a.id AND rs."userId" = $${paramIndex} AND rs."seenCount" > 0`
+  if (status === 'UNREAD') whereSQL += ` AND NOT EXISTS (${summary})`
+  else if (status === 'IN_PROGRESS') whereSQL += ` AND EXISTS (${summary} AND rs."seenCount" < rs."totalCount")`
+  else whereSQL += ` AND EXISTS (${summary} AND rs."totalCount" > 0 AND rs."seenCount" >= rs."totalCount")`
+  sqlParams = [...sqlParams, userId]
+  paramIndex++
+
+  return { whereSQL, sqlParams, paramIndex }
 }

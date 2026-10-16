@@ -8,7 +8,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: { $queryRawUnsafe: queryRawMock } }))
 import { queryReadingArtworkIdsPage, queryReadingArtworkRowsPage } from '../reading-page-query'
 
 describe('reading page SQL', () => {
-  beforeEach(() => queryRawMock.mockReset())
+  beforeEach(() => { queryRawMock.mockReset() })
 
   it('filters by authenticated account, overfetches IDs and uses no offset', async () => {
     queryRawMock.mockImplementation((sql: string) => Promise.resolve(sql.includes('COUNT(*)')
@@ -16,7 +16,10 @@ describe('reading page SQL', () => {
       : [{ id: 1, reading_sort_value: 10 }, { id: 2, reading_sort_value: 9 }, { id: 3, reading_sort_value: 8 }]))
     const params = ArtworksInfiniteQuerySchema.parse({ readingStatus: 'IN_PROGRESS', sortBy: 'images_desc', pageSize: 2, search: 'cat' })
     const first = await queryReadingArtworkIdsPage(params, 'user-1')
-    expect(first).toMatchObject({ ids: [1, 2], total: 3, hasNextPage: true })
+    expect(first).toMatchObject({ ids: [1, 2], hasNextPage: true })
+    expect(first).not.toHaveProperty('total')
+    expect(queryRawMock).toHaveBeenCalledOnce()
+    expect(String(queryRawMock.mock.calls[0]?.[0])).not.toContain('COUNT(*)')
     const firstSQL = queryRawMock.mock.calls.find(([sql]) => String(sql).includes('SELECT a.id'))!
     expect(String(firstSQL[0])).toContain('artwork_reading_summaries')
     expect(String(firstSQL[0])).toContain('a.title ILIKE')

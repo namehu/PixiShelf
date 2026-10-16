@@ -16,6 +16,7 @@ export interface ViewerFeedResponse {
   pageSize: number
   nextPage: number | null
   nextReadingCursor?: string
+  nextRandomCursor?: string
 }
 
 export interface ViewerMediaItem {

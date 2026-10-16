@@ -66,6 +66,25 @@ vi.mock('@/components/ui/select', () => ({
 afterEach(cleanup)
 
 describe('FilterSheet artwork sources', () => {
+  it('preserves a zero random seed when applying the current filters', () => {
+    const onApply = vi.fn()
+
+    render(
+      <FilterSheet
+        open
+        currentMediaType="all"
+        currentSortBy="random"
+        randomSeed={0}
+        onApply={onApply}
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+
+    expect(onApply).toHaveBeenCalledWith(expect.objectContaining({ sortBy: 'random', randomSeed: 0 }))
+  })
+
   it('keeps animation selection as a draft until applied and discards it on reopen', () => {
     const onApply = vi.fn()
     const onOpenChange = vi.fn()

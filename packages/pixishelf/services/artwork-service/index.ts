@@ -1,6 +1,7 @@
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { creatorInclude, editArtworkCreators, lockCreatorCatalog } from '@pixishelf/db'
 import 'server-only'
+import { TRPCError } from '@trpc/server'
 
 import { ArtworkCardData, ArtworkCardListResponse, EnhancedArtworksResponse } from '@/types'
 import { prisma } from '@/lib/prisma'
@@ -27,6 +28,7 @@ import { fetchRandomIds } from './dao'
 import { RandomTagDto } from '@/schemas/tag.dto'
 import { Prisma, ScanRunMode, ScanRunType } from '@prisma/client'
 import { buildArtworkWhereClause } from './query-builder'
+import { queryRandomArtworkIdsPage } from './random-page-query'
 import { queryReadingArtworkIdsPage, queryReadingArtworkRowsPage, readingCountClause, requireReadingUserId } from './reading-page-query'
 import { ESource, type ESource as ArtworkSource } from '@/enums/e-source'
 import { appendScanRunItems, completeScanRunSummary, startScanRun } from '@/services/scan-run-service'
@@ -256,21 +258,75 @@ async function hydrateArtworkRows(rawArtworks: any[]) {
 
 export interface ArtworkCardsPageResponse {
   items: ArtworkCardData[]
-  total?: number
+  nextRandomCursor?: string
   page: number
   pageSize: number
   hasNextPage: boolean
   nextReadingCursor?: string
 }
 
+export interface CardQueryDatabase {
+  $queryRawUnsafe: Prisma.TransactionClient['$queryRawUnsafe']
+  artwork: {
+    findMany(args: {
+      where: Prisma.ArtworkWhereInput
+      select: typeof artworkCardFields
+    }): Promise<Array<Prisma.ArtworkGetPayload<{ select: typeof artworkCardFields }>>>
+  }
+  image: {
+    findMany(args: {
+      where: Prisma.ImageWhereInput
+      orderBy: Prisma.ImageOrderByWithRelationInput[]
+      select: typeof artworkCardSelect.images.select
+    }): Promise<ArtworkCardMediaRow[]>
+  }
+}
+
 /** Hydrate a fixed set of card IDs without loading the full media sequence. */
-export async function getArtworkCardsByIds(artworkIds: number[]): Promise<ArtworkCardData[]> {
+export async function getArtworkCardsByIds(
+  artworkIds: number[],
+  db: CardQueryDatabase = prisma
+): Promise<ArtworkCardData[]> {
   if (artworkIds.length === 0) return []
-  const artworks = await prisma.artwork.findMany({
-    where: { id: { in: artworkIds }, deletedAt: null, archiveLifecycleState: 'ACTIVE' },
-    select: artworkCardSelect
-  })
-  const resolved = await resolveArtworkCardCovers(artworks)
+  const [artworkRows, covers] = await Promise.all([
+    db.artwork.findMany({
+      where: { id: { in: artworkIds }, deletedAt: null, archiveLifecycleState: 'ACTIVE' },
+      select: artworkCardFields
+    }),
+    db.$queryRawUnsafe<ArtworkCardMediaRow[]>(
+      `SELECT cover.*, CASE WHEN vm."imageId" IS NULL THEN NULL ELSE json_build_object(
+        'posterStatus', vm."posterStatus", 'posterPath', vm."posterPath", 'posterUpdatedAt', vm."posterUpdatedAt" AT TIME ZONE 'UTC'
+      ) END AS "videoMetadata"
+      FROM unnest($1::int[]) AS ids(id)
+      CROSS JOIN LATERAL (
+        SELECT i.id, i."artworkId", i.path, i.size, i."mediaType"
+        FROM "Image" i WHERE i."artworkId" = ids.id ORDER BY i."sortOrder", i.id LIMIT 1
+      ) cover LEFT JOIN "MediaVideoMetadata" vm ON vm."imageId" = cover.id`,
+      artworkIds
+    )
+  ])
+  // Prisma stores UTC timestamps without a zone; emit an explicit offset before JSON parsing.
+  const coverByArtwork = new Map(
+    covers.map((cover) => [
+      cover.artworkId,
+      {
+        ...cover,
+        videoMetadata: cover.videoMetadata
+          ? {
+              ...cover.videoMetadata,
+              posterUpdatedAt: cover.videoMetadata.posterUpdatedAt
+                ? new Date(cover.videoMetadata.posterUpdatedAt)
+                : null
+            }
+          : null
+      }
+    ])
+  )
+  const artworks = artworkRows.map((artwork) => ({
+    ...artwork,
+    images: coverByArtwork.has(artwork.id) ? [coverByArtwork.get(artwork.id)!] : []
+  }))
+  const resolved = await resolveArtworkCardCovers(artworks, db)
   const byId = new Map(resolved.map((artwork) => [artwork.id, artwork]))
   return artworkIds.flatMap((id) => {
     const artwork = byId.get(id)
@@ -278,86 +334,49 @@ export async function getArtworkCardsByIds(artworkIds: number[]): Promise<Artwor
   })
 }
 
-/**
- * 获取普通作品列表卡片。
- *
- * 这里只返回 ArtworkCard 所需字段，并把每个作品的媒体关系限制为封面一条。
- * 第一页保留精确总数；后续页多取一条记录判断是否还有下一页，避免重复 COUNT。
- */
-export async function getArtworkCardsPage(params: ArtworksInfiniteQuerySchema, userId?: string): Promise<ArtworkCardsPageResponse> {
-  if (params.readingStatus) {
-    const page = params.cursor ?? 1
-    const result = await queryReadingArtworkIdsPage(params, requireReadingUserId(userId))
-    const items = await getArtworkCardsByIds(result.ids)
+/** Browse pages never calculate an exact total. Management keeps its separate count contract. */
+export async function getArtworkCardsPage(
+  params: ArtworksInfiniteQuerySchema,
+  userId?: string
+): Promise<ArtworkCardsPageResponse> {
+  const page = params.cursor ?? 1
+  if (params.randomCursor && params.sortBy !== 'random') {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'ARTWORK_RANDOM_CURSOR_INVALID' })
+  }
+  if (params.sortBy === 'random') {
+    const result = await queryRandomArtworkIdsPage(params, requireReadingUserId(userId))
     return {
-      items,
-      total: result.total,
+      items: await getArtworkCardsByIds(result.ids),
+      page,
+      pageSize: params.pageSize,
+      hasNextPage: result.hasNextPage,
+      nextRandomCursor: result.nextRandomCursor
+    }
+  }
+  if (params.readingStatus) {
+    const result = await queryReadingArtworkIdsPage(params, requireReadingUserId(userId))
+    return {
+      items: await getArtworkCardsByIds(result.ids),
       page,
       pageSize: params.pageSize,
       hasNextPage: result.hasNextPage,
       nextReadingCursor: result.nextReadingCursor
     }
   }
-  const { cursor, sortBy } = params
-  const page = cursor ?? 1
-  const pageSize = params.pageSize
-  const skip = (page - 1) * pageSize
-
-  let { whereSQL, sqlParams, paramIndex } = buildArtworkWhereClause(params)
-  const countParams = [...sqlParams]
-  const countQuery = `
-    SELECT COUNT(*) as count
-    FROM "Artwork" a
-    LEFT JOIN "Artist" artist ON a."artistId" = artist.id
-    ${whereSQL}
-  `
-
-  let orderBySQL: string
-  if (sortBy === 'random' && params.randomSeed !== undefined) {
-    orderBySQL = `ORDER BY md5(a.id::text || $${paramIndex}) ASC, a.id ASC`
-    sqlParams.push(params.randomSeed.toString())
-    paramIndex++
-  } else {
-    orderBySQL = mapSortOptionToSQL(sortBy || 'source_date_desc')
-  }
-
-  const idQuery = `
-    SELECT a.id
-    FROM "Artwork" a
-    LEFT JOIN "Artist" artist ON a."artistId" = artist.id
-    ${whereSQL}
-    ${orderBySQL}
-    LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-  `
-  sqlParams.push(pageSize + 1, skip)
-
-  const [countResult, rawIdRows] = await Promise.all([
-    page === 1 ? prisma.$queryRawUnsafe<{ count: bigint }[]>(countQuery, ...countParams) : Promise.resolve(undefined),
-    prisma.$queryRawUnsafe<Array<{ id: number }>>(idQuery, ...sqlParams)
-  ])
-
-  const visibleIdRows = rawIdRows.slice(0, pageSize)
-  const artworkIds = visibleIdRows.map(({ id }) => id)
-  const artworks =
-    artworkIds.length > 0
-      ? await prisma.artwork.findMany({
-          where: { id: { in: artworkIds } },
-          select: artworkCardSelect
-        })
-      : []
-  const resolvedArtworks = await resolveArtworkCardCovers(artworks)
-  const artworkById = new Map(resolvedArtworks.map((artwork) => [artwork.id, artwork]))
-  const items = artworkIds
-    .map((id) => artworkById.get(id))
-    .filter((artwork): artwork is NonNullable<typeof artwork> => artwork !== undefined)
-    .map(transformArtworkCard)
-
+  const { whereSQL, sqlParams, paramIndex } = buildArtworkWhereClause(params)
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: number }>>(
+    `SELECT a.id FROM "Artwork" a ${whereSQL}
+     ${mapSortOptionToSQL(params.sortBy || 'source_date_desc')}
+     LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
+    ...sqlParams,
+    params.pageSize + 1,
+    (page - 1) * params.pageSize
+  )
   return {
-    items,
-    total: countResult ? Number(countResult[0]?.count || 0) : undefined,
+    items: await getArtworkCardsByIds(rows.slice(0, params.pageSize).map((row) => row.id)),
     page,
-    pageSize,
-    hasNextPage: rawIdRows.length > pageSize
+    pageSize: params.pageSize,
+    hasNextPage: rows.length > params.pageSize
   }
 }
 
@@ -788,6 +807,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     randomSeed,
     readingStatus,
     readingCursor,
+    randomCursor,
     search,
     artistId,
     tagIds,
@@ -803,6 +823,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
   } = input
 
   const page = cursor ?? 1
+  if (randomCursor && mode !== 'random') throw new TRPCError({ code: 'BAD_REQUEST', message: 'ARTWORK_RANDOM_CURSOR_INVALID' })
 
   const listInput = ArtworksInfiniteQuerySchema.parse({
     cursor: page,
@@ -822,9 +843,21 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     randomSeed: mode === 'random' ? randomSeed : undefined,
     readingStatus,
     readingCursor,
+    randomCursor,
     expectedUserId: input.expectedUserId
   })
-  const { rows, hasNextPage, nextReadingCursor } = await queryArtworkRowsPage(listInput, true, userId)
+  const randomPage = listInput.sortBy === 'random' ? await queryRandomArtworkIdsPage(listInput, userId) : undefined
+  const pageResult = randomPage
+    ? { rows: randomPage.ids.length ? await prisma.$queryRawUnsafe<any[]>(
+        `SELECT a.*, artist.id AS artist_id, artist.name AS artist_name, artist.username AS artist_username,
+         artist.bio AS artist_bio, artist.avatar AS artist_avatar, artist."backgroundImg" AS artist_background_img,
+         artist."isStarred" AS artist_is_starred, artist."createdAt" AS artist_createdAt, artist."updatedAt" AS artist_updatedAt
+         FROM unnest($1::int[]) WITH ORDINALITY ids(id, position)
+         JOIN "Artwork" a ON a.id = ids.id LEFT JOIN "Artist" artist ON artist.id = a."artistId"
+         WHERE a."deletedAt" IS NULL AND a."archiveLifecycleState" = 'ACTIVE' ORDER BY ids.position`, randomPage.ids
+      ) : [], hasNextPage: randomPage.hasNextPage, nextReadingCursor: undefined }
+    : await queryArtworkRowsPage(listInput, true, userId)
+  const { rows, hasNextPage, nextReadingCursor } = pageResult
   const artworks = await hydrateArtworkRows(rows)
 
   const artworkIds = artworks.map((item) => item.id)
@@ -843,7 +876,8 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     items,
     page,
     pageSize,
-    nextPage: readingStatus ? null : hasNextPage ? page + 1 : null,
+    nextPage: readingStatus || randomPage ? null : hasNextPage ? page + 1 : null,
+    nextRandomCursor: randomPage?.nextRandomCursor,
     nextReadingCursor
   }
 }
@@ -1018,23 +1052,11 @@ export async function getArtworkById(id: number): Promise<ArtworkResponseDto | n
 // 数据访问辅助函数（内部私有函数，等同于 Repository）
 // ==========================================
 
-const artworkCardSelect = {
+const artworkCardFields = {
   creators: { where: creatorInclude.where, select: { artist: { select: { id: true, name: true, kind: true } } } },
   id: true,
   title: true,
   imageCount: true,
-  images: {
-    take: 1,
-    orderBy: { sortOrder: 'asc' },
-    select: {
-      id: true,
-      artworkId: true,
-      path: true,
-      size: true,
-      mediaType: true,
-      videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT }
-    }
-  },
   artist: {
     select: {
       name: true
@@ -1051,6 +1073,21 @@ const artworkCardSelect = {
   }
 } as const
 
+const artworkCardSelect = { ...artworkCardFields,
+  images: {
+    take: 1,
+    orderBy: { sortOrder: 'asc' },
+    select: {
+      id: true,
+      artworkId: true,
+      path: true,
+      size: true,
+      mediaType: true,
+      videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT }
+    }
+  },
+} as const
+
 type ArtworkCardQueryRow = Prisma.ArtworkGetPayload<{ select: typeof artworkCardSelect }>
 type ArtworkCardMediaRow = ArtworkCardQueryRow['images'][number]
 
@@ -1058,7 +1095,7 @@ type ArtworkCardMediaRow = ArtworkCardQueryRow['images'][number]
  * APNG 和同名 WebM/MP4 是一个逻辑媒体的两种表示。
  * 常规卡片只读取一条封面；仅当该封面是 APNG 时，才为当前批次补查视频伙伴。
  */
-async function resolveArtworkCardCovers(artworks: ArtworkCardQueryRow[]): Promise<ArtworkCardQueryRow[]> {
+async function resolveArtworkCardCovers(artworks: ArtworkCardQueryRow[], db: CardQueryDatabase = prisma): Promise<ArtworkCardQueryRow[]> {
   const apngCovers = artworks
     .map((artwork) => artwork.images[0])
     .filter((image): image is ArtworkCardMediaRow => Boolean(image && isApngFile(image.path)))
@@ -1070,7 +1107,7 @@ async function resolveArtworkCardCovers(artworks: ArtworkCardQueryRow[]): Promis
   const artworkIds = artworks
     .filter((artwork) => artwork.images[0] && isApngFile(artwork.images[0].path))
     .map((artwork) => artwork.id)
-  const videoCandidates = await prisma.image.findMany({
+  const videoCandidates = await db.image.findMany({
     where: {
       artworkId: { in: artworkIds },
       OR: [

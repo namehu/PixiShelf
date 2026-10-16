@@ -9,7 +9,7 @@ import PageLoading from './_components/page-loading'
 import PageError from './_components/page-error'
 import { useViewerStore } from '@/store/viewer-store'
 import { useShallow } from 'zustand/react/shallow'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useTRPCClient } from '@/lib/trpc'
 import { EMediaType } from '@/enums/e-media-type'
 import { useSafeBack } from '@/hooks/use-safe-back'
@@ -89,6 +89,7 @@ export default function ViewerPage() {
   const [viewerQuery, setViewerQuery] = useQueryStates(viewerQueryParsers)
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const trpcClient = useTRPCClient()
+  const queryClient = useQueryClient()
   const ownerUserId = useAuthUser()?.id ?? null
   const readingStatus = normalizeReadingStatus(viewerQuery.readingStatus)
   const defaultRandomSeedRef = useRef(Math.floor(Math.random() * 1000000))
@@ -185,20 +186,29 @@ export default function ViewerPage() {
 
   const feedKey = useMemo(() => JSON.stringify(feedInput), [feedInput])
   const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery({
-      queryKey: ['artwork', 'viewerFeed', ownerUserId, feedInput],
+      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput],
       initialPageParam: 1 as number | string,
       queryFn: ({ pageParam, signal }) => trpcClient.artwork.viewerFeed.query({
         ...feedInput,
         cursor: typeof pageParam === 'number' ? pageParam : undefined,
-        readingCursor: typeof pageParam === 'string' ? pageParam : undefined
+        readingCursor: feedInput.mode !== 'random' && typeof pageParam === 'string' ? pageParam : undefined,
+        randomCursor: feedInput.mode === 'random' && typeof pageParam === 'string' ? pageParam : undefined
       }, { signal }),
-      getNextPageParam: (lastPage) => feedInput.readingStatus ? lastPage.nextReadingCursor : lastPage.nextPage ?? undefined,
+      getNextPageParam: (lastPage) => feedInput.mode === 'random' ? lastPage.nextRandomCursor : feedInput.readingStatus ? lastPage.nextReadingCursor : lastPage.nextPage ?? undefined,
       staleTime: 10 * 60 * 1000,
       gcTime: 15 * 60 * 1000,
-      retry: 3,
+      retry: (attempt, failure) => !failure.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') && attempt < 3,
       retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
       enabled: hasHydrated && Boolean(ownerUserId)
     })
+
+  const recoveredFeed = useRef<string | null>(null)
+  useEffect(() => {
+    if (!error?.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') || recoveredFeed.current === feedKey) return
+    recoveredFeed.current = feedKey
+    resetViewerState()
+    void queryClient.resetQueries({ queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput], exact: true })
+  }, [error, feedInput, feedKey, ownerUserId, queryClient, resetViewerState])
 
   useEffect(() => resetViewerState(), [feedKey, resetViewerState])
   useEffect(() => setImages(data?.pages.flatMap((page) => page.items) ?? []), [data, setImages])

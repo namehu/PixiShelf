@@ -97,7 +97,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | [后台任务业务链路](./architecture/background-job-business-flows.md)               | `current`    | 当前任务入口、调度、执行、状态、副作用和业务流程图     |
 | [媒体资源处理与分发](../packages/pixishelf/docs/media-forwarding-architecture.md) | `current`    | ImgProxy、静态派生媒体和视频播放边界；后续移入架构目录 |
 | [数据库设计补充](../packages/pixishelf-db/prisma/database-design.md)              | `current`    | Schema 之外的触发器、索引和维护约束                    |
-| [Artwork feed 查询性能](./design/artwork-feed-query-performance.md)               | `current`    | 2026-08-12 数据集上的性能基线和回归门禁                |
+| [Artwork feed 查询性能](./design/artwork-feed-query-performance.md)               | `current`    | 筛选链路、无总数浏览、索引随机分页、隔离性能基线与生产诊断                |
 | [旧版常用 SQL](./SQL.md)                                                          | `deprecated` | 零散历史查询，不作为数据库操作或运维手册               |
 | [后台任务架构设计](./design/background-task-architecture.md)                      | `historical` | Central Dispatcher 切换设计，混合了当时现状与目标      |
 | [后台任务数据模型](./design/background-task-data-model.md)                        | `historical` | 切换期模型、兼容字段和迁移顺序；当前字段以 Schema 为准 |

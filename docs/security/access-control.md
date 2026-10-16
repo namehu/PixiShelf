@@ -23,6 +23,8 @@ sources:
 
 ## 结论
 
+作品浏览 cardList 不再返回 total，后台 list 保留原计数契约。cardList 和 viewerFeed 的随机分页使用 randomCursor／nextRandomCursor，绑定服务端会话账户、规范化条件和 seed，错误上下文拒绝查询；expectedUserId 仍只作会话一致性校验，不能指定读取其他账户的阅读状态。独立诊断 CLI 使用操作者配置的数据库连接和输入账户，在只读事务、语句超时下执行，不增加 Web 路由或修改应用权限；报告不含账户、条件文本和结果内容。详见[作品查询性能](../design/artwork-feed-query-performance.md)。
+
 归档回收站 `archive.listTrash`、`archive.restoreTrash` 和 `archive.retryTrash` 均使用 `adminProcedure`；恢复接受有界作品 ID 列表并使用既有逐项幂等账本，重试沿用维护服务的生命周期、保留期和并发清理检查，不提供提前永久删除。来源 DELETED 查询和重新归档沿用现有发现来源管理员边界，服务端强制已永久清理的作品走新 MANUAL 收件。详见[归档回收站](../features/archive-trash.md)。
 
 页面 URL 可通过 `entry=direct` / `entry=privacy` 预先强制选择浏览器视觉模式并跳过内容提示。该参数可覆盖已有选择且同步所有同源标签，包括解除其他标签遮蔽；它不是认证凭证或成年身份核验。未登录访问仍重定向登录并保留原页面查询参数，未认证 API 仍返回 401。浏览器消费参数后移除，仅更新已有记忆的模式、不延长到期时间，也不自动创建长期记忆。

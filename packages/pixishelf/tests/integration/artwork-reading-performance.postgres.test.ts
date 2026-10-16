@@ -241,7 +241,9 @@ describe.skipIf(!databaseUrl)('50k artwork reading query performance on dedicate
       ] as const
       report.controls = []
       for (const control of controlCases) {
-        const unfiltered = await measure(`${control.name}-without-reading`, () => artworkService.getArtworkCardsPage(ArtworksInfiniteQuerySchema.parse(control.input)))
+        const unfiltered = await measure(`${control.name}-without-reading`, () => artworkService.getArtworkCardsPage(
+          ArtworksInfiniteQuerySchema.parse(control.input), users[0]!
+        ))
         const filtered = await measure(`${control.name}-with-reading`, () => artworkService.getArtworkCardsPage(
           ArtworksInfiniteQuerySchema.parse({ ...control.input, readingStatus: control.readingStatus }), users[0]!
         ))

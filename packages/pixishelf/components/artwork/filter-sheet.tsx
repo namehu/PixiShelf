@@ -158,7 +158,7 @@ export function FilterSheet(props: FilterSheetProps) {
     const [createdStart, createdEnd] = localCreatedDateRange
     // 如果是随机排序，且没有种子或用户切换到了随机排序，则生成新种子
     let seed = localRandomSeed
-    if (localSortBy === 'random' && !seed) {
+    if (localSortBy === 'random' && seed == null) {
       seed = Math.floor(Math.random() * 1000000)
     }
 

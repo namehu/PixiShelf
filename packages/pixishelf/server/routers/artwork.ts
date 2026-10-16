@@ -91,7 +91,7 @@ export const artworkRouter = router({
     }
   }),
   /**
-   * 获取作品卡片列表；仅第一页返回精确总数，后续页通过多取一条判断是否还有下一页。
+   * 获取作品卡片列表；不计算总数，通过多取一条判断是否还有下一页。
    */
   cardList: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input, ctx }) => {
     assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
@@ -99,9 +99,9 @@ export const artworkRouter = router({
     const result = await getArtworkCardsPage(input, ctx.userId)
     return {
       items: result.items,
-      nextCursor: input.readingStatus ? undefined : result.hasNextPage ? page + 1 : undefined,
+      nextCursor: input.readingStatus || input.sortBy === 'random' ? undefined : result.hasNextPage ? page + 1 : undefined,
       nextReadingCursor: result.nextReadingCursor,
-      total: result.total
+      nextRandomCursor: result.nextRandomCursor
     }
   }),
   /**

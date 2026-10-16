@@ -44,9 +44,9 @@ describe('getArtworkCardsPage', () => {
     imageFindManyMock.mockReset()
   })
 
-  it('loads an exact total and only card fields with one cover on the first page', async () => {
+  it('loads only card fields and bounded covers without a total on the first page', async () => {
     queryRawMock.mockImplementation((query: string) => {
-      if (query.includes('COUNT(*)')) return Promise.resolve([{ count: BigInt(3) }])
+      if (query.includes('LATERAL')) return Promise.resolve([cardRow(1).images[0], cardRow(2).images[0]])
       return Promise.resolve([{ id: 1 }, { id: 2 }, { id: 3 }])
     })
     artworkFindManyMock.mockResolvedValue([cardRow(2), cardRow(1)])
@@ -58,27 +58,29 @@ describe('getArtworkCardsPage', () => {
     expect(idQueryCall?.slice(-2)).toEqual([3, 0])
     expect(artworkFindManyMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: { in: [1, 2] } },
+        where: { id: { in: [1, 2] }, deletedAt: null, archiveLifecycleState: 'ACTIVE' },
         select: expect.objectContaining({
           id: true,
           title: true,
-          imageCount: true,
-          images: expect.objectContaining({ take: 1 })
+          imageCount: true
         })
       })
     )
     expect(result).toMatchObject({
-      total: 3,
       page: 1,
       pageSize: 2,
       hasNextPage: true
     })
     expect(result.items.map(({ id }) => id)).toEqual([1, 2])
     expect(result.items[0]?.images).toHaveLength(1)
+    expect(result).not.toHaveProperty('total')
+    expect(queryRawMock.mock.calls.every(([sql]) => !String(sql).includes('COUNT(*)'))).toBe(true)
+    expect(String(queryRawMock.mock.calls[1]?.[0])).toContain('ORDER BY i."sortOrder", i.id LIMIT 1')
+    expect(artworkFindManyMock.mock.calls[0]?.[0].select).not.toHaveProperty('images')
   })
 
   it('skips COUNT on later pages and uses the extra row to determine the next page', async () => {
-    queryRawMock.mockResolvedValue([{ id: 3 }])
+    queryRawMock.mockImplementation((sql: string) => Promise.resolve(sql.includes('LATERAL') ? [cardRow(3).images[0]] : [{ id: 3 }]))
     artworkFindManyMock.mockResolvedValue([cardRow(3)])
 
     const result = await getArtworkCardsPage(
@@ -88,7 +90,7 @@ describe('getArtworkCardsPage', () => {
       })
     )
 
-    expect(queryRawMock).toHaveBeenCalledTimes(1)
+    expect(queryRawMock).toHaveBeenCalledTimes(2)
     expect(String(queryRawMock.mock.calls[0]?.[0])).not.toContain('COUNT(*)')
     expect(result).toEqual({
       items: [
@@ -102,7 +104,6 @@ describe('getArtworkCardsPage', () => {
           tags: [{ name: 'tag' }]
         }
       ],
-      total: undefined,
       page: 2,
       pageSize: 2,
       hasNextPage: false
@@ -111,7 +112,7 @@ describe('getArtworkCardsPage', () => {
 
   it('uses a same-name video as the logical cover when the first stored media is APNG', async () => {
     queryRawMock.mockImplementation((query: string) => {
-      if (query.includes('COUNT(*)')) return Promise.resolve([{ count: BigInt(1) }])
+      if (query.includes('LATERAL')) return Promise.resolve([{ ...cardRow(1).images[0], path: '/artist/animation.apng', mediaType: 'ANIMATION' }])
       return Promise.resolve([{ id: 1 }])
     })
     artworkFindManyMock.mockResolvedValue([
@@ -184,9 +185,9 @@ describe('getArtworkCardsPage', () => {
       return Promise.resolve([])
     })
 
-    await getArtworkCardsPage(ArtworksInfiniteQuerySchema.parse({ sortBy: 'random', randomSeed: 42 }))
+    await getArtworkCardsPage(ArtworksInfiniteQuerySchema.parse({ sortBy: 'random', randomSeed: 42 }), 'user-a')
 
     const idQueryCall = queryRawMock.mock.calls.find(([query]) => String(query).includes('SELECT a.id'))
-    expect(String(idQueryCall?.[0])).toMatch(/ORDER BY md5\(a\.id::text \|\| \$\d+\) ASC, a\.id ASC/)
+    expect(String(idQueryCall?.[0])).toContain("ORDER BY (md5(a.id::text || ':artwork-random-v1') COLLATE \"C\") ASC, a.id ASC")
   })
 })

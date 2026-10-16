@@ -138,7 +138,7 @@ export default function GalleryPage() {
   } = queryStates
   const hasAudio = normalizeAudioFilter(hasAudioParam)
   const readingStatus = normalizeReadingStatus(readingStatusParam)
-  const effectiveRandomSeed = randomSeed ? Number(randomSeed) : defaultRandomSeedRef.current
+  const effectiveRandomSeed = randomSeed != null ? Number(randomSeed) : defaultRandomSeedRef.current
 
   // 控制筛选抽屉的开关
   const [isFilterOpen, setIsFilterOpen] = useState(false)
@@ -169,8 +169,6 @@ export default function GalleryPage() {
     setListRevision(Date.now())
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
-  // 用于显示总数的本地状态
-  const [total, setTotal] = useState(0)
 
   const selectedArtist = useMemo<Option[]>(
     () => (artistId ? [{ value: artistId.toString(), label: artistLabel || `艺术家 #${artistId}` }] : []),
@@ -378,11 +376,6 @@ export default function GalleryPage() {
         title={
           <h1 className="sr-only items-center gap-2 text-base font-semibold text-foreground md:not-sr-only md:flex">
             作品
-            {total > 0 && (
-              <span className="font-utility text-xs font-normal text-muted-foreground" aria-live="polite">
-                {total.toLocaleString()}
-              </span>
-            )}
           </h1>
         }
         actions={
@@ -530,7 +523,6 @@ export default function GalleryPage() {
           endDate={endDate || undefined}
           createdStartDate={createdStartDate || undefined}
           createdEndDate={createdEndDate || undefined}
-          onTotalChange={setTotal}
           onClearFilters={clearAllFilters}
         />
       </PageContainer>
