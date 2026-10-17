@@ -17,9 +17,9 @@ import { useShallow } from 'zustand/react/shallow'
 import type { ViewerAudioPreference } from './viewer-video-controls'
 import { useArtworkReading } from '@/lib/reading/reading-provider'
 import { Button } from '@/components/ui/button'
+import { createFeedGestureEngine, type FeedGestureEngine } from '@/components/players/video-feed-gesture-engine'
 
 const VIEWER_CHAPTER_HISTORY_KEY = '__pixishelf_viewer_chapters__'
-const VIEWER_CLEAR_MODE_HISTORY_KEY = '__pixishelf_viewer_clear_mode__'
 
 function asHistoryRecord(state: unknown): Record<string, unknown> {
   return typeof state === 'object' && state !== null && !Array.isArray(state) ? (state as Record<string, unknown>) : {}
@@ -95,67 +95,58 @@ function useChapterPanelHistory() {
   return [open, setOpen] as const
 }
 
-export function useClearModeHistory(isChromeHidden: boolean, setChromeHidden: (hidden: boolean) => void) {
-  const tokenRef = useRef<string | null>(null)
-  const closePendingRef = useRef(false)
-
-  const getToken = useCallback(() => {
-    if (!tokenRef.current) {
-      tokenRef.current =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `${Date.now()}-${Math.random()}`
-    }
-    return tokenRef.current
-  }, [])
-
-  const isCurrentEntry = useCallback(
-    (state: unknown = history.state) => asHistoryRecord(state)[VIEWER_CLEAR_MODE_HISTORY_KEY] === getToken(),
-    [getToken]
-  )
-
-  const enterClearMode = useCallback(() => {
-    if (isChromeHidden || typeof window === 'undefined') return
-    history.pushState(
-      { ...asHistoryRecord(history.state), [VIEWER_CLEAR_MODE_HISTORY_KEY]: getToken() },
-      '',
-      window.location.href
-    )
-    setChromeHidden(true)
-  }, [getToken, isChromeHidden, setChromeHidden])
-
-  const exitClearMode = useCallback(() => {
-    if (!isChromeHidden) return
-    if (typeof window !== 'undefined' && isCurrentEntry()) {
-      closePendingRef.current = true
-      history.back()
-      return
-    }
-    setChromeHidden(false)
-  }, [isChromeHidden, isCurrentEntry, setChromeHidden])
-
-  useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      if (closePendingRef.current) {
-        closePendingRef.current = false
-        setChromeHidden(false)
-        return
-      }
-      if (isChromeHidden && !isCurrentEntry(event.state)) setChromeHidden(false)
-    }
-    window.addEventListener('popstate', handlePopState)
-    return () => window.removeEventListener('popstate', handlePopState)
-  }, [isChromeHidden, isCurrentEntry, setChromeHidden])
-
-  return { enterClearMode, exitClearMode }
-}
-
 interface ImmersiveImageViewerProps {
   initialImages: RandomImageItem[]
   hasMore: boolean
   isLoading: boolean
   onLoadMore: () => void
   interactionLocked?: boolean
+}
+
+function ViewerEndSurface({ active, onToggleChrome }: { active: boolean; onToggleChrome: () => void }) {
+  const engineRef = useRef<FeedGestureEngine | null>(null)
+  const isChromeHidden = useViewerStore((state) => state.isChromeHidden)
+  useEffect(() => {
+    engineRef.current?.pointerCancel()
+  }, [isChromeHidden])
+  useEffect(() => {
+    if (!active) return
+    const noop = () => undefined
+    const engine = createFeedGestureEngine({
+      mediaKind: 'image',
+      longPressRate: 2,
+      seekStepSeconds: 10,
+      getSurfaceRect: () => ({ left: 0, width: 0 }),
+      getPlaying: () => false,
+      getCurrentTime: () => 0,
+      getDuration: () => 0,
+      getPlaybackRate: () => 1,
+      setPlaybackRate: noop,
+      onSeek: noop,
+      onLike: noop,
+      onOpenActions: noop,
+      onFeedback: noop,
+      onToggleChrome
+    })
+    engineRef.current = engine
+    window.addEventListener('blur', engine.pointerCancel)
+    return () => {
+      window.removeEventListener('blur', engine.pointerCancel)
+      engine.destroy()
+      engineRef.current = null
+    }
+  }, [active, onToggleChrome])
+  return (
+    <div
+      className="flex h-full w-full items-center justify-center text-center"
+      onPointerDown={(event) => engineRef.current?.pointerDown(event)}
+      onPointerMove={(event) => engineRef.current?.pointerMove(event)}
+      onPointerUp={(event) => engineRef.current?.pointerUp(event)}
+      onPointerCancel={() => engineRef.current?.pointerCancel()}
+    >
+      <p className="text-sm opacity-60">已浏览全部作品</p>
+    </div>
+  )
 }
 
 /**
@@ -173,63 +164,83 @@ export default function ImmersiveImageViewer({
   const [audioPreference, setAudioPreference] = useState<ViewerAudioPreference>({ muted: true, volume: 1 })
   const [chapterPanelOpen, setChapterPanelOpen] = useChapterPanelHistory()
   const [preloadUnlockedIndex, setPreloadUnlockedIndex] = useState<number | null>(null)
-  const [showClearHint, setShowClearHint] = useState(false)
+  const [overlayPanelOpen, setOverlayPanelOpen] = useState(false)
+  const [atEnd, setAtEnd] = useState(false)
+  const [swiper, setSwiper] = useState<SwiperType | null>(null)
+  const controlsLocked = interactionLocked || chapterPanelOpen || overlayPanelOpen
+  useEffect(() => {
+    if (!swiper || swiper.destroyed) return
+    // Swiper's React props update params, but do not detach module listeners.
+    if (controlsLocked) {
+      swiper.keyboard.disable()
+      swiper.mousewheel.disable()
+    } else {
+      swiper.keyboard.enable()
+      swiper.mousewheel.enable()
+    }
+  }, [controlsLocked, swiper])
   const playbackPositionsRef = useRef(new Map<number, number>())
-  const { setVerticalIndex, verticalIndex, isChromeHidden, setChromeHidden } = useViewerStore(
+  const { setVerticalIndex, verticalIndex, isChromeHidden, setChromeHidden, toggleChromeHidden } = useViewerStore(
     useShallow((state) => ({
       verticalIndex: state.verticalIndex,
       setVerticalIndex: state.setVerticalIndex,
       isChromeHidden: state.isChromeHidden,
-      setChromeHidden: state.setChromeHidden
+      setChromeHidden: state.setChromeHidden,
+      toggleChromeHidden: state.toggleChromeHidden
     }))
   )
-  const { enterClearMode, exitClearMode } = useClearModeHistory(isChromeHidden, setChromeHidden)
-  const reading = useArtworkReading(initialImages[verticalIndex]?.id ?? 0)
+  const hideChrome = useCallback(() => setChromeHidden(true), [setChromeHidden])
+  useEffect(() => {
+    // Cached filter results can reset the store without remounting Swiper.
+    if (swiper && !swiper.destroyed && !atEnd && swiper.activeIndex !== verticalIndex) {
+      swiper.slideTo(verticalIndex, 0)
+    }
+  }, [atEnd, swiper, verticalIndex])
+  const reading = useArtworkReading(atEnd ? 0 : (initialImages[verticalIndex]?.id ?? 0))
 
   // 处理slide变化
   const handleSlideChange = useCallback(
     (swiper: SwiperType) => {
       setChapterPanelOpen(false)
       setPreloadUnlockedIndex(null)
+      setAtEnd(swiper.activeIndex >= initialImages.length)
       setVerticalIndex(swiper.activeIndex)
     },
-    [setChapterPanelOpen, setVerticalIndex]
+    [initialImages.length, setChapterPanelOpen, setVerticalIndex]
   )
 
   useEffect(() => {
-    if (!isChromeHidden) {
-      setShowClearHint(false)
-      return
-    }
-    setShowClearHint(true)
-    const timer = window.setTimeout(() => setShowClearHint(false), 1500)
-    return () => window.clearTimeout(timer)
-  }, [isChromeHidden])
-
-  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
+      const target = event.target instanceof HTMLElement ? event.target : null
       const isInteractiveTarget = target?.closest(
-        'button, input, select, textarea, [role="slider"], [role="dialog"], [data-viewer-control]'
+        'a, button, input, select, textarea, [contenteditable], [role="slider"], [role="dialog"], [data-viewer-control]'
       )
 
-      if (chapterPanelOpen || target?.isContentEditable || isInteractiveTarget) {
+      if (
+        controlsLocked ||
+        event.defaultPrevented ||
+        event.repeat ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey ||
+        target?.isContentEditable ||
+        isInteractiveTarget
+      ) {
         return
       }
 
       if (event.key.toLowerCase() === 'c') {
         event.preventDefault()
-        if (isChromeHidden) exitClearMode()
-        else enterClearMode()
+        toggleChromeHidden()
       } else if (event.key === 'Escape' && isChromeHidden) {
         event.preventDefault()
-        exitClearMode()
+        setChromeHidden(false)
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [chapterPanelOpen, enterClearMode, exitClearMode, isChromeHidden])
+  }, [controlsLocked, toggleChromeHidden, setChromeHidden, isChromeHidden])
 
   return (
     // 桌面端适配容器
@@ -237,13 +248,14 @@ export default function ImmersiveImageViewer({
       {/* 沉浸式查看器主容器 */}
       <div className="immersive-container relative h-full w-full bg-black md:h-[90dvh] md:max-w-[420px] md:aspect-[9/16] md:rounded-surface">
         <Swiper
+          onSwiper={setSwiper}
           initialSlide={verticalIndex}
           direction="vertical"
-          className="h-full w-full"
-          allowTouchMove={!chapterPanelOpen && !interactionLocked}
+          className="h-full w-full !overflow-clip"
+          allowTouchMove={!controlsLocked}
           // 桌面端配置
-          mousewheel={{ enabled: !interactionLocked }}
-          keyboard={{ enabled: !chapterPanelOpen && !interactionLocked }}
+          mousewheel={{ enabled: !controlsLocked }}
+          keyboard={{ enabled: !controlsLocked }}
           modules={[Mousewheel, Keyboard]}
           // 初始索引配置
           slidesPerView={1}
@@ -263,14 +275,14 @@ export default function ImmersiveImageViewer({
         >
           {initialImages.map((image, index) => {
             // 1. 判断当前幻灯片是否是用户正在看的
-            const isActive = index === verticalIndex
+            const isActive = !atEnd && index === verticalIndex
             // 2. 判断当前幻灯片是否是需要预加载的（即下一个或上一个）
             const isPreloading = Math.abs(index - verticalIndex) === 1
             // 3. 只有“活动”和“预加载”的幻灯片才会被渲染，其他都是占位符
             const shouldRender = isActive || isPreloading
 
             return (
-              <SwiperSlide key={image.key} className="flex h-full w-full items-center justify-center overflow-hidden">
+              <SwiperSlide key={image.key} inert={!isActive} className="flex h-full w-full items-center justify-center overflow-hidden">
                 <div className="relative h-full w-full bg-black">
                   {shouldRender ? (
                     <ImageSlide
@@ -278,14 +290,15 @@ export default function ImmersiveImageViewer({
                       preloadEntryMedia={index === verticalIndex + 1 && preloadUnlockedIndex === verticalIndex}
                       image={image}
                       reading={isActive ? reading : undefined}
-                      interactionLocked={interactionLocked}
+                      interactionLocked={controlsLocked}
+                      onOverlayPanelOpenChange={setOverlayPanelOpen}
                       audioPreference={audioPreference}
                       onAudioPreferenceChange={setAudioPreference}
                       chapterPanelOpen={chapterPanelOpen}
                       onChapterPanelOpenChange={setChapterPanelOpen}
                       onActiveMediaSettled={() => setPreloadUnlockedIndex(index)}
-                      onEnterClearMode={enterClearMode}
-                      onExitClearMode={exitClearMode}
+                      onHideChrome={hideChrome}
+                      onToggleChrome={toggleChromeHidden}
                       getPlaybackPosition={(mediaId) => playbackPositionsRef.current.get(mediaId) ?? 0}
                       onPlaybackPositionChange={(mediaId, currentTime) => {
                         playbackPositionsRef.current.set(mediaId, currentTime)
@@ -302,25 +315,33 @@ export default function ImmersiveImageViewer({
           {/* 如果没有更多数据，显示结束提示 */}
           {!hasMore && initialImages.length > 0 && (
             <SwiperSlide className="flex items-center justify-center text-white">
-              <div className="text-center">
-                <p className="text-sm opacity-60">已浏览全部作品</p>
-              </div>
+              <ViewerEndSurface active={atEnd && !controlsLocked} onToggleChrome={toggleChromeHidden} />
             </SwiperSlide>
           )}
         </Swiper>
         {reading.invalidated ? (
-          <div className="absolute inset-x-4 top-16 z-40 flex items-center justify-between gap-3 rounded-lg bg-background p-3 text-sm text-foreground shadow-lg" role="status">
+          <div
+            className="absolute inset-x-4 top-16 z-40 flex items-center justify-between gap-3 rounded-lg bg-background p-3 text-sm text-foreground shadow-lg"
+            role="status"
+          >
             <span>作品媒体已更新，请重新打开阅读。</span>
-            <Button type="button" size="sm" variant="outline" onClick={() => void reading.reopen()}>重新打开</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => void reading.reopen()}>
+              重新打开
+            </Button>
           </div>
         ) : null}
-        {showClearHint && (
-          <div className="pointer-events-none absolute inset-0 z-[80] flex items-center justify-center">
-            <div className="rounded-full bg-black/60 px-4 py-2 text-sm text-white backdrop-blur-sm">
-              已清屏 · 单击恢复
-            </div>
-          </div>
-        )}
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          aria-label={isChromeHidden ? '显示界面' : '隐藏界面'}
+          aria-pressed={isChromeHidden}
+          disabled={controlsLocked}
+          onClick={toggleChromeHidden}
+          className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:left-16 focus-visible:top-[max(0.75rem,env(safe-area-inset-top))] focus-visible:z-50"
+        >
+          {isChromeHidden ? '显示界面' : '隐藏界面'}
+        </Button>
       </div>
     </div>
   )

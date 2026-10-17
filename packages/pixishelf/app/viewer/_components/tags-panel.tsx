@@ -21,11 +21,12 @@ import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-tex
 interface TagsPanelProps {
   tags: TRandomTagDto[]
   trigger: ReactNode
+  onOpenChange?: (open: boolean) => void
 }
 
-export default function TagsPanel({ tags, trigger }: TagsPanelProps) {
+export default function TagsPanel({ tags, trigger, onOpenChange }: TagsPanelProps) {
   return (
-    <Drawer>
+    <Drawer autoFocus onOpenChange={onOpenChange}>
       <DrawerTrigger asChild>{trigger}</DrawerTrigger>
       <DrawerContent className="max-h-[80dvh]">
         <DrawerHeader>

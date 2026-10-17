@@ -45,15 +45,17 @@ interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   chapterPanelOpen: boolean
   onChapterPanelOpenChange: (open: boolean) => void
   onActiveMediaSettled: (result: 'ready' | 'error') => void
-  onEnterClearMode: () => void
-  onExitClearMode: () => void
+  onHideChrome: () => void
+  onToggleChrome: () => void
   getPlaybackPosition: (mediaId: number) => number
   onPlaybackPositionChange: (mediaId: number, currentTime: number) => void
   reading?: ArtworkReadingHandle
   interactionLocked?: boolean
+  onOverlayPanelOpenChange?: (open: boolean) => void
 }
 
 interface SingleImageProps {
+  chromeHidden?: boolean
   media: ViewerMediaItem
   onError?: (() => void) | undefined
   retryKey: number
@@ -84,6 +86,9 @@ const INITIAL_VIDEO_STATE: ViewerVideoState = {
   isWaiting: false
 }
 
+const VIEWER_CONTROL_SELECTOR =
+  'a, button, input, select, textarea, [contenteditable], [role="slider"], [data-viewer-control]'
+
 function readVideoState(video: HTMLVideoElement, waiting = false): ViewerVideoState {
   return {
     currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
@@ -96,7 +101,28 @@ function readVideoState(video: HTMLVideoElement, waiting = false): ViewerVideoSt
 /**
  * 单个媒体渲染组件。视频只允许在自身同时处于纵向、横向活动状态时播放。
  */
-export function SingleImage({
+export function SingleImage(props: SingleImageProps) {
+  const ignoreControl = (event: ReactPointerEvent<HTMLDivElement>) =>
+    event.target instanceof Element && Boolean(event.target.closest(VIEWER_CONTROL_SELECTOR))
+  return (
+    <div
+      ref={props.onGestureSurfaceChange}
+      className="relative flex h-full w-full items-center justify-center"
+      onPointerDown={(event) => {
+        if (ignoreControl(event)) props.onGesturePointerCancel?.()
+        else props.onGesturePointerDown?.(event)
+      }}
+      onPointerMove={props.onGesturePointerMove}
+      onPointerUp={props.onGesturePointerUp}
+      onPointerCancel={props.onGesturePointerCancel}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <SingleImageContent {...props} />
+    </div>
+  )
+}
+
+function SingleImageContent({
   media,
   onError,
   retryKey,
@@ -113,11 +139,7 @@ export function SingleImage({
   onPlaybackPositionChange,
   onMediaReady,
   onMediaError,
-  onGestureSurfaceChange,
-  onGesturePointerDown,
-  onGesturePointerMove,
-  onGesturePointerUp,
-  onGesturePointerCancel
+  chromeHidden = false
 }: SingleImageProps) {
   const [imageError, setImageError] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -253,19 +275,10 @@ export function SingleImage({
   }
 
   const usesAnimatedImagePlayer =
-    media.mediaType === MediaType.IMAGE &&
-    (isWebpFile(media.url) || (isGifFile(media.url) && media.isAnimated))
+    media.mediaType === MediaType.IMAGE && (isWebpFile(media.url) || (isGifFile(media.url) && media.isAnimated))
 
   return (
-    <div
-      ref={onGestureSurfaceChange}
-      className="relative flex h-full w-full items-center justify-center"
-      onPointerDown={onGesturePointerDown}
-      onPointerMove={onGesturePointerMove}
-      onPointerUp={onGesturePointerUp}
-      onPointerCancel={onGesturePointerCancel}
-      onContextMenu={(event) => event.preventDefault()}
-    >
+    <div className="relative flex h-full w-full items-center justify-center">
       {usesAnimatedImagePlayer ? (
         <AnimatedWebpPlayer
           src={media.url}
@@ -276,6 +289,8 @@ export function SingleImage({
           formatLabel={isGifFile(media.url) ? 'GIF' : 'WEBP'}
           updatedAt={media.updatedAt}
           fillContainer
+          controlMode={chromeHidden ? 'external' : 'badge'}
+          className="[&>button[data-long-press-ignore]]:bottom-auto [&>button[data-long-press-ignore]]:top-[max(4rem,calc(env(safe-area-inset-top)+3.5rem))]"
           posterLoading={priority || preloadMode === 'eager' ? 'eager' : 'lazy'}
           onPosterLoad={onMediaReady}
           onPosterError={handleImageError}
@@ -380,14 +395,21 @@ export default function ImageSlide({
   chapterPanelOpen,
   onChapterPanelOpenChange,
   onActiveMediaSettled,
-  onEnterClearMode,
-  onExitClearMode,
+  onHideChrome,
+  onToggleChrome,
   getPlaybackPosition,
   onPlaybackPositionChange,
   reading,
-  interactionLocked = false
+  interactionLocked = false,
+  onOverlayPanelOpenChange
 }: ImageSlideProps) {
   const [retryKey, setRetryKey] = useState(0)
+  const [swiper, setSwiper] = useState<SwiperType | null>(null)
+  useEffect(() => {
+    if (!swiper || swiper.destroyed) return
+    if (isActive && !interactionLocked && !chapterPanelOpen) swiper.keyboard.enable()
+    else swiper.keyboard.disable()
+  }, [isActive, interactionLocked, chapterPanelOpen, swiper])
   const [videoState, setVideoState] = useState<ViewerVideoState>(INITIAL_VIDEO_STATE)
   const [activeMediaStatus, setActiveMediaStatus] = useState<'pending' | 'ready' | 'error'>('pending')
   const [gestureFeedback, setGestureFeedback] = useState<VideoInteractionFeedback | null>(null)
@@ -412,6 +434,9 @@ export default function ImageSlide({
   const [horizontalIndexes, setHorizontalIndex, isChromeHidden] = useViewerStore(
     useShallow((state) => [state.horizontalIndexes, state.setHorizontalIndex, state.isChromeHidden])
   )
+  useEffect(() => {
+    gestureEngineRef.current?.pointerCancel()
+  }, [isChromeHidden])
 
   const fallbackMedia: ViewerMediaItem = {
     id: image.id,
@@ -447,8 +472,16 @@ export default function ImageSlide({
       priority: 50
     })
     return () => clearReadingSurface(surfaceId)
-  }, [activeMediaStatus, chapterPanelOpen, clearReadingSurface, currentMedia.id,
-    interactionLocked, isActive, observationEpoch, observeReading])
+  }, [
+    activeMediaStatus,
+    chapterPanelOpen,
+    clearReadingSurface,
+    currentMedia.id,
+    interactionLocked,
+    isActive,
+    observationEpoch,
+    observeReading
+  ])
 
   useEffect(() => {
     setVideoState({
@@ -582,7 +615,7 @@ export default function ImageSlide({
   useEffect(() => {
     gestureEngineRef.current?.destroy()
     gestureEngineRef.current = null
-    if (!isActive) return
+    if (!isActive || interactionLocked || chapterPanelOpen) return
 
     const engine = createFeedGestureEngine({
       mediaKind: currentMedia.mediaType === MediaType.VIDEO ? 'video' : 'image',
@@ -599,16 +632,16 @@ export default function ImageSlide({
       setPlaybackRate: (rate) => {
         if (activeVideoRef.current) activeVideoRef.current.playbackRate = rate
       },
-      onTogglePlayback: handleTogglePlayback,
       onSeek: handleSeek,
       onLike: (point) => overlayApiRef.current?.likeAt(point),
       onOpenActions: () => overlayApiRef.current?.openActions(),
-      getChromeHidden: () => isChromeHidden,
-      onExitClearMode,
+      onToggleChrome,
       onFeedback: setGestureFeedback
     })
     gestureEngineRef.current = engine
+    window.addEventListener('blur', engine.pointerCancel)
     return () => {
+      window.removeEventListener('blur', engine.pointerCancel)
       engine.destroy()
       if (gestureEngineRef.current === engine) gestureEngineRef.current = null
     }
@@ -617,26 +650,39 @@ export default function ImageSlide({
     currentMedia.id,
     currentMedia.mediaType,
     handleSeek,
-    handleTogglePlayback,
     isActive,
-    isChromeHidden,
+    interactionLocked,
+    chapterPanelOpen,
     longPressRate,
-    onExitClearMode,
+    onToggleChrome,
     seekStepSeconds
   ])
 
   useEffect(() => {
     if (!isActive || currentMedia.mediaType !== MediaType.VIDEO) return
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || chapterPanelOpen) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('button, input, select, textarea, [role="slider"], [role="dialog"]')) return
+      if (
+        event.code !== 'Space' ||
+        chapterPanelOpen ||
+        interactionLocked ||
+        event.defaultPrevented ||
+        event.repeat ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      ) {
+        return
+      }
+      const target = event.target instanceof HTMLElement ? event.target : null
+      if (target?.closest('a, button, input, select, textarea, [contenteditable], [role="slider"], [role="dialog"]')) {
+        return
+      }
       event.preventDefault()
       handleTogglePlayback()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [chapterPanelOpen, currentMedia.mediaType, handleTogglePlayback, isActive])
+  }, [chapterPanelOpen, interactionLocked, currentMedia.mediaType, handleTogglePlayback, isActive])
 
   const gestureHandlers = {
     onGestureSurfaceChange: (element: HTMLDivElement | null) => {
@@ -727,15 +773,24 @@ export default function ImageSlide({
       onInteractionApiChange={(api) => {
         overlayApiRef.current = api
       }}
-      onEnterClearMode={onEnterClearMode}
+      onHideChrome={onHideChrome}
+      onPanelOpenChange={onOverlayPanelOpenChange}
     />
   )
 
   if (!hasMultipleImages) {
     return (
-      <>
+      <div
+        className="relative h-full w-full"
+        onPointerDownCapture={(event) => {
+          if (event.target instanceof Element && event.target.closest(VIEWER_CONTROL_SELECTOR)) {
+            gestureEngineRef.current?.pointerCancel()
+          }
+        }}
+      >
         <SingleImage
           media={currentMedia}
+          chromeHidden={isChromeHidden}
           audioPreference={audioPreference}
           onError={onError}
           retryKey={retryKey}
@@ -744,20 +799,29 @@ export default function ImageSlide({
         />
         {overlay}
         <ViewerGestureFeedback feedback={gestureFeedback} buffering={showBuffering} />
-      </>
+      </div>
     )
   }
 
   return (
-    <>
+    <div
+      className="relative h-full w-full"
+      onPointerDownCapture={(event) => {
+        if (event.target instanceof Element && event.target.closest(VIEWER_CONTROL_SELECTOR)) {
+          gestureEngineRef.current?.pointerCancel()
+        }
+      }}
+    >
       <Swiper
+        onSwiper={setSwiper}
         modules={[Navigation, Keyboard]}
         direction="horizontal"
         slidesPerView={1}
         lazyPreloadPrevNext={0}
         spaceBetween={0}
         initialSlide={currentImageIndex}
-        keyboard={{ enabled: isActive && !chapterPanelOpen, onlyInViewport: true }}
+        allowTouchMove={!interactionLocked && !chapterPanelOpen}
+        keyboard={{ enabled: isActive && !interactionLocked && !chapterPanelOpen, onlyInViewport: true }}
         navigation={{ nextEl: '.swiper-button-next-custom', prevEl: '.swiper-button-prev-custom' }}
         onSlideChange={handleSlideChange}
         touchRatio={1}
@@ -767,12 +831,13 @@ export default function ImageSlide({
         resistanceRatio={0.85}
         speed={300}
         nested
-        className="relative z-10 h-full w-full"
+        className="relative z-10 h-full w-full !overflow-clip"
       >
         {mediaItems.map((media, index) => (
-          <SwiperSlide key={media.key}>
+          <SwiperSlide key={media.key} inert={!isActive || index !== currentImageIndex}>
             <SingleImage
               media={media}
+              chromeHidden={isChromeHidden}
               audioPreference={audioPreference}
               onError={index === currentImageIndex ? onError : undefined}
               retryKey={retryKey}
@@ -783,29 +848,34 @@ export default function ImageSlide({
         ))}
       </Swiper>
 
-      {!isChromeHidden && (
-        <>
-          <div className="swiper-pagination-custom absolute !bottom-0.5 left-4 right-4 z-30">
-            <div className="flex w-full gap-1">
-              {mediaItems.map((media, index) => (
-                <div
-                  key={media.key}
-                  className={cn(
-                    'h-1 flex-1 rounded-full transition-colors duration-300 ease-out',
-                    index <= currentImageIndex ? 'bg-white' : 'bg-white/20'
-                  )}
-                />
-              ))}
-            </div>
+      <div
+        aria-hidden={isChromeHidden}
+        inert={isChromeHidden}
+        className={cn(
+          'pointer-events-none absolute inset-0 z-30 transition-opacity duration-150 motion-reduce:transition-none',
+          isChromeHidden && 'opacity-0'
+        )}
+      >
+        <div className="swiper-pagination-custom absolute !bottom-0.5 left-4 right-4 z-30">
+          <div className="flex w-full gap-1">
+            {mediaItems.map((media, index) => (
+              <div
+                key={media.key}
+                className={cn(
+                  'h-1 flex-1 rounded-full transition-colors duration-300 ease-out',
+                  index <= currentImageIndex ? 'bg-white' : 'bg-white/20'
+                )}
+              />
+            ))}
           </div>
-          <div className="absolute right-4 top-4 z-30 rounded-full bg-black/50 px-3 py-1 text-sm text-white">
-            {currentImageIndex + 1} / {mediaItems.length}
-          </div>
-        </>
-      )}
+        </div>
+        <div className="absolute right-4 top-4 z-30 rounded-full bg-black/50 px-3 py-1 text-sm text-white">
+          {currentImageIndex + 1} / {mediaItems.length}
+        </div>
+      </div>
 
       {overlay}
       <ViewerGestureFeedback feedback={gestureFeedback} buffering={showBuffering} />
-    </>
+    </div>
   )
 }

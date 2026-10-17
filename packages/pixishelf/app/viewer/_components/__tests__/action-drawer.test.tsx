@@ -32,8 +32,8 @@ const image: RandomImageItem = {
 describe('ActionDrawer', () => {
   it('keeps artwork actions and removes feed-level settings', () => {
     const onOpenChange = vi.fn()
-    const onEnterClearMode = vi.fn()
-    render(<ActionDrawer open onOpenChange={onOpenChange} image={image} onEnterClearMode={onEnterClearMode} />)
+    const onHideChrome = vi.fn()
+    render(<ActionDrawer open onOpenChange={onOpenChange} image={image} onHideChrome={onHideChrome} />)
 
     expect(screen.queryByText('浏览模式')).toBeNull()
     expect(screen.queryByText('最大图片数量')).toBeNull()
@@ -46,7 +46,7 @@ describe('ActionDrawer', () => {
 
     expect(screen.getByRole('link', { name: '查看艺术家' }).getAttribute('href')).toBe('/artists/9')
 
-    fireEvent.click(screen.getByRole('button', { name: '清屏播放' }))
-    expect(onEnterClearMode).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: '隐藏界面' }))
+    expect(onHideChrome).toHaveBeenCalledOnce()
   })
 })

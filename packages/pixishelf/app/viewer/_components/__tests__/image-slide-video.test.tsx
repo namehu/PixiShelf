@@ -65,6 +65,12 @@ describe('viewer video lifecycle', () => {
 
     view.rerender(<SingleImage {...commonProps} savedPlaybackPosition={11} />)
     expect(play).toHaveBeenCalledTimes(1)
+    const video = view.container.querySelector('video')
+    pause.mockClear()
+    view.rerender(<SingleImage {...commonProps} savedPlaybackPosition={11} chromeHidden />)
+    expect(view.container.querySelector('video')).toBe(video)
+    expect(play).toHaveBeenCalledTimes(1)
+    expect(pause).not.toHaveBeenCalled()
   })
 
   it('falls back to muted playback when unmuted autoplay is rejected', async () => {

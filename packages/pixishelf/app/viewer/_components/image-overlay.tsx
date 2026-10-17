@@ -12,6 +12,7 @@ import { ActionDrawer } from './action-drawer'
 import { useHeartAnimation } from '@/hooks/use-heart-animation'
 import { useViewerStore } from '@/store/viewer-store'
 import dayjs from 'dayjs'
+import { cn } from '@/lib/utils'
 import { useShallow } from 'zustand/shallow'
 import { useOptimisticAction } from 'next-safe-action/hooks'
 import { toggleLikeAction } from '@/actions/like-action'
@@ -23,7 +24,8 @@ interface ImageOverlayProps {
   image: RandomImageItem
   mediaControls?: ReactNode
   onInteractionApiChange?: (api: ViewerOverlayInteractionApi | null) => void
-  onEnterClearMode: () => void
+  onHideChrome: () => void
+  onPanelOpenChange?: (open: boolean) => void
 }
 
 export interface ViewerOverlayInteractionApi {
@@ -40,7 +42,8 @@ export default function ImageOverlay({
   image,
   mediaControls,
   onInteractionApiChange,
-  onEnterClearMode
+  onHideChrome,
+  onPanelOpenChange
 }: ImageOverlayProps) {
   const { id, author, createdAt, title, description, tags = [] } = image
   const { artworkLikeMap, syncImageLikeStatus, isChromeHidden } = useViewerStore(
@@ -52,6 +55,14 @@ export default function ImageOverlay({
   )
 
   const [showActionDrawer, setShowActionDrawer] = useState(false)
+  const [tagsOpen, setTagsOpen] = useState(false)
+  useEffect(() => {
+    if (isActive) onPanelOpenChange?.(showActionDrawer || tagsOpen)
+  }, [isActive, onPanelOpenChange, showActionDrawer, tagsOpen])
+  useEffect(() => {
+    if (!isActive) return
+    return () => onPanelOpenChange?.(false)
+  }, [isActive, onPanelOpenChange])
 
   const dayString = dayjs(createdAt).format('YYYY-MM-DD')
 
@@ -112,11 +123,19 @@ export default function ImageOverlay({
         <HeartAnimation key={heart.id} data={heart} />
       ))}
 
-      {isActive && !isChromeHidden && (
-        <div className="absolute inset-0 pointer-events-none">
+      {isActive && (
+        <div
+          aria-hidden={isChromeHidden}
+          inert={isChromeHidden}
+          className={cn(
+            'absolute inset-0 pointer-events-none transition-opacity duration-150 motion-reduce:transition-none',
+            isChromeHidden && 'opacity-0'
+          )}
+        >
           {/* 底部信息栏 */}
           <div
             role="region"
+            data-viewer-control
             aria-label="作品信息与操作"
             className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 ${
               isChromeHidden ? 'pointer-events-none' : 'pointer-events-auto'
@@ -230,6 +249,7 @@ export default function ImageOverlay({
                     {tags.length > 3 && (
                       <TagsPanel
                         tags={tags}
+                        onOpenChange={setTagsOpen}
                         trigger={
                           <Button
                             type="button"
@@ -257,9 +277,9 @@ export default function ImageOverlay({
         open={showActionDrawer}
         onOpenChange={handleActionDrawerOpenChange}
         image={image}
-        onEnterClearMode={() => {
+        onHideChrome={() => {
           setShowActionDrawer(false)
-          onEnterClearMode()
+          onHideChrome()
         }}
       />
     </div>

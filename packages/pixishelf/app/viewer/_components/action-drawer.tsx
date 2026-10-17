@@ -20,16 +20,16 @@ export interface ActionDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   image: RandomImageItem
-  onEnterClearMode: () => void
+  onHideChrome: () => void
 }
 
 /** 当前作品的快捷操作；Feed 级设置统一由页面右上角的筛选入口管理。 */
-export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image, onEnterClearMode }) => {
+export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image, onHideChrome }) => {
   const { author } = image
   const authors = image.authors ?? (author ? [author] : [])
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer autoFocus open={open} onOpenChange={onOpenChange}>
       <DrawerContent>
         <DrawerHeader>
           <PrivacySensitiveText as={DrawerTitle} className="text-center">
@@ -57,9 +57,9 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image,
               </Link>
             </Button>
           ))}
-          <Button type="button" variant="outline" className="w-full justify-start" onClick={onEnterClearMode}>
+          <Button type="button" variant="outline" className="w-full justify-start" onClick={onHideChrome}>
             <EyeOffIcon data-icon="inline-start" aria-hidden="true" />
-            清屏播放
+            隐藏界面
           </Button>
         </div>
         <DrawerFooter className="pb-[max(1rem,env(safe-area-inset-bottom))]">
