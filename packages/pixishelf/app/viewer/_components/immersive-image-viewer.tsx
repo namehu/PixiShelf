@@ -170,7 +170,8 @@ export default function ImmersiveImageViewer({
   const controlsLocked = interactionLocked || chapterPanelOpen || overlayPanelOpen
   useEffect(() => {
     if (!swiper || swiper.destroyed) return
-    // Swiper's React props update params, but do not detach module listeners.
+    // Swiper React does not sync allowTouchMove or detach module listeners on prop changes.
+    swiper.allowTouchMove = !controlsLocked
     if (controlsLocked) {
       swiper.keyboard.disable()
       swiper.mousewheel.disable()
@@ -253,6 +254,8 @@ export default function ImmersiveImageViewer({
           direction="vertical"
           className="h-full w-full !overflow-clip"
           allowTouchMove={!controlsLocked}
+          // Bare videos are gesture surfaces, even after clicking them gives them focus.
+          focusableElements="input, select, option, textarea, button, video[controls], label"
           // 桌面端配置
           mousewheel={{ enabled: !controlsLocked }}
           keyboard={{ enabled: !controlsLocked }}

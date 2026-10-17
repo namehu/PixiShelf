@@ -407,6 +407,7 @@ export default function ImageSlide({
   const [swiper, setSwiper] = useState<SwiperType | null>(null)
   useEffect(() => {
     if (!swiper || swiper.destroyed) return
+    swiper.allowTouchMove = isActive && !interactionLocked && !chapterPanelOpen
     if (isActive && !interactionLocked && !chapterPanelOpen) swiper.keyboard.enable()
     else swiper.keyboard.disable()
   }, [isActive, interactionLocked, chapterPanelOpen, swiper])
@@ -821,6 +822,8 @@ export default function ImageSlide({
         spaceBetween={0}
         initialSlide={currentImageIndex}
         allowTouchMove={!interactionLocked && !chapterPanelOpen}
+        // Match the vertical Swiper: focused videos without native controls must still swipe.
+        focusableElements="input, select, option, textarea, button, video[controls], label"
         keyboard={{ enabled: isActive && !interactionLocked && !chapterPanelOpen, onlyInViewport: true }}
         navigation={{ nextEl: '.swiper-button-next-custom', prevEl: '.swiper-button-prev-custom' }}
         onSlideChange={handleSlideChange}
