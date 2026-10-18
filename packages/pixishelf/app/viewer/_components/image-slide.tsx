@@ -20,6 +20,7 @@ import { useShallow } from 'zustand/react/shallow'
 import ImageOverlay from './image-overlay'
 import type { ViewerOverlayInteractionApi } from './image-overlay'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
+import { useVideoReading, type VideoReadingProgress } from '@/lib/reading/use-video-reading'
 import ViewerVideoControls, { type ViewerAudioPreference, type ViewerVideoState } from './viewer-video-controls'
 import { useVideoLongPressPlaybackRate, useVideoSeekStepSeconds } from '@/components/user-setting'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
@@ -67,6 +68,7 @@ interface SingleImageProps {
   onRetry: () => void
   onVideoElementChange?: (element: HTMLVideoElement | null) => void
   onVideoStateChange?: (state: ViewerVideoState) => void
+  onReadingProgress?: (progress: VideoReadingProgress) => void
   onAutoplayMutedFallback?: () => void
   savedPlaybackPosition?: number
   onPlaybackPositionChange?: (currentTime: number) => void
@@ -134,6 +136,7 @@ function SingleImageContent({
   audioPreference,
   onVideoElementChange,
   onVideoStateChange,
+  onReadingProgress,
   onAutoplayMutedFallback,
   savedPlaybackPosition = 0,
   onPlaybackPositionChange,
@@ -143,6 +146,7 @@ function SingleImageContent({
 }: SingleImageProps) {
   const [imageError, setImageError] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const readingStartedRef = useRef(false)
   const autoplayMutedFallbackRef = useRef(onAutoplayMutedFallback)
   const restoredMediaIdRef = useRef<number | null>(null)
   const savedPlaybackPositionRef = useRef(savedPlaybackPosition)
@@ -155,6 +159,7 @@ function SingleImageContent({
 
   const setVideoElement = useCallback(
     (element: HTMLVideoElement | null) => {
+      if (videoRef.current !== element) readingStartedRef.current = false
       videoRef.current = element
       onVideoElementChange?.(element)
     },
@@ -164,8 +169,12 @@ function SingleImageContent({
   const publishVideoState = useCallback(
     (video: HTMLVideoElement, waiting = false) => {
       onVideoStateChange?.(readVideoState(video, waiting))
+      onReadingProgress?.({
+        currentTime: video.currentTime, duration: video.duration,
+        started: readingStartedRef.current, playing: !video.paused && !video.ended && !waiting
+      })
     },
-    [onVideoStateChange]
+    [onVideoStateChange, onReadingProgress]
   )
 
   const handleImageError = () => {
@@ -332,7 +341,12 @@ function SingleImageContent({
             onPlaybackPositionChange?.(event.currentTarget.currentTime)
           }}
           onPlay={(event) => publishVideoState(event.currentTarget)}
-          onPlaying={(event) => publishVideoState(event.currentTarget)}
+          onPlaying={(event) => {
+            readingStartedRef.current = true
+            publishVideoState(event.currentTarget)
+          }}
+          onSeeked={(event) => publishVideoState(event.currentTarget)}
+          onEnded={(event) => publishVideoState(event.currentTarget)}
           onCanPlay={(event) => {
             publishVideoState(event.currentTarget)
             onMediaReady?.()
@@ -462,18 +476,27 @@ export default function ImageSlide({
   const observeReading = reading?.observe
   const clearReadingSurface = reading?.clearSurface
   const observationEpoch = reading?.observationEpoch
+  const videoReading = useVideoReading(
+    `${reading?.ownerUserId}:${currentMedia.id}:${currentMedia.updatedAt}`,
+    isActive && !interactionLocked && !chapterPanelOpen
+  )
+  const playback = videoReading.playback
+  const isReadingVideo = currentMedia.mediaType === MediaType.VIDEO
   useEffect(() => {
     if (!observeReading || !clearReadingSurface) return
     const surfaceId = 'immersive-viewer'
     observeReading(surfaceId, {
       mediaId: currentMedia.id,
-      ready: activeMediaStatus === 'ready' && loadedMediaIdsRef.current.has(currentMedia.id),
+      ready: activeMediaStatus === 'ready' && loadedMediaIdsRef.current.has(currentMedia.id) &&
+        (!isReadingVideo || playback !== null),
       visible: isActive && !interactionLocked && !chapterPanelOpen,
       automatic: false,
-      priority: 50
+      priority: 50,
+      ...(isReadingVideo && playback ? { playback } : {})
     })
-    return () => clearReadingSurface(surfaceId)
   }, [
+    playback,
+    isReadingVideo,
     activeMediaStatus,
     chapterPanelOpen,
     clearReadingSurface,
@@ -483,6 +506,7 @@ export default function ImageSlide({
     observationEpoch,
     observeReading
   ])
+  useEffect(() => () => clearReadingSurface?.('immersive-viewer'), [clearReadingSurface])
 
   useEffect(() => {
     setVideoState({
@@ -736,6 +760,7 @@ export default function ImageSlide({
       onMediaError: () => handleMediaError(media.id),
       onVideoElementChange: isCurrent ? handleVideoElementChange : undefined,
       onVideoStateChange: isCurrent ? setVideoState : undefined,
+      onReadingProgress: isActiveCurrent ? videoReading.onProgress : undefined,
       onAutoplayMutedFallback: isCurrent ? handleAutoplayMutedFallback : undefined,
       savedPlaybackPosition: getPlaybackPosition(media.id),
       onPlaybackPositionChange: (currentTime: number) => onPlaybackPositionChange(media.id, currentTime),

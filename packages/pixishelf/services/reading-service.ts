@@ -6,6 +6,7 @@ import {
   READING_MEDIA_REVISION_CONFLICT_CODE,
   READING_REPORT_MAX_AGE_MS,
   READING_VISIT_GAP_MS,
+  isVideoReadingComplete,
   type ReadingBatchSummariesResult,
   type ReadingContextDto,
   type ReadingHistoryCursor,
@@ -17,6 +18,7 @@ import {
 } from '@pixishelf/db/reading-contract'
 import type { ArtworkCardData } from '@/types'
 import { prisma } from '@/lib/prisma'
+import { isVideoFile } from '@/lib/media'
 import { groupLogicalMedia } from './artwork-service/logical-media'
 import { getArtworkCardsByIds } from './artwork-service'
 
@@ -24,7 +26,7 @@ type ReadingTx = Prisma.TransactionClient
 
 function status(summary: { viewCount: number; seenCount: number; totalCount: number }) {
   if (summary.totalCount > 0 && summary.seenCount >= summary.totalCount) return 'COMPLETED' as const
-  return summary.seenCount > 0 ? 'IN_PROGRESS' as const : 'UNREAD' as const
+  return summary.seenCount > 0 || summary.viewCount > 0 ? 'IN_PROGRESS' as const : 'UNREAD' as const
 }
 
 function toDto(row: ArtworkReadingSummary, mediaRevision: number): ReadingSummaryDto {
@@ -59,7 +61,7 @@ function emptySummary(artworkId: number, totalCount: number, mediaRevision: numb
   }
 }
 
-async function loadMedia(tx: ReadingTx, artworkId: number): Promise<ReadingMediaItem[]> {
+async function loadMedia(tx: ReadingTx, artworkId: number) {
   const images = await tx.image.findMany({
     where: { artworkId },
     orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
@@ -68,7 +70,8 @@ async function loadMedia(tx: ReadingTx, artworkId: number): Promise<ReadingMedia
   return groupLogicalMedia(images).map((group, index) => ({
     mediaId: group.item.id,
     memberMediaIds: group.members.map((member) => member.id),
-    index
+    index,
+    isVideo: group.item.mediaType === 'VIDEO' || isVideoFile(group.item.path)
   }))
 }
 
@@ -132,7 +135,7 @@ export async function getReadingContext(userId: string, artworkId: number): Prom
     return {
       artworkId,
       mediaRevision: locked.mediaRevision,
-      media,
+      media: media.map(({ mediaId, memberMediaIds, index }) => ({ mediaId, memberMediaIds, index })),
       seenMediaIds: seenLogicalIds(media, seenIds),
       summary: row ? toDto(row, locked.mediaRevision) : emptySummary(artworkId, media.length, locked.mediaRevision),
       resume: resume ? { mediaId: resume.mediaId, index: resume.index } : null
@@ -172,12 +175,15 @@ export async function reportReading(userId: string, input: ReadingReportInput): 
     for (const { event, at } of ordered) {
       const item = byMemberId.get(event.mediaId)
       if (!item) continue
+      // Old clients/poster observations must never complete a video on visibility alone.
+      if (item.isVideo && !event.playback) continue
       if (event.type === 'HEARTBEAT') {
         // Another device may own the last position while this device still reads a seen item.
         // A heartbeat extends an existing visit without creating one or changing that position.
         if (!lastActiveAt || at < lastActiveAt ||
           at.getTime() - lastActiveAt.getTime() >= READING_VISIT_GAP_MS ||
-          !item.memberMediaIds.some((id) => seenIds.has(id) || newlySeen.has(id))) continue
+          (!(item.isVideo && event.playback) &&
+            !item.memberMediaIds.some((id) => seenIds.has(id) || newlySeen.has(id)))) continue
         lastActiveAt = at
         accepted = true
         continue
@@ -190,8 +196,10 @@ export async function reportReading(userId: string, input: ReadingReportInput): 
       lastMediaId = event.mediaId
       lastMediaIndex = item.index
       accepted = true
-      for (const memberId of item.memberMediaIds) {
-        if (!seenIds.has(memberId)) newlySeen.add(memberId)
+      if (!item.isVideo || (event.playback && isVideoReadingComplete(event.playback))) {
+        for (const memberId of item.memberMediaIds) {
+          if (!seenIds.has(memberId)) newlySeen.add(memberId)
+        }
       }
     }
     if (newlySeen.size > 0) {

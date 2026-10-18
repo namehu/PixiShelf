@@ -4,6 +4,18 @@ export const READING_REPORT_INTERVAL_MS = 1_000
 export const READING_REPORT_MAX_AGE_MS = 60_000
 export const READING_HEARTBEAT_INTERVAL_MS = 60_000
 export const READING_VISIT_GAP_MS = 30 * 60_000
+export const VIDEO_READING_COMPLETION_RATIO = 0.9
+
+/** A transient player observation, never a persisted resume position. */
+export interface ReadingPlayback {
+  currentTime: number
+  duration: number
+}
+
+export function isVideoReadingComplete(playback: ReadingPlayback): boolean {
+  return Number.isFinite(playback.duration) && playback.duration > 0 &&
+    Number.isFinite(playback.currentTime) && playback.currentTime >= playback.duration * VIDEO_READING_COMPLETION_RATIO
+}
 export const READING_MEDIA_REVISION_CONFLICT_CODE = 'READING_MEDIA_REVISION_CONFLICT'
 
 export type ReadingStatus = 'UNREAD' | 'IN_PROGRESS' | 'COMPLETED'
@@ -53,12 +65,14 @@ export type ReadingReportEvent =
   | {
       type: 'VIEW'
       mediaId: number
+      playback?: ReadingPlayback
       /** ISO 8601 UTC timestamp when the effective observation began. */
       observedAt: string
     }
   | {
       type: 'HEARTBEAT'
       mediaId: number
+      playback?: ReadingPlayback
       /** ISO 8601 UTC timestamp while the same media remained effectively visible. */
       observedAt: string
     }

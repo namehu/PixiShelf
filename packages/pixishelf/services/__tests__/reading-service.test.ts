@@ -41,10 +41,12 @@ vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: (callback: (client: typ
 vi.mock('@/services/artwork-service', () => ({ getArtworkCardsByIds: vi.fn() }))
 
 import { getReadingContext, reportReading, markReadingRead } from '../reading-service'
+import type { ReadingReportEvent } from '@pixishelf/db/reading-contract'
 
 const NOW = new Date('2026-09-24T12:00:00.000Z')
-function event(type: 'VIEW' | 'HEARTBEAT', mediaId = 2, at = NOW) {
-  return { type, mediaId, observedAt: at.toISOString() }
+function event(type: 'VIEW' | 'HEARTBEAT', mediaId = 2, at = NOW): ReadingReportEvent {
+  return { type, mediaId, observedAt: at.toISOString(),
+    ...([1, 2].includes(mediaId) ? { playback: { currentTime: 90, duration: 100 } } : {}) }
 }
 function input(events: ReturnType<typeof event>[], mediaRevision = 1) {
   return { artworkId: 10, expectedUserId: 'user-1', mediaRevision, events }
@@ -65,6 +67,46 @@ describe('reading service', () => {
     for (const delegate of [tx.artwork, tx.image, tx.artworkReadingSummary, tx.artworkReadMedia]) {
       for (const method of Object.values(delegate)) method.mockClear()
     }
+  })
+
+  it('ignores video posters and legacy visibility-only reports, including grouped posters', async () => {
+    const result = await reportReading('user-1', input([1, 2].map((mediaId) => ({
+      type: 'VIEW', mediaId, observedAt: NOW.toISOString()
+    }))))
+    expect(result.summary).toMatchObject({ status: 'UNREAD', viewCount: 0, seenCount: 0 })
+    expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()
+  })
+
+  it('starts a video visit without completing it and accepts a seek to exactly 90%', async () => {
+    state.media = [state.media[1]!]
+    const progress = (currentTime: number, duration = 100) => input([
+      { ...event('VIEW'), playback: { currentTime, duration } }
+    ])
+    for (const [currentTime, duration] of [[0, 0], [1, 100], [89.99, 100]]) {
+      const result = await reportReading('user-1', progress(currentTime!, duration!))
+      expect(result.summary).toMatchObject({ status: 'IN_PROGRESS', viewCount: 1, seenCount: 0 })
+    }
+    const complete = await reportReading('user-1', progress(90))
+    expect(complete.summary).toMatchObject({ status: 'COMPLETED', viewCount: 1, seenCount: 1 })
+    expect((await reportReading('user-1', progress(2))).summary.status).toBe('COMPLETED')
+  })
+
+  it('applies the same percentage to sub-second videos', async () => {
+    state.media = [state.media[1]!]
+    const result = await reportReading('user-1', input([
+      { ...event('VIEW'), playback: { currentTime: 0.45, duration: 0.5 } }
+    ]))
+    expect(result.summary.status).toBe('COMPLETED')
+  })
+
+  it('keeps an unfinished video visit alive without marking it complete', async () => {
+    await reportReading('user-1', input([{ ...event('VIEW'), playback: { currentTime: 1, duration: 600 } }]))
+    vi.setSystemTime(new Date(NOW.getTime() + 60_000))
+    const result = await reportReading('user-1', input([
+      { ...event('HEARTBEAT', 2, new Date()), playback: { currentTime: 61, duration: 600 } }
+    ]))
+    expect(result.summary).toMatchObject({ status: 'IN_PROGRESS', viewCount: 1, seenCount: 0,
+      lastActiveAt: new Date().toISOString(), lastViewedAt: NOW.toISOString() })
   })
 
   it('initializes logical mapping without creating a visit or seen media', async () => {

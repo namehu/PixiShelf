@@ -1,5 +1,7 @@
 import {
   compareReadingVersion,
+  isVideoReadingComplete,
+  type ReadingPlayback,
   READING_HEARTBEAT_INTERVAL_MS,
   READING_MEDIA_REVISION_CONFLICT_CODE,
   READING_REPORT_INTERVAL_MS,
@@ -20,6 +22,7 @@ export interface ReadingObservation {
   active?: boolean
   /** A covered reader should have a lower priority than its covering reader. */
   priority?: number
+  playback?: ReadingPlayback & { playing: boolean }
 }
 
 interface Surface extends ReadingObservation {
@@ -142,7 +145,16 @@ export class ReadingCollector {
       prior.automatic === observation.automatic &&
       prior.active === observation.active &&
       prior.priority === observation.priority
-    if (same) return
+    if (same) {
+      const completed = observation.playback && isVideoReadingComplete(observation.playback)
+      const newlyCompleted = completed && (!prior.playback || !isVideoReadingComplete(prior.playback))
+      prior.playback = observation.playback
+      if (newlyCompleted) {
+        this.presented.delete(prior)
+        this.reconcileActive()
+      }
+      return
+    }
     this.surfaces.set(surfaceId, { ...observation, order: ++this.order })
     this.reconcileActive()
   }
@@ -307,7 +319,8 @@ export class ReadingCollector {
       } else if (!this.presented.has(candidate)) {
         this.presented.add(candidate)
         this.enqueue(candidate.artworkId, {
-          type: 'VIEW', mediaId: candidate.mediaId, observedAt: new Date(this.now()).toISOString()
+          type: 'VIEW', mediaId: candidate.mediaId, observedAt: new Date(this.now()).toISOString(),
+          ...(candidate.playback ? { playback: this.playbackEvidence(candidate.playback) } : {})
         })
       }
     }
@@ -336,9 +349,13 @@ export class ReadingCollector {
     this.heartbeatTimer = setTimeout(() => {
       this.heartbeatTimer = null
       if (!this.active || this.active.generation !== generation || !this.active.viewAccepted) return
-      this.enqueue(this.active.artworkId, {
-        type: 'HEARTBEAT', mediaId: this.active.mediaId, observedAt: new Date(this.now()).toISOString()
-      })
+      const playback = this.surfaces.get(this.active.surfaceId)?.playback
+      if (!playback || playback.playing) {
+        this.enqueue(this.active.artworkId, {
+          type: 'HEARTBEAT', mediaId: this.active.mediaId, observedAt: new Date(this.now()).toISOString(),
+          ...(playback ? { playback: this.playbackEvidence(playback) } : {})
+        })
+      }
       this.active.nextHeartbeatAt = this.now() + READING_HEARTBEAT_INTERVAL_MS
       this.scheduleHeartbeat(generation)
     }, delay)
@@ -358,6 +375,10 @@ export class ReadingCollector {
     }
     queue.events.push({ event, createdAt: this.now() })
     this.scheduleReport()
+  }
+
+  private playbackEvidence(playback: ReadingPlayback): ReadingPlayback {
+    return { currentTime: playback.currentTime, duration: playback.duration }
   }
 
   private scheduleReport() {

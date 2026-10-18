@@ -2,6 +2,10 @@ import { z } from 'zod'
 
 const positiveId = z.number().int().positive()
 const observedAt = z.string().datetime({ offset: true })
+const playback = z.object({
+  currentTime: z.number().finite().nonnegative(),
+  duration: z.number().finite().nonnegative()
+})
 
 export const ReadingContextInputSchema = z.object({
   artworkId: positiveId,
@@ -13,8 +17,8 @@ export const ReadingReportInputSchema = ReadingContextInputSchema.extend({
   events: z
     .array(
       z.discriminatedUnion('type', [
-        z.object({ type: z.literal('VIEW'), mediaId: positiveId, observedAt }),
-        z.object({ type: z.literal('HEARTBEAT'), mediaId: positiveId, observedAt })
+        z.object({ type: z.literal('VIEW'), mediaId: positiveId, observedAt, playback: playback.optional() }),
+        z.object({ type: z.literal('HEARTBEAT'), mediaId: positiveId, observedAt, playback: playback.optional() })
       ])
     )
     .min(1)

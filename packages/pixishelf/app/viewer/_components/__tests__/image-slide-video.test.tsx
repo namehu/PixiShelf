@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MediaType } from '@/types'
 import { SingleImage } from '../image-slide'
@@ -6,6 +6,24 @@ import { SingleImage } from '../image-slide'
 vi.mock('next/image', () => ({ default: () => null }))
 
 describe('viewer video lifecycle', () => {
+  it('distinguishes metadata from playback and publishes seeks for reading completion', () => {
+    const onReadingProgress = vi.fn()
+    const view = render(<SingleImage
+      media={{ id: 1, key: 'video-1', url: '/video.mp4', updatedAt: '2026-10-18T00:00:00Z', mediaType: MediaType.VIDEO, animationMetadata: null }}
+      retryKey={0} onRetry={vi.fn()} audioPreference={{ muted: true, volume: 1 }}
+      isActiveMedia onReadingProgress={onReadingProgress}
+    />)
+    const video = view.container.querySelector('video')!
+    Object.defineProperty(video, 'duration', { configurable: true, value: 100 })
+    Object.defineProperty(video, 'paused', { configurable: true, value: false })
+    fireEvent.loadedMetadata(video)
+    expect(onReadingProgress).toHaveBeenLastCalledWith(expect.objectContaining({ started: false }))
+    fireEvent.playing(video)
+    expect(onReadingProgress).toHaveBeenLastCalledWith(expect.objectContaining({ started: true, playing: true }))
+    video.currentTime = 90
+    fireEvent.seeked(video)
+    expect(onReadingProgress).toHaveBeenLastCalledWith(expect.objectContaining({ currentTime: 90, duration: 100 }))
+  })
   const play = vi.fn().mockResolvedValue(undefined)
   const pause = vi.fn()
 

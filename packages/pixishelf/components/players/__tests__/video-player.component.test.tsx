@@ -29,6 +29,25 @@ vi.mock('../use-video-keyframes', () => ({
 }))
 
 describe('VideoPlayer component behavior', () => {
+  it('reports actual playback and seek positions without treating readiness as playback', async () => {
+    const art = setupArtplayerMock()
+    const onReadingProgress = vi.fn()
+    const view = render(<VideoPlayer src="/video.mp4" onReadingProgress={onReadingProgress} />)
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    act(() => emitArtplayerEvent('ready'))
+    expect(onReadingProgress).not.toHaveBeenCalled()
+    act(() => emitArtplayerEvent('video:playing'))
+    expect(onReadingProgress).toHaveBeenLastCalledWith({ currentTime: 0, duration: 60, started: true, playing: true })
+    art.currentTime = 54
+    act(() => emitArtplayerEvent('video:seeked'))
+    expect(onReadingProgress).toHaveBeenLastCalledWith({ currentTime: 54, duration: 60, started: true, playing: true })
+    act(() => emitArtplayerEvent('pause'))
+    expect(onReadingProgress).toHaveBeenLastCalledWith(expect.objectContaining({ playing: false }))
+    view.unmount()
+    onReadingProgress.mockClear()
+    act(() => emitArtplayerEvent('video:timeupdate'))
+    expect(onReadingProgress).not.toHaveBeenCalled()
+  })
   afterEach(() => {
     cleanup()
     artplayerMock.constructor.mockReset()
