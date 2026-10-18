@@ -3,7 +3,9 @@
 import type { FC } from 'react'
 import type { RandomImageItem } from '@/types/images'
 import Link from 'next/link'
-import { CaptionsIcon, EyeOffIcon, User } from 'lucide-react'
+import { CaptionsIcon, EyeOffIcon, PlayIcon, SquareIcon, User } from 'lucide-react'
+import { useViewerStore, VIEWER_AUTO_INTERVALS } from '@/store/viewer-store'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   Drawer,
   DrawerContent,
@@ -25,6 +27,9 @@ export interface ActionDrawerProps {
 
 /** 当前作品的快捷操作；Feed 级设置统一由页面右上角的筛选入口管理。 */
 export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image, onHideChrome }) => {
+  const autoStatus = useViewerStore((state) => state.autoBrowseStatus)
+  const interval = useViewerStore((state) => state.autoBrowseInterval)
+  const autoSelected = autoStatus === 'running' || autoStatus === 'paused'
   const { author } = image
   const authors = image.authors ?? (author ? [author] : [])
 
@@ -42,7 +47,52 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image,
           )}
         </DrawerHeader>
         <Separator />
-        <div className="flex flex-col gap-2 p-4">
+        <div className="flex min-h-0 flex-col gap-2 overflow-y-auto p-4">
+          <Button
+            className="min-h-11 w-full justify-start"
+            onClick={() => {
+              onOpenChange(false)
+              useViewerStore.getState().requestAutoBrowse()
+            }}
+          >
+            <PlayIcon data-icon="inline-start" aria-hidden="true" />
+            {autoSelected ? '继续自动浏览' : '开始自动浏览'}
+          </Button>
+          <div className="flex flex-col gap-2 py-2">
+            <span id={`viewer-interval-${image.id}`} className="text-sm text-muted-foreground">
+              图片停留时间
+            </span>
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              spacing={2}
+              value={String(interval)}
+              aria-labelledby={`viewer-interval-${image.id}`}
+              onValueChange={(value) => {
+                if (value) useViewerStore.getState().setAutoBrowseInterval(Number(value))
+              }}
+            >
+              {VIEWER_AUTO_INTERVALS.map((seconds) => (
+                <ToggleGroupItem key={seconds} value={String(seconds)} className="min-h-11 min-w-11">
+                  {seconds} 秒
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </div>
+          {autoSelected && (
+            <Button
+              variant="outline"
+              className="min-h-11 w-full justify-start"
+              onClick={() => {
+                useViewerStore.getState().stopAutoBrowse()
+                onOpenChange(false)
+              }}
+            >
+              <SquareIcon data-icon="inline-start" aria-hidden="true" />
+              关闭自动浏览
+            </Button>
+          )}
+          <Separator />
           <Button variant="outline" className="w-full justify-start" asChild>
             <Link href={`/artworks/${image.id}`} onClick={() => onOpenChange(false)}>
               <CaptionsIcon data-icon="inline-start" aria-hidden="true" />

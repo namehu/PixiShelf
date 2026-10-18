@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useViewerStore } from '@/store/viewer-store'
 import type { ReactNode } from 'react'
 import type { RandomImageItem } from '@/types/images'
 import { MediaType } from '@/types'
@@ -30,6 +31,23 @@ const image: RandomImageItem = {
 }
 
 describe('ActionDrawer', () => {
+  beforeEach(() => {
+    useViewerStore.getState().resetViewerState()
+    useViewerStore.setState({ autoBrowseInterval: 5 })
+  })
+  afterEach(cleanup)
+  it('offers four persisted intervals and requests start only after closing the menu', () => {
+    const close = vi.fn()
+    render(<ActionDrawer open onOpenChange={close} image={image} onHideChrome={vi.fn()} />)
+    for (const seconds of [3, 5, 10, 15]) {
+      fireEvent.click(screen.getByText(`${seconds} 秒`))
+      expect(useViewerStore.getState().autoBrowseInterval).toBe(seconds)
+    }
+    fireEvent.click(screen.getByText('开始自动浏览'))
+    expect(close).toHaveBeenCalledWith(false)
+    expect(useViewerStore.getState().autoBrowseStartRequested).toBe(true)
+    expect(useViewerStore.getState().autoBrowseStatus).toBe('off')
+  })
   it('keeps artwork actions and removes feed-level settings', () => {
     const onOpenChange = vi.fn()
     const onHideChrome = vi.fn()

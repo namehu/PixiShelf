@@ -7,7 +7,12 @@ import ImageSlide, { SingleImage } from '../image-slide'
 import { useEffect } from 'react'
 import type { Swiper as SwiperType } from 'swiper'
 
-const swiperModules = vi.hoisted(() => ({ keyboard: { enable: vi.fn(), disable: vi.fn() }, destroyed: false }))
+const swiperModules = vi.hoisted(() => ({
+  keyboard: { enable: vi.fn(), disable: vi.fn() },
+  destroyed: false,
+  activeIndex: 0,
+  slideTo: vi.fn()
+}))
 
 vi.mock('next/image', () => ({
   default: ({ src, alt, loading, onLoad, onError }: React.ImgHTMLAttributes<HTMLImageElement>) => {

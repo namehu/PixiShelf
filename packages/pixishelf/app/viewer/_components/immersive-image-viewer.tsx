@@ -99,7 +99,8 @@ interface ImmersiveImageViewerProps {
   initialImages: RandomImageItem[]
   hasMore: boolean
   isLoading: boolean
-  onLoadMore: () => void
+  onLoadMore: () => Promise<unknown> | void
+  loadMoreError?: boolean
   interactionLocked?: boolean
 }
 
@@ -159,6 +160,7 @@ export default function ImmersiveImageViewer({
   onLoadMore,
   hasMore,
   isLoading,
+  loadMoreError = false,
   interactionLocked = false
 }: ImmersiveImageViewerProps) {
   const [audioPreference, setAudioPreference] = useState<ViewerAudioPreference>({ muted: true, volume: 1 })
@@ -168,6 +170,61 @@ export default function ImmersiveImageViewer({
   const [atEnd, setAtEnd] = useState(false)
   const [swiper, setSwiper] = useState<SwiperType | null>(null)
   const controlsLocked = interactionLocked || chapterPanelOpen || overlayPanelOpen
+  const autoStatus = useViewerStore((state) => state.autoBrowseStatus)
+  const autoWait = useViewerStore((state) => state.autoBrowseWait)
+  const startRequested = useViewerStore((state) => state.autoBrowseStartRequested)
+  const [pointerHeld, setPointerHeld] = useState(false)
+  const pointerHeldRef = useRef(false)
+  const [transitioning, setTransitioning] = useState(false)
+  const [pendingNext, setPendingNext] = useState<string | null>(null)
+  const [pageFailed, setPageFailed] = useState(false)
+  const fetchingRef = useRef(false)
+  const lifetimeRef = useRef(0)
+  const latest = useRef({ initialImages, hasMore, controlsLocked, swiper })
+  latest.current = { initialImages, hasMore, controlsLocked, swiper }
+  const isNavigationBlocked = useCallback(
+    () =>
+      pointerHeldRef.current ||
+      latest.current.controlsLocked ||
+      Boolean(latest.current.swiper?.animating) ||
+      document.visibilityState === 'hidden',
+    []
+  )
+  useEffect(() => {
+    const release = () => {
+      pointerHeldRef.current = false
+      setPointerHeld(false)
+    }
+    const visibility = () => {
+      if (document.visibilityState === 'hidden') {
+        release()
+        useViewerStore.getState().pauseAutoBrowse('background')
+      }
+    }
+    window.addEventListener('pointerup', release)
+    window.addEventListener('pointercancel', release)
+    window.addEventListener('blur', release)
+    document.addEventListener('visibilitychange', visibility)
+    return () => {
+      lifetimeRef.current += 1
+      window.removeEventListener('pointerup', release)
+      window.removeEventListener('pointercancel', release)
+      window.removeEventListener('blur', release)
+      document.removeEventListener('visibilitychange', visibility)
+      useViewerStore.getState().stopAutoBrowse()
+    }
+  }, [])
+  useEffect(() => {
+    if (controlsLocked) useViewerStore.getState().pauseAutoBrowse('panel')
+  }, [controlsLocked])
+  useEffect(() => {
+    if (startRequested && !controlsLocked && document.visibilityState !== 'hidden') {
+      useViewerStore.getState().runAutoBrowse()
+    }
+  }, [startRequested, controlsLocked])
+  useEffect(() => {
+    if (autoStatus === 'off' || autoStatus === 'ended') setPendingNext(null)
+  }, [autoStatus])
   useEffect(() => {
     if (!swiper || swiper.destroyed) return
     // Swiper React does not sync allowTouchMove or detach module listeners on prop changes.
@@ -181,15 +238,17 @@ export default function ImmersiveImageViewer({
     }
   }, [controlsLocked, swiper])
   const playbackPositionsRef = useRef(new Map<number, number>())
-  const { setVerticalIndex, verticalIndex, isChromeHidden, setChromeHidden, toggleChromeHidden } = useViewerStore(
-    useShallow((state) => ({
-      verticalIndex: state.verticalIndex,
-      setVerticalIndex: state.setVerticalIndex,
-      isChromeHidden: state.isChromeHidden,
-      setChromeHidden: state.setChromeHidden,
-      toggleChromeHidden: state.toggleChromeHidden
-    }))
-  )
+  const { setVerticalIndex, verticalIndex, horizontalIndexes, isChromeHidden, setChromeHidden, toggleChromeHidden } =
+    useViewerStore(
+      useShallow((state) => ({
+        verticalIndex: state.verticalIndex,
+        horizontalIndexes: state.horizontalIndexes,
+        setVerticalIndex: state.setVerticalIndex,
+        isChromeHidden: state.isChromeHidden,
+        setChromeHidden: state.setChromeHidden,
+        toggleChromeHidden: state.toggleChromeHidden
+      }))
+    )
   const hideChrome = useCallback(() => setChromeHidden(true), [setChromeHidden])
   useEffect(() => {
     // Cached filter results can reset the store without remounting Swiper.
@@ -199,12 +258,89 @@ export default function ImmersiveImageViewer({
   }, [atEnd, swiper, verticalIndex])
   const reading = useArtworkReading(atEnd ? 0 : (initialImages[verticalIndex]?.id ?? 0))
 
+  const requestMore = useCallback(async () => {
+    if (fetchingRef.current) return
+    const lifetime = lifetimeRef.current
+    const session = useViewerStore.getState().autoBrowseSession
+    fetchingRef.current = true
+    setPageFailed(false)
+    try {
+      await onLoadMore()
+    } catch {
+      if (lifetime !== lifetimeRef.current) return
+      setPageFailed(true)
+      if (session === useViewerStore.getState().autoBrowseSession) {
+        useViewerStore.getState().pauseAutoBrowse('page-error')
+      }
+    } finally {
+      fetchingRef.current = false
+    }
+  }, [onLoadMore])
+  const completeArtwork = useCallback(() => {
+    const state = useViewerStore.getState()
+    const current = latest.current.initialImages[state.verticalIndex]
+    if (state.autoBrowseStatus === 'running' && current) {
+      setPendingNext(`${current.key}:${state.horizontalIndexes[current.key] ?? 0}`)
+    }
+  }, [])
+  const cancelArtworkComplete = useCallback(() => {
+    setPendingNext(null)
+    useViewerStore.getState().setAutoBrowseWait(null)
+  }, [])
+  useEffect(() => {
+    if (!pendingNext) return
+    const current = initialImages[verticalIndex]
+    if (!current || `${current.key}:${horizontalIndexes[current.key] ?? 0}` !== pendingNext) {
+      setPendingNext(null)
+      useViewerStore.getState().setAutoBrowseWait(null)
+      return
+    }
+    if (autoStatus !== 'running' || controlsLocked || pointerHeld || transitioning || isNavigationBlocked()) return
+    const state = useViewerStore.getState()
+    const next = initialImages[verticalIndex + 1]
+    if (next && swiper && !swiper.destroyed) {
+      setPendingNext(null)
+      state.setAutoBrowseWait(null)
+      state.setHorizontalIndex(next.key, 0)
+      state.restartAutoBrowseMedia(next.images[0]?.id ?? next.id)
+      swiper.slideTo(verticalIndex + 1)
+    } else if (!hasMore && swiper && !swiper.destroyed) {
+      setPendingNext(null)
+      state.stopAutoBrowse(true)
+      swiper.slideTo(initialImages.length)
+    } else if (pageFailed || loadMoreError) {
+      state.pauseAutoBrowse('page-error')
+    } else {
+      state.setAutoBrowseWait('page')
+      if (!isLoading) void requestMore()
+    }
+  }, [
+    pendingNext,
+    initialImages,
+    verticalIndex,
+    horizontalIndexes,
+    autoStatus,
+    controlsLocked,
+    pointerHeld,
+    transitioning,
+    isNavigationBlocked,
+    swiper,
+    hasMore,
+    isLoading,
+    pageFailed,
+    loadMoreError,
+    requestMore
+  ])
+
   // 处理slide变化
   const handleSlideChange = useCallback(
     (swiper: SwiperType) => {
       setChapterPanelOpen(false)
       setPreloadUnlockedIndex(null)
       setAtEnd(swiper.activeIndex >= initialImages.length)
+      if (swiper.activeIndex >= initialImages.length && useViewerStore.getState().autoBrowseStatus !== 'off') {
+        useViewerStore.getState().stopAutoBrowse(true)
+      }
       setVerticalIndex(swiper.activeIndex)
     },
     [initialImages.length, setChapterPanelOpen, setVerticalIndex]
@@ -245,7 +381,15 @@ export default function ImmersiveImageViewer({
 
   return (
     // 桌面端适配容器
-    <div className="h-full w-full bg-black md:flex md:items-center md:justify-center">
+    <div
+      className="h-full w-full bg-black md:flex md:items-center md:justify-center"
+      data-auto-browse-status={autoStatus}
+      data-auto-browse-wait={autoWait ?? undefined}
+      onPointerDownCapture={() => {
+        pointerHeldRef.current = true
+        setPointerHeld(true)
+      }}
+    >
       {/* 沉浸式查看器主容器 */}
       <div className="immersive-container relative h-full w-full bg-black md:h-[90dvh] md:max-w-[420px] md:aspect-[9/16] md:rounded-surface">
         <Swiper
@@ -266,12 +410,14 @@ export default function ImmersiveImageViewer({
           resistance={true}
           resistanceRatio={0.85}
           speed={300}
+          onBeforeTransitionStart={() => setTransitioning(true)}
+          onTransitionEnd={() => setTransitioning(false)}
           touchRatio={1}
           touchAngle={45}
           grabCursor={true}
           onReachEnd={() => {
             if (hasMore && !isLoading) {
-              onLoadMore()
+              void requestMore()
             }
           }}
           onSlideChange={handleSlideChange}
@@ -285,7 +431,11 @@ export default function ImmersiveImageViewer({
             const shouldRender = isActive || isPreloading
 
             return (
-              <SwiperSlide key={image.key} inert={!isActive} className="flex h-full w-full items-center justify-center overflow-hidden">
+              <SwiperSlide
+                key={image.key}
+                inert={!isActive}
+                className="flex h-full w-full items-center justify-center overflow-hidden"
+              >
                 <div className="relative h-full w-full bg-black">
                   {shouldRender ? (
                     <ImageSlide
@@ -293,6 +443,11 @@ export default function ImmersiveImageViewer({
                       preloadEntryMedia={index === verticalIndex + 1 && preloadUnlockedIndex === verticalIndex}
                       image={image}
                       reading={isActive ? reading : undefined}
+                      onArtworkComplete={completeArtwork}
+                      onCancelArtworkComplete={cancelArtworkComplete}
+                      navigationBlocked={pointerHeld || transitioning}
+                      navigationTransitioning={transitioning}
+                      isNavigationBlocked={isNavigationBlocked}
                       interactionLocked={controlsLocked}
                       onOverlayPanelOpenChange={setOverlayPanelOpen}
                       audioPreference={audioPreference}
@@ -322,6 +477,28 @@ export default function ImmersiveImageViewer({
             </SwiperSlide>
           )}
         </Swiper>
+        {autoWait === 'page' && autoStatus === 'running' && !pageFailed && !loadMoreError && (
+          <div
+            role="status"
+            className="pointer-events-none absolute inset-x-4 top-20 z-40 rounded-lg bg-background p-3 text-sm text-foreground shadow-lg"
+          >
+            正在加载下一页…
+          </div>
+        )}
+        {(pageFailed || loadMoreError) && (
+          <div
+            role="status"
+            data-viewer-control
+            className="absolute inset-x-4 top-20 z-40 flex flex-col gap-2 rounded-lg bg-background p-3 text-foreground shadow-lg"
+          >
+            <span className="text-sm">
+              {autoStatus === 'paused' ? '下一页加载失败，自动浏览已暂停。' : '下一页加载失败。'}
+            </span>
+            <Button variant="outline" className="min-h-11" disabled={isLoading} onClick={() => void requestMore()}>
+              重试加载
+            </Button>
+          </div>
+        )}
         {reading.invalidated ? (
           <div
             className="absolute inset-x-4 top-16 z-40 flex items-center justify-between gap-3 rounded-lg bg-background p-3 text-sm text-foreground shadow-lg"
