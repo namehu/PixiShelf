@@ -4,8 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ArchiveUploaderGalleryThumbnail, ArchiveUploaderResultViewToggle } from '../archive-uploader-result-visuals'
 import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
 
-vi.mock('@/components/source-preview/source-preview-button', () => ({ SourcePreviewButton: () => null }))
-
 afterEach(cleanup)
 
 function Harness() {

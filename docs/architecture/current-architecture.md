@@ -239,7 +239,7 @@ writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待
 
 上传者/关键词 `SEARCH`、普通归档 `RESOLVE` 均可在 writer lane 的媒体下载期间发起请求；它们共享 Provider 的持久请求间隔和 penalty。活跃下载 lease 只占用下载并发容量，不阻止读取请求。普通请求默认间隔 250ms，`SEARCH` 获准后设置 3 秒间隔；真实站点冷却仍使读取任务退避。此机制解除下载对解析的硬阻塞，不承诺请求严格轮转或防饥饿。
 
-归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。默认启用、显示时间为 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。默认启用、显示时间为 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及过期预览会话，不删除领域归档、作品或媒体；两者在中央模式下仍按统一调度窗口和优先级执行。
+归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。默认启用、显示时间为 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。默认启用、显示时间为 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及历史冻结流程的过期 ArchivePreviewSession（不属于已退役的在线原站阅读器），不删除领域归档、作品或媒体；两者在中央模式下仍按统一调度窗口和优先级执行。
 
 `VIDEO_MEDIA_PROBE` 是视频探测与自动封面生成的单一持久工作流。普通 `INCREMENTAL` 模式先按 `imageId` 游标完成媒体分类和 FFprobe/FFmpeg 响度检测，再在同一个 SystemJob 内顺序处理待生成封面；`hasAudio` 表示峰值高于 `-50 dB` 的可听内容，不表示容器仅存在音频流。存在匹配章节清单时，短章节扫描整章，长章节在 25%/75% 附近各取 10 秒，并把结果按清单 hash 写入 `MediaChapterPreview`；无章节时扫描首/中/尾。`RECHECK_HAS_AUDIO` 只校准任务创建时已有的 `hasAudio=true` 记录，以 `probeUpdatedAt` 和任务创建时间恢复，不分类、不处理 false/null，也不生成封面。批量流程不创建 `VIDEO_POSTER_GENERATION` 子任务，该类型只用于单视频人工生成。已完成封面的文件完整性检查和孤儿文件清理不属于探测流程，`DERIVED_MEDIA_GC` 继续独立处理已登记的无引用派生文件。
 

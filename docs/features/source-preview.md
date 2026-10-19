@@ -1,66 +1,39 @@
 ---
 status: current
-scope: 已归档来源与单个未归档链接的在线图片浏览、入口、会话与安全边界
-last-verified: 2026-09-29
+scope: 站内原站图片预览退役与保留的受保护原站导航
+last-verified: 2026-10-19
 sources:
-  - packages/pixishelf/services/archive-preview/
-  - packages/pixishelf/server/routers/archive-preview.ts
-  - packages/pixishelf/app/api/archive/preview/
-  - packages/pixishelf/components/source-preview/
+  - packages/pixishelf/services/artwork/source-links.ts
+  - packages/pixishelf/services/archive/archive-task-source-service.ts
+  - packages/pixishelf/app/api/artworks/[id]/sources/[source-id]/route.ts
+  - packages/pixishelf/app/api/archive/tasks/[id]/source/route.ts
   - packages/pixishelf-job-executors/src/archive/providers/e-hentai.ts
 ---
 
-# 原站图片预览
+# 原站图片预览退役
 
-原站预览让已登录账户在线浏览受支持来源的画廊展示图。它是纯浏览能力：不会创建收件项目或后台任务，不会执行完整归档解析、下载原图、写入媒体目录，也不会修改作品和发现目录。共享 Provider governor 仍会在 PostgreSQL 更新既有的节流状态和短期请求 lease；这些协调记录不代表加入收藏或归档。
+站内远程阅读器已退役。作品详情仅浏览本地媒体；添加链接、收件项目、归档任务、发现结果和回收站不再提供站内原站预览。`/source-preview`、`/api/archive/preview/[id]/source` 和 `archivePreview` tRPC router 已删除，旧地址依然先经过既有认证门禁：匿名 API 请求返回 401，匿名页面访问跳转登录；通过认证后的旧地址及调用按框架常规返回 404，不提供兼容读取或重定向。
 
-## 用户入口
+预览专用的服务、进程内会话、页/展示图缓存、共享请求合并、Provider `previewPage/previewImage` 契约、专用 governor 包装和 E-Hentai 缩略图 HTML/sprite 解析已删除。站内不再为在线阅读抓取远端列表页或图片页。发现列表的首图与卡片封面继续使用归档/扫描 metadata 的 `thumb` 字段，不依赖已经移除的预览类型或解析逻辑。
 
-- 作品详情仅在存在有效、处于活动生命周期的来源引用时显示“本地图片 / 原站预览”页签。本地图片默认显示；单来源自动打开，多来源每次进入页签重新选择 `#GID`。
-- 归档任务以“原站预览”为主操作；原有完整来源跳转保留在更多菜单。
-- 收件项目在冻结身份有效，或尚未解析但提交链接可由本地规则识别时显示预览；可用性计算不请求远端。
-- 发现结果各状态和显示模式的封面统一新标签打开原站，使用受保护的目录导航入口；无封面或加载失败不影响跳转。独立“原站预览”按钮在当前页进入阅读器。
-- 全局已忽略按 provider/GID 查找有效且匹配查询的目录 ID，复用目录导航和预览；没有有效地址时显示“来源地址不可用”，禁用封面跳转，不推测地址。
-- 从来源进入预览前，按账户和返回页面保存筛选、显示模式、来源与列表锚点到 sessionStorage（30 分钟，一次性读取，最多 100 个列表位置）。返回时按原加载数量补足列表再恢复锚点；来源已删除则返回来源列表。
-- 添加链接弹窗仅在输入一个可识别链接时显示“仅预览”；该操作不提交收件表单。
-- 独立页面的地址只携带随机预览 ID，不携带原站 URL、GID 或 token。
+## 保留的原站入口
 
-隐私模式继续遮蔽预览标题和图片。作品详情切换到原站页签时，本地媒体列表卸载，并暂停本地自动浏览；返回本地页签后重新建立本地浏览运行时。
+添加链接弹窗只在输入单个有效来源 URL 时显示“打开原站”，无效输入或多条链接不显示；点击仅打开新标签页，不提交收件表单、不关闭弹窗。收件项目的“打开原站”使用已验证的提交地址，无效地址显示禁用按钮；回收站有来源任务 ID 时保留“打开原站”，缺少任务 ID 时禁用；任务地址无效时由受保护跳转 Route 拒绝。所有原站外链统一使用 `target="_blank"`、`rel="noopener noreferrer"` 和 `referrerPolicy="no-referrer"`。
 
-## 浏览行为
+作品详情在存在有效 E-Hentai 来源引用时，逐条显示 `E-Hentai #GID`，新标签页进入原站。服务端查询 `ArtworkExternalRef`，要求关联作品 `deletedAt: null` 且 `archiveLifecycleState: ACTIVE`，只向页面提供 `{ id, label, href }`；`href` 是同源 `/api/artworks/[id]/sources/[source-id]`，不序列化 canonical URL 或 token。
 
-普通页面按单列阅读展示图；点击后进入纵向全屏浏览，关闭全屏回到活动图片。两种模式共享单张加载状态，可见图片优先，仅预取下一张，列表封面继续用缩略图。大图请求串行，缩略图作占位；失败保留小图并明确提示，提供重试与原站导航。自动滚动和全屏轮播都必须由用户手动启动；到分页边界时先等待下一页，载入后继续，图片或分页失败时暂停并由用户选择重试。每次从业务入口进入都会创建新会话并从第一页开始，多来源作品也不会沿用上次选择。
+跳转 Route 在每次导航时独立验证 Better Auth Session，重读引用并检查作品归属、未删除和活动生命周期。来源使用现有 `archiveTaskSourceUrl` 严格验证 provider、HTTPS、精确主机、端口、凭据、画廊路径与 GID，再生成去除 query/hash 的规范画廊 URL。合法请求返回 302，所有响应均设置 `Cache-Control: private, no-store` 与 `Referrer-Policy: no-referrer`。路径 ID 非法、缺失/失效引用、数据库或 Session 异常均返回通用错误，不回显或记录敏感 locator；客户端 query 中的 URL 不参与目的地计算。整个过程不访问远端。
 
-图片由浏览器以 `no-referrer` 直连已验证主机，App 不代理图片内容，服务器出站代理不覆盖浏览器。服务器读取画廊列表，并按需解析对应 `/s` 图片页的 `#img` 展示图，不访问 fullimg 原文件或完整归档链路，也不跟随更新版本。浏览器无法直连时显示失败，不自动切换服务器转发。
+归档任务继续使用 `/api/archive/tasks/[id]/source`，发现封面和标题继续使用受保护的目录来源跳转，在新标签打开数据库中已验证的原站地址；无封面或封面加载失败仍可导航，有效目录缺失时不推测地址。收件、下载、扫描、归档发布、阅读记录、隐私模式和本地媒体播放的领域行为不因本次退役改变。
 
-## 服务契约
+## 数据与恢复边界
 
-`archivePreview` 的 `sources`、`open`、`page`、`image` 和 `reload` 均使用 `authProcedure`：
+本次是代码与产品入口退役，无数据库迁移、数据清理或媒体写入，也不修改任务、部署、代理、安全 HTTP、Provider governor、配额或 lease。归档下载和来源扫描继续使用现有 Provider、代理与配额。
 
-- `sources({ artworkId })` 只返回有效引用 ID、provider key 和安全标签，不返回 canonical URL 或 token；
-- `open({ source })` 接受作品引用、任务、收件项目、发现目录项目，或 mutation body 中的单个 URL，创建绑定当前账户的随机不透明会话，并返回第一页；
-- `page({ previewId, page })` 只允许从零开始的顺序分页；
-- `image({ previewId, ordinal, refresh? })` 仅接受已加载页面内的序号，返回经校验的展示图地址；图片页 locator 仅存在于服务端。刷新只使该图缓存失效，失败不进入缓存。
-- `reload({ previewId })` 使该来源的解析页缓存失效并重新加载第一页。
+数据库旧 `ArchivePreviewSession` 属于独立的历史冻结预览流程，与此次删除的进程内在线阅读会话没有生命周期关系。本次保留该表、旧归档服务遗留类型、维护阶段及 `deletedPreviewSessions` 清理统计；既有保留任务继续按原规则清理旧记录，不据此声称在线阅读仍可用。
 
-任务和发现目录使用各自冻结的 provider、GID 和 canonical URL；作品引用还要求所属作品未删除且归档生命周期为 `ACTIVE`。服务不读取旧 `Artwork.externalId` 推断归档身份。Provider 返回的 provider、GID 与 canonical URL 必须和服务端预期身份一致，否则整页拒绝。
+恢复依据是本次发布前的代码/应用镜像版本。回退相应 App 与共享执行器代码即可恢复旧产品入口，无需数据库逆迁移或媒体恢复；旧进程内会话本就不保证跨进程恢复，回退后需重新打开。未来若清理历史表和遗留契约，应单独评审迁移与恢复方案。
 
-完整来源地址只通过 `GET /api/archive/preview/[id]/source` 暴露给用户主动导航。Route 在读取会话前再次验证 Better Auth Session，并按当前账户检查会话所有权；响应禁止缓存和发送 Referrer。
+## 验证边界
 
-## 远端访问与内存边界
-
-预览复用默认 Provider 注册表、PostgreSQL Provider governor 和现有 `RESOLVE` 配额。一次会话最多有一个 HTML 请求在途；不同会话的相同页请求会合并，但 reload 和会话过期不会取消其他会话共享的请求。
-
-进程内会话空闲 30 分钟过期，解析页和展示图地址缓存保留 5 分钟。展示图地址最多保留 1024 项；共享在途请求与分页共用并发预算，单会话分页和单图 HTML 读取互斥。reload 清理该来源的页和图片缓存，旧请求不能回填新代次。会话数、缓存页、在途请求、单会话页、全局保留页和缩略图总数都有固定上限；达到上限时按最近使用顺序清理旧会话或旧缓存。进程重启后会话自然失效，客户端需要重新打开。
-
-服务逐页校验 HTTPS 缩略图主机、无凭据/端口/query/hash 的图片地址、尺寸、sprite crop、连续 ordinal、`total`、`nextPage`、标题和跨页连续性。失败响应不进入缓存；已成功加载的页在后续失败时保留。限流只返回有上界的安全重试提示，不向客户端或普通错误日志回显 locator、token 或 canonical URL。
-
-展示图地址单独校验：仅 HTTPS、可信图片主机、图片文件扩展名，无凭据、非标准端口或 fragment，禁止导航路径。保留远端展示图必需的签名 query；不放宽缩略图地址规则，不把完整展示图地址写入普通错误日志。
-
-## 当前验证范围
-
-聚焦测试覆盖未授权零 Provider I/O、严格账户所有权、来源生命周期与身份漂移、缩略图清洗、顺序分页、缓存合并和过期、reload 并发、全局内存预算、失败重试、无任务/收件写入，以及隔离 PostgreSQL 上的真实 governor 获取与释放。Provider 解析使用固定 HTML fixture 覆盖普通缩略图、sprite、分页和异常响应。
-
-新增测试覆盖单图所有权、已加载序号门禁、签名地址、缓存合并/到期、刷新竞态、串行加载与失败重试，以及封面和返回状态。
-
-当前 CI 没有真实浏览器端到端测试，也不会访问真实原站验证站点当日 HTML。Provider 页面结构变化仍需通过隔离 fixture 更新、人工浏览器抽样和安全审查发现；进程内会话不提供重启恢复承诺。
+聚焦测试覆盖 Session 门禁、非法 ID、引用归属、删除/生命周期失效、provider/GID/URL 不匹配、数据库异常、规范跳转、私有响应头和无敏感 URL 的页面 DTO。Provider 与 governor 的归档解析、来源扫描和下载回归保留；不访问真实原站。完整发布验证以测试策略和交付记录为准。

@@ -27,7 +27,6 @@ vi.mock('next/link', () => ({ default: ({ children, ...props }: ComponentProps<'
 vi.mock('../archive-add-dialog', () => ({ ArchiveAddDialog: () => null }))
 vi.mock('../archive-item-drawer', () => ({ ArchiveItemDrawer: () => null }))
 vi.mock('../archive-bulk-result-dialog', () => ({ ArchiveBulkResultDialog: () => null }))
-vi.mock('@/components/source-preview/source-preview-button', () => ({ SourcePreviewButton: () => null }))
 vi.mock('@/components/privacy/privacy-sensitive-text', () => ({
   PrivacySensitiveText: ({ children }: { children: React.ReactNode }) => <span>{children}</span>
 }))

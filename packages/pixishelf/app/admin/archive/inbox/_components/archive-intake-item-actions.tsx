@@ -12,7 +12,7 @@ import {
   type ArchiveQuality
 } from '@/app/admin/archive/_components/archive-intake-view-state'
 import { Button } from '@/components/ui/button'
-import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
+import { archiveSubmittedSourceUrl } from '@/lib/archive-submitted-url'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -104,11 +104,18 @@ export function ArchiveIntakeRetryActions({
   onRetry,
   onReplace
 }: ArchiveIntakeRetryActionsProps) {
+  const sourceUrl = archiveSubmittedSourceUrl(item.submittedUrl ?? '')
   return (
     <>
-      {item.sourcePreviewAvailable ? (
-        <SourcePreviewButton source={{ kind: 'intake', itemId: item.id }} variant="outline" size="sm" />
-      ) : null}
+      {sourceUrl ? (
+        <Button asChild variant="outline" size="sm">
+          <a href={sourceUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
+            <ExternalLinkIcon data-icon="inline-start" aria-hidden="true" />打开原站
+          </a>
+        </Button>
+      ) : (
+        <Button variant="outline" size="sm" disabled title="来源地址不可用">打开原站</Button>
+      )}
       {isRetryableIntakeItem(item) ? (
         <Button
           type="button"

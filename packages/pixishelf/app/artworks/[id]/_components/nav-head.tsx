@@ -34,7 +34,6 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [showScrolledTitle, setShowScrolledTitle] = useState(false)
   const mediaView = useArtworkMediaView()
-  const showingLocalImages = mediaView?.view !== 'source'
   const setReaderBlocked = mediaView?.setReaderBlocked
   useEffect(() => {
     setReaderBlocked?.(moreMenuOpen || orderReviewOpen)
@@ -96,7 +95,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              {showingLocalImages && mediaView?.readingMenu && <>
+              {mediaView?.readingMenu && <>
                 <DropdownMenuGroup>
                   <DropdownMenuItem disabled={mediaView.readingMenu.disabled} onSelect={() => mediaView.requestReadingAction('filter')}>
                     <ListFilterIcon aria-hidden="true" />{mediaView.readingMenu.unreadOnly ? '查看全部' : '只看未读'}
@@ -127,23 +126,21 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
                     管理当前作品
                   </Link>
                 </DropdownMenuItem>
-                {showingLocalImages && data.images.length > 1 && (
+                {data.images.length > 1 && (
                   <DropdownMenuItem onSelect={() => setOrderReviewOpen(true)}>
                     <ListOrderedIcon aria-hidden="true" />
                     顺序校对
                   </DropdownMenuItem>
                 )}
-                {showingLocalImages && (
-                  <DropdownMenuItem
-                    onSelect={() => {
-                      setImages(data.images)
-                      router.push(`/artworks/preview?artworkId=${data.id}`)
-                    }}
-                  >
-                    <FullscreenIcon aria-hidden="true" />
-                    全屏预览
-                  </DropdownMenuItem>
-                )}
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setImages(data.images)
+                    router.push(`/artworks/preview?artworkId=${data.id}`)
+                  }}
+                >
+                  <FullscreenIcon aria-hidden="true" />
+                  全屏预览
+                </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>

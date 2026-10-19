@@ -7,13 +7,21 @@ vi.mock('@/services/artwork-service', () => ({
     id: 146,
     title: '测试作品',
     description: '作品描述',
-    externalId: '12345',
+    externalId: 'legacy-storage-identity',
+    pixivArtworkId: '12345',
     artist: { id: 13, name: '测试艺术家', avatar: null },
     creators: [{ id: 13, name: '测试艺术家', avatar: null, kind: 'PERSON', pixivUserId: '67890' }],
     images: [{ id: 1, path: '/media.jpg' }],
     tags: [{ id: 1, name: '测试标签' }],
     series: []
   }))
+}))
+
+vi.mock('@/services/artwork/source-links', () => ({
+  getArtworkSourceLinks: vi.fn(async () => [
+    { id: 'source-one', label: 'E-Hentai #101', href: '/api/artworks/146/sources/source-one' },
+    { id: 'source-two', label: 'E-Hentai #102', href: '/api/artworks/146/sources/source-two' }
+  ])
 }))
 
 vi.mock('../_components/nav-head', () => ({ default: () => null }))
@@ -43,7 +51,21 @@ describe('ArtworkDetailPage layout', () => {
       expect(link.querySelector('svg[aria-hidden="true"]')).toBeTruthy()
       expect(link.getAttribute('target')).toBe('_blank')
       expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+      expect(link.getAttribute('referrerpolicy')).toBe('no-referrer')
     }
+  })
+
+  it('renders every source as a separate safe external link in the information area', async () => {
+    render(await artworkDetailPage({ params: Promise.resolve({ id: '146' }) } as Parameters<typeof artworkDetailPage>[0]))
+    for (const [label, id] of [['E-Hentai #101', 'source-one'], ['E-Hentai #102', 'source-two']]) {
+      const link = screen.getByRole('link', { name: label })
+      expect(link.getAttribute('href')).toBe(`/api/artworks/146/sources/${id}`)
+      expect(link.getAttribute('target')).toBe('_blank')
+      expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+      expect(link.getAttribute('referrerpolicy')).toBe('no-referrer')
+      expect(link.closest('header')).toBeTruthy()
+    }
+    expect(screen.queryByRole('tab')).toBeNull()
   })
 
   it('keeps metadata constrained while rendering artwork media outside the padded containers', async () => {

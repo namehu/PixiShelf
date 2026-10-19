@@ -16,7 +16,7 @@ import {
 import {
   VerticalMediaPreviewCore,
   type VerticalMediaPreviewController
-} from '@/components/source-preview/vertical-media-preview-core'
+} from '@/components/media-preview/vertical-media-preview-core'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 import { isConfirmedStaticWebp } from '@/lib/media-animation'
 import { withMediaVersion } from '@/lib/media-url'

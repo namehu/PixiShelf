@@ -12,9 +12,6 @@ vi.mock('next/link', () => ({ default: ({ children, ...props }: ComponentProps<'
 vi.mock('../archive-add-dialog', () => ({ ArchiveAddDialog: () => null }))
 vi.mock('../archive-item-drawer', () => ({ ArchiveItemDrawer: () => null }))
 vi.mock('../archive-bulk-result-dialog', () => ({ ArchiveBulkResultDialog: () => null }))
-vi.mock('@/components/source-preview/source-preview-button', () => ({
-  SourcePreviewButton: () => <button>原站预览</button>
-}))
 vi.mock('../archive-task-creators', () => ({
   ArchiveTaskCreators: ({ task }: { task: { id: string } }) => {
     useEffect(() => {

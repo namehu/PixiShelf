@@ -2,7 +2,7 @@
 
 import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import type { inferRouterOutputs } from '@trpc/server'
-import { ArrowUpRightIcon, BanIcon, BookOpenIcon, RotateCcwIcon } from 'lucide-react'
+import { ExternalLinkIcon, ArrowUpRightIcon, BanIcon, BookOpenIcon, RotateCcwIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { DISCOVERY_LANGUAGES } from '@/lib/archive-discovery-filters'
 import { cn } from '@/lib/utils'
@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
-import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import type { ArchiveUploaderResultView } from '@/store/admin/use-admin-preferences-store'
 import { CatalogStatusBadge, DiscoveryCreatorStatus } from './discovery-creator-status'
 import { ArchiveDiscoveryResultList, type ArchiveDiscoveryListPosition } from './archive-discovery-result-list'
@@ -260,15 +259,18 @@ export function ScanResults({
                   </a>
                 </Button>
               ) : null}
-              <SourcePreviewButton
-                source={{ kind: 'catalog', itemId: item.id }}
-                variant="ghost"
-                size="icon"
-                aria-label={`原站预览 ${item.title}`}
-                title="原站预览"
-              >
-                <span className="sr-only">原站预览</span>
-              </SourcePreviewButton>
+              <Button asChild variant="ghost" size="icon">
+                <a
+                  href={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  referrerPolicy="no-referrer"
+                  aria-label={`打开原站 ${item.title}`}
+                  title="打开原站"
+                >
+                  <ExternalLinkIcon aria-hidden="true" />
+                </a>
+              </Button>
               {item.deletableFailure ? (
                 <ArchiveDeleteFailedDialog
                   targetType="DISCOVERY_ITEM"

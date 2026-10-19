@@ -5,14 +5,13 @@ import { ArchiveAddDialog } from '../archive-add-dialog'
 const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
   create: vi.fn(),
-  preview: vi.fn(),
   push: vi.fn()
 }))
 
 vi.mock('@tanstack/react-query', () => ({
-  useMutation: (options: { kind?: string }) => ({
+  useMutation: () => ({
     isPending: false,
-    mutate: options.kind === 'preview' ? mocks.preview : mocks.create
+    mutate: mocks.create
   }),
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries })
 }))
@@ -25,9 +24,6 @@ vi.mock('@/lib/trpc', () => ({
       create: { mutationOptions: (options: object) => ({ kind: 'create', ...options }) },
       list: { queryKey: () => ['archive-inbox', 'list'] },
       summary: { queryKey: () => ['archive-inbox', 'summary'] }
-    },
-    archivePreview: {
-      open: { mutationOptions: (options: object) => ({ kind: 'preview', ...options }) }
     }
   })
 }))
@@ -35,7 +31,6 @@ vi.mock('@/lib/trpc', () => ({
 describe('ArchiveAddDialog', () => {
   beforeEach(() => {
     mocks.create.mockReset()
-    mocks.preview.mockReset()
     mocks.push.mockReset()
     mocks.invalidateQueries.mockReset()
   })
@@ -127,21 +122,23 @@ describe('ArchiveAddDialog', () => {
     expect(mocks.create).not.toHaveBeenCalled()
   })
 
-  it('offers a pure preview only for one recognized link', () => {
+  it('offers an external link for one validated input without submitting or closing', () => {
     render(<ArchiveAddDialog />)
     fireEvent.click(screen.getByRole('button', { name: '添加链接' }))
     const input = screen.getByLabelText('作品链接')
-    fireEvent.change(input, { target: { value: 'https://e-hentai.org/g/123/token/?p=2#page' } })
-
-    fireEvent.click(screen.getByRole('button', { name: '仅预览' }))
-    expect(mocks.preview).toHaveBeenCalledWith({
-      source: { kind: 'url', url: 'https://e-hentai.org/g/123/token/?p=2#page' }
-    })
+    fireEvent.change(input, { target: { value: 'https://e-hentai.org/g/123/token/' } })
+    const link = screen.getByRole('link', { name: '打开原站' })
+    expect(link.getAttribute('href')).toBe('https://e-hentai.org/g/123/token/')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(link.getAttribute('referrerpolicy')).toBe('no-referrer')
+    fireEvent.click(link)
     expect(mocks.create).not.toHaveBeenCalled()
-
-    fireEvent.change(input, {
-      target: { value: 'https://e-hentai.org/g/123/token/\nhttps://e-hentai.org/g/124/token/' }
-    })
-    expect(screen.queryByRole('button', { name: '仅预览' })).toBeNull()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect((input as HTMLTextAreaElement).value).toBe('https://e-hentai.org/g/123/token/')
+    fireEvent.change(input, { target: { value: 'https://e-hentai.org/g/123/token/\nhttps://e-hentai.org/g/124/token/' } })
+    expect(screen.queryByRole('link', { name: '打开原站' })).toBeNull()
+    fireEvent.change(input, { target: { value: 'https://example.org/g/123/token/' } })
+    expect(screen.queryByRole('link', { name: '打开原站' })).toBeNull()
   })
 })

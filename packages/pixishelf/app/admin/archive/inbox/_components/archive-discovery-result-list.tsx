@@ -137,12 +137,6 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
     captureRef.current = capturePosition
   }, [capturePosition])
 
-  useEffect(() => {
-    const capture = () => captureRef.current()
-    window.addEventListener('pixishelf:capture-source-position', capture)
-    return () => window.removeEventListener('pixishelf:capture-source-position', capture)
-  }, [])
-
   // Retain the last visible artwork when leaving a source or changing scroll hosts.
   useLayoutEffect(() => () => captureRef.current(), [positionKey, isDesktop])
 

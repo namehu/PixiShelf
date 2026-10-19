@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ControlledAutoBrowseControls } from '@/components/source-preview/controlled-auto-browse-controls'
+import { ControlledAutoBrowseControls } from '@/components/media-preview/controlled-auto-browse-controls'
 import { useArtworkAutoBrowseStore, type AutoBrowseMode } from '@/store/use-artwork-auto-browse-store'
 
 interface AutoBrowseControlsProps {

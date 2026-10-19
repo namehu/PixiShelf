@@ -14,7 +14,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
-import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
+import { archiveTaskSourceHref } from './archive-task-navigation'
 import { AdminWorkbench } from '../../_components/admin-workbench'
 import { archiveSourceLabel } from './archive-source-label'
 
@@ -220,8 +220,17 @@ export function ArchiveTrash() {
                         重试维护
                       </Button>
                     )}
-                    {item.taskId && (
-                      <SourcePreviewButton size="sm" variant="ghost" source={{ kind: 'task', taskId: item.taskId }} />
+                    {item.taskId ? (
+                      <Button asChild size="sm" variant="ghost">
+                        <a
+                          href={archiveTaskSourceHref(item.taskId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          referrerPolicy="no-referrer"
+                        >打开原站</a>
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="ghost" disabled title="来源地址不可用">打开原站</Button>
                     )}
                     {item.maintenance && (
                       <Button size="sm" variant="ghost" asChild>

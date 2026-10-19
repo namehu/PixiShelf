@@ -9,7 +9,7 @@ import { normalizeTaskFilters, type TaskFilters } from '../archive-task-filters'
 vi.mock('next/link', () => ({
   default: ({ children, ...props }: ComponentProps<'a'>) => <a {...props}>{children}</a>
 }))
-vi.mock('@/components/source-preview/source-preview-button', () => ({ SourcePreviewButton: () => null }))
+
 vi.mock('../archive-task-creator-dialog', () => ({
   ArchiveTaskCreatorDialog: ({ taskId, onClose }: { taskId: string; onClose: () => void }) => (
     <div role="dialog" aria-label="管理艺术家">

@@ -21,7 +21,7 @@ import {
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@/components/ui/input-group'
 import { Spinner } from '@/components/ui/spinner'
-import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
+import { archiveSubmittedSourceUrl } from '@/lib/archive-submitted-url'
 import { archiveClientErrorMessage } from './archive-client-error'
 import { analyzeArchiveUrlInput } from './archive-intake-view-state'
 import { ArchiveIntakeOptions, DEFAULT_ARCHIVE_INTAKE_OPTIONS } from '../inbox/_components/archive-intake-options'
@@ -50,10 +50,9 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
   const analysis = useMemo(() => analyzeArchiveUrlInput(value), [value])
   const tooMany = analysis.nonEmptyCount > 100
   const inputSummary = archiveUrlInputSummary(analysis)
-  const previewUrl =
-    analysis.nonEmptyCount === 1 && isSourcePreviewInput(analysis.lines[0]?.value)
-      ? analysis.lines[0]?.value
-      : undefined
+  const sourceUrl = analysis.nonEmptyCount === 1
+    ? archiveSubmittedSourceUrl(analysis.lines[0]?.value ?? '')
+    : null
   const createMutation = useMutation(
     trpc.archiveInbox.create.mutationOptions({
       onSuccess: async (result) => {
@@ -233,16 +232,12 @@ export function ArchiveAddDialog({ trigger, onCreated }: ArchiveAddDialogProps) 
           />
 
           <DialogFooter>
-            {previewUrl ? (
-              <SourcePreviewButton
-                source={{ kind: 'url', url: previewUrl }}
-                variant="secondary"
-                className="min-h-11 sm:min-h-9"
-                disabled={createMutation.isPending}
-                onOpened={() => changeOpen(false)}
-              >
-                仅预览
-              </SourcePreviewButton>
+            {sourceUrl ? (
+              <Button asChild variant="secondary" className="min-h-11 sm:min-h-9">
+                <a href={sourceUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
+                  打开原站
+                </a>
+              </Button>
             ) : null}
             <Button
               type="button"
@@ -303,22 +298,4 @@ function clipboardFallbackMessage() {
   const reason =
     window.isSecureContext === false ? '当前访问地址不是安全连接，无法一键读取剪贴板' : '浏览器未允许一键读取剪贴板'
   return `${reason}；已定位输入框，请按 Ctrl+V 或使用系统粘贴。`
-}
-
-function isSourcePreviewInput(input: string | undefined) {
-  if (!input) return false
-  try {
-    const url = new URL(input)
-    return (
-      url.protocol === 'https:' &&
-      !url.username &&
-      !url.password &&
-      !url.port &&
-      url.hostname.toLowerCase() === 'e-hentai.org' &&
-      (/^\/g\/[1-9]\d*\/[A-Za-z0-9]+\/?$/.test(url.pathname) ||
-        /^\/s\/[A-Za-z0-9]+\/[1-9]\d*-[1-9]\d*\/?$/.test(url.pathname))
-    )
-  } catch {
-    return false
-  }
 }

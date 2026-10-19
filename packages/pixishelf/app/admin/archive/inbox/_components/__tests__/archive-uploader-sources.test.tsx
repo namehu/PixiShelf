@@ -24,7 +24,6 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
   toastWarning: vi.fn(),
-  preview: vi.fn(),
   push: vi.fn(),
   navigateSource: vi.fn(),
   navigateSourceList: vi.fn(),
@@ -40,7 +39,6 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: mocks.push }) }))
-vi.mock('@/components/auth/auth-provider', () => ({ useAuth: () => ({ user: { id: 'preview-owner' } }) }))
 vi.mock('@/hooks/use-media-query', () => ({ useMediaQuery: () => mocks.isDesktop }))
 
 vi.mock('@/components/ui/dropdown-menu', async () => {
@@ -278,9 +276,7 @@ vi.mock('@tanstack/react-query', () => ({
                           variables
                         )
                       }
-                    : options.kind === 'preview'
-                      ? mocks.preview
-                      : vi.fn()
+                    : vi.fn()
   })
 }))
 
@@ -366,9 +362,6 @@ vi.mock('@/lib/trpc', () => ({
     archiveInbox: {
       list: { queryKey: () => ['inbox-list'] },
       summary: { queryKey: () => ['inbox-summary'] }
-    },
-    archivePreview: {
-      open: { mutationOptions: (options: object) => ({ kind: 'preview', ...options }) }
     }
   })
 }))
@@ -514,28 +507,6 @@ describe('ArchiveUploaderSources', () => {
     expect(mocks.navigateSource).toHaveBeenCalledWith('source-1', 'push')
     expect(await screen.findByRole('button', { name: '返回来源列表' })).toBeTruthy()
     expect(screen.getByTestId('discovery-virtuoso').getAttribute('data-window-scroll')).toBe('true')
-  })
-
-  it('restores result filters without overriding the latest local display preference', async () => {
-    const first = renderSources()
-    fireEvent.click(screen.getByLabelText('查看已归档'))
-    fireEvent.click(screen.getByLabelText('使用卡片模式'))
-    fireEvent(window, new Event('pixishelf:open-source-preview'))
-    first.unmount()
-    useAdminPreferencesStore.setState({ archiveUploaderResultView: 'list' })
-    renderSources()
-    await waitFor(() => expect(screen.getByLabelText('查看已归档').getAttribute('data-state')).toBe('on'))
-    expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('list')
-  })
-
-  it('returns to the source list when the restored source has been deleted', async () => {
-    const first = renderSources()
-    fireEvent(window, new Event('pixishelf:open-source-preview'))
-    first.unmount()
-    currentDetailData = null
-    currentSourcesData = []
-    renderSources()
-    await waitFor(() => expect(mocks.navigateSourceList).toHaveBeenCalledWith('replace'))
   })
 
   it('keeps the mobile selection when returning to the list and reopening the same source', async () => {
@@ -898,12 +869,16 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
-  it('uses cards with an independent source link and clickable preview while retaining selection', () => {
+  it('uses cards with an independent source link while retaining selection', () => {
     renderSources()
     fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
     fireEvent.click(screen.getByLabelText('使用卡片模式'))
-    fireEvent.click(screen.getByRole('button', { name: '原站预览 Gallery 302' }))
-    expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
+    fireEvent.click(screen.getByRole('link', { name: '打开原站 Gallery 302' }))
+    const sourceLink = screen.getByRole('link', { name: '打开原站 Gallery 302' })
+    expect(sourceLink.getAttribute('href')).toBe('/api/archive/catalog/catalog-item-1/source')
+    expect(sourceLink.getAttribute('target')).toBe('_blank')
+    expect(sourceLink.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(sourceLink.getAttribute('referrerpolicy')).toBe('no-referrer')
     expect(screen.getAllByRole('link', { name: '在新标签页打开原站 Gallery 302' })[0]!.getAttribute('href')).toBe(
       '/api/archive/catalog/catalog-item-1/source'
     )
@@ -913,11 +888,15 @@ describe('ArchiveUploaderSources', () => {
     expect(screen.getByRole('checkbox', { name: '选择 Gallery 302' }).getAttribute('data-state')).toBe('checked')
   })
 
-  it('opens source preview independently from the stored cover popup', () => {
+  it('opens the original source independently from the stored cover popup', () => {
     renderSources()
 
-    fireEvent.click(screen.getByRole('button', { name: '原站预览 Gallery 302' }))
-    expect(mocks.preview).toHaveBeenCalledWith({ source: { kind: 'catalog', itemId: 'catalog-item-1' } })
+    fireEvent.click(screen.getByRole('link', { name: '打开原站 Gallery 302' }))
+    const sourceLink = screen.getByRole('link', { name: '打开原站 Gallery 302' })
+    expect(sourceLink.getAttribute('href')).toBe('/api/archive/catalog/catalog-item-1/source')
+    expect(sourceLink.getAttribute('target')).toBe('_blank')
+    expect(sourceLink.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(sourceLink.getAttribute('referrerpolicy')).toBe('no-referrer')
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 

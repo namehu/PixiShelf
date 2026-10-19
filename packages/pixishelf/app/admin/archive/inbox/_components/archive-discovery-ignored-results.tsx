@@ -1,10 +1,9 @@
 'use client'
 
-import { SourcePreviewButton } from '@/components/source-preview/source-preview-button'
 import { cn } from '@/lib/utils'
 
 import type { inferRouterOutputs } from '@trpc/server'
-import { ArchiveRestoreIcon, RotateCcwIcon } from 'lucide-react'
+import { ExternalLinkIcon, ArchiveRestoreIcon, RotateCcwIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Button } from '@/components/ui/button'
@@ -172,21 +171,28 @@ export function IgnoredResults({
             </div>
             <div
               className={cn(
-                'pointer-events-auto flex items-center justify-end [&_button]:size-11 sm:[&_button]:size-9',
+                'pointer-events-auto flex items-center justify-end [&_button]:size-11 [&_a]:size-11 sm:[&_button]:size-9 sm:[&_a]:size-9',
                 resultView === 'cards' ? 'col-start-2 row-start-1' : 'col-start-3 row-start-1 max-sm:flex-col'
               )}
             >
               {item.catalogItemId ? (
-                <SourcePreviewButton
-                  source={{ kind: 'catalog', itemId: item.catalogItemId }}
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`原站预览 ${item.title}`}
-                  title="原站预览"
-                >
-                  <span className="sr-only">原站预览</span>
-                </SourcePreviewButton>
-              ) : null}
+                <Button asChild variant="ghost" size="icon">
+                  <a
+                    href={`/api/archive/catalog/${encodeURIComponent(item.catalogItemId)}/source`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    referrerPolicy="no-referrer"
+                    aria-label={`打开原站 ${item.title}`}
+                    title="打开原站"
+                  >
+                    <ExternalLinkIcon aria-hidden="true" />
+                  </a>
+                </Button>
+              ) : (
+                <Button variant="ghost" size="icon" disabled title="来源地址不可用" aria-label="来源地址不可用">
+                  <ExternalLinkIcon aria-hidden="true" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"

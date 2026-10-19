@@ -6,12 +6,6 @@ vi.mock('../archive-delete-failed-dialog', () => ({
   ArchiveDeleteFailedDialog: ({ disabled }: { disabled: boolean }) => <button disabled={disabled}>删除失败记录</button>
 }))
 
-vi.mock('@/components/source-preview/source-preview-button', () => ({
-  SourcePreviewButton: ({ source }: { source: { itemId: string } }) => (
-    <button type="button">预览 {source.itemId}</button>
-  )
-}))
-
 describe('archive intake retry actions', () => {
   afterEach(() => cleanup())
 
@@ -87,10 +81,10 @@ describe('archive intake retry actions', () => {
     expect((screen.getByRole('button', { name: '修改并重试' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('offers preview when the service marked the submitted source as available', () => {
+  it('offers a validated submitted URL without triggering retry', () => {
     render(
       <ArchiveIntakeRetryActions
-        item={{ id: 'item-82', status: 'QUEUED', sourcePreviewAvailable: true } as any}
+        item={{ id: 'item-82', status: 'QUEUED', submittedUrl: 'https://e-hentai.org/g/123/token/' } as any}
         actionPending={false}
         retrying={false}
         onRetry={vi.fn()}
@@ -98,6 +92,26 @@ describe('archive intake retry actions', () => {
       />
     )
 
-    expect(screen.getByRole('button', { name: '预览 item-82' })).toBeTruthy()
+    const link = screen.getByRole('link', { name: '打开原站' })
+    expect(link.getAttribute('href')).toBe('https://e-hentai.org/g/123/token/')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(link.getAttribute('referrerpolicy')).toBe('no-referrer')
+  })
+
+  it('disables unavailable or untrusted submitted URLs', () => {
+    render(
+      <ArchiveIntakeRetryActions
+        item={{ id: 'item-untrusted', status: 'QUEUED', submittedUrl: 'https://example.org/g/123/token/' } as any}
+        actionPending={false}
+        retrying={false}
+        onRetry={vi.fn()}
+        onReplace={vi.fn()}
+      />
+    )
+    expect(screen.queryByRole('link', { name: '打开原站' })).toBeNull()
+    const button = screen.getByRole('button', { name: '打开原站' })
+    expect(button.hasAttribute('disabled')).toBe(true)
+    expect(button.getAttribute('title')).toBe('来源地址不可用')
   })
 })

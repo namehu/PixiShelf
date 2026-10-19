@@ -2,8 +2,6 @@
 
 import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import { ScanResults } from './archive-discovery-scan-results'
-import { useAuth } from '@/components/auth/auth-provider'
-import { readArchivePreviewReturnState, saveArchivePreviewReturnState } from './archive-preview-return-state'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -82,7 +80,6 @@ export function ArchiveUploaderSources({
   onNavigateInboxItem: (itemId: string) => void
 }) {
   const trpc = useTRPC()
-  const { user } = useAuth()
   const queryClient = useQueryClient()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const [layoutReady, setLayoutReady] = useState(false)
@@ -113,39 +110,6 @@ export function ArchiveUploaderSources({
   const previousProcessingCount = useRef<{ sourceId: string; count: number } | null>(null)
   const resultView = useAdminPreferencesStore((state) => state.archiveUploaderResultView)
   const setResultView = useAdminPreferencesStore((state) => state.setArchiveUploaderResultView)
-  const restoredPreviewRef = useRef(false)
-
-  useEffect(() => {
-    if (!user?.id) return
-    const saved = readArchivePreviewReturnState(user.id, window.location.pathname + window.location.search)
-    if (!saved) return
-    restoredPreviewRef.current = true
-    setSourceFilters(saved.sourceFilters ?? DEFAULT_SOURCE_FILTERS)
-    sourceListScrollRef.current = saved.sourceListScroll ?? 0
-    activeDraftSourceIdRef.current = saved.selectedSourceId
-    setResultFeed(saved.resultFeed)
-    setContentFilters(saved.contentFilters ?? { ...DEFAULT_DISCOVERY_FILTERS, unboundOnly: saved.unboundOnly })
-    resultPositionsRef.current = new Map(saved.positions)
-  }, [user?.id])
-
-  useEffect(() => {
-    if (!user?.id) return
-    const save = () =>
-      saveArchivePreviewReturnState(user.id, window.location.pathname + window.location.search, {
-        savedAt: Date.now(),
-        sourceFilter: sourceFilters.kind,
-        sourceFilters,
-        sourceListScroll: sourceListScrollRef.current,
-        contentFilters,
-        selectedSourceId: locatedSourceId,
-        resultFeed,
-        unboundOnly,
-        positions: [...resultPositionsRef.current].slice(-100)
-      })
-    window.addEventListener('pixishelf:open-source-preview', save)
-    return () => window.removeEventListener('pixishelf:open-source-preview', save)
-  }, [user?.id, sourceFilters, contentFilters, locatedSourceId, resultFeed, unboundOnly])
-
   useEffect(() => setLayoutReady(true), [])
 
   useEffect(() => {
@@ -256,16 +220,6 @@ export function ArchiveUploaderSources({
     )
   )
   const resultCounts = contentFiltered ? filteredCountsQuery.data?.[selectedSourceId ?? ''] : selectedCounts
-  useEffect(() => {
-    if (!restoredPreviewRef.current || !selectedSourceId) return
-    if (
-      (detailQuery.isSuccess && !detail) ||
-      (detailQuery.error as { data?: { code?: string } } | null)?.data?.code === 'PRECONDITION_FAILED'
-    ) {
-      restoredPreviewRef.current = false
-      onNavigateSourceList('replace')
-    }
-  }, [detail, detailQuery.error, detailQuery.isSuccess, onNavigateSourceList, selectedSourceId])
   const activeRun = detail?.runs.find((run) => isActiveArchiveUploaderRunStatus(run.status))
   const latestRun = detail?.runs[0]
   const catalogPolling = Boolean(activeRun) || (selectedCounts?.processing ?? 0) > 0

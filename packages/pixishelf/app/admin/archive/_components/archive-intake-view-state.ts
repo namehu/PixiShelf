@@ -36,7 +36,7 @@ export interface ArchiveIntakeSelectionItem {
   resolutionKind: string | null
   providerKey?: string | null
   externalId?: string | null
-  sourcePreviewAvailable?: boolean
+  submittedUrl?: string
   errorCode?: string | null
   retryable?: boolean | null
   downloadMode?: ArchiveDownloadMode

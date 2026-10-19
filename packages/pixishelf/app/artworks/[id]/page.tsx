@@ -6,6 +6,7 @@ import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import { PageContainer } from '@/components/layout/page-container'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { getArtworkById } from '@/services/artwork-service'
+import { getArtworkSourceLinks } from '@/services/artwork/source-links'
 import ArtworkDes from './_components/artwork-des'
 import NavHead from './_components/nav-head'
 import { ArtworkMediaSection } from './_components/artwork-media-section'
@@ -22,6 +23,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
     notFound()
   }
 
+  const sourceLinks = await getArtworkSourceLinks(data.id)
   const creators = data.creators ?? []
 
   return (
@@ -58,6 +60,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
                           href={`https://www.pixiv.net/users/${pixivUserId}`}
                           target="_blank"
                           rel="noopener noreferrer"
+                          referrerPolicy="no-referrer"
                           title="Pixiv 作者主页"
                           aria-label="在 Pixiv 查看该作者主页（新标签页）"
                           className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -68,11 +71,26 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
                     </div>
                   ))}
 
-                  {data.externalId && (
+                  {sourceLinks.map((source) => (
                     <a
-                      href={`https://www.pixiv.net/artworks/${data.externalId}`}
+                      key={source.id}
+                      href={source.href}
                       target="_blank"
                       rel="noopener noreferrer"
+                      referrerPolicy="no-referrer"
+                      title="在新标签页打开原站"
+                      className="inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                    >
+                      <ExternalLinkIcon className="size-4" aria-hidden="true" />
+                      <PrivacySensitiveText>{source.label}</PrivacySensitiveText>
+                    </a>
+                  ))}
+                  {data.pixivArtworkId && (
+                    <a
+                      href={`https://www.pixiv.net/artworks/${data.pixivArtworkId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      referrerPolicy="no-referrer"
                       title="Pixiv 原作"
                       aria-label="在 Pixiv 查看该作品（新标签页）"
                       className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"

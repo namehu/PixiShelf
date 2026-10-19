@@ -17,7 +17,7 @@ vi.mock('next/image', () => ({
     onError?: React.ReactEventHandler<HTMLImageElement>
   }) => <img src={src} alt={alt} onLoad={onLoad} onError={onError} /> // oxlint-disable-line nextjs/no-img-element
 }))
-vi.mock('@/components/source-preview/vertical-media-preview-core', () => ({
+vi.mock('@/components/media-preview/vertical-media-preview-core', () => ({
   VerticalMediaPreviewCore: ({ items, renderSlide }: {
     items: unknown[]
     renderSlide: (item: unknown, context: { index: number; active: boolean; eager: boolean }) => React.ReactNode

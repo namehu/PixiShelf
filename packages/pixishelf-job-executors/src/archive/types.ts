@@ -83,55 +83,6 @@ export interface ArchiveProviderContext {
   runResolveRequest?<T>(operation: () => Promise<T>): Promise<T>
 }
 
-export interface ArchiveThumbnailCrop {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-export interface ArchiveThumbnail {
-  /** Server-only locator; never serialize this into the browser thumbnail DTO. */
-  sourcePageUrl?: string
-  /** Zero-based position in the complete remote gallery. */
-  ordinal: number
-  url: string
-  /** Visible thumbnail width in source CSS pixels. */
-  width: number
-  /** Visible thumbnail height in source CSS pixels. */
-  height: number
-  crop?: ArchiveThumbnailCrop
-}
-
-export interface ArchiveThumbnailPage {
-  providerKey: string
-  externalId: string
-  canonicalUrl: string
-  title: string
-  total: number | null
-  /** Zero-based remote gallery page, matching the E-Hentai `p` parameter. */
-  page: number
-  items: ArchiveThumbnail[]
-  nextPage: number | null
-}
-
-export interface ArchiveThumbnailPageInput {
-  url: string
-  /** Zero-based remote gallery page. */
-  page: number
-}
-
-export interface ArchivePreviewImageInput {
-  canonicalUrl: string
-  sourcePageUrl: string
-  ordinal: number
-}
-
-export interface ArchivePreviewImage {
-  ordinal: number
-  url: string
-}
-
 export type ArchiveUploaderIdentityKind = 'NAME' | 'UID'
 
 export interface ArchiveUploaderScanInput {
@@ -236,8 +187,6 @@ export interface ArchiveProvider extends ArchiveMediaProvider {
   readonly requestGovernance: 'PER_REQUEST'
   accepts(url: URL): boolean
   resolve(url: string, context?: ArchiveProviderContext): Promise<ResolvedArchive>
-  previewPage?(input: ArchiveThumbnailPageInput, context?: ArchiveProviderContext): Promise<ArchiveThumbnailPage>
-  previewImage?(input: ArchivePreviewImageInput, context?: ArchiveProviderContext): Promise<ArchivePreviewImage>
   openMedia(item: ArchiveProviderMediaItem, context: ArchiveDownloadContext): Promise<ArchiveRemoteMedia>
 }
 

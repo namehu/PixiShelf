@@ -12,7 +12,7 @@ export function registerDiscoveryRowCases<
   getItem: () => T
   setItems: (items: T[]) => void
 }) {
-  it('toggles the row selection without hijacking title links, preview actions or the checkbox', () => {
+  it('toggles the row selection without hijacking title links, source actions or the checkbox', () => {
     renderSources()
     const checkbox = screen.getByRole('checkbox', { name: '选择 Gallery 302' })
     const row = checkbox.closest('[data-discovery-item]')!
@@ -25,7 +25,7 @@ export function registerDiscoveryRowCases<
     expect(title.getAttribute('target')).toBe('_blank')
     expect(title.getAttribute('href')).toBe('/api/archive/catalog/catalog-item-1/source')
     fireEvent.click(title)
-    fireEvent.click(screen.getByRole('button', { name: '原站预览 Gallery 302' }))
+    fireEvent.click(screen.getByRole('link', { name: '打开原站 Gallery 302' }))
     expect(checkbox.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(checkbox)
     expect(checkbox.getAttribute('aria-checked')).toBe('true')

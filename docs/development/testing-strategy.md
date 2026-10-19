@@ -156,7 +156,7 @@ Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client
 - 两个 Worker 进程竞争时每 lane 最多一个 RUNNING，同时允许一个 resolver 和一个 writer；
 - 收件 create/enqueue/bulk 幂等、FIFO、暂停/重试/取消、Worker 崩溃恢复和未授权零写入；
 - `RECONCILE` 只物化子任务，回收/恢复/永久清理在 writer lane 中根目录受限、可重入并最终 fenced；
-- 30 天保留任务只删除收件、终态上传者扫描、已完成批量记录和过期预览，不删除上传者来源/游标、领域实体、任务与媒体。
+- 30 天保留任务只删除收件、终态上传者扫描、已完成批量记录和历史冻结流程的过期 ArchivePreviewSession，不删除上传者来源/游标、领域实体、任务与媒体。
 - 归档媒体设置默认值和 1/8 边界，执行态保存冲突，以及 advisory lock 下“先保存/先启动”的两个顺序；恢复与重试读取新值，运行中执行保持冻结值；
 - Executor 活动 worker、活动传输流与 Provider permit 不超过同一冻结上限，失败流从有效字节扣除且重试不重复累计；逐文件实时遥测覆盖解析图片页、等待响应、下载和校验写入，不得携带远端 URL 或凭据；实时事件两秒限频不吞普通阶段、警告和终态；
 - Dispatcher 假时钟覆盖 REALTIME 两秒限频、STANDARD 的 5%/5 秒与 30 秒兜底、阶段真实变化、WARN/ERROR 直通和结算前尾部刷新；PostgreSQL 覆盖 `progressData` 与事件原子写、fence 丢失零写入和旧记录 `null`；

@@ -24,12 +24,6 @@ vi.mock('@/components/ui/checkbox', () => ({
   )
 }))
 
-vi.mock('@/components/source-preview/source-preview-button', () => ({
-  SourcePreviewButton: ({ source }: { source: { taskId: string } }) => (
-    <button type="button">原站预览 {source.taskId}</button>
-  )
-}))
-
 vi.mock('@/components/ui/dropdown-menu', () => ({
   DropdownMenu: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DropdownMenuTrigger: ({ children }: { children: React.ReactNode }) => children,
@@ -112,7 +106,7 @@ describe('archive management UI', () => {
     fireEvent.click(screen.getByRole('button', { name: '任务 hidden' }))
     expect(onViewItems).toHaveBeenCalledOnce()
     expect(screen.queryByRole('link', { name: '查看作品' })).toBeNull()
-    expect(screen.getByRole('button', { name: '原站预览 hidden' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: '打开原站' })).toBeTruthy()
     expect(screen.getByRole('link', { name: '打开原站' }).getAttribute('href')).toBe('/api/archive/tasks/hidden/source')
   })
 
@@ -142,7 +136,6 @@ describe('archive management UI', () => {
       />
     )
     expect(screen.getByRole('link', { name: '任务 active' }).getAttribute('href')).toBe('/artworks/42')
-    expect(screen.getAllByRole('button', { name: /原站预览/ })).toHaveLength(2)
     expect(screen.getAllByRole('link', { name: '打开原站' })).toHaveLength(2)
     expect(screen.getAllByText('10 张')).toHaveLength(2)
     expect(screen.queryByRole('progressbar')).toBeNull()
@@ -172,7 +165,7 @@ describe('archive management UI', () => {
     expect(screen.queryByText('原图')).toBeNull()
     expect(screen.queryByText(task.submittedUrl)).toBeNull()
     expect(screen.queryByTestId('published-media')).toBeNull()
-    expect(screen.getByRole('button', { name: '原站预览 active' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: '打开原站' })).toBeTruthy()
     const source = screen.getByRole('link', { name: '打开原站' })
     expect(source.getAttribute('href')).toBe('/api/archive/tasks/active/source')
     expect(source.getAttribute('target')).toBe('_blank')

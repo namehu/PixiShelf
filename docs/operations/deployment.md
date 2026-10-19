@@ -58,7 +58,7 @@ WebP 流式播放器默认启用，手动播放和自动浏览均使用 WASM，�
 | 宿主机 Next.js | `packages/pixishelf/.env.local` | `127.0.0.1:5432` 或 `localhost:5432`   |
 | Docker Compose | `build/.env`                    | Compose 在容器内覆盖为 `postgres:5432` |
 
-出站代理继续使用 `ARCHIVE_HTTPS_PROXY`，覆盖归档、来源扫描、服务端预览 HTML，以及 Pixiv 艺术家资料/头像/背景、作品 metadata、标签资料/封面和系列缺少有效本地快照时的请求。它不控制浏览器远程图片、浏览器脚本、本地任务或内部服务，也不会让作品同步下载原图。优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`；专用变量显式为空强制直连，仅未设置时遵循 `NO_PROXY/no_proxy`。只接受无凭据、无路径/query/hash 的 HTTP(S) 代理，代理失败不会直连降级。
+出站代理继续使用 `ARCHIVE_HTTPS_PROXY`，覆盖归档、来源扫描，以及 Pixiv 艺术家资料/头像/背景、作品 metadata、标签资料/封面和系列缺少有效本地快照时的请求。它不控制浏览器远程图片、浏览器脚本、本地任务或内部服务，也不会让作品同步下载原图。优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`；专用变量显式为空强制直连，仅未设置时遵循 `NO_PROXY/no_proxy`。只接受无凭据、无路径/query/hash 的 HTTP(S) 代理，代理失败不会直连降级。
 
 Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置后须重新创建对应容器，单纯 restart 不会重新加载环境文件。本地 App 使用 `packages/pixishelf/.env.local`，与读取 `build/.env` 的 Worker 分别配置；修改后重启对应本地进程。Pixiv 代理 CONNECT 使用目标 hostname，由代理解析目标 DNS；HTTPS 443、精确域名白名单和每跳校验保持有效。归档现有本地 DNS、SSRF 与 fake-IP 校验不变，细节见[权限与接口边界](../security/access-control.md#服务、网络和存储矩阵)。
 

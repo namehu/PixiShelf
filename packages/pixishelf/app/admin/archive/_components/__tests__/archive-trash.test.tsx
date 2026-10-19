@@ -26,9 +26,6 @@ vi.mock('@/lib/trpc', () => ({
 vi.mock('@/components/privacy/privacy-sensitive-text', () => ({
   PrivacySensitiveText: ({ children }: { children: ReactNode }) => <span>{children}</span>
 }))
-vi.mock('@/components/source-preview/source-preview-button', () => ({
-  SourcePreviewButton: () => <button>原站预览</button>
-}))
 vi.mock('../../../_components/admin-workbench', () => ({
   AdminWorkbench: ({ children, actions }: { children: ReactNode; actions?: ReactNode }) => (
     <main>
@@ -82,6 +79,14 @@ describe('archive trash workbench', () => {
     fireEvent.click(screen.getByRole('button', { name: '刷新' }))
     await screen.findByText('回收站为空')
     await waitFor(() => expect(keys.every((key) => client.getQueryState(key)?.isInvalidated)).toBe(true))
+  })
+  it('opens the original source through the existing task route with safe new-tab attributes', async () => {
+    mount()
+    const link = await screen.findByRole('link', { name: '打开原站' })
+    expect(link.getAttribute('href')).toBe('/api/archive/tasks/task-1/source')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(link.getAttribute('referrerpolicy')).toBe('no-referrer')
   })
   it('restores selected eligible works and displays per-item results', async () => {
     mount()
