@@ -12,6 +12,7 @@ import { ActionDrawer } from './action-drawer'
 import { useHeartAnimation } from '@/hooks/use-heart-animation'
 import { useViewerStore } from '@/store/viewer-store'
 import dayjs from 'dayjs'
+import { cn } from '@/lib/utils'
 import { useShallow } from 'zustand/shallow'
 import { useOptimisticAction } from 'next-safe-action/hooks'
 import { toggleLikeAction } from '@/actions/like-action'
@@ -23,7 +24,8 @@ interface ImageOverlayProps {
   image: RandomImageItem
   mediaControls?: ReactNode
   onInteractionApiChange?: (api: ViewerOverlayInteractionApi | null) => void
-  onEnterClearMode: () => void
+  onHideChrome: () => void
+  onPanelOpenChange?: (open: boolean) => void
 }
 
 export interface ViewerOverlayInteractionApi {
@@ -40,7 +42,8 @@ export default function ImageOverlay({
   image,
   mediaControls,
   onInteractionApiChange,
-  onEnterClearMode
+  onHideChrome,
+  onPanelOpenChange
 }: ImageOverlayProps) {
   const { id, author, createdAt, title, description, tags = [] } = image
   const { artworkLikeMap, syncImageLikeStatus, isChromeHidden } = useViewerStore(
@@ -52,6 +55,14 @@ export default function ImageOverlay({
   )
 
   const [showActionDrawer, setShowActionDrawer] = useState(false)
+  const [tagsOpen, setTagsOpen] = useState(false)
+  useEffect(() => {
+    if (isActive) onPanelOpenChange?.(showActionDrawer || tagsOpen)
+  }, [isActive, onPanelOpenChange, showActionDrawer, tagsOpen])
+  useEffect(() => {
+    if (!isActive) return
+    return () => onPanelOpenChange?.(false)
+  }, [isActive, onPanelOpenChange])
 
   const dayString = dayjs(createdAt).format('YYYY-MM-DD')
 
@@ -112,141 +123,125 @@ export default function ImageOverlay({
         <HeartAnimation key={heart.id} data={heart} />
       ))}
 
-      {isActive && !isChromeHidden && (
-        <div className="absolute inset-0 pointer-events-none">
+      {isActive && (
+        <div
+          aria-hidden={isChromeHidden}
+          inert={isChromeHidden}
+          className={cn(
+            'absolute inset-0 pointer-events-none transition-opacity duration-150 motion-reduce:transition-none',
+            isChromeHidden && 'opacity-0'
+          )}
+        >
           {/* 底部信息栏 */}
           <div
             role="region"
+            data-viewer-control
             aria-label="作品信息与操作"
-            className={`absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 ${
+            className={cn(
+              'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3',
               isChromeHidden ? 'pointer-events-none' : 'pointer-events-auto'
-            }`}
+            )}
           >
             {mediaControls}
-            <div className="text-white">
-              {/* 图片标题 */}
-              <Link
-                href={`/artworks/${image.id}`}
-                className="mb-1 block line-clamp-2 rounded-sm text-sm leading-5 font-semibold outline-none underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-white/70"
-                onClick={stopOverlayPropagation}
-              >
-                <PrivacySensitiveText>{title || '未命名作品'}</PrivacySensitiveText>
-              </Link>
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                {author?.id ? (
+            <div className="flex flex-col gap-1 text-white">
+              <div className="flex min-w-0 items-center gap-2">
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="flex min-w-0 items-center gap-1.5 text-xs leading-6">
+                    {author?.id ? (
+                      <Link
+                        href={`/artists/${author.id}`}
+                        aria-label={`查看艺术家 ${author.name || author.username || '未知艺术家'}`}
+                        className="flex min-w-0 items-center gap-1.5 rounded-sm text-left outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-white/70"
+                        onClick={stopOverlayPropagation}
+                      >
+                        <ArtistAvatar src={author.avatar} name={author.name} size={5} className="shrink-0" />
+                        <PrivacySensitiveText className="truncate font-medium opacity-90">
+                          {author.name || author.username || '未知艺术家'}
+                        </PrivacySensitiveText>
+                      </Link>
+                    ) : (
+                      <span className="truncate opacity-70">未知艺术家</span>
+                    )}
+                    <span aria-hidden="true" className="opacity-40">
+                      ·
+                    </span>
+                    <time dateTime={createdAt} className="shrink-0 text-[11px] text-white/60">
+                      {dayString}
+                    </time>
+                  </div>
                   <Link
-                    href={`/artists/${author.id}`}
-                    aria-label={`查看艺术家 ${author.name || author.username || '未知艺术家'}`}
-                    className="flex min-w-0 items-center gap-1.5 rounded-full text-left outline-none transition-opacity hover:opacity-85 focus-visible:ring-2 focus-visible:ring-white/70"
+                    href={`/artworks/${image.id}`}
+                    className="block truncate rounded-sm text-sm leading-5 font-semibold outline-none underline-offset-4 hover:underline focus-visible:ring-2 focus-visible:ring-white/70"
                     onClick={stopOverlayPropagation}
                   >
-                    <ArtistAvatar src={author.avatar} name={author.name} className="size-7" />
-                    <span className="flex min-w-0 items-center gap-1.5 text-xs leading-none">
-                      <PrivacySensitiveText className="truncate font-medium opacity-90">
-                        @{author.username}
-                      </PrivacySensitiveText>
-                      <span aria-hidden="true" className="opacity-35">
-                        ·
-                      </span>
-                      <span className="shrink-0 text-[11px] opacity-55">{dayString}</span>
-                    </span>
+                    <PrivacySensitiveText>{title || '未命名作品'}</PrivacySensitiveText>
                   </Link>
-                ) : (
-                  <span className="flex min-w-0 items-center gap-1.5 text-xs opacity-70">未知艺术家 · {dayString}</span>
-                )}
+                </div>
 
                 <div className="flex shrink-0 items-center gap-1" role="group" aria-label="作品快捷操作">
                   <LikeButton
                     liked={isLiked}
                     onToggleLike={() => execute({ artworkId: id })}
-                    className="size-11 border border-white/10 bg-black/20 p-0 shadow-none backdrop-blur-md hover:border-white/20 hover:bg-white/15 [&_svg]:size-[18px]"
+                    className="size-11 bg-transparent p-0 shadow-none backdrop-blur-none hover:bg-white/10 [&_svg]:size-[18px]"
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
                     aria-label="更多操作"
-                    className="size-11 rounded-full border border-white/10 bg-black/20 text-white/90 backdrop-blur-md transition-[color,background-color,border-color,transform] hover:scale-105 hover:border-white/20 hover:bg-white/15 hover:text-white active:scale-95 motion-reduce:transform-none"
+                    className="size-11 rounded-full text-white/90 hover:bg-white/10 hover:text-white focus-visible:ring-white/70"
                     onClick={handleMoreClick}
                   >
                     <MoreHorizontal aria-hidden="true" />
                   </Button>
                 </div>
               </div>
-              {(image.authors?.length ?? 0) > 1 && (
-                <div className="mb-2 flex flex-wrap gap-2">
-                  {image.authors!.slice(1).map((creator) => (
-                    <Link
-                      key={creator.id}
-                      href={'/artists/' + creator.id}
-                      onClick={stopOverlayPropagation}
-                      className="text-xs underline underline-offset-4"
-                    >
-                      <PrivacySensitiveText>
-                        {creator.kind === 'GROUP' ? '社团：' : ''}
-                        {creator.name}
-                      </PrivacySensitiveText>
-                    </Link>
-                  ))}
-                </div>
-              )}
               {/* 图片描述 */}
               {description && (
-                <PrivacySensitiveText
-                  as="p"
-                  className="mb-2 overflow-hidden text-ellipsis text-xs leading-5 opacity-85"
-                  style={{
-                    display: '-webkit-box',
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: 'vertical',
-                    maxHeight: '2.5rem'
-                  }}
-                >
+                <PrivacySensitiveText as="p" className="truncate text-xs leading-5 text-white/70">
                   {description}
                 </PrivacySensitiveText>
               )}
 
-              {/* 标签和时间 */}
-              <div className="w-full">
-                {/* 标签 */}
-                {tags.length > 0 && (
-                  <div
-                    className="flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto"
-                    style={{
-                      scrollbarWidth: 'none',
-                      scrollbarColor: 'transparent transparent'
-                    }}
-                  >
-                    {tags.slice(0, 3).map((tag) => (
-                      <Link
-                        key={tag.id}
-                        href={`/tags/${tag.id}`}
-                        className="inline-flex min-h-11 shrink-0 items-center rounded-full bg-white/15 px-2 text-xs leading-4 outline-none transition-colors hover:bg-white/25 focus-visible:ring-2 focus-visible:ring-white/70"
-                        onClick={stopOverlayPropagation}
-                      >
-                        <PrivacySensitiveText>#{tag.name}</PrivacySensitiveText>
-                      </Link>
-                    ))}
-                    {tags.length > 3 && (
-                      <TagsPanel
-                        tags={tags}
-                        trigger={
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            aria-label={`查看其余 ${tags.length - 3} 个标签`}
-                            className="min-h-11 shrink-0 rounded-full bg-white/15 px-2 text-xs leading-4 text-white hover:bg-white/25 hover:text-white focus-visible:ring-white/70"
-                            onClick={stopOverlayPropagation}
-                          >
-                            <MoreHorizontal data-icon="inline-start" aria-hidden="true" />
-                            <span>+{tags.length - 3}</span>
-                          </Button>
-                        }
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* 标签保持单行，完整列表由抽屉承载。 */}
+              {tags.length > 0 && (
+                <div
+                  className="flex w-full flex-nowrap items-center gap-1.5 overflow-x-auto"
+                  style={{
+                    scrollbarWidth: 'none',
+                    scrollbarColor: 'transparent transparent'
+                  }}
+                >
+                  {tags.slice(0, 3).map((tag) => (
+                    <Link
+                      key={tag.id}
+                      href={`/tags/${tag.id}`}
+                      className="inline-flex h-7 max-w-40 shrink-0 items-center rounded-sm px-1 text-xs leading-4 text-white/70 outline-none underline-offset-4 hover:text-white hover:underline focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+                      onClick={stopOverlayPropagation}
+                    >
+                      <PrivacySensitiveText className="truncate">#{tag.name}</PrivacySensitiveText>
+                    </Link>
+                  ))}
+                  {tags.length > 3 && (
+                    <TagsPanel
+                      tags={tags}
+                      onOpenChange={setTagsOpen}
+                      trigger={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          aria-label={`查看其余 ${tags.length - 3} 个标签`}
+                          className="h-7 shrink-0 rounded-full px-2 text-xs leading-4 text-white/70 hover:bg-white/10 hover:text-white focus-visible:ring-inset focus-visible:ring-white/70"
+                          onClick={stopOverlayPropagation}
+                        >
+                          <MoreHorizontal data-icon="inline-start" aria-hidden="true" />
+                          <span>+{tags.length - 3}</span>
+                        </Button>
+                      }
+                    />
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -257,9 +252,9 @@ export default function ImageOverlay({
         open={showActionDrawer}
         onOpenChange={handleActionDrawerOpenChange}
         image={image}
-        onEnterClearMode={() => {
+        onHideChrome={() => {
           setShowActionDrawer(false)
-          onEnterClearMode()
+          onHideChrome()
         }}
       />
     </div>

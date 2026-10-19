@@ -50,6 +50,27 @@ afterEach(() => {
 })
 
 describe('ReadingCollector', () => {
+  it('reports video start and completion once each without heartbeat resets on playback ticks', async () => {
+    const { collector, report } = setup()
+    const observation = { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false }
+    const playback = { currentTime: 1, duration: 100, playing: true }
+    collector.observe('video', { ...observation, playback })
+    await collector.flush()
+    collector.observe('video', { ...observation, playback: { ...playback, currentTime: 89 } })
+    await collector.flush()
+    expect(report).toHaveBeenCalledTimes(1)
+    collector.observe('video', { ...observation, playback: { ...playback, currentTime: 90 } })
+    await collector.flush()
+    expect(report).toHaveBeenCalledTimes(2)
+    expect(report.mock.calls[1]?.[0].events).toMatchObject([{ type: 'VIEW', playback: { currentTime: 90, duration: 100 } }])
+    collector.observe('video', { ...observation, playback: { ...playback, currentTime: 90, playing: false } })
+    await vi.advanceTimersByTimeAsync(61_000)
+    expect(report).toHaveBeenCalledTimes(2)
+    collector.observe('video', { ...observation, playback: { ...playback, currentTime: 90 } })
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(report.mock.calls[2]?.[0].events).toMatchObject([{ type: 'HEARTBEAT', playback: { duration: 100 } }])
+    collector.dispose()
+  })
   it('records ready visible manual media immediately without a dwell timer', async () => {
     const { collector, report } = setup()
     const observation = { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false }

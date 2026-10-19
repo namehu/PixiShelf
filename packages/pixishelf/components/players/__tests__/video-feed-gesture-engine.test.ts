@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFeedGestureEngine, type FeedGestureEngineOptions } from '../video-feed-gesture-engine'
 
 function createEngine(overrides: Partial<FeedGestureEngineOptions> = {}) {
-  let playing = true
+  const playing = true
   let currentTime = 100
   let playbackRate = 1
   const options: FeedGestureEngineOptions = {
@@ -17,16 +17,12 @@ function createEngine(overrides: Partial<FeedGestureEngineOptions> = {}) {
     setPlaybackRate: (rate) => {
       playbackRate = rate
     },
-    onTogglePlayback: vi.fn(() => {
-      playing = !playing
-    }),
+    onToggleChrome: vi.fn(),
     onSeek: vi.fn((time) => {
       currentTime = time
     }),
     onLike: vi.fn(),
     onOpenActions: vi.fn(),
-    getChromeHidden: () => false,
-    onExitClearMode: vi.fn(),
     onFeedback: vi.fn(),
     ...overrides
   }
@@ -43,17 +39,54 @@ describe('createFeedGestureEngine', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
-  it('uses a single video tap for playback and a middle double tap for like', () => {
+  it('uses a single video tap for chrome and a middle double tap for like', () => {
     const single = createEngine()
     tap(single.engine, 50, 1)
     vi.advanceTimersByTime(300)
-    expect(single.options.onTogglePlayback).toHaveBeenCalledOnce()
+    expect(single.options.onToggleChrome).toHaveBeenCalledOnce()
 
     const double = createEngine()
     tap(double.engine, 50, 1)
     tap(double.engine, 50, 2)
     expect(double.options.onLike).toHaveBeenCalledOnce()
-    expect(double.options.onTogglePlayback).not.toHaveBeenCalled()
+    expect(double.options.onToggleChrome).not.toHaveBeenCalled()
+  })
+
+  it.each(['image', 'video'] as const)(
+    'toggles chrome in both directions for %s without changing playback',
+    (mediaKind) => {
+      let hidden = false
+      const { engine, options } = createEngine({
+        mediaKind,
+        onToggleChrome: vi.fn(() => {
+          hidden = !hidden
+        })
+      })
+      tap(engine, 50, 1)
+      vi.advanceTimersByTime(299)
+      expect(hidden).toBe(false)
+      vi.advanceTimersByTime(1)
+      expect(hidden).toBe(true)
+      tap(engine, 50, 2)
+      vi.advanceTimersByTime(300)
+      expect(hidden).toBe(false)
+      expect(options.getPlaying()).toBe(true)
+    }
+  )
+
+  it.each(['cancel', 'destroy', 'drag'] as const)('cancels pending taps on %s', (action) => {
+    const { engine, options } = createEngine()
+    tap(engine, 50, 1)
+    if (action === 'cancel') engine.pointerCancel()
+    if (action === 'destroy') engine.destroy()
+    if (action === 'drag') {
+      engine.pointerDown({ pointerId: 2, pointerType: 'touch', clientX: 50, clientY: 50 })
+      engine.pointerMove({ pointerId: 2, pointerType: 'touch', clientX: 80, clientY: 50 })
+      engine.pointerUp({ pointerId: 2, pointerType: 'touch', clientX: 80, clientY: 50 })
+    }
+    vi.runAllTimers()
+    expect(options.onToggleChrome).not.toHaveBeenCalled()
+    expect(options.onLike).not.toHaveBeenCalled()
   })
 
   it('seeks only in the video edge zones', () => {
@@ -79,17 +112,15 @@ describe('createFeedGestureEngine', () => {
     expect(moved.getPlaybackRate()).toBe(1)
   })
 
-  it('opens actions for paused video and lets a clean-mode single tap exit first', () => {
+  it('opens actions for paused video without toggling chrome', () => {
     const paused = createEngine({ getPlaying: () => false })
     paused.engine.pointerDown({ pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 50 })
     vi.advanceTimersByTime(500)
     expect(paused.options.onOpenActions).toHaveBeenCalledOnce()
 
-    const clear = createEngine({ getChromeHidden: () => true })
-    tap(clear.engine, 50, 1)
+    paused.engine.pointerUp({ pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 50 })
     vi.advanceTimersByTime(300)
-    expect(clear.options.onExitClearMode).toHaveBeenCalledOnce()
-    expect(clear.options.onTogglePlayback).not.toHaveBeenCalled()
+    expect(paused.options.onToggleChrome).not.toHaveBeenCalled()
   })
 
   it('likes anywhere on an image double tap and opens image actions on touch long press', () => {

@@ -43,6 +43,12 @@ sources:
 
 `packages/pixishelf-webp-player` 现有 Playwright 测试使用真实 Worker、WASM 和分块 HTTP，CI 用 Chromium、本地 Windows 用 Edge。它不覆盖业务登录与反向代理。主应用 `.e2e.test.tsx` 仍是 jsdom，不能解释为已覆盖真实浏览器媒体链路。
 
+WebP 的绘制延迟回归须在已显示首帧且进入 `playing` 后注入延迟，不能按全局第几个 RAF 判断播放已经开始。2026-10-17 的 CI #270 中，较慢的 Worker 初始化提前消耗了旧测试的延迟注入，导致 `decodeOmittedFrames > 0` 失败；本地延迟 Worker 模块加载 600ms 可复现。当前用例同时覆盖正常与延迟初始化，保留播放耗时、解码省略及末帧断言，并核对注入帧、独立管线、媒体时长和单次结束。该修复只改变测试，不改变生产播放器。
+
+发布验收须核对同一提交的 CI 最终结论；主应用测试通过、失败用例单独复跑通过或镜像构建已启动，都不能替代 `web`、`worker`、`webp` 及汇总检查的成功结果。
+
+本次修复在 Windows／Edge 完成类型检查、49 项单测、6 项预编译产物测试及 70 项完整浏览器测试；正常／延迟初始化两种绘制延迟场景各重复 5 次通过。Linux／Chromium 结果以修复提交对应的 CI 为准。
+
 ## 标准命令
 
 开发与 computer use 可用 `/artworks?entry=direct` 预先强制原始模式进入，或 `?entry=privacy` 验证遮蔽。该选择同步同源标签，不绕过登录；无需手写隐私存储。URL 入口须回归登录跳转保留参数、消费后清理参数、同路径查询导航，以及已有 30 天期限不续期，详见[浏览器隐私偏好](../features/browser-privacy.md)。

@@ -187,23 +187,48 @@ test('a child failure during dependency fallback cannot leave replay waiting for
   expect(await run(page, 'window.player.getSnapshot().frameIndex')).toBe(8)
   expect(await run(page, 'window.events.filter(e=>e.type==="first-frame").length')).toBe(1)
 })
-test('a late drawing callback does not turn bounded parser lookahead into network buffering', async ({ page }) => {
-  await page.addInitScript(() => {
-    const raf = requestAnimationFrame.bind(window)
-    let ticks = 0
-    window.requestAnimationFrame = (callback) =>
-      raf((time) => {
-        if (++ticks === 4) setTimeout(() => callback(time), 400)
-        else callback(time)
+for (const startupDelayMs of [0, 600]) {
+  test(`a late drawing callback does not turn bounded parser lookahead into network buffering (startup: ${startupDelayMs}ms)`, async ({
+    page
+  }) => {
+    if (startupDelayMs) {
+      await page.route('**/assets/worker.mjs', async (route) => {
+        const response = await route.fetch()
+        await new Promise((resolve) => setTimeout(resolve, startupDelayMs))
+        await route.fulfill({ response })
       })
+    }
+    await page.addInitScript(() => {
+      const fixture = window as typeof window & {
+        player?: { getSnapshot(): { status: string; frameIndex: number | null } }
+        drawingDelayFrame: number | null
+      }
+      fixture.drawingDelayFrame = null
+      const raf = requestAnimationFrame.bind(window)
+      window.requestAnimationFrame = (callback) =>
+        raf((time) => {
+          const snapshot = fixture.player?.getSnapshot()
+          // Loading also schedules RAFs. Inject lateness only after actual playback
+          // starts, so a slow Worker/WASM startup cannot consume the fault injection.
+          if (fixture.drawingDelayFrame === null && snapshot?.status === 'playing' && snapshot.frameIndex !== null) {
+            fixture.drawingDelayFrame = snapshot.frameIndex
+            setTimeout(() => callback(time), 400)
+          } else callback(time)
+        })
+    })
+    await page.reload()
+    await run(page, 'window.start("/tests/fixtures/independent-fast.webp",undefined,false,null,{})')
+    await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
+    const delayedFrame = await run(page, 'window.drawingDelayFrame')
+    expect(delayedFrame).toBeGreaterThanOrEqual(0)
+    expect(delayedFrame).toBeLessThan(119)
+    expect(await run(page, 'window.player.getDiagnostics().pipeline')).toBe('independent')
+    expect(await run(page, 'window.player.getDiagnostics().playbackWallMs')).toBeLessThan(2150)
+    expect(await run(page, 'window.player.getDiagnostics().decodeOmittedFrames')).toBeGreaterThan(0)
+    expect(await run(page, 'window.player.getSnapshot()')).toMatchObject({ frameIndex: 119, presentedMs: 1920 })
+    expect(await run(page, 'window.events.filter(e=>e.type==="ended").length')).toBe(1)
   })
-  await page.reload()
-  await run(page, 'window.start("/tests/fixtures/independent-fast.webp",undefined,false,null,{})')
-  await expect.poll(() => run(page, 'window.player.getSnapshot().status')).toBe('ended')
-  expect(await run(page, 'window.player.getDiagnostics().playbackWallMs')).toBeLessThan(2150)
-  expect(await run(page, 'window.player.getDiagnostics().decodeOmittedFrames')).toBeGreaterThan(0)
-  expect(await run(page, 'window.player.getSnapshot().frameIndex')).toBe(119)
-})
+}
 
 for (const [name, middle, size] of [
   ['middle', true, 3],

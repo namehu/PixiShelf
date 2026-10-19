@@ -22,6 +22,7 @@ import dayjs from 'dayjs'
 import { Button } from '@/components/ui/button'
 import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 import { useAuthUser } from '@/components/auth'
+import { cn } from '@/lib/utils'
 
 type ViewerSource = 'all' | 'artist' | 'tag'
 type ViewerMode = 'ordered' | 'random'
@@ -182,19 +183,40 @@ export default function ViewerPage() {
       mediaCountMax: maxImageCount,
       pageSize: 20
     }
-  }, [hasAudio, maxImageCount, mediaType, ownerUserId, readingStatus, selectedArtist, selectedSources, selectedTags, sourceContext, viewerQuery])
+  }, [
+    hasAudio,
+    maxImageCount,
+    mediaType,
+    ownerUserId,
+    readingStatus,
+    selectedArtist,
+    selectedSources,
+    selectedTags,
+    sourceContext,
+    viewerQuery
+  ])
 
   const feedKey = useMemo(() => JSON.stringify(feedInput), [feedInput])
-  const { data, fetchNextPage, hasNextPage, isLoading, isError, error } = useInfiniteQuery({
+  const { data, fetchNextPage, hasNextPage, isLoading, isFetchingNextPage, isFetchNextPageError, isError, error } =
+    useInfiniteQuery({
       queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput],
       initialPageParam: 1 as number | string,
-      queryFn: ({ pageParam, signal }) => trpcClient.artwork.viewerFeed.query({
-        ...feedInput,
-        cursor: typeof pageParam === 'number' ? pageParam : undefined,
-        readingCursor: feedInput.mode !== 'random' && typeof pageParam === 'string' ? pageParam : undefined,
-        randomCursor: feedInput.mode === 'random' && typeof pageParam === 'string' ? pageParam : undefined
-      }, { signal }),
-      getNextPageParam: (lastPage) => feedInput.mode === 'random' ? lastPage.nextRandomCursor : feedInput.readingStatus ? lastPage.nextReadingCursor : lastPage.nextPage ?? undefined,
+      queryFn: ({ pageParam, signal }) =>
+        trpcClient.artwork.viewerFeed.query(
+          {
+            ...feedInput,
+            cursor: typeof pageParam === 'number' ? pageParam : undefined,
+            readingCursor: feedInput.mode !== 'random' && typeof pageParam === 'string' ? pageParam : undefined,
+            randomCursor: feedInput.mode === 'random' && typeof pageParam === 'string' ? pageParam : undefined
+          },
+          { signal }
+        ),
+      getNextPageParam: (lastPage) =>
+        feedInput.mode === 'random'
+          ? lastPage.nextRandomCursor
+          : feedInput.readingStatus
+            ? lastPage.nextReadingCursor
+            : (lastPage.nextPage ?? undefined),
       staleTime: 10 * 60 * 1000,
       gcTime: 15 * 60 * 1000,
       retry: (attempt, failure) => !failure.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') && attempt < 3,
@@ -203,11 +225,18 @@ export default function ViewerPage() {
     })
 
   const recoveredFeed = useRef<string | null>(null)
+  const loadNextPage = useCallback(async () => {
+    const result = await fetchNextPage({ cancelRefetch: false })
+    if (result.isError) throw result.error
+  }, [fetchNextPage])
   useEffect(() => {
     if (!error?.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') || recoveredFeed.current === feedKey) return
     recoveredFeed.current = feedKey
     resetViewerState()
-    void queryClient.resetQueries({ queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput], exact: true })
+    void queryClient.resetQueries({
+      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput],
+      exact: true
+    })
   }, [error, feedInput, feedKey, ownerUserId, queryClient, resetViewerState])
 
   useEffect(() => resetViewerState(), [feedKey, resetViewerState])
@@ -216,6 +245,10 @@ export default function ViewerPage() {
     setChromeHidden(false)
     return () => setChromeHidden(false)
   }, [setChromeHidden])
+  useEffect(() => {
+    // Feed errors/empty states replace the gesture surface, so keep navigation available.
+    if (isError || images.length === 0) setChromeHidden(false)
+  }, [isError, images.length, setChromeHidden])
 
   const activeFilterCount =
     Number(Boolean(viewerQuery.search)) +
@@ -318,37 +351,42 @@ export default function ViewerPage() {
   return (
     <main className="relative h-dvh w-screen overflow-hidden bg-black">
       <h1 className="sr-only">沉浸浏览</h1>
-      {!isChromeHidden && (
-        <>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="返回"
-            className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-[max(0.75rem,env(safe-area-inset-left))] z-50 size-11 rounded-full bg-black/45 text-white backdrop-blur-md hover:bg-black/65 hover:text-white"
-            onClick={safeBack}
-          >
-            <ChevronLeftIcon aria-hidden="true" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={activeFilterCount > 0 ? `筛选，已启用 ${activeFilterCount} 项` : '筛选'}
-            className="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-50 size-11 rounded-full bg-black/45 text-white backdrop-blur-md hover:bg-black/65 hover:text-white"
-            onClick={() => setIsFilterOpen(true)}
-          >
-            <SlidersHorizontal aria-hidden="true" />
-            {activeFilterCount > 0 && (
-              <span className="absolute -top-1 -right-1 flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] leading-5 font-semibold text-primary-foreground">
-                {activeFilterCount}
-              </span>
-            )}
-          </Button>
-        </>
-      )}
+      <div
+        aria-hidden={isChromeHidden}
+        inert={isChromeHidden}
+        className={cn(
+          'pointer-events-none absolute inset-0 z-50 transition-opacity duration-150 motion-reduce:transition-none [&>button]:pointer-events-auto',
+          isChromeHidden && 'opacity-0'
+        )}
+      >
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label="返回"
+          className="absolute top-[max(0.75rem,env(safe-area-inset-top))] left-[max(0.75rem,env(safe-area-inset-left))] z-50 size-11 rounded-full bg-black/45 text-white backdrop-blur-md hover:bg-black/65 hover:text-white"
+          onClick={safeBack}
+        >
+          <ChevronLeftIcon aria-hidden="true" />
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={activeFilterCount > 0 ? `筛选，已启用 ${activeFilterCount} 项` : '筛选'}
+          className="absolute top-[max(0.75rem,env(safe-area-inset-top))] right-[max(0.75rem,env(safe-area-inset-right))] z-50 size-11 rounded-full bg-black/45 text-white backdrop-blur-md hover:bg-black/65 hover:text-white"
+          onClick={() => setIsFilterOpen(true)}
+        >
+          <SlidersHorizontal aria-hidden="true" />
+          {activeFilterCount > 0 && (
+            <span className="absolute -top-1 -right-1 flex min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[11px] leading-5 font-semibold text-primary-foreground">
+              {activeFilterCount}
+            </span>
+          )}
+        </Button>
+      </div>
 
-      {isError ? (
+      {isError && !data ? (
         <PageError content={error?.message || '无法加载图片数据，请检查网络连接'} />
       ) : isLoading && !data ? (
         <PageLoading />
@@ -360,10 +398,12 @@ export default function ViewerPage() {
         />
       ) : (
         <ImmersiveImageViewer
+          key={`${ownerUserId}:${feedKey}`}
           initialImages={images}
-          onLoadMore={fetchNextPage}
+          onLoadMore={loadNextPage}
           hasMore={!!hasNextPage}
-          isLoading={isLoading}
+          isLoading={isFetchingNextPage}
+          loadMoreError={isFetchNextPageError}
           interactionLocked={isFilterOpen}
         />
       )}

@@ -13,6 +13,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import type ArtplayerType from 'artplayer'
+import type { VideoReadingProgress } from '@/lib/reading/use-video-reading'
 import ChapterTimelinePreview from '@/components/players/chapter-timeline-preview'
 import ChapterAudioTrack from '@/components/players/chapter-audio-track'
 import TimelineMarkers from '@/components/players/timeline-markers'
@@ -106,6 +107,7 @@ export interface VideoPlayerProps {
   onPause?: () => void
   onError?: (error: string) => void
   onReady?: () => void
+  onReadingProgress?: (progress: VideoReadingProgress) => void
   settingActions?: VideoPlayerSettingAction[]
   /** undefined 沿用普通播放器行为；传入布尔值后由详情视口控制播放资格。 */
   playbackActive?: boolean
@@ -131,6 +133,7 @@ export function VideoPlayer({
   onPause,
   onError,
   onReady,
+  onReadingProgress,
   settingActions,
   playbackActive,
   playbackPaused = false,
@@ -168,6 +171,8 @@ export function VideoPlayer({
   const onPauseRef = useRef(onPause)
   const onErrorRef = useRef(onError)
   const onReadyRef = useRef(onReady)
+  const onReadingProgressRef = useRef(onReadingProgress)
+  onReadingProgressRef.current = onReadingProgress
   const mediaSrc = useMemo(() => combinationApiResource(src), [src])
   const longPressPlaybackRate = useVideoLongPressPlaybackRate()
   const seekStepSeconds = useVideoSeekStepSeconds()
@@ -417,6 +422,16 @@ export function VideoPlayer({
         }
       }
 
+      let readingStarted = false
+      let readingPlaying = false
+      const publishReading = () => {
+        if (!active) return
+        onReadingProgressRef.current?.({
+          currentTime: art.currentTime, duration: art.duration,
+          started: readingStarted, playing: readingPlaying
+        })
+      }
+
       art.on('ready', () => {
         if (!active) return
         onReadyRef.current?.()
@@ -454,6 +469,8 @@ export function VideoPlayer({
 
       art.on('pause', () => {
         if (!active) return
+        readingPlaying = false
+        publishReading()
         playbackRef.current.onPause()
         const video = getArtVideo(art)
         wasPlayingBeforeErrorRef.current = false
@@ -465,6 +482,8 @@ export function VideoPlayer({
       })
 
       art.on('ended', () => {
+        readingPlaying = false
+        publishReading()
         wasPlayingBeforeErrorRef.current = false
         setIsPlaying(false)
         controlsVisibleRef.current = true
@@ -481,6 +500,7 @@ export function VideoPlayer({
       art.on('video:canplay', clearLoading)
       art.on('video:canplaythrough', clearLoading)
       art.on('video:timeupdate', () => {
+        publishReading()
         const nextTime = Number.isFinite(art.currentTime) ? art.currentTime : 0
         setCurrentTime((previousTime) => (shouldSyncVideoTime(previousTime, nextTime) ? nextTime : previousTime))
         updateRemainingTime()
@@ -497,11 +517,16 @@ export function VideoPlayer({
         }
       })
       art.on('video:waiting', () => {
+        readingPlaying = false
+        publishReading()
         if (hasStartedPlayingRef.current && shouldShowVideoBuffering(getArtVideo(art))) {
           setLoading(true)
         }
       })
       art.on('video:playing', () => {
+        readingStarted = true
+        readingPlaying = true
+        publishReading()
         clearLoading()
         hasStartedPlayingRef.current = true
         wasPlayingBeforeErrorRef.current = true
@@ -512,6 +537,8 @@ export function VideoPlayer({
       art.on('video:error', () => {
         showVideoError()
       })
+      art.on('video:seeked', publishReading)
+      art.on('video:durationchange', publishReading)
     }
 
     initPlayer().catch(() => {

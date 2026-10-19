@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkVideoOptimization } from './artwork-video-optimization-context'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
+import { useVideoReading } from '@/lib/reading/use-video-reading'
 
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
@@ -44,19 +45,23 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
   const observe = reading?.observe
   const clearSurface = reading?.clearSurface
   const observationEpoch = reading?.observationEpoch
+  const videoReading = useVideoReading(`${reading?.ownerUserId}:${media.id}:${media.updatedAt}`, visible && trackingActive && !suspendPlayback)
+  const playback = videoReading.playback
+  const video = isVideoFile(media.path)
   useEffect(() => {
     if (!observe || !clearSurface) return
     observe(surfaceId, {
       mediaId: media.id,
-      ready: previewStatus === 'ready' && !suspendPlayback,
+      ready: previewStatus === 'ready' && !suspendPlayback && (!video || playback !== null),
       visible,
       automatic,
       active: trackingActive,
-      priority: 0
+      priority: 0,
+      ...(video && playback ? { playback } : {})
     })
-    return () => clearSurface(surfaceId)
   }, [automatic, clearSurface, media.id, observationEpoch, observe, previewStatus, surfaceId,
-    suspendPlayback, trackingActive, visible])
+    suspendPlayback, trackingActive, visible, video, playback])
+  useEffect(() => () => clearSurface?.(surfaceId), [clearSurface, surfaceId])
   const live = useRef(true)
   useEffect(() => {
     live.current = true
@@ -215,6 +220,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
             } else onPlayingChange(true)
           }}
           onReady={() => report('ready')}
+          onReadingProgress={videoReading.onProgress}
           onError={() => report('error')}
         />
       )

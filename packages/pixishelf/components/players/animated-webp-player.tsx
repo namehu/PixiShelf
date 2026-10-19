@@ -332,6 +332,7 @@ export default function AnimatedWebpPlayer({
     }
     setIsLoadingAnimation(false)
     setLoadedUrl(animationSrc)
+    if (!playOnce) callbacks.current.onAnimationReady?.()
   }
 
   const handleAnimationError = () => {

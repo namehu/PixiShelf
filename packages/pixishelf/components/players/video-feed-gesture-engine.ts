@@ -28,12 +28,10 @@ export interface FeedGestureEngineOptions {
   getDuration: () => number
   getPlaybackRate: () => number
   setPlaybackRate: (rate: number) => void
-  onTogglePlayback: () => void
+  onToggleChrome: () => void
   onSeek: (time: number) => void
   onLike: (point: { x: number; y: number }) => void
   onOpenActions: () => void
-  getChromeHidden: () => boolean
-  onExitClearMode: () => void
   onFeedback: (feedback: VideoInteractionFeedback | null) => void
 }
 
@@ -100,15 +98,7 @@ export function createFeedGestureEngine(options: FeedGestureEngineOptions): Feed
   }
 
   const handleSingleTap = () => {
-    if (options.getChromeHidden()) {
-      options.onExitClearMode()
-      return
-    }
-    if (options.mediaKind !== 'video') return
-
-    const wasPlaying = options.getPlaying()
-    options.onTogglePlayback()
-    showFeedback({ kind: 'playback', title: wasPlaying ? '暂停' : '播放' })
+    options.onToggleChrome()
   }
 
   const handleDoubleTap = (event: FeedGesturePoint) => {
@@ -215,6 +205,7 @@ export function createFeedGestureEngine(options: FeedGestureEngineOptions): Feed
 
   const pointerCancel = () => {
     clearLongPress()
+    clearSingleTap()
     const pointer = activePointer
     activePointer = null
     if (pointer) restoreRate(pointer)

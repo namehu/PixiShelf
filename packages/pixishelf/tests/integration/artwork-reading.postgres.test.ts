@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrismaClient, invalidateArtworkReadingForRebuild } from '@pixishelf/db'
 import { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
+import type { ReadingReportEvent } from '@pixishelf/db/reading-contract'
 
 const databaseUrl = process.env.READING_VALIDATION_DATABASE_URL
 function isDedicatedDatabase(value: string | undefined) {
@@ -26,7 +27,10 @@ beforeAll(async () => {
 
 const created = { userIds: [] as string[], artworkIds: [] as number[], imageIds: [] as number[] }
 const fixture = { userId: '', otherUserId: '', artworkId: 0, apngId: 0, videoId: 0, otherId: 0 }
-const event = (mediaId: number, type: 'VIEW' | 'HEARTBEAT' = 'VIEW') => ({ type, mediaId, observedAt: new Date().toISOString() })
+const event = (mediaId: number, type: 'VIEW' | 'HEARTBEAT' = 'VIEW'): ReadingReportEvent => ({
+  type, mediaId, observedAt: new Date().toISOString(),
+  ...([fixture.videoId, fixture.apngId].includes(mediaId) ? { playback: { currentTime: 90, duration: 100 } } : {})
+})
 const report = (userId: string, events: ReturnType<typeof event>[], mediaRevision = 1) =>
   readingService.reportReading(userId, { artworkId: fixture.artworkId, expectedUserId: userId, mediaRevision, events })
 
@@ -60,6 +64,19 @@ afterEach(async () => {
 afterAll(async () => { await db?.$disconnect() })
 
 describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
+  it('keeps a partially watched video in progress in summaries, history and list filters', async () => {
+    const started = await report(fixture.userId, [{ ...event(fixture.videoId), playback: { currentTime: 1, duration: 100 } }])
+    expect(started.summary).toMatchObject({ viewCount: 1, seenCount: 0, status: 'IN_PROGRESS' })
+    expect((await readingService.getReadingHistory(fixture.userId, 10)).items[0]?.reading.status).toBe('IN_PROGRESS')
+    const { queryReadingArtworkIdsPage } = await import('@/services/artwork-service/reading-page-query')
+    const progressing = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'IN_PROGRESS' }), fixture.userId)
+    const unread = await queryReadingArtworkIdsPage(ArtworksInfiniteQuerySchema.parse({ readingStatus: 'UNREAD' }), fixture.userId)
+    expect(progressing.ids).toContain(fixture.artworkId)
+    expect(unread.ids).not.toContain(fixture.artworkId)
+    const complete = await report(fixture.userId, [event(fixture.videoId)])
+    expect(complete.seenMediaIds).toEqual([fixture.videoId])
+    expect(complete.summary.seenCount).toBe(1)
+  })
   it('serializes first visits, repeat batches and an init/report race under the artwork lock', async () => {
     const initial = await readingService.getReadingContext(fixture.userId, fixture.artworkId)
     expect(initial.summary.viewCount).toBe(0)
@@ -78,7 +95,7 @@ describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
   it('merges a late device VIEW into the same visit and persists the last accepted position', async () => {
     const laterAt = new Date(Date.now() - 1_000)
     const earlierAt = new Date(laterAt.getTime() - 1_000)
-    await report(fixture.userId, [{ type: 'VIEW', mediaId: fixture.videoId, observedAt: laterAt.toISOString() }])
+    await report(fixture.userId, [{ ...event(fixture.videoId), observedAt: laterAt.toISOString() }])
     const late = await report(fixture.userId, [{ type: 'VIEW', mediaId: fixture.otherId, observedAt: earlierAt.toISOString() }])
 
     expect(late.summary).toMatchObject({ viewCount: 1, seenCount: 2, totalCount: 2, lastMediaId: fixture.otherId, lastMediaIndex: 1 })

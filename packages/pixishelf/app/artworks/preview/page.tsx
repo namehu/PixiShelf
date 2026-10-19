@@ -23,6 +23,7 @@ import { getMediaInfo, isApngFile } from '@/lib/media'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useSafeBack } from '@/hooks/use-safe-back'
 import { useArtworkReading } from '@/lib/reading/reading-provider'
+import { useVideoReading } from '@/lib/reading/use-video-reading'
 import { useTRPC } from '@/lib/trpc'
 import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
@@ -48,18 +49,22 @@ export default function ArtworkPreviewPage() {
   const observe = reading.observe
   const clearSurface = reading.clearSurface
   const observationEpoch = reading.observationEpoch
+  const activeVideo = isVideoFile(images[currentIndex]?.raw?.path || images[currentIndex]?.path || '')
+  const videoReading = useVideoReading(`${reading.ownerUserId}:${artworkId}:${activeMediaId}`, mounted)
+  const playback = videoReading.playback
   useEffect(() => {
     if (!artworkId || !activeMediaId) return
     const surfaceId = 'original-preview'
     observe(surfaceId, {
       mediaId: activeMediaId,
-      ready: activeMediaReady,
+      ready: activeMediaReady && (!activeVideo || playback !== null),
       visible: mounted,
       automatic: false,
-      priority: 100
+      priority: 100,
+      ...(activeVideo && playback ? { playback } : {})
     })
-    return () => clearSurface(surfaceId)
-  }, [activeMediaId, activeMediaReady, artworkId, clearSurface, mounted, observationEpoch, observe])
+  }, [activeMediaId, activeMediaReady, artworkId, mounted, observationEpoch, observe, activeVideo, playback])
+  useEffect(() => () => clearSurface('original-preview'), [clearSurface])
   const markReady = (mediaId: number) => {
     setReadyIds((current) => new Set(current).add(mediaId))
     setErrorIds((current) => {
@@ -155,6 +160,7 @@ export default function ArtworkPreviewPage() {
               className="h-full w-full"
               fillParent={true}
               onReady={() => markReady(image.id)}
+              onReadingProgress={index === currentIndex ? videoReading.onProgress : undefined}
               onError={() => markError(image.id)}
             />
           </div>

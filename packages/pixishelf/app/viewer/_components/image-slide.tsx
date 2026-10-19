@@ -20,6 +20,7 @@ import { useShallow } from 'zustand/react/shallow'
 import ImageOverlay from './image-overlay'
 import type { ViewerOverlayInteractionApi } from './image-overlay'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
+import { useVideoReading, type VideoReadingProgress } from '@/lib/reading/use-video-reading'
 import ViewerVideoControls, { type ViewerAudioPreference, type ViewerVideoState } from './viewer-video-controls'
 import { useVideoLongPressPlaybackRate, useVideoSeekStepSeconds } from '@/components/user-setting'
 import AnimatedWebpPlayer from '@/components/players/animated-webp-player'
@@ -30,6 +31,9 @@ import { withMediaVersion } from '@/lib/media-url'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 import { Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { useViewerAutoMedia } from './use-viewer-auto-media'
+import { combinationApiResource } from '@/utils/combination-static'
 
 // 导入 Swiper 样式
 import 'swiper/css'
@@ -37,6 +41,11 @@ import 'swiper/css/navigation'
 import 'swiper/css/pagination'
 
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
+  onArtworkComplete?: () => void
+  onCancelArtworkComplete?: () => void
+  navigationBlocked?: boolean
+  navigationTransitioning?: boolean
+  isNavigationBlocked?: () => boolean
   image: RandomImageItem
   isActive: boolean
   preloadEntryMedia: boolean
@@ -45,15 +54,25 @@ interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   chapterPanelOpen: boolean
   onChapterPanelOpenChange: (open: boolean) => void
   onActiveMediaSettled: (result: 'ready' | 'error') => void
-  onEnterClearMode: () => void
-  onExitClearMode: () => void
+  onHideChrome: () => void
+  onToggleChrome: () => void
   getPlaybackPosition: (mediaId: number) => number
   onPlaybackPositionChange: (mediaId: number, currentTime: number) => void
   reading?: ArtworkReadingHandle
   interactionLocked?: boolean
+  onOverlayPanelOpenChange?: (open: boolean) => void
 }
 
 interface SingleImageProps {
+  autoPlayback?: 'running' | 'paused'
+  autoRestartKey?: number
+  autoRestartPending?: boolean
+  onMediaComplete?: () => void
+  onPlaybackError?: () => void
+  onAnimationReady?: () => void
+  onAnimationBuffering?: () => void
+  onAutoPause?: () => void
+  chromeHidden?: boolean
   media: ViewerMediaItem
   onError?: (() => void) | undefined
   retryKey: number
@@ -65,6 +84,7 @@ interface SingleImageProps {
   onRetry: () => void
   onVideoElementChange?: (element: HTMLVideoElement | null) => void
   onVideoStateChange?: (state: ViewerVideoState) => void
+  onReadingProgress?: (progress: VideoReadingProgress) => void
   onAutoplayMutedFallback?: () => void
   savedPlaybackPosition?: number
   onPlaybackPositionChange?: (currentTime: number) => void
@@ -84,6 +104,17 @@ const INITIAL_VIDEO_STATE: ViewerVideoState = {
   isWaiting: false
 }
 
+const VIEWER_CONTROL_SELECTOR =
+  'a, button, input, select, textarea, [contenteditable], [role="slider"], [data-viewer-control]'
+
+function isNativePngAnimation(media: ViewerMediaItem) {
+  return (
+    isApngFile(media.url) ||
+    media.animationMetadata?.format === 'APNG' ||
+    Boolean(media.isAnimated && /\.png$/i.test(media.url))
+  )
+}
+
 function readVideoState(video: HTMLVideoElement, waiting = false): ViewerVideoState {
   return {
     currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
@@ -96,7 +127,36 @@ function readVideoState(video: HTMLVideoElement, waiting = false): ViewerVideoSt
 /**
  * 单个媒体渲染组件。视频只允许在自身同时处于纵向、横向活动状态时播放。
  */
-export function SingleImage({
+export function SingleImage(props: SingleImageProps) {
+  const ignoreControl = (event: ReactPointerEvent<HTMLDivElement>) =>
+    event.target instanceof Element && Boolean(event.target.closest(VIEWER_CONTROL_SELECTOR))
+  return (
+    <div
+      ref={props.onGestureSurfaceChange}
+      className="relative flex h-full w-full items-center justify-center"
+      onPointerDown={(event) => {
+        if (ignoreControl(event)) props.onGesturePointerCancel?.()
+        else props.onGesturePointerDown?.(event)
+      }}
+      onPointerMove={props.onGesturePointerMove}
+      onPointerUp={props.onGesturePointerUp}
+      onPointerCancel={props.onGesturePointerCancel}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <SingleImageContent {...props} />
+    </div>
+  )
+}
+
+function SingleImageContent({
+  autoPlayback,
+  autoRestartKey = 0,
+  autoRestartPending = false,
+  onMediaComplete,
+  onPlaybackError,
+  onAnimationReady,
+  onAnimationBuffering,
+  onAutoPause,
   media,
   onError,
   retryKey,
@@ -108,22 +168,24 @@ export function SingleImage({
   audioPreference,
   onVideoElementChange,
   onVideoStateChange,
+  onReadingProgress,
   onAutoplayMutedFallback,
   savedPlaybackPosition = 0,
   onPlaybackPositionChange,
   onMediaReady,
   onMediaError,
-  onGestureSurfaceChange,
-  onGesturePointerDown,
-  onGesturePointerMove,
-  onGesturePointerUp,
-  onGesturePointerCancel
+  chromeHidden = false
 }: SingleImageProps) {
   const [imageError, setImageError] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const readingStartedRef = useRef(false)
   const autoplayMutedFallbackRef = useRef(onAutoplayMutedFallback)
   const restoredMediaIdRef = useRef<number | null>(null)
   const savedPlaybackPositionRef = useRef(savedPlaybackPosition)
+  const callbacks = useRef({ onMediaComplete, onPlaybackError })
+  callbacks.current = { onMediaComplete, onPlaybackError }
+  const previousAuto = useRef(autoPlayback)
+  const appliedRestart = useRef(0)
 
   savedPlaybackPositionRef.current = savedPlaybackPosition
 
@@ -133,6 +195,7 @@ export function SingleImage({
 
   const setVideoElement = useCallback(
     (element: HTMLVideoElement | null) => {
+      if (videoRef.current !== element) readingStartedRef.current = false
       videoRef.current = element
       onVideoElementChange?.(element)
     },
@@ -142,8 +205,14 @@ export function SingleImage({
   const publishVideoState = useCallback(
     (video: HTMLVideoElement, waiting = false) => {
       onVideoStateChange?.(readVideoState(video, waiting))
+      onReadingProgress?.({
+        currentTime: video.currentTime,
+        duration: video.duration,
+        started: readingStartedRef.current,
+        playing: !video.paused && !video.ended && !waiting
+      })
     },
-    [onVideoStateChange]
+    [onVideoStateChange, onReadingProgress]
   )
 
   const handleImageError = () => {
@@ -159,13 +228,20 @@ export function SingleImage({
 
   const restorePlaybackPosition = useCallback(
     (video: HTMLVideoElement) => {
+      if (autoRestartPending && autoRestartKey && appliedRestart.current !== autoRestartKey) {
+        video.currentTime = 0
+        appliedRestart.current = autoRestartKey
+        restoredMediaIdRef.current = media.id
+        useViewerStore.getState().consumeAutoBrowseRestart(autoRestartKey)
+        return
+      }
       const position = savedPlaybackPositionRef.current
       if (restoredMediaIdRef.current === media.id || position <= 0) return
       const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null
       video.currentTime = duration ? Math.min(position, Math.max(duration - 0.1, 0)) : position
       restoredMediaIdRef.current = media.id
     },
-    [media.id]
+    [media.id, autoRestartKey, autoRestartPending]
   )
 
   useEffect(() => {
@@ -179,7 +255,8 @@ export function SingleImage({
   useEffect(() => {
     const video = videoRef.current
     if (!video || media.mediaType !== MediaType.VIDEO) return
-
+    const wasManaged = previousAuto.current !== undefined
+    previousAuto.current = autoPlayback
     if (!isActiveMedia) {
       video.pause()
       publishVideoState(video)
@@ -188,20 +265,47 @@ export function SingleImage({
 
     let cancelled = false
     if (video.readyState >= HTMLMediaElement.HAVE_METADATA) restorePlaybackPosition(video)
+    if (autoPlayback === 'paused') {
+      video.pause()
+      publishVideoState(video)
+      return
+    }
+    if (wasManaged && autoPlayback === undefined) return
+    if (
+      autoPlayback === 'running' &&
+      Number.isFinite(video.duration) &&
+      video.duration > 0 &&
+      video.currentTime >= video.duration
+    ) {
+      publishVideoState(video)
+      callbacks.current.onMediaComplete?.()
+      return
+    }
     const playResult = video.play()
     playResult?.catch(() => {
-      if (cancelled || video.muted) return
+      if (cancelled) return
+      if (video.muted) {
+        callbacks.current.onPlaybackError?.()
+        return
+      }
 
       video.muted = true
       autoplayMutedFallbackRef.current?.()
-      void video.play().catch(() => undefined)
+      void video.play().catch(() => {
+        if (!cancelled) callbacks.current.onPlaybackError?.()
+      })
     })
 
     return () => {
       cancelled = true
-      video.pause()
     }
-  }, [isActiveMedia, media.mediaType, media.url, publishVideoState, restorePlaybackPosition])
+  }, [isActiveMedia, media.mediaType, media.url, publishVideoState, restorePlaybackPosition, autoPlayback, retryKey])
+  useEffect(() => {
+    const video = videoRef.current
+    return () => {
+      video?.pause()
+    }
+  }, [media.url, retryKey])
 
   if (!shouldLoad) {
     return (
@@ -253,21 +357,14 @@ export function SingleImage({
   }
 
   const usesAnimatedImagePlayer =
-    media.mediaType === MediaType.IMAGE &&
-    (isWebpFile(media.url) || (isGifFile(media.url) && media.isAnimated))
+    media.mediaType === MediaType.IMAGE && (isWebpFile(media.url) || (isGifFile(media.url) && media.isAnimated))
+  const nativeAnimation = Boolean(autoPlayback && isNativePngAnimation(media))
 
   return (
-    <div
-      ref={onGestureSurfaceChange}
-      className="relative flex h-full w-full items-center justify-center"
-      onPointerDown={onGesturePointerDown}
-      onPointerMove={onGesturePointerMove}
-      onPointerUp={onGesturePointerUp}
-      onPointerCancel={onGesturePointerCancel}
-      onContextMenu={(event) => event.preventDefault()}
-    >
+    <div className="relative flex h-full w-full items-center justify-center">
       {usesAnimatedImagePlayer ? (
         <AnimatedWebpPlayer
+          key={`${media.key}:${retryKey}`}
           src={media.url}
           alt={media.key || 'Artwork media'}
           size={media.size}
@@ -276,14 +373,38 @@ export function SingleImage({
           formatLabel={isGifFile(media.url) ? 'GIF' : 'WEBP'}
           updatedAt={media.updatedAt}
           fillContainer
+          controlMode={chromeHidden ? 'external' : 'badge'}
+          className="[&>button[data-long-press-ignore]]:bottom-auto [&>button[data-long-press-ignore]]:top-[max(4rem,calc(env(safe-area-inset-top)+3.5rem))]"
           posterLoading={priority || preloadMode === 'eager' ? 'eager' : 'lazy'}
           onPosterLoad={onMediaReady}
           onPosterError={handleImageError}
+          playing={
+            media.isAnimated
+              ? autoPlayback
+                ? isWebpFile(media.url)
+                  ? autoPlayback === 'running'
+                  : true
+                : !isActiveMedia
+                  ? false
+                  : undefined
+              : undefined
+          }
+          playOnce={Boolean(autoPlayback && media.isAnimated && isWebpFile(media.url))}
+          playbackPaused={autoPlayback === 'paused' && isWebpFile(media.url)}
+          playbackKey={`${media.key}:${autoRestartKey}:${retryKey}`}
+          onPlayingChange={(playing) => {
+            if (media.isAnimated && autoPlayback && !playing) onAutoPause?.()
+          }}
+          onAnimationReady={onAnimationReady}
+          onAnimationBuffering={onAnimationBuffering}
+          onAnimationComplete={onMediaComplete}
+          onAnimationError={handleImageError}
         />
       ) : media.mediaType === MediaType.IMAGE ? (
         <Image
           key={`${media.key}-${retryKey}`}
-          src={withMediaVersion(media.url, media.updatedAt)}
+          src={withMediaVersion(nativeAnimation ? combinationApiResource(media.url) : media.url, media.updatedAt)}
+          unoptimized={nativeAnimation}
           width={window.outerWidth}
           height={window.outerHeight}
           alt={media.key || 'Artwork media'}
@@ -291,7 +412,10 @@ export function SingleImage({
           loading={priority || preloadMode === 'eager' ? 'eager' : 'lazy'}
           priority={priority}
           quality={100}
-          onLoad={onMediaReady}
+          onLoad={() => {
+            onMediaReady?.()
+            if (nativeAnimation) onAnimationReady?.()
+          }}
           onError={handleImageError}
         />
       ) : (
@@ -299,9 +423,9 @@ export function SingleImage({
           key={`${media.key}-${retryKey}`}
           ref={setVideoElement}
           src={withMediaVersion(media.url, media.updatedAt)}
-          autoPlay={isActiveMedia}
+          autoPlay={isActiveMedia && autoPlayback !== 'paused'}
           controls={false}
-          loop
+          loop={!autoPlayback}
           muted={audioPreference.muted}
           playsInline
           tabIndex={-1}
@@ -317,7 +441,16 @@ export function SingleImage({
             onPlaybackPositionChange?.(event.currentTarget.currentTime)
           }}
           onPlay={(event) => publishVideoState(event.currentTarget)}
-          onPlaying={(event) => publishVideoState(event.currentTarget)}
+          onPlaying={(event) => {
+            readingStartedRef.current = true
+            publishVideoState(event.currentTarget)
+          }}
+          onSeeked={(event) => publishVideoState(event.currentTarget)}
+          onEnded={(event) => {
+            publishVideoState(event.currentTarget)
+            onPlaybackPositionChange?.(event.currentTarget.currentTime)
+            onMediaComplete?.()
+          }}
           onCanPlay={(event) => {
             publishVideoState(event.currentTarget)
             onMediaReady?.()
@@ -371,6 +504,11 @@ function ViewerGestureFeedback({
  * 图片滑块组件，支持作品间纵向切换及作品内部的横向媒体切换。
  */
 export default function ImageSlide({
+  onArtworkComplete,
+  onCancelArtworkComplete,
+  navigationBlocked = false,
+  navigationTransitioning = false,
+  isNavigationBlocked,
   isActive,
   preloadEntryMedia,
   image,
@@ -380,14 +518,28 @@ export default function ImageSlide({
   chapterPanelOpen,
   onChapterPanelOpenChange,
   onActiveMediaSettled,
-  onEnterClearMode,
-  onExitClearMode,
+  onHideChrome,
+  onToggleChrome,
   getPlaybackPosition,
   onPlaybackPositionChange,
   reading,
-  interactionLocked = false
+  interactionLocked = false,
+  onOverlayPanelOpenChange
 }: ImageSlideProps) {
   const [retryKey, setRetryKey] = useState(0)
+  const [swiper, setSwiper] = useState<SwiperType | null>(null)
+  const [horizontalTransition, setHorizontalTransition] = useState(false)
+  const [seeking, setSeeking] = useState(false)
+  const [animationReady, setAnimationReady] = useState(false)
+  const [playbackFailed, setPlaybackFailed] = useState(false)
+  const autoStatus = useViewerStore((state) => state.autoBrowseStatus)
+  const autoRestart = useViewerStore((state) => state.autoBrowseRestart)
+  useEffect(() => {
+    if (!swiper || swiper.destroyed) return
+    swiper.allowTouchMove = isActive && !interactionLocked && !chapterPanelOpen
+    if (isActive && !interactionLocked && !chapterPanelOpen) swiper.keyboard.enable()
+    else swiper.keyboard.disable()
+  }, [isActive, interactionLocked, chapterPanelOpen, swiper])
   const [videoState, setVideoState] = useState<ViewerVideoState>(INITIAL_VIDEO_STATE)
   const [activeMediaStatus, setActiveMediaStatus] = useState<'pending' | 'ready' | 'error'>('pending')
   const [gestureFeedback, setGestureFeedback] = useState<VideoInteractionFeedback | null>(null)
@@ -412,6 +564,9 @@ export default function ImageSlide({
   const [horizontalIndexes, setHorizontalIndex, isChromeHidden] = useViewerStore(
     useShallow((state) => [state.horizontalIndexes, state.setHorizontalIndex, state.isChromeHidden])
   )
+  useEffect(() => {
+    gestureEngineRef.current?.pointerCancel()
+  }, [isChromeHidden])
 
   const fallbackMedia: ViewerMediaItem = {
     id: image.id,
@@ -433,22 +588,85 @@ export default function ImageSlide({
   const storedImageIndex = horizontalIndexes[image.key] ?? 0
   const currentImageIndex = Math.min(Math.max(storedImageIndex, 0), mediaItems.length - 1)
   const currentMedia = mediaItems[currentImageIndex] ?? fallbackMedia
+  const autoRestartKey = autoRestart?.mediaId === currentMedia.id ? autoRestart.revision : 0
+  const activeIdentity = `${image.id}:${currentMedia.id}:${currentMedia.updatedAt}:${retryKey}:${autoRestartKey}`
+  const mediaIdentityRef = useRef(activeIdentity)
+  mediaIdentityRef.current = activeIdentity
+  const animation =
+    currentMedia.mediaType === MediaType.IMAGE &&
+    currentMedia.isAnimated &&
+    (isWebpFile(currentMedia.url) || isGifFile(currentMedia.url))
+  const singleLoop = animation && isWebpFile(currentMedia.url)
+  const blocked = interactionLocked || chapterPanelOpen || navigationBlocked || horizontalTransition || seeking
+  const blockedRef = useRef(blocked)
+  blockedRef.current = blocked
+  const advance = () => {
+    if (currentImageIndex + 1 < mediaItems.length && swiper && !swiper.destroyed) {
+      const next = mediaItems[currentImageIndex + 1]!
+      useViewerStore.getState().restartAutoBrowseMedia(next.id)
+      swiper.slideTo(currentImageIndex + 1)
+    } else onArtworkComplete?.()
+  }
+  const autoMedia = useViewerAutoMedia({
+    mediaKey: activeIdentity,
+    active: isActive,
+    ready: animation || isNativePngAnimation(currentMedia) ? animationReady : activeMediaStatus === 'ready',
+    failed: activeMediaStatus === 'error' || playbackFailed,
+    timed: currentMedia.mediaType === MediaType.IMAGE && !singleLoop,
+    blocked,
+    timingBlocked: interactionLocked || chapterPanelOpen || navigationTransitioning || horizontalTransition,
+    isBlocked: () => blockedRef.current || Boolean(swiper?.animating) || Boolean(isNavigationBlocked?.()),
+    advance
+  })
+  useEffect(() => {
+    if (!autoMedia.selected) setAnimationReady(false)
+  }, [autoMedia.selected])
+  useEffect(() => {
+    setAnimationReady(false)
+    setPlaybackFailed(false)
+    setSeeking(false)
+    seekPreviewRef.current = null
+  }, [activeIdentity, isActive])
+  useEffect(() => {
+    if (swiper && !swiper.destroyed && swiper.activeIndex !== currentImageIndex) swiper.slideTo(currentImageIndex, 0)
+  }, [currentImageIndex, swiper])
   const observeReading = reading?.observe
   const clearReadingSurface = reading?.clearSurface
   const observationEpoch = reading?.observationEpoch
+  const videoReading = useVideoReading(
+    `${reading?.ownerUserId}:${currentMedia.id}:${currentMedia.updatedAt}`,
+    isActive && !interactionLocked && !chapterPanelOpen
+  )
+  const playback = videoReading.playback
+  const isReadingVideo = currentMedia.mediaType === MediaType.VIDEO
   useEffect(() => {
     if (!observeReading || !clearReadingSurface) return
     const surfaceId = 'immersive-viewer'
     observeReading(surfaceId, {
       mediaId: currentMedia.id,
-      ready: activeMediaStatus === 'ready' && loadedMediaIdsRef.current.has(currentMedia.id),
+      ready:
+        activeMediaStatus === 'ready' &&
+        loadedMediaIdsRef.current.has(currentMedia.id) &&
+        (!isReadingVideo || playback !== null),
       visible: isActive && !interactionLocked && !chapterPanelOpen,
-      automatic: false,
-      priority: 50
+      automatic: autoMedia.running,
+      priority: 50,
+      ...(isReadingVideo && playback ? { playback } : {})
     })
-    return () => clearReadingSurface(surfaceId)
-  }, [activeMediaStatus, chapterPanelOpen, clearReadingSurface, currentMedia.id,
-    interactionLocked, isActive, observationEpoch, observeReading])
+  }, [
+    autoMedia.running,
+    playback,
+    isReadingVideo,
+    activeMediaStatus,
+    chapterPanelOpen,
+    clearReadingSurface,
+    currentMedia.id,
+    interactionLocked,
+    isActive,
+    observationEpoch,
+    observeReading
+  ])
+  useEffect(() => () => clearReadingSurface?.('immersive-viewer'), [clearReadingSurface])
 
   useEffect(() => {
     setVideoState({
@@ -482,6 +700,7 @@ export default function ImageSlide({
   }, [currentMedia.mediaType, isActive, videoState.isWaiting])
 
   const handleRetry = () => {
+    setPlaybackFailed(false)
     loadedMediaIdsRef.current.delete(currentMedia.id)
     failedMediaIdsRef.current.delete(currentMedia.id)
     setActiveMediaStatus('pending')
@@ -501,6 +720,7 @@ export default function ImageSlide({
     if (!video) return
 
     if (!video.paused && !video.ended) {
+      useViewerStore.getState().pauseAutoBrowse('user')
       video.pause()
       setVideoState(readVideoState(video))
       return
@@ -510,22 +730,33 @@ export default function ImageSlide({
       if (!video.muted) {
         video.muted = true
         onAudioPreferenceChange({ ...audioPreference, muted: true })
-        void video.play().catch(() => toast.error('视频暂时无法播放'))
+        void video.play().catch(() => {
+          setPlaybackFailed(true)
+          toast.error('视频暂时无法播放')
+        })
         return
       }
+      setPlaybackFailed(true)
       toast.error('视频暂时无法播放')
     })
   }, [audioPreference, onAudioPreferenceChange])
 
-  const handleSeek = useCallback((seconds: number) => {
-    const video = activeVideoRef.current
-    if (!video) return
+  const handleSeek = useCallback(
+    (seconds: number) => {
+      const video = activeVideoRef.current
+      if (!video) return
 
-    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null
-    const nextTime = duration ? Math.min(Math.max(seconds, 0), duration) : Math.max(seconds, 0)
-    video.currentTime = nextTime
-    setVideoState((current) => ({ ...current, currentTime: nextTime }))
-  }, [])
+      const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : null
+      const nextTime = duration ? Math.min(Math.max(seconds, 0), duration) : Math.max(seconds, 0)
+      if (!duration || nextTime < duration) {
+        autoMedia.cancelCompletion()
+        onCancelArtworkComplete?.()
+      }
+      video.currentTime = nextTime
+      setVideoState((current) => ({ ...current, currentTime: nextTime }))
+    },
+    [autoMedia.cancelCompletion, onCancelArtworkComplete]
+  )
 
   const handleSeekPreviewStart = useCallback(() => {
     if (seekPreviewRef.current) return
@@ -533,6 +764,8 @@ export default function ImageSlide({
     if (!video) return
     const wasPlaying = !video.paused && !video.ended
     seekPreviewRef.current = { wasPlaying }
+    setSeeking(true)
+    blockedRef.current = true
     if (wasPlaying) video.pause()
   }, [])
 
@@ -540,16 +773,24 @@ export default function ImageSlide({
     (seconds: number) => {
       const preview = seekPreviewRef.current
       seekPreviewRef.current = null
+      setSeeking(false)
       handleSeek(seconds)
-      if (preview?.wasPlaying) void activeVideoRef.current?.play().catch(() => undefined)
+      const video = activeVideoRef.current
+      if (preview?.wasPlaying && video) {
+        if (Number.isFinite(video.duration) && video.duration > 0 && seconds >= video.duration) autoMedia.complete()
+        else void video.play().catch(() => setPlaybackFailed(true))
+      }
     },
-    [handleSeek]
+    [handleSeek, autoMedia.complete]
   )
 
   const handleSeekPreviewCancel = useCallback(() => {
     const preview = seekPreviewRef.current
     seekPreviewRef.current = null
-    if (preview?.wasPlaying) void activeVideoRef.current?.play().catch(() => undefined)
+    setSeeking(false)
+    if (preview?.wasPlaying && useViewerStore.getState().autoBrowseStatus !== 'paused') {
+      void activeVideoRef.current?.play().catch(() => setPlaybackFailed(true))
+    }
   }, [])
 
   useEffect(() => {
@@ -582,7 +823,7 @@ export default function ImageSlide({
   useEffect(() => {
     gestureEngineRef.current?.destroy()
     gestureEngineRef.current = null
-    if (!isActive) return
+    if (!isActive || interactionLocked || chapterPanelOpen) return
 
     const engine = createFeedGestureEngine({
       mediaKind: currentMedia.mediaType === MediaType.VIDEO ? 'video' : 'image',
@@ -599,16 +840,16 @@ export default function ImageSlide({
       setPlaybackRate: (rate) => {
         if (activeVideoRef.current) activeVideoRef.current.playbackRate = rate
       },
-      onTogglePlayback: handleTogglePlayback,
       onSeek: handleSeek,
       onLike: (point) => overlayApiRef.current?.likeAt(point),
       onOpenActions: () => overlayApiRef.current?.openActions(),
-      getChromeHidden: () => isChromeHidden,
-      onExitClearMode,
+      onToggleChrome,
       onFeedback: setGestureFeedback
     })
     gestureEngineRef.current = engine
+    window.addEventListener('blur', engine.pointerCancel)
     return () => {
+      window.removeEventListener('blur', engine.pointerCancel)
       engine.destroy()
       if (gestureEngineRef.current === engine) gestureEngineRef.current = null
     }
@@ -617,26 +858,39 @@ export default function ImageSlide({
     currentMedia.id,
     currentMedia.mediaType,
     handleSeek,
-    handleTogglePlayback,
     isActive,
-    isChromeHidden,
+    interactionLocked,
+    chapterPanelOpen,
     longPressRate,
-    onExitClearMode,
+    onToggleChrome,
     seekStepSeconds
   ])
 
   useEffect(() => {
     if (!isActive || currentMedia.mediaType !== MediaType.VIDEO) return
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || chapterPanelOpen) return
-      const target = event.target as HTMLElement | null
-      if (target?.closest('button, input, select, textarea, [role="slider"], [role="dialog"]')) return
+      if (
+        event.code !== 'Space' ||
+        chapterPanelOpen ||
+        interactionLocked ||
+        event.defaultPrevented ||
+        event.repeat ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      ) {
+        return
+      }
+      const target = event.target instanceof HTMLElement ? event.target : null
+      if (target?.closest('a, button, input, select, textarea, [contenteditable], [role="slider"], [role="dialog"]')) {
+        return
+      }
       event.preventDefault()
       handleTogglePlayback()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [chapterPanelOpen, currentMedia.mediaType, handleTogglePlayback, isActive])
+  }, [chapterPanelOpen, interactionLocked, currentMedia.mediaType, handleTogglePlayback, isActive])
 
   const gestureHandlers = {
     onGestureSurfaceChange: (element: HTMLDivElement | null) => {
@@ -684,11 +938,31 @@ export default function ImageSlide({
       shouldLoad,
       preloadMode,
       priority: isActiveCurrent && media.mediaType === MediaType.IMAGE,
-      isActiveMedia: isActiveCurrent && media.mediaType === MediaType.VIDEO,
+      isActiveMedia: isActiveCurrent,
+      autoPlayback:
+        isActiveCurrent && autoMedia.selected
+          ? autoStatus === 'running' && !interactionLocked && !chapterPanelOpen
+            ? ('running' as const)
+            : ('paused' as const)
+          : undefined,
+      autoRestartKey: autoRestart?.mediaId === media.id ? autoRestart.revision : 0,
+      autoRestartPending: autoRestart?.mediaId === media.id && !autoRestart.consumed,
+      onMediaComplete: isActiveCurrent ? autoMedia.complete : undefined,
+      onAutoPause: () => useViewerStore.getState().pauseAutoBrowse('user'),
+      onPlaybackError: () => {
+        if (isActiveCurrent && mediaIdentityRef.current === activeIdentity) setPlaybackFailed(true)
+      },
+      onAnimationReady: () => {
+        if (isActiveCurrent && mediaIdentityRef.current === activeIdentity) setAnimationReady(true)
+      },
+      onAnimationBuffering: () => {
+        if (isActiveCurrent && mediaIdentityRef.current === activeIdentity) setAnimationReady(false)
+      },
       onMediaReady: () => handleMediaReady(media.id),
       onMediaError: () => handleMediaError(media.id),
       onVideoElementChange: isCurrent ? handleVideoElementChange : undefined,
       onVideoStateChange: isCurrent ? setVideoState : undefined,
+      onReadingProgress: isActiveCurrent ? videoReading.onProgress : undefined,
       onAutoplayMutedFallback: isCurrent ? handleAutoplayMutedFallback : undefined,
       savedPlaybackPosition: getPlaybackPosition(media.id),
       onPlaybackPositionChange: (currentTime: number) => onPlaybackPositionChange(media.id, currentTime),
@@ -727,15 +1001,51 @@ export default function ImageSlide({
       onInteractionApiChange={(api) => {
         overlayApiRef.current = api
       }}
-      onEnterClearMode={onEnterClearMode}
+      onHideChrome={onHideChrome}
+      onPanelOpenChange={onOverlayPanelOpenChange}
     />
   )
+  const autoError =
+    isActive && autoMedia.selected && (activeMediaStatus === 'error' || playbackFailed) ? (
+      <div
+        role="status"
+        data-viewer-control
+        className="absolute inset-x-4 top-20 z-40 flex flex-col gap-2 rounded-lg bg-background p-3 text-foreground shadow-lg"
+      >
+        <span className="text-sm">媒体无法播放，自动浏览已暂停。</span>
+        {playbackFailed && (
+          <Button variant="outline" className="min-h-11" onClick={handleRetry}>
+            重试媒体
+          </Button>
+        )}
+        <Button
+          variant="outline"
+          className="min-h-11"
+          onClick={() => {
+            setPlaybackFailed(false)
+            setActiveMediaStatus('pending')
+            useViewerStore.getState().runAutoBrowse()
+            advance()
+          }}
+        >
+          跳过并继续
+        </Button>
+      </div>
+    ) : null
 
   if (!hasMultipleImages) {
     return (
-      <>
+      <div
+        className="relative h-full w-full"
+        onPointerDownCapture={(event) => {
+          if (event.target instanceof Element && event.target.closest(VIEWER_CONTROL_SELECTOR)) {
+            gestureEngineRef.current?.pointerCancel()
+          }
+        }}
+      >
         <SingleImage
           media={currentMedia}
+          chromeHidden={isChromeHidden}
           audioPreference={audioPreference}
           onError={onError}
           retryKey={retryKey}
@@ -743,21 +1053,33 @@ export default function ImageSlide({
           {...buildMediaProps(currentMedia, 0)}
         />
         {overlay}
+        {autoError}
         <ViewerGestureFeedback feedback={gestureFeedback} buffering={showBuffering} />
-      </>
+      </div>
     )
   }
 
   return (
-    <>
+    <div
+      className="relative h-full w-full"
+      onPointerDownCapture={(event) => {
+        if (event.target instanceof Element && event.target.closest(VIEWER_CONTROL_SELECTOR)) {
+          gestureEngineRef.current?.pointerCancel()
+        }
+      }}
+    >
       <Swiper
+        onSwiper={setSwiper}
         modules={[Navigation, Keyboard]}
         direction="horizontal"
         slidesPerView={1}
         lazyPreloadPrevNext={0}
         spaceBetween={0}
         initialSlide={currentImageIndex}
-        keyboard={{ enabled: isActive && !chapterPanelOpen, onlyInViewport: true }}
+        allowTouchMove={!interactionLocked && !chapterPanelOpen}
+        // Match the vertical Swiper: focused videos without native controls must still swipe.
+        focusableElements="input, select, option, textarea, button, video[controls], label"
+        keyboard={{ enabled: isActive && !interactionLocked && !chapterPanelOpen, onlyInViewport: true }}
         navigation={{ nextEl: '.swiper-button-next-custom', prevEl: '.swiper-button-prev-custom' }}
         onSlideChange={handleSlideChange}
         touchRatio={1}
@@ -766,13 +1088,16 @@ export default function ImageSlide({
         resistance
         resistanceRatio={0.85}
         speed={300}
+        onBeforeTransitionStart={() => setHorizontalTransition(true)}
+        onTransitionEnd={() => setHorizontalTransition(false)}
         nested
-        className="relative z-10 h-full w-full"
+        className="relative z-10 h-full w-full !overflow-clip"
       >
         {mediaItems.map((media, index) => (
-          <SwiperSlide key={media.key}>
+          <SwiperSlide key={media.key} inert={!isActive || index !== currentImageIndex}>
             <SingleImage
               media={media}
+              chromeHidden={isChromeHidden}
               audioPreference={audioPreference}
               onError={index === currentImageIndex ? onError : undefined}
               retryKey={retryKey}
@@ -783,29 +1108,35 @@ export default function ImageSlide({
         ))}
       </Swiper>
 
-      {!isChromeHidden && (
-        <>
-          <div className="swiper-pagination-custom absolute !bottom-0.5 left-4 right-4 z-30">
-            <div className="flex w-full gap-1">
-              {mediaItems.map((media, index) => (
-                <div
-                  key={media.key}
-                  className={cn(
-                    'h-1 flex-1 rounded-full transition-colors duration-300 ease-out',
-                    index <= currentImageIndex ? 'bg-white' : 'bg-white/20'
-                  )}
-                />
-              ))}
-            </div>
+      <div
+        aria-hidden={isChromeHidden}
+        inert={isChromeHidden}
+        className={cn(
+          'pointer-events-none absolute inset-0 z-30 transition-opacity duration-150 motion-reduce:transition-none',
+          isChromeHidden && 'opacity-0'
+        )}
+      >
+        <div className="swiper-pagination-custom absolute !bottom-0.5 left-4 right-4 z-30">
+          <div className="flex w-full gap-1">
+            {mediaItems.map((media, index) => (
+              <div
+                key={media.key}
+                className={cn(
+                  'h-1 flex-1 rounded-full transition-colors duration-300 ease-out',
+                  index <= currentImageIndex ? 'bg-white' : 'bg-white/20'
+                )}
+              />
+            ))}
           </div>
-          <div className="absolute right-4 top-4 z-30 rounded-full bg-black/50 px-3 py-1 text-sm text-white">
-            {currentImageIndex + 1} / {mediaItems.length}
-          </div>
-        </>
-      )}
+        </div>
+        <div className="absolute right-4 top-4 z-30 rounded-full bg-black/50 px-3 py-1 text-sm text-white">
+          {currentImageIndex + 1} / {mediaItems.length}
+        </div>
+      </div>
 
       {overlay}
+      {autoError}
       <ViewerGestureFeedback feedback={gestureFeedback} buffering={showBuffering} />
-    </>
+    </div>
   )
 }

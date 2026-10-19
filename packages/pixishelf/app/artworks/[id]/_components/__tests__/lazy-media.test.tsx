@@ -154,6 +154,10 @@ describe('LazyMedia video cache version', () => {
     const { rerender } = render(<LazyMedia media={media} index={0} reading={reading} />)
     act(() => intersectionCallback.current?.(true))
     act(() => playerMocks.props.mock.calls.at(-1)?.[0].onReady())
+    expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: false })
+    act(() => playerMocks.props.mock.calls.at(-1)?.[0].onReadingProgress({
+      currentTime: 1, duration: 100, started: true, playing: true
+    }))
     expect(observe.mock.calls.at(-1)?.[1]).toMatchObject({ visible: true, ready: true })
 
     optimizationState.suspendPlayback = true

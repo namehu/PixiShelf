@@ -3,10 +3,30 @@ import { create } from 'zustand'
 import { RandomImageItem } from '@/types/images'
 import { EMediaType } from '@/enums/e-media-type'
 
+export const VIEWER_AUTO_INTERVALS = [3, 5, 10, 15] as const
+export type ViewerAutoStatus = 'off' | 'running' | 'paused' | 'ended'
+export type ViewerAutoPauseReason = 'user' | 'panel' | 'background' | 'media-error' | 'page-error'
+
 /**
  * 查看器页面状态接口定义
  */
 export interface ViewerState {
+  autoBrowseStatus: ViewerAutoStatus
+  autoBrowseInterval: number
+  autoBrowseWait: 'media' | 'page' | null
+  autoBrowsePauseReason: ViewerAutoPauseReason | null
+  autoBrowseStartRequested: boolean
+  autoBrowseSession: number
+  autoBrowseRestartSequence: number
+  autoBrowseRestart: { mediaId: number; revision: number; consumed: boolean } | null
+  requestAutoBrowse: () => void
+  runAutoBrowse: () => void
+  pauseAutoBrowse: (reason: ViewerAutoPauseReason) => void
+  stopAutoBrowse: (ended?: boolean) => void
+  setAutoBrowseInterval: (seconds: number) => void
+  setAutoBrowseWait: (wait: 'media' | 'page' | null) => void
+  restartAutoBrowseMedia: (mediaId: number) => void
+  consumeAutoBrowseRestart: (revision: number) => void
   // 数据状态
   images: RandomImageItem[]
   artworkLikeMap: Map<number, boolean>
@@ -56,6 +76,52 @@ export interface ViewerState {
 export const useViewerStore = create<ViewerState>()(
   persist(
     (set, get) => ({
+      autoBrowseStatus: 'off',
+      autoBrowseInterval: 5,
+      autoBrowseWait: null,
+      autoBrowsePauseReason: null,
+      autoBrowseStartRequested: false,
+      autoBrowseSession: 0,
+      autoBrowseRestartSequence: 0,
+      autoBrowseRestart: null,
+      requestAutoBrowse: () =>
+        set((state) => ({
+          autoBrowseStartRequested: true,
+          autoBrowseSession:
+            state.autoBrowseSession + (state.autoBrowseStatus === 'off' || state.autoBrowseStatus === 'ended' ? 1 : 0)
+        })),
+      runAutoBrowse: () =>
+        set({ autoBrowseStatus: 'running', autoBrowseStartRequested: false, autoBrowsePauseReason: null }),
+      pauseAutoBrowse: (reason) => {
+        if (get().autoBrowseStatus === 'off' || get().autoBrowseStatus === 'ended') return
+        set({ autoBrowseStatus: 'paused', autoBrowsePauseReason: reason, autoBrowseStartRequested: false })
+      },
+      stopAutoBrowse: (ended = false) =>
+        set((state) => ({
+          autoBrowseStatus: ended ? 'ended' : 'off',
+          autoBrowseWait: null,
+          autoBrowsePauseReason: null,
+          autoBrowseStartRequested: false,
+          autoBrowseSession: state.autoBrowseSession + 1,
+          autoBrowseRestart: null
+        })),
+      setAutoBrowseInterval: (seconds) => {
+        if (VIEWER_AUTO_INTERVALS.some((value) => value === seconds)) set({ autoBrowseInterval: seconds })
+      },
+      setAutoBrowseWait: (wait) => {
+        if (get().autoBrowseWait !== wait) set({ autoBrowseWait: wait })
+      },
+      restartAutoBrowseMedia: (mediaId) =>
+        set((state) => ({
+          autoBrowseRestartSequence: state.autoBrowseRestartSequence + 1,
+          autoBrowseRestart: { mediaId, revision: state.autoBrowseRestartSequence + 1, consumed: false }
+        })),
+      consumeAutoBrowseRestart: (revision) => {
+        const restart = get().autoBrowseRestart
+        if (restart?.revision === revision && !restart.consumed) {
+          set({ autoBrowseRestart: { ...restart, consumed: true } })
+        }
+      },
       // 初始状态
       images: [],
       artworkLikeMap: new Map(),
@@ -120,6 +186,7 @@ export const useViewerStore = create<ViewerState>()(
 
       // 重置所有状态
       resetViewerState: () => {
+        get().stopAutoBrowse()
         set({
           images: [],
           hasFetchedOnce: false,
@@ -161,9 +228,21 @@ export const useViewerStore = create<ViewerState>()(
         }
       },
       partialize: (state) => ({
+        autoBrowseInterval: state.autoBrowseInterval,
         maxImageCount: state.maxImageCount,
         mediaType: state.mediaType
-      })
+      }),
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<ViewerState> | undefined
+        return {
+          ...current,
+          ...(saved?.maxImageCount !== undefined ? { maxImageCount: saved.maxImageCount } : {}),
+          ...(saved?.mediaType !== undefined ? { mediaType: saved.mediaType } : {}),
+          autoBrowseInterval: VIEWER_AUTO_INTERVALS.some((value) => value === saved?.autoBrowseInterval)
+            ? saved!.autoBrowseInterval!
+            : 5
+        }
+      }
     }
   )
 )
