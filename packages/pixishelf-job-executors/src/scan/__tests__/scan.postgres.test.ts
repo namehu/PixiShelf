@@ -71,6 +71,36 @@ describePostgres('scan executor PostgreSQL integration', () => {
     await Promise.all([prisma?.$disconnect(), concurrentPrisma?.$disconnect()])
   })
 
+  it('marks newly published Pixiv artworks only for opted-in accounts without creating visits', async () => {
+    const root = await fixtureRoot()
+    const userId = `${testPrefix}-reading-enabled`
+    const otherUserId = `${testPrefix}-reading-disabled`
+    await client().userBA.createMany({ data: [{ id: userId }, { id: otherUserId }] })
+    await client().userSetting.create({
+      data: { userId, key: 'pixiv_import_mark_read', value: 'true', type: 'boolean' }
+    })
+    try {
+      const id = nextNumericId()
+      await fs.writeFile(path.join(root, `${id}-meta.json`), JSON.stringify(metadataDocument(id)))
+      await fs.writeFile(path.join(root, `${id}_p0.jpg`), 'image')
+      await executeIncremental(root, 'reading-default')
+      const artwork = await client().artwork.findUniqueOrThrow({ where: { externalId: id } })
+      const summaries = await client().artworkReadingSummary.findMany({ where: { artworkId: artwork.id } })
+      expect(summaries).toHaveLength(1)
+      expect(summaries[0]).toMatchObject({
+        userId, seenCount: 1, totalCount: 1, viewCount: 0, stateVersion: 1,
+        lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null
+      })
+      expect(await client().artworkReadMedia.count({ where: { artworkId: artwork.id, userId } })).toBe(1)
+      await executeIncremental(root, 'reading-repeat')
+      expect(await client().artworkReadingSummary.findMany({ where: { artworkId: artwork.id } })).toEqual(summaries)
+      await client().image.create({ data: { artworkId: artwork.id, path: `${id}_p1.jpg`, sortOrder: 1 } })
+      expect(await client().artworkReadMedia.count({ where: { artworkId: artwork.id, userId } })).toBe(1)
+    } finally {
+      await client().userBA.deleteMany({ where: { id: { in: [userId, otherUserId] } } })
+    }
+  })
+
   it.each(['INCREMENTAL', 'CLIENT_LIST', 'ARTWORK_RESCAN'] as const)(
     'accepts a remount in %s and retains the bound UUID',
     async (mode) => {

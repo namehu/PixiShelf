@@ -596,6 +596,7 @@ function pixivTransaction(existingImages: Array<{ id: number; path: string; sort
   }))
   const transaction = {
     $queryRaw: queryRaw,
+    userSetting: { findMany: vi.fn(async () => []) },
     scanRunItem: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({})) },
     artworkExternalRef: {
       findUnique: vi.fn(async () => null),

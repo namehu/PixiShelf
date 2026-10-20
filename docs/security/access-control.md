@@ -425,6 +425,8 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 
 `reading.markRead` 使用 `authProcedure`，归属仅来自服务端会话，`expectedUserId` 仅作账户切换前置校验。输入限定作品 ID、媒体版本与 `ALL` / `MEDIA` 目标；单项媒体必须属于指定作品，整部集合由服务端查询，客户端不能提交已读数量、阅读次数或时间。作品须处于 ACTIVE 且未删除，写入先锁 Artwork，再校验媒体版本；跨作品媒体或版本冲突不产生写入。该接口不开放给匿名请求或 Webhook Token。
 
+`UserSetting.pixiv_import_mark_read` 是默认关闭的账户偏好，只接受 `type=boolean,value=true` 作为启用值；沿用现有账户设置归属边界。Worker 只在 Pixiv 新作品未提交的创建事务中为已启用账户初始化进度，不使用任务操作者猜测阅读账户，也不让 Webhook 指定目标用户。历史回填没有新增 HTTP 接口，须用明确账户和冻结清单执行维护 SQL；生成工具只使用 DBX 只读查询，SQL 必须以整批事务执行并保存操作记录。
+
 ## 作品快捷筛选账户边界
 
 `artworkQuickFilter` 的 list/create/update/delete/setNavigation 全部使用 `authProcedure`，所有请求必须携带与会话相同的 `expectedUserId`，实际持久化身份始终取 `ctx.userId`。预设和导航顺序存入账户自己的 `UserSetting`；通用设置读写分别排除、拒绝 `artwork_quick_filter:` 保留前缀，不能绕过专用 Zod、版本及数量校验。事务锁定账户行后检查名称、总量和版本，禁止跨账户读写与过期覆盖；客户端缓存按账户隔离。名称和条件摘要遵循全局隐私文本规则，但隐私遮蔽不构成授权边界。详见[作品快捷筛选](../features/artwork-quick-filters.md)。

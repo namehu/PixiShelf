@@ -4,6 +4,7 @@ import { animationDurationSourceChanged, canPreserveAnimationClassification } fr
 import type { DiscoveredMediaFile } from './discovery.ts'
 import type { ScanMetadata } from './metadata.ts'
 import type { ScanTransaction } from './types.ts'
+import { initializePixivImportReading } from './pixiv-import-reading.ts'
 import {
   normalizeImportedPixivSourceTags,
   reconcilePixivAiGeneratedTag,
@@ -323,6 +324,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       newImageCount += 1
     }
   }
+  if (isNewArtwork) await initializePixivImportReading(transaction, artworkId)
   if (input.manageCheckpoint !== false) {
     await writeItem(input, {
       artworkId,
