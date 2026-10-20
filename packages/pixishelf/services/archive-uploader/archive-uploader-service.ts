@@ -1,3 +1,4 @@
+import { assertCatalogItemsActionable } from './archive-uploader-catalog-actions'
 import { sourceWireSelect, serializeSource, type SourceWire } from './archive-source-wire'
 import { linkIntakeCatalogItems } from './archive-uploader-intake-link'
 import {
@@ -836,60 +837,6 @@ export async function addArchiveUploaderScanItems(
 function assertAllDispositionItemsFound(items: DispositionCatalogItem[], itemIds: string[]) {
   if (items.length !== itemIds.length || items.some((item) => item.matchesQuery === false)) {
     throw new ArchiveError('STATE_CONFLICT', '部分扫描结果不存在或不属于该上传者来源')
-  }
-}
-
-async function assertCatalogItemsActionable(transaction: Prisma.TransactionClient, items: DispositionCatalogItem[]) {
-  if (
-    items.some((item) => item.lastOutcome !== null && item.lastOutcome !== 'ARCHIVED' && item.lastIntakeItemId !== null)
-  ) {
-    throw new ArchiveError('STATE_CONFLICT', '该画廊已经进入过收件流程；请前往收件箱处理当前结果')
-  }
-  const identities = items.map((item) => ({ providerKey: item.providerKey, externalId: item.externalId }))
-  const canonicalUrls = items.map(({ canonicalUrl }) => canonicalUrl)
-  const authoritativeTerminalFilters: Prisma.ArchiveIntakeItemWhereInput[] = items.map((item) => ({
-    status: { in: ['FAILED', 'CANCELLED', 'DUPLICATE'] },
-    updatedAt: item.lastOutcomeAt ? { gt: item.lastOutcomeAt } : undefined,
-    OR: [
-      { providerKey: item.providerKey, externalId: item.externalId },
-      { submittedUrl: item.canonicalUrl },
-      { canonicalUrl: item.canonicalUrl }
-    ]
-  }))
-  const [references, activeIntake, terminalIntake, activeImports] = await Promise.all([
-    transaction.artworkExternalRef.findMany({
-      where: { OR: identities },
-      select: { providerKey: true, externalId: true }
-    }),
-    transaction.archiveIntakeItem.findFirst({
-      where: {
-        status: { in: ['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'] },
-        OR: [...identities, { submittedUrl: { in: canonicalUrls } }, { canonicalUrl: { in: canonicalUrls } }]
-      },
-      select: { id: true }
-    }),
-    transaction.archiveIntakeItem.findFirst({
-      where: { OR: authoritativeTerminalFilters },
-      select: { id: true }
-    }),
-    transaction.archiveImport.findFirst({
-      where: {
-        status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] },
-        OR: identities
-      },
-      select: { id: true }
-    })
-  ])
-  const referenceKeys = new Set(references.map(dispositionKey))
-  const hasInvalidRecommendation = items.some((item) => {
-    const archived = referenceKeys.has(dispositionKey(item))
-    return archived && item.classification !== 'POSSIBLE_UPDATE'
-  })
-  if (activeIntake || terminalIntake || activeImports || hasInvalidRecommendation) {
-    throw new ArchiveError(
-      'STATE_CONFLICT',
-      '只能处理尚未提交的新归档、检测到变化或替代版本；活动和异常任务请前往收件箱处理'
-    )
   }
 }
 

@@ -552,7 +552,7 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
     })
   })
 
-  it('propagates terminal intake state across sources and retains it after intake cleanup', async () => {
+  it('restores archived updates across sources after cancellation and intake cleanup', async () => {
     const first = await seedCompletedScan('terminal-first', '5001')
     const second = await seedCompletedScan('terminal-second', '5002')
     const archivedAt = new Date('2026-09-02T00:01:30.000Z')
@@ -605,8 +605,18 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
     )
     await expect(
       listArchiveUploaderScanItems({ sourceId: second.sourceId, view: 'ATTENTION', limit: 50 }, { database: db() })
+    ).resolves.toMatchObject({ items: [] })
+    await expect(
+      listArchiveUploaderScanItems({ sourceId: second.sourceId, view: 'ACTIONABLE', limit: 50 }, { database: db() })
     ).resolves.toMatchObject({
-      items: [expect.objectContaining({ id: second.catalogItemId, workflowStage: 'CANCELLED' })]
+      items: [
+        expect.objectContaining({
+          id: second.catalogItemId,
+          workflowStage: 'UPDATE_AVAILABLE',
+          errorCode: null,
+          errorMessage: null
+        })
+      ]
     })
 
     const historicalAt = new Date('2026-09-01T00:00:00.000Z')
@@ -641,14 +651,16 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
 
     await db().archiveIntakeSubmission.delete({ where: { id: submission.id } })
     await expect(
-      listArchiveUploaderScanItems({ sourceId: second.sourceId, view: 'ATTENTION', limit: 50 }, { database: db() })
+      listArchiveUploaderScanItems({ sourceId: second.sourceId, view: 'ACTIONABLE', limit: 50 }, { database: db() })
     ).resolves.toMatchObject({
       items: [
         expect.objectContaining({
           id: second.catalogItemId,
-          workflowStage: 'CANCELLED',
+          workflowStage: 'UPDATE_AVAILABLE',
           intakeItemId: null,
-          recoverable: true
+          recoverable: false,
+          errorCode: null,
+          errorMessage: null
         })
       ]
     })
@@ -747,9 +759,11 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
     )
     await db().archiveIntakeSubmission.delete({ where: { id: submission.id } })
     await expect(
-      listArchiveUploaderScanItems({ sourceId: seeded.sourceId, view: 'ATTENTION', limit: 50 }, { database: db() })
+      listArchiveUploaderScanItems({ sourceId: seeded.sourceId, view: 'ACTIONABLE', limit: 50 }, { database: db() })
     ).resolves.toMatchObject({
-      items: [expect.objectContaining({ id: seeded.catalogItemId, workflowStage: 'CANCELLED', recoverable: true })]
+      items: [
+        expect.objectContaining({ id: seeded.catalogItemId, workflowStage: 'UPDATE_AVAILABLE', recoverable: false })
+      ]
     })
     await expect(
       addArchiveUploaderScanItems(

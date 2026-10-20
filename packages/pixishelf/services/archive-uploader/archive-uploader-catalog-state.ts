@@ -249,6 +249,7 @@ function catalogStateCte(scope: Prisma.Sql) {
       SELECT
         catalog.*,
         reference."artworkId",
+        (artwork."id" IS NOT NULL AND artwork."deletedAt" IS NULL AND artwork."archiveLifecycleState" = 'ACTIVE') AS "hasActiveArtwork",
         deletion."deletedAt" AS "identityDeletedAt",
         deletion."purgedAt" AS "identityPurgedAt",
         intake."createdAt" AS "intakeCreatedAt",
@@ -272,6 +273,7 @@ function catalogStateCte(scope: Prisma.Sql) {
       LEFT JOIN "artwork_external_refs" AS reference
         ON reference."providerKey" = catalog."providerKey"
         AND reference."externalId" = catalog."externalId"
+      LEFT JOIN "Artwork" AS artwork ON artwork."id" = reference."artworkId"
       LEFT JOIN "archive_deleted_identities" AS deletion
         ON deletion."providerKey" = catalog."providerKey" AND deletion."externalId" = catalog."externalId"
       LEFT JOIN LATERAL (
@@ -368,8 +370,18 @@ function catalogStateCte(scope: Prisma.Sql) {
           WHEN base."artworkId" IS NOT NULL THEN 'ARCHIVED'
           WHEN base."classification"::text = 'REPLACEMENT' THEN 'REPLACEMENT'
           ELSE 'NEW'
-        END AS "workflowStage"
+        END AS "taskStage"
       FROM "catalogBase" AS base
+    ),
+    "catalogResolvedStages" AS (
+      SELECT
+        stage.*,
+        CASE
+          WHEN stage."taskStage" = 'CANCELLED' AND stage."hasActiveArtwork" THEN
+            CASE WHEN stage."classification"::text = 'POSSIBLE_UPDATE' THEN 'UPDATE_AVAILABLE' ELSE 'ARCHIVED' END
+          ELSE stage."taskStage"
+        END AS "workflowStage"
+      FROM "catalogStages" AS stage
     ),
     "catalogState" AS (
       SELECT
@@ -387,16 +399,16 @@ function catalogStateCte(scope: Prisma.Sql) {
           WHEN stage."workflowStage" = 'NEW' THEN 'NEW'
           ELSE NULL
         END AS "recommendation",
-        COALESCE(
+        CASE WHEN stage."taskStage" = 'CANCELLED' AND stage."hasActiveArtwork" THEN NULL ELSE COALESCE(
           stage."archiveImportErrorCode",
           stage."intakeErrorCode",
           stage."lastErrorCode"
-        ) AS "errorCode",
-        COALESCE(
+        ) END AS "errorCode",
+        CASE WHEN stage."taskStage" = 'CANCELLED' AND stage."hasActiveArtwork" THEN NULL ELSE COALESCE(
           stage."archiveImportErrorMessage",
           stage."intakeErrorMessage",
           stage."lastErrorMessage"
-        ) AS "errorMessage",
+        ) END AS "errorMessage",
         (
           stage."workflowStage" IN ('FAILED', 'CANCELLED', 'DUPLICATE')
           AND stage."intakeItemId" IS NULL
@@ -407,7 +419,7 @@ function catalogStateCte(scope: Prisma.Sql) {
           AND (stage."intakeStatus" IS NULL OR stage."intakeStatus" = 'FAILED')
           AND (stage."archiveImportStatus" IS NULL OR stage."archiveImportStatus" NOT IN ('PENDING', 'RUNNING', 'PAUSED', 'CANCELLING', 'FAILED'))
         ) AS "deletableFailure"
-      FROM "catalogStages" AS stage
+      FROM "catalogResolvedStages" AS stage
     )
   `
 }
