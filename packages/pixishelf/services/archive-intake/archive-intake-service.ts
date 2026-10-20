@@ -6,7 +6,7 @@ import {
   archiveUploaderUrlLockKey,
   JOB_DEFINITION_VERSION
 } from '@pixishelf/job-contracts'
-import { Prisma, type PrismaClient } from '@pixishelf/db'
+import { Prisma, type PrismaClient, lockCreatorCatalog } from '@pixishelf/db'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { archiveProviderRegistry } from '@/services/archive/provider-registry'
@@ -18,7 +18,8 @@ import {
 import { ArchiveError } from '@/services/archive/errors'
 import { archiveWireErrorMessage } from '@/services/archive/archive-redaction'
 import { validateArchiveUrl } from '@/services/archive/safe-http'
-import { writeJobEvent } from '@/services/background-task/job-event-service'
+import { writeJobEvent, writeJobEvents, type JobEventWriteInput } from '@/services/background-task/job-event-service'
+import { INTAKE_SUBMISSION_TRANSACTION_OPTIONS, IntakeSubmissionTrace } from './intake-submission-transaction'
 
 const ACTIVE_INTAKE_STATUSES = ['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'] as const
 const INTAKE_CAPACITY = 1_000
@@ -94,8 +95,19 @@ export async function createArchiveIntakeSubmission(
   dependencies: ArchiveIntakeServiceDependencies = {}
 ) {
   const database = getDatabase(dependencies)
-  return database.$transaction((transaction) =>
-    createArchiveIntakeSubmissionInTransaction(input, requestedByUserId, transaction, dependencies)
+  const parsed = createArchiveIntakeSchema.parse(input)
+  const trace = new IntakeSubmissionTrace()
+  return trace.run(
+    { operation: 'createArchiveIntakeSubmission', submissionKey: parsed.idempotencyKey, itemCount: parsed.urls.length },
+    () =>
+      database.$transaction(
+        (transaction) =>
+          createArchiveIntakeSubmissionInTransaction(parsed, requestedByUserId, transaction, {
+            ...dependencies,
+            trace
+          }),
+        INTAKE_SUBMISSION_TRANSACTION_OPTIONS
+      )
   )
 }
 
@@ -103,7 +115,9 @@ export async function createArchiveIntakeSubmissionInTransaction(
   input: z.input<typeof createArchiveIntakeSchema>,
   requestedByUserId: string,
   transaction: Prisma.TransactionClient,
-  dependencies: Pick<ArchiveIntakeServiceDependencies, 'now' | 'uuid' | 'validateUrl'> = {}
+  dependencies: Pick<ArchiveIntakeServiceDependencies, 'now' | 'uuid' | 'validateUrl'> & {
+    trace?: IntakeSubmissionTrace
+  } = {}
 ) {
   const parsed = createArchiveIntakeSchema.parse(input)
   const now = dependencies.now ?? (() => new Date())
@@ -117,7 +131,9 @@ export async function createArchiveIntakeSubmissionInTransaction(
   })
 
   // 并发场景下先锁幂等键，再锁容量队列，避免重复重放和容量竞争带来的“双重可见项目”。
+  dependencies.trace?.phase('idempotencyLock')
   await lockKey(transaction, INTAKE_IDEMPOTENCY_LOCK_NAMESPACE, parsed.idempotencyKey)
+  dependencies.trace?.phase('stateChecks')
   const existing = await transaction.archiveIntakeSubmission.findUnique({
     where: { idempotencyKey: parsed.idempotencyKey }
   })
@@ -125,14 +141,42 @@ export async function createArchiveIntakeSubmissionInTransaction(
     if (existing.requestHash !== requestHash || existing.requestedByUserId !== requestedByUserId) {
       throw new ArchiveError('STATE_CONFLICT', '该幂等键已绑定到不同的归档链接提交')
     }
+    if (dependencies.trace) dependencies.trace.replayed = true
+    dependencies.trace?.phase('serialization')
     return serializeSubmission(transaction, existing.id)
   }
 
+  dependencies.trace?.phase('capacityLock')
   await lockKey(transaction, INTAKE_CAPACITY_LOCK_NAMESPACE, RESOLVE_QUEUE_ID)
+  dependencies.trace?.phase('stateChecks')
   let remainingCapacity =
     INTAKE_CAPACITY -
     (await transaction.archiveIntakeItem.count({ where: { status: { in: [...ACTIVE_INTAKE_STATUSES] } } }))
   const timestamp = now()
+  const deletedItems = await transaction.archiveDeletedIdentity.findMany({
+    where: { canonicalUrl: { in: rawUrls } },
+    select: { canonicalUrl: true, purgedAt: true }
+  })
+  const deletedByUrl = new Map<string, (typeof deletedItems)[number]>()
+  for (const item of deletedItems) {
+    // canonicalUrl is indexed, not unique. An unfinished cleanup must not be
+    // hidden by another identity's completed deletion for the same URL.
+    if (!deletedByUrl.has(item.canonicalUrl) || !item.purgedAt) deletedByUrl.set(item.canonicalUrl, item)
+  }
+  const activeItems = await transaction.archiveIntakeItem.findMany({
+    where: {
+      normalizedUrlHash: { in: [...new Set(rawUrls.map(hashSubmittedUrl))] },
+      status: { in: [...ACTIVE_INTAKE_STATUSES] }
+    },
+    orderBy: { queueOrder: 'asc' },
+    select: { id: true, submittedUrl: true, normalizedUrlHash: true }
+  })
+  // Preserve findFirst's earliest-by-hash selection and exact URL comparison.
+  const activeByHash = new Map<string, (typeof activeItems)[number]>()
+  for (const item of activeItems) {
+    if (!activeByHash.has(item.normalizedUrlHash)) activeByHash.set(item.normalizedUrlHash, item)
+  }
+  dependencies.trace?.phase('intakeWrite')
   const submission = await transaction.archiveIntakeSubmission.create({
     data: {
       id: uuid(),
@@ -154,6 +198,9 @@ export async function createArchiveIntakeSubmissionInTransaction(
   let rejectedCount = 0
   // firstSeen 去重仅用于“本次提交体”内的重复 URL；全局去重由 normalizedUrlHash + 活跃状态查询负责。
   const firstSeen = new Map<string, string | null>()
+  const jobs: Prisma.SystemJobCreateManyInput[] = []
+  const intakeItems: Prisma.ArchiveIntakeItemCreateManyInput[] = []
+  const events: JobEventWriteInput[] = []
 
   for (const submittedUrl of rawUrls) {
     if (firstSeen.has(submittedUrl)) {
@@ -169,27 +216,28 @@ export async function createArchiveIntakeSubmissionInTransaction(
       continue
     }
 
-    const deleted = await transaction.archiveDeletedIdentity.findFirst({
-      where: { canonicalUrl: submittedUrl },
-      select: { purgedAt: true }
-    })
+    const deleted = deletedByUrl.get(submittedUrl)
     if (deleted && (parsed.downloadMode === 'AUTO' || !deleted.purgedAt)) {
       rejectedCount += 1
       continue
     }
     const normalizedUrlHash = hashSubmittedUrl(submittedUrl)
-    const duplicate = await findActiveUrlDuplicate(transaction, submittedUrl, normalizedUrlHash)
+    const duplicate = activeByHash.get(normalizedUrlHash)
     if (duplicate?.submittedUrl === submittedUrl) {
       const duplicateId = uuid()
-      await createDuplicateAuditItem(transaction, {
+      intakeItems.push({
         id: duplicateId,
         submissionId: submission.id,
         submittedUrl,
         normalizedUrlHash,
         duplicateOfItemId: duplicate.id,
         downloadMode: parsed.downloadMode,
-        quality: parsed.quality,
-        timestamp
+        selectedQuality: parsed.quality,
+        status: 'DUPLICATE',
+        retryable: false,
+        finishedAt: timestamp,
+        createdAt: timestamp,
+        updatedAt: timestamp
       })
       firstSeen.set(submittedUrl, duplicateId)
       duplicateCount += 1
@@ -203,7 +251,7 @@ export async function createArchiveIntakeSubmissionInTransaction(
 
     const itemId = uuid()
     const jobId = uuid()
-    await createQueuedIntakeItem(transaction, {
+    const records = prepareQueuedIntakeItem({
       itemId,
       jobId,
       submissionId: submission.id,
@@ -215,6 +263,9 @@ export async function createArchiveIntakeSubmissionInTransaction(
       downloadMode: parsed.downloadMode,
       quality: parsed.quality
     })
+    jobs.push(records.job)
+    intakeItems.push(records.item)
+    events.push(records.event)
     firstSeen.set(submittedUrl, itemId)
     acceptedCount += 1
     remainingCapacity -= 1
@@ -223,10 +274,33 @@ export async function createArchiveIntakeSubmissionInTransaction(
   if (rawUrls.length !== acceptedCount + invalidCount + duplicateCount + rejectedCount) {
     throw new ArchiveError('INTERNAL', '归档链接提交计数不一致')
   }
+  if (intakeItems.length > 0) {
+    // Assign sequence values explicitly so createMany's row order is not the FIFO contract.
+    const orders = await transaction.$queryRaw<Array<{ queueOrder: bigint }>>(Prisma.sql`
+      SELECT nextval(pg_get_serial_sequence('archive_intake_items', 'queueOrder')) AS "queueOrder"
+      FROM generate_series(1, ${intakeItems.length}::integer) AS ordinal
+      ORDER BY ordinal
+    `)
+    if (orders.length !== intakeItems.length) throw new ArchiveError('INTERNAL', '归档收件序号分配失败')
+    intakeItems.forEach((item, index) => {
+      item.queueOrder = orders[index]!.queueOrder
+    })
+    if (jobs.length > 0) {
+      // The system_jobs trigger takes this same lock before inserting a job.
+      // Acquire it at the same point explicitly so Worker contention is measurable.
+      dependencies.trace?.phase('creatorCatalogLock')
+      await lockCreatorCatalog(transaction)
+      dependencies.trace?.phase('intakeWrite')
+      await transaction.systemJob.createMany({ data: jobs })
+    }
+    await transaction.archiveIntakeItem.createMany({ data: intakeItems })
+    await writeJobEvents(transaction, events)
+  }
   await transaction.archiveIntakeSubmission.update({
     where: { id: submission.id },
     data: { acceptedCount, invalidCount, duplicateCount, rejectedCount }
   })
+  dependencies.trace?.phase('serialization')
   return serializeSubmission(transaction, submission.id)
 }
 
@@ -414,58 +488,51 @@ async function createCapacityRejectedAuditItem(
   })
 }
 
-async function createQueuedIntakeItem(
-  transaction: Prisma.TransactionClient,
-  input: {
-    itemId: string
-    jobId: string
-    submissionId: string
-    submittedUrl: string
-    normalizedUrlHash: string
-    requestedByUserId: string
-    supersedesItemId?: string
-    downloadMode: 'AUTO' | 'MANUAL'
-    quality: 'ORIGINAL' | 'DISPLAY'
-    timestamp: Date
-    triggerSource: 'MANUAL' | 'RETRY'
+function prepareQueuedIntakeItem(input: {
+  itemId: string
+  jobId: string
+  submissionId: string
+  submittedUrl: string
+  normalizedUrlHash: string
+  requestedByUserId: string
+  supersedesItemId?: string
+  downloadMode: 'AUTO' | 'MANUAL'
+  quality: 'ORIGINAL' | 'DISPLAY'
+  timestamp: Date
+  triggerSource: 'MANUAL' | 'RETRY'
+}) {
+  const job: Prisma.SystemJobCreateManyInput = {
+    id: input.jobId,
+    type: 'ARCHIVE_RESOLVE_ITEM',
+    executionLane: 'ARCHIVE_RESOLVE',
+    definitionVersion: JOB_DEFINITION_VERSION,
+    status: 'PENDING',
+    triggerSource: input.triggerSource,
+    requestedByUserId: input.requestedByUserId,
+    idempotencyKey: `archive-intake:${input.itemId}:resolve:1`,
+    payload: archiveResolveItemPayloadSchema.parse({ intakeItemId: input.itemId }),
+    queuePriority: 10,
+    effectivePriority: 10,
+    availableAt: input.timestamp,
+    maxAttempts: 3,
+    progress: 0,
+    message: input.triggerSource === 'RETRY' ? '等待解析修正后的归档链接...' : '等待归档解析后台任务进程...'
   }
-) {
-  await transaction.systemJob.create({
-    data: {
-      id: input.jobId,
-      type: 'ARCHIVE_RESOLVE_ITEM',
-      executionLane: 'ARCHIVE_RESOLVE',
-      definitionVersion: JOB_DEFINITION_VERSION,
-      status: 'PENDING',
-      triggerSource: input.triggerSource,
-      requestedByUserId: input.requestedByUserId,
-      idempotencyKey: `archive-intake:${input.itemId}:resolve:1`,
-      payload: archiveResolveItemPayloadSchema.parse({ intakeItemId: input.itemId }),
-      queuePriority: 10,
-      effectivePriority: 10,
-      availableAt: input.timestamp,
-      maxAttempts: 3,
-      progress: 0,
-      message: input.triggerSource === 'RETRY' ? '等待解析修正后的归档链接...' : '等待归档解析后台任务进程...'
-    }
-  })
-  await transaction.archiveIntakeItem.create({
-    data: {
-      id: input.itemId,
-      submissionId: input.submissionId,
-      submittedUrl: input.submittedUrl,
-      normalizedUrlHash: input.normalizedUrlHash,
-      downloadMode: input.downloadMode,
-      selectedQuality: input.quality,
-      status: 'QUEUED',
-      currentSystemJobId: input.jobId,
-      supersedesItemId: input.supersedesItemId,
-      availableAt: input.timestamp,
-      createdAt: input.timestamp,
-      updatedAt: input.timestamp
-    }
-  })
-  await writeJobEvent(transaction, {
+  const item: Prisma.ArchiveIntakeItemCreateManyInput = {
+    id: input.itemId,
+    submissionId: input.submissionId,
+    submittedUrl: input.submittedUrl,
+    normalizedUrlHash: input.normalizedUrlHash,
+    downloadMode: input.downloadMode,
+    selectedQuality: input.quality,
+    status: 'QUEUED',
+    currentSystemJobId: input.jobId,
+    supersedesItemId: input.supersedesItemId,
+    availableAt: input.timestamp,
+    createdAt: input.timestamp,
+    updatedAt: input.timestamp
+  }
+  const event: JobEventWriteInput = {
     jobId: input.jobId,
     type: 'job.queued',
     attempt: 0,
@@ -475,7 +542,18 @@ async function createQueuedIntakeItem(
       priority: 10,
       ...(input.supersedesItemId ? { supersedesItemId: input.supersedesItemId } : {})
     }
-  })
+  }
+  return { job, item, event }
+}
+
+async function createQueuedIntakeItem(
+  transaction: Prisma.TransactionClient,
+  input: Parameters<typeof prepareQueuedIntakeItem>[0]
+) {
+  const records = prepareQueuedIntakeItem(input)
+  await transaction.systemJob.create({ data: records.job })
+  await transaction.archiveIntakeItem.create({ data: records.item })
+  await writeJobEvent(transaction, records.event)
 }
 
 export async function listArchiveIntakeItems(

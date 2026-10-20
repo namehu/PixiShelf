@@ -751,8 +751,9 @@ describe('archive uploader service', () => {
         lastOutcome: null
       }
     ]
-    const linkUpdate = vi.fn(async () => catalogItems[0])
+    const linkUpdate = vi.fn<(query: unknown) => Promise<number>>().mockResolvedValue(1)
     const database = transactionalDatabase({
+      $executeRaw: linkUpdate,
       archiveUploaderCatalogItem: {
         findMany: vi.fn(async () => catalogItems),
         updateMany: linkUpdate
@@ -786,17 +787,18 @@ describe('archive uploader service', () => {
       database,
       expect.objectContaining({ now: undefined, uuid: undefined })
     )
-    expect(linkUpdate).toHaveBeenCalledWith({
-      where: { providerKey: 'e-hentai', externalId: '300' },
-      data: expect.objectContaining({ lastIntakeItemId: 'intake-item-1', lastOutcome: 'SUBMITTED' })
+    expect(linkUpdate).toHaveBeenCalledOnce()
+    expect(linkUpdate.mock.calls[0]?.[0]).toMatchObject({
+      values: expect.arrayContaining(['e-hentai', '300', 'intake-item-1', 'SUBMITTED'])
     })
   })
 
   it('persists a duplicate intake audit item as attention instead of submitted', async () => {
     const canonicalUrl = 'https://e-hentai.org/g/300/token300/'
     const duplicateAt = new Date('2026-09-03T01:00:00.000Z')
-    const linkUpdate = vi.fn(async () => ({ count: 1 }))
+    const linkUpdate = vi.fn<(query: unknown) => Promise<number>>().mockResolvedValue(1)
     const database = transactionalDatabase({
+      $executeRaw: linkUpdate,
       archiveUploaderCatalogItem: {
         findMany: vi.fn(async () => [
           {
@@ -837,23 +839,16 @@ describe('archive uploader service', () => {
       { database: database as never }
     )
 
-    expect(linkUpdate).toHaveBeenCalledWith({
-      where: { providerKey: 'e-hentai', externalId: '300' },
-      data: expect.objectContaining({
-        lastIntakeItemId: 'intake-duplicate',
-        lastOutcome: 'DUPLICATE',
-        lastOutcomeAt: duplicateAt,
-        lastErrorCode: 'ACTIVE_DUPLICATE'
-      })
+    expect(linkUpdate.mock.calls[0]?.[0]).toMatchObject({
+      values: expect.arrayContaining(['intake-duplicate', 'DUPLICATE', duplicateAt, 'ACTIVE_DUPLICATE'])
     })
   })
 
   it('creates a new idempotent submission attempt after a capacity rejection', async () => {
     const canonicalUrl = 'https://e-hentai.org/g/300/token300/'
-    const linkUpdate = vi.fn(async () => ({ count: 1 }))
+    const linkUpdate = vi.fn<(query: unknown) => Promise<number>>().mockResolvedValue(1)
     const intakeFindMany = vi
       .fn()
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 'intake-item-2', submittedUrl: canonicalUrl }])
     const findSubmissionAttempt = vi
@@ -862,6 +857,7 @@ describe('archive uploader service', () => {
       .mockResolvedValueOnce({ id: 'submission-rejected' })
       .mockResolvedValueOnce(null)
     const database = transactionalDatabase({
+      $executeRaw: linkUpdate,
       archiveUploaderCatalogItem: {
         findMany: vi.fn(async () => [
           {
@@ -939,9 +935,8 @@ describe('archive uploader service', () => {
     expect(firstKey).toMatch(/00000000-0000-4000-8000-000000000001$/)
     expect(secondKey).toMatch(/00000000-0000-4000-8000-000000000002$/)
     expect(linkUpdate).toHaveBeenCalledOnce()
-    expect(linkUpdate).toHaveBeenCalledWith({
-      where: { providerKey: 'e-hentai', externalId: '300' },
-      data: expect.objectContaining({ lastIntakeItemId: 'intake-item-2', lastOutcome: 'SUBMITTED' })
+    expect(linkUpdate.mock.calls[0]?.[0]).toMatchObject({
+      values: expect.arrayContaining(['intake-item-2', 'SUBMITTED'])
     })
   })
 

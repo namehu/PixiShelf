@@ -1,4 +1,5 @@
 import { sourceWireSelect, serializeSource, type SourceWire } from './archive-source-wire'
+import { linkIntakeCatalogItems } from './archive-uploader-intake-link'
 import {
   sourceCreationArtistIdsSchema,
   validateSourceCreationCreators,
@@ -24,6 +25,10 @@ import { archiveTaskSourceUrl } from '@/services/archive/archive-task-source-ser
 import { resolveArchiveUploaderIdentity } from './archive-uploader-identity'
 import { archiveWireErrorMessage, redactArchiveUrl } from '@/services/archive/archive-redaction'
 import { createArchiveIntakeSubmissionInTransaction } from '@/services/archive-intake/archive-intake-service'
+import {
+  INTAKE_SUBMISSION_TRANSACTION_OPTIONS,
+  IntakeSubmissionTrace
+} from '@/services/archive-intake/intake-submission-transaction'
 import { BackgroundTaskError } from '@/services/background-task/background-task-error'
 import { cancelJobCommand } from '@/services/background-task/job-command-service'
 import {
@@ -748,89 +753,84 @@ export async function addArchiveUploaderScanItems(
 ) {
   const parsed = addArchiveUploaderScanItemsSchema.parse(input)
   const database = getDatabase(dependencies)
-  return database.$transaction(async (transaction) => {
-    await lockSource(transaction, parsed.sourceId)
-    const candidates = await transaction.archiveUploaderCatalogItem.findMany({
-      where: { id: { in: parsed.itemIds }, sourceId: parsed.sourceId, source: sourceScope(dependencies) },
-      orderBy: { id: 'asc' },
-      select: dispositionCatalogItemSelect
-    })
-    assertAllDispositionItemsFound(candidates, parsed.itemIds)
-    await lockDispositionItems(transaction, candidates)
-    const items = await transaction.archiveUploaderCatalogItem.findMany({
-      where: { id: { in: parsed.itemIds }, sourceId: parsed.sourceId, source: sourceScope(dependencies) },
-      orderBy: { id: 'asc' },
-      select: dispositionCatalogItemSelect
-    })
-    assertAllDispositionItemsFound(items, parsed.itemIds)
-    const deletions = await transaction.archiveDeletedIdentity.findMany({
-      where: { OR: items.map(({ providerKey, externalId }) => ({ providerKey, externalId })) }
-    })
-    if (deletions.some((item) => !item.purgedAt)) {
-      throw new ArchiveError('STATE_CONFLICT', '所选作品已删除，文件清理完成后才能重新归档')
-    }
-    const actionItems = items.map((item) => {
-      const deletion = deletions.find(
-        (row) => row.providerKey === item.providerKey && row.externalId === item.externalId
-      )
-      return deletion
-        ? { ...item, lastOutcome: 'ARCHIVED' as const, lastIntakeItemId: null, lastOutcomeAt: deletion.purgedAt }
-        : item
-    })
-    const digest = createHash('sha256')
-      .update(`${parsed.sourceId}\n${[...parsed.itemIds].sort().join('\n')}`)
-      .digest('hex')
-    const idempotencyKey = `uploader-scan:${digest}:${parsed.submissionAttemptId}`
-    const existingAttempt = await transaction.archiveIntakeSubmission.findUnique({
-      where: { idempotencyKey },
-      select: { id: true }
-    })
-    if (!existingAttempt) {
-      await assertCatalogItemsActionable(transaction, actionItems)
-      const ignoredItem = await transaction.archiveUploaderIgnoredItem.findFirst({
-        where: {
-          OR: items.map((item) => ({ providerKey: item.providerKey, externalId: item.externalId }))
-        },
-        select: { id: true }
-      })
-      if (ignoredItem) throw new ArchiveError('STATE_CONFLICT', '所选扫描结果已被忽略，请先从全局已忽略中恢复')
-    }
-
-    const submission = await createArchiveIntakeSubmissionInTransaction(
-      {
-        idempotencyKey,
-        urls: items.map(({ canonicalUrl }) => canonicalUrl),
-        downloadMode: deletions.length ? 'MANUAL' : parsed.downloadMode,
-        quality: parsed.quality
-      },
-      requestedByUserId,
-      transaction,
-      { now: dependencies.now, uuid: dependencies.uuid }
-    )
-    const intakeItems = await transaction.archiveIntakeItem.findMany({
-      where: { submissionId: submission.id },
-      select: { id: true, submittedUrl: true, status: true, updatedAt: true }
-    })
-    const intakeByUrl = new Map(intakeItems.map((item) => [item.submittedUrl, item]))
-    const outcomeAt = (dependencies.now ?? (() => new Date()))()
-    for (const item of items) {
-      const intakeItem = intakeByUrl.get(item.canonicalUrl)
-      if (!intakeItem) continue
-      const duplicate = intakeItem.status === 'DUPLICATE'
-      await transaction.archiveUploaderCatalogItem.updateMany({
-        where: { providerKey: item.providerKey, externalId: item.externalId },
-        data: {
-          lastIntakeItemId: intakeItem.id,
-          lastArchiveImportId: null,
-          lastOutcome: duplicate ? 'DUPLICATE' : 'SUBMITTED',
-          lastOutcomeAt: duplicate ? intakeItem.updatedAt : outcomeAt,
-          lastErrorCode: duplicate ? 'ACTIVE_DUPLICATE' : null,
-          lastErrorMessage: duplicate ? '相同链接已有活动收件项目' : null
+  const trace = new IntakeSubmissionTrace()
+  return trace.run(
+    {
+      operation: 'addArchiveUploaderScanItems',
+      submissionKey: parsed.submissionAttemptId,
+      itemCount: parsed.itemIds.length
+    },
+    () =>
+      database.$transaction(async (transaction) => {
+        trace.phase('sourceLock')
+        await lockSource(transaction, parsed.sourceId)
+        trace.phase('stateChecks')
+        const candidates = await transaction.archiveUploaderCatalogItem.findMany({
+          where: { id: { in: parsed.itemIds }, sourceId: parsed.sourceId, source: sourceScope(dependencies) },
+          orderBy: { id: 'asc' },
+          select: dispositionCatalogItemSelect
+        })
+        assertAllDispositionItemsFound(candidates, parsed.itemIds)
+        trace.phase('identityLocks')
+        await lockDispositionItems(transaction, candidates)
+        trace.phase('stateChecks')
+        const items = await transaction.archiveUploaderCatalogItem.findMany({
+          where: { id: { in: parsed.itemIds }, sourceId: parsed.sourceId, source: sourceScope(dependencies) },
+          orderBy: { id: 'asc' },
+          select: dispositionCatalogItemSelect
+        })
+        assertAllDispositionItemsFound(items, parsed.itemIds)
+        const deletions = await transaction.archiveDeletedIdentity.findMany({
+          where: { OR: items.map(({ providerKey, externalId }) => ({ providerKey, externalId })) }
+        })
+        if (deletions.some((item) => !item.purgedAt)) {
+          throw new ArchiveError('STATE_CONFLICT', '所选作品已删除，文件清理完成后才能重新归档')
         }
-      })
-    }
-    return submission
-  })
+        const actionItems = items.map((item) => {
+          const deletion = deletions.find(
+            (row) => row.providerKey === item.providerKey && row.externalId === item.externalId
+          )
+          return deletion
+            ? { ...item, lastOutcome: 'ARCHIVED' as const, lastIntakeItemId: null, lastOutcomeAt: deletion.purgedAt }
+            : item
+        })
+        const digest = createHash('sha256')
+          .update(`${parsed.sourceId}\n${[...parsed.itemIds].sort().join('\n')}`)
+          .digest('hex')
+        const idempotencyKey = `uploader-scan:${digest}:${parsed.submissionAttemptId}`
+        const existingAttempt = await transaction.archiveIntakeSubmission.findUnique({
+          where: { idempotencyKey },
+          select: { id: true }
+        })
+        if (!existingAttempt) {
+          await assertCatalogItemsActionable(transaction, actionItems)
+          const ignoredItem = await transaction.archiveUploaderIgnoredItem.findFirst({
+            where: {
+              OR: items.map((item) => ({ providerKey: item.providerKey, externalId: item.externalId }))
+            },
+            select: { id: true }
+          })
+          if (ignoredItem) throw new ArchiveError('STATE_CONFLICT', '所选扫描结果已被忽略，请先从全局已忽略中恢复')
+        }
+
+        const submission = await createArchiveIntakeSubmissionInTransaction(
+          {
+            idempotencyKey,
+            urls: items.map(({ canonicalUrl }) => canonicalUrl),
+            downloadMode: deletions.length ? 'MANUAL' : parsed.downloadMode,
+            quality: parsed.quality
+          },
+          requestedByUserId,
+          transaction,
+          { now: dependencies.now, uuid: dependencies.uuid, trace }
+        )
+        // The original submission may already have been resolved or published.
+        if (existingAttempt) return submission
+        trace.phase('catalogWrite')
+        await linkIntakeCatalogItems(transaction, items, submission.id, (dependencies.now ?? (() => new Date()))())
+        return submission
+      }, INTAKE_SUBMISSION_TRANSACTION_OPTIONS)
+  )
 }
 
 function assertAllDispositionItemsFound(items: DispositionCatalogItem[], itemIds: string[]) {

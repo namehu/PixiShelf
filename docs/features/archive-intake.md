@@ -43,6 +43,46 @@ ORDER BY i."pageIndex";
 
 精确字段、状态和 payload 以 Prisma、Zod 与任务契约为准。本文说明用户流程、资源边界、生命周期和运维不变量。
 
+## 批量收件的事务预算与诊断
+
+发现结果“加入收件箱”和直接提交 URL 均支持一次最多 100 条，使用专用交互事务预算：
+`timeout = 30_000ms`、`maxWait = 5_000ms`。后者是获取事务连接的等待上限，不是数据库锁等待上限；
+事务内锁等待计入前者。HTTP 总耗时还包含连接等待、输入处理和响应传输，不能把 30 秒当作整个请求的硬上限。
+其他事务、Worker 并发和全局 Prisma 配置不变。
+
+提交中的 submission、收件、解析任务、初始事件和发现目录回写在同一事务内提交或回滚。
+无效、重复或容量不足的输入沿用原有分类计数，原子性不意味着绕过这些规则全部接受。
+删除记录和活动 URL 查重采用批量读取，任务、收件和事件批量创建，发现目录按作品身份批量回写到所有来源。
+FIFO 使用数据库序列按原输入处理顺序显式分配；发现结果仍按目录 ID 顺序处理，回滚后的序列空洞不影响顺序。
+重放相同提交编号仍校验请求指纹和操作者，返回原 submission，不重复创建任务或将已推进的目录状态回退。
+
+解析和下载运行期间可以提交。除了同一来源或作品身份的竞争，`system_jobs` 的
+`artist_job_command_guard` 触发器也会获取创作者目录锁 `7341902118`，与解析完成、归档发布共享；
+因此不同作品也可能在创建解析任务时等待。收件服务在任务插入前显式获取同一把锁用于计时，
+不移除触发器保护、不改变已有锁的相对顺序，也不要求暂停后台任务。
+数据库不可用、锁持续占用超过预算或真实业务冲突仍可能失败；失败不提交部分收件。
+
+App 输出 `Archive intake submission completed` / `Archive intake submission failed`，
+包含 `operation`、`submissionKeyHash`（原提交键的 SHA-256）、`itemCount`、`outcome`、
+`durationMs` 和 `phasesMs`。阶段包括 `transactionWait`、`sourceLock`、`identityLocks`、
+`idempotencyLock`、`capacityLock`、`creatorCatalogLock`、`stateChecks`、`intakeWrite`、
+`serialization`、`catalogWrite`；失败还包含 `failedPhase`、异常类型、错误码和脱敏消息。
+日志不记录完整 URL、Cookie 或请求体，前端保持通用错误提示。
+
+排查时先用 `docker ps` 核对实际容器名，再读取 App 日志；当前事故实例使用
+`pixivshelf-app-1` 和 `pixivshelf-worker-1`。日志中 `creatorCatalogLock` 较长说明等待共享目录锁，
+`identityLocks` 较长说明作品身份锁等待；不要仅凭有下载任务运行就认定网络下载持有长事务。
+
+本修复无需新增 migration。发布前记录实际 App/Worker 镜像 digest 与现有备份恢复点，
+保留兼容的旧 App 镜像供回退；回退不删除收件、任务或媒体。隔离 PostgreSQL 验收覆盖 100 条 FIFO、
+容量竞争、幂等、失败回滚、超过 5 秒锁等待、30 秒事务超时，以及真实解析/下载执行器在传输、
+检查点和发布阶段的三轮并发提交；外网 Provider 使用受控 fixture。线上 NAS 性能和反向代理行为
+仍需部署后用真实需要收件的 100 条验证，不能用本机测试耗时替代线上验收。
+
+2026-10-20 本机隔离 PostgreSQL 15 验证已执行完整 94 个 migration。100 条正常提交为 129 次数据库执行；
+解析与下载真实执行器的三个阶段各三轮提交均通过，同时验证了身份锁和创作者目录锁等待超过 5 秒后成功、
+超过 30 秒预算整批回滚、容量竞争、删除限制和幂等重放。此记录仅证明隔离环境验收，尚不代表生产镜像已发布。
+
 ## 失败收件的原站核实与删除
 
 收件 URL 可在新标签页打开当时提交的原始地址，不要求解析成功；仅对通过 HTTPS、Provider 主机、端口、凭据与支持路径校验的地址生成链接，非法地址只显示文本。链接保留隐私遮蔽，使用 `noopener noreferrer` 和 no-referrer。

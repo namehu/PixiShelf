@@ -24,14 +24,24 @@ const eventWriteSchema = z.object({
 
 export type JobEventWriteInput = z.input<typeof eventWriteSchema>
 
-export async function writeJobEvent(client: Prisma.TransactionClient, input: JobEventWriteInput): Promise<JobEventDto> {
+function prepareJobEvent(input: JobEventWriteInput): Prisma.SystemJobEventCreateManyInput {
   const parsed = eventWriteSchema.parse(input)
+  return {
+    ...parsed,
+    message: redactSensitiveText(parsed.message),
+    data: parsed.data === null ? Prisma.JsonNull : (sanitizeJsonValue(parsed.data) as Prisma.InputJsonValue)
+  }
+}
+
+export async function writeJobEvents(client: Prisma.TransactionClient, inputs: JobEventWriteInput[]) {
+  const data = inputs.map(prepareJobEvent)
+  if (data.length === 0) return { count: 0 }
+  return client.systemJobEvent.createMany({ data })
+}
+
+export async function writeJobEvent(client: Prisma.TransactionClient, input: JobEventWriteInput): Promise<JobEventDto> {
   const record = await client.systemJobEvent.create({
-    data: {
-      ...parsed,
-      message: redactSensitiveText(parsed.message),
-      data: parsed.data === null ? Prisma.JsonNull : (sanitizeJsonValue(parsed.data) as Prisma.InputJsonValue)
-    },
+    data: prepareJobEvent(input),
     select: systemJobEventWireSelect
   })
   return toJobEventDto(record)
