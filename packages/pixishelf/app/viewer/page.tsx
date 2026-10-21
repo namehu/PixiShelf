@@ -4,6 +4,7 @@ import ImmersiveImageViewer from './_components/immersive-image-viewer'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeftIcon, SlidersHorizontal } from 'lucide-react'
 import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
+import { useSearchParams } from 'next/navigation'
 import PageNoData from './_components/page-no-data'
 import PageLoading from './_components/page-loading'
 import PageError from './_components/page-error'
@@ -23,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 import { useAuthUser } from '@/components/auth'
 import { cn } from '@/lib/utils'
+import { artworkQuerySnapshotSchema } from '@/schemas/artwork-quick-filter.dto'
 
 type ViewerSource = 'all' | 'artist' | 'tag'
 type ViewerMode = 'ordered' | 'random'
@@ -87,12 +89,12 @@ function normalizeReadingStatus(value: string): ReadingStatus | 'all' {
 /** 沉浸式图片浏览页面。筛选状态以 URL 为准，持久化设置只作为无 URL 参数时的回退。 */
 export default function ViewerPage() {
   const safeBack = useSafeBack()
-  const [viewerQuery, setViewerQuery] = useQueryStates(viewerQueryParsers)
+  const [urlQuery, setViewerQuery] = useQueryStates(viewerQueryParsers)
+  const searchParams = useSearchParams()
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const ownerUserId = useAuthUser()?.id ?? null
-  const readingStatus = normalizeReadingStatus(viewerQuery.readingStatus)
   const defaultRandomSeedRef = useRef(Math.floor(Math.random() * 1000000))
 
   const {
@@ -103,6 +105,8 @@ export default function ViewerPage() {
     setMaxImageCount,
     mediaType,
     setMediaType,
+    filters: savedFilters,
+    setFilters,
     hasHydrated,
     isChromeHidden,
     setChromeHidden
@@ -115,11 +119,32 @@ export default function ViewerPage() {
       setMaxImageCount: state.setMaxImageCount,
       mediaType: state.mediaType,
       setMediaType: state.setMediaType,
+      filters: state.filters,
+      setFilters: state.setFilters,
       hasHydrated: state.hasHydrated,
       isChromeHidden: state.isChromeHidden,
       setChromeHidden: state.setChromeHidden
     }))
   )
+
+  // Explicit viewer links replace the saved query as a whole, including explicit defaults.
+  const hasUrlFilters = Object.keys(viewerQueryParsers).some((key) => searchParams.has(key))
+  const viewerQuery = useMemo(() => {
+    if (hasUrlFilters || !hasHydrated || !savedFilters) return urlQuery
+    const artist = savedFilters.artist[0]
+    return {
+      ...urlQuery,
+      ...savedFilters,
+      mode: savedFilters.sortBy === 'random' ? 'random' : 'ordered',
+      sortBy: savedFilters.sortBy === 'random' ? 'source_date_desc' : savedFilters.sortBy,
+      artistId: artist ? Number(artist.value) : null,
+      artistLabel: artist?.label ?? '',
+      tags: savedFilters.tags.map((tag) => tag.value).join(','),
+      tagLabels: encodeLabels(savedFilters.tags),
+      sources: savedFilters.sources.join(',')
+    }
+  }, [hasUrlFilters, hasHydrated, savedFilters, urlQuery])
+  const readingStatus = normalizeReadingStatus(viewerQuery.readingStatus)
 
   const sourceContext = useMemo(() => {
     const sourceId = viewerQuery.sourceId ?? undefined
@@ -283,6 +308,7 @@ export default function ViewerPage() {
     const randomSeed = Math.floor(Math.random() * 1000000)
     setMaxImageCount(8)
     setMediaType(EMediaType.all)
+    setFilters(artworkQuerySnapshotSchema.parse({ sortBy: 'random' }))
     setViewerQuery({
       source: 'all',
       sourceId: null,
@@ -303,7 +329,7 @@ export default function ViewerPage() {
       createdStartDate: null,
       createdEndDate: null
     })
-  }, [setMaxImageCount, setMediaType, setViewerQuery])
+  }, [setMaxImageCount, setMediaType, setFilters, setViewerQuery])
 
   const handleApplyFilters = (filters: {
     mediaType: MediaTypeFilter
@@ -326,6 +352,20 @@ export default function ViewerPage() {
     const isRandom = filters.sortBy === 'random'
     setMaxImageCount(filters.maxMediaCount ?? 8)
     setMediaType(filters.mediaType as EMediaType)
+    setFilters({
+      search: filters.search || '',
+      mediaType: filters.mediaType,
+      sortBy: filters.sortBy,
+      artist: filters.artist ?? [],
+      tags,
+      sources: filters.sources,
+      hasAudio: filters.hasAudio,
+      readingStatus: filters.readingStatus ?? 'all',
+      startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : '',
+      endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : '',
+      createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : '',
+      createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : ''
+    })
     setViewerQuery({
       source: 'all',
       sourceId: null,

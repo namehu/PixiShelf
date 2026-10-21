@@ -2,6 +2,7 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import { create } from 'zustand'
 import { RandomImageItem } from '@/types/images'
 import { EMediaType } from '@/enums/e-media-type'
+import { artworkQuerySnapshotSchema, type ArtworkQuerySnapshot } from '@/schemas/artwork-quick-filter.dto'
 
 export const VIEWER_AUTO_INTERVALS = [3, 5, 10, 15] as const
 export type ViewerAutoStatus = 'off' | 'running' | 'paused' | 'ended'
@@ -42,6 +43,8 @@ export interface ViewerState {
   // 最大图片数量配置
   maxImageCount: number
   mediaType: EMediaType
+  filters: ArtworkQuerySnapshot | null
+  setFilters: (filters: ArtworkQuerySnapshot) => void
 
   // 状态操作方法
   setImages: (images: RandomImageItem[]) => void
@@ -132,6 +135,8 @@ export const useViewerStore = create<ViewerState>()(
       isChromeHidden: false,
       maxImageCount: 8, // 默认最大图片数量
       mediaType: EMediaType.all,
+      filters: null,
+      setFilters: (filters) => set({ filters }),
       // 设置图片列表数据
       setImages: (images: RandomImageItem[]) => {
         const map = get().artworkLikeMap
@@ -230,12 +235,15 @@ export const useViewerStore = create<ViewerState>()(
       partialize: (state) => ({
         autoBrowseInterval: state.autoBrowseInterval,
         maxImageCount: state.maxImageCount,
-        mediaType: state.mediaType
+        mediaType: state.mediaType,
+        filters: state.filters
       }),
       merge: (persisted, current) => {
         const saved = persisted as Partial<ViewerState> | undefined
+        const filters = artworkQuerySnapshotSchema.safeParse(saved?.filters)
         return {
           ...current,
+          filters: filters.success ? filters.data : null,
           ...(saved?.maxImageCount !== undefined ? { maxImageCount: saved.maxImageCount } : {}),
           ...(saved?.mediaType !== undefined ? { mediaType: saved.mediaType } : {}),
           autoBrowseInterval: VIEWER_AUTO_INTERVALS.some((value) => value === saved?.autoBrowseInterval)
