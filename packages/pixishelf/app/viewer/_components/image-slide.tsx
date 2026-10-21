@@ -11,7 +11,7 @@ import {
 import Image from 'next/image'
 import { toast } from 'sonner'
 import { Swiper, SwiperSlide } from 'swiper/react'
-import { Keyboard, Navigation } from 'swiper/modules'
+import { Keyboard } from 'swiper/modules'
 import type { Swiper as SwiperType } from 'swiper'
 import { MediaType } from '@/types'
 import type { RandomImageItem, ViewerMediaItem } from '@/types/images'
@@ -31,15 +31,13 @@ import { readMediaPreloadEnvironment, type MediaPreloadEnvironment } from '@/lib
 import { withMediaVersion } from '@/lib/media-url'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 import { Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import ViewerImageProgress, { ViewerImagePagination } from './viewer-image-progress'
 import { useViewerAutoMedia } from './use-viewer-auto-media'
 import { combinationApiResource } from '@/utils/combination-static'
 
 // 导入 Swiper 样式
 import 'swiper/css'
-import 'swiper/css/navigation'
-import 'swiper/css/pagination'
 
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   playbackRate: ViewerPlaybackRate
@@ -580,6 +578,8 @@ export default function ImageSlide({
   const gestureEngineRef = useRef<FeedGestureEngine | null>(null)
   const overlayApiRef = useRef<ViewerOverlayInteractionApi | null>(null)
   const seekPreviewRef = useRef<{ wasPlaying: boolean } | null>(null)
+  const seekResumeAllowedRef = useRef(false)
+  seekResumeAllowedRef.current = isActive && !interactionLocked && !chapterPanelOpen
   const loadedMediaIdsRef = useRef(new Set<number>())
   const failedMediaIdsRef = useRef(new Set<number>())
   const reportedStatusRef = useRef('')
@@ -829,7 +829,12 @@ export default function ImageSlide({
     const preview = seekPreviewRef.current
     seekPreviewRef.current = null
     setSeeking(false)
-    if (preview?.wasPlaying && useViewerStore.getState().autoBrowseStatus !== 'paused') {
+    if (
+      preview?.wasPlaying &&
+      seekResumeAllowedRef.current &&
+      document.visibilityState !== 'hidden' &&
+      useViewerStore.getState().autoBrowseStatus !== 'paused'
+    ) {
       void activeVideoRef.current?.play().catch(() => setPlaybackFailed(true))
     }
   }, [])
@@ -1024,6 +1029,8 @@ export default function ImageSlide({
   const mediaControls =
     isActive && currentMedia.mediaType === MediaType.VIDEO ? (
       <ViewerVideoControls
+        compact={isChromeHidden}
+        interactionLocked={interactionLocked || chapterPanelOpen}
         media={currentMedia}
         state={videoState}
         playbackRate={playbackRate}
@@ -1040,6 +1047,19 @@ export default function ImageSlide({
         onVolumeChange={handleVolumeChange}
         chapterPanelOpen={chapterPanelOpen}
         onChapterPanelOpenChange={onChapterPanelOpenChange}
+      />
+    ) : isActive && isChromeHidden && hasMultipleImages ? (
+      <ViewerImageProgress
+        index={currentImageIndex}
+        count={mediaItems.length}
+        disabled={interactionLocked || chapterPanelOpen}
+        onSeekingChange={setSeeking}
+        onCommit={(index) => {
+          if (!swiper || swiper.destroyed) return
+          autoMedia.cancelCompletion()
+          onCancelArtworkComplete?.()
+          swiper.slideTo(index)
+        }}
       />
     ) : null
 
@@ -1120,7 +1140,7 @@ export default function ImageSlide({
     >
       <Swiper
         onSwiper={setSwiper}
-        modules={[Navigation, Keyboard]}
+        modules={[Keyboard]}
         direction="horizontal"
         slidesPerView={1}
         lazyPreloadPrevNext={0}
@@ -1129,11 +1149,11 @@ export default function ImageSlide({
         allowTouchMove={!interactionLocked && !chapterPanelOpen && !rateMenuOpen}
         // Match the vertical Swiper: focused videos without native controls must still swipe.
         focusableElements="input, select, option, textarea, button, video[controls], label"
+        noSwipingSelector=".swiper-no-swiping, [data-viewer-control]"
         keyboard={{
           enabled: isActive && !interactionLocked && !chapterPanelOpen && !rateMenuOpen,
           onlyInViewport: true
         }}
-        navigation={{ nextEl: '.swiper-button-next-custom', prevEl: '.swiper-button-prev-custom' }}
         onSlideChange={handleSlideChange}
         touchRatio={1}
         touchAngle={45}
@@ -1161,31 +1181,7 @@ export default function ImageSlide({
         ))}
       </Swiper>
 
-      <div
-        aria-hidden={isChromeHidden}
-        inert={isChromeHidden}
-        className={cn(
-          'pointer-events-none absolute inset-0 z-30 transition-opacity duration-150 motion-reduce:transition-none',
-          isChromeHidden && 'opacity-0'
-        )}
-      >
-        <div className="swiper-pagination-custom absolute !bottom-0.5 left-4 right-4 z-30">
-          <div className="flex w-full gap-1">
-            {mediaItems.map((media, index) => (
-              <div
-                key={media.key}
-                className={cn(
-                  'h-1 flex-1 rounded-full transition-colors duration-300 ease-out',
-                  index <= currentImageIndex ? 'bg-white' : 'bg-white/20'
-                )}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="absolute right-4 top-4 z-30 rounded-full bg-black/50 px-3 py-1 text-sm text-white">
-          {currentImageIndex + 1} / {mediaItems.length}
-        </div>
-      </div>
+      <ViewerImagePagination hidden={isChromeHidden} index={currentImageIndex} count={mediaItems.length} />
 
       {overlay}
       {autoError}

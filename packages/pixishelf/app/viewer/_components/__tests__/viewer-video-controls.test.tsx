@@ -156,6 +156,17 @@ describe('ViewerVideoControls', () => {
     expect(onTogglePlayback).not.toHaveBeenCalled()
   })
 
+  it('keeps unknown duration disabled in compact mode without exposing full controls', () => {
+    renderControls({
+      compact: true,
+      media: { ...videoMedia, duration: null },
+      state: { currentTime: 0, duration: 0, isPlaying: false, isWaiting: true }
+    })
+    expect(screen.getByLabelText('视频时间').textContent).toBe('0:00 / --:--')
+    expect(screen.getByRole('slider', { name: '视频进度' }).closest('[data-disabled]')).not.toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
   it('formats compact viewer time values', () => {
     expect(formatViewerTime(3.9)).toBe('0:03')
     expect(formatViewerTime(65)).toBe('1:05')

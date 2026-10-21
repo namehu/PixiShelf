@@ -45,12 +45,15 @@ describe('viewer image overlay', () => {
 
   afterEach(() => cleanup())
 
-  it('hides information from keyboard and accessibility without unmounting controls', () => {
+  it('keeps progress accessible while hiding information without unmounting controls', () => {
     render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} mediaControls={<button>播放器</button>} />)
     const player = screen.getByRole('button', { name: '播放器' })
     act(() => useViewerStore.getState().setChromeHidden(true))
     expect(screen.queryByRole('region', { name: '作品信息与操作' })).toBeNull()
-    expect(player.closest('[inert]')).not.toBeNull()
+    expect(player.closest('[inert]')).toBeNull()
+    expect(screen.getByRole('region', { name: '浏览进度' }).contains(player)).toBe(true)
+    expect(screen.queryByRole('button', { name: '喜欢作品' })).toBeNull()
+    expect(screen.getByText('Test artwork').closest('[inert]')).not.toBeNull()
     act(() => useViewerStore.getState().setChromeHidden(false))
     expect(screen.getByRole('button', { name: '播放器' })).toBe(player)
   })

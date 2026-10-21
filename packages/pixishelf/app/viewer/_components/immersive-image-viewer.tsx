@@ -408,6 +408,7 @@ export default function ImmersiveImageViewer({
           allowTouchMove={!navigationLocked}
           // Bare videos are gesture surfaces, even after clicking them gives them focus.
           focusableElements="input, select, option, textarea, button, video[controls], label"
+          noSwipingSelector=".swiper-no-swiping, [data-viewer-control]"
           // 桌面端配置
           mousewheel={{ enabled: !navigationLocked }}
           keyboard={{ enabled: !navigationLocked }}
@@ -530,7 +531,7 @@ export default function ImmersiveImageViewer({
           aria-pressed={isChromeHidden}
           disabled={controlsLocked}
           onClick={toggleChromeHidden}
-          className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:left-16 focus-visible:top-[max(0.75rem,env(safe-area-inset-top))] focus-visible:z-50"
+          className="sr-only top-0 left-0 focus-visible:not-sr-only focus-visible:absolute focus-visible:left-16 focus-visible:top-[max(0.75rem,env(safe-area-inset-top))] focus-visible:z-50"
         >
           {isChromeHidden ? '显示界面' : '隐藏界面'}
         </Button>

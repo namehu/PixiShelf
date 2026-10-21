@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react'
 import { ImagesIcon, ListVideoIcon, Loader2Icon, PauseIcon, PlayIcon, Volume2Icon, VolumeXIcon } from 'lucide-react'
 import { useCurrentChapter } from '@/components/players/use-current-chapter'
 import { useVideoChapters } from '@/components/players/use-video-chapters'
@@ -45,6 +45,8 @@ export interface ViewerVideoState {
 }
 
 interface ViewerVideoControlsProps {
+  compact?: boolean
+  interactionLocked?: boolean
   playbackRate: ViewerPlaybackRate
   onPlaybackRateChange: (rate: ViewerPlaybackRate) => void
   rateMenuOpen: boolean
@@ -87,6 +89,8 @@ export function formatViewerTime(seconds: number) {
 }
 
 export default function ViewerVideoControls({
+  compact = false,
+  interactionLocked = false,
   playbackRate,
   onPlaybackRateChange,
   rateMenuOpen,
@@ -107,6 +111,8 @@ export default function ViewerVideoControls({
   const [previewTime, setPreviewTime] = useState<number | null>(null)
   const [navigationTab, setNavigationTab] = useState<VideoNavigationTab>(() => getPreferredVideoNavigationTab(media))
   const previewingRef = useRef(false)
+  const keyboardSeekingRef = useRef(false)
+  const previewTimeRef = useRef<number | null>(null)
   const { chapters, duration: chaptersDuration, loading, loaded, error, reload } = useVideoChapters(media.chaptersUrl)
   const {
     keyframes,
@@ -160,42 +166,62 @@ export default function ViewerVideoControls({
   }
 
   const beginSeekPreview = () => {
-    if (previewingRef.current) return
+    if (previewingRef.current || interactionLocked || duration <= 0) return
     previewingRef.current = true
     onSeekPreviewStart()
   }
 
   const handleSeekValueChange = (values: number[]) => {
+    if (!previewingRef.current && !keyboardSeekingRef.current) return
     beginSeekPreview()
-    setPreviewTime(values[0] ?? 0)
+    previewTimeRef.current = values[0] ?? 0
+    setPreviewTime(previewTimeRef.current)
   }
 
   const handleSeekCommit = (values: number[]) => {
+    if (!previewingRef.current || interactionLocked) return
     const nextTime = values[0] ?? 0
     previewingRef.current = false
+    keyboardSeekingRef.current = false
+    previewTimeRef.current = null
     setPreviewTime(null)
     onSeekCommit(nextTime)
   }
 
-  const cancelSeekPreview = () => {
+  const cancelSeekPreview = useCallback(() => {
+    keyboardSeekingRef.current = false
     if (!previewingRef.current) return
     previewingRef.current = false
+    previewTimeRef.current = null
     setPreviewTime(null)
     onSeekPreviewCancel()
-  }
+  }, [onSeekPreviewCancel])
+
+  useEffect(() => {
+    const cancelHidden = () => {
+      if (document.visibilityState === 'hidden') cancelSeekPreview()
+    }
+    window.addEventListener('blur', cancelSeekPreview)
+    document.addEventListener('visibilitychange', cancelHidden)
+    return () => {
+      document.removeEventListener('visibilitychange', cancelHidden)
+      window.removeEventListener('blur', cancelSeekPreview)
+      cancelSeekPreview()
+    }
+  }, [cancelSeekPreview, compact, media.id, interactionLocked])
 
   return (
     <>
       <div
         data-viewer-control
-        className="mb-2.5 text-white"
+        className={cn('text-white', !compact && 'mb-2.5')}
         onClick={stopControlEvent}
         onDoubleClick={stopControlEvent}
         onPointerDown={stopControlEvent}
         onPointerMove={stopControlEvent}
         onKeyDown={stopControlEvent}
       >
-        <div className="relative flex h-5 items-center">
+        <div className={cn('relative flex items-center', compact ? 'h-11' : 'h-5')}>
           {duration > 0 &&
             chapters.slice(1).map((chapter) => {
               const left = Math.min(Math.max((chapter.start / duration) * 100, 0), 100)
@@ -214,139 +240,165 @@ export default function ViewerVideoControls({
             max={duration || 1}
             step={0.1}
             value={[duration > 0 ? currentTime : 0]}
-            disabled={duration <= 0}
+            disabled={duration <= 0 || interactionLocked}
             onValueChange={handleSeekValueChange}
-            onValueCommit={handleSeekCommit}
+            onPointerDown={beginSeekPreview}
+            onValueCommit={(values) => {
+              if (!keyboardSeekingRef.current) handleSeekCommit(values)
+            }}
+            onKeyDownCapture={() => {
+              keyboardSeekingRef.current = true
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') cancelSeekPreview()
+            }}
+            onKeyUp={() => {
+              if (previewTimeRef.current !== null) handleSeekCommit([previewTimeRef.current])
+            }}
+            onPointerUp={() => {
+              if (previewTimeRef.current === null) cancelSeekPreview()
+              else handleSeekCommit([previewTimeRef.current])
+            }}
+            onBlur={cancelSeekPreview}
             onPointerCancel={cancelSeekPreview}
-            className="z-20 h-5 cursor-pointer [&_[data-slot=slider-range]]:bg-white/90 [&_[data-slot=slider-thumb]]:size-2.5 [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:shadow-none [&_[data-slot=slider-track]]:h-px [&_[data-slot=slider-track]]:bg-white/30 hover:[&_[data-slot=slider-thumb]]:opacity-100 focus-within:[&_[data-slot=slider-thumb]]:opacity-100"
+            className={cn(
+              compact ? 'h-11' : 'h-5',
+              'z-20 cursor-pointer [&_[data-slot=slider-range]]:bg-white/90 [&_[data-slot=slider-thumb]]:size-2.5 [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-thumb]]:opacity-0 [&_[data-slot=slider-thumb]]:shadow-none [&_[data-slot=slider-track]]:h-px [&_[data-slot=slider-track]]:bg-white/30 hover:[&_[data-slot=slider-thumb]]:opacity-100 focus-within:[&_[data-slot=slider-thumb]]:opacity-100'
+            )}
           />
         </div>
 
         <div className="flex min-w-0 items-center gap-1">
-          <button
-            type="button"
-            className="flex size-8 shrink-0 items-center justify-center rounded-full text-white/95 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-            onClick={onTogglePlayback}
-            aria-label={state.isWaiting ? '视频正在缓冲' : state.isPlaying ? '暂停视频' : '播放视频'}
-          >
-            {state.isWaiting ? (
-              <Loader2Icon className="size-4 animate-spin" />
-            ) : state.isPlaying ? (
-              <PauseIcon className="size-4 fill-current" />
-            ) : (
-              <PlayIcon className="size-4 fill-current" />
-            )}
-          </button>
+          {!compact && (
+            <button
+              type="button"
+              className="flex size-8 shrink-0 items-center justify-center rounded-full text-white/95 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              onClick={onTogglePlayback}
+              aria-label={state.isWaiting ? '视频正在缓冲' : state.isPlaying ? '暂停视频' : '播放视频'}
+            >
+              {state.isWaiting ? (
+                <Loader2Icon className="size-4 animate-spin" />
+              ) : state.isPlaying ? (
+                <PauseIcon className="size-4 fill-current" />
+              ) : (
+                <PlayIcon className="size-4 fill-current" />
+              )}
+            </button>
+          )}
 
           <span className="shrink-0 text-xs font-medium tabular-nums text-white/85" aria-label="视频时间">
             {formatViewerTime(currentTime)} / {duration > 0 ? formatViewerTime(duration) : '--:--'}
           </span>
 
-          <div className="group/volume ml-0.5 flex min-w-0 items-center">
-            <button
-              type="button"
-              disabled={!hasAudio}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-35"
-              onClick={onToggleMuted}
-              aria-label={!hasAudio ? '视频没有音轨' : audioPreference.muted ? '开启声音' : '静音'}
-            >
-              {!hasAudio || audioPreference.muted || audioPreference.volume === 0 ? (
-                <VolumeXIcon className="size-4" />
-              ) : (
-                <Volume2Icon className="size-4" />
-              )}
-            </button>
-            {hasAudio && (
-              <div className="hidden w-0 overflow-hidden opacity-0 transition-[width,opacity] duration-150 md:block md:group-hover/volume:w-14 md:group-hover/volume:opacity-100 md:group-focus-within/volume:w-14 md:group-focus-within/volume:opacity-100">
-                <Slider
-                  aria-label="视频音量"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={[audioPreference.volume]}
-                  onValueChange={(values) => onVolumeChange(values[0] ?? 0)}
-                  className="w-12 [&_[data-slot=slider-range]]:bg-white/90 [&_[data-slot=slider-thumb]]:size-2.5 [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-track]]:h-0.5 [&_[data-slot=slider-track]]:bg-white/25"
-                />
-              </div>
-            )}
-          </div>
-
-          <DropdownMenu open={rateMenuOpen} onOpenChange={onRateMenuOpenChange}>
-            <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label={`播放速率：${playbackRate}×`}
-                className="ml-auto flex h-8 shrink-0 items-center justify-center rounded-full px-2 text-xs tabular-nums text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-              >
-                {playbackRate}×
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent
-              className="dark"
-              side="top"
-              align="end"
-              data-viewer-control
-              onPointerDown={stopControlEvent}
-              onPointerMove={stopControlEvent}
-              onClick={stopControlEvent}
-              onDoubleClick={stopControlEvent}
-              onKeyDown={stopControlEvent}
-            >
-              <DropdownMenuRadioGroup
-                aria-label="播放速率"
-                value={String(playbackRate)}
-                onValueChange={(value) => {
-                  const rate = VIEWER_PLAYBACK_RATES.find((rate) => String(rate) === value)
-                  if (rate !== undefined) onPlaybackRateChange(rate)
-                }}
-              >
-                {VIEWER_PLAYBACK_RATES.map((rate) => (
-                  <DropdownMenuRadioItem key={rate} value={String(rate)}>
-                    {rate}×
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-
-          {navigationAvailable && (
-            <button
-              type="button"
-              className={cn(
-                'flex min-w-0 items-center gap-1 rounded-full px-2 py-1.5 text-xs text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
-                chapterPanelOpen && 'bg-white/15'
-              )}
-              onClick={openNavigation}
-              aria-label={
-                bothAvailable
-                  ? '打开视频导航'
-                  : keyframesAvailable
-                    ? '打开视频画面'
-                    : currentChapter
-                      ? `章节：${currentChapter.title}`
-                      : '打开视频章节'
-              }
-              aria-expanded={chapterPanelOpen}
-            >
-              {loading || keyframesLoading ? (
-                <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
-              ) : keyframesAvailable && !chaptersAvailable ? (
-                <ImagesIcon className="size-3.5 shrink-0" />
-              ) : (
-                <ListVideoIcon className="size-3.5 shrink-0" />
-              )}
-              <span className="max-w-20 truncate max-[360px]:hidden">
-                {bothAvailable ? (
-                  '视频导航'
-                ) : keyframesAvailable ? (
-                  '画面'
-                ) : currentChapter ? (
-                  <PrivacySensitiveText>{currentChapter.title}</PrivacySensitiveText>
-                ) : (
-                  '章节'
+          {!compact && (
+            <>
+              <div className="group/volume ml-0.5 flex min-w-0 items-center">
+                <button
+                  type="button"
+                  disabled={!hasAudio}
+                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 disabled:cursor-not-allowed disabled:opacity-35"
+                  onClick={onToggleMuted}
+                  aria-label={!hasAudio ? '视频没有音轨' : audioPreference.muted ? '开启声音' : '静音'}
+                >
+                  {!hasAudio || audioPreference.muted || audioPreference.volume === 0 ? (
+                    <VolumeXIcon className="size-4" />
+                  ) : (
+                    <Volume2Icon className="size-4" />
+                  )}
+                </button>
+                {hasAudio && (
+                  <div className="hidden w-0 overflow-hidden opacity-0 transition-[width,opacity] duration-150 md:block md:group-hover/volume:w-14 md:group-hover/volume:opacity-100 md:group-focus-within/volume:w-14 md:group-focus-within/volume:opacity-100">
+                    <Slider
+                      aria-label="视频音量"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={[audioPreference.volume]}
+                      onValueChange={(values) => onVolumeChange(values[0] ?? 0)}
+                      className="w-12 [&_[data-slot=slider-range]]:bg-white/90 [&_[data-slot=slider-thumb]]:size-2.5 [&_[data-slot=slider-thumb]]:border-0 [&_[data-slot=slider-track]]:h-0.5 [&_[data-slot=slider-track]]:bg-white/25"
+                    />
+                  </div>
                 )}
-              </span>
-            </button>
+              </div>
+
+              <DropdownMenu open={rateMenuOpen} onOpenChange={onRateMenuOpenChange}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`播放速率：${playbackRate}×`}
+                    className="ml-auto flex h-8 shrink-0 items-center justify-center rounded-full px-2 text-xs tabular-nums text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                  >
+                    {playbackRate}×
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  className="dark"
+                  side="top"
+                  align="end"
+                  data-viewer-control
+                  onPointerDown={stopControlEvent}
+                  onPointerMove={stopControlEvent}
+                  onClick={stopControlEvent}
+                  onDoubleClick={stopControlEvent}
+                  onKeyDown={stopControlEvent}
+                >
+                  <DropdownMenuRadioGroup
+                    aria-label="播放速率"
+                    value={String(playbackRate)}
+                    onValueChange={(value) => {
+                      const rate = VIEWER_PLAYBACK_RATES.find((rate) => String(rate) === value)
+                      if (rate !== undefined) onPlaybackRateChange(rate)
+                    }}
+                  >
+                    {VIEWER_PLAYBACK_RATES.map((rate) => (
+                      <DropdownMenuRadioItem key={rate} value={String(rate)}>
+                        {rate}×
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {navigationAvailable && (
+                <button
+                  type="button"
+                  className={cn(
+                    'flex min-w-0 items-center gap-1 rounded-full px-2 py-1.5 text-xs text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70',
+                    chapterPanelOpen && 'bg-white/15'
+                  )}
+                  onClick={openNavigation}
+                  aria-label={
+                    bothAvailable
+                      ? '打开视频导航'
+                      : keyframesAvailable
+                        ? '打开视频画面'
+                        : currentChapter
+                          ? `章节：${currentChapter.title}`
+                          : '打开视频章节'
+                  }
+                  aria-expanded={chapterPanelOpen}
+                >
+                  {loading || keyframesLoading ? (
+                    <Loader2Icon className="size-3.5 shrink-0 animate-spin" />
+                  ) : keyframesAvailable && !chaptersAvailable ? (
+                    <ImagesIcon className="size-3.5 shrink-0" />
+                  ) : (
+                    <ListVideoIcon className="size-3.5 shrink-0" />
+                  )}
+                  <span className="max-w-20 truncate max-[360px]:hidden">
+                    {bothAvailable ? (
+                      '视频导航'
+                    ) : keyframesAvailable ? (
+                      '画面'
+                    ) : currentChapter ? (
+                      <PrivacySensitiveText>{currentChapter.title}</PrivacySensitiveText>
+                    ) : (
+                      '章节'
+                    )}
+                  </span>
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>

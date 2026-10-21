@@ -106,26 +106,21 @@ export default function ImageOverlay({
   return (
     <div className="absolute inset-0 pointer-events-none z-20">
       {isActive && (
-        <div
-          aria-hidden={isChromeHidden}
-          inert={isChromeHidden}
-          className={cn(
-            'absolute inset-0 pointer-events-none transition-opacity duration-150 motion-reduce:transition-none',
-            isChromeHidden && 'opacity-0'
-          )}
-        >
+        <>
           {/* 底部信息栏 */}
           <div
             role="region"
+            hidden={isChromeHidden && !mediaControls}
             data-viewer-control
-            aria-label="作品信息与操作"
-            className={cn(
-              'absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3',
-              isChromeHidden ? 'pointer-events-none' : 'pointer-events-auto'
-            )}
+            aria-label={isChromeHidden ? '浏览进度' : '作品信息与操作'}
+            className="pointer-events-auto absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3"
           >
             {mediaControls}
-            <div className="flex flex-col gap-1 text-white">
+            <div
+              aria-hidden={isChromeHidden}
+              inert={isChromeHidden}
+              className={cn('flex flex-col gap-1 text-white', isChromeHidden && 'hidden')}
+            >
               <div className="flex min-w-0 items-center gap-2">
                 <div className="flex min-w-0 flex-1 flex-col">
                   <div className="flex min-w-0 items-center gap-1.5 text-xs leading-6">
@@ -226,7 +221,7 @@ export default function ImageOverlay({
               )}
             </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* 操作抽屉 */}
