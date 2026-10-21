@@ -32,7 +32,7 @@ import { withMediaVersion } from '@/lib/media-url'
 import { isApngFile, isGifFile, isWebpFile } from '@/lib/media'
 import { Loader2Icon, PauseIcon, PlayIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import ViewerImageProgress, { ViewerImagePagination } from './viewer-image-progress'
+import ViewerImageProgress from './viewer-image-progress'
 import { useViewerAutoMedia } from './use-viewer-auto-media'
 import { combinationApiResource } from '@/utils/combination-static'
 
@@ -1048,19 +1048,6 @@ export default function ImageSlide({
         chapterPanelOpen={chapterPanelOpen}
         onChapterPanelOpenChange={onChapterPanelOpenChange}
       />
-    ) : isActive && isChromeHidden && hasMultipleImages ? (
-      <ViewerImageProgress
-        index={currentImageIndex}
-        count={mediaItems.length}
-        disabled={interactionLocked || chapterPanelOpen}
-        onSeekingChange={setSeeking}
-        onCommit={(index) => {
-          if (!swiper || swiper.destroyed) return
-          autoMedia.cancelCompletion()
-          onCancelArtworkComplete?.()
-          swiper.slideTo(index)
-        }}
-      />
     ) : null
 
   const overlay = (
@@ -1181,7 +1168,21 @@ export default function ImageSlide({
         ))}
       </Swiper>
 
-      <ViewerImagePagination hidden={isChromeHidden} index={currentImageIndex} count={mediaItems.length} />
+      {isActive && (!isChromeHidden || currentMedia.mediaType !== MediaType.VIDEO) && (
+        <ViewerImageProgress
+          hidden={isChromeHidden}
+          index={currentImageIndex}
+          count={mediaItems.length}
+          disabled={interactionLocked || chapterPanelOpen}
+          onSeekingChange={setSeeking}
+          onCommit={(index) => {
+            if (!swiper || swiper.destroyed) return
+            autoMedia.cancelCompletion()
+            onCancelArtworkComplete?.()
+            swiper.slideTo(index)
+          }}
+        />
+      )}
 
       {overlay}
       {autoError}

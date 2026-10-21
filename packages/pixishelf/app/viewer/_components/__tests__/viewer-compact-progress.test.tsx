@@ -138,7 +138,7 @@ describe('compact progress with real controls and Swipers', () => {
       const slider = track()
       pointer(slider, 'pointerdown', 75, pointerType)
       pointer(slider, 'pointermove', 225, pointerType)
-      expect(screen.getByLabelText('图片位置计数').textContent).toBe('4 / 5')
+      expect(screen.getByRole('slider', { name: '图片位置' }).getAttribute('aria-valuenow')).toBe('4')
       expect(index()).toBe(0)
       expect(
         reading.observe.mock.calls.every(
@@ -162,7 +162,7 @@ describe('compact progress with real controls and Swipers', () => {
     pointer(slider, 'pointerdown', 225)
     if (event === 'blur') fireEvent(window, new Event('blur'))
     else pointer(slider, 'pointercancel', 225)
-    expect(screen.getByLabelText('图片位置计数').textContent).toBe('1 / 5')
+    expect(screen.getByRole('slider', { name: '图片位置' }).getAttribute('aria-valuenow')).toBe('1')
     pointer(slider, 'pointermove', 300)
     pointer(slider, 'pointerup', 300)
     expect(index()).toBe(0)
@@ -180,8 +180,13 @@ describe('compact progress with real controls and Swipers', () => {
     act(() => useViewerStore.getState().setChromeHidden(false))
     expect(screen.queryByRole('slider', { name: '图片位置' })).toBeNull()
     expect(screen.getByRole('button', { name: '喜欢作品' })).toBeDefined()
+    expect(document.querySelectorAll('[data-viewer-image-segments]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-viewer-image-segments] [data-active="true"]')).toHaveLength(5)
     act(() => useViewerStore.getState().setChromeHidden(true))
-    expect(screen.getByLabelText('图片位置计数').textContent).toBe('5 / 5')
+    expect(screen.getByRole('slider', { name: '图片位置' }).getAttribute('aria-valuenow')).toBe('5')
+    expect(document.querySelectorAll('[data-viewer-image-segments]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-viewer-image-segments] [data-active="true"]')).toHaveLength(5)
+    expect(screen.queryByText('5 / 5')).toBeNull()
   })
 
   it.each(['image', 'gif'] as const)('keeps a single %s clean without a bottom progress area', (kind) => {
@@ -196,7 +201,7 @@ describe('compact progress with real controls and Swipers', () => {
     act(() => useViewerStore.getState().requestAutoBrowse())
     fireEvent.load(view.container.querySelector('img')!)
     pointer(track(), 'pointerdown', 75)
-    expect(screen.getByLabelText('图片位置计数').textContent).toBe('2 / 5')
+    expect(screen.getByRole('slider', { name: '图片位置' }).getAttribute('aria-valuenow')).toBe('2')
     act(() => vi.advanceTimersByTime(6000))
     expect(index()).toBe(0)
     act(() => useViewerStore.getState().pauseAutoBrowse('user'))
@@ -241,7 +246,7 @@ describe('compact progress with real controls and Swipers', () => {
         interactionLocked
       />
     )
-    expect(screen.getByLabelText('图片位置计数').textContent).toBe('1 / 5')
+    expect(screen.getByRole('slider', { name: '图片位置' }).getAttribute('aria-valuenow')).toBe('1')
     pointer(slider, 'pointerup', 225)
     expect(index()).toBe(0)
     view.rerender(
