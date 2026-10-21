@@ -337,6 +337,9 @@ importers:
 
   packages/pixishelf-job-contracts:
     dependencies:
+      entities:
+        specifier: ^6
+        version: 6.0.1
       zod:
         specifier: ^4.1.11
         version: 4.3.6

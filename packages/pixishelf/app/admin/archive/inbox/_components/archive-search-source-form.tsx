@@ -1,5 +1,6 @@
 'use client'
 import { useEffect } from 'react'
+import { ArchiveTitleRuleFields } from './archive-title-rule-fields'
 import {
   ARCHIVE_TITLE_MATCH_LABELS,
   MAX_ARCHIVE_TITLE_UPLOADERS,
@@ -37,6 +38,8 @@ export function ArchiveSearchSourceForm({
   onPendingChange?: (value: boolean) => void
 }) {
   const {
+    rules,
+    setRules,
     displayName,
     setDisplayName,
     keyword,
@@ -78,7 +81,7 @@ export function ArchiveSearchSourceForm({
             aria-describedby="search-keyword-description"
           />
           <FieldDescription id="search-keyword-description">
-            忽略大小写和首尾空白，保留括号与下划线。不支持正则、双引号、星号和百分号。
+            用于远端查找候选。不支持双引号、星号和百分号；本地接纳规则可单独配置。
           </FieldDescription>
         </Field>
         <Field>
@@ -98,7 +101,7 @@ export function ArchiveSearchSourceForm({
           ) : null}
         </Field>
         <Field data-disabled={renameOnly || pending}>
-          <FieldLabel id="search-match-label">匹配方式</FieldLabel>
+          <FieldLabel id="search-match-label">默认匹配方式</FieldLabel>
           <ToggleGroup
             type="single"
             variant="outline"
@@ -116,6 +119,23 @@ export function ArchiveSearchSourceForm({
             ))}
           </ToggleGroup>
         </Field>
+        {!renameOnly ? (
+          <details className="border-t pt-4" open={rules !== null || undefined}>
+            <summary className="cursor-pointer py-2 text-sm font-medium">本地组合规则（可选）</summary>
+            <div className="mt-4 flex flex-col gap-4">
+              <ArchiveTitleRuleFields
+                value={rules ?? { version: 1, any: [{ operator: matchMode, text: keyword }], all: [], none: [] }}
+                onChange={setRules}
+                disabled={pending}
+              />
+              {rules ? (
+                <Button type="button" variant="ghost" disabled={pending} onClick={() => setRules(null)}>
+                  恢复默认匹配规则
+                </Button>
+              ) : null}
+            </div>
+          </details>
+        ) : null}
         <details open={renameOnly || undefined} className="group border-t pt-4">
           <summary className="cursor-pointer rounded-sm py-1 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring">
             限定上传者（可选）{uploaders.length > 0 ? ` · ${uploaders.length} 位` : ''}

@@ -4,6 +4,7 @@ import {
   createArchiveExecutorRegistrations,
   createArtworkSummaryExecutor,
   createDiscoveryBatchExecutorRegistration,
+  createArchiveTitleRulePreviewRegistration,
   createArchiveMaintenanceExecutorRegistrations,
   createArchiveResolverExecutorRegistrations,
   createArchiveUploaderScanExecutorRegistrations,
@@ -52,6 +53,7 @@ export function createWorkerExecutorRegistry(input: {
 }) {
   const registry = new ExecutorRegistry()
   registry.register(createDiscoveryBatchExecutorRegistration())
+  registry.register(createArchiveTitleRulePreviewRegistration())
   const resolved = resolveExecutorWorkerConfiguration(input.config)
   registry.register(createArtworkSummaryExecutor({ database: input.database, scanRoot: resolved.sourceMediaRoot }))
   const archiveProviders = new GovernedArchiveProviderRegistry(

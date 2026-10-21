@@ -1,0 +1,1 @@
+ALTER TYPE "ArchiveBulkOperationCommand" ADD VALUE 'REVIEW_TITLE_MATCH';

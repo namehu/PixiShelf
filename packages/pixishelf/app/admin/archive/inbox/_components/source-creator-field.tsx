@@ -16,7 +16,9 @@ export function SourceCreatorField({
       <Field data-disabled={disabled}>
         <FieldLabel>绑定艺术家（可选）</FieldLabel>
         <CreatorPicker value={value} onChange={onChange} presentation="dialog" disabled={disabled} />
-        <FieldDescription>后续扫描沿用此绑定，可在来源详情调整。已有来源保留原绑定。</FieldDescription>
+        <FieldDescription>
+          可在来源详情调整。标题来源在人工入箱时追加，上传者来源在首次扫描匹配时追加。已有来源保留原绑定。
+        </FieldDescription>
       </Field>
     </fieldset>
   )

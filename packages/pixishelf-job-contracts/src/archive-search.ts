@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const ARCHIVE_SEARCH_DEFINITION_VERSION = 3 as const
+export const ARCHIVE_SEARCH_DEFINITION_VERSION = 4 as const
 export const MAX_ARCHIVE_TITLE_UPLOADERS = 10
 
 const uploaderUidSchema = z

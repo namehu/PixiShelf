@@ -617,6 +617,7 @@ function createFixture(input: {
       })
     },
     archiveUploaderCatalogItem: {
+      findUnique: vi.fn(async () => null),
       findMany: vi.fn(async () => []),
       upsert: vi.fn(async (args: Record<string, unknown>) => {
         catalogUpserts.push(args)

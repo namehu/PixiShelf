@@ -32,6 +32,11 @@ export interface ArchiveUploaderCatalogCursor {
 }
 
 export interface ArchiveUploaderCatalogStateRow {
+  matchesQuery?: boolean
+  reviewDecision?: 'AUTO' | 'INCLUDE' | 'EXCLUDE'
+  matchTitles?: Prisma.JsonValue
+  matchEvaluation?: Prisma.JsonValue
+  comparisonSnapshot?: Prisma.JsonValue
   id: string
   sourceId: string
   providerKey: string
@@ -79,6 +84,8 @@ export async function listArchiveUploaderCatalogState(
   input: {
     sourceId: string
     view: ArchiveUploaderCatalogView
+    matchView?: 'ACCEPTED' | 'FILTERED'
+    reviewFilter?: 'ALL' | 'UNREVIEWED' | 'EXCLUDED'
     unboundOnly?: boolean
     filters?: ArchiveDiscoveryFilters
     cursor?: ArchiveUploaderCatalogCursor | null
@@ -99,7 +106,11 @@ export async function listArchiveUploaderCatalogState(
   const viewCondition = input.view === 'ALL' ? Prisma.empty : Prisma.sql`AND state."workflowBucket" = ${input.view}`
 
   const rows = await database.$queryRaw<ArchiveUploaderCatalogStateRow[]>(Prisma.sql`
-    ${catalogStateCte(Prisma.sql`catalog."sourceId" = ${input.sourceId} AND ${catalogFilterCondition(input.filters)}`)}
+    ${catalogStateCte(
+      Prisma.sql`catalog."sourceId" = ${input.sourceId} AND ${catalogFilterCondition(input.filters)}
+      ${input.reviewFilter === 'UNREVIEWED' ? Prisma.sql`AND catalog."reviewDecision" = 'AUTO'` : input.reviewFilter === 'EXCLUDED' ? Prisma.sql`AND catalog."reviewDecision" = 'EXCLUDE'` : Prisma.empty}`,
+      input.matchView !== 'FILTERED'
+    )}
     SELECT
       state."id",
       state."sourceId",
@@ -107,6 +118,11 @@ export async function listArchiveUploaderCatalogState(
       state."externalId",
       state."canonicalUrl",
       state."title",
+      state."matchesQuery",
+      state."reviewDecision",
+      state."matchTitles",
+      state."matchEvaluation",
+      state."comparisonSnapshot",
       state."thumbnailUrl",
       state."comparisonSnapshot"->'fileCount' AS "fileCount",
       NULLIF(state."comparisonSnapshot"->>'category', '') AS "category",
@@ -243,7 +259,7 @@ function unboundCondition() {
     AND NOT EXISTS (SELECT 1 FROM effective_artwork_creators e JOIN "Artwork" a ON a.id = e."artworkId" WHERE e."artworkId" = state."artworkId" AND a."deletedAt" IS NULL AND a."archiveLifecycleState" = 'ACTIVE')`
 }
 
-function catalogStateCte(scope: Prisma.Sql) {
+function catalogStateCte(scope: Prisma.Sql, accepted = true) {
   return Prisma.sql`
     WITH "catalogBase" AS (
       SELECT
@@ -317,7 +333,7 @@ function catalogStateCte(scope: Prisma.Sql) {
         ORDER BY candidate."createdAt" DESC, candidate."id" DESC
         LIMIT 1
       ) AS archive_import ON TRUE
-      WHERE ${scope} AND catalog."matchesQuery" = true
+      WHERE ${scope} AND catalog."matchesQuery" = ${accepted}
         AND ignored."id" IS NULL
     ),
     "catalogStages" AS (

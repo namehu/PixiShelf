@@ -11,13 +11,24 @@ import { enqueueDiscoveryScan, DiscoveryScanConflict } from '@pixishelf/job-exec
 import { createHash, randomUUID } from 'node:crypto'
 import {
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
-  normalizeArchiveUploaderName,
   archiveUploaderIdentityLockKey,
   archiveUploaderUidLockKey,
-  archiveTitleQuerySchema,
-  normalizeArchiveTitle
+  archiveTitleQuerySchema
 } from '@pixishelf/job-contracts'
-import { Prisma, type PrismaClient, discoveryCreatorSummaries } from '@pixishelf/db'
+import {
+  archiveTitleRulesSchema,
+  legacyArchiveTitleRules,
+  archiveTitleQueryIdentity,
+  archiveTitleEvaluationSchema,
+  archiveTitleEvidenceFromCatalog
+} from '@pixishelf/job-contracts'
+import {
+  Prisma,
+  type PrismaClient,
+  discoveryCreatorSummaries,
+  bindDiscoveryCreators,
+  lockCreatorCatalog
+} from '@pixishelf/db'
 import { type ArchiveUploaderProviderRegistry } from '@pixishelf/job-executors'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
@@ -91,6 +102,8 @@ export const listArchiveUploaderScanItemsSchema = z
   .object({
     sourceId: sourceIdSchema,
     view: z.enum(ARCHIVE_UPLOADER_CATALOG_VIEWS).default('ACTIONABLE'),
+    matchView: z.enum(['ACCEPTED', 'FILTERED']).default('ACCEPTED'),
+    reviewFilter: z.enum(['ALL', 'UNREVIEWED', 'EXCLUDED']).default('ALL'),
     unboundOnly: z.boolean().default(false),
     filters: archiveDiscoveryFiltersSchema.optional(),
     cursor: scanItemCursorSchema.nullish(),
@@ -772,6 +785,10 @@ export async function addArchiveUploaderScanItems(
           select: dispositionCatalogItemSelect
         })
         assertAllDispositionItemsFound(candidates, parsed.itemIds)
+        if (candidates.some((item) => item.source?.sourceKind === 'TITLE_QUERY')) {
+          await lockCreatorCatalog(transaction)
+          await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock(7341902117)::text')
+        }
         trace.phase('identityLocks')
         await lockDispositionItems(transaction, candidates)
         trace.phase('stateChecks')
@@ -827,6 +844,32 @@ export async function addArchiveUploaderScanItems(
         )
         // The original submission may already have been resolved or published.
         if (existingAttempt) return submission
+        const acceptedIntakeItems = items.some(
+          (item) => item.source?.sourceKind === 'TITLE_QUERY' && item.source.defaultCreators.length
+        )
+          ? await transaction.archiveIntakeItem.findMany({
+              where: { submissionId: submission.id, status: { not: 'DUPLICATE' } },
+              select: { submittedUrl: true }
+            })
+          : []
+        const acceptedUrls = new Set(acceptedIntakeItems.map((item) => item.submittedUrl))
+        for (const item of items) {
+          if (
+            acceptedUrls.has(item.canonicalUrl) &&
+            item.source?.sourceKind === 'TITLE_QUERY' &&
+            item.source.defaultCreators.length
+          ) {
+            await bindDiscoveryCreators(
+              transaction,
+              { providerKey: item.providerKey, externalId: item.externalId },
+              item.source.defaultCreators.map((row) => row.artistId),
+              {
+                automatic: true,
+                title: item.title
+              }
+            )
+          }
+        }
         trace.phase('catalogWrite')
         await linkIntakeCatalogItems(transaction, items, submission.id, (dependencies.now ?? (() => new Date()))())
         return submission
@@ -893,6 +936,7 @@ const runSummarySelect = {
 } satisfies Prisma.ArchiveUploaderScanRunSelect
 
 const dispositionCatalogItemSelect = {
+  source: { select: { sourceKind: true, defaultCreators: { select: { artistId: true } } } },
   matchesQuery: true,
   id: true,
   sourceId: true,
@@ -928,13 +972,27 @@ type IgnoredItemWire = Prisma.ArchiveUploaderIgnoredItemGetPayload<{ select: typ
 type RunSummaryWire = Prisma.ArchiveUploaderScanRunGetPayload<{ select: typeof runSummarySelect }>
 
 function serializeCatalogItem(item: ArchiveUploaderCatalogStateRow) {
-  const { canonicalUrl, thumbnailUrl, changeReasons, errorMessage, fileCount, ...rest } = item
+  const {
+    canonicalUrl,
+    thumbnailUrl,
+    changeReasons,
+    errorMessage,
+    fileCount,
+    matchTitles,
+    comparisonSnapshot,
+    matchEvaluation,
+    ...rest
+  } = item
   return {
     ...rest,
+    reviewDecision: item.reviewDecision ?? 'AUTO',
+    matchEvaluation: archiveTitleEvaluationSchema.safeParse(matchEvaluation).data ?? null,
+    matchEvidence: archiveTitleEvidenceFromCatalog({ matchTitles, comparisonSnapshot }),
     ...(typeof fileCount === 'number' && Number.isSafeInteger(fileCount) && fileCount > 0 ? { fileCount } : {}),
     category: item.category ?? null,
     languages: item.languages ?? [],
-    actionable: item.workflowBucket === 'ACTIONABLE',
+    actionable: item.matchesQuery !== false && item.workflowBucket === 'ACTIONABLE',
+    recoverable: item.matchesQuery !== false && item.recoverable,
     changeReasons: serializeChangeReasons(changeReasons),
     errorMessage: archiveWireErrorMessage(item.errorCode ?? null, errorMessage ?? null),
     thumbnailUrl: safeArchiveUploaderThumbnailUrl(thumbnailUrl),
@@ -1017,6 +1075,7 @@ function sourceScope(dependencies: ArchiveUploaderServiceDependencies) {
 
 export const createArchiveTitleSourceSchema = archiveTitleQuerySchema
   .safeExtend({
+    rules: archiveTitleRulesSchema.optional(),
     artistIds: sourceCreationArtistIdsSchema,
     displayName: z.string().trim().max(180).optional()
   })
@@ -1062,7 +1121,7 @@ export async function createArchiveTitleSource(
 }
 
 async function createTitleSourceRecord(
-  { displayName, artistIds, ...parsedQuery }: z.output<typeof createArchiveTitleSourceSchema>,
+  { displayName, artistIds, rules: requestedRules, ...parsedQuery }: z.output<typeof createArchiveTitleSourceSchema>,
   sources: Prisma.TransactionClient['archiveUploaderSource']
 ) {
   const single = parsedQuery.uploaders?.length === 1 ? parsedQuery.uploaders[0] : undefined
@@ -1074,23 +1133,8 @@ async function createTitleSourceRecord(
         ...(single.displayName ? { uploaderDisplayName: single.displayName } : {})
       })
     : parsedQuery
-  const queryKey = createHash('sha256')
-    .update(
-      JSON.stringify(
-        query.uploaders
-          ? [PROVIDER_KEY, normalizeArchiveTitle(query.keyword), query.matchMode, query.uploaders.map(({ uid }) => uid)]
-          : query.uploaderName
-            ? [
-                PROVIDER_KEY,
-                normalizeArchiveTitle(query.keyword),
-                query.matchMode,
-                null,
-                normalizeArchiveUploaderName(query.uploaderName)
-              ]
-            : [PROVIDER_KEY, normalizeArchiveTitle(query.keyword), query.matchMode, query.uploaderUid]
-      )
-    )
-    .digest('hex')
+  const rules = requestedRules ?? legacyArchiveTitleRules(query)
+  const queryKey = createHash('sha256').update(archiveTitleQueryIdentity(query, rules)).digest('hex')
   const withDisplayName = async (source: SourceWire) => {
     const stored = archiveTitleQuerySchema.parse(source.titleQuery)
     if (query.uploaderDisplayName && !stored.uploaderDisplayName && stored.uploaderUid === query.uploaderUid) {
@@ -1113,6 +1157,7 @@ async function createTitleSourceRecord(
         providerKey: PROVIDER_KEY,
         displayName,
         titleQuery: query,
+        titleRules: rules,
         queryKey
       },
       update: {},

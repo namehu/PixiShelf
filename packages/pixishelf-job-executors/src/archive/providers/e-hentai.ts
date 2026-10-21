@@ -293,6 +293,7 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
       return {
         ...('query' in input
           ? {
+              matchTitles: { origin: 'REMOTE' as const, titles: [value.title ?? '', value.title_jpn ?? ''] },
               matchesQuery:
                 (!input.query.uploaderName ||
                   normalizeUploaderName(uploaderName) === normalizeUploaderName(input.query.uploaderName)) &&

@@ -821,6 +821,7 @@ model SystemJob {
   archiveImport           ArchiveImport?
   archiveIntakeItem       ArchiveIntakeItem?       @relation("ArchiveIntakeCurrentJob")
   archiveUploaderScanRun  ArchiveUploaderScanRun?
+  archiveTitleRuleRevision ArchiveTitleRuleRevision?
   keyframeSet             MediaVideoKeyframeSet?
   failureAcknowledgement  SystemJobFailureAcknowledgement?
 
@@ -1076,6 +1077,10 @@ model ArchiveBulkOperation {
 }
 
 model ArchiveUploaderSource {
+  titleRules                Json?
+  rulesVersion              Int                         @default(1)
+  catalogVersion            BigInt                      @default(0)
+  ruleRevisions             ArchiveTitleRuleRevision[]
   defaultCreators DiscoverySourceCreator[]
   id                        String                      @id @default(cuid())
   providerKey               String                      @db.VarChar(50)
@@ -1112,6 +1117,8 @@ model ArchiveUploaderSource {
 }
 
 model ArchiveUploaderScanRun {
+  titleRules          Json?
+  rulesVersion        Int?
   defaultCreatorIds Int[] @default([])
   id                  String                       @id @default(cuid())
   sourceId            String
@@ -1195,6 +1202,14 @@ model ArchiveUploaderIgnoredItem {
 }
 
 model ArchiveUploaderCatalogItem {
+  ruleMatches           Boolean                        @default(true)
+  uploaderMatches       Boolean                        @default(true)
+  reviewDecision        ArchiveTitleReviewDecision     @default(AUTO)
+  reviewedByUserId      String?
+  reviewedAt            DateTime?
+  matchTitles           Json?
+  matchEvaluation       Json?
+  ruleEvaluations       ArchiveTitleRuleEvaluation[]
   firstMatchedAt DateTime?
   id                    String                         @id @default(cuid())
   matchesQuery          Boolean                        @default(true)
@@ -1237,6 +1252,61 @@ model ArchiveUploaderCatalogItem {
   @@index([lastIntakeItemId], map: "archive_uploader_catalog_items_last_intake_item_idx")
   @@index([lastArchiveImportId], map: "archive_uploader_catalog_items_last_archive_import_idx")
   @@map("archive_uploader_catalog_items")
+}
+
+enum ArchiveTitleReviewDecision {
+  AUTO
+  INCLUDE
+  EXCLUDE
+}
+
+enum ArchiveTitleRuleRevisionStatus {
+  PENDING
+  READY
+  STALE
+  APPLIED
+  CANCELLED
+}
+
+model ArchiveTitleRuleRevision {
+  id                  String @id @default(cuid())
+  sourceId            String
+  systemJobId         String? @unique
+  requestedByUserId   String
+  requestId           String @unique
+  rules               Json
+  baseRulesVersion    Int
+  baseCatalogVersion  BigInt
+  status              ArchiveTitleRuleRevisionStatus @default(PENDING)
+  cursor              String?
+  checkedCount        Int @default(0)
+  acceptedCount       Int @default(0)
+  filteredCount       Int @default(0)
+  newlyAcceptedCount  Int @default(0)
+  newlyFilteredCount  Int @default(0)
+  manualCount         Int @default(0)
+  createdAt           DateTime @default(now())
+  appliedAt           DateTime?
+  source              ArchiveUploaderSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  systemJob           SystemJob? @relation(fields: [systemJobId], references: [id], onDelete: SetNull)
+  evaluations         ArchiveTitleRuleEvaluation[]
+
+  @@index([sourceId, createdAt(sort: Desc)])
+  @@map("archive_title_rule_revisions")
+}
+
+model ArchiveTitleRuleEvaluation {
+  revisionId         String
+  catalogItemId      String
+  evaluation         Json
+  accepted           Boolean
+  previouslyAccepted Boolean
+  reviewDecision     ArchiveTitleReviewDecision
+  revision           ArchiveTitleRuleRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  catalogItem        ArchiveUploaderCatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+
+  @@id([revisionId, catalogItemId])
+  @@map("archive_title_rule_evaluations")
 }
 
 model ArchiveBulkOperationItem {
@@ -2023,6 +2093,7 @@ enum ArchiveIntakeResolutionKind {
 }
 
 enum ArchiveBulkOperationCommand {
+  REVIEW_TITLE_MATCH
   RESTORE_ARCHIVE
   DELETE_FAILED_RECORDS
   BIND_CREATORS

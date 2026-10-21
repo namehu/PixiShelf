@@ -1,5 +1,5 @@
 import type { Readable } from 'node:stream'
-import type { ArchiveTitleQuery } from '@pixishelf/job-contracts'
+import type { ArchiveTitleQuery, ArchiveTitleEvidence, ArchiveTitleEvaluation } from '@pixishelf/job-contracts'
 import type { ArchiveTransferItemPhase } from '@pixishelf/job-contracts'
 import type { Prisma, PrismaClient } from '@pixishelf/db'
 import type { ExecutionLogger } from '@pixishelf/job-runtime'
@@ -99,6 +99,8 @@ export interface ArchiveUploaderScanContext extends ArchiveProviderContext {
 
 export interface ArchiveUploaderGallerySummary {
   matchesQuery?: boolean
+  matchTitles?: ArchiveTitleEvidence
+  matchEvaluation?: ArchiveTitleEvaluation
   providerKey: string
   externalId: string
   canonicalUrl: string

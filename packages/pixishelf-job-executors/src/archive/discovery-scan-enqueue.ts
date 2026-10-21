@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, lockCreatorCatalog } from '@pixishelf/db'
-import { ARCHIVE_SEARCH_DEFINITION_VERSION, archiveTitleQuerySchema } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_SEARCH_DEFINITION_VERSION,
+  archiveTitleQuerySchema,
+  archiveTitleRulesSchema,
+  legacyArchiveTitleRules
+} from '@pixishelf/job-contracts'
 
 export class DiscoveryScanConflict extends Error {}
 
@@ -81,7 +86,15 @@ export async function enqueueDiscoveryScan(
       mode: input.mode,
       searchIdentityKind: source.uploaderUid ? 'UID' : source.identityKind,
       searchIdentityValue: source.uploaderUid ?? source.identityValue,
-      ...(titleQuery ? { titleQuery } : {}),
+      ...(titleQuery
+        ? {
+            titleQuery,
+            titleRules: source.titleRules
+              ? archiveTitleRulesSchema.parse(source.titleRules)
+              : legacyArchiveTitleRules(titleQuery),
+            rulesVersion: source.rulesVersion ?? 1
+          }
+        : {}),
       cursorBefore,
       defaultCreatorIds: defaults.map(({ artistId }) => artistId)
     }

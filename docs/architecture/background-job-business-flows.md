@@ -72,7 +72,7 @@ flowchart LR
   subgraph Worker[一个 Central Worker 进程]
     RESOLVE[ARCHIVE_RESOLVE Dispatcher\n并发 1]
     WRITER[BACKGROUND_WRITER Dispatcher\n并发 1]
-    EXEC[34 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
+    EXEC[35 类 job type\nSCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2]
   end
 
   subgraph Storage[文件和外部资源]
@@ -216,13 +216,13 @@ sequenceDiagram
 | `derived_media_gc`                 | 清理派生媒体           |    05:30 | 否       |     70 | 每次最多处理 100 条已登记且到期的 GC intent                      |
 | `derived_media_gc_reconciliation`  | 核对派生媒体目录       |    05:45 | 否       |     71 | 仅周一 dry-run，有界扫描最多 500 个 poster 目录项，不删除        |
 
-## 34 类 Worker 任务
+## 35 类 Worker 任务
 
 `ARTWORK_SUMMARY_GENERATE v1` 为本次新增的按需作品摘要任务，在 writer lane 单并发分批运行。快照发布、读记录与 NAS 验收见[作品摘要浏览](../features/artwork-summary.md)。生产尚未发布。
 
 `ARTIST_MERGE@v1` 在 BACKGROUND_WRITER 中原子迁移艺术家关系、来源映射和归档绑定，并保存审计；入口、互斥和恢复边界见[艺术家合并](../features/artist-merge.md)。
 
-`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` 与 `ARCHIVE_DISCOVERY_BATCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他 30 类任务全部进入 `BACKGROUND_WRITER`。
+`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN`、`ARCHIVE_DISCOVERY_BATCH_SCAN` 与 `ARCHIVE_TITLE_RULE_PREVIEW` 进入 `ARCHIVE_RESOLVE`，其他 30 类任务全部进入 `BACKGROUND_WRITER`。
 
 | Job type                           | 主要入口                                 | 是否计划任务 | 是否创建子任务 | 主要副作用                                                    |
 | ---------------------------------- | ---------------------------------------- | ------------ | -------------- | ------------------------------------------------------------- |
@@ -244,6 +244,7 @@ sequenceDiagram
 | `ARCHIVE_RESOLVE_ITEM`             | 归档收件新增/重试                        | 否           | 否             | 访问 Provider、冻结元数据和媒体计划、分类 READY 等状态        |
 | `ARCHIVE_DISCOVERY_BATCH_SCAN` | 发现来源批量勾选 | 否 | 否 | 持久父任务按来源依次调度最新增量及历史扫描，每轮让出解析通道；结果人工入箱 |
 | `ARCHIVE_UPLOADER_SCAN`            | 归档收件箱中的上传者来源                 | 否           | 否             | 人工发现公开画廊、保存游标与候选分类，不自动创建下载任务      |
+| `ARCHIVE_TITLE_RULE_PREVIEW`       | 来源规则预览                             | 否           | 否             | 分批评估全部历史候选，持久化明细，显式应用原子切换                         |
 | `ARCHIVE_SEARCH_SCAN`              | 归档收件箱中的标题关键词来源             | 否           | 否             | 最多检查 100 个远端候选、本地标题匹配、人工决定入箱           |
 | `ARCHIVE_IMPORT`                   | 解析成功自动入队或 READY 收件项人工确认  | 否           | 否             | 下载、校验、写 manifest、发布归档 revision 和 Artwork         |
 | `ARTWORK_SUMMARY_GENERATE` | 作品详情手动生成或重新生成 | 否 | 否 | 分批提取特征并发布可展开的连续图片摘要 |
@@ -263,8 +264,8 @@ sequenceDiagram
 
 标签、艺术家、作品和系列同步的默认 `DISCOVER` 都会把发现阶段的全部候选物化到同一逻辑批次；200 只是稳定的数据库分页大小和显式选择上限，不是整批上限。艺术家、作品和系列的显式刷新覆盖全部对应 Pixiv 身份，并优先物化最久未检查项。所有补全子任务仍使用低优先级并由单 writer lane 逐个执行。父任务完成发现后，执行动态依据子任务终态数继续展示稳定的批次进度，当前子任务只作为次级信息，不会因逐项切换而替换整张批次卡片。整批取消先封住父任务派生，再批量取消未完成子任务；已发布字段不回滚。
 
-生产 Registry 保持 34 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 31 类仍只支持 v1，因此 capability audit
-实际核对 39 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
+生产 Registry 保持 35 个 job type。`SCAN` 同时支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3/v4，其余 32 类仍只支持 v1，因此 capability audit
+实际核对 41 个 job type/definition-version 组合及其 lane，而不是把新版本误算成新的任务类型。`SCAN@v1` 承载既有
 扫描，v2 只执行 `CONSISTENCY_AUDIT`，v3 只执行 `AUDIT_APPLY`。
 
 `ANIMATION_DURATION_PROBE` 是独立的只读 WebP 时长任务，不依赖 `WEBP_ANIMATION_SCAN` 的旧分类完成。单并发按 ID 每页最多 100 项，每轮最多 10 文件或 5 秒，再让出 writer lane；每轮优先处理至多 2 个已到期的低 ID 失败项，避免前向游标使重试饥饿。失败等待与写入门禁不算完成：等待下一次到期或写入结束时进入 RETRY_WAIT，让出 lane；门禁异常持久存在须人工核对原媒体/替换会话，不按超时自动解锁。见[动图时长方案](../design/animation-duration-probe.md)。
@@ -723,7 +724,7 @@ flowchart TD
 | App 入队、幂等和控制命令      | `packages/pixishelf/services/background-task/job-command-service.ts`、`manual-job-singleton.ts`  |
 | claim、优先级、lease、fence   | `packages/pixishelf-job-runtime/src/queue-repository.ts`                                         |
 | 双 Dispatcher 和 Worker 启动  | `packages/pixishelf-worker/src/main.ts`、`dispatcher.ts`                                         |
-| 34 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
+| 35 类 Executor 注册           | `packages/pixishelf-worker/src/create-worker-executor-registry.ts`、`production-capabilities.ts` |
 | Pixiv 艺术家补全              | `packages/pixishelf-job-executors/src/pixiv-artist/`、`pixiv-artist-enrichment-service.ts`       |
 | Pixiv 标签补全                | `packages/pixishelf-job-executors/src/pixiv-tag/`、`pixiv-tag-enrichment-service.ts`             |
 | Pixiv 作品在线同步            | `packages/pixishelf-job-executors/src/pixiv-artwork/`、`pixiv-artwork-enrichment-service.ts`     |
@@ -746,3 +747,5 @@ flowchart TD
 ### CREATOR_MAINTENANCE
 
 创作者整理使用 BACKGROUND_WRITER lane，PREVIEW 逐批冻结来源和人工归属，READY 后由用户确认 APPLY。每批 25 项，证据变化标 STALE，来源未知标 UNKNOWN；暂停／取消保留已提交批次，重试续跑剩余项。来源映射更正通过单事务集合更新维护身份一致性。详见[创作者关系](../features/creator-relations.md)。
+
+标题扫描 v4 冻结本地组合规则版本。预览任务只计算已有候选，不请求远端或下载；人工复核、原子应用、艺术家绑定时机见[标题来源精准匹配](../features/archive-title-rules.md)。

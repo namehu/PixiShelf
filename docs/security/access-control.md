@@ -411,7 +411,6 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 统计查询，分别返回 `catalogCounts: null` 或 `counts: null`；旧请求和 `archiveUploader` 行为保持不变。
 页面采用独立统计缓存，统计失败不扩大写操作权限，原有写接口仍复核实际领域状态。
 
-
 ## 失败收件记录删除
 
 `archiveInbox.deleteFailedMany` 使用 adminProcedure，接收 `targetType`（INTAKE_ITEM / DISCOVERY_ITEM）、1–100 个记录 ID 及幂等键；操作者来自 Session。发现来源入口复用同一服务。服务端从记录解析身份与 URL，重新检查失败状态、关联下载及活动扫描/收件，不能由客户端指定作品 ID、URL 或删除范围。每个目标独立事务，持久回执保留结果；删除不涉及本地作品、媒体、下载任务或日志。收件原站链接仅使用经协议、主机、凭据、端口及路径校验的提交地址，不增加公共重定向接口。
@@ -419,7 +418,6 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 ## 后台任务退役第一阶段
 
 所有旧执行入口固定中央入队，鉴权门禁不变；归档控制保留专用领域事务。v0 历史拒绝执行控制与重试，失败确认记录保留。计划更新不再接受 time，列表使用 lastMaterializedAt/Date。旧目标只读快照不作为执行输入，展示沿用脱敏和隐私规则。切换开关不再提供隔离能力，维护必须停止服务。
-
 
 ## 阅读进度手动修正
 
@@ -436,3 +434,5 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 `artwork.reader` 与 `artwork.mediaPage` 均使用 authProcedure，要求 expectedUserId 与 Session 一致；实际阅读归属来自 ctx.userId。初始化只返回 ACTIVE 且未删除作品的精简媒体索引、作品标题及该账户的阅读数据。分页只接受作品 ID、64 字符指纹和非负页号，由服务端决定每页 24 个逻辑媒体及其完整分组成员，不能由客户端指定跨作品成员。
 
 分页在一致性快照内重新计算索引并核对指纹；指纹覆盖媒体 revision、成员顺序、分组与占位尺寸，冲突返回 CONFLICT。索引不含路径、探测错误或完整视频/动画元数据。媒体详情沿用既有已认证 DTO 和媒体访问门禁；新增接口不允许匿名或 Webhook Token。客户端页面销毁不取消其他阅读入口的队列，账户切换清理旧账户内存，不跨账户重放。
+
+标题来源复核沿用管理边界：规则预览、应用、取消、复核决定和历史绑定清理使用 archiveSearch 的 adminProcedure，读取预览、证据与统计使用 authProcedure。候选和修订所属来源由服务端核验，人工接纳不绕过上传者限制、全局忽略或既有入箱校验。

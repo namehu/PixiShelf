@@ -7,6 +7,7 @@ import { Spinner } from '@/components/ui/spinner'
 
 export function ArchiveDiscoveryBulkBar({
   deleteAction,
+  reviewActions,
   selectedCount,
   kind,
   pending,
@@ -20,6 +21,7 @@ export function ArchiveDiscoveryBulkBar({
   onCancelPending,
   addCount = selectedCount
 }: {
+  reviewActions?: ReactNode
   deleteAction?: ReactNode
   selectedCount: number
   kind: 'catalog' | 'ignored'
@@ -80,6 +82,7 @@ export function ArchiveDiscoveryBulkBar({
           </Button>
         ) : (
           <>
+            {reviewActions}
             {deleteAction}
             {onBind ? (
               <Button

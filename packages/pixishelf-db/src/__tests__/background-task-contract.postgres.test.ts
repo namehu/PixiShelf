@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { fileURLToPath } from 'node:url'
 import { PrismaClient } from '@prisma/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -31,7 +32,7 @@ async function audit(mode: string) {
   try {
     const result = await run(
       process.execPath,
-      [new URL('../../maintenance/audit-background-task-retirement.mjs', import.meta.url).pathname, mode],
+      [fileURLToPath(new URL('../../maintenance/audit-background-task-retirement.mjs', import.meta.url)), mode],
       { env: { ...process.env, DATABASE_URL: fixtureUrl } }
     )
     return { code: 0, report: JSON.parse(result.stdout) }

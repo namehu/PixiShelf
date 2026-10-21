@@ -66,7 +66,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
 | [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令               |
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、34 类 Worker 任务、领域状态和流程图  |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、35 类 Worker 任务、领域状态和流程图  |
 | [后台任务实时进度](./features/background-job-live-progress.md)      | `current` | 结构化进度、SSE 降级、动画吞吐与事件保留       |
 | [后台任务执行记录](./features/background-job-history.md)            | `current` | 执行动态搜索筛选、游标分页、虚拟滚动与实时合并 |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |
@@ -115,6 +115,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 - [作品详情页自动浏览](./features/artwork-auto-browse.md)（`current`）：自动滚动、适配预览轮播、暂停/加载等待与浏览器偏好。
 - [作品阅读记录与进度](./features/artwork-reading.md)（`draft`）：本地阅读规则、媒体生命周期与验收记录；不得当作已发布行为。
+- [标题来源精准匹配与人工复核](./features/archive-title-rules.md)（draft）：组合规则、完整历史预览、来源内复核、原子切换与标题来源入箱绑定；生产验收由管理员发布后执行。
 
 | 文档                                                                 | 状态         | 权威范围与后续处理                                          |
 | -------------------------------------------------------------------- | ------------ | ----------------------------------------------------------- |

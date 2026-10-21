@@ -1,6 +1,6 @@
 'use client'
 
-import { ARCHIVE_TITLE_MATCH_LABELS } from '@pixishelf/job-contracts'
+import { archiveTitleUploaderLabel } from '@pixishelf/job-contracts'
 import type { inferRouterOutputs } from '@trpc/server'
 import { CopyIcon, MoreHorizontalIcon, TypeIcon, UserRoundIcon } from 'lucide-react'
 import { ArchiveDiscoveryResultList, type ArchiveDiscoveryListPosition } from './archive-discovery-result-list'
@@ -129,7 +129,7 @@ export function ArchiveUploaderSourceList({
                 </span>
                 <PrivacySensitiveText className="block min-w-0 truncate text-xs font-normal text-muted-foreground @3xl/source-row:flex-1">
                   {source.titleQuery
-                    ? `标题${ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「${source.titleQuery.keyword}」${source.titleQuery.uploaderName ? ` · ${source.titleQuery.uploaderName}` : source.titleQuery.uploaderUid ? ` · UID ${source.titleQuery.uploaderUid}` : ''}`
+                    ? `远端关键词「${source.titleQuery.keyword}」 · ${archiveTitleUploaderLabel(source.titleQuery)}`
                     : source.uploaderUid
                       ? `UID ${source.uploaderUid}`
                       : `按名称：${source.identityValue}`}
