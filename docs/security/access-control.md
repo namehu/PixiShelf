@@ -430,3 +430,9 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 ## 作品快捷筛选账户边界
 
 `artworkQuickFilter` 的 list/create/update/delete/setNavigation 全部使用 `authProcedure`，所有请求必须携带与会话相同的 `expectedUserId`，实际持久化身份始终取 `ctx.userId`。预设和导航顺序存入账户自己的 `UserSetting`；通用设置读写分别排除、拒绝 `artwork_quick_filter:` 保留前缀，不能绕过专用 Zod、版本及数量校验。事务锁定账户行后检查名称、总量和版本，禁止跨账户读写与过期覆盖；客户端缓存按账户隔离。名称和条件摘要遵循全局隐私文本规则，但隐私遮蔽不构成授权边界。详见[作品快捷筛选](../features/artwork-quick-filters.md)。
+
+## 作品阅读初始化与媒体分页
+
+`artwork.reader` 与 `artwork.mediaPage` 均使用 authProcedure，要求 expectedUserId 与 Session 一致；实际阅读归属来自 ctx.userId。初始化只返回 ACTIVE 且未删除作品的精简媒体索引、作品标题及该账户的阅读数据。分页只接受作品 ID、64 字符指纹和非负页号，由服务端决定每页 24 个逻辑媒体及其完整分组成员，不能由客户端指定跨作品成员。
+
+分页在一致性快照内重新计算索引并核对指纹；指纹覆盖媒体 revision、成员顺序、分组与占位尺寸，冲突返回 CONFLICT。索引不含路径、探测错误或完整视频/动画元数据。媒体详情沿用既有已认证 DTO 和媒体访问门禁；新增接口不允许匿名或 Webhook Token。客户端页面销毁不取消其他阅读入口的队列，账户切换清理旧账户内存，不跨账户重放。

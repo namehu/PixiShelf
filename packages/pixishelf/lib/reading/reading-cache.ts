@@ -19,7 +19,7 @@ function belongsToAccount(queryKey: readonly unknown[], ownerUserId: string): bo
   const readingProcedure = router === 'reading' &&
     (procedure === 'context' || procedure === 'summaries' || procedure === 'history')
   const artworkProcedure = router === 'artwork' &&
-    (procedure === 'list' || procedure === 'cardList' || procedure === 'viewerFeed')
+    (procedure === 'list' || procedure === 'cardList' || procedure === 'viewerFeed' || procedure === 'reader')
   return (readingProcedure || artworkProcedure) && operation.input.expectedUserId === ownerUserId
 }
 
@@ -78,7 +78,7 @@ export function reconcileReadingCache(client: QueryClient, owner: string) {
       return latest && compareReadingVersion(latest, value) > 0 ? latest : value
     }
     // A context needs an atomic ID-set + summary snapshot, never a summary-only patch.
-    if (isSummary(value.summary) && Array.isArray(value.media)) {
+    if (isSummary(value.summary) && Array.isArray(value.seenMediaIds)) {
       const record = records.get(value.summary.artworkId)
       if (record?.context && record.context.mediaRevision > (value.mediaRevision as number)) return record.context
       const latest = record?.progress

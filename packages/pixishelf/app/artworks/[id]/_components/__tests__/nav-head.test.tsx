@@ -108,7 +108,7 @@ describe('NavHead', () => {
     expect(screen.getByRole('dialog', { name: '媒体顺序校对' })).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '全屏预览' }))
-    expect(useArtworkStore.getState().images).toEqual(data.images)
+    expect(useArtworkStore.getState().images).toEqual([])
     expect(mocks.push).toHaveBeenCalledWith('/artworks/preview?artworkId=7')
   })
 

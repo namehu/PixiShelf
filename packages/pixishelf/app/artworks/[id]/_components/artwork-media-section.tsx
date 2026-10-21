@@ -10,13 +10,25 @@ import { ReadingProgressControls } from './reading-progress-controls'
 import { Button } from '@/components/ui/button'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
+import { useArtworkReader } from '@/lib/reading/artwork-reader-provider'
 import { useArtworkReading } from '@/lib/reading/reading-provider'
 import ArtworkImages from './artwork-images'
 import { getAutoBrowseViewport } from './use-artwork-auto-scroll'
 import { useArtworkMediaView } from './artwork-media-view-context'
 
 export function ArtworkMediaSection({ images, artworkId }: { images: ArtworkImageResponseDto[]; artworkId: number }) {
+  const reader = useArtworkReader()
+  return reader ? <MediaSectionContent images={reader.images} artworkId={artworkId} reading={reader.reading} mediaInvalidated={reader.invalidated} />
+    : <LegacyMediaSection images={images} artworkId={artworkId} />
+}
+function LegacyMediaSection({ images, artworkId }: { images: ArtworkImageResponseDto[]; artworkId: number }) {
   const reading = useArtworkReading(artworkId)
+  return <MediaSectionContent images={images} artworkId={artworkId} reading={reading} />
+}
+function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalidated = false }: {
+  images: ArtworkImageResponseDto[]; artworkId: number; reading: ReturnType<typeof useArtworkReading>; mediaInvalidated?: boolean
+}) {
+  const reading = mediaInvalidated ? { ...handle, invalidated: true } : handle
   const [continueRequest, setContinueRequest] = useState<{ index: number; nonce: number } | null>(null)
   const [filter, setFilter] = useState<{ owner: string | null; artworkId: number; ids: number[]; nonce: number } | null>(null)
   const topRef = useRef<HTMLDivElement>(null)
@@ -97,7 +109,7 @@ export function ArtworkMediaSection({ images, artworkId }: { images: ArtworkImag
   return (
     <>
       <PageContainer size="reading"><div ref={topRef} className="scroll-mt-20"><ReadingProgressControls reading={reading} empty={emptyUnread} /></div></PageContainer>
-      {emptyUnread ? (
+      {reading.invalidated ? null : emptyUnread ? (
         <Empty className="py-16">
           <EmptyHeader>
             <EmptyTitle>没有未读内容</EmptyTitle>

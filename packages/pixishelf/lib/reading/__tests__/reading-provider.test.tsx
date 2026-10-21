@@ -6,10 +6,10 @@ import type { ReadingContextDto, ReadingSummaryDto } from '@pixishelf/db/reading
 import { ReadingProvider, useArtworkReading, useReadingSummaries } from '../reading-provider'
 
 const mocks = vi.hoisted(() => ({
-  user: { id: 'alice' }, context: vi.fn(), summaries: vi.fn(), report: vi.fn(), markRead: vi.fn(), toast: vi.fn()
+  user: { id: 'alice' }, context: vi.fn(), summaries: vi.fn(), report: vi.fn(), markRead: vi.fn(), toast: vi.fn(), errorToast: vi.fn(), dismiss: vi.fn()
 }))
 
-vi.mock('sonner', () => ({ toast: { custom: mocks.toast } }))
+vi.mock('sonner', () => ({ toast: { custom: mocks.toast, error: mocks.errorToast, dismiss: mocks.dismiss } }))
 
 vi.mock('@/components/auth/auth-provider', () => ({
   useAuthUser: () => mocks.user,
@@ -66,6 +66,39 @@ async function recordView(handle: ReturnType<typeof useArtworkReading>) {
 }
 
 describe('ReadingProvider lifecycle and server refresh', () => {
+  it('reuses initialization without another context request and projects pending progress without restarting observations', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const hook = renderHook(() => useArtworkReading(7, {
+      external: true, context, isLoading: false, error: null, retry: vi.fn()
+    }), { wrapper: ({ children }) => <QueryClientProvider client={client}><ReadingProvider>{children}</ReadingProvider></QueryClientProvider> })
+    const epoch = hook.result.current.observationEpoch
+    act(() => hook.result.current.observe('detail', { mediaId: 11, ready: true, visible: true, automatic: false }))
+    expect(hook.result.current.summary?.seenCount).toBe(1)
+    expect(hook.result.current.summary?.stateVersion).toBe(0)
+    expect(hook.result.current.observationEpoch).toBe(epoch)
+    expect(mocks.context).not.toHaveBeenCalled()
+    expect(mocks.report).not.toHaveBeenCalled()
+    await act(async () => { await hook.result.current.flush() })
+    expect(hook.result.current.summary?.stateVersion).toBe(1)
+    hook.unmount()
+    client.clear()
+  })
+
+  it('optimistically marks media and restores the confirmed state after rejection', async () => {
+    let reject!: (error: Error) => void
+    mocks.markRead.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail }))
+    const { result, unmount } = setup()
+    await waitFor(() => expect(result.current.reading.context).toBeDefined())
+    let saving!: Promise<void>
+    act(() => { saving = result.current.reading.markRead({ kind: 'MEDIA', mediaId: 11 }) })
+    expect(result.current.reading.summary?.seenCount).toBe(1)
+    expect(result.current.reading.summary?.stateVersion).toBe(0)
+    await act(async () => { reject(new Error('offline')); await saving })
+    expect(result.current.reading.summary?.seenCount).toBe(0)
+    expect(result.current.reading.markError).toBeTruthy()
+    unmount()
+  })
+
   it('does not record media when the page initially mounts in the background', async () => {
     const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
     try {
@@ -79,16 +112,21 @@ describe('ReadingProvider lifecycle and server refresh', () => {
     }
   })
 
-  it('shows a brief bottom toast only after a newly completed report', async () => {
+  it('shows a brief bottom toast immediately on local completion and never again on acknowledgement', async () => {
     const completed: ReadingSummaryDto = { ...viewed, seenCount: 3, status: 'COMPLETED' }
-    mocks.report.mockResolvedValue({ mediaRevision: 1, seenMediaIds: [], summary: completed })
+    mocks.context.mockResolvedValue({ ...context, summary: { ...viewed, seenCount: 2 }, seenMediaIds: [12, 13],
+      media: [11, 12, 13].map((mediaId, index) => ({ mediaId, memberMediaIds: [mediaId], index })) })
+    mocks.report.mockResolvedValue({ mediaRevision: 1, seenMediaIds: [11, 12, 13], summary: completed })
     const { result } = setup()
     await waitFor(() => expect(result.current.reading.context).toBeDefined())
     expect(mocks.toast).not.toHaveBeenCalled()
-    await recordView(result.current.reading)
+    act(() => result.current.reading.observe('detail', { mediaId: 11, ready: true, visible: true, automatic: true }))
+    expect(mocks.report).not.toHaveBeenCalled()
     expect(mocks.toast).toHaveBeenCalledExactlyOnceWith(expect.any(Function), {
-      id: 'reading-completed-alice-7', position: 'bottom-center', duration: 2000
+      id: 'reading-completed-alice-7-1', position: 'bottom-center', duration: 2000
     })
+    await act(async () => { await result.current.reading.flush() })
+    expect(mocks.toast).toHaveBeenCalledTimes(1)
     act(() => result.current.reading.clearSurface('detail'))
     await recordView(result.current.reading)
     expect(mocks.toast).toHaveBeenCalledTimes(1)

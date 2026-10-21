@@ -1,3 +1,6 @@
+import { ReaderInputSchema, MediaPageInputSchema } from '@/schemas/artwork-reader.dto'
+import { getReaderInitialization } from '@/services/reading-service'
+import { getReaderMediaPage } from '@/services/artwork-service/reader'
 import logger from '@/lib/logger'
 import {
   ArtworkDeleteInputSchema,
@@ -69,6 +72,14 @@ function assertReadingListAccount(
  * 作品路由
  */
 export const artworkRouter = router({
+  reader: authProcedure.input(ReaderInputSchema).query(({ ctx, input }) => {
+    assertReadingListAccount(ctx.userId, input.expectedUserId, undefined)
+    return getReaderInitialization(ctx.userId, input.artworkId)
+  }),
+  mediaPage: authProcedure.input(MediaPageInputSchema).query(({ ctx, input }) => {
+    assertReadingListAccount(ctx.userId, input.expectedUserId, undefined)
+    return getReaderMediaPage(input.artworkId, input.fingerprint, input.page)
+  }),
   /**
    * 获取作品详情
    */

@@ -1,6 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
+import { useTRPC } from '@/lib/trpc'
+import { useArtworkReader } from '@/lib/reading/artwork-reader-provider'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { CheckCheckIcon, ListFilterIcon, RefreshCwIcon, ChevronLeftIcon, EllipsisIcon, FullscreenIcon, ListOrderedIcon, Settings2Icon } from 'lucide-react'
@@ -25,12 +28,14 @@ import { useArtworkMediaView } from './artwork-media-view-context'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
+  const reader = useArtworkReader()
   const safeBack = useSafeBack('/artworks')
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const setImages = useArtworkStore((state) => state.setImages)
   const setTotal = useArtworkStore((state) => state.setTotal)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const [orderReviewOpen, setOrderReviewOpen] = useState(false)
+  const total = reader?.total ?? data.images.length
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const [showScrolledTitle, setShowScrolledTitle] = useState(false)
   const mediaView = useArtworkMediaView()
@@ -48,10 +53,10 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
   // 1. 初始化数据到 Store
   useEffect(() => {
     if (data?.images) {
-      setTotal(data.images.length)
+      setTotal(total)
       setCurrentIndex(0)
     }
-  }, [data, setTotal, setCurrentIndex])
+  }, [data.id, total, setTotal, setCurrentIndex])
 
   useEffect(() => {
     const marker = document.getElementById(`artwork-media-start-${data.id}`)
@@ -126,7 +131,7 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
                     管理当前作品
                   </Link>
                 </DropdownMenuItem>
-                {data.images.length > 1 && (
+                {total > 1 && (
                   <DropdownMenuItem onSelect={() => setOrderReviewOpen(true)}>
                     <ListOrderedIcon aria-hidden="true" />
                     顺序校对
@@ -134,7 +139,6 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
                 )}
                 <DropdownMenuItem
                   onSelect={() => {
-                    setImages(data.images)
                     router.push(`/artworks/preview?artworkId=${data.id}`)
                   }}
                 >
@@ -156,14 +160,20 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
         )}
       </PageToolbar>
 
-      {orderReviewOpen && (
-        <MediaOrderReviewDialog
-          artworkId={data.id}
-          images={data.images}
-          onClose={() => setOrderReviewOpen(false)}
-          onSaved={setImages}
-        />
-      )}
+      {orderReviewOpen && (reader ? <DeferredOrderReview artworkId={data.id} onClose={() => setOrderReviewOpen(false)} onSaved={setImages} /> : (
+        <MediaOrderReviewDialog artworkId={data.id} images={data.images} onClose={() => setOrderReviewOpen(false)} onSaved={setImages} />
+      ))}
     </>
   )
+}
+
+function DeferredOrderReview({ artworkId, onClose, onSaved }: { artworkId: number; onClose: () => void; onSaved: (images: ArtworkResponseDto['images']) => void }) {
+  const trpc = useTRPC()
+  const query = useQuery(trpc.artwork.getById.queryOptions(artworkId))
+  if (query.data) return <MediaOrderReviewDialog artworkId={artworkId} images={query.data.images} onClose={onClose} onSaved={onSaved} />
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/90" role="status">
+    <div className="space-y-3 text-center"><p>{query.error ? '顺序数据加载失败' : '正在加载顺序校对…'}</p>
+      {query.error && <Button onClick={() => void query.refetch()}>重试</Button>}
+      <Button variant="outline" onClick={onClose}>取消</Button></div>
+  </div>
 }

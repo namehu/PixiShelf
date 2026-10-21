@@ -2,8 +2,8 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import artworkDetailPage from '../page'
 
-vi.mock('@/services/artwork-service', () => ({
-  getArtworkById: vi.fn(async () => ({
+vi.mock('@/services/artwork-service/reader', () => ({
+  getArtworkReaderInitial: vi.fn(async () => ({ total: 1, fingerprint: 'test', artwork: {
     id: 146,
     title: '测试作品',
     description: '作品描述',
@@ -14,8 +14,10 @@ vi.mock('@/services/artwork-service', () => ({
     images: [{ id: 1, path: '/media.jpg' }],
     tags: [{ id: 1, name: '测试标签' }],
     series: []
-  }))
+  } }))
 }))
+
+vi.mock('@/lib/reading/artwork-reader-provider', () => ({ ArtworkReaderProvider: ({ children }: { children: React.ReactNode }) => children }))
 
 vi.mock('@/services/artwork/source-links', () => ({
   getArtworkSourceLinks: vi.fn(async () => [

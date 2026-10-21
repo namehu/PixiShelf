@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Image from 'next/image'
+import { MediaDetailsPlaceholder, useReaderMediaWindow } from '@/lib/reading/artwork-reader-provider'
 import { Button } from '@/components/ui/button'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { WebpDiagnosticsPanel, type WebpDiagnosticResult } from '@/components/players/webp-diagnostics-panel'
@@ -119,6 +120,7 @@ function AdaptiveMediaPreviewContent({
     }
   }, [images.length, initialIndex, open])
 
+  useReaderMediaWindow('adaptive', images.slice(Math.max(0, currentIndex - 1), currentIndex + 3).map((media) => media.id), open)
   const activeMedia = images[currentIndex]
   const originalIndex = activeMedia ? readingMediaPosition(reading, activeMedia.id)?.index ?? currentIndex : currentIndex
   const originalTotal = reading?.context?.media.length ?? images.length
@@ -158,7 +160,7 @@ function AdaptiveMediaPreviewContent({
     const indexes = new Set<number>()
     for (const index of [currentIndex - 1, currentIndex + 1, currentIndex + 2]) {
       const media = images[index]
-      if (media && canPreloadAdaptiveNeighbor(media, preloadEnvironment)) indexes.add(index)
+      if (media && !media.detailsPending && canPreloadAdaptiveNeighbor(media, preloadEnvironment)) indexes.add(index)
     }
     return indexes
   }, [currentIndex, images, preloadEnvironment])
@@ -310,6 +312,7 @@ function AdaptiveMediaPreviewContent({
       onTransitioningChange={setTransitioning}
       onBeforeClose={() => useArtworkAutoBrowseStore.getState().pause('overlay')}
       renderSlide={(media, { index }) => {
+        if (media.detailsPending) return <MediaDetailsPlaceholder media={media} index={index} fill />
         const currentProgressGeneration = progressGeneration.current
         const playableAnimatedWebp = isPlayableAnimatedWebp(media)
         const eager = index === currentIndex || eagerNeighborIndexes.has(index)

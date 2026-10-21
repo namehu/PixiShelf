@@ -1,5 +1,6 @@
 'use client'
 
+import { MediaDetailsPlaceholder, useReaderMediaWindow, useArtworkReader } from '@/lib/reading/artwork-reader-provider'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
@@ -63,7 +64,7 @@ export function buildMediaAnchorIndexes(total: number, interval: number) {
 
 export function getEstimatedMediaHeight(media: ArtworkImageResponseDto, containerWidth: number) {
   const width = containerWidth || 656
-  if (hasReliableSingleFrameDimensions(media) && media.width && media.height && media.width > 0 && media.height > 0) {
+  if ((media.reliableDimensions ?? hasReliableSingleFrameDimensions(media)) && media.width && media.height && media.width > 0 && media.height > 0) {
     return Math.max(1, (width * media.height) / media.width)
   }
 
@@ -156,7 +157,8 @@ function useArtworkMediaVirtualizer({
     [containerWidth, images]
   )
   const getItemKey = useCallback((index: number) => images[index]?.id ?? index, [images])
-  const measuredSizes = useMemo(() => new Map<number, number>(), [containerWidth, images])
+  const identity = images.map((media) => media.id).join(',')
+  const measuredSizes = useMemo(() => new Map<number, number>(), [containerWidth, identity])
   const [measurementRevision, setMeasurementRevision] = useState(0)
   const rangeExtractor = useMemo(
     () => (range: Parameters<typeof getArtworkMediaRange>[0]) =>
@@ -341,6 +343,7 @@ const ArtworkMediaItem = memo(function ArtworkMediaItem({
     (event: React.MouseEvent | React.TouchEvent, itemIndex: number) => onOpenPreviewMenu(event, itemIndex, loadFailed),
     [onOpenPreviewMenu, loadFailed]
   )
+  if (media.detailsPending) return <MediaDetailsPlaceholder media={media} index={index} />
   return (
     <div
       className={cn(
@@ -644,12 +647,15 @@ function VirtualizedArtworkMediaList({
   reading?: ArtworkReadingHandle
   trackingActive: boolean
 }) {
+  const reader = useArtworkReader()
+  const mediaIndexReady = !reader || Boolean(reader.initialization)
+  const total = reader?.total ?? images.length
   const originalIndexes = images.map((media, index) => readingMediaPosition(reading, media.id)?.index ?? index)
-  const originalTotal = reading?.context?.media.length ?? images.length
+  const originalTotal = reading?.context?.media.length ?? total
   const [isExpanded, setIsExpanded] = useState(false)
   const previewCount = useArtworkDetailPreferences((state) => state.previewCount)
   const { collapsible, visibleCount, remainingCount, fullyVisible } = getArtworkDisplayPolicy(
-    images.length,
+    total,
     previewCount,
     isExpanded
   )
@@ -668,15 +674,17 @@ function VirtualizedArtworkMediaList({
   const { containerRef, containerWidth, viewportHeight, scrollMargin, scrollPaddingStart } = useMeasuredMediaContainer()
   const { virtualizer, measureElement } = useArtworkMediaVirtualizer({
     images,
-    visibleCount,
+    visibleCount: Math.min(visibleCount, images.length),
     containerWidth,
     viewportHeight,
     scrollMargin,
     scrollPaddingStart
   })
+  const virtualItems = virtualizer.getVirtualItems()
+  useReaderMediaWindow('detail', virtualItems.map((item) => images[item.index]!.id), trackingActive)
   const expand = useCallback(() => setIsExpanded(true), [])
   // 自动滚动只关心是否能浏览完整作品，自然全显不需要再触发主动展开。
-  useArtworkAutoScroll({ containerRef, images, expanded: fullyVisible, expand })
+  useArtworkAutoScroll({ containerRef, images, expanded: fullyVisible, expand, ready: mediaIndexReady })
 
   const toggleExpanded = useCallback(() => {
     // 先结束自动滚动并清除选页/预览返回的待定位，防止收起后又被旧任务展开。
@@ -903,7 +911,7 @@ function VirtualizedArtworkMediaList({
           />
         </div>
       ) : (
-        !previewOpen && (
+        !previewOpen && mediaIndexReady && (
           <MediaAnchorNavigation originalIndexes={originalIndexes} originalTotal={originalTotal}
             collapsible={collapsible}
             expanded={isExpanded}
@@ -977,7 +985,10 @@ function ArtworkImagesSession({ images, artworkId, reading, trackingActive = tru
 
   const handleReturnHandled = useCallback(() => setReturnIndex(null), [])
 
-  const mediaContent = isSingleVideoArtwork(images) ? (
+  useReaderMediaWindow('single-video', images.length === 1 ? [images[0]!.id] : [])
+  const mediaContent = images.length === 1 && images[0]?.detailsPending ? (
+    <MediaDetailsPlaceholder media={images[0]} index={0} />
+  ) : isSingleVideoArtwork(images) ? (
     <SingleVideoArtworkMedia media={images[0]!} reading={reading} trackingActive={trackingActive && !previewState && !contextMenu} />
   ) : (
     <VirtualizedArtworkMediaList
@@ -991,7 +1002,7 @@ function ArtworkImagesSession({ images, artworkId, reading, trackingActive = tru
     />
   )
 
-  const videoImageIds = useMemo(() => images.filter(isVideoMedia).map((media) => media.id), [images])
+  const videoImageIds = useMemo(() => images.filter((media) => !media.detailsPending && isVideoMedia(media)).map((media) => media.id), [images])
 
   return (
     <ArtworkVideoOptimizationProvider imageIds={videoImageIds}>

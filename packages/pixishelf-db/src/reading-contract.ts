@@ -1,6 +1,6 @@
 /** Browser-safe reading contracts. Keep this module free of database imports. */
 
-export const READING_REPORT_INTERVAL_MS = 1_000
+export const READING_REPORT_INTERVAL_MS = 3_000
 export const READING_REPORT_MAX_AGE_MS = 60_000
 export const READING_HEARTBEAT_INTERVAL_MS = 60_000
 export const READING_VISIT_GAP_MS = 30 * 60_000
@@ -21,6 +21,7 @@ export const READING_MEDIA_REVISION_CONFLICT_CODE = 'READING_MEDIA_REVISION_CONF
 export type ReadingStatus = 'UNREAD' | 'IN_PROGRESS' | 'COMPLETED'
 
 export interface ReadingMediaItem {
+  isVideo?: boolean
   /** The current representative Image.id for one logical display item. */
   mediaId: number
   /** All current Image.id values belonging to this logical display item. */

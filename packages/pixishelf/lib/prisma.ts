@@ -33,6 +33,7 @@ const prismaClientSingleton = () => {
 }
 
 export type PrismaClientSingleton = ReturnType<typeof prismaClientSingleton>
+export type AppTransaction = Omit<PrismaClientSingleton, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClientSingleton | undefined

@@ -304,7 +304,12 @@ export const ArtworkImageResponseDto = ImageModel.extend({
   videoMetadata: true
 })
 
-export type ArtworkImageResponseDto = z.infer<typeof ArtworkImageResponseDto>
+export type ArtworkImageResponseDto = z.infer<typeof ArtworkImageResponseDto> & {
+  /** Client-only layout slot; never pass to a media player until hydrated. */
+  detailsPending?: true
+  reliableDimensions?: boolean
+  raw?: z.infer<typeof ArtworkImageResponseDto> | null
+}
 
 /**
  * 标签 DTO

@@ -10,18 +10,25 @@ export function ReadingProgressControls({ reading, empty = false }: {
 }) {
   if (reading.invalidated) {
     return (
-      <div className="flex flex-wrap items-center gap-3 py-3 text-sm" role="status">
+      <div className="flex h-20 items-center gap-3 text-sm" role="status">
         <span>作品媒体已更新，请重新打开阅读。</span>
         <Button size="sm" variant="outline" onClick={reading.reopen}>重新打开</Button>
       </div>
     )
   }
   const summary = reading.summary
-  if (!summary || empty) return null
+  if (!summary || empty) { return (
+    <div className="flex h-20 items-center gap-3 text-xs text-muted-foreground" aria-busy={reading.isLoading}>
+      {!empty && (reading.error ? <>
+        <span role="status">阅读状态加载失败</span>
+        <Button size="sm" variant="outline" onClick={() => void reading.retry?.()}>重试</Button>
+      </> : <span role="status">正在加载阅读状态…</span>)}
+    </div>
+  ) }
   const remaining = Math.max(0, summary.totalCount - summary.seenCount)
   const completed = summary.status === 'COMPLETED'
   return (
-    <div className="flex flex-col gap-2 py-4">
+    <div className="flex h-20 flex-col justify-center gap-2">
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5 tabular-nums" role="status">
@@ -31,7 +38,9 @@ export function ReadingProgressControls({ reading, empty = false }: {
           {summary.viewCount > 0 && <span>阅读 {summary.viewCount} 次</span>}
         </div>
       </div>
-      {reading.markError && <p role="alert" className="text-sm text-destructive">{reading.markError}</p>}
+      <p role={reading.markError || reading.error ? 'alert' : undefined} className="h-5 text-xs text-destructive">
+        {reading.markError || (reading.error ? '阅读进度尚未保存，请检查连接。' : '\u00a0')}
+      </p>
     </div>
   )
 }

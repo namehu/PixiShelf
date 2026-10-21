@@ -21,12 +21,14 @@ export function useArtworkAutoScroll({
   containerRef,
   images,
   expanded,
-  expand
+  expand,
+  ready = true
 }: {
   containerRef: RefObject<HTMLDivElement | null>
   images: ArtworkImageResponseDto[]
   expanded: boolean
   expand: () => void
+  ready?: boolean
 }) {
   const active = useArtworkAutoBrowseStore(
     (state) =>
@@ -44,7 +46,7 @@ export function useArtworkAutoScroll({
   )
 
   useEffect(() => {
-    if (!active) return
+    if (!active || !ready) return
     if (!expanded) {
       expand()
       return
@@ -224,5 +226,5 @@ export function useArtworkAutoScroll({
       // 调度取消不等于播放销毁：暂停/设置变更仍需保留当前帧。
       cancelAnimationFrame(frame)
     }
-  }, [active, containerRef, expand, expanded, images, revision])
+  }, [ready, active, containerRef, expand, expanded, images, revision])
 }

@@ -30,7 +30,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
-- [Pixiv 导入默认已读](./features/pixiv-import-reading.md)（draft，代码已实现、生产未启用）：账户级新作品偏好、历史回填预检、分批快照与恢复边界。
+- [Pixiv 导入默认已读](./features/pixiv-import-reading.md)（current，生产已启用并完成历史回填验收）：账户级新作品偏好、历史回填预检、分批快照与恢复边界。
 
 - [沉浸浏览交互](./features/immersive-viewer-interactions.md)（current，生产发布未核验）：单击显示／隐藏浮层、播放手势分离、面板阻断与返回行为。
 

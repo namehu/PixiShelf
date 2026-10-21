@@ -1,15 +1,25 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
+import type { ReadingMediaItem } from '@pixishelf/db/reading-contract'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 
+const mediaMaps = new WeakMap<ReadingMediaItem[], Map<number, ReadingMediaItem>>()
+
 export function readingMediaPosition(reading: ArtworkReadingHandle | undefined, mediaId: number) {
-  return reading?.context?.media.find((item) => item.memberMediaIds.includes(mediaId))
+  const media = reading?.context?.media
+  if (!media) return undefined
+  let byId = mediaMaps.get(media)
+  if (!byId) {
+    byId = new Map(media.flatMap((item) => item.memberMediaIds.map((id) => [id, item] as const)))
+    mediaMaps.set(media, byId)
+  }
+  return byId.get(mediaId)
 }
 
 export function ReadingMediaStatus({ reading, mediaId, loadFailed = false }: { reading?: ArtworkReadingHandle; mediaId: number; loadFailed?: boolean }) {
   const item = readingMediaPosition(reading, mediaId)
-  if (!reading?.context || !item) return null
+  if (!reading?.context || !item) return <div className="flex min-h-10 items-center px-3 text-xs text-muted-foreground" aria-busy="true">正在加载阅读状态…</div>
   const seen = reading.context.seenMediaIds.includes(item.mediaId)
   return (
     <div className="flex min-h-10 items-center justify-between gap-3 px-3 text-xs">

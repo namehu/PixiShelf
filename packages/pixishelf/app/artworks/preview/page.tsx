@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import Image from 'next/image'
 import { Swiper, SwiperSlide } from 'swiper/react'
-import { Zoom, Navigation, Pagination, Mousewheel, Keyboard } from 'swiper/modules'
+import { Zoom, Navigation, Pagination, Mousewheel, Keyboard, Virtual } from 'swiper/modules'
 import { X, ChevronUp, ChevronDown } from 'lucide-react'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import { isVideoFile } from '@/types'
@@ -22,22 +22,24 @@ import './styles.css' // 引入本地样式文件，用于需要时定制覆盖
 import { getMediaInfo, isApngFile } from '@/lib/media'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import { useSafeBack } from '@/hooks/use-safe-back'
-import { useArtworkReading } from '@/lib/reading/reading-provider'
 import { useVideoReading } from '@/lib/reading/use-video-reading'
-import { useTRPC } from '@/lib/trpc'
-import { useQuery } from '@tanstack/react-query'
+import { ArtworkReaderProvider, useArtworkReader, useReaderMediaWindow, MediaDetailsPlaceholder } from '@/lib/reading/artwork-reader-provider'
 import { Button } from '@/components/ui/button'
 
 export default function ArtworkPreviewPage() {
+  const [artworkId] = useQueryState('artworkId', parseAsInteger)
+  return <ArtworkReaderProvider key={artworkId} artworkId={artworkId ?? 0}><ArtworkPreviewContent /></ArtworkReaderProvider>
+}
+function ArtworkPreviewContent() {
   const safeBack = useSafeBack()
   const clearImages = useArtworkStore((state) => state.clearImages)
 
   const [currentIndex, setCurrentIndex] = useQueryState('index', parseAsInteger.withDefault(0))
   const [artworkId] = useQueryState('artworkId', parseAsInteger)
-  const trpc = useTRPC()
-  const artworkQuery = useQuery(trpc.artwork.getById.queryOptions(artworkId ?? 0, { enabled: Boolean(artworkId) }))
-  const images = artworkQuery.data?.images ?? []
-  const reading = useArtworkReading(artworkId ?? 0)
+  const reader = useArtworkReader()!
+  const images = reader.images
+  const reading = reader.reading
+  useReaderMediaWindow('original', images.slice(Math.max(0, currentIndex - 1), currentIndex + 3).map((image) => image.id))
   const [readyIds, setReadyIds] = useState<Set<number>>(() => new Set())
   const [errorIds, setErrorIds] = useState<Set<number>>(() => new Set())
   const [mounted, setMounted] = useState(false)
@@ -45,7 +47,7 @@ export default function ArtworkPreviewPage() {
   const [isJumping, setIsJumping] = useState(false)
   const [jumpValue, setJumpValue] = useState('')
   const activeMediaId = images[currentIndex]?.id
-  const activeMediaReady = activeMediaId !== undefined && readyIds.has(activeMediaId) && !errorIds.has(activeMediaId)
+  const activeMediaReady = !reader.invalidated && activeMediaId !== undefined && readyIds.has(activeMediaId) && !errorIds.has(activeMediaId)
   const observe = reading.observe
   const clearSurface = reading.clearSurface
   const observationEpoch = reading.observationEpoch
@@ -116,7 +118,8 @@ export default function ArtworkPreviewPage() {
     return (
       <div className="flex h-screen w-screen items-center justify-center bg-black text-white">
         <div className="text-center">
-          <p className="mb-4">{artworkQuery.isLoading ? '正在加载作品…' : '没有可预览的图片'}</p>
+          <p className="mb-4">{reader.isLoading ? '正在加载作品…' : reader.error ? '加载失败，请重试' : '没有可预览的图片'}</p>
+          {reader.error && <Button onClick={() => void reader.retry()}>重试</Button>}
           <button type="button" onClick={safeBack} className="rounded bg-white/10 px-4 py-2 hover:bg-white/20">
             返回
           </button>
@@ -126,13 +129,15 @@ export default function ArtworkPreviewPage() {
   }
 
   function renderSwiperSlide(image: ArtworkImageResponseDto & { raw?: ArtworkImageResponseDto | null }, index: number) {
+    if (Math.abs(index - currentIndex) > 2) return <SwiperSlide virtualIndex={index} key={image.id} />
+    if (image.detailsPending) return <SwiperSlide virtualIndex={index} key={image.id}><MediaDetailsPlaceholder media={image} index={index} fill /></SwiperSlide>
     const imgPath = image.raw?.path || image.path
     const isVideo = isVideoFile(imgPath)
     const isApng = isApngFile(imgPath)
 
     if (isApng) {
       return (
-        <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
+        <SwiperSlide virtualIndex={index} key={image.id || index} className="flex items-center justify-center overflow-hidden">
           <div className="flex h-full w-full items-center justify-center">
             <ApngPlayer
               src={imgPath}
@@ -147,7 +152,7 @@ export default function ArtworkPreviewPage() {
 
     if (isVideo) {
       return (
-        <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
+        <SwiperSlide virtualIndex={index} key={image.id || index} className="flex items-center justify-center overflow-hidden">
           <div className="flex h-full w-full items-center justify-center">
             <VideoPlayer
               src={imgPath}
@@ -169,7 +174,7 @@ export default function ArtworkPreviewPage() {
     }
 
     return (
-      <SwiperSlide key={image.id || index} className="flex items-center justify-center overflow-hidden">
+      <SwiperSlide virtualIndex={index} key={image.id || index} className="flex items-center justify-center overflow-hidden">
         <div className="swiper-zoom-container">
           <Image
             src={combinationApiResource(imgPath)!}
@@ -189,7 +194,7 @@ export default function ArtworkPreviewPage() {
 
   return (
     <div className="fixed inset-0 z-[100] bg-black text-white">
-      {reading.invalidated ? (
+      {reader.invalidated ? (
         <div className="absolute inset-x-4 top-16 z-30 flex items-center justify-between gap-3 rounded-lg bg-background p-3 text-sm text-foreground shadow-lg" role="status">
           <span>作品媒体已更新，请重新打开阅读。</span>
           <Button type="button" size="sm" variant="outline" onClick={() => void reading.reopen()}>重新打开</Button>
@@ -254,7 +259,8 @@ export default function ArtworkPreviewPage() {
       {/* Swiper 轮播容器 */}
       <Swiper
         direction="vertical"
-        modules={[Zoom, Navigation, Pagination, Mousewheel, Keyboard]}
+        modules={[Zoom, Navigation, Pagination, Mousewheel, Keyboard, Virtual]}
+        virtual={{ enabled: true, addSlidesBefore: 1, addSlidesAfter: 2 }}
         zoom={{
           maxRatio: 3,
           minRatio: 1

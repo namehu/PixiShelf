@@ -39,7 +39,12 @@ vi.mock('@/lib/trpc', () => ({ useTRPC: () => ({ artwork: { getById: { queryOpti
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: { images: previewState.images }, isLoading: false })
 }))
-vi.mock('@/components/auth/auth-provider', () => ({}))
+vi.mock('@/lib/reading/artwork-reader-provider', () => ({
+  ArtworkReaderProvider: ({ children }: { children: React.ReactNode }) => children,
+  useArtworkReader: () => ({ images: previewState.images, reading: previewState.reading, invalidated: false }),
+  useReaderMediaWindow: () => undefined,
+  MediaDetailsPlaceholder: () => <div>Loading</div>
+}))
 vi.mock('@/lib/reading/reading-provider', () => ({ useArtworkReading: () => previewState.reading }))
 vi.mock('@/store/use-artwork-store', () => ({ useArtworkStore: (selector: (state: { clearImages: () => void }) => unknown) =>
   selector({ clearImages: () => undefined }) }))

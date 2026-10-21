@@ -13,7 +13,9 @@ function isDedicatedDatabase(value: string | undefined) {
 }
 if (databaseUrl && !isDedicatedDatabase(databaseUrl)) throw new Error('Reading integration test requires the dedicated reading_perf database')
 
-const db = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
+const db = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl, log: [{ emit: 'event', level: 'query' }] }) : null
+let queryCount = 0
+db?.$on('query', () => { queryCount++ })
 const context = vi.hoisted(() => ({ prisma: null as unknown }))
 vi.mock('@/lib/prisma', () => ({
   get prisma() { return context.prisma }
@@ -64,6 +66,51 @@ afterEach(async () => {
 afterAll(async () => { await db?.$disconnect() })
 
 describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
+  it.each([24, 600, 3000])('bounds a %i-item reader payload and preserves progress during initialization', async (count) => {
+    await db!.image.createMany({ data: Array.from({ length: count }, (_, index) => ({
+      artworkId: fixture.artworkId, path: `/reader-paging/${fixture.userId}/${index}.jpg`,
+      sortOrder: index + 10, width: 800, height: 1200, mediaType: 'IMAGE' as const
+    })) })
+    const inserted = await db!.image.findMany({ where: { artworkId: fixture.artworkId }, select: { id: true } })
+    created.imageIds.push(...inserted.map((image) => image.id))
+    const { getArtworkReaderInitial, getReaderMediaPage } = await import('@/services/artwork-service/reader')
+    const { getArtworkById } = await import('@/services/artwork-service')
+    const firstQueries = queryCount
+    const started = performance.now()
+    const initial = await getArtworkReaderInitial(fixture.artworkId)
+    const ssrMs = performance.now() - started
+    const ssrQueries = queryCount - firstQueries
+    const secondQueries = queryCount
+    const initStarted = performance.now()
+    const [reader] = await Promise.all([
+      readingService.getReaderInitialization(fixture.userId, fixture.artworkId),
+      report(fixture.userId, [event(fixture.otherId)])
+    ])
+    const initMs = performance.now() - initStarted
+    expect(initial!.artwork.images).toHaveLength(24)
+    const initializationAndReportQueries = queryCount - secondQueries
+    expect(reader.index.items).toHaveLength(count + 2)
+    const thirdQueries = queryCount
+    const target = Math.min(799, count + 1)
+    const targetPage = Math.floor(target / 24)
+    const pageStarted = performance.now()
+    const page = await getReaderMediaPage(fixture.artworkId, reader.index.fingerprint, targetPage)
+    const pageMs = performance.now() - pageStarted
+    const pageQueries = queryCount - thirdQueries
+    expect(page.images.length).toBeLessThanOrEqual(24)
+    expect(page.images[target % 24]?.id).toBe(reader.index.items[target]?.mediaId)
+    const full = await getArtworkById(fixture.artworkId)
+    const beforeBytes = Buffer.byteLength(JSON.stringify(full))
+    const afterBytes = Buffer.byteLength(JSON.stringify(initial))
+    if (count >= 600) expect(afterBytes).toBeLessThan(beforeBytes / 10)
+    const final = await readingService.getReadingContext(fixture.userId, fixture.artworkId)
+    expect(final.seenMediaIds).toContain(fixture.otherId)
+    // oxlint-disable-next-line no-console -- bounded synthetic benchmark evidence
+    console.info('reader benchmark', { count, ssrQueries, initializationAndReportQueries, pageQueries, beforeBytes, afterBytes, indexBytes: Buffer.byteLength(JSON.stringify(reader)), ssrMs, initMs, pageMs })
+    await db!.image.update({ where: { id: fixture.otherId }, data: { sortOrder: 9999 } })
+    await expect(getReaderMediaPage(fixture.artworkId, reader.index.fingerprint, targetPage)).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+
   it('keeps a partially watched video in progress in summaries, history and list filters', async () => {
     const started = await report(fixture.userId, [{ ...event(fixture.videoId), playback: { currentTime: 1, duration: 100 } }])
     expect(started.summary).toMatchObject({ viewCount: 1, seenCount: 0, status: 'IN_PROGRESS' })

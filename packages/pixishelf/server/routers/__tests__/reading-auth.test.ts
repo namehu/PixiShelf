@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const service = vi.hoisted(() => ({
   getReadingContext: vi.fn(),
+  getReaderInitialization: vi.fn(),
   reportReading: vi.fn(),
   markReadingRead: vi.fn(),
   getReadingSummaries: vi.fn(),
   getReadingHistory: vi.fn()
 }))
 const listService = vi.hoisted(() => ({ getArtworksList: vi.fn(), getArtworkCardsPage: vi.fn(), getViewerFeed: vi.fn() }))
+
+const mediaService = vi.hoisted(() => ({ getReaderMediaPage: vi.fn() }))
+vi.mock('@/services/artwork-service/reader', () => mediaService)
 
 vi.mock('server-only', () => ({}))
 vi.mock('@/services/reading-service', () => service)
@@ -46,6 +50,20 @@ describe('reading router session ownership', () => {
     await expect(caller.summaries({ artworkIds: [10], expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(caller.history({ expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(Object.values(service).every((mock) => mock.mock.calls.length === 0)).toBe(true)
+  })
+
+  it('protects reader initialization and pagination with account preconditions', async () => {
+    for (const ctx of [unauthorized, authorized]) {
+      const caller = artworkRouter.createCaller(ctx as never)
+      const expectedUserId = ctx === unauthorized ? 'user-1' : 'other'
+      const code = ctx === unauthorized ? 'UNAUTHORIZED' : 'FORBIDDEN'
+      await expect(caller.reader({ artworkId: 10, expectedUserId })).rejects.toMatchObject({ code })
+      await expect(caller.mediaPage({ artworkId: 10, expectedUserId, fingerprint: 'a'.repeat(64), page: 0 })).rejects.toMatchObject({ code })
+    }
+    expect(service.getReaderInitialization).not.toHaveBeenCalled()
+    expect(mediaService.getReaderMediaPage).not.toHaveBeenCalled()
+    await artworkRouter.createCaller(authorized as never).reader({ artworkId: 10, expectedUserId: 'user-1' })
+    expect(service.getReaderInitialization).toHaveBeenCalledWith('user-1', 10)
   })
 
   it('always passes authenticated user ID to the service', async () => {

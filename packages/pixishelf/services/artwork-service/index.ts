@@ -4,7 +4,7 @@ import 'server-only'
 import { TRPCError } from '@trpc/server'
 
 import { ArtworkCardData, ArtworkCardListResponse, EnhancedArtworksResponse } from '@/types'
-import { prisma } from '@/lib/prisma'
+import { prisma, type AppTransaction } from '@/lib/prisma'
 import {
   ArtworksInfiniteQuerySchema,
   RandomArtworksGetSchema,
@@ -36,7 +36,7 @@ import { toApiImageSize } from '@/utils/image-size'
 import { buildVideoPosterUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 import { ARTIST_SELECT } from '@/schemas/models/artists'
 
-const publishedKeyframeSummaryInclude = {
+export const publishedKeyframeSummaryInclude = {
   where: { status: 'PUBLISHED' as const },
   orderBy: { publishedAt: 'desc' as const },
   take: 1,
@@ -954,14 +954,19 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
 
 /**
  * 根据 ID 获取单个作品详情
- * 包含：所有图片、完整 Tag 信息、Artist 信息
  */
 export async function getArtworkById(id: number): Promise<ArtworkResponseDto | null> {
-  const artwork = await prisma.artwork.findUnique({
+  return getArtworkDetailRecord(id)
+}
+
+/** The reader passes a bounded set of physical members; management retains the full query. */
+export async function getArtworkDetailRecord(id: number, client: AppTransaction = prisma, mediaIds?: number[]): Promise<ArtworkResponseDto | null> {
+  const artwork = await client.artwork.findUnique({
     where: { id, deletedAt: null },
     include: {
       images: {
-        orderBy: { sortOrder: 'asc' },
+        ...(mediaIds ? { where: { id: { in: mediaIds } } } : {}),
+        orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
         include: { videoMetadata: true, animationMetadata: true, keyframeSets: publishedKeyframeSummaryInclude }
       },
       artist: { select: ARTIST_SELECT },

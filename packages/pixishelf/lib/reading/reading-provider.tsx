@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { ReadingSummaryDto, ReadingMarkReadInput } from '@pixishelf/db/reading-contract'
+import type { ReadingSummaryDto, ReadingMarkReadInput, ReadingContextDto } from '@pixishelf/db/reading-contract'
 import { useAuthUser, useAuthStore } from '@/components/auth/auth-provider'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { ReadingCollector, isRevisionConflict, type ReadingObservation } from './reading-collector'
@@ -15,6 +15,7 @@ interface ReadingProviderValue {
   collector: ReadingCollector
   ownerUserId: string | null
   revision: number
+  pendingVersion: number
   invalidated: Set<number>
   errors: Map<number, unknown>
 }
@@ -34,12 +35,15 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const [revision, setRevision] = useState(0)
+  const [pendingVersion, setPendingVersion] = useState(0)
   const [invalidated, setInvalidated] = useState<Set<number>>(() => new Set())
   const [errors, setErrors] = useState<Map<number, unknown>>(() => new Map())
   const availableRef = useRef<boolean | null>(null)
   const stateOwnerRef = useRef(ownerUserId)
+  const unsavedToastIds = useRef(new Set<string>())
   const collector = useMemo(() => {
     const engine = new ReadingCollector({
+      onPendingChange: () => setPendingVersion((prior) => prior + 1),
       report: (input, signal) => trpcClient.reading.report.mutate(input, { signal }),
       onSummary: (summary, expectedUserId, result) => {
         if (useAuthStore.getState().user?.id !== expectedUserId) return
@@ -65,7 +69,7 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
             </span>
           </div>
         ), {
-          id: `reading-completed-${expectedUserId}-${summary.artworkId}`,
+          id: `reading-completed-${expectedUserId}-${summary.artworkId}-${summary.mediaRevision}`,
           position: 'bottom-center',
           duration: 2000
         })
@@ -73,6 +77,14 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
       onError: (error, artworkId, expectedUserId) => {
         if (useAuthStore.getState().user?.id !== expectedUserId) return
         setErrors((prior) => new Map(prior).set(artworkId, error))
+      },
+      onDiscard: (artworkId, expectedUserId) => {
+        if (useAuthStore.getState().user?.id !== expectedUserId) return
+        const id = `reading-unsaved-${expectedUserId}-${artworkId}`
+        unsavedToastIds.current.add(id)
+        toast.error(`作品 #${artworkId} 的部分阅读进度未保存`, {
+          id, description: '请重新打开这部作品，检查进度并重新查看未保存的内容。', duration: 10000
+        })
       }
     })
     engine.setAccount(ownerUserId)
@@ -86,7 +98,11 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
     setInvalidated(new Set())
     setErrors(new Map())
     setRevision((prior) => prior + 1)
-    return () => collector.dispose()
+    return () => {
+      collector.dispose()
+      for (const id of unsavedToastIds.current) toast.dismiss(id)
+      unsavedToastIds.current.clear()
+    }
   }, [collector, ownerUserId])
 
   useEffect(() => {
@@ -125,6 +141,7 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
       collector,
       ownerUserId,
       revision,
+      pendingVersion,
       invalidated: stateOwnerRef.current === ownerUserId ? invalidated : EMPTY_INVALIDATED,
       errors: stateOwnerRef.current === ownerUserId ? errors : EMPTY_ERRORS
     }}>
@@ -133,23 +150,42 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
   )
 }
 
-export function useArtworkReading(artworkId: number) {
+export function useArtworkReading(artworkId: number, source?: {
+  external: boolean; context?: ReadingContextDto; isLoading: boolean; error: unknown; retry: () => unknown
+}) {
   const { collector, ownerUserId, revision, invalidated, errors } = useReadingProvider()
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const markingRef = useRef(false)
   const [marking, setMarking] = useState(false)
+  const [manualPending, setManualPending] = useState<{ owner: string; artworkId: number; target: ReadingMarkReadInput['target'] } | null>(null)
   const [markError, setMarkError] = useState<string | null>(null)
-  const contextQuery = useQuery(trpc.reading.context.queryOptions(
+  const contextOptions = trpc.reading.context.queryOptions(
     { artworkId, expectedUserId: ownerUserId ?? '' },
-    { enabled: Boolean(ownerUserId && artworkId > 0), staleTime: 0 }
-  ))
-  const context = !invalidated.has(artworkId) && ownerUserId ? contextQuery.data : undefined
+    { enabled: Boolean(ownerUserId && artworkId > 0 && !source?.external), staleTime: 0 }
+  )
+  const contextQuery = useQuery(contextOptions)
+  const confirmed = !invalidated.has(artworkId) && ownerUserId ? (source?.external ? source.context : contextQuery.data) : undefined
+  const progressKey = contextOptions.queryKey
+  // External initialization still uses the existing versioned confirmation cache.
+  const cached = queryClient.getQueryData<ReadingContextDto>(progressKey)
+  const base = cached && confirmed && cached.mediaRevision === confirmed.mediaRevision && cached.summary.stateVersion > confirmed.summary.stateVersion ? cached : confirmed
+  let context = base ? collector.projectContext(base) : undefined
+  if (context && manualPending?.owner === ownerUserId && manualPending.artworkId === artworkId) {
+    const target = manualPending.target
+    const seen = new Set(context.seenMediaIds)
+    context.media.forEach((item) => { if (target.kind === 'ALL' || item.memberMediaIds.includes(target.mediaId)) seen.add(item.mediaId) })
+    context = { ...context, seenMediaIds: [...seen], summary: { ...context.summary, seenCount: seen.size,
+      status: context.summary.totalCount > 0 && seen.size >= context.summary.totalCount ? 'COMPLETED' : seen.size > 0 ? 'IN_PROGRESS' : context.summary.status } }
+  }
 
   useEffect(() => {
-    if (context && ownerUserId) collector.setContext(context, ownerUserId)
-  }, [collector, context, ownerUserId])
+    if (base && ownerUserId) {
+      collector.setContext(base, ownerUserId)
+      if (source?.external) queryClient.setQueryData(progressKey, base)
+    }
+  }, [collector, base, ownerUserId, queryClient, source?.external])
   useEffect(() => () => collector.clearArtwork(artworkId), [artworkId, collector])
 
   const observe = useCallback((surfaceId: string, observation: SurfaceObservation) => {
@@ -157,6 +193,7 @@ export function useArtworkReading(artworkId: number) {
   }, [collector, artworkId])
   const clearSurface = useCallback((surfaceId: string) => collector.clearSurface(surfaceId), [collector])
   const flush = useCallback(() => collector.flush(), [collector])
+  const invalidate = useCallback(() => collector.invalidateArtwork(artworkId), [collector, artworkId])
   const reopenReader = useCallback(() => {
     // Reload the displayed media and reading revision together across all reader entry points.
     // Keep the old collector invalidated until navigation destroys it.
@@ -167,6 +204,7 @@ export function useArtworkReading(artworkId: number) {
     if (!context || !ownerUserId || markingRef.current || invalidated.has(artworkId)) return
     markingRef.current = true
     setMarking(true)
+    setManualPending({ owner: ownerUserId, artworkId, target })
     setMarkError(null)
     try {
       const result = await trpcClient.reading.markRead.mutate({
@@ -181,6 +219,7 @@ export function useArtworkReading(artworkId: number) {
       else setMarkError('标记未保存，请重试。')
     } finally {
       markingRef.current = false
+      setManualPending(null)
       setMarking(false)
     }
   }, [artworkId, collector, context, invalidated, ownerUserId, queryClient, trpcClient])
@@ -195,10 +234,12 @@ export function useArtworkReading(artworkId: number) {
     context,
     summary: context?.summary ?? null,
     resume: context?.resume ?? null,
-    isLoading: contextQuery.isLoading,
+    isLoading: source?.external ? source.isLoading : contextQuery.isLoading,
+    retry: source?.external ? source.retry : contextQuery.refetch,
     observationEpoch: revision,
-    error: errors.get(artworkId) ?? contextQuery.error,
+    error: errors.get(artworkId) ?? (source?.external ? source.error : contextQuery.error),
     invalidated: invalidated.has(artworkId),
+    invalidate,
     observe,
     clearSurface,
     flush,

@@ -14,6 +14,14 @@ const viewed: ReadingSummaryDto = {
 }
 
 describe('reading cache patch', () => {
+  it('patches compact initialization atomically without adding duplicate media mappings', () => {
+    const client = new QueryClient()
+    const key = [['artwork', 'reader'], { input: { artworkId: 7, expectedUserId: 'alice' }, type: 'query' }]
+    client.setQueryData(key, { index: { items: [{ mediaId: 10 }] }, reading: { summary: unread, mediaRevision: 1, seenMediaIds: [] } })
+    patchReadingSummaryInCache(client, viewed, 'alice', { summary: viewed, mediaRevision: 1, seenMediaIds: [10] })
+    expect(client.getQueryData(key)).toEqual({ index: { items: [{ mediaId: 10 }] }, reading: { summary: viewed, mediaRevision: 1, seenMediaIds: [10] } })
+  })
+
   it('inserts the first view only into matching account batches and accepts later server replacement', () => {
     const client = new QueryClient()
     const key = ['reading', 'summaries', 'alice', '7,8']

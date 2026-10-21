@@ -1,6 +1,6 @@
 import 'server-only'
 import { TRPCError } from '@trpc/server'
-import { Prisma, type ArtworkReadingSummary } from '@prisma/client'
+import { type ArtworkReadingSummary } from '@prisma/client'
 import { lockArtworkForReading } from '@pixishelf/db'
 import {
   READING_MEDIA_REVISION_CONFLICT_CODE,
@@ -17,12 +17,14 @@ import {
   type ReadingSummaryDto
 } from '@pixishelf/db/reading-contract'
 import type { ArtworkCardData } from '@/types'
-import { prisma } from '@/lib/prisma'
+import { prisma, type AppTransaction } from '@/lib/prisma'
 import { isVideoFile } from '@/lib/media'
 import { groupLogicalMedia } from './artwork-service/logical-media'
 import { getArtworkCardsByIds } from './artwork-service'
+import { loadReaderIndex } from './artwork-service/reader'
+import type { ReaderInitialization } from '@/schemas/artwork-reader.dto'
 
-type ReadingTx = Prisma.TransactionClient
+type ReadingTx = AppTransaction
 
 function status(summary: { viewCount: number; seenCount: number; totalCount: number }) {
   if (summary.totalCount > 0 && summary.seenCount >= summary.totalCount) return 'COMPLETED' as const
@@ -135,11 +137,30 @@ export async function getReadingContext(userId: string, artworkId: number): Prom
     return {
       artworkId,
       mediaRevision: locked.mediaRevision,
-      media: media.map(({ mediaId, memberMediaIds, index }) => ({ mediaId, memberMediaIds, index })),
+      media: media.map(({ mediaId, memberMediaIds, index, isVideo }) => ({ mediaId, memberMediaIds, index, isVideo })),
       seenMediaIds: seenLogicalIds(media, seenIds),
       summary: row ? toDto(row, locked.mediaRevision) : emptySummary(artworkId, media.length, locked.mediaRevision),
       resume: resume ? { mediaId: resume.mediaId, index: resume.index } : null
     }
+  })
+}
+
+export async function getReaderInitialization(userId: string, artworkId: number): Promise<ReaderInitialization> {
+  return prisma.$transaction(async (tx) => {
+    const locked = await lockArtworkForReading(tx, artworkId)
+    if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
+    const { title, index } = await loadReaderIndex(tx, artworkId)
+    const media = index.items
+    const { row, seenIds } = await reconcileSummary(tx, userId, artworkId, media)
+    const position = locateMedia(media, row?.lastMediaId ?? null)
+    const fallback = media.find((item) => !item.memberMediaIds.some((id) => seenIds.has(id))) ?? media[0]
+    const resume = position ?? fallback
+    return { title, index, reading: {
+      artworkId, mediaRevision: locked.mediaRevision,
+      seenMediaIds: seenLogicalIds(media, seenIds),
+      summary: row ? toDto(row, locked.mediaRevision) : emptySummary(artworkId, media.length, locked.mediaRevision),
+      resume: resume ? { mediaId: resume.mediaId, index: resume.index } : null
+    } }
   })
 }
 

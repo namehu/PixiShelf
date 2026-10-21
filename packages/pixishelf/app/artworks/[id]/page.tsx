@@ -5,7 +5,8 @@ import z from 'zod'
 import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import { PageContainer } from '@/components/layout/page-container'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
-import { getArtworkById } from '@/services/artwork-service'
+import { getArtworkReaderInitial } from '@/services/artwork-service/reader'
+import { ArtworkReaderProvider } from '@/lib/reading/artwork-reader-provider'
 import { getArtworkSourceLinks } from '@/services/artwork/source-links'
 import ArtworkDes from './_components/artwork-des'
 import NavHead from './_components/nav-head'
@@ -17,7 +18,8 @@ import TagArea from './_components/tag-area'
 
 export default async function ArtworkDetailPage({ params }: PageProps<'/artworks/[id]'>) {
   const { id } = await params
-  const data = await getArtworkById(z.coerce.number().parse(id))
+  const initial = await getArtworkReaderInitial(z.coerce.number().parse(id))
+  const data = initial?.artwork
 
   if (!data) {
     notFound()
@@ -29,6 +31,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
   return (
     <div className="min-h-dvh bg-background">
       <ArtworkMediaViewProvider>
+        <ArtworkReaderProvider artworkId={data.id} initial={initial!}>
         <NavHead data={data} id={id} />
 
         <main className="mx-auto w-full max-w-reading py-6 sm:py-8">
@@ -119,6 +122,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
             </PageContainer>
           </article>
         </main>
+      </ArtworkReaderProvider>
       </ArtworkMediaViewProvider>
     </div>
   )

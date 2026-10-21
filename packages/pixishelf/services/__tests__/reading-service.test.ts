@@ -112,8 +112,8 @@ describe('reading service', () => {
   it('initializes logical mapping without creating a visit or seen media', async () => {
     const result = await getReadingContext('user-1', 10)
     expect(result.media).toEqual([
-      { mediaId: 2, memberMediaIds: [2, 1], index: 0 },
-      { mediaId: 3, memberMediaIds: [3], index: 1 }
+      { mediaId: 2, memberMediaIds: [2, 1], index: 0, isVideo: true },
+      { mediaId: 3, memberMediaIds: [3], index: 1, isVideo: false }
     ])
     expect(result.summary).toMatchObject({ status: 'UNREAD', viewCount: 0, totalCount: 2 })
     expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()

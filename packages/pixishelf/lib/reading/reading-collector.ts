@@ -42,21 +42,26 @@ interface ActiveSurface {
 interface QueuedEvent {
   event: ReadingReportEvent
   createdAt: number
+  sendAt: number
 }
 
 interface ArtworkQueue {
   revision: number
   events: QueuedEvent[]
+  inFlight: QueuedEvent[]
   sending: boolean
   controller: AbortController | null
+  retryAt: number
 }
 
 export interface ReadingCollectorOptions {
   report: (input: ReadingReportInput, signal: AbortSignal) => Promise<ReadingReportResult>
+  onPendingChange?: () => void
   onSummary?: (summary: ReadingSummaryDto, ownerUserId: string, result: ReadingReportResult) => void
   onCompleted?: (summary: ReadingSummaryDto, ownerUserId: string) => void
   onInvalidated?: (artworkId: number, ownerUserId: string) => void
   onError?: (error: unknown, artworkId: number, ownerUserId: string) => void
+  onDiscard?: (artworkId: number, ownerUserId: string) => void
   now?: () => number
 }
 
@@ -81,7 +86,7 @@ export class ReadingCollector {
   private surfaces = new Map<string, Surface>()
   private queues = new Map<number, ArtworkQueue>()
   private invalidated = new Set<number>()
-  private completedNotifications = new Set<number>()
+  private completedNotifications = new Set<string>()
   private presented = new WeakSet<Surface>()
   private accepted = new WeakSet<Surface>()
   private active: ActiveSurface | null = null
@@ -121,6 +126,28 @@ export class ReadingCollector {
     if (prior && compareReadingVersion(context.summary, prior.summary) < 0) return
     this.contexts.set(context.artworkId, context)
     this.reconcileActive()
+  }
+
+  /** Project pending observations without assigning a server stateVersion. */
+  projectContext(context: ReadingContextDto): ReadingContextDto {
+    const queue = this.queues.get(context.artworkId)
+    if (!queue || queue.revision !== context.mediaRevision) return context
+    const events = [...queue.inFlight, ...queue.events].filter((item) => this.now() - item.createdAt < READING_REPORT_MAX_AGE_MS)
+    if (!events.length) return context
+    const seen = new Set(context.seenMediaIds)
+    const byMember = new Map(context.media.flatMap((item) => item.memberMediaIds.map((id) => [id, item] as const)))
+    let viewed = false
+    for (const { event } of events) {
+      if (event.type !== 'VIEW') continue
+      const item = byMember.get(event.mediaId)
+      if (!item || (item.isVideo && !event.playback)) continue
+      viewed = true
+      if (!(item.isVideo || event.playback) || (event.playback && isVideoReadingComplete(event.playback))) seen.add(item.mediaId)
+    }
+    const seenCount = seen.size
+    return { ...context, seenMediaIds: [...seen], summary: { ...context.summary, seenCount,
+      status: context.summary.totalCount > 0 && seenCount >= context.summary.totalCount ? 'COMPLETED'
+        : seenCount > 0 || viewed || context.summary.viewCount > 0 ? 'IN_PROGRESS' : 'UNREAD' } }
   }
 
   /** Only a fresh context fetch following explicit reopen may leave a revision conflict. */
@@ -169,7 +196,7 @@ export class ReadingCollector {
       if (surface.artworkId === artworkId) this.surfaces.delete(id)
     }
     this.reconcileActive()
-    void this.flush()
+    void this.flush(artworkId)
   }
 
   setAvailability(foreground: boolean, online: boolean) {
@@ -183,8 +210,7 @@ export class ReadingCollector {
     }
     if (!wasAvailable && foreground && online) {
       // Resume requires the reader adapter to submit a new observation.
-      for (const queue of this.queues.values()) queue.controller?.abort()
-      this.queues.clear()
+      void this.flush()
     }
     this.reconcileActive()
     if (wasAvailable && !foreground) void this.flush()
@@ -195,21 +221,43 @@ export class ReadingCollector {
   }
 
   /** Best-effort; in-memory events are intentionally not persisted offline. */
-  async flush() {
+  async flush(onlyArtworkId?: number) {
+    // Explicit exit/background flushes include events queued behind an in-flight request.
+    for (const [artworkId, queue] of this.queues) {
+      if (onlyArtworkId !== undefined && artworkId !== onlyArtworkId) continue
+      for (const entry of queue.events) entry.sendAt = this.now()
+      queue.retryAt = 0
+    }
+    await this.sendDue(onlyArtworkId)
+  }
+
+  private async sendDue(onlyArtworkId?: number) {
     this.cancelReportTimer()
     if (!this.ownerUserId || !this.online) return
     const owner = this.ownerUserId
     const epoch = this.epoch
     const tasks: Promise<void>[] = []
     for (const [artworkId, queue] of this.queues) {
-      queue.events = queue.events.filter((entry) => this.now() - entry.createdAt < READING_REPORT_MAX_AGE_MS)
-      if (queue.sending || queue.events.length === 0 || this.invalidated.has(artworkId)) continue
-      const events = queue.events.splice(0)
+      if (onlyArtworkId !== undefined && artworkId !== onlyArtworkId) continue
+      const unexpired = queue.events.filter((entry) => this.now() - entry.createdAt < READING_REPORT_MAX_AGE_MS)
+      if (unexpired.length !== queue.events.length) {
+        this.notifyDiscard(queue.events.filter((entry) => !unexpired.includes(entry)), artworkId, owner)
+        queue.events = unexpired
+        this.options.onPendingChange?.()
+        this.options.onError?.(new Error('阅读进度未保存，请重新查看相关媒体。'), artworkId, owner)
+      }
+      if (queue.sending || queue.events.length === 0 || this.invalidated.has(artworkId) || queue.retryAt > this.now()) continue
+      const firstFuture = queue.events.findIndex((entry) => entry.sendAt > this.now())
+      const count = Math.min(100, firstFuture < 0 ? queue.events.length : firstFuture)
+      if (!count) continue
+      const events = queue.events.splice(0, count)
+      queue.inFlight = events
       queue.sending = true
       const controller = new AbortController()
       queue.controller = controller
       tasks.push(this.sendBatch({ artworkId, queue, events, owner, epoch, controller }))
     }
+    this.scheduleReport()
     await Promise.all(tasks)
   }
 
@@ -226,6 +274,7 @@ export class ReadingCollector {
     controller: AbortController
   }) {
     const { artworkId, queue, events, owner, epoch, controller } = args
+    let succeeded = false
     const oldestCreatedAt = Math.min(...events.map((entry) => entry.createdAt))
     const expiryTimer = setTimeout(
       () => controller.abort(),
@@ -243,6 +292,7 @@ export class ReadingCollector {
         this.invalidateArtwork(artworkId)
         return
       }
+      succeeded = true
       const context = this.contexts.get(artworkId)
       const current = !context || compareReadingVersion(result.summary, context.summary) >= 0
       if (context && current) this.contexts.set(artworkId, { ...context, summary: result.summary, seenMediaIds: result.seenMediaIds })
@@ -250,11 +300,6 @@ export class ReadingCollector {
       for (const surface of this.surfaces.values()) {
         if (surface.artworkId === artworkId && events.some(({ event }) =>
           event.type === 'VIEW' && event.mediaId === surface.mediaId)) this.accepted.add(surface)
-      }
-      if (current && context && context.summary.status !== 'COMPLETED' && result.summary.status === 'COMPLETED' &&
-        events.some(({ event }) => event.type === 'VIEW') && !this.completedNotifications.has(artworkId)) {
-        this.completedNotifications.add(artworkId)
-        this.options.onCompleted?.(result.summary, owner)
       }
       if (this.active?.artworkId === artworkId && events.some(({ event }) =>
         event.type === 'VIEW' && event.mediaId === this.active?.mediaId
@@ -268,24 +313,36 @@ export class ReadingCollector {
         this.invalidateArtwork(artworkId)
         return
       }
-      queue.events.unshift(...events.filter((entry) => this.now() - entry.createdAt < READING_REPORT_MAX_AGE_MS))
+      const code = (error as { data?: { code?: string } })?.data?.code
+      let retry: QueuedEvent[] = []
+      if (!['BAD_REQUEST', 'FORBIDDEN', 'UNAUTHORIZED', 'NOT_FOUND'].includes(code ?? '')) {
+        retry = events.filter((entry) => this.now() - entry.createdAt < READING_REPORT_MAX_AGE_MS)
+        queue.events.unshift(...retry)
+      }
+      this.notifyDiscard(events.filter((entry) => !retry.includes(entry)), artworkId, owner)
+      queue.retryAt = this.now() + READING_REPORT_INTERVAL_MS
       this.options.onError?.(error, artworkId, owner)
     } finally {
       clearTimeout(expiryTimer)
       if (this.queues.get(artworkId) === queue) {
+        queue.inFlight = []
         queue.sending = false
         queue.controller = null
       }
-      if (epoch === this.epoch && owner === this.ownerUserId) this.scheduleReport()
+      if (epoch === this.epoch && owner === this.ownerUserId) {
+        this.options.onPendingChange?.()
+        if (succeeded && this.queues.get(artworkId) === queue && queue.events.length) await this.sendDue(artworkId)
+        else this.scheduleReport()
+      }
     }
   }
 
   invalidateArtwork(artworkId: number) {
     const queue = this.queues.get(artworkId)
+    if (queue && this.ownerUserId) this.notifyDiscard([...queue.inFlight, ...queue.events], artworkId, this.ownerUserId)
     queue?.controller?.abort()
     this.queues.delete(artworkId)
     this.contexts.delete(artworkId)
-    this.completedNotifications.delete(artworkId)
     this.invalidated.add(artworkId)
     for (const [id, surface] of this.surfaces) {
       if (surface.artworkId === artworkId) this.surfaces.delete(id)
@@ -366,14 +423,19 @@ export class ReadingCollector {
     if (!context || !this.ownerUserId || this.invalidated.has(artworkId)) return
     let queue = this.queues.get(artworkId)
     if (!queue) {
-      queue = { revision: context.mediaRevision, events: [], sending: false, controller: null }
+      queue = { revision: context.mediaRevision, events: [], inFlight: [], sending: false, controller: null, retryAt: 0 }
       this.queues.set(artworkId, queue)
     }
     if (queue.revision !== context.mediaRevision) {
       this.invalidateArtwork(artworkId)
       return
     }
-    queue.events.push({ event, createdAt: this.now() })
+    const now = this.now()
+    const pendingWindow = queue.events.at(-1)?.sendAt
+    queue.events.push({ event, createdAt: now,
+      sendAt: pendingWindow !== undefined && pendingWindow > now ? pendingWindow : now + READING_REPORT_INTERVAL_MS })
+    if (event.type === 'VIEW') this.notifyLocalCompletion(context, queue)
+    this.options.onPendingChange?.()
     this.scheduleReport()
   }
 
@@ -381,13 +443,33 @@ export class ReadingCollector {
     return { currentTime: playback.currentTime, duration: playback.duration }
   }
 
+  private notifyLocalCompletion(context: ReadingContextDto, queue: ArtworkQueue) {
+    const key = `${context.artworkId}:${context.mediaRevision}`
+    if (!this.ownerUserId || context.summary.status === 'COMPLETED' || context.summary.totalCount === 0 ||
+      this.completedNotifications.has(key)) return
+    // Avoid rebuilding the logical ID map until pending events could finish the work.
+    if (context.seenMediaIds.length + queue.inFlight.length + queue.events.length < context.summary.totalCount) return
+    const summary = this.projectContext(context).summary
+    if (summary.status !== 'COMPLETED') return
+    // Keep this marker through rollback/retry and navigation; a server acknowledgement never toasts.
+    this.completedNotifications.add(key)
+    this.options.onCompleted?.(summary, this.ownerUserId)
+  }
+
   private scheduleReport() {
-    if (this.reportTimer || !this.ownerUserId || !this.online ||
-      ![...this.queues.values()].some((queue) => queue.events.length > 0 && !queue.sending)) return
+    this.cancelReportTimer()
+    if (!this.ownerUserId || !this.online) return
+    const deadlines = [...this.queues.values()].flatMap((queue) =>
+      !queue.sending && queue.events[0] ? [Math.max(queue.events[0].sendAt, queue.retryAt)] : [])
+    if (!deadlines.length) return
     this.reportTimer = setTimeout(() => {
       this.reportTimer = null
-      void this.flush()
-    }, READING_REPORT_INTERVAL_MS)
+      void this.sendDue()
+    }, Math.max(0, Math.min(...deadlines) - this.now()))
+  }
+
+  private notifyDiscard(events: QueuedEvent[], artworkId: number, owner: string) {
+    if (events.some(({ event }) => event.type === 'VIEW')) this.options.onDiscard?.(artworkId, owner)
   }
 
   private cancelObservation() {
