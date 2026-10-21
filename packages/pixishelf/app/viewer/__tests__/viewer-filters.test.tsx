@@ -17,7 +17,15 @@ vi.mock('@/components/auth', () => ({ useAuthUser: () => ({ id: 'viewer-user' })
 vi.mock('@/lib/trpc', () => ({
   useTRPCClient: () => ({ artwork: { viewerFeed: { query: mocks.feed } } })
 }))
-vi.mock('../_components/immersive-image-viewer', () => ({ default: () => null }))
+vi.mock('../_components/immersive-image-viewer', () => ({
+  default: ({
+    playbackRate,
+    onPlaybackRateChange
+  }: {
+    playbackRate: number
+    onPlaybackRateChange: (rate: number) => void
+  }) => <button onClick={() => onPlaybackRateChange(1.5)}>当前倍速 {playbackRate}</button>
+}))
 vi.mock('@/components/artwork/filter-sheet', () => ({
   FilterSheet: (props: FilterSheetProps) => {
     mocks.sheet = props
@@ -82,6 +90,19 @@ async function reloadStore() {
 }
 
 describe('immersive viewer filter persistence', () => {
+  it('retains speed across filter remounts but resets on a new page visit without persisting it', async () => {
+    mocks.feed.mockResolvedValue({ items: [{ id: 1, key: 'video', images: [] }], nextPage: null })
+    const view = mount()
+    fireEvent.click(await screen.findByRole('button', { name: '当前倍速 1' }))
+    expect(screen.getByRole('button', { name: '当前倍速 1.5' })).toBeTruthy()
+    await applyFilters()
+    expect(await screen.findByRole('button', { name: '当前倍速 1.5' })).toBeTruthy()
+    expect(localStorage.getItem('pixishelf-viewer-settings')).not.toContain('playbackRate')
+    view.unmount()
+    mount()
+    expect(await screen.findByRole('button', { name: '当前倍速 1' })).toBeTruthy()
+  })
+
   it('restores all applied filters after a fresh store and navigation entry', async () => {
     const view = mount()
     await applyFilters()

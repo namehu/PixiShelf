@@ -14,6 +14,7 @@ import { RandomImageItem } from '@/types/images'
 import { useViewerStore } from '@/store/viewer-store'
 import { Placeholder } from './placeholder'
 import { useShallow } from 'zustand/react/shallow'
+import type { ViewerPlaybackRate } from './viewer-playback-rate'
 import type { ViewerAudioPreference } from './viewer-video-controls'
 import { useArtworkReading } from '@/lib/reading/reading-provider'
 import { Button } from '@/components/ui/button'
@@ -96,6 +97,8 @@ function useChapterPanelHistory() {
 }
 
 interface ImmersiveImageViewerProps {
+  playbackRate: ViewerPlaybackRate
+  onPlaybackRateChange: (rate: ViewerPlaybackRate) => void
   initialImages: RandomImageItem[]
   hasMore: boolean
   isLoading: boolean
@@ -157,6 +160,8 @@ function ViewerEndSurface({ active, onToggleChrome }: { active: boolean; onToggl
  */
 export default function ImmersiveImageViewer({
   initialImages,
+  playbackRate,
+  onPlaybackRateChange,
   onLoadMore,
   hasMore,
   isLoading,
@@ -167,9 +172,11 @@ export default function ImmersiveImageViewer({
   const [chapterPanelOpen, setChapterPanelOpen] = useChapterPanelHistory()
   const [preloadUnlockedIndex, setPreloadUnlockedIndex] = useState<number | null>(null)
   const [overlayPanelOpen, setOverlayPanelOpen] = useState(false)
+  const [rateMenuOpen, setRateMenuOpen] = useState(false)
   const [atEnd, setAtEnd] = useState(false)
   const [swiper, setSwiper] = useState<SwiperType | null>(null)
   const controlsLocked = interactionLocked || chapterPanelOpen || overlayPanelOpen
+  const navigationLocked = controlsLocked || rateMenuOpen
   const autoStatus = useViewerStore((state) => state.autoBrowseStatus)
   const autoWait = useViewerStore((state) => state.autoBrowseWait)
   const startRequested = useViewerStore((state) => state.autoBrowseStartRequested)
@@ -180,12 +187,12 @@ export default function ImmersiveImageViewer({
   const [pageFailed, setPageFailed] = useState(false)
   const fetchingRef = useRef(false)
   const lifetimeRef = useRef(0)
-  const latest = useRef({ initialImages, hasMore, controlsLocked, swiper })
-  latest.current = { initialImages, hasMore, controlsLocked, swiper }
+  const latest = useRef({ initialImages, hasMore, navigationLocked, swiper })
+  latest.current = { initialImages, hasMore, navigationLocked, swiper }
   const isNavigationBlocked = useCallback(
     () =>
       pointerHeldRef.current ||
-      latest.current.controlsLocked ||
+      latest.current.navigationLocked ||
       Boolean(latest.current.swiper?.animating) ||
       document.visibilityState === 'hidden',
     []
@@ -228,15 +235,15 @@ export default function ImmersiveImageViewer({
   useEffect(() => {
     if (!swiper || swiper.destroyed) return
     // Swiper React does not sync allowTouchMove or detach module listeners on prop changes.
-    swiper.allowTouchMove = !controlsLocked
-    if (controlsLocked) {
+    swiper.allowTouchMove = !navigationLocked
+    if (navigationLocked) {
       swiper.keyboard.disable()
       swiper.mousewheel.disable()
     } else {
       swiper.keyboard.enable()
       swiper.mousewheel.enable()
     }
-  }, [controlsLocked, swiper])
+  }, [navigationLocked, swiper])
   const playbackPositionsRef = useRef(new Map<number, number>())
   const { setVerticalIndex, verticalIndex, horizontalIndexes, isChromeHidden, setChromeHidden, toggleChromeHidden } =
     useViewerStore(
@@ -295,7 +302,7 @@ export default function ImmersiveImageViewer({
       useViewerStore.getState().setAutoBrowseWait(null)
       return
     }
-    if (autoStatus !== 'running' || controlsLocked || pointerHeld || transitioning || isNavigationBlocked()) return
+    if (autoStatus !== 'running' || navigationLocked || pointerHeld || transitioning || isNavigationBlocked()) return
     const state = useViewerStore.getState()
     const next = initialImages[verticalIndex + 1]
     if (next && swiper && !swiper.destroyed) {
@@ -320,7 +327,7 @@ export default function ImmersiveImageViewer({
     verticalIndex,
     horizontalIndexes,
     autoStatus,
-    controlsLocked,
+    navigationLocked,
     pointerHeld,
     transitioning,
     isNavigationBlocked,
@@ -336,6 +343,7 @@ export default function ImmersiveImageViewer({
   const handleSlideChange = useCallback(
     (swiper: SwiperType) => {
       setChapterPanelOpen(false)
+      setRateMenuOpen(false)
       setPreloadUnlockedIndex(null)
       setAtEnd(swiper.activeIndex >= initialImages.length)
       if (swiper.activeIndex >= initialImages.length && useViewerStore.getState().autoBrowseStatus !== 'off') {
@@ -354,7 +362,7 @@ export default function ImmersiveImageViewer({
       )
 
       if (
-        controlsLocked ||
+        navigationLocked ||
         event.defaultPrevented ||
         event.repeat ||
         event.ctrlKey ||
@@ -377,7 +385,7 @@ export default function ImmersiveImageViewer({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [controlsLocked, toggleChromeHidden, setChromeHidden, isChromeHidden])
+  }, [navigationLocked, toggleChromeHidden, setChromeHidden, isChromeHidden])
 
   return (
     // 桌面端适配容器
@@ -397,12 +405,12 @@ export default function ImmersiveImageViewer({
           initialSlide={verticalIndex}
           direction="vertical"
           className="h-full w-full !overflow-clip"
-          allowTouchMove={!controlsLocked}
+          allowTouchMove={!navigationLocked}
           // Bare videos are gesture surfaces, even after clicking them gives them focus.
           focusableElements="input, select, option, textarea, button, video[controls], label"
           // 桌面端配置
-          mousewheel={{ enabled: !controlsLocked }}
-          keyboard={{ enabled: !controlsLocked }}
+          mousewheel={{ enabled: !navigationLocked }}
+          keyboard={{ enabled: !navigationLocked }}
           modules={[Mousewheel, Keyboard]}
           // 初始索引配置
           slidesPerView={1}
@@ -445,11 +453,15 @@ export default function ImmersiveImageViewer({
                       reading={isActive ? reading : undefined}
                       onArtworkComplete={completeArtwork}
                       onCancelArtworkComplete={cancelArtworkComplete}
-                      navigationBlocked={pointerHeld || transitioning}
+                      navigationBlocked={pointerHeld || transitioning || rateMenuOpen}
                       navigationTransitioning={transitioning}
                       isNavigationBlocked={isNavigationBlocked}
                       interactionLocked={controlsLocked}
                       onOverlayPanelOpenChange={setOverlayPanelOpen}
+                      playbackRate={playbackRate}
+                      onPlaybackRateChange={onPlaybackRateChange}
+                      rateMenuOpen={isActive && rateMenuOpen}
+                      onRateMenuOpenChange={setRateMenuOpen}
                       audioPreference={audioPreference}
                       onAudioPreferenceChange={setAudioPreference}
                       chapterPanelOpen={chapterPanelOpen}

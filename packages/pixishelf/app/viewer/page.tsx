@@ -1,5 +1,6 @@
 'use client'
 
+import type { ViewerPlaybackRate } from './_components/viewer-playback-rate'
 import ImmersiveImageViewer from './_components/immersive-image-viewer'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeftIcon, SlidersHorizontal } from 'lucide-react'
@@ -92,6 +93,7 @@ export default function ViewerPage() {
   const [urlQuery, setViewerQuery] = useQueryStates(viewerQueryParsers)
   const searchParams = useSearchParams()
   const [isFilterOpen, setIsFilterOpen] = useState(false)
+  const [playbackRate, setPlaybackRate] = useState<ViewerPlaybackRate>(1)
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const ownerUserId = useAuthUser()?.id ?? null
@@ -439,6 +441,8 @@ export default function ViewerPage() {
       ) : (
         <ImmersiveImageViewer
           key={`${ownerUserId}:${feedKey}`}
+          playbackRate={playbackRate}
+          onPlaybackRateChange={setPlaybackRate}
           initialImages={images}
           onLoadMore={loadNextPage}
           hasMore={!!hasNextPage}

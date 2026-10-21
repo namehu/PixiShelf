@@ -66,7 +66,14 @@ const images: RandomImageItem[] = [1, 2].map((id) => ({
   tags: [],
   isLike: false
 }))
-const props = { initialImages: images, hasMore: false, isLoading: false, onLoadMore: vi.fn() }
+const props = {
+  playbackRate: 1 as const,
+  onPlaybackRateChange: vi.fn(),
+  initialImages: images,
+  hasMore: false,
+  isLoading: false,
+  onLoadMore: vi.fn()
+}
 
 describe('immersive viewer chrome', () => {
   beforeEach(() => {

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { MediaType } from '@/types'
@@ -37,6 +38,10 @@ beforeAll(() => {
 
 function renderControls(overrides: Partial<React.ComponentProps<typeof ViewerVideoControls>> = {}) {
   const props: React.ComponentProps<typeof ViewerVideoControls> = {
+    playbackRate: 1,
+    onPlaybackRateChange: vi.fn(),
+    rateMenuOpen: false,
+    onRateMenuOpenChange: vi.fn(),
     media: videoMedia,
     state: { currentTime: 5, duration: 95, isPlaying: true, isWaiting: false },
     audioPreference: { muted: true, volume: 0.75 },
@@ -104,6 +109,51 @@ describe('ViewerVideoControls', () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+  })
+
+  it('selects all seven speeds and closes the menu without toggling playback', async () => {
+    const onTogglePlayback = vi.fn()
+    const onPlaybackRateChange = vi.fn()
+    function Controls() {
+      const [rate, setRate] = useState<React.ComponentProps<typeof ViewerVideoControls>['playbackRate']>(1)
+      const [open, setOpen] = useState(false)
+      return (
+        <ViewerVideoControls
+          media={videoMedia}
+          state={{ currentTime: 5, duration: 95, isPlaying: true, isWaiting: false }}
+          audioPreference={{ muted: true, volume: 1 }}
+          playbackRate={rate}
+          rateMenuOpen={open}
+          onRateMenuOpenChange={setOpen}
+          onPlaybackRateChange={(value) => {
+            setRate(value)
+            onPlaybackRateChange(value)
+          }}
+          onTogglePlayback={onTogglePlayback}
+          onSeek={vi.fn()}
+          onSeekPreviewStart={vi.fn()}
+          onSeekCommit={vi.fn()}
+          onSeekPreviewCancel={vi.fn()}
+          onToggleMuted={vi.fn()}
+          onVolumeChange={vi.fn()}
+          chapterPanelOpen={false}
+          onChapterPanelOpenChange={vi.fn()}
+        />
+      )
+    }
+    render(<Controls />)
+    for (const rate of [0.5, 0.75, 1, 1.25, 1.5, 2, 3]) {
+      fireEvent.keyDown(screen.getByRole('button', { name: /播放速率：/ }), { key: 'Enter' })
+      expect(await screen.findAllByRole('menuitemradio')).toHaveLength(7)
+      fireEvent.click(screen.getByRole('menuitemradio', { name: `${rate}×` }))
+      await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+      expect(screen.getByRole('button', { name: `播放速率：${rate}×` })).toBeTruthy()
+      expect(onPlaybackRateChange).toHaveBeenLastCalledWith(rate)
+    }
+    fireEvent.keyDown(screen.getByRole('button', { name: /播放速率：/ }), { key: 'Enter' })
+    fireEvent.keyDown(await screen.findByRole('menu'), { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
+    expect(onTogglePlayback).not.toHaveBeenCalled()
   })
 
   it('formats compact viewer time values', () => {

@@ -8,11 +8,23 @@ vi.mock('next/image', () => ({ default: () => null }))
 describe('viewer video lifecycle', () => {
   it('distinguishes metadata from playback and publishes seeks for reading completion', () => {
     const onReadingProgress = vi.fn()
-    const view = render(<SingleImage
-      media={{ id: 1, key: 'video-1', url: '/video.mp4', updatedAt: '2026-10-18T00:00:00Z', mediaType: MediaType.VIDEO, animationMetadata: null }}
-      retryKey={0} onRetry={vi.fn()} audioPreference={{ muted: true, volume: 1 }}
-      isActiveMedia onReadingProgress={onReadingProgress}
-    />)
+    const view = render(
+      <SingleImage
+        media={{
+          id: 1,
+          key: 'video-1',
+          url: '/video.mp4',
+          updatedAt: '2026-10-18T00:00:00Z',
+          mediaType: MediaType.VIDEO,
+          animationMetadata: null
+        }}
+        retryKey={0}
+        onRetry={vi.fn()}
+        audioPreference={{ muted: true, volume: 1 }}
+        isActiveMedia
+        onReadingProgress={onReadingProgress}
+      />
+    )
     const video = view.container.querySelector('video')!
     Object.defineProperty(video, 'duration', { configurable: true, value: 100 })
     Object.defineProperty(video, 'paused', { configurable: true, value: false })
@@ -89,6 +101,47 @@ describe('viewer video lifecycle', () => {
     expect(view.container.querySelector('video')).toBe(video)
     expect(play).toHaveBeenCalledTimes(1)
     expect(pause).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('changes speed without restarting or seeking (playing=%s)', (playing) => {
+    const props = {
+      media: {
+        id: 5,
+        key: 'rate-video',
+        url: '/rate.mp4',
+        updatedAt: '2026-10-21',
+        mediaType: MediaType.VIDEO,
+        animationMetadata: null
+      },
+      retryKey: 0,
+      onRetry: vi.fn(),
+      audioPreference: { muted: false, volume: 0.5 },
+      isActiveMedia: true
+    }
+    const view = render(<SingleImage {...props} playbackRate={1.5} />)
+    const video = view.container.querySelector('video')!
+    expect(video.playbackRate).toBe(1.5)
+    expect(video.defaultPlaybackRate).toBe(1.5)
+    Object.defineProperty(video, 'paused', { configurable: true, value: !playing })
+    video.currentTime = 27
+    play.mockClear()
+    pause.mockClear()
+    view.rerender(<SingleImage {...props} playbackRate={2} />)
+    expect(video.playbackRate).toBe(2)
+    expect(video.defaultPlaybackRate).toBe(2)
+    expect(video.currentTime).toBe(27)
+    expect(video.paused).toBe(!playing)
+    expect(video.volume).toBe(0.5)
+    expect(video.muted).toBe(false)
+    expect(play).not.toHaveBeenCalled()
+    expect(pause).not.toHaveBeenCalled()
+    view.rerender(<SingleImage {...props} playbackRate={2} retryKey={1} />)
+    const replacement = view.container.querySelector('video')!
+    expect(replacement).not.toBe(video)
+    expect(replacement.playbackRate).toBe(2)
+    replacement.playbackRate = 1
+    fireEvent.loadedMetadata(replacement)
+    expect(replacement.playbackRate).toBe(2)
   })
 
   it('falls back to muted playback when unmuted autoplay is rejected', async () => {

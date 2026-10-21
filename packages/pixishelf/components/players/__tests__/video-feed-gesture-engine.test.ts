@@ -119,6 +119,22 @@ describe('createFeedGestureEngine', () => {
     expect(moved.getPlaybackRate()).toBe(1)
   })
 
+  it.each([0.5, 1.5, 3])('restores selected %s× after long press and never slows it down', (selected) => {
+    const { engine, options, getPlaybackRate } = createEngine({ longPressRate: 2 })
+    options.setPlaybackRate(selected)
+    const event = { pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 50 }
+    engine.pointerDown(event)
+    vi.advanceTimersByTime(1000)
+    expect(getPlaybackRate()).toBe(Math.max(selected, 2))
+    engine.pointerUp(event)
+    expect(getPlaybackRate()).toBe(selected)
+    engine.pointerDown(event)
+    vi.advanceTimersByTime(1000)
+    engine.pointerCancel()
+    expect(getPlaybackRate()).toBe(selected)
+    engine.destroy()
+  })
+
   it('opens actions for paused video without toggling chrome', () => {
     const paused = createEngine({ getPlaying: () => false })
     paused.engine.pointerDown({ pointerId: 1, pointerType: 'touch', clientX: 50, clientY: 50 })

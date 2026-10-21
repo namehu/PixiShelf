@@ -152,8 +152,9 @@ export function createFeedGestureEngine(options: FeedGestureEngineOptions): Feed
 
         if (shouldFastForward) {
           pointer.mode = 'rate'
-          options.setPlaybackRate(options.longPressRate)
-          showFeedback({ kind: 'rate', title: `${options.longPressRate}× 快进中`, persistent: true })
+          const rate = Math.max(pointer.startPlaybackRate, options.longPressRate)
+          options.setPlaybackRate(rate)
+          showFeedback({ kind: 'rate', title: `${rate}× 快进中`, persistent: true })
           return
         }
 
