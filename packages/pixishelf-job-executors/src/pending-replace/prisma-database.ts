@@ -406,6 +406,20 @@ async function checkpointItem(client: Prisma.TransactionClient, input: PendingRe
   })
   if (updated.count !== 1)
     throw new PendingReplacePermanentError('DATABASE_CHANGED', 'Pending item checkpoint CAS failed')
+  const startsWrite = input.status === 'BACKING_UP' || input.status === 'RESTORING'
+  const finishesWrite = input.status === 'ARCHIVING' || input.status === 'RESTORE_COMMITTED' ||
+    (input.status === 'FAILED' && input.expectedStatuses.includes('ROLLING_BACK')) ||
+    (input.status === 'SUCCESS' && input.expectedStatuses.some((status) => status === 'RESTORING' || status === 'RESTORE_SWAPPING'))
+  if (startsWrite || finishesWrite) {
+    const item = await client.pendingReplaceItem.findUniqueOrThrow({ where: { id: input.itemId }, select: { artworkId: true } })
+    if (item.artworkId) {
+      await client.$queryRaw(Prisma.sql`SELECT id FROM "Artwork" WHERE id = ${item.artworkId} FOR UPDATE`)
+      // The checkpoint commits before any file move. Failed recovery deliberately keeps this gate closed.
+      await client.artworkSummary.upsert({ where: { artworkId: item.artworkId },
+        create: { artworkId: item.artworkId, replaceInProgress: startsWrite, sourceRevision: 1 },
+        update: { replaceInProgress: startsWrite, sourceRevision: { increment: 1 } } })
+    }
+  }
   if (input.backupBytesIncrement) {
     const item = await client.pendingReplaceItem.findUnique({ where: { id: input.itemId }, select: { batchId: true } })
     if (!item) throw new PendingReplacePermanentError('DATABASE_CHANGED', 'Pending item disappeared')

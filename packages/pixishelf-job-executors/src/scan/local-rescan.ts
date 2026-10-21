@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { invalidateAnimationDurationSource, lockArtworkForReading } from '@pixishelf/db'
+import { checkArtworkSummarySource, invalidateAnimationDurationSource, lockArtworkForReading } from '@pixishelf/db'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type { ScanPayload } from '@pixishelf/job-contracts'
 import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.ts'
@@ -183,6 +183,7 @@ export async function reconcileLocalArtworkImages(
         data.webpAnimationStatus = previous.webpAnimationStatus
       }
       retainedIds.push(previous.id)
+      await checkArtworkSummarySource(transaction, previous.id, item.relativePath, item.sourceState ? { ...item.sourceState, size: item.size } : undefined)
       if (
         animationDurationSourceChanged({
           previousPath: previous.path,

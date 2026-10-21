@@ -44,7 +44,9 @@ export function ReadingProvider({ children }: React.PropsWithChildren) {
   const collector = useMemo(() => {
     const engine = new ReadingCollector({
       onPendingChange: () => setPendingVersion((prior) => prior + 1),
-      report: (input, signal) => trpcClient.reading.report.mutate(input, { signal }),
+      report: (input, signal) => input.events.some((event) => event.type === 'VIEW' && event.summary)
+        ? trpcClient.reading.summaryGroupRead.mutate(input, { signal })
+        : trpcClient.reading.report.mutate(input, { signal }),
       onSummary: (summary, expectedUserId, result) => {
         if (useAuthStore.getState().user?.id !== expectedUserId) return
         setErrors((prior) => {

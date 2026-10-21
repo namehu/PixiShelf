@@ -1,3 +1,4 @@
+vi.mock('../_components/artwork-summary-context', () => ({ ArtworkSummaryProvider: ({ children }: { children: React.ReactNode }) => children }))
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import artworkDetailPage from '../page'

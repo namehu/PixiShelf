@@ -7,6 +7,7 @@ const now = new Date('2026-08-16T00:00:00.000Z')
 describe('reconcileLocalArtworkImages', () => {
   it('does not invalidate an active upload gate when a rescan observes a partial chunk', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       image: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -58,6 +59,7 @@ describe('reconcileLocalArtworkImages', () => {
 
   it('retains matching image ids and derived relations while deleting missing and creating new paths', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       image: {
         findMany: vi.fn().mockResolvedValue([
           { id: 11, path: 'local/a/keep.mp4', size: 20n, sortOrder: 0, mediaType: 'VIDEO', webpAnimationStatus: null },
@@ -102,6 +104,7 @@ describe('reconcileLocalArtworkImages', () => {
 
   it('rejects case-fold collisions before any database read or write', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       image: {
         findMany: vi.fn(),
         update: vi.fn(),
@@ -130,6 +133,7 @@ describe('reconcileLocalArtworkImages', () => {
 
   it('performs no writes when every retained media row is already current', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       image: {
         findMany: vi
           .fn()
@@ -160,6 +164,7 @@ describe('reconcileLocalArtworkImages', () => {
 
   it('retains the image id and derived relations when canonicalizing a legacy leading-slash path', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       image: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -199,6 +204,7 @@ describe('reconcileLocalArtworkImages', () => {
 
   it('rejects case-fold collisions already present in the database without mutating them', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       image: {
         findMany: vi.fn().mockResolvedValue([
           { id: 11, path: 'local/a/A.jpg' },
@@ -229,6 +235,7 @@ describe('reconcileLocalArtworkImages', () => {
 
   it('rejects canonically equivalent Unicode paths before any database access', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       image: {
         findMany: vi.fn(),
         update: vi.fn(),
@@ -257,6 +264,7 @@ describe('reconcileLocalArtworkImages', () => {
 
   it('persists a discovered chapter summary on retained and newly created local videos', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       image: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -317,6 +325,7 @@ describe('reconcileLocalArtworkImages', () => {
 
   it('clears a retained video chapter summary when its manifest has been removed', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       image: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -389,6 +398,7 @@ function discoveredMedia(overrides: {
 it('retains a confirmed animation when local rescan proves the same complete source identity', async () => {
   const fixture = confirmedAnimationFixture('local/a/image.webp')
   const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
     image: {
       findMany: vi.fn().mockResolvedValue([fixture.previous]),
       update: vi.fn(),

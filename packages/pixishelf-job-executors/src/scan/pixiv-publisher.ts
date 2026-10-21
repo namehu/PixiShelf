@@ -1,4 +1,4 @@
-import { Prisma, invalidateAnimationDurationSource } from '@pixishelf/db'
+import { Prisma, checkArtworkSummarySource, invalidateAnimationDurationSource } from '@pixishelf/db'
 import { ScanExecutorError } from './errors.ts'
 import { animationDurationSourceChanged, canPreserveAnimationClassification } from './animation-duration-source.ts'
 import type { DiscoveredMediaFile } from './discovery.ts'
@@ -283,6 +283,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     }
     const existing = existingByIdentity.get(normalizeMediaIdentity(item.relativePath))
     if (existing) {
+      await checkArtworkSummarySource(transaction, existing.id, item.relativePath, item.sourceState ? { ...item.sourceState, size: item.size } : undefined)
       if (
         canPreserveAnimationClassification({
           previousPath: existing.path,

@@ -7,6 +7,7 @@ import { MAX_MEDIA_UPLOAD_SIZE_BYTES, MAX_MEDIA_UPLOAD_SIZE_LABEL } from '@/lib/
 import { extractOrderFromName } from '@/utils/artwork/extract-order-from-name'
 import { ImageMeta } from './image-manager'
 import { beginAnimationSourcePathWrite, finishAnimationSourcePathWrite } from './animation-source-guard'
+import { beginSummaryPathWrite, finishSummaryPathWrite } from './summary-source-guard'
 import { assertReplaceBackupProtectsUpload } from './image-replace-session'
 import { ReplaceWriteBusyError, withReplaceWriteLock } from './replace-write-lock'
 
@@ -105,9 +106,11 @@ export async function handleMediaUploadChunk(input: MediaUploadChunkInput): Prom
       await assertReplaceBackupProtectsUpload(resolvedTargetDir, fileName)
       const storedFilePath = path.relative(scanRoot, filePath).replace(/\\/g, '/')
       const writeTokens = await beginAnimationSourcePathWrite(storedFilePath)
+      const summaryTokens = await beginSummaryPathWrite(storedFilePath)
       const result = await writeMediaUploadChunk(input, filePath, ext)
       if (result.type === 'final' && !fs.existsSync(path.join(resolvedTargetDir, '.bak_session'))) {
         await finishAnimationSourcePathWrite(writeTokens)
+        await finishSummaryPathWrite(summaryTokens)
       }
       return result
     }, { isCancelled: () => waitingBodyError !== null || isUploadBodyUnavailable(input.body) })

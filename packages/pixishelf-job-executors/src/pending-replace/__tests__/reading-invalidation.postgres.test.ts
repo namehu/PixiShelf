@@ -21,6 +21,41 @@ describePostgres('pending replacement reading invalidation', () => {
     await disconnectDatabase(database)
   })
 
+  it('closes the summary gate before file writes and retains it after failed recovery', async () => {
+    const artwork = await db().artwork.create({ data: { title: `${prefix}-summary-gate` } })
+    const batch = await db().pendingReplaceBatch.create({ data: { id: `${prefix}-gate-batch`, sourceRoot: '/pending-replaces' } })
+    const item = await db().pendingReplaceItem.create({ data: {
+      id: `${prefix}-gate-item`, batchId: batch.id, artworkId: artwork.id,
+      sourceDirectory: '/pending-replaces/gate', sourceDirectoryName: 'gate', targetDirectory: '/media/gate',
+      status: 'READY', fingerprint: 'gate', sourceManifest: [], oldMediaSnapshot: [], newMediaSnapshot: [], targetFileSnapshot: [], warnings: []
+    } })
+    const port = createPrismaPendingReplaceDatabase(db())
+    const checkpoint = (expectedStatuses: Parameters<typeof port.checkpointItem>[1]['expectedStatuses'], status: Parameters<typeof port.checkpointItem>[1]['status']) =>
+      db().$transaction((tx) => port.checkpointItem(tx, { itemId: item.id, expectedStatuses, status }))
+    const gate = () => db().artworkSummary.findUniqueOrThrow({ where: { artworkId: artwork.id } })
+    await checkpoint(['READY'], 'BACKING_UP')
+    expect(await gate()).toMatchObject({ replaceInProgress: true, sourceRevision: 1 })
+    await expect(checkpoint(['READY'], 'ARCHIVING')).rejects.toThrow('CAS')
+    expect((await gate()).replaceInProgress).toBe(true)
+    await checkpoint(['BACKING_UP'], 'ROLLING_BACK')
+    // Failed filesystem recovery retains its working checkpoint for manual recovery.
+    await checkpoint(['ROLLING_BACK'], 'ROLLING_BACK')
+    expect((await gate()).replaceInProgress).toBe(true)
+    await db().pendingReplaceItem.update({ where: { id: item.id }, data: { status: 'ROLLING_BACK' } })
+    await checkpoint(['ROLLING_BACK'], 'FAILED')
+    expect((await gate()).replaceInProgress).toBe(false)
+    await db().pendingReplaceItem.update({ where: { id: item.id }, data: { status: 'SUCCESS' } })
+    await checkpoint(['SUCCESS'], 'RESTORING')
+    expect((await gate()).replaceInProgress).toBe(true)
+    await checkpoint(['RESTORING'], 'SUCCESS')
+    expect((await gate()).replaceInProgress).toBe(false)
+    await checkpoint(['SUCCESS'], 'RESTORING')
+    await checkpoint(['RESTORING'], 'RESTORE_SWAPPING')
+    expect((await gate()).replaceInProgress).toBe(true)
+    await checkpoint(['RESTORE_SWAPPING'], 'RESTORE_COMMITTED')
+    expect((await gate()).replaceInProgress).toBe(false)
+  })
+
   it('invalidates on publish and restore, and rolls back a failed snapshot check', async () => {
     const userId = `${prefix}-user`
     await db().userBA.create({ data: { id: userId, name: userId } })

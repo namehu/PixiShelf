@@ -12,6 +12,7 @@ const mediaDerivedTagIds = { webp: 20, video: 21, image: 22 }
 describe('scan item checkpoints', () => {
   it('does not repeat local domain writes after a successful checkpoint', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       scanRunItem: { findUnique: vi.fn(async () => ({ status: 'SUCCESS', newImageCount: 4 })) },
       artwork: { findUnique: vi.fn() }
     } as unknown as ScanTransaction & {
@@ -38,6 +39,7 @@ describe('scan item checkpoints', () => {
 
   it('marks an existing pixiv artwork seen and checkpoints SKIP in one transaction', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       scanRunItem: {
         findUnique: vi.fn(async () => null),
         upsert: vi.fn(async () => ({}))
@@ -95,6 +97,7 @@ describe('scan item checkpoints', () => {
 
   it('publishes local media and frozen default tags in the same checkpoint transaction', async () => {
     const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
       scanRunItem: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({})) },
       artwork: {
         findUnique: vi.fn(async () => null),
@@ -595,6 +598,7 @@ function pixivTransaction(existingImages: Array<{ id: number; path: string; sort
     processedContentHash: null
   }))
   const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
     $queryRaw: queryRaw,
     userSetting: { findMany: vi.fn(async () => []) },
     scanRunItem: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({})) },
@@ -710,6 +714,7 @@ function existingPixivTransaction(
     return { count: deleted }
   })
   const transaction = {
+    artworkSummaryFeature: { findUnique: vi.fn(async () => null) },
     scanRunItem: { findUnique: vi.fn(async () => null), upsert: vi.fn(async () => ({})) },
     artworkExternalRef: {
       findUnique: vi.fn(async () => ({

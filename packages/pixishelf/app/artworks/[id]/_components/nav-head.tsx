@@ -1,5 +1,7 @@
 'use client'
 
+import { ArtworkSummaryControls } from './artwork-summary-controls'
+import { useArtworkSummary } from './artwork-summary-context'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTRPC } from '@/lib/trpc'
@@ -28,6 +30,7 @@ import { useArtworkMediaView } from './artwork-media-view-context'
 
 export default function NavHead({ data, id }: { id: string; data: ArtworkResponseDto }) {
   const router = useRouter()
+  const summary = useArtworkSummary()
   const reader = useArtworkReader()
   const safeBack = useSafeBack('/artworks')
   const isDesktop = useMediaQuery('(min-width: 1024px)')
@@ -150,14 +153,14 @@ export default function NavHead({ data, id }: { id: string; data: ArtworkRespons
           </DropdownMenu>
         }
       >
-        {showScrolledTitle && (
+        {showScrolledTitle && (summary ? <div className="flex justify-center"><ArtworkSummaryControls compact /></div> : (
           <PrivacySensitiveText
             aria-hidden="true"
             className="pointer-events-none block truncate text-center text-sm font-medium text-foreground"
           >
             {data.title}
           </PrivacySensitiveText>
-        )}
+        ))}
       </PageToolbar>
 
       {orderReviewOpen && (reader ? <DeferredOrderReview artworkId={data.id} onClose={() => setOrderReviewOpen(false)} onSaved={setImages} /> : (

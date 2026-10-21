@@ -1,3 +1,4 @@
+vi.mock('../summary-source-guard', () => ({ beginSummaryPathWrite: vi.fn(async () => []), finishSummaryPathWrite: vi.fn(async () => {}) }))
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'

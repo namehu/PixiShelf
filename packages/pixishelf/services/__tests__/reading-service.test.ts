@@ -11,6 +11,8 @@ const { lockMock, state, tx } = vi.hoisted(() => {
     ]
   }
   const tx = {
+    $queryRaw: vi.fn(),
+    artworkSummary: { findUnique: vi.fn() },
     artwork: { findUnique: vi.fn(async () => ({ deletedAt: null, archiveLifecycleState: 'ACTIVE' })) },
     image: { findMany: vi.fn(async () => state.media) },
     artworkReadingSummary: {
@@ -36,7 +38,7 @@ const { lockMock, state, tx } = vi.hoisted(() => {
 })
 
 vi.mock('server-only', () => ({}))
-vi.mock('@pixishelf/db', () => ({ lockArtworkForReading: lockMock }))
+vi.mock('@pixishelf/db', async (importOriginal) => ({ ...await importOriginal<object>(), lockArtworkForReading: lockMock }))
 vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: (callback: (client: typeof tx) => unknown) => callback(tx) } }))
 vi.mock('@/services/artwork-service', () => ({ getArtworkCardsByIds: vi.fn() }))
 
@@ -271,4 +273,34 @@ describe('reading service', () => {
     expect(tx.artworkReadingSummary.upsert).not.toHaveBeenCalled()
   })
 
+})
+
+describe('summary group reading grants', () => {
+  const generationId = 'e5633c62-9b53-4723-a063-0fc235fc49ce'
+  const snapshot = () => ({ generationId, sourceRevision: 4, publishedRevision: 4, algorithmVersion: 1, replaceInProgress: false,
+    groups: [{ id: '3', mediaIds: [3, 4], representativeMediaId: 3, startIndex: 0, endIndex: 1 }] })
+  beforeEach(() => {
+    vi.setSystemTime(NOW)
+    state.summary = null; state.seen = []
+    state.media = [3, 4, 5].map((id) => ({ id, path: `/${id}.jpg`, mediaType: 'IMAGE' }))
+    lockMock.mockResolvedValue({ id: 10, mediaRevision: 1 })
+    tx.artworkSummary.findUnique.mockResolvedValue(snapshot())
+  })
+  const observation = () => ({ type: 'VIEW' as const, mediaId: 4, observedAt: NOW.toISOString(), summary: { generationId, groupId: '3' } })
+  it('grants the original group from its effective unread representative, without inventing visits or last position', async () => {
+    const result = await reportReading('user-1', input([observation()]))
+    expect(state.seen).toEqual([3, 4])
+    expect(result.summary).toMatchObject({ seenCount: 2, totalCount: 3, viewCount: 1, lastMediaId: 4, lastMediaIndex: 1 })
+    await reportReading('user-1', input([observation()]))
+    expect(state.summary?.viewCount).toBe(1)
+  })
+  it.each([
+    { sourceRevision: 5 }, { generationId: 'replaced' }, { replaceInProgress: true },
+    { groups: [{ id: '3', mediaIds: [3, 99], representativeMediaId: 3, startIndex: 0, endIndex: 1 }] }
+  ])('rejects an obsolete or malformed snapshot before any reading writes: %j', async (change) => {
+    tx.artworkSummary.findUnique.mockResolvedValue({ ...snapshot(), ...change })
+    await expect(reportReading('user-1', input([observation()]))).rejects.toThrow('ARTWORK_SUMMARY_CONFLICT')
+    expect(state.seen).toEqual([])
+    expect(state.summary).toBeNull()
+  })
 })

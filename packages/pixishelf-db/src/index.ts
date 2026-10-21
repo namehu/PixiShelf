@@ -6,10 +6,13 @@ export * from './discovery-creators'
 export * from './artist-merge'
 export * from './animation-duration'
 export * from './artwork-reading'
+export * from './artwork-summary'
 
-const latestRequiredMigration = '20261012160000_archive_deleted_identities'
+const latestRequiredMigration = '20261021000000_artwork_summary'
 
 const requiredQueueObjects = [
+  'ArtworkSummary',
+  'ArtworkSummaryFeature',
   'artist_merges',
   'ImageAnimationMetadata',
   'artwork_reading_summaries',

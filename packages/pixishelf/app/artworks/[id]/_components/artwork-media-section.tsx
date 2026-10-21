@@ -1,7 +1,10 @@
 'use client'
 
+import { useArtworkSummary } from './artwork-summary-context'
+import { ArtworkSummaryControls } from './artwork-summary-controls'
+import { projectArtworkSummary } from './artwork-summary-projection'
 import { usePathname } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { PageContainer } from '@/components/layout/page-container'
 import { Empty, EmptyHeader, EmptyTitle, EmptyContent, EmptyDescription } from '@/components/ui/empty'
@@ -28,6 +31,8 @@ function LegacyMediaSection({ images, artworkId }: { images: ArtworkImageRespons
 function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalidated = false }: {
   images: ArtworkImageResponseDto[]; artworkId: number; reading: ReturnType<typeof useArtworkReading>; mediaInvalidated?: boolean
 }) {
+  const summary = useArtworkSummary()
+  const summaryMode = summary?.mode === 'summary'
   const reading = mediaInvalidated ? { ...handle, invalidated: true } : handle
   const [continueRequest, setContinueRequest] = useState<{ index: number; nonce: number } | null>(null)
   const [filter, setFilter] = useState<{ owner: string | null; artworkId: number; ids: number[]; nonce: number } | null>(null)
@@ -36,8 +41,35 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   const unreadOnly = filter !== null && filter.owner === reading.ownerUserId && filter.artworkId === artworkId
   const filteredImages = useMemo(() => unreadOnly
     ? images.filter((image) => filter.ids.includes(image.id)) : images, [filter, images, unreadOnly])
+  useLayoutEffect(() => { if (summary) summary.availableMediaIds.current = filteredImages.map((image) => image.id) }, [filteredImages, summary?.availableMediaIds])
+  const projection = useMemo(() => summaryMode && summary
+    ? projectArtworkSummary(filteredImages, summary.groups, summary.expanded) : null,
+  [filteredImages, summaryMode, summary?.groups, summary?.expanded])
+  const displayImages = projection?.images ?? filteredImages
+  const observe: typeof handle.observe = useCallback((surfaceId, observation) => {
+    const element = document.querySelector<HTMLElement>(`[data-summary-anchor="${observation.mediaId}"]`)
+    const rect = element?.getBoundingClientRect()
+    const viewport = getAutoBrowseViewport()
+    // IO callbacks can retain a true flag from the layout before a summary collapse.
+    const visible = observation.visible && (surfaceId !== `detail-${observation.mediaId}` || Boolean(rect && rect.bottom > viewport.top && rect.top < viewport.bottom))
+    const decoration = projection?.decorations.get(observation.mediaId)
+    const grant = decoration && !decoration.expanded && decoration.visibleCount > 1 && summary?.query.data?.generationId
+      ? { generationId: summary.query.data.generationId, groupId: decoration.group.id, mediaIds: decoration.group.mediaIds } : undefined
+    handle.observe(surfaceId, { ...observation, visible, active: observation.active !== false && !summary?.navigationRef.current.active && !summary?.navigating, summary: grant })
+  }, [handle.observe, projection, summary?.query.data?.generationId, summary?.navigationRef, summary?.navigating])
+  const projectedReading = { ...reading, observe }
+  const summaryAnchor = summary?.anchor
+  const handledAnchor = useRef<number | null>(null)
+  useEffect(() => {
+    if (!summaryAnchor || handledAnchor.current === summaryAnchor.nonce) return
+    const index = displayImages.findIndex((image) => image.id === summaryAnchor.mediaId)
+    handledAnchor.current = summaryAnchor.nonce
+    if (index >= 0) setContinueRequest({ index, nonce: summaryAnchor.nonce })
+    else summary?.finishNavigation(summaryAnchor.nonce)
+  }, [summaryAnchor, displayImages])
   const changeFilter = (enabled: boolean) => {
     useArtworkAutoBrowseStore.getState().pause('manual')
+    const navigation = summary?.beginNavigation()
     setContinueRequest(null)
     const seen = new Set(reading.context?.seenMediaIds ?? [])
     const ids = reading.context?.media.filter((item) => !seen.has(item.mediaId)).flatMap((item) => item.memberMediaIds) ?? []
@@ -48,12 +80,14 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
         top: Math.max(0, topRef.current.getBoundingClientRect().top + window.scrollY - getAutoBrowseViewport().top - 16),
         behavior: 'instant'
       })
+      if (navigation !== undefined) summary?.finishNavigation(navigation)
     })
   }
   const continueReading = (resume = reading.resume) => {
     if (!resume) return
     useArtworkAutoBrowseStore.getState().pause('manual')
     setFilter(null)
+    if (summaryMode && summary) { summary.reveal(resume.mediaId); return }
     const logical = reading.context?.media.find((item) => item.memberMediaIds.includes(resume.mediaId))
     const index = images.findIndex((media) => logical?.memberMediaIds.includes(media.id) || media.id === resume.mediaId)
     setContinueRequest((previous) => ({ index: index >= 0 ? index : resume.index, nonce: (previous?.nonce ?? 0) + 1 }))
@@ -108,7 +142,11 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   }, [reading.context, reading.resume, reading.invalidated, detailActive, artworkId, reading.ownerUserId])
   return (
     <>
-      <PageContainer size="reading"><div ref={topRef} className="scroll-mt-20"><ReadingProgressControls reading={reading} empty={emptyUnread} /></div></PageContainer>
+      <PageContainer size="reading"><div ref={topRef} className="scroll-mt-20">
+        <div className="flex flex-wrap items-center justify-between gap-x-4"><ReadingProgressControls reading={reading} empty={emptyUnread} /><ArtworkSummaryControls /></div>
+        {summaryMode && <p className="pb-5 text-xs text-muted-foreground">相近图片已叠放；浏览封面会将整组标为已读。</p>}
+        {summary?.query.data?.standalone ? <p className="pb-4 text-xs text-muted-foreground">{summary.query.data.standalone} 张图片暂未完成比较，已单独保留。</p> : null}
+      </div></PageContainer>
       {reading.invalidated ? null : emptyUnread ? (
         <Empty className="py-16">
           <EmptyHeader>
@@ -119,8 +157,10 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
         </Empty>
       ) : (
         <ArtworkImages key={`${artworkId}:${reading.ownerUserId}:${unreadOnly ? filter.nonce : 'all'}`}
-          images={filteredImages} artworkId={artworkId} reading={reading}
-          trackingActive={!mediaView?.readerBlocked} continueRequest={continueRequest} />
+          images={displayImages} artworkId={artworkId} reading={projectedReading}
+          summaryMode={summaryMode} summaryDecorations={projection?.decorations}
+          trackingActive={!mediaView?.readerBlocked && !summary?.navigating} continueRequest={continueRequest}
+          onContinueHandled={() => { if (summaryAnchor) summary?.finishNavigation(summaryAnchor.nonce, summaryAnchor.focusGroupId, summaryAnchor.mediaId) }} />
       )}
     </>
   )

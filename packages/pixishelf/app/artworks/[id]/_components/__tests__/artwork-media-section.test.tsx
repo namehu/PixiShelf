@@ -8,6 +8,8 @@ import { ArtworkMediaSection } from '../artwork-media-section'
 import { ArtworkMediaViewProvider, useArtworkMediaView } from '../artwork-media-view-context'
 
 const mocks = vi.hoisted(() => ({
+  observedReading: null as ArtworkReadingHandle | null,
+  observe: vi.fn(),
   localMounts: 0,
   readingContext: null as ReadingContextDto | null,
   markRead: vi.fn(),
@@ -36,7 +38,7 @@ vi.mock('@/lib/reading/reading-provider', () => ({
     error: null,
     invalidated: false,
     observationEpoch: 0,
-    observe: () => {},
+    observe: mocks.observe,
     clearSurface: () => {},
     flush: () => Promise.resolve(),
     reopen: () => Promise.resolve()
@@ -48,6 +50,7 @@ vi.mock('../artwork-images', async () => {
   const { ReadingMediaStatus } = await import('../reading-media-status')
   return {
     default: ({ images, reading, continueRequest }: { images: ArtworkImageResponseDto[]; reading: ArtworkReadingHandle; continueRequest?: { index: number } }) => {
+      mocks.observedReading = reading
       React.useEffect(() => {
         mocks.localMounts += 1
         return () => {
@@ -79,6 +82,8 @@ function renderSection() {
 
 describe('ArtworkMediaSection', () => {
   beforeEach(() => {
+    mocks.observe.mockReset()
+    mocks.observedReading = null
     mocks.readingContext = null
     mocks.ownerUserId = 'alice'
     mocks.pathname = '/artworks/7'
@@ -202,6 +207,23 @@ describe('ArtworkMediaSection', () => {
     expect(screen.getAllByRole('button', { name: '查看全部' })).toHaveLength(2)
     fireEvent.click(screen.getAllByRole('button', { name: '查看全部' })[0]!)
     expect(screen.getByText('第 1 张')).toBeTruthy()
+  })
+
+  it('rejects stale detail visibility after collapse without suppressing the active preview', () => {
+    renderSection()
+    const anchor = document.createElement('div')
+    anchor.dataset.summaryAnchor = '11'
+    anchor.getBoundingClientRect = () => ({ top: 3000, bottom: 3500 }) as DOMRect
+    document.body.append(anchor)
+    const observation = { mediaId: 11, visible: true, ready: true, active: true, automatic: false, priority: 0 }
+    mocks.observedReading!.observe('detail-11', observation)
+    expect(mocks.observe.mock.lastCall?.[1].visible).toBe(false)
+    mocks.observedReading!.observe('adaptive-preview', { ...observation, priority: 10 })
+    expect(mocks.observe.mock.lastCall?.[1].visible).toBe(true)
+    anchor.getBoundingClientRect = () => ({ top: 100, bottom: 500 }) as DOMRect
+    mocks.observedReading!.observe('detail-11', observation)
+    expect(mocks.observe.mock.lastCall?.[1].visible).toBe(true)
+    anchor.remove()
   })
 
 })

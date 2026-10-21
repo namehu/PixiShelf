@@ -30,6 +30,8 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
+- [作品摘要浏览](./features/artwork-summary.md)（draft，生产未部署）：连续静态图片分组、按需后台生成、整组已读和目标 NAS 验收。
+
 - [Pixiv 导入默认已读](./features/pixiv-import-reading.md)（current，生产已启用并完成历史回填验收）：账户级新作品偏好、历史回填预检、分批快照与恢复边界。
 
 - [沉浸浏览交互](./features/immersive-viewer-interactions.md)（current，生产发布未核验）：单击显示／隐藏浮层、播放手势分离、面板阻断与返回行为。
@@ -64,7 +66,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 | ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
 | [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令               |
 | [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、33 类 Worker 任务、领域状态和流程图  |
+| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、34 类 Worker 任务、领域状态和流程图  |
 | [后台任务实时进度](./features/background-job-live-progress.md)      | `current` | 结构化进度、SSE 降级、动画吞吐与事件保留       |
 | [后台任务执行记录](./features/background-job-history.md)            | `current` | 执行动态搜索筛选、游标分页、虚拟滚动与实时合并 |
 | [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |

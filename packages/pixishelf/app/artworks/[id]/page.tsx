@@ -9,6 +9,7 @@ import { getArtworkReaderInitial } from '@/services/artwork-service/reader'
 import { ArtworkReaderProvider } from '@/lib/reading/artwork-reader-provider'
 import { getArtworkSourceLinks } from '@/services/artwork/source-links'
 import ArtworkDes from './_components/artwork-des'
+import { ArtworkSummaryProvider } from './_components/artwork-summary-context'
 import NavHead from './_components/nav-head'
 import { ArtworkMediaSection } from './_components/artwork-media-section'
 import { ArtworkMediaViewProvider } from './_components/artwork-media-view-context'
@@ -32,6 +33,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
     <div className="min-h-dvh bg-background">
       <ArtworkMediaViewProvider>
         <ArtworkReaderProvider artworkId={data.id} initial={initial!}>
+        <ArtworkSummaryProvider artworkId={data.id}>
         <NavHead data={data} id={id} />
 
         <main className="mx-auto w-full max-w-reading py-6 sm:py-8">
@@ -122,6 +124,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
             </PageContainer>
           </article>
         </main>
+      </ArtworkSummaryProvider>
       </ArtworkReaderProvider>
       </ArtworkMediaViewProvider>
     </div>

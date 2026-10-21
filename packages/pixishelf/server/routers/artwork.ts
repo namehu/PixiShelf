@@ -1,4 +1,6 @@
 import { ReaderInputSchema, MediaPageInputSchema } from '@/schemas/artwork-reader.dto'
+import { SummaryGenerateInputSchema } from '@/schemas/artwork-summary.dto'
+import { generateArtworkSummary, getArtworkSummary } from '@/services/artwork-summary-service'
 import { getReaderInitialization } from '@/services/reading-service'
 import { getReaderMediaPage } from '@/services/artwork-service/reader'
 import logger from '@/lib/logger'
@@ -72,6 +74,14 @@ function assertReadingListAccount(
  * 作品路由
  */
 export const artworkRouter = router({
+  summaryGet: authProcedure.input(ReaderInputSchema).query(({ ctx, input }) => {
+    if (ctx.userId !== input.expectedUserId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
+    return getArtworkSummary(input.artworkId)
+  }),
+  summaryGenerate: adminProcedure.input(SummaryGenerateInputSchema).mutation(({ ctx, input }) => {
+    if (ctx.userId !== input.expectedUserId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
+    return generateArtworkSummary(input.artworkId, input.requestId, ctx.userId, input.force)
+  }),
   reader: authProcedure.input(ReaderInputSchema).query(({ ctx, input }) => {
     assertReadingListAccount(ctx.userId, input.expectedUserId, undefined)
     return getReaderInitialization(ctx.userId, input.artworkId)

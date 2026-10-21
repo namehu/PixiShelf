@@ -1,3 +1,4 @@
+import { beginSummaryReplace, finishSummaryReplace } from './summary-source-guard'
 // oxlint-disable max-nested-callbacks
 import fs from 'fs'
 import type { BigIntStats } from 'fs'
@@ -94,6 +95,7 @@ async function handleImageReplaceSessionLocked(
   // 阶段 1：初始化（备份旧文件）
   // ==========================================
   if (input.action === 'init') {
+    await beginSummaryReplace(input.artworkId)
     await beginAnimationReplaceSessionWrite(input.artworkId)
     await fsPromises.mkdir(backupDir, { recursive: true })
     await assertBackupDirectory(backupDir)
@@ -179,6 +181,7 @@ async function handleImageReplaceSessionLocked(
 
     // 删除备份
     await fsPromises.rm(backupDir, { recursive: true, force: true }).catch(console.error)
+    await finishSummaryReplace(input.artworkId)
 
     return { success: true }
   }
@@ -235,6 +238,7 @@ async function handleImageReplaceSessionLocked(
     await fsPromises.rm(backupDir, { recursive: true, force: true })
 
     await finishAnimationSourcePathWrite(writeTokens)
+    await finishSummaryReplace(input.artworkId)
 
     return { success: true, message: 'Rolled back successfully' }
   }

@@ -236,6 +236,7 @@ model Artwork {
   artworkTags           ArtworkTag[]
   images                Image[]
   readingSummaries      ArtworkReadingSummary[]
+  visualSummary         ArtworkSummary?
   readMedia             ArtworkReadMedia[]
   source                ArtworkSource         @default(PIXIV_IMPORTED)
   externalRefs          ArtworkExternalRef[]
@@ -410,6 +411,7 @@ model Image {
   readMedia           ArtworkReadMedia[]
   videoMetadata       MediaVideoMetadata?
   animationMetadata   ImageAnimationMetadata?
+  summaryFeature      ArtworkSummaryFeature?
   chapterPreviews     MediaChapterPreview[]
   keyframeSets        MediaVideoKeyframeSet[]
 
@@ -418,6 +420,32 @@ model Image {
   @@index([webpAnimationStatus])
   @@index([chaptersPath])
   @@index([mediaType])
+}
+
+model ArtworkSummary {
+  artworkId         Int      @id
+  artwork           Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  sourceRevision    Int      @default(0)
+  generationId      String?
+  publishedRevision Int?
+  algorithmVersion  Int?
+  groups            Json?
+  jobId             String?
+  replaceInProgress Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+}
+
+model ArtworkSummaryFeature {
+  imageId         Int      @id
+  image           Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  sourceKey       String?
+  feature         Json?
+  algorithmVersion Int?
+  generationId    String?
+  failureCode     String?
+  sourceRevision  Int      @default(0)
+  writeInProgress Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
 }
 
 model ImageAnimationMetadata {

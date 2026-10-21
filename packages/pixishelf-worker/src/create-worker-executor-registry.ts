@@ -2,6 +2,7 @@ import path from 'node:path'
 import type { PrismaClient } from '@pixishelf/db'
 import {
   createArchiveExecutorRegistrations,
+  createArtworkSummaryExecutor,
   createDiscoveryBatchExecutorRegistration,
   createArchiveMaintenanceExecutorRegistrations,
   createArchiveResolverExecutorRegistrations,
@@ -52,6 +53,7 @@ export function createWorkerExecutorRegistry(input: {
   const registry = new ExecutorRegistry()
   registry.register(createDiscoveryBatchExecutorRegistration())
   const resolved = resolveExecutorWorkerConfiguration(input.config)
+  registry.register(createArtworkSummaryExecutor({ database: input.database, scanRoot: resolved.sourceMediaRoot }))
   const archiveProviders = new GovernedArchiveProviderRegistry(
     createDefaultArchiveMediaProviderRegistry(),
     new PostgresArchiveProviderGovernor(input.database)

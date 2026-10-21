@@ -10,7 +10,7 @@
 
 - `Dockerfile`：Web/API 的 Next.js standalone 镜像，负责启动前执行数据库迁移。
 - `worker.Dockerfile`：通用后台 Worker 镜像，包含数据库客户端、任务契约、运行时和当前全部
-  33 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 30 类只支持 v1，共 38 个 type/version 组合。
+  34 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 31 类只支持 v1，共 39 个 type/version 组合。
 - `docker-compose.dev.yml`：本地构建与开发环境。
 - `docker-compose.deploy.yml`：使用预构建镜像的生产环境。
 - `.env.example`：部署变量模板；Worker 启动即消费，维护窗口必须保持容器停止。
@@ -152,9 +152,9 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml <command
 选项；事故处理和完整 checkpoint 恢复边界见[部署基线](../docs/operations/deployment.md)与
 [备份与恢复](../docs/operations/backup-and-recovery.md)。
 
-当前通用 Registry 已锁定 33 个 job type、38 个 type/version 组合，并校验 job type、definition version 和
+当前通用 Registry 已锁定 34 个 job type、39 个 type/version 组合，并校验 job type、definition version 和
 lane；任务清单中包括 `SCAN`、`LOCAL_DIRECTORY_IMPORT`、`MIGRATION`、`PENDING_REPLACE` 四类高风险任务，
-`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 30 类只支持 v1。新部署应完成迁移与备份后启动 Worker，验证 READY/capability，再开放 App 和 scheduler。
+`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 31 类只支持 v1。新部署应完成迁移与备份后启动 Worker，验证 READY/capability，再开放 App 和 scheduler。
 `SCAN@v3` 专用于来源核对后的写入型 `AUDIT_APPLY`；只支持 v2 的旧 Worker 不会领取它。滚动部署的版本隔离不能
 替代发布门禁，开放新 App 写入口前仍必须确认目标 Worker 同时报告 SCAN v1/v2/v3。
 

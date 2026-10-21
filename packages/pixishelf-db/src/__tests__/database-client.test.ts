@@ -7,7 +7,7 @@ const queueKernelDatabaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const describePostgres = queueKernelDatabaseUrl ? describe : describe.skip
 const postgresClient = queueKernelDatabaseUrl ? new PrismaClient({ datasourceUrl: queueKernelDatabaseUrl }) : null
-const latestMigration = '20261012160000_archive_deleted_identities'
+const latestMigration = '20261021000000_artwork_summary'
 
 const expectedIndex = {
   indexName: 'system_jobs_single_executing_per_lane_idx',
@@ -20,6 +20,8 @@ const expectedIndex = {
 const completeTableRows = [
   'artist_merges',
   'ImageAnimationMetadata',
+  'ArtworkSummary',
+  'ArtworkSummaryFeature',
   'artwork_reading_summaries',
   'artwork_read_media',
   'creator_maintenance_plans',
@@ -283,7 +285,7 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      `Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, system_jobs.legacyDisplay, Artwork.mediaRevision, archive_imports.publishedArtworkDeletedAt, archive_imports.publishedArtworkPurgedAt, artist_merges, ImageAnimationMetadata, artwork_reading_summaries, artwork_read_media, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_deleted_identities, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:${latestMigration}, index:system_jobs_single_executing_per_lane_idx`
+      `Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, system_jobs.legacyDisplay, Artwork.mediaRevision, archive_imports.publishedArtworkDeletedAt, archive_imports.publishedArtworkPurgedAt, ArtworkSummary, ArtworkSummaryFeature, artist_merges, ImageAnimationMetadata, artwork_reading_summaries, artwork_read_media, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_deleted_identities, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:${latestMigration}, index:system_jobs_single_executing_per_lane_idx`
     )
   })
 
@@ -301,6 +303,8 @@ describe('database package', () => {
       [
         { tableName: 'artist_merges' },
         { tableName: 'ImageAnimationMetadata' },
+        { tableName: 'ArtworkSummary' },
+        { tableName: 'ArtworkSummaryFeature' },
         { tableName: 'artwork_reading_summaries' },
         { tableName: 'artwork_read_media' },
         { tableName: 'creator_maintenance_plans' },
@@ -349,6 +353,8 @@ describe('database package', () => {
       [
         { tableName: 'artist_merges' },
         { tableName: 'ImageAnimationMetadata' },
+        { tableName: 'ArtworkSummary' },
+        { tableName: 'ArtworkSummaryFeature' },
         { tableName: 'artwork_reading_summaries' },
         { tableName: 'artwork_read_media' },
         { tableName: 'creator_maintenance_plans' },
@@ -397,6 +403,8 @@ describe('database package', () => {
       [
         { tableName: 'artist_merges' },
         { tableName: 'ImageAnimationMetadata' },
+        { tableName: 'ArtworkSummary' },
+        { tableName: 'ArtworkSummaryFeature' },
         { tableName: 'artwork_reading_summaries' },
         { tableName: 'artwork_read_media' },
         { tableName: 'creator_maintenance_plans' },
@@ -450,6 +458,8 @@ describe('database package', () => {
       [
         { tableName: 'artist_merges' },
         { tableName: 'ImageAnimationMetadata' },
+        { tableName: 'ArtworkSummary' },
+        { tableName: 'ArtworkSummaryFeature' },
         { tableName: 'artwork_reading_summaries' },
         { tableName: 'artwork_read_media' },
         { tableName: 'creator_maintenance_plans' },

@@ -1,7 +1,8 @@
+import { ARTWORK_SUMMARY_CONFLICT, ARTWORK_SUMMARY_ALGORITHM_VERSION, artworkSummaryGroupsSchema } from '@pixishelf/job-contracts'
 import 'server-only'
 import { TRPCError } from '@trpc/server'
 import { type ArtworkReadingSummary } from '@prisma/client'
-import { lockArtworkForReading } from '@pixishelf/db'
+import { Prisma, lockArtworkForReading } from '@pixishelf/db'
 import {
   READING_MEDIA_REVISION_CONFLICT_CODE,
   READING_REPORT_MAX_AGE_MS,
@@ -185,6 +186,26 @@ export async function reportReading(userId: string, input: ReadingReportInput): 
     }
     const media = await loadMedia(readingTx, input.artworkId)
     const byMemberId = new Map(media.flatMap((item) => item.memberMediaIds.map((id) => [id, item] as const)))
+    const summaryEvents = input.events.filter((event) => event.type === 'VIEW' && event.summary)
+    const summaryGrants = new Map<string, number[]>()
+    if (summaryEvents.length) {
+      await tx.$queryRaw(Prisma.sql`SELECT "artworkId" FROM "ArtworkSummary" WHERE "artworkId" = ${input.artworkId} FOR UPDATE`)
+      const snapshot = await tx.artworkSummary.findUnique({ where: { artworkId: input.artworkId } })
+      const groups = artworkSummaryGroupsSchema.safeParse(snapshot?.groups)
+      if (!snapshot || snapshot.replaceInProgress || snapshot.publishedRevision !== snapshot.sourceRevision ||
+        snapshot.algorithmVersion !== ARTWORK_SUMMARY_ALGORITHM_VERSION || !groups.success) {
+        throw new TRPCError({ code: 'CONFLICT', message: ARTWORK_SUMMARY_CONFLICT })
+      }
+      for (const event of summaryEvents) {
+        if (event.type !== 'VIEW' || !event.summary) continue
+        const group = groups.data.find((group) => group.id === event.summary!.groupId)
+        if (event.summary.generationId !== snapshot.generationId || !group || !group.mediaIds.includes(event.mediaId) ||
+          group.mediaIds.some((id) => !byMemberId.has(id) || byMemberId.get(id)!.isVideo)) {
+          throw new TRPCError({ code: 'CONFLICT', message: ARTWORK_SUMMARY_CONFLICT })
+        }
+        summaryGrants.set(group.id, group.mediaIds.flatMap((id) => byMemberId.get(id)!.memberMediaIds))
+      }
+    }
     const { row: previous, seenIds } = await reconcileSummary(readingTx, userId, input.artworkId, media)
     let viewCount = previous?.viewCount ?? 0
     let lastViewedAt = previous?.lastViewedAt ?? null
@@ -218,7 +239,7 @@ export async function reportReading(userId: string, input: ReadingReportInput): 
       lastMediaIndex = item.index
       accepted = true
       if (!item.isVideo || (event.playback && isVideoReadingComplete(event.playback))) {
-        for (const memberId of item.memberMediaIds) {
+        for (const memberId of event.summary ? summaryGrants.get(event.summary.groupId)! : item.memberMediaIds) {
           if (!seenIds.has(memberId)) newlySeen.add(memberId)
         }
       }

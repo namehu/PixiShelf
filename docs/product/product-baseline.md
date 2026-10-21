@@ -193,3 +193,8 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 - [ADR-0003](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
 - [ADR-0004](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)
 - [归档收件箱](../features/archive-intake.md)
+
+
+## 作品摘要浏览（本地实现，待生产验收）
+
+作品详情可按用户请求生成连续静态图片摘要，不删除或重排原媒体。默认完整浏览，生成完成不自动切换；折叠组代表图的真实阅读会授予整组已读，展开后按实际观察记账，历史授予不撤回。阅读次数和最后位置仍来自真实观察。质量、性能与发布边界见[作品摘要浏览](../features/artwork-summary.md)。

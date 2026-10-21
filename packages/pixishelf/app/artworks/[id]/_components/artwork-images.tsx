@@ -31,14 +31,20 @@ import { getAutoBrowseViewport, useArtworkAutoScroll } from './use-artwork-auto-
 import { AutoBrowseControls } from './auto-browse-controls'
 import { useArtworkVideoPlayback } from './use-artwork-video-playback'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
+import { SummaryGroupCaption } from './artwork-summary-controls'
+import { useArtworkSummary } from './artwork-summary-context'
+import type { SummaryDecoration } from './artwork-summary-projection'
 import { getArtworkMediaRange } from './artwork-media-range'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
+  summaryMode?: boolean
+  summaryDecorations?: Map<number, SummaryDecoration>
   artworkId: number
   reading?: ArtworkReadingHandle
   trackingActive?: boolean
   continueRequest?: { index: number; nonce: number } | null
+  onContinueHandled?: () => void
 }
 
 const NAV_HEIGHT = 64
@@ -439,7 +445,8 @@ function MediaAnchorNavigation({
   onBackToTop,
   embedded = false,
   originalIndexes,
-  originalTotal
+  originalTotal,
+  onCollapseGroup
 }: {
   indexes: number[]
   activeIndex: number
@@ -455,6 +462,7 @@ function MediaAnchorNavigation({
   embedded?: boolean
   originalIndexes?: number[]
   originalTotal?: number
+  onCollapseGroup?: () => void
 }) {
   const dockRef = useRef<HTMLDivElement>(null)
   if (total <= 1) return null
@@ -500,6 +508,7 @@ function MediaAnchorNavigation({
           aria-label="作品浏览控制"
           className="pointer-events-none relative flex min-h-24 w-[116px] origin-bottom-right justify-end border-0 bg-transparent p-0 pb-[52px] shadow-none motion-reduce:animate-none"
         >
+          {onCollapseGroup && <Button variant="secondary" className="pointer-events-auto absolute bottom-[104px] right-0 min-h-11 whitespace-nowrap" onClick={() => { onOpenChange(false); onCollapseGroup() }}>收起这组</Button>}
           {/* 弹层底边与 44px 主按钮底边重合；预留 52px，让页码与主按钮保持 8px 间隔。 */}
           <div className="pointer-events-auto absolute bottom-0 right-[72px]">
             <Tooltip delayDuration={350}>
@@ -637,8 +646,12 @@ function VirtualizedArtworkMediaList({
   onOpenPreviewMenu,
   onOpenAdaptivePreview,
   reading,
-  trackingActive
+  trackingActive,
+  summaryMode = false,
+  summaryDecorations
 }: {
+  summaryMode?: boolean
+  summaryDecorations?: Map<number, SummaryDecoration>
   images: ArtworkImageResponseDto[]
   returnIndex: number | null
   onReturnHandled: () => void
@@ -649,16 +662,19 @@ function VirtualizedArtworkMediaList({
 }) {
   const reader = useArtworkReader()
   const mediaIndexReady = !reader || Boolean(reader.initialization)
-  const total = reader?.total ?? images.length
+  const summary = useArtworkSummary()
+  const total = images.length
   const originalIndexes = images.map((media, index) => readingMediaPosition(reading, media.id)?.index ?? index)
   const originalTotal = reading?.context?.media.length ?? total
   const [isExpanded, setIsExpanded] = useState(false)
   const previewCount = useArtworkDetailPreferences((state) => state.previewCount)
-  const { collapsible, visibleCount, remainingCount, fullyVisible } = getArtworkDisplayPolicy(
+  const policy = getArtworkDisplayPolicy(
     total,
     previewCount,
     isExpanded
   )
+  const { collapsible, visibleCount, remainingCount, fullyVisible } = summaryMode
+    ? { collapsible: false, visibleCount: images.length, remainingCount: 0, fullyVisible: true } : policy
   const collapsePendingRef = useRef(false)
   const collapsedFooterRef = useRef<HTMLDivElement>(null)
   const [isNavigationOpen, setIsNavigationOpen] = useState(false)
@@ -671,6 +687,9 @@ function VirtualizedArtworkMediaList({
   const anchorInterval = useArtworkMediaAnchorInterval()
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const currentIndex = useArtworkStore((state) => state.currentIndex)
+  const currentGroup = summaryDecorations?.get(images[currentIndex]?.id ?? -1)
+  const onCollapseGroup = currentGroup?.expanded && currentGroup.visibleCount > 1 && summary
+    ? () => summary.toggleGroup(currentGroup.group.id, currentGroup.representativeId) : undefined
   const { containerRef, containerWidth, viewportHeight, scrollMargin, scrollPaddingStart } = useMeasuredMediaContainer()
   const { virtualizer, measureElement } = useArtworkMediaVirtualizer({
     images,
@@ -813,17 +832,21 @@ function VirtualizedArtworkMediaList({
         {virtualizer.getVirtualItems().map((virtualItem) => {
           const index = virtualItem.index
           const media = images[index]!
+          const decoration = summaryDecorations?.get(media.id)
 
           return (
             <div
               key={virtualItem.key}
               ref={measureElement}
               data-index={index}
+              data-summary-anchor={media.id}
               className="absolute left-0 right-0 top-0"
               style={{
                 transform: `translateY(${virtualItem.start - scrollMargin}px)`
               }}
             >
+              {decoration?.expanded && decoration.first && <SummaryGroupCaption decoration={decoration} />}
+              <div className={decoration && !decoration.expanded && decoration.visibleCount > 1 ? 'relative pb-2 after:absolute after:bottom-1 after:left-3 after:right-3 after:h-1 after:border-b after:border-border before:absolute before:bottom-0 before:left-6 before:right-6 before:h-1 before:border-b before:border-border/60' : undefined}>
               <ArtworkMediaItem
                 key={`${media.id}:${media.path}:${media.updatedAt}:${retryCounts[media.id] ?? 0}`}
                 media={media}
@@ -834,6 +857,9 @@ function VirtualizedArtworkMediaList({
                 reading={reading}
                 trackingActive={trackingActive}
               />
+              </div>
+              {decoration && ((!decoration.expanded && decoration.first) || (decoration.expanded && decoration.last)) &&
+                <SummaryGroupCaption decoration={decoration} footer={decoration.expanded} />}
             </div>
           )
         })}
@@ -864,7 +890,7 @@ function VirtualizedArtworkMediaList({
             total={originalTotal}
             navigation={
               images.length > 1 ? (
-                <MediaAnchorNavigation originalIndexes={originalIndexes} originalTotal={originalTotal}
+                <MediaAnchorNavigation onCollapseGroup={onCollapseGroup} originalIndexes={originalIndexes} originalTotal={originalTotal}
                   collapsible={collapsible}
                   expanded={isExpanded}
                   onToggleExpanded={toggleExpanded}
@@ -912,7 +938,7 @@ function VirtualizedArtworkMediaList({
         </div>
       ) : (
         !previewOpen && mediaIndexReady && (
-          <MediaAnchorNavigation originalIndexes={originalIndexes} originalTotal={originalTotal}
+          <MediaAnchorNavigation onCollapseGroup={onCollapseGroup} originalIndexes={originalIndexes} originalTotal={originalTotal}
             collapsible={collapsible}
             expanded={isExpanded}
             onToggleExpanded={toggleExpanded}
@@ -934,7 +960,7 @@ function VirtualizedArtworkMediaList({
   )
 }
 
-function ArtworkImagesSession({ images, artworkId, reading, trackingActive = true, continueRequest }: ArtworkImagesProps) {
+function ArtworkImagesSession({ images, artworkId, reading, trackingActive = true, continueRequest, summaryMode, summaryDecorations, onContinueHandled }: ArtworkImagesProps) {
   useAutoBrowseInterruption(artworkId)
   const mediaRootRef = useRef<HTMLDivElement>(null)
   useArtworkVideoPlayback(mediaRootRef)
@@ -942,11 +968,14 @@ function ArtworkImagesSession({ images, artworkId, reading, trackingActive = tru
   const [returnIndex, setReturnIndex] = useState<number | null>(null)
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const adaptivePreviewImages = useMemo(() => images.filter((media) => !isVideoMedia(media)), [images])
+  const continueHandledRef = useRef(onContinueHandled)
+  continueHandledRef.current = onContinueHandled
   useEffect(() => {
     if (!continueRequest) return
     useArtworkAutoBrowseStore.getState().pause('manual')
     if (images.length === 1) {
       mediaRootRef.current?.scrollIntoView({ block: 'start', behavior: 'instant' })
+      continueHandledRef.current?.()
       return
     }
     setReturnIndex(Math.min(Math.max(continueRequest.index, 0), images.length - 1))
@@ -983,7 +1012,7 @@ function ArtworkImagesSession({ images, artworkId, reading, trackingActive = tru
     [adaptivePreviewImages, images, setCurrentIndex]
   )
 
-  const handleReturnHandled = useCallback(() => setReturnIndex(null), [])
+  const handleReturnHandled = useCallback(() => { setReturnIndex(null); continueHandledRef.current?.() }, [])
 
   useReaderMediaWindow('single-video', images.length === 1 ? [images[0]!.id] : [])
   const mediaContent = images.length === 1 && images[0]?.detailsPending ? (
@@ -992,6 +1021,7 @@ function ArtworkImagesSession({ images, artworkId, reading, trackingActive = tru
     <SingleVideoArtworkMedia media={images[0]!} reading={reading} trackingActive={trackingActive && !previewState && !contextMenu} />
   ) : (
     <VirtualizedArtworkMediaList
+      summaryMode={summaryMode} summaryDecorations={summaryDecorations}
       images={images}
       returnIndex={returnIndex}
       onReturnHandled={handleReturnHandled}

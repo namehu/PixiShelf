@@ -248,3 +248,21 @@ describe('ReadingCollector', () => {
     collector.dispose()
   })
 })
+
+describe('summary observation identity', () => {
+  it('records a new group grant when switching the same visible image from complete to summary, and keeps it after expansion', async () => {
+    const { collector, report } = setup()
+    const observation = { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false }
+    collector.observe('detail', observation)
+    await collector.flush()
+    collector.observe('detail', { ...observation, summary: { generationId: 'snapshot', groupId: '11', mediaIds: [11, 12] } })
+    expect(collector.projectContext(context).seenMediaIds).toEqual([11, 12])
+    collector.observe('detail', observation)
+    expect(collector.projectContext(context).seenMediaIds).toEqual([11, 12])
+    await collector.flush()
+    expect(report.mock.calls[1]?.[0].events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'VIEW', mediaId: 11, summary: { generationId: 'snapshot', groupId: '11' } })
+    ]))
+    collector.dispose()
+  })
+})

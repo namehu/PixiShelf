@@ -14,6 +14,7 @@ import {
 } from '@pixishelf/db/reading-contract'
 
 export interface ReadingObservation {
+  summary?: { generationId: string; groupId: string; mediaIds: number[] }
   artworkId: number
   mediaId: number
   ready: boolean
@@ -40,6 +41,7 @@ interface ActiveSurface {
 }
 
 interface QueuedEvent {
+  predictedMediaIds?: number[]
   event: ReadingReportEvent
   createdAt: number
   sendAt: number
@@ -69,6 +71,7 @@ export function isRevisionConflict(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const value = error as { message?: unknown; data?: { code?: unknown }; code?: unknown }
   return (
+    (typeof value.message === 'string' && value.message.includes('ARTWORK_SUMMARY_CONFLICT')) ||
     value.message === READING_MEDIA_REVISION_CONFLICT_CODE ||
     (typeof value.message === 'string' && value.message.includes(READING_MEDIA_REVISION_CONFLICT_CODE)) ||
     value.data?.code === READING_MEDIA_REVISION_CONFLICT_CODE ||
@@ -137,12 +140,13 @@ export class ReadingCollector {
     const seen = new Set(context.seenMediaIds)
     const byMember = new Map(context.media.flatMap((item) => item.memberMediaIds.map((id) => [id, item] as const)))
     let viewed = false
-    for (const { event } of events) {
+    for (const { event, predictedMediaIds } of events) {
       if (event.type !== 'VIEW') continue
       const item = byMember.get(event.mediaId)
       if (!item || (item.isVideo && !event.playback)) continue
       viewed = true
       if (!(item.isVideo || event.playback) || (event.playback && isVideoReadingComplete(event.playback))) seen.add(item.mediaId)
+      if (event.summary) for (const id of predictedMediaIds ?? []) if (byMember.has(id)) seen.add(byMember.get(id)!.mediaId)
     }
     const seenCount = seen.size
     return { ...context, seenMediaIds: [...seen], summary: { ...context.summary, seenCount,
@@ -167,6 +171,8 @@ export class ReadingCollector {
     const same = prior &&
       prior.artworkId === observation.artworkId &&
       prior.mediaId === observation.mediaId &&
+      prior.summary?.generationId === observation.summary?.generationId &&
+      prior.summary?.groupId === observation.summary?.groupId &&
       prior.ready === observation.ready &&
       prior.visible === observation.visible &&
       prior.automatic === observation.automatic &&
@@ -377,8 +383,9 @@ export class ReadingCollector {
         this.presented.add(candidate)
         this.enqueue(candidate.artworkId, {
           type: 'VIEW', mediaId: candidate.mediaId, observedAt: new Date(this.now()).toISOString(),
+          ...(candidate.summary ? { summary: { generationId: candidate.summary.generationId, groupId: candidate.summary.groupId } } : {}),
           ...(candidate.playback ? { playback: this.playbackEvidence(candidate.playback) } : {})
-        })
+        }, candidate.summary?.mediaIds)
       }
     }
     const active = this.active
@@ -418,7 +425,7 @@ export class ReadingCollector {
     }, delay)
   }
 
-  private enqueue(artworkId: number, event: ReadingReportEvent) {
+  private enqueue(artworkId: number, event: ReadingReportEvent, predictedMediaIds?: number[]) {
     const context = this.contexts.get(artworkId)
     if (!context || !this.ownerUserId || this.invalidated.has(artworkId)) return
     let queue = this.queues.get(artworkId)
@@ -432,7 +439,7 @@ export class ReadingCollector {
     }
     const now = this.now()
     const pendingWindow = queue.events.at(-1)?.sendAt
-    queue.events.push({ event, createdAt: now,
+    queue.events.push({ event, predictedMediaIds, createdAt: now,
       sendAt: pendingWindow !== undefined && pendingWindow > now ? pendingWindow : now + READING_REPORT_INTERVAL_MS })
     if (event.type === 'VIEW') this.notifyLocalCompletion(context, queue)
     this.options.onPendingChange?.()
@@ -448,7 +455,8 @@ export class ReadingCollector {
     if (!this.ownerUserId || context.summary.status === 'COMPLETED' || context.summary.totalCount === 0 ||
       this.completedNotifications.has(key)) return
     // Avoid rebuilding the logical ID map until pending events could finish the work.
-    if (context.seenMediaIds.length + queue.inFlight.length + queue.events.length < context.summary.totalCount) return
+    if (context.seenMediaIds.length + [...queue.inFlight, ...queue.events].reduce((sum, event) =>
+      sum + (event.predictedMediaIds?.length ?? 1), 0) < context.summary.totalCount) return
     const summary = this.projectContext(context).summary
     if (summary.status !== 'COMPLETED') return
     // Keep this marker through rollback/retry and navigation; a server acknowledgement never toasts.

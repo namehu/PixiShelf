@@ -17,7 +17,8 @@ export const ReadingReportInputSchema = ReadingContextInputSchema.extend({
   events: z
     .array(
       z.discriminatedUnion('type', [
-        z.object({ type: z.literal('VIEW'), mediaId: positiveId, observedAt, playback: playback.optional() }),
+        z.object({ type: z.literal('VIEW'), mediaId: positiveId, observedAt, playback: playback.optional(),
+          summary: z.object({ generationId: z.string().uuid(), groupId: z.string().min(1).max(100) }).optional() }),
         z.object({ type: z.literal('HEARTBEAT'), mediaId: positiveId, observedAt, playback: playback.optional() })
       ])
     )
