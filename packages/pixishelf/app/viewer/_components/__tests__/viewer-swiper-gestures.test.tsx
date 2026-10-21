@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { toast } from 'sonner'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MediaType } from '@/types'
 import type { RandomImageItem } from '@/types/images'
@@ -54,6 +55,14 @@ function tap(video: HTMLVideoElement, pointerType: string) {
   act(() => vi.advanceTimersByTime(301))
 }
 
+function doubleTap(target: Element, pointerType = 'touch') {
+  for (let i = 0; i < 2; i++) {
+    pointer(target, 'pointerdown', pointerType, 200, 400)
+    pointer(target, 'pointerup', pointerType, 200, 400)
+  }
+  act(() => vi.advanceTimersByTime(301))
+}
+
 function swipe(video: HTMLVideoElement, pointerType: string, horizontal: boolean) {
   pointer(video, 'pointerdown', pointerType, 300, 600)
   pointer(video, 'pointermove', pointerType, horizontal ? 280 : 300, horizontal ? 600 : 580)
@@ -66,14 +75,95 @@ describe('viewer gestures with real Swiper and focused video', () => {
     vi.useFakeTimers()
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(400)
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(800)
-    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined)
-    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => undefined)
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(function (this: HTMLMediaElement) {
+      Object.defineProperty(this, 'paused', { configurable: true, value: false })
+      return Promise.resolve()
+    })
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(function (this: HTMLMediaElement) {
+      Object.defineProperty(this, 'paused', { configurable: true, value: true })
+    })
+    useViewerStore.getState().resetViewerState()
     useViewerStore.setState({ verticalIndex: 0, horizontalIndexes: {}, isChromeHidden: false })
   })
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
     vi.useRealTimers()
+  })
+
+  it.each(['mouse', 'touch'])(
+    'toggles playback with %s double taps while keeping chrome hidden and automatic browsing paused',
+    async (pointerType) => {
+      const images = [artwork(1, false), artwork(2, false)]
+      useViewerStore.setState({ images })
+      const view = render(
+        <ImmersiveImageViewer initialImages={images} hasMore={false} isLoading={false} onLoadMore={vi.fn()} />
+      )
+      const video = view.container.querySelector('video')!
+      act(() => useViewerStore.getState().requestAutoBrowse())
+      act(() => useViewerStore.getState().setChromeHidden(true))
+      expect(video.paused).toBe(false)
+      doubleTap(video, pointerType)
+      expect(video.paused).toBe(true)
+      expect(useViewerStore.getState().autoBrowseStatus).toBe('paused')
+      expect(useViewerStore.getState().isChromeHidden).toBe(true)
+      await act(async () => doubleTap(video, pointerType))
+      expect(video.paused).toBe(false)
+      expect(useViewerStore.getState().autoBrowseStatus).toBe('paused')
+      expect(useViewerStore.getState().isChromeHidden).toBe(true)
+      expect(useViewerStore.getState().verticalIndex).toBe(0)
+    }
+  )
+
+  it('uses the existing muted retry and reports playback failures after a double tap', async () => {
+    const images = [artwork(1, false)]
+    useViewerStore.setState({ images })
+    const view = render(
+      <ImmersiveImageViewer initialImages={images} hasMore={false} isLoading={false} onLoadMore={vi.fn()} />
+    )
+    const video = view.container.querySelector('video')!
+    doubleTap(video)
+    video.muted = false
+    const play = vi.mocked(HTMLMediaElement.prototype.play)
+    play.mockClear()
+    play.mockRejectedValueOnce(new Error('autoplay denied'))
+    await act(async () => doubleTap(video))
+    expect(play).toHaveBeenCalledTimes(2)
+    expect(video.muted).toBe(true)
+    expect(video.paused).toBe(false)
+    doubleTap(video)
+    const error = vi.spyOn(toast, 'error').mockImplementation(() => 'test-error')
+    play.mockRejectedValueOnce(new Error('unsupported video'))
+    await act(async () => doubleTap(video))
+    expect(error).toHaveBeenCalledWith('视频暂时无法播放')
+    expect(video.paused).toBe(true)
+  })
+
+  it('blocks double taps behind a panel and cancels a pending tap on blur', () => {
+    const images = [artwork(1, false)]
+    useViewerStore.setState({ images })
+    const props = { initialImages: images, hasMore: false, isLoading: false, onLoadMore: vi.fn() }
+    const view = render(<ImmersiveImageViewer {...props} />)
+    const video = view.container.querySelector('video')!
+    pointer(video, 'pointerdown', 'touch', 200, 400)
+    pointer(video, 'pointerup', 'touch', 200, 400)
+    view.rerender(<ImmersiveImageViewer {...props} interactionLocked />)
+    const play = vi.mocked(HTMLMediaElement.prototype.play).mockClear()
+    const pause = vi.mocked(HTMLMediaElement.prototype.pause).mockClear()
+    doubleTap(video)
+    expect(play).not.toHaveBeenCalled()
+    expect(pause).not.toHaveBeenCalled()
+    expect(useViewerStore.getState().isChromeHidden).toBe(false)
+    view.rerender(<ImmersiveImageViewer {...props} />)
+    play.mockClear()
+    pause.mockClear()
+    pointer(video, 'pointerdown', 'touch', 200, 400)
+    pointer(video, 'pointerup', 'touch', 200, 400)
+    fireEvent(window, new Event('blur'))
+    tap(video, 'touch')
+    expect(play).not.toHaveBeenCalled()
+    expect(pause).not.toHaveBeenCalled()
+    expect(useViewerStore.getState().isChromeHidden).toBe(true)
   })
 
   it.each([

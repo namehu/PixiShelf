@@ -4,7 +4,7 @@ export const VIDEO_ACTION_LONG_PRESS_DELAY_MS = 500
 export const VIDEO_MOVE_THRESHOLD_PX = 12
 export const VIDEO_FEEDBACK_DURATION_MS = 750
 
-export type VideoInteractionFeedbackKind = 'seek' | 'playback' | 'rate' | 'scrub' | 'like' | 'buffering'
+export type VideoInteractionFeedbackKind = 'seek' | 'playback' | 'rate' | 'scrub' | 'buffering'
 
 export interface VideoInteractionFeedback {
   kind: VideoInteractionFeedbackKind

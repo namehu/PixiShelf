@@ -21,7 +21,7 @@ function createEngine(overrides: Partial<FeedGestureEngineOptions> = {}) {
     onSeek: vi.fn((time) => {
       currentTime = time
     }),
-    onLike: vi.fn(),
+    onTogglePlayback: vi.fn(),
     onOpenActions: vi.fn(),
     onFeedback: vi.fn(),
     ...overrides
@@ -29,8 +29,8 @@ function createEngine(overrides: Partial<FeedGestureEngineOptions> = {}) {
   return { engine: createFeedGestureEngine(options), options, getPlaybackRate: () => playbackRate }
 }
 
-const tap = (engine: ReturnType<typeof createFeedGestureEngine>, x: number, id: number) => {
-  const event = { pointerId: id, pointerType: 'touch', clientX: x, clientY: 50 }
+const tap = (engine: ReturnType<typeof createFeedGestureEngine>, x: number, id: number, pointerType = 'touch') => {
+  const event = { pointerId: id, pointerType, button: 0, clientX: x, clientY: 50 }
   engine.pointerDown(event)
   engine.pointerUp(event)
 }
@@ -39,18 +39,22 @@ describe('createFeedGestureEngine', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
-  it('uses a single video tap for chrome and a middle double tap for like', () => {
-    const single = createEngine()
-    tap(single.engine, 50, 1)
-    vi.advanceTimersByTime(300)
-    expect(single.options.onToggleChrome).toHaveBeenCalledOnce()
+  it.each(['touch', 'mouse', 'pen'])(
+    'uses a single tap for chrome and a middle double tap for playback (%s)',
+    (pointerType) => {
+      const single = createEngine()
+      tap(single.engine, 50, 1)
+      vi.advanceTimersByTime(300)
+      expect(single.options.onToggleChrome).toHaveBeenCalledOnce()
 
-    const double = createEngine()
-    tap(double.engine, 50, 1)
-    tap(double.engine, 50, 2)
-    expect(double.options.onLike).toHaveBeenCalledOnce()
-    expect(double.options.onToggleChrome).not.toHaveBeenCalled()
-  })
+      const double = createEngine()
+      tap(double.engine, 50, 1, pointerType)
+      tap(double.engine, 50, 2, pointerType)
+      vi.advanceTimersByTime(300)
+      expect(double.options.onTogglePlayback).toHaveBeenCalledOnce()
+      expect(double.options.onToggleChrome).not.toHaveBeenCalled()
+    }
+  )
 
   it.each(['image', 'video'] as const)(
     'toggles chrome in both directions for %s without changing playback',
@@ -86,15 +90,18 @@ describe('createFeedGestureEngine', () => {
     }
     vi.runAllTimers()
     expect(options.onToggleChrome).not.toHaveBeenCalled()
-    expect(options.onLike).not.toHaveBeenCalled()
+    expect(options.onTogglePlayback).not.toHaveBeenCalled()
   })
 
-  it('seeks only in the video edge zones', () => {
+  it.each([
+    [10, 90],
+    [90, 110]
+  ])('seeks only in the video edge zone at %s', (x, time) => {
     const { engine, options } = createEngine()
-    tap(engine, 90, 1)
-    tap(engine, 90, 2)
-    expect(options.onSeek).toHaveBeenCalledWith(110)
-    expect(options.onLike).not.toHaveBeenCalled()
+    tap(engine, x, 1)
+    tap(engine, x, 2)
+    expect(options.onSeek).toHaveBeenCalledWith(time)
+    expect(options.onTogglePlayback).not.toHaveBeenCalled()
   })
 
   it('temporarily changes playback rate and cancels when movement wins', () => {
@@ -123,11 +130,14 @@ describe('createFeedGestureEngine', () => {
     expect(paused.options.onToggleChrome).not.toHaveBeenCalled()
   })
 
-  it('likes anywhere on an image double tap and opens image actions on touch long press', () => {
+  it.each([5, 50, 95])('ignores image double taps at %s and preserves touch long press', (x) => {
     const image = createEngine({ mediaKind: 'image' })
-    tap(image.engine, 5, 1)
-    tap(image.engine, 5, 2)
-    expect(image.options.onLike).toHaveBeenCalledOnce()
+    tap(image.engine, x, 1)
+    tap(image.engine, x, 2)
+    vi.advanceTimersByTime(300)
+    expect(image.options.onTogglePlayback).not.toHaveBeenCalled()
+    expect(image.options.onToggleChrome).not.toHaveBeenCalled()
+    expect(image.options.onSeek).not.toHaveBeenCalled()
 
     image.engine.pointerDown({ pointerId: 3, pointerType: 'touch', clientX: 50, clientY: 50 })
     vi.advanceTimersByTime(500)

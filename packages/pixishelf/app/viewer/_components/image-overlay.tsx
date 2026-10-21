@@ -6,10 +6,8 @@ import Link from 'next/link'
 import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react'
 import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import TagsPanel from './tags-panel'
-import { HeartAnimation } from './heart-animation'
 import { LikeButton } from './like-button/inex'
 import { ActionDrawer } from './action-drawer'
-import { useHeartAnimation } from '@/hooks/use-heart-animation'
 import { useViewerStore } from '@/store/viewer-store'
 import dayjs from 'dayjs'
 import { cn } from '@/lib/utils'
@@ -29,7 +27,6 @@ interface ImageOverlayProps {
 }
 
 export interface ViewerOverlayInteractionApi {
-  likeAt: (point: { x: number; y: number }) => void
   openActions: () => void
 }
 
@@ -83,8 +80,6 @@ export default function ImageOverlay({
     }
   }, [result, id, syncImageLikeStatus])
 
-  const { activeHearts, triggerHearts } = useHeartAnimation()
-
   const openActionDrawer = useCallback(() => {
     setShowActionDrawer(true)
   }, [])
@@ -93,18 +88,10 @@ export default function ImageOverlay({
     setShowActionDrawer(nextOpen)
   }, [])
 
-  const likeAt = useCallback(
-    (point: { x: number; y: number }) => {
-      if (!isLiked) execute({ artworkId: id })
-      triggerHearts(point, 5)
-    },
-    [execute, id, isLiked, triggerHearts]
-  )
-
   useEffect(() => {
-    onInteractionApiChange?.({ likeAt, openActions: openActionDrawer })
+    onInteractionApiChange?.({ openActions: openActionDrawer })
     return () => onInteractionApiChange?.(null)
-  }, [likeAt, onInteractionApiChange, openActionDrawer])
+  }, [onInteractionApiChange, openActionDrawer])
 
   const stopOverlayPropagation = (event: React.MouseEvent<HTMLElement>) => {
     event.stopPropagation()
@@ -118,11 +105,6 @@ export default function ImageOverlay({
 
   return (
     <div className="absolute inset-0 pointer-events-none z-20">
-      {/* 爱心动画渲染 */}
-      {activeHearts.map((heart) => (
-        <HeartAnimation key={heart.id} data={heart} />
-      ))}
-
       {isActive && (
         <div
           aria-hidden={isChromeHidden}

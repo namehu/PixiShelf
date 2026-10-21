@@ -30,7 +30,7 @@ export interface FeedGestureEngineOptions {
   setPlaybackRate: (rate: number) => void
   onToggleChrome: () => void
   onSeek: (time: number) => void
-  onLike: (point: { x: number; y: number }) => void
+  onTogglePlayback: () => void
   onOpenActions: () => void
   onFeedback: (feedback: VideoInteractionFeedback | null) => void
 }
@@ -102,14 +102,11 @@ export function createFeedGestureEngine(options: FeedGestureEngineOptions): Feed
   }
 
   const handleDoubleTap = (event: FeedGesturePoint) => {
-    if (options.mediaKind === 'image') {
-      options.onLike({ x: event.clientX, y: event.clientY })
-      return
-    }
+    if (options.mediaKind === 'image') return
 
     const zone = getDoubleTapZone(event.clientX, options.getSurfaceRect())
     if (zone === 'middle') {
-      options.onLike({ x: event.clientX, y: event.clientY })
+      options.onTogglePlayback()
       return
     }
 

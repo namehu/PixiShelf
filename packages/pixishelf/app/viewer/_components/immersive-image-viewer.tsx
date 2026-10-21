@@ -124,7 +124,7 @@ function ViewerEndSurface({ active, onToggleChrome }: { active: boolean; onToggl
       getPlaybackRate: () => 1,
       setPlaybackRate: noop,
       onSeek: noop,
-      onLike: noop,
+      onTogglePlayback: noop,
       onOpenActions: noop,
       onFeedback: noop,
       onToggleChrome

@@ -5,16 +5,15 @@ import type { RandomImageItem } from '@/types/images'
 import { useViewerStore } from '@/store/viewer-store'
 import ImageOverlay from '../image-overlay'
 
+const likeAction = vi.hoisted(() => vi.fn())
+
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('next-safe-action/hooks', () => ({
   useOptimisticAction: () => ({
-    execute: vi.fn(),
+    execute: likeAction,
     result: { data: undefined },
     optimisticState: { isLiked: false }
   })
-}))
-vi.mock('@/hooks/use-heart-animation', () => ({
-  useHeartAnimation: () => ({ activeHearts: [], triggerHearts: vi.fn() })
 }))
 vi.mock('../action-drawer', () => ({ ActionDrawer: () => null }))
 vi.mock('../tags-panel', () => ({ default: () => null }))
@@ -40,6 +39,7 @@ const artwork: RandomImageItem = {
 
 describe('viewer image overlay', () => {
   beforeEach(() => {
+    likeAction.mockClear()
     useViewerStore.setState({ artworkLikeMap: new Map([[artwork.id, false]]), isChromeHidden: false })
   })
 
@@ -64,6 +64,14 @@ describe('viewer image overlay', () => {
     expect(onPanelOpenChange).toHaveBeenLastCalledWith(true)
     view.unmount()
     expect(onPanelOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('still likes through the button and exposes only the action drawer to gestures', async () => {
+    const api = vi.fn()
+    render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} onInteractionApiChange={api} />)
+    expect(api).toHaveBeenLastCalledWith({ openActions: expect.any(Function) })
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '喜欢作品' })))
+    expect(likeAction).toHaveBeenCalledExactlyOnceWith({ artworkId: artwork.id })
   })
 
   it('keeps avatar, like, and more actions inside the bottom information area', () => {

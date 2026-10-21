@@ -841,7 +841,7 @@ export default function ImageSlide({
         if (activeVideoRef.current) activeVideoRef.current.playbackRate = rate
       },
       onSeek: handleSeek,
-      onLike: (point) => overlayApiRef.current?.likeAt(point),
+      onTogglePlayback: handleTogglePlayback,
       onOpenActions: () => overlayApiRef.current?.openActions(),
       onToggleChrome,
       onFeedback: setGestureFeedback
@@ -858,6 +858,7 @@ export default function ImageSlide({
     currentMedia.id,
     currentMedia.mediaType,
     handleSeek,
+    handleTogglePlayback,
     isActive,
     interactionLocked,
     chapterPanelOpen,
