@@ -54,13 +54,16 @@ sources:
   - 采用原子 `UPDATE` 保证并发正确性，并包含负数保护。
   - 正常成功操作不写 `TriggerLog`；触发器异常会中止关联写入，交由 PostgreSQL 和应用日志记录。
 
-### 作品点赞计数 (`Artwork.likeCount`)
+### 作品评分与喜欢计数 (`ArtworkLike.level`、`Artwork.likeCount`)
 
-**机制**: 当 `ArtworkLike` 表发生变化时，自动更新 `Artwork` 的 `likeCount`。
+`20261022140000_artwork_rating_levels` 扩展原 `ArtworkLike` 表，新增 `SMALLINT NOT NULL DEFAULT 2` 的 `level` 列，CHECK 要求范围为 1–4。历史喜欢保持原记录 ID、账户与作品唯一约束、创建及更新时间，并自然成为喜欢档；未评分通过无记录表示，不创建默认行。表名沿用以减少迁移面，业务含义见[作品评分与喜欢](../../../docs/features/artwork-rating.md)。
 
-- **触发器**: `artwork_like_count_trigger` (监听 INSERT 和 DELETE 事件)。
-- **函数**: `update_artwork_like_count()`。
-- **初始化**: Migration 脚本中包含了一次性 SQL 用于校准现有数据的计数。
+- **计数阈值**：只有 `level >= 2` 的账户贡献一次，不能使用关联行总数充当喜欢计数。
+- **触发器**：`artwork_like_count_trigger` 监听 INSERT、UPDATE、DELETE；`update_artwork_like_count()` 按变化前后的贡献计算增量，跨喜欢阈值或作品归属时更新对应计数，高档之间及同档写入不增减。父作品 ID 级联变更保留已随父行移动的计数，不重复累加。
+- **校准**：迁移按阈值聚合校准，仅更新不一致的 `likeCount`，不重写评分历史时间戳。应用层不手工维护计数。
+- **生命周期**：保留既有账户／作品删除级联关系；来源刷新、媒体替换和回收不清除评分。写入前先锁作品并核验活动状态，避免与删除竞争。
+
+一般档写入后，旧程序按“存在关联即喜欢”的读写规则不再兼容。升级须停旧写入者并采用正式 migration；不能删列或清空一般档来回退，按[评分升级边界](../../../docs/features/artwork-rating.md#存储生命周期与升级)恢复匹配版本与数据。隔离旧库和触发器转换验证见[评分验证记录](../../../docs/records/features/artwork-rating.md)。
 
 ### 标签全文搜索 (`Tag.search_vector`)
 

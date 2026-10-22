@@ -19,6 +19,7 @@ vi.mock('@/services/artwork-service/reader', () => ({
 }))
 
 vi.mock('@/lib/reading/artwork-reader-provider', () => ({ ArtworkReaderProvider: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock('../_components/artwork-detail-controls', () => ({ ArtworkDetailControlsProvider: ({ children }: { children: React.ReactNode }) => children }))
 
 vi.mock('@/services/artwork/source-links', () => ({
   getArtworkSourceLinks: vi.fn(async () => [

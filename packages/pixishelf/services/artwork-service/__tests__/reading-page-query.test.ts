@@ -19,6 +19,7 @@ describe('reading page SQL', () => {
     const [sql, ...values] = queryRawMock.mock.calls[0]!
     expect(sql).toContain('FROM "ArtworkLike"')
     expect(sql).toContain('al."userId" = $1')
+    expect(sql).toContain('al."level" >= 2')
     expect(sql).toContain('a.title ILIKE')
     expect(sql).toContain('GROUP BY')
     expect(sql).not.toMatch(/artwork_reading_summaries|OFFSET/)

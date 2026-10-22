@@ -19,8 +19,8 @@ vi.mock('next/image', () => ({
   )
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
-vi.mock('next-safe-action/hooks', () => ({
-  useOptimisticAction: () => ({ execute: vi.fn(), result: {}, optimisticState: { isLiked: false } })
+vi.mock('@/hooks/use-artwork-rating', () => ({
+  useArtworkRating: () => ({ level: null, confirmedLevel: null, isLoading: false, isSaving: false, error: null, setLevel: vi.fn(), retry: vi.fn() })
 }))
 vi.mock('../action-drawer', () => ({ ActionDrawer: () => null }))
 vi.mock('../tags-panel', () => ({ default: () => null }))
@@ -36,6 +36,7 @@ function artwork(id: number, count = 1, kind: 'image' | 'video' | 'gif' = 'image
     tags: [],
     createdAt: '2026-10-21',
     isLike: false,
+    ratingLevel: null,
     images: Array.from({ length: count }, (_, index) => ({
       id: id * 10 + index,
       key: `media-${id}-${index}`,
@@ -185,7 +186,7 @@ describe('compact progress with real controls and Swipers', () => {
     pointer(track(), 'pointerdown', 75)
     act(() => useViewerStore.getState().setChromeHidden(false))
     expect(screen.queryByRole('slider', { name: '图片位置' })).toBeNull()
-    expect(screen.getByRole('button', { name: '喜欢作品' })).toBeDefined()
+    expect(screen.getByRole('button', { name: /喜欢作品/ })).toBeDefined()
     expect(document.querySelectorAll('[data-viewer-image-segments]')).toHaveLength(1)
     expect(document.querySelectorAll('[data-viewer-image-segments] [data-active="true"]')).toHaveLength(5)
     act(() => useViewerStore.getState().setChromeHidden(true))

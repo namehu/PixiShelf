@@ -28,7 +28,7 @@ last-verified: 2026-10-16
 
 ## 随机顺序与分页
 
-2026-10-22 新增 `likedOnly` 条件，使用 `ArtworkLike` 与当前会话账户的 EXISTS 查询，与其他条件共同限制候选。非随机喜欢列表复用 keyset 分页，随机列表使用本节的随机游标；游标绑定喜欢条件及账户。业务规则见[作品搜索与我的喜欢](../features/artwork-search-and-favorites.md)。本段仅核验该增量，不更新历史性能结果。
+`likedOnly` 条件使用当前会话账户的 `ArtworkLike.level >= 2` EXISTS 查询，与其他条件共同限制候选；同一条件用于普通查询、计数、阅读组合、keyset 和随机分页。沉浸 feed 同时返回真实评分档位及派生的喜欢状态。非随机喜欢列表复用 keyset 分页，随机列表使用本节的随机游标；游标绑定喜欢条件及账户。业务规则见[作品搜索与我的喜欢](../features/artwork-search-and-favorites.md)，统一读写见[作品评分与喜欢](../features/artwork-rating.md)。本段于 2026-10-22 核验该增量，不更新历史性能结果。
 
 固定 `md5(id::text || ':artwork-random-v1') COLLATE "C"` 作为随机键，配合 ID 建立仅覆盖活动、未删除作品的部分表达式 B-tree 索引。seed 的 MD5 派生随机起点；先读取键大于等于起点的一段，再读取小于起点的一段，只回绕一次。两个区间分别 LIMIT，不用一个 CASE 排序整个结果集。
 

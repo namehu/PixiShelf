@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import { RandomImageItem } from '@/types/images'
 import { EMediaType } from '@/enums/e-media-type'
 import { artworkQuerySnapshotSchema, type ArtworkQuerySnapshot } from '@/schemas/artwork-quick-filter.dto'
+import { isArtworkLiked, type ArtworkRatingLevel } from '@/schemas/artwork-rating.dto'
 
 export const VIEWER_AUTO_INTERVALS = [3, 5, 10, 15] as const
 export type ViewerAutoStatus = 'off' | 'running' | 'paused' | 'ended'
@@ -30,7 +31,7 @@ export interface ViewerState {
   consumeAutoBrowseRestart: (revision: number) => void
   // 数据状态
   images: RandomImageItem[]
-  artworkLikeMap: Map<number, boolean>
+  artworkRatingMap: Map<number, ArtworkRatingLevel>
   hasFetchedOnce: boolean
   // 本地持久化状态是否已完成复原（hydration）
   hasHydrated: boolean
@@ -60,11 +61,11 @@ export interface ViewerState {
   // 批量更新方法
   updateViewerState: (updates: Partial<Pick<ViewerState, 'images' | 'verticalIndex' | 'horizontalIndexes'>>) => void
   /**
-   * 同步单个图片点赞状态（通常用于 Server Action 成功后的状态校准）
+   * 同步单个作品评分及派生喜欢状态。
    * @param artworkId 图片 ID
-   * @param isLiked 是否已点赞
+   * @param level 当前评分
    */
-  syncImageLikeStatus(artworkId: number, isLiked: boolean): void
+  syncImageRatingStatus(artworkId: number, level: ArtworkRatingLevel): void
 }
 
 /**
@@ -127,7 +128,7 @@ export const useViewerStore = create<ViewerState>()(
       },
       // 初始状态
       images: [],
-      artworkLikeMap: new Map(),
+      artworkRatingMap: new Map(),
       hasFetchedOnce: false,
       hasHydrated: false,
       verticalIndex: 0,
@@ -142,14 +143,14 @@ export const useViewerStore = create<ViewerState>()(
         const state = get()
         const currentId = state.images[state.verticalIndex]?.id
         const retainedIndex = images.findIndex((image) => image.id === currentId)
-        const map = new Map<number, boolean>()
+        const map = new Map<number, ArtworkRatingLevel>()
         images.forEach((image) => {
-          map.set(image.id, image.isLike ?? false)
+          map.set(image.id, image.ratingLevel)
         })
         set({
           images,
           verticalIndex: retainedIndex >= 0 ? retainedIndex : Math.max(0, Math.min(state.verticalIndex, images.length - 1)),
-          artworkLikeMap: map,
+          artworkRatingMap: map,
           hasFetchedOnce: true
         })
       },
@@ -198,7 +199,7 @@ export const useViewerStore = create<ViewerState>()(
         get().stopAutoBrowse()
         set({
           images: [],
-          artworkLikeMap: new Map(),
+          artworkRatingMap: new Map(),
           hasFetchedOnce: false,
           verticalIndex: 0,
           horizontalIndexes: {},
@@ -214,13 +215,13 @@ export const useViewerStore = create<ViewerState>()(
         }))
       },
 
-      syncImageLikeStatus: (artworkId: number, isLiked: boolean) => {
+      syncImageRatingStatus: (artworkId: number, level: ArtworkRatingLevel) => {
         set((state) => {
-          const newMap = new Map(state.artworkLikeMap)
-          newMap.set(artworkId, isLiked)
+          const newMap = new Map(state.artworkRatingMap)
+          newMap.set(artworkId, level)
           // 同时更新 images 数组中的状态，保持数据一致性
-          const newImages = state.images.map((img) => (img.id === artworkId ? { ...img, isLike: isLiked } : img))
-          return { artworkLikeMap: newMap, images: newImages }
+          const newImages = state.images.map((img) => (img.id === artworkId ? { ...img, ratingLevel: level, isLike: isArtworkLiked(level) } : img))
+          return { artworkRatingMap: newMap, images: newImages }
         })
       }
     }),

@@ -64,7 +64,8 @@ const images: RandomImageItem[] = [1, 2].map((id) => ({
   author: null,
   createdAt: '2026-08-11T00:00:00.000Z',
   tags: [],
-  isLike: false
+  isLike: false,
+  ratingLevel: null
 }))
 const props = {
   playbackRate: 1 as const,

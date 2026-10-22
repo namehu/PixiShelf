@@ -89,7 +89,10 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
       })
       artworkIds.push(artwork.id)
       if (index % 2 === 0 || index >= activeCount) {
-        await db!.artworkLike.create({ data: { userId: user, artworkId: artwork.id } })
+        await db!.artworkLike.create({ data: { userId: user, artworkId: artwork.id, level: 2 + (index % 3) } })
+      } else {
+        // A normal rating is persisted but must never enter My Likes.
+        await db!.artworkLike.create({ data: { userId: user, artworkId: artwork.id, level: 1 } })
       }
       if (index % 3 === 0 || index >= activeCount) {
         await db!.artworkLike.create({ data: { userId: other, artworkId: artwork.id } })
@@ -174,13 +177,13 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
     }
   })
 
-  it('continues after the boundary and a future work are unliked without duplicates or omissions', async () => {
+  it('continues after the boundary and a future work are rated normal without duplicates or omissions', async () => {
     for (const sortBy of ['source_date_asc', 'random']) {
       const params = input({ sortBy, randomSeed: sortBy === 'random' ? 73476 : undefined, pageSize: 2 })
       const before = await walkCards(params, user)
       const first = await getArtworkCardsPage(params, user)
       const removed = [before[1]!, before[3]!]
-      await db!.artworkLike.deleteMany({ where: { userId: user, artworkId: { in: removed } } })
+      await db!.artworkLike.updateMany({ where: { userId: user, artworkId: { in: removed } }, data: { level: 1 } })
       try {
         const remaining: number[] = []
         let readingCursor = first.nextReadingCursor
@@ -195,7 +198,7 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
         expect(remaining).toEqual(before.slice(2).filter((id) => !removed.includes(id)))
         expect(new Set([...ids(first.items), ...remaining]).size).toBe(first.items.length + remaining.length)
       } finally {
-        await db!.artworkLike.createMany({ data: removed.map((artworkId) => ({ userId: user, artworkId })) })
+        await db!.artworkLike.updateMany({ where: { userId: user, artworkId: { in: removed } }, data: { level: 2 } })
       }
     }
   })
@@ -236,6 +239,7 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
       do {
         const page = await getViewerFeed({ ...viewerInput, userId: user, readingCursor, randomCursor })
         expect(page.items.length).toBeLessThanOrEqual(viewerInput.pageSize)
+        expect(page.items.every((item) => item.isLike && item.ratingLevel !== null && item.ratingLevel! >= 2)).toBe(true)
         viewerIds.push(...ids(page.items))
         readingCursor = page.nextReadingCursor
         randomCursor = page.nextRandomCursor

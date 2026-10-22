@@ -56,6 +56,7 @@ sources:
 | [沉浸浏览](./immersive-viewer-interactions.md)          | 浮层、手势、倍速、筛选记忆与跨作品自动浏览 |
 | [作品快捷筛选](./artwork-quick-filters.md)              | 账户预设、导航入口及并发约束               |
 | [作品搜索与我的喜欢](./artwork-search-and-favorites.md) | 当前账户喜欢集合、标签原名及译名检索       |
+| [作品评分与喜欢](./artwork-rating.md)                   | 五档滑杆、沉浸爱心、个人评分与喜欢阈值     |
 
 ## 后台任务
 

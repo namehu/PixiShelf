@@ -45,7 +45,7 @@ export function buildArtworkWhereClause(
 
   if (params.likedOnly) {
     if (!userId) throw new Error('Authenticated user required for liked filter')
-    whereSQL += ` AND EXISTS (SELECT 1 FROM "ArtworkLike" al WHERE al."artworkId" = a.id AND al."userId" = $${paramIndex})`
+    whereSQL += ` AND EXISTS (SELECT 1 FROM "ArtworkLike" al WHERE al."artworkId" = a.id AND al."userId" = $${paramIndex} AND al."level" >= 2)`
     sqlParams.push(userId)
     paramIndex++
   }

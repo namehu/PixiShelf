@@ -24,7 +24,7 @@ const { artworkFindUniqueOrThrow, artworkUpdate, artworkTagDeleteMany, artworkTa
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }))
 vi.mock('@/lib/logger', () => ({ default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }))
-vi.mock('@/services/like-service', () => ({ getUserArtworkLikeStatus: vi.fn() }))
+vi.mock('@/services/artwork-rating-service', () => ({ getUserArtworkRatingLevels: vi.fn() }))
 
 import { updateArtwork } from '..'
 

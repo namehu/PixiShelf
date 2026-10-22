@@ -19,12 +19,14 @@ const mocks = vi.hoisted(() => ({
   toastDismiss: vi.fn(),
   ownerUserId: 'alice',
   pathname: '/artworks/7',
+  ratingOpen: false,
   readingSummary: null as null | { status: string; viewCount: number; seenCount: number; totalCount: number },
   localUnmounts: 0
 }))
 
 vi.mock('next/navigation', () => ({ usePathname: () => mocks.pathname }))
 vi.mock('../artwork-summary-context', () => ({ useArtworkSummary: () => mocks.stackSession }))
+vi.mock('../artwork-detail-controls', () => ({ useArtworkDetailControls: () => ({ ratingOpen: mocks.ratingOpen }) }))
 
 vi.mock('sonner', () => ({ toast: { custom: mocks.toastCustom, dismiss: mocks.toastDismiss, error: vi.fn() } }))
 
@@ -91,6 +93,7 @@ describe('ArtworkMediaSection', () => {
     mocks.readingContext = null
     mocks.ownerUserId = 'alice'
     mocks.pathname = '/artworks/7'
+    mocks.ratingOpen = false
     mocks.markRead.mockReset()
     mocks.toastCustom.mockReset()
     mocks.toastDismiss.mockReset()
@@ -185,6 +188,63 @@ describe('ArtworkMediaSection', () => {
     mocks.readingContext = { ...mocks.readingContext, resume: { mediaId: 12, index: 1 } }
     view.rerender(content())
     expect(mocks.toastCustom).not.toHaveBeenCalled()
+  })
+
+  it('restores the original entry resume position after rating and respects a user dismissal', () => {
+    mocks.readingContext = {
+      artworkId: 7, mediaRevision: 1, seenMediaIds: [],
+      media: [{ mediaId: 11, memberMediaIds: [11], index: 0 }, { mediaId: 12, memberMediaIds: [12], index: 1 }],
+      resume: { mediaId: 12, index: 1 },
+      summary: { artworkId: 7, mediaRevision: 1, stateVersion: 1, viewCount: 1, seenCount: 1, totalCount: 2,
+        status: 'IN_PROGRESS', lastViewedAt: null, lastActiveAt: null, lastMediaId: 12, lastMediaIndex: 1 }
+    }
+    const images = [{ id: 11 }, { id: 12 }] as ArtworkImageResponseDto[]
+    const content = () => <ArtworkMediaViewProvider><ArtworkMediaSection images={images} artworkId={7} /></ArtworkMediaViewProvider>
+    const view = render(content())
+    const id = mocks.toastCustom.mock.calls[0]![1].id
+    mocks.readingContext = { ...mocks.readingContext, resume: { mediaId: 11, index: 0 } }
+    mocks.ratingOpen = true
+    view.rerender(content())
+    expect(mocks.toastDismiss).toHaveBeenCalledWith(id)
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(1)
+    mocks.ratingOpen = false
+    view.rerender(content())
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(2)
+    expect(mocks.toastCustom.mock.calls[1]![1].id).toBe(id)
+    const prompt = render(mocks.toastCustom.mock.calls[1]![0]())
+    fireEvent.click(screen.getByRole('button', { name: '跳转' }))
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBe('1')
+    prompt.unmount()
+    mocks.ratingOpen = true
+    view.rerender(content())
+    mocks.ratingOpen = false
+    view.rerender(content())
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(2)
+  })
+
+  it('captures the entry resume while rating is already open and does not resurrect a swiped-away prompt', () => {
+    mocks.ratingOpen = true
+    mocks.readingContext = {
+      artworkId: 7, mediaRevision: 1, seenMediaIds: [],
+      media: [{ mediaId: 11, memberMediaIds: [11], index: 0 }, { mediaId: 12, memberMediaIds: [12], index: 1 }],
+      resume: { mediaId: 12, index: 1 },
+      summary: { artworkId: 7, mediaRevision: 1, stateVersion: 1, viewCount: 1, seenCount: 1, totalCount: 2,
+        status: 'IN_PROGRESS', lastViewedAt: null, lastActiveAt: null, lastMediaId: 12, lastMediaIndex: 1 }
+    }
+    const content = () => <ArtworkMediaViewProvider><ArtworkMediaSection images={[]} artworkId={7} /></ArtworkMediaViewProvider>
+    const view = render(content())
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+    mocks.readingContext = { ...mocks.readingContext, resume: { mediaId: 11, index: 0 } }
+    mocks.ratingOpen = false
+    view.rerender(content())
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(1)
+    expect(mocks.toastCustom.mock.calls[0]![0]().props.index).toBe(1)
+    mocks.toastCustom.mock.calls[0]![1].onDismiss()
+    mocks.ratingOpen = true
+    view.rerender(content())
+    mocks.ratingOpen = false
+    view.rerender(content())
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(1)
   })
 
   it('always renders local reading without a source selector', () => {

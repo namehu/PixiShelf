@@ -642,6 +642,8 @@ model ArtworkLike {
   id        Int      @id @default(autoincrement())
   userId    String
   artworkId Int
+  /// Personal rating; levels 2–4 also belong to My Likes. The table name is retained for migration compatibility.
+  level     Int      @default(2) @db.SmallInt
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   artwork   Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)

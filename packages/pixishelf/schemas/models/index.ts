@@ -188,8 +188,9 @@ export const UserModel = z.object({
  */
 export const ArtworkLikeModel = z.object({
   id: z.number().int(),
-  userId: z.number().int(),
+  userId: z.string(),
   artworkId: z.number().int(), // [cite: 26]
+  level: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
   createdAt: z.date(),
   updatedAt: z.date()
 })

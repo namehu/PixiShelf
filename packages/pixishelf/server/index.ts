@@ -21,6 +21,7 @@ import { archiveUploaderRouter } from './routers/archive-uploader'
 import { archiveSearchRouter } from './routers/archive-search'
 import { sourceAuditRouter } from './routers/source-audit'
 import { readingRouter } from './routers/reading'
+import { artworkRatingRouter } from './routers/artwork-rating'
 
 // 挂载子路由
 export const appRouter = router({
@@ -30,6 +31,7 @@ export const appRouter = router({
   artist: artistRouter,
   creator: creatorRouter,
   artwork: artworkRouter,
+  artworkRating: artworkRatingRouter,
   reading: readingRouter,
   artworkQuickFilter: artworkQuickFilterRouter,
   search: searchRouter,

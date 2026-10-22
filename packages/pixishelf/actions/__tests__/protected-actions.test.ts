@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   headers: vi.fn(),
   getNoSeriesArtworkExternalIds: vi.fn(),
   rebuildTagArtworkCounts: vi.fn(),
-  toggleLike: vi.fn(),
   updateProfile: vi.fn(),
   updateSettings: vi.fn(),
   createArtworks: vi.fn(),
@@ -25,7 +24,6 @@ vi.mock('@/services/artwork-service', () => ({
 }))
 vi.mock('@/services/tag-count-service', () => ({ rebuildTagArtworkCounts: mocks.rebuildTagArtworkCounts }))
 
-vi.mock('@/services/like-service', () => ({ toggleLike: mocks.toggleLike }))
 vi.mock('@/services/user-setting-service', () => ({
   updateUserProfile: mocks.updateProfile,
   upsertUserSettings: mocks.updateSettings
@@ -36,7 +34,6 @@ vi.mock('@/services/batch-import-service', () => ({
 }))
 vi.mock('next/cache', () => ({ revalidatePath: mocks.revalidate }))
 vi.mock('@/lib/rate-limit-server', () => ({ checkRateLimit: async () => true }))
-import { toggleLikeAction } from '../like-action'
 import { updateProfileAction, updateUserSettingAction } from '../user-setting-action'
 import { batchCreateArtworksAction, batchRegisterImagesAction } from '../batch-import-action'
 import { changePasswordAction } from '../auth-action'
@@ -99,7 +96,6 @@ describe('protected maintenance actions', () => {
 })
 
 const writes = [
-  { name: 'like', invoke: () => toggleLikeAction({ artworkId: 1, expectedUserId: 'owner' }), service: mocks.toggleLike },
   { name: 'profile', invoke: () => updateProfileAction({ name: 'Reader' }), service: mocks.updateProfile },
   {
     name: 'preferences',
@@ -129,14 +125,6 @@ describe('protected account and import actions', () => {
     mocks.headers.mockResolvedValue(
       new Headers({ cookie: 'better-auth.session_token=forged', 'x-user-session': '{"userId":"forged"}' })
     )
-  })
-  it('rejects stale like actions and derives their owner from the session', async () => {
-    mocks.getSession.mockResolvedValue({ user: { id: 'owner' } })
-    expect((await toggleLikeAction({ artworkId: 1, expectedUserId: 'previous-user' }))?.serverError).toContain('账户已切换')
-    expect(mocks.toggleLike).not.toHaveBeenCalled()
-    mocks.toggleLike.mockResolvedValue(true)
-    expect((await toggleLikeAction({ artworkId: 1, expectedUserId: 'owner' }))?.data).toBe(true)
-    expect(mocks.toggleLike).toHaveBeenCalledExactlyOnceWith('owner', 1)
   })
   it.each(writes)('$name rejects absent, invalid and unavailable sessions without effects', async ({ invoke }) => {
     for (const identity of [null, {}, { user: {} }]) {

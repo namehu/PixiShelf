@@ -1,6 +1,7 @@
 import type { TRandomTagDto } from '@/schemas/tag.dto'
 import { MediaType } from './media'
 import type { AnimationMetadataDto } from '@/schemas/artwork.dto'
+import type { ArtworkRatingLevel } from '@/schemas/artwork-rating.dto'
 
 export interface RandomImagesResponse {
   items: RandomImageItem[]
@@ -63,4 +64,6 @@ export interface RandomImageItem {
   tags: TRandomTagDto[]
   /** 当前用户是否点赞了该作品 */
   isLike: boolean
+  /** 当前账户的个人评分；喜欢及以上同时属于“我的喜欢”。 */
+  ratingLevel: ArtworkRatingLevel
 }

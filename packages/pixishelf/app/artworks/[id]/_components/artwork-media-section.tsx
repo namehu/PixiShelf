@@ -19,6 +19,7 @@ import { useArtworkReading } from '@/lib/reading/reading-provider'
 import ArtworkImages from './artwork-images'
 import { getAutoBrowseViewport } from './use-artwork-auto-scroll'
 import { useArtworkMediaView } from './artwork-media-view-context'
+import { useArtworkDetailControls } from './artwork-detail-controls'
 
 export function ArtworkMediaSection({ images, artworkId }: { images: ArtworkImageResponseDto[]; artworkId: number }) {
   const reader = useArtworkReader()
@@ -115,11 +116,16 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   }, [readingRequest])
 
   const pathname = usePathname()
+  const ratingOpen = useArtworkDetailControls()?.ratingOpen ?? false
   const detailActive = pathname === `/artworks/${artworkId}`
   const resumeShown = useRef(false)
+  const resumeVisible = useRef(false)
+  const entryResume = useRef<typeof reading.resume | undefined>(undefined)
   const resumeToastId = useRef<string | null>(null)
   useEffect(() => {
     resumeShown.current = false
+    resumeVisible.current = false
+    entryResume.current = undefined
     // Each route entry needs its own toast identity: an old dismissal must not remove a new prompt.
     const id = detailActive ? `reading-resume-${crypto.randomUUID()}` : null
     resumeToastId.current = id
@@ -128,12 +134,27 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   useEffect(() => {
     const id = resumeToastId.current
     if (!detailActive || !id) return
-    if (reading.invalidated) { toast.dismiss(id); return }
+    if (reading.invalidated) { resumeVisible.current = false; toast.dismiss(id); return }
+    // Capture the entry position once, even if rating temporarily hides the prompt.
+    if (entryResume.current === undefined && reading.context) {
+      const resume = reading.resume
+      entryResume.current = resume && resume.index > 0 &&
+        (reading.context.summary.lastMediaId !== null || reading.context.summary.lastMediaIndex !== null) ? resume : null
+    }
+    if (ratingOpen) {
+      if (resumeVisible.current) {
+        resumeVisible.current = false
+        resumeShown.current = false
+        toast.dismiss(id)
+      }
+      return
+    }
     if (!reading.context || resumeShown.current) return
     resumeShown.current = true
-    const resume = reading.resume
-    if (!resume || resume.index === 0 || (reading.context.summary.lastMediaId === null && reading.context.summary.lastMediaIndex === null)) return
-    const dismiss = () => toast.dismiss(id)
+    const resume = entryResume.current
+    if (!resume) return
+    resumeVisible.current = true
+    const dismiss = () => { resumeVisible.current = false; toast.dismiss(id) }
     toast.custom(() => <ReadingResumeToast index={resume.index} onDismiss={dismiss}
       onJump={() => { dismiss(); actionRef.current.continueReading(resume) }}
       onStart={() => {
@@ -141,8 +162,9 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
         useArtworkAutoBrowseStore.getState().pause('manual')
         setFilter(null)
         setContinueRequest((previous) => ({ index: 0, nonce: (previous?.nonce ?? 0) + 1 }))
-      }} />, { id, position: 'bottom-center', duration: Infinity, className: 'reading-resume-toast' })
-  }, [reading.context, reading.resume, reading.invalidated, detailActive, artworkId, reading.ownerUserId])
+      }} />, { id, position: 'bottom-center', duration: Infinity, className: 'reading-resume-toast',
+        onDismiss: () => { resumeVisible.current = false } })
+  }, [reading.context, reading.resume, reading.invalidated, detailActive, artworkId, reading.ownerUserId, ratingOpen])
   return (
     <>
       <PageContainer size="reading"><div ref={topRef} className="scroll-mt-20">

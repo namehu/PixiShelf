@@ -27,7 +27,8 @@ const image: RandomImageItem = {
   author: { id: 9, userId: '9', name: 'Artist', username: 'artist' },
   createdAt: '2026-08-12T00:00:00.000Z',
   tags: [],
-  isLike: false
+  isLike: false,
+  ratingLevel: null
 }
 
 describe('ActionDrawer', () => {

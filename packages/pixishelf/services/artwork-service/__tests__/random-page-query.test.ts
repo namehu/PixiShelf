@@ -54,6 +54,7 @@ describe('indexed random ring', () => {
     expect(query.sql).toContain('a.id) > (')
     expect(query.sql).toContain('NOT EXISTS')
     expect(query.sql).toContain('FROM "ArtworkLike"')
+    expect(query.sql).toContain('al."level" >= 2')
     expect(query.values.filter((value) => value === 'a')).toHaveLength(2)
     expect(query.sql).not.toMatch(/OFFSET|COUNT\(\*\)|LEFT JOIN/)
   })

@@ -5,32 +5,21 @@ import type { RandomImageItem } from '@/types/images'
 import { useViewerStore } from '@/store/viewer-store'
 import ImageOverlay from '../image-overlay'
 
-const likeAction = vi.hoisted(() => vi.fn())
-const callbacks = vi.hoisted(() => ({
-  onSuccess: undefined as
-    | undefined
-    | ((result: { data: boolean; input: { artworkId: number; expectedUserId: string } }) => Promise<void>),
-  refresh: vi.fn(),
-  owner: 'alice'
+const rating = vi.hoisted(() => ({
+  level: null as null | 1 | 2 | 3 | 4,
+  confirmedLevel: null,
+  isLoading: false,
+  isSaving: false,
+  error: null,
+  setLevel: vi.fn(),
+  retry: vi.fn()
 }))
-vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
+vi.mock('@/hooks/use-artwork-rating', () => ({ useArtworkRating: () => rating }))
 vi.mock('@/components/auth', () => ({
-  useAuthUser: () => ({ id: callbacks.owner }),
-  useAuthStore: { getState: () => ({ user: { id: callbacks.owner } }) }
+  useAuthUser: () => ({ id: 'alice' })
 }))
-vi.mock('@/lib/artwork-like-cache', () => ({ refreshArtworkLikeCache: callbacks.refresh }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
-vi.mock('next-safe-action/hooks', () => ({
-  useOptimisticAction: (_action: unknown, options: typeof callbacks) => {
-    callbacks.onSuccess = options.onSuccess
-    return {
-      execute: likeAction,
-      result: { data: undefined },
-      optimisticState: { isLiked: false }
-    }
-  }
-}))
 vi.mock('../action-drawer', () => ({ ActionDrawer: () => null }))
 vi.mock('../tags-panel', () => ({ default: () => null }))
 
@@ -50,15 +39,16 @@ const artwork: RandomImageItem = {
   },
   createdAt: '2026-08-11T00:00:00.000Z',
   tags: [],
-  isLike: false
+  isLike: false,
+  ratingLevel: null
 }
 
 describe('viewer image overlay', () => {
   beforeEach(() => {
-    likeAction.mockClear()
-    callbacks.refresh.mockClear()
-    callbacks.owner = 'alice'
-    useViewerStore.setState({ artworkLikeMap: new Map([[artwork.id, false]]), isChromeHidden: false })
+    rating.setLevel.mockClear()
+    rating.level = null
+    rating.isSaving = false
+    useViewerStore.setState({ artworkRatingMap: new Map([[artwork.id, null]]), isChromeHidden: false })
   })
 
   afterEach(() => cleanup())
@@ -70,7 +60,7 @@ describe('viewer image overlay', () => {
     expect(screen.queryByRole('region', { name: '作品信息与操作' })).toBeNull()
     expect(player.closest('[inert]')).toBeNull()
     expect(screen.getByRole('region', { name: '浏览进度' }).contains(player)).toBe(true)
-    expect(screen.queryByRole('button', { name: '喜欢作品' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /喜欢作品/ })).toBeNull()
     expect(screen.getByText('Test artwork').closest('[inert]')).not.toBeNull()
     act(() => useViewerStore.getState().setChromeHidden(false))
     expect(screen.getByRole('button', { name: '播放器' })).toBe(player)
@@ -91,28 +81,29 @@ describe('viewer image overlay', () => {
     const api = vi.fn()
     render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} onInteractionApiChange={api} />)
     expect(api).toHaveBeenLastCalledWith({ openActions: expect.any(Function) })
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: '喜欢作品' })))
-    expect(likeAction).toHaveBeenCalledExactlyOnceWith({ artworkId: artwork.id, expectedUserId: 'alice' })
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /喜欢作品/ })))
+    expect(rating.setLevel).toHaveBeenCalledExactlyOnceWith(2)
   })
 
-  it('updates the initiating account cache after switching without updating the current viewer or refetching', async () => {
+  it.each([2, 3, 4] as const)('clears a lit heart at rating %s and describes the loss of its score', (level) => {
+    rating.level = level
     render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} />)
-    await act(() => callbacks.onSuccess!({ data: true, input: { artworkId: artwork.id, expectedUserId: 'alice' } }))
-    expect(callbacks.refresh).toHaveBeenCalledWith(expect.anything(), 'alice', artwork.id, true, expect.any(Function))
-    expect(callbacks.refresh.mock.calls[0]![4]()).toBe(true)
-    expect(useViewerStore.getState().artworkLikeMap.get(artwork.id)).toBe(true)
-    callbacks.owner = 'bob'
-    await act(() => callbacks.onSuccess!({ data: false, input: { artworkId: artwork.id, expectedUserId: 'alice' } }))
-    expect(callbacks.refresh).toHaveBeenCalledTimes(2)
-    expect(callbacks.refresh).toHaveBeenLastCalledWith(
-      expect.anything(),
-      'alice',
-      artwork.id,
-      false,
-      expect.any(Function)
-    )
-    expect(callbacks.refresh.mock.calls[1]![4]()).toBe(false)
-    expect(useViewerStore.getState().artworkLikeMap.get(artwork.id)).toBe(true)
+    const button = screen.getByRole('button', { name: /当前评分：.+；取消喜欢并清除评分/ })
+    expect(button.getAttribute('aria-pressed')).toBe('true')
+    expect(button.getAttribute('title')).toBe(button.getAttribute('aria-label'))
+    fireEvent.click(button)
+    expect(rating.setLevel).toHaveBeenCalledExactlyOnceWith(null)
+  })
+
+  it('upgrades 一般 to 喜欢 and accepts another choice while a save is pending', () => {
+    rating.level = 1
+    rating.isSaving = true
+    render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} />)
+    const button = screen.getByRole('button', { name: '当前评分：一般；喜欢作品' })
+    expect(button.hasAttribute('disabled')).toBe(false)
+    expect(button.getAttribute('aria-busy')).toBe('true')
+    fireEvent.click(button)
+    expect(rating.setLevel).toHaveBeenCalledExactlyOnceWith(2)
   })
 
   it('keeps avatar, like, and more actions inside the bottom information area', () => {
@@ -121,7 +112,7 @@ describe('viewer image overlay', () => {
     const information = screen.getByRole('region', { name: '作品信息与操作' })
     expect(within(information).getByRole('link', { name: 'Test artwork' }).getAttribute('href')).toBe('/artworks/1')
     expect(within(information).getByRole('link', { name: '查看艺术家 Artist' }).getAttribute('href')).toBe('/artists/2')
-    expect(within(information).getByRole('button', { name: '喜欢作品' }).className).toContain('size-11')
+    expect(within(information).getByRole('button', { name: /喜欢作品/ }).className).toContain('size-11')
     expect(within(information).getByRole('button', { name: '更多操作' }).className).toContain('size-11')
   })
 })
