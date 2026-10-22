@@ -42,7 +42,7 @@ vi.mock('@pixishelf/db', async (importOriginal) => ({ ...await importOriginal<ob
 vi.mock('@/lib/prisma', () => ({ prisma: { $transaction: (callback: (client: typeof tx) => unknown) => callback(tx) } }))
 vi.mock('@/services/artwork-service', () => ({ getArtworkCardsByIds: vi.fn() }))
 
-import { getReadingContext, reportReading, markReadingRead } from '../reading-service'
+import { getReaderInitialization, getReadingContext, reportReading, markReadingRead } from '../reading-service'
 import type { ReadingReportEvent } from '@pixishelf/db/reading-contract'
 
 const NOW = new Date('2026-09-24T12:00:00.000Z')
@@ -302,5 +302,35 @@ describe('summary group reading grants', () => {
     await expect(reportReading('user-1', input([observation()]))).rejects.toThrow('ARTWORK_SUMMARY_CONFLICT')
     expect(state.seen).toEqual([])
     expect(state.summary).toBeNull()
+  })
+})
+
+
+describe('stack reading grants', () => {
+  beforeEach(() => {
+    vi.useFakeTimers(); vi.setSystemTime(NOW)
+    state.summary = null; state.seen = []
+    state.media = Array.from({ length: 8 }, (_, index) => ({ id: index + 1, path: `/stack/${index}.jpg`, mediaType: 'IMAGE' }))
+    lockMock.mockResolvedValue({ id: 10, mediaRevision: 1 })
+    vi.clearAllMocks()
+  })
+  it('loads the ordered index once per batch and grants only the observed group', async () => {
+    const reader = await getReaderInitialization('user-1', 10)
+    tx.image.findMany.mockClear()
+    const result = await reportReading('user-1', input([3, 4].map((mediaId) => ({ type: 'VIEW', mediaId,
+      observedAt: NOW.toISOString(), stack: { ruleVersion: 1, fingerprint: reader.index.fingerprint, groupId: 'stack-v1-1-4' } }))))
+    expect(tx.image.findMany).toHaveBeenCalledTimes(1)
+    expect(result.seenMediaIds).toEqual([1, 2, 3, 4])
+    expect(result.summary).toMatchObject({ viewCount: 1, seenCount: 4, lastMediaId: 4, lastMediaIndex: 3 })
+  })
+  it.each(['fingerprint', 'group', 'media', 'order'])('rejects stale or forged %s evidence before writing', async (kind) => {
+    const reader = await getReaderInitialization('user-1', 10)
+    if (kind === 'order') state.media.reverse()
+    const stack = { ruleVersion: 1 as const, fingerprint: kind === 'fingerprint' ? 'b'.repeat(64) : reader.index.fingerprint,
+      groupId: kind === 'group' ? 'stack-v1-999-1002' : 'stack-v1-1-4' }
+    await expect(reportReading('user-1', input([{ type: 'VIEW', mediaId: kind === 'media' ? 8 : 1,
+      observedAt: NOW.toISOString(), stack }]))).rejects.toMatchObject({ message: 'ARTWORK_STACK_CONFLICT' })
+    expect(state.seen).toEqual([])
+    expect(tx.artworkReadMedia.createMany).not.toHaveBeenCalled()
   })
 })

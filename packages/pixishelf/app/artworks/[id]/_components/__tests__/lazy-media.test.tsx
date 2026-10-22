@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import LazyMedia from '../lazy-media'
 
 const playerMocks = vi.hoisted(() => ({ props: vi.fn(), animatedProps: vi.fn(), imageProps: vi.fn(), apngProps: vi.fn() }))
-const intersectionCallback = vi.hoisted(() => ({ current: null as null | ((inView: boolean) => void) }))
+const intersectionCallback = vi.hoisted(() => ({ current: null as null | ((inView: boolean) => void), threshold: 0 }))
 const enqueue = vi.hoisted(() => vi.fn())
 const cancel = vi.hoisted(() => vi.fn())
 const optimizationState = vi.hoisted(() => ({
@@ -39,8 +39,8 @@ vi.mock('next/image', () => ({
   }
 }))
 vi.mock('react-intersection-observer', () => ({
-  useOnInView: (callback: (inView: boolean) => void, options?: { rootMargin?: string }) => {
-    if (!options?.rootMargin) intersectionCallback.current = callback
+  useOnInView: (callback: (inView: boolean) => void, options?: { rootMargin?: string; threshold?: number }) => {
+    if (!options?.rootMargin) { intersectionCallback.current = callback; intersectionCallback.threshold = options?.threshold ?? 0 }
     return vi.fn()
   }
 }))
@@ -90,6 +90,14 @@ describe('LazyMedia video cache version', () => {
     expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('eager')
     act(() => autoBrowse.getState().stop())
     expect(playerMocks.imageProps.mock.calls.at(-1)?.[0].loading).toBe('eager')
+  })
+
+  it('does not treat a narrow glimpse of the next stack as whole-group reading', () => {
+    const props = { media: { ...media, path: '/next.jpg', mediaType: 'image' }, index: 0 }
+    const view = render(<LazyMedia {...props} fill />)
+    expect(intersectionCallback.threshold).toBe(0.5)
+    view.rerender(<LazyMedia {...props} />)
+    expect(intersectionCallback.threshold).toBe(0)
   })
 
   it('preloads the WebP poster without starting offscreen animation', () => {

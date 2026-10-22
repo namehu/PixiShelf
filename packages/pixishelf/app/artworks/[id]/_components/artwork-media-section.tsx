@@ -2,7 +2,8 @@
 
 import { useArtworkSummary } from './artwork-summary-context'
 import { ArtworkSummaryControls } from './artwork-summary-controls'
-import { projectArtworkSummary } from './artwork-summary-projection'
+import { projectArtworkStacks } from './artwork-stack-projection'
+import { ARTWORK_STACK_RULE_VERSION } from '@/lib/reading/artwork-stacks'
 import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
@@ -32,7 +33,7 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   images: ArtworkImageResponseDto[]; artworkId: number; reading: ReturnType<typeof useArtworkReading>; mediaInvalidated?: boolean
 }) {
   const summary = useArtworkSummary()
-  const summaryMode = summary?.mode === 'summary'
+  const summaryMode = summary?.mode === 'stack'
   const reading = mediaInvalidated ? { ...handle, invalidated: true } : handle
   const [continueRequest, setContinueRequest] = useState<{ index: number; nonce: number } | null>(null)
   const [filter, setFilter] = useState<{ owner: string | null; artworkId: number; ids: number[]; nonce: number } | null>(null)
@@ -43,8 +44,8 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
     ? images.filter((image) => filter.ids.includes(image.id)) : images, [filter, images, unreadOnly])
   useLayoutEffect(() => { if (summary) summary.availableMediaIds.current = filteredImages.map((image) => image.id) }, [filteredImages, summary?.availableMediaIds])
   const projection = useMemo(() => summaryMode && summary
-    ? projectArtworkSummary(filteredImages, summary.groups, summary.expanded) : null,
-  [filteredImages, summaryMode, summary?.groups, summary?.expanded])
+    ? projectArtworkStacks(filteredImages, summary.groups, summary.activeByGroup) : null,
+  [filteredImages, summaryMode, summary?.groups, summary?.activeByGroup])
   const displayImages = projection?.images ?? filteredImages
   const observe: typeof handle.observe = useCallback((surfaceId, observation) => {
     const element = document.querySelector<HTMLElement>(`[data-summary-anchor="${observation.mediaId}"]`)
@@ -52,11 +53,13 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
     const viewport = getAutoBrowseViewport()
     // IO callbacks can retain a true flag from the layout before a summary collapse.
     const visible = observation.visible && (surfaceId !== `detail-${observation.mediaId}` || Boolean(rect && rect.bottom > viewport.top && rect.top < viewport.bottom))
-    const decoration = projection?.decorations.get(observation.mediaId)
-    const grant = decoration && !decoration.expanded && decoration.visibleCount > 1 && summary?.query.data?.generationId
-      ? { generationId: summary.query.data.generationId, groupId: decoration.group.id, mediaIds: decoration.group.mediaIds } : undefined
-    handle.observe(surfaceId, { ...observation, visible, active: observation.active !== false && !summary?.navigationRef.current.active && !summary?.navigating, summary: grant })
-  }, [handle.observe, projection, summary?.query.data?.generationId, summary?.navigationRef, summary?.navigating])
+    const group = summaryMode ? summary?.byMediaId.get(observation.mediaId) : undefined
+    const grant = group && group.mediaIds.length > 1 && summary?.fingerprint
+      ? { ruleVersion: ARTWORK_STACK_RULE_VERSION, fingerprint: summary.fingerprint, groupId: group.id, mediaIds: group.mediaIds } : undefined
+    const active = observation.active !== false && !summary?.navigationRef.current.active && !summary?.navigating
+    if (surfaceId === 'adaptive-preview' && observation.ready && visible && active) summary?.rememberPreviewMedia(observation.mediaId)
+    handle.observe(surfaceId, { ...observation, visible, active, stack: grant })
+  }, [handle.observe, summaryMode, summary?.byMediaId, summary?.fingerprint, summary?.navigationRef, summary?.navigating, summary?.rememberPreviewMedia])
   const projectedReading = { ...reading, observe }
   const summaryAnchor = summary?.anchor
   const handledAnchor = useRef<number | null>(null)
@@ -143,9 +146,8 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   return (
     <>
       <PageContainer size="reading"><div ref={topRef} className="scroll-mt-20">
-        <div className="flex flex-wrap items-center justify-between gap-x-4"><ReadingProgressControls reading={reading} empty={emptyUnread} /><ArtworkSummaryControls /></div>
-        {summaryMode && <p className="pb-5 text-xs text-muted-foreground">相近图片已叠放；浏览封面会将整组标为已读。</p>}
-        {summary?.query.data?.standalone ? <p className="pb-4 text-xs text-muted-foreground">{summary.query.data.standalone} 张图片暂未完成比较，已单独保留。</p> : null}
+        <div className="flex flex-wrap items-center justify-between gap-x-4"><ReadingProgressControls reading={summary ? { ...reading, reopen: summary.reopen } : reading} empty={emptyUnread} /><ArtworkSummaryControls /></div>
+        {summaryMode && <p className="pb-5 text-xs text-muted-foreground">上下浏览各叠，左右翻看组内图片；浏览一张即将整叠标为已读。</p>}
       </div></PageContainer>
       {reading.invalidated ? null : emptyUnread ? (
         <Empty className="py-16">
@@ -157,10 +159,10 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
         </Empty>
       ) : (
         <ArtworkImages key={`${artworkId}:${reading.ownerUserId}:${unreadOnly ? filter.nonce : 'all'}`}
-          images={displayImages} artworkId={artworkId} reading={projectedReading}
+          images={displayImages} allImages={filteredImages} artworkId={artworkId} reading={projectedReading}
           summaryMode={summaryMode} summaryDecorations={projection?.decorations}
           trackingActive={!mediaView?.readerBlocked && !summary?.navigating} continueRequest={continueRequest}
-          onContinueHandled={() => { if (summaryAnchor) summary?.finishNavigation(summaryAnchor.nonce, summaryAnchor.focusGroupId, summaryAnchor.mediaId) }} />
+          onContinueHandled={() => { if (summaryAnchor) summary?.finishNavigation(summaryAnchor.nonce, undefined, summaryAnchor.mediaId) }} />
       )}
     </>
   )

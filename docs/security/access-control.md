@@ -436,3 +436,8 @@ archiveSearch.startBatchScan、controlBatchScan、retryBatchScan 均为 adminPro
 分页在一致性快照内重新计算索引并核对指纹；指纹覆盖媒体 revision、成员顺序、分组与占位尺寸，冲突返回 CONFLICT。索引不含路径、探测错误或完整视频/动画元数据。媒体详情沿用既有已认证 DTO 和媒体访问门禁；新增接口不允许匿名或 Webhook Token。客户端页面销毁不取消其他阅读入口的队列，账户切换清理旧账户内存，不跨账户重放。
 
 标题来源复核沿用管理边界：规则预览、应用、取消、复核决定和历史绑定清理使用 archiveSearch 的 adminProcedure，读取预览、证据与统计使用 authProcedure。候选和修订所属来源由服务端核验，人工接纳不绕过上传者限制、全局忽略或既有入箱校验。
+
+
+### 堆叠阅读凭据（2026-10-22）
+
+`reading.report` 的 VIEW 可带 `stack: { ruleVersion: 1, fingerprint, groupId }`，与旧 `summary` 互斥。身份仍取会话并核对 expectedUserId。作品锁内每批读取权威媒体索引，校验顺序指纹、组归属和真实观察媒体，授予成员只由服务端计算；跨作品、伪造或过期凭据拒绝整批且不写入。浏览器隐藏/预加载成员不构成 VIEW。旧摘要阅读核验保留，但领域生成、通用 enqueue 和创建新任务的 retry 都拒绝视觉摘要任务；已存在任务的执行及控制仍可用。详见[作品堆叠浏览](../features/artwork-summary.md)。

@@ -1,3 +1,4 @@
+import { ARTWORK_SUMMARY_RETIRED_MESSAGE } from '@/lib/reading/artwork-stacks'
 import { prisma } from '@/lib/prisma'
 import { FULL_SCAN_RETIRED_MESSAGE, isRetiredFullReconcilePayload } from '@/services/scan-source-policy'
 import { Prisma } from '@pixishelf/db'
@@ -183,6 +184,9 @@ export async function enqueueJob(
   now: () => Date = () => new Date()
 ): Promise<JobDto> {
   const parsed = enqueueJobInputSchema.parse(input)
+  if (parsed.type === 'ARTWORK_SUMMARY_GENERATE') {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', ARTWORK_SUMMARY_RETIRED_MESSAGE)
+  }
   if (
     parsed.type === 'ARCHIVE_DISCOVERY_BATCH_SCAN' ||
     parsed.type === 'ARCHIVE_RESOLVE_ITEM' ||
@@ -570,6 +574,9 @@ export async function retryJobCommand(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
+    if (job.type === 'ARTWORK_SUMMARY_GENERATE') {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', ARTWORK_SUMMARY_RETIRED_MESSAGE)
+    }
     if (
       job.type === 'ARCHIVE_DISCOVERY_BATCH_SCAN' ||
       job.type === 'ARCHIVE_UPLOADER_SCAN' ||

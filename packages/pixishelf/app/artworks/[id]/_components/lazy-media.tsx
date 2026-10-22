@@ -19,9 +19,12 @@ import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkVideoOptimization } from './artwork-video-optimization-context'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 import { useVideoReading } from '@/lib/reading/use-video-reading'
+import { cn } from '@/lib/utils'
 
 interface LazyMediaProps {
   media: ArtworkImageResponseDto
+  fill?: boolean
+  autoMode?: 'scroll' | 'slideshow'
   index: number
   onPreviewStatusChange?: (status: PreviewStatus) => void
   reading?: ArtworkReadingHandle
@@ -33,13 +36,13 @@ const READING_IMAGE_SIZES = '(max-width: 45rem) 100vw, 45rem'
 /**
  * 懒加载媒体组件
  */
-const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, trackingActive = true }: LazyMediaProps) => {
+const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, trackingActive = true, fill = false, autoMode = 'scroll' }: LazyMediaProps) => {
   const displayIndex = reading?.context?.media.find((item) => item.memberMediaIds.includes(media.id))?.index ?? index
   const [previewStatus, setPreviewStatus] = useState<PreviewStatus>('loading')
   const [visible, setVisible] = useState(false)
   const { job, isStarting, canManage, suspendPlayback, enqueue, cancel } = useArtworkVideoOptimization(media.id)
   const automatic = useArtworkAutoBrowseStore(
-    (state) => state.mode === 'scroll' && (state.status === 'running' || state.status === 'waiting')
+    (state) => state.mode === autoMode && !state.previewOpen && (state.status === 'running' || state.status === 'waiting')
   )
   const surfaceId = `detail-${media.id}`
   const observe = reading?.observe
@@ -100,7 +103,8 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const playbackActive = useArtworkAutoBrowseStore((state) => state.activeVideoId === media.id && !state.previewOpen)
   const playbackPaused = useArtworkAutoBrowseStore((state) => state.pausedVideoIds.includes(media.id))
-  const animation = useArtworkAnimation(media.id, 'scroll', `${media.path}:${media.updatedAt}`)
+  const previewOpen = useArtworkAutoBrowseStore((state) => state.previewOpen)
+  const animation = useArtworkAnimation(previewOpen ? undefined : media.id, autoMode, `${media.path}:${media.updatedAt}`)
   const src = media.path
   const hasDimensions =
     hasReliableSingleFrameDimensions(media) &&
@@ -132,10 +136,11 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
     ]
   }, [canManage, enqueue, job?.status, media, src])
 
-  const readingRef = useOnInView((inView) => setVisible(inView), { threshold: 0 })
+  // A sliver of the next stack must not grant its whole group. Stack frames fit the viewport.
+  const readingRef = useOnInView((inView) => setVisible(inView), { threshold: fill ? 0.5 : 0 })
   const trackingRef = useOnInView(
     (inView) => {
-      if (inView) {
+      if (inView && !(autoMode === 'slideshow' && ['running', 'waiting'].includes(useArtworkAutoBrowseStore.getState().status))) {
         setCurrentIndex(index)
         if (!useArtworkAutoBrowseStore.getState().previewOpen) {
           useArtworkAutoBrowseStore.getState().setCurrentMedia(media.id)
@@ -270,7 +275,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
         width={0}
         height={0}
         sizes={READING_IMAGE_SIZES}
-        className={hasDimensions ? 'h-auto w-full' : 'h-auto min-h-[300px] w-full sm:min-h-[500px]'}
+        className={fill ? 'h-full w-full object-contain' : hasDimensions ? 'h-auto w-full' : 'h-auto min-h-[300px] w-full sm:min-h-[500px]'}
         onLoad={onLoad}
         onError={() => report('error')}
       />
@@ -280,8 +285,8 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
   return (
     <div
       ref={mediaRef}
-      className="relative flex w-full items-center justify-center overflow-hidden bg-muted"
-      style={{ aspectRatio }}
+      className={cn('relative flex w-full items-center justify-center overflow-hidden', fill ? 'h-full' : 'bg-muted')}
+      style={fill ? undefined : { aspectRatio }}
       data-auto-media-id={media.id}
       data-video-media={isVideoFile(src) ? 'true' : undefined}
       data-preview-status={previewStatus}

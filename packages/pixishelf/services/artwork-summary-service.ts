@@ -1,9 +1,8 @@
 import 'server-only'
-import { Prisma } from '@pixishelf/db'
 import { ARTWORK_SUMMARY_ALGORITHM_VERSION, artworkSummaryGroupsSchema, ACTIVE_JOB_STATUSES } from '@pixishelf/job-contracts'
 import { TRPCError } from '@trpc/server'
 import { prisma } from '@/lib/prisma'
-import { enqueueJob } from '@/services/background-task'
+import { ARTWORK_SUMMARY_RETIRED_MESSAGE } from '@/lib/reading/artwork-stacks'
 import type { ArtworkSummaryDto } from '@/schemas/artwork-summary.dto'
 
 export async function getArtworkSummary(artworkId: number): Promise<ArtworkSummaryDto> {
@@ -25,31 +24,7 @@ export async function getArtworkSummary(artworkId: number): Promise<ArtworkSumma
     standalone: Number(details.standalone) || 0 }
 }
 
-export async function generateArtworkSummary(artworkId: number, requestId: string, userId: string, force = false) {
-  return prisma.$transaction(async (tx) => {
-    await tx.$queryRaw(Prisma.sql`SELECT id FROM "Artwork" WHERE id = ${artworkId} FOR UPDATE`)
-    const artwork = await tx.artwork.findUnique({ where: { id: artworkId, deletedAt: null, archiveLifecycleState: 'ACTIVE' },
-      select: { id: true, visualSummary: true } })
-    if (!artwork) throw new TRPCError({ code: 'NOT_FOUND', message: '作品不存在' })
-    const existing = await tx.systemJob.findFirst({ where: {
-      type: 'ARTWORK_SUMMARY_GENERATE', status: { in: [...ACTIVE_JOB_STATUSES] }, payload: { path: ['artworkId'], equals: artworkId }
-    }, select: { id: true } })
-    if (existing) return { jobId: existing.id }
-    const replay = await tx.systemJob.findFirst({ where: { idempotencyKey: `artwork-summary:${artworkId}:${userId}:${requestId}` }, select: { id: true } })
-    if (replay) return { jobId: replay.id }
-    if (artwork.visualSummary?.replaceInProgress || await tx.artworkSummaryFeature.count({ where: { image: { artworkId }, writeInProgress: true } })) {
-      throw new TRPCError({ code: 'CONFLICT', message: '原图正在写入，请完成上传或恢复替换后重试' })
-    }
-    const summary = await tx.artworkSummary.upsert({ where: { artworkId }, create: { artworkId }, update: {} })
-    const generationId = crypto.randomUUID()
-    const job = await enqueueJob({ type: 'ARTWORK_SUMMARY_GENERATE', triggerSource: 'MANUAL',
-      requestedByUserId: userId, priority: 90, maxAttempts: 3,
-      idempotencyKey: `artwork-summary:${artworkId}:${userId}:${requestId}`,
-      payload: { artworkId, generationId, sourceRevision: summary.sourceRevision, force }
-    }, { $transaction: (operation) => operation(tx as unknown as Prisma.TransactionClient) })
-    await tx.artworkSummary.update({ where: { artworkId }, data: {
-      generationId, jobId: job.id, publishedRevision: null, groups: Prisma.DbNull
-    } })
-    return { jobId: job.id }
-  })
+export async function generateArtworkSummary(..._args: [artworkId: number, requestId: string, userId: string, force?: boolean]): Promise<{ jobId: string }> {
+  void _args
+  throw new TRPCError({ code: 'BAD_REQUEST', message: ARTWORK_SUMMARY_RETIRED_MESSAGE })
 }

@@ -2,7 +2,7 @@
 
 本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
 
-最后更新：2026-10-19
+最后更新：2026-10-22
 
 ## 状态约定
 
@@ -30,7 +30,7 @@ ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
 
 ## 核心入口
 
-- [作品摘要浏览](./features/artwork-summary.md)（draft，生产未部署）：连续静态图片分组、按需后台生成、整组已读和目标 NAS 验收。
+- [作品堆叠浏览](./features/artwork-summary.md)（current，新版本待部署）：即时确定性分组、横向翻阅、整组已读及旧摘要兼容。
 
 - [Pixiv 导入默认已读](./features/pixiv-import-reading.md)（current，生产已启用并完成历史回填验收）：账户级新作品偏好、历史回填预检、分批快照与恢复边界。
 

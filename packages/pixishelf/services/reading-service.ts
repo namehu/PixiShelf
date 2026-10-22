@@ -24,6 +24,7 @@ import { groupLogicalMedia } from './artwork-service/logical-media'
 import { getArtworkCardsByIds } from './artwork-service'
 import { loadReaderIndex } from './artwork-service/reader'
 import type { ReaderInitialization } from '@/schemas/artwork-reader.dto'
+import { ARTWORK_STACK_CONFLICT, ARTWORK_STACK_RULE_VERSION, buildArtworkStacks } from '@/lib/reading/artwork-stacks'
 
 type ReadingTx = AppTransaction
 
@@ -184,8 +185,21 @@ export async function reportReading(userId: string, input: ReadingReportInput): 
     if (locked.mediaRevision !== input.mediaRevision) {
       throw new TRPCError({ code: 'CONFLICT', message: READING_MEDIA_REVISION_CONFLICT_CODE })
     }
-    const media = await loadMedia(readingTx, input.artworkId)
+    const hasStack = input.events.some((event) => event.type === 'VIEW' && event.stack)
+    const stackIndex = hasStack ? (await loadReaderIndex(readingTx, input.artworkId)).index : null
+    const media = stackIndex ? stackIndex.items.map((item) => ({ ...item, isVideo: item.mediaType === 'video' })) : await loadMedia(readingTx, input.artworkId)
     const byMemberId = new Map(media.flatMap((item) => item.memberMediaIds.map((id) => [id, item] as const)))
+    const stackGroups = new Map((stackIndex ? buildArtworkStacks(stackIndex.items) : []).map((group) => [group.id, group]))
+    const stackGrants = new Map<string, number[]>()
+    for (const event of input.events) {
+      if (event.type !== 'VIEW' || !event.stack) continue
+      const group = stackGroups.get(event.stack.groupId)
+      if (event.summary || event.stack.ruleVersion !== ARTWORK_STACK_RULE_VERSION || event.stack.fingerprint !== stackIndex?.fingerprint ||
+        !group || group.mediaIds.length < 2 || !group.mediaIds.includes(event.mediaId)) {
+        throw new TRPCError({ code: 'CONFLICT', message: ARTWORK_STACK_CONFLICT })
+      }
+      stackGrants.set(group.id, group.mediaIds.flatMap((id) => byMemberId.get(id)!.memberMediaIds))
+    }
     const summaryEvents = input.events.filter((event) => event.type === 'VIEW' && event.summary)
     const summaryGrants = new Map<string, number[]>()
     if (summaryEvents.length) {
@@ -239,7 +253,7 @@ export async function reportReading(userId: string, input: ReadingReportInput): 
       lastMediaIndex = item.index
       accepted = true
       if (!item.isVideo || (event.playback && isVideoReadingComplete(event.playback))) {
-        for (const memberId of event.summary ? summaryGrants.get(event.summary.groupId)! : item.memberMediaIds) {
+        for (const memberId of event.stack ? stackGrants.get(event.stack.groupId)! : event.summary ? summaryGrants.get(event.summary.groupId)! : item.memberMediaIds) {
           if (!seenIds.has(memberId)) newlySeen.add(memberId)
         }
       }

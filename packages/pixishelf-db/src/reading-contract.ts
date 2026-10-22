@@ -67,6 +67,7 @@ export type ReadingReportEvent =
       type: 'VIEW'
       mediaId: number
       summary?: { generationId: string; groupId: string }
+      stack?: { ruleVersion: 1; fingerprint: string; groupId: string }
       playback?: ReadingPlayback
       /** ISO 8601 UTC timestamp when the effective observation began. */
       observedAt: string

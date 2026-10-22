@@ -999,3 +999,14 @@ describe('legacy history is read-only', () => {
     }
   )
 })
+
+
+describe('retired visual summary creation', () => {
+  it('rejects direct enqueue and retry without creating a job', async () => {
+    const harness = commandHarness([jobRecord({ type: 'ARTWORK_SUMMARY_GENERATE', status: 'FAILED' })])
+    await expect(enqueueJob({ type: 'ARTWORK_SUMMARY_GENERATE', triggerSource: 'MANUAL', requestedByUserId: 'user-1', priority: 90,
+      payload: {} }, harness.client)).rejects.toThrow('即时堆叠浏览')
+    await expect(retryJobCommand({ jobId: 'job-1', requestedByUserId: 'user-1' }, harness.client)).rejects.toThrow('即时堆叠浏览')
+    expect(harness.create).not.toHaveBeenCalled()
+  })
+})

@@ -1,16 +1,14 @@
 'use client'
 
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import { useAuthUser } from '@/components/auth/auth-provider'
-import { useTRPC } from '@/lib/trpc'
 import { useArtworkReader } from '@/lib/reading/artwork-reader-provider'
+import { buildArtworkStacks } from '@/lib/reading/artwork-stacks'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 import { getAutoBrowseViewport } from './use-artwork-auto-scroll'
 import { settleSummaryNavigation } from './artwork-summary-navigation'
+import { saveStackRecovery, takeStackRecovery } from './artwork-stack-recovery'
 
-const SummaryContext = createContext<ReturnType<typeof useSummarySession> | null>(null)
+const SummaryContext = createContext<ReturnType<typeof useStackSession> | null>(null)
 
 function visibleMediaId(): number | undefined {
   const top = getAutoBrowseViewport().top
@@ -19,19 +17,19 @@ function visibleMediaId(): number | undefined {
   return element ? Number(element.dataset.summaryAnchor) : undefined
 }
 
-function useSummarySession(artworkId: number) {
-  const user = useAuthUser()
+function useStackSession(artworkId: number) {
   const reader = useArtworkReader()
-  const trpc = useTRPC()
-  const query = useQuery({ ...trpc.artwork.summaryGet.queryOptions({ artworkId, expectedUserId: user?.id ?? '' }),
-    enabled: Boolean(user), refetchInterval: (query) => query.state.data?.state === 'BUILDING' ? 3_000 : 30_000,
-    refetchOnWindowFocus: true })
-  const generate = useMutation(trpc.artwork.summaryGenerate.mutationOptions({
-    onSuccess: () => { void query.refetch() }, onError: (error) => toast.error(error.message)
-  }))
-  const [requestedMode, setMode] = useState<'complete' | 'summary'>('complete')
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
-  const [anchor, setAnchor] = useState<{ mediaId: number; nonce: number; focusGroupId?: string } | null>(null)
+  const index = reader?.initialization?.index
+  const [mode, setMode] = useState<'complete' | 'stack'>('complete')
+  const lastVisible = useRef<number | undefined>(undefined)
+  const restored = useRef(false)
+  const [activeByGroup, setActiveByGroup] = useState<ReadonlyMap<string, number>>(() => new Map())
+  const [snapshot, setSnapshot] = useState(index)
+  const groups = useMemo(() => snapshot ? buildArtworkStacks(snapshot.items) : [], [snapshot])
+  const byMediaId = useMemo(() => new Map(groups.flatMap((group) => group.mediaIds.map((id) => [id, group] as const))), [groups])
+  const ready = Boolean(snapshot && !reader?.invalidated)
+  const changingSnapshot = snapshot?.fingerprint !== index?.fingerprint
+  const [anchor, setAnchor] = useState<{ mediaId: number; nonce: number } | null>(null)
   const [navigating, setNavigating] = useState(false)
   const navigationRef = useRef({ active: false, nonce: 0 })
   const beginNavigation = useCallback(() => {
@@ -39,61 +37,74 @@ function useSummarySession(artworkId: number) {
     setNavigating(true)
     return navigationRef.current.nonce
   }, [])
-  const finishNavigation = useCallback((nonce: number, focusGroupId?: string, mediaId?: number) => {
-    settleSummaryNavigation({
-      mediaId,
+  const finishNavigation = useCallback((nonce: number, _focusGroupId?: string, mediaId?: number) => {
+    settleSummaryNavigation({ mediaId,
       isCurrent: () => navigationRef.current.nonce === nonce && navigationRef.current.active,
-      onSettled: () => {
-        navigationRef.current.active = false
-        setNavigating(false)
-        if (focusGroupId) document.querySelector<HTMLButtonElement>(`[data-summary-toggle="${CSS.escape(focusGroupId)}"]`)?.focus({ preventScroll: true })
-      }
+      onSettled: () => { navigationRef.current.active = false; setNavigating(false) }
     })
   }, [])
   useEffect(() => () => { navigationRef.current.active = false }, [])
-  const ready = query.data?.state === 'READY' && !reader?.invalidated
-  // Hold the old projection until its visible ID is captured, before React replaces its DOM.
-  const [snapshot, setSnapshot] = useState({ data: query.data, ready })
-  const changingSnapshot = snapshot.data?.generationId !== query.data?.generationId || snapshot.ready !== ready
-  const mode = snapshot.ready ? requestedMode : 'complete'
-  const groups = useMemo(() => snapshot.ready ? snapshot.data!.groups : [], [snapshot])
   const availableMediaIds = useRef<number[] | null>(null)
-  const jump = useCallback((mediaId: number, focusGroupId?: string) => setAnchor({ mediaId, nonce: beginNavigation(), focusGroupId }), [beginNavigation])
-  useLayoutEffect(() => {
-    if (changingSnapshot && snapshot.ready) {
-      const id = visibleMediaId()
-      setMode('complete')
-      setExpanded(new Set())
-      useArtworkAutoBrowseStore.getState().pause('manual')
-      if (id !== undefined) jump(id)
+  const jump = useCallback((mediaId: number) => setAnchor({ mediaId, nonce: beginNavigation() }), [beginNavigation])
+  const selectMedia = useCallback((mediaId: number) => {
+    lastVisible.current = mediaId
+    const group = byMediaId.get(mediaId)
+    if (group) setActiveByGroup((prior) => new Map(prior).set(group.id, mediaId))
+  }, [byMediaId])
+  const reveal = useCallback((mediaId: number) => { selectMedia(mediaId); jump(mediaId) }, [selectMedia, jump])
+  const rememberPreviewMedia = useCallback((mediaId: number) => { lastVisible.current = mediaId }, [])
+  useEffect(() => {
+    if (!ready) return
+    const remember = () => {
+      if (!navigationRef.current.active && !useArtworkAutoBrowseStore.getState().previewOpen) {
+        lastVisible.current = visibleMediaId() ?? lastVisible.current
+      }
     }
-    if (snapshot.data !== query.data || snapshot.ready !== ready) setSnapshot({ data: query.data, ready })
-  }, [query.data, ready, changingSnapshot, snapshot, jump])
-  const reveal = useCallback((mediaId: number) => {
-    const group = groups.find((group) => group.mediaIds.includes(mediaId))
-    const representativeId = group?.mediaIds.find((id) => availableMediaIds.current === null || availableMediaIds.current.includes(id))
-    if (group && representativeId !== mediaId) setExpanded((prior) => new Set(prior).add(group.id))
-    jump(mediaId)
-  }, [groups, jump])
-  const changeMode = (next: 'complete' | 'summary') => {
-    if (next === mode || (next === 'summary' && !ready)) return
+    remember()
+    window.addEventListener('scroll', remember, { passive: true })
+    return () => window.removeEventListener('scroll', remember)
+  }, [ready])
+  useEffect(() => {
+    const owner = reader?.reading.ownerUserId
+    if (!ready || !owner || restored.current) return
+    restored.current = true
+    const recovery = takeStackRecovery(() => window.sessionStorage, artworkId, owner)
+    if (!recovery) return
+    const target = byMediaId.has(recovery.mediaId) ? recovery.mediaId : groups[0]?.representativeMediaId
+    if (target === undefined) return
+    setMode(recovery.mode)
+    reveal(target)
+  }, [ready, reader?.reading.ownerUserId, artworkId, byMediaId, groups, reveal])
+  const reopen = () => {
+    const owner = reader?.reading.ownerUserId
+    const mediaId = lastVisible.current
+    if (owner && mediaId !== undefined) saveStackRecovery(() => window.sessionStorage, artworkId, owner, { mediaId, mode, savedAt: Date.now() })
+    reader?.reading.reopen()
+  }
+  useLayoutEffect(() => {
+    if (!changingSnapshot) return
+    const id = visibleMediaId()
     useArtworkAutoBrowseStore.getState().pause('manual')
+    setSnapshot(index)
+    const nextGroups = index ? buildArtworkStacks(index.items) : []
+    const nextGroup = nextGroups.find((group) => group.mediaIds.includes(id ?? -1))
+    setActiveByGroup(nextGroup && id !== undefined ? new Map([[nextGroup.id, id]]) : new Map())
+    if (id !== undefined && nextGroup) jump(id)
+  }, [changingSnapshot, index, jump])
+  const changeMode = (next: 'complete' | 'stack') => {
+    if (next === mode || (next === 'stack' && !ready)) return
+    useArtworkAutoBrowseStore.getState().stop()
     const id = visibleMediaId()
     setMode(next)
     if (id !== undefined) reveal(id)
   }
-  const toggleGroup = (groupId: string, representativeId: number) => {
-    useArtworkAutoBrowseStore.getState().pause('manual')
-    setExpanded((prior) => { const next = new Set(prior); if (next.has(groupId)) next.delete(groupId); else next.add(groupId); return next })
-    jump(representativeId, groupId)
-  }
-  return { query, generate, ready, mode, groups, expanded, anchor, reveal, changeMode, toggleGroup,
-    availableMediaIds, navigating: navigating || changingSnapshot || (requestedMode === 'summary' && !ready), navigationRef, beginNavigation, finishNavigation,
-    start: () => generate.mutate({ artworkId, expectedUserId: user?.id ?? '', requestId: crypto.randomUUID(), force: Boolean(query.data?.generationId) }) }
+  return { ready, mode: ready ? mode : 'complete' as const, groups, byMediaId, activeByGroup, anchor, reveal, selectMedia, changeMode, reopen, rememberPreviewMedia,
+    fingerprint: snapshot?.fingerprint, availableMediaIds,
+    navigating: navigating || changingSnapshot, navigationRef, beginNavigation, finishNavigation }
 }
 
-export function ArtworkSummaryProvider({ artworkId, children }: React.PropsWithChildren<{ artworkId: number }>) {
-  const value = useSummarySession(artworkId)
+export function ArtworkSummaryProvider({ children, artworkId }: React.PropsWithChildren<{ artworkId: number }>) {
+  const value = useStackSession(artworkId)
   return <SummaryContext.Provider value={value}>{children}</SummaryContext.Provider>
 }
 export function useArtworkSummary() { return useContext(SummaryContext) }

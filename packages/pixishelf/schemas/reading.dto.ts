@@ -18,12 +18,14 @@ export const ReadingReportInputSchema = ReadingContextInputSchema.extend({
     .array(
       z.discriminatedUnion('type', [
         z.object({ type: z.literal('VIEW'), mediaId: positiveId, observedAt, playback: playback.optional(),
-          summary: z.object({ generationId: z.string().uuid(), groupId: z.string().min(1).max(100) }).optional() }),
+          summary: z.object({ generationId: z.string().uuid(), groupId: z.string().min(1).max(100) }).optional(),
+          stack: z.object({ ruleVersion: z.literal(1), fingerprint: z.string().regex(/^[a-f0-9]{64}$/), groupId: z.string().min(1).max(100) }).strict().optional() }),
         z.object({ type: z.literal('HEARTBEAT'), mediaId: positiveId, observedAt, playback: playback.optional() })
       ])
     )
     .min(1)
     .max(100)
+    .refine((events) => events.every((event) => event.type !== 'VIEW' || !(event.summary && event.stack)), 'summary and stack are mutually exclusive')
 })
 
 export const ReadingSummariesInputSchema = z.object({

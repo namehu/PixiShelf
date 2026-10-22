@@ -4,7 +4,7 @@ import { Prisma } from '@prisma/client'
 import { TRPCError } from '@trpc/server'
 import { prisma, type AppTransaction } from '@/lib/prisma'
 import { toApiImageSize } from '@/utils/image-size'
-import { isVideoFile } from '@/lib/media'
+import { isVideoFile, isGifFile, isApngFile } from '@/lib/media'
 import { hasReliableSingleFrameDimensions } from '@/lib/media-animation'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import { MEDIA_INDEX_CONFLICT, MEDIA_PAGE_SIZE, type MediaIndex, type MediaPage, type ReaderInitialPage } from '@/schemas/artwork-reader.dto'
@@ -24,7 +24,7 @@ export async function loadReaderIndex(tx: AppTransaction, artworkId: number) {
   })
   const groups = groupLogicalMedia(rows)
   const items = groups.map(({ item, members }, index) => {
-    const isAnimated = item.mediaType === 'ANIMATION' || item.webpAnimationStatus === EMediaAnimationStatus.animated
+    const isAnimated = item.mediaType === 'ANIMATION' || item.webpAnimationStatus === EMediaAnimationStatus.animated || isGifFile(item.path) || isApngFile(item.path)
     return {
       mediaId: item.id, memberMediaIds: members.map((member) => member.id), index,
       width: item.width, height: item.height,

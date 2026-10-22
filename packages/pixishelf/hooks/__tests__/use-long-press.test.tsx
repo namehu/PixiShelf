@@ -81,3 +81,17 @@ describe('useLongPress touch gestures', () => {
     expect(onLongPress).not.toHaveBeenCalled()
   })
 })
+
+
+it('cancels desktop dragging without opening a preview or menu', () => {
+  render(<Surface />)
+  const target = screen.getByRole('button')
+  fireEvent.mouseDown(target, { clientX: 100, clientY: 50 })
+  fireEvent.mouseMove(target, { clientX: 50, clientY: 52 })
+  fireEvent.mouseUp(target, { clientX: 50, clientY: 52 })
+  fireEvent.click(target)
+  act(() => vi.advanceTimersByTime(600))
+  expect(onClick).not.toHaveBeenCalled()
+  expect(onLongPress).not.toHaveBeenCalled()
+  expect(onSurfaceClick).not.toHaveBeenCalled()
+})

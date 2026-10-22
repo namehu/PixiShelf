@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PrismaClient, invalidateArtworkReadingForRebuild } from '@pixishelf/db'
+import { buildArtworkStacks } from '@/lib/reading/artwork-stacks'
 import { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 import type { ReadingReportEvent } from '@pixishelf/db/reading-contract'
 
@@ -66,6 +67,26 @@ afterEach(async () => {
 afterAll(async () => { await db?.$disconnect() })
 
 describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
+  it('grants a deterministic stack atomically, preserves real position, and rejects reordered evidence', async () => {
+    const rows = await Promise.all(Array.from({ length: 8 }, (_, index) => db!.image.create({ data: {
+      artworkId: fixture.artworkId, path: `/stack-test/${fixture.userId}/${index}.jpg`, sortOrder: index + 10,
+      width: 800, height: 1200, mediaType: 'IMAGE'
+    } })))
+    created.imageIds.push(...rows.map((row) => row.id))
+    const reader = await readingService.getReaderInitialization(fixture.userId, fixture.artworkId)
+    const group = buildArtworkStacks(reader.index.items).find((group) => group.mediaIds.length > 1)!
+    const mediaId = group.mediaIds[1]!
+    const stack = { ruleVersion: 1 as const, fingerprint: reader.index.fingerprint, groupId: group.id }
+    const result = await report(fixture.userId, [{ type: 'VIEW', mediaId, observedAt: new Date().toISOString(), stack }])
+    expect(result.seenMediaIds).toEqual(group.mediaIds)
+    expect(result.summary).toMatchObject({ viewCount: 1, seenCount: group.mediaIds.length, lastMediaId: mediaId })
+    expect(await db!.artworkReadMedia.count({ where: { userId: fixture.otherUserId, artworkId: fixture.artworkId } })).toBe(0)
+    await db!.image.update({ where: { id: rows.at(-1)!.id }, data: { sortOrder: 1 } })
+    await expect(report(fixture.userId, [{ type: 'VIEW', mediaId, observedAt: new Date().toISOString(), stack }]))
+      .rejects.toMatchObject({ message: 'ARTWORK_STACK_CONFLICT' })
+    expect(await db!.artworkReadMedia.count({ where: { userId: fixture.userId, artworkId: fixture.artworkId } })).toBe(group.mediaIds.length)
+  })
+
   it.each([24, 600, 3000])('bounds a %i-item reader payload and preserves progress during initialization', async (count) => {
     await db!.image.createMany({ data: Array.from({ length: count }, (_, index) => ({
       artworkId: fixture.artworkId, path: `/reader-paging/${fixture.userId}/${index}.jpg`,

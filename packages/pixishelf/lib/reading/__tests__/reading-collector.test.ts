@@ -266,3 +266,31 @@ describe('summary observation identity', () => {
     collector.dispose()
   })
 })
+
+
+describe('stack collector evidence', () => {
+  it('projects all members but sends only the real VIEW and a bounded stack credential', async () => {
+    const { collector, report } = setup()
+    const stack = { ruleVersion: 1 as const, fingerprint: 'a'.repeat(64), groupId: 'stack-v1-11-12', mediaIds: [11, 12] }
+    collector.observe('detail-11', { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false, stack })
+    expect(collector.projectContext(context).seenMediaIds).toEqual([11, 12])
+    await collector.flush()
+    expect(report.mock.calls[0]![0].events).toEqual([{ type: 'VIEW', mediaId: 11,
+      observedAt: new Date().toISOString(), stack: { ruleVersion: 1, fingerprint: stack.fingerprint, groupId: stack.groupId } }])
+    collector.dispose()
+  })
+  it('does not count a hidden or transitioning slide and invalidates conflicting membership', async () => {
+    const { collector, report, onInvalidated } = setup(vi.fn().mockRejectedValue({ message: 'ARTWORK_STACK_CONFLICT' }))
+    const observation = { artworkId: 1, mediaId: 11, ready: true, visible: true, automatic: false,
+      stack: { ruleVersion: 1 as const, fingerprint: 'a'.repeat(64), groupId: 'stack-v1-11-12', mediaIds: [11, 12] } }
+    collector.observe('detail', { ...observation, active: false })
+    collector.observe('neighbor', { ...observation, mediaId: 12, visible: false })
+    await collector.flush()
+    expect(report).not.toHaveBeenCalled()
+    collector.observe('detail', observation)
+    await collector.flush()
+    expect(onInvalidated).toHaveBeenCalledWith(1, 'alice')
+    expect(collector.projectContext(context).seenMediaIds).toEqual([])
+    collector.dispose()
+  })
+})

@@ -14,6 +14,7 @@ import {
 } from '@pixishelf/db/reading-contract'
 
 export interface ReadingObservation {
+  stack?: { ruleVersion: 1; fingerprint: string; groupId: string; mediaIds: number[] }
   summary?: { generationId: string; groupId: string; mediaIds: number[] }
   artworkId: number
   mediaId: number
@@ -71,7 +72,7 @@ export function isRevisionConflict(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const value = error as { message?: unknown; data?: { code?: unknown }; code?: unknown }
   return (
-    (typeof value.message === 'string' && value.message.includes('ARTWORK_SUMMARY_CONFLICT')) ||
+    (typeof value.message === 'string' && (value.message.includes('ARTWORK_SUMMARY_CONFLICT') || value.message.includes('ARTWORK_STACK_CONFLICT'))) ||
     value.message === READING_MEDIA_REVISION_CONFLICT_CODE ||
     (typeof value.message === 'string' && value.message.includes(READING_MEDIA_REVISION_CONFLICT_CODE)) ||
     value.data?.code === READING_MEDIA_REVISION_CONFLICT_CODE ||
@@ -146,7 +147,7 @@ export class ReadingCollector {
       if (!item || (item.isVideo && !event.playback)) continue
       viewed = true
       if (!(item.isVideo || event.playback) || (event.playback && isVideoReadingComplete(event.playback))) seen.add(item.mediaId)
-      if (event.summary) for (const id of predictedMediaIds ?? []) if (byMember.has(id)) seen.add(byMember.get(id)!.mediaId)
+      if (event.summary || event.stack) for (const id of predictedMediaIds ?? []) if (byMember.has(id)) seen.add(byMember.get(id)!.mediaId)
     }
     const seenCount = seen.size
     return { ...context, seenMediaIds: [...seen], summary: { ...context.summary, seenCount,
@@ -173,6 +174,9 @@ export class ReadingCollector {
       prior.mediaId === observation.mediaId &&
       prior.summary?.generationId === observation.summary?.generationId &&
       prior.summary?.groupId === observation.summary?.groupId &&
+      prior.stack?.ruleVersion === observation.stack?.ruleVersion &&
+      prior.stack?.fingerprint === observation.stack?.fingerprint &&
+      prior.stack?.groupId === observation.stack?.groupId &&
       prior.ready === observation.ready &&
       prior.visible === observation.visible &&
       prior.automatic === observation.automatic &&
@@ -383,9 +387,10 @@ export class ReadingCollector {
         this.presented.add(candidate)
         this.enqueue(candidate.artworkId, {
           type: 'VIEW', mediaId: candidate.mediaId, observedAt: new Date(this.now()).toISOString(),
+          ...(candidate.stack ? { stack: { ruleVersion: candidate.stack.ruleVersion, fingerprint: candidate.stack.fingerprint, groupId: candidate.stack.groupId } } : {}),
           ...(candidate.summary ? { summary: { generationId: candidate.summary.generationId, groupId: candidate.summary.groupId } } : {}),
           ...(candidate.playback ? { playback: this.playbackEvidence(candidate.playback) } : {})
-        }, candidate.summary?.mediaIds)
+        }, candidate.stack?.mediaIds ?? candidate.summary?.mediaIds)
       }
     }
     const active = this.active

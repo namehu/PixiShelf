@@ -6,10 +6,12 @@ import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 import { ArtworkMediaSection } from '../artwork-media-section'
 import { ArtworkMediaViewProvider, useArtworkMediaView } from '../artwork-media-view-context'
+import type { useArtworkSummary } from '../artwork-summary-context'
 
 const mocks = vi.hoisted(() => ({
   observedReading: null as ArtworkReadingHandle | null,
   observe: vi.fn(),
+  stackSession: null as ReturnType<typeof useArtworkSummary>,
   localMounts: 0,
   readingContext: null as ReadingContextDto | null,
   markRead: vi.fn(),
@@ -22,6 +24,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('next/navigation', () => ({ usePathname: () => mocks.pathname }))
+vi.mock('../artwork-summary-context', () => ({ useArtworkSummary: () => mocks.stackSession }))
 
 vi.mock('sonner', () => ({ toast: { custom: mocks.toastCustom, dismiss: mocks.toastDismiss, error: vi.fn() } }))
 
@@ -84,6 +87,7 @@ describe('ArtworkMediaSection', () => {
   beforeEach(() => {
     mocks.observe.mockReset()
     mocks.observedReading = null
+    mocks.stackSession = null
     mocks.readingContext = null
     mocks.ownerUserId = 'alice'
     mocks.pathname = '/artworks/7'
@@ -97,6 +101,23 @@ describe('ArtworkMediaSection', () => {
   })
 
   afterEach(cleanup)
+
+  it.each(['complete', 'stack'] as const)('keeps only valid active preview observations as the source-conflict recovery anchor in %s mode', (mode) => {
+    const rememberPreviewMedia = vi.fn()
+    mocks.stackSession = {
+      ready: false, mode, availableMediaIds: { current: null }, groups: [], byMediaId: new Map(), activeByGroup: new Map(),
+      navigationRef: { current: { active: false, nonce: 0 } }, navigating: false, rememberPreviewMedia
+    } as unknown as NonNullable<ReturnType<typeof useArtworkSummary>>
+    renderSection()
+    const observation = { mediaId: 13, ready: true, visible: true, active: true, automatic: false }
+    mocks.observedReading!.observe('adaptive-preview', observation)
+    expect(rememberPreviewMedia).toHaveBeenLastCalledWith(13)
+    mocks.observedReading!.observe('adaptive-preview', { ...observation, mediaId: 14, ready: false })
+    mocks.observedReading!.observe('adaptive-preview', { ...observation, mediaId: 15, visible: false })
+    mocks.observedReading!.observe('adaptive-preview', { ...observation, mediaId: 16, active: false })
+    mocks.observedReading!.observe('detail-11', { ...observation, mediaId: 11 })
+    expect(rememberPreviewMedia).toHaveBeenCalledTimes(1)
+  })
 
   it('removes continue reading when progress becomes complete even if a resume position remains', () => {
     mocks.readingSummary = { status: 'IN_PROGRESS', viewCount: 1, seenCount: 1, totalCount: 2 }

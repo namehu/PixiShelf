@@ -36,6 +36,8 @@ export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongP
       if ('touches' in event) {
         const touch = event.touches[0]!
         startPos.current = { x: touch.clientX, y: touch.clientY }
+      } else {
+        startPos.current = { x: event.clientX, y: event.clientY }
       }
 
       timeout.current = setTimeout(() => {
@@ -85,6 +87,13 @@ export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongP
     onMouseDown: start,
     onTouchStart: start,
     onMouseUp: clear,
+    onMouseMove: (event: React.MouseEvent) => {
+      const start = startPos.current
+      if (start && (Math.abs(event.clientX - start.x) > 10 || Math.abs(event.clientY - start.y) > 10)) {
+        suppressClick.current = true
+        cancel()
+      }
+    },
     onMouseLeave: (e: React.MouseEvent) => clear(e, false),
     onTouchEnd: clear,
     onTouchCancel: (e: React.TouchEvent) => clear(e, false),

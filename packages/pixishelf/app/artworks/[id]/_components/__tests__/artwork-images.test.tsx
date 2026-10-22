@@ -12,7 +12,8 @@ import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store
 const virtualizerMocks = vi.hoisted(() => ({
   useWindowVirtualizer: vi.fn(),
   scrollToIndex: vi.fn(),
-  measureElement: vi.fn()
+  measureElement: vi.fn(),
+  push: vi.fn()
 }))
 
 vi.mock('@tanstack/react-virtual', () => ({
@@ -21,7 +22,7 @@ vi.mock('@tanstack/react-virtual', () => ({
 
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(() => ({
-    push: vi.fn()
+    push: virtualizerMocks.push
   }))
 }))
 
@@ -157,6 +158,7 @@ describe('ArtworkImages', () => {
     virtualizerMocks.useWindowVirtualizer.mockClear()
     virtualizerMocks.scrollToIndex.mockClear()
     virtualizerMocks.measureElement.mockClear()
+    virtualizerMocks.push.mockClear()
     useUserSettingsStore.getState().hydrateSettings({ artwork_media_anchor_interval: 50 })
     useArtworkStore.getState().setCurrentIndex(0)
   })
@@ -388,6 +390,22 @@ describe('ArtworkImages', () => {
     fireEvent.click(screen.getByRole('button', { name: '自动滚动' }))
     expect(useArtworkAutoBrowseStore.getState()).toMatchObject({ mode: 'scroll', status: 'running' })
     expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+  })
+
+  it.each([false, true])('opens original files by full logical position from projected rows (unread filter: %s)', (filtered) => {
+    vi.useFakeTimers()
+    const full = generateImages(12)
+    const allImages = filtered ? full.filter((image) => image.id >= 5) : full
+    const projected = [full[4]!, full[8]!]
+    const reading = {
+      context: { media: full.map((image, index) => ({ mediaId: image.id, memberMediaIds: [image.id], index })), seenMediaIds: [] },
+      observe: vi.fn(), clearSurface: vi.fn(), flush: vi.fn()
+    } as unknown as ArtworkReadingHandle
+    render(<ArtworkImages images={projected} allImages={allImages} artworkId={1} reading={reading} summaryMode />)
+    fireEvent.mouseDown(screen.getAllByTestId('lazy-media')[1]!)
+    act(() => vi.advanceTimersByTime(500))
+    fireEvent.click(screen.getByRole('button', { name: '查看原始文件' }))
+    expect(virtualizerMocks.push).toHaveBeenCalledWith('/artworks/preview?artworkId=1&index=8')
   })
 
   it.each(['loading', 'ready', 'error'] as const)('only offers manual marking for failed images in the menu: %s', (status) => {
