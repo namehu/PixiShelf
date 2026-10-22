@@ -65,6 +65,7 @@ interface InfiniteArtworkListProps {
   /** 随机种子，用于随机排序时的稳定性 */
   randomSeed?: number
   readingStatus?: ReadingStatus
+  likedOnly?: boolean
 }
 
 export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
@@ -84,7 +85,8 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     onClearFilters,
     emptyMessage,
     randomSeed,
-    readingStatus
+    readingStatus,
+    likedOnly
   } = props
 
   const trpcClient = useTRPCClient()
@@ -119,9 +121,10 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
         createdStartDate: createdStartDate || undefined,
         createdEndDate: createdEndDate || undefined,
         readingStatus,
+        likedOnly,
         expectedUserId: ownerUserId ?? undefined
   }), [artistId, createdEndDate, createdStartDate, endDate, hasAudio, mediaType, ownerUserId,
-    effectiveSeed, readingStatus, searchQuery, sortBy, sources, startDate, tagId, tagIds])
+    effectiveSeed, readingStatus, likedOnly, searchQuery, sortBy, sources, startDate, tagId, tagIds])
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, error } = useInfiniteQuery({
     queryKey: ['artwork', 'cardList', 'random-v1', ownerUserId, filterInput, ...(queryGeneration ? [queryGeneration] : [])],
     initialPageParam: 1 as number | string,
@@ -132,7 +135,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       readingCursor: sortBy !== 'random' && typeof pageParam === 'string' ? pageParam : undefined,
       randomCursor: sortBy === 'random' && typeof pageParam === 'string' ? pageParam : undefined
     }, { signal }),
-    getNextPageParam: (lastPage) => sortBy === 'random' ? lastPage.nextRandomCursor : readingStatus ? lastPage.nextReadingCursor : lastPage.nextCursor,
+    getNextPageParam: (lastPage) => sortBy === 'random' ? lastPage.nextRandomCursor : readingStatus || likedOnly ? lastPage.nextReadingCursor : lastPage.nextCursor,
     retry: (attempt, failure) => !failure.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') && attempt < 3
   })
 
@@ -203,7 +206,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${ownerUserId}-${searchQuery}-${sortBy}-${mediaType}-${readingStatus ?? ''}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}`
+  const storageKey = `artworks-scroll-${ownerUserId}-${searchQuery}-${sortBy}-${mediaType}-${readingStatus ?? ''}-${likedOnly ?? false}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {

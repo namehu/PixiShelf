@@ -1,6 +1,7 @@
 import type { ImgHTMLAttributes } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MediaType } from '@/types'
 import type { RandomImageItem } from '@/types/images'
 import { useViewerStore } from '@/store/viewer-store'
@@ -46,7 +47,10 @@ function artwork(id: number, count = 1, kind: 'image' | 'video' | 'gif' = 'image
     }))
   }
 }
+const queryClients: QueryClient[] = []
 function mount(images: RandomImageItem[]) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClients.push(queryClient)
   useViewerStore.setState({ images, isChromeHidden: true })
   return render(
     <ImmersiveImageViewer
@@ -56,7 +60,8 @@ function mount(images: RandomImageItem[]) {
       hasMore={false}
       isLoading={false}
       onLoadMore={vi.fn()}
-    />
+    />,
+    { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> }
   )
 }
 function pointer(target: Element, type: string, x: number, pointerType = 'touch') {
@@ -125,6 +130,7 @@ describe('compact progress with real controls and Swipers', () => {
   })
   afterEach(() => {
     cleanup()
+    queryClients.splice(0).forEach((client) => client.clear())
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     vi.useRealTimers()

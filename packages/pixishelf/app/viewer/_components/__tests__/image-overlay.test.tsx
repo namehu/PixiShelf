@@ -6,14 +6,30 @@ import { useViewerStore } from '@/store/viewer-store'
 import ImageOverlay from '../image-overlay'
 
 const likeAction = vi.hoisted(() => vi.fn())
+const callbacks = vi.hoisted(() => ({
+  onSuccess: undefined as
+    | undefined
+    | ((result: { data: boolean; input: { artworkId: number; expectedUserId: string } }) => Promise<void>),
+  refresh: vi.fn(),
+  owner: 'alice'
+}))
+vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({}) }))
+vi.mock('@/components/auth', () => ({
+  useAuthUser: () => ({ id: callbacks.owner }),
+  useAuthStore: { getState: () => ({ user: { id: callbacks.owner } }) }
+}))
+vi.mock('@/lib/artwork-like-cache', () => ({ refreshArtworkLikeCache: callbacks.refresh }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('next-safe-action/hooks', () => ({
-  useOptimisticAction: () => ({
-    execute: likeAction,
-    result: { data: undefined },
-    optimisticState: { isLiked: false }
-  })
+  useOptimisticAction: (_action: unknown, options: typeof callbacks) => {
+    callbacks.onSuccess = options.onSuccess
+    return {
+      execute: likeAction,
+      result: { data: undefined },
+      optimisticState: { isLiked: false }
+    }
+  }
 }))
 vi.mock('../action-drawer', () => ({ ActionDrawer: () => null }))
 vi.mock('../tags-panel', () => ({ default: () => null }))
@@ -40,6 +56,8 @@ const artwork: RandomImageItem = {
 describe('viewer image overlay', () => {
   beforeEach(() => {
     likeAction.mockClear()
+    callbacks.refresh.mockClear()
+    callbacks.owner = 'alice'
     useViewerStore.setState({ artworkLikeMap: new Map([[artwork.id, false]]), isChromeHidden: false })
   })
 
@@ -74,7 +92,27 @@ describe('viewer image overlay', () => {
     render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} onInteractionApiChange={api} />)
     expect(api).toHaveBeenLastCalledWith({ openActions: expect.any(Function) })
     await act(async () => fireEvent.click(screen.getByRole('button', { name: '喜欢作品' })))
-    expect(likeAction).toHaveBeenCalledExactlyOnceWith({ artworkId: artwork.id })
+    expect(likeAction).toHaveBeenCalledExactlyOnceWith({ artworkId: artwork.id, expectedUserId: 'alice' })
+  })
+
+  it('updates the initiating account cache after switching without updating the current viewer or refetching', async () => {
+    render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} />)
+    await act(() => callbacks.onSuccess!({ data: true, input: { artworkId: artwork.id, expectedUserId: 'alice' } }))
+    expect(callbacks.refresh).toHaveBeenCalledWith(expect.anything(), 'alice', artwork.id, true, expect.any(Function))
+    expect(callbacks.refresh.mock.calls[0]![4]()).toBe(true)
+    expect(useViewerStore.getState().artworkLikeMap.get(artwork.id)).toBe(true)
+    callbacks.owner = 'bob'
+    await act(() => callbacks.onSuccess!({ data: false, input: { artworkId: artwork.id, expectedUserId: 'alice' } }))
+    expect(callbacks.refresh).toHaveBeenCalledTimes(2)
+    expect(callbacks.refresh).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'alice',
+      artwork.id,
+      false,
+      expect.any(Function)
+    )
+    expect(callbacks.refresh.mock.calls[1]![4]()).toBe(false)
+    expect(useViewerStore.getState().artworkLikeMap.get(artwork.id)).toBe(true)
   })
 
   it('keeps avatar, like, and more actions inside the bottom information area', () => {

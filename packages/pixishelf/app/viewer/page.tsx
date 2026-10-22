@@ -4,7 +4,7 @@ import type { ViewerPlaybackRate } from './_components/viewer-playback-rate'
 import ImmersiveImageViewer from './_components/immersive-image-viewer'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeftIcon, SlidersHorizontal } from 'lucide-react'
-import { parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
+import { parseAsBoolean, parseAsInteger, parseAsString, useQueryStates } from 'nuqs'
 import { useSearchParams } from 'next/navigation'
 import PageNoData from './_components/page-no-data'
 import PageLoading from './_components/page-loading'
@@ -45,6 +45,7 @@ const viewerQueryParsers = {
   hasAudio: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
   mediaType: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   readingStatus: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
+  likedOnly: parseAsBoolean.withDefault(false).withOptions({ history: 'replace', clearOnDefault: true }),
   startDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   endDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   createdStartDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
@@ -202,6 +203,7 @@ export default function ViewerPage() {
       hasAudio: hasAudio === 'all' ? undefined : hasAudio,
       mediaType: effectiveMediaType,
       readingStatus: readingStatus === 'all' ? undefined : readingStatus,
+      likedOnly: viewerQuery.likedOnly,
       expectedUserId: ownerUserId ?? undefined,
       startDate: viewerQuery.startDate || undefined,
       endDate: viewerQuery.endDate || undefined,
@@ -241,7 +243,7 @@ export default function ViewerPage() {
       getNextPageParam: (lastPage) =>
         feedInput.mode === 'random'
           ? lastPage.nextRandomCursor
-          : feedInput.readingStatus
+          : feedInput.readingStatus || feedInput.likedOnly
             ? lastPage.nextReadingCursor
             : (lastPage.nextPage ?? undefined),
       staleTime: 10 * 60 * 1000,
@@ -285,6 +287,7 @@ export default function ViewerPage() {
     Number(hasAudio !== 'all') +
     Number(feedInput.mediaType !== EMediaType.all) +
     Number(readingStatus !== 'all') +
+    Number(viewerQuery.likedOnly) +
     Number(Boolean(viewerQuery.startDate || viewerQuery.endDate)) +
     Number(Boolean(viewerQuery.createdStartDate || viewerQuery.createdEndDate))
 
@@ -326,6 +329,7 @@ export default function ViewerPage() {
       hasAudio: null,
       mediaType: EMediaType.all,
       readingStatus: null,
+      likedOnly: null,
       startDate: null,
       endDate: null,
       createdStartDate: null,
@@ -336,6 +340,7 @@ export default function ViewerPage() {
   const handleApplyFilters = (filters: {
     mediaType: MediaTypeFilter
     readingStatus?: ReadingStatus | 'all'
+    likedOnly?: boolean
     sortBy: SortOption
     artist?: Option[]
     tags?: Option[]
@@ -363,6 +368,7 @@ export default function ViewerPage() {
       sources: filters.sources,
       hasAudio: filters.hasAudio,
       readingStatus: filters.readingStatus ?? 'all',
+      likedOnly: filters.likedOnly ?? false,
       startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : '',
       endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : '',
       createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : '',
@@ -383,6 +389,7 @@ export default function ViewerPage() {
       hasAudio: filters.hasAudio === 'all' ? null : filters.hasAudio,
       mediaType: filters.mediaType,
       readingStatus: filters.readingStatus === 'all' ? null : filters.readingStatus,
+      likedOnly: filters.likedOnly || null,
       startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
       endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null,
       createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : null,
@@ -458,6 +465,7 @@ export default function ViewerPage() {
         currentSearch={viewerQuery.search}
         currentMediaType={feedInput.mediaType as MediaTypeFilter}
         currentReadingStatus={readingStatus}
+        currentLikedOnly={viewerQuery.likedOnly}
         currentSortBy={(feedInput.mode === 'random' ? 'random' : feedInput.sortBy) as SortOption}
         currentArtist={selectedArtist}
         currentTags={selectedTags}

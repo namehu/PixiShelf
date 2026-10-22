@@ -16,7 +16,7 @@ import PageToolbar from '@/components/layout/page-toolbar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import InfiniteArtworkList from '@/components/artwork/infinite-artwork-list'
-import { createSerializer, useQueryStates, parseAsInteger, parseAsString } from 'nuqs'
+import { createSerializer, useQueryStates, parseAsBoolean, parseAsInteger, parseAsString } from 'nuqs'
 import dayjs from 'dayjs'
 import type { Option } from '@/components/shared/multiple-selector'
 import { useTRPCClient } from '@/lib/trpc'
@@ -40,6 +40,7 @@ const viewerQueryParsers = {
   sources: parseAsString,
   hasAudio: parseAsString,
   readingStatus: parseAsString,
+  likedOnly: parseAsBoolean,
   mediaType: parseAsString,
   startDate: parseAsString,
   endDate: parseAsString,
@@ -134,7 +135,8 @@ export default function GalleryPage() {
     tagLabels,
     sources,
     hasAudio: hasAudioParam,
-    readingStatus: readingStatusParam
+    readingStatus: readingStatusParam,
+    likedOnly
   } = queryStates
   const hasAudio = normalizeAudioFilter(hasAudioParam)
   const readingStatus = normalizeReadingStatus(readingStatusParam)
@@ -184,6 +186,7 @@ export default function GalleryPage() {
     selectedSources.length > 0 ||
     hasAudio !== 'all' ||
     readingStatus !== 'all' ||
+    likedOnly ||
     mediaType !== 'all' ||
     !!startDate ||
     !!endDate ||
@@ -211,6 +214,7 @@ export default function GalleryPage() {
       sources: selectedSources.join(',') || null,
       hasAudio: hasAudio === 'all' ? null : hasAudio,
       readingStatus: readingStatus === 'all' ? null : readingStatus,
+      likedOnly: likedOnly || null,
       mediaType: mediaType || 'all',
       startDate: startDate || null,
       endDate: endDate || null,
@@ -225,6 +229,7 @@ export default function GalleryPage() {
     endDate,
     hasAudio,
     readingStatus,
+    likedOnly,
     mediaType,
     effectiveRandomSeed,
     searchQuery,
@@ -323,6 +328,7 @@ export default function GalleryPage() {
     sources: ArtworkSource[]
     hasAudio: AudioFilter
     readingStatus?: ReadingStatus | 'all'
+    likedOnly?: boolean
     search?: string
   }) => {
     if (!filters) {
@@ -361,7 +367,8 @@ export default function GalleryPage() {
       tagLabels: null,
       sources: null,
       hasAudio: null,
-      readingStatus: null
+      readingStatus: null,
+      likedOnly: null
     })
   }
 
@@ -437,6 +444,7 @@ export default function GalleryPage() {
                   onRemove={() => setQueryStates({ hasAudio: null })}
                 />
               )}
+              {likedOnly && <FilterChip label="我的喜欢" onRemove={() => setQueryStates({ likedOnly: null })} />}
               {readingStatus !== 'all' && (
                 <FilterChip
                   label={`阅读状态：${readingStatus === 'UNREAD' ? '未读' : readingStatus === 'IN_PROGRESS' ? '阅读中' : '已读完'}`}
@@ -496,6 +504,7 @@ export default function GalleryPage() {
         currentSources={selectedSources}
         currentHasAudio={hasAudio}
         currentReadingStatus={readingStatus}
+        currentLikedOnly={likedOnly}
         randomSeed={sortBy === 'random' ? effectiveRandomSeed : undefined}
         startDate={startDate}
         endDate={endDate}
@@ -518,6 +527,7 @@ export default function GalleryPage() {
           sources={selectedSources}
           hasAudio={hasAudio === 'all' ? undefined : hasAudio}
           readingStatus={readingStatus === 'all' ? undefined : readingStatus}
+          likedOnly={likedOnly}
           randomSeed={sortBy === 'random' ? effectiveRandomSeed : undefined}
           startDate={startDate || undefined}
           endDate={endDate || undefined}

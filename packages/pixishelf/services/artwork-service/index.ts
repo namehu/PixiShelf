@@ -51,16 +51,12 @@ export const publishedKeyframeSummaryInclude = {
 export * from './related'
 export * from './video-chapters'
 
-/**
- * 获取作品列表 (重构版)
- * 使用原生 SQL 处理复杂的过滤、搜索和排序，
- * 同时复用 transformSingleArtwork 确保返回数据格式一致。
- */
+/** 使用原生 SQL 筛选和排序，并复用 transformSingleArtwork 保持返回格式一致。 */
 export async function getArtworksList(params: ArtworksInfiniteQuerySchema, userId?: string): Promise<EnhancedArtworksResponse & { nextReadingCursor?: string }> {
   const { cursor } = params
   const page = cursor ?? 1
   const pageSize = params.pageSize
-  const { whereSQL, sqlParams } = params.readingStatus
+  const { whereSQL, sqlParams } = (params.readingStatus || params.likedOnly)
     ? readingCountClause(params, requireReadingUserId(userId))
     : buildArtworkWhereClause(params)
 
@@ -86,7 +82,7 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema, userI
 }
 
 async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfetch = false, userId?: string) {
-  if (params.readingStatus) return queryReadingArtworkRowsPage(params, requireReadingUserId(userId))
+  if (params.readingStatus || params.likedOnly) return queryReadingArtworkRowsPage(params, requireReadingUserId(userId))
   const page = params.cursor ?? 1
   const skip = (page - 1) * params.pageSize
   const { whereSQL, sqlParams, paramIndex: initialParamIndex } = buildArtworkWhereClause(params)
@@ -353,7 +349,7 @@ export async function getArtworkCardsPage(
       nextRandomCursor: result.nextRandomCursor
     }
   }
-  if (params.readingStatus) {
+  if (params.readingStatus || params.likedOnly) {
     const result = await queryReadingArtworkIdsPage(params, requireReadingUserId(userId))
     return {
       items: await getArtworkCardsByIds(result.ids),
@@ -806,6 +802,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     sortBy,
     randomSeed,
     readingStatus,
+    likedOnly,
     readingCursor,
     randomCursor,
     search,
@@ -842,6 +839,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     sortBy: mode === 'random' ? 'random' : sortBy || 'source_date_desc',
     randomSeed: mode === 'random' ? randomSeed : undefined,
     readingStatus,
+    likedOnly,
     readingCursor,
     randomCursor,
     expectedUserId: input.expectedUserId
@@ -876,7 +874,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     items,
     page,
     pageSize,
-    nextPage: readingStatus || randomPage ? null : hasNextPage ? page + 1 : null,
+    nextPage: readingStatus || likedOnly || randomPage ? null : hasNextPage ? page + 1 : null,
     nextRandomCursor: randomPage?.nextRandomCursor,
     nextReadingCursor
   }

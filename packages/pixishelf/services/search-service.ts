@@ -1,7 +1,13 @@
 'use server'
 
 import { prisma } from '@/lib/prisma'
-import { SearchSuggestion, SearchSuggestionsResponse, SearchSuggestionsSchema } from '@/schemas/search.dto'
+import {
+  SearchSuggestion,
+  SearchSuggestionsResponse,
+  SearchSuggestionsSchema,
+  searchSuggestionsSchema
+} from '@/schemas/search.dto'
+import { buildTagNameSearchWhere } from './tag-search'
 
 interface RawArtistSuggestion {
   id: number
@@ -20,9 +26,9 @@ interface RawArtworkSuggestion {
  * 获取搜索建议
  */
 export async function getSearchSuggestions(options: SearchSuggestionsSchema): Promise<SearchSuggestionsResponse> {
-  const { q: query, mode = 'normal', limit = 8 } = options
+  const { q: query, mode, limit } = searchSuggestionsSchema.parse(options)
 
-  if (!query || query.length < 2) {
+  if (query.length < (mode === 'tag' ? 1 : 2)) {
     return { suggestions: [] }
   }
 
@@ -31,32 +37,25 @@ export async function getSearchSuggestions(options: SearchSuggestionsSchema): Pr
   // 如果是标签搜索模式，优先搜索标签
   if (mode === 'tag') {
     const tags = await prisma.tag.findMany({
-      where: {
-        name: {
-          contains: query,
-          mode: 'insensitive'
-        }
-      },
+      where: buildTagNameSearchWhere(query),
       select: {
         id: true,
         name: true,
+        name_zh: true,
+        name_en: true,
         artworkCount: true
       },
-      orderBy: [
-        { artworkCount: 'desc' },
-        {
-          name: 'asc'
-        }
-      ],
+      orderBy: [{ artworkCount: 'desc' }, { name: 'asc' }, { id: 'asc' }],
       take: limit
     })
 
     // 添加标签建议
     tags.forEach((tag) => {
+      const names = [...new Set([tag.name, tag.name_zh, tag.name_en].filter((name): name is string => Boolean(name)))]
       suggestions.push({
         type: 'tag',
         value: tag.name,
-        label: `#${tag.name}`,
+        label: `#${names.join(' · ')}`,
         metadata: {
           id: tag.id,
           artworkCount: tag.artworkCount

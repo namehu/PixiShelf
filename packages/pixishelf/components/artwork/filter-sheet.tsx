@@ -5,6 +5,7 @@ import { ChevronDown } from 'lucide-react'
 import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { SSheet } from '@/components/shared/s-sheet'
 import { SortControl } from '@/components/ui/sort-control'
 import { MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui/media-type-filter'
@@ -35,6 +36,7 @@ export interface FilterSheetProps {
   currentSources?: ArtworkSource[]
   currentHasAudio?: AudioFilter
   currentReadingStatus?: ReadingStatus | 'all'
+  currentLikedOnly?: boolean
   currentSearch?: string
   currentMaxMediaCount?: number
   resetSortBy?: SortOption
@@ -54,6 +56,7 @@ export interface FilterSheetProps {
     sources: ArtworkSource[]
     hasAudio: AudioFilter
     readingStatus?: ReadingStatus | 'all'
+    likedOnly?: boolean
     search?: string
     maxMediaCount?: number
     randomSeed?: number
@@ -79,6 +82,7 @@ export function FilterSheet(props: FilterSheetProps) {
     currentSources = EMPTY_SOURCES,
     currentHasAudio = 'all',
     currentReadingStatus,
+    currentLikedOnly,
     currentSearch,
     currentMaxMediaCount,
     resetSortBy = 'source_date_desc',
@@ -100,6 +104,7 @@ export function FilterSheet(props: FilterSheetProps) {
   const [localSources, setLocalSources] = useState<Option[]>([])
   const [localHasAudio, setLocalHasAudio] = useState<AudioFilter>('all')
   const [localReadingStatus, setLocalReadingStatus] = useState<ReadingStatus | 'all'>('all')
+  const [localLikedOnly, setLocalLikedOnly] = useState(false)
   const [localSearch, setLocalSearch] = useState('')
   const [localMaxMediaCount, setLocalMaxMediaCount] = useState(8)
   const [localRandomSeed, setLocalRandomSeed] = useState<number | undefined>(undefined)
@@ -123,6 +128,7 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalSources(OSource.filter((option) => currentSources.includes(option.value)))
     setLocalHasAudio(currentHasAudio)
     setLocalReadingStatus(currentReadingStatus ?? 'all')
+    setLocalLikedOnly(currentLikedOnly ?? false)
     setLocalSearch(currentSearch ?? '')
     setLocalMaxMediaCount(currentMaxMediaCount ?? 8)
     setLocalRandomSeed(randomSeed)
@@ -143,6 +149,7 @@ export function FilterSheet(props: FilterSheetProps) {
     currentSources,
     currentHasAudio,
     currentReadingStatus,
+    currentLikedOnly,
     currentSearch,
     currentMaxMediaCount,
     randomSeed,
@@ -170,6 +177,7 @@ export function FilterSheet(props: FilterSheetProps) {
       sources: localSources.map((option) => option.value as ArtworkSource),
       hasAudio: localHasAudio,
       readingStatus: currentReadingStatus === undefined ? undefined : localReadingStatus,
+      likedOnly: currentLikedOnly === undefined ? undefined : localLikedOnly,
       search: localSearch.trim() || undefined,
       maxMediaCount: currentMaxMediaCount === undefined ? undefined : localMaxMediaCount,
       randomSeed: seed,
@@ -189,6 +197,7 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalSources([])
     setLocalHasAudio('all')
     setLocalReadingStatus('all')
+    setLocalLikedOnly(false)
     setLocalSearch('')
     setLocalMaxMediaCount(8)
     setLocalRandomSeed(undefined)
@@ -233,6 +242,7 @@ export function FilterSheet(props: FilterSheetProps) {
       sources: localSources.map((s) => s.value),
       hasAudio: localHasAudio,
       readingStatus: localReadingStatus,
+      likedOnly: localLikedOnly,
       startDate: localDateRange[0] ? dayjs(localDateRange[0]).format('YYYY-MM-DD') : '',
       endDate: localDateRange[1] ? dayjs(localDateRange[1]).format('YYYY-MM-DD') : '',
       createdStartDate: localCreatedDateRange[0] ? dayjs(localCreatedDateRange[0]).format('YYYY-MM-DD') : '',
@@ -250,6 +260,16 @@ export function FilterSheet(props: FilterSheetProps) {
   )
   const content = (
     <FieldGroup className="gap-5 pb-4">
+      {currentLikedOnly !== undefined && (
+        <Field orientation="horizontal" className="min-h-11">
+          <Checkbox
+            id="filter-liked-only"
+            checked={localLikedOnly}
+            onCheckedChange={(checked) => setLocalLikedOnly(checked === true)}
+          />
+          <FieldLabel htmlFor="filter-liked-only">只看我的喜欢</FieldLabel>
+        </Field>
+      )}
       {currentReadingStatus !== undefined && (
         <Field className="gap-3">
           <FieldTitle>阅读状态</FieldTitle>

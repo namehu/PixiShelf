@@ -139,12 +139,16 @@ export const useViewerStore = create<ViewerState>()(
       setFilters: (filters) => set({ filters }),
       // 设置图片列表数据
       setImages: (images: RandomImageItem[]) => {
-        const map = get().artworkLikeMap
+        const state = get()
+        const currentId = state.images[state.verticalIndex]?.id
+        const retainedIndex = images.findIndex((image) => image.id === currentId)
+        const map = new Map<number, boolean>()
         images.forEach((image) => {
           map.set(image.id, image.isLike ?? false)
         })
         set({
           images,
+          verticalIndex: retainedIndex >= 0 ? retainedIndex : Math.max(0, Math.min(state.verticalIndex, images.length - 1)),
           artworkLikeMap: map,
           hasFetchedOnce: true
         })
@@ -194,6 +198,7 @@ export const useViewerStore = create<ViewerState>()(
         get().stopAutoBrowse()
         set({
           images: [],
+          artworkLikeMap: new Map(),
           hasFetchedOnce: false,
           verticalIndex: 0,
           horizontalIndexes: {},

@@ -17,6 +17,7 @@ sources:
 | [作品详情页自动浏览验证与发布记录](./artwork-auto-browse.md)         | 自动滚动、轮播、预加载及 WebP 协同测试       |
 | [作品删除与删除总结验证与发布记录](./artwork-deletion.md)            | 删除事务回滚与部分文件失败重试               |
 | [作品快捷筛选验证与发布记录](./artwork-quick-filters.md)             | 快捷预设事务、导航与 Android 手势覆盖        |
+| [作品搜索与我的喜欢验证记录](./artwork-search-and-favorites.md)      | 喜欢账户隔离、分页、标签译名检索与浏览器验证 |
 | [作品阅读记录与进度验证与发布记录](./artwork-reading.md)             | 阅读初始实现、手动进度、视频、分页及反馈验证 |
 | [作品堆叠浏览验证与发布记录](./artwork-summary.md)                   | 堆叠分组、记读、旧请求兼容与视觉验证限制     |
 | [后台任务失败诊断验证与发布记录](./background-job-diagnostics.md)    | 执行证据、正常让行与归档恢复的分阶段验证     |

@@ -1,4 +1,5 @@
 import 'server-only'
+import { TRPCError } from '@trpc/server'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 
@@ -8,8 +9,12 @@ import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 export function buildArtworkWhereClause(
   params: ArtworksInfiniteQuerySchema,
   initialParamIndex = 1,
-  tagStrategy: 'grouped' | 'exists' = 'grouped'
+  tagStrategy: 'grouped' | 'exists' = 'grouped',
+  userId?: string
 ) {
+  if (params.readingCursor && !params.readingStatus && !params.likedOnly) {
+    throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid reading cursor' })
+  }
   const {
     id,
     tags,
@@ -37,6 +42,13 @@ export function buildArtworkWhereClause(
   let whereSQL = 'WHERE a."deletedAt" IS NULL AND a."archiveLifecycleState" = \'ACTIVE\''
   const sqlParams: any[] = []
   let paramIndex = initialParamIndex
+
+  if (params.likedOnly) {
+    if (!userId) throw new Error('Authenticated user required for liked filter')
+    whereSQL += ` AND EXISTS (SELECT 1 FROM "ArtworkLike" al WHERE al."artworkId" = a.id AND al."userId" = $${paramIndex})`
+    sqlParams.push(userId)
+    paramIndex++
+  }
 
   if (id && Number.isFinite(id)) {
     whereSQL += ` AND a.id = $${paramIndex}`

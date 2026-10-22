@@ -99,7 +99,7 @@ describe('protected maintenance actions', () => {
 })
 
 const writes = [
-  { name: 'like', invoke: () => toggleLikeAction({ artworkId: 1 }), service: mocks.toggleLike },
+  { name: 'like', invoke: () => toggleLikeAction({ artworkId: 1, expectedUserId: 'owner' }), service: mocks.toggleLike },
   { name: 'profile', invoke: () => updateProfileAction({ name: 'Reader' }), service: mocks.updateProfile },
   {
     name: 'preferences',
@@ -129,6 +129,14 @@ describe('protected account and import actions', () => {
     mocks.headers.mockResolvedValue(
       new Headers({ cookie: 'better-auth.session_token=forged', 'x-user-session': '{"userId":"forged"}' })
     )
+  })
+  it('rejects stale like actions and derives their owner from the session', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'owner' } })
+    expect((await toggleLikeAction({ artworkId: 1, expectedUserId: 'previous-user' }))?.serverError).toContain('账户已切换')
+    expect(mocks.toggleLike).not.toHaveBeenCalled()
+    mocks.toggleLike.mockResolvedValue(true)
+    expect((await toggleLikeAction({ artworkId: 1, expectedUserId: 'owner' }))?.data).toBe(true)
+    expect(mocks.toggleLike).toHaveBeenCalledExactlyOnceWith('owner', 1)
   })
   it.each(writes)('$name rejects absent, invalid and unavailable sessions without effects', async ({ invoke }) => {
     for (const identity of [null, {}, { user: {} }]) {

@@ -6,9 +6,31 @@ vi.mock('server-only', () => ({}))
 vi.mock('@/lib/prisma', () => ({ prisma: { $queryRawUnsafe: queryRawMock } }))
 
 import { queryReadingArtworkIdsPage, queryReadingArtworkRowsPage } from '../reading-page-query'
+import { buildArtworkWhereClause } from '../query-builder'
 
 describe('reading page SQL', () => {
   beforeEach(() => { queryRawMock.mockReset() })
+
+  it('combines favorites with ordinary filters and rejects cursors from another account or collection', async () => {
+    const params = ArtworksInfiniteQuerySchema.parse({ likedOnly: true, pageSize: 1, sortBy: 'title_asc', search: 'cat', tagIds: [1, 2], sources: ['LOCAL_IMPORT'] })
+    expect(() => buildArtworkWhereClause(params)).toThrow('Authenticated user required')
+    queryRawMock.mockResolvedValue([{ id: 1, reading_sort_value: 'A' }, { id: 2, reading_sort_value: 'B' }])
+    const first = await queryReadingArtworkIdsPage(params, 'alice')
+    const [sql, ...values] = queryRawMock.mock.calls[0]!
+    expect(sql).toContain('FROM "ArtworkLike"')
+    expect(sql).toContain('al."userId" = $1')
+    expect(sql).toContain('a.title ILIKE')
+    expect(sql).toContain('GROUP BY')
+    expect(sql).not.toMatch(/artwork_reading_summaries|OFFSET/)
+    expect(values).toContain('alice')
+    queryRawMock.mockReset().mockResolvedValue([{ id: 2, reading_sort_value: 'B' }])
+    await queryReadingArtworkIdsPage({ ...params, readingCursor: first.nextReadingCursor }, 'alice')
+    expect(queryRawMock.mock.calls[0]?.[0]).toContain('a.title >')
+    await expect(queryReadingArtworkIdsPage({ ...params, readingCursor: first.nextReadingCursor }, 'bob')).rejects.toThrow('Invalid reading cursor')
+    await expect(queryReadingArtworkIdsPage({ ...params, likedOnly: false, readingCursor: first.nextReadingCursor }, 'alice')).rejects.toThrow('Invalid reading cursor')
+    expect(buildArtworkWhereClause(ArtworksInfiniteQuerySchema.parse({ likedOnly: false })).whereSQL).not.toContain('ArtworkLike')
+    expect(() => buildArtworkWhereClause({ ...params, likedOnly: false, readingCursor: first.nextReadingCursor })).toThrow('Invalid reading cursor')
+  })
 
   it('filters by authenticated account, overfetches IDs and uses no offset', async () => {
     queryRawMock.mockImplementation((sql: string) => Promise.resolve(sql.includes('COUNT(*)')

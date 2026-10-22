@@ -30,7 +30,7 @@ const authorized = {
 }
 
 describe('reading router session ownership', () => {
-  beforeEach(() => Object.values(service).forEach((mock) => mock.mockReset()))
+  beforeEach(() => [...Object.values(service), ...Object.values(listService)].forEach((mock) => mock.mockReset()))
 
   it('rejects all unauthenticated reads and writes before reaching the service', async () => {
     const caller = readingRouter.createCaller(unauthorized as never)
@@ -83,5 +83,18 @@ describe('reading router session ownership', () => {
     listService.getArtworkCardsPage.mockResolvedValue({ items: [], hasNextPage: false, pageSize: 24 })
     await expect(caller.cardList({ readingStatus: 'UNREAD', expectedUserId: 'user-1' })).resolves.toMatchObject({ items: [] })
     expect(listService.getArtworkCardsPage).toHaveBeenCalledWith(expect.objectContaining({ expectedUserId: 'user-1' }), 'user-1')
+  })
+  it('protects favorites with the session account and returns keyset continuation', async () => {
+    const caller = artworkRouter.createCaller(authorized as never)
+    for (const method of ['list', 'cardList', 'viewerFeed'] as const) {
+      await expect(artworkRouter.createCaller(unauthorized as never)[method]({ likedOnly: true, expectedUserId: 'user-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+      await expect(caller[method]({ likedOnly: true })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      await expect(caller[method]({ likedOnly: true, expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    }
+    expect(Object.values(listService).every((mock) => mock.mock.calls.length === 0)).toBe(true)
+    listService.getArtworkCardsPage.mockResolvedValue({ items: [], hasNextPage: true, nextReadingCursor: 'keyset', pageSize: 24 })
+    await expect(caller.cardList({ likedOnly: true, expectedUserId: 'user-1' })).resolves.toMatchObject({ nextCursor: undefined, nextReadingCursor: 'keyset' })
+    expect(listService.getArtworkCardsPage).toHaveBeenCalledWith(expect.objectContaining({ likedOnly: true }), 'user-1')
+    await expect(caller.cardList({ likedOnly: false })).resolves.toMatchObject({ nextCursor: 2 })
   })
 })

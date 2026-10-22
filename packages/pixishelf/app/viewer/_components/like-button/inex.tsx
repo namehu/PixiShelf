@@ -11,6 +11,7 @@ import { Spinner } from '@/components/ui/spinner'
 export interface LikeButtonProps {
   liked: boolean
   onToggleLike: () => void
+  disabled?: boolean
   /** 额外的CSS类名 */
   className?: string
 }
@@ -26,7 +27,7 @@ export interface LikeButtonProps {
  * - 完整的错误处理和加载状态
  * - 无障碍访问支持
  */
-export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onToggleLike }) => {
+export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onToggleLike, disabled }) => {
   // 处理点赞点击
   const [handleLikeClick, likeLoading] = useSuperLock(async (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault()
@@ -50,7 +51,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({ className, liked, onTogg
         className
       )}
       onClick={handleLikeClick}
-      disabled={likeLoading}
+      disabled={disabled || likeLoading}
     >
       {/* 加载状态指示器 */}
       <AnimatePresence mode="wait">

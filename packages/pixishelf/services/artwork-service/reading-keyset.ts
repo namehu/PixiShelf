@@ -72,8 +72,10 @@ export function appendReadingFilterAndCursor(
   base: { whereSQL: string; sqlParams: unknown[]; paramIndex: number }
 ) {
   let { whereSQL, sqlParams, paramIndex } = base
-  const reading = appendReadingPredicate(params.readingStatus, userId, { whereSQL, sqlParams, paramIndex })
-  ;({ whereSQL, sqlParams, paramIndex } = reading)
+  if (params.readingStatus) {
+    const reading = appendReadingPredicate(params.readingStatus, userId, { whereSQL, sqlParams, paramIndex })
+    ;({ whereSQL, sqlParams, paramIndex } = reading)
+  }
 
   const seedPlaceholder = `$${paramIndex}`
   const spec = sortSpec(params.sortBy ?? 'source_date_desc', params.randomSeed, seedPlaceholder)

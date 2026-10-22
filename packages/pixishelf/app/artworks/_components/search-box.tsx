@@ -40,7 +40,7 @@ export interface SearchBoxProps {
  */
 export const SearchBox: React.FC<SearchBoxProps> = ({
   value = '',
-  placeholder = '搜索作品、艺术家...',
+  placeholder,
   onSearch,
   onValueChange,
   onSuggestionClick,
@@ -59,20 +59,37 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   const inputRef = useRef<HTMLInputElement>(null)
   const suggestionsRef = useRef<HTMLUListElement>(null)
   const suggestionsId = React.useId()
-  const debouncedQuery = useDebounce(inputValue.trim(), 300)
+  const trimmedInput = inputValue.trim()
+  const debouncedInput = useDebounce(trimmedInput, 300)
+  const canSelectTags = Boolean(onSuggestionClick)
+  const isTagSearch = mode === 'tag' || (canSelectTags && trimmedInput.startsWith('#'))
+  const queryMode = mode === 'tag' || (canSelectTags && debouncedInput.startsWith('#')) ? 'tag' : 'normal'
+  const debouncedQuery = queryMode === 'tag' ? debouncedInput.replace(/^#/, '').trim() : debouncedInput
+  const isQueryCurrent = trimmedInput === debouncedInput
+  const canQuery = isQueryCurrent && debouncedQuery.length >= (queryMode === 'tag' ? 1 : 2)
+  const tagHintId = `${suggestionsId}-hint`
 
   const trpc = useTRPC()
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     ...trpc.search.suggestions.queryOptions({
       q: debouncedQuery,
-      mode,
+      mode: queryMode,
       limit: 8
     }),
-    enabled: !!debouncedQuery && debouncedQuery.length >= 2 && isFocused
+    enabled: canQuery && isFocused && !disabled
   })
 
-  const suggestions = data?.suggestions || []
+  const suggestions = canQuery ? data?.suggestions || [] : []
+  const tagHint = !trimmedInput.replace(/^#/, '').trim()
+    ? '输入标签原名、中文或英文，选择建议后筛选。'
+    : !isQueryCurrent || isLoading
+      ? '正在查找标签…'
+      : isError
+        ? '标签建议加载失败，请调整关键词后重试。'
+        : suggestions.length === 0
+          ? '未找到标签，试试原名、中文或英文译名。'
+          : '请选择一个标签；使用方向键和回车，或点击建议。'
 
   useEffect(() => {
     setInputValue(value)
@@ -91,13 +108,25 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value
     setInputValue(newValue)
-    onValueChange?.(newValue)
+    setSelectedIndex(-1)
+    // A tag lookup remains local until a suggestion supplies its stable ID.
+    if (mode !== 'tag' && !(canSelectTags && newValue.trim().startsWith('#'))) {
+      onValueChange?.(newValue)
+    }
   }
 
   // 处理键盘事件
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setIsFocused(false)
+      setShowSuggestions(false)
+      setSelectedIndex(-1)
+      inputRef.current?.blur()
+      return
+    }
     if (!showSuggestions || suggestions.length === 0) {
       if (e.key === 'Enter') {
+        if (isTagSearch) e.preventDefault()
         handleSearch()
       }
       return
@@ -123,16 +152,15 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
           handleSearch()
         }
         break
-      case 'Escape':
-        setShowSuggestions(false)
-        setSelectedIndex(-1)
-        inputRef.current?.blur()
-        break
     }
   }
 
   // 处理搜索
   const handleSearch = () => {
+    if (isTagSearch) {
+      setSelectedIndex(-1)
+      return
+    }
     const query = inputValue.trim()
     onSearch?.(query)
     setShowSuggestions(false)
@@ -141,13 +169,13 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
 
   // 处理建议点击
   const handleSuggestionClick = (suggestion: SearchSuggestion) => {
-    setInputValue(suggestion.value)
+    setInputValue(suggestion.type === 'tag' ? '' : suggestion.value)
     setShowSuggestions(false)
     setSelectedIndex(-1)
 
     if (onSuggestionClick) {
       onSuggestionClick(suggestion)
-    } else {
+    } else if (suggestion.type !== 'tag') {
       onSearch?.(suggestion.value)
     }
   }
@@ -208,13 +236,14 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
           aria-autocomplete="list"
           aria-expanded={showSuggestions && suggestions.length > 0}
           aria-controls={suggestionsId}
+          aria-describedby={isTagSearch && isFocused ? tagHintId : undefined}
           aria-activedescendant={selectedIndex >= 0 ? `${suggestionsId}-${selectedIndex}` : undefined}
           value={inputValue}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           onFocus={handleFocus}
           onBlur={handleBlur}
-          placeholder={placeholder}
+          placeholder={placeholder ?? (canSelectTags ? '搜索作品、艺术家，或 #标签…' : '搜索作品、艺术家…')}
           disabled={disabled}
           className={cn('pl-10', isLoading && 'pr-10')}
         />
@@ -226,56 +255,64 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
       </div>
 
       {/* 搜索建议下拉列表 */}
-      {showSuggestions && suggestions.length > 0 && (
-        <ul
-          id={suggestionsId}
-          ref={suggestionsRef}
-          role="listbox"
-          aria-label="搜索建议"
-          className="absolute top-full left-0 right-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg"
-        >
-          {suggestions.map((suggestion, index) => (
-            <li key={`${suggestion.type}-${suggestion.value}-${index}`} role="presentation">
-              <button
-                id={`${suggestionsId}-${index}`}
-                type="button"
-                role="option"
-                aria-selected={selectedIndex === index}
-                className={cn(
-                  'flex w-full items-center gap-3 rounded-md border-l-2 border-transparent px-3 py-2.5 text-left transition-colors hover:bg-accent',
-                  selectedIndex === index && 'border-primary bg-accent'
-                )}
-                onClick={() => handleSuggestionClick(suggestion)}
+      {((showSuggestions && suggestions.length > 0) || (isTagSearch && isFocused)) && (
+        <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg">
+          {isTagSearch && (
+            <p
+              id={tagHintId}
+              role={isError && isQueryCurrent ? 'alert' : 'status'}
+              className="px-3 py-2 text-sm text-muted-foreground"
+            >
+              {tagHint}
+            </p>
+          )}
+          <ul id={suggestionsId} ref={suggestionsRef} role="listbox" aria-label="搜索建议">
+            {suggestions.map((suggestion, index) => (
+              <li
+                key={`${suggestion.type}-${suggestion.metadata?.id ?? suggestion.value}-${index}`}
+                role="presentation"
               >
-                {/* 图标 */}
-                <div className="flex-shrink-0 text-primary">{getSuggestionIcon(suggestion.type)}</div>
-
-                {/* 内容 */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium text-foreground">{suggestion.label}</span>
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                      {getTypeLabel(suggestion.type)}
-                    </span>
-                  </div>
-
-                  {/* 元数据 */}
-                  {suggestion.metadata && (
-                    <div className="mt-1 text-sm text-muted-foreground">
-                      {suggestion.metadata.artistName && <span>作者: {suggestion.metadata.artistName}</span>}
-                      {suggestion.metadata.imageCount !== undefined && (
-                        <span>{suggestion.metadata.imageCount} 张图片</span>
-                      )}
-                      {suggestion.metadata.artworkCount !== undefined && (
-                        <span>{suggestion.metadata.artworkCount} 个作品</span>
-                      )}
-                    </div>
+                <button
+                  id={`${suggestionsId}-${index}`}
+                  type="button"
+                  role="option"
+                  aria-selected={selectedIndex === index}
+                  className={cn(
+                    'flex w-full items-center gap-3 rounded-md border-l-2 border-transparent px-3 py-2.5 text-left transition-colors hover:bg-accent',
+                    selectedIndex === index && 'border-primary bg-accent'
                   )}
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
+                  onClick={() => handleSuggestionClick(suggestion)}
+                >
+                  {/* 图标 */}
+                  <div className="flex-shrink-0 text-primary">{getSuggestionIcon(suggestion.type)}</div>
+
+                  {/* 内容 */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium text-foreground">{suggestion.label}</span>
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                        {getTypeLabel(suggestion.type)}
+                      </span>
+                    </div>
+
+                    {/* 元数据 */}
+                    {suggestion.metadata && (
+                      <div className="mt-1 text-sm text-muted-foreground">
+                        {suggestion.metadata.artistName && <span>作者: {suggestion.metadata.artistName}</span>}
+                        {suggestion.metadata.imageCount !== undefined && (
+                          <span>{suggestion.metadata.imageCount} 张图片</span>
+                        )}
+                        {suggestion.metadata.artworkCount !== undefined && (
+                          <span>{suggestion.metadata.artworkCount} 个作品</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </div>
   )

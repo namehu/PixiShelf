@@ -55,6 +55,8 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 
 精确接口参数由 Zod 和路由代码维护。扫描/迁移错误 envelope 及 Webhook 例外见[HTTP 响应契约](./http-response-contract.md)，外部调用见[扫描 Webhook](../../packages/pixishelf/docs/webhook-features.md)。
 
+作品喜欢筛选和点赞使用 Session 账户，`expectedUserId` 只作账户切换一致性校验。喜欢条件的列表、卡片与沉浸 feed 缺失或错账户参数时拒绝；客户端不能指定任意账户喜欢集合。点赞写入在进入服务前检查账户一致性，前端只更新对应账户缓存。见[作品搜索与我的喜欢](../features/artwork-search-and-favorites.md)。
+
 ## 服务网络和存储矩阵
 
 | 组件       | 网络                            | 数据库        | 原媒体             | 派生媒体 | Pixiv data |

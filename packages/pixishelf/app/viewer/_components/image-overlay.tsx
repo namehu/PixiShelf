@@ -16,6 +16,10 @@ import { useOptimisticAction } from 'next-safe-action/hooks'
 import { toggleLikeAction } from '@/actions/like-action'
 import { Button } from '@/components/ui/button'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { useQueryClient } from '@tanstack/react-query'
+import { useAuthStore, useAuthUser } from '@/components/auth'
+import { refreshArtworkLikeCache } from '@/lib/artwork-like-cache'
+import { toast } from 'sonner'
 
 interface ImageOverlayProps {
   isActive: boolean
@@ -43,6 +47,8 @@ export default function ImageOverlay({
   onPanelOpenChange
 }: ImageOverlayProps) {
   const { id, author, createdAt, title, description, tags = [] } = image
+  const queryClient = useQueryClient()
+  const ownerUserId = useAuthUser()?.id
   const { artworkLikeMap, syncImageLikeStatus, isChromeHidden } = useViewerStore(
     useShallow((state) => ({
       artworkLikeMap: state.artworkLikeMap,
@@ -66,19 +72,21 @@ export default function ImageOverlay({
   // 从状态管理中获取当前图片的点赞状态
   const storeIsLiked = useMemo(() => artworkLikeMap.get(id) ?? false, [artworkLikeMap, id])
 
-  const { execute, result, optimisticState } = useOptimisticAction(toggleLikeAction, {
+  const { execute, optimisticState, isPending } = useOptimisticAction(toggleLikeAction, {
     currentState: { isLiked: storeIsLiked },
-    updateFn: (state) => ({ isLiked: !state.isLiked })
+    updateFn: (state) => ({ isLiked: !state.isLiked }),
+    onSuccess: async ({ data, input }) => {
+      if (data === undefined) return
+      const isCurrentAccount = () => useAuthStore.getState().user?.id === input.expectedUserId
+      if (isCurrentAccount()) syncImageLikeStatus(input.artworkId, data)
+      await refreshArtworkLikeCache(queryClient, input.expectedUserId, input.artworkId, data, isCurrentAccount)
+    },
+    onError: ({ input }) => {
+      if (useAuthStore.getState().user?.id === input.expectedUserId) toast.error('喜欢状态未保存，请重试。')
+    }
   })
 
   const isLiked = optimisticState.isLiked
-
-  // 监听操作结果，成功后同步到全局 Store
-  useEffect(() => {
-    if (result.data !== undefined) {
-      syncImageLikeStatus(id, result.data)
-    }
-  }, [result, id, syncImageLikeStatus])
 
   const openActionDrawer = useCallback(() => {
     setShowActionDrawer(true)
@@ -158,7 +166,10 @@ export default function ImageOverlay({
                 <div className="flex shrink-0 items-center gap-1" role="group" aria-label="作品快捷操作">
                   <LikeButton
                     liked={isLiked}
-                    onToggleLike={() => execute({ artworkId: id })}
+                    disabled={isPending || !ownerUserId}
+                    onToggleLike={() => {
+                      if (ownerUserId) execute({ artworkId: id, expectedUserId: ownerUserId })
+                    }}
                     className="size-11 bg-transparent p-0 shadow-none backdrop-blur-none hover:bg-white/10 [&_svg]:size-[18px]"
                   />
                   <Button

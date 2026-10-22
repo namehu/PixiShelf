@@ -1,4 +1,4 @@
-import { createSerializer, parseAsInteger, parseAsString } from 'nuqs'
+import { createSerializer, parseAsBoolean, parseAsInteger, parseAsString } from 'nuqs'
 import {
   artworkQuerySnapshotSchema,
   readingFilterLabels,
@@ -23,7 +23,8 @@ export const artworkQueryParsers = {
   tagLabels: string(),
   sources: string(),
   hasAudio: string('all'),
-  readingStatus: string('all')
+  readingStatus: string('all'),
+  likedOnly: parseAsBoolean.withDefault(false).withOptions({ history: 'replace', clearOnDefault: true })
 }
 export function snapshotToQuery(input: ArtworkQuerySnapshot, seed?: number) {
   const q = artworkQuerySnapshotSchema.parse(input)
@@ -39,6 +40,7 @@ export function snapshotToQuery(input: ArtworkQuerySnapshot, seed?: number) {
     sources: q.sources.join(',') || null,
     hasAudio: q.hasAudio,
     readingStatus: q.readingStatus,
+    likedOnly: q.likedOnly || null,
     startDate: q.startDate || null,
     endDate: q.endDate || null,
     createdStartDate: q.createdStartDate || null,
@@ -59,6 +61,7 @@ export function queryToSnapshot(params: URLSearchParams): ArtworkQuerySnapshot {
   })
   return artworkQuerySnapshotSchema.parse({
     ...Object.fromEntries(params),
+    likedOnly: params.get('likedOnly') === 'true',
     artist: params.get('artistId')
       ? [{ value: params.get('artistId'), label: params.get('artistLabel') || `#${params.get('artistId')}` }]
       : [],
@@ -83,6 +86,7 @@ export function describeSnapshot(q: ArtworkQuerySnapshot) {
   return [
     q.search && `关键词：${q.search}`,
     q.readingStatus !== 'all' && readingFilterLabels[q.readingStatus],
+    q.likedOnly && '我的喜欢',
     q.mediaType !== 'all' && { image: '图片', animation: '动图', video: '视频' }[q.mediaType],
     ...q.artist.map((a) => a.label),
     ...q.tags.map((t) => `#${t.label}`),
