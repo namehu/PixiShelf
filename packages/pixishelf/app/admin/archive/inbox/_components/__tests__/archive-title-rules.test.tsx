@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ArchiveTitleRules } from '@pixishelf/job-contracts'
+import { evaluateArchiveTitleRules, type ArchiveTitleRules } from '@pixishelf/job-contracts'
 import { ArchiveTitleRuleFields } from '../archive-title-rule-fields'
 import { ArchiveTitleRuleDialog } from '../archive-title-rule-dialog'
 
@@ -119,6 +119,37 @@ describe('title rules editor and preview', () => {
     dialog(true)
     expect(((await screen.findByRole('button', { name: '应用规则' })) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByText(/当前有活动扫描/)).toBeTruthy()
+  })
+  it('shows the effective decision separately from rule evidence and decodes private display titles', async () => {
+    api.latestRulePreview.mockResolvedValue(saved)
+    api.rulePreviewItems.mockResolvedValue({
+      items: [
+        {
+          catalogItemId: 'manual-in',
+          accepted: true,
+          reviewDecision: 'INCLUDE',
+          title: 'Chloe &amp; Amber - Ragnarok'
+        },
+        { catalogItemId: 'manual-out', accepted: false, reviewDecision: 'EXCLUDE', title: '[RAG] Fluorite' },
+        { catalogItemId: 'automatic', accepted: false, reviewDecision: 'AUTO', title: '[Other] Ragnarok' }
+      ].map(({ title, ...item }) => ({
+        ...item,
+        catalogItem: { title, externalId: item.catalogItemId },
+        evaluation: evaluateArchiveTitleRules(rules, { origin: 'REMOTE', titles: [title] })
+      })),
+      nextCursor: null
+    })
+    dialog()
+    const decodedTitle = await screen.findByText('Chloe & Amber - Ragnarok', { selector: 'article > div > p' })
+    expect(decodedTitle.hasAttribute('data-privacy-sensitive')).toBe(true)
+    const accepted = within(decodedTitle.closest('article')!)
+    expect(accepted.getByText('接纳')).toBeTruthy()
+    expect(accepted.getByText('手动接纳')).toBeTruthy()
+    expect(accepted.getByText('未满足接纳条件')).toBeTruthy()
+    const excluded = within(screen.getByText('[RAG] Fluorite', { selector: 'article > div > p' }).closest('article')!)
+    expect(excluded.getByText('过滤')).toBeTruthy()
+    expect(excluded.getByText('手动排除')).toBeTruthy()
+    expect(excluded.getByText('命中接纳条件')).toBeTruthy()
   })
   it('restores a newly queued preview on the first reopen despite a stale cached latest result', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })

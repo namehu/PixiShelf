@@ -5,10 +5,13 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   archiveTitleRulesSchema,
   archiveTitleEvaluationSchema,
+  decodeArchiveTitle,
   evaluateArchiveTitleRules,
   type ArchiveTitleRules
 } from '@pixishelf/job-contracts'
 import { toast } from 'sonner'
+import { Check, X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useTRPC } from '@/lib/trpc'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
 import {
@@ -210,10 +213,18 @@ export function ArchiveTitleRuleDialog({
           ) : null}
           {preview.data?.status === 'READY' ? (
             <section className="flex min-w-0 flex-col gap-3" aria-label="规则预览结果">
-              <p className="text-sm" aria-live="polite">
-                共 {preview.data.checkedCount} 条 · 接纳 {preview.data.acceptedCount} · 过滤{' '}
-                {preview.data.filteredCount} · 保留人工决定 {preview.data.manualCount} 条
-              </p>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm" aria-live="polite">
+                <span className="font-medium tabular-nums">共 {preview.data.checkedCount} 条</span>
+                <span className="inline-flex items-center gap-1.5 font-medium text-success">
+                  <Check aria-hidden="true" className="size-4" />
+                  接纳 <span className="tabular-nums">{preview.data.acceptedCount}</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 font-medium text-destructive">
+                  <X aria-hidden="true" className="size-4" />
+                  过滤 <span className="tabular-nums">{preview.data.filteredCount}</span>
+                </span>
+                <span className="text-xs text-muted-foreground">保留人工决定 {preview.data.manualCount} 条</span>
+              </div>
               <ToggleGroup
                 type="single"
                 variant="outline"
@@ -231,20 +242,44 @@ export function ArchiveTitleRuleDialog({
               {page.isPending ? <Spinner aria-label="加载预览明细" /> : null}
               {page.data?.pages
                 .flatMap((group) => group.items)
-                .map((item) => (
-                  <div key={item.catalogItemId} className="min-w-0 rounded-md border p-3">
-                    <PrivacySensitiveText as="p" className="break-words text-sm [overflow-wrap:anywhere]">
-                      {item.catalogItem.title}
-                    </PrivacySensitiveText>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {item.accepted ? '接纳' : '过滤'} · #{item.catalogItem.externalId}
-                    </p>
-                    <ArchiveTitleMatchEvidence
-                      evaluation={archiveTitleEvaluationSchema.safeParse(item.evaluation).data}
-                      decision={item.reviewDecision}
-                    />
-                  </div>
-                ))}
+                .map((item) => {
+                  const StatusIcon = item.accepted ? Check : X
+                  return (
+                    <article
+                      key={item.catalogItemId}
+                      className="flex min-w-0 items-start gap-3 rounded-lg border p-3 sm:p-4"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'flex size-8 shrink-0 items-center justify-center rounded-full',
+                          item.accepted ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'
+                        )}
+                      >
+                        <StatusIcon className="size-4" strokeWidth={2.5} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                          <span className={cn('font-medium', item.accepted ? 'text-success' : 'text-destructive')}>
+                            {item.accepted ? '接纳' : '过滤'}
+                          </span>
+                          <span className="text-muted-foreground">#{item.catalogItem.externalId}</span>
+                        </p>
+                        <PrivacySensitiveText
+                          as="p"
+                          className="break-words text-sm font-medium leading-relaxed [overflow-wrap:anywhere]"
+                        >
+                          {decodeArchiveTitle(item.catalogItem.title)}
+                        </PrivacySensitiveText>
+                        <ArchiveTitleMatchEvidence
+                          evaluation={archiveTitleEvaluationSchema.safeParse(item.evaluation).data}
+                          decision={item.reviewDecision}
+                          showStatusMarker={false}
+                        />
+                      </div>
+                    </article>
+                  )
+                })}
               {page.isSuccess && !page.data.pages.some((group) => group.items.length) ? (
                 <p className="py-4 text-sm text-muted-foreground">这个范围没有候选。</p>
               ) : null}
