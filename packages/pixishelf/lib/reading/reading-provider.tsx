@@ -3,7 +3,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { ReadingSummaryDto, ReadingMarkReadInput, ReadingContextDto } from '@pixishelf/db/reading-contract'
+import { getReadingStatus, type ReadingSummaryDto, type ReadingMarkReadInput, type ReadingContextDto } from '@pixishelf/db/reading-contract'
 import { useAuthUser, useAuthStore } from '@/components/auth/auth-provider'
 import { useTRPC, useTRPCClient } from '@/lib/trpc'
 import { ReadingCollector, isRevisionConflict, type ReadingObservation } from './reading-collector'
@@ -179,7 +179,8 @@ export function useArtworkReading(artworkId: number, source?: {
     const seen = new Set(context.seenMediaIds)
     context.media.forEach((item) => { if (target.kind === 'ALL' || item.memberMediaIds.includes(target.mediaId)) seen.add(item.mediaId) })
     context = { ...context, seenMediaIds: [...seen], summary: { ...context.summary, seenCount: seen.size,
-      status: context.summary.totalCount > 0 && seen.size >= context.summary.totalCount ? 'COMPLETED' : seen.size > 0 ? 'IN_PROGRESS' : context.summary.status } }
+      status: getReadingStatus({ ...context.summary, seenCount: seen.size,
+        viewCount: context.summary.status === 'IN_PROGRESS' ? Math.max(1, context.summary.viewCount) : context.summary.viewCount }) } }
   }
 
   useEffect(() => {

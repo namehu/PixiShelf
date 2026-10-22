@@ -14,6 +14,25 @@ const viewed: ReadingSummaryDto = {
 }
 
 describe('reading cache patch', () => {
+  it.each(['custom', 'trpc'])('removes threshold-complete works from %s continuation while preserving factual progress in cards', (kind) => {
+    const client = new QueryClient()
+    const key = kind === 'custom' ? ['reading', 'continueReading', 'alice']
+      : [['reading', 'continueReading'], { input: { expectedUserId: 'alice' }, type: 'query' }]
+    const cardKey = ['artwork', 'cardList', 'alice']
+    const initial = { ...viewed, totalCount: 100, seenCount: 97 }
+    const page = { items: [{ artworkId: 7, reading: initial }] }
+    client.setQueryData(key, page)
+    client.setQueryData(cardKey, page)
+    const completed = { ...initial, stateVersion: 2, seenCount: 98, status: 'COMPLETED' as const }
+    patchReadingSummaryInCache(client, completed, 'alice')
+    expect(client.getQueryData(key)).toEqual({ items: [] })
+    expect(client.getQueryData(cardKey)).toEqual({ items: [{ artworkId: 7, reading: completed }] })
+    client.setQueryData(key, page)
+    reconcileReadingCache(client, 'alice')
+    expect(client.getQueryData(key)).toEqual({ items: [] })
+    client.clear()
+  })
+
   it.each(['custom', 'trpc'])('updates and invalidates only the owning continuation shelf (%s)', (kind) => {
     const client = new QueryClient()
     const key = (owner: string) => kind === 'custom'

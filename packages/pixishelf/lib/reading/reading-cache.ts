@@ -1,5 +1,5 @@
 import type { QueryClient } from '@tanstack/react-query'
-import { compareReadingVersion, type ReadingSummaryDto, type ReadingReportResult, type ReadingContextDto } from '@pixishelf/db/reading-contract'
+import { compareReadingVersion, isArtworkReadingComplete, type ReadingSummaryDto, type ReadingReportResult, type ReadingContextDto } from '@pixishelf/db/reading-contract'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -35,7 +35,7 @@ function removeFinishedContinueReading(value: unknown): unknown {
     if (!isRecord(item) || !isSummary(item.reading)) return true
     const summary = item.reading
     return summary.viewCount > 0 && summary.lastViewedAt !== null &&
-      summary.totalCount > 0 && summary.seenCount < summary.totalCount
+      summary.totalCount > 0 && !isArtworkReadingComplete(summary.seenCount, summary.totalCount)
   })
   return items.length === value.items.length ? value : { ...value, items }
 }

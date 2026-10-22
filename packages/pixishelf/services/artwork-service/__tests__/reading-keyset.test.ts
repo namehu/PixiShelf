@@ -12,6 +12,20 @@ function build(input: Record<string, unknown>) {
 
 describe('reading keyset query', () => {
   it.each([
+    ['IN_PROGRESS', '<'],
+    ['COMPLETED', '>=']
+  ])('keeps %s page and count predicates on the same exact completion threshold', (readingStatus, operator) => {
+    const { query } = build({ readingStatus })
+    const comparison = `rs."seenCount"::bigint * 100 ${operator} rs."totalCount"::bigint * 98`
+    expect(query.whereSQL).toContain(comparison)
+    expect(query.countWhereSQL).toContain(comparison)
+    expect(query.sqlParams).toEqual(['user-1'])
+    expect(query.countParams).toEqual(['user-1'])
+    expect(query.whereSQL).toContain('rs."seenCount" > 0 OR rs."viewCount" > 0')
+    expect(query.whereSQL).toContain(readingStatus === 'COMPLETED' ? 'rs."totalCount" > 0' : 'rs."totalCount" = 0 OR')
+  })
+
+  it.each([
     ['title_asc', 'title', 'a.title >'],
     ['title_desc', 'title', 'a.title <'],
     ['images_asc', 12, 'a."imageCount" >'],

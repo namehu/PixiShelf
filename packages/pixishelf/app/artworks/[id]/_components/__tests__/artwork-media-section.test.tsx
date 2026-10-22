@@ -394,19 +394,20 @@ describe('ArtworkMediaSection', () => {
     expect(mocks.localMounts).toBe(1)
   })
 
-  it('finds the two unread items in 600, preserves the round and refreshes to empty', () => {
+  it('finds remaining unread items in a threshold-complete work, preserves the round and refreshes to empty', () => {
     const images = Array.from({ length: 600 }, (_, index) => ({ id: index + 1 })) as ArtworkImageResponseDto[]
     const seenMediaIds = images.map((image) => image.id).filter((id) => id !== 237 && id !== 599)
     mocks.readingContext = {
       artworkId: 7, mediaRevision: 1, seenMediaIds,
       media: images.map((image, index) => ({ mediaId: image.id, memberMediaIds: [image.id], index })), resume: null,
       summary: { artworkId: 7, mediaRevision: 1, stateVersion: 1, viewCount: 1, seenCount: 598, totalCount: 600,
-        status: 'IN_PROGRESS', lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
+        status: 'COMPLETED', lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
     }
     mocks.readingSummary = mocks.readingContext.summary
     const renderContent = () => <ArtworkMediaViewProvider><ReadingMenuHarness /><ArtworkMediaSection images={images} artworkId={7} /></ArtworkMediaViewProvider>
     const view = render(renderContent())
     expect(mocks.toastCustom).not.toHaveBeenCalled()
+    expect(screen.getByText('已读完 · 已记录 598 / 600 张')).toBeTruthy()
     const pause = vi.spyOn(useArtworkAutoBrowseStore.getState(), 'pause')
     fireEvent.click(screen.getAllByRole('button', { name: '只看未读' })[0]!)
     expect(pause).toHaveBeenCalledWith('manual')
