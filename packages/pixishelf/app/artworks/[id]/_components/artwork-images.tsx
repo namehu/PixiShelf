@@ -108,9 +108,13 @@ function getPointerPosition(event: React.MouseEvent | React.TouchEvent) {
   return { x: event.clientX, y: event.clientY }
 }
 
+// Section spacing, paper edges and the compact navigation below the image.
+const STACK_ROW_CHROME_HEIGHT = 60
+
 function useMeasuredMediaContainer() {
   const [containerWidth, setContainerWidth] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(0)
+  const [stackHeight, setStackHeight] = useState((800 - NAV_HEIGHT) * 0.9 - STACK_ROW_CHROME_HEIGHT)
   const [scrollMargin, setScrollMargin] = useState(0)
   const [scrollPaddingStart, setScrollPaddingStart] = useState(NAV_HEIGHT)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -121,11 +125,14 @@ function useMeasuredMediaContainer() {
     const rect = containerRef.current.getBoundingClientRect()
     const nextWidth = Math.max(1, rect.width)
     const nextScrollMargin = rect.top + window.scrollY
+    const { top, bottom } = getAutoBrowseViewport()
 
     setContainerWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth))
     setViewportHeight(window.innerHeight)
     setScrollMargin((currentMargin) => (currentMargin === nextScrollMargin ? currentMargin : nextScrollMargin))
-    setScrollPaddingStart(getAutoBrowseViewport().top)
+    setScrollPaddingStart(top)
+    // A landscape cover must not squeeze every portrait in its stack into a short frame.
+    setStackHeight(Math.max(160, (bottom - top) * 0.9 - STACK_ROW_CHROME_HEIGHT))
   }, [])
 
   useLayoutEffect(() => {
@@ -142,16 +149,7 @@ function useMeasuredMediaContainer() {
     }
   }, [updateMeasurements])
 
-  return { containerRef, containerWidth, viewportHeight, scrollMargin, scrollPaddingStart }
-}
-
-
-function stackFrameHeight(stack: StackDecoration, width: number, viewportHeight: number, top: number) {
-  // Leave 32px side gutters for the tilted cards and 8px on each side of the front photo.
-  // The height cap keeps the rotated rear corners inside those gutters on tall viewports.
-  const frameWidth = Math.max(1, (width || 720) - 80)
-  const availableHeight = Math.max(160, (viewportHeight || 800) - top - 164)
-  return Math.min(getEstimatedMediaHeight(stack.cover, frameWidth), 720, availableHeight)
+  return { containerRef, containerWidth, viewportHeight, stackHeight, scrollMargin, scrollPaddingStart }
 }
 
 function useArtworkMediaVirtualizer({
@@ -159,6 +157,7 @@ function useArtworkMediaVirtualizer({
   visibleCount,
   containerWidth,
   viewportHeight,
+  stackHeight,
   scrollMargin,
   scrollPaddingStart,
   decorations
@@ -167,6 +166,7 @@ function useArtworkMediaVirtualizer({
   visibleCount: number
   containerWidth: number
   viewportHeight: number
+  stackHeight: number
   scrollMargin: number
   scrollPaddingStart: number
   decorations?: Map<number, StackDecoration>
@@ -176,10 +176,10 @@ function useArtworkMediaVirtualizer({
       const image = images[index]!
       const stack = decorations?.get(image.id)
       return stack && stack.group.mediaIds.length > 1
-        ? stackFrameHeight(stack, containerWidth, viewportHeight, scrollPaddingStart) + 132
+        ? stackHeight + STACK_ROW_CHROME_HEIGHT
         : getEstimatedMediaHeight(image, containerWidth)
     },
-    [containerWidth, images, decorations, viewportHeight, scrollPaddingStart]
+    [containerWidth, images, decorations, stackHeight]
   )
   const getItemKey = useCallback((index: number) => decorations?.get(images[index]?.id ?? -1)?.group.id ?? images[index]?.id ?? index, [images, decorations])
   const identity = images.map((media) => decorations?.get(media.id)?.group.id ?? media.id).join(',')
@@ -713,12 +713,13 @@ function VirtualizedArtworkMediaList({
   const anchorInterval = useArtworkMediaAnchorInterval()
   const setCurrentIndex = useArtworkStore((state) => state.setCurrentIndex)
   const currentIndex = useArtworkStore((state) => state.currentIndex)
-  const { containerRef, containerWidth, viewportHeight, scrollMargin, scrollPaddingStart } = useMeasuredMediaContainer()
+  const { containerRef, containerWidth, viewportHeight, stackHeight, scrollMargin, scrollPaddingStart } = useMeasuredMediaContainer()
   const { virtualizer, measureElement } = useArtworkMediaVirtualizer({
     images,
     visibleCount: Math.min(visibleCount, images.length),
     containerWidth,
     viewportHeight,
+    stackHeight,
     scrollMargin,
     scrollPaddingStart,
     decorations: summaryDecorations
@@ -876,7 +877,7 @@ function VirtualizedArtworkMediaList({
             >
               {decoration && decoration.group.mediaIds.length > 1 ? <ArtworkStackCard key={`${decoration.group.id}:${retryCounts[media.id] ?? 0}`}
                 media={media} index={index} decoration={decoration}
-                height={stackFrameHeight(decoration, containerWidth, viewportHeight, scrollPaddingStart)}
+                height={stackHeight}
                 reading={reading} trackingActive={trackingActive}
                 onMenu={onOpenPreviewMenu} onPreview={onOpenAdaptivePreview}
               /> : <ArtworkMediaItem
