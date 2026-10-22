@@ -76,7 +76,11 @@ function TitlePanel({
           复核统计加载失败，重试
         </Button>
       ) : null}
-      {view === 'accepted' ? children : <ArchiveTitleFilteredResults sourceId={sourceId} rulesVersion={rulesVersion} />}
+      {view === 'accepted' ? (
+        children
+      ) : (
+        <ArchiveTitleFilteredResults sourceId={sourceId} rulesVersion={rulesVersion} counts={counts.data} />
+      )}
       {edit ? (
         <ArchiveTitleRuleSheet
           sourceId={sourceId}

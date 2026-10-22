@@ -31,7 +31,7 @@ interface ArchiveDiscoveryResultListProps<TItem extends { id: string }> {
   footer?: ReactNode
   onPositionRestored?: () => void
   header: ReactNode
-  renderItem: (item: TItem) => ReactNode
+  renderItem: (item: TItem, index: number) => ReactNode
   hasNextPage: boolean
   isFetchingNextPage: boolean
   onLoadMore: () => void
@@ -289,14 +289,14 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
           lastRequestedLengthRef.current = items.length
           onLoadMore()
         }}
-        itemContent={(_index, row) => (
+        itemContent={(rowIndex, row) => (
           <div
             className={view === 'cards' ? 'grid gap-3 px-3 py-1.5' : undefined}
             style={view === 'cards' ? { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` } : undefined}
           >
-            {row.items.map((item) => (
+            {row.items.map((item, columnIndex) => (
               <div key={item.id} className="min-w-0">
-                {renderItem(item)}
+                {renderItem(item, rowIndex * columns + columnIndex)}
               </div>
             ))}
           </div>

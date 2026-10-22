@@ -154,7 +154,7 @@ export function ScanResults({
           <span className="text-right">操作</span>
         </div>
       }
-      renderItem={(item) => (
+      renderItem={(item, index) => (
         <div
           data-discovery-item={item.id}
           className={cn(
@@ -234,6 +234,7 @@ export function ScanResults({
                   />
                 ) : null}
                 <p className="col-span-2 mt-1 text-xs leading-relaxed text-muted-foreground">
+                  <span className="whitespace-nowrap tabular-nums">第 {index + 1} 条</span> ·{' '}
                   <span className="tabular-nums">#{item.externalId}</span> ·{' '}
                   <PrivacySensitiveText>
                     {item.category ?? '分类未知'} ·{' '}
