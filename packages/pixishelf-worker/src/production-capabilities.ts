@@ -1,6 +1,7 @@
 import {
   ARCHIVE_IMPORT_DEFINITION_VERSION,
   ARCHIVE_SEARCH_DEFINITION_VERSION,
+  ARCHIVE_RULE_PREVIEW_DEFINITION_VERSION,
   executionLaneForJobType,
   JOB_DEFINITION_VERSION,
   SCAN_AUDIT_APPLY_DEFINITION_VERSION,
@@ -56,8 +57,10 @@ export const PRODUCTION_WORKER_CAPABILITIES = PRODUCTION_JOB_TYPES.map((jobType)
       : jobType === 'ARCHIVE_IMPORT'
         ? [JOB_DEFINITION_VERSION, ARCHIVE_IMPORT_DEFINITION_VERSION]
         : jobType === 'ARCHIVE_SEARCH_SCAN'
-          ? [JOB_DEFINITION_VERSION, 2, 3, ARCHIVE_SEARCH_DEFINITION_VERSION]
-          : [JOB_DEFINITION_VERSION]
+          ? [JOB_DEFINITION_VERSION, 2, 3, 4, ARCHIVE_SEARCH_DEFINITION_VERSION]
+          : jobType === 'ARCHIVE_TITLE_RULE_PREVIEW'
+            ? [JOB_DEFINITION_VERSION, ARCHIVE_RULE_PREVIEW_DEFINITION_VERSION]
+            : [JOB_DEFINITION_VERSION]
 })) satisfies readonly WorkerCapability[]
 
 export function canonicalWorkerCapabilities(
@@ -81,6 +84,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 35-job/41-version dual-lane release')
+    throw new Error('Production Worker capability inventory drifted from the 35-job/43-version dual-lane release')
   }
 }

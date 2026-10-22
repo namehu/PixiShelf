@@ -4,6 +4,9 @@ import {
   archiveTitleAccepted,
   archiveTitleEvidenceFromCatalog,
   archiveTitleQueryIdentity,
+  archiveTitleRulesSchema,
+  archiveTitleConditionMatchRanges,
+  canonicalArchiveTitleRules,
   decodeArchiveTitle,
   evaluateArchiveTitleRules,
   legacyArchiveTitleRules,
@@ -78,5 +81,123 @@ describe('explicit archive title rules', () => {
     expect(archiveTitleQueryIdentity(query, rules)).toBe(
       archiveTitleQueryIdentity(query, { ...rules, any: [...rules.any].reverse() })
     )
+  })
+
+  it('defaults to ignoring case, with independent case-sensitive positive and negative conditions', () => {
+    const exactCase: ArchiveTitleRules = {
+      version: 2,
+      any: [{ operator: 'WHOLE_WORD', text: 'RAG', ignoreCase: false }],
+      all: [],
+      none: []
+    }
+    expect(evaluate(['[RAG] Title'], exactCase).matched).toBe(true)
+    expect(evaluate(['[rag] Title'], exactCase).matched).toBe(false)
+    expect(evaluate(['[rag] Title'], { ...exactCase, any: [{ ...exactCase.any[0]!, ignoreCase: true }] }).matched).toBe(
+      true
+    )
+    const withExclusion = {
+      ...exactCase,
+      all: [{ operator: 'CONTAINS' as const, text: 'title' }],
+      none: [{ operator: 'CONTAINS' as const, text: 'SKIP', ignoreCase: false }]
+    }
+    expect(evaluate(['[RAG] Title skip'], withExclusion).matched).toBe(true)
+    expect(evaluate(['[RAG] Title', 'SKIP'], withExclusion).reason).toBe('EXCLUDED')
+  })
+
+  it.each(['CONTAINS', 'STARTS_WITH', 'ENDS_WITH', 'EQUALS'] as const)('honors case for %s', (operator) => {
+    const input: ArchiveTitleRules = {
+      version: 2,
+      any: [{ operator, text: 'RAG', ignoreCase: false }],
+      all: [],
+      none: []
+    }
+    expect(evaluate([' RAG '], input).matched).toBe(true)
+    expect(evaluate([' rag '], input).matched).toBe(false)
+  })
+
+  it('uses safe regex search with groups, alternatives, classes, Unicode and independent exclusions', () => {
+    const input: ArchiveTitleRules = {
+      version: 2,
+      any: [{ operator: 'REGEX', text: '^\\[(RAG|r18AnimeGirls/RAG)\\]', ignoreCase: false }],
+      all: [{ operator: 'REGEX', text: '\\p{Han}+' }],
+      none: [{ operator: 'REGEX', text: 'skip\\d+$' }]
+    }
+    expect(evaluate(['[RAG] 标题'], input).matched).toBe(true)
+    expect(evaluate(['[r18AnimeGirls/RAG] 标题'], input).matched).toBe(true)
+    expect(evaluate(['[rag] 标题'], input).matched).toBe(false)
+    expect(evaluate(['[Other] Ragnarok 标题'], input).matched).toBe(false)
+    expect(evaluate(['[RAG] 标题', 'SKIP2'], input).reason).toBe('EXCLUDED')
+    expect(evaluate(['[RAG]', '标题'], input).matched).toBe(false)
+  })
+
+  it.each([
+    '[',
+    '(?=RAG)',
+    '(?<=RAG)',
+    '(RAG)\\1',
+    '(?i)rag',
+    '(?-i:RAG)',
+    '\\Q[\\E(?i)rag',
+    '\\Q[\\E(?-i)RAG',
+    '[[:alpha:]](?i)rag'
+  ])('rejects invalid or unsupported regex %s', (text) => {
+    expect(
+      archiveTitleRulesSchema.safeParse({ version: 2, any: [{ operator: 'REGEX', text }], all: [], none: [] }).success
+    ).toBe(false)
+  })
+
+  it.each(['\\Q(?i)\\E', '[](?i)]', '[[:alpha:](?i)]'])('allows literal flag-like text in %s', (text) => {
+    expect(
+      archiveTitleRulesSchema.safeParse({ version: 2, any: [{ operator: 'REGEX', text }], all: [], none: [] }).success
+    ).toBe(true)
+  })
+
+  it('evaluates pathological backtracking patterns without backtracking and handles zero-length matches', () => {
+    const input: ArchiveTitleRules = { version: 2, any: [{ operator: 'REGEX', text: '(a+)+$' }], all: [], none: [] }
+    expect(evaluate(['a'.repeat(50_000) + '!'], input).matched).toBe(false)
+    expect(evaluate(['[RAG]'], { ...input, any: [{ operator: 'REGEX', text: '^' }] })).toMatchObject({
+      matched: true,
+      matchRanges: [{ start: 0, end: 0 }]
+    })
+    expect(evaluate(['', 'Other'], { ...input, any: [{ operator: 'REGEX', text: '^$' }] }).matched).toBe(false)
+  })
+
+  it('preserves regex source, significant case and old query identities during canonicalization', () => {
+    const query = archiveTitleQuerySchema.parse({ keyword: 'RAG' })
+    const legacy = legacyArchiveTitleRules(query)
+    expect(
+      archiveTitleQueryIdentity(query, { ...legacy, version: 2, any: [{ ...legacy.any[0]!, ignoreCase: true }] })
+    ).toBe(archiveTitleQueryIdentity(query, legacy))
+    const sensitive: ArchiveTitleRules = { ...legacy, version: 2, any: [{ ...legacy.any[0]!, ignoreCase: false }] }
+    expect(archiveTitleQueryIdentity(query, sensitive)).not.toBe(archiveTitleQueryIdentity(query, legacy))
+    expect(archiveTitleQueryIdentity(query, sensitive)).not.toBe(
+      archiveTitleQueryIdentity(query, { ...sensitive, any: [{ ...sensitive.any[0]!, text: 'rag' }] })
+    )
+    const regex: ArchiveTitleRules = { ...legacy, version: 2, any: [{ operator: 'REGEX', text: ' \\D+[A-Z] ' }] }
+    expect(canonicalArchiveTitleRules(regex).any[0]!.text).toBe(' \\D+[A-Z] ')
+    expect(archiveTitleQueryIdentity(query, regex)).not.toBe(
+      archiveTitleQueryIdentity(query, { ...regex, any: [{ operator: 'REGEX', text: ' \\d+[a-z] ' }] })
+    )
+    expect(archiveTitleRulesSchema.safeParse({ ...sensitive, version: 1 }).success).toBe(false)
+  })
+
+  it('records exact decoded-title highlight offsets across bilingual, entity and Unicode cases', () => {
+    const raw = '  😀 &amp; [RAG] Endfield  '
+    const result = evaluate(['別のタイトル', raw], { ...rules, all: [{ operator: 'CONTAINS', text: 'Endfield' }] })
+    expect(result.titleIndex).toBe(1)
+    expect(result.matchRanges!.map(({ start, end }) => decodeArchiveTitle(raw).slice(start, end))).toEqual([
+      '[RAG]',
+      'Endfield'
+    ])
+    expect(archiveTitleConditionMatchRanges('İ [RAG]', { operator: 'CONTAINS', text: '[rag]' })).toEqual([
+      { start: 2, end: 7 }
+    ])
+    expect(archiveTitleConditionMatchRanges(' 😀 &#91;RAG&#93; ', { operator: 'REGEX', text: 'RAG' })).toEqual([
+      { start: 5, end: 8 }
+    ])
+    expect(archiveTitleConditionMatchRanges('Ragged RAG [RAG]', { operator: 'WHOLE_WORD', text: 'RAG' })).toEqual([
+      { start: 7, end: 10 },
+      { start: 12, end: 15 }
+    ])
   })
 })

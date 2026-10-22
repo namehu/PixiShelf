@@ -163,11 +163,14 @@ describe('ExecutorRegistry', () => {
     }
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(capabilities).toHaveLength(35)
-    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(41)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(43)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
-      [1, 2, 3, 4]
+      [1, 2, 3, 4, 5]
     )
     expect(capabilities).toEqual(PRODUCTION_WORKER_CAPABILITIES)
+    expect(
+      capabilities.find((capability) => capability.jobType === 'ARCHIVE_TITLE_RULE_PREVIEW')?.definitionVersions
+    ).toEqual([1, 2])
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_IMPORT')?.definitionVersions).toEqual([
       1, 2
@@ -189,7 +192,12 @@ describe('ExecutorRegistry', () => {
     })
     expect(
       capabilities
-        .filter((capability) => !['SCAN', 'ARCHIVE_IMPORT', 'ARCHIVE_SEARCH_SCAN'].includes(capability.jobType))
+        .filter(
+          (capability) =>
+            !['SCAN', 'ARCHIVE_IMPORT', 'ARCHIVE_SEARCH_SCAN', 'ARCHIVE_TITLE_RULE_PREVIEW'].includes(
+              capability.jobType
+            )
+        )
         .every((capability) => capability.definitionVersions.length === 1 && capability.definitionVersions[0] === 1)
     ).toBe(true)
   })

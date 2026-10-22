@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { evaluateArchiveTitleRules, type ArchiveTitleRules } from '@pixishelf/job-contracts'
 import { ArchiveTitleRuleFields } from '../archive-title-rule-fields'
 import { ArchiveTitleRuleDialog } from '../archive-title-rule-dialog'
+import { ArchiveTitleMatchEvidence } from '../archive-title-match-evidence'
 
 const api = vi.hoisted(() => ({
   latestRulePreview: vi.fn(),
@@ -98,6 +99,71 @@ describe('title rules editor and preview', () => {
     fireEvent.click(screen.getByRole('button', { name: '移除满足任一条件第 1 条' }))
     expect((screen.getByLabelText('满足任一条件 1 文本') as HTMLInputElement).value).toBe('[r18AnimeGirls/RAG]')
     expect((screen.getByLabelText('排除条件 1 文本') as HTMLInputElement).value).toBe('Ragnarok')
+  })
+  it('defaults each checkbox to ignoring case and preserves independently edited regex and case settings', () => {
+    const onChange = vi.fn()
+    const input: ArchiveTitleRules = {
+      version: 2,
+      any: [{ operator: 'REGEX', text: '^\\[RAG\\]' }],
+      all: [],
+      none: [{ operator: 'CONTAINS', text: 'skip' }]
+    }
+    function Editor() {
+      const [value, setValue] = useState(input)
+      return (
+        <ArchiveTitleRuleFields
+          value={value}
+          onChange={(next) => {
+            onChange(next)
+            setValue(next)
+          }}
+        />
+      )
+    }
+    render(<Editor />)
+    const checkbox = screen.getByRole('checkbox', { name: '满足任一条件 1 忽略大小写' })
+    expect(checkbox.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(checkbox)
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ version: 2, any: [{ operator: 'REGEX', text: '^\\[RAG\\]', ignoreCase: false }] })
+    )
+    expect(screen.getByRole('checkbox', { name: '排除条件 1 忽略大小写' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.change(screen.getByLabelText('满足任一条件 1 文本'), { target: { value: '[' } })
+    expect(screen.getByLabelText('满足任一条件 1 文本').getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByRole('alert').textContent).toContain('正则表达式无效')
+    fireEvent.change(screen.getByLabelText('满足任一条件 1 文本'), { target: { value: '\\D+[A-Z]' } })
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(onChange.mock.lastCall![0].any[0]).toEqual({ operator: 'REGEX', text: '\\D+[A-Z]', ignoreCase: false })
+  })
+
+  it('shows the matching bilingual title and highlights without expanding, including older saved evaluations', () => {
+    const evaluation = evaluateArchiveTitleRules(rules, {
+      origin: 'HISTORICAL',
+      titles: ['豊川祥子 ウェディングドレス', '😀 &amp; [RAG] Wedding']
+    })
+    delete evaluation.matchRanges
+    const { container } = render(<ArchiveTitleMatchEvidence evaluation={evaluation} />)
+    const heading = screen.getByText('命中标题 · 历史快照')
+    expect(heading.closest('details')).toBeNull()
+    const highlight = container.querySelector('mark')!
+    expect(highlight.textContent).toBe('[RAG]')
+    expect(highlight.closest('details')).toBeNull()
+    expect(highlight.closest('[data-privacy-sensitive]')?.textContent).toBe('😀 & [RAG] Wedding')
+    expect(container.querySelector('details')!.open).toBe(false)
+    fireEvent.click(screen.getByText('全部判断标题（2）'))
+    expect(container.querySelector('details')!.open).toBe(true)
+  })
+
+  it('highlights regex exclusions separately from a preserved manual acceptance', () => {
+    const evaluation = evaluateArchiveTitleRules(
+      { ...rules, version: 2, none: [{ operator: 'REGEX', text: 'skip\\d+' }] },
+      { origin: 'REMOTE', titles: ['[RAG] Title', 'SKIP12 &amp; Test'] }
+    )
+    const { container } = render(<ArchiveTitleMatchEvidence evaluation={evaluation} decision="INCLUDE" />)
+    expect(screen.getByText('手动接纳')).toBeTruthy()
+    expect(screen.getByText('触发排除的标题')).toBeTruthy()
+    expect(container.querySelector('mark')!.textContent).toBe('SKIP12')
+    expect(container.querySelector('mark')!.className).toContain('text-destructive')
   })
   it('requires a completed preview before applying, and shows full-set counts and empty details', async () => {
     dialog()
