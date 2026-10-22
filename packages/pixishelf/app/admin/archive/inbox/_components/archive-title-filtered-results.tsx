@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
+import { decodeArchiveTitle } from '@pixishelf/job-contracts'
 import { useTRPC } from '@/lib/trpc'
+import { cn } from '@/lib/utils'
 import { useMediaQuery } from '@/hooks/use-media-query'
+import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -13,11 +16,14 @@ import { ArchiveDiscoveryResultList } from './archive-discovery-result-list'
 import { ArchiveDiscoveryContentFilters } from './archive-discovery-content-filters'
 import { DEFAULT_DISCOVERY_FILTERS, discoveryQueryFilters } from './archive-discovery-filter-state'
 import { ArchiveTitleMatchEvidence } from './archive-title-match-evidence'
+import { ArchiveUploaderGalleryThumbnail, ArchiveUploaderResultViewToggle } from './archive-uploader-result-visuals'
 import { useTitleReview } from './use-title-review'
 
 export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { sourceId: string; rulesVersion: number }) {
   const trpc = useTRPC()
   const desktop = useMediaQuery('(min-width: 1024px)')
+  const resultView = useAdminPreferencesStore((state) => state.archiveUploaderResultView)
+  const setResultView = useAdminPreferencesStore((state) => state.setArchiveUploaderResultView)
   const [ready, setReady] = useState(false)
   const [filters, setFilters] = useState(DEFAULT_DISCOVERY_FILTERS)
   const [reviewFilter, setReviewFilter] = useState<'ALL' | 'UNREVIEWED' | 'EXCLUDED'>('UNREVIEWED')
@@ -52,23 +58,26 @@ export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { source
     })
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        value={reviewFilter}
-        aria-label="过滤复核范围"
-        className="justify-start"
-        onValueChange={(value) => {
-          if (value) {
-            setReviewFilter(value as typeof reviewFilter)
-            setSelected(new Set())
-          }
-        }}
-      >
-        <ToggleGroupItem value="UNREVIEWED">未复核</ToggleGroupItem>
-        <ToggleGroupItem value="EXCLUDED">已确认排除</ToggleGroupItem>
-        <ToggleGroupItem value="ALL">全部过滤项</ToggleGroupItem>
-      </ToggleGroup>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={reviewFilter}
+          aria-label="过滤复核范围"
+          className="justify-start"
+          onValueChange={(value) => {
+            if (value) {
+              setReviewFilter(value as typeof reviewFilter)
+              setSelected(new Set())
+            }
+          }}
+        >
+          <ToggleGroupItem value="UNREVIEWED">未复核</ToggleGroupItem>
+          <ToggleGroupItem value="EXCLUDED">已确认排除</ToggleGroupItem>
+          <ToggleGroupItem value="ALL">全部过滤项</ToggleGroupItem>
+        </ToggleGroup>
+        <ArchiveUploaderResultViewToggle value={resultView} onChange={setResultView} />
+      </div>
       <ArchiveDiscoveryContentFilters
         value={filters}
         onChange={(value) => {
@@ -79,6 +88,7 @@ export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { source
       <p className="text-sm text-muted-foreground">接纳后回到本来源列表，不会自动下载。复核决定只影响当前来源。</p>
       <ArchiveDiscoveryResultList
         items={items}
+        view={resultView}
         isDesktop={desktop}
         layoutReady={ready}
         isLoading={query.isPending}
@@ -105,7 +115,14 @@ export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { source
           <div className="flex min-h-12 items-center gap-3 border-b px-4 text-sm">
             <Checkbox
               aria-label="选择已加载过滤项，最多一百条"
-              checked={items.length > 0 && items.slice(0, 100).every((item) => selected.has(item.id))}
+              disabled={pending || items.length === 0}
+              checked={
+                items.length > 0 && items.slice(0, 100).every((item) => selected.has(item.id))
+                  ? true
+                  : selected.size > 0
+                    ? 'indeterminate'
+                    : false
+              }
               onCheckedChange={(checked) =>
                 setSelected(checked ? new Set(items.slice(0, 100).map((item) => item.id)) : new Set())
               }
@@ -113,70 +130,112 @@ export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { source
             <span>过滤候选 · 已加载 {items.length} 条</span>
           </div>
         }
-        renderItem={(item) => (
-          <div className="grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] gap-2 border-b p-3 sm:gap-3 sm:p-4">
-            <Checkbox
-              className="mt-1"
-              aria-label={`复核 ${item.title}`}
-              checked={selected.has(item.id)}
-              disabled={pending || (!selected.has(item.id) && selected.size >= 100)}
-              onCheckedChange={(checked) => toggle(item.id, checked === true)}
-            />
-            <div className="min-w-0">
-              <PrivacySensitiveText as="p" className="break-words text-sm font-medium [overflow-wrap:anywhere]">
-                <a
-                  className="hover:underline"
-                  href={`/api/archive/catalog/${encodeURIComponent(item.id)}/source`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  referrerPolicy="no-referrer"
-                >
-                  {item.title}
-                </a>
-              </PrivacySensitiveText>
-              <p className="mt-1 text-xs text-muted-foreground">
-                #{item.externalId} · <PrivacySensitiveText>{item.uploaderName ?? '上传者未知'}</PrivacySensitiveText>
-              </p>
-              <ArchiveTitleMatchEvidence
-                evaluation={item.matchEvaluation}
-                evidence={item.matchEvidence}
-                decision={item.reviewDecision}
+        renderItem={(item) => {
+          const title = decodeArchiveTitle(item.title)
+          const sourceHref = `/api/archive/catalog/${encodeURIComponent(item.id)}/source`
+          return (
+            <div
+              data-discovery-item={item.id}
+              className={cn(
+                'grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] gap-2 bg-background p-3 sm:gap-3 sm:p-4',
+                resultView === 'cards' ? 'h-full rounded-lg border' : 'border-b',
+                selected.has(item.id) && 'bg-accent/50'
+              )}
+            >
+              <Checkbox
+                className="mt-1"
+                aria-label={`复核 ${title}`}
+                checked={selected.has(item.id)}
+                disabled={pending || (!selected.has(item.id) && selected.size >= 100)}
+                onCheckedChange={(checked) => toggle(item.id, checked === true)}
               />
-              <div className="mt-3 flex flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  className="h-11 sm:h-9"
-                  disabled={pending || item.matchEvaluation?.uploaderMatches === false}
-                  onClick={() => review([item.id], 'INCLUDE')}
+              <div
+                className={cn(
+                  'min-w-0',
+                  resultView === 'cards'
+                    ? 'col-span-2 flex flex-col gap-3'
+                    : resultView === 'preview'
+                      ? 'grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-x-3'
+                      : 'flex flex-col'
+                )}
+              >
+                {resultView !== 'list' ? (
+                  <div className={resultView === 'preview' ? 'sm:row-span-3' : undefined}>
+                    <ArchiveUploaderGalleryThumbnail
+                      key={item.id}
+                      item={{ ...item, title }}
+                      card={resultView === 'cards'}
+                      sourceHref={sourceHref}
+                    />
+                  </div>
+                ) : null}
+                <div className="min-w-0">
+                  <PrivacySensitiveText as="p" className="break-words text-sm font-medium [overflow-wrap:anywhere]">
+                    <a
+                      className="hover:underline"
+                      href={sourceHref}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      referrerPolicy="no-referrer"
+                    >
+                      {title}
+                    </a>
+                  </PrivacySensitiveText>
+                  <p className="mt-1 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                    #{item.externalId} ·{' '}
+                    <PrivacySensitiveText>{item.uploaderName ?? '上传者未知'}</PrivacySensitiveText>
+                  </p>
+                </div>
+                <div
+                  className={resultView === 'preview' ? 'col-span-2 min-w-0 sm:col-span-1 sm:col-start-2' : 'min-w-0'}
                 >
-                  接纳
-                </Button>
-                {item.reviewDecision !== 'EXCLUDE' ? (
+                  <ArchiveTitleMatchEvidence
+                    evaluation={item.matchEvaluation}
+                    evidence={item.matchEvidence}
+                    decision={item.reviewDecision}
+                  />
+                </div>
+                <div
+                  className={cn(
+                    'mt-3 flex flex-wrap gap-2',
+                    resultView === 'preview' && 'col-span-2 sm:col-span-1 sm:col-start-2'
+                  )}
+                >
                   <Button
                     size="sm"
                     className="h-11 sm:h-9"
-                    variant="outline"
-                    disabled={pending}
-                    onClick={() => review([item.id], 'EXCLUDE')}
+                    disabled={pending || item.matchEvaluation?.uploaderMatches === false}
+                    onClick={() => review([item.id], 'INCLUDE')}
                   >
-                    确认排除
+                    接纳
                   </Button>
-                ) : null}
-                {item.reviewDecision !== 'AUTO' ? (
-                  <Button
-                    size="sm"
-                    className="h-11 sm:h-9"
-                    variant="ghost"
-                    disabled={pending}
-                    onClick={() => review([item.id], 'AUTO')}
-                  >
-                    恢复遵循规则
-                  </Button>
-                ) : null}
+                  {item.reviewDecision !== 'EXCLUDE' ? (
+                    <Button
+                      size="sm"
+                      className="h-11 sm:h-9"
+                      variant="outline"
+                      disabled={pending}
+                      onClick={() => review([item.id], 'EXCLUDE')}
+                    >
+                      确认排除
+                    </Button>
+                  ) : null}
+                  {item.reviewDecision !== 'AUTO' ? (
+                    <Button
+                      size="sm"
+                      className="h-11 sm:h-9"
+                      variant="ghost"
+                      disabled={pending}
+                      onClick={() => review([item.id], 'AUTO')}
+                    >
+                      恢复遵循规则
+                    </Button>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )
+        }}
       />
       {selected.size ? (
         <div
