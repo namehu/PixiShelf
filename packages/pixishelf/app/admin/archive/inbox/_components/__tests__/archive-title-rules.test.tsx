@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { evaluateArchiveTitleRules, type ArchiveTitleRules } from '@pixishelf/job-contracts'
 import { ArchiveTitleRuleFields } from '../archive-title-rule-fields'
-import { ArchiveTitleRuleDialog } from '../archive-title-rule-dialog'
+import { ArchiveTitleRuleSheet } from '../archive-title-rule-sheet'
 import { ArchiveTitleMatchEvidence } from '../archive-title-match-evidence'
 
 const api = vi.hoisted(() => ({
@@ -62,7 +62,7 @@ function dialog(
 ) {
   return render(
     <QueryClientProvider client={client}>
-      <ArchiveTitleRuleDialog
+      <ArchiveTitleRuleSheet
         sourceId="source"
         rulesVersion={1}
         initialRules={rules}
@@ -100,7 +100,7 @@ describe('title rules editor and preview', () => {
     expect((screen.getByLabelText('满足任一条件 1 文本') as HTMLInputElement).value).toBe('[r18AnimeGirls/RAG]')
     expect((screen.getByLabelText('排除条件 1 文本') as HTMLInputElement).value).toBe('Ragnarok')
   })
-  it('defaults each checkbox to ignoring case and preserves independently edited regex and case settings', () => {
+  it('shows saved case settings accurately and defaults new rows to case-sensitive matching', () => {
     const onChange = vi.fn()
     const input: ArchiveTitleRules = {
       version: 2,
@@ -121,19 +121,60 @@ describe('title rules editor and preview', () => {
       )
     }
     render(<Editor />)
-    const checkbox = screen.getByRole('checkbox', { name: '满足任一条件 1 忽略大小写' })
-    expect(checkbox.getAttribute('aria-checked')).toBe('true')
+    const checkbox = screen.getByRole('checkbox', { name: '满足任一条件 1 区分大小写' })
+    expect(checkbox.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(checkbox)
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ version: 2, any: [{ operator: 'REGEX', text: '^\\[RAG\\]', ignoreCase: false }] })
     )
-    expect(screen.getByRole('checkbox', { name: '排除条件 1 忽略大小写' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('checkbox', { name: '排除条件 1 区分大小写' }).getAttribute('aria-checked')).toBe('false')
     fireEvent.change(screen.getByLabelText('满足任一条件 1 文本'), { target: { value: '[' } })
     expect(screen.getByLabelText('满足任一条件 1 文本').getAttribute('aria-invalid')).toBe('true')
     expect(screen.getByRole('alert').textContent).toContain('正则表达式无效')
     fireEvent.change(screen.getByLabelText('满足任一条件 1 文本'), { target: { value: '\\D+[A-Z]' } })
     expect(screen.queryByRole('alert')).toBeNull()
     expect(onChange.mock.lastCall![0].any[0]).toEqual({ operator: 'REGEX', text: '\\D+[A-Z]', ignoreCase: false })
+    fireEvent.click(
+      within(screen.getByRole('group', { name: '满足任一条件' })).getByRole('button', { name: '添加条件' })
+    )
+    expect(screen.getByRole('checkbox', { name: '满足任一条件 2 区分大小写' }).getAttribute('aria-checked')).toBe(
+      'true'
+    )
+    fireEvent.click(screen.getByRole('checkbox', { name: '满足任一条件 2 区分大小写' }))
+    expect(onChange.mock.lastCall![0].any[1].ignoreCase).toBe(true)
+  })
+
+  it('keeps help hidden until mouse hover or touch activation, and fits the sheet to the visible keyboard viewport', async () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'visualViewport')
+    const viewport = Object.assign(new EventTarget(), { height: 500, offsetTop: 12 })
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport })
+    try {
+      dialog()
+      const sheet = screen.getByRole('dialog', { name: '本地接纳规则' })
+      expect(sheet.getAttribute('data-slot')).toBe('sheet-content')
+      expect(sheet.style.height).toBe('500px')
+      expect(sheet.style.top).toBe('12px')
+      act(() => {
+        viewport.height = 320
+        viewport.offsetTop = 40
+        viewport.dispatchEvent(new Event('resize'))
+      })
+      expect(sheet.style.height).toBe('320px')
+      expect(sheet.style.top).toBe('40px')
+      const helpButton = screen.getByRole('button', { name: '满足任一条件说明' })
+      expect(screen.queryByText('至少命中其中一条，支持多个标记或别名。')).toBeNull()
+      fireEvent(helpButton, Object.assign(new MouseEvent('pointerover', { bubbles: true }), { pointerType: 'mouse' }))
+      expect(await screen.findByText('至少命中其中一条，支持多个标记或别名。')).toBeTruthy()
+      fireEvent.keyDown(screen.getByRole('dialog', { name: '满足任一条件说明' }), { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByText('至少命中其中一条，支持多个标记或别名。')).toBeNull())
+      expect(onClose).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: '满足任一条件第 1 条说明' }))
+      expect(await screen.findByText('标题中包含输入文本即可；方括号等标点按原样匹配。')).toBeTruthy()
+    } finally {
+      cleanup()
+      if (original) Object.defineProperty(window, 'visualViewport', original)
+      else Reflect.deleteProperty(window, 'visualViewport')
+    }
   })
 
   it('shows the matching bilingual title and highlights without expanding, including older saved evaluations', () => {

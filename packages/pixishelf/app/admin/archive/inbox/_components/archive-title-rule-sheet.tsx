@@ -14,14 +14,7 @@ import { Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTRPC } from '@/lib/trpc'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter
-} from '@/components/ui/dialog'
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -31,10 +24,11 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { ArchiveTitleRuleFields } from './archive-title-rule-fields'
 import { ArchiveTitleMatchEvidence } from './archive-title-match-evidence'
+import { ArchiveRuleHelp } from './archive-rule-help'
 
 type PreviewView = 'ALL' | 'ACCEPTED' | 'FILTERED' | 'NEWLY_ACCEPTED' | 'NEWLY_FILTERED'
 
-export function ArchiveTitleRuleDialog({
+export function ArchiveTitleRuleSheet({
   sourceId,
   rulesVersion,
   initialRules,
@@ -54,6 +48,20 @@ export function ArchiveTitleRuleDialog({
   const [view, setView] = useState<PreviewView>('ALL')
   const [testTitle, setTestTitle] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [viewport, setViewport] = useState<{ height: number; top: number } | null>(null)
+  useEffect(() => {
+    const visible = window.visualViewport
+    const update = () => setViewport({ height: visible?.height ?? window.innerHeight, top: visible?.offsetTop ?? 0 })
+    update()
+    visible?.addEventListener('resize', update)
+    visible?.addEventListener('scroll', update)
+    window.addEventListener('resize', update)
+    return () => {
+      visible?.removeEventListener('resize', update)
+      visible?.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [])
   const hydrated = useRef(false)
   const attempt = useRef<{ key: string; id: string } | null>(null)
   const latest = useQuery(
@@ -143,23 +151,29 @@ export function ArchiveTitleRuleDialog({
     create.mutate({ sourceId, rulesVersion, rules: parsedRules.data, requestId: attempt.current.id })
   }
   return (
-    <Dialog
+    <Sheet
       open
       onOpenChange={(open) => {
         if (!open && !busy) onClose()
       }}
     >
-      <DialogContent
-        fitViewport
-        className="flex max-h-[calc(100dvh-2rem)] min-h-0 flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+      <SheetContent
+        className="min-h-0 w-full gap-0 overflow-hidden p-0 sm:max-w-4xl"
+        closeLabel="关闭规则抽屉"
+        style={viewport ? { top: viewport.top, height: viewport.height, bottom: 'auto' } : undefined}
       >
-        <DialogHeader className="shrink-0 border-b px-5 py-5 pr-12 text-left">
-          <DialogTitle>编辑本地接纳规则</DialogTitle>
-          <DialogDescription>
+        <SheetHeader className="shrink-0 border-b px-3 py-4 pr-12 sm:px-6 sm:pr-12">
+          <div className="flex items-center gap-1">
+            <SheetTitle>本地接纳规则</SheetTitle>
+            <ArchiveRuleHelp label="规则预览与应用说明">
+              先预览全部已保存候选，再应用规则。保留扫描进度和人工决定，不会自动下载。
+            </ArchiveRuleHelp>
+          </div>
+          <SheetDescription className="sr-only">
             先预览全部已保存候选，再应用规则。保留扫描进度和人工决定，不会自动下载。
-          </DialogDescription>
-        </DialogHeader>
-        <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain p-5">
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto overscroll-contain px-3 py-5 sm:px-6">
           <ArchiveTitleRuleFields
             value={rules}
             disabled={busy || running}
@@ -170,13 +184,18 @@ export function ArchiveTitleRuleDialog({
               setError(null)
             }}
           />
-          <Field>
-            <FieldLabel htmlFor="title-rule-trial">试算一个标题</FieldLabel>
+          <Field className="border-t pt-5">
+            <div className="flex items-center gap-1">
+              <FieldLabel htmlFor="title-rule-trial">试算一个标题</FieldLabel>
+              <ArchiveRuleHelp label="标题试算说明">
+                只使用当前草稿试算，不保存候选，也不会触发扫描或下载。
+              </ArchiveRuleHelp>
+            </div>
             <Input
               id="title-rule-trial"
               value={testTitle}
               onChange={(event) => setTestTitle(event.target.value)}
-              placeholder="粘贴标题，只试算，不保存候选"
+              placeholder="粘贴标题，立即查看匹配结果"
             />
             {trial ? <ArchiveTitleMatchEvidence evaluation={trial} /> : null}
           </Field>
@@ -187,7 +206,7 @@ export function ArchiveTitleRuleDialog({
                 正在预览全部候选
               </AlertTitle>
               <AlertDescription>
-                已检查 {preview.data?.checkedCount ?? 0} 条。关闭弹窗后任务仍继续，可再次打开查看。
+                已检查 {preview.data?.checkedCount ?? 0} 条。关闭抽屉后任务仍继续，可再次打开查看。
                 <Button
                   variant="outline"
                   size="sm"
@@ -298,14 +317,14 @@ export function ArchiveTitleRuleDialog({
           {error || preview.isError || latest.isError ? (
             <Alert variant="destructive">
               <AlertTitle>请检查后重试</AlertTitle>
-              <AlertDescription>{error ?? '预览加载失败，请关闭弹窗后重试。'}</AlertDescription>
+              <AlertDescription>{error ?? '预览加载失败，请关闭抽屉后重试。'}</AlertDescription>
             </Alert>
           ) : null}
           {activeScan ? (
             <p className="text-sm text-muted-foreground">当前有活动扫描，完成或取消后才能应用规则。</p>
           ) : null}
         </div>
-        <DialogFooter className="grid shrink-0 grid-cols-2 gap-2 border-t p-4 sm:flex">
+        <SheetFooter className="grid shrink-0 grid-cols-2 gap-2 border-t px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex sm:flex-row sm:justify-end sm:px-6">
           <Button variant="outline" className="h-11" disabled={busy} onClick={onClose}>
             关闭
           </Button>
@@ -322,8 +341,8 @@ export function ArchiveTitleRuleDialog({
               {create.isPending ? <Spinner data-icon="inline-start" /> : null}预览全部候选
             </Button>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   )
 }

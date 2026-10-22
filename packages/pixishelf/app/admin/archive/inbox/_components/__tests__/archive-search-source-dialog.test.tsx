@@ -31,8 +31,27 @@ const source = {
   titleQuery: { keyword: 'Abc', matchMode: 'STARTS_WITH' as const, uploaderUid: '123' }
 }
 const callbacks = { onClose: vi.fn(), onSaved: vi.fn() }
-afterEach(cleanup)
-beforeEach(() => vi.clearAllMocks())
+const defaultRules = (text: string) => ({
+  version: 2,
+  any: [{ operator: 'CONTAINS', text, ignoreCase: false }],
+  all: [],
+  none: []
+})
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
+beforeEach(() => {
+  vi.clearAllMocks()
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  )
+})
 
 describe('title source editor', () => {
   it.each(['', '   '])('uses the keyword when the optional name is %j', async (name) => {
@@ -49,6 +68,7 @@ describe('title source editor', () => {
         displayName: 'Example',
         keyword: 'Example',
         matchMode: 'CONTAINS',
+        rules: defaultRules('Example'),
         uploaderUid: null
       })
     )
@@ -73,6 +93,7 @@ describe('title source editor', () => {
         displayName: 'Collection',
         keyword: 'Match',
         matchMode: 'CONTAINS',
+        rules: defaultRules('Match'),
         uploaderUid: null,
         uploaders: [{ uid: '123' }, { uid: '456' }]
       })
@@ -151,6 +172,7 @@ describe('title source editor', () => {
         displayName: 'Collection',
         keyword: 'Match',
         matchMode: 'CONTAINS',
+        rules: defaultRules('Match'),
         ...(matched
           ? { uploaderUid: '456', uploaderDisplayName: 'Alice' }
           : { uploaderUid: null, uploaderName: 'Alice' })
@@ -172,6 +194,7 @@ describe('title source editor', () => {
         displayName: 'Example',
         keyword: '[Abc]',
         matchMode: 'CONTAINS',
+        rules: defaultRules('[Abc]'),
         uploaderUid: '123'
       })
     )
@@ -183,6 +206,23 @@ describe('title source editor', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存搜索来源' }))
     expect(screen.getByRole('alert').textContent).toContain('星号')
     expect(mocks.create).not.toHaveBeenCalled()
+  })
+
+  it('starts a new source with case-sensitive rules and saves an explicit opt-out', async () => {
+    render(<ArchiveSearchSourceDialog state={{ mode: 'CREATE' }} {...callbacks} />)
+    fireEvent.change(screen.getByLabelText('标题关键词'), { target: { value: 'RAG' } })
+    fireEvent.click(screen.getByText('本地组合规则（可选）'))
+    const checkbox = screen.getByRole('checkbox', { name: '满足任一条件 1 区分大小写' })
+    expect(checkbox.getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(checkbox)
+    fireEvent.click(screen.getByRole('button', { name: '保存搜索来源' }))
+    await waitFor(() =>
+      expect(mocks.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rules: { ...defaultRules('RAG'), any: [{ operator: 'CONTAINS', text: 'RAG', ignoreCase: true }] }
+        })
+      )
+    )
   })
 
   it('renames without allowing changes to frozen search conditions', () => {

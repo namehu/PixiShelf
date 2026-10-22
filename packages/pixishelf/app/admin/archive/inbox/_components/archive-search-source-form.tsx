@@ -39,6 +39,7 @@ export function ArchiveSearchSourceForm({
 }) {
   const {
     rules,
+    effectiveRules,
     setRules,
     displayName,
     setDisplayName,
@@ -123,11 +124,7 @@ export function ArchiveSearchSourceForm({
           <details className="border-t pt-4" open={rules !== null || undefined}>
             <summary className="cursor-pointer py-2 text-sm font-medium">本地组合规则（可选）</summary>
             <div className="mt-4 flex flex-col gap-4">
-              <ArchiveTitleRuleFields
-                value={rules ?? { version: 1, any: [{ operator: matchMode, text: keyword }], all: [], none: [] }}
-                onChange={setRules}
-                disabled={pending}
-              />
+              <ArchiveTitleRuleFields value={effectiveRules} onChange={setRules} disabled={pending} />
               {rules ? (
                 <Button type="button" variant="ghost" disabled={pending} onClick={() => setRules(null)}>
                   恢复默认匹配规则

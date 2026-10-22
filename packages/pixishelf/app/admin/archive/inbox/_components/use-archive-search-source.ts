@@ -45,6 +45,12 @@ export function useArchiveSearchSource({
   const [uploaders, setUploaders] = useState<ArchiveTitleUploader[]>([])
   const [error, setError] = useState<string | null>(null)
   const renameOnly = state?.mode === 'RENAME'
+  const effectiveRules: ArchiveTitleRules = rules ?? {
+    version: 2,
+    any: [{ operator: matchMode, text: keyword, ignoreCase: state?.mode === 'COPY' }],
+    all: [],
+    none: []
+  }
   useEffect(() => {
     setDisplayName(state?.source?.displayName ?? '')
     setKeyword(state?.source?.titleQuery?.keyword ?? '')
@@ -159,7 +165,7 @@ export function useArchiveSearchSource({
       await create.mutateAsync({
         displayName: displayName.trim() || query.data.keyword,
         ...query.data,
-        ...(rules ? { rules: archiveTitleRulesSchema.parse(rules) } : {}),
+        ...(rules || state?.mode === 'CREATE' ? { rules: archiveTitleRulesSchema.parse(effectiveRules) } : {}),
         ...(artistIds.length ? { artistIds } : {})
       })
     } catch (cause) {
@@ -170,6 +176,7 @@ export function useArchiveSearchSource({
   }
   return {
     rules,
+    effectiveRules,
     setRules,
     displayName,
     setDisplayName,
