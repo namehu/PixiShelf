@@ -6,7 +6,8 @@ const service = vi.hoisted(() => ({
   reportReading: vi.fn(),
   markReadingRead: vi.fn(),
   getReadingSummaries: vi.fn(),
-  getReadingHistory: vi.fn()
+  getReadingHistory: vi.fn(),
+  getContinueReading: vi.fn()
 }))
 const listService = vi.hoisted(() => ({ getArtworksList: vi.fn(), getArtworkCardsPage: vi.fn(), getViewerFeed: vi.fn() }))
 
@@ -39,6 +40,7 @@ describe('reading router session ownership', () => {
     await expect(caller.report({ artworkId: 10, expectedUserId: 'user-1', mediaRevision: 1, events: [{ type: 'VIEW', mediaId: 1, observedAt: '2026-09-24T12:00:00.000Z' }] })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     await expect(caller.summaries({ artworkIds: [10], expectedUserId: 'user-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     await expect(caller.history({ expectedUserId: 'user-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    await expect(caller.continueReading({ expectedUserId: 'user-1' })).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
     expect(Object.values(service).every((mock) => mock.mock.calls.length === 0)).toBe(true)
   })
 
@@ -49,6 +51,7 @@ describe('reading router session ownership', () => {
     await expect(caller.report({ artworkId: 10, expectedUserId: 'user-2', mediaRevision: 1, events: [{ type: 'VIEW', mediaId: 1, observedAt: '2026-09-24T12:00:00.000Z' }] })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(caller.summaries({ artworkIds: [10], expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     await expect(caller.history({ expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(caller.continueReading({ expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(Object.values(service).every((mock) => mock.mock.calls.length === 0)).toBe(true)
   })
 
@@ -70,6 +73,16 @@ describe('reading router session ownership', () => {
     service.getReadingSummaries.mockResolvedValue({ summaries: [] })
     await readingRouter.createCaller(authorized as never).summaries({ artworkIds: [10], expectedUserId: 'user-1' })
     expect(service.getReadingSummaries).toHaveBeenCalledWith('user-1', [10])
+    service.getContinueReading.mockResolvedValue({ items: [] })
+    await expect(readingRouter.createCaller(authorized as never).continueReading({ expectedUserId: 'user-1' })).resolves.toEqual({ items: [] })
+    expect(service.getContinueReading).toHaveBeenCalledWith('user-1')
+  })
+
+  it('requires an account precondition for the continuation shelf', async () => {
+    const caller = readingRouter.createCaller(authorized as never)
+    await expect(caller.continueReading({} as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(caller.continueReading({ expectedUserId: '' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(service.getContinueReading).not.toHaveBeenCalled()
   })
 
   it('requires a matching account precondition on all reading filtered artwork lists', async () => {

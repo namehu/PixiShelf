@@ -3,6 +3,7 @@ import { TRPCError } from '@trpc/server'
 import { authProcedure, router } from '@/server/trpc'
 import {
   ReadingContextInputSchema,
+  ReadingContinueInputSchema,
   ReadingMarkReadInputSchema,
   ReadingHistoryInputSchema,
   ReadingReportInputSchema,
@@ -10,6 +11,7 @@ import {
 } from '@/schemas/reading.dto'
 import {
   getReadingContext,
+  getContinueReading,
   markReadingRead,
   getReadingHistory,
   getReadingSummaries,
@@ -42,6 +44,10 @@ export const readingRouter = router({
   summaries: authProcedure.input(ReadingSummariesInputSchema).query(({ ctx, input }) => {
     assertExpectedUser(ctx.userId, input.expectedUserId)
     return getReadingSummaries(ctx.userId, input.artworkIds)
+  }),
+  continueReading: authProcedure.input(ReadingContinueInputSchema).query(({ ctx, input }) => {
+    assertExpectedUser(ctx.userId, input.expectedUserId)
+    return getContinueReading(ctx.userId)
   }),
   history: authProcedure.input(ReadingHistoryInputSchema).query(({ ctx, input }) => {
     assertExpectedUser(ctx.userId, input.expectedUserId)

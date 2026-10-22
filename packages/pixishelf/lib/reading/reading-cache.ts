@@ -7,7 +7,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function belongsToAccount(queryKey: readonly unknown[], ownerUserId: string): boolean {
   const [namespace, operation, account] = queryKey
-  if (namespace === 'reading' && (operation === 'summaries' || operation === 'history')) {
+  if (namespace === 'reading' && (operation === 'summaries' || operation === 'history' || operation === 'continueReading')) {
     return account === ownerUserId
   }
   if (namespace === 'artwork' && (operation === 'cardList' || operation === 'viewerFeed')) {
@@ -17,10 +17,27 @@ function belongsToAccount(queryKey: readonly unknown[], ownerUserId: string): bo
   if (!Array.isArray(namespace) || !isRecord(operation) || !isRecord(operation.input)) return false
   const [router, procedure] = namespace
   const readingProcedure = router === 'reading' &&
-    (procedure === 'context' || procedure === 'summaries' || procedure === 'history')
+    (procedure === 'context' || procedure === 'summaries' || procedure === 'history' || procedure === 'continueReading')
   const artworkProcedure = router === 'artwork' &&
     (procedure === 'list' || procedure === 'cardList' || procedure === 'viewerFeed' || procedure === 'reader')
   return (readingProcedure || artworkProcedure) && operation.input.expectedUserId === ownerUserId
+}
+
+function isContinueReadingQuery(queryKey: readonly unknown[]): boolean {
+  const [namespace, operation] = queryKey
+  return namespace === 'reading' && operation === 'continueReading' ||
+    Array.isArray(namespace) && namespace[0] === 'reading' && namespace[1] === 'continueReading'
+}
+
+function removeFinishedContinueReading(value: unknown): unknown {
+  if (!isRecord(value) || !Array.isArray(value.items)) return value
+  const items = value.items.filter((item: unknown) => {
+    if (!isRecord(item) || !isSummary(item.reading)) return true
+    const summary = item.reading
+    return summary.viewCount > 0 && summary.lastViewedAt !== null &&
+      summary.totalCount > 0 && summary.seenCount < summary.totalCount
+  })
+  return items.length === value.items.length ? value : { ...value, items }
 }
 
 type Snapshot = { summary: ReadingSummaryDto; progress?: ReadingReportResult; context?: ReadingContextDto }
@@ -95,6 +112,7 @@ export function reconcileReadingCache(client: QueryClient, owner: string) {
   }
   for (const query of queries) {
     let next = patch(query.state.data)
+    if (isContinueReadingQuery(query.queryKey)) next = removeFinishedContinueReading(next)
     const [namespace, operation, , ids] = query.queryKey
     if (namespace === 'reading' && operation === 'summaries' && typeof ids === 'string' && Array.isArray(next)) {
       const present = new Set(next.filter(isSummary).map((summary) => summary.artworkId))
@@ -108,7 +126,7 @@ export function reconcileReadingCache(client: QueryClient, owner: string) {
   }
 }
 
-/** Patch badges without changing filtered membership or history ordering. */
+/** Preserve loaded list order; the home continuation shelf drops finished items. */
 export function patchReadingSummaryInCache(
   client: QueryClient, summary: ReadingSummaryDto, owner: string, progress?: ReadingReportResult
 ) {
@@ -118,4 +136,9 @@ export function patchReadingSummaryInCache(
     records.set(summary.artworkId, { summary, progress: progress ?? prior?.progress, context: prior?.context })
   }
   reconcileReadingCache(client, owner)
+  // Refill on the next visit; an old account's response must not refetch using a new session.
+  void client.invalidateQueries({
+    predicate: (query) => belongsToAccount(query.queryKey, owner) && isContinueReadingQuery(query.queryKey),
+    refetchType: 'none'
+  })
 }

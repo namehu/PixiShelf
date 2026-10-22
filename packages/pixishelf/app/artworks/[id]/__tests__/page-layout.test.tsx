@@ -29,7 +29,7 @@ vi.mock('@/services/artwork/source-links', () => ({
 
 vi.mock('../_components/nav-head', () => ({ default: () => null }))
 vi.mock('../_components/artwork-media-section', () => ({
-  ArtworkMediaSection: () => <div data-testid="artwork-images" />
+  ArtworkMediaSection: ({ resumeOnEntry }: { resumeOnEntry?: boolean }) => <div data-testid="artwork-images" data-resume-on-entry={String(Boolean(resumeOnEntry))} />
 }))
 vi.mock('../_components/artwork-des', () => ({
   default: () => <div data-testid="artwork-description" />
@@ -42,6 +42,13 @@ vi.mock('@/components/artwork/artist-avatar', () => ({ ArtistAvatar: () => <div 
 afterEach(cleanup)
 
 describe('ArtworkDetailPage layout', () => {
+  it.each([['1', true], ['true', false], [undefined, false], [['1', '1'], false]] as const)('accepts only a single explicit resume=1 value: %s', async (resume, expected) => {
+    render(await artworkDetailPage({
+      params: Promise.resolve({ id: '146' }), searchParams: Promise.resolve({ resume })
+    } as Parameters<typeof artworkDetailPage>[0]))
+    expect(screen.getByTestId('artwork-images').getAttribute('data-resume-on-entry')).toBe(String(expected))
+  })
+
   it('renders distinct icon-only Pixiv links with accessible names and safe new tabs', async () => {
     render(await artworkDetailPage({ params: Promise.resolve({ id: '146' }) } as Parameters<typeof artworkDetailPage>[0]))
 
