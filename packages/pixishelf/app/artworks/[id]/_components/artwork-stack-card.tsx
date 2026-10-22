@@ -178,8 +178,9 @@ export function ArtworkStackCard({
               const x = event.clientX - start.x
               const y = event.clientY - start.y
               if (Math.abs(x) > 10 || Math.abs(y) > 10) suppressActivation.current = true
-              if (!start.vertical && Math.abs(x) >= 40 && (start.horizontal || Math.abs(x) > Math.abs(y) * 1.25))
+              if (!start.vertical && Math.abs(x) >= 40 && (start.horizontal || Math.abs(x) > Math.abs(y) * 1.25)) {
                 flip(x < 0 ? 1 : -1)
+              }
             }}
             onPointerCancel={(event) => {
               if (pointer.current?.id === event.pointerId) cancelGesture()
