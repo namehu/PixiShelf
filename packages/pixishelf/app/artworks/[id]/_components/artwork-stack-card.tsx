@@ -78,7 +78,7 @@ export function ArtworkStackCard({
   })
   return (
     <section
-      className="overflow-x-clip px-8 pb-9 pt-6"
+      className="overflow-x-clip px-2 pb-3 pt-2"
       aria-label={`第 ${group.startIndex + 1} 至 ${group.endIndex + 1} 张`}
       data-stack-group={group.id}
       data-stack-transitioning={!settled || offset !== 0 ? 'true' : 'false'}
@@ -94,7 +94,7 @@ export function ArtworkStackCard({
         {mediaIds.length > 2 && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-2 inset-y-0 translate-x-2 translate-y-3 rotate-[4deg] rounded-2xl bg-card p-2 pb-16 shadow-[0_2px_5px_rgb(0_0_0_/_0.12),0_12px_20px_-12px_rgb(0_0_0_/_0.2)]"
+            className="pointer-events-none absolute inset-x-6 inset-y-2 translate-x-1 translate-y-2 rotate-[4deg] rounded-2xl bg-card p-0.5 shadow-[0_2px_5px_rgb(0_0_0_/_0.12),0_12px_20px_-12px_rgb(0_0_0_/_0.2)]"
           >
             <div className="h-full rounded-xl bg-foreground/[0.06]" />
           </div>
@@ -102,14 +102,14 @@ export function ArtworkStackCard({
         {mediaIds.length > 1 && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-1 inset-y-0 -translate-x-2 translate-y-1 -rotate-[3deg] rounded-2xl bg-card p-2 pb-16 shadow-[0_2px_5px_rgb(0_0_0_/_0.1),0_8px_16px_-8px_rgb(0_0_0_/_0.18)]"
+            className="pointer-events-none absolute inset-x-4 inset-y-1 -translate-x-1 translate-y-1 -rotate-[3deg] rounded-2xl bg-card p-0.5 shadow-[0_2px_5px_rgb(0_0_0_/_0.1),0_8px_16px_-8px_rgb(0_0_0_/_0.18)]"
           >
             <div className="h-full rounded-xl bg-foreground/[0.035]" />
           </div>
         )}
         <div
           className={cn(
-            'relative z-10 translate-x-[var(--stack-drag)] rounded-2xl bg-card p-2 pb-0 shadow-[0_3px_6px_rgb(0_0_0_/_0.1),0_18px_32px_-16px_rgb(0_0_0_/_0.28)] motion-safe:rotate-[var(--stack-tilt)]',
+            'relative z-10 translate-x-[var(--stack-drag)] rounded-[14px] bg-card p-0.5 shadow-[0_3px_6px_rgb(0_0_0_/_0.1),0_18px_32px_-16px_rgb(0_0_0_/_0.28)] motion-safe:rotate-[var(--stack-tilt)]',
             offset === 0 && 'motion-safe:transition-transform motion-safe:duration-150 motion-safe:ease-out'
           )}
           style={{ '--stack-drag': `${offset}px`, '--stack-tilt': `${offset / 32}deg` } as CSSProperties}
@@ -207,52 +207,38 @@ export function ArtworkStackCard({
               )}
             </div>
           </div>
-          <div className="flex min-h-16 items-center justify-between gap-3 pl-2.5 pr-0.5">
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <span className="text-xs font-medium tabular-nums text-muted-foreground">
-                {String(group.startIndex + 1).padStart(3, '0')}–{String(group.endIndex + 1).padStart(3, '0')}
-              </span>
-              <div aria-hidden="true" className="flex h-1 items-center gap-1">
-                {mediaIds.map((id, position) => (
-                  <span
-                    key={id}
-                    className={cn(
-                      'h-0.5 rounded-full motion-safe:transition-[width,background-color] motion-safe:duration-150',
-                      position === activeIndex ? 'w-4 bg-primary' : 'w-1.5 bg-foreground/15'
-                    )}
-                  />
-                ))}
-              </div>
-            </div>
-            <div className="flex shrink-0 items-center rounded-xl bg-foreground/[0.035]">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-11 rounded-xl"
-                aria-label="组内上一张"
-                disabled={activeIndex === 0 || summary?.navigating}
-                onClick={() => flip(-1)}
-              >
-                <ChevronLeft />
-              </Button>
-              <span className="min-w-10 text-center text-xs tabular-nums" aria-live="polite" aria-atomic="true">
-                <span className="font-semibold text-foreground">{activeIndex + 1}</span>
-                <span className="px-1 text-muted-foreground/60">/</span>
-                <span className="text-muted-foreground">{mediaIds.length}</span>
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-11 rounded-xl"
-                aria-label="组内下一张"
-                disabled={activeIndex === mediaIds.length - 1 || summary?.navigating}
-                onClick={() => flip(1)}
-              >
-                <ChevronRight />
-              </Button>
-            </div>
-          </div>
         </div>
+      </div>
+      <div className="relative mx-auto mt-3 flex h-6 w-fit items-center justify-center px-11">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute left-0 top-1/2 size-11 -translate-y-1/2 rounded-full"
+          aria-label="组内上一张"
+          disabled={activeIndex === 0 || summary?.navigating}
+          onClick={() => flip(-1)}
+        >
+          <ChevronLeft />
+        </Button>
+        <div className="flex items-center gap-1.5 whitespace-nowrap px-1 text-[11px] leading-none tabular-nums text-muted-foreground">
+          <span>
+            {String(group.startIndex + 1).padStart(3, '0')}–{String(group.endIndex + 1).padStart(3, '0')}
+          </span>
+          <span aria-hidden="true">·</span>
+          <span aria-live="polite" aria-atomic="true">
+            {activeIndex + 1}/{mediaIds.length}
+          </span>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-0 top-1/2 size-11 -translate-y-1/2 rounded-full"
+          aria-label="组内下一张"
+          disabled={activeIndex === mediaIds.length - 1 || summary?.navigating}
+          onClick={() => flip(1)}
+        >
+          <ChevronRight />
+        </Button>
       </div>
     </section>
   )
