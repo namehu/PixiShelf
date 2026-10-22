@@ -4,9 +4,11 @@ import { TRPCError } from '@trpc/server'
 import { type ArtworkReadingSummary } from '@prisma/client'
 import { Prisma, lockArtworkForReading } from '@pixishelf/db'
 import {
+  READING_COMPLETION_PERCENT,
   READING_MEDIA_REVISION_CONFLICT_CODE,
   READING_REPORT_MAX_AGE_MS,
   READING_VISIT_GAP_MS,
+  getReadingStatus,
   isVideoReadingComplete,
   type ReadingBatchSummariesResult,
   type ReadingContextDto,
@@ -28,11 +30,6 @@ import { ARTWORK_STACK_CONFLICT, ARTWORK_STACK_RULE_VERSION, buildArtworkStacks 
 
 type ReadingTx = AppTransaction
 
-function status(summary: { viewCount: number; seenCount: number; totalCount: number }) {
-  if (summary.totalCount > 0 && summary.seenCount >= summary.totalCount) return 'COMPLETED' as const
-  return summary.seenCount > 0 || summary.viewCount > 0 ? 'IN_PROGRESS' as const : 'UNREAD' as const
-}
-
 function toDto(row: ArtworkReadingSummary, mediaRevision: number): ReadingSummaryDto {
   const fields = {
     artworkId: row.artworkId,
@@ -46,7 +43,7 @@ function toDto(row: ArtworkReadingSummary, mediaRevision: number): ReadingSummar
     lastMediaId: row.lastMediaId,
     lastMediaIndex: row.lastMediaIndex
   }
-  return { ...fields, status: status(fields) }
+  return { ...fields, status: getReadingStatus(fields) }
 }
 
 function emptySummary(artworkId: number, totalCount: number, mediaRevision: number): ReadingSummaryDto {
@@ -358,24 +355,25 @@ export interface ReadingHistoryPage {
 }
 
 export async function getContinueReading(userId: string): Promise<{ items: ReadingHistoryItem[] }> {
-  const rows = await prisma.artworkReadingSummary.findMany({
-    where: {
-      userId,
-      viewCount: { gt: 0 },
-      lastViewedAt: { not: null },
-      totalCount: { gt: 0 },
-      seenCount: { lt: prisma.artworkReadingSummary.fields.totalCount },
-      artwork: { deletedAt: null, archiveLifecycleState: 'ACTIVE' }
-    },
-    include: { artwork: { select: { mediaRevision: true } } },
-    orderBy: [{ lastViewedAt: 'desc' }, { artworkId: 'desc' }],
-    take: 6
-  })
+  const rows = await prisma.$queryRaw<Array<ArtworkReadingSummary & { mediaRevision: number }>>(Prisma.sql`
+    SELECT rs.*, a."mediaRevision"
+    FROM artwork_reading_summaries rs
+    JOIN "Artwork" a ON a.id = rs."artworkId"
+    WHERE rs."userId" = ${userId}
+      AND rs."viewCount" > 0
+      AND rs."lastViewedAt" IS NOT NULL
+      AND rs."totalCount" > 0
+      AND rs."seenCount"::bigint * 100 < rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT}
+      AND a."deletedAt" IS NULL
+      AND a."archiveLifecycleState" = 'ACTIVE'
+    ORDER BY rs."lastViewedAt" DESC, rs."artworkId" DESC
+    LIMIT 6
+  `)
   const cards = await getArtworkCardsByIds(rows.map((item) => item.artworkId))
   const byId = new Map(cards.map((card) => [card.id, card]))
   return { items: rows.flatMap((row) => {
     const artwork = byId.get(row.artworkId)
-    return artwork ? [{ artwork, reading: toDto(row, row.artwork.mediaRevision) }] : []
+    return artwork ? [{ artwork, reading: toDto(row, row.mediaRevision) }] : []
   }) }
 }
 

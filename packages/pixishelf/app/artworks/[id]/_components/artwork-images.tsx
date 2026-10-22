@@ -35,6 +35,8 @@ import { useArtworkStackSlideshow } from './use-artwork-stack-slideshow'
 import { useArtworkSummary } from './artwork-summary-context'
 import type { StackDecoration } from './artwork-stack-projection'
 import { getArtworkMediaRange } from './artwork-media-range'
+import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
+import { MoreHorizontalIcon } from 'lucide-react'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
@@ -359,6 +361,7 @@ function PreviewableMedia({
   return (
     <div
       {...longPressProps}
+      onContextMenu={(event) => { event.preventDefault(); onOpenMenu(event, index) }}
       className="select-none [&_img]:pointer-events-none [&_img]:[-webkit-touch-callout:none]"
       draggable={false}
       onDragStart={(event) => event.preventDefault()}
@@ -405,6 +408,7 @@ const ArtworkMediaItem = memo(function ArtworkMediaItem({
         highlighted && 'z-[1] ring-4 ring-ring/70 ring-offset-2 ring-offset-background'
       )}
       data-preview-highlighted={highlighted ? 'true' : undefined}
+      onContextMenu={isVideoMedia(media) ? (event) => { event.preventDefault(); onOpenMenu(event, index) } : undefined}
     >
       <PreviewableMedia
         index={index}
@@ -422,6 +426,7 @@ const ArtworkMediaItem = memo(function ArtworkMediaItem({
           trackingActive={trackingActive}
         />
       </PreviewableMedia>
+      {isVideoMedia(media) ? <VideoMediaMenuButton onOpenMenu={(event) => onOpenMenu(event, index)} /> : null}
     </div>
   )
 })
@@ -481,18 +486,19 @@ function PreviewContextMenu({
         {selectedMedia && (
           <ReadingMediaStatus reading={reading} mediaId={selectedMedia.id} loadFailed={contextMenu?.loadFailed} />
         )}
+        {selectedMedia ? <MediaMarkActions artworkId={selectedMedia.artworkId ?? 0} mediaId={selectedMedia.id} layout="menu" /> : null}
         {selectedMedia && !isVideoMedia(selectedMedia) && (
           <Button variant="ghost" className="min-h-11 w-full justify-start" onClick={onAutoScroll}>
             {stackMode ? '自动翻阅' : '自动滚动'}
           </Button>
         )}
-        <button
+        {selectedMedia && !isVideoMedia(selectedMedia) && <button
           type="button"
           onClick={onPreview}
           className="block min-h-10 w-full cursor-pointer select-none rounded-sm px-4 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
         >
           适配尺寸预览
-        </button>
+        </button>}
         {selectedMedia && canPreviewFullSize(selectedMedia) && (
           <button
             type="button"
@@ -510,17 +516,29 @@ function PreviewContextMenu({
 function SingleVideoArtworkMedia({
   media,
   reading,
-  trackingActive
+  trackingActive,
+  onOpenMenu
 }: {
   media: ArtworkImageResponseDto
   reading?: ArtworkReadingHandle
   trackingActive: boolean
+  onOpenMenu: (event: React.MouseEvent | React.TouchEvent, index: number) => void
 }) {
   return (
-    <div className="relative w-full" data-testid="artwork-video-container">
+    <div className="relative w-full" data-testid="artwork-video-container"
+      onContextMenu={(event) => { event.preventDefault(); onOpenMenu(event, 0) }}>
       <LazyMedia media={media} index={0} reading={reading} trackingActive={trackingActive} />
+      <VideoMediaMenuButton onOpenMenu={(event) => onOpenMenu(event, 0)} />
     </div>
   )
+}
+
+function VideoMediaMenuButton({ onOpenMenu }: { onOpenMenu: (event: React.MouseEvent) => void }) {
+  return <div className="flex justify-end py-1">
+    <Button type="button" variant="ghost" className="min-h-11" onClick={onOpenMenu}>
+      <MoreHorizontalIcon data-icon="inline-start" aria-hidden="true" />图片操作
+    </Button>
+  </div>
 }
 
 function VirtualizedArtworkMediaList({
@@ -970,6 +988,7 @@ function ArtworkImagesSession({
     ) : isSingleVideoArtwork(images) ? (
       <SingleVideoArtworkMedia
         media={images[0]!}
+        onOpenMenu={openContextMenu}
         reading={reading}
         trackingActive={trackingActive && !previewState && !contextMenu}
       />

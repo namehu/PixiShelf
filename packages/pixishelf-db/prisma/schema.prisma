@@ -232,6 +232,7 @@ model Artwork {
   artist                Artist?               @relation(fields: [artistId], references: [id])
   creators              ArtworkArtist[]
   likes                 ArtworkLike[]
+  mediaMarks            MediaMark[]
   seriesArtworks        SeriesArtwork[]
   artworkTags           ArtworkTag[]
   images                Image[]
@@ -409,6 +410,7 @@ model Image {
   artwork             Artwork?                @relation(fields: [artworkId], references: [id])
   readingSummaries    ArtworkReadingSummary[] @relation("ReadingLastMedia")
   readMedia           ArtworkReadMedia[]
+  mediaMarks          MediaMark[]
   videoMetadata       MediaVideoMetadata?
   animationMetadata   ImageAnimationMetadata?
   summaryFeature      ArtworkSummaryFeature?
@@ -591,6 +593,7 @@ model UserBA {
   accounts Account[]
   sessions Session[]
   likes    ArtworkLike[]
+  mediaMarks MediaMark[]
   readingSummaries ArtworkReadingSummary[]
   readMedia ArtworkReadMedia[]
   settings UserSetting[]
@@ -652,6 +655,29 @@ model ArtworkLike {
   @@unique([userId, artworkId])
   @@index([artworkId])
   @@index([userId])
+}
+
+model MediaMark {
+  id            String    @id @default(cuid())
+  userId        String
+  artworkId     Int
+  mediaId       Int?
+  bookmarkedAt  DateTime?
+  likedAt       DateTime?
+  artworkTitle  String
+  mediaPosition Int
+  mediaType     String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          UserBA    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  artwork       Artwork   @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  media         Image?    @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, mediaId])
+  @@index([userId, bookmarkedAt(sort: Desc), id(sort: Desc)])
+  @@index([userId, likedAt(sort: Desc), id(sort: Desc)])
+  @@index([artworkId])
+  @@index([mediaId])
 }
 
 model ArtworkReadingSummary {

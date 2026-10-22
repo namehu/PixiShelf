@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 interface ImageOverlayProps {
   isActive: boolean
   image: RandomImageItem
+  currentMediaId?: number | null
   mediaControls?: ReactNode
   onInteractionApiChange?: (api: ViewerOverlayInteractionApi | null) => void
   onHideChrome: () => void
@@ -38,6 +39,7 @@ export interface ViewerOverlayInteractionApi {
 export default function ImageOverlay({
   isActive,
   image,
+  currentMediaId = null,
   mediaControls,
   onInteractionApiChange,
   onHideChrome,
@@ -225,6 +227,7 @@ export default function ImageOverlay({
         open={showActionDrawer}
         onOpenChange={handleActionDrawerOpenChange}
         image={image}
+        currentMediaId={currentMediaId}
         onHideChrome={() => {
           setShowActionDrawer(false)
           onHideChrome()

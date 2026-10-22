@@ -12,7 +12,7 @@ import {
   MenubarSeparator
 } from '@/components/ui/menubar'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { KeyRoundIcon, LogOutIcon, SlidersHorizontalIcon } from 'lucide-react'
+import { ImagesIcon, KeyRoundIcon, LogOutIcon, SlidersHorizontalIcon } from 'lucide-react'
 import { memo } from 'react'
 import { useAuth, useAuthUser } from '@/components/auth'
 
@@ -37,6 +37,12 @@ const UserMenu = () => {
 
         <MenubarContent align="end" className="max-w-[calc(100vw-2rem)]">
           <MenubarGroup>
+            <MenubarItem asChild>
+              <Link href={ROUTES.MY_IMAGES}>
+                <ImagesIcon data-icon="inline-start" />
+                我的图片
+              </Link>
+            </MenubarItem>
             <MenubarItem asChild>
               <Link href={ROUTES.SETTINGS_PROFILE}>
                 <SlidersHorizontalIcon data-icon="inline-start" />

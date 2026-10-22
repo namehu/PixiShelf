@@ -23,6 +23,8 @@ export const MOBILE_BOTTOM_NAVIGATION_ITEMS = PRIMARY_NAVIGATION_ITEMS.slice(0, 
 
 export const MORE_NAVIGATION_ITEMS = PRIMARY_NAVIGATION_ITEMS.slice(3)
 
+export const MY_IMAGES_NAVIGATION_ITEM: AppNavigationItem = { href: ROUTES.MY_IMAGES, label: '我的图片', icon: ImagesIcon }
+
 export const ADMIN_NAVIGATION_ITEM: AppNavigationItem = {
   href: ROUTES.ADMIN,
   label: '管理',
@@ -35,7 +37,7 @@ export function isNavigationItemActive(pathname: string, href: string) {
 }
 
 export function isMoreNavigationActive(pathname: string) {
-  return [...MORE_NAVIGATION_ITEMS.map((item) => item.href), ROUTES.ADMIN, '/settings', ROUTES.CHANGE_PASSWORD].some(
+  return [...MORE_NAVIGATION_ITEMS.map((item) => item.href), ROUTES.MY_IMAGES, ROUTES.ADMIN, '/settings', ROUTES.CHANGE_PASSWORD].some(
     (href) => pathname === href || pathname.startsWith(`${href}/`)
   )
 }

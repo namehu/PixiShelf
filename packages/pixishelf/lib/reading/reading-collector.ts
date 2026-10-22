@@ -1,5 +1,7 @@
 import {
   compareReadingVersion,
+  getReadingStatus,
+  isArtworkReadingComplete,
   isVideoReadingComplete,
   type ReadingPlayback,
   READING_HEARTBEAT_INTERVAL_MS,
@@ -151,8 +153,7 @@ export class ReadingCollector {
     }
     const seenCount = seen.size
     return { ...context, seenMediaIds: [...seen], summary: { ...context.summary, seenCount,
-      status: context.summary.totalCount > 0 && seenCount >= context.summary.totalCount ? 'COMPLETED'
-        : seenCount > 0 || viewed || context.summary.viewCount > 0 ? 'IN_PROGRESS' : 'UNREAD' } }
+      status: getReadingStatus({ ...context.summary, seenCount, viewCount: viewed ? Math.max(1, context.summary.viewCount) : context.summary.viewCount }) } }
   }
 
   /** Only a fresh context fetch following explicit reopen may leave a revision conflict. */
@@ -460,8 +461,8 @@ export class ReadingCollector {
     if (!this.ownerUserId || context.summary.status === 'COMPLETED' || context.summary.totalCount === 0 ||
       this.completedNotifications.has(key)) return
     // Avoid rebuilding the logical ID map until pending events could finish the work.
-    if (context.seenMediaIds.length + [...queue.inFlight, ...queue.events].reduce((sum, event) =>
-      sum + (event.predictedMediaIds?.length ?? 1), 0) < context.summary.totalCount) return
+    if (!isArtworkReadingComplete(context.seenMediaIds.length + [...queue.inFlight, ...queue.events].reduce((sum, event) =>
+      sum + (event.predictedMediaIds?.length ?? 1), 0), context.summary.totalCount)) return
     const summary = this.projectContext(context).summary
     if (summary.status !== 'COMPLETED') return
     // Keep this marker through rollback/retry and navigation; a server acknowledgement never toasts.

@@ -24,6 +24,7 @@ import {
   ADMIN_NAVIGATION_ITEM,
   isNavigationItemActive,
   MORE_NAVIGATION_ITEMS,
+  MY_IMAGES_NAVIGATION_ITEM,
   type AppNavigationItem
 } from './app-navigation'
 
@@ -122,6 +123,7 @@ export default function MobileNavigationMenu({ trigger }: MobileNavigationMenuPr
             {MORE_NAVIGATION_ITEMS.map((item) => (
               <MobileNavigationLink key={item.href} item={item} pathname={pathname} />
             ))}
+            <MobileNavigationLink item={MY_IMAGES_NAVIGATION_ITEM} pathname={pathname} />
 
             <Separator className="my-2" />
             <p className="font-utility px-3 py-2 text-xs font-medium tracking-[0.08em] text-muted-foreground uppercase">

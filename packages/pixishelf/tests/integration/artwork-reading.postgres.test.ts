@@ -37,6 +37,19 @@ const event = (mediaId: number, type: 'VIEW' | 'HEARTBEAT' = 'VIEW'): ReadingRep
 const report = (userId: string, events: ReturnType<typeof event>[], mediaRevision = 1) =>
   readingService.reportReading(userId, { artworkId: fixture.artworkId, expectedUserId: userId, mediaRevision, events })
 
+async function createPictureWork(label: string, totalCount: number) {
+  const token = randomUUID()
+  const artwork = await db!.artwork.create({ data: {
+    title: `reading ${label} ${token}`, storageKey: `reading-test-${token}`, imageCount: totalCount,
+    images: { create: Array.from({ length: totalCount }, (_, index) => ({
+      path: `/reading-test/${token}/${index}.jpg`, sortOrder: index, mediaType: 'IMAGE' as const
+    })) }
+  }, include: { images: { orderBy: { sortOrder: 'asc' } } } })
+  created.artworkIds.push(artwork.id)
+  created.imageIds.push(...artwork.images.map((image) => image.id))
+  return artwork
+}
+
 beforeEach(async () => {
   if (!db) return
   const token = randomUUID()
@@ -67,6 +80,66 @@ afterEach(async () => {
 afterAll(async () => { await db?.$disconnect() })
 
 describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
+  it.each([
+    [0, 0, 'UNREAD'],
+    [48, 49, 'IN_PROGRESS'],
+    [49, 50, 'COMPLETED'],
+    [97, 100, 'IN_PROGRESS'],
+    [98, 100, 'COMPLETED'],
+    [980, 1000, 'COMPLETED']
+  ] as const)('keeps %i/%i consistently %s in persisted records, summaries, filters and continuation', async (seenCount, totalCount, status) => {
+    const artwork = await createPictureWork('threshold', totalCount)
+    const seenIds = artwork.images.slice(0, seenCount).map((image) => image.id)
+    // Exercise normal bounded batches so each stored ID has an actual observation.
+    for (let offset = 0; offset < seenIds.length; offset += 50) {
+      await readingService.reportReading(fixture.userId, { expectedUserId: fixture.userId,
+        artworkId: artwork.id, mediaRevision: 1, events: seenIds.slice(offset, offset + 50).map((id) => event(id)) })
+    }
+    const reading = await readingService.getReadingContext(fixture.userId, artwork.id)
+    expect(reading.summary).toMatchObject({ status, seenCount, totalCount })
+    expect(reading.seenMediaIds).toEqual(seenIds)
+    expect(reading.media.filter((item) => !reading.seenMediaIds.includes(item.mediaId)).map((item) => item.mediaId))
+      .toEqual(artwork.images.slice(seenCount).map((image) => image.id))
+    expect(await db!.artworkReadMedia.count({ where: { artworkId: artwork.id, userId: fixture.userId } })).toBe(seenCount)
+    expect((await readingService.getReadingSummaries(fixture.userId, [artwork.id])).summaries[0])
+      .toMatchObject({ status, seenCount, totalCount })
+    const { getArtworksList } = await import('@/services/artwork-service')
+    for (const readingStatus of ['UNREAD', 'IN_PROGRESS', 'COMPLETED'] as const) {
+      const list = await getArtworksList(ArtworksInfiniteQuerySchema.parse({ search: artwork.title, readingStatus }), fixture.userId)
+      expect(list.total).toBe(readingStatus === status ? 1 : 0)
+      expect(list.items.map((item) => item.id)).toEqual(readingStatus === status ? [artwork.id] : [])
+    }
+    const continuation = await readingService.getContinueReading(fixture.userId)
+    expect(continuation.items.map((item) => item.artwork.id)).toEqual(status === 'IN_PROGRESS' ? [artwork.id] : [])
+    expect((await readingService.getReadingContext(fixture.otherUserId, artwork.id)).summary.status).toBe('UNREAD')
+  })
+
+  it('excludes eight newer threshold-completed works before filling all six continuation slots', async () => {
+    const candidates: number[] = []
+    const completed: number[] = []
+    const observedAt = Date.now()
+    for (let index = 0; index < 8; index++) {
+      const artwork = await createPictureWork('continue-candidate', 2)
+      candidates.push(artwork.id)
+      await readingService.reportReading(fixture.userId, { expectedUserId: fixture.userId,
+        artworkId: artwork.id, mediaRevision: 1, events: [{
+          ...event(artwork.images[0]!.id), observedAt: new Date(observedAt - 20_000 + Math.floor(index / 2) * 1_000).toISOString()
+        }] })
+    }
+    for (let index = 0; index < 8; index++) {
+      const artwork = await createPictureWork('continue-completed', 50)
+      completed.push(artwork.id)
+      const result = await readingService.reportReading(fixture.userId, { expectedUserId: fixture.userId,
+        artworkId: artwork.id, mediaRevision: 1, events: artwork.images.slice(0, 49).map((image) => event(image.id)) })
+      expect(result.summary).toMatchObject({ status: 'COMPLETED', seenCount: 49, totalCount: 50 })
+      expect(result.seenMediaIds).not.toContain(artwork.images[49]!.id)
+    }
+    const continuation = await readingService.getContinueReading(fixture.userId)
+    expect(continuation.items.map((item) => item.artwork.id)).toEqual(candidates.toReversed().slice(0, 6))
+    expect(continuation.items.every((item) => !completed.includes(item.artwork.id))).toBe(true)
+    expect((await readingService.getContinueReading(fixture.otherUserId)).items).toEqual([])
+  }, 30_000)
+
   it('grants a deterministic stack atomically, preserves real position, and rejects reordered evidence', async () => {
     const rows = await Promise.all(Array.from({ length: 8 }, (_, index) => db!.image.create({ data: {
       artworkId: fixture.artworkId, path: `/stack-test/${fixture.userId}/${index}.jpg`, sortOrder: index + 10,

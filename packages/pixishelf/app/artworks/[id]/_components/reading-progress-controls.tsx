@@ -36,7 +36,7 @@ export function ReadingProgressControls({ reading, empty = false, resumeError, r
       <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1.5 tabular-nums" role="status">
-            {completed ? <><CheckIcon className="size-3.5" aria-hidden="true" />已读完 · {summary.totalCount} 张</> :
+            {completed ? <><CheckIcon className="size-3.5" aria-hidden="true" />已读完 · {remaining > 0 ? <>已记录 {summary.seenCount} / {summary.totalCount} 张</> : <>{summary.totalCount} 张</>}</> :
               <>已读 {summary.seenCount} / {summary.totalCount}<span>· 剩余 {remaining}</span></>}
           </span>
           {summary.viewCount > 0 && <span>阅读 {summary.viewCount} 次</span>}

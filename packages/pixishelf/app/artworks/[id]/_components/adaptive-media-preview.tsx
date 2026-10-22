@@ -29,6 +29,7 @@ import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkSlideshow } from './use-artwork-slideshow'
 import { readingMediaPosition } from './reading-media-status'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
+import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
 
 const ADAPTIVE_PREVIEW_HISTORY_KEY = '__pixishelf_adaptive_media_preview__'
 export type AdaptivePreloadEnvironment = MediaPreloadEnvironment
@@ -301,6 +302,10 @@ function AdaptiveMediaPreviewContent({
       title="适配尺寸媒体预览"
       description="上下滑动切换媒体，双指或双击缩放图片；WebP 动图可通过底部按钮播放或暂停。"
       closeLabel="关闭适配尺寸预览"
+      topChrome={({ activeIndex }) => {
+        const media = images[activeIndex]
+        return media ? <MediaMarkActions artworkId={media.artworkId ?? 0} mediaId={media.id} overlay /> : null
+      }}
       testId="adaptive-media-preview-swiper"
       onControllerChange={(controller) => {
         swiperRef.current = controller

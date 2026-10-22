@@ -17,16 +17,18 @@ import {
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
 
 export interface ActionDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   image: RandomImageItem
+  currentMediaId?: number | null
   onHideChrome: () => void
 }
 
 /** 当前作品的快捷操作；Feed 级设置统一由页面右上角的筛选入口管理。 */
-export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image, onHideChrome }) => {
+export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image, currentMediaId = null, onHideChrome }) => {
   const autoStatus = useViewerStore((state) => state.autoBrowseStatus)
   const interval = useViewerStore((state) => state.autoBrowseInterval)
   const autoSelected = autoStatus === 'running' || autoStatus === 'paused'
@@ -48,6 +50,14 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image,
         </DrawerHeader>
         <Separator />
         <div className="flex min-h-0 flex-col gap-2 overflow-y-auto p-4">
+          {open && (
+            <section aria-label="当前图片" className="flex flex-col gap-2">
+              <p className="text-sm text-muted-foreground">当前图片</p>
+              <MediaMarkActions artworkId={image.id} mediaId={currentMediaId} layout="menu" />
+              {!currentMediaId ? <p className="text-xs text-muted-foreground">当前仅展示作品封面，暂无可标记的图片。</p> : null}
+              <Separator />
+            </section>
+          )}
           <Button
             className="min-h-11 w-full justify-start"
             onClick={() => {

@@ -4,6 +4,7 @@ export const READING_REPORT_INTERVAL_MS = 3_000
 export const READING_REPORT_MAX_AGE_MS = 60_000
 export const READING_HEARTBEAT_INTERVAL_MS = 60_000
 export const READING_VISIT_GAP_MS = 30 * 60_000
+export const READING_COMPLETION_PERCENT = 98
 export const VIDEO_READING_COMPLETION_RATIO = 0.9
 
 /** A transient player observation, never a persisted resume position. */
@@ -19,6 +20,16 @@ export function isVideoReadingComplete(playback: ReadingPlayback): boolean {
 export const READING_MEDIA_REVISION_CONFLICT_CODE = 'READING_MEDIA_REVISION_CONFLICT'
 
 export type ReadingStatus = 'UNREAD' | 'IN_PROGRESS' | 'COMPLETED'
+
+/** Completion tolerates missing records without changing the per-media read set. */
+export function isArtworkReadingComplete(seenCount: number, totalCount: number): boolean {
+  return totalCount > 0 && seenCount * 100 >= totalCount * READING_COMPLETION_PERCENT
+}
+
+export function getReadingStatus(summary: { seenCount: number; totalCount: number; viewCount: number }): ReadingStatus {
+  if (isArtworkReadingComplete(summary.seenCount, summary.totalCount)) return 'COMPLETED'
+  return summary.seenCount > 0 || summary.viewCount > 0 ? 'IN_PROGRESS' : 'UNREAD'
+}
 
 export interface ReadingMediaItem {
   isVideo?: boolean

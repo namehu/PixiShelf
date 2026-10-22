@@ -5,6 +5,14 @@ import { ReadingProgressControls } from '../reading-progress-controls'
 
 afterEach(cleanup)
 describe('reading progress reserved layout', () => {
+  it('distinguishes threshold completion from fully recorded progress', () => {
+    const reading = { summary: { totalCount: 100, seenCount: 98, viewCount: 1, status: 'COMPLETED' } } as unknown as ArtworkReadingHandle
+    const { rerender } = render(<ReadingProgressControls reading={reading} />)
+    expect(screen.getByRole('status').textContent).toBe('已读完 · 已记录 98 / 100 张')
+    rerender(<ReadingProgressControls reading={{ ...reading, summary: { ...reading.summary!, seenCount: 100 } }} />)
+    expect(screen.getByRole('status').textContent).toBe('已读完 · 100 张')
+  })
+
   it('offers a retry for failed explicit restoration even when a cached summary exists', () => {
     const retry = vi.fn()
     const reading = { summary: { totalCount: 3, seenCount: 1, viewCount: 1, status: 'IN_PROGRESS' }, isLoading: false, retry } as unknown as ArtworkReadingHandle

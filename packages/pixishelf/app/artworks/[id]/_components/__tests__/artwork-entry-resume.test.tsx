@@ -1,5 +1,5 @@
-import { act, cleanup, render, screen } from '@testing-library/react'
-import { useEffect } from 'react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { StrictMode, useEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import type { MediaIndex, ReaderInitialization } from '@/schemas/artwork-reader.dto'
@@ -7,6 +7,7 @@ import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 import { ArtworkMediaSection } from '../artwork-media-section'
 import { ArtworkMediaViewProvider } from '../artwork-media-view-context'
 import { ArtworkSummaryProvider, useArtworkSummary } from '../artwork-summary-context'
+import { saveStackRecovery } from '../artwork-stack-recovery'
 
 const mocks = vi.hoisted(() => ({
   reader: null as unknown,
@@ -78,10 +79,10 @@ function NavigationState() {
   return <output data-testid="navigation" data-anchor={summary?.anchor?.mediaId} data-mode={summary?.mode} />
 }
 
-function Content() {
-  return <ArtworkMediaViewProvider><ArtworkSummaryProvider artworkId={7}>
+function Content({ mediaIdOnEntry }: { mediaIdOnEntry?: number | null }) {
+  return <ArtworkMediaViewProvider><ArtworkSummaryProvider artworkId={7} suppressRecoveryNavigation={mediaIdOnEntry !== undefined}>
     <NavigationState />
-    <ArtworkMediaSection artworkId={7} images={images} resumeOnEntry />
+    <ArtworkMediaSection artworkId={7} images={images} resumeOnEntry mediaIdOnEntry={mediaIdOnEntry} />
   </ArtworkSummaryProvider></ArtworkMediaViewProvider>
 }
 
@@ -115,6 +116,118 @@ describe('explicit resume with the real summary navigation provider', () => {
     expect(mocks.observe.mock.lastCall?.[1].active).toBe(false)
     act(() => mocks.completeNavigation?.())
     mocks.observedReading!.observe('adaptive-preview', observation)
+    expect(mocks.observe.mock.lastCall?.[1].active).toBe(true)
+  })
+})
+
+describe('explicit media links with the real summary navigation provider', () => {
+  it('waits for the current index, consumes only navigation parameters once and prioritizes mediaId over resume', () => {
+    window.history.replaceState({ keep: true }, '', '/artworks/7?mediaId=14&resume=1&entry=direct&other=value#media')
+    const view = render(<StrictMode><Content mediaIdOnEntry={14} /></StrictMode>)
+    expect(window.location.search).toBe('?entry=direct&other=value')
+    expect(window.location.hash).toBe('#media')
+    expect(window.history.state).toEqual({ keep: true })
+    expect(screen.getByTestId('media').getAttribute('data-continue-index')).toBeNull()
+    const observation = { mediaId: 11, ready: true, visible: true, active: true, automatic: false }
+    mocks.observedReading!.observe('adaptive-preview', observation)
+    expect(mocks.observe.mock.lastCall?.[1].active).toBe(false)
+
+    mocks.reader = reader(true)
+    view.rerender(<StrictMode><Content mediaIdOnEntry={14} /></StrictMode>)
+    expect(screen.getByTestId('navigation').getAttribute('data-anchor')).toBe('14')
+    expect(screen.getByTestId('media').getAttribute('data-continue-index')).toBe('3')
+    expect(mocks.toast).not.toHaveBeenCalled()
+    expect(mocks.settled.mock.calls.filter(([id]) => id === 14)).toHaveLength(1)
+    mocks.observedReading!.observe('adaptive-preview', observation)
+    expect(mocks.observe.mock.lastCall?.[1].active).toBe(false)
+    act(() => mocks.completeNavigation?.())
+    mocks.observedReading!.observe('adaptive-preview', { ...observation, mediaId: 14 })
+    expect(mocks.observe.mock.lastCall?.[1].active).toBe(true)
+    view.rerender(<StrictMode><Content mediaIdOnEntry={14} /></StrictMode>)
+    expect(mocks.settled.mock.calls.filter(([id]) => id === 14)).toHaveLength(1)
+  })
+
+  it('reveals the exact member in a restored stack without restoring the old anchor', () => {
+    window.history.replaceState({}, '', '/artworks/7?mediaId=14&resume=1')
+    saveStackRecovery(window.sessionStorage, 7, 'alice', { mediaId: 11, mode: 'stack', savedAt: Date.now() })
+    mocks.reader = reader(true)
+    render(<Content mediaIdOnEntry={14} />)
+    expect(screen.getByTestId('navigation').getAttribute('data-mode')).toBe('stack')
+    expect(screen.getByTestId('navigation').getAttribute('data-anchor')).toBe('14')
+    expect(screen.getByTestId('media').getAttribute('data-continue-index')).toBe('0')
+    expect(document.querySelector('[data-summary-anchor="14"]')).not.toBeNull()
+    expect(document.querySelector('[data-summary-anchor="11"]')).toBeNull()
+    expect(mocks.toast).not.toHaveBeenCalled()
+  })
+
+  it('requests a distant target page directly and waits for its details before navigating', () => {
+    const items = Array.from({ length: 100 }, (_, index) => ({ ...initialization.index.items[0]!, index, mediaId: index + 11, memberMediaIds: [index + 11] }))
+    const store = { request: vi.fn(), release: vi.fn(), failed: vi.fn(() => false), retry: vi.fn() }
+    const loaded = reader(true)
+    const distant = { ...loaded, store, initialization: { ...initialization, index: { ...initialization.index, items } },
+      images: items.map((item) => ({ id: item.mediaId, detailsPending: item.index >= 24 })) }
+    mocks.reader = distant
+    window.history.replaceState({}, '', '/artworks/7?mediaId=94')
+    const view = render(<Content mediaIdOnEntry={94} />)
+    expect(store.request).toHaveBeenCalledWith('entry-media-7', [83])
+    expect(screen.getByTestId('media').getAttribute('data-continue-index')).toBeNull()
+    expect(screen.getByText('正在定位图片…')).toBeTruthy()
+    mocks.reader = { ...distant, images: distant.images.map((image) => image.id === 94 ? { ...image, detailsPending: false } : image) }
+    view.rerender(<Content mediaIdOnEntry={94} />)
+    expect(screen.getByTestId('media').getAttribute('data-continue-index')).toBe('83')
+    expect(store.release).toHaveBeenCalledWith('entry-media-7')
+  })
+
+  it.each([['missing', 99, '这张图片已失效，无法定位。'], ['invalid', null, '图片链接无效。']] as const)('keeps %s media explicit until the user chooses normal browsing', (_kind, mediaIdOnEntry, message) => {
+    window.history.replaceState({}, '', `/artworks/7?mediaId=${mediaIdOnEntry ?? 'bad'}&resume=1`)
+    mocks.reader = reader(true)
+    render(<Content mediaIdOnEntry={mediaIdOnEntry} />)
+    expect(screen.getByText(message)).toBeTruthy()
+    expect(screen.queryByTestId('media')).toBeNull()
+    expect(mocks.settled).not.toHaveBeenCalled()
+    expect(mocks.toast).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '查看全部图片' }))
+    expect(screen.getByTestId('media')).toBeTruthy()
+    expect(screen.getByTestId('media').getAttribute('data-continue-index')).toBeNull()
+    mocks.observedReading!.observe('adaptive-preview', { mediaId: 11, ready: true, visible: true, active: true, automatic: false })
+    expect(mocks.observe.mock.lastCall?.[1].active).toBe(true)
+  })
+
+  it('retries a failed target page without falling back to the reading resume', () => {
+    window.history.replaceState({}, '', '/artworks/7?mediaId=14&resume=1')
+    const store = { request: vi.fn(), release: vi.fn(), failed: vi.fn(() => true), retry: vi.fn() }
+    const pending = { ...reader(true), store, images: images.map((image) => ({ ...image, detailsPending: image.id === 14 })) }
+    mocks.reader = pending
+    const view = render(<Content mediaIdOnEntry={14} />)
+    expect(screen.getByText('图片定位加载失败。')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '重试定位' }))
+    expect(store.retry).toHaveBeenCalledOnce()
+    expect(screen.getByTestId('media').getAttribute('data-continue-index')).toBeNull()
+    store.failed.mockReturnValue(false)
+    mocks.reader = { ...pending, images }
+    view.rerender(<Content mediaIdOnEntry={14} />)
+    expect(screen.getByTestId('media').getAttribute('data-continue-index')).toBe('3')
+    expect(mocks.toast).not.toHaveBeenCalled()
+  })
+
+  it('retries reader initialization and cancels a pending target when the account changes', () => {
+    window.history.replaceState({}, '', '/artworks/7?mediaId=14')
+    const retry = vi.fn()
+    const failed = { ...reader(false), isFetching: false, error: new Error('offline') }
+    failed.reading.retry = retry
+    mocks.reader = failed
+    const view = render(<Content mediaIdOnEntry={14} />)
+    fireEvent.click(screen.getByRole('button', { name: '重试定位' }))
+    expect(retry).toHaveBeenCalledOnce()
+    const changed = reader(true)
+    changed.reading.ownerUserId = 'bob'
+    mocks.reader = changed
+    view.rerender(<Content mediaIdOnEntry={14} />)
+    expect(screen.getByTestId('navigation').getAttribute('data-anchor')).not.toBe('14')
+    expect(screen.getByTestId('media').getAttribute('data-continue-index')).not.toBe('3')
+    expect(screen.queryByText('图片定位加载失败。')).toBeNull()
+    act(() => mocks.completeNavigation?.())
+    mocks.observedReading!.observe('adaptive-preview', { mediaId: 11, ready: true, visible: true, active: true, automatic: false })
     expect(mocks.observe.mock.lastCall?.[1].active).toBe(true)
   })
 })
