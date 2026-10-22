@@ -21,25 +21,39 @@ import { getAutoBrowseViewport } from './use-artwork-auto-scroll'
 import { useArtworkMediaView } from './artwork-media-view-context'
 import { useArtworkDetailControls } from './artwork-detail-controls'
 
-export function ArtworkMediaSection({ images, artworkId }: { images: ArtworkImageResponseDto[]; artworkId: number }) {
+type MediaSectionProps = { images: ArtworkImageResponseDto[]; artworkId: number; resumeOnEntry?: boolean }
+
+export function ArtworkMediaSection({ images, artworkId, resumeOnEntry = false }: MediaSectionProps) {
   const reader = useArtworkReader()
-  return reader ? <MediaSectionContent images={reader.images} artworkId={artworkId} reading={reader.reading} mediaInvalidated={reader.invalidated} />
-    : <LegacyMediaSection images={images} artworkId={artworkId} />
+  return reader ? <MediaSectionContent images={reader.images} artworkId={artworkId} reading={reader.reading} mediaInvalidated={reader.invalidated} resumeOnEntry={resumeOnEntry} entryContextLoading={reader.isFetching} entryContextError={reader.error} />
+    : <LegacyMediaSection images={images} artworkId={artworkId} resumeOnEntry={resumeOnEntry} />
 }
-function LegacyMediaSection({ images, artworkId }: { images: ArtworkImageResponseDto[]; artworkId: number }) {
+function LegacyMediaSection({ images, artworkId, resumeOnEntry }: MediaSectionProps) {
   const reading = useArtworkReading(artworkId)
-  return <MediaSectionContent images={images} artworkId={artworkId} reading={reading} />
+  return <MediaSectionContent images={images} artworkId={artworkId} reading={reading} resumeOnEntry={resumeOnEntry} />
 }
-function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalidated = false }: {
+function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalidated = false, resumeOnEntry = false, entryContextLoading = false, entryContextError }: {
   images: ArtworkImageResponseDto[]; artworkId: number; reading: ReturnType<typeof useArtworkReading>; mediaInvalidated?: boolean
+  resumeOnEntry?: boolean
+  entryContextLoading?: boolean
+  entryContextError?: unknown
 }) {
   const summary = useArtworkSummary()
   const summaryMode = summary?.mode === 'stack'
   const reading = mediaInvalidated ? { ...handle, invalidated: true } : handle
   const [continueRequest, setContinueRequest] = useState<{ index: number; nonce: number } | null>(null)
+  const [entryResumePending, setEntryResumePending] = useState(resumeOnEntry)
   const [filter, setFilter] = useState<{ owner: string | null; artworkId: number; ids: number[]; nonce: number } | null>(null)
   const topRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { setFilter(null); setContinueRequest(null) }, [artworkId, reading.ownerUserId])
+  const requestScope = useRef({ artworkId, owner: reading.ownerUserId })
+  useEffect(() => {
+    const previous = requestScope.current
+    if (previous.artworkId === artworkId && previous.owner === reading.ownerUserId) return
+    requestScope.current = { artworkId, owner: reading.ownerUserId }
+    setFilter(null)
+    setContinueRequest(null)
+    if (previous.owner && previous.owner !== reading.ownerUserId) setEntryResumePending(false)
+  }, [artworkId, reading.ownerUserId])
   const unreadOnly = filter !== null && filter.owner === reading.ownerUserId && filter.artworkId === artworkId
   const filteredImages = useMemo(() => unreadOnly
     ? images.filter((image) => filter.ids.includes(image.id)) : images, [filter, images, unreadOnly])
@@ -57,10 +71,10 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
     const group = summaryMode ? summary?.byMediaId.get(observation.mediaId) : undefined
     const grant = group && group.mediaIds.length > 1 && summary?.fingerprint
       ? { ruleVersion: ARTWORK_STACK_RULE_VERSION, fingerprint: summary.fingerprint, groupId: group.id, mediaIds: group.mediaIds } : undefined
-    const active = observation.active !== false && !summary?.navigationRef.current.active && !summary?.navigating
+    const active = observation.active !== false && !entryResumePending && !summary?.navigationRef.current.active && !summary?.navigating
     if (surfaceId === 'adaptive-preview' && observation.ready && visible && active) summary?.rememberPreviewMedia(observation.mediaId)
     handle.observe(surfaceId, { ...observation, visible, active, stack: grant })
-  }, [handle.observe, summaryMode, summary?.byMediaId, summary?.fingerprint, summary?.navigationRef, summary?.navigating, summary?.rememberPreviewMedia])
+  }, [handle.observe, entryResumePending, summaryMode, summary?.byMediaId, summary?.fingerprint, summary?.navigationRef, summary?.navigating, summary?.rememberPreviewMedia])
   const projectedReading = { ...reading, observe }
   const summaryAnchor = summary?.anchor
   const handledAnchor = useRef<number | null>(null)
@@ -91,7 +105,7 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
     if (!resume) return
     useArtworkAutoBrowseStore.getState().pause('manual')
     setFilter(null)
-    if (summaryMode && summary) { summary.reveal(resume.mediaId); return }
+    if (summary) { summary.reveal(resume.mediaId); return }
     const logical = reading.context?.media.find((item) => item.memberMediaIds.includes(resume.mediaId))
     const index = images.findIndex((media) => logical?.memberMediaIds.includes(media.id) || media.id === resume.mediaId)
     setContinueRequest((previous) => ({ index: index >= 0 ? index : resume.index, nonce: (previous?.nonce ?? 0) + 1 }))
@@ -118,27 +132,46 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   const pathname = usePathname()
   const ratingOpen = useArtworkDetailControls()?.ratingOpen ?? false
   const detailActive = pathname === `/artworks/${artworkId}`
+  const entryResume = useRef<{ key: string; owner: string | null; automatic: boolean; started: boolean } | null>(null)
   const resumeShown = useRef(false)
   const resumeVisible = useRef(false)
-  const entryResume = useRef<typeof reading.resume | undefined>(undefined)
+  const entryResumeSnapshot = useRef<typeof reading.resume | undefined>(undefined)
   const resumeToastId = useRef<string | null>(null)
+  useEffect(() => {
+    const key = `${artworkId}:${detailActive}:${resumeOnEntry}`
+    if (entryResume.current?.key === key) return
+    const url = new URL(window.location.href)
+    const requested = detailActive && resumeOnEntry && url.searchParams.get('resume') === '1'
+    entryResume.current = { key, owner: actionRef.current.reading.ownerUserId, automatic: requested, started: false }
+    setEntryResumePending(requested)
+    if (requested) {
+      // Consume only the intent; the account-scoped reader resolves the current media identity.
+      url.searchParams.delete('resume')
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+    }
+  }, [detailActive, artworkId, resumeOnEntry])
   useEffect(() => {
     resumeShown.current = false
     resumeVisible.current = false
-    entryResume.current = undefined
+    entryResumeSnapshot.current = undefined
     // Each route entry needs its own toast identity: an old dismissal must not remove a new prompt.
     const id = detailActive ? `reading-resume-${crypto.randomUUID()}` : null
     resumeToastId.current = id
     return () => { if (id) toast.dismiss(id) }
-  }, [detailActive, artworkId, reading.ownerUserId])
+  }, [detailActive, artworkId, reading.ownerUserId, resumeOnEntry])
   useEffect(() => {
     const id = resumeToastId.current
     if (!detailActive || !id) return
-    if (reading.invalidated) { resumeVisible.current = false; toast.dismiss(id); return }
+    const intent = entryResume.current
+    if (reading.invalidated || (intent?.owner && intent.owner !== reading.ownerUserId)) {
+      if (intent) intent.automatic = false
+      setEntryResumePending(false)
+      if (reading.invalidated) { resumeVisible.current = false; toast.dismiss(id); return }
+    }
     // Capture the entry position once, even if rating temporarily hides the prompt.
-    if (entryResume.current === undefined && reading.context) {
+    if (entryResumeSnapshot.current === undefined && reading.context && !intent?.automatic) {
       const resume = reading.resume
-      entryResume.current = resume && resume.index > 0 &&
+      entryResumeSnapshot.current = resume && resume.index > 0 &&
         (reading.context.summary.lastMediaId !== null || reading.context.summary.lastMediaIndex !== null) ? resume : null
     }
     if (ratingOpen) {
@@ -150,8 +183,17 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
       return
     }
     if (!reading.context || resumeShown.current) return
+    if (intent?.automatic && (!reading.ownerUserId || reading.isLoading || entryContextLoading || entryContextError)) return
     resumeShown.current = true
-    const resume = entryResume.current
+    if (intent?.automatic) {
+      if (intent.started) return
+      intent.owner = reading.ownerUserId
+      intent.started = true
+      if (reading.resume) actionRef.current.continueReading(reading.resume)
+      else setEntryResumePending(false)
+      return
+    }
+    const resume = entryResumeSnapshot.current
     if (!resume) return
     resumeVisible.current = true
     const dismiss = () => { resumeVisible.current = false; toast.dismiss(id) }
@@ -164,11 +206,15 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
         setContinueRequest((previous) => ({ index: 0, nonce: (previous?.nonce ?? 0) + 1 }))
       }} />, { id, position: 'bottom-center', duration: Infinity, className: 'reading-resume-toast',
         onDismiss: () => { resumeVisible.current = false } })
-  }, [reading.context, reading.resume, reading.invalidated, detailActive, artworkId, reading.ownerUserId, ratingOpen])
+  }, [reading.context, reading.resume, reading.invalidated, reading.isLoading, entryContextError, entryContextLoading, detailActive, artworkId, reading.ownerUserId, ratingOpen, resumeOnEntry])
   return (
     <>
       <PageContainer size="reading"><div ref={topRef} className="scroll-mt-20">
-        <div className="flex flex-wrap items-center justify-between gap-x-4"><ReadingProgressControls reading={summary ? { ...reading, reopen: summary.reopen } : reading} empty={emptyUnread} /><ArtworkSummaryControls /></div>
+        <div className="flex flex-wrap items-center justify-between gap-x-4"><ReadingProgressControls
+          reading={summary ? { ...reading, reopen: summary.reopen } : reading} empty={emptyUnread}
+          resumeError={entryResumePending ? entryContextError : undefined}
+          resumeLoading={entryResumePending && entryContextLoading}
+        /><ArtworkSummaryControls /></div>
         {summaryMode && <p className="pb-5 text-xs text-muted-foreground">上下浏览各叠，左右翻看组内图片；浏览一张即将整叠标为已读。</p>}
       </div></PageContainer>
       {reading.invalidated ? null : emptyUnread ? (
@@ -184,7 +230,10 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
           images={displayImages} allImages={filteredImages} artworkId={artworkId} reading={projectedReading}
           summaryMode={summaryMode} summaryDecorations={projection?.decorations}
           trackingActive={!mediaView?.readerBlocked && !summary?.navigating} continueRequest={continueRequest}
-          onContinueHandled={() => { if (summaryAnchor) summary?.finishNavigation(summaryAnchor.nonce, undefined, summaryAnchor.mediaId) }} />
+          onContinueHandled={() => {
+            setEntryResumePending(false)
+            if (summaryAnchor) summary?.finishNavigation(summaryAnchor.nonce, undefined, summaryAnchor.mediaId)
+          }} />
       )}
     </>
   )

@@ -357,6 +357,28 @@ export interface ReadingHistoryPage {
   nextCursor?: ReadingHistoryCursor
 }
 
+export async function getContinueReading(userId: string): Promise<{ items: ReadingHistoryItem[] }> {
+  const rows = await prisma.artworkReadingSummary.findMany({
+    where: {
+      userId,
+      viewCount: { gt: 0 },
+      lastViewedAt: { not: null },
+      totalCount: { gt: 0 },
+      seenCount: { lt: prisma.artworkReadingSummary.fields.totalCount },
+      artwork: { deletedAt: null, archiveLifecycleState: 'ACTIVE' }
+    },
+    include: { artwork: { select: { mediaRevision: true } } },
+    orderBy: [{ lastViewedAt: 'desc' }, { artworkId: 'desc' }],
+    take: 6
+  })
+  const cards = await getArtworkCardsByIds(rows.map((item) => item.artworkId))
+  const byId = new Map(cards.map((card) => [card.id, card]))
+  return { items: rows.flatMap((row) => {
+    const artwork = byId.get(row.artworkId)
+    return artwork ? [{ artwork, reading: toDto(row, row.artwork.mediaRevision) }] : []
+  }) }
+}
+
 export async function getReadingHistory(userId: string, pageSize: number, cursor?: ReadingHistoryCursor): Promise<ReadingHistoryPage> {
   const rows = await prisma.artworkReadingSummary.findMany({
     where: {

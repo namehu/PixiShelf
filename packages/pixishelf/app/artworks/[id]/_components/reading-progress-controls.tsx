@@ -4,9 +4,11 @@ import { CheckIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 
-export function ReadingProgressControls({ reading, empty = false }: {
+export function ReadingProgressControls({ reading, empty = false, resumeError, resumeLoading = false }: {
   reading: ArtworkReadingHandle
   empty?: boolean
+  resumeError?: unknown
+  resumeLoading?: boolean
 }) {
   if (reading.invalidated) {
     return (
@@ -17,11 +19,13 @@ export function ReadingProgressControls({ reading, empty = false }: {
     )
   }
   const summary = reading.summary
-  if (!summary || empty) { return (
-    <div className="flex h-20 items-center gap-3 text-xs text-muted-foreground" aria-busy={reading.isLoading}>
-      {!empty && (reading.error ? <>
-        <span role="status">阅读状态加载失败</span>
-        <Button size="sm" variant="outline" onClick={() => void reading.retry?.()}>重试</Button>
+  if (!summary || empty || resumeError) { return (
+    <div className="flex h-20 items-center gap-3 text-xs text-muted-foreground" aria-busy={reading.isLoading || resumeLoading}>
+      {(!empty || Boolean(resumeError)) && (resumeError || reading.error ? <>
+        <span role="status">{resumeError ? '继续阅读加载失败' : '阅读状态加载失败'}</span>
+        <Button size="sm" variant="outline" disabled={resumeLoading} onClick={() => void reading.retry?.()}>
+          {resumeLoading ? '正在重试…' : '重试'}
+        </Button>
       </> : <span role="status">正在加载阅读状态…</span>)}
     </div>
   ) }

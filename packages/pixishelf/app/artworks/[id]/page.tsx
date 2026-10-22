@@ -18,8 +18,9 @@ import SeriesNav from './_components/series-nav'
 import TagArea from './_components/tag-area'
 import { ArtworkDetailControlsProvider } from './_components/artwork-detail-controls'
 
-export default async function ArtworkDetailPage({ params }: PageProps<'/artworks/[id]'>) {
+export default async function ArtworkDetailPage({ params, searchParams }: PageProps<'/artworks/[id]'>) {
   const { id } = await params
+  const resumeOnEntry = (await searchParams)?.resume === '1'
   const initial = await getArtworkReaderInitial(z.coerce.number().parse(id))
   const data = initial?.artwork
 
@@ -116,7 +117,7 @@ export default async function ArtworkDetailPage({ params }: PageProps<'/artworks
                   </PageContainer>
 
                   <div id={`artwork-media-start-${data.id}`} aria-hidden="true" className="h-px" />
-                  <ArtworkMediaSection images={data.images} artworkId={data.id} />
+                  <ArtworkMediaSection images={data.images} artworkId={data.id} resumeOnEntry={resumeOnEntry} />
                   <PageContainer size="reading">
                     <ArtworkDes description={data.description} className="mt-8" />
                     {data.series.map((series) => (
