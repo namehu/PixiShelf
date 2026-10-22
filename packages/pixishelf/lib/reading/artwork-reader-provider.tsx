@@ -55,7 +55,7 @@ function useReaderSession(artworkId: number, initial?: ReaderInitialPage) {
     ? initialization.index.items.map((item) => store.get(item.mediaId, item.index) ?? placeholder(item, artworkId))
     : initial?.artwork.images ?? [], [initialization, store, revision, artworkId, initial])
   return { images, reading, store, initialization, total: initialization?.index.items.length ?? initial?.total ?? 0,
-    title: initialization?.title ?? initial?.artwork.title ?? '', isLoading: query.isLoading, error: query.error,
+    title: initialization?.title ?? initial?.artwork.title ?? '', isLoading: query.isLoading, isFetching: query.isFetching, error: query.error,
     retry: query.refetch, invalidated: Boolean(mediaConflict || reading.invalidated) }
 }
 

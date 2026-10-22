@@ -32,7 +32,7 @@ describe('production Worker capability audit', () => {
 
       await expect(
         auditProductionWorkerCapabilities(database(vi.fn().mockResolvedValue([{ capabilities: previousInventory }])))
-      ).rejects.toThrow('35-job/41-version dual-lane release')
+      ).rejects.toThrow('35-job/43-version dual-lane release')
     }
   )
 
@@ -77,7 +77,7 @@ describe('production Worker capability audit', () => {
 
     expect(exitCode).toBe(0)
     expect(writeOutput).toHaveBeenCalledWith(
-      'Worker capability audit passed: 1 READY Worker, 35 job types / 41 versions (SCAN v1/v2/v3, ARCHIVE_IMPORT v1/v2, ARCHIVE_SEARCH_SCAN v1/v2/v3/v4)'
+      'Worker capability audit passed: 1 READY Worker, 35 job types / 43 versions (SCAN v1/v2/v3, ARCHIVE_IMPORT v1/v2, ARCHIVE_SEARCH_SCAN v1/v2/v3/v4/v5, ARCHIVE_TITLE_RULE_PREVIEW v1/v2)'
     )
   })
 

@@ -25,6 +25,12 @@ sources:
 
 最近阅读索引为 `(userId, lastViewedAt DESC, artworkId DESC)`；两表均有按 artworkId 的索引用于重建失效清理，摘要的 lastMediaId 和已读表的 mediaId 也有外键查询索引。阅读状态由服务层在完整逻辑媒体映射上计算，数据库原始 Image 行数不直接代表总进度。普通媒体增删、排序由写入者先锁 Artwork 再写 Image，不更改版本或清空访问次数；完整重建由 App/Worker 在原发布事务中先锁 Artwork、递增版本并清空两表。此锁序还避免阅读上报持有 Artwork 行锁后触及 Image 外键、与媒体写入形成反向等待。旧版本应用回滚期间须暂停完整重建写入者；恢复边界见[备份与恢复](../../../docs/operations/backup-and-recovery.md)。
 
+## 单图书签与喜欢 (`MediaMark`)
+
+`20261022160000_media_marks` 新增独立标记表，不更改 `ArtworkLike` 或阅读数据。`bookmarkedAt` 与 `likedAt` 各自可空，CHECK 要求至少一个非空；逻辑媒体序号必须大于零，类型限定图片、动画和视频。有效媒体按 `(userId, mediaId)` 唯一，媒体引用置空后允许保留多条不同的失效记录。按账户、对应时间倒序及 ID 排序的索引服务两个分页集合。
+
+账户与作品外键使用 `Cascade`，Image 外键使用 `SetNull`。Image 删除时保留标记 ID、时间及作品名／序号／类型快照；正常扫描和排序沿用 Image ID。应用内同 ID 原件覆写通过既有写入状态及作品锁，在成功收尾事务中断开标记引用；替换回滚保留。数据身份不依赖文件名、数组序号、派生图或内容哈希。用户规则及回退限制见[单图书签与喜欢](../../../docs/features/media-marks.md)。
+
 ## Image 的 WebP 动画时长关系
 
 `20260924120000_add_image_animation_duration_metadata` 新增 `ImageAnimationMetadata`，`imageId` 是 Image 的一对一主键和外键，`ON DELETE CASCADE`。这是加法迁移，不回填历史 Image；缺少关系行且已被确认动画（webpAnimationStatus=2）的 WebP 才进入时长候选。`durationMs` 和源文件 size/mtime/ctime/device/inode 使用 BIGINT；前端仅在 `READY`、当前时长策略、源路径匹配且 duration 能安全转成 number 时得到时长。`status,nextRetryAt,imageId` 索引用于有界候选和失败重试，不扫描原媒体来填列表。
@@ -54,13 +60,16 @@ sources:
   - 采用原子 `UPDATE` 保证并发正确性，并包含负数保护。
   - 正常成功操作不写 `TriggerLog`；触发器异常会中止关联写入，交由 PostgreSQL 和应用日志记录。
 
-### 作品点赞计数 (`Artwork.likeCount`)
+### 作品评分与喜欢计数 (`ArtworkLike.level`、`Artwork.likeCount`)
 
-**机制**: 当 `ArtworkLike` 表发生变化时，自动更新 `Artwork` 的 `likeCount`。
+`20261022140000_artwork_rating_levels` 扩展原 `ArtworkLike` 表，新增 `SMALLINT NOT NULL DEFAULT 2` 的 `level` 列，CHECK 要求范围为 1–4。历史喜欢保持原记录 ID、账户与作品唯一约束、创建及更新时间，并自然成为喜欢档；未评分通过无记录表示，不创建默认行。表名沿用以减少迁移面，业务含义见[作品评分与喜欢](../../../docs/features/artwork-rating.md)。
 
-- **触发器**: `artwork_like_count_trigger` (监听 INSERT 和 DELETE 事件)。
-- **函数**: `update_artwork_like_count()`。
-- **初始化**: Migration 脚本中包含了一次性 SQL 用于校准现有数据的计数。
+- **计数阈值**：只有 `level >= 2` 的账户贡献一次，不能使用关联行总数充当喜欢计数。
+- **触发器**：`artwork_like_count_trigger` 监听 INSERT、UPDATE、DELETE；`update_artwork_like_count()` 按变化前后的贡献计算增量，跨喜欢阈值或作品归属时更新对应计数，高档之间及同档写入不增减。父作品 ID 级联变更保留已随父行移动的计数，不重复累加。
+- **校准**：迁移按阈值聚合校准，仅更新不一致的 `likeCount`，不重写评分历史时间戳。应用层不手工维护计数。
+- **生命周期**：保留既有账户／作品删除级联关系；来源刷新、媒体替换和回收不清除评分。写入前先锁作品并核验活动状态，避免与删除竞争。
+
+一般档写入后，旧程序按“存在关联即喜欢”的读写规则不再兼容。升级须停旧写入者并采用正式 migration；不能删列或清空一般档来回退，按[评分升级边界](../../../docs/features/artwork-rating.md#存储生命周期与升级)恢复匹配版本与数据。隔离旧库和触发器转换验证见[评分验证记录](../../../docs/records/features/artwork-rating.md)。
 
 ### 标签全文搜索 (`Tag.search_vector`)
 

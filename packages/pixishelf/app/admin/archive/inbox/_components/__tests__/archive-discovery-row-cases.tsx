@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { expect, it } from 'vitest'
 
 export function registerDiscoveryRowCases<
@@ -50,6 +50,7 @@ export function registerDiscoveryRowCases<
     renderSources()
     fireEvent.click(screen.getByRole('checkbox', { name: '选择当前已加载的结果，最多一百条' }))
     const extra = screen.getByRole('checkbox', { name: '选择 Gallery 100' })
+    expect(within(extra.closest('[data-discovery-item]') as HTMLElement).getByText('第 101 条')).toBeTruthy()
     const extraSurface = extra
       .closest('[data-discovery-item]')!
       .querySelector<HTMLButtonElement>('button[aria-hidden="true"]')!

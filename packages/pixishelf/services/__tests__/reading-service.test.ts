@@ -101,6 +101,49 @@ describe('reading service', () => {
     expect(result.summary.status).toBe('COMPLETED')
   })
 
+  it.each([
+    [0, 0, 'UNREAD'],
+    [48, 49, 'IN_PROGRESS'],
+    [49, 50, 'COMPLETED'],
+    [97, 100, 'IN_PROGRESS'],
+    [98, 100, 'COMPLETED'],
+    [980, 1000, 'COMPLETED']
+  ] as const)('reports %i/%i as %s without marking missing images read', async (seenCount, totalCount, status) => {
+    state.media = Array.from({ length: totalCount }, (_, index) => ({ id: index + 100, path: `/${index}.jpg`, mediaType: 'IMAGE' }))
+    const seenIds = state.media.slice(0, seenCount).map(({ id }) => id)
+    const result = await reportReading('user-1', input(seenIds.map((id) => event('VIEW', id))))
+    expect(result.summary).toMatchObject({ seenCount, totalCount, status })
+    expect(result.seenMediaIds).toEqual(seenIds)
+    expect(state.seen).toEqual(seenIds)
+    expect((await getReadingContext('user-1', 10)).summary).toMatchObject({ seenCount, totalCount, status })
+  })
+
+  it('keeps missing images unread after tolerant completion and fills them only on an explicit all-read mark', async () => {
+    state.media = Array.from({ length: 100 }, (_, index) => ({ id: index + 100, path: `/${index}.jpg`, mediaType: 'IMAGE' }))
+    const seenIds = state.media.slice(0, 98).map(({ id }) => id)
+    await reportReading('user-1', input(seenIds.map((id) => event('VIEW', id))))
+    const completed = await getReadingContext('user-1', 10)
+    expect(completed.summary.status).toBe('COMPLETED')
+    expect(completed.media.filter((item) => !completed.seenMediaIds.includes(item.mediaId)).map((item) => item.mediaId)).toEqual([198, 199])
+    const marked = await markReadingRead('user-1', { artworkId: 10, expectedUserId: 'user-1', mediaRevision: 1, target: { kind: 'ALL' } })
+    expect(marked.summary).toMatchObject({ status: 'COMPLETED', seenCount: 100, viewCount: 1 })
+    expect(marked.seenMediaIds).toHaveLength(100)
+    expect(tx.artworkReadMedia.createMany.mock.lastCall?.[0].data.map(({ mediaId }) => mediaId)).toEqual([198, 199])
+  })
+
+  it('keeps a small addition complete while its new images stay unread, then reopens below 98%', async () => {
+    state.media = Array.from({ length: 100 }, (_, index) => ({ id: index + 100, path: `/${index}.jpg`, mediaType: 'IMAGE' }))
+    await reportReading('user-1', input(state.media.map(({ id }) => event('VIEW', id))))
+    state.media.push({ id: 200, path: '/100.jpg', mediaType: 'IMAGE' })
+    const first = await getReadingContext('user-1', 10)
+    expect(first.summary).toMatchObject({ status: 'COMPLETED', seenCount: 100, totalCount: 101 })
+    expect(first.seenMediaIds).not.toContain(200)
+    state.media.push({ id: 201, path: '/101.jpg', mediaType: 'IMAGE' }, { id: 202, path: '/102.jpg', mediaType: 'IMAGE' })
+    const next = await getReadingContext('user-1', 10)
+    expect(next.summary).toMatchObject({ status: 'IN_PROGRESS', seenCount: 100, totalCount: 103 })
+    expect(next.seenMediaIds).toHaveLength(100)
+  })
+
   it('keeps an unfinished video visit alive without marking it complete', async () => {
     await reportReading('user-1', input([{ ...event('VIEW'), playback: { currentTime: 1, duration: 600 } }]))
     vi.setSystemTime(new Date(NOW.getTime() + 60_000))

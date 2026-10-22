@@ -19,7 +19,15 @@ import { ArchiveTitleMatchEvidence } from './archive-title-match-evidence'
 import { ArchiveUploaderGalleryThumbnail, ArchiveUploaderResultViewToggle } from './archive-uploader-result-visuals'
 import { useTitleReview } from './use-title-review'
 
-export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { sourceId: string; rulesVersion: number }) {
+export function ArchiveTitleFilteredResults({
+  sourceId,
+  rulesVersion,
+  counts
+}: {
+  sourceId: string
+  rulesVersion: number
+  counts: { filtered: number; unreviewed: number; excluded: number } | undefined
+}) {
   const trpc = useTRPC()
   const desktop = useMediaQuery('(min-width: 1024px)')
   const resultView = useAdminPreferencesStore((state) => state.archiveUploaderResultView)
@@ -64,7 +72,7 @@ export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { source
           variant="outline"
           value={reviewFilter}
           aria-label="过滤复核范围"
-          className="justify-start"
+          className="grid w-full grid-cols-3 justify-start sm:flex sm:w-auto"
           onValueChange={(value) => {
             if (value) {
               setReviewFilter(value as typeof reviewFilter)
@@ -72,9 +80,24 @@ export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { source
             }
           }}
         >
-          <ToggleGroupItem value="UNREVIEWED">未复核</ToggleGroupItem>
-          <ToggleGroupItem value="EXCLUDED">已确认排除</ToggleGroupItem>
-          <ToggleGroupItem value="ALL">全部过滤项</ToggleGroupItem>
+          <ToggleGroupItem
+            value="UNREVIEWED"
+            className="h-auto min-h-11 flex-col gap-0.5 px-2 py-2 sm:flex-row sm:gap-2 sm:px-3"
+          >
+            <span>未复核</span> <span className="tabular-nums">{counts?.unreviewed ?? '—'}</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="EXCLUDED"
+            className="h-auto min-h-11 flex-col gap-0.5 px-2 py-2 sm:flex-row sm:gap-2 sm:px-3"
+          >
+            <span>已确认排除</span> <span className="tabular-nums">{counts?.excluded ?? '—'}</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="ALL"
+            className="h-auto min-h-11 flex-col gap-0.5 px-2 py-2 sm:flex-row sm:gap-2 sm:px-3"
+          >
+            <span>全部过滤项</span> <span className="tabular-nums">{counts?.filtered ?? '—'}</span>
+          </ToggleGroupItem>
         </ToggleGroup>
         <ArchiveUploaderResultViewToggle value={resultView} onChange={setResultView} />
       </div>
@@ -130,7 +153,7 @@ export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { source
             <span>过滤候选 · 已加载 {items.length} 条</span>
           </div>
         }
-        renderItem={(item) => {
+        renderItem={(item, index) => {
           const title = decodeArchiveTitle(item.title)
           const sourceHref = `/api/archive/catalog/${encodeURIComponent(item.id)}/source`
           return (
@@ -182,7 +205,7 @@ export function ArchiveTitleFilteredResults({ sourceId, rulesVersion }: { source
                     </a>
                   </PrivacySensitiveText>
                   <p className="mt-1 break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                    #{item.externalId} ·{' '}
+                    <span className="whitespace-nowrap tabular-nums">第 {index + 1} 条</span> · #{item.externalId} ·{' '}
                     <PrivacySensitiveText>{item.uploaderName ?? '上传者未知'}</PrivacySensitiveText>
                   </p>
                 </div>

@@ -5,6 +5,7 @@ import path from 'path'
 import { Readable } from 'stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getMediaUploadStatus, handleMediaUploadChunk } from '../media-upload'
+import { beginSummaryPathWrite, finishSummaryPathWrite } from '../summary-source-guard'
 
 const { beginAnimationSourcePathWriteMock, finishAnimationSourcePathWriteMock } = vi.hoisted(() => ({
   beginAnimationSourcePathWriteMock: vi.fn(),
@@ -46,6 +47,8 @@ describe('media-upload service', () => {
     sharpMetadataMock.mockReset()
     beginAnimationSourcePathWriteMock.mockReset().mockResolvedValue([])
     finishAnimationSourcePathWriteMock.mockReset().mockResolvedValue(undefined)
+    vi.mocked(beginSummaryPathWrite).mockReset().mockResolvedValue([])
+    vi.mocked(finishSummaryPathWrite).mockReset().mockResolvedValue(undefined)
   })
 
   afterEach(async () => {
@@ -115,12 +118,14 @@ describe('media-upload service', () => {
 
     expect(beginAnimationSourcePathWriteMock).toHaveBeenCalledWith('Artist/Work/animated.webp')
     expect(finishAnimationSourcePathWriteMock).not.toHaveBeenCalled()
+    expect(finishSummaryPathWrite).not.toHaveBeenCalled()
   })
 
   it('clears an ordinary upload gate only after final metadata succeeds', async () => {
     sharpMetadataMock.mockResolvedValueOnce({ width: 1, height: 1 })
     const tokens = [{ imageId: 7, sourceRevision: 2 }]
     beginAnimationSourcePathWriteMock.mockResolvedValueOnce(tokens)
+    vi.mocked(beginSummaryPathWrite).mockResolvedValueOnce(tokens)
     await handleMediaUploadChunk({
       scanRoot,
       fileName: 'animated.webp',
@@ -133,6 +138,7 @@ describe('media-upload service', () => {
       body: Readable.from(Buffer.from('new'))
     })
     expect(finishAnimationSourcePathWriteMock).toHaveBeenCalledWith(tokens)
+    expect(finishSummaryPathWrite).toHaveBeenCalledExactlyOnceWith(tokens)
   })
 
   it('refuses to truncate an original while init has not backed it up', async () => {
@@ -165,6 +171,7 @@ describe('media-upload service', () => {
     })).rejects.toThrow('source interrupted')
     await expect(readdir(path.join(scanRoot, 'Artist/Work'))).resolves.not.toContain('.replace-write-lock')
     expect(finishAnimationSourcePathWriteMock).not.toHaveBeenCalled()
+    expect(finishSummaryPathWrite).not.toHaveBeenCalled()
   })
 
   it('writes final video chunk without probing image dimensions', async () => {

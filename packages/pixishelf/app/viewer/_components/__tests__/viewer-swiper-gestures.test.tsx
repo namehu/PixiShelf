@@ -40,6 +40,7 @@ function artwork(id: number, multiple: boolean): RandomImageItem {
     createdAt: '2026-10-17',
     tags: [],
     isLike: false,
+    ratingLevel: null,
     images: (multiple ? [1, 2] : [1]).map((index) => ({
       id: id * 10 + index,
       key: `video-${id}-${index}`,

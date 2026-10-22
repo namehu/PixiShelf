@@ -54,6 +54,7 @@ function artwork(id: number, kinds: ('image' | 'video' | 'webp' | 'gif' | 'apng'
     tags: [],
     createdAt: '2026-10-18',
     isLike: false,
+    ratingLevel: null,
     images: kinds.map((kind, index) => ({
       id: id * 10 + index,
       key: `media-${id}-${index}`,

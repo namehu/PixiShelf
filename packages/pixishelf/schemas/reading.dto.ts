@@ -41,6 +41,10 @@ export const ReadingHistoryInputSchema = z.object({
     .optional()
 })
 
+export const ReadingContinueInputSchema = z.object({
+  expectedUserId: z.string().min(1)
+})
+
 export type ReadingContextInput = z.infer<typeof ReadingContextInputSchema>
 export type ReadingReportInputValidated = z.infer<typeof ReadingReportInputSchema>
 export type ReadingHistoryInput = z.infer<typeof ReadingHistoryInputSchema>

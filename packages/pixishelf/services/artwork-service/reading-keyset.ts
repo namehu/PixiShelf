@@ -1,6 +1,7 @@
 import 'server-only'
 import { createHash } from 'crypto'
 import { TRPCError } from '@trpc/server'
+import { READING_COMPLETION_PERCENT } from '@pixishelf/db/reading-contract'
 import type { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 
 type SortValue = string | number | null
@@ -72,8 +73,10 @@ export function appendReadingFilterAndCursor(
   base: { whereSQL: string; sqlParams: unknown[]; paramIndex: number }
 ) {
   let { whereSQL, sqlParams, paramIndex } = base
-  const reading = appendReadingPredicate(params.readingStatus, userId, { whereSQL, sqlParams, paramIndex })
-  ;({ whereSQL, sqlParams, paramIndex } = reading)
+  if (params.readingStatus) {
+    const reading = appendReadingPredicate(params.readingStatus, userId, { whereSQL, sqlParams, paramIndex })
+    ;({ whereSQL, sqlParams, paramIndex } = reading)
+  }
 
   const seedPlaceholder = `$${paramIndex}`
   const spec = sortSpec(params.sortBy ?? 'source_date_desc', params.randomSeed, seedPlaceholder)
@@ -120,8 +123,8 @@ export function appendReadingPredicate(
   if (!status) throw new Error('Reading status required')
   const summary = `SELECT 1 FROM artwork_reading_summaries rs WHERE rs."artworkId" = a.id AND rs."userId" = $${paramIndex} AND (rs."seenCount" > 0 OR rs."viewCount" > 0)`
   if (status === 'UNREAD') whereSQL += ` AND NOT EXISTS (${summary})`
-  else if (status === 'IN_PROGRESS') whereSQL += ` AND EXISTS (${summary} AND (rs."totalCount" = 0 OR rs."seenCount" < rs."totalCount"))`
-  else whereSQL += ` AND EXISTS (${summary} AND rs."totalCount" > 0 AND rs."seenCount" >= rs."totalCount")`
+  else if (status === 'IN_PROGRESS') whereSQL += ` AND EXISTS (${summary} AND (rs."totalCount" = 0 OR rs."seenCount"::bigint * 100 < rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT}))`
+  else whereSQL += ` AND EXISTS (${summary} AND rs."totalCount" > 0 AND rs."seenCount"::bigint * 100 >= rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT})`
   sqlParams = [...sqlParams, userId]
   paramIndex++
 

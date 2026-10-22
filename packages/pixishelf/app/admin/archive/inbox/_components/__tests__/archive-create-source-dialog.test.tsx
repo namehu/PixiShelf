@@ -58,6 +58,14 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  )
   mocks.resolve.mockResolvedValue({
     outcome: 'MATCHED',
     uploaderUid: '123',
@@ -68,7 +76,10 @@ beforeEach(() => {
   mocks.uploader.mockResolvedValue({ id: 'uploader', status: 'ACTIVE', uploaderUid: '123', reused: false })
   mocks.keyword.mockResolvedValue({ id: 'keyword', status: 'ACTIVE', titleQuery: {} })
 })
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 const callbacks = { onOpenChange: vi.fn(), onCreated: vi.fn(async () => {}) }
 const panel = () => within(screen.getByRole('tabpanel'))
 const switchTab = (name: string) =>
@@ -110,7 +121,13 @@ describe('unified source creation', () => {
         keyword: 'Example',
         matchMode: 'CONTAINS',
         uploaderUid: null,
-        artistIds: [7]
+        artistIds: [7],
+        rules: {
+          version: 2,
+          any: [{ operator: 'CONTAINS', text: 'Example', ignoreCase: false }],
+          all: [],
+          none: []
+        }
       })
     )
     expect(mocks.uploader).not.toHaveBeenCalled()

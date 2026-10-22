@@ -78,7 +78,8 @@ function createArtwork(images: ViewerMediaItem[]): RandomImageItem {
     author: null,
     createdAt: '2026-08-11T00:00:00.000Z',
     tags: [],
-    isLike: false
+    isLike: false,
+    ratingLevel: null
   }
 }
 

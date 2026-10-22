@@ -28,8 +28,13 @@ vi.mock('react-virtuoso', async () => {
     Virtuoso: forwardRef(function TestList(
       {
         data,
-        itemContent
-      }: { data: Array<{ id: string }>; itemContent: (index: number, row: { id: string }) => ReactNode },
+        itemContent,
+        endReached
+      }: {
+        data: Array<{ id: string }>
+        itemContent: (index: number, row: { id: string }) => ReactNode
+        endReached: () => void
+      },
       ref
     ) {
       useImperativeHandle(ref, () => ({ scrollToIndex: vi.fn(), scrollTo: vi.fn() }))
@@ -38,6 +43,7 @@ vi.mock('react-virtuoso', async () => {
           {data.map((row, index) => (
             <div key={row.id}>{itemContent(index, row)}</div>
           ))}
+          <button onClick={endReached}>加载下一页</button>
         </div>
       )
     })
@@ -59,11 +65,17 @@ const item = {
   )
 }
 let client: QueryClient
-function setup() {
+function setup(
+  counts: { filtered: number; unreviewed: number; excluded: number } | undefined = {
+    filtered: 1500,
+    unreviewed: 1080,
+    excluded: 420
+  }
+) {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <ArchiveTitleFilteredResults sourceId="source" rulesVersion={2} />
+      <ArchiveTitleFilteredResults sourceId="source" rulesVersion={2} counts={counts} />
     </QueryClientProvider>
   )
 }
@@ -88,6 +100,7 @@ describe('filtered title candidates display modes', () => {
   it('shares all three modes with accepted results, retaining selection and decoded private titles', async () => {
     setup()
     const link = await screen.findByRole('link', { name: title })
+    expect(screen.getByText('第 1 条')).toBeTruthy()
     expect(link.closest('[data-privacy-sensitive]')).toBeTruthy()
     expect(document.querySelector('img')).toBeNull()
     const selected = screen.getByRole('checkbox', { name: `复核 ${title}` })
@@ -98,6 +111,7 @@ describe('filtered title candidates display modes', () => {
 
     await changeView('显示首图预览')
     expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('preview')
+    expect(screen.getByText('第 1 条')).toBeTruthy()
     const cover = screen.getByRole('link', { name: `在新标签页打开原站 ${title}` })
     expect(cover.getAttribute('href')).toBe('/api/archive/catalog/filtered-1/source')
     expect(cover.getAttribute('target')).toBe('_blank')
@@ -109,6 +123,7 @@ describe('filtered title candidates display modes', () => {
 
     await changeView('使用卡片模式')
     expect(useAdminPreferencesStore.getState().archiveUploaderResultView).toBe('cards')
+    expect(screen.getByText('第 1 条')).toBeTruthy()
     expect(screen.getByRole('link', { name: `在新标签页打开原站 ${title}` }).classList.contains('h-72')).toBe(true)
     expect(screen.getByRole('checkbox', { name: `复核 ${title}` }).getAttribute('aria-checked')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '接纳所选' }))
@@ -170,10 +185,40 @@ describe('filtered title candidates display modes', () => {
     expect(mocks.listItems).toHaveBeenCalledWith(
       expect.objectContaining({ sourceId: 'source', matchView: 'FILTERED', reviewFilter: 'UNREVIEWED', limit: 50 })
     )
-    fireEvent.click(screen.getByRole('radio', { name: '已确认排除' }))
+    fireEvent.click(screen.getByRole('radio', { name: '已确认排除 420' }))
     await waitFor(() =>
       expect(mocks.listItems).toHaveBeenCalledWith(expect.objectContaining({ reviewFilter: 'EXCLUDED' }))
     )
     expect(screen.queryByLabelText('批量复核')).toBeNull()
+  })
+
+  it('shows source totals and continues ordinals across pages, resetting after changing the review scope', async () => {
+    mocks.listItems.mockImplementation(({ cursor, reviewFilter }) =>
+      Promise.resolve({
+        items: reviewFilter === 'EXCLUDED' || cursor ? [{ ...item, id: 'filtered-2', title: 'Other gallery' }] : [item],
+        nextCursor: reviewFilter === 'UNREVIEWED' && !cursor ? 'next' : null
+      })
+    )
+    setup()
+    await screen.findByText('第 1 条')
+    expect(screen.getByRole('radio', { name: '未复核 1080' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: '已确认排除 420' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: '全部过滤项 1500' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '加载下一页' }))
+    const second = (await screen.findByRole('link', { name: 'Other gallery' })).closest('[data-discovery-item]')!
+    expect(within(second as HTMLElement).getByText('第 2 条')).toBeTruthy()
+    fireEvent.click(screen.getByRole('radio', { name: '已确认排除 420' }))
+    await waitFor(() => expect(screen.queryByText('第 2 条')).toBeNull())
+    const remaining = (await screen.findByRole('link', { name: 'Other gallery' })).closest('[data-discovery-item]')!
+    expect(within(remaining as HTMLElement).getByText('第 1 条')).toBeTruthy()
+  })
+
+  it('shows zero totals for empty review scopes', async () => {
+    mocks.listItems.mockResolvedValue({ items: [], nextCursor: null })
+    setup({ filtered: 0, unreviewed: 0, excluded: 0 })
+    await screen.findByText('没有符合条件的过滤项')
+    expect(screen.getByRole('radio', { name: '未复核 0' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: '已确认排除 0' })).toBeTruthy()
+    expect(screen.getByRole('radio', { name: '全部过滤项 0' })).toBeTruthy()
   })
 })

@@ -9,6 +9,11 @@ import { useUserSettingsStore } from '@/components/user-setting'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 
+vi.mock('@/components/media-mark/media-mark-actions', () => ({
+  MediaMarkActions: ({ artworkId, mediaId }: { artworkId: number; mediaId: number | null }) =>
+    <div data-testid="media-mark-actions" data-artwork-id={artworkId} data-media-id={mediaId} />
+}))
+
 const virtualizerMocks = vi.hoisted(() => ({
   useWindowVirtualizer: vi.fn(),
   scrollToIndex: vi.fn(),
@@ -385,6 +390,7 @@ describe('ArtworkImages', () => {
 
     expect(screen.getByText('适配尺寸预览')).toBeTruthy()
     expect(screen.getByText('查看原始文件')).toBeTruthy()
+    expect(screen.getByTestId('media-mark-actions').getAttribute('data-media-id')).toBe('1')
     expect(screen.queryByText('自动轮播')).toBeNull()
     vi.useRealTimers()
     fireEvent.click(screen.getByRole('button', { name: '自动滚动' }))
@@ -450,6 +456,16 @@ describe('ArtworkImages', () => {
 
     expect(screen.queryByText('适配尺寸预览')).toBeNull()
     expect(screen.queryByText('查看原始文件')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '图片操作' }))
+    expect(screen.getByTestId('media-mark-actions').getAttribute('data-media-id')).toBe('1')
+    expect(screen.queryByText('适配尺寸预览')).toBeNull()
+  })
+
+  it('opens the mark menu on a right click without triggering preview', () => {
+    render(<ArtworkImages images={generateImages(1)} artworkId={1} />)
+    fireEvent.contextMenu(screen.getByTestId('lazy-media'), { clientX: 40, clientY: 60 })
+    expect(screen.getByTestId('media-mark-actions').getAttribute('data-media-id')).toBe('1')
+    expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
   })
 
   it('excludes videos when an image opens the adaptive preview', () => {

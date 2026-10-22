@@ -32,7 +32,7 @@ vi.mock('@/lib/prisma', () => ({
     artworkExternalRef: { findMany: artworkExternalRefFindManyMock }
   }
 }))
-vi.mock('@/services/like-service', () => ({ getUserArtworkLikeStatus: likeStatusMock }))
+vi.mock('@/services/artwork-rating-service', () => ({ getUserArtworkRatingLevels: likeStatusMock }))
 
 import { getViewerFeed } from '../index'
 
@@ -108,5 +108,15 @@ describe('getViewerFeed query shape', () => {
 
     expect(queryRawMock).toHaveBeenCalledOnce()
     expect(queryRawMock.mock.calls[0]).toContainEqual([12])
+  })
+
+  it('keeps every rating level and fails the feed if its rating state cannot be loaded', async () => {
+    queryRawMock.mockResolvedValue([rawArtwork(1), rawArtwork(2)])
+    likeStatusMock.mockResolvedValue({ 1: 1, 2: 4 })
+    const input = { ...ViewerFeedQuerySchema.parse({ mode: 'ordered', pageSize: 3 }), userId: 'alice' }
+    const page = await getViewerFeed(input)
+    expect(page.items.map(({ ratingLevel, isLike }) => [ratingLevel, isLike])).toEqual([[1, false], [4, true]])
+    likeStatusMock.mockRejectedValue(new Error('rating unavailable'))
+    await expect(getViewerFeed(input)).rejects.toThrow('rating unavailable')
   })
 })

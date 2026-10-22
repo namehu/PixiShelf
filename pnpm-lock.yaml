@@ -340,6 +340,9 @@ importers:
       entities:
         specifier: ^6
         version: 6.0.1
+      re2js:
+        specifier: 2.9.0
+        version: 2.9.0
       zod:
         specifier: ^4.1.11
         version: 4.3.6
@@ -9341,6 +9344,11 @@ packages:
       iconv-lite: 0.7.0
       unpipe: 1.0.0
     dev: true
+
+  /re2js@2.9.0:
+    resolution: {integrity: sha512-rZpqkd4ETP3GrQ5mDLzADr14OleeKdb/40lG84WE8absRfsVLJpWt2ifjtYYeoPqeouIkcxhTlurxIXfR5kR5Q==}
+    engines: {node: '>=20.0.0'}
+    dev: false
 
   /react-day-picker@9.13.0(react@19.2.3):
     resolution: {integrity: sha512-euzj5Hlq+lOHqI53NiuNhCP8HWgsPf/bBAVijR50hNaY1XwjKjShAnIe8jm8RD2W9IJUvihDIZ+KrmqfFzNhFQ==}

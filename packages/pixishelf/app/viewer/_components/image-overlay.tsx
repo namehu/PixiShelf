@@ -3,7 +3,7 @@
 import { RandomImageItem } from '@/types/images'
 import { MoreHorizontal } from 'lucide-react'
 import Link from 'next/link'
-import { useState, useEffect, useMemo, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, type ReactNode } from 'react'
 import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import TagsPanel from './tags-panel'
 import { LikeButton } from './like-button/inex'
@@ -11,15 +11,17 @@ import { ActionDrawer } from './action-drawer'
 import { useViewerStore } from '@/store/viewer-store'
 import dayjs from 'dayjs'
 import { cn } from '@/lib/utils'
-import { useShallow } from 'zustand/shallow'
-import { useOptimisticAction } from 'next-safe-action/hooks'
-import { toggleLikeAction } from '@/actions/like-action'
 import { Button } from '@/components/ui/button'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { useAuthUser } from '@/components/auth'
+import { useArtworkRating } from '@/hooks/use-artwork-rating'
+import { ARTWORK_RATING_LABELS, isArtworkLiked } from '@/schemas/artwork-rating.dto'
+import { toast } from 'sonner'
 
 interface ImageOverlayProps {
   isActive: boolean
   image: RandomImageItem
+  currentMediaId?: number | null
   mediaControls?: ReactNode
   onInteractionApiChange?: (api: ViewerOverlayInteractionApi | null) => void
   onHideChrome: () => void
@@ -37,19 +39,27 @@ export interface ViewerOverlayInteractionApi {
 export default function ImageOverlay({
   isActive,
   image,
+  currentMediaId = null,
   mediaControls,
   onInteractionApiChange,
   onHideChrome,
   onPanelOpenChange
 }: ImageOverlayProps) {
   const { id, author, createdAt, title, description, tags = [] } = image
-  const { artworkLikeMap, syncImageLikeStatus, isChromeHidden } = useViewerStore(
-    useShallow((state) => ({
-      artworkLikeMap: state.artworkLikeMap,
-      syncImageLikeStatus: state.syncImageLikeStatus,
-      isChromeHidden: state.isChromeHidden
-    }))
-  )
+  const ownerUserId = useAuthUser()?.id
+  const isChromeHidden = useViewerStore((state) => state.isChromeHidden)
+  const rating = useArtworkRating(id, image.ratingLevel)
+  const isLiked = isArtworkLiked(rating.level)
+  const ratingLabel = rating.level === null ? '未评分' : ARTWORK_RATING_LABELS[rating.level]
+  const likeActionLabel = isLiked ? `当前评分：${ratingLabel}；取消喜欢并清除评分` : `当前评分：${ratingLabel}；喜欢作品`
+  useEffect(() => {
+    if (rating.error && isActive) {
+      toast.error('评分未保存，请重试。', {
+        id: `artwork-rating-${ownerUserId}-${id}`,
+        action: { label: '重试', onClick: rating.retry }
+      })
+    }
+  }, [id, isActive, ownerUserId, rating.error, rating.retry])
 
   const [showActionDrawer, setShowActionDrawer] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
@@ -62,23 +72,6 @@ export default function ImageOverlay({
   }, [isActive, onPanelOpenChange])
 
   const dayString = dayjs(createdAt).format('YYYY-MM-DD')
-
-  // 从状态管理中获取当前图片的点赞状态
-  const storeIsLiked = useMemo(() => artworkLikeMap.get(id) ?? false, [artworkLikeMap, id])
-
-  const { execute, result, optimisticState } = useOptimisticAction(toggleLikeAction, {
-    currentState: { isLiked: storeIsLiked },
-    updateFn: (state) => ({ isLiked: !state.isLiked })
-  })
-
-  const isLiked = optimisticState.isLiked
-
-  // 监听操作结果，成功后同步到全局 Store
-  useEffect(() => {
-    if (result.data !== undefined) {
-      syncImageLikeStatus(id, result.data)
-    }
-  }, [result, id, syncImageLikeStatus])
 
   const openActionDrawer = useCallback(() => {
     setShowActionDrawer(true)
@@ -158,7 +151,12 @@ export default function ImageOverlay({
                 <div className="flex shrink-0 items-center gap-1" role="group" aria-label="作品快捷操作">
                   <LikeButton
                     liked={isLiked}
-                    onToggleLike={() => execute({ artworkId: id })}
+                    disabled={rating.isLoading || !ownerUserId}
+                    saving={rating.isSaving}
+                    label={likeActionLabel}
+                    onToggleLike={() => {
+                      if (ownerUserId) rating.setLevel(isLiked ? null : 2)
+                    }}
                     className="size-11 bg-transparent p-0 shadow-none backdrop-blur-none hover:bg-white/10 [&_svg]:size-[18px]"
                   />
                   <Button
@@ -229,6 +227,7 @@ export default function ImageOverlay({
         open={showActionDrawer}
         onOpenChange={handleActionDrawerOpenChange}
         image={image}
+        currentMediaId={currentMediaId}
         onHideChrome={() => {
           setShowActionDrawer(false)
           onHideChrome()

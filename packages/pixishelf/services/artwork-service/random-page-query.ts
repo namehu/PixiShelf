@@ -66,7 +66,7 @@ export function buildRandomRangeQuery(
   limit: number,
   state = randomPageContext(params, userId)
 ) {
-  let base = buildArtworkWhereClause(params, 1, 'exists')
+  let base = buildArtworkWhereClause(params, 1, 'exists', userId)
   if (params.readingStatus) base = appendReadingPredicate(params.readingStatus, userId, base)
   const values: unknown[] = [...base.sqlParams, state.pivot]
   let where = `${base.whereSQL} AND ${RANDOM_KEY_SQL} ${phase === 0 ? '>=' : '<'} $${values.length}::text COLLATE "C"`

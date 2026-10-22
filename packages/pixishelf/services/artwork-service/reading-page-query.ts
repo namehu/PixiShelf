@@ -10,17 +10,17 @@ interface ReadingPageRow {
 }
 
 export function requireReadingUserId(userId?: string): string {
-  if (!userId) throw new Error('Authenticated user required for reading filter')
+  if (!userId) throw new Error('Authenticated user required for account filter')
   return userId
 }
 
 export function readingCountClause(params: ArtworksInfiniteQuerySchema, userId: string) {
-  const query = appendReadingFilterAndCursor(params, userId, buildArtworkWhereClause(params))
+  const query = appendReadingFilterAndCursor(params, userId, buildArtworkWhereClause(params, 1, 'grouped', userId))
   return { whereSQL: query.countWhereSQL, sqlParams: query.countParams }
 }
 
 export async function queryReadingArtworkRowsPage(params: ArtworksInfiniteQuerySchema, userId: string) {
-  const query = appendReadingFilterAndCursor(params, userId, buildArtworkWhereClause(params))
+  const query = appendReadingFilterAndCursor(params, userId, buildArtworkWhereClause(params, 1, 'grouped', userId))
   const rawRows = await prisma.$queryRawUnsafe<Array<ReadingPageRow & Record<string, unknown>>>(
     `SELECT a.*, ${query.sortValueSQL} AS reading_sort_value,
       artist.id as artist_id,
@@ -50,7 +50,7 @@ export async function queryReadingArtworkRowsPage(params: ArtworksInfiniteQueryS
 }
 
 export async function queryReadingArtworkIdsPage(params: ArtworksInfiniteQuerySchema, userId: string) {
-  const query = appendReadingFilterAndCursor(params, userId, buildArtworkWhereClause(params))
+  const query = appendReadingFilterAndCursor(params, userId, buildArtworkWhereClause(params, 1, 'grouped', userId))
   const idQuery = `SELECT a.id, ${query.sortValueSQL} AS reading_sort_value
     FROM "Artwork" a
     ${query.whereSQL}

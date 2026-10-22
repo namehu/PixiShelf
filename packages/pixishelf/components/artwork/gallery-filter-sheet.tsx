@@ -121,6 +121,7 @@ function Content(props: Props) {
             currentSources: input.sources,
             currentHasAudio: input.hasAudio,
             currentReadingStatus: input.readingStatus,
+            currentLikedOnly: input.likedOnly,
             startDate: input.startDate,
             endDate: input.endDate,
             createdStartDate: input.createdStartDate,

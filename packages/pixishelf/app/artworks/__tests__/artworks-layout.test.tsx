@@ -1,5 +1,5 @@
 import React from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GalleryPage from '../page'
 
@@ -18,24 +18,20 @@ const { queryState } = vi.hoisted(() => ({
     tags: '',
     tagLabels: '',
     sources: '',
-    hasAudio: 'all'
+    hasAudio: 'all',
+    readingStatus: 'all',
+    likedOnly: false
   }
 }))
 
-const navigation = vi.hoisted(() => ({ params: new URLSearchParams() }))
+const navigation = vi.hoisted(() => ({ params: new URLSearchParams(), setQuery: vi.fn() }))
 vi.mock('next/navigation', () => ({ useSearchParams: () => navigation.params }))
 
-vi.mock('nuqs', () => {
-  const parser = {
-    withDefault: () => parser,
-    withOptions: () => parser
-  }
-
+vi.mock('nuqs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('nuqs')>()
   return {
-    createSerializer: () => () => '/viewer',
-    parseAsInteger: parser,
-    parseAsString: parser,
-    useQueryStates: () => [queryState, vi.fn()]
+    ...actual,
+    useQueryStates: () => [queryState, navigation.setQuery]
   }
 })
 
@@ -65,6 +61,7 @@ vi.mock('@/components/artwork/infinite-artwork-list', () => ({
 
 beforeEach(() => {
   queryState.search = ''
+  queryState.likedOnly = false
   navigation.params = new URLSearchParams()
   window.history.replaceState(null, '', '/artworks')
   window.scrollTo = vi.fn()
@@ -87,6 +84,17 @@ describe('GalleryPage layout', () => {
     expect(screen.getByRole('main').getAttribute('data-slot')).toBe('page-container')
     expect(screen.getByRole('link', { name: '沉浸浏览' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '筛选作品' })).toBeTruthy()
+  })
+
+  it('passes favorites to immersive links and clears the active chip', () => {
+    queryState.likedOnly = true
+    render(<GalleryPage />)
+    const href = screen.getByRole('link', { name: '沉浸浏览' }).getAttribute('href')!
+    expect(new URL(href, 'http://localhost').searchParams.get('likedOnly')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '移除筛选：我的喜欢' }))
+    expect(navigation.setQuery).toHaveBeenLastCalledWith({ likedOnly: null })
+    fireEvent.click(screen.getByRole('button', { name: '清空全部' }))
+    expect(navigation.setQuery).toHaveBeenLastCalledWith(expect.objectContaining({ likedOnly: null }))
   })
 
   it('adds an aligned filter rail when a filter is active', () => {

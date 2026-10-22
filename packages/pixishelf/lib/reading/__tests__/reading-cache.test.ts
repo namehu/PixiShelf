@@ -1,5 +1,5 @@
-import { QueryClient } from '@tanstack/react-query'
-import { describe, expect, it } from 'vitest'
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
+import { describe, expect, it, vi } from 'vitest'
 import type { ReadingSummaryDto } from '@pixishelf/db/reading-contract'
 import { patchReadingSummaryInCache, reconcileReadingCache } from '../reading-cache'
 
@@ -14,6 +14,91 @@ const viewed: ReadingSummaryDto = {
 }
 
 describe('reading cache patch', () => {
+  it.each(['custom', 'trpc'])('removes threshold-complete works from %s continuation while preserving factual progress in cards', (kind) => {
+    const client = new QueryClient()
+    const key = kind === 'custom' ? ['reading', 'continueReading', 'alice']
+      : [['reading', 'continueReading'], { input: { expectedUserId: 'alice' }, type: 'query' }]
+    const cardKey = ['artwork', 'cardList', 'alice']
+    const initial = { ...viewed, totalCount: 100, seenCount: 97 }
+    const page = { items: [{ artworkId: 7, reading: initial }] }
+    client.setQueryData(key, page)
+    client.setQueryData(cardKey, page)
+    const completed = { ...initial, stateVersion: 2, seenCount: 98, status: 'COMPLETED' as const }
+    patchReadingSummaryInCache(client, completed, 'alice')
+    expect(client.getQueryData(key)).toEqual({ items: [] })
+    expect(client.getQueryData(cardKey)).toEqual({ items: [{ artworkId: 7, reading: completed }] })
+    client.setQueryData(key, page)
+    reconcileReadingCache(client, 'alice')
+    expect(client.getQueryData(key)).toEqual({ items: [] })
+    client.clear()
+  })
+
+  it.each(['custom', 'trpc'])('updates and invalidates only the owning continuation shelf (%s)', (kind) => {
+    const client = new QueryClient()
+    const key = (owner: string) => kind === 'custom'
+      ? ['reading', 'continueReading', owner]
+      : [['reading', 'continueReading'], { input: { expectedUserId: owner }, type: 'query' }]
+    const ownerKey = key('user-1')
+    const otherKey = key('user-10')
+    const page = { items: [{ artwork: { id: 7 }, reading: viewed }] }
+    client.setQueryData(ownerKey, page)
+    client.setQueryData(otherKey, page)
+    const completed: ReadingSummaryDto = { ...viewed, stateVersion: 2, seenCount: 3, status: 'COMPLETED' }
+
+    patchReadingSummaryInCache(client, completed, 'user-1')
+
+    expect(client.getQueryData(ownerKey)).toEqual({ items: [] })
+    expect(client.getQueryData(otherKey)).toEqual(page)
+    expect(client.getQueryState(ownerKey)?.isInvalidated).toBe(true)
+    expect(client.getQueryState(otherKey)?.isInvalidated).toBe(false)
+    client.setQueryData(ownerKey, page)
+    reconcileReadingCache(client, 'user-1')
+    expect(client.getQueryData(ownerKey)).toEqual({ items: [] })
+  })
+
+  it('keeps an unfinished video with zero seen media and drops a rebuilt empty summary', () => {
+    const client = new QueryClient()
+    const key = ['reading', 'continueReading', 'alice']
+    const video = { ...viewed, seenCount: 0, totalCount: 1 }
+    const page = { items: [{ artwork: { id: 7 }, reading: video }] }
+    client.setQueryData(key, page)
+    reconcileReadingCache(client, 'alice')
+    expect(client.getQueryData(key)).toEqual(page)
+
+    patchReadingSummaryInCache(client, { ...unread, mediaRevision: 2 }, 'alice')
+    expect(client.getQueryData(key)).toEqual({ items: [] })
+  })
+
+  it('invalidates an empty shelf after the first real visit so the next mount can fill it', () => {
+    const client = new QueryClient()
+    const key = ['reading', 'continueReading', 'alice']
+    client.setQueryData(key, { items: [] })
+    patchReadingSummaryInCache(client, viewed, 'alice')
+    expect(client.getQueryData(key)).toEqual({ items: [] })
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true)
+  })
+
+  it('does not refetch an active old-account shelf with a switched session after a report', () => {
+    const client = new QueryClient()
+    const key = ['reading', 'continueReading', 'alice']
+    const page = { items: [{ artwork: { id: 7 }, reading: viewed }] }
+    const fetchWithCurrentSession = vi.fn(async () => page)
+    const observer = new QueryObserver(client, {
+      queryKey: key,
+      queryFn: fetchWithCurrentSession,
+      initialData: page,
+      staleTime: Infinity
+    })
+    const unsubscribe = observer.subscribe(() => {})
+
+    patchReadingSummaryInCache(client, { ...viewed, stateVersion: 2, seenCount: 3, status: 'COMPLETED' }, 'alice')
+
+    expect(fetchWithCurrentSession).not.toHaveBeenCalled()
+    expect(client.getQueryState(key)?.isInvalidated).toBe(true)
+    unsubscribe()
+    client.clear()
+  })
+
   it('patches compact initialization atomically without adding duplicate media mappings', () => {
     const client = new QueryClient()
     const key = [['artwork', 'reader'], { input: { artworkId: 7, expectedUserId: 'alice' }, type: 'query' }]

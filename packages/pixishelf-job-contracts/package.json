@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "entities": "^6",
+    "re2js": "2.9.0",
     "zod": "^4.1.11"
   },
   "devDependencies": {

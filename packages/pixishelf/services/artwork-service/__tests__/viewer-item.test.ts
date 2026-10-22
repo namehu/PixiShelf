@@ -13,6 +13,13 @@ vi.mock('@/lib/prisma', () => ({
 import { toViewerImageItem } from '../index'
 
 describe('toViewerImageItem', () => {
+  it.each([[null, false], [1, false], [2, true], [3, true], [4, true]] as const)(
+    'derives the heart from rating %s', (level, liked) => {
+      const item = toViewerImageItem({ id: 1, images: [] }, { 1: level })
+      expect(item.ratingLevel).toBe(level)
+      expect(item.isLike).toBe(liked)
+    }
+  )
   it('preserves all transformed creator identities and the primary Pixiv identity', () => {
     const artist = { id: 1, name: 'Artist', kind: 'PERSON', pixivUserId: '12345' }
     const group = { id: 2, name: 'Circle', kind: 'GROUP', pixivUserId: null }
@@ -54,11 +61,12 @@ describe('toViewerImageItem', () => {
           }
         ]
       },
-      { 7: true }
+      { 7: 3 }
     )
 
     expect(item.mediaType).toBe(MediaType.IMAGE)
     expect(item.isLike).toBe(true)
+    expect(item.ratingLevel).toBe(3)
     expect(item.images).toEqual([
       expect.objectContaining({
         id: 71,

@@ -39,6 +39,7 @@ export const artworkQuerySnapshotSchema = z
       .default([]),
     hasAudio: z.enum(['all', 'yes', 'no']).default('all'),
     readingStatus: z.enum(['all', 'UNREAD', 'IN_PROGRESS', 'COMPLETED']).default('all'),
+    likedOnly: z.boolean().default(false),
     startDate: date,
     endDate: date,
     createdStartDate: date,

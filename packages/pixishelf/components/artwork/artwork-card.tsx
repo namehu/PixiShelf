@@ -19,12 +19,13 @@ interface ArtworkCardProps {
   displayMode?: 'card' | 'minimal'
   reading?: ReadingSummaryDto
   showReadingStatus?: boolean
+  href?: string
 }
 
 /**
  * 作品卡片组件
  */
-export default function ArtworkCard({ artwork, priority = false, className, displayMode = 'card', reading, showReadingStatus = false }: ArtworkCardProps) {
+export default function ArtworkCard({ artwork, priority = false, className, displayMode = 'card', reading, showReadingStatus = false, href }: ArtworkCardProps) {
   const preferredTags = usePreferredTags()
   const { id, title, imageCount, totalMediaSize = 0, images = [], artist, tags = [] } = artwork
 
@@ -37,7 +38,7 @@ export default function ArtworkCard({ artwork, priority = false, className, disp
   return (
     <article data-slot="artwork-card" className={cn('group min-w-0', className)}>
       <Link
-        href={`/artworks/${id}`}
+        href={href ?? `/artworks/${id}`}
         aria-label={`查看作品：${title}`}
         className={cn(
           'relative block aspect-[3/4] w-full overflow-hidden bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2',

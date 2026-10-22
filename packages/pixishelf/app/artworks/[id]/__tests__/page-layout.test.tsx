@@ -19,6 +19,7 @@ vi.mock('@/services/artwork-service/reader', () => ({
 }))
 
 vi.mock('@/lib/reading/artwork-reader-provider', () => ({ ArtworkReaderProvider: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock('../_components/artwork-detail-controls', () => ({ ArtworkDetailControlsProvider: ({ children }: { children: React.ReactNode }) => children }))
 
 vi.mock('@/services/artwork/source-links', () => ({
   getArtworkSourceLinks: vi.fn(async () => [
@@ -29,7 +30,7 @@ vi.mock('@/services/artwork/source-links', () => ({
 
 vi.mock('../_components/nav-head', () => ({ default: () => null }))
 vi.mock('../_components/artwork-media-section', () => ({
-  ArtworkMediaSection: () => <div data-testid="artwork-images" />
+  ArtworkMediaSection: ({ resumeOnEntry, mediaIdOnEntry }: { resumeOnEntry?: boolean; mediaIdOnEntry?: number | null }) => <div data-testid="artwork-images" data-resume-on-entry={String(Boolean(resumeOnEntry))} data-entry-media={String(mediaIdOnEntry)} />
 }))
 vi.mock('../_components/artwork-des', () => ({
   default: () => <div data-testid="artwork-description" />
@@ -42,6 +43,22 @@ vi.mock('@/components/artwork/artist-avatar', () => ({ ArtistAvatar: () => <div 
 afterEach(cleanup)
 
 describe('ArtworkDetailPage layout', () => {
+  it.each([
+    ['12', '12'], [undefined, 'undefined'], ['0', 'null'], ['-1', 'null'], ['1.5', 'null'],
+    ['1e2', 'null'], [' 12', 'null'], ['12tail', 'null'], ['', 'null'], ['9007199254740992', 'null'], [['12', '13'], 'null']
+  ] as const)('accepts only one positive safe integer mediaId: %s', async (mediaId, expected) => {
+    render(await artworkDetailPage({
+      params: Promise.resolve({ id: '146' }), searchParams: Promise.resolve({ mediaId })
+    } as Parameters<typeof artworkDetailPage>[0]))
+    expect(screen.getByTestId('artwork-images').getAttribute('data-entry-media')).toBe(expected)
+  })
+  it.each([['1', true], ['true', false], [undefined, false], [['1', '1'], false]] as const)('accepts only a single explicit resume=1 value: %s', async (resume, expected) => {
+    render(await artworkDetailPage({
+      params: Promise.resolve({ id: '146' }), searchParams: Promise.resolve({ resume })
+    } as Parameters<typeof artworkDetailPage>[0]))
+    expect(screen.getByTestId('artwork-images').getAttribute('data-resume-on-entry')).toBe(String(expected))
+  })
+
   it('renders distinct icon-only Pixiv links with accessible names and safe new tabs', async () => {
     render(await artworkDetailPage({ params: Promise.resolve({ id: '146' }) } as Parameters<typeof artworkDetailPage>[0]))
 

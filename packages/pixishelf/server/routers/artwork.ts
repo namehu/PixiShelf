@@ -61,12 +61,12 @@ import { revalidatePath } from 'next/cache'
 import path from 'path'
 import 'server-only'
 import { z } from 'zod'
-function assertReadingListAccount(
+function assertArtworkListAccount(
   userId: string,
   expectedUserId: string | undefined,
-  readingStatus: string | undefined
+  accountFiltered: string | boolean | undefined
 ) {
-  if ((readingStatus && !expectedUserId) || (expectedUserId && expectedUserId !== userId)) {
+  if ((accountFiltered && !expectedUserId) || (expectedUserId && expectedUserId !== userId)) {
     throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
   }
 }
@@ -83,11 +83,11 @@ export const artworkRouter = router({
     return generateArtworkSummary(input.artworkId, input.requestId, ctx.userId, input.force)
   }),
   reader: authProcedure.input(ReaderInputSchema).query(({ ctx, input }) => {
-    assertReadingListAccount(ctx.userId, input.expectedUserId, undefined)
+    assertArtworkListAccount(ctx.userId, input.expectedUserId, undefined)
     return getReaderInitialization(ctx.userId, input.artworkId)
   }),
   mediaPage: authProcedure.input(MediaPageInputSchema).query(({ ctx, input }) => {
-    assertReadingListAccount(ctx.userId, input.expectedUserId, undefined)
+    assertArtworkListAccount(ctx.userId, input.expectedUserId, undefined)
     return getReaderMediaPage(input.artworkId, input.fingerprint, input.page)
   }),
   /**
@@ -100,13 +100,13 @@ export const artworkRouter = router({
    * 获取作品列表 (无限加载)
    */
   list: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input, ctx }) => {
-    assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
+    assertArtworkListAccount(ctx.userId, input.expectedUserId, input.readingStatus || input.likedOnly)
     const page = input.cursor ?? 1
     const result = await getArtworksList(input, ctx.userId)
     const totalPages = Math.ceil(result.total / result.pageSize)
     return {
       items: result.items,
-      nextCursor: input.readingStatus ? undefined : page < totalPages ? page + 1 : undefined,
+      nextCursor: input.readingStatus || input.likedOnly ? undefined : page < totalPages ? page + 1 : undefined,
       nextReadingCursor: result.nextReadingCursor,
       total: result.total
     }
@@ -115,12 +115,12 @@ export const artworkRouter = router({
    * 获取作品卡片列表；不计算总数，通过多取一条判断是否还有下一页。
    */
   cardList: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input, ctx }) => {
-    assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
+    assertArtworkListAccount(ctx.userId, input.expectedUserId, input.readingStatus || input.likedOnly)
     const page = input.cursor ?? 1
     const result = await getArtworkCardsPage(input, ctx.userId)
     return {
       items: result.items,
-      nextCursor: input.readingStatus || input.sortBy === 'random' ? undefined : result.hasNextPage ? page + 1 : undefined,
+      nextCursor: input.readingStatus || input.likedOnly || input.sortBy === 'random' ? undefined : result.hasNextPage ? page + 1 : undefined,
       nextReadingCursor: result.nextReadingCursor,
       nextRandomCursor: result.nextRandomCursor
     }
@@ -387,7 +387,7 @@ export const artworkRouter = router({
    * 获取沉浸浏览 Feed
    */
   viewerFeed: authProcedure.input(ViewerFeedQuerySchema).query(async ({ input, ctx }) => {
-    assertReadingListAccount(ctx.userId, input.expectedUserId, input.readingStatus)
+    assertArtworkListAccount(ctx.userId, input.expectedUserId, input.readingStatus || input.likedOnly)
     try {
       return getViewerFeed({
         ...input,

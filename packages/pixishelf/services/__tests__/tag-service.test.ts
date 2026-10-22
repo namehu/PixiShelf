@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildTagManagementWhere, deleteTag, updateTag } from '../tag-service'
+import { buildTagManagementWhere, deleteTag, searchTags, updateTag } from '../tag-service'
 
 const mocks = vi.hoisted(() => ({
   tagFindUniqueMock: vi.fn(),
   tagFindFirstMock: vi.fn(),
   tagFindManyMock: vi.fn(),
   tagUpdateMock: vi.fn(),
-  tagDeleteMock: vi.fn()
+  tagDeleteMock: vi.fn(),
+  queryRawMock: vi.fn()
 }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $queryRaw: mocks.queryRawMock,
     tag: {
       findUnique: mocks.tagFindUniqueMock,
       findFirst: mocks.tagFindFirstMock,
@@ -64,6 +66,66 @@ describe('tag management Pixiv enrichment filters', () => {
         { AND: [{ name_zh: null }, { name_en: null }] },
         { ...sourceCandidate, externalMetadata: { some: { providerKey: 'pixiv', status: 'PARTIAL' } } }
       ]
+    })
+  })
+
+  it('normalizes whitespace without adding a filter for an empty query', () => {
+    expect(buildTagManagementWhere({ search: '  ', translationStatus: 'all' })).toEqual({})
+    expect(buildTagManagementWhere({ search: '  猫  ', translationStatus: 'all' })).toEqual({
+      AND: [
+        {
+          OR: [
+            { name: { contains: '猫', mode: 'insensitive' } },
+            { name_zh: { contains: '猫', mode: 'insensitive' } },
+            { name_en: { contains: '猫', mode: 'insensitive' } }
+          ]
+        }
+      ]
+    })
+  })
+})
+
+describe('tag list multilingual search', () => {
+  beforeEach(() => {
+    mocks.queryRawMock.mockReset()
+  })
+
+  it.each([
+    ['ねこ', 'ねこ:*'],
+    ['猫咪', '猫咪:*'],
+    ['CAT', 'CAT:*'],
+    ['  Black   cat  ', 'Black:* & cat:*'],
+    ["ねこ | !'猫':*", 'ねこ:* & 猫:*']
+  ])('preserves the multilingual prefix query for %s', async (query, expectedQuery) => {
+    const tag = { id: 17, name: 'ねこ', name_zh: '猫咪', name_en: 'Cat', relevance_score: 0.25 }
+    mocks.queryRawMock.mockResolvedValueOnce([tag]).mockResolvedValueOnce([{ count: BigInt(3) }])
+
+    const result = await searchTags({ query, page: 2, pageSize: 1 })
+
+    const [resultTemplate, ...resultParams] = mocks.queryRawMock.mock.calls[0]!
+    const resultSql = (resultTemplate as TemplateStringsArray).join('?')
+    expect(resultSql).toContain('WHERE search_vector @@')
+    expect(resultSql).toContain('DESC, id ASC')
+    expect(resultSql).toContain('LIMIT ? OFFSET ?')
+    expect(resultParams).toEqual([expectedQuery, expectedQuery, expectedQuery, 1, 1])
+    expect(mocks.queryRawMock.mock.calls[1]?.slice(1)).toEqual([expectedQuery])
+    expect(result).toEqual({ items: [{ ...tag, relevanceScore: 0.25 }], nextCursor: 3 })
+  })
+
+  it.each(['', ' \t\n ', '& | ! :*'])(
+    'returns no results without querying for empty searchable input %j',
+    async (query) => {
+      await expect(searchTags({ query, page: 1, pageSize: 20 })).resolves.toEqual({ items: [], nextCursor: undefined })
+      expect(mocks.queryRawMock).not.toHaveBeenCalled()
+    }
+  )
+
+  it('ends pagination for no matches', async () => {
+    mocks.queryRawMock.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: BigInt(0) }])
+
+    await expect(searchTags({ query: '不存在', page: 1, pageSize: 20 })).resolves.toEqual({
+      items: [],
+      nextCursor: undefined
     })
   })
 })

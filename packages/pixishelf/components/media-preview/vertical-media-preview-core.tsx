@@ -47,6 +47,7 @@ interface VerticalMediaPreviewCoreProps<T> {
   counterTotal?: number | null
   /** Optional zero-based position in the full source when items is a filtered sequence. */
   counterIndex?: number
+  topChrome?: (context: VerticalMediaPreviewChromeContext) => ReactNode
   bottomChrome?: (context: VerticalMediaPreviewChromeContext) => ReactNode
   onActiveIndexChange?: (index: number) => void
   onZoomChange?: (scale: number) => void
@@ -86,6 +87,7 @@ export function VerticalMediaPreviewCore<T>({
   testId = 'vertical-media-preview-swiper',
   counterTotal,
   counterIndex,
+  topChrome,
   bottomChrome,
   onActiveIndexChange,
   onZoomChange,
@@ -219,14 +221,17 @@ export function VerticalMediaPreviewCore<T>({
           >
             {(counterIndex ?? activeIndex) + 1} / {displayTotal}
           </div>
-          <button
-            type="button"
-            onClick={requestClose}
-            className="pointer-events-auto flex size-11 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
-            aria-label={closeLabel}
-          >
-            <XIcon className="size-6" aria-hidden="true" />
-          </button>
+          <div className="pointer-events-auto flex items-center gap-1">
+            {topChrome?.({ activeIndex, portalContainer, transitioning, zoomScale })}
+            <button
+              type="button"
+              onClick={requestClose}
+              className="pointer-events-auto flex size-11 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              aria-label={closeLabel}
+            >
+              <XIcon className="size-6" aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
         <Swiper

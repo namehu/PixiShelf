@@ -26,7 +26,7 @@ vi.mock('@/hooks/use-artwork-quick-filters', () => ({
         revision: 1,
         schemaVersion: 1,
         name: '已保存',
-        query: artworkQuerySnapshotSchema.parse({ search: 'stored', readingStatus: 'UNREAD' }),
+        query: artworkQuerySnapshotSchema.parse({ search: 'stored', readingStatus: 'UNREAD', likedOnly: true }),
         createdAt: '2026-10-14T00:00:00.000Z',
         invalidReferences: []
       }
@@ -55,6 +55,7 @@ const props = {
   currentMediaType: 'all' as const,
   currentSortBy: 'source_date_desc' as const,
   currentReadingStatus: 'all' as const,
+  currentLikedOnly: false,
   onApply: vi.fn(),
   onOpenChange: vi.fn(),
   onApplySnapshot: vi.fn()
@@ -71,6 +72,7 @@ describe('gallery filter drafts', () => {
   it('preserves drafts across tabs and saves without applying', async () => {
     render(<GalleryFilterSheet {...props} />)
     fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: 'draft' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: '只看我的喜欢' }))
     tab('快捷筛选')
     tab('筛选条件')
     expect((screen.getByRole('textbox', { name: '关键词' }) as HTMLInputElement).value).toBe('draft')
@@ -79,7 +81,7 @@ describe('gallery filter drafts', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存快捷筛选' }))
     await waitFor(() =>
       expect(api.create).toHaveBeenCalledWith(
-        expect.objectContaining({ name: '我的筛选', pin: true, query: expect.objectContaining({ search: 'draft' }) })
+        expect.objectContaining({ name: '我的筛选', pin: true, query: expect.objectContaining({ search: 'draft', likedOnly: true }) })
       )
     )
     expect(props.onApply).not.toHaveBeenCalled()
@@ -99,7 +101,7 @@ describe('gallery filter drafts', () => {
     render(<GalleryFilterSheet {...props} initialTab="saved" />)
     fireEvent.click(screen.getByRole('button', { name: /已保存.*stored/ }))
     expect(props.onApplySnapshot).toHaveBeenCalledWith(
-      expect.objectContaining({ search: 'stored', readingStatus: 'UNREAD' })
+      expect.objectContaining({ search: 'stored', readingStatus: 'UNREAD', likedOnly: true })
     )
     expect(props.onOpenChange).toHaveBeenCalledWith(false)
   })
@@ -109,11 +111,12 @@ describe('gallery filter drafts', () => {
     tab('快捷筛选')
     fireEvent.keyDown(screen.getByRole('button', { name: '管理：已保存' }), { key: 'ArrowDown' })
     fireEvent.click(screen.getByRole('menuitem', { name: '编辑条件' }))
+    expect(screen.getByRole('checkbox', { name: '只看我的喜欢' }).getAttribute('aria-checked')).toBe('true')
     fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: 'edited' } })
     fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
     await waitFor(() =>
       expect(api.update).toHaveBeenCalledWith(
-        expect.objectContaining({ revision: 1, query: expect.objectContaining({ search: 'edited' }) })
+        expect.objectContaining({ revision: 1, query: expect.objectContaining({ search: 'edited', likedOnly: true }) })
       )
     )
     await waitFor(() =>
@@ -121,6 +124,7 @@ describe('gallery filter drafts', () => {
     )
     tab('筛选条件')
     expect((screen.getByRole('textbox', { name: '关键词' }) as HTMLInputElement).value).toBe('ordinary draft')
+    expect(screen.getByRole('checkbox', { name: '只看我的喜欢' }).getAttribute('aria-checked')).toBe('false')
     expect(props.onApply).not.toHaveBeenCalled()
   })
 })

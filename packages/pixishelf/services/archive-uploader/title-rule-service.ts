@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { Prisma, type PrismaClient, cancelDiscoveryCreator, lockDiscoveryCreators } from '@pixishelf/db'
 import {
   ARCHIVE_RULE_PREVIEW_JOB_TYPE,
+  ARCHIVE_RULE_PREVIEW_DEFINITION_VERSION,
   archiveTitleRulesSchema,
   archiveTitleQuerySchema,
   archiveTitleReviewDecisionSchema,
@@ -102,7 +103,7 @@ export async function previewTitleRules(
         id: jobId,
         type: ARCHIVE_RULE_PREVIEW_JOB_TYPE,
         executionLane: 'ARCHIVE_RESOLVE',
-        definitionVersion: 1,
+        definitionVersion: ARCHIVE_RULE_PREVIEW_DEFINITION_VERSION,
         status: 'PENDING',
         triggerSource: 'MANUAL',
         requestedByUserId: userId,

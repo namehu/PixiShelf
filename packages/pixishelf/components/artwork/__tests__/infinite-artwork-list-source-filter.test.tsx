@@ -71,14 +71,14 @@ describe('InfiniteArtworkList artwork sources', () => {
   })
 
   it('uses the random cursor ahead of reading pagination and preserves seed zero', async () => {
-    render(<InfiniteArtworkList readingStatus="UNREAD" sortBy="random" randomSeed={0} />)
+    render(<InfiniteArtworkList likedOnly readingStatus="UNREAD" sortBy="random" randomSeed={0} />)
     const options = (useInfiniteQueryMock.mock.calls.at(-1) as unknown[])[0] as {
       queryFn: (ctx: { pageParam: string; signal: AbortSignal }) => Promise<unknown>
       getNextPageParam: (page: object) => string
     }
     await options.queryFn({ pageParam: 'ring-cursor', signal: new AbortController().signal })
     expect(cardListQuery).toHaveBeenCalledWith(expect.objectContaining({
-      randomSeed: 0, randomCursor: 'ring-cursor', readingCursor: undefined, expectedUserId: 'alice'
+      randomSeed: 0, randomCursor: 'ring-cursor', readingCursor: undefined, expectedUserId: 'alice', likedOnly: true
     }), expect.anything())
     expect(options.getNextPageParam({ nextRandomCursor: 'ring', nextReadingCursor: 'old' })).toBe('ring')
   })
@@ -93,8 +93,8 @@ describe('InfiniteArtworkList artwork sources', () => {
     useInfiniteQueryMock.mockReturnValue(normal)
   })
 
-  it('uses reading cursor and account precondition for filtered continuation', async () => {
-    render(<InfiniteArtworkList readingStatus="UNREAD" />)
+  it.each([{ readingStatus: 'UNREAD' as const }, { likedOnly: true }])('uses keyset cursor and account precondition for filtered continuation: %o', async (filter) => {
+    render(<InfiniteArtworkList {...filter} />)
     const options = (useInfiniteQueryMock.mock.calls.at(-1) as unknown as [{
       queryFn: (args: { pageParam: string; signal: AbortSignal }) => Promise<unknown>
       getNextPageParam: (page: { nextReadingCursor: string }) => string | undefined
@@ -102,7 +102,7 @@ describe('InfiniteArtworkList artwork sources', () => {
     expect(options.getNextPageParam({ nextReadingCursor: 'next-token' })).toBe('next-token')
     await options.queryFn({ pageParam: 'next-token', signal: new AbortController().signal })
     expect(cardListQuery).toHaveBeenCalledWith(expect.objectContaining({
-      readingStatus: 'UNREAD', readingCursor: 'next-token', expectedUserId: 'alice'
+      ...filter, readingCursor: 'next-token', expectedUserId: 'alice'
     }), expect.any(Object))
   })
 })

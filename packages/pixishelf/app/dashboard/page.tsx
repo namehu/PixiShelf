@@ -12,6 +12,7 @@ import { SectionHeader } from '@/components/layout/section-header'
 import RecommendedArtworkSection from './_components/recommended-artwork-section'
 import { PageHeader } from '@/components/layout/page-header'
 import { ArrowRightIcon } from 'lucide-react'
+import ContinueReadingSection from './_components/continue-reading-section'
 
 // export const dynamic = 'force-dynamic'
 export const revalidate = 300
@@ -48,6 +49,8 @@ export default function DashboardPage() {
           title="收藏概览"
           description="从最近入库的作品继续浏览，再回到常看的艺术家与偏好集合。"
         />
+
+        <ContinueReadingSection />
 
         <section aria-labelledby="dashboard-latest-heading" className="mb-12">
           <SectionHeader

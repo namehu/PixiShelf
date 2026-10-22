@@ -5,13 +5,14 @@ import {
   quickFilterSetNavigationSchema
 } from '@/schemas/artwork-quick-filter.dto'
 import { updateUserSettingItemSchema } from '@/schemas/user-setting.dto'
-import { queryToSnapshot, snapshotHref, snapshotToQuery } from '../artwork-query-snapshot'
+import { describeSnapshot, queryToSnapshot, snapshotHref, snapshotToQuery } from '../artwork-query-snapshot'
 
 describe('saved artwork queries', () => {
   it('round trips the entire query, including labels with commas, percent signs and Unicode', () => {
     const query = artworkQuerySnapshotSchema.parse({
       search: '100% & 漫画',
       readingStatus: 'IN_PROGRESS',
+      likedOnly: true,
       artist: [{ value: '42', label: '艺术家' }],
       tags: [{ value: '9', label: 'A,B% 中文' }],
       sources: ['LOCAL_IMPORT'],
@@ -32,6 +33,16 @@ describe('saved artwork queries', () => {
       readingStatus: 'all',
       randomSeed: null
     })
+  })
+  it('keeps old links and presets unfiltered and describes saved likes', () => {
+    const legacy = artworkQuerySnapshotSchema.parse({})
+    expect(legacy.likedOnly).toBe(false)
+    expect(snapshotToQuery(legacy).likedOnly).toBeNull()
+    expect(snapshotHref(legacy)).not.toContain('likedOnly')
+    expect(queryToSnapshot(new URLSearchParams('likedOnly=false')).likedOnly).toBe(false)
+    expect(queryToSnapshot(new URLSearchParams('likedOnly=invalid')).likedOnly).toBe(false)
+    expect(describeSnapshot(artworkQuerySnapshotSchema.parse({ likedOnly: true }))).toContain('我的喜欢')
+    expect(artworkQuerySnapshotSchema.safeParse({ likedOnly: 'false' }).success).toBe(false)
   })
   it('saves sorting but generates a new seed on each application and preserves a supplied browsing seed', () => {
     const query = artworkQuerySnapshotSchema.parse({ sortBy: 'random', randomSeed: 12 })

@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { TAG_SELECT } from '@/schemas/models/tags'
 import { TTagResponseDto, TagResponseDto, type TagPixivStatusFilter } from '@/schemas/tag.dto'
 import { Prisma } from '@prisma/client'
+import { buildTagNameSearchWhere } from './tag-search'
 
 // 定义列表查询的返回结构
 export interface TagListResult {
@@ -27,15 +28,8 @@ export function buildTagManagementWhere(input: {
 }): Prisma.TagWhereInput {
   const conditions: Prisma.TagWhereInput[] = []
 
-  if (input.search) {
-    conditions.push({
-      OR: [
-        { name: { contains: input.search, mode: 'insensitive' } },
-        { name_zh: { contains: input.search, mode: 'insensitive' } },
-        { name_en: { contains: input.search, mode: 'insensitive' } }
-      ]
-    })
-  }
+  const nameSearch = buildTagNameSearchWhere(input.search ?? '')
+  if (nameSearch) conditions.push(nameSearch)
 
   if (input.translationStatus === 'translated') {
     conditions.push({ OR: [{ name_zh: { not: null } }, { name_en: { not: null } }] })
@@ -75,7 +69,8 @@ export function buildTagManagementWhere(input: {
  * 构建全文搜索查询字符串 (tsquery)
  */
 function buildTsQuery(query: string): string {
-  const cleanQuery = query.replace(/[^\w\s\u4e00-\u9fff]/g, ' ')
+  // Keep original-language letters (including kana) while excluding tsquery operators.
+  const cleanQuery = query.replace(/[^\p{L}\p{N}_\s]/gu, ' ')
   const words = cleanQuery.split(/\s+/).filter((word) => word.length > 0)
 
   if (words.length === 0) return ''

@@ -20,11 +20,18 @@ vi.mock('@/lib/trpc', () => ({
 vi.mock('../_components/immersive-image-viewer', () => ({
   default: ({
     playbackRate,
-    onPlaybackRateChange
+    onPlaybackRateChange,
+    onLoadMore
   }: {
     playbackRate: number
     onPlaybackRateChange: (rate: number) => void
-  }) => <button onClick={() => onPlaybackRateChange(1.5)}>当前倍速 {playbackRate}</button>
+    onLoadMore: () => Promise<void>
+  }) => (
+    <>
+      <button onClick={() => onPlaybackRateChange(1.5)}>当前倍速 {playbackRate}</button>
+      <button onClick={() => void onLoadMore()}>加载更多</button>
+    </>
+  )
 }))
 vi.mock('@/components/artwork/filter-sheet', () => ({
   FilterSheet: (props: FilterSheetProps) => {
@@ -42,6 +49,7 @@ const applied: Parameters<FilterSheetProps['onApply']>[0] = {
   sources: ['LOCAL_IMPORT'],
   hasAudio: 'no',
   readingStatus: 'UNREAD',
+  likedOnly: true,
   maxMediaCount: 24,
   startTime: '2026-01-01',
   endTime: '2026-02-01',
@@ -90,6 +98,25 @@ async function reloadStore() {
 }
 
 describe('immersive viewer filter persistence', () => {
+  it.each(['ordered', 'random'])('keeps favorites and account context on %s continuation', async (mode) => {
+    mocks.feed
+      .mockResolvedValueOnce({
+        items: [{ id: 1, key: 'one', images: [] }],
+        nextReadingCursor: 'ordered-next',
+        nextRandomCursor: 'random-next'
+      })
+      .mockResolvedValue({ items: [{ id: 2, key: 'two', images: [] }], nextPage: null })
+    mount(`likedOnly=true&mode=${mode}&randomSeed=0`)
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多' }))
+    await waitFor(() => expect(mocks.feed).toHaveBeenCalledTimes(2))
+    expect(mocks.feed.mock.calls[1]?.[0]).toMatchObject({
+      likedOnly: true,
+      expectedUserId: 'viewer-user',
+      cursor: undefined,
+      readingCursor: mode === 'ordered' ? 'ordered-next' : undefined,
+      randomCursor: mode === 'random' ? 'random-next' : undefined
+    })
+  })
   it('retains speed across filter remounts but resets on a new page visit without persisting it', async () => {
     mocks.feed.mockResolvedValue({ items: [{ id: 1, key: 'video', images: [] }], nextPage: null })
     const view = mount()
@@ -121,6 +148,7 @@ describe('immersive viewer filter persistence', () => {
       sources: ['LOCAL_IMPORT'],
       hasAudio: 'no',
       readingStatus: 'UNREAD',
+      likedOnly: true,
       mediaCountMax: 24,
       startDate: '2026-01-01',
       endDate: '2026-02-01',
@@ -130,7 +158,7 @@ describe('immersive viewer filter persistence', () => {
     expect(mocks.sheet).toMatchObject({ currentArtist: applied.artist, currentTags: applied.tags })
   })
 
-  it.each(['source=artist&sourceId=99', 'mediaType=all', 'readingStatus=all'])(
+  it.each(['source=artist&sourceId=99', 'mediaType=all', 'readingStatus=all', 'likedOnly=false'])(
     'gives explicit URL %s priority without overwriting preferences',
     async (search) => {
       const view = mount()
@@ -143,7 +171,8 @@ describe('immersive viewer filter persistence', () => {
         search: undefined,
         tagIds: [],
         sources: [],
-        readingStatus: undefined
+        readingStatus: undefined,
+        likedOnly: false
       })
       if (search.startsWith('source=')) {
         expect(mocks.feed.mock.calls[0]?.[0]).toMatchObject({ source: 'artist', artistId: 99 })
@@ -169,6 +198,7 @@ describe('immersive viewer filter persistence', () => {
       currentMediaType: 'all',
       currentSortBy: 'random',
       currentReadingStatus: 'all',
+      currentLikedOnly: false,
       currentArtist: [],
       currentTags: [],
       currentSources: [],
@@ -190,7 +220,8 @@ describe('immersive viewer filter persistence', () => {
       expect(mocks.feed.mock.calls[0]?.[0]).toMatchObject({
         mode: 'random',
         randomSeed: 456000,
-        readingStatus: 'UNREAD'
+        readingStatus: 'UNREAD',
+        likedOnly: true
       })
     } finally {
       random.mockRestore()

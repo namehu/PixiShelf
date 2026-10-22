@@ -5,6 +5,11 @@ import type { ReactNode } from 'react'
 import type { RandomImageItem } from '@/types/images'
 import { MediaType } from '@/types'
 
+vi.mock('@/components/media-mark/media-mark-actions', () => ({
+  MediaMarkActions: ({ artworkId, mediaId }: { artworkId: number; mediaId: number | null }) =>
+    <div data-testid="media-mark-actions" data-artwork-id={artworkId} data-media-id={mediaId} />
+}))
+
 vi.mock('@/components/ui/drawer', () => ({
   Drawer: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   DrawerContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -27,7 +32,8 @@ const image: RandomImageItem = {
   author: { id: 9, userId: '9', name: 'Artist', username: 'artist' },
   createdAt: '2026-08-12T00:00:00.000Z',
   tags: [],
-  isLike: false
+  isLike: false,
+  ratingLevel: null
 }
 
 describe('ActionDrawer', () => {
@@ -36,6 +42,14 @@ describe('ActionDrawer', () => {
     useViewerStore.setState({ autoBrowseInterval: 5 })
   })
   afterEach(cleanup)
+  it('marks the current logical media and disables the artwork-cover fallback', () => {
+    const { rerender } = render(<ActionDrawer open onOpenChange={vi.fn()} image={image} currentMediaId={42} onHideChrome={vi.fn()} />)
+    expect(screen.getByTestId('media-mark-actions').getAttribute('data-media-id')).toBe('42')
+    expect(screen.getByTestId('media-mark-actions').getAttribute('data-artwork-id')).toBe('7')
+    rerender(<ActionDrawer open onOpenChange={vi.fn()} image={image} onHideChrome={vi.fn()} />)
+    expect(screen.getByTestId('media-mark-actions').hasAttribute('data-media-id')).toBe(false)
+    expect(screen.getByText('当前仅展示作品封面，暂无可标记的图片。')).toBeTruthy()
+  })
   it('offers four persisted intervals and requests start only after closing the menu', () => {
     const close = vi.fn()
     render(<ActionDrawer open onOpenChange={close} image={image} onHideChrome={vi.fn()} />)

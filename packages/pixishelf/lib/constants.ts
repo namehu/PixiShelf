@@ -12,6 +12,7 @@ export const ROUTES = {
   DASHBOARD: '/dashboard',
   ARTWORKS: '/artworks',
   READING_HISTORY: '/reading-history',
+  MY_IMAGES: '/my-images',
   ARTISTS: '/artists',
   ADMIN: '/admin',
   SERIES: '/series',

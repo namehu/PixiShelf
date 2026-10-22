@@ -1,6 +1,7 @@
 import type { ImgHTMLAttributes } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MediaType } from '@/types'
 import type { RandomImageItem } from '@/types/images'
 import { useViewerStore } from '@/store/viewer-store'
@@ -18,8 +19,8 @@ vi.mock('next/image', () => ({
   )
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
-vi.mock('next-safe-action/hooks', () => ({
-  useOptimisticAction: () => ({ execute: vi.fn(), result: {}, optimisticState: { isLiked: false } })
+vi.mock('@/hooks/use-artwork-rating', () => ({
+  useArtworkRating: () => ({ level: null, confirmedLevel: null, isLoading: false, isSaving: false, error: null, setLevel: vi.fn(), retry: vi.fn() })
 }))
 vi.mock('../action-drawer', () => ({ ActionDrawer: () => null }))
 vi.mock('../tags-panel', () => ({ default: () => null }))
@@ -35,6 +36,7 @@ function artwork(id: number, count = 1, kind: 'image' | 'video' | 'gif' = 'image
     tags: [],
     createdAt: '2026-10-21',
     isLike: false,
+    ratingLevel: null,
     images: Array.from({ length: count }, (_, index) => ({
       id: id * 10 + index,
       key: `media-${id}-${index}`,
@@ -46,7 +48,10 @@ function artwork(id: number, count = 1, kind: 'image' | 'video' | 'gif' = 'image
     }))
   }
 }
+const queryClients: QueryClient[] = []
 function mount(images: RandomImageItem[]) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  queryClients.push(queryClient)
   useViewerStore.setState({ images, isChromeHidden: true })
   return render(
     <ImmersiveImageViewer
@@ -56,7 +61,8 @@ function mount(images: RandomImageItem[]) {
       hasMore={false}
       isLoading={false}
       onLoadMore={vi.fn()}
-    />
+    />,
+    { wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider> }
   )
 }
 function pointer(target: Element, type: string, x: number, pointerType = 'touch') {
@@ -125,6 +131,7 @@ describe('compact progress with real controls and Swipers', () => {
   })
   afterEach(() => {
     cleanup()
+    queryClients.splice(0).forEach((client) => client.clear())
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     vi.useRealTimers()
@@ -179,7 +186,7 @@ describe('compact progress with real controls and Swipers', () => {
     pointer(track(), 'pointerdown', 75)
     act(() => useViewerStore.getState().setChromeHidden(false))
     expect(screen.queryByRole('slider', { name: '图片位置' })).toBeNull()
-    expect(screen.getByRole('button', { name: '喜欢作品' })).toBeDefined()
+    expect(screen.getByRole('button', { name: /喜欢作品/ })).toBeDefined()
     expect(document.querySelectorAll('[data-viewer-image-segments]')).toHaveLength(1)
     expect(document.querySelectorAll('[data-viewer-image-segments] [data-active="true"]')).toHaveLength(5)
     act(() => useViewerStore.getState().setChromeHidden(true))

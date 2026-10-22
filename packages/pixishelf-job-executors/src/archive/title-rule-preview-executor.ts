@@ -1,6 +1,7 @@
 import { Prisma } from '@pixishelf/db'
 import {
   ARCHIVE_RULE_PREVIEW_JOB_TYPE,
+  ARCHIVE_RULE_PREVIEW_DEFINITION_VERSION,
   archiveTitleRulePreviewPayloadSchema,
   archiveTitleRulesSchema,
   archiveTitleQuerySchema,
@@ -14,11 +15,13 @@ import { lockDiscoverySource } from './discovery-scan-enqueue.ts'
 
 type Payload = { revisionId: string }
 
-export function createArchiveTitleRulePreviewRegistration(): ExecutorDefinition<Payload> {
+export function createArchiveTitleRulePreviewRegistration(
+  definitionVersion: 1 | 2 = ARCHIVE_RULE_PREVIEW_DEFINITION_VERSION
+): ExecutorDefinition<Payload> {
   return {
     jobType: ARCHIVE_RULE_PREVIEW_JOB_TYPE,
     executionLane: 'ARCHIVE_RESOLVE',
-    definitionVersion: 1,
+    definitionVersion,
     progressPolicy: 'STANDARD',
     parsePayload: (value) => archiveTitleRulePreviewPayloadSchema.parse(value),
     execute: (context) => executeArchiveTitleRulePreview(context)

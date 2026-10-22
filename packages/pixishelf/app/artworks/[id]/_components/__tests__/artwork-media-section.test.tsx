@@ -1,8 +1,11 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReadingContextDto } from '@pixishelf/db/reading-contract'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
+import { useArtworkReading } from '@/lib/reading/reading-provider'
+import { useArtworkReader } from '@/lib/reading/artwork-reader-provider'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 import { ArtworkMediaSection } from '../artwork-media-section'
 import { ArtworkMediaViewProvider, useArtworkMediaView } from '../artwork-media-view-context'
@@ -18,13 +21,21 @@ const mocks = vi.hoisted(() => ({
   toastCustom: vi.fn(),
   toastDismiss: vi.fn(),
   ownerUserId: 'alice',
+  invalidated: false,
+  isLoading: false,
+  error: null as unknown,
+  retry: vi.fn(),
+  completeContinue: undefined as (() => void) | undefined,
   pathname: '/artworks/7',
+  ratingOpen: false,
   readingSummary: null as null | { status: string; viewCount: number; seenCount: number; totalCount: number },
   localUnmounts: 0
 }))
 
 vi.mock('next/navigation', () => ({ usePathname: () => mocks.pathname }))
 vi.mock('../artwork-summary-context', () => ({ useArtworkSummary: () => mocks.stackSession }))
+vi.mock('../artwork-detail-controls', () => ({ useArtworkDetailControls: () => ({ ratingOpen: mocks.ratingOpen }) }))
+vi.mock('@/lib/reading/artwork-reader-provider', () => ({ useArtworkReader: vi.fn(() => null) }))
 
 vi.mock('sonner', () => ({ toast: { custom: mocks.toastCustom, dismiss: mocks.toastDismiss, error: vi.fn() } }))
 
@@ -37,9 +48,10 @@ vi.mock('@/lib/reading/reading-provider', () => ({
     context: mocks.readingContext,
     summary: mocks.readingSummary,
     resume: mocks.readingContext?.resume ?? null,
-    isLoading: false,
-    error: null,
-    invalidated: false,
+    isLoading: mocks.isLoading,
+    error: mocks.error,
+    retry: mocks.retry,
+    invalidated: mocks.invalidated,
     observationEpoch: 0,
     observe: mocks.observe,
     clearSurface: () => {},
@@ -52,8 +64,9 @@ vi.mock('../artwork-images', async () => {
   const React = await import('react')
   const { ReadingMediaStatus } = await import('../reading-media-status')
   return {
-    default: ({ images, reading, continueRequest }: { images: ArtworkImageResponseDto[]; reading: ArtworkReadingHandle; continueRequest?: { index: number } }) => {
+    default: ({ images, reading, continueRequest, onContinueHandled }: { images: ArtworkImageResponseDto[]; reading: ArtworkReadingHandle; continueRequest?: { index: number }; onContinueHandled?: () => void }) => {
       mocks.observedReading = reading
+      mocks.completeContinue = onContinueHandled
       React.useEffect(() => {
         mocks.localMounts += 1
         return () => {
@@ -90,7 +103,15 @@ describe('ArtworkMediaSection', () => {
     mocks.stackSession = null
     mocks.readingContext = null
     mocks.ownerUserId = 'alice'
+    mocks.invalidated = false
+    mocks.isLoading = false
+    mocks.error = null
+    mocks.retry.mockReset()
+    vi.mocked(useArtworkReader).mockReturnValue(null)
+    mocks.completeContinue = undefined
     mocks.pathname = '/artworks/7'
+    mocks.ratingOpen = false
+    window.history.replaceState({}, '', '/artworks/7')
     mocks.markRead.mockReset()
     mocks.toastCustom.mockReset()
     mocks.toastDismiss.mockReset()
@@ -101,6 +122,128 @@ describe('ArtworkMediaSection', () => {
   })
 
   afterEach(cleanup)
+
+  function resumedContext(): ReadingContextDto {
+    return {
+      artworkId: 7, mediaRevision: 1, seenMediaIds: [11],
+      media: [{ mediaId: 11, memberMediaIds: [11], index: 0 }, { mediaId: 12, memberMediaIds: [12], index: 1 }],
+      resume: { mediaId: 12, index: 1 },
+      summary: { artworkId: 7, mediaRevision: 1, stateVersion: 1, viewCount: 1, seenCount: 1, totalCount: 2,
+        status: 'IN_PROGRESS', lastViewedAt: null, lastActiveAt: null, lastMediaId: 12, lastMediaIndex: 1 }
+    }
+  }
+
+  it('consumes an explicit entry once, restores its position without a toast and gates observations until settled', () => {
+    window.history.replaceState({ keep: true }, '', '/artworks/7?resume=1&entry=direct#media')
+    const content = () => <StrictMode><ArtworkMediaViewProvider>
+      <ArtworkMediaSection images={[{ id: 11 }, { id: 12 }] as ArtworkImageResponseDto[]} artworkId={7} resumeOnEntry />
+    </ArtworkMediaViewProvider></StrictMode>
+    const view = render(content())
+    expect(window.location.search).toBe('?entry=direct')
+    expect(window.location.hash).toBe('#media')
+    expect(window.history.state).toEqual({ keep: true })
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBeNull()
+    mocks.observedReading!.observe('adaptive-preview', { mediaId: 11, ready: true, visible: true, active: true, automatic: false })
+    expect(mocks.observe.mock.lastCall?.[1].active).toBe(false)
+    mocks.readingContext = resumedContext()
+    view.rerender(content())
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBe('1')
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+    act(() => mocks.completeContinue?.())
+    mocks.observedReading!.observe('adaptive-preview', { mediaId: 12, ready: true, visible: true, active: true, automatic: false })
+    expect(mocks.observe.mock.lastCall?.[1].active).toBe(true)
+    mocks.readingContext = { ...mocks.readingContext, resume: { mediaId: 11, index: 0 } }
+    view.rerender(content())
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBe('1')
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+  })
+
+  it('does not repeat explicit navigation or show a prompt during Strict Mode effect replay', () => {
+    window.history.replaceState({}, '', '/artworks/7?resume=1')
+    mocks.readingContext = resumedContext()
+    render(<StrictMode><ArtworkMediaViewProvider>
+      <ArtworkMediaSection images={[{ id: 11 }, { id: 12 }] as ArtworkImageResponseDto[]} artworkId={7} resumeOnEntry />
+    </ArtworkMediaViewProvider></StrictMode>)
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBe('1')
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+  })
+
+  function mockReaderQuery({ isFetching = false, error = null }: { isFetching?: boolean; error?: unknown } = {}) {
+    vi.mocked(useArtworkReader).mockReturnValue({
+      images: [{ id: 11 }, { id: 12 }],
+      reading: useArtworkReading(7),
+      invalidated: false,
+      isFetching,
+      error
+    } as unknown as NonNullable<ReturnType<typeof useArtworkReader>>)
+  }
+
+  it.each(['loading', 'error'] as const)('waits for the reader query while %s rather than consuming a cached resume target', (state) => {
+    window.history.replaceState({}, '', '/artworks/7?resume=1')
+    mocks.readingContext = resumedContext()
+    mocks.readingSummary = mocks.readingContext.summary
+    const error = state === 'error' ? new Error('offline') : null
+    mockReaderQuery({ isFetching: state === 'loading', error })
+    const content = () => <ArtworkMediaViewProvider><ArtworkMediaSection images={[]} artworkId={7} resumeOnEntry /></ArtworkMediaViewProvider>
+    const view = render(content())
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBeNull()
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+    if (error) {
+      expect(screen.getByRole('status').textContent).toBe('继续阅读加载失败')
+      fireEvent.click(screen.getByRole('button', { name: '重试' }))
+      expect(mocks.retry).toHaveBeenCalledOnce()
+      mockReaderQuery({ isFetching: true, error })
+      view.rerender(content())
+      expect(screen.getByRole('button', { name: '正在重试…' }).hasAttribute('disabled')).toBe(true)
+    }
+    mocks.readingContext = { ...mocks.readingContext, resume: { mediaId: 11, index: 0 } }
+    mockReaderQuery()
+    view.rerender(content())
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBe('0')
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+  })
+
+  it('does not let a prior report error block restoration from a successful reader query', () => {
+    window.history.replaceState({}, '', '/artworks/7?resume=1')
+    mocks.readingContext = resumedContext()
+    mocks.readingSummary = mocks.readingContext.summary
+    mocks.error = new Error('a previous report failed')
+    mockReaderQuery()
+    render(<ArtworkMediaViewProvider><ArtworkMediaSection images={[]} artworkId={7} resumeOnEntry /></ArtworkMediaViewProvider>)
+
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBe('1')
+    expect(screen.getByRole('alert').textContent).toBe('阅读进度尚未保存，请检查连接。')
+    expect(screen.queryByRole('button', { name: '重试' })).toBeNull()
+    act(() => mocks.completeContinue?.())
+    mocks.observedReading!.observe('adaptive-preview', { mediaId: 12, ready: true, visible: true, active: true, automatic: false })
+    expect(mocks.observe.mock.lastCall?.[1].active).toBe(true)
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+  })
+
+  it.each(['account', 'invalidated'] as const)('cancels pending explicit restoration after %s changes', (change) => {
+    window.history.replaceState({}, '', '/artworks/7?resume=1')
+    const content = () => <ArtworkMediaViewProvider><ArtworkMediaSection images={[]} artworkId={7} resumeOnEntry /></ArtworkMediaViewProvider>
+    const view = render(content())
+    if (change === 'account') mocks.ownerUserId = 'bob'
+    else mocks.invalidated = true
+    mocks.readingContext = resumedContext()
+    view.rerender(content())
+    expect(screen.queryByTestId('local-images')?.getAttribute('data-continue-index') ?? null).toBeNull()
+    if (change === 'account') {
+      mocks.observedReading!.observe('adaptive-preview', { mediaId: 12, ready: true, visible: true, active: true, automatic: false })
+      expect(mocks.observe.mock.lastCall?.[1].active).toBe(true)
+    }
+  })
+
+  it('releases the entry gate when the current context has no resumable media', () => {
+    window.history.replaceState({}, '', '/artworks/7?resume=1')
+    mocks.readingContext = { ...resumedContext(), resume: null }
+    render(<ArtworkMediaViewProvider><ArtworkMediaSection images={[]} artworkId={7} resumeOnEntry /></ArtworkMediaViewProvider>)
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBeNull()
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+    mocks.observedReading!.observe('adaptive-preview', { mediaId: 12, ready: true, visible: true, active: true, automatic: false })
+    expect(mocks.observe.mock.lastCall?.[1].active).toBe(true)
+  })
 
   it.each(['complete', 'stack'] as const)('keeps only valid active preview observations as the source-conflict recovery anchor in %s mode', (mode) => {
     const rememberPreviewMedia = vi.fn()
@@ -187,6 +330,63 @@ describe('ArtworkMediaSection', () => {
     expect(mocks.toastCustom).not.toHaveBeenCalled()
   })
 
+  it('restores the original entry resume position after rating and respects a user dismissal', () => {
+    mocks.readingContext = {
+      artworkId: 7, mediaRevision: 1, seenMediaIds: [],
+      media: [{ mediaId: 11, memberMediaIds: [11], index: 0 }, { mediaId: 12, memberMediaIds: [12], index: 1 }],
+      resume: { mediaId: 12, index: 1 },
+      summary: { artworkId: 7, mediaRevision: 1, stateVersion: 1, viewCount: 1, seenCount: 1, totalCount: 2,
+        status: 'IN_PROGRESS', lastViewedAt: null, lastActiveAt: null, lastMediaId: 12, lastMediaIndex: 1 }
+    }
+    const images = [{ id: 11 }, { id: 12 }] as ArtworkImageResponseDto[]
+    const content = () => <ArtworkMediaViewProvider><ArtworkMediaSection images={images} artworkId={7} /></ArtworkMediaViewProvider>
+    const view = render(content())
+    const id = mocks.toastCustom.mock.calls[0]![1].id
+    mocks.readingContext = { ...mocks.readingContext, resume: { mediaId: 11, index: 0 } }
+    mocks.ratingOpen = true
+    view.rerender(content())
+    expect(mocks.toastDismiss).toHaveBeenCalledWith(id)
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(1)
+    mocks.ratingOpen = false
+    view.rerender(content())
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(2)
+    expect(mocks.toastCustom.mock.calls[1]![1].id).toBe(id)
+    const prompt = render(mocks.toastCustom.mock.calls[1]![0]())
+    fireEvent.click(screen.getByRole('button', { name: '跳转' }))
+    expect(screen.getByTestId('local-images').getAttribute('data-continue-index')).toBe('1')
+    prompt.unmount()
+    mocks.ratingOpen = true
+    view.rerender(content())
+    mocks.ratingOpen = false
+    view.rerender(content())
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(2)
+  })
+
+  it('captures the entry resume while rating is already open and does not resurrect a swiped-away prompt', () => {
+    mocks.ratingOpen = true
+    mocks.readingContext = {
+      artworkId: 7, mediaRevision: 1, seenMediaIds: [],
+      media: [{ mediaId: 11, memberMediaIds: [11], index: 0 }, { mediaId: 12, memberMediaIds: [12], index: 1 }],
+      resume: { mediaId: 12, index: 1 },
+      summary: { artworkId: 7, mediaRevision: 1, stateVersion: 1, viewCount: 1, seenCount: 1, totalCount: 2,
+        status: 'IN_PROGRESS', lastViewedAt: null, lastActiveAt: null, lastMediaId: 12, lastMediaIndex: 1 }
+    }
+    const content = () => <ArtworkMediaViewProvider><ArtworkMediaSection images={[]} artworkId={7} /></ArtworkMediaViewProvider>
+    const view = render(content())
+    expect(mocks.toastCustom).not.toHaveBeenCalled()
+    mocks.readingContext = { ...mocks.readingContext, resume: { mediaId: 11, index: 0 } }
+    mocks.ratingOpen = false
+    view.rerender(content())
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(1)
+    expect(mocks.toastCustom.mock.calls[0]![0]().props.index).toBe(1)
+    mocks.toastCustom.mock.calls[0]![1].onDismiss()
+    mocks.ratingOpen = true
+    view.rerender(content())
+    mocks.ratingOpen = false
+    view.rerender(content())
+    expect(mocks.toastCustom).toHaveBeenCalledTimes(1)
+  })
+
   it('always renders local reading without a source selector', () => {
     renderSection()
     expect(screen.getByTestId('local-images')).toBeTruthy()
@@ -194,19 +394,20 @@ describe('ArtworkMediaSection', () => {
     expect(mocks.localMounts).toBe(1)
   })
 
-  it('finds the two unread items in 600, preserves the round and refreshes to empty', () => {
+  it('finds remaining unread items in a threshold-complete work, preserves the round and refreshes to empty', () => {
     const images = Array.from({ length: 600 }, (_, index) => ({ id: index + 1 })) as ArtworkImageResponseDto[]
     const seenMediaIds = images.map((image) => image.id).filter((id) => id !== 237 && id !== 599)
     mocks.readingContext = {
       artworkId: 7, mediaRevision: 1, seenMediaIds,
       media: images.map((image, index) => ({ mediaId: image.id, memberMediaIds: [image.id], index })), resume: null,
       summary: { artworkId: 7, mediaRevision: 1, stateVersion: 1, viewCount: 1, seenCount: 598, totalCount: 600,
-        status: 'IN_PROGRESS', lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
+        status: 'COMPLETED', lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
     }
     mocks.readingSummary = mocks.readingContext.summary
     const renderContent = () => <ArtworkMediaViewProvider><ReadingMenuHarness /><ArtworkMediaSection images={images} artworkId={7} /></ArtworkMediaViewProvider>
     const view = render(renderContent())
     expect(mocks.toastCustom).not.toHaveBeenCalled()
+    expect(screen.getByText('已读完 · 已记录 598 / 600 张')).toBeTruthy()
     const pause = vi.spyOn(useArtworkAutoBrowseStore.getState(), 'pause')
     fireEvent.click(screen.getAllByRole('button', { name: '只看未读' })[0]!)
     expect(pause).toHaveBeenCalledWith('manual')

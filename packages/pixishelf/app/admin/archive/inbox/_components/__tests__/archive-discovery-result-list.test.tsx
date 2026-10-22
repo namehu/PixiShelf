@@ -122,6 +122,38 @@ afterEach(() => {
 })
 
 describe('discovery card rows', () => {
+  it('keeps item ordinals continuous when columns, pages or filters change', () => {
+    const renderItem = (item: { id: string }, index: number) => (
+      <span data-testid="ordinal">
+        {item.id}:{index + 1}
+      </span>
+    )
+    const result = render(<ArchiveDiscoveryResultList {...props} renderItem={renderItem} />)
+    const ordinals = () => screen.getAllByTestId('ordinal').map((element) => element.textContent)
+    const expected = items.map((item, index) => `${item.id}:${index + 1}`)
+    expect(ordinals()).toEqual(expected)
+    act(() => {
+      mocks.width = 1000
+      mocks.resize()
+    })
+    expect(ordinals()).toEqual(expected)
+    result.rerender(
+      <ArchiveDiscoveryResultList {...props} items={[...items, { id: 'item-7' }]} renderItem={renderItem} />
+    )
+    expect(ordinals()).toEqual([...expected, 'item-7:8'])
+    result.rerender(<ArchiveDiscoveryResultList {...props} isDesktop={false} renderItem={renderItem} />)
+    expect(ordinals()).toEqual(expected)
+    result.rerender(
+      <ArchiveDiscoveryResultList
+        {...props}
+        items={[{ id: 'item-6' }]}
+        positionKey="filtered"
+        renderItem={renderItem}
+      />
+    )
+    expect(ordinals()).toEqual(['item-6:1'])
+  })
+
   it('uses the container width for two and three columns, with one column on mobile', () => {
     const result = render(<ArchiveDiscoveryResultList {...props} />)
     expect(screen.getAllByTestId('row')).toHaveLength(4)

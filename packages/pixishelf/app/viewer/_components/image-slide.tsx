@@ -1054,6 +1054,7 @@ export default function ImageSlide({
     <ImageOverlay
       isActive={isActive}
       image={image}
+      currentMediaId={image.images.length > 0 ? currentMedia.id : null}
       mediaControls={mediaControls}
       onInteractionApiChange={(api) => {
         overlayApiRef.current = api

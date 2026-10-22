@@ -18,7 +18,8 @@ import { guid } from '@/utils/guid'
 import { MediaType } from '@/types'
 import { combinationApiResource } from '@/utils/combination-static'
 import { buildPixivArtistAvatarUrl } from '@/lib/pixiv-data'
-import { getUserArtworkLikeStatus } from '@/services/like-service'
+import { getUserArtworkRatingLevels } from '@/services/artwork-rating-service'
+import { isArtworkLiked, type ArtworkRatingLevel } from '@/schemas/artwork-rating.dto'
 import logger from '@/lib/logger'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
 import { EMediaType } from '@/enums/e-media-type'
@@ -51,16 +52,12 @@ export const publishedKeyframeSummaryInclude = {
 export * from './related'
 export * from './video-chapters'
 
-/**
- * 获取作品列表 (重构版)
- * 使用原生 SQL 处理复杂的过滤、搜索和排序，
- * 同时复用 transformSingleArtwork 确保返回数据格式一致。
- */
+/** 使用原生 SQL 筛选和排序，并复用 transformSingleArtwork 保持返回格式一致。 */
 export async function getArtworksList(params: ArtworksInfiniteQuerySchema, userId?: string): Promise<EnhancedArtworksResponse & { nextReadingCursor?: string }> {
   const { cursor } = params
   const page = cursor ?? 1
   const pageSize = params.pageSize
-  const { whereSQL, sqlParams } = params.readingStatus
+  const { whereSQL, sqlParams } = (params.readingStatus || params.likedOnly)
     ? readingCountClause(params, requireReadingUserId(userId))
     : buildArtworkWhereClause(params)
 
@@ -86,7 +83,7 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema, userI
 }
 
 async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfetch = false, userId?: string) {
-  if (params.readingStatus) return queryReadingArtworkRowsPage(params, requireReadingUserId(userId))
+  if (params.readingStatus || params.likedOnly) return queryReadingArtworkRowsPage(params, requireReadingUserId(userId))
   const page = params.cursor ?? 1
   const skip = (page - 1) * params.pageSize
   const { whereSQL, sqlParams, paramIndex: initialParamIndex } = buildArtworkWhereClause(params)
@@ -353,7 +350,7 @@ export async function getArtworkCardsPage(
       nextRandomCursor: result.nextRandomCursor
     }
   }
-  if (params.readingStatus) {
+  if (params.readingStatus || params.likedOnly) {
     const result = await queryReadingArtworkIdsPage(params, requireReadingUserId(userId))
     return {
       items: await getArtworkCardsByIds(result.ids),
@@ -766,19 +763,12 @@ export async function getRandomArtworks(
   // 5. 保持随机顺序
   const sortedArtworks = artworks.sort((a, b) => paginatedIds.indexOf(a.id) - paginatedIds.indexOf(b.id))
 
-  // 6. 批量获取点赞状态
-  let likeStatusMap: Record<number, boolean> = {}
-  try {
-    if (userId) {
-      likeStatusMap = await getUserArtworkLikeStatus(userId, paginatedIds)
-    }
-  } catch (_error) {
-    logger.error('批量获取点赞状态失败:', _error)
-  }
+  // Never turn a failed rating read into an unconfirmed "unrated" state.
+  const ratingLevels = userId ? await getUserArtworkRatingLevels(userId, paginatedIds) : {}
 
   // 7. 转换数据 (使用 transformSingleArtwork 统一逻辑)
   const items: RandomImageItem[] = sortedArtworks.map((raw) =>
-    toViewerImageItem(transformSingleArtwork(raw), likeStatusMap)
+    toViewerImageItem(transformSingleArtwork(raw), ratingLevels)
   )
 
   const nextPage = skip + pageSize < total ? page + 1 : null
@@ -806,6 +796,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     sortBy,
     randomSeed,
     readingStatus,
+    likedOnly,
     readingCursor,
     randomCursor,
     search,
@@ -842,6 +833,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     sortBy: mode === 'random' ? 'random' : sortBy || 'source_date_desc',
     randomSeed: mode === 'random' ? randomSeed : undefined,
     readingStatus,
+    likedOnly,
     readingCursor,
     randomCursor,
     expectedUserId: input.expectedUserId
@@ -861,28 +853,21 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
   const artworks = await hydrateArtworkRows(rows)
 
   const artworkIds = artworks.map((item) => item.id)
-  let likeStatusMap: Record<number, boolean> = {}
-  try {
-    if (userId && artworkIds.length > 0) {
-      likeStatusMap = await getUserArtworkLikeStatus(userId, artworkIds)
-    }
-  } catch (_error) {
-    logger.error('批量获取点赞状态失败:', _error)
-  }
+  const ratingLevels = userId ? await getUserArtworkRatingLevels(userId, artworkIds) : {}
 
-  const items = artworks.map((item) => toViewerImageItem(item, likeStatusMap))
+  const items = artworks.map((item) => toViewerImageItem(item, ratingLevels))
 
   return {
     items,
     page,
     pageSize,
-    nextPage: readingStatus || randomPage ? null : hasNextPage ? page + 1 : null,
+    nextPage: readingStatus || likedOnly || randomPage ? null : hasNextPage ? page + 1 : null,
     nextRandomCursor: randomPage?.nextRandomCursor,
     nextReadingCursor
   }
 }
 
-export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, boolean>): RandomImageItem {
+export function toViewerImageItem(artwork: any, ratingLevels: Record<number, ArtworkRatingLevel>): RandomImageItem {
   const images = (artwork.images || []).map((img: any) => {
     // 沉浸浏览需要真实视频地址供播放器播放，封面仅用于列表卡片。
     const mediaType = img.mediaType === 'video' || isVideoFile(img.path ?? '') ? MediaType.VIDEO : MediaType.IMAGE
@@ -948,7 +933,8 @@ export function toViewerImageItem(artwork: any, likeStatusMap: Record<number, bo
       : null,
     createdAt: typeof artwork.createdAt === 'string' ? artwork.createdAt : (artwork.createdAt?.toISOString?.() ?? ''),
     tags: (artwork.tags || []).map((tag: any) => RandomTagDto.parse(tag)),
-    isLike: likeStatusMap[artwork.id] ?? false
+    ratingLevel: ratingLevels[artwork.id] ?? null,
+    isLike: isArtworkLiked(ratingLevels[artwork.id] ?? null)
   }
 }
 

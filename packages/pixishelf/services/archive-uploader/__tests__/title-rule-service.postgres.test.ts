@@ -50,7 +50,11 @@ const repo = () =>
     transactionTimeoutMs: 20_000
   })
 const caps = [
-  { jobType: 'ARCHIVE_TITLE_RULE_PREVIEW' as const, executionLane: 'ARCHIVE_RESOLVE' as const, definitionVersions: [1] }
+  {
+    jobType: 'ARCHIVE_TITLE_RULE_PREVIEW' as const,
+    executionLane: 'ARCHIVE_RESOLVE' as const,
+    definitionVersions: [1, 2]
+  }
 ]
 const deps = () => ({ database: db!, sourceKind: 'ALL' as const })
 const fence = (job: ClaimedJob) => ({
@@ -293,7 +297,7 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
     }
   })
 
-  it('cancels queued previews, rejects application during a scan, and freezes v4 rules', async () => {
+  it('cancels queued previews, rejects application during a scan, and freezes v5 rules', async () => {
     const s = await source()
     await candidates(s.id, 1)
     const cancelled = await preview(s.id)
@@ -306,8 +310,69 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
       rulesVersion: 1,
       titleRules: s.titleRules
     })
-    expect(await db!.systemJob.findUnique({ where: { id: run.systemJobId } })).toMatchObject({ definitionVersion: 4 })
+    expect(await db!.systemJob.findUnique({ where: { id: run.systemJobId } })).toMatchObject({ definitionVersion: 5 })
     await expect(applyTitleRules(input, db!)).rejects.toThrow('扫描')
+  })
+
+  it('previews and applies case-sensitive regex without changing its source, retaining manual decisions and isolating old workers', async () => {
+    const s = await source()
+    const rows = await candidates(s.id, 4)
+    const titles = ['[RAG] Match12', '[rag] Match12', '[RAG] wrong', 'Other']
+    for (const [index, row] of rows.entries()) {
+      await db!.archiveUploaderCatalogItem.update({
+        where: { id: row.id },
+        data: { title: titles[index]!, matchTitles: { origin: 'REMOTE', titles: [titles[index]!] } }
+      })
+    }
+    await reviewTitleItems(
+      { sourceId: s.id, itemIds: [rows[3]!.id], decision: 'INCLUDE', rulesVersion: 1, requestId: randomUUID() },
+      prefix,
+      db!
+    )
+    const regex: ArchiveTitleRules = {
+      version: 2,
+      any: [{ operator: 'REGEX', text: '^\\[RAG\\]', ignoreCase: false }],
+      all: [{ operator: 'REGEX', text: 'Match\\d+$', ignoreCase: false }],
+      none: []
+    }
+    const input = await preview(s.id, regex)
+    clock.advance(1000)
+    expect(
+      await repo().claim(`${prefix}-old-worker`, 'ARCHIVE_RESOLVE', [{ ...caps[0]!, definitionVersions: [1] }])
+    ).toBeNull()
+    expect(await finish(input)).toMatchObject({
+      status: 'READY',
+      checkedCount: 4,
+      acceptedCount: 2,
+      manualCount: 1,
+      rules: regex
+    })
+    await applyTitleRules(input, db!)
+    const current = await db!.archiveUploaderSource.findUniqueOrThrow({ where: { id: s.id } })
+    expect(current.titleRules).toEqual(regex)
+    expect(await db!.archiveUploaderCatalogItem.findUnique({ where: { id: rows[0]!.id } })).toMatchObject({
+      matchesQuery: true,
+      matchEvaluation: {
+        matchRanges: [
+          { start: 0, end: 5 },
+          { start: 6, end: 13 }
+        ]
+      }
+    })
+    expect(await db!.archiveUploaderCatalogItem.findUnique({ where: { id: rows[1]!.id } })).toMatchObject({
+      matchesQuery: false
+    })
+    expect(await db!.archiveUploaderCatalogItem.findUnique({ where: { id: rows[3]!.id } })).toMatchObject({
+      matchesQuery: true,
+      reviewDecision: 'INCLUDE'
+    })
+    const run = await triggerArchiveUploaderScan({ sourceId: s.id, mode: 'LATEST' }, prefix, deps())
+    expect(await db!.archiveUploaderScanRun.findUnique({ where: { id: run.id } })).toMatchObject({ titleRules: regex })
+    expect(
+      await repo().claim(`${prefix}-old-worker`, 'ARCHIVE_RESOLVE', [
+        { jobType: 'ARCHIVE_SEARCH_SCAN', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [4] }
+      ])
+    ).toBeNull()
   })
 
   it('rejects duplicate resulting rules without merging sources or resetting cursors', async () => {
@@ -458,84 +523,95 @@ suite('title rule preview, review and intake on isolated PostgreSQL', () => {
     expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
   })
 
-  it('scans v4 with raw title evidence, preserves manual decisions, binds no creators and advances a zero-match cursor', async () => {
-    const s = await source({ rules })
-    const [item] = await candidates(s.id, 1)
-    const artist = await db!.artist.create({ data: { name: prefix } })
-    artists.push(artist.id)
-    await db!.discoverySourceCreator.create({ data: { sourceId: s.id, artistId: artist.id } })
-    await reviewTitleItems(
-      { sourceId: s.id, itemIds: [item!.id], decision: 'INCLUDE', rulesVersion: 1, requestId: randomUUID() },
-      prefix,
-      db!
-    )
-    const run = await triggerArchiveUploaderScan({ sourceId: s.id, mode: 'LATEST' }, prefix, deps())
-    const repository = repo()
-    clock.advance(1000)
-    const job = (await repository.claim(`${prefix}-worker`, 'ARCHIVE_RESOLVE', [
-      { jobType: 'ARCHIVE_SEARCH_SCAN', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [4] }
-    ]))!
-    expect(job.id).toBe(run.systemJobId)
-    const result: ArchiveUploaderScanResult = {
-      items: [
-        {
-          ...item!,
-          title: '[Other] Ragnarok',
-          matchesQuery: true,
-          matchTitles: { origin: 'REMOTE', titles: ['[Other] Ragnarok', '別のタイトル'] },
-          thumbnailUrl: null,
-          postedAt: null,
-          metadataFingerprint: 'fixture',
-          normalizedMetadata: {},
-          comparisonSnapshot: {
-            schemaVersion: 1,
-            titles: { display: '[Other] Ragnarok', aliases: [] },
-            category: null,
-            uploader: 'Alice',
+  it.each([4, 5])(
+    'scans v%s with raw title evidence, preserves manual decisions, binds no creators and advances a zero-match cursor',
+    async (version) => {
+      const scanRules: ArchiveTitleRules =
+        version === 5
+          ? { ...rules, version: 2, any: [{ operator: 'REGEX', text: '^\\[RAG\\]', ignoreCase: false }] }
+          : rules
+      const s = await source({ rules: scanRules })
+      const [item] = await candidates(s.id, 1)
+      const artist = await db!.artist.create({ data: { name: prefix } })
+      artists.push(artist.id)
+      await db!.discoverySourceCreator.create({ data: { sourceId: s.id, artistId: artist.id } })
+      await reviewTitleItems(
+        { sourceId: s.id, itemIds: [item!.id], decision: 'INCLUDE', rulesVersion: 1, requestId: randomUUID() },
+        prefix,
+        db!
+      )
+      const run = await triggerArchiveUploaderScan({ sourceId: s.id, mode: 'LATEST' }, prefix, deps())
+      if (version === 4) await db!.systemJob.update({ where: { id: run.systemJobId }, data: { definitionVersion: 4 } })
+      const repository = repo()
+      clock.advance(1000)
+      const job = (await repository.claim(`${prefix}-worker`, 'ARCHIVE_RESOLVE', [
+        { jobType: 'ARCHIVE_SEARCH_SCAN', executionLane: 'ARCHIVE_RESOLVE', definitionVersions: [version] }
+      ]))!
+      expect(job.id).toBe(run.systemJobId)
+      const result: ArchiveUploaderScanResult = {
+        items: [
+          {
+            ...item!,
+            title: '[Other] Ragnarok',
+            matchesQuery: true,
+            matchTitles: {
+              origin: 'REMOTE',
+              titles: [version === 5 ? '[rag] lower case' : '[Other] Ragnarok', '別のタイトル']
+            },
+            thumbnailUrl: null,
             postedAt: null,
-            fileCount: 1,
-            fileSize: null,
-            expunged: false,
-            tags: [],
+            metadataFingerprint: 'fixture',
+            normalizedMetadata: {},
+            comparisonSnapshot: {
+              schemaVersion: 1,
+              titles: { display: '[Other] Ragnarok', aliases: [] },
+              category: null,
+              uploader: 'Alice',
+              postedAt: null,
+              fileCount: 1,
+              fileSize: null,
+              expunged: false,
+              tags: [],
+              relationships: []
+            },
             relationships: []
-          },
-          relationships: []
-        }
-      ],
-      nextCursor: 'next-fixture-cursor',
-      reachedStop: false,
-      discoveredUploaderUid: null
+          }
+        ],
+        nextCursor: 'next-fixture-cursor',
+        reachedStop: false,
+        discoveredUploaderUid: null
+      }
+      const context = {
+        job,
+        payload: { scanRunId: run.id },
+        signal: new AbortController().signal,
+        progress: async () => {},
+        mutateInTransaction: (operation: Parameters<typeof repository.withFencedMutationTransaction>[1]) =>
+          repository.withFencedMutationTransaction(fence(job), operation),
+        finalizeInTransaction: (operation: Parameters<typeof repository.withFencedExecutionTransaction>[1]) =>
+          repository.withFencedExecutionTransaction(fence(job), operation)
+      }
+      await executeArchiveUploaderScan(
+        context as unknown as Parameters<typeof executeArchiveUploaderScan>[0],
+        { database: db!, providers: { getUploaderScanner: () => ({ scanTitles: async () => result }) } as never },
+        'TITLE_QUERY'
+      )
+      expect(await db!.archiveUploaderScanRun.findUnique({ where: { id: run.id } })).toMatchObject({
+        checkedCount: 1,
+        matchedCount: 0,
+        status: 'COMPLETED'
+      })
+      expect(await db!.archiveUploaderSource.findUnique({ where: { id: s.id } })).toMatchObject({
+        historyCursor: 'next-fixture-cursor',
+        latestSeenExternalId: item!.externalId
+      })
+      expect(await db!.archiveUploaderCatalogItem.findUnique({ where: { id: item!.id } })).toMatchObject({
+        ruleMatches: false,
+        matchesQuery: true,
+        reviewDecision: 'INCLUDE',
+        matchTitles: result.items[0]!.matchTitles
+      })
+      expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
     }
-    const context = {
-      job,
-      payload: { scanRunId: run.id },
-      signal: new AbortController().signal,
-      progress: async () => {},
-      mutateInTransaction: (operation: Parameters<typeof repository.withFencedMutationTransaction>[1]) =>
-        repository.withFencedMutationTransaction(fence(job), operation),
-      finalizeInTransaction: (operation: Parameters<typeof repository.withFencedExecutionTransaction>[1]) =>
-        repository.withFencedExecutionTransaction(fence(job), operation)
-    }
-    await executeArchiveUploaderScan(
-      context as unknown as Parameters<typeof executeArchiveUploaderScan>[0],
-      { database: db!, providers: { getUploaderScanner: () => ({ scanTitles: async () => result }) } as never },
-      'TITLE_QUERY'
-    )
-    expect(await db!.archiveUploaderScanRun.findUnique({ where: { id: run.id } })).toMatchObject({
-      checkedCount: 1,
-      matchedCount: 0,
-      status: 'COMPLETED'
-    })
-    expect(await db!.archiveUploaderSource.findUnique({ where: { id: s.id } })).toMatchObject({
-      historyCursor: 'next-fixture-cursor',
-      latestSeenExternalId: item!.externalId
-    })
-    expect(await db!.archiveUploaderCatalogItem.findUnique({ where: { id: item!.id } })).toMatchObject({
-      ruleMatches: false,
-      matchesQuery: true,
-      reviewDecision: 'INCLUDE',
-      matchTitles: result.items[0]!.matchTitles
-    })
-    expect(await db!.discoveryPendingCreator.count({ where: { artistId: artist.id } })).toBe(0)
-  })
+  )
 })

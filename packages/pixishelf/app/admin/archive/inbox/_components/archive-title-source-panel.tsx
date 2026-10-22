@@ -6,7 +6,7 @@ import type { ArchiveTitleRules } from '@pixishelf/job-contracts'
 import { useTRPC } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ArchiveTitleRuleDialog } from './archive-title-rule-dialog'
+import { ArchiveTitleRuleSheet } from './archive-title-rule-sheet'
 import { ArchiveTitleFilteredResults } from './archive-title-filtered-results'
 import { ArchiveTitleCreatorCleanup } from './archive-title-creator-cleanup'
 import { useTitleReview } from './use-title-review'
@@ -76,9 +76,13 @@ function TitlePanel({
           复核统计加载失败，重试
         </Button>
       ) : null}
-      {view === 'accepted' ? children : <ArchiveTitleFilteredResults sourceId={sourceId} rulesVersion={rulesVersion} />}
+      {view === 'accepted' ? (
+        children
+      ) : (
+        <ArchiveTitleFilteredResults sourceId={sourceId} rulesVersion={rulesVersion} counts={counts.data} />
+      )}
       {edit ? (
-        <ArchiveTitleRuleDialog
+        <ArchiveTitleRuleSheet
           sourceId={sourceId}
           initialRules={rules}
           rulesVersion={rulesVersion}
