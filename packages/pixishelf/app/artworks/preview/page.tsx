@@ -25,6 +25,7 @@ import { useSafeBack } from '@/hooks/use-safe-back'
 import { useVideoReading } from '@/lib/reading/use-video-reading'
 import { ArtworkReaderProvider, useArtworkReader, useReaderMediaWindow, MediaDetailsPlaceholder } from '@/lib/reading/artwork-reader-provider'
 import { Button } from '@/components/ui/button'
+import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
 
 export default function ArtworkPreviewPage() {
   const [artworkId] = useQueryState('artworkId', parseAsInteger)
@@ -246,14 +247,17 @@ function ArtworkPreviewContent() {
             )}
           </div>
         </div>
-        <button
-          type="button"
-          aria-label="关闭作品预览"
-          onClick={safeBack}
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-colors hover:bg-black/40"
-        >
-          <X aria-hidden="true" size={24} />
-        </button>
+        <div className="flex shrink-0 items-center gap-1">
+          <MediaMarkActions artworkId={artworkId ?? 0} mediaId={reader.invalidated ? null : activeMediaId ?? null} overlay />
+          <button
+            type="button"
+            aria-label="关闭作品预览"
+            onClick={safeBack}
+            className="flex size-11 items-center justify-center rounded-full bg-black/20 text-white backdrop-blur-sm transition-colors hover:bg-black/40"
+          >
+            <X aria-hidden="true" size={24} />
+          </button>
+        </div>
       </div>
 
       {/* Swiper 轮播容器 */}

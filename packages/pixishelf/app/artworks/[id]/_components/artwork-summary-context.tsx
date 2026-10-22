@@ -17,7 +17,7 @@ function visibleMediaId(): number | undefined {
   return element ? Number(element.dataset.summaryAnchor) : undefined
 }
 
-function useStackSession(artworkId: number) {
+function useStackSession(artworkId: number, suppressRecoveryNavigation: boolean) {
   const reader = useArtworkReader()
   const index = reader?.initialization?.index
   const [mode, setMode] = useState<'complete' | 'stack'>('complete')
@@ -73,8 +73,8 @@ function useStackSession(artworkId: number) {
     const target = byMediaId.has(recovery.mediaId) ? recovery.mediaId : groups[0]?.representativeMediaId
     if (target === undefined) return
     setMode(recovery.mode)
-    reveal(target)
-  }, [ready, reader?.reading.ownerUserId, artworkId, byMediaId, groups, reveal])
+    if (!suppressRecoveryNavigation) reveal(target)
+  }, [ready, reader?.reading.ownerUserId, artworkId, byMediaId, groups, reveal, suppressRecoveryNavigation])
   const reopen = () => {
     const owner = reader?.reading.ownerUserId
     const mediaId = lastVisible.current
@@ -103,8 +103,8 @@ function useStackSession(artworkId: number) {
     navigating: navigating || changingSnapshot, navigationRef, beginNavigation, finishNavigation }
 }
 
-export function ArtworkSummaryProvider({ children, artworkId }: React.PropsWithChildren<{ artworkId: number }>) {
-  const value = useStackSession(artworkId)
+export function ArtworkSummaryProvider({ children, artworkId, suppressRecoveryNavigation = false }: React.PropsWithChildren<{ artworkId: number; suppressRecoveryNavigation?: boolean }>) {
+  const value = useStackSession(artworkId, suppressRecoveryNavigation)
   return <SummaryContext.Provider value={value}>{children}</SummaryContext.Provider>
 }
 export function useArtworkSummary() { return useContext(SummaryContext) }

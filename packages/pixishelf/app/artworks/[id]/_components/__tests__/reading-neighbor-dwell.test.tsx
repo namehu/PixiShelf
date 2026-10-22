@@ -9,6 +9,10 @@ import ArtworkPreviewPage from '../../../preview/page'
 
 const previewState = vi.hoisted(() => ({ reading: null as unknown, images: [] as unknown[] }))
 
+vi.mock('@/components/media-mark/media-mark-actions', () => ({
+  MediaMarkActions: ({ mediaId }: { mediaId: number | null }) => <div data-testid="media-mark-actions" data-media-id={mediaId} />
+}))
+
 vi.mock('next/image', () => ({
   default: ({ src, alt, onLoad, onError }: {
     src: string
@@ -139,6 +143,7 @@ describe('reading observations while neighboring media preloads', () => {
     const { collector, report, clearSurface, reading } = createReading()
     previewState.reading = reading
     render(<ArtworkPreviewPage />)
+    expect(screen.getByTestId('media-mark-actions').getAttribute('data-media-id')).toBe('1')
     await assertNeighborDoesNotDuplicateView('Preview 0', 'Preview 1', collector, report, clearSurface)
   })
 

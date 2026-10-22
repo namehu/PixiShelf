@@ -26,6 +26,7 @@ describe('UserMenu', () => {
 
     const settings = screen.getByRole('menuitem', { name: '个人设置' })
     const changePassword = screen.getByRole('menuitem', { name: '修改密码' })
+    expect(screen.getByRole('menuitem', { name: '我的图片' }).getAttribute('href')).toBe('/my-images')
     expect(settings.tagName).toBe('A')
     expect(settings.getAttribute('href')).toBe('/settings/profile')
     expect(changePassword.tagName).toBe('A')

@@ -20,7 +20,10 @@ import { ArtworkDetailControlsProvider } from './_components/artwork-detail-cont
 
 export default async function ArtworkDetailPage({ params, searchParams }: PageProps<'/artworks/[id]'>) {
   const { id } = await params
-  const resumeOnEntry = (await searchParams)?.resume === '1'
+  const query = await searchParams
+  const resumeOnEntry = query?.resume === '1'
+  const mediaId = z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().safe().positive()).safeParse(query?.mediaId)
+  const mediaIdOnEntry = query?.mediaId === undefined ? undefined : mediaId.success ? mediaId.data : null
   const initial = await getArtworkReaderInitial(z.coerce.number().parse(id))
   const data = initial?.artwork
 
@@ -35,7 +38,7 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
     <div className="min-h-dvh bg-background">
       <ArtworkMediaViewProvider key={data.id}>
         <ArtworkReaderProvider artworkId={data.id} initial={initial!}>
-          <ArtworkSummaryProvider artworkId={data.id}>
+          <ArtworkSummaryProvider artworkId={data.id} suppressRecoveryNavigation={mediaIdOnEntry !== undefined}>
             <ArtworkDetailControlsProvider key={data.id} artworkId={data.id}>
               <NavHead data={data} id={id} />
 
@@ -117,7 +120,7 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
                   </PageContainer>
 
                   <div id={`artwork-media-start-${data.id}`} aria-hidden="true" className="h-px" />
-                  <ArtworkMediaSection images={data.images} artworkId={data.id} resumeOnEntry={resumeOnEntry} />
+                  <ArtworkMediaSection images={data.images} artworkId={data.id} resumeOnEntry={resumeOnEntry} mediaIdOnEntry={mediaIdOnEntry} />
                   <PageContainer size="reading">
                     <ArtworkDes description={data.description} className="mt-8" />
                     {data.series.map((series) => (

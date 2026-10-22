@@ -6,6 +6,10 @@ import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-me
 import { useArtworkAutoBrowseStore as autoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 import { webpFixture } from '@/lib/__tests__/webp-fixture'
 
+vi.mock('@/components/media-mark/media-mark-actions', () => ({
+  MediaMarkActions: ({ mediaId }: { mediaId: number | null }) => <div data-testid="media-mark-actions" data-media-id={mediaId} />
+}))
+
 // Keep legacy image timing covered explicitly; WASM lifecycle has its own integration suite.
 vi.mock('@/components/players/streaming-webp-surface', () => ({
   default: function UnsupportedSurface({
