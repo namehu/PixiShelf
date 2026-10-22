@@ -1,26 +1,12 @@
 ---
 status: deprecated
-scope: 旧版临时 SQL 片段，不作为数据库操作或运维手册
-last-verified: 2026-08-18
+scope: 旧版临时 SQL 的兼容入口
+last-verified: 2026-10-22
+replaced-by: ../packages/pixishelf-db/prisma/database-design.md
 ---
 
-# 常用 SQL（待清理）
+# 数据库查询说明已整理
 
-> 本文只保留少量历史查询片段，未形成可验证的运行手册。字段和模型以 Prisma Schema 为准。
+字段与关系以 [Prisma Schema](../packages/pixishelf-db/prisma/schema.prisma) 为准；Schema 之外的约束、触发器与维护语义见[数据库设计补充](../packages/pixishelf-db/prisma/database-design.md)。生产修复操作必须遵循[备份与恢复](./operations/backup-and-recovery.md)。
 
-## Tag
-
-```sql
--- 查询所有Tag名称
-SELECT "name" FROM public."Tag";
-
--- 查询所有Pixiv Tag数量
-SELECT COUNT(*)
-FROM "Tag"
-WHERE "translateType" = 'PIXIV';
-
--- 查询所有Pixiv Tag名称、中文名称、英文名称、摘要
-SELECT name, name_zh, name_en, abstract
-FROM "Tag"
-WHERE "translateType" = 'PIXIV';
-```
+原零散 Tag 查询未形成经验证的运行手册，已退出主线；需要追溯时查看本文件 Git 历史，不将旧字段片段作为当前操作依据。

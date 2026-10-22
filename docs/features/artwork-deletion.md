@@ -77,4 +77,4 @@ Image 与 Artwork 删除在同一短事务中，先获取 creator catalog 锁，
 
 隔离 PostgreSQL 测试位于 `tests/integration/artwork-deletion.postgres.test.ts`。仅接受 `DELETION_VALIDATION_DATABASE_URL=postgresql://postgres@127.0.0.1:55439/pixishelf_delete_validation` 对应的专用测试库；先部署仓库已有迁移，再运行该测试。失败注入通过测试库触发器验证 Image/Artwork 原子回滚，不得指向实际图库数据库。
 
-2026-10-02 已在独立 PostgreSQL 15 测试容器部署现有迁移并通过 4 项验证：正常删除、Image 删除失败回滚、Artwork 删除失败回滚，以及文件失败保留记录后重试。测试同时核对媒体计数触发器的事务回滚；临时容器已清理。此记录不代表生产部署或真实媒体恢复演练。
+历史验证与限制见[2026-10-02 删除事务验证](../records/features/artwork-deletion.md)。

@@ -1,0 +1,15 @@
+flowchart TD
+  DISC[VIDEO_KEYFRAME_DISCOVERY] --> PAGE[每页 200 个视频]
+  PAGE --> STATE[比较 source size/mtime、已发布 set\n和已选择 frame 文件]
+  STATE --> CLASS[MISSING / STALE / FAILED / CURRENT]
+  CLASS --> FILTER[应用时长、路径和状态过滤]
+  FILTER --> MODE{previewOnly?}
+  MODE -->|手动立即运行，true| PREVIEW[最多返回 1000 个候选\n不创建子任务]
+  MODE -->|计划任务，false| CHILD[每个匹配视频幂等创建\nVIDEO_KEYFRAME_GENERATION]
+  CHILD --> END[父 discovery 完成]
+  CHILD --> CLAIM[子任务随后由 writer lane 串行领取]
+  CLAIM --> STAGE[创建/恢复 STAGING set]
+  STAGE --> FFMPEG[按策略抽取候选帧]
+  FFMPEG --> SCORE[亮度、清晰度、感知 hash 和拒绝规则]
+  SCORE --> SELECT[选择代表帧并验证源文件未变化]
+  SELECT --> PUB[带 fence 发布新 set 为 PUBLISHED\n旧 set 标记 superseded]

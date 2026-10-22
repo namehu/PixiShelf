@@ -1,141 +1,50 @@
-# GitHub Actions CI/CD 配置指南
+---
+status: current
+scope: GitHub CI、镜像构建发布与原生 WebP 工作流
+last-verified: 2026-10-22
+sources:
+  - .github/workflows/ci.yml
+  - .github/workflows/build-and-deploy.yml
+  - .github/workflows/webp-native.yml
+  - build/Dockerfile
+---
 
-本文档说明如何配置 GitHub Actions 来自动构建和发布 PixiShelf 的 Docker 镜像。
+# GitHub 工作流
 
-## 🔧 必需的 Secrets 配置
+工作流负责检查和发布产物，不会自动部署 NAS。生产更新与恢复见[部署基线](../docs/operations/deployment.md)。
 
-在 GitHub 仓库的 Settings > Secrets and variables > Actions 中添加以下 secrets：
+## 工作流入口
 
-### Docker Hub 配置 (可选)
+| 工作流                  | 触发                              | 结果                                                                |
+| ----------------------- | --------------------------------- | ------------------------------------------------------------------- |
+| `CI`                    | Pull request、`v*.*.*` tag、手动  | web/worker/webp 三路独立检查，汇总 `test` 要求三路全部 success      |
+| `Build and Deploy`      | `v*.*.*` tag、手动                | 验证与双镜像 OCI 构建并行，门禁后发布；tag 创建 Release/安全扫描    |
+| `WebP native artifacts` | 原生/预编译相关路径 push/PR、手动 | 固定工具链复现、sanitizer、产物比较与浏览器校验，不自动修改提交产物 |
 
-如果要发布到 Docker Hub，需要配置：
+三路 CI 的环境与未覆盖项见[测试策略](../docs/development/testing-strategy.md#ci-当前覆盖与缺口)。CI 和镜像发布是独立工作流：发布构建成功不能代替同提交 CI 汇总成功。
 
-- `DOCKERHUB_USERNAME`: 你的 Docker Hub 用户名
-- `DOCKERHUB_TOKEN`: Docker Hub 访问令牌
+## 镜像发布链
 
-**获取 Docker Hub Token：**
-1. 登录 [Docker Hub](https://hub.docker.com/)
-2. 进入 Account Settings > Security
-3. 点击 "New Access Token"
-4. 创建一个具有 Read, Write, Delete 权限的 token
+1. `validate`：Prisma generate/validate、PostgreSQL 全迁移及 status、Worker 依赖链 typecheck/test/build。
+2. 两个 build job 分别构建 `pixishelf` 与 `pixishelf-worker` 的 `linux/amd64` OCI archive，同时复用/更新 GHCR `:cache`；此时不发布版本、SHA 或 latest 标签。
+3. validate 与两个 build 全成功后，publish 下载**本次运行** artifact，校验 SHA-256，以 `skopeo --preserve-digests` 原样发布到 GHCR 与 Docker Hub，不重新构建。
+4. 两个发布均成功后，tag 运行创建 Release 并扫描镜像；Release 附带 Compose、环境模板、init.sql 和 DEPLOYMENT 跳转页。
+5. `Release timings` 汇总本 attempt 的各 job/step 耗时，包含失败结果；并行耗时不能相加当墙钟总时长。
 
-### GitHub Container Registry
+当前镜像为 `ghcr.io/<owner>/pixishelf`、`ghcr.io/<owner>/pixishelf-worker` 及 Docker Hub 同名镜像，没有 API/Web 双镜像。tag 运行发布版本与 latest，另外包含 SHA 标签；手动运行按 metadata 规则产生标签，不保证更新 latest。当前不构建 arm64。
 
-GitHub Container Registry 使用内置的 `GITHUB_TOKEN`，无需额外配置。
+## 权限与配置
 
-## 🌍 环境变量配置
+- GHCR 使用内置 `GITHUB_TOKEN` 和 job 的 `packages: write` 权限。
+- 当前发布 job **无条件登录 Docker Hub**，需要 `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`；文档不能把它描述为已实现的可选发布。
+- Release 使用 `contents: write`；安全扫描上传 SARIF 需要 `security-events: write`。
+- `APP_VERSION` 是 App 构建参数。工作流仍传 `VITE_API_URL` 遗留 build-arg，但当前 Next.js Dockerfile 未消费它；不要将它当有效 API 配置。
+- 生产环境文件和凭据不进入构建上下文或仓库文档；实际运行变量见 `build/.env.example`。
 
-在 Settings > Secrets and variables > Actions > Variables 中添加：
+## 重跑与限制
 
-- `VITE_API_URL`: 前端构建时的 API URL (可选，默认为 http://localhost:5431)
+OCI artifact 名包含镜像名和 run ID，保留 3 天、无额外压缩；同次完整重跑覆盖产物，失败 job 重跑可复用该运行中成功的另一份。过期则重跑全部 jobs，不能借用别次运行的镜像。
 
-## 🚀 触发构建
+发布并非跨镜像/跨仓库原子事务：推送失败可能留下部分已更新标签，且不同运行的 latest 更新不保证串行。修复后重跑失败发布并核对两镜像 digest；生产使用明确版本或 digest。扫描在发布之后发生，不是推送前安全门禁。
 
-### 自动触发
-
-当推送版本标签时自动触发构建：
-
-```bash
-# 创建并推送版本标签
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-### 手动触发
-
-1. 进入 GitHub 仓库的 Actions 页面
-2. 选择 "Build and Deploy" workflow
-3. 点击 "Run workflow" 按钮
-
-## 📦 构建产物
-
-成功构建后，会生成以下 Docker 镜像：
-
-### GitHub Container Registry
-- `ghcr.io/your-username/pixishelf-api:latest`
-- `ghcr.io/your-username/pixishelf-api:v1.0.0`
-- `ghcr.io/your-username/pixishelf-web:latest`
-- `ghcr.io/your-username/pixishelf-web:v1.0.0`
-
-### Docker Hub (如果配置了)
-- `your-username/pixishelf-api:latest`
-- `your-username/pixishelf-api:v1.0.0`
-- `your-username/pixishelf-web:latest`
-- `your-username/pixishelf-web:v1.0.0`
-
-## 🔒 镜像权限
-
-### GitHub Container Registry
-
-默认情况下，GHCR 镜像是私有的。要使其公开：
-
-1. 进入 GitHub 个人资料页面
-2. 点击 "Packages" 标签
-3. 选择相应的包
-4. 进入 "Package settings"
-5. 在 "Danger Zone" 中点击 "Change visibility"
-6. 选择 "Public"
-
-## 📋 Workflow 功能
-
-当前的 GitHub Actions workflow 包含以下功能：
-
-- ✅ 多架构构建 (linux/amd64, linux/arm64)
-- ✅ 同时发布到 GitHub Container Registry 和 Docker Hub
-- ✅ 自动版本标签管理
-- ✅ 构建缓存优化
-- ✅ 安全漏洞扫描
-- ✅ 自动创建 GitHub Release
-- ✅ 发布部署文件到 Release
-
-## 🛠️ 自定义配置
-
-### 修改构建参数
-
-编辑 `.github/workflows/build-and-deploy.yml` 文件：
-
-```yaml
-# 修改支持的架构
-platforms: linux/amd64,linux/arm64,linux/arm/v7
-
-# 修改构建参数
-build-args: |
-  VITE_API_URL=https://api.yourdomain.com
-  NODE_ENV=production
-```
-
-### 添加环境特定的构建
-
-可以为不同环境创建不同的 workflow：
-
-- `.github/workflows/build-staging.yml` - 测试环境
-- `.github/workflows/build-production.yml` - 生产环境
-
-## 🔍 故障排除
-
-### 常见问题
-
-1. **构建失败：权限不足**
-   - 确保 GITHUB_TOKEN 有 packages:write 权限
-   - 检查仓库的 Actions 权限设置
-
-2. **Docker Hub 推送失败**
-   - 验证 DOCKERHUB_USERNAME 和 DOCKERHUB_TOKEN
-   - 确保 Docker Hub 仓库存在且有推送权限
-
-3. **多架构构建失败**
-   - 检查依赖是否支持目标架构
-   - 可以临时移除不支持的架构
-
-### 查看构建日志
-
-1. 进入 GitHub 仓库的 Actions 页面
-2. 选择失败的 workflow run
-3. 展开相应的步骤查看详细日志
-
-## 📚 相关文档
-
-- [GitHub Actions 文档](https://docs.github.com/en/actions)
-- [GitHub Container Registry 文档](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
-- [Docker Hub 文档](https://docs.docker.com/docker-hub/)
-- [Docker Buildx 文档](https://docs.docker.com/buildx/)
+缓存收益须比较多次成功运行的验证、构建、cache/artifact 传输和发布耗时；不预先承诺固定加速比例。工作流回退不等于生产数据回退，生产仍遵循[备份恢复](../docs/operations/backup-and-recovery.md)。

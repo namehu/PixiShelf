@@ -43,11 +43,13 @@ superseded-in-part-by: ./0006-freeze-database-configured-archive-media-concurren
 - PostgreSQL 是任务、租约、heartbeat、事件和恢复的权威来源；
 - workerId、attempt、leaseToken 和 CAS 终态继续形成执行围栏；
 - scheduler 只物化任务；
-- 所有可能修改原媒体或派生媒体的任务仍在 writer lane 全局串行；
+- 所有可能修改原媒体或派生媒体的 `SystemJob` 仍在 writer lane 内串行；
 - 不引入 Redis、外部队列或可配置通用并行度。
 
 `SystemJob` 持久保存 `executionLane`。现有任务和现有行迁移为 `BACKGROUND_WRITER`。Executor capability 注册必须
 声明 job type、definition version 和 lane，Worker capability audit 验证三者没有漂移。
+
+2026-10-22 边界澄清：lane 串行约束仅针对 Worker 执行的 `SystemJob`，不覆盖 App 的直接文件写入；执行围栏保护受检查的数据库提交，不能回滚文件 I/O。文件发布及维护停写仍遵循[当前架构](../architecture/current-architecture.md#数据边界与发布不变量)和运维基线。
 
 数据库资源租约从一个 `global/background-worker` 拆为：
 
@@ -117,7 +119,7 @@ Rejected for this change. 其他任务的目录、数据库和 CPU 资源关系�
 
 - 链接可以在作品下载期间继续按 FIFO 解析；
 - 仍只有一个 Worker 镜像、容器、配置入口和健康端口；
-- 现有媒体写入全局串行不变量保持；
+- writer lane 内的媒体写入 `SystemJob` 串行不变量保持；
 - 两个 lane 都使用相同的持久任务生命周期、事件和恢复协议；
 - 解析不再依赖浏览器或 Next.js 长请求；
 - 未来可以通过明确资源审计增加 lane，而不是开放无边界并行。

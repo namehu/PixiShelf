@@ -1,7 +1,7 @@
 ---
 status: current
-scope: PixiShelf 的统一领域语言、概念关系和业务不变量
-last-verified: 2026-08-19
+scope: 统一领域语言、概念关系与代码术语映射
+last-verified: 2026-10-22
 sources:
   - docs/product/product-baseline.md
   - packages/pixishelf-db/prisma/schema.prisma
@@ -105,7 +105,7 @@ A durable execution record for one background operation, including its trigger, 
 _Avoid_: Request, thread, task definition
 
 **Execution Lane**:
-A fixed Worker resource class attached to every System Job. `ARCHIVE_RESOLVE` permits one URL resolver; `BACKGROUND_WRITER` permits one globally serialized media/database writer.
+A fixed Worker resource class attached to every System Job. `ARCHIVE_RESOLVE` separates metadata resolution from `BACKGROUND_WRITER` media-writing jobs; both may update their own durable state. Execution and concurrency rules belong to the [current architecture](./docs/architecture/current-architecture.md).
 _Avoid_: Worker process, configurable concurrency pool
 
 **Scheduled Task**:
@@ -124,57 +124,26 @@ _Avoid_: Temporary output, any file that happens to exist
 A durable explanation of what a scan, import, replacement, migration, or background job attempted and what happened to each relevant item.
 _Avoid_: Process log when business history is meant
 
-## Concept Relationships
-
-```text
-Series
-  └── ordered Artwork
-        ├── ordered Media
-        ├── zero or more Source Reference
-        ├── Source Snapshot
-        ├── User Curation / Local Override
-        └── zero or more immutable Archive Revision
-
-Scheduled Task ──materializes──> System Job ──executes──> domain transition
-Archive Intake Submission ──groups──> Archive Intake Item ──enqueues/reuses──> Archive Import
-Source Media ──generates──> Derived Media ──publishes──> Published Generation
-```
-
-The important boundaries are:
-
-- multiple media belonging to one work remain one Artwork with ordered Media;
-- independently meaningful episodes or works can become multiple Artworks in a Series;
-- provider identity, creation method, local identity, and storage location are separate concerns;
-- runtime job state does not replace domain audit history;
-- a file existing on disk does not by itself mean it is published or safe to expose.
-
-## Business Invariants
-
-1. `Artwork` remains meaningful without any Source Reference.
-2. A remote identifier is unique only together with its Source Provider.
-3. Creation Method never proves Source Provider identity.
-4. Unknown historical origin is preserved as unknown instead of guessed.
-5. Media order belongs to the Artwork and is stable unless an explicit reorder occurs.
-6. Source refresh may replace Source Tags and Source Snapshots, but not User Curation or Local Overrides.
-7. Archive Revisions are immutable after publication; updates publish a new revision.
-8. Incomplete archive revisions and derived-media generations are not visible to normal catalog reads.
-9. Original media and user curation are non-reproducible data; derived media may be rebuilt from validated originals.
-10. Deletion, replacement, migration, and restoration of original media require an explicit durable intent and audit trail.
-11. Database and filesystem state must be backed up and restored from a compatible point in time.
-12. A browser request or process log is not sufficient durability for a long-running operation.
-13. Production steady state has one queue-consuming general Worker with one resolver lane and one writer lane; all media writes remain globally serialized.
-14. An authenticated user is the instance administrator in the current single-user deployment. This is a deployment boundary, not a future multi-tenant authorization model.
-
-## Data Classes
-
-| Class               | Examples                                                         | Recovery expectation                                            |
-| ------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------- |
-| Non-reproducible    | original media, local curation, source mapping, local overrides  | protect with consistent database and filesystem backups         |
-| Operational history | System Jobs, events, audit records, migration history            | retain enough to diagnose and safely resume or recover          |
-| Reproducible        | thumbnails, posters, chapter previews, keyframes, request caches | may be rebuilt, but publication pointers must remain consistent |
-
-The product boundary and non-goals are defined in [Product Baseline](./docs/product/product-baseline.md). Exact fields and enum values remain authoritative in `packages/pixishelf-db/prisma/schema.prisma`.
-
 ## Creator attribution
 
-Artist represents a PERSON or GROUP. ArtworkArtist and its evidence provide the effective many-to-many attribution; Artwork.artistId remains a legacy/storage reference. Artist source tag mappings connect verified E-Hentai artist/group tags to local entities. Uploader remains a separate role. See [creator relations](docs/features/creator-relations.md).
+**Artist**: a local PERSON or GROUP credited for a work. `ArtworkArtist` and its evidence maintain effective attribution; `Artwork.artistId` remains a legacy/storage reference. An Uploader is not assumed to be an Artist. See [creator relations](./docs/features/creator-relations.md).
+
+**Series Membership**: an ordered `SeriesArtwork` relation with source, manual, or legacy provenance. Membership, local exclusion and sort override are separate from the Series' external identity. See [series ownership](./docs/features/pixiv-series-sync.md).
+
+## Reading
+
+**Logical Media**: one readable display item. Existing APNG/video group members jointly represent one item; physical Image row count is not always reading progress count.
+
+**Reading Summary**: one account's progress, actual visit count and last position for an Artwork. Manual completion changes progress but does not fabricate a visit or viewing time.
+
+**Media Revision**: the Artwork's reading-generation boundary. Full replacement or rebuild invalidates earlier reading state; ordinary edits retain still-existing media. See [reading semantics](./docs/features/artwork-reading.md).
+
+## Concept relationships
+
+![核心领域 UML 概念类图](./docs/diagrams/features/domain-model.svg)
+
+[Mermaid 源文件](./docs/diagrams/features/domain-model.mmd)。图中的 Media 对应 Prisma `Image`，SourceReference 对应 `ArtworkExternalRef`，Account 对应 `UserBA`；这是概念关系图，不是字段全集。依据为 Schema 的作品、来源、创作者、系列和阅读关系。
+
+`Archive Intake Submission` groups `Archive Intake Item`; an item enqueues or reuses `Archive Import`. A successful import publishes an immutable `Archive Revision`. `Scheduled Task` materializes `System Job`, which executes a domain transition. Runtime state does not replace domain audit history.
+
+术语定义只在本文维护。产品不变量与非目标见[产品基线](./docs/product/product-baseline.md)；备份数据分类及恢复责任见[备份与恢复](./docs/operations/backup-and-recovery.md)；精确字段和枚举以 [Prisma Schema](./packages/pixishelf-db/prisma/schema.prisma) 为准。

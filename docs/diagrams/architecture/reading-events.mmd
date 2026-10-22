@@ -1,0 +1,25 @@
+sequenceDiagram
+  participant U as 阅读入口
+  participant C as 统一采集器 / 预测状态
+  participant A as 认证 API
+  participant R as 阅读服务
+  participant D as PostgreSQL
+  U->>A: 初始化 expectedUserId / artworkId
+  A->>R: 会话身份
+  R->>D: 作品锁 + 当前逻辑索引 + 阅读摘要
+  D-->>U: mediaRevision / fingerprint / 首屏页
+  U->>C: ready + 前台 + 真实可见 / 视频播放
+  C->>C: 预测进度，按账户和版本排队
+  Note over C,A: 每 3 秒合并、每批最多 100 条；60 秒 TTL；同作品串行
+  C->>A: VIEW / HEARTBEAT + expectedUserId + revision
+  A->>R: 认证及输入校验
+  R->>D: 锁 Artwork，核对版本和权威媒体/组
+  alt 身份、版本与凭据有效
+    R->>D: 同事务合并已读集合、访问窗口和摘要版本
+    D-->>C: 确认摘要 / stateVersion
+    C-->>U: 确认预测
+  else 账户或版本冲突
+    R-->>C: 拒绝写入
+    C-->>U: 清旧队列与预测，重新打开
+  end
+  Note over R,D: 完整重建共用锁：发布 + 版本递增 + 清空阅读同事务

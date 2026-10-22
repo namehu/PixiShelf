@@ -1,0 +1,30 @@
+sequenceDiagram
+  participant U as 管理员
+  participant A as App 控制面
+  participant W as writer lane
+  participant D as PostgreSQL
+  U->>A: 发起来源一致性核对
+  A->>D: 共享 SCAN 锁<br/>校验基线与 Worker 能力，创建核对任务
+  W->>D: 领取核对任务
+  W->>W: 冻结完整非空快照<br/>校验 root，分类差异
+  Note over W,D: 核对仅写观察和审计<br/>不发布作品或媒体
+  W->>D: 保存差异和核对终态
+  Note over W,D: 仅完整核对可报告 MISSING<br/>MISSING 不进入 apply，不解绑或删除
+  U->>A: 完成后选择当前页 NEW / CHANGED
+  A->>D: 共享 SCAN 锁<br/>复核核对终态、generation、root 与能力
+  A->>D: 冻结 path、hash、stat 和来源身份<br/>创建独立 apply ScanRun 与单项
+  W->>D: 领取 apply 任务与冻结输入
+  loop 逐项处理，保留已提交结果
+    W->>W: 重新读取并校验<br/>hash、stat 和来源身份
+    alt 内容变化或身份冲突
+      W->>D: 记录 STALE / CONFLICT<br/>零领域写入
+    else 证据仍有效
+      W->>D: 短 fenced 事务<br/>再次核验身份、发布与保存检查点
+      D-->>W: 持久逐项结果
+    end
+  end
+  W->>D: 汇总逐项结果与 operation 终态
+  U->>A: 查看或刷新结果
+  A->>D: 按 operation 查询持久结果
+  D-->>A: 成功、失败与可重试信息
+  A-->>U: 展示逐项结果

@@ -1,6 +1,6 @@
 # @pixishelf/webp-player
 
-PixiShelf 私有浏览器 WebP 流式播放器，默认用于手动播放和自动浏览，无需配置启用变量。产品范围、UML 和剩余真机/反代验证见 [开发方案](../../docs/design/webp-streaming-player.md)。
+PixiShelf 私有浏览器 WebP 流式播放器，默认用于手动播放和自动浏览，无需配置启用变量。产品范围、UML 和剩余真机/反代验证见 [播放器架构](../../docs/architecture/webp-player.md)。
 
 ## 构建与验证
 
@@ -43,35 +43,17 @@ Worker 用最小 WASM 模块检测 SIMD 支持，只请求选中的解码器；S
 
 这是明确且局部的上游内部结构依赖。升级 libwebp 必须审查结构变化并重跑原生差分、ASan/UBSan、真实 WASM 与浏览器测试。构建资源保留上游 COPYING 和 PATENTS，二进制与工具链版本写入 manifest。
 
-## 接口行为
+## 接口与运行行为
 
-`load` 返回首帧已解码的 Promise；`play` 登记播放意图；`pause` 保留剩余时长；`restart` 从头新建请求；`destroy` 幂等。无总时长和 seek 承诺。完成只在合法 EOF 与末帧时长都结束后发出。
-
-`load({ ..., loop: true })` 遵循 WebP 文件的循环次数，0 表示无限；每轮复用同一 Worker、WASM 输入和合成画布，不重新下载。省略 loop 则只播放一轮。应用手动 WebP 与自动浏览都使用 WASM，手动开启 loop，自动浏览关闭 loop。手动控制的暂停保留既有「回海报、再次点击从头开始」行为；自动浏览控制条暂停则保留帧进度。Elements 中可检查 `canvas[data-webp-player="wasm"][data-frame-visible="true"]`。
-
-静态资源由 `prepare:app` 复制到主应用的生成目录。下载源限制同源，沿用会话凭证；不允许任意跨源地址。按视口宽度选择输入上限：低于 768px 为 128 MiB，其余为 256 MiB；画布阈值仍为 400/800 万像素。输入从 64 KiB 扩容，原生堆上限为 384/768 MiB，受管预算为 432/864 MiB，直接顺序路径包含扩容时旧/新输入可能共存及三份输出帧估算。独立帧路径预留两个 128MiB 堆、原压缩字节、临时输入和五幅 RGBA，满足总预算才启用四额度；中途回退仍保留四额度并降低原生堆预算。该视口分类不判断真实设备内存；预算只覆盖该引擎管理的资源，不代表浏览器进程内存上限。
-
-应用每次 `dev` / `build` 都校验 prebuilt，自动 bundle Worker/播放器 JS 并准备资源，完全不读取 `dist/native`，没有启用开关。Worker/WASM 仍在用户开始播放时按需请求。应用 Dockerfile 同样直接使用仓库产物，没有原生编译阶段。版本目录按 Worker、解码器 JS/WASM 内容哈希命名，manifest 不强缓存。
-
-应用运行时通过全局 `useWebpPlayerStore` 缓存 manifest，使用 sessionStorage 保存已校验的版本及所属账号；同一标签页会话内跨页面、刷新、重复播放均复用。并发加载共享一个 Promise，播放器卸载不取消共享请求。读取失败不缓存，后续加载可重试；退出登录或切换账号会清空缓存并取消旧请求，旧响应不能写回新会话。资源初始化失败会使对应版本失效，下次初始化重新读取。存储不可用时退回 Zustand 内存缓存。只缓存资源版本，不缓存媒体、Worker 或登录凭证。
-
-性能测试应独立运行；与全量测试/构建并发会争抢 CPU，不能作为无负载基线。正式发布仍需真实 Android Chrome 和实际反向代理验收，详见方案末尾证据。
+公开入口为 `src/index.ts`，源参数、事件和预算类型由 `src/types.ts` 定义。播放时钟、独立帧门禁、顺序回退、循环、暂停、账户生命周期及压缩复用统一维护在[播放器架构](../../docs/architecture/webp-player.md)，不在包 README 复制。
 
 ## UML 重新生成
 
 ```sh
-pnpm --filter @pixishelf/webp-player diagrams
+pnpm docs:diagrams
 ```
 
 `.mmd` 是源文件，SVG 为便于离线评审保留的可重建文档产物。
-
-## 独立帧生产路径
-
-默认逐帧检查独立性，不预下载全图判断。合格的完整、不透明 VP8 帧（flags 为 0 或 2，允许混合但不允许清除）使用两个解码子 Worker、四个输出额度；实际落后时省略过期独立帧，原尺寸不变。局部、透明、清除等帧转回现有 libwebp 合成器，复用已收字节恢复状态，不重新下载或重复显示已交付帧。直接顺序路径保持原行为。`decodeStrategy: "sequential"` 仅供内部对照，应用无需额外配置。
-
-已进入快速路径后，顶层未知块及未声明的 ICCP／EXIF／XMP 会跳过；声明元数据的文件仍由头部门禁交给顺序路径。重复 ANIM 沿用 libwebp 的填充后长度至少六字节规则，仍校验完整输入与零填充。动画顶层 ALPH／VP8／VP8L／重复 VP8X 或过短 ANIM 直接报错，不通过重放尝试修复。扫描工具复用相同分类。
-
-完成依赖有效 EOF 和末帧的绘制机会；解码落后不等同于网络等待，解析预读窗口耗尽也不能单独冻结时间轴。内存门禁、保守格式限制、手机生产构建报告和回退代价见[生产接入记录](../../docs/design/webp-mobile-production.md)。
 
 ## 只读快速路径覆盖率抽样
 

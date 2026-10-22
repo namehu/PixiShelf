@@ -1,32 +1,26 @@
-# Dev Container 配置
+---
+status: draft
+scope: 现存 Dev Container 配置的实际能力与启动缺口
+last-verified: 2026-10-22
+sources:
+  - .devcontainer/devcontainer.json
+  - .devcontainer/docker-compose.yml
+  - .devcontainer/Dockerfile
+---
 
-这个配置提供了一个完整的 Node.js 22 开发环境，用于  项目开发。
+# Dev Container：非标准启动入口
 
-## 功能特性
+当前配置只是 Node.js 22 编辑容器加 PostgreSQL 15，尚未对齐项目标准本地运行栈。首次开发优先使用[根 README](../README.md#本地开发)；不要把“容器启动成功”当成 PixiShelf 可用。
 
-- **基础镜像**: Node.js 22
-- **端口映射**:
-  - 5430 (前端服务)
-  - 5431 (后端API)
-- **数据挂载**: 宿主机 `C:\Users\pc\Downloads\pixiv` → 容器 `/app/data`
-- **预装工具**: pnpm, TypeScript, ts-node, nodemon
-- **VS Code 扩展**: TypeScript, Prettier, Tailwind CSS, ESLint, Prisma
+| 当前配置     | 实际行为/缺口                                                                           |
+| ------------ | --------------------------------------------------------------------------------------- |
+| app 编辑容器 | node 用户，`/workspace` 挂载仓库，执行 `sleep infinity`，不会自动启动 Next.js           |
+| postCreate   | 设置 Git 行尾并执行 `pnpm install`，不生成 Prisma Client、不 deploy migration           |
+| 数据目录     | 写死宿主机 `C:\Users\pc\Downloads\pixiv` 到 `/app/data`，使用前必须按本机修改并核对权限 |
+| PostgreSQL   | 默认用户名/密码为开发占位值，映射 5432；不能原样用于生产                                |
+| 端口转发     | 5430/5431；5431 标签仍写 Backend API，但当前产品使用它作为 ImgProxy 端口                |
+| 缺失服务     | Compose 没有 ImgProxy、通用 Worker 或 scheduler，也没有完整派生/Pixiv data 挂载         |
+| 工具链       | Node 22 + pnpm 8；现行 CI/镜像为 Node 20，未据此宣称环境等价                            |
+| Git 初始化   | initializeCommand 会在宿主机执行全局 `safe.directory '*'`，影响范围超出本仓库           |
 
-## 使用方法
-
-1. 确保已安装 Docker 和 VS Code Dev Containers 扩展
-2. 在 VS Code 中打开项目
-3. 按 `Ctrl+Shift+P` 打开命令面板
-4. 选择 "Dev Containers: Reopen in Container"
-5. 等待容器构建和配置完成
-
-## 目录结构
-
-- `/workspace` - 项目工作目录（挂载宿主机项目目录）
-- `/app/data` - 数据目录（挂载宿主机pixiv下载目录）
-
-## 注意事项
-
-- 容器使用 `node` 用户运行，确保文件权限正确
-- 首次启动会自动安装项目依赖
-- 端口转发会自动配置，可直接访问 localhost:5430 和 localhost:5431
+若继续使用此环境，应先明确补齐依赖、三个媒体根、容器数据库地址和 migration/Worker 启动流程；本次文档整理仅纠正说明，没有修改这些配置或运行环境。端口冲突、路径和 Git 信任配置也应在启用前检查。

@@ -1,0 +1,24 @@
+flowchart TD
+  S[故障：先停止写入与调度<br/>保全 dump / 日志 / 任务 / 文件现场]
+  Q{能证明数据库与文件一致?}
+  S --> Q
+  Q -->|是| C{旧镜像兼容当前<br/>Schema / payload / lane?}
+  C -->|是| R[兼容服务修复或配套镜像回退]
+  C -->|否| F[优先前向修复<br/>不能只换旧镜像]
+  Q -->|否或不确定| L{有明确领域恢复依据?}
+  L -->|是| LR[按 manifest / 审计 / 发布指针<br/>验证后执行局部恢复]
+  LR --> V{一致性已验证?}
+  V -->|是| CHECK[启动前确认 migration<br/>与数据库 / 媒体一致性]
+  V -->|否| FULL[选择同点完整备份集合]
+  L -->|否| FULL
+  F -->|必须不兼容降级| FULL
+  F -->|修复兼容性| CHECK
+  FULL --> ISO[隔离空库恢复与三个媒体根抽样]
+  ISO --> LOSS[明确检查点后损失<br/>管理员批准正式覆盖]
+  LOSS --> RESTORE[新空库 + 原媒体 + 派生媒体<br/>Pixiv data + 配置 + 匹配镜像]
+  RESTORE --> CHECK
+  R --> CHECK
+  CHECK --> START[准备消费后启 Worker<br/>验证 READY 与 capability]
+  START --> OPEN[通过后开放 App<br/>登录 / 媒体 / 任务抽样后恢复调度]
+  LOCK[禁止盲清 replace lock / bak_session<br/>禁止拼接异时快照或手改任务终态]
+  LOCK -.-> LR

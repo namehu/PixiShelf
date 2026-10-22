@@ -1,0 +1,23 @@
+flowchart TD
+  ENTRY[管理页、Webhook 或单作品重扫] --> MODE{输入模式}
+  MODE -->|INCREMENTAL| QUEUE1[创建 SCAN + 空的 ScanRun]
+  MODE -->|CLIENT_LIST| FREEZE[App 读取指定 meta 文件\n冻结相对路径、内容 hash 和 digest]
+  MODE -->|ARTWORK_RESCAN| TARGET{作品来源}
+  TARGET -->|Pixiv 元数据| FREEZE
+  TARGET -->|本地目录作品| FP[对单个作品计算内容指纹\n冻结 local work]
+  FREEZE --> QUEUE2[事务创建 SCAN + ScanRun 输入行]
+  FP --> QUEUE2
+  QUEUE1 --> WORKER[Worker 领取]
+  QUEUE2 --> WORKER
+  WORKER --> DISCOVER{是否 INCREMENTAL}
+  DISCOVER -->|是| META[递归发现元数据文件\n分页冻结到 ScanRun]
+  DISCOVER -->|否| VERIFY[验证已冻结 count、hash、digest]
+  META --> PROCESS[逐条解析元数据和收集媒体]
+  VERIFY --> PROCESS
+  PROCESS --> POLICY{已有作品策略}
+  POLICY -->|SKIP| SKIP[记录 ScanRunItem SKIPPED]
+  POLICY -->|REFRESH\n单作品重扫或选定同步| REFRESH[保留本地覆盖和媒体顺序\n刷新该来源的数据和来源标签]
+  POLICY -->|不存在| CREATE[创建 Artwork、ExternalRef、Image 和来源标签]
+  SKIP --> FINAL[汇总 ScanRun 并结束 SystemJob]
+  REFRESH --> FINAL
+  CREATE --> FINAL

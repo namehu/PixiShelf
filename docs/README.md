@@ -1,191 +1,55 @@
-# PixiShelf 文档索引
+# PixiShelf 文档入口
 
-本文是 PixiShelf 文档的统一入口。它负责说明每份文档的权威范围和状态；代码、Schema、Compose 与环境变量模板仍是精确结构和配置的最终事实源。
+先根据要解决的问题选择入口。当前行为、未来方案与历史证据分开阅读；精确字段、配置和接口以代码、Schema、Compose 与环境模板为准。
 
-最后更新：2026-10-22
+## 推荐阅读路径
 
-## 状态约定
+| 你要做什么       | 阅读顺序                                                                                                                                 |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 理解项目         | [产品基线](./product/product-baseline.md) → [领域术语与关系](../CONTEXT.md) → [当前架构](./architecture/current-architecture.md)         |
+| 修改一个功能     | [功能目录](./features/README.md) → 对应领域规格 → 规格链接的架构、代码和验收条件                                                         |
+| 理解复杂设计     | [架构总览](./architecture/current-architecture.md) → [图示导航](./diagrams/README.md) → 对应子系统说明                                   |
+| 启动本地环境     | [根 README](../README.md) → [主应用包说明](../packages/pixishelf/readme.md)                                                              |
+| 修改代码并验证   | [工程规则](../AGENTS.md) → [测试策略](./development/testing-strategy.md)；认证或媒体访问变更先读[权限边界](./security/access-control.md) |
+| 部署、升级或恢复 | [部署基线](./operations/deployment.md) → 适用的专项手册 → [备份与恢复](./operations/backup-and-recovery.md)                              |
+| 追溯理由与证据   | [ADR](./adr/README.md) → [发布与验证记录](./records/README.md)；退役方案见[历史索引](./archive/README.md)                                |
+| 评估未来方案     | [方案入口](./design/README.md)；未核验设计不覆盖当前行为                                                                                 |
 
-| 状态         | 含义                             | 使用规则               |
-| ------------ | -------------------------------- | ---------------------- |
-| `current`    | 已按当前代码或运行配置核验       | 可以作为实施和操作依据 |
-| `draft`      | 已确认方向，但尚未全部实施或核验 | 不得当成当前行为       |
-| `historical` | 一次性实施记录或已经退役的方案   | 只用于理解演进过程     |
-| `deprecated` | 内容不完整、重复或可能误导       | 等待合并、归档或删除   |
+## 文档职责
 
-ADR 使用独立状态：`proposed`、`accepted`、`superseded`。
+| 区域                         | 唯一职责                                           |
+| ---------------------------- | -------------------------------------------------- |
+| `product/` 与根 `CONTEXT.md` | 产品范围、非目标与不变量；领域术语                 |
+| `architecture/`              | 当前系统边界、依赖、数据一致性与子系统机制         |
+| `features/`                  | 按领域组织的用户行为、业务规则、异常路径与验收条件 |
+| `security/`                  | 身份、信任边界、访问控制与安全回归要求             |
+| `operations/`                | 当前部署、备份恢复与有条件适用的操作手册           |
+| `development/`               | 开发验证与文档维护方法                             |
+| `adr/`                       | 已接受的技术决策、原因、代价和替代关系             |
+| `design/`                    | 尚未实施或核验的设计，以及已迁移内容的兼容入口     |
+| `records/`                   | 特定日期、版本和环境的发布、验证、实验与事故证据   |
+| `archive/`                   | 已退役方案和历史实施过程，不能直接作为当前操作依据 |
+| `diagrams/`                  | 与权威正文绑定的 Mermaid 源与生成 SVG              |
 
-## 事实来源顺序
+包内 README 说明包级用法；组件和脚本文档就近保存。它们不再维护另一套系统架构或部署流程。
 
-发生冲突时按问题类型判断，而不是让某一篇文档覆盖全部事实：
+## 如何判断一份文档可否作为依据
 
-1. 产品范围、非目标与验收标准：产品基线或功能规格。
-2. 已上线系统的组件边界和数据流：当前架构与实际代码。
-3. 精确字段、类型和配置：Prisma Schema、Zod、TypeScript、Compose 与 `.env.example`。
-4. 技术选择的原因和代价：已接受 ADR。
-5. 部署、备份、恢复和故障操作：`current` 运维文档。
-6. 未来设计：`draft` 文档；不得覆盖当前事实。
+- `current`：正文已按所列代码或配置核对；**不代表某个生产实例已经部署**。
+- `draft`：未来设计，或尚未充分核验的内容；不能当作当前行为。
+- `historical`：特定历史版本的方案或证据；“通过”“当前”等措辞只对记录当时成立。
+- `deprecated`：短跳转或待退役材料；沿链接阅读替代文档。
+- ADR 使用 `proposed / accepted / superseded`，并保留局部替代关系。
 
-发现 `current` 文档与实现冲突时，应先停止依赖该段内容，核验代码和运行配置，并在同一变更中修正文档。
+生产状态只由对应发布记录说明：区分本地测试、隔离验证、用户确认和可复核生产证据。未记录不等于未部署，也不能推断已验收。
 
-## 核心入口
+发现文档冲突时，先确认讨论的是产品要求、当前实现还是历史版本。精确事实核对代码与配置；产品要求和实现不一致时显式记录差异，不用修改文档偷偷改变要求。当前文档更新对应章节，历史证据保持当时语境。
 
-- [作品堆叠浏览](./features/artwork-summary.md)（current，新版本待部署）：即时确定性分组、横向翻阅、整组已读及旧摘要兼容。
+## 开发与维护入口
 
-- [Pixiv 导入默认已读](./features/pixiv-import-reading.md)（current，生产已启用并完成历史回填验收）：账户级新作品偏好、历史回填预检、分批快照与恢复边界。
-
-- [沉浸浏览交互](./features/immersive-viewer-interactions.md)（current，生产发布未核验）：单击显示／隐藏浮层、播放手势分离、面板阻断与返回行为。
-
-- [作品快捷筛选](./features/artwork-quick-filters.md)（current，生产发布未核验）：常用阅读状态、账户级预设管理、导航快捷菜单和并发约束。
-
-- [归档回收站](./features/archive-trash.md)（current，生产发布未核验）：归档任务与回收站分离、来源已删除状态、持久删除意图与手动重新归档。
-
-- [浏览器隐私偏好](./features/browser-privacy.md)（current）：浏览器会话共享、固定 30 天记忆、全局快捷开关、首屏遮挡与生命周期边界。
-
-- [后台任务兼容层退役](./features/background-task-retirement.md)（current）：中央执行、历史快照与二阶段删列/约束；二阶段用户确认已部署生产。
-- [后台任务退役发布手册](./deployment/background-task-retirement.md)（current）：两阶段操作、审计、恢复边界与用户确认的生产结果。
-
-- [系列管理](./features/series-management.md)（current）：全宽系列列表与作品抽屉、统一增删排序草稿、虚拟列表与指纹保护的原子提交。
-
-- [艺术家与系列旧字段清理](./features/legacy-identity-retirement.md)（current）：四个旧字段的依赖替换、数据审计与分步上线检查。
-
-- [作品阅读记录与进度](./features/artwork-reading.md)（draft）：账户级阅读次数、进度、补看与手动完成、继续阅读及隔离验收；生产发布尚未核验。
-
-- [艺术家合并](./features/artist-merge.md)（current）：作品并集、归档绑定迁移、来源冲突、后台原子提交与恢复边界。
-
-- [后台任务失败诊断](./features/background-job-diagnostics.md)（current）：独立执行快照、全量失败对象、遗留标记、90 天证据与协调升级。
-
-- [作品删除与删除总结](./features/artwork-deletion.md)（current）：删除前清单、文件选择、空目录边界、逐项报告和失败重试。
-
-- [Pixiv 扫描根身份](./features/pixiv-root-identity.md)（current）：稳定 UUID、重挂载兼容、旧库绑定与标记恢复。
-
-- [艺术家、社团与作品关系](./features/creator-relations.md)（current）：多创作者归属、时间线、来源映射与后台补全。
-- [原站预览退役与来源导航](./features/source-preview.md)（current）：站内远程阅读器退役、受保护原站跳转与历史数据边界。
-
-| 文档                                                                | 状态      | 权威范围                                       |
-| ------------------------------------------------------------------- | --------- | ---------------------------------------------- |
-| [项目 README](../README.md)                                         | `current` | 项目入口、标准本地启动、常用命令               |
-| [产品基线](./product/product-baseline.md)                           | `current` | 目标用户、核心场景、产品不变量和非目标         |
-| [后台任务业务链路](./architecture/background-job-business-flows.md) | `current` | 任务计划、35 类 Worker 任务、领域状态和流程图  |
-| [后台任务实时进度](./features/background-job-live-progress.md)      | `current` | 结构化进度、SSE 降级、动画吞吐与事件保留       |
-| [后台任务执行记录](./features/background-job-history.md)            | `current` | 执行动态搜索筛选、游标分页、虚拟滚动与实时合并 |
-| [历史归档默认标签补全](./features/archive-default-tag-backfill.md)  | `current` | 冻结预览、追加语义、分批让行、取消与恢复       |
-| [Pixiv 标签补全](./features/pixiv-tag-enrichment.md)                | `current` | 候选规则、只填空字段、任务状态和封面存储       |
-| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)           | `current` | 外部身份、补全规则、任务状态与作者图片存储     |
-| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)       | `current` | 已有作品在线同步、来源所有权和磁盘快照         |
-| [Pixiv 系列来源与核对](./features/pixiv-series-sync.md)             | `current` | 系列外部身份、成员所有权、连续核对与多系列导航 |
-| [归档收件箱](./features/archive-intake.md)                          | `current` | 持久收件、双通道、批量操作、维护和保留策略     |
-| [原站预览退役与来源导航](./features/source-preview.md)              | `current` | 原站预览退役、来源导航与历史数据边界           |
-| [领域语境](../CONTEXT.md)                                           | `current` | 作品、媒体、来源、归档与本地身份术语           |
-| [当前架构](./architecture/current-architecture.md)                  | `current` | Workspace、运行组件、依赖方向和关键数据流      |
-| [权限与接口边界](./security/access-control.md)                      | `current` | 调用者、页面、API、服务、凭据和存储权限        |
-| [测试策略](./development/testing-strategy.md)                       | `current` | 测试分层、变更验证矩阵、CI 覆盖与已知缺口      |
-| [部署基线](./operations/deployment.md)                              | `current` | 当前 Compose 服务、升级顺序、验证和回滚入口    |
-| [备份与恢复](./operations/backup-and-recovery.md)                   | `current` | 完整备份集合、恢复目标、演练和灾难恢复边界     |
-| [Build 与部署资产](../build/README.md)                              | `current` | Dockerfile、Compose、挂载和 Worker 运行边界    |
-| [当前待办](../TODO.md)                                              | `current` | 稳定观察期和下一阶段可执行事项                 |
-| [代理规则](../agents.md)                                            | `current` | 人与 AI 修改仓库时必须遵守的工程约束           |
-
-## 架构与性能
-
-- [统计页查询性能](./design/statistics-query-performance.md)（current，生产性能未核验）：分区加载、60 秒缓存、文件计数只读校验与快速模式启用门禁。
-
-- [WebP 独立帧生产接入](./design/webp-mobile-production.md)（current，用户确认已发布）：独立帧并行、自适应省略、顺序回退、诊断用法与最终手机验收。
-
-- [发现来源查询性能](./design/archive-discovery-query-performance.md)（current）：URL 索引、独立统计请求、合成性能基线与生产验收边界。
-
-- [WebP 流式播放器架构](./design/webp-streaming-player.md)（current）：WASM 解码、双 Worker、播放时钟、回退与历史验证。
-- [WebP 动图时长探测方案](./design/animation-duration-probe.md)（draft）：持久时长、NFS 有界探测、源版本与写入门禁。
-
-| 文档                                                                              | 状态         | 权威范围与后续处理                                     |
-| --------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------ |
-| [当前架构](./architecture/current-architecture.md)                                | `current`    | 当前系统级事实源                                       |
-| [后台任务业务链路](./architecture/background-job-business-flows.md)               | `current`    | 当前任务入口、调度、执行、状态、副作用和业务流程图     |
-| [媒体资源处理与分发](../packages/pixishelf/docs/media-forwarding-architecture.md) | `current`    | ImgProxy、静态派生媒体和视频播放边界；后续移入架构目录 |
-| [数据库设计补充](../packages/pixishelf-db/prisma/database-design.md)              | `current`    | Schema 之外的触发器、索引和维护约束                    |
-| [Artwork feed 查询性能](./design/artwork-feed-query-performance.md)               | `current`    | 筛选链路、无总数浏览、索引随机分页、隔离性能基线与生产诊断                |
-| [旧版常用 SQL](./SQL.md)                                                          | `deprecated` | 零散历史查询，不作为数据库操作或运维手册               |
-| [后台任务架构设计](./design/background-task-architecture.md)                      | `historical` | Central Dispatcher 切换设计，混合了当时现状与目标      |
-| [后台任务数据模型](./design/background-task-data-model.md)                        | `historical` | 切换期模型、兼容字段和迁移顺序；当前字段以 Schema 为准 |
-| [后台任务实施与运行手册](./design/background-task-runbook.md)                     | `historical` | 阶段 0–8 实施与切换手册；当前操作以运维文档为准        |
-| [后台扫描任务化设计](./design/background-scan-jobs.md)                            | `historical` | 扫描任务化实施方案，不作为当前接口说明                 |
-| [扫描与导入审计历史](./design/scan-audit-history.md)                              | `historical` | 已实施阶段和历史限制                                   |
-
-## 功能规格、草案与实施归档
-
-- [作品详情页自动浏览](./features/artwork-auto-browse.md)（`current`）：自动滚动、适配预览轮播、暂停/加载等待与浏览器偏好。
-- [作品阅读记录与进度](./features/artwork-reading.md)（`draft`）：本地阅读规则、媒体生命周期与验收记录；不得当作已发布行为。
-- [标题来源精准匹配与人工复核](./features/archive-title-rules.md)（draft）：组合规则、完整历史预览、来源内复核、原子切换与标题来源入箱绑定；生产验收由管理员发布后执行。
-
-| 文档                                                                 | 状态         | 权威范围与后续处理                                          |
-| -------------------------------------------------------------------- | ------------ | ----------------------------------------------------------- |
-| [归档收件箱](./features/archive-intake.md)                           | `current`    | 当前持续追加、持久解析、批量入队、双通道和维护边界          |
-| [原站预览退役与来源导航](./features/source-preview.md)               | `current`    | 原站预览退役、来源导航与无迁移回退边界                      |
-| [后台任务实时进度](./features/background-job-live-progress.md)       | `current`    | 结构化进度、动画识别、SSE 缓存同步和事件分层保留            |
-| [历史归档默认标签补全](./features/archive-default-tag-backfill.md)   | `current`    | 当前历史归档标签补全范围、快照和恢复边界                    |
-| [Pixiv 艺术家补全](./features/pixiv-artist-enrichment.md)            | `current`    | 艺术家多来源身份、迁移审计、人工补全与发布规则              |
-| [Pixiv 作品在线同步](./features/pixiv-artwork-online-sync.md)        | `current`    | 已有 Pixiv 作品在线同步、精确标签同步与文本保护             |
-| [Pixiv 系列来源与同步设计](./design/pixiv-series-source-sync.md)     | `historical` | 本期实施前的系列身份、成员所有权和同步方案                  |
-| [归档收件队列设计](./design/archive-intake-queue.md)                 | `historical` | 已实施的需求取舍、实施切片和验收设计                        |
-| [归档交互与自动入队](./design/archive-workflow-simplification.md)    | `historical` | 精简任务展示、来源跳转及自动入队的决策与验收记录            |
-| [E-Hentai 上传者人工扫描](./design/e-hentai-uploader-manual-scan.md) | `current`    | 已实施的人工来源扫描、游标、分类与收件确认契约              |
-| [E-Hentai 标题关键词归档](./design/e-hentai-title-keyword-scan.md)   | `draft`      | 标题包含/开头/结尾匹配、人工发现、查询冻结与收件复用        |
-| [多来源 URL 归档](./design/multi-source-url-archive.md)              | `draft`      | 已接受方向与分阶段设计；需按实现核验后提炼当前架构          |
-| [视频代表帧生成](./design/video-keyframe-generation.md)              | `draft`      | 已接受功能政策和实施设计，正文仍包含迁移期信息              |
-| [Pixiv 来源维护](./design/pixiv-source-maintenance.md)               | `draft`      | 阶段 0–4 代码已实施；生产 FULL 审计与发布证据待登记         |
-| [界面设计升级计划](./pixishelf-design-upgrade-plan.md)               | `draft`      | 分阶段 UI 升级计划，不改变当前业务契约                      |
-| [媒体格式与兼容判断技术债](../todos/媒体类型后缀匹配技术债.md)       | `draft`      | 已实施媒体类型后的跨包推断、格式字段、fallback 与可选重命名 |
-| [PixiShelf 优化 TODO](../todos/PixiShelf优化TODO.md)                 | `draft`      | 优化候选集合；执行项应逐步收敛到根 TODO 或功能规格          |
-| `todos/多媒体设计.md`（已删除）                                      | `deprecated` | 对话式建议且包含旧路径；2026-08-18 清理，历史可从 Git 追溯  |
-
-## ADR
-
-| 文档                                                                           | 状态       | 决策范围                         |
-| ------------------------------------------------------------------------------ | ---------- | -------------------------------- |
-| [ADR-0001](./adr/0001-separate-source-references-from-local-identity.md)       | `accepted` | 外部来源引用与本地作品身份分离   |
-| [ADR-0002](./adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)  | `accepted` | 持久 Worker 与原子归档发布       |
-| [ADR-0003](./adr/0003-unify-background-jobs-under-a-durable-single-worker.md)  | `accepted` | PostgreSQL 队列上的单通用 Worker |
-| [ADR-0004](./adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)     | `accepted` | 单 Worker 内双资源执行通道       |
-| [ADR-0005](./adr/0005-retire-destructive-full-rescan.md)                       | `accepted` | 退役破坏性全量重扫并拆分来源维护 |
-| [ADR-0006](./adr/0006-freeze-database-configured-archive-media-concurrency.md) | `accepted` | 数据库配置并冻结归档媒体并发     |
-| [ADR-0007](./adr/0007-stream-worker-job-events-over-a-persistent-cursor.md)    | `accepted` | 持久游标上的通用 Worker SSE      |
-
-## 部署、发布与历史记录
-
-| 文档                                                                    | 状态         | 权威范围与后续处理                                  |
-| ----------------------------------------------------------------------- | ------------ | --------------------------------------------------- |
-| [部署基线](./operations/deployment.md)                                  | `current`    | 当前标准部署和升级入口                              |
-| [备份与恢复](./operations/backup-and-recovery.md)                       | `current`    | 完整备份集合、验证演练与灾难恢复边界                |
-| [后台任务回滚手册](./deployment/background-task-cutover-rollback.md)    | `historical` | 已退役旧消费者兼容期的回滚手册                      |
-| [后台任务上线后续](./deployment/background-task-follow-up.md)           | `historical` | 2026-08 阶段 8 前的稳定观察与清理清单               |
-| [后台任务切换记录](./deployment/background-task-cutover-deployment.md)  | `historical` | 2026-08 阶段 1–7 切换记录                           |
-| [归档收件箱切换记录](./deployment/archive-intake-cutover-deployment.md) | `historical` | 双通道迁移、审计、检查点与发布证据登记              |
-| [旧版系统设计](./archive/system-design-legacy.md)                       | `historical` | 已退役的 `src/` 目录与单应用三层模型                |
-| [旧版部署指南](./archive/deployment-legacy.md)                          | `historical` | 已退役的 Vite、`packages/web` 和 API/Web 双镜像流程 |
-| [旧版调度架构](./archive/scheduler-architecture-legacy.md)              | `historical` | Central Dispatcher 切换前的进程内执行路径           |
-
-旧路径 `DEPLOYMENT.md`、`docs/SYSTEM_DESIGN.md` 和 `docs/SCHEDULER_ARCHITECTURE.md` 只保留短跳转页，用于兼容外部链接；它们不是独立事实源。
-
-## 包与工具文档
-
-| 文档                                                                      | 状态      | 说明                                           |
-| ------------------------------------------------------------------------- | --------- | ---------------------------------------------- |
-| [主应用包说明](../packages/pixishelf/readme.md)                           | `current` | 主应用边界和包级命令；项目启动以根 README 为准 |
-| [Webhook 扫描](../packages/pixishelf/docs/webhook-features.md)            | `current` | 扫描 Webhook 负载契约；权限边界以安全矩阵为准  |
-| [ProTable](../packages/pixishelf/components/shared/pro-table/readme.md)   | `current` | 共置组件使用说明                               |
-| [Pixiv 信息提取脚本](../packages/pixishelf/scripts/extract-pixiv-info.md) | `current` | 共置脚本输入、输出与用法                       |
-| [辅助脚本](../scripts/README.md)                                          | `draft`   | 使用前需核验脚本、参数和基准数据               |
-
-## 文档维护门禁
-
-以下变更必须在同一工作项中评估并更新相关文档：
-
-- 产品范围、核心用户流程或非目标发生变化；
-- 新增或改变跨 workspace/package 依赖；
-- 修改数据库语义、迁移、数据生命周期或删除恢复规则；
-- 修改认证、权限、外部 API 或内部令牌边界；
-- 修改 Compose、环境变量、挂载、备份或恢复流程；
-- 引入难以逆转的技术选择；
-- 事故修复产生新的诊断、恢复或预防规则。
-
-普通样式调整、局部重构和行为明确的小修复不要求创建设计文档。功能规格只在跨包、涉及迁移/回滚、包含异步并发，或验收标准无法在短 TODO 中说明时创建。
+- [文档维护规则](./development/documentation.md)：内容归属、模板、状态与图示检查。
+- [当前待办](../TODO.md)：未完成的实施或验证行动。
+- [构建资产](../build/README.md)、[CI 与镜像发布](../.github/README.md)、[辅助工具](../scripts/README.md)。
+- [数据库设计补充](../packages/pixishelf-db/prisma/database-design.md)：Schema 之外的数据库语义与约束。
+- [扫描 Webhook](../packages/pixishelf/docs/webhook-features.md)、[ProTable](../packages/pixishelf/components/shared/pro-table/readme.md)、[Pixiv 提取脚本](../packages/pixishelf/scripts/extract-pixiv-info.md)。
+- [本次重整与文档去向](./records/documentation-reorganization-2026-10-22.md)。

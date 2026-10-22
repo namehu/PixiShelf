@@ -1,6 +1,6 @@
 # WebP 生产构建手机复核
 
-这里保留生产路径验收工具，以及不依赖私人素材的节奏复现实验。播放器实现和验收结论见[生产接入记录](../../../docs/design/webp-mobile-production.md)。原生读回、固定抽帧、单 Worker 自适应、并行额度和内部插桩等历史实验已归档到本机 Git 忽略的 `.local-data/webp-investigation-2026-10-08/experiment-source/`，不作为构建或测试依赖。
+这里保留生产路径验收工具，以及不依赖私人素材的节奏复现实验。播放器实现和验收结论见[手机验证记录](../../../docs/records/architecture/webp-mobile-verification.md)。原生读回、固定抽帧、单 Worker 自适应、并行额度和内部插桩等历史实验已归档到本机 Git 忽略的 `.local-data/webp-investigation-2026-10-08/experiment-source/`，不作为构建或测试依赖。
 
 ## 保留内容
 
@@ -18,7 +18,7 @@ node --test packages/pixishelf-webp-player/tests/cadence-audit.test.mjs
 pnpm --filter @pixishelf/webp-player exec vitest run src/__tests__/player.test.ts
 ```
 
-前两项验证选择和呈现时间模型，后一项包含实际播放器在可控时钟、四额度假 Worker 下的相位复现。模型的帧均提前就绪，不能将结果解释为 Worker/WASM 性能或手机屏幕呈现。生产接入与手机放行条件见生产接入记录的“持续播放下一步设计”。
+前两项验证选择和呈现时间模型，后一项包含实际播放器在可控时钟、四额度假 Worker 下的相位复现。模型的帧均提前就绪，不能将结果解释为 Worker/WASM 性能或手机屏幕呈现。当前策略和手机验证入口见[播放器架构](../../../docs/architecture/webp-player.md)，历史数值门槛只适用于对应样本与版本。
 
 ## 使用
 

@@ -1,95 +1,60 @@
-# AutoSort_Year.ps1 - 智能文件归档工具
+---
+status: current
+scope: 仓库维护脚本的实际入口与副作用
+last-verified: 2026-10-22
+sources:
+  - scripts/update-production.sh
+  - scripts/auto-sort-year.js
+  - scripts/config.json
+  - scripts/check-docs.mjs
+  - package.json
+---
 
-一个强大且可配置的 PowerShell 脚本，旨在根据文件名中的日期模式（例如 `MM.dd`）将文件整理到结构化目录中。它具有增量更新、详细日志记录、模拟运行（Dry-Run）和可扩展性等功能。
+# 维护脚本
 
-## 功能特性
+| 脚本                   | 用途                     | 副作用与前提                                                   |
+| ---------------------- | ------------------------ | -------------------------------------------------------------- |
+| `update-production.sh` | 成对更新生产 App/Worker  | 拉取/停止/重建容器、迁移和恢复原调度；必须先完成专用门禁与备份 |
+| `auto-sort-year.js`    | 按文件名日期分目录       | 正式模式移动文件，dry-run 仍写日志；不更新 PixiShelf 数据库    |
+| `check-docs.mjs`       | 文档路径、锚点与围栏检查 | 只读检查，不更新图示产物                                       |
 
-- **自动分类**：扫描匹配特定正则表达式模式（默认：`11.01_...` -> `11.01/`）的文件，并将其移动到相应的日期文件夹中。
-- **增量更新**：使用 SHA-256 哈希缓存来识别并跳过已处理的文件，显著加快后续运行速度。
-- **强大的日志记录**：输出到控制台（彩色显示）和滚动日志文件（UTF-8）。记录时间戳、文件大小、哈希值和操作详情。
-- **配置化**：通过外部 `config.json` 管理正则表达式规则、路径和日志偏好，无需修改代码。
-- **模拟运行模式**：在进行实际更改之前安全地模拟操作。
-- **管道与进度条**：可视化的进度条和管道友好的设计。
+## 文档维护
 
-## 使用方法
+在仓库根执行：
 
-### 基本用法
+```bash
+pnpm docs:check
+pnpm docs:diagrams
+pnpm docs:diagrams:check
+```
 
-在需要整理的目录中运行脚本：
+分别检查文档路径/锚点/围栏、由 `.mmd` 生成 SVG、校验渲染与图源哈希。图示命令委托 `packages/pixishelf-webp-player/scripts/render-diagrams.mjs`。修改图源后生成对应 SVG，不手改生成图；依赖与命令定义以根 package 和脚本为准。
+
+## 生产更新
+
+```bash
+sudo bash ./scripts/update-production.sh \
+  --compose-file build/docker-compose.deploy.yml --env-file build/.env
+```
+
+脚本默认拉取镜像，`--no-pull` 使用已有镜像；`--force` 只允许中断执行中任务，不绕过审计或备份。`PIXISHELF_PRE_UPDATE_HOOK` 指定停写后、启动 App 前的可执行检查点脚本；未配置时不会自动备份。精确参数使用 `bash scripts/update-production.sh --help`，操作依据见[部署基线](../docs/operations/deployment.md)。不要把首次删列/双 lane 切换直接当日常升级。
+
+## 文件日期整理
+
+仓库实际提供 Node.js 脚本，不存在 `AutoSort_Year.ps1` 或对应 Pester 测试。先对明确目录模拟：
 
 ```powershell
-.\AutoSort_Year.ps1
+node scripts/auto-sort-year.js --source "D:\Photos" --dest "D:\Archive" --dry-run
 ```
 
-### 高级用法
+| 参数                 | 默认/语义                                 |
+| -------------------- | ----------------------------------------- |
+| `--source` / `-s`    | 当前目录，只扫描直接子文件，不递归        |
+| `--dest` / `-d`      | 源目录；移动到 `<dest>/<date>/<原文件名>` |
+| `--config` / `-c`    | 脚本旁 `config.json`                      |
+| `--dry-run`          | 仅报告移动；日志仍写入                    |
+| `--log-level` / `-l` | Info；支持 Debug/Warning/Error            |
 
-指定源目录、目标目录并启用模拟运行：
+只使用 `Rules[0].Regex` 的命名组 `date`，当前配置在文件名任意位置匹配 `MM.dd`；`DateFormat`、后续规则和 Cache 字段未被实现读取。没有哈希缓存或增量验证。目标同名文件跳过，移动使用 `renameSync`，跨卷可能失败；文件名匹配内容不会经过日期有效性验证。
 
-```powershell
-.\AutoSort_Year.ps1 -SourcePath "D:\Downloads\Images" -DestPath "D:\Archive\2025" -DryRun
-```
-
-**参数说明：**
-
-- `-SourcePath`：要扫描的目录（默认：当前目录）。
-- `-DestPath`：整理后文件夹的根目录（默认：当前目录）。
-- `-ConfigFile`：`config.json` 的路径（默认：脚本所在目录）。
-- `-DryRun`：打印将要发生的操作，而不移动文件。
-- `-LogLevel`：日志详细级别（`Info`, `Debug`, `Warning`, `Error`）。
-
-### 配置说明 (config.json)
-
-在 `config.json` 中自定义文件匹配规则：
-
-```json
-{
-    "Rules": [
-        {
-            "Name": "MonthDatePattern",
-            "Regex": "^(?<date>\\d{1,2}\\.\\d{1,2})",
-            "DateFormat": "MM.dd"
-        }
-    ],
-    "Logging": {
-        "LogFile": "AutoSort.log",
-        "LogLevel": "Info"
-    },
-    "Cache": {
-        "Enabled": true,
-        "CacheFile": "file_cache.json"
-    }
-}
-```
-*注意：正则表达式必须包含命名组 `(?<date>...)` 以提取文件夹名称。*
-
-## 性能基准测试
-
-在 Intel i7, SSD 环境下测试 10,000 个文件（平均 2MB）。
-
-| 场景 | 耗时 | 吞吐量 |
-| :--- | :--- | :--- |
-| **首次运行 (无缓存)** | 45 秒 | ~220 文件/秒 |
-| **二次运行 (有缓存)** | 2.5 秒 | ~4000 文件/秒 |
-| **模拟运行 (Dry Run)** | 3.0 秒 | ~3300 文件/秒 |
-
-*增量更新会在逻辑允许的情况下跳过已知路径的哈希计算，但目前仍会验证文件是否存在。缓存查找时间复杂度为 O(1)。*
-
-## 测试
-
-本项目包含 Pester 测试套件，覆盖以下场景：
-1. 正常分类归档
-2. 重名冲突处理
-3. 无效路径处理
-4. 日志完整性验证
-5. 模拟运行安全保护
-
-运行测试：
-
-```powershell
-Invoke-Pester .\tests\AutoSort_Year.Tests.ps1
-```
-
-## 系统要求
-
-- PowerShell 5.1 或 Core 7+
-- Windows/Linux/macOS
+日志位置由 `Logging.LogFile` 相对配置目录确定，默认 `AutoSort.log`，当前滚动上限固定 10 MB；配置中的 MaxLogSizeMB 不控制实现。不要将此工具直接作用于已入库收藏根，它不维护数据库路径；批量移动前核对目标、备份与[恢复基线](../docs/operations/backup-and-recovery.md)。

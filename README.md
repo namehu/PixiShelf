@@ -2,7 +2,7 @@
 
 PixiShelf 是一个本地优先、自托管的个人媒体收藏系统。它把本地目录、来源元数据和归档任务组织成稳定的作品目录，并提供扫描、整理、检索、浏览和后台媒体处理能力。
 
-当前项目面向单用户、单实例部署。Pixiv 是重要来源之一，但本地 Artwork 身份不由任何外部站点定义；相关领域术语见 [CONTEXT.md](./CONTEXT.md)。
+当前项目面向个人、单实例部署；可存在多个账户，但所有已登录账户均属于同一管理员信任域。Pixiv 是重要来源之一，本地 Artwork 身份不由任何外部站点定义。开发前从[文档入口](./docs/README.md)选择阅读路径，术语见 [CONTEXT.md](./CONTEXT.md)。
 
 ## 核心能力
 
@@ -132,10 +132,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-Worker 必须通过 READY 和 capability 检查。后台任务页面应只显示一个当前 READY 实例。
-当前 capability inventory 为 35 个 job type；`SCAN` 支持 v1/v2/v3，`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3/v4，其余 32 类只支持 v1，
-共 41 个 type/version 组合。READY 必须覆盖
-`ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 lane。
+Worker 必须通过 READY 和 capability 检查，后台任务页面应只显示一个当前 READY 实例。READY 须覆盖解析与 writer 两个 lane；精确 type/version/lane 集合由上述审计命令与[生产能力清单](./packages/pixishelf-worker/src/production-capabilities.ts)核对，不在启动指南重复维护数量。
 
 ### 6. 启动 Next.js
 
@@ -151,6 +148,8 @@ pnpm dev
 - 主应用：`http://127.0.0.1:5430`；
 - 管理后台：`http://127.0.0.1:5430/admin`；
 - ImgProxy：`http://127.0.0.1:5431`。
+
+开发浏览可使用 `http://127.0.0.1:5430/artworks?entry=direct` 跳过内容提示；它不跳过登录验证。
 
 ### 7. 可选 scheduler
 
@@ -182,6 +181,9 @@ pnpm check:full        # 主应用 lint + typecheck + unit test + build
 pnpm worker:typecheck  # Worker 及其 workspace 依赖类型检查
 pnpm worker:test       # Worker 及其 workspace 依赖测试
 pnpm worker:build      # 构建 Worker 依赖链
+pnpm docs:check        # 文档链接、锚点、路径大小写与代码围栏
+pnpm docs:diagrams     # 从 Mermaid 源重建 SVG
+pnpm docs:diagrams:check # 图源语法和 SVG 同步检查
 pnpm format            # 格式化仓库
 ```
 
@@ -202,21 +204,9 @@ CI 当前验证 Prisma Schema 与完整 migration 链、Worker 依赖链的类�
 
 ## 生产部署
 
-生产只有一个通用 Worker 服务。它允许一项归档 URL 解析与一项 writer 工作同时推进，但所有媒体写仍在 writer lane 全局串行。执行 lane migration 前必须停止写入者、运行专用 audit 并建立数据库与媒体一致性检查点；迁移后不能启动旧消费者。
+生产升级以[部署基线](./docs/operations/deployment.md)为唯一操作入口；先判断是否需要专项迁移，再进行镜像升级。Worker 启动即消费任务，存在破坏性 migration 时不能把换旧镜像当作通用回滚。
 
-镜像升级按[部署基线的手动流程](./docs/operations/deployment.md#标准生产升级手动流程)执行。
-
-`scripts/update-production.sh` 是 App 与通用 Worker 的生产镜像升级脚本，已恢复到提交 `7db6ba993cc268763b6cf090593f28203d65b72f` 的版本。日常使用与恢复依据见[生产升级门禁](./docs/operations/deployment.md#生产升级门禁)；涉及首次迁移或专用发布门禁时，仍须先执行对应流程。
-
-升级、消费者启停、验证和回滚入口见：
-
-- [部署基线](./docs/operations/deployment.md)；
-- [备份与恢复基线](./docs/operations/backup-and-recovery.md)；
-- [Build 与部署资产](./build/README.md)；
-- [归档收件箱](./docs/features/archive-intake.md)；
-- [归档收件箱切换记录](./docs/deployment/archive-intake-cutover-deployment.md)；
-- [阶段 1–7 切换记录](./docs/deployment/background-task-cutover-deployment.md)；
-- [历史兼容回滚手册](./docs/deployment/background-task-cutover-rollback.md)。
+完整检查点与恢复见[备份与恢复](./docs/operations/backup-and-recovery.md)，镜像与挂载资产见 [Build 说明](./build/README.md)，已有发布证据见[记录索引](./docs/records/README.md)。`scripts/update-production.sh` 的适用边界见[工具说明](./scripts/README.md)。
 
 替换或上传中断后如出现 `REPLACE_WRITE_LOCK_BUSY`，应按[备份与恢复基线](./docs/operations/backup-and-recovery.md)先停掉所有 App 副本并核对媒体与替换 manifest，再处理对应目录的锁；不要按锁的时间戳自动清除。
 
@@ -229,25 +219,20 @@ packages/
 ├── pixishelf-job-contracts/   后台任务契约
 ├── pixishelf-job-runtime/     队列与 Worker 运行时
 ├── pixishelf-job-executors/   后台任务实现
-└── pixishelf-worker/          通用 Worker 进程
+├── pixishelf-worker/          通用 Worker 进程
+└── pixishelf-webp-player/     浏览器 WebP Worker/WASM 播放器
 
 build/                         Dockerfile、Compose 和环境模板
 docs/                          架构、设计、ADR、运维和历史记录
 scripts/                       仓库辅助脚本
-todos/                         尚待收敛的旧 TODO 与技术债材料
+todos/                         已收敛到根 TODO 的兼容入口
 ```
 
 ## 文档与贡献
 
-- [文档索引](./docs/README.md)：所有文档的状态、权威范围和迁移登记；
-- [产品基线](./docs/product/product-baseline.md)：目标用户、核心流程、质量优先级和非目标；
-- [当前架构](./docs/architecture/current-architecture.md)：组件、依赖、数据流和不变量；
-- [领域语境](./CONTEXT.md)：统一业务术语；
-- [权限与接口边界](./docs/security/access-control.md)：调用者、页面、API、服务与存储权限；
-- [测试策略](./docs/development/testing-strategy.md)：按变更类型选择验证范围并理解 CI 缺口；
-- [备份与恢复](./docs/operations/backup-and-recovery.md)：备份集合、恢复目标和演练门禁；
-- [归档收件箱](./docs/features/archive-intake.md)：持续添加、双 lane、批量控制、维护和保留边界；
-- [代理规则](./agents.md)：文件命名、测试组织、验证和文档门禁；
+- [文档入口](./docs/README.md)：按理解系统、修改功能、验证与部署选择权威文档；
+- [文档维护](./docs/development/documentation.md)：正文职责、状态、图示与记录的维护规则；
+- [代理规则](./AGENTS.md)：文件命名、测试组织、验证和文档门禁；
 - [当前待办](./TODO.md)：下一步可执行工作。
 
 修改产品边界、跨 package 依赖、数据库语义、认证/API、部署拓扑或不可逆技术选择时，必须同步相关文档。普通局部修复不要求创建长设计文档。

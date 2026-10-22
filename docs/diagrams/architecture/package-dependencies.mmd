@@ -1,0 +1,13 @@
+flowchart TD
+  Web["@pixishelf/next"] --> DB["@pixishelf/db"]
+  Web --> Contracts["@pixishelf/job-contracts"]
+  Web --> Executors["@pixishelf/job-executors"]
+  Web --> Player["@pixishelf/webp-player / 浏览器包"]
+  Worker["@pixishelf/worker / 独立服务端进程"] --> DB
+  Worker --> Contracts
+  Worker --> Runtime["@pixishelf/job-runtime"]
+  Worker --> Executors
+  Executors --> DB
+  Executors --> Contracts
+  Executors --> Runtime
+  Runtime --> Contracts

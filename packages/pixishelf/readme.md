@@ -1,3 +1,13 @@
+---
+status: current
+scope: Next.js 主应用包职责、目录与包级命令
+last-verified: 2026-10-22
+sources:
+  - packages/pixishelf/package.json
+  - packages/pixishelf/proxy.ts
+  - packages/pixishelf/server/trpc.ts
+---
+
 # @pixishelf/next
 
 PixiShelf 的 Next.js 16 主应用，负责 Web 页面、Better Auth、HTTP/tRPC API、管理界面以及后台任务控制面。
@@ -59,7 +69,7 @@ pnpm db:studio
 ## 认证与任务边界
 
 - 浏览器登录使用 Better Auth 数据库会话；
-- 当前单用户部署中，已登录用户即实例管理员；
+- 所有有效会话账户具有相同的实例管理员能力，没有角色隔离；
 - Webhook 与 scheduler 分别使用独立 Bearer Token；
 - App 固定创建和控制中央任务，Worker 启动即消费；维护时停止 Worker，两枚切换开关已退役；
 - `/admin/archive/inbox` 持久接收 URL，远端解析由 Worker 的 `ARCHIVE_RESOLVE` lane 串行执行；

@@ -1,0 +1,22 @@
+flowchart TD
+  PREVIEW[App 预览返回新增 storagePath] --> MAP[管理员保存艺术家目录映射]
+  MAP --> START[浏览器提交本次选中的 storagePaths]
+  START --> VALIDATE[App 规范化路径并按精确 storagePath 再次查库去重]
+  VALIDATE --> SNAP[冻结作品路径、艺术家映射、默认标签 ID 和 digest]
+  SNAP --> TX[同一事务创建 LOCAL_DIRECTORY_IMPORT 和 ScanRun 输入行]
+  TX --> RETURN[立即返回 jobId 和 scanRunId]
+  TX --> CLAIM[Worker writer lane 领取]
+  CLAIM --> VERIFY[验证冻结作品/mapping count 和 digest\n并确认普通导入 fingerprint 必须为 null]
+  VERIFY --> PAGE[分页读取冻结作品目录]
+  PAGE --> ONE[只读取当前选中作品目录的直属媒体\n读取尺寸、视频和章节附属信息]
+  ONE --> EXISTS{storagePath 已存在?}
+  EXISTS -->|是| SKIP[记录 SKIPPED]
+  EXISTS -->|否| PUBLISH[短事务创建 Artwork 和有序 Image]
+  PUBLISH --> TAG1[按媒体类型添加 DERIVED 系统标签]
+  TAG1 --> TAG2[添加本次冻结的 MANUAL 默认标签]
+  TAG2 --> ITEM[记录 ScanRunItem SUCCESS]
+  SKIP --> ITEM2[记录 ScanRunItem SKIPPED]
+  ITEM --> NEXT{还有冻结目录?}
+  ITEM2 --> NEXT
+  NEXT -->|是| PAGE
+  NEXT -->|否| FINAL[汇总成功、跳过、失败、新增媒体和耗时]

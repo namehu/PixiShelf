@@ -1,0 +1,40 @@
+flowchart TB
+  subgraph User[管理员]
+    direction TB
+    U1[选择普通同步或刷新已有资料]
+    U2[期间人工编辑或整理]
+    U3[查看成功 部分成功及报告]
+  end
+  subgraph App[App]
+    direction TB
+    A1[验证唯一 Pixiv 引用<br/>检查 Worker capability 并入队]
+    A2[受保护报告查询]
+  end
+  subgraph Worker[Worker 媒体写通道]
+    direction TB
+    W1[记录已观察身份与人工字段]
+    W2[请求并校验 Pixiv 元数据]
+    W3[准备不可变 metadata 快照]
+  end
+  subgraph DB[PostgreSQL 发布事务]
+    direction TB
+    D1[重验身份与租约]
+    D2[来源字段与该引用 SOURCE 标签]
+    D3[系列领域核对<br/>保留人工成员 排除与覆盖]
+    D4[并发人工文本优先<br/>普通同步保留 override]
+    D5[报告写入成功后提交状态]
+    D6[身份冲突或失败：不发布领域变化]
+  end
+  subgraph Files[文件系统]
+    direction TB
+    F1[metadata 哈希快照]
+    F2[当前任务同步报告]
+  end
+  U1 --> A1 --> W1 --> W2 --> W3 --> F1 --> D1
+  U2 --> D4
+  D1 -->|有效| D2 --> D3 --> D4 --> F2 --> D5
+  D1 -->|失效| D6
+  F2 -->|写入失败 回滚| D6
+  D5 --> A2 --> U3
+  F1 -.报告按需引用.-> A2
+

@@ -44,6 +44,7 @@ rg --files packages/pixishelf | rg '[A-Z]'
 ## 文档与风险
 
 - 先查看 `docs/README.md`，确认文档的权威性和状态。
+- 文档整理与新增遵循 `docs/development/documentation.md`：当前规则只维护一处，验收和发布证据放入 `docs/records/`；不要向基线持续追加迭代日志。图源变更后运行 `pnpm docs:diagrams`，文档交付运行 `pnpm docs:check` 和 `pnpm docs:diagrams:check`。
 - 修改用户、工作流、不变量或产品边界前，先阅读 `docs/product/product-baseline.md`。
 - 修改认证、路由、可信请求头、令牌、端口、网络或媒体权限前，先阅读 `docs/security/access-control.md`。
 - 产品边界、跨包契约、数据库含义或迁移、认证/API 契约、部署、环境变量、备份恢复或难以撤销的决策发生变化时，须同步更新文档。

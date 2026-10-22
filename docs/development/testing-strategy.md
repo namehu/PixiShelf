@@ -1,246 +1,120 @@
 ---
 status: current
-scope: PixiShelf 的测试分层、变更验证矩阵、CI 实际覆盖和已知质量缺口
-last-verified: 2026-09-30
+scope: 测试层级、变更验证矩阵、标准命令和 CI 缺口
+last-verified: 2026-10-22
 sources:
-  - package.json
-  - packages/*/package.json
+  - packages/pixishelf/package.json
   - packages/pixishelf/vitest.config.ts
-  - packages/*/vitest.config.ts
+  - packages/pixishelf-webp-player/package.json
   - .github/workflows/ci.yml
+  - .github/workflows/webp-native.yml
 ---
 
-# PixiShelf 测试策略
+# 测试策略
 
-本文回答“某类改动必须运行什么、现有测试证明了什么、CI 没有证明什么”。测试文件和精确脚本以代码及 `package.json` 为准。
+按变更风险验证不变量，先运行最小相关测试；大范围调整完成或最终交付前再运行相应全量任务。测试数量不是质量保证，跳过、未配置环境和手动重跑必须分别记录。具体脚本和测试位置以包内 `package.json` 与测试文件为准。
 
-## 目标
+## 层级与能证明的范围
 
-测试体系优先保护：
+| 层级               | 工具/位置                                            | 证明什么；不证明什么                                                   |
+| ------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| 静态               | lint、`next typegen && tsc --noEmit`、各包 typecheck | 类型和规范；Vitest 与 Next build 不能替代测试文件类型检查              |
+| 单元/组件          | 邻近 `__tests__`、已有包级 `tests`；Vitest/jsdom     | 规则、组件状态、输入与错误边界；不证明真实浏览器或生产服务             |
+| Workspace 边界     | db/job/worker 测试                                   | 依赖方向、构建边界、版本契约                                           |
+| PostgreSQL/fixture | 显式隔离数据库、临时媒体目录                         | migration、约束、事务、lease、并发、文件发布与恢复；不等于生产副本演练 |
+| 主应用 integration | `tests/integration`、扫描 fixture                    | 跨服务链路、真实框架错误传输；需按测试配置服务/端口                    |
+| `.e2e.test.tsx`    | 当前仍为 Vitest/jsdom                                | 较长组件流程，不是浏览器 E2E                                           |
+| WebP browser       | Playwright、真实 Worker/WASM/分块 HTTP               | 播放与解码；CI Chromium、本地 Windows Edge，不覆盖业务登录/反向代理    |
+| build/部署冒烟     | Next、Worker、镜像、Compose、READY/capability        | 产物与运行门禁；不替代领域数据/媒体验证                                |
 
-1. 数据库 migration 可以从空 PostgreSQL 按完整历史部署；
-2. 作品、来源、媒体顺序和用户整理语义不被破坏；
-3. 中央队列、双 lane 租约、重试、取消和终态转换保持正确；
-4. 扫描、归档、替换和迁移不会静默损坏文件；
-5. 核心浏览与管理交互在重构后仍可使用；
-6. 构建产物和 Docker 运行边界与源码依赖一致。
-
-测试不是覆盖率数字竞赛。高风险路径需要针对不变量、失败注入、迁移和恢复编写断言；简单展示代码可以使用较轻的组件测试。
-
-## 当前测试层级
-
-| 层级               | 主要位置                                                    | 运行环境                    | 负责证明                                    |
-| ------------------ | ----------------------------------------------------------- | --------------------------- | ------------------------------------------- |
-| 静态检查           | 各 package 的 lint/typecheck                                | Node.js                     | 语法、类型和部分代码规范                    |
-| 单元测试           | `__tests__/` 与现有 `*.test.*`                              | Vitest；主应用默认 jsdom    | 纯函数、服务规则、组件状态、输入校验        |
-| Workspace 边界测试 | job/db/worker package                                       | Vitest                      | 禁止反向依赖、构建边界和契约兼容            |
-| PostgreSQL 测试    | DB、job-runtime、job-executors、主应用 background-task      | Vitest + `DATABASE_URL`     | migration、队列原子性、租约、并发与真实约束 |
-| 主应用集成测试     | `packages/pixishelf/tests/integration` 和 scan fixture 测试 | Vitest + PostgreSQL/fixture | 跨服务扫描、计数和持久化行为                |
-| UI/组件测试        | `app/`、`components/`、`tests/components`                   | Testing Library + jsdom     | 页面状态、交互语义和回归                    |
-| E2E 命名测试       | `tests/e2e/*.e2e.test.tsx`                                  | 当前仍是 Vitest/jsdom       | 较长的组件流程，不等同于真实浏览器 E2E      |
-| 构建验证           | Next.js、Worker、Extension build                            | 编译器/打包器               | 生产依赖、模块边界和产物可构建              |
-| 部署验证           | Compose config、Worker health/capability、migration status  | Docker/PostgreSQL           | 实际运行拓扑与启动门禁                      |
-
-`packages/pixishelf-webp-player` 现有 Playwright 测试使用真实 Worker、WASM 和分块 HTTP，CI 用 Chromium、本地 Windows 用 Edge。它不覆盖业务登录与反向代理。主应用 `.e2e.test.tsx` 仍是 jsdom，不能解释为已覆盖真实浏览器媒体链路。
-
-WebP 的绘制延迟回归须在已显示首帧且进入 `playing` 后注入延迟，不能按全局第几个 RAF 判断播放已经开始。2026-10-17 的 CI #270 中，较慢的 Worker 初始化提前消耗了旧测试的延迟注入，导致 `decodeOmittedFrames > 0` 失败；本地延迟 Worker 模块加载 600ms 可复现。当前用例同时覆盖正常与延迟初始化，保留播放耗时、解码省略及末帧断言，并核对注入帧、独立管线、媒体时长和单次结束。该修复只改变测试，不改变生产播放器。
-
-发布验收须核对同一提交的 CI 最终结论；主应用测试通过、失败用例单独复跑通过或镜像构建已启动，都不能替代 `web`、`worker`、`webp` 及汇总检查的成功结果。
-
-本次修复在 Windows／Edge 完成类型检查、49 项单测、6 项预编译产物测试及 70 项完整浏览器测试；正常／延迟初始化两种绘制延迟场景各重复 5 次通过。Linux／Chromium 结果以修复提交对应的 CI 为准。
+新单元/组件测试放邻近 `__tests__`，已有顶层 `tests` 约定的包沿用；不新增与实现同级测试。数据库测试清楚标注 `.postgres.test.ts` 等后缀。
 
 ## 标准命令
 
-开发与 computer use 可用 `/artworks?entry=direct` 预先强制原始模式进入，或 `?entry=privacy` 验证遮蔽。该选择同步同源标签，不绕过登录；无需手写隐私存储。URL 入口须回归登录跳转保留参数、消费后清理参数、同路径查询导航，以及已有 30 天期限不续期，详见[浏览器隐私偏好](../features/browser-privacy.md)。
-
-### 主应用
-
-```bash
-pnpm --filter @pixishelf/next lint
-pnpm --filter @pixishelf/next typecheck
-pnpm --filter @pixishelf/next test:unit
-pnpm --filter @pixishelf/next test:integration
-pnpm --filter @pixishelf/next build
-```
-
-`test:unit` 明确排除：
-
-- `tests/integration/**`；
-- `**/*.e2e.test.*`；
-- scan fixture 集成测试。
-
-运行单个主应用测试时，优先直接调用 Vitest，避免误跑全部测试：
+主应用聚焦迭代：
 
 ```bash
 pnpm --filter @pixishelf/next exec vitest run <test-path>
+pnpm --filter @pixishelf/next typecheck
 ```
 
-新增或修改测试后仍须单独运行主应用 `typecheck`。Vitest 默认不执行 TypeScript 类型检查，当前 Next.js
-生产构建也会过滤 `__tests__`、`__mocks__` 和 `.test`/`.spec` 文件的类型诊断；测试运行与构建均通过，不能
-替代 CI 使用的 `next typegen && tsc --noEmit`，尤其不能证明测试代码满足 `noUncheckedIndexedAccess`。
-
-### 隔离生产框架权限回归
+主应用大范围调整或最终代码交付，在 `packages/pixishelf` 中运行 `pnpm lint`、`pnpm test`、`pnpm build`，同时完成变更所需 typecheck/integration。主应用 build 在受限环境应提升权限，避免 Next.js/Turbopack 挂起。`test` 当前等同 `test:unit`，排除 integration、`.e2e.test.*` 和扫描 fixture；不能把它当成全部验证。
 
 ```bash
+pnpm --filter @pixishelf/next test:integration
 pnpm --filter @pixishelf/next exec vitest run tests/integration/security-next.test.ts
 ```
 
-该测试构建并启动临时 Next.js 生产实例，复用实际安全边界源码，仅替换认证提供方与业务 I/O。使用白名单环境和合成凭据，不读取应用 `.env`、数据库或真实媒体。需要本机端口监听与子进程权限，受限沙箱应提升权限运行。它属于 integration 层，不包含在默认 `test:unit` 中；修改代理、HTTP 会话门禁、tRPC 错误格式或 logger 时须单独执行。范围与限制见[权限回归](../security/access-control.md#错误传输与生产-nextjs-回归)。
+安全生产框架测试需本地端口和子进程权限，使用合成会话/业务 I/O，不继承应用环境文件。修改 proxy、HTTP 会话门禁、tRPC INTERNAL_SERVER_ERROR 或 logger 时单独执行；范围限制见[安全回归](../security/access-control.md#错误传输与生产-nextjs-回归)。
 
-### 数据库与 Worker 依赖链
+数据库/Worker 依赖链：
 
 ```bash
 pnpm --filter @pixishelf/db db:validate
 pnpm --filter @pixishelf/db db:generate
-pnpm --filter @pixishelf/db test
 pnpm --filter @pixishelf/worker... typecheck
 pnpm --filter @pixishelf/worker... test
 pnpm --filter @pixishelf/worker... build
 ```
 
-`@pixishelf/worker...` 包含 Worker 及其 workspace 依赖，覆盖 DB、job-contracts、job-runtime 和 job-executors 的相应脚本。
-Pixiv 代理传输集成测试使用本机 HTTP/HTTPS CONNECT 服务、临时 TLS 证书和图片目录；需要 `openssl` 与回环端口监听权限，不访问真实原站或数据库，不关闭 TLS 校验。它验证资料及图片经过代理、压缩响应、取消和代理故障不回退直连。
-CI 的 Web job 在没有 job 包 `dist` 的独立 runner 上完成 lint、typecheck、unit test 和 production build，证明主应用只消费
-workspace 源码；并行的 Worker job 独立构建 job-contracts、job-runtime、job-executors 的 `dist`，再打包 Worker，验证
-独立编译输出、类型声明和依赖顺序没有漂移。
+`worker...` 包含 DB、contracts、runtime、executors 的相应脚本。PostgreSQL 测试必须显式连接隔离库；migration 从空库用完整 `db:deploy` 验证，不使用 `db:push`。Pixiv 代理 fixture 需要 openssl、临时证书及回环监听，但不访问真实原站、不关闭 TLS 校验。
 
-### Compose 与 Worker 运行门禁
+纯文档与图示：
+
+```bash
+pnpm docs:check
+pnpm docs:diagrams:check
+rg --files packages/pixishelf | rg '[A-Z]'
+git diff --check
+```
+
+图源修改后运行 `pnpm docs:diagrams` 生成 SVG，再执行 check；不要只改生成图。文档重构无需全量 App build，但文档路径若被测试/脚本读取，须更新并运行对应聚焦回归。
+
+Compose 配置验证使用模板，不输出真实环境内容：
 
 ```bash
 docker compose --env-file build/.env.example -f build/docker-compose.dev.yml config --services
 docker compose --env-file build/.env.example -f build/docker-compose.deploy.yml config --services
-docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/healthcheck.cjs --mode=ready
-docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-健康检查证明进程和两个 lane 的预检状态，capability audit 精确证明 35 个 job type、41 个 type/version 组合
-（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3/v4、其余 v1）的 type/version/lane 已注册；二者都不能代替领域功能测试。
+实际部署运行 READY 与 `node dist/capability-audit.cjs`，比对目标 `production-capabilities.ts` 全量 inventory；健康、能力与领域验收是三个不同门禁。命令见[部署基线](../operations/deployment.md)。
 
 ## 变更验证矩阵
 
-| 变更类型                  | 最小验证                                                                           | 需要追加的验证                                                                                               |
-| ------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| 纯文档                    | 链接、代码围栏、Prettier、`git diff --check`                                       | 命令和路径涉及部署时解析 Compose/脚本                                                                        |
-| 局部 UI/组件              | 主应用 lint、typecheck、聚焦组件测试                                               | 涉及共享 shell、播放器或导航时运行相关组件组和视口人工检查                                                   |
-| Service、tRPC、HTTP Route | lint、typecheck、聚焦服务/route 测试                                               | 修改鉴权、幂等或事务时加入失败路径和 PostgreSQL 测试                                                         |
-| 认证与接口边界            | lint、typecheck、无凭证/错误凭证/有效凭证聚焦测试                                  | 公共路径、Token、信任头、越界资源、限流和未授权零写入测试                                                    |
-| Prisma Schema/migration   | db validate/generate、DB 测试、从空库 `db:deploy`、migration status                | 生产数据副本演练、回滚/前向修复方案和 Worker 依赖链测试                                                      |
-| Job contract/payload      | Worker 依赖链 typecheck/test/build                                                 | 版本兼容、旧 payload fixture、无效 payload 和重试测试                                                        |
-| Queue/runtime/lease       | Worker 依赖链测试                                                                  | PostgreSQL 同 lane 竞争、resolver+writer 并行、重启、过期租约、终态竞争和取消测试                            |
-| Executor/文件操作         | 聚焦 Executor 测试、Worker 依赖链                                                  | 临时目录 fixture、失败注入、hash/checkpoint、恢复和不越界路径测试                                            |
-| 扫描/导入/迁移            | 主应用或 Executor 单测                                                             | `test:integration`、真实 fixture、审计记录和重复执行测试                                                     |
-| Pixiv metadata inventory  | 指纹分类、DTO/UI nullable 单测                                                     | PostgreSQL + 临时目录：基线中断、跨 Run 重试、root/source CAS、10k unchanged 零 hash                         |
-| Pixiv 来源一致性核对      | v1/v2 payload 隔离、分类/checkpoint、producer/DTO/UI/鉴权回归                      | PostgreSQL + 临时目录：共享 SCAN 锁、空根/截断/取消/root 变化不生成 MISSING、重放幂等、只读领域边界          |
-| Pixiv 核对选定同步        | v2/v3 隔离、证据 canonicalization、选择/UI/DTO/鉴权/幂等回归                       | PostgreSQL + 临时目录：stale/身份 CAS 零写入、部分成功、崩溃重放、取消终态、publisher 拥有权和成组保留       |
-| Pixiv 标签补全            | payload、只填空字段、全量分页、状态、远端响应和封面安全校验                        | PostgreSQL + 临时目录：5000+ 子任务、claim/整批取消竞态、限流重试、重启恢复、鉴权图片路由                    |
-| Pixiv 艺术家补全          | 身份迁移、payload、全量分页、默认只填空与显式刷新图片、来源姓名和远端响应安全校验  | PostgreSQL + 临时目录：5000+ 子任务、claim/整批取消竞态、取消/重试、并发人工修改、身份变化与作者图片鉴权读取 |
-| Pixiv 作品在线同步        | migration、payload、全量分页、远端响应、磁盘快照、来源字段、文本保护和精确标签同步 | PostgreSQL + 临时目录：5000+ 子任务、claim/整批取消竞态、身份/人工编辑 CAS、文件成功而数据库失败后的恢复     |
-| 媒体播放/派生媒体         | 组件/服务测试                                                                      | 图片、视频、封面缺失、动画、FFmpeg 失败和实际浏览器抽样                                                      |
-| Compose/Dockerfile/env    | Compose config、相关 package build                                                 | 镜像构建、非 root 权限、挂载、migration、READY/capability 冒烟                                               |
+| 变更                  | 最小检查                                   | 追加场景                                                                  |
+| --------------------- | ------------------------------------------ | ------------------------------------------------------------------------- |
+| 文档/图               | 链接/锚点/大小写/围栏、图渲染与 diff       | 被引用路径的聚焦测试；部署命令涉及的配置解析                              |
+| 局部 UI               | lint/typecheck、相关组件                   | 共享 shell/导航/播放器的组件组、真实视口抽样                              |
+| 服务/tRPC/HTTP/Action | 聚焦业务/输入/错误测试                     | 鉴权零写入、幂等、账户/资源归属、事务失败                                 |
+| 认证/可信边界         | 无/错/有效凭证、缺配置、跨资源             | 公共前缀、信任头、限流、脱敏、生产框架与真实 HTTPS 登录                   |
+| Schema/migration      | validate/generate、空库全链、状态、DB 测试 | 非空旧 schema fixture、生产副本审计、失败无副作用、恢复/前向修复          |
+| Job contract/payload  | Worker 链 typecheck/test/build             | 旧 payload、版本/lane 隔离、无效输入、重试；inventory 一致                |
+| 队列/lease/runtime    | Worker 链与 PostgreSQL                     | 同 lane 竞争、解析/写入并行、fence 丢失零写入、过期/重启/终态/取消竞争    |
+| Executor/文件发布     | 临时目录 fixture、聚焦 Executor            | 根路径/符号链接、hash/checkpoint、数据库成功文件失败及反向故障、恢复      |
+| 扫描/导入/来源同步    | 单测 + integration + PostgreSQL/临时媒体   | 身份 CAS、人工所有权、游标/根变化、重复执行、全量分页、部分成功/取消/重放 |
+| 阅读/偏好/筛选        | 账户与版本隔离、服务与 UI                  | 切账户、过期请求、媒体变化、并发更新、真实浏览器状态恢复                  |
+| 媒体/派生/播放器      | 组件/服务、WebP browser（适用时）          | 首帧/回退/结束/释放、图片/视频/缺封面、FFmpeg 失败、真机与慢存储          |
+| Docker/Compose/env    | 配置解析、相关包 build                     | 镜像、非 root、挂载、migration、READY/capability 和实际代理               |
 
-“最小验证”是进入评审前的底线。跨多个类型的变更需要合并各行要求，而不是只选择最轻的一行。
+跨类型变更合并要求，不能只选最轻的一行。各领域的验收条件以功能规格为主，不在本页复制全部测试分支。
 
-Pixiv 作品在线同步的发布证据必须分别记录 migration 链、Client/文件安全、领域写回、201/5001 全量发现、
-批量取消、App 状态筛选和任务恢复，以及 Worker/Next production build；聚焦单测不能替代隔离 PostgreSQL、
-生产数据副本、真实浏览器或 Compose READY/capability 冒烟。
+## 高风险验证原则
 
-## 数据库与文件测试原则
+- 数据库和媒体仅用隔离 fixture，唯一标识并自行清理，不能依赖套件顺序或真实收藏目录。
+- 文件操作验证目标边界、失败恢复和审计；发布事务与文件 I/O 的两种部分失败均须覆盖。
+- migration 用旧 schema fixture，不在业务库加回旧列。破坏性退役验证拒绝无副作用、历史/确认保留、普通启动阻断及恢复；至少 7 天生产观察不能用开发测试替代。
+- 全量处理验证不截断、重试幂等、人工修改 CAS；只读扫描必须证明不写领域，空根/截断/取消不得误报 MISSING。
+- 共享 lane/advisory lock 的非竞争 PostgreSQL 套件串行或分库，专门竞争用例仍运行真实并发；时间/lease 使用可控 clock。
+- SSE 验证认证、脱敏、持久游标追赶/reset、断线清理、轮询降级；事件保留先 dry-run，并覆盖分批清理和重连。
+- 阅读/隐私真实浏览器使用 `entry=direct` 或 `entry=privacy`，核对登录保留参数、消费后清理、双标签/账户切换、关闭重开和过期；jsdom 不记作浏览器验收。
+- WebP 延迟注入须在首帧且 playing 后，以实际播放状态为依据；性能门槛单独运行，不能与其他重负载任务争用资源。历史根因见[CI 270 记录](../records/operations/webp-ci-regression-2026-10-17.md)。
 
-- 使用隔离数据库或 CI PostgreSQL，不在生产数据库运行测试；
-- PostgreSQL 测试必须自行创建和清理唯一 fixture，不能依赖运行顺序；
-- 文件测试使用临时目录，不使用真实收藏目录；
-- 破坏性路径同时断言目标路径、边界校验、失败恢复和审计状态；
-- migration 测试至少覆盖从空数据库部署完整链，不只验证最新 Schema；
-- 涉及数据库和文件的领域发布，需要测试“数据库成功/文件失败”和“文件成功/数据库失败”的恢复语义；
-- 时间、重试和租约测试使用可控 clock，避免依赖真实 sleep。
+## CI 当前覆盖与缺口
 
-归档收件与执行 lane 变更还必须覆盖：
+[ci.yml](../../.github/workflows/ci.yml) 用三个独立 runner 并行：Web（独立 PostgreSQL 全链迁移、无 job dist、lint/typecheck/unit/build）、Worker（独立 PostgreSQL 全链、DB/依赖链测试和独立构建）、WebP（预编译校验/负向测试、类型/单元、构建和 Chromium）。汇总 `test` 仅在三路全部 success 时通过，取消/跳过也不放行。
 
-- 空 PostgreSQL 完整 migration 链，以及含旧 `SystemJob`、等待任务和旧全局 lease 的非空库直切演练；
-- migration 在执行态任务或活跃旧全局 lease 存在时无副作用失败；
-- 旧任务全部回填到 `BACKGROUND_WRITER`，新 `ARCHIVE_RESOLVE_ITEM` 只能进入 `ARCHIVE_RESOLVE`；
-- 两个 Worker 进程竞争时每 lane 最多一个 RUNNING，同时允许一个 resolver 和一个 writer；
-- 收件 create/enqueue/bulk 幂等、FIFO、暂停/重试/取消、Worker 崩溃恢复和未授权零写入；
-- `RECONCILE` 只物化子任务，回收/恢复/永久清理在 writer lane 中根目录受限、可重入并最终 fenced；
-- 30 天保留任务只删除收件、终态上传者扫描、已完成批量记录和历史冻结流程的过期 ArchivePreviewSession，不删除上传者来源/游标、领域实体、任务与媒体。
-- 归档媒体设置默认值和 1/8 边界，执行态保存冲突，以及 advisory lock 下“先保存/先启动”的两个顺序；恢复与重试读取新值，运行中执行保持冻结值；
-- Executor 活动 worker、活动传输流与 Provider permit 不超过同一冻结上限，失败流从有效字节扣除且重试不重复累计；逐文件实时遥测覆盖解析图片页、等待响应、下载和校验写入，不得携带远端 URL 或凭据；实时事件两秒限频不吞普通阶段、警告和终态；
-- Dispatcher 假时钟覆盖 REALTIME 两秒限频、STANDARD 的 5%/5 秒与 30 秒兜底、阶段真实变化、WARN/ERROR 直通和结算前尾部刷新；PostgreSQL 覆盖 `progressData` 与事件原子写、fence 丢失零写入和旧记录 `null`；
-- 动画识别覆盖初始化反馈、INITIALIZING 空/部分检查点与新增候选、1–8 并发上限、20 条/2 秒微批次、领域状态与聚合检查点同事务提交及 lease 过期回滚、领域提交后崩溃恢复、COMPLETED 检查点重放、慢项 WARN、真实 Sharp GIF/WebP fixture、原生超时与父进程硬终止、取消后等待探测进程退出、失败留 pending、计数一致性和并发 1/4 分类一致；
-- 通用 SSE 的 Session、脱敏、响应头、心跳、游标追赶/reset、断连清理与数据库异常，以及 admin 单连接、500 条上限、按 job 隔离、任务页/控制台缓存同步、隐私模式和 3 秒/30 秒断线轮询回退；
+原生相关变更另由 [webp-native.yml](../../.github/workflows/webp-native.yml) 复现原生构建、sanitizer/产物及浏览器校验。发布镜像流程独立验证并构建，不意味着同提交 CI 已通过；交付须核对同提交三路和汇总最终结果。具体发布 artifact、重试与并行边界见[工作流说明](../../.github/README.md)。
 
-后台实时进度的浏览器验收还应保存 job ID、事件时间线和最终 `progressData`：真实开发库至少覆盖一次
-动画识别、刷新恢复、详情分页和 retention dry-run；隔离库覆盖暂停/继续、取消后的 pending、错误根目录
-后的重试，以及 1/4 并发下相同分类结果。Chrome DevTools 对 `/api/jobs/events` 的精确阻断和真实 NAS
-大规模 I/O 仍属于发布前人工验证项，不能用本地浏览器或临时目录结果替代。
+CI 尚未明确执行主应用 `test:integration`、jsdom e2e 命名套件、Compose/镜像运行冒烟或真实业务登录/代理/媒体链路。WebP 浏览器测试不填补这些缺口，空库 migration 不替代非空升级与生产恢复演练。
 
-- 事件保留覆盖 INFO 进度 7 天、阶段/警告/错误/控制/终态 90 天、每批不超过 5,000、首次手动 dry-run 和删除后游标追赶。
-
-## 测试文件组织
-
-浏览器隐私偏好重构除邻近状态机、组件和 SSR 测试外，必须做真实浏览器抽样：后台新标签详情、硬导航与刷新、双标签模式同步、全部关闭超过 5 秒重开、恢复标签、同标签离站返回、30 天到期不中断访问，以及手机入口和全屏预览的菜单层级。无 BroadcastChannel、存储损坏/禁用、迟到消息和并发选择使用可控时钟及独立标签存储测试。记录实际完成的浏览器、设备和 HTTP/HTTPS 范围，不把 jsdom 模拟记作真实 E2E。
-
-- 新单元和组件测试放在靠近实现的 `__tests__/`；
-- 包级或跨模块测试使用该 package 已建立的 `tests/`；
-- 不新增与实现文件同级的测试；现有同级测试逐步迁移时同步修正相对 import 和 mock；
-- PostgreSQL 测试使用清晰后缀，如 `.postgres.test.ts`；
-- 真正浏览器 E2E 建立前，不继续扩大“e2e”命名与实际执行环境的歧义。
-
-## CI 当前事实
-
-`.github/workflows/ci.yml` 使用 Node.js 20、pnpm 8.15.1 和 frozen lockfile，在独立 runner 上并行执行三路检查：
-
-- `web`：生成 Prisma Client，在独立 PostgreSQL 15 空库部署完整 migration 并检查 status；确认 job 包没有 `dist` 后，分别运行主应用 lint、typecheck、`test:unit` 和生产 build。WebP 资源由主应用 `prepare:webp` 自行构建，不依赖另一路 job 的文件。
-- `worker`：生成和验证 Prisma Client/Schema，对 Worker 依赖链执行 typecheck，在独立 PostgreSQL 15 空库部署完整 migration 并检查 status，执行数据库及 Worker 依赖链测试，依次构建三个共享 job 包与独立 Worker。
-- `webp`：校验仓库 WebP 预编译产物及源码一致性，运行校验器负向测试、库类型/单元检查、构建和真实浏览器流式测试，不日常编译原生代码。
-
-`web` 和 `worker` 各自保留数据库服务与完整迁移，确保拆分后主应用中使用 `DATABASE_URL` 的测试仍可连接已迁移的隔离库。三个 job 不共享构建目录，因此 Worker 生成的 `dist` 不会污染 Web 源码边界验证。
-
-汇总 job 继续使用原检查名称 `test`，通过 `always()` 收集三路结果，只有三路全部 `success` 才通过；失败、取消或跳过均不能放行。已有要求 `test` 的分支保护无需更名。发布工作流的既有验证仍保留，尚未与 CI 合并复用。
-
-`Build and Deploy` 独立保留原发布验证，并与 Web/Worker 两路 OCI 镜像构建并行。只有验证和两路构建全部成功，发布 jobs 才会下载同次运行的 artifact 并推送原有镜像标签，随后创建 Release 和扫描；不会在发布阶段重新构建。当前 attempt 的耗时由 `Release timings` 汇总，artifact 传输与发布开销必须纳入端到端性能对比。具体产物保留、失败重跑和恢复边界见 [Build 与部署](../../build/README.md#github-发布流水线)。
-
-性能验收应在 GitHub runner 上比较多次成功运行的中位耗时，同时检查三路结果和 `test` 汇总状态；并行化降低墙钟时间，但重复初始化可能增加 runner 总用量。回退本次工作流配置即可恢复串行执行，不涉及生产数据恢复。
-
-独立 `webp-native.yml` 只在原生/预编译相关文件变更或手动触发时运行固定镜像编译、原生差分 ASan/UBSan、产物逐字节复现和浏览器测试；修改普通页面或播放器 TypeScript 不触发该工作流。重建不会自动改写 Git 中的预编译产物，要求贡献者提交对应更新。
-
-Worker 测试和 capability 门禁包含双 lane contract，以及 35 个 job type、41 个 type/version 组合（`SCAN`
-v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3/v4、其余 v1）的精确 inventory；CI 的空库 migration 仍不能替代生产数据副本或非空历史 fixture 的直切
-演练。v3 的独立领取测试同时证明只声明 SCAN v2 的旧 Worker 不会领取 `AUDIT_APPLY`。
-
-CI 当前没有明确执行：
-
-- 主应用 `test:integration`；
-- `.e2e.test.*`；
-- Docker Compose/镜像运行冒烟；
-- 真实浏览器登录、反向代理和媒体播放。
-
-这些是已知缺口，不应在发布说明中声称已由 CI 覆盖。后续提高 CI 门禁时，应评估主应用集成测试，再逐步补业务真实浏览器 E2E。WebP 性能门槛需在无其他重负载任务并发时独立运行。
-
-## 完成标准
-
-艺术家与系列旧字段清理须实际执行隔离 PostgreSQL 测试，并覆盖空库完整迁移、非空旧库的 audit/prepare/upgrade、旧值指纹变化、未收口文件迁移、系列人工排除、两份迁移之间失败及备份恢复。生产镜像须验证维护入口的依赖、非 root 运行和普通启动阻断；相关测试跳过不能计为验收通过。历史 migration 使用独立旧 schema fixture，不在业务库临时加回旧列。完整范围见[旧字段清理](../features/legacy-identity-retirement.md)。
-
-变更完成时应记录：
-
-- 实际运行的命令及结果；
-- 未运行的相关检查及原因；
-- 新增或修改了哪些不变量测试；
-- 是否需要数据库、文件系统、Docker 或人工浏览器环境；
-- 已知缺口是否会影响发布决策。
-
-测试失败不能通过删除断言、扩大 mock 或跳过高风险路径来“修复”。如果失败是既有问题，需要提供可复现证据，并证明本次变更没有扩大影响。
-
-涉及 migration、媒体写入、部署和破坏性工作流的恢复证据以[备份与恢复基线](../operations/backup-and-recovery.md)为准。
-
-## 统一失败诊断验收
-
-诊断变更同时覆盖 Job contract、queue/runtime、executor、migration 与管理界面，应按上文矩阵合并验证范围。必测不变量包括：每次 claim 独立报告（含 preserveAttempt）、旧 callback 不写入新执行、CURRENT 优先于 INHERITED 且同 key 不重复计数、检查点与诊断同事务、租约失效回滚、取消/关联终止不冒充新失败、13 项与超过 20 项完整记录、归档每 100 项分批及中断后报告不完整标记。
-
-查询与生命周期还需验证报告归属/未登录拒绝、报告与对象游标分页、原因分组、原始错误消息和 errno/HTTP 保留且敏感内容脱敏、旧数据仅样例/检查点的明确限制、90 天清理边界、dry-run 零删除、跨 5,000 项清理和中断恢复，以及过期后保留报告头但不可绕过 legacy 入口读取证据。真实浏览器需检查敏感文本的隐私显示及 SSE 摘要边界。
-
-测试命令通过不等于生产升级或恢复演练完成；交付须单列隔离 PostgreSQL migration/租约/清理测试、App/Worker 构建与生产演练的执行结果和缺口。详见[后台任务失败诊断](../features/background-job-diagnostics.md)。
-
-## 后台任务退役门禁
-
-第一阶段覆盖中央入口、领域控制事务、v0 历史只读、失败确认不丢失、失败收件删除后旧任务不可复活、目标 payload 查询与索引、旧列双写和计划物化时间。共享 lane/advisory lock 的 PostgreSQL 套件串行或分库执行；专门的并发用例仍需验证真实竞争。升级演练从 v0.50.8 非空 fixture 开始，并验证旧客户端读取和升级前备份恢复。第二阶段独立实施和验证，生产部署仍需至少 7 天观察通过。必须验证空库及非空库迁移、违规数据零副作用阻断、约束正反例、删除计划保留历史日期、旧列消失、普通启动阻断及备份恢复；开发环境结果不代替生产观察。
+完成报告写清实际命令/结果、环境、跳过及原因、未覆盖项对发布的影响；历史数字放带日期的 records。不能通过删断言、扩大 mock 或跳过高风险路径掩盖失败；既有失败也要可复现并说明影响。涉及数据/部署恢复依据见[备份基线](../operations/backup-and-recovery.md)。

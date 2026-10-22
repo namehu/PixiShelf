@@ -1,33 +1,10 @@
-# PixiShelf 优化 TODO
+---
+status: deprecated
+scope: 旧优化待办的兼容入口
+last-verified: 2026-10-22
+replaced-by: ../TODO.md
+---
 
-这个文档只记录尚未完成、可逐项推进的优化任务。完成历史由 Git、测试和对应设计文档保留。
+# 优化待办已收敛
 
-## P1：性能与可观测性
-
-- [ ] 数据库写入热点排查
-  - 目标：确认批处理里的 artist、tag、image、raw metadata 写入是否有明显瓶颈。
-  - 验收：
-    - 有一份简短结论：瓶颈在哪、是否值得改；
-    - 如果不值得改，记录原因，避免反复讨论。
-
-## P2：类型与质量门禁
-
-- [ ] API response 类型统一
-  - 剩余范围：Webhook GET 状态成功 DTO（保留任务 message/error 和 data 统计，需先规划外部版本协商）；lib/api-response.ts 的媒体上传/分块、替换与 scheduler 按路由和消费者逐对迁移。接口边界见[权限与接口边界](../docs/security/access-control.md)。
-  - 验收：
-    - 前端调用能拿到明确类型；
-    - 错误 response 包含稳定的 `message`；
-    - 迁移期间兼容现有前端对 `{ error }` 的依赖，不引入无计划的 API 行为变化。
-
-## 建议执行顺序
-
-1. 数据库写入热点排查
-2. API response 类型统一
-
-## 每项开始前的固定检查
-
-- 先确认本项是否会改变用户可见行为。
-- 如果改变行为，先写设计或验收标准。
-- 优先补测试，再改实现。
-- 每次只处理一个主题，避免“顺手优化”扩散。
-- 完成后至少跑窄范围测试；核心扫描链路变更再跑 typecheck、lint、完整测试和 build。
+数据库写入热点和 API response 类型统一的剩余范围、兼容要求及验收目标，统一维护在[根 TODO](../TODO.md#性能与接口技术债)。开始前按[测试策略](../docs/development/testing-strategy.md)确定验证范围。

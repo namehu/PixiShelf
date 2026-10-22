@@ -21,6 +21,12 @@ sources:
 
 来源结果只增加「已删除」筛选与统一「已删除」状态，不提供回收站入口或恢复操作。「已归档」不含已删除作品，「全部」包含。保留期内没有重新归档按钮，永久清理后可以手动「重新归档」，强制进入 MANUAL 收件、解析、确认下载流程。新手动流程运行时显示实际进度；失败或取消保留删除记录，只有成功发布才解除删除意图。
 
+## 删除与恢复状态
+
+![归档删除、回收与恢复状态图](../diagrams/features/archive-deletion.svg)
+
+[Mermaid 源文件](../diagrams/features/archive-deletion.mmd)。依据：`ArchiveLifecycleState`、`archive-trash-service.ts`、`maintenance-executor.ts` 和删除意图触发器。图中的“永久清理”是记录已删除后的概念状态，恢复资格仍由服务端裁决。
+
 ## 数据与不变量
 
 `archive_deleted_identities` 按 `providerKey + externalId` 保存作品 ID、来源地址、删除时间和永久清理时间，没有指向 Artwork 或发现来源的外键。因此作品、来源、收件和任务历史被清理后，删除意图依然有效。新来源再次扫描同一身份仍显示已删除。

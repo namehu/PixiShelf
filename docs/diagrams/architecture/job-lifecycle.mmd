@@ -1,0 +1,23 @@
+stateDiagram-v2
+  [*] --> PENDING: 冻结输入并入队
+  PENDING --> RUNNING: capability + claim + lease
+  RETRY_WAIT --> RUNNING: 可执行时间到达并重新领取
+  PENDING --> PAUSED: 排队时暂停
+  RETRY_WAIT --> PAUSED: 等待时暂停
+  PAUSED --> PENDING: 继续
+  RUNNING --> PAUSING: 暂停意图
+  PAUSING --> PAUSED: 保存检查点
+  RUNNING --> CANCELLING: 取消意图
+  CANCELLING --> CANCELLED: 领域清理与终态提交
+  PENDING --> CANCELLED: 取消
+  RETRY_WAIT --> CANCELLED: 取消
+  PAUSED --> CANCELLED: 取消
+  RUNNING --> RETRY_WAIT: 可重试失败或持久等待
+  RUNNING --> COMPLETED: 按领域契约完成
+  RUNNING --> FAILED: 永久失败或尝试耗尽
+  PENDING --> SKIPPED: deadline 或前置条件
+  RETRY_WAIT --> SKIPPED: deadline
+  COMPLETED --> [*]
+  FAILED --> [*]
+  CANCELLED --> [*]
+  SKIPPED --> [*]

@@ -12,6 +12,9 @@
     "worker:typecheck": "pnpm --filter @pixishelf/worker... typecheck",
     "check:quick": "pnpm --filter @pixishelf/next check:quick",
     "check:full": "pnpm --filter @pixishelf/next check:full",
+    "docs:check": "node scripts/check-docs.mjs",
+    "docs:diagrams": "pnpm --filter @pixishelf/webp-player diagrams",
+    "docs:diagrams:check": "pnpm --filter @pixishelf/webp-player diagrams --check",
     "format": "prettier --write ."
   },
   "keywords": [

@@ -1,0 +1,22 @@
+sequenceDiagram
+  participant A as App 控制面
+  participant D as PostgreSQL
+  participant W as Worker Dispatcher
+  participant E as Executor
+  participant F as 文件或远端服务
+  A->>D: 领域事务：冻结输入 + 入队 + queued 事件
+  W->>D: claim：lane、能力、时间窗口、SKIP LOCKED
+  D-->>W: job + execution token + lease
+  W->>E: payload + execution context
+  E->>F: 有界 I/O，不持有长数据库事务
+  loop 执行期间
+    W->>D: heartbeat / 续租 / 读取控制意图
+    E->>D: fenced transaction：领域检查点 + 进度事件
+  end
+  alt 所有权有效
+    E->>D: fenced publication / 终态事务
+    D-->>A: 查询或持久游标 SSE
+  else lease 或 token 已失效
+    D-->>E: 拒绝写入
+    W->>E: abort，保留可恢复检查点
+  end

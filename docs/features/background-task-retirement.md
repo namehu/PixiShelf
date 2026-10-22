@@ -1,12 +1,15 @@
 ---
 status: current
-scope: 后台任务兼容层两阶段实现、数据约束与发布边界
+scope: 退役后的中央执行、历史快照与数据约束
 last-verified: 2026-10-11
+sources:
+  - packages/pixishelf-db/prisma/migrations/20261011000000_background_task_retirement_contract/migration.sql
+  - packages/pixishelf-worker/src/dispatcher.ts
 ---
 
 # 后台任务兼容层退役
 
-## 第一阶段实现
+## 当前执行边界
 
 App 固定通过中央队列入队，Worker 启动即消费 ARCHIVE_RESOLVE 与 BACKGROUND_WRITER 两个 lane，每 lane 并发 1。
 `CENTRAL_DISPATCHER_CUTOVER_ENABLED`、`WORKER_DISPATCH_ENABLED` 已退出配置；即使旧环境仍设置为 false，也不能禁止消费。
@@ -32,7 +35,7 @@ v0 历史不能暂停、继续、取消、重试或改优先级，已有失败�
 计划列表显示 `lastMaterializedAt/Date`（上次计划入队），移除逐任务执行时间编辑和 time 更新输入。
 统一上海 00:00–08:00 窗口与每周核对规则不变；lastJobId 仍可能指向手动触发任务。
 
-## 第二阶段实现（用户确认已部署生产）
+## 当前数据约束
 
 `20261011000000_background_task_retirement_contract` 在单个事务中锁定任务、计划和资源租约表，先检查再回填、加约束、删列；异常整体回滚。
 
@@ -46,8 +49,8 @@ v0 历史不能暂停、继续、取消、重试或改优先级，已有失败�
 
 约束不对 v0 历史强行补租约、跳过原因或计划日期。合法的已删除收件历史不重建、不删除。除 availableAt 外，违规数据只报告并阻断，不自动修复。
 
-2026-10-11 用户确认一阶段生产观察通过，二阶段已部署，前后审计均 ready，Worker 检查与只读预检通过。此为用户确认，未由代理直接连接 NAS 核验；精确镜像、备份和恢复演练证据以实例记录为准。
+生产确认的日期、证据来源和限制见[发布记录](../records/operations/background-task-retirement-2026-10.md)。
 
 已有库普通 App 启动在二阶段未完成时阻断，必须显式审计并迁移；空库允许初始化。Worker 要求二阶段 migration、删列和已验证约束满足后才能 READY。二阶段删列后不能仅换旧镜像回退。
 
-发布、只读审计和恢复步骤见[两阶段发布手册](../deployment/background-task-retirement.md)。
+发布、只读审计和恢复步骤见[两阶段发布手册](../operations/runbooks/background-task-retirement.md)。

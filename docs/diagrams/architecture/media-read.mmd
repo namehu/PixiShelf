@@ -1,0 +1,21 @@
+sequenceDiagram
+  participant B as 浏览器
+  participant A as Next.js App
+  participant D as PostgreSQL
+  participant I as ImgProxy / 网络门禁
+  participant F as 原媒体与派生目录
+  B->>A: 认证作品/媒体查询
+  A->>D: 批量读取已发布引用与有效元数据
+  D-->>A: 媒体 DTO
+  A-->>B: 缩略图 / 原媒体 URL
+  alt 静态缩略图或视频派生图
+    B->>I: loader 生成缩放请求
+    I->>F: 只读挂载读取
+    I-->>B: 静态图片
+  else 原图 / WebP 播放 / 原视频
+    B->>A: 媒体请求 / 视频 Range
+    A->>A: 会话与路径检查
+    A->>F: 只读文件流
+    A-->>B: 媒体字节
+  end
+  Note over I,F: ImgProxy 未签名，访问控制依赖受控网络/反向代理

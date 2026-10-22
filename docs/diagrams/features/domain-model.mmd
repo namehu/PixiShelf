@@ -1,0 +1,54 @@
+classDiagram
+  direction LR
+  class Artwork {
+    localIdentity
+    localOverrides
+    mediaRevision
+  }
+  class Media {
+    Image
+    sortOrder
+    originalPath
+  }
+  class SourceReference {
+    ArtworkExternalRef
+    providerKey
+    externalId
+  }
+  class ArchiveRevision {
+    immutableMediaSnapshot
+    publishedPointer
+  }
+  class Artist {
+    PERSON_or_GROUP
+  }
+  class Series {
+    localTitle
+  }
+  class SeriesMembership {
+    provenance
+    orderAndExclusion
+  }
+  class Account {
+    UserBA
+  }
+  class ReadingSummary {
+    actualVisits
+    progressAndPosition
+  }
+  class ReadMedia {
+    accountReadSet
+  }
+  Artwork "1" *-- "0..*" Media : ordered
+  Artwork "1" --> "0..*" SourceReference : has evidence
+  SourceReference "1" --> "0..*" ArchiveRevision : publishes
+  Artwork "0..*" -- "0..*" Artist : credited with evidence
+  Series "1" -- "0..*" SeriesMembership
+  Artwork "1" -- "0..*" SeriesMembership
+  Account "1" --> "0..*" ReadingSummary
+  Artwork "1" --> "0..*" ReadingSummary
+  ReadingSummary "1" ..> "0..*" ReadMedia : summarizes
+  Account "1" --> "0..*" ReadMedia
+  Media "1" --> "0..*" ReadMedia
+  note for SourceReference "身份 = Provider + external ID<br/>不等于本地作品 ID"
+  note for ReadingSummary "手动完成只修改进度<br/>不伪造真实阅读访问"

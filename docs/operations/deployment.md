@@ -1,331 +1,117 @@
 ---
 status: current
-scope: PixiShelf 当前本地运行、生产 Compose 拓扑、升级顺序、验证与回滚入口
-last-verified: 2026-09-30
+scope: 单实例 Compose 拓扑、标准升级、运行验证与故障分流
+last-verified: 2026-10-22
 sources:
   - build/docker-compose.dev.yml
   - build/docker-compose.deploy.yml
-  - build/.env.example
-  - build/Dockerfile
-  - build/worker.Dockerfile
   - build/entrypoint.sh
+  - scripts/update-production.sh
+  - packages/pixishelf-worker/src/production-capabilities.ts
 ---
 
-# PixiShelf 部署基线
+# 部署基线
 
-本文是当前部署操作入口。Dockerfile、Compose 和 `.env.example` 决定精确服务与配置；一次性切换记录只用于复用审查、备份和回滚门禁。
+本文是当前部署操作入口；`current` 表示已核对仓库配置，不表示某个生产实例已升级。首次跨越历史迁移边界时，先读[专项升级门禁](./runbooks/schema-and-capability-upgrades.md)，不能直接执行日常升级脚本。
 
-## 支持范围
+## 当前拓扑与配置
 
-WebP 流式播放器默认启用，手动播放和自动浏览均使用 WASM，无需设置环境变量、Compose environment 或 Docker build-arg。解码器和许可证随仓库保存在 `packages/pixishelf-webp-player/prebuilt/`，应用 Dockerfile 不拉取 Emscripten、不编译 C；每次 dev/build 都校验预编译产物并打包 Worker/版本化 WASM，production 从 public 复制交付。发布流水线按现有流程构建，部署新镜像即可使用。只有原生源码或工具链升级时才执行包的 `build:native`，并提交更新的产物与校验清单。浏览器能力、初始化或解码兼容限制保留首帧前回退，剩余验证见[开发方案](../design/webp-streaming-player.md)。本次没有 migration 或原媒体写入；恢复依据是原镜像/源码版本及配套 prebuilt，回滚应用镜像即可，不需要恢复数据库和收藏目录。
+支持单机 Docker Compose，生产使用预构建 App/Worker 镜像，本地开发使用宿主机 Next.js 加容器依赖。尚不承诺多副本 App、并行 Worker 或多租户部署。
 
-### 待发布：WebP 动图时长探测
+| 服务        | 职责与权限                                                                                  | 默认端口         |
+| ----------- | ------------------------------------------------------------------------------------------- | ---------------- |
+| `app`       | Next.js 页面/API、认证和任务控制；数据库读写、原媒体默认只读、派生媒体读写、Pixiv data 只读 | 宿主机 5430      |
+| `worker`    | 唯一后台消费者；数据库及三个媒体根读写；一个解析 lane 和一个写入 lane，各自串行             | 3011，仅容器网络 |
+| `postgres`  | 领域数据、认证、队列、租约、migration 历史                                                  | 宿主机 5432      |
+| `imgproxy`  | 只读原媒体/派生媒体并生成图片响应；当前 URL 未签名                                          | 宿主机 5431      |
+| `scheduler` | 使用独立 Token 调用 App tick；不直接访问数据库                                              | 无宿主机端口     |
 
-此功能代码在工作区，生产尚未发布。升级前按[备份与恢复](./backup-and-recovery.md)建立并验证数据库与原媒体同一检查点，记录旧 App/Worker 镜像 digest；先用 `migrate deploy` 应用 `20260924120000_add_image_animation_duration_metadata`，禁止 `db:push`，再成对升级 App/Worker，确认双 lane READY 与 34 类 job type / 39 个 type-version 组合。新增一对一表不回填旧 Image；`animation_duration_probe` 计划默认关闭，人工先对真实 NAS 至少 100 个代表性 WebP 验收，再决定批量探测。任务单并发、每轮 10 文件或 5 秒并让行，读取不修改原媒体；成功结果的页面读取不逐文件 stat。
+生产 Compose 包含 scheduler；实际实例是否启用应以 `config --services` 和 `ps` 为准。本地开发通过 `scheduled` profile 启用它。
 
-旧替换会话的 `.bak_session` 若无新版 manifest，不能由新版代码自动判定原文件与上传文件；应保留目录和写入门禁，按同一检查点人工核实，不允许盲目 rollback/清理。上传或替换中断的门禁也不能按时间自动解除。回滚 App/Worker 镜像时保留加法表和 migration 历史；需要恢复媒体或数据库时必须使用同一检查点。当前本地功能与构建检查通过，但独立浏览器性能 benchmark 未过 11,000 ms 门槛；真实 NAS、安卓真机和生产升级证据亦未完成，不能把本地代码验收视为发布验收。详细数值与恢复边界见[动图时长探测](../design/animation-duration-probe.md)。
+![部署与信任边界](../diagrams/operations/deployment-trust-boundaries.svg)
 
-后台任务实时进度发布使用 `20260904200000_add_system_job_progress_data` additive migration。先停止所有旧写入者并按[备份与恢复](./backup-and-recovery.md)建立、验证 PostgreSQL 检查点，再执行 `migrate deploy`；禁止 `db:push`。回滚 App/Worker 时保留新增可空列和事件索引。配套 App/Worker 必须一起升级，两个 lane READY 且 capability audit 精确为 34 类/39 个版本组合后才开放入口。设置 `ANIMATION_SCAN_CONCURRENCY` 前先以 1 建立代表性基线；首次手动运行“清理后台任务事件”只做 dry-run，核对候选数和 SSE 重连后再启用计划删除。
+[图源](../diagrams/operations/deployment-trust-boundaries.mmd)。图按当前 Compose 挂载与端口绘制；ImgProxy 是独立访问边界，不经过 App 会话校验。签名、认证与反向代理要求见[权限边界](../security/access-control.md)。
 
-新增类型数据存在时，旧 App/Worker 不能直接回滚运行。优先保留兼容版本并停用关键词来源、关闭新入口或前向修复；完整降级必须恢复配套数据库、媒体、配置和镜像检查点。当前实施与未完成的生产验证见[标题关键词实施记录](../design/e-hentai-title-keyword-scan.md)，本机测试不代表生产已部署。
+<a id="环境文件边界"></a>
 
-- 本地开发：PostgreSQL、ImgProxy、通用 Worker 在 Docker 中运行，Next.js 在宿主机运行；
-- 生产部署：单机 Docker Compose，原媒体和派生媒体使用宿主机目录挂载；
-- 数据库：PostgreSQL 15；
-- 应用与 Worker：Node.js 20 镜像；
-- 主应用端口：5430；ImgProxy：5431；PostgreSQL：5432；Worker 健康端口仅在容器网络内使用 3011。
+| 配置来源                        | 用途                                          |
+| ------------------------------- | --------------------------------------------- |
+| `packages/pixishelf/.env.local` | 宿主机 Next.js；数据库通常为 `127.0.0.1:5432` |
+| `build/.env`                    | Compose；容器数据库地址覆盖为 `postgres:5432` |
+| `build/.env.example`            | 变量、默认值和路径模板；不是生产秘密备份      |
 
-本文不承诺 Kubernetes、多副本 App、并行 Worker 或多租户部署。
+发布前核对数据库凭据、三个持久化媒体挂载、Better Auth URL/Secret/Trusted Origins、两枚独立服务 Token、HTTPS 和可信反向代理。`INIT_ADMIN_*` 与 `JWT_SECRET` 不负责当前账户初始化或浏览器会话。首次账户通过 `/login` 创建。
 
-## 当前服务拓扑
+`ARCHIVE_HTTPS_PROXY` 的出站范围与优先级见[网络边界](../security/access-control.md#服务网络和存储矩阵)。Compose 环境变更须重建对应容器；本地 App 环境变更须重启本地进程。归档媒体并发保存于数据库 Setting，不增加环境变量。扫描和探测参数以模板及对应功能规格为准。
 
-| 服务        | 数据权限                   | 当前职责                                                           | 生产稳态           |
-| ----------- | -------------------------- | ------------------------------------------------------------------ | ------------------ |
-| `postgres`  | 数据库读写                 | 领域数据、认证、队列、租约和 migration 历史                        | 必需               |
-| `app`       | 数据库读写；原媒体默认只读 | Next.js Web/API、认证、任务控制面；启动时部署 migration            | 必需               |
-| `worker`    | 数据库和媒体读写           | 单进程双 lane；34 个 job type，SCAN v1/v2/v3、ARCHIVE_IMPORT v1/v2 | 必需，固定一个服务 |
-| `scheduler` | 无数据库权限               | 使用内部 Token 调用 App 的 scheduler tick                          | 按需启用           |
-| `imgproxy`  | 原媒体和派生媒体只读       | 图片缩放、格式处理和缓存                                           | 必需               |
+反向代理须允许 `/api/jobs/events` 长连接、禁用响应缓冲/转换并放行心跳。开发启动只遵循根 [README](../../README.md#本地开发)，不要从仓库根运行 `pnpm dev`。
 
-生产 Compose 不再包含旧 `archive-worker`、旧镜像或兼容 profile。一个 `worker` 容器同时托管固定并发为 1 的 `ARCHIVE_RESOLVE` 和 `BACKGROUND_WRITER`；最多一项解析和一项 writer 工作可以同时推进，所有媒体写仍在 writer lane 全局串行。
+## 标准发布
 
-归档媒体内部并发不是环境变量。它保存在 PostgreSQL `Setting` 中，由管理后台以 1–8 显式保存；缺失时默认 2。发布、Compose 和 `.env.example` 不需要增加对应键。恢复数据库会同时恢复该设置；Worker 在每次归档启动、恢复或重试时读取并冻结。
+**Worker 启动即可能消费任务。旧 Dispatcher 开关已删除，不能创建“在线但不消费”的窗口。** App entrypoint 可自动 deploy migration，已有库遇破坏性升级则会由专用检查阻断；显式迁移流程能将数据库变化与开放 Web 入口分开。
 
-## 环境文件边界
+![标准发布泳道](../diagrams/operations/standard-release.svg)
 
-| 场景           | 文件                            | 数据库地址                             |
-| -------------- | ------------------------------- | -------------------------------------- |
-| 宿主机 Next.js | `packages/pixishelf/.env.local` | `127.0.0.1:5432` 或 `localhost:5432`   |
-| Docker Compose | `build/.env`                    | Compose 在容器内覆盖为 `postgres:5432` |
+[图源](../diagrams/operations/standard-release.mmd)。管理员负责停写与备份，目标 App 镜像负责迁移，Worker 负责预检/消费；任一步失败都保持调度停止。
 
-出站代理继续使用 `ARCHIVE_HTTPS_PROXY`，覆盖归档、来源扫描，以及 Pixiv 艺术家资料/头像/背景、作品 metadata、标签资料/封面和系列缺少有效本地快照时的请求。它不控制浏览器远程图片、浏览器脚本、本地任务或内部服务，也不会让作品同步下载原图。优先顺序为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`；专用变量显式为空强制直连，仅未设置时遵循 `NO_PROXY/no_proxy`。只接受无凭据、无路径/query/hash 的 HTTP(S) 代理，代理失败不会直连降级。
+1. 记录旧/新 App、Worker 的不可变镜像 ID/digest、实际配置和 migration 状态。阅读目标版本迁移与[专项门禁](./runbooks/schema-and-capability-upgrades.md)。
+2. 停止 scheduler 和外部触发，等待活动任务完成或通过业务入口取消收口，再停止 App/Worker。核对无其他写进程或旧消费者。
+3. 按[备份恢复基线](./backup-and-recovery.md)建立数据库、原媒体、派生媒体、Pixiv data、配置及版本的同点恢复集合，并验证可恢复。
+4. 运行目标版本需要的只读审计，使用目标 App 镜像显式 deploy migration；禁止 `db:push`、盲目标记 migration 完成或手工删列。
+5. 准备好恢复消费后启动 Worker，验证 READY 与 capability；再开放 App，完成登录/媒体/任务抽样，最后恢复原本启用的 scheduler 与外部触发。
 
-Compose App/Worker 已通过 `env_file` 读取 `build/.env`；修改代理配置后须重新创建对应容器，单纯 restart 不会重新加载环境文件。本地 App 使用 `packages/pixishelf/.env.local`，与读取 `build/.env` 的 Worker 分别配置；修改后重启对应本地进程。Pixiv 代理 CONNECT 使用目标 hostname，由代理解析目标 DNS；HTTPS 443、精确域名白名单和每跳校验保持有效。归档现有本地 DNS、SSRF 与 fake-IP 校验不变，细节见[权限与接口边界](../security/access-control.md#服务、网络和存储矩阵)。
-
-本次代理扩围无需数据库迁移或数据回填。发布前记录原 App/Worker 镜像 tag 或 digest 与受控环境配置副本，作为服务级恢复依据；回滚使用扩围前的配套 App/Worker 版本并恢复原代理配置，无需回滚数据库。上线先各选一个 Pixiv 补全/同步对象验证，并确认系列已有有效快照时无需联网；现有数据恢复仍遵循[备份与恢复](./backup-and-recovery.md)。
-
-动画识别使用可选环境变量 `ANIMATION_SCAN_CONCURRENCY`（整数 1–8，默认 4）。生产首次发布或存储介质
-变化后先以 1 运行代表性样本，再以 4 比较相同分类结果和吞吐；提升不足 20% 时保持 1。该变量只控制
-任务内部探测池，不改变双 lane 或 writer 单任务约束。
-
-必须核对：
-
-- `POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB` 与 `DATABASE_URL` 一致；
-- `PIXISHELF_DATA_PATH` 指向真实原媒体目录；
-- `DERIVED_MEDIA_HOST_PATH` 使用持久化绝对路径；
-- `PIXISHELF_PUBLIC_DATA_PATH` 指向既有 `pixiv_data` 持久化绝对路径，并在容器内统一挂载到 `/app/pixiv-data`：App 只读、Worker 读写；
-- `BETTER_AUTH_SECRET`、`BETTER_AUTH_URL`、`BETTER_AUTH_TRUSTED_ORIGINS` 符合实际入口；
-- `INTERNAL_JOB_TOKEN` 与 `SCAN_WEBHOOK_TOKEN` 使用彼此独立的强随机值；
-- `INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 当前不参与自动初始化，遗留 `JWT_SECRET` 也不负责当前浏览器会话；
-- App 固定中央入队，Worker 启动即消费；维护通过停止服务隔离；
-- 生产反向代理使用 HTTPS，清除外部 `x-user-session`/`x-pathname`，并将 `NEXT_PUBLIC_IMGPROXY_URL` 限制在受信网络或等效保护路径。
-- 反向代理对 `/api/jobs/events` 禁用响应缓冲和转换，保留长连接；应用已发送 `X-Accel-Buffering: no` 与 `Cache-Control: no-cache, no-transform`，代理仍需允许至少 15 秒心跳穿过。
-
-不要提交 `build/.env`、`.env.local`、数据库备份、访问令牌或生产路径。
-
-## 本地开发
-
-标准流程维护在根 [README](../../README.md#本地开发)。固定顺序是：
-
-1. 复制并配置两份环境文件；
-2. 只启动 PostgreSQL 和 ImgProxy；
-3. 生成 Prisma Client，并用 `db:deploy` 部署完整 migration；
-4. 构建并启动通用 Worker，验证 READY 和 capability；
-5. 在宿主机启动 Next.js；
-6. 需要自动调度时再启用 `scheduled` profile。
-
-普通启动和升级禁止使用 `db:push`。全新数据库也使用完整 migration 链，以便 Worker 预检能够确认 `_prisma_migrations`。
-
-## 生产发布前门禁
-
-每次升级都必须先完成：
-
-- 记录当前 App、Worker 的 tag、image ID 或 digest；
-- 确认只有预期消费者在运行，不存在无法解释的 RUNNING/PAUSING/CANCELLING 任务；
-- 停止 scheduler，阻止新的计划任务物化；
-- 创建同一时间点的 PostgreSQL 备份、原媒体快照、派生媒体快照和环境配置备份；
-- 在隔离位置确认数据库备份可读取，媒体快照路径可访问；
-- 检查磁盘余量、目录权限和 FFmpeg/FFprobe 可用性；
-- 阅读目标版本 migration，确认是否存在不可逆数据变更；
-- 对执行 lane 迁移运行 `archive:lane-cutover-audit`，阻断执行中的任务、活跃旧全局 lease、新鲜旧 Worker、执行中归档和新 Worker 不支持的等待任务。
-- 安装不再支持 `FULL_RECONCILE` 的 Worker 前，使用下文的只读数据库命令确认该 payload 在所有非终态状态中的
-  数量为零；这个一次性 contract 门禁由发布人员执行，不可跳过。
-- 在应用 lane migration 前移除同一 Compose project 中的 orphan 服务，并用容器标签确认旧 `archive-worker` 容器数量为零。数据库审计无法发现仍存活但空闲的旧消费者，不能替代这项容器门禁。
-
-备份位置、校验值和镜像 digest 必须记录在本次发布记录中。“命令成功”不能代替恢复验证。
-完整备份集合、停写检查点和隔离恢复演练见[备份与恢复基线](./backup-and-recovery.md)。
-
-### 艺术家与系列旧字段清理
-
-已有旧字段的数据库必须先执行[专用检查与升级流程](../features/legacy-identity-retirement.md)，确认旧消费者、导出工具及依赖旧字段的回滚版本已经退出。不要直接运行普通 `migrate deploy` 或重放初始身份认领迁移。
-
-升级后运行 `artist-external-ref-verification.sql` 和 `series-external-ref-verification.sql`，检查正式身份、成员关系及持久目录。开放后抽样验证艺术家身份搜索、资料补全、同名不同 ID 系列、多系列导航和人工排除。
-
-### Pixiv 作品在线同步版本的附加门禁
-
-首次部署 `PIXIV_ARTWORK_ENRICHMENT` 时还必须：
-
-1. 在停写窗口把 PostgreSQL 与 `PIXISHELF_PUBLIC_DATA_PATH` 纳入同一一致性检查点；后者包含 `artworks/<pixiv-id>/metadata/` 不可变 JSON 快照，并新增 `sync-reports/<job-id>.json` 同步报告；
-2. 使用目标 App 镜像执行 `prisma migrate deploy`，确认 `20260826143000_add_pixiv_artwork_online_sync` 已登记完成；不得用 `db:push` 代替；
-3. 先启动 Worker 并确认 capability 包含 `PIXIV_ARTWORK_ENRICHMENT@v1 / BACKGROUND_WRITER`，再开放包含新任务入口的 App；
-4. 先选择少量未检查作品，以默认模式核对来源字段、标题保护、精确 SOURCE 标签差异、数据库状态、磁盘快照和 `sync-reports` 文件，并从作品列表打开同步记录抽屉验证字段/标签差异及前后 JSON；
-5. 再用少量作品验证“刷新已有资料”，确认标题和描述会采用 Pixiv 当前值，同时任务期间的新人工编辑不会被覆盖；
-6. 上述证据通过后，才启动全部未检查作品。刷新全部会逐项处理所有有效 Pixiv 身份，可能持续较长时间，但 writer lane 并发仍为 1。
-
-## 生产升级门禁
-
-**包含旧身份字段清理的首次升级须先执行[专用检查与升级流程](../features/legacy-identity-retirement.md)。** 普通 App 启动会阻止已有旧字段数据库直接迁移；完成专用升级后，后续正常版本按下方手动流程执行。
-
-`scripts/update-production.sh` 已精确恢复到提交 `7db6ba993cc268763b6cf090593f28203d65b72f` 的版本，用于成对升级 App 与通用 Worker。误拷贝的 Pixiv 转换、rsync、源目录清理和 Webhook 扫描代码及其专用测试已移除；本次发布不执行该脚本，也不迁移数据库或操作媒体。源码恢复依据是该提交中的脚本；需要撤销本次修复时使用 Git revert，生产恢复仍按[备份与恢复基线](./backup-and-recovery.md)执行。
-
-完成对应版本的专用审计与迁移后，日常升级可执行：
+以下模板从仓库根运行。实际 NAS 若使用别的 Compose 文件，必须先替换并核对路径；不要将其他实例的目录直接照抄。
 
 ```bash
-sudo bash ./scripts/update-production.sh \
-  --compose-file build/docker-compose.deploy.yml \
-  --env-file build/.env
-```
-
-脚本默认拉取 App/Worker 镜像，检查旧身份字段清理状态和执行中任务，停止原本运行的 scheduler 与 App/Worker，再由 App 启动入口执行 migration，启动 Worker 并检查 READY/capability，最后恢复原本运行的 scheduler。`--no-pull` 使用宿主机现有镜像；`--force` 仅允许中断执行中任务，不授权绕过一次性审计或迁移门禁。`PIXISHELF_PRE_UPDATE_HOOK` 可指定停写后、启动 App 前执行的备份检查点脚本；未配置时只警告，不会创建备份。首次升级涉及旧字段清理、后台任务二阶段退役或执行 lane 变更时，必须先完成专用流程，不能直接依赖通用脚本。
-
-发布前须在停写窗口建立数据库、媒体、配置和镜像的一致性检查点，要求见[备份与恢复基线](./backup-and-recovery.md)。任一 migration、健康检查、READY 或 capability 门禁失败时，保持 scheduler 停止并排查；容器健康不能替代 Worker READY 和 capability audit。
-
-### 退役 FULL contract 审计
-
-首次安装移除 `FULL_RECONCILE` executor 的版本前，在生产部署目录执行以下只读查询。它直接使用 PostgreSQL
-容器中的生产用户和数据库名，不要求宿主机存在目标版本源码：
-
-```bash
-sudo docker compose \
-  --env-file .env \
-  -f docker-compose.yml \
-  exec -T postgres \
-  sh -c 'exec psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -P pager=off -c "$1"' sh \
-  "SELECT id, status, \"definitionVersion\", \"createdAt\", \"availableAt\", \"workerId\", error
-   FROM system_jobs
-   WHERE type = 'SCAN'
-     AND payload->>'mode' = 'FULL_RECONCILE'
-     AND status IN ('PENDING', 'RETRY_WAIT', 'RUNNING', 'PAUSING', 'PAUSED', 'CANCELLING')
-   ORDER BY \"createdAt\", id;"
-```
-
-结果必须是 `(0 rows)`。终态 `COMPLETED / FAILED / CANCELLED / SKIPPED` 记录无需删除，它们继续用于历史展示。
-如果存在非终态记录，先保持旧 Worker，逐项确认后完成或取消；不得直接改 payload、伪造终态或跳过审计。确认结果为零后应立即执行升级。
-
-### 静音音轨语义迁移与一次性校准
-
-发布把 `MediaVideoMetadata.hasAudio` 的语义从“可能存在音频流”收紧为“检测到可听内容”，并新增三个 nullable 章节实测字段。生产首次上线该版本时按以下顺序执行：
-
-1. 停止 scheduler，等待或取消活动 writer 任务；按[备份与恢复基线](./backup-and-recovery.md)建立 PostgreSQL custom-format dump、原媒体、派生媒体、配置和镜像 digest 的一致性检查点。
-2. 部署 nullable migration、新 App/Worker 和 v3 合并脚本；保持 scheduler 关闭，确认 Worker READY 和 capability audit 通过。
-3. 在管理任务页对“视频媒体探测与封面生成”执行一次“校准现有有音频”。该模式只选择任务创建时已有的 `hasAudio=true`，不重建健康封面或章节截图。
-4. 检查任务结果的剩余数为 0、视频探测失败数为 0；再运行或检查章节截图增量任务，确认章节音频失败数为 0。环境类失败修复后可重复运行校准模式，`probeUpdatedAt` 检查点会跳过同一任务重试中已成功的真实有声项。
-5. 抽样验证已知纯静音、真实有声和逐章混合视频，再恢复 scheduler。纯静音合并视频可以保留 AAC 流，但视频级和章节级均应显示无音频。
-
-这次校准不批量改写旧 `chapters.json`、不重新编码视频，也不重新生成健康封面或章节截图。应用回滚时保留 nullable 字段；若必须撤销已经写入的校准结果，恢复发布前完整检查点，不要只恢复数据库或手工把所有记录改回 true。
-
-## 标准生产升级（手动流程）
-
-以下命令都从仓库根目录执行，并显式指定环境文件和 Compose 文件：
-
-```bash
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml ps
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml ps -a
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop scheduler
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop worker app
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml \
-  up -d --remove-orphans --no-recreate postgres imgproxy
-docker ps -a --filter label=com.docker.compose.service=archive-worker \
-  --format '{{.ID}} {{.Names}} {{.Status}}'
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop app worker
 ```
 
-最后一条命令必须没有输出。`--remove-orphans` 要在停写后、专用审计和 lane migration 前执行；否则旧版本 Compose 创建的 `archive-worker` 虽已从新文件删除，仍会继续运行并可能在新 schema 上领取归档任务。执行前先核对同一 Compose project 的服务清单，避免把仍需保留的自定义 orphan 当成目标版本服务。
-
-停止 App、Worker 和外部写入者后，使用目标版本源码或一次性新 App 镜像连接旧数据库执行专用只读审计：
+完成停写、专项审计和一致性备份后：
 
 ```bash
-pnpm --filter @pixishelf/next archive:lane-cutover-audit
-```
-
-退出码 `0` 才能继续；退出码 `2` 表示存在业务或消费者阻断项，退出码 `1` 表示审计本身失败。普通兼容任务的
-`PENDING`、`PAUSED`、`RETRY_WAIT` 可以保留，但其 type/version 必须在新 Worker 的 capability inventory 内；
-`FULL_RECONCILE` 是额外的 payload 级例外，必须按上一节清零。当前 inventory 为 34 个 job type、39 个
-type/version 组合，其中 `SCAN` 支持 v1/v2/v3、`ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3、其余 31 类只支持 v1。专用审计只检查数据库状态；上一步“旧
-`archive-worker` 容器为零”的结果必须单独记录。
-
-审计通过后，在同一个停写窗口建立 PostgreSQL、原媒体、派生媒体、配置和旧/新镜像 digest 的一致性检查点。lane migration 会拒绝 `RUNNING/PAUSING/CANCELLING` 任务或未过期的 `global/background-worker` lease，并删除已经过期的旧全局 lease；它不是停止并发写入者的替代品。
-
-停止写入者并完成一致性备份后执行迁移。新版没有停止消费的环境开关，Worker 启动前须准备好处理等待队列。退役第一阶段按[专用手册](../deployment/background-task-retirement.md)补充预检。
-
-拉取镜像并启动基础服务。迁移必须由一次性目标 Web 镜像执行完成，不能先开放会接收请求的 App：
-
-```bash
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml pull postgres imgproxy app worker scheduler
+docker compose --env-file build/.env -f build/docker-compose.deploy.yml pull app worker
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d postgres imgproxy
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml run --rm --no-deps \
   --entrypoint prisma app migrate deploy --schema=packages/pixishelf-db/prisma/schema.prisma
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d worker
-```
-
-普通版本中 App entrypoint 也会在启动 Next.js 前执行 `prisma migrate deploy`，但 lane 直切必须把 migration 与开放 App 分开。migration 失败时立即停止，不得使用 `db:push`、手工删列或盲目标记 migration 完成。迁移一旦替换为按 lane 的执行索引，就禁止启动不理解双 lane 的旧消费者。
-
-启动后的运行验证（此时 Worker 已可能消费）：
-
-```bash
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml ps
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/healthcheck.cjs --mode=ready
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/capability-audit.cjs
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml logs --tail=200 worker
-```
-
-READY 必须显示两个 lane 都可领取，capability audit 必须精确报告 34 个 job type、39 个 type/version 组合、
-`SCAN` v1/v2/v3、其余 v1 及正确 lane；`/livez` 只能证明进程存活，不能替代上述门禁。`SCAN@v3` 把
-`AUDIT_APPLY` 与只读 `SCAN@v2` 隔离：滚动部署期间旧 v2 Worker 不会领取 v3 写任务，但发布门禁仍要求新
-Worker 明确报告 v1/v2/v3 后才能开放 App 写入口。验证通过后启动 App 并完成登录和媒体抽样。
-
-```bash
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d app
 ```
 
-同时验证登录、画廊查询、原图片、静态视频封面、封面缺失占位和原视频播放。
+capability 必须与目标镜像的 [`production-capabilities.ts`](../../packages/pixishelf-worker/src/production-capabilities.ts) 中完整 type/version/lane inventory 一致。不要用固定任务数量或 `/livez` 代替 READY/capability 门禁。新 App 入口只能在配套 Worker 能力就绪后开放。
 
-确认无阻断后，复核 Worker 并启动 scheduler：
+已完成所有专项升级的日常版本可以使用：
 
 ```bash
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/healthcheck.cjs --mode=ready
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T worker node dist/capability-audit.cjs
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml up -d scheduler
+sudo bash ./scripts/update-production.sh \
+  --compose-file build/docker-compose.deploy.yml --env-file build/.env
 ```
 
-最终 `ps` 和管理页面必须同时证明：
+脚本成对更新 App/Worker，并恢复原本运行的 scheduler；默认拉取镜像。`--no-pull` 使用已有镜像；`--force` 仅允许中断执行中任务，不豁免审计和备份。`PIXISHELF_PRE_UPDATE_HOOK` 是停写后的可执行检查点脚本；未配置时更新脚本只警告，**不会自动创建备份**。脚本先启动 App，由 entrypoint 迁移，再启动 Worker，因此首次跨越专用迁移边界应使用上方显式流程。
 
-- App、PostgreSQL、ImgProxy 正常；
-- 只有一个当前 Worker 为 READY；
-- Worker 报告两个 lane READY，且 capability 精确为 34 个 job type / 39 个 type-version 组合（`SCAN`
-  v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3，其余 31 类 v1）；
-- scheduler 的启用状态符合预期；
-- 没有异常积压、重复 claim、媒体 404 或 migration 漂移。
+## 运行验证与观察
 
-归档专项冒烟还必须证明：连续添加 URL 不等待前项解析；刷新后 FIFO/attempt/pause 保持；resolver 与 writer 可各运行一项；任何时刻没有第二项 writer；已就绪项目能在其余解析期间入队；旧等待任务可以由新 Worker 继续处理。
+- 开放调度前：实际 HTTPS 登录和 Cookie、画廊查询、原图/视频、派生封面与缺失占位、一个低风险任务、控制操作、两个 lane READY 和 capability 全量匹配。
+- 归档变更：连续收件不阻塞、刷新后状态保留、解析与写入可并行、同 lane 无重叠、旧等待任务可继续；具体验收见[归档收件箱](../features/archive-intake.md)。
+- 24–72 小时：异常日志、任务积压/重试、租约、媒体 404、磁盘增长和日志轮转。
+- 至少覆盖一次上海时区夜间计划窗口；涉及迁移/退役时按专用手册完成更长观察期，记录真实任务和自动 GC。
 
-## 发布后观察
+全部通过后再恢复原本启用的 scheduler。每次发布记录日期、环境、源码版本、镜像 digest、备份集合、审计/验证结果和未覆盖项；记录放在[运维记录](../records/operations/)，不要把测试数字追加到本基线。
 
-- 立即：登录、核心查询、任务创建/控制、Worker READY、媒体读写；
-- 24 小时：错误日志、任务积压、租约、派生媒体失败和磁盘增长；
-- 72 小时：失败/重试趋势、长任务耗时和日志轮转；
-- 至少一个完整的上海时区 `00:00–08:00` 窗口：计划物化、deadline 和 `SKIPPED` 行为；
-- 7–14 天：确认只有一个通用 Worker 服务、两个 lane 没有同 lane 重叠，并复核收件与维护任务容量趋势。
+## 故障分流与回退
 
-## 故障与回滚入口
+| 症状                          | 首先检查                                               | 处置入口                                                |
+| ----------------------------- | ------------------------------------------------------ | ------------------------------------------------------- |
+| migration 或 READY 失败       | migration 历史、挂载权限、FFmpeg/FFprobe、目标版本能力 | 保持 App/调度关闭，修复预检；不绕过门禁                 |
+| 重复 claim、租约/状态异常     | 其他消费者、任务/领域状态与日志                        | 停 scheduler、App/Worker 及外部写入，保存现场           |
+| 登录、来源或媒体失败          | 可信代理、Cookie、Token、路径、网络/远端限制           | [权限边界](../security/access-control.md)、对应功能规格 |
+| 文件或领域状态不一致          | manifest、报告、原件与检查点                           | [领域恢复](./runbooks/domain-recovery.md)               |
+| 数据库/原媒体损坏或不兼容降级 | 完整恢复集合及检查点后损失                             | [完整恢复](./backup-and-recovery.md#灾难恢复顺序)       |
 
-出现重复消费、任务异常或 Worker 不稳定时，先执行可逆隔离：
+服务级回退只允许使用兼容现有 Schema、payload 与 lane 的配套 App/Worker。**双 lane 迁移、旧身份字段删列或后台任务二阶段删列后，不能仅换旧镜像。** 无法证明兼容时优先前向修复；必须降级则在隔离验证后恢复同点集合。不要删除卷、盲清锁或在执行中任务存在时强制回滚 Schema。
 
-1. 停止 scheduler；
-2. 停止 App、Worker 和外部写入者；
-3. 核对执行态与租约，确认没有新的任务创建和 claim；
-4. 保存 App、Worker、PostgreSQL 日志和任务状态；
-5. 不在存在活动任务时强制回滚 Schema。
-
-lane migration 后，服务级回滚只能使用兼容新 schema、当前 capability inventory 和双 lane 的 App/Worker，或以前向修复继续。旧消费者不能作为应用级回滚目标；需要回到旧消费者时，必须恢复切换前同一检查点的数据库、原媒体、派生媒体、配置和镜像。
-
-恢复时必须使用同一时间点的数据库和媒体快照，不能只恢复其中一侧。任何删除数据库卷、覆盖媒体目录或回滚 migration 的操作都必须单独确认目标与备份，不属于日常故障排查步骤。
-
-## 当前安全开关与历史边界
-
-- 两枚 Dispatcher 开关已删除，旧 false 配置不能阻止消费；维护必须停止服务；
-- App 镜像负责 migration，Worker 镜像只做 Schema 预检；
-- `ArchivePreviewSession` 表暂时保留用于兼容观察，过期记录由收件保留任务清理；本次不做破坏性 Schema contract；
-
-相关材料：
-
-- [Build 与部署资产](../../build/README.md)
-- [当前架构](../architecture/current-architecture.md)
-- [权限与接口边界](../security/access-control.md)
-- [备份与恢复基线](./backup-and-recovery.md)
-- [阶段 1–7 切换记录](../deployment/background-task-cutover-deployment.md)
-- [归档收件箱](../features/archive-intake.md)
-- [归档收件箱切换记录](../deployment/archive-intake-cutover-deployment.md)
-- [历史兼容回滚手册](../deployment/background-task-cutover-rollback.md)
-
-## 创作者关系升级
-
-部署 20260908120000_unify_artwork_creators 前停止旧写入者并验证一致备份，执行 db:generate、db:deploy，App/Worker 同步升级。Worker schema 门禁检查新关系表、维护表和有效关系视图；capability 必须包含 CREATOR_MAINTENANCE@v1（BACKGROUND_WRITER）。旧作品的兼容归属由迁移回填；E-Hentai 历史标签补全从管理艺术家中的「来源映射与历史补全」生成逐项预览后执行。恢复限制见[功能规格](../features/creator-relations.md)。
-
-## Pixiv 根身份升级
-
-部署 `20260911120000_add_pixiv_root_identity` 前保存检查点并停止旧 Worker。新 Worker 使用图库 `.pixishelf-root` UUID；旧库设备信息变化或缺失时先完成一次人工绑定，再启动消费者导入新批次。没有新增环境变量或 App 写权限。详见 [Pixiv 扫描根身份](../features/pixiv-root-identity.md) 的部署及命令流程。
-
-## 2026-09-16 上传者名称配置兼容
-
-本次无需 DDL 或历史回填，标题条件 JSON 新增可选名称条件与展示名称，名称优先版本引入 ARCHIVE_SEARCH_SCAN v2，后续多上传者扩展升级为 v3。先发布可读取新 JSON、执行 v1/v2/v3 的 App/Worker，再开放入口；当前生产门禁为 34 类任务、39 个版本组合。新数据存在后不能直接回滚旧 App（旧严格校验器不能读取新字段），应保留兼容读取版本或前向修复。需要完整降级时依照同一检查点恢复数据库、媒体、配置和镜像，不原地删除新条件或历史记录。
-
-### 多上传者限定升级
-
-新增标题条件 `uploaders` 与 ARCHIVE_SEARCH_SCAN v3；本次无 DDL、无历史回填。Worker 保留 v1/v2/v3，能力门禁更新为 34 类/39 个版本。开放多账号入口前先更新兼容 Worker 与 App；只支持 v1/v2 的 Worker 不会领取新任务。已有多账号来源后不得回退至不识别新 JSON 的 App/Worker，优先前向修复。
-
-## 发现来源批量扫描发布
-
-按备份与恢复基线建立发布检查点后，使用 migrate deploy 应用 20260920120000_add_discovery_batch_scan，禁止 db:push。此迁移仅扩展 system_jobs_type_execution_lane_check 并新增 system_jobs_one_active_discovery_batch 部分唯一索引，无表新增或历史回填。先升级 Worker，确认双 lane READY 及 34 类/39 个版本组合，再开放新版 App 的批量入口。旧 Worker 不具备新父任务能力，也不具备暂停父批次的子任务领取保护，因此 App/Worker 必须配套升级。
-
-回退前取消所有活动批次，等待子扫描终止并确认无遗留活动子任务，再回退 App/Worker；保留扩展约束和索引，不删除已发现目录或重置来源游标。完整恢复依赖同一发布检查点的数据库、媒体与配置，不能只恢复队列表。
-
-后台任务退役第二阶段须显式审计后迁移；已有库普通 App 启动不会自动删列。删列后不能只换旧镜像回退，须使用同点恢复集合。本实例用户已确认观察通过及二阶段部署完成，具体证据见[退役手册](../deployment/background-task-retirement.md)。
+构建资产见 [build](../../build/README.md)，发布流水线见 [GitHub 工作流](../../.github/README.md)，历史切换结果见[后台任务切换记录](../records/operations/background-task-cutover-deployment.md)与[收件箱切换记录](../records/operations/archive-intake-cutover-deployment.md)。

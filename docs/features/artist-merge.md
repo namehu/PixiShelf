@@ -41,7 +41,7 @@ sources:
 
 ## 发布与恢复
 
-迁移为 `20260921120000_artist_merge`。按[备份与恢复](../operations/backup-and-recovery.md)建立一致检查点，使用正式 generate/deploy 流程；App 和 Worker 配套升级，禁止混合旧版写入者继续运行。队列启动门禁要求新迁移和 artist_merges 表。能力清单为 32 个 job type / 37 个 type-version 组合。
+迁移为 `20260921120000_artist_merge`。按[备份与恢复](../operations/backup-and-recovery.md)建立一致检查点，使用正式 generate/deploy 流程；App 和 Worker 配套升级，禁止混合旧版写入者继续运行。队列启动门禁要求新迁移和 artist_merges 表。Worker READY 和能力审计必须与当前共享任务契约及 Registry 一致。
 
 无一键撤销。人工恢复必须比较 before/after 与当前数据，保留合并后的新归档、映射变化和用户整理；不能只恢复旧 Artist 一行或只清除 mergedIntoId。数据库保护触发器也属于恢复对象，不通过业务接口绕过。完整回退使用升级前一致检查点和对应二进制，不能只回滚二进制后继续使用旧模型写入。
 

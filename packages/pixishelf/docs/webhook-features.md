@@ -1,9 +1,11 @@
 ---
 status: current
 scope: GET/HEAD/POST /api/webhooks/scan 的认证、扫描入队、状态查询和调用示例
-last-verified: 2026-10-11
+last-verified: 2026-10-22
 sources:
-  - ../app/api/webhooks/scan/route.ts
+  - packages/pixishelf/app/api/webhooks/scan/route.ts
+  - packages/pixishelf/schemas/scan.dto.ts
+  - packages/pixishelf/types/scan-webhook.ts
 ---
 
 # Webhook 扫描功能
@@ -58,7 +60,7 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 
 ### 响应格式
 
-生产稳态启用 Central Dispatcher。POST 成功表示任务已入队，返回 HTTP `202`：
+POST 成功表示中央任务已入队，返回 HTTP `202`：
 
 ```json
 {
@@ -153,7 +155,7 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 
 无 `jobId` 的健康 GET 返回 `{ "code": 0, "message": "", "data": { "status": "ok" }, "success": true, "errorCode": 0 }`。HEAD 成功继续无正文返回 204。
 
-本次只扩展响应：POST 保留既有宽松 JSON 解析（声明 JSON 却无内容、非法 JSON 或部分非对象值仍可能使用默认值）。脚本应始终发送合法对象；明确 `{}` 是目录发现请求。迁移页面使用的 `/api/migration/stream` 则已采用 canonical 输入/错误契约，不适用 Webhook 兼容例外。
+POST 保留兼容的宽松 JSON 解析（声明 JSON 却无内容、非法 JSON 或部分非对象值仍可能使用默认值）。脚本应始终发送合法对象；明确 `{}` 是目录发现请求。迁移页面使用的 `/api/migration/stream` 则已采用 canonical 输入/错误契约，不适用 Webhook 兼容例外。
 
 常见状态码：
 
@@ -176,7 +178,7 @@ SCAN_WEBHOOK_TOKEN="your-secure-random-token-here"
 ```bash
 #!/bin/bash
 
-API_URL="http://localhost:3000/api/webhooks/scan"
+API_URL="http://localhost:5430/api/webhooks/scan"
 TOKEN="your-secure-random-token-here"
 
 curl -X POST "$API_URL" \
@@ -192,7 +194,7 @@ curl -X POST "$API_URL" \
 ```bash
 #!/bin/bash
 
-API_URL="http://localhost:3000/api/webhooks/scan"
+API_URL="http://localhost:5430/api/webhooks/scan"
 TOKEN="your-secure-random-token-here"
 
 # 指定要扫描的元数据文件相对路径
@@ -222,3 +224,5 @@ curl --get "$API_URL" \
 ```
 
 `PENDING`、`RUNNING`、`PAUSING`、`RETRY_WAIT` 和 `CANCELLING` 尚未结束；`COMPLETED` 表示成功；`FAILED`、`CANCELLED` 和 `SKIPPED` 是未成功完成的终态。`PAUSED` 需要管理员处理，自动化调用方不应无限轮询。
+
+认证和敏感数据规则见[权限边界](../../../docs/security/access-control.md)，通用错误与兼容例外见[HTTP 响应契约](../../../docs/security/http-response-contract.md)。本文是外部调用参考，不记录单次发布结果。

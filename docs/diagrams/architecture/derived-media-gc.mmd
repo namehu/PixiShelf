@@ -1,0 +1,12 @@
+flowchart TD
+  PRODUCER[封面、章节图、流优化等发布器] --> INTENT[登记 DerivedMediaGcEntry\nrelativePath、reference、notBefore]
+  INTENT --> GC[DERIVED_MEDIA_GC 每次最多选择 100 条]
+  GC --> REF1{数据库仍引用?}
+  REF1 -->|是| SKIP[SKIPPED_REFERENCED]
+  REF1 -->|否| QUAR[短事务加锁并 rename 到隔离路径]
+  QUAR --> REF2{删除前再次检查引用?}
+  REF2 -->|重新被引用| RESTORE[恢复文件并跳过]
+  REF2 -->|仍无引用| DELETE[删除隔离文件并标记 DELETED]
+  DELETE --> END[记录 job result 和事件]
+  RESTORE --> END
+  SKIP --> END

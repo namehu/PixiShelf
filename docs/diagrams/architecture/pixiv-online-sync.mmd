@@ -1,0 +1,19 @@
+flowchart TD
+  ENTRY[作品管理页] --> MODE{启动模式}
+  MODE -->|普通| UNCHECKED[全部未检查且身份唯一的 Pixiv 作品]
+  MODE -->|刷新| ALL[全部有效 Pixiv 作品\n最久未检查优先]
+  MODE -->|显式选择| SELECTED[最多 200 项]
+  UNCHECKED --> DISCOVER[DISCOVER 按稳定游标每页 200]
+  ALL --> DISCOVER
+  SELECTED --> DISCOVER
+  DISCOVER --> CHILD[每个 Artwork 幂等物化一个低优先级子任务]
+  CHILD --> VERIFY[领取时复核唯一 Pixiv ref]
+  VERIFY --> FETCH[无 Cookie 请求 Pixiv\n12 秒 / 1 MB / 安全重定向]
+  FETCH --> SNAPSHOT[按 SHA-256 原子保存不可变 JSON 快照]
+  SNAPSHOT --> FENCE[短事务锁定 Artwork 与 ref\n再次复核身份和人工文本]
+  FENCE --> FIELDS[写来源字段和同步状态]
+  FENCE --> TAGS[精确替换当前 ref 拥有的 SOURCE 标签]
+  FENCE --> SERIES[系列领域核对 / 保留人工排除与排序覆盖]
+  SERIES --> DONE
+  FIELDS --> DONE[成功 / 部分成功 / 无数据 / 失败]
+  TAGS --> DONE

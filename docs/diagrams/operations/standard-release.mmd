@@ -1,0 +1,43 @@
+sequenceDiagram
+  autonumber
+  actor M as 管理员
+  participant S as 调度与外部触发
+  participant A as App / 维护镜像
+  participant W as Worker
+  participant D as 数据库与存储
+
+  rect rgb(238, 245, 252)
+    Note over M,D: ① 发布准备与停写
+    M->>M: 核对新旧版本、迁移边界与实例配置
+    M->>S: 停止新触发
+    M->>A: 业务入口收口活动任务，再停止 App
+    M->>W: 停止全部消费者
+    M->>D: 确认没有其他写进程
+  end
+
+  rect rgb(242, 248, 239)
+    Note over M,D: ② 同点检查点与显式迁移
+    M->>D: 备份数据库、三个媒体根、配置与镜像
+    D-->>M: 清单、校验值、隔离恢复与媒体抽样
+    M->>A: 一次性目标镜像运行只读审计
+    A->>D: 检查 Schema、任务与兼容边界
+    A-->>M: 审计报告
+    M->>A: 审计通过后显式 migrate deploy
+    A->>D: 执行 migration
+    D-->>M: migration 完成及状态
+    Note over M,D: 审计或迁移失败：保持停写，保全报告并修复或恢复
+  end
+
+  rect rgb(255, 247, 233)
+    Note over M,D: ③ 恢复消费与开放入口
+    M->>W: 准备好消费后启动目标 Worker
+    Note over W,D: Worker 此时已可能领取任务
+    W->>D: Schema / 挂载 / 运行预检
+    W-->>M: 两个 lane READY 与 capability 全量匹配
+    Note over M,W: 任一门禁失败：不开放 App，不恢复调度
+    M->>A: 门禁通过后开放 App
+    M->>A: 真实登录、媒体与低风险任务抽样
+    A-->>M: 验证结果
+    M->>S: 全部通过后恢复原本启用的触发
+    M->>M: 观察并记录发布证据与未覆盖项
+  end

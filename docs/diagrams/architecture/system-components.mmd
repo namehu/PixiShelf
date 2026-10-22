@@ -1,0 +1,32 @@
+flowchart LR
+  subgraph Client[浏览器]
+    UI[页面和阅读观察]
+    Decode[WebP 浏览器 Worker / WASM]
+    UI --> Decode
+  end
+  Scheduler[scheduler] -->|内部 Token / tick| App
+  Hook[扫描 Webhook] -->|扫描 Token| App
+  App[Next.js Web / API 控制面] <-->|领域与任务事务| DB[(PostgreSQL)]
+  UI -->|认证会话| App
+  subgraph Backend[一个服务端 Worker 进程]
+    Resolve[解析 Dispatcher / 并发 1]
+    Writer[写入 Dispatcher / 并发 1]
+  end
+  Resolve <-->|claim / fence / checkpoint| DB
+  Writer <-->|claim / fence / publication| DB
+  Resolve -->|受 Provider governor 限制| Remote[远端来源]
+  Writer -->|受 Provider governor 限制| Remote
+  Writer -->|写入和验证| Media[(原媒体 / 归档 revision)]
+  Writer -->|生成| Derived[(派生媒体)]
+  Writer <-->|读写| Snapshot[(Pixiv 来源快照)]
+  App -->|认证读取 / 原媒体默认只读| Media
+  App -.->|显式允许写挂载时：上传 / 替换 / 章节写入| Media
+  App <-->|读取 / 可写挂载| Derived
+  App -->|只读| Snapshot
+  FileBoundary[writer lane 仅串行 SystemJob<br/>App 直接文件写入不在该队列<br/>数据库 fence 不回滚文件 I/O]
+  FileBoundary -.-> App
+  FileBoundary -.-> Writer
+  UI --> Img[ImgProxy]
+  Img -->|只读挂载| Media
+  Img -->|只读挂载| Derived
+  Decode -->|同源媒体请求| App

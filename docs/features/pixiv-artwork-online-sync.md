@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 已有 Pixiv 作品的在线元数据同步、来源字段所有权、磁盘快照与持久任务
-last-verified: 2026-08-27
+last-verified: 2026-10-22
 sources:
   - packages/pixishelf-db/prisma/schema.prisma
   - packages/pixishelf/server/routers/artwork.ts
@@ -59,9 +59,15 @@ pixiv_data/artworks/<pixiv-id>/sync-reports/<job-id>.json
 
 作品管理页的 Pixiv 同步列可以打开报告抽屉，分页浏览该作品的完整有效报告历史，查看字段和标签差异，并按需懒加载同步前后的 `raw` 与 `normalized` JSON。App 不开放任意文件路径，也不改变 `/api/pixiv-data` 的图片边界；管理查询会重新确认唯一 Pixiv 身份、已完成任务、报告身份、固定目录、哈希文件名、文件大小和安全路径。报告功能上线前的旧任务显示为“暂无详细同步报告”，不会误判为内容无变化。
 
+## 来源同步与人工整理
+
+![Pixiv 来源同步与人工整理泳道图](../diagrams/features/source-sync.svg)
+
+[Mermaid 源文件](../diagrams/features/source-sync.mmd)。依据：`pixiv-artwork/executors.ts` 的发布事务、`series-sync.ts` 与报告存储实现。这里的“刷新已有资料”是显式采用来源值；请求期间的新人工编辑仍优先。
+
 ## 字段所有权与文本保护
 
-同步会更新当前 Pixiv 引用拥有的统计、来源 URL、尺寸、发布日期、限制级别、AI、作品类型和 sanity 字段，但不修改 Artist、Series、媒体、媒体顺序、`Artwork.likeCount`、本地 metadata 或 inventory。系列信息只留在磁盘快照中。
+同步更新当前 Pixiv 引用负责的统计、来源 URL、尺寸、发布日期、限制级别、AI、作品类型和 sanity 字段，并在同一发布事务中调用系列领域核对。系列身份、成员归属、人工排除和排序覆盖遵循[Pixiv 系列来源与核对](./pixiv-series-sync.md)，系列结果不完整可使整项为部分成功。同步不修改 Artist、媒体、媒体顺序、`Artwork.likeCount`、本地 downloader metadata 或 inventory。
 
 Pixiv 的 AI 判定以 `aiType` 为准：`2` 表示 AI 生成，`1` 表示非 AI；只有旧数据缺少 `aiType` 时才回退到历史 `isAiGenerated`。本地 downloader metadata 中的 `AI生成` 是对 `aiType=2` 的重复表达，不属于 Pixiv API 的真实标签集合。
 

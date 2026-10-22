@@ -1,91 +1,42 @@
 ---
 status: current
-scope: PixiShelf 单实例的备份集合、恢复目标、验证演练和灾难恢复边界
-last-verified: 2026-09-30
+scope: 完整备份集合、一致性检查点、隔离验证与通用恢复
+last-verified: 2026-10-22
 sources:
   - build/docker-compose.deploy.yml
-  - build/.env.example
   - packages/pixishelf-db/prisma/schema.prisma
   - docs/operations/deployment.md
-  - docs/features/archive-intake.md
-  - docs/features/artwork-reading.md
 ---
 
-# PixiShelf 备份与恢复基线
+# 备份与恢复基线
 
-本文回答“必须备份什么、什么才算一套可恢复备份，以及发生故障后按什么顺序恢复”。本文提供的是单用户、单实例、Docker Compose/NAS/Linux 部署的项目基线；具体 NAS 快照、异地复制和密钥托管方式由实例管理员选择并记录。
+PixiShelf 的数据库和文件系统共同构成业务状态。只备份数据库、只复制媒体或只保留镜像，都不是完整备份。本基线适用于单实例 Compose/NAS 部署；具体快照与异地复制工具由实例管理员记录。
 
-PixiShelf 的数据库和文件系统共同构成业务状态。只备份 PostgreSQL、只复制媒体目录，或只保留容器镜像，都不能称为完整备份。
+## 恢复目标与完整集合
 
-## 恢复目标
+内部目标为完整恢复点 RPO 不超过 24 小时、最近已验证备份 RTO 半天，每季度至少完成一次隔离恢复演练。它们是运维目标，不是未测量即可保证的 SLA。高风险 migration、批量替换、迁移与清理前另建检查点，始终保留至少一套已验证的完整备份。
 
-艺术家与系列旧字段清理前，先由旧版本收口文件迁移，再创建本节要求的一致性检查点。两份删列 migration 分别提交；部分成功后也不能直接启动依赖旧字段的 App/Worker。优先修复后继续；需要回退时恢复同点数据库、媒体、配置与镜像。维护工具的清单校验不代替操作者确认外部写入者已停止或实际恢复演练。执行入口见[旧字段清理](../features/legacy-identity-retirement.md)。
+| 组成       | 必需内容                                                                          |
+| ---------- | --------------------------------------------------------------------------------- |
+| PostgreSQL | custom-format dump，包含认证、队列、领域/审计及 `_prisma_migrations`              |
+| 原媒体     | `PIXISHELF_DATA_PATH` 同点快照，包含隐藏根身份、staging、替换 manifest 和恢复文件 |
+| 派生媒体   | `DERIVED_MEDIA_HOST_PATH` 同点快照；数据库保存其发布指针和状态                    |
+| Pixiv data | `PIXISHELF_PUBLIC_DATA_PATH` 同点快照；作者/标签图片、作品 metadata 和同步报告    |
+| 配置       | 实际 Compose、环境文件、反向代理配置；加密或严格限制访问                          |
+| 程序版本   | 配套 App/Worker 的 tag、image ID/digest 和可取得的镜像                            |
+| 清单       | 集合 ID、时间、实例、原因、操作者、dump SHA-256、三个快照 ID、配置/镜像、验证结果 |
 
-艺术家合并需要备份 `artist_merges` 审计快照、Artist 合并标记、创作者关系与证据、来源映射、发现来源绑定、待生效与抑制记录及相关触发器。合并不移动媒体，但恢复仍必须使用一致检查点；不能仅恢复艺术家表，也不能假设清除合并标记等于撤销。逐项人工恢复与升级要求见[艺术家合并](../features/artist-merge.md)。
+同一天或相似文件名不能证明同一恢复点。staging、pending replace 和 recovery 目录是领域恢复机制，不能替代备份；它们也不能在“清理缓存”时随意删除。
 
-当前内部运维目标是：
+<a id="发布前一致性检查点"></a>
 
-- 数据库和敏感配置每天至少备份一次；
-- 原媒体与派生媒体的快照频率应使完整恢复点的 RPO 不超过 24 小时；
-- 每次高风险发布、正式 migration、批量替换或大规模迁移前创建一致性检查点；
-- 每季度至少完成一次隔离恢复演练；
-- 最近一套已验证备份的目标 RTO 为半天；
-- 始终保留至少一套最近且已经验证可以恢复的完整备份。
+## 建立一致性检查点
 
-这些是项目内部目标，不是对外 SLA。媒体快照频率、数据规模、NAS 性能和异地副本可用性都会影响实际 RPO/RTO；未测量的恢复时间不能写成保证。
-
-## 一套完整备份包含什么
-
-| 数据类别   | 必需内容                                           | 说明                                                                             |
-| ---------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
-| 业务数据库 | PostgreSQL custom-format dump                      | 包含领域数据、认证、队列、审计和 `_prisma_migrations`                            |
-| 原媒体     | `PIXISHELF_DATA_PATH` 对应的同时间点快照           | 不可重新生成，是最高优先级数据                                                   |
-| 派生媒体   | `DERIVED_MEDIA_HOST_PATH` 对应的同时间点快照       | 多数可重建，但数据库保存发布指针和生成状态                                       |
-| Pixiv data | `PIXISHELF_PUBLIC_DATA_PATH` 对应的同时间点快照    | 作者图片、标签封面、作品元数据快照和同步报告；数据库保存最近路径、哈希与检查状态 |
-| 部署配置   | `build/.env`、实际 Compose、反向代理配置           | 含密钥和真实路径，必须加密或严格限制权限                                         |
-| 程序版本   | App、Worker 的 tag、image ID 或 digest             | 不依赖可变 `latest` 猜测恢复版本                                                 |
-| 备份清单   | 时间、实例、文件名、SHA-256、快照 ID、操作者、原因 | 用于证明各部分属于同一恢复点                                                     |
-
-数据库 dump、媒体快照和配置副本必须通过同一个备份清单关联。文件名相似或处于同一天，不足以证明它们来自同一时间点。
-
-应用在替换、归档或迁移过程中产生的 staging、pending replace 和 recovery 文件是故障恢复机制的一部分，不是系统备份，不能替代上述完整备份集合。
-
-WebP 时长表只是可重新探测的派生元数据，但 `sourceRevision` 与 `writeInProgress` 必须和原媒体处于同一恢复点。替换会话的 `.bak_session/.session-manifest.json` 是中断恢复依据，应随原媒体快照保留；缺失/损坏或旧版本无 manifest 的备份不能自动删除或猜测回滚。manifest 的 `COMMITTING` 仅表示开始提交，数据库可能已提交也可能未提交，不可自动 rollback 或重复 commit；必须核对数据库 Image 行、媒体与备份后人工决定。普通上传中断可能留下持久门禁，需完成上传或核实原媒体后处理；不能靠超时自动把旧 READY 结果重新显示。上线前按本基线同时备份数据库和原媒体，详情见[动图时长方案](../design/animation-duration-probe.md)。
-
-App 图片分块、章节文件和替换会话以媒体目录中的 `.replace-write-lock` 串行。普通异常在写流关闭后自动释放；进程崩溃、NFS I/O 卡住或异常停机可能留下该目录，后续写请求等待最多 10 分钟，然后返回 `REPLACE_WRITE_LOCK_BUSY`/HTTP 409，绝不按 mtime 自动夺锁。恢复时先停止**所有** App 副本，确认旧写进程和文件流都已退出；核对锁的 `owner.json`、同目录原件、`.bak_session/.session-manifest.json` 的阶段与证据，并备份现场。仅确认没有活跃写入后，才移除该媒体目录中的**单个** `.replace-write-lock` 目录，再按 manifest 状态重试 init/rollback 或人工恢复。不要删除 `.bak_session` 来解除阻塞；`COMMITTING`、manifest 缺失/损坏或原件证据不匹配时，先核对数据库与同检查点媒体快照，不自动猜测恢复。锁只保护使用此入口的 App 写入，不能阻止 NAS 外部进程直接改文件。
-
-## 备份类型
-
-### 日常备份
-
-日常备份用于控制普通硬件故障、误操作和数据库损坏的数据损失窗口：
-
-1. 创建 PostgreSQL custom-format dump；
-2. 记录 dump 的 SHA-256 和 migration 列表；
-3. 由 NAS/文件系统创建原媒体和派生媒体快照；
-4. 复制当前部署配置和镜像 digest；
-5. 将数据库、三个媒体快照和配置登记成同一完整备份集合；
-6. 将至少一个副本放到与生产存储故障域不同的位置。
-
-在线数据库 dump 与普通目录复制并不天然处于同一事务时刻。只有在写入静默且底层存储能提供可协调、可验证的快照语义时，日常流程才能保持在线；否则日常备份也应使用下面的短暂停写窗口。无法证明数据库与媒体兼容的副本不能标记为完整或 `verified`。
-
-### 发布前一致性检查点
-
-正式 migration、归档架构切换、大批量替换、迁移、清理或其他可能同时修改数据库与文件的操作前，必须：
-
-1. 停止 scheduler，禁止新计划任务物化；
-2. 等待活动任务进入安全终态，或通过业务入口取消并完成恢复；
-3. 停止 App 和通用 Worker；
-4. 停止 Webhook 和所有外部写入脚本；
-5. 确认没有进程继续写数据库、原媒体或派生媒体；
-6. 在停写窗口内创建数据库 dump 和三个媒体快照；
-7. 验证各备份可读后，才启动新版本。
-
-`SCAN@v3 / AUDIT_APPLY` 是正式领域写操作。建立检查点前必须等待它完成，或通过任务控制入口完成取消收口；不能
-只把 SystemJob 改成终态。数据库备份需要同时保留父核对、apply ScanRun、逐项结果、Source Reference、Source
-Snapshot 和 inventory 状态，媒体快照则必须与这些发布结果属于同一恢复点。
-
-从仓库根目录停止 Compose 写入者：
+1. 停止 scheduler、Webhook 调用方及 NAS 同步/维护脚本等外部触发。
+2. 等待活动任务完成，或通过业务控制取消并完成恢复；不能只把 `SystemJob` 改成终态。
+3. 停止 App、Worker 及全部外部写进程，确认数据库和三个文件根均静默。
+4. 在停写窗口生成 dump、三个媒体快照和配置副本，记录旧/目标版本。
+5. 完成备份可读与隔离恢复检查，才允许目标版本恢复写入。
 
 ```bash
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop scheduler
@@ -93,246 +44,73 @@ docker compose --env-file build/.env -f build/docker-compose.deploy.yml stop app
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml ps -a
 ```
 
-`stop` 只覆盖 Compose 服务。Webhook 调用方、维护 shell 和 NAS 侧同步任务需要另行确认。
+`stop` 只覆盖该 Compose project，不能证明外部写入者已经停止。在线 dump 与普通目录复制不天然一致；只有能证明写入静默及底层快照可协调时，日常备份才可以保持服务在线，否则也使用短停写窗口。
 
-## 创建数据库备份
+## 创建与验证
 
-先在受限备份目录中生成 custom-format dump。`<backup-directory>` 必须替换为实例上的明确绝对路径，不要把备份写进 Git 仓库：
+以下为 Linux/NAS 模板，`<backup-directory>` 必须替换为仓库外明确的受限绝对目录。环境文件、dump 和真实路径不得进入 Git、工单或公开日志。
 
 ```bash
 umask 077
-
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T postgres sh -c \
   'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
   > <backup-directory>/pixishelf.dump
-
-sha256sum <backup-directory>/pixishelf.dump \
-  > <backup-directory>/pixishelf.dump.sha256
+sha256sum <backup-directory>/pixishelf.dump > <backup-directory>/pixishelf.dump.sha256
 ```
 
-同时导出 migration 历史，便于确认恢复版本：
-
-```bash
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T postgres sh -c \
-  'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\''SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY started_at;'\''' \
-  > <backup-directory>/prisma-migrations.txt
-```
-
-通过 NAS 或文件系统工具为以下宿主机目录创建快照，并把真实快照 ID、创建时间和只读访问位置写入备份清单：
-
-- `PIXISHELF_DATA_PATH`：原媒体；
-- `DERIVED_MEDIA_HOST_PATH`：封面、章节图、代表帧和其他派生媒体。
-- `PIXISHELF_PUBLIC_DATA_PATH`：Pixiv 作者图片、标签封面、作品元数据不可变快照和按任务保存的同步报告。
-
-备份部署配置时至少保留实际 Compose、环境文件和反向代理配置。环境文件权限不得宽于仅管理员可读，例如：
-
-```bash
-chmod 600 <backup-directory>/config/env
-```
-
-不要在终端日志、工单、Git 或公开文档中输出环境文件内容。
-
-## 备份验证
-
-一套备份只有通过以下检查后，才能标记为 `verified`：
-
-1. SHA-256 与清单一致；
-2. `pg_restore --list` 可以读取 dump；
-3. dump 可以恢复到隔离 PostgreSQL 数据库；
-4. `_prisma_migrations` 没有失败或无法解释的记录；
-5. 核心表数量和抽样关系合理；
-6. 原媒体和派生媒体快照都能挂载或只读访问；
-7. 抽样 Artwork 的数据库路径、媒体顺序、原文件和派生文件可以互相对应；
-8. 恢复使用的 App/Worker 镜像 digest 和配置副本可取得。
-
-先执行非恢复性检查：
+同时保存 migration 列表、三个 NAS/文件系统快照 ID 与只读访问位置、实际配置和镜像 digest。配置副本应仅管理员可读。备份至少一个副本到不同故障域；同磁盘目录副本不是灾难备份。
 
 ```bash
 sha256sum --check <backup-directory>/pixishelf.dump.sha256
 docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T postgres \
-  pg_restore --list \
-  < <backup-directory>/pixishelf.dump
+  pg_restore --list < <backup-directory>/pixishelf.dump
 ```
 
-隔离恢复示例使用一个专门的验证库。不要把示例数据库名替换成生产库，也不要在仍有 App 或 Worker 连接时执行恢复：
+`pg_restore --list` 只证明可读取，不证明可恢复。标为 `verified` 前必须在明确的隔离 PostgreSQL 空库完成恢复，并核对：
+
+- dump 校验值与清单一致，migration 无失败或无法解释的状态；
+- 核心表计数、作品/媒体顺序、来源、归档版本、任务与认证关系合理；
+- 三个媒体快照均可访问，抽样数据库指针、原件、派生文件及 Pixiv 快照相互匹配；
+- 对应 App/Worker 镜像及配置可取得，隔离环境不会访问生产根或消费生产任务。
+
+恢复命令模板只用于已经核对的隔离空库：
 
 ```bash
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T postgres sh -c \
-  'createdb -U "$POSTGRES_USER" pixishelf_restore_verify'
-
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T postgres sh -c \
-  'exec pg_restore -v -U "$POSTGRES_USER" -d pixishelf_restore_verify --no-owner --no-privileges' \
-  < <backup-directory>/pixishelf.dump
-
-docker compose --env-file build/.env -f build/docker-compose.deploy.yml exec -T postgres sh -c \
-  'exec psql -U "$POSTGRES_USER" -d pixishelf_restore_verify -c '\''SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY started_at;'\'''
+pg_restore --verbose --no-owner --no-privileges \
+  --dbname='<isolated-empty-database-url>' <backup-directory>/pixishelf.dump
 ```
 
-随后使用只读 SQL 检查 Artwork、Image/Media、ArchiveRevision、SystemJob 和认证记录，并与媒体快照抽样对应。验证库的清理是独立的破坏性步骤，确认名称和连接目标后再执行，不复制到自动化生产脚本中。
+连接秘密通过受控环境或凭据文件注入，不把真实 URL 写入命令记录。验证库清理是独立步骤，不能把生产库名代入示例，也不能将清理直接拼进生产备份脚本。
 
 ## 灾难恢复顺序
 
-只有服务重启、应用回滚和领域级修复都不能证明数据一致时，才进入完整恢复：
+![恢复决策](../diagrams/operations/recovery-decision.svg)
 
-1. 停止 scheduler、App、通用 Worker 和所有外部写入者；
-2. 保存事故现场：数据库 dump、容器日志、任务/事件清单和本次新增文件；
-3. 确定恢复点，并核对数据库、原媒体、派生媒体、配置和镜像属于同一备份集合；
-4. 在隔离环境完成一次数据库恢复和媒体抽样；
-5. 评估恢复点之后将丢失的数据，并由实例管理员明确批准正式覆盖；
-6. 使用 NAS/文件系统工具恢复三个媒体目录到目标快照；
-7. 将数据库恢复到新建的空库或新实例；
-8. 恢复匹配版本的配置和不可变镜像，不混用旧数据库与不兼容的新应用；
-9. scheduler（若配置）与 Worker 保持停止；当前版本启动 Worker 即消费，已退役的 Dispatcher 开关不能阻止执行；
-10. 验证 migration、登录、目录查询、原图、视频、派生媒体、任务状态、两个 lane 与当前 capability inventory；
-11. 再按[部署基线](./deployment.md)明确启动正确消费者和 scheduler。
+[图源](../diagrams/operations/recovery-decision.mmd)。决策依据是数据一致性和版本兼容性；重启成功不证明数据已经恢复。
 
-正式数据库恢复禁止对仍有应用连接的生产库直接执行 `pg_restore --clean`。推荐恢复到新建空库并显式切换连接；数据库名、所有者、扩展和权限必须与目标版本要求一致。
+1. 停止所有写入者，保全事故 dump、日志、任务/事件、manifest 和新增文件。
+2. 选择完整备份集合，评估检查点之后会丢失的数据；先在隔离环境恢复并核对媒体。
+3. 由实例管理员明确批准正式覆盖及数据损失后，将三个媒体根恢复到对应快照，数据库恢复到**新建空库/新实例**。
+4. 恢复匹配配置和不可变 App/Worker 镜像；先保持 Worker、scheduler 和外部触发停止。
+5. 核对 migration、数据库/文件一致性和兼容性；准备好消费后，按[标准发布](./deployment.md#标准发布)启动 Worker，验证 READY/capability，再开放 App 与调度。
+6. 记录恢复点、实际损失、耗时、验证结果及未覆盖项，持续观察。
 
-执行 lane migration 后，旧 `archive-worker` 和任何不理解双 lane 的 Worker 都不能在新 schema 上启动。服务级回滚必须使用兼容双 lane schema 的 App/Worker；若必须回到旧消费者，只能恢复归档收件箱切换前同一检查点的数据库、原媒体、派生媒体、配置和镜像。旧[兼容回滚手册](../deployment/background-task-cutover-rollback.md)仅用于理解更早发布，不能照搬到当前 schema。
+禁止对仍有应用连接的生产库直接执行 `pg_restore --clean`。旧数据库不得配不兼容新代码；双 lane、身份删列和任务退役二阶段之后也不得仅换旧镜像。旧 Dispatcher 开关不能阻止 Worker 消费。
 
-### 归档收件箱直切检查点
+## 局部故障与保留红线
 
-双 lane 迁移会把全局执行索引和租约边界替换为按 lane 约束，是旧 Worker 的明确回滚边界。切换检查点除完整备份集合外还必须记录：
+| 情况             | 原则                                                                                                                                          |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 仅派生媒体丢失   | 先停止相关任务、枚举已发布指针，再受控重建；不把空目录视为已清理，不拼接异时快照                                                              |
+| 仅数据库损坏     | 较新媒体可能包含归档/替换/迁移结果；必须配套恢复或逐项证明可领域修复                                                                          |
+| 原媒体损坏       | 原件不可重新生成；停写和自动清理，保全故障现场，选择与数据库兼容的快照                                                                        |
+| 替换/上传中断    | 保留 `.replace-write-lock`、`.bak_session` 与 manifest；按[领域恢复](./runbooks/domain-recovery.md#上传与替换中断)核实，禁止按 mtime/超时盲清 |
+| 纯数据库关系补全 | 仅在专用手册明确文件零变化且没有其他并发写入时，才可使用该操作的数据库检查点恢复                                                              |
 
-- `archive:lane-cutover-audit` 的时间、退出码和脱敏报告；
-- 迁移前后 `_prisma_migrations`、等待任务 type/version/status 和领域/媒体数量；
-- App/Worker 新旧镜像 digest，以及确认旧消费者未运行的证据；
-- 新 Worker READY、两个 lane、31 个 job type / 36 个 type-version 组合（`SCAN` v1/v2/v3、`ARCHIVE_IMPORT` v1/v2、`ARCHIVE_SEARCH_SCAN` v1/v2/v3，其余 28 类 v1）和同
-  lane 单执行证据；
-- 收件 FIFO、resolver/writer 同时推进和 writer 不重叠的冒烟结果。
+具体删除、创作者合并、根标记、来源同步、阅读与批次恢复见[领域恢复手册](./runbooks/domain-recovery.md)。破坏性升级前的附加条件见[专项升级门禁](./runbooks/schema-and-capability-upgrades.md)。
 
-旧 `ArchivePreviewSession` 不要求在切换中转换；它由 30 天收件保留任务过期清理。收件历史清理不是备份策略，也不会删除 `ArchiveImport`、`SystemJob`、`Artwork`、`ArchiveRevision` 或媒体。
+- 下一套备份验证成功前不得删除最后一套已验证备份；发布检查点至少保留到版本稳定、回退窗口关闭及下一次恢复演练通过。
+- dump、配置和媒体元数据可能含账户、路径与秘密，须限制访问、加密和记录读取者；备份副本应跨故障域。
+- 定期检查容量、快照保留及异地复制告警，不能只记录“备份作业已启动”。
 
-### Pixiv AI 派生标签历史回填
-
-`PIXIV_AI_DERIVED_TAG_SYNC` 的只读预检不会修改数据库，可以在正常读流量下运行。正式回填会分批修改 `ArtworkTag.provenance`、补建或删除派生关系，属于大批量领域关系变更；执行前必须完成 PostgreSQL 一致性备份并记录任务预检结果。恢复单位是数据库检查点，不需要回滚媒体目录；不要用反向脚本猜测原 provenance。若正式任务中断，保持 App/Worker 版本不变后重试同一模式即可，任务的唯一约束和 provenance 条件会跳过已完成或被人工接管的关系。
-
-### 历史归档默认标签补全
-
-`ARCHIVE_DEFAULT_TAG_BACKFILL` 的弹窗预览只读；点击确认后会分批新增 `ArtworkTag` 关系，属于大批量领域关系变更。正式执行前必须完成 PostgreSQL 一致性备份并记录预览摘要、冻结的标签 ID、作品 ID 上界和任务 ID。该任务不修改媒体文件，恢复单位是数据库检查点，不要求为本次操作单独回滚媒体目录。取消会保留已经提交的关系；修正配置后重新运行会依靠唯一约束跳过已存在关系。若需要撤销已提交结果，必须恢复数据库检查点，不能按标签 ID 反向删除，因为同一 `MANUAL` 关系可能已被后续人工操作继续使用。
-
-## 局部故障边界
-
-### 作品删除与目录清理
-
-本地作品删除先展示文件清单：安全的登记媒体固定选中，目录内普通附属文件（含隐藏文件和子目录文件）默认全选，可由管理员取消。文件直接删除，不进入系统回收站；执行前需核对清单和已有备份/快照。
-
-选中文件有真实删除失败时保留作品及媒体记录，可重新预览并重试；已删除文件记为缺失，不会自动恢复。文件成功后，Image 和 Artwork 在同一事务删除，数据库任一步失败会回滚两类记录，但不会恢复文件。空目录在事务成功后清理。不能把再次执行当作回滚；按报告 UUID 核对日志并下载明细保存路径、依据和时间，再决定恢复。
-
-删除报告只在当次页面内存中保留，不是持久历史或备份。文件恢复必须使用兼容的数据库/媒体快照；目录本身可按明细重新创建。回退应用版本不恢复已删内容。本次无 migration、不清理历史残留；验证只使用临时 fixture 和隔离 PostgreSQL。部署回退应将页面与删除 API 一起回退，因为执行输入已从整数 ID 改为作品 ID 与明确选择。大批量正式清理仍须先建立本文的一致性检查点。完整规则见[作品删除与删除总结](../features/artwork-deletion.md)。
-
-### 只有派生媒体丢失
-
-派生媒体通常可以从已验证的原媒体重新生成，但数据库保存已发布 generation、路径和任务状态。不要把空目录直接当成“已清理完成”，也不要从另一个时间点恢复派生目录。应先停止相关任务，枚举受影响发布指针，再通过受控重建或领域恢复流程修复。
-
-### 只有数据库损坏
-
-不能仅恢复数据库后继续使用较新的媒体目录。较新的归档、替换、迁移、Pixiv 图片或作品元数据快照可能与旧数据库无法对应；必须选择与 dump 配对的三个媒体快照，或逐项证明差异可通过领域恢复消除。
-
-### 只有原媒体损坏
-
-原媒体不可重新生成。立即停止写入和自动清理，保留故障存储状态，使用与数据库兼容的原媒体快照恢复；如需回退到更早快照，应同时评估数据库和派生媒体是否必须回到同一恢复点。
-
-## 保留与安全
-
-- 保留策略可以按容量采用每日、每周、每月分层，但不能在下一套备份验证成功前删除最后一套已验证备份；
-- 发布前检查点至少保留到该版本稳定、回滚窗口关闭且下一套恢复演练通过；
-- 数据库 dump、环境文件和配置可能包含账户、路径、Token 与私人媒体元数据，必须加密、限制访问并记录读取者；
-- 至少一个备份副本应位于与生产主机/NAS 不同的故障域；同一磁盘上的目录副本不是灾难备份；
-- 备份目录、dump、真实环境文件和恢复凭据不得提交到 Git；
-- 定期验证备份目标容量、快照保留任务和异地复制告警，不能只验证“备份作业已启动”。
-
-## 季度恢复演练记录
-
-每次演练至少记录：
-
-```text
-演练日期：
-备份集合 ID / 恢复点：
-数据库 dump SHA-256：
-原媒体快照 ID：
-派生媒体快照 ID：
-App / Worker image digest：
-隔离恢复开始与完成时间：
-检查的 migration 与核心表：
-抽样媒体及结果：
-实际 RPO / RTO：
-失败、人工步骤和改进项：
-负责人：
-```
-
-演练发现的命令错误、权限缺失、耗时超标和不一致必须进入 `TODO.md` 或对应事故记录，并在修复后重新验证。没有隔离恢复证据的备份仍应标记为“未验证”。
-
-## 创作者关系发布与恢复
-
-迁移 20260908120000_unify_artwork_creators 前沿用发布前停写检查点。数据库 dump 需包含创作者关系、证据、来源映射、维护计划及逐项审计；该变更不移动媒体。映射更正可从执行记录生成恢复原映射的预览；批次取消只停止剩余工作，不撤销已提交关系。旧 App 读取 artistId，无法呈现多作者整理结果；回滚期间停用整理入口，完整恢复依赖发布前一致检查点。详见[创作者关系](../features/creator-relations.md)。
-
-## Pixiv 扫描根标记
-
-原媒体快照必须保留根目录隐藏文件 `.pixishelf-root`，并与数据库 inventory state 的 `rootIdentity` 配对保存。外部同步不得删除或覆盖标记。首次绑定前保存数据库检查点、旧标记（如存在）、实际挂载依据及命令 before/after 输出；不清空 inventory。仅标记丢失时可在核实原图库并停 Worker 后恢复数据库原 UUID；不同或损坏的标记先调查，不覆盖。完整克隆会保留 UUID，不能用标记区分克隆副本。操作、失败恢复与兼容回滚见 [Pixiv 扫描根身份](../features/pixiv-root-identity.md)。
-
-## 2026-09-16 上传者名称配置兼容
-
-本次无需 DDL 或历史回填，标题条件 JSON 新增可选名称条件与展示名称，名称优先版本引入 ARCHIVE_SEARCH_SCAN v2，后续多上传者扩展升级为 v3。先发布可读取新 JSON、执行 v1/v2/v3 的 App/Worker，再开放入口；当前生产门禁为 31 类任务、36 个版本组合。新数据存在后不能直接回滚旧 App（旧严格校验器不能读取新字段），应保留兼容读取版本或前向修复。需要完整降级时依照同一检查点恢复数据库、媒体、配置和镜像，不原地删除新条件或历史记录。
-
-多上传者扩展新增 titleQuery.uploaders JSON 和 ARCHIVE_SEARCH_SCAN v3，无数据库迁移；旧数据及旧游标保持原格式。升级前保留旧镜像记录，恢复版本必须兼容新 JSON 和 v3 任务；出现新数据后不能直接用旧严格校验器读取，采用兼容版本前向修复，完整降级仍按配套检查点恢复。
-
-### 20260916120000_discovery_creators 发布检查点
-
-此次迁移新增发现来源固定艺术家、待生效与抑制关系，回填历史首次匹配时间及已有人工排除。迁移不会自动绑定历史发现结果。部署前按本文件建立停写一致性检查点，保存旧版本 App/Worker、数据库 dump 与媒体快照的关联清单。
-
-App 与 Worker 必须协调升级：停止写入者后运行 `pnpm --filter @pixishelf/db db:generate` 和 `pnpm --filter @pixishelf/db db:deploy`，再启动同一版本的 App/Worker。Worker schema 门禁要求此迁移已完成。禁止 `db:push`，禁止旧 Worker 与新 App 同时执行扫描，以免丢失首次命中的绑定机会。
-
-回滚依据是发布前已验证的一致性检查点；不得直接删除待生效、抑制或永久操作回执。新版本开始写入后，优先前向修复；恢复旧数据库必须与备份清单中的媒体快照匹配，并接受检查点之后的写入丢失。
-
-### 20260916160000_job_diagnostics 发布检查点
-
-统一任务诊断新增 SystemJob.currentDiagnosticExecutionId、system_job_diagnostic_reports 和 system_job_diagnostic_items。发布前按本文件建立停写一致性检查点，数据库 dump 包含完整任务、报告头、明细与 migration 历史；保留与媒体快照、配置、App/Worker 镜像的配对清单。
-
-停止写入者后运行 pnpm --filter @pixishelf/db db:generate、pnpm --filter @pixishelf/db db:deploy 并核对 migration 状态，再协调启动兼容版本 App 和 Worker，禁止 db:push。旧任务不自动拥有过去执行的完整报告；旧 Worker 也不会写入新诊断。清理计划首次手动运行先核对 dry-run 的报告/明细候选数，证据关闭后保留 90 天，到期分批删除明细但保留报告头。
-
-回滚兼容代码时保留新增列和两张表，避免丢失新执行证据；优先前向修复。需要整体恢复发布前数据库时，使用验证过的配套媒体与配置检查点，恢复前保全新诊断并明确恢复点之后的写入损失。此处是发布和恢复要求，不代表已完成生产迁移或恢复演练。功能与验收边界见[后台任务失败诊断](../features/background-job-diagnostics.md)。
-
-## 批量发现扫描恢复依据
-
-批次状态、冻结来源顺序、逐轮游标、扫描目录和父子任务关系均保存在 PostgreSQL，备份必须包含完整 SystemJob payload/result 与来源扫描表。20260920120000_add_discovery_batch_scan 为约束扩展及唯一索引迁移，无数据重写。升级前建立检查点；回退应用前取消批次并等待当前子扫描终止。Worker 重启依靠 fenced 事务与原子子任务检查点恢复，禁止手工仅修改父任务为终态。父任务基础设施失败后，通过失败来源重试或取消入口收口遗留子扫描，不删除目录或清空游标。
-
-## 作品阅读记录发布与恢复依据
-
-`20260924130000_add_artwork_reading_tracking` 为 Artwork 增加默认值为 1 的 `mediaRevision`，新建账户作品摘要和已读媒体表，不回填历史阅读。数据库 dump 必须包含两张新表、Artwork 版本和 `_prisma_migrations`；仍须与原媒体、派生媒体、配置和 App/Worker 镜像组成同一停写检查点。正式发布先完成本文件的写入者静默与备份验证，再执行 `pnpm --filter @pixishelf/db db:generate`、`pnpm --filter @pixishelf/db db:deploy`，确认 migration 状态后协调启动兼容的 App 与 Worker；禁止 `db:push`。新 Worker 的 schema 就绪门禁要求这条 migration 已完成、Artwork.mediaRevision 与两张阅读表均存在；不能在旧库上绕过就绪检查启动媒体写任务。此流程是发布门禁，不表示生产实例已经升级。
-
-完整替换、恢复和全量重建会在媒体发布事务中递增 `mediaRevision` 并清空该作品所有账户的阅读状态。普通媒体增删和排序不重置访问次数；存续媒体的已读记录仍有效。应用代码回滚时保留新增列和表，不执行破坏性反向 migration；旧版本期间必须暂停完整重建任务、旧 App 扫描及替换入口。若旧代码已经重建媒体，保存受影响作品 ID，重新升级前逐项核对并通过兼容事务清空相应阅读记录、递增版本。影响范围不明时先审计并修复，不得直接恢复阅读入口或把旧记录当作有效。需要整体恢复发布前状态时，使用已验证的数据库、媒体、配置与镜像配套检查点，并明确接受检查点后的阅读及其他写入损失。
-
-2026-09-24 的隔离 PostgreSQL 15 演练已验证空库完整 85 条迁移和一个含 3 作品、3 媒体、2 账户的非空库从 84 条迁移升级到 85 条；升级前 custom-format dump 已校验可列出内容，SHA-256 为 `CA3AACFC9DC97FA38064BFF8F33BD21BDA24CABB71E117C8E608D25B7C31D5E8`，原行数保留，三个作品版本为 1，阅读表为空。这证明该合成 fixture 的迁移路径，不替代生产数据检查点或完整媒体恢复演练。功能验收记录见[作品阅读记录与进度](../features/artwork-reading.md)。
-
-### 2026-10-06 归档继续后 Worker 重启的恢复依据
-
-生产事件证据：任务 `b5b47d83-5d8c-4efc-bcf4-a5b73fdf6fe5` 最初因媒体节点 HTTP 403 暂停；北京时间
-2026-10-06 22:20:26 和 22:21:27，第 2/3 次执行均在开始后约 0.2 秒出现
-`worker.job_domain_finalization_failed`（归档终止状态已变化），随后 `worker.dispatch_fatal` 和进程退出。
-最终 `WORKER_LEASE_EXPIRED` 是退出后的恢复结果，不能取代最初的业务错误作为根因。
-
-本次代码修复无数据库迁移，不删除暂存文件、不手动修改生产状态。按既有发布备份要求保留数据库/媒体检查点与旧镜像，
-成对更新 App/Worker 后，从后台任务详情对失败任务执行一次“重试”：新任务应绑定原归档、保留已完成图片并按原质量下载。
-核对新任务 ID、完成数、Worker 状态与新诊断。原任务作为审计历史保留；不要删除暂存或重建归档来恢复此问题。
-恢复后仍遇媒体 403 时按新诊断排查来源访问；遇 509 则等待额度恢复。这里描述恢复流程，不宣称生产已经部署或恢复成功。
-
-该实例部署目录为 `/vol1/1001/docker-compose/pixivShelf`，已确认 Worker 容器名为 `pixivshelf-worker-1`。
-读取现场日志使用 `sudo docker logs --timestamps pixivshelf-worker-1`，不假定 NAS 存在仓库的 deploy Compose 文件。
-容器名仅为本次现场记录，后续实例应先通过 `sudo docker ps -a` 核对。
-
-## 后台任务退役恢复边界
-
-第一阶段增加 legacyDisplay 和查询索引，保留旧列与双写。停写后通过只读 after 审计可回退至经验证的 v0.50.8 配套 App/Worker，保留新增列，不反向 migration；旧部署配置必须保持中央模式。二阶段通过显式审计后物理删列，不能仅换旧镜像。恢复到迁移前新建空库并使用匹配的媒体、配置和镜像；保留故障现场并评估检查点后的数据损失。升级与恢复均需数据库、原媒体、派生媒体、Pixiv data、配置和镜像的同点清单。具体步骤见[退役发布手册](../deployment/background-task-retirement.md)。
-
-## 阅读进度手动修正迁移
-
-`20261009090000_reading_manual_progress` 保留既有阅读数据，将实际阅读时间允许为空并增加状态版本。执行前按本文建立一致检查点，使用 generate/deploy，禁止 db:push。新版本可创建没有真实访问时间的手动进度记录，旧应用不能读取此类空时间；回退优先采用兼容修复版本，必须回旧版本时恢复同一检查点的数据库、媒体、配置及镜像，禁止为满足旧代码伪造阅读时间。隔离升级验证及备份可读性记录见[阅读功能规格](../features/artwork-reading.md)。
-
-## 摘要派生数据与组阅读
-
-`ArtworkSummary`、`ArtworkSummaryFeature` 可重新生成，但其版本和写入门禁必须与原媒体处于同一恢复点。组阅读已经写入的 `artwork_read_media` 属于用户记录；清除派生摘要不能撤销这些记录。上传中断应完成原上传或按替换 manifest 恢复，禁止按超时自动清除摘要门禁。新增 migration 的发布与验收见[作品摘要浏览](../features/artwork-summary.md)。
-
-## 标题规则与来源复核升级
-
-迁移 20261022000000 / 20261022001000 添加规则修订、评估、人工决定及目录版本触发器，旧来源仅回填等价规则。停写并备份数据库、配置和镜像后 generate/deploy，协调更新 App/Worker，确认 35 类任务/41 个版本组合及两条 lane。新数据存在后旧代码不理解人工决定和 v4 扫描，不能单独回退旧镜像；采用兼容版本前向修复，完整降级必须恢复同一检查点。迁移本身不清理绑定、不重算历史，发布后管理员显式预览并应用。开发恢复依据是专用 PostgreSQL 空库迁移及事务隔离的旧数据演练，不替代生产备份与发布后测试。详见[标题规则规格](../features/archive-title-rules.md)。
+季度演练记录放在 `docs/records/operations/`：日期、环境/版本、备份集合及 SHA-256、三个快照 ID、开始/完成时间、migration/关系与媒体抽样、实际 RPO/RTO、失败与人工步骤、负责人。记录可引用受控证据位置，但不提交备份或秘密。没有隔离恢复证据仍标为“未验证”。

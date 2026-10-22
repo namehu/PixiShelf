@@ -1,0 +1,18 @@
+flowchart TD
+  JOB[VIDEO_CHAPTER_PREVIEW_GENERATION] --> MODE{模式}
+  MODE -->|计划任务| INC[INCREMENTAL]
+  MODE -->|手动默认| FULL[FULL]
+  INC --> PAGE[按 imageId 分页读取有 chaptersPath 的视频]
+  FULL --> PAGE
+  PAGE --> MANIFEST[读取章节 manifest，最多 1000 章/视频]
+  MANIFEST --> HASH[计算章节 hash 和预期 WebP 路径]
+  HASH --> VALID{已有记录数量、hash、状态、路径和文件都有效?}
+  VALID -->|是| REUSE[复用全部章节图]
+  VALID -->|否| GEN[逐章尝试多个时间点\n规避黑帧并写临时 WebP]
+  GEN --> SOURCE[再次确认源视频未变化]
+  SOURCE --> PUB[短事务发布新章节图\n旧图和临时图登记 GC intent]
+  PUB --> OBSOLETE[删除超出新章节数的旧记录并登记 GC]
+  REUSE --> NEXT[下一视频]
+  OBSOLETE --> NEXT
+  NEXT --> DONE[汇总 generated/failed/reused]
+  FULL --> RECON[额外处理已移除 chaptersPath 的历史记录]

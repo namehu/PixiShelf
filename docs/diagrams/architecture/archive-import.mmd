@@ -1,0 +1,28 @@
+flowchart TD
+  URL[管理员提交最多 100 个 URL\n选择模式和画质] --> CREATE[事务创建 Submission、IntakeItem\n持久模式/画质和 ARCHIVE_RESOLVE_ITEM]
+  CREATE --> FIFO[resolver lane 按 queueOrder FIFO 领取]
+  FIFO --> REMOTE[Provider 识别、SSRF 防护、限流和远端解析]
+  REMOTE --> FROZEN[冻结规范化元数据、原始快照、媒体计划、hash\nTTL 24 小时]
+  FROZEN --> CLASSIFY{分类}
+  CLASSIFY -->|仅解析或 UPDATE| READY[READY 待人工确认]
+  CLASSIFY -->|AUTO + NEW| AUTO[resolver fenced 终态事务自动入队]
+  CLASSIFY -->|AUTO + UNCHANGED| SKIP[SKIPPED 不重复下载]
+  CLASSIFY -->|AUTO + 已有活动任务| ACTIVE[关联已有任务并保留画质]
+  CLASSIFY -->|重复来源| DUP[DUPLICATE]
+  CLASSIFY -->|瞬时失败| RETRY[RETRY_WAIT 后回队尾]
+  CLASSIFY -->|永久失败| FAIL[FAILED]
+
+  READY --> SELECT[管理员选择 ORIGINAL 或 DISPLAY 并入队]
+  SELECT --> IMPORT[事务创建/复用 ARCHIVE_IMPORT\n冻结 import items]
+  AUTO --> IMPORT
+  ACTIVE --> IMPORT
+  IMPORT --> WRITER[writer lane 领取]
+  WRITER --> CONFIG[同一 advisory lock 读取后台设置\n冻结本次媒体并发 1-8]
+  CONFIG --> STAGING[确定性 staging；按冻结并发流式下载\n大小/类型/hash/尺寸校验和实时字节计量]
+  STAGING --> ALL{所有媒体校验通过?}
+  ALL -->|否| KEEP[保留检查点和 staging\n重试或失败后由维护清理]
+  ALL -->|是| MANIFEST[Worker 写 manifest.json]
+  MANIFEST --> REV[准备不可变 revision 目录]
+  REV --> PUB[带 fence 的短事务发布]
+  PUB --> DATA[Artwork、ExternalRef、来源快照和标签、关系、Image、ArchiveRevision]
+  DATA --> CURRENT[新 revision 设为 current\n旧 revision 取消 current]

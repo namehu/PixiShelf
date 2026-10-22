@@ -1,309 +1,80 @@
 ---
 status: current
-scope: PixiShelf 当前 workspace、运行组件、依赖方向、数据边界和关键调用链
-last-verified: 2026-09-09
+scope: 系统组件、workspace 依赖、数据所有权与跨模块不变量
+last-verified: 2026-10-22
 sources:
-  - package.json
-  - pnpm-workspace.yaml
   - packages/*/package.json
   - packages/pixishelf/next.config.ts
-  - packages/pixishelf/tsconfig.json
-  - packages/pixishelf-job-*/tsconfig.json
-  - build/docker-compose.dev.yml
-  - build/docker-compose.deploy.yml
-  - packages/pixishelf-db/prisma/schema.prisma
   - packages/pixishelf-worker/src/main.ts
+  - packages/pixishelf-worker/src/create-worker-executor-registry.ts
+  - packages/pixishelf-db/prisma/schema.prisma
+  - build/docker-compose.deploy.yml
 ---
 
-# PixiShelf 当前架构
-
-本文只描述当前代码与部署基线。未来方案保留在 `draft` 功能规格或 ADR 中；历史切换过程保留在 `docs/archive/` 和 `docs/deployment/`，不得混入本文。
-
-## 系统定位与边界
-
-`packages/pixishelf-webp-player` 是私有浏览器库，默认用于 Next.js WebP 手动播放和作品详情自动浏览，无需构建或运行时开关。它提供单线程 libwebp WASM、同源 Worker、两帧队列和 Canvas 时钟；手动模式遵循文件循环次数，复用已下载输入原地重置合成器，自动浏览只播一轮；不依赖任务 Worker 或数据库。固定工具链仅在原生改动时生成随仓库保存的 prebuilt，每次 dev/build 校验并复制解码器、打包 JS 为版本化静态资源。规格、UML 和剩余真机/反代验证见 [WebP 流式播放器](../design/webp-streaming-player.md)。
-
-WebP 时长是独立的只读媒体元数据：管理员手动创建 `ANIMATION_DURATION_PROBE`，通用 Worker 的 writer lane 用隔离子进程有界解析 RIFF 头，按 Image ID 分页；结果保存在一对一 `ImageAnimationMetadata`，Next App 对作品/浏览查询批量 join 后只传递有效时长。扫描、迁移和 App 媒体写入会用源 revision/门禁失效旧结果，正常页面不逐图访问 NFS。代码设计与尚待真实 NAS 验收的边界见[动图时长方案](../design/animation-duration-probe.md)。
-
-媒体初始分类统一由 `@pixishelf/job-contracts` 的 `inferMediaTypeFromPath` 与 `needsAnimationContentScan` 提供，App 入库、Worker 扫描、待替换发现和历史 `UNKNOWN` 分类共用现有接纳白名单。PNG/WebP 初始为 `IMAGE`，GIF/APNG 初始为 `ANIMATION`，四类均以 `webpAnimationStatus=0` 待内容探测，完成后 1/2 分别对应静态 `IMAGE` / 动态 `ANIMATION`；其他受支持图片不进入动画探测，视频为 `VIDEO`，未支持后缀为 `UNKNOWN`。SVG 保持既有支持；AVIF 不在接纳白名单，历史 UNKNOWN 记录也不再由视频分类正则单独接纳。分类函数只提供初始提示，不覆盖已有确认内容结果；Worker 重扫仅在已确认类型/状态一致且源路径、大小、mtime、ctime、device、inode 全部有证据且未变时保留确认，缺少源证据或源失效时重新探测。
-
-待替换快照格式不变。新 WebP 快照使用 `IMAGE`，已有冻结 WebP `ANIMATION` 快照按原值发布和校验，不在读取时改写；发布和恢复重建媒体时均显式重新初始化内容探测。冻结类型与当前类型不同，仅对 PNG/WebP/GIF/APNG 且当前内容状态 1/2 与类型一致、冻结类型不是 VIDEO 时允许视为探测纠正；其他路径、尺寸、大小、顺序、章节及文件 hash 检查仍生效。此次无需数据库迁移或批量重写媒体，回退代码不会撤销已发布分类，旧消费者仍可读取未扩展的快照；旧版本会恢复原有粗分类差异及探测后恢复冲突，应优先前向修复，真正媒体恢复继续遵循配套数据库/媒体检查点。
-
-PixiShelf 是一个本地优先、单用户、单实例的个人媒体收藏系统。它负责导入或扫描本地收藏、维护作品与来源元数据、生成派生媒体，并提供检索、整理和浏览界面。目标用户、质量优先级和非目标以[产品基线](../product/product-baseline.md)为准。
-
-当前部署边界：
-
-- 一个 Next.js Web/API 实例；
-- 一个 PostgreSQL 数据库；
-- 一个能够领取任务的通用 Worker；
-- 原媒体、派生媒体和 Pixiv data 使用宿主机文件系统挂载；
-- ImgProxy 只读访问媒体并提供图片转换；
-- 可选 scheduler 定期调用 App 的内部接口；
-- 一个通用 Worker 进程内运行归档解析与后台写入两个固定资源通道。
-
-项目没有多租户、分布式 Worker 集群或 Kubernetes 运行承诺。
-
-## 运行时组件
-
-```mermaid
-flowchart LR
-  User[浏览器用户]
-  Webhook[扫描 Webhook]
-  Scheduler[可选 scheduler]
-  App[Next.js App\nWeb + API + tRPC]
-  Database[(PostgreSQL)]
-  Queue[(SystemJob queue)]
-  Worker[通用 Worker\n双 Dispatcher lane]
-  Source[(原媒体目录)]
-  Derived[(派生媒体目录)]
-  PixivData[(Pixiv data\nartists + tags + artwork metadata)]
-  ImgProxy[ImgProxy]
-
-  User -->|Better Auth session| App
-  Webhook -->|Bearer token| App
-  Scheduler -->|INTERNAL_JOB_TOKEN| App
-  App --> Database
-  App -->|创建与控制任务| Queue
-  Queue --> Worker
-  Worker --> Database
-  Worker -->|扫描、归档与受控文件操作| Source
-  Worker -->|FFmpeg/FFprobe/Sharp 输出| Derived
-  Worker -->|校验并发布 Pixiv 图片与作品元数据快照| PixivData
-  App -->|受鉴权只读路由| PixivData
-  ImgProxy -->|只读| Source
-  ImgProxy -->|只读| Derived
-  User -->|图片请求| ImgProxy
-```
-
-| 组件        | 当前职责                                                                         | 不负责                                  |
-| ----------- | -------------------------------------------------------------------------------- | --------------------------------------- |
-| Next.js App | 页面、Better Auth、tRPC/HTTP API、业务控制面、任务创建与状态读取                 | 生产稳态下不消费中央后台队列            |
-| PostgreSQL  | 领域数据、认证会话、任务队列、租约、事件、审计和迁移历史                         | 不保存原媒体二进制                      |
-| 通用 Worker | 按 lane 领取任务；串行解析 URL，并串行执行扫描、归档、迁移、替换、维护和视频派生 | 不执行 Prisma migration，不提供用户界面 |
-| scheduler   | 周期性调用 `/api/internal/scheduler/tick`                                        | 不访问数据库，不执行业务任务            |
-| ImgProxy    | 只读处理原图片和静态派生媒体                                                     | 不生成视频代表帧，不修改原媒体          |
-| 文件系统    | 保存原媒体、归档 staging/发布目录、派生媒体和 Pixiv data                         | 不替代数据库中的身份、状态和审计事实    |
-
-## Workspace 责任与依赖
-
-仓库由 `pnpm-workspace.yaml` 纳入 `packages/*`。主运行链与外围工具使用以下 workspace：
-
-| Workspace                  | 责任                                                    |
-| -------------------------- | ------------------------------------------------------- |
-| `@pixishelf/next`          | Next.js 主应用、API、tRPC、管理与浏览界面               |
-| `@pixishelf/db`            | Prisma Schema、migration、生成客户端和数据库守卫        |
-| `@pixishelf/job-contracts` | 后台任务类型、payload、DTO、错误码和媒体类型契约        |
-| `@pixishelf/job-runtime`   | 队列仓储、Worker 心跳、生命周期和运行时协议             |
-| `@pixishelf/job-executors` | 归档、扫描、迁移、替换、维护和视频任务实现              |
-| `@pixishelf/worker`        | 独立进程入口、配置、预检、健康服务和 Central Dispatcher |
-
-核心依赖方向：
-
-```mermaid
-flowchart TD
-  Next[@pixishelf/next] --> DB[@pixishelf/db]
-  Next --> Contracts[@pixishelf/job-contracts]
-  Next --> Executors[@pixishelf/job-executors]
-
-  Worker[@pixishelf/worker] --> DB
-  Worker --> Contracts
-  Worker --> Runtime[@pixishelf/job-runtime]
-  Worker --> Executors
-
-  Executors --> DB
-  Executors --> Contracts
-  Executors --> Runtime
-  Runtime --> Contracts
-
-```
-
-主应用通过 TypeScript path、Vitest alias 和 Next.js `transpilePackages` 直接解析三个 job workspace 的
-`src/index.ts`，因此 Web 开发与生产构建不以这些包的 `dist` 为前置条件。共享包的生产源码使用显式
-`.ts` 相对导入，TypeScript 5.9 的 `rewriteRelativeImportExtensions` 在独立构建时将其重写为 Node ESM
-可执行的 `.js` 导入。独立 Worker 继续只从 DB、job 与 Worker workspace 构建，不复制主应用源码。
-CI 先在无 `dist` 条件下构建 Web，再独立生成三个包的 `dist`/类型声明并打包 Worker，同时守住源码
-消费与独立编译两种边界。
+# 当前架构
 
-zip 转换器不参与主应用的运行时依赖图，通过文件系统工作流与主系统外围协作。
+PixiShelf 围绕个人收藏的发现、导入、整理、阅读和恢复构建。Next.js 是交互与任务控制面，PostgreSQL 保存领域事实和持久队列，独立 Worker 执行长任务，文件系统保存原媒体和派生资源。产品边界见[产品基线](../product/product-baseline.md)，术语见[领域语境](../../CONTEXT.md)。
 
-## Web/API 请求链路
+本文的 `current` 表示按当前代码核对，不证明某个构建已发布到生产。
 
-主应用代码直接位于 `packages/pixishelf/`，没有 `src/` 中间目录：
+## 运行组件
 
-- `app/`：App Router 页面与 HTTP Route Handler；
-- `server/routers/`：tRPC Router；
-- `services/`：领域服务与任务控制面；
-- `lib/`：认证、数据库入口、日志和基础设施适配；
-- `schemas/`：运行时输入验证；
-- `components/`、`hooks/`、`store/`：前端组件与状态。
-
-用户通过 Better Auth 的数据库会话登录。当前部署中，已登录用户即实例管理员；敏感 tRPC 使用 `adminProcedure` 表达该边界。扫描 Webhook 与 scheduler 不使用浏览器会话，分别由 `SCAN_WEBHOOK_TOKEN` 和 `INTERNAL_JOB_TOKEN` 保护。
-
-当前可以存在多个登录账户，但没有角色或租户隔离，所有账户属于同一个信任域。页面、HTTP、tRPC、Server Action、ImgProxy 和基础设施的具体执行层门禁见[权限与接口边界](../security/access-control.md)。
-
-本地目录导入由预览和执行两个显式阶段组成。预览阶段遍历 `local-imports`、识别包含直属媒体的作品目录，并只查询本地目录导入来源的数据库路径来标记新增与已有作品；已有作品目录命中后立即停止向下读取。预览返回作品路径、状态和媒体数量，不返回媒体文件名列表，并受遍历深度、目录项总数和作品总数的服务端边界约束；服务端记录扫描耗时、遍历规模、剪枝数量和响应大小，浏览器请求取消后目录遍历也会尽快停止。开始导入时，浏览器只提交该次预览中的新增作品路径。App 校验路径、再次按精确路径去重，并把作品路径、艺术家映射和默认标签冻结到任务快照后立即入队。Worker 只读取快照列出的作品目录，不重新遍历 `local-imports` 根目录，也不计算媒体内容指纹。单作品重扫是独立链路，仍使用内容指纹检测扫描与执行之间的源文件变化。
+![运行组件](../diagrams/architecture/system-components.svg)
 
-Pixiv 目录的正常管理入口只显示“扫描新作品”，并创建 `INCREMENTAL` 目录发现任务。强制全目录刷新已从
-设置页移除；App 服务、HTTP 入口、通用任务入队和人工重试都不能创建新的 `FULL_RECONCILE`，当前 `SCAN@v1`
-contract 和 Worker 也不再解析或执行该模式。历史终态任务和 `ScanRunMode.FULL` 仍可读并显示为已停用记录；生产
-升级流程要求先用只读数据库审计确认不存在非终态历史 FULL 任务，再安装新 Worker。
+[Mermaid 源文件](../diagrams/architecture/system-components.mmd)
 
-目录增量扫描使用 `PixivMetadataInventory` 保存相对路径、稳定 stat、观测/已发布内容 hash 和失败状态。首次完整
-遍历建立可信基线；之后仍会安全枚举和 stat 全目录，但只对新文件、指纹变化或可重试失败读取内容，只有实际待处理
-输入才进入冻结快照、解析和发布。目录身份以 resolved root 的不可逆 hash 绑定，不能让另一个根目录复用旧
-inventory。发布 Artwork/Source Reference 与推进 `processedContentHash` 位于同一个 fenced transaction；中断、
-取消和跨任务重放不会把仅观测到的内容误标为已处理。ScanRun 记录遍历、候选、未变化、hash、变化、解析、发布和
-阶段耗时；历史与显式列表任务没有同口径测量时保持 `null`，界面不把缺失值伪装为 0。
+| 组件        | 职责与边界                                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 浏览器      | 展示、用户操作和阅读观察；WebP 解码使用浏览器内 Worker，与服务端任务 Worker 无关。                                             |
+| Next.js App | Better Auth 会话、页面、tRPC/HTTP、输入冻结、任务控制与查询；不消费后台队列。另有直接上传/替换文件的入口，是否可写受挂载约束。 |
+| PostgreSQL  | 领域数据、账户、任务、租约、进度事件、审计及迁移历史；不保存原媒体二进制。                                                     |
+| 通用 Worker | 一个进程内运行解析与写入两个 Dispatcher；各 lane 固定并发 1，writer lane 内的 `SystemJob` 串行，不串行化 App 文件写入。        |
+| scheduler   | 调用内部 tick 物化计划任务，不访问数据库或直接执行业务。                                                                       |
+| ImgProxy    | 从只读挂载生成图片响应；不生成视频代表帧，不写原媒体。                                                                         |
+| 文件系统    | 原媒体、归档 staging/revision、派生媒体与 Pixiv 快照；数据库发布引用后才进入正常读取链路。                                     |
 
-目录遍历与冻结输入使用不同的安全上限：`SCAN_DISCOVERY_MAX_ENTRIES` 默认允许 Worker 遍历 1000 万个目录项，
-这里会统计媒体文件和目录；可冻结的 metadata 行仍最多 10 万。前者可以按真实存储规模在 1–100000000 范围内
-配置，后者不随媒体文件数量放大，避免万级作品库因为图片总数超过 10 万而被误判为输入快照过大。
-Pixiv 发现默认跳过 SCAN_PATH 根目录直属的 `local-imports`、`sources`、`.archive-staging` 和 `.trash`，不进入本地
-导入与归档存储；`SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES` 可以用逗号分隔清单替换默认值，空值表示禁用排除。
-同名的更深层目录不受影响；一致性核对生成 `MISSING` 时也排除相同根目录前缀。
+当前是单实例、单信任域部署：可有多个账户，但已登录账户均有实例管理能力。浏览器会话、Webhook、内部 scheduler 和媒体网络入口的门禁分别由[安全基线](../security/access-control.md)定义；隐私遮罩不构成访问控制。
 
-扫描 Webhook 保持已部署 URL、Bearer Token、`202` 入队响应和状态轮询 contract：`POST type=list` 冻结明确路径，
-并对已有来源使用 `SKIP`；`{}` 和 `type=full` 仍是目录发现的兼容请求。公开请求体不再接受 `force` 字段，任意
-`force` 请求返回 `400` 参数错误且零任务写入。Webhook GET 无
-`jobId` 时只做健康检查、有 `jobId` 时只读受限状态，HEAD 只校验 Bearer Token；三者中只有 POST 能创建
-扫描任务。状态响应向后兼容地增加可空 inventory 工作量字段；调用方仍只需依赖既有终态字段。完整请求和响应字段
-见[Webhook 扫描功能](../../packages/pixishelf/docs/webhook-features.md)。
+## Workspace 与请求流
 
-设置页的“来源一致性核对”创建只读 `SCAN@v2 / CONSISTENCY_AUDIT`。核对完整、非空的 metadata 快照并持久
-分类 `NEW / CHANGED / MISSING / INVALID / IDENTITY_CONFLICT`；运行中只显示摘要，ScanRun 与 SystemJob 都完成
-后才开放结果分页。管理员可以在结果页当前已加载页选择 1–50 个仍可处理的 `NEW / CHANGED`，一次混合提交
-`SCAN@v3 / AUDIT_APPLY`。App 在共享 SCAN singleton lock 中复核核对终态、inventory generation、来源根和新鲜
-Worker capability，再把选中项的 path、来源身份、内容 hash 与 stat 证据冻结到独立 apply ScanRun。
+![包依赖](../diagrams/architecture/package-dependencies.svg)
 
-Worker 对每项重新读取并比较冻结证据，在持有 fence 的短事务中复核 inventory、Source Reference 和 Artwork
-身份后才发布；一个项目 stale、冲突或失败不会回滚已完成项目。`MISSING` 永远只报告，不会进入 apply，也不会
-解绑来源或删除作品。相同核对中，已经应用、stale、冲突或永久失败的项目必须重新核对；只有标记为可重试的失败
-项目可在修复后从同一核对再次提交。apply 结果持久在 ScanRun/ScanRunItem，页面刷新后可通过 operation ID 恢复。
+[Mermaid 源文件](../diagrams/architecture/package-dependencies.mmd)
 
-排队、等待重试或已暂停的 apply 被直接取消时，job、apply ScanRun 和所有未完成单项在同一事务中终态化，已完成
-单项结果保留；运行中取消由 Executor 在 fence 下做同样收口。扫描历史保留任务把核对及其 apply 当作证据组：存在
-非终态 apply 时不删除父核对，满足保留条件且子项均终态时才将父核对与终态 apply 一并删除。
+| Workspace                  | 负责内容                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------- |
+| `@pixishelf/next`          | 页面、API、领域服务和任务控制面；源码直接位于包根的 `app/`、`server/`、`services/`、`lib/`。 |
+| `@pixishelf/db`            | Prisma Schema、迁移、客户端及跨写入者事务守卫。                                              |
+| `@pixishelf/job-contracts` | 任务类型、版本、payload、DTO 和共享媒体分类契约。                                            |
+| `@pixishelf/job-runtime`   | 队列、租约、执行围栏、生命周期与持久事件。                                                   |
+| `@pixishelf/job-executors` | 扫描、归档、来源同步、媒体处理与维护的业务执行器。                                           |
+| `@pixishelf/worker`        | 独立进程、预检、健康服务、能力注册与 Dispatcher。                                            |
+| `@pixishelf/webp-player`   | 同源浏览器 Worker、WASM 解码和播放时钟，不依赖任务队列或数据库。                             |
 
-所有 Pixiv publisher 的成功创建/刷新路径现在都把 metadata 内容 hash 写入 `ArtworkExternalRef.metadataHash`，并按
-`externalRefId + metadataHash` 追加或复用不可变 `ArtworkSourceSnapshot`，保存规范化与原始来源证据。刷新仍尊重
-title/description override，保留既有 Artist、MANUAL/DERIVED、未被当前来源再次确认的 LEGACY 或其他来源标签、现有媒体顺序，并且不删除
-来源中不再出现的媒体；当前 Pixiv 元数据明确包含的同名 LEGACY 标签会认领为该 Pixiv 引用的 SOURCE 标签。
+普通请求按“认证 → Zod 输入校验 → 领域服务 → Prisma/文件适配器”流转。长任务在同一领域事务中冻结输入与创建队列记录，浏览器随后通过查询及 SSE 观察结果；关闭页面不会取消持久任务。
 
-`JWT_SECRET`/`JWT_TTL` 仍存在于环境模板和遗留依赖中，但当前浏览器登录与服务端会话由 Better Auth 负责，不能继续把系统描述为“基于 JWT 的无状态认证”。
-`INIT_ADMIN_USERNAME`/`INIT_ADMIN_PASSWORD` 也只保留在环境模板中，当前首次账户由 `/login` 初始化 Action 创建。
+Web 通过 TypeScript paths、Vitest alias 和 Next `transpilePackages` 消费 job workspace 源码；独立 Worker 从 DB/job/Worker 包构建，不导入 App 源码。共享包显式 `.ts` 相对导入在独立编译时重写为 `.js`。WebP 预编译解码器随仓库交付，日常构建只校验并准备同源版本化资源，原生工具链说明见[包文档](../../packages/pixishelf-webp-player/README.md)。
 
-## 归档收件与后台执行
+## 数据边界与发布不变量
 
-后台任务固定使用中央队列：App 物化计划并创建/控制任务，Worker 启动即执行两个 lane。
-两枚切换开关已删除，维护必须停止 Worker；归档等领域任务仍经专用事务同步控制，不能退回通用状态更新。
-第二阶段移除目标旧列双写和旧计划字段，读取由 payload/legacyDisplay 提供；删列后回退需要完整检查点；见[退役规格](../features/background-task-retirement.md)。
+- **本地身份与来源分离。** Artwork 的本地身份不由远端 ID 定义；外部引用、来源快照、人工覆盖和来源关系分别保存。来源刷新必须遵守字段及关系所有权。
+- **任务状态与业务状态分离。** `SystemJob` 管执行；`ScanRun`、归档 revision 和派生 generation 管业务结果。任务完成不代表每项成功，也不代表子任务全部完成。
+- **文件完成与发布分离。** staging/临时文件写完后仍须验证，再通过短事务切换可见引用。文件系统与 PostgreSQL 没有共同事务，恢复依赖持久 intent、检查点和配套备份。
+- **执行围栏保护受检查的数据库提交。** Worker 的领域事务、进度和终态提交核对执行所有权；lease 失效后旧执行器不能通过这些检查。围栏不撤销或回滚文件 I/O，也不串行化 App 的直接文件写入。两个 lane 是 SystemJob 调度边界，仍共享进程和容器文件权限。
+- **文件权限与写入协调分别维护。** App 原媒体默认只读，显式允许写入的部署可使用上传、替换和章节写入入口；派生媒体挂载可写，Pixiv data 只读。文件变更需依赖各领域的锁、staging、intent 和发布验证；发布或恢复停写必须停止全部 App、Worker 与外部写入者，具体门禁见运维基线。
+- **媒体身份变更协调阅读与探测。** 完整重建原子递增媒体版本并失效阅读；同 ID 文件变化失效源绑定的探测元数据。普通排序不能被误判成完整重建。
+- **迁移属于部署过程。** Worker 不运行 Prisma migration；应用和 Worker 升级必须遵循[部署基线](../operations/deployment.md)，恢复遵循[备份与恢复](../operations/backup-and-recovery.md)。旧兼容开关已删除，维护隔离通过停止对应服务完成。
 
-正常链路是：
+## 子系统阅读路线
 
-```mermaid
-sequenceDiagram
-  participant S as scheduler
-  participant A as Next.js App
-  participant D as PostgreSQL
-  participant W as Worker
-
-  S->>A: POST /api/internal/scheduler/tick
-  A->>D: 在上海时区窗口内幂等物化 SystemJob
-  W->>D: claim + lease
-  W->>D: heartbeat / progress / event
-  W->>D: fenced terminal transition
-```
-
-生产稳态为 `true/true`；`false/false` 只用于暗启动和故障隔离。Worker 使用 PostgreSQL 队列、按 lane 的执行态唯一索引、资源租约和 lease token 围栏保证同 lane 单任务执行；并发数不提供环境变量配置。
-
-中央模式下，scheduler 在上海时间 `00:00-08:00` 窗口内按天幂等物化所有已启用 DAILY 任务，统一设置 `availableAt=00:00`、`deadlineAt=08:00`，再由队列优先级决定执行顺序。任务设置页中的 `HH:mm` 当前不参与中央 materializer 计算，不能把显示时间理解为精确触发时刻。完整任务清单、状态边界和业务流程见[后台任务业务链路](./background-job-business-flows.md)。
-
-归档收件箱位于 `/admin/archive/inbox`。一次提交可以包含最多 100 个 URL，活动收件项目上限为 1000；链接持久化后按 FIFO 在 `ARCHIVE_RESOLVE` 中逐条解析。管理员也可以保存 E-Hentai 上传者或标题来源，人工扫描并勾选候选 URL 加入同一收件箱。提交时持久保存模式与画质，界面默认解析并归档：新作品在 resolver fenced 终态事务中自动创建 `ARCHIVE_IMPORT`，已有任务复用，有变化的已有作品等待确认，未变化直接跳过；仅解析及历史收件保留手动入队。App 与 Worker 复用 job-executors 中的入队核心，下载仍由 writer lane 执行。`/admin/archive` 提供紧凑表格/移动卡片、分页筛选、任务详情、作品/原站导航和当前页批量控制。完整流程见[归档收件箱](../features/archive-intake.md)。
-
-`ARCHIVE_IMPORT` 启动时在 fenced transaction 内读取数据库系统设置并冻结 1–8 的媒体并发，默认 2；同一值控制媒体 worker 与 Provider Governor，writer lane 本身仍固定并发 1。`WEBP_ANIMATION_SCAN` 的探测并发由 `ANIMATION_SCAN_CONCURRENCY`（1–8，默认 4）控制，属于任务内部有界池，不会增加图片级 `SystemJob`；图片分类微批次、任务行聚合检查点和对应事件原子提交。admin layout 维护每标签页唯一的 `/api/jobs/events` SSE，使用持久 `SystemJobEvent.id` 追赶全部后台任务事件。归档页、任务计划页和后台控制台消费同一事件源；SSE 健康时停止任务状态高频轮询，断线时活动任务 3 秒、空闲页面 30 秒降级。`SystemJob.progressData` 只保存版本化聚合指标，不保存路径、标题、URL 或凭据。事件 transport 的决策边界见 ADR-0006 和 ADR-0007。
-
-一个 Worker host 运行两个 Dispatcher loop：
-
-| Lane                | 固定并发 | 工作范围                                                                                                                                 |
-| ------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `ARCHIVE_RESOLVE`   | 1        | `ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN`、`ARCHIVE_SEARCH_SCAN` 与 `ARCHIVE_DISCOVERY_BATCH_SCAN`；不写原媒体、派生媒体或 staging |
-| `BACKGROUND_WRITER` | 1        | 其余 28 类 job；所有媒体写、本地图库扫描、迁移、替换和维护操作                                                                           |
-
-两个 lane 可以各运行一个任务，同一 lane 内不能并行。生产 Registry 保持 32 个 job type：`SCAN` 同时注册
-v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2，`ARCHIVE_SEARCH_SCAN` 注册 v1/v2/v3，其余 29 类只注册 v1，共 37 个 job type/definition-version 组合。capability audit 精确验证 type、
-version 与 lane。`SCAN@v1` 承载既有设置页扫描、单作品扫描和 Webhook；`SCAN@v2` 只执行只读
-`CONSISTENCY_AUDIT`；`SCAN@v3` 只执行写入型 `AUDIT_APPLY`。这个版本隔离保证滚动部署中的旧 v2 Worker 不会领取
-v3 apply；生产开放新写入口前仍须确认新 Worker 同时报告 SCAN v1/v2/v3。归档解析主要等待 HTTP 和 PostgreSQL，
-writer 主要等待文件流、Sharp/libvips 与 FFmpeg 子进程；异步等待允许同一 Node.js 事件循环交替推进两项工作，但
-不构成纯 JavaScript CPU 并行承诺。
-
-上传者/关键词 `SEARCH`、普通归档 `RESOLVE` 均可在 writer lane 的媒体下载期间发起请求；它们共享 Provider 的持久请求间隔和 penalty。活跃下载 lease 只占用下载并发容量，不阻止读取请求。普通请求默认间隔 250ms，`SEARCH` 获准后设置 3 秒间隔；真实站点冷却仍使读取任务退避。此机制解除下载对解析的硬阻塞，不承诺请求严格轮转或防饥饿。
-
-归档维护统一使用 writer lane 的 `ARCHIVE_MAINTENANCE`。默认启用、显示时间为 `02:05` 的 `RECONCILE` 发现到期 staging、孤立回收/恢复 intent 和到期回收站，为每个目标幂等创建 `CLEAN_STAGING`、`TRASH_ARCHIVE`、`RESTORE_ARCHIVE` 或 `PURGE_ARCHIVE` 子任务。默认启用、显示时间为 `02:15` 的 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 清理超过 30 天的终态收件/批量历史及历史冻结流程的过期 ArchivePreviewSession（不属于已退役的在线原站阅读器），不删除领域归档、作品或媒体；两者在中央模式下仍按统一调度窗口和优先级执行。
-
-`VIDEO_MEDIA_PROBE` 是视频探测与自动封面生成的单一持久工作流。普通 `INCREMENTAL` 模式先按 `imageId` 游标完成媒体分类和 FFprobe/FFmpeg 响度检测，再在同一个 SystemJob 内顺序处理待生成封面；`hasAudio` 表示峰值高于 `-50 dB` 的可听内容，不表示容器仅存在音频流。存在匹配章节清单时，短章节扫描整章，长章节在 25%/75% 附近各取 10 秒，并把结果按清单 hash 写入 `MediaChapterPreview`；无章节时扫描首/中/尾。`RECHECK_HAS_AUDIO` 只校准任务创建时已有的 `hasAudio=true` 记录，以 `probeUpdatedAt` 和任务创建时间恢复，不分类、不处理 false/null，也不生成封面。批量流程不创建 `VIDEO_POSTER_GENERATION` 子任务，该类型只用于单视频人工生成。已完成封面的文件完整性检查和孤儿文件清理不属于探测流程，`DERIVED_MEDIA_GC` 继续独立处理已登记的无引用派生文件。
-
-Worker 启动前必须通过以下预检：
-
-- 数据库 migration 和后台队列表结构满足要求；
-- 原媒体、归档、派生媒体和 Pixiv data 目录可读写；
-- FFmpeg 与 FFprobe 可执行；
-- 心跳间隔、租约和事务超时配置满足约束。
-
-## 数据与存储边界
-
-作品列表的直接删除由 App 同步执行，按实际文件和数据库操作返回逐项报告；已登记媒体、可确认归属的附属文件及空作品目录分别记录结果。共享、未知或不安全路径保留，文件系统与数据库不构成原子事务，部分失败不会伪装成成功。URL 归档继续使用 Worker 回收流程。边界与接口见[作品删除与删除总结](../features/artwork-deletion.md)。
-
-| 数据                       | 权威来源                     | 保护规则                                                                 |
-| -------------------------- | ---------------------------- | ------------------------------------------------------------------------ |
-| 领域关系、任务和认证       | PostgreSQL / Prisma Schema   | 只通过正式 migration 演进                                                |
-| 原媒体和已发布归档         | `PIXISHELF_DATA_PATH` 挂载   | 默认不得静默删除；高风险操作由 Worker 执行并记录                         |
-| 视频封面、章节图、代表帧   | `DERIVED_MEDIA_HOST_PATH`    | 可重建，但必须与数据库发布状态一致                                       |
-| Pixiv 图片、作品元数据快照 | `PIXISHELF_PUBLIC_DATA_PATH` | 作者/标签图片通过受鉴权 API 读取；作品 JSON 仅供 Worker 恢复，不对外提供 |
-| 图片变体与请求缓存         | ImgProxy                     | 非权威、可重新生成                                                       |
-
-App 容器的原媒体挂载默认由 `PIXISHELF_APP_DATA_MOUNT_MODE=ro` 控制；归档收件只保存相对 staging 路径，实际挂载和可写预检由 Worker 负责。Worker 使用读写挂载，ImgProxy 始终只读。
-
-数据库和文件系统构成一个一致性整体。归档和派生媒体先写 staging 或新 generation，验证完成后再通过短事务发布，不能把半成品暴露为当前数据。
-
-## 构建、迁移与部署所有权
-
-- Web 镜像由 `build/Dockerfile` 构建，启动入口执行 `prisma migrate deploy` 后启动 Next.js standalone 服务；
-- Worker 镜像由 `build/worker.Dockerfile` 构建，不包含主应用源码，不执行 migration；
-- `build/docker-compose.dev.yml` 默认启动 PostgreSQL、ImgProxy 和通用 Worker，App/scheduler 受 profile 控制；
-- `build/docker-compose.deploy.yml` 的生产服务为 PostgreSQL、App、通用 Worker、scheduler 和 ImgProxy，不包含旧归档消费者。
-
-当前操作流程见[部署基线](../operations/deployment.md)，镜像与挂载细节见 [Build 与部署](../../build/README.md)。
-数据库与媒体的一致性检查点和恢复演练见[备份与恢复基线](../operations/backup-and-recovery.md)。
-
-## 当前不变量
-
-1. 外部来源引用不能定义本地 Artwork 身份。
-2. 同一时间每个执行 lane 最多一个任务；只允许一个 resolver 和一个 writer，所有媒体写仍全局串行。
-3. 通用 Worker 未通过 READY 和 capability 检查时不得恢复调度。
-4. 生产 capability inventory 固定为 32 个 job type、37 个 type/version 组合；`SCAN` 支持 v1/v2/v3，
-   `ARCHIVE_IMPORT` 支持 v1/v2，`ARCHIVE_SEARCH_SCAN` 支持 v1/v2/v3，其余 29 类只支持 v1，任务类型、definition version 与 lane 必须精确匹配。
-5. 普通启动和升级使用 `prisma migrate deploy`，不得用 `db:push` 替代 migration 历史。
-6. 原媒体、派生媒体、Pixiv data 和数据库需要在一致时间点备份和恢复。
-7. 网络下载、FFmpeg 和文件复制不得放在长数据库事务中。
-8. 当前架构只描述已上线事实；未完成方案必须标为 `draft`。
-9. `FULL_RECONCILE` 已退出可执行 contract；数据库只保留历史任务与 `ScanRunMode.FULL` 的只读展示。
-
-## 关联决策与历史
-
-- [产品基线](../product/product-baseline.md)
-- [权限与接口边界](../security/access-control.md)
-- [测试策略](../development/testing-strategy.md)
-- [备份与恢复基线](../operations/backup-and-recovery.md)
-- [ADR-0001：来源引用与本地身份分离](../adr/0001-separate-source-references-from-local-identity.md)
-- [ADR-0002：持久 Worker 与原子归档发布](../adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)
-- [ADR-0003：统一后台任务 Worker](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)
-- [ADR-0004：归档解析独立资源通道](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md)
-- [ADR-0006：数据库配置并冻结归档媒体并发](../adr/0006-freeze-database-configured-archive-media-concurrency.md)
-- [ADR-0007：持久游标上的通用 Worker SSE](../adr/0007-stream-worker-job-events-over-a-persistent-cursor.md)
-- [ADR-0005：退役破坏性全量重扫](../adr/0005-retire-destructive-full-rescan.md)
-- [归档收件箱](../features/archive-intake.md)
-- [后台任务业务链路](./background-job-business-flows.md)
-- [阶段 1–7 切换记录](../deployment/background-task-cutover-deployment.md)
-- [旧系统设计](../archive/system-design-legacy.md)
-- [旧调度架构](../archive/scheduler-architecture-legacy.md)
+| 要理解的问题                               | 权威说明                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 怎样调度、领取、暂停、取消与恢复任务？     | [后台执行机制](./background-jobs.md)、[任务参考](./background-job-reference.md)                                                                                                                                                                                                                                        |
+| 扫描、导入、视频任务完成意味着什么？       | [后台业务链路](./background-job-business-flows.md)                                                                                                                                                                                                                                                                     |
+| Pixiv 增量发现与核对怎样避免破坏整理？     | [来源维护](./source-maintenance.md)                                                                                                                                                                                                                                                                                    |
+| 发现来源如何冻结查询、推进游标和接入收件？ | [发现来源架构](./archive-discovery.md)                                                                                                                                                                                                                                                                                 |
+| 图片、视频和派生资源怎样读取？             | [媒体处理与分发](./media-delivery.md)                                                                                                                                                                                                                                                                                  |
+| 阅读怎样分页、采集和保持账户/版本一致？    | [阅读架构](./reading.md)                                                                                                                                                                                                                                                                                               |
+| WebP 怎样解码、回退与释放资源？            | [WebP 播放器](./webp-player.md)、[时长探测](./animation-duration-probe.md)                                                                                                                                                                                                                                             |
+| 哪些数据库约束不在 Prisma 中？             | [数据库设计补充](../../packages/pixishelf-db/prisma/database-design.md)                                                                                                                                                                                                                                                |
+| 为什么采用这些边界？                       | [ADR-0001](../adr/0001-separate-source-references-from-local-identity.md)、[ADR-0002](../adr/0002-use-a-durable-worker-and-atomic-archive-publication.md)、[ADR-0003](../adr/0003-unify-background-jobs-under-a-durable-single-worker.md)、[ADR-0004](../adr/0004-run-archive-resolution-in-a-separate-worker-lane.md) |

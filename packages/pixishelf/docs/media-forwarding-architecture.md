@@ -1,60 +1,8 @@
 ---
-status: current
-scope: ImgProxy、静态派生媒体生成和原视频播放的当前分工
-last-verified: 2026-08-18
-sources:
-  - ../../../build/docker-compose.dev.yml
-  - ../../../build/docker-compose.deploy.yml
+status: historical
+scope: 媒体分发架构兼容入口
 ---
 
-# PixiShelf 媒体资源处理与分发架构
+# 媒体分发说明已迁移
 
-## 1. 当前架构
-
-PixiShelf 将静态图片处理、视频派生媒体生成和原视频播放拆成三条明确链路：
-
-- ImgProxy 负责普通图片、静态视频封面、章节截图和代表帧的缩放、格式转换与缓存。
-- 通用 Worker 使用 FFmpeg 提前生成视频封面等静态 WebP 派生媒体，并写入派生媒体目录。
-- 作品详情、全屏预览和沉浸浏览使用视频播放器读取原始视频，不经过 `next/image`。
-
-## 2. 图片请求链路
-
-### 2.1 普通图片
-
-Next.js 的自定义 `image-loader.js` 根据 `NEXT_PUBLIC_IMGPROXY_URL` 生成 ImgProxy URL。ImgProxy 通过
-只读挂载访问原媒体目录，对图片进行按宽度缩放、质量控制、元数据清理和格式转换。普通静态图片默认
-输出 WebP；GIF 和 WebP 缩略图输出静态 JPG，避免在列表中加载缩放后的动图。
-
-### 2.2 视频派生静态图片
-
-FFmpeg 任务生成的资源使用稳定的虚拟前缀：
-
-- `/_video-posters/`：视频封面；
-- `/_video-chapter-previews/`：章节截图；
-- `/_video-keyframes/`：视频代表帧。
-
-loader 通过派生媒体路径解析器把这些 URL 映射到 ImgProxy 的 `/derived-media/` 只读挂载。URL 中的版本
-参数只作为浏览器缓存键，不会进入本地文件路径。
-
-### 2.3 原始视频误传保护
-
-所有封面和缩略图入口必须使用 `MediaThumbnail`：存在静态封面时渲染封面，不存在时渲染“封面待生成”
-占位，不把原始视频路径交给 `next/image`。
-
-如果后续代码仍误把原始视频传给图片 loader，loader 会返回 `/video-thumbnail-unavailable.svg`，并按原始
-路径记录一次明确错误。该保护用于暴露调用方错误。
-
-## 3. 视频和动图播放
-
-- 原视频由 `<video>`/视频播放器按原始媒体 URL 加载，并继续支持章节、代表帧、音频状态和播放控制。
-- GIF、APNG 和动态 WebP 的交互播放继续读取原媒体；列表和普通 `next/image` 场景只展示静态缩略图。
-- 视频封面生成失败或尚未完成时显示占位图，封面生成由 Worker 后台任务负责。
-
-## 4. 部署边界
-
-当前媒体相关部署组件只有 App、Worker、ImgProxy 和外部 Traefik：
-
-- App 读取原媒体并读写派生媒体；是否允许修改原媒体由挂载模式决定。
-- Worker 读写原媒体和派生媒体，执行 FFmpeg/FFprobe 任务。
-- ImgProxy 只读挂载原媒体和派生媒体。
-- Traefik 转发现有 ImgProxy 图片路由。
+当前事实统一维护在[媒体处理与分发](../../../docs/architecture/media-delivery.md)。后台派生见[媒体处理](../../../docs/architecture/media-processing.md)，浏览器 WebP 见[播放器架构](../../../docs/architecture/webp-player.md)。

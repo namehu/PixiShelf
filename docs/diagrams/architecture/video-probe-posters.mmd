@@ -1,0 +1,29 @@
+flowchart TD
+  START[VIDEO_MEDIA_PROBE\nINCREMENTAL / RECHECK_HAS_AUDIO] --> MODE{是否存量音频校准?}
+  MODE -->|是| RECHECK[只选任务创建时 hasAudio=true\n且未经过本任务检查点的记录]
+  MODE -->|否| CLASSIFY{是否定向重探测?}
+  CLASSIFY -->|否| UNKNOWN[每批 500 条按扩展名分类 UNKNOWN 媒体]
+  UNKNOWN --> ENSURE[为全部 VIDEO 补齐 MediaVideoMetadata]
+  CLASSIFY -->|是| TARGET[确认目标存在且为视频\n把 probeStatus 重置为 PENDING]
+  ENSURE --> PROBEQ[选择 PENDING/PROBING\nforce 时还包含 FAILED]
+  TARGET --> PROBEQ
+  RECHECK --> PROBEQ
+  PROBEQ --> PROBE[每批 20 条，先 CAS 为 PROBING]
+  PROBE --> FFPROBE[FFprobe 确认流\nFFmpeg 按章节或首中尾检测 max_volume]
+  FFPROBE -->|成功| PC[hasAudio=可听章节 OR\n写章节 hash 实测并置 COMPLETED]
+  FFPROBE -->|单项失败| PF[probeStatus=FAILED\n记录失败样本并继续]
+  PC --> MORE{还有探测候选?}
+  PF --> MORE
+  MORE -->|是| PROBE
+  MORE -->|否且为校准| RESULT
+  MORE -->|否且为增量| POSTERQ[选择 probeStatus=COMPLETED\n无人工封面且 posterStatus 为 PENDING/FAILED/GENERATING]
+  POSTERQ --> POSTER[每批 20 条，循环到候选为空]
+  POSTER --> CLAIM[锁定视频封面并 CAS 为 GENERATING]
+  CLAIM --> TEMP[登记 attempt 输出和临时文件 GC intent]
+  TEMP --> FFMPEG[FFmpeg 生成临时 WebP]
+  FFMPEG -->|成功| PUBLISH[短事务 rename 并写 posterPath\nposterStatus=COMPLETED]
+  FFMPEG -->|单项失败| PFAIL[posterStatus=FAILED\n记录失败样本并继续]
+  PUBLISH --> PMORE{还有封面候选?}
+  PFAIL --> PMORE
+  PMORE -->|是| POSTER
+  PMORE -->|否| RESULT[写 classification/probe/poster 分段结果\nSystemJob 进入终态]

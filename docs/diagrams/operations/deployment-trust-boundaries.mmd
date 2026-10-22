@@ -1,0 +1,36 @@
+flowchart TB
+  B[浏览器 / 管理员]
+  E[外部扫描调用方]
+  RP[受控 HTTPS 反向代理<br/>清理可信头与配置认证入口]
+  B --> RP
+  subgraph HOST[单实例宿主机 / Compose 网络]
+    A[App :5430<br/>Session / Route / procedure<br/>任务控制与数据库迁移]
+    I[ImgProxy :5431<br/>URL 未签名，无 App 会话校验]
+    S[scheduler<br/>独立内部 Token]
+    W[一个 Worker 容器<br/>解析 lane + writer lane<br/>健康 :3011 仅容器网络]
+    DB[(PostgreSQL :5432<br/>领域 / 账户 / 队列 / lease)]
+    R[(原媒体<br/>含根标记与恢复文件)]
+    D[(派生媒体)]
+    P[(Pixiv data<br/>不在 Next public)]
+    S -->|Token tick| A
+    A <-->|读写| DB
+    W <-->|领取 / fence / 发布| DB
+    A -->|默认只读，可显式允许写| R
+    A <-->|读写| D
+    A -->|只读| P
+    W <-->|读写| R
+    W <-->|读写| D
+    W <-->|读写| P
+    I -->|只读| R
+    I -->|只读| D
+  end
+  RP -->|页面 / API 会话门禁| A
+  RP -.->|只有代理明确配置认证才受保护| I
+  B -.->|端口可达时可直达，必须网络限制| I
+  E -->|独立扫描 Bearer Token| A
+  W -->|安全 HTTP / 受控出站代理| O[外部来源站点]
+  N[数据库宿主机端口也须防火墙限制<br/>两个 lane 共用凭据与挂载，不是 OS 隔离]
+  N -.-> DB
+  N -.-> W
+  classDef risk fill:#fff1e6,stroke:#bc4c00,color:#542900;
+  class I,N risk;

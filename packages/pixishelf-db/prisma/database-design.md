@@ -1,7 +1,7 @@
 ---
 status: current
 scope: Prisma Schema 之外由 migration 实现的扩展、触发器、索引和维护约束
-last-verified: 2026-09-24
+last-verified: 2026-10-22
 sources:
   - schema.prisma
   - migrations/
@@ -17,7 +17,7 @@ sources:
 
 ## 作品浏览索引
 
-`20261016090000_artwork_browse_indexes` 创建仅覆盖未删除且 ACTIVE 作品的 `artwork_active_random_v1_idx`，表达式为 `md5(id::text || ':artwork-random-v1') COLLATE "C"`，以 id 决胜。它不能完整表示在 Prisma Schema 中，SQL migration 和查询构造器必须保持表达式／排序规则一致。另建 `Image_artworkId_sortOrder_id_idx`，用于数据库内每作品 LIMIT 1 的封面读取。两者为增量索引，不回填业务数据；普通创建期间需停写，回退旧应用可保留。详见[性能与部署边界](../../../docs/design/artwork-feed-query-performance.md)。
+`20261016090000_artwork_browse_indexes` 创建仅覆盖未删除且 ACTIVE 作品的 `artwork_active_random_v1_idx`，表达式为 `md5(id::text || ':artwork-random-v1') COLLATE "C"`，以 id 决胜。它不能完整表示在 Prisma Schema 中，SQL migration 和查询构造器必须保持表达式／排序规则一致。另建 `Image_artworkId_sortOrder_id_idx`，用于数据库内每作品 LIMIT 1 的封面读取。两者为增量索引，不回填业务数据；普通创建期间需停写，回退旧应用可保留。详见[性能与部署边界](../../../docs/architecture/artwork-feed-query-performance.md)。
 
 ## Artwork 阅读版本与进度约束
 
@@ -27,21 +27,21 @@ sources:
 
 ## Image 的 WebP 动画时长关系
 
-`20260924120000_add_image_animation_duration_metadata` 新增 `ImageAnimationMetadata`，`imageId` 是 Image 的一对一主键和外键，`ON DELETE CASCADE`。这是加法迁移，不回填历史 Image；缺少关系行的 WebP 自动成为人工探测任务候选。`durationMs` 和源文件 size/mtime/ctime/device/inode 使用 BIGINT；前端仅在 `READY`、当前时长策略、源路径匹配且 duration 能安全转成 number 时得到时长。`status,nextRetryAt,imageId` 索引用于有界候选和失败重试，不扫描原媒体来填列表。
+`20260924120000_add_image_animation_duration_metadata` 新增 `ImageAnimationMetadata`，`imageId` 是 Image 的一对一主键和外键，`ON DELETE CASCADE`。这是加法迁移，不回填历史 Image；缺少关系行且已被确认动画（webpAnimationStatus=2）的 WebP 才进入时长候选。`durationMs` 和源文件 size/mtime/ctime/device/inode 使用 BIGINT；前端仅在 `READY`、当前时长策略、源路径匹配且 duration 能安全转成 number 时得到时长。`status,nextRetryAt,imageId` 索引用于有界候选和失败重试，不扫描原媒体来填列表。
 
-`sourceRevision` 由已登记的文件变更与人工重试递增，配合 `writeInProgress`、前后 stat 和 Worker execution fence 拒绝迟到发布；`Image.updatedAt` 也会因排序和章节修改而变化，不用作文件版本。任务中无持久 PROBING：执行期间仍 PENDING，Worker 中断可恢复。故障时不要直接改回 READY；先确认原媒体与数据库检查点，再按[动图时长方案](../../../docs/design/animation-duration-probe.md)处理门禁和失败项。
+`sourceRevision` 由已登记的文件变更与人工重试递增，配合 `writeInProgress`、前后 stat 和 Worker execution fence 拒绝迟到发布；`Image.updatedAt` 也会因排序和章节修改而变化，不用作文件版本。任务中无持久 PROBING：执行期间仍 PENDING，Worker 中断可恢复。故障时不要直接改回 READY；先确认原媒体与数据库检查点，再按[动图时长方案](../../../docs/architecture/animation-duration-probe.md)处理门禁和失败项。
 
-## 1. 数据库扩展 (Extensions)
+## 扩展
 
 - **pg_trgm**: 启用了 PostgreSQL 的 Trigram 扩展。
   - **用途**: 实现高效的模糊字符串匹配（类似 `LIKE '%text%'` 但性能更好，且支持索引）。
   - **来源**: `migrations/20250906135951_enable_pg_trgm_extension`
 
-## 2. 自动化业务逻辑 (Triggers & Functions)
+## 自动维护的计数与搜索
 
 为了保证数据一致性并减少应用层逻辑复杂度，部分统计字段由数据库触发器自动维护。**应用层代码无需（也不应）手动更新这些字段。**
 
-### 2.1 标签作品计数 (`Tag.artworkCount`)
+### 标签作品计数 (`Tag.artworkCount`)
 
 **机制**: 当 `ArtworkTag` 表发生记录插入、删除或标签变更时，数据库自动更新对应 `Tag` 的 `artworkCount` 字段。
 
@@ -54,7 +54,7 @@ sources:
   - 采用原子 `UPDATE` 保证并发正确性，并包含负数保护。
   - 正常成功操作不写 `TriggerLog`；触发器异常会中止关联写入，交由 PostgreSQL 和应用日志记录。
 
-### 2.2 作品点赞计数 (`Artwork.likeCount`)
+### 作品点赞计数 (`Artwork.likeCount`)
 
 **机制**: 当 `ArtworkLike` 表发生变化时，自动更新 `Artwork` 的 `likeCount`。
 
@@ -62,7 +62,7 @@ sources:
 - **函数**: `update_artwork_like_count()`。
 - **初始化**: Migration 脚本中包含了一次性 SQL 用于校准现有数据的计数。
 
-### 2.3 标签全文搜索 (`Tag.search_vector`)
+### 标签全文搜索 (`Tag.search_vector`)
 
 **机制**: 为了支持高性能的多语言标签搜索，`Tag` 表维护了一个 `tsvector` 类型的列 `search_vector`（Schema 中定义为 `Unsupported("tsvector")`）。
 
@@ -77,7 +77,7 @@ sources:
   ```
   使用 `simple` 配置以避免语言特定的词干提取（Stemming），适合中英文混合环境及精确匹配需求。
 
-### 2.4 作品图片计数 (`Artwork.imageCount`)
+### 作品图片计数 (`Artwork.imageCount`)
 
 **机制**: 当 `Image` 表发生记录插入、删除或更新（修改归属作品）时，数据库自动更新对应 `Artwork` 的 `imageCount` 字段。
 
@@ -90,270 +90,30 @@ sources:
   - 逻辑封装在 `update_artwork_image_count()` 函数中。
 - **初始化**: Migration 脚本中包含了全量校正 SQL。
 
-## 3. 高级索引设计 (Advanced Indexes)
+## 手写索引与队列约束
 
-部分复杂索引无法在 Prisma Schema 中直接定义，或需要通过 Raw SQL 优化以获得最佳性能。
+- pg_trgm 的 Artwork 标题/描述表达式 GIN 与 Artist 名称 GIN 服务模糊搜索；查询表达式必须与迁移一致，不能假定普通单列索引等价。
+- system_jobs_single_executing_per_lane_idx 是执行态部分唯一索引，限制每 lane 至多一个 RUNNING/PAUSING/CANCELLING。类型与 lane 的 CHECK 随正式迁移更新，精确列表以最新迁移和 job-contracts 为准；本文不复制任务清单。
+- 计划日期唯一约束防止同一天重复物化，活动批次部分唯一索引防止重叠发现批次。租约、事件游标和 GC 索引服务领取与恢复，不替代领域发布检查。
+- 20261011000000_background_task_retirement_contract 在停写审计后移除旧目标列及计划 time/timezone 等字段，availableAt 已为 NOT NULL；中央任务执行态必须有完整 workerId/leaseToken/leaseExpiresAt，非执行态须全空，SKIPPED 和计划字段保持成组约束。definitionVersion=0 仅允许终态历史；legacyDisplay 只作展示，不能重新执行。
+- 原队列 progress/attempt 等 CHECK 的历史验证状态必须查目标库，不能因新增 contract 约束已 VALIDATE 就假设所有旧约束已验证。早期 NOT VALID 的背景见[迁移历史](../../../docs/records/architecture/database-migration-history.md)。
+- 归档活动 URL/Provider 身份部分唯一约束、submission/bulk request hash 和来源查询指纹保障去重与幂等。相同幂等键不能接受不同内容；完整匹配仍比较规范化原值，不能只比较 hash。
+- 20261003120000_index_archive_intake_url_matching 为提交/规范 URL 添加非唯一 Hash 索引，避免长 URL B-tree 项大小限制；查询仍由 PostgreSQL 复核完整字符串，不改变匹配优先级或时间边界。
 
-### 3.1 作品混合模糊搜索
+## 创作者与来源关系
 
-- **索引名**: `artwork_title_description_trgm_idx`
-- **定义**: `GIN ((title || ' ' || COALESCE(description, '')) gin_trgm_ops)`
-- **用途**: 允许用户在一个搜索框中同时搜索标题和描述，且走索引查询。
-- **注意**: Prisma Schema 中可能存在单独的 title/description 索引定义，但数据库层面实际生效且最高效的是这个复合 GIN 索引。
+有效创作者来自 effective_artwork_creators 视图：关系至少有 present=true 且 excludedAt 为空的依据。seed_legacy_artwork_creator 仅在 Artwork INSERT 时为旧 artistId 建立 LEGACY 初始依据，UPDATE 不重新认领。旧路径身份不能由多对多展示关系反写。外部身份唯一性、人工关系与来源证据详见[创作者关系](../../../docs/features/creator-relations.md)。
 
-### 3.2 艺术家模糊搜索
+艺术家外部引用及系列多对多已取代 Artist.userId、Artwork.seriesId 和 Series.source/externalId；这些旧列已由正式 contract 迁移删除。历史兼容镜像不是当前写入目标，恢复与历史 direct-only 决定见[旧身份退役](../../../docs/features/legacy-identity-retirement.md)。
 
-- **索引名**: `Artist_name_idx`
-- **定义**: `GIN (name gin_trgm_ops)`
-- **用途**: 加速艺术家名字的模糊匹配查询。
+来源删除按来源锁再 Provider/GID 锁的固定顺序进行，事务复核相关非终态任务。来源的扫描/目录级联删除不会反向删除收件、下载、作品或媒体；全局忽略采用 SetNull 保留身份。触发器与外键不能代替 Worker 的文件维护。
 
-### 3.3 艺术家外部身份
+## 维护与恢复约束
 
-`20260825103000_add_artist_external_refs` 增加 `artist_external_refs`。身份唯一性由
-`(providerKey, externalId)` 和 `(artistId, providerKey)` 两个唯一索引共同保证：同一外部账户不能归属多个
-Artist，同一 Artist 在一个 Provider 下也不能同时保存多个身份。本地目录来源仍由 `LocalImportArtistMapping`
-表达，不占用外部 Provider 身份。
+高风险扫描/导入/迁移/替换保存冻结输入和逐项检查点，不能把整个输入目录或恢复进度仅留在内存。大量输入使用领域表，不塞入单个 payload。数据库事务、文件发布和执行 fence 的配合见[后台机制](../../../docs/architecture/background-jobs.md)及[业务链路](../../../docs/architecture/background-job-business-flows.md)。
 
-历史迁移只回填“唯一数字 `Artist.userId` + 名下 Artwork 具有 Pixiv 外部引用”的强证据记录。2026-09-30 的
-退役流程先通过维护工具核对未认领身份、全部媒体路径和旧目录迁移现场，再删除 `Artist.userId`。
-`artist_external_refs` 是当前外部身份来源真值；本地目录身份继续由 `LocalImportArtistMapping` 和
-`Artwork.storagePath` 表达。
+TriggerLog 保存维护摘要，普通成功 ArtworkTag 写入不逐条记录；触发器失败应中止关联写入。人工工具包括 check_tag_count_consistency()（只读核对）、fix_tag_count_inconsistencies()（集合修复并记维护摘要）、cleanup_trigger_logs()（清理历史）。修复不是部署例行步骤，必须先建立恢复依据；保留策略见相应维护任务。
 
-### 3.4 系列外部身份与成员关系
+数据库 dump 必须包含扩展、视图、函数、触发器和手写索引，不能只导出 Prisma 可表达的表。修改计数触发器或直接修复数据后，统计快速计数必须重新核验，见[统计查询](../../../docs/architecture/statistics-query-performance.md)。
 
-`series_external_refs` 保存 Provider 身份，`SeriesArtwork` 保存多系列成员、排序、来源证据和排除状态。
-`20260930121000_retire_series_legacy_fields` 删除 `Series.source`、`Series.externalId` 和 `Artwork.seriesId`；
-当前代码不得重新建立单系列直连字段。历史 direct-only 关系只可在带审计指纹的维护决定中明确丢弃旧指针，
-或以 `LEGACY` 成员追加到当前排序末尾。
-
-### 3.5 标签反查作品
-
-- **索引名**: `ArtworkTag_tagId_artworkId_idx`
-- **定义**: B-tree (`tagId`, `artworkId`)
-- **用途**: 加速按标签反查作品、标签计数和删除标签关联；与现有 (`artworkId`, `tagId`) 唯一索引互补。
-
-### 3.6 媒体类型筛选与候选索引
-
-- 粗粒度“图片/视频”筛选读取 `Image.mediaType`，不在请求期间对 `path` 执行扩展名匹配。
-- 新媒体入库时按扩展名写入 `IMAGE`、`VIDEO` 或 `ANIMATION`；历史 `UNKNOWN` 由“视频媒体探测”维护任务批量分类。
-- `prisma/diagnostics/media-filter.sql` 提供生产只读分布检查以及 `EXPLAIN (ANALYZE, BUFFERS)`。
-- (`artworkId`, `mediaType`) 与 (`artworkId`, `sortOrder`, `id`) 目前仅为候选索引。只有生产执行计划证明现有单列/唯一索引不足时才创建，避免增加无依据的写入和存储成本。
-- 历史字段 `Image.webpAnimationStatus` 继续作为动画内容探测状态使用，现覆盖 WebP、GIF、PNG/APNG；探测任务同时把 `mediaType` 纠正为 `IMAGE` 或 `ANIMATION`。
-- `MediaVideoMetadata.hasAudio` 表示 FFmpeg 实测存在可听内容，不表示容器仅存在音频流。阈值固定为 `max_volume > -50 dB`。
-- `MediaChapterPreview.hasAudibleAudio` 保存章节级可听结果；`audioChaptersHash` 将结果绑定到章节清单，避免仅补音频时把旧截图错误标成当前；`audioProbeError` 保存失败原因。三个字段均可空，以兼容旧清单和滚动部署。
-- 章节 API 只在 `audioChaptersHash` 匹配当前清单时使用数据库结果。未校准或失败的 v1/v2 音频声明按未知处理；v3 清单可作为初始值，当前 hash 的数据库实测拥有最高优先级。
-
-### 3.7 后台任务队列与执行 lane 索引
-
-- `system_jobs(executionLane, status, effectivePriority, availableAt, createdAt)` 是按 lane 的领取索引；优先级越小越先执行。
-- `system_jobs_single_executing_per_lane_idx` 是执行态部分唯一索引，保证 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 各自最多一条 `RUNNING/PAUSING/CANCELLING` 记录。它允许一项 resolver 和一项 writer 同时执行，但不允许同 lane 双执行。
-- `system_jobs_type_execution_lane_check` 固定 job type 到 lane：`ARCHIVE_RESOLVE_ITEM`、`ARCHIVE_UPLOADER_SCAN` 与 `ARCHIVE_SEARCH_SCAN` 进入 `ARCHIVE_RESOLVE`，其他任务全部进入 `BACKGROUND_WRITER`。
-- `system_jobs(status, deadlineAt)` 用于自动窗口过期，`system_jobs(status, leaseExpiresAt)` 用于崩溃租约恢复。
-- `system_jobs(scheduledTaskId, scheduledForDate)` 唯一约束防止每日计划重复物化；`system_jobs(idempotencyKey)` 为可空 API 幂等键。
-- `system_job_events(jobId, id)` 支持按全局递增游标读取单任务时间线。
-- `derived_media_gc_entries(status, notBefore, createdAt)` 支持延迟、小批量领取删除意图；`(mediaKind, relativePath)` 唯一约束用于安全 upsert。
-- `worker_instances(status, heartbeatAt)` 支持在没有任务运行时仍判断独立 Worker 的就绪状态与心跳新鲜度；它不依赖 `system_jobs.workerId`，因此空闲 Worker 也有可观测记录。
-- 未增加 `targetImageId` 新索引。兼容列的查询收益需要生产执行计划证明后再单独处理，避免无依据增加写放大。
-
-### 3.8 高风险任务的冻结输入与增量检查点
-
-扫描、本地目录导入、目录迁移和批量替换会同时修改数据库与媒体目录。它们不能依赖内存游标恢复，也不能把数千条输入直接塞入 `system_jobs.payload`。`20260815010000` 先提交旧枚举扩展，`20260815011000` 再建立以下纯增量结构：
-
-| 领域           | 持久结构                                                             | 关键字段/约束                                                                                                                             | 恢复语义                                                                                                    |
-| :------------- | :------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------- |
-| 扫描主记录     | `scan_runs`                                                          | `systemJobId` 可空唯一；`inputDigest/inputCount/inputFrozenAt`；`checkpointStage/checkpointOrdinal`；`startedAt` 可空                     | payload 只保存模式与输入摘要；Worker 从冻结表和 ordinal 恢复，不重新读取请求输入                            |
-| 扫描单项       | `scan_run_items`                                                     | 可空 `checkpointKey` 与 `(scanRunId, checkpointKey)` 唯一；`attempt >= 0`                                                                 | 历史项允许 key 为 null；新 Executor 用稳定 key 对终态 upsert，PostgreSQL 允许唯一索引中存在多个 null        |
-| 客户端列表输入 | `scan_run_metadata_inputs`                                           | `(scanRunId, ordinal)`、`(scanRunId, relativePath)` 双唯一；可选内容 SHA-256                                                              | CLIENT_LIST 在领取前冻结相对路径和内容指纹                                                                  |
-| 本地导入输入   | `scan_run_local_work_inputs`、`scan_run_local_artist_mapping_inputs` | 稳定 ordinal；work 的 kind/path 唯一；artistDirectory 唯一                                                                                | 冻结发现结果和当时的 artistId 映射；artistId 是快照，故意不建 Artist FK，避免后续删改改变原任务含义         |
-| 批量替换操作   | `pending_replace_operations`                                         | `systemJobId` 主键；batch/item 外键为 `RESTRICT`；RESTORE 必须有 itemId；复合 FK `(itemId,batchId)` 保证 item 属于同一 batch              | 一个中央任务只绑定一个明确操作；领域记录不能在任务仍引用时被级联删除                                        |
-| 目录迁移项     | `migration_job_items`                                                | `(systemJobId, artworkIdSnapshot)` 唯一；状态、阶段、attempt、源/目标 fingerprint                                                         | 每个作品独立恢复；`artworkIdSnapshot` 是冻结选择，不建 Artwork FK，不因作品后续删除而抹掉审计               |
-| 目录迁移文件   | `migration_file_entries`                                             | `(itemId, ordinal)`、`(itemId, sourceRelativePath)`、`(itemId, targetRelativePath)` 三重唯一；源/staging hash、size、mtime 和三个提交时间 | 文件先进入 attempt staging，校验后发布数据库，最后按 fingerprint 清理源；`ACTION_REQUIRED` 保留人工恢复证据 |
-
-`FULL_RECONCILE` 已退出 `SCAN@v1` payload contract 和 Worker executor。历史 `ScanRunMode.FULL` 与终态
-`FULL_RECONCILE` 任务不会被删除或改写，DTO 和管理页面继续把它们作为已停用历史展示；发布前只读数据库审计要求
-所有非终态 FULL 任务在安装新 Worker 前完成或由管理员取消。`ArtworkExternalRef.lastSeenScanRunId` 及既有索引继续作为
-历史兼容字段保留，本次代码 contract 清理不混入物理删列或删索引 migration。
-
-`20260820120000_add_pixiv_metadata_inventory` 以 expand-only 方式增加 Pixiv metadata inventory：
-
-- `pixiv_metadata_inventory_state` 是 `id='pixiv'` 的单例，绑定 resolved scan root 的 SHA-256，并记录首次可信
-  baseline 的 generation 与完成状态；不同根目录不能共享 inventory。
-- `pixiv_metadata_inventory` 以 `relativePath` 唯一，保存 size/mtime、可用时的 ctime/device/inode、观测 hash、已
-  发布 hash、最近尝试和可恢复错误。它不拥有 Artwork，`externalRefId` 删除时只置空。
-- `baselineEligible` 只表示某行来自首次完整遍历的候选；只有相同 generation 的全局状态到达 `READY` 后才能被
-  消费，部分页面提交或取消不能提前建立基线。
-- `lastErrorRetryable=false` 只缓存由相同内容确定的永久 metadata 错误；可重试错误写 `true`，不由内容决定的终态
-  冲突写 `null`，从而允许后续 ScanRun 在外部状态修复后重新判断。
-- `scan_run_metadata_inputs` 冻结相同 stat 字段；`scan_runs` 新增可空工作量和阶段耗时。升级前历史行保持 `null`，
-  `ScanRunItemAction` 没有扩枚举，旧客户端可以继续读取和写入旧字段集合。
-
-普通增量只在 stat/失败状态要求时 hash，发布领域记录与推进 `processedContentHash` 使用同一 fenced transaction。
-migration 对既有表的值域约束采用 `NOT VALID` 后再显式 `VALIDATE`，避免在加约束语句本身混入不可控历史改写。
-
-`20260820200000_add_pixiv_source_audit` 继续以 expand-only 方式增加来源一致性核对的持久底座：
-
-- `scan_runs.operationKind` 区分普通扫描与 `CONSISTENCY_AUDIT` / `AUDIT_APPLY`，四个可空分类计数只为新核对
-  记录提供聚合；历史 ScanRun 和旧写入者可以继续保留 `null`。
-- `pixiv_source_audit_items` 保存 `NEW / CHANGED / MISSING / INVALID / IDENTITY_CONFLICT` 差异。它只把
-  `scanRunId` 建成级联外键；inventory、external ref 和 Artwork ID 都是核对时的证据快照，不跟随后续领域行
-  删除或改名，也不能被解释为新的所有权关系。
-- `scan_run_metadata_inputs` 增加来源核对项、差异类型和预期身份快照。`auditDifferenceKind` 同时作为逐输入持久
-  checkpoint；成功分类为 `UNCHANGED` 的输入不写明细行，避免稳定目录产生万级报告噪声。
-- inventory state 除 resolved root 的路径 hash 外，还保存可用时的 root device/inode；inventory 行使用独立的
-  `lastSeenAuditRunId` 记录本轮核对是否见到，不能复用普通发现的 `lastSeenScanRunId`。
-
-一致性核对只写 ScanRun、冻结输入、inventory 观测和差异明细，不写 `Artwork`、`Image`、
-`ArtworkExternalRef`、标签、Source Snapshot 或原媒体。只有完整、非空、未达到遍历上限、输入 count/digest 与
-root 身份均再次验证通过，并且仍持有任务 fence 时，finalizer 才能把本轮未见 inventory 分类为 `MISSING`；取消、
-失败、空目录、遍历截断或 root 变化均不得生成 `MISSING`。`MISSING` 只是报告，不自动解绑或删除领域数据。
-
-`20260820210000_add_pixiv_source_audit_apply` 继续保持 expand-only，为选定同步增加可空证据与结果列：
-
-- `scan_runs.sourceAuditRunId` 保存 apply 所依据的核对 ID；它故意不建可变领域外键。stale/conflict 聚合只在
-  `AUDIT_APPLY` 上使用，旧 ScanRun 保持 `null`。
-- `scan_run_metadata_inputs` 补齐核对时观测的 external ID 与预期已发布 hash，连同既有 path、内容 hash、stat、
-  inventory/ref/Artwork ID 组成 v3 的冻结 CAS 证据。
-- `scan_run_items` 保存核对项 ID、`NEW / CHANGED`、`APPLIED / SKIPPED / CONFLICT / FAILED`、安全原因码、是否
-  可重试和结果 Artwork ID；约束要求非 apply 行整组为空、apply 终态结果完整，每个 operation 对同一核对项唯一。
-- 上述证据 ID 均不建立到当前 inventory、Source Reference、Artwork 或 audit item 的外键，避免后续领域删改
-  篡改历史任务含义；一致性由入队冻结、canonical digest、领取验证和 fenced publish 共同保证。
-
-普通扫描和 `AUDIT_APPLY` 现在共用的 Pixiv publisher 会把冻结 metadata 内容 hash 写入
-`ArtworkExternalRef.metadataHash`，并按 `(externalRefId, metadataHash)` upsert 不可变 `ArtworkSourceSnapshot`，
-保存规范化与原始来源证据。刷新仍保留本地 override、既有 Artist、非当前来源标签和媒体顺序，不因来源缺项删除
-Image。apply 的 stale 或身份冲突在这些领域写入之前终止。
-
-`ScanRun` 保留清理按核对证据组运行：共享 SCAN advisory lock 后，任何非终态 apply 都阻止父核对删除；只有父
-核对本身符合年龄/数量策略且所有 apply 均终态时，父核对与关联终态 apply 才在同批事务中删除。直接取消未领取
-的 v3 job 也必须在同一事务中终态化 SystemJob、apply ScanRun 与每个未完成 ScanRunItem。
-
-`20260815010000` 与 `20260815011000` 都使用显式事务。后者的第一项业务语句是只读 guard：若旧
-`scan_runs.systemJobId` 重复，或同一 pending batch 中 `sourceDirectoryName` 重复，migration 明确失败且不选择
-任意赢家。新结构不更新或删除 `Artwork`、`Image` 及其媒体引用。
-
-Phase 5 将上述四类高风险任务接入通用 Worker 后，生产 Registry 曾为 17 项 v1 capability。归档收件箱增加 `ARCHIVE_RESOLVE_ITEM`、复用/扩展 `ARCHIVE_MAINTENANCE`，并增加 `ARCHIVE_INTAKE_RETENTION_CLEANUP` 后，Registry 曾达到 20 个 job type。加入 Pixiv 标签、艺术家补全与作品在线同步后曾为 23 个 job type，加入 `PIXIV_AI_DERIVED_TAG_SYNC` 后曾为 24 个 job type，加入 `PIXIV_SERIES_RECONCILIATION` 后曾为 25 个 job type，加入 `ARCHIVE_DEFAULT_TAG_BACKFILL` 后曾为 26 个 job type，加入 `ARCHIVE_UPLOADER_SCAN` 和 `ARCHIVE_SEARCH_SCAN` 后曾为 28 个 job type；加入 `JOB_EVENT_RETENTION_CLEANUP` 和 `CREATOR_MAINTENANCE` 后曾为 30 个 job type；加入 `ARTIST_MERGE` 后当前为 31 个 job type。`SCAN` 同时注册 v1/v2/v3，`ARCHIVE_IMPORT` 注册 v1/v2、`ARCHIVE_SEARCH_SCAN` 注册 v1/v2/v3，其余 28 类仍只注册 v1，因此共有 36 个 job type/definition-version 组合。SCAN v1 承载既有扫描，v2 只读核对，v3 选定写入；ARCHIVE_IMPORT v1 兼容历史空默认标签任务，v2 冻结归档默认标签；滚动部署中的旧 Worker 不会领取它不支持的新版本。`WorkerInstance.capabilities` 保存实际 Registry 快照，部署门禁精确比较 job type、definition version 和 lane；任务执行授权仍由 `SystemJob.definitionVersion`、领取事务和 `leaseToken` 栅栏决定。
-
-### 3.9 归档收件与 Provider 请求治理
-
-`20260818120000_add_archive_intake_worker_lanes` 在同一次协调切换中增加收件持久结构和执行 lane：
-
-| 结构                              | 语义与关键约束                                                                 |
-| --------------------------------- | ------------------------------------------------------------------------------ |
-| `archive_intake_submissions`      | 一次添加操作；幂等键唯一，计数字段受 CHECK，后续增加固定长度请求 hash          |
-| `archive_intake_items`            | 全局 FIFO 项；`queueOrder` 唯一，活动 URL hash 和 Provider identity 有条件唯一 |
-| `archive_bulk_operations` / items | 批量入队/控制的持久命令与逐项目标结果；幂等键及目标组合唯一                    |
-| `archive_resolve_queue_control`   | 单例暂停 intent 与审计时间，不依赖浏览器内存                                   |
-| `archive_provider_throttles`      | 跨 lane、跨重启保存 Provider 下一请求时间和 penalty                            |
-| `archive_provider_request_leases` | 协调解析与下载的 Provider 请求预算和过期租约                                   |
-
-lane migration 的第一组业务语句是只读 guard：存在 `RUNNING/PAUSING/CANCELLING` 的 `SystemJob`，或存在未过期的 `global/background-worker` lease 时立即失败且不执行 DDL。所有既有任务通过新列默认值成为 `BACKGROUND_WRITER`；过期旧全局 lease 在 guard 后删除。迁移替换全局执行唯一索引，因此应用后不得再启动不理解 lane 的旧 Worker。
-
-`20260818170000_add_archive_operation_request_hashes` 为 submission 和 bulk command 增加请求 hash，使同一幂等键只有请求内容完全一致时才可重放。`20260818180000_add_archive_maintenance_worker_job` 增加维护任务必须位于 writer lane 的命名 CHECK。`20260818190000_add_archive_intake_retention_cleanup` 为已完成批量操作的 30 天清理增加索引；实际清理由有围栏的 writer job 分批执行，不通过级联关系删除 `SystemJob`、归档领域实体或媒体。
-
-`20260902120000_add_archive_uploader_manual_scan` 增加上传者来源、人工扫描运行和逐项候选表，并把 `ARCHIVE_UPLOADER_SCAN` 加入 `ARCHIVE_RESOLVE` lane。来源持久保存最新、增量和历史游标；运行只有在 fenced completion 中推进游标。`SEARCH` 请求与媒体下载可以并行，但仍共享 `archive_provider_throttles` 的请求间隔和 penalty；普通 `RESOLVE` 继续在活动下载 lease 存在时让行。
-
-`20260904120000_add_archive_uploader_uid_binding` 为上传者来源增加独立的稳定数字 UID 和覆盖复核时间，并为每个扫描运行冻结实际使用的 `NAME/UID` 查询身份。已有 UID 来源原地回填且保留水位；名称来源保持未绑定。名称绑定或 UID 更正只重置来源查询水位、游标和摘要，不删除长期目录、运行历史或工作流关联；重新发现继续按来源、Provider 和 GID upsert。迁移在 DDL 前拒绝活动上传者扫描，并以 `(providerKey, uploaderUid)` 唯一索引阻止跨来源重复绑定。
-
-`20260904180000_add_archive_title_search` 是事务化 expand migration：保留原表名、记录 ID、关系、上传者 UID、水位和目录，增加来源类型、JSON 查询、查询指纹、运行检查/匹配计数及候选匹配标记。旧数据默认为 `UPLOADER` 和匹配；不重建或迁移整套模块。
-
-标题来源的 UID 或名称限制只存于查询 JSON，上传者身份列必须为空；数据库 CHECK 约束来源/运行形状和检查计数边界。指纹以 Provider、规范化关键词、匹配方式和 UID 范围计算并唯一约束；冻结条件不能通过重命名更新。目录仍以来源/Provider/GID 唯一，跨来源处置仍以 Provider/GID 全局锁串行化。入箱与计数忽略 `matchesQuery=false`，但保存该来源的原目录身份及工作流关系。
-
-迁移先拒绝任何非终态发现扫描，再执行 DDL；此 guard 不代替停止旧写入者。增加来源类型后旧版 App 不兼容混合来源，不能直接二进制降级。完整回滚恢复数据库/媒体/配置/镜像一致性检查点；优先前向修复或在兼容版本停用标题来源。
-
-2026-09-16 名称优先配置扩展已有查询 JSON：`uploaderName` 与 `uploaderUid` 互斥，`uploaderDisplayName` 仅是 UID 的展示名称；新字段可省略，不改变旧 JSON、旧 UID 查询指纹或游标。NAME 指纹追加规范化名称维度，与 UID 查询分别去重。名称条件及展示值冻结到运行快照，展示值不参与远端查询和游标；旧来源复用只允许条件比较成功后补充缺失展示名。本次无需 DDL 或数据回填，新标题任务使用 `ARCHIVE_SEARCH_SCAN@v2`，旧 Worker 不领取；旧 App 的严格 JSON 读取不兼容新字段，不能直接二进制回退。
-
-### 发现来源的显式删除
-
-来源停用保留全部发现状态；显式删除 `ArchiveUploaderSource` 利用现有 `Cascade` 外键清除所属 `ArchiveUploaderScanRun`、`ArchiveUploaderScanItem` 和 `ArchiveUploaderCatalogItem`。关联方向不会反向删除 `ArchiveIntakeItem`、`ArchiveImport`、`SystemJob`、作品或媒体。`ArchiveUploaderIgnoredItem.sourceId` 使用 `SetNull`，全局忽略身份及 `sourceDisplayName` 快照继续保留。
-
-删除与扫描创建、入箱及忽略共用来源 advisory transaction lock（namespace `20260902`），处置按来源锁、Provider/GID 锁的固定顺序执行。事务内任一所属扫描或关联 SystemJob 非终态都会阻止删除；现有扫描任务禁止通过通用重试复活历史运行。删除提交后释放上传者身份/UID 或关键词指纹唯一键，再次新增得到新来源和空游标。此功能无需 migration；App 版本回滚不恢复已删除历史，历史恢复以删除前数据库备份为依据。
-
-## 4. 审计与维护 (Audit & Maintenance)
-
-### 4.1 后台任务切换守卫与手写约束
-
-`20260814091000_add_background_task_queue_schema` 使用显式事务，事务内第一条业务语句是只读 `DO` 守卫。它在任何 DDL、回填或索引创建前检查旧任务、归档导入、扫描、批量替换、视频探测/封面/章节/关键帧和归档生命周期共 12 类活动状态。关键帧 `STAGING` 集合在任务引用为空、关联任务缺失或关联任务非终态时也会阻断。发现阻断项时 migration 只报错并退出，不会替业务数据“收口”。该守卫是停机流程的第二道防线，不是并发写屏障；执行 migration 前仍必须按 Runbook 停止全部旧写入者。
-
-该 migration 不更新或删除 Artwork、Image、媒体、归档、扫描、替换等领域记录；只回填旧 `system_jobs` 和 `scheduled_tasks` 的队列兼容字段。旧任务被标记为 `definitionVersion=0`、`triggerSource=LEGACY`，不补造事件或 GC 删除意图。
-
-以下数据库约束由 migration 手写，因为 Prisma schema 不能表达 `CHECK`：
-
-- `system_jobs.progress` 必须为 0–100，`attempt >= 0`、`maxAttempts >= 1`、`definitionVersion >= 0`。
-- `system_job_events.progress` 为空或为 0–100。
-- `derived_media_gc_entries.attempt >= 0` 且 `maxAttempts >= 1`。
-
-`system_jobs` 是历史表，切换审计并不读取每条旧记录的 progress/attempt。它的四个 CHECK 首次以 `NOT VALID` 创建：创建时不扫描未触碰的历史行，但会立即约束新插入，也会校验之后被更新的旧行（即使只更新无关字段）。这样可避免未知旧历史值在创建约束时扩大停机风险。部署后的兼容审计应先报告并修复异常旧值，再在独立 migration 中执行 `VALIDATE CONSTRAINT`。新建的事件和 GC 表为空，因此其 CHECK 在创建时直接验证。
-
-本兼容阶段为 `system_jobs.availableAt` 回填值并增加 `CURRENT_TIMESTAMP` 默认值，但暂不设置 `NOT NULL`：旧关键帧入口仍会显式写 `NULL`，并把它解释为“立即可领取”。严格租约全有/全空、`SKIPPED` 字段一致性、计划字段成对约束及 `availableAt NOT NULL`，统一延后到旧执行入口完全迁走后的清理 migration，避免破坏停机升级后的回滚能力。
-
-`20260904200000_add_system_job_progress_data` 以 additive 方式为 `system_jobs` 增加可空 JSONB `progressData`；既有任务不回填并保持 `NULL`。Worker 在持有 execution fence 的同一事务中更新百分比、阶段、结构化进度并插入 `system_job_events`，避免 SSE 读取到事件与任务快照不一致。事件保留任务使用 `(type, level, createdAt, id)` 索引分页选择：普通 `job.progress` 保留 7 天，阶段、告警、控制和终态事件保留 90 天，每批最多删除 5,000 条。
-
-### 4.2 触发器日志 (`TriggerLog`)
-
-- **用途**: 记录人工一致性修复等维护摘要；不再记录每条成功的 `ArtworkTag` 变更。
-- **表结构**: 包含 `operation` (INSERT/UPDATE/DELETE), `table_name`, `old_value`, `new_value`, `error_message` 等字段。
-- **保留策略**: 默认保留 30 天，由 `trigger_log_retention_cleanup` 每日计划任务清理；该任务首次创建时默认启用。
-
-### 4.3 维护函数
-
-数据库内置了以下维护函数，可在必要时（如直接操作数据库导致计数偏差后）手动调用：
-
-| 函数名                            | 描述                                                                                            |
-| :-------------------------------- | :---------------------------------------------------------------------------------------------- |
-| `check_tag_count_consistency()`   | 检查所有标签的 `artworkCount` 与实际 `ArtworkTag` 数量是否一致。返回不一致的 Tag 列表及预期值。 |
-| `fix_tag_count_inconsistencies()` | 一次聚合并集合式修复所有不一致的标签计数，只写一条维护摘要日志。                                |
-| `cleanup_trigger_logs()`          | 清理 30 天前的触发器日志，防止日志表无限膨胀。                                                  |
-
-## 5. Migration 文件对照参考
-
-| Migration ID     | 关键内容                                                                                                                                        |
-| :--------------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `20250906135951` | 开启 `pg_trgm`，创建 Artwork Title+Description 混合 GIN 索引                                                                                    |
-| `20250929092056` | 创建 `TriggerLog` 表，添加 Tag 计数触发器 (`ArtworkTag`) 与维护函数                                                                             |
-| `20250929103727` | 添加 Tag 搜索向量列 (`search_vector`) 及基础更新触发器                                                                                          |
-| `20251001054605` | 更新 Tag 搜索触发器以支持 `name_en` (多语言搜索)                                                                                                |
-| `20251003034237` | 添加作品点赞计数触发器 (`ArtworkLike`)                                                                                                          |
-| `20260203000000` | 添加作品图片计数触发器 (`Artwork.imageCount`, 语句级优化)                                                                                       |
-| `20260227003621` | 重构认证系统 (BetterAuth)，User -> UserBA，并清理无效 ArtworkLike 数据                                                                          |
-| `20260808000000` | 添加 `ArtworkTag(tagId, artworkId)` 索引，将标签计数改为语句级集合更新，并清理重复日志索引                                                      |
-| `20260814090000` | 独立新增后台任务来源/跳过/事件/GC 枚举，并扩展 `JobStatus`，避免同事务使用新枚举值                                                              |
-| `20260814091000` | 先执行只读切换守卫，再新增持久队列字段、事件/资源租约/派生媒体 GC 表、索引、外键和安全 CHECK，并回填旧任务兼容标记                              |
-| `20260814100000` | 新增独立 Worker 实例状态枚举、心跳表及状态/心跳索引；纯增量建表，不改写旧数据                                                                   |
-| `20260814110000` | 在确认无旧执行态任务后，新增执行态部分唯一表达式索引，作为全局单并发的数据库最终栅栏                                                            |
-| `20260815001000` | 新增视频封面 backlog 公平游标及探测/封面复合索引；复合索引显式映射为 `MediaVideoMetadata_poster_backlog_idx`，避免 PostgreSQL 63 字节标识符截断 |
-| `20260815010000` | 在独立事务中扩展扫描运行、扫描单项、批量替换 batch/item 的暂停、重试和恢复状态；不混入结构 DDL                                                  |
-| `20260815011000` | 为四类高风险任务新增冻结输入、单项/文件检查点、批量替换操作绑定、迁移阶段状态、约束和恢复索引；部署前拒绝重复旧 ownership 数据                  |
-| `20260818120000` | 守卫执行态和旧全局 lease，增加双 lane、按 lane 唯一执行索引、持久收件/批量审计/Provider 限流结构及外键                                          |
-| `20260818170000` | 为归档 submission 与 bulk operation 增加请求 hash 和长度 CHECK，确保幂等键重放不会接受不同请求                                                  |
-| `20260818180000` | 验证 `ARCHIVE_MAINTENANCE` 只能位于 `BACKGROUND_WRITER`                                                                                         |
-| `20260818190000` | 为 30 天收件历史保留清理增加已完成批量操作时间索引                                                                                              |
-| `20260820200000` | 以 expand-only 方式增加来源核对 operation/count、冻结证据、root dev/inode、独立 sighting marker 和持久差异明细；不改写领域或媒体数据            |
-| `20260820210000` | 为来源核对选定同步增加父核对证据、冻结 CAS 字段、逐项 outcome/reason/retryable、完整性 CHECK 和恢复/查询索引；历史行保持兼容                    |
-| `20260825103000` | 增加艺术家多 Provider 外部身份、同步状态与 Pixiv 强证据回填；保留旧 `Artist.userId` 作为一个发布周期的回滚镜像                                  |
-| `20260826143000` | 为 Pixiv 作品外部引用增加在线同步状态、任务与磁盘快照指针；只在唯一来源及数据库快照精确匹配时清除误标文本 override                              |
-| `20260827090000` | 增加系列多 Provider 外部身份、成员来源、远端排序、人工覆盖与排除状态；保留旧来源和单系列字段作为兼容镜像                                        |
-| `20260902120000` | 增加 E-Hentai 上传者来源、人工扫描运行与候选结果，扩展 SEARCH 请求类，并允许上传者扫描进入 `ARCHIVE_RESOLVE` lane                               |
-| `20260904120000` | 增加 E-Hentai 上传者稳定 UID、UID 覆盖复核状态与扫描运行查询身份快照；既有 UID 来源原地回填且不重置扫描水位                                     |
-| `20260930120000` | 联合检查艺术家、系列和旧目录迁移现场已收口后，删除 `Artist.userId` 与旧复合唯一索引                                                             |
-| `20260930121000` | 再次检查系列身份、direct pointer 和旧目录迁移现场后，删除 `Artwork.seriesId`、`Series.source/externalId` 及旧约束                               |
-
-## 创作者归属视图与兼容触发器
-
-20260908120000_unify_artwork_creators 引入 ArtworkArtist、多条 SOURCE/MANUAL/LEGACY 依据及来源标签映射。effective_artwork_creators 视图只选存在 present=true 且 excludedAt 为空的关系。seed_legacy_artwork_creator 仅在 Artwork INSERT 时为非空 artistId 建立 LEGACY 初始关系，UPDATE 不重新认领；不得把多对多关系回写为存储路径身份。CreatorMaintenancePlan/Item 保存冻结预览和逐项执行结果，完整数据库 dump 必须包含以上对象。详见[创作者关系](../../../docs/features/creator-relations.md)。
-
-多上传者扩展沿用 titleQuery JSON 的可选 `uploaders: [{ uid, displayName? }]`，与旧单个 UID/NAME 字段互斥。集合按 UID 规范化、排序和去重，单元素创建沿用旧 UID JSON 与指纹；多元素指纹第四项为 UID 数组，展示名不参与。来源与运行快照保存完整集合，无 DDL。新任务为 ARCHIVE_SEARCH_SCAN v3，旧严格 JSON 读取不兼容新字段，回退要求保留兼容读取能力。
-
-## 发现来源批量扫描约束
-
-20260920120000_add_discovery_batch_scan 扩展 system_jobs_type_execution_lane_check，允许 ARCHIVE_DISCOVERY_BATCH_SCAN 仅使用 ARCHIVE_RESOLVE。system_jobs_one_active_discovery_batch 部分唯一索引约束该类型的 PENDING/RUNNING/RETRY_WAIT/PAUSING/PAUSED/CANCELLING 至多一条。无新增业务表，父任务 payload/result 保存冻结输入与检查点，子扫描通过 parentJobId 关联；非终态父批次依赖的扫描历史不参与 30 天清理。
-
-## 归档收件 URL 等值匹配索引
-
-迁移 `20261003120000_index_archive_intake_url_matching` 为 `archive_intake_items` 的 `submittedUrl`
-和 `canonicalUrl` 分别添加非唯一 Hash 索引。目录状态的 LATERAL 收件查询包含 ID、Provider/GID、
-提交 URL 和规范 URL 四种匹配；两个 URL 分支原先没有索引，生产计划对收件表重复全扫描 3,861 次。
-Hash 索引服务于现有 Text 字段的完整等值查询，避免长 URL 的 B-tree 索引项长度限制。
-保留完整字符串比较，由 PostgreSQL 复核索引候选；不把散列相等当作业务身份相等。
-
-本迁移不改变匹配优先级、NULL 排序、`lastOutcomeAt` 严格时间边界、唯一性或任何领域数据。
-按现有停写发布流程执行普通索引创建；回滚应用时保留索引和迁移记录，无需媒体或数据回填。
+迁移只能通过 generate/deploy 流程执行，不能用 db:push 代替迁移历史。guard 只验证执行时状态，不替代停止旧写入者；文件系统和数据库恢复使用同一检查点。操作依据见[部署](../../../docs/operations/deployment.md)与[备份恢复](../../../docs/operations/backup-and-recovery.md)。

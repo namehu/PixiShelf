@@ -1,0 +1,29 @@
+stateDiagram-v2
+  direction LR
+  state "ACTIVE：正常可见" as Active
+  state "TRASHING：删除意图已持久化" as Trashing
+  state "TRASHED：回收区保留" as Trashed
+  state "RESTORING：恢复任务执行" as Restoring
+  state "已永久清理：身份删除意图仍在" as Purged
+  state "新 MANUAL 收件与确认" as Rearchive
+  [*] --> Active
+  Active --> Trashing: 管理员确认删除
+  Trashing --> Trashed: Writer 移动文件并提交
+  Trashing --> Trashing: 失败后重试维护
+  Trashed --> Restoring: 保留期内且无活动永久清理
+  Restoring --> Active: Writer 恢复文件并提交
+  Restoring --> Restoring: 失败后重试维护
+  Trashed --> Purged: 到期清理文件后删除数据库记录
+  Trashed --> Trashed: 清理失败 保留记录重试
+  Purged --> Rearchive: 管理员显式重新归档
+  Rearchive --> Active: 新作品成功发布后解除身份删除意图
+  Rearchive --> Purged: 失败或取消
+  note right of Trashed
+    到期但未清理仅显示等待清理
+    不提供提前永久删除
+  end note
+  note right of Purged
+    自动收件和旧任务重试不得复活作品
+    旧任务保留删除历史
+    永久清理无法凭代码回退恢复文件
+  end note
