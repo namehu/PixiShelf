@@ -12,6 +12,7 @@ export * from './logical-media.ts'
 export * from './payloads.ts'
 export * from './pixiv-artwork-sync-report.ts'
 export * from './archive-search.ts'
+export * from './archive-title-rules.ts'
 export * from './archive-version-notice.ts'
 export * from './creator-maintenance.ts'
 

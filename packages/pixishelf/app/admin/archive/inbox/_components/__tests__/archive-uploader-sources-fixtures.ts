@@ -1,5 +1,7 @@
 export const source = {
   id: 'source-1',
+  titleRules: null,
+  rulesVersion: 1,
   providerKey: 'e-hentai',
   identityKind: 'UID',
   identityValue: '123',

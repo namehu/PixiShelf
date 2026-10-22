@@ -133,6 +133,7 @@ function commandLabel(command: ArchiveBulkOperationView['commandType']) {
       ENQUEUE: '归档入队',
       BIND_CREATORS: '绑定艺术家',
       CANCEL_PENDING_CREATORS: '取消待生效绑定',
+      REVIEW_TITLE_MATCH: '复核标题匹配',
       PAUSE: '暂停',
       RESUME: '继续',
       CANCEL: '取消',

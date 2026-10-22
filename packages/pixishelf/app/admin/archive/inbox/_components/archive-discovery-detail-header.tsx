@@ -1,6 +1,6 @@
 'use client'
 
-import { ARCHIVE_TITLE_MATCH_LABELS, archiveTitleUploaderLabel } from '@pixishelf/job-contracts'
+import { archiveTitleUploaderLabel } from '@pixishelf/job-contracts'
 import type { inferRouterOutputs } from '@trpc/server'
 import {
   ArchiveIcon,
@@ -100,7 +100,7 @@ export function ArchiveDiscoveryDetailHeader({
             <CardDescription className="mt-2 flex flex-wrap items-center gap-1.5">
               {source.titleQuery ? (
                 <span>
-                  标题{ARCHIVE_TITLE_MATCH_LABELS[source.titleQuery.matchMode]}「
+                  远端标题关键词「
                   <PrivacySensitiveText>{source.titleQuery.keyword}</PrivacySensitiveText>」 ·{' '}
                   <PrivacySensitiveText>{archiveTitleUploaderLabel(source.titleQuery)}</PrivacySensitiveText>
                 </span>

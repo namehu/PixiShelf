@@ -34,7 +34,7 @@ export function ArchiveSearchSourceDialog({
           <DialogTitle>
             {state?.mode === 'RENAME' ? '修改来源名称' : state?.mode === 'COPY' ? '另存搜索条件' : '新增标题关键词来源'}
           </DialogTitle>
-          <DialogDescription>条件保存后固定不变；修改条件请另存来源。</DialogDescription>
+          <DialogDescription>远端关键词和上传者保存后固定；本地接纳规则可在来源详情中预览并调整。</DialogDescription>
         </DialogHeader>
         <SearchEditor
           state={state}

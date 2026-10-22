@@ -1,5 +1,24 @@
 import { z } from 'zod'
 import {
+  previewTitleRulesSchema,
+  previewTitleRules,
+  titleRuleRevisionSchema,
+  getTitleRulePreview,
+  latestTitleRulePreview,
+  titleRulePreviewItemsSchema,
+  listTitleRulePreviewItems,
+  applyTitleRules,
+  cancelTitleRulePreview,
+  reviewTitleItemsSchema,
+  reviewTitleItems,
+  titleRuleSourceSchema,
+  getTitleReviewCounts,
+  titleCreatorCleanupPreviewSchema,
+  previewTitleCreatorCleanup,
+  cleanupTitleCreatorsSchema,
+  cleanupTitleCreators
+} from '@/services/archive-uploader/title-rule-service'
+import {
   startDiscoveryBatch,
   startDiscoveryBatchSchema,
   getDiscoveryBatch,
@@ -58,6 +77,36 @@ import {
 const discovery = { sourceKind: 'ALL' as const }
 
 export const archiveSearchRouter = router({
+  latestRulePreview: authProcedure
+    .input(titleRuleSourceSchema)
+    .query(({ input }) => runArchiveOperation(() => latestTitleRulePreview(input))),
+  previewRules: adminProcedure
+    .input(previewTitleRulesSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => previewTitleRules(input, ctx.userId))),
+  rulePreview: authProcedure
+    .input(titleRuleRevisionSchema)
+    .query(({ input }) => runArchiveOperation(() => getTitleRulePreview(input))),
+  rulePreviewItems: authProcedure
+    .input(titleRulePreviewItemsSchema)
+    .query(({ input }) => runArchiveOperation(() => listTitleRulePreviewItems(input))),
+  applyRules: adminProcedure
+    .input(titleRuleRevisionSchema)
+    .mutation(({ input }) => runArchiveOperation(() => applyTitleRules(input))),
+  cancelRulePreview: adminProcedure
+    .input(titleRuleRevisionSchema)
+    .mutation(({ input }) => runArchiveOperation(() => cancelTitleRulePreview(input))),
+  reviewItems: adminProcedure
+    .input(reviewTitleItemsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => reviewTitleItems(input, ctx.userId))),
+  reviewCounts: authProcedure
+    .input(titleRuleSourceSchema)
+    .query(({ input }) => runArchiveOperation(() => getTitleReviewCounts(input))),
+  creatorCleanupPreview: authProcedure
+    .input(titleCreatorCleanupPreviewSchema)
+    .query(({ input }) => runArchiveOperation(() => previewTitleCreatorCleanup(input))),
+  cleanupCreators: adminProcedure
+    .input(cleanupTitleCreatorsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => cleanupTitleCreators(input, ctx.userId))),
   startBatchScan: adminProcedure
     .input(startDiscoveryBatchSchema)
     .mutation(({ input, ctx }) => runArchiveOperation(() => startDiscoveryBatch(input, ctx.userId))),

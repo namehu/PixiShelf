@@ -227,7 +227,7 @@ describe('archive uploader service', () => {
         data: expect.objectContaining({
           id: 'job-1',
           type: sourceKind === 'TITLE_QUERY' ? 'ARCHIVE_SEARCH_SCAN' : 'ARCHIVE_UPLOADER_SCAN',
-          definitionVersion: sourceKind === 'TITLE_QUERY' ? 3 : 1,
+          definitionVersion: sourceKind === 'TITLE_QUERY' ? 4 : 1,
           executionLane: 'ARCHIVE_RESOLVE',
           triggerSource: 'MANUAL',
           requestedByUserId: 'admin-1',

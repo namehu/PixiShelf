@@ -5,6 +5,13 @@ import {
   archiveUploaderScanPayloadSchema,
   archiveSearchScanPayloadSchema,
   archiveTitleQuerySchema,
+  archiveTitleRulesSchema,
+  legacyArchiveTitleRules,
+  evaluateArchiveTitleRules,
+  archiveTitleEvidenceFromCatalog,
+  archiveTitleUploaderMatches,
+  archiveTitleAccepted,
+  type ArchiveTitleRules,
   type ArchiveTitleQuery,
   JOB_DEFINITION_VERSION,
   type ArchiveUploaderScanPayload,
@@ -107,6 +114,7 @@ interface ClaimedScanRun {
   searchIdentityKind: 'NAME' | 'UID' | null
   searchIdentityValue: string | null
   titleQuery: ArchiveTitleQuery | null
+  titleRules?: ArchiveTitleRules | null
   cursorBefore: string | null
   source: {
     id: string
@@ -147,6 +155,14 @@ export function createArchiveUploaderScanExecutorRegistrations(
       jobType: 'ARCHIVE_SEARCH_SCAN',
       executionLane: 'ARCHIVE_RESOLVE',
       definitionVersion: 2,
+      progressPolicy: 'STANDARD',
+      parsePayload: (payload) => archiveSearchScanPayloadSchema.parse(payload),
+      execute: (context) => executeArchiveUploaderScan(context, dependencies, 'TITLE_QUERY')
+    },
+    {
+      jobType: 'ARCHIVE_SEARCH_SCAN',
+      executionLane: 'ARCHIVE_RESOLVE',
+      definitionVersion: 3,
       progressPolicy: 'STANDARD',
       parsePayload: (payload) => archiveSearchScanPayloadSchema.parse(payload),
       execute: (context) => executeArchiveUploaderScan(context, dependencies, 'TITLE_QUERY')
@@ -209,6 +225,7 @@ export async function executeArchiveUploaderScan(
       searchIdentityKind: current.searchIdentityKind,
       searchIdentityValue: current.searchIdentityValue,
       titleQuery: current.titleQuery,
+      titleRules: current.titleRules as ArchiveTitleRules | null,
       cursorBefore: current.cursorBefore,
       source: {
         id: current.source.id,
@@ -241,7 +258,13 @@ export async function executeArchiveUploaderScan(
       }
       titleQuery = parsed.data
     }
-    const run: ClaimedScanRun = { ...claimedRun, titleQuery }
+    const run: ClaimedScanRun = {
+      ...claimedRun,
+      titleQuery,
+      titleRules: titleQuery
+        ? archiveTitleRulesSchema.parse(claimedRun.titleRules ?? legacyArchiveTitleRules(titleQuery))
+        : null
+    }
     await context.progress({
       progress: 5,
       stage: 'UPLOADER_SEARCH',
@@ -261,6 +284,16 @@ export async function executeArchiveUploaderScan(
         { signal: context.signal }
       )
       if (result.items.some((item) => typeof item.matchesQuery !== 'boolean')) throw new Error('标题搜索缺少匹配状态')
+      for (const item of result.items) {
+        const evaluation = evaluateArchiveTitleRules(
+          run.titleRules!,
+          archiveTitleEvidenceFromCatalog(item),
+          archiveTitleUploaderMatches(run.titleQuery, item.uploaderName)
+        )
+        item.matchEvaluation = evaluation
+        // Legacy runs retain their original provider decision; v4 uses the frozen composite rules.
+        if (context.job.definitionVersion >= 4) item.matchesQuery = evaluation.matched
+      }
     } else {
       if (!run.searchIdentityKind || !run.searchIdentityValue) throw new Error('上传者查询身份无效')
       result = await provider.scanUploader(
@@ -365,6 +398,31 @@ async function finalizeScan(
         lastSeenAt: completedAt,
         lastScanRunId: run.id
       }
+      const previous = run.titleQuery
+        ? await scope.transaction.archiveUploaderCatalogItem.findUnique({
+            where: {
+              sourceId_providerKey_externalId: {
+                sourceId: run.source.id,
+                providerKey: item.providerKey,
+                externalId: item.externalId
+              }
+            },
+            select: { reviewDecision: true }
+          })
+        : null
+      const matchData =
+        run.titleQuery && item.matchEvaluation
+          ? {
+              ruleMatches: item.matchesQuery !== false,
+              uploaderMatches: item.matchEvaluation.uploaderMatches,
+              matchTitles: toJsonValue(item.matchEvaluation.evidence),
+              matchEvaluation: toJsonValue(item.matchEvaluation),
+              matchesQuery: archiveTitleAccepted(
+                { ...item.matchEvaluation, matched: item.matchesQuery !== false },
+                previous?.reviewDecision ?? 'AUTO'
+              )
+            }
+          : {}
       const workflowData = classified.latestWorkflow ? catalogWorkflowData(classified.latestWorkflow) : {}
       const catalog = await scope.transaction.archiveUploaderCatalogItem.upsert({
         where: {
@@ -379,10 +437,11 @@ async function finalizeScan(
           providerKey: item.providerKey,
           externalId: item.externalId,
           ...catalogData,
+          ...matchData,
           ...workflowData,
           firstSeenAt: completedAt
         },
-        update: catalogData,
+        update: { ...catalogData, ...matchData },
         select: { id: true }
       })
       if (classified.latestWorkflow) {
@@ -399,7 +458,7 @@ async function finalizeScan(
           where: { id: catalog.id, firstMatchedAt: null },
           data: { firstMatchedAt: completedAt }
         })
-        if (firstMatch.count && run.defaultCreatorIds.length) {
+        if (!run.titleQuery && firstMatch.count && run.defaultCreatorIds.length) {
           await bindDiscoveryCreators(
             scope.transaction,
             { providerKey: item.providerKey, externalId: item.externalId },

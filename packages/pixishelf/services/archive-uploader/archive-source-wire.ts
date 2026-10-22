@@ -1,5 +1,5 @@
 import type { Prisma } from '@pixishelf/db'
-import { archiveTitleQuerySchema } from '@pixishelf/job-contracts'
+import { archiveTitleQuerySchema, archiveTitleRulesSchema, legacyArchiveTitleRules } from '@pixishelf/job-contracts'
 import { archiveWireErrorMessage } from '@/services/archive/archive-redaction'
 
 export const sourceWireSelect = {
@@ -9,6 +9,8 @@ export const sourceWireSelect = {
   },
   sourceKind: true,
   titleQuery: true,
+  titleRules: true,
+  rulesVersion: true,
   id: true,
   providerKey: true,
   identityKind: true,
@@ -42,6 +44,12 @@ export function serializeSource(source: SourceWire) {
     ...wire,
     defaultCreators: (source.defaultCreators ?? []).map((row) => row.artist),
     titleQuery: source.titleQuery ? archiveTitleQuerySchema.parse(source.titleQuery) : null,
+    titleRules: source.titleQuery
+      ? archiveTitleRulesSchema.parse(
+          source.titleRules ?? legacyArchiveTitleRules(archiveTitleQuerySchema.parse(source.titleQuery))
+        )
+      : null,
+    rulesVersion: source.rulesVersion ?? 1,
     uidBindingState,
     hasPendingLatest: incrementalCursor !== null,
     canContinueHistory: historyCursor !== null,

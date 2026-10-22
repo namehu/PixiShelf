@@ -37,7 +37,7 @@ describe('title discovery query', () => {
     expect(archiveTitleQuerySchema.safeParse({ keyword: 'Match', ...value }).success).toBe(false)
   })
   it('adds an exact name constraint without modifying legacy JSON or UID queries', () => {
-    expect(ARCHIVE_SEARCH_DEFINITION_VERSION).toBe(3)
+    expect(ARCHIVE_SEARCH_DEFINITION_VERSION).toBe(4)
     const name = archiveTitleQuerySchema.parse({ keyword: 'Match', uploaderName: ' Ａlice ' })
     expect(archiveTitleSearchTerm(name)).toBe('title:"match" uploader:"alice"')
     expect(

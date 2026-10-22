@@ -7,6 +7,11 @@ import { describe, expect, it } from 'vitest'
 import { PRODUCTION_WORKER_CAPABILITIES } from '../production-capabilities.js'
 
 const repositoryRoot = new URL('../../../..', import.meta.url)
+// Git for Windows supplies the POSIX shell used by the container entrypoint tests.
+const shell =
+  process.platform === 'win32' ? join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git/bin/sh.exe') : '/bin/sh'
+const shellPath = (value: string) =>
+  value.replaceAll('\\', '/').replace(/^([A-Za-z]):/, (_, drive: string) => `/${drive.toLowerCase()}`)
 
 describe('Worker deployment boundary', () => {
   it.each(['--before', '--after', '--phase2-before', '--phase2-after', '--help'])(
@@ -21,10 +26,10 @@ describe('Worker deployment boundary', () => {
           mode: 0o755
         })
         const result = spawnSync(
-          '/bin/sh',
-          [fileURLToPath(new URL('build/entrypoint.sh', repositoryRoot)), 'node', auditPath, argument],
+          shell,
+          [shellPath(fileURLToPath(new URL('build/entrypoint.sh', repositoryRoot))), 'node', auditPath, argument],
           {
-            env: { PATH: directory },
+            env: { PATH: shellPath(directory) },
             encoding: 'utf8'
           }
         )
@@ -50,9 +55,9 @@ describe('Worker deployment boundary', () => {
         mode: 0o755
       })
       const result = spawnSync(
-        '/bin/sh',
-        [fileURLToPath(new URL('build/entrypoint.sh', repositoryRoot)), 'node', 'server.js'],
-        { env: { PATH: directory }, encoding: 'utf8' }
+        shell,
+        [shellPath(fileURLToPath(new URL('build/entrypoint.sh', repositoryRoot))), 'node', 'server.js'],
+        { env: { PATH: shellPath(directory) }, encoding: 'utf8' }
       )
       expect(result.status).toBe(23)
       expect(result.stdout).not.toContain('Running database migrations')
@@ -175,7 +180,7 @@ describe('Worker deployment boundary', () => {
     expect(nextPackage).not.toContain('archive:worker')
   })
 
-  it('ships the read-only 34-job capability audit and documents it as a deployment gate', () => {
+  it('ships the read-only 35-job capability audit and documents it as a deployment gate', () => {
     const buildScript = readFileSync(new URL('packages/pixishelf-worker/scripts/build.mjs', repositoryRoot), 'utf8')
     const runbook = readFileSync(new URL('docs/design/background-task-runbook.md', repositoryRoot), 'utf8')
     expect(buildScript).toContain("'capability-audit': 'src/capability-audit.ts'")

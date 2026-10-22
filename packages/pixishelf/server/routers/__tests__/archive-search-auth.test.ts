@@ -1,6 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const writes = vi.hoisted(() => vi.fn())
+vi.mock('@/services/archive-uploader/title-rule-service', async (original) => ({
+  ...(await original<typeof import('@/services/archive-uploader/title-rule-service')>()),
+  latestTitleRulePreview: writes,
+  previewTitleRules: writes,
+  getTitleRulePreview: writes,
+  listTitleRulePreviewItems: writes,
+  applyTitleRules: writes,
+  cancelTitleRulePreview: writes,
+  reviewTitleItems: writes,
+  getTitleReviewCounts: writes,
+  previewTitleCreatorCleanup: writes,
+  cleanupTitleCreators: writes
+}))
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/rate-limit', () => ({ rateLimiter: { check: vi.fn(() => true) } }))
 vi.mock('@/services/archive-uploader/archive-uploader-service', async (original) => ({
@@ -37,6 +50,35 @@ beforeEach(() => writes.mockReset())
 
 describe('archiveSearch authentication boundary', () => {
   it.each([
+    () => caller.latestRulePreview({ sourceId: 'one' }),
+    () =>
+      caller.previewRules({
+        sourceId: 'one',
+        rulesVersion: 1,
+        requestId: '00000000-0000-4000-8000-000000000001',
+        rules: { version: 1, any: [{ operator: 'CONTAINS', text: '[RAG]' }], all: [], none: [] }
+      }),
+    () => caller.rulePreview({ sourceId: 'one', revisionId: 'preview' }),
+    () => caller.rulePreviewItems({ sourceId: 'one', revisionId: 'preview' }),
+    () => caller.applyRules({ sourceId: 'one', revisionId: 'preview' }),
+    () => caller.cancelRulePreview({ sourceId: 'one', revisionId: 'preview' }),
+    () => caller.reviewCounts({ sourceId: 'one' }),
+    () =>
+      caller.reviewItems({
+        sourceId: 'one',
+        rulesVersion: 1,
+        itemIds: ['item'],
+        decision: 'INCLUDE',
+        requestId: '00000000-0000-4000-8000-000000000001'
+      }),
+    () => caller.creatorCleanupPreview({ sourceId: 'one' }),
+    () =>
+      caller.cleanupCreators({
+        sourceId: 'one',
+        rulesVersion: 1,
+        pendingIds: ['item'],
+        requestId: '00000000-0000-4000-8000-000000000001'
+      }),
     () => caller.setDefaultCreators({ sourceId: 'one', artistIds: [] }),
     () =>
       caller.bindCreators({

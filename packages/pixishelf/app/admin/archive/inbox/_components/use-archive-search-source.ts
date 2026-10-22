@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
   archiveTitleQuerySchema,
+  archiveTitleRulesSchema,
+  type ArchiveTitleRules,
   normalizeArchiveTitleUploaders,
   MAX_ARCHIVE_TITLE_UPLOADERS,
   type ArchiveTitleUploader,
@@ -15,7 +17,12 @@ import { useArchiveUploaderIdentity, emptyUploaderIdentity } from './archive-upl
 
 export interface ArchiveSearchDialogState {
   mode: 'CREATE' | 'COPY' | 'RENAME'
-  source?: { id: string; displayName: string; titleQuery: ArchiveTitleQuery | null }
+  source?: {
+    id: string
+    displayName: string
+    titleQuery: ArchiveTitleQuery | null
+    titleRules?: ArchiveTitleRules | null
+  }
 }
 export function useArchiveSearchSource({
   state,
@@ -31,6 +38,7 @@ export function useArchiveSearchSource({
   const trpc = useTRPC()
   const [displayName, setDisplayName] = useState('')
   const [keyword, setKeyword] = useState('')
+  const [rules, setRules] = useState<ArchiveTitleRules | null>(null)
   const [matchMode, setMatchMode] = useState<ArchiveTitleQuery['matchMode']>('CONTAINS')
   const identity = useArchiveUploaderIdentity(state !== null && state.mode !== 'RENAME')
   const [saving, setSaving] = useState(false)
@@ -40,6 +48,7 @@ export function useArchiveSearchSource({
   useEffect(() => {
     setDisplayName(state?.source?.displayName ?? '')
     setKeyword(state?.source?.titleQuery?.keyword ?? '')
+    setRules(state?.source?.titleRules ?? null)
     setMatchMode(state?.source?.titleQuery?.matchMode ?? 'CONTAINS')
     const query = state?.source?.titleQuery
     setUploaders(query?.uploaders ?? [])
@@ -150,6 +159,7 @@ export function useArchiveSearchSource({
       await create.mutateAsync({
         displayName: displayName.trim() || query.data.keyword,
         ...query.data,
+        ...(rules ? { rules: archiveTitleRulesSchema.parse(rules) } : {}),
         ...(artistIds.length ? { artistIds } : {})
       })
     } catch (cause) {
@@ -159,6 +169,8 @@ export function useArchiveSearchSource({
     }
   }
   return {
+    rules,
+    setRules,
     displayName,
     setDisplayName,
     keyword,

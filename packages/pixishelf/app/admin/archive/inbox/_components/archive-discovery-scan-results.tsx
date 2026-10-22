@@ -2,7 +2,7 @@
 
 import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import type { inferRouterOutputs } from '@trpc/server'
-import { ExternalLinkIcon, ArrowUpRightIcon, BanIcon, BookOpenIcon, RotateCcwIcon } from 'lucide-react'
+import { ExternalLinkIcon, ArrowUpRightIcon, BanIcon, BookOpenIcon, RotateCcwIcon, ListFilterIcon } from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { DISCOVERY_LANGUAGES } from '@/lib/archive-discovery-filters'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,15 @@ import { ArchiveDiscoveryResultList, type ArchiveDiscoveryListPosition } from '.
 import { type ArchiveDiscoveryCatalogView, resultFeedLabel } from './archive-discovery-results-toolbar'
 import { ArchiveUploaderGalleryThumbnail } from './archive-uploader-result-visuals'
 import { formatArchiveUploaderTimestamp } from './archive-uploader-view-state'
+import { ArchiveTitleMatchEvidence } from './archive-title-match-evidence'
+import { useTitleReview } from './use-title-review'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 
 type RouterOutputs = inferRouterOutputs<AppRouter>
 type ScanItem = RouterOutputs['archiveSearch']['listItems']['items'][number]
@@ -23,6 +32,7 @@ type ScanRun = RouterOutputs['archiveSearch']['getSource']['runs'][number]
 const MAX_SELECTED_ITEMS = 100
 
 export function ScanResults({
+  titleReview,
   filtered = false,
   onClearFilters,
   onScan,
@@ -52,6 +62,7 @@ export function ScanResults({
   position,
   onPositionChange
 }: {
+  titleReview?: { sourceId: string; rulesVersion: number } | undefined
   filtered?: boolean
   onClearFilters?: () => void
   onScan?: () => void
@@ -215,6 +226,13 @@ export function ScanResults({
                     pendingCreators={item.pendingCreators}
                   />
                 </div>
+                {titleReview ? (
+                  <ArchiveTitleMatchEvidence
+                    evaluation={item.matchEvaluation}
+                    evidence={item.matchEvidence}
+                    decision={item.reviewDecision}
+                  />
+                ) : null}
                 <p className="col-span-2 mt-1 text-xs leading-relaxed text-muted-foreground">
                   <span className="tabular-nums">#{item.externalId}</span> ·{' '}
                   <PrivacySensitiveText>
@@ -248,6 +266,7 @@ export function ScanResults({
                 resultView === 'cards' ? 'col-start-2 row-start-1' : 'col-start-3 row-start-1 max-sm:flex-col'
               )}
             >
+              {titleReview ? <TitleReviewMenu item={item} {...titleReview} /> : null}
               {item.artworkId && item.workflowStage !== 'DELETED' ? (
                 <Button variant="ghost" size="icon" asChild>
                   <a
@@ -325,6 +344,28 @@ export function ScanResults({
         </div>
       )}
     />
+  )
+}
+
+function TitleReviewMenu({ item, sourceId, rulesVersion }: { item: ScanItem; sourceId: string; rulesVersion: number }) {
+  const { review, pending } = useTitleReview(sourceId, rulesVersion)
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label={`复核匹配 ${item.title}`} disabled={pending}>
+          <ListFilterIcon aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuGroup>
+          <DropdownMenuItem onSelect={() => review([item.id], 'EXCLUDE')}>从本来源排除</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => review([item.id], 'INCLUDE')}>记住为手动接纳</DropdownMenuItem>
+          {item.reviewDecision !== 'AUTO' ? (
+            <DropdownMenuItem onSelect={() => review([item.id], 'AUTO')}>恢复遵循规则</DropdownMenuItem>
+          ) : null}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
