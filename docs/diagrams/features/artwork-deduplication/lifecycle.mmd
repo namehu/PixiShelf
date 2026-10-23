@@ -1,0 +1,65 @@
+---
+config:
+  htmlLabels: false
+  flowchart:
+    htmlLabels: false
+title: 同艺术家作品去重 · 拟实施维护状态机
+---
+stateDiagram-v2
+  direction TB
+  state "BUILDING：后台准备清理预览" as Building
+  state "READY：清理预览已冻结" as Prepared
+  state "FAILED：准备失败，可重试" as PrepareFailed
+  state "STALE：计划过期，重新准备" as Stale
+  state "ISOLATING：副本已隐藏、意图已持久化" as Isolating
+  state "ISOLATED：可恢复隔离" as Isolated
+  state "RESTORING：按原清单恢复" as Restoring
+  state "RESTORED：完整恢复并解除约束" as Restored
+  state "PURGING：已获显式永久清理授权" as Purging
+  state "PURGED：文件与业务数据已清理" as Purged
+  state "RECOVERY_REQUIRED：保留意图与回执" as RecoveryRequired
+  state "CANCELLED：未产生文件变更" as Cancelled
+  [*] --> Building
+  Building --> Prepared: PREPARE 完成分页清单
+  Building --> Cancelled: 用户取消，未变更媒体
+  Building --> PrepareFailed: 准备失败，保留操作与范围
+  Building --> Stale: 审核或来源版本过期
+  PrepareFailed --> Building: 同操作与版本重试
+  Stale --> Building: 重新审核并创建新计划版本
+  Prepared --> Cancelled: 用户取消
+  Prepared --> Stale: 预览过期
+  Prepared --> Isolating: 外部停写确认、认领保留者与副本、重新完整校验
+  Isolating --> Isolated: 所有移动回执完成，保留隐藏与来源约束
+  Isolated --> Isolated: 无限期保留，无自动到期清理
+  Isolated --> Restoring: 用户发起恢复，取得操作声明
+  Restoring --> Restored: 全部文件归位，显示作品并解除约束
+  Isolated --> Purging: 版本绑定确认，重新认领并完整校验保留者
+  Purging --> Purged: 所有删除回执完成，最后清理业务记录
+  Isolating --> RecoveryRequired: 中断、失败或取消时已有文件变更
+  Restoring --> RecoveryRequired: 中断、路径占用或文件冲突
+  Purging --> RecoveryRequired: 中断或部分删除失败
+  RecoveryRequired --> Isolating: 仅隔离意图：对齐现场后继续原操作
+  RecoveryRequired --> Restoring: 仅隔离或恢复意图：安全恢复，不覆盖冲突路径
+  RecoveryRequired --> Purging: 仅清理意图：原授权有效且保留者复核通过
+  Cancelled --> [*]
+  Restored --> [*]
+  Purged --> [*]
+  note right of Prepared
+    预览不等于执行授权
+    过期或复杂附件退回审核
+  end note
+  note right of Isolated
+    保留作品、媒体与个人数据
+    普通浏览隐藏；来源发布受约束
+    URL hold 阻止自动清理且支持超过普通期限恢复
+  end note
+  note right of RecoveryRequired
+    只允许符合原动作和已完成回执的恢复路径
+    已永久删除的文件不能通过恢复操作重建
+    未明确完成前不解除 hold 或来源约束
+  end note
+  note right of Purged
+    非 URL 来源删除标记独立保留
+    普通扫描和旧任务不能复活
+    重新入库必须显式发起
+  end note
