@@ -17,6 +17,8 @@ import { ArchiveExecutorError } from './errors.ts'
 import {
   buildArchiveStoragePaths,
   pathExists,
+  readArchiveManifestDigest,
+  assertArchiveManifestIdentity,
   resolveCreatablePathWithinRoot,
   resolveExistingPathWithinRoot
 } from './storage.ts'
@@ -387,15 +389,20 @@ async function executeStagingCleanup(
 ) {
   const archiveImport = await context.mutateInTransaction<
     ArchiveTransaction,
-    { id: string; stagingPath: string; providerKey: string; creatorBucket: string; externalId: string }
+    Awaited<ReturnType<typeof loadCleanupImport>>
   >(async (transaction) => {
-    const current = await transaction.archiveImport.findUnique({ where: { id: payload.archiveImportId } })
+    await lockArchivePublication(transaction)
+    const current = await loadCleanupImport(transaction, payload.archiveImportId)
     if (!current || !current.cleanupRequestedAt) {
       throw new ArchiveExecutorError('STATE_CONFLICT', '归档清理意图已不存在', {
         recoverable: true
       })
     }
-    if (!['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'].includes(current.status)) {
+    if (
+      !['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'].includes(current.status) ||
+      current.publishedRevision ||
+      ['RUNNING', 'PAUSING', 'CANCELLING'].includes(current.systemJob.status)
+    ) {
       throw new ArchiveExecutorError('STATE_CONFLICT', '归档清理当前状态不允许运行', {
         recoverable: true
       })
@@ -411,10 +418,51 @@ async function executeStagingCleanup(
   })
 
   throwIfAborted(context.signal)
-  await removeRootConfinedPath(dependencies.config.scanRoot, archiveImport.stagingPath)
-  throwIfAborted(context.signal)
-  if (paths.finalRelativePath !== archiveImport.stagingPath) {
-    await removeRootConfinedPath(dependencies.config.scanRoot, paths.finalRelativePath)
+  const cleanedTokens: string[] = []
+  for (const generation of archiveImport.generations) {
+    throwIfAborted(context.signal)
+    // An expired lease does not prove that its filesystem I/O has stopped.
+    // Such generations remain isolated orphans until an offline recovery window.
+    if (!generation.drainedAt || generation.cleanedAt) continue
+    const expected = buildArchiveStoragePaths({
+      scanRoot: dependencies.config.scanRoot,
+      archiveImportId: archiveImport.id,
+      providerKey: archiveImport.providerKey,
+      creatorBucket: archiveImport.creatorBucket,
+      externalId: archiveImport.externalId,
+      generationToken: generation.token
+    })
+    if (generation.path !== expected.stagingRelativePath && generation.path !== paths.finalRelativePath) {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档清理代路径不匹配')
+    }
+    if (generation.path === paths.finalRelativePath) {
+      if (await pathExists(paths.finalAbsolutePath)) {
+        if (!generation.manifestSha256)
+          throw new ArchiveExecutorError('STATE_CONFLICT', '归档版本缺少封存身份，不能清理')
+        await readArchiveManifestDigest(paths.finalAbsolutePath, generation.manifestSha256)
+        await removeRootConfinedPath(dependencies.config.scanRoot, generation.path)
+      }
+    } else {
+      await removeRootConfinedPath(dependencies.config.scanRoot, generation.path)
+      if (
+        generation.token === archiveImport.generationToken &&
+        generation.manifestSha256 &&
+        (await pathExists(paths.finalAbsolutePath))
+      ) {
+        await readArchiveManifestDigest(paths.finalAbsolutePath, generation.manifestSha256)
+        await removeRootConfinedPath(dependencies.config.scanRoot, paths.finalRelativePath)
+      }
+    }
+    cleanedTokens.push(generation.token)
+  }
+  if (archiveImport.phase === 'LEGACY' && archiveImport.generations.length === 0) {
+    if (archiveImport.stagingPath !== paths.stagingRelativePath)
+      throw new ArchiveExecutorError('MEDIA_INVALID', '旧归档清理路径不匹配')
+    if (await pathExists(paths.finalAbsolutePath)) {
+      await assertArchiveManifestIdentity(paths.finalAbsolutePath, archiveImport)
+      await removeRootConfinedPath(dependencies.config.scanRoot, paths.finalRelativePath)
+    }
+    await removeRootConfinedPath(dependencies.config.scanRoot, paths.stagingRelativePath)
   }
   throwIfAborted(context.signal)
   await context.progress({ progress: 85, stage: 'FINALIZING', message: '归档暂存文件已移除' })
@@ -429,7 +477,9 @@ async function executeStagingCleanup(
     })
     if (
       !current ||
-      !current.cleanupRequestedAt ||
+      current.cleanupRequestedAt?.getTime() !== archiveImport.cleanupRequestedAt?.getTime() ||
+      current.systemJobId !== archiveImport.systemJobId ||
+      current.generationToken !== archiveImport.generationToken ||
       !['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'].includes(current.status)
     ) {
       throw new ArchiveExecutorError('STATE_CONFLICT', '归档清理意图在完成前发生变化', {
@@ -442,6 +492,7 @@ async function executeStagingCleanup(
         status: 'PENDING',
         attempts: 0,
         stagedPath: null,
+        stagedGenerationPath: null,
         byteCount: null,
         mimeType: null,
         quality: null,
@@ -456,15 +507,42 @@ async function executeStagingCleanup(
         finishedAt: null
       }
     })
+    await scope.transaction.archiveStagingGeneration.updateMany({
+      where: { token: { in: cleanedTokens } },
+      data: { cleanedAt: now }
+    })
+    if (current.phase === 'PUBLISH' && ['PENDING', 'RETRY_WAIT', 'PAUSED'].includes(current.systemJob.status)) {
+      await scope.transaction.systemJob.update({
+        where: { id: current.systemJobId },
+        data: { status: 'CANCELLED', finishedAt: now, cancelRequestedAt: now }
+      })
+    }
     const changed = await scope.transaction.archiveImport.updateMany({
       where: { id: current.id, status: current.status, cleanupRequestedAt: current.cleanupRequestedAt },
-      data: { cleanupRequestedAt: null, completedItems: 0, failedItems: 0, retainUntil: null, updatedAt: now }
+      data: {
+        cleanupRequestedAt: null,
+        completedItems: 0,
+        failedItems: 0,
+        retainUntil: null,
+        updatedAt: now,
+        generationToken: null,
+        sealedManifestSha256: null,
+        phase: current.phase === 'LEGACY' ? 'LEGACY' : 'DOWNLOAD',
+        ...(current.phase === 'PUBLISH' ? { status: 'CANCELLED' } : {})
+      }
     })
     if (changed.count !== 1) throw stateChanged('归档清理状态已变化')
     await scope.complete({
       result: { action: 'CLEAN_STAGING', archiveImportId: current.id },
       message: '归档暂存清理已完成'
     })
+  })
+}
+
+function loadCleanupImport(transaction: ArchiveTransaction, id: string) {
+  return transaction.archiveImport.findUniqueOrThrow({
+    where: { id },
+    include: { generations: true, systemJob: true, publishedRevision: true, items: true }
   })
 }
 

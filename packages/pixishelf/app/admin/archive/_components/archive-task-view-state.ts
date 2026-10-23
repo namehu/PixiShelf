@@ -4,6 +4,8 @@ export type ArchiveTaskBulkAction = 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY'
 
 export interface ArchiveTaskStateLike {
   status: string
+  phase?: string
+  stage?: string | null
   systemJobStatus?: string
 }
 
@@ -176,4 +178,12 @@ export function goToPreviousArchiveTaskPage(state: ArchiveTaskCursorState): Arch
 
 export function resetArchiveTaskBrowseState(): ArchiveTaskCursorState {
   return { cursor: undefined, previousCursors: [] }
+}
+
+export function archiveTaskPhaseLabel(task: ArchiveTaskStateLike & { errorCode?: string | null }): string {
+  const status = archiveTaskDisplayStatus(task)
+  if (!['PENDING', 'RUNNING'].includes(status)) return archiveTaskStatusLabel(status, task.errorCode)
+  if (task.phase === 'PUBLISH') return status === 'RUNNING' ? '入库中' : '等待入库'
+  if (task.stage === 'VERIFYING') return '校验中'
+  return status === 'RUNNING' ? '下载中' : '等待下载'
 }

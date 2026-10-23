@@ -38,7 +38,7 @@ export function createWorkerHealthServer(options: HealthServerOptions): WorkerHe
           return
         }
         if (request.url === '/readyz') {
-          // 固定返回两个 lane 维度；它们共享同一 Worker 进程生命周期，因此此处状态保持一致。
+          // 固定返回三个 lane 维度；它们共享同一 Worker 进程生命周期，因此此处状态保持一致。
           response.writeHead(state.ready ? 200 : 503, { 'content-type': 'application/json' })
           const laneStatus = state.draining ? 'DRAINING' : state.ready ? 'READY' : 'ERROR'
           response.end(
@@ -47,6 +47,7 @@ export function createWorkerHealthServer(options: HealthServerOptions): WorkerHe
               draining: state.draining,
               lanes: {
                 ARCHIVE_RESOLVE: laneStatus,
+                ARCHIVE_DOWNLOAD: laneStatus,
                 BACKGROUND_WRITER: laneStatus
               }
             })

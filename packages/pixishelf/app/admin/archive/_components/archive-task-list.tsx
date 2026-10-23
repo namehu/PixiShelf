@@ -40,7 +40,7 @@ import { archiveSourceLabel } from './archive-source-label'
 import {
   archiveMaintenanceRetryAction,
   archiveTaskDisplayStatus,
-  archiveTaskStatusLabel,
+  archiveTaskPhaseLabel,
   type ArchiveTaskBulkAction
 } from './archive-task-view-state'
 
@@ -212,9 +212,7 @@ function TaskStatus({ task }: { task: ArchiveTaskOutput }) {
       {task.publishedArtworkDeletedAt || task.publishedArtwork?.deletedAt ? (
         <span className="text-sm text-muted-foreground">已删除</span>
       ) : (
-        <AdminStatusBadge status={displayStatus}>
-          {archiveTaskStatusLabel(displayStatus, task.errorCode)}
-        </AdminStatusBadge>
+        <AdminStatusBadge status={displayStatus}>{archiveTaskPhaseLabel(task)}</AdminStatusBadge>
       )}
       {task.decisionCode === 'USE_DISPLAY_QUALITY' && (
         <span className="text-xs text-warning">可按原质量继续，或在操作中改用展示质量</span>
@@ -249,7 +247,8 @@ function TaskActions({
     <div className="flex shrink-0 justify-end gap-1">
       <Button asChild variant="ghost" size="sm">
         <a href={archiveTaskSourceHref(task.id)} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
-          <ExternalLink data-icon="inline-start" aria-hidden="true" />打开原站
+          <ExternalLink data-icon="inline-start" aria-hidden="true" />
+          打开原站
         </a>
       </Button>
       <DropdownMenu>

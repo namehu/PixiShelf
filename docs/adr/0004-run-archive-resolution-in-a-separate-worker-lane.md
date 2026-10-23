@@ -5,7 +5,9 @@ scope: 单通用 Worker 内的归档解析与媒体写入资源通道
 last-verified: 2026-09-09
 supersedes-in-part: ./0003-unify-background-jobs-under-a-durable-single-worker.md
 implementation: ../features/archive-intake.md
-superseded-in-part-by: ./0006-freeze-database-configured-archive-media-concurrency.md
+superseded-in-part-by:
+  - ./0006-freeze-database-configured-archive-media-concurrency.md
+  - ./0008-separate-archive-download-and-publication.md
 ---
 
 # Run archive resolution in a separate worker lane

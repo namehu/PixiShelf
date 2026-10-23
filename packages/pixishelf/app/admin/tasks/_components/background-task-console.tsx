@@ -714,7 +714,9 @@ function JobDetail({
             </h3>
             <AdminStatusBadge status={job.status}>{formatBackgroundJobStatus(job.status)}</AdminStatusBadge>
           </div>
-          <p className="mt-1 select-text break-all font-mono text-xs text-muted-foreground">{job.id}</p>
+          <p className="mt-1 select-text break-all font-mono text-xs text-muted-foreground">
+            {job.archiveImportId ?? job.id}
+          </p>
           <p className="mt-2 text-xs text-muted-foreground">
             触发：{job.triggerSource} · 尝试 {job.attempt}/{job.maxAttempts} · 创建于{' '}
             {formatBackgroundDate(job.createdAt)}
@@ -780,6 +782,14 @@ function JobDetail({
           {job.message}
         </PrivacySensitiveText>
       ) : null}
+      {job.archiveImportId && (
+        <a
+          className="mt-4 inline-flex text-sm underline"
+          href={`/admin/archive?taskId=${encodeURIComponent(job.archiveImportId)}`}
+        >
+          查看归档及全部阶段记录
+        </a>
+      )}
       <BackgroundJobDiagnostics key={`diagnostics-${job.id}`} job={job} />
 
       <EventTimeline

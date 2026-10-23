@@ -22,6 +22,10 @@ sources:
 | 后台任务兼容层二阶段删除     | [退役手册](./background-task-retirement.md)，显式 phase2-before/deploy/phase2-after                                                                             | 删列后不能仅换一阶段或 v0.50.8 镜像                                            |
 | 删除 FULL_RECONCILE executor | 所有非终态 FULL payload 必须为零，见下节查询                                                                                                                    | 保留终态历史；不得篡改 payload、伪造状态或删历史以通过审计                     |
 
+### 归档下载通道切换
+
+`20261023000000_archive_download_lane_enum` 必须先独立提交枚举值，再应用 `20261023001000_archive_download_lane`。停止并确认旧 Worker 退出、建立同点备份后，按[归档恢复规则](../../features/archive-lifecycle.md#下载通道升级与恢复)升级；SQL 不搬媒体。检查 DOWNLOAD/PUBLISH capability、三个 lane READY、旧 v1/v2 轻量转交和暂停/预算保留，不仅检查进程存活。
+
 ### 双 lane 与 FULL 审计
 
 停写后核对同一 Compose project 的全部容器，移除已明确退役的 orphan 服务，再确认旧 `archive-worker` 容器为零。数据库审计无法发现空闲但活着的旧消费者。`--remove-orphans` 前先确认项目归属及自定义服务，不能跨项目盲删。

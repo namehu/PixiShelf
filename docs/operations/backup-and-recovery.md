@@ -26,7 +26,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份数据�
 | 程序版本   | 配套 App/Worker 的 tag、image ID/digest 和可取得的镜像                            |
 | 清单       | 集合 ID、时间、实例、原因、操作者、dump SHA-256、三个快照 ID、配置/镜像、验证结果 |
 
-同一天或相似文件名不能证明同一恢复点。staging、pending replace 和 recovery 目录是领域恢复机制，不能替代备份；它们也不能在“清理缓存”时随意删除。
+同一天或相似文件名不能证明同一恢复点。归档 staging generation（包括未确认 drain 的 orphan）、封存清单和已 rename 未发布目录必须与数据库同点保留；不能仅凭 lease 超时清理。staging、pending replace 和 recovery 目录是领域恢复机制，不能替代备份；它们也不能在“清理缓存”时随意删除。
 
 <a id="发布前一致性检查点"></a>
 
@@ -95,7 +95,7 @@ pg_restore --verbose --no-owner --no-privileges \
 5. 核对 migration、数据库/文件一致性和兼容性；准备好消费后，按[标准发布](./deployment.md#标准发布)启动 Worker，验证 READY/capability，再开放 App 与调度。
 6. 记录恢复点、实际损失、耗时、验证结果及未覆盖项，持续观察。
 
-禁止对仍有应用连接的生产库直接执行 `pg_restore --clean`。旧数据库不得配不兼容新代码；双 lane、身份删列和任务退役二阶段之后也不得仅换旧镜像。旧 Dispatcher 开关不能阻止 Worker 消费。
+禁止对仍有应用连接的生产库直接执行 `pg_restore --clean`。旧数据库不得配不兼容新代码；归档下载 lane、双 lane、身份删列和任务退役二阶段之后也不得仅换旧镜像。旧 Dispatcher 开关不能阻止 Worker 消费。
 
 ## 局部故障与保留红线
 

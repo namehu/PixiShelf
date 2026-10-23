@@ -22,6 +22,8 @@ export const backgroundJobTypeLabels: Record<JobType, string> = {
   VIDEO_KEYFRAME_DISCOVERY: '代表帧筛选',
   VIDEO_KEYFRAME_GENERATION: '代表帧生成',
   ARCHIVE_IMPORT: '归档导入',
+  ARCHIVE_DOWNLOAD: '归档下载',
+  ARCHIVE_PUBLISH: '归档入库',
   ARCHIVE_RESOLVE_ITEM: '解析归档收件',
   ARCHIVE_UPLOADER_SCAN: '上传者发现扫描',
   ARCHIVE_DISCOVERY_BATCH_SCAN: '发现来源批量扫描',

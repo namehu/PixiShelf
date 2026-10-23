@@ -235,7 +235,15 @@ describePostgres('archive resolver PostgreSQL integration', () => {
       selectedQuality: 'DISPLAY',
       requestedQuality: 'DISPLAY',
       canonicalUrl: resolved.canonicalUrl,
-      systemJob: { type: 'ARCHIVE_IMPORT', executionLane: 'BACKGROUND_WRITER', status: 'PENDING' }
+      phase: 'DOWNLOAD',
+      origin: 'AUTO',
+      systemJob: {
+        type: 'ARCHIVE_DOWNLOAD',
+        executionLane: 'ARCHIVE_DOWNLOAD',
+        status: 'PENDING',
+        triggerSource: 'SYSTEM',
+        queuePriority: 900
+      }
     })
     expect(download.items).toHaveLength(1)
     expect(await db().systemJobEvent.count({ where: { jobId: download.systemJobId!, type: 'job.queued' } })).toBe(1)
@@ -298,9 +306,11 @@ describePostgres('archive resolver PostgreSQL integration', () => {
         include: { systemJob: true }
       })
       expect(download.systemJob).toMatchObject({
-        type: 'ARCHIVE_IMPORT',
+        type: 'ARCHIVE_DOWNLOAD',
         status: 'PENDING',
-        executionLane: 'BACKGROUND_WRITER'
+        executionLane: 'ARCHIVE_DOWNLOAD',
+        triggerSource: 'SYSTEM',
+        queuePriority: 900
       })
       expect(await db().archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })).toBe(1)
       await expect(executeArchiveResolveItem(context, dependencies)).rejects.toBeInstanceOf(JobExecutionFenceError)

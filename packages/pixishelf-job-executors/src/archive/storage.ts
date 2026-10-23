@@ -1,6 +1,6 @@
 import type { JobMediaDiagnosticEvidence } from '@pixishelf/job-contracts'
-import { createHash } from 'node:crypto'
-import { lstat, mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { copyFile, link, lstat, mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
 import { ArchiveExecutorError, toArchiveExecutorError, withArchiveExecutorErrorContext } from './errors.ts'
@@ -31,12 +31,18 @@ export function buildArchiveStoragePaths(input: {
   providerKey: string
   creatorBucket: string
   externalId: string
+  generationToken?: string
 }): ArchiveStoragePaths {
   const provider = safePathSegment(input.providerKey)
   const bucket = safePathSegment(input.creatorBucket)
   const externalId = safePathSegment(input.externalId)
   const archiveImportId = safePathSegment(input.archiveImportId)
-  const stagingRelativePath = normalizeRelativePath(path.join('.archive-staging', archiveImportId))
+  const stagingRelativePath = normalizeRelativePath(
+    path.join(
+      '.archive-staging',
+      input.generationToken ? `${archiveImportId}--${safePathSegment(input.generationToken)}` : archiveImportId
+    )
+  )
   const finalRelativePath = normalizeRelativePath(
     path.join('sources', provider, bucket, externalId, 'revisions', archiveImportId)
   )
@@ -109,17 +115,15 @@ export async function storeArchiveRemoteMedia(input: {
     })
   }
 
-  const filename = buildStoredFilename(
+  const baseFilename = buildStoredFilename(
     input.index,
     input.remote.originalFilename ?? input.expectedFilename,
     input.remote.mimeType
   )
+  const filename = immutableMediaFilename(path.parse(baseFilename).name, path.extname(baseFilename), input.partialKey)
   const mediaDirectory = await resolveCreatablePathWithinRoot(input.stagingDirectory, 'media')
   const target = await resolveCreatablePathWithinRoot(mediaDirectory, filename)
-  const partial = await resolveCreatablePathWithinRoot(
-    mediaDirectory,
-    `${filename}.part-${safePathSegment(input.partialKey)}`
-  )
+  const partial = await resolveCreatablePathWithinRoot(mediaDirectory, `.part-${randomUUID()}`)
   let handle: Awaited<ReturnType<typeof open>>
   try {
     await mkdir(mediaDirectory, { recursive: true })
@@ -226,8 +230,9 @@ export async function storeArchiveRemoteMedia(input: {
 
   throwIfAborted(input.signal)
   try {
-    await rm(target, { force: true })
-    await rename(partial, target)
+    // link is exclusive: a completed file is never overwritten, even by a late execution.
+    await link(partial, target)
+    await rm(partial)
   } catch (error) {
     throw withArchiveExecutorErrorContext(withStorageContext(error), mediaContext())
   }
@@ -259,21 +264,36 @@ export async function validateArchiveStoredMedia(
   }
 }
 
-export async function writeArchiveManifest(stagingDirectory: string, manifest: Record<string, unknown>): Promise<void> {
+export async function writeArchiveManifest(
+  stagingDirectory: string,
+  manifest: Record<string, unknown>
+): Promise<string> {
   const target = await resolveCreatablePathWithinRoot(stagingDirectory, 'manifest.json')
   const temporary = await resolveCreatablePathWithinRoot(stagingDirectory, 'manifest.json.tmp')
-  await writeFile(temporary, `${JSON.stringify(manifest, jsonReplacer, 2)}\n`, { encoding: 'utf8', flag: 'w' })
-  JSON.parse(await readFile(temporary, 'utf8'))
-  await rename(temporary, target)
+  const bytes = `${JSON.stringify(manifest, jsonReplacer, 2)}\n`
+  const handle = await open(temporary, 'wx')
+  try {
+    await handle.writeFile(bytes, 'utf8')
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  await link(temporary, target)
+  await rm(temporary)
+  return createHash('sha256').update(bytes).digest('hex')
 }
 
-export async function prepareArchiveRevisionDirectory(paths: ArchiveStoragePaths): Promise<void> {
+export async function prepareArchiveRevisionDirectory(
+  paths: ArchiveStoragePaths,
+  manifestSha256?: string
+): Promise<void> {
   const finalDirectory = await resolveCreatablePathWithinRoot(paths.scanRootAbsolutePath, paths.finalRelativePath)
   await mkdir(path.dirname(finalDirectory), { recursive: true })
   if (!(await pathExists(finalDirectory))) {
     const stagingDirectory = await resolveExistingPathWithinRoot(paths.scanRootAbsolutePath, paths.stagingRelativePath)
     await rename(stagingDirectory, finalDirectory)
   }
+  if (manifestSha256) await readArchiveManifestDigest(finalDirectory, manifestSha256)
   for (const required of ['media', 'manifest.json']) {
     await resolveExistingPathWithinRoot(finalDirectory, required).catch(() => {
       throw new ArchiveExecutorError('MEDIA_INVALID', `准备好的归档版本缺少 ${required}`, {
@@ -339,6 +359,18 @@ async function nearestExistingAncestor(candidate: string): Promise<string> {
       current = parent
     }
   }
+}
+
+// NAME_MAX applies to UTF-8 bytes, including the immutable execution suffix.
+function immutableMediaFilename(stem: string, extension: string, executionToken: string): string {
+  const suffix = `--${safePathSegment(executionToken)}--${randomUUID()}${extension}`
+  const budget = 255 - Buffer.byteLength(suffix)
+  let prefix = ''
+  for (const character of stem) {
+    if (Buffer.byteLength(prefix + character) > budget) break
+    prefix += character
+  }
+  return `${prefix}${suffix}`
 }
 
 function buildStoredFilename(index: number, originalFilename: string, mimeType: string | null): string {
@@ -431,4 +463,78 @@ function throwIfAborted(signal: AbortSignal): void {
 
 function jsonReplacer(_key: string, value: unknown) {
   return typeof value === 'bigint' ? value.toString() : value
+}
+
+export async function readArchiveManifestDigest(directory: string, expected?: string): Promise<string> {
+  const file = await resolveExistingPathWithinRoot(directory, 'manifest.json')
+  const bytes = await readFile(file)
+  const digest = createHash('sha256').update(bytes).digest('hex')
+  if (expected && digest !== expected)
+    throw new ArchiveExecutorError('STATE_CONFLICT', '归档目录的封存清单不匹配，拒绝覆盖')
+  return digest
+}
+
+export async function copyArchiveCheckpoint(input: {
+  from: string
+  to: string
+  item: { stagedPath: string | null; sha256: string | null; byteCount: bigint | null }
+  token: string
+}): Promise<string> {
+  await validateArchiveStoredMedia(input.from, [input.item])
+  const source = await resolveExistingPathWithinRoot(input.from, input.item.stagedPath!)
+  const previous = path.parse(path.basename(input.item.stagedPath!))
+  const relative = `media/${immutableMediaFilename(previous.name, previous.ext, input.token)}`
+  const target = await resolveCreatablePathWithinRoot(input.to, relative)
+  await copyFile(source, target, 1 /* COPYFILE_EXCL */)
+  const handle = await open(target, 'r')
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  await validateArchiveStoredMedia(input.to, [{ ...input.item, stagedPath: relative }])
+  return relative
+}
+
+export async function assertArchiveManifestIdentity(
+  directory: string,
+  expected: {
+    id: string
+    providerKey: string
+    externalId: string
+    items: Array<{
+      pageIndex: number
+      status: string
+      stagedPath: string | null
+      sha256: string | null
+      byteCount: bigint | null
+    }>
+  }
+): Promise<void> {
+  const file = await resolveExistingPathWithinRoot(directory, 'manifest.json')
+  const manifest = JSON.parse(await readFile(file, 'utf8')) as {
+    revisionId?: string
+    provider?: { key?: string; externalId?: string }
+    media?: Array<{ index?: number; path?: string; sha256?: string; bytes?: string }>
+  }
+  if (
+    manifest.revisionId !== expected.id ||
+    manifest.provider?.key !== expected.providerKey ||
+    manifest.provider?.externalId !== expected.externalId ||
+    !Array.isArray(manifest.media) ||
+    manifest.media.length !== expected.items.length ||
+    expected.items.some((item) => {
+      const media = manifest.media!.find((entry) => entry.index === item.pageIndex)
+      return (
+        item.status !== 'COMPLETED' ||
+        !item.stagedPath ||
+        !item.sha256 ||
+        item.byteCount === null ||
+        media?.path !== item.stagedPath ||
+        media.sha256 !== item.sha256 ||
+        media.bytes !== item.byteCount.toString()
+      )
+    })
+  )
+    throw new ArchiveExecutorError('STATE_CONFLICT', '归档版本清单与身份及持久检查点不一致')
 }

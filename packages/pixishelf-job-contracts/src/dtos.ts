@@ -16,6 +16,9 @@ export const bigintStringSchema = z.string().regex(/^(0|[1-9]\d*)$/, 'Expected a
 
 export const jobDtoSchema = z.object({
   id: z.string().min(1),
+  archiveImportId: z.string().optional(),
+  archivePhase: z.enum(['LEGACY', 'DOWNLOAD', 'PUBLISH']).optional(),
+  activeExecutionId: z.string().optional(),
   type: jobTypeSchema,
   executionLane: executionLaneSchema,
   definitionVersion: z.number().int().nonnegative(),
@@ -73,6 +76,9 @@ export type JobEventDto = z.infer<typeof jobEventDtoSchema>
 
 export const jobLiveSummarySchema = z.object({
   id: z.string().min(1),
+  archiveImportId: z.string().optional(),
+  archivePhase: z.enum(['LEGACY', 'DOWNLOAD', 'PUBLISH']).optional(),
+  activeExecutionId: z.string().optional(),
   type: jobTypeSchema,
   executionLane: executionLaneSchema,
   status: jobStatusSchema,

@@ -197,14 +197,14 @@ function ArchiveTaskManagement() {
     [liveJobById]
   )
   const writerRunningJob = dashboardQuery.data?.lanes.find(
-    (lane) => lane.executionLane === 'BACKGROUND_WRITER'
+    (lane) => lane.executionLane === 'ARCHIVE_DOWNLOAD'
   )?.runningJob
   const writerLiveStatus = writerRunningJob ? liveJobById.get(writerRunningJob.id)?.item.job.status : undefined
   const authoritativeWriterStatus = realtimeConnected
     ? (writerLiveStatus ?? writerRunningJob?.status)
     : writerRunningJob?.status
   const dashboardArchiveImportId =
-    writerRunningJob?.type === 'ARCHIVE_IMPORT' &&
+    writerRunningJob?.type === 'ARCHIVE_DOWNLOAD' &&
     authoritativeWriterStatus &&
     isActiveArchiveDownloadStatus(authoritativeWriterStatus)
       ? archiveImportIdFromPayload(writerRunningJob.payload)
@@ -236,6 +236,7 @@ function ArchiveTaskManagement() {
                 progress: live.item.job.progress,
                 message: live.item.job.message,
                 systemJobStatus: live.item.job.status,
+                stage: live.item.job.stage,
                 attempt: live.item.job.attempt
               }
             : {}),

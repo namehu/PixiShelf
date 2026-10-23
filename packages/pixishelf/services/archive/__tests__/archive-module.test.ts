@@ -15,6 +15,7 @@ const { prismaMock, writeJobEventMock } = vi.hoisted(() => {
       update: vi.fn(),
       updateMany: vi.fn()
     },
+    archiveImportExecution: { create: vi.fn() },
     archiveImportItem: { findFirst: vi.fn(), findMany: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn() },
     archiveUploaderCatalogItem: { updateMany: vi.fn() },
     archivePreviewSession: { deleteMany: vi.fn(), create: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
@@ -55,6 +56,26 @@ describe('archive module', () => {
     vi.unstubAllEnvs()
     delete process.env.ARCHIVE_STORAGE_PATH
   })
+
+  it.each(['PAUSED', 'FAILED'])(
+    'keeps sealed publication quality immutable when a %s task requests display quality',
+    async (status) => {
+      prismaMock.archiveImport.findUnique.mockResolvedValue({
+        id: 'sealed-import',
+        phase: 'PUBLISH',
+        status,
+        cleanupRequestedAt: null,
+        systemJobId: 'publish-job',
+        systemJob: { id: 'publish-job', status },
+        selectedQuality: 'ORIGINAL'
+      })
+      await expect(
+        module.requestAction('sealed-import', 'USE_DISPLAY_QUALITY', { requestedByUserId: 'admin-1' })
+      ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+      expect(prismaMock.systemJob.create).not.toHaveBeenCalled()
+      expect(prismaMock.archiveImport.updateMany).not.toHaveBeenCalled()
+    }
+  )
 
   it('atomically cancels a queued central archive task and records the lifecycle event', async () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')
@@ -195,6 +216,8 @@ describe('archive module', () => {
       totalItems: 2,
       systemJob: {
         id: 'job-failed',
+        type: 'ARCHIVE_IMPORT',
+        triggerSource: 'MANUAL',
         status: 'FAILED',
         attempt: 3,
         queuePriority: 10,
@@ -215,10 +238,10 @@ describe('archive module', () => {
     expect(prismaMock.systemJob.updateMany).not.toHaveBeenCalled()
     expect(prismaMock.systemJob.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        type: 'ARCHIVE_IMPORT',
-        definitionVersion: 2,
+        type: 'ARCHIVE_DOWNLOAD',
+        definitionVersion: 1,
         status: 'PENDING',
-        triggerSource: 'RETRY',
+        triggerSource: 'MANUAL',
         requestedByUserId: 'admin-1',
         parentJobId: 'job-failed',
         payload: { archiveImportId: 'import-central', defaultTagIds: [2, 5] }

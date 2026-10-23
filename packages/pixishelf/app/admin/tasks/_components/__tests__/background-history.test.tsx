@@ -240,6 +240,47 @@ describe('execution history queries', () => {
     expect(result.current.items[0]?.status).toBe('COMPLETED')
   })
 
+  it('patches the active execution after an archive row changes execution in its snapshot', async () => {
+    const previous = item(0, { type: 'ARCHIVE_DOWNLOAD', archiveImportId: 'stable-import' })
+    const active = item(1, {
+      type: 'ARCHIVE_DOWNLOAD',
+      archiveImportId: 'stable-import',
+      progress: 30,
+      updatedAt: '2026-09-02T00:00:00.000Z'
+    })
+    mocks.list.mockResolvedValue({ items: [previous], nextCursor: null })
+    mocks.head.mockResolvedValue({ items: [active], nextCursor: null })
+    mocks.snapshots.mockResolvedValue({ items: [active] })
+    const { result, rerender } = renderHook(() => useBackgroundHistory(true, 0), { wrapper })
+    await waitFor(() => expect(result.current.items).toHaveLength(1))
+    act(() => result.current.observeIds([previous.id]))
+    await waitFor(() => expect(result.current.items[0]?.id).toBe(active.id))
+    const calls = mocks.snapshots.mock.calls.length
+    mocks.live.items = [
+      stream(
+        '1',
+        { ...active, progress: 72, stage: 'VERIFYING', updatedAt: '2026-09-02T00:01:00.000Z' },
+        'job.progress'
+      )
+    ]
+    rerender()
+    await waitFor(() =>
+      expect(result.current.items[0]).toMatchObject({ id: active.id, progress: 72, stage: 'VERIFYING' })
+    )
+    expect(mocks.snapshots).toHaveBeenCalledTimes(calls)
+    expect(result.current.items).toHaveLength(1)
+    act(() => result.current.observeIds([active.id]))
+    vi.useFakeTimers()
+    mocks.live.status = 'disconnected'
+    rerender()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_001)
+    })
+    expect(mocks.snapshots.mock.calls.filter(([input]) => input.ids.includes(active.id)).length).toBeGreaterThanOrEqual(
+      2
+    )
+  })
+
   it('keeps loaded pages after a next-page failure and allows retry', async () => {
     mocks.list
       .mockResolvedValueOnce({ items: [item()], nextCursor: 'next' })

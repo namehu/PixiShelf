@@ -126,3 +126,9 @@ TriggerLog 保存维护摘要，普通成功 ArtworkTag 写入不逐条记录；
 数据库 dump 必须包含扩展、视图、函数、触发器和手写索引，不能只导出 Prisma 可表达的表。修改计数触发器或直接修复数据后，统计快速计数必须重新核验，见[统计查询](../../../docs/architecture/statistics-query-performance.md)。
 
 迁移只能通过 generate/deploy 流程执行，不能用 db:push 代替迁移历史。guard 只验证执行时状态，不替代停止旧写入者；文件系统和数据库恢复使用同一检查点。操作依据见[部署](../../../docs/operations/deployment.md)与[备份恢复](../../../docs/operations/backup-and-recovery.md)。
+
+## 归档阶段与执行代
+
+`ArchiveImport.id` 是稳定业务身份，`systemJobId` 仅为当前阶段指针。`phase` 区分旧兼容、下载、发布；`origin` 仅冻结新入队的真实来源，旧未知值保持 NULL。`ArchiveImportExecution` 保存阶段/重试对应的全部 SystemJob；前驱由 SystemJob.parentJobId 关联。任务 type/lane 数据库触发器禁止修改。
+
+`ArchiveStagingGeneration.token` 为执行 token，记录隔离目录、封存摘要、seal/drain/cleanup 时间。项目 checkpoint 的 `stagedGenerationPath` 支持接管复制中断后仍找到各完整文件；封存前全部复制到当前代。`drainedAt` 只由已等候全部 I/O 的合法执行提交，不由过期租约推断。发布依赖当前 token 与清单摘要，清理意图阻断领取及交接。详细生命周期和恢复见[归档生命周期](../../../docs/features/archive-lifecycle.md)。

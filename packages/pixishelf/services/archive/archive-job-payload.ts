@@ -7,17 +7,19 @@ import {
 import { ArchiveError } from './errors'
 
 export function archiveImportDefaultTagIdsForRetry(
-  job: { definitionVersion: number; payload: unknown },
+  job: { type?: string; definitionVersion: number; payload: unknown },
   archiveImportId: string
 ): number[] {
   let parsed: { archiveImportId: string; defaultTagIds: number[] } | null = null
   try {
     parsed =
-      job.definitionVersion === JOB_DEFINITION_VERSION
-        ? { ...archiveImportPayloadSchema.parse(job.payload), defaultTagIds: [] }
-        : job.definitionVersion === ARCHIVE_IMPORT_DEFINITION_VERSION
-          ? archiveImportV2PayloadSchema.parse(job.payload)
-          : null
+      (job.type === 'ARCHIVE_DOWNLOAD' || job.type === 'ARCHIVE_PUBLISH') && job.definitionVersion === 1
+        ? archiveImportV2PayloadSchema.parse(job.payload)
+        : job.definitionVersion === JOB_DEFINITION_VERSION
+          ? { ...archiveImportPayloadSchema.parse(job.payload), defaultTagIds: [] }
+          : job.definitionVersion === ARCHIVE_IMPORT_DEFINITION_VERSION
+            ? archiveImportV2PayloadSchema.parse(job.payload)
+            : null
   } catch {
     throw invalidRetryPayload()
   }

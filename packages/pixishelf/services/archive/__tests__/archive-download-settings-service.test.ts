@@ -48,7 +48,7 @@ describe('archive download settings service', () => {
     expect(mocks.systemJobFindFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          type: 'ARCHIVE_IMPORT',
+          type: { in: ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD'] },
           status: { in: ['RUNNING', 'PAUSING', 'CANCELLING'] }
         }
       })

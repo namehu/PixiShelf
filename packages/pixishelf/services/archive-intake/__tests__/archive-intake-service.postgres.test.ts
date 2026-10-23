@@ -727,8 +727,11 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       where: { providerKey: 'test-provider', externalId: 'new-identity' },
       include: { systemJob: true }
     })
+    expect(createdImport).toMatchObject({ phase: 'DOWNLOAD', origin: 'MANUAL' })
     expect(createdImport.systemJob).toMatchObject({
-      definitionVersion: 2,
+      type: 'ARCHIVE_DOWNLOAD',
+      executionLane: 'ARCHIVE_DOWNLOAD',
+      definitionVersion: 1,
       payload: { archiveImportId: createdImport.id, defaultTagIds: [2, 9] }
     })
     await expect(
@@ -750,7 +753,6 @@ describePostgres('archive intake PostgreSQL transactions', () => {
       archiveImportId: activeImportId,
       activeArchiveImportId: activeImportId
     })
-
     const changedQualityRequest = await enqueueArchiveIntakeMany(
       {
         idempotencyKey: `${suitePrefix}-enqueue-reused-new-quality`,
@@ -771,7 +773,6 @@ describePostgres('archive intake PostgreSQL transactions', () => {
     await expect(
       database.archiveIntakeItem.findUniqueOrThrow({ where: { id: readyItems.items[0]!.id } })
     ).resolves.toMatchObject({ selectedQuality: 'ORIGINAL' })
-
     const replay = await enqueueArchiveIntakeMany(enqueueInput, requestedByUserId, {
       database,
       now: () => new Date('2026-08-19T00:00:00.000Z')

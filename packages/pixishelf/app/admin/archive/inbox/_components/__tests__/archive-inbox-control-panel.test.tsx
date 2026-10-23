@@ -16,6 +16,7 @@ const summary = {
 
 const lanes = [
   { executionLane: 'ARCHIVE_RESOLVE', status: 'READY', runningJob: null },
+  { executionLane: 'ARCHIVE_DOWNLOAD', status: 'READY', runningJob: null },
   { executionLane: 'BACKGROUND_WRITER', status: 'READY', runningJob: null }
 ]
 
@@ -49,7 +50,9 @@ describe('archive inbox control panel', () => {
 
     const pipeline = screen.getByRole('region', { name: '处理路径' })
     expect(within(pipeline).getByText('链接解析')).toBeTruthy()
-    expect(within(pipeline).getByText('媒体写入')).toBeTruthy()
+    expect(within(pipeline).getByText('归档下载')).toBeTruthy()
+    expect(within(pipeline).getByText('入库与维护')).toBeTruthy()
+    expect(screen.queryByText('ARCHIVE_DOWNLOAD')).toBeNull()
     expect(screen.queryByText('ARCHIVE_RESOLVE')).toBeNull()
     expect(screen.queryByText('BACKGROUND_WRITER')).toBeNull()
 

@@ -87,7 +87,7 @@ async function findBlockingArchiveJob(
 ): Promise<BlockingArchiveJob | null> {
   return transaction.systemJob.findFirst({
     where: {
-      type: 'ARCHIVE_IMPORT',
+      type: { in: ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD'] },
       status: { in: [...BLOCKING_STATUSES] }
     },
     orderBy: { createdAt: 'asc' },

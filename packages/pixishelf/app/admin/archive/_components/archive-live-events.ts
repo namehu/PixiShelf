@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  isArchiveJobType,
   archiveTransferTelemetrySchema,
   type ArchiveTransferTelemetry,
   type JobEventStreamItem
@@ -14,7 +15,7 @@ export interface LatestArchiveJobEvent {
 }
 
 export function useArchiveLiveEvents(detailSystemJobId?: string) {
-  const stream = useBackgroundJobEventSubscription({ jobType: 'ARCHIVE_IMPORT' })
+  const stream = useBackgroundJobEventSubscription()
   const realtimeConnected = stream.status === 'connected'
   const liveJobById = useMemo(() => latestArchiveJobs(stream.items), [stream.items])
   const [lifecycleVersion, setLifecycleVersion] = useState(0)
@@ -32,6 +33,7 @@ export function useArchiveLiveEvents(detailSystemJobId?: string) {
     let detailChanged = false
     let latestCursor = lastHandledEventId.current
     for (const item of stream.items) {
+      if (!isArchiveJobType(item.job.type)) continue
       if (BigInt(item.event.id) <= BigInt(lastHandledEventId.current)) continue
       if (BigInt(item.event.id) > BigInt(latestCursor)) latestCursor = item.event.id
       if (isArchiveLifecycleEvent(item.event.type)) {
@@ -71,6 +73,7 @@ export function useArchiveLiveEvents(detailSystemJobId?: string) {
 export function latestArchiveJobs(items: JobEventStreamItem[]): Map<string, LatestArchiveJobEvent> {
   const latest = new Map<string, LatestArchiveJobEvent>()
   for (const item of items) {
+    if (!isArchiveJobType(item.job.type)) continue
     const previous = latest.get(item.job.id)
     const isCurrentAttempt = item.event.attempt === item.job.attempt
     const previousIsCurrentAttempt =

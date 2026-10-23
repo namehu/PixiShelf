@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ARCHIVE_IMPORT_DEFINITION_VERSION, archiveImportV2PayloadSchema } from '@pixishelf/job-contracts'
+import { archiveImportV2PayloadSchema } from '@pixishelf/job-contracts'
 import { Prisma } from '@pixishelf/db'
 import { redactSensitiveText } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError } from './errors.ts'
@@ -126,18 +126,20 @@ export async function enqueueArchiveIntakeItemInTransaction(
     creatorBucket: resolved.creatorBucket,
     externalId: resolved.externalId
   })
+  const origin = options.autoOnly ? 'AUTO' : 'MANUAL'
+  const priority = origin === 'AUTO' ? 900 : 10
   await transaction.systemJob.create({
     data: {
       id: jobId,
-      type: 'ARCHIVE_IMPORT',
-      executionLane: 'BACKGROUND_WRITER',
-      definitionVersion: ARCHIVE_IMPORT_DEFINITION_VERSION,
+      type: 'ARCHIVE_DOWNLOAD',
+      executionLane: 'ARCHIVE_DOWNLOAD',
+      definitionVersion: 1,
       status: 'PENDING',
-      triggerSource: 'MANUAL',
+      triggerSource: origin === 'AUTO' ? 'SYSTEM' : 'MANUAL',
       requestedByUserId,
       payload: archiveImportV2PayloadSchema.parse({ archiveImportId: importId, defaultTagIds }),
-      queuePriority: 10,
-      effectivePriority: 10,
+      queuePriority: priority,
+      effectivePriority: priority,
       availableAt: timestamp,
       maxAttempts: 3,
       progress: 0,
@@ -148,6 +150,9 @@ export async function enqueueArchiveIntakeItemInTransaction(
     data: {
       id: importId,
       systemJobId: jobId,
+      phase: 'DOWNLOAD',
+      origin,
+      executions: { create: { jobId, phase: 'DOWNLOAD' } },
       providerKey: resolved.providerKey,
       externalId: resolved.externalId,
       submittedUrl: item.submittedUrl,
@@ -190,7 +195,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
       type: 'job.queued',
       attempt: 0,
       message: '归档导入已从收件箱加入队列',
-      data: { archiveImportId: importId, intakeItemId: item.id, priority: 10 }
+      data: { archiveImportId: importId, intakeItemId: item.id, priority }
     }
   })
   return { result: 'CREATED', relatedId: importId }

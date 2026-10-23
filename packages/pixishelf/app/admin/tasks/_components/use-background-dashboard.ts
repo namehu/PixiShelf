@@ -160,7 +160,7 @@ export function reconcileBackgroundJobDetail(detail: JobDto | null | undefined, 
 
 export function useBackgroundJobDetail(jobId: string | null, dashboardJob: JobDto | null) {
   const trpc = useTRPC()
-  const live = useLiveJobEvents({ jobId: jobId ?? '__none__' })
+  const live = useLiveJobEvents()
   const query = useQuery(
     trpc.job.backgroundDetail.queryOptions(
       { jobId: jobId ?? '__none__' },
@@ -177,13 +177,22 @@ export function useBackgroundJobDetail(jobId: string | null, dashboardJob: JobDt
     )
   )
 
-  const currentDetail = query.data?.id === jobId ? query.data : null
+  const currentDetail = query.data ?? null
   const currentDashboardJob = dashboardJob?.id === jobId ? dashboardJob : null
   const reconciled = reconcileBackgroundJobDetail(currentDetail, currentDashboardJob)
-  const liveJob = live.items.at(-1)?.job
+  const liveJob = [...live.items]
+    .reverse()
+    .find(
+      ({ job }) =>
+        job.id === currentDetail?.id ||
+        job.id === jobId ||
+        (currentDetail?.archiveImportId && job.archiveImportId === currentDetail.archiveImportId)
+    )?.job
   useEffect(() => {
-    if (jobId && liveJob?.id === jobId && liveJob.status !== currentDetail?.status) void query.refetch()
-  }, [jobId, liveJob?.id, liveJob?.status, currentDetail?.status, query.refetch])
+    if (jobId && liveJob && (liveJob.id !== currentDetail?.id || liveJob.status !== currentDetail?.status)) {
+      void query.refetch()
+    }
+  }, [jobId, liveJob?.id, liveJob?.status, currentDetail?.id, currentDetail?.status, query.refetch])
   return {
     ...query,
     data: reconciled ? mergeLiveJobSnapshot(reconciled, liveJob) : reconciled,

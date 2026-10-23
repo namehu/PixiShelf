@@ -1,3 +1,6 @@
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { handoffArchivePhase, ARCHIVE_PUBLICATION_LOCK } from './phase-handoff.ts'
 import { assertArchiveImportNotDeleted } from './deletion-policy.ts'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
@@ -26,6 +29,10 @@ import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts
 import { publishArchiveImportInTransaction } from './publisher.ts'
 import {
   buildArchiveStoragePaths,
+  copyArchiveCheckpoint,
+  assertArchiveManifestIdentity,
+  readArchiveManifestDigest,
+  resolveExistingPathWithinRoot,
   pathExists,
   prepareArchiveRevisionDirectory,
   prepareArchiveStagingDirectory,
@@ -74,7 +81,7 @@ export function createArchiveExecutorRegistrations(
       definitionVersion: 1,
       progressPolicy: 'REALTIME',
       parsePayload: (payload) => ({ ...archiveImportPayloadSchema.parse(payload), defaultTagIds: [] }),
-      execute: (context) => executeArchiveImport(context, dependencies)
+      execute: (context) => executeLegacyArchiveHandoff(context, dependencies)
     },
     {
       jobType: 'ARCHIVE_IMPORT',
@@ -82,7 +89,22 @@ export function createArchiveExecutorRegistrations(
       definitionVersion: ARCHIVE_IMPORT_DEFINITION_VERSION,
       progressPolicy: 'REALTIME',
       parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
+      execute: (context) => executeLegacyArchiveHandoff(context, dependencies)
+    },
+    {
+      jobType: 'ARCHIVE_DOWNLOAD',
+      executionLane: 'ARCHIVE_DOWNLOAD',
+      definitionVersion: 1,
+      progressPolicy: 'REALTIME',
+      parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
       execute: (context) => executeArchiveImport(context, dependencies)
+    },
+    {
+      jobType: 'ARCHIVE_PUBLISH',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: 1,
+      parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
+      execute: (context) => executeArchivePublish(context, dependencies)
     }
   ]
 }
@@ -105,19 +127,8 @@ export async function executeArchiveImport(
     inheritedDiagnosticsComplete = false
     await freezeInheritedArchiveFailures(context, archiveImport)
     inheritedDiagnosticsComplete = true
-    const paths = buildArchiveStoragePaths({
-      scanRoot: dependencies.config.scanRoot,
-      archiveImportId,
-      providerKey: archiveImport.providerKey,
-      creatorBucket: archiveImport.creatorBucket,
-      externalId: archiveImport.externalId
-    })
-    if (normalizeStoredPath(archiveImport.stagingPath) !== normalizeStoredPath(paths.stagingRelativePath)) {
-      throw new ArchiveExecutorError('MEDIA_INVALID', '归档暂存路径与确定的导入路径不一致')
-    }
-    const stagingDirectory = (await pathExists(paths.finalAbsolutePath))
-      ? paths.finalAbsolutePath
-      : await prepareArchiveStagingDirectory(dependencies.config.scanRoot, archiveImport.stagingPath)
+    const prepared = await prepareDownloadGeneration(context, dependencies, archiveImport, now())
+    const { stagingDirectory, existingManifestDigest } = prepared
     const provider = dependencies.providers.get(archiveImport.providerKey)
     const controller = linkedAbortController(context.signal)
     const transferMeter = new ArchiveTransferMeter(archiveImport.id, mediaConcurrency, archiveImport.totalItems, {
@@ -206,6 +217,7 @@ export async function executeArchiveImport(
     throwIfAborted(context.signal)
     const counts = await synchronizeArchiveCounts(context, archiveImportId)
     if (counts.failed > 0) {
+      await markDownloadDrained(context, now())
       finalizationStarted = true
       return finalizeArchiveFailure(context, archiveImportId, counts, now(), {
         code: 'PARTIAL_FAILURE',
@@ -226,27 +238,24 @@ export async function executeArchiveImport(
         recoverable: true
       })
     }
+    await context.progress({ progress: 93, stage: 'VERIFYING', message: '校验归档完整性' })
     await validateArchiveStoredMedia(stagingDirectory, completed)
     throwIfAborted(context.signal)
-    await writeArchiveManifest(stagingDirectory, buildManifest(archiveImport, completed, now()))
+    const digest =
+      existingManifestDigest ??
+      (await writeArchiveManifest(stagingDirectory, {
+        ...buildManifest(archiveImport, completed, now()),
+        generationToken: context.job.executionToken
+      }))
     throwIfAborted(context.signal)
-    await prepareArchiveRevisionDirectory(paths)
-    throwIfAborted(context.signal)
-
     finalizationStarted = true
     return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
       if (await finalizeRequestedArchiveControl(scope, archiveImportId, now())) return
-      const result = await publishArchiveImportInTransaction(
-        scope.transaction,
-        archiveImportId,
-        paths,
-        now(),
-        context.payload.defaultTagIds
-      )
-      await scope.complete({ result, message: '归档导入已发布' })
+      await handoffArchivePhase(scope, context, 'PUBLISH', now(), { token: context.job.executionToken, digest })
     })
   } catch (error) {
     if (finalizationStarted) throw error
+    await markDownloadDrained(context, now()).catch(() => undefined)
     // 如果当前执行已被触发“先清理暂存再重试”，返回 RELEASE，避免把清理需求误记为任务失败。
     if (error instanceof ArchiveCleanupRequestedError) {
       return releaseArchiveImportForCleanup(context, archiveImportId)
@@ -279,6 +288,8 @@ async function startArchiveImport(
     if (!archiveImport || archiveImport.systemJobId !== context.job.id) {
       throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入载荷未绑定到当前任务')
     }
+    if (archiveImport.phase !== (context.job.type === 'ARCHIVE_PUBLISH' ? 'PUBLISH' : 'DOWNLOAD'))
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档阶段与执行任务不匹配')
     await assertArchiveImportNotDeleted(transaction, archiveImport)
     // 优先尊重 cleanupRequestedAt 门禁：清理未完成前不得再次启动下载流程，否则状态与文件会互相覆盖。
     if (archiveImport.cleanupRequestedAt) throw new ArchiveCleanupRequestedError()
@@ -504,6 +515,7 @@ async function downloadArchiveItem(input: {
         data: {
           status: 'COMPLETED',
           stagedPath: stored.relativePath,
+          stagedGenerationPath: input.archiveImport.stagingPath,
           byteCount: stored.byteCount,
           mimeType: stored.mimeType,
           quality: remote.quality,
@@ -790,6 +802,15 @@ async function finalizeRequestedArchiveControl(
   archiveImportId: string,
   now: Date
 ): Promise<boolean> {
+  if (scope.executionStatus !== 'RUNNING') {
+    const current = await scope.transaction.archiveImport.findUnique({ where: { id: archiveImportId } })
+    if (current?.generationToken && current.phase === 'DOWNLOAD') {
+      await scope.transaction.archiveStagingGeneration.updateMany({
+        where: { token: current.generationToken, jobId: current.systemJobId },
+        data: { drainedAt: now }
+      })
+    }
+  }
   if (scope.executionStatus === 'CANCELLING') {
     const counts = await readCounts(scope.transaction, archiveImportId)
     await finishArchiveImport(scope.transaction, {
@@ -1082,5 +1103,228 @@ function observedDownloadUrl(value: string | undefined): string | null {
       : null
   } catch {
     return null
+  }
+}
+
+async function markDownloadDrained(context: ArchiveExecutorContext, now: Date) {
+  await context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
+    await transaction.archiveStagingGeneration.updateMany({
+      where: {
+        token: context.job.executionToken,
+        jobId: context.job.id,
+        archiveImportId: context.payload.archiveImportId
+      },
+      data: { drainedAt: now }
+    })
+  })
+}
+
+async function prepareDownloadGeneration(
+  context: ArchiveExecutorContext,
+  dependencies: ArchiveExecutorDependencies,
+  archiveImport: LoadedArchiveImport,
+  now: Date
+): Promise<{ stagingDirectory: string; existingManifestDigest: string | null }> {
+  const paths = buildArchiveStoragePaths({
+    scanRoot: dependencies.config.scanRoot,
+    archiveImportId: archiveImport.id,
+    providerKey: archiveImport.providerKey,
+    creatorBucket: archiveImport.creatorBucket,
+    externalId: archiveImport.externalId,
+    generationToken: context.job.executionToken
+  })
+  const previousPath = archiveImport.stagingPath
+  // A legacy rename may have succeeded before its DB transaction. Verify it read-only in the download lane.
+  const finalExists = await pathExists(paths.finalAbsolutePath)
+  let existingManifestDigest: string | null = null
+  let stagingDirectory: string
+  if (finalExists) {
+    const manifestFile = await resolveExistingPathWithinRoot(paths.finalAbsolutePath, 'manifest.json')
+    const manifest = JSON.parse(await readFile(manifestFile, 'utf8')) as { revisionId?: string }
+    if (
+      manifest.revisionId !== archiveImport.id ||
+      archiveImport.items.length !== archiveImport.totalItems ||
+      archiveImport.items.some((item) => item.status !== 'COMPLETED')
+    ) {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '已存在的归档版本身份或检查点未知，拒绝覆盖')
+    }
+    await assertArchiveManifestIdentity(paths.finalAbsolutePath, archiveImport)
+    await validateArchiveStoredMedia(paths.finalAbsolutePath, archiveImport.items)
+    existingManifestDigest = await readArchiveManifestDigest(paths.finalAbsolutePath)
+    stagingDirectory = paths.finalAbsolutePath
+  } else {
+    stagingDirectory = await prepareArchiveStagingDirectory(dependencies.config.scanRoot, paths.stagingRelativePath)
+  }
+  const storedPath = finalExists ? paths.finalRelativePath : paths.stagingRelativePath
+  await context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
+    await transaction.archiveImportItem.updateMany({
+      where: { archiveImportId: archiveImport.id, status: 'COMPLETED', stagedGenerationPath: null },
+      data: { stagedGenerationPath: previousPath }
+    })
+    await transaction.archiveStagingGeneration.create({
+      data: {
+        token: context.job.executionToken,
+        jobId: context.job.id,
+        archiveImportId: archiveImport.id,
+        // Recovered legacy final directories keep one registered physical path, owned by this latest execution.
+        path: storedPath,
+        manifestSha256: existingManifestDigest
+      }
+    })
+    const changed = await transaction.archiveImport.updateMany({
+      where: {
+        id: archiveImport.id,
+        systemJobId: context.job.id,
+        phase: 'DOWNLOAD',
+        generationToken: archiveImport.generationToken,
+        cleanupRequestedAt: null
+      },
+      data: { generationToken: context.job.executionToken, stagingPath: storedPath, sealedManifestSha256: null }
+    })
+    if (changed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档下载代绑定已变化')
+  })
+  if (!finalExists) {
+    for (const item of archiveImport.items) {
+      throwIfAborted(context.signal)
+      if (item.status !== 'COMPLETED') continue
+      let copied: string | null = null
+      try {
+        const source = await resolveExistingPathWithinRoot(
+          dependencies.config.scanRoot,
+          item.stagedGenerationPath ?? previousPath
+        )
+        copied = await copyArchiveCheckpoint({
+          from: source,
+          to: stagingDirectory,
+          item,
+          token: context.job.executionToken
+        })
+      } catch (error) {
+        if (context.signal.aborted) throw error
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== 'ENOENT' && !(error instanceof ArchiveExecutorError && error.code === 'MEDIA_INVALID')) throw error
+      }
+      await context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
+        const current = await transaction.archiveImport.findUniqueOrThrow({ where: { id: archiveImport.id } })
+        if (current.generationToken !== context.job.executionToken || current.cleanupRequestedAt)
+          throw new ArchiveExecutorError('STATE_CONFLICT', '归档下载代已失效')
+        await transaction.archiveImportItem.update({
+          where: { id: item.id },
+          data: copied
+            ? { stagedPath: copied, stagedGenerationPath: storedPath }
+            : {
+                status: 'PENDING',
+                attempts: 0,
+                stagedPath: null,
+                byteCount: null,
+                sha256: null,
+                finishedAt: null
+              }
+        })
+      })
+      item.stagedPath = copied
+      item.stagedGenerationPath = copied ? storedPath : null
+      if (!copied) {
+        item.status = 'PENDING'
+        item.attempts = 0
+        item.byteCount = null
+        item.sha256 = null
+      }
+    }
+    const counts = await synchronizeArchiveCounts(context, archiveImport.id)
+    archiveImport.completedItems = counts.completed
+  }
+  archiveImport.generationToken = context.job.executionToken
+  archiveImport.stagingPath = storedPath
+  return { stagingDirectory, existingManifestDigest }
+}
+
+async function executeLegacyArchiveHandoff(context: ArchiveExecutorContext, dependencies: ArchiveExecutorDependencies) {
+  const now = (dependencies.now ?? (() => new Date()))()
+  return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
+    if (await finalizeRequestedArchiveControl(scope, context.payload.archiveImportId, now)) return
+    await handoffArchivePhase(scope, context, 'DOWNLOAD', now)
+  })
+}
+
+async function executeArchivePublish(
+  context: ArchiveExecutorContext,
+  dependencies: ArchiveExecutorDependencies
+): Promise<JobExecutionOutcome<ArchiveExecutionResult>> {
+  const now = dependencies.now ?? (() => new Date())
+  let finalizationStarted = false
+  try {
+    throwIfAborted(context.signal)
+    const { archiveImport } = await startArchiveImport(context, dependencies, now())
+    if (!archiveImport.generationToken || !archiveImport.sealedManifestSha256)
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布缺少封存代')
+    const paths = buildArchiveStoragePaths({
+      scanRoot: dependencies.config.scanRoot,
+      archiveImportId: archiveImport.id,
+      providerKey: archiveImport.providerKey,
+      creatorBucket: archiveImport.creatorBucket,
+      externalId: archiveImport.externalId,
+      generationToken: archiveImport.generationToken
+    })
+    paths.stagingRelativePath = archiveImport.stagingPath
+    paths.stagingAbsolutePath = path.resolve(dependencies.config.scanRoot, archiveImport.stagingPath)
+    await context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
+      await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLICATION_LOCK)
+      const current = await transaction.archiveImport.findUniqueOrThrow({ where: { id: archiveImport.id } })
+      const generation = await transaction.archiveStagingGeneration.findUnique({
+        where: { token: archiveImport.generationToken! }
+      })
+      if (
+        current.systemJobId !== context.job.id ||
+        current.phase !== 'PUBLISH' ||
+        current.cleanupRequestedAt ||
+        current.generationToken !== archiveImport.generationToken ||
+        !generation?.sealedAt ||
+        !generation.drainedAt ||
+        generation.cleanedAt ||
+        generation.manifestSha256 !== archiveImport.sealedManifestSha256
+      )
+        throw new ArchiveExecutorError('STATE_CONFLICT', '封存代不允许发布')
+      await assertArchiveImportNotDeleted(transaction, current)
+      const source = await transaction.artworkExternalRef.findUnique({
+        where: { providerKey_externalId: { providerKey: current.providerKey, externalId: current.externalId } },
+        include: { artwork: true }
+      })
+      if (source && (source.artwork.deletedAt || source.artwork.archiveLifecycleState !== 'ACTIVE'))
+        throw new ArchiveExecutorError('STATE_CONFLICT', '归档作品已不再活动')
+    })
+    await context.progress({ progress: 97, stage: 'PUBLISHING', message: '归档入库中' })
+    const sourceDirectory = (await pathExists(paths.finalAbsolutePath))
+      ? paths.finalAbsolutePath
+      : paths.stagingAbsolutePath
+    await readArchiveManifestDigest(sourceDirectory, archiveImport.sealedManifestSha256)
+    throwIfAborted(context.signal)
+    await prepareArchiveRevisionDirectory(paths, archiveImport.sealedManifestSha256)
+    throwIfAborted(context.signal)
+    finalizationStarted = true
+    return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
+      if (await finalizeRequestedArchiveControl(scope, archiveImport.id, now())) return
+      const current = await scope.transaction.archiveImport.findUniqueOrThrow({ where: { id: archiveImport.id } })
+      if (
+        current.systemJobId !== context.job.id ||
+        current.phase !== 'PUBLISH' ||
+        current.cleanupRequestedAt ||
+        current.generationToken !== archiveImport.generationToken
+      )
+        throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布绑定已变化')
+      const result = await publishArchiveImportInTransaction(
+        scope.transaction,
+        archiveImport.id,
+        paths,
+        now(),
+        context.payload.defaultTagIds
+      )
+      await scope.complete({ result, message: '归档导入已发布' })
+    })
+  } catch (error) {
+    if (finalizationStarted) throw error
+    if (error instanceof ArchiveCleanupRequestedError)
+      return releaseArchiveImportForCleanup(context, context.payload.archiveImportId)
+    return handleArchiveExecutionFailure(context, context.payload.archiveImportId, error, dependencies, now())
   }
 }

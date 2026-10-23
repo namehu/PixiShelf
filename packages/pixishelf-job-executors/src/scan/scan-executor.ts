@@ -48,8 +48,14 @@ export async function executeScan(
 ): Promise<JobExecutionOutcome<ScanExecutionResult>> {
   const now = dependencies.now ?? (() => new Date())
   const limits = { ...DEFAULT_SCAN_LIMITS, ...dependencies.config.limits }
-  const excludedRootDirectories =
-    dependencies.config.discoveryExcludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES
+  const excludedRootDirectories = [
+    ...new Set([
+      'sources',
+      '.archive-staging',
+      '.trash',
+      ...(dependencies.config.discoveryExcludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES)
+    ])
+  ]
   let runId: string | null = null
   context.logger.info('scan.snapshot.start', { mode: context.payload.mode })
   try {

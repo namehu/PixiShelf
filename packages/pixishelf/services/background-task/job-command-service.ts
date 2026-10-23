@@ -188,6 +188,7 @@ export async function enqueueJob(
     throw new BackgroundTaskError('INVALID_STATE_TRANSITION', ARTWORK_SUMMARY_RETIRED_MESSAGE)
   }
   if (
+    ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(parsed.type) ||
     parsed.type === 'ARCHIVE_DISCOVERY_BATCH_SCAN' ||
     parsed.type === 'ARCHIVE_RESOLVE_ITEM' ||
     parsed.type === 'ARCHIVE_UPLOADER_SCAN' ||

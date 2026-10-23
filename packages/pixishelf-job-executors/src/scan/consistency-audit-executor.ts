@@ -64,8 +64,14 @@ export async function executeConsistencyAudit(
 ): Promise<JobExecutionOutcome<ConsistencyAuditResult>> {
   const now = dependencies.now ?? (() => new Date())
   const limits = { ...defaultAuditLimits(), ...dependencies.config.limits }
-  const excludedRootDirectories =
-    dependencies.config.discoveryExcludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES
+  const excludedRootDirectories = [
+    ...new Set([
+      'sources',
+      '.archive-staging',
+      '.trash',
+      ...(dependencies.config.discoveryExcludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES)
+    ])
+  ]
   let runId: string | null = null
   try {
     const root = await resolveSafeScanRoot(dependencies.config.scanRoot)

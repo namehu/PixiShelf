@@ -38,6 +38,10 @@ describe('archive maintenance executor', () => {
     const root = await temporaryRoot()
     await writeFixture(root, '.archive-staging/import-1/file.txt')
     await writeFixture(root, 'sources/test/bucket/42/revisions/import-1/file.txt')
+    await writeFile(
+      path.join(root, 'sources/test/bucket/42/revisions/import-1/manifest.json'),
+      JSON.stringify({ revisionId: 'import-1', provider: { key: 'test', externalId: '42' }, media: [] })
+    )
     const transaction = cleanTransaction()
     const context = executionContext({ action: 'CLEAN_STAGING', archiveImportId: 'import-1' }, transaction)
 
@@ -308,14 +312,22 @@ function cleanTransaction(overrides: { stagingPath?: string } = {}) {
     externalId: '42',
     cleanupRequestedAt: new Date('2026-08-18T00:00:00.000Z'),
     status: 'FAILED',
-    systemJob: { id: 'import-job' }
+    phase: 'LEGACY',
+    generationToken: null,
+    generations: [],
+    items: [],
+    publishedRevision: null,
+    systemJobId: 'import-job',
+    systemJob: { id: 'import-job', status: 'FAILED' }
   }
   return {
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     archiveImport: {
       findUnique: vi.fn().mockResolvedValue(archiveImport),
+      findUniqueOrThrow: vi.fn().mockResolvedValue(archiveImport),
       updateMany: vi.fn().mockResolvedValue({ count: 1 })
     },
+    archiveStagingGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     archiveImportItem: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) }
   }
 }

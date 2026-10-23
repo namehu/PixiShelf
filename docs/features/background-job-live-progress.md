@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 后台任务结构化进度、动画识别实时反馈、SSE 降级和事件保留
-last-verified: 2026-09-07
+last-verified: 2026-10-23
 sources:
   - packages/pixishelf-job-contracts/src/job-progress-data.ts
   - packages/pixishelf-job-runtime/src/queue-repository.ts
@@ -65,7 +65,7 @@ WebP/GIF 的 Sharp 探测运行在任务私有的有界子进程池中。先用 
 
 任务计划页“执行动态”的历史列表使用独立游标查询与虚拟滚动；筛选、搜索、可见记录快照补偿及位置保持规则见[后台任务执行记录](./background-job-history.md)。Dashboard 的 recentJobs 仍只作为概览和完成提示快照，不承担历史浏览。
 
-admin layout 每标签页只有一个 `BackgroundJobEventProvider`。任务卡、后台 dashboard、详情和事件历史按 `jobType/jobId` 合并同一事件源；mutation 使用返回的准确 job ID。`ready/reset` 触发快照恢复。SSE 正常时停止任务状态高频轮询；断线时活动任务每 3 秒、空闲页每 30 秒兜底。
+admin layout 每标签页只有一个 `BackgroundJobEventProvider`。任务卡、后台 dashboard、详情和事件历史合并同一事件源；mutation 使用返回的准确 job ID。归档按 `archiveImportId` 跟随当前 `activeExecutionId`，服务端只传当前执行摘要，下载 HANDOFF 的旧阶段完成不会作为整项成功通知。详情收到后继事件刷新当前执行；历史行以当前执行更新进度，后继进入视口后仍参与断线快速补偿。`ready/reset` 触发快照恢复。SSE 正常时停止任务状态高频轮询；断线时活动任务每 3 秒、空闲页每 30 秒兜底。
 
 Web 的 SSE 连接内部仍轮询 PostgreSQL 事件表，每个连接各自读取。服务端启动环境变量 `JOB_EVENT_POLL_INTERVAL_MS` 可设置查询间隔，单位毫秒，允许 500–15000 的整数；未设置或无效时，开发环境默认 3000，其他环境默认 500。开发时可在 `packages/pixishelf/.env.local` 设置 `JOB_EVENT_POLL_INTERVAL_MS=5000` 后重启 Web；容器运行时需将变量传入 Web 容器，仅修改 Compose 的 `.env` 不会自动传入。间隔越长，实时进度出现的延迟越大；满 200 条的积压事件仍连续追赶，15 秒心跳在后续轮询时发送。此设置不改变 Worker 调度、事件写入或断线兜底频率，不需要 Worker 重启或数据库迁移。开发环境的 Prisma query 日志会逐条输出这些查询，多开后台标签页会增加查询数量；这与 Next.js 编译本身是不同路径，不能仅凭日志认定构建变慢的原因。
 

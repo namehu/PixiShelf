@@ -40,6 +40,8 @@ export const JOB_TYPE_VALUES = [
   'ARCHIVE_TITLE_RULE_PREVIEW',
   'ARCHIVE_RESOLVE_ITEM',
   'ARCHIVE_IMPORT',
+  'ARCHIVE_DOWNLOAD',
+  'ARCHIVE_PUBLISH',
   'ARCHIVE_DEFAULT_TAG_BACKFILL',
   'CREATOR_MAINTENANCE',
   'ARTIST_MERGE',
@@ -58,12 +60,13 @@ export const JOB_TYPE_VALUES = [
 export const jobTypeSchema = z.enum(JOB_TYPE_VALUES)
 export type JobType = z.infer<typeof jobTypeSchema>
 
-export const EXECUTION_LANE_VALUES = ['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'] as const
+export const EXECUTION_LANE_VALUES = ['ARCHIVE_RESOLVE', 'ARCHIVE_DOWNLOAD', 'BACKGROUND_WRITER'] as const
 export const executionLaneSchema = z.enum(EXECUTION_LANE_VALUES)
 export type ExecutionLane = z.infer<typeof executionLaneSchema>
 
 export const EXECUTION_LANES = Object.freeze({
   ARCHIVE_RESOLVE: 'ARCHIVE_RESOLVE',
+  ARCHIVE_DOWNLOAD: 'ARCHIVE_DOWNLOAD',
   BACKGROUND_WRITER: 'BACKGROUND_WRITER'
 } satisfies { [K in ExecutionLane]: K })
 
@@ -82,7 +85,9 @@ export const JOB_EXECUTION_LANE = Object.freeze(
       jobType === 'ARCHIVE_SEARCH_SCAN' ||
       jobType === 'ARCHIVE_TITLE_RULE_PREVIEW'
         ? EXECUTION_LANES.ARCHIVE_RESOLVE
-        : EXECUTION_LANES.BACKGROUND_WRITER
+        : jobType === 'ARCHIVE_DOWNLOAD'
+          ? EXECUTION_LANES.ARCHIVE_DOWNLOAD
+          : EXECUTION_LANES.BACKGROUND_WRITER
     ])
   ) as { [K in JobType]: ExecutionLane }
 )
@@ -164,3 +169,8 @@ export type JobEventType = z.infer<typeof jobEventTypeSchema>
 export const GC_ENTRY_STATUS_VALUES = ['PENDING', 'PROCESSING', 'DELETED', 'SKIPPED_REFERENCED', 'FAILED'] as const
 export const gcEntryStatusSchema = z.enum(GC_ENTRY_STATUS_VALUES)
 export type GcEntryStatus = z.infer<typeof gcEntryStatusSchema>
+
+export const ARCHIVE_JOB_TYPES = ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'] as const
+export function isArchiveJobType(type: string): boolean {
+  return (ARCHIVE_JOB_TYPES as readonly string[]).includes(type)
+}

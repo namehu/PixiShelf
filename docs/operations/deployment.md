@@ -21,7 +21,7 @@ sources:
 | 服务        | 职责与权限                                                                                  | 默认端口         |
 | ----------- | ------------------------------------------------------------------------------------------- | ---------------- |
 | `app`       | Next.js 页面/API、认证和任务控制；数据库读写、原媒体默认只读、派生媒体读写、Pixiv data 只读 | 宿主机 5430      |
-| `worker`    | 唯一后台消费者；数据库及三个媒体根读写；一个解析 lane 和一个写入 lane，各自串行             | 3011，仅容器网络 |
+| `worker`    | 唯一后台消费者；数据库及三个媒体根读写；解析、归档下载、发布/维护三个 lane，各自串行        | 3011，仅容器网络 |
 | `postgres`  | 领域数据、认证、队列、租约、migration 历史                                                  | 宿主机 5432      |
 | `imgproxy`  | 只读原媒体/派生媒体并生成图片响应；当前 URL 未签名                                          | 宿主机 5431      |
 | `scheduler` | 使用独立 Token 调用 App tick；不直接访问数据库                                              | 无宿主机端口     |
@@ -45,6 +45,8 @@ sources:
 `ARCHIVE_HTTPS_PROXY` 的出站范围与优先级见[网络边界](../security/access-control.md#服务网络和存储矩阵)。Compose 环境变更须重建对应容器；本地 App 环境变更须重启本地进程。归档媒体并发保存于数据库 Setting，不增加环境变量。扫描和探测参数以模板及对应功能规格为准。
 
 反向代理须允许 `/api/jobs/events` 长连接、禁用响应缓冲/转换并放行心跳。开发启动只遵循根 [README](../../README.md#本地开发)，不要从仓库根运行 `pnpm dev`。
+
+归档下载通道版本还必须确认旧 Worker 的操作系统进程已经退出，才能启动新 Worker；旧执行器会覆盖共享文件，不允许混跑。先执行 enum 与结构两条 migration，再核验三通道 READY 和包含 ARCHIVE_DOWNLOAD/PUBLISH 的完整 capability。兼容与文件恢复详见[归档生命周期](../features/archive-lifecycle.md#下载通道升级与恢复)。
 
 ## 标准发布
 
@@ -95,8 +97,8 @@ sudo bash ./scripts/update-production.sh \
 
 ## 运行验证与观察
 
-- 开放调度前：实际 HTTPS 登录和 Cookie、画廊查询、原图/视频、派生封面与缺失占位、一个低风险任务、控制操作、两个 lane READY 和 capability 全量匹配。
-- 归档变更：连续收件不阻塞、刷新后状态保留、解析与写入可并行、同 lane 无重叠、旧等待任务可继续；具体验收见[归档收件箱](../features/archive-intake.md)。
+- 开放调度前：实际 HTTPS 登录和 Cookie、画廊查询、原图/视频、派生封面与缺失占位、一个低风险任务、控制操作、三个 lane READY 和 capability 全量匹配。
+- 归档变更：连续收件不阻塞、刷新后状态保留、解析、下载与 writer 可同时推进、同 lane 无重叠、旧等待任务可继续；具体验收见[归档收件箱](../features/archive-intake.md)。
 - 24–72 小时：异常日志、任务积压/重试、租约、媒体 404、磁盘增长和日志轮转。
 - 至少覆盖一次上海时区夜间计划窗口；涉及迁移/退役时按专用手册完成更长观察期，记录真实任务和自动 GC。
 
@@ -112,6 +114,6 @@ sudo bash ./scripts/update-production.sh \
 | 文件或领域状态不一致          | manifest、报告、原件与检查点                           | [领域恢复](./runbooks/domain-recovery.md)               |
 | 数据库/原媒体损坏或不兼容降级 | 完整恢复集合及检查点后损失                             | [完整恢复](./backup-and-recovery.md#灾难恢复顺序)       |
 
-服务级回退只允许使用兼容现有 Schema、payload 与 lane 的配套 App/Worker。**双 lane 迁移、旧身份字段删列或后台任务二阶段删列后，不能仅换旧镜像。** 无法证明兼容时优先前向修复；必须降级则在隔离验证后恢复同点集合。不要删除卷、盲清锁或在执行中任务存在时强制回滚 Schema。
+服务级回退只允许使用兼容现有 Schema、payload 与 lane 的配套 App/Worker。**归档下载 lane / 双 lane 迁移、旧身份字段删列或后台任务二阶段删列后，不能仅换旧镜像。** 无法证明兼容时优先前向修复；必须降级则在隔离验证后恢复同点集合。不要删除卷、盲清锁或在执行中任务存在时强制回滚 Schema。
 
 构建资产见 [build](../../build/README.md)，发布流水线见 [GitHub 工作流](../../.github/README.md)，历史切换结果见[后台任务切换记录](../records/operations/background-task-cutover-deployment.md)与[收件箱切换记录](../records/operations/archive-intake-cutover-deployment.md)。

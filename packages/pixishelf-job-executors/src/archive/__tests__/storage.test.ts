@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import sharp from 'sharp'
 import { EHentaiProvider } from '../providers/e-hentai.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
@@ -50,7 +50,7 @@ async function storeImageFixture(
       index: 0,
       expectedFilename: filename,
       signal: new AbortController().signal,
-      partialKey: 'attempt-1'
+      partialKey: randomUUID()
     })
   return { root, store }
 }
@@ -84,6 +84,20 @@ afterEach(async () => {
 })
 
 describe('archive executor storage safety', () => {
+  it.each(['a'.repeat(160), '猫'.repeat(160)])(
+    'stores a long source filename within filesystem byte limits: %s',
+    async (stem) => {
+      const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'blue' } })
+        .png()
+        .toBuffer()
+      const { root, store } = await storeImageFixture(image, `${stem}.png`, 'image/png')
+      const stored = await store()
+      expect(Buffer.byteLength(path.basename(stored.relativePath))).toBeLessThanOrEqual(255)
+      expect(await readFile(path.join(root, stored.relativePath))).toEqual(image)
+      expect(path.basename(stored.relativePath)).toMatch(/--[a-f0-9-]{36}--[a-f0-9-]{36}\.png$/)
+    }
+  )
+
   it.each([false, true])('validates a derived WebP using its own hash (corrupt=%s)', async (corrupt) => {
     const image = await sharp({ create: { width: 4, height: 3, channels: 3, background: 'blue' } })
       .webp()
@@ -281,7 +295,7 @@ describe('archive executor storage safety', () => {
       index: 0,
       expectedFilename: 'one.png',
       signal: new AbortController().signal,
-      partialKey: 'attempt-1',
+      partialKey: randomUUID(),
       onChunk,
       onStreamComplete
     })

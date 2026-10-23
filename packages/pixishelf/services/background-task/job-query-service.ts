@@ -4,7 +4,13 @@ import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { systemJobWireSelect, toJobDto, toWorkerHealthDto, workerInstanceWireSelect } from './job-serialization'
 import { isWorkerHeartbeatFresh } from './worker-heartbeat'
-import { dashboardVisibleWhere, unacknowledgedFailureWhere, failureNeedsAttention } from './job-failure-policy'
+import { logicalArchiveSelect, logicalJobIdentity, readLogicalJobPage, type LogicalCursor } from './logical-job-page'
+import {
+  dashboardVisibleWhere,
+  currentArchiveExecutionWhere,
+  unacknowledgedFailureWhere,
+  failureNeedsAttention
+} from './job-failure-policy'
 
 type JobQueryClient = Pick<Prisma.TransactionClient, 'systemJob' | 'workerInstance'>
 
@@ -21,7 +27,7 @@ function queryClient(client?: JobQueryClient) {
 }
 
 export const listJobsInputSchema = z.object({
-  cursor: z.string().min(1).optional(),
+  cursor: z.string().min(1).max(512).optional(),
   limit: z.number().int().min(1).max(100).default(30),
   types: z.array(z.enum(JOB_TYPE_VALUES)).max(JOB_TYPE_VALUES.length).optional(),
   statuses: z.array(z.enum(JOB_STATUS_VALUES)).max(JOB_STATUS_VALUES.length).optional(),
@@ -33,23 +39,38 @@ export const listJobsInputSchema = z.object({
 
 export async function listJobs(input: z.input<typeof listJobsInputSchema>, client?: JobQueryClient) {
   const parsed = listJobsInputSchema.parse(input)
-  const records = await queryClient(client).systemJob.findMany({
-    where: {
-      definitionVersion: { gte: 1 },
-      ...(parsed.types?.length ? { type: { in: parsed.types } } : {}),
-      ...(parsed.statuses?.length ? { status: { in: parsed.statuses } } : {}),
-      ...(parsed.triggerSources?.length ? { triggerSource: { in: parsed.triggerSources } } : {})
-    },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: parsed.limit + 1,
-    ...(parsed.cursor ? { cursor: { id: parsed.cursor }, skip: 1 } : {}),
-    select: systemJobWireSelect
-  })
+  const records = await readLogicalJobPage(
+    (args) =>
+      queryClient(client).systemJob.findMany({ ...args, select: { ...systemJobWireSelect, ...logicalArchiveSelect } }),
+    {
+      where: {
+        definitionVersion: { gte: 1 },
+        ...currentArchiveExecutionWhere,
+        ...(parsed.types?.length ? { type: { in: parsed.types } } : {}),
+        ...(parsed.statuses?.length ? { status: { in: parsed.statuses } } : {}),
+        ...(parsed.triggerSources?.length ? { triggerSource: { in: parsed.triggerSources } } : {})
+      },
+      take: parsed.limit + 1,
+      cursor: parsed.cursor
+        ? z
+            .object({ id: z.string().min(1), createdAt: z.string().datetime() })
+            .parse(JSON.parse(Buffer.from(parsed.cursor, 'base64url').toString('utf8')))
+        : undefined
+    }
+  )
   const hasMore = records.length > parsed.limit
   const visible = hasMore ? records.slice(0, parsed.limit) : records
   return {
-    items: visible.map(toJobDto),
-    nextCursor: hasMore ? (visible.at(-1)?.id ?? null) : null
+    items: visible.map((record) => toJobDto({ ...record, createdAt: logicalJobIdentity(record).createdAt })),
+    nextCursor:
+      hasMore && visible.length
+        ? Buffer.from(
+            JSON.stringify({
+              id: logicalJobIdentity(visible.at(-1)!).id,
+              createdAt: logicalJobIdentity(visible.at(-1)!).createdAt.toISOString()
+            } satisfies LogicalCursor)
+          ).toString('base64url')
+        : null
   }
 }
 
@@ -71,17 +92,19 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
       _count: { _all: true }
     }),
     database.systemJob.findMany({
-      where: { definitionVersion: { gte: 1 }, status: { in: ['RUNNING', 'PAUSING', 'CANCELLING'] } },
+      where: {
+        definitionVersion: { gte: 1 },
+        ...currentArchiveExecutionWhere,
+        status: { in: ['RUNNING', 'PAUSING', 'CANCELLING'] }
+      },
       orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
-      take: 2,
+      take: 3,
       select: systemJobWireSelect
     }),
-    database.systemJob.findMany({
-      where: dashboardVisibleWhere,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 10,
-      select: systemJobWireSelect
-    }),
+    readLogicalJobPage(
+      (args) => database.systemJob.findMany({ ...args, select: { ...systemJobWireSelect, ...logicalArchiveSelect } }),
+      { where: dashboardVisibleWhere, take: 10 }
+    ),
     database.workerInstance.findMany({ orderBy: { heartbeatAt: 'desc' }, select: workerInstanceWireSelect }),
     database.systemJob.findMany({
       where: {
@@ -97,12 +120,10 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
       distinct: ['parentJobId']
     }),
     database.systemJob.count({ where: unacknowledgedFailureWhere }),
-    database.systemJob.findMany({
-      where: unacknowledgedFailureWhere,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: 10,
-      select: systemJobWireSelect
-    })
+    readLogicalJobPage(
+      (args) => database.systemJob.findMany({ ...args, select: { ...systemJobWireSelect, ...logicalArchiveSelect } }),
+      { where: unacknowledgedFailureWhere, take: 10 }
+    )
   ])
 
   const activeBatchParentIds = activePixivBatchParents.flatMap((job) => (job.parentJobId ? [job.parentJobId] : []))
@@ -158,7 +179,7 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
   const workerDtos = workers.map(toWorkerHealthDto)
   const timestamp = now()
   const freshWorkers = workerDtos.filter((worker) => isWorkerHeartbeatFresh(worker.heartbeatAt, timestamp))
-  const laneNames = ['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'] as const
+  const laneNames = ['ARCHIVE_RESOLVE', 'ARCHIVE_DOWNLOAD', 'BACKGROUND_WRITER'] as const
   const lanes = laneNames.map((executionLane) => {
     const runningJob = runningJobs.find((job) => job.executionLane === executionLane) ?? null
     // 状态优先级：先看是否有运行中的 job；否则看是否有 fresh 的 READY/STOPPING worker，最后才是 ERROR。
@@ -193,8 +214,10 @@ export async function getJobDashboard(client?: JobQueryClient, now: () => Date =
     activeBatches,
     lanes,
     unacknowledgedFailureCount,
-    unacknowledgedFailures: unacknowledgedFailures.map(toJobDto),
-    recentJobs: recent.map(toJobDto),
+    unacknowledgedFailures: unacknowledgedFailures.map((record) =>
+      toJobDto({ ...record, createdAt: logicalJobIdentity(record).createdAt })
+    ),
+    recentJobs: recent.map((record) => toJobDto({ ...record, createdAt: logicalJobIdentity(record).createdAt })),
     workers: workerDtos
   }
 }
@@ -222,9 +245,16 @@ export async function getJobById(jobId: string, client?: JobQueryClient) {
 }
 
 export async function getBackgroundJobDetail(jobId: string, client?: JobQueryClient) {
-  const record = await queryClient(client).systemJob.findUnique({
+  let record = await queryClient(client).systemJob.findUnique({
     where: { id: z.string().min(1).parse(jobId), definitionVersion: { gte: 1 } },
     select: { ...systemJobWireSelect, failureAcknowledgement: { select: { jobId: true } } }
   })
+  if (record && ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(record.type)) {
+    const current = await queryClient(client).systemJob.findFirst({
+      where: { archiveImport: { is: { executions: { some: { jobId: record.id } } } } },
+      select: { ...systemJobWireSelect, failureAcknowledgement: { select: { jobId: true } } }
+    })
+    if (current) record = current
+  }
   return record ? { ...toJobDto(record), failureNeedsAttention: failureNeedsAttention(record) } : null
 }

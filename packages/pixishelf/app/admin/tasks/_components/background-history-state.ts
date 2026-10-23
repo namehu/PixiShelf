@@ -28,15 +28,15 @@ export function historyStatusChanged(item: BackgroundHistoryItem, filters: Histo
 }
 
 export function mergeHistorySnapshot(current: BackgroundHistoryItem, next: BackgroundHistoryItem) {
-  return Date.parse(next.updatedAt) > Date.parse(current.updatedAt) ? next : current
+  return Date.parse(next.updatedAt) >= Date.parse(current.updatedAt) ? next : current
 }
 
 export function uniqueHistoryItems(pages: { items: BackgroundHistoryItem[] }[]): BackgroundHistoryItem[] {
   const items = new Map<string, BackgroundHistoryItem>()
   for (const page of pages) {
     for (const item of page.items) {
-      const previous = items.get(item.id)
-      items.set(item.id, previous ? mergeHistorySnapshot(previous, item) : item)
+      const previous = items.get(item.archiveImportId ?? item.id)
+      items.set(item.archiveImportId ?? item.id, previous ? mergeHistorySnapshot(previous, item) : item)
     }
   }
   return [...items.values()]

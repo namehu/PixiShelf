@@ -91,7 +91,12 @@ export async function* walkSafeFiles(
   options: WalkSafeFilesOptions
 ): AsyncGenerator<SafeScanPath[]> {
   validateWalkOptions(options)
-  const excludedRootDirectories = new Set(options.excludedRootDirectories ?? [])
+  const excludedRootDirectories = new Set([
+    'sources',
+    '.archive-staging',
+    '.trash',
+    ...(options.excludedRootDirectories ?? [])
+  ])
   const start = relativeDirectory
     ? await resolveSafeExistingPath(root, relativeDirectory, 'directory')
     : {
@@ -205,7 +210,12 @@ function validateWalkOptions(options: WalkSafeFilesOptions): void {
       throw new ScanExecutorError('CONFIGURATION_INVALID', `${name} must be a positive integer`)
     }
   }
-  for (const directoryName of options.excludedRootDirectories ?? []) {
+  for (const directoryName of new Set([
+    'sources',
+    '.archive-staging',
+    '.trash',
+    ...(options.excludedRootDirectories ?? [])
+  ])) {
     if (
       !directoryName ||
       directoryName !== directoryName.trim() ||

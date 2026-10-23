@@ -145,6 +145,7 @@ describePostgres('archive task PostgreSQL contracts', () => {
         where: { archiveImportId: task.importId, status: 'COMPLETED' }
       })
       expect(completedBefore).toHaveLength(1)
+      const legacyJobBefore = await database.systemJob.findUniqueOrThrow({ where: { id: task.jobId } })
       if (entry === 'background') await archiveModule.requestJobAction(task.jobId, 'RETRY', requestedByUserId)
       else if (entry === 'archive') await archiveModule.requestAction(task.importId, 'RETRY', { requestedByUserId })
       else {
@@ -160,8 +161,19 @@ describePostgres('archive task PostgreSQL contracts', () => {
         include: { systemJob: true }
       })
       expect(current.systemJobId).not.toBe(task.jobId)
-      expect(current.systemJob).toMatchObject({ status: 'PENDING', parentJobId: task.jobId, definitionVersion: 2 })
-      expect(current.status).toBe('PENDING')
+      expect(current.systemJob).toMatchObject({
+        type: 'ARCHIVE_DOWNLOAD',
+        executionLane: 'ARCHIVE_DOWNLOAD',
+        status: 'PENDING',
+        parentJobId: task.jobId,
+        definitionVersion: 1,
+        payload: { archiveImportId: task.importId, defaultTagIds: [] }
+      })
+      expect(current).toMatchObject({ status: 'PENDING', phase: 'DOWNLOAD', origin: null })
+      expect(await database.systemJob.findUniqueOrThrow({ where: { id: task.jobId } })).toEqual(legacyJobBefore)
+      expect(
+        await database.archiveImportExecution.findUniqueOrThrow({ where: { jobId: current.systemJobId } })
+      ).toMatchObject({ archiveImportId: task.importId, phase: 'DOWNLOAD' })
       expect(await database.systemJobFailureAcknowledgement.findUnique({ where: { jobId: task.jobId } })).toMatchObject(
         {
           source: 'RETRY',
@@ -280,8 +292,23 @@ describePostgres('archive task PostgreSQL contracts', () => {
     expect(projectRetryState(bulkState)).toEqual(projectRetryState(singleState))
     expect(bulkState.systemJob).toMatchObject({
       parentJobId: bulk.jobId,
-      definitionVersion: 2,
+      type: 'ARCHIVE_DOWNLOAD',
+      executionLane: 'ARCHIVE_DOWNLOAD',
+      definitionVersion: 1,
+      triggerSource: 'MANUAL',
       payload: { archiveImportId: bulk.importId, defaultTagIds: [] },
+      queuePriority: 12,
+      effectivePriority: 12,
+      progress: 50,
+      maxAttempts: 5
+    })
+    expect(bulkState).toMatchObject({ phase: 'DOWNLOAD', origin: null })
+    expect(await database.systemJob.findUniqueOrThrow({ where: { id: bulk.jobId } })).toMatchObject({
+      type: 'ARCHIVE_IMPORT',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: 1,
+      status: 'FAILED',
+      triggerSource: 'MANUAL',
       queuePriority: 12,
       effectivePriority: 12,
       progress: 50,

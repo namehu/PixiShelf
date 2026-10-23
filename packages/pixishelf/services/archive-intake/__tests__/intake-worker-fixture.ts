@@ -16,7 +16,7 @@ import {
   type QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import {
-  executeArchiveImport,
+  createArchiveExecutorRegistrations,
   executeArchiveResolveItem,
   type ArchiveProvider,
   type ResolvedArchive
@@ -33,7 +33,7 @@ export async function runConcurrentArchiveTasks(
 ) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-intake-workers-'))
   const resolverGate = gate()
-  const writerGate = gate()
+  const archiveGate = gate()
   const repository = new PostgresQueueRepository(database as unknown as QueueDatabase, {
     leaseDurationMs: 120_000,
     transactionTimeoutMs: 30_000,
@@ -55,7 +55,7 @@ export async function runConcurrentArchiveTasks(
       return resolved(url, title)
     },
     openMedia: async () => {
-      if (phase === 'transfer') await writerGate.hold()
+      if (phase === 'transfer') await archiveGate.hold()
       return {
         stream: Readable.from([picture]),
         contentLength: picture.length,
@@ -67,6 +67,13 @@ export async function runConcurrentArchiveTasks(
     }
   }
   const providers = { get: () => provider, getForUrl: () => provider }
+  const executors = createArchiveExecutorRegistrations({
+    database,
+    providers,
+    config: { scanRoot: root, mediaConcurrency: 1 }
+  })
+  const downloadExecutor = executors.find((executor) => executor.jobType === 'ARCHIVE_DOWNLOAD')!
+  const publishExecutor = executors.find((executor) => executor.jobType === 'ARCHIVE_PUBLISH')!
   const seed = async (identity: string) => {
     const submission = await createArchiveIntakeSubmission(
       {
@@ -99,18 +106,28 @@ export async function runConcurrentArchiveTasks(
     const intake = await database.archiveIntakeItem.findUniqueOrThrow({ where: { id: downloadSeed.item.id } })
     expect(intake.status).toBe('ENQUEUED')
     const archive = await database.archiveImport.findUniqueOrThrow({ where: { id: intake.archiveImportId! } })
-    await database.systemJob.update({
-      where: { id: archive.systemJobId },
-      data: { queuePriority: 0, effectivePriority: 0 }
-    })
-    const writer = await repository.claim(`writer-${downloadIdentity}`, [
-      { jobType: 'ARCHIVE_IMPORT', executionLane: 'BACKGROUND_WRITER', definitionVersions: [2] }
+    const download = await repository.claim(`download-${downloadIdentity}`, 'ARCHIVE_DOWNLOAD', [
+      { jobType: 'ARCHIVE_DOWNLOAD', executionLane: 'ARCHIVE_DOWNLOAD', definitionVersions: [1] }
     ])
-    expect(writer?.id).toBe(archive.systemJobId)
+    expect(download?.id).toBe(archive.systemJobId)
     const resolving = await seed(resolveIdentity)
     armed = true
     const resolverContext = context<ArchiveResolveItemPayload>(resolving.claimed, repository)
-    const writerContext = context<ArchiveImportV2Payload>(writer!, repository)
+    const downloadContext = context<ArchiveImportV2Payload>(download!, repository)
+    const claimPublish = async () => {
+      const current = await database.archiveImport.findUniqueOrThrow({ where: { id: archive.id } })
+      expect(current).toMatchObject({ phase: 'PUBLISH', status: 'PENDING', completedItems: 1 })
+      expect(current.sealedManifestSha256).toMatch(/^[a-f0-9]{64}$/)
+      expect(await database.systemJob.findUniqueOrThrow({ where: { id: download!.id } })).toMatchObject({
+        status: 'COMPLETED',
+        result: { outcome: 'HANDOFF', successorJobId: current.systemJobId }
+      })
+      const publish = await repository.claim(`publish-${downloadIdentity}`, 'BACKGROUND_WRITER', [
+        { jobType: 'ARCHIVE_PUBLISH', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+      ])
+      expect(publish?.id).toBe(current.systemJobId)
+      return publish!
+    }
 
     if (phase === 'checkpoint') {
       const finalize = resolverContext.finalizeInTransaction
@@ -119,41 +136,44 @@ export async function runConcurrentArchiveTasks(
           await operation(scope)
           await resolverGate.hold()
         })
-      const mutate = writerContext.mutateInTransaction
-      writerContext.mutateInTransaction = <T extends QueueSqlExecutor, R>(operation: (tx: T) => Promise<R>) =>
+      const mutate = downloadContext.mutateInTransaction
+      downloadContext.mutateInTransaction = <T extends QueueSqlExecutor, R>(operation: (tx: T) => Promise<R>) =>
         mutate<T, R>(async (tx) => {
           const result = await operation(tx)
           const completed = await (tx as unknown as Prisma.TransactionClient).archiveImportItem.count({
             where: { archiveImportId: archive.id, status: 'COMPLETED' }
           })
-          if (completed > 0) await writerGate.hold()
+          if (completed > 0) await archiveGate.hold()
           return result
         })
     }
+    let activeArchiveJob = download!
+    let archiveExecution: () => Promise<unknown> = () => downloadExecutor.execute(downloadContext)
     if (phase === 'publication') {
-      const finalize = writerContext.finalizeInTransaction
-      writerContext.finalizeInTransaction = (operation) =>
+      await downloadExecutor.execute(downloadContext)
+      activeArchiveJob = await claimPublish()
+      const publishContext = context<ArchiveImportV2Payload>(activeArchiveJob, repository)
+      const finalize = publishContext.finalizeInTransaction
+      publishContext.finalizeInTransaction = (operation) =>
         finalize<Parameters<typeof operation>[0]['transaction']>(async (scope) => {
           await operation(scope)
-          await writerGate.hold()
+          await archiveGate.hold()
         })
+      archiveExecution = () => publishExecutor.execute(publishContext)
     }
-    running = [
-      executeArchiveResolveItem(resolverContext, { database, providers }),
-      executeArchiveImport(writerContext, { database, providers, config: { scanRoot: root, mediaConcurrency: 1 } })
-    ]
+    running = [executeArchiveResolveItem(resolverContext, { database, providers }), archiveExecution()]
     // Attach rejection handlers immediately so fixture failures cannot become unhandled rejections.
     const completion = Promise.all(running)
     void completion.catch(() => undefined)
     await Promise.race([
-      Promise.all([resolverGate.entered, writerGate.entered]),
+      Promise.all([resolverGate.entered, archiveGate.entered]),
       completion.then(() => {
         throw new Error('Workers completed before the concurrency gates')
       })
     ])
     expect(
       await database.systemJob.count({
-        where: { id: { in: [resolving.claimed.id, writer!.id] }, status: 'RUNNING' }
+        where: { id: { in: [resolving.claimed.id, activeArchiveJob.id] }, status: 'RUNNING' }
       })
     ).toBe(2)
     const submission = submit()
@@ -176,15 +196,28 @@ export async function runConcurrentArchiveTasks(
       )
     }
     resolverGate.release()
-    writerGate.release()
+    archiveGate.release()
     await submission
     await completion
     expect(
       await database.systemJob.count({
-        where: { id: { in: [resolving.claimed.id, writer!.id] }, status: 'COMPLETED' }
+        where: { id: { in: [resolving.claimed.id, activeArchiveJob.id] }, status: 'COMPLETED' }
       })
     ).toBe(2)
+    if (phase !== 'publication') {
+      activeArchiveJob = await claimPublish()
+      const publishing = publishExecutor.execute(context<ArchiveImportV2Payload>(activeArchiveJob, repository))
+      running.push(publishing)
+      await publishing
+    }
+    expect(
+      await database.systemJob.count({
+        where: { id: { in: [resolving.claimed.id, download!.id, activeArchiveJob.id] }, status: 'COMPLETED' }
+      })
+    ).toBe(3)
     expect(await database.archiveImport.findUniqueOrThrow({ where: { id: archive.id } })).toMatchObject({
+      phase: 'PUBLISH',
+      systemJobId: activeArchiveJob.id,
       status: 'COMPLETED',
       completedItems: 1,
       failedItems: 0
@@ -194,7 +227,7 @@ export async function runConcurrentArchiveTasks(
     })
   } finally {
     resolverGate.release()
-    writerGate.release()
+    archiveGate.release()
     await Promise.allSettled(running)
     await database.archiveIntakeSubmission.deleteMany({
       where: {
