@@ -20,7 +20,8 @@ const { queryState } = vi.hoisted(() => ({
     sources: '',
     hasAudio: 'all',
     readingStatus: 'all',
-    likedOnly: false
+    likedOnly: false,
+    listRevision: 0
   }
 }))
 
@@ -62,6 +63,7 @@ vi.mock('@/components/artwork/infinite-artwork-list', () => ({
 beforeEach(() => {
   queryState.search = ''
   queryState.likedOnly = false
+  queryState.listRevision = 0
   navigation.params = new URLSearchParams()
   window.history.replaceState(null, '', '/artworks')
   window.scrollTo = vi.fn()
@@ -117,12 +119,25 @@ describe('GalleryPage layout', () => {
     expect(window.location.search).toBe('?search=keep')
   })
 
-  it('consumes apply commands and starts a new list generation at the top', () => {
+  it('stores the applied generation in the URL and restores it when returning from reading', () => {
     navigation.params = new URLSearchParams('readingStatus=UNREAD&quickApply=once')
     window.history.replaceState(null, '', '/artworks?' + navigation.params.toString())
-    render(<GalleryPage />)
-    expect(window.location.search).toBe('?readingStatus=UNREAD')
-    expect(Number(screen.getByTestId('artworks-list').getAttribute('data-generation'))).toBeGreaterThan(0)
+    const replaceState = vi.spyOn(window.history, 'replaceState')
+    const view = render(<GalleryPage />)
+    const returnedParams = new URLSearchParams(window.location.search)
+    expect(returnedParams.get('readingStatus')).toBe('UNREAD')
+    expect(returnedParams.has('quickApply')).toBe(false)
+    const generation = Number(returnedParams.get('listRevision'))
+    expect(generation).toBeGreaterThan(0)
+    expect(replaceState).toHaveBeenLastCalledWith(null, '', `/artworks?readingStatus=UNREAD&listRevision=${generation}`)
+    replaceState.mockRestore()
     expect(window.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
+    view.unmount()
+    navigation.params = returnedParams
+    queryState.listRevision = generation
+    vi.mocked(window.scrollTo).mockClear()
+    render(<GalleryPage />)
+    expect(Number(screen.getByTestId('artworks-list').getAttribute('data-generation'))).toBe(generation)
+    expect(window.scrollTo).not.toHaveBeenCalled()
   })
 })

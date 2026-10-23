@@ -129,6 +129,12 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     queryKey: ['artwork', 'cardList', 'random-v1', ownerUserId, filterInput, ...(queryGeneration ? [queryGeneration] : [])],
     initialPageParam: 1 as number | string,
     enabled: Boolean(ownerUserId),
+    // Reading changes card badges, not this round's membership. Keep loaded
+    // pages through long reads; a new generation or full reload reruns filters.
+    gcTime: readingStatus ? Infinity : undefined,
+    refetchOnMount: readingStatus ? false : undefined,
+    refetchOnWindowFocus: readingStatus ? false : undefined,
+    refetchOnReconnect: readingStatus ? false : undefined,
     queryFn: ({ pageParam, signal }) => trpcClient.artwork.cardList.query({
       ...filterInput,
       cursor: typeof pageParam === 'number' ? pageParam : undefined,
@@ -206,7 +212,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${ownerUserId}-${searchQuery}-${sortBy}-${mediaType}-${readingStatus ?? ''}-${likedOnly ?? false}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}`
+  const storageKey = `artworks-scroll-${ownerUserId}-${searchQuery}-${sortBy}-${mediaType}-${readingStatus ?? ''}-${likedOnly ?? false}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}-${queryGeneration}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {
@@ -215,7 +221,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       window.history.scrollRestoration = 'manual'
     }
 
-    const savedPosition = queryGeneration ? null : sessionStorage.getItem(storageKey)
+    const savedPosition = sessionStorage.getItem(storageKey)
 
     // 如果没有保存的位置，直接标记为准备就绪
     if (!savedPosition) {

@@ -24,7 +24,11 @@ import { MSource, OSource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
 import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 
-const searchParamsParsers = artworkQueryParsers
+const searchParamsParsers = {
+  ...artworkQueryParsers,
+  // Keep the list cache identity when navigating back from a reading page.
+  listRevision: parseAsInteger.withDefault(0)
+}
 
 const viewerQueryParsers = {
   source: parseAsString,
@@ -136,7 +140,8 @@ export default function GalleryPage() {
     sources,
     hasAudio: hasAudioParam,
     readingStatus: readingStatusParam,
-    likedOnly
+    likedOnly,
+    listRevision
   } = queryStates
   const hasAudio = normalizeAudioFilter(hasAudioParam)
   const readingStatus = normalizeReadingStatus(readingStatusParam)
@@ -146,7 +151,6 @@ export default function GalleryPage() {
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [filterTab, setFilterTab] = useState<'conditions' | 'saved'>('conditions')
   const navigationParams = useSearchParams()
-  const [listRevision, setListRevision] = useState(0)
   // Consume navigation commands from Next's committed URL, not nuqs' optimistic state.
   // Otherwise a pending router.push can restore a command after nuqs clears it.
   useEffect(() => {
@@ -157,18 +161,19 @@ export default function GalleryPage() {
       setFilterTab('saved')
       setIsFilterOpen(true)
     }
+    const url = new URL(window.location.href)
     if (apply) {
-      setListRevision(Date.now())
+      url.searchParams.set('listRevision', String(Date.now()))
       window.scrollTo({ top: 0, behavior: 'instant' })
     }
-    const url = new URL(window.location.href)
     url.searchParams.delete('quickFilters')
     url.searchParams.delete('quickApply')
+    // Let Next preserve its own history state and notify nuqs of the new revision.
+    // Passing Next's internal markers back would bypass that notification.
     window.history.replaceState(null, '', url.pathname + url.search + url.hash)
   }, [navigationParams])
   const applySnapshot = (query: ArtworkQuerySnapshot) => {
-    void setQueryStates(snapshotToQuery(query))
-    setListRevision(Date.now())
+    void setQueryStates({ ...snapshotToQuery(query), listRevision: Date.now() })
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
 
@@ -346,8 +351,7 @@ export default function GalleryPage() {
       toast.error('筛选条件无效，请检查日期范围。')
       return
     }
-    void setQueryStates(snapshotToQuery(result.data, filters.randomSeed))
-    setListRevision(Date.now())
+    void setQueryStates({ ...snapshotToQuery(result.data, filters.randomSeed), listRevision: Date.now() })
     window.scrollTo({ top: 0, behavior: 'instant' })
   }
 
