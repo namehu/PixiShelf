@@ -5,6 +5,18 @@ import { ArtworkDetailControlsProvider, ArtworkFloatingPortal } from '../artwork
 import { ArtworkMediaViewProvider, useArtworkMediaView } from '../artwork-media-view-context'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 
+const mocks = vi.hoisted(() => ({
+  changeMode: vi.fn(),
+  summary: null as {
+    ready: boolean
+    mode: 'complete' | 'stack'
+    groups: { mediaIds: number[] }[]
+    navigating: boolean
+    changeMode: (mode: 'complete' | 'stack') => void
+  } | null
+}))
+vi.mock('../artwork-summary-context', () => ({ useArtworkSummary: () => mocks.summary }))
+
 vi.mock('@/hooks/use-artwork-rating', () => ({
   useArtworkRating: () => ({
     level: null,
@@ -44,6 +56,8 @@ function Harness({ media = false, toolbar = false }: { media?: boolean; toolbar?
   )
 }
 beforeEach(() => {
+  mocks.summary = null
+  mocks.changeMode.mockClear()
   useArtworkAutoBrowseStore.setState(useArtworkAutoBrowseStore.getInitialState())
   vi.stubGlobal(
     'ResizeObserver',
@@ -60,6 +74,39 @@ afterEach(() => {
 })
 
 describe('stable detail floating controls', () => {
+  it.each([
+    ['complete', 'stack', '切换到堆叠浏览'],
+    ['stack', 'complete', '切换到完整浏览']
+  ] as const)('switches from %s to %s and closes the dock', (mode, nextMode, label) => {
+    mocks.summary = { ready: true, mode, groups: [{ mediaIds: [1, 2] }], navigating: false, changeMode: mocks.changeMode }
+    render(<Harness />)
+    const trigger = screen.getByRole('button', { name: '打开作品快捷操作' })
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: label }))
+    expect(mocks.changeMode).toHaveBeenCalledWith(nextMode)
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+  })
+
+  it.each([
+    { ready: false, mediaIds: [1, 2] },
+    { ready: true, mediaIds: [1] }
+  ])('hides mode switching when no ready stack is available: %j', ({ ready, mediaIds }) => {
+    mocks.summary = { ready, mode: 'complete', groups: [{ mediaIds }], navigating: false, changeMode: mocks.changeMode }
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: '打开作品快捷操作' }))
+    expect(screen.queryByRole('button', { name: '切换到堆叠浏览' })).toBeNull()
+  })
+
+  it('disables mode switching while locating media', () => {
+    mocks.summary = { ready: true, mode: 'complete', groups: [{ mediaIds: [1, 2] }], navigating: true, changeMode: mocks.changeMode }
+    render(<Harness />)
+    fireEvent.click(screen.getByRole('button', { name: '打开作品快捷操作' }))
+    const button = screen.getByRole('button', { name: '切换到堆叠浏览' }) as HTMLButtonElement
+    expect(button.disabled).toBe(true)
+    fireEvent.click(button)
+    expect(mocks.changeMode).not.toHaveBeenCalled()
+  })
+
   it('offers scoring without a mounted media list and restores focus to the dock', async () => {
     render(<Harness />)
     const trigger = screen.getByRole('button', { name: '打开作品快捷操作' })

@@ -2,13 +2,14 @@
 
 import { useEffect, useRef } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown, SlidersHorizontalIcon, StarIcon } from 'lucide-react'
+import { ArrowUpToLine, ChevronsDownUp, ChevronsUpDown, LayersIcon, Rows3Icon, SlidersHorizontalIcon, StarIcon } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { ARTWORK_RATING_LABELS, type ArtworkRatingLevel } from '@/schemas/artwork-rating.dto'
+import { useArtworkSummary } from './artwork-summary-context'
 
 function MediaAnchorList({
   indexes,
@@ -96,7 +97,16 @@ export function MediaAnchorNavigation({
   const dockRef = useRef<HTMLDivElement>(null)
   const openingRating = useRef(false)
   const reducedMotion = useReducedMotion()
-  if (total <= 1 && !onRate) return null
+  const summary = useArtworkSummary()
+  const canSwitchMode = summary?.ready && summary.groups.some((group) => group.mediaIds.length > 1)
+  const nextMode = summary?.mode === 'stack' ? 'complete' : 'stack'
+  const modeLabel = nextMode === 'stack' ? '切换到堆叠浏览' : '切换到完整浏览'
+  const actionPositions = [{ x: 48, y: 0 }, { x: 96, y: 0 }, { x: 48, y: 48 }, { x: 96, y: 48 }]
+  const topPosition = actionPositions[0]
+  const expandPosition = actionPositions[1]
+  const modePosition = actionPositions[1 + Number(collapsible)]
+  const ratingPosition = actionPositions[1 + Number(collapsible) + Number(Boolean(canSwitchMode))]
+  if (total <= 1 && !onRate && !canSwitchMode) return null
 
   const sequenceIndex = Math.min(Math.max(currentIndex, 0), total - 1)
   const displayedIndex = (originalIndexes?.[sequenceIndex] ?? sequenceIndex) + 1
@@ -150,16 +160,17 @@ export function MediaAnchorNavigation({
             if (openingRating.current) event.preventDefault()
           }}
           aria-label="作品浏览控制"
-          className="pointer-events-none relative flex min-h-24 w-[148px] origin-bottom-right justify-end border-0 bg-transparent p-0 pb-[52px] shadow-none motion-reduce:animate-none"
+          className="pointer-events-none relative flex min-h-24 w-[140px] origin-bottom-right justify-end border-0 bg-transparent p-0 pb-[52px] shadow-none motion-reduce:animate-none"
         >
           {onRate && (
             <motion.div
-              className="pointer-events-auto absolute bottom-[90px] right-[52px]"
-              initial={reducedMotion ? false : { opacity: 0, x: 52, y: 90, scale: 0.72 }}
+              className="pointer-events-auto absolute"
+              style={{ right: ratingPosition.x, bottom: ratingPosition.y }}
+              initial={reducedMotion ? false : { opacity: 0, ...ratingPosition, scale: 0.72 }}
               animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
               transition={{
                 duration: reducedMotion ? 0 : 0.24,
-                delay: reducedMotion ? 0 : 0.04,
+                delay: reducedMotion ? 0 : canSwitchMode ? 0.06 : 0.04,
                 ease: [0.22, 1, 0.36, 1]
               }}
             >
@@ -187,8 +198,9 @@ export function MediaAnchorNavigation({
           )}
           {/* 弹层底边与 44px 主按钮底边重合；预留 52px，让页码与主按钮保持 8px 间隔。 */}
           <motion.div
-            className="pointer-events-auto absolute bottom-0 right-[104px]"
-            initial={reducedMotion ? false : { opacity: 0, x: 104, y: 0, scale: 0.72 }}
+            className="pointer-events-auto absolute"
+            style={{ right: topPosition.x, bottom: topPosition.y }}
+            initial={reducedMotion ? false : { opacity: 0, ...topPosition, scale: 0.72 }}
             animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
             transition={{ duration: reducedMotion ? 0 : 0.24, ease: [0.22, 1, 0.36, 1] }}
           >
@@ -211,8 +223,9 @@ export function MediaAnchorNavigation({
           </motion.div>
           {collapsible && (
             <motion.div
-              className="pointer-events-auto absolute bottom-[52px] right-[90px]"
-              initial={reducedMotion ? false : { opacity: 0, x: 90, y: 52, scale: 0.72 }}
+              className="pointer-events-auto absolute"
+              style={{ right: expandPosition.x, bottom: expandPosition.y }}
+              initial={reducedMotion ? false : { opacity: 0, ...expandPosition, scale: 0.72 }}
               animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
               transition={{
                 duration: reducedMotion ? 0 : 0.24,
@@ -235,6 +248,33 @@ export function MediaAnchorNavigation({
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top">{expanded ? '收起媒体列表' : '展开全部媒体'}</TooltipContent>
+              </Tooltip>
+            </motion.div>
+          )}
+          {canSwitchMode && (
+            <motion.div
+              className="pointer-events-auto absolute"
+              style={{ right: modePosition.x, bottom: modePosition.y }}
+              initial={reducedMotion ? false : { opacity: 0, ...modePosition, scale: 0.72 }}
+              animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
+              transition={{ duration: reducedMotion ? 0 : 0.24, delay: reducedMotion ? 0 : 0.04, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <Tooltip delayDuration={350}>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    className="size-11 rounded-full shadow-floating"
+                    aria-label={modeLabel}
+                    disabled={summary.navigating}
+                    onClick={() => {
+                      onOpenChange(false)
+                      summary.changeMode(nextMode)
+                    }}
+                  >
+                    {nextMode === 'stack' ? <LayersIcon aria-hidden="true" /> : <Rows3Icon aria-hidden="true" />}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="left">{modeLabel}</TooltipContent>
               </Tooltip>
             </motion.div>
           )}

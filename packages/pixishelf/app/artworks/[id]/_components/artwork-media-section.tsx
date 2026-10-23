@@ -1,7 +1,6 @@
 'use client'
 
 import { useArtworkSummary } from './artwork-summary-context'
-import { ArtworkSummaryControls } from './artwork-summary-controls'
 import { projectArtworkStacks } from './artwork-stack-projection'
 import { ARTWORK_STACK_RULE_VERSION } from '@/lib/reading/artwork-stacks'
 import { usePathname } from 'next/navigation'
@@ -260,11 +259,11 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
   return (
     <>
       <PageContainer size="reading"><div ref={topRef} className="scroll-mt-20">
-        <div className="flex flex-wrap items-center justify-between gap-x-4"><ReadingProgressControls
+        <ReadingProgressControls
           reading={summary ? { ...reading, reopen: summary.reopen } : reading} empty={emptyUnread}
           resumeError={mediaIdOnEntry === undefined && entryResumePending ? entryContextError : undefined}
           resumeLoading={mediaIdOnEntry === undefined && entryResumePending && entryContextLoading}
-        /><ArtworkSummaryControls /></div>
+        />
         {mediaIdOnEntry !== undefined && entryResumePending && !reading.invalidated && <div className="flex min-h-14 flex-wrap items-center gap-3 pb-4 text-sm" role="status">
           <span>{entryMediaError === 'invalid' ? '图片链接无效。' : entryMediaError === 'missing' ? '这张图片已失效，无法定位。'
             : entryMediaError ? '图片定位加载失败。' : '正在定位图片…'}</span>

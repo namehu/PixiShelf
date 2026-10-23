@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import NavHead from '../nav-head'
+import { ArtworkSummaryProvider } from '../artwork-summary-context'
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -128,12 +129,12 @@ describe('NavHead', () => {
     expect(screen.getByRole('status').textContent).toBe('mark-all')
   })
 
-  it('shows a centered truncated title only after the media marker crosses the toolbar', () => {
+  it('shows the scrolled title even when the reading mode provider is mounted', () => {
     render(
-      <>
+      <ArtworkSummaryProvider artworkId={data.id}>
         <div id="artwork-media-start-7" />
         <NavHead data={data} id="7" />
-      </>
+      </ArtworkSummaryProvider>
     )
 
     expect(mocks.observe).toHaveBeenCalledWith(document.getElementById('artwork-media-start-7'))
