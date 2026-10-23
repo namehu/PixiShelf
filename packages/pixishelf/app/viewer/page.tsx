@@ -26,6 +26,7 @@ import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 import { useAuthUser } from '@/components/auth'
 import { cn } from '@/lib/utils'
 import { artworkQuerySnapshotSchema } from '@/schemas/artwork-quick-filter.dto'
+import { readViewerNavigation, saveViewerNavigation, type ViewerNavigation } from './viewer-navigation'
 
 type ViewerSource = 'all' | 'artist' | 'tag'
 type ViewerMode = 'ordered' | 'random'
@@ -90,6 +91,25 @@ function normalizeReadingStatus(value: string): ReadingStatus | 'all' {
 
 /** 沉浸式图片浏览页面。筛选状态以 URL 为准，持久化设置只作为无 URL 参数时的回退。 */
 export default function ViewerPage() {
+  const [navigation, setNavigation] = useState<ViewerNavigation | null>(null)
+  useEffect(() => {
+    const entry = readViewerNavigation()
+    saveViewerNavigation(entry)
+    setNavigation(entry)
+  }, [])
+
+  // Resolve the history entry before mounting the query so cached feeds do not
+  // refetch when a temporarily disabled observer becomes enabled on return.
+  return navigation ? (
+    <ViewerPageContent navigation={navigation} />
+  ) : (
+    <main className="relative h-dvh w-screen overflow-hidden bg-black">
+      <PageLoading />
+    </main>
+  )
+}
+
+function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
   const safeBack = useSafeBack()
   const [urlQuery, setViewerQuery] = useQueryStates(viewerQueryParsers)
   const searchParams = useSearchParams()
@@ -98,7 +118,8 @@ export default function ViewerPage() {
   const trpcClient = useTRPCClient()
   const queryClient = useQueryClient()
   const ownerUserId = useAuthUser()?.id ?? null
-  const defaultRandomSeedRef = useRef(Math.floor(Math.random() * 1000000))
+  const [readyFeedKey, setReadyFeedKey] = useState<string | null>(null)
+  const initializedFeed = useRef<string | null>(null)
 
   const {
     images,
@@ -184,7 +205,7 @@ export default function ViewerPage() {
         : sourceContext.source === 'all'
           ? 'random'
           : 'ordered'
-    const randomSeed = viewerQuery.randomSeed ?? defaultRandomSeedRef.current
+    const randomSeed = viewerQuery.randomSeed ?? navigation.randomSeed
     const requestedMediaType = viewerQuery.mediaType
     const effectiveMediaType = Object.values(EMediaType).includes(requestedMediaType as EMediaType)
       ? (requestedMediaType as EMediaType)
@@ -216,6 +237,7 @@ export default function ViewerPage() {
     hasAudio,
     maxImageCount,
     mediaType,
+    navigation,
     ownerUserId,
     readingStatus,
     selectedArtist,
@@ -228,7 +250,7 @@ export default function ViewerPage() {
   const feedKey = useMemo(() => JSON.stringify(feedInput), [feedInput])
   const { data, fetchNextPage, hasNextPage, isLoading, isFetchingNextPage, isFetchNextPageError, isError, error } =
     useInfiniteQuery({
-      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput],
+      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput, navigation.id],
       initialPageParam: 1 as number | string,
       queryFn: ({ pageParam, signal }) =>
         trpcClient.artwork.viewerFeed.query(
@@ -247,7 +269,8 @@ export default function ViewerPage() {
             ? lastPage.nextReadingCursor
             : (lastPage.nextPage ?? undefined),
       staleTime: 10 * 60 * 1000,
-      gcTime: 15 * 60 * 1000,
+      gcTime: Infinity,
+      refetchOnMount: false,
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
       retry: (attempt, failure) => !failure.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') && attempt < 3,
@@ -265,13 +288,39 @@ export default function ViewerPage() {
     recoveredFeed.current = feedKey
     resetViewerState()
     void queryClient.resetQueries({
-      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput],
+      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput, navigation.id],
       exact: true
     })
-  }, [error, feedInput, feedKey, ownerUserId, queryClient, resetViewerState])
+  }, [error, feedInput, feedKey, navigation.id, ownerUserId, queryClient, resetViewerState])
 
-  useEffect(() => resetViewerState(), [feedKey, resetViewerState])
-  useEffect(() => setImages(data?.pages.flatMap((page) => page.items) ?? []), [data, setImages])
+  useEffect(() => {
+    if (!hasHydrated || !ownerUserId || !data) return
+    const initializing = initializedFeed.current !== feedKey
+    const restoring = initializedFeed.current === null && navigation.feedKey === feedKey
+    if (initializing) resetViewerState()
+    setImages(data.pages.flatMap((page) => page.items))
+    if (restoring) {
+      useViewerStore.getState().setVerticalIndex(navigation.verticalIndex)
+      useViewerStore.getState().updateViewerState({ horizontalIndexes: navigation.horizontalIndexes })
+    }
+    initializedFeed.current = feedKey
+    setReadyFeedKey(feedKey)
+  }, [data, feedKey, hasHydrated, navigation, ownerUserId, resetViewerState, setImages])
+
+  const search = searchParams.toString()
+  useEffect(() => {
+    if (readyFeedKey !== feedKey) return
+    const savePosition = () => {
+      const { verticalIndex, horizontalIndexes } = useViewerStore.getState()
+      saveViewerNavigation({ ...navigation, feedKey, verticalIndex, horizontalIndexes })
+    }
+    savePosition()
+    return useViewerStore.subscribe((state, previous) => {
+      if (state.verticalIndex !== previous.verticalIndex || state.horizontalIndexes !== previous.horizontalIndexes) {
+        savePosition()
+      }
+    })
+  }, [feedKey, navigation, readyFeedKey, search])
   useEffect(() => {
     setChromeHidden(false)
     return () => setChromeHidden(false)
@@ -439,7 +488,7 @@ export default function ViewerPage() {
 
       {isError && !data ? (
         <PageError content={error?.message || '无法加载图片数据，请检查网络连接'} />
-      ) : isLoading && !data ? (
+      ) : !hasHydrated || readyFeedKey !== feedKey || (isLoading && !data) ? (
         <PageLoading />
       ) : !images.length ? (
         <PageNoData

@@ -8,12 +8,13 @@ import type { FilterSheetProps } from '@/components/artwork/filter-sheet'
 
 const mocks = vi.hoisted(() => ({
   params: new URLSearchParams(),
+  owner: 'viewer-user',
   feed: vi.fn(),
   sheet: null as FilterSheetProps | null
 }))
 vi.mock('next/navigation', () => ({ useSearchParams: () => mocks.params }))
 vi.mock('@/hooks/use-safe-back', () => ({ useSafeBack: () => vi.fn() }))
-vi.mock('@/components/auth', () => ({ useAuthUser: () => ({ id: 'viewer-user' }) }))
+vi.mock('@/components/auth', () => ({ useAuthUser: () => ({ id: mocks.owner }) }))
 vi.mock('@/lib/trpc', () => ({
   useTRPCClient: () => ({ artwork: { viewerFeed: { query: mocks.feed } } })
 }))
@@ -62,16 +63,18 @@ beforeEach(() => {
   useViewerStore.setState({ ...useViewerStore.getInitialState(), hasHydrated: true })
   mocks.feed.mockReset().mockResolvedValue({ items: [], nextPage: null })
   mocks.sheet = null
+  mocks.owner = 'viewer-user'
 })
 afterEach(() => {
   cleanup()
   clients.forEach((client) => client.clear())
   clients = []
 })
-function mount(search = '') {
+function mount(search = '', options: { client?: QueryClient; returning?: boolean } = {}) {
+  if (!options.returning) window.history.pushState({ __NA: true }, '', `/viewer?${search}`)
   mocks.params = new URLSearchParams(search)
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  clients.push(client)
+  const client = options.client ?? new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  if (!options.client) clients.push(client)
   return render(
     <NuqsTestingAdapter
       hasMemory
@@ -98,6 +101,83 @@ async function reloadStore() {
 }
 
 describe('immersive viewer filter persistence', () => {
+  it.each([
+    ['ordered', '/artworks/2'],
+    ['random', '/artists/12']
+  ])('restores the %s feed and both swiper positions after returning from %s', async (mode, destination) => {
+    const search = `mode=${mode}&mediaType=video&likedOnly=true`
+    mocks.feed
+      .mockResolvedValueOnce({
+        items: [{ id: 1, key: 'one', images: [] }],
+        nextReadingCursor: 'ordered-next',
+        nextRandomCursor: 'random-next'
+      })
+      .mockResolvedValue({ items: [{ id: 2, key: 'two', images: [] }], nextPage: null })
+    const view = mount(search)
+    const client = clients[0]!
+    fireEvent.click(await screen.findByRole('button', { name: '加载更多' }))
+    await waitFor(() => expect(useViewerStore.getState().images).toHaveLength(2))
+    act(() => {
+      useViewerStore.getState().setVerticalIndex(1)
+      useViewerStore.getState().setHorizontalIndex('two', 2)
+    })
+    const originalSeed = mocks.sheet?.randomSeed
+    expect(window.history.state.__NA).toBe(true)
+    expect(window.history.state.__pixishelf_viewer_navigation__.verticalIndex).toBe(1)
+    window.history.pushState({}, '', destination)
+    view.unmount()
+    // A status update can make the feed stale while the detail page is open.
+    await client.invalidateQueries({ refetchType: 'none' })
+    useViewerStore.getState().resetViewerState()
+    await new Promise<void>((resolve) => {
+      window.addEventListener('popstate', () => resolve(), { once: true })
+      window.history.back()
+    })
+    expect(window.history.state.__pixishelf_viewer_navigation__.verticalIndex).toBe(1)
+    mount(search, { client, returning: true })
+    await screen.findByRole('button', { name: '加载更多' })
+    expect(useViewerStore.getState()).toMatchObject({ verticalIndex: 1, horizontalIndexes: { two: 2 } })
+    expect(useViewerStore.getState().images.map((item) => item.id)).toEqual([1, 2])
+    expect(mocks.sheet?.randomSeed).toBe(originalSeed)
+    expect(mocks.feed).toHaveBeenCalledTimes(2)
+  })
+
+  it('starts at the first item on a fresh navigation, even with the same filters and query client', async () => {
+    mocks.feed.mockResolvedValue({ items: [{ id: 1, key: 'one', images: [] }, { id: 2, key: 'two', images: [] }], nextPage: null })
+    const view = mount('mode=ordered')
+    const client = clients[0]!
+    await screen.findByRole('button', { name: '加载更多' })
+    act(() => {
+      useViewerStore.getState().setVerticalIndex(1)
+      useViewerStore.getState().setHorizontalIndex('two', 2)
+    })
+    view.unmount()
+    mount('mode=ordered', { client })
+    await screen.findByRole('button', { name: '加载更多' })
+    expect(useViewerStore.getState()).toMatchObject({ verticalIndex: 0, horizontalIndexes: {} })
+    expect(mocks.feed).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['filters', 'account'])('resets both swiper positions when %s change', async (change) => {
+    mocks.feed.mockResolvedValue({ items: [{ id: 1, key: 'one', images: [] }, { id: 2, key: 'two', images: [] }], nextPage: null })
+    const view = mount('mode=ordered')
+    await screen.findByRole('button', { name: '加载更多' })
+    act(() => {
+      useViewerStore.getState().setVerticalIndex(1)
+      useViewerStore.getState().setHorizontalIndex('two', 2)
+    })
+    if (change === 'filters') {
+      await applyFilters()
+    } else {
+      view.unmount()
+      mocks.owner = 'another-user'
+      mount('mode=ordered', { client: clients[0], returning: true })
+    }
+    await waitFor(() => expect(useViewerStore.getState()).toMatchObject({ verticalIndex: 0, horizontalIndexes: {} }))
+    await screen.findByRole('button', { name: '加载更多' })
+    expect(mocks.feed.mock.calls.at(-1)?.[0].expectedUserId).toBe(mocks.owner)
+  })
+
   it.each(['ordered', 'random'])('keeps favorites and account context on %s continuation', async (mode) => {
     mocks.feed
       .mockResolvedValueOnce({
