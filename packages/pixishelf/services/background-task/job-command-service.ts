@@ -189,6 +189,9 @@ export async function enqueueJob(
   now: () => Date = () => new Date()
 ): Promise<JobDto> {
   const parsed = enqueueJobInputSchema.parse(input)
+  if (parsed.type === 'ARTWORK_DEDUP_SCAN') {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '重复作品检查必须通过领域入口创建和控制')
+  }
   if (parsed.type === 'ARTWORK_SUMMARY_GENERATE') {
     throw new BackgroundTaskError('INVALID_STATE_TRANSITION', ARTWORK_SUMMARY_RETIRED_MESSAGE)
   }
@@ -272,6 +275,7 @@ export async function cancelJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (job.type === 'ARTWORK_DEDUP_SCAN') throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
@@ -475,6 +479,7 @@ export async function pauseJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (job.type === 'ARTWORK_DEDUP_SCAN') throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
@@ -531,6 +536,7 @@ export async function resumeJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (job.type === 'ARTWORK_DEDUP_SCAN') throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
@@ -585,6 +591,7 @@ export async function retryJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (job.type === 'ARTWORK_DEDUP_SCAN') throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
     if (await hasBlockingMediaContentCancellation(transaction, job.id)) {
       throw new BackgroundTaskError(
@@ -776,6 +783,7 @@ export async function changeJobPriorityCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: parsed.jobId }, select: systemJobWireSelect })
     )
+    if (job.type === 'ARTWORK_DEDUP_SCAN') throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '重复作品检查使用固定低优先级')
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }

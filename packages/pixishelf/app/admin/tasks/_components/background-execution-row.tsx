@@ -1,12 +1,14 @@
 'use client'
 
+import Link from 'next/link'
+
 import type { JobDto, JobStatus } from '@pixishelf/job-contracts'
 import { Activity, Clock3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
-import { formatBackgroundJobStatus, formatBackgroundJobType } from './background-task-format'
+import { formatBackgroundJobStatus, formatBackgroundJobType, getArtworkDedupHref } from './background-task-format'
 import type { BackgroundBatchView } from './background-task-console'
 
 function formatBatchStatus(status: JobStatus) {
@@ -33,6 +35,7 @@ export function BackgroundExecutionRow({
   const visibleJob = batch?.parentJob ?? job
   const detailJob = batch?.currentJob ?? visibleJob
   const progress = batch?.progress ?? visibleJob?.progress ?? 0
+  const dedupHref = visibleJob ? getArtworkDedupHref(visibleJob) : null
 
   return (
     <div className="flex min-w-0 flex-col gap-2 border-b bg-muted/10 px-4 py-3 sm:px-5">
@@ -54,7 +57,11 @@ export function BackgroundExecutionRow({
             <p className="min-w-0 flex-1 break-words text-sm font-medium">
               {formatBackgroundJobType(visibleJob.type, visibleJob.payload)}
             </p>
-            {detailJob ? (
+            {dedupHref ? (
+              <Button asChild variant="ghost" className="min-h-11">
+                <Link href={dedupHref}>查看检查进度</Link>
+              </Button>
+            ) : detailJob ? (
               <Button
                 type="button"
                 size="sm"

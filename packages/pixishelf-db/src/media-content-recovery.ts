@@ -198,7 +198,7 @@ async function lockJob(tx: MediaContentTransaction, jobId: string) {
     throw new MediaContentConflictError('STALE')
   return job
 }
-async function lockOfflineDispatchers(tx: MediaContentTransaction) {
+export async function lockMediaContentOfflineDispatchers(tx: MediaContentTransaction) {
   // These are the queue runtime's claim keys. Locking even absent lease rows
   // prevents a new execution from starting between the idle check and grant.
   for (const resourceKey of ['lane/archive-download', 'lane/archive-resolve', 'lane/background-writer']) {
@@ -207,11 +207,8 @@ async function lockOfflineDispatchers(tx: MediaContentTransaction) {
     if (!lock?.locked) throw new MediaContentConflictError('WRITING')
   }
 }
-async function assertOffline(tx: MediaContentTransaction, job: Awaited<ReturnType<typeof lockJob>>, now: Date) {
+export async function assertMediaContentWritersStopped(tx: MediaContentTransaction, now: Date) {
   if (
-    !offlineStatuses.has(job.status) ||
-    job.cancelRequestedAt ||
-    (job.leaseExpiresAt && job.leaseExpiresAt > now) ||
     (await tx.systemJob.findFirst({
       where: { status: { in: ['RUNNING', 'PAUSING', 'CANCELLING'] } },
       select: { id: true }
@@ -226,6 +223,11 @@ async function assertOffline(tx: MediaContentTransaction, job: Awaited<ReturnTyp
     }))
   )
     throw new MediaContentConflictError('WRITING')
+}
+async function assertOffline(tx: MediaContentTransaction, job: Awaited<ReturnType<typeof lockJob>>, now: Date) {
+  if (!offlineStatuses.has(job.status) || job.cancelRequestedAt || (job.leaseExpiresAt && job.leaseExpiresAt > now))
+    throw new MediaContentConflictError('WRITING')
+  await assertMediaContentWritersStopped(tx, now)
 }
 async function snapshotFromLockedJob(
   tx: MediaContentTransaction,
@@ -382,7 +384,7 @@ export async function inspectMediaContentRecovery(
   input: { jobId: string; sessionId: string; now: Date; readDomainSnapshot: MediaContentRecoveryDomainReader }
 ): Promise<MediaContentResult<{ snapshot: MediaContentRecoverySnapshot; digest: string }>> {
   return resultOf(async () => {
-    await lockOfflineDispatchers(tx)
+    await lockMediaContentOfflineDispatchers(tx)
     const job = await lockJob(tx, input.jobId)
     await assertOffline(tx, job, input.now)
     const snapshot = await snapshotFromLockedJob(tx, job, input.sessionId, input.readDomainSnapshot)
@@ -482,7 +484,7 @@ export async function resumeGrantedMediaContentRecovery(
   text(input.operator)
   if (input.confirmAllWritersStopped !== true) throw new TypeError('Explicit offline confirmation is required')
   return resultOf(async () => {
-    await lockOfflineDispatchers(tx)
+    await lockMediaContentOfflineDispatchers(tx)
     const found = await tx.mediaContentRecoveryGrant.findUnique({ where: { id: input.grantId } })
     if (!found) throw new MediaContentConflictError('MISSING')
     const job = await lockJob(tx, found.jobId)

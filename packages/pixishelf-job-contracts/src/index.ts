@@ -19,3 +19,5 @@ export * from './creator-maintenance.ts'
 export * from './job-diagnostics.ts'
 
 export * from './archive-discovery-batch.ts'
+
+export * from './artwork-dedup.ts'

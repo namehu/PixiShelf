@@ -10,6 +10,11 @@ import {
 } from '../background-task-console'
 import {
   canRetryJob,
+  canPauseJob,
+  canResumeJob,
+  canCancelJob,
+  canChangePriority,
+  getArtworkDedupHref,
   formatBackgroundJobType,
   formatBackgroundJobStatus,
   getWorkerHealth,
@@ -342,6 +347,38 @@ describe('background task console', () => {
     expect(formatBackgroundJobType('ARCHIVE_SEARCH_SCAN')).toBe('标题关键词扫描')
     expect(formatBackgroundJobType('JOB_EVENT_RETENTION_CLEANUP')).toBe('后台任务事件清理')
     expect(canRetryJob(createJob('FAILED'))).toBe(true)
+  })
+
+  it('routes duplicate checks to their domain page without generic controls', () => {
+    const job = {
+      ...createJob('RUNNING'),
+      type: 'ARTWORK_DEDUP_SCAN' as const,
+      payload: { runId: 'run-1', executionVersion: 1 }
+    }
+    expect(formatBackgroundJobType(job.type)).toBe('检查重复作品')
+    expect(getArtworkDedupHref(job)).toBe('/admin/duplicates?runId=run-1')
+    expect(getArtworkDedupHref({ ...job, payload: { runId: 7 } })).toBeNull()
+    expect(canPauseJob(job)).toBe(false)
+    expect(canCancelJob(job)).toBe(false)
+    expect(canResumeJob({ ...job, status: 'PAUSED' })).toBe(false)
+    expect(canChangePriority({ ...job, status: 'PENDING' })).toBe(false)
+    expect(canRetryJob({ ...job, status: 'FAILED' })).toBe(false)
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard()}
+        selectedJob={job}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+    expect(screen.getByRole('link', { name: '查看检查进度' }).getAttribute('href')).toBe(
+      '/admin/duplicates?runId=run-1'
+    )
+    expect(screen.queryByRole('button', { name: '暂停' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '取消' })).toBeNull()
   })
 
   it('labels the v2 read-only scan as Pixiv source audit and keeps retry unavailable', () => {

@@ -61,6 +61,8 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 
 单图 `mediaMark.getMany/set/list/remove` 使用同样的 Session 与 `expectedUserId` 保护，但操作独立媒体标记，不写作品评分。设置必须核对媒体属于当前活动作品、逻辑媒体身份及写入状态；失效条目只能按会话账户移除指定状态。原媒体写入开始、成功失效与标记设置按相同作品锁排序，避免把标记写到正在替换的内容。见[单图书签与喜欢](../features/media-marks.md)。
 
+同艺术家重复检测的 `artworkDedup` 接口要求 Session 与 `expectedUserId` 一致；检测结果属于共享管理事实，`requestedBy` 仅为审计身份。运行控制核对业务版本与幂等键，通用后台任务入口不能绕过检测领域限制或提升优先级。返回信息不含其他账户私人整理内容、绝对媒体路径、根身份、原始哈希和执行租约；开发分支行为见[重复检测](../features/artwork-deduplication.md)。
+
 ## 服务网络和存储矩阵
 
 | 组件       | 网络                            | 数据库        | 原媒体             | 派生媒体 | Pixiv data |

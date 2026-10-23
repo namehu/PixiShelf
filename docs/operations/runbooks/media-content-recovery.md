@@ -7,6 +7,8 @@ sources:
   - packages/pixishelf-db/src/media-content-recovery.ts
   - packages/pixishelf-job-runtime/src/media-content-control.ts
   - packages/pixishelf-job-executors/src/scan/media-content-recovery.ts
+  - packages/pixishelf-worker/src/artwork-dedup-reader-recovery.ts
+  - packages/pixishelf-db/src/artwork-dedup-reader-recovery.ts
 ---
 
 # 原媒体写入异常恢复
@@ -52,6 +54,19 @@ PENDING/RETRY_WAIT/PAUSED 存在 ACTIVE/READY/RECOVERY_REQUIRED 声明时拒绝�
 ## 上传与同步删除
 
 App 上传、替换及同步删除不使用 Worker job 授权。它们绑定原账户、原上传会话或 operationId，使用既有页面显式续传、回滚或重试原清单。恢复 manifest 与残留文件位于 `.pixishelf-upload-recovery`，必须随原媒体同点备份，不能当缓存删除；原目录锁不按超时自动抢占。确认旧写入已退出之前，不手工移除文件锁或源声明。同步删除无法找回已经删除的文件，恢复依赖完整备份；操作语义见[作品删除](../../features/artwork-deletion.md)。
+
+## 去重读取进程遗留占用
+
+此节适用于包含去重第二阶段迁移及 reader 恢复命令的开发分支；验收状态见[第二阶段记录](../../records/artwork-deduplication-phase-2-2026-10-23.md)。它处理检测读取子进程的遗留占用，不替代前文文件写入恢复授权。
+
+先停止 App、全部 Worker 和外部媒体写入，确认旧 reader 已退出，并保留原 run/job、根配置及检查点。数据库还会核对三条通道、执行租约和近期 Worker 心跳；任何仍在活动的写入者都会拒绝恢复。使用该实例 Worker 的 DATABASE_URL，运行：
+
+```bash
+node packages/pixishelf-worker/dist/artwork-dedup-reader-recovery.cjs inspect --run RUN_ID
+node packages/pixishelf-worker/dist/artwork-dedup-reader-recovery.cjs recover --run RUN_ID --expect INSPECT_DIGEST --expected-reader-token READER_TOKEN --operator OPERATOR --confirm-all-writers-stopped
+```
+
+核对 inspect 返回的原任务、执行版本、reader 身份和摘要后才 recover。该动作以精确 token/版本/摘要 CAS 清除占用并保留审计，不排队、不改变文件或源 gate；恢复运行仍通过去重页面的领域控制。它不允许接受新根、归档子目录映射或旧格式绑定。根映射不一致时保持停止，恢复原配置或重新开始明确范围的检测；禁止手改 rootBindings、删除占用或重置版本来让旧证据继续发布。
 
 ## 升级与回退
 

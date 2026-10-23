@@ -671,6 +671,7 @@ export class PostgresQueueRepository {
   async enqueueChild(parentFence: ExecutionFence, input: EnqueueChildInput): Promise<EnqueuedChildJob> {
     assertFence(parentFence)
     const type = jobTypeSchema.parse(input.type)
+    if (type === 'ARTWORK_DEDUP_SCAN') throw new Error('Artwork detection must be created through its domain service')
     const executionLane = executionLaneForJobType(type)
     const definitionVersion = input.definitionVersion ?? JOB_DEFINITION_VERSION
     const queuePriority = input.queuePriority ?? 100
@@ -946,6 +947,8 @@ export class PostgresQueueRepository {
     const now = this.clock.now()
 
     return this.runTransaction(async (transaction) => {
+      const domainRows = await transaction.$queryRawUnsafe<Array<{type:string}>>('SELECT type FROM system_jobs WHERE id=$1', jobId)
+      if (domainRows[0]?.type === 'ARTWORK_DEDUP_SCAN') throw new Error('Artwork detection must be controlled through its domain service')
       if (await hasBlockingMediaContentCancellation(transaction, jobId)) {
         throw Object.assign(new Error(MEDIA_CONTENT_CANCELLATION_MESSAGE), { code: MEDIA_CONTENT_RECOVERY_REQUIRED })
       }
@@ -1855,7 +1858,7 @@ export class PostgresQueueRepository {
       `WITH eligible AS (
          SELECT
            "id",
-           GREATEST(
+           CASE WHEN "type" = 'ARTWORK_DEDUP_SCAN' THEN 900 ELSE GREATEST(
              CASE
                WHEN "triggerSource" IN ('MANUAL', 'RETRY') THEN 0
                ELSE 100
@@ -1863,7 +1866,7 @@ export class PostgresQueueRepository {
              "queuePriority" - FLOOR(
                GREATEST(0, EXTRACT(EPOCH FROM ($1 - "createdAt"))) / 1800
              )::integer
-           ) AS "agedPriority",
+           ) END AS "agedPriority",
            "availableAt",
            "createdAt"
          FROM "system_jobs"

@@ -2,6 +2,8 @@ import { Prisma, PrismaClient } from '@prisma/client'
 
 export { Prisma, PrismaClient }
 export * from './creators'
+export * from './artwork-dedup'
+export * from './artwork-dedup-reader-recovery'
 export * from './discovery-creators'
 export * from './artist-merge'
 export * from './animation-duration'
@@ -13,9 +15,15 @@ export * from './media-content-writes'
 export * from './media-content-evidence'
 export * from './media-content-recovery'
 
-const latestRequiredMigration = '20261023003000_media_content_recovery_grants'
+const latestRequiredMigration = '20261023004200_artwork_dedup_root_bindings'
 
 const requiredQueueObjects = [
+  'ArtworkDedupRun',
+  'ArtworkDedupItem',
+  'ArtworkDedupMedia',
+  'ArtworkDedupGroup',
+  'ArtworkDedupGroupMember',
+  'ArtworkDedupCommand',
   'MediaContentDirectoryState',
   'MediaContentRecoveryGrant',
   'MediaContentPathWrite',

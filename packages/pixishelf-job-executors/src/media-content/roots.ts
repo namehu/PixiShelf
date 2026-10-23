@@ -77,7 +77,9 @@ async function resolveRoot(
 }
 
 export async function assertMediaContentRootUnchanged(root: ResolvedMediaContentRoot): Promise<void> {
-  const observed = await resolveRoot(root.absolutePath, root.logicalRoot, null)
+  const observed = await resolveRoot(root.absolutePath, root.logicalRoot, null).catch((error: unknown) => {
+    throw new MediaContentFileError('ROOT_CHANGED', 'Media root cannot be verified', { cause: error })
+  })
   if (observed.rootIdentity !== root.rootIdentity) {
     throw new MediaContentFileError('ROOT_CHANGED', 'Media root changed during content inspection')
   }
@@ -148,13 +150,17 @@ export async function resolveMediaContentPath(
 }
 
 async function assertRootPath(root: Pick<SafeScanRoot, 'absolutePath' | 'deviceId' | 'inode'>) {
-  const state = await fs.lstat(root.absolutePath, { bigint: true })
+  const state = await fs.lstat(root.absolutePath, { bigint: true }).catch((error: unknown) => {
+    throw new MediaContentFileError('ROOT_CHANGED', 'Media root cannot be inspected', { cause: error })
+  })
   if (
     !state.isDirectory() ||
     state.isSymbolicLink() ||
     state.dev !== root.deviceId ||
     state.ino !== root.inode ||
-    (await fs.realpath(root.absolutePath)) !== root.absolutePath
+    (await fs.realpath(root.absolutePath).catch((error: unknown) => {
+      throw new MediaContentFileError('ROOT_CHANGED', 'Media root cannot be resolved', { cause: error })
+    })) !== root.absolutePath
   ) {
     throw new MediaContentFileError('ROOT_CHANGED', 'Media root path changed')
   }

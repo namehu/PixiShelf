@@ -1,8 +1,10 @@
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { PrismaClient } from '@pixishelf/db'
 import {
   createArchiveExecutorRegistrations,
   createArtworkSummaryExecutor,
+  createArtworkDedupExecutor,
   createDiscoveryBatchExecutorRegistration,
   createArchiveTitleRulePreviewRegistration,
   createArchiveMaintenanceExecutorRegistrations,
@@ -57,6 +59,22 @@ export function createWorkerExecutorRegistry(input: {
   registry.register(createArchiveTitleRulePreviewRegistration())
   const resolved = resolveExecutorWorkerConfiguration(input.config)
   registry.register(createArtworkSummaryExecutor({ database: input.database, scanRoot: resolved.sourceMediaRoot }))
+  registry.register(
+    createArtworkDedupExecutor({
+      database: input.database,
+      sourceRoot: resolved.sourceMediaRoot,
+      archiveRoot: resolved.archiveRoot,
+      readerOptions:
+        typeof __dirname === 'string'
+          ? { entrypoint: path.join(__dirname, 'artwork-dedup-reader.cjs') }
+          : {
+              entrypoint: fileURLToPath(
+                new URL('../../pixishelf-job-executors/src/artwork-dedup/reader-child.ts', import.meta.url)
+              ),
+              execArgv: ['--import', 'tsx']
+            }
+    })
+  )
   const archiveProviders = new GovernedArchiveProviderRegistry(
     createDefaultArchiveMediaProviderRegistry(),
     new PostgresArchiveProviderGovernor(input.database)

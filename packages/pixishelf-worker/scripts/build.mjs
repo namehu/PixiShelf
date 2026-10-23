@@ -3,6 +3,8 @@ import { build } from 'esbuild'
 await build({
   entryPoints: {
     main: 'src/main.ts',
+    'artwork-dedup-reader-recovery': 'src/artwork-dedup-reader-recovery.ts',
+    'artwork-dedup-reader': '../pixishelf-job-executors/src/artwork-dedup/reader-child.ts',
     healthcheck: 'src/healthcheck.ts',
     'pixiv-root-identity': 'src/pixiv-root-identity.ts',
     'media-content-recovery': 'src/media-content-recovery.ts',

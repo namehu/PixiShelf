@@ -41,6 +41,14 @@ Image 的增删及内容相关路径/大小/归属更新通过语句级触发器
 
 文件与作品指纹是可重建缓存，随媒体/作品级联清理；尚未结束的路径声明及恢复授权是操作状态，不能当缓存删除。根身份变化、旧执行或不确定文件结果都保留声明。恢复授权绑定原 job、会话、精确声明和下一 attempt，不表示文件已经恢复，也不能替代原领域的文件核验。精确数据访问与锁顺序以 `src/media-content-*.ts`、SQL migration 和[阶段契约](../../../docs/design/artwork-deduplication/phase-1-contracts.md)为准。
 
+## 去重检测的持久范围与读取占用
+
+局部核验日期：2026-10-23，适用于去重开发分支。04000/04100/04200 三个正式迁移建立 ArtworkDedupRun、Item、Media、Group、GroupMember、Command 及根绑定；不扫描原媒体、不回填哈希。Item 冻结有效创作者归属下的作品与版本，Media 分页保存可靠属性和读取证据，GroupMember 保存精确多重集合分组结果，不建立两两比较关系。
+
+同艺术家活动 run 的部分唯一索引包含暂停状态。任务数据库策略要求 ARTWORK_DEDUP_SCAN 使用 BACKGROUND_WRITER、SYSTEM/900，领域命令使用操作者、幂等键和版本 CAS；普通重试不能改变稳定业务范围。最终分组复用创作者协调锁，并按作品 ID 锁定待发布 COMPLETE 作品，随后验证源和成员证据，持有至同事务任务完成提交。
+
+readerToken 是跨暂停、失败、租约回收和进程重启保留的操作状态，不是可随缓存清除的字段。根绑定保存逻辑根、物理身份与有效归档映射；离线 reader 恢复只能在全局停写、原 token/版本/摘要一致时释放遗留占用，不能授权新根、修改文件或清除写入声明。具体协议见[第二阶段契约](../../../docs/design/artwork-deduplication/phase-2-contracts.md)，检查结果见[阶段记录](../../../docs/records/artwork-deduplication-phase-2-2026-10-23.md)。
+
 ## Image 的 WebP 动画时长关系
 
 `20260924120000_add_image_animation_duration_metadata` 新增 `ImageAnimationMetadata`，`imageId` 是 Image 的一对一主键和外键，`ON DELETE CASCADE`。这是加法迁移，不回填历史 Image；缺少关系行且已被确认动画（webpAnimationStatus=2）的 WebP 才进入时长候选。`durationMs` 和源文件 size/mtime/ctime/device/inode 使用 BIGINT；前端仅在 `READY`、当前时长策略、源路径匹配且 duration 能安全转成 number 时得到时长。`status,nextRetryAt,imageId` 索引用于有界候选和失败重试，不扫描原媒体来填列表。

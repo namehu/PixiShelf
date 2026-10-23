@@ -18,7 +18,7 @@ sources:
 
 ## 任务、接口与数据
 
-执行器 agent 负责检测执行和 reader 进程；数据 agent 负责 run、冻结作品项、结果组及查询索引；主 agent 接入路由、任务注册、数据库类型/lane 约束、生产 capability 与通用命令保护。新任务 `ARTWORK_DEDUP_SCAN@1` 固定在 `BACKGROUND_WRITER`，不新增 lane。
+实施统一由 GPT-6 Astra / xhigh 承担：执行器 agent 负责检测执行、reader 进程与 Worker 注册；数据 agent 负责 run、冻结作品项、结果组、领域接口及通用命令保护；界面 agent 负责入口与控制页面。主 agent 固定契约、协调公共入口、整合记录。代码审查由独立 GPT-6.1 Sol / xhigh 执行，浏览器由 GPT-6.1 Sol / high 在最终统一验收。新任务 `ARTWORK_DEDUP_SCAN@1` 固定在 `BACKGROUND_WRITER`，不新增 lane。
 
 | 接口         | 输入与结果约定                                                                                         |
 | ------------ | ------------------------------------------------------------------------------------------------------ |

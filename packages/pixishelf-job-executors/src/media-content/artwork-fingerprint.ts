@@ -53,9 +53,7 @@ export interface ArtworkFingerprintInput {
 }
 
 /** Fill durable file evidence first; only then stream a new, complete artwork aggregation. */
-export async function fingerprintArtworkContent(
-  input: ArtworkFingerprintInput
-): Promise<
+export async function fingerprintArtworkContent(input: ArtworkFingerprintInput): Promise<
   MediaContentResult<{
     snapshot: ArtworkContentSnapshot
     contentSha256: string
@@ -211,6 +209,18 @@ export async function fingerprintArtworkContent(
     afterImageId = page.value.nextCursor
   }
 
+  const published = await publishCompleteArtworkFingerprint({ ...input, snapshot })
+  return published.status === 'READY' ? { status: 'READY', value: { ...published.value, metrics } } : published
+}
+
+/** Aggregate already-durable files without restarting the stat/hash pass on resumed large artworks. */
+export async function publishCompleteArtworkFingerprint(
+  input: Pick<ArtworkFingerprintInput, 'transaction' | 'signal'> & {
+    snapshot: ArtworkContentSnapshot
+  }
+): Promise<MediaContentResult<{ snapshot: ArtworkContentSnapshot; contentSha256: string; membersSignature: string }>> {
+  const snapshot = input.snapshot
+  let afterImageId: number | null = null
   const membersHash = new ArtworkMemberDigest(snapshot.artworkId, snapshot.memberCount)
   afterImageId = null
   for (;;) {
@@ -260,5 +270,5 @@ export async function fingerprintArtworkContent(
     })
   )
   if (published.status !== 'READY') return published as MediaContentRejection
-  return { status: 'READY', value: { snapshot, contentSha256, membersSignature, metrics } }
+  return { status: 'READY', value: { snapshot, contentSha256, membersSignature } }
 }

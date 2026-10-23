@@ -65,4 +65,8 @@ sources:
 
 ## 后续阶段
 
-阶段 1—5 尚未完成；须逐阶段通过独立审查及 GPT-6.1 Sol / xhigh 浏览器验证后推进。此处后续只登记实际执行的命令、环境、结果、限制和证据，不提前记通过。
+阶段 0 之后用户调整了执行安排：实施由 GPT-6 Astra / xhigh，独立代码审查由 GPT-6.1 Sol / xhigh，浏览器操作由 GPT-6.1 Sol / high；随后明确同意浏览器回归留到最终统一验收。各阶段仍须完成相关测试、独立代码审查和修复复审。
+
+- [第一阶段](./artwork-deduplication-phase-1-2026-10-23.md)代码、定向验证与独立审查已完成，提交为 `79b19167`；[浏览器记录](./artwork-deduplication-phase-1-browser-2026-10-23.md)未通过完整业务回归，工具上传受阻不能记为产品验证通过。
+- [第二阶段](./artwork-deduplication-phase-2-2026-10-23.md)正在进行审查收尾与性能测量。
+- 第三至第五阶段尚未实施。最新执行门槛见[总计划](../design/artwork-deduplication.md)，本记录不提前记验收通过。

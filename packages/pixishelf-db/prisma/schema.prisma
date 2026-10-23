@@ -1006,6 +1006,7 @@ model SystemJob {
   events                  SystemJobEvent[]
   resourceLeases          JobResourceLease[]
   gcEntries               DerivedMediaGcEntry[]
+  artworkDedupRun         ArtworkDedupRun?
   scanRun                 ScanRun?
   pendingReplaceBatch     PendingReplaceBatch?
   pendingReplaceOperation PendingReplaceOperation?
@@ -2696,4 +2697,130 @@ model SystemJobDiagnosticItem {
   @@index([reportId, id])
   @@index([reportId, reasonKey, id])
   @@map("system_job_diagnostic_items")
+}
+
+// Frozen detection evidence survives subsequent Artwork/Image removal.
+model ArtworkDedupRun {
+  rootBindings Json?
+  lastProgressAt DateTime?
+  retryReadBytes BigInt @default(0)
+  readerOwner Json?
+  readerToken String? @unique
+  readerState String @default("IDLE")
+  id String @id @default(uuid())
+  artistId Int
+  requestedBy String
+  idempotencyKey String
+  mode String
+  algorithmVersion Int @default(1)
+  version Int @default(1)
+  executionVersion Int @default(1)
+  jobId String? @unique
+  job SystemJob? @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  status String @default("PENDING")
+  stage String @default("STAT")
+  frozenAt DateTime @default(now())
+  startedAt DateTime?
+  finishedAt DateTime?
+  updatedAt DateTime @updatedAt
+  artworkCount Int @default(0)
+  processedArtworks Int @default(0)
+  completeArtworks Int @default(0)
+  changedArtworks Int @default(0)
+  failedArtworks Int @default(0)
+  skippedArtworks Int @default(0)
+  groupCount Int @default(0)
+  duplicateArtworks Int @default(0)
+  statMedia Int @default(0)
+  hashedMedia Int @default(0)
+  cacheHitMedia Int @default(0)
+  readBytes BigInt @default(0)
+  errorCode String?
+  items ArtworkDedupItem[]
+  groups ArtworkDedupGroup[]
+  commands ArtworkDedupCommand[]
+  @@unique([requestedBy, idempotencyKey])
+  @@index([artistId, frozenAt(sort: Desc)])
+}
+
+model ArtworkDedupItem {
+  runId String
+  artworkId Int
+  frozenMediaRevision Int
+  status String @default("PENDING")
+  snapshotRevision BigInt?
+  mediaEpoch BigInt?
+  memberCount BigInt?
+  afterImageId Int @default(0)
+  sizeDigest String?
+  contentSha256 String?
+  membersSignature String?
+  errorCode String?
+  updatedAt DateTime @updatedAt
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  media ArtworkDedupMedia[]
+  groupMember ArtworkDedupGroupMember?
+  @@id([runId, artworkId])
+  @@index([runId, status, artworkId])
+  @@index([runId, memberCount, sizeDigest])
+  @@index([runId, contentSha256])
+}
+
+model ArtworkDedupMedia {
+  runId String
+  artworkId Int
+  imageId Int
+  sourcePath String
+  sourceRevision BigInt
+  logicalRoot String
+  rootIdentity String
+  relativeDirectory String
+  directoryId String
+  directoryGeneration BigInt
+  canonicalPath String
+  size BigInt
+  mtimeNs BigInt?
+  ctimeNs BigInt?
+  deviceId BigInt?
+  inode BigInt?
+  sha256 String?
+  item ArtworkDedupItem @relation(fields: [runId, artworkId], references: [runId, artworkId], onDelete: Cascade)
+  @@id([runId, artworkId, imageId])
+  @@index([runId, artworkId, size, imageId])
+  @@index([runId, artworkId, size, sha256, imageId])
+}
+
+model ArtworkDedupGroup {
+  id String @id
+  runId String
+  contentSha256 String
+  memberCount Int
+  fileCount BigInt
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  members ArtworkDedupGroupMember[]
+  @@unique([runId, id])
+  @@index([runId, id])
+}
+
+model ArtworkDedupGroupMember {
+  runId String
+  groupId String
+  artworkId Int
+  group ArtworkDedupGroup @relation(fields: [runId, groupId], references: [runId, id], onDelete: Cascade)
+  item ArtworkDedupItem @relation(fields: [runId, artworkId], references: [runId, artworkId], onDelete: Cascade)
+  @@id([runId, artworkId])
+  @@index([groupId, artworkId])
+}
+
+model ArtworkDedupCommand {
+  runId String
+  requestedBy String
+  idempotencyKey String
+  expectedVersion Int
+  action String
+  resultingVersion Int
+  createdAt DateTime @default(now())
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@id([requestedBy, idempotencyKey])
+  @@index([runId, createdAt])
 }

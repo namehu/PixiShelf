@@ -24,6 +24,7 @@ const PRODUCTION_JOB_TYPES = [
   'ARCHIVE_TITLE_RULE_PREVIEW',
   'ARCHIVE_UPLOADER_SCAN',
   'ARTIST_MERGE',
+  'ARTWORK_DEDUP_SCAN',
   'ARTWORK_SUMMARY_GENERATE',
   'CREATOR_MAINTENANCE',
   'DERIVED_MEDIA_GC',
@@ -86,6 +87,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 37-job/45-version three-lane release')
+    throw new Error('Production Worker capability inventory drifted from the 38-job/46-version three-lane release')
   }
 }
