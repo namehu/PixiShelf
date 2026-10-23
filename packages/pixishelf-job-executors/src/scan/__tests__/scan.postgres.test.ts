@@ -1,3 +1,4 @@
+import { cleanupFixtureContentDirectories } from './content-directory-cleanup.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import os from 'node:os'
@@ -88,8 +89,15 @@ describePostgres('scan executor PostgreSQL integration', () => {
       const summaries = await client().artworkReadingSummary.findMany({ where: { artworkId: artwork.id } })
       expect(summaries).toHaveLength(1)
       expect(summaries[0]).toMatchObject({
-        userId, seenCount: 1, totalCount: 1, viewCount: 0, stateVersion: 1,
-        lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null
+        userId,
+        seenCount: 1,
+        totalCount: 1,
+        viewCount: 0,
+        stateVersion: 1,
+        lastViewedAt: null,
+        lastActiveAt: null,
+        lastMediaId: null,
+        lastMediaIndex: null
       })
       expect(await client().artworkReadMedia.count({ where: { artworkId: artwork.id, userId } })).toBe(1)
       await executeIncremental(root, 'reading-repeat')
@@ -3389,6 +3397,7 @@ async function fixtureRoot() {
 
 async function cleanup() {
   if (!prisma) return
+  await cleanupFixtureContentDirectories(prisma, roots)
   await prisma.pixivMetadataInventory.deleteMany()
   await prisma.pixivMetadataInventoryState.deleteMany()
   await prisma.scanRun.deleteMany({ where: { systemJobId: { startsWith: testPrefix } } })

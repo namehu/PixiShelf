@@ -1,3 +1,4 @@
+import { fixtureReceipt } from '@/services/artwork-service/__tests__/media-content-fixture'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_SERVER_ERROR_MESSAGE } from 'next-safe-action'
 
@@ -109,7 +110,10 @@ const writes = [
   },
   {
     name: 'batch images',
-    invoke: () => batchRegisterImagesAction({ items: [{ artworkId: 1, images: [{ path: 'fixture.png', size: 1 }] }] }),
+    invoke: () =>
+      batchRegisterImagesAction({
+        items: [{ artworkId: 1, images: [{ path: 'fixture.png', size: 1, uploadReceipt: fixtureReceipt() }] }]
+      }),
     service: mocks.registerImages
   },
   {

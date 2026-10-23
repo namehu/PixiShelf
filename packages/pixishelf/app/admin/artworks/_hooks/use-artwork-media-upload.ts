@@ -1,14 +1,15 @@
 'use client'
 
+import { postMediaChapterUpload } from './upload-media-chapter'
+import { authClient } from '@/lib/auth/client'
 import { useCallback, useRef, useState } from 'react'
 import { useTRPCClient } from '@/lib/trpc'
 import type { ArtworkResponseDto } from '@/schemas/artwork.dto'
-import type { ArtworkMediaApiErrorResponse, MediaChapterUploadResponse } from '@/types/artwork-media-api'
 import { toast } from 'sonner'
 import type { ImageListItem } from '../_components/types'
 import { getNextImageSortOrder } from '../_components/image-manager/utils'
 import { useDragDropStore } from '../_store/drag-drop-store'
-import { useChunkUpload } from './use-chunk-upload'
+import { useChunkUpload, releaseMediaUploadReceipt } from './use-chunk-upload'
 import { useDragImages } from './use-drag-images'
 
 type ArtworkMediaUploadData = Partial<Pick<ArtworkResponseDto, 'id' | 'title' | 'externalId' | 'storageKey' | 'images'>>
@@ -29,25 +30,8 @@ export async function uploadArtworkMediaChapter(input: {
   videoPath: string
   file: File
 }) {
-  const formData = new FormData()
-  formData.set('artworkId', String(input.artworkId))
-  formData.set('imageId', String(input.imageId))
-  formData.set('videoPath', input.videoPath)
-  formData.set('file', input.file)
-
-  const response = await fetch('/api/artwork/media-chapters/upload', {
-    method: 'POST',
-    body: formData
-  })
-
-  const data = (await response.json().catch(() => ({}))) as Partial<
-    MediaChapterUploadResponse & ArtworkMediaApiErrorResponse
-  >
-  if (!response.ok) {
-    throw new Error(data.error || '章节上传失败')
-  }
-
-  return data.meta
+  const session = await authClient.getSession()
+  return postMediaChapterUpload({ ...input, userId: session.data?.user.id ?? '' })
 }
 
 /**
@@ -114,10 +98,12 @@ export function useArtworkMediaUpload({ artwork, imageList, onSuccess }: UseArtw
             width: meta.width,
             height: meta.height,
             size: meta.size,
-            path: meta.path
+            path: meta.path,
+            uploadReceipt: meta.uploadReceipt!
           }
         })
 
+        releaseMediaUploadReceipt(meta.uploadReceipt)
         let chapterWarning = ''
         if (chapterFile) {
           try {

@@ -1,12 +1,25 @@
 import { z } from 'zod'
 
+export const MediaDeleteConfirmationSchema = z.object({
+  operationId: z.string().uuid(),
+  selectedPaths: z.array(z.string().min(1).max(4096)).max(2),
+  memberDigest: z.string().regex(/^[a-f0-9]{64}$/)
+})
+export type MediaDeleteConfirmation = z.infer<typeof MediaDeleteConfirmationSchema>
+export const MediaDeleteInputSchema = MediaDeleteConfirmationSchema.partial().extend({
+  deleteFile: z.boolean().default(false)
+})
+
 export const ArtworkDeleteInputSchema = z.object({
   artworkId: z.number().int().positive(),
+  operationId: z.string().uuid().optional(),
   selectedPaths: z.array(z.string().min(1).max(4096)).max(100_000).optional()
 })
 export type ArtworkDeleteInput = z.infer<typeof ArtworkDeleteInputSchema>
 
 export const ArtworkDeletePreviewSchema = z.object({
+  operationId: z.string().uuid().optional(),
+  recovery: z.object({ selectedPaths: z.array(z.string()) }).optional(),
   artwork: z.object({
     id: z.number().int(),
     title: z.string(),
@@ -35,6 +48,7 @@ export type ArtworkDeletePreviewEntry = ArtworkDeletePreview['entries'][number]
 export const ArtworkDeleteEntryStatusSchema = z.enum(['DELETED', 'MISSING', 'RETAINED', 'FAILED', 'NOT_ATTEMPTED'])
 export const ArtworkDeleteReportSchema = z.object({
   reportId: z.string(),
+  operationId: z.string().uuid().optional(),
   artwork: z.object({
     id: z.number().int(),
     title: z.string(),
@@ -148,6 +162,6 @@ export function formatArtworkDeleteReport(report: ArtworkDeleteReport): string {
     '',
     '说明',
     ...report.warnings.map(quote),
-    '本报告仅记录本次请求结果，不是备份；文件恢复依赖兼容的备份或快照。'
+    '本报告记录该删除操作及其重试的累计结果，不是备份；文件恢复依赖兼容的备份或快照。'
   ].join('\n')
 }

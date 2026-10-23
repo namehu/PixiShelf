@@ -33,6 +33,7 @@ describe('scan discovery', () => {
       ['sources/provider', '11'],
       ['.archive-staging/task', '12'],
       ['.trash/archive', '13'],
+      ['.pixishelf-upload-recovery/session', '16'],
       ['artist/sources/work', '14'],
       ['pixiv/work', '15']
     ] as const) {

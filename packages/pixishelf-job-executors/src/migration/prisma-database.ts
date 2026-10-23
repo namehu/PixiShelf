@@ -1,3 +1,10 @@
+import { ScanExecutorError } from '../scan/errors.ts'
+import {
+  assertExecutorMediaWrite,
+  beginExecutorMediaDirectoryWrites,
+  publishExecutorMediaWrite,
+  resolveExecutorMediaDirectory
+} from '../scan/media-content-write.ts'
 import { createHash, randomInt } from 'node:crypto'
 import path from 'node:path'
 import {
@@ -97,6 +104,92 @@ export function createPrismaMigrationDatabase(
   const generateStorageKey = options.generateStorageKey ?? defaultLocalStorageKey
   return {
     selection,
+    async beginContentWrite(input) {
+      // Freeze the smallest common source directory and target directory. The persisted file manifest remains exact.
+      const sources = input.plan.files.map((file) =>
+        path.posix.dirname(normalizeStoredRelativePath(file.sourceStoredPath))
+      )
+      const sourceDirectory = commonDirectory(sources)
+      const targetDirectory = normalizeStoredRelativePath(input.plan.targetDirectory!)
+      const directories = [sourceDirectory, targetDirectory].filter(
+        (directory, index, all) =>
+          all.findIndex((other) => other === directory) === index &&
+          !all.some((other) => other !== directory && (other === '' || directory.startsWith(other + '/')))
+      )
+      const bindings = await Promise.all(
+        directories.map((relativeDirectory) =>
+          resolveExecutorMediaDirectory({
+            context: input.context,
+            sourceRoot: input.scanRoot,
+            relativeDirectory
+          })
+        )
+      )
+      return beginExecutorMediaDirectoryWrites({
+        context: input.context,
+        directories: bindings,
+        sessionId: `migration:${input.plan.id}`,
+        artworkIds: [input.plan.artworkId]
+      }).catch((error) => {
+        if (error instanceof ScanExecutorError && error.code === 'STATE_CONFLICT')
+          throw new MigrationActionRequiredError(
+            'CONTENT_WRITE_RECOVERY_REQUIRED',
+            'Media write requires an offline recovery grant'
+          )
+        throw error
+      })
+    },
+    async finishContentWrite(transaction, write) {
+      await publishExecutorMediaWrite(prismaTransaction(transaction), write, 'committed', async () => undefined)
+    },
+    async finishCancelledContentWrite(transaction, write, verifiedPlan) {
+      const published = ['CLEANING_SOURCE', 'FINALIZING'].includes(verifiedPlan.phase)
+      await publishExecutorMediaWrite(
+        prismaTransaction(transaction),
+        write,
+        published ? 'committed' : 'verified-rollback',
+        async (client) => {
+          const current = await client.migrationJobItem.findUnique({
+            where: { id: verifiedPlan.id },
+            include: { files: { orderBy: { ordinal: 'asc' }, take: verifiedPlan.files.length + 1 } }
+          })
+          const artwork = await client.artwork.findUnique({
+            where: { id: verifiedPlan.artworkId },
+            select: {
+              deletedAt: true,
+              metaSource: true,
+              images: { select: { id: true, path: true, chaptersPath: true }, take: verifiedPlan.files.length + 1 }
+            }
+          })
+          const expectedPaths = new Set(
+            verifiedPlan.files.map((file) =>
+              normalizeStoredRelativePath(published ? file.targetStoredPath : file.sourceStoredPath)
+            )
+          )
+          const media = verifiedPlan.files.filter((file) => file.imageId !== null)
+          if (
+            !current ||
+            JSON.stringify(mapPlan(current)) !== JSON.stringify(verifiedPlan) ||
+            !artwork ||
+            artwork.deletedAt !== null ||
+            artwork.images.length !== media.length ||
+            artwork.images.some((image) => {
+              const file = media.find((file) => file.imageId === image.id)
+              return (
+                !file ||
+                image.path !== (published ? file.targetStoredPath : file.sourceStoredPath) ||
+                (image.chaptersPath !== null && !expectedPaths.has(normalizeStoredRelativePath(image.chaptersPath)))
+              )
+            }) ||
+            (artwork.metaSource !== null && !expectedPaths.has(normalizeStoredRelativePath(artwork.metaSource)))
+          )
+            throw new MigrationActionRequiredError(
+              'DATABASE_PATH_CONFLICT',
+              'Migration cancellation checkpoint changed'
+            )
+        }
+      )
+    },
     async loadArtwork(transaction, artworkId, imageLimit) {
       const client = prismaTransaction(transaction)
       let artwork = await client.artwork.findUnique({
@@ -349,6 +442,7 @@ export function createPrismaMigrationDatabase(
     },
     async publishArtwork(transaction, input) {
       const client = prismaTransaction(transaction)
+      await assertExecutorMediaWrite(client, input.contentWrite)
       await lockCreatorCatalog(client)
       await lockArtworkForReading(client, input.artworkId)
       const [currentItem, persistedFiles, currentArtwork] = await Promise.all([
@@ -621,10 +715,7 @@ function migrationStorageIdentityWhere(): Prisma.ArtworkWhereInput {
     ]
   }
   const availableArtist: Prisma.ArtistWhereInput = {
-    OR: [
-      { mergedIntoId: null },
-      { mergedIntoId: { not: null }, mergedInto: { is: { mergedIntoId: null } } }
-    ]
+    OR: [{ mergedIntoId: null }, { mergedIntoId: { not: null }, mergedInto: { is: { mergedIntoId: null } } }]
   }
   return {
     OR: [
@@ -1120,13 +1211,13 @@ function storageIdentity(artwork: {
       ? artwork.artist.mergedInto.id
       : artwork.artist?.mergedIntoId
         ? null
-        : artwork.artist?.id ?? null
+        : (artwork.artist?.id ?? null)
   const artistRefs = artwork.artist?.mergedIntoId
-    ? artwork.artist.mergedInto?.externalRefs ?? []
-    : artwork.artist?.externalRefs ?? []
+    ? (artwork.artist.mergedInto?.externalRefs ?? [])
+    : (artwork.artist?.externalRefs ?? [])
   const localMappings = artwork.artist?.mergedIntoId
-    ? artwork.artist.mergedInto?.localImportMappings ?? []
-    : artwork.artist?.localImportMappings ?? []
+    ? (artwork.artist.mergedInto?.localImportMappings ?? [])
+    : (artwork.artist?.localImportMappings ?? [])
   return {
     artistId: activeArtistId,
     artistPixivExternalId: artistRefs.length === 1 ? artistRefs[0]!.externalId : null,
@@ -1171,4 +1262,20 @@ function prismaTransaction(transaction: MigrationPrismaTransaction) {
 
 function isUniqueConflict(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
+}
+
+function commonDirectory(directories: string[]): string {
+  const first = (directories[0] ?? '').split('/').filter(Boolean)
+  let length = first.length
+  for (const directory of directories.slice(1)) {
+    const parts = directory.split('/').filter(Boolean)
+    length = Math.min(length, parts.length)
+    for (let index = 0; index < length; index += 1) {
+      if (first[index] !== parts[index]) {
+        length = index
+        break
+      }
+    }
+  }
+  return first.slice(0, length).join('/')
 }

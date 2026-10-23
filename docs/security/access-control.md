@@ -53,6 +53,8 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 | Webhook 与 scheduler                    | 公共 transport + 各自 Token；GET/HEAD 不执行扫描，POST 才入队/物化                                 |
 | 原站跳转                                | 独立 Session + 服务端查询 + provider/HTTPS/主机/端口/凭据/路径/归属校验；忽略 query 目的地         |
 
+媒体 HTTP 路由禁止读取隐藏目录中的恢复证据（包括 `.pixishelf-upload-recovery`）：URL 解码和路径归一化后的每个路径段均检查隐藏前缀，解析后的实际根内路径再次检查，防止编码分隔符或可见符号链接别名绕过。恢复操作的账户和原 operationId 校验仍由服务层执行。
+
 精确接口参数由 Zod 和路由代码维护。扫描/迁移错误 envelope 及 Webhook 例外见[HTTP 响应契约](./http-response-contract.md)，外部调用见[扫描 Webhook](../../packages/pixishelf/docs/webhook-features.md)。
 
 作品评分和喜欢筛选使用 Session 账户，`expectedUserId` 只作账户切换一致性校验。评分读取／赋值及喜欢条件的列表、卡片与沉浸 feed 缺失或错账户参数时拒绝；客户端不能指定任意账户评分或喜欢集合。详情滑杆与沉浸爱心共用鉴权评分赋值入口，不存在可绕过评分阈值的布尔点赞写入。服务在作品锁和事务内复核活动、未删除状态；前端缓存及迟到响应按账户隔离。见[作品评分与喜欢](../features/artwork-rating.md)与[作品搜索与我的喜欢](../features/artwork-search-and-favorites.md)。

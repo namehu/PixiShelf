@@ -1,3 +1,4 @@
+import { MediaUploadReceiptSchema } from '@/schemas/media-content.dto'
 import { ReaderInputSchema, MediaPageInputSchema } from '@/schemas/artwork-reader.dto'
 import { SummaryGenerateInputSchema } from '@/schemas/artwork-summary.dto'
 import { generateArtworkSummary, getArtworkSummary } from '@/services/artwork-summary-service'
@@ -5,6 +6,7 @@ import { getReaderInitialization } from '@/services/reading-service'
 import { getReaderMediaPage } from '@/services/artwork-service/reader'
 import logger from '@/lib/logger'
 import {
+  MediaDeleteInputSchema,
   ArtworkDeleteInputSchema,
   ArtworkDeletePreviewSchema,
   ArtworkDeleteReportSchema
@@ -35,6 +37,7 @@ import {
   addImageWithChapters,
   ArtworkImageOrderError,
   deleteImage,
+  previewDeleteImage,
   reorderArtworkImages
 } from '@/services/artwork-service/image-manager'
 import { ensureManualArtworkStorage } from '@/services/artwork-service/manual-storage'
@@ -75,11 +78,15 @@ function assertArtworkListAccount(
  */
 export const artworkRouter = router({
   summaryGet: authProcedure.input(ReaderInputSchema).query(({ ctx, input }) => {
-    if (ctx.userId !== input.expectedUserId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
+    if (ctx.userId !== input.expectedUserId) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
+    }
     return getArtworkSummary(input.artworkId)
   }),
   summaryGenerate: adminProcedure.input(SummaryGenerateInputSchema).mutation(({ ctx, input }) => {
-    if (ctx.userId !== input.expectedUserId) throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
+    if (ctx.userId !== input.expectedUserId) {
+      throw new TRPCError({ code: 'FORBIDDEN', message: 'Reading session changed' })
+    }
     return generateArtworkSummary(input.artworkId, input.requestId, ctx.userId, input.force)
   }),
   reader: authProcedure.input(ReaderInputSchema).query(({ ctx, input }) => {
@@ -120,7 +127,12 @@ export const artworkRouter = router({
     const result = await getArtworkCardsPage(input, ctx.userId)
     return {
       items: result.items,
-      nextCursor: input.readingStatus || input.likedOnly || input.sortBy === 'random' ? undefined : result.hasNextPage ? page + 1 : undefined,
+      nextCursor:
+        input.readingStatus || input.likedOnly || input.sortBy === 'random'
+          ? undefined
+          : result.hasNextPage
+            ? page + 1
+            : undefined,
       nextReadingCursor: result.nextReadingCursor,
       nextRandomCursor: result.nextRandomCursor
     }
@@ -207,9 +219,9 @@ export const artworkRouter = router({
   previewDelete: adminProcedure
     .input(z.number().int().positive())
     .output(ArtworkDeletePreviewSchema)
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
-        return await previewDeleteArtwork(input)
+        return await previewDeleteArtwork(input, ctx.userId)
       } catch {
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '无法读取删除清单，请重新加载。' })
       }
@@ -227,15 +239,13 @@ export const artworkRouter = router({
   /**
    * 删除图片
    */
+  previewDeleteImage: authProcedure
+    .input(z.object({ id: z.number().int().positive(), kind: z.enum(['IMAGE', 'CHAPTERS']) }))
+    .query(({ input, ctx }) => previewDeleteImage(input.id, input.kind, ctx.userId)),
   deleteImage: authProcedure
-    .input(
-      z.object({
-        id: z.number(),
-        deleteFile: z.boolean().default(false)
-      })
-    )
-    .mutation(async ({ input }) => {
-      return deleteImage(input.id, input.deleteFile)
+    .input(MediaDeleteInputSchema.extend({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      return deleteImage(input.id, input.deleteFile, ctx.userId, input)
     }),
   /**
    * 新增图片
@@ -250,7 +260,8 @@ export const artworkRouter = router({
           width: z.number(),
           height: z.number(),
           size: z.number(),
-          path: z.string()
+          path: z.string(),
+          uploadReceipt: MediaUploadReceiptSchema
         }),
         chaptersMeta: z
           .object({
@@ -262,8 +273,8 @@ export const artworkRouter = router({
           .optional()
       })
     )
-    .mutation(async ({ input }) => {
-      return addImageWithChapters(input.artworkId, input.file, input.chaptersMeta)
+    .mutation(async ({ input, ctx }) => {
+      return addImageWithChapters(input.artworkId, input.file, input.chaptersMeta, ctx.userId)
     }),
   reorderImages: authProcedure
     .input(

@@ -1,3 +1,4 @@
+import { cleanupFixtureContentDirectories } from '../../scan/__tests__/content-directory-cleanup.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import { link, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -42,7 +43,9 @@ const jobs = new Set<string>()
 const initialTime = new Date('2026-10-23T12:00:00Z')
 const clock = new MutableQueueClock(initialTime)
 const repo = db ? new PostgresQueueRepository(db as unknown as QueueDatabase, { clock, leaseDurationMs: 60_000 }) : null
-const png = await sharp({ create: { width: 2, height: 3, channels: 3, background: '#725a91' } }).png().toBuffer()
+const png = await sharp({ create: { width: 2, height: 3, channels: 3, background: '#725a91' } })
+  .png()
+  .toBuffer()
 
 suite('archive download drain and cleanup interleavings', () => {
   beforeEach(async () => {
@@ -73,7 +76,9 @@ suite('archive download drain and cleanup interleavings', () => {
       expect(generation).toMatchObject({ drainedAt: null, sealedAt: null, cleanedAt: null })
       const temporaryManifest = await readFile(path.join(archive.root, generation.path, 'manifest.json.tmp'))
       expect(JSON.parse(temporaryManifest.toString()).generationToken).toBe(download.executionToken)
-      await expect(readFile(path.join(archive.root, generation.path, 'manifest.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+      await expect(readFile(path.join(archive.root, generation.path, 'manifest.json'))).rejects.toMatchObject({
+        code: 'ENOENT'
+      })
 
       // A control request and cleanup intent arrive while the last filesystem write is outstanding.
       await requestPause(download)
@@ -91,15 +96,24 @@ suite('archive download drain and cleanup interleavings', () => {
       expect(paused.generations[0]?.drainedAt).not.toBeNull()
       expect(paused.generations[0]?.sealedAt).toBeNull()
       expect(await db!.systemJob.count({ where: { parentJobId: download.id, type: 'ARCHIVE_PUBLISH' } })).toBe(0)
-      expect(JSON.parse(await readFile(path.join(archive.root, generation.path, 'manifest.json'), 'utf8')).generationToken).toBe(download.executionToken)
+      expect(
+        JSON.parse(await readFile(path.join(archive.root, generation.path, 'manifest.json'), 'utf8')).generationToken
+      ).toBe(download.executionToken)
 
       // Retry the still-owned maintenance execution after the downloader has actually drained.
       await maintain(maintenance, archive.root)
-      await expect(readFile(path.join(archive.root, generation.path, 'manifest.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+      await expect(readFile(path.join(archive.root, generation.path, 'manifest.json'))).rejects.toMatchObject({
+        code: 'ENOENT'
+      })
       const cleaned = await state(archive.id)
       expect(cleaned).toMatchObject({ cleanupRequestedAt: null, generationToken: null, completedItems: 0 })
       expect(cleaned.generations[0]?.cleanedAt).not.toBeNull()
-      expect(cleaned.items[0]).toMatchObject({ status: 'PENDING', stagedPath: null, stagedGenerationPath: null, sha256: null })
+      expect(cleaned.items[0]).toMatchObject({
+        status: 'PENDING',
+        stagedPath: null,
+        stagedGenerationPath: null,
+        sha256: null
+      })
     } finally {
       manifest.release()
       await running.catch(() => undefined)
@@ -127,7 +141,9 @@ suite('archive download drain and cleanup interleavings', () => {
         await requestPause(successor)
         return finalize(operation)
       }
-      const network = vi.fn(async () => { throw new Error('completed checkpoint must be copied, not downloaded') })
+      const network = vi.fn(async () => {
+        throw new Error('completed checkpoint must be copied, not downloaded')
+      })
       await execute(successor, dependencies(archive.root, network), ctx)
       const paused = await state(archive.id)
       const freshGeneration = paused.generations.find((generation) => generation.token === successor.executionToken)!
@@ -141,8 +157,13 @@ suite('archive download drain and cleanup interleavings', () => {
       await seedCleanup(archive.id, 'orphan-maintenance')
       await maintain(await claim('ARCHIVE_MAINTENANCE'), archive.root)
       const cleaned = await state(archive.id)
-      expect(cleaned.generations.find((generation) => generation.token === expired.executionToken)).toMatchObject({ drainedAt: null, cleanedAt: null })
-      expect(cleaned.generations.find((generation) => generation.token === successor.executionToken)?.cleanedAt).not.toBeNull()
+      expect(cleaned.generations.find((generation) => generation.token === expired.executionToken)).toMatchObject({
+        drainedAt: null,
+        cleanedAt: null
+      })
+      expect(
+        cleaned.generations.find((generation) => generation.token === successor.executionToken)?.cleanedAt
+      ).not.toBeNull()
       expect(await readFile(oldMedia)).toEqual(png)
       expect(await readFile(path.join(archive.root, oldGeneration.path, 'manifest.json.tmp'))).not.toHaveLength(0)
       await expect(readdir(path.join(archive.root, freshGeneration.path))).rejects.toMatchObject({ code: 'ENOENT' })
@@ -150,7 +171,9 @@ suite('archive download drain and cleanup interleavings', () => {
       manifest.release()
       await expect(late).rejects.toThrow()
       // The late link really ran, but its lost fence cannot restore checkpoints or change cleanup state.
-      expect(JSON.parse(await readFile(path.join(archive.root, oldGeneration.path, 'manifest.json'), 'utf8')).generationToken).toBe(expired.executionToken)
+      expect(
+        JSON.parse(await readFile(path.join(archive.root, oldGeneration.path, 'manifest.json'), 'utf8')).generationToken
+      ).toBe(expired.executionToken)
       expect(await state(archive.id)).toEqual(cleaned)
       expect(await db!.systemJob.count({ where: { parentJobId: expired.id, type: 'ARCHIVE_PUBLISH' } })).toBe(0)
     } finally {
@@ -191,7 +214,12 @@ suite('archive download drain and cleanup interleavings', () => {
       expect(await readFile(partialPath)).toEqual(png.subarray(0, 8))
       await expect(readdir(path.join(removed.root, sealed.stagingPath))).rejects.toMatchObject({ code: 'ENOENT' })
       const cleaned = await state(removed.id)
-      expect(cleaned).toMatchObject({ status: 'CANCELLED', phase: 'DOWNLOAD', cleanupRequestedAt: null, generationToken: null })
+      expect(cleaned).toMatchObject({
+        status: 'CANCELLED',
+        phase: 'DOWNLOAD',
+        cleanupRequestedAt: null,
+        generationToken: null
+      })
       expect((await db!.systemJob.findUniqueOrThrow({ where: { id: sealed.systemJobId } })).status).toBe('CANCELLED')
       expect(await claimOrNull('ARCHIVE_PUBLISH')).toBeNull()
 
@@ -202,7 +230,9 @@ suite('archive download drain and cleanup interleavings', () => {
       expect(completed.generations[0]).toMatchObject({ cleanedAt: null })
       expect(completed.generations[0]?.sealedAt).not.toBeNull()
       expect(completed.items[0]?.sha256).toBe(createHash('sha256').update(png).digest('hex'))
-      expect(await readFile(path.join(retained.root, completed.stagingPath, completed.items[0]!.stagedPath!))).toEqual(png)
+      expect(await readFile(path.join(retained.root, completed.stagingPath, completed.items[0]!.stagedPath!))).toEqual(
+        png
+      )
       expect(await db!.archiveRevision.count({ where: { archiveImportId: removed.id } })).toBe(0)
     } finally {
       stream.end()
@@ -214,7 +244,9 @@ suite('archive download drain and cleanup interleavings', () => {
 function blockManifestLink(token: string) {
   let reached = false
   let release!: () => void
-  const barrier = new Promise<void>((resolve) => { release = resolve })
+  const barrier = new Promise<void>((resolve) => {
+    release = resolve
+  })
   vi.mocked(link).mockImplementation(async (source, target) => {
     if (String(target).includes(token) && path.basename(String(target)) === 'manifest.json') {
       reached = true
@@ -227,28 +259,56 @@ function blockManifestLink(token: string) {
 
 async function seed(label: string, sharedRoot?: string) {
   const id = `${prefix}-${label}`
-  const root = sharedRoot ?? await mkdtemp(path.join(tmpdir(), 'archive-drain-recovery-'))
+  const root = sharedRoot ?? (await mkdtemp(path.join(tmpdir(), 'archive-drain-recovery-')))
   if (!sharedRoot) roots.push(root)
   const jobId = await seedJob('ARCHIVE_DOWNLOAD', `${label}-job`, { archiveImportId: id, defaultTagIds: [] })
-  await db!.archiveImport.create({ data: {
-    id, systemJobId: jobId, phase: 'DOWNLOAD', origin: 'MANUAL', providerKey: 'test', externalId: id,
-    submittedUrl: 'https://example.test/archive', canonicalUrl: `https://example.test/${id}`, locator: {},
-    normalizedMetadata: { titles: { display: prefix } }, rawMetadata: {}, metadataHash: 'a'.repeat(64),
-    creatorBucket: 'bucket', stagingPath: `.archive-staging/${id}`, totalItems: 1,
-    executions: { create: { jobId, phase: 'DOWNLOAD' } },
-    items: { create: { pageIndex: 0, sourcePageUrl: 'https://example.test/image', locator: {}, expectedFilename: 'image.png' } }
-  } })
+  await db!.archiveImport.create({
+    data: {
+      id,
+      systemJobId: jobId,
+      phase: 'DOWNLOAD',
+      origin: 'MANUAL',
+      providerKey: 'test',
+      externalId: id,
+      submittedUrl: 'https://example.test/archive',
+      canonicalUrl: `https://example.test/${id}`,
+      locator: {},
+      normalizedMetadata: { titles: { display: prefix } },
+      rawMetadata: {},
+      metadataHash: 'a'.repeat(64),
+      creatorBucket: 'bucket',
+      stagingPath: `.archive-staging/${id}`,
+      totalItems: 1,
+      executions: { create: { jobId, phase: 'DOWNLOAD' } },
+      items: {
+        create: {
+          pageIndex: 0,
+          sourcePageUrl: 'https://example.test/image',
+          locator: {},
+          expectedFilename: 'image.png'
+        }
+      }
+    }
+  })
   return { id, jobId, root }
 }
 
 async function seedJob(type: JobType, label: string, payload: Record<string, unknown>) {
   const id = `${prefix}-${label}`
   jobs.add(id)
-  await db!.systemJob.create({ data: {
-    id, type, executionLane: executionLaneForJobType(type), definitionVersion: 1,
-    payload: payload as Prisma.InputJsonValue, triggerSource: 'MANUAL', queuePriority: 10,
-    effectivePriority: 10, availableAt: clock.now()
-  } })
+  await db!.systemJob.create({
+    data: {
+      id,
+      type,
+      executionLane: executionLaneForJobType(type),
+      definitionVersion: 1,
+      payload: payload as Prisma.InputJsonValue,
+      triggerSource: 'MANUAL',
+      queuePriority: 10,
+      effectivePriority: 10,
+      availableAt: clock.now()
+    }
+  })
   return id
 }
 
@@ -256,13 +316,19 @@ function seedCleanup(archiveImportId: string, label: string) {
   return seedJob('ARCHIVE_MAINTENANCE', label, { action: 'CLEAN_STAGING', archiveImportId })
 }
 function state(id: string) {
-  return db!.archiveImport.findUniqueOrThrow({ where: { id }, include: {
-    items: { orderBy: { pageIndex: 'asc' } }, generations: { orderBy: { token: 'asc' } }
-  } })
+  return db!.archiveImport.findUniqueOrThrow({
+    where: { id },
+    include: {
+      items: { orderBy: { pageIndex: 'asc' } },
+      generations: { orderBy: { token: 'asc' } }
+    }
+  })
 }
 function claimOrNull(type: JobType) {
   const lane = executionLaneForJobType(type)
-  return repo!.claim(`${prefix}-worker-${lane}`, lane, [{ jobType: type, executionLane: lane, definitionVersions: [1] }])
+  return repo!.claim(`${prefix}-worker-${lane}`, lane, [
+    { jobType: type, executionLane: lane, definitionVersions: [1] }
+  ])
 }
 async function claim(type: JobType) {
   const job = await claimOrNull(type)
@@ -274,9 +340,13 @@ function fence(job: ClaimedJob) {
 }
 function context<TPayload>(job: ClaimedJob): ExecutionContext<TPayload, EnqueuedChildJob> {
   return {
-    job, payload: job.payload as TPayload, signal: new AbortController().signal,
+    job,
+    payload: job.payload as TPayload,
+    signal: new AbortController().signal,
     progress: (update) => repo!.updateProgress({ ...fence(job), ...update }),
-    enqueueChild: async () => { throw new Error('not used') },
+    enqueueChild: async () => {
+      throw new Error('not used')
+    },
     mutateInTransaction: (operation) => repo!.withFencedMutationTransaction(fence(job), operation),
     finalizeInTransaction: async (operation) => {
       await repo!.withFencedExecutionTransaction(fence(job), operation)
@@ -289,21 +359,43 @@ function requestPause(job: ClaimedJob) {
   return db!.systemJob.update({ where: { id: job.id }, data: { status: 'PAUSING', pauseRequestedAt: clock.now() } })
 }
 function remote(stream: Readable) {
-  return { stream, contentLength: png.length, mimeType: 'image/png', originalFilename: 'image.png', quality: 'ORIGINAL' as const, remoteHost: 'example.test' }
+  return {
+    stream,
+    contentLength: png.length,
+    mimeType: 'image/png',
+    originalFilename: 'image.png',
+    quality: 'ORIGINAL' as const,
+    remoteHost: 'example.test'
+  }
 }
 function dependencies(root: string, openMedia = async () => remote(Readable.from([png]))): ArchiveExecutorDependencies {
-  return { database: db!, config: { scanRoot: root, mediaConcurrency: 1 }, providers: { get: () => ({ key: 'test', openMedia }) }, now: () => clock.now() }
+  return {
+    database: db!,
+    config: { scanRoot: root, mediaConcurrency: 1 },
+    providers: { get: () => ({ key: 'test', openMedia }) },
+    now: () => clock.now()
+  }
 }
 function execute(job: ClaimedJob, deps: ArchiveExecutorDependencies, ctx = context<ArchiveImportV2Payload>(job)) {
-  const executor = createArchiveExecutorRegistrations(deps).find((entry) => entry.jobType === job.type && entry.definitionVersion === job.definitionVersion)!
+  const executor = createArchiveExecutorRegistrations(deps).find(
+    (entry) => entry.jobType === job.type && entry.definitionVersion === job.definitionVersion
+  )!
   return executor.execute({ ...ctx, payload: executor.parsePayload!(job.payload) })
 }
 function maintain(job: ClaimedJob, root: string) {
-  return executeArchiveMaintenance(context<ArchiveMaintenancePayload>(job), { database: db!, config: { scanRoot: root }, now: () => clock.now() })
+  return executeArchiveMaintenance(context<ArchiveMaintenancePayload>(job), {
+    database: db!,
+    config: { scanRoot: root },
+    now: () => clock.now()
+  })
 }
 async function cleanup() {
   if (!db) return
-  const executions = await db.archiveImportExecution.findMany({ where: { archiveImportId: { startsWith: prefix } }, select: { jobId: true } })
+  await cleanupFixtureContentDirectories(db, roots)
+  const executions = await db.archiveImportExecution.findMany({
+    where: { archiveImportId: { startsWith: prefix } },
+    select: { jobId: true }
+  })
   for (const execution of executions) jobs.add(execution.jobId)
   await db.artwork.deleteMany({ where: { title: prefix } })
   await db.archiveImport.deleteMany({ where: { id: { startsWith: prefix } } })

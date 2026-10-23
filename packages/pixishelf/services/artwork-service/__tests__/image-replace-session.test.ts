@@ -1,11 +1,45 @@
-vi.mock('../summary-source-guard', () => ({ beginSummaryReplace: vi.fn(async () => {}), finishSummaryReplace: vi.fn(async () => {}) }))
+import { replacementIdentity, fixtureAuthorization } from './media-content-fixture'
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    $transaction: async (callback: (tx: any) => Promise<unknown>) =>
+      callback({ mediaContentPathWrite: { update: async () => ({}) } })
+  }
+}))
+vi.mock('../content-source-guard', async (original) => ({
+  ...(await original<typeof import('../content-source-guard')>()),
+  beginContentDirectoryWrite: async () => fixtureAuthorization(),
+  publishContentOwner: async (
+    _tx: any,
+    _user: string,
+    _auth: any,
+    _outcome: string,
+    publish: (tx: any) => Promise<unknown>
+  ) => publish({ mediaContentPathWrite: { update: async () => ({}) } }),
+  finishLegacyContentGuards: async (_tx: any, input: { artworkId: number }) => {
+    const tokens = await captureAnimationReplaceRollbackWriteTokensMock(input.artworkId)
+    await finishAnimationSourcePathWriteMock(tokens)
+  }
+}))
+vi.mock('../replacement-content-guard', () => ({
+  completedReplacement: async () => false,
+  verifyReplacementOwner: async () => {},
+  resolveReplacementChildren: async () => {}
+}))
+vi.mock('../summary-source-guard', () => ({
+  beginSummaryReplace: vi.fn(async () => {}),
+  finishSummaryReplace: vi.fn(async () => {})
+}))
 import fsPromises, { mkdtemp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { handleImageReplaceSession } from '../image-replace-session'
 
-const { beginAnimationReplaceSessionWriteMock, captureAnimationReplaceRollbackWriteTokensMock, finishAnimationSourcePathWriteMock } = vi.hoisted(() => ({
+const {
+  beginAnimationReplaceSessionWriteMock,
+  captureAnimationReplaceRollbackWriteTokensMock,
+  finishAnimationSourcePathWriteMock
+} = vi.hoisted(() => ({
   beginAnimationReplaceSessionWriteMock: vi.fn(),
   captureAnimationReplaceRollbackWriteTokensMock: vi.fn(),
   finishAnimationSourcePathWriteMock: vi.fn()
@@ -35,7 +69,8 @@ vi.mock('../image-manager', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../image-manager')>()
   return {
     ...actual,
-    updateArtworkImagesTransaction: updateArtworkImagesTransactionMock
+    updateArtworkImagesWithTransactionClient: (...args: unknown[]) =>
+      updateArtworkImagesTransactionMock(...args.slice(1))
   }
 })
 
@@ -58,12 +93,30 @@ describe('image-replace-session service', () => {
   it('initializes and rolls back the first upload to an empty manual artwork', async () => {
     const artwork = { externalId: null, storagePath: 'local-imports/unassigned/e_83_1544954', images: [] }
     const input = { scanRoot, artworkId: 83, artwork }
-    const result = await handleImageReplaceSession({ ...input, action: 'init' })
+    const result = await handleImageReplaceSession({ ...replacementIdentity(), ...input, action: 'init' })
     expect(result).toMatchObject({ success: true, targetRelDir: artwork.storagePath })
     const target = path.join(scanRoot, artwork.storagePath)
     await writeFile(path.join(target, 'new.jpg'), 'new-upload')
-    await handleImageReplaceSession({ ...input, action: 'rollback' })
-    await expect(readdir(target)).resolves.toEqual([])
+    await handleImageReplaceSession({ ...replacementIdentity(), ...input, action: 'rollback' })
+    // The DB adapter declares no child paths in this fixture, so unrelated files stay untouched.
+    await expect(readdir(target)).resolves.toEqual(['new.jpg'])
+  })
+
+  it('preserves scratch evidence and resumes init before the first manifest rename', async () => {
+    const backupDir = path.join(scanRoot, 'artist/work/.bak_session')
+    await mkdir(backupDir, { recursive: true })
+    const scratch = path.join(backupDir, '.session-manifest.json.40000000-0000-4000-8000-000000000001.tmp')
+    await writeFile(scratch, 'interrupted-manifest')
+    await writeFile(path.join(scanRoot, 'artist/work/old.jpg'), 'old-image')
+    await handleImageReplaceSession({
+      ...replacementIdentity(),
+      scanRoot,
+      artworkId: 10,
+      artwork: artworkWithStoragePath('/artist/work'),
+      action: 'init'
+    })
+    await expect(readFile(scratch, 'utf8')).resolves.toBe('interrupted-manifest')
+    await expect(readFile(path.join(backupDir, 'old.jpg'), 'utf8')).resolves.toBe('old-image')
   })
 
   it('initializes a replace session by backing up media and chapter files only', async () => {
@@ -74,13 +127,14 @@ describe('image-replace-session service', () => {
     await writeFile(path.join(scanRoot, 'artist/work/notes.txt'), 'notes')
 
     const result = await handleImageReplaceSession({
+      ...replacementIdentity(),
       scanRoot,
       artworkId: 10,
       artwork: artworkWithStoragePath('/artist/work'),
       action: 'init'
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       success: true,
       message: 'Initialized & Backed up',
       uploadTargetDir: path.join(scanRoot, '/artist/work'),
@@ -103,20 +157,26 @@ describe('image-replace-session service', () => {
     await writeFile(path.join(scanRoot, 'artist/work/upload.webp'), 'new-upload')
     const backup = path.join(scanRoot, 'artist/work/.bak_session/old.webp')
     const unmoved = path.join(scanRoot, 'artist/work/unmoved.webp')
-    await writeFile(path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'), JSON.stringify({
-      version: 1,
-      originalFiles: ['old.webp', 'unmoved.webp'],
-      originalStates: { 'old.webp': await fileIdentity(backup), 'unmoved.webp': await fileIdentity(unmoved) }
-    }))
+    await writeFile(
+      path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['old.webp', 'unmoved.webp'],
+        originalStates: { 'old.webp': await fileIdentity(backup), 'unmoved.webp': await fileIdentity(unmoved) }
+      })
+    )
 
     await handleImageReplaceSession({
+      ...replacementIdentity(),
       scanRoot,
       artworkId: 10,
       artwork: artworkWithStoragePath('/artist/work'),
       action: 'init'
     })
 
-    await expect(readFile(path.join(scanRoot, 'artist/work/.bak_session/unmoved.webp'), 'utf8')).resolves.toBe('unmoved-original')
+    await expect(readFile(path.join(scanRoot, 'artist/work/.bak_session/unmoved.webp'), 'utf8')).resolves.toBe(
+      'unmoved-original'
+    )
     await expect(readFile(path.join(scanRoot, 'artist/work/upload.webp'), 'utf8')).resolves.toBe('new-upload')
     expect(beginAnimationReplaceSessionWriteMock).toHaveBeenCalledWith(10)
   })
@@ -126,24 +186,35 @@ describe('image-replace-session service', () => {
     await writeFile(path.join(scanRoot, 'artist/work/.bak_session/old.webp'), 'backed-original')
     await writeFile(path.join(scanRoot, 'artist/work/unmoved.webp'), 'unmoved-original')
 
-    await expect(handleImageReplaceSession({
-      scanRoot,
-      artworkId: 10,
-      artwork: artworkWithStoragePath('/artist/work'),
-      action: 'init'
-    })).rejects.toMatchObject({ status: 409 })
+    await expect(
+      handleImageReplaceSession({
+        ...replacementIdentity(),
+        scanRoot,
+        artworkId: 10,
+        artwork: artworkWithStoragePath('/artist/work'),
+        action: 'init'
+      })
+    ).rejects.toMatchObject({ status: 409 })
     await expect(readFile(path.join(scanRoot, 'artist/work/unmoved.webp'), 'utf8')).resolves.toBe('unmoved-original')
-    await expect(readFile(path.join(scanRoot, 'artist/work/.bak_session/old.webp'), 'utf8')).resolves.toBe('backed-original')
+    await expect(readFile(path.join(scanRoot, 'artist/work/.bak_session/old.webp'), 'utf8')).resolves.toBe(
+      'backed-original'
+    )
   })
 
   it('commits sorted files, chapter metadata, default tags, and removes backup directory', async () => {
     await mkdir(path.join(scanRoot, 'artist/work/.bak_session'), { recursive: true })
     await writeFile(path.join(scanRoot, 'artist/work/.bak_session/old.jpg'), 'old-image')
-    await writeFile(path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'), JSON.stringify({
-      version: 1, originalFiles: ['old.jpg'], phase: 'READY'
-    }))
+    await writeFile(
+      path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['old.jpg'],
+        phase: 'READY'
+      })
+    )
 
     const result = await handleImageReplaceSession({
+      ...replacementIdentity(),
       scanRoot,
       artworkId: 10,
       artwork: artworkWithStoragePath('/artist/work'),
@@ -187,6 +258,7 @@ describe('image-replace-session service', () => {
     try {
       await expect(
         handleImageReplaceSession({
+          ...replacementIdentity(),
           scanRoot,
           artworkId: 10,
           artwork: artworkWithStoragePath('/artist/work'),
@@ -206,16 +278,20 @@ describe('image-replace-session service', () => {
     }
   })
 
-  it('rolls back by deleting current files and restoring backup files', async () => {
+  it('restores backup files without guessing unrelated current files from their extension', async () => {
     await mkdir(path.join(scanRoot, 'artist/work/.bak_session'), { recursive: true })
     await writeFile(path.join(scanRoot, 'artist/work/new.jpg'), 'new-image')
     await writeFile(path.join(scanRoot, 'artist/work/.bak_session/old.jpg'), 'old-image')
-    await writeFile(path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'), JSON.stringify({
-      version: 1,
-      originalFiles: ['old.jpg']
-    }))
+    await writeFile(
+      path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['old.jpg']
+      })
+    )
 
     const result = await handleImageReplaceSession({
+      ...replacementIdentity(),
       scanRoot,
       artworkId: 10,
       artwork: artworkWithStoragePath('/artist/work'),
@@ -224,7 +300,7 @@ describe('image-replace-session service', () => {
 
     expect(result).toEqual({ success: true, message: 'Rolled back successfully' })
     await expect(readFile(path.join(scanRoot, 'artist/work/old.jpg'), 'utf8')).resolves.toBe('old-image')
-    await expect(readFile(path.join(scanRoot, 'artist/work/new.jpg'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(path.join(scanRoot, 'artist/work/new.jpg'), 'utf8')).resolves.toBe('new-image')
     await expect(readdir(path.join(scanRoot, 'artist/work/.bak_session'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
@@ -235,14 +311,18 @@ describe('image-replace-session service', () => {
     await writeFile(path.join(scanRoot, 'artist/work/.bak_session/old.webp'), 'backed-original')
     const backup = path.join(scanRoot, 'artist/work/.bak_session/old.webp')
     const unmoved = path.join(scanRoot, 'artist/work/unmoved.webp')
-    await writeFile(path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'), JSON.stringify({
-      version: 1,
-      originalFiles: ['old.webp', 'unmoved.webp'],
-      originalStates: { 'old.webp': await fileIdentity(backup), 'unmoved.webp': await fileIdentity(unmoved) }
-    }))
+    await writeFile(
+      path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['old.webp', 'unmoved.webp'],
+        originalStates: { 'old.webp': await fileIdentity(backup), 'unmoved.webp': await fileIdentity(unmoved) }
+      })
+    )
     captureAnimationReplaceRollbackWriteTokensMock.mockResolvedValue([{ imageId: 7, sourceRevision: 2 }])
 
     await handleImageReplaceSession({
+      ...replacementIdentity(),
       scanRoot,
       artworkId: 10,
       artwork: artworkWithStoragePath('/artist/work'),
@@ -251,7 +331,7 @@ describe('image-replace-session service', () => {
 
     await expect(readFile(path.join(scanRoot, 'artist/work/unmoved.webp'), 'utf8')).resolves.toBe('original')
     await expect(readFile(path.join(scanRoot, 'artist/work/old.webp'), 'utf8')).resolves.toBe('backed-original')
-    await expect(readFile(path.join(scanRoot, 'artist/work/new.webp'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(path.join(scanRoot, 'artist/work/new.webp'), 'utf8')).resolves.toBe('upload')
     expect(captureAnimationReplaceRollbackWriteTokensMock).toHaveBeenCalledWith(10)
     expect(finishAnimationSourcePathWriteMock).toHaveBeenCalledWith([{ imageId: 7, sourceRevision: 2 }])
   })
@@ -259,17 +339,23 @@ describe('image-replace-session service', () => {
   it('refuses rollback before deleting uploads when a manifest original is missing', async () => {
     await mkdir(path.join(scanRoot, 'artist/work/.bak_session'), { recursive: true })
     await writeFile(path.join(scanRoot, 'artist/work/new.webp'), 'new-upload')
-    await writeFile(path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'), JSON.stringify({
-      version: 1,
-      originalFiles: ['missing.webp']
-    }))
+    await writeFile(
+      path.join(scanRoot, 'artist/work/.bak_session/.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['missing.webp']
+      })
+    )
 
-    await expect(handleImageReplaceSession({
-      scanRoot,
-      artworkId: 10,
-      artwork: artworkWithStoragePath('/artist/work'),
-      action: 'rollback'
-    })).rejects.toMatchObject({ status: 409 })
+    await expect(
+      handleImageReplaceSession({
+        ...replacementIdentity(),
+        scanRoot,
+        artworkId: 10,
+        artwork: artworkWithStoragePath('/artist/work'),
+        action: 'rollback'
+      })
+    ).rejects.toMatchObject({ status: 409 })
     await expect(readFile(path.join(scanRoot, 'artist/work/new.webp'), 'utf8')).resolves.toBe('new-upload')
     expect(finishAnimationSourcePathWriteMock).not.toHaveBeenCalled()
   })
@@ -279,13 +365,15 @@ describe('image-replace-session service', () => {
     await mkdir(target, { recursive: true })
     await writeFile(path.join(target, 'original.webp'), 'original-bytes')
     const input = {
-      scanRoot, artworkId: 10, artwork: artworkWithStoragePath('/artist/work')
+      scanRoot,
+      artworkId: 10,
+      artwork: artworkWithStoragePath('/artist/work')
     }
-    await handleImageReplaceSession({ ...input, action: 'init' })
+    await handleImageReplaceSession({ ...replacementIdentity(), ...input, action: 'init' })
     await writeFile(path.join(target, 'new.webp'), 'new-upload')
-    await handleImageReplaceSession({ ...input, action: 'rollback' })
+    await handleImageReplaceSession({ ...replacementIdentity(), ...input, action: 'rollback' })
     await expect(readFile(path.join(target, 'original.webp'), 'utf8')).resolves.toBe('original-bytes')
-    await expect(readFile(path.join(target, 'new.webp'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(path.join(target, 'new.webp'), 'utf8')).resolves.toBe('new-upload')
   })
 
   it('refuses to call a same-name replacement an unmoved original', async () => {
@@ -295,14 +383,25 @@ describe('image-replace-session service', () => {
     const original = path.join(target, 'original.webp')
     await writeFile(original, 'original')
     const originalStates = { 'original.webp': await fileIdentity(original) }
-    await writeFile(path.join(backupDir, '.session-manifest.json'), JSON.stringify({
-      version: 1, originalFiles: ['original.webp'], originalStates
-    }))
+    await writeFile(
+      path.join(backupDir, '.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['original.webp'],
+        originalStates
+      })
+    )
     await rm(original)
     await writeFile(original, 'replacement')
-    await expect(handleImageReplaceSession({
-      scanRoot, artworkId: 10, artwork: artworkWithStoragePath('/artist/work'), action: 'rollback'
-    })).rejects.toMatchObject({ status: 409 })
+    await expect(
+      handleImageReplaceSession({
+        ...replacementIdentity(),
+        scanRoot,
+        artworkId: 10,
+        artwork: artworkWithStoragePath('/artist/work'),
+        action: 'rollback'
+      })
+    ).rejects.toMatchObject({ status: 409 })
     await expect(readFile(original, 'utf8')).resolves.toBe('replacement')
     expect(finishAnimationSourcePathWriteMock).not.toHaveBeenCalled()
   })
@@ -313,7 +412,7 @@ describe('image-replace-session service', () => {
     await writeFile(path.join(target, 'a.webp'), 'original-a')
     await writeFile(path.join(target, 'b.webp'), 'original-b')
     const input = { scanRoot, artworkId: 10, artwork: artworkWithStoragePath('/artist/work') }
-    await handleImageReplaceSession({ ...input, action: 'init' })
+    await handleImageReplaceSession({ ...replacementIdentity(), ...input, action: 'init' })
     await writeFile(path.join(target, 'new.webp'), 'replacement')
     const actualRename = fsPromises.rename.bind(fsPromises)
     let restored = 0
@@ -325,26 +424,39 @@ describe('image-replace-session service', () => {
       return actualRename(source, destination)
     })
     try {
-      await expect(handleImageReplaceSession({ ...input, action: 'rollback' })).rejects.toThrow('interrupted after first restore')
+      await expect(
+        handleImageReplaceSession({ ...replacementIdentity(), ...input, action: 'rollback' })
+      ).rejects.toThrow('interrupted after first restore')
     } finally {
       rename.mockRestore()
     }
-    await handleImageReplaceSession({ ...input, action: 'rollback' })
+    await handleImageReplaceSession({ ...replacementIdentity(), ...input, action: 'rollback' })
     await expect(readFile(path.join(target, 'a.webp'), 'utf8')).resolves.toBe('original-a')
     await expect(readFile(path.join(target, 'b.webp'), 'utf8')).resolves.toBe('original-b')
-    await expect(readFile(path.join(target, 'new.webp'), 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(readFile(path.join(target, 'new.webp'), 'utf8')).resolves.toBe('replacement')
   })
 
   it('refuses automatic rollback when a commit may already have changed database rows', async () => {
     const backupDir = path.join(scanRoot, 'artist/work/.bak_session')
     await mkdir(backupDir, { recursive: true })
     await writeFile(path.join(backupDir, 'old.webp'), 'original')
-    await writeFile(path.join(backupDir, '.session-manifest.json'), JSON.stringify({
-      version: 1, originalFiles: ['old.webp'], phase: 'COMMITTING'
-    }))
-    await expect(handleImageReplaceSession({
-      scanRoot, artworkId: 10, artwork: artworkWithStoragePath('/artist/work'), action: 'rollback'
-    })).rejects.toMatchObject({ status: 409 })
+    await writeFile(
+      path.join(backupDir, '.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['old.webp'],
+        phase: 'COMMITTING'
+      })
+    )
+    await expect(
+      handleImageReplaceSession({
+        ...replacementIdentity(),
+        scanRoot,
+        artworkId: 10,
+        artwork: artworkWithStoragePath('/artist/work'),
+        action: 'rollback'
+      })
+    ).rejects.toMatchObject({ status: 409 })
     await expect(readFile(path.join(backupDir, 'old.webp'), 'utf8')).resolves.toBe('original')
     expect(finishAnimationSourcePathWriteMock).not.toHaveBeenCalled()
   })
@@ -356,9 +468,15 @@ describe('image-replace-session service', () => {
     await mkdir(outside)
     await writeFile(path.join(outside, 'old.webp'), 'outside-original')
     await symlink(outside, path.join(target, '.bak_session'), process.platform === 'win32' ? 'junction' : 'dir')
-    await expect(handleImageReplaceSession({
-      scanRoot, artworkId: 10, artwork: artworkWithStoragePath('/artist/work'), action: 'rollback'
-    })).rejects.toMatchObject({ status: 409 })
+    await expect(
+      handleImageReplaceSession({
+        ...replacementIdentity(),
+        scanRoot,
+        artworkId: 10,
+        artwork: artworkWithStoragePath('/artist/work'),
+        action: 'rollback'
+      })
+    ).rejects.toMatchObject({ status: 409 })
     await expect(readFile(path.join(outside, 'old.webp'), 'utf8')).resolves.toBe('outside-original')
   })
 })
@@ -385,7 +503,10 @@ function imageMeta(fileName: string, order: number, imagePath: string) {
 async function fileIdentity(filePath: string) {
   const value = await stat(filePath, { bigint: true })
   return {
-    size: String(value.size), mtimeNs: String(value.mtimeNs), ctimeNs: String(value.ctimeNs),
-    deviceId: String(value.dev), inode: String(value.ino)
+    size: String(value.size),
+    mtimeNs: String(value.mtimeNs),
+    ctimeNs: String(value.ctimeNs),
+    deviceId: String(value.dev),
+    inode: String(value.ino)
   }
 }

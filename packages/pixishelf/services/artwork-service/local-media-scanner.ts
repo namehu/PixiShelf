@@ -1,3 +1,5 @@
+import type { MediaContentDirectorySnapshot } from '@pixishelf/db'
+import { captureContentDirectory } from './content-source-guard'
 import 'server-only'
 
 import fs from 'fs/promises'
@@ -9,6 +11,7 @@ import { discoverChaptersForVideoInScanRoot } from '@/services/artwork-service/v
 import { ImageMeta, ReplaceChapterMetaInput } from './image-manager'
 
 export interface LocalArtworkMediaScanResult {
+  contentDirectory: MediaContentDirectorySnapshot
   filesMeta: ImageMeta[]
   chaptersMeta: ReplaceChapterMetaInput[]
   warnings: string[]
@@ -33,90 +36,100 @@ export async function scanLocalArtworkMediaDirectory(input: {
   await throwIfCancelled(checkCancelled)
   const targetDir = resolvePathWithinScanRoot(scanPath, targetDirectoryRelativePath)
   const targetRelDir = normalizeStoredDir(targetDirectoryRelativePath)
+  const contentDirectory = await captureContentDirectory(scanPath, targetDirectoryRelativePath)
   const entries = await fs.readdir(targetDir)
-  const mediaEntries = entries.filter((entry) => {
-    const extension = path.extname(entry).toLowerCase()
-    return supportedMediaExtensions.has(extension)
-  }).sort(compareFileNamesNaturally)
+  const mediaEntries = entries
+    .filter((entry) => {
+      const extension = path.extname(entry).toLowerCase()
+      return supportedMediaExtensions.has(extension)
+    })
+    .sort(compareFileNamesNaturally)
   let completedCount = 0
   let cancelled = false
-  const results = await runConcurrentMap(mediaEntries, MEDIA_METADATA_CONCURRENCY, async (entry) => {
-    await throwIfCancelled(checkCancelled)
-    const extension = path.extname(entry).toLowerCase()
-    const absolutePath = path.join(targetDir, entry)
-    const stats = await fs.stat(absolutePath)
-    if (!stats.isFile()) {
-      return null
-    }
-
-    let width = 0
-    let height = 0
-    const isVideo = supportedVideoExtensions.has(extension)
-    const warnings: string[] = []
-    const chaptersMeta: ReplaceChapterMetaInput[] = []
-
-    if (!isVideo) {
-      try {
-        const metadata = await sharp(absolutePath).metadata()
-        width = metadata.width || 0
-        height = metadata.height || 0
-      } catch (error) {
-        warnings.push(`Failed to read image metadata for ${entry}: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  const results = await runConcurrentMap(
+    mediaEntries,
+    MEDIA_METADATA_CONCURRENCY,
+    async (entry) => {
+      await throwIfCancelled(checkCancelled)
+      const extension = path.extname(entry).toLowerCase()
+      const absolutePath = path.join(targetDir, entry)
+      const stats = await fs.stat(absolutePath)
+      if (!stats.isFile()) {
+        return null
       }
-    }
 
-    const storedPath = joinStoredPath(targetRelDir, entry)
-    const fileMeta: ImageMeta = {
-      fileName: entry,
-      order: 0,
-      width,
-      height,
-      size: stats.size,
-      path: storedPath
-    }
+      let width = 0
+      let height = 0
+      const isVideo = supportedVideoExtensions.has(extension)
+      const warnings: string[] = []
+      const chaptersMeta: ReplaceChapterMetaInput[] = []
 
-    if (isVideo) {
-      try {
-        const chapterMeta = await discoverChaptersForVideoInScanRoot(scanPath, storedPath)
-        if (chapterMeta) {
-          chaptersMeta.push({
-            videoFileName: entry,
-            chaptersFileName: path.posix.basename(chapterMeta.chaptersPath),
-            ...chapterMeta
-          })
+      if (!isVideo) {
+        try {
+          const metadata = await sharp(absolutePath).metadata()
+          width = metadata.width || 0
+          height = metadata.height || 0
+        } catch (error) {
+          warnings.push(
+            `Failed to read image metadata for ${entry}: ${error instanceof Error ? error.message : 'Unknown error'}`
+          )
         }
-      } catch (error) {
-        warnings.push(
-          `Failed to read chapter metadata for ${entry}: ${error instanceof Error ? error.message : 'Unknown error'}`
-        )
       }
-    }
-    const result = {
-      fileMeta,
-      chaptersMeta,
-      warnings,
-      mediaMtime: stats.mtime
-    }
 
-    if (cancelled) {
+      const storedPath = joinStoredPath(targetRelDir, entry)
+      const fileMeta: ImageMeta = {
+        fileName: entry,
+        order: 0,
+        width,
+        height,
+        size: stats.size,
+        path: storedPath
+      }
+
+      if (isVideo) {
+        try {
+          const chapterMeta = await discoverChaptersForVideoInScanRoot(scanPath, storedPath)
+          if (chapterMeta) {
+            chaptersMeta.push({
+              videoFileName: entry,
+              chaptersFileName: path.posix.basename(chapterMeta.chaptersPath),
+              ...chapterMeta
+            })
+          }
+        } catch (error) {
+          warnings.push(
+            `Failed to read chapter metadata for ${entry}: ${error instanceof Error ? error.message : 'Unknown error'}`
+          )
+        }
+      }
+      const result = {
+        fileMeta,
+        chaptersMeta,
+        warnings,
+        mediaMtime: stats.mtime
+      }
+
+      if (cancelled) {
+        return result
+      }
+      completedCount += 1
+      onProgress?.({
+        current: completedCount,
+        total: mediaEntries.length,
+        fileName: entry
+      })
+
       return result
-    }
-    completedCount += 1
-    onProgress?.({
-      current: completedCount,
-      total: mediaEntries.length,
-      fileName: entry
-    })
-
-    return result
-  }, {
-    shouldStop: () => cancelled,
-    onError: (error) => {
-      if (isCancellationError(error)) {
-        cancelled = true
+    },
+    {
+      shouldStop: () => cancelled,
+      onError: (error) => {
+        if (isCancellationError(error)) {
+          cancelled = true
+        }
       }
     }
-  })
+  )
 
   if (cancelled) {
     throw new Error('Task cancelled')
@@ -139,6 +152,7 @@ export async function scanLocalArtworkMediaDirectory(input: {
   }
 
   return {
+    contentDirectory,
     filesMeta,
     chaptersMeta,
     warnings,

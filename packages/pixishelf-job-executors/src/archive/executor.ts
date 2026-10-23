@@ -1,3 +1,9 @@
+import {
+  beginExecutorMediaWrite,
+  publishExecutorMediaWrite,
+  resolveExecutorMediaDirectory
+} from '../scan/media-content-write.ts'
+import { recoverCompletedArchivePublicationWrite } from './media-content-publication.ts'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { handoffArchivePhase, ARCHIVE_PUBLICATION_LOCK } from './phase-handoff.ts'
@@ -21,6 +27,7 @@ import type {
   ExecutionContext,
   ExecutorDefinition,
   FencedExecutionTransaction,
+  QueueSqlExecutor,
   JobExecutionOutcome
 } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
@@ -1253,6 +1260,7 @@ async function executeArchivePublish(
 ): Promise<JobExecutionOutcome<ArchiveExecutionResult>> {
   const now = dependencies.now ?? (() => new Date())
   let finalizationStarted = false
+  let publicationClaimAttempted = false
   try {
     throwIfAborted(context.signal)
     const { archiveImport } = await startArchiveImport(context, dependencies, now())
@@ -1268,42 +1276,93 @@ async function executeArchivePublish(
     })
     paths.stagingRelativePath = archiveImport.stagingPath
     paths.stagingAbsolutePath = path.resolve(dependencies.config.scanRoot, archiveImport.stagingPath)
-    await context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
-      await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLICATION_LOCK)
-      const current = await transaction.archiveImport.findUniqueOrThrow({ where: { id: archiveImport.id } })
-      const generation = await transaction.archiveStagingGeneration.findUnique({
-        where: { token: archiveImport.generationToken! }
-      })
-      if (
-        current.systemJobId !== context.job.id ||
-        current.phase !== 'PUBLISH' ||
-        current.cleanupRequestedAt ||
-        current.generationToken !== archiveImport.generationToken ||
-        !generation?.sealedAt ||
-        !generation.drainedAt ||
-        generation.cleanedAt ||
-        generation.manifestSha256 !== archiveImport.sealedManifestSha256
-      )
-        throw new ArchiveExecutorError('STATE_CONFLICT', '封存代不允许发布')
-      await assertArchiveImportNotDeleted(transaction, current)
-      const source = await transaction.artworkExternalRef.findUnique({
-        where: { providerKey_externalId: { providerKey: current.providerKey, externalId: current.externalId } },
-        include: { artwork: true }
-      })
-      if (source && (source.artwork.deletedAt || source.artwork.archiveLifecycleState !== 'ACTIVE'))
-        throw new ArchiveExecutorError('STATE_CONFLICT', '归档作品已不再活动')
+    const mediaDirectory = await resolveExecutorMediaDirectory({
+      context,
+      sourceRoot: dependencies.config.sourceMediaRoot ?? dependencies.config.scanRoot,
+      archiveRoot: dependencies.config.scanRoot,
+      location: 'archive',
+      relativeDirectory: paths.finalRelativePath
     })
+    const replacedArtworkId = await context.mutateInTransaction<ArchiveTransaction, number | null>(
+      async (transaction) => {
+        await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLICATION_LOCK)
+        const current = await transaction.archiveImport.findUniqueOrThrow({ where: { id: archiveImport.id } })
+        const generation = await transaction.archiveStagingGeneration.findUnique({
+          where: { token: archiveImport.generationToken! }
+        })
+        if (
+          current.systemJobId !== context.job.id ||
+          current.phase !== 'PUBLISH' ||
+          current.cleanupRequestedAt ||
+          current.generationToken !== archiveImport.generationToken ||
+          !generation?.sealedAt ||
+          !generation.drainedAt ||
+          generation.cleanedAt ||
+          generation.manifestSha256 !== archiveImport.sealedManifestSha256
+        )
+          throw new ArchiveExecutorError('STATE_CONFLICT', '封存代不允许发布')
+        await assertArchiveImportNotDeleted(transaction, current)
+        const source = await transaction.artworkExternalRef.findUnique({
+          where: { providerKey_externalId: { providerKey: current.providerKey, externalId: current.externalId } },
+          include: { artwork: true }
+        })
+        if (source && (source.artwork.deletedAt || source.artwork.archiveLifecycleState !== 'ACTIVE'))
+          throw new ArchiveExecutorError('STATE_CONFLICT', '归档作品已不再活动')
+        return source?.artworkId ?? null
+      }
+    )
     await context.progress({ progress: 97, stage: 'PUBLISHING', message: '归档入库中' })
-    const sourceDirectory = (await pathExists(paths.finalAbsolutePath))
-      ? paths.finalAbsolutePath
-      : paths.stagingAbsolutePath
+    const finalAlreadyPublished = await pathExists(paths.finalAbsolutePath)
+    const sourceDirectory = finalAlreadyPublished ? paths.finalAbsolutePath : paths.stagingAbsolutePath
     await readArchiveManifestDigest(sourceDirectory, archiveImport.sealedManifestSha256)
     throwIfAborted(context.signal)
-    await prepareArchiveRevisionDirectory(paths, archiveImport.sealedManifestSha256)
+    publicationClaimAttempted = true
+    const recoveredWrite = finalAlreadyPublished
+      ? await recoverCompletedArchivePublicationWrite({
+          context,
+          directory: mediaDirectory,
+          paths,
+          archiveImport,
+          expectedArtworkId: replacedArtworkId,
+          now: now()
+        })
+      : null
+    const mediaWrite =
+      recoveredWrite ??
+      (await beginExecutorMediaWrite({
+        context: {
+          ...context,
+          mutateInTransaction: <TTransaction extends QueueSqlExecutor, TResult = void>(
+            operation: (transaction: TTransaction) => Promise<TResult>
+          ) =>
+            context.mutateInTransaction<ArchiveTransaction, TResult>(async (transaction) => {
+              await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLICATION_LOCK)
+              const current = await transaction.archiveImport.findUniqueOrThrow({ where: { id: archiveImport.id } })
+              if (
+                current.systemJobId !== context.job.id ||
+                current.phase !== 'PUBLISH' ||
+                current.cleanupRequestedAt ||
+                current.generationToken !== archiveImport.generationToken
+              )
+                throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布绑定在声明建立前已变化')
+              return operation(transaction as unknown as TTransaction)
+            })
+        },
+        directory: mediaDirectory,
+        scope: { kind: 'DIRECTORY' },
+        sessionId: `archive-publish:${archiveImport.id}`,
+        now: now(),
+        artworkIds: replacedArtworkId === null ? [] : [replacedArtworkId]
+      }))
+    if (!recoveredWrite) await prepareArchiveRevisionDirectory(paths, archiveImport.sealedManifestSha256)
     throwIfAborted(context.signal)
     finalizationStarted = true
     return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
-      if (await finalizeRequestedArchiveControl(scope, archiveImport.id, now())) return
+      if (await finalizeRequestedArchiveControl(scope, archiveImport.id, now())) {
+        // Publication only staged a new immutable revision; the previously registered bytes are unchanged.
+        await publishExecutorMediaWrite(scope.transaction, mediaWrite, 'verified-rollback', async () => undefined)
+        return
+      }
       const current = await scope.transaction.archiveImport.findUniqueOrThrow({ where: { id: archiveImport.id } })
       if (
         current.systemJobId !== context.job.id ||
@@ -1312,17 +1371,35 @@ async function executeArchivePublish(
         current.generationToken !== archiveImport.generationToken
       )
         throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布绑定已变化')
-      const result = await publishArchiveImportInTransaction(
-        scope.transaction,
-        archiveImport.id,
-        paths,
-        now(),
-        context.payload.defaultTagIds
+      const result = await publishExecutorMediaWrite(scope.transaction, mediaWrite, 'committed', (transaction) =>
+        publishArchiveImportInTransaction(
+          transaction,
+          archiveImport.id,
+          paths,
+          now(),
+          context.payload.defaultTagIds,
+          replacedArtworkId
+        )
       )
       await scope.complete({ result, message: '归档导入已发布' })
     })
   } catch (error) {
     if (finalizationStarted) throw error
+    if (publicationClaimAttempted) {
+      context.logger.error('archive.publication_recovery_required', error, {
+        archiveImportId: context.payload.archiveImportId
+      })
+      return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
+        // Unknown file outcomes keep the original PUBLISH identity; an expired cancelling lease will be paused.
+        if (scope.executionStatus === 'CANCELLING') throw error
+        await pauseOrReleaseArchiveImport(scope.transaction, context.payload.archiveImportId, 'PAUSED')
+        await scope.pause({
+          reason: 'ACTION_REQUIRED',
+          message: '归档发布声明未完成，请停写核对并授权恢复原 PUBLISH 任务',
+          data: { errorCode: 'CONTENT_WRITE_RECOVERY_REQUIRED' }
+        })
+      })
+    }
     if (error instanceof ArchiveCleanupRequestedError)
       return releaseArchiveImportForCleanup(context, context.payload.archiveImportId)
     return handleArchiveExecutionFailure(context, context.payload.archiveImportId, error, dependencies, now())

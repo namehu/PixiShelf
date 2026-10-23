@@ -238,6 +238,8 @@ model Artwork {
   images                Image[]
   readingSummaries      ArtworkReadingSummary[]
   visualSummary         ArtworkSummary?
+  contentSource         ArtworkContentSource?
+  contentFingerprint    ArtworkContentFingerprint?
   readMedia             ArtworkReadMedia[]
   source                ArtworkSource         @default(PIXIV_IMPORTED)
   externalRefs          ArtworkExternalRef[]
@@ -414,6 +416,8 @@ model Image {
   videoMetadata       MediaVideoMetadata?
   animationMetadata   ImageAnimationMetadata?
   summaryFeature      ArtworkSummaryFeature?
+  contentSource       MediaContentSource?
+  contentFingerprint  MediaContentFingerprint?
   chapterPreviews     MediaChapterPreview[]
   keyframeSets        MediaVideoKeyframeSet[]
 
@@ -422,6 +426,166 @@ model Image {
   @@index([webpAnimationStatus])
   @@index([chaptersPath])
   @@index([mediaType])
+}
+
+enum MediaContentWriteScopeKind {
+  PATH
+  DIRECTORY
+}
+
+enum MediaContentWriteStatus {
+  ACTIVE
+  READY
+  RECOVERY_REQUIRED
+  COMPLETED
+  ROLLED_BACK
+}
+
+enum MediaContentChildDisposition {
+  PUBLISH
+  RESTORED
+  REMOVED
+  ISOLATED
+}
+
+model MediaContentDirectoryState {
+  id                String   @id @default(cuid())
+  logicalRoot       String
+  relativeDirectory String
+  rootIdentity      String
+  generation        BigInt   @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  writes            MediaContentPathWrite[]
+  mediaSources      MediaContentSource[]
+
+  @@unique([logicalRoot, relativeDirectory])
+}
+
+model MediaContentPathWrite {
+  id                    String                       @id @default(cuid())
+  directoryId           String
+  directory             MediaContentDirectoryState   @relation(fields: [directoryId], references: [id], onDelete: Restrict)
+  scope                 MediaContentWriteScopeKind
+  relativePath          String?
+  parentWriteId         String?
+  parent                MediaContentPathWrite?         @relation("MediaContentWriteChildren", fields: [parentWriteId], references: [id], onDelete: Restrict)
+  children              MediaContentPathWrite[]        @relation("MediaContentWriteChildren")
+  sessionId             String
+  ownerUserId           String?
+  sessionVersion        BigInt
+  writeToken            String                       @unique
+  declarationVersion    BigInt                       @default(1)
+  jobId                 String?
+  executionToken        String?
+  executionAttempt      Int?
+  status                MediaContentWriteStatus       @default(ACTIVE)
+  declaredFileSize       BigInt?
+  totalChunks           Int?
+  nextChunkIndex        Int                          @default(0)
+  committedBytes        BigInt                       @default(0)
+  lastRequestId         String?
+  lastChunkIndex        Int?
+  lastChunkOffset       BigInt?
+  lastChunkBytes        BigInt?
+  lastChunkSha256       String?
+  childDisposition      MediaContentChildDisposition?
+  resolutionEvidenceId  String?
+  resolvedAt            DateTime?
+  failureCode           String?
+  startedAt             DateTime
+  finishedAt            DateTime?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  @@index([directoryId, status])
+  @@index([parentWriteId, status])
+  @@index([sessionId, ownerUserId])
+}
+
+model MediaContentSource {
+  imageId          Int      @id
+  image            Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  revision         BigInt   @default(0)
+  directoryStateId String?
+  directory        MediaContentDirectoryState? @relation(fields: [directoryStateId], references: [id], onDelete: Restrict)
+  writeToken       String?
+  writeStartedAt   DateTime?
+  updatedAt        DateTime @updatedAt
+
+  @@index([directoryStateId, imageId])
+}
+
+model ArtworkContentSource {
+  artworkId      Int      @id
+  artwork        Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  revision       BigInt   @default(0)
+  mediaEpoch     BigInt   @default(0)
+  writeToken     String?
+  writeStartedAt DateTime?
+  updatedAt      DateTime @updatedAt
+}
+
+model MediaContentFingerprint {
+  imageId           Int      @id
+  image             Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  algorithmVersion  Int
+  rootIdentity      String
+  sourcePath        String
+  canonicalPath     String
+  sourceRevision    BigInt
+  artworkMediaEpoch BigInt
+  size              BigInt
+  mtimeNs           BigInt?
+  ctimeNs           BigInt?
+  deviceId          BigInt?
+  inode             BigInt?
+  sha256            String   @db.VarChar(64)
+  hashedAt          DateTime
+
+  @@index([size, sha256, imageId])
+}
+
+model ArtworkContentFingerprint {
+  artworkId        Int      @id
+  artwork          Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  algorithmVersion Int
+  sourceRevision   BigInt
+  mediaEpoch       BigInt
+  membersSignature String   @db.VarChar(64)
+  fileCount        BigInt
+  contentSha256    String   @db.VarChar(64)
+  completedAt      DateTime
+
+  @@index([algorithmVersion, contentSha256])
+}
+
+enum MediaContentRecoveryGrantStatus {
+  ACTIVE
+  CONSUMED
+  REVOKED
+}
+
+model MediaContentRecoveryGrant {
+  id                     String                          @id @default(cuid())
+  jobId                  String
+  job                    SystemJob                       @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  sessionId              String
+  expectedAttempt        Int
+  targetAttempt          Int
+  snapshot               Json
+  snapshotSha256         String                          @db.VarChar(64)
+  backupCheckpointRef    String                          @db.Text
+  operator               String
+  status                 MediaContentRecoveryGrantStatus @default(ACTIVE)
+  createdAt              DateTime                        @default(now())
+  consumedAt             DateTime?
+  consumedExecutionToken String?                         @db.Uuid
+  revokedAt              DateTime?
+  revokedBy              String?
+  revocationReason       String?                         @db.Text
+
+  @@index([jobId, sessionId, targetAttempt, status])
 }
 
 model ArtworkSummary {
@@ -849,6 +1013,7 @@ model SystemJob {
   archiveImport           ArchiveImport?
   archiveExecutions       ArchiveImportExecution[]
   archiveGenerations      ArchiveStagingGeneration[]
+  mediaContentRecoveryGrants MediaContentRecoveryGrant[]
   archiveIntakeItem       ArchiveIntakeItem?       @relation("ArchiveIntakeCurrentJob")
   archiveUploaderScanRun  ArchiveUploaderScanRun?
   archiveTitleRuleRevision ArchiveTitleRuleRevision?

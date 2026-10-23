@@ -59,6 +59,9 @@ export async function resolveSafeExistingPath(
   expectedKind: 'file' | 'directory'
 ): Promise<SafeScanPath> {
   const relativePath = normalizeRelativeScanPath(relativeInput)
+  if (relativePath.split('/')[0] === '.pixishelf-upload-recovery') {
+    throw new ScanExecutorError('PATH_OUTSIDE_SCAN_ROOT', 'Upload recovery evidence cannot be scanned or imported')
+  }
   const segments = relativePath.split('/')
   let candidate = root.absolutePath
   for (const segment of segments) {
@@ -92,6 +95,7 @@ export async function* walkSafeFiles(
 ): AsyncGenerator<SafeScanPath[]> {
   validateWalkOptions(options)
   const excludedRootDirectories = new Set([
+    '.pixishelf-upload-recovery',
     'sources',
     '.archive-staging',
     '.trash',
@@ -211,6 +215,7 @@ function validateWalkOptions(options: WalkSafeFilesOptions): void {
     }
   }
   for (const directoryName of new Set([
+    '.pixishelf-upload-recovery',
     'sources',
     '.archive-staging',
     '.trash',

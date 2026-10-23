@@ -35,6 +35,7 @@ let artworkId: number
 let directory: string
 let mediaPath: string
 let sidecarPath: string
+let rootIdentity: string
 
 beforeAll(async () => {
   if (!db) return
@@ -55,6 +56,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!db) return
   context.root = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-delete-postgres-'))
+  const { resolveContentPath } = await import('@/services/artwork-service/content-source-guard')
+  rootIdentity = (await resolveContentPath(context.root, '.fixture-identity')).directory.rootIdentity
   const token = randomUUID()
   directory = `artist/${token}`
   mediaPath = `${directory}/image.jpg`
@@ -76,9 +79,11 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks()
   if (!db || !artworkId) return
+  await db.mediaContentPathWrite.deleteMany({ where: { directory: { rootIdentity } } })
   await db.artwork.updateMany({ where: { id: artworkId }, data: { title: 'delete-test-cleanup' } })
   await db.image.deleteMany({ where: { artworkId } })
   await db.artwork.deleteMany({ where: { id: artworkId } })
+  await db.mediaContentDirectoryState.deleteMany({ where: { rootIdentity } })
   const fixture = path.resolve(context.root)
   if (
     path.dirname(fixture) !== path.resolve(os.tmpdir()) ||
@@ -97,10 +102,11 @@ afterAll(async () => {
   await db.$disconnect()
 })
 async function run() {
-  const preview = await service.previewDeleteArtwork(artworkId)
+  const preview = await service.previewDeleteArtwork(artworkId, 'synthetic-admin')
   return service.deleteArtwork(
     {
       artworkId,
+      operationId: preview.operationId,
       selectedPaths: preview.entries
         .filter((entry) => entry.selection === 'REQUIRED' || entry.selection === 'OPTIONAL')
         .map((entry) => entry.path)
@@ -111,7 +117,7 @@ async function run() {
 
 describe.skipIf(!databaseUrl)('artwork deletion with real PostgreSQL transactions', () => {
   it('deletes files and database records and removes the empty work directory', async () => {
-    const preview = await service.previewDeleteArtwork(artworkId)
+    const preview = await service.previewDeleteArtwork(artworkId, 'synthetic-admin')
     expect(preview.canDelete).toBe(true)
     expect(await db!.image.count({ where: { artworkId } })).toBe(1)
     const report = await run()

@@ -1,3 +1,16 @@
+import type { Prisma as ContentPrisma } from '@pixishelf/db'
+vi.mock('../../scan/media-content-write.ts', () => ({
+  resolveExecutorMediaDirectory: vi.fn(async () => ({})),
+  beginExecutorMediaWrite: vi.fn(async () => ({})),
+  publishExecutorMediaWrite: vi.fn(
+    async (
+      tx: ContentPrisma.TransactionClient,
+      _write: unknown,
+      _outcome: unknown,
+      action: (tx: ContentPrisma.TransactionClient) => Promise<unknown>
+    ) => action(tx)
+  )
+}))
 import { PassThrough } from 'node:stream'
 import type { Prisma } from '@pixishelf/db'
 import {

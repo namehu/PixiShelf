@@ -26,7 +26,7 @@ PixiShelf 的数据库和文件系统共同构成业务状态。只备份数据�
 | 程序版本   | 配套 App/Worker 的 tag、image ID/digest 和可取得的镜像                            |
 | 清单       | 集合 ID、时间、实例、原因、操作者、dump SHA-256、三个快照 ID、配置/镜像、验证结果 |
 
-同一天或相似文件名不能证明同一恢复点。归档 staging generation（包括未确认 drain 的 orphan）、封存清单和已 rename 未发布目录必须与数据库同点保留；不能仅凭 lease 超时清理。staging、pending replace 和 recovery 目录是领域恢复机制，不能替代备份；它们也不能在“清理缓存”时随意删除。
+同一天或相似文件名不能证明同一恢复点。归档 staging generation（包括未确认 drain 的 orphan）、封存清单和已 rename 未发布目录必须与数据库同点保留；不能仅凭 lease 超时清理。staging、pending replace 和 recovery 目录是领域恢复机制，不能替代备份；它们也不能在“清理缓存”时随意删除。原媒体写入声明及 `.pixishelf-upload-recovery` manifest 也属于恢复集合；新协议的适用版本、状态与停止条件见[原媒体写入异常恢复](./runbooks/media-content-recovery.md)。
 
 <a id="发布前一致性检查点"></a>
 

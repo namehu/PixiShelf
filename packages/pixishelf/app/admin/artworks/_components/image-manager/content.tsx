@@ -11,6 +11,7 @@ import { confirm } from '@/components/shared/global-confirm'
 import { ImageReplaceDialog } from '../image-replace-dialog'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { toast } from 'sonner'
 import { HoverPreview } from '../hover-preview'
 import { ImagePreviewDialog } from '../image-preview-dialog'
@@ -144,19 +145,77 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
   const [deleteTarget, setDeleteTarget] = useState<number | null>(null)
   const [deletePhysical, setDeletePhysical] = useState(false)
 
+  type DeletePreview = { operationId: string; recovery: boolean; selectedPaths: string[]; memberDigest: string }
+  const [mediaDeletePreview, setMediaDeletePreview] = useState<DeletePreview | null>(null)
+  const [chapterDeletePreview, setChapterDeletePreview] = useState<DeletePreview | null>(null)
+  const [deletePreviewError, setDeletePreviewError] = useState(false)
+  useEffect(() => {
+    let active = true
+    setMediaDeletePreview(null)
+    setChapterDeletePreview(null)
+    setDeletePreviewError(false)
+    const id = deleteTarget ?? deleteChapterTarget?.id
+    if (id) {
+      trpcClient.artwork.previewDeleteImage
+        .query({ id, kind: deleteTarget ? 'IMAGE' : 'CHAPTERS' })
+        .then((value) => {
+          if (!active) return
+          if (deleteTarget) {
+            setMediaDeletePreview(value)
+            if (value.recovery) setDeletePhysical(true)
+          } else {
+            setChapterDeletePreview(value)
+            if (value.recovery) setDeleteChapterPhysical(true)
+          }
+        })
+        .catch(() => {
+          if (active) setDeletePreviewError(true)
+        })
+    }
+    return () => {
+      active = false
+    }
+  }, [deleteTarget, deleteChapterTarget?.id, trpcClient])
+  const deletionNotice = (preview: DeletePreview | null) => (
+    <Alert>
+      <AlertTitle>
+        {deletePreviewError ? '无法读取原删除操作' : preview?.recovery ? '继续上次删除' : '物理删除范围'}
+      </AlertTitle>
+      <AlertDescription>
+        {deletePreviewError ? (
+          '重新打开确认框后再试。'
+        ) : !preview ? (
+          '正在检查原操作…'
+        ) : (
+          <div className="flex flex-col gap-1">
+            {preview.recovery && <p>原操作已冻结，确认后只重试以下原文件。</p>}
+            {preview.selectedPaths.map((file) => (
+              <p key={file} className="break-all" data-privacy-sensitive>
+                {file}
+              </p>
+            ))}
+          </div>
+        )}
+      </AlertDescription>
+    </Alert>
+  )
+
   const handleDelete = async () => {
     if (!deleteTarget) return
     try {
       await trpcClient.artwork.deleteImage.mutate({
         id: deleteTarget,
-        deleteFile: deletePhysical
+        deleteFile: deletePhysical,
+        operationId: mediaDeletePreview?.operationId,
+        selectedPaths: mediaDeletePreview?.selectedPaths,
+        memberDigest: mediaDeletePreview?.memberDigest
       })
       toast.success('删除成功')
       setDeleteTarget(null)
       setDeletePhysical(false)
       refreshMediaList()
     } catch (error) {
-      toast.error('删除失败')
+      toast.error('删除失败，请重新打开确认框检查原文件范围。')
       console.error(error)
     }
   }
@@ -269,7 +328,10 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          deleteFile: deleteChapterPhysical
+          deleteFile: deleteChapterPhysical,
+          operationId: chapterDeletePreview?.operationId,
+          selectedPaths: chapterDeletePreview?.selectedPaths,
+          memberDigest: chapterDeletePreview?.memberDigest
         })
       })
 
@@ -565,13 +627,15 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         title="删除媒体"
         description="确定要删除这个媒体文件吗？"
         onOk={handleDelete}
-        okText="确定删除"
-        okButtonProps={{ variant: 'destructive' }}
+        okText={mediaDeletePreview?.recovery ? '重试原删除' : '确定删除'}
+        okButtonProps={{ variant: 'destructive', disabled: deletePhysical && !mediaDeletePreview }}
         onCancel={() => setDeleteTarget(null)}
       >
+        {deletionNotice(mediaDeletePreview)}
         <div className="flex flex-row items-start gap-3 py-4">
           <Checkbox
             id="delete-physical"
+            disabled={mediaDeletePreview?.recovery}
             checked={deletePhysical}
             onCheckedChange={(checked) => setDeletePhysical(checked as boolean)}
             className="mt-1"
@@ -583,9 +647,7 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
             >
               同时删除物理文件
             </Label>
-            <p className="text-xs text-muted-foreground">
-              物理删除不可撤销（能否恢复取决于系统回收站），请确保拥有文件删除权限。
-            </p>
+            <p className="text-xs text-muted-foreground">物理删除不可撤销；文件恢复依赖已有备份或快照。</p>
           </div>
         </div>
       </ProDialog>
@@ -601,16 +663,18 @@ export function ImageManagerContent({ data, onSuccess }: ImageManagerContentProp
         title="删除章节"
         description="确定要删除这个视频关联的章节吗？"
         onOk={handleDeleteChapter}
-        okText="确定删除"
-        okButtonProps={{ variant: 'destructive' }}
+        okText={chapterDeletePreview?.recovery ? '重试原删除' : '确定删除'}
+        okButtonProps={{ variant: 'destructive', disabled: deleteChapterPhysical && !chapterDeletePreview }}
         onCancel={() => {
           setDeleteChapterTarget(null)
           setDeleteChapterPhysical(false)
         }}
       >
+        {deletionNotice(chapterDeletePreview)}
         <div className="flex flex-row items-start gap-3 py-4">
           <Checkbox
             id="delete-chapter-physical"
+            disabled={chapterDeletePreview?.recovery}
             checked={deleteChapterPhysical}
             onCheckedChange={(checked) => setDeleteChapterPhysical(checked as boolean)}
             className="mt-1"

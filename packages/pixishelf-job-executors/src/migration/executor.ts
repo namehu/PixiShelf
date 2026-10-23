@@ -1,3 +1,4 @@
+import type { ExecutorMediaWrite } from '../scan/media-content-write.ts'
 import { extractJobDiagnostic, resolveCanonicalArtworkStoragePath } from '@pixishelf/job-contracts'
 import path from 'node:path'
 import type {
@@ -24,6 +25,7 @@ import {
   removeAttemptStaging,
   stageMigrationFile,
   verifyPreparedMigrationFile,
+  verifyMigrationCancellation,
   type MigrationFingerprint
 } from './transfer.ts'
 import type {
@@ -96,6 +98,11 @@ export async function executeMigration<TTransaction extends QueueSqlExecutor>(
             await processArtworkPlan(context, dependencies, prepared)
           } catch (error) {
             if (!(error instanceof MigrationPermanentError)) throw error
+            if (activeMigrationWrites.has(prepared))
+              throw new MigrationActionRequiredError(
+                'CONTENT_WRITE_RECOVERY_REQUIRED',
+                'Migration write checkpoint requires verified recovery before termination'
+              )
             const failure = publicFailure(error.code)
             await closePlan(context, dependencies, prepared, {
               status: 'FAILED',
@@ -139,12 +146,31 @@ export async function executeMigration<TTransaction extends QueueSqlExecutor>(
       artworkId: activePlan?.artworkId ?? null,
       errorCode: migrationPublicErrorCode(errorCodeOf(error))
     })
+    if (
+      activePlan &&
+      activeMigrationWrites.has(activePlan) &&
+      (error instanceof MigrationPermanentError || context.job.attempt >= context.job.maxAttempts) &&
+      !(error instanceof MigrationActionRequiredError)
+    ) {
+      return finalizeActionRequired(
+        context,
+        dependencies,
+        activePlan,
+        new MigrationActionRequiredError(
+          'CONTENT_WRITE_RECOVERY_REQUIRED',
+          'Migration write checkpoint requires verified recovery before termination'
+        )
+      )
+    }
     if (error instanceof MigrationActionRequiredError) {
       return finalizeActionRequired(context, dependencies, activePlan, error)
     }
+    const cancellation = await prepareCancellation(dependencies, activePlan)
     if (context.signal.aborted) {
       return context.finalizeInTransaction<TTransaction>(async (scope) => {
-        if (!(await finalizeRequestedControl(scope, dependencies, activePlan, context.job.attempt, true))) {
+        if (
+          !(await finalizeRequestedControl(scope, dependencies, activePlan, context.job.attempt, true, cancellation))
+        ) {
           await scope.release('迁移 Worker 已停止，已保留文件与数据库检查点')
         }
       })
@@ -162,7 +188,7 @@ export async function executeMigration<TTransaction extends QueueSqlExecutor>(
       // continue only when it happens inside processArtworkPlan; reaching here means selection
       // or orchestration itself violated an invariant and the whole execution must fail.
     }
-    return finalizeRetryOrFail(context, dependencies, activePlan, error)
+    return finalizeRetryOrFail(context, dependencies, activePlan, error, cancellation)
   }
 }
 
@@ -442,6 +468,33 @@ function resolveMigrationTargetDirectory(artwork: MigrationArtworkSnapshot): str
 }
 
 const activeMigrationFiles = new WeakMap<MigrationArtworkPlan, string>()
+const activeMigrationWrites = new WeakMap<MigrationArtworkPlan, ExecutorMediaWrite>()
+type CancellationProof = { write: ExecutorMediaWrite; plan: MigrationArtworkPlan } | { error: unknown } | undefined
+
+async function prepareCancellation<TTransaction extends QueueSqlExecutor>(
+  dependencies: MigrationExecutorDependencies<TTransaction>,
+  activePlan: MigrationArtworkPlan | null
+): Promise<CancellationProof> {
+  if (!activePlan) return
+  const write = activeMigrationWrites.get(activePlan)
+  if (!write) return
+  try {
+    const plan = await dependencies.database.loadPlan(
+      activePlan.systemJobId,
+      activePlan.artworkId,
+      MAX_MAX_ARTWORK_FILES + 1
+    )
+    if (!plan || plan.files.length > MAX_MAX_ARTWORK_FILES)
+      throw new MigrationActionRequiredError(
+        'FILESYSTEM_RECOVERY_FAILED',
+        'Migration cancellation checkpoint is unavailable'
+      )
+    await verifyMigrationCancellation({ fileSystem: dependencies.fileSystem, config: dependencies.config, plan })
+    return { write, plan }
+  } catch (error) {
+    return { error }
+  }
+}
 
 async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
   context: MigrationContext,
@@ -464,12 +517,19 @@ async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
     return
   }
   if (['COMPLETED', 'SKIPPED', 'CANCELLED'].includes(plan.status)) return
+  const contentWrite = await dependencies.database.beginContentWrite({
+    context,
+    scanRoot: dependencies.config.scanRoot,
+    plan
+  })
+  activeMigrationWrites.set(plan, contentWrite)
   if (plan.files.every(isSameFilePath)) {
     activeMigrationFiles.delete(plan)
-    await context.mutateInTransaction<TTransaction>((transaction) =>
-      dependencies.database.publishArtwork(transaction, {
+    await context.mutateInTransaction<TTransaction>(async (transaction) => {
+      await dependencies.database.publishArtwork(transaction, {
         itemId: plan.id,
         artworkId: plan.artworkId,
+        contentWrite,
         targetDirectory: plan.targetDirectory!,
         plannedImageIds: plan.files.flatMap((file) => (file.imageId === null ? [] : [file.imageId])),
         attempt: context.job.attempt,
@@ -482,7 +542,9 @@ async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
           sourceSha256: null
         }))
       })
-    )
+      await dependencies.database.finishContentWrite(transaction, contentWrite)
+    })
+    activeMigrationWrites.delete(plan)
     plan.status = 'SKIPPED'
     plan.phase = 'FINALIZING'
     return
@@ -541,6 +603,7 @@ async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
       dependencies.database.publishArtwork(transaction, {
         itemId: plan.id,
         artworkId: plan.artworkId,
+        contentWrite,
         targetDirectory: plan.targetDirectory!,
         plannedImageIds: plan.files.flatMap((file) => (file.imageId === null ? [] : [file.imageId])),
         attempt: context.job.attempt,
@@ -576,7 +639,18 @@ async function processArtworkPlan<TTransaction extends QueueSqlExecutor>(
     await checkpointFile(context, dependencies, file, 'COMPLETED')
   }
   activeMigrationFiles.delete(plan)
-  await checkpointItem(context, dependencies, plan, { status: 'COMPLETED', phase: 'FINALIZING' })
+  await context.mutateInTransaction<TTransaction>(async (transaction) => {
+    await dependencies.database.finishContentWrite(transaction, contentWrite)
+    await dependencies.database.checkpointItem(transaction, {
+      itemId: plan.id,
+      status: 'COMPLETED',
+      phase: 'FINALIZING',
+      attempt: context.job.attempt
+    })
+  })
+  activeMigrationWrites.delete(plan)
+  plan.status = 'COMPLETED'
+  plan.phase = 'FINALIZING'
 }
 
 async function checkpointItem<TTransaction extends QueueSqlExecutor>(
@@ -639,6 +713,7 @@ function finalizeActionRequired<TTransaction extends QueueSqlExecutor>(
 ) {
   const failure = publicFailure(error.code)
   return context.finalizeInTransaction<TTransaction>(async (scope) => {
+    if (scope.executionStatus === 'CANCELLING') throw error
     if (await finalizeRequestedControl(scope, dependencies, activePlan, context.job.attempt, context.signal.aborted)) {
       return
     }
@@ -684,11 +759,35 @@ function finalizeRetryOrFail<TTransaction extends QueueSqlExecutor>(
   context: MigrationContext,
   dependencies: MigrationExecutorDependencies<TTransaction>,
   activePlan: MigrationArtworkPlan | null,
-  error: unknown
+  error: unknown,
+  cancellation: CancellationProof
 ) {
   const failure = classifyFailure(error)
   return context.finalizeInTransaction<TTransaction>(async (scope) => {
-    if (await finalizeRequestedControl(scope, dependencies, activePlan, context.job.attempt, false)) return
+    if (await finalizeRequestedControl(scope, dependencies, activePlan, context.job.attempt, false, cancellation))
+      return
+    if (activePlan && activeMigrationWrites.has(activePlan)) {
+      await dependencies.database.checkpointItem(scope.transaction, {
+        itemId: activePlan.id,
+        status: 'ACTION_REQUIRED',
+        phase: activePlan.phase,
+        attempt: context.job.attempt,
+        errorCode: 'CONTENT_WRITE_RECOVERY_REQUIRED',
+        errorSummary: 'Migration write requires verified recovery'
+      })
+      await context.recordDiagnostic?.(scope.transaction, { key: 'task:action-required', scope: 'TASK', error })
+      await recordPlanDiagnostic(
+        context,
+        scope.transaction,
+        activePlan,
+        failure.errorCode,
+        failure.message,
+        error,
+        false
+      )
+      await scope.pause({ reason: 'ACTION_REQUIRED', message: '迁移写入检查点尚未收口，请停写检查并授权恢复原任务' })
+      return
+    }
     const retry = !(error instanceof MigrationPermanentError) && context.job.attempt < context.job.maxAttempts
     if (activePlan) {
       if (retry) {
@@ -746,7 +845,8 @@ async function finalizeRequestedControl<TTransaction extends QueueSqlExecutor>(
   dependencies: MigrationExecutorDependencies<TTransaction>,
   activePlan: MigrationArtworkPlan | null,
   attempt: number,
-  shutdown: boolean
+  shutdown: boolean,
+  cancellation?: CancellationProof
 ) {
   if (scope.executionStatus === 'PAUSING') {
     if (activePlan) {
@@ -761,6 +861,14 @@ async function finalizeRequestedControl<TTransaction extends QueueSqlExecutor>(
     return true
   }
   if (scope.executionStatus === 'CANCELLING') {
+    if (activePlan && activeMigrationWrites.has(activePlan)) {
+      if (!cancellation || 'error' in cancellation)
+        throw (
+          cancellation?.error ??
+          new MigrationActionRequiredError('FILESYSTEM_RECOVERY_FAILED', 'Migration cancellation is not verified')
+        )
+      await dependencies.database.finishCancelledContentWrite(scope.transaction, cancellation.write, cancellation.plan)
+    }
     if (activePlan) {
       await dependencies.database.closeItemAndFiles(scope.transaction, {
         itemId: activePlan.id,

@@ -13,3 +13,6 @@ export * from './video-keyframe/index.ts'
 export * from './video-media/index.ts'
 export * from './video-processing/index.ts'
 export * from './artwork-summary/executor.ts'
+
+export { readExecutorMediaRecoveryDomainSnapshot } from './scan/media-content-recovery.ts'
+export { resolveMediaContentRoots } from './media-content/roots.ts'

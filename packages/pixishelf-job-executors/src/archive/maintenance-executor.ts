@@ -5,7 +5,18 @@ import {
   JOB_DEFINITION_VERSION,
   type ArchiveMaintenancePayload
 } from '@pixishelf/job-contracts'
-import { lockArtworkForReading, type PrismaClient } from '@pixishelf/db'
+import {
+  lockArtworkForReading,
+  finishMediaContentSourceWrite,
+  withMediaContentOwnerPublication,
+  type Prisma,
+  type PrismaClient
+} from '@pixishelf/db'
+import {
+  beginExecutorMediaDirectoryWrites,
+  resolveExecutorMediaDirectory,
+  type ExecutorMediaWrite
+} from '../scan/media-content-write.ts'
 import type {
   EnqueuedChildJob,
   ExecutionContext,
@@ -14,6 +25,9 @@ import type {
   JobExecutionOutcome
 } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError } from './errors.ts'
+import { ScanExecutorError } from '../scan/errors.ts'
+
+class ArchiveMediaRecoveryRequired extends Error {}
 import {
   buildArchiveStoragePaths,
   pathExists,
@@ -38,7 +52,7 @@ const RECONCILE_BATCH_SIZE = 200
 
 export interface ArchiveMaintenanceExecutorDependencies {
   database: PrismaClient
-  config: { scanRoot: string }
+  config: { scanRoot: string; sourceMediaRoot?: string }
   now?: () => Date
 }
 
@@ -70,10 +84,22 @@ export async function executeArchiveMaintenance(
   if (context.payload.action === 'RECONCILE') {
     return executeArchiveReconcile(context, dependencies)
   }
-  if (context.payload.action === 'PURGE_ARCHIVE') {
-    return executeArchivePurge(context, context.payload, dependencies)
+  try {
+    if (context.payload.action === 'PURGE_ARCHIVE')
+      return await executeArchivePurge(context, context.payload, dependencies)
+    return await executeArtworkMaintenance(context, context.payload, dependencies)
+  } catch (error) {
+    // Only a refused begin reaches this branch; never start a second finalizer after publication failed.
+    if (!(error instanceof ArchiveMediaRecoveryRequired)) throw error
+    return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
+      if (scope.executionStatus === 'CANCELLING') throw error
+      await scope.pause({
+        reason: scope.executionStatus === 'PAUSING' ? 'USER_REQUESTED' : 'ACTION_REQUIRED',
+        message: error.message,
+        data: { errorCode: 'CONTENT_WRITE_RECOVERY_REQUIRED' }
+      })
+    })
   }
-  return executeArtworkMaintenance(context, context.payload, dependencies)
 }
 
 async function executeArchiveReconcile(
@@ -176,6 +202,13 @@ async function prepareStagingReconcileChild(
         !archiveImport.retainUntil ||
         archiveImport.retainUntil.getTime() > now.getTime())
     ) {
+      return { kind: 'SKIP' }
+    }
+    if (await unresolvedPublicationClaim(transaction, archiveImport.id, archiveImport.systemJobId)) {
+      context.logger.warn('archive.cleanup_blocked_by_publication', {
+        archiveImportId,
+        jobId: archiveImport.systemJobId
+      })
       return { kind: 'SKIP' }
     }
     if (await findActiveMaintenanceJob(transaction, { action: 'CLEAN_STAGING', archiveImportId })) {
@@ -327,6 +360,7 @@ async function executeArchivePurge(
   })
 
   const paths = [...new Set(revisions.flatMap((revision) => [revision.trashPath, revision.archivePath]))]
+  const contentWrite = await beginMaintenanceMediaWrite(context, dependencies, payload.artworkId, paths)
   // 先删除文件再提交事务是因为文件 I/O 不可放回滚；第二阶段在写事务内按快照重检，确保崩溃恢复时可安全重放。
   for (const [index, storedPath] of paths.entries()) {
     throwIfAborted(context.signal)
@@ -339,47 +373,49 @@ async function executeArchivePurge(
   }
 
   throwIfAborted(context.signal)
-  return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
-    // 结合发布锁与再次状态校验，避免“先删文件后状态变化”导致误删新版本或重复执行导致错误。
-    await lockArchivePublication(scope.transaction)
-    const artwork = await scope.transaction.artwork.findUnique({
-      where: { id: payload.artworkId },
-      include: { archiveRevisions: true }
-    })
-    if (
-      !artwork ||
-      artwork.archiveLifecycleState !== 'TRASHED' ||
-      !artwork.deletedAt ||
-      artwork.archiveRevisions.length !== revisions.length ||
-      artwork.archiveRevisions.some((revision) => {
-        const prepared = revisions.find((candidate) => candidate.id === revision.id)
-        return (
-          !prepared ||
-          revision.archivePath !== prepared.archivePath ||
-          revision.trashPath !== prepared.trashPath ||
-          !revision.purgeAfter ||
-          revision.purgeAfter.getTime() > now.getTime()
-        )
+  return context.finalizeInTransaction<ArchiveTransaction>(async (scope) =>
+    publishMaintenanceMediaWrite(scope.transaction, contentWrite, async () => {
+      // 结合发布锁与再次状态校验，避免“先删文件后状态变化”导致误删新版本或重复执行导致错误。
+      await lockArchivePublication(scope.transaction)
+      const artwork = await scope.transaction.artwork.findUnique({
+        where: { id: payload.artworkId },
+        include: { archiveRevisions: true }
       })
-    ) {
-      throw stateChanged('归档永久清理意图在完成前发生变化')
-    }
-    await lockArtworkForReading(scope.transaction, artwork.id)
-    await scope.transaction.image.deleteMany({ where: { artworkId: artwork.id } })
-    const changed = await scope.transaction.artwork.deleteMany({
-      where: {
-        id: artwork.id,
-        createdVia: 'URL_ARCHIVE',
-        archiveLifecycleState: 'TRASHED',
-        deletedAt: artwork.deletedAt
+      if (
+        !artwork ||
+        artwork.archiveLifecycleState !== 'TRASHED' ||
+        !artwork.deletedAt ||
+        artwork.archiveRevisions.length !== revisions.length ||
+        artwork.archiveRevisions.some((revision) => {
+          const prepared = revisions.find((candidate) => candidate.id === revision.id)
+          return (
+            !prepared ||
+            revision.archivePath !== prepared.archivePath ||
+            revision.trashPath !== prepared.trashPath ||
+            !revision.purgeAfter ||
+            revision.purgeAfter.getTime() > now.getTime()
+          )
+        })
+      ) {
+        throw stateChanged('归档永久清理意图在完成前发生变化')
       }
+      await lockArtworkForReading(scope.transaction, artwork.id)
+      await scope.transaction.image.deleteMany({ where: { artworkId: artwork.id } })
+      const changed = await scope.transaction.artwork.deleteMany({
+        where: {
+          id: artwork.id,
+          createdVia: 'URL_ARCHIVE',
+          archiveLifecycleState: 'TRASHED',
+          deletedAt: artwork.deletedAt
+        }
+      })
+      if (changed.count !== 1) throw stateChanged('归档作品在永久清理前发生变化')
+      await scope.complete({
+        result: { action: 'PURGE_ARCHIVE', artworkId: artwork.id },
+        message: '归档作品已永久清理'
+      })
     })
-    if (changed.count !== 1) throw stateChanged('归档作品在永久清理前发生变化')
-    await scope.complete({
-      result: { action: 'PURGE_ARCHIVE', artworkId: artwork.id },
-      message: '归档作品已永久清理'
-    })
-  })
+  )
 }
 
 async function executeStagingCleanup(
@@ -407,6 +443,8 @@ async function executeStagingCleanup(
         recoverable: true
       })
     }
+    if (await unresolvedPublicationClaim(transaction, current.id, current.systemJobId))
+      throw stateChanged('原归档发布仍有未解决的媒体声明，请先恢复原 PUBLISH 任务，不能清理发布证明')
     return current
   })
   const paths = buildArchiveStoragePaths({
@@ -486,6 +524,8 @@ async function executeStagingCleanup(
         recoverable: true
       })
     }
+    if (await unresolvedPublicationClaim(scope.transaction, current.id, current.systemJobId))
+      throw stateChanged('原归档发布仍有未解决的媒体声明，请先恢复原 PUBLISH 任务，不能清除发布绑定')
     await scope.transaction.archiveImportItem.updateMany({
       where: { archiveImportId: current.id },
       data: {
@@ -572,6 +612,13 @@ async function executeArtworkMaintenance(
     })
   })
 
+  const contentWrite = await beginMaintenanceMediaWrite(
+    context,
+    dependencies,
+    payload.artworkId,
+    revisions.flatMap((revision) => [revision.archivePath, revision.trashPath])
+  )
+
   for (const [index, revision] of revisions.entries()) {
     throwIfAborted(context.signal)
     const source = payload.action === 'TRASH_ARCHIVE' ? revision.archivePath : revision.trashPath
@@ -586,35 +633,37 @@ async function executeArtworkMaintenance(
 
   throwIfAborted(context.signal)
   const now = (dependencies.now ?? (() => new Date()))()
-  return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {
-    // 目录移动完成后再二次校验生命周期，保证重复/重放任务只在预期状态下完成最终转态变更。
-    await lockArchivePublication(scope.transaction)
-    const artwork = await scope.transaction.artwork.findUnique({
-      where: { id: payload.artworkId },
-      include: { archiveRevisions: true }
-    })
-    if (!artwork || artwork.archiveLifecycleState !== expectedState || !artwork.deletedAt) {
-      throw stateChanged('归档生命周期在完成前发生变化')
-    }
-    if (payload.action === 'RESTORE_ARCHIVE') {
-      await scope.transaction.archiveRevision.updateMany({
-        where: { artworkId: artwork.id },
-        data: { trashPath: null, trashedAt: null, purgeAfter: null }
+  return context.finalizeInTransaction<ArchiveTransaction>(async (scope) =>
+    publishMaintenanceMediaWrite(scope.transaction, contentWrite, async () => {
+      // 目录移动完成后再二次校验生命周期，保证重复/重放任务只在预期状态下完成最终转态变更。
+      await lockArchivePublication(scope.transaction)
+      const artwork = await scope.transaction.artwork.findUnique({
+        where: { id: payload.artworkId },
+        include: { archiveRevisions: true }
       })
-    }
-    const changed = await scope.transaction.artwork.updateMany({
-      where: { id: artwork.id, archiveLifecycleState: expectedState, deletedAt: { not: null } },
-      data:
-        payload.action === 'TRASH_ARCHIVE'
-          ? { archiveLifecycleState: 'TRASHED', updatedAt: now }
-          : { archiveLifecycleState: 'ACTIVE', deletedAt: null, updatedAt: now }
+      if (!artwork || artwork.archiveLifecycleState !== expectedState || !artwork.deletedAt) {
+        throw stateChanged('归档生命周期在完成前发生变化')
+      }
+      if (payload.action === 'RESTORE_ARCHIVE') {
+        await scope.transaction.archiveRevision.updateMany({
+          where: { artworkId: artwork.id },
+          data: { trashPath: null, trashedAt: null, purgeAfter: null }
+        })
+      }
+      const changed = await scope.transaction.artwork.updateMany({
+        where: { id: artwork.id, archiveLifecycleState: expectedState, deletedAt: { not: null } },
+        data:
+          payload.action === 'TRASH_ARCHIVE'
+            ? { archiveLifecycleState: 'TRASHED', updatedAt: now }
+            : { archiveLifecycleState: 'ACTIVE', deletedAt: null, updatedAt: now }
+      })
+      if (changed.count !== 1) throw stateChanged('归档生命周期状态已变化')
+      await scope.complete({
+        result: { action: payload.action, artworkId: artwork.id },
+        message: payload.action === 'TRASH_ARCHIVE' ? '归档作品已移入回收站' : '归档作品已从回收站恢复'
+      })
     })
-    if (changed.count !== 1) throw stateChanged('归档生命周期状态已变化')
-    await scope.complete({
-      result: { action: payload.action, artworkId: artwork.id },
-      message: payload.action === 'TRASH_ARCHIVE' ? '归档作品已移入回收站' : '归档作品已从回收站恢复'
-    })
-  })
+  )
 }
 
 async function moveRootConfinedDirectory(scanRoot: string, sourcePath: string, targetPath: string): Promise<void> {
@@ -692,4 +741,85 @@ function stateChanged(message: string): ArchiveExecutorError {
 
 function lockArchivePublication(transaction: ArchiveTransaction): Promise<unknown> {
   return transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+}
+
+async function beginMaintenanceMediaWrite(
+  context: ArchiveMaintenanceContext,
+  dependencies: ArchiveMaintenanceExecutorDependencies,
+  artworkId: number,
+  paths: string[]
+): Promise<ExecutorMediaWrite> {
+  const scopedPaths = paths.map((item) => {
+    const segments = item.split('/')
+    if (segments.some((segment) => !segment || segment === '.' || segment === '..')) return item
+    // These two parents are identities of this artwork, never a provider-wide or storage-root scope.
+    if (
+      (segments.length === 6 && segments[0] === 'sources' && segments[4] === 'revisions') ||
+      (segments.length === 4 &&
+        segments[0] === '.trash' &&
+        segments[1] === 'archive' &&
+        segments[2] === String(artworkId))
+    )
+      return path.posix.dirname(item)
+    return item
+  })
+  const unique = [...new Set(scopedPaths)].sort()
+  const minimal = unique.filter((item) => !unique.some((parent) => parent !== item && item.startsWith(parent + '/')))
+  const directories = []
+  for (const relativeDirectory of minimal) {
+    assertNonRootArchivePath(dependencies.config.scanRoot, relativeDirectory)
+    await resolveCreatablePathWithinRoot(dependencies.config.scanRoot, relativeDirectory)
+    directories.push(
+      await resolveExecutorMediaDirectory({
+        context,
+        sourceRoot: dependencies.config.sourceMediaRoot ?? dependencies.config.scanRoot,
+        archiveRoot: dependencies.config.scanRoot,
+        location: 'archive',
+        relativeDirectory
+      })
+    )
+  }
+  try {
+    return await beginExecutorMediaDirectoryWrites({
+      context,
+      directories,
+      sessionId: `archive-maintenance:${context.job.id}`,
+      artworkIds: [artworkId]
+    })
+  } catch (error) {
+    if (error instanceof ScanExecutorError && error.code === 'STATE_CONFLICT')
+      throw new ArchiveMediaRecoveryRequired('媒体写入声明尚未完成。请核对原操作，按恢复手册处理后继续。', {
+        cause: error
+      })
+    throw error
+  }
+}
+
+async function publishMaintenanceMediaWrite<T>(
+  transaction: Prisma.TransactionClient,
+  write: ExecutorMediaWrite,
+  publish: () => Promise<T>
+): Promise<T> {
+  const result = await withMediaContentOwnerPublication(
+    transaction,
+    { owner: write.owner, handles: write.handles, outcome: 'committed', now: new Date() },
+    async (tx) => {
+      // Purge cascades source rows. Finish under the same locks before deleting them, while the path claim stays active.
+      if (!(await finishMediaContentSourceWrite(tx, { token: write.source, outcome: 'committed' }))) {
+        throw stateChanged('Media content ownership changed during archive maintenance')
+      }
+      return publish()
+    }
+  )
+  return result.result
+}
+
+function unresolvedPublicationClaim(transaction: ArchiveTransaction, archiveImportId: string, jobId: string) {
+  return transaction.mediaContentPathWrite.findFirst({
+    where: {
+      OR: [{ jobId }, { sessionId: `archive-publish:${archiveImportId}` }],
+      status: { in: ['ACTIVE', 'READY', 'RECOVERY_REQUIRED'] }
+    },
+    select: { id: true }
+  })
 }

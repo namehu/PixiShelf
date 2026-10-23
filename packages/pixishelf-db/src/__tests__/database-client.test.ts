@@ -7,7 +7,7 @@ const queueKernelDatabaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const describePostgres = queueKernelDatabaseUrl ? describe : describe.skip
 const postgresClient = queueKernelDatabaseUrl ? new PrismaClient({ datasourceUrl: queueKernelDatabaseUrl }) : null
-const latestMigration = '20261023001000_archive_download_lane'
+const latestMigration = '20261023003000_media_content_recovery_grants'
 
 const expectedIndex = {
   indexName: 'system_jobs_single_executing_per_lane_idx',
@@ -18,6 +18,13 @@ const expectedIndex = {
 }
 
 const completeTableRows = [
+  'MediaContentDirectoryState',
+  'MediaContentRecoveryGrant',
+  'MediaContentPathWrite',
+  'MediaContentSource',
+  'ArtworkContentSource',
+  'MediaContentFingerprint',
+  'ArtworkContentFingerprint',
   'archive_import_executions',
   'archive_staging_generations',
   'artist_merges',
@@ -345,7 +352,7 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      `Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, system_jobs.legacyDisplay, Artwork.mediaRevision, archive_imports.publishedArtworkDeletedAt, archive_imports.publishedArtworkPurgedAt, archive_imports.phase, archive_imports.origin, archive_imports.generationToken, archive_imports.sealedManifestSha256, archive_import_executions, archive_staging_generations, ArtworkSummary, ArtworkSummaryFeature, artist_merges, ImageAnimationMetadata, artwork_reading_summaries, artwork_read_media, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_deleted_identities, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:${latestMigration}, index:system_jobs_single_executing_per_lane_idx`
+      `Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, system_jobs.legacyDisplay, Artwork.mediaRevision, archive_imports.publishedArtworkDeletedAt, archive_imports.publishedArtworkPurgedAt, archive_imports.phase, archive_imports.origin, archive_imports.generationToken, archive_imports.sealedManifestSha256, MediaContentDirectoryState, MediaContentRecoveryGrant, MediaContentPathWrite, MediaContentSource, ArtworkContentSource, MediaContentFingerprint, ArtworkContentFingerprint, archive_import_executions, archive_staging_generations, ArtworkSummary, ArtworkSummaryFeature, artist_merges, ImageAnimationMetadata, artwork_reading_summaries, artwork_read_media, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_deleted_identities, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:${latestMigration}, index:system_jobs_single_executing_per_lane_idx`
     )
   })
 
@@ -366,6 +373,17 @@ describe('database package', () => {
         { columnName: 'Artwork.mediaRevision' }
       ],
       [
+        ...completeTableRows.filter((row) =>
+          [
+            'MediaContentDirectoryState',
+            'MediaContentRecoveryGrant',
+            'MediaContentPathWrite',
+            'MediaContentSource',
+            'ArtworkContentSource',
+            'MediaContentFingerprint',
+            'ArtworkContentFingerprint'
+          ].includes(row.tableName)
+        ),
         { tableName: 'archive_import_executions' },
         { tableName: 'archive_staging_generations' },
         { tableName: 'artist_merges' },
@@ -423,6 +441,17 @@ describe('database package', () => {
         { columnName: 'Artwork.mediaRevision' }
       ],
       [
+        ...completeTableRows.filter((row) =>
+          [
+            'MediaContentDirectoryState',
+            'MediaContentRecoveryGrant',
+            'MediaContentPathWrite',
+            'MediaContentSource',
+            'ArtworkContentSource',
+            'MediaContentFingerprint',
+            'ArtworkContentFingerprint'
+          ].includes(row.tableName)
+        ),
         { tableName: 'archive_import_executions' },
         { tableName: 'archive_staging_generations' },
         { tableName: 'artist_merges' },
@@ -480,6 +509,17 @@ describe('database package', () => {
         { columnName: 'Artwork.mediaRevision' }
       ],
       [
+        ...completeTableRows.filter((row) =>
+          [
+            'MediaContentDirectoryState',
+            'MediaContentRecoveryGrant',
+            'MediaContentPathWrite',
+            'MediaContentSource',
+            'ArtworkContentSource',
+            'MediaContentFingerprint',
+            'ArtworkContentFingerprint'
+          ].includes(row.tableName)
+        ),
         { tableName: 'archive_import_executions' },
         { tableName: 'archive_staging_generations' },
         { tableName: 'artist_merges' },
@@ -542,6 +582,17 @@ describe('database package', () => {
         { columnName: 'Artwork.mediaRevision' }
       ],
       [
+        ...completeTableRows.filter((row) =>
+          [
+            'MediaContentDirectoryState',
+            'MediaContentRecoveryGrant',
+            'MediaContentPathWrite',
+            'MediaContentSource',
+            'ArtworkContentSource',
+            'MediaContentFingerprint',
+            'ArtworkContentFingerprint'
+          ].includes(row.tableName)
+        ),
         { tableName: 'archive_import_executions' },
         { tableName: 'archive_staging_generations' },
         { tableName: 'artist_merges' },

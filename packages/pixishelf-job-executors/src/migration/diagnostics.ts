@@ -2,6 +2,7 @@ const MAX_PUBLIC_SUMMARY_BYTES = 512
 const MAX_ERROR_CODE_LENGTH = 80
 
 const PUBLIC_MESSAGES: Record<string, string> = {
+  CONTENT_WRITE_RECOVERY_REQUIRED: 'Media write requires an offline recovery grant',
   ACTION_REQUIRED: 'Migration requires administrator review',
   ARTWORK_DELETED: 'Artwork was deleted before migration planning',
   ARTWORK_NOT_FOUND: 'Artwork no longer exists',

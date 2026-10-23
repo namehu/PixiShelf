@@ -5,6 +5,7 @@ await build({
     main: 'src/main.ts',
     healthcheck: 'src/healthcheck.ts',
     'pixiv-root-identity': 'src/pixiv-root-identity.ts',
+    'media-content-recovery': 'src/media-content-recovery.ts',
     'capability-audit': 'src/capability-audit.ts'
   },
   absWorkingDir: new URL('..', import.meta.url).pathname.replace(/^\/(?:([A-Za-z]):)/, '$1:'),

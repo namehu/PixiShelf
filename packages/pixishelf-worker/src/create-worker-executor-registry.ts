@@ -78,6 +78,7 @@ export function createWorkerExecutorRegistry(input: {
     providers: archiveProviders,
     config: {
       scanRoot: resolved.archiveRoot,
+      sourceMediaRoot: resolved.sourceMediaRoot,
       maxMediaBytes: resolved.archiveMaxMediaBytes
     }
   })) {
@@ -85,7 +86,7 @@ export function createWorkerExecutorRegistry(input: {
   }
   for (const definition of createArchiveMaintenanceExecutorRegistrations({
     database: input.database,
-    config: { scanRoot: resolved.archiveRoot }
+    config: { scanRoot: resolved.archiveRoot, sourceMediaRoot: resolved.sourceMediaRoot }
   })) {
     registry.register(definition)
   }

@@ -1,3 +1,6 @@
+import path from 'node:path'
+import type { MediaContentDirectorySnapshot } from '@pixishelf/db'
+import { captureScanMediaDirectory, assertScanMediaDirectory } from './media-content-guard.ts'
 import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import { ensurePixivInventoryRootIdentity } from './inventory-run.ts'
 import { assertPixivRootUnchanged } from './root-identity.ts'
@@ -25,6 +28,7 @@ type SourceAuditItem = Prisma.PixivSourceAuditItemGetPayload<Record<string, neve
 type ApplyOutcome = 'APPLIED' | 'SKIPPED' | 'CONFLICT' | 'FAILED'
 
 interface PreparedInput {
+  mediaDirectory: MediaContentDirectorySnapshot
   candidate: NonNullable<ReturnType<typeof metadataCandidateFromPath>>
   state: StableFileState
   contentHash: string
@@ -335,6 +339,11 @@ async function prepareInput(
   root: SafeScanRoot,
   row: ApplyInput
 ): Promise<PreparedInput> {
+  const mediaDirectory = await captureScanMediaDirectory({
+    context,
+    scanRoot: root.absolutePath,
+    relativeDirectory: path.posix.dirname(row.relativePath)
+  })
   const resolved = await resolveSafeExistingPath(root, row.relativePath, 'file')
   const candidate = metadataCandidateFromPath(resolved)
   if (!candidate) throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen metadata path is invalid')
@@ -376,7 +385,7 @@ async function prepareInput(
     throw new MediaInputError()
   }
   if (media.length === 0) throw new ScanExecutorError('MEDIA_NOT_FOUND', 'Artwork has no supported media')
-  return { candidate, state: document.state, contentHash: document.sha256, metadata, media }
+  return { mediaDirectory, candidate, state: document.state, contentHash: document.sha256, metadata, media }
 }
 
 async function applyPreparedInput(input: {
@@ -390,6 +399,7 @@ async function applyPreparedInput(input: {
   now: Date
 }) {
   return mutate(input.context, async (transaction) => {
+    await assertScanMediaDirectory(transaction, input.prepared.mediaDirectory)
     const checkpoint = await transaction.scanRunItem.findUnique({ where: { id: input.itemId } })
     if (!checkpoint || checkpoint.scanRunId !== input.runId) {
       throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Audit apply checkpoint is missing')

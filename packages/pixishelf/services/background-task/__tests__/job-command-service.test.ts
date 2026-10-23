@@ -472,6 +472,41 @@ describe('enqueueJob', () => {
 })
 
 describe('job commands', () => {
+  it.each(['PENDING', 'RETRY_WAIT', 'PAUSED', 'RUNNING'] as const)(
+    'preserves %s jobs when unresolved media writes block cancellation',
+    async (status) => {
+      const current = jobRecord({ status })
+      const harness = commandHarness([current])
+      harness.queryRawUnsafe.mockResolvedValue([{ blocked: true }])
+      await expect(cancelJobCommand({ jobId: current.id }, harness.client)).rejects.toMatchObject({
+        code: 'INVALID_STATE_TRANSITION',
+        message: expect.stringContaining('需先恢复处理')
+      })
+      expect(harness.updateMany).not.toHaveBeenCalled()
+      expect(harness.eventCreate).not.toHaveBeenCalled()
+    }
+  )
+
+  it('does not create a replacement retry job for unresolved media writes', async () => {
+    const current = jobRecord({ status: 'FAILED' })
+    const harness = commandHarness([current])
+    harness.queryRawUnsafe.mockResolvedValue([{ blocked: true }])
+    await expect(retryJobCommand({ jobId: current.id }, harness.client)).rejects.toMatchObject({
+      code: 'INVALID_STATE_TRANSITION'
+    })
+    expect(harness.create).not.toHaveBeenCalled()
+  })
+
+  it('requires an offline grant before resuming an unresolved cancellation', async () => {
+    const current = jobRecord({ status: 'PAUSED', errorCode: 'MEDIA_CONTENT_RECOVERY_REQUIRED' })
+    const harness = commandHarness([current])
+    harness.queryRawUnsafe.mockResolvedValue([{ blocked: true }])
+    await expect(resumeJobCommand({ jobId: current.id }, harness.client)).rejects.toMatchObject({
+      code: 'INVALID_STATE_TRANSITION'
+    })
+    expect(harness.updateMany).not.toHaveBeenCalled()
+  })
+
   it('cancels a queued scan and its ScanRun in the same command transaction', async () => {
     const current = jobRecord({ status: 'RETRY_WAIT', type: 'SCAN', payload: { mode: 'INCREMENTAL' } })
     const updated = jobRecord({ ...current, status: 'CANCELLED', finishedAt: new Date() })
@@ -1000,13 +1035,24 @@ describe('legacy history is read-only', () => {
   )
 })
 
-
 describe('retired visual summary creation', () => {
   it('rejects direct enqueue and retry without creating a job', async () => {
     const harness = commandHarness([jobRecord({ type: 'ARTWORK_SUMMARY_GENERATE', status: 'FAILED' })])
-    await expect(enqueueJob({ type: 'ARTWORK_SUMMARY_GENERATE', triggerSource: 'MANUAL', requestedByUserId: 'user-1', priority: 90,
-      payload: {} }, harness.client)).rejects.toThrow('即时堆叠浏览')
-    await expect(retryJobCommand({ jobId: 'job-1', requestedByUserId: 'user-1' }, harness.client)).rejects.toThrow('即时堆叠浏览')
+    await expect(
+      enqueueJob(
+        {
+          type: 'ARTWORK_SUMMARY_GENERATE',
+          triggerSource: 'MANUAL',
+          requestedByUserId: 'user-1',
+          priority: 90,
+          payload: {}
+        },
+        harness.client
+      )
+    ).rejects.toThrow('即时堆叠浏览')
+    await expect(retryJobCommand({ jobId: 'job-1', requestedByUserId: 'user-1' }, harness.client)).rejects.toThrow(
+      '即时堆叠浏览'
+    )
     expect(harness.create).not.toHaveBeenCalled()
   })
 })

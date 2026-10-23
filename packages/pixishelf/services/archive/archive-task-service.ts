@@ -1,3 +1,9 @@
+import { retryUnresolvedArchivePublication } from './archive-publication-retry'
+import {
+  hasBlockingMediaContentCancellation,
+  lockContentControlJob,
+  MEDIA_CONTENT_CANCELLATION_MESSAGE
+} from '@pixishelf/job-runtime'
 import { acknowledgeJobFailure } from '@/services/background-task/job-failure-policy'
 import { randomUUID } from 'node:crypto'
 import {
@@ -181,6 +187,21 @@ async function applyTaskAction(
   }
 ): Promise<ArchiveBulkTargetResult> {
   const { action, requestedByUserId, timestamp, uuid } = options
+  const binding = await transaction.archiveImport.findUnique({
+    where: { id: taskId },
+    select: { systemJobId: true, status: true, systemJob: { select: { status: true } } }
+  })
+  const controlJobId = binding?.systemJobId ?? null
+  if (controlJobId) {
+    await lockContentControlJob(transaction, controlJobId)
+    if (action === 'CANCEL' && (await hasBlockingMediaContentCancellation(transaction, controlJobId))) {
+      return {
+        result: 'CONFLICT',
+        code: 'MEDIA_CONTENT_RECOVERY_REQUIRED',
+        message: MEDIA_CONTENT_CANCELLATION_MESSAGE
+      }
+    }
+  }
   // 与发布管线共用全局 advisory lock，使归档控制与发布/回收站状态变更按同一顺序串行。
   await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
   const task = await transaction.archiveImport.findUnique({
@@ -188,6 +209,13 @@ async function applyTaskAction(
     include: { systemJob: true }
   })
   if (!task) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '归档任务不存在' }
+  if (
+    task.systemJobId !== controlJobId ||
+    task.status !== binding?.status ||
+    task.systemJob.status !== binding?.systemJob.status
+  ) {
+    return { result: 'CONFLICT', code: 'STATE_CONFLICT', message: '归档任务状态已改变，请刷新后重试' }
+  }
   await lockUploaderCatalogImport(transaction, task)
   if (task.cleanupRequestedAt) {
     return { result: 'CONFLICT', code: 'CLEANUP_IN_PROGRESS', message: '归档任务正在清理暂存文件' }
@@ -197,6 +225,15 @@ async function applyTaskAction(
   if (ineligibility) return ineligibility
 
   if (action === 'RETRY') {
+    if (
+      await retryUnresolvedArchivePublication(transaction, task, {
+        timestamp,
+        requestedByUserId,
+        message: '重试原归档发布任务'
+      })
+    ) {
+      return { result: 'APPLIED', relatedId: task.systemJobId }
+    }
     // RETRY 新建 SystemJob 并用 parentJobId 保留重试链；旧 job 继续作为历史审计记录。
     const nextJobId = uuid()
     const phase = task.phase === 'PUBLISH' ? 'PUBLISH' : 'DOWNLOAD'

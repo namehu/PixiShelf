@@ -31,6 +31,16 @@ sources:
 
 账户与作品外键使用 `Cascade`，Image 外键使用 `SetNull`。Image 删除时保留标记 ID、时间及作品名／序号／类型快照；正常扫描和排序沿用 Image ID。应用内同 ID 原件覆写通过既有写入状态及作品锁，在成功收尾事务中断开标记引用；替换回滚保留。数据身份不依赖文件名、数组序号、派生图或内容哈希。用户规则及回退限制见[单图书签与喜欢](../../../docs/features/media-marks.md)。
 
+## 原媒体内容证据与写入声明
+
+局部核验日期：2026-10-23，适用于去重开发分支。`20261023002000_media_content_fingerprints` 新增文件/作品源状态、文件/作品指纹、目录代次和路径写入声明；`20261023003000_media_content_recovery_grants` 新增离线恢复授权。两次迁移只创建数据库结构及约束，不读取媒体、不回填历史哈希；阶段验收状态见[隔离验证记录](../../../docs/records/artwork-deduplication-phase-1-2026-10-23.md)。
+
+Image 的增删及内容相关路径/大小/归属更新通过语句级触发器推进相关源代次；纯标题与排序变化不使内容缓存失效。同 ID 文件覆写由写入口显式声明，数据库触发器不能观察文件系统。完整替换推进作品 epoch，单媒体变更推进受影响源状态；源代次单调递增，不能恢复旧代次来重用旧证据。版本、大小和高精度文件属性使用 BIGINT。
+
+没有 Image 的新上传同样需要路径声明。目录与路径按受管根命名空间定位，开始/结束写入推进目录及祖先代次；扫描不能略过写入中路径后发布不完整成员。业务发布在短事务内检查持有者、token、声明版本、源代次和执行租约，并与声明结束一同提交。文件读取、哈希与文件搬移在事务外完成，文件系统和数据库没有共同事务。
+
+文件与作品指纹是可重建缓存，随媒体/作品级联清理；尚未结束的路径声明及恢复授权是操作状态，不能当缓存删除。根身份变化、旧执行或不确定文件结果都保留声明。恢复授权绑定原 job、会话、精确声明和下一 attempt，不表示文件已经恢复，也不能替代原领域的文件核验。精确数据访问与锁顺序以 `src/media-content-*.ts`、SQL migration 和[阶段契约](../../../docs/design/artwork-deduplication/phase-1-contracts.md)为准。
+
 ## Image 的 WebP 动画时长关系
 
 `20260924120000_add_image_animation_duration_metadata` 新增 `ImageAnimationMetadata`，`imageId` 是 Image 的一对一主键和外键，`ON DELETE CASCADE`。这是加法迁移，不回填历史 Image；缺少关系行且已被确认动画（webpAnimationStatus=2）的 WebP 才进入时长候选。`durationMs` 和源文件 size/mtime/ctime/device/inode 使用 BIGINT；前端仅在 `READY`、当前时长策略、源路径匹配且 duration 能安全转成 number 时得到时长。`status,nextRetryAt,imageId` 索引用于有界候选和失败重试，不扫描原媒体来填列表。

@@ -21,8 +21,8 @@ export const batchCreateArtworksAction = authActionClient
  */
 export const batchRegisterImagesAction = authActionClient
   .inputSchema(BatchRegisterImageSchema)
-  .action(async ({ parsedInput }) => {
-    const result = await batchRegisterImagesService(parsedInput)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = await batchRegisterImagesService(parsedInput, ctx.userId)
     revalidatePath('/admin/artworks')
     return result
   })

@@ -1,6 +1,6 @@
 import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import type { ArchiveRemoteMedia } from '../types.js'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -9,6 +9,7 @@ import sharp from 'sharp'
 import { EHentaiProvider } from '../providers/e-hentai.js'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
+  assertCompletedArchivePublication,
   buildArchiveStoragePaths,
   pathExists,
   prepareArchiveRevisionDirectory,
@@ -328,6 +329,45 @@ describe('archive executor storage safety', () => {
     expect(await readFile(path.join(paths.finalAbsolutePath, 'manifest.json'), 'utf8')).toBe('{}')
     expect(await pathExists(paths.stagingAbsolutePath)).toBe(false)
   })
+
+  it.each(['complete', 'staging', 'dangling-staging', 'wrong-manifest', 'wrong-identity', 'missing-media'])(
+    'only proves a fully published immutable revision: %s',
+    async (scenario) => {
+      const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-archive-storage-'))
+      temporaryDirectories.push(root)
+      const paths = buildArchiveStoragePaths({
+        scanRoot: root,
+        archiveImportId: 'import-1',
+        providerKey: 'test',
+        creatorBucket: 'bucket',
+        externalId: 'external-1'
+      })
+      const manifest = JSON.stringify({
+        revisionId: 'import-1',
+        provider: { key: 'test', externalId: 'external-1' },
+        media: []
+      })
+      await mkdir(path.join(paths.finalAbsolutePath, 'media'), { recursive: true })
+      await writeFile(path.join(paths.finalAbsolutePath, 'manifest.json'), manifest)
+      await mkdir(path.dirname(paths.stagingAbsolutePath), { recursive: true })
+      if (scenario === 'staging') await mkdir(paths.stagingAbsolutePath)
+      if (scenario === 'dangling-staging') await symlink(path.join(root, 'missing'), paths.stagingAbsolutePath)
+      if (scenario === 'missing-media') await rm(path.join(paths.finalAbsolutePath, 'media'), { recursive: true })
+      const proof = assertCompletedArchivePublication(
+        paths,
+        scenario === 'wrong-manifest' ? '0'.repeat(64) : createHash('sha256').update(manifest).digest('hex'),
+        {
+          id: scenario === 'wrong-identity' ? 'different' : 'import-1',
+          providerKey: 'test',
+          externalId: 'external-1',
+          items: []
+        }
+      )
+      if (scenario === 'complete') await expect(proof).resolves.toBeUndefined()
+      else await expect(proof).rejects.toThrow()
+      expect(await readFile(path.join(paths.finalAbsolutePath, 'manifest.json'), 'utf8')).toBe(manifest)
+    }
+  )
 
   it('rejects a tampered final revision path that escapes the scan root', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'pixishelf-archive-storage-'))

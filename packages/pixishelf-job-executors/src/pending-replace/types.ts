@@ -1,3 +1,5 @@
+import type { ExecutorMediaWrite } from '../scan/media-content-write.ts'
+import type { ExecutionContext } from '@pixishelf/job-runtime'
 import type { PendingReplacePayload } from '@pixishelf/job-contracts'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
 
@@ -161,9 +163,16 @@ export interface PendingReplaceItemCheckpoint {
   startedAt?: Date | null
   finishedAt?: Date | null
   backupBytesIncrement?: number
+  contentWrite?: ExecutorMediaWrite
 }
 
 export interface PendingReplaceDatabasePort<TTransaction extends QueueSqlExecutor = QueueSqlExecutor> {
+  beginContentWrite(input: {
+    context: Pick<ExecutionContext, 'job' | 'mutateInTransaction'>
+    scanRoot: string
+    item: PendingReplaceItemSnapshot
+    action: 'replace' | 'restore'
+  }): Promise<ExecutorMediaWrite>
   loadOperation(systemJobId: string): Promise<PendingReplaceOperationSnapshot | null>
   loadBatch(batchId: string): Promise<PendingReplaceBatchSnapshot | null>
   loadItems(batchId: string, itemIds?: readonly string[]): Promise<PendingReplaceItemSnapshot[]>
@@ -189,6 +198,7 @@ export interface PendingReplaceDatabasePort<TTransaction extends QueueSqlExecuto
     transaction: TTransaction,
     input: {
       item: PendingReplaceItemSnapshot
+      contentWrite: ExecutorMediaWrite
       expectedOldMedia: PendingReplaceMediaSnapshot[]
       newMedia: PendingReplaceMediaSnapshot[]
       appendTagIds: number[]
@@ -202,6 +212,7 @@ export interface PendingReplaceDatabasePort<TTransaction extends QueueSqlExecuto
     transaction: TTransaction,
     input: {
       item: PendingReplaceItemSnapshot
+      contentWrite: ExecutorMediaWrite
       expectedNewMedia: PendingReplaceMediaSnapshot[]
       oldMedia: PendingReplaceMediaSnapshot[]
       now: Date
@@ -279,7 +290,11 @@ export class PendingReplacePermanentError extends Error {
 
 export class PendingReplaceActionRequiredError extends Error {
   constructor(
-    readonly code: 'FILESYSTEM_RECOVERY_FAILED' | 'BACKUP_CHANGED' | 'PUBLISH_OUTCOME_UNKNOWN',
+    readonly code:
+      | 'FILESYSTEM_RECOVERY_FAILED'
+      | 'BACKUP_CHANGED'
+      | 'PUBLISH_OUTCOME_UNKNOWN'
+      | 'CONTENT_WRITE_RECOVERY_REQUIRED',
     message: string,
     readonly itemId?: string
   ) {

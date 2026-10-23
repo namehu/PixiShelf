@@ -106,9 +106,12 @@ async function readOrHashStableFile(input: {
     if (offset !== expectedSize || !sameFileState(before, after)) {
       throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Input file changed while it was being read')
     }
-    const pathMetadata = await fs.lstat(input.absolutePath)
+    const pathMetadata = await fs.lstat(input.absolutePath, { bigint: true })
     if (pathMetadata.isSymbolicLink()) {
       throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Input file became a symbolic link')
+    }
+    if (!sameFileState(after, pathMetadata)) {
+      throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Input file was replaced while it was being read')
     }
     const finalPath = await fs.realpath(input.absolutePath)
     if (finalPath !== input.absolutePath) {
@@ -153,8 +156,8 @@ function sameFileState(left: BigIntStats, right: BigIntStats) {
     left.dev === right.dev &&
     left.ino === right.ino &&
     left.size === right.size &&
-    left.mtimeMs === right.mtimeMs &&
-    left.ctimeMs === right.ctimeMs
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs
   )
 }
 

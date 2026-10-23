@@ -2,9 +2,11 @@
 import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
+import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  writes: new Map<string, any>(),
   findArtwork: vi.fn(),
   otherArtworks: vi.fn(),
   findImages: vi.fn(),
@@ -18,15 +20,75 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@pixishelf/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pixishelf/db')>()),
+  beginMediaContentPathWrite: async (_tx: unknown, input: any) => {
+    const row = mocks.writes.get(input.writeToken) ?? {
+      id: input.writeToken,
+      writeToken: input.writeToken,
+      scope: 'DIRECTORY',
+      parentWriteId: null,
+      directoryId: input.writeToken,
+      declarationVersion: 1n,
+      status: 'ACTIVE',
+      jobId: null,
+      ...input.owner,
+      directory: input.directory
+    }
+    mocks.writes.set(input.writeToken, row)
+    return {
+      status: 'READY',
+      value: {
+        writeId: row.id,
+        directoryId: row.directoryId,
+        writeToken: row.writeToken,
+        declarationVersion: row.declarationVersion,
+        scope: { kind: 'DIRECTORY' },
+        parentWriteId: null
+      }
+    }
+  },
+  beginMediaContentSourceWrite: async () => ({}),
+  resumeMediaContentSourceWrite: async (_tx: unknown, input: any) => ({ status: 'READY', value: input.token }),
   lockCreatorCatalog: mocks.lockCatalog,
   lockArtworkForReading: mocks.lockArtwork
 }))
+vi.mock('../content-source-guard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../content-source-guard')>()),
+  resolveContentPath: async (scanRoot: string, target: string) => {
+    const canonical = await fs.realpath(scanRoot)
+    const relativePath = path.isAbsolute(target) ? path.relative(scanRoot, target) : target
+    return {
+      absolutePath: path.join(canonical, relativePath),
+      relativePath,
+      directory: {
+        logicalRoot: 'source-media:v1',
+        rootIdentity: 'fixture-root',
+        relativeDirectory: path.dirname(relativePath) === '.' ? '' : path.dirname(relativePath)
+      }
+    }
+  },
+  publishContentOwner: async (
+    tx: unknown,
+    _user: unknown,
+    _auth: unknown,
+    _outcome: unknown,
+    publish: (tx: unknown) => unknown
+  ) => {
+    const result = await publish(tx)
+    for (const row of mocks.writes.values()) {
+      row.status = 'COMPLETED'
+      row.declarationVersion++
+    }
+    return result
+  }
+}))
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    mediaContentPathWrite: { findUnique: async (args: any) => mocks.writes.get(args.where.writeToken) ?? null },
     artwork: { findUnique: mocks.findArtwork, findMany: mocks.otherArtworks, delete: mocks.deleteArtwork },
     image: { findMany: mocks.findImages, deleteMany: mocks.deleteImages },
     $transaction: async (callback: (tx: unknown) => Promise<unknown>) =>
       callback({
+        mediaContentPathWrite: { findUnique: async (args: any) => mocks.writes.get(args.where.writeToken) ?? null },
         image: { deleteMany: mocks.deleteImages, findMany: mocks.findImages },
         artwork: { delete: mocks.deleteArtwork }
       })
@@ -77,10 +139,11 @@ async function exists(relative: string) {
   )
 }
 const run = async (selectedPaths?: string[]) => {
-  const preview = await previewDeleteArtwork(1)
+  const preview = await previewDeleteArtwork(1, 'admin-1')
   return deleteArtwork(
     {
       artworkId: 1,
+      operationId: preview.operationId ?? randomUUID(),
       ...(artwork.createdVia === 'URL_ARCHIVE'
         ? {}
         : {
@@ -96,6 +159,7 @@ const run = async (selectedPaths?: string[]) => {
 }
 beforeEach(async () => {
   vi.resetAllMocks()
+  mocks.writes.clear()
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-delete-'))
   artwork = {
     id: 1,
@@ -253,12 +317,14 @@ describe('deleteArtwork actual filesystem results', () => {
       return unlink(file)
     })
     const report = await run()
-    expect(report.outcome).toBe('PARTIAL')
+    expect(report.outcome).toBe('FAILED')
     expect(report.database.artwork).toBe('RETAINED')
     expect(mocks.deleteImages).not.toHaveBeenCalled()
-    expect(report.entries).toContainEqual(expect.objectContaining({ path: artwork.metaSource, status: 'DELETED' }))
+    expect(report.entries).toContainEqual(
+      expect.objectContaining({ path: artwork.metaSource, status: 'NOT_ATTEMPTED' })
+    )
     expect(JSON.stringify(report)).not.toContain(root)
-    expect(await exists(artwork.metaSource)).toBe(false)
+    expect(await exists(artwork.metaSource)).toBe(true)
   })
   it.each(['media', 'artwork'] as const)(
     'reports already-deleted files when the %s database step fails',
@@ -282,14 +348,13 @@ describe('deleteArtwork actual filesystem results', () => {
     await write(media[0]!.path)
     const rmdir = fs.rmdir.bind(fs)
     vi.spyOn(fs, 'rmdir').mockImplementation(async (value) => {
+      if (String(value).includes('.pixishelf-upload-recovery')) return rmdir(value)
       await fs.writeFile(path.join(String(value), 'new.txt'), 'new content')
       return rmdir(value)
     })
     const report = await run()
     expect(report.counts.directories).toBe(0)
-    expect(report.entries).toContainEqual(
-      expect.objectContaining({ path: directory, status: 'RETAINED', code: 'ENOTEMPTY' })
-    )
+    expect(report.entries).toContainEqual(expect.objectContaining({ path: directory, status: 'RETAINED' }))
     expect(await exists(`${directory}/new.txt`)).toBe(true)
   })
   it('preserves shared directories and shared registered media', async () => {
@@ -309,7 +374,7 @@ describe('deleteArtwork actual filesystem results', () => {
   it('does no mutation when reference lookup fails', async () => {
     await write(media[0]!.path)
     mocks.otherArtworks.mockRejectedValue(new Error('unavailable'))
-    await expect(previewDeleteArtwork(1)).rejects.toThrow('unavailable')
+    await expect(previewDeleteArtwork(1, 'admin-1')).rejects.toThrow('unavailable')
     const report = await deleteArtwork(
       { artworkId: 1, selectedPaths: [media[0]!.path] },
       { requestedByUserId: 'admin-1' }
@@ -441,7 +506,7 @@ describe('explicit deletion selection', () => {
   it('previews and deletes links.txt, nested and hidden files without matching filenames', async () => {
     await write(media[0]!.path)
     for (const file of ['133479323-简介-links.txt', 'nested/notes.txt', '.hidden']) await write(`${directory}/${file}`)
-    const preview = await previewDeleteArtwork(1)
+    const preview = await previewDeleteArtwork(1, 'admin-1')
     expect(preview.canDelete).toBe(true)
     expect(await exists(media[0]!.path)).toBe(true)
     expect(mocks.deleteImages).not.toHaveBeenCalled()
@@ -476,7 +541,7 @@ describe('explicit deletion selection', () => {
 
   it('does not add a newly discovered optional file to the submitted selection', async () => {
     await write(media[0]!.path)
-    const preview = await previewDeleteArtwork(1)
+    const preview = await previewDeleteArtwork(1, 'admin-1')
     await write(`${directory}/new.txt`)
     const result = await run(
       preview.entries.filter((entry) => entry.selection === 'REQUIRED').map((entry) => entry.path)
@@ -493,7 +558,7 @@ describe('explicit deletion selection', () => {
     await write(`${directory}/.pixishelf-root`)
     await write('other/work/sentinel.txt')
     await fs.symlink(path.join(root, 'other/work/sentinel.txt'), path.join(root, directory, 'link.txt'))
-    const preview = await previewDeleteArtwork(1)
+    const preview = await previewDeleteArtwork(1, 'admin-1')
     for (const name of ['.pixishelf-root', 'link.txt']) {
       expect(preview.entries).toContainEqual(
         expect.objectContaining({ path: `${directory}/${name}`, selection: 'BLOCKED' })
@@ -510,7 +575,7 @@ describe('explicit deletion selection', () => {
     await write(media[0]!.path)
     await write(`${directory}/notes.txt`)
     mocks.otherArtworks.mockResolvedValue([{ storagePath: directory, metaSource: null }])
-    const preview = await previewDeleteArtwork(1)
+    const preview = await previewDeleteArtwork(1, 'admin-1')
     expect(preview).toMatchObject({ directoryMode: 'SHARED_DIRECTORY', inspectionComplete: true, canDelete: true })
     expect(preview.entries).toContainEqual(
       expect.objectContaining({ path: `${directory}/notes.txt`, selection: 'BLOCKED' })
@@ -524,7 +589,7 @@ describe('explicit deletion selection', () => {
     media = [{ path: 'artist/1.jpg', chaptersPath: null }]
     await write(media[0]!.path)
     await write('artist/other.txt')
-    const preview = await previewDeleteArtwork(1)
+    const preview = await previewDeleteArtwork(1, 'admin-1')
     expect(preview.directoryMode).toBe('REGISTERED_ONLY')
     expect(preview.entries.map((entry) => entry.path)).toEqual([media[0]!.path])
     expect((await run()).database.artwork).toBe('DELETED')
@@ -537,7 +602,7 @@ describe('explicit deletion selection', () => {
       await write(media[0]!.path)
       if (failure === 'depth') await write(`${directory}/${Array(14).fill('nested').join('/')}/notes.txt`)
       else vi.spyOn(fs, 'opendir').mockRejectedValue(Object.assign(new Error('Denied'), { code: 'EACCES' }))
-      const preview = await previewDeleteArtwork(1)
+      const preview = await previewDeleteArtwork(1, 'admin-1')
       expect(preview).toMatchObject({ canDelete: false, inspectionComplete: false })
       const result = await run([media[0]!.path])
       expect(result.outcome).toBe('FAILED')
@@ -556,7 +621,7 @@ describe('explicit deletion selection', () => {
           }
         }) as unknown as Awaited<ReturnType<typeof fs.opendir>>
     )
-    const preview = await previewDeleteArtwork(1)
+    const preview = await previewDeleteArtwork(1, 'admin-1')
     expect(preview).toMatchObject({ canDelete: false, inspectionComplete: false })
     expect(preview.entries).toContainEqual(expect.objectContaining({ path: directory, code: 'INSPECTION_LIMIT' }))
     expect(mocks.deleteArtwork).not.toHaveBeenCalled()
@@ -580,7 +645,7 @@ describe('explicit deletion selection', () => {
     const retry = await run()
     expect(retry).toMatchObject({
       outcome: 'COMPLETED',
-      counts: { missing: 1, media: 0, sidecars: 1 },
+      counts: { missing: 0, media: 1, sidecars: 1 },
       database: { artwork: 'DELETED' }
     })
     expect(await exists(directory)).toBe(false)

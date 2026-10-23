@@ -1,100 +1,196 @@
-import { VIDEO_EXTENSIONS } from '@/lib/constant'
+import { confirm } from '@/components/shared/global-confirm'
+import { useRef } from 'react'
+import { useSession } from '@/lib/auth/client'
 import { MAX_MEDIA_UPLOAD_SIZE_BYTES, MAX_MEDIA_UPLOAD_SIZE_LABEL } from '@/lib/upload-limits'
 import type {
   ArtworkMediaApiErrorResponse,
   MediaUploadChunkResponse,
   MediaUploadStatusResponse
 } from '@/types/artwork-media-api'
+import type { ContentWriteAuthorization, MediaUploadReceipt } from '@/schemas/media-content.dto'
+import type { ImageMeta } from '@/services/artwork-service/image-manager'
 
 type UploadProgressCallback = (percent: number) => void
+type UploadState = {
+  token: string
+  sessionId: string
+  authorization?: ContentWriteAuthorization
+  requests: Record<string, string>
+  hashes: Record<string, string>
+  meta?: ImageMeta
+}
+const storageKey = (
+  userId: string,
+  file: File,
+  fileName: string,
+  targetDir: string,
+  parent?: ContentWriteAuthorization
+) => `pixishelf:upload:v1:${JSON.stringify([userId, parent?.handle.writeId ?? null, targetDir, fileName, file.size])}`
+const sha256 = async (blob: Blob) =>
+  Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer())), (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('')
+const CHUNK_SIZE = 10 * 1024 * 1024
 
 export function useChunkUpload() {
-  /**
-   * 分片上传单个文件
-   * 支持分片上传与断点续传（仅视频文件）：返回值为服务端最终元数据，不保证每片返回数据。
-   */
+  const { data: session } = useSession()
+  const state = useRef<{ userId: string; sessionId: string } | null>(null)
   const uploadSingleFile = async (
     file: File,
     fileName: string,
     targetDir: string,
     targetRelDir: string,
-    onProgress?: UploadProgressCallback
-  ): Promise<any> => {
-    const CHUNK_SIZE = 10 * 1024 * 1024 // 10MB 分片大小
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
-    let lastMeta = null
-
-    if (file.size > MAX_MEDIA_UPLOAD_SIZE_BYTES) {
-      throw new Error(`文件大小超过限制（${MAX_MEDIA_UPLOAD_SIZE_LABEL}）`)
+    options?: UploadProgressCallback | { onProgress?: UploadProgressCallback; parent?: ContentWriteAuthorization }
+  ): Promise<ImageMeta> => {
+    const onProgress = typeof options === 'function' ? options : options?.onProgress
+    const parent = typeof options === 'function' ? undefined : options?.parent
+    const userId = session?.user.id
+    if (!userId) throw new Error('请登录后上传。')
+    if (!Number.isSafeInteger(file.size) || file.size <= 0) throw new Error('文件为空。')
+    if (file.size > MAX_MEDIA_UPLOAD_SIZE_BYTES) throw new Error(`文件大小超过限制（${MAX_MEDIA_UPLOAD_SIZE_LABEL}）`)
+    if (!state.current || state.current.userId !== userId) state.current = { userId, sessionId: crypto.randomUUID() }
+    const key = storageKey(userId, file, fileName, targetDir, parent)
+    const stored = localStorage.getItem(key)
+    const existing = stored ? (JSON.parse(stored) as UploadState) : undefined
+    const upload: UploadState = existing ?? {
+      token: crypto.randomUUID(),
+      sessionId: parent?.sessionId ?? state.current.sessionId,
+      requests: {},
+      hashes: {}
     }
-
-    // 仅对视频文件做“已存在分片”探测；图片类文件每次从 chunk 0 开始，可避免误用不一致元数据。
-    let resumeIndex = 0
-    const isVideo = VIDEO_EXTENSIONS.includes('.' + (fileName.split('.').pop() || '').toLowerCase())
-
-    if (isVideo) {
-      try {
-        const checkUrl = `/api/artwork/upload-chunk?fileName=${encodeURIComponent(
-          fileName
-        )}&targetDir=${encodeURIComponent(targetDir)}`
-        const checkRes = await fetch(checkUrl)
-        if (checkRes.ok) {
-          const checkData = (await checkRes.json()) as MediaUploadStatusResponse
-          if (checkData.exists && checkData.size > 0) {
-            // 如果文件存在，从最后一个完整分片开始续传
-            resumeIndex = Math.floor(checkData.size / CHUNK_SIZE)
+    const sessionId = upload.sessionId
+    if (parent && sessionId !== parent.sessionId) throw new Error('上传会话不匹配。')
+    const persist = () => localStorage.setItem(key, JSON.stringify(upload))
+    persist()
+    const identityHeaders = {
+      'x-expected-user-id': userId,
+      'x-upload-session-id': sessionId,
+      'x-upload-token': upload.token
+    }
+    let startIndex = 0
+    let offset = 0
+    if (existing) {
+      const check = await fetch(
+        `/api/artwork/upload-chunk?fileName=${encodeURIComponent(fileName)}&targetDir=${encodeURIComponent(targetDir)}`,
+        { headers: identityHeaders }
+      )
+      if (!check.ok) throw new Error('无法核对上传会话，请稍后重试。')
+      let checkpoint = (await check.json()) as MediaUploadStatusResponse
+      if (checkpoint.status === 'RECOVERY_REQUIRED') {
+        if (parent) throw new Error('替换上传中断，请在替换会话中恢复原文件后重试。')
+        const accepted = await new Promise<boolean>((resolve) =>
+          confirm({
+            title: '重新上传该文件？',
+            description: '上次写入未完成。将从头上传当前文件，完成前保持原标记不可用。',
+            confirmText: '重新上传该文件',
+            onConfirm: () => {
+              resolve(true)
+            },
+            onCancel: () => {
+              resolve(false)
+            }
+          })
+        )
+        if (!accepted) throw new Error('上传保持暂停。')
+        const restart = await fetch('/api/artwork/upload-chunk', {
+          method: 'PATCH',
+          headers: {
+            ...identityHeaders,
+            'x-file-name': encodeURIComponent(fileName),
+            'x-target-dir': encodeURIComponent(targetDir),
+            'x-upload-authorization': JSON.stringify(checkpoint.authorization)
+          }
+        })
+        const result = (await restart.json()) as MediaUploadStatusResponse & Partial<ArtworkMediaApiErrorResponse>
+        if (!restart.ok) throw new Error(result.error || '无法重启上传。')
+        checkpoint = result
+        upload.requests = {}
+        upload.hashes = {}
+        delete upload.meta
+        upload.authorization = checkpoint.authorization
+        persist()
+      }
+      if (checkpoint.exists) {
+        upload.authorization = checkpoint.authorization
+        for (let index = 0; index < (checkpoint.nextChunkIndex ?? 0); index++) {
+          const expected = upload.hashes[String(index)]
+          if (
+            !expected ||
+            expected !== (await sha256(file.slice(index * CHUNK_SIZE, Math.min((index + 1) * CHUNK_SIZE, file.size))))
+          ) {
+            throw new Error('所选文件与之前上传的内容不同，已停止续传。')
           }
         }
-      } catch (e) {
-        console.warn('Failed to check file status, starting from scratch', e)
-      }
-    }
-
-    const startIndex = Math.min(resumeIndex, Math.max(0, totalChunks - 1))
-
-    // 探测失败时 resumeIndex 保持为 0；服务端进度超过范围时最多从最后一片重新上传。
-    for (let chunkIndex = startIndex; chunkIndex < totalChunks; chunkIndex++) {
-      const start = chunkIndex * CHUNK_SIZE
-      const end = Math.min(start + CHUNK_SIZE, file.size)
-      const chunk = file.slice(start, end)
-
-      // 分片元数据通过请求头传递，服务端据此重组文件与校验顺序，offset/total-chunks 不可任意更改。
-      const headers: Record<string, string> = {
-        'x-file-name': encodeURIComponent(fileName),
-        'x-target-dir': encodeURIComponent(targetDir),
-        'x-target-rel-dir': encodeURIComponent(targetRelDir || ''),
-        'x-chunk-index': chunkIndex.toString(),
-        'x-total-chunks': totalChunks.toString(),
-        'x-offset': start.toString(),
-        'x-file-size': file.size.toString()
-      }
-
-      const res = await fetch('/api/artwork/upload-chunk', {
-        method: 'POST',
-        headers,
-        body: chunk
-      })
-
-      if (!res.ok) {
-        const err = (await res.json().catch(() => ({}))) as Partial<ArtworkMediaApiErrorResponse>
-        throw new Error(err.error || `Chunk ${chunkIndex} failed`)
-      }
-
-      // 约定：仅最后一个分片返回 meta；在此处更新避免每片都重复 parse 返回体。
-      if (chunkIndex === totalChunks - 1) {
-        const json = (await res.json()) as MediaUploadChunkResponse
-        if (json.meta) {
-          lastMeta = json.meta[0]
+        if (checkpoint.status === 'COMPLETED' && upload.meta) return upload.meta
+        persist()
+        startIndex = checkpoint.nextChunkIndex ?? 0
+        offset = checkpoint.size
+        // Replaying the last receipt returns metadata after a lost final response.
+        if (startIndex === Math.ceil(file.size / CHUNK_SIZE)) {
+          startIndex -= 1
+          offset = startIndex * CHUNK_SIZE
         }
       }
-
-      onProgress?.(Math.round(((chunkIndex + 1) / totalChunks) * 100))
     }
-
-    return lastMeta
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE)
+    for (let chunkIndex = startIndex; chunkIndex < totalChunks; chunkIndex++) {
+      const start = chunkIndex * CHUNK_SIZE
+      if (offset !== start) throw new Error('上传检查点不匹配，已停止写入。')
+      const requestId = upload.requests[String(chunkIndex)] ?? crypto.randomUUID()
+      upload.requests[String(chunkIndex)] = requestId
+      upload.hashes[String(chunkIndex)] = await sha256(file.slice(start, Math.min(start + CHUNK_SIZE, file.size)))
+      persist()
+      const response = await fetch('/api/artwork/upload-chunk', {
+        method: 'POST',
+        headers: {
+          ...identityHeaders,
+          'x-upload-request-id': requestId,
+          'x-file-name': encodeURIComponent(fileName),
+          'x-target-dir': encodeURIComponent(targetDir),
+          'x-target-rel-dir': encodeURIComponent(targetRelDir),
+          'x-file-size': String(file.size),
+          'x-chunk-index': String(chunkIndex),
+          'x-total-chunks': String(totalChunks),
+          'x-offset': String(start),
+          ...(upload.authorization ? { 'x-upload-authorization': JSON.stringify(upload.authorization) } : {}),
+          ...(parent ? { 'x-upload-parent': JSON.stringify(parent) } : {})
+        },
+        body: file.slice(start, Math.min(start + CHUNK_SIZE, file.size))
+      })
+      const result = (await response.json().catch(() => ({}))) as MediaUploadChunkResponse &
+        Partial<ArtworkMediaApiErrorResponse>
+      if (!response.ok) throw new Error(result.error || '上传失败。')
+      upload.authorization = result.authorization
+      persist()
+      offset = result.committedBytes
+      onProgress?.(Math.round((offset / file.size) * 100))
+      if (result.type === 'final' && result.meta?.[0]) {
+        upload.meta = result.meta[0]
+        persist()
+        return result.meta[0]
+      }
+    }
+    throw new Error('上传结果缺少媒体信息。')
   }
+  return { uploadSingleFile }
+}
 
-  return {
-    uploadSingleFile
+export function releaseMediaUploadReceipt(receipt?: MediaUploadReceipt) {
+  if (!receipt) return
+  for (let index = localStorage.length - 1; index >= 0; index--) {
+    const key = localStorage.key(index)
+    if (!key?.startsWith('pixishelf:upload:v1:')) continue
+    try {
+      const stored = JSON.parse(localStorage.getItem(key) ?? '{}') as UploadState
+      if (
+        stored.sessionId === receipt.authorization.sessionId &&
+        stored.token === receipt.authorization.handle.writeToken &&
+        stored.meta?.uploadReceipt?.expectedUserId === receipt.expectedUserId
+      ) {
+        localStorage.removeItem(key)
+      }
+    } catch {
+      /* Keep unknown recovery records for inspection. */
+    }
   }
 }

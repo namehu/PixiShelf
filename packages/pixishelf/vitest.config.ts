@@ -14,6 +14,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './'),
       '@pixishelf/job-contracts': path.resolve(__dirname, '../pixishelf-job-contracts/src/index.ts'),
+      '@pixishelf/job-executors/media-content': path.resolve(__dirname, '../pixishelf-job-executors/src/media-content/index.ts'),
       '@pixishelf/job-executors/video-audio': path.resolve(
         __dirname,
         '../pixishelf-job-executors/src/video-audio/index.ts'

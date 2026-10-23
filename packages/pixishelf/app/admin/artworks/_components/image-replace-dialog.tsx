@@ -1,4 +1,10 @@
-import { useState, useEffect, useRef, Fragment, useMemo, useId, useCallback } from 'react'
+'use client'
+
+import { postMediaChapterUpload } from '../_hooks/upload-media-chapter'
+import type { PreviewItem, ChapterPreviewItem } from './image-replace-types'
+import { useSession } from '@/lib/auth/client'
+import type { ContentWriteAuthorization } from '@/schemas/media-content.dto'
+import { useState, useEffect, useRef, Fragment, useMemo, useCallback } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -7,9 +13,10 @@ import {
   DialogTitle,
   DialogFooter
 } from '@/components/ui/dialog'
+import { useReplacementRecovery } from '../_hooks/use-replacement-recovery'
+import { ImageReplaceConfirmationDescription } from './image-replace-confirmation-description'
+import { ImageReplaceRecoveryNotice } from './image-replace-recovery-notice'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   Loader2,
@@ -39,11 +46,7 @@ import { useChunkUpload } from '../_hooks/use-chunk-upload'
 import { type ArtworkResponseDto } from '@/schemas/artwork.dto'
 import { isChapterManifestFileName } from '@/utils/artwork/video-chapter-files'
 import { buildReplaceChapterUploadPlan } from './video-chapter-utils'
-import type {
-  ArtworkMediaApiErrorResponse,
-  ImageReplaceInitResponse,
-  MediaChapterUploadResponse
-} from '@/types/artwork-media-api'
+import type { ArtworkMediaApiErrorResponse, ImageReplaceInitResponse } from '@/types/artwork-media-api'
 import { confirm as confirmAction } from '@/components/shared/global-confirm'
 import { requestImageReplaceStart } from './image-replace-confirmation'
 
@@ -65,28 +68,6 @@ type GlobalUploadStatus =
   | 'partial-error'
   | 'rolling-back' // 回滚中状态（兼容旧注释风格）
 
-interface PreviewItem {
-  id: string
-  file: File
-  originalName: string
-  newName: string
-  order: number
-  size: number
-  error?: string
-  status: 'pending' | 'uploading' | 'success' | 'error'
-  progress: number
-  previewUrl?: string
-}
-
-interface ChapterPreviewItem {
-  id: string
-  file: File
-  originalName: string
-  status: 'pending' | 'uploading' | 'success' | 'error'
-  progress: number
-  error?: string
-}
-
 function revokePreviewUrls(items: PreviewItem[]) {
   items.forEach((item) => {
     if (item.previewUrl) URL.revokeObjectURL(item.previewUrl)
@@ -98,7 +79,20 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   const [globalStatus, setGlobalStatus] = useState<GlobalUploadStatus>('idle')
   const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
   const [chapterItems, setChapterItems] = useState<ChapterPreviewItem[]>([])
-  const [uploadConfig, setUploadConfig] = useState<{ uploadTargetDir: string; targetRelDir: string } | null>(null)
+  const { data: accountSession } = useSession()
+  const {
+    uploadAuthorizationRef,
+    uploadConfig,
+    setUploadConfig,
+    recoverable,
+    setRecoverable,
+    pendingCommitRef,
+    persistReplacement,
+    forgetReplacement,
+    replaceHeaders,
+    resetRecovery,
+    restoreRecovery
+  } = useReplacementRecovery(accountSession?.user.id, artworkId)
   // 使用 ref 缓存上传元数据，避免异步流程中闭包读取到过期状态
   const uploadedMetaRef = useRef<Record<string, any>>({})
   const uploadedChapterMetaRef = useRef<Record<string, any>>({})
@@ -141,19 +135,20 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
     setPreviewItems([])
     setChapterItems([])
-    setUploadConfig(null)
+    resetRecovery()
     uploadedMetaRef.current = {}
     uploadedChapterMetaRef.current = {}
     lastScrolledIdRef.current = null
     prevFileCountRef.current = 0
-  }, [])
+  }, [resetRecovery])
 
   // 打开和关闭都构成会话边界：关闭时及时释放大文件，打开时保证拿到全新的上传上下文。
   useEffect(() => {
     clearLocalSession()
     setGlobalStatus('idle')
     isCommittingRef.current = false
-  }, [clearLocalSession, open])
+    if (open) restoreRecovery()
+  }, [clearLocalSession, open, restoreRecovery])
 
   // 展开行、抽屉或页面直接卸载时，open 可能来不及切换为 false，仍需兜底释放。
   useEffect(
@@ -365,16 +360,28 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   // 客户端回滚执行函数
   const executeRollback = async () => {
     setGlobalStatus('rolling-back')
-    const res = await fetch(`/api/artwork/${artworkId}/replace?action=rollback`, { method: 'POST' })
+    if (!uploadAuthorizationRef.current) {
+      const initialized = await fetch(`/api/artwork/${artworkId}/replace?action=init`, {
+        method: 'POST',
+        headers: replaceHeaders()
+      })
+      const result = (await initialized.json()) as ImageReplaceInitResponse & Partial<ArtworkMediaApiErrorResponse>
+      if (!initialized.ok) throw new Error(result.error || '无法接回替换会话。')
+      uploadAuthorizationRef.current = result.authorization
+      setUploadConfig(result)
+      persistReplacement(result)
+    }
+    const res = await fetch(`/api/artwork/${artworkId}/replace?action=rollback`, {
+      method: 'POST',
+      headers: replaceHeaders()
+    })
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as Partial<ArtworkMediaApiErrorResponse>
-      // 忽略“无可用备份”提示，视为回滚成功
-      if (!(res.status === 400 && data.error?.includes('No active backup'))) {
-        throw new Error(data.error || '回滚请求失败')
-      }
+      throw new Error(data.error || '回滚请求失败')
     }
 
-    // 重置本地状态并释放预览 Blob URL / File 引用。
+    // Only a confirmed terminal response clears the persisted credentials.
+    forgetReplacement()
     clearLocalSession()
     return true
   }
@@ -399,7 +406,10 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     try {
       let config = uploadConfig
       if (!config) {
-        const initRes = await fetch(`/api/artwork/${artworkId}/replace?action=init`, { method: 'POST' })
+        const initRes = await fetch(`/api/artwork/${artworkId}/replace?action=init`, {
+          method: 'POST',
+          headers: replaceHeaders()
+        })
         const initData = (await initRes.json()) as ImageReplaceInitResponse | ArtworkMediaApiErrorResponse
         if (!initRes.ok) {
           throw new Error('error' in initData ? initData.error : '初始化备份失败')
@@ -410,9 +420,12 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
 
         config = {
           uploadTargetDir: initData.uploadTargetDir,
-          targetRelDir: initData.targetRelDir
+          targetRelDir: initData.targetRelDir,
+          authorization: initData.authorization
         }
+        uploadAuthorizationRef.current = config.authorization
         setUploadConfig(config)
+        persistReplacement(config)
       }
 
       setGlobalStatus('uploading')
@@ -425,27 +438,18 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
   }
 
   const uploadChapterFile = async (input: { artworkId: number; videoPath: string; file: File }) => {
-    const formData = new FormData()
-    formData.set('artworkId', String(input.artworkId))
-    formData.set('videoPath', input.videoPath)
-    formData.set('file', input.file)
-
-    const response = await fetch('/api/artwork/media-chapters/upload', {
-      method: 'POST',
-      body: formData
+    return postMediaChapterUpload({
+      ...input,
+      userId: accountSession?.user.id ?? '',
+      parent: uploadAuthorizationRef.current ?? undefined
     })
-
-    const data = (await response.json().catch(() => ({}))) as Partial<
-      MediaChapterUploadResponse & ArtworkMediaApiErrorResponse
-    >
-    if (!response.ok) {
-      throw new Error(data.error || '章节上传失败')
-    }
-
-    return data.meta
   }
 
-  const processQueue = async (config: { uploadTargetDir: string; targetRelDir: string }) => {
+  const processQueue = async (config: {
+    uploadTargetDir: string
+    targetRelDir: string
+    authorization: ContentWriteAuthorization
+  }) => {
     const latestPreviewItems = previewItemsRef.current
     const latestChapterItems = chapterItemsRef.current
     const itemsToProcess = latestPreviewItems.filter(
@@ -584,10 +588,12 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         .map((item) => uploadedChapterMetaRef.current[item.id])
         .filter(Boolean)
 
+      pendingCommitRef.current = JSON.stringify({ filesMeta: metas, chaptersMeta })
+      persistReplacement()
       const commitRes = await fetch(`/api/artwork/${artworkId}/replace?action=commit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filesMeta: metas, chaptersMeta })
+        headers: { 'Content-Type': 'application/json', ...replaceHeaders() },
+        body: pendingCommitRef.current
       })
 
       if (!commitRes.ok) {
@@ -596,25 +602,40 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         throw new Error(errorData.error || '数据库同步失败')
       }
 
+      forgetReplacement()
       setGlobalStatus('success')
       toast.success('替换完成')
       onSuccess?.()
       onOpenChange(false)
     } catch (error: any) {
       console.error(error)
-      // 提交失败触发自动回滚
-      toast.error(`提交失败: ${error.message}，正在回滚...`)
-
-      try {
-        await executeRollback()
-        setGlobalStatus('idle')
-        toast.info('已自动回滚到初始状态，请重试')
-      } catch (rollbackError: any) {
-        setGlobalStatus('error')
-        toast.error(`严重错误：回滚失败 (${rollbackError.message})`)
-      }
+      setRecoverable(true)
+      setGlobalStatus('error')
+      toast.error(`提交结果待确认：${error.message}。可重试原提交。`)
     } finally {
       isCommittingRef.current = false
+    }
+  }
+
+  const retrySavedCommit = async () => {
+    if (!pendingCommitRef.current) return
+    setGlobalStatus('syncing')
+    try {
+      const response = await fetch(`/api/artwork/${artworkId}/replace?action=commit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...replaceHeaders() },
+        body: pendingCommitRef.current
+      })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.error || '提交失败')
+      forgetReplacement()
+      clearLocalSession()
+      toast.success('替换完成')
+      onSuccess?.()
+      onOpenChange(false)
+    } catch (error) {
+      setGlobalStatus('error')
+      toast.error(error instanceof Error ? error.message : '提交失败')
     }
   }
 
@@ -744,9 +765,10 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
     const runTask = async (item: (typeof items)[0]) => {
       callbacks?.onStart?.(item.id)
       try {
-        const meta = await uploadSingleFile(item.file, item.newName, targetDir, targetRelDir, (p) =>
-          callbacks?.onProgress?.(item.id, p)
-        )
+        const meta = await uploadSingleFile(item.file, item.newName, targetDir, targetRelDir, {
+          onProgress: (p) => callbacks?.onProgress?.(item.id, p),
+          parent: uploadAuthorizationRef.current ?? undefined
+        })
         callbacks?.onSuccess?.(item.id, meta)
         resultsMap.set(item.id, { id: item.id, meta, status: 'success' })
       } catch (err: any) {
@@ -786,6 +808,16 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         </DialogHeader>
 
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-1">
+          {recoverable && (
+            <ImageReplaceRecoveryNotice
+              pendingCommit={Boolean(pendingCommitRef.current)}
+              busy={globalStatus === 'rolling-back' || globalStatus === 'syncing'}
+              onRecover={() =>
+                pendingCommitRef.current ? retrySavedCommit() : executeRollback().then(() => setGlobalStatus('idle'))
+              }
+              onError={() => setGlobalStatus('error')}
+            />
+          )}
           {/* 文件选择 */}
           <div
             className={cn(
@@ -803,7 +835,12 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
               multiple
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
               onChange={handleFileSelect}
-              disabled={globalStatus === 'uploading' || globalStatus === 'syncing' || globalStatus === 'rolling-back'}
+              disabled={
+                Boolean(pendingCommitRef.current) ||
+                globalStatus === 'uploading' ||
+                globalStatus === 'syncing' ||
+                globalStatus === 'rolling-back'
+              }
             />
             <div className="flex flex-col items-center gap-2 text-muted-foreground">
               <FolderInput className="size-8" aria-hidden="true" />
@@ -892,13 +929,16 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
                           )}
                           <TableRow
                             id={`row-${item.id}`}
-                            className={cn(item.error && 'bg-destructive/5', item.status === 'uploading' && 'bg-primary/5')}
+                            className={cn(
+                              item.error && 'bg-destructive/5',
+                              item.status === 'uploading' && 'bg-primary/5'
+                            )}
                           >
                             <TableCell>
-                            <Input
-                              name={`media-order-${item.id}`}
-                              aria-label={`调整 ${item.originalName} 的排序`}
-                              type="number"
+                              <Input
+                                name={`media-order-${item.id}`}
+                                aria-label={`调整 ${item.originalName} 的排序`}
+                                type="number"
                                 value={item.order}
                                 onChange={(e) => handleOrderChange(index, parseInt(e.target.value) || 0)}
                                 className="h-7 w-16 text-center px-1"
@@ -1105,10 +1145,7 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
           <div className="flex gap-2 justify-end">
             {globalStatus === 'partial-error' ? (
               <>
-                <Button
-                  variant="ghost"
-                  onClick={handleRollbackAndClose}
-                >
+                <Button variant="ghost" onClick={handleRollbackAndClose}>
                   取消 (回滚)
                 </Button>
                 <Button variant="outline" onClick={handleRetryAllFailed} className="gap-1">
@@ -1150,41 +1187,5 @@ export function ImageReplaceDialog({ open, onOpenChange, artworkId, artwork, onS
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function ImageReplaceConfirmationDescription({
-  mediaCount,
-  onSkipChange
-}: {
-  mediaCount: number
-  onSkipChange: (skip: boolean) => void
-}) {
-  const checkboxId = useId()
-  const [skipForSession, setSkipForSession] = useState(false)
-
-  return (
-    <div className="flex flex-col gap-4">
-      <p>将使用列表中的 {mediaCount} 个媒体替换当前内容；系统会先创建可回滚备份。</p>
-      <FieldGroup className="gap-3">
-        <Field orientation="horizontal">
-          <Checkbox
-            id={checkboxId}
-            checked={skipForSession}
-            onCheckedChange={(checked) => {
-              const nextValue = checked === true
-              setSkipForSession(nextValue)
-              onSkipChange(nextValue)
-            }}
-          />
-          <FieldContent>
-            <FieldLabel htmlFor={checkboxId} className="font-normal">
-              本次会话期间不再提示
-            </FieldLabel>
-            <FieldDescription>仅当前浏览器标签页有效，关闭后会恢复确认。</FieldDescription>
-          </FieldContent>
-        </Field>
-      </FieldGroup>
-    </div>
   )
 }

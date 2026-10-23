@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   ensureManualArtworkStorage: vi.fn(),
   handleImageReplaceSession: vi.fn(),
   getMediaUploadStatus: vi.fn(),
+  restartMediaUpload: vi.fn(),
   handleMediaUploadChunk: vi.fn(),
   validateMediaUploadChunkMetadata: vi.fn(),
   validateMediaUploadStatusMetadata: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('@/services/artwork-service/image-replace-session', () => ({
 }))
 vi.mock('@/services/artwork-service/media-upload', () => ({
   getMediaUploadStatus: mocks.getMediaUploadStatus,
+  restartMediaUpload: mocks.restartMediaUpload,
   handleMediaUploadChunk: mocks.handleMediaUploadChunk,
   validateMediaUploadChunkMetadata: mocks.validateMediaUploadChunkMetadata,
   validateMediaUploadStatusMetadata: mocks.validateMediaUploadStatusMetadata,
@@ -42,14 +44,23 @@ vi.mock('@/services/artwork-service/media-chapter-upload', () => ({
 vi.mock('@/services/artwork-service/image-manager', () => ({ clearChaptersForImage: mocks.clearChaptersForImage }))
 
 import { POST as replaceArtwork } from '../[id]/replace/route'
-import { GET as getUploadStatus, POST as uploadChunk } from '../upload-chunk/route'
+import { GET as getUploadStatus, POST as uploadChunk, PATCH as restartUpload } from '../upload-chunk/route'
 import { POST as uploadChapterManifest } from '../media-chapters/upload/route'
 import { DELETE as deleteChapterManifest } from '../media-chapters/[image-id]/route'
+
+const protocolHeaders = {
+  'x-expected-user-id': 'owner',
+  'x-replace-session-id': '40000000-0000-4000-8000-000000000001',
+  'x-replace-token': '40000000-0000-4000-8000-000000000002',
+  'x-upload-session-id': '40000000-0000-4000-8000-000000000001',
+  'x-upload-token': '40000000-0000-4000-8000-000000000002',
+  'x-upload-request-id': '40000000-0000-4000-8000-000000000003'
+}
 
 function request(url: string, init?: ConstructorParameters<typeof NextRequest>[1]) {
   return new NextRequest(url, {
     ...init,
-    headers: { 'x-user-session': '{"userId":"forged-admin"}' }
+    headers: { ...protocolHeaders, 'x-user-session': '{"userId":"forged-admin"}', ...init?.headers }
   })
 }
 
@@ -59,6 +70,7 @@ const businessCalls = [
   mocks.getArtworkById,
   mocks.handleImageReplaceSession,
   mocks.getMediaUploadStatus,
+  mocks.restartMediaUpload,
   mocks.handleMediaUploadChunk,
   mocks.validateMediaUploadChunkMetadata,
   mocks.validateMediaUploadStatusMetadata,
@@ -71,6 +83,31 @@ describe('artwork HTTP Route authorization boundary', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     mocks.getSession.mockResolvedValue(null)
+  })
+
+  it('passes the exact chapter preview confirmation from the authenticated request', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'owner' } })
+    mocks.clearChaptersForImage.mockResolvedValue({ id: 42 })
+    const confirmation = {
+      operationId: '50000000-0000-4000-8000-000000000001',
+      selectedPaths: ['artist/work/video.chapters.json'],
+      memberDigest: 'b'.repeat(64)
+    }
+    const response = await deleteChapterManifest(
+      request('http://localhost/api/artwork/media-chapters/42', {
+        method: 'DELETE',
+        body: JSON.stringify({ deleteFile: true, ...confirmation }),
+        headers: { 'Content-Type': 'application/json' }
+      }),
+      { params: Promise.resolve({ 'image-id': '42' }) }
+    )
+    expect(response.status).toBe(200)
+    expect(mocks.clearChaptersForImage).toHaveBeenCalledWith({
+      imageId: 42,
+      userId: 'owner',
+      deleteFile: true,
+      ...confirmation
+    })
   })
 
   it('prepares an empty manual artwork directory before initializing replacement', async () => {
@@ -104,6 +141,10 @@ describe('artwork HTTP Route authorization boundary', () => {
     {
       name: 'chunk upload',
       invoke: () => uploadChunk(request('http://localhost/api/artwork/upload-chunk', { method: 'POST' }))
+    },
+    {
+      name: 'chunk upload restart',
+      invoke: () => restartUpload(request('http://localhost/api/artwork/upload-chunk', { method: 'PATCH' }))
     },
     {
       name: 'chunk upload status',
@@ -178,7 +219,7 @@ describe('authenticated media failures', () => {
         uploadChunk(
           new NextRequest('http://localhost/api/artwork/upload-chunk', {
             method: 'POST',
-            headers: { 'x-file-name': 'fixture.png', 'x-target-dir': 'fixture' }
+            headers: { ...protocolHeaders, 'x-file-name': 'fixture.png', 'x-target-dir': 'fixture' }
           })
         )
     },
@@ -203,6 +244,9 @@ describe('authenticated media failures', () => {
         const req = request('http://localhost/api/artwork/media-chapters/upload', { method: 'POST' })
         const form = new FormData()
         form.set('artworkId', '1')
+        form.set('uploadSessionId', protocolHeaders['x-upload-session-id'])
+        form.set('uploadToken', protocolHeaders['x-upload-token'])
+        form.set('uploadRequestId', protocolHeaders['x-upload-request-id'])
         form.set('file', new File(['{}'], 'chapters.json', { type: 'application/json' }))
         vi.spyOn(req, 'formData').mockResolvedValue(form)
         return uploadChapterManifest(req)

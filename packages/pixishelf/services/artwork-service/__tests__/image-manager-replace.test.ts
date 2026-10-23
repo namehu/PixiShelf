@@ -1,3 +1,4 @@
+import { fixtureReceipt, fixtureUser } from './media-content-fixture'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const {
@@ -27,6 +28,19 @@ vi.mock('@pixishelf/db', () => ({
   lockArtworkForReading: lockArtworkMock
 }))
 
+vi.mock('../content-source-guard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../content-source-guard')>()),
+  verifyUploadReceipt: async () => ({ status: 'READY', handle: { parentWriteId: null } }),
+  finishLegacyContentGuards: async () => undefined,
+  publishContentOwner: async (
+    tx: unknown,
+    _user: unknown,
+    _auth: unknown,
+    _outcome: unknown,
+    publish: (tx: unknown) => unknown
+  ) => publish(tx)
+}))
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     $transaction: transactionMock
@@ -44,7 +58,10 @@ vi.mock('@/services/setting.service', () => ({
 import { updateArtworkImagesTransaction, updateArtworkImagesWithTransactionClient } from '../image-manager'
 
 const tx = {
+  artwork: { findUnique: async () => ({ storagePath: 'artist/artwork', images: [] }) },
+  mediaContentPathWrite: { update: async () => ({}) },
   image: {
+    findFirst: async () => null,
     deleteMany: imageDeleteManyMock,
     createMany: imageCreateManyMock,
     create: imageCreateMock
@@ -83,7 +100,9 @@ describe('updateArtworkImagesTransaction', () => {
 
     expect(imageDeleteManyMock).toHaveBeenCalledWith({ where: { artworkId: 10 } })
     expect(invalidateReadingMock).toHaveBeenCalledWith(tx, 10)
-    expect(invalidateReadingMock.mock.invocationCallOrder[0]).toBeLessThan(imageDeleteManyMock.mock.invocationCallOrder[0]!)
+    expect(invalidateReadingMock.mock.invocationCallOrder[0]).toBeLessThan(
+      imageDeleteManyMock.mock.invocationCallOrder[0]!
+    )
     expect(imageCreateManyMock).toHaveBeenCalled()
     expect(syncMediaDerivedTagMock).toHaveBeenCalledWith(tx, 10)
     expect(tagFindManyMock).not.toHaveBeenCalled()
@@ -190,7 +209,9 @@ describe('updateArtworkImagesWithTransactionClient', () => {
 
     expect(transactionMock).not.toHaveBeenCalled()
     expect(invalidateReadingMock).toHaveBeenCalledWith(tx, 10)
-    expect(invalidateReadingMock.mock.invocationCallOrder[0]).toBeLessThan(imageDeleteManyMock.mock.invocationCallOrder[0]!)
+    expect(invalidateReadingMock.mock.invocationCallOrder[0]).toBeLessThan(
+      imageDeleteManyMock.mock.invocationCallOrder[0]!
+    )
     expect(imageDeleteManyMock).toHaveBeenCalledWith({ where: { artworkId: 10 } })
     expect(imageCreateManyMock).toHaveBeenCalledWith({
       data: [
@@ -231,14 +252,20 @@ describe('updateArtworkImagesWithTransactionClient', () => {
     })
 
     const { addImageWithChapters } = await import('../image-manager')
-    const image = await addImageWithChapters(10, {
-      fileName: 'video.mp4',
-      order: 2,
-      width: 0,
-      height: 0,
-      size: 3048403909,
-      path: '/artist/artwork/video.mp4'
-    })
+    const image = await addImageWithChapters(
+      10,
+      {
+        fileName: 'video.mp4',
+        order: 2,
+        width: 0,
+        height: 0,
+        size: 3048403909,
+        path: '/artist/artwork/video.mp4',
+        uploadReceipt: fixtureReceipt('artist/artwork/video.mp4')
+      },
+      undefined,
+      fixtureUser
+    )
 
     expect(imageCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({

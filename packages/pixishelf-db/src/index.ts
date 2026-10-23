@@ -7,10 +7,22 @@ export * from './artist-merge'
 export * from './animation-duration'
 export * from './artwork-reading'
 export * from './artwork-summary'
+export * from './media-content-types'
+export * from './media-content-directory'
+export * from './media-content-writes'
+export * from './media-content-evidence'
+export * from './media-content-recovery'
 
-const latestRequiredMigration = '20261023001000_archive_download_lane'
+const latestRequiredMigration = '20261023003000_media_content_recovery_grants'
 
 const requiredQueueObjects = [
+  'MediaContentDirectoryState',
+  'MediaContentRecoveryGrant',
+  'MediaContentPathWrite',
+  'MediaContentSource',
+  'ArtworkContentSource',
+  'MediaContentFingerprint',
+  'ArtworkContentFingerprint',
   'archive_import_executions',
   'archive_staging_generations',
   'ArtworkSummary',

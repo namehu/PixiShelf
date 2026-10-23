@@ -1,3 +1,10 @@
+import {
+  hasBlockingMediaContentCancellation,
+  hasUnresolvedMediaContentWrites,
+  MEDIA_CONTENT_CANCELLATION_MESSAGE,
+  MEDIA_CONTENT_RECOVERY_PAUSE_MESSAGE,
+  MEDIA_CONTENT_RECOVERY_REQUIRED
+} from './media-content-control.ts'
 import { recordJobDiagnostic, closeJobDiagnosticReport } from './job-diagnostics.ts'
 import { extractJobDiagnostic, sanitizeDiagnosticText, type JobDiagnostic } from '@pixishelf/job-contracts'
 import { randomUUID } from 'node:crypto'
@@ -241,6 +248,7 @@ interface ExecutingJobRow {
   leaseExpiresAt: Date | null
   attempt: number
   maxAttempts: number
+  cancelRequestedAt: Date | null
 }
 
 interface OwnedJobTransition {
@@ -938,14 +946,9 @@ export class PostgresQueueRepository {
     const now = this.clock.now()
 
     return this.runTransaction(async (transaction) => {
-      await transaction.$queryRawUnsafe(
-        `SELECT "resourceKey"
-         FROM "job_resource_leases"
-         WHERE "ownerJobId" = $1
-         LIMIT 1
-         FOR UPDATE`,
-        jobId
-      )
+      if (await hasBlockingMediaContentCancellation(transaction, jobId)) {
+        throw Object.assign(new Error(MEDIA_CONTENT_CANCELLATION_MESSAGE), { code: MEDIA_CONTENT_RECOVERY_REQUIRED })
+      }
       const rows = await transaction.$queryRawUnsafe<
         Array<{ id: string; status: 'CANCELLING' | 'CANCELLED'; attempt: number; workerId: string | null }>
       >(
@@ -1466,7 +1469,7 @@ export class PostgresQueueRepository {
     const executingJobs = await transaction.$queryRawUnsafe<ExecutingJobRow[]>(
       `SELECT
          "id", "type", "status", "workerId", "leaseToken"::text AS "leaseToken",
-         "leaseExpiresAt", "attempt", "maxAttempts"
+         "leaseExpiresAt", "attempt", "maxAttempts", "cancelRequestedAt"
        FROM "system_jobs"
        WHERE "definitionVersion" > 0
          AND "executionLane" = $1::"JobExecutionLane"
@@ -1526,9 +1529,13 @@ export class PostgresQueueRepository {
       return null
     }
 
+    const cancellationNeedsRecovery =
+      executingJob.status === 'CANCELLING' && (await hasUnresolvedMediaContentWrites(transaction, executingJob.id))
     const recoveredStatus =
       executingJob.status === 'CANCELLING'
-        ? ('CANCELLED' as const)
+        ? cancellationNeedsRecovery
+          ? ('PAUSED' as const)
+          : ('CANCELLED' as const)
         : executingJob.status === 'PAUSING'
           ? ('PAUSED' as const)
           : executingJob.attempt < executingJob.maxAttempts
@@ -1544,11 +1551,16 @@ export class PostgresQueueRepository {
          "leaseToken" = NULL,
          "leaseExpiresAt" = NULL,
          "heartbeatAt" = $5,
+         "maxAttempts" = CASE WHEN $8 THEN GREATEST("maxAttempts", "attempt" + 1) ELSE "maxAttempts" END,
+         "cancelRequestedAt" = CASE WHEN $8 THEN NULL ELSE "cancelRequestedAt" END,
+         "message" = CASE WHEN $8 THEN $9 ELSE "message" END,
          "errorCode" = CASE
+           WHEN $8 THEN $10
            WHEN $6 IN ('RETRY_WAIT', 'FAILED') THEN 'WORKER_LEASE_EXPIRED'
            ELSE NULL
          END,
          "error" = CASE
+           WHEN $8 THEN $9
            WHEN $6 IN ('RETRY_WAIT', 'FAILED')
              THEN 'The previous worker execution lease expired before completion.'
            ELSE NULL
@@ -1567,7 +1579,10 @@ export class PostgresQueueRepository {
       executingJob.attempt,
       now,
       recoveredStatus,
-      executingJob.status
+      executingJob.status,
+      cancellationNeedsRecovery,
+      MEDIA_CONTENT_RECOVERY_PAUSE_MESSAGE,
+      MEDIA_CONTENT_RECOVERY_REQUIRED
     )
     if (updatedRows.length !== 1) {
       return null
@@ -1756,8 +1771,15 @@ export class PostgresQueueRepository {
       level: lifecycleEvent.level,
       attempt: executingJob.attempt,
       workerId: executingJob.workerId,
-      message: lifecycleEvent.message,
-      data: { reason: 'WORKER_LEASE_EXPIRED' },
+      message: cancellationNeedsRecovery ? MEDIA_CONTENT_RECOVERY_PAUSE_MESSAGE : lifecycleEvent.message,
+      data: cancellationNeedsRecovery
+        ? {
+            reason: 'ACTION_REQUIRED',
+            code: MEDIA_CONTENT_RECOVERY_REQUIRED,
+            previousCancelRequestedAt: executingJob.cancelRequestedAt?.toISOString() ?? null,
+            cause: 'WORKER_LEASE_EXPIRED_WITH_UNRESOLVED_MEDIA_WRITE'
+          }
+        : { reason: 'WORKER_LEASE_EXPIRED' },
       now
     })
 

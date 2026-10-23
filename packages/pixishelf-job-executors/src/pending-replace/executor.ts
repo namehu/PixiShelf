@@ -1,3 +1,4 @@
+import type { ExecutorMediaWrite } from '../scan/media-content-write.ts'
 import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import path from 'node:path'
 import type {
@@ -58,6 +59,15 @@ import { PendingReplaceActionRequiredError, PendingReplacePermanentError } from 
 type PendingContext = ExecutionContext<PendingReplacePayloadV1, EnqueuedChildJob>
 type PendingScope<TTransaction extends QueueSqlExecutor> = FencedExecutionTransaction<TTransaction>
 
+class VerifiedPendingRollback extends Error {
+  constructor(
+    readonly settle: (transaction: QueueSqlExecutor) => Promise<void>,
+    readonly original: unknown
+  ) {
+    super('Verified rollback awaits fenced publication', { cause: original })
+  }
+}
+
 export async function executePendingReplace<TTransaction extends QueueSqlExecutor>(
   context: PendingContext,
   dependencies: PendingReplaceExecutorDependencies<TTransaction>
@@ -84,9 +94,30 @@ export async function executePendingReplace<TTransaction extends QueueSqlExecuto
       }
     }
   } catch (error) {
+    if (error instanceof VerifiedPendingRollback) {
+      return context.finalizeInTransaction<TTransaction>(async (scope) => {
+        await error.settle(scope.transaction)
+        if (await finalizeRequestedControl(scope, dependencies, context)) return
+        await checkpointBatchForControl(
+          scope,
+          dependencies,
+          context.job.id,
+          context.payload.batchId,
+          context.signal.aborted ? 'PREVIEWED' : 'FAILED'
+        )
+        if (context.signal.aborted) await scope.release('Pending replacement rollback verified before worker shutdown')
+        else
+          await scope.fail({
+            errorCode: errorCodeFor(error.original),
+            error: stableErrorCode(error.original),
+            message: 'Pending replacement rolled back'
+          })
+      })
+    }
     context.logger.error('Pending replacement execution failed', error, { code: stableErrorCode(error) })
     if (error instanceof PendingReplaceActionRequiredError) {
       return context.finalizeInTransaction<TTransaction>(async (scope) => {
+        if (scope.executionStatus === 'CANCELLING') throw error
         await checkpointBatchForControl(scope, dependencies, context.job.id, context.payload.batchId, 'PREVIEWED')
         await context.recordDiagnostic?.(scope.transaction, { key: 'task:action-required', scope: 'TASK', error })
         await scope.pause({
@@ -266,7 +297,7 @@ async function executeBatch<TTransaction extends QueueSqlExecutor>(
     try {
       await processReplacementItem(context, dependencies, item, context.payload.appendTagIds)
     } catch (error) {
-      if (error instanceof PendingReplaceActionRequiredError) throw error
+      if (error instanceof PendingReplaceActionRequiredError || error instanceof VerifiedPendingRollback) throw error
       if (context.signal.aborted) throw error
       context.logger.warn('Pending replacement item failed', { itemId: item.id, code: stableErrorCode(error) })
     }
@@ -310,12 +341,22 @@ async function processReplacementItem<TTransaction extends QueueSqlExecutor>(
   const paths = itemPaths(item)
   assertItemPathsDistinct(paths)
   let published = ['ARCHIVING', 'SUCCESS', 'BACKUP_CLEANED'].includes(item.status)
+  let contentWrite: ExecutorMediaWrite | undefined
+  if (!published) {
+    contentWrite = await dependencies.database.beginContentWrite({
+      context,
+      scanRoot: dependencies.config.scanRoot,
+      item,
+      action: 'replace'
+    })
+  }
   try {
     if (!published) {
       if (item.status === 'ROLLING_BACK') {
         await rollbackReplacement(dependencies, manifest, targetFiles, paths)
-        await checkpointItem(context, dependencies, item.id, ['ROLLING_BACK'], 'FAILED', {
+        await checkpointVerifiedRollback(context, dependencies, item.id, ['ROLLING_BACK'], 'FAILED', {
           error: 'INTERRUPTED_BEFORE_DATABASE_PUBLISH',
+          ...(contentWrite ? { contentWrite } : {}),
           backupDirectory: null,
           finishedAt: new Date()
         })
@@ -353,6 +394,7 @@ async function processReplacementItem<TTransaction extends QueueSqlExecutor>(
       await context.mutateInTransaction<TTransaction>((transaction) =>
         dependencies.database.publishReplacement(transaction, {
           item,
+          contentWrite: contentWrite!,
           expectedOldMedia: oldMedia,
           newMedia: installedMedia,
           appendTagIds,
@@ -371,6 +413,7 @@ async function processReplacementItem<TTransaction extends QueueSqlExecutor>(
       finishedAt: new Date()
     })
   } catch (error) {
+    if (error instanceof VerifiedPendingRollback) throw error
     if (published) {
       if (error instanceof PendingReplaceActionRequiredError) throw error
       context.logger.warn('Replacement committed but source archive remains recoverable', {
@@ -391,7 +434,7 @@ async function processReplacementItem<TTransaction extends QueueSqlExecutor>(
         item.id
       )
     }
-    await checkpointItem(
+    await checkpointVerifiedRollback(
       context,
       dependencies,
       item.id,
@@ -399,6 +442,7 @@ async function processReplacementItem<TTransaction extends QueueSqlExecutor>(
       'FAILED',
       {
         error: stableErrorCode(error),
+        ...(contentWrite ? { contentWrite } : {}),
         backupDirectory: null,
         finishedAt: new Date()
       },
@@ -446,6 +490,14 @@ async function processRestoreItem<TTransaction extends QueueSqlExecutor>(
   const paths = persistedRestorePaths(item)
   const installed = installedSnapshots(newMedia)
   let published = ['RESTORE_COMMITTED', 'RESTORED'].includes(item.status)
+  const contentWrite = published
+    ? undefined
+    : await dependencies.database.beginContentWrite({
+        context,
+        scanRoot: dependencies.config.scanRoot,
+        item,
+        action: 'restore'
+      })
   try {
     if (!published) {
       if (item.status === 'SUCCESS' || item.status === 'RESTORING') {
@@ -496,6 +548,7 @@ async function processRestoreItem<TTransaction extends QueueSqlExecutor>(
       await context.mutateInTransaction<TTransaction>((transaction) =>
         dependencies.database.publishRestore(transaction, {
           item,
+          contentWrite: contentWrite!,
           expectedNewMedia: buildInstalledMedia(item.targetDirectory!, newMedia, manifest),
           oldMedia,
           now: new Date()
@@ -547,7 +600,8 @@ async function processRestoreItem<TTransaction extends QueueSqlExecutor>(
         item.id
       )
     }
-    await checkpointItem(context, dependencies, item.id, ['RESTORING', 'RESTORE_SWAPPING'], 'SUCCESS', {
+    await checkpointVerifiedRollback(context, dependencies, item.id, ['RESTORING', 'RESTORE_SWAPPING'], 'SUCCESS', {
+      ...(contentWrite ? { contentWrite } : {}),
       error: stableErrorCode(error),
       finishedAt: new Date()
     })
@@ -820,6 +874,34 @@ async function rollbackReplacement<TTransaction extends QueueSqlExecutor>(
     )
   }
   await moveDirectoryIdempotent(dependencies, paths.workSource, paths.pendingSource)
+}
+
+async function checkpointVerifiedRollback<TTransaction extends QueueSqlExecutor>(
+  context: PendingContext,
+  dependencies: PendingReplaceExecutorDependencies<TTransaction>,
+  itemId: string,
+  expectedStatuses: PendingReplaceItemStatus[],
+  status: PendingReplaceItemStatus,
+  extra: Omit<
+    Parameters<PendingReplaceExecutorDependencies<TTransaction>['database']['checkpointItem']>[1],
+    'itemId' | 'expectedStatuses' | 'status'
+  >,
+  original?: unknown
+) {
+  try {
+    await checkpointItem(context, dependencies, itemId, expectedStatuses, status, extra, original)
+  } catch (error) {
+    throw new VerifiedPendingRollback(
+      (transaction) =>
+        dependencies.database.checkpointItem(transaction as TTransaction, {
+          itemId,
+          expectedStatuses,
+          status,
+          ...extra
+        }),
+      original ?? error
+    )
+  }
 }
 
 async function checkpointItem<TTransaction extends QueueSqlExecutor>(

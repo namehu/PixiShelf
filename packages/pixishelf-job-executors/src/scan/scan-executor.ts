@@ -1,3 +1,5 @@
+import path from 'node:path'
+import { captureScanMediaDirectory, assertScanMediaDirectory } from './media-content-guard.ts'
 import { assertPixivRootUnchanged } from './root-identity.ts'
 import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
@@ -50,6 +52,7 @@ export async function executeScan(
   const limits = { ...DEFAULT_SCAN_LIMITS, ...dependencies.config.limits }
   const excludedRootDirectories = [
     ...new Set([
+      '.pixishelf-upload-recovery',
       'sources',
       '.archive-staging',
       '.trash',
@@ -286,6 +289,11 @@ async function processMetadataInput(input: {
       return { status: 'FAILED' as const, newImages: 0 }
     }
   }
+  const mediaDirectory = await captureScanMediaDirectory({
+    context: input.context,
+    scanRoot: input.root.absolutePath,
+    relativeDirectory: path.posix.dirname(input.row.relativePath)
+  })
   const resolved = await resolveSafeExistingPath(input.root, input.row.relativePath, 'file')
   const candidate = metadataCandidateFromPath(resolved)
   if (!candidate || !input.row.contentHash) {
@@ -352,6 +360,7 @@ async function processMetadataInput(input: {
       ScanTransaction & QueueSqlExecutor,
       Awaited<ReturnType<typeof publishPixivArtwork>>
     >(async (transaction) => {
+      await assertScanMediaDirectory(transaction, mediaDirectory)
       await assertPixivRootUnchanged(input.root)
       if (input.context.payload.mode === 'ARTWORK_RESCAN') {
         await assertArtworkRescanSnapshot({

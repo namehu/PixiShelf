@@ -1,3 +1,8 @@
+import {
+  hasBlockingMediaContentCancellation,
+  hasBlockingMediaContentRecoveryResume,
+  MEDIA_CONTENT_CANCELLATION_MESSAGE
+} from '@pixishelf/job-runtime'
 import { ARTWORK_SUMMARY_RETIRED_MESSAGE } from '@/lib/reading/artwork-stacks'
 import { prisma } from '@/lib/prisma'
 import { FULL_SCAN_RETIRED_MESSAGE, isRetiredFullReconcilePayload } from '@/services/scan-source-policy'
@@ -279,6 +284,9 @@ export async function cancelJobCommand(
 
     if (job.status === 'CANCELLING' || job.status === 'CANCELLED') return toJobDto(job)
     assertStatus(job, ['PENDING', 'RETRY_WAIT', 'PAUSED', 'RUNNING', 'PAUSING'], 'cancel')
+    if (await hasBlockingMediaContentCancellation(transaction, jobId)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', MEDIA_CONTENT_CANCELLATION_MESSAGE)
+    }
     const timestamp = now()
     const direct = ['PENDING', 'RETRY_WAIT', 'PAUSED'].includes(job.status)
     let auditApplySnapshot: ValidatedAuditApplySnapshot | null = null
@@ -534,6 +542,9 @@ export async function resumeJobCommand(
     }
 
     assertStatus(job, ['PAUSED'], 'resume')
+    if (await hasBlockingMediaContentRecoveryResume(transaction, jobId)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '取消未完成，请先停写并完成媒体恢复授权，再继续任务')
+    }
     const timestamp = now()
     const updated = await compareAndSetJob(transaction, job, {
       status: 'PENDING',
@@ -575,6 +586,12 @@ export async function retryJobCommand(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
+    if (await hasBlockingMediaContentCancellation(transaction, job.id)) {
+      throw new BackgroundTaskError(
+        'INVALID_STATE_TRANSITION',
+        '存在未解决的媒体写入，请使用原任务的离线恢复授权，不能创建新的重试任务'
+      )
+    }
     if (job.type === 'ARTWORK_SUMMARY_GENERATE') {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', ARTWORK_SUMMARY_RETIRED_MESSAGE)
     }

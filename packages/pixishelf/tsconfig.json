@@ -36,6 +36,9 @@
       "@pixishelf/job-executors": [
         "../pixishelf-job-executors/src/index.ts"
       ],
+      "@pixishelf/job-executors/media-content": [
+        "../pixishelf-job-executors/src/media-content/index.ts"
+      ],
       "@pixishelf/job-executors/video-audio": [
         "../pixishelf-job-executors/src/video-audio/index.ts"
       ],

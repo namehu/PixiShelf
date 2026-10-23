@@ -1,3 +1,4 @@
+import { captureContentDirectory } from '@/services/artwork-service/content-source-guard'
 import path from 'path'
 import fg from 'fast-glob'
 import { prisma } from '@/lib/prisma'
@@ -26,7 +27,8 @@ export async function globMetadataFiles(directoryPath: string, context: ScanCont
     cwd: path.resolve(directoryPath),
     deep: 4,
     absolute: true,
-    onlyFiles: true
+    onlyFiles: true,
+    ignore: ['**/.pixishelf-upload-recovery/**']
   })
 
   const createdAt = new Date()
@@ -168,7 +170,10 @@ export async function prepareMetadataFilesFromList(
  * @param metadataFile 元数据文件信息
  * @returns 作品数据或null
  */
-export async function parseAndCollect(metadataFile: GlobMetadataFile, context?: ScanContext): Promise<ArtworkData | null> {
+export async function parseAndCollect(
+  metadataFile: GlobMetadataFile,
+  context?: ScanContext
+): Promise<ArtworkData | null> {
   const { artworkId, path: metadataPath, name: metadataFilename, createdAt } = metadataFile
   const startedAt = new Date()
 
@@ -187,6 +192,11 @@ export async function parseAndCollect(metadataFile: GlobMetadataFile, context?: 
   }
 
   try {
+    if (!context?.options.scanPath) throw new Error('A trusted scan root is required')
+    const contentDirectory = await captureContentDirectory(
+      context.options.scanPath,
+      path.relative(context.options.scanPath, path.dirname(metadataPath))
+    )
     // 解析元数据
     const parseResult = await parseMetadataFile(metadataPath)
     if (!parseResult.success || !parseResult.metadata) {
@@ -251,7 +261,8 @@ export async function parseAndCollect(metadataFile: GlobMetadataFile, context?: 
       mediaFiles: collectionResult.mediaFiles,
       directoryPath: path.dirname(metadataPath),
       metadataFilePath: metadataPath,
-      directoryCreatedAt: createdAt
+      directoryCreatedAt: createdAt,
+      contentDirectory
     }
   } catch (error) {
     logger.error('Error processing metadata file:', { error, metadataPath })

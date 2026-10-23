@@ -303,6 +303,56 @@ export async function prepareArchiveRevisionDirectory(
   }
 }
 
+/** Proof for the only retry path that can relinquish an older publication execution's gate. */
+export async function assertCompletedArchivePublication(
+  paths: ArchiveStoragePaths,
+  manifestSha256: string,
+  expected: Parameters<typeof assertArchiveManifestIdentity>[1]
+): Promise<void> {
+  const finalDirectory = await resolveExistingPathWithinRoot(paths.scanRootAbsolutePath, paths.finalRelativePath)
+  const stagingDirectory = await resolveCreatablePathWithinRoot(paths.scanRootAbsolutePath, paths.stagingRelativePath)
+  const finalStoredPath = path.resolve(paths.scanRootAbsolutePath, paths.finalRelativePath)
+  const manifestPath = path.join(finalDirectory, 'manifest.json')
+  const mediaPath = path.join(finalDirectory, 'media')
+  const before = await Promise.all([
+    lstat(finalStoredPath, { bigint: true }),
+    lstat(manifestPath, { bigint: true }),
+    lstat(mediaPath, { bigint: true })
+  ])
+  if (!before[0]!.isDirectory() || !before[1]!.isFile() || !before[2]!.isDirectory())
+    throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布恢复需要完整且无符号链接的版本目录')
+  await readArchiveManifestDigest(finalDirectory, manifestSha256)
+  await assertArchiveManifestIdentity(finalDirectory, expected)
+  // stat would treat a dangling symlink as absent; lstat makes that an explicit conflict.
+  const stagingPresent = await lstat(stagingDirectory).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return false
+      throw error
+    }
+  )
+  if (stagingPresent) throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布恢复仍存在原暂存目录，拒绝交接')
+  const after = await Promise.all([
+    lstat(finalStoredPath, { bigint: true }),
+    lstat(manifestPath, { bigint: true }),
+    lstat(mediaPath, { bigint: true })
+  ])
+  if (
+    before.some((first, index) => {
+      const last = after[index]!
+      return (
+        first.dev !== last.dev ||
+        first.ino !== last.ino ||
+        first.size !== last.size ||
+        first.mtimeNs !== last.mtimeNs ||
+        first.ctimeNs !== last.ctimeNs ||
+        first.mode !== last.mode
+      )
+    })
+  )
+    throw new ArchiveExecutorError('STATE_CONFLICT', '归档版本在恢复核对期间变化')
+}
+
 export async function pathExists(target: string): Promise<boolean> {
   try {
     await stat(target)

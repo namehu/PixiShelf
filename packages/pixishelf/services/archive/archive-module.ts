@@ -1,3 +1,9 @@
+import { retryUnresolvedArchivePublication } from './archive-publication-retry'
+import {
+  hasBlockingMediaContentCancellation,
+  lockContentControlJob,
+  MEDIA_CONTENT_CANCELLATION_MESSAGE
+} from '@pixishelf/job-runtime'
 import { acknowledgeJobFailure } from '@/services/background-task/job-failure-policy'
 import { randomUUID } from 'node:crypto'
 import {
@@ -221,6 +227,7 @@ export class ArchiveModule {
     const nextJobId = randomUUID()
     const timestamp = new Date()
     await prisma.$transaction(async (tx) => {
+      await lockContentControlJob(tx, task.systemJobId)
       await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
       const current = await tx.archiveImport.findUnique({ where: { id: task.id }, include: { systemJob: true } })
       if (
@@ -236,6 +243,15 @@ export class ArchiveModule {
         throw stateConflict('归档文件已经封存，发布重试不能更改画质')
       }
       await lockUploaderCatalogImport(tx, current)
+      if (
+        await retryUnresolvedArchivePublication(tx, current, {
+          timestamp,
+          requestedByUserId: options.requestedByUserId,
+          message: options.message,
+          changesFiles: Boolean(options.retryItemId || options.useDisplayQuality)
+        })
+      )
+        return
       if (options.retryItemId) {
         const item = await tx.archiveImportItem.updateMany({
           where: { id: options.retryItemId, archiveImportId: current.id, status: 'FAILED' },
@@ -387,13 +403,18 @@ async function transitionCentralArchiveControl(
   assertActionStatus(action, task.status, allowedImportStatuses)
 
   await prisma.$transaction(async (tx) => {
+    await lockContentControlJob(tx, task.systemJobId)
+    if (action === 'CANCEL' && (await hasBlockingMediaContentCancellation(tx, task.systemJobId))) {
+      throw stateConflict(MEDIA_CONTENT_CANCELLATION_MESSAGE)
+    }
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
     const current = await tx.archiveImport.findUnique({ where: { id: task.id }, include: { systemJob: true } })
     if (
       !current ||
       current.cleanupRequestedAt ||
       current.systemJobId !== task.systemJobId ||
-      current.status !== task.status
+      current.status !== task.status ||
+      current.systemJob.status !== task.systemJob.status
     ) {
       throw stateConflict('归档任务状态已改变，请刷新后重试')
     }

@@ -1,12 +1,14 @@
 import logger from '@/lib/logger'
+import { MediaDeleteInputSchema } from '@/schemas/artwork-delete.dto'
 import { NextRequest, NextResponse } from 'next/server'
 import { ApiError } from '@/lib/api-handler'
 import { requireAdminRequest } from '@/services/background-task/request-auth'
 import { clearChaptersForImage } from '@/services/artwork-service/image-manager'
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ 'image-id': string }> }) {
+  let userId: string
   try {
-    await requireAdminRequest(req)
+    userId = (await requireAdminRequest(req)).userId
   } catch (error) {
     if (error instanceof ApiError) {
       return NextResponse.json({ error: error.message }, { status: error.statusCode })
@@ -18,15 +20,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ '
     const { 'image-id': imageId } = await params
     const parsedImageId = Number(imageId)
     const body = await req.json().catch(() => ({}))
-    const deleteFile = Boolean(body?.deleteFile)
+    const parsed = MediaDeleteInputSchema.safeParse(body)
+    if (!parsed.success) return NextResponse.json({ error: 'Invalid deletion confirmation' }, { status: 400 })
 
     if (!Number.isInteger(parsedImageId) || parsedImageId <= 0) {
       return NextResponse.json({ error: 'Invalid imageId' }, { status: 400 })
     }
 
     await clearChaptersForImage({
+      userId,
       imageId: parsedImageId,
-      deleteFile
+      ...parsed.data
     })
 
     return NextResponse.json({ success: true })
@@ -35,6 +39,9 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ '
       return NextResponse.json({ error: 'Image not found' }, { status: 404 })
     }
 
+    if (error instanceof Error && 'status' in error && error.status === 409) {
+      return NextResponse.json({ error: error.message }, { status: 409 })
+    }
     logger.error('Media chapter deletion failed', { error })
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 })
   }

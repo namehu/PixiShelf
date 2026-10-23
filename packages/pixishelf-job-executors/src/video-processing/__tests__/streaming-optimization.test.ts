@@ -5,6 +5,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildStreamingRemuxArgs, prepareVideoStreamingOptimization } from '../streaming-optimization.js'
 import type { VideoProcessingDatabase, VideoProcessingTransaction, VideoProcessRunner } from '../types.js'
 
+// File/process behavior is tested with an explicit in-memory content gate. PostgreSQL gate semantics are covered separately.
+const contentGate = vi.hoisted(() => ({
+  begin: vi.fn(async () => ({})),
+  publish: vi.fn(
+    async (
+      _tx: VideoProcessingTransaction,
+      _write: unknown,
+      _outcome: unknown,
+      action: (tx: VideoProcessingTransaction) => Promise<unknown>
+    ) => action(_tx)
+  )
+}))
+vi.mock('../../scan/media-content-write.ts', () => ({
+  resolveExecutorMediaDirectory: vi.fn(async () => ({})),
+  beginExecutorMediaWrite: contentGate.begin,
+  publishExecutorMediaWrite: contentGate.publish
+}))
+
 const roots: string[] = []
 const fingerprint = JSON.stringify({
   streams: [{ codec_type: 'video', codec_name: 'h264', width: 1920, height: 1080 }],
@@ -135,7 +153,7 @@ describe('streaming optimization central executor core', () => {
 
     expect(percentages).toEqual([...percentages].sort((left, right) => left - right))
     expect(percentages.some((percentage) => percentage > 15 && percentage < 82)).toBe(true)
-    await prepared.discard()
+    await prepared.discard(createTransaction())
   })
 
   it('accepts container-derived frame counts changing when packet counts remain equal after remux', async () => {
@@ -175,7 +193,7 @@ describe('streaming optimization central executor core', () => {
 
     const prepared = await prepare(root, { runner })
 
-    await prepared.discard()
+    await prepared.discard(createTransaction())
   })
 
   it('accepts a recreated native chapter data track moving behind preserved media streams', async () => {
@@ -204,7 +222,7 @@ describe('streaming optimization central executor core', () => {
 
     const prepared = await prepare(root, { runner })
 
-    await prepared.discard()
+    await prepared.discard(createTransaction())
   })
 
   it('reports an actual packet-count change as an actionable permanent mismatch', async () => {
@@ -271,7 +289,7 @@ describe('streaming optimization central executor core', () => {
 
     expect(prepared.result.originalSize).toBe(Buffer.byteLength('recovered-original-video'))
     expect(await fs.readFile(root.source, 'utf8')).toBe('recovered-original-video')
-    await prepared.discard()
+    await prepared.discard(createTransaction())
   })
 
   it('requires manual recovery when both the source and prior-attempt backup are missing', async () => {
@@ -301,6 +319,7 @@ async function prepare(
   const transaction = createTransaction()
   return prepareVideoStreamingOptimization({
     jobId: 'stream-job',
+    executionToken: '00000000-0000-4000-8000-000000000001',
     attempt: 2,
     imageId: 7,
     relativePath: options.relativePath ?? imagePath,

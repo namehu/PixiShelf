@@ -1,8 +1,12 @@
+import { requestArchiveStagingCleanup } from '../archive-maintenance-service'
+import { PostgresQueueRepository, type QueueDatabase } from '@pixishelf/job-runtime'
+import { cancelJobCommand } from '@/services/background-task/job-command-service'
 import { randomUUID } from 'node:crypto'
-import { createDatabaseClient, disconnectDatabase } from '@pixishelf/db'
+import { createDatabaseClient, disconnectDatabase, type Prisma } from '@pixishelf/db'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as failurePolicy from '@/services/background-task/job-failure-policy'
 import { archiveModule } from '../archive-module'
+import { ARCHIVE_PUBLISH_ADVISORY_LOCK_ID } from '../archive-coordination'
 import { archiveRequestFingerprint } from '../archive-bulk-operation'
 import { actionArchiveTasksMany, listArchiveTasks } from '../archive-task-service'
 
@@ -23,6 +27,8 @@ describePostgres('archive task PostgreSQL contracts', () => {
       where: { normalizedIdentity: { startsWith: suitePrefix } }
     })
     const jobs = await database.systemJob.findMany({ where: { requestedByUserId }, select: { id: true } })
+    await database.mediaContentPathWrite.deleteMany({ where: { jobId: { startsWith: suitePrefix } } })
+    await database.mediaContentDirectoryState.deleteMany({ where: { rootIdentity: suitePrefix } })
     if (jobs.length > 0) {
       await database.archiveImport.deleteMany({ where: { systemJobId: { in: jobs.map((job) => job.id) } } })
       await database.systemJob.deleteMany({ where: { id: { in: jobs.map((job) => job.id) } } })
@@ -31,6 +37,229 @@ describePostgres('archive task PostgreSQL contracts', () => {
   })
 
   afterAll(async () => disconnectDatabase(database))
+
+  it.each([
+    ['archive', 'RESUME', 'PAUSED'],
+    ['bulk', 'RESUME', 'PAUSED'],
+    ['archive', 'PAUSE', 'PENDING'],
+    ['bulk', 'PAUSE', 'PENDING'],
+    ['archive', 'RETRY', 'FAILED'],
+    ['bulk', 'RETRY', 'FAILED']
+  ] as const)(
+    'serializes concurrent %s %s and competing control without deadlock',
+    async (firstEntry, action, status) => {
+      const task = await seedTask(`lock-${firstEntry}-${action}`, status, status)
+      const held = deferred(),
+        release = deferred()
+      const holder = database.$transaction(
+        async (tx) => {
+          await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+          held.resolve()
+          await release.promise
+        },
+        { timeout: 15_000 }
+      )
+      await held.promise
+      const first = controlResult(firstEntry, task, action)
+      let second: ReturnType<typeof controlResult> | undefined
+      try {
+        await waitForBlockedTransactions(1)
+        second = controlResult(
+          firstEntry === 'archive' ? 'bulk' : 'archive',
+          task,
+          action === 'RETRY' ? 'RETRY' : 'CANCEL'
+        )
+        await waitForBlockedTransactions(2)
+      } finally {
+        release.resolve()
+        await holder
+      }
+      const results = await Promise.all([first, second!])
+      expect(results).toEqual(['APPLIED', 'STATE_CONFLICT'])
+      const current = await database.archiveImport.findUniqueOrThrow({
+        where: { id: task.importId },
+        include: { systemJob: true }
+      })
+      expect(current.status).toBe(action === 'PAUSE' ? 'PAUSED' : 'PENDING')
+      expect(current.systemJob.status).toBe(current.status)
+      expect(await database.systemJob.count({ where: { requestedByUserId } })).toBe(action === 'RETRY' ? 2 : 1)
+      expect(
+        await database.systemJobEvent.count({
+          where: { jobId: current.systemJobId, type: action === 'PAUSE' ? 'job.paused' : 'job.queued' }
+        })
+      ).toBe(1)
+    }
+  )
+
+  it.each(['archive', 'bulk'] as const)(
+    'orders %s PAUSE behind a running publication fence before coordination',
+    async (entry) => {
+      const task = await seedTask(`fence-${entry}`, 'RUNNING', 'RUNNING', { jobType: 'ARCHIVE_PUBLISH' })
+      const job = await database.systemJob.findUniqueOrThrow({ where: { id: task.jobId } })
+      await database.jobResourceLease.create({
+        data: {
+          resourceKey: 'lane/background-writer',
+          ownerJobId: job.id,
+          workerId: job.workerId!,
+          leaseToken: job.leaseToken!,
+          expiresAt: job.leaseExpiresAt!,
+          heartbeatAt: new Date()
+        }
+      })
+      const held = deferred(),
+        release = deferred()
+      const queue = new PostgresQueueRepository(database as unknown as QueueDatabase)
+      const worker = queue.withFencedMutationTransaction<Prisma.TransactionClient>(
+        {
+          jobId: job.id,
+          workerId: job.workerId!,
+          executionToken: job.leaseToken!,
+          attempt: job.attempt
+        },
+        async (tx) => {
+          held.resolve()
+          await release.promise
+          await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+        }
+      )
+      await held.promise
+      const control = controlResult(entry, task, 'PAUSE')
+      try {
+        await waitForBlockedTransactions(1)
+        const available = await database.$transaction(async (tx) =>
+          tx.$queryRawUnsafe<Array<{ acquired: boolean }>>(
+            'SELECT pg_try_advisory_xact_lock($1) AS acquired',
+            ARCHIVE_PUBLISH_ADVISORY_LOCK_ID
+          )
+        )
+        expect(available[0]?.acquired).toBe(true)
+      } finally {
+        release.resolve()
+        await worker
+      }
+      expect(await control).toBe('APPLIED')
+      expect(await database.systemJob.findUniqueOrThrow({ where: { id: job.id } })).toMatchObject({ status: 'PAUSING' })
+      expect(await database.systemJobEvent.count({ where: { jobId: job.id, type: 'job.pause_requested' } })).toBe(1)
+    }
+  )
+
+  it.each(['archive', 'bulk'] as const)(
+    'requeues the original unresolved publication through %s retry and preserves its execution binding',
+    async (entry) => {
+      const task = await seedTask(`publication-${entry}`, 'FAILED', 'FAILED', {
+        maxAttempts: 1,
+        jobType: 'ARCHIVE_PUBLISH'
+      })
+      await database.archiveImport.update({ where: { id: task.importId }, data: { phase: 'PUBLISH' } })
+      await database.archiveImportExecution.create({
+        data: { jobId: task.jobId, archiveImportId: task.importId, phase: 'PUBLISH' }
+      })
+      const claim = await database.mediaContentPathWrite.create({
+        data: {
+          directory: {
+            create: {
+              logicalRoot: 'source-media:v1',
+              rootIdentity: suitePrefix,
+              relativeDirectory: `${suitePrefix}/publication-${entry}`
+            }
+          },
+          scope: 'DIRECTORY',
+          sessionId: `archive-publish:${task.importId}`,
+          sessionVersion: 1n,
+          writeToken: randomUUID(),
+          jobId: task.jobId,
+          executionToken: randomUUID(),
+          executionAttempt: 1,
+          status: 'ACTIVE',
+          startedAt: new Date()
+        }
+      })
+      if (entry === 'archive') await archiveModule.requestJobAction(task.jobId, 'RETRY', requestedByUserId)
+      else {
+        const operation = await actionArchiveTasksMany(
+          { idempotencyKey: `${suitePrefix}-publication-retry`, taskIds: [task.importId], action: 'RETRY' },
+          requestedByUserId,
+          { database }
+        )
+        expect(operation?.items).toEqual([expect.objectContaining({ result: 'APPLIED', relatedId: task.jobId })])
+      }
+      expect(await database.archiveImport.findUniqueOrThrow({ where: { id: task.importId } })).toMatchObject({
+        systemJobId: task.jobId,
+        phase: 'PUBLISH',
+        status: 'PENDING',
+        selectedQuality: 'ORIGINAL'
+      })
+      expect(await database.archiveImportExecution.findUniqueOrThrow({ where: { jobId: task.jobId } })).toMatchObject({
+        archiveImportId: task.importId,
+        phase: 'PUBLISH'
+      })
+      expect(await database.systemJob.count({ where: { requestedByUserId } })).toBe(1)
+      const queue = new PostgresQueueRepository(database as unknown as QueueDatabase)
+      expect(
+        await queue.claim(`${suitePrefix}-worker`, [
+          { jobType: 'ARCHIVE_PUBLISH', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+        ])
+      ).toMatchObject({ id: task.jobId, attempt: 2 })
+      expect(await database.mediaContentPathWrite.findUniqueOrThrow({ where: { id: claim.id } })).toEqual(claim)
+    }
+  )
+
+  it.each(['generic', 'archive', 'bulk', 'cleanup'] as const)(
+    'keeps unresolved content recoverable through the %s cancellation entry',
+    async (entry) => {
+      const task = await seedTask(`content-${entry}`, 'PAUSED', 'PAUSED')
+      const claim = await database.mediaContentPathWrite.create({
+        data: {
+          directory: {
+            create: {
+              logicalRoot: 'source-media:v1',
+              rootIdentity: suitePrefix,
+              relativeDirectory: `${suitePrefix}/${entry}`
+            }
+          },
+          scope: 'DIRECTORY',
+          sessionId: `archive-publish:${task.importId}`,
+          sessionVersion: 1n,
+          writeToken: randomUUID(),
+          jobId: task.jobId,
+          executionToken: randomUUID(),
+          executionAttempt: 1,
+          status: 'ACTIVE',
+          startedAt: new Date()
+        }
+      })
+      if (entry === 'cleanup')
+        await expect(
+          requestArchiveStagingCleanup({ archiveImportId: task.importId, requestedByUserId })
+        ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+      if (entry === 'generic')
+        await expect(cancelJobCommand({ jobId: task.jobId }, database)).rejects.toMatchObject({
+          code: 'INVALID_STATE_TRANSITION'
+        })
+      if (entry === 'archive')
+        await expect(archiveModule.requestJobAction(task.jobId, 'CANCEL', requestedByUserId)).rejects.toMatchObject({
+          code: 'STATE_CONFLICT'
+        })
+      if (entry === 'bulk') {
+        const operation = await actionArchiveTasksMany(
+          { idempotencyKey: `${suitePrefix}-content-cancel`, taskIds: [task.importId], action: 'CANCEL' },
+          requestedByUserId,
+          { database }
+        )
+        expect(operation?.items).toEqual([
+          expect.objectContaining({ result: 'CONFLICT', code: 'MEDIA_CONTENT_RECOVERY_REQUIRED' })
+        ])
+      }
+      expect(await database.systemJob.findUniqueOrThrow({ where: { id: task.jobId } })).toMatchObject({
+        status: 'PAUSED',
+        cancelRequestedAt: null
+      })
+      expect(await database.archiveImport.findUniqueOrThrow({ where: { id: task.importId } })).toMatchObject({
+        status: 'PAUSED'
+      })
+      expect(await database.mediaContentPathWrite.findUniqueOrThrow({ where: { id: claim.id } })).toEqual(claim)
+    }
+  )
 
   it('matches legacy single-item and bulk direct pause semantics including lease cleanup', async () => {
     const single = await seedTask('single-pause', 'PENDING', 'PENDING')
@@ -878,6 +1107,7 @@ async function seedTask(
   importStatus: 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED',
   jobStatus: 'PENDING' | 'RUNNING' | 'PAUSED' | 'CANCELLING' | 'COMPLETED' | 'FAILED' | 'CANCELLED',
   options: {
+    jobType?: 'ARCHIVE_IMPORT' | 'ARCHIVE_PUBLISH'
     progress?: number
     queuePriority?: number
     maxAttempts?: number
@@ -899,7 +1129,8 @@ async function seedTask(
   await database.systemJob.create({
     data: {
       id: jobId,
-      type: 'ARCHIVE_IMPORT',
+      type: options.jobType ?? 'ARCHIVE_IMPORT',
+      attempt: options.jobType === 'ARCHIVE_PUBLISH' ? 1 : 0,
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: 1,
       status: jobStatus,
@@ -1032,5 +1263,47 @@ function projectRetryState(task: {
     effectivePriority: task.systemJob.effectivePriority,
     progress: task.systemJob.progress,
     maxAttempts: task.systemJob.maxAttempts
+  }
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+async function waitForBlockedTransactions(count: number) {
+  const deadline = Date.now() + 4_000
+  while (Date.now() < deadline) {
+    const rows = await database.$queryRaw<Array<{ count: number }>>`
+      SELECT count(*)::int AS count FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock' AND pid <> pg_backend_pid()`
+    if (rows[0]!.count >= count) return
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  throw new Error(`Expected ${count} concurrent transactions waiting for database locks`)
+}
+
+async function controlResult(
+  entry: 'archive' | 'bulk',
+  task: { jobId: string; importId: string },
+  action: 'PAUSE' | 'RESUME' | 'CANCEL' | 'RETRY'
+) {
+  try {
+    if (entry === 'archive') {
+      await archiveModule.requestJobAction(task.jobId, action, requestedByUserId)
+      return 'APPLIED'
+    }
+    const result = await actionArchiveTasksMany(
+      { idempotencyKey: randomUUID(), taskIds: [task.importId], action },
+      requestedByUserId,
+      { database }
+    )
+    const item = result?.items[0]
+    return item?.result === 'APPLIED' ? 'APPLIED' : item?.code
+  } catch (error) {
+    return error instanceof Error && 'code' in error ? error.code : error
   }
 }

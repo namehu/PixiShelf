@@ -3,7 +3,7 @@ import { ArchiveModule } from '../archive-module'
 
 const { prismaMock, writeJobEventMock } = vi.hoisted(() => {
   const prismaMock = {
-    systemJobFailureAcknowledgement: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    systemJobFailureAcknowledgement: { deleteMany: vi.fn(), createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     artwork: { findUnique: vi.fn(), updateMany: vi.fn() },
     artworkExternalRef: { findUnique: vi.fn() },
     archiveRevision: { update: vi.fn() },
@@ -15,7 +15,8 @@ const { prismaMock, writeJobEventMock } = vi.hoisted(() => {
       update: vi.fn(),
       updateMany: vi.fn()
     },
-    archiveImportExecution: { create: vi.fn() },
+    archiveImportExecution: { create: vi.fn(), findUnique: vi.fn() },
+    mediaContentPathWrite: { findMany: vi.fn().mockResolvedValue([]), findFirst: vi.fn().mockResolvedValue(null) },
     archiveImportItem: { findFirst: vi.fn(), findMany: vi.fn(), groupBy: vi.fn(), updateMany: vi.fn() },
     archiveUploaderCatalogItem: { updateMany: vi.fn() },
     archivePreviewSession: { deleteMany: vi.fn(), create: vi.fn(), findUnique: vi.fn(), delete: vi.fn() },
@@ -35,6 +36,7 @@ describe('archive module', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    prismaMock.mediaContentPathWrite.findMany.mockReset().mockResolvedValue([])
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'false')
     prismaMock.artworkExternalRef.findUnique.mockReset()
     prismaMock.archiveImport.findUnique.mockReset()
@@ -76,6 +78,51 @@ describe('archive module', () => {
       expect(prismaMock.archiveImport.updateMany).not.toHaveBeenCalled()
     }
   )
+
+  it('refuses to rebind a publication when its unresolved claim belongs to another job', async () => {
+    const task = {
+      id: 'publication-import',
+      phase: 'PUBLISH',
+      status: 'FAILED',
+      cleanupRequestedAt: null,
+      systemJobId: 'current-publish-job',
+      systemJob: { id: 'current-publish-job', type: 'ARCHIVE_PUBLISH', status: 'FAILED', attempt: 2, maxAttempts: 3 }
+    }
+    prismaMock.archiveImport.findUnique.mockResolvedValue(task)
+    prismaMock.mediaContentPathWrite.findMany.mockResolvedValue([
+      {
+        jobId: 'previous-job',
+        sessionId: 'archive-publish:publication-import',
+        scope: 'DIRECTORY',
+        status: 'ACTIVE',
+        parentWriteId: null,
+        declaredFileSize: null
+      }
+    ])
+    prismaMock.archiveImportExecution.findUnique.mockResolvedValue({ archiveImportId: task.id, phase: 'PUBLISH' })
+    await expect(module.requestJobAction(task.systemJobId, 'RETRY', 'admin-1')).rejects.toMatchObject({
+      code: 'STATE_CONFLICT'
+    })
+    expect(prismaMock.systemJob.create).not.toHaveBeenCalled()
+    expect(prismaMock.systemJob.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('keeps an archive publication recoverable when cancellation meets an unresolved claim', async () => {
+    prismaMock.archiveImport.findUnique.mockResolvedValue({
+      id: 'unresolved-import',
+      phase: 'PUBLISH',
+      status: 'PAUSED',
+      cleanupRequestedAt: null,
+      systemJobId: 'unresolved-job',
+      systemJob: { id: 'unresolved-job', status: 'PAUSED', attempt: 1 }
+    })
+    prismaMock.$queryRawUnsafe.mockResolvedValue([{ blocked: true }])
+    await expect(
+      module.requestAction('unresolved-import', 'CANCEL', { requestedByUserId: 'admin-1' })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT', message: expect.stringContaining('需先恢复处理') })
+    expect(prismaMock.systemJob.updateMany).not.toHaveBeenCalled()
+    expect(prismaMock.archiveImport.updateMany).not.toHaveBeenCalled()
+  })
 
   it('atomically cancels a queued central archive task and records the lifecycle event', async () => {
     vi.stubEnv('CENTRAL_DISPATCHER_CUTOVER_ENABLED', 'true')

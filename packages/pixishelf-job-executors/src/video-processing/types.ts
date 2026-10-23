@@ -74,9 +74,20 @@ export class VideoProcessingRecoveryError extends Error {
   constructor(
     message: string,
     readonly publicationError: unknown,
-    readonly recoveryError: unknown
+    readonly recoveryError: unknown,
+    readonly code: 'FILESYSTEM_RECOVERY_FAILED' | 'CONTENT_WRITE_RECOVERY_REQUIRED' = 'FILESYSTEM_RECOVERY_FAILED'
   ) {
     super(message, { cause: recoveryError })
     this.name = 'VideoProcessingRecoveryError'
+  }
+}
+
+/** Files have been verified; only a controlled finalizer may release the persistent gate. */
+export class VideoVerifiedRollbackPending extends Error {
+  constructor(
+    readonly settle: (transaction: VideoProcessingTransaction) => Promise<void>,
+    readonly original: unknown
+  ) {
+    super('Verified video rollback awaits fenced publication', { cause: original })
   }
 }

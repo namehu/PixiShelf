@@ -1,3 +1,4 @@
+import { assertContentScan } from '@/services/artwork-service/content-source-guard'
 import 'server-only'
 
 import { prisma } from '@/lib/prisma'
@@ -161,6 +162,7 @@ export async function runLocalImport(input: RunLocalImportInput): Promise<LocalI
       // 事务边界覆盖 artwork 与其 media 的写入，避免中间态；生成 storageKey 后立即回写到 artwork，确保读路径一致。
       let createdExternalId: string | null = null
       await db.$transaction(async (tx: any) => {
+        await assertContentScan(tx, [media.contentDirectory])
         const artwork = await tx.artwork.create({
           data: {
             title: candidate.work.title,

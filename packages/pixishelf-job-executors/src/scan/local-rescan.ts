@@ -1,3 +1,5 @@
+import { assertScanRootUnchanged } from './root-identity.ts'
+import { captureScanMediaDirectory, assertScanMediaDirectory } from './media-content-guard.ts'
 import { createHash } from 'node:crypto'
 import { checkArtworkSummarySource, invalidateAnimationDurationSource, lockArtworkForReading } from '@pixishelf/db'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
@@ -23,6 +25,11 @@ export async function executeLocalArtworkRescan(input: {
   }
   const artworkId = input.context.payload.artworkId
   const work = await loadFrozenWork(input.dependencies, input.run)
+  const mediaDirectory = await captureScanMediaDirectory({
+    context: input.context,
+    scanRoot: input.root.absolutePath,
+    relativeDirectory: work.relativePath
+  })
   await verifyLocalWorkFingerprint({
     root: input.root,
     relativeDirectory: work.relativePath,
@@ -39,10 +46,12 @@ export async function executeLocalArtworkRescan(input: {
   )
   if (media.length === 0) throw new ScanExecutorError('MEDIA_NOT_FOUND', 'Local artwork has no supported media')
 
+  await assertScanRootUnchanged(input.root)
   return input.context.mutateInTransaction<
     ScanTransaction & QueueSqlExecutor,
     { status: 'SUCCESS'; newImages: number }
   >(async (transaction) => {
+    await assertScanMediaDirectory(transaction, mediaDirectory)
     const artwork = await transaction.artwork.findUnique({
       where: { id: artworkId },
       select: { id: true, source: true, storagePath: true }
@@ -183,7 +192,12 @@ export async function reconcileLocalArtworkImages(
         data.webpAnimationStatus = previous.webpAnimationStatus
       }
       retainedIds.push(previous.id)
-      await checkArtworkSummarySource(transaction, previous.id, item.relativePath, item.sourceState ? { ...item.sourceState, size: item.size } : undefined)
+      await checkArtworkSummarySource(
+        transaction,
+        previous.id,
+        item.relativePath,
+        item.sourceState ? { ...item.sourceState, size: item.size } : undefined
+      )
       if (
         animationDurationSourceChanged({
           previousPath: previous.path,

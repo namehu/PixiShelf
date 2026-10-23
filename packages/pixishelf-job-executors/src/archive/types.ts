@@ -225,6 +225,8 @@ export interface ArchiveUploaderProviderRegistry extends ArchiveProviderRegistry
 }
 
 export interface ArchiveExecutorConfig {
+  /** Shared source namespace; scanRoot is the archive storage root. */
+  sourceMediaRoot?: string
   scanRoot: string
   mediaConcurrency?: number
   maxMediaAttempts?: number

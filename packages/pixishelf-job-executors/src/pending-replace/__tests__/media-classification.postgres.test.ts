@@ -1,3 +1,4 @@
+import { contentWriteFixture, cleanupContentWriteFixtures } from './content-write-fixture.ts'
 import type { InitialMediaType as MediaType } from '@pixishelf/job-contracts'
 import { randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -16,6 +17,7 @@ describePostgres('pending media classification publication and frozen snapshot c
     await database.pendingReplaceBatch.deleteMany({ where: { id: { startsWith: prefix } } })
     await database.image.deleteMany({ where: { artwork: { title: { startsWith: prefix } } } })
     await database.artwork.deleteMany({ where: { title: { startsWith: prefix } } })
+    await cleanupContentWriteFixtures(database)
     await disconnectDatabase(database)
   })
 
@@ -23,9 +25,11 @@ describePostgres('pending media classification publication and frozen snapshot c
     'publishes %s WebP snapshots pending, accepts content correction, restores frozen old type',
     async (kind) => {
       const { port, item, oldMedia, newMedia, artworkId } = await fixture('webp', kind)
+      const contentWrite = await contentWriteFixture(db(), artworkId)
       await db().$transaction((tx) =>
         port.publishReplacement(tx, {
           item,
+          contentWrite,
           expectedOldMedia: [oldMedia],
           newMedia: [newMedia],
           appendTagIds: [],
@@ -45,9 +49,11 @@ describePostgres('pending media classification publication and frozen snapshot c
       })
       await db().pendingReplaceItem.update({ where: { id: item.id }, data: { status: 'RESTORE_SWAPPING' } })
       const [restoring] = await port.loadItems(item.batchId)
+      const restoreWrite = await contentWriteFixture(db(), artworkId)
       await db().$transaction((tx) =>
         port.publishRestore(tx, {
           item: restoring!,
+          contentWrite: restoreWrite,
           expectedNewMedia: [newMedia],
           oldMedia: [oldMedia],
           now: new Date()
@@ -100,6 +106,7 @@ describePostgres('pending media classification publication and frozen snapshot c
 
   it.each([false, true])('accepts equivalent stored paths with database leading slash = %s', async (leadingSlash) => {
     const { port, item, oldMedia, newMedia, artworkId } = await fixture('webp', 'IMAGE')
+    const contentWrite = await contentWriteFixture(db(), artworkId)
     const chaptersPath = `${oldMedia.path}.chapters.json`
     await db().image.updateMany({
       where: { artworkId },
@@ -111,6 +118,7 @@ describePostgres('pending media classification publication and frozen snapshot c
     await db().$transaction((tx) =>
       port.publishReplacement(tx, {
         item,
+        contentWrite,
         expectedOldMedia: [
           {
             ...oldMedia,
@@ -129,21 +137,24 @@ describePostgres('pending media classification publication and frozen snapshot c
     expect(await db().image.findFirstOrThrow({ where: { artworkId } })).toMatchObject({ path: newMedia.path })
   })
 
-  it.each(['path', 'chaptersPath'] as const)('rejects a real %s change despite leading slash normalization', async (field) => {
-    const { port, item, oldMedia, artworkId } = await fixture('webp', 'IMAGE')
-    await db().image.updateMany({
-      where: { artworkId },
-      data: { [field]: `/different/${field === 'path' ? 'old.webp' : 'chapters.json'}` }
-    })
-    await expect(
-      db().$transaction((tx) =>
-        port.assertMediaSnapshot(tx, {
-          item,
-          expectedMedia: [{ ...oldMedia, path: `/${oldMedia.path}` }]
-        })
-      )
-    ).rejects.toThrow('frozen snapshot')
-  })
+  it.each(['path', 'chaptersPath'] as const)(
+    'rejects a real %s change despite leading slash normalization',
+    async (field) => {
+      const { port, item, oldMedia, artworkId } = await fixture('webp', 'IMAGE')
+      await db().image.updateMany({
+        where: { artworkId },
+        data: { [field]: `/different/${field === 'path' ? 'old.webp' : 'chapters.json'}` }
+      })
+      await expect(
+        db().$transaction((tx) =>
+          port.assertMediaSnapshot(tx, {
+            item,
+            expectedMedia: [{ ...oldMedia, path: `/${oldMedia.path}` }]
+          })
+        )
+      ).rejects.toThrow('frozen snapshot')
+    }
+  )
 })
 
 async function fixture(extension: string, kind: MediaType) {

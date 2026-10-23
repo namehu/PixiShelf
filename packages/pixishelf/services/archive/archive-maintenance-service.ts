@@ -275,6 +275,15 @@ export async function requestArchiveStagingCleanup(
       throw stateConflict('归档任务当前状态不允许清理暂存文件')
     }
 
+    const publicationClaim = await tx.mediaContentPathWrite.findFirst({
+      where: {
+        status: { in: ['ACTIVE', 'READY', 'RECOVERY_REQUIRED'] },
+        OR: [{ jobId: archiveImport.systemJobId }, { sessionId: `archive-publish:${archiveImport.id}` }]
+      },
+      select: { id: true }
+    })
+    if (publicationClaim) throw stateConflict('归档发布仍有未解决的媒体写入，请先恢复原发布任务，再清理暂存文件')
+
     const activeJob = await findActiveStagingCleanupJob(tx, archiveImport.id)
     if (activeJob) return { archiveImportId: archiveImport.id, jobId: activeJob.id, reused: true }
 

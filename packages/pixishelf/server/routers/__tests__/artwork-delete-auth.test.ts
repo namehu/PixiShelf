@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   deleteArtwork: vi.fn(),
-  previewDeleteArtwork: vi.fn()
+  previewDeleteArtwork: vi.fn(),
+  deleteImage: vi.fn()
 }))
 
 vi.mock('server-only', () => ({}))
@@ -24,7 +25,8 @@ vi.mock('@/services/artwork-service', () => ({
 }))
 vi.mock('@/services/artwork-service/image-manager', () => ({
   addImageWithChapters: vi.fn(),
-  deleteImage: vi.fn(),
+  deleteImage: mocks.deleteImage,
+  previewDeleteImage: vi.fn(),
   reorderArtworkImages: vi.fn()
 }))
 vi.mock('@/services/video-media-probe-service', () => ({
@@ -87,6 +89,17 @@ describe('artwork delete authorization boundary', () => {
       { artworkId: 42, selectedPaths: [] },
       { requestedByUserId: 'admin-1' }
     )
+  })
+
+  it('passes the exact media preview confirmation through the mutation', async () => {
+    const confirmation = {
+      operationId: '50000000-0000-4000-8000-000000000001',
+      selectedPaths: ['artist/work/video.mp4'],
+      memberDigest: 'a'.repeat(64)
+    }
+    mocks.deleteImage.mockResolvedValue(true)
+    await artworkRouter.createCaller(authorized).deleteImage({ id: 42, deleteFile: true, ...confirmation })
+    expect(mocks.deleteImage).toHaveBeenCalledWith(42, true, 'admin-1', { id: 42, deleteFile: true, ...confirmation })
   })
 
   it('rejects invalid IDs before any delete operation', async () => {

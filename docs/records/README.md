@@ -43,3 +43,5 @@
 操作前回到[当前部署](../operations/deployment.md)和[备份与恢复](../operations/backup-and-recovery.md)，不要直接照抄历史操作命令。新增证据按[文档维护](../development/documentation.md)记录适用版本、环境和限制。
 
 - [作品去重分阶段开发记录](./artwork-deduplication-2026-10-23.md)：独立 worktree 基线与阶段验收证据。
+
+- [去重第一阶段隔离验证（进行中）](./artwork-deduplication-phase-1-2026-10-23.md)，附 [App 上传与替换交接](./artwork-deduplication-phase-1-app-handoff-2026-10-23.md)。
