@@ -12,6 +12,28 @@ export const sourceListFiltersSchema = z.object({
 })
 export type SourceListFilters = z.infer<typeof sourceListFiltersSchema>
 export const DEFAULT_SOURCE_FILTERS = sourceListFiltersSchema.parse({})
+export const SOURCE_SORT_VALUES = [
+  'created-desc',
+  'created-asc',
+  'updated-desc',
+  'updated-asc',
+  'name-desc',
+  'name-asc',
+  'actionable-desc',
+  'actionable-asc'
+] as const
+export type SourceListSort = (typeof SOURCE_SORT_VALUES)[number]
+export const DEFAULT_SOURCE_SORT: SourceListSort = 'created-desc'
+export const SOURCE_SORT_LABELS: Record<SourceListSort, string> = {
+  'updated-desc': '更新时间 · 从新到旧',
+  'updated-asc': '更新时间 · 从旧到新',
+  'created-desc': '创建时间 · 从新到旧',
+  'created-asc': '创建时间 · 从旧到新',
+  'name-desc': '名称 · 降序',
+  'name-asc': '名称 · 升序',
+  'actionable-desc': '待处理数量 · 从多到少',
+  'actionable-asc': '待处理数量 · 从少到多'
+}
 export const discoveryFilterDraftSchema = z.object({
   search: z.string().max(200).default(''),
   categories: z.array(z.string()).default([]),
@@ -40,6 +62,28 @@ export function discoveryQueryFilters(draft: DiscoveryFilterDraft): ArchiveDisco
 }
 
 type Source = inferRouterOutputs<AppRouter>['archiveSearch']['listSources'][number]
+const sourceNameCollator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
+
+export function sortDiscoverySources(sources: readonly Source[], sort: SourceListSort) {
+  const direction = sort.endsWith('-asc') ? 1 : -1
+  return [...sources].sort((left, right) => {
+    let comparison: number
+    if (sort.startsWith('name-')) {
+      comparison = sourceNameCollator.compare(left.displayName, right.displayName)
+    } else if (sort.startsWith('actionable-')) {
+      // Missing statistics are unknown, not zero, in either direction.
+      if (!left.catalogCounts || !right.catalogCounts) {
+        return Number(!left.catalogCounts) - Number(!right.catalogCounts) || left.id.localeCompare(right.id)
+      }
+      comparison = left.catalogCounts.actionable - right.catalogCounts.actionable
+    } else {
+      const field = sort.startsWith('created-') ? 'createdAt' : 'updatedAt'
+      comparison = new Date(left[field]).getTime() - new Date(right[field]).getTime()
+    }
+    return comparison * direction || left.id.localeCompare(right.id)
+  })
+}
+
 export function filterDiscoverySources(sources: Source[], filters: SourceListFilters) {
   const search = filters.search.trim().toLocaleLowerCase()
   return sources.filter(

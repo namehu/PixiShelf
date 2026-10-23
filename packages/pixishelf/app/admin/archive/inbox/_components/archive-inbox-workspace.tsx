@@ -2,17 +2,21 @@
 
 import { ArchiveDeleteFailedResultProvider } from './archive-delete-failed-dialog'
 import { ArchiveIcon, UserSearchIcon } from 'lucide-react'
-import { parseAsString, useQueryStates } from 'nuqs'
+import { parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AdminWorkbench } from '@/app/admin/_components/admin-workbench'
 import { ArchiveInbox } from './archive-inbox'
 import { ArchiveUploaderSources } from './archive-uploader-sources'
+import { DEFAULT_SOURCE_SORT, SOURCE_SORT_VALUES } from './archive-discovery-filter-state'
 
 const workspaceQueryParsers = {
   tab: parseAsString.withDefault('uploaders').withOptions({ clearOnDefault: true }),
   sourceId: parseAsString,
   discoveryView: parseAsString,
-  itemId: parseAsString
+  itemId: parseAsString,
+  sourceSort: parseAsStringLiteral(SOURCE_SORT_VALUES)
+    .withDefault(DEFAULT_SOURCE_SORT)
+    .withOptions({ clearOnDefault: true })
 }
 
 export function ArchiveInboxWorkspace() {
@@ -67,6 +71,10 @@ export function ArchiveInboxWorkspace() {
               locatedSourceId={query.sourceId}
               ignored={query.discoveryView === 'ignored'}
               pendingCreators={query.discoveryView === 'pending-creators'}
+              sourceSort={query.sourceSort}
+              onSourceSortChange={(sourceSort) => {
+                void setQuery({ sourceSort }, { history: 'push', scroll: false })
+              }}
               onNavigatePendingCreators={() => {
                 void setQuery(
                   { tab: 'uploaders', sourceId: null, discoveryView: 'pending-creators', itemId: null },

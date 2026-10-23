@@ -24,11 +24,14 @@ import { ArchiveDiscoverySourceFilters } from './archive-discovery-source-filter
 import { ArchiveDiscoveryContentFilters } from './archive-discovery-content-filters'
 import {
   DEFAULT_SOURCE_FILTERS,
+  DEFAULT_SOURCE_SORT,
   DEFAULT_DISCOVERY_FILTERS,
   discoveryQueryFilters,
   filterDiscoverySources,
-  type DiscoveryFilterDraft
+  type DiscoveryFilterDraft,
+  type SourceListSort
 } from './archive-discovery-filter-state'
+import { useDiscoverySourceOrder } from './use-discovery-source-order'
 import { hasDiscoveryFilters } from '@/lib/archive-discovery-filters'
 import { useAdminPreferencesStore } from '@/store/admin/use-admin-preferences-store'
 import { ArchiveDiscoveryBulkBar } from './archive-discovery-bulk-bar'
@@ -64,6 +67,8 @@ export function ArchiveUploaderSources({
   locatedSourceId,
   ignored,
   pendingCreators = false,
+  sourceSort = DEFAULT_SOURCE_SORT,
+  onSourceSortChange = () => {},
   onNavigatePendingCreators,
   onNavigateSource,
   onNavigateSourceList,
@@ -74,6 +79,8 @@ export function ArchiveUploaderSources({
   locatedSourceId: string | null
   ignored: boolean
   pendingCreators?: boolean
+  sourceSort?: SourceListSort
+  onSourceSortChange?: (sort: SourceListSort) => void
   onNavigatePendingCreators?: () => void
   onNavigateSource: (sourceId: string, history: NavigationHistory) => void
   onNavigateSourceList: (history: NavigationHistory) => void
@@ -151,7 +158,12 @@ export function ArchiveUploaderSources({
       })),
     [sourcesQuery.data, countsQuery.data]
   )
-  const sources = useMemo(() => filterDiscoverySources(allSources, sourceFilters), [allSources, sourceFilters])
+  const filteredSources = useMemo(() => filterDiscoverySources(allSources, sourceFilters), [allSources, sourceFilters])
+  const sourceCountsRequired =
+    sourceFilters.actionable || sourceFilters.attention || sourceSort.startsWith('actionable-')
+  const sourceListReady = !sourcesQuery.isPending && (!sourceCountsRequired || Boolean(countsQuery.data))
+  const sourceBrowseKey = JSON.stringify([sourceFilters, sourceSort])
+  const sources = useDiscoverySourceOrder(filteredSources, sourceSort, JSON.stringify(sourceFilters), sourceListReady)
   const selectedSourceId = locatedSourceId
 
   useLayoutEffect(() => {
@@ -524,6 +536,8 @@ export function ArchiveUploaderSources({
           </p>
         }
         value={sourceFilters}
+        sort={sourceSort}
+        onSortChange={onSourceSortChange}
         countsReady={Boolean(countsQuery.data)}
         onChange={setSourceFilters}
         actions={
@@ -558,17 +572,17 @@ export function ArchiveUploaderSources({
 
   const sourceList = (
     <div className="flex flex-col gap-4">
-      {(sourceFilters.actionable || sourceFilters.attention) && !countsQuery.data ? (
+      {sourceCountsRequired && !countsQuery.data ? (
         <Skeleton className="h-24 w-full" aria-label="正在加载来源统计" />
       ) : (
         <ArchiveDiscoveryBatchSources
           allSources={allSources}
           sources={sources}
-          positionKey={`sources:${JSON.stringify(sourceFilters)}`}
-          position={resultPositionsRef.current.get(`sources:${JSON.stringify(sourceFilters)}`)}
-          onPositionChange={(position) => saveResultPosition(`sources:${JSON.stringify(sourceFilters)}`, position)}
+          positionKey={`sources:${sourceBrowseKey}`}
+          position={resultPositionsRef.current.get(`sources:${sourceBrowseKey}`)}
+          onPositionChange={(position) => saveResultPosition(`sources:${sourceBrowseKey}`, position)}
           focusSourceId={activeDraftSourceIdRef.current}
-          selectionResetKey={JSON.stringify(sourceFilters)}
+          selectionResetKey={sourceBrowseKey}
           selectedSourceId={selectedSourceId}
           onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
           onSelect={enterSource}

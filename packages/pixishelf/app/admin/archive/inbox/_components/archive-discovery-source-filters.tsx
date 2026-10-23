@@ -6,17 +6,27 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { DEFAULT_SOURCE_FILTERS, type SourceListFilters } from './archive-discovery-filter-state'
+import {
+  DEFAULT_SOURCE_FILTERS,
+  SOURCE_SORT_LABELS,
+  SOURCE_SORT_VALUES,
+  type SourceListFilters,
+  type SourceListSort
+} from './archive-discovery-filter-state'
 
 export function ArchiveDiscoverySourceFilters({
   value,
   onChange,
+  sort,
+  onSortChange,
   countsReady,
   actions,
   summary
 }: {
   value: SourceListFilters
   onChange: (value: SourceListFilters) => void
+  sort: SourceListSort
+  onSortChange: (sort: SourceListSort) => void
   actions?: ReactNode
   summary?: ReactNode
   countsReady: boolean
@@ -56,6 +66,20 @@ export function ArchiveDiscoverySourceFilters({
               </SelectContent>
             </Select>
           </div>
+          <Select value={sort} onValueChange={onSortChange}>
+            <SelectTrigger aria-label="来源排序" className="h-11 w-full shrink-0 sm:h-9 sm:w-auto">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {SOURCE_SORT_VALUES.map((option) => (
+                  <SelectItem key={option} value={option} disabled={option.startsWith('actionable-') && !countsReady}>
+                    {SOURCE_SORT_LABELS[option]}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-wrap items-center gap-4">
           <ToggleGroup
