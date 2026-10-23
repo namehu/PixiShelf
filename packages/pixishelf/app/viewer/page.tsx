@@ -268,7 +268,8 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
           : feedInput.readingStatus || feedInput.likedOnly
             ? lastPage.nextReadingCursor
             : (lastPage.nextPage ?? undefined),
-      staleTime: 10 * 60 * 1000,
+      // Keep this history entry's list reusable for the whole browser session.
+      staleTime: Infinity,
       gcTime: Infinity,
       refetchOnMount: false,
       refetchOnWindowFocus: false,
