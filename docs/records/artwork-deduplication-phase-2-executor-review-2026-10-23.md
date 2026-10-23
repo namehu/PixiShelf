@@ -163,3 +163,37 @@ M202：`artwork-dedup-contention.ts` 355–376 行在空轮询前检查异常终
 本轮只修改此审查记录，没有改实现、正式测试、迁移或其他协作者的改动；没有数据库写入、负载运行或浏览器操作。
 
 本节交付检查：`pnpm docs:check` 通过（206 个 Markdown），`git diff --check` 无输出，主应用大小写路径扫描无匹配。图源未变，本轮不重复图示、构建或全量测试。
+
+
+## 有界基准分段与中断计量窄复审（基线 b0174077）
+
+**最终结论：通过；本轮发现的 P2-M203 已在同轮最小修复后闭合，无剩余 blocker。** 审查对象仅为 `b01740774875426a82c8d8e1e2255084624e96bd` 后冻结的 `scripts/artwork-dedup-benchmark.ts` 与[性能记录](./artwork-deduplication-phase-2-performance-2026-10-23.md)增量；不重审核心 Executor 或阶段 3。以下行号对应最终冻结脚本。
+
+### P2-M203：过期恢复保留历史 attempt，与旧的零值断言冲突
+
+初审定位：`/Users/namehu/.codex/worktrees/artwork-deduplication/PixiShelf/packages/pixishelf-job-executors/scripts/artwork-dedup-benchmark.ts:603`。本轮新增 RUNNING 过期恢复允许合法进入已消耗 attempt 的同一 run，但原有断言固定要求让行后 `current.attempt===0`。正式队列过期恢复保留历史 attempt，claim 再加一，schedulingYield/preserveAttempt 仅扣回本次 claim 的一次；实施者的真实中断快照也是 attempt 1。因此旧断言会使恢复后的首个成功 slice 在已安全释放后误报失败，到不了 segment-end/exit75。
+
+最小修复已改为 `current.attempt===job.attempt-1`，只比较本次 claim 基准，没有清零、重写数据库 attempt 或放宽队列恢复。独立无数据库验证从最终源码提取实际断言并执行：
+
+```text
+priorAttempt=0 -> claimedAttempt=1 -> yieldedAttempt=0: PASS
+priorAttempt=1 -> claimedAttempt=2 -> yieldedAttempt=1: PASS
+incorrect unchanged claimedAttempt: REJECTED (both cases)
+```
+
+这项实际表达式验证只证明脚本断言与队列语义兼容，不替代真实恢复执行；队列 claim/recovery/preserveAttempt 控制流已按 `queue-repository.ts` 492、1091、1544–1577 行核对。本 reviewer 没有向 scale 库发起 claim/recovery、改 attempt 或运行负载。
+
+### 其余增量结论
+
+- 分段：`--max-segment-ms` 默认 0，非负整数校验在数据库连接前；300000 是从进程开始计算的软预算，不中断在途 slice。599–606 行先检查 lease 为 0、reader token 为 null、状态为 RETRY_WAIT 及本次 attempt 已扣回，607–620 行才写 `run-segment-end` 并返回 yielded；主流程随后设 exit75、等待正常数据库断连。恰好完成的冷轮先正常生成结果，预算耗尽则在创建热轮前退出，不把尚未退出的 reader 当作已释放。
+- 恢复：489–500 行只在 `--resume` 且 RUNNING 的执行已过期时调用真实 `PostgresQueueRepository.recoverExpiredExecution('BACKGROUND_WRITER')`，未过期执行明确拒绝；核对返回的原 job ID。脚本没有新增 token/gate/lease 清零逻辑。重新 claim 后仍调用真实 Executor，其原有同机/boot/PID 退出证明独立决定能否释放旧 reader 占用；队列回收本身没有替代该证明。
+- 缺口：349–438 行将最后已记账累计与当前持久计数的正差写成 `measurement-gap`，单列 `committedWithoutMeasurement`，readerMetrics/SQL 为 null。重放该事件时把 `lastAccountedCommitted` 推进到 `committedAtObservation`；后续 slice 又推进到其实际累计，所以相同缺口不会在重复 resume/inspection 中再次计算。负差拒绝继续，不隐式重置计数。
+- 真实性：`aggregate` 仍只累计实际 slice hook，未把 1,217 条、4,984,832 字节的已提交差值填成 inspect/read 遥测、RSS、IPC、延迟或 SQL。最终将“已观测 + 已提交缺口”仅用于与数据库一致性核对，并保持 measurementCoverage.complete=false；产品完成与遥测不完整分开。全轮 wall、分段 wall、已观测时长与中断间隔的既有口径保留，SQL 仅声称当前段或已观测 slice 范围。
+
+本节更新此前“hook 必须完整等于 DB 才输出结果”的测量策略：已知中断会丢失 hook 而保留合法提交，现在输出明确 partial coverage，不把缺失遥测伪装为完整，也不将正确的领域结果误报为失败。该变化只属于 benchmark harness，没有修改产品计数或恢复协议。
+
+只读核对实施者的两次 inspection 日志与前后状态 JSON：第一次记录一个 1,217/4,984,832 缺口，第二次没有重复 gap；两次 observedReader 与 coverage 相同，run/job/token/lease 快照前后一致。负数/缺参拒绝日志及最终定向 tsc exit0 复用实施者证据，本 reviewer 未重复连接 scale 或运行这些 CLI。实际 300 秒分段、真实过期回收后的续跑及后续 50 万结果留给统筹的独立测量记录，不能从本次静态通过推断已完成。
+
+本轮只追加本审查记录，保留首次 findings 和各轮历史结论；未修改实现、正式测试、数据库或其他协作者文件，未运行长负载、构建或全量测试。
+
+本节文档检查：`pnpm docs:check` 通过（206 个 Markdown），`git diff --check` 无输出，主应用大小写路径扫描无匹配；图源未修改。

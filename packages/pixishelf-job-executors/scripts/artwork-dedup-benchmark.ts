@@ -23,11 +23,23 @@ import {
 import type { ArtworkDedupScanPayload } from '@pixishelf/job-contracts'
 import { executeArtworkDedup, type ArtworkDedupDependencies } from '../src/artwork-dedup/executor.ts'
 
+const processStartedAt = Date.now()
 const args = process.argv.slice(2)
 function option(name: string, fallback: string) {
   const index = args.indexOf(`--${name}`)
   return index === -1 ? fallback : (args[index + 1] ?? '')
 }
+const maxSegmentValue = option('max-segment-ms', '0')
+const maxSegmentMs = Number(maxSegmentValue)
+assert(
+  /^\d+$/.test(maxSegmentValue) && Number.isSafeInteger(maxSegmentMs),
+  '--max-segment-ms must be a nonnegative integer'
+)
+const inspectOnly = args.includes('--inspect-measurement-only')
+assert(!inspectOnly || args.includes('--resume'), '--inspect-measurement-only requires --resume')
+assert(!inspectOnly || !args.includes('--reset-runs'), 'Inspection cannot reset runs')
+assert(!inspectOnly || !args.includes('--cleanup-only'), 'Inspection cannot clean up the fixture')
+const processBudgetReached = () => maxSegmentMs > 0 && Date.now() - processStartedAt >= maxSegmentMs
 const scenario = option('case', 'sparse')
 assert(scenario === 'sparse' || scenario === 'all', '--case must be sparse or all')
 const tag = option('tag', `phase2-${scenario}`)
@@ -334,6 +346,16 @@ async function measure(ref: RunRef) {
   const addSliceSql = (value: SqlCounts) => {
     for (const key of Object.keys(allSliceSql) as Array<keyof SqlCounts>) allSliceSql[key] += value[key]
   }
+  const committedWithoutMeasurement = { statMedia: 0, hashedMedia: 0, cacheHitMedia: 0, readBytes: 0n }
+  let unobservedWindows = 0
+  type CommittedCounts = { statMedia: number; hashedMedia: number; cacheHitMedia: number; readBytes: bigint | string }
+  let lastAccountedCommitted: CommittedCounts = { statMedia: 0, hashedMedia: 0, cacheHitMedia: 0, readBytes: 0n }
+  const addCommittedGap = (counts: CommittedCounts) => {
+    committedWithoutMeasurement.statMedia += counts.statMedia
+    committedWithoutMeasurement.hashedMedia += counts.hashedMedia
+    committedWithoutMeasurement.cacheHitMedia += counts.cacheHitMedia
+    committedWithoutMeasurement.readBytes += BigInt(counts.readBytes)
+  }
   let slices = 0,
     segments = 0,
     priorObservedSegmentMs = 0,
@@ -357,12 +379,80 @@ async function measure(ref: RunRef) {
       priorSegmentElapsedMs = Math.max(priorSegmentElapsedMs, entry.elapsedMs)
       if (entry.measurement) addMeasurement(entry.measurement)
       addSliceSql(entry.sql)
+      lastAccountedCommitted = entry.counts
     }
+    if (entry.event === 'measurement-gap') {
+      addCommittedGap(entry.committedWithoutMeasurement)
+      lastAccountedCommitted = entry.committedAtObservation
+      unobservedWindows++
+    }
+    if (entry.event === 'run-segment-end') priorSegmentElapsedMs = Math.max(priorSegmentElapsedMs, entry.elapsedMs)
   }
   priorObservedSegmentMs += priorSegmentElapsedMs
   const previousSlices = slices
   const segment = segments + 1
   const gapSinceLastSliceMs = lastSliceAt ? started - Date.parse(lastSliceAt) : 0
+  const persisted = await db.artworkDedupRun.findUniqueOrThrow({ where: { id: ref.runId } })
+  const committedAtObservation = {
+    statMedia: persisted.statMedia,
+    hashedMedia: persisted.hashedMedia,
+    cacheHitMedia: persisted.cacheHitMedia,
+    readBytes: persisted.readBytes
+  }
+  const unlogged = {
+    statMedia: persisted.statMedia - lastAccountedCommitted.statMedia,
+    hashedMedia: persisted.hashedMedia - lastAccountedCommitted.hashedMedia,
+    cacheHitMedia: persisted.cacheHitMedia - lastAccountedCommitted.cacheHitMedia,
+    readBytes: persisted.readBytes - BigInt(lastAccountedCommitted.readBytes)
+  }
+  assert(
+    unlogged.statMedia >= 0 && unlogged.hashedMedia >= 0 && unlogged.cacheHitMedia >= 0 && unlogged.readBytes >= 0n,
+    'Committed counters moved backwards; preserve and inspect the evidence before continuing'
+  )
+  if (unlogged.statMedia || unlogged.hashedMedia || unlogged.cacheHitMedia || unlogged.readBytes) {
+    await emit({
+      event: 'measurement-gap',
+      runId: ref.runId,
+      segment,
+      lastSliceAt,
+      reason:
+        'Database commit is newer than the last persisted reader measurement; exact unobserved I/O and process metrics are unavailable',
+      committedBeforeGap: lastAccountedCommitted,
+      committedAtObservation,
+      committedWithoutMeasurement: unlogged,
+      readerMetrics: null,
+      sql: null,
+      runStatus: persisted.status,
+      readerState: persisted.readerState,
+      hasReaderToken: persisted.readerToken !== null
+    })
+    addCommittedGap(unlogged)
+    unobservedWindows++
+  }
+  const coverage = () => ({
+    complete: unobservedWindows === 0,
+    unobservedWindows,
+    committedWithoutMeasurement,
+    readerMetricScope: unobservedWindows
+      ? 'Observed slice measurements only; whole-run reader totals, RSS peaks, IPC, latency, transactions and physical I/O are incomplete'
+      : 'All committed slices observed'
+  })
+  if (inspectOnly) {
+    await emit({
+      event: 'measurement-inspection',
+      runId: ref.runId,
+      previousSlices,
+      lastSliceAt,
+      committed: committedAtObservation,
+      observedReader: aggregate,
+      coverage: coverage(),
+      runStatus: persisted.status,
+      readerState: persisted.readerState,
+      hasReaderToken: persisted.readerToken !== null,
+      action: 'Read-only database inspection; no claim, token recovery or new reader was attempted'
+    })
+    return 'inspected' as const
+  }
   sql = emptySql()
   const rowsBefore = await db.$queryRaw<Array<{ table: string; inserted: bigint; updated: bigint; deleted: bigint }>>`
     SELECT relname AS "table", n_tup_ins AS inserted, n_tup_upd AS updated, n_tup_del AS deleted
@@ -377,6 +467,7 @@ async function measure(ref: RunRef) {
     gapSinceLastSliceMs,
     priorObservedSegmentMs,
     priorMetrics: aggregate,
+    coverage: coverage(),
     registeredMedia: artworkCount * mediaPerArtwork
   })
   for (;;) {
@@ -392,12 +483,25 @@ async function measure(ref: RunRef) {
         break
       }
       assert(
-        ['PENDING', 'RETRY_WAIT'].includes(queued.status),
-        `Cannot resume ${queued.status}: ${queued.errorCode}; ${queued.error}`
-      )
-      assert(
         Date.now() - claimStarted < 120_000,
         `Job stayed unclaimable for two minutes (${queued.status}); checkpoint retained`
+      )
+      if (args.includes('--resume') && queued.status === 'RUNNING') {
+        assert(
+          queued.leaseExpiresAt === null || queued.leaseExpiresAt.getTime() <= Date.now(),
+          'An unexpired execution owns this run; preserve it and stop the duplicate benchmark'
+        )
+        // Use the normal queue recovery. The executor separately proves reader exit before releasing its token.
+        const recovered = await repository.recoverExpiredExecution('BACKGROUND_WRITER')
+        if (recovered) {
+          assert.equal(recovered.jobId, ref.jobId, 'Unexpected recovery target')
+          await emit({ event: 'queue-recovery', runId: ref.runId, segment, recovered })
+        } else await delay(100)
+        continue
+      }
+      assert(
+        ['PENDING', 'RETRY_WAIT'].includes(queued.status),
+        `Cannot resume ${queued.status}: ${queued.errorCode}; ${queued.error}`
       )
       const waitMs = queued.availableAt.getTime() - Date.now()
       if (waitMs > 0) {
@@ -496,10 +600,25 @@ async function measure(ref: RunRef) {
     assert.equal(run.readerToken, null, 'Reader has not proven close')
     if (current.status === 'COMPLETED') break
     assert.equal(current.status, 'RETRY_WAIT', `Run failed: ${run.errorCode}`)
-    assert.equal(current.attempt, 0, 'Scheduling yield consumed an attempt')
+    assert.equal(current.attempt, job.attempt - 1, 'Scheduling yield consumed an attempt')
     // Finalization/diagnostic queries may consume part or all of the real cooldown.
     // The claim loop observes availableAt again instead of treating elapsed time as failure.
     assert(cooldownRemainingMs <= 3000, 'Cooldown was scheduled beyond the configured three seconds')
+    if (processBudgetReached()) {
+      await emit({
+        event: 'run-segment-end',
+        runId: ref.runId,
+        segment,
+        slices,
+        elapsedMs: Date.now() - started,
+        reason: 'Configured process segment budget reached after verified slice release',
+        maxSegmentMs,
+        release,
+        observedReader: aggregate,
+        coverage: coverage()
+      })
+      return 'yielded' as const
+    }
   }
   const run = await db.artworkDedupRun.findUniqueOrThrow({ where: { id: ref.runId } })
   const expectedCandidates = (scenario === 'sparse' ? 2 : artworkCount) * mediaPerArtwork
@@ -511,13 +630,13 @@ async function measure(ref: RunRef) {
   assert.equal(run.hashedMedia, ref.temperature === 'cold' ? expectedCandidates : 0)
   assert.equal(run.cacheHitMedia, ref.temperature === 'hot' ? expectedCandidates : 0)
   assert.equal(run.readBytes, ref.temperature === 'cold' ? BigInt(expectedCandidates * 4096) : 0n)
-  assert.equal(
-    aggregate.inspections,
-    run.statMedia,
-    'Persisted slice evidence does not cover every committed inspection'
-  )
-  assert.equal(aggregate.reads, run.hashedMedia, 'Persisted slice evidence does not cover every content read')
-  assert.equal(aggregate.bytesRead, run.readBytes, 'Persisted slice byte evidence differs from committed I/O')
+  const reconciliation = {
+    inspections: aggregate.inspections + committedWithoutMeasurement.statMedia === run.statMedia,
+    reads: aggregate.reads + committedWithoutMeasurement.hashedMedia === run.hashedMedia,
+    readBytes: aggregate.bytesRead + committedWithoutMeasurement.readBytes === run.readBytes
+  }
+  // Missing process telemetry is a measurement gap, not a failed domain result.
+  const measurementsReconciled = Object.values(reconciliation).every(Boolean)
   const rowsAfter = await db.$queryRaw<typeof rowsBefore>`
     SELECT relname AS "table", n_tup_ins AS inserted, n_tup_upd AS updated, n_tup_del AS deleted
     FROM pg_stat_user_tables ORDER BY relname`
@@ -533,10 +652,23 @@ async function measure(ref: RunRef) {
     gapSinceLastSliceMs,
     slices,
     aggregate,
+    measurementCoverage: {
+      ...coverage(),
+      complete: unobservedWindows === 0 && measurementsReconciled,
+      reconciled: measurementsReconciled,
+      reconciliation
+    },
+    committed: {
+      statMedia: run.statMedia,
+      hashedMedia: run.hashedMedia,
+      cacheHitMedia: run.cacheHitMedia,
+      readBytes: run.readBytes,
+      retryReadBytes: run.retryReadBytes
+    },
     sql,
     sqlScope:
       segment > 1
-        ? 'Current segment only; allSliceSql combines persisted slice counters across segments and excludes inter-slice queue/statistics queries'
+        ? 'Current segment only; allSliceSql combines observed persisted slice counters across segments and excludes inter-slice queries and unobserved interrupted tails'
         : 'Whole measured run',
     allSliceSql,
     run,
@@ -548,6 +680,7 @@ async function measure(ref: RunRef) {
     tableStatsBefore: rowsBefore,
     tableStatsAfter: rowsAfter
   })
+  return 'completed' as const
 }
 async function main() {
   await validateDatabase()
@@ -608,9 +741,27 @@ async function main() {
     await saveManifest()
   }
   for (const temperature of (args.includes('--cold-only') ? ['cold'] : ['cold', 'hot']) as RunRef['temperature'][]) {
-    const ref = manifest.runs.find((value) => value.temperature === temperature) ?? (await start(temperature))
-    if ((await db.artworkDedupRun.findUniqueOrThrow({ where: { id: ref.runId } })).status !== 'COMPLETED')
-      await measure(ref)
+    if (!inspectOnly && processBudgetReached()) {
+      await emit({
+        event: 'process-yield',
+        maxSegmentMs,
+        processElapsedMs: Date.now() - processStartedAt,
+        nextTemperature: temperature
+      })
+      process.exitCode = 75
+      return
+    }
+    const existingRef = manifest.runs.find((value) => value.temperature === temperature)
+    assert(!inspectOnly || existingRef, 'Inspection must not create a new run')
+    const ref = existingRef ?? (await start(temperature))
+    if (
+      inspectOnly ||
+      (await db.artworkDedupRun.findUniqueOrThrow({ where: { id: ref.runId } })).status !== 'COMPLETED'
+    ) {
+      const outcome = await measure(ref)
+      if (outcome === 'yielded') process.exitCode = 75
+      if (outcome !== 'completed') return
+    }
   }
 }
 try {
