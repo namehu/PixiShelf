@@ -55,7 +55,6 @@ interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   chapterPanelOpen: boolean
   onChapterPanelOpenChange: (open: boolean) => void
   onActiveMediaSettled: (result: 'ready' | 'error') => void
-  onHideChrome: () => void
   onToggleChrome: () => void
   getPlaybackPosition: (mediaId: number) => number
   onPlaybackPositionChange: (mediaId: number, currentTime: number) => void
@@ -539,7 +538,6 @@ export default function ImageSlide({
   chapterPanelOpen,
   onChapterPanelOpenChange,
   onActiveMediaSettled,
-  onHideChrome,
   onToggleChrome,
   getPlaybackPosition,
   onPlaybackPositionChange,
@@ -1008,7 +1006,7 @@ export default function ImageSlide({
   const mediaControls =
     isActive && currentMedia.mediaType === MediaType.VIDEO ? (
       <ViewerVideoControls
-        compact={isChromeHidden}
+        chromeHidden={isChromeHidden}
         interactionLocked={interactionLocked || chapterPanelOpen}
         media={currentMedia}
         state={videoState}
@@ -1036,7 +1034,6 @@ export default function ImageSlide({
       onInteractionApiChange={(api) => {
         overlayApiRef.current = api
       }}
-      onHideChrome={onHideChrome}
       onPanelOpenChange={onOverlayPanelOpenChange}
     />
   )

@@ -6,8 +6,8 @@ import type { RandomImageItem } from '@/types/images'
 import { MediaType } from '@/types'
 
 vi.mock('@/components/media-mark/media-mark-actions', () => ({
-  MediaMarkActions: ({ artworkId, mediaId }: { artworkId: number; mediaId: number | null }) =>
-    <div data-testid="media-mark-actions" data-artwork-id={artworkId} data-media-id={mediaId} />
+  MediaMarkActions: ({ artworkId, mediaId, showBookmark }: { artworkId: number; mediaId: number | null; showBookmark?: boolean }) =>
+    <div data-testid="media-mark-actions" data-artwork-id={artworkId} data-media-id={mediaId} data-bookmark={String(showBookmark)} />
 }))
 
 vi.mock('@/components/ui/drawer', () => ({
@@ -43,16 +43,17 @@ describe('ActionDrawer', () => {
   })
   afterEach(cleanup)
   it('marks the current logical media and disables the artwork-cover fallback', () => {
-    const { rerender } = render(<ActionDrawer open onOpenChange={vi.fn()} image={image} currentMediaId={42} onHideChrome={vi.fn()} />)
+    const { rerender } = render(<ActionDrawer open onOpenChange={vi.fn()} image={image} currentMediaId={42} />)
     expect(screen.getByTestId('media-mark-actions').getAttribute('data-media-id')).toBe('42')
     expect(screen.getByTestId('media-mark-actions').getAttribute('data-artwork-id')).toBe('7')
-    rerender(<ActionDrawer open onOpenChange={vi.fn()} image={image} onHideChrome={vi.fn()} />)
+    expect(screen.getByTestId('media-mark-actions').getAttribute('data-bookmark')).toBe('false')
+    rerender(<ActionDrawer open onOpenChange={vi.fn()} image={image} />)
     expect(screen.getByTestId('media-mark-actions').hasAttribute('data-media-id')).toBe(false)
     expect(screen.getByText('当前仅展示作品封面，暂无可标记的图片。')).toBeTruthy()
   })
   it('offers four persisted intervals and requests start only after closing the menu', () => {
     const close = vi.fn()
-    render(<ActionDrawer open onOpenChange={close} image={image} onHideChrome={vi.fn()} />)
+    render(<ActionDrawer open onOpenChange={close} image={image} />)
     for (const seconds of [3, 5, 10, 15]) {
       fireEvent.click(screen.getByText(`${seconds} 秒`))
       expect(useViewerStore.getState().autoBrowseInterval).toBe(seconds)
@@ -64,8 +65,7 @@ describe('ActionDrawer', () => {
   })
   it('keeps artwork actions and removes feed-level settings', () => {
     const onOpenChange = vi.fn()
-    const onHideChrome = vi.fn()
-    render(<ActionDrawer open onOpenChange={onOpenChange} image={image} onHideChrome={onHideChrome} />)
+    render(<ActionDrawer open onOpenChange={onOpenChange} image={image} />)
 
     expect(screen.queryByText('浏览模式')).toBeNull()
     expect(screen.queryByText('最大图片数量')).toBeNull()
@@ -78,7 +78,6 @@ describe('ActionDrawer', () => {
 
     expect(screen.getByRole('link', { name: '查看艺术家' }).getAttribute('href')).toBe('/artists/9')
 
-    fireEvent.click(screen.getByRole('button', { name: '隐藏界面' }))
-    expect(onHideChrome).toHaveBeenCalledOnce()
+    expect(screen.queryByRole('button', { name: '隐藏界面' })).toBeNull()
   })
 })

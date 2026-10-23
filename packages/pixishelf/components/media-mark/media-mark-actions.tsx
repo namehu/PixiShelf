@@ -6,11 +6,12 @@ import { Button } from '@/components/ui/button'
 import { useMediaMark } from '@/hooks/use-media-mark'
 import { cn } from '@/lib/utils'
 
-export function MediaMarkActions({ artworkId, mediaId, layout = 'icons', overlay = false }: {
+export function MediaMarkActions({ artworkId, mediaId, layout = 'icons', overlay = false, showBookmark = true }: {
   artworkId: number
   mediaId: number | null
   layout?: 'icons' | 'menu'
   overlay?: boolean
+  showBookmark?: boolean
 }) {
   const mark = useMediaMark(artworkId, mediaId)
   const reducedMotion = useReducedMotion()
@@ -26,7 +27,7 @@ export function MediaMarkActions({ artworkId, mediaId, layout = 'icons', overlay
       {([
         { kind: 'bookmark', active: Boolean(mark.bookmarkedAt), Icon: BookmarkIcon, add: '添加图片书签', remove: '取消图片书签' },
         { kind: 'like', active: Boolean(mark.likedAt), Icon: HeartIcon, add: '喜欢这张图片', remove: '取消图片喜欢' }
-      ] as const).map(({ kind, active, Icon, add, remove }) => (
+      ] as const).filter(({ kind }) => showBookmark || kind !== 'bookmark').map(({ kind, active, Icon, add, remove }) => (
         <Button key={kind} type="button" variant={layout === 'menu' ? 'ghost' : 'secondary'}
           aria-label={active ? remove : add} aria-pressed={active} aria-busy={mark.isSaving}
           disabled={mark.isLoading || !mark.available} title={active ? remove : add}

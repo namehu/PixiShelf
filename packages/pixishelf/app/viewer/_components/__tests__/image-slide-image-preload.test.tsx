@@ -91,7 +91,6 @@ const commonProps = {
   chapterPanelOpen: false,
   onChapterPanelOpenChange: vi.fn(),
   onActiveMediaSettled: vi.fn(),
-  onHideChrome: vi.fn(),
   onToggleChrome: vi.fn(),
   getPlaybackPosition: () => 0,
   onPlaybackPositionChange: vi.fn()

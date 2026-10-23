@@ -28,7 +28,7 @@ export function useArtworkRating(artworkId: number, initialLevel?: ArtworkRating
       onLoaded: (state) => useViewerStore.getState().syncImageRatingStatus(artworkId, state.level),
       onConfirmed: async (state) => {
         if (isCurrentAccount()) useViewerStore.getState().syncImageRatingStatus(artworkId, state.level)
-        await refreshArtworkLikeCache(queryClient, owner, state, isCurrentAccount)
+        await refreshArtworkLikeCache(queryClient, owner, state)
       }
     }, initialLevel)
   }, [owner, artworkId, queryClient, client, initialLevel])

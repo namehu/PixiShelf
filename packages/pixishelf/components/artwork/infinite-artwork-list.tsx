@@ -133,8 +133,8 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     // pages through long reads; a new generation or full reload reruns filters.
     gcTime: readingStatus ? Infinity : undefined,
     refetchOnMount: readingStatus ? false : undefined,
-    refetchOnWindowFocus: readingStatus ? false : undefined,
-    refetchOnReconnect: readingStatus ? false : undefined,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
     queryFn: ({ pageParam, signal }) => trpcClient.artwork.cardList.query({
       ...filterInput,
       cursor: typeof pageParam === 'number' ? pageParam : undefined,

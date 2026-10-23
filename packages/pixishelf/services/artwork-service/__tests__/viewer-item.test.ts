@@ -13,6 +13,14 @@ vi.mock('@/lib/prisma', () => ({
 import { toViewerImageItem } from '../index'
 
 describe('toViewerImageItem', () => {
+  it('keeps the artwork and media keys stable across rating changes and refetches', () => {
+    const artwork = { id: 7, images: [{ id: 71, path: '/movie.mp4', mediaType: 'video' }] }
+    const before = toViewerImageItem(artwork, {})
+    const after = toViewerImageItem(artwork, { 7: 2 })
+    expect(after.key).toBe(before.key)
+    expect(after.images).toEqual(before.images)
+    expect(toViewerImageItem({ ...artwork, id: 8 }, {}).key).not.toBe(before.key)
+  })
   it.each([[null, false], [1, false], [2, true], [3, true], [4, true]] as const)(
     'derives the heart from rating %s', (level, liked) => {
       const item = toViewerImageItem({ id: 1, images: [] }, { 1: level })

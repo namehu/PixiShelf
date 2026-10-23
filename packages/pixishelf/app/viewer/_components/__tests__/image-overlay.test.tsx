@@ -54,7 +54,7 @@ describe('viewer image overlay', () => {
   afterEach(() => cleanup())
 
   it('keeps progress accessible while hiding information without unmounting controls', () => {
-    render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} mediaControls={<button>播放器</button>} />)
+    render(<ImageOverlay isActive image={artwork} mediaControls={<button>播放器</button>} />)
     const player = screen.getByRole('button', { name: '播放器' })
     act(() => useViewerStore.getState().setChromeHidden(true))
     expect(screen.queryByRole('region', { name: '作品信息与操作' })).toBeNull()
@@ -69,7 +69,7 @@ describe('viewer image overlay', () => {
   it('reports open artwork actions to block parent gestures', () => {
     const onPanelOpenChange = vi.fn()
     const view = render(
-      <ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} onPanelOpenChange={onPanelOpenChange} />
+      <ImageOverlay isActive image={artwork} onPanelOpenChange={onPanelOpenChange} />
     )
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }))
     expect(onPanelOpenChange).toHaveBeenLastCalledWith(true)
@@ -79,7 +79,7 @@ describe('viewer image overlay', () => {
 
   it('still likes through the button and exposes only the action drawer to gestures', async () => {
     const api = vi.fn()
-    render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} onInteractionApiChange={api} />)
+    render(<ImageOverlay isActive image={artwork} onInteractionApiChange={api} />)
     expect(api).toHaveBeenLastCalledWith({ openActions: expect.any(Function) })
     await act(async () => fireEvent.click(screen.getByRole('button', { name: /喜欢作品/ })))
     expect(rating.setLevel).toHaveBeenCalledExactlyOnceWith(2)
@@ -87,7 +87,7 @@ describe('viewer image overlay', () => {
 
   it.each([2, 3, 4] as const)('clears a lit heart at rating %s and describes the loss of its score', (level) => {
     rating.level = level
-    render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} />)
+    render(<ImageOverlay isActive image={artwork} />)
     const button = screen.getByRole('button', { name: /当前评分：.+；取消喜欢并清除评分/ })
     expect(button.getAttribute('aria-pressed')).toBe('true')
     expect(button.getAttribute('title')).toBe(button.getAttribute('aria-label'))
@@ -98,7 +98,7 @@ describe('viewer image overlay', () => {
   it('upgrades 一般 to 喜欢 and accepts another choice while a save is pending', () => {
     rating.level = 1
     rating.isSaving = true
-    render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} />)
+    render(<ImageOverlay isActive image={artwork} />)
     const button = screen.getByRole('button', { name: '当前评分：一般；喜欢作品' })
     expect(button.hasAttribute('disabled')).toBe(false)
     expect(button.getAttribute('aria-busy')).toBe('true')
@@ -107,7 +107,7 @@ describe('viewer image overlay', () => {
   })
 
   it('keeps avatar, like, and more actions inside the bottom information area', () => {
-    render(<ImageOverlay isActive image={artwork} onHideChrome={vi.fn()} />)
+    render(<ImageOverlay isActive image={artwork} />)
 
     const information = screen.getByRole('region', { name: '作品信息与操作' })
     expect(within(information).getByRole('link', { name: 'Test artwork' }).getAttribute('href')).toBe('/artworks/1')

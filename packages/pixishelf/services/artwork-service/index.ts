@@ -14,7 +14,6 @@ import {
 import { isApngFile, isVideoFile } from '@/lib/media'
 import { VIDEO_EXTENSIONS } from '@/lib/constant'
 import { RandomImageItem, RandomImagesResponse, ViewerFeedResponse } from '@/types/images'
-import { guid } from '@/utils/guid'
 import { MediaType } from '@/types'
 import { combinationApiResource } from '@/utils/combination-static'
 import { buildPixivArtistAvatarUrl } from '@/lib/pixiv-data'
@@ -908,7 +907,7 @@ export function toViewerImageItem(artwork: any, ratingLevels: Record<number, Art
 
   return {
     id: artwork.id,
-    key: guid(),
+    key: String(artwork.id),
     title: artwork.title,
     description: artwork.description || '',
     imageUrl,

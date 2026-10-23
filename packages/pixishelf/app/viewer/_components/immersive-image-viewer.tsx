@@ -254,7 +254,6 @@ export default function ImmersiveImageViewer({
         toggleChromeHidden: state.toggleChromeHidden
       }))
     )
-  const hideChrome = useCallback(() => setChromeHidden(true), [setChromeHidden])
   useEffect(() => {
     // Cached filter results can reset the store without remounting Swiper.
     if (swiper && !swiper.destroyed && !atEnd && swiper.activeIndex !== verticalIndex) {
@@ -463,7 +462,6 @@ export default function ImmersiveImageViewer({
                       chapterPanelOpen={chapterPanelOpen}
                       onChapterPanelOpenChange={setChapterPanelOpen}
                       onActiveMediaSettled={() => setPreloadUnlockedIndex(index)}
-                      onHideChrome={hideChrome}
                       onToggleChrome={toggleChromeHidden}
                       getPlaybackPosition={(mediaId) => playbackPositionsRef.current.get(mediaId) ?? 0}
                       onPlaybackPositionChange={(mediaId, currentTime) => {

@@ -248,6 +248,8 @@ export default function ViewerPage() {
             : (lastPage.nextPage ?? undefined),
       staleTime: 10 * 60 * 1000,
       gcTime: 15 * 60 * 1000,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
       retry: (attempt, failure) => !failure.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') && attempt < 3,
       retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
       enabled: hasHydrated && Boolean(ownerUserId)

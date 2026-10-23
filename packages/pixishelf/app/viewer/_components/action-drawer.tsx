@@ -3,7 +3,7 @@
 import type { FC } from 'react'
 import type { RandomImageItem } from '@/types/images'
 import Link from 'next/link'
-import { CaptionsIcon, EyeOffIcon, PlayIcon, SquareIcon, User } from 'lucide-react'
+import { CaptionsIcon, PlayIcon, SquareIcon, User } from 'lucide-react'
 import { useViewerStore, VIEWER_AUTO_INTERVALS } from '@/store/viewer-store'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
@@ -24,11 +24,10 @@ export interface ActionDrawerProps {
   onOpenChange: (open: boolean) => void
   image: RandomImageItem
   currentMediaId?: number | null
-  onHideChrome: () => void
 }
 
 /** 当前作品的快捷操作；Feed 级设置统一由页面右上角的筛选入口管理。 */
-export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image, currentMediaId = null, onHideChrome }) => {
+export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image, currentMediaId = null }) => {
   const autoStatus = useViewerStore((state) => state.autoBrowseStatus)
   const interval = useViewerStore((state) => state.autoBrowseInterval)
   const autoSelected = autoStatus === 'running' || autoStatus === 'paused'
@@ -53,7 +52,7 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image,
           {open && (
             <section aria-label="当前图片" className="flex flex-col gap-2">
               <p className="text-sm text-muted-foreground">当前图片</p>
-              <MediaMarkActions artworkId={image.id} mediaId={currentMediaId} layout="menu" />
+              <MediaMarkActions artworkId={image.id} mediaId={currentMediaId} layout="menu" showBookmark={false} />
               {!currentMediaId ? <p className="text-xs text-muted-foreground">当前仅展示作品封面，暂无可标记的图片。</p> : null}
               <Separator />
             </section>
@@ -117,10 +116,6 @@ export const ActionDrawer: FC<ActionDrawerProps> = ({ open, onOpenChange, image,
               </Link>
             </Button>
           ))}
-          <Button type="button" variant="outline" className="w-full justify-start" onClick={onHideChrome}>
-            <EyeOffIcon data-icon="inline-start" aria-hidden="true" />
-            隐藏界面
-          </Button>
         </div>
         <DrawerFooter className="pb-[max(1rem,env(safe-area-inset-bottom))]">
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>

@@ -13,6 +13,12 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('media mark actions', () => {
+  it('can hide bookmarks while keeping the current-media like action', () => {
+    render(<MediaMarkActions artworkId={7} mediaId={42} layout="menu" showBookmark={false} />)
+    expect(screen.queryByRole('button', { name: /书签/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '喜欢这张图片' }))
+    expect(mocks.set).toHaveBeenCalledExactlyOnceWith('like', true)
+  })
   it('exposes independent pressed states and accessible 44px actions', () => {
     render(<MediaMarkActions artworkId={7} mediaId={42} />)
     const bookmark = screen.getByRole('button', { name: '取消图片书签' })

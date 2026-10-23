@@ -305,7 +305,7 @@ describe('compact progress with real controls and Swipers', () => {
   })
 
   it.each([true, false])(
-    'seeks a compact video and preserves playing=%s, rate, and node across chrome changes',
+    'keeps full video controls and preserves playing=%s, rate, and node across chrome changes',
     (playing) => {
       const view = mount([artwork(1, 1, 'video')])
       const video = view.container.querySelector('video')!
@@ -316,7 +316,9 @@ describe('compact progress with real controls and Swipers', () => {
       video.currentTime = 10
       fireEvent.loadedMetadata(video)
       expect(screen.getByLabelText('视频时间').textContent).toBe('0:10 / 1:40')
-      expect(screen.queryByRole('button', { name: /播放速率/ })).toBeNull()
+      expect(screen.getByRole('button', { name: /播放速率/ })).toBeTruthy()
+      expect(screen.getByRole('button', { name: playing ? '暂停视频' : '播放视频' })).toBeTruthy()
+      expect(screen.getByRole('button', { name: '开启声音' })).toBeTruthy()
       const slider = track('视频进度')
       pointer(slider, 'pointerdown', 150)
       expect(video.currentTime).toBe(10)

@@ -24,7 +24,6 @@ interface ImageOverlayProps {
   currentMediaId?: number | null
   mediaControls?: ReactNode
   onInteractionApiChange?: (api: ViewerOverlayInteractionApi | null) => void
-  onHideChrome: () => void
   onPanelOpenChange?: (open: boolean) => void
 }
 
@@ -42,7 +41,6 @@ export default function ImageOverlay({
   currentMediaId = null,
   mediaControls,
   onInteractionApiChange,
-  onHideChrome,
   onPanelOpenChange
 }: ImageOverlayProps) {
   const { id, author, createdAt, title, description, tags = [] } = image
@@ -228,10 +226,6 @@ export default function ImageOverlay({
         onOpenChange={handleActionDrawerOpenChange}
         image={image}
         currentMediaId={currentMediaId}
-        onHideChrome={() => {
-          setShowActionDrawer(false)
-          onHideChrome()
-        }}
       />
     </div>
   )

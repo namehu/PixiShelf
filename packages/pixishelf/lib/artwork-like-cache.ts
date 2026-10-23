@@ -28,47 +28,48 @@ function artworkQuery(key: QueryKey) {
 export async function refreshArtworkLikeCache(
   client: QueryClient,
   owner: string,
-  rating: ArtworkRatingState,
-  canRefetch: () => boolean = () => true
+  rating: ArtworkRatingState
 ) {
-  const { artworkId, level, isLike } = rating
+  const { artworkId } = rating
   const filters = {
     predicate: (query: { queryKey: QueryKey }) => {
       const parsed = artworkQuery(query.queryKey)
       return parsed?.input.expectedUserId === owner
     }
   }
-  // Ordinary lists do not need a fresh page for a rating change, but canceling
-  // their initial/page request must not leave an active list without a result.
-  const interrupted = new Set(client.getQueryCache().findAll(filters)
-    .filter((query) => query.state.fetchStatus === 'fetching')
-    .map((query) => query.queryHash))
-  await client.cancelQueries(filters)
+  client.setQueryData(artworkRatingQueryKey(owner, artworkId), rating)
   for (const query of client.getQueryCache().findAll(filters)) {
-    const likedOnly = artworkQuery(query.queryKey)?.input.likedOnly === true
-    const patch = (value: unknown): unknown => {
+    const patch = (value: unknown, latest: ArtworkRatingState): unknown => {
       if (!record(value)) return value
-      if (Array.isArray(value.pages)) return { ...value, pages: value.pages.map(patch) }
+      if (Array.isArray(value.pages)) return { ...value, pages: value.pages.map((page) => patch(page, latest)) }
       if (!Array.isArray(value.items)) return value
       return {
         ...value,
-        items: value.items.flatMap((item: unknown) => {
-          if (!record(item) || item.id !== artworkId) return [item]
-          return likedOnly && !isLike ? [] : [{ ...item, ratingLevel: level, isLike }]
+        items: value.items.map((item: unknown) => {
+          if (!record(item) || item.id !== artworkId) return item
+          return { ...item, ratingLevel: latest.level, isLike: latest.isLike }
         })
       }
     }
-    client.setQueryData(query.queryKey, patch)
+    const applyRating = () => {
+      const latest = client.getQueryData<ArtworkRatingState>(artworkRatingQueryKey(owner, artworkId)) ?? rating
+      client.setQueryData(query.queryKey, (value: unknown) => patch(value, latest))
+    }
+    // Let an initial/next page finish. Its older rating must not undo a later
+    // confirmation, and restarting the feed would re-filter already loaded items.
+    if (query.state.fetchStatus !== 'idle') {
+      const unsubscribe = client.getQueryCache().subscribe((event) => {
+        if (event.query !== query) return
+        if (event.type === 'removed') { unsubscribe(); return }
+        if (event.type !== 'updated' || query.state.fetchStatus !== 'idle') return
+        unsubscribe()
+        applyRating()
+        void client.invalidateQueries({ queryKey: query.queryKey, exact: true, refetchType: 'none' })
+      })
+    }
+    applyRating()
   }
-  client.setQueryData(artworkRatingQueryKey(owner, artworkId), rating)
-  // Recheck after cancellation: a different session must not refetch this owner's queries.
-  // Feed refetches can be slow; they must not hold the shared write queue open.
-  void client.invalidateQueries({
-    predicate: (query) => {
-      const parsed = artworkQuery(query.queryKey)
-      return parsed?.input.expectedUserId === owner &&
-        (parsed.procedure === 'viewerFeed' || parsed.input.likedOnly === true || interrupted.has(query.queryHash))
-    },
-    refetchType: canRefetch() ? 'active' : 'none'
-  }).catch(() => {})
+  // Membership and order belong to this browsing round, including favorites.
+  // Apply fresh filter results only on an explicit refresh or a later visit.
+  void client.invalidateQueries({ ...filters, refetchType: 'none' }).catch(() => {})
 }

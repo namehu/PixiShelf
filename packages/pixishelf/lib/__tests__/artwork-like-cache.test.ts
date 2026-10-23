@@ -1,4 +1,4 @@
-import { QueryClient, QueryObserver } from '@tanstack/react-query'
+import { InfiniteQueryObserver, QueryClient, QueryObserver } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import { refreshArtworkLikeCache } from '../artwork-like-cache'
 import type { ArtworkRatingLevel, ArtworkRatingState } from '@/schemas/artwork-rating.dto'
@@ -9,7 +9,36 @@ const rating = (artworkId: number, level: ArtworkRatingLevel): ArtworkRatingStat
 })
 
 describe('favorite query membership', () => {
-  it('restarts an ordinary list request that was canceled before its first page arrived', async () => {
+  it('keeps next-page loading and reapplies the latest rating without removing a favorite', async () => {
+    const client = new QueryClient()
+    const key = ['artwork', 'viewerFeed', 'random-v1', 'alice', { likedOnly: true, expectedUserId: 'alice' }]
+    const firstPage = { items: [{ id: 1, ratingLevel: 2, isLike: true }], nextCursor: 2 as number | undefined }
+    const nextPage = { items: [{ id: 2, ratingLevel: 2, isLike: true }], nextCursor: undefined }
+    let resolveNext!: (page: typeof firstPage) => void
+    const pending = new Promise<typeof firstPage>((resolve) => { resolveNext = resolve })
+    const fetch = vi.fn(() => pending)
+    const observer = new InfiniteQueryObserver(client, {
+      queryKey: key, queryFn: fetch, initialPageParam: 1,
+      initialData: { pages: [firstPage], pageParams: [1] },
+      getNextPageParam: (page) => page.nextCursor,
+      staleTime: Infinity
+    })
+    const unsubscribe = observer.subscribe(() => {})
+    try {
+      const loading = observer.fetchNextPage()
+      await refreshArtworkLikeCache(client, 'alice', rating(1, 4))
+      await refreshArtworkLikeCache(client, 'alice', rating(1, null))
+      expect(observer.getCurrentResult().isFetchingNextPage).toBe(true)
+      resolveNext(nextPage)
+      await loading
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(client.getQueryData(key)).toMatchObject({
+        pages: [{ items: [{ id: 1, ratingLevel: null, isLike: false }] }, nextPage], pageParams: [1, 2]
+      })
+    } finally { resolveNext(nextPage); unsubscribe(); client.clear() }
+  })
+
+  it('keeps an in-flight first page and applies the confirmed rating when it arrives', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const key = ['artwork', 'cardList', 'random-v1', 'alice', { expectedUserId: 'alice' }]
     let resolveFirst!: (value: unknown) => void
@@ -21,8 +50,11 @@ describe('favorite query membership', () => {
     try {
       expect(fetch).toHaveBeenCalledOnce()
       await refreshArtworkLikeCache(client, 'alice', rating(1, 3))
-      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
-      await vi.waitFor(() => expect(client.getQueryData(key)).toEqual(page))
+      expect(fetch).toHaveBeenCalledOnce()
+      resolveFirst(page)
+      await vi.waitFor(() => expect(client.getQueryData(key)).toMatchObject({
+        pages: [{ items: [{ id: 1, ratingLevel: 3, isLike: true }, { id: 2 }] }], pageParams: [1]
+      }))
     } finally {
       resolveFirst(page)
       unsubscribe()
@@ -55,15 +87,11 @@ describe('favorite query membership', () => {
     const options = { queryKey: alice, queryFn: fetch, staleTime: 10 * 60 * 1000 }
     const observer = new QueryObserver(client, options)
     const unsubscribe = observer.subscribe(() => {})
-    const cancel = client.cancelQueries.bind(client)
-    vi.spyOn(client, 'cancelQueries').mockImplementationOnce(async (filters) => {
-      await cancel(filters)
-      currentOwner = 'bob'
-    })
-    await refreshArtworkLikeCache(client, 'alice', rating(1, null), () => currentOwner === 'alice')
+    currentOwner = 'bob'
+    await refreshArtworkLikeCache(client, 'alice', rating(1, null))
     expect(fetch).not.toHaveBeenCalled()
     expect(client.getQueryState(alice)?.isInvalidated).toBe(true)
-    expect(client.getQueryData(alice)).toMatchObject({ pages: [{ items: [{ id: 2 }] }] })
+    expect(client.getQueryData(alice)).toMatchObject({ pages: [{ items: [{ id: 1, isLike: false }, { id: 2 }] }] })
     expect(client.getQueryState(bob)?.isInvalidated).toBe(false)
     expect(client.getQueryData(bob)).toBe(original)
     unsubscribe()
@@ -74,7 +102,7 @@ describe('favorite query membership', () => {
     unsubscribeReturning()
     client.clear()
   })
-  it('removes unliked artwork from the owner collection and refreshes their feeds without touching another account', async () => {
+  it('updates ratings in place without removing favorites, moving items or touching another account', async () => {
     const client = new QueryClient()
     const favorites = ['artwork', 'cardList', 'random-v1', 'alice', { likedOnly: true, expectedUserId: 'alice' }]
     const other = ['artwork', 'cardList', 'random-v1', 'bob', { likedOnly: true, expectedUserId: 'bob' }]
@@ -97,9 +125,9 @@ describe('favorite query membership', () => {
     client.setQueryData(trpc, data.pages[0])
     const cancel = vi.spyOn(client, 'cancelQueries')
     await refreshArtworkLikeCache(client, 'alice', rating(1, 1))
-    expect(cancel).toHaveBeenCalledOnce()
-    expect(client.getQueryData(favorites)).toMatchObject({ pages: [{ items: [{ id: 2 }], nextReadingCursor: 'same' }] })
-    expect(client.getQueryData(trpc)).toMatchObject({ items: [{ id: 2 }] })
+    expect(cancel).not.toHaveBeenCalled()
+    expect(client.getQueryData(favorites)).toMatchObject({ pages: [{ items: [{ id: 1, isLike: false }, { id: 2 }], nextReadingCursor: 'same' }] })
+    expect(client.getQueryData(trpc)).toMatchObject({ items: [{ id: 1, isLike: false }, { id: 2 }] })
     expect(client.getQueryData(feed)).toMatchObject({
       pages: [
         {
@@ -112,12 +140,29 @@ describe('favorite query membership', () => {
     })
     expect(client.getQueryData(other)).toBe(data)
     expect(client.getQueryState(other)?.isInvalidated).toBe(false)
-    expect(client.getQueryState(all)?.isInvalidated).toBe(false)
+    expect(client.getQueryState(all)?.isInvalidated).toBe(true)
     expect(client.getQueryData(all)).toMatchObject({ pages: [{ items: [{ id: 1, ratingLevel: 1, isLike: false }, { id: 2 }] }] })
     expect(client.getQueryData(artworkRatingQueryKey('alice', 1))).toEqual(rating(1, 1))
     expect(client.getQueryState(favorites)?.isInvalidated).toBe(true)
     expect(client.getQueryState(feed)?.isInvalidated).toBe(true)
     client.clear()
+  })
+
+  it.each(['cardList', 'viewerFeed'])('does not reload an active %s after liking a now-read video', async (procedure) => {
+    const client = new QueryClient()
+    const key = ['artwork', procedure, 'random-v1', 'alice', { readingStatus: 'UNREAD', expectedUserId: 'alice' }]
+    const video = { id: 1, key: '1', images: [{ id: 11, key: '11', mediaType: 'VIDEO' }], ratingLevel: null, isLike: false }
+    client.setQueryData(key, { pages: [{ items: [video], nextReadingCursor: 'next' }], pageParams: [1] })
+    const fetch = vi.fn().mockResolvedValue({ pages: [{ items: [] }], pageParams: [1] })
+    const observer = new QueryObserver(client, { queryKey: key, queryFn: fetch, staleTime: Infinity })
+    const unsubscribe = observer.subscribe(() => {})
+    try {
+      await refreshArtworkLikeCache(client, 'alice', rating(1, 2))
+      expect(fetch).not.toHaveBeenCalled()
+      expect(client.getQueryData(key)).toMatchObject({
+        pages: [{ items: [{ ...video, ratingLevel: 2, isLike: true }], nextReadingCursor: 'next' }], pageParams: [1]
+      })
+    } finally { unsubscribe(); client.clear() }
   })
 
   it('invalidates favorite lists after adding a like without inventing a position in the sorted collection', async () => {

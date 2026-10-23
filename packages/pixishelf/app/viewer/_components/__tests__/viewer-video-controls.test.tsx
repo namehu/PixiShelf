@@ -150,15 +150,17 @@ describe('ViewerVideoControls', () => {
     expect(onTogglePlayback).not.toHaveBeenCalled()
   })
 
-  it('keeps unknown duration disabled in compact mode without exposing full controls', () => {
+  it('keeps video actions available with hidden information and unknown duration', () => {
     renderControls({
-      compact: true,
+      chromeHidden: true,
       media: { ...videoMedia, duration: null },
       state: { currentTime: 0, duration: 0, isPlaying: false, isWaiting: true }
     })
     expect(screen.getByLabelText('视频时间').textContent).toBe('0:00 / --:--')
     expect(screen.getByRole('slider', { name: '视频进度' }).closest('[data-disabled]')).not.toBeNull()
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getByRole('button', { name: '视频正在缓冲' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '开启声音' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /播放速率/ })).toBeTruthy()
   })
 
   it('formats compact viewer time values', () => {

@@ -101,11 +101,11 @@ export function MediaAnchorNavigation({
   const canSwitchMode = summary?.ready && summary.groups.some((group) => group.mediaIds.length > 1)
   const nextMode = summary?.mode === 'stack' ? 'complete' : 'stack'
   const modeLabel = nextMode === 'stack' ? '切换到堆叠浏览' : '切换到完整浏览'
-  const actionPositions = [{ x: 48, y: 0 }, { x: 96, y: 0 }, { x: 48, y: 48 }, { x: 96, y: 48 }]
-  const topPosition = actionPositions[0]
-  const expandPosition = actionPositions[1]
-  const modePosition = actionPositions[1 + Number(collapsible)]
-  const ratingPosition = actionPositions[1 + Number(collapsible) + Number(Boolean(canSwitchMode))]
+  const actionPosition = (index: number) => ({ x: 48 * (1 + index % 2), y: 48 * Math.floor(index / 2) })
+  const topPosition = actionPosition(0)
+  const expandPosition = actionPosition(1)
+  const modePosition = actionPosition(1 + Number(collapsible))
+  const ratingPosition = actionPosition(1 + Number(collapsible) + Number(Boolean(canSwitchMode)))
   if (total <= 1 && !onRate && !canSwitchMode) return null
 
   const sequenceIndex = Math.min(Math.max(currentIndex, 0), total - 1)
