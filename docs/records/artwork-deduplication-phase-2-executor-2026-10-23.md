@@ -77,3 +77,23 @@ pnpm --filter @pixishelf/job-executors typecheck
 隔离库仍为 `dedup_executor_tests`，仅临时合成媒体；2026-10-23 22:59 的根映射测试 **11/11 通过**，同文件既有 9 项由 `-t` 排除并继承前述证据，未重复运行。覆盖 STAT/HASH 检查点切换 A→B、清理临时证据并增加 executionVersion 后的 retry、嵌套/分离根双向切换、slice 结束前映射变化、同 prefix 经 STAT/HASH 正常继续、旧嵌套/空 prefix 格式、缺 prefix 和已有进度的 null 绑定。变更拒绝用例断言零新组、原绑定保留；slice 开始拒绝还断言零 inspect/read，避免继续触碰旧 canonicalPath。retry 测试重建与服务一致的持久状态转换，App 控制幂等仍由其服务测试证明。
 
 执行器包 typecheck 通过；`pnpm docs:check` 通过（206 份 Markdown），`git diff --check` 无输出，主应用路径大写扫描无匹配。没有重跑 reader/阶段一/Worker 已通过组，也没有重建 Worker 或全量 App；Worker 单包产物按协调安排留最后统一重建一次。代码修复完成后交独立 Sol 窄复审，本记录不代替该审查结论。专用规模夹具旧绑定的显式升级与续跑由 benchmark 记录单独说明，产品路径不为其放宽兼容规则。
+
+## HASH 页预算与热缓存复核窄修复（基线 6627e60c）
+
+阶段二长测仍在独立 `dedup_scale` 运行时，协调者确认两处可避免开销，本次只改代码和 `dedup_executor_tests` 合成测试；没有中止测量进程、改动规模样本、缓存或游标。旧进程已加载的代码不受本次源文件变更影响，测量版本切换由协调者在安全检查点安排。
+
+HASH 成员页和已持久 stat 页的读取上限从 500 改为 `cacheBatch=100`，与正常批提交和游标推进一致，减少下轮重复取回尚未消费的记录；STAT 的 500 页预算未变。纯热批从再次 capture 整作品改为 `assertArtworkContentSnapshot(tx,{snapshot})`：新增 helper 仅 8 行包装原有私有 `assertArtworkSnapshot`，不更改其 Artwork 锁、revision/epoch/writeToken 校验，不触碰 observe/publish 锁复用。成员增删及路径/size 触发器、source write 和 directory write 的现有协议均持 Artwork 锁并推进内容 revision；因此已捕获 memberCount 可随同一 revision/epoch 复用。初始完整 snapshot/count、最终完整成员及有效文件计数、有效归属、目录和执行租约检查保持原样。
+
+2026-10-23 23:24–23:25 的实际结果：
+
+- 新增 `media-content-snapshot.postgres.test.ts` **8/8 通过**：原快照成功；成员增删、源写入、整作品写入、目录写入、旧 revision、旧 epoch 均拒绝。真实 Prisma query 事件同时断言该 assert 不执行 `COUNT`。
+- Executor 仅选择受影响测试 **8/8 通过**（同文件另 17 项由 `-t` 排除，继承已有证据）：小型冷/热/FULL、501 媒体 STAT 游标、两件各 501 媒体的 HASH 在 100 文件边界持久/继续及热轮、热缓存检查期间成员增删与源/目录写入、旧租约零发布。
+- 新的 501 HASH 案例实际冷轮读取 1,002 文件、2,004 字节，跨检查点总 inspect 为 2,004，无重复读取已提交前缀；热轮命中 1,002、内容读取 0 字节，仍执行 2,004 次可靠属性检查。此为临时小文件功能夹具，不是吞吐或 NAS 性能数字。
+- DB 与 Executor 两包 typecheck 均通过。没有运行全量 DB/Executor 测试或任何构建；独立 Sol 仅复审本次 helper/pipeline 及相应测试。
+
+```bash
+pnpm --filter @pixishelf/db exec vitest run src/__tests__/media-content-snapshot.postgres.test.ts
+pnpm --filter @pixishelf/job-executors exec vitest run src/artwork-dedup/__tests__/executor.postgres.test.ts -t 'filters by reliable|501-media|rejects a hot cache|rejects a stale execution'
+pnpm --filter @pixishelf/db typecheck
+pnpm --filter @pixishelf/job-executors typecheck
+```

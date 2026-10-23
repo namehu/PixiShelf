@@ -144,3 +144,22 @@ M202：`artwork-dedup-contention.ts` 355–376 行在空轮询前检查异常终
 核心 P2-E201 与测量脚本的修复结论分别如上。原阶段 2 资源测量、真实 NAS、生产恢复及最终浏览器门槛继续按各自记录收口，本轮没有新增可以替代它们的负载证据。
 
 本轮追加记录后，`pnpm docs:check` 通过（206 个 Markdown），`git diff --check` 无输出，主应用大小写路径检查无匹配。benchmark 实施者另确认最终定向 `tsc -p scripts/tsconfig.benchmark.json --noEmit` exit 0；此类型检查未由本 reviewer 重复运行。图源未变，Worker build、全量 tests 和浏览器均未重跑。
+
+
+## HASH 分页与热批快照优化窄复审（基线 6627e60c）
+
+**结论：通过；本次优化未发现 blocker。** 审查基线为 `6627e60ca5a8b18a1ee8e8c9227deb47a8d30ae0`，对象仅为该基线后的未提交 `pipeline.ts`、`media-content-evidence.ts`、相应测试和阶段 2 契约/实施说明。benchmark 的后续 measurement-gap 调整及阶段 3 文档不属于本节，本结论也不延伸到它们。
+
+`pipeline.ts` 265、271 行的两个 HASH 查询都使用 `cacheBatch=100`，仍按同一个 `afterImageId` 升序 keyset 取成员与可靠 stat、逐项核对 imageId/path/sourceRevision，完成批提交后才在 350、363 行推进游标。提前让行仍仅推进实际提交的前缀；STAT 页的 500 上限未变。没有从 500 页剩余部分推导成功数量，也没有改变文件读/缓存选择或检查点围栏。
+
+`media-content-evidence.ts` 171–176 行的新导出只包装既有私有 `assertArtworkSnapshot`，通过原有通配导出可用；没有新增未围栏的数据库入口。HASH 纯热批在 344 行改用它，替换每批重新 capture/count。既有私有校验 73–85 行仍以 `lockContentArtworks` 的 Artwork `FOR UPDATE` 串行化，并核对整作品 writeToken、revision 和 mediaEpoch；锁持有至包含媒体行、Item 游标与计数的同一 fenced mutation 事务提交。
+
+已核对该信任前提的必要交界：正式 Image 增删和 artworkId/path/size 更新触发器均先锁定相关 Artwork 并推进 ArtworkContentSource revision；`beginMediaContentSourceWrite` 在锁定相关 Artwork 后推进 revision，整作品写入还提高 mediaEpoch 并设置 token；`beginMediaContentPathWrite` 通过 `advanceDirectoryContent` 锁定已绑定媒体所属 Artwork、推进目录 generation 和作品 revision。因热文件已经在 STAT 阶段绑定目录，源/目录写入在先会使旧快照拒绝，在后则须等待本批提交后再推进版本。成员数量不可能在遵循这些现有协议的情况下悄悄改变而保持同一 revision。
+
+初始 `captureArtworkContentSnapshot` 的完整成员 count、源及目录 writer 检查保留；`publishCompleteArtworkFingerprint` 的完整成员遍历、`assertCompleteFingerprints` 的有效文件总数与最终 publish 校验保留。observe/publish 的目录与源检查、最终 GROUP 内容及归属锁和租约 fence 均未改动。旧 revision/epoch 或已开始的源/目录写入仍通过私有快照检查拒绝；整作品 gate 仍显式返回 WRITING；旧 lease 在进入保存批事务前仍由原 `mutateInTransaction` fence 拒绝，不因新的热批 helper 绕过。
+
+测试证据核对：新增 DB 8 项覆盖不变快照、成员增删、源/整作品/目录写入、旧 revision/epoch，同时通过真实 query 事件断言新 assert 不执行 COUNT。Executor 新增两件各 501 媒体、100 文件检查点后继续和热轮，断言冷轮 1,002 次内容读、热轮零内容读、两轮各 2,004 次属性检查，覆盖 100/500/501 分页边界；热文件 inspect 后注入增删或源/目录写入，断言受影响 Item 为 CHANGED、零已提交 SHA 行和零组。已有旧 lease 零发布路径仍在本轮实施者选择范围内。上述 DB 8/8、Executor 8/8 与两包 typecheck 通过来自[实施者记录](./artwork-deduplication-phase-2-executor-2026-10-23.md#hash-页预算与热缓存复核窄修复基线-6627e60c)，本 reviewer 核对源码、协议与断言，没有重复运行这些测试或全量测试/构建。
+
+本轮只修改此审查记录，没有改实现、正式测试、迁移或其他协作者的改动；没有数据库写入、负载运行或浏览器操作。
+
+本节交付检查：`pnpm docs:check` 通过（206 个 Markdown），`git diff --check` 无输出，主应用大小写路径扫描无匹配。图源未变，本轮不重复图示、构建或全量测试。

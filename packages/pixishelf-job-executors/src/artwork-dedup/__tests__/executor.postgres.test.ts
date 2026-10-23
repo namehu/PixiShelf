@@ -5,7 +5,14 @@ import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { Prisma, PrismaClient, freezeArtworkDedupRun } from '@pixishelf/db'
+import {
+  Prisma,
+  PrismaClient,
+  freezeArtworkDedupRun,
+  beginMediaContentPathWrite,
+  beginMediaContentSourceWrite,
+  finishMediaContentSourceWrite
+} from '@pixishelf/db'
 import {
   MutableQueueClock,
   PostgresQueueRepository,
@@ -261,6 +268,155 @@ suite('durable detection executor with real isolated media', () => {
       hashedMedia: 0
     })
   }, 30_000)
+  it('keeps 501-media HASH batches complete across a 100-file checkpoint and a hot run', async () => {
+    const artistId = await fixture([Array(501).fill(2), Array(501).fill(2)])
+    const cold = await start(artistId)
+    let reads = 0,
+      inspections = 0
+    const measured = (measurement: { reads: number; inspections: number }) => {
+      reads += measurement.reads
+      inspections += measurement.inspections
+    }
+    await executeArtworkDedup(
+      context(await claim(cold.jobId)),
+      dependencies({ sliceBytes: 200n, onMeasurement: measured })
+    )
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: cold.runId } })).toMatchObject({
+      status: 'RETRY_WAIT',
+      stage: 'HASH',
+      hashedMedia: 100
+    })
+    const partial = await db!.artworkDedupItem.findFirstOrThrow({
+      where: { runId: cold.runId, afterImageId: { gt: 0 } }
+    })
+    const ordered = await db!.image.findMany({
+      where: { artworkId: partial.artworkId },
+      orderBy: { id: 'asc' },
+      select: { id: true }
+    })
+    expect(partial.afterImageId).toBe(ordered[99]!.id)
+    clock.advance(3000)
+    await executeArtworkDedup(context(await claim(cold.jobId)), dependencies({ onMeasurement: measured }))
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: cold.runId } })).toMatchObject({
+      status: 'COMPLETED',
+      groupCount: 1,
+      hashedMedia: 1002,
+      cacheHitMedia: 0,
+      readBytes: 2004n
+    })
+    expect({ reads, inspections }).toEqual({ reads: 1002, inspections: 2004 })
+    const hot = await start(artistId)
+    reads = 0
+    inspections = 0
+    await executeArtworkDedup(context(await claim(hot.jobId)), dependencies({ onMeasurement: measured }))
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({
+      status: 'COMPLETED',
+      groupCount: 1,
+      hashedMedia: 0,
+      cacheHitMedia: 1002,
+      readBytes: 0n
+    })
+    expect({ reads, inspections }).toEqual({ reads: 0, inspections: 2004 })
+  }, 60_000)
+
+  it.each(['insert', 'delete', 'source write', 'directory write'] as const)(
+    'rejects a hot cache batch when %s starts after file inspection',
+    async (change) => {
+      const artistId = await fixture([
+        [2, 2, 2],
+        [2, 2, 2]
+      ])
+      const cold = await start(artistId)
+      await finish(cold.jobId)
+      const images = await db!.image.findMany({
+        where: { artwork: { creators: { some: { artistId } } } },
+        orderBy: { id: 'asc' }
+      })
+      const changedArtworkId = images[0]!.artworkId!
+      const hot = await start(artistId)
+      const supervisor = new DedupReaderSupervisor(readerOptions)
+      const create = supervisor.create.bind(supervisor)
+      let inspections = 0
+      let sourceWrite: Awaited<ReturnType<typeof beginMediaContentSourceWrite>> | undefined
+      let pathWriteId: string | undefined
+      supervisor.create = () => {
+        const reader = create(),
+          inspect = reader.inspect.bind(reader)
+        reader.inspect = async (input) => {
+          const result = await inspect(input)
+          // Six STAT inspections precede this first hot HASH inspection.
+          if (++inspections === 7) {
+            if (change === 'insert')
+              await db!.image.create({ data: { artworkId: changedArtworkId, path: `${changedArtworkId}/new.bin` } })
+            if (change === 'delete') await db!.image.delete({ where: { id: images[2]!.id } })
+            if (change === 'source write')
+              sourceWrite = await db!.$transaction((tx) =>
+                beginMediaContentSourceWrite(tx, {
+                  artworkIds: [],
+                  imageIds: [images[0]!.id],
+                  writeToken: randomUUID(),
+                  now: clock.now()
+                })
+              )
+            if (change === 'directory write') {
+              const source = await db!.mediaContentSource.findUniqueOrThrow({
+                where: { imageId: images[0]!.id },
+                include: { directory: true }
+              })
+              const directory = source.directory!
+              const held = await db!.$transaction((tx) =>
+                beginMediaContentPathWrite(tx, {
+                  directory: {
+                    logicalRoot: 'source-media:v1',
+                    rootIdentity: directory.rootIdentity,
+                    relativeDirectory: directory.relativeDirectory
+                  },
+                  scope: { kind: 'DIRECTORY' },
+                  owner: { ownerUserId: null, sessionId: randomUUID(), sessionVersion: 1n, execution: null },
+                  writeToken: randomUUID(),
+                  upload: null,
+                  parent: null,
+                  now: clock.now()
+                })
+              )
+              expect(held.status).toBe('READY')
+              if (held.status !== 'READY') throw new Error(held.status)
+              pathWriteId = held.value.writeId
+            }
+          }
+          return result
+        }
+        return reader
+      }
+      try {
+        await executeArtworkDedup(context(await claim(hot.jobId)), dependencies({ supervisor }))
+        expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({
+          status: 'COMPLETED',
+          changedArtworks: 1,
+          groupCount: 0,
+          hashedMedia: 0,
+          cacheHitMedia: 3
+        })
+        expect(
+          await db!.artworkDedupItem.findUniqueOrThrow({
+            where: { runId_artworkId: { runId: hot.runId, artworkId: changedArtworkId } }
+          })
+        ).toMatchObject({ status: 'CHANGED', afterImageId: 0 })
+        expect(
+          await db!.artworkDedupMedia.count({
+            where: { runId: hot.runId, artworkId: changedArtworkId, sha256: { not: null } }
+          })
+        ).toBe(0)
+      } finally {
+        if (sourceWrite)
+          await db!.$transaction((tx) =>
+            finishMediaContentSourceWrite(tx, { token: sourceWrite!, outcome: 'verified-rollback' })
+          )
+        if (pathWriteId) await db!.mediaContentPathWrite.delete({ where: { id: pathWriteId } })
+      }
+    },
+    20_000
+  )
   it('fails a resumed sparse run when its configured root changed before any candidate hashing', async () => {
     const artistId = await fixture([[2, 2, 2, 2, 2]])
     const run = await start(artistId)

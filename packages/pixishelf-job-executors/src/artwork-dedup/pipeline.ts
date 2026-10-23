@@ -1,5 +1,6 @@
 import path from 'node:path'
 import {
+  assertArtworkContentSnapshot,
   assertArtworkDedupItemCurrent,
   bindMediaContentDirectories,
   captureArtworkContentSnapshot,
@@ -261,13 +262,13 @@ export async function hashArtwork(context: DedupPipelineContext, item: ArtworkDe
     const page = await context.transaction(async (tx) => {
       await current(context, tx, item.artworkId)
       const members = ready(
-        await readArtworkContentMembersPage(tx, { snapshot, afterImageId: cursor || null, limit: limits.mediaPage })
+        await readArtworkContentMembersPage(tx, { snapshot, afterImageId: cursor || null, limit: limits.cacheBatch })
       )
       const rows = await readArtworkDedupMediaPage(tx, {
         execution: context.execution,
         artworkId: item.artworkId,
         afterImageId: cursor,
-        limit: limits.mediaPage
+        limit: limits.cacheBatch
       })
       if (members.members.length !== rows.length) throw new DedupItemError('INCOMPLETE')
       return rows.map((row, i) => ({ row, member: members.members[i]! }))
@@ -340,13 +341,7 @@ export async function hashArtwork(context: DedupPipelineContext, item: ArtworkDe
         })
         if (published.status !== 'READY') throw new DedupItemError(published.status)
       } else {
-        const captured = ready(await captureArtworkContentSnapshot(tx, { artworkId: item.artworkId }))
-        if (
-          captured.revision !== snapshot.revision ||
-          captured.mediaEpoch !== snapshot.mediaEpoch ||
-          captured.memberCount !== snapshot.memberCount
-        )
-          throw new DedupItemError('STALE')
+        ready(await assertArtworkContentSnapshot(tx, { snapshot }))
       }
       await saveArtworkDedupMediaPage(tx, { execution: context.execution, artworkId: item.artworkId, entries })
       await saveArtworkDedupItem(tx, {

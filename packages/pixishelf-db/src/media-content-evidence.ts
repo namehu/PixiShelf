@@ -167,6 +167,14 @@ export async function captureArtworkContentSnapshot(
     return snapshotAfterLock(tx, input.artworkId)
   })
 }
+/** Revalidate a captured snapshot; its revision also fences membership and writer changes. */
+export async function assertArtworkContentSnapshot(
+  tx: MediaContentTransaction,
+  input: { snapshot: ArtworkContentSnapshot }
+): Promise<MediaContentResult<ArtworkContentSnapshot>> {
+  contentIds([input.snapshot.artworkId])
+  return resultOf(() => assertArtworkSnapshot(tx, input.snapshot))
+}
 export async function readArtworkContentMembersPage(
   tx: MediaContentTransaction,
   input: { snapshot: ArtworkContentSnapshot; afterImageId: number | null; limit: number }

@@ -28,6 +28,8 @@ sources:
 
 Item 状态 `PENDING | STATTING | SIZED | HASHING | COMPLETE | UNIQUE | CHANGED | FAILED | SKIPPED`。阶段 `STAT | CANDIDATES | HASH | GROUP | DONE`。Item checkpoint：snapshotRevision/mediaEpoch/memberCount、afterImageId、sizeDigest、contentSha256、membersSignature、errorCode。可靠 stat 独立于阶段1缓存，候选按 count+sizeDigest 初筛后核对大小多重集合；HASH 阶段按保存的 stat 重查源证据。
 
+STAT 成员页保持 500；HASH 同步读取成员页与可靠属性页时以缓存提交批 `cacheBatch=100` 为上限，处理并持久化同一批后推进 imageId 游标，避免每次读取 500 却仅消费 100。纯缓存命中批提交使用 `assertArtworkContentSnapshot(tx,{snapshot})` 复核已捕获的 revision/mediaEpoch/writeToken，继续信任该快照的 memberCount，不在每批重数整件作品。该 helper 仅包装既有 Artwork 锁与快照校验；成员增删、路径或源变化、源/目录写入开始都在同一 Artwork 锁协议下推进 revision，所以旧快照必被拒绝。初始 STAT 的完整计数、最终指纹聚合及发布的完整成员计数、目录和租约围栏保持原样。
+
 ## App DTO
 
 所有调用在 authProcedure 中验证 expectedUserId 与 Session 一致；实例管理事实共享，不把 requestedBy 误作账户隔离。requestedBy 仅记录发起者；私人标记不返回。
