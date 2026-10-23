@@ -50,10 +50,8 @@ import {
   getOrCreateArchiveTaskBulkKey,
   reconcileCurrentPageSelection,
   releaseArchiveTaskBulkKey,
-  resetArchiveTaskBrowseState,
   toggleCurrentPageSelection,
-  type ArchiveTaskBulkAction,
-  type ArchiveTaskCursorState
+  type ArchiveTaskBulkAction
 } from './archive-task-view-state'
 export { ArchiveImageCounts } from './archive-task-progress'
 export { WorkerLaneStrip } from './archive-page-header'
@@ -121,15 +119,16 @@ function ArchiveTaskManagement() {
   const requestedTaskId = archiveTaskDeepLinkId(searchParams.get('taskId'))
   const {
     filters,
-    filterKey,
+    browseKey,
+    cursorState,
+    setCursorState,
     draftFilters,
     setDraftFilters,
     applyFilters: commitFilters,
     applyImmediateFilters,
     resetFilters
   } = useArchiveTaskFilters()
-  const [browseFilterKey, setBrowseFilterKey] = useState(filterKey)
-  const [cursorState, setCursorState] = useState<ArchiveTaskCursorState>(resetArchiveTaskBrowseState)
+  const [selectionBrowseKey, setSelectionBrowseKey] = useState(browseKey)
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set())
   const [bulkToolbarHeight, setBulkToolbarHeight] = useState(0)
   const [detailTask, setDetailTask] = useState<ArchiveTaskOutput | null>(null)
@@ -140,10 +139,9 @@ function ArchiveTaskManagement() {
   const [pendingSingleActions, setPendingSingleActions] = useState<Set<string>>(new Set())
   const bulkIdempotencyKeys = useRef(new Map<string, string>())
 
-  // 浏览器前进/后退也会切换筛选，不能把旧游标或旧选择带入新的查询。
-  if (browseFilterKey !== filterKey) {
-    setBrowseFilterKey(filterKey)
-    setCursorState(resetArchiveTaskBrowseState())
+  // URL 导航恢复筛选和分页，但批量选择只属于当前页。
+  if (selectionBrowseKey !== browseKey) {
+    setSelectionBrowseKey(browseKey)
     setSelectedTaskIds(new Set())
   }
 
@@ -151,7 +149,7 @@ function ArchiveTaskManagement() {
     trpc.archive.listTasks.queryOptions(
       {
         limit: PAGE_SIZE,
-        cursor: browseFilterKey === filterKey ? cursorState.cursor : undefined,
+        cursor: cursorState.cursor,
         statuses: filters.status === 'ALL' ? undefined : [filters.status],
         providerKey: filters.providerKey || undefined,
         kind: filters.kind === 'ALL' ? undefined : filters.kind,
@@ -318,17 +316,13 @@ function ArchiveTaskManagement() {
       void Promise.all([refreshPage(), requestedTaskId ? deepLinkedTaskQuery.refetch() : null])
     }
   }, [liveEvents.readyVersion])
-  const resetBrowseState = () => {
-    setCursorState(resetArchiveTaskBrowseState())
-    setSelectedTaskIds(new Set())
-  }
   const applyFilters = (next: TaskFilters) => {
     commitFilters(next)
-    resetBrowseState()
+    setSelectedTaskIds(new Set())
   }
   const clearFilters = () => {
     resetFilters()
-    resetBrowseState()
+    setSelectedTaskIds(new Set())
   }
 
   const singleActionMutation = useMutation(
@@ -444,7 +438,7 @@ function ArchiveTaskManagement() {
         onChange={setDraftFilters}
         onImmediateChange={(patch) => {
           applyImmediateFilters(patch)
-          resetBrowseState()
+          setSelectedTaskIds(new Set())
         }}
         onSubmit={() => applyFilters(draftFilters)}
         onReset={clearFilters}

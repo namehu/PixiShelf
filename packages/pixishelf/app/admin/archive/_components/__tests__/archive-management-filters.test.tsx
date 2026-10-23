@@ -127,7 +127,60 @@ function chooseFilter(name: string, option: string) {
   fireEvent.click(screen.getByRole('option', { name: option }))
 }
 
+function withCursors(search: string, cursors: string[]) {
+  const params = new URLSearchParams(search)
+  params.set('cursors', JSON.stringify(cursors))
+  return params.toString()
+}
+
 describe('archive task URL filters', () => {
+  it('syncs pagination and restores a copied third-page URL with working previous-page navigation', async () => {
+    mocks.list.mockImplementation(async (input: TaskListInput) => ({
+      items: [task],
+      nextCursor: input.cursor === 'cursor-3' ? null : input.cursor === 'cursor-2' ? 'cursor-3' : 'cursor-2'
+    }))
+    const first = mountPage('?status=FAILED&context=keep')
+    await screen.findByRole('checkbox', { name: '选择 测试作品' })
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
+    await waitFor(() => expect(latestUrl(first.onUrlUpdate)?.get('cursors')).toBe('["cursor-2"]'))
+    await waitFor(() => expect(latestInput()?.cursor).toBe('cursor-2'))
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }))
+    await waitFor(() => expect(latestUrl(first.onUrlUpdate)?.get('cursors')).toBe('["cursor-2","cursor-3"]'))
+    expect(screen.getByText('第 3 页 · 每页最多 50 项')).toBeTruthy()
+    const savedUrl = latestUrl(first.onUrlUpdate)!.toString()
+    first.unmount()
+    client.clear()
+    const restored = mountPage(savedUrl)
+    await screen.findByRole('checkbox', { name: '选择 测试作品' })
+    expect(latestInput()).toMatchObject({ statuses: ['FAILED'], cursor: 'cursor-3' })
+    expect(screen.getByText('第 3 页 · 每页最多 50 项')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }))
+    await waitFor(() => expect(latestUrl(restored.onUrlUpdate)?.get('cursors')).toBe('["cursor-2"]'))
+    await waitFor(() => expect(latestInput()?.cursor).toBe('cursor-2'))
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }))
+    await waitFor(() => expect(latestUrl(restored.onUrlUpdate)?.has('cursors')).toBe(false))
+    expect(latestUrl(restored.onUrlUpdate)?.get('status')).toBe('FAILED')
+    expect(latestUrl(restored.onUrlUpdate)?.get('context')).toBe('keep')
+    expect(screen.getByText('第 1 页 · 每页最多 50 项')).toBeTruthy()
+  })
+
+  it.each(['immediate', 'submitted', 'clear'])('resets pagination atomically on %s filter updates', async (kind) => {
+    const { onUrlUpdate } = mountPage(withCursors('status=FAILED&taskId=task-1', ['cursor-2']))
+    await screen.findByRole('checkbox', { name: '选择 测试作品' })
+    expect(latestInput()?.cursor).toBe('cursor-2')
+    mocks.list.mockClear()
+    if (kind === 'immediate') chooseFilter('状态', '下载中')
+    else if (kind === 'submitted') {
+      fireEvent.change(screen.getByLabelText('标题或来源'), { target: { value: 'new search' } })
+      fireEvent.click(screen.getByRole('button', { name: '筛选' }))
+    } else fireEvent.click(screen.getByRole('button', { name: '清除' }))
+    await waitFor(() => expect(latestUrl(onUrlUpdate)?.get('taskId')).toBe('task-1'))
+    expect(latestUrl(onUrlUpdate)?.has('cursors')).toBe(false)
+    await waitFor(() => expect(mocks.list).toHaveBeenCalled())
+    expect(mocks.list.mock.calls.every(([input]) => !input.cursor)).toBe(true)
+    expect(screen.getByText('第 1 页 · 每页最多 50 项')).toBeTruthy()
+  })
+
   it('restores all applied filters in the form and query on initial load and remount', async () => {
     const search =
       '?status=FAILED&kind=UPDATE&providerKey=pixiv&submissionId=batch-1&search=%E6%A0%87%E9%A2%98&unboundOnly=true'
@@ -202,7 +255,7 @@ describe('archive task URL filters', () => {
     await waitFor(() => expect(latestUrl(onUrlUpdate)?.has('status')).toBe(false))
   })
 
-  it('restores external URL navigation and resets cursor browsing and page selection', async () => {
+  it('restores filters and pagination on external URL navigation and clears page selection', async () => {
     const { navigate, onUrlUpdate } = mountPage('?status=FAILED&search=original')
     await screen.findByRole('checkbox', { name: '选择 测试作品' })
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
@@ -210,21 +263,37 @@ describe('archive task URL filters', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: '选择 测试作品' }))
     expect(screen.getByRole('region', { name: '当前页批量操作' })).toBeTruthy()
     fireEvent.change(screen.getByLabelText('标题或来源'), { target: { value: 'unsubmitted' } })
-    navigate('?status=RUNNING&search=restored')
+    await waitFor(() => expect(latestUrl(onUrlUpdate)?.get('cursors')).toBe('["cursor-2"]'))
+    onUrlUpdate.mockClear()
+    navigate(withCursors('status=RUNNING&search=restored', ['cursor-8', 'cursor-9']))
     await waitFor(() => expect(latestInput()).toMatchObject({ statuses: ['RUNNING'], search: 'restored' }))
-    expect(latestInput()?.cursor).toBeUndefined()
+    expect(latestInput()?.cursor).toBe('cursor-9')
     expect(mocks.list.mock.calls.map(([input]) => input)).not.toContainEqual(
       expect.objectContaining({ statuses: ['RUNNING'], cursor: 'cursor-2' })
     )
     expect(screen.getByLabelText<HTMLInputElement>('标题或来源').value).toBe('restored')
-    expect(screen.getByText('第 1 页 · 每页最多 50 项')).toBeTruthy()
+    expect(screen.getByText('第 3 页 · 每页最多 50 项')).toBeTruthy()
     expect(screen.queryByRole('region', { name: '当前页批量操作' })).toBeNull()
     navigate('?status=FAILED&search=original')
     await waitFor(() => expect(screen.getByLabelText<HTMLInputElement>('标题或来源').value).toBe('original'))
     expect(screen.getByRole('combobox', { name: '状态' }).textContent).toBe('失败')
+    expect(screen.getByText('第 1 页 · 每页最多 50 项')).toBeTruthy()
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 测试作品' }))
+    navigate(withCursors('status=FAILED&search=original', ['cursor-2']))
+    await waitFor(() => expect(screen.getByText('第 2 页 · 每页最多 50 项')).toBeTruthy())
     expect(screen.getByRole('checkbox', { name: '选择 测试作品' }).getAttribute('aria-checked')).toBe('false')
     expect(onUrlUpdate).not.toHaveBeenCalled()
   })
+
+  it.each(['not-json', '{}', '[null]', '[""]', JSON.stringify(['x'.repeat(513)])])(
+    'ignores an invalid pagination sequence %s',
+    async (cursors) => {
+      mountPage(new URLSearchParams({ status: 'FAILED', cursors }).toString())
+      await screen.findByRole('checkbox', { name: '选择 测试作品' })
+      expect(latestInput()).toMatchObject({ statuses: ['FAILED'], cursor: undefined })
+      expect(screen.getByText('第 1 页 · 每页最多 50 项')).toBeTruthy()
+    }
+  )
 
   it('falls back to defaults for invalid enums, booleans and oversized text before querying', async () => {
     const params = new URLSearchParams({

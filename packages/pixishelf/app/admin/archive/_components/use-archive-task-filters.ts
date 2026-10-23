@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { createParser, parseAsBoolean, parseAsStringLiteral, useQueryStates } from 'nuqs'
+import { createParser, parseAsBoolean, parseAsJson, parseAsStringLiteral, useQueryStates } from 'nuqs'
+import { z } from 'zod'
 import { normalizeTaskFilters, type TaskFilters } from './archive-task-filters'
+import type { ArchiveTaskCursorState } from './archive-task-view-state'
 
 const EMPTY_FILTERS: TaskFilters = {
   status: 'ALL',
@@ -38,17 +40,25 @@ const filterParsers = {
   kind: parseAsStringLiteral(['ALL', 'NEW', 'UPDATE']).withDefault('ALL'),
   submissionId: parseFilterText(128),
   search: parseFilterText(500),
-  unboundOnly: parseAsBoolean.withDefault(false)
+  unboundOnly: parseAsBoolean.withDefault(false),
+  cursors: parseAsJson(z.array(z.string().min(1).max(512))).withDefault([])
 }
 
 export function useArchiveTaskFilters() {
-  const [filters, setFilters] = useQueryStates(filterParsers, {
+  const [{ cursors, ...filters }, setQuery] = useQueryStates(filterParsers, {
     history: 'push',
     shallow: true,
     scroll: false,
     clearOnDefault: true
   })
   const filterKey = JSON.stringify(filters)
+  const browseKey = JSON.stringify([filters, cursors])
+  // The first page has no cursor; keep the remaining page boundaries in the URL
+  // so a copied link can also navigate to the previous page.
+  const cursorState: ArchiveTaskCursorState = {
+    cursor: cursors.at(-1),
+    previousCursors: cursors.length ? [undefined, ...cursors.slice(0, -1)] : []
+  }
   const [draft, setDraft] = useState<{ filterKey: string; value: TaskFilters }>({ filterKey, value: filters })
 
   // 外部 URL 导航恢复已应用条件；内部即时筛选会先更新草稿的基准，保留尚未提交的文本。
@@ -59,7 +69,7 @@ export function useArchiveTaskFilters() {
   const applyFilters = (value: TaskFilters) => {
     const next = normalizeTaskFilters({ ...filters, ...value })
     setDraft({ filterKey: JSON.stringify(next), value: next })
-    void setFilters(next)
+    void setQuery({ ...next, cursors: null })
   }
 
   const applyImmediateFilters = (patch: Partial<TaskFilters>) => {
@@ -68,12 +78,21 @@ export function useArchiveTaskFilters() {
       filterKey: JSON.stringify(next),
       value: { ...(current.filterKey === filterKey ? current.value : filters), ...patch }
     }))
-    void setFilters(patch)
+    void setQuery({ ...patch, cursors: null })
   }
 
   return {
     filters,
-    filterKey,
+    browseKey,
+    cursorState,
+    setCursorState: (update: (current: ArchiveTaskCursorState) => ArchiveTaskCursorState) => {
+      const next = update(cursorState)
+      void setQuery({
+        cursors: next.cursor
+          ? [...next.previousCursors.filter((cursor): cursor is string => cursor !== undefined), next.cursor]
+          : null
+      })
+    },
     draftFilters: draft.filterKey === filterKey ? draft.value : filters,
     setDraftFilters: (value: TaskFilters) => setDraft({ filterKey, value }),
     applyFilters,
