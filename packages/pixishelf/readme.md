@@ -74,7 +74,7 @@ pnpm db:studio
 - App 固定创建和控制中央任务，Worker 启动即消费；维护时停止 Worker，两枚切换开关已退役；
 - `/admin/archive/inbox` 持久接收 URL，远端解析由 Worker 的 `ARCHIVE_RESOLVE` lane 串行执行；
 - `/admin/archive` 提供归档任务分页、筛选、明细和当前页批量控制；
-- 任务执行、FFmpeg、扫描和受控文件写入由 `BACKGROUND_WRITER` lane 全局串行负责。
+- 归档下载与校验由 `ARCHIVE_DOWNLOAD` lane 执行；正式发布、FFmpeg、扫描和维护由 `BACKGROUND_WRITER` lane 串行负责。三条 lane 可同时推进，各有效并发 1。
 
 完整边界见[当前架构](../../docs/architecture/current-architecture.md)与
 [归档收件箱](../../docs/features/archive-intake.md)。

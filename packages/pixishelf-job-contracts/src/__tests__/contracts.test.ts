@@ -40,6 +40,8 @@ describe('job wire contracts', () => {
         'ARCHIVE_UPLOADER_SCAN',
         'ARCHIVE_RESOLVE_ITEM',
         'ARCHIVE_IMPORT',
+        'ARCHIVE_DOWNLOAD',
+        'ARCHIVE_PUBLISH',
         'ARCHIVE_DEFAULT_TAG_BACKFILL',
         'ANIMATION_DURATION_PROBE',
         'ARCHIVE_MAINTENANCE',
@@ -63,6 +65,8 @@ describe('job wire contracts', () => {
     expect(ARCHIVE_IMPORT_DEFINITION_VERSION).toBe(2)
     expect(executionLaneForJobType('ARCHIVE_UPLOADER_SCAN')).toBe('ARCHIVE_RESOLVE')
     expect(executionLaneForJobType('ARCHIVE_RESOLVE_ITEM')).toBe('ARCHIVE_RESOLVE')
+    expect(executionLaneForJobType('ARCHIVE_DOWNLOAD')).toBe('ARCHIVE_DOWNLOAD')
+    expect(executionLaneForJobType('ARCHIVE_PUBLISH')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_IMPORT')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ARCHIVE_DEFAULT_TAG_BACKFILL')).toBe('BACKGROUND_WRITER')
     expect(executionLaneForJobType('ANIMATION_DURATION_PROBE')).toBe('BACKGROUND_WRITER')

@@ -73,7 +73,7 @@ describe('worker health server', () => {
     expect(JSON.parse(body)).toEqual({
       ok: false,
       draining: false,
-      lanes: { ARCHIVE_RESOLVE: 'ERROR', BACKGROUND_WRITER: 'ERROR' }
+      lanes: { ARCHIVE_RESOLVE: 'ERROR', ARCHIVE_DOWNLOAD: 'ERROR', BACKGROUND_WRITER: 'ERROR' }
     })
     expect(body).not.toContain('super-secret')
   })

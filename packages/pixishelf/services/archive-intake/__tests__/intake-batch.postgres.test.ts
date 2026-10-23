@@ -280,7 +280,7 @@ suite('100 item intake transactions', () => {
       (['transfer', 'checkpoint', 'publication'] as const).map((phase) => ({ phase, round }))
     )
   )(
-    'commits 100 items with both real execution lanes running ($phase round $round)',
+    'commits 100 items with real resolver and archive phase executors running ($phase round $round)',
     async ({ phase, round }) => {
       const fixture = await seedBatch()
       await runConcurrentArchiveTasks(db, prefix, phase, async () => {

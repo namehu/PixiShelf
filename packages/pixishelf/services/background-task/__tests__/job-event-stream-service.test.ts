@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { PostgresJobEventStreamSource } from '../job-event-stream-service'
+import { currentArchiveExecutionWhere } from '../job-failure-policy'
 
 describe('PostgresJobEventStreamSource', () => {
   it('returns a versioned, redacted batch with only the safe live job summary', async () => {
@@ -43,7 +44,7 @@ describe('PostgresJobEventStreamSource', () => {
 
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: { gt: 42n }, job: { definitionVersion: { gte: 1 } } },
+        where: { id: { gt: 42n }, job: { definitionVersion: { gte: 1 }, ...currentArchiveExecutionWhere } },
         take: 200
       })
     )

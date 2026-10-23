@@ -527,6 +527,8 @@ export const JOB_PAYLOAD_SCHEMAS = {
   ARCHIVE_TITLE_RULE_PREVIEW: archiveTitleRulePreviewPayloadSchema,
   ARCHIVE_RESOLVE_ITEM: archiveResolveItemPayloadSchema,
   ARCHIVE_IMPORT: archiveImportPayloadSchema,
+  ARCHIVE_DOWNLOAD: archiveImportV2PayloadSchema,
+  ARCHIVE_PUBLISH: archiveImportV2PayloadSchema,
   ARCHIVE_DEFAULT_TAG_BACKFILL: archiveDefaultTagBackfillPayloadSchema,
   ARCHIVE_MAINTENANCE: archiveMaintenancePayloadSchema,
   ARCHIVE_INTAKE_RETENTION_CLEANUP: emptyJobPayloadSchema,

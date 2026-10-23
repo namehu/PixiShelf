@@ -13,16 +13,27 @@ flowchart TD
   CLASSIFY -->|永久失败| FAIL[FAILED]
 
   READY --> SELECT[管理员选择 ORIGINAL 或 DISPLAY 并入队]
-  SELECT --> IMPORT[事务创建/复用 ARCHIVE_IMPORT\n冻结 import items]
+  SELECT --> IMPORT[事务创建/复用 ArchiveImport 和 ARCHIVE_DOWNLOAD
+冻结质量 来源 默认标签和媒体计划]
   AUTO --> IMPORT
   ACTIVE --> IMPORT
-  IMPORT --> WRITER[writer lane 领取]
-  WRITER --> CONFIG[同一 advisory lock 读取后台设置\n冻结本次媒体并发 1-8]
-  CONFIG --> STAGING[确定性 staging；按冻结并发流式下载\n大小/类型/hash/尺寸校验和实时字节计量]
-  STAGING --> ALL{所有媒体校验通过?}
-  ALL -->|否| KEEP[保留检查点和 staging\n重试或失败后由维护清理]
-  ALL -->|是| MANIFEST[Worker 写 manifest.json]
-  MANIFEST --> REV[准备不可变 revision 目录]
+  IMPORT --> DOWNLOAD[download lane 领取
+读取后台媒体并发 1-8]
+  DOWNLOAD --> STAGING[executionToken generation
+核验复制已完成检查点 流式补齐缺失媒体]
+  STAGING --> ALL{全部媒体完整性校验通过?}
+  ALL -->|否| KEEP[保留检查点
+重试创建新代 仅补未完成项]
+  ALL -->|是| MANIFEST[manifest 完成 fsync/close
+所有文件 I/O drain]
+  MANIFEST --> HANDOFF[同一 fenced 事务
+封存摘要 创建 ARCHIVE_PUBLISH 切换 current 完成下载]
+  HANDOFF --> NEXT[下载 lane 可领取下一作品]
+  HANDOFF --> WRITER[writer lane 领取发布
+只读核对 manifest 与封存绑定]
+  WRITER --> REV[rename 为不可变 revision
+崩溃后按摘要恢复 不重下/全量 hash]
   REV --> PUB[带 fence 的短事务发布]
-  PUB --> DATA[Artwork、ExternalRef、来源快照和标签、关系、Image、ArchiveRevision]
-  DATA --> CURRENT[新 revision 设为 current\n旧 revision 取消 current]
+  PUB --> DATA[Artwork、ExternalRef、来源快照和标签、Image、ArchiveRevision]
+  DATA --> CURRENT[切换 current revision
+ArchiveImport 整体完成]

@@ -10,13 +10,17 @@ flowchart LR
   UI -->|认证会话| App
   subgraph Backend[一个服务端 Worker 进程]
     Resolve[解析 Dispatcher / 并发 1]
+    Download[下载 Dispatcher / 并发 1]
     Writer[写入 Dispatcher / 并发 1]
   end
   Resolve <-->|claim / fence / checkpoint| DB
+  Download <-->|claim / fence / checkpoint / seal| DB
   Writer <-->|claim / fence / publication| DB
   Resolve -->|受 Provider governor 限制| Remote[远端来源]
-  Writer -->|受 Provider governor 限制| Remote
-  Writer -->|写入和验证| Media[(原媒体 / 归档 revision)]
+  Download -->|受 Provider governor 限制| Remote
+  Download -->|隔离 generation 写入和全量校验| Staging[(归档 staging)]
+  Staging -->|封存 manifest 原子交接| Writer
+  Writer -->|归档发布与其他媒体写入| Media[(原媒体 / 归档 revision)]
   Writer -->|生成| Derived[(派生媒体)]
   Writer <-->|读写| Snapshot[(Pixiv 来源快照)]
   App -->|认证读取 / 原媒体默认只读| Media

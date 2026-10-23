@@ -847,6 +847,8 @@ model SystemJob {
   pendingReplaceOperation PendingReplaceOperation?
   migrationItems          MigrationJobItem[]
   archiveImport           ArchiveImport?
+  archiveExecutions       ArchiveImportExecution[]
+  archiveGenerations      ArchiveStagingGeneration[]
   archiveIntakeItem       ArchiveIntakeItem?       @relation("ArchiveIntakeCurrentJob")
   archiveUploaderScanRun  ArchiveUploaderScanRun?
   archiveTitleRuleRevision ArchiveTitleRuleRevision?
@@ -957,6 +959,12 @@ model DerivedMediaGcEntry {
 model ArchiveImport {
   id                 String              @id @default(cuid())
   systemJobId        String              @unique
+  phase              ArchiveImportPhase  @default(LEGACY)
+  origin             ArchiveIntakeDownloadMode?
+  generationToken    String?             @db.Uuid
+  sealedManifestSha256 String?           @db.VarChar(64)
+  executions         ArchiveImportExecution[]
+  generations        ArchiveStagingGeneration[]
   providerKey        String              @db.VarChar(50)
   externalId         String
   externalRefId      String?
@@ -1002,6 +1010,43 @@ model ArchiveImport {
   @@index([externalRefId])
   @@index([cleanupRequestedAt])
   @@map("archive_imports")
+}
+
+enum ArchiveImportPhase {
+  LEGACY
+  DOWNLOAD
+  PUBLISH
+}
+
+// Every phase/retry remains attached to the stable business import identity.
+model ArchiveImportExecution {
+  jobId           String             @id
+  archiveImportId String
+  phase           ArchiveImportPhase
+  createdAt       DateTime           @default(now())
+  job             SystemJob          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  archiveImport   ArchiveImport      @relation(fields: [archiveImportId], references: [id], onDelete: Cascade)
+
+  @@index([archiveImportId, createdAt])
+  @@map("archive_import_executions")
+}
+
+// An unsealed generation without drainedAt is an orphan, never an online GC target.
+model ArchiveStagingGeneration {
+  token           String        @id @db.Uuid
+  archiveImportId String
+  jobId           String
+  path            String        @db.Text
+  manifestSha256  String?       @db.VarChar(64)
+  sealedAt        DateTime?
+  drainedAt       DateTime?
+  cleanedAt       DateTime?
+  createdAt       DateTime      @default(now())
+  job             SystemJob     @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  archiveImport   ArchiveImport @relation(fields: [archiveImportId], references: [id], onDelete: Cascade)
+
+  @@index([archiveImportId])
+  @@map("archive_staging_generations")
 }
 
 model ArchiveIntakeSubmission {
@@ -1417,6 +1462,7 @@ model ArchiveImportItem {
   expectedFilename String
   status           ArchiveImportItemStatus @default(PENDING)
   attempts         Int                     @default(0)
+  stagedGenerationPath String?             @db.Text
   stagedPath       String?                 @db.Text
   byteCount        BigInt?
   mimeType         String?                 @db.VarChar(120)
@@ -2090,6 +2136,7 @@ enum GcEntryStatus {
 }
 
 enum JobExecutionLane {
+  ARCHIVE_DOWNLOAD
   ARCHIVE_RESOLVE
   BACKGROUND_WRITER
 }

@@ -131,7 +131,14 @@ export async function freezeIncrementalInventorySnapshot(input: {
     onEntry: () => {
       walkedEntries += 1
     },
-    excludedRootDirectories: input.excludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES
+    excludedRootDirectories: [
+      ...new Set([
+        'sources',
+        '.archive-staging',
+        '.trash',
+        ...(input.excludedRootDirectories ?? DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES)
+      ])
+    ]
   })) {
     throwIfAborted(input.context.signal)
     await assertPixivRootUnchanged(input.root)

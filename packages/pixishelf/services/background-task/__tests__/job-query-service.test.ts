@@ -13,13 +13,16 @@ describe('listJobs', () => {
       error: 'Bearer abc.def; dsn=postgresql://url-user:url-secret@postgres/pixishelf'
     })
     const second = jobRecord({ id: 'job-1' })
-    const findMany = vi.fn().mockResolvedValue([first, second])
+    const findMany = vi.fn().mockResolvedValueOnce([first, second]).mockResolvedValue([])
     const result = await listJobs({ limit: 1, statuses: ['PENDING'] }, {
       systemJob: { findMany },
       workerInstance: {}
     } as never)
 
-    expect(result.nextCursor).toBe('job-2')
+    expect(JSON.parse(Buffer.from(result.nextCursor!, 'base64url').toString())).toEqual({
+      id: 'job-2',
+      createdAt: first.createdAt.toISOString()
+    })
     expect(result.items[0]).toMatchObject({
       id: 'job-2',
       executionLane: 'BACKGROUND_WRITER',
@@ -27,7 +30,12 @@ describe('listJobs', () => {
       createdAt: '2026-08-14T10:00:00.000Z'
     })
     expect(findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ definitionVersion: { gte: 1 } }), take: 2 })
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: expect.arrayContaining([expect.objectContaining({ definitionVersion: { gte: 1 } })])
+        }),
+        take: 2
+      })
     )
     const serialized = JSON.stringify(result)
     expect(serialized).not.toContain('url-user')
@@ -89,6 +97,7 @@ describe('getJobDashboard', () => {
     })
     expect(result.lanes).toEqual([
       { executionLane: 'ARCHIVE_RESOLVE', status: 'DRAINING', runningJob: null },
+      { executionLane: 'ARCHIVE_DOWNLOAD', status: 'ERROR', runningJob: null },
       { executionLane: 'BACKGROUND_WRITER', status: 'READY', runningJob: null }
     ])
   })
@@ -117,6 +126,7 @@ describe('getJobDashboard', () => {
 
     expect(result.lanes).toEqual([
       { executionLane: 'ARCHIVE_RESOLVE', status: 'ERROR', runningJob: null },
+      { executionLane: 'ARCHIVE_DOWNLOAD', status: 'ERROR', runningJob: null },
       { executionLane: 'BACKGROUND_WRITER', status: 'ERROR', runningJob: null }
     ])
   })
@@ -137,6 +147,7 @@ describe('getJobDashboard', () => {
 
     expect(result.lanes).toEqual([
       { executionLane: 'ARCHIVE_RESOLVE', status: 'ERROR', runningJob: null },
+      { executionLane: 'ARCHIVE_DOWNLOAD', status: 'ERROR', runningJob: null },
       {
         executionLane: 'BACKGROUND_WRITER',
         status: 'RUNNING',
@@ -175,7 +186,9 @@ describe('getJobDashboard', () => {
         .fn()
         .mockResolvedValueOnce([child])
         .mockResolvedValueOnce([parent])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ parentJobId: parent.id }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([parent])
     }
@@ -221,7 +234,9 @@ describe('getJobDashboard', () => {
         .fn()
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([parent])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ parentJobId: parent.id }])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([parent])
     }
@@ -252,7 +267,9 @@ describe('getJobDashboard', () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([failed])
         .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([failed])
+        .mockResolvedValueOnce([])
     }
     const workerInstance = { findMany: vi.fn().mockResolvedValue([]) }
 
@@ -270,7 +287,11 @@ describe('getJobDashboard', () => {
     })
     expect(systemJob.findMany).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ status: 'FAILED', failureAcknowledgement: { is: null } }),
+        where: {
+          AND: expect.arrayContaining([
+            expect.objectContaining({ status: 'FAILED', failureAcknowledgement: { is: null } })
+          ])
+        },
         take: 10
       })
     )

@@ -1,4 +1,5 @@
 import 'server-only'
+import { currentArchiveExecutionWhere } from './job-failure-policy'
 import { z } from 'zod'
 
 import type { Prisma } from '@pixishelf/db'
@@ -32,7 +33,7 @@ export class PostgresJobEventStreamSource implements JobEventStreamSource {
 
   async watermark(): Promise<string> {
     const latest = await this.client.systemJobEvent.findFirst({
-      where: { job: { definitionVersion: { gte: 1 } } },
+      where: { job: { definitionVersion: { gte: 1 }, ...currentArchiveExecutionWhere } },
       orderBy: { id: 'desc' },
       select: { id: true }
     })
@@ -44,7 +45,7 @@ export class PostgresJobEventStreamSource implements JobEventStreamSource {
     const records = await this.client.systemJobEvent.findMany({
       where: {
         id: { gt: BigInt(cursor) },
-        job: { definitionVersion: { gte: 1 } }
+        job: { definitionVersion: { gte: 1 }, ...currentArchiveExecutionWhere }
       },
       orderBy: { id: 'asc' },
       take: boundedLimit,

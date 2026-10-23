@@ -6,6 +6,7 @@ import {
   listBackgroundHistory
 } from '../job-history-service'
 import { jobRecord } from './test-fixtures'
+import { currentArchiveExecutionWhere, dashboardVisibleWhere } from '../job-failure-policy'
 
 describe('background execution history', () => {
   it('defaults to fifty records and excludes only the existing four batch child types', async () => {
@@ -13,8 +14,8 @@ describe('background execution history', () => {
     await listBackgroundHistory(backgroundHistoryInputSchema.parse({}), { systemJob: { findMany } } as never)
     const input = findMany.mock.calls[0]![0]
     expect(input.take).toBe(51)
-    expect(input.where.AND).toContainEqual({ definitionVersion: { gte: 1 } })
-    expect(input.where.AND[1].NOT.OR).toHaveLength(4)
+    expect(input.where.AND[0].AND).toContainEqual({ definitionVersion: { gte: 1 } })
+    expect(input.where.AND[0].AND).toContainEqual(dashboardVisibleWhere)
     expect(input).not.toHaveProperty('cursor')
     expect(input).not.toHaveProperty('skip')
     expect(input.select).not.toHaveProperty('result')
@@ -33,12 +34,12 @@ describe('background execution history', () => {
       }),
       { systemJob: { findMany } } as never
     )
-    expect(findMany.mock.calls[0]![0].where.AND).toEqual([
+    expect(findMany.mock.calls[0]![0].where.AND[0].AND).toEqual([
       { definitionVersion: { gte: 1 } },
+      currentArchiveExecutionWhere,
       { status: { in: ['FAILED', 'CANCELLED'] } },
       { type: { in: ['SCAN'] } },
-      { triggerSource: { in: ['MANUAL', 'SCHEDULE'] } },
-      { createdAt: { gte: new Date('2026-09-01T00:00:00.000Z'), lt: new Date('2026-09-08T00:00:00.000Z') } }
+      { triggerSource: { in: ['MANUAL', 'SCHEDULE'] } }
     ])
   })
 
@@ -51,7 +52,7 @@ describe('background execution history', () => {
   ])('searches display names and scan aliases: %s', async (search, predicate) => {
     const findMany = vi.fn().mockResolvedValue([])
     await listBackgroundHistory(backgroundHistoryInputSchema.parse({ search }), { systemJob: { findMany } } as never)
-    const branches = findMany.mock.calls[0]![0].where.AND.at(-1).OR
+    const branches = findMany.mock.calls[0]![0].where.AND[0].AND.at(-1).OR
     expect(branches).toContainEqual(predicate)
     for (const field of ['id', 'message', 'errorCode', 'error']) {
       expect(branches).toContainEqual({ [field]: { contains: search, mode: 'insensitive' } })
@@ -62,14 +63,14 @@ describe('background execution history', () => {
     const findMany = vi
       .fn()
       .mockResolvedValueOnce([jobRecord({ id: 'job-z' }), jobRecord({ id: 'job-y' })])
-      .mockResolvedValueOnce([])
+      .mockResolvedValue([])
     const client = { systemJob: { findMany } } as never
     const first = await listBackgroundHistory(backgroundHistoryInputSchema.parse({ limit: 1 }), client)
     expect(first.items.map((item) => item.id)).toEqual(['job-z'])
     const next = backgroundHistoryInputSchema.parse({ cursor: first.nextCursor, limit: 1 })
     expect(next.cursor).toEqual({ createdAt: '2026-08-14T10:00:00.000Z', id: 'job-z' })
     const last = await listBackgroundHistory(next, client)
-    expect(findMany.mock.calls[1]![0].where.AND.at(-1)).toEqual({
+    expect(findMany.mock.calls[2]![0].where.AND.at(-1)).toEqual({
       OR: [
         { createdAt: { lt: new Date('2026-08-14T10:00:00.000Z') } },
         { createdAt: new Date('2026-08-14T10:00:00.000Z'), id: { lt: 'job-z' } }
@@ -104,7 +105,18 @@ describe('background execution history', () => {
     const result = await getBackgroundHistorySnapshots({ ids: ['job-1', 'job-1'] }, {
       systemJob: { findMany }
     } as never)
-    expect(findMany.mock.calls[0]![0].where).toEqual({ definitionVersion: { gte: 1 }, id: { in: ['job-1'] } })
+    expect(findMany.mock.calls[0]![0].where).toMatchObject({
+      definitionVersion: { gte: 1 },
+      AND: [
+        currentArchiveExecutionWhere,
+        {
+          OR: [
+            { id: { in: ['job-1'] } },
+            { archiveImport: { is: { executions: { some: { jobId: { in: ['job-1', 'job-1'] } } } } } }
+          ]
+        }
+      ]
+    })
     expect(result.items[0]!.error!.length).toBeLessThanOrEqual(500)
     for (const value of ['payload', 'result', 'leaseToken', 'private-token', 'abc.def']) {
       expect(JSON.stringify(result)).not.toContain(value)

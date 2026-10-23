@@ -66,7 +66,7 @@ export async function runWorkerMain(environment: NodeJS.ProcessEnv = process.env
       transactionTimeoutMs: config.queueTransactionTimeoutMs
     })
   )
-  const dispatchers = (['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'] as const).map(
+  const dispatchers = (['ARCHIVE_RESOLVE', 'ARCHIVE_DOWNLOAD', 'BACKGROUND_WRITER'] as const).map(
     (executionLane) =>
       new CentralDispatcher({
         enabled: true,

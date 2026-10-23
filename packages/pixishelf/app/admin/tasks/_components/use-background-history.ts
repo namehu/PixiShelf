@@ -70,9 +70,9 @@ export function useBackgroundHistory(open: boolean, refreshVersion: number) {
   const items = useMemo(() => {
     const liveById = new Map(live.items.map((entry) => [entry.job.id, entry.job]))
     return baseItems.map((item) => {
-      const snapshot = snapshots[item.id]
+      const snapshot = snapshots[item.archiveImportId ?? item.id]
       let current = snapshot ? mergeHistorySnapshot(item, snapshot) : item
-      const liveJob = liveById.get(item.id)
+      const liveJob = liveById.get(current.id)
       if (liveJob && Date.parse(liveJob.updatedAt) > Date.parse(current.updatedAt)) {
         current = {
           ...current,
@@ -87,7 +87,14 @@ export function useBackgroundHistory(open: boolean, refreshVersion: number) {
       return current
     })
   }, [baseItems, snapshots, live.items])
-  const visibleItems = useMemo(() => items.filter((item) => visibleIds.includes(item.id)), [items, visibleIds])
+  const visibleItems = useMemo(() => {
+    const keys = new Set(
+      [...baseItems, ...items]
+        .filter((item) => visibleIds.includes(item.id))
+        .map((item) => item.archiveImportId ?? item.id)
+    )
+    return items.filter((item) => keys.has(item.archiveImportId ?? item.id))
+  }, [items, visibleIds, baseItems])
   const activeIds = visibleItems.filter((item) => ACTIVE_JOB_STATUSES.includes(item.status)).map((item) => item.id)
   const snapshotQuery = useQuery(
     trpc.job.backgroundHistorySnapshots.queryOptions(
@@ -119,12 +126,18 @@ export function useBackgroundHistory(open: boolean, refreshVersion: number) {
   useEffect(() => {
     setSnapshots((previous) => {
       let next = previous
-      const baseById = new Map(baseItems.map((item) => [item.id, item]))
+      const baseById = new Map(baseItems.map((item) => [item.archiveImportId ?? item.id, item]))
       for (const item of items) {
-        const base = baseById.get(item.id)
-        if (!base || item.updatedAt === base.updatedAt || previous[item.id]?.updatedAt === item.updatedAt) continue
+        const base = baseById.get(item.archiveImportId ?? item.id)
+        if (
+          !base ||
+          item.updatedAt === base.updatedAt ||
+          previous[item.archiveImportId ?? item.id]?.updatedAt === item.updatedAt
+        ) {
+          continue
+        }
         if (next === previous) next = { ...previous }
-        next[item.id] = item
+        next[item.archiveImportId ?? item.id] = item
       }
       return next
     })
@@ -132,7 +145,13 @@ export function useBackgroundHistory(open: boolean, refreshVersion: number) {
 
   useEffect(() => {
     const head = headQuery.data?.items[0]
-    if (query.data && head && !baseItems.some((item) => item.id === head.id)) setHasUpdates(true)
+    if (
+      query.data &&
+      head &&
+      !baseItems.some((item) => (item.archiveImportId ?? item.id) === (head.archiveImportId ?? head.id))
+    ) {
+      setHasUpdates(true)
+    }
   }, [headQuery.data, query.data, baseItems])
 
   useEffect(() => {
@@ -140,14 +159,17 @@ export function useBackgroundHistory(open: boolean, refreshVersion: number) {
     setSnapshots((previous) => {
       const next = { ...previous }
       for (const item of snapshotItems) {
-        const current = next[item.id]
-        next[item.id] = !current || Date.parse(item.updatedAt) >= Date.parse(current.updatedAt) ? item : current
+        const current = next[item.archiveImportId ?? item.id]
+        next[item.archiveImportId ?? item.id] =
+          !current || Date.parse(item.updatedAt) >= Date.parse(current.updatedAt) ? item : current
       }
       return next
     })
     if (
       snapshotItems.some((item) => {
-        const base = baseItems.find((entry) => entry.id === item.id)
+        const base = baseItems.find(
+          (entry) => (entry.archiveImportId ?? entry.id) === (item.archiveImportId ?? item.id)
+        )
         return (
           base &&
           (base.status !== item.status ||

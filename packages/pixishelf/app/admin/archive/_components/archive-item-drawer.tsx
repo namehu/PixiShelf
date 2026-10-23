@@ -21,7 +21,7 @@ import { ArchivePublishedMediaPreview } from './archive-published-media-preview'
 import { ArchiveSubmissionBadge } from './archive-submission-badge'
 import { archiveSourceLabel } from './archive-source-label'
 import { archiveTaskArtworkHref, archiveTaskSourceHref } from './archive-task-navigation'
-import { archiveTaskDisplayStatus, archiveTaskStatusLabel } from './archive-task-view-state'
+import { archiveTaskPhaseLabel } from './archive-task-view-state'
 import {
   archiveItemPollingIntervals,
   defaultArchiveItemFilter,
@@ -173,6 +173,24 @@ export function ArchiveItemDrawer({
           </Button>
         </div>
 
+        {task?.executions && task.executions.length > 0 && (
+          <details className="mb-4 shrink-0 rounded-md border p-3">
+            <summary className="cursor-pointer text-sm">阶段执行记录（{task.executions.length}）</summary>
+            <ol className="mt-3 flex flex-col gap-2">
+              {task.executions.map((execution) => (
+                <li key={execution.id} className="flex flex-wrap items-center gap-2 text-xs">
+                  <Badge variant="secondary">
+                    {execution.phase === 'PUBLISH' ? '入库' : execution.phase === 'DOWNLOAD' ? '下载' : '旧任务转交'}
+                  </Badge>
+                  <span>{execution.status}</span>
+                  <span className="break-all font-mono">{execution.id}</span>
+                  {execution.id === task.activeExecutionId && <Badge variant="outline">当前阶段</Badge>}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+
         <Tabs
           value={filter}
           onValueChange={(value) => {
@@ -261,9 +279,7 @@ export function ArchiveTaskDetails({ task }: { task: ArchiveTask }) {
     <section className="flex min-w-0 flex-col gap-3 rounded-lg border p-3" aria-label="任务详情">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant="secondary">
-          {task.publishedArtworkDeletedAt || task.publishedArtwork?.deletedAt
-            ? '已删除'
-            : archiveTaskStatusLabel(archiveTaskDisplayStatus(task), task.errorCode)}
+          {task.publishedArtworkDeletedAt || task.publishedArtwork?.deletedAt ? '已删除' : archiveTaskPhaseLabel(task)}
         </Badge>
         <Badge variant="outline">{task.selectedQuality === 'ORIGINAL' ? '原图' : '展示质量'}</Badge>
         {task.kind && <Badge variant="outline">{task.kind === 'UPDATE' ? '更新归档' : '首次归档'}</Badge>}

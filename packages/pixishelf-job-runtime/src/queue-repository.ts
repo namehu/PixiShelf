@@ -25,6 +25,7 @@ import { type QueueClock, systemQueueClock } from './queue-clock.ts'
 import { redactSensitiveText } from './worker-health-state.ts'
 import type { ExecutionProgressMutationResult, ExecutionProgressUpdate } from './execution-context.ts'
 
+export const ARCHIVE_DOWNLOAD_LANE_RESOURCE = 'lane/archive-download'
 export const ARCHIVE_RESOLVE_LANE_RESOURCE = 'lane/archive-resolve'
 export const BACKGROUND_WRITER_LANE_RESOURCE = 'lane/background-writer'
 /** @deprecated Use BACKGROUND_WRITER_LANE_RESOURCE. */
@@ -32,8 +33,12 @@ export const GLOBAL_BACKGROUND_WORKER_RESOURCE = BACKGROUND_WRITER_LANE_RESOURCE
 
 export function resourceKeyForExecutionLane(lane: ExecutionLane) {
   // Lane-specific advisory/resource keys preserve the single-writer invariant
-  // per lane while allowing the resolver and background writer to run together.
-  return lane === 'ARCHIVE_RESOLVE' ? ARCHIVE_RESOLVE_LANE_RESOURCE : BACKGROUND_WRITER_LANE_RESOURCE
+  // per lane while allowing resolver, download and writer to run together.
+  return lane === 'ARCHIVE_RESOLVE'
+    ? ARCHIVE_RESOLVE_LANE_RESOURCE
+    : lane === 'ARCHIVE_DOWNLOAD'
+      ? ARCHIVE_DOWNLOAD_LANE_RESOURCE
+      : BACKGROUND_WRITER_LANE_RESOURCE
 }
 
 const EXECUTING_JOB_STATUSES = ['RUNNING', 'PAUSING', 'CANCELLING'] as const
@@ -409,7 +414,7 @@ export class PostgresQueueRepository {
            AND "attempt" < "maxAttempts"
            AND "cancelRequestedAt" IS NULL
            AND (
-             job."type" <> 'ARCHIVE_IMPORT'
+             job."type" NOT IN ('ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH')
              OR NOT EXISTS (
                SELECT 1
                FROM "archive_imports" AS archive_import
@@ -1651,7 +1656,7 @@ export class PostgresQueueRepository {
       }
     }
 
-    if (executionLane === 'BACKGROUND_WRITER' && executingJob.type === 'ARCHIVE_IMPORT') {
+    if (['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(executingJob.type)) {
       await transaction.$executeRawUnsafe(
         `UPDATE "archive_import_items" AS item
          SET "status" = 'PENDING'::"ArchiveImportItemStatus",

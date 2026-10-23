@@ -7,7 +7,15 @@ const hiddenChildTypes = [
   'PIXIV_SERIES_RECONCILIATION'
 ]
 
+export const currentArchiveExecutionWhere = {
+  OR: [
+    { type: { notIn: ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'] } },
+    { archiveImport: { isNot: null } }
+  ]
+} satisfies Prisma.SystemJobWhereInput
+
 export const dashboardVisibleWhere = {
+  ...currentArchiveExecutionWhere,
   definitionVersion: { gte: 1 },
   NOT: { OR: hiddenChildTypes.map((type) => ({ type, parentJobId: { not: null } })) }
 } satisfies Prisma.SystemJobWhereInput

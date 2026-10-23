@@ -71,7 +71,7 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 
 ImgProxy 仅允许 `local:///media/` 和 `local:///derived-media/`，Compose 没有签名 Key/Salt；难猜路径不构成授权。它与 PostgreSQL 的宿主机端口必须限制在受信网络或等效保护路径。不要把私有原媒体放进 matcher 排除的静态目录。
 
-两个 Worker lane 共用同一数据库凭据与读写挂载，属于调度/capability 边界，不是操作系统权限隔离。解析 Executor 不写媒体，下载/回收/恢复/清理在 writer lane 进行；所有文件操作仍须校验根目录、符号链接与文件类型。App 默认 ro 与部分上传/替换写入口存在部署配置差异，需显式允许写挂载才能执行，不能误称默认只读覆盖所有部署。
+三个 Worker lane 共用同一数据库凭据与读写挂载，属于调度/capability 边界，不是操作系统权限隔离。解析 Executor 不写媒体，下载仅写隔离的 generation staging；发布/回收/恢复/清理在 writer lane 进行；所有文件操作仍须校验根目录、符号链接与文件类型。App 默认 ro 与部分上传/替换写入口存在部署配置差异，需显式允许写挂载才能执行，不能误称默认只读覆盖所有部署。
 
 出站代理优先级为 `ARCHIVE_HTTPS_PROXY > HTTPS_PROXY > https_proxy > HTTP_PROXY > http_proxy`。专用值显式为空强制直连；仅未设置时遵循 `NO_PROXY/no_proxy`。只接受无凭据、路径、query/hash 的 HTTP(S) 代理，失败不自动直连。
 

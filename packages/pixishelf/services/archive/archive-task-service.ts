@@ -1,7 +1,6 @@
 import { acknowledgeJobFailure } from '@/services/background-task/job-failure-policy'
 import { randomUUID } from 'node:crypto'
 import {
-  ARCHIVE_IMPORT_DEFINITION_VERSION,
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
   archiveImportV2PayloadSchema,
   archiveUploaderIdentityLockKey,
@@ -200,7 +199,8 @@ async function applyTaskAction(
   if (action === 'RETRY') {
     // RETRY 新建 SystemJob 并用 parentJobId 保留重试链；旧 job 继续作为历史审计记录。
     const nextJobId = uuid()
-    const priority = Math.min(99, Math.max(0, task.systemJob.queuePriority))
+    const phase = task.phase === 'PUBLISH' ? 'PUBLISH' : 'DOWNLOAD'
+    const priority = task.origin === 'AUTO' ? 900 : task.origin === 'MANUAL' ? 10 : task.systemJob.queuePriority
     const defaultTagIds = archiveImportDefaultTagIdsForRetry(task.systemJob, task.id)
     await transaction.archiveImportItem.updateMany({
       where: { archiveImportId: task.id, status: { not: 'COMPLETED' } },
@@ -209,11 +209,12 @@ async function applyTaskAction(
     await transaction.systemJob.create({
       data: {
         id: nextJobId,
-        type: 'ARCHIVE_IMPORT',
-        executionLane: 'BACKGROUND_WRITER',
-        definitionVersion: ARCHIVE_IMPORT_DEFINITION_VERSION,
+        type: phase === 'PUBLISH' ? 'ARCHIVE_PUBLISH' : 'ARCHIVE_DOWNLOAD',
+        executionLane: phase === 'PUBLISH' ? 'BACKGROUND_WRITER' : 'ARCHIVE_DOWNLOAD',
+        definitionVersion: 1,
         status: 'PENDING',
-        triggerSource: 'RETRY',
+        triggerSource:
+          task.origin === 'AUTO' ? 'SYSTEM' : task.origin === 'MANUAL' ? 'MANUAL' : task.systemJob.triggerSource,
         requestedByUserId,
         parentJobId: task.systemJobId,
         payload: archiveImportV2PayloadSchema.parse({
@@ -228,10 +229,12 @@ async function applyTaskAction(
         message: '重试归档导入'
       }
     })
+    await transaction.archiveImportExecution.create({ data: { jobId: nextJobId, archiveImportId: task.id, phase } })
     const changed = await transaction.archiveImport.updateMany({
       where: { id: task.id, systemJobId: task.systemJobId, status: task.status },
       data: {
         systemJobId: nextJobId,
+        phase,
         status: 'PENDING',
         decisionCode: null,
         errorCode: null,
@@ -458,6 +461,26 @@ async function lockUploaderCatalogImport(
 function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWhereInput) {
   return {
     id: true,
+    phase: true,
+    origin: true,
+    executions: {
+      orderBy: { createdAt: 'asc' as const },
+      select: {
+        phase: true,
+        job: {
+          select: {
+            id: true,
+            type: true,
+            status: true,
+            progress: true,
+            stage: true,
+            createdAt: true,
+            finishedAt: true,
+            parentJobId: true
+          }
+        }
+      }
+    },
     providerKey: true,
     externalId: true,
     submittedUrl: true,
@@ -485,6 +508,7 @@ function buildArchiveTaskWireSelect(attributionWhere: Prisma.ArchiveIntakeItemWh
       select: {
         id: true,
         executionLane: true,
+        stage: true,
         status: true,
         progress: true,
         message: true,
@@ -505,16 +529,29 @@ type ArchiveTaskWire = Prisma.ArchiveImportGetPayload<{ select: ReturnType<typeo
 
 function serializeTask(task: ArchiveTaskWire) {
   const itemProgress = taskProgress(task.completedItems, task.totalItems)
-  const progress = ['RUNNING', 'PAUSED'].includes(task.status)
-    ? Math.max(task.systemJob.progress, itemProgress)
-    : task.systemJob.progress
+  const progress =
+    task.status === 'COMPLETED'
+      ? 100
+      : task.phase === 'PUBLISH'
+        ? Math.max(95, Math.min(99, task.systemJob.progress))
+        : ['PENDING', 'RUNNING', 'PAUSED'].includes(task.status)
+          ? Math.max(task.systemJob.progress, itemProgress)
+          : task.systemJob.progress
   const message =
-    task.status === 'RUNNING' && ['RUNNING', 'PAUSING'].includes(task.systemJob.status)
+    task.phase !== 'PUBLISH' &&
+    task.systemJob.stage !== 'VERIFYING' &&
+    task.status === 'RUNNING' &&
+    ['RUNNING', 'PAUSING'].includes(task.systemJob.status)
       ? `已下载 ${task.completedItems}/${task.totalItems}`
       : archiveWireErrorMessage(task.errorCode, task.systemJob.message)
   return {
     id: task.id,
     systemJobId: task.systemJob.id,
+    activeExecutionId: task.systemJob.id,
+    phase: task.phase,
+    stage: task.systemJob.stage,
+    origin: task.origin,
+    executions: task.executions?.map((execution) => ({ phase: execution.phase, ...execution.job })) ?? [],
     providerKey: task.providerKey,
     externalId: task.externalId,
     submittedUrl: redactArchiveUrl(task.submittedUrl),

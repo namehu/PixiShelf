@@ -527,7 +527,9 @@ export const jobRouter = router({
   cancelBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
-      if (job?.type === 'ARCHIVE_IMPORT') return controlArchiveJob(input.jobId, 'CANCEL', ctx.userId)
+      if (job && ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(job.type)) {
+        return controlArchiveJob(input.jobId, 'CANCEL', ctx.userId)
+      }
       if (job?.type === 'PIXIV_ARTWORK_ENRICHMENT') {
         const cancelled = await cancelPixivArtworkEnrichment(input.jobId)
         if (!cancelled.job) throw new BackgroundTaskError('JOB_NOT_FOUND', 'Background job not found')
@@ -552,21 +554,27 @@ export const jobRouter = router({
   pauseBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
-      if (job?.type === 'ARCHIVE_IMPORT') return controlArchiveJob(input.jobId, 'PAUSE', ctx.userId)
+      if (job && ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(job.type)) {
+        return controlArchiveJob(input.jobId, 'PAUSE', ctx.userId)
+      }
       return pauseJobCommand(input)
     })
   ),
   resumeBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
-      if (job?.type === 'ARCHIVE_IMPORT') return controlArchiveJob(input.jobId, 'RESUME', ctx.userId)
+      if (job && ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(job.type)) {
+        return controlArchiveJob(input.jobId, 'RESUME', ctx.userId)
+      }
       return resumeJobCommand(input)
     })
   ),
   retryBackgroundJob: adminProcedure.input(jobIdInputSchema).mutation(({ input, ctx }) =>
     runBackgroundTaskCommand(async () => {
       const job = await getJobById(input.jobId)
-      if (job?.type === 'ARCHIVE_IMPORT') return controlArchiveJob(input.jobId, 'RETRY', ctx.userId)
+      if (job && ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(job.type)) {
+        return controlArchiveJob(input.jobId, 'RETRY', ctx.userId)
+      }
       return retryJobCommand({ ...input, requestedByUserId: ctx.userId })
     })
   ),

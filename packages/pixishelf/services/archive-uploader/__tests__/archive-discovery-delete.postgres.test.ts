@@ -66,30 +66,8 @@ describePostgres('discovery source deletion PostgreSQL integration', () => {
   it.each(['UPLOADER', 'TITLE_QUERY'] as const)(
     'deletes only owned %s discovery rows and preserves workflows, media, ignores and jobs',
     async (kind) => {
-      const owned = await seedCompletedScan('delete-owned', '6001')
+      const owned = await seedCompletedScan('delete-owned', '6001', kind)
       const other = await seedCompletedScan('delete-other', '6002')
-      if (kind === 'TITLE_QUERY') {
-        await db().archiveUploaderSource.update({
-          where: { id: owned.sourceId },
-          data: {
-            sourceKind: kind,
-            identityKind: null,
-            identityValue: null,
-            normalizedIdentity: null,
-            titleQuery: { keyword: 'Example', matchMode: 'CONTAINS', uploaderUid: null },
-            queryKey: 'd'.repeat(64)
-          }
-        })
-        await db().archiveUploaderScanRun.update({
-          where: { id: owned.runId },
-          data: {
-            searchIdentityKind: null,
-            searchIdentityValue: null,
-            titleQuery: { keyword: 'Example', matchMode: 'CONTAINS', uploaderUid: null }
-          }
-        })
-        await db().systemJob.update({ where: { id: owned.jobId }, data: { type: 'ARCHIVE_SEARCH_SCAN' } })
-      }
       const deps = { database: db(), sourceKind: 'ALL' as const }
       const submitted = await addArchiveUploaderScanItems(
         { sourceId: owned.sourceId, itemIds: [owned.catalogItemId], submissionAttemptId: randomUUID() },
@@ -345,7 +323,8 @@ function scanJobData(id: string, scanRunId: string, now: Date) {
   }
 }
 
-async function seedCompletedScan(suffix: string, uploaderUid: string) {
+async function seedCompletedScan(suffix: string, uploaderUid: string, kind: 'UPLOADER' | 'TITLE_QUERY' = 'UPLOADER') {
+  const titleQuery = { keyword: 'Example', matchMode: 'CONTAINS', uploaderUid: null }
   const sourceId = `${prefix}-source-${suffix}`
   const runId = `${prefix}-run-${suffix}`
   const jobId = `${prefix}-job-${suffix}`
@@ -355,18 +334,19 @@ async function seedCompletedScan(suffix: string, uploaderUid: string) {
     data: {
       id: sourceId,
       providerKey: 'e-hentai',
-      identityKind: 'UID',
-      identityValue: uploaderUid,
-      normalizedIdentity: uploaderUid,
+      sourceKind: kind,
+      ...(kind === 'TITLE_QUERY'
+        ? { titleQuery, queryKey: 'd'.repeat(64) }
+        : { identityKind: 'UID', identityValue: uploaderUid, normalizedIdentity: uploaderUid }),
       displayName: `Uploader ${suffix}`
     }
   })
   await db().systemJob.create({
     data: {
       id: jobId,
-      type: 'ARCHIVE_UPLOADER_SCAN',
+      type: kind === 'TITLE_QUERY' ? 'ARCHIVE_SEARCH_SCAN' : 'ARCHIVE_UPLOADER_SCAN',
       executionLane: 'ARCHIVE_RESOLVE',
-      definitionVersion: 1,
+      definitionVersion: kind === 'TITLE_QUERY' ? 5 : 1,
       status: 'COMPLETED',
       triggerSource: 'MANUAL',
       payload: { scanRunId: runId },
@@ -383,8 +363,7 @@ async function seedCompletedScan(suffix: string, uploaderUid: string) {
       sourceId,
       systemJobId: jobId,
       mode: 'LATEST',
-      searchIdentityKind: 'UID',
-      searchIdentityValue: uploaderUid,
+      ...(kind === 'TITLE_QUERY' ? { titleQuery } : { searchIdentityKind: 'UID', searchIdentityValue: uploaderUid }),
       status: 'COMPLETED',
       itemCount: 1,
       newCount: 1,

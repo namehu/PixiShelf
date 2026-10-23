@@ -26,12 +26,20 @@ flowchart TB
     D4[事务：围栏与身份复核<br/>作品 来源 revision 任务终态]
     D5[等待确认]
     D6[未变化：结束并跳过]
+    D7[同一 fenced 事务：封存代次
+创建发布任务 切换 current 释放下载 lease]
   end
-  subgraph Writer[Worker 媒体写通道]
+  subgraph Download[Worker 下载通道]
     direction TB
-    W1[下载 校验 逐项检查点]
-    W2[验证全量媒体与 manifest]
-    W3[发布失败：保留检查点重试]
+    W1[新 generation 下载与检查点
+已完成项核验复制]
+    W2[全量媒体校验 manifest 和 drain]
+    W0[下载下一作品]
+  end
+  subgraph Writer[Worker 发布与媒体写通道]
+    direction TB
+    W3[只读封存摘要核对与发布]
+    W4[发布失败：仅重试发布]
   end
   subgraph Files[文件系统]
     direction TB
@@ -43,7 +51,9 @@ flowchart TB
   R3 -->|新归档 AUTO| D3
   R3 -->|MANUAL 或更新| D5 --> U3 --> D3
   R3 -->|AUTO 未变化| D6
-  D3 --> W1 --> F1 --> W2 --> F2 --> D4
+  D3 --> W1 --> F1 --> W2 --> D7
+  D7 --> W0
+  D7 --> W3 --> F2 --> D4
   D4 -->|成功| A3 --> U4
-  D4 -->|失败| W3 --> W2
+  D4 -->|失败| W4 --> W3
 

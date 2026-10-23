@@ -241,6 +241,11 @@ describe('archive management UI', () => {
                 status: 'RUNNING',
                 runningJob: { type: 'ARCHIVE_INTAKE_RESOLVE', progress: 35 }
               },
+              {
+                executionLane: 'ARCHIVE_DOWNLOAD',
+                status: 'RUNNING',
+                runningJob: { type: 'ARCHIVE_DOWNLOAD', progress: 72 }
+              },
               { executionLane: 'BACKGROUND_WRITER', status: 'READY', runningJob: null }
             ]
           } as any
@@ -253,7 +258,9 @@ describe('archive management UI', () => {
     expect(strip.className).toContain('flex-wrap')
     expect(screen.getByText(/链接解析 · 运行中/)).toBeTruthy()
     expect(screen.getByText('35%')).toBeTruthy()
-    expect(screen.getByText('媒体写入 · 就绪')).toBeTruthy()
+    expect(screen.getByText(/归档下载 · 运行中/)).toBeTruthy()
+    expect(screen.getByText('72%')).toBeTruthy()
+    expect(screen.getByText('入库与维护 · 就绪')).toBeTruthy()
     expect(screen.queryByText(/ARCHIVE_INTAKE_RESOLVE/)).toBeNull()
     expect(screen.queryByText('等待领取任务')).toBeNull()
   })

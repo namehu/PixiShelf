@@ -18,6 +18,8 @@
 
 ## 架构与性能验证
 
+归档下载独立通道：[2026-10-23 实施验证](./archive-download-lane-2026-10-23.md)。
+
 | 主题       | 记录                                                                                                                                                                                       |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | WebP 播放  | [流式播放器验证](./architecture/webp-streaming-verification.md)、[手机性能与生产接入验证](./architecture/webp-mobile-verification.md)                                                      |
@@ -31,6 +33,7 @@
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 后台任务切换     | [阶段 1–7](./operations/background-task-cutover-deployment.md)、[后续观察](./operations/background-task-follow-up.md)、[当时的兼容回滚](./operations/background-task-cutover-rollback.md) |
 | 双通道收件箱     | [切换记录](./operations/archive-intake-cutover-deployment.md)                                                                                                                             |
+| 下载独立通道     | [2026-10-23 本地升级与就绪检查](./operations/archive-download-lane-local-upgrade-2026-10-23.md)                                                                                           |
 | 后台任务兼容退役 | [2026-10 发布确认与证据缺口](./operations/background-task-retirement-2026-10.md)                                                                                                          |
 | 阅读迁移         | [2026-09-24 隔离数据库验证](./operations/reading-migration-2026-09-24.md)                                                                                                                 |
 | 归档事故         | [2026-10-06 重试事件](./operations/archive-retry-incident-2026-10-06.md)                                                                                                                  |

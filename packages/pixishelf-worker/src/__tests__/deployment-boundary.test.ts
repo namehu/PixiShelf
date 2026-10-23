@@ -153,7 +153,7 @@ describe('Worker deployment boundary', () => {
 
   it('publishes both execution lanes from the sole production Worker', () => {
     expect(new Set(PRODUCTION_WORKER_CAPABILITIES.map(({ executionLane }) => executionLane))).toEqual(
-      new Set(['ARCHIVE_RESOLVE', 'BACKGROUND_WRITER'])
+      new Set(['ARCHIVE_RESOLVE', 'ARCHIVE_DOWNLOAD', 'BACKGROUND_WRITER'])
     )
     expect(PRODUCTION_WORKER_CAPABILITIES).toEqual(
       expect.arrayContaining([

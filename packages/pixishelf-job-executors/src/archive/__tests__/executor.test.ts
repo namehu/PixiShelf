@@ -10,8 +10,9 @@ import {
 } from '@pixishelf/job-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { publishMock, storageMocks } = vi.hoisted(() => ({
+const { publishMock, handoffMock, storageMocks } = vi.hoisted(() => ({
   publishMock: vi.fn(),
+  handoffMock: vi.fn(),
   storageMocks: {
     buildArchiveStoragePaths: vi.fn(() => ({
       scanRootAbsolutePath: 'D:/archive',
@@ -25,11 +26,16 @@ const { publishMock, storageMocks } = vi.hoisted(() => ({
     prepareArchiveRevisionDirectory: vi.fn(async () => undefined),
     storeArchiveRemoteMedia: vi.fn(),
     validateArchiveStoredMedia: vi.fn(async () => undefined),
-    writeArchiveManifest: vi.fn(async () => undefined)
+    writeArchiveManifest: vi.fn(async () => 'a'.repeat(64)),
+    copyArchiveCheckpoint: vi.fn(async () => 'media/copied.jpg'),
+    readArchiveManifestDigest: vi.fn(async () => 'a'.repeat(64)),
+    resolveExistingPathWithinRoot: vi.fn(async () => 'D:/archive/.archive-staging/import-1'),
+    assertArchiveManifestIdentity: vi.fn(async () => undefined)
   }
 }))
 
 vi.mock('../storage.js', () => storageMocks)
+vi.mock('../phase-handoff.js', () => ({ handoffArchivePhase: handoffMock, ARCHIVE_PUBLICATION_LOCK: 7341902117 }))
 vi.mock('../publisher.js', () => ({ publishArchiveImportInTransaction: publishMock }))
 
 import { createArchiveExecutorRegistrations, executeArchiveImport } from '../executor.js'
@@ -45,6 +51,9 @@ import type { ArchiveProvider } from '../types.js'
 const archiveImport = {
   id: 'import-1',
   systemJobId: 'job-1',
+  phase: 'DOWNLOAD',
+  generationToken: null,
+  sealedManifestSha256: null,
   providerKey: 'test',
   externalId: '42',
   externalRefId: null,
@@ -289,6 +298,7 @@ describe('archive executor', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    handoffMock.mockImplementation(async (scope) => scope.complete({ result: { outcome: 'HANDOFF' } }))
     publishMock.mockResolvedValue({ artworkId: 42, revisionId: 'import-1', archivePath: 'sources/test/42' })
   })
 
@@ -296,7 +306,7 @@ describe('archive executor', () => {
 
   it('registers backward-compatible ARCHIVE_IMPORT v1 and frozen-default-tag v2 executors', () => {
     const registrations = createArchiveExecutorRegistrations(dependencies(createTransaction()))
-    expect(registrations).toHaveLength(2)
+    expect(registrations).toHaveLength(4)
     expect(registrations[0]).toMatchObject({ jobType: 'ARCHIVE_IMPORT', definitionVersion: 1 })
     expect(registrations[0]!.parsePayload?.({ archiveImportId: 'import-1' })).toEqual({
       archiveImportId: 'import-1',
@@ -334,7 +344,7 @@ describe('archive executor', () => {
     )
   })
 
-  it('publishes domain state and completes the queue in the same fenced transaction callback', async () => {
+  it('hands off sealed download and completes the queue in the same fenced transaction callback', async () => {
     const order: string[] = []
     const transaction = createTransaction()
     publishMock.mockImplementation(async () => {
@@ -347,25 +357,32 @@ describe('archive executor', () => {
       TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
     )
 
-    expect(order).toEqual(['publish', 'complete'])
-    expect(publishMock).toHaveBeenCalledWith(
-      transaction,
-      'import-1',
-      expect.objectContaining({ stagingRelativePath: '.archive-staging/import-1' }),
+    expect(order).toEqual(['complete'])
+    expect(publishMock).not.toHaveBeenCalled()
+    expect(handoffMock).toHaveBeenCalledWith(
+      context.__scope,
+      context,
+      'PUBLISH',
       expect.any(Date),
-      []
+      expect.objectContaining({ digest: 'a'.repeat(64) })
     )
     expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
   })
 
-  it('passes frozen v2 default tags into the fenced archive publication', async () => {
+  it('passes frozen default tags into the fenced successor handoff', async () => {
     const transaction = createTransaction()
     const context = createContext(transaction)
     context.payload.defaultTagIds = [2, 5]
 
     await executeArchiveImport(context, dependencies(transaction))
 
-    expect(publishMock).toHaveBeenCalledWith(transaction, 'import-1', expect.any(Object), expect.any(Date), [2, 5])
+    expect(handoffMock).toHaveBeenCalledWith(
+      context.__scope,
+      expect.objectContaining({ payload: { archiveImportId: 'import-1', defaultTagIds: [2, 5] } }),
+      'PUBLISH',
+      expect.any(Date),
+      expect.any(Object)
+    )
   })
 
   it('reconciles stale aggregate counts from durable item checkpoints before execution', async () => {
@@ -464,7 +481,7 @@ describe('archive executor', () => {
   it('does not attempt an ordinary or second terminal transition when fenced publication fails', async () => {
     const transaction = createTransaction()
     const context = createContext(transaction)
-    publishMock.mockRejectedValueOnce(new Error('publisher fault injection'))
+    handoffMock.mockRejectedValueOnce(new Error('publisher fault injection'))
 
     await expect(executeArchiveImport(context, dependencies(transaction))).rejects.toThrow('publisher fault injection')
 
@@ -986,13 +1003,19 @@ function createTransaction() {
     setting: {
       findUnique: vi.fn(async () => ({ value: '4' }))
     },
+    archiveStagingGeneration: { create: vi.fn(), updateMany: vi.fn(async () => ({ count: 1 })) },
     archiveDeletedIdentity: { findUnique: vi.fn(async () => null) },
     archiveImport: {
-      findUnique: vi.fn(async () => archiveImport),
+      findUnique: vi.fn(async () => ({ ...archiveImport })),
+      findUniqueOrThrow: vi.fn(async () => ({
+        ...archiveImport,
+        generationToken: '11111111-1111-4111-8111-111111111111'
+      })),
       updateMany: vi.fn(async () => ({ count: 1 })),
       update: vi.fn()
     },
     archiveImportItem: {
+      update: vi.fn(),
       updateMany: vi.fn(async () => ({ count: 0 })),
       groupBy: vi.fn(async () => []),
       findMany: vi.fn(async () => []),
@@ -1049,7 +1072,8 @@ function createContext(
   const context = {
     job: {
       id: 'job-1',
-      type: 'ARCHIVE_IMPORT',
+      type: 'ARCHIVE_DOWNLOAD',
+      executionLane: 'ARCHIVE_DOWNLOAD',
       definitionVersion: 1,
       status: 'RUNNING',
       triggerSource: 'MANUAL',

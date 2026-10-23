@@ -11,7 +11,7 @@ sources:
 
 ## 当前执行边界
 
-App 固定通过中央队列入队，Worker 启动即消费 ARCHIVE_RESOLVE 与 BACKGROUND_WRITER 两个 lane，每 lane 并发 1。
+App 固定通过中央队列入队，Worker 启动即消费 ARCHIVE_RESOLVE、ARCHIVE_DOWNLOAD 与 BACKGROUND_WRITER 三个 lane，每 lane 并发 1。
 `CENTRAL_DISPATCHER_CUTOVER_ENABLED`、`WORKER_DISPATCH_ENABLED` 已退出配置；即使旧环境仍设置为 false，也不能禁止消费。
 维护必须停止 App、scheduler、Worker 和外部写入者，不再支持依靠开关暗启动。
 

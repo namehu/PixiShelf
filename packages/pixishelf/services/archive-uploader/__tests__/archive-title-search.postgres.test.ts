@@ -35,7 +35,7 @@ async function source(suffix: string) {
 }
 
 describe.skipIf(!database).sequential('title discovery PostgreSQL workflow', () => {
-  it('deduplicates multi-account sets and freezes the full set in a v4 run', async () => {
+  it('deduplicates multi-account sets and freezes the full set in a v5 run', async () => {
     const keyword = `${prefix} multi`
     const first = await createArchiveTitleSource(
       { displayName: keyword, keyword, uploaders: [{ uid: '456' }, { uid: '00123' }] },
@@ -50,20 +50,20 @@ describe.skipIf(!database).sequential('title discovery PostgreSQL workflow', () 
     const run = await triggerArchiveUploaderScan({ sourceId: first.id, mode: 'LATEST' }, prefix, deps)
     expect(run.titleQuery?.uploaders).toEqual([{ uid: '123' }, { uid: '456' }])
     expect(await database!.systemJob.findUnique({ where: { id: run.systemJobId } })).toMatchObject({
-      definitionVersion: 4
+      definitionVersion: 5
     })
     expect((await database!.archiveUploaderScanRun.findUnique({ where: { id: run.id } }))?.titleQuery).toEqual(
       first.titleQuery
     )
   })
-  it('freezes a NAME query in v4 independently of a later uploader UID binding', async () => {
+  it('freezes a NAME query in v5 independently of a later uploader UID binding', async () => {
     const name = `${prefix}-frozen-name`
     const title = await createArchiveTitleSource({ displayName: name, keyword: 'Match', uploaderName: name }, deps)
     sourceIds.push(title.id)
     const run = await triggerArchiveUploaderScan({ sourceId: title.id, mode: 'LATEST' }, prefix, deps)
     expect(await database!.systemJob.findUnique({ where: { id: run.systemJobId } })).toMatchObject({
       type: 'ARCHIVE_SEARCH_SCAN',
-      definitionVersion: 4
+      definitionVersion: 5
     })
     const uploader = await createArchiveUploaderSource({ identityKind: 'NAME', identityValue: name }, deps)
     sourceIds.push(uploader.id)

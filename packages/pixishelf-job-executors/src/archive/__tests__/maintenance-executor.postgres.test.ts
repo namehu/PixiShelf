@@ -65,6 +65,10 @@ describePostgres('archive maintenance PostgreSQL integration', () => {
     })
     await writeFixture(root, `.archive-staging/${importId}/checkpoint`)
     await writeFixture(root, `sources/test/bucket/cleanup/revisions/${importId}/checkpoint`)
+    await writeFile(
+      path.join(root, `sources/test/bucket/cleanup/revisions/${importId}/manifest.json`),
+      JSON.stringify({ revisionId: importId, provider: { key: 'test', externalId: 'cleanup' }, media: [] })
+    )
     const maintenanceJobId = await seedSystemJob(
       `${prefix}-cleanup-job`,
       'ARCHIVE_MAINTENANCE',

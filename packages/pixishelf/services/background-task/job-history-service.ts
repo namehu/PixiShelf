@@ -1,12 +1,13 @@
-import { JOB_STATUS_VALUES, JOB_TYPE_VALUES, type JobType } from '@pixishelf/job-contracts'
+import { isArchiveJobType, JOB_STATUS_VALUES, JOB_TYPE_VALUES, type JobType } from '@pixishelf/job-contracts'
 import { Prisma } from '@pixishelf/db'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { backgroundJobLabel, backgroundJobTypeLabels, backgroundScanModeLabels } from '@/lib/background-job-labels'
 import { redactArchiveText } from '@/services/archive/archive-redaction'
 import { redactSensitiveText } from './job-redaction'
-import { dashboardVisibleWhere, unacknowledgedFailureWhere } from './job-failure-policy'
+import { dashboardVisibleWhere, currentArchiveExecutionWhere, unacknowledgedFailureWhere } from './job-failure-policy'
 import { diagnosticSummarySelect, hasPartialFailure } from './job-diagnostic-summary'
+import { logicalArchiveSelect, logicalJobIdentity, readLogicalJobPage } from './logical-job-page'
 
 const cursorValueSchema = z.object({ createdAt: z.string().datetime(), id: z.string().min(1).max(128) })
 const historyCursorSchema = z
@@ -57,6 +58,7 @@ export const backgroundHistorySnapshotsInputSchema = z.object({
 
 const historySelect = {
   ...diagnosticSummarySelect,
+  ...logicalArchiveSelect,
   id: true,
   type: true,
   status: true,
@@ -80,6 +82,13 @@ function toHistoryItem(record: HistoryRecord) {
   const redact = record.type.startsWith('ARCHIVE_') ? redactArchiveText : redactSensitiveText
   return {
     id: record.id,
+    ...(isArchiveJobType(record.type) &&
+    record.payload &&
+    typeof record.payload === 'object' &&
+    !Array.isArray(record.payload) &&
+    typeof record.payload.archiveImportId === 'string'
+      ? { archiveImportId: record.payload.archiveImportId }
+      : {}),
     type: record.type as JobType,
     label: backgroundJobLabel(record.type as JobType, record.payload),
     status: record.status,
@@ -92,7 +101,7 @@ function toHistoryItem(record: HistoryRecord) {
     errorCode: redact(record.errorCode),
     error: redact(record.error)?.slice(0, 500) ?? null,
     effectivePriority: record.effectivePriority,
-    createdAt: record.createdAt.toISOString(),
+    createdAt: logicalJobIdentity(record).createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString()
   }
 }
@@ -113,6 +122,7 @@ function historySearchWhere(search: string): Prisma.SystemJobWhereInput {
   return {
     OR: [
       { id: contains },
+      { archiveImport: { is: { id: contains } } },
       { message: contains },
       { errorCode: contains },
       { error: contains },
@@ -126,23 +136,15 @@ export async function listBackgroundHistory(
   parsed: z.output<typeof backgroundHistoryInputSchema>,
   client: HistoryClient = prisma as unknown as HistoryClient
 ) {
-  const conditions: Prisma.SystemJobWhereInput[] = [{ definitionVersion: { gte: 1 } }]
+  const conditions: Prisma.SystemJobWhereInput[] = [{ definitionVersion: { gte: 1 } }, currentArchiveExecutionWhere]
   if (!parsed.includeBatchChildren) {
     conditions.push(dashboardVisibleWhere)
   }
   if (parsed.statuses?.length) conditions.push({ status: { in: parsed.statuses } })
   if (parsed.types?.length) conditions.push({ type: { in: parsed.types } })
   if (parsed.triggerSources?.length) conditions.push({ triggerSource: { in: parsed.triggerSources } })
-  if (parsed.createdFrom || parsed.createdTo) {
-    conditions.push({
-      createdAt: {
-        ...(parsed.createdFrom ? { gte: new Date(parsed.createdFrom) } : {}),
-        ...(parsed.createdTo ? { lt: new Date(parsed.createdTo) } : {})
-      }
-    })
-  }
   if (parsed.search) conditions.push(historySearchWhere(parsed.search))
-  return listHistoryPage(parsed, conditions, client)
+  return listHistoryPage(parsed, conditions, client, parsed)
 }
 
 export async function listBackgroundFailures(
@@ -155,21 +157,14 @@ export async function listBackgroundFailures(
 async function listHistoryPage(
   parsed: z.output<typeof backgroundFailuresInputSchema>,
   conditions: Prisma.SystemJobWhereInput[],
-  client: HistoryClient
+  client: HistoryClient,
+  dates: { createdFrom?: string; createdTo?: string } = {}
 ) {
-  if (parsed.cursor) {
-    conditions.push({
-      OR: [
-        { createdAt: { lt: new Date(parsed.cursor.createdAt) } },
-        { createdAt: new Date(parsed.cursor.createdAt), id: { lt: parsed.cursor.id } }
-      ]
-    })
-  }
-  const records = await client.systemJob.findMany({
+  const records = await readLogicalJobPage((args) => client.systemJob.findMany({ ...args, select: historySelect }), {
     where: { AND: conditions },
-    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     take: parsed.limit + 1,
-    select: historySelect
+    cursor: parsed.cursor,
+    ...dates
   })
   const items = records.slice(0, parsed.limit).map(toHistoryItem)
   const last = items.at(-1)
@@ -177,7 +172,9 @@ async function listHistoryPage(
     items,
     nextCursor:
       records.length > parsed.limit && last
-        ? Buffer.from(JSON.stringify({ createdAt: last.createdAt, id: last.id })).toString('base64url')
+        ? Buffer.from(JSON.stringify({ createdAt: last.createdAt, id: last.archiveImportId ?? last.id })).toString(
+            'base64url'
+          )
         : null
   }
 }
@@ -188,7 +185,18 @@ export async function getBackgroundHistorySnapshots(
 ) {
   const { ids } = backgroundHistorySnapshotsInputSchema.parse(input)
   const records = await client.systemJob.findMany({
-    where: { definitionVersion: { gte: 1 }, id: { in: [...new Set(ids)] } },
+    where: {
+      definitionVersion: { gte: 1 },
+      AND: [
+        currentArchiveExecutionWhere,
+        {
+          OR: [
+            { id: { in: [...new Set(ids)] } },
+            { archiveImport: { is: { executions: { some: { jobId: { in: ids } } } } } }
+          ]
+        }
+      ]
+    },
     select: historySelect
   })
   return { items: records.map(toHistoryItem) }

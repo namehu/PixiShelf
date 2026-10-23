@@ -33,10 +33,12 @@ describe('failure notification queries and bulk acknowledgement', () => {
         jobRecord({ id: 'job-z', status: 'FAILED' }),
         jobRecord({ id: 'job-y', status: 'FAILED' })
       ])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([jobRecord({ id: 'job-y', status: 'FAILED' })])
+      .mockResolvedValueOnce([])
     const client = { systemJob: { findMany } } as never
     const first = await listBackgroundFailures(backgroundFailuresInputSchema.parse({ limit: 1 }), client)
-    expect(findMany.mock.calls[0]![0].where.AND).toContainEqual(unacknowledgedFailureWhere)
+    expect(findMany.mock.calls[0]![0].where.AND[0].AND).toContainEqual(unacknowledgedFailureWhere)
     expect(first.items).toHaveLength(1)
     expect(first.items[0]).not.toHaveProperty('payload')
     expect(first.items[0]).not.toHaveProperty('leaseToken')
@@ -45,8 +47,8 @@ describe('failure notification queries and bulk acknowledgement', () => {
       client
     )
     expect(next.items[0]?.id).toBe('job-y')
-    expect(findMany.mock.calls[1]![0]).not.toHaveProperty('cursor')
-    expect(findMany.mock.calls[1]![0].where.AND.at(-1).OR[1].id).toEqual({ lt: 'job-z' })
+    expect(findMany.mock.calls[2]![0]).not.toHaveProperty('cursor')
+    expect(findMany.mock.calls[2]![0].where.AND.at(-1).OR[1].id).toEqual({ lt: 'job-z' })
   })
 
   it.each([

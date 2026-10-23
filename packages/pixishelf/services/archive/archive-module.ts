@@ -1,7 +1,6 @@
 import { acknowledgeJobFailure } from '@/services/background-task/job-failure-policy'
 import { randomUUID } from 'node:crypto'
 import {
-  ARCHIVE_IMPORT_DEFINITION_VERSION,
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
   archiveImportV2PayloadSchema,
   archiveUploaderIdentityLockKey,
@@ -19,7 +18,6 @@ import { requestArchiveArtworkMaintenance, requestArchiveStagingCleanup } from '
 import { archiveImportDefaultTagIdsForRetry } from './archive-job-payload'
 
 const FAILED_STAGING_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
-const ARCHIVE_IMPORT_JOB_TYPE = 'ARCHIVE_IMPORT'
 
 type ArchiveControlTaskRecord = Prisma.ArchiveImportGetPayload<{ include: { systemJob: true } }>
 
@@ -191,6 +189,7 @@ export class ArchiveModule {
       })
     }
     if (action === 'USE_DISPLAY_QUALITY') {
+      if (task.phase === 'PUBLISH') throw stateConflict('归档文件已经封存，发布重试不能更改画质')
       assertActionStatus(action, task.status, ['PAUSED', 'FAILED'])
       if (task.status === 'FAILED') {
         return this.retryCentralArchiveImport(task, {
@@ -233,6 +232,9 @@ export class ArchiveModule {
       ) {
         throw stateConflict('归档任务状态已改变，请刷新后重试')
       }
+      if (options.useDisplayQuality && current.phase === 'PUBLISH') {
+        throw stateConflict('归档文件已经封存，发布重试不能更改画质')
+      }
       await lockUploaderCatalogImport(tx, current)
       if (options.retryItemId) {
         const item = await tx.archiveImportItem.updateMany({
@@ -246,15 +248,23 @@ export class ArchiveModule {
           data: resetArchiveItemForRetry()
         })
       }
-      const priority = Math.min(99, Math.max(0, current.systemJob.queuePriority))
+      const phase = current.phase === 'PUBLISH' ? 'PUBLISH' : 'DOWNLOAD'
+      const priority =
+        current.origin === 'AUTO' ? 900 : current.origin === 'MANUAL' ? 10 : current.systemJob.queuePriority
       const defaultTagIds = archiveImportDefaultTagIdsForRetry(current.systemJob, current.id)
       await tx.systemJob.create({
         data: {
           id: nextJobId,
-          type: ARCHIVE_IMPORT_JOB_TYPE,
-          definitionVersion: ARCHIVE_IMPORT_DEFINITION_VERSION,
+          type: phase === 'PUBLISH' ? 'ARCHIVE_PUBLISH' : 'ARCHIVE_DOWNLOAD',
+          executionLane: phase === 'PUBLISH' ? 'BACKGROUND_WRITER' : 'ARCHIVE_DOWNLOAD',
+          definitionVersion: 1,
           status: 'PENDING',
-          triggerSource: 'RETRY',
+          triggerSource:
+            current.origin === 'AUTO'
+              ? 'SYSTEM'
+              : current.origin === 'MANUAL'
+                ? 'MANUAL'
+                : current.systemJob.triggerSource,
           requestedByUserId: options.requestedByUserId,
           parentJobId: current.systemJobId,
           payload: archiveImportV2PayloadSchema.parse({
@@ -269,10 +279,12 @@ export class ArchiveModule {
           message: options.message
         }
       })
+      await tx.archiveImportExecution.create({ data: { jobId: nextJobId, archiveImportId: current.id, phase } })
       const changed = await tx.archiveImport.updateMany({
         where: { id: current.id, systemJobId: current.systemJobId, status: current.status },
         data: {
           systemJobId: nextJobId,
+          phase,
           status: 'PENDING',
           ...(options.useDisplayQuality ? { selectedQuality: 'DISPLAY' as const } : {}),
           decisionCode: null,
@@ -384,6 +396,9 @@ async function transitionCentralArchiveControl(
       current.status !== task.status
     ) {
       throw stateConflict('归档任务状态已改变，请刷新后重试')
+    }
+    if (options.useDisplayQuality && current.phase === 'PUBLISH') {
+      throw stateConflict('归档文件已经封存，发布重试不能更改画质')
     }
     await lockUploaderCatalogImport(tx, current)
 

@@ -1,4 +1,5 @@
 import {
+  isArchiveJobType,
   executionLaneForJobType,
   jobTypeSchema,
   jobDtoSchema,
@@ -74,6 +75,7 @@ export const systemJobEventWireSelect = {
 } satisfies Prisma.SystemJobEventSelect
 
 export const systemJobLiveSummarySelect = {
+  payload: true,
   ...diagnosticSummarySelect,
   id: true,
   type: true,
@@ -120,6 +122,7 @@ export function toJobDto(record: SystemJobWireRecord): JobDto {
   const legacyYield = isLegacyAnimationDurationYield(record)
   return jobDtoSchema.parse({
     ...record,
+    ...archiveExecutionSummary(record),
     hasPartialFailure: hasPartialFailure(record),
     idempotencyKey: redactSensitiveText(record.idempotencyKey),
     payload: sanitizeJsonValue(record.payload, redactText),
@@ -154,6 +157,7 @@ export function toJobEventDto(record: SystemJobEventWireRecord): JobEventDto {
 export function toJobLiveSummary(record: SystemJobLiveSummaryRecord): JobLiveSummary {
   return jobLiveSummarySchema.parse({
     id: record.id,
+    ...archiveExecutionSummary(record),
     executionLane: record.executionLane,
     status: record.status,
     hasPartialFailure: hasPartialFailure(record),
@@ -203,4 +207,15 @@ function normalizeWorkerCapabilities(value: unknown): JsonValue {
     const jobType = jobTypeSchema.safeParse(capability.jobType)
     return jobType.success ? { ...capability, executionLane: executionLaneForJobType(jobType.data) } : capability
   })
+}
+
+function archiveExecutionSummary(record: { id: string; type: string; payload?: unknown }) {
+  if (!isArchiveJobType(record.type)) return {}
+  const payload = record.payload as { archiveImportId?: string } | null
+  return {
+    archiveImportId: payload?.archiveImportId,
+    activeExecutionId: record.id,
+    archivePhase:
+      record.type === 'ARCHIVE_PUBLISH' ? 'PUBLISH' : record.type === 'ARCHIVE_DOWNLOAD' ? 'DOWNLOAD' : 'LEGACY'
+  }
 }

@@ -74,9 +74,10 @@ sources:
 
 - submission 只是审计分组，不是必须全部解析完才能继续的封闭批次。
 - `ARCHIVE_RESOLVE_ITEM` 做远端解析、数据库冻结及自动模式入队，终态与新下载任务在同一个 fenced 事务中提交；不写媒体目录，因此可以和一个 writer 任务并行。发布锁下重新裁决现有归档，防止自动覆盖已有作品。
-- `ARCHIVE_IMPORT` 才下载媒体和发布归档，必须和扫描、本地导入、视频任务共用串行 writer lane。
-- “归档默认标签”在 App 手动入队或 resolver 自动创建 `ARCHIVE_IMPORT@v2` 时冻结 ID；Worker 发布归档作品时保留来源标签，并把仍存在的默认标签以 `MANUAL` provenance 幂等追加。旧 `ARCHIVE_IMPORT@v1` 继续按空默认标签执行，避免历史队列失效。
+- `ARCHIVE_DOWNLOAD@1` 在独立下载通道完成媒体和封存校验，原子交接到 writer 中的 `ARCHIVE_PUBLISH@1`；下载与扫描、本地导入、视频任务可以同时推进。
+- “归档默认标签”在 App 手动入队或 resolver 自动创建 `ARCHIVE_DOWNLOAD@1` 时冻结 ID；Worker 发布归档作品时保留来源标签，并把仍存在的默认标签以 `MANUAL` provenance 幂等追加。旧 `ARCHIVE_IMPORT@1` 以空默认标签转交，v2 保留冻结标签，两个兼容版本均不再执行下载。
 - 归档 `manifest.json` 是 Worker 在归档 staging/revision 中生成的发布清单。它不会出现在普通 `local-imports` 发现链路中，也不会触发本地导入默认标签。
+- 新归档冻结 MANUAL/AUTO 来源；手动下载和发布使用 MANUAL / 10，自动使用 SYSTEM / 900，可在自动时段外执行并参与 aging，不抢占运行中任务。未知旧来源不猜测。
 - 网络下载和 FFmpeg/文件流不放进长数据库事务。最终领域发布使用短 fenced transaction，避免失去 lease 的旧执行者发布结果。
 - 归档媒体并发从 `Setting.archive_media_concurrency` 读取，默认 2；Executor worker 数和 Provider permit 容量使用同一冻结值。`BACKGROUND_WRITER` 仍只有一个任务执行槽。
 - 聚合进度与事件必须在同一 fenced 事务中提交；节流与 SSE 规则见[实时进度](../features/background-job-live-progress.md)。

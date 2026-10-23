@@ -149,17 +149,18 @@ function legacyFailedCount(job: DiagnosticJob): number | null {
 
 async function legacyReport(job: DiagnosticJob, client: DiagnosticClient): Promise<DiagnosticReportView | null> {
   // Only the still-linked current checkpoint is available. It is never presented as an immutable past attempt.
-  const archive =
-    job.type === 'ARCHIVE_IMPORT'
-      ? await client.archiveImport.findUnique({
-          where: { systemJobId: job.id },
-          select: { id: true, failedItems: true }
-        })
-      : null
+  const archive = ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(job.type)
+    ? await client.archiveImport.findUnique({
+        where: { systemJobId: job.id },
+        select: { id: true, failedItems: true }
+      })
+    : null
   const samples = legacySamples(job)
   const total = archive?.failedItems ?? legacyFailedCount(job)
   const itemCount = total ?? samples.length
-  if ((!job.error && !job.errorCode || isLegacyAnimationDurationYield(job)) && !itemCount && !samples.length) return null
+  if (((!job.error && !job.errorCode) || isLegacyAnimationDurationYield(job)) && !itemCount && !samples.length) {
+    return null
+  }
   return {
     id: 'legacy',
     attempt: job.attempt,
@@ -227,7 +228,10 @@ export async function listBackgroundDiagnosticReports(
 
 function businessHref(job: DiagnosticJob): string | null {
   const payload = object(job.payload)
-  if (job.type === 'ARCHIVE_IMPORT' && typeof payload.archiveImportId === 'string') {
+  if (
+    ['ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(job.type) &&
+    typeof payload.archiveImportId === 'string'
+  ) {
     return `/admin/archive?taskId=${encodeURIComponent(payload.archiveImportId)}`
   }
   if (job.type === 'SCAN' || job.type === 'LOCAL_DIRECTORY_IMPORT') return '/admin/scan-history'

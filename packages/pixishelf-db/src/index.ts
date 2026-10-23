@@ -8,9 +8,11 @@ export * from './animation-duration'
 export * from './artwork-reading'
 export * from './artwork-summary'
 
-const latestRequiredMigration = '20261021000000_artwork_summary'
+const latestRequiredMigration = '20261023001000_archive_download_lane'
 
 const requiredQueueObjects = [
+  'archive_import_executions',
+  'archive_staging_generations',
   'ArtworkSummary',
   'ArtworkSummaryFeature',
   'artist_merges',
@@ -76,7 +78,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
           AND (
             (table_name = 'system_jobs' AND column_name IN ('definitionVersion', 'executionLane', 'progressData', 'legacyDisplay'))
             OR (table_name = 'Artwork' AND column_name = 'mediaRevision')
-            OR (table_name = 'archive_imports' AND column_name IN ('publishedArtworkDeletedAt', 'publishedArtworkPurgedAt'))
+            OR (table_name = 'archive_imports' AND column_name IN ('publishedArtworkDeletedAt', 'publishedArtworkPurgedAt', 'phase', 'origin', 'generationToken', 'sealedManifestSha256'))
             OR (table_name = 'Artist' AND column_name = 'userId')
             OR (table_name = 'Artwork' AND column_name = 'seriesId')
             OR (table_name = 'Series' AND column_name IN ('source', 'externalId'))
@@ -137,6 +139,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
     'system_jobs_central_lease_check',
     'system_jobs_central_skip_check',
     'system_jobs_central_schedule_check',
+    'system_jobs_type_execution_lane_check',
     'availableAt_not_null'
   ]) {
     if (!contractRows.some((row) => row.name === name)) missingObjects.push(`constraint:${name}`)
@@ -156,7 +159,14 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   if (!columnRows.some(({ columnName }) => columnName === 'Artwork.mediaRevision')) {
     missingObjects.push('Artwork.mediaRevision')
   }
-  for (const columnName of ['archive_imports.publishedArtworkDeletedAt', 'archive_imports.publishedArtworkPurgedAt']) {
+  for (const columnName of [
+    'archive_imports.publishedArtworkDeletedAt',
+    'archive_imports.publishedArtworkPurgedAt',
+    'archive_imports.phase',
+    'archive_imports.origin',
+    'archive_imports.generationToken',
+    'archive_imports.sealedManifestSha256'
+  ]) {
     if (!columnRows.some((row) => row.columnName === columnName)) missingObjects.push(columnName)
   }
   for (const retiredColumn of ['userId', 'seriesId', 'source', 'externalId']) {

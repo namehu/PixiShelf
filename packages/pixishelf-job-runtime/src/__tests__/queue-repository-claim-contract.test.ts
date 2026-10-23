@@ -7,7 +7,7 @@ const archiveImportCapability: WorkerCapability[] = [
 ]
 
 describe('PostgresQueueRepository claim contract', () => {
-  it('excludes only archive import candidates with a pending cleanup intent', async () => {
+  it('excludes all archive phase candidates with a pending cleanup intent', async () => {
     let candidateQuery = ''
     const transaction: QueueSqlExecutor = {
       $queryRawUnsafe: vi.fn(async (query: string) => {
@@ -25,7 +25,7 @@ describe('PostgresQueueRepository claim contract', () => {
       new PostgresQueueRepository(database).claim('queue-contract-worker', archiveImportCapability)
     ).resolves.toBeNull()
 
-    expect(candidateQuery).toContain(`job."type" <> 'ARCHIVE_IMPORT'`)
+    expect(candidateQuery).toContain(`job."type" NOT IN ('ARCHIVE_IMPORT', 'ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH')`)
     expect(candidateQuery).toContain('FROM "archive_imports" AS archive_import')
     expect(candidateQuery).toContain('archive_import."systemJobId" = job."id"')
     expect(candidateQuery).toContain('archive_import."cleanupRequestedAt" IS NOT NULL')

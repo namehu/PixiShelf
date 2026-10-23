@@ -20,14 +20,14 @@ PixiShelf 是一个本地优先、自托管的个人媒体收藏系统。它把�
 
 ## 当前架构
 
-| 组件                         | 责任                                               |
-| ---------------------------- | -------------------------------------------------- |
-| `@pixishelf/next`            | Next.js 16 Web、API、tRPC、认证与任务控制面        |
-| PostgreSQL / `@pixishelf/db` | Prisma Schema、migration、领域数据、会话与任务队列 |
-| `@pixishelf/worker`          | 单通用 Worker；解析与 writer 两个固定执行 lane     |
-| `@pixishelf/job-*`           | 后台任务契约、运行时和 Executor                    |
-| ImgProxy                     | 只读图片与派生媒体处理                             |
-| scheduler                    | 可选定时 tick，只调用 App，不直接访问数据库        |
+| 组件                         | 责任                                                 |
+| ---------------------------- | ---------------------------------------------------- |
+| `@pixishelf/next`            | Next.js 16 Web、API、tRPC、认证与任务控制面          |
+| PostgreSQL / `@pixishelf/db` | Prisma Schema、migration、领域数据、会话与任务队列   |
+| `@pixishelf/worker`          | 单通用 Worker；解析、下载与 writer 三个固定执行 lane |
+| `@pixishelf/job-*`           | 后台任务契约、运行时和 Executor                      |
+| ImgProxy                     | 只读图片与派生媒体处理                               |
+| scheduler                    | 可选定时 tick，只调用 App，不直接访问数据库          |
 
 完整组件图、workspace 依赖和数据流见[当前架构](./docs/architecture/current-architecture.md)。
 
@@ -132,7 +132,7 @@ docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T wor
 docker compose --env-file build/.env -f build/docker-compose.dev.yml exec -T worker node dist/capability-audit.cjs
 ```
 
-Worker 必须通过 READY 和 capability 检查，后台任务页面应只显示一个当前 READY 实例。READY 须覆盖解析与 writer 两个 lane；精确 type/version/lane 集合由上述审计命令与[生产能力清单](./packages/pixishelf-worker/src/production-capabilities.ts)核对，不在启动指南重复维护数量。
+Worker 必须通过 READY 和 capability 检查，后台任务页面应只显示一个当前 READY 实例。READY 须覆盖解析、下载与 writer 三个 lane；精确 type/version/lane 集合由上述审计命令与[生产能力清单](./packages/pixishelf-worker/src/production-capabilities.ts)核对，不在启动指南重复维护数量。
 
 ### 6. 启动 Next.js
 

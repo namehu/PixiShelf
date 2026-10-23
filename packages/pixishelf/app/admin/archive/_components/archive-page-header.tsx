@@ -53,6 +53,7 @@ export function WorkerLaneStrip({ dashboard, loading }: { dashboard: Dashboard |
       <div className="flex flex-wrap gap-2" aria-label="正在加载后台任务通道">
         <Skeleton className="h-5 w-28" />
         <Skeleton className="h-5 w-28" />
+        <Skeleton className="h-5 w-28" />
       </div>
     )
   }
@@ -65,7 +66,8 @@ export function WorkerLaneStrip({ dashboard, loading }: { dashboard: Dashboard |
   }
   const laneNames: Record<string, string> = {
     ARCHIVE_RESOLVE: '链接解析',
-    BACKGROUND_WRITER: '媒体写入'
+    ARCHIVE_DOWNLOAD: '归档下载',
+    BACKGROUND_WRITER: '入库与维护'
   }
   return (
     <section className="flex flex-wrap items-center gap-2" aria-label="后台任务执行通道">

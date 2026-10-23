@@ -144,6 +144,9 @@ function createStreamItem(job: JobDto, event: JobEventDto): JobEventStreamItem {
     event,
     job: {
       id: job.id,
+      archiveImportId: job.archiveImportId,
+      archivePhase: job.archivePhase,
+      activeExecutionId: job.activeExecutionId,
       type: job.type,
       executionLane: job.executionLane,
       status: job.status,
@@ -269,6 +272,42 @@ describe('background dashboard query hooks', () => {
       expect(result.current.data).toMatchObject({ status: 'COMPLETED', progress: 100, result: { processed: 42 } })
     }
   )
+
+  it('follows the stable archive import to its active publish execution while SSE stays connected', async () => {
+    const download = {
+      ...createJob('download-phase', 'RUNNING'),
+      type: 'ARCHIVE_DOWNLOAD' as const,
+      executionLane: 'ARCHIVE_DOWNLOAD' as const,
+      archiveImportId: 'archive-stable',
+      activeExecutionId: 'download-phase',
+      archivePhase: 'DOWNLOAD' as const
+    }
+    const publish = {
+      ...createJob('publish-phase', 'PENDING', '2026-08-17T02:02:00.000Z'),
+      type: 'ARCHIVE_PUBLISH' as const,
+      archiveImportId: 'archive-stable',
+      activeExecutionId: 'publish-phase',
+      archivePhase: 'PUBLISH' as const,
+      progress: 95
+    }
+    mocks.live.status = 'connected'
+    mocks.fetchDetail.mockResolvedValueOnce(download).mockResolvedValue(publish)
+    const { result, rerender } = renderHook(() => useBackgroundJobDetail(download.id, null), {
+      wrapper: createWrapper()
+    })
+    await flushQueries()
+    expect(result.current.data?.id).toBe(download.id)
+    mocks.live.items = [createStreamItem(publish, createEvent(publish.id, 2))]
+    rerender()
+    await flushQueries()
+    expect(result.current.data).toMatchObject({
+      id: publish.id,
+      archiveImportId: 'archive-stable',
+      status: 'PENDING',
+      progress: 95
+    })
+    expect(mocks.successToast).not.toHaveBeenCalled()
+  })
 
   it('refetches once when any unseen event in a connected batch changes dashboard membership', async () => {
     const runningA = createJob('A', 'RUNNING')

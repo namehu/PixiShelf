@@ -1,6 +1,6 @@
 ---
 status: current
-scope: 持久队列、双执行通道、调度、租约围栏和通用控制语义
+scope: 持久队列、三执行通道、调度、租约围栏和通用控制语义
 last-verified: 2026-10-22
 sources:
   - packages/pixishelf-worker/src/main.ts
@@ -14,11 +14,11 @@ sources:
 
 App 负责认证、校验、冻结输入和创建持久任务；Worker 通过 PostgreSQL 领取任务。浏览器、SSE 和 App 进程重启都不拥有任务执行寿命。业务发布边界见[领域链路](./background-job-business-flows.md)，类型和版本入口见[任务参考](./background-job-reference.md)。
 
-## 两条执行通道
+## 三条执行通道
 
-一个 Worker 进程运行 `ARCHIVE_RESOLVE` 与 `BACKGROUND_WRITER` 两个 Dispatcher，各固定并发 1。解析 lane 负责远端发现、解析和规则预览，writer lane 负责媒体与其他领域写入。lane 由类型契约推导，调用者不能改派；精确归属以契约和 Registry 为准。
+一个 Worker 进程运行 `ARCHIVE_RESOLVE`、`ARCHIVE_DOWNLOAD` 与 `BACKGROUND_WRITER` 三个 Dispatcher，各固定并发 1。解析负责远端发现/解析/规则预览，下载负责归档 staging 与完整性校验，writer 负责发布和其他媒体/领域任务。lane 由类型契约推导，调用者不能改派；精确归属以契约和 Registry 为准。
 
-两条 lane 共享数据库连接、挂载与 Provider governor；它们不是容器权限隔离。解析与下载可以重叠，同 lane 的媒体写任务保持串行。归档下载和动画识别可有受限内部并发，这不增加 SystemJob 执行槽。长 writer 任务会阻塞其他 writer，这是当前一致性取舍。
+三条 lane 共享进程、数据库连接、网络、挂载与 Provider governor，不构成 OS 资源隔离。归档下载可以与解析及 writer 同时推进；长 writer 仍会阻塞其他 writer。归档内部图片并发默认 2、上限 8，不增加下载任务槽。下载封存与发布的原子交接见[归档生命周期](../features/archive-lifecycle.md)，决策见[ADR-0008](../adr/0008-separate-archive-download-and-publication.md)。
 
 上述串行约束仅覆盖 Worker 领取的 `SystemJob`，不覆盖 App 的直接上传、替换和章节文件写入。执行围栏检查数据库提交的所有权，不阻止或回滚文件 I/O；各领域仍须维护文件锁、staging、intent 与发布验证，维护停写须覆盖全部写入者。
 
@@ -51,8 +51,10 @@ App 负责认证、校验、冻结输入和创建持久任务；Worker 通过 Po
 ## 观察、恢复与修改入口
 
 - `SystemJob` 保存聚合快照，`SystemJobEvent` 保存持久事件；前端基于事件 ID 追赶并在断线时降级查询。实时进度、节流和保留规则以[实时进度](../features/background-job-live-progress.md)为准。
-- 排查按“是否入队 → Worker 能力/lane/时间窗口 → heartbeat 与 stage → 领域结果 → 文件发布引用”顺序进行。`COMPLETED` 仍可能包含逐项失败，父任务也可能只完成发现。
+- 排查按“是否入队 → Worker 能力/lane/时间窗口 → heartbeat 与 stage → 领域结果 → 文件发布引用”顺序进行。`COMPLETED` 仍可能包含逐项失败，父任务也可能只完成发现。归档阶段 HANDOFF 只表示交接，业务成功以当前发布阶段和 ArchiveImport.COMPLETED 为准；列表、分页、统计和 SSE 使用当前阶段聚合，历史阶段在归档详情展开。
 - 进程恢复从持久检查点和新 execution token 继续；文件系统写入不受数据库回滚保护，必须使用 staging、发布验证、备份和 GC intent。具体恢复以[运维基线](../operations/backup-and-recovery.md)为准。
 - 发布时核对实际 Worker 的类型、definition version 和 lane；维护隔离需停止 Worker，不能使用已删除的兼容开关。见[部署](../operations/deployment.md)。
 
 关键实现：App 的 `services/background-task/` 管命令和计划；runtime 的 `queue-repository.ts` 管领取与 fenced 事务；Worker 的 `dispatcher.ts` 管执行控制；业务 Executor 负责领域检查点与结果解释。历史切换方案保存在[实施归档](../archive/design/background-task-architecture.md)，不作为当前运行手册。
+
+归档聚合、稳定历史游标和当前执行跟随规则见[执行记录](../features/background-job-history.md)，阶段传输与断线补偿见[实时进度](../features/background-job-live-progress.md)。

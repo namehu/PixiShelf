@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 任务计划执行动态中的历史查询、虚拟滚动与实时状态一致性
-last-verified: 2026-09-08
+last-verified: 2026-10-23
 sources:
   - packages/pixishelf/services/background-task/job-history-service.ts
   - packages/pixishelf/app/admin/tasks/_components/use-background-history.ts
@@ -16,16 +16,16 @@ sources:
 
 ## 查询与展示
 
-- 默认显示全部已保留的 definition v1+ 任务，创建时间、任务 ID 双倒序，每批 50 条，最多 100 条；没有默认日期范围和精确总数。
+- 默认显示已保留的 definition v1+ 业务任务，每批 50 条，最多 100 条；没有默认日期范围和精确总数。归档按 `ArchiveImport.id` 聚合为一项，只取当前阶段执行；创建日期、排序和游标固定使用 `ArchiveImport.createdAt/id`，阶段交接及重试不改变业务行位置。普通任务使用 `SystemJob.createdAt/id`；两类记录在数据库分页前应用各自排序边界，再合并有界前缀。
 - 状态、任务类型、触发来源支持多选；维度之间取交集，同一维度内部取并集。日期采用浏览器本地时区，包含开始日和结束日，转换为左闭右开的 ISO 时间范围。
 - 搜索匹配任务 ID、类型枚举及中文名称、当前消息、错误码和错误文本，不搜索完整参数、结果和事件日志。扫描模式的“Pixiv 来源核对 / 来源同步 / 历史来源核对”别名与展示共用映射。错误与消息搜索在数据库执行；返回摘要始终脱敏并截断到 500 字符，不保证命中位置出现在摘要中。
 - 输入防抖 300ms，回车立即提交，中文输入法组合期间不提交；搜索和筛选变更后清空历史页并回到记录顶部。
-- 默认只隐藏既有四类 Pixiv 补全/核对子任务，不额外隐藏其他父子关系；“包含批次子任务”恢复逐条展示。记录按自身持久化状态筛选，不把父任务状态改写成活动批次状态。批次综合状态在列表顶部的实时进度行中显示。
+- 默认隐藏既有四类 Pixiv 补全/核对子任务；“包含批次子任务”恢复这些子项逐条展示。归档各阶段和重试始终按业务身份聚合，历史阶段在归档详情展开。记录按自身持久化状态筛选，不把父任务状态改写成活动批次状态。批次综合状态在列表顶部的实时进度行中显示。
 - 待处理失败和执行记录允许重复展示同一任务；失败页的“查看失败历史”切换到任务页，清除其他条件并筛选 FAILED，包括已确认的历史失败。
 
 ## 待处理失败与批量忽略
 
-- 失败页固定查询 definition v1+、FAILED、无确认的任务，隐藏四类 Pixiv 补全/核对子任务；计数、分页、批量操作共用资格条件。每批 50 条，支持加载更多，使用与执行历史相同的轻量摘要、脱敏与按值游标。
+- 失败页固定查询 definition v1+、FAILED、无确认的任务，隐藏四类 Pixiv 补全/核对子任务，归档只取当前阶段失败；计数、分页、批量操作共用资格条件。每批 50 条，支持加载更多，使用与执行历史相同的轻量摘要、脱敏与按值游标。
 - 单次最多勾选 100 条；“全选已加载”选择已加载列表前 100 条以内的记录，也可手动选择更早记录。加载更多不自动扩展选择。
 - “忽略所选”直接提交；“全部忽略”确认一次，明确包括未展示项，数量以服务端执行时为准。事务开始时一次读取合格 ID，后续每批最多 500 条写入确认表；读取之后新产生的失败继续提醒。数据库错误整体回滚。
 - 已确认、不存在或不符合资格的选中项跳过，返回实际忽略与跳过数量；逐条忽略、批量忽略和重试确认都使用数据库原子的 `createMany({ skipDuplicates: true })`，并发操作保留首次确认时间、操作者和 MANUAL/RETRY 来源，不因确认记录竞争令重试事务失败。客户端不自动重试批量请求，全部模式的再次人工提交按新的执行时刻重新取范围。
@@ -35,33 +35,33 @@ sources:
 
 ## 接口
 
-以下接口均为 tRPC 管理员接口。backgroundDashboard / backgroundList 保持兼容；backgroundDetail 增加页面专用提醒状态，不改变共享 JobDto。
+以下接口均为 tRPC 管理员接口。backgroundDashboard、backgroundList 与历史查询共用归档当前阶段聚合。共享 JobDto 和 SSE 摘要增加可选 `archiveImportId`、`archivePhase`、`activeExecutionId`；backgroundDetail 另有页面专用提醒状态。
 
-| 接口                                   | 输入                                                                                                                            | 输出                                                      |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `job.backgroundHistory`                | `cursor?`, `limit?`, `statuses?`, `types?`, `triggerSources?`, `createdFrom?`, `createdTo?`, `search?`, `includeBatchChildren?` | `{ items, nextCursor }`                                   |
-| `job.backgroundHistorySnapshots`       | `{ ids }`，1–100 项，服务端去重                                                                                                 | `{ items }`，只返回仍存在的 definition v1+ 记录           |
-| `job.backgroundFailures`               | `cursor?`, `limit?`（默认 50，最多 100）                                                                                        | `{ items, nextCursor }`，仅待处理失败                     |
-| `job.acknowledgeBackgroundJobFailures` | `{ scope: 'selected', jobIds }`（1–100 项，去重）或 `{ scope: 'all' }`                                                          | `{ acknowledgedCount, skippedCount }`，操作者来自 Session |
-| `job.backgroundDetail`                 | `{ jobId }`                                                                                                                     | 现有详情加 `failureNeedsAttention: boolean`，或 null      |
+| 接口                                   | 输入                                                                                                                            | 输出                                                                      |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `job.backgroundHistory`                | `cursor?`, `limit?`, `statuses?`, `types?`, `triggerSources?`, `createdFrom?`, `createdTo?`, `search?`, `includeBatchChildren?` | `{ items, nextCursor }`                                                   |
+| `job.backgroundHistorySnapshots`       | `{ ids }`，1–100 项，服务端去重                                                                                                 | `{ items }`，返回仍存在的 definition v1+ 记录；归档旧执行 ID 跟随当前阶段 |
+| `job.backgroundFailures`               | `cursor?`, `limit?`（默认 50，最多 100）                                                                                        | `{ items, nextCursor }`，仅待处理失败                                     |
+| `job.acknowledgeBackgroundJobFailures` | `{ scope: 'selected', jobIds }`（1–100 项，去重）或 `{ scope: 'all' }`                                                          | `{ acknowledgedCount, skippedCount }`，操作者来自 Session                 |
+| `job.backgroundDetail`                 | `{ jobId }`                                                                                                                     | 当前详情加 `failureNeedsAttention: boolean`，或 null                      |
 
-详情提醒状态直接读取确认关系，不从 Dashboard 前 10 条推断；确认不修改 SystemJob.updatedAt，该布尔值与 SSE 任务快照分开处理。任务经 SSE 变成 FAILED 后重新查询详情，单条/批量忽略和重试成功后主动刷新详情。
+归档详情接受任一已关联阶段的 job ID，返回当前执行；暂停、恢复、取消和重试使用返回的当前 ID 并经过 archive 领域控制。详情提醒状态直接读取确认关系，不从 Dashboard 前 10 条推断；确认不修改 SystemJob.updatedAt，该布尔值与 SSE 任务快照分开处理。任务经 SSE 变成 FAILED 后重新查询详情，单条/批量忽略和重试成功后主动刷新详情。
 
-游标是包含末项 createdAt/id 的 base64url JSON，不是需要数据库回查的记录 ID；删除游标记录后仍可继续查询。游标、时间和枚举经过 Zod 校验，非法参数返回 BAD_REQUEST。轻量记录仅含 ID、类型和显示名称、状态、触发来源、父任务 ID、进度/阶段、脱敏消息/错误摘要、优先级、创建/更新时间；没有完整 payload、result、事件、租约或凭据。
+游标是包含末项业务创建时间和稳定身份的 base64url JSON，不是需要数据库回查的记录 ID；删除游标记录后仍可继续查询。游标、时间和枚举经过 Zod 校验，非法参数返回 BAD_REQUEST。轻量记录仅含 ID、类型和显示名称、状态、触发来源、父任务 ID、进度/阶段、脱敏消息/错误摘要、优先级、创建/更新时间；没有完整 payload、result、事件、租约或凭据。
 
 ## 滚动与实时更新
 
-- 任务标签的滚动容器承载实时进度行和历史记录；标签固定在滚动容器外，记录工具栏吸顶，列表仅挂载可视范围及缓冲行，按 ID 去重，动态测量行高。键盘焦点行及邻接行保留，提供“加载更多”和失败重试入口。
+- 任务标签的滚动容器承载实时进度行和历史记录；标签固定在滚动容器外，记录工具栏吸顶，列表仅挂载可视范围及缓冲行，按稳定归档 ID 或普通任务 ID 去重，动态测量行高。键盘焦点行及邻接行保留，提供“加载更多”和失败重试入口。
 - 无限分页不自动整批重查。SSE 使用 admin layout 的共享连接，只应用更新的 updatedAt；已应用状态保存在当前浏览会话，不因 SSE 最近事件窗口淘汰而倒退。
 - 浏览期间不插入、移除、重排记录。状态变化后不符合当前状态筛选的行标记“状态已变更，刷新后移出”。新任务和可能影响匹配的变化提示“记录有更新”，点击后保留筛选、重新加载首批。普通进度不触发历史分页重查。
 - 可见记录单独读取轻量快照。断线时活动记录每 3 秒补偿，全部可见记录每 30 秒补偿；另外每 30 秒读取匹配首项以发现新记录，空列表也可恢复。连接恢复及任务操作后刷新可见快照和首项，不重查所有历史页。
-- 进入详情按记录自身 ID 查询，返回恢复已加载页、滚动位置、行测量及焦点。关闭抽屉停止历史查询的定时请求；同一页面内再次打开保留条件，整页刷新恢复默认条件。
+- 进入详情按当前执行 ID 查询；归档旧 ID 也能解析到当前阶段，返回恢复已加载页、滚动位置、行测量及焦点。关闭抽屉停止历史查询的定时请求；同一页面内再次打开保留条件，整页刷新恢复默认条件。
 - 这是持续查询视图，不是数据库事务快照。任务在浏览期间变化可能改变后续页的匹配集合；手动刷新重新应用筛选。
 
 ## 验证与发布
 
 服务单测覆盖组合筛选、别名、游标、日期和脱敏；组件测试覆盖防抖/输入法、分页、错误恢复、迟到响应、SSE 合并和 1,000 条记录的有界 DOM。PostgreSQL 用例仅在显式提供 PIXISHELF_TEST_DATABASE_URL 的隔离测试库运行，使用唯一前缀创建终态任务并清理，不以生产库替代测试库。
 
-既有隔离验证见[执行历史记录](../records/features/background-job-history.md)。
+既有隔离验证见[执行历史记录](../records/features/background-job-history.md)。归档阶段聚合的数据库与 hook 验证使用显式 `QUEUE_KERNEL_TEST_DATABASE_URL`，见[下载通道实施记录](../records/archive-download-lane-2026-10-23.md)。
 
-上述执行历史与失败确认功能本身无需数据库迁移、Worker 升级、环境变量或存储变更；新增统一失败诊断须另按[诊断发布与恢复](./background-job-diagnostics.md#发布与恢复)协调升级 App、Worker 与正式 migration。回退 App 代码即可恢复旧界面；已写入的确认继续有效，失败原始记录与首次确认审计作为恢复依据，不回滚或删除确认表。批量操作不触及领域状态或媒体，因此不增加停机/媒体备份流程。新增测试覆盖分页游标、选择上限、Tab 状态、批量确认及错误、鉴权、并发忽略/重试和事务回滚；未配置隔离 PostgreSQL 测试连接时，不能把跳过的数据库用例或 jsdom 测试当成真实数据库/浏览器验证。
+执行历史与失败确认功能本身无需额外存储迁移；归档阶段聚合须与[下载通道迁移](./archive-lifecycle.md#下载通道升级与恢复)配套交付，不能仅回退到不理解阶段的旧 Worker。新增统一失败诊断须另按[诊断发布与恢复](./background-job-diagnostics.md#发布与恢复)协调升级 App、Worker 与正式 migration。回退 App 代码即可恢复旧界面；已写入的确认继续有效，失败原始记录与首次确认审计作为恢复依据，不回滚或删除确认表。批量操作不触及领域状态或媒体，因此不增加停机/媒体备份流程。新增测试覆盖分页游标、选择上限、Tab 状态、批量确认及错误、鉴权、并发忽略/重试和事务回滚；未配置隔离 PostgreSQL 测试连接时，不能把跳过的数据库用例或 jsdom 测试当成真实数据库/浏览器验证。

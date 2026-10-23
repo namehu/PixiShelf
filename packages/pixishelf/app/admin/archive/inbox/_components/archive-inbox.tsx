@@ -782,6 +782,7 @@ export function ArchiveQueueControlPanel({
   }
   const utilization = summary.capacity ? Math.round((summary.activeCount / summary.capacity) * 100) : 0
   const resolveLane = lanes.find((lane) => lane.executionLane === 'ARCHIVE_RESOLVE')
+  const downloadLane = lanes.find((lane) => lane.executionLane === 'ARCHIVE_DOWNLOAD')
   const writerLane = lanes.find((lane) => lane.executionLane === 'BACKGROUND_WRITER')
   const hasLaneError = lanes.some((lane) => lane.status === 'ERROR')
   const statusDescription = hasLaneError
@@ -839,11 +840,12 @@ export function ArchiveQueueControlPanel({
                   <h3 id="archive-pipeline-title" className="text-sm font-medium">
                     处理路径
                   </h3>
-                  <p className="mt-1 text-xs text-muted-foreground">链接解析和媒体写入可同时推进。</p>
+                  <p className="mt-1 text-xs text-muted-foreground">链接解析、归档下载和入库维护可同时推进。</p>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <QueueLane lane={resolveLane} label="链接解析" description="提取作品信息并判断是否需要归档" />
-                  <QueueLane lane={writerLane} label="媒体写入" description="下载文件并写入本地媒体库" />
+                  <QueueLane lane={downloadLane} label="归档下载" description="下载并校验归档文件" />
+                  <QueueLane lane={writerLane} label="入库与维护" description="发布归档版本并执行媒体维护" />
                 </div>
                 {summary.currentItem ? (
                   <div className="min-w-0 rounded-md bg-muted/50 px-3 py-2.5">
