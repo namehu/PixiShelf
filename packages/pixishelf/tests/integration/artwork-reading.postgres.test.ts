@@ -82,11 +82,14 @@ afterAll(async () => { await db?.$disconnect() })
 describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
   it.each([
     [0, 0, 'UNREAD'],
-    [48, 49, 'IN_PROGRESS'],
-    [49, 50, 'COMPLETED'],
-    [97, 100, 'IN_PROGRESS'],
-    [98, 100, 'COMPLETED'],
-    [980, 1000, 'COMPLETED']
+    [8, 9, 'IN_PROGRESS'],
+    [9, 10, 'COMPLETED'],
+    [17, 20, 'IN_PROGRESS'],
+    [18, 20, 'COMPLETED'],
+    [89, 100, 'IN_PROGRESS'],
+    [90, 100, 'COMPLETED'],
+    [899, 1000, 'IN_PROGRESS'],
+    [900, 1000, 'COMPLETED']
   ] as const)('keeps %i/%i consistently %s in persisted records, summaries, filters and continuation', async (seenCount, totalCount, status) => {
     const artwork = await createPictureWork('threshold', totalCount)
     const seenIds = artwork.images.slice(0, seenCount).map((image) => image.id)
@@ -130,9 +133,9 @@ describe.skipIf(!databaseUrl)('artwork reading on PostgreSQL', () => {
       const artwork = await createPictureWork('continue-completed', 50)
       completed.push(artwork.id)
       const result = await readingService.reportReading(fixture.userId, { expectedUserId: fixture.userId,
-        artworkId: artwork.id, mediaRevision: 1, events: artwork.images.slice(0, 49).map((image) => event(image.id)) })
-      expect(result.summary).toMatchObject({ status: 'COMPLETED', seenCount: 49, totalCount: 50 })
-      expect(result.seenMediaIds).not.toContain(artwork.images[49]!.id)
+        artworkId: artwork.id, mediaRevision: 1, events: artwork.images.slice(0, 45).map((image) => event(image.id)) })
+      expect(result.summary).toMatchObject({ status: 'COMPLETED', seenCount: 45, totalCount: 50 })
+      expect(result.seenMediaIds).toEqual(artwork.images.slice(0, 45).map((image) => image.id))
     }
     const continuation = await readingService.getContinueReading(fixture.userId)
     expect(continuation.items.map((item) => item.artwork.id)).toEqual(candidates.toReversed().slice(0, 6))

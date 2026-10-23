@@ -32,7 +32,8 @@ function setup(report: (input: ReadingReportInput, signal: AbortSignal) => Promi
 
 describe('immediate completion notifications', () => {
   it.each([
-    [49, 48, false], [50, 49, true], [100, 97, false], [100, 98, true], [1000, 980, true]
+    [9, 8, false], [10, 9, true], [20, 17, false], [20, 18, true],
+    [100, 89, false], [100, 90, true], [1000, 899, false], [1000, 900, true]
   ] as const)('projects %i total / %i recorded with completion=%s using exact counts', (totalCount, seenCount, finished) => {
     const { collector, onCompleted } = setup()
     const initial = progressContext(totalCount, seenCount - 1)
@@ -45,57 +46,57 @@ describe('immediate completion notifications', () => {
     collector.dispose()
   })
 
-  it('announces 98% immediately and leaves missing media unread without repeating after acknowledgement or completion', async () => {
-    const initial = progressContext(100, 97)
+  it('announces 90% immediately and leaves missing media unread without repeating after acknowledgement or completion', async () => {
+    const initial = progressContext(100, 89)
     const thresholdResult: ReadingReportResult = {
-      mediaRevision: 1, seenMediaIds: Array.from({ length: 98 }, (_, index) => index + 1),
-      summary: { ...initial.summary, stateVersion: 4, seenCount: 98, status: 'COMPLETED' }
+      mediaRevision: 1, seenMediaIds: Array.from({ length: 90 }, (_, index) => index + 1),
+      summary: { ...initial.summary, stateVersion: 4, seenCount: 90, status: 'COMPLETED' }
     }
     let finish!: (result: ReadingReportResult) => void
     const report = vi.fn(() => new Promise<ReadingReportResult>(resolve => { finish = resolve }))
     const { collector, onCompleted } = setup(report)
     collector.setContext(initial, 'alice')
-    collector.observe('detail', { ...observation, mediaId: 98 })
-    expect(onCompleted).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ seenCount: 98, status: 'COMPLETED', stateVersion: 3 }), 'alice')
+    collector.observe('detail', { ...observation, mediaId: 90 })
+    expect(onCompleted).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ seenCount: 90, status: 'COMPLETED', stateVersion: 3 }), 'alice')
     expect(report).not.toHaveBeenCalled()
     const pending = collector.projectContext(initial)
-    expect(pending.seenMediaIds).not.toContain(99)
-    expect(pending.seenMediaIds).not.toContain(100)
+    expect(pending.seenMediaIds).toEqual(thresholdResult.seenMediaIds)
     const flushing = collector.flush()
     finish(thresholdResult)
     await flushing
-    collector.observe('missing-99', { ...observation, mediaId: 99 })
-    collector.observe('missing-100', { ...observation, mediaId: 100 })
+    for (let mediaId = 91; mediaId <= 100; mediaId++) {
+      collector.observe(`missing-${mediaId}`, { ...observation, mediaId })
+    }
     expect(collector.projectContext({ ...initial, ...thresholdResult }).summary.seenCount).toBe(100)
     expect(onCompleted).toHaveBeenCalledTimes(1)
     collector.dispose()
   })
 
   it('rolls threshold completion back after rejection while retaining the notification marker for reread', async () => {
-    const initial = progressContext(100, 97)
+    const initial = progressContext(100, 89)
     const report = vi.fn().mockRejectedValue({ data: { code: 'BAD_REQUEST' } })
     const { collector, onCompleted, onDiscard } = setup(report)
     collector.setContext(initial, 'alice')
-    collector.observe('detail', { ...observation, mediaId: 98 })
+    collector.observe('detail', { ...observation, mediaId: 90 })
     expect(collector.projectContext(initial).summary.status).toBe('COMPLETED')
     await collector.flush()
-    expect(collector.projectContext(initial).summary).toMatchObject({ status: 'IN_PROGRESS', seenCount: 97 })
+    expect(collector.projectContext(initial).summary).toMatchObject({ status: 'IN_PROGRESS', seenCount: 89 })
     expect(onDiscard).toHaveBeenCalledExactlyOnceWith(1, 'alice')
     collector.clearSurface('detail')
-    collector.observe('detail', { ...observation, mediaId: 98 })
+    collector.observe('detail', { ...observation, mediaId: 90 })
     expect(collector.projectContext(initial).summary.status).toBe('COMPLETED')
     expect(onCompleted).toHaveBeenCalledTimes(1)
     collector.dispose()
   })
 
   it('counts a stack grant toward the threshold without granting the remaining media', () => {
-    const initial = progressContext(100, 96)
+    const initial = progressContext(100, 88)
     const { collector, onCompleted } = setup()
     collector.setContext(initial, 'alice')
-    collector.observe('detail', { ...observation, mediaId: 97,
-      stack: { ruleVersion: 1, fingerprint: 'a'.repeat(64), groupId: 'stack-v1-97-98', mediaIds: [97, 98] } })
-    expect(collector.projectContext(initial).summary).toMatchObject({ status: 'COMPLETED', seenCount: 98 })
-    expect(collector.projectContext(initial).seenMediaIds).not.toContain(99)
+    collector.observe('detail', { ...observation, mediaId: 89,
+      stack: { ruleVersion: 1, fingerprint: 'a'.repeat(64), groupId: 'stack-v1-89-90', mediaIds: [89, 90] } })
+    expect(collector.projectContext(initial).summary).toMatchObject({ status: 'COMPLETED', seenCount: 90 })
+    expect(collector.projectContext(initial).seenMediaIds).not.toContain(91)
     expect(onCompleted).toHaveBeenCalledTimes(1)
     collector.dispose()
   })

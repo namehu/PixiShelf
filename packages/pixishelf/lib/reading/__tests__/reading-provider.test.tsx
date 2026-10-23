@@ -101,23 +101,23 @@ describe('ReadingProvider lifecycle and server refresh', () => {
 
   it('projects a manual threshold crossing, rolls it back on failure, and can still mark all remaining media', async () => {
     const media = Array.from({ length: 100 }, (_, index) => ({ mediaId: index + 1, memberMediaIds: [index + 1], index }))
-    const initial: ReadingContextDto = { ...context, media, seenMediaIds: media.slice(0, 97).map(item => item.mediaId),
-      summary: { ...unread, totalCount: 100, seenCount: 97, status: 'IN_PROGRESS' } }
+    const initial: ReadingContextDto = { ...context, media, seenMediaIds: media.slice(0, 89).map(item => item.mediaId),
+      summary: { ...unread, totalCount: 100, seenCount: 89, status: 'IN_PROGRESS' } }
     mocks.context.mockResolvedValue(initial)
     let reject!: (error: Error) => void
     mocks.markRead.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail }))
     const { result, unmount } = setup()
     await waitFor(() => expect(result.current.reading.context).toBeDefined())
     let saving!: Promise<void>
-    act(() => { saving = result.current.reading.markRead({ kind: 'MEDIA', mediaId: 98 }) })
-    expect(result.current.reading.summary).toMatchObject({ seenCount: 98, status: 'COMPLETED', viewCount: 0, stateVersion: 0 })
-    expect(result.current.reading.context?.seenMediaIds).not.toContain(99)
+    act(() => { saving = result.current.reading.markRead({ kind: 'MEDIA', mediaId: 90 }) })
+    expect(result.current.reading.summary).toMatchObject({ seenCount: 90, status: 'COMPLETED', viewCount: 0, stateVersion: 0 })
+    expect(result.current.reading.context?.seenMediaIds).not.toContain(91)
     await act(async () => { reject(new Error('offline')); await saving })
     expect(result.current.reading.summary).toEqual(initial.summary)
 
-    const completed = { ...initial.summary, stateVersion: 1, seenCount: 98, status: 'COMPLETED' as const }
-    mocks.markRead.mockResolvedValueOnce({ mediaRevision: 1, summary: completed, seenMediaIds: media.slice(0, 98).map(item => item.mediaId) })
-    await act(async () => { await result.current.reading.markRead({ kind: 'MEDIA', mediaId: 98 }) })
+    const completed = { ...initial.summary, stateVersion: 1, seenCount: 90, status: 'COMPLETED' as const }
+    mocks.markRead.mockResolvedValueOnce({ mediaRevision: 1, summary: completed, seenMediaIds: media.slice(0, 90).map(item => item.mediaId) })
+    await act(async () => { await result.current.reading.markRead({ kind: 'MEDIA', mediaId: 90 }) })
     expect(result.current.reading.summary).toEqual(completed)
     let resolve!: (value: unknown) => void
     mocks.markRead.mockImplementationOnce(() => new Promise(done => { resolve = done }))

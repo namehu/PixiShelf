@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 阅读初始化、媒体分页、观察队列、服务端合并与重建失效
-last-verified: 2026-10-22
+last-verified: 2026-10-23
 sources:
   - packages/pixishelf-db/src/reading-contract.ts
   - packages/pixishelf/services/reading-service.ts
@@ -13,6 +13,8 @@ sources:
 # 阅读架构
 
 阅读系统将真实展示观察、短期客户端预测和账户级持久进度分开。用户看到什么、哪些操作算已读，以[阅读规格](../features/artwork-reading.md)和[堆叠浏览](../features/artwork-summary.md)为准；本页解释实现与一致性。`current` 不代表生产验收完成。
+
+2026-10-23 局部核验范围为共享完成判定与详情顶部、底部手动进度的一致性。
 
 ## 初始化与媒体分页
 
@@ -35,6 +37,8 @@ sources:
 前端预测覆盖待发送和在途有效观察；先让进度响应操作，再由服务端摘要确认。摘要按 `mediaRevision/stateVersion` 合并，迟到的旧响应不能覆盖新状态；保存失败或过期撤回未确认预测。首次预测完成反馈按账户/作品/版本去重，不把提示次数当访问次数。
 
 作品完成状态由共享阅读契约的 `getReadingStatus` / `isArtworkReadingComplete` 派生，客户端自动／手动预测与服务端摘要共用，不持久化完成标记或补齐已读集合。具体容错语义见[阅读规格](../features/artwork-reading.md#用户行为)。完成提示的提前检查同样使用共享阈值；首页缓存按新的完成状态移出候选。列表筛选和首页续读 SQL 使用相同百分比常量与整数比较，计数乘法先转换为 `bigint`。续读查询在数据库中按账户、真实活动、作品有效性和未完成条件过滤，再稳定排序并取 6 条，不在取上限后才过滤完成项。
+
+详情媒体区顶部与底部的 `ReadingProgressControls` 使用同一个 `ArtworkReadingHandle`，共享预测、保存状态和错误。底部整部标记调用既有 `markRead({ kind: 'ALL' })`，按真实剩余数量决定是否可操作，不以整体完成状态禁用；不从当前渲染、堆叠或未读筛选列表生成补齐目标。手动预测、回滚及服务端确认沿用同一条路径。
 
 ## 服务端事务与账户边界
 

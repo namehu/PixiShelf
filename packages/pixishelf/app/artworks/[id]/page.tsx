@@ -121,7 +121,7 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
 
                   <div id={`artwork-media-start-${data.id}`} aria-hidden="true" className="h-px" />
                   <ArtworkMediaSection images={data.images} artworkId={data.id} resumeOnEntry={resumeOnEntry} mediaIdOnEntry={mediaIdOnEntry} />
-                  <PageContainer size="reading">
+                  <PageContainer size="reading" className="[&>:first-child]:mt-2">
                     <ArtworkDes description={data.description} className="mt-8" />
                     {data.series.map((series) => (
                       <SeriesNav key={series.id} series={series} />

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReadingContextDto } from '@pixishelf/db/reading-contract'
@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
   localMounts: 0,
   readingContext: null as ReadingContextDto | null,
   markRead: vi.fn(),
+  marking: false,
+  markError: null as string | null,
   toastCustom: vi.fn(),
   toastDismiss: vi.fn(),
   ownerUserId: 'alice',
@@ -43,8 +45,8 @@ vi.mock('@/lib/reading/reading-provider', () => ({
   useArtworkReading: () => ({
     ownerUserId: mocks.ownerUserId,
     markRead: mocks.markRead,
-    marking: false,
-    markError: null,
+    marking: mocks.marking,
+    markError: mocks.markError,
     context: mocks.readingContext,
     summary: mocks.readingSummary,
     resume: mocks.readingContext?.resume ?? null,
@@ -113,6 +115,8 @@ describe('ArtworkMediaSection', () => {
     mocks.ratingOpen = false
     window.history.replaceState({}, '', '/artworks/7')
     mocks.markRead.mockReset()
+    mocks.marking = false
+    mocks.markError = null
     mocks.toastCustom.mockReset()
     mocks.toastDismiss.mockReset()
     Element.prototype.scrollIntoView = vi.fn()
@@ -394,6 +398,70 @@ describe('ArtworkMediaSection', () => {
     expect(mocks.localMounts).toBe(1)
   })
 
+  it.each(['complete', 'stack'] as const)('shows the same records at both ends in %s mode and marks the whole artwork', (mode) => {
+    const images = Array.from({ length: 100 }, (_, index) => ({ id: index + 1 })) as ArtworkImageResponseDto[]
+    mocks.readingContext = {
+      ...resumedContext(), resume: null, seenMediaIds: images.slice(0, 90).map((image) => image.id),
+      media: images.map((image, index) => ({ mediaId: image.id, memberMediaIds: [image.id], index })),
+      summary: { ...resumedContext().summary, seenCount: 90, totalCount: 100, status: 'COMPLETED' }
+    }
+    mocks.readingSummary = mocks.readingContext.summary
+    mocks.stackSession = {
+      ready: false, mode, availableMediaIds: { current: null }, groups: [{ id: 'stack', mediaIds: images.map((image) => image.id) }],
+      byMediaId: new Map(), activeByGroup: new Map(), navigationRef: { current: { active: false, nonce: 0 } }, navigating: false
+    } as unknown as NonNullable<ReturnType<typeof useArtworkSummary>>
+    const content = () => <ArtworkMediaViewProvider><ArtworkMediaSection images={images} artworkId={7} /></ArtworkMediaViewProvider>
+    const view = render(content())
+    const footer = screen.getByRole('region', { name: '阅读记录与操作' })
+    const progress = screen.getAllByText('已读完 · 已记录 90 / 100 张')
+    expect(progress).toHaveLength(2)
+    expect(screen.getAllByText('阅读 1 次')).toHaveLength(2)
+    expect(progress[0]!.compareDocumentPosition(screen.getByTestId('local-images')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.getByTestId('local-images').compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const action = within(footer).getByRole('button', { name: '标记全部已读' })
+    expect(action.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(action)
+    expect(mocks.markRead).toHaveBeenCalledExactlyOnceWith({ kind: 'ALL' })
+
+    mocks.marking = true
+    mocks.readingSummary = { ...mocks.readingSummary, seenCount: 100 }
+    view.rerender(content())
+    expect(screen.getAllByText('已读完 · 100 张')).toHaveLength(2)
+    expect(action.getAttribute('aria-busy')).toBe('true')
+    expect(action.hasAttribute('disabled')).toBe(true)
+
+    mocks.marking = false
+    mocks.markError = '标记未保存，请重试。'
+    mocks.readingSummary = { ...mocks.readingSummary, seenCount: 90 }
+    view.rerender(content())
+    expect(screen.getAllByRole('alert').map((element) => element.textContent)).toEqual(['标记未保存，请重试。', '标记未保存，请重试。'])
+    expect(screen.getAllByText('已读完 · 已记录 90 / 100 张')).toHaveLength(2)
+    expect(action.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(action)
+    expect(mocks.markRead).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps one reopen prompt and removes the footer when the reading revision is invalidated', () => {
+    mocks.readingContext = resumedContext()
+    mocks.readingSummary = mocks.readingContext.summary
+    mocks.invalidated = true
+    renderSection()
+    expect(screen.queryByRole('region', { name: '阅读记录与操作' })).toBeNull()
+    expect(screen.getAllByRole('button', { name: '重新打开' })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '标记全部已读' })).toBeNull()
+  })
+
+  it('hides the footer for an invalid media entry until normal browsing is chosen', () => {
+    window.history.replaceState({}, '', '/artworks/7?mediaId=bad')
+    mocks.readingContext = resumedContext()
+    mocks.readingSummary = mocks.readingContext.summary
+    render(<ArtworkMediaViewProvider><ArtworkMediaSection images={[]} artworkId={7} mediaIdOnEntry={null} /></ArtworkMediaViewProvider>)
+    expect(screen.getByText('图片链接无效。')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: '阅读记录与操作' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '查看全部图片' }))
+    expect(screen.getByRole('region', { name: '阅读记录与操作' })).toBeTruthy()
+  })
+
   it('finds remaining unread items in a threshold-complete work, preserves the round and refreshes to empty', () => {
     const images = Array.from({ length: 600 }, (_, index) => ({ id: index + 1 })) as ArtworkImageResponseDto[]
     const seenMediaIds = images.map((image) => image.id).filter((id) => id !== 237 && id !== 599)
@@ -407,7 +475,7 @@ describe('ArtworkMediaSection', () => {
     const renderContent = () => <ArtworkMediaViewProvider><ReadingMenuHarness /><ArtworkMediaSection images={images} artworkId={7} /></ArtworkMediaViewProvider>
     const view = render(renderContent())
     expect(mocks.toastCustom).not.toHaveBeenCalled()
-    expect(screen.getByText('已读完 · 已记录 598 / 600 张')).toBeTruthy()
+    expect(screen.getAllByText('已读完 · 已记录 598 / 600 张')).toHaveLength(2)
     const pause = vi.spyOn(useArtworkAutoBrowseStore.getState(), 'pause')
     fireEvent.click(screen.getAllByRole('button', { name: '只看未读' })[0]!)
     expect(pause).toHaveBeenCalledWith('manual')
@@ -426,6 +494,9 @@ describe('ArtworkMediaSection', () => {
     expect(screen.getByText('第 599 张')).toBeTruthy()
     fireEvent.click(screen.getAllByRole('button', { name: '刷新未读' })[0]!)
     expect(screen.getByText('没有未读内容')).toBeTruthy()
+    expect(screen.getAllByText('已读完 · 600 张')).toHaveLength(2)
+    expect(screen.getAllByText('阅读 1 次')).toHaveLength(2)
+    expect(within(screen.getByRole('region', { name: '阅读记录与操作' })).getByRole('button', { name: '标记全部已读' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getAllByRole('button', { name: '查看全部' })).toHaveLength(2)
     fireEvent.click(screen.getAllByRole('button', { name: '查看全部' })[0]!)
     expect(screen.getByText('第 1 张')).toBeTruthy()

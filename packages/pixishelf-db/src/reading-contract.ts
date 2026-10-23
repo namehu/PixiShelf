@@ -4,7 +4,7 @@ export const READING_REPORT_INTERVAL_MS = 3_000
 export const READING_REPORT_MAX_AGE_MS = 60_000
 export const READING_HEARTBEAT_INTERVAL_MS = 60_000
 export const READING_VISIT_GAP_MS = 30 * 60_000
-export const READING_COMPLETION_PERCENT = 98
+export const READING_COMPLETION_PERCENT = 90
 export const VIDEO_READING_COMPLETION_RATIO = 0.9
 
 /** A transient player observation, never a persisted resume position. */

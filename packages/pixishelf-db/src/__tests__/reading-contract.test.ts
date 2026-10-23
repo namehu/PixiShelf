@@ -6,14 +6,17 @@ describe('artwork reading completion', () => {
     [0, 0, false],
     [0, 1, false],
     [1, 1, true],
-    [48, 49, false],
-    [49, 50, true],
-    [97, 100, false],
+    [8, 9, false],
+    [9, 10, true],
+    [17, 20, false],
+    [18, 20, true],
+    [89, 100, false],
+    [90, 100, true],
     [98, 100, true],
-    [979, 1000, false],
-    [980, 1000, true],
-    [100, 101, true],
-    [100, 103, false]
+    [899, 1000, false],
+    [900, 1000, true],
+    [100, 111, true],
+    [100, 112, false]
   ])('classifies %i / %i without rounding or a fixed missing-item allowance', (seenCount, totalCount, completed) => {
     expect(isArtworkReadingComplete(seenCount, totalCount)).toBe(completed)
     expect(getReadingStatus({ seenCount, totalCount, viewCount: 0 }))

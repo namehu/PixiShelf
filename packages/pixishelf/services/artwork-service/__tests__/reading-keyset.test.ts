@@ -16,7 +16,7 @@ describe('reading keyset query', () => {
     ['COMPLETED', '>=']
   ])('keeps %s page and count predicates on the same exact completion threshold', (readingStatus, operator) => {
     const { query } = build({ readingStatus })
-    const comparison = `rs."seenCount"::bigint * 100 ${operator} rs."totalCount"::bigint * 98`
+    const comparison = `rs."seenCount"::bigint * 100 ${operator} rs."totalCount"::bigint * 90`
     expect(query.whereSQL).toContain(comparison)
     expect(query.countWhereSQL).toContain(comparison)
     expect(query.sqlParams).toEqual(['user-1'])

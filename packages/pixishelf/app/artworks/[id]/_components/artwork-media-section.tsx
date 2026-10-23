@@ -298,6 +298,11 @@ function MediaSectionContent({ images, artworkId, reading: handle, mediaInvalida
             if (summaryAnchor) summary?.finishNavigation(summaryAnchor.nonce, undefined, summaryAnchor.mediaId)
           }} />
       )}
+      {reading.context && reading.summary && !reading.invalidated && !entryResumePending && !entryMediaError && (
+        <PageContainer as="section" size="reading" className="py-1" aria-label="阅读记录与操作">
+          <ReadingProgressControls reading={reading} showMarkAll />
+        </PageContainer>
+      )}
     </>
   )
 }

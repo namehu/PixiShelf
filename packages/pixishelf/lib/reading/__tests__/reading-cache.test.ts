@@ -19,11 +19,11 @@ describe('reading cache patch', () => {
     const key = kind === 'custom' ? ['reading', 'continueReading', 'alice']
       : [['reading', 'continueReading'], { input: { expectedUserId: 'alice' }, type: 'query' }]
     const cardKey = ['artwork', 'cardList', 'alice']
-    const initial = { ...viewed, totalCount: 100, seenCount: 97 }
+    const initial = { ...viewed, totalCount: 100, seenCount: 89 }
     const page = { items: [{ artworkId: 7, reading: initial }] }
     client.setQueryData(key, page)
     client.setQueryData(cardKey, page)
-    const completed = { ...initial, stateVersion: 2, seenCount: 98, status: 'COMPLETED' as const }
+    const completed = { ...initial, stateVersion: 2, seenCount: 90, status: 'COMPLETED' as const }
     patchReadingSummaryInCache(client, completed, 'alice')
     expect(client.getQueryData(key)).toEqual({ items: [] })
     expect(client.getQueryData(cardKey)).toEqual({ items: [{ artworkId: 7, reading: completed }] })

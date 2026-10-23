@@ -34,7 +34,7 @@ describe('home continuation service', () => {
 
     expect(queryRaw).toHaveBeenCalledOnce()
     const query = queryRaw.mock.calls[0]![0]
-    expect(query.values).toEqual(['alice', 98])
+    expect(query.values).toEqual(['alice', 90])
     expect(query.text).toContain('rs."userId" = $1')
     expect(query.text).toContain('rs."viewCount" > 0')
     expect(query.text).toContain('rs."lastViewedAt" IS NOT NULL')
