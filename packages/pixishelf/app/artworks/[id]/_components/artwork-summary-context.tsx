@@ -83,14 +83,15 @@ function useStackSession(artworkId: number, suppressRecoveryNavigation: boolean)
   }
   useLayoutEffect(() => {
     if (!changingSnapshot) return
-    const id = visibleMediaId()
+    // Loading the first index must not turn an ordinary detail entry into a media jump.
+    const id = snapshot ? visibleMediaId() : undefined
     useArtworkAutoBrowseStore.getState().pause('manual')
     setSnapshot(index)
     const nextGroups = index ? buildArtworkStacks(index.items) : []
     const nextGroup = nextGroups.find((group) => group.mediaIds.includes(id ?? -1))
     setActiveByGroup(nextGroup && id !== undefined ? new Map([[nextGroup.id, id]]) : new Map())
     if (id !== undefined && nextGroup) jump(id)
-  }, [changingSnapshot, index, jump])
+  }, [changingSnapshot, snapshot, index, jump])
   const changeMode = (next: 'complete' | 'stack') => {
     if (next === mode || (next === 'stack' && !ready)) return
     useArtworkAutoBrowseStore.getState().stop()

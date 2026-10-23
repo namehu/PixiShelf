@@ -42,8 +42,6 @@ import 'swiper/css'
 interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
   playbackRate: ViewerPlaybackRate
   onPlaybackRateChange: (rate: ViewerPlaybackRate) => void
-  rateMenuOpen: boolean
-  onRateMenuOpenChange: (open: boolean) => void
   onArtworkComplete?: () => void
   onCancelArtworkComplete?: () => void
   navigationBlocked?: boolean
@@ -527,8 +525,6 @@ function ViewerGestureFeedback({
 export default function ImageSlide({
   playbackRate,
   onPlaybackRateChange,
-  rateMenuOpen,
-  onRateMenuOpenChange,
   onArtworkComplete,
   onCancelArtworkComplete,
   navigationBlocked = false,
@@ -561,10 +557,10 @@ export default function ImageSlide({
   const autoRestart = useViewerStore((state) => state.autoBrowseRestart)
   useEffect(() => {
     if (!swiper || swiper.destroyed) return
-    swiper.allowTouchMove = isActive && !interactionLocked && !chapterPanelOpen && !rateMenuOpen
-    if (isActive && !interactionLocked && !chapterPanelOpen && !rateMenuOpen) swiper.keyboard.enable()
+    swiper.allowTouchMove = isActive && !interactionLocked && !chapterPanelOpen
+    if (isActive && !interactionLocked && !chapterPanelOpen) swiper.keyboard.enable()
     else swiper.keyboard.disable()
-  }, [isActive, interactionLocked, chapterPanelOpen, rateMenuOpen, swiper])
+  }, [isActive, interactionLocked, chapterPanelOpen, swiper])
   const [videoState, setVideoState] = useState<ViewerVideoState>(INITIAL_VIDEO_STATE)
   const [activeMediaStatus, setActiveMediaStatus] = useState<'pending' | 'ready' | 'error'>('pending')
   const [gestureFeedback, setGestureFeedback] = useState<VideoInteractionFeedback | null>(null)
@@ -595,19 +591,6 @@ export default function ImageSlide({
     gestureEngineRef.current?.pointerCancel()
   }, [isChromeHidden])
 
-  useEffect(() => {
-    if (rateMenuOpen && (!isActive || interactionLocked || chapterPanelOpen || isChromeHidden)) {
-      onRateMenuOpenChange(false)
-    }
-  }, [rateMenuOpen, isActive, interactionLocked, chapterPanelOpen, isChromeHidden, onRateMenuOpenChange])
-
-  useEffect(() => {
-    if (!rateMenuOpen) return
-    const close = () => onRateMenuOpenChange(false)
-    window.addEventListener('blur', close)
-    return () => window.removeEventListener('blur', close)
-  }, [rateMenuOpen, onRateMenuOpenChange])
-
   const fallbackMedia: ViewerMediaItem = {
     id: image.id,
     key: image.key,
@@ -637,8 +620,7 @@ export default function ImageSlide({
     currentMedia.isAnimated &&
     (isWebpFile(currentMedia.url) || isGifFile(currentMedia.url))
   const singleLoop = animation && isWebpFile(currentMedia.url)
-  const blocked =
-    rateMenuOpen || interactionLocked || chapterPanelOpen || navigationBlocked || horizontalTransition || seeking
+  const blocked = interactionLocked || chapterPanelOpen || navigationBlocked || horizontalTransition || seeking
   const blockedRef = useRef(blocked)
   blockedRef.current = blocked
   const advance = () => {
@@ -869,7 +851,7 @@ export default function ImageSlide({
   useEffect(() => {
     gestureEngineRef.current?.destroy()
     gestureEngineRef.current = null
-    if (!isActive || interactionLocked || chapterPanelOpen || rateMenuOpen) return
+    if (!isActive || interactionLocked || chapterPanelOpen) return
 
     const engine = createFeedGestureEngine({
       mediaKind: currentMedia.mediaType === MediaType.VIDEO ? 'video' : 'image',
@@ -908,7 +890,6 @@ export default function ImageSlide({
     isActive,
     interactionLocked,
     chapterPanelOpen,
-    rateMenuOpen,
     longPressRate,
     onToggleChrome,
     seekStepSeconds
@@ -919,7 +900,6 @@ export default function ImageSlide({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.code !== 'Space' ||
-        rateMenuOpen ||
         chapterPanelOpen ||
         interactionLocked ||
         event.defaultPrevented ||
@@ -939,7 +919,7 @@ export default function ImageSlide({
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [chapterPanelOpen, rateMenuOpen, interactionLocked, currentMedia.mediaType, handleTogglePlayback, isActive])
+  }, [chapterPanelOpen, interactionLocked, currentMedia.mediaType, handleTogglePlayback, isActive])
 
   const gestureHandlers = {
     onGestureSurfaceChange: (element: HTMLDivElement | null) => {
@@ -1022,7 +1002,6 @@ export default function ImageSlide({
 
   const handleSlideChange = (swiper: SwiperType) => {
     onChapterPanelOpenChange(false)
-    onRateMenuOpenChange(false)
     setHorizontalIndex(image.key, swiper.activeIndex)
   }
 
@@ -1035,8 +1014,6 @@ export default function ImageSlide({
         state={videoState}
         playbackRate={playbackRate}
         onPlaybackRateChange={onPlaybackRateChange}
-        rateMenuOpen={rateMenuOpen}
-        onRateMenuOpenChange={onRateMenuOpenChange}
         audioPreference={audioPreference}
         onTogglePlayback={handleTogglePlayback}
         onSeek={handleSeek}
@@ -1134,12 +1111,12 @@ export default function ImageSlide({
         lazyPreloadPrevNext={0}
         spaceBetween={0}
         initialSlide={currentImageIndex}
-        allowTouchMove={!interactionLocked && !chapterPanelOpen && !rateMenuOpen}
+        allowTouchMove={!interactionLocked && !chapterPanelOpen}
         // Match the vertical Swiper: focused videos without native controls must still swipe.
         focusableElements="input, select, option, textarea, button, video[controls], label"
         noSwipingSelector=".swiper-no-swiping, [data-viewer-control]"
         keyboard={{
-          enabled: isActive && !interactionLocked && !chapterPanelOpen && !rateMenuOpen,
+          enabled: isActive && !interactionLocked && !chapterPanelOpen,
           onlyInViewport: true
         }}
         onSlideChange={handleSlideChange}

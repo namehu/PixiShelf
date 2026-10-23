@@ -134,6 +134,28 @@
 .artwork-rating-overlay {
   background: rgb(0 0 0 / 0.18);
 }
+.media-mark-overlay {
+  background: rgb(0 0 0 / 0.65);
+  color: white;
+  transition: background-color var(--motion-fast), color var(--motion-fast), scale var(--motion-fast);
+}
+.media-mark-overlay:hover {
+  background: rgb(0 0 0 / 0.8);
+  color: white;
+}
+.media-mark-overlay[aria-pressed='true'] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.media-mark-overlay:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .media-mark-overlay {
+    transition: none;
+  }
+}
 .artwork-rating-panel {
   --rating-color: var(--rating-neutral);
   --rating-gradient: var(--rating-neutral);

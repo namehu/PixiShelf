@@ -13,13 +13,6 @@ import {
   type VideoNavigationTab
 } from '@/components/players/video-navigation-content'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem
-} from '@/components/ui/dropdown-menu'
 import { VIEWER_PLAYBACK_RATES, type ViewerPlaybackRate } from './viewer-playback-rate'
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
@@ -49,8 +42,6 @@ interface ViewerVideoControlsProps {
   interactionLocked?: boolean
   playbackRate: ViewerPlaybackRate
   onPlaybackRateChange: (rate: ViewerPlaybackRate) => void
-  rateMenuOpen: boolean
-  onRateMenuOpenChange: (open: boolean) => void
   media: ViewerMediaItem
   state: ViewerVideoState
   audioPreference: ViewerAudioPreference
@@ -93,8 +84,6 @@ export default function ViewerVideoControls({
   interactionLocked = false,
   playbackRate,
   onPlaybackRateChange,
-  rateMenuOpen,
-  onRateMenuOpenChange,
   media,
   state,
   audioPreference,
@@ -108,6 +97,8 @@ export default function ViewerVideoControls({
   chapterPanelOpen,
   onChapterPanelOpenChange
 }: ViewerVideoControlsProps) {
+  const nextPlaybackRate =
+    VIEWER_PLAYBACK_RATES[(VIEWER_PLAYBACK_RATES.indexOf(playbackRate) + 1) % VIEWER_PLAYBACK_RATES.length]!
   const [previewTime, setPreviewTime] = useState<number | null>(null)
   const [navigationTab, setNavigationTab] = useState<VideoNavigationTab>(() => getPreferredVideoNavigationTab(media))
   const previewingRef = useRef(false)
@@ -321,43 +312,15 @@ export default function ViewerVideoControls({
                 )}
               </div>
 
-              <DropdownMenu open={rateMenuOpen} onOpenChange={onRateMenuOpenChange}>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={`播放速率：${playbackRate}×`}
-                    className="ml-auto flex h-8 shrink-0 items-center justify-center rounded-full px-2 text-xs tabular-nums text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                  >
-                    {playbackRate}×
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  className="dark"
-                  side="top"
-                  align="end"
-                  data-viewer-control
-                  onPointerDown={stopControlEvent}
-                  onPointerMove={stopControlEvent}
-                  onClick={stopControlEvent}
-                  onDoubleClick={stopControlEvent}
-                  onKeyDown={stopControlEvent}
-                >
-                  <DropdownMenuRadioGroup
-                    aria-label="播放速率"
-                    value={String(playbackRate)}
-                    onValueChange={(value) => {
-                      const rate = VIEWER_PLAYBACK_RATES.find((rate) => String(rate) === value)
-                      if (rate !== undefined) onPlaybackRateChange(rate)
-                    }}
-                  >
-                    {VIEWER_PLAYBACK_RATES.map((rate) => (
-                      <DropdownMenuRadioItem key={rate} value={String(rate)}>
-                        {rate}×
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <button
+                type="button"
+                aria-label={`播放速率：${playbackRate}×`}
+                title={`切换到 ${nextPlaybackRate}×`}
+                onClick={() => onPlaybackRateChange(nextPlaybackRate)}
+                className="ml-auto flex h-11 min-w-11 shrink-0 items-center justify-center rounded-full px-2 text-xs tabular-nums text-white/85 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+              >
+                {playbackRate}×
+              </button>
 
               {navigationAvailable && (
                 <button

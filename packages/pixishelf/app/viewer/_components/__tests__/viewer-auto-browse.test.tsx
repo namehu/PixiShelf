@@ -27,7 +27,7 @@ vi.mock('../image-overlay', () => ({
 vi.mock('../viewer-video-controls', () => ({
   default: (props: ComponentProps<typeof VideoControls>) => (
     <div data-viewer-control>
-      <button onClick={() => props.onRateMenuOpenChange(!props.rateMenuOpen)}>倍速菜单</button>
+      <button onClick={() => props.onPlaybackRateChange(2)}>切换倍速</button>
       <button onClick={props.onTogglePlayback}>视频暂停或播放</button>
       <button onClick={props.onSeekPreviewStart}>开始拖动</button>
       <button onClick={() => props.onSeekCommit(100)}>拖到末尾</button>
@@ -109,7 +109,7 @@ function finishVideo(video: HTMLVideoElement) {
 }
 
 describe('immersive automatic browsing with real Swipers', () => {
-  it.each([true, false])('waits for speed menu dismissal before advancing (horizontal=%s)', (horizontal) => {
+  it.each([true, false])('keeps automatic advancement running after a speed change (horizontal=%s)', (horizontal) => {
     const images = horizontal ? [artwork(1, ['video', 'video'])] : [artwork(1, ['video']), artwork(2, ['video'])]
     const view = mount(images, { playbackRate: 1.5 })
     run()
@@ -117,12 +117,12 @@ describe('immersive automatic browsing with real Swipers', () => {
     fireEvent.loadedMetadata(video)
     fireEvent.canPlay(video)
     expect(video.playbackRate).toBe(1.5)
-    fireEvent.click(screen.getByRole('button', { name: '倍速菜单' }))
+    fireEvent.click(screen.getByRole('button', { name: '切换倍速' }))
+    expect(view.props.onPlaybackRateChange).toHaveBeenCalledWith(2)
+    view.rerender(<ImmersiveImageViewer {...view.props} playbackRate={2} />)
+    expect(video.playbackRate).toBe(2)
     expect(useViewerStore.getState().autoBrowseStatus).toBe('running')
     finishVideo(video)
-    expect(useViewerStore.getState().verticalIndex).toBe(0)
-    expect(useViewerStore.getState().horizontalIndexes['art-1'] ?? 0).toBe(0)
-    fireEvent.click(screen.getByRole('button', { name: '倍速菜单' }))
     tick(2)
     expect(
       horizontal ? useViewerStore.getState().horizontalIndexes['art-1'] : useViewerStore.getState().verticalIndex
@@ -132,17 +132,18 @@ describe('immersive automatic browsing with real Swipers', () => {
     expect(
       horizontal ? useViewerStore.getState().horizontalIndexes['art-1'] : useViewerStore.getState().verticalIndex
     ).toBe(1)
-    expect(activeVideo(view.container).playbackRate).toBe(1.5)
+    expect(activeVideo(view.container).playbackRate).toBe(2)
   })
 
   it.each(['background', 'media-error', 'user'] as const)(
-    'does not resume %s pause when closing speed menu',
+    'does not resume %s pause when changing speed',
     (reason) => {
       const view = mount([artwork(1, ['video']), artwork(2, ['video'])])
       run()
-      fireEvent.click(screen.getByRole('button', { name: '倍速菜单' }))
       act(() => useViewerStore.getState().pauseAutoBrowse(reason))
-      fireEvent.click(screen.getByRole('button', { name: '倍速菜单' }))
+      fireEvent.click(screen.getByRole('button', { name: '切换倍速' }))
+      expect(view.props.onPlaybackRateChange).toHaveBeenCalledWith(2)
+      view.rerender(<ImmersiveImageViewer {...view.props} playbackRate={2} />)
       tick(10)
       expect(useViewerStore.getState().autoBrowseStatus).toBe('paused')
       expect(useViewerStore.getState().autoBrowsePauseReason).toBe(reason)

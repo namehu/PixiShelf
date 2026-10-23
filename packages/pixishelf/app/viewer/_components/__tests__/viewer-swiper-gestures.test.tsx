@@ -16,15 +16,9 @@ vi.mock('../image-overlay', () => ({
   default: ({ mediaControls }: { mediaControls: React.ReactNode }) => mediaControls
 }))
 vi.mock('../viewer-video-controls', () => ({
-  default: ({
-    rateMenuOpen,
-    onRateMenuOpenChange
-  }: {
-    rateMenuOpen: boolean
-    onRateMenuOpenChange: (open: boolean) => void
-  }) => (
-    <button data-viewer-control onClick={() => onRateMenuOpenChange(!rateMenuOpen)}>
-      倍速菜单
+  default: ({ onPlaybackRateChange }: { onPlaybackRateChange: (rate: number) => void }) => (
+    <button data-viewer-control onClick={() => onPlaybackRateChange(2)}>
+      切换倍速
     </button>
   )
 }))
@@ -106,50 +100,34 @@ describe('viewer gestures with real Swiper and focused video', () => {
     vi.useRealTimers()
   })
 
-  it.each([false, true])('blocks media gestures while speed menu is open (horizontal=%s)', (horizontal) => {
+  it.each([false, true])('keeps gestures and selected speed after a speed change (horizontal=%s)', (horizontal) => {
     const images = [artwork(1, true), artwork(2, true)]
     useViewerStore.setState({ images })
-    const view = render(
-      <ImmersiveImageViewer
-        playbackRate={1.5}
-        onPlaybackRateChange={vi.fn()}
-        initialImages={images}
-        hasMore={false}
-        isLoading={false}
-        onLoadMore={vi.fn()}
-      />
-    )
+    const props = {
+      initialImages: images,
+      hasMore: false,
+      isLoading: false,
+      onLoadMore: vi.fn(),
+      onPlaybackRateChange: vi.fn()
+    }
+    const view = render(<ImmersiveImageViewer {...props} playbackRate={1.5} />)
     const video = view.container.querySelector('video')!
+    fireEvent.click(screen.getByRole('button', { name: '切换倍速' }))
+    expect(props.onPlaybackRateChange).toHaveBeenCalledWith(2)
+    view.rerender(<ImmersiveImageViewer {...props} playbackRate={2} />)
+    expect(video.playbackRate).toBe(2)
+    expect(useViewerStore.getState().isChromeHidden).toBe(false)
     pointer(video, 'pointerdown', 'touch', 200, 400)
     act(() => vi.advanceTimersByTime(1000))
     expect(video.playbackRate).toBe(3)
     fireEvent(window, new Event('blur'))
-    expect(video.playbackRate).toBe(1.5)
-    pointer(video, 'pointerdown', 'touch', 200, 400)
-    pointer(video, 'pointerup', 'touch', 200, 400)
-    fireEvent.click(screen.getByRole('button', { name: '倍速菜单' }))
-    const play = vi.mocked(HTMLMediaElement.prototype.play).mockClear()
-    const pause = vi.mocked(HTMLMediaElement.prototype.pause).mockClear()
-    doubleTap(video)
-    swipe(video, 'touch', horizontal)
-    fireEvent.keyDown(window, { code: 'Space' })
-    fireEvent.keyDown(window, { key: 'c' })
-    pointer(video, 'pointerdown', 'touch', 200, 400)
-    act(() => vi.advanceTimersByTime(1000))
-    pointer(video, 'pointerup', 'touch', 200, 400)
-    expect(video.playbackRate).toBe(1.5)
-    expect(play).not.toHaveBeenCalled()
-    expect(pause).not.toHaveBeenCalled()
-    expect(useViewerStore.getState().verticalIndex).toBe(0)
-    expect(useViewerStore.getState().horizontalIndexes['artwork-1'] ?? 0).toBe(0)
-    expect(useViewerStore.getState().isChromeHidden).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: '倍速菜单' }))
+    expect(video.playbackRate).toBe(2)
     swipe(video, 'touch', horizontal)
     act(() => vi.advanceTimersByTime(301))
     expect(
       horizontal ? useViewerStore.getState().horizontalIndexes['artwork-1'] : useViewerStore.getState().verticalIndex
     ).toBe(1)
-    expect((view.container.querySelector('.swiper-slide-active video') as HTMLVideoElement)?.playbackRate).toBe(1.5)
+    expect((view.container.querySelector('.swiper-slide-active video') as HTMLVideoElement)?.playbackRate).toBe(2)
   })
 
   it.each(['mouse', 'touch'])(

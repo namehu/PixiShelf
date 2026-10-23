@@ -86,8 +86,6 @@ function createArtwork(images: ViewerMediaItem[]): RandomImageItem {
 const commonProps = {
   playbackRate: 1 as const,
   onPlaybackRateChange: vi.fn(),
-  rateMenuOpen: false,
-  onRateMenuOpenChange: vi.fn(),
   audioPreference: { muted: true, volume: 1 },
   onAudioPreferenceChange: vi.fn(),
   chapterPanelOpen: false,

@@ -26,6 +26,7 @@ import { useVideoReading } from '@/lib/reading/use-video-reading'
 import { ArtworkReaderProvider, useArtworkReader, useReaderMediaWindow, MediaDetailsPlaceholder } from '@/lib/reading/artwork-reader-provider'
 import { Button } from '@/components/ui/button'
 import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
+import { cn } from '@/lib/utils'
 
 export default function ArtworkPreviewPage() {
   const [artworkId] = useQueryState('artworkId', parseAsInteger)
@@ -248,7 +249,6 @@ function ArtworkPreviewContent() {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <MediaMarkActions artworkId={artworkId ?? 0} mediaId={reader.invalidated ? null : activeMediaId ?? null} overlay />
           <button
             type="button"
             aria-label="关闭作品预览"
@@ -287,7 +287,7 @@ function ArtworkPreviewContent() {
         {images.map(renderSwiperSlide)}
 
         {/* 自定义导航按钮（桌面端）：上下布局 */}
-        <div className="absolute bottom-8 right-8 z-10 hidden flex-col gap-4 sm:flex">
+        <div className="absolute right-8 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-4 sm:flex">
           <button
             type="button"
             aria-label="上一张媒体"
@@ -304,6 +304,12 @@ function ArtworkPreviewContent() {
           </button>
         </div>
       </Swiper>
+      <div className={cn(
+        'absolute right-4 z-20 sm:right-8',
+        activeVideo ? 'bottom-[calc(4.75rem+env(safe-area-inset-bottom))]' : 'bottom-[calc(0.75rem+env(safe-area-inset-bottom))]'
+      )}>
+        <MediaMarkActions artworkId={artworkId ?? 0} mediaId={reader.invalidated ? null : activeMediaId ?? null} overlay />
+      </div>
     </div>
   )
 }

@@ -302,10 +302,6 @@ function AdaptiveMediaPreviewContent({
       title="适配尺寸媒体预览"
       description="上下滑动切换媒体，双指或双击缩放图片；WebP 动图可通过底部按钮播放或暂停。"
       closeLabel="关闭适配尺寸预览"
-      topChrome={({ activeIndex }) => {
-        const media = images[activeIndex]
-        return media ? <MediaMarkActions artworkId={media.artworkId ?? 0} mediaId={media.id} overlay /> : null
-      }}
       testId="adaptive-media-preview-swiper"
       onControllerChange={(controller) => {
         swiperRef.current = controller
@@ -402,8 +398,16 @@ function AdaptiveMediaPreviewContent({
       }}
       bottomChrome={({ portalContainer: container }) => (
         <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 h-12">
+          {activeMedia && (
+            <div className={cn(
+              'pointer-events-auto absolute right-0 bottom-0',
+              !diagnosticRunning && (images.length > 1 || activePlayableWebp) && 'bottom-16 sm:bottom-0'
+            )}>
+              <MediaMarkActions artworkId={activeMedia.artworkId ?? 0} mediaId={activeMedia.id} overlay />
+            </div>
+          )}
           {reading && (reading.invalidated || reading.markError) && (
-            <div className="pointer-events-auto absolute inset-x-0 bottom-14 mx-auto w-fit max-w-full rounded-lg bg-background text-foreground">
+            <div className="pointer-events-auto absolute inset-x-0 bottom-28 mx-auto w-fit max-w-full rounded-lg bg-background text-foreground sm:bottom-14">
               {reading.invalidated ? (
                 <div className="flex flex-wrap items-center gap-2 p-3 text-sm" role="status">
                   <span>作品媒体已更新，请重新打开阅读。</span>
