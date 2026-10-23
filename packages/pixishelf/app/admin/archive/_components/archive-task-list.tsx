@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import Link from 'next/link'
 import type { inferRouterOutputs } from '@trpc/server'
 import type { ArchiveTransferTelemetry } from '@pixishelf/job-contracts'
 import {
+  ChevronDown,
+  ChevronRight,
   CirclePause,
   CirclePlay,
   ExternalLink,
@@ -34,6 +36,7 @@ import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-tex
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { ArchiveTaskCreators } from './archive-task-creators'
 import { ArchiveTaskCreatorDialog } from './archive-task-creator-dialog'
+import { ArchivePublishedMediaPreview } from './archive-published-media-preview'
 import { TaskProgress } from './archive-task-progress'
 import { archiveTaskArtworkHref, archiveTaskSourceHref } from './archive-task-navigation'
 import { archiveSourceLabel } from './archive-source-label'
@@ -73,10 +76,14 @@ export function ArchiveTaskTable({
   onViewItems: (task: ArchiveTaskOutput) => void
   onAction: (task: ArchiveTaskOutput, action: SingleTaskAction) => void
 }) {
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set())
   return (
-    <Table className="table-fixed [&_td]:py-2.5">
+    <Table className="table-fixed [&_td:not([colspan])]:py-2.5">
       <TableHeader>
         <TableRow>
+          <TableHead className="w-11">
+            <span className="sr-only">媒体预览</span>
+          </TableHead>
           <TableHead className="w-10">
             <Checkbox
               checked={selectionState}
@@ -92,36 +99,64 @@ export function ArchiveTaskTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {tasks.map((task) => (
-          <TableRow key={task.id} data-state={selectedTaskIds.has(task.id) ? 'selected' : undefined}>
-            <TableCell>
-              <Checkbox
-                checked={selectedTaskIds.has(task.id)}
-                onCheckedChange={(checked) => onToggleTask(task.id, Boolean(checked))}
-                aria-label={`选择 ${task.title || archiveSourceLabel(task.providerKey, task.externalId)}`}
-              />
-            </TableCell>
-            <TableCell className="min-w-0 whitespace-normal">
-              <TaskIdentity task={task} onViewItems={() => onViewItems(task)} />
-            </TableCell>
-            <TableCell className="whitespace-normal">
-              <div className="flex min-w-0 flex-col gap-1">
-                <TaskStatus task={task} />
-                <TaskProgress task={task} />
-              </div>
-            </TableCell>
-            <TableCell className="text-xs tabular-nums">{task.totalItems} 张</TableCell>
-            <TableCell className="text-xs text-muted-foreground">{formatTaskTime(task.createdAt)}</TableCell>
-            <TableCell>
-              <TaskActions
-                task={task}
-                pendingActions={pendingActions}
-                onViewItems={() => onViewItems(task)}
-                onAction={(action) => onAction(task, action)}
-              />
-            </TableCell>
-          </TableRow>
-        ))}
+        {tasks.map((task) => {
+          const artworkId = archiveTaskArtworkHref(task) ? task.publishedArtwork?.id : undefined
+          const expanded = expandedTaskIds.has(task.id)
+          return (
+            <Fragment key={task.id}>
+              <TableRow data-state={selectedTaskIds.has(task.id) ? 'selected' : undefined}>
+                <TableCell>
+                  {artworkId !== undefined && (
+                    <TaskPreviewToggle
+                      expanded={expanded}
+                      onToggle={() =>
+                        setExpandedTaskIds((current) => {
+                          const next = new Set(current)
+                          if (next.has(task.id)) next.delete(task.id)
+                          else next.add(task.id)
+                          return next
+                        })
+                      }
+                    />
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Checkbox
+                    checked={selectedTaskIds.has(task.id)}
+                    onCheckedChange={(checked) => onToggleTask(task.id, Boolean(checked))}
+                    aria-label={`选择 ${task.title || archiveSourceLabel(task.providerKey, task.externalId)}`}
+                  />
+                </TableCell>
+                <TableCell className="min-w-0 whitespace-normal">
+                  <TaskIdentity task={task} onViewItems={() => onViewItems(task)} />
+                </TableCell>
+                <TableCell className="whitespace-normal">
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <TaskStatus task={task} />
+                    <TaskProgress task={task} />
+                  </div>
+                </TableCell>
+                <TableCell className="text-xs tabular-nums">{task.totalItems} 张</TableCell>
+                <TableCell className="text-xs text-muted-foreground">{formatTaskTime(task.createdAt)}</TableCell>
+                <TableCell>
+                  <TaskActions
+                    task={task}
+                    pendingActions={pendingActions}
+                    onViewItems={() => onViewItems(task)}
+                    onAction={(action) => onAction(task, action)}
+                  />
+                </TableCell>
+              </TableRow>
+              {expanded && artworkId !== undefined && (
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={7} className="bg-muted/10 p-0 whitespace-normal">
+                    <ArchivePublishedMediaPreview artworkId={artworkId} />
+                  </TableCell>
+                </TableRow>
+              )}
+            </Fragment>
+          )
+        })}
       </TableBody>
     </Table>
   )
@@ -142,6 +177,8 @@ export function ArchiveTaskCard({
   onViewItems: () => void
   onAction: (action: SingleTaskAction) => void
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const artworkId = archiveTaskArtworkHref(task) ? task.publishedArtwork?.id : undefined
   return (
     <Card
       data-state={selected ? 'selected' : undefined}
@@ -149,6 +186,9 @@ export function ArchiveTaskCard({
     >
       <CardHeader className="min-w-0 px-3">
         <div className="flex min-w-0 items-start gap-2">
+          {artworkId !== undefined && (
+            <TaskPreviewToggle expanded={expanded} onToggle={() => setExpanded((current) => !current)} />
+          )}
           <Checkbox
             checked={selected}
             onCheckedChange={(checked) => onToggle(Boolean(checked))}
@@ -169,7 +209,24 @@ export function ArchiveTaskCard({
         </div>
         <TaskProgress task={task} />
       </CardContent>
+      {expanded && artworkId !== undefined && <ArchivePublishedMediaPreview artworkId={artworkId} />}
     </Card>
+  )
+}
+
+function TaskPreviewToggle({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-7"
+      aria-label={expanded ? '收起预览' : '展开预览'}
+      aria-expanded={expanded}
+      onClick={onToggle}
+    >
+      {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+    </Button>
   )
 }
 

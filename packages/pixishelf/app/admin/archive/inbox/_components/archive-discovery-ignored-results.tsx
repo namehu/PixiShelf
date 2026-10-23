@@ -128,7 +128,8 @@ export function IgnoredResults({
             <div
               className={cn(
                 'flex min-w-0 gap-3',
-                resultView === 'cards' ? 'order-3 col-span-2 flex-col' : 'items-start'
+                resultView === 'cards' ? 'order-3 col-span-2 flex-col' : 'items-start',
+                resultView === 'preview' && 'col-span-3 row-start-2 sm:col-span-1 sm:col-start-2 sm:row-start-1'
               )}
             >
               {resultView !== 'list' ? (
@@ -172,7 +173,8 @@ export function IgnoredResults({
             <div
               className={cn(
                 'pointer-events-auto flex items-center justify-end [&_button]:size-11 [&_a]:size-11 sm:[&_button]:size-9 sm:[&_a]:size-9',
-                resultView === 'cards' ? 'col-start-2 row-start-1' : 'col-start-3 row-start-1 max-sm:flex-col'
+                resultView === 'cards' ? 'col-start-2 row-start-1' : 'col-start-3 row-start-1',
+                resultView === 'list' && 'max-sm:flex-col'
               )}
             >
               {item.catalogItemId ? (

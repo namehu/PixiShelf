@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
+import { CheckIcon, RotateCcwIcon, XIcon } from 'lucide-react'
 import { decodeArchiveTitle } from '@pixishelf/job-contracts'
 import { useTRPC } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
@@ -160,7 +161,7 @@ export function ArchiveTitleFilteredResults({
             <div
               data-discovery-item={item.id}
               className={cn(
-                'grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)] gap-2 bg-background p-3 sm:gap-3 sm:p-4',
+                'grid min-w-0 grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-2 bg-background p-3 sm:gap-3 sm:p-4',
                 resultView === 'cards' ? 'h-full rounded-lg border' : 'border-b',
                 selected.has(item.id) && 'bg-accent/50'
               )}
@@ -172,18 +173,57 @@ export function ArchiveTitleFilteredResults({
                 disabled={pending || (!selected.has(item.id) && selected.size >= 100)}
                 onCheckedChange={(checked) => toggle(item.id, checked === true)}
               />
+              <div className="col-start-3 row-start-1 flex items-center gap-1">
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-11 sm:size-9"
+                  aria-label="接纳"
+                  title="接纳"
+                  disabled={pending || item.matchEvaluation?.uploaderMatches === false}
+                  onClick={() => review([item.id], 'INCLUDE')}
+                >
+                  <CheckIcon aria-hidden="true" />
+                </Button>
+                {item.reviewDecision !== 'EXCLUDE' ? (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-11 sm:size-9"
+                    aria-label="确认排除"
+                    title="确认排除"
+                    disabled={pending}
+                    onClick={() => review([item.id], 'EXCLUDE')}
+                  >
+                    <XIcon aria-hidden="true" />
+                  </Button>
+                ) : null}
+                {item.reviewDecision !== 'AUTO' ? (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-11 sm:size-9"
+                    aria-label="恢复遵循规则"
+                    title="恢复遵循规则"
+                    disabled={pending}
+                    onClick={() => review([item.id], 'AUTO')}
+                  >
+                    <RotateCcwIcon aria-hidden="true" />
+                  </Button>
+                ) : null}
+              </div>
               <div
                 className={cn(
-                  'min-w-0',
+                  'col-span-3 min-w-0',
                   resultView === 'cards'
-                    ? 'col-span-2 flex flex-col gap-3'
+                    ? 'flex flex-col gap-3'
                     : resultView === 'preview'
-                      ? 'grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1 sm:grid-cols-[5rem_minmax(0,1fr)] sm:gap-x-3'
-                      : 'flex flex-col'
+                      ? 'grid grid-cols-[8rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:grid-cols-[10rem_minmax(0,1fr)] sm:gap-x-4'
+                      : 'flex flex-col sm:col-span-1 sm:col-start-2 sm:row-start-1'
                 )}
               >
                 {resultView !== 'list' ? (
-                  <div className={resultView === 'preview' ? 'sm:row-span-3' : undefined}>
+                  <div className={resultView === 'preview' ? 'sm:row-span-2' : undefined}>
                     <ArchiveUploaderGalleryThumbnail
                       key={item.id}
                       item={{ ...item, title }}
@@ -217,43 +257,6 @@ export function ArchiveTitleFilteredResults({
                     evidence={item.matchEvidence}
                     decision={item.reviewDecision}
                   />
-                </div>
-                <div
-                  className={cn(
-                    'mt-3 flex flex-wrap gap-2',
-                    resultView === 'preview' && 'col-span-2 sm:col-span-1 sm:col-start-2'
-                  )}
-                >
-                  <Button
-                    size="sm"
-                    className="h-11 sm:h-9"
-                    disabled={pending || item.matchEvaluation?.uploaderMatches === false}
-                    onClick={() => review([item.id], 'INCLUDE')}
-                  >
-                    接纳
-                  </Button>
-                  {item.reviewDecision !== 'EXCLUDE' ? (
-                    <Button
-                      size="sm"
-                      className="h-11 sm:h-9"
-                      variant="outline"
-                      disabled={pending}
-                      onClick={() => review([item.id], 'EXCLUDE')}
-                    >
-                      确认排除
-                    </Button>
-                  ) : null}
-                  {item.reviewDecision !== 'AUTO' ? (
-                    <Button
-                      size="sm"
-                      className="h-11 sm:h-9"
-                      variant="ghost"
-                      disabled={pending}
-                      onClick={() => review([item.id], 'AUTO')}
-                    >
-                      恢复遵循规则
-                    </Button>
-                  ) : null}
                 </div>
               </div>
             </div>

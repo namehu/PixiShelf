@@ -82,7 +82,7 @@ export function ArchiveUploaderGalleryThumbnail({
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
 
-  const frameClass = card ? 'h-72 w-full' : 'row-span-2 h-24 w-16 sm:h-28 sm:w-20'
+  const frameClass = card ? 'h-72 w-full' : 'row-span-2 h-48 w-32 sm:h-56 sm:w-40'
 
   const content = (
     <>

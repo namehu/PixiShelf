@@ -192,7 +192,7 @@ export function ScanResults({
                 resultView === 'cards'
                   ? 'order-3 col-span-2 flex flex-col gap-3'
                   : resultView === 'preview'
-                    ? 'grid grid-cols-[4rem_minmax(0,1fr)] items-start gap-x-2 gap-y-1 sm:flex sm:gap-3'
+                    ? 'col-span-3 row-start-2 grid grid-cols-[8rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 sm:col-span-1 sm:col-start-2 sm:row-start-1 sm:flex sm:gap-3'
                     : 'flex items-start gap-3'
               )}
             >
@@ -264,7 +264,8 @@ export function ScanResults({
             <div
               className={cn(
                 'pointer-events-auto flex shrink-0 items-center justify-end [&_button]:size-11 [&_a]:size-11 sm:[&_button]:size-9 sm:[&_a]:size-9',
-                resultView === 'cards' ? 'col-start-2 row-start-1' : 'col-start-3 row-start-1 max-sm:flex-col'
+                resultView === 'cards' ? 'col-start-2 row-start-1' : 'col-start-3 row-start-1',
+                resultView === 'list' && 'max-sm:flex-col'
               )}
             >
               {titleReview ? <TitleReviewMenu item={item} {...titleReview} /> : null}
