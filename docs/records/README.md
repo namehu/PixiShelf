@@ -46,4 +46,6 @@
 
 - [去重第一阶段代码与隔离验证](./artwork-deduplication-phase-1-2026-10-23.md)，附 [App 上传与替换交接](./artwork-deduplication-phase-1-app-handoff-2026-10-23.md)。
 
-- [去重第二阶段后台检测与资源验证（进行中）](./artwork-deduplication-phase-2-2026-10-23.md)：模块验证、独立审查和 50 万媒体性能记录。
+- [去重第二阶段后台检测与资源验证](./artwork-deduplication-phase-2-2026-10-23.md)：模块验证、独立审查和 50 万媒体性能记录。
+
+- [去重第三至第五阶段并行实施调整](./artwork-deduplication-parallel-2026-10-24.md)：职责、共享契约、分批审查与性能环境隔离。

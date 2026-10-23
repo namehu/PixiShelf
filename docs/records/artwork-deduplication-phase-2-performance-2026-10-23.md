@@ -6,7 +6,7 @@ date: 2026-10-23
 
 # 去重第二阶段性能记录
 
-本记录使用第一阶段基线 `9c0f23bc` 之后的第二阶段实现。前两段测量跨越审查修复；后续有界续跑使用优化提交 `b0174077`，因此全候选冷轮不是固定源码基线。源码入口是 [scale benchmark](../../packages/pixishelf-job-executors/scripts/artwork-dedup-benchmark.ts) 和 [contention benchmark](../../packages/pixishelf-job-executors/scripts/artwork-dedup-contention.ts)，检测调用实际 `executeArtworkDedup`、PostgreSQL 队列 claim/fence、独立 reader 子进程与实际文件系统。没有替代检测算法或模拟内容读取计数。此记录还在执行中，以下未完成项目不能作为通过证据。
+本记录使用第一阶段基线 `9c0f23bc` 之后的第二阶段实现。前两段测量跨越审查修复；后续有界续跑使用优化提交 `b0174077` 与基准修复 `c2d6be73`，因此全候选冷轮不是固定源码基线。源码入口是 [scale benchmark](../../packages/pixishelf-job-executors/scripts/artwork-dedup-benchmark.ts) 和 [contention benchmark](../../packages/pixishelf-job-executors/scripts/artwork-dedup-contention.ts)，检测调用实际 `executeArtworkDedup`、PostgreSQL 队列 claim/fence、独立 reader 子进程与实际文件系统。没有替代检测算法或模拟内容读取计数。规模与并发实测均已完成；浏览器交互仍留最终统一验收，所有下述限制继续保留。
 
 ## 环境、隔离与恢复依据
 
@@ -56,13 +56,13 @@ pnpm --filter @pixishelf/worker exec tsx \
 
 ## 规模结果
 
-稀疏候选规模轮已完成；全部候选冷轮中断待续跑，热轮尚未执行。80 条登记媒体 smoke 的冷、热完整执行分别为 960 ms / 820 ms；两轮均为 120 次 inspect，冷轮读取 40 次 / 163,840 字节，热轮读取 0 次 / 0 字节，均形成 1 个重复组。该 smoke 仅校验测量链路，不替代 50 万规模结果。
+稀疏候选、全部候选冷轮和热轮均已完成。80 条登记媒体 smoke 的冷、热完整执行分别为 960 ms / 820 ms；两轮均为 120 次 inspect，冷轮读取 40 次 / 163,840 字节，热轮读取 0 次 / 0 字节，均形成 1 个重复组。该 smoke 仅校验测量链路，不替代 50 万规模结果。
 
 | 规模轮          | 状态       | 总耗时    | inspect / read / hit | 真实内容字节 | 主进程 / reader 峰值 | slice / event |
 | --------------- | ---------- | --------- | -------------------- | ------------ | -------------------- | ------------- |
 | 50 万稀疏冷轮   | 完成       | 581.535 s | 501,000 / 1,000 / 0  | 4,096,000    | 174.80 / 135.50 MiB  | 45 / 134      |
-| 50 万全候选冷轮 | 中断待续跑 | 待完成    | 待完成               | 待完成       | 待完成               | 待完成        |
-| 50 万全候选热轮 | 未执行     | —         | —                    | —            | —                    | —             |
+| 50 万全候选冷轮 | 完成，有遥测缺口 | 4,496.737 s 墙钟 / 1,894.302 s 已观测分段 | 已提交 1,000,000 / 500,000 / 0 | 已提交 2,048,000,000 | 已观测 184.28 / 135.13 MiB | 146 / 440 |
+| 50 万全候选热轮 | 完成，遥测完整 | 2,287.431 s 墙钟 / 1,752.734 s 已观测分段 | 1,000,000 / 0 / 500,000 | 0 | 186.08 / 131.97 MiB | 135 / 404 |
 
 稀疏轮形成 1 个组，2 部完整候选作品、998 部大小唯一作品；没有 changed/failed 项。持久临时媒体记录 500,000 条，内容指纹 1,000 条。实际 44 次让行后检查到的冷却余量为 2,970–2,993 ms；每轮 writer lease 均为 0、reader token 均为 null，最终 readerState 为 IDLE。事件是 134 条，随 slice 而非逐文件写入。
 
@@ -97,7 +97,7 @@ pnpm --filter @pixishelf/worker exec tsx \
 
 新增可选 `--max-segment-ms 300000` 以进程启动时间计算软预算，仅在执行完 slice 且确认 writer lease 为 0、reader token 为 null、任务进入 RETRY_WAIT 后写 `run-segment-end` 并退出 75。它不强杀进行中的 slice，实际时长可以多一个 slice；默认 0 表示无限制。冷轮恰好完成时会正常收尾，若预算已耗尽则在创建热轮前退出 75。退出 75 表示有界分段暂停，退出 0 表示本次请求已完成（或只读检查完成），其他非零退出需先诊断；不要在单个工具会话中用无限 shell 循环包装续跑。
 
-本次遗留 RUNNING 由 `--resume` 调用原 `PostgresQueueRepository.recoverExpiredExecution('BACKGROUND_WRITER')` 回收过期队列执行；执行器随后通过身份探测子进程的同机/同启动/PID 退出证明释放旧 reader token。脚本不直接修改 reader token、gate 或租约；活跃未过期执行会明确拒绝重复启动，异常终态会停止。此次验证没有实际回收遗留占用，下一段由统筹单独启动并观察。 窄审 M203 修正了脚本的 attempt 断言：正常让行应回到本次 claimed attempt 减 1；过期恢复已消耗的历史 attempt 会保留，不能固定要求为 0。没有重写或清零数据库 attempt。对 claim 前 attempt 0 与 1 的表达式检查分别确认 claim 后 1/2、让行后 0/1，并拒绝未扣回的值。
+本次遗留 RUNNING 由 `--resume` 调用原 `PostgresQueueRepository.recoverExpiredExecution('BACKGROUND_WRITER')` 回收过期队列执行；执行器随后通过身份探测子进程的同机/同启动/PID 退出证明释放旧 reader token。脚本不直接修改 reader token、gate 或租约；活跃未过期执行会明确拒绝重复启动，异常终态会停止。后续已由统筹运行真实回收与有界续跑，冷轮最终完成，reader 回到 IDLE 且 token 为空。 窄审 M203 修正了脚本的 attempt 断言：正常让行应回到本次 claimed attempt 减 1；过期恢复已消耗的历史 attempt 会保留，不能固定要求为 0。没有重写或清零数据库 attempt。对 claim 前 attempt 0 与 1 的表达式检查分别确认 claim 后 1/2、让行后 0/1，并拒绝未扣回的值。
 
 从工作树根目录逐段执行如下命令；stdout 追加保留，JSONL 仍在原 fixture 内。首次恢复原 run，冷轮完成后同一入口开始热轮，不清已提交数据或缓存：
 
@@ -112,22 +112,57 @@ pnpm --filter @pixishelf/worker exec tsx \
 
 这轮包含脚本中断及审查修复期间的显式 fixture 格式升级，不是一次固定源码、不中断的冷测。物理文件仍只有共享的 500 个 / 2,048,000 字节，50 万指数据库登记媒体数。
 
+## 全候选冷轮完成与冻结副本
+
+冷轮于 `2026-10-23T16:03:00.268Z` 输出终态：1,000 部完成、0 变化、0 失败，1 个重复组、999 部副本；500,000 条内容缓存和 500,000 条临时媒体记录。数据库已提交 inspect 1,000,000、hash 500,000、内容字节 2,048,000,000，重试读取字节 0。已观测 reader 为 inspect 998,783、read 498,783、2,043,015,168 字节，加上前述唯一已提交缺口正好与数据库一致；未观测的未提交读取尾部仍未知。
+
+冷轮共有 6 个执行段、146 个 slice、440 条事件。4,496.737 秒墙钟包含人工排错及段间等待，1,894.302 秒仅为有记录的执行段耗时；两者不能当作一次不中断的固定代码吞吐。已观测主进程/reader 峰值为 193,232,896 / 141,688,832 字节，缺口使其不能证明整轮全局峰值。持久 slice 的 SQL 为 847,304 条、含写入 81,905 条，BEGIN 35,500 / COMMIT 35,503 / ROLLBACK 0，累计 SQL 时间 221,760 ms；不覆盖中断窗口或段间查询。
+
+为支持第三至第五阶段并行开发，后续测量从 `c2d6be73` 导出到 `/tmp/dedup-phase2-code-c2d6be73`，并复制第 106 版 schema 对应的 Prisma 客户端；功能开发的 generate 和新迁移不会改变测量库。热轮已从同一 500,000 内容缓存开始。测量与功能编译/定向测试在同一主机并行，资源竞争仍可能影响耗时，不能将此轮标为无外部负载。
+
+有界续跑应在冻结副本的 `packages/pixishelf-worker` 目录直接用 `pnpm exec tsx` 执行同一参数；递归 `pnpm --filter … exec` 会把子进程正常分段退出 75 包装为外层退出 1，不应误判为产品错误。逐段保留日志 `/tmp/dedup-scale-all-segments.log`，完整 JSONL 位于 `/tmp/dedup-scale-phase2-all/measurements.jsonl`，去除大体积表统计的已完成轮摘要为同目录 `summary.json`。
+
+## 全候选热轮完成
+
+热轮于 `2026-10-23T16:41:09.522Z` 完成，run 为 `2c32027d-e5df-4237-90b9-306669eefab1`。1,000 部完成、0 变化、0 失败，1 个重复组；100 万次 inspect、50 万次缓存命中、0 次内容读取、0 内容字节。135 个 slice 与数据库计数全部对齐，无未观测窗口；结束后 reader 为 IDLE 且 token 为空。
+
+热轮分 6 段运行，墙钟 2,287.431 秒含人工续跑间隔；已观测分段为 1,752.734 秒，reader 执行时间累计 1,351.306 秒。主进程/reader 已观测峰值为 195,117,056 / 138,379,264 字节。slice SQL 共 737,460 条、含写入 56,748 条，BEGIN 35,449 / COMMIT 35,451 / ROLLBACK 0、累计 SQL 时间 200,427 ms；IPC 消息 1,000,270，inspect 响应延迟累计 543,425 ms。事务起止差和 SQL 口径遵守上文定义，不解释为数据库事务泄漏。
+
+此结果证明有效指纹缓存消除了本样本的内容重读，不证明热轮无需检查属性/写检查点，也不能把合成小文件、人工分段和并行主机负载下的耗时推广为真实 NAS 吞吐。冷轮代码和遥测有变化、热轮代码已冻结，两轮不是严格受控的测速对照。
+
 ## 下载、浏览、发布和多艺术家争用
 
-并发脚本待规模基线结束后运行，避免污染单独测量。它复用全候选 fixture 的同一合成根，冻结两个不同艺术家、各 20 部作品 × 500 媒体，并进行有界 FULL 检查，预期真实读入 81,920,000 字节。
+并发脚本在规模基线完成后运行，未修改正在测量的冻结范围。它复用全候选 fixture 的同一合成根，冻结两个不同艺术家、各 20 部作品 × 500 媒体，并进行有界 FULL 检查，预期真实读入 81,920,000 字节。
 
 归档负载使用本机 loopback HTTP 服务提供 60 个随机像素 PNG，调用真实 `ARCHIVE_DOWNLOAD` 执行器完成流读取、staging、哈希/格式校验、封存与 phase handoff，再由真实 `ARCHIVE_PUBLISH` 执行器竞争同一个 `BACKGROUND_WRITER` 并发布媒体和数据库记录。该合成 provider 只替代外部来源发现和远端站点，不替代下载、存储或发布算法。
 
-浏览负载要求 `DEDUP_BENCHMARK_BROWSER_URL` 指向真实 App 的 `artwork.cardList` 只读请求，`DEDUP_BENCHMARK_BROWSER_COOKIE` 或 `DEDUP_BENCHMARK_BROWSER_COOKIE_FILE` 使用合成账号的有效会话；响应须是 HTTP 200 且实际 `result.data.items` 包含合成作品。先记录无后台负载基线，再在并发期间读取响应体并记录延迟、响应字节和成功状态；登录重定向不作为成功浏览。端口与鉴权配置由统筹者准备。尚无并发通过结论。
+浏览负载要求 `DEDUP_BENCHMARK_BROWSER_URL` 指向真实 App 的 `artwork.cardList` 只读请求，`DEDUP_BENCHMARK_BROWSER_COOKIE` 或 `DEDUP_BENCHMARK_BROWSER_COOKIE_FILE` 使用合成账号的有效会话；响应须是 HTTP 200 且实际 `result.data.items` 包含合成作品。先记录无后台负载基线，再在并发期间读取响应体并记录延迟、响应字节和成功状态；登录重定向不作为成功浏览。使用独立 5440 端口、合成账号和冻结代码，实际并发结果如下。
 
 并发 fixture 在首个数据库写入前保存 `contention-retained.json`，从而禁止 baseline 的 `--cleanup-only` 删除仍被共享的原件或记录。该并发现场默认保留供审查，不能直接移除 marker 再重跑清理；需要先确认全部相关 reader/lease 已释放，按精确 prefix 清理并发 run、两个艺术家及其归属、归档 import/execution/publication 和相应 source/write/recovery 引用，再核对根没有外部引用，最后才移除 marker 和清理 baseline。当前脚本不自动销毁这个共享现场。
 
-独立审查提出的 M201 清理边界已修复：在活跃的 500,000 媒体 fixture 上以临时保留 marker 调用 `--cleanup-only`，脚本在首条数据库删除前退出 1，前后 Image 均为 500,000、原根保留；随后仅移除了测试 marker。M202 发布异常循环已加明确 job/import 终态检查、十分钟总期限与两分钟 writer 无进展期限，失败会记录 `contention-failed` 并保留现场，不把 FAILED/PAUSED 记为发布完成。此项当前为代码及定向类型验证，实际并发结果待执行。
+独立审查提出的 M201 清理边界已修复：在活跃的 500,000 媒体 fixture 上以临时保留 marker 调用 `--cleanup-only`，脚本在首条数据库删除前退出 1，前后 Image 均为 500,000、原根保留；随后仅移除了测试 marker。M202 发布异常循环已加明确 job/import 终态检查、十分钟总期限与两分钟 writer 无进展期限，失败会记录 `contention-failed` 并保留现场，不把 FAILED/PAUSED 记为发布完成。这两项的代码与定向检查已完成；并发成功路径现已实际执行，不能据此替代发布异常的故障注入。
+
+## 并发实测结果
+
+`2026-10-23T16:46:23.125Z` 至 `16:47:39.222Z`，总计 76.097 秒。两个不同艺术家各 20 部作品 × 500 媒体均完成 FULL：每个 run inspect 20,000、hash 10,000、readBytes 40,960,000，共内容读取 81,920,000 字节，各形成一个重复组。共 9 次 writer 执行，检测 slice 后均释放 reader token 和 writer lease。
+
+真实归档执行下载 60 个 PNG，共 49,870,680 字节，60 次 loopback 响应，18.043 秒完成下载；发布等待 BACKGROUND_WRITER 2.345 秒，执行 1.045 秒，于开始后 21.382 秒完成，产生一个作品和 60 个媒体，归档状态 COMPLETED、sealedGenerations 为 1。等待发生时检测仍在持续推进。
+
+| 鉴权列表请求 | 请求数 | P50 | P95 | 最大 |
+| --- | ---: | ---: | ---: | ---: |
+| 无后台样本基线 | 20 | 29.218 ms | 38.545 ms | 38.545 ms |
+| 并发期间 | 264 | 28.228 ms | 81.512 ms | 336.378 ms |
+
+全部请求真实返回 HTTP 200 且包含合成作品，累计并发响应 1,660,294 字节；表中分位采用排序数组 `floor(n*p)` 对应项，20 条基线的 P95 恰为最大值。此为本机开发模式 HTTP/API 响应，不是浏览器绘制、生产构建或远程 NAS 延迟；并发执行器和数据库也处于同机环境。
+
+冻结副本的外部依赖软链接不被 Turbopack 接受，因此首次测试 App 启动失败；没有修改产品配置，改用 `next dev --webpack` 后成功。第一次 Python 预热遇到系统代理 502，改为显式直连 loopback 后确认 200/24 项，约 9.2 秒首次编译预热不计入表中基线。后续 Node 实测请求全部有效。测试 App 仅使用 5440，未占用/停止用户 5430；结果取得后按 PID 工作目录核验停止测试 App。
+
+原始并发日志为 `/tmp/dedup-scale-contention.log` 及 `/tmp/dedup-scale-phase2-all/contention-measurements.jsonl`，精简结果为同目录 `contention-summary.json`。合成 session、媒体、缓存和 contention-retained 标记保留；不能用普通 baseline 清理命令删除共享现场。真实浏览器回归及手机真机检查仍未完成。
 
 ## 检查、证据与未覆盖项
 
 - 错库 guard 实际以 `dedup_tests` URL 调用，连接前退出 1；日志 `/tmp/dedup-scale-guard-check.log`。
 - 最小恢复计量验证：相同 run 连续两次 `--inspect-measurement-only --resume --max-segment-ms 300000` 均保留一个 1,217 媒体 / 4,984,832 字节缺口；run/job/token/lease 的完整前后快照一致，没有 claim、回收或新 reader。日志 `/tmp/dedup-scale-measurement-inspection-1.log`、`/tmp/dedup-scale-measurement-inspection-2.log` 与 `/tmp/dedup-scale-measurement-inspection-state.json`。负数和缺失 `--max-segment-ms` 值均在连接数据库前被拒绝，见 `/tmp/dedup-scale-segment-parameter-negative.log` 与 `/tmp/dedup-scale-segment-parameter-missing.log`。
 - 两个基准脚本使用独立 [tsconfig](../../packages/pixishelf-job-executors/scripts/tsconfig.benchmark.json) 做定向类型检查；不重复全量 build/test。
-- 原始日志：`/tmp/dedup-scale-sparse-full.jsonl`（清理前保存的完整稀疏日志）、`/tmp/dedup-scale-smoke.log`、`/tmp/dedup-scale-sparse.log`（首次失败）、`/tmp/dedup-scale-sparse-measure.log`（有效稀疏规模轮）、`/tmp/dedup-scale-all-measure.log`（全候选第一段与中断）、`/tmp/dedup-scale-all-resume.log`（续跑段）。最终汇总与摘要待完成后补齐。
+- 原始日志：`/tmp/dedup-scale-sparse-full.jsonl`（清理前保存的完整稀疏日志）、`/tmp/dedup-scale-smoke.log`、`/tmp/dedup-scale-sparse.log`（首次失败）、`/tmp/dedup-scale-sparse-measure.log`（有效稀疏规模轮）、`/tmp/dedup-scale-all-measure.log`（全候选第一段与中断）、`/tmp/dedup-scale-all-resume.log`（续跑段）。完成摘要位于上文 summary.json / contention-summary.json，关键数值已纳入本记录。
 - 不宣称 NAS 实测、生产部署、浏览器交互验收或全量 FULL 50 万媒体检查通过。浏览器交互按总安排留到最终统一验收。
