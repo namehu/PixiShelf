@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { it, expect } from 'vitest'
 import { source, completedRun } from './archive-uploader-sources-fixtures'
 
@@ -24,7 +24,7 @@ export function registerDiscoveryNavigationCases({
     expect(screen.queryByRole('searchbox', { name: '搜索来源' })).toBeNull()
   })
 
-  it('preserves source filtering and scroll position across detail navigation', () => {
+  it('preserves source filtering and scroll position across detail navigation', async () => {
     setSources(
       Array.from({ length: 65 }, (_, index) => ({
         ...source,
@@ -46,7 +46,7 @@ export function registerDiscoveryNavigationCases({
     expect(screen.queryByRole('navigation', { name: '来源分页' })).toBeNull()
     expect(screen.getByTestId('discovery-virtuoso').getAttribute('data-window-scroll')).toBe('true')
     expect(screen.getByText('Saved 65')).toBeTruthy()
-    expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 320 })
+    await waitFor(() => expect(window.scrollTo).toHaveBeenLastCalledWith({ top: 320 }))
     expect(document.activeElement?.getAttribute('data-source-id')).toBe('source-51')
   })
 
@@ -63,5 +63,16 @@ export function registerDiscoveryNavigationCases({
       expect.objectContaining({ filters: expect.objectContaining({ search: 'Gallery' }) }),
       expect.anything()
     )
+  })
+
+  it('keeps source selection when returning from source details', () => {
+    setSources([{ ...source, latestRun: completedRun }])
+    renderSources({ initialSourceId: null })
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择来源 UID 123' }))
+    fireEvent.click(screen.getAllByText('UID 123')[0]!.closest('button')!)
+    fireEvent.click(screen.getByRole('button', { name: '返回来源列表' }))
+    expect(screen.getByRole('checkbox', { name: '选择来源 UID 123' }).getAttribute('aria-checked')).toBe('true')
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索来源' }), { target: { value: 'UID' } })
+    expect(screen.getByRole('checkbox', { name: '选择来源 UID 123' }).getAttribute('aria-checked')).toBe('false')
   })
 }

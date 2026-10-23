@@ -1,6 +1,14 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode, type ComponentProps } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type ComponentProps,
+  type Dispatch,
+  type SetStateAction
+} from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
@@ -42,12 +50,20 @@ const labels: Record<string, string> = {
 export function ArchiveDiscoveryBatchSources({
   allSources,
   selectionResetKey,
+  selection,
   emptyState,
   ...listProps
-}: ListProps & { allSources: Source[]; selectionResetKey?: string; emptyState?: ReactNode }) {
+}: ListProps & {
+  allSources: Source[]
+  selectionResetKey?: string
+  selection?: { ids: Set<string>; onChange: Dispatch<SetStateAction<Set<string>>> }
+  emptyState?: ReactNode
+}) {
   const trpc = useTRPC()
   const queryClient = useQueryClient()
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [localSelected, setLocalSelected] = useState<Set<string>>(new Set())
+  const selected = selection?.ids ?? localSelected
+  const setSelected = selection?.onChange ?? setLocalSelected
   const previousFilter = useRef(selectionResetKey)
   useEffect(() => {
     if (previousFilter.current !== selectionResetKey) {
@@ -55,7 +71,7 @@ export function ArchiveDiscoveryBatchSources({
       if (selected.size) toast.info('筛选已更新，已清空来源勾选')
       setSelected(new Set())
     }
-  }, [selectionResetKey, selected.size])
+  }, [selectionResetKey, selected.size, setSelected])
   const [draft, setDraft] = useState<{ sources: Source[]; requestId: string } | null>(null)
   const retryRequest = useRef<{ batchId: string; requestId: string } | null>(null)
   const batchQuery = useQuery(
@@ -117,7 +133,7 @@ export function ArchiveDiscoveryBatchSources({
       (current) =>
         new Set([...current].filter((id) => allSources.some((source) => source.id === id && selectable(source))))
     )
-  }, [allSources])
+  }, [allSources, setSelected])
   const visible = listProps.sources.filter(selectable)
   const chosen = allSources.filter((source) => selected.has(source.id))
   const hiddenCount = chosen.filter((source) => !listProps.sources.some(({ id }) => id === source.id)).length

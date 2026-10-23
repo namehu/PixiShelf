@@ -95,6 +95,7 @@ export function ArchiveUploaderSources({
   const [deleteSourceId, setDeleteSourceId] = useState<string | null>(null)
   const [searchDialog, setSearchDialog] = useState<ArchiveSearchDialogState | null>(null)
   const [sourceFilters, setSourceFilters] = useState(DEFAULT_SOURCE_FILTERS)
+  const [selectedSourceIds, setSelectedSourceIds] = useState<Set<string>>(new Set())
   const [contentFilters, setContentFilters] = useState(DEFAULT_DISCOVERY_FILTERS)
   const [uidDialogOpen, setUidDialogOpen] = useState(false)
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set())
@@ -166,13 +167,22 @@ export function ArchiveUploaderSources({
   const sources = useDiscoverySourceOrder(filteredSources, sourceSort, JSON.stringify(sourceFilters), sourceListReady)
   const selectedSourceId = locatedSourceId
 
+  useEffect(() => {
+    setSelectedSourceIds(new Set())
+  }, [sourceBrowseKey])
+
   useLayoutEffect(() => {
     if (!active || !layoutReady || sourcesQuery.isPending) return
     const view = pendingCreators ? 'pending-creators' : ignored ? 'ignored' : (locatedSourceId ?? 'list')
     const previous = previousViewRef.current
     previousViewRef.current = view
     if (previous && previous !== view) {
-      window.scrollTo({ top: view === 'list' ? sourceListScrollRef.current : 0 })
+      // The virtual list restores its own anchor after measuring its rows.
+      // A competing page scroll would clamp against the initial, shorter list.
+      if (view !== 'list') window.scrollTo({ top: 0 })
+      else if (!resultPositionsRef.current.has(`sources:${sourceBrowseKey}`)) {
+        window.scrollTo({ top: sourceListScrollRef.current })
+      }
       if (view === 'list') {
         Array.from(document.querySelectorAll<HTMLButtonElement>('[data-source-id]'))
           .find((element) => element.dataset.sourceId === previous)
@@ -185,7 +195,16 @@ export function ArchiveUploaderSources({
     }
     window.addEventListener('scroll', save, { passive: true })
     return () => window.removeEventListener('scroll', save)
-  }, [active, ignored, pendingCreators, isDesktop, layoutReady, locatedSourceId, sourcesQuery.isPending])
+  }, [
+    active,
+    ignored,
+    pendingCreators,
+    isDesktop,
+    layoutReady,
+    locatedSourceId,
+    sourcesQuery.isPending,
+    sourceBrowseKey
+  ])
 
   useEffect(() => {
     if (!selectedSourceId) return
@@ -583,6 +602,7 @@ export function ArchiveUploaderSources({
           onPositionChange={(position) => saveResultPosition(`sources:${sourceBrowseKey}`, position)}
           focusSourceId={activeDraftSourceIdRef.current}
           selectionResetKey={sourceBrowseKey}
+          selection={{ ids: selectedSourceIds, onChange: setSelectedSourceIds }}
           selectedSourceId={selectedSourceId}
           onCopyUid={(uploaderUid) => void copyArchiveUploaderUid(uploaderUid)}
           onSelect={enterSource}

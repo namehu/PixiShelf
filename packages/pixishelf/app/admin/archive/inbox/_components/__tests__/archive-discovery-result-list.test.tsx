@@ -206,6 +206,34 @@ describe('discovery card rows', () => {
     await waitFor(() => expect(mocks.scrollToIndex).toHaveBeenCalledWith({ index: 1, align: 'start', offset: -0 }))
   })
 
+  it('captures a quick navigation click even before the initial restoration settles', () => {
+    render(<ArchiveDiscoveryResultList {...props} isDesktop={false} view="list" />)
+    fireEvent.click(screen.getByText('item-4'))
+    expect(props.onPositionChange).toHaveBeenCalledOnce()
+  })
+
+  it('does not overwrite the saved return anchor when unmounting clamps the page scroll', async () => {
+    const restored = vi.fn()
+    const list = render(
+      <ArchiveDiscoveryResultList {...props} isDesktop={false} view="list" onPositionRestored={restored} />
+    )
+    await waitFor(() => expect(restored).toHaveBeenCalled())
+    mocks.scrollTop = 600
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(600)
+    act(() => mocks.rangeChanged({ startIndex: 0, endIndex: 6 }))
+    fireEvent.click(screen.getByText('item-2'))
+    const position = props.onPositionChange.mock.calls.at(-1)?.[0]
+    expect(position).toMatchObject({ anchorId: 'item-2', anchorOffset: 0, windowScrollY: 600 })
+    const captureCount = props.onPositionChange.mock.calls.length
+    mocks.scrollTop = 0
+    vi.spyOn(window, 'scrollY', 'get').mockReturnValue(0)
+    list.unmount()
+    expect(props.onPositionChange).toHaveBeenCalledTimes(captureCount)
+    mocks.scrollToIndex.mockClear()
+    render(<ArchiveDiscoveryResultList {...props} isDesktop={false} view="list" position={position} />)
+    await waitFor(() => expect(mocks.scrollToIndex).toHaveBeenCalledWith({ index: 2, align: 'start', offset: -0 }))
+  })
+
   it('requests the next page once until new items arrive, including after a layout switch', () => {
     const result = render(<ArchiveDiscoveryResultList {...props} />)
     fireEvent.click(screen.getByText('加载下一页'))

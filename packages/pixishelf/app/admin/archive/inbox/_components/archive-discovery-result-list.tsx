@@ -92,53 +92,56 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
     if (isError) lastRequestedLengthRef.current = null
   }, [items.length, isError])
 
-  const capturePosition = useCallback(() => {
-    if (restoringRef.current || !rootRef.current?.isConnected) return
-    const range = visibleRangeRef.current
-    const viewportTop =
-      isDesktop && scrollerRef.current instanceof HTMLElement ? scrollerRef.current.getBoundingClientRect().top : 0
-    const viewportBottom =
-      isDesktop && scrollerRef.current instanceof HTMLElement
-        ? scrollerRef.current.getBoundingClientRect().bottom
-        : window.innerHeight
-    if (range && rootRef.current) {
-      let foundVisibleItem = false
-      for (let index = range.startIndex; index <= range.endIndex; index += 1) {
-        const element = rootRef.current.querySelector<HTMLElement>(`[data-item-index="${index}"]`)
-        const item = items[index * columns]
-        if (!element || !item) continue
-        const rect = element.getBoundingClientRect()
-        if (rect.bottom <= viewportTop || rect.top >= viewportBottom) continue
-        lastVisibleItemRef.current = { id: item.id, offset: rect.top - viewportTop }
-        foundVisibleItem = true
-        break
+  const capturePosition = useCallback(
+    (beforeInteraction = false) => {
+      if ((!beforeInteraction && restoringRef.current) || !rootRef.current?.isConnected) return
+      const range = visibleRangeRef.current
+      const viewportTop =
+        isDesktop && scrollerRef.current instanceof HTMLElement ? scrollerRef.current.getBoundingClientRect().top : 0
+      const viewportBottom =
+        isDesktop && scrollerRef.current instanceof HTMLElement
+          ? scrollerRef.current.getBoundingClientRect().bottom
+          : window.innerHeight
+      if (range && rootRef.current) {
+        let foundVisibleItem = false
+        for (let index = range.startIndex; index <= range.endIndex; index += 1) {
+          const element = rootRef.current.querySelector<HTMLElement>(`[data-item-index="${index}"]`)
+          const item = items[index * columns]
+          if (!element || !item) continue
+          const rect = element.getBoundingClientRect()
+          if (rect.bottom <= viewportTop || rect.top >= viewportBottom) continue
+          lastVisibleItemRef.current = { id: item.id, offset: rect.top - viewportTop }
+          foundVisibleItem = true
+          break
+        }
+        if (!foundVisibleItem) lastVisibleItemRef.current = null
       }
-      if (!foundVisibleItem) lastVisibleItemRef.current = null
-    }
-    const current = lastVisibleItemRef.current
-    const scrollTop =
-      scrollerRef.current === window
-        ? window.scrollY
-        : scrollerRef.current instanceof HTMLElement
-          ? scrollerRef.current.scrollTop
-          : 0
-    const captured = {
-      loadedCount: items.length,
-      anchorId: current?.id ?? null,
-      anchorOffset: current?.offset ?? 0,
-      scrollTop,
-      windowScrollY: window.scrollY
-    }
-    capturedPositionRef.current = { key: positionKey, position: captured }
-    onPositionChange(captured)
-  }, [isDesktop, items, columns, onPositionChange, positionKey])
+      const current = lastVisibleItemRef.current
+      const scrollTop =
+        scrollerRef.current === window
+          ? window.scrollY
+          : scrollerRef.current instanceof HTMLElement
+            ? scrollerRef.current.scrollTop
+            : 0
+      const captured = {
+        loadedCount: items.length,
+        anchorId: current?.id ?? null,
+        anchorOffset: current?.offset ?? 0,
+        scrollTop,
+        windowScrollY: window.scrollY
+      }
+      capturedPositionRef.current = { key: positionKey, position: captured }
+      onPositionChange(captured)
+    },
+    [isDesktop, items, columns, onPositionChange, positionKey]
+  )
 
   useLayoutEffect(() => {
     captureRef.current = capturePosition
   }, [capturePosition])
 
-  // Retain the last visible artwork when leaving a source or changing scroll hosts.
-  useLayoutEffect(() => () => captureRef.current(), [positionKey, isDesktop])
+  // Capture before navigation, not during unmount: removing rows can already
+  // shrink the document and clamp the window's scroll position to zero.
 
   useLayoutEffect(() => {
     const root = rootRef.current
@@ -262,14 +265,30 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
   }
   if (items.length === 0) return emptyState
 
+  const initialAnchorIndex = position?.anchorId ? items.findIndex(({ id }) => id === position.anchorId) : -1
+
   return (
-    <Card ref={rootRef} className="@container/discovery-results gap-0 overflow-hidden py-0">
+    <Card
+      ref={rootRef}
+      className="@container/discovery-results gap-0 overflow-hidden py-0"
+      onClickCapture={() => capturePosition(true)}
+      onKeyDownCapture={() => capturePosition(true)}
+    >
       {header}
       <Virtuoso
         key={`${isDesktop ? 'desktop' : 'window'}:${view}:${columns}`}
         ref={virtuosoRef}
         data={rows}
         computeItemKey={(_index, item) => item.id}
+        initialTopMostItemIndex={
+          initialAnchorIndex >= 0
+            ? {
+                index: Math.floor(initialAnchorIndex / columns),
+                align: 'start',
+                offset: -(position?.anchorOffset ?? 0)
+              }
+            : 0
+        }
         useWindowScroll={!isDesktop}
         className={isDesktop ? 'min-h-80 max-h-[44rem]' : undefined}
         style={isDesktop ? { height: '60vh' } : undefined}
@@ -279,7 +298,7 @@ export function ArchiveDiscoveryResultList<TItem extends { id: string }>({
         }}
         rangeChanged={(range) => {
           visibleRangeRef.current = range
-          window.requestAnimationFrame(capturePosition)
+          window.requestAnimationFrame(() => capturePosition())
         }}
         isScrolling={(scrolling) => {
           if (!scrolling) capturePosition()

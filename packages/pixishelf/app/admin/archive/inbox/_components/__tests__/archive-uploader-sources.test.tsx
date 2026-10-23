@@ -280,31 +280,38 @@ vi.mock('@tanstack/react-query', () => ({
   })
 }))
 
-vi.mock('react-virtuoso', () => ({
-  Virtuoso: ({
-    data = [],
-    itemContent,
-    useWindowScroll,
-    components
-  }: {
-    data?: Array<{ id: string }>
-    itemContent: (index: number, item: { id: string }) => ReactNode
-    useWindowScroll?: boolean
-    components?: { Footer?: () => ReactNode }
-  }) => {
-    const Footer = components?.Footer
-    return (
-      <div data-testid="discovery-virtuoso" data-window-scroll={String(Boolean(useWindowScroll))}>
-        {data.map((item, index) => (
-          <div key={item.id} data-item-index={index}>
-            {itemContent(index, item)}
-          </div>
-        ))}
-        {Footer ? <Footer /> : null}
-      </div>
-    )
+vi.mock('react-virtuoso', async () => {
+  const { forwardRef, useImperativeHandle } = await import('react')
+  return {
+    Virtuoso: forwardRef(function TestList(
+      {
+        data = [],
+        itemContent,
+        useWindowScroll,
+        components
+      }: {
+        data?: Array<{ id: string }>
+        itemContent: (index: number, item: { id: string }) => ReactNode
+        useWindowScroll?: boolean
+        components?: { Footer?: () => ReactNode }
+      },
+      ref
+    ) {
+      useImperativeHandle(ref, () => ({ scrollToIndex: vi.fn(), scrollTo: vi.fn() }))
+      const Footer = components?.Footer
+      return (
+        <div data-testid="discovery-virtuoso" data-window-scroll={String(Boolean(useWindowScroll))}>
+          {data.map((item, index) => (
+            <div key={item.id} data-item-index={index}>
+              {itemContent(index, item)}
+            </div>
+          ))}
+          {Footer ? <Footer /> : null}
+        </div>
+      )
+    })
   }
-}))
+})
 
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
