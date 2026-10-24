@@ -65,6 +65,7 @@ export interface ArchiveDownloadContext extends ArchiveProviderContext {
 export interface ArchiveProvider {
   readonly key: string
   accepts(url: URL): boolean
+  identifySource(input: string): { kind: 'PROVIDER'; providerKey: string; externalId: string }
   resolve(url: string, context?: ArchiveProviderContext): Promise<ResolvedArchive>
   openMedia(item: ResolvedMedia, context: ArchiveDownloadContext): Promise<RemoteMedia>
 }

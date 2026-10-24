@@ -1,4 +1,5 @@
 'use client'
+import Link from 'next/link'
 import type { JobDto, JobEventDto, JobStatus, WorkerHealthDto } from '@pixishelf/job-contracts'
 import {
   Activity,
@@ -40,6 +41,7 @@ import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-tex
 import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
 import { BackgroundJobDiagnostics } from './background-job-diagnostics'
 import {
+  getArtworkDedupHref,
   canCancelJob,
   canChangePriority,
   canPauseJob,
@@ -816,8 +818,14 @@ function JobActions({
   disabled: boolean
   failureNeedsAttention: boolean
 }) {
+  const dedupHref = getArtworkDedupHref(job)
   return (
     <div className="flex flex-wrap gap-2">
+      {dedupHref ? (
+        <Button asChild variant="outline" className="min-h-11">
+          <Link href={dedupHref}>{job.type === 'ARTWORK_DEDUP_MAINTENANCE' ? '查看处理批次' : '查看检查进度'}</Link>
+        </Button>
+      ) : null}
       {canPauseJob(job) ? (
         <Button
           size="sm"

@@ -1,0 +1,70 @@
+---
+title: 同艺术家作品去重 · 保留的只读缓存与检测时序
+---
+sequenceDiagram
+  participant App as App 控制面
+  participant DB as PostgreSQL
+  participant Worker as Writer 执行器
+  participant Child as 读取子进程
+  participant File as 原媒体文件
+  Note over App,DB: 内容变更更新源代次；标题或排序变化不触发内容重读
+  %% D01: 检测输入冻结与任务领取
+  App->>DB: 短事务：单艺术家活动任务检查、冻结范围、低优先级入队
+  Worker->>DB: 领取任务与执行 token / lease
+  DB-->>Worker: 成员快照、源及目录代次、根身份和检查点
+  loop 全部冻结作品的登记媒体，按有界页处理
+    Worker->>DB: 分页读取媒体及源状态，数据库旧大小不能排除候选
+    Worker->>Child: 批量属性检查，核对根与路径身份
+    Child->>File: 观察实际大小及高精度属性
+    Child-->>Worker: 属性结果或显式失败
+    Worker->>DB: fenced 检查点记录观察结果；失败作品标未完成
+  end
+  Worker->>DB: 按已完整观察的数量与大小多重集合筛选候选
+  %% D02: 候选属性复核与缓存判定
+  loop 候选作品的登记原媒体
+    Worker->>Child: stat 请求与期望根身份
+    Child->>File: 观察路径与精确文件属性
+    File-->>Child: 大小、时间及文件身份
+    Child-->>Worker: 有界属性结果
+    Worker->>DB: 读取同源代次及算法版本的缓存
+    alt 缓存有效且不是强制完整检查
+      DB-->>Worker: 复用 SHA-256，不读取文件内容
+    else 缓存失效、缺失或强制完整检查
+      %% D03: 稳定读取
+      Worker->>Child: 流式读取与 SHA-256，携带取消信号
+      Child->>File: 打开后核对句柄，读取并计数
+      Child-->>Worker: 聚合读取进展，用于停滞检测
+      Child->>File: 读后核对句柄与最终路径、属性、读取长度
+      alt 读前后稳定且媒体有效
+        Child-->>Worker: 文件 SHA-256 与已验证属性
+        %% D04: 文件缓存写入围栏
+        Worker->>DB: 短事务：执行围栏、源与目录代次 CAS、无活动路径写入，提交缓存
+        DB-->>Worker: 成功或拒绝过期结果
+      else 文件缺失、零字节、不可读或发生变化
+        Child-->>Worker: 显式失败，不能成为空的成功结果
+        Worker->>DB: fenced 检查点：该作品未完成及诊断
+      end
+    end
+    opt 达到时间或字节预算且位于文件边界
+      %% D05: 公平让行
+      Worker->>DB: 保存完整文件检查点，释放 lane，延后可领取时间
+      Note over Worker,Child: 下次接续已完成文件；中断文件从头读取
+    end
+  end
+  %% D06: 完整作品发布
+  Worker->>DB: 短事务：复核执行围栏、源代次与完整成员快照
+  alt 全部文件成功且成员未变化
+    Worker->>DB: 发布版本化大小与哈希多重集合、作品指纹及重复组
+    DB-->>App: 可分页查询完整结果
+  else 成员变化或结果不完整
+    DB-->>Worker: 拒绝发布，保留可复用文件缓存及未完成状态
+  end
+  %% D07: 取消与迟到结果
+  opt 停止或失效信号
+    Note over Worker,Child: 立即停止接收新结果，不继续发布完整作品结果
+    Worker-->>Child: 终止读取并等待确认退出
+    Child-->>Worker: 已退出；未确认退出时禁止启动替代读取进程
+  end
+  Note over Worker,DB: 旧执行器和迟到结果始终受 token / lease 与源代次双重保护
+
+  Note over App,DB: 检测结果不是直接删除授权；新删除须另经冻结预览、确认与全范围 fresh 校验

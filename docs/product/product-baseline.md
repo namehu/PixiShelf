@@ -15,6 +15,8 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 
 本文只维护长期能力和约束。具体交互与验收条件见[领域功能目录](../features/README.md)，实现机制见[当前架构](../architecture/current-architecture.md)，发布日期和验证结果见各功能链接的记录。`current` 表示反映当前代码，不等于生产已部署。
 
+去重专用直接删除的开发分支流程为：同艺术家四种作品来源及混合组在完整登记原媒体一致时，经服务端冻结预览和一次不可恢复确认后逐文件原地删除，整理不合并；不提供隔离或撤销。普通 URL 归档删除继续回收。现行能力与验收状态统一见[作品去重](../features/artwork-deduplication.md)，不能由开发分支实现推定生产已部署。
+
 ## 用户与核心工作
 
 首要用户是长期收藏图片、动画和视频，并愿意维护 Linux/NAS/单机 Docker Compose 服务的个人收藏者。桌面优先承载复杂管理，移动端优先保证浏览和轻量整理。
@@ -32,7 +34,7 @@ PixiShelf 是面向个人重度媒体收藏者的本地优先、自托管归档�
 | 浏览与阅读   | 支持图片、动画、视频、检索筛选、详情及沉浸浏览、主动自动浏览与堆叠浏览。站内只读本地媒体，原站通过受保护外链访问。                        | [阅读记录](../features/artwork-reading.md)、[堆叠浏览](../features/artwork-summary.md)、[沉浸浏览](../features/immersive-viewer-interactions.md) |
 | 阅读整理     | 按账户保存真实访问、逻辑媒体已读进度和最后位置；手动完成只修正进度，不伪造访问。可显式启用 Pixiv 新作品默认已读，历史补齐须独立预检。     | [阅读记录](../features/artwork-reading.md)、[Pixiv 导入默认已读](../features/pixiv-import-reading.md)                                            |
 | 后台维护     | 扫描、归档、替换、迁移、来源补全和派生媒体处理具有持久状态、审计和恢复入口。计划只产生任务，执行由通用 Worker 承担。                      | [后台任务业务链路](../architecture/background-job-business-flows.md)、[失败诊断](../features/background-job-diagnostics.md)                      |
-| 删除与恢复   | 显式预览删除范围；归档作品使用回收和持久删除意图；恢复须同时尊重数据库与文件状态。                                                        | [作品删除](../features/artwork-deletion.md)、[归档回收站](../features/archive-trash.md)                                                          |
+| 删除与恢复   | 显式预览删除范围；普通归档删除使用回收和持久删除意图，恢复同时尊重数据库与文件状态。去重专用永久删除的批准目标及未开放边界见下文。        | [作品删除](../features/artwork-deletion.md)、[归档回收站](../features/archive-trash.md)                                                          |
 | 隐私显示     | 浏览器级偏好统一遮蔽媒体及敏感只读文字；仅提供屏幕视觉保护，不改变真实值、加载、复制、导出或权限。                                        | [浏览器隐私偏好](../features/browser-privacy.md)                                                                                                 |
 
 浏览体验的性能改进不能改变阅读事实：预加载不算阅读，手工完成不增加真实访问，来源外链不计入本地阅读。完整替换或重建媒体使旧阅读状态失效，普通增删和排序保留仍存在的媒体记录。

@@ -519,3 +519,33 @@ describe('EHentaiProvider uploader scan', () => {
     expect(http.json).not.toHaveBeenCalled()
   })
 })
+
+describe('EHentaiProvider pure source identity', () => {
+  it.each([
+    'https://e-hentai.org/g/123/token/',
+    'https://e-hentai.org/s/imagekey/123-2',
+    'https://e-hentai.org/g/000123/token/?p=2#page'
+  ])('identifies %s without network I/O', (url) => {
+    const http = { text: vi.fn(), json: vi.fn(), request: vi.fn() }
+    const provider = new EHentaiProvider(http)
+    expect(provider.identifySource(url)).toEqual({ kind: 'PROVIDER', providerKey: 'e-hentai', externalId: '123' })
+    expect(http.text).not.toHaveBeenCalled()
+    expect(http.json).not.toHaveBeenCalled()
+    expect(http.request).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    'http://e-hentai.org/g/123/token/',
+    'https://evil.example/g/123/token/',
+    'https://user:password@e-hentai.org/g/123/token/',
+    'https://e-hentai.org:444/g/123/token/',
+    'https://e-hentai.org/g/123/token/extra',
+    'https://e-hentai.org/g/0/token/',
+    'https://e-hentai.org/g/9007199254740993/token/',
+    'https://e-hentai.org/s/imagekey/123-0',
+    'https://e-hentai.org/s/imagekey/123-9007199254740993',
+    'https://e-hentai.org/g/no-id/token/'
+  ])('rejects unsafe or ambiguous identity %s', (url) => {
+    expect(() => new EHentaiProvider().identifySource(url)).toThrow()
+  })
+})

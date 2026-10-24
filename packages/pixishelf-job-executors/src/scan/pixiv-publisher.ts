@@ -1,4 +1,5 @@
-import { Prisma, checkArtworkSummarySource, invalidateAnimationDurationSource } from '@pixishelf/db'
+import { assertPixivScanSources } from './dedup-source-snapshot.ts'
+import { Prisma, checkArtworkSummarySource, invalidateAnimationDurationSource, assertArtworkDedupWritable } from '@pixishelf/db'
 import { ScanExecutorError } from './errors.ts'
 import { animationDurationSourceChanged, canPreserveAnimationClassification } from './animation-duration-source.ts'
 import type { DiscoveredMediaFile } from './discovery.ts'
@@ -19,6 +20,7 @@ export interface PixivPublishInput {
   checkpointOrdinal: number
   checkpointKey: string
   metadataRelativePath: string
+  dedupSourceSnapshot?: unknown
   metadata: ScanMetadata
   metadataContentHash: string
   media: readonly DiscoveredMediaFile[]
@@ -52,6 +54,7 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
     }
   }
 
+  await assertPixivScanSources(transaction, { snapshot: input.dedupSourceSnapshot, relativePath: input.metadataRelativePath, externalId: metadata.id })
   const sourceRef = await transaction.artworkExternalRef.findUnique({
     where: { providerKey_externalId: { providerKey: 'pixiv', externalId: metadata.id } },
     include: {
@@ -64,6 +67,8 @@ export async function publishPixivArtwork(input: PixivPublishInput) {
       }
     }
   })
+
+  if (sourceRef) await assertArtworkDedupWritable(transaction, { artworkId: sourceRef.artwork.id, kind: 'CONTENT' })
 
   if (input.expectedIdentity) {
     await assertExpectedIdentity({ ...input, expectedIdentity: input.expectedIdentity }, sourceRef)

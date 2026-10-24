@@ -1,3 +1,4 @@
+import { artworkDedupRouter } from './routers/artwork-dedup'
 import { artworkQuickFilterRouter } from './routers/artwork-quick-filter'
 import { creatorRouter } from './routers/creator'
 import { router } from './trpc'
@@ -32,6 +33,7 @@ export const appRouter = router({
   artist: artistRouter,
   creator: creatorRouter,
   artwork: artworkRouter,
+  artworkDedup: artworkDedupRouter,
   artworkRating: artworkRatingRouter,
   mediaMark: mediaMarkRouter,
   reading: readingRouter,

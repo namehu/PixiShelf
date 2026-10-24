@@ -1,3 +1,16 @@
+import type { Prisma as ContentPrisma } from '@pixishelf/db'
+vi.mock('../../scan/media-content-write.ts', () => ({
+  resolveExecutorMediaDirectory: vi.fn(async () => ({})),
+  beginExecutorMediaWrite: vi.fn(async () => ({})),
+  publishExecutorMediaWrite: vi.fn(
+    async (
+      tx: ContentPrisma.TransactionClient,
+      _write: unknown,
+      _outcome: unknown,
+      action: (tx: ContentPrisma.TransactionClient) => Promise<unknown>
+    ) => action(tx)
+  )
+}))
 import * as fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -32,6 +45,31 @@ afterEach(async () => {
 })
 
 describe('video processing executor registrations', () => {
+  it('settles a preparation rollback in the cancellation finalizer after ordinary mutations stop', async () => {
+    const controller = new AbortController()
+    let harness: Awaited<ReturnType<typeof createHarness>>
+    harness = await createHarness('CANCELLING', {
+      signal: controller.signal,
+      processRunner: async () => {
+        controller.abort(new Error('cancel during probe'))
+        harness.mutateInTransaction.mockRejectedValue(new Error('CANCELLING rejects ordinary mutations'))
+        throw controller.signal.reason
+      }
+    })
+    await expect(harness.execute()).resolves.toEqual({ kind: 'transactionally-finalized' })
+    expect(harness.controls.cancel).toHaveBeenCalledOnce()
+    expect(harness.finalizeInTransaction).toHaveBeenCalledOnce()
+    expect(await fs.readFile(harness.sourcePath, 'utf8')).toBe('original')
+  })
+
+  it('leaves a cancellation with unverified recovery for lease recovery', async () => {
+    const harness = await createHarness('CANCELLING', { missingSource: true })
+    await expect(harness.execute()).rejects.toMatchObject({ name: 'VideoProcessingRecoveryError' })
+    expect(harness.controls.cancel).not.toHaveBeenCalled()
+    expect(harness.controls.pause).not.toHaveBeenCalled()
+    expect(harness.finalizeInTransaction).toHaveBeenCalledOnce()
+  })
+
   it('registers both versioned central capabilities', () => {
     const registrations = createVideoProcessingExecutorRegistrations({
       database: {} as VideoProcessingDatabase,

@@ -97,7 +97,7 @@ export function GlobalConfirmDialog() {
   }
 
   return (
-    <AlertDialog open={isOpen} onOpenChange={(open) => !open && close()}>
+    <AlertDialog open={isOpen} onOpenChange={(open) => !open && !isLoading && handleCancel()}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{options.title}</AlertDialogTitle>

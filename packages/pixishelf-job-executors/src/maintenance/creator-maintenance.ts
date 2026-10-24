@@ -5,6 +5,7 @@ import {
   creatorFingerprint,
   editArtworkCreators,
   lockCreatorCatalog,
+  assertArtworkDedupWritable,
   readSourceCreatorTags,
   remapCreatorTag,
   syncSourceCreators,
@@ -141,7 +142,7 @@ export async function executeCreatorMaintenance(
         const target = await tx.artist.findUniqueOrThrow({ where: { id: input.artistId, mergedIntoId: null } })
         if (current.mapping.version !== input.expectedVersion) throw new Error('映射版本已变化，请重新预览')
         if (target.kind !== (current.mapping.namespace === 'group' ? 'GROUP' : 'PERSON'))
-          throw new Error('目标类型不匹配')
+          {throw new Error('目标类型不匹配')}
         await tx.creatorMaintenanceItem.create({
           data: {
             planId: plan.id,
@@ -183,7 +184,7 @@ export async function executeCreatorMaintenance(
               })
             : []
         if ('creatorIds' in input && targets.length !== new Set(input.creatorIds).size)
-          throw new Error('所选创作者已不存在')
+          {throw new Error('所选创作者已不存在')}
         const series =
           input.command === 'SERIES'
             ? await tx.series.findUniqueOrThrow({ where: { id: input.seriesId }, select: { title: true } })
@@ -264,6 +265,7 @@ export async function executeCreatorMaintenance(
             result = { reason: '缺少可验证作者标签，请人工整理' }
           }
         } else if (input.command === 'SERIES') {
+          await assertArtworkDedupWritable(tx, { artworkId: item.artworkId, kind: 'STRUCTURE' })
           await tx.$queryRawUnsafe('SELECT id FROM "Series" WHERE id=$1 FOR UPDATE', input.seriesId)
           await tx.series.findUniqueOrThrow({ where: { id: input.seriesId } })
           const last = await tx.seriesArtwork.aggregate({
@@ -297,13 +299,13 @@ export async function executeCreatorMaintenance(
         message: '整理完成，可查看逐项结果及需重新预览的作品'
       })
     } else
-      await scope.retry({
+      {await scope.retry({
         availableAt: new Date(Date.now() + 1000),
         errorCode: 'RESOURCE_BUSY',
         error: 'Curation batch yielded',
         message: '已提交一批创作者关系整理，剩余 ' + remaining + ' 件',
         preserveAttempt: true,
         schedulingYield: true
-      })
+      })}
   })
 }

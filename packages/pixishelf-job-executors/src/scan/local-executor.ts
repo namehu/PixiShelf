@@ -1,3 +1,7 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
+import { assertLocalScanSources } from './dedup-source-snapshot.ts'
+import { assertScanRootUnchanged } from './root-identity.ts'
+import { captureScanMediaDirectory, assertScanMediaDirectory } from './media-content-guard.ts'
 import path from 'node:path'
 import type { LocalDirectoryImportPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
@@ -139,6 +143,18 @@ async function processLocalWork(input: {
   const title = path.posix.basename(input.work.relativePath)
   const artistId = input.mapping.get(artistDirectory)
   if (!artistId) throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local work has no frozen artist mapping')
+  const mediaDirectory = await captureScanMediaDirectory({
+    context: input.context,
+    scanRoot: input.root.absolutePath,
+    relativeDirectory: input.work.relativePath
+  })
+  await input.context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
+    await assertLocalScanSources(transaction, {
+      snapshot: input.work.dedupSourceSnapshot,
+      relativePath: input.work.relativePath,
+      rootIdentity: mediaDirectory.rootIdentity
+    })
+  })
   const media = await collectLocalMedia(
     input.root,
     input.work.relativePath,
@@ -154,11 +170,19 @@ async function processLocalWork(input: {
   if (!mediaDerivedTagIds) {
     throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Local work has no prepared media-derived tags')
   }
+  await assertScanRootUnchanged(input.root)
   return input.context.mutateInTransaction<
     ScanTransaction & QueueSqlExecutor,
     Awaited<ReturnType<typeof publishLocalMediaWork>>
-  >((transaction) =>
-    publishLocalMediaWork({
+  >(async (transaction) => {
+    await lockCreatorCatalog(transaction)
+    await assertScanMediaDirectory(transaction, mediaDirectory)
+    await assertLocalScanSources(transaction, {
+      snapshot: input.work.dedupSourceSnapshot,
+      relativePath: input.work.relativePath,
+      rootIdentity: mediaDirectory.rootIdentity
+    })
+    return publishLocalMediaWork({
       transaction,
       runId: input.runId,
       work: input.work,
@@ -169,7 +193,7 @@ async function processLocalWork(input: {
       mediaDerivedTagIds,
       defaultTagIds: input.context.payload.defaultTagIds
     })
-  )
+  })
 }
 
 async function recordLocalFailure(
@@ -203,14 +227,14 @@ async function recordLocalFailure(
       }
     })
     if (!context.signal.aborted)
-      await context.recordDiagnostic?.(transaction, {
+      {await context.recordDiagnostic?.(transaction, {
         key: `local:${runId}:${localCheckpointKey(work)}`,
         scope: 'ITEM',
         targetType: 'LOCAL_DIRECTORY',
         targetLabel: work.relativePath,
         stage: 'FAILED_WRITE',
         error
-      })
+      })}
     await transaction.scanRun.updateMany({
       where: { id: runId, checkpointOrdinal: { lt: work.ordinal + 1 } },
       data: { checkpointOrdinal: work.ordinal + 1, checkpointStage: 'PROCESSING' }

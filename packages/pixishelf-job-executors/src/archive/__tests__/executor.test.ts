@@ -1,4 +1,18 @@
+import type { Prisma as ContentPrisma } from '@pixishelf/db'
+vi.mock('../../scan/media-content-write.ts', () => ({
+  resolveExecutorMediaDirectory: vi.fn(async () => ({})),
+  beginExecutorMediaWrite: vi.fn(async () => ({})),
+  publishExecutorMediaWrite: vi.fn(
+    async (
+      tx: ContentPrisma.TransactionClient,
+      _write: unknown,
+      _outcome: unknown,
+      action: (tx: ContentPrisma.TransactionClient) => Promise<unknown>
+    ) => action(tx)
+  )
+}))
 import { PassThrough } from 'node:stream'
+import { dedupGuardFixture } from './dedup-guard-fixture.ts'
 import type { Prisma } from '@pixishelf/db'
 import {
   JobExecutionFenceError,
@@ -49,6 +63,7 @@ import {
 import type { ArchiveProvider } from '../types.js'
 
 const archiveImport = {
+  dedupSourceSnapshot: dedupGuardFixture('test', '42').snapshot,
   id: 'import-1',
   systemJobId: 'job-1',
   phase: 'DOWNLOAD',
@@ -248,6 +263,8 @@ describe('archive executor', () => {
     expect(context.__scope.release).toHaveBeenCalledOnce()
     expect(context.__scope.fail).not.toHaveBeenCalled()
     const resumed = createContext(transaction)
+    resumed.job.executionToken = '22222222-2222-4222-8222-222222222222'
+    resumed.job.leaseToken = resumed.job.executionToken
     resumed.recordDiagnostic = vi.fn(async () => undefined)
     await executeArchiveImport(resumed, dependencies(transaction))
     expect(resumed.recordDiagnostic).toHaveBeenCalledTimes(205)
@@ -692,12 +709,13 @@ describe('archive executor', () => {
       })
       const observations = writes.filter((call) => typeof call.data.lastDownloadUrl === 'string')
       expect(observations).toHaveLength(valid ? 1 : 0)
-      if (valid)
+      if (valid) {
         expect(observations[0]?.data).toEqual({
           lastDownloadUrl: downloadUrl,
           lastDownloadAt: new Date('2026-08-14T01:00:00.000Z'),
           lastDownloadAttempt: 1
         })
+      }
       expect(writes.find((call) => call.data.status === 'FAILED')?.data).not.toHaveProperty('lastDownloadUrl')
       expect(stream.destroyed).toBe(true)
       expect(
@@ -841,7 +859,7 @@ describe('archive executor', () => {
     const transaction = createTransaction()
     transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [archiveItem] })
     transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
-    const openMedia = vi.fn(async (_item: unknown, _context: unknown) => {
+    const openMedia = vi.fn<(item: unknown, context: unknown) => Promise<never>>(async () => {
       throw new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'connection reset', {
         recoverable: true,
         stage: 'MEDIA_STREAM'
@@ -886,6 +904,7 @@ describe('archive executor', () => {
       key: 'test',
       requestGovernance: 'PER_REQUEST',
       accepts: () => true,
+    identifySource: (input: string) => ({ kind: 'PROVIDER', providerKey: 'test', externalId: new URL(input).pathname.split('/')[2] ?? '1' }),
       resolve: vi.fn(),
       openMedia: vi.fn(async (_item, downloadContext) =>
         downloadContext.runDownloadStreamRequest!(async () => ({
@@ -998,20 +1017,31 @@ function dependencies(transaction: ReturnType<typeof createTransaction>) {
 }
 
 function createTransaction() {
+  const guard = dedupGuardFixture('test', '42')
+  const current: Record<string, unknown> = { ...archiveImport }
+  const findUnique = vi.fn(async () => current)
+  const generations = new Map<string, Record<string, unknown>>()
   return {
+    $queryRaw: guard.queryRaw,
     $queryRawUnsafe: vi.fn(async () => [{ lock: null }]),
     setting: {
       findUnique: vi.fn(async () => ({ value: '4' }))
     },
-    archiveStagingGeneration: { create: vi.fn(), updateMany: vi.fn(async () => ({ count: 1 })) },
+    archiveStagingGeneration: {
+      findUnique: vi.fn(async ({ where }: { where: { token: string } }) => generations.get(where.token) ?? null),
+      create: vi.fn(async ({ data }: { data: { token: string } & Record<string, unknown> }) => { generations.set(data.token, { ...data }); return data }),
+      update: vi.fn(async ({ where, data }: { where: { token: string }; data: Record<string, unknown> }) => Object.assign(generations.get(where.token)!, data)),
+      updateMany: vi.fn(async ({ where, data }: { where: { token?: string }; data: Record<string, unknown> }) => { for (const row of generations.values()) if (!where.token || row.token === where.token) Object.assign(row, data); return { count: 1 } })
+    },
     archiveDeletedIdentity: { findUnique: vi.fn(async () => null) },
     archiveImport: {
-      findUnique: vi.fn(async () => ({ ...archiveImport })),
-      findUniqueOrThrow: vi.fn(async () => ({
-        ...archiveImport,
-        generationToken: '11111111-1111-4111-8111-111111111111'
-      })),
-      updateMany: vi.fn(async () => ({ count: 1 })),
+      findUnique,
+      findUniqueOrThrow: vi.fn(async () => (await findUnique.mock.results.at(-1)?.value) ?? current),
+      updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        const row = (await findUnique.mock.results.at(-1)?.value) ?? current
+        Object.assign(row, data)
+        return { count: 1 }
+      }),
       update: vi.fn()
     },
     archiveImportItem: {

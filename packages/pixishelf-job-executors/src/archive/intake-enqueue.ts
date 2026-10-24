@@ -1,6 +1,8 @@
+import { assertArchiveSourceSnapshot } from './dedup-source-snapshot.ts'
+import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts'
 import { z } from 'zod'
 import { archiveImportV2PayloadSchema } from '@pixishelf/job-contracts'
-import { Prisma } from '@pixishelf/db'
+import { Prisma, lockCreatorCatalog } from '@pixishelf/db'
 import { redactSensitiveText } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError } from './errors.ts'
 import { buildArchiveStoragePaths } from './storage.ts'
@@ -32,15 +34,29 @@ export async function enqueueArchiveIntakeItemInTransaction(
   const { quality, requestedByUserId, timestamp, uuid, defaultTagIds } = options
   const item = await transaction.archiveIntakeItem.findUnique({ where: { id: itemId } })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
+  if (!['READY', 'ENQUEUED'].includes(item.status) || item.cancelRequestedAt)
+    {return { result: 'SKIPPED', code: 'INVALID_STATE' }}
+  await lockCreatorCatalog(transaction)
+  await lockIntakeSource(transaction, item)
+  const dedupSourceSnapshot = await assertArchiveSourceSnapshot(transaction, {
+    providerKey: item.providerKey ?? '',
+    externalId: item.externalId ?? '',
+    dedupSourceSnapshot: item.dedupSourceSnapshot
+  })
   if (item.status === 'ENQUEUED' && item.archiveImportId) {
     // ENQUEUED 且已有 import 时，直接回写当前归档引用，保证页面多次点击不会重复创建新任务。
     const reusedImport = await transaction.archiveImport.findUnique({
       where: { id: item.archiveImportId },
-      select: { id: true, selectedQuality: true }
+      select: { id: true, selectedQuality: true, providerKey: true, externalId: true, dedupSourceSnapshot: true }
     })
     if (!reusedImport) {
       return { result: 'CONFLICT', code: 'ARCHIVE_IMPORT_MISSING', message: '已入队的归档任务不存在' }
     }
+    await assertArchiveSourceSnapshot(transaction, {
+      ...reusedImport,
+      providerKey: item.providerKey ?? '',
+      externalId: item.externalId ?? ''
+    })
     await transaction.archiveIntakeItem.update({
       where: { id: item.id },
       data: {
@@ -81,6 +97,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
   }
   const active = await findActiveImport(transaction, item.providerKey, item.externalId)
   if (active) {
+    await assertArchiveSourceSnapshot(transaction, active)
     // 同一作品已有活动归档任务时，入队动作复用已有任务而不是创建重复任务。
     const changed = await transaction.archiveIntakeItem.updateMany({
       where: { id: item.id, status: 'READY', archiveImportId: null },
@@ -155,6 +172,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
       executions: { create: { jobId, phase: 'DOWNLOAD' } },
       providerKey: resolved.providerKey,
       externalId: resolved.externalId,
+      dedupSourceSnapshot,
       submittedUrl: item.submittedUrl,
       canonicalUrl: resolved.canonicalUrl,
       locator: toJsonValue(resolved.locator),
@@ -211,12 +229,24 @@ export async function recoverArchiveIntakeEnqueueRace(
   if (!isUniqueConstraintError(error)) return null
   const item = await transaction.archiveIntakeItem.findUnique({ where: { id: itemId } })
   if (!item) return null
+  if (!['READY', 'ENQUEUED'].includes(item.status) || item.cancelRequestedAt) return null
+  await lockIntakeSource(transaction, item)
+  await assertArchiveSourceSnapshot(transaction, {
+    providerKey: item.providerKey ?? '',
+    externalId: item.externalId ?? '',
+    dedupSourceSnapshot: item.dedupSourceSnapshot
+  })
   if (item.status === 'ENQUEUED' && item.archiveImportId) {
     const reusedImport = await transaction.archiveImport.findUnique({
       where: { id: item.archiveImportId },
-      select: { id: true, selectedQuality: true }
+      select: { id: true, selectedQuality: true, providerKey: true, externalId: true, dedupSourceSnapshot: true }
     })
     if (!reusedImport) return null
+    await assertArchiveSourceSnapshot(transaction, {
+      ...reusedImport,
+      providerKey: item.providerKey ?? '',
+      externalId: item.externalId ?? ''
+    })
     await transaction.archiveIntakeItem.update({
       where: { id: item.id },
       data: {
@@ -231,6 +261,7 @@ export async function recoverArchiveIntakeEnqueueRace(
   if (!item.providerKey || !item.externalId || item.status !== 'READY') return null
   const active = await findActiveImport(transaction, item.providerKey, item.externalId)
   if (!active) return null
+  await assertArchiveSourceSnapshot(transaction, active)
   const changed = await transaction.archiveIntakeItem.updateMany({
     where: { id: item.id, status: 'READY', archiveImportId: null },
     data: {
@@ -282,7 +313,7 @@ function linkCatalogToArchiveImport(
 function findActiveImport(transaction: Prisma.TransactionClient, providerKey: string, externalId: string) {
   return transaction.archiveImport.findFirst({
     where: { providerKey, externalId, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] } },
-    select: { id: true, selectedQuality: true }
+    select: { id: true, selectedQuality: true, providerKey: true, externalId: true, dedupSourceSnapshot: true }
   })
 }
 
@@ -332,4 +363,18 @@ export function parseArchiveIntakeDefaultTagIds(value: string | null | undefined
   return archiveImportV2PayloadSchema.shape.defaultTagIds.parse(
     [...new Set(tagIds)].sort((left, right) => left - right)
   )
+}
+
+async function lockIntakeSource(
+  transaction: Prisma.TransactionClient,
+  item: { providerKey: string | null; externalId: string | null; submittedUrl: string; canonicalUrl: string | null }
+) {
+  await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+  await lockArchiveUploaderCatalogIdentities(transaction, [
+    {
+      providerKey: item.providerKey,
+      externalId: item.externalId,
+      canonicalUrls: [item.submittedUrl, item.canonicalUrl]
+    }
+  ])
 }

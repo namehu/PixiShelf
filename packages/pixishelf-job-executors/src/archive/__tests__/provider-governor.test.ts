@@ -418,6 +418,7 @@ function createProvider(overrides: Partial<ArchiveProvider> = {}): ArchiveProvid
   return {
     key: 'test',
     accepts: () => true,
+    identifySource: (input: string) => ({ kind: 'PROVIDER', providerKey: 'test', externalId: new URL(input).pathname.split('/')[2] ?? '1' }),
     resolve: vi.fn(async () => ({}) as never),
     openMedia: vi.fn(async () => remoteMedia(new PassThrough())),
     ...overrides,

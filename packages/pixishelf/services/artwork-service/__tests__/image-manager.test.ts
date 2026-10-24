@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Actual maintenance guards are exercised by artwork-dedup-structure.postgres.test.ts.
+vi.mock('../../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: vi.fn() }))
+
 const {
   artworkFindUniqueMock,
   imageFindManyMock,
@@ -11,23 +14,51 @@ const {
   unlinkMock,
   syncMediaDerivedTagMock,
   lockArtworkMock
-} =
-  vi.hoisted(() => ({
-    artworkFindUniqueMock: vi.fn(),
-    imageFindManyMock: vi.fn(),
-    imageFindUniqueMock: vi.fn(),
-    imageDeleteMock: vi.fn(),
-    imageUpdateMock: vi.fn(),
-    transactionMock: vi.fn(),
-    getScanPathMock: vi.fn(),
-    unlinkMock: vi.fn(),
-    syncMediaDerivedTagMock: vi.fn(),
-    lockArtworkMock: vi.fn().mockResolvedValue({ id: 2, mediaRevision: 1 })
-  }))
+} = vi.hoisted(() => ({
+  artworkFindUniqueMock: vi.fn(),
+  imageFindManyMock: vi.fn(),
+  imageFindUniqueMock: vi.fn(),
+  imageDeleteMock: vi.fn(),
+  imageUpdateMock: vi.fn(),
+  transactionMock: vi.fn(),
+  getScanPathMock: vi.fn(),
+  unlinkMock: vi.fn(),
+  syncMediaDerivedTagMock: vi.fn(),
+  lockArtworkMock: vi.fn().mockResolvedValue({ id: 2, mediaRevision: 1 })
+}))
 
 vi.mock('@pixishelf/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pixishelf/db')>()),
+  lockCreatorCatalog: vi.fn().mockResolvedValue(undefined),
   lockArtworkForReading: lockArtworkMock
+}))
+
+vi.mock('../deletion-content-guard', () => ({
+  deletionMembers: (value: unknown) =>
+    JSON.stringify(value, (_key, field) => (typeof field === 'bigint' ? field.toString() : field)),
+  readDeletionIntent: async () => null,
+  executeDeletion: async (input: any) => {
+    const plan = await input.prepare()
+    for (const file of plan.files) await unlinkMock(`${input.scanRoot}/${file.path}`)
+    return transactionMock(async (tx: any) => {
+      await input.verifyMembers(tx, plan.members)
+      return { result: await input.publish(tx, plan) }
+    })
+  }
+}))
+vi.mock('../replace-write-lock', () => ({
+  withReplaceWriteLock: async (_directory: string, action: () => unknown) => action()
+}))
+vi.mock('../content-source-guard', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../content-source-guard')>()),
+  beginContentUpload: async () => ({ authorization: {} }),
+  publishContentOwner: async (
+    tx: unknown,
+    _user: unknown,
+    _auth: unknown,
+    _outcome: unknown,
+    publish: (tx: unknown) => unknown
+  ) => publish(tx)
 }))
 
 vi.mock('@/lib/prisma', () => ({
@@ -56,6 +87,7 @@ vi.mock('@/services/media-derived-tag-service', () => ({
 import {
   ArtworkImageOrderError,
   deleteImage,
+  previewDeleteImage,
   preserveExistingMediaPathOrder,
   reorderArtworkImages
 } from '../image-manager'
@@ -89,6 +121,7 @@ describe('deleteImage', () => {
           findUnique: artworkFindUniqueMock
         },
         image: {
+          findUnique: imageFindUniqueMock,
           delete: imageDeleteMock,
           findMany: imageFindManyMock,
           update: imageUpdateMock
@@ -105,7 +138,7 @@ describe('deleteImage', () => {
       chaptersPath: '/artist/artwork/video.chapters.json'
     })
 
-    await deleteImage(1, true)
+    await deleteImage(1, true, 'owner', await previewDeleteImage(1, 'IMAGE', 'owner'))
 
     expectUnlinkWithPathEnding('/artist/artwork/video.mp4')
     expectUnlinkWithPathEnding('/artist/artwork/video.chapters.json')
@@ -121,7 +154,7 @@ describe('deleteImage', () => {
       chaptersPath: '/artist/artwork/cover.jpg'
     })
 
-    await deleteImage(1, true)
+    await deleteImage(1, true, 'owner', await previewDeleteImage(1, 'IMAGE', 'owner'))
 
     expect(unlinkMock).toHaveBeenCalledTimes(1)
     expectUnlinkWithPathEnding('/artist/artwork/video.mp4')

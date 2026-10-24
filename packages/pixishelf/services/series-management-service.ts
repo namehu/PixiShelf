@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { TRPCError } from '@trpc/server'
-import { activeCreatorMembership } from '@pixishelf/db'
+import { activeCreatorMembership, lockCreatorCatalog } from '@pixishelf/db'
+import { assertArtworkDedupAppWrite } from './artwork-dedup-write-guard'
 import { prisma, type PrismaClientSingleton } from '@/lib/prisma'
 import { buildVideoPosterUrl, resolveMediaCoverUrl, VIDEO_POSTER_METADATA_SELECT } from '@/lib/media-cover'
 import {
@@ -129,8 +130,10 @@ export async function withSeriesMembershipLock<T>(
       return await prisma.$transaction(
         async (tx) => {
           await tx.$executeRaw`SET LOCAL lock_timeout = '5s'`
+          await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
           const existing = await tx.seriesArtwork.findMany({ where: { seriesId }, select: { artworkId: true } })
           const ids = [...new Set([...existing.map((r) => r.artworkId), ...candidateIds])].sort((a, b) => a - b)
+          for (const id of ids) await assertArtworkDedupAppWrite(tx, id, 'STRUCTURE')
           // Non-key locks allow FK checks from maintenance while blocking source publication.
           if (ids.length) {
             await tx.$queryRaw(

@@ -1,11 +1,25 @@
+import { archiveCatalogProbe } from './catalog-order-probe.ts'
+import { captureArchiveFixtureSource } from './dedup-source-fixture.ts'
+import { cleanupFixtureContentDirectories } from '../../scan/__tests__/content-directory-cleanup.ts'
 import { randomUUID, createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { PassThrough, Readable } from 'node:stream'
 import sharp from 'sharp'
-import { PrismaClient, type Prisma } from '@pixishelf/db'
-import { executionLaneForJobType, type JobType, type ArchiveImportV2Payload } from '@pixishelf/job-contracts'
+import {
+  PrismaClient,
+  Prisma,
+  inspectMediaContentRecovery,
+  grantMediaContentRecovery,
+  resumeGrantedMediaContentRecovery
+} from '@pixishelf/db'
+import {
+  parseArtworkDedupSourceSnapshot,
+  executionLaneForJobType,
+  type JobType,
+  type ArchiveImportV2Payload
+} from '@pixishelf/job-contracts'
 import {
   MutableQueueClock,
   PostgresQueueRepository,
@@ -23,6 +37,7 @@ import * as storage from '../storage.js'
 import { CentralDispatcher } from '../../../../pixishelf-worker/src/dispatcher.js'
 import { ExecutorRegistry } from '../../../../pixishelf-worker/src/executor-registry.js'
 import { RuntimeDispatcherQueue } from '../../../../pixishelf-worker/src/runtime-dispatcher-queue.js'
+import { readExecutorMediaRecoveryDomainSnapshot } from '../../scan/media-content-recovery.ts'
 import { executeArchiveMaintenance } from '../maintenance-executor.js'
 import type { ArchiveExecutorDependencies } from '../types.js'
 
@@ -56,6 +71,123 @@ suite('archive download lane real database and filesystem', () => {
   afterAll(async () => {
     await cleanup()
     await db?.$disconnect()
+  })
+
+  it.each(['NULL', 'HOLD', 'REOPEN'] as const)(
+    'rejects original source %s before staging or network',
+    async (fault) => {
+      const a = await seed(`source-start-${fault}`)
+      const original = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+      const sourceId = parseArtworkDedupSourceSnapshot(original).sources[0]!.sourceId
+      if (fault === 'NULL')
+        await db!.archiveImport.update({ where: { id: a.id }, data: { dedupSourceSnapshot: Prisma.DbNull } })
+      else {
+        await db!.artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
+        if (fault === 'REOPEN')
+          await db!.artworkDedupSourceIdentity.update({
+            where: { id: sourceId },
+            data: { status: 'OPEN', ownerOperationId: null, generation: { increment: 1 } }
+          })
+      }
+      const network = vi.fn(async () => remote(Readable.from([png])))
+      const job = await claim('ARCHIVE_DOWNLOAD')
+      await execute(job, dependencies(a.root, network))
+      expect(network).not.toHaveBeenCalled()
+      expect(await readdir(a.root)).toEqual([])
+      expect(await db!.archiveStagingGeneration.count({ where: { archiveImportId: a.id } })).toBe(0)
+      const failed = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })
+      expect(failed.status).toBe('FAILED')
+      expect(failed.dedupSourceSnapshot).toEqual(fault === 'NULL' ? null : original)
+      expect((await db!.systemJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('FAILED')
+    }
+  )
+
+  it('registers the original fenced execution generation before the first staging mkdir', async () => {
+    const a = await seed('register-before-fs')
+    const job = await claim('ARCHIVE_DOWNLOAD')
+    const prepare = storage.prepareArchiveStagingDirectory
+    const firstFs = vi.spyOn(storage, 'prepareArchiveStagingDirectory').mockImplementation(async (...args) => {
+      const current = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })
+      const generation = await db!.archiveStagingGeneration.findUniqueOrThrow({ where: { token: job.executionToken } })
+      expect(current).toMatchObject({
+        status: 'RUNNING',
+        generationToken: job.executionToken,
+        stagingPath: generation.path
+      })
+      expect(generation).toMatchObject({ jobId: job.id, archiveImportId: a.id, drainedAt: null })
+      expect(await readdir(a.root)).toEqual([])
+      return prepare(...args)
+    })
+    await execute(job, dependencies(a.root))
+    expect(firstFs).toHaveBeenCalledOnce()
+  })
+
+  it.each(['HOLD', 'REOPEN'] as const)(
+    'rejects media success receipt under original source %s and still drains its token',
+    async (fault) => {
+      const a = await seed(`source-receipt-${fault}`)
+      const original = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+      const sourceId = parseArtworkDedupSourceSnapshot(original).sources[0]!.sourceId
+      const stream = new PassThrough()
+      let opened!: () => void
+      const opening = new Promise<void>((resolve) => {
+        opened = resolve
+      })
+      const job = await claim('ARCHIVE_DOWNLOAD')
+      const running = execute(
+        job,
+        dependencies(a.root, async () => {
+          opened()
+          return remote(stream)
+        })
+      )
+      try {
+        await opening
+        stream.write(png.subarray(0, 8))
+        await db!.artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
+        if (fault === 'REOPEN')
+          await db!.artworkDedupSourceIdentity.update({
+            where: { id: sourceId },
+            data: { status: 'OPEN', ownerOperationId: null, generation: { increment: 1 } }
+          })
+        stream.end(png.subarray(8))
+        await running
+        const failed = await db!.archiveImport.findUniqueOrThrow({
+          where: { id: a.id },
+          include: { items: true, generations: true }
+        })
+        expect(failed.status).toBe('FAILED')
+        expect(failed.items[0]!.status).not.toBe('COMPLETED')
+        expect(failed.generations[0]).toMatchObject({ token: job.executionToken, sealedAt: null })
+        expect(failed.generations[0]!.drainedAt).not.toBeNull()
+        expect(failed.dedupSourceSnapshot).toEqual(original)
+        expect(await db!.systemJob.count({ where: { parentJobId: job.id } })).toBe(0)
+      } finally {
+        stream.end()
+        await running.catch(() => undefined)
+      }
+    }
+  )
+
+  it('rejects source generation changes at final publication without creating Artwork or recapturing proof', async () => {
+    const a = await seed('source-final-publish')
+    await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root))
+    const original = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+    const sourceId = parseArtworkDedupSourceSnapshot(original).sources[0]!.sourceId
+    const publish = await claim('ARCHIVE_PUBLISH')
+    const ctx = context(publish)
+    const finalize = ctx.finalizeInTransaction
+    ctx.finalizeInTransaction = async (operation) => {
+      await db!.artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { generation: { increment: 1 } } })
+      return finalize(operation)
+    }
+    await expect(execute(publish, dependencies(a.root), ctx)).rejects.toThrow('SOURCE_GENERATION_CHANGED')
+    expect(await db!.archiveRevision.count({ where: { archiveImportId: a.id } })).toBe(0)
+    expect(await db!.artworkExternalRef.count({ where: { providerKey: 'test', externalId: a.id } })).toBe(0)
+    expect((await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot).toEqual(original)
+    expect(
+      (await db!.mediaContentPathWrite.findFirstOrThrow({ where: { sessionId: `archive-publish:${a.id}` } })).status
+    ).toBe('ACTIVE')
   })
 
   it('runs a writer and resolver while slow download holds its lane; competing workers cannot take a second download', async () => {
@@ -161,10 +293,15 @@ suite('archive download lane real database and filesystem', () => {
     }
   })
 
-  it('handoff and replay are fenced and create exactly one publish, freezing automatic priority and tags', async () => {
+  it('catalog barrier: handoff and replay are fenced and create exactly one publish, freezing automatic priority and tags', async () => {
     const a = await seed('atomic', { origin: 'AUTO', tags: [21, 34] })
     const job = await claim('ARCHIVE_DOWNLOAD')
-    await execute(job, dependencies(a.root))
+    const originalProof = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+    const probe = archiveCatalogProbe(db!, parseArtworkDedupSourceSnapshot(originalProof).sources[0]!.sourceId)
+    const ctx = context(job), finalize = ctx.finalizeInTransaction
+    ctx.finalizeInTransaction = (operation) => finalize<Parameters<typeof operation>[0]['transaction']>((scope) => operation({ ...scope, transaction: probe.wrap(scope.transaction) }))
+    await execute(job, dependencies(a.root), ctx)
+    expect(probe.hits()).toBe(1)
     await expect(execute(job, dependencies(a.root))).rejects.toThrow()
     const state = await db!.archiveImport.findUniqueOrThrow({
       where: { id: a.id },
@@ -204,7 +341,8 @@ suite('archive download lane real database and filesystem', () => {
       status: 'RUNNING',
       sealedManifestSha256: null
     })
-    expect(state.generations[0]).toMatchObject({ sealedAt: null, drainedAt: null })
+    expect(state.generations[0]?.sealedAt).toBeNull()
+    expect(state.generations[0]?.drainedAt).not.toBeNull()
     expect(await db!.systemJob.count({ where: { parentJobId: job.id } })).toBe(0)
   })
 
@@ -259,7 +397,7 @@ suite('archive download lane real database and filesystem', () => {
     await expect(readFile(path.join(a.root, fresh.stagingPath, 'late-orphan'))).rejects.toMatchObject({
       code: 'ENOENT'
     })
-    expect(fresh.generations.find((generation) => generation.token === old.generationToken)?.drainedAt).toBeNull()
+    expect(fresh.generations.find((generation) => generation.token === old.generationToken)?.drainedAt).not.toBeNull()
   })
 
   it('fences a real old download continuation after takeover and keeps its immutable orphan out of the sealed generation', async () => {
@@ -304,6 +442,149 @@ suite('archive download lane real database and filesystem', () => {
     expect(orphanFiles.some((name) => name.includes(oldJob.executionToken) && !name.startsWith('.part-'))).toBe(true)
   })
 
+  it.each(['crash-before-rename', 'rename-enospc', 'cancel-before-rename'] as const)(
+    'restores an exact pre-rename publication through an offline grant: %s',
+    async (fault) => {
+      const a = await seed(`pre-rename-${fault}`)
+      await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root))
+      const publish = await claim('ARCHIVE_PUBLISH')
+      const ctx = context(publish)
+      const prepare = vi.spyOn(storage, 'prepareArchiveRevisionDirectory').mockImplementation(async () => {
+        if (fault === 'cancel-before-rename')
+          await db!.systemJob.update({
+            where: { id: publish.id },
+            data: { status: 'CANCELLING', cancelRequestedAt: clock.now() }
+          })
+        throw Object.assign(new Error('injected before rename'), { code: 'ENOSPC' })
+      })
+      if (fault === 'crash-before-rename')
+        ctx.finalizeInTransaction = async () => {
+          throw new Error('process stopped before settlement')
+        }
+      if (fault === 'rename-enospc') await execute(publish, dependencies(a.root), ctx)
+      else await expect(execute(publish, dependencies(a.root), ctx)).rejects.toThrow()
+      const oldClaim = await db!.mediaContentPathWrite.findFirstOrThrow({ where: { jobId: publish.id } })
+      expect(oldClaim.status).toBe('ACTIVE')
+      const finalPath = path.join(a.root, `sources/test/bucket/${a.id}/revisions/${a.id}`)
+      expect(await storage.pathExists(finalPath)).toBe(false)
+      if (fault !== 'rename-enospc') {
+        clock.advance(61_000)
+        await repo!.recoverExpiredExecution('BACKGROUND_WRITER')
+        clock.advance(600_000)
+      }
+      if (fault === 'cancel-before-rename') {
+        expect((await db!.systemJob.findUniqueOrThrow({ where: { id: publish.id } })).status).toBe('PAUSED')
+        expect((await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('PAUSED')
+      }
+      await db!.systemJob.update({
+        where: { id: publish.id },
+        data: { status: 'PENDING', availableAt: clock.now(), cancelRequestedAt: null, pauseRequestedAt: null }
+      })
+      await db!.archiveImport.update({ where: { id: a.id }, data: { status: 'PENDING' } })
+      const ordinaryRetry = await claim('ARCHIVE_PUBLISH')
+      prepare.mockRestore()
+      await execute(ordinaryRetry, dependencies(a.root))
+      expect((await db!.systemJob.findUniqueOrThrow({ where: { id: publish.id } })).status).toBe('PAUSED')
+      expect(await storage.pathExists(finalPath)).toBe(false)
+      expect(await db!.mediaContentPathWrite.findUniqueOrThrow({ where: { id: oldClaim.id } })).toEqual(oldClaim)
+      const inspection = await db!.$transaction((tx) =>
+        inspectMediaContentRecovery(tx, {
+          jobId: publish.id,
+          sessionId: `archive-publish:${a.id}`,
+          now: clock.now(),
+          readDomainSnapshot: readExecutorMediaRecoveryDomainSnapshot
+        })
+      )
+      if (inspection.status !== 'READY') throw new Error(`inspection ${inspection.status}`)
+      const grant = await db!.$transaction((tx) =>
+        grantMediaContentRecovery(tx, {
+          snapshot: inspection.value.snapshot,
+          expectedDigest: inspection.value.digest,
+          backupCheckpointRef: 'fixture://pre-rename',
+          operator: 'fixture',
+          confirmAllWritersStopped: true,
+          now: clock.now(),
+          readDomainSnapshot: readExecutorMediaRecoveryDomainSnapshot
+        })
+      )
+      if (grant.status !== 'READY') throw new Error(`grant ${grant.status}`)
+      const resume = await db!.$transaction((tx) =>
+        resumeGrantedMediaContentRecovery(tx, {
+          grantId: grant.value.grantId,
+          operator: 'fixture',
+          confirmAllWritersStopped: true,
+          now: clock.now(),
+          readDomainSnapshot: readExecutorMediaRecoveryDomainSnapshot
+        })
+      )
+      expect(resume.status).toBe('READY')
+      expect((await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).status).toBe('PENDING')
+      const recovered = await claim('ARCHIVE_PUBLISH')
+      const recoveredContext = context(recovered)
+      await execute(recovered, dependencies(a.root), recoveredContext)
+      if ((await db!.systemJob.findUniqueOrThrow({ where: { id: publish.id } })).status !== 'COMPLETED')
+        throw (
+          vi.mocked(recoveredContext.logger.error).mock.calls.at(-1)?.[1] ??
+          new Error('recovered publication did not complete')
+        )
+      expect((await db!.systemJob.findUniqueOrThrow({ where: { id: publish.id } })).status).toBe('COMPLETED')
+      expect(await db!.mediaContentPathWrite.findUniqueOrThrow({ where: { id: oldClaim.id } })).toMatchObject({
+        status: 'COMPLETED',
+        writeToken: oldClaim.writeToken,
+        directoryId: oldClaim.directoryId,
+        declarationVersion: oldClaim.declarationVersion + 2n,
+        executionToken: recovered.executionToken
+      })
+      expect(await db!.archiveRevision.count({ where: { archiveImportId: a.id } })).toBe(1)
+      await expect(execute(publish, dependencies(a.root))).rejects.toThrow()
+    }
+  )
+
+  it('preserves unresolved post-rename proof against direct cleanup and RECONCILE, then resumes publication', async () => {
+    const a = await seed('cleanup-publish-gate')
+    await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root))
+    const publish = await claim('ARCHIVE_PUBLISH')
+    const ctx = context(publish)
+    ctx.finalizeInTransaction = async () => {
+      throw new Error('crash after rename')
+    }
+    await expect(execute(publish, dependencies(a.root), ctx)).rejects.toThrow('crash after rename')
+    const oldClaim = await db!.mediaContentPathWrite.findFirstOrThrow({ where: { jobId: publish.id } })
+    const finalPath = path.join(a.root, `sources/test/bucket/${a.id}/revisions/${a.id}`)
+    const manifest = await readFile(path.join(finalPath, 'manifest.json'))
+    clock.advance(61_000)
+    await repo!.recoverExpiredExecution('BACKGROUND_WRITER')
+    await db!.systemJob.update({ where: { id: publish.id }, data: { status: 'PAUSED' } })
+    await db!.archiveImport.update({ where: { id: a.id }, data: { status: 'PAUSED', cleanupRequestedAt: clock.now() } })
+    const before = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })
+    await seedJob('ARCHIVE_MAINTENANCE', 'blocked-cleanup', { action: 'CLEAN_STAGING', archiveImportId: a.id })
+    const cleanupJob = await claim('ARCHIVE_MAINTENANCE')
+    await expect(
+      executeArchiveMaintenance(context(cleanupJob) as never, { database: db!, config: { scanRoot: a.root } })
+    ).rejects.toThrow('恢复原 PUBLISH')
+    await repo!.release(fence(cleanupJob))
+    await db!.systemJob.update({ where: { id: cleanupJob.id }, data: { status: 'CANCELLED' } })
+    await seedJob('ARCHIVE_MAINTENANCE', 'blocked-reconcile', { action: 'RECONCILE' })
+    const reconcile = await claim('ARCHIVE_MAINTENANCE')
+    const reconcileContext = context(reconcile)
+    reconcileContext.enqueueChild = vi.fn(async () => {
+      throw new Error('must not enqueue cleanup')
+    })
+    await executeArchiveMaintenance(reconcileContext as never, {
+      database: db!,
+      config: { scanRoot: a.root },
+      now: () => clock.now()
+    })
+    expect(reconcileContext.enqueueChild).not.toHaveBeenCalled()
+    expect(await readFile(path.join(finalPath, 'manifest.json'))).toEqual(manifest)
+    expect(await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).toEqual(before)
+    expect(await db!.mediaContentPathWrite.findUniqueOrThrow({ where: { id: oldClaim.id } })).toEqual(oldClaim)
+    await db!.archiveImport.update({ where: { id: a.id }, data: { status: 'PENDING', cleanupRequestedAt: null } })
+    await db!.systemJob.update({ where: { id: publish.id }, data: { status: 'PENDING', availableAt: clock.now() } })
+    await execute(await claim('ARCHIVE_PUBLISH'), dependencies(a.root))
+    expect(await db!.archiveRevision.count({ where: { archiveImportId: a.id } })).toBe(1)
+  })
+
   it('recovers a rename-before-commit publication without network or media rehash', async () => {
     const a = await seed('rename')
     await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root))
@@ -324,10 +605,20 @@ suite('archive download lane real database and filesystem', () => {
     await expect(execute(publish, dependencies(a.root, network), ctx)).rejects.toThrow('crash after rename')
     const expected = `sources/test/bucket/${a.id}/revisions/${a.id}`
     expect(JSON.parse(await readFile(path.join(a.root, expected, 'manifest.json'), 'utf8')).revisionId).toBe(a.id)
+    const prepare = vi.spyOn(storage, 'prepareArchiveRevisionDirectory').mockImplementation(async () => {
+      throw new Error('completed publication recovery must not write files')
+    })
     clock.advance(61_000)
     await repo!.recoverExpiredExecution('BACKGROUND_WRITER')
     clock.advance(600_000)
-    await execute(await claim('ARCHIVE_PUBLISH'), dependencies(a.root, network))
+    const retry = await claim('ARCHIVE_PUBLISH')
+    const retryContext = context(retry)
+    retryContext.finalizeInTransaction = async () => {
+      throw new Error('crash after rebind')
+    }
+    await expect(execute(retry, dependencies(a.root, network), retryContext)).rejects.toThrow('crash after rebind')
+    await expect(execute(publish, dependencies(a.root, network))).rejects.toThrow()
+    await execute(retry, dependencies(a.root, network))
     expect(network).not.toHaveBeenCalled()
     const state = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { systemJob: true } })
     expect(state).toMatchObject({
@@ -338,12 +629,61 @@ suite('archive download lane real database and filesystem', () => {
     expect(await db!.archiveRevision.count({ where: { archiveImportId: a.id } })).toBe(1)
     expect(validate).not.toHaveBeenCalled()
     expect(copy).not.toHaveBeenCalled()
+    expect(prepare).not.toHaveBeenCalled()
+    const contentClaim = await db!.mediaContentPathWrite.findFirstOrThrow({
+      where: { sessionId: `archive-publish:${a.id}` }
+    })
+    expect(contentClaim).toMatchObject({
+      status: 'COMPLETED',
+      executionToken: retry.executionToken,
+      executionAttempt: retry.attempt,
+      declarationVersion: 3n
+    })
+    await expect(execute(publish, dependencies(a.root, network))).rejects.toThrow()
+    expect(prepare).not.toHaveBeenCalled()
+    expect(await db!.archiveRevision.count({ where: { archiveImportId: a.id } })).toBe(1)
     validate.mockRestore()
     copy.mockRestore()
   })
 
+  it.each(['staging-remains', 'manifest-changed', 'cleanup-requested'])(
+    'preserves the old publication claim when recovery proof fails: %s',
+    async (fault) => {
+      const a = await seed(`claim-proof-${fault}`)
+      await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root))
+      const publish = await claim('ARCHIVE_PUBLISH')
+      const ctx = context(publish)
+      ctx.finalizeInTransaction = async () => {
+        throw new Error('crash after rename')
+      }
+      await expect(execute(publish, dependencies(a.root), ctx)).rejects.toThrow('crash after rename')
+      const oldClaim = await db!.mediaContentPathWrite.findFirstOrThrow({
+        where: { sessionId: `archive-publish:${a.id}` }
+      })
+      const sealed = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })
+      const finalPath = path.join(a.root, `sources/test/bucket/${a.id}/revisions/${a.id}`)
+      if (fault === 'staging-remains') await mkdir(path.join(a.root, sealed.stagingPath), { recursive: true })
+      if (fault === 'manifest-changed') await writeFile(path.join(finalPath, 'manifest.json'), '{}')
+      clock.advance(61_000)
+      await repo!.recoverExpiredExecution('BACKGROUND_WRITER')
+      clock.advance(600_000)
+      const retry = await claim('ARCHIVE_PUBLISH')
+      if (fault === 'cleanup-requested')
+        await db!.archiveImport.update({ where: { id: a.id }, data: { cleanupRequestedAt: clock.now() } })
+      await execute(retry, dependencies(a.root))
+      const retained = await db!.mediaContentPathWrite.findUniqueOrThrow({ where: { id: oldClaim.id } })
+      expect(retained).toMatchObject({
+        status: 'ACTIVE',
+        declarationVersion: oldClaim.declarationVersion,
+        executionToken: publish.executionToken
+      })
+      expect(await db!.archiveRevision.count({ where: { archiveImportId: a.id } })).toBe(0)
+      expect(await storage.pathExists(path.join(finalPath, 'media'))).toBe(true)
+    }
+  )
+
   it.each([1, 2])(
-    'legacy v%i handoff performs no network and preserves tags, origin facts and retry budget',
+    'catalog barrier: legacy v%i handoff performs no network and preserves tags, origin facts and retry budget',
     async (version) => {
       const a = await seed(`legacy-${version}`, { legacy: version })
       const availableAt = new Date(clock.now().getTime() - 10_000)
@@ -352,7 +692,12 @@ suite('archive download lane real database and filesystem', () => {
       const network = vi.fn(async () => {
         throw new Error('legacy must not download')
       })
-      await execute(legacy, dependencies(a.root, network))
+      const originalProof = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+      const probe = archiveCatalogProbe(db!, parseArtworkDedupSourceSnapshot(originalProof).sources[0]!.sourceId)
+      const ctx = context(legacy), finalize = ctx.finalizeInTransaction
+      ctx.finalizeInTransaction = (operation) => finalize<Parameters<typeof operation>[0]['transaction']>((scope) => operation({ ...scope, transaction: probe.wrap(scope.transaction) }))
+      await execute(legacy, dependencies(a.root, network), ctx)
+      expect(probe.hits()).toBe(1)
       const state = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { systemJob: true } })
       expect(network).not.toHaveBeenCalled()
       expect(state).toMatchObject({
@@ -515,6 +860,7 @@ async function seed(label: string, options: { origin?: 'MANUAL' | 'AUTO'; tags?:
       origin: options.legacy ? null : (options.origin ?? 'MANUAL'),
       providerKey: 'test',
       externalId: id,
+      dedupSourceSnapshot: await captureArchiveFixtureSource(db!, 'test', id),
       submittedUrl: 'https://example.test/archive',
       canonicalUrl: `https://example.test/${id}`,
       locator: {},
@@ -614,6 +960,10 @@ function execute(job: ClaimedJob, deps: ArchiveExecutorDependencies, ctx = conte
 }
 async function cleanup() {
   if (!db) return
+  await db.mediaContentRecoveryGrant.deleteMany({
+    where: { job: { archiveExecutions: { some: { archiveImportId: { startsWith: prefix } } } } }
+  })
+  await cleanupFixtureContentDirectories(db, roots)
   const executions = await db.archiveImportExecution.findMany({
     where: { archiveImportId: { startsWith: prefix } },
     select: { jobId: true }
@@ -621,6 +971,7 @@ async function cleanup() {
   for (const item of executions) extraJobs.add(item.jobId)
   await db.artwork.deleteMany({ where: { title: prefix } })
   await db.archiveImport.deleteMany({ where: { id: { startsWith: prefix } } })
+  await db.artworkDedupSourceIdentity.deleteMany({ where: { providerKey: 'test', externalId: { startsWith: prefix } } })
   await db.jobResourceLease.deleteMany({ where: { ownerJobId: { in: [...extraJobs] } } })
   await db.systemJob.deleteMany({ where: { id: { in: [...extraJobs] } } })
   extraJobs.clear()

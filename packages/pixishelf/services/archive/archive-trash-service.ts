@@ -26,7 +26,11 @@ export async function listArchiveTrash(
   database: PrismaClient = prisma as unknown as PrismaClient
 ) {
   const parsed = archiveTrashListSchema.parse(input)
-  const base: Prisma.ArtworkWhereInput = { createdVia: 'URL_ARCHIVE', deletedAt: { not: null } }
+  const base: Prisma.ArtworkWhereInput = {
+    createdVia: 'URL_ARCHIVE',
+    deletedAt: { not: null },
+    archiveLifecycleState: { not: 'ACTIVE' }
+  }
   const where: Prisma.ArtworkWhereInput = {
     ...base,
     AND: [

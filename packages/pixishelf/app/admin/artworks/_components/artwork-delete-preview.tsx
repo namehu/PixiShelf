@@ -111,9 +111,10 @@ function PreviewContent({
   const [selected, setSelected] = useState(
     () =>
       new Set(
-        preview.entries
-          .filter((entry) => entry.selection === 'REQUIRED' || entry.selection === 'OPTIONAL')
-          .map((entry) => entry.path)
+        preview.recovery?.selectedPaths ??
+          preview.entries
+            .filter((entry) => entry.selection === 'REQUIRED' || entry.selection === 'OPTIONAL')
+            .map((entry) => entry.path)
       )
   )
   const [search, setSearch] = useState('')
@@ -152,7 +153,10 @@ function PreviewContent({
     setPending(true)
     onBusyChange(true)
     try {
-      await onDelete({ artworkId: preview.artwork.id, ...(archive ? {} : { selectedPaths: [...selected] }) })
+      await onDelete({
+        artworkId: preview.artwork.id,
+        ...(archive ? {} : { operationId: preview.operationId, selectedPaths: [...selected] })
+      })
     } catch {
       setUnconfirmed(true)
     } finally {
@@ -189,17 +193,17 @@ function PreviewContent({
               </PopoverContent>
             </Popover>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="重新加载"
-            disabled={pending || unconfirmed}
-            onClick={onReload}
-          >
+          <Button variant="ghost" size="icon" aria-label="重新加载" disabled={pending} onClick={onReload}>
             <RefreshCw />
           </Button>
         </div>
       </div>
+      {preview.recovery && (
+        <Alert className="mx-4 mb-2 w-auto shrink-0">
+          <AlertTitle>继续上次删除</AlertTitle>
+          <AlertDescription>原文件选择已锁定。重试会检查已删除文件，并只处理剩余原文件。</AlertDescription>
+        </Alert>
+      )}
       {!preview.canDelete && (
         <Alert variant="destructive" className="mx-4 mb-2 w-auto shrink-0">
           <AlertTitle>清单未完整检查，禁止删除</AlertTitle>
@@ -209,7 +213,7 @@ function PreviewContent({
       {unconfirmed && (
         <Alert variant="destructive" className="mx-4 mb-2 w-auto shrink-0">
           <AlertTitle>删除结果未确认</AlertTitle>
-          <AlertDescription>核对作品列表与日志，勿重复提交。</AlertDescription>
+          <AlertDescription>重新加载原操作预览后，可按原选择重试。</AlertDescription>
         </Alert>
       )}
       {archive ? (
@@ -248,7 +252,7 @@ function PreviewContent({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={pending || !optional.length}
+                disabled={pending || Boolean(preview.recovery) || !optional.length}
                 onClick={() =>
                   toggle(
                     optional.map((entry) => entry.path),
@@ -261,7 +265,7 @@ function PreviewContent({
               <Button
                 variant="ghost"
                 size="sm"
-                disabled={pending || !optional.length}
+                disabled={pending || Boolean(preview.recovery) || !optional.length}
                 onClick={() =>
                   toggle(
                     optional.map((entry) => entry.path),
@@ -278,7 +282,7 @@ function PreviewContent({
             optional={optional}
             selected={selected}
             directory={preview.artwork.directory}
-            pending={pending}
+            pending={pending || Boolean(preview.recovery)}
             searchKey={`${search}\0${filter}`}
             toggle={toggle}
           />
@@ -303,7 +307,7 @@ function PreviewContent({
               disabled={!preview.canDelete || pending || unconfirmed}
               onClick={() => void submit()}
             >
-              {pending ? '正在删除…' : archive ? '确认移入回收站' : '确认删除'}
+              {pending ? '正在删除…' : archive ? '确认移入回收站' : preview.recovery ? '重试原删除' : '确认删除'}
             </Button>
           </div>
         </div>

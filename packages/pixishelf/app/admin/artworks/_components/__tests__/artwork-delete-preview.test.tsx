@@ -58,6 +58,29 @@ async function setup(preview = fixture(), onDelete = vi.fn().mockResolvedValue(u
 }
 
 describe('delete preview', () => {
+  it('shows and submits only the frozen original choice when resuming', async () => {
+    const preview = fixture()
+    preview.operationId = '50000000-0000-4000-8000-000000000001'
+    preview.recovery = { selectedPaths: [`${directory}/image.jpg`] }
+    const { onDelete } = await setup(preview)
+    expect(screen.getByText('继续上次删除')).toBeTruthy()
+    expect(
+      (screen.getByRole('checkbox', { name: `选择 ${directory}/133479323-简介-links.txt` }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true)
+    expect(
+      screen.getByRole('checkbox', { name: `选择 ${directory}/133479323-简介-links.txt` }).getAttribute('aria-checked')
+    ).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: '重试原删除' }))
+    await waitFor(() =>
+      expect(onDelete).toHaveBeenCalledWith({
+        artworkId: 42,
+        operationId: preview.operationId,
+        selectedPaths: preview.recovery!.selectedPaths
+      })
+    )
+  })
+
   it('defaults to all safe files, locks media, and submits exact choices', async () => {
     const { onDelete } = await setup()
     const media = screen.getByRole('checkbox', { name: `选择 ${directory}/image.jpg` }) as HTMLButtonElement

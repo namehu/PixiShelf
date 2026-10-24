@@ -1,7 +1,9 @@
+import { fixtureReceipt, fixtureUser } from '../artwork-service/__tests__/media-content-fixture'
 import path from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
+  addImage: vi.fn(),
   getScanPath: vi.fn(),
   mkdir: vi.fn(),
   transaction: vi.fn(),
@@ -24,6 +26,8 @@ vi.mock('@pixishelf/db', async (importOriginal) => ({
   lockCreatorCatalog: mocks.lockCreatorCatalog,
   requireAvailableArtist: mocks.requireAvailableArtist
 }))
+
+vi.mock('../artwork-service/image-manager', () => ({ addImageWithChapters: mocks.addImage }))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -66,6 +70,7 @@ import { batchCreateArtworksService, batchRegisterImagesService } from '../batch
 describe('batch-import-service audit integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.addImage.mockResolvedValue({ id: 1 })
     mocks.getScanPath.mockResolvedValue('D:/scan')
     mocks.mkdir.mockResolvedValue(undefined)
     mocks.generateLocalExternalId.mockReturnValue('local_10')
@@ -202,36 +207,34 @@ describe('batch-import-service audit integration', () => {
     mocks.artworkFindMany.mockResolvedValue([{ id: 10, externalId: 'local_10' }])
 
     await expect(
-      batchRegisterImagesService({
-        scanRunId: 'run-1',
-        items: [
-          {
-            artworkId: 10,
-            images: [
-              { path: 'artist/local_10/local_10_p0.mp4', size: 3048403909 },
-              { path: 'artist/local_10/local_10_p1.jpg', size: 200 }
-            ]
-          }
-        ]
-      })
+      batchRegisterImagesService(
+        {
+          scanRunId: 'run-1',
+          items: [
+            {
+              artworkId: 10,
+              images: [
+                { path: 'artist/local_10/local_10_p0.mp4', size: 3048403909, uploadReceipt: fixtureReceipt() },
+                { path: 'artist/local_10/local_10_p1.jpg', size: 200, uploadReceipt: fixtureReceipt() }
+              ]
+            }
+          ]
+        },
+        fixtureUser
+      )
     ).resolves.toEqual({ success: true })
 
-    expect(imageCreateMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({
-          path: 'artist/local_10/local_10_p0.mp4',
-          size: BigInt(3048403909),
-          mediaType: 'VIDEO',
-          webpAnimationStatus: null
-        }),
-        expect.objectContaining({
-          path: 'artist/local_10/local_10_p1.jpg',
-          size: BigInt(200),
-          mediaType: 'IMAGE',
-          webpAnimationStatus: null
-        })
-      ]
-    })
+    expect(mocks.addImage).toHaveBeenCalledTimes(2)
+    expect(mocks.addImage).toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({
+        path: 'artist/local_10/local_10_p0.mp4',
+        size: 3048403909,
+        uploadReceipt: expect.anything()
+      }),
+      undefined,
+      fixtureUser
+    )
     expect(mocks.updateScanRunItemMedia).toHaveBeenCalledWith({
       scanRunId: 'run-1',
       externalId: 'local_10',
@@ -246,21 +249,24 @@ describe('batch-import-service audit integration', () => {
   })
 
   it('fails the scan run and rejects when image registration fails', async () => {
-    mocks.transaction.mockRejectedValue(new Error('disk write failed'))
+    mocks.addImage.mockRejectedValueOnce(new Error('disk write failed'))
     mocks.artworkFindMany.mockResolvedValue([
       { id: 10, externalId: 'local_10', title: 'Work', storagePath: 'artist/local_10' }
     ])
 
     await expect(
-      batchRegisterImagesService({
-        scanRunId: 'run-1',
-        items: [
-          {
-            artworkId: 10,
-            images: [{ path: 'artist/local_10/local_10_p0.jpg', size: 100 }]
-          }
-        ]
-      })
+      batchRegisterImagesService(
+        {
+          scanRunId: 'run-1',
+          items: [
+            {
+              artworkId: 10,
+              images: [{ path: 'artist/local_10/local_10_p0.jpg', size: 100, uploadReceipt: fixtureReceipt() }]
+            }
+          ]
+        },
+        fixtureUser
+      )
     ).rejects.toThrow('disk write failed')
 
     expect(mocks.appendScanRunItems).toHaveBeenCalledWith([

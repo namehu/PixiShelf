@@ -1,3 +1,5 @@
+import { z } from 'zod'
+import { ContentWriteAuthorizationSchema } from '@/schemas/media-content.dto'
 import logger from '@/lib/logger'
 import { NextRequest } from 'next/server'
 import { Readable } from 'stream'
@@ -7,6 +9,7 @@ import { getScanPath } from '@/services/setting.service'
 import { requireAdminRequest } from '@/services/background-task/request-auth'
 import {
   getMediaUploadStatus,
+  restartMediaUpload,
   handleMediaUploadChunk,
   MediaUploadError,
   validateMediaUploadChunkMetadata,
@@ -14,8 +17,9 @@ import {
 } from '@/services/artwork-service/media-upload'
 
 export async function POST(req: NextRequest) {
+  let userId: string
   try {
-    await requireAdminRequest(req)
+    userId = (await requireAdminRequest(req)).userId
   } catch (error) {
     if (error instanceof ApiError) return apiError(error.message, { status: error.statusCode })
     throw error
@@ -59,7 +63,10 @@ export async function POST(req: NextRequest) {
     // @ts-ignore: Readable.fromWeb 在 Node 18+ 可用；Next.js 16 运行时已依赖该能力
     const nodeStream = req.body ? Readable.fromWeb(req.body) : null
 
+    const protocol = uploadProtocol(req)
     const result = await handleMediaUploadChunk({
+      ...protocol,
+      userId,
       scanRoot,
       fileName: decodedFileName,
       targetDir: decodedTargetDir,
@@ -72,13 +79,14 @@ export async function POST(req: NextRequest) {
     })
 
     if (result.type === 'final') {
-      return apiSuccess({ meta: result.meta })
+      return apiSuccess({ ...result, meta: result.meta })
     }
 
-    return apiSuccess()
+    return apiSuccess(result)
   } catch (error) {
-    if (error instanceof MediaUploadError) {
-      return apiError(error.message, { status: error.status })
+    if (error instanceof z.ZodError) return apiError('Invalid upload session', { status: 400 })
+    if (error instanceof MediaUploadError || (error instanceof Error && 'status' in error && error.status === 409)) {
+      return apiError(error.message, { status: error instanceof MediaUploadError ? error.status : 409 })
     }
 
     logger.error('Media chunk upload failed', { error })
@@ -87,8 +95,9 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  let userId: string
   try {
-    await requireAdminRequest(req)
+    userId = (await requireAdminRequest(req)).userId
   } catch (error) {
     if (error instanceof ApiError) return apiError(error.message, { status: error.statusCode })
     throw error
@@ -112,7 +121,10 @@ export async function GET(req: NextRequest) {
     const scanRoot = await getScanPath()
     if (!scanRoot) return apiError('Config error')
 
+    const protocol = uploadProtocol(req, true)
     const status = await getMediaUploadStatus({
+      ...protocol,
+      userId,
       scanRoot,
       fileName: decodedFileName,
       targetDir: decodedTargetDir
@@ -120,11 +132,74 @@ export async function GET(req: NextRequest) {
 
     return apiJson(status)
   } catch (e) {
-    if (e instanceof MediaUploadError) {
-      return apiError(e.message, { status: e.status })
+    if (e instanceof z.ZodError) return apiError('Invalid upload session', { status: 400 })
+    if (e instanceof MediaUploadError || (e instanceof Error && 'status' in e && e.status === 409)) {
+      return apiError(e.message, { status: e instanceof MediaUploadError ? e.status : 409 })
     }
 
     logger.error('Media upload status failed', { error: e })
+    return apiError('Internal Server Error')
+  }
+}
+
+function uploadProtocol(req: NextRequest, statusOnly = false) {
+  const schema = z.object({
+    expectedUserId: z.string().min(1).max(200),
+    sessionId: z.string().uuid(),
+    writeToken: z.string().uuid(),
+    requestId: z.string().uuid(),
+    authorization: ContentWriteAuthorizationSchema.optional(),
+    parent: ContentWriteAuthorizationSchema.optional()
+  })
+  const parseHeader = (name: string) => {
+    const value = req.headers.get(name)
+    if (!value) return undefined
+    try {
+      return JSON.parse(value)
+    } catch {
+      throw new MediaUploadError('Invalid upload session', 400)
+    }
+  }
+  return schema.parse({
+    expectedUserId: req.headers.get('x-expected-user-id'),
+    sessionId: req.headers.get('x-upload-session-id'),
+    writeToken: req.headers.get('x-upload-token'),
+    requestId: statusOnly ? '00000000-0000-4000-8000-000000000000' : req.headers.get('x-upload-request-id'),
+    authorization: parseHeader('x-upload-authorization'),
+    parent: parseHeader('x-upload-parent')
+  })
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const { userId } = await requireAdminRequest(req)
+    const protocol = uploadProtocol(req, true)
+    if (!protocol.authorization || protocol.parent) return apiError('Missing restart authorization', { status: 400 })
+    const fileName = decodeURIComponent(req.headers.get('x-file-name') ?? '')
+    const targetDir = decodeURIComponent(req.headers.get('x-target-dir') ?? '')
+    validateMediaUploadStatusMetadata(fileName)
+    if (!targetDir) return apiError('Missing target directory', { status: 400 })
+    const scanRoot = await getScanPath()
+    if (!scanRoot) return apiError('Config error')
+    return apiJson(
+      await restartMediaUpload({
+        ...protocol,
+        authorization: protocol.authorization,
+        userId,
+        scanRoot,
+        fileName,
+        targetDir
+      })
+    )
+  } catch (error) {
+    if (error instanceof ApiError) return apiError(error.message, { status: error.statusCode })
+    if (error instanceof z.ZodError || error instanceof URIError) {
+      return apiError('Invalid upload session', { status: 400 })
+    }
+    if (error instanceof MediaUploadError || (error instanceof Error && 'status' in error && error.status === 409)) {
+      return apiError(error.message, { status: error instanceof MediaUploadError ? error.status : 409 })
+    }
+    logger.error('Media upload restart failed', { error })
     return apiError('Internal Server Error')
   }
 }

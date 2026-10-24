@@ -45,6 +45,7 @@ export async function readStableFileContent(input: {
   absolutePath: string
   maxBytes: number
   signal: AbortSignal
+  onProgress?: (bytesRead: bigint) => void | Promise<void>
 }): Promise<StableFileContent> {
   const result = await readOrHashStableFile({ ...input, collectBytes: true })
   return { ...result, bytes: result.bytes! }
@@ -64,6 +65,7 @@ async function readOrHashStableFile(input: {
   maxBytes: number
   signal: AbortSignal
   collectBytes: boolean
+  onProgress?: (bytesRead: bigint) => void | Promise<void>
 }): Promise<{ bytes?: Buffer; sha256: string; size: number; state: StableFileState }> {
   if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 1) {
     throw new ScanExecutorError('CONFIGURATION_INVALID', 'File read limit must be a positive integer')
@@ -98,6 +100,7 @@ async function readOrHashStableFile(input: {
       if (input.collectBytes) chunks.push(chunk)
       hash.update(chunk)
       offset += bytesRead
+      await input.onProgress?.(BigInt(offset))
       if (offset > input.maxBytes) {
         throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Input file exceeds the configured byte limit')
       }
@@ -106,9 +109,12 @@ async function readOrHashStableFile(input: {
     if (offset !== expectedSize || !sameFileState(before, after)) {
       throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Input file changed while it was being read')
     }
-    const pathMetadata = await fs.lstat(input.absolutePath)
+    const pathMetadata = await fs.lstat(input.absolutePath, { bigint: true })
     if (pathMetadata.isSymbolicLink()) {
       throw new ScanExecutorError('SYMLINK_NOT_ALLOWED', 'Input file became a symbolic link')
+    }
+    if (!sameFileState(after, pathMetadata)) {
+      throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Input file was replaced while it was being read')
     }
     const finalPath = await fs.realpath(input.absolutePath)
     if (finalPath !== input.absolutePath) {
@@ -153,8 +159,8 @@ function sameFileState(left: BigIntStats, right: BigIntStats) {
     left.dev === right.dev &&
     left.ino === right.ino &&
     left.size === right.size &&
-    left.mtimeMs === right.mtimeMs &&
-    left.ctimeMs === right.ctimeMs
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs
   )
 }
 

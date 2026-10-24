@@ -5,7 +5,12 @@ import {
   resolveSafeExistingFile,
   resolveSafeOptionalFile
 } from './paths.ts'
-import type { MigrationFilePlan, MigrationFileSystemPort, MigrationRuntimeConfig } from './types.ts'
+import type {
+  MigrationArtworkPlan,
+  MigrationFilePlan,
+  MigrationFileSystemPort,
+  MigrationRuntimeConfig
+} from './types.ts'
 import { MigrationActionRequiredError, MigrationPermanentError } from './types.ts'
 
 export interface MigrationFingerprint {
@@ -357,4 +362,68 @@ function fingerprintsEqual(left: MigrationFingerprint, right: MigrationFingerpri
 
 function isAlreadyExists(error: unknown) {
   return (error as NodeJS.ErrnoException | null)?.code === 'EEXIST'
+}
+
+/** Called after the current transfer has settled, outside the final database transaction. */
+export async function verifyMigrationCancellation(input: {
+  fileSystem: MigrationFileSystemPort
+  config: MigrationRuntimeConfig
+  plan: MigrationArtworkPlan
+}): Promise<void> {
+  const published = ['CLEANING_SOURCE', 'FINALIZING'].includes(input.plan.phase)
+  for (const file of input.plan.files) {
+    const checkpoint = { ...input, file }
+    const registeredPath = published ? file.targetRelativePath : file.sourceRelativePath
+    const registered = await resolveCheckpointFile(checkpoint, registeredPath, 'registered file')
+    if (!registered)
+      throw new MigrationActionRequiredError(
+        'FILESYSTEM_RECOVERY_FAILED',
+        'Registered migration file is missing',
+        file.id
+      )
+    const before = await input.fileSystem.lstat(registered)
+    const fingerprint = await fingerprintFile(input.fileSystem, registered)
+    const after = await input.fileSystem.lstat(registered)
+    if (
+      before.identity !== after.identity ||
+      before.size !== after.size ||
+      before.mtimeMs !== after.mtimeMs ||
+      after.isSymbolicLink ||
+      !after.isFile ||
+      (file.sourceSha256 !== null && fingerprint.sha256 !== file.sourceSha256) ||
+      (file.sourceSize !== null && fingerprint.size !== file.sourceSize) ||
+      (published && file.sourceRelativePath !== file.targetRelativePath && file.sourceSha256 === null)
+    )
+      throw new MigrationActionRequiredError('FILESYSTEM_RECOVERY_FAILED', 'Registered migration file changed', file.id)
+    if (file.sourceRelativePath === file.targetRelativePath) continue
+    if (!published && (await resolveCheckpointFile(checkpoint, file.targetRelativePath, 'target')))
+      throw new MigrationActionRequiredError(
+        'FILESYSTEM_RECOVERY_FAILED',
+        'Unregistered migration target requires explicit recovery before cancellation',
+        file.id
+      )
+    const staged = await resolveCheckpointFile(checkpoint, file.stagedRelativePath, 'staging')
+    if (!staged) continue
+    const stagedBefore = await input.fileSystem.lstat(staged)
+    const stagedFingerprint = await fingerprintFile(input.fileSystem, staged)
+    const stagedAfter = await input.fileSystem.lstat(staged)
+    if (
+      stagedBefore.identity !== stagedAfter.identity ||
+      stagedBefore.size !== stagedAfter.size ||
+      stagedBefore.mtimeMs !== stagedAfter.mtimeMs ||
+      stagedAfter.isSymbolicLink ||
+      !stagedAfter.isFile ||
+      stagedFingerprint.size !== fingerprint.size ||
+      stagedFingerprint.sha256 !== fingerprint.sha256 ||
+      samePhysicalFile({ path: registered, stat: after }, { path: staged, stat: stagedAfter })
+    )
+      throw new MigrationActionRequiredError(
+        'STAGING_CONFLICT',
+        'Unverified migration staging file must be preserved',
+        file.id
+      )
+    // Only the exact checkpointed duplicate is removed; unknown targets and partial copies remain gated.
+    await input.fileSystem.unlink(staged)
+    await input.fileSystem.syncDirectory(path.dirname(staged))
+  }
 }

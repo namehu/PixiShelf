@@ -1,3 +1,4 @@
+import { parsePixivScanSourceSnapshot, scanSourceProofs } from '@pixishelf/job-executors'
 import { prisma } from '@/lib/prisma'
 import { lockSingletonJobType } from '@/services/background-task/manual-job-singleton'
 import { WORKER_HEARTBEAT_STALE_AFTER_MS } from '@/services/background-task/worker-heartbeat'
@@ -6,6 +7,8 @@ import {
   EXECUTION_LANES,
   SCAN_AUDIT_APPLY_DEFINITION_VERSION,
   canonicalizeAuditApplyInputs,
+  serializeArtworkDedupSourceSnapshot,
+  type ArtworkDedupSourceSnapshot,
   scanAuditApplyPayloadSchema,
   type AuditApplyInputEvidence,
   type JobStatus
@@ -109,6 +112,7 @@ export async function startSourceAuditApply(
             ctimeMs: true,
             deviceId: true,
             inode: true,
+            dedupSourceSnapshot: true,
             issueCode: true
           }
         },
@@ -127,7 +131,8 @@ export async function startSourceAuditApply(
             mtimeMs: true,
             ctimeMs: true,
             deviceId: true,
-            inode: true
+            inode: true,
+            dedupSourceSnapshot: true
           }
         }
       }
@@ -228,7 +233,7 @@ export async function startSourceAuditApply(
       }
     })
     await transaction.scanRunMetadataInput.createMany({
-      data: evidence.rows.map((row) => ({
+      data: evidence.rows.map((row, index) => ({
         scanRunId: applyRun.id,
         ordinal: row.ordinal,
         relativePath: row.relativePath,
@@ -245,7 +250,8 @@ export async function startSourceAuditApply(
         expectedInventoryId: row.expectedInventoryId,
         expectedExternalRefId: row.expectedExternalRefId,
         expectedArtworkId: row.expectedArtworkId,
-        expectedProcessedContentHash: row.processedContentHash
+        expectedProcessedContentHash: row.processedContentHash,
+        dedupSourceSnapshot: evidence.snapshots[index]!
       }))
     })
     await transaction.scanRunItem.createMany({
@@ -530,6 +536,7 @@ function freezeSelectedEvidence(
       ctimeMs: bigint | null
       deviceId: bigint | null
       inode: bigint | null
+      dedupSourceSnapshot: unknown
       issueCode: string | null
     }>
     metadataInputs: Array<{
@@ -546,6 +553,7 @@ function freezeSelectedEvidence(
       ctimeMs: bigint | null
       deviceId: bigint | null
       inode: bigint | null
+      dedupSourceSnapshot: unknown
     }>
   },
   requestedIds: readonly string[]
@@ -558,6 +566,7 @@ function freezeSelectedEvidence(
     audit.metadataInputs.flatMap((row) => (row.sourceAuditItemId ? [[row.sourceAuditItemId, row] as const] : []))
   )
   const rows: AuditApplyInputEvidence[] = []
+  const snapshots: ArtworkDedupSourceSnapshot[] = []
   for (const [ordinal, item] of audit.sourceAuditItems.entries()) {
     if (!requested.has(item.id) || (item.differenceKind !== 'NEW' && item.differenceKind !== 'CHANGED')) return null
     const sourceInput = sourceInputByItemId.get(item.id)
@@ -589,6 +598,26 @@ function freezeSelectedEvidence(
     }
     if (item.differenceKind === 'NEW' && (item.externalRefId !== null || item.artworkId !== null)) return null
     if (item.differenceKind === 'CHANGED' && (!item.externalRefId || !item.artworkId)) return null
+    let dedupSourceSnapshot: ArtworkDedupSourceSnapshot
+    try {
+      const observation = parsePixivScanSourceSnapshot({
+        snapshot: item.dedupSourceSnapshot,
+        relativePath: item.relativePath,
+        externalId: item.expectedExternalId
+      })
+      const original = parsePixivScanSourceSnapshot({
+        snapshot: sourceInput.dedupSourceSnapshot,
+        relativePath: item.relativePath,
+        externalId: item.expectedExternalId
+      })
+      const ordered = (snapshot: ArtworkDedupSourceSnapshot) =>
+        [...snapshot.sources].sort((a, b) => a.sourceId.localeCompare(b.sourceId))
+      if (JSON.stringify(ordered(observation)) !== JSON.stringify(ordered(original))) return null
+      dedupSourceSnapshot = serializeArtworkDedupSourceSnapshot(scanSourceProofs(original))
+    } catch {
+      return null
+    }
+    snapshots.push(dedupSourceSnapshot)
     rows.push({
       ordinal,
       sourceAuditItemId: item.id,
@@ -610,6 +639,7 @@ function freezeSelectedEvidence(
   }
   return {
     rows,
+    snapshots,
     items: audit.sourceAuditItems,
     newCount: audit.sourceAuditItems.filter((item) => item.differenceKind === 'NEW').length,
     changedCount: audit.sourceAuditItems.filter((item) => item.differenceKind === 'CHANGED').length

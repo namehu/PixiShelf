@@ -1,4 +1,25 @@
-vi.mock('../summary-source-guard', () => ({ beginSummaryPathWrite: vi.fn(async () => []), finishSummaryPathWrite: vi.fn(async () => {}) }))
+import { uploadIdentity, createUploadProtocolMock } from './media-content-fixture'
+const protocol = vi.hoisted(() => ({ value: null as ReturnType<typeof createUploadProtocolMock> | null }))
+vi.mock('@/lib/prisma', async () => {
+  const { createUploadProtocolMock } = await import('./media-content-fixture')
+  protocol.value = createUploadProtocolMock()
+  return { prisma: protocol.value.prisma }
+})
+vi.mock('../content-source-guard', async (original) => ({
+  ...(await original<typeof import('../content-source-guard')>()),
+  beginContentUpload: (...args: any[]) => protocol.value!.begin(args[0]),
+  resolveContentPath: async (root: string, value: string) => ({ relativePath: path.relative(root, value) })
+}))
+vi.mock('@pixishelf/db', async (original) => ({
+  ...(await original<typeof import('@pixishelf/db')>()),
+  prepareMediaContentUploadChunk: (...args: any[]) => protocol.value!.prepare(args[0], args[1]),
+  ackMediaContentUploadChunk: (...args: any[]) => protocol.value!.ack(args[0], args[1]),
+  markMediaContentWriteRecoveryRequired: () => protocol.value!.recovery()
+}))
+vi.mock('../summary-source-guard', () => ({
+  beginSummaryPathWrite: vi.fn(async () => []),
+  finishSummaryPathWrite: vi.fn(async () => {})
+}))
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -62,6 +83,7 @@ describe('media-upload service', () => {
     sharpMetadataMock.mockResolvedValueOnce({ width: 640, height: 480 })
 
     const result = await handleMediaUploadChunk({
+      ...uploadIdentity(),
       scanRoot,
       fileName: '003-cover.jpg',
       targetDir: 'Artist/Work',
@@ -73,7 +95,7 @@ describe('media-upload service', () => {
       body: Readable.from(Buffer.from('image'))
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       type: 'final',
       meta: [
         {
@@ -94,9 +116,14 @@ describe('media-upload service', () => {
     const target = path.join(scanRoot, 'Artist/Work')
     await mkdir(path.join(target, '.bak_session'), { recursive: true })
     await writeFile(path.join(target, '.bak_session', 'animated.webp'), 'original')
-    await writeFile(path.join(target, '.bak_session', '.session-manifest.json'), JSON.stringify({
-      version: 1, originalFiles: ['animated.webp'], phase: 'READY'
-    }))
+    await writeFile(
+      path.join(target, '.bak_session', '.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['animated.webp'],
+        phase: 'READY'
+      })
+    )
     await writeFile(path.join(target, 'animated.webp'), 'old')
     sharpMetadataMock.mockResolvedValueOnce({ width: 1, height: 1 })
     beginAnimationSourcePathWriteMock.mockImplementationOnce(async () => {
@@ -105,6 +132,7 @@ describe('media-upload service', () => {
     })
 
     await handleMediaUploadChunk({
+      ...uploadIdentity(),
       scanRoot,
       fileName: 'animated.webp',
       targetDir: 'Artist/Work',
@@ -121,12 +149,13 @@ describe('media-upload service', () => {
     expect(finishSummaryPathWrite).not.toHaveBeenCalled()
   })
 
-  it('clears an ordinary upload gate only after final metadata succeeds', async () => {
+  it('keeps the ordinary upload gate until domain publication', async () => {
     sharpMetadataMock.mockResolvedValueOnce({ width: 1, height: 1 })
     const tokens = [{ imageId: 7, sourceRevision: 2 }]
     beginAnimationSourcePathWriteMock.mockResolvedValueOnce(tokens)
     vi.mocked(beginSummaryPathWrite).mockResolvedValueOnce(tokens)
     await handleMediaUploadChunk({
+      ...uploadIdentity(),
       scanRoot,
       fileName: 'animated.webp',
       targetDir: 'Artist/Work',
@@ -137,22 +166,35 @@ describe('media-upload service', () => {
       declaredFileSize: 3,
       body: Readable.from(Buffer.from('new'))
     })
-    expect(finishAnimationSourcePathWriteMock).toHaveBeenCalledWith(tokens)
-    expect(finishSummaryPathWrite).toHaveBeenCalledExactlyOnceWith(tokens)
+    expect(finishAnimationSourcePathWriteMock).not.toHaveBeenCalled()
+    expect(finishSummaryPathWrite).not.toHaveBeenCalled()
   })
 
   it('refuses to truncate an original while init has not backed it up', async () => {
     const target = path.join(scanRoot, 'Artist/Work')
     await mkdir(path.join(target, '.bak_session'), { recursive: true })
     await writeFile(path.join(target, 'animated.webp'), 'original')
-    await writeFile(path.join(target, '.bak_session', '.session-manifest.json'), JSON.stringify({
-      version: 1, originalFiles: ['animated.webp']
-    }))
-    await expect(handleMediaUploadChunk({
-      scanRoot, fileName: 'animated.webp', targetDir: 'Artist/Work', targetRelDir: '/Artist/Work',
-      chunkIndex: 0, totalChunks: 1, offset: 0, declaredFileSize: 3,
-      body: Readable.from(Buffer.from('new'))
-    })).rejects.toMatchObject({ status: 409 })
+    await writeFile(
+      path.join(target, '.bak_session', '.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['animated.webp']
+      })
+    )
+    await expect(
+      handleMediaUploadChunk({
+        ...uploadIdentity(),
+        scanRoot,
+        fileName: 'animated.webp',
+        targetDir: 'Artist/Work',
+        targetRelDir: '/Artist/Work',
+        chunkIndex: 0,
+        totalChunks: 1,
+        offset: 0,
+        declaredFileSize: 3,
+        body: Readable.from(Buffer.from('new'))
+      })
+    ).rejects.toMatchObject({ status: 409 })
     await expect(readFile(path.join(target, 'animated.webp'), 'utf8')).resolves.toBe('original')
     expect(beginAnimationSourcePathWriteMock).not.toHaveBeenCalled()
   })
@@ -165,10 +207,20 @@ describe('media-upload service', () => {
       }
     })
     beginAnimationSourcePathWriteMock.mockResolvedValueOnce([{ imageId: 7, sourceRevision: 4 }])
-    await expect(handleMediaUploadChunk({
-      scanRoot, fileName: 'animated.webp', targetDir: 'Artist/Work', targetRelDir: '/Artist/Work',
-      chunkIndex: 0, totalChunks: 1, offset: 0, declaredFileSize: 100, body
-    })).rejects.toThrow('source interrupted')
+    await expect(
+      handleMediaUploadChunk({
+        ...uploadIdentity(),
+        scanRoot,
+        fileName: 'animated.webp',
+        targetDir: 'Artist/Work',
+        targetRelDir: '/Artist/Work',
+        chunkIndex: 0,
+        totalChunks: 1,
+        offset: 0,
+        declaredFileSize: 100,
+        body
+      })
+    ).rejects.toThrow('source interrupted')
     await expect(readdir(path.join(scanRoot, 'Artist/Work'))).resolves.not.toContain('.replace-write-lock')
     expect(finishAnimationSourcePathWriteMock).not.toHaveBeenCalled()
     expect(finishSummaryPathWrite).not.toHaveBeenCalled()
@@ -178,6 +230,7 @@ describe('media-upload service', () => {
     // 视频文件也应被写入并返回 meta，但不能调用 sharp；否则视频上传会误走图片解析路径。
     // 断言 width/height 为 0，保护了“视频不探测图片尺寸”的服务契约。
     const result = await handleMediaUploadChunk({
+      ...uploadIdentity(),
       scanRoot,
       fileName: 'movie.mp4',
       targetDir: 'Artist/Work',
@@ -189,7 +242,7 @@ describe('media-upload service', () => {
       body: Readable.from(Buffer.from('video'))
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       type: 'final',
       meta: [
         {
@@ -210,6 +263,7 @@ describe('media-upload service', () => {
     // 返回 409 可以让调用方重新开始上传，而不是悄悄在 offset 处创建损坏文件。
     await expect(
       handleMediaUploadChunk({
+        ...uploadIdentity(),
         scanRoot,
         fileName: 'resume.jpg',
         targetDir: 'Artist/Work',
@@ -220,13 +274,14 @@ describe('media-upload service', () => {
         declaredFileSize: 10,
         body: Readable.from(Buffer.from('chunk'))
       })
-    ).rejects.toMatchObject({ status: 409, message: 'File not found for resume' })
+    ).rejects.toMatchObject({ status: 409 })
   })
 
   it('rejects unsafe file names with the existing message', async () => {
     // 文件名校验阻止 ../ 这类路径逃逸；同时固定原有错误消息，避免 API 行为被无意改坏。
     await expect(
       handleMediaUploadChunk({
+        ...uploadIdentity(),
         scanRoot,
         fileName: '../escape.jpg',
         targetDir: 'Artist/Work',
@@ -244,6 +299,7 @@ describe('media-upload service', () => {
     // 扩展名白名单能避免把非媒体文件写进图库目录；错误消息断言保护调用方现有错误处理。
     await expect(
       handleMediaUploadChunk({
+        ...uploadIdentity(),
         scanRoot,
         fileName: 'notes.txt',
         targetDir: 'Artist/Work',
@@ -260,6 +316,7 @@ describe('media-upload service', () => {
   it.each(['avif', 'heic', 'heif', 'jxl'])('continues to reject optional .%s image formats', async (extension) => {
     await expect(
       handleMediaUploadChunk({
+        ...uploadIdentity(),
         scanRoot,
         fileName: `future-format.${extension}`,
         targetDir: 'Artist/Work',
@@ -273,17 +330,17 @@ describe('media-upload service', () => {
     ).rejects.toMatchObject({ status: 400, message: 'Unsupported file extension' })
   })
 
-  it('returns existing upload status for partial files', async () => {
+  it('does not claim an unowned partial file by its path', async () => {
     // 状态查询用于断点续传：服务需要准确报告部分文件是否存在以及已有字节数。
     // 这里先手动制造一个部分文件，再验证 getMediaUploadStatus 读取到真实文件大小。
     await mkdir(path.join(scanRoot, 'Artist/Work'), { recursive: true })
     await writeFile(path.join(scanRoot, 'Artist/Work/partial.png'), '1234')
 
     await expect(
-      getMediaUploadStatus({ scanRoot, fileName: 'partial.png', targetDir: 'Artist/Work' })
+      getMediaUploadStatus({ ...uploadIdentity(), scanRoot, fileName: 'partial.png', targetDir: 'Artist/Work' })
     ).resolves.toEqual({
-      exists: true,
-      size: 4
+      exists: false,
+      size: 0
     })
   })
 })

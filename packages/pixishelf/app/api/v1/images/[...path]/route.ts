@@ -39,14 +39,26 @@ export async function GET(
 
     // 内部归档生命周期目录（未发布、失败、软删除）中的文件不允许外部访问。
     // 即使调用方猜到相对路径，也不能通过公共媒体路由读取。
-    if (decodedSegments.some((segment) => segment.startsWith('.'))) {
+    const hasHiddenSegment = (value: string) =>
+      value
+        .replace(/\\/g, '/')
+        .split('/')
+        .some((segment) => segment.startsWith('.'))
+    if (decodedSegments.some(hasHiddenSegment)) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
     const relativePath = path.join(...decodedSegments)
+    if (hasHiddenSegment(relativePath)) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
     let fullFilePath: string
     try {
       fullFilePath = await resolveExistingPathWithinRoot(scanPath, relativePath)
+      const canonicalRoot = await fs.realpath(scanPath)
+      if (hasHiddenSegment(path.relative(canonicalRoot, fullFilePath))) {
+        return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+      }
     } catch (error) {
       if (error instanceof UnsafePathError) {
         return NextResponse.json({ error: 'Access denied' }, { status: 403 })

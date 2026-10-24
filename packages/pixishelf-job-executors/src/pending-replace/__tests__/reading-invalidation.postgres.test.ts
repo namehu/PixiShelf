@@ -1,3 +1,4 @@
+import { contentWriteFixture, cleanupContentWriteFixtures } from './content-write-fixture.ts'
 import { randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it } from 'vitest'
 import { createDatabaseClient, disconnectDatabase } from '@pixishelf/db'
@@ -18,20 +19,37 @@ describePostgres('pending replacement reading invalidation', () => {
     await database.pendingReplaceBatch.deleteMany({ where: { id: { startsWith: prefix } } })
     await database.artwork.deleteMany({ where: { title: { startsWith: prefix } } })
     await database.userBA.deleteMany({ where: { id: { startsWith: prefix } } })
+    await cleanupContentWriteFixtures(database)
     await disconnectDatabase(database)
   })
 
   it('closes the summary gate before file writes and retains it after failed recovery', async () => {
     const artwork = await db().artwork.create({ data: { title: `${prefix}-summary-gate` } })
-    const batch = await db().pendingReplaceBatch.create({ data: { id: `${prefix}-gate-batch`, sourceRoot: '/pending-replaces' } })
-    const item = await db().pendingReplaceItem.create({ data: {
-      id: `${prefix}-gate-item`, batchId: batch.id, artworkId: artwork.id,
-      sourceDirectory: '/pending-replaces/gate', sourceDirectoryName: 'gate', targetDirectory: '/media/gate',
-      status: 'READY', fingerprint: 'gate', sourceManifest: [], oldMediaSnapshot: [], newMediaSnapshot: [], targetFileSnapshot: [], warnings: []
-    } })
+    const batch = await db().pendingReplaceBatch.create({
+      data: { id: `${prefix}-gate-batch`, sourceRoot: '/pending-replaces' }
+    })
+    const item = await db().pendingReplaceItem.create({
+      data: {
+        id: `${prefix}-gate-item`,
+        batchId: batch.id,
+        artworkId: artwork.id,
+        sourceDirectory: '/pending-replaces/gate',
+        sourceDirectoryName: 'gate',
+        targetDirectory: '/media/gate',
+        status: 'READY',
+        fingerprint: 'gate',
+        sourceManifest: [],
+        oldMediaSnapshot: [],
+        newMediaSnapshot: [],
+        targetFileSnapshot: [],
+        warnings: []
+      }
+    })
     const port = createPrismaPendingReplaceDatabase(db())
-    const checkpoint = (expectedStatuses: Parameters<typeof port.checkpointItem>[1]['expectedStatuses'], status: Parameters<typeof port.checkpointItem>[1]['status']) =>
-      db().$transaction((tx) => port.checkpointItem(tx, { itemId: item.id, expectedStatuses, status }))
+    const checkpoint = (
+      expectedStatuses: Parameters<typeof port.checkpointItem>[1]['expectedStatuses'],
+      status: Parameters<typeof port.checkpointItem>[1]['status']
+    ) => db().$transaction((tx) => port.checkpointItem(tx, { itemId: item.id, expectedStatuses, status }))
     const gate = () => db().artworkSummary.findUniqueOrThrow({ where: { artworkId: artwork.id } })
     await checkpoint(['READY'], 'BACKING_UP')
     expect(await gate()).toMatchObject({ replaceInProgress: true, sourceRevision: 1 })
@@ -75,7 +93,9 @@ describePostgres('pending replacement reading invalidation', () => {
     })
     await markRead(userId, artwork.id, original.id)
 
-    const batch = await db().pendingReplaceBatch.create({ data: { id: `${prefix}-batch`, sourceRoot: '/pending-replaces' } })
+    const batch = await db().pendingReplaceBatch.create({
+      data: { id: `${prefix}-batch`, sourceRoot: '/pending-replaces' }
+    })
     await db().pendingReplaceItem.create({
       data: {
         id: `${prefix}-item`,
@@ -96,11 +116,13 @@ describePostgres('pending replacement reading invalidation', () => {
     const port = createPrismaPendingReplaceDatabase(db())
     const [initialItem] = await port.loadItems(batch.id)
     if (!initialItem) throw new Error('pending replacement fixture missing')
+    const contentWrite = await contentWriteFixture(db(), artwork.id)
 
     await expect(
       db().$transaction((tx) =>
         port.publishReplacement(tx, {
           item: initialItem,
+          contentWrite,
           expectedOldMedia: [{ ...oldMedia, path: `${prefix}/wrong.jpg` }],
           newMedia: [newMedia],
           appendTagIds: [],
@@ -116,6 +138,7 @@ describePostgres('pending replacement reading invalidation', () => {
     await db().$transaction((tx) =>
       port.publishReplacement(tx, {
         item: initialItem,
+        contentWrite,
         expectedOldMedia: [oldMedia],
         newMedia: [newMedia],
         appendTagIds: [],
@@ -133,8 +156,15 @@ describePostgres('pending replacement reading invalidation', () => {
     await db().pendingReplaceItem.update({ where: { id: initialItem.id }, data: { status: 'RESTORE_SWAPPING' } })
     const [restoreItem] = await port.loadItems(batch.id)
     if (!restoreItem) throw new Error('restore fixture missing')
+    const restoreWrite = await contentWriteFixture(db(), artwork.id)
     await db().$transaction((tx) =>
-      port.publishRestore(tx, { item: restoreItem, expectedNewMedia: [newMedia], oldMedia: [oldMedia], now: new Date() })
+      port.publishRestore(tx, {
+        item: restoreItem,
+        contentWrite: restoreWrite,
+        expectedNewMedia: [newMedia],
+        oldMedia: [oldMedia],
+        now: new Date()
+      })
     )
     await expectRevisionAndReading(artwork.id, 3, 0)
     expect(await db().image.findFirstOrThrow({ where: { artworkId: artwork.id }, select: { path: true } })).toEqual({
@@ -166,7 +196,16 @@ function media(name: string, order: number): PendingReplaceMediaSnapshot {
 async function markRead(userId: string, artworkId: number, mediaId: number) {
   const now = new Date('2026-09-24T08:00:00.000Z')
   await db().artworkReadingSummary.create({
-    data: { userId, artworkId, viewCount: 1, seenCount: 1, totalCount: 1, lastViewedAt: now, lastActiveAt: now, lastMediaId: mediaId }
+    data: {
+      userId,
+      artworkId,
+      viewCount: 1,
+      seenCount: 1,
+      totalCount: 1,
+      lastViewedAt: now,
+      lastActiveAt: now,
+      lastMediaId: mediaId
+    }
   })
   await db().artworkReadMedia.create({ data: { userId, artworkId, mediaId } })
 }

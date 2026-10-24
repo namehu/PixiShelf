@@ -13,6 +13,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     $queryRaw: mocks.queryRawMock,
+    $transaction: async (run: (tx: unknown) => unknown) =>
+      run({
+        $queryRawUnsafe: vi.fn(),
+        artworkTag: { findMany: vi.fn().mockResolvedValue([]) },
+        tag: {
+          findUnique: mocks.tagFindUniqueMock,
+          findFirst: mocks.tagFindFirstMock,
+          update: mocks.tagUpdateMock,
+          delete: mocks.tagDeleteMock
+        }
+      }),
     tag: {
       findUnique: mocks.tagFindUniqueMock,
       findFirst: mocks.tagFindFirstMock,

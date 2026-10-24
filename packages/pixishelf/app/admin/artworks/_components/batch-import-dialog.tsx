@@ -1,5 +1,7 @@
 'use client'
 
+import type { MediaUploadReceipt } from '@/schemas/media-content.dto'
+
 import { useState, useEffect, useRef } from 'react'
 import { ProDialog } from '@/components/shared/pro-dialog'
 import { ProDatePicker } from '@/components/shared/pro-date-picker'
@@ -8,12 +10,21 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
-import { Trash2, Folder, File as FileIcon, AlertCircle, CheckCircle, Loader2, FolderInput, InfoIcon } from 'lucide-react'
+import {
+  Trash2,
+  Folder,
+  File as FileIcon,
+  AlertCircle,
+  CheckCircle,
+  Loader2,
+  FolderInput,
+  InfoIcon
+} from 'lucide-react'
 import { toast } from 'sonner'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import { useTRPCClient } from '@/lib/trpc'
 import { useBatchImportDrag, BatchImportItem } from '../_hooks/use-batch-import-drag'
-import { useChunkUpload } from '../_hooks/use-chunk-upload'
+import { useChunkUpload, releaseMediaUploadReceipt } from '../_hooks/use-chunk-upload'
 import { batchCreateArtworksAction, batchRegisterImagesAction } from '@/actions/batch-import-action'
 import { cn } from '@/lib/utils'
 import { BatchImportArtworkSchema } from '@/schemas/artwork.dto'
@@ -245,7 +256,12 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
         const itemFiles = item.files.sort((a, b) =>
           a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
         )
-        const uploadedFilesForThisItem: { fileName: string; size: number; path: string }[] = []
+        const uploadedFilesForThisItem: {
+          fileName: string
+          size: number
+          path: string
+          uploadReceipt: MediaUploadReceipt
+        }[] = []
 
         let itemError = false
 
@@ -255,7 +271,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
           const newName = `${item.externalId}_p${j}.${ext}`
 
           try {
-            await uploadSingleFile(file, newName, uploadTargetDir, targetRelDir, (pct) => {
+            const meta = await uploadSingleFile(file, newName, uploadTargetDir, targetRelDir, (pct) => {
               setItems((prev) =>
                 prev.map((i) =>
                   i.id === item.id
@@ -269,6 +285,7 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
             })
 
             uploadedFilesForThisItem.push({
+              uploadReceipt: meta.uploadReceipt!,
               fileName: newName,
               path: `${targetRelDir}/${newName}`,
               size: file.size
@@ -300,6 +317,9 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
         const registerRes = await batchRegisterImagesAction({ scanRunId, items: registrationItems })
         if (registerRes?.serverError || !registerRes?.data?.success) {
           throw new Error(registerRes?.serverError ?? '注册图片失败')
+        }
+        for (const item of registrationItems) {
+          for (const image of item.images) releaseMediaUploadReceipt(image.uploadReceipt)
         }
       }
 
@@ -439,14 +459,14 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
                 <label aria-disabled={status !== 'idle'}>
                   <FolderInput data-icon="inline-start" aria-hidden="true" />
                   <span>添加文件</span>
-                <input
-                  type="file"
-                  name="batch-import-files"
-                  multiple
-                  className="sr-only"
-                  onChange={handleFileSelect}
-                  disabled={status !== 'idle'}
-                />
+                  <input
+                    type="file"
+                    name="batch-import-files"
+                    multiple
+                    className="sr-only"
+                    onChange={handleFileSelect}
+                    disabled={status !== 'idle'}
+                  />
                 </label>
               </Button>
               {items.length > 0 && (
@@ -466,7 +486,10 @@ export function BatchImportDialog({ open, onOpenChange, onSuccess }: BatchImport
               </div>
             </div>
           ) : (
-            <ScrollArea viewportRef={parentRef} className="min-h-0 flex-1 rounded-md border border-border bg-background">
+            <ScrollArea
+              viewportRef={parentRef}
+              className="min-h-0 flex-1 rounded-md border border-border bg-background"
+            >
               <div className="p-2 w-full">
                 <div
                   style={{

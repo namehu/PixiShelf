@@ -1,3 +1,9 @@
+import { fixtureDirectory } from '@/services/artwork-service/__tests__/media-content-fixture'
+vi.mock('@/services/artwork-service/content-source-guard', async (original) => ({
+  ...(await original<typeof import('@/services/artwork-service/content-source-guard')>()),
+  captureContentDirectory: async () => fixtureDirectory,
+  assertContentScan: async () => undefined
+}))
 import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -94,7 +100,11 @@ type ArtworkTagCreateInput = ArtworkTagRecord
 type RawMetadataCreateInput = RawMetadataRecord
 type ArtworkExternalRefCreateInput = Omit<ArtworkExternalRefRecord, 'id'>
 type ArtistExternalRefCreateInput = Omit<ArtistExternalRefRecord, 'id'>
-type PrismaFindArgs = { where?: Record<string, unknown>; select?: Record<string, boolean>; include?: Record<string, unknown> }
+type PrismaFindArgs = {
+  where?: Record<string, unknown>
+  select?: Record<string, boolean>
+  include?: Record<string, unknown>
+}
 type PrismaCreateArgs<TData> = { data: TData; select?: Record<string, boolean> }
 type PrismaCreateManyArgs<TData> = { data: TData[]; skipDuplicates?: boolean }
 type PrismaUpdateArgs<TData> = {
@@ -190,7 +200,9 @@ const { database, prismaStub } = vi.hoisted(() => {
             database.artistExternalRefs.some(
               (item) => item.providerKey === reference.providerKey && item.externalId === reference.externalId
             )
-          ) continue
+          ) {
+            continue
+          }
           database.artistExternalRefs.push({ id: database.nextArtistExternalRefId++, ...reference })
           count++
         }

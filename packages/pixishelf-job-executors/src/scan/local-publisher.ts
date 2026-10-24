@@ -1,3 +1,5 @@
+import { assertArtworkDedupWritable } from '@pixishelf/db'
+import { assertLocalScanSources } from './dedup-source-snapshot.ts'
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@pixishelf/db'
 import { ScanExecutorError } from './errors.ts'
@@ -23,11 +25,16 @@ export async function publishLocalMediaWork(
 ) {
   const checkpoint = await completedCheckpoint(input)
   if (checkpoint) return checkpoint
+  await assertLocalScanSources(input.transaction, {
+    snapshot: input.work.dedupSourceSnapshot,
+    relativePath: input.work.relativePath
+  })
   const existing = await input.transaction.artwork.findUnique({
     where: { storagePath: input.work.relativePath },
     select: { id: true }
   })
   if (existing) {
+    await assertArtworkDedupWritable(input.transaction, { artworkId: existing.id, kind: 'CONTENT' })
     await writeLocalItem(input, {
       externalId: null,
       status: 'SKIPPED',

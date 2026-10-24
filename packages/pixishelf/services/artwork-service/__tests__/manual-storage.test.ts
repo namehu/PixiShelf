@@ -1,3 +1,4 @@
+vi.mock('../../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: vi.fn() }))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({

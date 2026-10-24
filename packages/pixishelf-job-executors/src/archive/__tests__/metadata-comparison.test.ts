@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { enqueueArchiveIntakeItemInTransaction } from '../intake-enqueue.js'
 import { isPublishedArchiveUnchanged } from '../metadata-comparison.js'
 import { hashResolvedMetadata } from '../providers/e-hentai.js'
+import { dedupGuardFixture } from './dedup-guard-fixture.ts'
 
 const previous = {
   schemaVersion: 1,
@@ -102,6 +103,7 @@ describe('published archive update comparison', () => {
   })
 
   it('uses the same rule during the AUTO enqueue publication race check', async () => {
+    const guard = dedupGuardFixture('e-hentai', previous.gid)
     const fixture = snapshotFixture(previous)
     const resolved = {
       providerKey: 'e-hentai',
@@ -114,12 +116,14 @@ describe('published archive update comparison', () => {
     const createImport = vi.fn()
     const transaction = {
       ...fixture.transaction,
+      $queryRaw: guard.queryRaw,
       archiveIntakeItem: {
         findUnique: vi.fn(async () => ({
           id: 'intake-1',
           status: 'READY',
           providerKey: 'e-hentai',
           externalId: previous.gid,
+          dedupSourceSnapshot: guard.snapshot,
           resolvedSnapshot: resolved,
           metadataHash: hashResolvedMetadata(updated),
           expiresAt: new Date('2026-10-08T00:00:00Z')

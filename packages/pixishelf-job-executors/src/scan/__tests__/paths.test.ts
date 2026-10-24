@@ -38,6 +38,27 @@ describe('scan path safety', () => {
     ])
   })
 
+  it('rejects explicitly supplied recovery paths as well as omitting them from discovery', async () => {
+    const directory = await fixtureRoot()
+    const relative = '.pixishelf-upload-recovery/session/1-meta.json'
+    await fs.mkdir(path.dirname(path.join(directory, relative)), { recursive: true })
+    await fs.writeFile(path.join(directory, relative), '{}')
+    const root = await resolveSafeScanRoot(directory)
+    await expect(resolveSafeExistingPath(root, relative, 'file')).rejects.toMatchObject({
+      code: 'PATH_OUTSIDE_SCAN_ROOT'
+    })
+    const discovered: string[] = []
+    for await (const page of walkSafeFiles(root, '', {
+      pageSize: 10,
+      maxDepth: 5,
+      maxEntries: 20,
+      signal: new AbortController().signal,
+      include: () => true
+    }))
+      discovered.push(...page.map((item) => item.relativePath))
+    expect(discovered).toEqual([])
+  })
+
   it('rejects traversal, absolute paths, and symbolic links', async () => {
     const directory = await fixtureRoot()
     await fs.mkdir(path.join(directory, 'safe'), { recursive: true })

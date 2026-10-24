@@ -1,3 +1,5 @@
+import { deletionMembers, executeDeletion, readDeletionIntent } from './deletion-content-guard'
+import { ContentWriteConflict } from './content-source-guard'
 import 'server-only'
 import { randomUUID } from 'crypto'
 import path from 'path'
@@ -114,8 +116,8 @@ function createReport(artwork: Awaited<ReturnType<typeof loadArtwork>>): Artwork
 async function prepareFiles(artwork: Awaited<ReturnType<typeof loadArtwork>>, report: ArtworkDeleteReport) {
   const images = await prisma.image.findMany({
     where: { artworkId: artwork.id },
-    orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-    select: { id: true, path: true, chaptersPath: true }
+    orderBy: { id: 'asc' },
+    select: { id: true, path: true, chaptersPath: true, size: true }
   })
   const directory = determineDeleteDirectory({ ...artwork, images })
   report.artwork.directory = directory
@@ -144,9 +146,19 @@ async function prepareFiles(artwork: Awaited<ReturnType<typeof loadArtwork>>, re
   return { files, images }
 }
 
-export async function previewDeleteArtwork(id: number) {
+export async function previewDeleteArtwork(id: number, userId: string) {
   const artwork = await loadArtwork(id)
   const report = createReport(artwork)
+  const scanRoot = artwork.createdVia === 'URL_ARCHIVE' ? null : await getScanPath()
+  const previous = scanRoot ? await readDeletionIntent({ scanRoot, userId, kind: 'ARTWORK', targetId: id }) : null
+  if (previous && !previous.completed && previous.manifest.preview) {
+    return ArtworkDeletePreviewSchema.parse({
+      ...previous.manifest.preview,
+      operationId: previous.manifest.operationId,
+      recovery: { selectedPaths: previous.manifest.selectedPaths },
+      warnings: [...previous.manifest.preview.warnings, '这是上次未完成的删除；重试仅处理原选择，已删除文件不会恢复。']
+    })
+  }
   if (artwork.createdVia === 'URL_ARCHIVE') {
     return ArtworkDeletePreviewSchema.parse({
       artwork: report.artwork,
@@ -159,16 +171,22 @@ export async function previewDeleteArtwork(id: number) {
     })
   }
   const { files } = await prepareFiles(artwork, report)
-  return ArtworkDeletePreviewSchema.parse(files.preview())
+  return ArtworkDeletePreviewSchema.parse({ ...files.preview(), operationId: randomUUID() })
 }
 
 export async function deleteArtwork(
   input: ArtworkDeleteInput,
   options: { requestedByUserId: string }
 ): Promise<ArtworkDeleteReport> {
-  const { artworkId: id, selectedPaths } = ArtworkDeleteInputSchema.parse(input)
-  const artwork = await loadArtwork(id)
-  const report = createReport(artwork)
+  const { artworkId: id, selectedPaths, operationId } = ArtworkDeleteInputSchema.parse(input)
+  const artwork = await prisma.artwork.findUnique({ where: { id } })
+  const scanRoot = artwork?.createdVia === 'URL_ARCHIVE' ? null : await getScanPath()
+  const target = { scanRoot: scanRoot ?? '', userId: options.requestedByUserId, kind: 'ARTWORK' as const, targetId: id }
+  const previous = scanRoot ? await readDeletionIntent(target) : null
+  const savedReport = previous && previous.manifest.operationId === operationId ? previous.manifest.report : null
+  if (!artwork && !savedReport) throw new Error(`Artwork ${id} not found`)
+  let report = savedReport ? structuredClone(savedReport) : createReport(artwork!)
+  report.operationId = operationId
   const finish = () => {
     report.finishedAt = new Date().toISOString()
     report.counts = countArtworkDeleteEntries(report.entries)
@@ -184,7 +202,7 @@ export async function deleteArtwork(
     }
     return result
   }
-  if (artwork.createdVia === 'URL_ARCHIVE') {
+  if (artwork?.createdVia === 'URL_ARCHIVE') {
     try {
       const maintenance = await requestArchiveArtworkMaintenance({
         artworkId: id,
@@ -208,50 +226,60 @@ export async function deleteArtwork(
   }
 
   try {
-    if (!selectedPaths) throw new Error('A file selection is required')
-    const { files, images } = await prepareFiles(artwork, report)
-    const filesDeleted = await files.deleteSelected(selectedPaths)
-    if (!filesDeleted) {
-      report.database.artwork = 'RETAINED'
-      report.database.media = 'RETAINED'
-      report.warnings.push('部分选中文件删除失败，作品及媒体记录已保留。重新打开删除预览可重试；已删文件不会自动恢复。')
-      report.outcome = report.entries.some((entry) => entry.status === 'DELETED') ? 'PARTIAL' : 'FAILED'
-      return finish()
-    }
-    try {
-      const deleted = await prisma.$transaction(async (tx) => {
-        // Image triggers update Artwork; always acquire the catalog lock before its row lock.
+    if (!scanRoot && artwork) await prepareFiles(artwork, report)
+    if (!selectedPaths || !scanRoot) throw new ContentWriteConflict('请打开删除预览确认原选择。')
+    const outcome = await executeDeletion({
+      ...target,
+      operationId,
+      selectedPaths,
+      prepare: async () => {
+        const original = artwork ?? (await loadArtwork(id))
+        const { files, images } = await prepareFiles(original, report)
+        const selection = files.freezeSelection(selectedPaths)
+        return {
+          ...selection,
+          selectedPaths,
+          scopePaths: images.flatMap((image) => [image.path, ...(image.chaptersPath ? [image.chaptersPath] : [])]),
+          artworkIds: [id],
+          imageIds: [],
+          members: deletionMembers(images),
+          preview: files.preview(),
+          report
+        }
+      },
+      verifyMembers: async (tx, members) => {
         await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
         await lockArtworkForReading(tx as unknown as Prisma.TransactionClient, id)
         const current = await tx.image.findMany({
           where: { artworkId: id },
-          orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
-          select: { id: true, path: true, chaptersPath: true }
+          orderBy: { id: 'asc' },
+          select: { id: true, path: true, chaptersPath: true, size: true }
         })
-        if (JSON.stringify(current) !== JSON.stringify(images)) throw new Error('Media records changed')
-        const result = await tx.image.deleteMany({ where: { artworkId: id } })
+        if (deletionMembers(current) !== members) throw new ContentWriteConflict('作品媒体已变化，保留原删除意图。')
+      },
+      publish: async (tx) => {
+        const deleted = await tx.image.deleteMany({ where: { artworkId: id } })
         await tx.artwork.delete({ where: { id } })
-        return result
-      })
-      report.database.media = 'DELETED'
-      report.database.artwork = 'DELETED'
-      report.database.deletedMediaCount = deleted.count
-      report.database.relatedRecords.push(
-        '媒体的探测信息、章节预览、代表帧等数据库关联随媒体记录级联移除；派生媒体目录不在本次文件清理范围内。',
-        '作品的标签、收藏、创作者、系列成员、来源引用、来源快照、原始元数据及作品关系随作品记录级联移除。'
-      )
-    } catch (error) {
-      report.database.media = 'FAILED'
-      report.database.artwork = 'FAILED'
-      report.warnings.push('数据库删除事务失败，作品及媒体记录均保留；已删除的文件不会自动恢复。')
-      throw error
-    }
-    await files.cleanupDirectories()
-    report.outcome = report.entries.some((entry) => entry.status === 'FAILED') ? 'PARTIAL' : 'COMPLETED'
+        return deleted.count
+      }
+    })
+    report = outcome.manifest.report!
+    report.operationId = operationId
+    report.database.media = 'DELETED'
+    report.database.artwork = 'DELETED'
+    report.database.deletedMediaCount = outcome.result ?? JSON.parse(outcome.manifest.members).length
+    report.database.relatedRecords = [
+      '媒体及作品的数据库关联随记录级联移除；派生媒体目录不在本次文件清理范围内。',
+      '标签、艺术家和系列实体本身保留。'
+    ]
+    report.outcome = 'COMPLETED'
   } catch (error) {
-    report.warnings.push(`删除流程未完成（${fileErrorCode(error)}）。请核对明细后重新预览。`)
-    if (report.database.artwork === 'NOT_ATTEMPTED') report.database.artwork = 'RETAINED'
-    if (report.database.media === 'NOT_ATTEMPTED') report.database.media = 'RETAINED'
+    const saved = scanRoot ? await readDeletionIntent(target).catch(() => null) : null
+    if (saved && saved.manifest.operationId === operationId && saved.manifest.report) report = saved.manifest.report
+    report.operationId = operationId
+    report.warnings.push(`删除流程未完成（${fileErrorCode(error)}）。重新打开预览，按原操作重试；原文件清单保持不变。`)
+    if (report.database.artwork !== 'FAILED') report.database.artwork = 'RETAINED'
+    if (report.database.media !== 'FAILED') report.database.media = 'RETAINED'
     report.outcome = report.entries.some((entry) => entry.status === 'DELETED') ? 'PARTIAL' : 'FAILED'
   }
   return finish()

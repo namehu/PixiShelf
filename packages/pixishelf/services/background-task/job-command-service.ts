@@ -1,7 +1,14 @@
+import {
+  hasBlockingMediaContentCancellation,
+  hasBlockingMediaContentRecoveryResume,
+  MEDIA_CONTENT_CANCELLATION_MESSAGE
+} from '@pixishelf/job-runtime'
 import { ARTWORK_SUMMARY_RETIRED_MESSAGE } from '@/lib/reading/artwork-stacks'
 import { prisma } from '@/lib/prisma'
 import { FULL_SCAN_RETIRED_MESSAGE, isRetiredFullReconcilePayload } from '@/services/scan-source-policy'
-import { Prisma } from '@pixishelf/db'
+import { Prisma, lockCreatorCatalog } from '@pixishelf/db'
+import { ArchiveError } from '@/services/archive/errors'
+import { assertArchiveIntakeSourceProof } from '@/services/archive-intake/archive-intake-source-proof'
 import {
   executionLaneForJobType,
   JOB_DEFINITION_VERSION,
@@ -184,6 +191,9 @@ export async function enqueueJob(
   now: () => Date = () => new Date()
 ): Promise<JobDto> {
   const parsed = enqueueJobInputSchema.parse(input)
+  if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(parsed.type)) {
+    throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '重复作品检查必须通过领域入口创建和控制')
+  }
   if (parsed.type === 'ARTWORK_SUMMARY_GENERATE') {
     throw new BackgroundTaskError('INVALID_STATE_TRANSITION', ARTWORK_SUMMARY_RETIRED_MESSAGE)
   }
@@ -267,6 +277,7 @@ export async function cancelJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
@@ -279,6 +290,9 @@ export async function cancelJobCommand(
 
     if (job.status === 'CANCELLING' || job.status === 'CANCELLED') return toJobDto(job)
     assertStatus(job, ['PENDING', 'RETRY_WAIT', 'PAUSED', 'RUNNING', 'PAUSING'], 'cancel')
+    if (await hasBlockingMediaContentCancellation(transaction, jobId)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', MEDIA_CONTENT_CANCELLATION_MESSAGE)
+    }
     const timestamp = now()
     const direct = ['PENDING', 'RETRY_WAIT', 'PAUSED'].includes(job.status)
     let auditApplySnapshot: ValidatedAuditApplySnapshot | null = null
@@ -467,6 +481,7 @@ export async function pauseJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
@@ -523,6 +538,7 @@ export async function resumeJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }
@@ -534,6 +550,9 @@ export async function resumeJobCommand(
     }
 
     assertStatus(job, ['PAUSED'], 'resume')
+    if (await hasBlockingMediaContentRecoveryResume(transaction, jobId)) {
+      throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '取消未完成，请先停写并完成媒体恢复授权，再继续任务')
+    }
     const timestamp = now()
     const updated = await compareAndSetJob(transaction, job, {
       status: 'PENDING',
@@ -574,7 +593,14 @@ export async function retryJobCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: jobId }, select: systemJobWireSelect })
     )
+    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '请通过重复作品检查页面控制此任务')
     assertStatus(job, ['FAILED', 'CANCELLED', 'SKIPPED'], 'retry')
+    if (await hasBlockingMediaContentCancellation(transaction, job.id)) {
+      throw new BackgroundTaskError(
+        'INVALID_STATE_TRANSITION',
+        '存在未解决的媒体写入，请使用原任务的离线恢复授权，不能创建新的重试任务'
+      )
+    }
     if (job.type === 'ARTWORK_SUMMARY_GENERATE') {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', ARTWORK_SUMMARY_RETIRED_MESSAGE)
     }
@@ -617,6 +643,22 @@ export async function retryJobCommand(
     const executionLane = executionLaneForJobType(retryType)
     if (job.executionLane !== executionLane) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '该历史任务的执行通道无效，请修复后再重试')
+    }
+    if (retryType === 'ARCHIVE_RESOLVE_ITEM') {
+      const item = await transaction.archiveIntakeItem.findFirst({
+        where: { currentSystemJobId: job.id, status: { in: ['FAILED', 'CANCELLED'] } },
+        select: { submittedUrl: true, dedupSourceSnapshot: true }
+      })
+      if (!item) throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '收件记录已删除或不再可重试，请从收件箱重新添加链接')
+      await lockCreatorCatalog(transaction)
+      try {
+        await assertArchiveIntakeSourceProof(transaction, item.dedupSourceSnapshot, item.submittedUrl)
+      } catch (error) {
+        if (error instanceof ArchiveError && error.code === 'STATE_CONFLICT') {
+          throw new BackgroundTaskError('PRECONDITION_FAILED', error.message)
+        }
+        throw error
+      }
     }
     const priority = Math.min(job.queuePriority, 99)
     const timestamp = now()
@@ -759,6 +801,7 @@ export async function changeJobPriorityCommand(
     const job = requireJob(
       await transaction.systemJob.findUnique({ where: { id: parsed.jobId }, select: systemJobWireSelect })
     )
+    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(job.type)) throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '重复作品检查使用固定低优先级')
     if (job.definitionVersion === 0) {
       throw new BackgroundTaskError('INVALID_STATE_TRANSITION', '历史任务仅供查看，不能重新执行或控制')
     }

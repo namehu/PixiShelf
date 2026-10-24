@@ -2,6 +2,8 @@ import type { JobType } from '@pixishelf/job-contracts'
 
 export const backgroundJobTypeLabels: Record<JobType, string> = {
   ARTWORK_SUMMARY_GENERATE: '作品摘要生成',
+  ARTWORK_DEDUP_SCAN: '检查重复作品',
+  ARTWORK_DEDUP_MAINTENANCE: '重复作品处理',
   SCAN: '图库扫描',
   LOCAL_DIRECTORY_IMPORT: '本地目录导入',
   MIGRATION: '数据迁移',

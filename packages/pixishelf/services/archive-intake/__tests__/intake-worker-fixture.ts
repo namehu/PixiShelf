@@ -49,6 +49,11 @@ export async function runConcurrentArchiveTasks(
   const provider: ArchiveProvider = {
     key: 'e-hentai',
     requestGovernance: 'PER_REQUEST',
+    identifySource: (input) => ({
+      kind: 'PROVIDER',
+      providerKey: 'e-hentai',
+      externalId: new URL(input).pathname.split('/')[2]!
+    }),
     accepts: () => true,
     resolve: async (url) => {
       if (armed && phase !== 'checkpoint') await resolverGate.hold()

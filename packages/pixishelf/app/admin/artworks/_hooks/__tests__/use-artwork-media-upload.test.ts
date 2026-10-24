@@ -20,6 +20,7 @@ vi.mock('@/lib/trpc', () => ({
 }))
 
 vi.mock('../use-chunk-upload', () => ({
+  releaseMediaUploadReceipt: vi.fn(),
   useChunkUpload: () => ({ uploadSingleFile: mocks.uploadSingleFile })
 }))
 

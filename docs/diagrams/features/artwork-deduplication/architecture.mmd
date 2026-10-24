@@ -1,0 +1,53 @@
+---
+config:
+  htmlLabels: false
+  flowchart:
+    htmlLabels: false
+title: 同艺术家作品去重 · 直接删除目标边界（未开放）
+---
+flowchart TB
+  subgraph Browser[浏览器]
+    A01[检查结果与删除记录<br/>冻结预览 一次不可恢复确认]
+  end
+  subgraph App[Next.js App 控制面]
+    A02[Session expectedUserId 版本 幂等<br/>独立 DIRECT_DELETE 门禁 默认关闭]
+    A03[上传 替换 章节 删除 标签 创作者<br/>扫描 来源 归档 普通回收维护]
+    A04[复用 Claim 来源证明与根协调<br/>含隐式 creator catalog 锁序]
+  end
+  subgraph DB[PostgreSQL · 短事务 不包含文件动作]
+    A05[源代次 文件缓存 完整成员快照]
+    A06[检测 审核 PREPARE 新目的与版本<br/>旧 ISOLATION 不授权删除]
+    A07[keeper/copy Claim 来源 HOLD<br/>逐文件 intent/receipt 与独立墓碑]
+    A08[既有队列 fence token 与 reader 占用]
+  end
+  subgraph Worker[Worker · 三条既有 lane]
+    A09[Dispatcher · 让行与能力核验]
+    A10[ARCHIVE_RESOLVE]
+    A11[ARCHIVE_DOWNLOAD<br/>原来源证明与真实 drain]
+    A12[BACKGROUND_WRITER<br/>检测 PREPARE DIRECT_DELETE<br/>等待 drain 持久状态并让槽]
+  end
+  subgraph Reader[唯一受控 reader]
+    A13[有界检查与 fresh 全组读取<br/>精确 unlink 同步与实际退出]
+  end
+  subgraph FS[文件系统 · 独立于 DB]
+    A14[登记原媒体与明确冻结文件<br/>不移动 不整目录清空 不删空目录]
+    A15[归档 staging<br/>非检测输入 需确认相关执行停止]
+  end
+  A01 --> A02 --> A06
+  A02 --> A07
+  A02 --> A08
+  A03 --> A04
+  A04 --> A05
+  A04 --> A07
+  A08 --> A09
+  A09 --> A10 --> A11
+  A09 --> A11
+  A09 --> A12
+  A11 --> A15
+  A11 -->|原 token 停止回执不要求 OPEN| A07
+  A11 -->|最终发布复验原证明| A12
+  A12 -->|全范围版本与 fence| A05
+  A12 --> A06
+  A12 -->|认领 意图 回执 终结| A07
+  A12 --> A13 -->|只按持久精确清单| A14
+  A13 -.->|close 未证实 禁止替代进程| A08

@@ -1,3 +1,9 @@
+import { fixtureDirectory } from '@/services/artwork-service/__tests__/media-content-fixture'
+vi.mock('@/services/artwork-service/content-source-guard', async (original) => ({
+  ...(await original<typeof import('@/services/artwork-service/content-source-guard')>()),
+  captureContentDirectory: async () => fixtureDirectory,
+  assertContentScan: async () => undefined
+}))
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fs from 'fs/promises'
 import os from 'os'

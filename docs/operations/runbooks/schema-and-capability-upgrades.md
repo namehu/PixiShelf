@@ -26,6 +26,12 @@ sources:
 
 `20261023000000_archive_download_lane_enum` 必须先独立提交枚举值，再应用 `20261023001000_archive_download_lane`。停止并确认旧 Worker 退出、建立同点备份后，按[归档恢复规则](../../features/archive-lifecycle.md#下载通道升级与恢复)升级；SQL 不搬媒体。检查 DOWNLOAD/PUBLISH capability、三个 lane READY、旧 v1/v2 轻量转交和暂停/预算保留，不仅检查进程存活。
 
+### 原媒体内容声明与恢复授权
+
+跨越 `20261023002000_media_content_fingerprints` 和 `20261023003000_media_content_recovery_grants` 时，停止 App、全部 Worker 和外部媒体写入，保存数据库、原件及领域 manifest 的同点检查点；正式 migrate deploy 后部署配套 Worker 与 App，再开放入口。迁移只增加证据、声明、授权及失效约束，不扫描原件或预计算哈希。
+
+存在活动或待恢复声明时，不得降级到忽略该协议的旧程序；不能仅还原数据库、删除新表或按租约超时清声明。恢复单位与具体 CLI 见[原媒体写入异常恢复](./media-content-recovery.md)，隔离升级证据见[第一阶段记录](../../records/artwork-deduplication-phase-1-2026-10-23.md)。
+
 ### 双 lane 与 FULL 审计
 
 停写后核对同一 Compose project 的全部容器，移除已明确退役的 orphan 服务，再确认旧 `archive-worker` 容器为零。数据库审计无法发现空闲但活着的旧消费者。`--remove-orphans` 前先确认项目归属及自定义服务，不能跨项目盲删。

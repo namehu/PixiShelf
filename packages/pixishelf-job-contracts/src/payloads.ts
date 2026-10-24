@@ -1,3 +1,5 @@
+import { artworkDedupMaintenancePayloadSchema } from './artwork-dedup-maintenance.ts'
+import { artworkDedupScanPayloadSchema } from './artwork-dedup.ts'
 import { artworkSummaryPayloadSchema } from './artwork-summary.ts'
 import { discoveryBatchPayloadSchema } from './archive-discovery-batch.ts'
 import { z } from 'zod'
@@ -503,6 +505,8 @@ export const creatorMaintenancePayloadSchema = z
 export type CreatorMaintenancePayload = z.infer<typeof creatorMaintenancePayloadSchema>
 
 export const JOB_PAYLOAD_SCHEMAS = {
+  ARTWORK_DEDUP_SCAN: artworkDedupScanPayloadSchema,
+  ARTWORK_DEDUP_MAINTENANCE: artworkDedupMaintenancePayloadSchema,
   ARTWORK_SUMMARY_GENERATE: artworkSummaryPayloadSchema,
   ARCHIVE_DISCOVERY_BATCH_SCAN: discoveryBatchPayloadSchema,
   CREATOR_MAINTENANCE: creatorMaintenancePayloadSchema,

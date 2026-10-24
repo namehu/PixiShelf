@@ -1,5 +1,14 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
+import { assertLocalScanSources } from './dedup-source-snapshot.ts'
+import { assertScanRootUnchanged } from './root-identity.ts'
+import { captureScanMediaDirectory, assertScanMediaDirectory } from './media-content-guard.ts'
 import { createHash } from 'node:crypto'
-import { checkArtworkSummarySource, invalidateAnimationDurationSource, lockArtworkForReading } from '@pixishelf/db'
+import {
+  checkArtworkSummarySource,
+  invalidateAnimationDurationSource,
+  lockArtworkForReading,
+  assertArtworkDedupWritable
+} from '@pixishelf/db'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import type { ScanPayload } from '@pixishelf/job-contracts'
 import { collectLocalMedia, verifyLocalWorkFingerprint } from './discovery.ts'
@@ -23,6 +32,18 @@ export async function executeLocalArtworkRescan(input: {
   }
   const artworkId = input.context.payload.artworkId
   const work = await loadFrozenWork(input.dependencies, input.run)
+  const mediaDirectory = await captureScanMediaDirectory({
+    context: input.context,
+    scanRoot: input.root.absolutePath,
+    relativeDirectory: work.relativePath
+  })
+  await input.context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
+    await assertLocalScanSources(transaction, {
+      snapshot: work.dedupSourceSnapshot,
+      relativePath: work.relativePath,
+      rootIdentity: mediaDirectory.rootIdentity
+    })
+  })
   await verifyLocalWorkFingerprint({
     root: input.root,
     relativeDirectory: work.relativePath,
@@ -39,16 +60,25 @@ export async function executeLocalArtworkRescan(input: {
   )
   if (media.length === 0) throw new ScanExecutorError('MEDIA_NOT_FOUND', 'Local artwork has no supported media')
 
+  await assertScanRootUnchanged(input.root)
   return input.context.mutateInTransaction<
     ScanTransaction & QueueSqlExecutor,
     { status: 'SUCCESS'; newImages: number }
   >(async (transaction) => {
+    await lockCreatorCatalog(transaction)
+    await assertScanMediaDirectory(transaction, mediaDirectory)
+    await assertLocalScanSources(transaction, {
+      snapshot: work.dedupSourceSnapshot,
+      relativePath: work.relativePath,
+      rootIdentity: mediaDirectory.rootIdentity
+    })
     const artwork = await transaction.artwork.findUnique({
       where: { id: artworkId },
-      select: { id: true, source: true, storagePath: true }
+      select: { id: true, source: true, createdVia: true, storagePath: true }
     })
     if (
       !artwork ||
+      artwork.createdVia !== 'LOCAL_DIRECTORY' ||
       (artwork.source !== 'LOCAL_CREATED' && artwork.source !== 'LOCAL_IMPORT') ||
       artwork.storagePath !== work.relativePath
     ) {
@@ -62,6 +92,7 @@ export async function executeLocalArtworkRescan(input: {
     if (checkpoint?.status === 'SUCCESS') {
       return { status: 'SUCCESS' as const, newImages: checkpoint.newImageCount }
     }
+    await assertArtworkDedupWritable(transaction, { artworkId: artwork.id, kind: 'CONTENT' })
     await lockArtworkForReading(transaction, artwork.id)
     const ordered = await reconcileLocalArtworkImages(transaction, artwork.id, media, input.now)
     await transaction.scanRunItem.upsert({
@@ -183,7 +214,12 @@ export async function reconcileLocalArtworkImages(
         data.webpAnimationStatus = previous.webpAnimationStatus
       }
       retainedIds.push(previous.id)
-      await checkArtworkSummarySource(transaction, previous.id, item.relativePath, item.sourceState ? { ...item.sourceState, size: item.size } : undefined)
+      await checkArtworkSummarySource(
+        transaction,
+        previous.id,
+        item.relativePath,
+        item.sourceState ? { ...item.sourceState, size: item.size } : undefined
+      )
       if (
         animationDurationSourceChanged({
           previousPath: previous.path,

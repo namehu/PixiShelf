@@ -1,3 +1,9 @@
+import { fixtureDirectory } from '@/services/artwork-service/__tests__/media-content-fixture'
+vi.mock('@/services/artwork-service/content-source-guard', async (original) => ({
+  ...(await original<typeof import('@/services/artwork-service/content-source-guard')>()),
+  captureContentDirectory: async () => fixtureDirectory,
+  assertContentScan: async () => undefined
+}))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
@@ -69,6 +75,7 @@ describe('local import service', () => {
     mocks.artworkFindUnique.mockResolvedValue(null)
     mocks.discover.mockResolvedValue(discovery)
     mocks.scan.mockResolvedValue({
+      contentDirectory: fixtureDirectory,
       filesMeta: [{ fileName: '1.jpg', order: 1, width: 10, height: 20, size: 30, path: '/x/1.jpg' }],
       chaptersMeta: [],
       warnings: [],
@@ -112,13 +119,9 @@ describe('local import service', () => {
       })
     )
     expect(mocks.transaction.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.scan.mock.invocationCallOrder[0]!)
-    expect(mocks.updateImages).toHaveBeenCalledWith(
-      expect.anything(),
-      10,
-      expect.any(Array),
-      [],
-      { appendTagIds: [4, 7] }
-    )
+    expect(mocks.updateImages).toHaveBeenCalledWith(expect.anything(), 10, expect.any(Array), [], {
+      appendTagIds: [4, 7]
+    })
     expect(result).toMatchObject({
       total: 1,
       candidates: 1,
@@ -164,7 +167,9 @@ describe('local import service', () => {
     const recordItems = vi.fn()
     mocks.transaction.mockRejectedValueOnce({ code: 'P2002', meta: { target: ['storagePath'] } })
 
-    await expect(runLocalImport({ scanPath: 'D:/scan', checkCancelled, audit: { recordItems } })).resolves.toMatchObject({
+    await expect(
+      runLocalImport({ scanPath: 'D:/scan', checkCancelled, audit: { recordItems } })
+    ).resolves.toMatchObject({
       imported: 0,
       skipped: 1,
       failed: 0

@@ -1,3 +1,4 @@
+import { assertArchiveSourceSnapshot, parseArchiveSourceSnapshot } from './dedup-source-snapshot.ts'
 import { randomUUID } from 'node:crypto'
 import {
   ARCHIVE_INTAKE_PUBLISH_LOCK_ID,
@@ -10,7 +11,7 @@ import {
   type ArchiveResolveItemPayload,
   type JobErrorCode
 } from '@pixishelf/job-contracts'
-import type { Prisma, PrismaClient } from '@pixishelf/db'
+import { lockCreatorCatalog, type Prisma, type PrismaClient } from '@pixishelf/db'
 import type {
   EnqueuedChildJob,
   ExecutionContext,
@@ -19,7 +20,7 @@ import type {
   JobExecutionOutcome,
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
-import { toArchiveExecutorError } from './errors.ts'
+import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
 import { hashResolvedMetadata } from './providers/e-hentai.ts'
 import { isPublishedArchiveUnchanged } from './metadata-comparison.ts'
 import type { ArchiveProviderRegistry, ResolvedArchive } from './types.ts'
@@ -61,34 +62,35 @@ export async function executeArchiveResolveItem(
 ): Promise<JobExecutionOutcome> {
   const now = dependencies.now ?? (() => new Date())
   const startedAt = now()
-  const item = await context.mutateInTransaction<ResolveTransaction, { submittedUrl: string } | null>(
-    async (transaction) => {
-      const claimed = await transaction.archiveIntakeItem.updateMany({
-        where: {
-          id: context.payload.intakeItemId,
-          currentSystemJobId: context.job.id,
-          status: { in: ['QUEUED', 'RETRY_WAIT', 'RESOLVING'] },
-          cancelRequestedAt: null
-        },
-        data: {
-          status: 'RESOLVING',
-          attempts: context.job.attempt,
-          startedAt,
-          finishedAt: null,
-          availableAt: startedAt,
-          errorCode: null,
-          errorMessage: null,
-          errorStage: null,
-          retryable: null
-        }
-      })
-      if (claimed.count !== 1) return null
-      return transaction.archiveIntakeItem.findUniqueOrThrow({
-        where: { id: context.payload.intakeItemId },
-        select: { submittedUrl: true }
-      })
-    }
-  )
+  const item = await context.mutateInTransaction<
+    ResolveTransaction,
+    { submittedUrl: string; dedupSourceSnapshot: Prisma.JsonValue } | null
+  >(async (transaction) => {
+    const claimed = await transaction.archiveIntakeItem.updateMany({
+      where: {
+        id: context.payload.intakeItemId,
+        currentSystemJobId: context.job.id,
+        status: { in: ['QUEUED', 'RETRY_WAIT', 'RESOLVING'] },
+        cancelRequestedAt: null
+      },
+      data: {
+        status: 'RESOLVING',
+        attempts: context.job.attempt,
+        startedAt,
+        finishedAt: null,
+        availableAt: startedAt,
+        errorCode: null,
+        errorMessage: null,
+        errorStage: null,
+        retryable: null
+      }
+    })
+    if (claimed.count !== 1) return null
+    return transaction.archiveIntakeItem.findUniqueOrThrow({
+      where: { id: context.payload.intakeItemId },
+      select: { submittedUrl: true, dedupSourceSnapshot: true }
+    })
+  })
 
   if (!item) {
     return context.finalizeInTransaction<ResolveTransaction>(async (scope) => {
@@ -121,10 +123,23 @@ export async function executeArchiveResolveItem(
     // finalization below mutates queue-owned state, so slow remote I/O cannot
     // hold row locks or commit after a lease has been lost.
     const provider = dependencies.providers.getForUrl(item.submittedUrl)
+    const identity = provider.identifySource(item.submittedUrl)
+    await context.mutateInTransaction<ResolveTransaction>(async (transaction) => {
+      await assertArchiveSourceSnapshot(transaction, { ...identity, dedupSourceSnapshot: item.dedupSourceSnapshot })
+    })
     const resolved = await provider.resolve(item.submittedUrl, { signal: context.signal })
+    parseArchiveSourceSnapshot({
+      providerKey: resolved.providerKey,
+      externalId: resolved.externalId,
+      dedupSourceSnapshot: item.dedupSourceSnapshot
+    })
     const metadataHash = hashResolvedMetadata(resolved.normalizedMetadata)
-    return context.finalizeInTransaction<ResolveTransaction>((scope) =>
-      finalizeResolved(scope, context, resolved, metadataHash, now(), dependencies.uuid ?? randomUUID)
+    return await context.finalizeInTransaction<ResolveTransaction>((scope) =>
+      finalizeResolved(
+        scope,
+        context,
+        { resolved, metadataHash, resolvedAt: now(), uuid: dependencies.uuid ?? randomUUID, originalProof: item.dedupSourceSnapshot }
+      )
     )
   } catch (error) {
     const classified = toArchiveExecutorError(error)
@@ -137,11 +152,9 @@ export async function executeArchiveResolveItem(
 async function finalizeResolved(
   scope: ResolveScope,
   context: ResolveContext,
-  resolved: ResolvedArchive,
-  metadataHash: string,
-  resolvedAt: Date,
-  uuid: () => string
+  input: { resolved: ResolvedArchive; metadataHash: string; resolvedAt: Date; uuid: () => string; originalProof: Prisma.JsonValue }
 ) {
+  const { resolved, metadataHash, resolvedAt, uuid, originalProof } = input
   if (scope.controlStatus === 'CANCEL_REQUESTED') {
     await markCancelled(scope.transaction, context.payload.intakeItemId, context.job.id, resolvedAt, {
       providerKey: resolved.providerKey,
@@ -161,11 +174,35 @@ async function finalizeResolved(
   }
 
   // Serialize classification with publication and manual enqueue before freezing the decision.
+  await lockCreatorCatalog(scope.transaction)
   await scope.transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_INTAKE_PUBLISH_LOCK_ID)
   const intake = await scope.transaction.archiveIntakeItem.findUniqueOrThrow({
     where: { id: context.payload.intakeItemId },
     include: { submission: { select: { requestedByUserId: true } } }
   })
+  await lockArchiveUploaderCatalogIdentities(scope.transaction, [
+    {
+      providerKey: resolved.providerKey,
+      externalId: resolved.externalId,
+      canonicalUrls: [intake.submittedUrl, intake.canonicalUrl, resolved.canonicalUrl]
+    }
+  ])
+  const original = await assertArchiveSourceSnapshot(scope.transaction, {
+    providerKey: resolved.providerKey,
+    externalId: resolved.externalId,
+    dedupSourceSnapshot: originalProof
+  })
+  if (
+    JSON.stringify(original) !==
+    JSON.stringify(
+      parseArchiveSourceSnapshot({
+        providerKey: resolved.providerKey,
+        externalId: resolved.externalId,
+        dedupSourceSnapshot: intake.dedupSourceSnapshot
+      })
+    )
+  )
+    {throw new ArchiveExecutorError('STATE_CONFLICT', '归档解析的原来源证明已改变')}
   const automatic = intake.downloadMode === 'AUTO'
   const deletion = await scope.transaction.archiveDeletedIdentity.findUnique({
     where: { providerKey_externalId: { providerKey: resolved.providerKey, externalId: resolved.externalId } }

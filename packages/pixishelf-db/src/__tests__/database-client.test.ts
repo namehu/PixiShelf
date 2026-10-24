@@ -7,7 +7,16 @@ const queueKernelDatabaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const describePostgres = queueKernelDatabaseUrl ? describe : describe.skip
 const postgresClient = queueKernelDatabaseUrl ? new PrismaClient({ datasourceUrl: queueKernelDatabaseUrl }) : null
-const latestMigration = '20261023001000_archive_download_lane'
+const latestMigration = '20261024001400_artwork_dedup_source_snapshot'
+
+const sourceSnapshotColumns = [
+  'scan_run_metadata_inputs.dedupSourceSnapshot',
+  'scan_run_local_work_inputs.dedupSourceSnapshot',
+  'pixiv_source_audit_items.dedupSourceSnapshot',
+  'archive_intake_items.dedupSourceSnapshot',
+  'archive_imports.dedupSourceSnapshot'
+]
+const sourceSnapshotColumnRows = sourceSnapshotColumns.map((columnName) => ({ columnName }))
 
 const expectedIndex = {
   indexName: 'system_jobs_single_executing_per_lane_idx',
@@ -18,6 +27,29 @@ const expectedIndex = {
 }
 
 const completeTableRows = [
+  'ArtworkDedupRun',
+  'ArtworkDedupItem',
+  'ArtworkDedupMedia',
+  'ArtworkDedupGroup',
+  'ArtworkDedupGroupMember',
+  'ArtworkDedupCommand',
+  'ArtworkDedupReviewState',
+  'ArtworkDedupReview',
+  'ArtworkDedupOperation',
+  'ArtworkDedupOperationGroup',
+  'ArtworkDedupOperationArtwork',
+  'ArtworkDedupOperationFile',
+  'ArtworkDedupClaim',
+  'ArtworkDedupSourceIdentity',
+  'ArtworkDedupOperationSource',
+  'ArtworkDedupFileReceipt',
+  'MediaContentDirectoryState',
+  'MediaContentRecoveryGrant',
+  'MediaContentPathWrite',
+  'MediaContentSource',
+  'ArtworkContentSource',
+  'MediaContentFingerprint',
+  'ArtworkContentFingerprint',
   'archive_import_executions',
   'archive_staging_generations',
   'artist_merges',
@@ -67,6 +99,32 @@ function createQueryClient(results: unknown[]): PrismaClient {
 }
 
 describe('database package', () => {
+  it.each(sourceSnapshotColumns)('rejects migration 111 missing %s', async (missingColumn) => {
+    const columns = [
+      'definitionVersion',
+      'executionLane',
+      'progressData',
+      'legacyDisplay',
+      'Artwork.mediaRevision',
+      'archive_imports.publishedArtworkDeletedAt',
+      'archive_imports.publishedArtworkPurgedAt',
+      'archive_imports.phase',
+      'archive_imports.origin',
+      'archive_imports.generationToken',
+      'archive_imports.sealedManifestSha256',
+      ...sourceSnapshotColumns
+    ]
+    const client = createQueryClient([
+      columns.filter((name) => name !== missingColumn).map((columnName) => ({ columnName })),
+      completeTableRows,
+      [{ migrationName: latestMigration }],
+      [expectedIndex]
+    ])
+    await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
+      `Background queue schema is not ready: missing ${missingColumn}`
+    )
+  })
+
   it.each([
     'publishedArtworkDeletedAt',
     'publishedArtworkPurgedAt',
@@ -81,6 +139,7 @@ describe('database package', () => {
       'progressData',
       'legacyDisplay',
       'Artwork.mediaRevision',
+      ...sourceSnapshotColumns,
       'archive_imports.publishedArtworkDeletedAt',
       'archive_imports.publishedArtworkPurgedAt',
       'archive_imports.phase',
@@ -96,7 +155,7 @@ describe('database package', () => {
     ])
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(`archive_imports.${missingColumn}`)
   })
-  it('rejects the previous release even when archive deletion objects were added manually', async () => {
+  it('rejects migration 110 even when all source snapshot columns were added manually', async () => {
     const client = createQueryClient([
       [
         'definitionVersion',
@@ -104,6 +163,7 @@ describe('database package', () => {
         'progressData',
         'legacyDisplay',
         'Artwork.mediaRevision',
+        ...sourceSnapshotColumns,
         'archive_imports.publishedArtworkDeletedAt',
         'archive_imports.publishedArtworkPurgedAt',
         'archive_imports.phase',
@@ -112,7 +172,7 @@ describe('database package', () => {
         'archive_imports.sealedManifestSha256'
       ].map((columnName) => ({ columnName })),
       completeTableRows,
-      [{ migrationName: '20261011000000_background_task_retirement_contract' }],
+      [{ migrationName: '20261024001300_artwork_dedup_reference_indexes' }],
       [expectedIndex]
     ])
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(`migration:${latestMigration}`)
@@ -120,6 +180,7 @@ describe('database package', () => {
   it('rejects missing validated retirement constraints despite a completed migration', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -143,6 +204,7 @@ describe('database package', () => {
   it('rejects retired task columns even with valid migration and constraints', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -167,6 +229,7 @@ describe('database package', () => {
   it('accepts the complete background queue schema contract', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -191,6 +254,7 @@ describe('database package', () => {
   it('rejects a migrated database missing the animation metadata table', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -219,6 +283,7 @@ describe('database package', () => {
     async (missingTable) => {
       const client = createQueryClient([
         [
+          ...sourceSnapshotColumnRows,
           { columnName: 'archive_imports.publishedArtworkDeletedAt' },
           { columnName: 'archive_imports.publishedArtworkPurgedAt' },
           { columnName: 'archive_imports.phase' },
@@ -246,6 +311,7 @@ describe('database package', () => {
   it('rejects a database missing the retirement snapshot column', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -268,6 +334,7 @@ describe('database package', () => {
   it('rejects a pre-retirement database even if its columns were manually added', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -291,6 +358,7 @@ describe('database package', () => {
   it('rejects a migrated database missing Artwork.mediaRevision', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -318,6 +386,7 @@ describe('database package', () => {
     async (retiredColumn) => {
       const client = createQueryClient([
         [
+          ...sourceSnapshotColumnRows,
           { columnName: 'archive_imports.publishedArtworkDeletedAt' },
           { columnName: 'archive_imports.publishedArtworkPurgedAt' },
           { columnName: 'archive_imports.phase' },
@@ -345,13 +414,14 @@ describe('database package', () => {
     const client = createQueryClient([[], [], [], []])
 
     await expect(assertBackgroundQueueSchema(client)).rejects.toThrow(
-      `Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, system_jobs.legacyDisplay, Artwork.mediaRevision, archive_imports.publishedArtworkDeletedAt, archive_imports.publishedArtworkPurgedAt, archive_imports.phase, archive_imports.origin, archive_imports.generationToken, archive_imports.sealedManifestSha256, archive_import_executions, archive_staging_generations, ArtworkSummary, ArtworkSummaryFeature, artist_merges, ImageAnimationMetadata, artwork_reading_summaries, artwork_read_media, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_deleted_identities, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:${latestMigration}, index:system_jobs_single_executing_per_lane_idx`
+      `Background queue schema is not ready: missing system_jobs.definitionVersion, system_jobs.executionLane, system_jobs.progressData, system_jobs.legacyDisplay, Artwork.mediaRevision, archive_imports.publishedArtworkDeletedAt, archive_imports.publishedArtworkPurgedAt, archive_imports.phase, archive_imports.origin, archive_imports.generationToken, archive_imports.sealedManifestSha256, ${sourceSnapshotColumns.join(', ')}, ArtworkDedupRun, ArtworkDedupItem, ArtworkDedupMedia, ArtworkDedupGroup, ArtworkDedupGroupMember, ArtworkDedupCommand, ArtworkDedupReviewState, ArtworkDedupReview, ArtworkDedupOperation, ArtworkDedupOperationGroup, ArtworkDedupOperationArtwork, ArtworkDedupOperationFile, ArtworkDedupClaim, ArtworkDedupSourceIdentity, ArtworkDedupOperationSource, ArtworkDedupFileReceipt, MediaContentDirectoryState, MediaContentRecoveryGrant, MediaContentPathWrite, MediaContentSource, ArtworkContentSource, MediaContentFingerprint, ArtworkContentFingerprint, archive_import_executions, archive_staging_generations, ArtworkSummary, ArtworkSummaryFeature, artist_merges, ImageAnimationMetadata, artwork_reading_summaries, artwork_read_media, creator_maintenance_plans, creator_maintenance_items, artwork_artists, artwork_artist_evidence, artist_source_tag_mappings, effective_artwork_creators, archive_intake_items, archive_deleted_identities, archive_uploader_scan_items, archive_uploader_scan_runs, archive_uploader_sources, archive_provider_request_leases, archive_provider_throttles, archive_resolve_queue_control, derived_media_gc_entries, job_resource_leases, pixiv_metadata_inventory, pixiv_metadata_inventory_state, pixiv_source_audit_items, tag_external_metadata, system_job_events, worker_instances, migration:${latestMigration}, index:system_jobs_single_executing_per_lane_idx`
     )
   })
 
   it('rejects a database that stopped before the reading migration', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -366,6 +436,33 @@ describe('database package', () => {
         { columnName: 'Artwork.mediaRevision' }
       ],
       [
+        ...completeTableRows.filter((row) =>
+          [
+            'ArtworkDedupRun',
+            'ArtworkDedupItem',
+            'ArtworkDedupMedia',
+            'ArtworkDedupGroup',
+            'ArtworkDedupGroupMember',
+            'ArtworkDedupCommand',
+  'ArtworkDedupReviewState',
+  'ArtworkDedupReview',
+  'ArtworkDedupOperation',
+  'ArtworkDedupOperationGroup',
+  'ArtworkDedupOperationArtwork',
+  'ArtworkDedupOperationFile',
+  'ArtworkDedupClaim',
+  'ArtworkDedupSourceIdentity',
+  'ArtworkDedupOperationSource',
+  'ArtworkDedupFileReceipt',
+            'MediaContentDirectoryState',
+            'MediaContentRecoveryGrant',
+            'MediaContentPathWrite',
+            'MediaContentSource',
+            'ArtworkContentSource',
+            'MediaContentFingerprint',
+            'ArtworkContentFingerprint'
+          ].includes(row.tableName)
+        ),
         { tableName: 'archive_import_executions' },
         { tableName: 'archive_staging_generations' },
         { tableName: 'artist_merges' },
@@ -409,6 +506,7 @@ describe('database package', () => {
   it('rejects a migrated schema when the single-execution index is missing or invalid', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -423,6 +521,33 @@ describe('database package', () => {
         { columnName: 'Artwork.mediaRevision' }
       ],
       [
+        ...completeTableRows.filter((row) =>
+          [
+            'ArtworkDedupRun',
+            'ArtworkDedupItem',
+            'ArtworkDedupMedia',
+            'ArtworkDedupGroup',
+            'ArtworkDedupGroupMember',
+            'ArtworkDedupCommand',
+  'ArtworkDedupReviewState',
+  'ArtworkDedupReview',
+  'ArtworkDedupOperation',
+  'ArtworkDedupOperationGroup',
+  'ArtworkDedupOperationArtwork',
+  'ArtworkDedupOperationFile',
+  'ArtworkDedupClaim',
+  'ArtworkDedupSourceIdentity',
+  'ArtworkDedupOperationSource',
+  'ArtworkDedupFileReceipt',
+            'MediaContentDirectoryState',
+            'MediaContentRecoveryGrant',
+            'MediaContentPathWrite',
+            'MediaContentSource',
+            'ArtworkContentSource',
+            'MediaContentFingerprint',
+            'ArtworkContentFingerprint'
+          ].includes(row.tableName)
+        ),
         { tableName: 'archive_import_executions' },
         { tableName: 'archive_staging_generations' },
         { tableName: 'artist_merges' },
@@ -466,6 +591,7 @@ describe('database package', () => {
   it('rejects a same-name unique partial index with the wrong protected statuses', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -480,6 +606,33 @@ describe('database package', () => {
         { columnName: 'Artwork.mediaRevision' }
       ],
       [
+        ...completeTableRows.filter((row) =>
+          [
+            'ArtworkDedupRun',
+            'ArtworkDedupItem',
+            'ArtworkDedupMedia',
+            'ArtworkDedupGroup',
+            'ArtworkDedupGroupMember',
+            'ArtworkDedupCommand',
+  'ArtworkDedupReviewState',
+  'ArtworkDedupReview',
+  'ArtworkDedupOperation',
+  'ArtworkDedupOperationGroup',
+  'ArtworkDedupOperationArtwork',
+  'ArtworkDedupOperationFile',
+  'ArtworkDedupClaim',
+  'ArtworkDedupSourceIdentity',
+  'ArtworkDedupOperationSource',
+  'ArtworkDedupFileReceipt',
+            'MediaContentDirectoryState',
+            'MediaContentRecoveryGrant',
+            'MediaContentPathWrite',
+            'MediaContentSource',
+            'ArtworkContentSource',
+            'MediaContentFingerprint',
+            'ArtworkContentFingerprint'
+          ].includes(row.tableName)
+        ),
         { tableName: 'archive_import_executions' },
         { tableName: 'archive_staging_generations' },
         { tableName: 'artist_merges' },
@@ -528,6 +681,7 @@ describe('database package', () => {
   it('rejects a same-name partial index that is not keyed by execution lane', async () => {
     const client = createQueryClient([
       [
+        ...sourceSnapshotColumnRows,
         { columnName: 'archive_imports.publishedArtworkDeletedAt' },
         { columnName: 'archive_imports.publishedArtworkPurgedAt' },
         { columnName: 'archive_imports.phase' },
@@ -542,6 +696,33 @@ describe('database package', () => {
         { columnName: 'Artwork.mediaRevision' }
       ],
       [
+        ...completeTableRows.filter((row) =>
+          [
+            'ArtworkDedupRun',
+            'ArtworkDedupItem',
+            'ArtworkDedupMedia',
+            'ArtworkDedupGroup',
+            'ArtworkDedupGroupMember',
+            'ArtworkDedupCommand',
+  'ArtworkDedupReviewState',
+  'ArtworkDedupReview',
+  'ArtworkDedupOperation',
+  'ArtworkDedupOperationGroup',
+  'ArtworkDedupOperationArtwork',
+  'ArtworkDedupOperationFile',
+  'ArtworkDedupClaim',
+  'ArtworkDedupSourceIdentity',
+  'ArtworkDedupOperationSource',
+  'ArtworkDedupFileReceipt',
+            'MediaContentDirectoryState',
+            'MediaContentRecoveryGrant',
+            'MediaContentPathWrite',
+            'MediaContentSource',
+            'ArtworkContentSource',
+            'MediaContentFingerprint',
+            'ArtworkContentFingerprint'
+          ].includes(row.tableName)
+        ),
         { tableName: 'archive_import_executions' },
         { tableName: 'archive_staging_generations' },
         { tableName: 'artist_merges' },

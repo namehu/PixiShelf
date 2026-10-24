@@ -53,11 +53,19 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 | Webhook 与 scheduler                    | 公共 transport + 各自 Token；GET/HEAD 不执行扫描，POST 才入队/物化                                 |
 | 原站跳转                                | 独立 Session + 服务端查询 + provider/HTTPS/主机/端口/凭据/路径/归属校验；忽略 query 目的地         |
 
+媒体 HTTP 路由禁止读取隐藏目录中的恢复证据（包括 `.pixishelf-upload-recovery`）：URL 解码和路径归一化后的每个路径段均检查隐藏前缀，解析后的实际根内路径再次检查，防止编码分隔符或可见符号链接别名绕过。恢复操作的账户和原 operationId 校验仍由服务层执行。
+
 精确接口参数由 Zod 和路由代码维护。扫描/迁移错误 envelope 及 Webhook 例外见[HTTP 响应契约](./http-response-contract.md)，外部调用见[扫描 Webhook](../../packages/pixishelf/docs/webhook-features.md)。
 
 作品评分和喜欢筛选使用 Session 账户，`expectedUserId` 只作账户切换一致性校验。评分读取／赋值及喜欢条件的列表、卡片与沉浸 feed 缺失或错账户参数时拒绝；客户端不能指定任意账户评分或喜欢集合。详情滑杆与沉浸爱心共用鉴权评分赋值入口，不存在可绕过评分阈值的布尔点赞写入。服务在作品锁和事务内复核活动、未删除状态；前端缓存及迟到响应按账户隔离。见[作品评分与喜欢](../features/artwork-rating.md)与[作品搜索与我的喜欢](../features/artwork-search-and-favorites.md)。
 
 单图 `mediaMark.getMany/set/list/remove` 使用同样的 Session 与 `expectedUserId` 保护，但操作独立媒体标记，不写作品评分。设置必须核对媒体属于当前活动作品、逻辑媒体身份及写入状态；失效条目只能按会话账户移除指定状态。原媒体写入开始、成功失效与标记设置按相同作品锁排序，避免把标记写到正在替换的内容。见[单图书签与喜欢](../features/media-marks.md)。
+
+同艺术家重复检测的 `artworkDedup` 接口要求 Session 与 `expectedUserId` 一致；检测结果属于共享管理事实，`requestedBy` 仅为审计身份。运行控制核对业务版本与幂等键，通用后台任务入口不能绕过检测领域限制或提升优先级。返回信息不含其他账户私人整理内容、绝对媒体路径、根身份、原始哈希和执行租约；开发分支行为见[重复检测](../features/artwork-deduplication.md)。
+
+去重直接删除另核对新目的/协议、冻结范围摘要、操作版本、不可恢复与持续外部停写确认，幂等控制收据先于当前执行阶段分派。原文件路径和执行范围只能由服务器生成；旧隔离预览不产生新授权。来源解除校验选定墓碑及实时代次，只允许未来新意图。其他账户的整理信息仅返回保护资格，已删除副本不伪造历史私有明细；候选与生产开放状态见[作品去重](../features/artwork-deduplication.md)。
+
+去重成员封面 `GET /api/artwork-dedup/cover/:artworkId` 独立核验 Session 与 expectedUserId，并按当前活动、未删除及非维护 COPY 声明的作品可见性读取第一登记图片或已有视频封面。DTO仅返回作品ID路由，不暴露原路径；隐藏目录和解析后隐藏路径均拒绝，响应为 private/no-store、Vary Cookie，不重定向原媒体、不现场重编码。
 
 ## 服务网络和存储矩阵
 

@@ -1,3 +1,4 @@
+import { MediaUploadReceiptSchema } from './media-content.dto'
 import z from 'zod'
 import { MediaTypeFilter, SortOption } from '@/types'
 import { ArtworkModel, ArtworkSourceEnum, ImageModel, MediaProbeStatusEnum, TagModel } from './models'
@@ -481,6 +482,7 @@ export const BatchRegisterImageSchema = z.object({
       images: z.array(
         z.object({
           path: z.string(),
+          uploadReceipt: MediaUploadReceiptSchema,
           size: z.number().int(),
           width: z.number().int().optional(),
           height: z.number().int().optional()

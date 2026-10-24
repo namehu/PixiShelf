@@ -207,7 +207,8 @@ export async function rescanLocalArtwork(
     })
 
     await updateArtworkImagesTransaction(artworkId, mediaScanResult.filesMeta, mediaScanResult.chaptersMeta, {
-      preserveExistingOrder: true
+      preserveExistingOrder: true,
+      contentDirectory: mediaScanResult.contentDirectory
     })
     scanResult.newImages = mediaScanResult.filesMeta.length
     scanResult.newArtworks = 1

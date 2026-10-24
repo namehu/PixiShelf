@@ -1,3 +1,32 @@
+import { TRPCError } from '@trpc/server'
+const dedupGuard = vi.hoisted(() => vi.fn())
+vi.mock('../../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: dedupGuard }))
+const protocol = vi.hoisted(() => ({
+  value: null as ReturnType<typeof createUploadProtocolMock> | null,
+  failAck: false,
+  recovery: vi.fn(async () => ({ status: 'READY' }))
+}))
+vi.mock('../content-source-guard', async (original) => {
+  const { createUploadProtocolMock } = await import('./media-content-fixture')
+  protocol.value = createUploadProtocolMock()
+  return {
+    ...(await original<typeof import('../content-source-guard')>()),
+    beginContentUpload: (...args: any[]) => protocol.value!.begin(args[0]),
+    finishLegacyContentGuards: vi.fn(),
+    publishContentOwner: async (tx: any, _u: any, _a: any, _o: any, callback: (tx: any) => Promise<unknown>) =>
+      callback(tx)
+  }
+})
+vi.mock('@pixishelf/db', async (original) => ({
+  ...(await original<typeof import('@pixishelf/db')>()),
+  prepareMediaContentUploadChunk: (...args: any[]) => protocol.value!.prepare(args[0], args[1]),
+  ackMediaContentUploadChunk: (...args: any[]) => {
+    if (protocol.failAck) throw new Error('ack database unavailable')
+    return protocol.value!.ack(args[0], args[1])
+  },
+  markMediaContentWriteRecoveryRequired: protocol.recovery
+}))
+import { fixtureAuthorization, fixtureUser, createUploadProtocolMock } from './media-content-fixture'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -13,6 +42,10 @@ const { artworkFindUniqueMock, imageFindUniqueMock, associateChaptersToImageMock
 vi.mock('server-only', () => ({}))
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: async (callback: (tx: any) => Promise<unknown>) =>
+      callback({
+        image: { update: (args: any) => associateChaptersToImageMock({ imageId: args.where.id, ...args.data }) }
+      }),
     artwork: {
       findUnique: artworkFindUniqueMock
     },
@@ -34,6 +67,9 @@ describe('media-chapter-upload service', () => {
 
   beforeEach(async () => {
     scanRoot = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-media-chapter-upload-'))
+    dedupGuard.mockReset().mockResolvedValue(undefined)
+    protocol.failAck = false
+    protocol.recovery.mockClear()
     artworkFindUniqueMock.mockReset()
     imageFindUniqueMock.mockReset()
     associateChaptersToImageMock.mockReset().mockResolvedValue({})
@@ -43,7 +79,72 @@ describe('media-chapter-upload service', () => {
     await rm(scanRoot, { recursive: true, force: true })
   })
 
-  it('writes canonical manifest, removes legacy candidates, and associates chapters to image', async () => {
+  it.each(['CONFLICT', 'NOT_FOUND'] as const)('rejects %s before reading the manifest or starting file work', async (code) => {
+    artworkFindUniqueMock.mockResolvedValue({ id: 10, storagePath: '/artist/work', images: [] })
+    dedupGuard.mockRejectedValueOnce(new TRPCError({ code }))
+    const manifestText = vi.fn()
+    await expect(uploadMediaChapterManifest({
+      scanRoot, userId: fixtureUser, expectedUserId: fixtureUser,
+      uploadSessionId: fixtureAuthorization().sessionId,
+      uploadToken: '40000000-0000-4000-8000-000000000010',
+      uploadRequestId: '40000000-0000-4000-8000-000000000011',
+      artworkId: 10, imageId: 20, videoPath: '', manifestText
+    })).rejects.toMatchObject({ status: code === 'CONFLICT' ? 409 : 404 })
+    expect(manifestText).not.toHaveBeenCalled()
+    expect(associateChaptersToImageMock).not.toHaveBeenCalled()
+  })
+
+  it('rechecks a late chapter association and leaves the original ready upload receipt unfinished', async () => {
+    artworkFindUniqueMock.mockResolvedValue({ id: 10, storagePath: '/artist/work', images: [] })
+    imageFindUniqueMock.mockResolvedValue({ id: 20, artworkId: 10, path: '/artist/work/movie.mp4' })
+    dedupGuard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new TRPCError({ code: 'CONFLICT' }))
+    await expect(uploadMediaChapterManifest({
+      scanRoot, userId: fixtureUser, expectedUserId: fixtureUser,
+      uploadSessionId: fixtureAuthorization().sessionId,
+      uploadToken: '40000000-0000-4000-8000-000000000010',
+      uploadRequestId: '40000000-0000-4000-8000-000000000011',
+      artworkId: 10, imageId: 20, videoPath: '',
+      manifestText: JSON.stringify({ version: 1, duration: 20, chapters: [{ index: 1, title: 'Opening', start: 0, end: 20, duration: 20 }] })
+    })).rejects.toMatchObject({ status: 409 })
+    expect(dedupGuard).toHaveBeenCalledTimes(2)
+    expect(associateChaptersToImageMock).not.toHaveBeenCalled()
+    expect(protocol.recovery).not.toHaveBeenCalled()
+  })
+
+  it('keeps an unacknowledged chapter write in recovery without publishing its association', async () => {
+    await mkdir(path.join(scanRoot, 'artist/work'), { recursive: true })
+    artworkFindUniqueMock.mockResolvedValue({
+      id: 10,
+      externalId: 'work',
+      storagePath: '/artist/work',
+      images: [{ path: '/artist/work/movie.mp4' }]
+    })
+    imageFindUniqueMock.mockResolvedValue({ id: 20, artworkId: 10, path: '/artist/work/movie.mp4' })
+    protocol.failAck = true
+    await expect(
+      uploadMediaChapterManifest({
+        uploadSessionId: fixtureAuthorization().sessionId,
+        uploadToken: '40000000-0000-4000-8000-000000000010',
+        uploadRequestId: '40000000-0000-4000-8000-000000000011',
+        userId: fixtureUser,
+        expectedUserId: fixtureUser,
+        scanRoot,
+        artworkId: 10,
+        imageId: 20,
+        videoPath: '',
+        manifestText: JSON.stringify({
+          version: 1,
+          duration: 20,
+          chapters: [{ index: 1, title: 'Opening', start: 0, end: 20, duration: 20 }]
+        })
+      })
+    ).rejects.toThrow('ack database unavailable')
+    expect(protocol.recovery).toHaveBeenCalledOnce()
+    expect(associateChaptersToImageMock).not.toHaveBeenCalled()
+    await expect(readFile(path.join(scanRoot, 'artist/work/movie.chapters.json'), 'utf8')).resolves.toContain('Opening')
+  })
+
+  it('writes canonical manifest, preserves unclaimed legacy files, and associates chapters to image', async () => {
     await mkdir(path.join(scanRoot, 'artist/work'), { recursive: true })
     await writeFile(path.join(scanRoot, 'artist/work/movie.mp4.chapters.json'), '{"legacy":true}', 'utf8')
     await writeFile(path.join(scanRoot, 'artist/work/movie..chapters.json'), '{"legacy":true}', 'utf8')
@@ -60,6 +161,11 @@ describe('media-chapter-upload service', () => {
     })
 
     const result = await uploadMediaChapterManifest({
+      uploadSessionId: fixtureAuthorization().sessionId,
+      uploadToken: '40000000-0000-4000-8000-000000000010',
+      uploadRequestId: '40000000-0000-4000-8000-000000000011',
+      userId: fixtureUser,
+      expectedUserId: fixtureUser,
       scanRoot,
       artworkId: 10,
       imageId: 20,
@@ -74,7 +180,7 @@ describe('media-chapter-upload service', () => {
       })
     })
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       videoFileName: 'movie.mp4',
       chaptersFileName: 'movie.chapters.json',
       chaptersPath: '/artist/work/movie.chapters.json',
@@ -85,14 +191,15 @@ describe('media-chapter-upload service', () => {
     await expect(readFile(path.join(scanRoot, 'artist/work/movie.chapters.json'), 'utf8')).resolves.toContain(
       '"title": "Opening"'
     )
-    await expect(readFile(path.join(scanRoot, 'artist/work/movie.mp4.chapters.json'), 'utf8')).rejects.toMatchObject({
-      code: 'ENOENT'
-    })
-    await expect(readFile(path.join(scanRoot, 'artist/work/movie..chapters.json'), 'utf8')).rejects.toMatchObject({
-      code: 'ENOENT'
-    })
+    await expect(readFile(path.join(scanRoot, 'artist/work/movie.mp4.chapters.json'), 'utf8')).resolves.toBe(
+      '{"legacy":true}'
+    )
+    await expect(readFile(path.join(scanRoot, 'artist/work/movie..chapters.json'), 'utf8')).resolves.toBe(
+      '{"legacy":true}'
+    )
     expect(associateChaptersToImageMock).toHaveBeenCalledWith({
       imageId: 20,
+      chaptersUpdatedAt: expect.any(Date),
       chaptersPath: '/artist/work/movie.chapters.json',
       chaptersCount: 2,
       chaptersDuration: 20,
@@ -109,6 +216,12 @@ describe('media-chapter-upload service', () => {
     })
 
     const result = await uploadMediaChapterManifest({
+      uploadSessionId: fixtureAuthorization().sessionId,
+      uploadToken: '40000000-0000-4000-8000-000000000010',
+      uploadRequestId: '40000000-0000-4000-8000-000000000011',
+      userId: fixtureUser,
+      expectedUserId: fixtureUser,
+      authorization: fixtureAuthorization(),
       scanRoot,
       artworkId: 10,
       imageId: null,
@@ -130,20 +243,39 @@ describe('media-chapter-upload service', () => {
     const target = path.join(scanRoot, 'artist/work')
     await mkdir(path.join(target, '.bak_session'), { recursive: true })
     await writeFile(path.join(target, 'movie.chapters.json'), 'original-chapters')
-    await writeFile(path.join(target, '.bak_session', '.session-manifest.json'), JSON.stringify({
-      version: 1, originalFiles: ['movie.chapters.json'], phase: 'BACKING_UP'
-    }))
+    await writeFile(
+      path.join(target, '.bak_session', '.session-manifest.json'),
+      JSON.stringify({
+        version: 1,
+        originalFiles: ['movie.chapters.json'],
+        phase: 'BACKING_UP'
+      })
+    )
     artworkFindUniqueMock.mockResolvedValue({
-      id: 10, externalId: 'work', storagePath: '/artist/work',
+      id: 10,
+      externalId: 'work',
+      storagePath: '/artist/work',
       images: [{ path: '/artist/work/movie.mp4' }]
     })
-    await expect(uploadMediaChapterManifest({
-      scanRoot, artworkId: 10, imageId: null, videoPath: '/artist/work/movie.mp4',
-      manifestText: JSON.stringify({
-        version: 1, duration: 10,
-        chapters: [{ index: 1, title: 'Only', start: 0, end: 10, duration: 10 }]
+    await expect(
+      uploadMediaChapterManifest({
+        uploadSessionId: fixtureAuthorization().sessionId,
+        uploadToken: '40000000-0000-4000-8000-000000000010',
+        uploadRequestId: '40000000-0000-4000-8000-000000000011',
+        userId: fixtureUser,
+        expectedUserId: fixtureUser,
+        authorization: fixtureAuthorization(),
+        scanRoot,
+        artworkId: 10,
+        imageId: null,
+        videoPath: '/artist/work/movie.mp4',
+        manifestText: JSON.stringify({
+          version: 1,
+          duration: 10,
+          chapters: [{ index: 1, title: 'Only', start: 0, end: 10, duration: 10 }]
+        })
       })
-    })).rejects.toMatchObject({ status: 409 })
+    ).rejects.toMatchObject({ status: 409 })
     await expect(readFile(path.join(target, 'movie.chapters.json'), 'utf8')).resolves.toBe('original-chapters')
   })
 
@@ -157,6 +289,12 @@ describe('media-chapter-upload service', () => {
 
     await expect(
       uploadMediaChapterManifest({
+        uploadSessionId: fixtureAuthorization().sessionId,
+        uploadToken: '40000000-0000-4000-8000-000000000010',
+        uploadRequestId: '40000000-0000-4000-8000-000000000011',
+        userId: fixtureUser,
+        expectedUserId: fixtureUser,
+        authorization: fixtureAuthorization(),
         scanRoot,
         artworkId: 10,
         imageId: null,
@@ -176,6 +314,12 @@ describe('media-chapter-upload service', () => {
 
     await expect(
       uploadMediaChapterManifest({
+        uploadSessionId: fixtureAuthorization().sessionId,
+        uploadToken: '40000000-0000-4000-8000-000000000010',
+        uploadRequestId: '40000000-0000-4000-8000-000000000011',
+        userId: fixtureUser,
+        expectedUserId: fixtureUser,
+        authorization: fixtureAuthorization(),
         scanRoot,
         artworkId: 10,
         imageId: null,

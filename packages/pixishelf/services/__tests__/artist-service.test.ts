@@ -217,6 +217,7 @@ describe('updateArtist Pixiv identity safety', () => {
           findUniqueOrThrow: transactionArtistFindMock,
           update: transactionArtistUpdateMock
         },
+        artwork: { findMany: vi.fn().mockResolvedValue([]) },
         artistExternalRef: { deleteMany: vi.fn(), upsert: vi.fn() }
       })
     )

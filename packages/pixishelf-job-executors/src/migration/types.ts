@@ -1,3 +1,5 @@
+import type { ExecutorMediaWrite } from '../scan/media-content-write.ts'
+import type { ExecutionContext } from '@pixishelf/job-runtime'
 import type {
   MigrationFilter as ContractMigrationFilter,
   MigrationPayload,
@@ -189,6 +191,17 @@ export interface MigrationSelectionPrecheck {
  * transaction supplied by ExecutionContext, so item/file checkpoints cannot outlive the fence.
  */
 export interface MigrationDatabasePort<TTransaction extends QueueSqlExecutor = QueueSqlExecutor> {
+  beginContentWrite(input: {
+    context: Pick<ExecutionContext, 'job' | 'mutateInTransaction'>
+    scanRoot: string
+    plan: MigrationArtworkPlan
+  }): Promise<ExecutorMediaWrite>
+  finishContentWrite(transaction: TTransaction, write: ExecutorMediaWrite): Promise<void>
+  finishCancelledContentWrite(
+    transaction: TTransaction,
+    write: ExecutorMediaWrite,
+    verifiedPlan: MigrationArtworkPlan
+  ): Promise<void>
   selection: MigrationSelectionPort
   loadArtwork(
     transaction: TTransaction,
@@ -220,6 +233,7 @@ export interface MigrationDatabasePort<TTransaction extends QueueSqlExecutor = Q
     input: {
       itemId: string
       artworkId: number
+      contentWrite: ExecutorMediaWrite
       targetDirectory: string
       plannedImageIds: number[]
       attempt: number
@@ -291,7 +305,8 @@ export class MigrationActionRequiredError extends Error {
       | 'SOURCE_CHANGED_AFTER_PUBLISH'
       | 'DATABASE_PATH_CONFLICT'
       | 'FILESYSTEM_RECOVERY_FAILED'
-      | 'CANDIDATE_LIMIT_EXCEEDED',
+      | 'CANDIDATE_LIMIT_EXCEEDED'
+      | 'CONTENT_WRITE_RECOVERY_REQUIRED',
     message: string,
     readonly fileId?: string
   ) {

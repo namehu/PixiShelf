@@ -9,6 +9,7 @@ import type {
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { PendingReplaceActionRequiredError } from '../types.js'
 import { executePendingReplace } from '../executor.js'
 import { createNodePendingReplaceFileSystem } from '../file-system.js'
 import { createManifestFingerprint } from '../snapshot.js'
@@ -26,6 +27,62 @@ afterEach(async () => {
 })
 
 describe('pending replacement executor', () => {
+  it('finishes verified rollback in the cancellation transaction when ordinary mutations are fenced out', async () => {
+    const fixture = await replacementFixture()
+    const { context, scope } = executionContext(fixture.payload, 'CANCELLING')
+    let cancelling = false
+    vi.mocked(context.mutateInTransaction).mockImplementation(async (operation) => {
+      if (cancelling) throw new Error('CANCELLING rejects ordinary mutation')
+      return operation(scope.transaction)
+    })
+    fixture.database.publishReplacement = vi.fn(async () => {
+      cancelling = true
+      throw new Error('cancel during publication')
+    })
+    await executePendingReplace(context, fixture.dependencies)
+    expect(fixture.database.checkpointItem).toHaveBeenCalledWith(
+      scope.transaction,
+      expect.objectContaining({ status: 'FAILED', contentWrite: expect.anything() })
+    )
+    expect(fixture.database.checkpointItem).toHaveBeenCalledBefore(scope.cancel)
+    expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+    expect(scope.cancel).toHaveBeenCalledOnce()
+    expect(await readFile(path.join(fixture.root, 'artworks/123_p0.jpg'), 'utf8')).toBe('old-content')
+  })
+
+  it('does not cancel a refused old content claim or try a second finalizer', async () => {
+    const fixture = await replacementFixture()
+    fixture.database.beginContentWrite = vi
+      .fn()
+      .mockRejectedValue(new PendingReplaceActionRequiredError('CONTENT_WRITE_RECOVERY_REQUIRED', 'recover first'))
+    const { context, scope } = executionContext(fixture.payload, 'CANCELLING')
+    await expect(executePendingReplace(context, fixture.dependencies)).rejects.toBeInstanceOf(
+      PendingReplaceActionRequiredError
+    )
+    expect(scope.cancel).not.toHaveBeenCalled()
+    expect(scope.pause).not.toHaveBeenCalled()
+    expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+  })
+
+  it('pauses an old content gate instead of swallowing the item and completing the batch', async () => {
+    const fixture = await replacementFixture()
+    fixture.database.beginContentWrite = vi
+      .fn()
+      .mockRejectedValue(
+        new PendingReplaceActionRequiredError(
+          'CONTENT_WRITE_RECOVERY_REQUIRED',
+          'offline authorization required',
+          fixture.item.id
+        )
+      )
+    const { context, scope } = executionContext(fixture.payload)
+    await executePendingReplace(context, fixture.dependencies)
+    expect(scope.pause).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ACTION_REQUIRED' }))
+    expect(scope.complete).not.toHaveBeenCalled()
+    expect(fixture.database.publishReplacement).not.toHaveBeenCalled()
+    expect(await readFile(path.join(fixture.root, 'artworks', '123_p0.jpg'), 'utf8')).toBe('old-content')
+  })
+
   it('runs BATCH through fenced checkpoints and preserves old and new copies', async () => {
     const fixture = await replacementFixture()
     const { context, scope } = executionContext(fixture.payload)
@@ -529,6 +586,7 @@ async function replacementFixture() {
 
 function baseDatabase(): PendingReplaceDatabasePort {
   return {
+    beginContentWrite: vi.fn().mockResolvedValue({ owner: {}, handle: {}, source: {} }),
     loadOperation: vi.fn(),
     loadBatch: vi.fn(),
     loadItems: vi.fn().mockResolvedValue([]),

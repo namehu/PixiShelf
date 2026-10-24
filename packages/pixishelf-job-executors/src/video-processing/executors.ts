@@ -22,7 +22,12 @@ import type {
   VideoProcessingTransaction,
   VideoProcessRunner
 } from './types.ts'
-import { VideoProcessingPermanentError, VideoProcessingProcessError, VideoProcessingRecoveryError } from './types.ts'
+import {
+  VideoProcessingPermanentError,
+  VideoProcessingProcessError,
+  VideoProcessingRecoveryError,
+  VideoVerifiedRollbackPending
+} from './types.ts'
 
 export interface VideoProcessingExecutorDependencies {
   database: VideoProcessingDatabase
@@ -116,6 +121,7 @@ async function executeStreamingOptimization(
   try {
     prepared = await prepareVideoStreamingOptimization({
       jobId: context.job.id,
+      executionToken: context.job.executionToken,
       systemJobId: context.job.id,
       attempt: context.job.attempt,
       imageId: context.payload.imageId,
@@ -141,17 +147,17 @@ async function executeStreamingOptimization(
     const outcome = await context.finalizeInTransaction<VideoProcessingTransaction & QueueSqlExecutor>(
       async (scope) => {
         if (scope.executionStatus === 'PAUSING') {
-          await prepared!.discard()
+          await prepared!.discard(scope.transaction)
           await scope.pause({ reason: 'USER_REQUESTED', message: '视频流优化已暂停，可安全重试' })
           return
         }
         if (scope.executionStatus === 'CANCELLING') {
-          await prepared!.discard()
+          await prepared!.discard(scope.transaction)
           await scope.cancel('视频流优化已取消，原视频未变更')
           return
         }
         if (context.signal.aborted) {
-          await prepared!.discard()
+          await prepared!.discard(scope.transaction)
           await scope.release('视频流优化 Worker 已停止，原视频未变更')
           return
         }
@@ -161,6 +167,22 @@ async function executeStreamingOptimization(
     )
     return outcome
   } catch (error) {
+    if (error instanceof VideoVerifiedRollbackPending) {
+      return context.finalizeInTransaction<VideoProcessingTransaction & QueueSqlExecutor>(async (scope) => {
+        await error.settle(scope.transaction)
+        if (await finalizeControl(scope, context.signal.aborted)) return
+        const failure = classifyError(error.original)
+        if (context.job.attempt >= context.job.maxAttempts || error.original instanceof VideoProcessingPermanentError)
+          await scope.fail({ errorCode: failure.errorCode, error: failure.message, message: '视频优化已回滚' })
+        else
+          await scope.retry({
+            availableAt: new Date((dependencies.now?.() ?? new Date()).getTime() + 30_000),
+            errorCode: failure.errorCode,
+            error: failure.message,
+            message: '视频优化已回滚，等待重试'
+          })
+      })
+    }
     let terminalError = error
     if (prepared) {
       try {
@@ -207,13 +229,16 @@ function finalizeRecoveryAction(
 ): Promise<JobExecutionOutcome> {
   return context.finalizeInTransaction<VideoProcessingTransaction & QueueSqlExecutor>(async (scope) => {
     if (scope.executionStatus === 'CANCELLING') {
-      await scope.cancel(`视频任务已取消，但文件恢复失败，需要人工检查：${error.message}`)
-      return
+      // Cancellation cannot prove recovery; lease recovery preserves the original job and its gate.
+      throw error
     }
     await scope.pause({
       reason: scope.executionStatus === 'PAUSING' ? 'USER_REQUESTED' : 'ACTION_REQUIRED',
-      message: `文件恢复失败，需要人工检查：${error.message}`,
-      data: { errorCode: 'FILESYSTEM_RECOVERY_FAILED' }
+      message:
+        error.code === 'CONTENT_WRITE_RECOVERY_REQUIRED'
+          ? error.message
+          : `文件恢复失败，需要人工检查：${error.message}`,
+      data: { errorCode: error.code }
     })
   })
 }

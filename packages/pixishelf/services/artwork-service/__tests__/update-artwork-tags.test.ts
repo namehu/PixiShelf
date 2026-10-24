@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Actual maintenance guards are exercised by artwork-dedup-structure.postgres.test.ts.
+vi.mock('../../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: vi.fn() }))
+
 const { artworkFindUniqueOrThrow, artworkUpdate, artworkTagDeleteMany, artworkTagCreateMany, prismaMock } = vi.hoisted(
   () => {
     const artworkFindUniqueOrThrow = vi.fn()
@@ -8,6 +11,7 @@ const { artworkFindUniqueOrThrow, artworkUpdate, artworkTagDeleteMany, artworkTa
     const artworkTagCreateMany = vi.fn()
     const tx = {
       $queryRaw: vi.fn(),
+      $queryRawUnsafe: vi.fn().mockResolvedValue([]),
       artwork: { findUniqueOrThrow: artworkFindUniqueOrThrow, update: artworkUpdate },
       artworkTag: { deleteMany: artworkTagDeleteMany, createMany: artworkTagCreateMany }
     }
@@ -39,6 +43,7 @@ describe('updateArtwork tag provenance', () => {
 
   it('keeps source tags and inserts submitted manual tags with duplicate skipping in one transaction', async () => {
     await updateArtwork(42, { title: 'updated', tags: [1, 2] })
+    expect(prismaMock.$queryRawUnsafe).toHaveBeenCalledWith('SELECT pg_advisory_xact_lock(7341902118)::text')
 
     expect(artworkUpdate).toHaveBeenCalledWith({
       where: { id: 42 },

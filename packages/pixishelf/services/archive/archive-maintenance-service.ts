@@ -1,3 +1,12 @@
+import {
+  ArtworkDedupOperationError,
+  lockCreatorCatalog,
+  findUnresolvedArchiveStagingCleanup,
+  assertNoArtworkDedupUrlHold,
+  assertArtworkDedupWritable,
+  assertNoArtworkDedupArchiveSourceHold,
+  type Prisma
+} from '@pixishelf/db'
 import { randomUUID } from 'node:crypto'
 import { archiveMaintenancePayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { PrismaClientSingleton } from '@/lib/prisma'
@@ -90,7 +99,17 @@ export async function requestArchiveArtworkMaintenanceInTransaction(
 ): Promise<ArchiveArtworkMaintenanceResult> {
   // Publication, lifecycle intent, and maintenance materialization share this lock so an update cannot publish
   // between the final active-import check and the TRASHING/RESTORING transition.
+  await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
   await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+  await assertNoArtworkDedupUrlHold(tx as unknown as Prisma.TransactionClient, { artworkId: input.artworkId }).catch(
+    throwMaintenanceGuardError
+  )
+  await assertArtworkDedupWritable(tx as unknown as Prisma.TransactionClient, {
+    artworkId: input.artworkId,
+    kind: 'DELETE'
+  })
+    .catch(throwMaintenanceGuardError)
+    .catch(throwMaintenanceGuardError)
   const artwork = await tx.artwork.findUnique({
     where: { id: input.artworkId },
     include: {
@@ -262,18 +281,34 @@ export async function requestArchiveStagingCleanup(
 
   return dependencies.database.$transaction(async (transaction) => {
     const tx = transaction as ArchiveTransactionClient
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
     const archiveImport = await tx.archiveImport.findUnique({
       where: { id: input.archiveImportId },
       include: { systemJob: true }
     })
     if (!archiveImport) throw new ArchiveError('INTERNAL', '归档任务不存在')
+    await assertNoArtworkDedupArchiveSourceHold(tx as unknown as Prisma.TransactionClient, archiveImport).catch(
+      throwMaintenanceGuardError
+    )
     if (input.expectedSystemJobId && archiveImport.systemJobId !== input.expectedSystemJobId) {
       throw stateConflict('归档任务状态已改变，请刷新后重试')
     }
     if (!['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'].includes(archiveImport.status)) {
       throw stateConflict('归档任务当前状态不允许清理暂存文件')
     }
+
+    const publicationClaim = await tx.mediaContentPathWrite.findFirst({
+      where: {
+        status: { in: ['ACTIVE', 'READY', 'RECOVERY_REQUIRED'] },
+        OR: [{ jobId: archiveImport.systemJobId }, { sessionId: `archive-publish:${archiveImport.id}` }]
+      },
+      select: { id: true }
+    })
+    if (publicationClaim) throw stateConflict('归档发布仍有未解决的媒体写入，请先恢复原发布任务，再清理暂存文件')
+
+    const cleanupClaim = await findUnresolvedArchiveStagingCleanup(tx as unknown as Prisma.TransactionClient, archiveImport.id)
+    if (cleanupClaim) throw stateConflict(`原暂存清理仍有未解决声明，请通过原任务恢复入口续行（${cleanupClaim.jobId ?? cleanupClaim.sessionId}）`)
 
     const activeJob = await findActiveStagingCleanupJob(tx, archiveImport.id)
     if (activeJob) return { archiveImportId: archiveImport.id, jobId: activeJob.id, reused: true }
@@ -342,7 +377,17 @@ export async function requestArchivePurgeMaintenance(
 
   return dependencies.database.$transaction(async (transaction) => {
     const tx = transaction as ArchiveTransactionClient
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
+    await assertNoArtworkDedupUrlHold(tx as unknown as Prisma.TransactionClient, { artworkId: input.artworkId })
+      .catch(throwMaintenanceGuardError)
+      .catch(throwMaintenanceGuardError)
+    await assertArtworkDedupWritable(tx as unknown as Prisma.TransactionClient, {
+      artworkId: input.artworkId,
+      kind: 'DELETE'
+    })
+      .catch(throwMaintenanceGuardError)
+      .catch(throwMaintenanceGuardError)
     const artwork = await tx.artwork.findUnique({
       where: { id: input.artworkId },
       include: {
@@ -498,4 +543,14 @@ function buildArchiveMaintenanceTrashPath(artworkId: number, revisionId: string)
 
 function stateConflict(message: string): ArchiveError {
   return new ArchiveError('STATE_CONFLICT', message, { recoverable: true })
+}
+
+function throwMaintenanceGuardError(error: unknown): never {
+  if (
+    error instanceof ArtworkDedupOperationError &&
+    ['ARTWORK_CLAIMED', 'URL_HELD', 'SOURCE_HELD'].includes(error.code)
+  ) {
+    throw stateConflict('作品或归档来源正在去重维护，请稍后重试')
+  }
+  throw error
 }

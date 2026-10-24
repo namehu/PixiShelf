@@ -74,6 +74,7 @@ export const DEFAULT_SCAN_LIMITS: ScanExecutorLimits = Object.freeze({
 })
 
 export const DEFAULT_SCAN_DISCOVERY_EXCLUDED_ROOT_DIRECTORIES = Object.freeze([
+  '.pixishelf-upload-recovery',
   'local-imports',
   'sources',
   '.archive-staging',

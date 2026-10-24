@@ -34,6 +34,10 @@
 | 发布各阶段由谁负责？                       | [发布泳道](./operations/standard-release.svg) · [源](./operations/standard-release.mmd)                                                                                                          | [部署基线](../operations/deployment.md)                       |
 | 故障应该重启、前向修复还是整体恢复？       | [恢复决策](./operations/recovery-decision.svg) · [源](./operations/recovery-decision.mmd)                                                                                                        | [备份与恢复](../operations/backup-and-recovery.md)            |
 
+## 拟实施设计
+
+- [同艺术家作品去重](../design/artwork-deduplication.md#业务流程与架构图)：一次确认删除流程、三 lane 架构、保留的检测时序、删除状态与逐文件故障续行；直接删除仍为目标设计，能力门禁关闭。
+
 ## 更新与检查
 
 ```bash

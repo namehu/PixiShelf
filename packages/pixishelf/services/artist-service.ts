@@ -1,3 +1,4 @@
+import { assertArtworkDedupAppWrite } from './artwork-dedup-write-guard'
 import {
   activeCreatorMembership,
   visibleCreatorArtwork,
@@ -377,6 +378,12 @@ export async function updateArtist(id: number, data: ArtistUpdateSchema['data'])
   return prisma.$transaction(async (transaction) => {
     await lockCreatorCatalog(transaction as unknown as Prisma.TransactionClient)
     await requireAvailableArtist(transaction as unknown as Prisma.TransactionClient, id)
+    const affected = await transaction.artwork.findMany({
+      where: { OR: [{ artistId: id }, { creators: { some: { artistId: id } } }] },
+      select: { id: true },
+      orderBy: { id: 'asc' }
+    })
+    for (const artwork of affected) await assertArtworkDedupAppWrite(transaction, artwork.id, 'STRUCTURE')
     if (artistInput.kind !== undefined) {
       const currentKind = await transaction.artist.findUniqueOrThrow({ where: { id }, select: { kind: true } })
       if (currentKind.kind !== artistInput.kind) throw new Error('不能更改现有实体的类型，请新建正确类型并调整映射')
@@ -441,6 +448,12 @@ export async function adoptPixivSourceName(id: number): Promise<ArtistResponseDt
   return prisma.$transaction(async (transaction) => {
     await lockCreatorCatalog(transaction as unknown as Prisma.TransactionClient)
     await requireAvailableArtist(transaction as unknown as Prisma.TransactionClient, id)
+    const affected = await transaction.artwork.findMany({
+      where: { OR: [{ artistId: id }, { creators: { some: { artistId: id } } }] },
+      select: { id: true },
+      orderBy: { id: 'asc' }
+    })
+    for (const artwork of affected) await assertArtworkDedupAppWrite(transaction, artwork.id, 'STRUCTURE')
     const source = await transaction.artistExternalRef.findUnique({
       where: { artistId_providerKey: { artistId: id, providerKey: 'pixiv' } },
       select: { sourceName: true }

@@ -19,7 +19,7 @@ describe('worker config', () => {
       animationScanConcurrency: 4,
       archiveMaxMediaBytes: 512 * 1024 * 1024,
       scanDiscoveryMaxEntries: 10_000_000,
-      scanDiscoveryExcludedRootDirectories: ['local-imports', 'sources', '.archive-staging', '.trash'],
+      scanDiscoveryExcludedRootDirectories: ['.pixishelf-upload-recovery', 'local-imports', 'sources', '.archive-staging', '.trash'],
       healthPort: 3011,
       heartbeatIntervalMs: 30_000,
       dispatchPollIntervalMs: 1_000,

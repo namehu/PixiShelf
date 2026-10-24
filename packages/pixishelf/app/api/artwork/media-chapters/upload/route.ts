@@ -1,3 +1,5 @@
+import { z } from 'zod'
+import { ContentWriteAuthorizationSchema } from '@/schemas/media-content.dto'
 import logger from '@/lib/logger'
 import { NextRequest } from 'next/server'
 import { apiError, apiSuccess } from '@/lib/api-response'
@@ -11,8 +13,9 @@ import {
 } from '@/services/artwork-service/media-chapter-upload'
 
 export async function POST(_req: NextRequest) {
+  let userId: string
   try {
-    await requireAdminRequest(_req)
+    userId = (await requireAdminRequest(_req)).userId
   } catch (error) {
     if (error instanceof ApiError) return apiError(error.message, { status: error.statusCode })
     throw error
@@ -45,7 +48,30 @@ export async function POST(_req: NextRequest) {
       return apiError('SCAN_PATH not set')
     }
 
+    const authValue = formData.get('authorization')
+    const authorization =
+      typeof authValue === 'string' ? ContentWriteAuthorizationSchema.parse(JSON.parse(authValue)) : undefined
+    const upload = z
+      .object({
+        uploadSessionId: z.string().uuid(),
+        uploadToken: z.string().uuid(),
+        uploadRequestId: z.string().uuid(),
+        uploadAuthorization: ContentWriteAuthorizationSchema.optional()
+      })
+      .parse({
+        uploadSessionId: formData.get('uploadSessionId'),
+        uploadToken: formData.get('uploadToken'),
+        uploadRequestId: formData.get('uploadRequestId'),
+        uploadAuthorization:
+          typeof formData.get('uploadAuthorization') === 'string'
+            ? JSON.parse(String(formData.get('uploadAuthorization')))
+            : undefined
+      })
     const meta = await uploadMediaChapterManifest({
+      ...upload,
+      userId,
+      expectedUserId: String(formData.get('expectedUserId') ?? ''),
+      authorization,
       scanRoot,
       artworkId,
       imageId,
@@ -55,10 +81,16 @@ export async function POST(_req: NextRequest) {
 
     return apiSuccess({ meta })
   } catch (error) {
+    if (error instanceof z.ZodError || error instanceof SyntaxError) {
+      return apiError('Invalid upload session', { status: 400 })
+    }
     if (error instanceof MediaChapterUploadError) {
       return apiError(error.message, { status: error.status })
     }
 
+    if (error instanceof Error && 'status' in error && error.status === 409) {
+      return apiError(error.message, { status: 409 })
+    }
     logger.error('Media chapter upload failed', { error })
     return apiError('Internal Server Error')
   }

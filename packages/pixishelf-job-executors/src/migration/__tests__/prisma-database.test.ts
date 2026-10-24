@@ -1,3 +1,15 @@
+// Claim refusal is exercised with real rows in the App/DB maintenance suites.
+vi.mock('@pixishelf/db', async (original) => ({
+  ...(await original<typeof import('@pixishelf/db')>()),
+  assertArtworkDedupWritable: vi.fn()
+}))
+import type { ExecutorMediaWrite } from '../../scan/media-content-write.ts'
+vi.mock('../../scan/media-content-write.ts', () => ({
+  assertExecutorMediaWrite: vi.fn(async () => undefined),
+  beginExecutorMediaDirectoryWrites: vi.fn(),
+  publishExecutorMediaWrite: vi.fn(),
+  resolveExecutorMediaDirectory: vi.fn()
+}))
 import { describe, expect, it, vi } from 'vitest'
 import {
   buildMigrationArtworkWhere,
@@ -173,8 +185,12 @@ describe('Prisma migration database adapter', () => {
     await expect(adapter.publishArtwork(transaction as never, publication)).resolves.toBeUndefined()
     expect(transaction.$queryRaw).toHaveBeenCalledOnce()
     expect(transaction.$queryRaw.mock.calls[0]?.[0].sql).toContain('FOR UPDATE')
-    expect(transaction.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(transaction.artwork.findUnique.mock.invocationCallOrder[0]!)
-    expect(transaction.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(transaction.image.updateMany.mock.invocationCallOrder[0]!)
+    expect(transaction.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      transaction.artwork.findUnique.mock.invocationCallOrder[0]!
+    )
+    expect(transaction.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      transaction.image.updateMany.mock.invocationCallOrder[0]!
+    )
     expect(transaction.migrationFileEntry.updateMany).toHaveBeenCalledOnce()
     expect(transaction.migrationJobItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ phase: 'CLEANING_SOURCE' }) })
@@ -504,6 +520,7 @@ function persistedFile(
 function publicationInput(files = [persistedFile()]) {
   return {
     itemId: 'item-1',
+    contentWrite: {} as ExecutorMediaWrite,
     artworkId: 1,
     targetDirectory: 'artist/123',
     plannedImageIds: [11],
@@ -553,10 +570,7 @@ function publicationArtwork(
   }
 }
 
-function publicationTransaction(
-  artwork: object,
-  files: ReturnType<typeof persistedFile>[]
-) {
+function publicationTransaction(artwork: object, files: ReturnType<typeof persistedFile>[]) {
   return {
     $queryRaw: vi.fn().mockResolvedValue([{ id: 1, mediaRevision: 1 }]),
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),

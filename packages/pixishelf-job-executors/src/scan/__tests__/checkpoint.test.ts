@@ -1,9 +1,16 @@
+import { pixivSourceProofFixture, localSourceProofFixture } from './dedup-source-fixture.ts'
 import { confirmedAnimationFixture } from './classification-fixture.ts'
 import type { Prisma } from '@pixishelf/db'
 import { describe, expect, it, vi } from 'vitest'
 import { publishLocalMediaWork } from '../local-publisher.js'
 import { publishPixivArtwork } from '../pixiv-publisher.js'
 import type { ScanTransaction } from '../types.js'
+
+vi.mock('@pixishelf/db', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@pixishelf/db')>(),
+  assertArtworkDedupSources: vi.fn(async () => undefined),
+  assertArtworkDedupWritable: vi.fn(async () => undefined)
+}))
 
 const now = new Date('2026-08-15T00:00:00.000Z')
 const mediaModifiedAt = new Date('2024-01-02T03:04:05.000Z')
@@ -61,6 +68,7 @@ describe('scan item checkpoints', () => {
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:a',
         metadataRelativePath: 'a/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('a/42-meta.json'),
         metadataContentHash: 'a'.repeat(64),
         metadata: {
           id: '42',
@@ -182,6 +190,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:pixiv',
       metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: pixivMetadata(),
       media: [pixivMedia('11/42/42_p0.mp4')],
@@ -210,6 +219,7 @@ describe('scan item checkpoints', () => {
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:legacy',
         metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
         metadataContentHash: 'a'.repeat(64),
         metadata: pixivMetadata(),
         media: [pixivMedia('11/42/42_p0.mp4')],
@@ -240,6 +250,7 @@ describe('scan item checkpoints', () => {
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:conflict',
         metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
         metadataContentHash: 'a'.repeat(64),
         metadata: pixivMetadata(),
         media: [pixivMedia('11/42/42_p0.mp4')],
@@ -277,6 +288,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:tags',
       metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: {
         ...pixivMetadata(),
@@ -323,6 +335,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:refresh',
       metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: { ...pixivMetadata(), title: 'Upstream title', description: 'Upstream description' },
       media: [pixivMedia('11/42/42_p0.mp4'), pixivMedia('11/42/42_p1.mp4')],
@@ -367,6 +380,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:source-fields',
       metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: { ...pixivMetadata(), title: 'Upstream title', description: 'Upstream description' },
       media: [],
@@ -406,6 +420,7 @@ describe('scan item checkpoints', () => {
         checkpointOrdinal: 0,
         checkpointKey: `metadata:0:independent-${titleOverridden}`,
         metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
         metadataContentHash: 'a'.repeat(64),
         metadata: { ...pixivMetadata(), title: 'Upstream title', description: 'Upstream description' },
         media: [],
@@ -430,6 +445,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'metadata:0:create',
       metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: { ...pixivMetadata(), description: 'Source description' },
       media: [],
@@ -485,6 +501,7 @@ describe('scan item checkpoints', () => {
       checkpointOrdinal: 0,
       checkpointKey: 'audit-apply:item-1',
       metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
       metadataContentHash: 'a'.repeat(64),
       metadata: pixivMetadata(),
       media: [],
@@ -515,6 +532,7 @@ describe('scan item checkpoints', () => {
         checkpointOrdinal: 0,
         checkpointKey: 'audit-apply:item-1',
         metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
         metadataContentHash: 'a'.repeat(64),
         metadata: pixivMetadata(),
         media: [],
@@ -536,6 +554,7 @@ describe('scan item checkpoints', () => {
 
 function localWork(): Prisma.ScanRunLocalWorkInputGetPayload<Record<string, never>> {
   return {
+    dedupSourceSnapshot: localSourceProofFixture(),
     id: 'work-1',
     scanRunId: 'run-1',
     ordinal: 0,
@@ -772,6 +791,7 @@ it('retains a confirmed animation when Pixiv refresh proves the same complete so
     checkpointOrdinal: 0,
     checkpointKey: 'metadata:0:refresh',
     metadataRelativePath: '11/42/42-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('11/42/42-meta.json'),
     metadataContentHash: 'a'.repeat(64),
     metadata: pixivMetadata(),
     media: [

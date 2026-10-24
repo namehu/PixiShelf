@@ -1,4 +1,6 @@
 import 'server-only'
+import { assertArtworkDedupAppWrite } from '../artwork-dedup-write-guard'
+import type { AppTransaction } from '@/lib/prisma'
 import type { Prisma } from '@prisma/client'
 import { lockArtworkForReading, lockCreatorCatalog } from '@pixishelf/db'
 import { resolveCanonicalArtworkStoragePath } from '@pixishelf/job-contracts'
@@ -9,6 +11,7 @@ export async function assignManualArtworkStorage(
   tx: Prisma.TransactionClient,
   artwork: { id: number; artistId: number | null; storageKey: string | null }
 ) {
+  await assertArtworkDedupAppWrite(tx as unknown as AppTransaction, artwork.id, 'STRUCTURE')
   const storageKey = artwork.storageKey ?? generateLocalStorageKey(artwork.id)
   const storagePath = resolveCanonicalArtworkStoragePath({
     createdVia: 'MANUAL_CREATE',

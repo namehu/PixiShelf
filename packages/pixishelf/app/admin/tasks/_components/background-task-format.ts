@@ -1,3 +1,4 @@
+import { artworkDedupScanPayloadSchema, artworkDedupMaintenancePayloadSchema } from '@pixishelf/job-contracts'
 import type { JobDto, JobEventDto, JobStatus, JobType, WorkerHealthDto } from '@pixishelf/job-contracts'
 import { isWorkerHeartbeatFresh } from '@/services/background-task/worker-heartbeat'
 import { backgroundJobLabel } from '@/lib/background-job-labels'
@@ -95,19 +96,29 @@ export function mergeJobEvents(current: JobEventDto[], incoming: JobEventDto[]) 
 }
 
 export function canCancelJob(job: JobDto) {
-  return ['PENDING', 'RETRY_WAIT', 'PAUSED', 'RUNNING', 'PAUSING'].includes(job.status)
+  return (
+    job.type !== 'ARTWORK_DEDUP_SCAN' &&
+    job.type !== 'ARTWORK_DEDUP_MAINTENANCE' &&
+    ['PENDING', 'RETRY_WAIT', 'PAUSED', 'RUNNING', 'PAUSING'].includes(job.status)
+  )
 }
 
 export function canPauseJob(job: JobDto) {
-  return ['PENDING', 'RETRY_WAIT', 'RUNNING'].includes(job.status)
+  return (
+    job.type !== 'ARTWORK_DEDUP_SCAN' &&
+    job.type !== 'ARTWORK_DEDUP_MAINTENANCE' &&
+    ['PENDING', 'RETRY_WAIT', 'RUNNING'].includes(job.status)
+  )
 }
 
 export function canResumeJob(job: JobDto) {
-  return job.status === 'PAUSED'
+  return job.type !== 'ARTWORK_DEDUP_SCAN' && job.type !== 'ARTWORK_DEDUP_MAINTENANCE' && job.status === 'PAUSED'
 }
 
 export function canRetryJob(job: JobDto) {
   return (
+    job.type !== 'ARTWORK_DEDUP_SCAN' &&
+    job.type !== 'ARTWORK_DEDUP_MAINTENANCE' &&
     job.type !== 'ARCHIVE_UPLOADER_SCAN' &&
     job.type !== 'ARCHIVE_SEARCH_SCAN' &&
     !isNonRetryableScan(job.type, job.payload) &&
@@ -124,5 +135,19 @@ function isNonRetryableScan(type: JobType, payload: unknown) {
 }
 
 export function canChangePriority(job: JobDto) {
-  return ['PENDING', 'RETRY_WAIT', 'PAUSED'].includes(job.status)
+  return (
+    job.type !== 'ARTWORK_DEDUP_SCAN' &&
+    job.type !== 'ARTWORK_DEDUP_MAINTENANCE' &&
+    ['PENDING', 'RETRY_WAIT', 'PAUSED'].includes(job.status)
+  )
+}
+
+export function getArtworkDedupHref(job: Pick<JobDto, 'type' | 'payload'>) {
+  if (job.type === 'ARTWORK_DEDUP_MAINTENANCE') {
+    const payload = artworkDedupMaintenancePayloadSchema.safeParse(job.payload)
+    return payload.success ? `/admin/duplicates?operationId=${encodeURIComponent(payload.data.operationId)}` : null
+  }
+  if (job.type !== 'ARTWORK_DEDUP_SCAN') return null
+  const payload = artworkDedupScanPayloadSchema.safeParse(job.payload)
+  return payload.success ? `/admin/duplicates?runId=${encodeURIComponent(payload.data.runId)}` : null
 }

@@ -1,3 +1,4 @@
+import type { MediaContentDirectorySnapshot } from '@pixishelf/db'
 import type { ScanProgress, ScanResult } from '@/types'
 import type { Artist } from '@prisma/client'
 import type { MetadataInfo } from './metadata-parser'
@@ -59,6 +60,7 @@ export interface ScanOptions {
  * 作品数据接口
  */
 export interface ArtworkData {
+  contentDirectory?: MediaContentDirectorySnapshot
   metadata: MetadataInfo
   mediaFiles: MediaFileInfo[]
   directoryPath: string

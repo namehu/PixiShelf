@@ -182,27 +182,29 @@ export async function createSeries(data: { title: string; description?: string; 
 }
 
 export async function updateSeries(id: number, data: { title?: string; description?: string; coverImageUrl?: string }) {
-  const current = await prisma.series.findUniqueOrThrow({ where: { id } })
-  const update: Prisma.SeriesUpdateInput = {}
-  if (data.title !== undefined && data.title !== current.title) {
-    update.title = data.title
-    update.titleOverridden = true
-  }
-  if (data.description !== undefined && data.description !== current.description) {
-    update.description = data.description
-    update.descriptionOverridden = true
-  }
-  if (data.coverImageUrl !== undefined && data.coverImageUrl !== current.coverImageUrl) {
-    update.coverImageUrl = data.coverImageUrl
-  }
-  return prisma.series.update({
-    where: { id },
-    data: update
+  return withSeriesMembershipLock(id, [], async (tx) => {
+    const current = await tx.series.findUniqueOrThrow({ where: { id } })
+    const update: Prisma.SeriesUpdateInput = {}
+    if (data.title !== undefined && data.title !== current.title) {
+      update.title = data.title
+      update.titleOverridden = true
+    }
+    if (data.description !== undefined && data.description !== current.description) {
+      update.description = data.description
+      update.descriptionOverridden = true
+    }
+    if (data.coverImageUrl !== undefined && data.coverImageUrl !== current.coverImageUrl) {
+      update.coverImageUrl = data.coverImageUrl
+    }
+    return tx.series.update({
+      where: { id },
+      data: update
+    })
   })
 }
 
 export async function deleteSeries(id: number) {
-  return prisma.series.delete({ where: { id } })
+  return withSeriesMembershipLock(id, [], (tx) => tx.series.delete({ where: { id } }))
 }
 
 export async function addArtworkToSeries(seriesId: number, artworkId: number) {

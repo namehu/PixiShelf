@@ -8,10 +8,25 @@ import {
   artistMappingInputDigest,
   computeLocalWorkContentFingerprint,
   localWorkInputDigest,
-  metadataInputDigest
+  metadataInputDigest,
+  pixivScanSourceIdentities,
+  parsePixivScanSourceSnapshot,
+  parseLocalScanSourceSnapshot,
+  scanSourceProofs
 } from '@pixishelf/job-executors'
-import { migrationPayloadSchema, type MigrationPayload, type ScanPayload } from '@pixishelf/job-contracts'
-import type { Prisma } from '@pixishelf/db'
+import {
+  migrationPayloadSchema,
+  serializeArtworkDedupSourceSnapshot,
+  type MigrationPayload,
+  type ScanPayload
+} from '@pixishelf/job-contracts'
+import {
+  ArtworkDedupOperationError,
+  assertArtworkDedupSourceGroups,
+  captureArtworkDedupSourceGroups,
+  type Prisma
+} from '@pixishelf/db'
+import { resolveMediaContentRoots } from '@pixishelf/job-executors/media-content'
 import { prisma } from '@/lib/prisma'
 import { startLocalImportSchema, type StartLocalImportInput } from '@/schemas/local-import.dto'
 import { getScanPath, getSystemSettings } from '@/services/setting.service'
@@ -103,7 +118,7 @@ export async function enqueueCentralScan(
       scanRunId = run.id
       if (metadataRows.length > 0) {
         await transaction.scanRunMetadataInput.createMany({
-          data: metadataRows.map((row) => ({ ...row, scanRunId: run.id }))
+          data: await freezeMetadataSourceProofs(transaction, scanPath, run.id, metadataRows)
         })
       }
     }
@@ -115,10 +130,7 @@ export async function enqueueCentralScan(
   } as const
   const queued =
     input.triggerSource === 'SYSTEM'
-      ? await enqueueSingletonSystemJobWithResult(
-          { ...jobRequest, triggerSource: 'SYSTEM', priority: 110 },
-          options
-        )
+      ? await enqueueSingletonSystemJobWithResult({ ...jobRequest, triggerSource: 'SYSTEM', priority: 110 }, options)
       : await enqueueSingletonManualJobWithResult(
           {
             ...jobRequest,
@@ -141,6 +153,7 @@ export async function enqueueCentralArtworkRescan(input: {
     select: {
       id: true,
       source: true,
+      createdVia: true,
       storagePath: true,
       metaSource: true,
       externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } }
@@ -151,6 +164,9 @@ export async function enqueueCentralArtworkRescan(input: {
   let localRow: { ordinal: number; kind: 'MEDIA_DIRECTORY'; relativePath: string; fingerprint: string } | null = null
   let metadataRows: ExpectedMetadataRow[] = []
   if (local) {
+    if (artwork.createdVia !== 'LOCAL_DIRECTORY') {
+      throw precondition('Historical local artwork has no confirmed directory source identity')
+    }
     if (!artwork.storagePath) throw precondition('Local artwork has no storage path')
     localRow = {
       ordinal: 0,
@@ -212,6 +228,7 @@ export async function enqueueCentralArtworkRescan(input: {
           where: { id: artwork.id },
           select: {
             source: true,
+            createdVia: true,
             storagePath: true,
             metaSource: true,
             externalRefs: { where: { providerKey: 'pixiv' }, select: { externalId: true } }
@@ -220,6 +237,7 @@ export async function enqueueCentralArtworkRescan(input: {
         if (
           !currentArtwork ||
           currentArtwork.source !== artwork.source ||
+          currentArtwork.createdVia !== artwork.createdVia ||
           currentArtwork.storagePath !== artwork.storagePath ||
           currentArtwork.metaSource !== artwork.metaSource ||
           currentArtwork.externalRefs.length !== artwork.externalRefs.length ||
@@ -246,11 +264,12 @@ export async function enqueueCentralArtworkRescan(input: {
         })
         scanRunId = run.id
         if (localRow) {
-          await transaction.scanRunLocalWorkInput.create({ data: { ...localRow, scanRunId: run.id } })
+          const [row] = await freezeLocalSourceProofs(transaction, scanPath, run.id, [localRow])
+          await transaction.scanRunLocalWorkInput.create({ data: row! })
         }
         if (metadataRows.length > 0) {
           await transaction.scanRunMetadataInput.createMany({
-            data: metadataRows.map((row) => ({ ...row, scanRunId: run.id }))
+            data: await freezeMetadataSourceProofs(transaction, scanPath, run.id, metadataRows)
           })
         }
       }
@@ -263,6 +282,7 @@ export async function enqueueCentralLocalDirectoryImport(
   input: StartLocalImportInput & { requestedByUserId: string }
 ): Promise<QueuedMediaRootJob> {
   const { storagePaths } = startLocalImportSchema.parse({ storagePaths: input.storagePaths })
+  const scanPath = await requireScanPath()
   const settings = await getSystemSettings()
   const existingRows = await prisma.artwork.findMany({
     where: { storagePath: { in: storagePaths } },
@@ -349,7 +369,7 @@ export async function enqueueCentralLocalDirectoryImport(
         scanRunId = run.id
         if (workRows.length) {
           await transaction.scanRunLocalWorkInput.createMany({
-            data: workRows.map((row) => ({ ...row, scanRunId: run.id }))
+            data: await freezeLocalSourceProofs(transaction, scanPath, run.id, workRows)
           })
         }
         if (mappingRows.length) {
@@ -580,7 +600,78 @@ async function validateReusedScanRun(input: {
   ) {
     throw activeSnapshotConflict('Active job frozen input digest is invalid')
   }
+  const groups = [
+    ...metadataRows.map((row) =>
+      scanSourceProofs(
+        parsePixivScanSourceSnapshot({ snapshot: row.dedupSourceSnapshot, relativePath: row.relativePath })
+      )
+    ),
+    ...localWorkRows.map((row) =>
+      scanSourceProofs(
+        parseLocalScanSourceSnapshot({ snapshot: row.dedupSourceSnapshot, relativePath: row.relativePath })
+      )
+    )
+  ]
+  if (groups.length) {
+    await assertArtworkDedupSourceGroups(input.transaction, { groups }).catch(rethrowScanSourceConflict)
+  }
   return run.id
+}
+
+async function resolveScanSourceRoot(transaction: Prisma.TransactionClient, scanPath: string) {
+  const inventory = await transaction.pixivMetadataInventoryState.findUnique({
+    where: { id: 'pixiv' },
+    select: { rootIdentity: true }
+  })
+  const roots = await resolveMediaContentRoots({
+    sourceRoot: scanPath,
+    archiveRoot: scanPath,
+    expectedPixivRootIdentity: inventory?.rootIdentity ?? null
+  })
+  return roots.source
+}
+
+async function freezeMetadataSourceProofs(
+  transaction: Prisma.TransactionClient,
+  scanPath: string,
+  scanRunId: string,
+  rows: readonly ExpectedMetadataRow[]
+) {
+  const root = await resolveScanSourceRoot(transaction, scanPath)
+  const groups = await captureArtworkDedupSourceGroups(transaction, {
+    groups: rows.map((row) =>
+      pixivScanSourceIdentities({ rootIdentity: root.rootIdentity, relativePath: row.relativePath })
+    )
+  }).catch(rethrowScanSourceConflict)
+  return rows.map((row, index) => ({
+    ...row,
+    scanRunId,
+    dedupSourceSnapshot: serializeArtworkDedupSourceSnapshot(groups[index]!)
+  }))
+}
+
+async function freezeLocalSourceProofs(
+  transaction: Prisma.TransactionClient,
+  scanPath: string,
+  scanRunId: string,
+  rows: readonly ExpectedLocalWorkRow[]
+) {
+  const root = await resolveScanSourceRoot(transaction, scanPath)
+  const groups = await captureArtworkDedupSourceGroups(transaction, {
+    groups: rows.map((row) => [
+      {
+        kind: 'DIRECTORY',
+        logicalRoot: root.logicalRoot,
+        rootIdentity: root.rootIdentity,
+        canonicalPath: row.relativePath
+      }
+    ])
+  }).catch(rethrowScanSourceConflict)
+  return rows.map((row, index) => ({
+    ...row,
+    scanRunId,
+    dedupSourceSnapshot: serializeArtworkDedupSourceSnapshot(groups[index]!)
+  }))
 }
 
 function sameRows<TActual extends { ordinal: number }, TExpected extends { ordinal: number }>(
@@ -601,6 +692,21 @@ function sameRows<TActual extends { ordinal: number }, TExpected extends { ordin
         )
     )
   )
+}
+
+function rethrowScanSourceConflict(error: unknown): never {
+  if (error instanceof ArtworkDedupOperationError) {
+    if (error.code === 'SOURCE_HELD') {
+      throw new BackgroundTaskError('CONCURRENT_MODIFICATION', '来源正在维护，请保留当前输入并稍后重试。')
+    }
+    if (error.code === 'SOURCE_GENERATION_CHANGED' || error.code === 'SOURCE_IDENTITY_CHANGED') {
+      throw new BackgroundTaskError(
+        'CONCURRENT_MODIFICATION',
+        '原扫描输入的来源证明已失效，请保留旧任务，复核来源后重新提交。'
+      )
+    }
+  }
+  throw error
 }
 
 function activeSnapshotConflict(message: string) {

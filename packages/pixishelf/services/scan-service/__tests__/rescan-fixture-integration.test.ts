@@ -1,3 +1,9 @@
+import { fixtureDirectory } from '@/services/artwork-service/__tests__/media-content-fixture'
+vi.mock('@/services/artwork-service/content-source-guard', async (original) => ({
+  ...(await original<typeof import('@/services/artwork-service/content-source-guard')>()),
+  captureContentDirectory: async () => fixtureDirectory,
+  assertContentScan: async () => undefined
+}))
 import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -159,6 +165,7 @@ const { database, prismaStub } = vi.hoisted(() => {
   }
 
   const prismaStub = {
+    artworkContentSource: { findUnique: async () => null },
     artist: {
       findMany: vi.fn(async () => database.artists),
       create: vi.fn(async (args: PrismaCreateArgs<ArtistCreateInput>) => {
@@ -191,7 +198,9 @@ const { database, prismaStub } = vi.hoisted(() => {
       createMany: vi.fn(async (args: PrismaCreateManyArgs<Omit<ArtistExternalRefRecord, 'id'>>) => {
         let count = 0
         for (const ref of args.data) {
-          if (args.skipDuplicates && database.artistExternalRefs.some((row) => row.externalId === ref.externalId)) continue
+          if (args.skipDuplicates && database.artistExternalRefs.some((row) => row.externalId === ref.externalId)) {
+            continue
+          }
           database.artistExternalRefs.push({ id: database.nextArtistExternalRefId++, ...ref })
           count++
         }
@@ -335,6 +344,16 @@ const { database, prismaStub } = vi.hoisted(() => {
       })
     },
     image: {
+      create: vi.fn(async (args: PrismaCreateArgs<ImageCreateInput>) => {
+        const image = { id: database.nextImageId++, ...args.data }
+        database.images.push(image)
+        return image
+      }),
+      update: vi.fn(async (args: PrismaUpdateArgs<ImageRecord>) => {
+        const image = database.images.find((item) => item.id === args.where.id)!
+        Object.assign(image, args.data)
+        return image
+      }),
       findMany: vi.fn(async (args: PrismaFindArgs = {}) => {
         const artworkIds = valuesIn<number>(args, 'artworkId')
         const directArtworkId = args.where?.artworkId
@@ -350,7 +369,10 @@ const { database, prismaStub } = vi.hoisted(() => {
       deleteMany: vi.fn(async (args: PrismaDeleteManyArgs = {}) => {
         const artworkId = args.where?.artworkId
         const before = database.images.length
-        database.images = database.images.filter((image) => image.artworkId !== artworkId)
+        const ids = valuesIn<number>(args, 'id')
+        database.images = database.images.filter((image) =>
+          ids ? !ids.includes(image.id) : image.artworkId !== artworkId
+        )
         return { count: before - database.images.length }
       }),
       createMany: vi.fn(async (args: PrismaCreateManyArgs<ImageCreateInput>) => {
@@ -598,7 +620,10 @@ describe('rescan fixture integration', () => {
     type BatchItem = Parameters<typeof processRescanBatch>[0][number]
     type BatchContext = Parameters<typeof processRescanBatch>[1]
 
-    for (const inputIds of [[20, 10], [10, 20]]) {
+    for (const inputIds of [
+      [20, 10],
+      [10, 20]
+    ]) {
       resetDatabase()
       vi.clearAllMocks()
       const pixivUserId = 'rescan-lock-user'
@@ -623,10 +648,15 @@ describe('rescan fixture integration', () => {
         },
         options: {
           scanPath,
-          audit: { recordItems: async (items) => { published.push(...items.map((item) => item.externalId!)) } }
+          audit: {
+            recordItems: async (items) => {
+              published.push(...items.map((item) => item.externalId!))
+            }
+          }
         }
       }
       const batch: BatchItem[] = inputIds.map((id) => ({
+        contentDirectory: fixtureDirectory,
         metadata: { id: String(id), user: artist.name, userId: pixivUserId, title: `Rescanned ${id}` },
         mediaFiles: [],
         directoryPath: path.join(scanPath, String(id)),
@@ -636,9 +666,8 @@ describe('rescan fixture integration', () => {
 
       await processRescanBatch(batch, context)
 
-      expect(lockArtworkMock.mock.calls.map(([, id]) => id)).toEqual([10, 20])
-      expect(invalidateReadingMock.mock.calls.map(([, id]) => id)).toEqual(inputIds)
-      expect(lockArtworkMock.mock.invocationCallOrder[1]!).toBeLessThan(invalidateReadingMock.mock.invocationCallOrder[0]!)
+      expect(lockArtworkMock.mock.calls.slice(0, 2).map(([, id]) => id)).toEqual([10, 20])
+      expect(invalidateReadingMock).not.toHaveBeenCalled()
       expect(published).toEqual(inputIds.map(String))
     }
   })

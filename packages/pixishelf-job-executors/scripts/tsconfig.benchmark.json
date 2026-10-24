@@ -1,0 +1,4 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["artwork-dedup-benchmark.ts", "artwork-dedup-contention.ts"]
+}

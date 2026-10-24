@@ -1,3 +1,9 @@
+import { ScanExecutorError } from '../scan/errors.ts'
+import {
+  beginExecutorMediaWrite,
+  publishExecutorMediaWrite,
+  resolveExecutorMediaDirectory
+} from '../scan/media-content-write.ts'
 import { needsAnimationContentScan } from '@pixishelf/job-contracts'
 import { Prisma, invalidateArtworkReadingForRebuild, type PrismaClient } from '@pixishelf/db'
 import type { QueueSqlExecutor } from '@pixishelf/job-runtime'
@@ -7,7 +13,7 @@ import type {
   PendingReplaceItemSnapshot,
   PendingReplaceMediaSnapshot
 } from './types.ts'
-import { PendingReplacePermanentError } from './types.ts'
+import { PendingReplaceActionRequiredError, PendingReplacePermanentError } from './types.ts'
 
 type PendingPrismaTransaction = Prisma.TransactionClient & QueueSqlExecutor
 type PendingPrismaDatabase = Pick<
@@ -41,6 +47,31 @@ export function createPrismaPendingReplaceDatabase(
   database: PendingPrismaDatabase
 ): PendingReplaceDatabasePort<PendingPrismaTransaction> {
   return {
+    async beginContentWrite(input) {
+      if (!input.item.artworkId || !input.item.targetDirectory) {
+        throw new PendingReplacePermanentError('INVALID_SNAPSHOT', 'Replacement content scope is incomplete')
+      }
+      const directory = await resolveExecutorMediaDirectory({
+        context: input.context,
+        sourceRoot: input.scanRoot,
+        relativeDirectory: input.item.targetDirectory
+      })
+      return beginExecutorMediaWrite({
+        context: input.context,
+        directory,
+        scope: { kind: 'DIRECTORY' },
+        sessionId: `pending-${input.action}:${input.item.id}`,
+        artworkIds: [input.item.artworkId]
+      }).catch((error) => {
+        if (error instanceof ScanExecutorError && error.code === 'STATE_CONFLICT')
+          throw new PendingReplaceActionRequiredError(
+            'CONTENT_WRITE_RECOVERY_REQUIRED',
+            'Media write requires an offline recovery grant',
+            input.item.id
+          )
+        throw error
+      })
+    },
     async loadOperation(systemJobId) {
       return database.pendingReplaceOperation.findUnique({ where: { systemJobId } })
     },
@@ -177,38 +208,53 @@ export function createPrismaPendingReplaceDatabase(
     },
     async checkpointItem(transaction, input) {
       const client = prismaTransaction(transaction)
-      await checkpointItem(client, input)
+      if (
+        input.contentWrite &&
+        ((input.status === 'FAILED' && input.expectedStatuses.includes('ROLLING_BACK')) ||
+          (input.status === 'SUCCESS' &&
+            input.expectedStatuses.some((status) => status === 'RESTORING' || status === 'RESTORE_SWAPPING')))
+      ) {
+        await publishExecutorMediaWrite(client, input.contentWrite, 'verified-rollback', (tx) =>
+          checkpointItem(tx, input)
+        )
+      } else {
+        await checkpointItem(client, input)
+      }
     },
     async publishReplacement(transaction, input) {
       const client = prismaTransaction(transaction)
-      await assertPersistedItem(client, input.item, ['COMMITTING'])
-      await invalidateArtworkReadingForRebuild(client, input.item.artworkId!)
-      await assertMediaSnapshot(client, input.item, input.expectedOldMedia)
-      await replaceMedia(client, input.item.artworkId!, input.newMedia)
-      await appendManualTags(client, input.item.artworkId!, input.appendTagIds)
-      await syncDerivedMediaTags(client, input.item.artworkId!, input.newMedia)
-      await checkpointItem(client, {
-        itemId: input.item.id,
-        expectedStatuses: ['COMMITTING'],
-        status: 'ARCHIVING',
-        backupDirectory: input.backupDirectory,
-        completedDirectory: input.completedDirectory,
-        finishedAt: null,
-        backupBytesIncrement: input.backupBytes
+      await publishExecutorMediaWrite(client, input.contentWrite, 'committed', async (client) => {
+        await assertPersistedItem(client, input.item, ['COMMITTING'])
+        await invalidateArtworkReadingForRebuild(client, input.item.artworkId!)
+        await assertMediaSnapshot(client, input.item, input.expectedOldMedia)
+        await replaceMedia(client, input.item.artworkId!, input.newMedia)
+        await appendManualTags(client, input.item.artworkId!, input.appendTagIds)
+        await syncDerivedMediaTags(client, input.item.artworkId!, input.newMedia)
+        await checkpointItem(client, {
+          itemId: input.item.id,
+          expectedStatuses: ['COMMITTING'],
+          status: 'ARCHIVING',
+          backupDirectory: input.backupDirectory,
+          completedDirectory: input.completedDirectory,
+          finishedAt: null,
+          backupBytesIncrement: input.backupBytes
+        })
       })
     },
     async publishRestore(transaction, input) {
       const client = prismaTransaction(transaction)
-      await assertPersistedItem(client, input.item, ['RESTORE_SWAPPING'])
-      await invalidateArtworkReadingForRebuild(client, input.item.artworkId!)
-      await assertMediaSnapshot(client, input.item, input.expectedNewMedia)
-      await replaceMedia(client, input.item.artworkId!, input.oldMedia)
-      await syncDerivedMediaTags(client, input.item.artworkId!, input.oldMedia)
-      await checkpointItem(client, {
-        itemId: input.item.id,
-        expectedStatuses: ['RESTORE_SWAPPING'],
-        status: 'RESTORE_COMMITTED',
-        finishedAt: input.now
+      await publishExecutorMediaWrite(client, input.contentWrite, 'committed', async (client) => {
+        await assertPersistedItem(client, input.item, ['RESTORE_SWAPPING'])
+        await invalidateArtworkReadingForRebuild(client, input.item.artworkId!)
+        await assertMediaSnapshot(client, input.item, input.expectedNewMedia)
+        await replaceMedia(client, input.item.artworkId!, input.oldMedia)
+        await syncDerivedMediaTags(client, input.item.artworkId!, input.oldMedia)
+        await checkpointItem(client, {
+          itemId: input.item.id,
+          expectedStatuses: ['RESTORE_SWAPPING'],
+          status: 'RESTORE_COMMITTED',
+          finishedAt: input.now
+        })
       })
     },
     async assertMediaSnapshot(transaction, input) {
@@ -407,17 +453,25 @@ async function checkpointItem(client: Prisma.TransactionClient, input: PendingRe
   if (updated.count !== 1)
     throw new PendingReplacePermanentError('DATABASE_CHANGED', 'Pending item checkpoint CAS failed')
   const startsWrite = input.status === 'BACKING_UP' || input.status === 'RESTORING'
-  const finishesWrite = input.status === 'ARCHIVING' || input.status === 'RESTORE_COMMITTED' ||
+  const finishesWrite =
+    input.status === 'ARCHIVING' ||
+    input.status === 'RESTORE_COMMITTED' ||
     (input.status === 'FAILED' && input.expectedStatuses.includes('ROLLING_BACK')) ||
-    (input.status === 'SUCCESS' && input.expectedStatuses.some((status) => status === 'RESTORING' || status === 'RESTORE_SWAPPING'))
+    (input.status === 'SUCCESS' &&
+      input.expectedStatuses.some((status) => status === 'RESTORING' || status === 'RESTORE_SWAPPING'))
   if (startsWrite || finishesWrite) {
-    const item = await client.pendingReplaceItem.findUniqueOrThrow({ where: { id: input.itemId }, select: { artworkId: true } })
+    const item = await client.pendingReplaceItem.findUniqueOrThrow({
+      where: { id: input.itemId },
+      select: { artworkId: true }
+    })
     if (item.artworkId) {
       await client.$queryRaw(Prisma.sql`SELECT id FROM "Artwork" WHERE id = ${item.artworkId} FOR UPDATE`)
       // The checkpoint commits before any file move. Failed recovery deliberately keeps this gate closed.
-      await client.artworkSummary.upsert({ where: { artworkId: item.artworkId },
+      await client.artworkSummary.upsert({
+        where: { artworkId: item.artworkId },
         create: { artworkId: item.artworkId, replaceInProgress: startsWrite, sourceRevision: 1 },
-        update: { replaceInProgress: startsWrite, sourceRevision: { increment: 1 } } })
+        update: { replaceInProgress: startsWrite, sourceRevision: { increment: 1 } }
+      })
     }
   }
   if (input.backupBytesIncrement) {

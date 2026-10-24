@@ -15,6 +15,11 @@
       "types": "./dist/video-audio/index.d.ts",
       "import": "./dist/video-audio/index.js",
       "default": "./dist/video-audio/index.js"
+    },
+    "./media-content": {
+      "types": "./dist/media-content/index.d.ts",
+      "import": "./dist/media-content/index.js",
+      "default": "./dist/media-content/index.js"
     }
   },
   "files": [

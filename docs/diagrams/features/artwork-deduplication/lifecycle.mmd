@@ -1,0 +1,45 @@
+---
+config:
+  htmlLabels: false
+  flowchart:
+    htmlLabels: false
+title: 同艺术家作品去重 · 直接删除目标状态（未开放）
+---
+stateDiagram-v2
+  direction TB
+  state "L01 BUILDING：DIRECT_DELETE 预览准备" as Building
+  state "L02 READY：冻结范围，尚无删除授权" as Ready
+  state "STALE / FAILED：保留范围与诊断" as PrepareBlocked
+  state "L03 VERIFYING：已确认，认领与实际 drain 后全组 fresh" as Verifying
+  state "L04 DELETING：全部校验成功，copy 隐藏，逐文件意图" as Deleting
+  state "L05 STOPPED / ACTION_REQUIRED：保留冻结范围与声明" as Stopped
+  state "L06 RETRY_VERIFYING：原执行退出，fresh 重验 keeper" as RetryVerifying
+  state "L07 COMPLETED：文件回执齐全，业务删除与墓碑" as Completed
+  state "L08 CANCELLED：首个意图前取消并核实释放" as Cancelled
+  [*] --> Building
+  Building --> Ready: 精确清单及影响全部通过
+  Building --> PrepareBlocked: 未知附件或历史原件等阻断
+  Building --> Cancelled: 取消只读准备
+  PrepareBlocked --> Building: 重新准备并展示新范围
+  Ready --> PrepareBlocked: 审核或证据失效
+  Ready --> Verifying: 唯一不可恢复确认及停写声明，新门禁开放
+  Ready --> Cancelled: 取消
+  Verifying --> Cancelled: 首个删除意图前取消，核实退出
+  Verifying --> Stopped: drain 或任一组校验失败，零删
+  Verifying --> Deleting: 所有所选组完整重读成功
+  Deleting --> Completed: 原范围全部文件回执与终结完成
+  Deleting --> Stopped: 失败或请求在安全文件边界停止
+  Stopped --> RetryVerifying: 只继续原授权范围，无恢复或扩围
+  RetryVerifying --> Stopped: keeper 或原范围校验不通过
+  RetryVerifying --> Deleting: 复核后只续原未完成文件
+  Completed --> [*]
+  Cancelled --> [*]
+  note right of Ready
+    旧 ISOLATION / PURGE 预览不得进入此授权
+    新目的与协议必须重新准备
+  end note
+  note right of Stopped
+    已 unlink 无法撤销
+    保留 copy 不可见、日志、必要声明与来源 HOLD
+    未决删除意图按可能已删处理
+  end note

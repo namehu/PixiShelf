@@ -1,3 +1,8 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
+import { assertPixivScanSources, parsePixivScanSourceSnapshot } from './dedup-source-snapshot.ts'
+import path from 'node:path'
+import type { MediaContentDirectorySnapshot } from '@pixishelf/db'
+import { captureScanMediaDirectory, assertScanMediaDirectory } from './media-content-guard.ts'
 import { extractJobDiagnostic } from '@pixishelf/job-contracts'
 import { ensurePixivInventoryRootIdentity } from './inventory-run.ts'
 import { assertPixivRootUnchanged } from './root-identity.ts'
@@ -25,6 +30,7 @@ type SourceAuditItem = Prisma.PixivSourceAuditItemGetPayload<Record<string, neve
 type ApplyOutcome = 'APPLIED' | 'SKIPPED' | 'CONFLICT' | 'FAILED'
 
 interface PreparedInput {
+  mediaDirectory: MediaContentDirectorySnapshot
   candidate: NonNullable<ReturnType<typeof metadataCandidateFromPath>>
   state: StableFileState
   contentHash: string
@@ -323,7 +329,21 @@ function assertSourceAuditEvidence(auditRunId: string, row: ApplyInput, item: So
     item.ctimeMs !== row.ctimeMs ||
     item.deviceId !== row.deviceId ||
     item.inode !== row.inode ||
-    item.issueCode !== null
+    item.issueCode !== null ||
+    JSON.stringify(
+      parsePixivScanSourceSnapshot({
+        snapshot: item.dedupSourceSnapshot,
+        relativePath: item.relativePath,
+        externalId: item.expectedExternalId!
+      })
+    ) !==
+      JSON.stringify(
+        parsePixivScanSourceSnapshot({
+          snapshot: row.dedupSourceSnapshot,
+          relativePath: row.relativePath,
+          externalId: row.expectedExternalId!
+        })
+      )
   ) {
     throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Source audit evidence changed after enqueue')
   }
@@ -335,6 +355,19 @@ async function prepareInput(
   root: SafeScanRoot,
   row: ApplyInput
 ): Promise<PreparedInput> {
+  const mediaDirectory = await captureScanMediaDirectory({
+    context,
+    scanRoot: root.absolutePath,
+    relativeDirectory: path.posix.dirname(row.relativePath)
+  })
+  await context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
+    await assertPixivScanSources(transaction, {
+      snapshot: row.dedupSourceSnapshot,
+      relativePath: row.relativePath,
+      rootIdentity: mediaDirectory.rootIdentity,
+      externalId: row.expectedExternalId!
+    })
+  })
   const resolved = await resolveSafeExistingPath(root, row.relativePath, 'file')
   const candidate = metadataCandidateFromPath(resolved)
   if (!candidate) throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen metadata path is invalid')
@@ -376,7 +409,7 @@ async function prepareInput(
     throw new MediaInputError()
   }
   if (media.length === 0) throw new ScanExecutorError('MEDIA_NOT_FOUND', 'Artwork has no supported media')
-  return { candidate, state: document.state, contentHash: document.sha256, metadata, media }
+  return { mediaDirectory, candidate, state: document.state, contentHash: document.sha256, metadata, media }
 }
 
 async function applyPreparedInput(input: {
@@ -390,6 +423,14 @@ async function applyPreparedInput(input: {
   now: Date
 }) {
   return mutate(input.context, async (transaction) => {
+    await lockCreatorCatalog(transaction)
+    await assertScanMediaDirectory(transaction, input.prepared.mediaDirectory)
+    await assertPixivScanSources(transaction, {
+      snapshot: input.row.dedupSourceSnapshot,
+      relativePath: input.row.relativePath,
+      rootIdentity: input.prepared.mediaDirectory.rootIdentity,
+      externalId: input.row.expectedExternalId!
+    })
     const checkpoint = await transaction.scanRunItem.findUnique({ where: { id: input.itemId } })
     if (!checkpoint || checkpoint.scanRunId !== input.runId) {
       throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Audit apply checkpoint is missing')
@@ -427,6 +468,7 @@ async function applyPreparedInput(input: {
       checkpointOrdinal: input.row.ordinal,
       checkpointKey: `audit-apply:${input.row.sourceAuditItemId}`,
       metadataRelativePath: input.prepared.candidate.relativePath,
+      dedupSourceSnapshot: input.row.dedupSourceSnapshot,
       metadata: input.prepared.metadata,
       metadataContentHash: input.prepared.contentHash,
       media: input.prepared.media,
@@ -544,7 +586,7 @@ async function recordItemOutcome(
   return mutate(context, async (transaction) => {
     const changed = await writeOutcome(transaction, runId, itemId, ordinal, result, now)
     if (changed && result.status === 'FAILED')
-      await context.recordDiagnostic?.(transaction as ScanTransaction & QueueSqlExecutor, {
+      {await context.recordDiagnostic?.(transaction as ScanTransaction & QueueSqlExecutor, {
         key: `audit-apply:${itemId}`,
         scope: 'ITEM',
         targetType: 'SCAN_RUN_ITEM',
@@ -553,7 +595,7 @@ async function recordItemOutcome(
         code: result.reasonCode ?? result.outcome,
         message: result.reasonSummary ?? undefined,
         error: result.error
-      })
+      })}
     return changed
   })
 }
@@ -865,7 +907,7 @@ function assertBarrierState(
     !root.rootIdentity ||
     state.rootIdentity !== root.rootIdentity
   )
-    throw new ApplyBarrierError()
+    {throw new ApplyBarrierError()}
 }
 
 function stateFromInput(row: ApplyInput): StableFileState {

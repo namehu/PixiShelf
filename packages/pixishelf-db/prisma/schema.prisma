@@ -238,6 +238,8 @@ model Artwork {
   images                Image[]
   readingSummaries      ArtworkReadingSummary[]
   visualSummary         ArtworkSummary?
+  contentSource         ArtworkContentSource?
+  contentFingerprint    ArtworkContentFingerprint?
   readMedia             ArtworkReadMedia[]
   source                ArtworkSource         @default(PIXIV_IMPORTED)
   externalRefs          ArtworkExternalRef[]
@@ -414,6 +416,8 @@ model Image {
   videoMetadata       MediaVideoMetadata?
   animationMetadata   ImageAnimationMetadata?
   summaryFeature      ArtworkSummaryFeature?
+  contentSource       MediaContentSource?
+  contentFingerprint  MediaContentFingerprint?
   chapterPreviews     MediaChapterPreview[]
   keyframeSets        MediaVideoKeyframeSet[]
 
@@ -422,6 +426,166 @@ model Image {
   @@index([webpAnimationStatus])
   @@index([chaptersPath])
   @@index([mediaType])
+}
+
+enum MediaContentWriteScopeKind {
+  PATH
+  DIRECTORY
+}
+
+enum MediaContentWriteStatus {
+  ACTIVE
+  READY
+  RECOVERY_REQUIRED
+  COMPLETED
+  ROLLED_BACK
+}
+
+enum MediaContentChildDisposition {
+  PUBLISH
+  RESTORED
+  REMOVED
+  ISOLATED
+}
+
+model MediaContentDirectoryState {
+  id                String   @id @default(cuid())
+  logicalRoot       String
+  relativeDirectory String
+  rootIdentity      String
+  generation        BigInt   @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  writes            MediaContentPathWrite[]
+  mediaSources      MediaContentSource[]
+
+  @@unique([logicalRoot, relativeDirectory])
+}
+
+model MediaContentPathWrite {
+  id                    String                       @id @default(cuid())
+  directoryId           String
+  directory             MediaContentDirectoryState   @relation(fields: [directoryId], references: [id], onDelete: Restrict)
+  scope                 MediaContentWriteScopeKind
+  relativePath          String?
+  parentWriteId         String?
+  parent                MediaContentPathWrite?         @relation("MediaContentWriteChildren", fields: [parentWriteId], references: [id], onDelete: Restrict)
+  children              MediaContentPathWrite[]        @relation("MediaContentWriteChildren")
+  sessionId             String
+  ownerUserId           String?
+  sessionVersion        BigInt
+  writeToken            String                       @unique
+  declarationVersion    BigInt                       @default(1)
+  jobId                 String?
+  executionToken        String?
+  executionAttempt      Int?
+  status                MediaContentWriteStatus       @default(ACTIVE)
+  declaredFileSize       BigInt?
+  totalChunks           Int?
+  nextChunkIndex        Int                          @default(0)
+  committedBytes        BigInt                       @default(0)
+  lastRequestId         String?
+  lastChunkIndex        Int?
+  lastChunkOffset       BigInt?
+  lastChunkBytes        BigInt?
+  lastChunkSha256       String?
+  childDisposition      MediaContentChildDisposition?
+  resolutionEvidenceId  String?
+  resolvedAt            DateTime?
+  failureCode           String?
+  startedAt             DateTime
+  finishedAt            DateTime?
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+
+  @@index([directoryId, status])
+  @@index([parentWriteId, status])
+  @@index([sessionId, ownerUserId])
+}
+
+model MediaContentSource {
+  imageId          Int      @id
+  image            Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  revision         BigInt   @default(0)
+  directoryStateId String?
+  directory        MediaContentDirectoryState? @relation(fields: [directoryStateId], references: [id], onDelete: Restrict)
+  writeToken       String?
+  writeStartedAt   DateTime?
+  updatedAt        DateTime @updatedAt
+
+  @@index([directoryStateId, imageId])
+}
+
+model ArtworkContentSource {
+  artworkId      Int      @id
+  artwork        Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  revision       BigInt   @default(0)
+  mediaEpoch     BigInt   @default(0)
+  writeToken     String?
+  writeStartedAt DateTime?
+  updatedAt      DateTime @updatedAt
+}
+
+model MediaContentFingerprint {
+  imageId           Int      @id
+  image             Image    @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  algorithmVersion  Int
+  rootIdentity      String
+  sourcePath        String
+  canonicalPath     String
+  sourceRevision    BigInt
+  artworkMediaEpoch BigInt
+  size              BigInt
+  mtimeNs           BigInt?
+  ctimeNs           BigInt?
+  deviceId          BigInt?
+  inode             BigInt?
+  sha256            String   @db.VarChar(64)
+  hashedAt          DateTime
+
+  @@index([size, sha256, imageId])
+}
+
+model ArtworkContentFingerprint {
+  artworkId        Int      @id
+  artwork          Artwork  @relation(fields: [artworkId], references: [id], onDelete: Cascade)
+  algorithmVersion Int
+  sourceRevision   BigInt
+  mediaEpoch       BigInt
+  membersSignature String   @db.VarChar(64)
+  fileCount        BigInt
+  contentSha256    String   @db.VarChar(64)
+  completedAt      DateTime
+
+  @@index([algorithmVersion, contentSha256])
+}
+
+enum MediaContentRecoveryGrantStatus {
+  ACTIVE
+  CONSUMED
+  REVOKED
+}
+
+model MediaContentRecoveryGrant {
+  id                     String                          @id @default(cuid())
+  jobId                  String
+  job                    SystemJob                       @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  sessionId              String
+  expectedAttempt        Int
+  targetAttempt          Int
+  snapshot               Json
+  snapshotSha256         String                          @db.VarChar(64)
+  backupCheckpointRef    String                          @db.Text
+  operator               String
+  status                 MediaContentRecoveryGrantStatus @default(ACTIVE)
+  createdAt              DateTime                        @default(now())
+  consumedAt             DateTime?
+  consumedExecutionToken String?                         @db.Uuid
+  revokedAt              DateTime?
+  revokedBy              String?
+  revocationReason       String?                         @db.Text
+
+  @@index([jobId, sessionId, targetAttempt, status])
 }
 
 model ArtworkSummary {
@@ -842,6 +1006,7 @@ model SystemJob {
   events                  SystemJobEvent[]
   resourceLeases          JobResourceLease[]
   gcEntries               DerivedMediaGcEntry[]
+  artworkDedupRun         ArtworkDedupRun?
   scanRun                 ScanRun?
   pendingReplaceBatch     PendingReplaceBatch?
   pendingReplaceOperation PendingReplaceOperation?
@@ -849,6 +1014,7 @@ model SystemJob {
   archiveImport           ArchiveImport?
   archiveExecutions       ArchiveImportExecution[]
   archiveGenerations      ArchiveStagingGeneration[]
+  mediaContentRecoveryGrants MediaContentRecoveryGrant[]
   archiveIntakeItem       ArchiveIntakeItem?       @relation("ArchiveIntakeCurrentJob")
   archiveUploaderScanRun  ArchiveUploaderScanRun?
   archiveTitleRuleRevision ArchiveTitleRuleRevision?
@@ -957,6 +1123,8 @@ model DerivedMediaGcEntry {
 }
 
 model ArchiveImport {
+  /// Server-frozen dedup source proof; null is legacy/unproven, never generation zero.
+  dedupSourceSnapshot Json?
   id                 String              @id @default(cuid())
   systemJobId        String              @unique
   phase              ArchiveImportPhase  @default(LEGACY)
@@ -1067,6 +1235,8 @@ model ArchiveIntakeSubmission {
 }
 
 model ArchiveIntakeItem {
+  /// Server-frozen dedup source proof; null is legacy/unproven, never generation zero.
+  dedupSourceSnapshot Json?
   id                    String                       @id @default(cuid())
   submissionId          String
   submittedUrl          String                       @db.Text
@@ -1760,6 +1930,8 @@ model ScanRunItem {
 }
 
 model ScanRunMetadataInput {
+  /// Server-frozen dedup source proof; null is legacy/unproven, never generation zero.
+  dedupSourceSnapshot Json?
   id                           String   @id @default(cuid())
   scanRunId                    String
   ordinal                      Int
@@ -1788,6 +1960,8 @@ model ScanRunMetadataInput {
 }
 
 model PixivSourceAuditItem {
+  /// Server-frozen dedup source proof; null is legacy/unproven, never generation zero.
+  dedupSourceSnapshot Json?
   id                   String   @id @default(cuid())
   scanRunId            String
   ordinal              Int
@@ -1880,6 +2054,8 @@ model PixivMetadataInventory {
 }
 
 model ScanRunLocalWorkInput {
+  /// Server-frozen dedup source proof; null is legacy/unproven, never generation zero.
+  dedupSourceSnapshot Json?
   id           String                    @id @default(cuid())
   scanRunId    String
   ordinal      Int
@@ -2531,4 +2707,385 @@ model SystemJobDiagnosticItem {
   @@index([reportId, id])
   @@index([reportId, reasonKey, id])
   @@map("system_job_diagnostic_items")
+}
+
+// Frozen detection evidence survives subsequent Artwork/Image removal.
+model ArtworkDedupRun {
+  rootBindings Json?
+  lastProgressAt DateTime?
+  retryReadBytes BigInt @default(0)
+  readerOwner Json?
+  readerToken String? @unique
+  readerState String @default("IDLE")
+  id String @id @default(uuid())
+  artistId Int
+  requestedBy String
+  idempotencyKey String
+  mode String
+  algorithmVersion Int @default(1)
+  version Int @default(1)
+  executionVersion Int @default(1)
+  jobId String? @unique
+  job SystemJob? @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  status String @default("PENDING")
+  stage String @default("STAT")
+  frozenAt DateTime @default(now())
+  startedAt DateTime?
+  finishedAt DateTime?
+  updatedAt DateTime @updatedAt
+  artworkCount Int @default(0)
+  processedArtworks Int @default(0)
+  completeArtworks Int @default(0)
+  changedArtworks Int @default(0)
+  failedArtworks Int @default(0)
+  skippedArtworks Int @default(0)
+  groupCount Int @default(0)
+  duplicateArtworks Int @default(0)
+  statMedia Int @default(0)
+  hashedMedia Int @default(0)
+  cacheHitMedia Int @default(0)
+  readBytes BigInt @default(0)
+  errorCode String?
+  items ArtworkDedupItem[]
+  groups ArtworkDedupGroup[]
+  commands ArtworkDedupCommand[]
+  reviewStates ArtworkDedupReviewState[]
+  operations ArtworkDedupOperation[]
+  @@unique([requestedBy, idempotencyKey])
+  @@index([artistId, frozenAt(sort: Desc)])
+}
+
+model ArtworkDedupItem {
+  runId String
+  artworkId Int
+  frozenMediaRevision Int
+  status String @default("PENDING")
+  snapshotRevision BigInt?
+  mediaEpoch BigInt?
+  memberCount BigInt?
+  afterImageId Int @default(0)
+  sizeDigest String?
+  contentSha256 String?
+  membersSignature String?
+  errorCode String?
+  updatedAt DateTime @updatedAt
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  media ArtworkDedupMedia[]
+  groupMember ArtworkDedupGroupMember?
+  @@id([runId, artworkId])
+  @@index([runId, status, artworkId])
+  @@index([runId, memberCount, sizeDigest])
+  @@index([runId, contentSha256])
+}
+
+model ArtworkDedupMedia {
+  runId String
+  artworkId Int
+  imageId Int
+  sourcePath String
+  sourceRevision BigInt
+  logicalRoot String
+  rootIdentity String
+  relativeDirectory String
+  directoryId String
+  directoryGeneration BigInt
+  canonicalPath String
+  size BigInt
+  mtimeNs BigInt?
+  ctimeNs BigInt?
+  deviceId BigInt?
+  inode BigInt?
+  sha256 String?
+  item ArtworkDedupItem @relation(fields: [runId, artworkId], references: [runId, artworkId], onDelete: Cascade)
+  @@id([runId, artworkId, imageId])
+  @@index([runId, artworkId, size, imageId])
+  @@index([runId, artworkId, size, sha256, imageId])
+}
+
+model ArtworkDedupGroup {
+  id String @id
+  runId String
+  contentSha256 String
+  memberCount Int
+  fileCount BigInt
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  members ArtworkDedupGroupMember[]
+  @@unique([runId, id])
+  @@index([runId, id])
+}
+
+model ArtworkDedupGroupMember {
+  runId String
+  groupId String
+  artworkId Int
+  group ArtworkDedupGroup @relation(fields: [runId, groupId], references: [runId, id], onDelete: Cascade)
+  item ArtworkDedupItem @relation(fields: [runId, artworkId], references: [runId, artworkId], onDelete: Cascade)
+  @@id([runId, artworkId])
+  @@index([groupId, artworkId])
+}
+
+model ArtworkDedupCommand {
+  runId String
+  requestedBy String
+  idempotencyKey String
+  expectedVersion Int
+  action String
+  resultingVersion Int
+  requestDigest String?
+  groupId String?
+  operationId String?
+  createdAt DateTime @default(now())
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@id([requestedBy, idempotencyKey])
+  @@index([runId, createdAt])
+}
+
+
+model ArtworkDedupReviewState {
+  runId String
+  userId String
+  reviewRevision Int @default(0)
+  updatedAt DateTime @updatedAt
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  reviews ArtworkDedupReview[]
+  @@id([runId, userId])
+  @@index([userId])
+}
+
+model ArtworkDedupReview {
+  runId String
+  userId String
+  groupId String
+  keeperArtworkId Int
+  reviewVersion Int @default(1)
+  updatedAt DateTime @updatedAt
+  state ArtworkDedupReviewState @relation(fields: [runId, userId], references: [runId, userId], onDelete: Cascade)
+  @@id([runId, userId, groupId])
+}
+
+// Durable intent and evidence outlive the referenced Artwork/Image rows.
+model ArtworkDedupOperation {
+  id String @id @default(uuid())
+  runId String
+  artistId Int
+  requestedBy String
+  idempotencyKey String
+  requestDigest String
+  runVersion Int
+  frozenReviewRevision Int
+  version Int @default(1)
+  executionVersion Int @default(1)
+  jobId String? @unique
+  mode String @default("PREPARE")
+  originalAction String @default("PREPARE")
+  preparePurpose String @default("ISOLATION")
+  protocolVersion Int?
+  scopeDigest String?
+  directDeleteConfirmedAt DateTime?
+  freshVerifiedExecutionVersion Int?
+  deleteStartedAt DateTime?
+  status String @default("BUILDING")
+  stage String @default("INVENTORY")
+  selectionKind String
+  rootBindings Json?
+  readerToken String? @unique
+  readerState String @default("IDLE")
+  readerOwner Json?
+  afterArtworkId Int @default(0)
+  afterImageId Int @default(0)
+  afterFileId String?
+  selectedGroups Int @default(0)
+  excludedGroups Int @default(0)
+  blockedGroups Int @default(0)
+  keepers Int @default(0)
+  copies Int @default(0)
+  preparedArtworks Int @default(0)
+  preparedFiles BigInt @default(0)
+  logicalBytes BigInt?
+  movedFiles BigInt @default(0)
+  restoredFiles BigInt @default(0)
+  deletedFiles BigInt @default(0)
+  requiresOrganizationConfirmation Boolean @default(false)
+  backupCheckpointRef String?
+  backupConfirmedAt DateTime?
+  externalWritesStoppedAt DateTime?
+  organizationConfirmedAt DateTime?
+  purgeConfirmedAt DateTime?
+  authorizationVersion Int?
+  authorizationDigest String?
+  purgePreviewVersion Int?
+  purgePreviewStatus String?
+  purgePreviewValidatedAt DateTime?
+  cancelRequestedAt DateTime?
+  validatedAt DateTime?
+  lastProgressAt DateTime?
+  errorCode String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+  groups ArtworkDedupOperationGroup[]
+  artworks ArtworkDedupOperationArtwork[]
+  files ArtworkDedupOperationFile[]
+  claims ArtworkDedupClaim[]
+  sources ArtworkDedupOperationSource[]
+  receipts ArtworkDedupFileReceipt[]
+  @@unique([requestedBy, idempotencyKey])
+  @@index([artistId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([status, createdAt])
+}
+
+model ArtworkDedupOperationGroup {
+  operationId String
+  groupId String
+  keeperArtworkId Int?
+  reviewVersion Int @default(0)
+  selectionBasis String
+  status String @default("SELECTED")
+  reason String?
+  operation ArtworkDedupOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  @@id([operationId, groupId])
+}
+
+model ArtworkDedupOperationArtwork {
+  operationId String
+  artworkId Int
+  groupId String
+  role String
+  status String @default("SELECTED")
+  title String
+  sourceLabel String
+  thumbnailUrl String?
+  artworkCreatedAt DateTime
+  isUrl Boolean @default(false)
+  frozenMediaRevision Int
+  snapshotRevision BigInt
+  mediaEpoch BigInt
+  membersSignature String
+  contentSha256 String
+  algorithmVersion Int
+  memberCount BigInt
+  organizationSignature String
+  impactSignature String?
+  sourceSignature String
+  creatorSignature String
+  storagePath String?
+  storageKey String?
+  metaSource String?
+  externalId String?
+  afterImageId Int @default(0)
+  afterFileId String?
+  inventoryComplete Boolean @default(false)
+  inspectionComplete Boolean @default(false)
+  inspectionCheckpoint Json?
+  fileCount BigInt @default(0)
+  errorCode String?
+  manifestDigest String?
+  manifestPersistedAt DateTime?
+  freshContentSha256 String?
+  freshMembersSignature String?
+  freshVerifiedExecutionVersion Int?
+  freshVerifiedAt DateTime?
+  selectedForAction Boolean @default(true)
+  updatedAt DateTime @updatedAt
+  operation ArtworkDedupOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  files ArtworkDedupOperationFile[]
+  @@id([operationId, artworkId])
+  @@index([operationId, status, artworkId])
+}
+
+model ArtworkDedupOperationFile {
+  fileId String @id @default(uuid())
+  operationId String
+  artworkId Int
+  referenceKey String
+  role String
+  imageId Int?
+  revisionId String?
+  logicalRoot String
+  rootIdentity String
+  canonicalPath String
+  relativeDirectory String?
+  directoryId String?
+  directoryGeneration BigInt?
+  isolationRelativePath String?
+  size BigInt?
+  mtimeNs BigInt?
+  ctimeNs BigInt?
+  deviceId BigInt?
+  inode BigInt?
+  linkCount BigInt?
+  fileType String?
+  sourceRevision BigInt?
+  sha256 String?
+  ownershipStatus String @default("UNCONFIRMED")
+  inspectionStatus String @default("PENDING")
+  requiresReview Boolean @default(false)
+  blockReason String?
+  status String @default("PENDING")
+  version Int @default(1)
+  updatedAt DateTime @updatedAt
+  operation ArtworkDedupOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  artwork ArtworkDedupOperationArtwork @relation(fields: [operationId, artworkId], references: [operationId, artworkId], onDelete: Cascade)
+  receipts ArtworkDedupFileReceipt[]
+  @@unique([operationId, referenceKey])
+  @@index([operationId, artworkId, fileId])
+  @@index([operationId, status, fileId])
+  @@index([rootIdentity, canonicalPath])
+}
+
+model ArtworkDedupClaim {
+  artworkId Int @id
+  operationId String
+  role String
+  executionVersion Int
+  createdAt DateTime @default(now())
+  operation ArtworkDedupOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  @@index([operationId, role, artworkId])
+}
+
+model ArtworkDedupSourceIdentity {
+  id String @id @default(uuid())
+  identityKey String @unique
+  kind String
+  logicalRoot String?
+  rootIdentity String?
+  canonicalPath String?
+  providerKey String?
+  externalId String?
+  displayName String
+  generation BigInt @default(0)
+  status String @default("OPEN")
+  ownerOperationId String?
+  updatedAt DateTime @updatedAt
+  bindings ArtworkDedupOperationSource[]
+  @@index([status, ownerOperationId])
+  @@index([providerKey, externalId])
+  @@index([rootIdentity, canonicalPath])
+}
+
+model ArtworkDedupOperationSource {
+  operationId String
+  artworkId Int
+  sourceId String
+  frozenGeneration BigInt
+  operation ArtworkDedupOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  source ArtworkDedupSourceIdentity @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  @@id([operationId, artworkId, sourceId])
+  @@index([sourceId, operationId])
+}
+
+model ArtworkDedupFileReceipt {
+  id String @id @default(uuid())
+  operationId String
+  fileId String
+  executionVersion Int
+  step String
+  expectedFileVersion Int
+  status String @default("INTENT")
+  receipt Json?
+  createdAt DateTime @default(now())
+  completedAt DateTime?
+  operation ArtworkDedupOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
+  file ArtworkDedupOperationFile @relation(fields: [fileId], references: [fileId], onDelete: Restrict)
+  @@unique([operationId, fileId, executionVersion, step])
 }

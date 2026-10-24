@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { dedupGuardFixture } from './dedup-guard-fixture.ts'
 import os from 'node:os'
 import path from 'node:path'
 import type { ArchiveMaintenancePayload } from '@pixishelf/job-contracts'
@@ -7,8 +9,50 @@ import {
   type EnqueuedChildJob,
   type ExecutionContext
 } from '@pixishelf/job-runtime'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ScanExecutorError } from '../../scan/errors.ts'
 import { createArchiveMaintenanceExecutorRegistrations, executeArchiveMaintenance } from '../maintenance-executor.js'
+
+// These unit fixtures model lifecycle DML. Real claims/fences are exercised by maintenance-executor.postgres.test.ts.
+const contentGuards = vi.hoisted(() => ({
+  begin: vi.fn(),
+  finish: vi.fn()
+}))
+vi.mock('../../scan/media-content-write.ts', () => ({
+  resolveExecutorMediaDirectory: vi.fn(async (input) => ({
+    logicalRoot: 'source-media:v1',
+    rootIdentity: 'fixture-root',
+    relativeDirectory: input.relativeDirectory
+  })),
+  beginExecutorMediaDirectoryWrites: contentGuards.begin
+}))
+vi.mock('@pixishelf/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@pixishelf/db')>()
+  return {
+    ...actual,
+    finishMediaContentSourceWrite: contentGuards.finish,
+    withMediaContentOwnerPublication: async (
+      tx: unknown,
+      _input: unknown,
+      publish: (tx: unknown) => Promise<unknown>
+    ) => ({ result: await publish(tx), finishedWriteIds: ['fixture-write'] })
+  }
+})
+beforeEach(() => {
+  contentGuards.begin.mockReset().mockImplementation(async (input: {
+    sessionId: string
+    context: { mutateInTransaction: (operation: (tx: unknown) => Promise<unknown>) => Promise<unknown> }
+  }) => {
+    const cleanup = input.sessionId.startsWith('archive-cleanup:')
+    const write = {
+      owner: { ownerUserId: null, sessionId: 'maintenance-job', sessionVersion: 1n, execution: null },
+      handles: cleanup ? [{ writeId: 'fixture-write', writeToken: 'fixture-token', directoryId: 'fixture-directory' }] : [],
+      source: { writeToken: 'fixture-token', artworkIds: [7], imageIds: [] }
+    }
+    return cleanup ? input.context.mutateInTransaction(async () => write) : write
+  })
+  contentGuards.finish.mockReset().mockResolvedValue(true)
+})
 
 const temporaryRoots: string[] = []
 
@@ -17,6 +61,131 @@ afterEach(async () => {
 })
 
 describe('archive maintenance executor', () => {
+  it('pauses ACTION_REQUIRED when begin refuses an unresolved claim', async () => {
+    const root = await temporaryRoot()
+    await writeFixture(root, 'sources/test/rev-1/media/file.jpg')
+    contentGuards.begin.mockRejectedValueOnce(new ScanExecutorError('STATE_CONFLICT', 'old owner'))
+    const context = executionContext({ action: 'TRASH_ARCHIVE', artworkId: 7 }, artworkTransaction('TRASHING'))
+    await executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
+    expect(context.__scope.pause).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ACTION_REQUIRED' }))
+    expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+    expect(contentGuards.finish).not.toHaveBeenCalled()
+    expect(await readFile(path.join(root, 'sources/test/rev-1/media/file.jpg'), 'utf8')).toBe('fixture')
+  })
+
+  it('preserves a refused claim when cancellation races with begin', async () => {
+    const root = await temporaryRoot()
+    await writeFixture(root, 'sources/test/rev-1/media/file.jpg')
+    contentGuards.begin.mockRejectedValueOnce(new ScanExecutorError('STATE_CONFLICT', 'old owner'))
+    const context = executionContext({ action: 'TRASH_ARCHIVE', artworkId: 7 }, artworkTransaction('TRASHING'))
+    context.__scope.executionStatus = 'CANCELLING'
+    await expect(
+      executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
+    ).rejects.toThrow()
+    expect(context.__scope.cancel).not.toHaveBeenCalled()
+    expect(context.__scope.pause).not.toHaveBeenCalled()
+    expect(context.finalizeInTransaction).toHaveBeenCalledOnce()
+  })
+
+  it('does not move files when the durable write claim is refused', async () => {
+    const root = await temporaryRoot()
+    await writeFixture(root, 'sources/test/rev-1/media/file.jpg')
+    contentGuards.begin.mockRejectedValueOnce(new Error('another media writer owns the path'))
+    const context = executionContext({ action: 'TRASH_ARCHIVE', artworkId: 7 }, artworkTransaction('TRASHING'))
+    await expect(
+      executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
+    ).rejects.toThrow('another media writer')
+    expect(await readFile(path.join(root, 'sources/test/rev-1/media/file.jpg'), 'utf8')).toBe('fixture')
+    expect(context.finalizeInTransaction).not.toHaveBeenCalled()
+  })
+
+  it('refuses cleanup and reconciliation while the original publish claim is unresolved', async () => {
+    const root = await temporaryRoot()
+    const transaction = cleanTransaction()
+    transaction.mediaContentPathWrite.findFirst.mockResolvedValue({ id: 'old-publish-claim' } as never)
+    await writeFixture(root, '.archive-staging/import-1/manifest.json')
+    const context = executionContext({ action: 'CLEAN_STAGING', archiveImportId: 'import-1' }, transaction)
+    await expect(
+      executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
+    ).rejects.toThrow('恢复原 PUBLISH')
+    expect(await readFile(path.join(root, '.archive-staging/import-1/manifest.json'), 'utf8')).toBe('fixture')
+    expect(transaction.archiveImport.updateMany).not.toHaveBeenCalled()
+    const reconcile = reconcileTransaction()
+    reconcile.mediaContentPathWrite.findFirst.mockResolvedValue({ id: 'old-publish-claim' } as never)
+    const reconcileContext = executionContext({ action: 'RECONCILE' }, reconcile)
+    await executeArchiveMaintenance(reconcileContext, {
+      database: {} as never,
+      config: { scanRoot: root },
+      now: () => new Date('2026-08-19')
+    })
+    expect(reconcileContext.enqueueChild).not.toHaveBeenCalledWith(
+      expect.objectContaining({ payload: { action: 'CLEAN_STAGING', archiveImportId: 'expired-import' } })
+    )
+    expect(reconcile.archiveImport.updateMany).not.toHaveBeenCalled()
+  })
+
+  it.each([50, 51])('bounds maintenance claims to the original artwork parents for %i revisions', async (count) => {
+    for (const action of ['TRASH_ARCHIVE', 'RESTORE_ARCHIVE', 'PURGE_ARCHIVE'] as const) {
+      const root = await temporaryRoot()
+      const revisions = Array.from({ length: count }, (_, index) => ({
+        id: `r${index}`,
+        archivePath: `sources/test/bucket/original/revisions/r${index}`,
+        trashPath: `.trash/archive/7/r${index}`,
+        purgeAfter: new Date('2026-08-18')
+      }))
+      const original = {
+        id: 7,
+        createdVia: 'URL_ARCHIVE',
+        deletedAt: new Date('2026-08-18'),
+        archiveLifecycleState:
+          action === 'TRASH_ARCHIVE' ? 'TRASHING' : action === 'RESTORE_ARCHIVE' ? 'RESTORING' : 'TRASHED',
+        archiveRevisions: revisions
+      }
+      const transaction = action === 'PURGE_ARCHIVE' ? purgeTransaction() : artworkTransaction('TRASHING')
+      transaction.artwork.findUnique.mockResolvedValue(original as never)
+      for (const revision of revisions) {
+        await writeFixture(
+          root,
+          `${action === 'TRASH_ARCHIVE' ? revision.archivePath : revision.trashPath}/media/file.jpg`
+        )
+      }
+      await writeFixture(root, 'sources/test/bucket/another/revisions/keep/media/file.jpg')
+      await writeFixture(root, '.trash/archive/8/keep/media/file.jpg')
+      const context = executionContext({ action, artworkId: 7 }, transaction)
+      await executeArchiveMaintenance(context, {
+        database: {} as never,
+        config: { scanRoot: root },
+        now: () => new Date('2026-08-19')
+      })
+      expect(contentGuards.begin).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          directories: [
+            expect.objectContaining({ relativeDirectory: '.trash/archive/7' }),
+            expect.objectContaining({ relativeDirectory: 'sources/test/bucket/original/revisions' })
+          ]
+        })
+      )
+      for (const revision of revisions) {
+        if (action === 'PURGE_ARCHIVE') {
+          await expect(readFile(path.join(root, revision.trashPath, 'media/file.jpg'))).rejects.toMatchObject({
+            code: 'ENOENT'
+          })
+        } else {
+          expect(
+            await readFile(
+              path.join(root, action === 'TRASH_ARCHIVE' ? revision.trashPath : revision.archivePath, 'media/file.jpg'),
+              'utf8'
+            )
+          ).toBe('fixture')
+        }
+      }
+      expect(await readFile(path.join(root, 'sources/test/bucket/another/revisions/keep/media/file.jpg'), 'utf8')).toBe(
+        'fixture'
+      )
+      expect(await readFile(path.join(root, '.trash/archive/8/keep/media/file.jpg'), 'utf8')).toBe('fixture')
+    }
+  })
+
   it('registers one strict v1 writer-lane maintenance job', () => {
     const registration = createArchiveMaintenanceExecutorRegistrations({
       database: {} as never,
@@ -36,20 +205,21 @@ describe('archive maintenance executor', () => {
 
   it('removes staging and prepared revision paths before atomically clearing cleanup checkpoints', async () => {
     const root = await temporaryRoot()
-    await writeFixture(root, '.archive-staging/import-1/file.txt')
+    await writeFixture(root, '.archive-staging/import-1--generation-1/file.txt')
     await writeFixture(root, 'sources/test/bucket/42/revisions/import-1/file.txt')
+    const manifest = JSON.stringify({ revisionId: 'import-1', provider: { key: 'test', externalId: '42' }, media: [] })
     await writeFile(
       path.join(root, 'sources/test/bucket/42/revisions/import-1/manifest.json'),
-      JSON.stringify({ revisionId: 'import-1', provider: { key: 'test', externalId: '42' }, media: [] })
+      manifest
     )
-    const transaction = cleanTransaction()
+    const transaction = cleanTransaction({ manifestSha256: createHash('sha256').update(manifest).digest('hex') })
     const context = executionContext({ action: 'CLEAN_STAGING', archiveImportId: 'import-1' }, transaction)
 
     await expect(
       executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
     ).resolves.toEqual(TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME)
 
-    await expect(readFile(path.join(root, '.archive-staging/import-1/file.txt'))).rejects.toMatchObject({
+    await expect(readFile(path.join(root, '.archive-staging/import-1--generation-1/file.txt'))).rejects.toMatchObject({
       code: 'ENOENT'
     })
     await expect(readFile(path.join(root, 'sources/test/bucket/42/revisions/import-1/file.txt'))).rejects.toMatchObject(
@@ -62,6 +232,7 @@ describe('archive maintenance executor', () => {
       expect.objectContaining({ data: expect.objectContaining({ cleanupRequestedAt: null }) })
     )
     expect(context.__scope.complete).toHaveBeenCalledOnce()
+    expect(transaction.systemJobEvent.create).toHaveBeenCalledOnce()
   })
 
   it.each([
@@ -148,8 +319,9 @@ describe('archive maintenance executor', () => {
 
     await expect(
       executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
-    ).rejects.toMatchObject({ code: 'MEDIA_INVALID' })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     await expect(readFile(outside, 'utf8')).resolves.toBe('keep')
+    expect(contentGuards.begin).not.toHaveBeenCalled()
   })
 
   it('never treats the configured storage root as a cleanup target', async () => {
@@ -160,8 +332,9 @@ describe('archive maintenance executor', () => {
 
     await expect(
       executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
-    ).rejects.toMatchObject({ code: 'MEDIA_INVALID' })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     await expect(readFile(path.join(root, 'keep.txt'), 'utf8')).resolves.toBe('fixture')
+    expect(contentGuards.begin).not.toHaveBeenCalled()
   })
 
   it('permanently purges due archive trash and its database media rows outside the file transaction', async () => {
@@ -303,36 +476,62 @@ async function writeFixture(root: string, relativePath: string) {
   await writeFile(target, 'fixture')
 }
 
-function cleanTransaction(overrides: { stagingPath?: string } = {}) {
+function cleanTransaction(overrides: { stagingPath?: string; manifestSha256?: string } = {}) {
+  const guard = dedupGuardFixture('test', '42')
+  const generation = {
+    token: 'generation-1',
+    jobId: 'import-job',
+    archiveImportId: 'import-1',
+    path: overrides.stagingPath ?? '.archive-staging/import-1--generation-1',
+    drainedAt: new Date('2026-08-18T00:00:00.000Z'),
+    cleanedAt: null,
+    manifestSha256: overrides.manifestSha256 ?? null
+  }
+  const events: { attempt: number; data: unknown }[] = []
   const archiveImport = {
     id: 'import-1',
-    stagingPath: overrides.stagingPath ?? '.archive-staging/import-1',
+    stagingPath: generation.path,
     providerKey: 'test',
     creatorBucket: 'bucket',
     externalId: '42',
     cleanupRequestedAt: new Date('2026-08-18T00:00:00.000Z'),
     status: 'FAILED',
-    phase: 'LEGACY',
-    generationToken: null,
-    generations: [],
+    phase: 'DOWNLOAD',
+    generationToken: generation.token,
+    sealedManifestSha256: generation.manifestSha256,
+    dedupSourceSnapshot: guard.snapshot,
+    generations: [generation],
     items: [],
     publishedRevision: null,
     systemJobId: 'import-job',
     systemJob: { id: 'import-job', status: 'FAILED' }
   }
   return {
+    $queryRaw: guard.queryRaw,
+    artworkDedupSourceIdentity: guard.sourceIdentity,
+    systemJob: { findMany: vi.fn(async () => []) },
+    systemJobEvent: {
+      findMany: vi.fn(async () => events),
+      create: vi.fn(async ({ data }: { data: { attempt: number; data: unknown } }) => { events.push(data); return data })
+    },
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+    mediaContentPathWrite: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      count: vi.fn(async () => 0),
+      findMany: vi.fn(async () => [{ id: 'fixture-write', writeToken: 'fixture-token', directoryId: 'fixture-directory' }])
+    },
     archiveImport: {
       findUnique: vi.fn().mockResolvedValue(archiveImport),
       findUniqueOrThrow: vi.fn().mockResolvedValue(archiveImport),
       updateMany: vi.fn().mockResolvedValue({ count: 1 })
     },
-    archiveStagingGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    archiveImportItem: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) }
+    archiveStagingGeneration: { findMany: vi.fn(async () => [generation]), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    archiveImportItem: { findMany: vi.fn(async () => []), updateMany: vi.fn().mockResolvedValue({ count: 1 }) }
   }
 }
 
 function artworkTransaction(state: 'ACTIVE' | 'TRASHING' | 'RESTORING') {
+  const guard = dedupGuardFixture('test', '42')
   const artwork = {
     id: 7,
     createdVia: 'URL_ARCHIVE',
@@ -341,6 +540,8 @@ function artworkTransaction(state: 'ACTIVE' | 'TRASHING' | 'RESTORING') {
     archiveRevisions: [{ id: 'rev-1', archivePath: 'sources/test/rev-1', trashPath: '.trash/archive/7/rev-1' }]
   }
   return {
+    $queryRaw: guard.queryRaw,
+    artworkDedupClaim: guard.claim,
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     artwork: {
       findUnique: vi.fn().mockResolvedValue(artwork),
@@ -351,6 +552,7 @@ function artworkTransaction(state: 'ACTIVE' | 'TRASHING' | 'RESTORING') {
 }
 
 function purgeTransaction(overrides: { trashPath?: string } = {}) {
+  const guard = dedupGuardFixture('test', '42')
   const artwork = {
     id: 7,
     createdVia: 'URL_ARCHIVE',
@@ -366,7 +568,8 @@ function purgeTransaction(overrides: { trashPath?: string } = {}) {
     ]
   }
   return {
-    $queryRaw: vi.fn().mockResolvedValue([{ id: artwork.id, mediaRevision: 1 }]),
+    $queryRaw: guard.queryRaw,
+    artworkDedupClaim: guard.claim,
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     artwork: {
       findUnique: vi.fn().mockResolvedValue(artwork),
@@ -377,6 +580,7 @@ function purgeTransaction(overrides: { trashPath?: string } = {}) {
 }
 
 function reconcileTransaction() {
+  const guard = dedupGuardFixture('test', '42')
   const expired = {
     id: 'expired-import',
     status: 'FAILED',
@@ -410,7 +614,11 @@ function reconcileTransaction() {
     ]
   }
   return {
+    $queryRaw: guard.queryRaw,
+    artworkDedupSourceIdentity: guard.sourceIdentity,
+    artworkDedupClaim: guard.claim,
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
+    mediaContentPathWrite: { findFirst: vi.fn().mockResolvedValue(null) },
     archiveImport: {
       findMany: vi.fn().mockResolvedValue([{ id: expired.id }]),
       findUnique: vi.fn().mockResolvedValue(expired),
@@ -429,6 +637,7 @@ function reconcileTransaction() {
       updateMany: vi.fn().mockResolvedValue({ count: 1 })
     },
     systemJob: {
+      findMany: vi.fn(async () => []),
       findFirst: vi
         .fn()
         .mockImplementation(({ where }: { where: { payload: { equals: { action: string } } } }) =>
@@ -445,6 +654,7 @@ function executionContext<TPayload extends ArchiveMaintenancePayload>(
   signal = new AbortController().signal
 ) {
   const scope = {
+    executionStatus: 'RUNNING',
     transaction,
     complete: vi.fn().mockResolvedValue(undefined),
     fail: vi.fn(),

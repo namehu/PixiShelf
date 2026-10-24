@@ -1,0 +1,1617 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <title>检查重复 · PixiShelf 交互原型</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --background: #fff;
+        --foreground: #333;
+        --primary: #006fbe;
+        --primary-foreground: #fff;
+        --muted: #f4f7f9;
+        --muted-foreground: #66727d;
+        --accent: #edf8ff;
+        --border: #e4e9ed;
+        --input: #d4dce2;
+        --ring: #0096fa;
+        --destructive: #c8323c;
+        --destructive-foreground: #fff;
+        --success: #167a55;
+        --warning: #956100;
+        --surface-muted: #f7fbfe;
+        --font:
+          ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei',
+          sans-serif;
+        --safe: env(safe-area-inset-bottom, 0px);
+      }
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --background: #252525;
+        --foreground: #fafafa;
+        --primary: #4eb6ee;
+        --primary-foreground: #102e3e;
+        --muted: #263b48;
+        --muted-foreground: #b3b3b5;
+        --accent: #294d65;
+        --border: #354b5b;
+        --input: #4d677b;
+        --ring: #4eb6ee;
+        --destructive: #ff7680;
+        --destructive-foreground: #202020;
+        --success: #59bd92;
+        --warning: #eeb95a;
+        --surface-muted: #243848;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        margin: 0;
+        background: var(--background);
+        color: var(--foreground);
+        font: 14px/1.55 var(--font);
+        -webkit-font-smoothing: antialiased;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button,
+      select,
+      summary,
+      label {
+        touch-action: manipulation;
+      }
+      button {
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.52;
+      }
+      button {
+        border: 0;
+      }
+      a {
+        color: var(--primary);
+        text-underline-offset: 3px;
+      }
+      ::selection {
+        background: var(--accent);
+        color: var(--foreground);
+      }
+      :focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: 3px;
+      }
+      input {
+        accent-color: var(--primary);
+        caret-color: var(--primary);
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 24px;
+        line-height: 32px;
+        font-weight: 650;
+        letter-spacing: -0.02em;
+      }
+      h2 {
+        font-size: 16px;
+        line-height: 24px;
+        font-weight: 620;
+      }
+      h3 {
+        font-size: 15px;
+        line-height: 22px;
+        font-weight: 620;
+      }
+      svg.icon {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex-shrink: 0;
+      }
+      .btn {
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 15px;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--foreground);
+        font-weight: 550;
+        white-space: nowrap;
+        text-decoration: none;
+      }
+      .btn:hover:not(:disabled) {
+        background: var(--muted);
+      }
+      .btn.primary {
+        color: var(--primary-foreground);
+        background: var(--primary);
+      }
+      .btn.primary:hover:not(:disabled) {
+        filter: brightness(0.96);
+        background: var(--primary);
+      }
+      .btn.outline {
+        border: 1px solid var(--input);
+      }
+      .btn.link {
+        color: var(--primary);
+      }
+      .btn.danger {
+        color: var(--destructive);
+      }
+      .btn.destructive {
+        background: var(--destructive);
+        color: var(--destructive-foreground);
+      }
+      .btn.icon-only {
+        width: 44px;
+        padding: 10px;
+      }
+      .muted {
+        color: var(--muted-foreground);
+      }
+      .success {
+        color: var(--success);
+      }
+      .warning {
+        color: var(--warning);
+      }
+      .danger-text {
+        color: var(--destructive);
+      }
+      .small {
+        font-size: 12px;
+      }
+      .num {
+        font-variant-numeric: tabular-nums;
+      }
+      .nowrap {
+        white-space: nowrap;
+      }
+      .prototype-toolbar {
+        background: var(--muted);
+        border-bottom: 1px solid var(--border);
+        padding: 8px 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        font-size: 12px;
+        color: var(--muted-foreground);
+      }
+      .prototype-toolbar strong {
+        font-weight: 600;
+        color: var(--foreground);
+      }
+      .prototype-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .prototype-controls select {
+        min-height: 44px;
+        border: 1px solid var(--input);
+        border-radius: 10px;
+        background: var(--background);
+        color: var(--foreground);
+        padding: 8px 30px 8px 10px;
+        min-width: 112px;
+      }
+      .app-nav {
+        padding: 0 32px;
+        height: 64px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--border);
+      }
+      .brand {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .brand svg {
+        color: var(--primary);
+      }
+      .nav-items {
+        display: flex;
+        gap: 24px;
+        color: var(--muted-foreground);
+        font-size: 14px;
+      }
+      .nav-items .active {
+        color: var(--foreground);
+        font-weight: 600;
+      }
+      main {
+        max-width: 1104px;
+        margin: 0 auto;
+        padding: 24px 32px 140px;
+      }
+      .back-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 44px;
+        margin-left: -8px;
+        padding: 8px;
+        background: transparent;
+        color: var(--muted-foreground);
+      }
+      .page-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 16px;
+        padding: 8px 0 24px;
+      }
+      .page-actions {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .head-copy {
+        margin-top: 5px;
+        color: var(--muted-foreground);
+      }
+      .menu-wrap {
+        position: relative;
+      }
+      .menu-wrap summary {
+        list-style: none;
+      }
+      .menu-wrap summary::-webkit-details-marker {
+        display: none;
+      }
+      .menu {
+        position: absolute;
+        right: 0;
+        z-index: 12;
+        top: 48px;
+        width: 218px;
+        padding: 6px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--background);
+      }
+      .menu button {
+        width: 100%;
+        justify-content: start;
+      }
+      .menu small {
+        display: block;
+        padding: 0 10px 10px;
+        color: var(--muted-foreground);
+      }
+      .tabs {
+        display: flex;
+        gap: 28px;
+        border-bottom: 1px solid var(--border);
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted-foreground);
+        background: transparent;
+        min-height: 48px;
+        padding: 8px 0 13px;
+        border-bottom: 2px solid transparent;
+        font-weight: 550;
+      }
+      .tab[aria-selected='true'] {
+        color: var(--primary);
+        border-color: var(--primary);
+      }
+      .tab-count {
+        font-size: 12px;
+        color: var(--muted-foreground);
+        font-variant-numeric: tabular-nums;
+      }
+      .results-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin: 22px 0 10px;
+      }
+      .results-toolbar p {
+        font-size: 13px;
+        color: var(--muted-foreground);
+      }
+      .group {
+        border-bottom: 1px solid var(--border);
+        padding: 14px 0 20px;
+      }
+      .group.selected {
+        background: var(--surface-muted);
+        border-radius: 12px;
+        padding-left: 14px;
+        padding-right: 14px;
+        margin-left: -14px;
+        margin-right: -14px;
+      }
+      .group-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 48px;
+      }
+      .group-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .group-title h2 {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .group-head-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+      }
+      .select-label,
+      .keep-label {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 44px;
+        min-height: 44px;
+        cursor: pointer;
+      }
+      .select-label input,
+      .keep-label input {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        cursor: inherit;
+      }
+      .select-label:has(input:disabled) {
+        cursor: not-allowed;
+      }
+      .select-label:has(input:disabled) input {
+        opacity: 0.5;
+      }
+      .group-note {
+        margin: 0 0 8px 52px;
+        font-size: 12px;
+        color: var(--warning);
+      }
+      .members {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+      .member {
+        display: grid;
+        grid-template-columns: 44px 44px minmax(0, 1fr) 150px;
+        gap: 12px;
+        align-items: center;
+        padding: 10px 0;
+        min-height: 76px;
+      }
+      .cover {
+        width: 44px;
+        height: 56px;
+        border-radius: 5px;
+        overflow: hidden;
+        flex-shrink: 0;
+        display: grid;
+        place-items: center;
+        background: #dae6ee;
+        color: #406884;
+        position: relative;
+      }
+      .cover::before {
+        content: '';
+        width: 20px;
+        height: 32px;
+        border: 1px solid currentColor;
+        opacity: 0.5;
+        transform: rotate(-10deg);
+        position: absolute;
+      }
+      .cover span {
+        position: relative;
+        font-size: 11px;
+        font-weight: 700;
+        background: inherit;
+        padding: 2px;
+      }
+      .cover.summer {
+        background: #e9e5d4;
+        color: #706b39;
+      }
+      .cover.train {
+        background: #dce4de;
+        color: #4d6855;
+      }
+      .member-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-weight: 550;
+      }
+      .member-meta {
+        color: var(--muted-foreground);
+        font-size: 12px;
+        margin-top: 4px;
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 5px 12px;
+      }
+      .member-status {
+        justify-self: end;
+        color: var(--muted-foreground);
+        font-size: 12px;
+      }
+      .keep-status {
+        color: var(--primary);
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .keep-status svg {
+        width: 16px;
+        height: 16px;
+      }
+      .member-more {
+        display: flex;
+        justify-content: end;
+      }
+      .pagination {
+        display: flex;
+        align-items: center;
+        justify-content: end;
+        gap: 8px;
+        margin-top: 24px;
+      }
+      .pagination span {
+        padding: 0 10px;
+        color: var(--muted-foreground);
+        font-size: 12px;
+      }
+      .selection-bar {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        width: min(calc(100% - 48px), 760px);
+        padding: 12px 16px;
+        border-radius: 16px;
+        background: var(--background);
+        box-shadow:
+          0 12px 32px rgb(31 41 55/0.16),
+          0 2px 8px rgb(31 41 55/0.08);
+        display: flex;
+        gap: 16px;
+        justify-content: space-between;
+        align-items: center;
+        z-index: 20;
+      }
+      .selection-bar-actions {
+        display: flex;
+        gap: 6px;
+      }
+      .selection-bar p {
+        font-weight: 550;
+      }
+      .selection-bar .small {
+        margin-top: 2px;
+        font-weight: 400;
+      }
+      .notice {
+        display: flex;
+        align-items: start;
+        gap: 12px;
+        padding: 18px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .notice-body {
+        flex: 1;
+        min-width: 0;
+      }
+      .notice-body p {
+        margin-top: 3px;
+        color: var(--muted-foreground);
+        font-size: 13px;
+      }
+      .notice .icon {
+        margin-top: 2px;
+      }
+      .notice-actions {
+        display: flex;
+        gap: 4px;
+      }
+      .notice details {
+        margin-top: 8px;
+      }
+      .notice summary {
+        cursor: pointer;
+        color: var(--primary);
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+      }
+      .notice pre {
+        font:
+          12px/1.7 ui-monospace,
+          monospace;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: var(--muted);
+        padding: 12px;
+        border-radius: 8px;
+      }
+      .progress-track {
+        height: 3px;
+        background: var(--border);
+        margin-top: 16px;
+        overflow: hidden;
+        border-radius: 2px;
+      }
+      .progress-track span {
+        display: block;
+        width: 32%;
+        height: 100%;
+        background: var(--primary);
+      }
+      .empty-state {
+        min-height: 310px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 48px 24px;
+        gap: 8px;
+      }
+      .empty-state .empty-icon {
+        color: var(--muted-foreground);
+        margin-bottom: 10px;
+      }
+      .empty-state .empty-icon svg {
+        width: 36px;
+        height: 36px;
+        stroke-width: 1.3;
+      }
+      .empty-state p {
+        color: var(--muted-foreground);
+      }
+      .empty-state .btn {
+        margin-top: 12px;
+      }
+      .skeleton-group {
+        padding: 24px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .skeleton {
+        height: 16px;
+        width: 42%;
+        background: var(--muted);
+        border-radius: 5px;
+      }
+      .skeleton-line {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        padding: 16px 0 0 52px;
+      }
+      .skeleton-cover {
+        height: 56px;
+        width: 44px;
+        background: var(--muted);
+        border-radius: 5px;
+      }
+      .skeleton-line .skeleton {
+        width: 56%;
+      }
+      .delete-record-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 20px;
+        padding: 24px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .batch-title {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .batch-title .icon {
+        color: var(--muted-foreground);
+      }
+      .batch-meta {
+        padding-left: 30px;
+        color: var(--muted-foreground);
+        margin-top: 6px;
+        font-size: 12px;
+      }
+      .batch-actions {
+        display: flex;
+        gap: 4px;
+      }
+      .batch-status {
+        color: var(--success);
+        font-size: 12px;
+        margin-left: 6px;
+      }
+      .mobile-nav {
+        display: none;
+      }
+      dialog {
+        inset: 0 0 0 auto;
+        margin: 0;
+        border: 0;
+        padding: 0;
+        height: 100dvh;
+        max-height: 100dvh;
+        width: 500px;
+        max-width: 100%;
+        background: var(--background);
+        color: var(--foreground);
+        overflow: hidden;
+        box-shadow: -8px 0 40px rgb(0 0 0/0.12);
+      }
+      dialog::backdrop {
+        background: rgb(0 0 0/0.25);
+      }
+      .sheet {
+        display: flex;
+        height: 100%;
+        flex-direction: column;
+      }
+      .sheet-header {
+        padding: 24px 24px 16px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: start;
+        flex-shrink: 0;
+      }
+      .sheet-header h2 {
+        font-size: 20px;
+        line-height: 28px;
+        padding-top: 7px;
+      }
+      .sheet-header p {
+        color: var(--muted-foreground);
+        font-size: 13px;
+        margin-top: 6px;
+      }
+      .sheet-content {
+        overflow-y: auto;
+        padding: 24px;
+        flex: 1;
+        scrollbar-width: thin;
+        scrollbar-color: var(--input) var(--background);
+      }
+      .sheet-footer {
+        border-top: 1px solid var(--border);
+        padding: 16px 24px calc(16px + var(--safe));
+        display: flex;
+        justify-content: end;
+        gap: 8px;
+        flex-shrink: 0;
+      }
+      .sheet-section + .sheet-section {
+        margin-top: 28px;
+      }
+      .sheet-section h3 {
+        margin-bottom: 12px;
+      }
+      .sheet .member {
+        grid-template-columns: 44px 44px minmax(0, 1fr);
+        gap: 10px;
+      }
+      .sheet .member-status {
+        grid-column: 3;
+        justify-self: start;
+        margin-top: -8px;
+      }
+      .sheet .pagination {
+        justify-content: center;
+      }
+      .sheet-copy {
+        color: var(--muted-foreground);
+        font-size: 13px;
+      }
+      .definition {
+        display: grid;
+        grid-template-columns: 100px 1fr;
+        row-gap: 12px;
+        margin: 0;
+        font-size: 13px;
+      }
+      .definition dt {
+        color: var(--muted-foreground);
+      }
+      .definition dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .separator {
+        height: 1px;
+        background: var(--border);
+        margin: 24px 0;
+      }
+      .preview-group {
+        padding: 16px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .preview-group:first-child {
+        padding-top: 0;
+      }
+      .preview-group p {
+        margin-top: 6px;
+        font-size: 13px;
+        color: var(--muted-foreground);
+      }
+      .preview-group .keep-line {
+        color: var(--primary);
+      }
+      .confirm-label {
+        display: flex;
+        gap: 12px;
+        align-items: start;
+        padding: 12px 0;
+        min-height: 44px;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      .confirm-label input {
+        height: 18px;
+        width: 18px;
+        margin: 2px 0 0;
+        flex-shrink: 0;
+      }
+      .text-input {
+        min-height: 44px;
+        width: 100%;
+        border: 1px solid var(--input);
+        border-radius: 10px;
+        padding: 10px 12px;
+        color: var(--foreground);
+        background: var(--background);
+        margin-top: 8px;
+      }
+      .file-path {
+        font:
+          12px/1.65 ui-monospace,
+          monospace;
+        overflow-wrap: anywhere;
+        padding: 12px;
+        background: var(--muted);
+        border-radius: 8px;
+        margin-top: 12px;
+      }
+      .toast {
+        position: fixed;
+        z-index: 80;
+        left: 50%;
+        top: 24px;
+        transform: translateX(-50%);
+        max-width: calc(100vw - 32px);
+        border-radius: 12px;
+        padding: 14px 18px;
+        background: var(--foreground);
+        color: var(--background);
+        box-shadow: 0 8px 30px rgb(0 0 0/0.16);
+        font-size: 13px;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      @media (max-width: 700px) {
+        .prototype-toolbar {
+          padding: 8px 16px;
+          align-items: start;
+          gap: 8px;
+        }
+        .prototype-toolbar .prototype-note {
+          max-width: 160px;
+          padding-top: 5px;
+          line-height: 1.6;
+        }
+        .prototype-controls {
+          gap: 2px;
+        }
+        .prototype-controls label {
+          display: none;
+        }
+        .prototype-controls select {
+          min-width: 100px;
+          max-width: 116px;
+          font-size: 12px;
+        }
+        .app-nav {
+          height: 56px;
+          padding: 0 16px;
+        }
+        .nav-items {
+          display: none;
+        }
+        .brand {
+          font-size: 17px;
+        }
+        main {
+          padding: 14px 16px calc(188px + var(--safe));
+        }
+        .page-heading {
+          align-items: center;
+          padding: 4px 0 20px;
+          gap: 6px;
+        }
+        h1 {
+          font-size: 22px;
+          line-height: 30px;
+        }
+        .head-copy {
+          font-size: 12px;
+        }
+        .page-actions .primary {
+          padding: 10px 12px;
+        }
+        .page-actions .primary .icon {
+          display: none;
+        }
+        .tabs {
+          gap: 24px;
+        }
+        .results-toolbar {
+          margin-top: 16px;
+          align-items: center;
+          gap: 4px;
+        }
+        .results-toolbar p {
+          font-size: 12px;
+        }
+        .results-toolbar .btn {
+          padding: 10px 6px;
+          font-size: 12px;
+        }
+        .group {
+          padding: 10px 0 14px;
+        }
+        .group.selected {
+          margin: 0 -8px;
+          padding-left: 8px;
+          padding-right: 8px;
+        }
+        .group-head {
+          flex-wrap: wrap;
+          gap: 0;
+        }
+        .group-title {
+          width: 100%;
+          gap: 4px;
+        }
+        .group-title h2 {
+          font-size: 15px;
+        }
+        .group-head-right {
+          width: 100%;
+          padding-left: 48px;
+          justify-content: space-between;
+          gap: 4px;
+        }
+        .group-head-right .btn {
+          padding: 6px 8px;
+        }
+        .group-note {
+          margin-left: 48px;
+        }
+        .member {
+          grid-template-columns: 36px 40px minmax(0, 1fr);
+          gap: 8px;
+          padding: 8px 0;
+          min-height: 72px;
+        }
+        .keep-label {
+          min-width: 36px;
+          width: 36px;
+          min-height: 48px;
+        }
+        .keep-label::before {
+          content: '';
+          width: 44px;
+          height: 48px;
+          position: absolute;
+        }
+        .keep-label {
+          position: relative;
+        }
+        .keep-label input {
+          position: relative;
+        }
+        .cover {
+          width: 40px;
+          height: 52px;
+        }
+        .member-title {
+          font-size: 13px;
+        }
+        .member-meta {
+          margin-top: 3px;
+          gap: 3px 8px;
+        }
+        .member-status {
+          grid-column: 3;
+          justify-self: start;
+          margin-top: -7px;
+        }
+        .member-more .btn {
+          font-size: 12px;
+        }
+        .selection-bar {
+          left: 12px;
+          right: 12px;
+          width: auto;
+          bottom: calc(76px + var(--safe));
+          transform: none;
+          padding: 12px;
+          gap: 8px;
+        }
+        .selection-bar p {
+          font-size: 13px;
+        }
+        .selection-bar .small {
+          font-size: 12px;
+        }
+        .selection-bar-actions {
+          gap: 0;
+        }
+        .selection-bar-actions .btn {
+          padding: 10px;
+          font-size: 13px;
+        }
+        .selection-bar .clear-label {
+          display: none;
+        }
+        .mobile-nav {
+          display: flex;
+          position: fixed;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          height: calc(64px + var(--safe));
+          padding: 6px 20px calc(6px + var(--safe));
+          background: var(--background);
+          border-top: 1px solid var(--border);
+          justify-content: space-around;
+          z-index: 25;
+        }
+        .mobile-nav span {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 44px;
+          font-size: 11px;
+          color: var(--muted-foreground);
+        }
+        .mobile-nav .active {
+          color: var(--primary);
+        }
+        .notice {
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .notice .notice-actions {
+          margin-left: 28px;
+        }
+        .delete-record-row {
+          display: block;
+          padding: 22px 0;
+        }
+        .batch-actions {
+          justify-content: end;
+          margin-top: 12px;
+        }
+        .batch-title {
+          flex-wrap: wrap;
+        }
+        .batch-status {
+          margin-left: 30px;
+        }
+        dialog {
+          width: 100%;
+        }
+        .sheet-header {
+          padding: 16px;
+          padding-top: max(16px, env(safe-area-inset-top));
+        }
+        .sheet-content {
+          padding: 20px 16px;
+        }
+        .sheet-footer {
+          padding: 12px 16px calc(12px + var(--safe));
+        }
+        .sheet-footer .primary,
+        .sheet-footer .destructive {
+          flex: 1;
+        }
+        .sheet .member {
+          grid-template-columns: 36px 40px minmax(0, 1fr);
+        }
+        .sheet-header h2 {
+          font-size: 18px;
+        }
+        .pagination {
+          justify-content: center;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="prototype-toolbar">
+      <div class="prototype-note"><strong>交互原型</strong><br />示例数据，不修改图库</div>
+      <div class="prototype-controls">
+        <label for="scenario">查看状态</label>
+        <select id="scenario" aria-label="原型场景">
+          <option value="results">检查结果</option>
+          <option value="initial">还未检查</option>
+          <option value="empty">没有重复</option>
+          <option value="running">检查中</option>
+          <option value="paused">已暂停</option>
+          <option value="failed">检查失败</option>
+          <option value="preparing">删除清单准备中</option>
+          <option value="stale">预览过期</option>
+          <option value="blocked">附件或历史原件阻断</option>
+          <option value="verifying">等待退出与内容复核</option>
+          <option value="deleting">删除中</option>
+          <option value="partial">删除部分失败</option>
+          <option value="keeper-changed">重试时保留者变化</option>
+          <option value="completed">删除完成</option>
+        </select>
+        <button id="theme" class="btn" aria-label="切换深色外观">深色外观</button>
+      </div>
+    </div>
+    <header class="app-nav">
+      <div class="brand">PixiShelf</div>
+      <nav class="nav-items" aria-label="应用位置示意">
+        <span>作品</span><span>艺术家</span><span class="active">管理中心</span>
+      </nav>
+      <span class="muted small">本地图库</span>
+    </header>
+    <main>
+      <button class="back-link" data-action="back">返回青山</button>
+      <header class="page-heading">
+        <div>
+          <h1>检查重复</h1>
+          <p class="head-copy">青山的作品</p>
+        </div>
+        <div class="page-actions">
+          <button class="btn primary" data-action="start">重新检查</button
+          ><button class="btn" data-action="full-scan">完整检查</button>
+        </div>
+      </header>
+      <div class="tabs" role="tablist" aria-label="去重页面">
+        <button
+          class="tab"
+          role="tab"
+          id="results-tab"
+          aria-controls="panel"
+          aria-selected="true"
+          data-action="tab-results"
+        >
+          检查结果 <span class="tab-count">3</span>
+        </button>
+        <button
+          class="tab"
+          role="tab"
+          id="records-tab"
+          aria-controls="panel"
+          aria-selected="false"
+          tabindex="-1"
+          data-action="tab-records"
+        >
+          删除记录 <span class="tab-count" id="record-count">0</span>
+        </button>
+      </div>
+      <div id="panel" role="tabpanel" aria-labelledby="results-tab"></div>
+    </main>
+    <div class="selection-bar" id="selection-bar" hidden>
+      <div>
+        <p id="selection-title"></p>
+        <p class="small muted">保留作品不会删除</p>
+      </div>
+      <div class="selection-bar-actions">
+        <button class="btn" data-action="clear">清除选择</button
+        ><button class="btn primary" data-action="preview">预览删除</button>
+      </div>
+    </div>
+    <nav class="mobile-nav" aria-label="手机导航示意">
+      <span>作品</span><span>艺术家</span><span class="active">更多</span>
+    </nav>
+    <dialog id="detail-dialog" aria-labelledby="sheet-title"></dialog>
+    <div class="toast" role="status" aria-live="polite" id="toast" hidden></div>
+    <span class="sr-only" role="status" aria-live="polite" id="live-region"></span>
+    <script>
+      const groups = [
+        {
+          id: 'rain',
+          title: '雨后的沿街散步',
+          count: 500,
+          members: [
+            { id: 'r1', title: '雨后的沿街散步', source: 'Pixiv 导入', mark: '最近读过' },
+            { id: 'r2', title: '雨后的沿街散步 副本', source: '本地导入', mark: '' },
+            { id: 'r3', title: '雨后的沿街散步 手工收录', source: '本地创建', mark: '' }
+          ]
+        },
+        {
+          id: 'summer',
+          title: '夏日写生',
+          count: 128,
+          members: [
+            { id: 's1', title: '夏日写生', source: 'URL 归档', mark: '我的喜欢 3 张' },
+            { id: 's2', title: '夏日写生 备份', source: '本地导入', mark: '有其他账户整理记录' },
+            { id: 's3', title: '夏日写生 副本', source: 'Pixiv 导入', mark: '' }
+          ]
+        },
+        {
+          id: 'train',
+          title: '夜行列车',
+          count: 240,
+          members: [
+            { id: 't1', title: '夜行列车', source: '本地创建', mark: '我的书签 1 张' },
+            { id: 't2', title: '夜行列车 副本', source: 'URL 归档', mark: '' }
+          ]
+        }
+      ]
+      const state = {
+        tab: 'results',
+        scenario: 'results',
+        page: 1,
+        keepers: { rain: 'r1', summer: null, train: 't1' },
+        selected: new Set(),
+        plan: null,
+        operation: null,
+        timers: [],
+        focus: null
+      }
+      const $ = (id) => document.getElementById(id)
+      const escape = (value) =>
+        String(value).replace(
+          /[&<>"']/g,
+          (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
+        )
+      const getGroup = (id) => groups.find((group) => group.id === id)
+      const copies = (scope) =>
+        scope.flatMap((group) =>
+          group.members.filter((item) => item.id !== group.keeper).map((item) => ({ ...item, count: group.count }))
+        )
+      function notify(message) {
+        $('live-region').textContent = message
+        $('toast').textContent = message
+        $('toast').hidden = false
+        setTimeout(() => ($('toast').hidden = true), 3000)
+      }
+      function empty(title, text) {
+        return `<div class="empty-state"><h2>${title}</h2><p>${text}</p></div>`
+      }
+      function members(group) {
+        return `<ul class="members" role="radiogroup" aria-label="${escape(group.title)}保留作品">${group.members.map((item) => `<li class="member"><label class="keep-label"><input type="radio" name="keeper-${group.id}" data-kind="keeper" data-group="${group.id}" value="${item.id}" ${state.keepers[group.id] === item.id ? 'checked' : ''} aria-label="保留${escape(item.title)}" /></label><div class="cover" aria-hidden="true"></div><div><div class="member-title">${escape(item.title)}</div><div class="member-meta">${item.source}${item.mark ? ' · ' + item.mark : ''}</div></div><span class="member-status">${state.keepers[group.id] === item.id ? '保留这部' : ''}</span></li>`).join('')}</ul>`
+      }
+      function resultRows() {
+        if (state.scenario === 'initial')
+          return empty('还未检查重复', '开始检查后，将对这个艺术家的登记原媒体进行比较。')
+        if (state.scenario === 'empty') return empty('没有发现完整重复作品', '本次已完成检查，没有可供选择的重复组。')
+        let notice = ''
+        if (['running', 'paused'].includes(state.scenario))
+          notice = `<section class="notice"><div class="notice-body"><strong>${state.scenario === 'running' ? '正在检查' : '检查已暂停'} · 320 / 1,000 部</strong><p>关闭页面后仍可继续查看进度。</p></div><button class="btn" data-action="${state.scenario === 'running' ? 'pause' : 'resume'}">${state.scenario === 'running' ? '暂停' : '继续'}</button><button class="btn" data-action="cancel-scan">取消检查</button></section>`
+        if (state.scenario === 'failed')
+          notice =
+            '<section class="notice"><div class="notice-body"><strong>检查中断</strong><p>媒体目录暂时无法读取，连接恢复后可重试；已有结果仍保留。</p></div><button class="btn" data-action="start">重试</button></section>'
+        const visible = state.page === 1 ? groups.slice(0, 2) : groups.slice(2)
+        return (
+          notice +
+          `<div class="results-toolbar"><p>3 组完整重复 · 原媒体内容一致</p><button class="btn link" data-action="select-all">选择全部无歧义建议</button></div>` +
+          visible
+            .map(
+              (group) =>
+                `<section class="group ${state.selected.has(group.id) ? 'selected' : ''}"><header class="group-head"><div class="group-title"><label class="select-label"><input type="checkbox" data-kind="select" data-group="${group.id}" ${state.selected.has(group.id) ? 'checked' : ''} ${!state.keepers[group.id] ? 'disabled' : ''} aria-label="选择${escape(group.title)}的副本" /></label><h2>${escape(group.title)}</h2></div><div class="group-head-right"><span class="muted small">${group.members.length} 部 · 每部 ${group.count} 个原件</span><button class="btn link" data-action="details" data-group="${group.id}">查看差异</button></div></header>${!state.keepers[group.id] ? '<p class="group-note">多份作品有整理记录，请明确选择保留者</p>' : ''}${members(group)}</section>`
+            )
+            .join('') +
+          `<nav class="pagination" aria-label="组分页"><button class="btn outline" data-action="prev" ${state.page === 1 ? 'disabled' : ''}>上一页</button><span>${state.page} / 2</span><button class="btn outline" data-action="next" ${state.page === 2 ? 'disabled' : ''}>下一页</button></nav>`
+        )
+      }
+      function operationTitle() {
+        const o = state.operation
+        return o.status === 'COMPLETED'
+          ? '已永久删除'
+          : o.status === 'CANCELLED'
+            ? '已取消，未删除'
+            : o.status === 'STOPPED'
+              ? '已在安全边界停止'
+              : o.status === 'FAILED'
+                ? '删除部分失败'
+                : o.phase === 'DELETE'
+                  ? '正在永久删除'
+                  : '正在等待退出与内容复核'
+      }
+      function records() {
+        const o = state.operation
+        if (!o) return empty('暂无删除记录', '完成删除预览并确认后，可在这里查看持久操作进度。')
+        return `<div class="results-toolbar"><p>本次示例操作 · 原范围保持不变</p></div><article class="delete-record-row"><div><div class="batch-title"><h2>青山 · ${copies(o.scope).length} 部副本</h2><span class="batch-status">${operationTitle()}</span></div><p class="batch-meta">${o.phase === 'VERIFY' ? '尚未开始删除，所选全部组校验成功后才首删' : `已删 ${o.done} / ${o.total} 个文件${o.status === 'COMPLETED' ? ' · 来源保持抑制' : ' · 已删文件无法撤销'}`}</p></div><div class="batch-actions"><button class="btn outline" data-action="record-details">详情</button>${o.status === 'RUNNING' ? `<button class="btn" data-action="stop">${o.phase === 'VERIFY' ? '取消删除' : '请求停止'}</button>` : ['FAILED', 'STOPPED'].includes(o.status) ? '<button class="btn outline" data-action="retry">复核并继续原删除</button>' : ''}</div></article>`
+      }
+      function render() {
+        for (const tab of ['results', 'records']) {
+          const selected = state.tab === tab
+          $(tab + '-tab').setAttribute('aria-selected', String(selected))
+          $(tab + '-tab').tabIndex = selected ? 0 : -1
+        }
+        $('panel').setAttribute('aria-labelledby', state.tab + '-tab')
+        $('panel').innerHTML = state.tab === 'results' ? resultRows() : records()
+        $('record-count').textContent = state.operation ? '1' : '0'
+        $('selection-bar').hidden = state.tab !== 'results' || state.selected.size === 0
+        const count = [...state.selected].reduce((n, id) => n + getGroup(id).members.length - 1, 0)
+        $('selection-title').textContent = `已选 ${state.selected.size} 组 · ${count} 部副本`
+      }
+      function sheet(title, text, body, footer = '') {
+        const dialog = $('detail-dialog')
+        if (!dialog.open) state.focus = document.activeElement
+        dialog.innerHTML = `<div class="sheet"><header class="sheet-header"><div><h2 id="sheet-title" tabindex="-1">${title}</h2><p>${text}</p></div><button class="btn" data-action="close" aria-label="关闭面板">关闭</button></header><div class="sheet-content">${body}</div><footer class="sheet-footer">${footer || '<button class="btn outline" data-action="close">完成</button>'}</footer></div>`
+        if (!dialog.open) dialog.showModal()
+        $('sheet-title').focus()
+      }
+      function close() {
+        const focus = state.focus
+        $('detail-dialog').close()
+        if (focus?.isConnected) focus.focus()
+        else $(state.tab + '-tab').focus()
+      }
+      function scopeMarkup(scope) {
+        return scope
+          .map(
+            (group) =>
+              `<section class="preview-group"><h3>${escape(group.title)}</h3><p class="keep-line">保留：${escape(group.members.find((item) => item.id === group.keeper).title)}</p><p>永久删除：${group.members
+                .filter((item) => item.id !== group.keeper)
+                .map((item) => escape(item.title) + '（' + item.source + '）')
+                .join(
+                  '、'
+                )}</p><p class="small muted">每部 ${group.count} 个登记原件，已核对章节与来源文件范围</p></section>`
+          )
+          .join('')
+      }
+      function freezePlan() {
+        if (!state.selected.size) {
+          state.selected = new Set(['rain'])
+        }
+        state.plan = {
+          status: 'BUILDING',
+          version: 1,
+          scope: [...state.selected].map((id) => ({ ...structuredClone(getGroup(id)), keeper: state.keepers[id] }))
+        }
+        showPreview()
+        if (state.scenario !== 'preparing')
+          state.timers.push(
+            setTimeout(() => {
+              if (state.plan?.status === 'BUILDING') {
+                state.plan.status =
+                  state.scenario === 'stale' ? 'STALE' : state.scenario === 'blocked' ? 'BLOCKED' : 'READY'
+                if ($('detail-dialog').open) showPreview()
+              }
+            }, 500)
+          )
+      }
+      function showPreview() {
+        const p = state.plan
+        if (!p) return freezePlan()
+        if (p.status === 'BUILDING')
+          return sheet(
+            '正在准备删除清单',
+            '可以关闭面板，稍后继续查看。',
+            '<p class="sheet-copy">服务端冻结选择并检查精确文件、来源和整理影响。此时没有删除授权。</p>',
+            '<button class="btn outline" data-action="close">关闭</button><button class="btn" disabled>准备中</button>'
+          )
+        if (p.status !== 'READY')
+          return sheet(
+            p.status === 'STALE' ? '删除预览已过期' : '有作品暂时不能删除',
+            '尚未删除任何文件。',
+            `<p class="sheet-copy">${p.status === 'STALE' ? '成员、来源或审核选择已变化，请重新准备并核对实际范围。' : '发现未知附件或未参与一致性验证的归档历史原件，该作品被阻断；不会静默略过后删除其余文件。'}</p>`,
+            '<button class="btn outline" data-action="close">返回</button><button class="btn primary" data-action="reprepare">重新准备</button>'
+          )
+        const count = copies(p.scope).length
+        sheet(
+          `永久删除 ${count} 部副本`,
+          '文件和这些副本的整理记录将永久删除，无法恢复。',
+          scopeMarkup(p.scope) +
+            '<section class="sheet-section"><h3>删除影响</h3><p class="sheet-copy">删除对应副本的原件、已知章节与来源文件，以及评分、书签、喜欢和阅读记录；标题、标签、系列关系随副本删除。整理记录不会合并到保留作品。其他账户仅显示是否有受保护整理记录。</p></section><section class="sheet-section"><label class="confirm-label"><input type="checkbox" id="permanent-confirm" />我理解永久删除无法撤销，整理记录不合并</label><label class="confirm-label"><input type="checkbox" id="external-confirm" />已暂停这些目录的外部同步和编辑，并会保持停写至本次操作终结</label><p class="sheet-copy small">提交后后台仍将认领双方、确认相关执行退出，并完整重读全部所选组；全部通过后才开始删除。</p></section>',
+          `<button class="btn outline" data-action="close">返回</button><button class="btn destructive" id="confirm-delete" data-action="confirm-delete" disabled>永久删除 ${count} 部副本</button>`
+        )
+      }
+      function clearTimers() {
+        state.timers.forEach(clearTimeout)
+        state.timers = []
+      }
+      function runDeletion() {
+        clearTimers()
+        const o = state.operation
+        o.status = 'RUNNING'
+        o.phase = 'VERIFY'
+        render()
+        state.timers.push(
+          setTimeout(() => {
+            if (o.status !== 'RUNNING') return
+            o.phase = 'DELETE'
+            render()
+            state.timers.push(
+              setTimeout(() => {
+                if (o.status !== 'RUNNING') return
+                o.done = o.total
+                o.status = 'COMPLETED'
+                render()
+                notify('原型：原范围删除完成，来源保持抑制')
+              }, 1300)
+            )
+          }, 900)
+        )
+      }
+      function recordDetails() {
+        const o = state.operation
+        if (!o) return
+        sheet(
+          operationTitle(),
+          '仅处理原冻结文件范围，已经删除的文件无法恢复。',
+          scopeMarkup(o.scope) +
+            `<section class="sheet-section"><h3>处理进度</h3><p>${o.phase === 'VERIFY' ? '尚未开始删除' : `已删 ${o.done} / ${o.total} 个文件`}</p><p class="sheet-copy">${['FAILED', 'STOPPED'].includes(o.status) ? '副本保持不可见，原范围、日志和必要声明继续保留。继续时先确认旧执行退出，再完整复核保留者；只续原未完成文件。' : o.status === 'COMPLETED' ? '所有文件回执及业务删除已完成，整理没有合并，来源墓碑独立保留。' : '全范围校验通过后才允许首个删除意图；开始后仅可在安全文件边界停止。'}</p></section>`,
+          o.status === 'COMPLETED'
+            ? '<button class="btn outline" data-action="close">关闭</button><button class="btn" data-action="reimport">允许重新导入</button>'
+            : ['FAILED', 'STOPPED'].includes(o.status)
+              ? '<button class="btn outline" data-action="close">关闭</button><button class="btn primary" data-action="retry">复核并继续原删除</button>'
+              : '<button class="btn outline" data-action="close">关闭</button>'
+        )
+      }
+      function setScenario(scenario) {
+        clearTimers()
+        close()
+        state.scenario = scenario
+        state.plan = null
+        if (['verifying', 'deleting', 'partial', 'keeper-changed', 'completed'].includes(scenario)) {
+          const scope = [{ ...structuredClone(groups[0]), keeper: 'r1' }]
+          state.operation = {
+            scope,
+            status:
+              scenario === 'completed'
+                ? 'COMPLETED'
+                : ['partial', 'keeper-changed'].includes(scenario)
+                  ? 'FAILED'
+                  : 'RUNNING',
+            phase: scenario === 'verifying' ? 'VERIFY' : 'DELETE',
+            done: scenario === 'completed' ? 1000 : scenario === 'verifying' ? 0 : 340,
+            total: 1000
+          }
+          state.tab = 'records'
+        } else {
+          state.tab = 'results'
+          if (['preparing', 'stale', 'blocked'].includes(scenario)) {
+            state.selected = new Set(['rain'])
+            freezePlan()
+          }
+        }
+        render()
+      }
+      document.addEventListener('click', (event) => {
+        const node = event.target.closest('[data-action]')
+        if (!node) return
+        const action = node.dataset.action
+        if (action === 'close') return close()
+        if (action.startsWith('tab-')) {
+          state.tab = action.slice(4)
+          return render()
+        }
+        if (['start', 'full-scan'].includes(action)) {
+          state.scenario = 'running'
+          render()
+          return notify(action === 'full-scan' ? '原型：完整检查将重新读取原文件' : '原型：检查已开始')
+        }
+        if (['pause', 'resume', 'cancel-scan'].includes(action)) {
+          state.scenario = action === 'pause' ? 'paused' : action === 'resume' ? 'running' : 'results'
+          return render()
+        }
+        if (action === 'clear') {
+          state.selected.clear()
+          state.plan = null
+          return render()
+        }
+        if (action === 'select-all') {
+          state.selected = new Set(groups.filter((group) => state.keepers[group.id]).map((group) => group.id))
+          state.plan = null
+          return render()
+        }
+        if (['prev', 'next'].includes(action)) {
+          state.page = action === 'prev' ? 1 : 2
+          return render()
+        }
+        if (action === 'details') {
+          const group = getGroup(node.dataset.group)
+          return sheet(
+            group.title,
+            '全部登记原媒体内容一致，整理数据不自动合并。',
+            members(group) +
+              '<section class="sheet-section"><h3>来源与影响</h3><p class="sheet-copy">本组可跨本地创建、Pixiv、本地导入和 URL 归档。当前账户显示自己的整理摘要；其他账户只显示保护资格。历史归档原件和未知附件若未经验证，预览将阻断该作品。</p></section>'
+          )
+        }
+        if (action === 'preview') return state.plan ? showPreview() : freezePlan()
+        if (action === 'reprepare') {
+          state.scenario = 'results'
+          return freezePlan()
+        }
+        if (action === 'confirm-delete') {
+          if (state.plan?.status !== 'READY' || !$('permanent-confirm')?.checked || !$('external-confirm')?.checked)
+            return
+          const scope = structuredClone(state.plan.scope)
+          state.operation = {
+            scope,
+            status: 'RUNNING',
+            phase: 'VERIFY',
+            done: 0,
+            total: copies(scope).reduce((n, item) => n + item.count, 0)
+          }
+          state.plan = null
+          state.selected.clear()
+          close()
+          state.tab = 'records'
+          return runDeletion()
+        }
+        if (action === 'record-details') return recordDetails()
+        if (action === 'stop') {
+          clearTimers()
+          const o = state.operation
+          o.status = o.phase === 'VERIFY' ? 'CANCELLED' : 'STOPPED'
+          render()
+          return notify(
+            o.status === 'CANCELLED'
+              ? '原型：已在首个删除意图前取消，未删文件'
+              : '原型：已在安全文件边界停止，已删文件不能撤销'
+          )
+        }
+        if (action === 'retry') {
+          if (state.scenario === 'keeper-changed')
+            return sheet(
+              '暂时不能继续原删除',
+              '保留者内容已变化，未继续删除。',
+              '<p class="sheet-copy">已删文件无法恢复；副本保持不可见，日志和声明仍保留。不能换保留者或扩围绕过原授权。</p>'
+            )
+          close()
+          return runDeletion()
+        }
+        if (action === 'reimport') {
+          const sources = copies(state.operation.scope).filter((item) => item.source !== '本地创建')
+          return sheet(
+            '允许以后重新导入',
+            '只解除所选来源的抑制，不恢复文件，旧任务仍不能发布。',
+            sources
+              .map(
+                (item) =>
+                  `<label class="confirm-label"><input type="checkbox" data-kind="source" value="${item.id}" />${escape(item.title)} · ${item.source}</label>`
+              )
+              .join('') + '<p class="sheet-copy small">本地创建作品没有伪造的外部来源；新导入需要重新提供内容。</p>',
+            '<button class="btn outline" data-action="close">返回</button><button class="btn primary" id="confirm-reimport" data-action="confirm-reimport" disabled>允许所选来源</button>'
+          )
+        }
+        if (action === 'confirm-reimport') {
+          if (!document.querySelector('[data-kind="source"]:checked')) return
+          close()
+          return notify('原型：已允许所选来源的新导入，文件没有恢复')
+        }
+        if (action === 'back') notify('原型：返回艺术家页')
+      })
+      document.addEventListener('change', (event) => {
+        const node = event.target
+        if (node.dataset.kind === 'keeper') {
+          state.keepers[node.dataset.group] = node.value
+          state.plan = null
+          render()
+          if ($('detail-dialog').open) {
+            const group = getGroup(node.dataset.group)
+            sheet(group.title, '保留选择已更新，删除范围需要重新准备。', members(group))
+          }
+          return
+        }
+        if (node.dataset.kind === 'select') {
+          node.checked ? state.selected.add(node.dataset.group) : state.selected.delete(node.dataset.group)
+          state.plan = null
+          return render()
+        }
+        if (['permanent-confirm', 'external-confirm'].includes(node.id))
+          $('confirm-delete').disabled = !$('permanent-confirm').checked || !$('external-confirm').checked
+        if (node.dataset.kind === 'source')
+          $('confirm-reimport').disabled = !document.querySelector('[data-kind="source"]:checked')
+      })
+      $('detail-dialog').addEventListener('cancel', (event) => {
+        event.preventDefault()
+        close()
+      })
+      $('detail-dialog').addEventListener('keydown', (event) => {
+        if (event.key !== 'Tab') return
+        const focusable = [
+          ...$('detail-dialog').querySelectorAll('button:not(:disabled),input:not(:disabled),[tabindex="0"]')
+        ]
+        const first = focusable[0],
+          last = focusable.at(-1)
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      })
+      document.querySelector('[role="tablist"]').addEventListener('keydown', (event) => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+        event.preventDefault()
+        state.tab =
+          event.key === 'Home'
+            ? 'results'
+            : event.key === 'End'
+              ? 'records'
+              : state.tab === 'results'
+                ? 'records'
+                : 'results'
+        render()
+        $(state.tab + '-tab').focus()
+      })
+      $('scenario').addEventListener('change', (event) => setScenario(event.target.value))
+      $('theme').addEventListener('click', () => {
+        const dark = document.documentElement.dataset.theme !== 'dark'
+        document.documentElement.dataset.theme = dark ? 'dark' : 'light'
+        $('theme').textContent = dark ? '浅色外观' : '深色外观'
+      })
+      render()
+    </script>
+  </body>
+</html>

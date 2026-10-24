@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ArtworkDedupOperationError } from '@pixishelf/db'
+import { NextRequest } from 'next/server'
+import { z } from 'zod'
+import { apiHandler } from '@/lib/api-handler'
+import { runBackgroundTaskApi } from '@/services/background-task/api-error-mapping'
+import { classifyBackgroundTaskTransportError } from '@/services/background-task/transport-error'
 
 const mocks = vi.hoisted(() => ({
+  captureSources: vi.fn(),
+  assertSources: vi.fn(),
   enqueue: vi.fn(),
   systemEnqueue: vi.fn(),
   getScanPath: vi.fn(),
@@ -16,6 +24,17 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('server-only', () => ({}))
+vi.mock('@/lib/logger', () => ({ default: { error: vi.fn() } }))
+vi.mock('@pixishelf/db', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@pixishelf/db')>()),
+  captureArtworkDedupSourceGroups: mocks.captureSources,
+  assertArtworkDedupSourceGroups: mocks.assertSources
+}))
+vi.mock('@pixishelf/job-executors/media-content', () => ({
+  resolveMediaContentRoots: vi
+    .fn()
+    .mockResolvedValue({ source: { logicalRoot: 'source-media:v1', rootIdentity: 'fixture-root' } })
+}))
 vi.mock('@/services/background-task/manual-job-singleton', () => ({
   enqueueSingletonManualJobWithResult: mocks.enqueue,
   enqueueSingletonSystemJobWithResult: mocks.systemEnqueue
@@ -54,10 +73,17 @@ import { localWorkInputDigest } from '@pixishelf/job-executors'
 describe('central media root enqueue semantics', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.captureSources.mockImplementation(async (_tx, { groups }) =>
+      groups.map((group: unknown[], groupIndex: number) =>
+        group.map((identity, index) => ({ identity, sourceId: `source-${groupIndex}-${index}`, generation: 7n }))
+      )
+    )
+    mocks.assertSources.mockResolvedValue(undefined)
     mocks.getScanPath.mockResolvedValue('D:/scan')
     mocks.artworkFindUnique.mockResolvedValue({
       id: 7,
       source: 'LOCAL_IMPORT',
+      createdVia: 'LOCAL_DIRECTORY',
       storagePath: 'local-imports/artist/work',
       metaSource: null,
       externalRefs: []
@@ -131,6 +157,7 @@ describe('central media root enqueue semantics', () => {
     const scanRunCreate = vi.fn().mockResolvedValue({ id: 'run-list' })
     const metadataCreateMany = vi.fn().mockResolvedValue({ count: 1 })
     const transaction = {
+      pixivMetadataInventoryState: { findUnique: vi.fn().mockResolvedValue(null) },
       scanRun: { findUnique: vi.fn().mockResolvedValue(null), create: scanRunCreate },
       scanRunMetadataInput: { createMany: metadataCreateMany }
     }
@@ -173,6 +200,19 @@ describe('central media root enqueue semantics', () => {
         })
       ]
     })
+    expect(mocks.captureSources).toHaveBeenCalledWith(transaction, {
+      groups: [
+        [
+          { kind: 'PROVIDER', providerKey: 'pixiv', externalId: '100' },
+          {
+            kind: 'PATH',
+            logicalRoot: 'source-media:v1',
+            rootIdentity: 'fixture-root',
+            canonicalPath: 'artist/100-meta.json'
+          }
+        ]
+      ]
+    })
     expect(mocks.enqueue).not.toHaveBeenCalled()
   })
 
@@ -187,6 +227,7 @@ describe('central media root enqueue semantics', () => {
     const scanRunCreate = vi.fn().mockResolvedValue({ id: 'run-pixiv' })
     const metadataCreateMany = vi.fn().mockResolvedValue({ count: 1 })
     const transaction = {
+      pixivMetadataInventoryState: { findUnique: vi.fn().mockResolvedValue(null) },
       scanRun: { findUnique: vi.fn().mockResolvedValue(null), create: scanRunCreate },
       artwork: {
         findUnique: vi.fn().mockResolvedValue({
@@ -234,6 +275,7 @@ describe('central media root enqueue semantics', () => {
 
   it('rejects a reused job whose ScanRun header differs from the request', async () => {
     const transaction = {
+      pixivMetadataInventoryState: { findUnique: vi.fn().mockResolvedValue(null) },
       scanRun: {
         findUnique: vi.fn().mockResolvedValue({
           id: 'run-corrupt',
@@ -250,9 +292,9 @@ describe('central media root enqueue semantics', () => {
       return { job: { id: 'active-job' }, reused: true }
     })
 
-    await expect(enqueueCentralScan({ type: 'all', requestedByUserId: 'admin-1' })).rejects.toMatchObject(
-      { code: 'ACTIVE_JOB_CONFLICT' }
-    )
+    await expect(enqueueCentralScan({ type: 'all', requestedByUserId: 'admin-1' })).rejects.toMatchObject({
+      code: 'ACTIVE_JOB_CONFLICT'
+    })
   })
 
   it('rejects a reused job whose frozen input rows differ without writing', async () => {
@@ -266,6 +308,7 @@ describe('central media root enqueue semantics', () => {
     ]
     const createRun = vi.fn()
     const transaction = {
+      pixivMetadataInventoryState: { findUnique: vi.fn().mockResolvedValue(null) },
       scanRun: {
         findUnique: vi.fn().mockResolvedValue({
           id: 'run-corrupt-row',
@@ -301,6 +344,7 @@ describe('central media root enqueue semantics', () => {
     const localWorkCreateMany = vi.fn().mockResolvedValue({ count: 1 })
     const mappingCreateMany = vi.fn().mockResolvedValue({ count: 1 })
     const transaction = {
+      pixivMetadataInventoryState: { findUnique: vi.fn().mockResolvedValue(null) },
       scanRun: { findUnique: vi.fn().mockResolvedValue(null), create: scanRunCreate },
       scanRunLocalWorkInput: { createMany: localWorkCreateMany },
       scanRunLocalArtistMappingInput: { createMany: mappingCreateMany }
@@ -340,10 +384,205 @@ describe('central media root enqueue semantics', () => {
           ordinal: 0,
           kind: 'MEDIA_DIRECTORY',
           relativePath: 'local-imports/artist/work',
-          fingerprint: null
+          fingerprint: null,
+          dedupSourceSnapshot: {
+            version: 1,
+            sources: [
+              {
+                identity: {
+                  kind: 'DIRECTORY',
+                  logicalRoot: 'source-media:v1',
+                  rootIdentity: 'fixture-root',
+                  canonicalPath: 'local-imports/artist/work'
+                },
+                sourceId: 'source-0-0',
+                generation: '7'
+              }
+            ]
+          }
         }
       ]
     })
     expect(mocks.fingerprint).not.toHaveBeenCalled()
   })
+
+  it('rejects legacy local source labels without confirmed directory identity', async () => {
+    mocks.artworkFindUnique.mockResolvedValue({
+      id: 7,
+      source: 'LOCAL_IMPORT',
+      createdVia: 'UNKNOWN',
+      storagePath: 'local-imports/artist/work',
+      metaSource: null,
+      externalRefs: []
+    })
+    await expect(enqueueCentralArtworkRescan({ artworkId: 7, requestedByUserId: 'admin-1' })).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED'
+    })
+    expect(mocks.captureSources).not.toHaveBeenCalled()
+    expect(mocks.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('rejects an otherwise matching historical frozen input without recapturing', async () => {
+    const rows = [
+      { ordinal: 0, kind: 'MEDIA_DIRECTORY', relativePath: 'local-imports/artist/work', fingerprint: 'a'.repeat(64) }
+    ]
+    const create = vi.fn()
+    const transaction = {
+      scanRun: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'old-run',
+          type: 'LOCAL_IMPORT',
+          mode: 'LOCAL_RESCAN',
+          inputCount: 1,
+          inputDigest: localWorkInputDigest(rows),
+          inputFrozenAt: new Date()
+        }),
+        create
+      },
+      scanRunMetadataInput: { findMany: vi.fn().mockResolvedValue([]) },
+      scanRunLocalWorkInput: { findMany: vi.fn().mockResolvedValue([{ ...rows[0], dedupSourceSnapshot: null }]) },
+      scanRunLocalArtistMappingInput: { findMany: vi.fn().mockResolvedValue([]) }
+    }
+    mocks.enqueue.mockImplementationOnce(async (_request, options) => {
+      await options.afterEnqueue({ transaction, job: { id: 'old-job' }, reused: true })
+      return { job: { id: 'old-job' }, reused: true }
+    })
+    await expect(enqueueCentralArtworkRescan({ artworkId: 7, requestedByUserId: 'admin-1' })).rejects.toMatchObject({
+      code: 'INPUT_SNAPSHOT_INVALID'
+    })
+    expect(mocks.captureSources).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it.each(['metadata', 'local'] as const)('maps %s capture HOLD to HTTP 409 and tRPC CONFLICT', async (kind) => {
+    mocks.captureSources.mockRejectedValueOnce(new ArtworkDedupOperationError('SOURCE_HELD'))
+    mocks.mappingFindMany.mockResolvedValue([{ artistDirectory: 'artist', artistId: 9 }])
+    const createInput = vi.fn()
+    const transaction = {
+      pixivMetadataInventoryState: { findUnique: vi.fn().mockResolvedValue(null) },
+      scanRun: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ id: 'held-run' }) },
+      scanRunMetadataInput: { createMany: createInput },
+      scanRunLocalWorkInput: { createMany: createInput }
+    }
+    mocks.enqueue.mockImplementationOnce(async (_request, options) => {
+      await options.afterEnqueue({ transaction, job: { id: 'held-job' }, reused: false })
+      return { job: { id: 'held-job' }, reused: false }
+    })
+    const operation =
+      kind === 'metadata'
+        ? () =>
+            enqueueCentralScan({ type: 'list', metadataList: ['artist/100-meta.json'], requestedByUserId: 'admin-1' })
+        : () =>
+            enqueueCentralLocalDirectoryImport({
+              storagePaths: ['local-imports/artist/work'],
+              requestedByUserId: 'admin-1'
+            })
+    const response = await responseForService(operation)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({ code: 409, message: '来源正在维护，请保留当前输入并稍后重试。' })
+    expect(createInput).not.toHaveBeenCalled()
+  })
+
+  it.each(['SOURCE_HELD', 'SOURCE_GENERATION_CHANGED', 'SOURCE_IDENTITY_CHANGED'] as const)(
+    'maps reused input %s to an actionable conflict without recapturing',
+    async (code) => {
+      const rows = [
+        { ordinal: 0, kind: 'MEDIA_DIRECTORY', relativePath: 'local-imports/artist/work', fingerprint: 'a'.repeat(64) }
+      ]
+      const transaction = {
+        scanRun: {
+          findUnique: vi
+            .fn()
+            .mockResolvedValue({
+              id: 'old-run',
+              type: 'LOCAL_IMPORT',
+              mode: 'LOCAL_RESCAN',
+              inputCount: 1,
+              inputDigest: localWorkInputDigest(rows),
+              inputFrozenAt: new Date()
+            })
+        },
+        scanRunMetadataInput: { findMany: vi.fn().mockResolvedValue([]) },
+        scanRunLocalWorkInput: {
+          findMany: vi
+            .fn()
+            .mockResolvedValue([
+              {
+                ...rows[0],
+                dedupSourceSnapshot: {
+                  version: 1,
+                  sources: [
+                    {
+                      identity: {
+                        kind: 'DIRECTORY',
+                        logicalRoot: 'source-media:v1',
+                        rootIdentity: 'fixture-root',
+                        canonicalPath: rows[0]!.relativePath
+                      },
+                      sourceId: 'old-source',
+                      generation: '0'
+                    }
+                  ]
+                }
+              }
+            ])
+        },
+        scanRunLocalArtistMappingInput: { findMany: vi.fn().mockResolvedValue([]) }
+      }
+      mocks.assertSources.mockRejectedValueOnce(new ArtworkDedupOperationError(code))
+      mocks.enqueue.mockImplementationOnce(async (_request, options) => {
+        await options.afterEnqueue({ transaction, job: { id: 'old-job' }, reused: true })
+        return { job: { id: 'old-job' }, reused: true }
+      })
+      const response = await responseForService(() =>
+        enqueueCentralArtworkRescan({ artworkId: 7, requestedByUserId: 'admin-1' })
+      )
+      expect(response.status).toBe(409)
+      expect((await response.json()).message).toMatch(/维护|复核来源后重新提交/)
+      expect(mocks.captureSources).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([new Error('database unavailable'), new ArtworkDedupOperationError('STALE')])(
+    'keeps unknown source-helper errors as HTTP 500: %s',
+    async (error) => {
+      mocks.captureSources.mockRejectedValueOnce(error)
+      const transaction = {
+        pixivMetadataInventoryState: { findUnique: vi.fn().mockResolvedValue(null) },
+        scanRun: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({ id: 'unknown-run' })
+        },
+        scanRunMetadataInput: { createMany: vi.fn() }
+      }
+      mocks.enqueue.mockImplementationOnce(async (_request, options) => {
+        await options.afterEnqueue({ transaction, job: { id: 'unknown-job' }, reused: false })
+        return { job: { id: 'unknown-job' }, reused: false }
+      })
+      const operation = () =>
+        enqueueCentralScan({ type: 'list', metadataList: ['artist/100-meta.json'], requestedByUserId: 'admin-1' })
+      const response = await responseForService(operation, error)
+      expect(response.status).toBe(500)
+      expect(await response.json()).toMatchObject({ code: 500, message: 'Internal Server Error' })
+    }
+  )
 })
+
+async function responseForService(operation: () => Promise<unknown>, unclassified?: Error) {
+  const handler = apiHandler(z.object({}), () =>
+    runBackgroundTaskApi(async () => {
+      try {
+        return await operation()
+      } catch (error) {
+        if (unclassified) {
+          expect(error).toBe(unclassified)
+          expect(classifyBackgroundTaskTransportError(error)).toBeNull()
+        } else {
+          expect(classifyBackgroundTaskTransportError(error)).toMatchObject({ status: 409, trpcCode: 'CONFLICT' })
+        }
+        throw error
+      }
+    })
+  )
+  return handler(new NextRequest('http://localhost/scan', { method: 'POST' }), { params: Promise.resolve({}) })
+}

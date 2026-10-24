@@ -26,7 +26,7 @@ import { MigrationActionRequiredError } from '../types.js'
 import { MemoryMigrationFileSystem } from './memory-file-system.js'
 
 describe('migration executor', () => {
-  it('records the actual failing file and its original errno while retaining retry semantics', async () => {
+  it('records the actual failing file and its original errno while preserving the recoverable write checkpoint', async () => {
     const fixture = executorFixture({
       selection: { mode: 'ARTWORK_IDS', artworkIds: [1] },
       pages: [[{ id: 1, deletedAt: null }]],
@@ -36,7 +36,7 @@ describe('migration executor', () => {
     vi.spyOn(fixture.fileSystem, 'copyFileExclusive').mockRejectedValue(failure)
     fixture.context.recordDiagnostic = vi.fn(async () => undefined)
     await executeMigration(fixture.context, fixture.dependencies)
-    expect(fixture.scope.retry).toHaveBeenCalledOnce()
+    expect(fixture.scope.pause).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ACTION_REQUIRED' }))
     expect(fixture.context.recordDiagnostic).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ targetType: 'MIGRATION_FILE', targetLabel: 'source/123_p0.jpg', error: failure })
@@ -283,7 +283,13 @@ describe('migration executor', () => {
     const hash = createHash('sha256').update('source-content').digest('hex')
     const plan = fixture.seedPlan({ phase: 'CLEANING_SOURCE', status: 'RUNNING', sourceHash: hash })
     fixture.fileSystem.addDirectory(path.resolve('/scan/.pixishelf-migration-staging'))
-    fixture.fileSystem.addDirectory(path.dirname(path.resolve('/scan', plan.files[0]!.stagedRelativePath)))
+    for (const directory of [
+      '.pixishelf-migration-staging',
+      '.pixishelf-migration-staging/seed',
+      '.pixishelf-migration-staging/seed/attempt-1',
+      '.pixishelf-migration-staging/seed/attempt-1/artwork-1'
+    ])
+      fixture.fileSystem.addDirectory(path.resolve('/scan', directory))
     fixture.fileSystem.addFile(path.resolve('/scan', plan.files[0]!.stagedRelativePath), 'source-content', 7)
     fixture.fileSystem.addDirectory(path.resolve('/scan/artist'))
     fixture.fileSystem.addDirectory(path.resolve('/scan/artist/123'))
@@ -343,6 +349,7 @@ describe('migration executor', () => {
     await executeMigration(fixture.context, fixture.dependencies)
 
     if (executionStatus === 'CANCELLING') {
+      expect(fixture.database.finishCancelledContentWrite).toHaveBeenCalledBefore(fixture.scope.cancel)
       expect(fixture.database.closeItemAndFiles).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({ status: itemStatus, phase: 'STAGING_FILES' })
@@ -356,6 +363,81 @@ describe('migration executor', () => {
     expect(fixture.scope[intent]).toHaveBeenCalledOnce()
     expect(fixture.fileSystem.copyCount).toBe(0)
   })
+
+  it.each(['STAGING_FILES', 'CLEANING_SOURCE'] as const)(
+    'closes a verified %s cancellation in the terminal transaction',
+    async (phase) => {
+      const fixture = executorFixture({
+        selection: { mode: 'ARTWORK_IDS', artworkIds: [1] },
+        pages: [[{ id: 1, deletedAt: null }]],
+        artwork: sourceArtwork(1),
+        executionStatus: 'CANCELLING'
+      })
+      const plan = fixture.seedPlan({
+        phase,
+        status: 'RUNNING',
+        sourceHash: createHash('sha256').update('source-content').digest('hex')
+      })
+      for (const directory of [
+        '.pixishelf-migration-staging',
+        '.pixishelf-migration-staging/seed',
+        '.pixishelf-migration-staging/seed/attempt-1',
+        '.pixishelf-migration-staging/seed/attempt-1/artwork-1'
+      ])
+        fixture.fileSystem.addDirectory(path.resolve('/scan', directory))
+      fixture.fileSystem.addFile(path.resolve('/scan', plan.files[0]!.stagedRelativePath), 'source-content')
+      if (phase === 'CLEANING_SOURCE') {
+        fixture.fileSystem.addDirectory(path.resolve('/scan/artist'))
+        fixture.fileSystem.addDirectory(path.resolve('/scan/artist/123'))
+        fixture.fileSystem.addFile(path.resolve('/scan/artist/123/123_p0.jpg'), 'source-content')
+      }
+      vi.mocked(fixture.database.checkpointItem).mockImplementation(async () => {
+        fixture.controller.abort(new Error('cancel'))
+      })
+      await executeMigration(fixture.context, fixture.dependencies)
+      expect(fixture.database.finishCancelledContentWrite).toHaveBeenCalledBefore(fixture.scope.cancel)
+      await expect(
+        fixture.fileSystem.lstat(path.resolve('/scan', plan.files[0]!.stagedRelativePath))
+      ).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(fixture.scope.cancel).toHaveBeenCalledOnce()
+    }
+  )
+
+  it.each(['unregistered-target', 'partial-staging', 'missing-source'] as const)(
+    'preserves the gate when cancellation encounters %s',
+    async (conflict) => {
+      const fixture = executorFixture({
+        selection: { mode: 'ARTWORK_IDS', artworkIds: [1] },
+        pages: [[{ id: 1, deletedAt: null }]],
+        artwork: sourceArtwork(1),
+        executionStatus: 'CANCELLING'
+      })
+      const plan = fixture.seedPlan({ phase: 'STAGING_FILES', status: 'RUNNING' })
+      if (conflict === 'unregistered-target') {
+        fixture.fileSystem.addDirectory(path.resolve('/scan/artist'))
+        fixture.fileSystem.addDirectory(path.resolve('/scan/artist/123'))
+        fixture.fileSystem.addFile(path.resolve('/scan/artist/123/123_p0.jpg'), 'source-content')
+      } else if (conflict === 'partial-staging') {
+        for (const directory of [
+          '.pixishelf-migration-staging',
+          '.pixishelf-migration-staging/seed',
+          '.pixishelf-migration-staging/seed/attempt-1',
+          '.pixishelf-migration-staging/seed/attempt-1/artwork-1'
+        ])
+          fixture.fileSystem.addDirectory(path.resolve('/scan', directory))
+        fixture.fileSystem.addFile(path.resolve('/scan', plan.files[0]!.stagedRelativePath), 'partial')
+      } else await fixture.fileSystem.unlink(path.resolve('/scan/source/123_p0.jpg'))
+      vi.mocked(fixture.database.checkpointItem).mockImplementation(async () => {
+        fixture.controller.abort(new Error('cancel'))
+      })
+      await expect(executeMigration(fixture.context, fixture.dependencies)).rejects.toBeInstanceOf(
+        MigrationActionRequiredError
+      )
+      expect(fixture.database.finishCancelledContentWrite).not.toHaveBeenCalled()
+      expect(fixture.scope.cancel).not.toHaveBeenCalled()
+      expect(fixture.context.finalizeInTransaction).toHaveBeenCalledOnce()
+    }
+  )
 
   it('atomically records ACTION_REQUIRED when canonical target content conflicts', async () => {
     const fixture = executorFixture({
@@ -469,7 +551,7 @@ describe('migration executor', () => {
     )
   })
 
-  it('atomically closes non-completed file checkpoints on permanent failure', async () => {
+  it('preserves non-completed file checkpoints when permanent failure leaves a write claim', async () => {
     const fixture = executorFixture({
       selection: { mode: 'ARTWORK_IDS', artworkIds: [1] },
       pages: [[{ id: 1, deletedAt: null }], []],
@@ -479,12 +561,12 @@ describe('migration executor', () => {
 
     await executeMigration(fixture.context, fixture.dependencies)
 
-    expect(fixture.database.closeItemAndFiles).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ status: 'FAILED', errorCode: 'PATH_OUTSIDE_ALLOWED_ROOT' })
-    )
-    const plan = vi.mocked(fixture.database.createOrLoadPlan).mock.results[0]?.value
-    await expect(plan).resolves.toEqual(expect.objectContaining({ status: 'FAILED' }))
+    expect(fixture.database.closeItemAndFiles).not.toHaveBeenCalled()
+    expect(fixture.database.finishContentWrite).not.toHaveBeenCalled()
+    expect(fixture.scope.pause).toHaveBeenCalledWith(expect.objectContaining({ reason: 'ACTION_REQUIRED' }))
+    const plan = await vi.mocked(fixture.database.createOrLoadPlan).mock.results[0]?.value
+    expect(plan).toEqual(expect.objectContaining({ status: 'ACTION_REQUIRED' }))
+    expect(plan?.files.every((file: MigrationArtworkPlan['files'][number]) => file.status !== 'FAILED')).toBe(true)
   })
 
   it.each(['STAGING_FILES', 'VERIFYING_FILES', 'PUBLISHING_DATABASE'] as const)(
@@ -580,21 +662,24 @@ describe('migration executor', () => {
     )
   })
 
-  it.each(['UNKNOWN', 'URL_ARCHIVE'] as const)('does not guess a migration target for %s artwork', async (createdVia) => {
-    const fixture = executorFixture({
-      selection: { mode: 'ARTWORK_IDS', artworkIds: [1] },
-      pages: [[{ id: 1, deletedAt: null }], []],
-      artwork: { ...sourceArtwork(1), createdVia }
-    })
+  it.each(['UNKNOWN', 'URL_ARCHIVE'] as const)(
+    'does not guess a migration target for %s artwork',
+    async (createdVia) => {
+      const fixture = executorFixture({
+        selection: { mode: 'ARTWORK_IDS', artworkIds: [1] },
+        pages: [[{ id: 1, deletedAt: null }], []],
+        artwork: { ...sourceArtwork(1), createdVia }
+      })
 
-    await executeMigration(fixture.context, fixture.dependencies)
+      await executeMigration(fixture.context, fixture.dependencies)
 
-    expect(fixture.database.createOrLoadPlan).not.toHaveBeenCalled()
-    expect(fixture.database.recordUnplannableItem).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ status: 'FAILED', errorCode: 'INCOMPLETE_ARTWORK' })
-    )
-  })
+      expect(fixture.database.createOrLoadPlan).not.toHaveBeenCalled()
+      expect(fixture.database.recordUnplannableItem).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ status: 'FAILED', errorCode: 'INCOMPLETE_ARTWORK' })
+      )
+    }
+  )
 })
 
 function executorFixture(options: {
@@ -683,6 +768,9 @@ function executorFixture(options: {
     }
   }
   const database: MigrationDatabasePort = {
+    beginContentWrite: vi.fn().mockResolvedValue({}),
+    finishContentWrite: vi.fn().mockResolvedValue(undefined),
+    finishCancelledContentWrite: vi.fn().mockResolvedValue(undefined),
     selection: {
       count: vi.fn().mockResolvedValue(options.pages.flat().length),
       precheck: vi.fn().mockResolvedValue({

@@ -1,3 +1,10 @@
+import { ScanExecutorError } from '../scan/errors.ts'
+import type { FencedExecutionMutator } from '@pixishelf/job-runtime'
+import {
+  beginExecutorMediaWrite,
+  publishExecutorMediaWrite,
+  resolveExecutorMediaDirectory
+} from '../scan/media-content-write.ts'
 import { constants as fsConstants } from 'node:fs'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
@@ -11,7 +18,7 @@ import type {
   VideoProcessingTransaction,
   VideoProcessRunner
 } from './types.ts'
-import { VideoProcessingPermanentError, VideoProcessingRecoveryError } from './types.ts'
+import { VideoProcessingPermanentError, VideoProcessingRecoveryError, VideoVerifiedRollbackPending } from './types.ts'
 
 interface MediaStreamFingerprint {
   index?: number
@@ -55,11 +62,12 @@ export interface PreparedVideoStreamingOptimization {
   result: VideoStreamingOptimizationResult
   publish(transaction: VideoProcessingTransaction): Promise<void>
   rollback(): Promise<void>
-  discard(): Promise<void>
+  discard(transaction: VideoProcessingTransaction): Promise<void>
 }
 
 export async function prepareVideoStreamingOptimization(input: {
   jobId: string
+  executionToken: string
   systemJobId?: string
   attempt: number
   imageId: number
@@ -89,147 +97,201 @@ export async function prepareVideoStreamingOptimization(input: {
   }
   await input.progress({ percentage: 2, stage: 'VALIDATE', message: '正在校验视频路径' })
   const sourcePath = await resolveCreatablePathWithinRoot(input.config.scanRoot, image.path)
-  await recoverPriorStreamingArtifacts(sourcePath, input.jobId, input.attempt)
-  const sourceStat = await fs.stat(sourcePath)
-  if (!sourceStat.isFile()) throw new VideoProcessingPermanentError('IMAGE_NOT_FOUND', 'Video path is not a file')
+  const mediaContext = {
+    job: { id: input.jobId, executionToken: input.executionToken, attempt: input.attempt },
+    mutateInTransaction: input.mutate as FencedExecutionMutator
+  }
+  const directory = await resolveExecutorMediaDirectory({
+    context: mediaContext,
+    sourceRoot: input.config.scanRoot,
+    relativeDirectory: path.posix.dirname(normalizePath(image.path))
+  })
+  const mediaWrite = await beginExecutorMediaWrite({
+    context: mediaContext,
+    directory,
+    scope: { kind: 'PATH', relativePath: normalizePath(image.path) },
+    sessionId: `video-remux:${input.jobId}`,
+    imageIds: [image.id]
+  }).catch((error) => {
+    if (error instanceof ScanExecutorError && error.code === 'STATE_CONFLICT')
+      throw new VideoProcessingRecoveryError(
+        '已有媒体写入声明，请停写检查并授予离线恢复权限',
+        null,
+        error,
+        'CONTENT_WRITE_RECOVERY_REQUIRED'
+      )
+    throw error
+  })
+  let temporaryPath: string | null = null
+  let priorRecoveryVerified = false
   try {
-    await fs.access(path.dirname(sourcePath), fsConstants.W_OK)
-  } catch {
-    throw new VideoProcessingPermanentError('READ_ONLY_SOURCE', 'Video directory is read-only')
-  }
-
-  const operationId = normalizeArtifactId(`${input.jobId}-a${input.attempt}`)
-  const artifacts = getStreamingArtifactPaths(sourcePath, operationId)
-  await Promise.all([assertNoFinalSymlink(artifacts.temporaryPath), assertNoFinalSymlink(artifacts.backupPath)])
-  const originalStat = await fs.stat(sourcePath)
-  const temporaryRelativePath = `${normalizePath(image.path)}.pixishelf-remux-${operationId}.tmp.mp4`
-  const backupRelativePath = `${normalizePath(image.path)}.pixishelf-remux-${operationId}.backup.mp4`
-  await input.mutate((transaction) =>
-    upsertStreamingGcIntent(transaction, {
-      path: temporaryRelativePath,
-      referenceId: String(image.id),
-      jobId: input.systemJobId ?? null,
-      reason: 'STREAMING_REMUX_TEMPORARY',
-      notBefore: new Date(now().getTime() + 24 * 60 * 60_000)
-    })
-  )
-
-  throwIfAborted(input.signal)
-  await input.progress({ percentage: 8, stage: 'PROBE', message: '正在读取原视频流信息' })
-  const sourceFingerprint = await probeMediaFingerprint({
-    filePath: sourcePath,
-    timeoutMs: input.config.probeTimeoutMs ?? 2 * 60_000,
-    signal: input.signal,
-    processRunner: input.processRunner,
-    ...(input.config.ffprobePath ? { ffprobePath: input.config.ffprobePath } : {})
-  })
-  assertContainsVideoStream(sourceFingerprint, 'Source file')
-
-  let progressBuffer = ''
-  let lastProgress = 15
-  let progressQueue = Promise.resolve()
-  const duration = parseDuration(sourceFingerprint.format?.duration)
-  await input.progress({ percentage: 15, stage: 'REMUX', message: '正在无损重新封装 MP4' })
-  await input.processRunner({
-    command: input.config.ffmpegPath ?? 'ffmpeg',
-    args: buildStreamingRemuxArgs(sourcePath, artifacts.temporaryPath, sourceFingerprint),
-    timeoutMs: input.config.streamingProcessTimeoutMs ?? 2 * 60 * 60_000,
-    signal: input.signal,
-    onStdout: (chunk) => {
-      progressBuffer += chunk
-      const lines = progressBuffer.split(/\r?\n/)
-      progressBuffer = lines.pop() ?? ''
-      for (const line of lines) {
-        const [key, value] = line.split('=', 2)
-        if (key !== 'out_time' || !value || !duration) continue
-        const elapsed = parseFfmpegTimestamp(value)
-        if (elapsed === null) continue
-        const percentage = Math.min(80, Math.max(16, Math.floor(15 + (elapsed / duration) * 65)))
-        if (percentage <= lastProgress) continue
-        lastProgress = percentage
-        progressQueue = progressQueue.then(() =>
-          input.progress({ percentage, stage: 'REMUX', message: `正在无损重新封装 MP4 ${percentage}%` })
-        )
-      }
+    await recoverPriorStreamingArtifacts(sourcePath, input.jobId, input.attempt)
+    priorRecoveryVerified = true
+    const sourceStat = await fs.stat(sourcePath)
+    if (!sourceStat.isFile()) throw new VideoProcessingPermanentError('IMAGE_NOT_FOUND', 'Video path is not a file')
+    try {
+      await fs.access(path.dirname(sourcePath), fsConstants.W_OK)
+    } catch {
+      throw new VideoProcessingPermanentError('READ_ONLY_SOURCE', 'Video directory is read-only')
     }
-  })
-  await progressQueue
-  throwIfAborted(input.signal)
-  await input.progress({ percentage: 82, stage: 'VERIFY', message: '正在校验重新封装的视频' })
-  const optimizedStat = await fs.stat(artifacts.temporaryPath)
-  if (!optimizedStat.isFile() || optimizedStat.size <= 0) throw new Error('FFmpeg produced an empty output file')
-  const optimizedFingerprint = await probeMediaFingerprint({
-    filePath: artifacts.temporaryPath,
-    timeoutMs: input.config.probeTimeoutMs ?? 2 * 60_000,
-    signal: input.signal,
-    processRunner: input.processRunner,
-    ...(input.config.ffprobePath ? { ffprobePath: input.config.ffprobePath } : {})
-  })
-  assertCompatibleFingerprints(sourceFingerprint, optimizedFingerprint)
-  await assertSourceUnchanged(sourcePath, originalStat)
-  await fs.chmod(artifacts.temporaryPath, originalStat.mode)
 
-  let swapStarted = false
-  let published = false
-  const result: VideoStreamingOptimizationResult = {
-    imageId: image.id,
-    path: image.path,
-    originalSize: originalStat.size,
-    optimizedSize: optimizedStat.size,
-    savedBytes: originalStat.size - optimizedStat.size,
-    duration: parseDuration(optimizedFingerprint.format?.duration),
-    backupGcScheduled: true
-  }
-  return {
-    result,
-    async publish(transaction) {
-      throwIfAborted(input.signal)
-      await Promise.all([
-        assertNoFinalSymlink(sourcePath),
-        assertNoFinalSymlink(artifacts.temporaryPath),
-        assertNoFinalSymlink(artifacts.backupPath)
-      ])
-      await assertSourceUnchanged(sourcePath, originalStat)
-      await fs.rm(artifacts.backupPath, { force: true }).catch(() => undefined)
-      await fs.rename(sourcePath, artifacts.backupPath)
-      swapStarted = true
-      try {
-        await fs.rename(artifacts.temporaryPath, sourcePath)
-        await transaction.image.update({ where: { id: image.id }, data: { size: BigInt(optimizedStat.size) } })
-        await upsertStreamingGcIntent(transaction, {
-          path: backupRelativePath,
-          referenceId: String(image.id),
-          jobId: input.systemJobId ?? null,
-          reason: 'STREAMING_REMUX_BACKUP',
-          notBefore: new Date(now().getTime() + 60 * 60_000)
-        })
-        published = true
-      } catch (error) {
-        try {
-          await restoreStreamingBackup(artifacts)
-          swapStarted = false
-        } catch (recoveryError) {
-          throw new VideoProcessingRecoveryError(
-            'Streaming publication failed and the original video could not be restored; manual action is required',
-            error,
-            recoveryError
+    const operationId = normalizeArtifactId(`${input.jobId}-a${input.attempt}`)
+    const artifacts = getStreamingArtifactPaths(sourcePath, operationId)
+    temporaryPath = artifacts.temporaryPath
+    await Promise.all([assertNoFinalSymlink(artifacts.temporaryPath), assertNoFinalSymlink(artifacts.backupPath)])
+    const originalStat = await fs.stat(sourcePath)
+    const temporaryRelativePath = `${normalizePath(image.path)}.pixishelf-remux-${operationId}.tmp.mp4`
+    const backupRelativePath = `${normalizePath(image.path)}.pixishelf-remux-${operationId}.backup.mp4`
+    await input.mutate((transaction) =>
+      upsertStreamingGcIntent(transaction, {
+        path: temporaryRelativePath,
+        referenceId: String(image.id),
+        jobId: input.systemJobId ?? null,
+        reason: 'STREAMING_REMUX_TEMPORARY',
+        notBefore: new Date(now().getTime() + 24 * 60 * 60_000)
+      })
+    )
+
+    throwIfAborted(input.signal)
+    await input.progress({ percentage: 8, stage: 'PROBE', message: '正在读取原视频流信息' })
+    const sourceFingerprint = await probeMediaFingerprint({
+      filePath: sourcePath,
+      timeoutMs: input.config.probeTimeoutMs ?? 2 * 60_000,
+      signal: input.signal,
+      processRunner: input.processRunner,
+      ...(input.config.ffprobePath ? { ffprobePath: input.config.ffprobePath } : {})
+    })
+    assertContainsVideoStream(sourceFingerprint, 'Source file')
+
+    let progressBuffer = ''
+    let lastProgress = 15
+    let progressQueue = Promise.resolve()
+    const duration = parseDuration(sourceFingerprint.format?.duration)
+    await input.progress({ percentage: 15, stage: 'REMUX', message: '正在无损重新封装 MP4' })
+    await input.processRunner({
+      command: input.config.ffmpegPath ?? 'ffmpeg',
+      args: buildStreamingRemuxArgs(sourcePath, artifacts.temporaryPath, sourceFingerprint),
+      timeoutMs: input.config.streamingProcessTimeoutMs ?? 2 * 60 * 60_000,
+      signal: input.signal,
+      onStdout: (chunk) => {
+        progressBuffer += chunk
+        const lines = progressBuffer.split(/\r?\n/)
+        progressBuffer = lines.pop() ?? ''
+        for (const line of lines) {
+          const [key, value] = line.split('=', 2)
+          if (key !== 'out_time' || !value || !duration) continue
+          const elapsed = parseFfmpegTimestamp(value)
+          if (elapsed === null) continue
+          const percentage = Math.min(80, Math.max(16, Math.floor(15 + (elapsed / duration) * 65)))
+          if (percentage <= lastProgress) continue
+          lastProgress = percentage
+          progressQueue = progressQueue.then(() =>
+            input.progress({ percentage, stage: 'REMUX', message: `正在无损重新封装 MP4 ${percentage}%` })
           )
         }
-        throw error
       }
-    },
-    async rollback() {
-      if (!swapStarted && !published) {
-        await fs.rm(artifacts.temporaryPath, { force: true }).catch(() => undefined)
-        return
-      }
-      await restoreStreamingBackup(artifacts)
-      swapStarted = false
-      published = false
-    },
-    async discard() {
-      await fs.rm(artifacts.temporaryPath, { force: true }).catch(() => undefined)
+    })
+    await progressQueue
+    throwIfAborted(input.signal)
+    await input.progress({ percentage: 82, stage: 'VERIFY', message: '正在校验重新封装的视频' })
+    const optimizedStat = await fs.stat(artifacts.temporaryPath)
+    if (!optimizedStat.isFile() || optimizedStat.size <= 0) throw new Error('FFmpeg produced an empty output file')
+    const optimizedFingerprint = await probeMediaFingerprint({
+      filePath: artifacts.temporaryPath,
+      timeoutMs: input.config.probeTimeoutMs ?? 2 * 60_000,
+      signal: input.signal,
+      processRunner: input.processRunner,
+      ...(input.config.ffprobePath ? { ffprobePath: input.config.ffprobePath } : {})
+    })
+    assertCompatibleFingerprints(sourceFingerprint, optimizedFingerprint)
+    await assertSourceUnchanged(sourcePath, originalStat)
+    await fs.chmod(artifacts.temporaryPath, originalStat.mode)
+
+    let swapStarted = false
+    let published = false
+    const result: VideoStreamingOptimizationResult = {
+      imageId: image.id,
+      path: image.path,
+      originalSize: originalStat.size,
+      optimizedSize: optimizedStat.size,
+      savedBytes: originalStat.size - optimizedStat.size,
+      duration: parseDuration(optimizedFingerprint.format?.duration),
+      backupGcScheduled: true
     }
+    return {
+      result,
+      async publish(transaction) {
+        await publishExecutorMediaWrite(transaction, mediaWrite, 'committed', async (transaction) => {
+          throwIfAborted(input.signal)
+          await Promise.all([
+            assertNoFinalSymlink(sourcePath),
+            assertNoFinalSymlink(artifacts.temporaryPath),
+            assertNoFinalSymlink(artifacts.backupPath)
+          ])
+          await assertSourceUnchanged(sourcePath, originalStat)
+          await fs.rm(artifacts.backupPath, { force: true }).catch(() => undefined)
+          await fs.rename(sourcePath, artifacts.backupPath)
+          swapStarted = true
+          try {
+            await fs.rename(artifacts.temporaryPath, sourcePath)
+            await transaction.image.update({ where: { id: image.id }, data: { size: BigInt(optimizedStat.size) } })
+            await upsertStreamingGcIntent(transaction, {
+              path: backupRelativePath,
+              referenceId: String(image.id),
+              jobId: input.systemJobId ?? null,
+              reason: 'STREAMING_REMUX_BACKUP',
+              notBefore: new Date(now().getTime() + 60 * 60_000)
+            })
+            published = true
+          } catch (error) {
+            try {
+              await restoreStreamingBackup(artifacts)
+              swapStarted = false
+            } catch (recoveryError) {
+              throw new VideoProcessingRecoveryError(
+                'Streaming publication failed and the original video could not be restored; manual action is required',
+                error,
+                recoveryError
+              )
+            }
+            throw error
+          }
+        })
+      },
+      async rollback() {
+        if (!swapStarted && !published) {
+          await fs.rm(artifacts.temporaryPath, { force: true })
+        } else {
+          await restoreStreamingBackup(artifacts)
+          swapStarted = false
+          published = false
+        }
+        // A failed final fence may reject this transaction; the durable claim then intentionally remains closed.
+        await input.mutate((transaction) =>
+          publishExecutorMediaWrite(transaction, mediaWrite, 'verified-rollback', async () => undefined)
+        )
+      },
+      async discard(transaction) {
+        await fs.rm(artifacts.temporaryPath, { force: true })
+        await publishExecutorMediaWrite(transaction, mediaWrite, 'verified-rollback', async () => undefined)
+      }
+    }
+  } catch (error) {
+    if (priorRecoveryVerified) {
+      try {
+        if (temporaryPath) await fs.rm(temporaryPath, { force: true })
+      } catch (recoveryError) {
+        throw new VideoProcessingRecoveryError('Streaming temporary file cleanup failed', error, recoveryError)
+      }
+      const settle = (transaction: VideoProcessingTransaction) =>
+        publishExecutorMediaWrite(transaction, mediaWrite, 'verified-rollback', async () => undefined)
+      try {
+        await input.mutate(settle)
+      } catch {
+        throw new VideoVerifiedRollbackPending(settle, error)
+      }
+    }
+    throw error
   }
 }
 

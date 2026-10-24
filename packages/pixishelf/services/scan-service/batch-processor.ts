@@ -1,7 +1,9 @@
+import { assertContentScan, ContentWriteConflict } from '@/services/artwork-service/content-source-guard'
+import { reconcileArtworkImages } from '@/services/artwork-service/image-manager'
 // oxlint-disable max-lines
 import path from 'path'
 import { Prisma } from '@prisma/client'
-import { invalidateArtworkReadingForRebuild, lockArtworkForReading, lockCreatorCatalog } from '@pixishelf/db'
+import { lockArtworkForReading, lockCreatorCatalog } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
 import logger from '@/lib/logger'
 import { syncMediaDerivedTagsForArtworks } from '@/services/media-derived-tag-service'
@@ -42,6 +44,13 @@ export async function processBatch(batch: ArtworkData[], context: ScanContext): 
 
   await prisma.$transaction(
     async (tx) => {
+      if (batch.some((item) => !item.contentDirectory)) {
+        throw new ContentWriteConflict('Missing scan directory snapshot')
+      }
+      await assertContentScan(
+        tx,
+        batch.map((item) => item.contentDirectory!)
+      )
       // 准备批量数据
       const artworksToCreate: Prisma.ArtworkCreateManyInput[] = []
       const imagesToCreate: Prisma.ImageCreateManyInput[] = []
@@ -495,6 +504,13 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
 
   await prisma.$transaction(
     async (tx) => {
+      if (batch.some((item) => !item.contentDirectory)) {
+        throw new ContentWriteConflict('Missing scan directory snapshot')
+      }
+      await assertContentScan(
+        tx,
+        batch.map((item) => item.contentDirectory!)
+      )
       const pixivRefs = await tx.artworkExternalRef.findMany({
         where: { providerKey: 'pixiv', externalId: { in: batch.map(({ metadata }) => metadata.id) } },
         select: { externalId: true, artworkId: true }
@@ -505,11 +521,13 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
           throw new Error(`Artist not found for user ID: ${metadata.userId}`)
         }
         if (!artworkIdByExternalId.has(metadata.id)) {
-          throw new Error(`Pixiv Source Reference ${metadata.id} not found; refusing to claim a legacy global externalId`)
+          throw new Error(
+            `Pixiv Source Reference ${metadata.id} not found; refusing to claim a legacy global externalId`
+          )
         }
       }
       for (const artworkId of [...new Set(artworkIdByExternalId.values())].sort((a, b) => a - b)) {
-        if (!await lockArtworkForReading(tx, artworkId)) {
+        if (!(await lockArtworkForReading(tx, artworkId))) {
           throw new Error(`Artwork ${artworkId} disappeared during Pixiv rescan`)
         }
       }
@@ -539,8 +557,6 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
         if (existingArtwork.id !== artworkIdByExternalId.get(metadata.id)) {
           throw new Error(`Pixiv Source Reference ${metadata.id} changed during rescan`)
         }
-
-        await invalidateArtworkReadingForRebuild(tx, existingArtwork.id)
 
         logger.debug('update artwork:', existingArtwork, {
           title: metadata.title,
@@ -636,24 +652,23 @@ export async function processRescanBatch(batch: ArtworkData[], context: ScanCont
           existingImages
         ).map((imageSeed, sortOrder) => ({ ...imageSeed, sortOrder }))
 
-        await tx.image.deleteMany({
-          where: { artworkId: existingArtwork.id }
-        })
-
-        // 插入新图片
-        let newImageCount = 0
-        if (artworkData.mediaFiles.length > 0) {
-          const imagesToCreate = orderedImageSeeds.map((imageSeed) =>
-            buildImageCreateManyInput(imageSeed, existingArtwork.id)
-          )
-
-          logger.debug('imagesToCreate:', imagesToCreate)
-          await tx.image.createMany({
-            data: imagesToCreate
-          })
-          newImageCount = imagesToCreate.length
-          context.scanResult.newImages += imagesToCreate.length
-        }
+        const imagesToCreate = orderedImageSeeds.map((imageSeed) =>
+          buildImageCreateManyInput(imageSeed, existingArtwork.id)
+        )
+        await reconcileArtworkImages(
+          tx,
+          existingArtwork.id,
+          imagesToCreate.map((image) => ({
+            fileName: image.path.split('/').pop()!,
+            path: image.path,
+            size: Number(image.size ?? 0),
+            order: image.sortOrder ?? 0,
+            width: image.width ?? 0,
+            height: image.height ?? 0
+          }))
+        )
+        const newImageCount = imagesToCreate.length
+        context.scanResult.newImages += newImageCount
 
         await syncMediaDerivedTagsForArtworks(tx, [existingArtwork.id])
 

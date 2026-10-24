@@ -20,7 +20,11 @@ import {
   PixivArtworkRequestError,
   type NormalizedPixivArtworkSeries
 } from '../pixiv-artwork/client.ts'
-import { observePixivSeriesState, reconcilePixivArtworkSeries } from '../pixiv-artwork/series-sync.ts'
+import {
+  observePixivSeriesState,
+  reconcilePixivArtworkSeries,
+  assertPixivSeriesArtworkWritable
+} from '../pixiv-artwork/series-sync.ts'
 import { storePixivArtworkSnapshot } from '../pixiv-artwork/storage.ts'
 import { PixivSeriesSnapshotReadError, readPixivSeriesObservationFromSnapshot } from './snapshot-reader.ts'
 
@@ -231,6 +235,7 @@ async function executeArtwork(
     await context.progress({ progress: 80, stage: 'PUBLISHING', message: '正在更新系列来源和成员关系' })
     return context.finalizeInTransaction<PixivSeriesTransaction>(async (scope) => {
       if (await finalizeControl(scope)) return
+      await assertPixivSeriesArtworkWritable(scope.transaction, payload.artworkId, observation)
       const locked = await scope.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT ref."id"
         FROM "artwork_external_refs" ref
@@ -396,5 +401,5 @@ async function randomizedDelay(signal: AbortSignal, dependencies: PixivSeriesExe
 
 function throwIfAborted(signal: AbortSignal) {
   if (signal.aborted)
-    throw signal.reason instanceof Error ? signal.reason : new Error('Pixiv series reconciliation interrupted')
+    {throw signal.reason instanceof Error ? signal.reason : new Error('Pixiv series reconciliation interrupted')}
 }

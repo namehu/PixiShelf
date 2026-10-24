@@ -147,6 +147,7 @@ describePostgres('Postgres archive provider governor', () => {
       key: providerKey,
       requestGovernance: 'PER_REQUEST',
       accepts: delegate.accepts.bind(delegate),
+      identifySource: delegate.identifySource.bind(delegate),
       resolve: delegate.resolve.bind(delegate),
       openMedia: delegate.openMedia.bind(delegate)
     }

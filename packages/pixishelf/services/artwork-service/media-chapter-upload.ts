@@ -1,4 +1,27 @@
+import { createHash } from 'node:crypto'
+import { TRPCError } from '@trpc/server'
+import { assertArtworkDedupAppWrite } from '../artwork-dedup-write-guard'
+import type { AppTransaction } from '@/lib/prisma'
+import {
+  ackMediaContentUploadChunk,
+  prepareMediaContentUploadChunk,
+  markMediaContentWriteRecoveryRequired,
+  MediaContentConflictError
+} from '@pixishelf/db'
+import type { ContentWriteAuthorization, MediaUploadReceipt } from '@/schemas/media-content.dto'
+import {
+  assertContentAccount,
+  beginContentUpload,
+  contentAuthorization,
+  contentHandle,
+  contentOwner,
+  contentTx,
+  publishContentOwner,
+  finishLegacyContentGuards,
+  requireContentReady
+} from './content-source-guard'
 import fs from 'fs/promises'
+import { constants } from 'node:fs'
 import path from 'path'
 import { prisma } from '@/lib/prisma'
 import { isVideoFile } from '@/lib/media'
@@ -9,7 +32,6 @@ import {
   resolveCanonicalChapterPath,
   validateChapterManifest
 } from './video-chapters'
-import { associateChaptersToImage } from './image-manager'
 import { determineArtworkRelDir } from './utils'
 import { assertReplaceBackupProtectsUpload } from './image-replace-session'
 import { ReplaceWriteBusyError, withReplaceWriteLock } from './replace-write-lock'
@@ -18,6 +40,13 @@ export const MAX_CHAPTER_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024
 
 export type MediaChapterUploadInput = {
   scanRoot: string
+  userId: string
+  expectedUserId: string
+  authorization?: ContentWriteAuthorization
+  uploadSessionId: string
+  uploadToken: string
+  uploadRequestId: string
+  uploadAuthorization?: ContentWriteAuthorization
   artworkId: number
   imageId: number | null
   videoPath: string
@@ -25,6 +54,8 @@ export type MediaChapterUploadInput = {
 }
 
 export type MediaChapterUploadMeta = {
+  uploadReceipt?: MediaUploadReceipt
+  uploadSize?: number
   videoFileName: string
   chaptersFileName: string
   chaptersPath: string
@@ -61,6 +92,7 @@ export function validateMediaChapterUploadRequest(input: { artworkId: number; fi
 
 export async function uploadMediaChapterManifest(input: MediaChapterUploadInput): Promise<MediaChapterUploadMeta> {
   const { scanRoot, artworkId, imageId } = input
+  assertContentAccount(input.userId, input.expectedUserId)
 
   const artwork = await prisma.artwork.findUnique({
     where: { id: artworkId },
@@ -76,6 +108,7 @@ export async function uploadMediaChapterManifest(input: MediaChapterUploadInput)
     throw new MediaChapterUploadError('Artwork not found', 404)
   }
 
+  await prisma.$transaction((tx) => assertChapterArtworkWritable(tx, artworkId))
   const targetRelDir = determineArtworkRelDir(artwork)
   if (!targetRelDir) {
     throw new MediaChapterUploadError('Cannot determine artwork media directory', 400)
@@ -129,37 +162,174 @@ export async function uploadMediaChapterManifest(input: MediaChapterUploadInput)
   await fs.mkdir(targetDir, { recursive: true })
   try {
     return await withReplaceWriteLock(targetDir, async () => {
+      const bytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)
+      const sessionId = input.uploadSessionId
+      if (input.authorization && input.authorization.sessionId !== sessionId) {
+        throw new MediaChapterUploadError('Replacement session mismatch', 409)
+      }
+      const upload = await beginContentUpload({
+        scanRoot,
+        absolutePath: canonicalAbsolutePath,
+        userId: input.userId,
+        sessionId,
+        writeToken: input.uploadToken,
+        declaredFileSize: bytes.length,
+        totalChunks: 1,
+        parent: input.authorization,
+        relatedImage: !input.authorization
+          ? (() => {
+              const image = artwork.images.find((item) => imageId ? item.id === imageId : toStoredPath(item.path) === normalizedVideoPath)
+              return image ? { imageId: image.id, artworkId, path: image.path } : undefined
+            })()
+          : undefined
+      })
+      if (!input.uploadAuthorization && upload.authorization.handle.declarationVersion !== '1') {
+        throw new MediaChapterUploadError('Upload authorization required', 409)
+      }
+      const owned = input.uploadAuthorization ?? upload.authorization
+      if (
+        owned.sessionId !== sessionId ||
+        owned.handle.writeToken !== input.uploadToken ||
+        owned.handle.directoryId !== upload.authorization.handle.directoryId ||
+        owned.handle.scope.kind !== 'PATH' ||
+        owned.handle.scope.relativePath !== upload.relativePath ||
+        owned.handle.parentWriteId !== (input.authorization?.handle.writeId ?? null)
+      ) {
+        throw new MediaChapterUploadError('Chapter upload authorization does not match target', 409)
+      }
+      const markIncomplete = () =>
+        prisma
+          .$transaction((tx) =>
+            markMediaContentWriteRecoveryRequired(contentTx(tx), {
+              owner: contentOwner(input.userId, sessionId),
+              handle: contentHandle(owned),
+              failureCode: 'CHAPTER_UPLOAD_INCOMPLETE',
+              now: new Date()
+            })
+          )
+          .catch(() => undefined)
+      const hash = createHash('sha256').update(bytes).digest('hex')
+      const observed = await fs.stat(canonicalAbsolutePath, { bigint: true }).catch((error) => {
+        if (error.code === 'ENOENT') return null
+        throw error
+      })
+      const prepared = await prisma.$transaction(async (tx) =>
+        requireContentReady(
+          await prepareMediaContentUploadChunk(contentTx(tx), {
+            owner: contentOwner(input.userId, sessionId),
+            handle: contentHandle(owned),
+            declaredFileSize: BigInt(bytes.length),
+            totalChunks: 1,
+            requestId: input.uploadRequestId,
+            chunkIndex: 0,
+            offset: 0n,
+            observedFileSize: observed?.size ?? null
+          })
+        )
+      )
+      if (prepared.action === 'REPLAY' && prepared.checkpoint.lastReceipt?.sha256 !== hash) {
+        throw new MediaChapterUploadError('Chapter content differs from saved upload', 409)
+      }
       const candidates = getChapterPathCandidates(normalizedVideoPath)
       for (const candidate of candidates) {
         await assertReplaceBackupProtectsUpload(targetDir, path.basename(candidate))
       }
-      await fs.mkdir(path.dirname(canonicalAbsolutePath), { recursive: true })
-      await fs.writeFile(canonicalAbsolutePath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
-
-      for (const candidate of candidates) {
-        if (candidate === canonicalChaptersPath) continue
-        const candidateAbsolutePath = resolvePathWithinScanRoot(scanRoot, candidate)
-        await fs.rm(candidateAbsolutePath, { force: true }).catch(() => {})
+      if (prepared.action === 'WRITE') {
+        try {
+          await fs.mkdir(path.dirname(canonicalAbsolutePath), { recursive: true })
+          const file = await fs.open(
+            canonicalAbsolutePath,
+            constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW,
+            0o600
+          )
+          try {
+            const state = await file.stat()
+            if (!state.isFile() || state.nlink !== 1) {
+              throw new MediaChapterUploadError('Chapter target is shared or unsafe', 409)
+            }
+            await file.truncate(0)
+            await file.writeFile(bytes)
+            await file.sync()
+          } finally {
+            await file.close()
+          }
+        } catch (error) {
+          await markIncomplete()
+          throw error
+        }
       }
 
-      const chaptersMeta = await discoverChaptersForVideoInScanRoot(scanRoot, normalizedVideoPath)
+      const chaptersMeta = await discoverChaptersForVideoInScanRoot(scanRoot, normalizedVideoPath).catch(
+        async (error) => {
+          if (prepared.action === 'WRITE') await markIncomplete()
+          throw error
+        }
+      )
       if (!chaptersMeta) {
+        if (prepared.action === 'WRITE') await markIncomplete()
         throw new MediaChapterUploadError('Failed to discover uploaded chapter manifest', 500)
       }
 
-      if (imageId) {
-        await associateChaptersToImage({ imageId, ...chaptersMeta })
+      const receipt = {
+        requestId: input.uploadRequestId,
+        chunkIndex: 0,
+        offset: 0n,
+        byteLength: BigInt(bytes.length),
+        sha256: createHash('sha256').update(bytes).digest('hex')
+      }
+      const checkpoint =
+        prepared.action === 'REPLAY'
+          ? prepared.checkpoint
+          : await prisma
+              .$transaction(async (tx) =>
+                requireContentReady(
+                  await ackMediaContentUploadChunk(contentTx(tx), {
+                    owner: contentOwner(input.userId, sessionId),
+                    handle: contentHandle(owned),
+                    receipt,
+                    verifiedFileSize: BigInt(bytes.length),
+                    now: new Date()
+                  })
+                )
+              )
+              .catch(async (error) => {
+                await markIncomplete()
+                throw error
+              })
+      const authorization = contentAuthorization(sessionId, checkpoint.handle)
+      if (imageId && !input.authorization && checkpoint.status !== 'COMPLETED') {
+        await prisma.$transaction((tx) =>
+          publishContentOwner(tx, input.userId, [authorization], 'committed', async (inner) => {
+            await assertChapterArtworkWritable(inner, artworkId)
+            await inner.image.update({
+              where: { id: imageId, artworkId },
+              data: { ...chaptersMeta, chaptersUpdatedAt: new Date() }
+            })
+            await finishLegacyContentGuards(inner, { sourcePath: normalizedVideoPath })
+          })
+        )
+      } else if (!input.authorization && !imageId) {
+        throw new MediaChapterUploadError('Replacement authorization required', 409)
       }
 
       return {
         videoFileName: path.posix.basename(normalizedVideoPath.replace(/\\/g, '/')),
         chaptersFileName: buildCanonicalChapterFileName(path.posix.basename(normalizedVideoPath.replace(/\\/g, '/'))),
-        ...chaptersMeta
+        ...chaptersMeta,
+        uploadSize: bytes.length,
+        uploadReceipt: {
+          authorization,
+          expectedUserId: input.userId,
+          receipt: { ...receipt, offset: '0', byteLength: String(bytes.length) }
+        }
       }
     })
   } catch (error) {
-    if (error instanceof ReplaceWriteBusyError ||
-        (error instanceof Error && 'status' in error && error.status === 409)) {
+    if (
+      error instanceof ReplaceWriteBusyError ||
+      error instanceof MediaContentConflictError ||
+      (error instanceof Error && 'status' in error && error.status === 409)
+    ) {
       throw new MediaChapterUploadError(error.message, 409)
     }
     throw error
@@ -187,4 +357,16 @@ function isStoredPathWithinDir(storedPath: string, storedDir: string): boolean {
   const normalizedPath = toStoredPath(storedPath)
   const normalizedDir = toStoredPath(storedDir).replace(/\/+$/, '')
   return normalizedPath === normalizedDir || normalizedPath.startsWith(`${normalizedDir}/`)
+}
+
+
+async function assertChapterArtworkWritable(tx: AppTransaction, artworkId: number) {
+  try {
+    await assertArtworkDedupAppWrite(tx, artworkId, 'CONTENT')
+  } catch (error) {
+    if (error instanceof TRPCError && (error.code === 'CONFLICT' || error.code === 'NOT_FOUND')) {
+      throw new MediaChapterUploadError(error.message, error.code === 'NOT_FOUND' ? 404 : 409)
+    }
+    throw error
+  }
 }

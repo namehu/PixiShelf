@@ -1,3 +1,9 @@
+// Durable Claim behavior is covered by artwork-dedup-shared-writes.postgres.test.ts.
+vi.mock('../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: vi.fn() }))
+vi.mock('@pixishelf/db', async (original) => ({
+  ...(await original<typeof import('@pixishelf/db')>()),
+  lockCreatorCatalog: vi.fn()
+}))
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({

@@ -10,7 +10,7 @@ ENV PATH=$PNPM_HOME:$PATH
 
 WORKDIR /workspace
 
-RUN apk add --no-cache openssl ffmpeg \
+RUN apk add --no-cache openssl ffmpeg build-base \
     && npm install -g pnpm@${PNPM_VERSION} \
     && pnpm config set registry ${REGISTRY_URL} \
     && pnpm config set store-dir /pnpm/store

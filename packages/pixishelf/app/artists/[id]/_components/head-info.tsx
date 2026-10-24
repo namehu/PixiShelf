@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { CalendarIcon, ExternalLinkIcon, ImagesIcon, ImageUpIcon } from 'lucide-react'
+import { CalendarIcon, ExternalLinkIcon, ImagesIcon, ImageUpIcon, ScanSearchIcon } from 'lucide-react'
 import { memo, type FC } from 'react'
 import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
@@ -79,14 +79,22 @@ const Component: FC<HeadInfoProps> = ({ artist, immersiveHref }) => (
           </div>
         }
         actions={
-          immersiveHref ? (
-            <Button asChild>
-              <Link href={immersiveHref}>
-                <ImageUpIcon data-icon="inline-start" aria-hidden="true" />
-                沉浸浏览
+          <>
+            <Button asChild variant="outline" className="min-h-11">
+              <Link href={`/admin/duplicates?artistId=${artist.id}&entry=direct`}>
+                <ScanSearchIcon data-icon="inline-start" aria-hidden="true" />
+                检查重复
               </Link>
             </Button>
-          ) : undefined
+            {immersiveHref ? (
+              <Button asChild className="min-h-11">
+                <Link href={immersiveHref}>
+                  <ImageUpIcon data-icon="inline-start" aria-hidden="true" />
+                  沉浸浏览
+                </Link>
+              </Button>
+            ) : null}
+          </>
         }
       />
     </PageContainer>

@@ -1,3 +1,4 @@
+import { addImageWithChapters } from './artwork-service/image-manager'
 import 'server-only'
 import { prisma } from '@/lib/prisma'
 import { BatchCreateArtworkSchema, BatchImportArtworkSchema, BatchRegisterImageSchema } from '@/schemas/artwork.dto'
@@ -6,7 +7,6 @@ import path from 'path'
 import fs from 'fs/promises'
 import logger from '@/lib/logger'
 import { generateLocalStorageKey } from './artwork-service/utils'
-import { syncMediaDerivedTagsForArtworks } from './media-derived-tag-service'
 import { ESource } from '@/enums/e-source'
 import { Prisma, ScanRunMode, ScanRunType } from '@prisma/client'
 import {
@@ -16,10 +16,7 @@ import {
   startScanRun,
   updateScanRunItemMedia
 } from './scan-run-service'
-import { toDatabaseImageSize } from '@/utils/image-size'
-import { inferMediaTypeFromPath, needsAnimationContentScan } from '@/lib/media-type'
-import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
-import { lockArtworkForReading, lockCreatorCatalog, requireAvailableArtist } from '@pixishelf/db'
+import { lockCreatorCatalog, requireAvailableArtist } from '@pixishelf/db'
 import { resolveCanonicalArtworkStoragePath } from '@pixishelf/job-contracts'
 
 /**
@@ -160,47 +157,28 @@ export async function batchCreateArtworksService(data: BatchCreateArtworkSchema)
 /**
  * 批量注册图片
  */
-export async function batchRegisterImagesService(data: BatchRegisterImageSchema) {
+export async function batchRegisterImagesService(data: BatchRegisterImageSchema, userId: string) {
   const { items, scanRunId } = data
 
   try {
-    await prisma.$transaction(async (tx) => {
-      const artworkIdsToSync = new Set<number>()
-
-      for (const artworkId of [...new Set(items.map((item) => item.artworkId))].sort((a, b) => a - b)) {
-        await lockArtworkForReading(tx, artworkId)
+    // Each receipt publishes once; a retry resumes the original set after partial success.
+    for (const item of items) {
+      for (let order = 0; order < item.images.length; order++) {
+        const image = item.images[order]!
+        await addImageWithChapters(
+          item.artworkId,
+          {
+            ...image,
+            order,
+            fileName: image.path.split('/').pop()!,
+            width: image.width ?? 0,
+            height: image.height ?? 0
+          },
+          undefined,
+          userId
+        )
       }
-
-      for (const item of items) {
-        const { artworkId, images } = item
-        // 获取作品信息以确定路径
-        const artwork = await tx.artwork.findUnique({
-          where: { id: artworkId }
-        })
-
-        if (!artwork) continue
-
-        // 1. 创建图片记录
-        await tx.image.createMany({
-          data: images.map((img, index) => {
-            return {
-              artworkId,
-              path: img.path,
-              size: toDatabaseImageSize(img.size),
-              width: img.width || 0,
-              height: img.height || 0,
-              sortOrder: index,
-              mediaType: inferMediaTypeFromPath(img.path),
-              webpAnimationStatus: needsAnimationContentScan(img.path) ? EMediaAnimationStatus.pending : null
-            }
-          })
-        })
-
-        artworkIdsToSync.add(artworkId)
-      }
-
-      await syncMediaDerivedTagsForArtworks(tx, Array.from(artworkIdsToSync))
-    })
+    }
 
     if (scanRunId) {
       await updateBatchImportAuditMedia(scanRunId, items)

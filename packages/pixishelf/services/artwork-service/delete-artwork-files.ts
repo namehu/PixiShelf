@@ -20,7 +20,13 @@ export interface DeleteFileReference {
   directory: boolean
 }
 type Candidate = { path: string; kind: ArtworkDeleteEntry['kind']; reason: string; snapshot?: Stats }
-const RESERVED_ROOTS = new Set(['sources', '.trash', '.archive-staging'])
+const RESERVED_ROOTS = new Set([
+  'sources',
+  '.trash',
+  '.archive-staging',
+  '.pixishelf-upload-recovery',
+  '.replace-write-lock'
+])
 const MAX_ENTRIES = 100_000
 const MAX_DEPTH = 12
 
@@ -312,6 +318,34 @@ export class ArtworkFileDeletion {
       inspectionComplete: this.report.inspectionComplete,
       warnings: this.report.warnings,
       entries: [...this.previewEntries.values()].sort((a, b) => a.path.localeCompare(b.path))
+    }
+  }
+
+  freezeSelection(selectedPaths: string[]) {
+    if (!this.canDelete) throw new Error('Incomplete delete inspection')
+    const selected = new Set(
+      selectedPaths.map((relative) => {
+        if (normalizeDeletePath(relative) !== relative || !this.candidates.has(key(relative))) {
+          throw new UnsafePathError('Invalid selection')
+        }
+        return key(relative)
+      })
+    )
+    for (const entry of this.previewEntries.values()) {
+      if (entry.selection === 'REQUIRED' && !selected.has(key(entry.path))) {
+        throw new UnsafePathError('Required media missing')
+      }
+    }
+    for (const candidate of this.candidates.values()) {
+      if (!selected.has(key(candidate.path))) {
+        this.record({ path: candidate.path, kind: candidate.kind, status: 'RETAINED', reason: '用户选择保留' })
+      }
+    }
+    return {
+      files: [...this.candidates.values()]
+        .filter((candidate) => selected.has(key(candidate.path)))
+        .map(({ path, kind, reason }) => ({ path, kind: kind as 'MEDIA' | 'CHAPTER' | 'METADATA' | 'OTHER', reason })),
+      directories: this.cleanupAllowed ? [...this.directories] : []
     }
   }
 

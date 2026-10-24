@@ -12,6 +12,7 @@ import { ArchiveExecutorError } from '../errors.js'
 import { executeArchiveResolveItem } from '../resolver-executor.js'
 import type { ArchiveProvider, ResolvedArchive } from '../types.js'
 import { hashResolvedMetadata } from '../providers/e-hentai.js'
+import { dedupGuardFixture } from './dedup-guard-fixture.ts'
 
 const resolved: ResolvedArchive = {
   providerKey: 'test',
@@ -35,6 +36,17 @@ const resolved: ResolvedArchive = {
 }
 
 describe('archive resolver executor', () => {
+  it.each(['missing proof', 'source HOLD'] as const)('rejects %s before calling the provider', async (reason) => {
+    const providerResolve = vi.fn(async () => resolved)
+    const fixture = createFixture({ providerResolve, sourceHeld: reason === 'source HOLD', missingSourceProof: reason === 'missing proof' })
+
+    await executeArchiveResolveItem(fixture.context, fixture.dependencies)
+
+    expect(providerResolve).not.toHaveBeenCalled()
+    expect(fixture.intakeUpdates.at(-1)).toMatchObject({ status: 'FAILED', errorCode: 'STATE_CONFLICT' })
+    expect(fixture.finalOutcome).toMatchObject({ kind: 'failed' })
+  })
+
   it.each(['AUTO', 'MANUAL'] as const)(
     'skips a deleted archive during its retention window in %s mode',
     async (downloadMode) => {
@@ -93,6 +105,7 @@ describe('archive resolver executor', () => {
       const fixture = createFixture({
         providerResolve: vi.fn(async () => current),
         downloadMode,
+        providerKey: 'e-hentai',
         publishedMetadata: previous
       })
 
@@ -280,13 +293,20 @@ function createFixture(input: {
   deletion?: { purgedAt: Date | null }
   downloadMode?: 'AUTO' | 'MANUAL'
   publishedMetadata?: Record<string, unknown>
+  sourceHeld?: boolean
+  missingSourceProof?: boolean
+  providerKey?: string
 }) {
+  const providerKey = input.providerKey ?? 'test'
+  const guard = dedupGuardFixture(providerKey, 'gallery-1')
+  if (input.sourceHeld) { guard.row.status = 'HOLD'; guard.row.ownerOperationId = 'fixture-operation' }
   const intakeUpdates: Array<Record<string, unknown>> = []
   const catalogUpdates: Array<Record<string, unknown>> = []
   const catalogWhere: Array<Record<string, unknown>> = []
   let retrySql = ''
   let finalOutcome: unknown = null
   const transaction = {
+    $queryRaw: guard.queryRaw,
     archiveDeletedIdentity: { findUnique: vi.fn(async () => input.deletion ?? null) },
     archiveIntakeItem: {
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -301,11 +321,13 @@ function createFixture(input: {
         id: 'intake-1',
         createdAt: new Date('2026-10-12T00:00:00Z'),
         submittedUrl: 'https://example.test/g/gallery-1',
+        dedupSourceSnapshot: input.missingSourceProof ? null : guard.snapshot,
         downloadMode: input.downloadMode ?? 'MANUAL'
       })),
       findUnique: vi.fn(async () => ({
-        providerKey: 'test',
+        providerKey,
         externalId: 'gallery-1',
+        dedupSourceSnapshot: input.missingSourceProof ? null : guard.snapshot,
         submittedUrl: 'https://example.test/g/gallery-1',
         canonicalUrl: 'https://example.test/g/gallery-1'
       })),
@@ -339,9 +361,10 @@ function createFixture(input: {
     $executeRawUnsafe: vi.fn(async () => 1)
   }
   const provider: ArchiveProvider = {
-    key: 'test',
+    key: providerKey,
     requestGovernance: 'PER_REQUEST',
     accepts: () => true,
+    identifySource: (input: string) => ({ kind: 'PROVIDER', providerKey, externalId: new URL(input).pathname.split('/')[2] ?? '1' }),
     resolve: input.providerResolve,
     openMedia: vi.fn()
   }
