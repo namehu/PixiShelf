@@ -1,3 +1,4 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
 import { retryUnresolvedArchivePublication } from './archive-publication-retry'
 import {
   hasBlockingMediaContentCancellation,
@@ -203,6 +204,7 @@ async function applyTaskAction(
     }
   }
   // 与发布管线共用全局 advisory lock，使归档控制与发布/回收站状态变更按同一顺序串行。
+  await lockCreatorCatalog(transaction as unknown as import('@pixishelf/db').Prisma.TransactionClient)
   await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
   const task = await transaction.archiveImport.findUnique({
     where: { id: taskId },

@@ -1,10 +1,18 @@
+// Shared-series Claim checks run against PostgreSQL in dedup-shared-series.postgres.test.ts.
+vi.mock('../../pixiv-artwork/series-sync.ts', async (original) => ({
+  ...(await original<typeof import('../../pixiv-artwork/series-sync.ts')>()),
+  assertPixivSeriesArtworkWritable: vi.fn()
+}))
 import { describe, expect, it, vi } from 'vitest'
 import { createPixivSeriesExecutorRegistrations } from '../executors.ts'
 
 describe('Pixiv series reconciliation executor', () => {
   it('continues discovery after the first 200 unchecked artworks', async () => {
     const firstPage = Array.from({ length: 200 }, (_, index) => ref(index + 1))
-    const findMany = vi.fn().mockResolvedValueOnce(firstPage).mockResolvedValueOnce([ref(201)])
+    const findMany = vi
+      .fn()
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce([ref(201)])
     const enqueueChild = vi.fn().mockResolvedValue({ id: 'child', created: true })
     const [registration] = createPixivSeriesExecutorRegistrations({
       database: { artworkExternalRef: { count: vi.fn().mockResolvedValue(201), findMany } } as never,
@@ -44,9 +52,7 @@ describe('Pixiv series reconciliation executor', () => {
       pixivDataRoot: '/pixiv-data'
     })
 
-    await registration!.execute(
-      context({ mode: 'DISCOVER', refreshExisting: true }, { enqueueChild }) as never
-    )
+    await registration!.execute(context({ mode: 'DISCOVER', refreshExisting: true }, { enqueueChild }) as never)
 
     expect(findMany.mock.calls[0]?.[0]).toMatchObject({
       where: expect.not.objectContaining({ seriesSyncStatus: null }),

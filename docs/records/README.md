@@ -49,3 +49,40 @@
 - [去重第二阶段后台检测与资源验证](./artwork-deduplication-phase-2-2026-10-23.md)：模块验证、独立审查和 50 万媒体性能记录。
 
 - [去重第三至第五阶段并行实施调整](./artwork-deduplication-parallel-2026-10-24.md)：职责、共享契约、分批审查与性能环境隔离。
+
+- [去重开发80%额度停工交接](./artwork-deduplication-pause-2026-10-24.md)：最终未提交范围、各线审查状态、隔离环境、剩余工作和恢复步骤。
+- [去重开发收口与续接检查点](./artwork-deduplication-checkpoint-2026-10-24.md)：当前基线、未完成范围、验证环境与额度恢复后的续接顺序。
+
+- [去重第三阶段串联与门禁](./artwork-deduplication-stage-3-integration-2026-10-24.md)，附[数据审查](./artwork-deduplication-stage-3-data-review-2026-10-24.md)、[编排审查](./artwork-deduplication-orchestration-review-2026-10-24.md)。
+
+- [去重PREPARE规模验证](./artwork-deduplication-prepare-scale-2026-10-24.md)与[完整性查询修复](./artwork-deduplication-prepare-query-2026-10-24.md)：区分真实读取窗口与SQL-only五十万清单证据。
+
+- [去重归属复核有界回写](./artwork-deduplication-prepare-ownership-2026-10-24.md)与[第四阶段声明基础](./artwork-deduplication-claims-foundation-2026-10-24.md)：性能修复、事务互斥与当前接入范围。
+
+- [声明基础审查](./artwork-deduplication-claims-review-2026-10-24.md)、[App个人守卫实现](./artwork-deduplication-app-personal-guards-2026-10-24.md)与[独立审查](./artwork-deduplication-app-personal-guards-review-2026-10-24.md)。
+
+- [去重来源证明与写入口盘点](./artwork-deduplication-write-entry-map-2026-10-24.md)：下一批持久快照、旧任务处理、归档drain和回收保护的待实施契约。
+- [去重App元数据与排序守卫](./artwork-deduplication-app-structure-guards-2026-10-24.md)：两个纯数据库写入口的守卫与定向验证。
+- [去重App元数据与排序守卫独立审查](./artwork-deduplication-app-structure-guards-review-2026-10-24.md)：锁序、分支与排序CAS复核。
+- [去重来源证明持久槽](./artwork-deduplication-source-snapshot-2026-10-24.md)：正式111五个可空槽、严格格式、无损迁移与兼容门槛证据。
+- [去重来源证明持久槽独立审查](./artwork-deduplication-source-snapshot-review-2026-10-24.md)：迁移兼容P2修复复核，生产接线尚未实施。
+- [去重批量来源证明](./artwork-deduplication-source-groups-2026-10-24.md)：统一捕获/断言、集合锁顺序及 PostgreSQL 专项验证。
+- [去重批量来源证明独立审查](./artwork-deduplication-source-groups-review-2026-10-24.md)：路径重叠查询的性能问题及修复复核状态。
+- [去重 App 输入证明](./artwork-deduplication-app-input-proofs-2026-10-24.md)：导入、重扫、审计应用与 URL 意图冻结和重试保护。
+- [去重扫描来源接线](./artwork-deduplication-scan-sources-2026-10-24.md)：冻结输入、增量无变化回执及扫描/审计发布的原证明校验。
+- [去重 App 输入证明独立审查](./artwork-deduplication-app-input-proofs-review-2026-10-24.md)：来源冲突错误提示的 P2 及修复复核状态。
+- [去重扫描接线独立审查](./artwork-deduplication-scan-sources-review-2026-10-24.md)：隐含catalog锁序问题与测试注入证据缺口，未通过。
+- [去重归档接线暂停交接](./artwork-deduplication-archive-sources-pause-2026-10-24.md)：归档原证明链的已测范围和未完成事项。
+- [去重App媒体守卫WIP](./artwork-deduplication-app-media-guards-wip-2026-10-24.md)：媒体/章节注册和手工存储的未审改动。
+- [去重再次暂停交接](./artwork-deduplication-resume-pause-2026-10-24.md)：用户额度控制要求下的最终状态与续接入口。
+
+- [去重直接删除方案调整与文档验证](./artwork-deduplication-direct-delete-plan-2026-10-24.md)：替代隔离/恢复方案、三批暂停门槛及本轮文档范围；新删除未实现验收。
+
+- [去重直接删除第一批及审查](./artwork-deduplication-direct-delete-batch1-2026-10-24.md)：必要写保护与第一批完成证据。
+- [去重直接删除第二批完成与暂停交接](./artwork-deduplication-direct-delete-batch2-2026-10-24.md)：四来源后端、正式迁移、专项验证及第三批续接入口；删除能力保持关闭。
+- [去重直接删除第二批独立审查](./artwork-deduplication-direct-delete-batch2-review-2026-10-24.md)：P2-01修复差异复审通过，第二批完成。
+
+- [去重直接删除第三批页面与最终验收](./artwork-deduplication-direct-delete-batch3-2026-10-24.md)：正式 UI、候选授权、最终一次全量检查与定向修复证据。
+- [去重直接删除第三批独立审查](./artwork-deduplication-direct-delete-batch3-review-2026-10-24.md)：隐私遮蔽及审核分页 P2 已修复复审，代码门槛通过。
+
+- [去重直接删除第三批浏览器验收](./artwork-deduplication-direct-delete-batch3-browser-2026-10-24.md)：真实四来源删除、分页、隐私、窄屏和账户切换；明确未覆盖项及截图导出限制。

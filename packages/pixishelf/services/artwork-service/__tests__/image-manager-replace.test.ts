@@ -1,3 +1,4 @@
+vi.mock('../../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: vi.fn() }))
 import { fixtureReceipt, fixtureUser } from './media-content-fixture'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -25,6 +26,7 @@ const {
 
 vi.mock('@pixishelf/db', () => ({
   invalidateArtworkReadingForRebuild: invalidateReadingMock,
+  lockCreatorCatalog: vi.fn().mockResolvedValue(undefined),
   lockArtworkForReading: lockArtworkMock
 }))
 

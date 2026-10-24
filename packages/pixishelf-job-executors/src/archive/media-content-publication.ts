@@ -1,3 +1,4 @@
+import { lockArchiveSourcePublication } from './dedup-source-snapshot.ts'
 import {
   rebindCompletedArchivePublicationMediaWrite,
   type MediaContentDirectoryKey,
@@ -17,6 +18,8 @@ export async function recoverCompletedArchivePublicationWrite(input: {
   directory: MediaContentDirectoryKey
   paths: ArchiveStoragePaths
   archiveImport: Parameters<typeof assertCompletedArchivePublication>[2] & {
+    dedupSourceSnapshot: unknown
+    canonicalUrl: string
     generationToken: string | null
     sealedManifestSha256: string | null
     stagingPath: string
@@ -29,8 +32,9 @@ export async function recoverCompletedArchivePublicationWrite(input: {
   const rows = await context.mutateInTransaction<
     Prisma.TransactionClient & QueueSqlExecutor,
     Prisma.MediaContentPathWriteGetPayload<{}>[]
-  >((tx) =>
-    tx.mediaContentPathWrite.findMany({
+  >(async (tx) => {
+    await lockArchiveSourcePublication(tx, { ...archiveImport, directory: input.directory })
+    return tx.mediaContentPathWrite.findMany({
       where: {
         jobId: context.job.id,
         sessionId,
@@ -41,13 +45,13 @@ export async function recoverCompletedArchivePublicationWrite(input: {
       },
       take: 2
     })
-  )
+  })
   if (!rows.length) return null
   if (rows.length !== 1 || !archiveImport.generationToken || !archiveImport.sealedManifestSha256)
-    throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布恢复声明不唯一或缺少封存证明')
+    {throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布恢复声明不唯一或缺少封存证明')}
   const row = rows[0]!
   if (!row.jobId || !row.executionToken || row.executionAttempt === null)
-    throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布恢复声明缺少执行身份')
+    {throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布恢复声明缺少执行身份')}
   await assertCompletedArchivePublication(input.paths, archiveImport.sealedManifestSha256, archiveImport)
   const owner: MediaContentOwner = {
     ownerUserId: null,
@@ -60,6 +64,7 @@ export async function recoverCompletedArchivePublicationWrite(input: {
     }
   }
   return context.mutateInTransaction<Prisma.TransactionClient & QueueSqlExecutor, ExecutorMediaWrite>(async (tx) => {
+    await lockArchiveSourcePublication(tx, { ...archiveImport, directory: input.directory })
     const result = await rebindCompletedArchivePublicationMediaWrite(tx, {
       owner,
       previous: {
@@ -95,7 +100,7 @@ export async function recoverCompletedArchivePublicationWrite(input: {
       now: input.now
     })
     if (result.status !== 'READY')
-      throw new ArchiveExecutorError('STATE_CONFLICT', `归档发布声明交接被拒绝 (${result.status})`)
+      {throw new ArchiveExecutorError('STATE_CONFLICT', `归档发布声明交接被拒绝 (${result.status})`)}
     return { owner: result.value.owner, handles: [result.value.handle], source: result.value.source }
   })
 }

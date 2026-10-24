@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 vi.mock('@/services/setting.service', () => ({ getScanPath: async () => root }))
 vi.mock('@/lib/logger', () => ({ default: { error: vi.fn() } }))
 vi.mock('fs', async (original) => ({ ...(await original<typeof import('fs')>()), createReadStream: vi.fn() }))
-import { GET } from '../[...path]/route'
+import { GET as getImage } from '../[...path]/route'
 let root: string
 beforeAll(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), 'pixishelf-deletion-http-'))
@@ -30,7 +30,7 @@ describe('media route recovery evidence exclusion', () => {
     ['visible%5C..%5C.pixishelf-upload-recovery', 'deletions', 'manifest.json'],
     ['visible-alias', 'deletions', 'manifest.json']
   ])('rejects hidden or normalized alias segments %j', async (...segments) => {
-    const response = await GET(new NextRequest('http://localhost/api/v1/images/fixture'), {
+    const response = await getImage(new NextRequest('http://localhost/api/v1/images/fixture'), {
       params: Promise.resolve({ path: segments })
     })
     expect(response.status).toBe(403)

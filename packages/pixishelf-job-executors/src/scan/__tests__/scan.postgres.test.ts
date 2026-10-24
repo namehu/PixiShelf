@@ -12,7 +12,9 @@ import type {
   WorkerCapability
 } from '@pixishelf/job-contracts'
 import { canonicalizeAuditApplyInputs } from '@pixishelf/job-contracts'
-import { Prisma, PrismaClient } from '@pixishelf/db'
+import { Prisma, PrismaClient, captureArtworkDedupSources } from '@pixishelf/db'
+import { serializeArtworkDedupSourceSnapshot, parseArtworkDedupSourceSnapshot } from '@pixishelf/job-contracts'
+import { pixivScanSourceIdentities, resolveScanDedupRootIdentity } from '../dedup-source-snapshot.ts'
 import {
   type FencedExecutionTransaction,
   JobExecutionFenceError,
@@ -26,7 +28,7 @@ import {
   type QueueDatabase,
   type QueueSqlExecutor
 } from '@pixishelf/job-runtime'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { artistMappingInputDigest, localWorkInputDigest, metadataInputDigest } from '../digests.js'
 import { hashStableFile, statStableFile } from '../content-reader.js'
 import { executeConsistencyAudit } from '../consistency-audit-executor.js'
@@ -62,14 +64,184 @@ const capabilities: WorkerCapability[] = [
 ]
 const roots: string[] = []
 let numericId = 8_000_000
+let probeCatalog = false
+let catalogProbes = 0
 
 describePostgres('scan executor PostgreSQL integration', () => {
-  beforeEach(async () => cleanup())
+  beforeEach(async ({ task }) => {
+    probeCatalog = /marks newly published Pixiv|applies frozen NEW evidence|applies CHANGED evidence|original LOCAL_DIRECTORY proof for OPEN/.test(task.name)
+    catalogProbes = 0
+    await cleanup()
+  })
+  afterEach(() => { if (probeCatalog) expect(catalogProbes).toBeGreaterThan(0) })
 
   afterAll(async () => {
     await cleanup()
     await Promise.all(roots.splice(0).map((root) => fs.rm(root, { recursive: true, force: true })))
     await Promise.all([prisma?.$disconnect(), concurrentPrisma?.$disconnect()])
+  })
+
+  it.each(['HOLD', 'REOPEN'] as const)('rejects %s between discovery proof capture and page commit', async (transition) => {
+    const root = await fixtureRoot()
+    const externalId = nextNumericId()
+    const relativePath = `${externalId}-meta.json`
+    await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+    await fs.writeFile(path.join(root, `${externalId}_p0.jpg`), 'media')
+    const payload: ScanPayload = { mode: 'INCREMENTAL' }
+    const jobId = await seedJob('SCAN', payload, 1)
+    const repository = queue()
+    const execution = context(repository, await claim(repository, `proof-${transition}`), payload)
+    let rejectedCode: unknown
+    const originalMutate = execution.mutateInTransaction
+    let sourceId: string | undefined
+    let injected = false
+    execution.mutateInTransaction = (async (operation: (tx: QueueSqlExecutor) => Promise<unknown>) => {
+      const result = await originalMutate(operation).catch((error: unknown) => {
+        rejectedCode = (error as { code?: unknown }).code
+        throw error
+      })
+      if (!sourceId && Array.isArray(result) && Array.isArray(result[0]) && result[0][0]?.sourceId) {
+        sourceId = result[0].find((proof: { identity: { kind: string } }) => proof.identity.kind === 'PROVIDER').sourceId
+        await injectSourceTransition(sourceId!, transition)
+        injected = true
+      }
+      return result
+    }) as typeof execution.mutateInTransaction
+    try {
+      await executeScan(execution, dependencies(root))
+      expect(sourceId).toBeDefined()
+      expect(injected).toBe(true)
+      const failed = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
+      expect(failed.status).toBe('FAILED')
+      expect(rejectedCode).toBe(transition === 'HOLD' ? 'SOURCE_HELD' : 'SOURCE_GENERATION_CHANGED')
+      expect((await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })).checkpointStage).toBe('FAILED')
+      expect(await client().pixivMetadataInventory.count({ where: { relativePath } })).toBe(0)
+      expect(await client().scanRunMetadataInput.count({ where: { scanRun: { systemJobId: jobId } } })).toBe(0)
+      expect(await client().artworkExternalRef.count({ where: { providerKey: 'pixiv', externalId } })).toBe(0)
+    } finally {
+      if (sourceId) await client().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'OPEN', ownerOperationId: null } })
+    }
+  })
+
+  it.each(['HOLD', 'REOPEN', 'NULL'] as const)('keeps frozen proof and permits failure receipts after %s before publication', async (transition) => {
+    const root = await fixtureRoot()
+    const externalId = nextNumericId()
+    const relativePath = `${externalId}-meta.json`
+    await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+    await fs.writeFile(path.join(root, `${externalId}_p0.jpg`), 'media')
+    const payload: ScanPayload = { mode: 'INCREMENTAL' }
+    const jobId = await seedJob('SCAN', payload, 1)
+    const repository = queue()
+    const execution = context(repository, await claim(repository, `frozen-proof-${transition}`), payload)
+    const originalMutate = execution.mutateInTransaction
+    let frozen: Prisma.JsonValue | undefined
+    let sourceId: string | undefined
+    let inputId: string | undefined
+    let injected = false
+    execution.mutateInTransaction = (async (operation: (tx: QueueSqlExecutor) => Promise<unknown>) => {
+      const result = await originalMutate(operation)
+      if (!inputId && result && typeof result === 'object' && 'inputFrozenAt' in result && result.inputFrozenAt) {
+        const row = await client().scanRunMetadataInput.findFirstOrThrow({ where: { scanRun: { systemJobId: jobId } } })
+        inputId = row.id
+        frozen = row.dedupSourceSnapshot
+        sourceId = parseArtworkDedupSourceSnapshot(frozen).sources.find((proof) => proof.identity.kind === 'PROVIDER')!.sourceId
+        if (transition === 'NULL') {
+          await client().scanRunMetadataInput.update({ where: { id: row.id }, data: { dedupSourceSnapshot: Prisma.DbNull } })
+          expect((await client().scanRunMetadataInput.findUniqueOrThrow({ where: { id: row.id } })).dedupSourceSnapshot).toBeNull()
+        } else await injectSourceTransition(sourceId!, transition)
+        injected = true
+      }
+      return result
+    }) as typeof execution.mutateInTransaction
+    try {
+      await executeScan(execution, dependencies(root))
+      expect(inputId).toBeDefined()
+      expect(injected).toBe(true)
+      const failed = await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })
+      expect(failed.status).toBe('FAILED')
+      expect(failed.error).toContain(transition === 'NULL' ? 'no matching durable deduplication source proof' : transition === 'HOLD' ? 'SOURCE_HELD' : 'SOURCE_GENERATION_CHANGED')
+      expect((await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })).checkpointStage).toBe('FAILED')
+      expect((await client().scanRunMetadataInput.findUniqueOrThrow({ where: { id: inputId! } })).dedupSourceSnapshot).toEqual(transition === 'NULL' ? null : frozen)
+      expect(await client().artworkExternalRef.count({ where: { providerKey: 'pixiv', externalId } })).toBe(0)
+      const inventory = await client().pixivMetadataInventory.findUniqueOrThrow({ where: { relativePath } })
+      expect(inventory.processedContentHash).toBeNull()
+      expect(inventory.lastErrorCode).toBeNull()
+    } finally {
+      if (sourceId) await client().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'OPEN', ownerOperationId: null } })
+    }
+  })
+
+  it('rejects an unchanged discovery page when its captured generation changes before counters commit', async () => {
+    const root = await fixtureRoot()
+    const externalId = nextNumericId()
+    const relativePath = `${externalId}-meta.json`
+    await fs.writeFile(path.join(root, relativePath), JSON.stringify(metadataDocument(externalId)))
+    await fs.writeFile(path.join(root, `${externalId}_p0.jpg`), 'media')
+    const baseline = await executeIncremental(root, 'unchanged-source-baseline')
+    expect(baseline.status).toBe('COMPLETED')
+    const before = await client().pixivMetadataInventory.findUniqueOrThrow({ where: { relativePath } })
+    const payload: ScanPayload = { mode: 'INCREMENTAL' }
+    const jobId = await seedJob('SCAN', payload, 1)
+    const repository = queue()
+    const execution = context(repository, await claim(repository, 'unchanged-source-proof'), payload)
+    let rejectedCode: unknown
+    const originalMutate = execution.mutateInTransaction
+    let changed = false
+    execution.mutateInTransaction = (async (operation: (tx: QueueSqlExecutor) => Promise<unknown>) => {
+      const result = await originalMutate(operation).catch((error: unknown) => {
+        rejectedCode = (error as { code?: unknown }).code
+        throw error
+      })
+      if (!changed && Array.isArray(result) && Array.isArray(result[0]) && result[0][0]?.sourceId) {
+        const source = result[0].find((proof: { identity: { kind: string } }) => proof.identity.kind === 'PROVIDER')
+        await injectSourceTransition(source.sourceId, 'REOPEN')
+        changed = true
+      }
+      return result
+    }) as typeof execution.mutateInTransaction
+    await executeScan(execution, dependencies(root))
+    expect(changed).toBe(true)
+    const run = await client().scanRun.findUniqueOrThrow({ where: { systemJobId: jobId } })
+    expect(run).toMatchObject({ status: 'FAILED', checkpointStage: 'FAILED', inputCount: 0, inventoryUnchanged: 0 })
+    expect(rejectedCode).toBe('SOURCE_GENERATION_CHANGED')
+    expect(await client().pixivMetadataInventory.findUniqueOrThrow({ where: { relativePath } })).toEqual(before)
+  })
+
+  it.each(['OPEN', 'STALE', 'NULL'] as const)('requires the original LOCAL_DIRECTORY proof for %s local publication', async (state) => {
+    const root = await fixtureRoot()
+    const relativePath = 'local-imports/Artist/Work'
+    await fs.mkdir(path.join(root, relativePath), { recursive: true })
+    await fs.writeFile(path.join(root, relativePath, '1.jpg'), 'media')
+    const artist = await client().artist.create({ data: { name: `${testPrefix}-local-proof` } })
+    const mappings = [{ ordinal: 0, artistDirectory: 'Artist', artistId: artist.id }]
+    const work = { ordinal: 0, kind: 'MEDIA_DIRECTORY' as const, relativePath, fingerprint: null }
+    const payload: LocalDirectoryImportPayload = { defaultTagIds: [], mappingCount: 1, mappingDigest: artistMappingInputDigest(mappings) }
+    const rootIdentity = await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root))
+    const jobId = await seedJob('LOCAL_DIRECTORY_IMPORT', payload, 1)
+    const run = await client().$transaction(async (tx) => {
+      const sources = await captureArtworkDedupSources(tx, { identities: [{ kind: 'DIRECTORY', logicalRoot: 'source-media:v1', rootIdentity, canonicalPath: relativePath }] })
+      return tx.scanRun.create({ data: {
+        systemJobId: jobId, type: 'LOCAL_IMPORT', mode: 'LOCAL_DIRECTORY_IMPORT', status: 'PENDING',
+        inputCount: 1, inputDigest: localWorkInputDigest([work]), inputFrozenAt: clock.now(),
+        localWorkInputs: { create: { ...work, dedupSourceSnapshot: state === 'NULL' ? Prisma.DbNull : serializeArtworkDedupSourceSnapshot(sources) } },
+        localArtistMappingInputs: { create: mappings }
+      }, include: { localWorkInputs: true } })
+    })
+    const proof = run.localWorkInputs[0]!.dedupSourceSnapshot
+    if (state === 'STALE') {
+      const source = parseArtworkDedupSourceSnapshot(proof).sources[0]!
+      await client().artworkDedupSourceIdentity.update({ where: { id: source.sourceId }, data: { generation: { increment: 1 } } })
+    }
+    const repository = queue()
+    await executeLocalDirectoryImport(context(repository, await claim(repository, `local-proof-${state}`), payload), dependencies(root))
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe(state === 'OPEN' ? 'COMPLETED' : 'FAILED')
+    const artwork = await client().artwork.findUnique({ where: { storagePath: relativePath } })
+    expect(Boolean(artwork)).toBe(state === 'OPEN')
+    if (artwork) {
+      expect(artwork.createdVia).toBe('LOCAL_DIRECTORY')
+      await client().artwork.delete({ where: { id: artwork.id } })
+    }
+    expect((await client().scanRunLocalWorkInput.findUniqueOrThrow({ where: { id: run.localWorkInputs[0]!.id } })).dedupSourceSnapshot).toEqual(proof)
   })
 
   it('marks newly published Pixiv artworks only for opted-in accounts without creating visits', async () => {
@@ -1056,7 +1228,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
     executionContext.mutateInTransaction = (async (operation: (transaction: QueueSqlExecutor) => Promise<unknown>) => {
       const result = await originalMutate(operation)
       mutations += 1
-      if (mutations === 3) throw new Error('crash after first discovery page')
+      if (await client().scanRunMetadataInput.count({ where: { scanRunId: run.id } }) === 1) throw new Error('crash after first discovery page')
       return result
     }) as typeof executionContext.mutateInTransaction
     const baseDependencies = dependencies(root)
@@ -1083,6 +1255,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
     expect(await client().scanRunMetadataInput.count({ where: { scanRunId: run.id } })).toBe(1)
     expect((await client().scanRun.findUniqueOrThrow({ where: { id: run.id } })).inputFrozenAt).toBeNull()
 
+    const originalProof = (await client().scanRunMetadataInput.findFirstOrThrow({ where: { scanRunId: run.id } })).dedupSourceSnapshot
     executionContext.mutateInTransaction = originalMutate
     await expect(executeScan(executionContext, oneItemPages)).resolves.toEqual(
       TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
@@ -1096,6 +1269,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
       contentChanged: 2,
       publishedInputs: 2
     })
+    expect((await client().scanRunMetadataInput.findFirstOrThrow({ where: { scanRunId: run.id }, orderBy: { ordinal: 'asc' } })).dedupSourceSnapshot).toEqual(originalProof)
   })
 
   it('recovers changed content after a page crash without carrying forward the old permanent failure', async () => {
@@ -3128,9 +3302,14 @@ async function seedAuditApplyFixture(options: {
       inventoryUnchanged: 0
     }
   })
+  const freshRoot = await resolveSafeScanRoot(root)
+  await client().$transaction((tx) => bindPixivInventoryRoot(tx, freshRoot, clock.now()))
+  const sourceRootIdentity = await resolveScanDedupRootIdentity(freshRoot)
+  const dedupSourceSnapshot = serializeArtworkDedupSourceSnapshot(await client().$transaction((tx) => captureArtworkDedupSources(tx, { identities: pixivScanSourceIdentities({ rootIdentity: sourceRootIdentity, relativePath }) })))
   const sourceItem = await client().pixivSourceAuditItem.create({
     data: {
       scanRunId: auditRun.id,
+      dedupSourceSnapshot,
       ordinal: 0,
       differenceKind,
       relativePath,
@@ -3217,6 +3396,7 @@ async function seedApplyOperationFromAudit(
           relativePath: source.relativePath,
           contentHash: source.contentHash,
           sourceAuditItemId: source.sourceAuditItemId,
+          dedupSourceSnapshot: parseArtworkDedupSourceSnapshot((await client().pixivSourceAuditItem.findUniqueOrThrow({ where: { id: source.sourceAuditItemId } })).dedupSourceSnapshot),
           auditDifferenceKind: source.differenceKind,
           expectedExternalId: source.externalId,
           observedExternalId: source.externalId,
@@ -3280,7 +3460,7 @@ function context<TPayload extends ScanPayload | ScanV2Payload | ScanAuditApplyPa
     enqueueChild: vi.fn(async () => {
       throw new Error('not used')
     }),
-    mutateInTransaction: (operation) => repository.withFencedMutationTransaction(ownedFence, operation),
+    mutateInTransaction: <TTransaction extends QueueSqlExecutor, TResult>(operation: (transaction: TTransaction) => Promise<TResult>) => repository.withFencedMutationTransaction<TTransaction, TResult>(ownedFence, (transaction) => operation(catalogProbe(transaction))),
     finalizeInTransaction: async (operation) => {
       await repository.withFencedExecutionTransaction(ownedFence, operation)
       return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
@@ -3552,6 +3732,44 @@ function afterExternalRefLock(transaction: ScanTransaction, afterLock: () => Pro
     get(target, property, receiver) {
       if (property === 'artworkExternalRef') return coordinatedExternalRefs
       return Reflect.get(target, property, receiver)
+    }
+  })
+}
+
+/** Read back both commits; callers mark injection complete only after every assertion succeeds. */
+async function injectSourceTransition(sourceId: string, transition: 'HOLD' | 'REOPEN') {
+  const before = await client().artworkDedupSourceIdentity.findUniqueOrThrow({ where: { id: sourceId } })
+  await client().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
+  expect(await client().artworkDedupSourceIdentity.findUniqueOrThrow({ where: { id: sourceId } })).toMatchObject({ status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold', generation: before.generation })
+  if (transition === 'REOPEN') {
+    await client().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'OPEN', ownerOperationId: null, generation: { increment: 1 } } })
+    expect(await client().artworkDedupSourceIdentity.findUniqueOrThrow({ where: { id: sourceId } })).toMatchObject({ status: 'OPEN', ownerOperationId: null, generation: before.generation + 1n })
+  }
+}
+
+
+/** Real competing transaction: at the first catalog acquisition the writer must not own the root.
+ * The barrier pauses the actual executor before the lock; PostgreSQL lock_timeout detects inversion. */
+function catalogProbe<T extends object>(transaction: T): T {
+  if (!probeCatalog) return transaction
+  let observed = false
+  return new Proxy(transaction, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver)
+      if (property !== '$queryRawUnsafe') return value
+      return async (...args: unknown[]) => {
+        if (!observed && typeof args[0] === 'string' && args[0].includes('pg_advisory_xact_lock(7341902118)')) {
+          observed = true
+          await concurrentClient().$transaction(async (other) => {
+            await other.$queryRawUnsafe('SELECT pg_advisory_xact_lock(7341902118)::text')
+            await other.$executeRawUnsafe("SET LOCAL lock_timeout = '200ms'")
+            const roots = await other.$queryRawUnsafe<{ id: string }[]>('SELECT id FROM "MediaContentDirectoryState" WHERE "logicalRoot"=\'source-media:v1\' AND "relativeDirectory"=\'\' FOR UPDATE')
+            expect(roots).toHaveLength(1)
+          })
+          catalogProbes += 1
+        }
+        return Reflect.apply(value as (...parameters: unknown[]) => unknown, target, args)
+      }
     }
   })
 }

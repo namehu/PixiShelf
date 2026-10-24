@@ -59,7 +59,9 @@ export function BackgroundExecutionRow({
             </p>
             {dedupHref ? (
               <Button asChild variant="ghost" className="min-h-11">
-                <Link href={dedupHref}>查看检查进度</Link>
+                <Link href={dedupHref}>
+                  {visibleJob.type === 'ARTWORK_DEDUP_MAINTENANCE' ? '查看处理批次' : '查看检查进度'}
+                </Link>
               </Button>
             ) : detailJob ? (
               <Button

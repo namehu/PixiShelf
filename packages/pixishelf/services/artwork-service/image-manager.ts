@@ -1,3 +1,5 @@
+import { lockCreatorCatalog, type Prisma } from '@pixishelf/db'
+import { assertArtworkDedupAppWrite } from '../artwork-dedup-write-guard'
 import { assertContentScan } from './content-source-guard'
 import { createHash, randomUUID } from 'node:crypto'
 import { MediaDeleteConfirmationSchema, type MediaDeleteConfirmation } from '@/schemas/artwork-delete.dto'
@@ -136,6 +138,7 @@ export async function updateArtworkImagesTransaction(
   } = {}
 ) {
   return await prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     if (options.contentDirectory) await assertContentScan(tx, [options.contentDirectory])
     return updateArtworkImagesWithTransactionClient(tx, artworkId, files, chaptersMeta, options)
   })
@@ -160,6 +163,7 @@ export async function updateArtworkImagesWithTransactionClient(
       chaptersMeta
     )
   }
+  await assertArtworkDedupAppWrite(tx as unknown as import('@/lib/prisma').AppTransaction, artworkId, 'CONTENT')
   await invalidateArtworkReadingForRebuild(tx, artworkId)
   const orderedFiles = options.preserveExistingOrder
     ? preserveExistingMediaPathOrder(
@@ -240,10 +244,12 @@ export async function reorderArtworkImages(input: {
   const { artworkId, imageIds, expectedImageIds } = input
 
   return prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     const artwork = await lockArtworkForReading(tx, artworkId)
     if (!artwork) {
       throw new ArtworkImageOrderError('NOT_FOUND', 'Artwork not found')
     }
+    await assertArtworkDedupAppWrite(tx, artworkId, 'STRUCTURE')
 
     const currentImages = await tx.image.findMany({
       where: { artworkId },
@@ -422,6 +428,7 @@ export async function deleteImage(
   }
   const image = await deletionImage(imageId)
   await prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     if (image.artworkId) await lockArtworkForReading(tx, image.artworkId)
     const writing = await tx.image.findUnique({
       where: { id: imageId },
@@ -448,7 +455,9 @@ export async function deleteImage(
  */
 export async function addImage(artworkId: number, file: ImageMeta) {
   return await prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     await lockArtworkForReading(tx, artworkId)
+    await assertArtworkDedupAppWrite(tx, artworkId, 'CONTENT')
     const image = await tx.image.create({
       data: {
         artworkId,
@@ -481,6 +490,7 @@ export async function addImageWithChapters(
   userId?: string
 ) {
   return prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     const receipt = file.uploadReceipt
     if (!receipt || !userId) throw new ContentWriteConflict('缺少已完成上传的回执。')
     const checkpoint = await verifyUploadReceipt(tx, userId, receipt, file.path, { size: file.size })
@@ -498,6 +508,7 @@ export async function addImageWithChapters(
     }
     return publishContentOwner(tx, userId, [receipt.authorization], 'committed', async (inner) => {
       await lockArtworkForReading(inner, artworkId)
+      await assertArtworkDedupAppWrite(inner, artworkId, 'CONTENT')
       const artwork = await inner.artwork.findUnique({
         where: { id: artworkId },
         select: { storagePath: true, images: { take: 1, select: { path: true } } }
@@ -554,18 +565,24 @@ export async function addImageWithChapters(
  * @param input 关联入参
  */
 export async function associateChaptersToImage(input: { imageId: number } & ChapterMetaInput) {
-  const image = await prisma.image.update({
-    where: { id: input.imageId },
-    data: {
-      chaptersPath: input.chaptersPath,
-      chaptersCount: input.chaptersCount,
-      chaptersDuration: input.chaptersDuration,
-      chaptersUpdatedAt: new Date(),
-      chaptersHash: input.chaptersHash
-    }
+  const image = await deletionImage(input.imageId)
+  return prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
+    if (!image.artworkId) throw new ContentWriteConflict('媒体没有所属作品。')
+    await assertArtworkDedupAppWrite(tx, image.artworkId, 'CONTENT')
+    const current = await tx.image.findUnique({ where: { id: image.id }, select: { artworkId: true } })
+    if (current?.artworkId !== image.artworkId) throw new ContentWriteConflict('媒体所属作品已变化。')
+    return normalizeImageSizeField(await tx.image.update({
+      where: { id: image.id },
+      data: {
+        chaptersPath: input.chaptersPath,
+        chaptersCount: input.chaptersCount,
+        chaptersDuration: input.chaptersDuration,
+        chaptersUpdatedAt: new Date(),
+        chaptersHash: input.chaptersHash
+      }
+    }))
   })
-
-  return normalizeImageSizeField(image)
 }
 
 /**
@@ -586,10 +603,13 @@ export async function clearChaptersForImage(input: {
   }
   const image = await deletionImage(input.imageId)
   return prisma.$transaction(async (tx) => {
-    if (image.artworkId) await lockArtworkForReading(tx, image.artworkId)
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
+    if (!image.artworkId) throw new ContentWriteConflict('媒体没有所属作品。')
+    await assertArtworkDedupAppWrite(tx, image.artworkId, 'CONTENT')
     const current = await tx.image.findUnique({
       where: { id: image.id },
       select: {
+        artworkId: true,
         chaptersPath: true,
         contentSource: { select: { writeToken: true } },
         artwork: { select: { contentSource: { select: { writeToken: true } } } }
@@ -597,6 +617,7 @@ export async function clearChaptersForImage(input: {
     })
     if (
       !current ||
+      current.artworkId !== image.artworkId ||
       current.chaptersPath !== image.chaptersPath ||
       current.artwork?.contentSource?.writeToken ||
       current.contentSource?.writeToken
@@ -626,6 +647,7 @@ export async function reconcileArtworkImages(
   chapters: ReplaceChapterMetaInput[] = []
 ) {
   await lockArtworkForReading(tx, artworkId)
+  await assertArtworkDedupAppWrite(tx, artworkId, 'CONTENT')
   const source = await tx.artworkContentSource.findUnique({ where: { artworkId }, select: { writeToken: true } })
   if (source?.writeToken) throw new ContentWriteConflict()
   const existing = await tx.image.findMany({ where: { artworkId }, orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] })

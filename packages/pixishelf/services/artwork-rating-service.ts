@@ -1,6 +1,7 @@
 import 'server-only'
+import { assertArtworkDedupAppWrite } from './artwork-dedup-write-guard'
 import { TRPCError } from '@trpc/server'
-import { lockArtworkForReading } from '@pixishelf/db'
+import { lockArtworkForReading, lockCreatorCatalog, type Prisma } from '@pixishelf/db'
 import { prisma } from '@/lib/prisma'
 import {
   ArtworkRatingLevelSchema,
@@ -33,6 +34,7 @@ export async function setArtworkRating(
 ): Promise<ArtworkRatingState> {
   ArtworkRatingLevelSchema.parse(level)
   return prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
     const locked = await lockArtworkForReading(tx, artworkId)
     if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
     const artwork = await tx.artwork.findUnique({
@@ -42,6 +44,7 @@ export async function setArtworkRating(
     if (!artwork || artwork.deletedAt !== null || artwork.archiveLifecycleState !== 'ACTIVE') {
       throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
     }
+    await assertArtworkDedupAppWrite(tx, artworkId, 'ORGANIZATION')
     const where = { userId_artworkId: { userId, artworkId } }
     const existing = await tx.artworkLike.findUnique({ where, select: ratingSelect })
     if ((existing?.level ?? null) === level) return toState(artworkId, existing)

@@ -1,3 +1,5 @@
+import { assertArtworkDedupPathWritable } from './artwork-dedup-claims'
+import { ArtworkDedupOperationError } from './artwork-dedup-operation'
 import { Prisma, type MediaContentPathWrite } from '@prisma/client'
 import {
   ACTIVE_CONTENT_WRITES,
@@ -208,6 +210,13 @@ export async function beginMediaContentPathWrite(
       assertContentLimit(input.upload.totalChunks, 2_147_483_647)
     }
     const dirs = await lockContentDirectories(tx, [input.directory])
+    try {
+      await assertArtworkDedupPathWritable(tx, { directory: input.directory, scope: input.scope })
+    } catch (error) {
+      if (error instanceof ArtworkDedupOperationError && error.code === 'SOURCE_HELD')
+        throw new MediaContentConflictError('WRITING')
+      throw error
+    }
     const directory = dirs.get(`${input.directory.logicalRoot}\0${input.directory.relativeDirectory}`)!
     const existing = await tx.mediaContentPathWrite.findUnique({ where: { writeToken: input.writeToken } })
     if (existing) {
@@ -895,6 +904,8 @@ export async function beginMediaContentSourceWrite(
   ]
   const artworks = await lockContentArtworks(tx, allArtworkIds)
   if (artworks.length !== allArtworkIds.length) throw new MediaContentConflictError('MISSING')
+  if (await tx.artworkDedupClaim.count({ where: { artworkId: { in: allArtworkIds } } }))
+    throw new MediaContentConflictError('WRITING')
   const images = await lockContentImages(tx, imageIds)
   if (
     images.length !== imageIds.length ||

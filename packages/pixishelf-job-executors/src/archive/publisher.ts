@@ -1,3 +1,4 @@
+import { lockArchiveSourcePublication } from './dedup-source-snapshot.ts'
 import { assertArchiveImportNotDeleted } from './deletion-policy.ts'
 import path from 'node:path'
 import {
@@ -6,6 +7,7 @@ import {
   readSourceCreatorTags,
   syncSourceCreators,
   consumeDiscoveryCreators,
+  assertArtworkDedupWritable,
   invalidateArtworkReadingForRebuild
 } from '@pixishelf/db'
 import { ArchiveExecutorError } from './errors.ts'
@@ -40,6 +42,7 @@ export async function publishArchiveImportInTransaction(
     include: { items: { orderBy: { pageIndex: 'asc' } }, externalRef: true }
   })
   if (!archiveImport) throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入已不存在')
+  await lockArchiveSourcePublication(transaction, archiveImport)
   await assertArchiveImportNotDeleted(transaction, archiveImport)
   if (archiveImport.status !== 'RUNNING') {
     throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入已不再运行', { recoverable: true })
@@ -83,6 +86,7 @@ export async function publishArchiveImportInTransaction(
   const description = nullableString(metadata.description)
   const postedAtText = nullableString(metadata.postedAt)
   const postedAt = postedAtText ? new Date(postedAtText) : null
+  if (existingRef) await assertArtworkDedupWritable(transaction, { artworkId: existingRef.artworkId, kind: 'CONTENT' })
   if (existingRef) await invalidateArtworkReadingForRebuild(transaction, existingRef.artworkId)
   const artwork = existingRef
     ? await transaction.artwork.update({

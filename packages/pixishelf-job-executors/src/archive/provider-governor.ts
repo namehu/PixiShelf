@@ -269,6 +269,10 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
     return this.delegate.accepts(url)
   }
 
+  identifySource(input: string) {
+    return this.delegate.identifySource(input)
+  }
+
   async resolve(url: string, context: { signal?: AbortSignal } = {}) {
     const signal = context.signal ?? new AbortController().signal
     const linked = linkedAbortController(signal)

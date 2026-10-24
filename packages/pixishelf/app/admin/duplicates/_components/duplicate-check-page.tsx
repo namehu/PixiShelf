@@ -17,9 +17,11 @@ import { createBrowserUuid } from '@/lib/browser-uuid'
 import { useTRPC } from '@/lib/trpc'
 import { AdminWorkbench } from '../../_components/admin-workbench'
 import { DuplicateCheckStart } from './duplicate-check-start'
+import { DuplicateWorkspace } from './duplicate-workspace'
+import { DuplicateQueryError } from './duplicate-query-feedback'
 import { DuplicateRunStatus, isDuplicateRunActive } from './duplicate-run-status'
 
-type CheckLocation = { artistId: number | null; runId: string | null }
+type CheckLocation = { artistId: number | null; runId: string | null; operationId?: string | null }
 
 function CheckShell({
   children,
@@ -60,10 +62,10 @@ function LoadingCheck() {
   )
 }
 
-export function DuplicateCheckPage({ artistId, runId }: CheckLocation) {
+export function DuplicateCheckPage({ artistId, runId, operationId }: CheckLocation) {
   const { data: session, isPending } = useSession()
   const userId = session?.user.id
-  if (!artistId && !runId) {
+  if (!artistId && !runId && !operationId) {
     return (
       <CheckShell>
         <Empty>
@@ -93,8 +95,39 @@ export function DuplicateCheckPage({ artistId, runId }: CheckLocation) {
       </CheckShell>
     )
   }
+  if (operationId && !artistId && !runId) {
+    return <OperationEntry key={`${userId}:${operationId}`} userId={userId} operationId={operationId} />
+  }
   // Remount the entire intent scope when the account or selected run changes.
   return <AccountCheck key={`${userId}:${artistId}:${runId}`} userId={userId} artistId={artistId} runId={runId} />
+}
+
+function OperationEntry({ userId, operationId }: { userId: string; operationId: string }) {
+  const trpc = useTRPC()
+  const query = useQuery({
+    ...trpc.artworkDedup.getOperation.queryOptions({ operationId, expectedUserId: userId }),
+    retry: false,
+    gcTime: 0
+  })
+  if (!query.data) {
+    return (
+      <CheckShell>
+        {query.isError ? (
+          <DuplicateQueryError busy={query.isFetching} onRetry={() => void query.refetch()} />
+        ) : (
+          <LoadingCheck />
+        )}
+      </CheckShell>
+    )
+  }
+  return (
+    <AccountCheck
+      key={`${userId}:${query.data.operation.runId}`}
+      userId={userId}
+      artistId={query.data.operation.artistId}
+      runId={query.data.operation.runId}
+    />
+  )
 }
 
 function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: string }) {
@@ -224,81 +257,86 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
 
   return (
     <CheckShell artistId={selectedArtistId} artistName={run?.artistName ?? artistQuery.data?.name}>
-      {runQuery.isError || artistQuery.isError ? (
-        <Alert className="mt-6">
-          <AlertTitle>检查状态暂未同步</AlertTitle>
-          <AlertDescription>
-            {run ? '保留最近一次状态，刷新后可继续操作。' : '暂时无法加载，请重新尝试。'}
-            <Button
-              type="button"
-              variant="outline"
-              className="mt-2 min-h-11 w-fit"
-              disabled={runQuery.isFetching || artistQuery.isFetching}
-              onClick={() => {
-                void runQuery.refetch()
-                if (selectedArtistId) void artistQuery.refetch()
-              }}
-            >
-              <RefreshCw data-icon="inline-start" aria-hidden="true" />
-              刷新状态
-            </Button>
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {operationError ? (
-        <Alert className="mt-6">
-          <AlertTitle>操作尚未确认</AlertTitle>
-          <AlertDescription>已重新读取检查状态，请确认当前状态后再试。</AlertDescription>
-        </Alert>
-      ) : null}
-      {loading ? (
-        <LoadingCheck />
-      ) : run ? (
-        <>
-          <DuplicateRunStatus
-            run={run}
-            pending={pending}
-            disabled={Boolean(pending) || runQuery.isError}
-            onControl={(action) => void submit(action)}
-          />
-          {!isDuplicateRunActive(run) ? (
-            <>
-              <Separator />
-              <section aria-label="重新检查" className="max-w-md py-8">
-                {canStart ? (
-                  startForm
-                ) : !artistQuery.isPending && !artistQuery.isError ? (
-                  <p className="text-sm text-muted-foreground">该艺术家当前没有可检查的作品。</p>
-                ) : null}
-              </section>
-            </>
-          ) : null}
-        </>
-      ) : !runQuery.isError && !artistQuery.isError ? (
-        <Empty className="py-12">
-          <EmptyHeader>
-            <EmptyTitle>
-              {runId
-                ? '找不到这次检查'
-                : !artistQuery.data
-                  ? '找不到这位艺术家'
-                  : artistQuery.data.artworksCount === 0
-                    ? '没有可检查的作品'
-                    : '还未检查'}
-            </EmptyTitle>
-            <EmptyDescription>
-              {runId
-                ? '请从艺术家详情页查看最近的检查。'
-                : !artistQuery.data
-                  ? '该艺术家可能已被合并或移除。'
-                  : artistQuery.data.artworksCount === 0
-                    ? '添加作品后，可以回来检查相同内容。'
-                    : '检查这位艺术家作品中的相同内容，原媒体会保持不变。'}
-            </EmptyDescription>
-          </EmptyHeader>
-          {!runId && canStart ? <EmptyContent>{startForm}</EmptyContent> : null}
-        </Empty>
-      ) : null}
+      <DuplicateWorkspace userId={userId} artistId={selectedArtistId} run={run}>
+        {runQuery.isError || artistQuery.isError ? (
+          <Alert className="mt-6">
+            <AlertTitle>检查状态暂未同步</AlertTitle>
+            <AlertDescription>
+              {run ? '保留最近一次状态，刷新后可继续操作。' : '暂时无法加载，请重新尝试。'}
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-2 min-h-11 w-fit"
+                disabled={runQuery.isFetching || artistQuery.isFetching}
+                onClick={() => {
+                  void runQuery.refetch()
+                  if (selectedArtistId) void artistQuery.refetch()
+                }}
+              >
+                <RefreshCw data-icon="inline-start" aria-hidden="true" />
+                刷新状态
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        {operationError ? (
+          <Alert className="mt-6">
+            <AlertTitle>操作尚未确认</AlertTitle>
+            <AlertDescription>已重新读取检查状态，请确认当前状态后再试。</AlertDescription>
+          </Alert>
+        ) : null}
+        {loading ? (
+          <LoadingCheck />
+        ) : run ? (
+          <>
+            <DuplicateRunStatus
+              run={run}
+              pending={pending}
+              disabled={Boolean(pending) || runQuery.isError}
+              onControl={(action) => void submit(action)}
+            />
+            {!isDuplicateRunActive(run) ? (
+              <>
+                <Separator />
+                <details className="max-w-md py-4">
+                  <summary className="flex min-h-11 cursor-pointer items-center text-sm text-primary">重新检查</summary>
+                  <section aria-label="重新检查" className="py-4">
+                    {canStart ? (
+                      startForm
+                    ) : !artistQuery.isPending && !artistQuery.isError ? (
+                      <p className="text-sm text-muted-foreground">该艺术家当前没有可检查的作品。</p>
+                    ) : null}
+                  </section>
+                </details>
+              </>
+            ) : null}
+          </>
+        ) : !runQuery.isError && !artistQuery.isError ? (
+          <Empty className="py-12">
+            <EmptyHeader>
+              <EmptyTitle>
+                {runId
+                  ? '找不到这次检查'
+                  : !artistQuery.data
+                    ? '找不到这位艺术家'
+                    : artistQuery.data.artworksCount === 0
+                      ? '没有可检查的作品'
+                      : '还未检查'}
+              </EmptyTitle>
+              <EmptyDescription>
+                {runId
+                  ? '请从艺术家详情页查看最近的检查。'
+                  : !artistQuery.data
+                    ? '该艺术家可能已被合并或移除。'
+                    : artistQuery.data.artworksCount === 0
+                      ? '添加作品后，可以回来检查相同内容。'
+                      : '检查这位艺术家作品中的相同内容，原媒体会保持不变。'}
+              </EmptyDescription>
+            </EmptyHeader>
+            {!runId && canStart ? <EmptyContent>{startForm}</EmptyContent> : null}
+          </Empty>
+        ) : null}
+      </DuplicateWorkspace>
     </CheckShell>
   )
 }

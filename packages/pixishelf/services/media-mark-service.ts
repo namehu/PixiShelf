@@ -1,4 +1,5 @@
 import 'server-only'
+import { assertArtworkDedupAppWrite } from './artwork-dedup-write-guard'
 import { lockArtworkForReading, Prisma } from '@pixishelf/db'
 import { TRPCError } from '@trpc/server'
 import { prisma, type AppTransaction } from '@/lib/prisma'
@@ -139,6 +140,7 @@ export async function setMediaMark(
       throw new TRPCError({ code: 'NOT_FOUND', message: '作品已不存在。' })
     }
     const artwork = await loadContext(tx, artworkId)
+    await assertArtworkDedupAppWrite(tx, artworkId, 'ORGANIZATION')
     const target = logicalTargets(artwork).find((group) => group.members.some((member) => member.id === mediaId))
     if (!target) throw new TRPCError({ code: 'NOT_FOUND', message: '图片已不存在。' })
     if (target.writing) throw new TRPCError({ code: 'CONFLICT', message: '媒体正在写入，请稍后重试。' })
@@ -266,6 +268,7 @@ export async function removeMediaMark(userId: string, markId: string, kind: Medi
     })
     if (!existing) return { success: true as const }
     const artwork = await loadContext(tx, initial.artworkId)
+    await assertArtworkDedupAppWrite(tx, initial.artworkId, 'ORGANIZATION')
     const target = logicalTargets(artwork).find((group) =>
       group.members.some((member) => member.id === existing.mediaId)
     )

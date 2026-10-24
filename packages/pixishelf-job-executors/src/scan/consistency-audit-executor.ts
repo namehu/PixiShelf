@@ -1,6 +1,15 @@
+import { assertSameRoot, assertInventoryBarrier } from './audit-root-guard.ts'
+import {
+  preparePixivDiscoverySources,
+  freezePixivDiscoveryRows,
+  parsePixivScanSourceSnapshot,
+  assertPixivScanSources,
+  resolveScanDedupRootIdentity
+} from './dedup-source-snapshot.ts'
 import { assertPixivRootUnchanged } from './root-identity.ts'
 import { performance } from 'node:perf_hooks'
-import type { Prisma } from '@pixishelf/db'
+import { assertArtworkDedupSourceGroups, type Prisma } from '@pixishelf/db'
+import { scanSourceProofs } from './dedup-source-snapshot.ts'
 import type { ScanV2Payload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, JobExecutionOutcome, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { throwIfAborted } from './bounded.ts'
@@ -100,11 +109,19 @@ export async function executeConsistencyAudit(
     if (snapshot.count === 0) {
       throw new ScanExecutorError('EMPTY_CONSISTENCY_AUDIT', 'Consistency audit discovered no metadata inputs')
     }
+    const sourceRootIdentity = await resolveScanDedupRootIdentity(root)
     const duplicateExpectedExternalIds = await findDuplicateExpectedExternalIds(dependencies.database, run.id)
 
     let processed = 0
     for await (const page of iterateAuditInputPages(dependencies.database, run.id, limits.pageSize)) {
       throwIfAborted(context.signal)
+      for (const row of page)
+        {parsePixivScanSourceSnapshot({
+          snapshot: row.dedupSourceSnapshot,
+          relativePath: row.relativePath,
+          rootIdentity: sourceRootIdentity,
+          externalId: row.expectedExternalId!
+        })}
       const pending = page.filter((row) => row.auditDifferenceKind === null)
       const inventories = await dependencies.database.pixivMetadataInventory.findMany({
         where: { relativePath: { in: pending.map((row) => row.relativePath) } }
@@ -272,7 +289,6 @@ async function freezeAuditSnapshot(input: {
   const prepared = await mutate(input.context, async (transaction) => {
     const current = await transaction.scanRun.findUniqueOrThrow({ where: { id: input.run.id } })
     if (current.inputFrozenAt) return { shouldFreeze: false, run: current }
-    await transaction.scanRunMetadataInput.deleteMany({ where: { scanRunId: input.run.id } })
     await transaction.pixivSourceAuditItem.deleteMany({ where: { scanRunId: input.run.id } })
     // A crash during an unfrozen traversal may leave page sightings. Clear only this run's
     // marker before rebuilding, otherwise stale sightings could hide a genuine MISSING item.
@@ -311,6 +327,7 @@ async function freezeAuditSnapshot(input: {
   })
   if (!prepared.shouldFreeze) return prepared.run
 
+  const sourceRootIdentity = await resolveScanDedupRootIdentity(input.root)
   const digest = createAuditMetadataDigestAccumulator()
   const started = performance.now()
   let ordinal = 0
@@ -322,6 +339,12 @@ async function freezeAuditSnapshot(input: {
     excludedRootDirectories: input.excludedRootDirectories
   })) {
     throwIfAborted(input.context.signal)
+    const sourceSnapshots = await preparePixivDiscoverySources({
+      context: input.context,
+      runId: input.run.id,
+      rootIdentity: sourceRootIdentity,
+      relativePaths: page.map((candidate) => candidate.relativePath)
+    })
     const rows = page.map((candidate) => ({
       scanRunId: input.run.id,
       ordinal: ordinal++,
@@ -333,7 +356,7 @@ async function freezeAuditSnapshot(input: {
     for (const row of rows) digest.update(row)
     if (rows.length > 0) {
       await mutate(input.context, async (transaction) => {
-        await transaction.scanRunMetadataInput.createMany({ data: rows })
+        await freezePixivDiscoveryRows(transaction, rows, sourceSnapshots)
         await transaction.scanRun.update({
           where: { id: input.run.id },
           data: { inputCount: ordinal, walkedEntries, metadataCandidates: ordinal }
@@ -354,6 +377,12 @@ async function freezeAuditSnapshot(input: {
   return mutate(input.context, async (transaction) => {
     const current = await transaction.scanRun.findUniqueOrThrow({ where: { id: input.run.id } })
     if (current.inputFrozenAt) return current
+    if ((await transaction.scanRunMetadataInput.count({ where: { scanRunId: input.run.id } })) !== ordinal) {
+      throw new ScanExecutorError(
+        'INPUT_SNAPSHOT_INVALID',
+        'Previously frozen audit inputs changed; create a new audit intent'
+      )
+    }
     const state = await transaction.pixivMetadataInventoryState.findUniqueOrThrow({ where: { id: 'pixiv' } })
     assertInventoryBarrier(
       state,
@@ -395,6 +424,11 @@ async function verifyAuditSnapshot(database: ScanDatabase, run: ScanRunRecord, l
       if (!candidate || candidate.artworkId !== row.expectedExternalId) {
         throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Consistency audit snapshot identity is invalid')
       }
+      parsePixivScanSourceSnapshot({
+        snapshot: row.dedupSourceSnapshot,
+        relativePath: row.relativePath,
+        externalId: row.expectedExternalId
+      })
       digest.update(row)
       count += 1
       if (count > limits.maxEntries) {
@@ -437,6 +471,17 @@ async function processFastUnchangedPage(input: {
     }
   }
   return mutate(input.context, async (transaction) => {
+    await assertArtworkDedupSourceGroups(transaction, {
+      groups: candidates.map(({ row }) =>
+        scanSourceProofs(
+          parsePixivScanSourceSnapshot({
+            snapshot: row.dedupSourceSnapshot,
+            relativePath: row.relativePath,
+            externalId: row.expectedExternalId!
+          })
+        )
+      )
+    })
     const externalIds = [...new Set(candidates.flatMap(({ inventory }) => inventory.externalId ?? []))]
     const refs =
       externalIds.length === 0
@@ -528,6 +573,14 @@ async function prepareAuditObservation(input: {
   limits: ScanExecutorLimits
   inventory: AuditInventory | undefined
 }): Promise<PreparedAuditObservation> {
+  await input.context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
+    await assertPixivScanSources(transaction, {
+      snapshot: input.row.dedupSourceSnapshot,
+      relativePath: input.row.relativePath,
+      rootIdentity: await resolveScanDedupRootIdentity(input.root),
+      externalId: input.row.expectedExternalId!
+    })
+  })
   const state = stateFromRow(input.row)
   const inventory = input.inventory
   if (
@@ -628,6 +681,11 @@ async function commitAuditObservation(input: {
   now: Date
 }) {
   return mutate(input.context, async (transaction) => {
+    const dedupSourceSnapshot = await assertPixivScanSources(transaction, {
+      snapshot: input.row.dedupSourceSnapshot,
+      relativePath: input.row.relativePath,
+      externalId: input.row.expectedExternalId!
+    })
     const currentInventory = await transaction.pixivMetadataInventory.findUnique({
       where: { relativePath: input.row.relativePath }
     })
@@ -732,6 +790,7 @@ async function commitAuditObservation(input: {
           scanRunId: input.runId,
           ordinal: input.row.ordinal,
           differenceKind: classification.kind,
+          dedupSourceSnapshot,
           relativePath: input.row.relativePath,
           expectedExternalId,
           observedExternalId: input.observation.metadata?.id ?? currentInventory?.externalId ?? null,
@@ -1093,41 +1152,6 @@ function sameFrozenState(left: StableFileState, right: StableFileState) {
     left.deviceId === right.deviceId &&
     left.inode === right.inode
   )
-}
-
-async function assertSameRoot(expected: SafeScanRoot, actual: SafeScanRoot) {
-  await assertPixivRootUnchanged(expected)
-  if (
-    expected.absolutePath !== actual.absolutePath ||
-    expected.deviceId !== actual.deviceId ||
-    expected.inode !== actual.inode
-  ) {
-    throw new ScanExecutorError('STATE_CONFLICT', 'Pixiv scan root changed during the consistency audit')
-  }
-}
-
-function assertInventoryBarrier(
-  state: {
-    status: string
-    baselineGeneration: number
-    rootPathHash: string
-    rootIdentity: string | null
-    rootDeviceId: bigint | null
-    rootInode: bigint | null
-  },
-  generation: number,
-  rootPathHash: string,
-  root: SafeScanRoot
-) {
-  if (
-    state.status !== 'READY' ||
-    state.baselineGeneration !== generation ||
-    state.rootPathHash !== rootPathHash ||
-    !root.rootIdentity ||
-    state.rootIdentity !== root.rootIdentity
-  ) {
-    throw new ScanExecutorError('STATE_CONFLICT', 'Pixiv metadata inventory changed during the consistency audit')
-  }
 }
 
 function defaultAuditLimits(): ScanExecutorLimits {

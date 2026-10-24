@@ -1,5 +1,7 @@
 import {
   isArchiveJobType,
+  artworkDedupScanPayloadSchema,
+  artworkDedupMaintenancePayloadSchema,
   executionLaneForJobType,
   jobTypeSchema,
   jobDtoSchema,
@@ -125,7 +127,12 @@ export function toJobDto(record: SystemJobWireRecord): JobDto {
     ...archiveExecutionSummary(record),
     hasPartialFailure: hasPartialFailure(record),
     idempotencyKey: redactSensitiveText(record.idempotencyKey),
-    payload: sanitizeJsonValue(record.payload, redactText),
+    payload:
+      record.type === 'ARTWORK_DEDUP_SCAN'
+        ? (artworkDedupScanPayloadSchema.safeParse(record.payload).data ?? null)
+        : record.type === 'ARTWORK_DEDUP_MAINTENANCE'
+          ? (artworkDedupMaintenancePayloadSchema.safeParse(record.payload).data ?? null)
+          : sanitizeJsonValue(record.payload, redactText),
     result: sanitizeJsonValue(record.result, redactText),
     message: redactText(record.message),
     errorCode: legacyYield ? null : record.errorCode,

@@ -1,3 +1,4 @@
+import { pixivSourceProofFixture, localSourceProofFixture } from './dedup-source-fixture.ts'
 import type { LocalDirectoryImportPayload, ScanPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext } from '@pixishelf/job-runtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -49,6 +50,7 @@ describe('ScanRun frozen input adapter', () => {
         scanRunId: 'run-1',
         ordinal: 0,
         relativePath: 'a/1-meta.json',
+        dedupSourceSnapshot: pixivSourceProofFixture('a/1-meta.json'),
         contentHash: 'a'.repeat(64),
         createdAt: frozenAt
       }
@@ -119,6 +121,7 @@ describe('ScanRun frozen input adapter', () => {
         ordinal: 0,
         kind: 'MEDIA_DIRECTORY' as const,
         relativePath: 'local-imports/Artist/Work',
+        dedupSourceSnapshot: localSourceProofFixture(),
         fingerprint: null,
         createdAt: frozenAt
       }

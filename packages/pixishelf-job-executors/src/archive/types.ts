@@ -188,6 +188,7 @@ export interface ArchiveMediaProvider {
 export interface ArchiveProvider extends ArchiveMediaProvider {
   readonly requestGovernance: 'PER_REQUEST'
   accepts(url: URL): boolean
+  identifySource(input: string): { kind: 'PROVIDER'; providerKey: string; externalId: string }
   resolve(url: string, context?: ArchiveProviderContext): Promise<ResolvedArchive>
   openMedia(item: ArchiveProviderMediaItem, context: ArchiveDownloadContext): Promise<ArchiveRemoteMedia>
 }

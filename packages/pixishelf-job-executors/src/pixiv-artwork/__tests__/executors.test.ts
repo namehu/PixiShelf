@@ -1,3 +1,8 @@
+// Shared-series Claim checks run against PostgreSQL in dedup-shared-series.postgres.test.ts.
+vi.mock('../series-sync.ts', async (original) => ({
+  ...(await original<typeof import('../series-sync.ts')>()),
+  assertPixivSeriesArtworkWritable: vi.fn()
+}))
 import * as fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -262,7 +267,9 @@ describe('Pixiv artwork enrichment executor', () => {
     expect(complete).toHaveBeenCalledWith(
       expect.objectContaining({ result: expect.objectContaining({ appliedTextFields: ['description'], tagCount: 2 }) })
     )
-    const report = JSON.parse(await fs.readFile(path.join(root, 'artworks', '1001', 'sync-reports', 'job-1.json'), 'utf8'))
+    const report = JSON.parse(
+      await fs.readFile(path.join(root, 'artworks', '1001', 'sync-reports', 'job-1.json'), 'utf8')
+    )
     expect(report).toMatchObject({
       changeKind: 'UPDATED',
       tags: { added: ['tag-a', 'tag-b'], removed: ['old-tag'] },
@@ -376,7 +383,9 @@ describe('Pixiv artwork enrichment executor', () => {
     expect(complete).toHaveBeenCalledWith(
       expect.objectContaining({ result: expect.objectContaining({ skippedConcurrentFields: ['title'] }) })
     )
-    const report = JSON.parse(await fs.readFile(path.join(root, 'artworks', '1001', 'sync-reports', 'job-1.json'), 'utf8'))
+    const report = JSON.parse(
+      await fs.readFile(path.join(root, 'artworks', '1001', 'sync-reports', 'job-1.json'), 'utf8')
+    )
     expect(report).toMatchObject({ changeKind: 'PARTIAL', protectedFields: ['title'] })
   })
 

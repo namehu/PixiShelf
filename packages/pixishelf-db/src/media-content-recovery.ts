@@ -63,7 +63,7 @@ const allowedTypes = new Set([
   'ARCHIVE_MAINTENANCE',
   'ARCHIVE_PUBLISH'
 ])
-const offlineStatuses = new Set(['PENDING', 'PAUSED', 'FAILED'])
+const offlineStatuses = new Set(['PENDING', 'PAUSED', 'FAILED', 'CANCELLED'])
 const maxBytes = 1_048_576
 function canonical(value: unknown, depth = 0): string {
   if (depth > 32) throw new TypeError('Recovery snapshot exceeds maximum depth')
@@ -121,6 +121,9 @@ export function parseMediaContentRecoverySnapshot(value: unknown): MediaContentR
   text(job.status)
   text(input.sessionId)
   if (!allowedTypes.has(job.type) || !offlineStatuses.has(job.status)) throw new TypeError('Unsupported recovery job')
+  if (job.status === 'CANCELLED' && (job.type !== 'ARCHIVE_MAINTENANCE' || input.sessionId !== `archive-cleanup:${job.id}`)) {
+    throw new TypeError('Cancelled recovery is limited to original staging cleanup')
+  }
   assertContentHash(job.payloadSha256 as string)
   assertContentHash(input.domainSha256 as string)
   const claims = list(input.claims, 100)
@@ -225,8 +228,13 @@ export async function assertMediaContentWritersStopped(tx: MediaContentTransacti
     throw new MediaContentConflictError('WRITING')
 }
 async function assertOffline(tx: MediaContentTransaction, job: Awaited<ReturnType<typeof lockJob>>, now: Date) {
-  if (!offlineStatuses.has(job.status) || job.cancelRequestedAt || (job.leaseExpiresAt && job.leaseExpiresAt > now))
+  const payload = job.payload as Record<string, unknown> | null
+  const cancelledCleanup = job.status === 'CANCELLED' && job.type === 'ARCHIVE_MAINTENANCE' &&
+    payload?.action === 'CLEAN_STAGING' && typeof payload.archiveImportId === 'string'
+  if (!offlineStatuses.has(job.status) || (job.status === 'CANCELLED' && !cancelledCleanup) ||
+    (job.cancelRequestedAt && !cancelledCleanup) || (job.leaseExpiresAt && job.leaseExpiresAt > now)) {
     throw new MediaContentConflictError('WRITING')
+  }
   await assertMediaContentWritersStopped(tx, now)
 }
 async function snapshotFromLockedJob(

@@ -3,59 +3,51 @@ config:
   htmlLabels: false
   flowchart:
     htmlLabels: false
-title: 同艺术家作品去重 · 拟实施架构与边界
+title: 同艺术家作品去重 · 直接删除目标边界（未开放）
 ---
 flowchart TB
   subgraph Browser[浏览器]
-    A01[艺术家入口<br/>检查结果与隔离区]
+    A01[检查结果与删除记录<br/>冻结预览 一次不可恢复确认]
   end
   subgraph App[Next.js App 控制面]
-    A02[artworkDedup 领域接口<br/>会话 归属 版本 幂等校验]
-    A03[现有上传 替换 删除与发布入口]
-    A04[共享源代次与操作守卫]
+    A02[Session expectedUserId 版本 幂等<br/>独立 DIRECT_DELETE 门禁 默认关闭]
+    A03[上传 替换 章节 删除 标签 创作者<br/>扫描 来源 归档 普通回收维护]
+    A04[复用 Claim 来源证明与根协调<br/>含隐式 creator catalog 锁序]
   end
-  subgraph Database[PostgreSQL · 短事务与持久检查点]
-    A05[媒体与目录源状态、路径写入声明<br/>文件缓存、作品指纹与成员快照]
-    A06[检测任务 结果 审核与清理预览]
-    A07[维护操作 逐文件清单 回执<br/>作品声明 URL 保留约束 来源删除标记]
-    A08[任务队列 执行 token 与租约]
+  subgraph DB[PostgreSQL · 短事务 不包含文件动作]
+    A05[源代次 文件缓存 完整成员快照]
+    A06[检测 审核 PREPARE 新目的与版本<br/>旧 ISOLATION 不授权删除]
+    A07[keeper/copy Claim 来源 HOLD<br/>逐文件 intent/receipt 与独立墓碑]
+    A08[既有队列 fence token 与 reader 占用]
   end
-  subgraph Worker[后台 Worker 进程 · 三条既有执行 lane]
-    A09[Dispatcher<br/>能力匹配 心跳 公平让行]
-    A10[ARCHIVE_RESOLVE<br/>来源解析]
-    A11[ARCHIVE_DOWNLOAD<br/>下载 检查与封存]
-    A12[BACKGROUND_WRITER<br/>扫描 发布 去重检测<br/>PREPARE 隔离 恢复 手动清理]
+  subgraph Worker[Worker · 三条既有 lane]
+    A09[Dispatcher · 让行与能力核验]
+    A10[ARCHIVE_RESOLVE]
+    A11[ARCHIVE_DOWNLOAD<br/>原来源证明与真实 drain]
+    A12[BACKGROUND_WRITER<br/>检测 PREPARE DIRECT_DELETE<br/>等待 drain 持久状态并让槽]
   end
-  subgraph Reader[受控读取子进程]
-    A13[有界 stat 与流式 SHA-256<br/>进展通知 取消与退出确认]
+  subgraph Reader[唯一受控 reader]
+    A13[有界检查与 fresh 全组读取<br/>精确 unlink 同步与实际退出]
   end
-  subgraph Storage[受管文件系统 · 不与数据库形成原子事务]
-    A14[已发布原媒体根<br/>只对登记媒体进行检测]
-    A15[下载 staging<br/>不作为检测输入]
-    A16[同文件系统隔离区<br/>所有扫描入口排除]
+  subgraph FS[文件系统 · 独立于 DB]
+    A14[登记原媒体与明确冻结文件<br/>不移动 不整目录清空 不删空目录]
+    A15[归档 staging<br/>非检测输入 需确认相关执行停止]
   end
-  A01 -->|提交操作或查询状态| A02
-  A02 --> A04
+  A01 --> A02 --> A06
+  A02 --> A07
+  A02 --> A08
   A03 --> A04
-  A04 -->|核对代次与并发声明| A05
-  A04 -->|阻止受保护内容写入与再发布| A07
-  A02 -->|领域事务| A06
-  A02 -->|维护意图| A07
-  A02 -->|异步入队| A08
+  A04 --> A05
+  A04 --> A07
   A08 --> A09
-  A09 --> A10
+  A09 --> A10 --> A11
   A09 --> A11
   A09 --> A12
-  A10 -->|异步交接| A11
-  A11 -->|封存后交接 发布再核对守卫| A12
   A11 --> A15
-  A11 -->|下载及交接均核对操作声明| A07
-  A12 -->|完整成员快照与 fenced CAS| A05
-  A12 -->|聚合进度与完整结果| A06
-  A12 -->|声明 意图 回执 终态| A07
-  A12 -->|只读请求| A13
-  A13 --> A14
-  A12 -->|发布或逐文件维护| A14
-  A12 -->|隔离 恢复 手动清理| A16
-  A12 -->|让行前持久化检查点| A08
-  A13 -.->|无进展或失租约<br/>停止接收结果并确认退出| A12
+  A11 -->|原 token 停止回执不要求 OPEN| A07
+  A11 -->|最终发布复验原证明| A12
+  A12 -->|全范围版本与 fence| A05
+  A12 --> A06
+  A12 -->|认领 意图 回执 终结| A07
+  A12 --> A13 -->|只按持久精确清单| A14
+  A13 -.->|close 未证实 禁止替代进程| A08

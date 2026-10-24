@@ -15,7 +15,15 @@ export * from './media-content-writes'
 export * from './media-content-evidence'
 export * from './media-content-recovery'
 
-const latestRequiredMigration = '20261023004200_artwork_dedup_root_bindings'
+const latestRequiredMigration = '20261024001400_artwork_dedup_source_snapshot'
+
+const requiredSourceSnapshotTables = [
+  'scan_run_metadata_inputs',
+  'scan_run_local_work_inputs',
+  'pixiv_source_audit_items',
+  'archive_intake_items',
+  'archive_imports'
+] as const
 
 const requiredQueueObjects = [
   'ArtworkDedupRun',
@@ -24,6 +32,16 @@ const requiredQueueObjects = [
   'ArtworkDedupGroup',
   'ArtworkDedupGroupMember',
   'ArtworkDedupCommand',
+  'ArtworkDedupReviewState',
+  'ArtworkDedupReview',
+  'ArtworkDedupOperation',
+  'ArtworkDedupOperationGroup',
+  'ArtworkDedupOperationArtwork',
+  'ArtworkDedupOperationFile',
+  'ArtworkDedupClaim',
+  'ArtworkDedupSourceIdentity',
+  'ArtworkDedupOperationSource',
+  'ArtworkDedupFileReceipt',
   'MediaContentDirectoryState',
   'MediaContentRecoveryGrant',
   'MediaContentPathWrite',
@@ -89,6 +107,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
     ;[columnRows, tableRows, migrationRows, indexRows, contractRows] = await Promise.all([
       client.$queryRaw<Array<{ columnName: string }>>(Prisma.sql`
         SELECT CASE
+          WHEN column_name = 'dedupSourceSnapshot' THEN table_name || '.' || column_name
           WHEN table_name = 'Artwork' AND column_name = 'mediaRevision' THEN 'Artwork.mediaRevision'
           WHEN table_name = 'archive_imports' THEN 'archive_imports.' || column_name
           ELSE column_name
@@ -99,6 +118,7 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
             (table_name = 'system_jobs' AND column_name IN ('definitionVersion', 'executionLane', 'progressData', 'legacyDisplay'))
             OR (table_name = 'Artwork' AND column_name = 'mediaRevision')
             OR (table_name = 'archive_imports' AND column_name IN ('publishedArtworkDeletedAt', 'publishedArtworkPurgedAt', 'phase', 'origin', 'generationToken', 'sealedManifestSha256'))
+            OR (table_name IN (${Prisma.join(requiredSourceSnapshotTables)}) AND column_name = 'dedupSourceSnapshot')
             OR (table_name = 'Artist' AND column_name = 'userId')
             OR (table_name = 'Artwork' AND column_name = 'seriesId')
             OR (table_name = 'Series' AND column_name IN ('source', 'externalId'))
@@ -189,6 +209,10 @@ export async function assertBackgroundQueueSchema(client: PrismaClient): Promise
   ]) {
     if (!columnRows.some((row) => row.columnName === columnName)) missingObjects.push(columnName)
   }
+  for (const tableName of requiredSourceSnapshotTables) {
+    const columnName = `${tableName}.dedupSourceSnapshot`
+    if (!columnRows.some((row) => row.columnName === columnName)) missingObjects.push(columnName)
+  }
   for (const retiredColumn of ['userId', 'seriesId', 'source', 'externalId']) {
     if (columnRows.some(({ columnName }) => columnName === retiredColumn)) {
       missingObjects.push(`retired-column:${retiredColumn}`)
@@ -270,3 +294,18 @@ function wrapsWholeExpression(value: string): boolean {
   }
   return depth === 0
 }
+export * from './artwork-dedup-operation'
+
+export * from './artwork-dedup-review'
+
+export * from './artwork-dedup-user-delete'
+
+export * from './artwork-dedup-operation-reader-recovery'
+
+export * from './artwork-dedup-claims'
+
+export { reopenArtworkDedupSources } from './artwork-dedup-source-release'
+export { inspectArtworkDedupArchiveDrain, findUnresolvedArchiveStagingCleanup } from './artwork-dedup-archive-drain'
+export { assertNoArtworkDedupArchiveSourceHold } from './artwork-dedup-claims'
+
+export * from './artwork-dedup-direct-delete'

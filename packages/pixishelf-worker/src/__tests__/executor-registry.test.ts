@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { PrismaClient } from '@pixishelf/db'
 import {
+  createArtworkDedupExecutor,
+  createArtworkDedupMaintenanceExecutor,
   createPixivArtistExecutorRegistrations,
   createPixivArtworkExecutorRegistrations,
   createPixivSeriesExecutorRegistrations,
@@ -16,6 +18,8 @@ vi.mock('@pixishelf/job-executors', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@pixishelf/job-executors')>()
   return {
     ...actual,
+    createArtworkDedupExecutor: vi.fn(actual.createArtworkDedupExecutor),
+    createArtworkDedupMaintenanceExecutor: vi.fn(actual.createArtworkDedupMaintenanceExecutor),
     createPixivArtistExecutorRegistrations: vi.fn(actual.createPixivArtistExecutorRegistrations),
     createPixivArtworkExecutorRegistrations: vi.fn(actual.createPixivArtworkExecutorRegistrations),
     createPixivSeriesExecutorRegistrations: vi.fn(actual.createPixivSeriesExecutorRegistrations),
@@ -97,6 +101,18 @@ describe('ExecutorRegistry', () => {
       })
     ).toBeNull()
   })
+  it('isolates maintenance v2 while retaining the legacy PREPARE parser', () => {
+    const dependencies = { database: {} as PrismaClient, sourceRoot: '/fixture', archiveRoot: '/fixture', readerOptions: { entrypoint: '/fixture/reader.cjs' } }
+    const old = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies))
+    const modern = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies)).register(createArtworkDedupMaintenanceExecutor(dependencies, 2))
+    const job = { type: 'ARTWORK_DEDUP_MAINTENANCE', definitionVersion: 2, payload: { operationId: 'o', executionVersion: 1, mode: 'DIRECT_DELETE' } }
+    expect(old.resolve(job)).toBeNull()
+    expect(modern.resolve(job)?.payload).toEqual(job.payload)
+    expect(() => modern.resolve({ ...job, definitionVersion: 1 })).toThrow()
+    expect(modern.resolve({ ...job, definitionVersion: 1, payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE' } })?.payload).toMatchObject({ mode: 'PREPARE' })
+    expect(() => modern.resolve({ ...job, payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE' } })).toThrow()
+    expect(modern.resolve({ ...job, payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 1 } })?.payload).toMatchObject({ purpose: 'DIRECT_DELETE' })
+  })
 
   it('rejects duplicate registrations and future versions without an explicit payload parser', () => {
     const registry = new ExecutorRegistry().register({
@@ -132,7 +148,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to 38 job capabilities and 46 type/version combinations', () => {
+  it('locks the production Worker to 39 job capabilities and 48 type/version combinations', () => {
     const fetchImpl = vi.fn<typeof fetch>()
     const registry = createWorkerExecutorRegistry({
       fetchImpl,
@@ -162,8 +178,16 @@ describe('ExecutorRegistry', () => {
       expect(register).toHaveBeenCalledWith(expect.objectContaining({ fetchImpl }))
     }
     expect(fetchImpl).not.toHaveBeenCalled()
-    expect(capabilities).toHaveLength(38)
-    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(46)
+    expect(vi.mocked(createArtworkDedupExecutor).mock.lastCall?.[0].supervisor).toBe(
+      vi.mocked(createArtworkDedupMaintenanceExecutor).mock.lastCall?.[0].supervisor
+    )
+    expect(capabilities.find((row) => row.jobType === 'ARTWORK_DEDUP_MAINTENANCE')).toEqual({
+      jobType: 'ARTWORK_DEDUP_MAINTENANCE',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersions: [1, 2]
+    })
+    expect(capabilities).toHaveLength(39)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(48)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
       [1, 2, 3, 4, 5]
     )
@@ -194,7 +218,7 @@ describe('ExecutorRegistry', () => {
       capabilities
         .filter(
           (capability) =>
-            !['SCAN', 'ARCHIVE_IMPORT', 'ARCHIVE_SEARCH_SCAN', 'ARCHIVE_TITLE_RULE_PREVIEW'].includes(
+            !['SCAN', 'ARCHIVE_IMPORT', 'ARCHIVE_SEARCH_SCAN', 'ARCHIVE_TITLE_RULE_PREVIEW', 'ARTWORK_DEDUP_MAINTENANCE'].includes(
               capability.jobType
             )
         )

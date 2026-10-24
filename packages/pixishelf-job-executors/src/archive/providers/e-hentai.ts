@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { parseGalleryUrlIdentity, parseSupportedUrl } from './e-hentai-url.ts'
 import {
   archiveTitleQuerySchema,
   archiveTitleSearchTerm,
@@ -96,6 +97,11 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
     return url.protocol === 'https:' && url.hostname.toLowerCase() === GALLERY_HOST && /^\/(?:g|s)\//.test(url.pathname)
   }
 
+  identifySource(input: string) {
+    const identity = parseGalleryUrlIdentity(parseSupportedUrl(input))
+    return { kind: 'PROVIDER' as const, providerKey: this.key, externalId: String(identity.gid) }
+  }
+
   async resolve(input: string, context: ArchiveProviderContext = {}): Promise<ResolvedArchive> {
     const submitted = parseSupportedUrl(input)
     const gallery = await this.resolveGalleryIdentity(submitted, context)
@@ -179,7 +185,7 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
         if (input.cursor.length > MAX_SEARCH_CURSOR_LENGTH * 2) throw new Error('oversized cursor')
         const decoded = JSON.parse(Buffer.from(input.cursor, 'base64url').toString('utf8'))
         if (decoded.version !== 1 || decoded.binding !== binding || typeof decoded.cursor !== 'string')
-          throw new Error('invalid cursor')
+          {throw new Error('invalid cursor')}
         cursor = decoded.cursor
       } catch {
         throw new ArchiveError('INVALID_URL', '标题搜索游标与当前来源或条件不一致')
@@ -426,19 +432,15 @@ export class EHentaiProvider implements ArchiveUploaderProvider {
   }
 
   private async resolveGalleryIdentity(url: URL, context: ArchiveProviderContext) {
-    const galleryMatch = url.pathname.match(/^\/g\/(\d+)\/([a-z0-9]+)(?:\/|$)/i)
-    if (galleryMatch) return { gid: Number(galleryMatch[1]), token: galleryMatch[2]! }
-
-    const pageMatch = url.pathname.match(/^\/s\/([a-z0-9]+)\/(\d+)-(\d+)(?:\/|$)/i)
-    if (!pageMatch) throw new ArchiveError('INVALID_URL', '不支持的 E-Hentai 链接格式')
-    const gid = Number(pageMatch[2])
-    const pageNumber = Number(pageMatch[3])
+    const identity = parseGalleryUrlIdentity(url)
+    if (identity.kind === 'GALLERY') return { gid: identity.gid, token: identity.token }
+    const { gid, pageNumber } = identity
     const response = await runResolveRequest(context, () =>
       this.http.json<EhTokenResponse>(API_URL, {
         method: 'POST',
         ...(context.signal ? { signal: context.signal } : {}),
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ method: 'gtoken', pagelist: [[gid, pageMatch[1], pageNumber]] }),
+        body: JSON.stringify({ method: 'gtoken', pagelist: [[gid, identity.token, pageNumber]] }),
         maxBytes: 4 * 1024 * 1024
       })
     )
@@ -795,29 +797,6 @@ export function chooseCreatorBucket(tags: SourceTagValue[]): string {
   return artists.length + groups.length > 1 ? '_multiple' : '_unknown'
 }
 
-function parseSupportedUrl(input: string): URL {
-  let url: URL
-  try {
-    url = new URL(input)
-  } catch (error) {
-    throw new ArchiveError('INVALID_URL', 'E-Hentai 链接格式无效', { cause: error })
-  }
-  if (
-    url.protocol !== 'https:' ||
-    url.hostname.toLowerCase() !== GALLERY_HOST ||
-    url.username ||
-    url.password ||
-    url.port
-  ) {
-    throw new ArchiveError('INVALID_URL', '仅支持 https://e-hentai.org 的公开画廊或图片页链接')
-  }
-  if (!/^\/(?:g|s)\//.test(url.pathname)) {
-    throw new ArchiveError('INVALID_URL', '仅支持 /g/... 画廊链接和 /s/... 图片页链接')
-  }
-  url.hash = ''
-  return url
-}
-
 function uploaderSearchTerm(input: ArchiveUploaderScanInput): string {
   if (input.identityKind === 'UID') {
     if (!/^\d{1,20}$/.test(input.identityValue) || BigInt(input.identityValue) <= 0n) {
@@ -1073,7 +1052,7 @@ function findLink(html: string, pattern: RegExp, baseUrl: string): string | null
 function brokenImageReloadUrl(html: string, sourcePageUrl: string): string | null {
   const source = new URL(sourcePageUrl)
   if (source.protocol !== 'https:' || source.hostname !== GALLERY_HOST || source.username || source.password)
-    return null
+    {return null}
   for (const tag of html.match(/<a\b[^>]*>/gi) ?? []) {
     const attributes = parseAttributes(tag)
     if (attributes.id !== 'loadfail') continue
@@ -1093,7 +1072,7 @@ function brokenImageReloadUrl(html: string, sourcePageUrl: string): string | nul
 function expectedHathSha1(value: string): string | undefined {
   const url = new URL(value)
   if (url.protocol !== 'https:' || !url.hostname.endsWith('.hath.network') || url.username || url.password)
-    return undefined
+    {return undefined}
   const segments = url.pathname.split('/')
   const descriptorHash = (descriptor: string | undefined) =>
     descriptor?.match(/^([a-f0-9]{40})-\d+-\d+-\d+-[a-z0-9]+$/i)?.[1]?.toLowerCase()

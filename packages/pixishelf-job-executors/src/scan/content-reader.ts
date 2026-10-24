@@ -45,6 +45,7 @@ export async function readStableFileContent(input: {
   absolutePath: string
   maxBytes: number
   signal: AbortSignal
+  onProgress?: (bytesRead: bigint) => void | Promise<void>
 }): Promise<StableFileContent> {
   const result = await readOrHashStableFile({ ...input, collectBytes: true })
   return { ...result, bytes: result.bytes! }
@@ -64,6 +65,7 @@ async function readOrHashStableFile(input: {
   maxBytes: number
   signal: AbortSignal
   collectBytes: boolean
+  onProgress?: (bytesRead: bigint) => void | Promise<void>
 }): Promise<{ bytes?: Buffer; sha256: string; size: number; state: StableFileState }> {
   if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 1) {
     throw new ScanExecutorError('CONFIGURATION_INVALID', 'File read limit must be a positive integer')
@@ -98,6 +100,7 @@ async function readOrHashStableFile(input: {
       if (input.collectBytes) chunks.push(chunk)
       hash.update(chunk)
       offset += bytesRead
+      await input.onProgress?.(BigInt(offset))
       if (offset > input.maxBytes) {
         throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Input file exceeds the configured byte limit')
       }

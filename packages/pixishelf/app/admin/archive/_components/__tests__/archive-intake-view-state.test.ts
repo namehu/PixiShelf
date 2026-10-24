@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   analyzeArchiveUrlInput,
+  isRetryableIntakeItem,
+  isEnqueueableIntakeItem,
+  isSelectableIntakeItem,
   archiveIntakeStatusLabel,
   archiveIntakeItemHref,
   archiveReplacementNotice,
@@ -166,4 +169,29 @@ https://e-hentai.org/s/page/123-1
       title: '修正项目未进入解析队列'
     })
   })
+})
+
+it('does not reuse a historical intake without a source proof for retry or download', () => {
+  expect(
+    isRetryableIntakeItem({
+      id: 'old',
+      status: 'FAILED',
+      resolutionKind: null,
+      retryable: true,
+      sourceIntentValid: false
+    })
+  ).toBe(false)
+  expect(isRetryableIntakeItem({ id: 'old', status: 'STALE', resolutionKind: 'NEW', sourceIntentValid: false })).toBe(
+    false
+  )
+  expect(isEnqueueableIntakeItem({ id: 'old', status: 'READY', resolutionKind: 'NEW', sourceIntentValid: false })).toBe(
+    false
+  )
+})
+
+
+it('keeps a historical READY item selectable for cancellation while blocking downloads', () => {
+  const item = { id: 'old-ready', status: 'READY', resolutionKind: 'NEW', sourceIntentValid: false }
+  expect(isSelectableIntakeItem(item)).toBe(true)
+  expect(isEnqueueableIntakeItem(item)).toBe(false)
 })

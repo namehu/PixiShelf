@@ -1,7 +1,9 @@
+import { archiveCatalogProbe } from './catalog-order-probe.ts'
+import { captureArchiveFixtureSource } from './dedup-source-fixture.ts'
 import { ARCHIVE_INTAKE_PUBLISH_LOCK_ID, enqueueArchiveIntakeItemInTransaction } from '../intake-enqueue.ts'
 import { randomUUID } from 'node:crypto'
-import type { WorkerCapability } from '@pixishelf/job-contracts'
-import { Prisma, PrismaClient } from '@pixishelf/db'
+import { parseArtworkDedupSourceSnapshot, type WorkerCapability } from '@pixishelf/job-contracts'
+import { Prisma, PrismaClient, lockCreatorCatalog } from '@pixishelf/db'
 import {
   JobExecutionFenceError,
   MutableQueueClock,
@@ -76,6 +78,43 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     await prisma.systemJob.deleteMany({ where: { id: { startsWith: testPrefix } } })
     await prisma.$disconnect()
   })
+
+  it.each(['NULL', 'REOPEN'] as const)(
+    'rejects original resolver source %s without recapturing and records failure',
+    async (fault) => {
+      const clock = new MutableQueueClock(new Date('2026-08-18T10:00:00.000Z'))
+      const { jobId, itemId } = await seedResolverItem(clock.now())
+      const original = (await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })).dedupSourceSnapshot
+      const sourceId = parseArtworkDedupSourceSnapshot(original).sources[0]!.sourceId
+      if (fault === 'NULL')
+        await db().archiveIntakeItem.update({ where: { id: itemId }, data: { dedupSourceSnapshot: Prisma.DbNull } })
+      const resolve = vi.fn(async () => {
+        await db().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
+        await db().artworkDedupSourceIdentity.update({
+          where: { id: sourceId },
+          data: { status: 'OPEN', ownerOperationId: null, generation: { increment: 1 } }
+        })
+        return resolved
+      })
+      const repository = createRepository(clock)
+      const job = (await repository.claim('source-proof-resolver', capabilities))!
+      await executeArchiveResolveItem(executionContext(repository, job), {
+        database: db(),
+        providers: providerRegistry(resolve),
+        now: () => clock.now()
+      })
+      expect(resolve).toHaveBeenCalledTimes(fault === 'NULL' ? 0 : 1)
+      const failed = await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })
+      expect(failed).toMatchObject({
+        status: 'FAILED',
+        retryable: false,
+        archiveImportId: null,
+        resolvedSnapshot: null
+      })
+      expect(failed.dedupSourceSnapshot).toEqual(fault === 'NULL' ? null : original)
+      expect((await db().systemJob.findUniqueOrThrow({ where: { id: jobId } })).status).toBe('FAILED')
+    }
+  )
 
   it('atomically commits READY intake state with COMPLETED job settlement', async () => {
     const clock = new MutableQueueClock(new Date('2026-08-18T10:00:00.000Z'))
@@ -202,7 +241,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
       })
     ).toEqual({ status: 'RETRY_WAIT', errorCode: 'WORKER_LEASE_EXPIRED' })
   })
-  it('commits AUTO NEW intake, download job, event and catalog link together; reexecution creates nothing', async () => {
+  it('catalog barrier: commits AUTO NEW intake, download job, event and catalog link together; reexecution creates nothing', async () => {
     const clock = new MutableQueueClock(new Date('2026-08-18T10:00:00.000Z'))
     const { jobId, itemId } = await seedResolverItem(clock.now())
     await db().archiveIntakeItem.update({
@@ -213,6 +252,10 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     const repository = createRepository(clock)
     const claim = (await repository.claim('auto-new', capabilities))!
     const context = executionContext(repository, claim)
+    const proof = (await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })).dedupSourceSnapshot
+    const probe = archiveCatalogProbe(db(), parseArtworkDedupSourceSnapshot(proof).sources[0]!.sourceId)
+    const finalize = context.finalizeInTransaction
+    context.finalizeInTransaction = (operation) => finalize<Parameters<typeof operation>[0]['transaction']>((scope) => operation({ ...scope, transaction: probe.wrap(scope.transaction) }))
     const dependencies = {
       database: db(),
       providers: providerRegistry(vi.fn(async () => resolved)),
@@ -220,6 +263,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
       uuid: () => testPrefix + '-' + randomUUID()
     }
     await executeArchiveResolveItem(context, dependencies)
+    expect(probe.hits()).toBe(1)
     const item = await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })
     expect(item).toMatchObject({
       status: 'ENQUEUED',
@@ -245,6 +289,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
         queuePriority: 900
       }
     })
+    expect(download.dedupSourceSnapshot).toEqual(item.dedupSourceSnapshot)
     expect(download.items).toHaveLength(1)
     expect(await db().systemJobEvent.count({ where: { jobId: download.systemJobId!, type: 'job.queued' } })).toBe(1)
     expect(await db().systemJob.findUniqueOrThrow({ where: { id: jobId } })).toMatchObject({ status: 'COMPLETED' })
@@ -278,6 +323,11 @@ describePostgres('archive resolver PostgreSQL integration', () => {
       key: providerKey,
       requestGovernance: 'PER_REQUEST',
       accepts: () => true,
+      identifySource: (input: string) => ({
+        kind: 'PROVIDER',
+        providerKey: 'test',
+        externalId: new URL(input).pathname.split('/')[2] ?? '1'
+      }),
       resolve: async (_url, providerContext) => providerContext!.runResolveRequest!(resolveRequest),
       openMedia: vi.fn()
     }
@@ -421,6 +471,23 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     ).toBe(1)
   })
 
+  it('catalog barrier: manual intake enqueue holds no archive/source at first catalog lock', async () => {
+    const now = new Date()
+    const { jobId, itemId } = await seedResolverItem(now)
+    await db().systemJob.update({ where: { id: jobId }, data: { status: 'COMPLETED' } })
+    const item = await db().archiveIntakeItem.update({ where: { id: itemId }, data: {
+      status: 'READY', providerKey: resolved.providerKey, externalId: resolved.externalId,
+      canonicalUrl: resolved.canonicalUrl, resolvedSnapshot: JSON.parse(JSON.stringify(resolved)),
+      metadataHash: 'a'.repeat(64), expiresAt: new Date(now.getTime() + 60_000)
+    } })
+    const probe = archiveCatalogProbe(db(), parseArtworkDedupSourceSnapshot(item.dedupSourceSnapshot).sources[0]!.sourceId)
+    const result = await db().$transaction((tx) => enqueueArchiveIntakeItemInTransaction(probe.wrap(tx), itemId, {
+      quality: 'ORIGINAL', requestedByUserId: null, timestamp: now, uuid: () => `${testPrefix}-${randomUUID()}`, defaultTagIds: []
+    }))
+    expect(probe.hits()).toBe(1)
+    expect(result.result).toBe('CREATED')
+  })
+
   it('serializes an AUTO handoff racing a manual enqueue into one download with the winning quality', async () => {
     const clock = new MutableQueueClock(new Date('2026-08-18T10:00:00.000Z'))
     const manual = await seedResolverItem(clock.now())
@@ -447,6 +514,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     })
     let locked = false
     const manualEnqueue = db().$transaction(async (transaction) => {
+      await lockCreatorCatalog(transaction)
       await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_INTAKE_PUBLISH_LOCK_ID)
       locked = true
       await released
@@ -651,6 +719,7 @@ async function seedResolverItem(now: Date) {
         create: {
           id: itemId,
           submittedUrl: 'https://example.test/g/gallery-1',
+          dedupSourceSnapshot: await captureArchiveFixtureSource(db(), resolved.providerKey, resolved.externalId),
           normalizedUrlHash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
           currentSystemJobId: jobId,
           createdAt: now,
@@ -726,6 +795,11 @@ function providerRegistry(resolve: ArchiveProvider['resolve']) {
     key: 'test',
     requestGovernance: 'PER_REQUEST',
     accepts: () => true,
+    identifySource: (input: string) => ({
+      kind: 'PROVIDER',
+      providerKey: 'test',
+      externalId: new URL(input).pathname.split('/')[2] ?? '1'
+    }),
     resolve,
     openMedia: vi.fn()
   }
@@ -765,6 +839,7 @@ async function seedArchiveImport(
       id: testPrefix + '-import-' + randomUUID(),
       providerKey: archive.providerKey,
       externalId: archive.externalId,
+      dedupSourceSnapshot: await captureArchiveFixtureSource(db(), archive.providerKey, archive.externalId),
       submittedUrl: archive.canonicalUrl,
       canonicalUrl: archive.canonicalUrl,
       locator: {},

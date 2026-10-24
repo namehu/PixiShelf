@@ -1,3 +1,4 @@
+import { captureArchiveFixtureSource } from './dedup-source-fixture.ts'
 import { cleanupFixtureContentDirectories } from '../../scan/__tests__/content-directory-cleanup.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import { link, mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
@@ -8,6 +9,7 @@ import sharp from 'sharp'
 import { PrismaClient, type Prisma } from '@pixishelf/db'
 import {
   executionLaneForJobType,
+  parseArtworkDedupSourceSnapshot,
   type ArchiveImportV2Payload,
   type ArchiveMaintenancePayload,
   type JobType
@@ -61,6 +63,37 @@ suite('archive download drain and cleanup interleavings', () => {
     await cleanup()
     await db?.$disconnect()
   })
+
+  it.each([false, true])(
+    'keeps original drain receipt under source HOLD while manifest settles, pause=%s',
+    async (pause) => {
+      const archive = await seed(`source-manifest-${pause}`)
+      const original = (await state(archive.id)).dedupSourceSnapshot
+      const sourceId = parseArtworkDedupSourceSnapshot(original).sources[0]!.sourceId
+      const download = await claim('ARCHIVE_DOWNLOAD')
+      const manifest = blockManifestLink(download.executionToken)
+      const running = execute(download, dependencies(archive.root))
+      void running.catch(() => undefined)
+      try {
+        await manifest.waitUntilReached()
+        await db!.artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
+        if (pause) await requestPause(download)
+        expect((await state(archive.id)).generations[0]?.drainedAt).toBeNull()
+        manifest.release()
+        if (pause) await running
+        else await expect(running).rejects.toThrow('SOURCE_HELD')
+        const stopped = await state(archive.id)
+        expect(stopped.generations[0]?.drainedAt).not.toBeNull()
+        expect(stopped.generations[0]?.sealedAt).toBeNull()
+        expect(stopped.dedupSourceSnapshot).toEqual(original)
+        if (pause) expect(stopped.status).toBe('PAUSED')
+        expect(await db!.systemJob.count({ where: { parentJobId: download.id } })).toBe(0)
+      } finally {
+        manifest.release()
+        await running.catch(() => undefined)
+      }
+    }
+  )
 
   it('does not drain or allow same-generation cleanup before the real manifest write finishes', async () => {
     const archive = await seed('manifest-drain')
@@ -120,7 +153,7 @@ suite('archive download drain and cleanup interleavings', () => {
     }
   }, 20_000)
 
-  it('cleans only a drained successor while the expired generation is still finishing its real manifest', async () => {
+  it('rejects whole cleanup while the expired generation is still finishing its real manifest', async () => {
     const archive = await seed('orphan-cleanup')
     const expired = await claim('ARCHIVE_DOWNLOAD')
     const manifest = blockManifestLink(expired.executionToken)
@@ -155,7 +188,9 @@ suite('archive download drain and cleanup interleavings', () => {
 
       await db!.archiveImport.update({ where: { id: archive.id }, data: { cleanupRequestedAt: clock.now() } })
       await seedCleanup(archive.id, 'orphan-maintenance')
-      await maintain(await claim('ARCHIVE_MAINTENANCE'), archive.root)
+      const cleanupJob = await claim('ARCHIVE_MAINTENANCE')
+      await expect(maintain(cleanupJob, archive.root)).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+      expect(await db!.mediaContentPathWrite.count({ where: { jobId: cleanupJob.id } })).toBe(0)
       const cleaned = await state(archive.id)
       expect(cleaned.generations.find((generation) => generation.token === expired.executionToken)).toMatchObject({
         drainedAt: null,
@@ -163,10 +198,10 @@ suite('archive download drain and cleanup interleavings', () => {
       })
       expect(
         cleaned.generations.find((generation) => generation.token === successor.executionToken)?.cleanedAt
-      ).not.toBeNull()
+      ).toBeNull()
       expect(await readFile(oldMedia)).toEqual(png)
       expect(await readFile(path.join(archive.root, oldGeneration.path, 'manifest.json.tmp'))).not.toHaveLength(0)
-      await expect(readdir(path.join(archive.root, freshGeneration.path))).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(await readFile(path.join(archive.root, freshGeneration.path, paused.items[0]!.stagedPath!))).toEqual(png)
 
       manifest.release()
       await expect(late).rejects.toThrow()
@@ -175,6 +210,9 @@ suite('archive download drain and cleanup interleavings', () => {
         JSON.parse(await readFile(path.join(archive.root, oldGeneration.path, 'manifest.json'), 'utf8')).generationToken
       ).toBe(expired.executionToken)
       expect(await state(archive.id)).toEqual(cleaned)
+      // Real I/O exit without the old fence still cannot persist a drain receipt.
+      await expect(maintain(cleanupJob, archive.root)).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+      expect(await db!.mediaContentPathWrite.count({ where: { jobId: cleanupJob.id } })).toBe(0)
       expect(await db!.systemJob.count({ where: { parentJobId: expired.id, type: 'ARCHIVE_PUBLISH' } })).toBe(0)
     } finally {
       manifest.release()
@@ -270,6 +308,7 @@ async function seed(label: string, sharedRoot?: string) {
       origin: 'MANUAL',
       providerKey: 'test',
       externalId: id,
+      dedupSourceSnapshot: await captureArchiveFixtureSource(db!, 'test', id),
       submittedUrl: 'https://example.test/archive',
       canonicalUrl: `https://example.test/${id}`,
       locator: {},
@@ -399,6 +438,7 @@ async function cleanup() {
   for (const execution of executions) jobs.add(execution.jobId)
   await db.artwork.deleteMany({ where: { title: prefix } })
   await db.archiveImport.deleteMany({ where: { id: { startsWith: prefix } } })
+  await db.artworkDedupSourceIdentity.deleteMany({ where: { providerKey: 'test', externalId: { startsWith: prefix } } })
   await db.jobResourceLease.deleteMany({ where: { ownerJobId: { in: [...jobs] } } })
   await db.systemJob.deleteMany({ where: { id: { in: [...jobs] } } })
   jobs.clear()

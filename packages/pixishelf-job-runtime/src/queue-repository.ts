@@ -671,7 +671,7 @@ export class PostgresQueueRepository {
   async enqueueChild(parentFence: ExecutionFence, input: EnqueueChildInput): Promise<EnqueuedChildJob> {
     assertFence(parentFence)
     const type = jobTypeSchema.parse(input.type)
-    if (type === 'ARTWORK_DEDUP_SCAN') throw new Error('Artwork detection must be created through its domain service')
+    if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(type)) throw new Error('Artwork detection must be created through its domain service')
     const executionLane = executionLaneForJobType(type)
     const definitionVersion = input.definitionVersion ?? JOB_DEFINITION_VERSION
     const queuePriority = input.queuePriority ?? 100
@@ -948,7 +948,7 @@ export class PostgresQueueRepository {
 
     return this.runTransaction(async (transaction) => {
       const domainRows = await transaction.$queryRawUnsafe<Array<{type:string}>>('SELECT type FROM system_jobs WHERE id=$1', jobId)
-      if (domainRows[0]?.type === 'ARTWORK_DEDUP_SCAN') throw new Error('Artwork detection must be controlled through its domain service')
+      if (['ARTWORK_DEDUP_SCAN', 'ARTWORK_DEDUP_MAINTENANCE'].includes(domainRows[0]?.type ?? '')) throw new Error('Artwork detection must be controlled through its domain service')
       if (await hasBlockingMediaContentCancellation(transaction, jobId)) {
         throw Object.assign(new Error(MEDIA_CONTENT_CANCELLATION_MESSAGE), { code: MEDIA_CONTENT_RECOVERY_REQUIRED })
       }
@@ -1858,7 +1858,7 @@ export class PostgresQueueRepository {
       `WITH eligible AS (
          SELECT
            "id",
-           CASE WHEN "type" = 'ARTWORK_DEDUP_SCAN' THEN 900 ELSE GREATEST(
+           CASE WHEN "type" IN ('ARTWORK_DEDUP_SCAN','ARTWORK_DEDUP_MAINTENANCE') THEN 900 ELSE GREATEST(
              CASE
                WHEN "triggerSource" IN ('MANUAL', 'RETRY') THEN 0
                ELSE 100

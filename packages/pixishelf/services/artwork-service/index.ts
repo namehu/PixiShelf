@@ -1,6 +1,7 @@
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { creatorInclude, editArtworkCreators, lockCreatorCatalog } from '@pixishelf/db'
 import 'server-only'
+import { assertArtworkDedupAppWrite } from '../artwork-dedup-write-guard'
 import { TRPCError } from '@trpc/server'
 
 import { ArtworkCardData, ArtworkCardListResponse, EnhancedArtworksResponse } from '@/types'
@@ -402,8 +403,8 @@ export async function updateArtwork(
   }
 
   return prisma.$transaction(async (tx) => {
-    if (creatorIds !== undefined || artistId !== undefined)
-      {await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)}
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
+    await assertArtworkDedupAppWrite(tx, id, 'STRUCTURE')
     if (data.title !== undefined || data.description !== undefined) {
       await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "Artwork" WHERE "id" = ${id} FOR UPDATE`)
       const current = await tx.artwork.findUniqueOrThrow({

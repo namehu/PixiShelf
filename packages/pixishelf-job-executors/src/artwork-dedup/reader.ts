@@ -1,10 +1,28 @@
+import {
+  MaintenanceSourceError,
+  maintenanceSourceErrorCodes,
+  type MaintenanceSourceResult
+} from './maintenance-source.ts'
 import { isReaderOwner, type DedupReaderOwner } from './reader-owner.ts'
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { ContentFileInspection } from '../media-content/file-reader.ts'
 import type { MediaContentReader } from '../media-content/artwork-fingerprint.ts'
 import { MediaContentFileError } from '../media-content/roots.ts'
 import { ARTWORK_DEDUP_LIMITS as limits } from './limits.ts'
-import type { DedupRead, DedupRoots, ReaderOperation, ReaderResponse } from './reader-protocol.ts'
+import {
+  isExclusiveReaderOperation,
+  type DedupRead,
+  type DedupRoots,
+  type ReaderOperation,
+  type ReaderResponse
+} from './reader-protocol.ts'
+import {
+  MaintenanceFileError,
+  maintenanceFileErrorCodes,
+  type MaintenanceInspection,
+  type MaintenanceDirectoryPage,
+  type MaintenanceFilesystemCapability
+} from './maintenance-files.ts'
 
 export class DedupReaderError extends Error {
   constructor(
@@ -134,6 +152,43 @@ export class ControlledDedupReader implements MediaContentReader {
       input.signal
     ) as Promise<DedupRead>
   }
+  inspectMaintenance(
+    input: Omit<Extract<ReaderOperation, { operation: 'inspect' | 'read' | 'maintenance-inspect' }>, 'operation'> & {
+      signal: AbortSignal
+    }
+  ): Promise<MaintenanceInspection> {
+    return this.request(
+      { operation: 'maintenance-inspect', root: input.root, relativePath: input.relativePath },
+      input.signal
+    ) as Promise<MaintenanceInspection>
+  }
+  inspectDirectory(
+    input: Omit<Extract<ReaderOperation, { operation: 'maintenance-directory' }>, 'operation'> & { signal: AbortSignal }
+  ): Promise<MaintenanceDirectoryPage> {
+    const { signal, ...request } = input
+    return this.request({ operation: 'maintenance-directory', ...request }, signal) as Promise<MaintenanceDirectoryPage>
+  }
+  inspectSource(
+    input: Omit<Extract<ReaderOperation, { operation: 'maintenance-source' }>, 'operation'> & { signal: AbortSignal }
+  ): Promise<MaintenanceSourceResult> {
+    const { signal, ...request } = input
+    return this.request({ operation: 'maintenance-source', ...request }, signal) as Promise<MaintenanceSourceResult>
+  }
+  probeFilesystem(
+    input: Omit<Extract<ReaderOperation, { operation: 'maintenance-capability' }>, 'operation'> & {
+      signal: AbortSignal
+    }
+  ): Promise<MaintenanceFilesystemCapability> {
+    const { signal, ...request } = input
+    return this.request(
+      { operation: 'maintenance-capability', ...request },
+      signal
+    ) as Promise<MaintenanceFilesystemCapability>
+  }
+  deleteFile(input: Omit<Extract<ReaderOperation,{operation:'direct-delete'}>,'operation'> & {signal:AbortSignal}): Promise<import('./maintenance-files.ts').DirectDeleteFileReceipt> {
+    const {signal,...request}=input
+    return this.request({operation:'direct-delete',...request},signal) as Promise<import('./maintenance-files.ts').DirectDeleteFileReceipt>
+  }
   close(reason = new Error('Reader closed')): Promise<void> {
     if (this.closing) return this.closing
     this.stopReason = reason
@@ -169,8 +224,8 @@ export class ControlledDedupReader implements MediaContentReader {
     )
       return Promise.reject(new DedupReaderError('READER_BUSY'))
     if (
-      [...this.pending.values()].some((p) => p.operation.operation === 'roots') ||
-      (operation.operation === 'roots' && this.pending.size > 0)
+      [...this.pending.values()].some((p) => isExclusiveReaderOperation(p.operation.operation)) ||
+      (isExclusiveReaderOperation(operation.operation) && this.pending.size > 0)
     )
       return Promise.reject(new DedupReaderError('READER_BUSY'))
     const child = this.ensureChild()
@@ -259,18 +314,34 @@ export class ControlledDedupReader implements MediaContentReader {
     this.pending.delete(message.id)
     pending.signal.removeEventListener('abort', pending.abort)
     if (message.type === 'error') {
+      if (typeof message.bytesRead !== 'bigint' || message.bytesRead < pending.bytes) {
+        pending.reject(new DedupReaderError('READER_ENVIRONMENT'))
+        void this.close().catch(() => undefined)
+        return
+      }
+      this.metrics.bytesRead += message.bytesRead - pending.bytes
+      this.onProgress?.(this.metrics)
       const codes = ['ROOT_CHANGED', 'UNSAFE_PATH', 'NOT_READABLE', 'INVALID_FILE', 'FILE_CHANGED'] as const
       const code = codes.find((code) => code === message.code)
-      const error = code ? new MediaContentFileError(code, code) : new DedupReaderError('READER_ENVIRONMENT')
-      if (!code || code === 'ROOT_CHANGED') void this.close(error).catch(() => undefined)
+      const maintenanceCode = maintenanceFileErrorCodes.find((code) => code === message.code)
+      const sourceCode = maintenanceSourceErrorCodes.find((code) => code === message.code)
+      const error = code
+        ? new MediaContentFileError(code, code)
+        : maintenanceCode
+          ? new MaintenanceFileError(maintenanceCode)
+          : sourceCode
+            ? new MaintenanceSourceError(sourceCode)
+            : new DedupReaderError('READER_ENVIRONMENT')
+      if ((!code && !maintenanceCode && !sourceCode) || code === 'ROOT_CHANGED')
+        void this.close(error).catch(() => undefined)
       pending.reject(error)
       return
     }
-    if (pending.operation.operation === 'inspect') {
+    if (pending.operation.operation === 'inspect' || pending.operation.operation === 'maintenance-inspect') {
       this.metrics.inspections++
       this.metrics.statLatencyMs += this.now() - pending.startedAt
     }
-    if (pending.operation.operation === 'read') {
+    if (pending.operation.operation === 'read' || pending.operation.operation === 'maintenance-source') {
       const result = message.value as DedupRead
       if (typeof result.bytesRead !== 'bigint' || result.bytesRead < pending.bytes) {
         pending.reject(new DedupReaderError('READER_ENVIRONMENT'))

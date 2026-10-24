@@ -1,3 +1,5 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
+import { assertLocalScanSources } from './dedup-source-snapshot.ts'
 import { assertScanRootUnchanged } from './root-identity.ts'
 import { captureScanMediaDirectory, assertScanMediaDirectory } from './media-content-guard.ts'
 import path from 'node:path'
@@ -146,6 +148,13 @@ async function processLocalWork(input: {
     scanRoot: input.root.absolutePath,
     relativeDirectory: input.work.relativePath
   })
+  await input.context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
+    await assertLocalScanSources(transaction, {
+      snapshot: input.work.dedupSourceSnapshot,
+      relativePath: input.work.relativePath,
+      rootIdentity: mediaDirectory.rootIdentity
+    })
+  })
   const media = await collectLocalMedia(
     input.root,
     input.work.relativePath,
@@ -166,7 +175,13 @@ async function processLocalWork(input: {
     ScanTransaction & QueueSqlExecutor,
     Awaited<ReturnType<typeof publishLocalMediaWork>>
   >(async (transaction) => {
+    await lockCreatorCatalog(transaction)
     await assertScanMediaDirectory(transaction, mediaDirectory)
+    await assertLocalScanSources(transaction, {
+      snapshot: input.work.dedupSourceSnapshot,
+      relativePath: input.work.relativePath,
+      rootIdentity: mediaDirectory.rootIdentity
+    })
     return publishLocalMediaWork({
       transaction,
       runId: input.runId,
@@ -212,14 +227,14 @@ async function recordLocalFailure(
       }
     })
     if (!context.signal.aborted)
-      await context.recordDiagnostic?.(transaction, {
+      {await context.recordDiagnostic?.(transaction, {
         key: `local:${runId}:${localCheckpointKey(work)}`,
         scope: 'ITEM',
         targetType: 'LOCAL_DIRECTORY',
         targetLabel: work.relativePath,
         stage: 'FAILED_WRITE',
         error
-      })
+      })}
     await transaction.scanRun.updateMany({
       where: { id: runId, checkpointOrdinal: { lt: work.ordinal + 1 } },
       data: { checkpointOrdinal: work.ordinal + 1, checkpointStage: 'PROCESSING' }

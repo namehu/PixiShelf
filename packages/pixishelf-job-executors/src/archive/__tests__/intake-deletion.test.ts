@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { Prisma } from '@pixishelf/db'
 import { enqueueArchiveIntakeItemInTransaction } from '../intake-enqueue.ts'
+import { dedupGuardFixture } from './dedup-guard-fixture.ts'
 
 describe('deleted identity enqueue boundary', () => {
   it.each([
@@ -12,7 +13,9 @@ describe('deleted identity enqueue boundary', () => {
     'blocks automatic, retained or stale intake: $mode / $autoOnly / $purgedAt',
     async ({ mode, autoOnly, purgedAt, createdAt }) => {
       const create = vi.fn()
+      const guard = dedupGuardFixture('test', '1')
       const tx = {
+        $queryRaw: guard.queryRaw,
         $queryRawUnsafe: vi.fn(async () => []),
         archiveIntakeItem: {
           findUnique: vi.fn(async () => ({
@@ -24,6 +27,7 @@ describe('deleted identity enqueue boundary', () => {
             expiresAt: new Date('2026-10-14'),
             providerKey: 'test',
             externalId: '1',
+            dedupSourceSnapshot: guard.snapshot,
             metadataHash: 'hash',
             resolvedSnapshot: { providerKey: 'test', externalId: '1', media: [] }
           }))

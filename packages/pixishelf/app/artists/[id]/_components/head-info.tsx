@@ -81,7 +81,7 @@ const Component: FC<HeadInfoProps> = ({ artist, immersiveHref }) => (
         actions={
           <>
             <Button asChild variant="outline" className="min-h-11">
-              <Link href={`/admin/duplicates?artistId=${artist.id}`}>
+              <Link href={`/admin/duplicates?artistId=${artist.id}&entry=direct`}>
                 <ScanSearchIcon data-icon="inline-start" aria-hidden="true" />
                 检查重复
               </Link>

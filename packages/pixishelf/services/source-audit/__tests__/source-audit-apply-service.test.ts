@@ -15,6 +15,23 @@ const v3Capability = {
 }
 
 describe('source audit apply producer', () => {
+  it.each(['missing', 'changed'])('rejects %s source proof without creating an apply intent', async (kind) => {
+    const transaction = transactionHarness()
+    const audit = completedAudit()
+    if (kind === 'missing') audit.sourceAuditItems[0]!.dedupSourceSnapshot = null as never
+    else
+      {audit.metadataInputs[0]!.dedupSourceSnapshot = {
+        ...audit.metadataInputs[0]!.dedupSourceSnapshot,
+        sources: audit.metadataInputs[0]!.dedupSourceSnapshot.sources.map((source) => ({ ...source, generation: '10' }))
+      }}
+    transaction.scanRun.findFirst.mockResolvedValue(audit)
+    await expect(startSourceAuditApply(request, 'admin-1', options(outerDatabase(transaction)))).resolves.toMatchObject(
+      { outcome: 'BLOCKED', reason: 'ITEMS_NOT_ELIGIBLE' }
+    )
+    expect(transaction.systemJob.create).not.toHaveBeenCalled()
+    expect(transaction.scanRunMetadataInput.createMany).not.toHaveBeenCalled()
+  })
+
   it('freezes eligible evidence and creates SCAN@v3, run, items and event atomically under the SCAN lock', async () => {
     const transaction = transactionHarness()
     const database = outerDatabase(transaction)
@@ -60,7 +77,8 @@ describe('source audit apply producer', () => {
           sourceAuditItemId: 'audit-item-new',
           contentHash: 'a'.repeat(64),
           observedExternalId: '101',
-          expectedProcessedContentHash: null
+          expectedProcessedContentHash: null,
+          dedupSourceSnapshot: completedAudit().metadataInputs[0]!.dedupSourceSnapshot
         }),
         expect.objectContaining({
           ordinal: 1,
@@ -399,7 +417,8 @@ function completedAudit() {
       mtimeMs: item.mtimeMs,
       ctimeMs: item.ctimeMs,
       deviceId: item.deviceId,
-      inode: item.inode
+      inode: item.inode,
+      dedupSourceSnapshot: item.dedupSourceSnapshot
     }))
   }
 }
@@ -434,7 +453,27 @@ function auditItem(input: {
     ctimeMs: null,
     deviceId: null,
     inode: null,
-    issueCode: null
+    issueCode: null,
+    dedupSourceSnapshot: {
+      version: 1,
+      sources: [
+        {
+          identity: { kind: 'PROVIDER', providerKey: 'pixiv', externalId: input.externalId },
+          sourceId: `provider-${input.externalId}`,
+          generation: '7'
+        },
+        {
+          identity: {
+            kind: 'PATH',
+            logicalRoot: 'source-media:v1',
+            rootIdentity: 'fixture-root',
+            canonicalPath: `${input.externalId}-meta.json`
+          },
+          sourceId: `path-${input.externalId}`,
+          generation: '9'
+        }
+      ]
+    }
   }
 }
 

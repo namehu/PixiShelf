@@ -19,7 +19,11 @@ import { PIXIV_AI_GENERATED_TAG, reconcilePixivAiGeneratedTag, resolvePixivAiGen
 import { fetchPixivArtworkMetadata, PixivArtworkRequestError } from './client.ts'
 import { PixivArtworkSnapshotError, storePixivArtworkSnapshot, storePixivArtworkSyncReport } from './storage.ts'
 import { buildPixivArtworkSyncReport, type PixivArtworkSyncTrackedState } from './sync-report.ts'
-import { observePixivSeriesState, reconcilePixivArtworkSeries } from './series-sync.ts'
+import {
+  observePixivSeriesState,
+  reconcilePixivArtworkSeries,
+  assertPixivSeriesArtworkWritable
+} from './series-sync.ts'
 
 const PROVIDER_KEY = 'pixiv'
 const CHILD_QUEUE_PRIORITY = 900
@@ -240,6 +244,7 @@ async function executeArtwork(
 
     return context.finalizeInTransaction<PixivArtworkTransaction>(async (scope) => {
       if (await finalizeControl(scope)) return
+      await assertPixivSeriesArtworkWritable(scope.transaction, payload.artworkId, response.normalized.series)
       const locked = await scope.transaction.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT ref."id"
         FROM "artwork_external_refs" AS ref
@@ -656,5 +661,5 @@ async function listOwnedPixivSourceTags(transaction: PixivArtworkTransaction, ar
 
 function throwIfAborted(signal: AbortSignal) {
   if (signal.aborted)
-    throw signal.reason instanceof Error ? signal.reason : new Error('Pixiv artwork enrichment interrupted')
+    {throw signal.reason instanceof Error ? signal.reason : new Error('Pixiv artwork enrichment interrupted')}
 }

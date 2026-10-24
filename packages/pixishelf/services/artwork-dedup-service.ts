@@ -59,7 +59,23 @@ function controls(run: Run): ArtworkDedupControlAction[] {
 }
 async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedupRunDto> {
   const artist = await tx.artist.findUnique({ where: { id: run.artistId }, select: { name: true } })
+  const lastCompleted =
+    run.status === 'COMPLETED'
+      ? null
+      : await tx.artworkDedupRun.findFirst({
+          where: { artistId: run.artistId, status: 'COMPLETED' },
+          orderBy: [{ finishedAt: 'desc' }, { id: 'desc' }],
+          select: { id: true, version: true, finishedAt: true, groupCount: true }
+        })
   return artworkDedupRunDtoSchema.parse({
+    lastCompletedRun: lastCompleted
+      ? {
+          runId: lastCompleted.id,
+          version: lastCompleted.version,
+          finishedAt: lastCompleted.finishedAt?.toISOString() ?? null,
+          groupCount: lastCompleted.groupCount
+        }
+      : null,
     runId: run.id,
     artistId: run.artistId,
     artistName: artist?.name ?? '艺术家已移除',

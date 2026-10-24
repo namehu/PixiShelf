@@ -1,4 +1,6 @@
 import { Prisma } from '@pixishelf/db'
+const sourceProof = vi.hoisted(() => ({ assert: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('@/services/archive-intake/archive-intake-source-proof', () => ({ assertArchiveIntakeSourceProof: sourceProof.assert }))
 import { describe, expect, it, vi } from 'vitest'
 import { BackgroundTaskError } from '../background-task-error'
 import {
@@ -42,7 +44,7 @@ function commandHarness(records: ReturnType<typeof jobRecord>[]) {
     $queryRawUnsafe: queryRawUnsafe,
     systemJob: { findUnique, updateMany, create },
     systemJobFailureAcknowledgement: { createMany: acknowledgementCreateMany },
-    archiveIntakeItem: { updateMany: updateIntakeItems },
+    archiveIntakeItem: { updateMany: updateIntakeItems, findFirst: vi.fn().mockResolvedValue({ submittedUrl: 'https://e-hentai.org/g/123/token/', dedupSourceSnapshot: { version: 1 } }) },
     scanRun: { findUnique: findScanRun, updateMany: updateScanRuns },
     scanRunItem: { updateMany: updateScanRunItems, findMany: findScanRunItems },
     systemJobEvent: { create: eventCreate }

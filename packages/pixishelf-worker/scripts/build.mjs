@@ -1,4 +1,7 @@
 import { build } from 'esbuild'
+import { buildDedupNative } from './build-dedup-native.mjs'
+
+buildDedupNative()
 
 await build({
   entryPoints: {

@@ -1,5 +1,6 @@
 import { ARTWORK_SUMMARY_CONFLICT, ARTWORK_SUMMARY_ALGORITHM_VERSION, artworkSummaryGroupsSchema } from '@pixishelf/job-contracts'
 import 'server-only'
+import { assertArtworkDedupAppWrite } from './artwork-dedup-write-guard'
 import { TRPCError } from '@trpc/server'
 import { type ArtworkReadingSummary } from '@prisma/client'
 import { Prisma, lockArtworkForReading } from '@pixishelf/db'
@@ -124,6 +125,7 @@ export async function getReadingContext(userId: string, artworkId: number): Prom
     const readingTx = tx as unknown as ReadingTx
     const locked = await lockArtworkForReading(readingTx, artworkId)
     if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
+    await assertArtworkDedupAppWrite(tx, locked.id, 'READING')
     ensureArtworkActive(await tx.artwork.findUnique({
       where: { id: artworkId },
       select: { deletedAt: true, archiveLifecycleState: true }
@@ -148,6 +150,7 @@ export async function getReaderInitialization(userId: string, artworkId: number)
   return prisma.$transaction(async (tx) => {
     const locked = await lockArtworkForReading(tx, artworkId)
     if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
+    await assertArtworkDedupAppWrite(tx, locked.id, 'READING')
     const { title, index } = await loadReaderIndex(tx, artworkId)
     const media = index.items
     const { row, seenIds } = await reconcileSummary(tx, userId, artworkId, media)
@@ -175,6 +178,7 @@ export async function reportReading(userId: string, input: ReadingReportInput): 
     const readingTx = tx as unknown as ReadingTx
     const locked = await lockArtworkForReading(readingTx, input.artworkId)
     if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
+    await assertArtworkDedupAppWrite(tx, locked.id, 'READING')
     ensureArtworkActive(await tx.artwork.findUnique({
       where: { id: input.artworkId },
       select: { deletedAt: true, archiveLifecycleState: true }
@@ -295,6 +299,7 @@ export async function markReadingRead(userId: string, input: ReadingMarkReadInpu
     const readingTx = tx as unknown as ReadingTx
     const locked = await lockArtworkForReading(readingTx, input.artworkId)
     if (!locked) throw new TRPCError({ code: 'NOT_FOUND', message: 'Artwork not found' })
+    await assertArtworkDedupAppWrite(tx, locked.id, 'READING')
     ensureArtworkActive(await tx.artwork.findUnique({
       where: { id: input.artworkId }, select: { deletedAt: true, archiveLifecycleState: true }
     }))

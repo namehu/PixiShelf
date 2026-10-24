@@ -5,11 +5,27 @@ vi.mock('@/services/artwork-dedup-service', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/services/artwork-dedup-service')>()
   return {
     ...original,
-    startArtworkDedup: mocks.start,
-    getArtworkDedupRun: mocks.getRun,
-    controlArtworkDedup: mocks.control,
-    listArtworkDedupGroups: mocks.listGroups
+    startArtworkDedup: (...args: Parameters<typeof original.startArtworkDedup>) => {
+      original.assertArtworkDedupAccount(args[0], args[1].expectedUserId)
+      return mocks.start(...args)
+    },
+    getArtworkDedupRun: (...args: Parameters<typeof original.getArtworkDedupRun>) => {
+      original.assertArtworkDedupAccount(args[0], args[1].expectedUserId)
+      return mocks.getRun(...args)
+    },
+    controlArtworkDedup: (...args: Parameters<typeof original.controlArtworkDedup>) => {
+      original.assertArtworkDedupAccount(args[0], args[1].expectedUserId)
+      return mocks.control(...args)
+    }
   }
+})
+vi.mock('@/services/artwork-dedup-review-service', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/services/artwork-dedup-review-service')>()
+  const { assertArtworkDedupAccount } = await import('@/services/artwork-dedup-service')
+  return { ...original, listArtworkDedupReviewGroups: (...args: Parameters<typeof original.listArtworkDedupReviewGroups>) => {
+    assertArtworkDedupAccount(args[0], args[1].expectedUserId)
+    return mocks.listGroups(...args)
+  } }
 })
 import { artworkDedupRouter } from '../artwork-dedup'
 const authorized = {
@@ -34,7 +50,7 @@ describe('artwork detection authorization', () => {
     }
     for (const fn of Object.values(mocks)) expect(fn).not.toHaveBeenCalled()
   })
-  it('rejects stale-account requests before invoking any service', async () => {
+  it('rejects stale-account requests through the real service guard before domain work', async () => {
     for (const invoke of calls(artworkDedupRouter.createCaller(authorized), 'other')) {
       await expect(invoke()).rejects.toMatchObject({ code: 'FORBIDDEN' })
     }
@@ -52,8 +68,9 @@ describe('artwork detection authorization', () => {
     await expect(
       caller.start({ artistId: 1, expectedUserId: 'owner', idempotencyKey: 'other', paths: ['private'] } as never)
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
-    await expect(caller.listGroups({ runId: 'run', expectedUserId: 'owner', limit: 51 })).rejects.toMatchObject({
+    await expect(caller.listGroups({ runId: 'run', expectedUserId: 'owner', limit: 101 })).rejects.toMatchObject({
       code: 'BAD_REQUEST'
     })
+    await expect(caller.listGroups({ runId: 'run', expectedUserId: 'owner', userId: 'forged' } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 })

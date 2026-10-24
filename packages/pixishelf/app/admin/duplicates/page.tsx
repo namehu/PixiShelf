@@ -9,12 +9,18 @@ export const metadata: Metadata = {
 export default async function DuplicatesPage({
   searchParams
 }: {
-  searchParams: Promise<{ artistId?: string | string[]; runId?: string | string[] }>
+  searchParams: Promise<{ artistId?: string | string[]; runId?: string | string[]; operationId?: string | string[] }>
 }) {
   const params = await searchParams
   const artistId = typeof params.artistId === 'string' && /^\d+$/.test(params.artistId) ? Number(params.artistId) : null
   const runId = typeof params.runId === 'string' && params.runId.trim().length <= 128 ? params.runId.trim() : null
+  const operationId =
+    typeof params.operationId === 'string' && params.operationId.trim().length <= 128 ? params.operationId.trim() : null
   return (
-    <DuplicateCheckPage artistId={artistId && Number.isSafeInteger(artistId) ? artistId : null} runId={runId || null} />
+    <DuplicateCheckPage
+      artistId={artistId && Number.isSafeInteger(artistId) ? artistId : null}
+      runId={runId || null}
+      operationId={operationId || null}
+    />
   )
 }

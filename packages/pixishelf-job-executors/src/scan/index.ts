@@ -21,3 +21,9 @@ export {
   assertPixivRootUnchanged
 } from './root-identity.ts'
 export { resolveSafeScanRoot } from './paths.ts'
+export {
+  pixivScanSourceIdentities,
+  parsePixivScanSourceSnapshot,
+  parseLocalScanSourceSnapshot,
+  scanSourceProofs
+} from './dedup-source-snapshot.ts'

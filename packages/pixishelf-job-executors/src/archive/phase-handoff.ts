@@ -1,3 +1,5 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
+import { assertArchiveSourceSnapshot } from './dedup-source-snapshot.ts'
 import { randomUUID } from 'node:crypto'
 import { archiveImportV2PayloadSchema, type ArchiveImportV2Payload } from '@pixishelf/job-contracts'
 import type { ExecutionContext, FencedExecutionTransaction } from '@pixishelf/job-runtime'
@@ -15,6 +17,7 @@ export async function handoffArchivePhase(
   seal?: { token: string; digest: string }
 ) {
   const transaction = scope.transaction
+  await lockCreatorCatalog(transaction)
   await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLICATION_LOCK)
   const current = await transaction.archiveImport.findUnique({ where: { id: context.payload.archiveImportId } })
   const predecessor = await transaction.systemJob.findUniqueOrThrow({ where: { id: context.job.id } })
@@ -28,6 +31,7 @@ export async function handoffArchivePhase(
   ) {
     throw new ArchiveExecutorError('STATE_CONFLICT', '归档阶段交接绑定已变化')
   }
+  await assertArchiveSourceSnapshot(transaction, current)
   if (seal) {
     const sealed = await transaction.archiveStagingGeneration.updateMany({
       where: { token: seal.token, archiveImportId: current.id, jobId: context.job.id, sealedAt: null, cleanedAt: null },

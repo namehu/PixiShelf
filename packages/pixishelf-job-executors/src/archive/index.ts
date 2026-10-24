@@ -15,3 +15,5 @@ export * from './discovery-scan-enqueue.ts'
 export * from './discovery-batch-executor.ts'
 export * from './discovery-batch-control.ts'
 export * from './title-rule-preview-executor.ts'
+
+export { parseArchiveSourceSnapshot, assertArchiveSourceSnapshot } from './dedup-source-snapshot.ts'

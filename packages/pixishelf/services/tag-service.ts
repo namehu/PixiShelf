@@ -1,3 +1,5 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
+import { assertArtworkDedupAppWrite } from './artwork-dedup-write-guard'
 import { prisma } from '@/lib/prisma'
 import { TAG_SELECT } from '@/schemas/models/tags'
 import { TTagResponseDto, TagResponseDto, type TagPixivStatusFilter } from '@/schemas/tag.dto'
@@ -295,45 +297,55 @@ export async function updateTag(
   id: number,
   data: { name?: string; name_zh?: string | null; name_en?: string | null; description?: string | null }
 ) {
-  const tag = await prisma.tag.findUnique({
-    where: { id },
-    select: { isSystem: true, name: true, name_zh: true, name_en: true }
-  })
-  if (!tag) {
-    throw new Error('Tag not found')
-  }
-
-  if (tag.isSystem && data.name && data.name !== tag.name) {
-    throw new Error('System tag name cannot be changed')
-  }
-
-  // 若名称已更新，需检查重复
-  if (data.name) {
-    const existing = await prisma.tag.findFirst({
-      where: {
-        name: data.name,
-        namespace: 'general',
-        NOT: { id }
-      }
+  return prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
+    const affected = await tx.artworkTag.findMany({
+      where: { tagId: id },
+      select: { artworkId: true },
+      distinct: ['artworkId'],
+      orderBy: { artworkId: 'asc' }
     })
-    if (existing) {
-      throw new Error('Tag name already exists')
+    for (const item of affected) await assertArtworkDedupAppWrite(tx, item.artworkId, 'STRUCTURE')
+    const tag = await tx.tag.findUnique({
+      where: { id },
+      select: { isSystem: true, name: true, name_zh: true, name_en: true }
+    })
+    if (!tag) {
+      throw new Error('Tag not found')
     }
-  }
-  const updateData: Prisma.TagUpdateInput = { ...data }
-  if (data.name_zh !== undefined) updateData.name_zh = normalizeNullableText(data.name_zh)
-  if (data.name_en !== undefined) updateData.name_en = normalizeNullableText(data.name_en)
-  if (data.description !== undefined) updateData.description = normalizeNullableText(data.description)
-  const translationChanged =
-    (data.name_zh !== undefined && normalizeNullableText(data.name_zh) !== normalizeNullableText(tag.name_zh)) ||
-    (data.name_en !== undefined && normalizeNullableText(data.name_en) !== normalizeNullableText(tag.name_en))
-  if (translationChanged) {
-    // 只要任一翻译字段仍有值就视为人工维护；描述或封面变更不应改写翻译归属。
-    const resultingNameZh = data.name_zh !== undefined ? normalizeNullableText(data.name_zh) : tag.name_zh
-    const resultingNameEn = data.name_en !== undefined ? normalizeNullableText(data.name_en) : tag.name_en
-    updateData.translateType = resultingNameZh || resultingNameEn ? 'MANUAL' : 'NONE'
-  }
-  return prisma.tag.update({ where: { id }, data: updateData })
+
+    if (tag.isSystem && data.name && data.name !== tag.name) {
+      throw new Error('System tag name cannot be changed')
+    }
+
+    // 若名称已更新，需检查重复
+    if (data.name) {
+      const existing = await tx.tag.findFirst({
+        where: {
+          name: data.name,
+          namespace: 'general',
+          NOT: { id }
+        }
+      })
+      if (existing) {
+        throw new Error('Tag name already exists')
+      }
+    }
+    const updateData: Prisma.TagUpdateInput = { ...data }
+    if (data.name_zh !== undefined) updateData.name_zh = normalizeNullableText(data.name_zh)
+    if (data.name_en !== undefined) updateData.name_en = normalizeNullableText(data.name_en)
+    if (data.description !== undefined) updateData.description = normalizeNullableText(data.description)
+    const translationChanged =
+      (data.name_zh !== undefined && normalizeNullableText(data.name_zh) !== normalizeNullableText(tag.name_zh)) ||
+      (data.name_en !== undefined && normalizeNullableText(data.name_en) !== normalizeNullableText(tag.name_en))
+    if (translationChanged) {
+      // 只要任一翻译字段仍有值就视为人工维护；描述或封面变更不应改写翻译归属。
+      const resultingNameZh = data.name_zh !== undefined ? normalizeNullableText(data.name_zh) : tag.name_zh
+      const resultingNameEn = data.name_en !== undefined ? normalizeNullableText(data.name_en) : tag.name_en
+      updateData.translateType = resultingNameZh || resultingNameEn ? 'MANUAL' : 'NONE'
+    }
+    return tx.tag.update({ where: { id }, data: updateData })
+  })
 }
 
 function normalizeNullableText(value: string | null | undefined): string | null {
@@ -345,13 +357,23 @@ function normalizeNullableText(value: string | null | undefined): string | null 
  * 删除标签
  */
 export async function deleteTag(id: number) {
-  const tag = await prisma.tag.findUnique({
-    where: { id },
-    select: { isSystem: true }
-  })
-  if (tag?.isSystem) {
-    throw new Error('System tags cannot be deleted')
-  }
+  return prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(tx as unknown as Prisma.TransactionClient)
+    const affected = await tx.artworkTag.findMany({
+      where: { tagId: id },
+      select: { artworkId: true },
+      distinct: ['artworkId'],
+      orderBy: { artworkId: 'asc' }
+    })
+    for (const item of affected) await assertArtworkDedupAppWrite(tx, item.artworkId, 'STRUCTURE')
+    const tag = await tx.tag.findUnique({
+      where: { id },
+      select: { isSystem: true }
+    })
+    if (tag?.isSystem) {
+      throw new Error('System tags cannot be deleted')
+    }
 
-  return prisma.tag.delete({ where: { id } })
+    return tx.tag.delete({ where: { id } })
+  })
 }

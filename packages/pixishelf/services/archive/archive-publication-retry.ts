@@ -1,3 +1,4 @@
+import { ArchiveExecutorError, assertArchiveSourceSnapshot } from '@pixishelf/job-executors'
 import type { Prisma } from '@pixishelf/db'
 import { ArchiveError } from './errors'
 
@@ -45,6 +46,14 @@ export async function retryUnresolvedArchivePublication(
   task: PublicationRetryTask,
   input: { timestamp: Date; requestedByUserId: string; message: string; changesFiles?: boolean }
 ): Promise<boolean> {
+  try {
+    await assertArchiveSourceSnapshot(transaction as unknown as Prisma.TransactionClient, task)
+  } catch (error) {
+    if (error instanceof ArchiveExecutorError && error.code === 'STATE_CONFLICT') {
+      throw new ArchiveError('STATE_CONFLICT', '原归档来源证明已失效，请保留原任务并重新提交。', { cause: error })
+    }
+    throw error
+  }
   const claims = await transaction.mediaContentPathWrite.findMany({
     where: {
       status: { in: ['ACTIVE', 'READY', 'RECOVERY_REQUIRED'] },

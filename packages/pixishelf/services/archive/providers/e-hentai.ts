@@ -7,6 +7,14 @@ export { chooseCreatorBucket, hashResolvedMetadata } from '@pixishelf/job-execut
 // Keep the Web error boundary while sharing all parsing, HTTP and recovery logic
 // with the Worker. Router handlers rely on the local ArchiveError identity.
 export class EHentaiProvider extends SharedEHentaiProvider {
+  override identifySource(input: string) {
+    try {
+      return super.identifySource(input)
+    } catch (error) {
+      throw toWebArchiveError(error)
+    }
+  }
+
   override async resolve(input: string, context: ArchiveProviderContext = {}) {
     try {
       return await super.resolve(input, context)

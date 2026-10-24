@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+// The maintenance boundary is covered with actual PostgreSQL/service calls in artwork-dedup-app-guards.postgres.test.ts.
+vi.mock('../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: vi.fn() }))
+
 const { lockMock, state, tx } = vi.hoisted(() => {
   const state = {
     summary: null as null | Record<string, unknown>,

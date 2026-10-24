@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto'
 import { performance } from 'node:perf_hooks'
-import { Prisma } from '@pixishelf/db'
+import { Prisma, assertArtworkDedupSourceGroups, assertArtworkDedupWritable } from '@pixishelf/db'
+import {
+  preparePixivDiscoverySources,
+  freezePixivDiscoveryRows,
+  scanSourceProofs,
+  assertPixivScanSources,
+  resolveScanDedupRootIdentity
+} from './dedup-source-snapshot.ts'
 import type { ScanPayload, ScanV2Payload, ScanAuditApplyPayload } from '@pixishelf/job-contracts'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
 import { mapBounded, throwIfAborted } from './bounded.ts'
@@ -78,14 +85,13 @@ export async function freezeIncrementalInventorySnapshot(input: {
     root: input.root,
     now: input.now
   })
+  const sourceRootIdentity = await resolveScanDedupRootIdentity(input.root)
   const baselineGeneration = inventoryState.status === 'INITIALIZING' ? inventoryState.baselineGeneration : null
 
   const prepared = await mutate(input.context, async (transaction) => {
     const current = await transaction.scanRun.findUniqueOrThrow({ where: { id: input.run.id } })
     if (current.inputFrozenAt) return { shouldFreeze: false, run: current }
-    // An unfrozen snapshot is intentionally rebuildable. Page commits may survive a crash, so
-    // retry replaces their run-local rows while retaining reusable observations in the inventory.
-    await transaction.scanRunMetadataInput.deleteMany({ where: { scanRunId: input.run.id } })
+    // Surviving input rows are immutable source intents, even before the run header is frozen.
     await transaction.scanRunItem.deleteMany({
       where: { scanRunId: input.run.id, checkpointKey: { startsWith: 'inventory-discovery:' } }
     })
@@ -143,6 +149,12 @@ export async function freezeIncrementalInventorySnapshot(input: {
     throwIfAborted(input.context.signal)
     await assertPixivRootUnchanged(input.root)
     metadataCandidates += page.length
+    const sourceSnapshots = await preparePixivDiscoverySources({
+      context: input.context,
+      runId: input.run.id,
+      rootIdentity: sourceRootIdentity,
+      relativePaths: page.map((candidate) => candidate.relativePath)
+    })
     const existing = await input.database.pixivMetadataInventory.findMany({
       where: { relativePath: { in: page.map((candidate) => candidate.relativePath) } }
     })
@@ -172,16 +184,6 @@ export async function freezeIncrementalInventorySnapshot(input: {
           contentHash: decision.contentHash
         })
         failedInputs += 1
-      } else if (decision.kind === 'PROCESS_STORED_HASH') {
-        observed.push({
-          relativePath: candidate.relativePath,
-          externalId: candidate.artworkId,
-          contentHash: decision.contentHash,
-          state: candidate.state,
-          inventory,
-          shouldProcess: true
-        })
-        contentChanged += 1
       } else {
         toHash.push({ candidate, inventory })
       }
@@ -259,6 +261,7 @@ export async function freezeIncrementalInventorySnapshot(input: {
     for (const row of frozenRows) digest.update(row)
 
     await mutate(input.context, async (transaction) => {
+      await assertArtworkDedupSourceGroups(transaction, { groups: [...sourceSnapshots.values()].map(scanSourceProofs) })
       // One transaction makes each discovery page replay-safe: its observed state, failures,
       // frozen inputs, and aggregate counters either advance together or not at all.
       for (const candidate of observed) {
@@ -373,7 +376,7 @@ export async function freezeIncrementalInventorySnapshot(input: {
         })
       }
       if (frozenRows.length > 0) {
-        await transaction.scanRunMetadataInput.createMany({ data: frozenRows })
+        await freezePixivDiscoveryRows(transaction, frozenRows, sourceSnapshots)
       }
       await transaction.scanRun.update({
         where: { id: input.run.id },
@@ -410,6 +413,12 @@ export async function freezeIncrementalInventorySnapshot(input: {
     await assertPixivRootUnchanged(input.root)
     const current = await transaction.scanRun.findUniqueOrThrow({ where: { id: input.run.id } })
     if (current.inputFrozenAt) return current
+    if ((await transaction.scanRunMetadataInput.count({ where: { scanRunId: input.run.id } })) !== ordinal) {
+      throw new ScanExecutorError(
+        'INPUT_SNAPSHOT_INVALID',
+        'Previously frozen discovery inputs changed; create a new scan intent'
+      )
+    }
     if (baselineGeneration !== null) {
       // READY is the global trust barrier: no row from a partial first traversal can establish
       // an existing Artwork baseline, even though page-level inventory writes are already durable.
@@ -469,12 +478,24 @@ export async function recordExistingInventoryDecision(input: {
   artistName: string
   inventoryBaselineGeneration: number | null
   inventoryRootPathHash: string
+  dedupSourceSnapshot?: unknown
   now: Date
 }) {
   const previousCheckpoint = await input.transaction.scanRunItem.findUnique({
     where: { scanRunId_checkpointKey: { scanRunId: input.runId, checkpointKey: input.checkpointKey } },
     select: { status: true, action: true }
   })
+  await assertPixivScanSources(input.transaction, {
+    snapshot: input.dedupSourceSnapshot,
+    relativePath: input.relativePath,
+    externalId: input.externalId
+  })
+  const guardedRef = await input.transaction.artworkExternalRef.findUnique({
+    where: { providerKey_externalId: { providerKey: 'pixiv', externalId: input.externalId } },
+    select: { artworkId: true }
+  })
+  if (guardedRef)
+    {await assertArtworkDedupWritable(input.transaction, { artworkId: guardedRef.artworkId, kind: 'CONTENT' })}
   // Besides recording the full-reconcile sighting, this update locks the source reference before
   // the exact Artwork/metaSource check below, keeping baseline classification inside one CAS boundary.
   const locked = await input.transaction.artworkExternalRef.updateMany({
@@ -668,6 +689,7 @@ export async function recordInventoryFailure(input: {
   state: StableFileState | undefined
   error: unknown
   parsed: boolean
+  updateInventory?: boolean
   now: Date
 }) {
   const classified = classifyInventoryFailure(input.error)
@@ -693,13 +715,13 @@ export async function recordInventoryFailure(input: {
     // A terminal external-state conflict uses null so a later ScanRun can reevaluate it.
     lastErrorRetryable: classified.retryable ? true : classified.contentDeterministic ? false : null
   }
-  if (input.state) {
+  if (input.updateInventory !== false && input.state) {
     await input.transaction.pixivMetadataInventory.upsert({
       where: { relativePath: input.relativePath },
       create: { relativePath: input.relativePath, ...inventoryStatData(input.state), ...inventoryErrorData },
       update: { ...inventoryStatData(input.state), ...inventoryErrorData }
     })
-  } else {
+  } else if (input.updateInventory !== false) {
     await input.transaction.pixivMetadataInventory.updateMany({
       where: { relativePath: input.relativePath },
       data: inventoryErrorData

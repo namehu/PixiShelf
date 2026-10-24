@@ -58,6 +58,10 @@ export const artworkDedupRunDtoSchema = z.object({
   frozenAt: z.string(),
   startedAt: z.string().nullable(),
   finishedAt: z.string().nullable(),
+  lastCompletedRun: z
+    .object({ runId: id, version, finishedAt: z.string().nullable(), groupCount: count })
+    .nullable()
+    .default(null),
   counts: z.object({
     artworks: count,
     processedArtworks: count,

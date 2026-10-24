@@ -1,3 +1,6 @@
+import { TRPCError } from '@trpc/server'
+const dedupGuard = vi.hoisted(() => vi.fn())
+vi.mock('../../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: dedupGuard }))
 const protocol = vi.hoisted(() => ({
   value: null as ReturnType<typeof createUploadProtocolMock> | null,
   failAck: false,
@@ -9,6 +12,7 @@ vi.mock('../content-source-guard', async (original) => {
   return {
     ...(await original<typeof import('../content-source-guard')>()),
     beginContentUpload: (...args: any[]) => protocol.value!.begin(args[0]),
+    finishLegacyContentGuards: vi.fn(),
     publishContentOwner: async (tx: any, _u: any, _a: any, _o: any, callback: (tx: any) => Promise<unknown>) =>
       callback(tx)
   }
@@ -63,6 +67,7 @@ describe('media-chapter-upload service', () => {
 
   beforeEach(async () => {
     scanRoot = await mkdtemp(path.join(os.tmpdir(), 'pixishelf-media-chapter-upload-'))
+    dedupGuard.mockReset().mockResolvedValue(undefined)
     protocol.failAck = false
     protocol.recovery.mockClear()
     artworkFindUniqueMock.mockReset()
@@ -72,6 +77,38 @@ describe('media-chapter-upload service', () => {
 
   afterEach(async () => {
     await rm(scanRoot, { recursive: true, force: true })
+  })
+
+  it.each(['CONFLICT', 'NOT_FOUND'] as const)('rejects %s before reading the manifest or starting file work', async (code) => {
+    artworkFindUniqueMock.mockResolvedValue({ id: 10, storagePath: '/artist/work', images: [] })
+    dedupGuard.mockRejectedValueOnce(new TRPCError({ code }))
+    const manifestText = vi.fn()
+    await expect(uploadMediaChapterManifest({
+      scanRoot, userId: fixtureUser, expectedUserId: fixtureUser,
+      uploadSessionId: fixtureAuthorization().sessionId,
+      uploadToken: '40000000-0000-4000-8000-000000000010',
+      uploadRequestId: '40000000-0000-4000-8000-000000000011',
+      artworkId: 10, imageId: 20, videoPath: '', manifestText
+    })).rejects.toMatchObject({ status: code === 'CONFLICT' ? 409 : 404 })
+    expect(manifestText).not.toHaveBeenCalled()
+    expect(associateChaptersToImageMock).not.toHaveBeenCalled()
+  })
+
+  it('rechecks a late chapter association and leaves the original ready upload receipt unfinished', async () => {
+    artworkFindUniqueMock.mockResolvedValue({ id: 10, storagePath: '/artist/work', images: [] })
+    imageFindUniqueMock.mockResolvedValue({ id: 20, artworkId: 10, path: '/artist/work/movie.mp4' })
+    dedupGuard.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new TRPCError({ code: 'CONFLICT' }))
+    await expect(uploadMediaChapterManifest({
+      scanRoot, userId: fixtureUser, expectedUserId: fixtureUser,
+      uploadSessionId: fixtureAuthorization().sessionId,
+      uploadToken: '40000000-0000-4000-8000-000000000010',
+      uploadRequestId: '40000000-0000-4000-8000-000000000011',
+      artworkId: 10, imageId: 20, videoPath: '',
+      manifestText: JSON.stringify({ version: 1, duration: 20, chapters: [{ index: 1, title: 'Opening', start: 0, end: 20, duration: 20 }] })
+    })).rejects.toMatchObject({ status: 409 })
+    expect(dedupGuard).toHaveBeenCalledTimes(2)
+    expect(associateChaptersToImageMock).not.toHaveBeenCalled()
+    expect(protocol.recovery).not.toHaveBeenCalled()
   })
 
   it('keeps an unacknowledged chapter write in recovery without publishing its association', async () => {

@@ -823,7 +823,7 @@ function JobActions({
     <div className="flex flex-wrap gap-2">
       {dedupHref ? (
         <Button asChild variant="outline" className="min-h-11">
-          <Link href={dedupHref}>查看检查进度</Link>
+          <Link href={dedupHref}>{job.type === 'ARTWORK_DEDUP_MAINTENANCE' ? '查看处理批次' : '查看检查进度'}</Link>
         </Button>
       ) : null}
       {canPauseJob(job) ? (

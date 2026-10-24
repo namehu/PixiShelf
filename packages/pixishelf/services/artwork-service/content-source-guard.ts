@@ -2,6 +2,7 @@ import 'server-only'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
+  lockCreatorCatalog,
   assertMediaContentDirectorySnapshot,
   beginMediaContentPathWrite,
   beginMediaContentSourceWrite,
@@ -115,10 +116,12 @@ export async function beginContentUpload(input: {
   declaredFileSize: number | null
   totalChunks: number | null
   parent?: ContentWriteAuthorization
+  relatedImage?: { imageId: number; artworkId: number; path: string }
 }) {
   const context = await resolveContentPath(input.scanRoot, input.absolutePath)
   const owner = contentOwner(input.userId, input.sessionId)
   const handle = await prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(contentTx(tx))
     const previous = await tx.mediaContentPathWrite.findUnique({
       where: { writeToken: input.writeToken },
       select: { id: true, status: true }
@@ -162,22 +165,33 @@ export async function beginContentUpload(input: {
       if (input.parent.sessionId !== input.sessionId) throw new ContentWriteConflict()
     } else if (!previous) {
       const images = await tx.image.findMany({
-        where: { path: { in: [context.relativePath, `/${context.relativePath}`] } },
-        select: { id: true, contentSource: { select: { writeToken: true } } }
+        where: { OR: [
+          { path: { in: [context.relativePath, `/${context.relativePath}`] } },
+          ...(input.relatedImage ? [{ id: input.relatedImage.imageId }] : [])
+        ] },
+        select: { id: true, artworkId: true, path: true, contentSource: { select: { writeToken: true } } }
       })
-      for (let i = 0; i < images.length; i += 100) {
-        const imageIds = images
-          .slice(i, i + 100)
-          .filter((image) => image.contentSource?.writeToken !== input.writeToken)
-          .map((image) => image.id)
-        if (imageIds.length) {
-          await beginMediaContentSourceWrite(contentTx(tx), {
-            artworkIds: [],
-            imageIds,
-            writeToken: input.writeToken,
-            now: new Date()
-          })
+      if (input.relatedImage) {
+        const related = images.find((image) => image.id === input.relatedImage!.imageId)
+        if (!related || related.artworkId !== input.relatedImage.artworkId || related.path !== input.relatedImage.path) {
+          throw new ContentWriteConflict('章节所属媒体已变化。')
         }
+      }
+      const imageIds = images.filter((image) => image.contentSource?.writeToken !== input.writeToken).map((image) => image.id)
+      if (imageIds.length) {
+        await beginMediaContentSourceWrite(contentTx(tx), {
+          artworkIds: [], imageIds, writeToken: input.writeToken, now: new Date()
+        })
+      }
+    }
+    if (previous && input.relatedImage && !input.parent) {
+      const related = await tx.image.findUnique({
+        where: { id: input.relatedImage.imageId },
+        select: { artworkId: true, path: true, contentSource: { select: { writeToken: true } } }
+      })
+      if (related?.artworkId !== input.relatedImage.artworkId || related.path !== input.relatedImage.path ||
+          related.contentSource?.writeToken !== input.writeToken) {
+        throw new ContentWriteConflict('原章节上传没有匹配的媒体声明，请核对后重新上传。')
       }
     }
     return handle
@@ -199,6 +213,7 @@ export async function beginContentDirectoryWrite(input: {
   )
   const owner = contentOwner(input.userId, input.sessionId)
   return prisma.$transaction(async (tx) => {
+    await lockCreatorCatalog(contentTx(tx))
     const previous = await tx.mediaContentPathWrite.findUnique({
       where: { writeToken: input.writeToken },
       select: { status: true }
@@ -282,6 +297,7 @@ export async function publishContentOwner<T>(
   if (!authorizations.length || authorizations.some((auth) => auth.sessionId !== authorizations[0]!.sessionId)) {
     throw new ContentWriteConflict()
   }
+  await lockCreatorCatalog(contentTx(tx))
   const result = await withMediaContentOwnerPublication(
     contentTx(tx),
     {

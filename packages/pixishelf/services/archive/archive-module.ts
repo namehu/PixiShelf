@@ -1,3 +1,4 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
 import { retryUnresolvedArchivePublication } from './archive-publication-retry'
 import {
   hasBlockingMediaContentCancellation,
@@ -228,6 +229,7 @@ export class ArchiveModule {
     const timestamp = new Date()
     await prisma.$transaction(async (tx) => {
       await lockContentControlJob(tx, task.systemJobId)
+      await lockCreatorCatalog(tx as unknown as import('@pixishelf/db').Prisma.TransactionClient)
       await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
       const current = await tx.archiveImport.findUnique({ where: { id: task.id }, include: { systemJob: true } })
       if (
@@ -251,7 +253,7 @@ export class ArchiveModule {
           changesFiles: Boolean(options.retryItemId || options.useDisplayQuality)
         })
       )
-        return
+        {return}
       if (options.retryItemId) {
         const item = await tx.archiveImportItem.updateMany({
           where: { id: options.retryItemId, archiveImportId: current.id, status: 'FAILED' },

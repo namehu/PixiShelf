@@ -1,3 +1,4 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
 import 'server-only'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -402,6 +403,7 @@ export async function executeDeletion<T>(
       )
       if (context.directory.rootIdentity !== current.rootIdentity) throw new ContentWriteConflict()
       current.authorization = await prisma.$transaction(async (tx) => {
+        await lockCreatorCatalog(contentTx(tx))
         const previous = await tx.mediaContentPathWrite.findUnique({ where: { writeToken: current.writeToken } })
         const handle = requireContentReady(
           await beginMediaContentPathWrite(contentTx(tx), {

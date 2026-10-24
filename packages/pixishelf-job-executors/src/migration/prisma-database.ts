@@ -12,6 +12,7 @@ import {
   invalidateAnimationDurationSource,
   lockArtworkForReading,
   lockCreatorCatalog,
+  assertArtworkDedupWritable,
   type PrismaClient
 } from '@pixishelf/db'
 import { resolveCanonicalArtworkStoragePath } from '@pixishelf/job-contracts'
@@ -126,23 +127,32 @@ export function createPrismaMigrationDatabase(
         )
       )
       return beginExecutorMediaDirectoryWrites({
-        context: input.context,
+        context: {
+          job: input.context.job,
+          mutateInTransaction: (operation) =>
+            input.context.mutateInTransaction(async (transaction: MigrationPrismaTransaction) => {
+              await lockCreatorCatalog(prismaTransaction(transaction))
+              return operation(transaction as never)
+            })
+        },
         directories: bindings,
         sessionId: `migration:${input.plan.id}`,
         artworkIds: [input.plan.artworkId]
       }).catch((error) => {
         if (error instanceof ScanExecutorError && error.code === 'STATE_CONFLICT')
-          throw new MigrationActionRequiredError(
+          {throw new MigrationActionRequiredError(
             'CONTENT_WRITE_RECOVERY_REQUIRED',
             'Media write requires an offline recovery grant'
-          )
+          )}
         throw error
       })
     },
     async finishContentWrite(transaction, write) {
+      await lockCreatorCatalog(prismaTransaction(transaction))
       await publishExecutorMediaWrite(prismaTransaction(transaction), write, 'committed', async () => undefined)
     },
     async finishCancelledContentWrite(transaction, write, verifiedPlan) {
+      await lockCreatorCatalog(prismaTransaction(transaction))
       const published = ['CLEANING_SOURCE', 'FINALIZING'].includes(verifiedPlan.phase)
       await publishExecutorMediaWrite(
         prismaTransaction(transaction),
@@ -183,10 +193,10 @@ export function createPrismaMigrationDatabase(
             }) ||
             (artwork.metaSource !== null && !expectedPaths.has(normalizeStoredRelativePath(artwork.metaSource)))
           )
-            throw new MigrationActionRequiredError(
+            {throw new MigrationActionRequiredError(
               'DATABASE_PATH_CONFLICT',
               'Migration cancellation checkpoint changed'
-            )
+            )}
         }
       )
     },
@@ -231,6 +241,7 @@ export function createPrismaMigrationDatabase(
         artwork.deletedAt === null
       ) {
         await lockCreatorCatalog(client)
+        await assertArtworkDedupWritable(client, { artworkId, kind: 'STRUCTURE' })
         if (!artwork.storageKey) {
           const storageKey = generateStorageKey(artwork.id)
           await client.artwork.updateMany({
@@ -442,8 +453,8 @@ export function createPrismaMigrationDatabase(
     },
     async publishArtwork(transaction, input) {
       const client = prismaTransaction(transaction)
-      await assertExecutorMediaWrite(client, input.contentWrite)
       await lockCreatorCatalog(client)
+      await assertExecutorMediaWrite(client, input.contentWrite)
       await lockArtworkForReading(client, input.artworkId)
       const [currentItem, persistedFiles, currentArtwork] = await Promise.all([
         client.migrationJobItem.findUnique({

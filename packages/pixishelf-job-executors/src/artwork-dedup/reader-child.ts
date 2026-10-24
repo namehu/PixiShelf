@@ -1,8 +1,20 @@
+import {
+  inspectMaintenanceSource,
+  MaintenanceSourceError,
+  maintenanceSourceIdentitySchema
+} from './maintenance-source.ts'
 import { inspectReaderOwner } from './reader-owner.ts'
 import { inspectMediaContentFile, readMediaContentFile } from '../media-content/file-reader.ts'
 import { MediaContentFileError, resolveMediaContentRoots } from '../media-content/roots.ts'
 import { ARTWORK_DEDUP_LIMITS as limits } from './limits.ts'
-import type { ReaderRequest, ReaderResponse } from './reader-protocol.ts'
+import { isExclusiveReaderOperation, type ReaderRequest, type ReaderResponse } from './reader-protocol.ts'
+import {
+  deleteMaintenanceFile,
+  inspectMaintenanceFile,
+  inspectMaintenanceDirectory,
+  probeMaintenanceFilesystem,
+  MaintenanceFileError
+} from './maintenance-files.ts'
 
 const active = new Set<number>()
 const progressPending = new Set<number>()
@@ -29,16 +41,36 @@ function validRequest(value: unknown): value is ReaderRequest {
       (request.expectedPixivRootIdentity === null ||
         (typeof request.expectedPixivRootIdentity === 'string' && request.expectedPixivRootIdentity.length <= 128))
     )
-  return (
-    (request.operation === 'inspect' || request.operation === 'read') &&
-    validPath(request.relativePath) &&
-    !!request.root &&
-    validPath(request.root.absolutePath) &&
-    (request.root.logicalRoot === 'source-media:v1' || request.root.logicalRoot === 'archive-media:v1') &&
-    /^[a-f0-9]{64}$/.test(request.root.rootIdentity) &&
-    typeof request.root.deviceId === 'bigint' &&
-    typeof request.root.inode === 'bigint'
+  if (
+    !('root' in request) ||
+    !request.root ||
+    !validPath(request.root.absolutePath) ||
+    !['source-media:v1', 'archive-media:v1'].includes(request.root.logicalRoot) ||
+    !/^[a-f0-9]{64}$/.test(request.root.rootIdentity) ||
+    typeof request.root.deviceId !== 'bigint' ||
+    typeof request.root.inode !== 'bigint'
   )
+    return false
+  if (request.operation === 'maintenance-capability')
+    return typeof request.operationId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(request.operationId)
+  if (!('relativePath' in request) || !validPath(request.relativePath)) return false
+  if (request.operation === 'direct-delete') return typeof request.allowMissing === 'boolean' && !!request.expectedState && ['size','mtimeNs','ctimeNs','deviceId','inode','linkCount'].every(field => typeof (request.expectedState as unknown as Record<string,unknown>)[field] === 'bigint')
+  if (request.operation === 'maintenance-source')
+    return (
+      Number.isSafeInteger(request.offset) &&
+      request.offset! >= 0 &&
+      maintenanceSourceIdentitySchema.safeParse(request.expectedIdentity).success
+    )
+  if (request.operation === 'maintenance-directory')
+    return (
+      (request.afterName === null || validPath(request.afterName)) &&
+      (request.expectedState === null ||
+        (!!request.expectedState &&
+          ['size', 'mtimeNs', 'ctimeNs', 'deviceId', 'inode', 'linkCount'].every(
+            (field) => typeof (request.expectedState as unknown as Record<string, unknown>)[field] === 'bigint'
+          )))
+    )
+  return request.operation === 'inspect' || request.operation === 'read' || request.operation === 'maintenance-inspect'
 }
 process.on('disconnect', () => process.exit(0))
 function acceptMessage(message: unknown) {
@@ -59,40 +91,53 @@ function acceptMessage(message: unknown) {
     active.size >= limits.statConcurrency ||
     roots > 0 ||
     (message.operation === 'read' && hashes > 0) ||
-    (message.operation === 'roots' && (roots > 0 || active.size > 0))
+    (isExclusiveReaderOperation(message.operation) && active.size > 0)
   ) {
     process.exit(1)
   }
   const request = message as ReaderRequest
   active.add(request.id)
   if (request.operation === 'read') hashes++
-  if (request.operation === 'roots') roots++
+  if (isExclusiveReaderOperation(request.operation)) roots++
   void (async () => {
+    let bytesRead = 0n
     try {
       let lastProgress = 0
+      const onProgress = (totalBytes: bigint) => {
+        bytesRead = totalBytes
+        const now = Date.now()
+        if (now - lastProgress < limits.progressIpcMs || progressPending.has(request.id)) return
+        lastProgress = now
+        progressPending.add(request.id)
+        send({ type: 'progress', id: request.id, bytesRead, rss: process.memoryUsage().rss })
+      }
       const value =
-        request.operation === 'roots'
+        request.operation === 'direct-delete' ? await deleteMaintenanceFile({...request,signal}) : request.operation === 'roots'
           ? await resolveMediaContentRoots(request)
-          : request.operation === 'inspect'
-            ? await inspectMediaContentFile({ ...request, signal })
-            : await readMediaContentFile({
-                ...request,
-                signal,
-                onProgress(bytesRead) {
-                  const now = Date.now()
-                  if (now - lastProgress < limits.progressIpcMs || progressPending.has(request.id)) return
-                  lastProgress = now
-                  progressPending.add(request.id)
-                  send({ type: 'progress', id: request.id, bytesRead, rss: process.memoryUsage().rss })
-                }
-              })
+          : request.operation === 'maintenance-source'
+            ? await inspectMaintenanceSource({ ...request, signal, onProgress })
+            : request.operation === 'maintenance-inspect'
+              ? await inspectMaintenanceFile({ ...request, signal })
+              : request.operation === 'maintenance-directory'
+                ? await inspectMaintenanceDirectory({ ...request, signal })
+                : request.operation === 'maintenance-capability'
+                  ? await probeMaintenanceFilesystem({ ...request, signal })
+                  : request.operation === 'inspect'
+                    ? await inspectMediaContentFile({ ...request, signal })
+                    : await readMediaContentFile({
+                        ...request,
+                        signal,
+                        onProgress
+                      })
       send({ type: 'result', id: request.id, value, rss: process.memoryUsage().rss })
     } catch (error) {
       // Root and execution failures stop the run; individual unreadable files remain local.
       const code =
         request.operation === 'roots'
           ? 'ROOT_CHANGED'
-          : error instanceof MediaContentFileError
+          : error instanceof MediaContentFileError ||
+              error instanceof MaintenanceFileError ||
+              error instanceof MaintenanceSourceError
             ? error.code
             : error &&
                 typeof error === 'object' &&
@@ -100,12 +145,12 @@ function acceptMessage(message: unknown) {
                 ['ENOENT', 'EACCES', 'EPERM', 'EIO'].includes(String(error.code))
               ? 'NOT_READABLE'
               : 'READER_ENVIRONMENT'
-      send({ type: 'error', id: request.id, code, rss: process.memoryUsage().rss })
+      send({ type: 'error', id: request.id, code, bytesRead, rss: process.memoryUsage().rss })
     } finally {
       active.delete(request.id)
       progressPending.delete(request.id)
       if (request.operation === 'read') hashes--
-      if (request.operation === 'roots') roots--
+      if (isExclusiveReaderOperation(request.operation)) roots--
     }
   })()
 }

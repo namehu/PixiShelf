@@ -1,10 +1,13 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { PrismaClient } from '@pixishelf/db'
+import { ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import {
   createArchiveExecutorRegistrations,
   createArtworkSummaryExecutor,
   createArtworkDedupExecutor,
+  createArtworkDedupMaintenanceExecutor,
+  DedupReaderSupervisor,
   createDiscoveryBatchExecutorRegistration,
   createArchiveTitleRulePreviewRegistration,
   createArchiveMaintenanceExecutorRegistrations,
@@ -59,22 +62,25 @@ export function createWorkerExecutorRegistry(input: {
   registry.register(createArchiveTitleRulePreviewRegistration())
   const resolved = resolveExecutorWorkerConfiguration(input.config)
   registry.register(createArtworkSummaryExecutor({ database: input.database, scanRoot: resolved.sourceMediaRoot }))
-  registry.register(
-    createArtworkDedupExecutor({
-      database: input.database,
-      sourceRoot: resolved.sourceMediaRoot,
-      archiveRoot: resolved.archiveRoot,
-      readerOptions:
-        typeof __dirname === 'string'
-          ? { entrypoint: path.join(__dirname, 'artwork-dedup-reader.cjs') }
-          : {
-              entrypoint: fileURLToPath(
-                new URL('../../pixishelf-job-executors/src/artwork-dedup/reader-child.ts', import.meta.url)
-              ),
-              execArgv: ['--import', 'tsx']
-            }
-    })
-  )
+  const readerOptions =
+    typeof __dirname === 'string'
+      ? { entrypoint: path.join(__dirname, 'artwork-dedup-reader.cjs') }
+      : {
+          entrypoint: fileURLToPath(
+            new URL('../../pixishelf-job-executors/src/artwork-dedup/reader-child.ts', import.meta.url)
+          ),
+          execArgv: ['--import', 'tsx']
+        }
+  const dedupDependencies = {
+    database: input.database,
+    sourceRoot: resolved.sourceMediaRoot,
+    archiveRoot: resolved.archiveRoot,
+    readerOptions,
+    supervisor: new DedupReaderSupervisor(readerOptions)
+  }
+  registry.register(createArtworkDedupExecutor(dedupDependencies))
+  registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies))
+  registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies, ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION))
   const archiveProviders = new GovernedArchiveProviderRegistry(
     createDefaultArchiveMediaProviderRegistry(),
     new PostgresArchiveProviderGovernor(input.database)

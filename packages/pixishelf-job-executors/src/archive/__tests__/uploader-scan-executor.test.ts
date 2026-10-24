@@ -682,6 +682,7 @@ function createFixture(input: {
     key: 'e-hentai',
     requestGovernance: 'PER_REQUEST',
     accepts: () => true,
+    identifySource: (input: string) => ({ kind: 'PROVIDER', providerKey: 'e-hentai', externalId: new URL(input).pathname.split('/')[2] ?? '1' }),
     resolve: vi.fn(),
     openMedia: vi.fn(),
     ...(input.scanTitles ? { scanTitles: input.scanTitles } : {}),

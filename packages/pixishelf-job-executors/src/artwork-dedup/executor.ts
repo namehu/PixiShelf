@@ -27,8 +27,8 @@ import {
   type DedupReaderOptions,
   type ReaderMetrics
 } from './reader.ts'
-import { isReaderOwner, proveReaderExited } from './reader-owner.ts'
-import type { DedupRoots } from './reader-protocol.ts'
+import { releaseExitedDedupReader } from './reader-latch.ts'
+import { rootBindings, sameRootBindings } from './root-bindings.ts'
 
 type Tx = Prisma.TransactionClient & QueueSqlExecutor
 export interface ArtworkDedupDependencies {
@@ -80,26 +80,7 @@ export async function executeArtworkDedup(
     const initial = await transaction((tx) => assertArtworkDedupExecution(tx, execution))
     bytesAtStart = initial.readBytes
     let stage = initial.stage
-    // A fixed identity-only child cannot accept media work. It clears only an exited reader's exact token.
-    const orphan = await dependencies.database.artworkDedupRun.findFirst({
-      where: { readerToken: { not: null } },
-      select: { id: true, jobId: true, executionVersion: true, readerToken: true, readerOwner: true }
-    })
-    if (orphan) {
-      if (
-        !orphan.jobId ||
-        !orphan.readerToken ||
-        !isReaderOwner(orphan.readerOwner) ||
-        !(await proveReaderExited(dependencies.readerOptions, orphan.readerOwner))
-      )
-        throw new DedupReaderError('READER_CLOSE_FAILED')
-      await dependencies.database.$transaction((tx) =>
-        releaseArtworkDedupReader(tx, {
-          execution: { runId: orphan.id, jobId: orphan.jobId!, executionVersion: orphan.executionVersion },
-          readerToken: orphan.readerToken!
-        })
-      )
-    }
+    await releaseExitedDedupReader(dependencies.database, dependencies.readerOptions)
     await transaction((tx) => claimArtworkDedupReader(tx, { execution, readerToken }))
     claimed = true
     reader = (dependencies.supervisor ?? new DedupReaderSupervisor(dependencies.readerOptions)).create()
@@ -348,25 +329,4 @@ export async function executeArtworkDedup(
       schedulingYield: true
     })
   })
-}
-
-function rootBindings(roots: DedupRoots) {
-  return {
-    version: 1,
-    source: { logicalRoot: roots.source.logicalRoot, rootIdentity: roots.source.rootIdentity },
-    archive: { logicalRoot: roots.archive.logicalRoot, rootIdentity: roots.archive.rootIdentity },
-    archiveRelativePrefix: roots.archiveRelativePrefix
-  }
-}
-function sameRootBindings(value: Prisma.JsonValue, current: ReturnType<typeof rootBindings>): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const saved = value as Partial<ReturnType<typeof rootBindings>>
-  return (
-    saved.version === current.version &&
-    saved.source?.logicalRoot === current.source.logicalRoot &&
-    saved.source?.rootIdentity === current.source.rootIdentity &&
-    saved.archive?.logicalRoot === current.archive.logicalRoot &&
-    saved.archive?.rootIdentity === current.archive.rootIdentity &&
-    saved.archiveRelativePrefix === current.archiveRelativePrefix
-  )
 }

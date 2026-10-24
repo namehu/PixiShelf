@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+// Actual maintenance guards are exercised by artwork-dedup-structure.postgres.test.ts.
+vi.mock('../../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: vi.fn() }))
+
 const {
   artworkFindUniqueMock,
   imageFindManyMock,
@@ -26,6 +29,7 @@ const {
 
 vi.mock('@pixishelf/db', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@pixishelf/db')>()),
+  lockCreatorCatalog: vi.fn().mockResolvedValue(undefined),
   lockArtworkForReading: lockArtworkMock
 }))
 

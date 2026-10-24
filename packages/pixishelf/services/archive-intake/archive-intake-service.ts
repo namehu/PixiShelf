@@ -19,6 +19,11 @@ import { ArchiveError } from '@/services/archive/errors'
 import { archiveWireErrorMessage } from '@/services/archive/archive-redaction'
 import { validateArchiveUrl } from '@/services/archive/safe-http'
 import { writeJobEvent, writeJobEvents, type JobEventWriteInput } from '@/services/background-task/job-event-service'
+import {
+  assertArchiveIntakeSourceProof,
+  captureArchiveIntakeSourceProofs,
+  hasArchiveIntakeSourceProof
+} from './archive-intake-source-proof'
 import { INTAKE_SUBMISSION_TRANSACTION_OPTIONS, IntakeSubmissionTrace } from './intake-submission-transaction'
 
 const ACTIVE_INTAKE_STATUSES = ['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'] as const
@@ -290,6 +295,14 @@ export async function createArchiveIntakeSubmissionInTransaction(
       // Acquire it at the same point explicitly so Worker contention is measurable.
       dependencies.trace?.phase('creatorCatalogLock')
       await lockCreatorCatalog(transaction)
+      const queuedItems = intakeItems.filter((item) => item.status === 'QUEUED')
+      const proofs = await captureArchiveIntakeSourceProofs(
+        transaction,
+        queuedItems.map((item) => item.submittedUrl)
+      )
+      queuedItems.forEach((item, index) => {
+        item.dedupSourceSnapshot = proofs[index]!
+      })
       dependencies.trace?.phase('intakeWrite')
       await transaction.systemJob.createMany({ data: jobs })
     }
@@ -393,7 +406,7 @@ export async function replaceArchiveIntakeItem(
         triggerSource: 'RETRY'
       })
     } else {
-      // 容量不足时落持久失败记录（retryable=true），用于用户可见的排队失败并允许后续重试。
+      // 容量失败只保留审计；没有可执行来源证明，后续须明确新提交。
       await createCapacityRejectedAuditItem(transaction, {
         id: uuid(),
         submissionId: submission.id,
@@ -481,7 +494,7 @@ async function createCapacityRejectedAuditItem(
       finishedAt: input.timestamp,
       errorCode: 'CAPACITY_EXCEEDED',
       errorMessage: '归档收件箱活动项目已达上限；释放容量后可重试',
-      retryable: true,
+      retryable: false,
       createdAt: input.timestamp,
       updatedAt: input.timestamp
     }
@@ -550,7 +563,10 @@ async function createQueuedIntakeItem(
   transaction: Prisma.TransactionClient,
   input: Parameters<typeof prepareQueuedIntakeItem>[0]
 ) {
+  await lockCreatorCatalog(transaction)
+  const [proof] = await captureArchiveIntakeSourceProofs(transaction, [input.submittedUrl])
   const records = prepareQueuedIntakeItem(input)
+  records.item.dedupSourceSnapshot = proof!
   await transaction.systemJob.create({ data: records.job })
   await transaction.archiveIntakeItem.create({ data: records.item })
   await writeJobEvent(transaction, records.event)
@@ -866,6 +882,8 @@ async function retryIntakeItem(
     }
   }
 
+  await lockCreatorCatalog(transaction)
+  await assertArchiveIntakeSourceProof(transaction, item.dedupSourceSnapshot, item.submittedUrl)
   const jobId = uuid()
   await transaction.systemJob.create({
     data: {
@@ -1006,6 +1024,7 @@ const intakeItemWireSelect = {
   retryable: true,
   supersedesItemId: true,
   currentSystemJobId: true,
+  dedupSourceSnapshot: true,
   createdAt: true,
   updatedAt: true
 } satisfies Prisma.ArchiveIntakeItemSelect
@@ -1013,8 +1032,10 @@ const intakeItemWireSelect = {
 type IntakeItemWire = Prisma.ArchiveIntakeItemGetPayload<{ select: typeof intakeItemWireSelect }>
 
 function serializeIntakeItem(item: IntakeItemWire, now: Date) {
+  const { dedupSourceSnapshot, ...wire } = item
   return {
-    ...item,
+    ...wire,
+    sourceIntentValid: hasArchiveIntakeSourceProof(dedupSourceSnapshot, item.submittedUrl),
     thumbnailUrl: safeThumbnailUrl(item.thumbnailUrl),
     status: effectiveStatus(item, now),
     queueOrder: item.queueOrder.toString(),
@@ -1050,9 +1071,9 @@ function validateSubmittedUrl(url: string, customValidator?: (url: string) => vo
   if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
     throw new ArchiveError('INVALID_URL', '归档链接必须使用不含用户凭据的 HTTPS URL')
   }
+  archiveProviderRegistry.getForUrl(url).identifySource(url)
   if (customValidator) customValidator(url)
   else {
-    archiveProviderRegistry.getForUrl(url)
     // Provider 先确认其可接收的入口；Safe HTTP 再以该入口主机为精确 allowlist 拒绝凭据和非标准端口。
     validateArchiveUrl(url, [parsed.hostname])
   }

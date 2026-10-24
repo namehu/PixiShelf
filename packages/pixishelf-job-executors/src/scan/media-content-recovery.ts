@@ -7,6 +7,7 @@ import {
   videoStreamingOptimizationPayloadSchema
 } from '@pixishelf/job-contracts'
 import { ScanExecutorError } from './errors.ts'
+import { readStagingCleanupRecoverySnapshot } from '../archive/staging-cleanup-recovery.ts'
 
 /** Shared by offline inspect/confirm and the fenced Worker consumer; never trusts a caller-supplied digest. */
 export async function readExecutorMediaRecoveryDomainSnapshot(
@@ -39,8 +40,9 @@ export async function readExecutorMediaRecoveryDomainSnapshot(
       (payload.mode === 'BATCH'
         ? !payload.itemIds.includes(itemId)
         : payload.itemId !== itemId || operation.itemId !== itemId)
-    )
+    ) {
       throw unavailable()
+    }
     const artwork = await artworkIdentity(tx, item.artworkId)
     return json({
       ...binding,
@@ -75,8 +77,9 @@ export async function readExecutorMediaRecoveryDomainSnapshot(
       item.systemJobId !== job.id ||
       item.files.length > 5000 ||
       ['COMPLETED', 'SKIPPED', 'FAILED', 'CANCELLED'].includes(item.status)
-    )
+    ) {
       throw unavailable()
+    }
     return json({
       ...binding,
       artwork: await artworkIdentity(tx, item.artworkIdSnapshot),
@@ -139,8 +142,9 @@ export async function readExecutorMediaRecoveryDomainSnapshot(
       !archive.sealedManifestSha256 ||
       execution?.archiveImportId !== archive.id ||
       execution.phase !== 'PUBLISH'
-    )
+    ) {
       throw unavailable()
+    }
     const generation = await tx.archiveStagingGeneration.findUnique({ where: { token: archive.generationToken } })
     if (
       !generation ||
@@ -150,8 +154,9 @@ export async function readExecutorMediaRecoveryDomainSnapshot(
       !generation.drainedAt ||
       generation.cleanedAt ||
       generation.manifestSha256 !== archive.sealedManifestSha256
-    )
+    ) {
       throw unavailable()
+    }
     const source = await tx.artworkExternalRef.findUnique({
       where: { providerKey_externalId: { providerKey: archive.providerKey, externalId: archive.externalId } },
       select: { artworkId: true }
@@ -178,17 +183,23 @@ export async function readExecutorMediaRecoveryDomainSnapshot(
   }
   if (job.type === 'ARCHIVE_MAINTENANCE') {
     const payload = archiveMaintenancePayloadSchema.parse(job.payload)
-    if (
-      payload.action === 'CLEAN_STAGING' ||
-      payload.action === 'RECONCILE' ||
-      input.sessionId !== `archive-maintenance:${job.id}`
-    )
-      throw unavailable()
+    if (payload.action === 'CLEAN_STAGING') {
+      if (input.sessionId !== `archive-cleanup:${job.id}`) throw unavailable()
+      return json({
+        ...binding,
+        checkpoint: await readStagingCleanupRecoverySnapshot(tx, {
+          jobId: job.id,
+          archiveImportId: payload.archiveImportId
+        })
+      })
+    }
+    if (payload.action === 'RECONCILE' || input.sessionId !== `archive-maintenance:${job.id}`) throw unavailable()
     const artwork = await artworkIdentity(tx, payload.artworkId)
     const expected =
       payload.action === 'TRASH_ARCHIVE' ? 'TRASHING' : payload.action === 'RESTORE_ARCHIVE' ? 'RESTORING' : 'TRASHED'
-    if (artwork.createdVia !== 'URL_ARCHIVE' || artwork.archiveLifecycleState !== expected || !artwork.deletedAt)
+    if (artwork.createdVia !== 'URL_ARCHIVE' || artwork.archiveLifecycleState !== expected || !artwork.deletedAt) {
       throw unavailable()
+    }
     const revisions = await archiveMaintenanceRevisionsSnapshot(tx, artwork.id)
     return json({ ...binding, artwork, revisions })
   }
@@ -247,8 +258,9 @@ function digest(value: unknown, limit: number): string {
 function encode(value: unknown): string {
   return JSON.stringify(value, (_key, item: unknown) => {
     if (typeof item === 'bigint') return { bigint: item.toString() }
-    if (item && typeof item === 'object' && !Array.isArray(item))
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
       return Object.fromEntries(Object.entries(item).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    }
     return item
   })
 }

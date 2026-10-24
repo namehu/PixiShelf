@@ -1,3 +1,8 @@
+import {
+  freezePixivDiscoveryRows,
+  parsePixivScanSourceSnapshot,
+  parseLocalScanSourceSnapshot
+} from './dedup-source-snapshot.ts'
 import type { LocalDirectoryImportPayload, ScanPayload } from '@pixishelf/job-contracts'
 import type { Prisma } from '@pixishelf/db'
 import type { EnqueuedChildJob, ExecutionContext, QueueSqlExecutor } from '@pixishelf/job-runtime'
@@ -142,6 +147,7 @@ export async function verifyFrozenMetadataSnapshot(input: {
         )
       }
       identities.add(candidate.artworkId)
+      parsePixivScanSourceSnapshot({ snapshot: row.dedupSourceSnapshot, relativePath: row.relativePath })
       digest.update(row)
       count += 1
       if (count > input.maxEntries) throw tooManySnapshotRows()
@@ -194,6 +200,7 @@ export async function verifyFrozenLocalSnapshot(input: {
         throw new ScanExecutorError('INPUT_SNAPSHOT_INVALID', 'Frozen local work input contains duplicate identity')
       }
       workIdentities.add(identity)
+      parseLocalScanSourceSnapshot({ snapshot: row.dedupSourceSnapshot, relativePath: row.relativePath })
       workDigest.update(row)
       workCount += 1
       if (workCount > input.maxEntries) throw tooManySnapshotRows()
@@ -290,16 +297,17 @@ export async function freezeDiscoveredMetadataPages(input: {
     readonly {
       relativePath: string
       contentHash: string
+      dedupSourceSnapshot: unknown
       state?: Parameters<typeof inventoryStatData>[0]
     }[]
   >
   now: Date
   maxEntries: number
+  rootIdentity: string
 }): Promise<ScanRunRecord> {
   const prepared = await mutate(input.context, async (transaction) => {
     const current = await transaction.scanRun.findUniqueOrThrow({ where: { id: input.run.id } })
     if (current.inputFrozenAt) return { shouldFreeze: false, run: current }
-    await transaction.scanRunMetadataInput.deleteMany({ where: { scanRunId: input.run.id } })
     await transaction.scanRun.update({
       where: { id: input.run.id },
       data: { inputCount: 0, inputDigest: null, checkpointStage: 'DISCOVERY', checkpointOrdinal: 0 }
@@ -310,6 +318,17 @@ export async function freezeDiscoveredMetadataPages(input: {
   const digest = createMetadataDigestAccumulator()
   let ordinal = 0
   for await (const page of input.pages) {
+    // The caller must have captured these proofs before it read the supplied content hashes.
+    const sourceSnapshots = new Map(
+      page.map((candidate) => [
+        candidate.relativePath,
+        parsePixivScanSourceSnapshot({
+          snapshot: candidate.dedupSourceSnapshot,
+          rootIdentity: input.rootIdentity,
+          relativePath: candidate.relativePath
+        })
+      ])
+    )
     const rows = page.map((candidate) => ({
       scanRunId: input.run.id,
       ordinal: ordinal++,
@@ -320,7 +339,7 @@ export async function freezeDiscoveredMetadataPages(input: {
     if (ordinal > input.maxEntries) throw tooManySnapshotRows()
     for (const row of rows) digest.update(row)
     if (rows.length > 0) {
-      await mutate(input.context, (transaction) => transaction.scanRunMetadataInput.createMany({ data: rows }))
+      await mutate(input.context, (transaction) => freezePixivDiscoveryRows(transaction, rows, sourceSnapshots))
       logFrozenSnapshotPage({ logger: input.context.logger, frozen: ordinal, pageItems: rows.length })
     }
   }
@@ -328,6 +347,12 @@ export async function freezeDiscoveredMetadataPages(input: {
   return mutate(input.context, async (transaction) => {
     const current = await transaction.scanRun.findUniqueOrThrow({ where: { id: input.run.id } })
     if (current.inputFrozenAt) return current
+    if ((await transaction.scanRunMetadataInput.count({ where: { scanRunId: input.run.id } })) !== ordinal) {
+      throw new ScanExecutorError(
+        'INPUT_SNAPSHOT_INVALID',
+        'Previously frozen metadata inputs changed; create a new scan intent'
+      )
+    }
     return transaction.scanRun.update({
       where: { id: input.run.id },
       data: {
@@ -347,10 +372,12 @@ export async function freezeDiscoveredMetadata(input: {
   candidates: readonly {
     relativePath: string
     contentHash: string
+    dedupSourceSnapshot: unknown
     state?: Parameters<typeof inventoryStatData>[0]
   }[]
   now: Date
   maxEntries?: number
+  rootIdentity: string
 }): Promise<ScanRunRecord> {
   async function* pages() {
     yield input.candidates
@@ -360,7 +387,8 @@ export async function freezeDiscoveredMetadata(input: {
     run: input.run,
     pages: pages(),
     now: input.now,
-    maxEntries: input.maxEntries ?? input.candidates.length
+    maxEntries: input.maxEntries ?? input.candidates.length,
+    rootIdentity: input.rootIdentity
   })
 }
 

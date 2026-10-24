@@ -195,7 +195,7 @@ export async function claimArtworkDedupReader(
 ) {
   await assertArtworkDedupExecution(tx, input.execution)
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(8043203001)::text`
-  if (await tx.artworkDedupRun.findFirst({ where: { readerToken: { not: null } }, select: { id: true } })) {
+  if ((await tx.artworkDedupRun.findFirst({ where: { readerToken: { not: null } }, select: { id: true } })) || (await tx.artworkDedupOperation.findFirst({ where: { readerToken: { not: null } }, select: { id: true } }))) {
     throw new ArtworkDedupConflictError('READER_BLOCKED')
   }
   await tx.artworkDedupRun.update({

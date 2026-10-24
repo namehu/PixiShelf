@@ -1,3 +1,4 @@
+import { assertArtworkDedupWritable } from './artwork-dedup-claims'
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 
@@ -30,7 +31,7 @@ export function readSourceCreatorTags(normalized: unknown, raw: unknown): Source
   const result = new Map<string, SourceCreatorTag>()
   for (const tag of tags) {
     if (!tag || typeof tag !== 'object' || typeof tag.namespace !== 'string' || typeof tag.name !== 'string')
-      return null
+      {return null}
     if (tag.namespace !== 'artist' && tag.namespace !== 'group') continue
     const name = tag.name.trim().toLocaleLowerCase('en-US')
     if (!name) return null
@@ -62,13 +63,14 @@ export async function syncSourceCreators(
 ) {
   if (tags === null) return { known: false, linked: 0 }
   await lockCreatorCatalog(tx)
+  await assertArtworkDedupWritable(tx, { artworkId, kind: 'STRUCTURE' })
   const ref = await tx.artworkExternalRef.findUniqueOrThrow({ where: { id: sourceRefId } })
   if (ref.artworkId !== artworkId || ref.providerKey !== providerKey) throw new Error('创作者来源身份已变化')
   if (complete)
-    await tx.artworkArtistEvidence.updateMany({
+    {await tx.artworkArtistEvidence.updateMany({
       where: { sourceRefId, provenance: 'SOURCE' },
       data: { present: false }
-    })
+    })}
   for (const tag of tags) {
     const key = { providerKey, namespace: tag.namespace, sourceName: tag.name }
     let mapping = await tx.artistSourceTagMapping.findUnique({ where: { providerKey_namespace_sourceName: key } })
@@ -96,6 +98,7 @@ export async function editArtworkCreators(
   mode: 'SET' | 'ADD' | 'REMOVE' = 'SET'
 ) {
   await lockCreatorCatalog(tx)
+  await assertArtworkDedupWritable(tx, { artworkId, kind: 'STRUCTURE' })
   const ids = [...new Set(artistIds)]
   const artists = await tx.artist.count({ where: { id: { in: ids }, mergedIntoId: null } })
   if (artists !== ids.length) throw new Error('所选艺术家或社团已不存在')
@@ -127,7 +130,7 @@ export async function editArtworkCreators(
     }
     if (added.length) await tx.discoveryCreatorSuppression.deleteMany({ where: { ...ref, artistId: { in: added } } })
     if (removed.length || added.length)
-      await tx.discoveryPendingCreator.deleteMany({ where: { ...ref, artistId: { in: [...removed, ...added] } } })
+      {await tx.discoveryPendingCreator.deleteMany({ where: { ...ref, artistId: { in: [...removed, ...added] } } })}
   }
   if (mode !== 'ADD') {
     await tx.artworkArtistEvidence.updateMany({
@@ -136,7 +139,7 @@ export async function editArtworkCreators(
     })
   }
   if (mode !== 'REMOVE')
-    for (const artistId of ids) {
+    {for (const artistId of ids) {
       const relation = await membership(tx, artworkId, artistId)
       // Saving an unchanged source member must not claim its ownership.
       const active = await tx.artworkArtistEvidence.count({
@@ -149,7 +152,7 @@ export async function editArtworkCreators(
         create: { membershipId: relation.id, evidenceKey: 'manual', provenance: 'MANUAL' },
         update: { present: true, excludedAt: null }
       })
-    }
+    }}
 }
 
 export async function remapCreatorTag(
@@ -163,6 +166,13 @@ export async function remapCreatorTag(
   if (mapping.version !== expectedVersion) throw new Error('来源映射已变化，请重新预览')
   const target = await tx.artist.findUniqueOrThrow({ where: { id: artistId, mergedIntoId: null } })
   if (target.kind !== (mapping.namespace === 'group' ? 'GROUP' : 'PERSON')) throw new Error('艺术家和社团不能互相映射')
+  const affected = await tx.artworkArtist.findMany({
+    where: { evidence: { some: { tagMappingId: mappingId } } },
+    select: { artworkId: true },
+    distinct: ['artworkId'],
+    orderBy: { artworkId: 'asc' }
+  })
+  for (const item of affected) await assertArtworkDedupWritable(tx, { artworkId: item.artworkId, kind: 'STRUCTURE' })
   // Move evidence as a set; large source catalogs must not issue one query per artwork.
   await tx.$executeRawUnsafe(
     'INSERT INTO artwork_artists (id, "artworkId", "artistId") SELECT md5(random()::text || clock_timestamp()::text || m."artworkId"::text), m."artworkId", $2 FROM artwork_artist_evidence e JOIN artwork_artists m ON m.id=e."membershipId" WHERE e."tagMappingId"=$1 GROUP BY m."artworkId" ON CONFLICT ("artworkId", "artistId") DO NOTHING',

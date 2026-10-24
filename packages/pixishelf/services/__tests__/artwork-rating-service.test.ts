@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+// The maintenance boundary is covered with actual PostgreSQL/service calls in artwork-dedup-app-guards.postgres.test.ts.
+vi.mock('../artwork-dedup-write-guard', () => ({ assertArtworkDedupAppWrite: vi.fn() }))
+
 const mocks = vi.hoisted(() => ({
   artwork: { findUnique: vi.fn() },
   artworkLike: { findUnique: vi.fn(), findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
@@ -9,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: { artwork: mocks.artwork, artworkLike: mocks.artworkLike, $transaction: mocks.transaction }
 }))
-vi.mock('@pixishelf/db', () => ({ lockArtworkForReading: mocks.lock }))
+vi.mock('@pixishelf/db', () => ({ lockArtworkForReading: mocks.lock, lockCreatorCatalog: vi.fn().mockResolvedValue(undefined) }))
 import { getArtworkRating, getUserArtworkRatingLevels, setArtworkRating } from '../artwork-rating-service'
 
 const time = new Date('2026-10-22T12:00:00.000Z')

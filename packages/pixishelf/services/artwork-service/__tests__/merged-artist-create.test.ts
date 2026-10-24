@@ -2,6 +2,8 @@ import { expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   lock: vi.fn().mockResolvedValue([]),
+  artworkLock: vi.fn().mockResolvedValue([{ id: 83 }]),
+  claim: vi.fn().mockResolvedValue(null),
   artist: vi.fn().mockResolvedValue(null),
   create: vi.fn(),
   update: vi.fn(),
@@ -15,6 +17,8 @@ vi.mock('@/lib/prisma', () => ({
     $transaction: async (run: (tx: unknown) => Promise<unknown>) =>
       run({
         $queryRawUnsafe: mocks.lock,
+        $queryRaw: mocks.artworkLock,
+        artworkDedupClaim: { findUnique: mocks.claim },
         artist: { findUnique: mocks.artist },
         artwork: { create: mocks.create, update: mocks.update },
         localImportArtistMapping: { findUnique: mocks.mapping, create: mocks.createMapping }
@@ -41,6 +45,8 @@ it.each([null, 7])('persists upload storage in the creation transaction for arti
   mocks.create.mockResolvedValue({ id: 83, artistId, storageKey: null })
   mocks.update.mockImplementation(async ({ data }) => ({ id: 83, artistId, title: 'new', ...data }))
   await createArtwork({ title: 'new', artistId })
+  expect(mocks.claim).toHaveBeenLastCalledWith({ where: { artworkId: 83 } })
+  expect(mocks.artworkLock.mock.invocationCallOrder.at(-1)!).toBeLessThan(mocks.update.mock.invocationCallOrder.at(-1)!)
   expect(mocks.update).toHaveBeenLastCalledWith({
     where: { id: 83 },
     data: {

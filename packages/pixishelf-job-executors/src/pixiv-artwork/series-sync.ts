@@ -1,4 +1,4 @@
-import { Prisma } from '@pixishelf/db'
+import { Prisma, lockCreatorCatalog, assertArtworkDedupWritable, ArtworkDedupOperationError } from '@pixishelf/db'
 
 import type { NormalizedPixivArtworkSeries } from './client.ts'
 
@@ -68,6 +68,31 @@ export async function observePixivSeriesState(
         membership: ref.series.seriesArtworks[0] ?? null
       }
     : null
+}
+
+/** Include members whose frozen series title can change in this publication. */
+export async function assertPixivSeriesArtworkWritable(
+  transaction: Prisma.TransactionClient,
+  artworkId: number,
+  observation: NormalizedPixivArtworkSeries
+) {
+  await lockCreatorCatalog(transaction)
+  const members =
+    observation.state === 'PRESENT'
+      ? await transaction.seriesArtwork.findMany({
+          where: { series: { externalRefs: { some: { providerKey: PROVIDER_KEY, externalId: observation.id } } } },
+          select: { artworkId: true }
+        })
+      : []
+  const ids = [...new Set([artworkId, ...members.map((member) => member.artworkId)])].sort((a, b) => a - b)
+  for (const id of ids) {
+    try {
+      await assertArtworkDedupWritable(transaction, { artworkId: id, kind: 'STRUCTURE' })
+    } catch (error) {
+      // The caller retains its existing missing-artwork precondition/skip behavior.
+      if (!(error instanceof ArtworkDedupOperationError) || error.code !== 'NOT_FOUND') throw error
+    }
+  }
 }
 
 export async function reconcilePixivArtworkSeries(
@@ -202,7 +227,10 @@ export async function reconcilePixivArtworkSeries(
         observedMembership.provenance === targetMembership.provenance &&
         observedMembership.sourceRefId === targetMembership.sourceRefId
     )
-    if ((input.refreshExisting && membershipUnchangedSinceObservation) || (!input.refreshExisting && !targetMembership.orderOverridden)) {
+    if (
+      (input.refreshExisting && membershipUnchangedSinceObservation) ||
+      (!input.refreshExisting && !targetMembership.orderOverridden)
+    ) {
       if (remote.order !== null) membershipUpdate.sortOrder = remote.order
       if (input.refreshExisting) membershipUpdate.orderOverridden = false
     } else if (

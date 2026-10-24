@@ -9,7 +9,8 @@ import {
   inspectMediaContentRecovery,
   grantMediaContentRecovery,
   resumeGrantedMediaContentRecovery,
-  withMediaContentOwnerPublication
+  withMediaContentOwnerPublication,
+  captureArtworkDedupSources
 } from '@pixishelf/db'
 import { readExecutorMediaRecoveryDomainSnapshot } from '../../scan/media-content-recovery.ts'
 import {
@@ -34,6 +35,10 @@ const capabilities: WorkerCapability[] = [
   { jobType: 'ARCHIVE_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
 ]
 const roots: string[] = []
+const sourceIds: string[] = [],
+  operationIds: string[] = [],
+  runIds: string[] = [],
+  artistIds: number[] = []
 
 describePostgres('archive maintenance PostgreSQL integration', () => {
   beforeEach(async () => {
@@ -48,7 +53,7 @@ describePostgres('archive maintenance PostgreSQL integration', () => {
     await prisma.$disconnect()
   })
 
-  it('fenced cleanup removes deterministic files and clears durable checkpoints', async () => {
+  it('rejects LEGACY cleanup without an actual drained generation and leaves files unchanged', async () => {
     const root = await temporaryRoot()
     const now = new Date('2026-08-18T10:00:00.000Z')
     const importJobId = `${prefix}-import-job`
@@ -85,20 +90,273 @@ describePostgres('archive maintenance PostgreSQL integration', () => {
       now
     )
 
-    await runClaimedMaintenance(maintenanceJobId, root, now)
-
-    await expect(db().archiveImport.findUniqueOrThrow({ where: { id: importId } })).resolves.toMatchObject({
-      cleanupRequestedAt: null,
-      completedItems: 0,
-      failedItems: 0
+    await expect(runClaimedMaintenance(maintenanceJobId, root, now)).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+    expect(await db().archiveImport.findUniqueOrThrow({ where: { id: importId } })).toMatchObject({
+      cleanupRequestedAt: now
     })
-    await expect(db().systemJob.findUniqueOrThrow({ where: { id: maintenanceJobId } })).resolves.toMatchObject({
-      status: 'COMPLETED'
-    })
-    await expect(readFile(path.join(root, `.archive-staging/${importId}/checkpoint`))).rejects.toMatchObject({
-      code: 'ENOENT'
-    })
+    expect(await readFile(path.join(root, `.archive-staging/${importId}/checkpoint`), 'utf8')).toBe('fixture')
+    expect(await db().mediaContentPathWrite.count({ where: { jobId: maintenanceJobId } })).toBe(0)
   })
+
+  it.each(['undrained', 'held', 'drained', 'late-hold'] as const)(
+    'CLEAN_STAGING %s uses actual drain and preserves declaration on failed final publication',
+    async (mode) => {
+      const root = await temporaryRoot(),
+        now = new Date('2026-08-18T10:00:00.000Z')
+      const importId = `${prefix}-cleanup`,
+        importJobId = `${prefix}-download`,
+        token = randomUUID()
+      await seedSystemJob(importJobId, 'ARCHIVE_IMPORT', { archiveImportId: importId }, now, 'COMPLETED')
+      const stagingPath = `.archive-staging/${importId}--${token}`
+      await db().archiveImport.create({
+        data: {
+          id: importId,
+          systemJobId: importJobId,
+          providerKey: 'test',
+          externalId: prefix,
+          submittedUrl: 'https://example.test/cleanup',
+          canonicalUrl: 'https://example.test/cleanup',
+          locator: {},
+          status: 'FAILED',
+          phase: 'DOWNLOAD',
+          normalizedMetadata: {},
+          rawMetadata: {},
+          metadataHash: 'a'.repeat(64),
+          creatorBucket: 'bucket',
+          stagingPath,
+          generationToken: token,
+          cleanupRequestedAt: now
+        }
+      })
+      await db().archiveStagingGeneration.create({
+        data: {
+          token,
+          archiveImportId: importId,
+          jobId: importJobId,
+          path: stagingPath,
+          ...(mode === 'undrained' ? {} : { drainedAt: now })
+        }
+      })
+      await writeFixture(root, `${stagingPath}/checkpoint`)
+      const source = await db().$transaction(
+        async (tx) =>
+          (
+            await captureArtworkDedupSources(tx, {
+              identities: [{ kind: 'PROVIDER', providerKey: 'test', externalId: prefix }]
+            })
+          )[0]!
+      )
+      sourceIds.push(source.sourceId)
+      const hold = () =>
+        db().artworkDedupSourceIdentity.update({
+          where: { id: source.sourceId },
+          data: { status: 'HOLD', ownerOperationId: prefix }
+        })
+      if (mode === 'held') await hold()
+      const jobId = await seedSystemJob(
+        `${prefix}-cleanup-job`,
+        'ARCHIVE_MAINTENANCE',
+        { action: 'CLEAN_STAGING', archiveImportId: importId },
+        now
+      )
+      const repository = new PostgresQueueRepository(db() as unknown as QueueDatabase, {
+        clock: new MutableQueueClock(now),
+        leaseDurationMs: 60_000,
+        transactionTimeoutMs: 20_000
+      })
+      const job = (await repository.claim(`${prefix}-worker`, capabilities))!
+      expect(job.id).toBe(jobId)
+      const context = executionContext(repository, job)
+      const finalize = context.finalizeInTransaction
+      if (mode === 'late-hold') {
+        context.finalizeInTransaction = async (operation) => {
+          await hold()
+          return finalize(operation)
+        }
+      }
+      const execute = () =>
+        executeArchiveMaintenance(context, { database: db(), config: { scanRoot: root }, now: () => now })
+      if (mode === 'drained') {
+        await execute()
+        expect(await db().archiveImport.findUniqueOrThrow({ where: { id: importId } })).toMatchObject({
+          cleanupRequestedAt: null,
+          generationToken: null
+        })
+        expect(await db().archiveStagingGeneration.findUniqueOrThrow({ where: { token } })).toMatchObject({
+          cleanedAt: now
+        })
+        expect(
+          (await db().mediaContentPathWrite.findMany({ where: { jobId } })).every(
+            (write) => write.status === 'COMPLETED'
+          )
+        ).toBe(true)
+      } else {
+        await expect(execute()).rejects.toMatchObject({ code: mode === 'undrained' ? 'STATE_CONFLICT' : 'SOURCE_HELD' })
+        expect(await db().archiveImport.findUniqueOrThrow({ where: { id: importId } })).toMatchObject({
+          cleanupRequestedAt: now,
+          generationToken: token
+        })
+        expect(await db().archiveStagingGeneration.findUniqueOrThrow({ where: { token } })).toMatchObject({
+          cleanedAt: null
+        })
+        if (mode === 'late-hold') {
+          const writes = await db().mediaContentPathWrite.findMany({ where: { jobId } })
+          expect(writes.length).toBeGreaterThan(0)
+          expect(writes.every((write) => write.status === 'ACTIVE')).toBe(true)
+          // The awaited executor is stopped; release its lease before inspecting the existing offline protocol.
+          await repository.release({
+            jobId,
+            workerId: job.workerId,
+            executionToken: job.executionToken,
+            attempt: job.attempt
+          })
+          // Offline authorization must not turn the persistent HOLD into a fresh OPEN cleanup intent.
+          await expect(
+            db().$transaction((tx) =>
+              inspectMediaContentRecovery(tx, {
+                jobId,
+                sessionId: `archive-cleanup:${jobId}`,
+                now,
+                readDomainSnapshot: readExecutorMediaRecoveryDomainSnapshot
+              })
+            )
+          ).rejects.toMatchObject({
+            code: 'STATE_CONFLICT',
+            message: 'Original staging cleanup checkpoint is missing or changed'
+          })
+        } else {
+          expect(await readFile(path.join(root, `${stagingPath}/checkpoint`), 'utf8')).toBe('fixture')
+          expect(await db().mediaContentPathWrite.count({ where: { jobId } })).toBe(0)
+        }
+      }
+    }
+  )
+
+  it.each(['TRASH_ARCHIVE', 'RESTORE_ARCHIVE', 'PURGE_ARCHIVE'] as const)(
+    'queued %s obeys early and late persistent URL hold',
+    async (action) => {
+      for (const late of [false, true]) {
+        await cleanupDatabase()
+        const root = await temporaryRoot(),
+          now = new Date('2026-08-18T11:00:00.000Z')
+        const artwork = await db().artwork.create({
+          data: {
+            title: prefix,
+            source: 'URL_ARCHIVE',
+            createdVia: 'URL_ARCHIVE',
+            archiveLifecycleState:
+              action === 'TRASH_ARCHIVE' ? 'TRASHING' : action === 'RESTORE_ARCHIVE' ? 'RESTORING' : 'TRASHED',
+            deletedAt: now
+          }
+        })
+        const ref = await db().artworkExternalRef.create({
+          data: {
+            artworkId: artwork.id,
+            providerKey: 'test',
+            externalId: randomUUID(),
+            canonicalUrl: 'https://example.test/',
+            locator: {}
+          }
+        })
+        const archivePath = `sources/test/bucket/${prefix}/revisions/rev`,
+          trashPath = `.trash/archive/${artwork.id}/rev`
+        await db().archiveRevision.create({
+          data: {
+            id: `${prefix}-hold-rev`,
+            artworkId: artwork.id,
+            externalRefId: ref.id,
+            archivePath,
+            trashPath,
+            manifestPath: `${archivePath}/manifest.json`,
+            metadataHash: 'a'.repeat(64),
+            mediaSnapshot: [],
+            isCurrent: true,
+            trashedAt: now,
+            purgeAfter: new Date(now.getTime() - 1000)
+          }
+        })
+        const sourcePath = action === 'TRASH_ARCHIVE' ? archivePath : trashPath
+        await writeFixture(root, `${sourcePath}/sentinel`)
+        const artist = await db().artist.create({ data: { name: prefix } })
+        artistIds.push(artist.id)
+        const run = await db().artworkDedupRun.create({
+          data: { artistId: artist.id, requestedBy: prefix, mode: 'FULL', idempotencyKey: randomUUID() }
+        })
+        runIds.push(run.id)
+        const operation = await db().artworkDedupOperation.create({
+          data: {
+            runId: run.id,
+            artistId: artist.id,
+            requestedBy: prefix,
+            idempotencyKey: randomUUID(),
+            requestDigest: 'fixture',
+            runVersion: 1,
+            frozenReviewRevision: 0,
+            selectionKind: 'EXPLICIT'
+          }
+        })
+        operationIds.push(operation.id)
+        const hold = () =>
+          db().artworkDedupOperationArtwork.create({
+            data: {
+              operationId: operation.id,
+              artworkId: artwork.id,
+              groupId: randomUUID(),
+              role: 'COPY',
+              status: 'RECOVERY_REQUIRED',
+              title: prefix,
+              sourceLabel: 'URL',
+              artworkCreatedAt: artwork.createdAt,
+              isUrl: true,
+              frozenMediaRevision: artwork.mediaRevision,
+              snapshotRevision: 0n,
+              mediaEpoch: 0n,
+              memberCount: 0n,
+              algorithmVersion: 1,
+              membersSignature: 'a'.repeat(64),
+              contentSha256: 'a'.repeat(64),
+              organizationSignature: 'a'.repeat(64),
+              sourceSignature: 'a'.repeat(64),
+              creatorSignature: 'a'.repeat(64)
+            }
+          })
+        if (!late) await hold()
+        const jobId = await seedSystemJob(
+          `${prefix}-hold-job`,
+          'ARCHIVE_MAINTENANCE',
+          { action, artworkId: artwork.id },
+          now
+        )
+        const repository = new PostgresQueueRepository(db() as unknown as QueueDatabase, {
+          clock: new MutableQueueClock(now),
+          leaseDurationMs: 60000,
+          transactionTimeoutMs: 20000
+        })
+        const job = (await repository.claim(`${prefix}-worker`, capabilities))!
+        expect(job.id).toBe(jobId)
+        const context = executionContext(repository, job),
+          finalize = context.finalizeInTransaction
+        if (late) {
+          context.finalizeInTransaction = async (work) => {
+            await hold()
+            return finalize(work)
+          }
+        }
+        await expect(
+          executeArchiveMaintenance(context, { database: db(), config: { scanRoot: root }, now: () => now })
+        ).rejects.toMatchObject({ code: late ? 'URL_HELD' : 'STATE_CONFLICT' })
+        expect(await db().artwork.findUniqueOrThrow({ where: { id: artwork.id } })).toEqual(artwork)
+        const writes = await db().mediaContentPathWrite.findMany({ where: { jobId } })
+        if (late) {
+          expect(writes.length).toBeGreaterThan(0)
+          expect(writes.every((write) => write.status === 'ACTIVE')).toBe(true)
+        } else {
+          expect(writes).toHaveLength(0)
+          expect(await readFile(path.join(root, sourcePath, 'sentinel'), 'utf8')).toBe('fixture')
+        }
+      }
+    }
+  )
 
   it('fenced trash and restore preserve lifecycle/path invariants on real rows', async () => {
     const root = await temporaryRoot()
@@ -506,8 +764,9 @@ describePostgres('archive maintenance PostgreSQL integration', () => {
     ).toMatchObject({ status: 'ACTIVE' })
     expect(await db().mediaContentPathWrite.findMany({ where: { jobId }, orderBy: { id: 'asc' } })).toEqual(oldClaims)
     expect(await db().artworkContentSource.findUniqueOrThrow({ where: { artworkId: artwork.id } })).toEqual(oldSource)
-    for (const revision of revisions)
+    for (const revision of revisions) {
       expect(await readFile(path.join(root, revision.trashPath, 'media/file.jpg'), 'utf8')).toBe('fixture')
+    }
     for (const sentinel of sentinels) expect(await readFile(path.join(root, sentinel), 'utf8')).toBe('fixture')
   })
 })
@@ -555,8 +814,9 @@ async function interruptedLargeMaintenance(action: RecoverableMaintenanceAction)
   })
   await db().archiveRevision.createMany({ data: revisions })
   await db().image.create({ data: { artworkId: artwork.id, path: `${revisions[100]!.archivePath}/media/file.jpg` } })
-  for (const revision of revisions)
+  for (const revision of revisions) {
     await writeFixture(root, `${action === 'TRASH_ARCHIVE' ? revision.archivePath : revision.trashPath}/media/file.jpg`)
+  }
   const sentinels = [
     `sources/test/bucket/${prefix}-neighbor/revisions/001/media/file.jpg`,
     `.trash/archive/${artwork.id + 1}/001/media/file.jpg`
@@ -700,6 +960,14 @@ function executionContext(repository: PostgresQueueRepository, job: ClaimedJob) 
 
 async function cleanupDatabase() {
   if (!prisma) return
+  await prisma.artworkDedupSourceIdentity.deleteMany({ where: { id: { in: sourceIds } } })
+  sourceIds.length = 0
+  await prisma.artworkDedupOperation.deleteMany({ where: { id: { in: operationIds } } })
+  await prisma.artworkDedupRun.deleteMany({ where: { id: { in: runIds } } })
+  await prisma.artist.deleteMany({ where: { id: { in: artistIds } } })
+  operationIds.length = 0
+  runIds.length = 0
+  artistIds.length = 0
   await prisma.archiveImport.deleteMany({ where: { id: { startsWith: prefix } } })
   await prisma.artwork.deleteMany({ where: { title: prefix } })
   await prisma.jobResourceLease.deleteMany({ where: { ownerJobId: { startsWith: prefix } } })

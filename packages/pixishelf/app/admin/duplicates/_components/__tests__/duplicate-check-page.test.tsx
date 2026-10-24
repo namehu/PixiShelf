@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   control: vi.fn(),
   replace: vi.fn()
 }))
+vi.mock('../duplicate-workspace', () => ({
+  DuplicateWorkspace: ({ children }: { children: React.ReactNode }) => children
+}))
 vi.mock('@/lib/auth/client', () => ({ useSession: () => ({ data: { user: { id: mocks.userId } }, isPending: false }) }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: mocks.replace }) }))
 vi.mock('@/lib/trpc', () => {
@@ -62,6 +65,7 @@ function createRun(overrides: Partial<ArtworkDedupRunDto> = {}): ArtworkDedupRun
     },
     allowedControls: ['pause', 'cancel'],
     failure: null,
+    lastCompletedRun: null,
     ...overrides
   }
 }

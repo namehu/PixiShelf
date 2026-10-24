@@ -1,3 +1,8 @@
+// Shared-series Claim checks run against PostgreSQL in dedup-shared-series.postgres.test.ts.
+vi.mock('../../pixiv-artwork/series-sync.ts', async (original) => ({
+  ...(await original<typeof import('../../pixiv-artwork/series-sync.ts')>()),
+  assertPixivSeriesArtworkWritable: vi.fn()
+}))
 import * as fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'

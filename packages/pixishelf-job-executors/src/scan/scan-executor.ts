@@ -1,3 +1,5 @@
+import { lockCreatorCatalog } from '@pixishelf/db'
+import { assertPixivScanSources, isScanSourceProofRejection } from './dedup-source-snapshot.ts'
 import path from 'node:path'
 import { captureScanMediaDirectory, assertScanMediaDirectory } from './media-content-guard.ts'
 import { assertPixivRootUnchanged } from './root-identity.ts'
@@ -166,7 +168,7 @@ export async function executeScan(
         if (context.recordDiagnostic) {
           const failedItems = await transaction.scanRunItem.findMany({ where: { scanRunId: run.id, status: 'FAILED' } })
           for (const item of failedItems)
-            await context.recordDiagnostic(transaction, {
+            {await context.recordDiagnostic(transaction, {
               key: item.checkpointKey?.startsWith('inventory-discovery:')
                 ? `discovery:${run.id}:${item.checkpointKey}`
                 : `scan:${run.id}:${item.checkpointKey}`,
@@ -177,7 +179,7 @@ export async function executeScan(
               targetLabel: item.metadataRelativePath ?? item.title ?? item.id,
               stage: item.action,
               message: item.errorMessage ?? '此前执行遗留的扫描失败检查点'
-            })
+            })}
         }
         await transaction.scanRun.update({
           where: { id: run.id },
@@ -294,6 +296,13 @@ async function processMetadataInput(input: {
     scanRoot: input.root.absolutePath,
     relativeDirectory: path.posix.dirname(input.row.relativePath)
   })
+  await input.context.mutateInTransaction<ScanTransaction & QueueSqlExecutor>(async (transaction) => {
+    await assertPixivScanSources(transaction, {
+      snapshot: input.row.dedupSourceSnapshot,
+      relativePath: input.row.relativePath,
+      rootIdentity: mediaDirectory.rootIdentity
+    })
+  })
   const resolved = await resolveSafeExistingPath(input.root, input.row.relativePath, 'file')
   const candidate = metadataCandidateFromPath(resolved)
   if (!candidate || !input.row.contentHash) {
@@ -342,6 +351,7 @@ async function processMetadataInput(input: {
         artistName: metadata.user,
         inventoryBaselineGeneration: input.inventoryBaselineGeneration,
         inventoryRootPathHash: input.inventoryRootPathHash,
+        dedupSourceSnapshot: input.row.dedupSourceSnapshot,
         now: input.now
       })
     )
@@ -360,7 +370,14 @@ async function processMetadataInput(input: {
       ScanTransaction & QueueSqlExecutor,
       Awaited<ReturnType<typeof publishPixivArtwork>>
     >(async (transaction) => {
+      await lockCreatorCatalog(transaction)
       await assertScanMediaDirectory(transaction, mediaDirectory)
+      await assertPixivScanSources(transaction, {
+        snapshot: input.row.dedupSourceSnapshot,
+        relativePath: input.row.relativePath,
+        rootIdentity: mediaDirectory.rootIdentity,
+        externalId: metadata.id
+      })
       await assertPixivRootUnchanged(input.root)
       if (input.context.payload.mode === 'ARTWORK_RESCAN') {
         await assertArtworkRescanSnapshot({
@@ -380,6 +397,7 @@ async function processMetadataInput(input: {
         checkpointOrdinal: input.row.ordinal,
         checkpointKey: checkpointKey(input.row),
         metadataRelativePath: candidate.relativePath,
+        dedupSourceSnapshot: input.row.dedupSourceSnapshot,
         metadata,
         metadataContentHash: input.row.contentHash!,
         media,
@@ -447,37 +465,48 @@ async function recordInputFailure(
   parsed: boolean,
   state: StableFileState | undefined,
   now: Date
-) {
-  return context.mutateInTransaction<
-    ScanTransaction & QueueSqlExecutor,
-    Awaited<ReturnType<typeof recordInventoryFailure>>
-  >(async (transaction) => {
-    const candidate = metadataCandidateFromPath({ relativePath: row.relativePath, absolutePath: row.relativePath })
-    const outcome = await recordInventoryFailure({
-      transaction,
-      runId,
-      checkpointOrdinal: row.ordinal,
-      checkpointKey: checkpointKey(row),
-      relativePath: row.relativePath,
-      contentHash: row.contentHash!,
-      externalId: candidate?.artworkId ?? '',
-      state: state ?? stableStateFromRow(row),
-      error,
-      parsed,
-      now
-    })
-    if (outcome.status === 'FAILED')
-      await context.recordDiagnostic?.(transaction, {
-        key: `scan:${runId}:${checkpointKey(row)}`,
-        scope: 'ITEM',
-        targetType: 'METADATA',
-        targetId: candidate?.artworkId,
-        targetLabel: row.relativePath,
-        stage: parsed ? 'FAILED_COLLECT' : 'FAILED_PARSE',
-        error
+): Promise<Awaited<ReturnType<typeof recordInventoryFailure>>> {
+  try {
+    return await context.mutateInTransaction<
+      ScanTransaction & QueueSqlExecutor,
+      Awaited<ReturnType<typeof recordInventoryFailure>>
+    >(async (transaction) => {
+      if (!isScanSourceProofRejection(error)) {
+        await assertPixivScanSources(transaction, { snapshot: row.dedupSourceSnapshot, relativePath: row.relativePath })
+      }
+      const candidate = metadataCandidateFromPath({ relativePath: row.relativePath, absolutePath: row.relativePath })
+      const outcome = await recordInventoryFailure({
+        transaction,
+        runId,
+        checkpointOrdinal: row.ordinal,
+        checkpointKey: checkpointKey(row),
+        relativePath: row.relativePath,
+        contentHash: row.contentHash!,
+        externalId: candidate?.artworkId ?? '',
+        state: state ?? stableStateFromRow(row),
+        error,
+        parsed,
+        updateInventory: !isScanSourceProofRejection(error),
+        now
       })
-    return outcome
-  })
+      if (outcome.status === 'FAILED')
+        {await context.recordDiagnostic?.(transaction, {
+          key: `scan:${runId}:${checkpointKey(row)}`,
+          scope: 'ITEM',
+          targetType: 'METADATA',
+          targetId: candidate?.artworkId,
+          targetLabel: row.relativePath,
+          stage: parsed ? 'FAILED_COLLECT' : 'FAILED_PARSE',
+          error
+        })}
+      return outcome
+    })
+  } catch (failure) {
+    if (!isScanSourceProofRejection(error) && isScanSourceProofRejection(failure)) {
+      return recordInputFailure(context, runId, row, failure, parsed, state, now)
+    }
+    throw failure
+  }
 }
 
 function policyFor(payload: ScanPayload): ExistingArtworkPolicy {

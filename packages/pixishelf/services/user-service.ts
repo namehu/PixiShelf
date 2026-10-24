@@ -1,3 +1,5 @@
+import { Prisma, ArtworkDedupOperationError, deleteUserWithArtworkDedupProtection } from '@pixishelf/db'
+import { TRPCError } from '@trpc/server'
 import { prisma } from '@/lib/prisma'
 import { auth } from '@/lib/auth'
 
@@ -66,20 +68,23 @@ export async function addUser(username: string, password: string) {
  * @returns Promise<void>
  */
 export async function deleteUser(id: string) {
-  // 检查是否是最后一个用户
-  const totalUsers = await prisma.userBA.count()
-  if (totalUsers <= 1) {
-    throw new Error('Cannot delete the last user')
+  try {
+    await prisma.$transaction((tx) =>
+      deleteUserWithArtworkDedupProtection(tx as unknown as Prisma.TransactionClient, id)
+    )
+  } catch (error) {
+    if (error instanceof ArtworkDedupOperationError) {
+      if (error.code === 'LAST_USER') throw new Error('Cannot delete the last user')
+      if (error.code === 'NOT_FOUND') throw new Error('User not found')
+      throw new TRPCError({ code: 'CONFLICT', message: '作品正在维护，请稍后重试' })
+    }
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      ((error.code === 'P2010' && error.meta?.code === '55P03') || error.code === 'P2034')
+    )
+      {throw new TRPCError({ code: 'CONFLICT', message: '账户或作品正在更新，请稍后重试' })}
+    throw error
   }
-
-  // 检查用户是否存在
-  const user = await prisma.userBA.findUnique({ where: { id } })
-  if (!user) {
-    throw new Error('User not found')
-  }
-
-  // 删除用户
-  await prisma.userBA.delete({ where: { id } })
 }
 
 /**

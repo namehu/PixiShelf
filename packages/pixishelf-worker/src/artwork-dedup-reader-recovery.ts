@@ -1,4 +1,10 @@
-import { createDatabaseClient, inspectArtworkDedupReaderRecovery, recoverArtworkDedupReader } from '@pixishelf/db'
+import {
+  createDatabaseClient,
+  inspectArtworkDedupReaderRecovery,
+  recoverArtworkDedupReader,
+  inspectArtworkDedupOperationReaderRecovery,
+  recoverArtworkDedupOperationReader
+} from '@pixishelf/db'
 import {
   parseArtworkDedupReaderRecoveryCommand,
   ArtworkDedupReaderRecoveryCliError
@@ -8,11 +14,16 @@ export async function runArtworkDedupReaderRecovery(args: string[]): Promise<num
   const command = parseArtworkDedupReaderRecoveryCommand(args)
   const database = createDatabaseClient()
   try {
-    const result = await database.$transaction<unknown>(async (tx) =>
-      command.command === 'inspect'
-        ? inspectArtworkDedupReaderRecovery(tx, { runId: command.runId, now: new Date() })
-        : recoverArtworkDedupReader(tx, { ...command, now: new Date() })
-    )
+    const result = await database.$transaction<unknown>(async (tx) => {
+      const now = new Date()
+      if ('operationId' in command)
+        return command.command === 'inspect'
+          ? inspectArtworkDedupOperationReaderRecovery(tx, { operationId: command.operationId, now })
+          : recoverArtworkDedupOperationReader(tx, { ...command, now })
+      return command.command === 'inspect'
+        ? inspectArtworkDedupReaderRecovery(tx, { runId: command.runId, now })
+        : recoverArtworkDedupReader(tx, { ...command, now })
+    })
     process.stdout.write(JSON.stringify(result) + '\n')
     return 0
   } finally {

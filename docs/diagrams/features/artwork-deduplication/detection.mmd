@@ -1,5 +1,5 @@
 ---
-title: 同艺术家作品去重 · 拟实施缓存与检测时序
+title: 同艺术家作品去重 · 保留的只读缓存与检测时序
 ---
 sequenceDiagram
   participant App as App 控制面
@@ -66,3 +66,5 @@ sequenceDiagram
     Child-->>Worker: 已退出；未确认退出时禁止启动替代读取进程
   end
   Note over Worker,DB: 旧执行器和迟到结果始终受 token / lease 与源代次双重保护
+
+  Note over App,DB: 检测结果不是直接删除授权；新删除须另经冻结预览、确认与全范围 fresh 校验

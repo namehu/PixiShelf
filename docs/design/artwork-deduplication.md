@@ -1,147 +1,115 @@
 ---
-status: draft
-scope: 同艺术家精确作品去重的业务边界、跨阶段契约、设计导航及验收门槛
-last-verified: 2026-10-23
+status: current
+scope: 开发分支已实施的同艺术家精确去重方案、三批验收与候选交付边界
+last-verified: 2026-10-24
 sources:
-  - packages/pixishelf-db/prisma/schema.prisma
-  - packages/pixishelf-job-contracts/src/job-types.ts
-  - packages/pixishelf-job-runtime/src/queue-repository.ts
-  - packages/pixishelf-worker/src/dispatcher.ts
-  - packages/pixishelf-job-executors/src/scan/content-reader.ts
   - docs/product/product-baseline.md
   - docs/security/access-control.md
+  - docs/operations/backup-and-recovery.md
+  - docs/records/artwork-deduplication-direct-delete-batch3-2026-10-24.md
+  - packages/pixishelf-job-contracts/src/artwork-dedup-maintenance.ts
 ---
 
 # 同艺术家作品去重：总计划
 
-本文是已确认、尚未实施完成的设计。实施状态及实际验证证据见[交付记录](../records/artwork-deduplication-2026-10-23.md)，不能把本文或原型当作已上线能力。用户场景为同一艺术家约 1,000 个作品、每作平均 500 个原媒体文件；目标是发现整部作品重复导入，并在保护原件与个人整理数据的前提下完成可恢复清理。
+本文是用户于 2026-10-24 批准并按三批实施完成的开发分支方案；当前行为见[功能规格](../features/artwork-deduplication.md)，隔离验收不等于真实实例部署。新流程为：**检查 → 选择保留者 → 服务端冻结删除预览 → 一次不可恢复删除确认（含外部停写声明）→ Worker 原地逐文件永久删除 → 删除记录**。取消原隔离、移动、恢复和到期清理方案。普通 URL 归档删除继续使用现有回收行为；只有去重专用删除绕过回收。
 
-## 开发导航与阶段门槛
-
-| 阶段 | 唯一详细规格                                                                                                           | 交付门槛                                                             |
-| ---- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| 0    | 本文、[页面设计](./artwork-deduplication/ui-design.md)、[交互原型](./artwork-deduplication/prototype.html)及下列五张图 | 文档检查、独立设计审查、指定浏览器 agent 核验设计稿与图示            |
-| 1    | [指纹缓存与内容一致性](./artwork-deduplication/01-fingerprints.md)                                                     | 缓存/成员/CAS/文件读取测试，独立代码审查；浏览器留最终统一验收       |
-| 2    | [后台检测与资源控制](./artwork-deduplication/02-detection.md)                                                          | 持久任务与中断/故障/资源测试，独立代码审查；浏览器留最终统一验收     |
-| 3    | [结果审核与清理预览](./artwork-deduplication/03-review.md)                                                             | 审核/跨页/账户/过期预览测试，独立代码审查；浏览器留最终统一验收      |
-| 4    | [可恢复隔离与恢复](./artwork-deduplication/04-isolation.md)                                                            | 全写入口守卫和逐文件故障恢复测试，独立代码审查；浏览器留最终统一验收 |
-| 5    | [手动永久清理与交付](./artwork-deduplication/05-purge.md)                                                              | 保留者保护/删除/升级与全量检查，独立代码审查，完整业务浏览器回归     |
-
-顺序为 0 → 1 → 2 → 3 → 4 → 5。按用户最新确认，每阶段先实现与相关测试，再由未参与该阶段实现的独立 agent 以新上下文审查，修复复审通过后进入下一阶段；全部浏览器回归集中到最终，由 GPT-6.1 Sol / high 执行。代码或数据正确性的阻塞问题仍须先修复，浏览器未覆盖项明确保留，不能写成通过；最终浏览器发现代码问题须补做对应审查。后台正确性由数据库/文件系统/故障注入测试证明，浏览器不得代替这些证据。
-
-文档与代码均在独立 worktree、`codex/artwork-deduplication` 分支完成。开工基线包含当前未提交的归档下载改造；基线快照与本功能提交分开，原工作区和暂存区保持不变。合入前重新对齐主线。影响接口、数据语义、生命周期或交互的变更先修订规格及对应图，再实现；阶段记录只放 records，不向本计划追加流水账。
+第一批必要写保护和第二批四来源直接删除后端已完成独立审查；证据见[第一批](../records/artwork-deduplication-direct-delete-batch1-2026-10-24.md)、[第二批](../records/artwork-deduplication-direct-delete-batch2-2026-10-24.md)及其审查记录。第三批页面、独立审查、最终构建与核心浏览器已完成，现已暂停；结果和未覆盖项见[第三批交付记录](../records/artwork-deduplication-direct-delete-batch3-2026-10-24.md)。旧 `PREPARE/ISOLATION` 预览绝不能授权 `DIRECT_DELETE`；新删除由独立能力门禁控制，隔离发布候选的验证边界见下文，不能推定生产已开放。早期 WIP 和旧隔离方案的暂停记录不再作为续接安排。
 
 ## 业务定义与不变量
 
-1. 范围为本次冻结的有效 ArtworkArtist 关系、活动且未删除作品。运行中新加入的作品下次纳入；归属或成员变化使旧结果过期。
-2. 精确重复指全部登记原媒体 `(文件大小, SHA-256)` 的多重集合相同。文件名及顺序不影响结果，重复次数参与比较。APNG 与视频组合比较全部物理文件，不使用阅读器代表项、缩略图或感知哈希。
-3. 缺失、不可读、零字节、读取中变化及零媒体作品不能形成完整重复证据。标题、标签、来源、章节、排序、系列和附属文件不参与媒体指纹，因此媒体重复不等于整份收藏数据可无损删除。
-4. 文件哈希和作品指纹持久化；受控写入主动失效，外部可观察属性变化重新读取。属性匹配仅是缓存复用依据，不能证明任意外部覆盖不存在；提供完整重读模式。
-5. 检测不修改、重命名或删除原媒体；普通读取可能更新文件系统访问时间。迁移不读取媒体，不增加文件系统哈希回填阻塞。
-6. 清理必须显式审核，先可恢复隔离，再由用户手动永久清理。隔离无限期保留，无自动到期删除，不释放空间，不替代备份。
-7. 相似图、部分重叠、跨艺术家全库搜索、自动导入去重、个人数据自动合并不在首版范围。
+1. 范围为冻结时同一艺术家的有效 ArtworkArtist 关系、活动且未删除作品；运行中新增作品留待下次。归属或成员变化使旧证据过期。目标规模沿用约 1,000 部、平均每部 500 个原媒体；不扩大为全库或跨艺术家检测。
+2. 精确重复指全部登记原媒体 `(大小, SHA-256)` 的排序多重集合相同，忽略文件名和顺序，保留重复次数；APNG/视频组合比较全部登记物理原件，不使用代表项、缩略图或感知哈希。缺失、不可读、零字节、变化中或零媒体作品不能形成完整证据。
+3. 四种 ArtworkSource：`LOCAL_CREATED`、`PIXIV_IMPORTED`、`LOCAL_IMPORT`、`URL_ARCHIVE`，以及任意混合来源重复组均在目标范围内。来源不决定内容是否一致，也不构成整目录删除权限。来源身份和文件范围必须分别证明；本地手工作品不伪造外部来源。
+4. 检测只读原件，继续复用持久哈希、完整成员快照、源代次和有围栏发布；普通检查可复用缓存，完整检查绕过内容缓存。检测结果、READY 预览和旧 ISOLATION 确认都不是永久删除授权。
+5. 删除前同时认领保留者与副本、阻止新写入并终止相关执行，取得实际退出/drain 证明；只对所选组绕过缓存完整重读，**全部组的保留者和副本均校验成功后才允许首删**。取消、失租约、发出 kill 和任务终态均不等于执行退出。
+6. 仅删除冻结清单中的精确文件；不移动文件，不删除整个艺术家目录，不递归清空目录，也不顺带删除空目录。共享路径、硬链接、符号链接、越界、未知附件及未参与一致性验证的归档历史原件在预览阻断该作品，不静默删除、不自动缩小已确认范围。
+7. 文件先持久化删除意图，再 unlink，再持久化回执。部分失败保留冻结范围、不可见副本、声明及日志；重试重新验证保留者，只续原范围，不能恢复已删文件。取消在删除开始前有效；开始后仅在安全边界停止，不能撤销。
+8. 整理数据不合并。预览明确作品、媒体、来源、章节、标题/标签/系列及评分/书签/喜欢/阅读记录的删除影响。其他账户仅投影必要保护资格，不暴露其 ID、分数、标记、数量、时间或私有阅读排序。
+9. 可再发现的来源保留独立墓碑，防止重扫或迟到发布复活；墓碑不随作品删除。`allowReimport` 只显式解除选定来源并推进重叠来源代次，不恢复文件、不使旧执行有效。`LOCAL_CREATED` 只保留操作审计与必要文件证据，不制造来源身份。
 
-优先级沿用[产品基线](../product/product-baseline.md)：数据完整与恢复高于性能和视觉。涉及真实媒体的操作以[备份恢复基线](../operations/backup-and-recovery.md)为依据；测试只使用独立数据库与临时合成媒体。
+相似度、部分重叠、自动导入去重、个人数据合并不在范围内。实际不可恢复操作的恢复依据是[一致备份集合](../operations/backup-and-recovery.md)，删除日志不是媒体备份。外部同步和编辑必须在确认时声明停写，并持续至该操作终结；无法满足时仅可检查和审核。
+
+## 唯一详细规格与替代关系
+
+| 范围               | 详细规格                                                                                                                                                                             | 本轮处理                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| 指纹与缓存         | [第一阶段](./artwork-deduplication/01-fingerprints.md)、[原契约](./artwork-deduplication/phase-1-contracts.md)                                                                       | 沿用已验证设计，不重复实现                                                      |
+| 后台检测与资源     | [第二阶段](./artwork-deduplication/02-detection.md)、[原契约](./artwork-deduplication/phase-2-contracts.md)                                                                          | 沿用检测、分页、reader、让行与恢复；已有 50 万检测性能不重跑                    |
+| 审核与冻结预览     | [审核计划](./artwork-deduplication/03-review.md)                                                                                                                                     | 保留分页、建议、审核版本、账户隔离及 PREPARE；新目的与授权见下项                |
+| 直接删除与故障续行 | [直接删除契约](./artwork-deduplication/direct-delete.md)、[文件执行契约](./artwork-deduplication/file-execution-contracts.md)                                                        | 第二批后端已验收；第三批决定候选开放                                            |
+| 全写入口保护       | [声明与来源证明](./artwork-deduplication/claims-contracts.md)、[App 接线](./artwork-deduplication/app-write-guards.md)、[归档接线](./artwork-deduplication/archive-source-proofs.md) | 第一批已收口并独立审查，沿用既有证据                                            |
+| 页面               | [页面设计](./artwork-deduplication/ui-design.md)、[交互原型](./artwork-deduplication/prototype.html)                                                                                 | 目标为检查结果 / 删除记录，一次删除确认；第三批接正式 UI                        |
+| 旧维护方案         | [旧隔离计划](./artwork-deduplication/04-isolation.md)、[旧清理计划](./artwork-deduplication/05-purge.md)、[旧共享契约](./artwork-deduplication/phase-3-contracts.md)                 | 隔离/恢复/PURGE 授权已被替代；旧代码、测试和 records 保留为历史，不能授权新模式 |
+
+契约包维护严格 Zod/DTO/payload；DB 包维护声明、来源、事务围栏及最终删除；Worker/Executor 执行长任务；App 只校验 Session、审核、版本和幂等并入队。执行器不引用 App 服务。沿用既有分页表、声明、逐文件日志和 reader，不新增通用锁、通用工作流或第四条 lane。
+
+## 三批实施与暂停点
+
+每批完成定向验证、独立审查及结果报告后暂停，等待用户明确继续。只允许一个子 agent 同时活动，不恢复自动化 80。复杂锁、删除与崩溃逻辑由 Astra / high；普通代码、文档、测试及独立审查由 GPT-6.1 Sol / xhigh；最终浏览器由 GPT-6.1 Sol / medium。历史 records 保留当时模型与结果。
+
+| 批次                  | 必须完成的范围                                                                                                                                                                                     | 本批完成门槛                                                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| 1：设计与必要写保护   | 更新本计划、页面稿和图；修扫描隐含 creator catalog 锁倒序；收口 App 媒体/章节 WIP、归档原证明 WIP；补来源释放双向代次失效、必要写入口、URL hold 与真实 drain。只处理删除安全需要的入口，沿现有模式 | 明确入口矩阵、原事务内零写拒绝与真实 PG 并发证据；必要类型/lint；独立差异审查；文档/图检查；删除门禁保持关闭，报告后暂停      |
+| 2：四来源直接删除后端 | 新 DIRECT_DELETE 目的与独立门禁；冻结预览、认领/drain/全组 fresh 校验、原地逐文件删除、业务记录删除、墓碑和 allowReimport；覆盖四来源及混合组                                                      | 逐文件/故障/崩溃/迟到发布/来源周期测试及独立审查；旧 ISOLATION 计划直接调用也拒绝；报告后暂停                                 |
+| 3：UI 与最终验证      | 正式页面改为检查结果/删除记录；一次确认、停止边界、部分失败与原范围重试、明确影响及隐私；统一最终检查与浏览器回归                                                                                  | 按测试策略最终一次全量 lint/test/build 及受影响包检查、正式迁移、docs/diagrams/路径检查、独立审查与最终浏览器；交付报告后暂停 |
+
+第一批不以“全部旧功能无问题”为条件扩展通用体系，但必须完成能越过声明或改变冻结证据的必要入口。暂停记录中的扫描锁序、App 媒体与归档 WIP 未通过证据不能当作完成。评分触发器可能 UPDATE Artwork，Artwork/Artist 写触发器可能隐含取得 creator catalog；写者必须把此隐含锁纳入同一锁序，不能仅按显式 helper 判定无倒序。
+
+第三批的真实浏览器验收使用独立数据库、媒体根和端口上的发布候选：仅候选代码可将独立删除门禁开启，用于核对实际 App/Worker 流程，不提供客户端或运行时绕过参数，也不部署到真实图库。候选门禁变更与正式 UI 一并独立审查；最终验证未通过时回到关闭状态并记录阻断，通过后才形成可交付的开放决定。验收候选不等同生产开放。
+
+阶段内只运行受影响的最小测试和必要类型/lint。已通过且代码未变不重复运行；已有 50 万检测性能记录沿用，PREPARE 的已有部分规模证据按限制引用，不补造完整验收。最后一批再按[测试策略](../development/testing-strategy.md)统一全量。主应用 build 使用提升权限。
 
 ## 业务流程与架构图
 
-以下五张图均为拟实施设计，Mermaid 为唯一图源，SVG 由工具生成。图与子计划使用相同业务术语，数据库事务不涵盖文件系统操作。
+以下五张图描述目标方案，尚不表示新删除已开放。SVG 由 Mermaid 图源生成；读取缓存图保留原检测语义。数据库和文件系统没有共同原子事务。
 
 ### 完整业务流程
 
-![检测、审核、隔离、恢复与手动清理](../diagrams/features/artwork-deduplication/business-flow.svg)
+![检查、冻结预览、一次确认与永久删除](../diagrams/features/artwork-deduplication/business-flow.svg)
 
-[图源](../diagrams/features/artwork-deduplication/business-flow.mmd)。回答用户与后台如何完成一次去重，以及失败、取消、过期和恢复回到哪里。
+[图源](../diagrams/features/artwork-deduplication/business-flow.mmd)。确认后 Worker 必须先完成所选全范围复核，才开始首个文件动作。
 
 ### 系统职责与边界
 
-![系统与执行边界](../diagrams/features/artwork-deduplication/architecture.svg)
+![三 lane、写保护与原地删除边界](../diagrams/features/artwork-deduplication/architecture.svg)
 
-[图源](../diagrams/features/artwork-deduplication/architecture.mmd)。沿用 ARCHIVE_RESOLVE、ARCHIVE_DOWNLOAD、BACKGROUND_WRITER 三条 lane；去重不增加第四条 lane。三条通道共享磁盘、CPU 和数据库，内容读取并发 1 不等于整机 I/O 并发 1。
+[图源](../diagrams/features/artwork-deduplication/architecture.mmd)。下载有独立 lane，Writer 等待 drain 时让出执行槽。
 
 ### 检测与缓存时序
 
-![属性检查、缓存命中及有围栏的发布](../diagrams/features/artwork-deduplication/detection.svg)
+![属性、缓存和有围栏的检测发布](../diagrams/features/artwork-deduplication/detection.svg)
 
-[图源](../diagrams/features/artwork-deduplication/detection.mmd)。对应短事务、受控 reader、源代次与完整成员快照，不在数据库事务中读取大文件。
+[图源](../diagrams/features/artwork-deduplication/detection.mmd)。继续沿用已验证的只读检测协议。
 
-### 维护状态机
+### 删除状态机
 
-![隔离恢复和手动永久清理状态](../diagrams/features/artwork-deduplication/lifecycle.svg)
+![删除前取消与删除后安全边界停止](../diagrams/features/artwork-deduplication/lifecycle.svg)
 
-[图源](../diagrams/features/artwork-deduplication/lifecycle.mmd)。URL 去重保留约束持续到恢复或显式清理终态；异常进入需要恢复处理，不能通过超时自行解锁。
+[图源](../diagrams/features/artwork-deduplication/lifecycle.mmd)。状态名是目标契约，最终以同步更新后的 Zod/Schema 为准。
 
-### 文件操作与恢复
+### 逐文件删除与故障续行
 
-![文件意图、操作回执与故障恢复](../diagrams/features/artwork-deduplication/recovery.svg)
+![持久意图、unlink、回执与原范围续行](../diagrams/features/artwork-deduplication/recovery.svg)
 
-[图源](../diagrams/features/artwork-deduplication/recovery.mmd)。逐文件核对原位置与隔离位置，先持久化意图再移动；恢复冲突不覆盖未知内容。
+[图源](../diagrams/features/artwork-deduplication/recovery.mmd)。此处“恢复”仅指故障恢复执行，不包含文件撤销或归位。
 
-## 跨阶段契约
+## 需求 → 节点 → 批次 → 测试 → 证据
 
-### 数据与执行所有权
+| 需求                                    | 图中节点                       | 批次与验收 ID                     | 测试重点                                                           | 证据                                                                                                                                                                                                                                                                               |
+| --------------------------------------- | ------------------------------ | --------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 精确多重集合、缓存和有界检测            | detection D01–D07；A05/A09–A13 | 已有阶段 1/2，沿用 D1/D2          | 算法、缓存、源代次、reader 退出和资源预算                          | [阶段 1](../records/artwork-deduplication-phase-1-2026-10-23.md)、[阶段 2](../records/artwork-deduplication-phase-2-2026-10-23.md)及其审查；不重跑已有性能                                                                                                                         |
+| 分页审核、冻结范围与隐私                | B06–B09/B22                    | 批 2/3，保留 D3-01–07，更新 D3-08 | 未加载页范围、整理差异、旧预览不能执行新删除                       | [阶段 3 串联](../records/artwork-deduplication-stage-3-integration-2026-10-24.md)、[PREPARE 证据及限制](../records/artwork-deduplication-prepare-scale-2026-10-24.md)；[新目的证据](../records/artwork-deduplication-direct-delete-batch2-2026-10-24.md)                           |
+| 锁序、必要写入口和实际 drain            | A03/A04/A07/A11；B11；R01–R03  | 批 1，DD-01/02                    | 隐含 catalog 锁、双向 generation、认领/发布交错、退出回执          | [第一批完成及差异审查证据](../records/artwork-deduplication-direct-delete-batch1-2026-10-24.md)                                                                                                                                                                                    |
+| 四来源及混合组、精确范围和首删前全校验  | B10–B12；R03–R06               | 批 2，DD-03–06                    | fresh 全组、附件/历史原件阻断、路径独占、门禁                      | [第二批实现及专项](../records/artwork-deduplication-direct-delete-batch2-2026-10-24.md)，不以旧移动测试替代                                                                                                                                                                        |
+| 意图/unlink/回执、部分失败、取消边界    | R07–R12；L03–L08               | 批 2，DD-07–09                    | unlink 前后崩溃、DB 回执失败、新占用、原范围重试、零扩围           | [第二批故障及DD07证据](../records/artwork-deduplication-direct-delete-batch2-2026-10-24.md)                                                                                                                                                                                        |
+| 业务删除、墓碑及显式重新导入            | B13/B15；R13/R14               | 批 2，DD-10/11                    | 整理数据不合并、迟到发布拒绝、重叠来源代次、LOCAL_CREATED 无假来源 | [第二批生命周期证据](../records/artwork-deduplication-direct-delete-batch2-2026-10-24.md)                                                                                                                                                                                          |
+| 一次确认、删除记录、桌面/手机与最终门禁 | B07/B10/B14；A01               | 批 3，DD-B01–03                   | 会话切换、重复提交、停止/部分失败、隐私、全链路                    | [第三批最终检查](../records/artwork-deduplication-direct-delete-batch3-2026-10-24.md)、[独立审查](../records/artwork-deduplication-direct-delete-batch3-review-2026-10-24.md)、[核心浏览器与未覆盖项](../records/artwork-deduplication-direct-delete-batch3-browser-2026-10-24.md) |
 
-数据库包拥有内容源状态、缓存、维护声明和共享校验；契约包拥有任务类型、payload 与 DTO；执行器不引用 App 服务。App 负责 Session、用户输入、审核和入队，不承担长任务。任务与维护操作使用稳定业务 ID，重试不新建相互独立的业务意图。
+具体 DD 测试标准由[直接删除契约](./artwork-deduplication/direct-delete.md#验收标准)维护。没有实现的测试路径不作现有证据。
 
-文件缓存绑定媒体 ID、根身份、规范路径、源代次及高精度文件属性；作品缓存绑定完整成员快照及规范多重集合。文件读取结果提交必须同时通过源代次与任务执行围栏检查。受控写入先使旧证据不可用，成功或经验证的回滚再结束写入状态；不能依赖恰好存在一条旧缓存。
+## 交付与恢复边界
 
-检测、维护记录和恢复清单的保存独立于可重建缓存。检测历史默认 30 天，但活动任务、当前结果和审核引用不得清理；清理意图及恢复证据不随 Artwork/Image 级联丢失。非 URL 来源永久删除后保留独立 tombstone，仅显式重新导入可解除。
+开发继续在独立 worktree、`codex/artwork-deduplication` 完成，不改主工作区或暂存区，不回滚已有未提交改动。测试只使用独立 PostgreSQL、临时合成媒体及独立 App/Worker/端口；浏览器 URL 带 `entry=direct`。迁移使用正式 generate/deploy，禁止 db:push。
 
-### App 接口
-
-新增受保护的 `artworkDedup` router，所有调用验证 Session 和 `expectedUserId`。账户参数只作一致性检查，操作者始终取 Session。实例管理事实共享，私人标记详情按账户隔离；其他账户只提供必要的保护资格信息。
-
-| 接口                          | 输入意图                                            | 服务端行为                                                                                           |
-| ----------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| start                         | 艺术家、缓存或完整检查模式、幂等键                  | 冻结范围、同艺术家活动唯一、建立低优先级检测                                                         |
-| getRun / listGroups           | run ID、稳定游标与有界页大小                        | 返回脱敏计数、状态和分页结果；不返回绝对路径或完整哈希清单                                           |
-| control                       | run ID、版本、pause/resume/cancel/retry             | 持久控制，保持低优先级，不借通用 retry 提权                                                          |
-| saveReview                    | 组 ID、版本、保留作品及明确选择                     | 验证组内归属和当前证据，持久审核                                                                     |
-| prepareCleanup                | run ID、审核版本、明确组范围或全量建议              | 服务端冻结选择并入队 PREPARE，返回 BUILDING 计划 ID；后台分页构建清单，READY 后返回可执行/需审核范围 |
-| isolate                       | 操作 ID、版本、幂等键、外部停写及适用备份检查点确认 | 重新校验并建立持久维护操作，调用者不能提交文件路径                                                   |
-| listOperations / getOperation | 艺术家或操作 ID、分页                               | 返回批次状态、进度、影响和必要恢复指引                                                               |
-| restore / purge               | 操作 ID、版本、幂等键；purge 明确确认               | 基于原清单恢复或手动永久清理，不扩大范围                                                             |
-| allowReimport                 | 已清理操作及条目、来源代次、版本、幂等键            | 仅解除指定来源抑制并推进代次；旧任务不能重新发布，不恢复已删除文件                                   |
-| retryOperation                | 操作 ID、受限条目、版本、账户、幂等键               | 继续原动作与原授权范围，复核恢复前置；不得借重试新建或扩大永久清理                                   |
-
-具体字段以各阶段规格及随后类型安全的 Zod 契约为准；请求不能携带权威内容证据。幂等键绑定操作者、动作和规范输入，同键不同输入拒绝。冲突、过期或账户不匹配返回可理解的业务错误，未授权请求不得写入数据库或文件。
-
-检测任务为 `ARTWORK_DEDUP_SCAN`；维护为 `ARTWORK_DEDUP_MAINTENANCE`，模式 prepare/isolate/restore/purge，均在 writer lane。PREPARE 不移动媒体、不产生清理授权；它不长期认领整组作品，isolate 必须重新检查预览版本并建立全局声明。URL 如需交接现有维护任务，父任务必须先持久化交接并释放执行槽，不能占着 writer 等待同 lane 子任务。
-
-### 资源与文件安全
-
-初始预算：媒体页 500、属性并发最多 4、哈希并发 1、缓存提交 100、文件边界约 10 秒或 256 MiB 让行、冷却 3 秒、进度聚合约 10 秒、30 秒无进展进入停滞处理。大文件可能超过批次预算；已提交完整文件缓存可续用，当前中断文件从头计算。数值是初始执行配置，性能调整须记录测量依据。
-
-所有可能阻塞的文件属性/内容访问在受控子进程；取消、失租约或根身份变化后不再接受结果。发送终止信号不等于退出，确认 close 后才启动替代 reader；无法退出时停止新 reader 并上报。租约不能撤销已发出的文件 I/O。
-
-维护声明按全局 Artwork ID 同时认领保留者与副本。上传、替换、媒体增删、删除、扫描/来源最终发布、归档下载和发布、相关整理写入均遵守相同边界。保留者可以正常阅读，但维护执行窗口中原媒体与归属不可变化；副本处理中不新增整理或阅读写入。外部写入需显式停写，无法建立此条件时只开放检测审核。
-
-仅对已审核组 fresh hash，不重读整个图库。Pixiv 平铺目录按精确文件清单移动，不移动整个艺术家目录；跨文件系统、共享路径、硬链接、符号链接和未审核附件不进入自动隔离。恢复不覆盖占用路径。永久清理重新验证保留者内容，不能只判断仍可打开。
-
-## 需求与证据对应
-
-| 需求                             | 图与阶段                                            | 测试入口/验收 ID                            | 证据归属                        |
-| -------------------------------- | --------------------------------------------------- | ------------------------------------------- | ------------------------------- |
-| 精确多重集合、持久缓存、写入失效 | detection D02–D04、D06；阶段 1                      | D1 系列：算法、文件 fixture、源版本并发     | 阶段 1 自动测试及独立审查       |
-| 有界读取、任务控制、断点与故障   | architecture A09–A13、detection D01/D05/D07；阶段 2 | D2 系列：队列、子进程、PostgreSQL、资源测量 | 阶段 2 测试及任务中心浏览器记录 |
-| 保留建议、账户边界、跨页审核     | business-flow B06–B09；阶段 3                       | D3 系列及 UI 系列：服务、组件和浏览器       | 阶段 3 审查与桌面/手机截图      |
-| 精确隔离、URL hold、冲突恢复     | lifecycle、recovery R01–R17/R19–R20；阶段 4         | D4 系列：并发声明、逐文件故障注入和恢复     | 阶段 4 自动测试与浏览器记录     |
-| 手动清理、保留者保护、来源防重入 | business-flow B17–B21、recovery R18；阶段 5         | D5 系列：清理、升级、旧任务及完整流程       | 阶段 5 交付与恢复记录           |
-
-文件名与具体测试路径由各阶段实现后补充，不能以未实现的路径冒充现有测试。阶段 0 验证设计一致性、图可读性和原型交互，不声称验证媒体安全。
-
-## 最终验证与交付
-
-所有迁移和故障测试使用独立 PostgreSQL 与临时合成媒体；真实图库只做有界只读测量。独立 App、Worker、数据库、目录和端口不得消费原环境任务，浏览器 URL 带 `entry=direct`。
-
-验证 50 万媒体记录规模，分别记录冷/热缓存、候选比例、实际内容读取字节、stat 延迟、峰值 RSS、SQL 往返/写入、事件量、并发浏览与 writer 等待；规模样本与真实字节吞吐样本分开报告，不能把重复小文件或操作系统页缓存命中当作 NAS 性能。热缓存仍需要属性检查，不承诺秒级完成。
-
-按[测试策略](../development/testing-strategy.md)完成主应用 lint/typecheck/test/build、受影响 Worker 链、空库与非空正式迁移、故障恢复、文档/图示/路径检查。阶段迭代只运行受影响检查，全量构建与验证集中到最终交付，具体频率见下节。
-
-部署顺序为正式迁移 → 具备完整 capability 的 Worker → App 入口。检测关闭后可保留派生缓存；存在隔离操作时必须完成在途恢复或保留兼容执行器，不能仅回退镜像。发布前记录兼容备份检查点，最终列出手机真机仍需确认的触控、安全区和浏览器差异。
-
-## 执行分工与验证频率
-
-按 2026-10-23 恢复实施时的用户要求，主 agent 保持当前模型与强度，负责契约、协调、集成和记录；代码实施固定由 GPT-6 Astra / xhigh，独立代码审查由 GPT-6.1 Sol / xhigh，浏览器操作由 GPT-6.1 Sol / high 执行。审查者与该阶段实施者独立，使用新上下文。
-
-只收口当前阶段的明确阻塞，不因发现相邻旧问题自动扩大范围。迭代运行受影响的定向测试与必要类型检查；已通过且代码未变的检查不重复执行。阶段保留独立代码审查门槛；桌面/手机尺寸浏览器回归、全量主应用构建及全量验证集中到最终交付；只有新增失败、相关改动或阶段运行产物确有需要时，才重跑对应范围。既有历史验证记录保持当时的模型与结果，不追改为本次分工。
+部署按正式迁移 → 兼容 Worker → App 入口，隔离候选开关不代表生产开放，发布前按[备份基线](../operations/backup-and-recovery.md)记录一致检查点。存在未终结删除时保留兼容执行器、声明和日志；不能仅换旧镜像、清 token 或清行来“回滚”。已 unlink 的媒体只能通过独立、经验证的备份恢复流程处理，页面不提供撤销。检测历史与可重建缓存可按原规则维护；删除意图、回执、必要审计和来源墓碑不得随 Artwork/Image 或普通检测历史级联消失。

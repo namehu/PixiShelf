@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto'
+import { TRPCError } from '@trpc/server'
+import { assertArtworkDedupAppWrite } from '../artwork-dedup-write-guard'
+import type { AppTransaction } from '@/lib/prisma'
 import {
   ackMediaContentUploadChunk,
   prepareMediaContentUploadChunk,
-  markMediaContentWriteRecoveryRequired
+  markMediaContentWriteRecoveryRequired,
+  MediaContentConflictError
 } from '@pixishelf/db'
 import type { ContentWriteAuthorization, MediaUploadReceipt } from '@/schemas/media-content.dto'
 import {
@@ -13,6 +17,7 @@ import {
   contentOwner,
   contentTx,
   publishContentOwner,
+  finishLegacyContentGuards,
   requireContentReady
 } from './content-source-guard'
 import fs from 'fs/promises'
@@ -103,6 +108,7 @@ export async function uploadMediaChapterManifest(input: MediaChapterUploadInput)
     throw new MediaChapterUploadError('Artwork not found', 404)
   }
 
+  await prisma.$transaction((tx) => assertChapterArtworkWritable(tx, artworkId))
   const targetRelDir = determineArtworkRelDir(artwork)
   if (!targetRelDir) {
     throw new MediaChapterUploadError('Cannot determine artwork media directory', 400)
@@ -169,7 +175,13 @@ export async function uploadMediaChapterManifest(input: MediaChapterUploadInput)
         writeToken: input.uploadToken,
         declaredFileSize: bytes.length,
         totalChunks: 1,
-        parent: input.authorization
+        parent: input.authorization,
+        relatedImage: !input.authorization
+          ? (() => {
+              const image = artwork.images.find((item) => imageId ? item.id === imageId : toStoredPath(item.path) === normalizedVideoPath)
+              return image ? { imageId: image.id, artworkId, path: image.path } : undefined
+            })()
+          : undefined
       })
       if (!input.uploadAuthorization && upload.authorization.handle.declarationVersion !== '1') {
         throw new MediaChapterUploadError('Upload authorization required', 409)
@@ -288,10 +300,12 @@ export async function uploadMediaChapterManifest(input: MediaChapterUploadInput)
       if (imageId && !input.authorization && checkpoint.status !== 'COMPLETED') {
         await prisma.$transaction((tx) =>
           publishContentOwner(tx, input.userId, [authorization], 'committed', async (inner) => {
+            await assertChapterArtworkWritable(inner, artworkId)
             await inner.image.update({
               where: { id: imageId, artworkId },
               data: { ...chaptersMeta, chaptersUpdatedAt: new Date() }
             })
+            await finishLegacyContentGuards(inner, { sourcePath: normalizedVideoPath })
           })
         )
       } else if (!input.authorization && !imageId) {
@@ -313,6 +327,7 @@ export async function uploadMediaChapterManifest(input: MediaChapterUploadInput)
   } catch (error) {
     if (
       error instanceof ReplaceWriteBusyError ||
+      error instanceof MediaContentConflictError ||
       (error instanceof Error && 'status' in error && error.status === 409)
     ) {
       throw new MediaChapterUploadError(error.message, 409)
@@ -342,4 +357,16 @@ function isStoredPathWithinDir(storedPath: string, storedDir: string): boolean {
   const normalizedPath = toStoredPath(storedPath)
   const normalizedDir = toStoredPath(storedDir).replace(/\/+$/, '')
   return normalizedPath === normalizedDir || normalizedPath.startsWith(`${normalizedDir}/`)
+}
+
+
+async function assertChapterArtworkWritable(tx: AppTransaction, artworkId: number) {
+  try {
+    await assertArtworkDedupAppWrite(tx, artworkId, 'CONTENT')
+  } catch (error) {
+    if (error instanceof TRPCError && (error.code === 'CONFLICT' || error.code === 'NOT_FOUND')) {
+      throw new MediaChapterUploadError(error.message, error.code === 'NOT_FOUND' ? 404 : 409)
+    }
+    throw error
+  }
 }

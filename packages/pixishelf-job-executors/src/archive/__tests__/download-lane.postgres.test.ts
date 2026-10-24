@@ -1,18 +1,25 @@
+import { archiveCatalogProbe } from './catalog-order-probe.ts'
+import { captureArchiveFixtureSource } from './dedup-source-fixture.ts'
 import { cleanupFixtureContentDirectories } from '../../scan/__tests__/content-directory-cleanup.ts'
 import { randomUUID, createHash } from 'node:crypto'
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { PassThrough, Readable } from 'node:stream'
 import sharp from 'sharp'
 import {
   PrismaClient,
+  Prisma,
   inspectMediaContentRecovery,
   grantMediaContentRecovery,
-  resumeGrantedMediaContentRecovery,
-  type Prisma
+  resumeGrantedMediaContentRecovery
 } from '@pixishelf/db'
-import { executionLaneForJobType, type JobType, type ArchiveImportV2Payload } from '@pixishelf/job-contracts'
+import {
+  parseArtworkDedupSourceSnapshot,
+  executionLaneForJobType,
+  type JobType,
+  type ArchiveImportV2Payload
+} from '@pixishelf/job-contracts'
 import {
   MutableQueueClock,
   PostgresQueueRepository,
@@ -64,6 +71,123 @@ suite('archive download lane real database and filesystem', () => {
   afterAll(async () => {
     await cleanup()
     await db?.$disconnect()
+  })
+
+  it.each(['NULL', 'HOLD', 'REOPEN'] as const)(
+    'rejects original source %s before staging or network',
+    async (fault) => {
+      const a = await seed(`source-start-${fault}`)
+      const original = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+      const sourceId = parseArtworkDedupSourceSnapshot(original).sources[0]!.sourceId
+      if (fault === 'NULL')
+        await db!.archiveImport.update({ where: { id: a.id }, data: { dedupSourceSnapshot: Prisma.DbNull } })
+      else {
+        await db!.artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
+        if (fault === 'REOPEN')
+          await db!.artworkDedupSourceIdentity.update({
+            where: { id: sourceId },
+            data: { status: 'OPEN', ownerOperationId: null, generation: { increment: 1 } }
+          })
+      }
+      const network = vi.fn(async () => remote(Readable.from([png])))
+      const job = await claim('ARCHIVE_DOWNLOAD')
+      await execute(job, dependencies(a.root, network))
+      expect(network).not.toHaveBeenCalled()
+      expect(await readdir(a.root)).toEqual([])
+      expect(await db!.archiveStagingGeneration.count({ where: { archiveImportId: a.id } })).toBe(0)
+      const failed = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })
+      expect(failed.status).toBe('FAILED')
+      expect(failed.dedupSourceSnapshot).toEqual(fault === 'NULL' ? null : original)
+      expect((await db!.systemJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('FAILED')
+    }
+  )
+
+  it('registers the original fenced execution generation before the first staging mkdir', async () => {
+    const a = await seed('register-before-fs')
+    const job = await claim('ARCHIVE_DOWNLOAD')
+    const prepare = storage.prepareArchiveStagingDirectory
+    const firstFs = vi.spyOn(storage, 'prepareArchiveStagingDirectory').mockImplementation(async (...args) => {
+      const current = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })
+      const generation = await db!.archiveStagingGeneration.findUniqueOrThrow({ where: { token: job.executionToken } })
+      expect(current).toMatchObject({
+        status: 'RUNNING',
+        generationToken: job.executionToken,
+        stagingPath: generation.path
+      })
+      expect(generation).toMatchObject({ jobId: job.id, archiveImportId: a.id, drainedAt: null })
+      expect(await readdir(a.root)).toEqual([])
+      return prepare(...args)
+    })
+    await execute(job, dependencies(a.root))
+    expect(firstFs).toHaveBeenCalledOnce()
+  })
+
+  it.each(['HOLD', 'REOPEN'] as const)(
+    'rejects media success receipt under original source %s and still drains its token',
+    async (fault) => {
+      const a = await seed(`source-receipt-${fault}`)
+      const original = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+      const sourceId = parseArtworkDedupSourceSnapshot(original).sources[0]!.sourceId
+      const stream = new PassThrough()
+      let opened!: () => void
+      const opening = new Promise<void>((resolve) => {
+        opened = resolve
+      })
+      const job = await claim('ARCHIVE_DOWNLOAD')
+      const running = execute(
+        job,
+        dependencies(a.root, async () => {
+          opened()
+          return remote(stream)
+        })
+      )
+      try {
+        await opening
+        stream.write(png.subarray(0, 8))
+        await db!.artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
+        if (fault === 'REOPEN')
+          await db!.artworkDedupSourceIdentity.update({
+            where: { id: sourceId },
+            data: { status: 'OPEN', ownerOperationId: null, generation: { increment: 1 } }
+          })
+        stream.end(png.subarray(8))
+        await running
+        const failed = await db!.archiveImport.findUniqueOrThrow({
+          where: { id: a.id },
+          include: { items: true, generations: true }
+        })
+        expect(failed.status).toBe('FAILED')
+        expect(failed.items[0]!.status).not.toBe('COMPLETED')
+        expect(failed.generations[0]).toMatchObject({ token: job.executionToken, sealedAt: null })
+        expect(failed.generations[0]!.drainedAt).not.toBeNull()
+        expect(failed.dedupSourceSnapshot).toEqual(original)
+        expect(await db!.systemJob.count({ where: { parentJobId: job.id } })).toBe(0)
+      } finally {
+        stream.end()
+        await running.catch(() => undefined)
+      }
+    }
+  )
+
+  it('rejects source generation changes at final publication without creating Artwork or recapturing proof', async () => {
+    const a = await seed('source-final-publish')
+    await execute(await claim('ARCHIVE_DOWNLOAD'), dependencies(a.root))
+    const original = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+    const sourceId = parseArtworkDedupSourceSnapshot(original).sources[0]!.sourceId
+    const publish = await claim('ARCHIVE_PUBLISH')
+    const ctx = context(publish)
+    const finalize = ctx.finalizeInTransaction
+    ctx.finalizeInTransaction = async (operation) => {
+      await db!.artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { generation: { increment: 1 } } })
+      return finalize(operation)
+    }
+    await expect(execute(publish, dependencies(a.root), ctx)).rejects.toThrow('SOURCE_GENERATION_CHANGED')
+    expect(await db!.archiveRevision.count({ where: { archiveImportId: a.id } })).toBe(0)
+    expect(await db!.artworkExternalRef.count({ where: { providerKey: 'test', externalId: a.id } })).toBe(0)
+    expect((await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot).toEqual(original)
+    expect(
+      (await db!.mediaContentPathWrite.findFirstOrThrow({ where: { sessionId: `archive-publish:${a.id}` } })).status
+    ).toBe('ACTIVE')
   })
 
   it('runs a writer and resolver while slow download holds its lane; competing workers cannot take a second download', async () => {
@@ -169,10 +293,15 @@ suite('archive download lane real database and filesystem', () => {
     }
   })
 
-  it('handoff and replay are fenced and create exactly one publish, freezing automatic priority and tags', async () => {
+  it('catalog barrier: handoff and replay are fenced and create exactly one publish, freezing automatic priority and tags', async () => {
     const a = await seed('atomic', { origin: 'AUTO', tags: [21, 34] })
     const job = await claim('ARCHIVE_DOWNLOAD')
-    await execute(job, dependencies(a.root))
+    const originalProof = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+    const probe = archiveCatalogProbe(db!, parseArtworkDedupSourceSnapshot(originalProof).sources[0]!.sourceId)
+    const ctx = context(job), finalize = ctx.finalizeInTransaction
+    ctx.finalizeInTransaction = (operation) => finalize<Parameters<typeof operation>[0]['transaction']>((scope) => operation({ ...scope, transaction: probe.wrap(scope.transaction) }))
+    await execute(job, dependencies(a.root), ctx)
+    expect(probe.hits()).toBe(1)
     await expect(execute(job, dependencies(a.root))).rejects.toThrow()
     const state = await db!.archiveImport.findUniqueOrThrow({
       where: { id: a.id },
@@ -212,7 +341,8 @@ suite('archive download lane real database and filesystem', () => {
       status: 'RUNNING',
       sealedManifestSha256: null
     })
-    expect(state.generations[0]).toMatchObject({ sealedAt: null, drainedAt: null })
+    expect(state.generations[0]?.sealedAt).toBeNull()
+    expect(state.generations[0]?.drainedAt).not.toBeNull()
     expect(await db!.systemJob.count({ where: { parentJobId: job.id } })).toBe(0)
   })
 
@@ -267,7 +397,7 @@ suite('archive download lane real database and filesystem', () => {
     await expect(readFile(path.join(a.root, fresh.stagingPath, 'late-orphan'))).rejects.toMatchObject({
       code: 'ENOENT'
     })
-    expect(fresh.generations.find((generation) => generation.token === old.generationToken)?.drainedAt).toBeNull()
+    expect(fresh.generations.find((generation) => generation.token === old.generationToken)?.drainedAt).not.toBeNull()
   })
 
   it('fences a real old download continuation after takeover and keeps its immutable orphan out of the sealed generation', async () => {
@@ -553,7 +683,7 @@ suite('archive download lane real database and filesystem', () => {
   )
 
   it.each([1, 2])(
-    'legacy v%i handoff performs no network and preserves tags, origin facts and retry budget',
+    'catalog barrier: legacy v%i handoff performs no network and preserves tags, origin facts and retry budget',
     async (version) => {
       const a = await seed(`legacy-${version}`, { legacy: version })
       const availableAt = new Date(clock.now().getTime() - 10_000)
@@ -562,7 +692,12 @@ suite('archive download lane real database and filesystem', () => {
       const network = vi.fn(async () => {
         throw new Error('legacy must not download')
       })
-      await execute(legacy, dependencies(a.root, network))
+      const originalProof = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
+      const probe = archiveCatalogProbe(db!, parseArtworkDedupSourceSnapshot(originalProof).sources[0]!.sourceId)
+      const ctx = context(legacy), finalize = ctx.finalizeInTransaction
+      ctx.finalizeInTransaction = (operation) => finalize<Parameters<typeof operation>[0]['transaction']>((scope) => operation({ ...scope, transaction: probe.wrap(scope.transaction) }))
+      await execute(legacy, dependencies(a.root, network), ctx)
+      expect(probe.hits()).toBe(1)
       const state = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { systemJob: true } })
       expect(network).not.toHaveBeenCalled()
       expect(state).toMatchObject({
@@ -725,6 +860,7 @@ async function seed(label: string, options: { origin?: 'MANUAL' | 'AUTO'; tags?:
       origin: options.legacy ? null : (options.origin ?? 'MANUAL'),
       providerKey: 'test',
       externalId: id,
+      dedupSourceSnapshot: await captureArchiveFixtureSource(db!, 'test', id),
       submittedUrl: 'https://example.test/archive',
       canonicalUrl: `https://example.test/${id}`,
       locator: {},
@@ -835,6 +971,7 @@ async function cleanup() {
   for (const item of executions) extraJobs.add(item.jobId)
   await db.artwork.deleteMany({ where: { title: prefix } })
   await db.archiveImport.deleteMany({ where: { id: { startsWith: prefix } } })
+  await db.artworkDedupSourceIdentity.deleteMany({ where: { providerKey: 'test', externalId: { startsWith: prefix } } })
   await db.jobResourceLease.deleteMany({ where: { ownerJobId: { in: [...extraJobs] } } })
   await db.systemJob.deleteMany({ where: { id: { in: [...extraJobs] } } })
   extraJobs.clear()

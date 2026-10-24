@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { assertArtworkDedupWritable } from './artwork-dedup-claims'
 import { creatorFingerprint, lockCreatorCatalog, visibleCreatorArtwork } from './creators'
 
 export const availableArtist = { mergedIntoId: null } as const
@@ -196,7 +197,18 @@ export async function applyArtistMerge(tx: Prisma.TransactionClient, mergeId: st
   if (current.fingerprint !== plan.fingerprint) throw new Error('资料或绑定已变化，请重新预览')
   if (current.summary.conflicts.length) throw new Error(current.summary.conflicts.join('；'))
   if ((await artistMergeBlockers(tx, [plan.sourceArtistId, plan.targetArtistId], jobId)).length)
-    throw new Error('存在相关未结束任务，请处理后重试')
+    {throw new Error('存在相关未结束任务，请处理后重试')}
+  const affected = await tx.artwork.findMany({
+    where: {
+      OR: [
+        { artistId: { in: [plan.sourceArtistId, plan.targetArtistId] } },
+        { creators: { some: { artistId: { in: [plan.sourceArtistId, plan.targetArtistId] } } } }
+      ]
+    },
+    select: { id: true },
+    orderBy: { id: 'asc' }
+  })
+  for (const artwork of affected) await assertArtworkDedupWritable(tx, { artworkId: artwork.id, kind: 'STRUCTURE' })
   const sourceId = plan.sourceArtistId,
     targetId = plan.targetArtistId
   for (const membership of current.before.memberships.filter((m) => m.artistId === sourceId)) {

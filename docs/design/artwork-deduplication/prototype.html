@@ -638,7 +638,7 @@
       .skeleton-line .skeleton {
         width: 56%;
       }
-      .isolation-row {
+      .delete-record-row {
         display: flex;
         justify-content: space-between;
         align-items: center;
@@ -1043,7 +1043,7 @@
         .notice .notice-actions {
           margin-left: 28px;
         }
-        .isolation-row {
+        .delete-record-row {
           display: block;
           padding: 22px 0;
         }
@@ -1099,53 +1099,43 @@
     <div class="prototype-toolbar">
       <div class="prototype-note"><strong>交互原型</strong><br />示例数据，不修改图库</div>
       <div class="prototype-controls">
-        <label for="scenario">查看状态</label
-        ><select id="scenario" aria-label="原型场景">
+        <label for="scenario">查看状态</label>
+        <select id="scenario" aria-label="原型场景">
           <option value="results">检查结果</option>
           <option value="initial">还未检查</option>
           <option value="empty">没有重复</option>
-          <option value="loading">加载中</option>
           <option value="running">检查中</option>
           <option value="paused">已暂停</option>
           <option value="failed">检查失败</option>
-          <option value="review">需要审核</option>
-          <option value="stale">结果过期</option>
-          <option value="preparing">清单准备中</option>
-          <option value="prepare-failed">清单准备失败</option>
-          <option value="plan-stale">清单过期</option>
-          <option value="isolated">已隔离</option>
-          <option value="conflict">恢复冲突</option>
-          <option value="recovery-required">隔离失败</option>
-          <option value="restore-failed">恢复失败</option>
-          <option value="purge-failed">清理部分失败</option>
-          <option value="keeper-changed">保留作品已变化</option></select
-        ><button id="theme" class="btn icon-only" aria-label="切换深色外观"></button>
+          <option value="preparing">删除清单准备中</option>
+          <option value="stale">预览过期</option>
+          <option value="blocked">附件或历史原件阻断</option>
+          <option value="verifying">等待退出与内容复核</option>
+          <option value="deleting">删除中</option>
+          <option value="partial">删除部分失败</option>
+          <option value="keeper-changed">重试时保留者变化</option>
+          <option value="completed">删除完成</option>
+        </select>
+        <button id="theme" class="btn" aria-label="切换深色外观">深色外观</button>
       </div>
     </div>
     <header class="app-nav">
-      <div class="brand"><span data-icon="library"></span>PixiShelf</div>
+      <div class="brand">PixiShelf</div>
       <nav class="nav-items" aria-label="应用位置示意">
         <span>作品</span><span>艺术家</span><span class="active">管理中心</span>
       </nav>
       <span class="muted small">本地图库</span>
     </header>
     <main>
-      <button class="back-link" data-action="back"><span data-icon="left"></span>青山</button>
+      <button class="back-link" data-action="back">返回青山</button>
       <header class="page-heading">
         <div>
           <h1>检查重复</h1>
           <p class="head-copy">青山的作品</p>
         </div>
         <div class="page-actions">
-          <button class="btn primary" id="start" data-action="start">
-            <span data-icon="scan"></span><span id="start-label">重新检查</span>
-          </button>
-          <details class="menu-wrap">
-            <summary class="btn icon-only" aria-label="检查选项"><span data-icon="more"></span></summary>
-            <div class="menu">
-              <button class="btn" data-action="full-scan">完整检查</button><small>重新读取原文件，不使用缓存</small>
-            </div>
-          </details>
+          <button class="btn primary" data-action="start">重新检查</button
+          ><button class="btn" data-action="full-scan">完整检查</button>
         </div>
       </header>
       <div class="tabs" role="tablist" aria-label="去重页面">
@@ -1157,17 +1147,18 @@
           aria-selected="true"
           data-action="tab-results"
         >
-          检查结果 <span class="tab-count">3</span></button
-        ><button
+          检查结果 <span class="tab-count">3</span>
+        </button>
+        <button
           class="tab"
           role="tab"
-          id="isolated-tab"
+          id="records-tab"
           aria-controls="panel"
           aria-selected="false"
           tabindex="-1"
-          data-action="tab-isolated"
+          data-action="tab-records"
         >
-          隔离区 <span class="tab-count" id="isolation-count">1</span>
+          删除记录 <span class="tab-count" id="record-count">0</span>
         </button>
       </div>
       <div id="panel" role="tabpanel" aria-labelledby="results-tab"></div>
@@ -1175,931 +1166,452 @@
     <div class="selection-bar" id="selection-bar" hidden>
       <div>
         <p id="selection-title"></p>
-        <p class="small muted">保留作品不会移动</p>
+        <p class="small muted">保留作品不会删除</p>
       </div>
       <div class="selection-bar-actions">
-        <button class="btn" data-action="clear" aria-label="清除选择">
-          <span data-icon="x"></span><span class="clear-label">清除选择</span></button
-        ><button class="btn primary" data-action="preview">预览隔离</button>
+        <button class="btn" data-action="clear">清除选择</button
+        ><button class="btn primary" data-action="preview">预览删除</button>
       </div>
     </div>
     <nav class="mobile-nav" aria-label="手机导航示意">
-      <span><span data-icon="library"></span>作品</span><span><span data-icon="artists"></span>艺术家</span
-      ><span class="active"><span data-icon="more"></span>更多</span>
+      <span>作品</span><span>艺术家</span><span class="active">更多</span>
     </nav>
     <dialog id="detail-dialog" aria-labelledby="sheet-title"></dialog>
     <div class="toast" role="status" aria-live="polite" id="toast" hidden></div>
     <span class="sr-only" role="status" aria-live="polite" id="live-region"></span>
     <script>
-      const paths = {
-        left: '<path d="m15 18-6-6 6-6"/>',
-        right: '<path d="m9 18 6-6-6-6"/>',
-        x: '<path d="m6 6 12 12M6 18 18 6"/>',
-        check: '<path d="m5 12 4 4L19 6"/>',
-        more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
-        scan: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M7 12h10"/>',
-        library: '<rect x="4" y="3" width="14" height="18" rx="2"/><path d="M8 3v18m4-13h3m-3 4h3"/>',
-        artists:
-          '<circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2m2-17a3 3 0 0 1 0 6m2 5a6 6 0 0 1 2 4v2"/>',
-        archive: '<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v12h14V8m-10 4h6"/>',
-        restore: '<path d="M3 10a9 9 0 1 1 2 8M3 4v6h6m3-3v5l3 2"/>',
-        alert: '<path d="m12 3 10 18H2L12 3Zm0 6v4m0 4h.01"/>',
-        pause: '<path d="M8 5v14m8-14v14"/>',
-        sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1 1m12 12 1 1M5 19l1-1M18 6l1-1"/>',
-        moon: '<path d="M21 12.8A9 9 0 0 1 11.2 3 9 9 0 1 0 21 12.8Z"/>'
-      }
-      const icon = (name) =>
-        `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.library}</svg>`
-      function paintIcons(root = document) {
-        root.querySelectorAll('[data-icon]').forEach((node) => (node.innerHTML = icon(node.dataset.icon)))
-      }
       const groups = [
         {
           id: 'rain',
           title: '雨后的沿街散步',
           count: 500,
-          cover: 'rain',
-          symbol: '雨',
-          recommended: true,
           members: [
-            { id: 'rain-1', title: '雨后的沿街散步', source: 'Pixiv', date: '2025/08/12', mark: '最近读过' },
-            { id: 'rain-2', title: '雨后的沿街散步 副本', source: '本地导入', date: '2026/10/20', mark: '' },
-            { id: 'rain-3', title: '雨后的沿街散步 备份', source: '本地导入', date: '2026/10/22', mark: '' }
+            { id: 'r1', title: '雨后的沿街散步', source: 'Pixiv 导入', mark: '最近读过' },
+            { id: 'r2', title: '雨后的沿街散步 副本', source: '本地导入', mark: '' },
+            { id: 'r3', title: '雨后的沿街散步 手工收录', source: '本地创建', mark: '' }
           ]
         },
         {
           id: 'summer',
           title: '夏日写生',
           count: 128,
-          cover: 'summer',
-          symbol: '夏',
-          recommended: false,
           members: [
-            { id: 'summer-1', title: '夏日写生', source: 'Pixiv', date: '2025/07/02', mark: '喜欢 3 张' },
-            { id: 'summer-2', title: '夏日写生 备份', source: '本地导入', date: '2026/10/19', mark: '评分 4' },
-            { id: 'summer-3', title: '夏日写生 重复导入', source: '本地导入', date: '2026/10/22', mark: '' },
-            { id: 'summer-4', title: '夏日写生 收藏', source: '来源未知', date: '2026/10/22', mark: '还有整理记录' }
+            { id: 's1', title: '夏日写生', source: 'URL 归档', mark: '我的喜欢 3 张' },
+            { id: 's2', title: '夏日写生 备份', source: '本地导入', mark: '有其他账户整理记录' },
+            { id: 's3', title: '夏日写生 副本', source: 'Pixiv 导入', mark: '' }
           ]
         },
         {
           id: 'train',
           title: '夜行列车',
-          count: 76,
-          cover: 'train',
-          symbol: '夜',
-          recommended: true,
+          count: 240,
           members: [
-            { id: 'train-1', title: '夜行列车', source: 'Pixiv', date: '2025/11/08', mark: '书签 1 张' },
-            { id: 'train-2', title: '夜行列车 副本', source: '本地导入', date: '2026/10/22', mark: '' }
+            { id: 't1', title: '夜行列车', source: '本地创建', mark: '我的书签 1 张' },
+            { id: 't2', title: '夜行列车 副本', source: 'URL 归档', mark: '' }
           ]
         }
       ]
       const state = {
-        scenario: 'results',
         tab: 'results',
+        scenario: 'results',
         page: 1,
-        keepers: { rain: 'rain-1', summer: null, train: 'train-1' },
+        keepers: { rain: 'r1', summer: null, train: 't1' },
         selected: new Set(),
-        memberPage: 1,
-        sheetGroup: null,
-        operationStatus: 'ISOLATED',
-        operationVersion: 1,
-        originalAction: 'ISOLATE',
-        purgeAuthorization: null,
-        purgeReceipts: new Set(),
-        retryPrecheck: { status: 'NOT_CHECKED', version: null },
-        retrySnapshot: null,
-        purgePrecheck: { status: 'NOT_CHECKED', version: null },
-        purgeTimer: null,
-        keeperEvidence: 'MATCH',
-        manifestEvidence: 'MATCH',
-        operationCount: 2,
-        batchGroups: [
-          {
-            title: '雨后的沿街散步',
-            keeper: '雨后的沿街散步',
-            count: 500,
-            losers: ['雨后的沿街散步 副本', '雨后的沿街散步 备份']
-          }
-        ],
-        planStatus: null,
-        planTimer: null,
-        planRevision: null,
-        recoveryConfirmation: null,
-        reimportSources: new Set(),
-        toastTimer: null,
-        lastFocus: null,
-        lastFocusKey: null
+        plan: null,
+        operation: null,
+        timers: [],
+        focus: null
       }
       const $ = (id) => document.getElementById(id)
-      const groupById = (id) => groups.find((group) => group.id === id)
       const escape = (value) =>
         String(value).replace(
           /[&<>"']/g,
           (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]
         )
-      function cover(group) {
-        return `<div class="cover ${group.cover}" role="img" aria-label="合成占位封面"><span>${group.symbol}</span></div>`
-      }
-      function member(group, item, inSheet = false) {
-        const selected = state.keepers[group.id] === item.id
-        return `<li class="member"><label class="keep-label" title="保留${escape(item.title)}"><input type="radio" name="${inSheet ? 'sheet-' : ''}keeper-${group.id}" value="${item.id}" data-group="${group.id}" data-kind="keeper" ${selected ? 'checked' : ''} aria-label="保留${escape(item.title)}" /></label>${cover(group)}<div><div class="member-title" title="${escape(item.title)}">${escape(item.title)}</div><div class="member-meta"><span>${item.source}</span><span>${item.date} 导入</span>${item.mark ? `<span>${item.mark}</span>` : ''}</div></div><div class="member-status">${selected ? `<span class="keep-status">${icon('check')}${group.recommended && item.id === group.members[0].id ? '推荐保留' : '保留这部'}</span>` : ''}</div></li>`
-      }
-      function groupRow(group) {
-        const chosen = state.selected.has(group.id)
-        return `<section class="group ${chosen ? 'selected' : ''}" aria-labelledby="group-${group.id}"><header class="group-head"><div class="group-title"><label class="select-label" title="${state.keepers[group.id] ? '选择本组副本' : '请先选择保留作品'}"><input type="checkbox" data-kind="select" data-group="${group.id}" ${chosen ? 'checked' : ''} ${!state.keepers[group.id] || state.scenario === 'stale' ? 'disabled' : ''} aria-label="选择${escape(group.title)}的副本" /></label><h2 id="group-${group.id}">${group.title}</h2></div><div class="group-head-right"><span class="small muted num">${group.members.length} 部 · 每部 ${group.count} 张</span><button class="btn link" data-action="details" data-group="${group.id}">查看差异 ${icon('right')}</button></div></header>${!state.keepers[group.id] ? '<p class="group-note">有多份整理记录，请先选保留项</p>' : ''}<ul class="members" role="radiogroup" aria-label="${group.title}保留作品">${group.members
-          .slice(0, 3)
-          .map((item) => member(group, item))
-          .join(
-            ''
-          )}</ul>${group.members.length > 3 ? `<div class="member-more"><button class="btn link" data-action="details" data-group="${group.id}">查看全部 ${group.members.length} 部 ${icon('right')}</button></div>` : ''}</section>`
-      }
-      function empty(title, description, action = '') {
-        return `<div class="empty-state"><div class="empty-icon">${icon('scan')}</div><h2>${title}</h2><p>${description}</p>${action}</div>`
-      }
-      function statusNotice() {
-        const current = state.scenario
-        if (current === 'running' || current === 'paused') {
-          return `<section class="notice" aria-label="检测进度">${icon(current === 'running' ? 'scan' : 'pause')}<div class="notice-body"><strong>${current === 'running' ? '正在检查' : '检查已暂停'} <span class="num">320 / 1,000</span> 部</strong><p>${current === 'running' ? '处理完成后会更新结果' : '继续时会接着处理未完成的作品'}</p><div class="progress-track" role="progressbar" aria-label="检查进度" aria-valuenow="32" aria-valuemin="0" aria-valuemax="100"><span></span></div></div><div class="notice-actions"><button class="btn" data-action="${current === 'running' ? 'pause' : 'resume'}">${current === 'running' ? '暂停' : '继续'}</button><button class="btn" data-action="cancel">取消</button></div></section>`
-        }
-        if (current === 'failed') {
-          return `<section class="notice">${icon('alert')}<div class="notice-body"><strong>检查中断</strong><p>媒体目录暂时无法读取。连接恢复后可重试。</p><details><summary>查看诊断</summary><pre>示例诊断：SOURCE_UNAVAILABLE\n已保存进度：320 / 1,000 部\n完整文件缓存可以复用。</pre></details></div><button class="btn outline" data-action="start">重试</button></section>`
-        }
-        if (current === 'stale') {
-          return `<section class="notice">${icon('alert')}<div class="notice-body"><strong>作品已变化，请重新检查</strong><p>这份结果暂时不能用于隔离。</p></div></section>`
-        }
-        return ''
-      }
-      function results() {
-        const scenario = state.scenario
-        let html = statusNotice()
-        if (scenario === 'initial')
-          return empty(
-            '还未检查',
-            '检查青山作品中的相同内容。',
-            '<button class="btn primary" data-action="start">开始检查</button>'
-          )
-        if (scenario === 'empty') return empty('没有找到重复作品', '已检查 1,000 部作品。')
-        if (scenario === 'loading')
-          return `<div aria-busy="true" aria-label="正在加载检查结果">${[0, 1].map(() => '<div class="skeleton-group"><div class="skeleton"></div>' + [0, 1, 2].map(() => '<div class="skeleton-line"><div class="skeleton-cover"></div><div class="skeleton"></div></div>').join('') + '</div>').join('')}</div>`
-        if (['running', 'paused', 'failed'].includes(scenario))
-          return html + empty('结果将在检查后显示', '离开页面不会打断后台任务。')
-        const visible = scenario === 'review' ? [groups[1]] : groups.slice((state.page - 1) * 2, state.page * 2)
-        html += `<div class="results-toolbar"><p>${scenario === 'review' ? '1 组需要选择保留作品' : '3 组内容相同'}</p><button class="btn link" data-action="select-all" ${scenario === 'stale' ? 'disabled' : ''}>选择全部推荐（2 组）</button></div>${visible.map(groupRow).join('')}`
-        if (scenario !== 'review')
-          html += `<nav class="pagination" aria-label="重复组分页"><button class="btn icon-only outline" data-action="prev" aria-label="上一页" ${state.page === 1 ? 'disabled' : ''}>${icon('left')}</button><span class="num">${state.page} / 2</span><button class="btn icon-only outline" data-action="next" aria-label="下一页" ${state.page === 2 ? 'disabled' : ''}>${icon('right')}</button></nav>`
-        return html
-      }
-      function isolated() {
-        if (state.operationStatus === 'RESTORED') return empty('已恢复原位置', '这个批次的作品已回到图库。')
-        if (state.operationStatus === 'PURGED')
-          return `<div class="results-toolbar"><p>已完成的操作</p></div><article class="isolation-row"><div><div class="batch-title">${icon('archive')}<h2>青山 · ${state.operationCount} 部作品</h2><span class="batch-status">已永久清理</span></div><p class="batch-meta">${state.reimportSources.size ? `已允许 ${state.reimportSources.size} 个来源重新导入 · 文件未恢复` : '文件已删除，来源保持抑制'}</p></div><button class="btn outline" data-action="purged-details">详情</button></article>`
-        const recovery = needsRecovery()
-        const caption = recovery ? recoverySummary() : '保留至手动清理'
-        return `<div class="results-toolbar"><p>${caption}</p></div><article class="isolation-row"><div><div class="batch-title">${icon('archive')}<h2>青山 · ${state.operationCount} 部作品</h2><span class="batch-status ${recovery ? 'warning' : ''}">${recovery ? recoveryTitle() : '已隔离'}</span></div><p class="batch-meta">10 月 23 日 15:42${recovery ? ' · ' + recoverySummary() : ''}</p></div><div class="batch-actions"><button class="btn" data-action="batch-details">详情</button>${recovery ? `<button class="btn outline" data-action="retry-operation">${recoveryActionLabel()}</button>` : canRestore() ? `<button class="btn outline" data-action="restore">${icon('restore')}恢复</button>` : ''}</div></article>`
-      }
-
-      function render() {
-        const isolatedTab = state.tab === 'isolated'
-        $('results-tab').setAttribute('aria-selected', String(!isolatedTab))
-        $('results-tab').tabIndex = isolatedTab ? -1 : 0
-        $('isolated-tab').setAttribute('aria-selected', String(isolatedTab))
-        $('isolated-tab').tabIndex = isolatedTab ? 0 : -1
-        $('panel').setAttribute('aria-labelledby', isolatedTab ? 'isolated-tab' : 'results-tab')
-        $('panel').innerHTML = isolatedTab ? isolated() : results()
-        $('isolation-count').textContent = ['PURGED', 'RESTORED'].includes(state.operationStatus) ? '0' : '1'
-        $('start').disabled = ['running', 'loading'].includes(state.scenario)
-        $('start-label').textContent = state.scenario === 'initial' ? '开始检查' : '重新检查'
-        $('scenario').value = state.scenario
-        updateSelection()
-        paintIcons()
-      }
-      function updateSelection() {
-        const count = [...state.selected].reduce((sum, id) => sum + groupById(id).members.length - 1, 0)
-        $('selection-bar').hidden =
-          state.tab !== 'results' ||
-          !state.selected.size ||
-          ['running', 'paused', 'failed', 'loading', 'initial', 'empty', 'stale'].includes(state.scenario)
-        $('selection-title').textContent = `已选 ${state.selected.size} 组 · ${count} 部副本`
-      }
-      function announce(message) {
+      const getGroup = (id) => groups.find((group) => group.id === id)
+      const copies = (scope) =>
+        scope.flatMap((group) =>
+          group.members.filter((item) => item.id !== group.keeper).map((item) => ({ ...item, count: group.count }))
+        )
+      function notify(message) {
         $('live-region').textContent = message
-      }
-      function toast(message) {
-        clearTimeout(state.toastTimer)
         $('toast').textContent = message
         $('toast').hidden = false
-        state.toastTimer = setTimeout(() => ($('toast').hidden = true), 3500)
+        setTimeout(() => ($('toast').hidden = true), 3000)
       }
-      function changeScenario(scenario) {
-        clearTimeout(state.planTimer)
-        clearTimeout(state.purgeTimer)
-        state.purgePrecheck = { status: 'NOT_CHECKED', version: null }
-        state.retryPrecheck = { status: 'NOT_CHECKED', version: null }
-        state.retrySnapshot = null
-        state.planStatus = null
-        state.planRevision = null
-        state.recoveryConfirmation = null
-        state.scenario = scenario
-        state.page = 1
-        state.selected.clear()
-        const operationScenarios = [
-          'isolated',
-          'conflict',
-          'recovery-required',
-          'restore-failed',
-          'purge-failed',
-          'keeper-changed'
-        ]
-        state.tab = operationScenarios.includes(scenario) ? 'isolated' : 'results'
-        if (operationScenarios.includes(scenario)) {
-          state.operationStatus = ['conflict', 'recovery-required', 'restore-failed', 'purge-failed'].includes(scenario)
-            ? 'RECOVERY_REQUIRED'
-            : 'ISOLATED'
-          state.originalAction =
-            scenario === 'purge-failed'
-              ? 'PURGE'
-              : ['conflict', 'restore-failed'].includes(scenario)
-                ? 'RESTORE'
-                : 'ISOLATE'
-          state.operationVersion += 1
-          state.keeperEvidence = scenario === 'keeper-changed' ? 'CHANGED' : 'MATCH'
-          state.manifestEvidence = 'MATCH'
-          state.purgeReceipts.clear()
-          state.purgeAuthorization =
-            scenario === 'purge-failed'
-              ? { operationId: 'batch-001', authorizedVersion: state.operationVersion, scope: operationScope() }
-              : null
-          if (scenario === 'purge-failed') state.purgeReceipts.add(batchItems()[0].id)
-        }
-        render()
-        if (['preparing', 'prepare-failed', 'plan-stale'].includes(scenario)) {
-          state.selected = new Set(['rain', 'train'])
-          updateSelection()
-          state.planStatus = scenario === 'prepare-failed' ? 'FAILED' : scenario === 'plan-stale' ? 'STALE' : 'BUILDING'
-          state.planRevision = selectionRevision()
-          preview(true)
-        }
-        announce(`当前示例状态：${$('scenario').selectedOptions[0].textContent}`)
+      function empty(title, text) {
+        return `<div class="empty-state"><h2>${title}</h2><p>${text}</p></div>`
       }
-      function sheet(title, subtitle, body, footer) {
-        $('detail-dialog').innerHTML =
-          `<div class="sheet"><header class="sheet-header"><div><h2 id="sheet-title" tabindex="-1">${title}</h2>${subtitle ? `<p>${subtitle}</p>` : ''}</div><button class="btn icon-only" data-action="close" aria-label="关闭面板">${icon('x')}</button></header><div class="sheet-content">${body}</div><footer class="sheet-footer">${footer || '<button class="btn outline" data-action="close">完成</button>'}</footer></div>`
-        if (!$('detail-dialog').open) {
-          state.lastFocus = document.activeElement
-          state.lastFocusKey = { action: state.lastFocus?.dataset.action, group: state.lastFocus?.dataset.group }
-          $('detail-dialog').showModal()
+      function members(group) {
+        return `<ul class="members" role="radiogroup" aria-label="${escape(group.title)}保留作品">${group.members.map((item) => `<li class="member"><label class="keep-label"><input type="radio" name="keeper-${group.id}" data-kind="keeper" data-group="${group.id}" value="${item.id}" ${state.keepers[group.id] === item.id ? 'checked' : ''} aria-label="保留${escape(item.title)}" /></label><div class="cover" aria-hidden="true"></div><div><div class="member-title">${escape(item.title)}</div><div class="member-meta">${item.source}${item.mark ? ' · ' + item.mark : ''}</div></div><span class="member-status">${state.keepers[group.id] === item.id ? '保留这部' : ''}</span></li>`).join('')}</ul>`
+      }
+      function resultRows() {
+        if (state.scenario === 'initial')
+          return empty('还未检查重复', '开始检查后，将对这个艺术家的登记原媒体进行比较。')
+        if (state.scenario === 'empty') return empty('没有发现完整重复作品', '本次已完成检查，没有可供选择的重复组。')
+        let notice = ''
+        if (['running', 'paused'].includes(state.scenario))
+          notice = `<section class="notice"><div class="notice-body"><strong>${state.scenario === 'running' ? '正在检查' : '检查已暂停'} · 320 / 1,000 部</strong><p>关闭页面后仍可继续查看进度。</p></div><button class="btn" data-action="${state.scenario === 'running' ? 'pause' : 'resume'}">${state.scenario === 'running' ? '暂停' : '继续'}</button><button class="btn" data-action="cancel-scan">取消检查</button></section>`
+        if (state.scenario === 'failed')
+          notice =
+            '<section class="notice"><div class="notice-body"><strong>检查中断</strong><p>媒体目录暂时无法读取，连接恢复后可重试；已有结果仍保留。</p></div><button class="btn" data-action="start">重试</button></section>'
+        const visible = state.page === 1 ? groups.slice(0, 2) : groups.slice(2)
+        return (
+          notice +
+          `<div class="results-toolbar"><p>3 组完整重复 · 原媒体内容一致</p><button class="btn link" data-action="select-all">选择全部无歧义建议</button></div>` +
+          visible
+            .map(
+              (group) =>
+                `<section class="group ${state.selected.has(group.id) ? 'selected' : ''}"><header class="group-head"><div class="group-title"><label class="select-label"><input type="checkbox" data-kind="select" data-group="${group.id}" ${state.selected.has(group.id) ? 'checked' : ''} ${!state.keepers[group.id] ? 'disabled' : ''} aria-label="选择${escape(group.title)}的副本" /></label><h2>${escape(group.title)}</h2></div><div class="group-head-right"><span class="muted small">${group.members.length} 部 · 每部 ${group.count} 个原件</span><button class="btn link" data-action="details" data-group="${group.id}">查看差异</button></div></header>${!state.keepers[group.id] ? '<p class="group-note">多份作品有整理记录，请明确选择保留者</p>' : ''}${members(group)}</section>`
+            )
+            .join('') +
+          `<nav class="pagination" aria-label="组分页"><button class="btn outline" data-action="prev" ${state.page === 1 ? 'disabled' : ''}>上一页</button><span>${state.page} / 2</span><button class="btn outline" data-action="next" ${state.page === 2 ? 'disabled' : ''}>下一页</button></nav>`
+        )
+      }
+      function operationTitle() {
+        const o = state.operation
+        return o.status === 'COMPLETED'
+          ? '已永久删除'
+          : o.status === 'CANCELLED'
+            ? '已取消，未删除'
+            : o.status === 'STOPPED'
+              ? '已在安全边界停止'
+              : o.status === 'FAILED'
+                ? '删除部分失败'
+                : o.phase === 'DELETE'
+                  ? '正在永久删除'
+                  : '正在等待退出与内容复核'
+      }
+      function records() {
+        const o = state.operation
+        if (!o) return empty('暂无删除记录', '完成删除预览并确认后，可在这里查看持久操作进度。')
+        return `<div class="results-toolbar"><p>本次示例操作 · 原范围保持不变</p></div><article class="delete-record-row"><div><div class="batch-title"><h2>青山 · ${copies(o.scope).length} 部副本</h2><span class="batch-status">${operationTitle()}</span></div><p class="batch-meta">${o.phase === 'VERIFY' ? '尚未开始删除，所选全部组校验成功后才首删' : `已删 ${o.done} / ${o.total} 个文件${o.status === 'COMPLETED' ? ' · 来源保持抑制' : ' · 已删文件无法撤销'}`}</p></div><div class="batch-actions"><button class="btn outline" data-action="record-details">详情</button>${o.status === 'RUNNING' ? `<button class="btn" data-action="stop">${o.phase === 'VERIFY' ? '取消删除' : '请求停止'}</button>` : ['FAILED', 'STOPPED'].includes(o.status) ? '<button class="btn outline" data-action="retry">复核并继续原删除</button>' : ''}</div></article>`
+      }
+      function render() {
+        for (const tab of ['results', 'records']) {
+          const selected = state.tab === tab
+          $(tab + '-tab').setAttribute('aria-selected', String(selected))
+          $(tab + '-tab').tabIndex = selected ? 0 : -1
         }
+        $('panel').setAttribute('aria-labelledby', state.tab + '-tab')
+        $('panel').innerHTML = state.tab === 'results' ? resultRows() : records()
+        $('record-count').textContent = state.operation ? '1' : '0'
+        $('selection-bar').hidden = state.tab !== 'results' || state.selected.size === 0
+        const count = [...state.selected].reduce((n, id) => n + getGroup(id).members.length - 1, 0)
+        $('selection-title').textContent = `已选 ${state.selected.size} 组 · ${count} 部副本`
+      }
+      function sheet(title, text, body, footer = '') {
+        const dialog = $('detail-dialog')
+        if (!dialog.open) state.focus = document.activeElement
+        dialog.innerHTML = `<div class="sheet"><header class="sheet-header"><div><h2 id="sheet-title" tabindex="-1">${title}</h2><p>${text}</p></div><button class="btn" data-action="close" aria-label="关闭面板">关闭</button></header><div class="sheet-content">${body}</div><footer class="sheet-footer">${footer || '<button class="btn outline" data-action="close">完成</button>'}</footer></div>`
+        if (!dialog.open) dialog.showModal()
         $('sheet-title').focus()
       }
-      function showDetails(id, retainPage = false) {
-        state.sheetGroup = id
-        if (!retainPage) state.memberPage = 1
-        const group = groupById(id),
-          keeper = group.members.find((item) => item.id === state.keepers[id])
-        const list = group.members.slice((state.memberPage - 1) * 3, state.memberPage * 3)
-        sheet(
-          group.title,
-          `${group.members.length} 部作品的原媒体内容相同`,
-          `<section class="sheet-section"><h3>保留哪一部</h3><p class="sheet-copy">${keeper ? `当前保留：${keeper.title}` : '有多份整理记录，请明确选择保留项。'}</p><ul class="members" role="radiogroup" aria-label="保留作品">${list.map((item) => member(group, item, true)).join('')}</ul>${group.members.length > 3 ? `<nav class="pagination" aria-label="组内作品分页"><button class="btn icon-only outline" data-action="member-prev" aria-label="上一页成员" ${state.memberPage === 1 ? 'disabled' : ''}>${icon('left')}</button><span>${state.memberPage} / 2</span><button class="btn icon-only outline" data-action="member-next" aria-label="下一页成员" ${state.memberPage === 2 ? 'disabled' : ''}>${icon('right')}</button></nav>` : ''}</section><section class="sheet-section"><h3>整理记录</h3><p class="sheet-copy">${group.id === 'summer' ? '有多份作品带整理记录。隔离时保留记录；永久删除时会一并删除，不会合并到保留作品。' : '推荐项优先保留已有整理和阅读位置。隔离期间，副本的整理记录仍会保留。'}</p></section><section class="sheet-section"><h3>检查范围</h3><dl class="definition"><dt>媒体</dt><dd>${group.count} 张 / 部</dd><dt>判定</dt><dd>全部原媒体内容一致</dd><dt>附属文件</dt><dd>本示例未发现额外文件</dd></dl></section>`
-        )
+      function close() {
+        const focus = state.focus
+        $('detail-dialog').close()
+        if (focus?.isConnected) focus.focus()
+        else $(state.tab + '-tab').focus()
       }
-      function selectionRevision() {
-        return JSON.stringify([...state.selected].sort().map((id) => [id, state.keepers[id]]))
-      }
-      function planSnapshot() {
-        return groups
-          .filter((group) => state.selected.has(group.id))
-          .map((group) => ({
-            title: group.title,
-            count: group.count,
-            keeper: group.members.find((item) => item.id === state.keepers[group.id]).title,
-            losers: group.members.filter((item) => item.id !== state.keepers[group.id]).map((item) => item.title)
-          }))
-      }
-      function preview(preserveStatus = false) {
-        const revision = selectionRevision()
-        if (!preserveStatus && (state.planRevision !== revision || !state.planStatus)) {
-          state.planRevision = revision
-          state.planStatus = 'BUILDING'
-        }
-        if (state.planStatus === 'BUILDING') {
-          sheet(
-            '正在准备清单',
-            '正在核对作品和文件范围。',
-            '<section class="sheet-section"><p class="sheet-copy">准备完成后才能隔离。可以关闭面板，稍后继续查看。</p><p class="sheet-copy small" style="margin-top:12px">示例批次：预览 001</p></section>',
-            '<button class="btn outline" data-action="close">关闭</button><button class="btn primary" disabled>准备中</button>'
-          )
-          clearTimeout(state.planTimer)
-          if (state.scenario !== 'preparing')
-            state.planTimer = setTimeout(() => {
-              if (state.planRevision !== selectionRevision()) return
-              state.planStatus = 'READY'
-              if ($('detail-dialog').open) preview(true)
-              else toast('原型：清单已准备，再次预览可继续')
-            }, 900)
-          return
-        }
-        if (state.planStatus === 'FAILED' || state.planStatus === 'STALE') {
-          const failed = state.planStatus === 'FAILED'
-          sheet(
-            failed ? '清单准备失败' : '清单已过期',
-            failed ? '部分文件暂时无法读取。' : '作品范围发生了变化。',
-            '<section class="sheet-section"><p class="sheet-copy">' +
-              (failed ? '连接恢复后可重试，本次选择仍保留。' : '需要重新准备，并再次核对保留作品和隔离范围。') +
-              '</p></section>',
-            '<button class="btn outline" data-action="close">关闭</button><button class="btn primary" data-action="rebuild-plan">' +
-              (failed ? '重试准备' : '重新准备') +
-              '</button>'
-          )
-          return
-        }
-        const selected = groups.filter((group) => state.selected.has(group.id)),
-          count = selected.reduce((sum, group) => sum + group.members.length - 1, 0),
-          personal = selected.some((group) => group.id === 'summer')
-        sheet(
-          `隔离 ${count} 部副本`,
-          `清单已准备 · 保留 ${selected.length} 部作品`,
-          `${selected
-            .map((group) => {
-              const keeper = group.members.find((item) => item.id === state.keepers[group.id])
-              return `<section class="preview-group"><h3>${group.title}</h3><p class="keep-line">保留：${keeper.title}</p><p>隔离：${group.members
-                .filter((item) => item.id !== keeper.id)
-                .map((item) => item.title)
-                .join('、')}</p></section>`
-            })
-            .join(
-              ''
-            )}<div class="separator"></div><section class="sheet-section"><h3>隔离后可以恢复</h3><p class="sheet-copy">副本暂时从图库隐藏，不会自动删除。现在不会释放磁盘空间。</p></section>${personal ? '<section class="sheet-section"><h3>副本有整理记录</h3><label class="confirm-label"><input type="checkbox" id="personal-confirm" />我知道副本的整理记录不会自动合并</label></section>' : ''}<section class="sheet-section"><h3>恢复准备</h3><label for="backup-ref">备份检查点</label><input class="text-input" id="backup-ref" maxlength="120" autocomplete="off" value="示例：NAS 快照 2026-10-23" aria-describedby="backup-note" /><p id="backup-note" class="sheet-copy small" style="margin-top:8px">填写可识别的名称或 ID。本页只记录引用，不校验备份内容。</p><label class="confirm-label"><input type="checkbox" id="backup-confirm" />确认该检查点适用于本批次</label><label class="confirm-label"><input type="checkbox" id="external-confirm" />已暂停这些目录的外部同步和编辑</label></section>`,
-          `<button class="btn outline" data-action="close">返回</button><button class="btn primary" id="confirm-isolate" data-action="confirm-isolate" disabled>确认隔离</button>`
-        )
-      }
-      function canConfirmIsolation() {
-        return (
-          state.planStatus === 'READY' &&
-          state.planRevision === selectionRevision() &&
-          Boolean($('backup-ref')?.value.trim()) &&
-          Boolean($('backup-confirm')?.checked) &&
-          Boolean($('external-confirm')?.checked) &&
-          (!$('personal-confirm') || $('personal-confirm').checked)
-        )
-      }
-      function batchItems() {
-        return state.batchGroups.flatMap((group, index) =>
-          group.losers.map((title, offset) => ({ id: `${index}-${offset}`, title, count: group.count }))
-        )
-      }
-      function operationScope() {
-        return JSON.stringify(batchItems().map((item) => item.id))
-      }
-      function needsRecovery() {
-        return state.operationStatus === 'RECOVERY_REQUIRED'
-      }
-      function hasOriginalPurgeAuthorization() {
-        return (
-          state.originalAction === 'PURGE' &&
-          state.purgeAuthorization?.operationId === 'batch-001' &&
-          state.purgeAuthorization.authorizedVersion <= state.operationVersion &&
-          state.purgeAuthorization.scope === operationScope()
-        )
-      }
-      function canStartPurge() {
-        return (
-          state.operationStatus === 'ISOLATED' &&
-          state.originalAction === 'ISOLATE' &&
-          !state.purgeAuthorization &&
-          state.purgeReceipts.size === 0
-        )
-      }
-      function canRestore() {
-        return (
-          (state.operationStatus === 'ISOLATED' || needsRecovery()) &&
-          state.originalAction === 'ISOLATE' &&
-          !state.purgeAuthorization &&
-          state.purgeReceipts.size === 0
-        )
-      }
-      function canConfirmPurge() {
-        return (
-          canStartPurge() &&
-          state.purgePrecheck.status === 'PASSED' &&
-          state.purgePrecheck.version === state.operationVersion
-        )
-      }
-      function canRetryOperation() {
-        if (!needsRecovery()) return false
-        if (state.originalAction === 'PURGE') return hasOriginalPurgeAuthorization()
-        return (
-          ['ISOLATE', 'RESTORE'].includes(state.originalAction) &&
-          !state.purgeAuthorization &&
-          state.purgeReceipts.size === 0
-        )
-      }
-      function canConfirmRetryPurge() {
-        return (
-          canRetryOperation() &&
-          state.originalAction === 'PURGE' &&
-          state.retryPrecheck.status === 'PASSED' &&
-          state.retryPrecheck.version === state.operationVersion &&
-          state.retryPrecheck.scope === operationScope()
-        )
-      }
-      function recoveryTitle() {
-        return state.originalAction === 'PURGE'
-          ? '清理部分失败'
-          : state.originalAction === 'RESTORE'
-            ? state.scenario === 'conflict'
-              ? '恢复冲突'
-              : '恢复失败'
-            : '隔离失败'
-      }
-      function recoverySummary() {
-        if (state.originalAction === 'PURGE')
-          return `已清理 ${state.purgeReceipts.size} 部 · 未清理 ${state.operationCount - state.purgeReceipts.size} 部`
-        return state.originalAction === 'RESTORE'
-          ? state.scenario === 'conflict'
-            ? '原位置已有文件'
-            : '继续上次未完成的恢复'
-          : '部分文件尚未完成隔离'
-      }
-      function recoveryActionLabel() {
-        return state.originalAction === 'PURGE'
-          ? '复核并重试原清理'
-          : state.originalAction === 'RESTORE'
-            ? '继续恢复'
-            : '继续隔离'
-      }
-      function recoveryActions() {
-        return `${canRestore() ? '<button class="btn outline" data-action="restore">安全恢复</button>' : ''}${canRetryOperation() ? `<button class="btn primary" data-action="retry-operation">${recoveryActionLabel()}</button>` : ''}`
-      }
-      function batchDetails() {
-        const recovery = needsRecovery()
-        const items = batchItems()
+      function scopeMarkup(scope) {
+        return scope
           .map(
-            (item) =>
-              `<div class="preview-group"><h3>${item.title}</h3><p>${item.count} 张${state.originalAction === 'PURGE' ? (state.purgeReceipts.has(item.id) ? ' · 已清理，不能恢复' : ' · 未清理') : ' · 示例来源'}</p></div>`
+            (group) =>
+              `<section class="preview-group"><h3>${escape(group.title)}</h3><p class="keep-line">保留：${escape(group.members.find((item) => item.id === group.keeper).title)}</p><p>永久删除：${group.members
+                .filter((item) => item.id !== group.keeper)
+                .map((item) => escape(item.title) + '（' + item.source + '）')
+                .join(
+                  '、'
+                )}</p><p class="small muted">每部 ${group.count} 个登记原件，已核对章节与来源文件范围</p></section>`
           )
           .join('')
-        sheet(
-          '隔离批次',
-          `青山 · ${state.operationCount} 部作品`,
-          `<section class="sheet-section"><dl class="definition"><dt>状态</dt><dd>${recovery ? recoveryTitle() : '已隔离'}</dd><dt>创建时间</dt><dd>10 月 23 日 15:42</dd><dt>处理进度</dt><dd>${recovery ? recoverySummary() : '隔离完成'}</dd></dl></section><section class="sheet-section"><h3>本批次作品</h3>${items}</section>${recovery ? `<section class="sheet-section"><h3>继续原操作</h3><p class="sheet-copy">${state.originalAction === 'PURGE' ? '已删除文件无法恢复。仅可复核后重试原授权清理，不创建新清理，也不扩大范围。' : state.originalAction === 'RESTORE' ? '继续原恢复，不覆盖原位置已有文件。' : '可以继续原隔离；也可将已移动的文件安全恢复到原位置。'}</p><button class="btn link" data-action="recovery-diagnostics">查看诊断</button></section>` : canStartPurge() ? '<section class="sheet-section"><h3>永久删除</h3><p class="sheet-copy">将先复核保留作品和隔离文件；通过后才能确认删除。</p><button class="btn danger" data-action="purge">永久删除这批副本</button></section>' : ''}`,
-          `<button class="btn outline" data-action="close">关闭</button>${recovery ? recoveryActions() : canRestore() ? '<button class="btn primary" data-action="restore">恢复</button>' : ''}`
-        )
       }
-      function restore() {
-        if (!canRestore()) {
-          toast('当前操作不能恢复文件，请查看原操作状态')
-          return
+      function freezePlan() {
+        if (!state.selected.size) {
+          state.selected = new Set(['rain'])
         }
-        sheet(
-          needsRecovery() ? '安全恢复已移动文件' : `恢复 ${state.operationCount} 部作品`,
-          '恢复到原位置，并重新显示在图库。',
-          '<section class="sheet-section"><p class="sheet-copy">保留原有整理记录。原位置若已有文件，恢复会停止，不会覆盖。</p></section>',
-          '<button class="btn outline" data-action="close">取消</button><button class="btn primary" data-action="confirm-restore">确认恢复</button>'
-        )
-      }
-      function recoveryDiagnostics() {
-        if (!needsRecovery()) return
-        sheet(
-          '操作诊断',
-          '以下为脱敏示例。',
-          `<section class="sheet-section"><dl class="definition"><dt>操作</dt><dd>隔离批次 001</dd><dt>原动作</dt><dd>${state.originalAction}</dd><dt>状态</dt><dd>${recoveryTitle()}</dd><dt>进度</dt><dd>${recoverySummary()}</dd><dt>文件</dt><dd>123456_p0.jpg</dd></dl></section>`,
-          `<button class="btn outline" data-action="batch-details">返回</button>${recoveryActions()}`
-        )
-      }
-      function retryOperation() {
-        if (!canRetryOperation()) {
-          toast('原操作授权或状态已变化，请重新查看')
-          return
+        state.plan = {
+          status: 'BUILDING',
+          version: 1,
+          scope: [...state.selected].map((id) => ({ ...structuredClone(getGroup(id)), keeper: state.keepers[id] }))
         }
-        if (state.originalAction === 'PURGE') {
-          retryPurge()
-          return
-        }
-        state.retrySnapshot = { version: state.operationVersion, action: state.originalAction, scope: operationScope() }
-        const conflict = state.scenario === 'conflict'
+        showPreview()
+        if (state.scenario !== 'preparing')
+          state.timers.push(
+            setTimeout(() => {
+              if (state.plan?.status === 'BUILDING') {
+                state.plan.status =
+                  state.scenario === 'stale' ? 'STALE' : state.scenario === 'blocked' ? 'BLOCKED' : 'READY'
+                if ($('detail-dialog').open) showPreview()
+              }
+            }, 500)
+          )
+      }
+      function showPreview() {
+        const p = state.plan
+        if (!p) return freezePlan()
+        if (p.status === 'BUILDING')
+          return sheet(
+            '正在准备删除清单',
+            '可以关闭面板，稍后继续查看。',
+            '<p class="sheet-copy">服务端冻结选择并检查精确文件、来源和整理影响。此时没有删除授权。</p>',
+            '<button class="btn outline" data-action="close">关闭</button><button class="btn" disabled>准备中</button>'
+          )
+        if (p.status !== 'READY')
+          return sheet(
+            p.status === 'STALE' ? '删除预览已过期' : '有作品暂时不能删除',
+            '尚未删除任何文件。',
+            `<p class="sheet-copy">${p.status === 'STALE' ? '成员、来源或审核选择已变化，请重新准备并核对实际范围。' : '发现未知附件或未参与一致性验证的归档历史原件，该作品被阻断；不会静默略过后删除其余文件。'}</p>`,
+            '<button class="btn outline" data-action="close">返回</button><button class="btn primary" data-action="reprepare">重新准备</button>'
+          )
+        const count = copies(p.scope).length
         sheet(
-          conflict ? '原位置已有文件' : recoveryActionLabel(),
-          conflict ? '先处理占用文件，再继续原恢复。' : '使用原操作与原文件范围继续。',
-          `<section class="sheet-section"><p class="sheet-copy">${conflict ? '现有文件没有被覆盖，隔离文件仍然保留。' : state.originalAction === 'RESTORE' ? '仅继续尚未完成的恢复步骤。' : '核验已完成步骤后继续隔离，不重复移动已处理文件。'}</p><div class="file-path">相对文件名：123456_p0.jpg</div><button class="btn link" data-action="recovery-diagnostics">查看诊断</button></section>`,
-          `<button class="btn outline" data-action="close">关闭</button><button class="btn primary" data-action="confirm-retry-operation">${conflict ? '重新尝试' : recoveryActionLabel()}</button>`
+          `永久删除 ${count} 部副本`,
+          '文件和这些副本的整理记录将永久删除，无法恢复。',
+          scopeMarkup(p.scope) +
+            '<section class="sheet-section"><h3>删除影响</h3><p class="sheet-copy">删除对应副本的原件、已知章节与来源文件，以及评分、书签、喜欢和阅读记录；标题、标签、系列关系随副本删除。整理记录不会合并到保留作品。其他账户仅显示是否有受保护整理记录。</p></section><section class="sheet-section"><label class="confirm-label"><input type="checkbox" id="permanent-confirm" />我理解永久删除无法撤销，整理记录不合并</label><label class="confirm-label"><input type="checkbox" id="external-confirm" />已暂停这些目录的外部同步和编辑，并会保持停写至本次操作终结</label><p class="sheet-copy small">提交后后台仍将认领双方、确认相关执行退出，并完整重读全部所选组；全部通过后才开始删除。</p></section>',
+          `<button class="btn outline" data-action="close">返回</button><button class="btn destructive" id="confirm-delete" data-action="confirm-delete" disabled>永久删除 ${count} 部副本</button>`
         )
       }
-      function retryPurge() {
-        if (!canRetryOperation() || state.originalAction !== 'PURGE') return
-        if (state.retryPrecheck.version !== state.operationVersion || state.retryPrecheck.status === 'NOT_CHECKED') {
-          const version = state.operationVersion,
-            scope = operationScope()
-          state.retryPrecheck = { status: 'CHECKING', version, scope }
-          clearTimeout(state.purgeTimer)
-          state.purgeTimer = setTimeout(() => {
-            if (
-              !canRetryOperation() ||
-              state.originalAction !== 'PURGE' ||
-              version !== state.operationVersion ||
-              scope !== operationScope()
+      function clearTimers() {
+        state.timers.forEach(clearTimeout)
+        state.timers = []
+      }
+      function runDeletion() {
+        clearTimers()
+        const o = state.operation
+        o.status = 'RUNNING'
+        o.phase = 'VERIFY'
+        render()
+        state.timers.push(
+          setTimeout(() => {
+            if (o.status !== 'RUNNING') return
+            o.phase = 'DELETE'
+            render()
+            state.timers.push(
+              setTimeout(() => {
+                if (o.status !== 'RUNNING') return
+                o.done = o.total
+                o.status = 'COMPLETED'
+                render()
+                notify('原型：原范围删除完成，来源保持抑制')
+              }, 1300)
             )
-              return
-            state.retryPrecheck = {
-              status: state.keeperEvidence === 'MATCH' && state.manifestEvidence === 'MATCH' ? 'PASSED' : 'FAILED',
-              version,
-              scope
-            }
-            if ($('detail-dialog').open && $('detail-dialog').querySelector('[data-retry-purge-state="CHECKING"]'))
-              retryPurge()
-          }, 700)
-        }
-        if (state.retryPrecheck.status === 'CHECKING') {
-          sheet(
-            '正在复核原清理',
-            recoverySummary(),
-            '<section class="sheet-section" data-retry-purge-state="CHECKING"><p class="sheet-copy">复核保留作品、原授权和未清理文件。已删除文件不能恢复。</p></section>',
-            '<button class="btn outline" data-action="close">关闭</button><button class="btn destructive" disabled>复核中</button>'
-          )
-          return
-        }
-        if (!canConfirmRetryPurge()) {
-          sheet(
-            '暂时不能继续清理',
-            '复核未通过，未清理文件仍保留。',
-            '<section class="sheet-section"><p class="sheet-copy">已删除文件无法恢复。修复后只可重试原授权清理。</p></section>',
-            '<button class="btn outline" data-action="batch-details">返回</button><button class="btn" data-action="recovery-diagnostics">查看诊断</button>'
-          )
-          return
-        }
+          }, 900)
+        )
+      }
+      function recordDetails() {
+        const o = state.operation
+        if (!o) return
         sheet(
-          '继续原授权清理',
-          recoverySummary(),
-          `<section class="sheet-section"><p class="sheet-copy">仅处理原清单中尚未完成的项目。已清理文件不会恢复或重复删除，不会扩大范围。</p>${batchItems()
-            .map(
-              (item) =>
-                `<div class="preview-group"><h3>${item.title}</h3><p>${state.purgeReceipts.has(item.id) ? '已清理，不可恢复' : '未清理，继续原授权'}</p></div>`
-            )
-            .join('')}</section>`,
-          '<button class="btn outline" data-action="batch-details">返回</button><button class="btn destructive" data-action="confirm-retry-purge">重试原清理</button>'
+          operationTitle(),
+          '仅处理原冻结文件范围，已经删除的文件无法恢复。',
+          scopeMarkup(o.scope) +
+            `<section class="sheet-section"><h3>处理进度</h3><p>${o.phase === 'VERIFY' ? '尚未开始删除' : `已删 ${o.done} / ${o.total} 个文件`}</p><p class="sheet-copy">${['FAILED', 'STOPPED'].includes(o.status) ? '副本保持不可见，原范围、日志和必要声明继续保留。继续时先确认旧执行退出，再完整复核保留者；只续原未完成文件。' : o.status === 'COMPLETED' ? '所有文件回执及业务删除已完成，整理没有合并，来源墓碑独立保留。' : '全范围校验通过后才允许首个删除意图；开始后仅可在安全文件边界停止。'}</p></section>`,
+          o.status === 'COMPLETED'
+            ? '<button class="btn outline" data-action="close">关闭</button><button class="btn" data-action="reimport">允许重新导入</button>'
+            : ['FAILED', 'STOPPED'].includes(o.status)
+              ? '<button class="btn outline" data-action="close">关闭</button><button class="btn primary" data-action="retry">复核并继续原删除</button>'
+              : '<button class="btn outline" data-action="close">关闭</button>'
         )
       }
-      function purge() {
-        if (!canStartPurge()) {
-          toast('当前状态不能新建永久清理，请按原动作处理')
-          if (needsRecovery()) recoveryDiagnostics()
-          return
+      function setScenario(scenario) {
+        clearTimers()
+        close()
+        state.scenario = scenario
+        state.plan = null
+        if (['verifying', 'deleting', 'partial', 'keeper-changed', 'completed'].includes(scenario)) {
+          const scope = [{ ...structuredClone(groups[0]), keeper: 'r1' }]
+          state.operation = {
+            scope,
+            status:
+              scenario === 'completed'
+                ? 'COMPLETED'
+                : ['partial', 'keeper-changed'].includes(scenario)
+                  ? 'FAILED'
+                  : 'RUNNING',
+            phase: scenario === 'verifying' ? 'VERIFY' : 'DELETE',
+            done: scenario === 'completed' ? 1000 : scenario === 'verifying' ? 0 : 340,
+            total: 1000
+          }
+          state.tab = 'records'
+        } else {
+          state.tab = 'results'
+          if (['preparing', 'stale', 'blocked'].includes(scenario)) {
+            state.selected = new Set(['rain'])
+            freezePlan()
+          }
         }
-        if (state.purgePrecheck.version !== state.operationVersion || state.purgePrecheck.status === 'NOT_CHECKED') {
-          const version = state.operationVersion
-          state.purgePrecheck = { status: 'CHECKING', version }
-          clearTimeout(state.purgeTimer)
-          state.purgeTimer = setTimeout(() => {
-            if (!canStartPurge() || state.operationVersion !== version) return
-            const valid = state.keeperEvidence === 'MATCH' && state.manifestEvidence === 'MATCH'
-            state.purgePrecheck = { status: valid ? 'PASSED' : 'FAILED', version }
-            if ($('detail-dialog').open && $('detail-dialog').querySelector('[data-purge-state="CHECKING"]')) purge()
-            else toast(valid ? '原型：清理前复核通过，可以再次查看' : '原型：复核未通过，隔离副本仍然保留')
-          }, 700)
-        }
-        if (state.purgePrecheck.status === 'CHECKING') {
-          sheet(
-            '正在复核保留作品',
-            '复核通过后才能确认永久删除。',
-            '<section class="sheet-section" data-purge-state="CHECKING"><p class="sheet-copy">核对保留作品的完整内容和隔离文件清单。</p><p class="sheet-copy small" style="margin-top:12px">原型使用可切换的预检示例，不读取实际文件。</p></section>',
-            '<button class="btn outline" data-action="close">关闭</button><button class="btn destructive" disabled>复核中</button>'
-          )
-          return
-        }
-        if (!canConfirmPurge()) {
-          sheet(
-            '复核未通过',
-            '保留作品已变化，不能永久删除副本。',
-            '<section class="sheet-section"><p class="sheet-copy">隔离中的文件仍然保留。可以恢复这些副本，再重新检查作品。</p></section>',
-            '<button class="btn outline" data-action="batch-details">返回</button><button class="btn primary" data-action="restore">恢复副本</button>'
-          )
-          return
-        }
-        sheet(
-          `永久删除 ${state.operationCount} 部副本`,
-          '文件和这些副本的整理记录将被删除，无法恢复。',
-          `<section class="sheet-section"><h3>保留作品</h3>${state.batchGroups.map((group) => `<p>${group.keeper}</p>`).join('')}<p class="success small" style="margin-top:8px">本次示例预检通过</p></section><section class="sheet-section"><h3>将永久删除</h3>${state.batchGroups.flatMap((group) => group.losers.map((title) => `<div class="preview-group"><h3>${title}</h3><p>${group.count} 张，以及评分、书签、喜欢和阅读记录</p></div>`)).join('')}</section>`,
-          '<button class="btn outline" data-action="batch-details">返回</button><button class="btn destructive" id="confirm-purge" data-action="confirm-purge">确认永久删除</button>'
-        )
-      }
-      function purgedDetails() {
-        sheet(
-          '已永久清理',
-          `青山 · ${state.operationCount} 部作品`,
-          `<section class="sheet-section"><h3>来源仍受保护</h3><p class="sheet-copy">${state.reimportSources.size ? `已允许 ${state.reimportSources.size} 个所选来源重新导入；其他来源仍受保护。` : '后续扫描不会把这些已清理的来源重新导入。'}</p></section><section class="sheet-section"><h3>允许重新导入</h3><p class="sheet-copy">只解除所选来源的抑制，不会恢复已删除文件。旧任务不会重新发布这些作品。</p><button class="btn link" data-action="allow-reimport">选择来源</button></section>`
-        )
-      }
-      function allowReimport() {
-        sheet(
-          '允许重新导入',
-          '文件不会恢复，需要重新提供来源。',
-          `${state.batchGroups.flatMap((group, index) => group.losers.map((title, offset) => `<label class="confirm-label"><input type="checkbox" class="reimport-choice" value="${index}-${offset}" ${state.reimportSources.has(`${index}-${offset}`) ? 'checked disabled' : ''} />${title}${state.reimportSources.has(`${index}-${offset}`) ? ' · 已允许' : ''}</label>`)).join('')}<p class="sheet-copy small" style="margin-top:16px">仅解除选中来源的抑制；旧任务继续失效。</p>`,
-          '<button class="btn outline" data-action="purged-details">返回</button><button class="btn primary" id="confirm-reimport" data-action="confirm-reimport" disabled>允许重新导入</button>'
-        )
-      }
-      function trapDialogTab(event) {
-        const dialog = $('detail-dialog')
-        if (event.key !== 'Tab' || !dialog.open) return
-        const visible = [
-          ...dialog.querySelectorAll('button, a[href], input, select, textarea, summary, [tabindex]')
-        ].filter(
-          (element) =>
-            element.tabIndex >= 0 &&
-            !element.matches(':disabled') &&
-            !element.closest('[hidden], [inert]') &&
-            element.getClientRects().length > 0 &&
-            getComputedStyle(element).visibility !== 'hidden'
-        )
-        const tabbables = visible.filter((element) => {
-          if (element.type !== 'radio' || !element.name) return true
-          const group = visible.filter((other) => other.type === 'radio' && other.name === element.name)
-          return element === (group.find((other) => other.checked) || group[0])
-        })
-        const first = tabbables[0],
-          last = tabbables[tabbables.length - 1],
-          active = document.activeElement
-        if (!first) {
-          event.preventDefault()
-          $('sheet-title').focus()
-          return
-        }
-        if (!tabbables.includes(active) || (event.shiftKey ? active === first : active === last)) {
-          event.preventDefault()
-          ;(event.shiftKey ? last : first).focus()
-        }
-      }
-      function close() {
-        if ($('detail-dialog').open) $('detail-dialog').close()
+        render()
       }
       document.addEventListener('click', (event) => {
         const node = event.target.closest('[data-action]')
-        if (!node || node.disabled) return
+        if (!node) return
         const action = node.dataset.action
-        if (action === 'back') {
-          toast('原型：返回艺术家页')
-          return
+        if (action === 'close') return close()
+        if (action.startsWith('tab-')) {
+          state.tab = action.slice(4)
+          return render()
         }
-        if (action === 'tab-results' || action === 'tab-isolated') {
-          clearTimeout(state.planTimer)
-          state.tab = action === 'tab-results' ? 'results' : 'isolated'
+        if (['start', 'full-scan'].includes(action)) {
+          state.scenario = 'running'
           render()
-          return
+          return notify(action === 'full-scan' ? '原型：完整检查将重新读取原文件' : '原型：检查已开始')
         }
-        if (action === 'start' || action === 'full-scan') {
-          document.querySelector('.menu-wrap').open = false
-          changeScenario('running')
-          if (action === 'full-scan') toast('原型：已开始完整检查')
-          return
-        }
-        if (action === 'pause') {
-          changeScenario('paused')
-          return
-        }
-        if (action === 'resume') {
-          changeScenario('running')
-          return
-        }
-        if (action === 'cancel') {
-          changeScenario('initial')
-          toast('原型：检查已取消，完整文件缓存保留')
-          return
-        }
-        if (action === 'select-all') {
-          state.selected = new Set(groups.filter((group) => group.recommended).map((group) => group.id))
-          render()
-          announce('已选择全部 2 组推荐，包含未显示页，共 3 部副本')
-          toast('已选择全部推荐，包含第 2 页')
-          return
+        if (['pause', 'resume', 'cancel-scan'].includes(action)) {
+          state.scenario = action === 'pause' ? 'paused' : action === 'resume' ? 'running' : 'results'
+          return render()
         }
         if (action === 'clear') {
           state.selected.clear()
-          render()
-          return
+          state.plan = null
+          return render()
         }
-        if (action === 'prev' || action === 'next') {
-          state.page += action === 'next' ? 1 : -1
-          render()
-          return
+        if (action === 'select-all') {
+          state.selected = new Set(groups.filter((group) => state.keepers[group.id]).map((group) => group.id))
+          state.plan = null
+          return render()
+        }
+        if (['prev', 'next'].includes(action)) {
+          state.page = action === 'prev' ? 1 : 2
+          return render()
         }
         if (action === 'details') {
-          showDetails(node.dataset.group)
-          return
+          const group = getGroup(node.dataset.group)
+          return sheet(
+            group.title,
+            '全部登记原媒体内容一致，整理数据不自动合并。',
+            members(group) +
+              '<section class="sheet-section"><h3>来源与影响</h3><p class="sheet-copy">本组可跨本地创建、Pixiv、本地导入和 URL 归档。当前账户显示自己的整理摘要；其他账户只显示保护资格。历史归档原件和未知附件若未经验证，预览将阻断该作品。</p></section>'
+          )
         }
-        if (action === 'member-prev' || action === 'member-next') {
-          state.memberPage += action === 'member-next' ? 1 : -1
-          showDetails(state.sheetGroup, true)
-          return
+        if (action === 'preview') return state.plan ? showPreview() : freezePlan()
+        if (action === 'reprepare') {
+          state.scenario = 'results'
+          return freezePlan()
         }
-        if (action === 'preview') {
-          preview()
-          return
-        }
-        if (action === 'close') {
+        if (action === 'confirm-delete') {
+          if (state.plan?.status !== 'READY' || !$('permanent-confirm')?.checked || !$('external-confirm')?.checked)
+            return
+          const scope = structuredClone(state.plan.scope)
+          state.operation = {
+            scope,
+            status: 'RUNNING',
+            phase: 'VERIFY',
+            done: 0,
+            total: copies(scope).reduce((n, item) => n + item.count, 0)
+          }
+          state.plan = null
+          state.selected.clear()
           close()
-          return
+          state.tab = 'records'
+          return runDeletion()
         }
-        if (action === 'batch-details') {
-          batchDetails()
-          return
+        if (action === 'record-details') return recordDetails()
+        if (action === 'stop') {
+          clearTimers()
+          const o = state.operation
+          o.status = o.phase === 'VERIFY' ? 'CANCELLED' : 'STOPPED'
+          render()
+          return notify(
+            o.status === 'CANCELLED'
+              ? '原型：已在首个删除意图前取消，未删文件'
+              : '原型：已在安全文件边界停止，已删文件不能撤销'
+          )
         }
-        if (action === 'recovery-diagnostics') {
-          recoveryDiagnostics()
-          return
+        if (action === 'retry') {
+          if (state.scenario === 'keeper-changed')
+            return sheet(
+              '暂时不能继续原删除',
+              '保留者内容已变化，未继续删除。',
+              '<p class="sheet-copy">已删文件无法恢复；副本保持不可见，日志和声明仍保留。不能换保留者或扩围绕过原授权。</p>'
+            )
+          close()
+          return runDeletion()
         }
-        if (action === 'retry-operation') {
-          retryOperation()
-          return
-        }
-        if (action === 'restore') {
-          restore()
-          return
-        }
-        if (action === 'purge') {
-          purge()
-          return
-        }
-        if (action === 'purged-details') {
-          purgedDetails()
-          return
-        }
-        if (action === 'allow-reimport') {
-          allowReimport()
-          return
+        if (action === 'reimport') {
+          const sources = copies(state.operation.scope).filter((item) => item.source !== '本地创建')
+          return sheet(
+            '允许以后重新导入',
+            '只解除所选来源的抑制，不恢复文件，旧任务仍不能发布。',
+            sources
+              .map(
+                (item) =>
+                  `<label class="confirm-label"><input type="checkbox" data-kind="source" value="${item.id}" />${escape(item.title)} · ${item.source}</label>`
+              )
+              .join('') + '<p class="sheet-copy small">本地创建作品没有伪造的外部来源；新导入需要重新提供内容。</p>',
+            '<button class="btn outline" data-action="close">返回</button><button class="btn primary" id="confirm-reimport" data-action="confirm-reimport" disabled>允许所选来源</button>'
+          )
         }
         if (action === 'confirm-reimport') {
-          $('detail-dialog')
-            .querySelectorAll('.reimport-choice:checked')
-            .forEach((input) => state.reimportSources.add(input.value))
+          if (!document.querySelector('[data-kind="source"]:checked')) return
           close()
-          render()
-          toast('原型：已允许选中来源重新导入，文件没有恢复')
-          return
+          return notify('原型：已允许所选来源的新导入，文件没有恢复')
         }
-        if (action === 'rebuild-plan') {
-          state.scenario = 'results'
-          state.planStatus = 'BUILDING'
-          render()
-          preview(true)
-          return
-        }
-        if (action === 'confirm-isolate') {
-          if (!canConfirmIsolation()) return
-          const recoveryConfirmation = {
-            planRevision: state.planRevision,
-            backupCheckpointRef: $('backup-ref').value.trim(),
-            backupCheckpointConfirmed: true,
-            externalWritesStopped: true
-          }
-          state.batchGroups = planSnapshot()
-          state.reimportSources.clear()
-          state.operationCount = [...state.selected].reduce((sum, id) => sum + groupById(id).members.length - 1, 0)
-          close()
-          changeScenario('isolated')
-          state.recoveryConfirmation = recoveryConfirmation
-          toast('原型：副本已隔离，可以恢复')
-          return
-        }
-        if (action === 'confirm-restore') {
-          if (!canRestore()) return
-          state.originalAction = 'RESTORE'
-          state.operationStatus = 'RESTORED'
-          close()
-          render()
-          toast('原型：作品已恢复')
-          return
-        }
-        if (action === 'confirm-retry-operation') {
-          const snapshot = state.retrySnapshot
-          if (
-            !canRetryOperation() ||
-            state.originalAction === 'PURGE' ||
-            !snapshot ||
-            snapshot.version !== state.operationVersion ||
-            snapshot.action !== state.originalAction ||
-            snapshot.scope !== operationScope()
-          )
-            return
-          if (state.scenario === 'conflict') {
-            toast('原型：原位置仍有文件，未覆盖；恢复保持待处理')
-            return
-          }
-          state.operationStatus = state.originalAction === 'RESTORE' ? 'RESTORED' : 'ISOLATED'
-          state.operationVersion += 1
-          close()
-          render()
-          toast('原型：原操作已完成')
-          return
-        }
-        if (action === 'confirm-retry-purge') {
-          if (!canConfirmRetryPurge()) {
-            retryPurge()
-            return
-          }
-          batchItems().forEach((item) => state.purgeReceipts.add(item.id))
-          state.purgeAuthorization = {
-            operationId: 'batch-001',
-            authorizedVersion: state.operationVersion,
-            scope: operationScope()
-          }
-          state.originalAction = 'PURGE'
-          batchItems().forEach((item) => state.purgeReceipts.add(item.id))
-          state.operationStatus = 'PURGED'
-          close()
-          render()
-          toast('原型：原授权清理已完成')
-          return
-        }
-        if (action === 'confirm-purge') {
-          if (!canConfirmPurge()) {
-            purge()
-            return
-          }
-          state.purgeAuthorization = {
-            operationId: 'batch-001',
-            authorizedVersion: state.operationVersion,
-            scope: operationScope()
-          }
-          state.originalAction = 'PURGE'
-          batchItems().forEach((item) => state.purgeReceipts.add(item.id))
-          state.operationStatus = 'PURGED'
-          close()
-          render()
-          toast('原型：副本已永久删除')
-          return
-        }
+        if (action === 'back') notify('原型：返回艺术家页')
       })
       document.addEventListener('change', (event) => {
         const node = event.target
-        if (node.id === 'scenario') {
-          close()
-          changeScenario(node.value)
+        if (node.dataset.kind === 'keeper') {
+          state.keepers[node.dataset.group] = node.value
+          state.plan = null
+          render()
+          if ($('detail-dialog').open) {
+            const group = getGroup(node.dataset.group)
+            sheet(group.title, '保留选择已更新，删除范围需要重新准备。', members(group))
+          }
           return
         }
         if (node.dataset.kind === 'select') {
           node.checked ? state.selected.add(node.dataset.group) : state.selected.delete(node.dataset.group)
-          render()
-          document.querySelector(`[data-kind="select"][data-group="${node.dataset.group}"]`)?.focus()
-          return
+          state.plan = null
+          return render()
         }
-        if (node.dataset.kind === 'keeper') {
-          state.keepers[node.dataset.group] = node.value
-          render()
-          if ($('detail-dialog').open) {
-            showDetails(node.dataset.group, true)
-            $('detail-dialog').querySelector(`[value="${node.value}"]`)?.focus()
-          } else document.querySelector(`[value="${node.value}"]`)?.focus()
-          announce('保留选择已更新；隔离范围没有改变')
-          return
-        }
-        if (node.classList.contains('reimport-choice')) {
-          $('confirm-reimport').disabled = !$('detail-dialog').querySelector('.reimport-choice:checked:not(:disabled)')
-          return
-        }
-        if (['external-confirm', 'personal-confirm', 'backup-confirm'].includes(node.id)) {
-          $('confirm-isolate').disabled = !canConfirmIsolation()
+        if (['permanent-confirm', 'external-confirm'].includes(node.id))
+          $('confirm-delete').disabled = !$('permanent-confirm').checked || !$('external-confirm').checked
+        if (node.dataset.kind === 'source')
+          $('confirm-reimport').disabled = !document.querySelector('[data-kind="source"]:checked')
+      })
+      $('detail-dialog').addEventListener('cancel', (event) => {
+        event.preventDefault()
+        close()
+      })
+      $('detail-dialog').addEventListener('keydown', (event) => {
+        if (event.key !== 'Tab') return
+        const focusable = [
+          ...$('detail-dialog').querySelectorAll('button:not(:disabled),input:not(:disabled),[tabindex="0"]')
+        ]
+        const first = focusable[0],
+          last = focusable.at(-1)
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
         }
       })
-      document.addEventListener('input', (event) => {
-        if (event.target.id === 'backup-ref') $('confirm-isolate').disabled = !canConfirmIsolation()
-      })
-      document.querySelector('.tabs').addEventListener('keydown', (event) => {
+      document.querySelector('[role="tablist"]').addEventListener('keydown', (event) => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
         event.preventDefault()
         state.tab =
           event.key === 'Home'
             ? 'results'
             : event.key === 'End'
-              ? 'isolated'
+              ? 'records'
               : state.tab === 'results'
-                ? 'isolated'
+                ? 'records'
                 : 'results'
         render()
-        $(state.tab === 'results' ? 'results-tab' : 'isolated-tab').focus()
+        $(state.tab + '-tab').focus()
       })
-      $('detail-dialog').addEventListener('keydown', trapDialogTab)
-      $('detail-dialog').addEventListener('close', () => {
-        if (state.lastFocus?.isConnected) {
-          state.lastFocus.focus()
-          return
-        }
-        const key = state.lastFocusKey
-        const match = key?.action
-          ? document.querySelector(`[data-action="${key.action}"]${key.group ? `[data-group="${key.group}"]` : ''}`)
-          : null
-        ;(match || $(state.tab === 'results' ? 'results-tab' : 'isolated-tab')).focus()
-      })
+      $('scenario').addEventListener('change', (event) => setScenario(event.target.value))
       $('theme').addEventListener('click', () => {
         const dark = document.documentElement.dataset.theme !== 'dark'
         document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-        $('theme').innerHTML = icon(dark ? 'sun' : 'moon')
-        $('theme').setAttribute('aria-label', dark ? '切换浅色外观' : '切换深色外观')
+        $('theme').textContent = dark ? '浅色外观' : '深色外观'
       })
-      if (window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.dataset.theme = 'dark'
-      $('theme').innerHTML = icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon')
-      const initial = new URLSearchParams(location.search).get('state')
-      if (initial && [...$('scenario').options].some((option) => option.value === initial)) changeScenario(initial)
-      else render()
+      render()
     </script>
   </body>
 </html>

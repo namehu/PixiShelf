@@ -381,6 +381,36 @@ describe('background task console', () => {
     expect(screen.queryByRole('button', { name: '取消' })).toBeNull()
   })
 
+  it('routes duplicate maintenance to a validated operation with no generic controls', () => {
+    const job = {
+      ...createJob('RUNNING'),
+      type: 'ARTWORK_DEDUP_MAINTENANCE' as const,
+      payload: { operationId: 'operation-1', executionVersion: 1, mode: 'PREPARE' }
+    }
+    expect(formatBackgroundJobType(job.type)).toBe('重复作品处理')
+    expect(getArtworkDedupHref(job)).toBe('/admin/duplicates?operationId=operation-1')
+    expect(getArtworkDedupHref({ ...job, payload: { operationId: 'operation-1' } })).toBeNull()
+    expect(canPauseJob(job)).toBe(false)
+    expect(canCancelJob(job)).toBe(false)
+    expect(canResumeJob({ ...job, status: 'PAUSED' })).toBe(false)
+    expect(canChangePriority({ ...job, status: 'PENDING' })).toBe(false)
+    expect(canRetryJob({ ...job, status: 'FAILED' })).toBe(false)
+    render(
+      <BackgroundTaskConsoleView
+        dashboard={createDashboard()}
+        selectedJob={job}
+        selectedJobLoading={false}
+        onSelectJob={vi.fn()}
+        onRefresh={vi.fn()}
+        refreshing={false}
+        controls={createControls()}
+      />
+    )
+    expect(screen.getByRole('link', { name: '查看处理批次' }).getAttribute('href')).toBe(
+      '/admin/duplicates?operationId=operation-1'
+    )
+  })
+
   it('labels the v2 read-only scan as Pixiv source audit and keeps retry unavailable', () => {
     const sourceAudit = {
       ...createJob('FAILED', 'job-source-audit'),

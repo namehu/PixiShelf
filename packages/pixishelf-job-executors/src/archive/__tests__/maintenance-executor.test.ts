@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { dedupGuardFixture } from './dedup-guard-fixture.ts'
 import os from 'node:os'
 import path from 'node:path'
 import type { ArchiveMaintenancePayload } from '@pixishelf/job-contracts'
@@ -37,10 +39,17 @@ vi.mock('@pixishelf/db', async (importOriginal) => {
   }
 })
 beforeEach(() => {
-  contentGuards.begin.mockReset().mockResolvedValue({
-    owner: { ownerUserId: null, sessionId: 'maintenance-job', sessionVersion: 1n, execution: null },
-    handles: [],
-    source: { writeToken: 'fixture-token', artworkIds: [7], imageIds: [] }
+  contentGuards.begin.mockReset().mockImplementation(async (input: {
+    sessionId: string
+    context: { mutateInTransaction: (operation: (tx: unknown) => Promise<unknown>) => Promise<unknown> }
+  }) => {
+    const cleanup = input.sessionId.startsWith('archive-cleanup:')
+    const write = {
+      owner: { ownerUserId: null, sessionId: 'maintenance-job', sessionVersion: 1n, execution: null },
+      handles: cleanup ? [{ writeId: 'fixture-write', writeToken: 'fixture-token', directoryId: 'fixture-directory' }] : [],
+      source: { writeToken: 'fixture-token', artworkIds: [7], imageIds: [] }
+    }
+    return cleanup ? input.context.mutateInTransaction(async () => write) : write
   })
   contentGuards.finish.mockReset().mockResolvedValue(true)
 })
@@ -134,11 +143,12 @@ describe('archive maintenance executor', () => {
       }
       const transaction = action === 'PURGE_ARCHIVE' ? purgeTransaction() : artworkTransaction('TRASHING')
       transaction.artwork.findUnique.mockResolvedValue(original as never)
-      for (const revision of revisions)
+      for (const revision of revisions) {
         await writeFixture(
           root,
           `${action === 'TRASH_ARCHIVE' ? revision.archivePath : revision.trashPath}/media/file.jpg`
         )
+      }
       await writeFixture(root, 'sources/test/bucket/another/revisions/keep/media/file.jpg')
       await writeFixture(root, '.trash/archive/8/keep/media/file.jpg')
       const context = executionContext({ action, artworkId: 7 }, transaction)
@@ -156,17 +166,18 @@ describe('archive maintenance executor', () => {
         })
       )
       for (const revision of revisions) {
-        if (action === 'PURGE_ARCHIVE')
+        if (action === 'PURGE_ARCHIVE') {
           await expect(readFile(path.join(root, revision.trashPath, 'media/file.jpg'))).rejects.toMatchObject({
             code: 'ENOENT'
           })
-        else
+        } else {
           expect(
             await readFile(
               path.join(root, action === 'TRASH_ARCHIVE' ? revision.trashPath : revision.archivePath, 'media/file.jpg'),
               'utf8'
             )
           ).toBe('fixture')
+        }
       }
       expect(await readFile(path.join(root, 'sources/test/bucket/another/revisions/keep/media/file.jpg'), 'utf8')).toBe(
         'fixture'
@@ -194,20 +205,21 @@ describe('archive maintenance executor', () => {
 
   it('removes staging and prepared revision paths before atomically clearing cleanup checkpoints', async () => {
     const root = await temporaryRoot()
-    await writeFixture(root, '.archive-staging/import-1/file.txt')
+    await writeFixture(root, '.archive-staging/import-1--generation-1/file.txt')
     await writeFixture(root, 'sources/test/bucket/42/revisions/import-1/file.txt')
+    const manifest = JSON.stringify({ revisionId: 'import-1', provider: { key: 'test', externalId: '42' }, media: [] })
     await writeFile(
       path.join(root, 'sources/test/bucket/42/revisions/import-1/manifest.json'),
-      JSON.stringify({ revisionId: 'import-1', provider: { key: 'test', externalId: '42' }, media: [] })
+      manifest
     )
-    const transaction = cleanTransaction()
+    const transaction = cleanTransaction({ manifestSha256: createHash('sha256').update(manifest).digest('hex') })
     const context = executionContext({ action: 'CLEAN_STAGING', archiveImportId: 'import-1' }, transaction)
 
     await expect(
       executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
     ).resolves.toEqual(TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME)
 
-    await expect(readFile(path.join(root, '.archive-staging/import-1/file.txt'))).rejects.toMatchObject({
+    await expect(readFile(path.join(root, '.archive-staging/import-1--generation-1/file.txt'))).rejects.toMatchObject({
       code: 'ENOENT'
     })
     await expect(readFile(path.join(root, 'sources/test/bucket/42/revisions/import-1/file.txt'))).rejects.toMatchObject(
@@ -220,6 +232,7 @@ describe('archive maintenance executor', () => {
       expect.objectContaining({ data: expect.objectContaining({ cleanupRequestedAt: null }) })
     )
     expect(context.__scope.complete).toHaveBeenCalledOnce()
+    expect(transaction.systemJobEvent.create).toHaveBeenCalledOnce()
   })
 
   it.each([
@@ -306,8 +319,9 @@ describe('archive maintenance executor', () => {
 
     await expect(
       executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
-    ).rejects.toMatchObject({ code: 'MEDIA_INVALID' })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     await expect(readFile(outside, 'utf8')).resolves.toBe('keep')
+    expect(contentGuards.begin).not.toHaveBeenCalled()
   })
 
   it('never treats the configured storage root as a cleanup target', async () => {
@@ -318,8 +332,9 @@ describe('archive maintenance executor', () => {
 
     await expect(
       executeArchiveMaintenance(context, { database: {} as never, config: { scanRoot: root } })
-    ).rejects.toMatchObject({ code: 'MEDIA_INVALID' })
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
     await expect(readFile(path.join(root, 'keep.txt'), 'utf8')).resolves.toBe('fixture')
+    expect(contentGuards.begin).not.toHaveBeenCalled()
   })
 
   it('permanently purges due archive trash and its database media rows outside the file transaction', async () => {
@@ -461,37 +476,62 @@ async function writeFixture(root: string, relativePath: string) {
   await writeFile(target, 'fixture')
 }
 
-function cleanTransaction(overrides: { stagingPath?: string } = {}) {
+function cleanTransaction(overrides: { stagingPath?: string; manifestSha256?: string } = {}) {
+  const guard = dedupGuardFixture('test', '42')
+  const generation = {
+    token: 'generation-1',
+    jobId: 'import-job',
+    archiveImportId: 'import-1',
+    path: overrides.stagingPath ?? '.archive-staging/import-1--generation-1',
+    drainedAt: new Date('2026-08-18T00:00:00.000Z'),
+    cleanedAt: null,
+    manifestSha256: overrides.manifestSha256 ?? null
+  }
+  const events: { attempt: number; data: unknown }[] = []
   const archiveImport = {
     id: 'import-1',
-    stagingPath: overrides.stagingPath ?? '.archive-staging/import-1',
+    stagingPath: generation.path,
     providerKey: 'test',
     creatorBucket: 'bucket',
     externalId: '42',
     cleanupRequestedAt: new Date('2026-08-18T00:00:00.000Z'),
     status: 'FAILED',
-    phase: 'LEGACY',
-    generationToken: null,
-    generations: [],
+    phase: 'DOWNLOAD',
+    generationToken: generation.token,
+    sealedManifestSha256: generation.manifestSha256,
+    dedupSourceSnapshot: guard.snapshot,
+    generations: [generation],
     items: [],
     publishedRevision: null,
     systemJobId: 'import-job',
     systemJob: { id: 'import-job', status: 'FAILED' }
   }
   return {
+    $queryRaw: guard.queryRaw,
+    artworkDedupSourceIdentity: guard.sourceIdentity,
+    systemJob: { findMany: vi.fn(async () => []) },
+    systemJobEvent: {
+      findMany: vi.fn(async () => events),
+      create: vi.fn(async ({ data }: { data: { attempt: number; data: unknown } }) => { events.push(data); return data })
+    },
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
-    mediaContentPathWrite: { findFirst: vi.fn().mockResolvedValue(null) },
+    mediaContentPathWrite: {
+      findFirst: vi.fn().mockResolvedValue(null),
+      count: vi.fn(async () => 0),
+      findMany: vi.fn(async () => [{ id: 'fixture-write', writeToken: 'fixture-token', directoryId: 'fixture-directory' }])
+    },
     archiveImport: {
       findUnique: vi.fn().mockResolvedValue(archiveImport),
       findUniqueOrThrow: vi.fn().mockResolvedValue(archiveImport),
       updateMany: vi.fn().mockResolvedValue({ count: 1 })
     },
-    archiveStagingGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    archiveImportItem: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) }
+    archiveStagingGeneration: { findMany: vi.fn(async () => [generation]), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    archiveImportItem: { findMany: vi.fn(async () => []), updateMany: vi.fn().mockResolvedValue({ count: 1 }) }
   }
 }
 
 function artworkTransaction(state: 'ACTIVE' | 'TRASHING' | 'RESTORING') {
+  const guard = dedupGuardFixture('test', '42')
   const artwork = {
     id: 7,
     createdVia: 'URL_ARCHIVE',
@@ -500,6 +540,8 @@ function artworkTransaction(state: 'ACTIVE' | 'TRASHING' | 'RESTORING') {
     archiveRevisions: [{ id: 'rev-1', archivePath: 'sources/test/rev-1', trashPath: '.trash/archive/7/rev-1' }]
   }
   return {
+    $queryRaw: guard.queryRaw,
+    artworkDedupClaim: guard.claim,
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     artwork: {
       findUnique: vi.fn().mockResolvedValue(artwork),
@@ -510,6 +552,7 @@ function artworkTransaction(state: 'ACTIVE' | 'TRASHING' | 'RESTORING') {
 }
 
 function purgeTransaction(overrides: { trashPath?: string } = {}) {
+  const guard = dedupGuardFixture('test', '42')
   const artwork = {
     id: 7,
     createdVia: 'URL_ARCHIVE',
@@ -525,7 +568,8 @@ function purgeTransaction(overrides: { trashPath?: string } = {}) {
     ]
   }
   return {
-    $queryRaw: vi.fn().mockResolvedValue([{ id: artwork.id, mediaRevision: 1 }]),
+    $queryRaw: guard.queryRaw,
+    artworkDedupClaim: guard.claim,
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     artwork: {
       findUnique: vi.fn().mockResolvedValue(artwork),
@@ -536,6 +580,7 @@ function purgeTransaction(overrides: { trashPath?: string } = {}) {
 }
 
 function reconcileTransaction() {
+  const guard = dedupGuardFixture('test', '42')
   const expired = {
     id: 'expired-import',
     status: 'FAILED',
@@ -569,6 +614,9 @@ function reconcileTransaction() {
     ]
   }
   return {
+    $queryRaw: guard.queryRaw,
+    artworkDedupSourceIdentity: guard.sourceIdentity,
+    artworkDedupClaim: guard.claim,
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     mediaContentPathWrite: { findFirst: vi.fn().mockResolvedValue(null) },
     archiveImport: {
@@ -589,6 +637,7 @@ function reconcileTransaction() {
       updateMany: vi.fn().mockResolvedValue({ count: 1 })
     },
     systemJob: {
+      findMany: vi.fn(async () => []),
       findFirst: vi
         .fn()
         .mockImplementation(({ where }: { where: { payload: { equals: { action: string } } } }) =>
