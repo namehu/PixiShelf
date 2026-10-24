@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import {
   archiveTitleQuerySchema,
@@ -12,11 +12,16 @@ import {
 } from '@pixishelf/job-contracts'
 import { toast } from 'sonner'
 import { useTRPC } from '@/lib/trpc'
+import type { CreatorOption } from '@/components/creators/creator-picker'
+import { archiveTitleSearchHref } from '@/lib/archive-source-links'
+import type { ExistingSourceCreators } from './archive-existing-source-creators'
 import { archiveClientErrorMessage } from '@/app/admin/archive/_components/archive-client-error'
 import { useArchiveUploaderIdentity, emptyUploaderIdentity } from './archive-uploader-identity-field'
 
 export interface ArchiveSearchDialogState {
   mode: 'CREATE' | 'COPY' | 'RENAME'
+  initialValues?: { keyword: string; creators: CreatorOption[] }
+  confirmExistingCreators?: boolean
   source?: {
     id: string
     displayName: string
@@ -28,12 +33,12 @@ export function useArchiveSearchSource({
   state,
   onClose,
   onSaved,
-  artistIds
+  creators
 }: {
   state: ArchiveSearchDialogState | null
   onClose: () => void
   onSaved: (sourceId: string) => Promise<void>
-  artistIds: number[]
+  creators: CreatorOption[]
 }) {
   const trpc = useTRPC()
   const [displayName, setDisplayName] = useState('')
@@ -44,6 +49,8 @@ export function useArchiveSearchSource({
   const [saving, setSaving] = useState(false)
   const [uploaders, setUploaders] = useState<ArchiveTitleUploader[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [existingSource, setExistingSource] = useState<ExistingSourceCreators | null>(null)
+  const submittedCreators = useRef<CreatorOption[]>([])
   const renameOnly = state?.mode === 'RENAME'
   const effectiveRules: ArchiveTitleRules = rules ?? {
     version: 2,
@@ -53,7 +60,8 @@ export function useArchiveSearchSource({
   }
   useEffect(() => {
     setDisplayName(state?.source?.displayName ?? '')
-    setKeyword(state?.source?.titleQuery?.keyword ?? '')
+    setKeyword(state?.source?.titleQuery?.keyword ?? state?.initialValues?.keyword ?? '')
+    setExistingSource(null)
     setRules(state?.source?.titleRules ?? null)
     setMatchMode(state?.source?.titleQuery?.matchMode ?? 'CONTAINS')
     const query = state?.source?.titleQuery
@@ -78,11 +86,24 @@ export function useArchiveSearchSource({
   const create = useMutation(
     trpc.archiveSearch.createSource.mutationOptions({
       onSuccess: async (source) => {
+        if (state?.confirmExistingCreators) {
+          const missing = submittedCreators.current.filter(
+            ({ id }) => !source.defaultCreators.some((artist) => artist.id === id)
+          )
+          if (missing.length) {
+            setExistingSource({ source, creators: missing })
+            return
+          }
+        }
         toast.success(source.status === 'ARCHIVED' ? '该条件已存在，可重新启用此来源' : '搜索来源已保存或复用', {
           description: source.titleQuery?.uploaderName ? '已保留上传者名称限制，当前按名称搜索。' : undefined
         })
         onClose()
-        await onSaved(source.id)
+        try {
+          await onSaved(source.id)
+        } catch {
+          toast.error('来源已保存，列表刷新失败，请刷新页面查看。')
+        }
       },
       onError
     })
@@ -97,6 +118,27 @@ export function useArchiveSearchSource({
     })
   )
   const pending = saving || create.isPending || rename.isPending
+  const draft = identity.draft
+  const resolvedUid =
+    draft.resolvedUid ??
+    (draft.mode === 'UID'
+      ? draft.value.trim()
+      : identity.result?.outcome === 'MATCHED'
+        ? identity.result.uploaderUid
+        : undefined)
+  const previewUploaders = [...uploaders, ...(resolvedUid ? [{ uid: resolvedUid }] : [])]
+  const searchHref =
+    uploaders.length && draft.value.trim() && !resolvedUid
+      ? null
+      : archiveTitleSearchHref({
+          keyword,
+          matchMode,
+          ...(previewUploaders.length
+            ? { uploaders: previewUploaders }
+            : draft.value.trim()
+              ? { uploaderName: draft.value }
+              : {})
+        })
   const addUploader = async () => {
     setError(null)
     setSaving(true)
@@ -119,6 +161,8 @@ export function useArchiveSearchSource({
   }
   const submit = async () => {
     setError(null)
+    submittedCreators.current = creators.map((creator) => ({ ...creator }))
+    const artistIds = submittedCreators.current.map(({ id }) => id)
     if (renameOnly && state?.source) {
       rename.mutate({ sourceId: state.source.id, displayName })
       return
@@ -175,6 +219,9 @@ export function useArchiveSearchSource({
     }
   }
   return {
+    existingSource,
+    dismissExistingSource: () => setExistingSource(null),
+    searchHref,
     rules,
     effectiveRules,
     setRules,

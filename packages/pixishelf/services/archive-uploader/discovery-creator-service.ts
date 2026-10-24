@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { runArchiveBulkOperation } from '@/services/archive/archive-bulk-operation'
 import { ArchiveError } from '@/services/archive/errors'
+import { serializeSource, sourceWireSelect } from './archive-source-wire'
 
 const ids = z
   .array(z.number().int().positive())
@@ -17,6 +18,12 @@ const ids = z
   .transform((values) => [...new Set(values)].sort((a, b) => a - b))
 const targets = z.array(z.string().min(1).max(128)).min(1).max(100)
 export const setDiscoveryCreatorsSchema = z.object({ sourceId: z.string().min(1).max(128), artistIds: ids }).strict()
+export const appendDiscoveryCreatorsSchema = setDiscoveryCreatorsSchema
+  .extend({
+    artistIds: ids.refine((values) => values.length > 0),
+    expectedRulesVersion: z.number().int().positive()
+  })
+  .strict()
 export const bindDiscoveryCreatorsSchema = setDiscoveryCreatorsSchema
   .extend({
     artistIds: ids.refine((values) => values.length > 0),
@@ -65,6 +72,50 @@ export async function snapshotDiscoverySourceCreators(tx: Prisma.TransactionClie
   await lockCreatorCatalog(tx)
   const defaults = await tx.discoverySourceCreator.findMany({ where: { sourceId }, orderBy: { artistId: 'asc' } })
   return defaults.map((row) => row.artistId)
+}
+
+export async function appendDiscoveryCreators(
+  input: z.input<typeof appendDiscoveryCreatorsSchema>,
+  database: PrismaClient = prisma as unknown as PrismaClient
+) {
+  const parsed = appendDiscoveryCreatorsSchema.parse(input)
+  return database.$transaction(async (tx) => {
+    await tx.$queryRaw(
+      Prisma.sql`SELECT pg_advisory_xact_lock(20260902::integer, hashtext(${parsed.sourceId}::text))::text`
+    )
+    await lockCreatorCatalog(tx)
+    const source = await tx.archiveUploaderSource.findUnique({
+      where: { id: parsed.sourceId },
+      select: sourceWireSelect
+    })
+    if (!source || source.sourceKind !== 'TITLE_QUERY') {
+      throw new ArchiveError('STATE_CONFLICT', '标题关键词来源不存在，请重新保存搜索条件。')
+    }
+    if (source.rulesVersion !== parsed.expectedRulesVersion) {
+      throw new ArchiveError('STATE_CONFLICT', '来源规则已变化，请重新保存搜索条件并确认绑定。')
+    }
+    if (
+      (await tx.artist.count({ where: { id: { in: parsed.artistIds }, mergedIntoId: null } })) !==
+      parsed.artistIds.length
+    ) {
+      throw new ArchiveError('STATE_CONFLICT', '所选艺术家或社团已不存在，请重新选择。')
+    }
+    const combined = new Set([...source.defaultCreators.map(({ artist }) => artist.id), ...parsed.artistIds])
+    if (combined.size > 200) {
+      throw new ArchiveError('STATE_CONFLICT', '一个来源最多绑定 200 位艺术家或社团。')
+    }
+    // Append under the same locks as replacement; never write back a client-side snapshot of the full set.
+    await tx.discoverySourceCreator.createMany({
+      data: parsed.artistIds.map((artistId) => ({ sourceId: parsed.sourceId, artistId })),
+      skipDuplicates: true
+    })
+    return serializeSource(
+      await tx.archiveUploaderSource.findUniqueOrThrow({
+        where: { id: parsed.sourceId },
+        select: sourceWireSelect
+      })
+    )
+  })
 }
 
 export async function bindDiscoveryItems(

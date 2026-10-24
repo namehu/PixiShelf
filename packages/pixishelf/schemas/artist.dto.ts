@@ -32,6 +32,19 @@ const ArtistExternalRefDto = z.object({
  * 包含：艺术家本身信息 + 时间字段转换 + 静态资源路径处理
  */
 export const ArtistResponseDto = ArtistModel.extend({
+  discoveryDefaults: z
+    .array(
+      z.object({
+        source: z.object({
+          id: z.string(),
+          providerKey: z.string(),
+          sourceKind: z.enum(['UPLOADER', 'TITLE_QUERY']),
+          displayName: z.string(),
+          status: z.enum(['ACTIVE', 'ARCHIVED'])
+        })
+      })
+    )
+    .default([]),
   externalRefs: z.array(ArtistExternalRefDto).default([]),
   sourceTagMappings: z
     .array(z.object({ providerKey: z.string(), namespace: z.string(), sourceName: z.string() }))
@@ -48,7 +61,7 @@ export const ArtistResponseDto = ArtistModel.extend({
     .default({ artworks: 0 })
     .nullable()
     .optional()
-}).transform(({ _count, externalRefs, sourceTagMappings, localImportMappings, ...artist }) => {
+}).transform(({ _count, externalRefs, sourceTagMappings, localImportMappings, discoveryDefaults, ...artist }) => {
   const pixiv = externalRefs.find((source) => source.providerKey === 'pixiv') ?? null
   const sources: Array<{
     type: 'PIXIV' | 'EXTERNAL' | 'LOCAL' | 'MANUAL'
@@ -61,13 +74,14 @@ export const ArtistResponseDto = ArtistModel.extend({
     externalId: source.externalId,
     sourceName: source.sourceName
   }))
-  for (const mapping of sourceTagMappings)
-    {sources.push({
+  for (const mapping of sourceTagMappings) {
+    sources.push({
       type: 'EXTERNAL',
       providerKey: mapping.providerKey,
       externalId: mapping.namespace + ':' + mapping.sourceName,
       sourceName: mapping.sourceName
-    })}
+    })
+  }
   if (localImportMappings.length > 0) {
     sources.push({ type: 'LOCAL' as const, providerKey: 'local', externalId: '', sourceName: null })
   }
@@ -77,6 +91,7 @@ export const ArtistResponseDto = ArtistModel.extend({
   const pixivUserId = pixiv && /^[1-9][0-9]*$/.test(pixiv.externalId) ? pixiv.externalId : null
   return {
     ...artist,
+    discoverySources: discoveryDefaults.map(({ source }) => source),
     avatar: buildPixivArtistAvatarUrl(pixivUserId, artist.avatar),
     backgroundImg: buildPixivArtistBackgroundUrl(pixivUserId, artist.backgroundImg),
     sources,

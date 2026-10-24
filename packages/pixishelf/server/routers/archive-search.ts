@@ -64,6 +64,8 @@ import {
 } from '@/services/archive-uploader/archive-uploader-service'
 import { runArchiveOperation } from './archive'
 import {
+  appendDiscoveryCreators,
+  appendDiscoveryCreatorsSchema,
   setDiscoveryCreators,
   setDiscoveryCreatorsSchema,
   bindDiscoveryItems,
@@ -77,6 +79,9 @@ import {
 const discovery = { sourceKind: 'ALL' as const }
 
 export const archiveSearchRouter = router({
+  appendDefaultCreators: adminProcedure
+    .input(appendDiscoveryCreatorsSchema)
+    .mutation(({ input }) => runArchiveOperation(() => appendDiscoveryCreators(input))),
   latestRulePreview: authProcedure
     .input(titleRuleSourceSchema)
     .query(({ input }) => runArchiveOperation(() => latestTitleRulePreview(input))),

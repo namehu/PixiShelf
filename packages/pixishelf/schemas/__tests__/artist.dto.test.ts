@@ -14,6 +14,20 @@ const baseArtist = {
 }
 
 describe('ArtistResponseDto source identity', () => {
+  it('returns discovery bindings independently from identity evidence, including disabled sources', () => {
+    const source = {
+      id: 'source',
+      providerKey: 'e-hentai',
+      sourceKind: 'TITLE_QUERY',
+      displayName: 'Collection',
+      status: 'ARCHIVED'
+    }
+    const result = ArtistResponseDto.parse({ ...baseArtist, discoveryDefaults: [{ source }] })
+    expect(result.discoverySources).toEqual([source])
+    expect(result.sources[0]?.type).toBe('MANUAL')
+    expect(result).not.toHaveProperty('discoveryDefaults')
+    expect(ArtistResponseDto.parse(baseArtist).discoverySources).toEqual([])
+  })
   it('does not expose a Pixiv identity without a formal external reference', () => {
     const artist = ArtistResponseDto.parse(baseArtist)
 

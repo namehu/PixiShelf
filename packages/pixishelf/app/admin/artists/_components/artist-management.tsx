@@ -22,7 +22,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ArtistDialog } from './artist-dialog'
 import { confirm } from '@/components/shared/global-confirm'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -40,6 +40,11 @@ import {
   type ArtistImagePreviewTarget
 } from './artist-image-preview'
 import { PixivArtistEnrichmentDialog } from './pixiv-artist-enrichment-dialog'
+import { ArtistDiscoveryActions, ArtistDiscoverySources } from './artist-discovery-sources'
+import {
+  ArchiveSearchSourceDialog,
+  type ArchiveSearchDialogState
+} from '../../archive/inbox/_components/archive-search-source-dialog'
 
 type ArtistListItem = ArtistResponseDto
 
@@ -90,6 +95,15 @@ import { buildArtistQuery } from './utils'
 export function ArtistManagement() {
   const trpc = useTRPC()
   const trpcClient = useTRPCClient()
+  const queryClient = useQueryClient()
+  const [sourceDialog, setSourceDialog] = useState<ArchiveSearchDialogState | null>(null)
+  const createSourceForArtist = useCallback((artist: ArtistListItem) => {
+    setSourceDialog({
+      mode: 'CREATE',
+      initialValues: { keyword: artist.name, creators: [{ id: artist.id, name: artist.name, kind: artist.kind }] },
+      confirmExistingCreators: true
+    })
+  }, [])
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [pixivDialogOpen, setPixivDialogOpen] = useState(false)
@@ -375,6 +389,16 @@ export function ArtistManagement() {
         cell: ({ row }) => <PixivSyncBadge artist={row.original} />
       },
       {
+        id: 'discoverySources',
+        header: '归档来源',
+        cell: ({ row }) => (
+          <ArtistDiscoverySources
+            sources={row.original.discoverySources}
+            onCreate={() => createSourceForArtist(row.original)}
+          />
+        )
+      },
+      {
         accessorKey: 'artworksCount',
         header: '作品数',
         cell: ({ row }) => {
@@ -394,6 +418,7 @@ export function ArtistManagement() {
         header: '操作',
         cell: ({ row }) => (
           <div className="flex gap-1">
+            <ArtistDiscoveryActions name={row.original.name} onCreate={() => createSourceForArtist(row.original)} />
             <Button asChild variant="ghost" size="icon">
               <Link
                 href={`/admin/artists/merge?sourceId=${row.original.id}`}
@@ -462,7 +487,7 @@ export function ArtistManagement() {
         )
       }
     ],
-    [adoptPixivNameMutation, handleToggleStar, retryPixivMutation]
+    [adoptPixivNameMutation, handleToggleStar, retryPixivMutation, createSourceForArtist]
   )
 
   return (
@@ -610,6 +635,18 @@ export function ArtistManagement() {
         onOpenChange={setDialogOpen}
         artist={editingArtist}
         onSuccess={() => setRefreshKey((prev) => prev + 1)}
+      />
+      <ArchiveSearchSourceDialog
+        state={sourceDialog}
+        onClose={() => setSourceDialog(null)}
+        onSaved={async () => {
+          setRefreshKey((previous) => previous + 1)
+          await Promise.all([
+            queryClient.invalidateQueries(trpc.artist.pathFilter()),
+            queryClient.invalidateQueries(trpc.archiveSearch.pathFilter()),
+            queryClient.invalidateQueries(trpc.archiveUploader.pathFilter())
+          ])
+        }}
       />
       <PixivArtistEnrichmentDialog
         open={pixivDialogOpen}

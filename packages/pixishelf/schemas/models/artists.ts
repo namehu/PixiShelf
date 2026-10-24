@@ -12,6 +12,12 @@ export const ARTIST_SELECT = {
   avatar: true,
   backgroundImg: true,
   isStarred: true,
+  discoveryDefaults: {
+    select: {
+      source: { select: { id: true, providerKey: true, sourceKind: true, displayName: true, status: true } }
+    },
+    orderBy: { sourceId: 'asc' }
+  },
   externalRefs: {
     select: {
       id: true,

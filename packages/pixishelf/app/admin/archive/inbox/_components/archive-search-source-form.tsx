@@ -6,7 +6,7 @@ import {
   MAX_ARCHIVE_TITLE_UPLOADERS,
   type ArchiveTitleQuery
 } from '@pixishelf/job-contracts'
-import { Plus, X } from 'lucide-react'
+import { ExternalLink, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
@@ -19,6 +19,7 @@ import type { CreatorOption } from '@/components/creators/creator-picker'
 import { ArchiveUploaderIdentityField, type SavedUploaderOption } from './archive-uploader-identity-field'
 import { SourceCreatorField } from './source-creator-field'
 import { useArchiveSearchSource, type ArchiveSearchDialogState } from './use-archive-search-source'
+import { ArchiveExistingSourceCreators } from './archive-existing-source-creators'
 
 export function ArchiveSearchSourceForm({
   state,
@@ -38,6 +39,9 @@ export function ArchiveSearchSourceForm({
   onPendingChange?: (value: boolean) => void
 }) {
   const {
+    existingSource,
+    dismissExistingSource,
+    searchHref,
     rules,
     effectiveRules,
     setRules,
@@ -56,10 +60,21 @@ export function ArchiveSearchSourceForm({
     pending,
     addUploader,
     submit
-  } = useArchiveSearchSource({ state, onClose, onSaved, artistIds: creators.map(({ id }) => id) })
+  } = useArchiveSearchSource({ state, onClose, onSaved, creators })
   useEffect(() => {
-    onPendingChange?.(pending)
-  }, [pending, onPendingChange])
+    if (!existingSource) onPendingChange?.(pending)
+  }, [pending, existingSource, onPendingChange])
+  if (existingSource) {
+    return (
+      <ArchiveExistingSourceCreators
+        {...existingSource}
+        onBack={dismissExistingSource}
+        onClose={onClose}
+        onSaved={onSaved}
+        onPendingChange={onPendingChange}
+      />
+    )
+  }
   return (
     <form
       className="flex min-h-0 flex-1 flex-col"
@@ -84,6 +99,26 @@ export function ArchiveSearchSourceForm({
           <FieldDescription id="search-keyword-description">
             用于远端查找候选。不支持双引号、星号和百分号；本地接纳规则可单独配置。
           </FieldDescription>
+          {!renameOnly ? (
+            <>
+              {searchHref ? (
+                <Button asChild variant="outline" size="sm">
+                  <a href={searchHref} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
+                    <ExternalLink data-icon="inline-start" />在 E-Hentai 搜索
+                  </a>
+                </Button>
+              ) : (
+                <Button type="button" variant="outline" size="sm" disabled>
+                  在 E-Hentai 搜索
+                </Button>
+              )}
+              <FieldDescription>
+                {searchHref
+                  ? '在新标签页查看标题搜索结果；本地规则仍在扫描时应用。原站改词后，请在这里同步修改。'
+                  : '请填写有效的标题关键词和上传者条件后搜索；不支持的字符需手动修改。'}
+              </FieldDescription>
+            </>
+          ) : null}
         </Field>
         <Field>
           <FieldLabel htmlFor="search-source-name">来源名称</FieldLabel>
@@ -183,7 +218,14 @@ export function ArchiveSearchSourceForm({
             </Button>
           </div>
         </details>
-        {!renameOnly ? <SourceCreatorField value={creators} onChange={onCreatorsChange} disabled={pending} /> : null}
+        {!renameOnly ? (
+          <SourceCreatorField
+            value={creators}
+            onChange={onCreatorsChange}
+            disabled={pending}
+            confirmExisting={state?.confirmExistingCreators}
+          />
+        ) : null}
         {error ? <FieldError role="alert">{error}</FieldError> : null}
       </FieldGroup>
       <DialogFooter className="grid shrink-0 grid-cols-2 gap-2 border-t px-5 py-4 sm:flex sm:flex-row [&>button]:h-11">

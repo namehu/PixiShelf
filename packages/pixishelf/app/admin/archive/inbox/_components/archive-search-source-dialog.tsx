@@ -1,5 +1,5 @@
 'use client'
-import { useState, type ComponentProps } from 'react'
+import { useEffect, useState, type ComponentProps } from 'react'
 import type { CreatorOption } from '@/components/creators/creator-picker'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import type { SavedUploaderOption } from './archive-uploader-identity-field'
@@ -52,6 +52,9 @@ export function ArchiveSearchSourceDialog({
 }
 
 function SearchEditor(props: Omit<ComponentProps<typeof ArchiveSearchSourceForm>, 'creators' | 'onCreatorsChange'>) {
-  const [creators, setCreators] = useState<CreatorOption[]>([])
+  const [creators, setCreators] = useState<CreatorOption[]>(props.state?.initialValues?.creators ?? [])
+  useEffect(() => {
+    setCreators(props.state?.initialValues?.creators ?? [])
+  }, [props.state])
   return <ArchiveSearchSourceForm {...props} creators={creators} onCreatorsChange={setCreators} />
 }

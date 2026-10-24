@@ -103,6 +103,10 @@ ImgProxy 仅允许 `local:///media/` 和 `local:///derived-media/`，Compose 没
 
 ## 隐私与浏览器媒体
 
+2026-10-24 局部核验：艺术家管理与关键词来源表单提供浏览器直达的 E-Hentai 标题搜索外链。目的地址固定为 `https://e-hentai.org/`，仅将共享查询契约构造的标题／上传者表达式编码到 `f_search`，不接受任意主机或目的 URL，不附加站内凭据或画廊 token。链接在新标签页打开，使用 `noopener noreferrer` 和 `no-referrer`；服务端不代理该搜索，也不放开任何公共路由。此搜索导航与上文数据库保存的画廊 locator 跳转是不同入口。
+
+新增 `archiveSearch.appendDefaultCreators` 继续使用管理 procedure 和服务端事务校验；只能向仍存在且规则版本一致的标题来源追加有效艺术家／社团，不接受客户端提供的完整旧绑定集合或操作者身份。既有绑定与停用状态保留，详情见[来源发现](../features/archive-discovery.md#从艺术家管理查找和关联来源)。
+
 `entry=direct` / `entry=privacy` 只选择同源浏览器视觉模式，不是登录、成年或账户授权。偏好可同步其他标签，不改变数据加载、导出/复制或阅读记账；服务端首屏遮蔽和 blocker 用于避免闪现。旧账户 `media_privacy_mode` 不再有效。见[浏览器隐私](../features/browser-privacy.md)。
 
 WebP Worker/WASM 与输入使用版本化同源地址和 `credentials: same-origin`，代码资源仍受 Session 代理；CSP `worker-src 'self'`，没有跨源解码器或新公开路由。资源 manifest 缓存只存校验后的资源版本及账户 ID，不含凭据/媒体；账户切换清空并取消旧请求。
