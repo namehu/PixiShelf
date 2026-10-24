@@ -4,6 +4,8 @@ import {
   InfoIcon,
   ListVideoIcon,
   Loader2Icon,
+  MaximizeIcon,
+  MinimizeIcon,
   RotateCcwIcon,
   SkipBackIcon,
   SkipForwardIcon,
@@ -48,6 +50,8 @@ import {
 } from '@/components/players/video-interaction-controller'
 import './video-player.css'
 import { useManagedVideoPlayback } from './use-managed-video-playback'
+import { VideoZoomButton, type VideoZoom } from './video-zoom-button'
+import { toggleVideoFullscreen } from '@/lib/video-fullscreen'
 
 const VIDEO_TIME_SYNC_THRESHOLD = 0.25
 
@@ -149,6 +153,10 @@ export function VideoPlayer({
   const [aspectRatio, setAspectRatio] = useState('16 / 9')
   const [isPlaying, setIsPlaying] = useState(false)
   const [isFullscreenWeb, setIsFullscreenWeb] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [videoZoom, setVideoZoom] = useState<VideoZoom>(1)
+  const [zoomControlTarget, setZoomControlTarget] = useState<HTMLElement | null>(null)
+  const [fullscreenControlTarget, setFullscreenControlTarget] = useState<HTMLElement | null>(null)
   const [artInstance, setArtInstance] = useState<ArtplayerType | null>(null)
   const [progressPortalTarget, setProgressPortalTarget] = useState<HTMLDivElement | null>(null)
   const [chapterOverlayPortal, setChapterOverlayPortal] = useState<ChapterOverlayPortal | null>(null)
@@ -294,6 +302,7 @@ export function VideoPlayer({
     setError(null)
     setLoading(true)
     setAspectRatio('16 / 9')
+    setVideoZoom(1)
     setIsPlaying(false)
     setIsFullscreenWeb(false)
     setArtInstance(null)
@@ -373,6 +382,7 @@ export function VideoPlayer({
       })
 
       const art = instance
+      art.template.$player.classList.add('pixishelf-video-player')
       artRef.current = art
       cleanupPlayer = createArtplayerCleanup(art, playerContainerRef.current)
       videoInteractionPluginRef.current = getVideoInteractionPlugin(art)
@@ -427,8 +437,10 @@ export function VideoPlayer({
       const publishReading = () => {
         if (!active) return
         onReadingProgressRef.current?.({
-          currentTime: art.currentTime, duration: art.duration,
-          started: readingStarted, playing: readingPlaying
+          currentTime: art.currentTime,
+          duration: art.duration,
+          started: readingStarted,
+          playing: readingPlaying
         })
       }
 
@@ -582,6 +594,53 @@ export function VideoPlayer({
     settingActions,
     showAudioControls
   ])
+
+  useEffect(() => {
+    if (!artInstance) return
+    artInstance.template.$player.style.setProperty('--pixishelf-video-zoom', String(videoZoom))
+  }, [artInstance, videoZoom])
+
+  useEffect(() => {
+    if (!artInstance) return
+    const player = artInstance.template.$player
+    const doc = player.ownerDocument as Document & { webkitFullscreenElement?: Element }
+    const onFullscreen = () => {
+      const enabled = doc.fullscreenElement === player || doc.webkitFullscreenElement === player
+      setIsFullscreen(enabled)
+      player.classList.toggle('art-fullscreen', enabled)
+    }
+    // 元数据未就绪时也允许进入、退出全屏；ArtPlayer 的监听要等 loadedmetadata。
+    doc.addEventListener('fullscreenchange', onFullscreen)
+    doc.addEventListener('webkitfullscreenchange', onFullscreen)
+    onFullscreen()
+    // 保留 ArtPlayer 的全屏状态监听，用容器全屏按钮替换其视频原生回退入口。
+    artInstance.controls.remove('fullscreen')
+    artInstance.controls.add({
+      name: 'video-zoom',
+      position: 'right',
+      index: 25,
+      html: '',
+      style: { padding: '0' },
+      mounted: setZoomControlTarget
+    })
+    artInstance.controls.add({
+      name: 'video-fullscreen',
+      position: 'right',
+      index: 70,
+      html: '',
+      style: { padding: '0' },
+      mounted: setFullscreenControlTarget
+    })
+    return () => {
+      doc.removeEventListener('fullscreenchange', onFullscreen)
+      doc.removeEventListener('webkitfullscreenchange', onFullscreen)
+      for (const name of ['video-zoom', 'video-fullscreen']) {
+        if (artInstance.controls[name]) artInstance.controls.remove(name)
+      }
+      setZoomControlTarget(null)
+      setFullscreenControlTarget(null)
+    }
+  }, [artInstance])
 
   useEffect(() => {
     const video = getArtVideo(artRef.current)
@@ -827,6 +886,35 @@ export function VideoPlayer({
       style={fillParent ? undefined : { aspectRatio, width: '100%', maxWidth: '100%', maxHeight: '100%' }}
     >
       <div ref={playerContainerRef} className="h-full w-full" />
+
+      {zoomControlTarget &&
+        createPortal(<VideoZoomButton zoom={videoZoom} onZoomChange={setVideoZoom} />, zoomControlTarget)}
+      {fullscreenControlTarget &&
+        artInstance &&
+        createPortal(
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-11 rounded-full text-white/85 hover:bg-white/10 hover:text-white focus-visible:ring-white/70 dark:hover:bg-white/10"
+            aria-label={isFullscreen || isFullscreenWeb ? '退出全屏' : '全屏播放'}
+            title={isFullscreen || isFullscreenWeb ? '退出全屏' : '全屏播放'}
+            onPointerDown={(event) => event.stopPropagation()}
+            onDoubleClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              void toggleVideoFullscreen(artInstance)
+            }}
+          >
+            {isFullscreen || isFullscreenWeb ? (
+              <MinimizeIcon aria-hidden="true" />
+            ) : (
+              <MaximizeIcon aria-hidden="true" />
+            )}
+          </Button>,
+          fullscreenControlTarget
+        )}
 
       {error && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-neutral-950/95 px-6 text-center text-white">

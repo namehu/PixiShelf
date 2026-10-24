@@ -18,6 +18,7 @@ import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 import type { ViewerMediaItem } from '@/types/images'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { VideoZoomButton, type VideoZoom } from '@/components/players/video-zoom-button'
 
 const videoNavigationTabPreferences = new Map<number, VideoNavigationTab>()
 
@@ -42,6 +43,8 @@ interface ViewerVideoControlsProps {
   interactionLocked?: boolean
   playbackRate: ViewerPlaybackRate
   onPlaybackRateChange: (rate: ViewerPlaybackRate) => void
+  zoom: VideoZoom
+  onZoomChange: (zoom: VideoZoom) => void
   media: ViewerMediaItem
   state: ViewerVideoState
   audioPreference: ViewerAudioPreference
@@ -84,6 +87,8 @@ export default function ViewerVideoControls({
   interactionLocked = false,
   playbackRate,
   onPlaybackRateChange,
+  zoom,
+  onZoomChange,
   media,
   state,
   audioPreference,
@@ -259,7 +264,7 @@ export default function ViewerVideoControls({
           />
         </div>
 
-        <div className="flex min-w-0 items-center gap-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
           <button
             type="button"
             className="flex size-8 shrink-0 items-center justify-center rounded-full text-white/95 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
@@ -318,6 +323,8 @@ export default function ViewerVideoControls({
             {playbackRate}×
           </button>
 
+          <VideoZoomButton zoom={zoom} onZoomChange={onZoomChange} disabled={interactionLocked} />
+
           {navigationAvailable && (
             <button
               type="button"
@@ -344,7 +351,7 @@ export default function ViewerVideoControls({
               ) : (
                 <ListVideoIcon className="size-3.5 shrink-0" />
               )}
-              <span className="max-w-20 truncate max-[360px]:hidden">
+              <span className="max-w-20 truncate max-[440px]:hidden">
                 {bothAvailable ? (
                   '视频导航'
                 ) : keyframesAvailable ? (

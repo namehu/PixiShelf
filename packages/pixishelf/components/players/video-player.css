@@ -4,6 +4,47 @@
   display: none !important;
 }
 
+/* 变量随播放器根节点进入全屏；只缩放视频，控件和手势层保持原尺寸。 */
+.art-video-player.pixishelf-video-player .art-video {
+  scale: var(--pixishelf-video-zoom, 1);
+}
+
+.art-video-player.pixishelf-video-player .art-control-video-zoom,
+.art-video-player.pixishelf-video-player .art-control-video-fullscreen {
+  min-width: 44px;
+  overflow: visible;
+}
+
+.art-video-player.pixishelf-video-player.art-fullscreen .art-bottom,
+.art-video-player.pixishelf-video-player.art-fullscreen-web .art-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: max(var(--art-padding), env(safe-area-inset-left));
+  padding-right: max(var(--art-padding), env(safe-area-inset-right));
+}
+
+@media (max-width: 480px) {
+  .art-video-player.pixishelf-video-player .art-bottom .art-controls {
+    height: auto;
+    min-height: 44px;
+    align-items: flex-end;
+  }
+
+  .art-video-player.pixishelf-video-player .art-bottom .art-controls .art-controls-left {
+    height: 44px;
+  }
+
+  .art-video-player.pixishelf-video-player .art-bottom .art-controls .art-controls-right {
+    height: auto;
+    min-width: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .art-video-player.pixishelf-video-player .art-bottom .art-controls .art-control {
+    min-height: 44px;
+  }
+}
+
 /* PixiShelf 的手势层负责接收画布点击；防止 ArtPlayer 中心状态接管这些点击。 */
 .video-player .art-video-player .art-state {
   display: none !important;

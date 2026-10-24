@@ -29,6 +29,43 @@ vi.mock('../use-video-keyframes', () => ({
 }))
 
 describe('VideoPlayer component behavior', () => {
+  it('keeps zoom inside fullscreen without rebuilding playback and resets it for a new source', async () => {
+    const art = setupArtplayerMock({}, false)
+    const view = render(<VideoPlayer src="/video.mp4" />)
+    await waitFor(() => expect(art.controls.add).toHaveBeenCalledWith(expect.objectContaining({ name: 'video-zoom' })))
+    const zoomTarget = document.createElement('div')
+    const fullscreenTarget = document.createElement('div')
+    art.template.$player.append(zoomTarget, fullscreenTarget)
+    act(() => {
+      art.controls.add.mock.calls.find(([option]) => option.name === 'video-zoom')?.[0].mounted?.(zoomTarget)
+      art.controls.add.mock.calls
+        .find(([option]) => option.name === 'video-fullscreen')?.[0]
+        .mounted?.(fullscreenTarget)
+    })
+    art.currentTime = 42
+    for (const next of [1.5, 2, 2.5, 3, 1]) {
+      fireEvent.click(screen.getByRole('button', { name: /^画面缩放/ }))
+      expect(art.template.$player.style.getPropertyValue('--pixishelf-video-zoom')).toBe(String(next))
+    }
+    fireEvent.click(screen.getByRole('button', { name: /^画面缩放/ }))
+    fireEvent.click(screen.getByRole('button', { name: '全屏播放' }))
+    expect(art.fullscreenWeb).toBe(true)
+    // 网页全屏会把播放器移出 React 包装容器；控件与缩放仍随根节点移动。
+    document.body.append(art.template.$player)
+    fireEvent.click(screen.getByRole('button', { name: '画面缩放：1.5倍' }))
+    expect(art.template.$player.style.getPropertyValue('--pixishelf-video-zoom')).toBe('2')
+    fireEvent.click(screen.getByRole('button', { name: '退出全屏' }))
+    expect(art.fullscreenWeb).toBe(false)
+    expect(artplayerMock.constructor).toHaveBeenCalledTimes(1)
+    expect(art.currentTime).toBe(42)
+    expect(art.play).not.toHaveBeenCalled()
+    expect(art.pause).not.toHaveBeenCalled()
+    const nextArt = setupArtplayerMock({}, false)
+    view.rerender(<VideoPlayer src="/another.mp4" />)
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(nextArt.template.$player.style.getPropertyValue('--pixishelf-video-zoom')).toBe('1'))
+  })
+
   it('reports actual playback and seek positions without treating readiness as playback', async () => {
     const art = setupArtplayerMock()
     const onReadingProgress = vi.fn()

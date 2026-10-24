@@ -40,6 +40,8 @@ function renderControls(overrides: Partial<React.ComponentProps<typeof ViewerVid
   const props: React.ComponentProps<typeof ViewerVideoControls> = {
     playbackRate: 1,
     onPlaybackRateChange: vi.fn(),
+    zoom: 1,
+    onZoomChange: vi.fn(),
     media: videoMedia,
     state: { currentTime: 5, duration: 95, isPlaying: true, isWaiting: false },
     audioPreference: { muted: true, volume: 0.75 },
@@ -104,6 +106,21 @@ function stubVideoNavigationFetch() {
 }
 
 describe('ViewerVideoControls', () => {
+  it('keeps zoom available with chrome hidden and does not seek or toggle playback', () => {
+    const view = renderControls({ chromeHidden: true })
+    const button = screen.getByRole('button', { name: '画面缩放：完整画面' })
+    fireEvent.click(button)
+    expect(view.props.onZoomChange).toHaveBeenCalledWith(1.5)
+    expect(view.props.onTogglePlayback).not.toHaveBeenCalled()
+    expect(view.props.onSeek).not.toHaveBeenCalled()
+    view.rerender(<ViewerVideoControls {...view.props} zoom={3} />)
+    fireEvent.click(screen.getByRole('button', { name: '画面缩放：3倍' }))
+    expect(view.props.onZoomChange).toHaveBeenLastCalledWith(1)
+    view.rerender(<ViewerVideoControls {...view.props} interactionLocked />)
+    fireEvent.click(screen.getByRole('button', { name: '画面缩放：完整画面' }))
+    expect(view.props.onZoomChange).toHaveBeenCalledTimes(2)
+  })
+
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
@@ -120,6 +137,8 @@ describe('ViewerVideoControls', () => {
           state={{ currentTime: 5, duration: 95, isPlaying: true, isWaiting: false }}
           audioPreference={{ muted: true, volume: 1 }}
           playbackRate={rate}
+          zoom={1}
+          onZoomChange={vi.fn()}
           onPlaybackRateChange={(value) => {
             setRate(value)
             onPlaybackRateChange(value)

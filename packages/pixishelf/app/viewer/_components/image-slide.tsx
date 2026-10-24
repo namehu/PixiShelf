@@ -35,6 +35,7 @@ import { Button } from '@/components/ui/button'
 import ViewerImageProgress from './viewer-image-progress'
 import { useViewerAutoMedia } from './use-viewer-auto-media'
 import { combinationApiResource } from '@/utils/combination-static'
+import type { VideoZoom } from '@/components/players/video-zoom-button'
 
 // 导入 Swiper 样式
 import 'swiper/css'
@@ -64,6 +65,7 @@ interface ImageSlideProps extends Pick<SingleImageProps, 'onError'> {
 }
 
 interface SingleImageProps {
+  videoZoom?: VideoZoom
   playbackRate?: ViewerPlaybackRate
   autoPlayback?: 'running' | 'paused'
   autoRestartKey?: number
@@ -150,6 +152,7 @@ export function SingleImage(props: SingleImageProps) {
 }
 
 function SingleImageContent({
+  videoZoom = 1,
   playbackRate = 1,
   autoPlayback,
   autoRestartKey = 0,
@@ -377,7 +380,7 @@ function SingleImageContent({
   const nativeAnimation = Boolean(autoPlayback && isNativePngAnimation(media))
 
   return (
-    <div className="relative flex h-full w-full items-center justify-center">
+    <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
       {usesAnimatedImagePlayer ? (
         <AnimatedWebpPlayer
           key={`${media.key}:${retryKey}`}
@@ -446,6 +449,7 @@ function SingleImageContent({
           playsInline
           tabIndex={-1}
           className="h-full w-full object-contain"
+          style={{ scale: videoZoom }}
           preload={isActiveMedia ? 'auto' : preloadMode === 'metadata' ? 'metadata' : 'none'}
           onLoadedMetadata={(event) => {
             event.currentTarget.defaultPlaybackRate = playbackRateRef.current
@@ -560,6 +564,7 @@ export default function ImageSlide({
     else swiper.keyboard.disable()
   }, [isActive, interactionLocked, chapterPanelOpen, swiper])
   const [videoState, setVideoState] = useState<ViewerVideoState>(INITIAL_VIDEO_STATE)
+  const [videoZoom, setVideoZoom] = useState<VideoZoom>(1)
   const [activeMediaStatus, setActiveMediaStatus] = useState<'pending' | 'ready' | 'error'>('pending')
   const [gestureFeedback, setGestureFeedback] = useState<VideoInteractionFeedback | null>(null)
   const [showBuffering, setShowBuffering] = useState(false)
@@ -609,6 +614,9 @@ export default function ImageSlide({
   const storedImageIndex = horizontalIndexes[image.key] ?? 0
   const currentImageIndex = Math.min(Math.max(storedImageIndex, 0), mediaItems.length - 1)
   const currentMedia = mediaItems[currentImageIndex] ?? fallbackMedia
+  useEffect(() => {
+    setVideoZoom(1)
+  }, [currentMedia.id, currentMedia.url, currentMedia.updatedAt, isActive])
   const autoRestartKey = autoRestart?.mediaId === currentMedia.id ? autoRestart.revision : 0
   const activeIdentity = `${image.id}:${currentMedia.id}:${currentMedia.updatedAt}:${retryKey}:${autoRestartKey}`
   const mediaIdentityRef = useRef(activeIdentity)
@@ -963,6 +971,7 @@ export default function ImageSlide({
 
     return {
       playbackRate,
+      videoZoom: isActiveCurrent ? videoZoom : 1,
       shouldLoad,
       preloadMode,
       priority: isActiveCurrent && media.mediaType === MediaType.IMAGE,
@@ -1012,6 +1021,8 @@ export default function ImageSlide({
         state={videoState}
         playbackRate={playbackRate}
         onPlaybackRateChange={onPlaybackRateChange}
+        zoom={videoZoom}
+        onZoomChange={setVideoZoom}
         audioPreference={audioPreference}
         onTogglePlayback={handleTogglePlayback}
         onSeek={handleSeek}

@@ -6,6 +6,40 @@ import { SingleImage } from '../image-slide'
 vi.mock('next/image', () => ({ default: () => null }))
 
 describe('viewer video lifecycle', () => {
+  it('zooms only the video without remounting, seeking or changing playback', () => {
+    const props = {
+      media: {
+        id: 1,
+        key: 'zoom-video',
+        url: '/video.mp4',
+        updatedAt: '2026-10-24',
+        mediaType: MediaType.VIDEO,
+        animationMetadata: null
+      },
+      retryKey: 0,
+      onRetry: vi.fn(),
+      audioPreference: { muted: true, volume: 0.5 },
+      isActiveMedia: true
+    }
+    const view = render(<SingleImage {...props} />)
+    const video = view.container.querySelector('video')!
+    expect(video.style.scale).toBe('1')
+    video.currentTime = 42
+    play.mockClear()
+    pause.mockClear()
+    view.rerender(<SingleImage {...props} videoZoom={2.5} chromeHidden />)
+    expect(view.container.querySelector('video')).toBe(video)
+    expect(video.style.scale).toBe('2.5')
+    expect(video.parentElement?.classList.contains('overflow-hidden')).toBe(true)
+    expect(video.currentTime).toBe(42)
+    expect(video.muted).toBe(true)
+    expect(video.volume).toBe(0.5)
+    expect(play).not.toHaveBeenCalled()
+    expect(pause).not.toHaveBeenCalled()
+    view.rerender(<SingleImage {...props} />)
+    expect(video.style.scale).toBe('1')
+  })
+
   it('distinguishes metadata from playback and publishes seeks for reading completion', () => {
     const onReadingProgress = vi.fn()
     const view = render(
