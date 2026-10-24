@@ -88,3 +88,5 @@
 - [去重直接删除第三批浏览器验收](./artwork-deduplication-direct-delete-batch3-browser-2026-10-24.md)：真实四来源删除、分页、隐私、窄屏和账户切换；明确未覆盖项及截图导出限制。
 
 - [去重分支合入主目录](./artwork-deduplication-main-merge-2026-10-24.md)：主线114文件保留核对、冲突解决、增量测试和本地启动测试命令。
+
+- [去重本地开发数据库与Worker升级](./operations/artwork-deduplication-local-upgrade-2026-10-24.md)：正式迁移101→115、完整本地检查点与隔离恢复校验、Worker就绪；App由用户F5启动。
