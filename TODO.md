@@ -48,3 +48,12 @@
 - [ ] 逐对整理 API response 类型：Webhook GET 状态 DTO 先规划外部版本兼容，上传/分块、替换、scheduler 保留现有消费者对 `{ error }` 的依赖。目标是明确类型和稳定 `message`，不顺带改变接口行为。
 
 开始前确认影响的产品/接口约束，按[测试策略](./docs/development/testing-strategy.md)选择验证范围。完成后从本页移除，保留结论和证据链接。
+
+## 去重发布后跟进
+
+当前版先上线观察，下列项仅登记，等待逐批授权。详细范围、依赖和验收统一见[去重后续计划](./docs/design/artwork-deduplication/matching-extension.md)。
+
+- [ ] DEDUP-F01：补齐纯文件部分重叠的人工对照与单对处理。
+- [ ] DEDUP-F02：视觉缓存批量化、同内容特征复用及跨次关系增量更新。
+- [ ] DEDUP-F03：有界跨批检索与 50 万规模完整性能验证；依赖 F02。
+- [ ] DEDUP-F04：收集真实版本人工真值，记录漏检/误配后再安排小改进。

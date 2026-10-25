@@ -29,6 +29,8 @@
 
 ## 发布、迁移与事故
 
+去重本版：[2026-10-25 版本收口与 NAS 发布交接](./operations/artwork-deduplication-release-2026-10-25.md)，附[疑似版本本地升级](./operations/artwork-deduplication-visual-local-upgrade-2026-10-25.md)。
+
 | 主题             | 记录                                                                                                                                                                                      |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 后台任务切换     | [阶段 1–7](./operations/background-task-cutover-deployment.md)、[后续观察](./operations/background-task-follow-up.md)、[当时的兼容回滚](./operations/background-task-cutover-rollback.md) |

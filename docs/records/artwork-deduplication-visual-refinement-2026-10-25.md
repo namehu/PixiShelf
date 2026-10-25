@@ -17,7 +17,7 @@ sources:
 
 ## 事前固定方案与样本
 
-在实施 agent 读取新样本前固定[设计契约](../design/artwork-deduplication/matching-extension.md#单轮白边与轻裁剪改进契约)：保留原视图，增加去白边与 5%/10% 中心裁剪视图，沿用旧阈值，最多四视图；新样本评估只运行一次，见到结果后不调参。
+在实施 agent 读取新样本前固定[设计契约（历史提交）](https://github.com/namehu/PixiShelf/blob/9eb09d72/docs/design/artwork-deduplication/matching-extension.md#单轮白边与轻裁剪改进契约)：保留原视图，增加去白边与 5%/10% 中心裁剪视图，沿用旧阈值，最多四视图；新样本评估只运行一次，见到结果后不调参。
 
 主 agent 从此前有界清单对应目录只读抽取，原文件未改动。读取 39 个文件、31,125,031 字节，剔除 30 个旧样本或重复内容，得到 9 张 SHA 未见的新图，来自 3 个作品目录；3 个历史路径已不存在，未以缺失输入参与评估。私有清单和图像副本位于 `/private/tmp/pixishelf-visual-refinement/`，不进入 Git。它们包含同作品未见页，不能宣称三个从未参与前轮实验的独立作品族。仍没有人工确认的真实有码/无码版本对。
 
