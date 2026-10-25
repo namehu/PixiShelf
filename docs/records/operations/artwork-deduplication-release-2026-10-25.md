@@ -15,7 +15,7 @@ sources:
 
 ## 冻结范围
 
-功能基线为 `eb6894be`；候选 `v0.54.7` 中止，`v0.54.8` 被测试门禁阻断，下一候选为 `v0.54.9`，不改写已推送标签。包含同艺术家四来源的精确重复、完整包含，以及可选的疑似版本识别；检查、图片对照、保留选择和单对确认删除已连通。
+功能基线为 `eb6894be`；候选 `v0.54.7` 中止，`v0.54.8` 和 `v0.54.9` 被测试门禁阻断，下一候选为 `v0.54.10`，不改写已推送标签。包含同艺术家四来源的精确重复、完整包含，以及可选的疑似版本识别；检查、图片对照、保留选择和单对确认删除已连通。
 
 - 完整包含按原文件 SHA 多重集合判断，保留较完整作品；相关证据见[第一批验收](../artwork-deduplication-containment-batch1-2026-10-25.md)。
 - 疑似版本是人工选择建议，不自动判断有码/无码，不自动删除。隔离样本、独立审查和浏览器证据见[闭环验收](../artwork-deduplication-suspected-versions-2026-10-25.md)。
@@ -75,6 +75,8 @@ sources:
 
 ### 第三个候选的定向修复
 
+`v0.54.9` 指向 `545a676a91bde34a060e85c65f32a1c1525bd307`。[CI](https://github.com/namehu/PixiShelf/actions/runs/40203156636) 与[镜像发布](https://github.com/namehu/PixiShelf/actions/runs/40203156641) 中 contracts 170、DB 271、runtime 109、executors 1,091 项测试通过，原条件跳过项分别为 0、140、19、165；最后的 Worker 包为 122 通过、1 跳过、1 失败。失败只在去重读取子进程的 bundle 测试，故镜像构建成功后仍未发布版本镜像。
+
 扫描测试补齐冻结输入和直接发布所需的来源证明；改写根 marker 的测试同时清理自己创建的原 UUID 绑定。两个故障注入由事务调用次数改为实际已提交状态，原恢复断言保留。resolver 的三个夹具对齐提交证明、provider 与解析身份，失租约断言提前监听，消除未处理拒绝。
 
 另外修复两处现有生产逻辑回归，未扩展去重产品范围：
@@ -86,9 +88,15 @@ GPT-6.1 Sol / xhigh 对两份 DB 测试、扫描/归档两份测试及两处生�
 
 扫描/替换阅读失效在另一个正式迁移的新库 `dedup_release_scan_fixture` 定向验证 71/71 通过（scan 69、pending replace 2）；结束时连接数和媒体目录状态行均为 0，未人工清理。旧 CAS 竞争注入点在新的 Artwork 守卫锁内等待竞争写导致自锁，改用既有 `afterPixivSourceLookup` 在加锁前注入竞争，保留原 CAS 与不建立 baseline 的断言。executor typecheck 通过；定向 lint 剩余三项 HEAD 已有长度/参数规则（两处 max-params、一处 max-lines），排除这些既有规则后的差异检查无错误或警告，不宣称全包 lint 通过。日志：`/private/tmp/release-scan-fixture-verified.log`、`/private/tmp/release-executors-final-typecheck.log`。
 
+### Worker 打包测试收口
+
+最后一项失败是测试未沿用生产构建的 external 配置，将 Sharp JavaScript 内联到无依赖目录的临时 CJS 文件。捕获的子进程 stderr 明确为 Sharp 无法加载原生模块；macOS Node 20.19.4 同样复现。生产 `build.mjs` 已 external Sharp，生产镜像保留部署依赖，本轮未改生产打包配置。
+
+只修 `artwork-dedup-bundle.test.ts`：沿用相同 external 清单，在唯一临时目录提供 Worker 依赖解析路径，保留原文件读取断言，并用合成 PNG 发起真实 visual 请求验证解码。构建/启动/关闭失败均清理临时资源。定向测试 1/1、局部 lint/格式/diff 检查通过；Sol / xhigh 单文件独立复审无阻塞项。日志：`/private/tmp/release-worker-bundle-before-stderr.log`、`/private/tmp/release-worker-bundle-fixed.log`。未新增全量本地验证或数据库操作。
+
 ## NAS 交接
 
-待本版 App/Worker 均发布成功且同提交 CI 通过后，使用同一明确版本 `v0.54.9`，不要混搭旧 Worker 或仅更新 App。镜像分别为 `ghcr.io/namehu/pixishelf:v0.54.9` 与 `ghcr.io/namehu/pixishelf-worker:v0.54.9`；Docker Hub 对应 `dockernamehu/pixishelf` 与 `dockernamehu/pixishelf-worker`。这些是目标名称，准备阶段不表示已经可拉取。
+待本版 App/Worker 均发布成功且同提交 CI 通过后，使用同一明确版本 `v0.54.10`，不要混搭旧 Worker 或仅更新 App。镜像分别为 `ghcr.io/namehu/pixishelf:v0.54.10` 与 `ghcr.io/namehu/pixishelf-worker:v0.54.10`；Docker Hub 对应 `dockernamehu/pixishelf` 与 `dockernamehu/pixishelf-worker`。这些是目标名称，准备阶段不表示已经可拉取。
 
 按[标准发布](../../operations/deployment.md#标准发布)及[去重升级手册](../../operations/runbooks/artwork-deduplication.md)执行：
 
