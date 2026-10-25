@@ -22,8 +22,9 @@ type Filter = 'ALL' | 'DIFFERENT' | 'PAIRED' | 'UNMATCHED'
 
 function ComparisonImage({ media, title }: { media: Comparison['left']; title: string }) {
   const [failed, setFailed] = useState(false)
-  if (!media)
+  if (!media) {
     return <p className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">此版本没有对应图片</p>
+  }
   if (!media.thumbnailUrl || failed) {
     return (
       <div

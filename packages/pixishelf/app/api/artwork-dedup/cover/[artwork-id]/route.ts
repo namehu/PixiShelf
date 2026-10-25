@@ -19,8 +19,9 @@ export async function GET(request: Request, context: { params: Promise<{ 'artwor
     const { 'artwork-id': id } = await context.params
     if (!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id))) return unavailable(400)
     const imageId = search.get('imageId')
-    if (imageId !== null && (!/^[1-9]\d*$/.test(imageId) || !Number.isSafeInteger(Number(imageId))))
+    if (imageId !== null && (!/^[1-9]\d*$/.test(imageId) || !Number.isSafeInteger(Number(imageId)))) {
       return unavailable(400)
+    }
     const cover = await openArtworkDedupCover(Number(id), imageId === null ? undefined : Number(imageId))
     return cover
       ? new Response(cover.body, {

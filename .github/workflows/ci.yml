@@ -122,6 +122,9 @@ jobs:
           pnpm --filter @pixishelf/db db:deploy
           pnpm --filter @pixishelf/db exec prisma migrate status --schema prisma/schema.prisma
 
+      - name: Build native file maintenance dependency for tests
+        run: node packages/pixishelf-worker/scripts/build-dedup-native.mjs
+
       - name: Run database and Worker unit tests
         run: pnpm --filter @pixishelf/worker... test
 

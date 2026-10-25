@@ -23,10 +23,11 @@ static int sync_calls = 0;
 static int fixture_fsync(int fd) {
   ++sync_calls;
   if (${mode === 'sync-failure' ? '1' : '0'} && sync_calls == 2) {
-    (void)write(3, "F", 1); errno = EIO; return -1;
+    if (write(3, "F", 1) != 1) { errno = EIO; return -1; }
+    errno = EIO; return -1;
   }
   int result = fsync(fd), saved = errno;
-  if (result == 0) (void)write(3, "S", 1);
+  if (result == 0 && write(3, "S", 1) != 1) { errno = EIO; return -1; }
   errno = saved; return result;
 }
 static int fixture_unlinkat(int fd, const char *name, int flags) {

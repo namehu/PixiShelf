@@ -53,11 +53,12 @@ pnpm --filter @pixishelf/next exec vitest run tests/integration/security-next.te
 pnpm --filter @pixishelf/db db:validate
 pnpm --filter @pixishelf/db db:generate
 pnpm --filter @pixishelf/worker... typecheck
+node packages/pixishelf-worker/scripts/build-dedup-native.mjs
 pnpm --filter @pixishelf/worker... test
 pnpm --filter @pixishelf/worker... build
 ```
 
-`worker...` 包含 DB、contracts、runtime、executors 的相应脚本。PostgreSQL 测试必须显式连接隔离库；migration 从空库用完整 `db:deploy` 验证，不使用 `db:push`。Pixiv 代理 fixture 需要 openssl、临时证书及回环监听，但不访问真实原站、不关闭 TLS 校验。
+`worker...` 包含 DB、contracts、runtime、executors 的相应脚本。涉及原生文件操作的测试需要先生成 Worker 的 `artwork-dedup-native.node`；上方脚本只构建该模块，不生成 job 包 dist，CI Worker 和发布 validate 均执行此准备。PostgreSQL 测试必须显式连接隔离库；migration 从空库用完整 `db:deploy` 验证，不使用 `db:push`。Pixiv 代理 fixture 需要 openssl、临时证书及回环监听，但不访问真实原站、不关闭 TLS 校验。
 
 纯文档与图示：
 

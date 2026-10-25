@@ -65,6 +65,9 @@ jobs:
       - name: Typecheck Worker packages
         run: pnpm --filter @pixishelf/worker... typecheck
 
+      - name: Build native file maintenance dependency for tests
+        run: node packages/pixishelf-worker/scripts/build-dedup-native.mjs
+
       - name: Test database and Worker packages
         run: pnpm --filter @pixishelf/worker... test
 

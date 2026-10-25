@@ -39,6 +39,7 @@ import type {
 const url =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const database = url ? new PrismaClient({ datasourceUrl: url }) : null
+const fixtureRootIdentity = `content-fixture-root-${randomUUID()}`
 const rollback = new Error('rollback content fixture')
 const now = new Date('2026-10-23T00:00:00Z')
 const hash = 'a'.repeat(64)
@@ -70,7 +71,7 @@ async function directoryKey(tx: MediaContentTransaction): Promise<MediaContentDi
   })
   return {
     logicalRoot: 'source-media:v1',
-    rootIdentity: root?.rootIdentity ?? 'test-root',
+    rootIdentity: root?.rootIdentity ?? fixtureRootIdentity,
     relativeDirectory: `content-fixture-${randomUUID()}`
   }
 }
@@ -229,7 +230,28 @@ async function archiveHandoffFixture(tx: MediaContentTransaction) {
 }
 
 describe.skipIf(!database)('media content source and publication contracts', () => {
-  afterAll(async () => database?.$disconnect())
+  afterAll(async () => {
+    if (!database) return
+    try {
+      await database.$transaction(async (tx) => {
+        // Committed fixtures remove their child rows; remove only a root this suite created.
+        // An existing shared root belongs to its original owner and must survive this suite.
+        const roots = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id FROM "MediaContentDirectoryState"
+          WHERE "logicalRoot" = 'source-media:v1' AND "relativeDirectory" = ''
+            AND "rootIdentity" = ${fixtureRootIdentity} FOR UPDATE`
+        if (!roots.length) return
+        expect(
+          await tx.mediaContentDirectoryState.count({
+            where: { logicalRoot: 'source-media:v1', relativeDirectory: { not: '' } }
+          })
+        ).toBe(0)
+        await tx.mediaContentDirectoryState.delete({ where: { id: roots[0]!.id } })
+      })
+    } finally {
+      await database.$disconnect()
+    }
+  })
   it('keeps order/title independent, retains BigInt and actual hash time, and observes changes explicitly', async () =>
     isolated(async (tx) => {
       const { artwork, snapshot, entries } = await fixture(tx)

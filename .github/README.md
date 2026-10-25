@@ -25,7 +25,7 @@ sources:
 
 ## 镜像发布链
 
-1. `validate`：Prisma generate/validate、PostgreSQL 全迁移及 status、Worker 依赖链 typecheck/test/build。
+1. `validate`：Prisma generate/validate、PostgreSQL 全迁移及 status、Worker 依赖链 typecheck/test/build。执行文件操作测试前，单独运行 `node packages/pixishelf-worker/scripts/build-dedup-native.mjs` 准备原生模块；不通过提前构建全部共享包来满足测试。
 2. 两个 build job 分别构建 `pixishelf` 与 `pixishelf-worker` 的 `linux/amd64` OCI archive，同时复用/更新 GHCR `:cache`；此时不发布版本、SHA 或 latest 标签。
 3. validate 与两个 build 全成功后，publish 下载**本次运行** artifact，校验 SHA-256，以 `skopeo --preserve-digests` 原样发布到 GHCR 与 Docker Hub，不重新构建。
 4. 两个发布均成功后，tag 运行创建 Release 并扫描镜像；Release 附带 Compose、环境模板、init.sql 和 DEPLOYMENT 跳转页。
