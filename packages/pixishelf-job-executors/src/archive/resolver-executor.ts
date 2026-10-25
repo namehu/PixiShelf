@@ -118,41 +118,77 @@ export async function executeArchiveResolveItem(
     })
   }
 
+  const finalizeError = (error: unknown) =>
+    context.finalizeInTransaction<ResolveTransaction>((scope) =>
+      finalizeResolutionError(
+        scope,
+        context,
+        toArchiveExecutorError(error),
+        now(),
+        dependencies.random ?? Math.random,
+        item.submittedUrl
+      )
+    )
+  let provider: ReturnType<ArchiveProviderRegistry['getForUrl']>
+  let identity: ReturnType<typeof provider.identifySource>
+  try {
+    provider = dependencies.providers.getForUrl(item.submittedUrl)
+    identity = provider.identifySource(item.submittedUrl)
+  } catch (error) {
+    return finalizeError(error)
+  }
+  try {
+    await context.mutateInTransaction<ResolveTransaction>(async (transaction) => {
+      await assertArchiveSourceSnapshot(transaction, { ...identity, dedupSourceSnapshot: item.dedupSourceSnapshot })
+    })
+  } catch (error) {
+    if (!(error instanceof ArchiveExecutorError)) throw error
+    return finalizeError(error)
+  }
+
+  let resolved: ResolvedArchive
+  let metadataHash: string
   try {
     // Provider calls stay outside the database transaction. Only the fenced
     // finalization below mutates queue-owned state, so slow remote I/O cannot
     // hold row locks or commit after a lease has been lost.
-    const provider = dependencies.providers.getForUrl(item.submittedUrl)
-    const identity = provider.identifySource(item.submittedUrl)
-    await context.mutateInTransaction<ResolveTransaction>(async (transaction) => {
-      await assertArchiveSourceSnapshot(transaction, { ...identity, dedupSourceSnapshot: item.dedupSourceSnapshot })
-    })
-    const resolved = await provider.resolve(item.submittedUrl, { signal: context.signal })
+    resolved = await provider.resolve(item.submittedUrl, { signal: context.signal })
     parseArchiveSourceSnapshot({
       providerKey: resolved.providerKey,
       externalId: resolved.externalId,
       dedupSourceSnapshot: item.dedupSourceSnapshot
     })
-    const metadataHash = hashResolvedMetadata(resolved.normalizedMetadata)
+    metadataHash = hashResolvedMetadata(resolved.normalizedMetadata)
+  } catch (error) {
+    return finalizeError(error)
+  }
+  try {
     return await context.finalizeInTransaction<ResolveTransaction>((scope) =>
-      finalizeResolved(
-        scope,
-        context,
-        { resolved, metadataHash, resolvedAt: now(), uuid: dependencies.uuid ?? randomUUID, originalProof: item.dedupSourceSnapshot }
-      )
+      finalizeResolved(scope, context, {
+        resolved,
+        metadataHash,
+        resolvedAt: now(),
+        uuid: dependencies.uuid ?? randomUUID,
+        originalProof: item.dedupSourceSnapshot
+      })
     )
   } catch (error) {
-    const classified = toArchiveExecutorError(error)
-    return context.finalizeInTransaction<ResolveTransaction>((scope) =>
-      finalizeResolutionError(scope, context, classified, now(), dependencies.random ?? Math.random, item.submittedUrl)
-    )
+    // Domain proof conflicts still settle the intake; transaction/fence failures must reach queue recovery.
+    if (!(error instanceof ArchiveExecutorError)) throw error
+    return finalizeError(error)
   }
 }
 
 async function finalizeResolved(
   scope: ResolveScope,
   context: ResolveContext,
-  input: { resolved: ResolvedArchive; metadataHash: string; resolvedAt: Date; uuid: () => string; originalProof: Prisma.JsonValue }
+  input: {
+    resolved: ResolvedArchive
+    metadataHash: string
+    resolvedAt: Date
+    uuid: () => string
+    originalProof: Prisma.JsonValue
+  }
 ) {
   const { resolved, metadataHash, resolvedAt, uuid, originalProof } = input
   if (scope.controlStatus === 'CANCEL_REQUESTED') {

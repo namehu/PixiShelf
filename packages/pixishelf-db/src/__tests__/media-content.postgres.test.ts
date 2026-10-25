@@ -39,7 +39,9 @@ import type {
 const url =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const database = url ? new PrismaClient({ datasourceUrl: url }) : null
-const fixtureRootIdentity = `content-fixture-root-${randomUUID()}`
+const fixtureRootPrefix = 'media-content-fixture-root-'
+const fixtureRootIdentity = `${fixtureRootPrefix}${randomUUID()}`
+const fixtureDirectoryPrefix = `content-fixture-${randomUUID()}`
 const rollback = new Error('rollback content fixture')
 const now = new Date('2026-10-23T00:00:00Z')
 const hash = 'a'.repeat(64)
@@ -66,13 +68,14 @@ async function isolated(body: (tx: MediaContentTransaction) => Promise<void>) {
   ).rejects.toBe(rollback)
 }
 async function directoryKey(tx: MediaContentTransaction): Promise<MediaContentDirectoryKey> {
+  await lockCreatorCatalog(tx)
   const root = await tx.mediaContentDirectoryState.findUnique({
     where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } }
   })
   return {
     logicalRoot: 'source-media:v1',
     rootIdentity: root?.rootIdentity ?? fixtureRootIdentity,
-    relativeDirectory: `content-fixture-${randomUUID()}`
+    relativeDirectory: `${fixtureDirectoryPrefix}-${randomUUID()}`
   }
 }
 async function fixture(tx: MediaContentTransaction, count = 2) {
@@ -234,19 +237,24 @@ describe.skipIf(!database)('media content source and publication contracts', () 
     if (!database) return
     try {
       await database.$transaction(async (tx) => {
-        // Committed fixtures remove their child rows; remove only a root this suite created.
-        // An existing shared root belongs to its original owner and must survive this suite.
-        const roots = await tx.$queryRaw<Array<{ id: string }>>`
-          SELECT id FROM "MediaContentDirectoryState"
+        await lockCreatorCatalog(tx)
+        const roots = await tx.$queryRaw<Array<{ id: string; rootIdentity: string }>>`
+          SELECT id, "rootIdentity" FROM "MediaContentDirectoryState"
           WHERE "logicalRoot" = 'source-media:v1' AND "relativeDirectory" = ''
-            AND "rootIdentity" = ${fixtureRootIdentity} FOR UPDATE`
-        if (!roots.length) return
+          FOR UPDATE`
         expect(
           await tx.mediaContentDirectoryState.count({
-            where: { logicalRoot: 'source-media:v1', relativeDirectory: { not: '' } }
+            where: { logicalRoot: 'source-media:v1', relativeDirectory: { startsWith: fixtureDirectoryPrefix } }
           })
         ).toBe(0)
-        await tx.mediaContentDirectoryState.delete({ where: { id: roots[0]!.id } })
+        const root = roots[0]
+        if (!root?.rootIdentity.startsWith(fixtureRootPrefix)) return
+        // Recovery fixtures may still borrow this root. The last fixture suite releases it;
+        // a pre-existing non-fixture root is never ours to delete.
+        if (await tx.mediaContentDirectoryState.count({
+          where: { logicalRoot: 'source-media:v1', relativeDirectory: { not: '' } }
+        })) return
+        await tx.mediaContentDirectoryState.delete({ where: { id: root.id } })
       })
     } finally {
       await database.$disconnect()

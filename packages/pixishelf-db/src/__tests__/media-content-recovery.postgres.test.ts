@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { PrismaClient } from '@prisma/client'
 import { afterAll, describe, expect, it } from 'vitest'
+import { lockCreatorCatalog } from '../creators'
 import { beginMediaContentPathWrite, beginMediaContentSourceWrite } from '../media-content-writes'
 import {
   consumeMediaContentRecovery,
@@ -21,6 +22,9 @@ import type {
 const url =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const database = url ? new PrismaClient({ datasourceUrl: url }) : null
+const fixtureRootPrefix = 'media-content-fixture-root-'
+const fixtureRootIdentity = `${fixtureRootPrefix}${randomUUID()}`
+const fixtureDirectoryPrefix = `recovery-fixture-${randomUUID()}`
 const now = new Date('2026-10-23T00:00:00Z')
 const rollback = new Error('rollback offline recovery fixture')
 const ready = <T>(result: MediaContentResult<T>): T => {
@@ -40,13 +44,15 @@ async function isolated(body: (tx: MediaContentTransaction) => Promise<void>) {
   ).rejects.toBe(rollback)
 }
 async function fixture(tx: MediaContentTransaction) {
+  // Observe the root after the catalog wait, so a neighbouring fixture cannot retire it meanwhile.
+  await lockCreatorCatalog(tx)
   const root = await tx.mediaContentDirectoryState.findUnique({
     where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } }
   })
   const directory: MediaContentDirectoryKey = {
     logicalRoot: 'source-media:v1',
-    rootIdentity: root?.rootIdentity ?? 'test-root',
-    relativeDirectory: `recovery-${randomUUID()}`
+    rootIdentity: root?.rootIdentity ?? fixtureRootIdentity,
+    relativeDirectory: `${fixtureDirectoryPrefix}-${randomUUID()}`
   }
   const artwork = await tx.artwork.create({ data: { title: 'offline recovery' } })
   const image = await tx.image.create({
@@ -168,13 +174,32 @@ async function fixture(tx: MediaContentTransaction) {
   }
 }
 describe.skipIf(!database)('explicit offline media recovery authorization', () => {
-  afterAll(async () => database?.$disconnect())
+  afterAll(async () => {
+    if (!database) return
+    try {
+      await database.$transaction(async (tx) => {
+        await lockCreatorCatalog(tx)
+        const roots = await tx.$queryRaw<Array<{ id: string; rootIdentity: string }>>`
+          SELECT id, "rootIdentity" FROM "MediaContentDirectoryState"
+          WHERE "logicalRoot" = 'source-media:v1' AND "relativeDirectory" = '' FOR UPDATE`
+        expect(
+          await tx.mediaContentDirectoryState.count({
+            where: { logicalRoot: 'source-media:v1', relativeDirectory: { startsWith: fixtureDirectoryPrefix } }
+          })
+        ).toBe(0)
+        const root = roots[0]
+        if (!root?.rootIdentity.startsWith(fixtureRootPrefix)) return
+        // Other media-content fixtures may still borrow the root; the last suite cleans it.
+        if (await tx.mediaContentDirectoryState.count({
+          where: { logicalRoot: 'source-media:v1', relativeDirectory: { not: '' } }
+        })) return
+        await tx.mediaContentDirectoryState.delete({ where: { id: root.id } })
+      })
+    } finally {
+      await database.$disconnect()
+    }
+  })
   it('recovers a committed grant response by exact replay without creating a second grant or audit', async () => {
-    const priorRoot = await database!.mediaContentDirectoryState.findUnique({
-      where: {
-        logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' }
-      }
-    })
     const value = await database!.$transaction(fixture)
     try {
       const inspected = ready(
@@ -214,14 +239,6 @@ describe.skipIf(!database)('explicit offline media recovery authorization', () =
       await database!.mediaContentDirectoryState.deleteMany({
         where: { logicalRoot: value.directory.logicalRoot, relativeDirectory: value.directory.relativeDirectory }
       })
-      if (!priorRoot)
-        await database!.mediaContentDirectoryState.deleteMany({
-          where: {
-            logicalRoot: value.directory.logicalRoot,
-            relativeDirectory: '',
-            rootIdentity: value.directory.rootIdentity
-          }
-        })
       await database!.systemJob.delete({ where: { id: value.job.id } })
     }
   })

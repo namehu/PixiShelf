@@ -1,6 +1,6 @@
 ---
 status: historical
-scope: 去重版本收口、v0.54.7 发布中止与后继补丁准备、已知限制及 NAS 交接；不证明生产已升级
+scope: 去重版本收口、发布候选与后继补丁准备、已知限制及 NAS 交接；不证明生产已升级
 last-verified: 2026-10-25
 sources:
   - docs/features/artwork-deduplication.md
@@ -15,7 +15,7 @@ sources:
 
 ## 冻结范围
 
-功能基线为 `eb6894be`；首个候选 `v0.54.7` 中止，后继补丁版本为 `v0.54.8`，不改写已推送标签。包含同艺术家四来源的精确重复、完整包含，以及可选的疑似版本识别；检查、图片对照、保留选择和单对确认删除已连通。
+功能基线为 `eb6894be`；候选 `v0.54.7` 中止，`v0.54.8` 被测试门禁阻断，下一候选为 `v0.54.9`，不改写已推送标签。包含同艺术家四来源的精确重复、完整包含，以及可选的疑似版本识别；检查、图片对照、保留选择和单对确认删除已连通。
 
 - 完整包含按原文件 SHA 多重集合判断，保留较完整作品；相关证据见[第一批验收](../artwork-deduplication-containment-batch1-2026-10-25.md)。
 - 疑似版本是人工选择建议，不自动判断有码/无码，不自动删除。隔离样本、独立审查和浏览器证据见[闭环验收](../artwork-deduplication-suspected-versions-2026-10-25.md)。
@@ -61,9 +61,34 @@ sources:
 
 原始补充日志：本机 `/private/tmp/dedup-release-db-root-cleanup.log`、`/private/tmp/dedup-release-scan-after-db-root-cleanup.log`、`/private/tmp/dedup-release-resolver-after-db-root-cleanup.log`、`/private/tmp/release-0547-native-mac-tests.log`、`/private/tmp/release-0547-native-linux.log`。命令已退出，临时编译容器已移除。后继版本仍通过现有工作流完整门禁，本地不重复全量 App/Worker 验证。
 
+### 第二个候选与组合验证
+
+`v0.54.8` 指向 `db2164e53c59b92f5ee48833a9122e94281992c5`。[CI](https://github.com/namehu/PixiShelf/actions/runs/40201122824) 的 Web（含 lint、typecheck、test、build）及 WebP 通过；Worker 与[发布验证](https://github.com/namehu/PixiShelf/actions/runs/40201122813) 被一项 DB 测试阻断。该标签未发布版本镜像，不作为 NAS 更新目标。
+
+根因是两个媒体测试套件在 catalog 锁外读取共享测试根，可能在等待锁时取得过期身份。修复仅涉及两份测试文件：读取、建立和清理遵循 `catalog → root`；不同套件独立持有子目录，最后一个释放子目录的套件才清理空测试根，保留既有非测试根和本套件泄漏断言。独立 Sol / xhigh 复审通过。
+
+- 新建隔离库 `55432/dedup_release_dbtest_ci` 完成正式迁移；四份关联媒体测试 66/66 通过，随后按 CI 原环境运行 DB 包，271 通过、140 按既有条件跳过。全程未人工清根，结束时连接及媒体目录状态行均为 0。DB typecheck 通过。
+- 同库继续定向运行此前失败的八份 executor 测试，101 通过、51 失败及一项未处理拒绝。归档维护、staging 恢复、三个原生文件测试均通过；余下扫描、替换阅读失效及 resolver 的修复见下一节，不将该次结果记为通过。
+- 早先额外设置 `QUEUE_KERNEL_TEST_DATABASE_URL` 的扩展 DB 运行不等同 CI 环境，出现 49 失败、310 通过；保留旧库及日志，不用该次失败或后续有选择运行代替完整通过证据。
+
+日志：`/private/tmp/dedup-release-clean-media-group.log`、`/private/tmp/dedup-release-clean-ci-db.log`、`/private/tmp/release-0548-executor-targeted.log`。仅使用专属隔离库，不连接开发或生产库。
+
+### 第三个候选的定向修复
+
+扫描测试补齐冻结输入和直接发布所需的来源证明；改写根 marker 的测试同时清理自己创建的原 UUID 绑定。两个故障注入由事务调用次数改为实际已提交状态，原恢复断言保留。resolver 的三个夹具对齐提交证明、provider 与解析身份，失租约断言提前监听，消除未处理拒绝。
+
+另外修复两处现有生产逻辑回归，未扩展去重产品范围：
+
+- 扫描恢复已有 `PROCESS_STORED_HASH` 分支，CLIENT_SKIP 后建立 baseline 时复用已存哈希并处理冻结输入；保留原来的零次重哈希、一次内容变化及一次解析断言。
+- 归档 resolver 区分远端解析失败与事务结算失败。provider 错误和明确的来源证明领域冲突仍正常结算；数据库、租约及结算的非领域异常原样交给队列恢复，避免将事务回滚误转成另一轮业务失败结算。
+
+GPT-6.1 Sol / xhigh 对两份 DB 测试、扫描/归档两份测试及两处生产差异独立复审通过。resolver 在新建并正式迁移的专属库 `dedup_release_resolver_fix_eb5a75ef` 先复现唯一结算回滚失败，修复生产边界后同文件 23/23 通过，无未处理拒绝；原 AUTO 回滚及重取租约后恰好入队一次的断言保留。未手工清库，结束时连接数为 0。日志：`/private/tmp/release-resolver-fixture-once.log`、`/private/tmp/release-resolver-after-production-fix.log`。
+
+扫描/替换阅读失效在另一个正式迁移的新库 `dedup_release_scan_fixture` 定向验证 71/71 通过（scan 69、pending replace 2）；结束时连接数和媒体目录状态行均为 0，未人工清理。旧 CAS 竞争注入点在新的 Artwork 守卫锁内等待竞争写导致自锁，改用既有 `afterPixivSourceLookup` 在加锁前注入竞争，保留原 CAS 与不建立 baseline 的断言。executor typecheck 通过；定向 lint 剩余三项 HEAD 已有长度/参数规则（两处 max-params、一处 max-lines），排除这些既有规则后的差异检查无错误或警告，不宣称全包 lint 通过。日志：`/private/tmp/release-scan-fixture-verified.log`、`/private/tmp/release-executors-final-typecheck.log`。
+
 ## NAS 交接
 
-待本版 App/Worker 均发布成功且同提交 CI 通过后，使用同一明确版本 `v0.54.8`，不要混搭旧 Worker 或仅更新 App。镜像分别为 `ghcr.io/namehu/pixishelf:v0.54.8` 与 `ghcr.io/namehu/pixishelf-worker:v0.54.8`；Docker Hub 对应 `dockernamehu/pixishelf` 与 `dockernamehu/pixishelf-worker`。这些是目标名称，准备阶段不表示已经可拉取。
+待本版 App/Worker 均发布成功且同提交 CI 通过后，使用同一明确版本 `v0.54.9`，不要混搭旧 Worker 或仅更新 App。镜像分别为 `ghcr.io/namehu/pixishelf:v0.54.9` 与 `ghcr.io/namehu/pixishelf-worker:v0.54.9`；Docker Hub 对应 `dockernamehu/pixishelf` 与 `dockernamehu/pixishelf-worker`。这些是目标名称，准备阶段不表示已经可拉取。
 
 按[标准发布](../../operations/deployment.md#标准发布)及[去重升级手册](../../operations/runbooks/artwork-deduplication.md)执行：
 

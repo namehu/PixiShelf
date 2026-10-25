@@ -86,8 +86,9 @@ describePostgres('archive resolver PostgreSQL integration', () => {
       const { jobId, itemId } = await seedResolverItem(clock.now())
       const original = (await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })).dedupSourceSnapshot
       const sourceId = parseArtworkDedupSourceSnapshot(original).sources[0]!.sourceId
-      if (fault === 'NULL')
+      if (fault === 'NULL') {
         await db().archiveIntakeItem.update({ where: { id: itemId }, data: { dedupSourceSnapshot: Prisma.DbNull } })
+      }
       const resolve = vi.fn(async () => {
         await db().artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
         await db().artworkDedupSourceIdentity.update({
@@ -222,6 +223,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
       providers: providerRegistry(vi.fn(() => resolving)),
       now: () => clock.now()
     })
+    const rejectedExecution = expect(execution).rejects.toBeInstanceOf(JobExecutionFenceError)
     await vi.waitFor(async () => {
       expect((await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: itemId } })).status).toBe('RESOLVING')
     })
@@ -233,7 +235,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     })
     finishResolve?.(resolved)
 
-    await expect(execution).rejects.toBeInstanceOf(JobExecutionFenceError)
+    await rejectedExecution
     expect(
       await db().archiveIntakeItem.findUniqueOrThrow({
         where: { id: itemId },
@@ -304,12 +306,12 @@ describePostgres('archive resolver PostgreSQL integration', () => {
 
   it('resolves and automatically enqueues exactly once while the same provider download capacity is full', async () => {
     const clock = new MutableQueueClock(new Date('2026-09-09T10:00:00.000Z'))
-    const { jobId, itemId } = await seedResolverItem(clock.now())
+    const providerKey = `auto-${randomUUID()}`
+    const { jobId, itemId } = await seedResolverItem(clock.now(), providerKey)
     await db().archiveIntakeItem.update({ where: { id: itemId }, data: { downloadMode: 'AUTO' } })
     const repository = createRepository(clock)
     const claim = (await repository.claim('auto-during-download', capabilities))!
     const context = executionContext(repository, claim)
-    const providerKey = `auto-${randomUUID()}`
     await db().archiveProviderThrottle.create({ data: { providerKey, nextRequestAt: clock.now() } })
     const governor = new PostgresArchiveProviderGovernor(db(), {
       now: () => clock.now(),
@@ -325,7 +327,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
       accepts: () => true,
       identifySource: (input: string) => ({
         kind: 'PROVIDER',
-        providerKey: 'test',
+        providerKey,
         externalId: new URL(input).pathname.split('/')[2] ?? '1'
       }),
       resolve: async (_url, providerContext) => providerContext!.runResolveRequest!(resolveRequest),
@@ -412,7 +414,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
         }
       }
       await seedPublishedArchive(true, previous)
-      const { itemId } = await seedResolverItem(clock.now())
+      const { itemId } = await seedResolverItem(clock.now(), previous.providerKey)
       await db().archiveIntakeItem.update({ where: { id: itemId }, data: { downloadMode } })
       const current = {
         ...previous,
@@ -427,7 +429,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
 
       await executeArchiveResolveItem(executionContext(repository, claim), {
         database: db(),
-        providers: providerRegistry(vi.fn(async () => current)),
+        providers: providerRegistry(vi.fn(async () => current), current.providerKey),
         now: () => clock.now()
       })
 
@@ -687,7 +689,7 @@ function createRepository(clock: MutableQueueClock, leaseDurationMs = 60_000) {
   })
 }
 
-async function seedResolverItem(now: Date) {
+async function seedResolverItem(now: Date, providerKey = resolved.providerKey) {
   const jobId = `${testPrefix}-job-${randomUUID()}`
   const itemId = `${testPrefix}-item-${randomUUID()}`
   const submissionId = `${testPrefix}-submission-${randomUUID()}`
@@ -719,7 +721,7 @@ async function seedResolverItem(now: Date) {
         create: {
           id: itemId,
           submittedUrl: 'https://example.test/g/gallery-1',
-          dedupSourceSnapshot: await captureArchiveFixtureSource(db(), resolved.providerKey, resolved.externalId),
+          dedupSourceSnapshot: await captureArchiveFixtureSource(db(), providerKey, resolved.externalId),
           normalizedUrlHash: randomUUID().replaceAll('-', '').padEnd(64, '0'),
           currentSystemJobId: jobId,
           createdAt: now,
@@ -790,14 +792,14 @@ function executionContext(repository: PostgresQueueRepository, job: ClaimedJob) 
   return context
 }
 
-function providerRegistry(resolve: ArchiveProvider['resolve']) {
+function providerRegistry(resolve: ArchiveProvider['resolve'], providerKey = resolved.providerKey) {
   const provider: ArchiveProvider = {
-    key: 'test',
+    key: providerKey,
     requestGovernance: 'PER_REQUEST',
     accepts: () => true,
     identifySource: (input: string) => ({
       kind: 'PROVIDER',
-      providerKey: 'test',
+      providerKey,
       externalId: new URL(input).pathname.split('/')[2] ?? '1'
     }),
     resolve,
@@ -819,12 +821,12 @@ function withDefaultTagSetting(context: ReturnType<typeof executionContext>, con
         update: { type: 'json', value: configured }
       })
       await operation(scope)
-      if (previous)
+      if (previous) {
         await transaction.setting.update({
           where: { key: previous.key },
           data: { type: previous.type, value: previous.value }
         })
-      else await transaction.setting.delete({ where: { key: 'archive_default_tag_ids' } })
+      } else await transaction.setting.delete({ where: { key: 'archive_default_tag_ids' } })
     })
   return context
 }

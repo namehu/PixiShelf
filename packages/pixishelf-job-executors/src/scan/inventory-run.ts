@@ -184,6 +184,16 @@ export async function freezeIncrementalInventorySnapshot(input: {
           contentHash: decision.contentHash
         })
         failedInputs += 1
+      } else if (decision.kind === 'PROCESS_STORED_HASH') {
+        observed.push({
+          relativePath: candidate.relativePath,
+          externalId: candidate.artworkId,
+          contentHash: decision.contentHash,
+          state: candidate.state,
+          inventory,
+          shouldProcess: true
+        })
+        contentChanged += 1
       } else {
         toHash.push({ candidate, inventory })
       }

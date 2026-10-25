@@ -63,6 +63,7 @@ const capabilities: WorkerCapability[] = [
   { jobType: 'LOCAL_DIRECTORY_IMPORT', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
 ]
 const roots: string[] = []
+const retiredRootIdentities = new Set<string>()
 let numericId = 8_000_000
 let probeCatalog = false
 let catalogProbes = 0
@@ -363,8 +364,10 @@ describePostgres('scan executor PostgreSQL integration', () => {
       where: { id: state.id },
       data: { rootDeviceId: identity.deviceId + 2n }
     })
-    if (foreign)
+    if (foreign) {
+      retiredRootIdentities.add(await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root)))
       await fs.writeFile(path.join(root, '.pixishelf-root'), JSON.stringify({ version: 1, id: randomUUID() }))
+    }
     const payload = { mode: 'CONSISTENCY_AUDIT', verification: 'FAST' } as const
     const jobId = await seedJob('SCAN', payload, 1, 2)
     const repository = queue()
@@ -421,6 +424,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const progress = execution.progress.bind(execution)
     execution.progress = async (update) => {
       await progress(update)
+      retiredRootIdentities.add(await resolveScanDedupRootIdentity(await resolveSafeScanRoot(root)))
       await fs.writeFile(path.join(root, '.pixishelf-root'), JSON.stringify({ version: 1, id: randomUUID() }))
     }
     await executeConsistencyAudit(execution, dependencies(root))
@@ -436,9 +440,11 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const repository = queue()
     const claimed = await claim(repository, 'rollback')
     const externalId = nextNumericId()
+    const dedupSourceSnapshot = await captureFixturePixivSources(await fixtureRoot(), `pg/${externalId}-meta.json`)
     const publish = (transaction: ScanTransaction) =>
       publishPixivArtwork({
         transaction,
+        dedupSourceSnapshot,
         runId: run.id,
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:pg',
@@ -512,9 +518,11 @@ describePostgres('scan executor PostgreSQL integration', () => {
     })
     const repository = queue()
     const claimed = await claim(repository, 'inventory-atomic')
+    const dedupSourceSnapshot = await captureFixturePixivSources(await fixtureRoot(), relativePath)
     const publish = async (transaction: ScanTransaction) => {
       const result = await publishPixivArtwork({
         transaction,
+        dedupSourceSnapshot,
         runId: run.id,
         checkpointOrdinal: 0,
         checkpointKey: 'metadata:0:inventory-atomic',
@@ -847,10 +855,13 @@ describePostgres('scan executor PostgreSQL integration', () => {
       }
     })
 
+    const dedupSourceSnapshot = await captureFixturePixivSources(await fixtureRoot(), relativePath)
+
     await repository.withFencedMutationTransaction<ScanTransaction & QueueSqlExecutor>(
       fence(claimed),
       async (transaction) => {
-        const coordinated = afterExternalRefLock(transaction, async () => {
+        // The content guard now locks Artwork before the reference update; inject before that guard.
+        const coordinated = afterPixivSourceLookup(transaction, async () => {
           await concurrentClient().artwork.update({
             where: { id: artwork.id },
             data: { metaSource: `pixiv/${externalId}-moved-meta.json` }
@@ -858,6 +869,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         })
         await recordExistingInventoryDecision({
           transaction: coordinated,
+          dedupSourceSnapshot,
           runId: run.id,
           checkpointOrdinal: 0,
           checkpointKey: 'metadata:0:baseline-cas',
@@ -934,7 +946,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
           inputFrozenAt: clock.now(),
           inputCount: 1,
           inputDigest: payload.inputDigest,
-          metadataInputs: { create: row }
+          metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
         }
       })
       const repository = queue()
@@ -1024,13 +1036,13 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const claimed = await claim(repository, 'partial-baseline-discovery')
     const interruptedContext = context(repository, claimed, incrementalPayload)
     const originalMutate = interruptedContext.mutateInTransaction
-    let mutations = 0
     interruptedContext.mutateInTransaction = (async (
       operation: (transaction: QueueSqlExecutor) => Promise<unknown>
     ) => {
       const result = await originalMutate(operation)
-      mutations += 1
-      if (mutations === 3) throw new Error('crash after partial baseline page')
+      if (await client().scanRunMetadataInput.count({ where: { scanRunId: interruptedRun.id } }) === 1) {
+        throw new Error('crash after partial baseline page')
+      }
       return result
     }) as typeof interruptedContext.mutateInTransaction
 
@@ -1079,7 +1091,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         inputFrozenAt: clock.now(),
         inputCount: 1,
         inputDigest: clientPayload.inputDigest,
-        metadataInputs: { create: row }
+        metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
       }
     })
     const clientRepository = queue()
@@ -1224,10 +1236,8 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const claimed = await claim(repository, 'inventory-discovery-crash')
     const executionContext = context(repository, claimed, payload)
     const originalMutate = executionContext.mutateInTransaction
-    let mutations = 0
     executionContext.mutateInTransaction = (async (operation: (transaction: QueueSqlExecutor) => Promise<unknown>) => {
       const result = await originalMutate(operation)
-      mutations += 1
       if (await client().scanRunMetadataInput.count({ where: { scanRunId: run.id } }) === 1) throw new Error('crash after first discovery page')
       return result
     }) as typeof executionContext.mutateInTransaction
@@ -1295,11 +1305,12 @@ describePostgres('scan executor PostgreSQL integration', () => {
     const claimed = await claim(repository, 'changed-after-failure-crash')
     const executionContext = context(repository, claimed, payload)
     const originalMutate = executionContext.mutateInTransaction
-    let mutations = 0
     executionContext.mutateInTransaction = (async (operation: (transaction: QueueSqlExecutor) => Promise<unknown>) => {
       const result = await originalMutate(operation)
-      mutations += 1
-      if (mutations === 3) throw new Error('crash after changed content observation')
+      const observed = await client().pixivMetadataInventory.findUnique({ where: { relativePath } })
+      if (observed && observed.observedContentHash !== oldAttemptedHash) {
+        throw new Error('crash after changed content observation')
+      }
       return result
     }) as typeof executionContext.mutateInTransaction
     const runDependencies = dependencies(root)
@@ -2725,6 +2736,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         { artworkId: artwork.id, path: `curated/${externalId}.jpg`, sortOrder: 3, size: 2n }
       ]
     })
+    const dedupSourceSnapshot = await captureFixturePixivSources(await fixtureRoot(), `pixiv/${externalId}-meta.json`)
 
     await repository.withFencedMutationTransaction<ScanTransaction & QueueSqlExecutor>(
       fence(claimed),
@@ -2737,6 +2749,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         })
         await publishPixivArtwork({
           transaction: coordinatedTransaction,
+          dedupSourceSnapshot,
           runId: run.id,
           checkpointOrdinal: 0,
           checkpointKey: 'metadata:0:refresh-ownership',
@@ -2837,7 +2850,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         inputFrozenAt: clock.now(),
         inputCount: 1,
         inputDigest: metadataInputDigest([row]),
-        metadataInputs: { create: row }
+        metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
       }
     })
     const replacementPath = `local-imports/${externalId}`
@@ -2956,7 +2969,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         inputFrozenAt: clock.now(),
         inputCount: 1,
         inputDigest: metadataInputDigest([row]),
-        metadataInputs: { create: row }
+        metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
       }
     })
     const repository = queue()
@@ -3004,7 +3017,7 @@ describePostgres('scan executor PostgreSQL integration', () => {
         inputFrozenAt: clock.now(),
         inputCount: 1,
         inputDigest: payload.inputDigest,
-        metadataInputs: { create: row }
+        metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
       }
     })
     const interruption = new Error('worker shutdown during metadata read')
@@ -3194,7 +3207,7 @@ async function frozenArtworkRescanFixture(root: string, source: 'PIXIV_IMPORTED'
       inputFrozenAt: clock.now(),
       inputCount: 1,
       inputDigest: metadataInputDigest([row]),
-      metadataInputs: { create: row }
+      metadataInputs: { create: { ...row, dedupSourceSnapshot: await captureFixturePixivSources(root, row.relativePath) } }
     }
   })
   return { artwork, externalId, jobId, payload, relativePath, row, run }
@@ -3575,9 +3588,24 @@ async function fixtureRoot() {
   return root
 }
 
+async function captureFixturePixivSources(root: string, relativePath: string) {
+  const safeRoot = await resolveSafeScanRoot(root)
+  await client().$transaction((tx) => bindPixivInventoryRoot(tx, safeRoot, clock.now()))
+  const rootIdentity = await resolveScanDedupRootIdentity(safeRoot)
+  return serializeArtworkDedupSourceSnapshot(await client().$transaction((tx) =>
+    captureArtworkDedupSources(tx, { identities: pixivScanSourceIdentities({ rootIdentity, relativePath }) })
+  ))
+}
+
 async function cleanup() {
   if (!prisma) return
   await cleanupFixtureContentDirectories(prisma, roots)
+  // Marker mutation tests must also release the binding observed before the UUID changed.
+  if (retiredRootIdentities.size) {
+    await prisma.mediaContentPathWrite.deleteMany({ where: { directory: { rootIdentity: { in: [...retiredRootIdentities] } } } })
+    await prisma.mediaContentDirectoryState.deleteMany({ where: { rootIdentity: { in: [...retiredRootIdentities] } } })
+    retiredRootIdentities.clear()
+  }
   await prisma.pixivMetadataInventory.deleteMany()
   await prisma.pixivMetadataInventoryState.deleteMany()
   await prisma.scanRun.deleteMany({ where: { systemJobId: { startsWith: testPrefix } } })
@@ -3704,33 +3732,6 @@ function trackAuditItemBatches(
   return new Proxy(transaction, {
     get(target, property, receiver) {
       if (property === 'pixivSourceAuditItem') return trackedAuditItems
-      return Reflect.get(target, property, receiver)
-    }
-  })
-}
-
-function afterExternalRefLock(transaction: ScanTransaction, afterLock: () => Promise<void>): ScanTransaction {
-  const externalRefs = transaction.artworkExternalRef
-  let intercepted = false
-  const coordinatedExternalRefs = new Proxy(externalRefs, {
-    get(target, property) {
-      if (property === 'updateMany') {
-        return async (...args: Parameters<typeof externalRefs.updateMany>) => {
-          const result = await externalRefs.updateMany(...args)
-          if (!intercepted) {
-            intercepted = true
-            await afterLock()
-          }
-          return result
-        }
-      }
-      const value = Reflect.get(target, property, target)
-      return typeof value === 'function' ? value.bind(target) : value
-    }
-  })
-  return new Proxy(transaction, {
-    get(target, property, receiver) {
-      if (property === 'artworkExternalRef') return coordinatedExternalRefs
       return Reflect.get(target, property, receiver)
     }
   })
