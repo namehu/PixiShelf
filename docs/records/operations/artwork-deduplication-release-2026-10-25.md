@@ -1,6 +1,6 @@
 ---
 status: historical
-scope: 去重版本收口、发布候选与后继补丁准备、已知限制及 NAS 交接；不证明生产已升级
+scope: 去重 v0.54.10 镜像发布、已知限制与 NAS 交接；不证明生产已升级
 last-verified: 2026-10-25
 sources:
   - docs/features/artwork-deduplication.md
@@ -15,7 +15,7 @@ sources:
 
 ## 冻结范围
 
-功能基线为 `eb6894be`；候选 `v0.54.7` 中止，`v0.54.8` 和 `v0.54.9` 被测试门禁阻断，下一候选为 `v0.54.10`，不改写已推送标签。包含同艺术家四来源的精确重复、完整包含，以及可选的疑似版本识别；检查、图片对照、保留选择和单对确认删除已连通。
+功能基线为 `eb6894be`；最终镜像版本为 `v0.54.10`。此前候选 `v0.54.7` 中止，`v0.54.8` 和 `v0.54.9` 被测试门禁阻断，未改写旧标签。包含同艺术家四来源的精确重复、完整包含，以及可选的疑似版本识别；检查、图片对照、保留选择和单对确认删除已连通。
 
 - 完整包含按原文件 SHA 多重集合判断，保留较完整作品；相关证据见[第一批验收](../artwork-deduplication-containment-batch1-2026-10-25.md)。
 - 疑似版本是人工选择建议，不自动判断有码/无码，不自动删除。隔离样本、独立审查和浏览器证据见[闭环验收](../artwork-deduplication-suspected-versions-2026-10-25.md)。
@@ -94,9 +94,15 @@ GPT-6.1 Sol / xhigh 对两份 DB 测试、扫描/归档两份测试及两处生�
 
 只修 `artwork-dedup-bundle.test.ts`：沿用相同 external 清单，在唯一临时目录提供 Worker 依赖解析路径，保留原文件读取断言，并用合成 PNG 发起真实 visual 请求验证解码。构建/启动/关闭失败均清理临时资源。定向测试 1/1、局部 lint/格式/diff 检查通过；Sol / xhigh 单文件独立复审无阻塞项。日志：`/private/tmp/release-worker-bundle-before-stderr.log`、`/private/tmp/release-worker-bundle-fixed.log`。未新增全量本地验证或数据库操作。
 
+### 镜像发布结果
+
+发布标签 `v0.54.10` 对应 `d8c9d0d9a9ed826b60338958b8984df1dc21e7d4`。[Build and Deploy](https://github.com/namehu/PixiShelf/actions/runs/40203907851) 的验证、两份镜像构建、GHCR/Docker Hub 推送、Release 创建及安全扫描作业均成功。[GitHub Release](https://github.com/namehu/PixiShelf/releases/tag/v0.54.10) 于 2026-10-25 22:53:55（Asia/Shanghai）发布，附带 Compose、环境模板、初始化 SQL 与部署入口。
+
+远端使用 Ubuntu、Node 20、PostgreSQL 15 完成空库正式迁移全链、Worker 类型检查和构建。数据库及任务包测试结果为 contracts 170、DB 271、runtime 109、executors 1,091、Worker 123 项通过；按原条件跳过项共 325，未将这些专项套件计为通过。独立 [CI](https://github.com/namehu/PixiShelf/actions/runs/40203907842) 的 Web、Worker、WebP 与总门禁全部成功：Web lint、typecheck、3,350 项测试及生产构建通过，259 项按既有条件跳过。安全扫描作业成功不等于不存在已报告漏洞。
+
 ## NAS 交接
 
-待本版 App/Worker 均发布成功且同提交 CI 通过后，使用同一明确版本 `v0.54.10`，不要混搭旧 Worker 或仅更新 App。镜像分别为 `ghcr.io/namehu/pixishelf:v0.54.10` 与 `ghcr.io/namehu/pixishelf-worker:v0.54.10`；Docker Hub 对应 `dockernamehu/pixishelf` 与 `dockernamehu/pixishelf-worker`。这些是目标名称，准备阶段不表示已经可拉取。
+App/Worker 已发布；NAS 更新使用同一明确版本 `v0.54.10`，不要混搭旧 Worker 或仅更新 App。镜像分别为 `ghcr.io/namehu/pixishelf:v0.54.10` 与 `ghcr.io/namehu/pixishelf-worker:v0.54.10`；Docker Hub 对应 `dockernamehu/pixishelf:v0.54.10` 与 `dockernamehu/pixishelf-worker:v0.54.10`。本版发布平台为 `linux/amd64`。
 
 按[标准发布](../../operations/deployment.md#标准发布)及[去重升级手册](../../operations/runbooks/artwork-deduplication.md)执行：
 
