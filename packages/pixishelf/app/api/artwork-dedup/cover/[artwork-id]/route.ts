@@ -12,12 +12,16 @@ export async function GET(request: Request, context: { params: Promise<{ 'artwor
   try {
     const session = await auth.api.getSession({ headers: request.headers })
     if (!session?.user?.id) return unavailable(401)
-    const expectedUserId = new URL(request.url).searchParams.get('expectedUserId')
+    const search = new URL(request.url).searchParams
+    const expectedUserId = search.get('expectedUserId')
     if (!expectedUserId) return unavailable(400)
     if (expectedUserId !== session.user.id) return unavailable(403)
     const { 'artwork-id': id } = await context.params
     if (!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id))) return unavailable(400)
-    const cover = await openArtworkDedupCover(Number(id))
+    const imageId = search.get('imageId')
+    if (imageId !== null && (!/^[1-9]\d*$/.test(imageId) || !Number.isSafeInteger(Number(imageId))))
+      return unavailable(400)
+    const cover = await openArtworkDedupCover(Number(id), imageId === null ? undefined : Number(imageId))
     return cover
       ? new Response(cover.body, {
           headers: { ...privateHeaders, 'Content-Type': cover.contentType, 'Content-Length': String(cover.size) }

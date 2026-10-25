@@ -85,13 +85,13 @@ function callerFor(userId: string) {
 async function claim(jobId: string) {
   clock.advance(Math.max(0, Date.now() + 1000 - clock.now().getTime()))
   const job = await repository!.claim('dedup-b2-app', [
-    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [3] }
+    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [4] }
   ])
   expect(job?.id).toBe(jobId)
   return job!
 }
 describe.skipIf(!db)('direct-delete App transaction and projection', () => {
-  it('projects containment through the existing router and freezes v3/protocol2 before deleting only the subset', async () => {
+  it('projects containment through the existing router and freezes v4/protocol2 before deleting only the subset', async () => {
     const f = await fixture(2, 'LOCAL_DIRECTORY', { purpose: 'DIRECT_DELETE', beforeScan: async (ids) => {
       const image = await db!.image.findFirstOrThrow({ where: { artworkId: ids[1] } })
       const extra = `${path.posix.dirname(image.path)}/extra.bin`
@@ -114,7 +114,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
     expect(next.items).toHaveLength(1)
     await expect(caller.saveReview({ expectedUserId: original.requestedBy, runId: original.runId, groupId: result.groupId, keeperArtworkId: f.ids[0]!, expectedRunVersion: page.runVersion, expectedReviewVersion: 0, idempotencyKey: randomUUID() })).rejects.toThrow()
     const workerId = `containment-app-${randomUUID()}`
-    await db!.workerInstance.create({ data: { workerId, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [3] }] } })
+    await db!.workerInstance.create({ data: { workerId, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [4] }] } })
     try {
       const building = await caller.prepareCleanup({ expectedUserId: original.requestedBy, purpose: 'DIRECT_DELETE', protocolVersion: 1, runId: original.runId, expectedRunVersion: page.runVersion, expectedReviewRevision: 0, selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] }, idempotencyKey: randomUUID() })
       trackMaintenanceJob(building.jobId!)
@@ -146,7 +146,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         hostname: 'fixture',
         processId: process.pid,
         serviceVersion: 'fixture',
-        capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [3] }]
+        capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [4] }]
       }
     })
     try {
@@ -229,7 +229,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         processId: process.pid,
         serviceVersion: 'fixture',
         capabilities: [
-          { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [3] }
+          { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [4] }
         ]
       }
     })
@@ -342,7 +342,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         where: { workerId },
         data: {
           capabilities: [
-            { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3] }
+            { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4] }
           ]
         }
       })
@@ -358,7 +358,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
       expect(frozen).toHaveLength(2)
       expect(frozen.every((group) => group.groupId !== excluded)).toBe(true)
       expect(await db!.systemJob.findUnique({ where: { id: building.jobId! } })).toMatchObject({
-        definitionVersion: 3,
+        definitionVersion: 4,
         payload: { purpose: 'DIRECT_DELETE', protocolVersion: 1 }
       })
       expect(

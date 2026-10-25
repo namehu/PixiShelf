@@ -51,7 +51,8 @@ export async function readMediaContentFile(input: {
   relativePath: string
   signal: AbortSignal
   onProgress?: (bytesRead: bigint) => void | Promise<void>
-}): Promise<ContentFileInspection & { sha256: string; hashedAt: Date; bytesRead: bigint }> {
+  captureBytesLimit?: number
+}): Promise<ContentFileInspection & { sha256: string; hashedAt: Date; bytesRead: bigint; content?: Buffer }> {
   const inspected = await inspectMediaContentFile(input)
   throwIfAborted(input.signal)
   const handle = await fs.open(inspected.absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
@@ -62,6 +63,9 @@ export async function readMediaContentFile(input: {
     if (before.size > BigInt(Number.MAX_SAFE_INTEGER)) {
       throw new MediaContentFileError('INVALID_FILE', 'Media content exceeds the supported read offset')
     }
+    if (input.captureBytesLimit !== undefined && before.size > BigInt(input.captureBytesLimit))
+      throw new MediaContentFileError('INVALID_FILE', 'Visual input limit')
+    const content = input.captureBytesLimit === undefined ? undefined : Buffer.alloc(Number(before.size))
     const hash = createHash('sha256')
     const buffer = Buffer.allocUnsafe(64 * 1024)
     let offset = 0
@@ -72,6 +76,7 @@ export async function readMediaContentFile(input: {
       const { bytesRead } = await handle.read(buffer, 0, length, offset)
       if (bytesRead === 0) throw changed()
       hash.update(buffer.subarray(0, bytesRead))
+      content?.set(buffer.subarray(0, bytesRead), offset)
       offset += bytesRead
       await input.onProgress?.(BigInt(offset))
     }
@@ -92,7 +97,8 @@ export async function readMediaContentFile(input: {
       state: stateOf(after),
       sha256: hash.digest('hex'),
       hashedAt: new Date(),
-      bytesRead: BigInt(offset)
+      bytesRead: BigInt(offset),
+      ...(content ? { content } : {})
     }
   } finally {
     await handle.close()

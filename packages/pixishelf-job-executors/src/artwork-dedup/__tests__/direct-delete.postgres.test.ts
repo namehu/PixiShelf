@@ -1,3 +1,4 @@
+import sharp from 'sharp'
 import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
@@ -38,9 +39,10 @@ import {
 } from './maintenance-executor-fixture.ts'
 
 type Kind = 'MANUAL_CREATE' | 'LOCAL_DIRECTORY' | 'PIXIV_SCAN' | 'URL_ARCHIVE'
-async function prepared(kinds: Kind[] = ['LOCAL_DIRECTORY', 'LOCAL_DIRECTORY'], count = 1, groups = 1, beforeScan?: (ids: number[]) => Promise<void>) {
+async function prepared(kinds: Kind[] = ['LOCAL_DIRECTORY', 'LOCAL_DIRECTORY'], count = 1, groups = 1, beforeScan?: (ids: number[]) => Promise<void>, visualKeeperIndex?: number) {
   const f = await fixture(count, kinds[0], {
     purpose: 'DIRECT_DELETE',
+    ...(visualKeeperIndex !== undefined ? { visualKeeperIndex } : {}),
     kinds,
     groups,
     archiveBytes: kinds.includes('URL_ARCHIVE'),
@@ -77,7 +79,8 @@ const command = (op: Op) => ({
 const confirmation = (op: Op) => ({
   ...command(op),
   purpose: 'DIRECT_DELETE' as const,
-  protocolVersion: op.protocolVersion as 1 | 2,
+  protocolVersion: op.protocolVersion as 1 | 2 | 3,
+  ...(op.protocolVersion === 3 ? { differentContentLossConfirmed: true as const } : {}),
   scopeDigest: op.scopeDigest!,
   externalWritesStopped: true as const,
   permanentDeleteConfirmed: true as const,
@@ -92,6 +95,7 @@ async function start(op: Op, retry = false) {
       const job = await tx.systemJob.create({
         data: {
           type: 'ARTWORK_DEDUP_MAINTENANCE',
+          definitionVersion: op.protocolVersion === 3 ? 4 : 1,
           executionLane: 'BACKGROUND_WRITER',
           triggerSource: 'SYSTEM',
           queuePriority: 900,
@@ -106,7 +110,7 @@ async function start(op: Op, retry = false) {
     { timeout: 20000 }
   )
   const job = await repository!.claim('direct-delete-fixture', [
-    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 4] }
   ])
   expect(job).not.toBeNull()
   return job!
@@ -126,7 +130,7 @@ async function bind(op: Op) {
   trackMaintenanceJob(job.id)
   await db!.artworkDedupOperation.update({ where: { id: op.id }, data: { jobId: job.id } })
   const claimed = await repository!.claim('bound-command', [
-    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 4] }
   ])
   expect(claimed?.id).toBe(job.id)
   return claimed!
@@ -171,6 +175,30 @@ describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
       expect(await db!.image.count({ where: { artworkId: large.artworkId } })).toBe(2)
       for (const file of keepFiles) expect((await fs.stat(path.join(root, file.canonicalPath))).isFile()).toBe(true)
     }, 30_000)
+  it.each([0, 1])('visual single pair deletes the explicitly discarded side with keeper index %i', async (keeperIndex) => {
+    const op = await prepared(['MANUAL_CREATE', 'MANUAL_CREATE'], 1, 1, async ids => {
+      const images = await db!.image.findMany({ where: { artworkId: { in: ids } }, orderBy: { artworkId: 'asc' } })
+      const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71) % 255))
+      const image = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
+      await fs.writeFile(path.join(root, images[0]!.path), image)
+      await fs.writeFile(path.join(root, images[1]!.path), await sharp(image).extend({ top: 20, bottom: 20, left: 20, right: 20, background: 'white' }).png().toBuffer())
+    }, keeperIndex)
+    expect(op.protocolVersion).toBe(3)
+    const group = await db!.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: op.id } })
+    expect(group).toMatchObject({ relationKind: 'VISUAL', selectionBasis: 'SAVED' })
+    const { differentContentLossConfirmed: _loss, ...missingLoss } = confirmation(op)
+    await expect(db!.$transaction(tx => authorizeArtworkDedupDirectDelete(tx, missingLoss))).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' })
+    await expect(db!.$transaction(tx => authorizeArtworkDedupDirectDelete(tx, { ...confirmation(op), protocolVersion: 2 }))).rejects.toMatchObject({ code: 'CONFIRMATION_REQUIRED' })
+    const files = await db!.artworkDedupOperationFile.findMany({ where: { operationId: op.id, role: 'MEDIA' }, include: { artwork: true } })
+    expect(new Set(files.map(f => f.sha256)).size).toBe(2)
+    const job = await start(op)
+    await executeArtworkDedupDirectDelete(executionContext<ArtworkDedupMaintenancePayload>(job), deps())
+    expect(await current(op)).toMatchObject({ status: 'DELETED', deletedFiles: 1n, errorCode: null })
+    for (const file of files) {
+      if (file.artwork.role === 'KEEPER') expect((await fs.stat(path.join(root, file.canonicalPath))).isFile()).toBe(true)
+      else await expect(fs.stat(path.join(root, file.canonicalPath))).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  }, 30_000)
   it('includes every physical animation/video original in containment deletion', async () => {
     const op = await prepared(['MANUAL_CREATE', 'MANUAL_CREATE'], 3, 1, async (ids) => {
       await animationOriginals(ids)
@@ -275,7 +303,7 @@ describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
       await tx.artworkDedupRun.update({ where: { id: run.id }, data: { jobId: created.id } })
       return created
     })
-    const claimed = await repository!.claim('animation-count', [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }])
+    const claimed = await repository!.claim('animation-count', [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 4] }])
     expect(claimed?.id).toBe(job.id)
     await executeArtworkDedup(executionContext<ArtworkDedupScanPayload>(claimed!), deps())
     const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { jobId: job.id } })
@@ -338,7 +366,7 @@ describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
     trackMaintenanceJob(job.id)
     await db!.artworkDedupOperation.update({ where: { id: op.id }, data: { jobId: job.id } })
     const claimed = await repository!.claim('stop-fixture', [
-      { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+      { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 4] }
     ])
     await db!.$transaction((tx) => requestArtworkDedupDirectDeleteStop(tx, command(active)))
     await executeArtworkDedupDirectDelete(executionContext<ArtworkDedupMaintenancePayload>(claimed!), deps())
@@ -494,7 +522,7 @@ describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
     expect(await db!.artworkDedupFileReceipt.count({ where: { operationId: op.id } })).toBe(0)
     clock.advance(3001)
     const continuation = await repository!.claim('drain-continuation', [
-      { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+      { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 4] }
     ])
     expect(continuation?.id).toBe(job.id)
     await executeArtworkDedupDirectDelete(executionContext<ArtworkDedupMaintenancePayload>(continuation!), deps())
@@ -522,7 +550,7 @@ describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
       expect((await db!.systemJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('RETRY_WAIT')
       clock.advance(3001)
       job = (await repository!.claim('slice-continuation', [
-        { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
+        { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 4] }
       ]))!
     }
     expect(sawFreshCursor).toBe(true)

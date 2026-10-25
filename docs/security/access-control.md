@@ -111,6 +111,8 @@ ImgProxy 仅允许 `local:///media/` 和 `local:///derived-media/`，Compose 没
 
 ## 隐私与浏览器媒体
 
+去重对照复用 `/api/artwork-dedup/cover/[artwork-id]`，可选 `imageId` 必须为正整数并真实属于该作品；不带此参数仍按封面行为。Session、`expectedUserId`、作品可见性与媒体根/路径校验不变，响应继续 `private, no-store`、`no-referrer`。对照接口只提供受保护同源媒体引用与序号；相似关系不是访问或删除授权。疑似版本单对删除还必须绑定人工保留选择、协议 3 内容损失声明及双方冻结快照，不能复用旧确认或进入批量推荐。
+
 2026-10-24 局部核验：艺术家管理与关键词来源表单提供浏览器直达的 E-Hentai 标题搜索外链。目的地址固定为 `https://e-hentai.org/`，仅将共享查询契约构造的标题／上传者表达式编码到 `f_search`，不接受任意主机或目的 URL，不附加站内凭据或画廊 token。链接在新标签页打开，使用 `noopener noreferrer` 和 `no-referrer`；服务端不代理该搜索，也不放开任何公共路由。此搜索导航与上文数据库保存的画廊 locator 跳转是不同入口。
 
 新增 `archiveSearch.appendDefaultCreators` 继续使用管理 procedure 和服务端事务校验；只能向仍存在且规则版本一致的标题来源追加有效艺术家／社团，不接受客户端提供的完整旧绑定集合或操作者身份。既有绑定与停用状态保留，详情见[来源发现](../features/archive-discovery.md#从艺术家管理查找和关联来源)。

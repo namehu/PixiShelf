@@ -309,7 +309,7 @@ export async function claimArtworkDedupScope(
   if (op.version !== input.expectedVersion) throw new ArtworkDedupOperationError('STALE')
   if (
     !((op.mode === 'ISOLATE' && op.status === 'ISOLATING') ||
-      (op.mode === 'DIRECT_DELETE' && op.status === 'DRAINING' && [1, 2].includes(op.protocolVersion ?? 0) && op.scopeDigest && op.directDeleteConfirmedAt)) ||
+      (op.mode === 'DIRECT_DELETE' && op.status === 'DRAINING' && [1, 2, 3].includes(op.protocolVersion ?? 0) && op.scopeDigest && op.directDeleteConfirmedAt)) ||
     !op.validatedAt ||
     (op.mode === 'ISOLATE' && (!op.backupCheckpointRef || !op.backupConfirmedAt)) ||
     !op.externalWritesStoppedAt ||

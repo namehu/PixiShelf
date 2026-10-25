@@ -1,3 +1,4 @@
+import sharp from 'sharp'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -25,7 +26,7 @@ import {
 } from '@pixishelf/job-runtime'
 import type { ArtworkDedupScanPayload } from '@pixishelf/job-contracts'
 import { executeArtworkDedup, type ArtworkDedupDependencies } from '../executor.ts'
-import { DedupReaderSupervisor } from '../reader.ts'
+import { DedupReaderSupervisor, DedupReaderError } from '../reader.ts'
 
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
 const db = url ? new PrismaClient({ datasourceUrl: url }) : null
@@ -33,7 +34,7 @@ const suite = url ? describe.sequential : describe.skip
 const prefix = `dedup-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-10-23T00:00:00Z'))
 const capabilities = [
-  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1] }
+  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3] }
 ]
 const repository = db
   ? new PostgresQueueRepository(db as unknown as QueueDatabase, { clock, transactionTimeoutMs: 20_000 })
@@ -104,6 +105,53 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
+  it('persists visual features, reuses hot cache without content reads, and invalidates changed originals', async () => {
+    const artistId = await fixture([[1], [2]])
+    const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+    const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71) % 255))
+    const original = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
+    const changed = await sharp(original).extend({ top: 20, bottom: 20, left: 20, right: 20, background: 'white' }).png().toBuffer()
+    await fs.writeFile(path.join(root, images[0]!.path), original)
+    await fs.writeFile(path.join(root, images[1]!.path), changed)
+    const cold = await start(artistId, 'INCREMENTAL', true)
+    await finish(cold.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: cold.runId } })).toMatchObject({ visualStatus: 'COMPLETE', groupCount: 1 })
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: cold.runId } })).toBe(1)
+    expect(await db!.mediaVisualFingerprint.count({ where: { imageId: { in: images.map(i => i.id) } } })).toBe(2)
+    const hot = await start(artistId, 'INCREMENTAL', true)
+    await finish(hot.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({ visualStatus: 'COMPLETE', readBytes: 0n, hashedMedia: 0, groupCount: 1 })
+    const full = await start(artistId, 'FULL', true)
+    await finish(full.jobId)
+    expect((await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: full.runId } })).readBytes).toBeGreaterThan(0n)
+    const previous = await db!.mediaVisualFingerprint.findUniqueOrThrow({ where: { imageId: images[1]!.id } })
+    await fs.writeFile(path.join(root, images[1]!.path), await sharp({ create: { width: 192, height: 192, channels: 3, background: 'white' } }).png().toBuffer())
+    const invalidated = await start(artistId, 'INCREMENTAL', true)
+    await finish(invalidated.jobId)
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: invalidated.runId } })).toBe(0)
+    expect((await db!.mediaVisualFingerprint.findUniqueOrThrow({ where: { imageId: images[1]!.id } })).identity).not.toBe(previous.identity)
+    await db!.image.update({ where: { id: images[0]!.id }, data: { mediaType: 'ANIMATION' } })
+    const mixed = await start(artistId, 'INCREMENTAL', true)
+    await finish(mixed.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: mixed.runId } })).toMatchObject({ visualStatus: 'INCOMPLETE', visualIncompleteReasons: ['UNSUPPORTED_MEDIA'] })
+  }, 60_000)
+  it('keeps exact results after a visual deadline and confirms roots with a new reader before completion', async () => {
+    const artistId = await fixture([[4], [4]])
+    const run = await start(artistId, 'INCREMENTAL', true)
+    const supervisor = new DedupReaderSupervisor(readerOptions)
+    const create = supervisor.create.bind(supervisor)
+    supervisor.create = () => {
+      const reader = create()
+      reader.visual = async () => { const error = new DedupReaderError('VISUAL_TIMEOUT'); await reader.close(error); throw error }
+      return reader
+    }
+    await executeArtworkDedup(context(await claim(run.jobId)), dependencies({ supervisor }))
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ status: 'RETRY_WAIT', visualStatus: 'INCOMPLETE', visualIncompleteReasons: ['VISUAL_TIME_BUDGET'], readerState: 'IDLE', readerToken: null })
+    expect(await db!.artworkDedupGroup.count({ where: { runId: run.runId } })).toBe(1)
+    clock.advance(3001)
+    await finish(run.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ status: 'COMPLETED', groupCount: 1, visualStatus: 'INCOMPLETE' })
+  }, 30_000)
   it('finds 80/100 containment despite order and names, excludes partial overlap and preserves multiplicity', async () => {
     const eighty = Array.from({ length: 80 }, (_, i) => i + 1)
     const hundred = [...eighty, ...Array.from({ length: 20 }, (_, i) => i + 101)]
@@ -792,20 +840,20 @@ async function fixture(
   }
   return artist.id
 }
-async function start(artistId: number, mode: 'INCREMENTAL' | 'FULL' = 'INCREMENTAL') {
+async function start(artistId: number, mode: 'INCREMENTAL' | 'FULL' = 'INCREMENTAL', includeSuspectedVersions = false) {
   const value = await db!.$transaction(async (tx) => {
     const { run } = await freezeArtworkDedupRun(tx, {
       artistId,
       requestedBy: prefix,
       idempotencyKey: randomUUID(),
-      mode
+      mode, includeSuspectedVersions
     })
     const job = await tx.systemJob.create({
       data: {
         id: `${prefix}-${jobs.length}`,
         type: 'ARTWORK_DEDUP_SCAN',
         executionLane: 'BACKGROUND_WRITER',
-        definitionVersion: 1,
+        definitionVersion: includeSuspectedVersions ? 3 : 1,
         status: 'PENDING',
         triggerSource: 'SYSTEM',
         queuePriority: 900,

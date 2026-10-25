@@ -37,11 +37,12 @@ export async function assertArtworkDedupOperationExecution(
     throw new ArtworkDedupOperationError('STALE_EXECUTION')
   const job = await tx.systemJob.findUnique({
     where: { id: execution.jobId },
-    select: { type: true, status: true, payload: true }
+    select: { type: true, status: true, payload: true, definitionVersion: true }
   })
   const payload = job?.payload as Record<string, unknown> | undefined
   if (
     job?.type !== 'ARTWORK_DEDUP_MAINTENANCE' ||
+    (op.protocolVersion === 3 && job.definitionVersion !== 4) ||
     !(options.allowControl ? ['RUNNING', 'PAUSING', 'CANCELLING'] : ['RUNNING']).includes(job.status) ||
     payload?.operationId !== op.id ||
     payload?.executionVersion !== op.executionVersion ||
@@ -420,7 +421,7 @@ export async function beginArtworkDedupFileStep(
   const op = await assertArtworkDedupOperationExecution(tx, input.execution)
   const mode = { MOVE: 'ISOLATE', RESTORE: 'RESTORE', DELETE: 'PURGE' }[input.step]
   const direct = input.step === 'DELETE' && op.mode === 'DIRECT_DELETE'
-  if (direct && (op.preparePurpose !== 'DIRECT_DELETE' || ![1, 2].includes(op.protocolVersion ?? 0) || !op.directDeleteConfirmedAt || !op.authorizationDigest || op.status !== 'DELETING' || op.freshVerifiedExecutionVersion !== op.executionVersion)) throw new ArtworkDedupOperationError('DIRECT_DELETE_NOT_AUTHORIZED')
+  if (direct && (op.preparePurpose !== 'DIRECT_DELETE' || ![1, 2, 3].includes(op.protocolVersion ?? 0) || !op.directDeleteConfirmedAt || !op.authorizationDigest || op.status !== 'DELETING' || op.freshVerifiedExecutionVersion !== op.executionVersion)) throw new ArtworkDedupOperationError('DIRECT_DELETE_NOT_AUTHORIZED')
   if (op.mode !== mode && !direct) throw new ArtworkDedupOperationError('INVALID_STATE')
   const file = await tx.artworkDedupOperationFile.findUnique({ where: { fileId: input.fileId } })
   if (!file || file.operationId !== op.id || file.version !== input.expectedFileVersion)

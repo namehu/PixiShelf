@@ -43,7 +43,7 @@ export async function assertArtworkDedupExecution(
 }
 export async function freezeArtworkDedupRun(
   tx: Prisma.TransactionClient,
-  input: { artistId: number; requestedBy: string; idempotencyKey: string; mode: 'INCREMENTAL' | 'FULL' }
+  input: { artistId: number; requestedBy: string; idempotencyKey: string; mode: 'INCREMENTAL' | 'FULL'; includeSuspectedVersions?: boolean }
 ) {
   // One statement snapshot freezes IDs; catalog changes cannot expand an existing run.
   await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(80432029,${input.artistId}::integer)::text`)
@@ -51,7 +51,7 @@ export async function freezeArtworkDedupRun(
     where: { requestedBy_idempotencyKey: { requestedBy: input.requestedBy, idempotencyKey: input.idempotencyKey } }
   })
   if (existing) {
-    if (existing.artistId !== input.artistId || existing.mode !== input.mode) throw new ArtworkDedupConflictError()
+    if (existing.artistId !== input.artistId || existing.mode !== input.mode || existing.includeSuspectedVersions !== (input.includeSuspectedVersions ?? false)) throw new ArtworkDedupConflictError()
     return { run: existing, created: false }
   }
   if (!(await tx.artist.findFirst({ where: { id: input.artistId, mergedIntoId: null }, select: { id: true } }))) {
@@ -65,7 +65,7 @@ export async function freezeArtworkDedupRun(
   ) {
     throw new ArtworkDedupConflictError()
   }
-  const run = await tx.artworkDedupRun.create({ data: { id: randomUUID(), ...input } })
+  const run = await tx.artworkDedupRun.create({ data: { id: randomUUID(), ...input, visualStatus: input.includeSuspectedVersions ? 'PENDING' : 'NOT_REQUESTED' } })
   const count = await tx.$executeRaw(Prisma.sql`
     INSERT INTO "ArtworkDedupItem" ("runId","artworkId","frozenMediaRevision",status,"afterImageId","updatedAt")
     SELECT ${run.id},a.id,a."mediaRevision",'PENDING',0,CURRENT_TIMESTAMP FROM "Artwork" a
@@ -134,7 +134,7 @@ export async function saveArtworkDedupItem(
     data: input.data
   })
 }
-export type ArtworkDedupMediaEntry = Omit<Prisma.ArtworkDedupMediaCreateManyInput, 'runId' | 'artworkId'>
+export type ArtworkDedupMediaEntry = Omit<Prisma.ArtworkDedupMediaCreateManyInput, 'runId' | 'artworkId' | 'visualViews'>
 export async function saveArtworkDedupMediaPage(
   tx: Prisma.TransactionClient,
   input: { execution: ArtworkDedupExecution; artworkId: number; entries: ArtworkDedupMediaEntry[] }
@@ -308,6 +308,8 @@ export async function buildArtworkDedupGroups(
     INSERT INTO "ArtworkDedupGroupMember" ("runId","groupId","artworkId")
       SELECT ${run.id},md5(${run.id} || ':' || representative::text),"artworkId" FROM partitioned WHERE n>1
   `)
+  await tx.$executeRaw(Prisma.sql`DELETE FROM "ArtworkDedupVisualPair" r WHERE r."runId"=${run.id} AND
+    EXISTS(SELECT 1 FROM "ArtworkDedupItem" i WHERE i."runId"=r."runId" AND i."artworkId" IN(r."leftArtworkId",r."rightArtworkId") AND i.status<>'COMPLETE')`)
   await tx.$executeRaw(Prisma.sql`DELETE FROM "ArtworkDedupRelation" r WHERE r."runId"=${run.id} AND
     EXISTS(SELECT 1 FROM "ArtworkDedupItem" i WHERE i."runId"=r."runId" AND i."artworkId" IN(r."containedArtworkId",r."containerArtworkId") AND i.status<>'COMPLETE')`)
   await tx.$executeRaw(Prisma.sql`

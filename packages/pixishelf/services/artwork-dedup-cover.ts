@@ -51,7 +51,7 @@ export async function artworkDedupCoverUrls(
   )
 }
 /** Reads one registered visible cover; paths remain server-side and existing posters are reused. */
-export async function openArtworkDedupCover(artworkId: number) {
+export async function openArtworkDedupCover(artworkId: number, imageId?: number) {
   const artwork = await prisma.artwork.findUnique({
     where: { id: artworkId },
     select: {
@@ -59,6 +59,7 @@ export async function openArtworkDedupCover(artworkId: number) {
       archiveLifecycleState: true,
       createdVia: true,
       images: {
+        ...(imageId === undefined ? {} : { where: { id: imageId } }),
         orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
         take: 1,
         select: { path: true, mediaType: true, videoMetadata: { select: VIDEO_POSTER_METADATA_SELECT } }
@@ -66,8 +67,9 @@ export async function openArtworkDedupCover(artworkId: number) {
     }
   })
   if (!artwork || artwork.deletedAt || artwork.archiveLifecycleState !== 'ACTIVE') return null
-  if ((await prisma.artworkDedupClaim.findUnique({ where: { artworkId }, select: { role: true } }))?.role === 'COPY')
-    {return null}
+  if ((await prisma.artworkDedupClaim.findUnique({ where: { artworkId }, select: { role: true } }))?.role === 'COPY') {
+    return null
+  }
   const media = artwork.images[0]
   if (!media) return null
   const video = isVideoCoverSource(media)

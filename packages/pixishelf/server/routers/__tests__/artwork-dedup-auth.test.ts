@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const mocks = vi.hoisted(() => ({ start: vi.fn(), getRun: vi.fn(), control: vi.fn(), listGroups: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  start: vi.fn(),
+  getRun: vi.fn(),
+  control: vi.fn(),
+  listGroups: vi.fn(),
+  listComparisons: vi.fn()
+}))
 vi.mock('@/lib/rate-limit', () => ({ rateLimiter: { check: vi.fn(() => true) } }))
 vi.mock('@/services/artwork-dedup-service', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/services/artwork-dedup-service')>()
@@ -22,10 +28,17 @@ vi.mock('@/services/artwork-dedup-service', async (importOriginal) => {
 vi.mock('@/services/artwork-dedup-review-service', async (importOriginal) => {
   const original = await importOriginal<typeof import('@/services/artwork-dedup-review-service')>()
   const { assertArtworkDedupAccount } = await import('@/services/artwork-dedup-service')
-  return { ...original, listArtworkDedupReviewGroups: (...args: Parameters<typeof original.listArtworkDedupReviewGroups>) => {
-    assertArtworkDedupAccount(args[0], args[1].expectedUserId)
-    return mocks.listGroups(...args)
-  } }
+  return {
+    ...original,
+    listArtworkDedupReviewGroups: (...args: Parameters<typeof original.listArtworkDedupReviewGroups>) => {
+      assertArtworkDedupAccount(args[0], args[1].expectedUserId)
+      return mocks.listGroups(...args)
+    },
+    listArtworkDedupComparisons: (...args: Parameters<typeof original.listArtworkDedupComparisons>) => {
+      assertArtworkDedupAccount(args[0], args[1].expectedUserId)
+      return mocks.listComparisons(...args)
+    }
+  }
 })
 import { artworkDedupRouter } from '../artwork-dedup'
 const authorized = {
@@ -40,7 +53,8 @@ const calls = (caller: ReturnType<typeof artworkDedupRouter.createCaller>, expec
   () => caller.getRun({ runId: 'run', expectedUserId }),
   () =>
     caller.control({ runId: 'run', expectedUserId, expectedVersion: 1, idempotencyKey: 'control', action: 'pause' }),
-  () => caller.listGroups({ runId: 'run', expectedUserId })
+  () => caller.listGroups({ runId: 'run', expectedUserId }),
+  () => caller.listComparisons({ runId: 'run', groupId: 'visual-pair', expectedUserId })
 ]
 describe('artwork detection authorization', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -63,7 +77,8 @@ describe('artwork detection authorization', () => {
       artistId: 1,
       expectedUserId: 'owner',
       idempotencyKey: 'start',
-      mode: 'INCREMENTAL'
+      mode: 'INCREMENTAL',
+      includeSuspectedVersions: false
     })
     await expect(
       caller.start({ artistId: 1, expectedUserId: 'owner', idempotencyKey: 'other', paths: ['private'] } as never)
@@ -71,6 +86,8 @@ describe('artwork detection authorization', () => {
     await expect(caller.listGroups({ runId: 'run', expectedUserId: 'owner', limit: 101 })).rejects.toMatchObject({
       code: 'BAD_REQUEST'
     })
-    await expect(caller.listGroups({ runId: 'run', expectedUserId: 'owner', userId: 'forged' } as never)).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(
+      caller.listGroups({ runId: 'run', expectedUserId: 'owner', userId: 'forged' } as never)
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 })

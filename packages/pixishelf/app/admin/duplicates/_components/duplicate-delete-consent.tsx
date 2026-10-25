@@ -7,12 +7,14 @@ import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/componen
 
 export function DuplicateDeleteConsent({
   copyCount,
+  differentContent = false,
   busy,
   disabled,
   secondaryAction,
   onConfirm
 }: {
   copyCount: number
+  differentContent?: boolean
   busy: boolean
   disabled: boolean
   secondaryAction?: ReactNode
@@ -21,6 +23,7 @@ export function DuplicateDeleteConsent({
   const id = useId()
   const [consequences, setConsequences] = useState(false)
   const [writesStopped, setWritesStopped] = useState(false)
+  const [differentContentLoss, setDifferentContentLoss] = useState(false)
   return (
     <div className="flex flex-col gap-3">
       <FieldSet className="gap-2" disabled={busy || disabled}>
@@ -48,6 +51,21 @@ export function DuplicateDeleteConsent({
               已暂停这些文件的同步和编辑，处理结束前不再修改
             </FieldLabel>
           </Field>
+          {differentContent ? (
+            <Field orientation="horizontal" data-disabled={busy || disabled}>
+              <Checkbox
+                id={`${id}-different-content`}
+                checked={differentContentLoss}
+                onCheckedChange={(value) => setDifferentContentLoss(value === true)}
+              />
+              <FieldLabel
+                htmlFor={`${id}-different-content`}
+                className="min-h-11 flex-1 py-2 text-sm leading-5 font-normal"
+              >
+                两个版本内容不同，我确认删除方的未配对图片和整理记录也会删除
+              </FieldLabel>
+            </Field>
+          ) : null}
         </FieldGroup>
       </FieldSet>
       <div className="flex flex-wrap items-center justify-end gap-2">
@@ -55,7 +73,7 @@ export function DuplicateDeleteConsent({
         <Button
           variant="destructive"
           className="min-h-11 flex-1 sm:flex-none"
-          disabled={busy || disabled || !consequences || !writesStopped}
+          disabled={busy || disabled || !consequences || !writesStopped || (differentContent && !differentContentLoss)}
           onClick={() => onConfirm()}
         >
           {busy ? '正在提交删除' : `永久删除 ${copyCount} 部副本`}

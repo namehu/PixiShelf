@@ -1,3 +1,4 @@
+import { readVisualMedia } from './visual-reader.ts'
 import {
   inspectMaintenanceSource,
   MaintenanceSourceError,
@@ -70,7 +71,7 @@ function validRequest(value: unknown): value is ReaderRequest {
             (field) => typeof (request.expectedState as unknown as Record<string, unknown>)[field] === 'bigint'
           )))
     )
-  return request.operation === 'inspect' || request.operation === 'read' || request.operation === 'maintenance-inspect'
+  return request.operation === 'visual' || request.operation === 'inspect' || request.operation === 'read' || request.operation === 'maintenance-inspect'
 }
 process.on('disconnect', () => process.exit(0))
 function acceptMessage(message: unknown) {
@@ -112,7 +113,7 @@ function acceptMessage(message: unknown) {
         send({ type: 'progress', id: request.id, bytesRead, rss: process.memoryUsage().rss })
       }
       const value =
-        request.operation === 'direct-delete' ? await deleteMaintenanceFile({...request,signal}) : request.operation === 'roots'
+        request.operation === 'visual' ? await readVisualMedia({ ...request, signal, onProgress }) : request.operation === 'direct-delete' ? await deleteMaintenanceFile({...request,signal}) : request.operation === 'roots'
           ? await resolveMediaContentRoots(request)
           : request.operation === 'maintenance-source'
             ? await inspectMaintenanceSource({ ...request, signal, onProgress })

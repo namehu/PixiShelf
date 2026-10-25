@@ -301,7 +301,8 @@ export async function hashArtwork(context: DedupPipelineContext, item: ArtworkDe
     let hits = 0
     let bytes = 0n
     let inspected = 0
-    for (const { row, member } of page) {
+    for (const { row: persistedRow, member } of page) {
+      const { visualViews: _visualViews, ...row } = persistedRow
       if (
         member.imageId !== row.imageId ||
         member.sourcePath !== row.sourcePath ||

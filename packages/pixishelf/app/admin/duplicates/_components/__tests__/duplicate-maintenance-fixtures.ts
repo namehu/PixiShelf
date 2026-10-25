@@ -2,6 +2,7 @@ import type { ArtworkDedupGroupDto, ArtworkDedupMemberDto, ArtworkDedupOperation
 
 export const exactRelation = {
   relationKind: 'EXACT' as const,
+  visual: null,
   containedArtworkId: null,
   containerArtworkId: null,
   containedFileCount: null,
@@ -11,6 +12,7 @@ export const exactRelation = {
 
 export const containmentRelation = {
   relationKind: 'CONTAINS' as const,
+  visual: null,
   containedArtworkId: 1,
   containerArtworkId: 2,
   containedFileCount: '80',
@@ -106,4 +108,32 @@ export function operation(overrides: Partial<ArtworkDedupOperationDto> = {}): Ar
     failure: null,
     ...overrides
   }
+}
+
+export const visualSummary = {
+  evidenceVersion: 'visual-v1',
+  leftArtworkId: 1,
+  rightArtworkId: 2,
+  leftFileCount: '10',
+  rightFileCount: '12',
+  pairedCount: '9',
+  exactCount: '1',
+  similarCount: '8',
+  leftUnmatchedCount: '1',
+  rightUnmatchedCount: '3',
+  leftUncheckedCount: '0',
+  rightUncheckedCount: '0'
+}
+export function visualGroup(overrides: Partial<ArtworkDedupGroupDto> = {}): ArtworkDedupGroupDto {
+  return group('visual-1', {
+    relationKind: 'VISUAL',
+    visual: visualSummary,
+    keeper: null,
+    recommendedKeeperArtworkId: null,
+    recommendationReason: 'NEEDS_CHOICE',
+    eligibility: 'NEEDS_CHOICE',
+    needsExplicitChoice: true,
+    reasons: ['EXPLICIT_CHOICE_REQUIRED'],
+    ...overrides
+  })
 }

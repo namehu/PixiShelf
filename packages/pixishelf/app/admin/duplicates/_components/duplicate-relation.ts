@@ -1,4 +1,4 @@
-import type { ArtworkDedupGroupDto } from '@pixishelf/job-contracts'
+import type { ArtworkDedupGroupDto, ArtworkDedupVisualSummary } from '@pixishelf/job-contracts'
 
 type Relation = Pick<
   ArtworkDedupGroupDto,
@@ -19,7 +19,7 @@ export function duplicateContainmentCounts(relation: Relation) {
 }
 
 export function canKeepDuplicateMember(relation: Relation, artworkId: number) {
-  return relation.relationKind === 'EXACT' || relation.containerArtworkId === artworkId
+  return relation.relationKind !== 'CONTAINS' || relation.containerArtworkId === artworkId
 }
 
 export function duplicateRelationMemberMetadata(relation: Relation, artworkId: number) {
@@ -31,4 +31,8 @@ export function duplicateRelationMemberMetadata(relation: Relation, artworkId: n
 
 export function duplicateKeeperRestriction(relation: Relation, artworkId: number) {
   return canKeepDuplicateMember(relation, artworkId) ? undefined : '已被完整包含，需保留完整作品。'
+}
+
+export function duplicateVisualCounts(visual: ArtworkDedupVisualSummary) {
+  return `已配对 ${count(visual.pairedCount)} 张 · 左侧未配对 ${count(visual.leftUnmatchedCount)} 张 · 右侧未配对 ${count(visual.rightUnmatchedCount)} 张`
 }

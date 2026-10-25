@@ -1,3 +1,4 @@
+import { scanVisualVersions } from './visual-pipeline.ts'
 import { randomUUID } from 'node:crypto'
 import {
   assertArtworkDedupExecution,
@@ -43,7 +44,7 @@ export interface ArtworkDedupDependencies {
   sliceBytes?: bigint
   onMeasurement?: (value: ReaderMetrics & { runId: string; elapsedMs: number; transactions: number }) => void
 }
-export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 = 1): ExecutorDefinition {
+export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 = 1): ExecutorDefinition {
   const supervisor = dependencies.supervisor ?? new DedupReaderSupervisor(dependencies.readerOptions)
   return {
     jobType: 'ARTWORK_DEDUP_SCAN',
@@ -207,6 +208,11 @@ export async function executeArtworkDedup(
       }
       if (stage === 'MATCH') {
         if (!(await transaction((tx) => buildArtworkDedupRelationsPage(tx, { execution })))) continue
+        stage = initial.includeSuspectedVersions ? 'VISUAL' : 'DONE'
+        await transaction(tx => updateArtworkDedupRun(tx, { execution, data: { stage } }))
+      }
+      if (stage === 'VISUAL') {
+        if (!(await scanVisualVersions(pipeline))) break
         stage = 'DONE'
       }
       if (stage === 'DONE') {
@@ -293,7 +299,17 @@ export async function executeArtworkDedup(
       await scope.release('检测等待 Worker 恢复')
       return
     }
+    if (failure instanceof DedupReaderError && failure.code === 'VISUAL_TIMEOUT') {
+      // This error is delivered only after confirmed child exit. Preserve original
+      // results, then yield: a new reader must revalidate root bindings before DONE.
+      await scope.transaction.artworkDedupVisualPair.deleteMany({ where: { runId: execution.runId } })
+      await scope.transaction.artworkDedupRun.update({ where: { id: run.id }, data: {
+        stage: 'DONE', visualStatus: 'INCOMPLETE', visualIncompleteReasons: [...new Set([...run.visualIncompleteReasons, 'VISUAL_TIME_BUDGET'])]
+      } })
+      failure = undefined
+    }
     if (failure) {
+      await scope.transaction.artworkDedupVisualPair.deleteMany({ where: { runId: execution.runId } })
       await scope.transaction.artworkDedupRelation.deleteMany({ where: { runId: execution.runId } })
       await scope.transaction.artworkDedupGroup.deleteMany({ where: { runId: execution.runId } })
       await updateArtworkDedupRun(scope.transaction, { execution, data: { groupCount: 0, duplicateArtworks: 0 } })

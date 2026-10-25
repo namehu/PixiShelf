@@ -3,6 +3,7 @@ import { authProcedure, router } from '@/server/trpc'
 import { startArtworkDedup, getArtworkDedupRun, controlArtworkDedup } from '@/services/artwork-dedup-service'
 import {
   listArtworkDedupReviewGroups,
+  listArtworkDedupComparisons,
   saveArtworkDedupReviewService,
   prepareArtworkDedupCleanup,
   getArtworkDedupOperation,
@@ -25,6 +26,9 @@ export const artworkDedupRouter = router({
   listGroups: authProcedure
     .input(schemas.artworkDedupReviewListGroupsInputSchema)
     .query(({ ctx, input }) => listArtworkDedupReviewGroups(ctx.userId, input)),
+  listComparisons: authProcedure
+    .input(schemas.artworkDedupListComparisonsInputSchema)
+    .query(({ ctx, input }) => listArtworkDedupComparisons(ctx.userId, input)),
   saveReview: authProcedure
     .input(schemas.artworkDedupSaveReviewInputSchema)
     .mutation(({ ctx, input }) => saveArtworkDedupReviewService(ctx.userId, input)),

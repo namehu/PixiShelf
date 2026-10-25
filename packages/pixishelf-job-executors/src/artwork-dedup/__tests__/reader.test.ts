@@ -95,7 +95,7 @@ describe('bounded isolated detection reader', () => {
       code: 'ROOT_CHANGED'
     })
   })
-  it.each(['inspect', 'read'] as const)(
+  it.each(['inspect', 'read', 'visual'] as const)(
     'kills stalled %s, waits for close, and never replaces an unclosed child',
     async (operation) => {
       vi.useFakeTimers()
@@ -116,7 +116,7 @@ describe('bounded isolated detection reader', () => {
       expect(spawn).toHaveBeenCalledTimes(1)
     }
   )
-  it.each(['inspect', 'read'] as const)(
+  it.each(['inspect', 'read', 'visual'] as const)(
     'terminates a real unresponsive %s child while the parent stays responsive',
     async (operation) => {
       const supervisor = new DedupReaderSupervisor({
@@ -142,6 +142,22 @@ describe('bounded isolated detection reader', () => {
       }
     }
   )
+  it('enforces the visual absolute deadline even while bytes keep advancing', async () => {
+    vi.useFakeTimers()
+    const child = fakeChild()
+    reader = new DedupReaderSupervisor({ ...options, spawnProcess: () => child as unknown as ChildProcess, stallMs: 30_000, closeMs: 20 }).create()
+    const pending = reader.visual({ root, relativePath: 'decoding', signal })
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'READER_CLOSE_FAILED' })
+    for (let i = 1; i <= 9; i++) {
+      await vi.advanceTimersByTimeAsync(1000)
+      child.emit('message', { type: 'progress', id: 1, bytesRead: BigInt(i), rss: 10 })
+    }
+    await vi.advanceTimersByTimeAsync(1001)
+    expect(child.kill).toHaveBeenCalledWith('SIGKILL')
+    await vi.advanceTimersByTimeAsync(21)
+    await rejected
+    child.emit('close', null, 'SIGKILL')
+  })
   it('aborts startup identity work and reports an unclosed child instead of hanging start forever', async () => {
     vi.useFakeTimers()
     const child = fakeChild()

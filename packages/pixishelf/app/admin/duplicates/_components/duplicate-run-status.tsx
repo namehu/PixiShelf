@@ -21,6 +21,7 @@ const stageLabels = {
   CANDIDATES: '正在比对作品',
   HASH: '正在比对文件内容',
   MATCH: '正在检查包含关系',
+  VISUAL: '正在检查疑似版本',
   GROUP: '正在整理结果',
   DONE: '检查完成'
 }
@@ -47,7 +48,10 @@ function runHeading(run: ArtworkDedupRunDto) {
       return '检查未执行'
     case 'COMPLETED':
       if (run.counts.artworks === 0) return '没有可检查的作品'
-      if (run.counts.failedArtworks + run.counts.changedArtworks + run.counts.skippedArtworks > 0) {
+      if (
+        run.counts.failedArtworks + run.counts.changedArtworks + run.counts.skippedArtworks > 0 ||
+        run.visualStatus === 'INCOMPLETE'
+      ) {
         return '检查完成，有未检查项'
       }
       return run.counts.groups > 0
@@ -75,7 +79,7 @@ function runDescription(run: ArtworkDedupRunDto) {
       return run.counts.artworks === 0
         ? '该艺术家当前没有可检查的作品。'
         : run.counts.groups > 0
-          ? '每组选一部保留，再勾选要处理的组。'
+          ? '核对作品差异后，选择需要处理的结果。'
           : '可以继续浏览，新增作品后再来检查。'
     case 'SKIPPED':
       return '本次检查没有执行。'
@@ -84,6 +88,31 @@ function runDescription(run: ArtworkDedupRunDto) {
   }
 }
 
+export function duplicateVisualIncompleteReason(reason: string) {
+  const labels: Record<string, string> = {
+    VISUAL_FILE_BUDGET: '超过本次 10,000 张静态图片上限',
+    VISUAL_ARTWORK_BUDGET: '部分作品超过 2,000 张图片上限',
+    VISUAL_INDEX_BUDGET: '达到本次检索索引上限',
+    VISUAL_POSTING_BUDGET: '达到本次检索上限',
+    VISUAL_CANDIDATE_BUDGET: '达到本次候选上限',
+    VISUAL_COMPARISON_BUDGET: '达到本次比较上限',
+    VISUAL_PAIR_BUDGET: '达到本次作品对上限',
+    INCOMPLETE_ORIGINALS: '部分作品原件未完成检查',
+    RUN_FILE_LIMIT: '超过本次 10,000 张静态图片上限',
+    ARTWORK_FILE_LIMIT: '部分作品超过 2,000 张图片上限',
+    UNSUPPORTED_MEDIA: '部分作品含动画、视频或不支持的图片',
+    INPUT_UNSUPPORTED: '部分作品含不支持的图片',
+    INPUT_LIMIT: '部分图片超过读取上限',
+    READ_FAILED: '部分图片无法读取',
+    FEATURE_FAILED: '部分图片未完成视觉检查',
+    INDEX_LIMIT: '达到本次检索上限',
+    QUERY_LIMIT: '达到本次检索上限',
+    CANDIDATE_LIMIT: '达到本次候选上限',
+    COMPARISON_LIMIT: '达到本次比较上限',
+    PAIR_LIMIT: '达到本次作品对上限'
+  }
+  return labels[reason] ?? '部分图片未完成检查'
+}
 const controlLabels = { pause: '暂停', resume: '继续检查', retry: '重试检查' } as const
 const controlIcons = { pause: Pause, resume: Play, retry: RotateCcw }
 
@@ -120,6 +149,18 @@ export function DuplicateRunStatus({
               {heading}
             </h2>
             <p className="mt-1 text-sm leading-5 text-muted-foreground">{runDescription(run)}</p>
+            {run.visualStatus === 'INCOMPLETE' ? (
+              <p className="mt-1 text-xs leading-5 text-warning">
+                疑似版本未全部检查：
+                {run.visualIncompleteReasons.map(duplicateVisualIncompleteReason).join('；') ||
+                  '部分图片不支持或达到本次检查上限'}
+                。精确和包含结果仍可核对。
+              </p>
+            ) : run.visualStatus === 'COMPLETE' ? (
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                疑似版本检查已完成，仍可能有遗漏，请逐张核对。
+              </p>
+            ) : null}
             {!run.includesContainment ? (
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 此记录只检查了完全相同的作品，重新检查可查完整包含

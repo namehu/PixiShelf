@@ -202,6 +202,19 @@ export function DuplicateOperationPreview({
                       <span className="block">{duplicateContainmentCounts(item)}</span>
                     </p>
                   ) : null}
+                  {item.relationKind === 'VISUAL' && item.visual && item.role === 'COPY' ? (
+                    <p className="pb-2 text-xs leading-5 text-muted-foreground">
+                      保留版本未配对{' '}
+                      {item.artworkId === item.visual.leftArtworkId
+                        ? item.visual.rightUnmatchedCount
+                        : item.visual.leftUnmatchedCount}{' '}
+                      张；删除版本未配对{' '}
+                      {item.artworkId === item.visual.leftArtworkId
+                        ? item.visual.leftUnmatchedCount
+                        : item.visual.rightUnmatchedCount}{' '}
+                      张，{item.status === 'DELETED' ? '已随该版本删除' : '将随该版本删除'}。
+                    </p>
+                  ) : null}
                   {item.reasons.length > 0 ? (
                     <p className="pb-2 pl-14 text-sm text-warning">
                       {item.reasons.map(duplicateBlockReason).join('；')}

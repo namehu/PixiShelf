@@ -1,7 +1,8 @@
 import type { ArtworkDedupRunDto } from '@pixishelf/job-contracts'
 import { ScanSearch, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { FieldDescription, FieldLegend, FieldSet } from '@/components/ui/field'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldDescription, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -9,12 +10,16 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 export function DuplicateCheckStart({
   mode,
   onModeChange,
+  includeSuspectedVersions = false,
+  onIncludeSuspectedVersionsChange,
   onStart,
   pending,
   disabled,
   repeat = false
 }: {
   mode: ArtworkDedupRunDto['mode']
+  includeSuspectedVersions?: boolean
+  onIncludeSuspectedVersionsChange?: (value: boolean) => void
   onModeChange: (mode: ArtworkDedupRunDto['mode']) => void
   onStart: () => void
   pending: boolean
@@ -70,6 +75,17 @@ export function DuplicateCheckStart({
                 ? '重新读取需要比对的文件，适合核查外部修改，耗时较长。'
                 : '已检查且未变化的文件会跳过，节省时间。'}
             </FieldDescription>
+            <Field orientation="horizontal">
+              <Checkbox
+                id="duplicate-check-versions"
+                checked={includeSuspectedVersions}
+                onCheckedChange={(value) => onIncludeSuspectedVersionsChange?.(value === true)}
+                disabled={disabled}
+              />
+              <FieldLabel htmlFor="duplicate-check-versions" className="min-h-11 flex-1 font-normal">
+                检查疑似版本
+              </FieldLabel>
+            </Field>
           </FieldSet>
         </PopoverContent>
       </Popover>

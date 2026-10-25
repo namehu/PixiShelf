@@ -1,3 +1,5 @@
+import type { VisualRead } from './visual-reader.ts'
+import { VISUAL_LIMITS } from './visual-matching.ts'
 import {
   MaintenanceSourceError,
   maintenanceSourceErrorCodes,
@@ -26,7 +28,7 @@ import {
 
 export class DedupReaderError extends Error {
   constructor(
-    readonly code: 'READER_STALLED' | 'READER_CLOSE_FAILED' | 'READER_ENVIRONMENT' | 'READER_BUSY',
+    readonly code: 'READER_STALLED' | 'READER_CLOSE_FAILED' | 'READER_ENVIRONMENT' | 'READER_BUSY' | 'VISUAL_TIMEOUT',
     options?: ErrorOptions
   ) {
     super(code, options)
@@ -152,8 +154,11 @@ export class ControlledDedupReader implements MediaContentReader {
       input.signal
     ) as Promise<DedupRead>
   }
+  visual(input: Parameters<MediaContentReader['read']>[0]): Promise<VisualRead> {
+    return this.request({ operation: 'visual', root: input.root, relativePath: input.relativePath }, input.signal) as Promise<VisualRead>
+  }
   inspectMaintenance(
-    input: Omit<Extract<ReaderOperation, { operation: 'inspect' | 'read' | 'maintenance-inspect' }>, 'operation'> & {
+    input: Omit<Extract<ReaderOperation, { operation: 'inspect' | 'read' | 'visual' | 'maintenance-inspect' }>, 'operation'> & {
       signal: AbortSignal
     }
   ): Promise<MaintenanceInspection> {
@@ -259,7 +264,7 @@ export class ControlledDedupReader implements MediaContentReader {
     if (this.child) return this.child
     const child =
       this.options.spawnProcess?.() ??
-      spawn(process.execPath, [...(this.options.execArgv ?? []), this.options.entrypoint], {
+      spawn(process.execPath, ['--max-old-space-size=128', ...(this.options.execArgv ?? []), this.options.entrypoint], {
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
         serialization: 'advanced',
         // Reader has no DB/network work and receives only fixed structured requests.
@@ -277,11 +282,10 @@ export class ControlledDedupReader implements MediaContentReader {
     })
     this.watchdog = setInterval(
       () => {
-        if (
-          [...this.pending.values()].some(
-            (p) => this.now() - p.lastProgress >= (this.options.stallMs ?? limits.stallMs)
-          )
-        )
+        const pending = [...this.pending.values()]
+        if (pending.some(p => p.operation.operation === 'visual' && this.now() - p.startedAt >= VISUAL_LIMITS.readMs))
+          void this.close(new DedupReaderError('VISUAL_TIMEOUT')).catch(() => undefined)
+        else if (pending.some(p => this.now() - p.lastProgress >= (this.options.stallMs ?? limits.stallMs)))
           void this.close(new DedupReaderError('READER_STALLED')).catch(() => undefined)
       },
       Math.min(250, this.options.stallMs ?? limits.stallMs)
@@ -341,7 +345,7 @@ export class ControlledDedupReader implements MediaContentReader {
       this.metrics.inspections++
       this.metrics.statLatencyMs += this.now() - pending.startedAt
     }
-    if (pending.operation.operation === 'read' || pending.operation.operation === 'maintenance-source') {
+    if (pending.operation.operation === 'visual' || pending.operation.operation === 'read' || pending.operation.operation === 'maintenance-source') {
       const result = message.value as DedupRead
       if (typeof result.bytesRead !== 'bigint' || result.bytesRead < pending.bytes) {
         pending.reject(new DedupReaderError('READER_ENVIRONMENT'))

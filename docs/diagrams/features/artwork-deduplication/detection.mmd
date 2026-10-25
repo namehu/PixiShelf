@@ -1,5 +1,5 @@
 ---
-title: 同艺术家作品去重 · 精确重复与完整包含检测时序
+title: 同艺术家作品去重 · 精确、包含与可选疑似版本检测时序
 ---
 sequenceDiagram
   participant App as App 控制面
@@ -59,8 +59,22 @@ sequenceDiagram
       Worker->>DB: 分批核对全部文件及次数的子集关系，持久化检查点
       Note over Worker,DB: 不生成全图片两两配对；达到切片预算时让行
     end
-    Worker->>DB: 最终围栏、根及成员复核，发布包含关系与完成状态
-    DB-->>App: 分页查询完全相同或完整包含结果
+    opt 用户开启疑似版本
+      Worker->>DB: 检查视觉范围与资源预算，读取版本化视觉缓存
+      loop 有界静态文件，复用有效缓存或补算
+        Worker->>Child: 核对原件身份并受限解码，生成原图及白边裁剪视图
+        Child-->>Worker: 完整特征或显式未检查原因
+        Worker->>DB: 执行围栏与源代次复核后提交视觉缓存、检查点
+      end
+      Worker->>Worker: 分带候选、局部证据约束、一对一页配对
+      alt 视觉阶段完整且未超预算
+        Worker->>DB: 持久疑似作品对、页证据和双方未配对数量
+      else 不支持的原件或预算耗尽
+        Worker->>DB: 显式视觉未完成原因，不发布截断视觉对
+      end
+    end
+    Worker->>DB: 最终围栏、根及成员复核，发布结果与状态
+    DB-->>App: 分页查询精确、包含、疑似结果及对应图片
   else 成员变化或结果不完整
     DB-->>Worker: 拒绝发布，保留可复用文件缓存及未完成状态
   end
@@ -72,4 +86,4 @@ sequenceDiagram
   end
   Note over Worker,DB: 旧执行器和迟到结果始终受 token / lease 与源代次双重保护
 
-  Note over App,DB: 检测结果不是直接删除授权；新删除须另经冻结预览、确认与全范围 fresh 校验
+  Note over App,DB: 疑似版本须人工选保留者、单对确认内容损失；全部删除仍冻结并完整重读各自原件

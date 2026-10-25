@@ -6,6 +6,7 @@ import {
   artworkDedupMaintenanceV1PayloadSchema,
   artworkDedupMaintenanceV2PayloadSchema,
   artworkDedupMaintenanceV3PayloadSchema,
+  artworkDedupMaintenanceV4PayloadSchema,
   artworkDedupDirectDeleteInputSchema,
   artworkDedupDirectDeleteRetryInputSchema,
   artworkDedupPrepareDirectDeleteInputSchema,
@@ -25,6 +26,15 @@ describe('maintenance contract', () => {
     for (const mode of ['ISOLATE', 'RESTORE', 'PURGE'] as const) {
       expect(isArtworkDedupMaintenanceModeEnabled(mode)).toBe(false)
     }
+  })
+  it('requires protocol3 loss confirmation and refuses visual payloads in older executors', () => {
+    const prepare = { operationId: 'o', executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 3 }
+    expect(artworkDedupMaintenanceV3PayloadSchema.safeParse(prepare).success).toBe(false)
+    expect(artworkDedupMaintenanceV4PayloadSchema.safeParse(prepare).success).toBe(true)
+    const command = { operationId: 'o', expectedUserId: 'u', expectedVersion: 1, idempotencyKey: 'k', purpose: 'DIRECT_DELETE', protocolVersion: 3,
+      scopeDigest: 'a'.repeat(64), externalWritesStopped: true, permanentDeleteConfirmed: true, organizationImpactConfirmed: true }
+    expect(artworkDedupDirectDeleteInputSchema.safeParse(command).success).toBe(false)
+    expect(artworkDedupDirectDeleteInputSchema.safeParse({ ...command, differentContentLossConfirmed: true }).success).toBe(true)
   })
   it('binds source reopening to exact distinct identity generations', () => {
     const input = {

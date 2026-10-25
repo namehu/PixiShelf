@@ -1,0 +1,42 @@
+---
+status: draft
+scope: 已批准的疑似版本检查、图片对照、人工选择和单对删除最小闭环契约
+last-verified: 2026-10-25
+sources:
+  - docs/design/artwork-deduplication/matching-extension.md
+  - docs/records/artwork-deduplication-visual-refinement-2026-10-25.md
+---
+
+# 疑似版本最小闭环契约
+
+用户在实验后批准将其接为人工核对工具，一次打通检查、对照、选择与单对删除。本契约取代扩展草案中继续停留在实验的推进门槛，不宣称真实有码/无码识别已验证。默认仍只检查精确重复和包含；在“检查选项”开启“检查疑似版本”。保留当前紧凑布局，不增加向导或批量视觉删除。
+
+## 识别、范围与缓存
+
+- 生产匹配使用独立算法版本；非原始视图至少需要 1 个有信息的局部区域支持，不能仅凭整图阈值命中。旧实验保持可复现，利用既有缓存复核已知模板误配和召回影响，不再开展调参轮次。
+- 新扫描定义版本 3，`start.includeSuspectedVersions` 默认为 `false`。运行 DTO 增加 `visualStatus: NOT_REQUESTED | PENDING | COMPLETE | INCOMPLETE` 和 `visualIncompleteReasons`。`COMPLETE` 表示本次有界近似检索完成，不保证没有漏检。
+- 只为全部登记原件都完成静态视觉检查的作品发布疑似对；动画、视频和不支持的输入不凭封面代表，所在作品排除疑似结果并计入未检查提示。四种作品来源继续适用。
+- 首版上限：10,000 个登记原件/次、2,000 个文件/作品或配对、1,600,000 条索引 posting、每次查询 20,000 次 posting 访问和 2,000 个候选页、运行合计 200,000 次候选比较和 1,000 个候选作品对。超预算明确 `INCOMPLETE`，不发布截断的视觉对；精确与包含结果继续可用。界面展示原因。该总量在加载视觉清单前统计，包含候选范围内动画/视频原件，只有全部静态且完整检查的作品发布建议。这是首版保护上限，不是 50 万图视觉能力交付。
+- 持久 `MediaVisualFingerprint` 绑定原媒体、内容 SHA、源版本、文件属性、根/目录代次及算法/规范化版本；复用既有受控读取子进程、租约和失效协议。热检查有效特征不重读原件，完整检查绕过缓存。输入上限 32 MiB、4,000 万像素、单图 10 秒；部分视图失败不形成完整特征。
+- 稀疏候选、一对一配对，较短作品至少 80% 的页配对才形成建议；极短作品也按其实际页数计算。没有默认保留者，不推断无码，不把相似链连成等价组。
+
+## 接口与页面
+
+- `relationKind` 增加 `VISUAL`；独立 `ArtworkDedupVisualPair`、`ArtworkDedupVisualPage` 保存作品对与页证据。GroupDto/ArtworkPreviewDto 增加 `visual`（普通结果为 `null`）。摘要含 `evidenceVersion`、`leftArtworkId/rightArtworkId`、`leftFileCount/rightFileCount`、`pairedCount/exactCount/similarCount`、左右 `UnmatchedCount/UncheckedCount`；计数为十进制字符串。
+- 新 `listComparisons({expectedUserId,runId,groupId,filter,cursor?,limit})`，过滤 `ALL | DIFFERENT | PAIRED | UNMATCHED`，每页最多 50 条。返回左右可空媒体引用 `{artworkId,imageId,index,thumbnailUrl}`、`kind: EXACT | SIMILAR | UNMATCHED`、下一页游标；不返回路径、哈希、租约或其他账户私有记录。
+- 对照图片复用现有 `/api/artwork-dedup/cover/[artwork-id]`，仅新增可选 `imageId`；必须严格属于该作品，并沿用 Session、`expectedUserId`、作品可见性、媒体根与路径检查，不开放任意路径读取。
+- 结果分开显示疑似版本，不提供选择框或推荐全选。对照面板优先展示不同与未配对图片：桌面并排，手机切换同一对左右版本，分页，不堆图片墙。加载、空页、资源失效和重试明确，触控区至少 44px。
+- 标题、图片序号与“保留此版本”始终对应，不默认选中；仅本对成功保存显式选择后可“核对并删除”。相似是查找建议，删除决定来自人工取舍。
+
+## 单对删除与版本保护
+
+- `ALL_RECOMMENDED` 排除所有 `VISUAL`，保存过选择也不例外。`EXPLICIT` 只要含视觉结果就必须恰好一对，禁止与其他结果混批。
+- 维护任务定义版本 4；视觉确认协议 3，精确协议 1/包含协议 2 不变；保留旧任务定义的旧语义。旧 Worker 不能领取新定义，旧操作摘要不因新增空字段改变。
+- PREPARE 冻结视觉摘要、证据版本、双方各自 SHA 快照及文件范围。协议 3 额外要求 `differentContentLossConfirmed=true`。同一现有确认面板说明“两个版本内容不同，删除方未配对图片和整理记录也会删除”，与持续停写声明一起确认，不再加弹窗。
+- 执行仍先认领双方，等待冲突执行停止，完整读取各自内容；任何变化拒绝旧确认。`VISUAL` 不要求双方相等或包含，但绝不跳过各自快照校验。现有精确/包含验证、路径限制、逐文件回执、来源墓碑、原范围重试保留。
+
+## 验收与交付
+
+复杂内核 Astra/high；App/界面与独立审查 Sol6.1/xhigh；浏览器 Sol6.1/medium。只运行相关测试。新隔离数据库、合成媒体、独立 App/Worker/端口实际完成桌面和手机“开启检查→对照→手选→单对删除→刷新记录”；同时验证缺失声明和旧协议拒绝、内容变化拒绝、非默认选择、批量排除、缓存失效和原精确/包含保护。真实图库不参与删除。
+
+完成独立审查、故障修复的定向复验与浏览器验收后提交并暂停。不重复全量构建或 50 万压力测试；上线能力和未覆盖项记录到 `docs/records/`，不能以代码实现推定真实实例已经部署。

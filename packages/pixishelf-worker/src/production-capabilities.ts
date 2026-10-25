@@ -67,9 +67,10 @@ export const PRODUCTION_WORKER_CAPABILITIES = PRODUCTION_JOB_TYPES.map((jobType)
           : jobType === 'ARCHIVE_TITLE_RULE_PREVIEW'
             ? [JOB_DEFINITION_VERSION, ARCHIVE_RULE_PREVIEW_DEFINITION_VERSION]
             : jobType === 'ARTWORK_DEDUP_MAINTENANCE'
-              ? [JOB_DEFINITION_VERSION, 2, ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION]
-              : jobType === 'ARTWORK_DEDUP_SCAN' ? [JOB_DEFINITION_VERSION, ARTWORK_DEDUP_SCAN_DEFINITION_VERSION]
-              : [JOB_DEFINITION_VERSION]
+              ? [JOB_DEFINITION_VERSION, 2, 3, ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION]
+              : jobType === 'ARTWORK_DEDUP_SCAN'
+                ? [JOB_DEFINITION_VERSION, 2, ARTWORK_DEDUP_SCAN_DEFINITION_VERSION]
+                : [JOB_DEFINITION_VERSION]
 })) satisfies readonly WorkerCapability[]
 
 export function canonicalWorkerCapabilities(
@@ -93,6 +94,6 @@ export function assertProductionWorkerCapabilities(
   const actual = canonicalWorkerCapabilities(capabilities)
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error('Production Worker capability inventory drifted from the 39-job/48-version three-lane release')
+    throw new Error('Production Worker capability inventory drifted from the 39-job/52-version three-lane release')
   }
 }

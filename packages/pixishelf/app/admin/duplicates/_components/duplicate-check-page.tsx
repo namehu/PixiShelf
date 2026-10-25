@@ -135,6 +135,7 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
   const router = useRouter()
   const queryClient = useQueryClient()
   const [mode, setMode] = useState<ArtworkDedupRunDto['mode']>('INCREMENTAL')
+  const [includeSuspectedVersions, setIncludeSuspectedVersions] = useState(false)
   const [pending, setPending] = useState<ArtworkDedupControlAction | 'start' | null>(null)
   const [operationError, setOperationError] = useState(false)
   const active = useRef(true)
@@ -194,7 +195,7 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
     try {
       const signature =
         action === 'start'
-          ? `${userId}:start:${selectedArtistId}:${mode}`
+          ? `${userId}:start:${selectedArtistId}:${mode}:${includeSuspectedVersions}`
           : `${userId}:${action}:${run!.runId}:${run!.version}`
       // Retain a key after an unconfirmed response so a deliberate retry replays the same intent.
       if (intent.current?.signature !== signature) intent.current = { signature, key: createBrowserUuid() }
@@ -205,7 +206,8 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
               artistId: selectedArtistId!,
               expectedUserId: userId,
               idempotencyKey,
-              mode
+              mode,
+              includeSuspectedVersions
             })
           : await controlMutation.mutateAsync({
               runId: run!.runId,
@@ -248,6 +250,8 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
     <DuplicateCheckStart
       mode={mode}
       onModeChange={setMode}
+      includeSuspectedVersions={includeSuspectedVersions}
+      onIncludeSuspectedVersionsChange={setIncludeSuspectedVersions}
       onStart={() => void submit('start')}
       pending={pending === 'start'}
       disabled={Boolean(pending) || !canStart}

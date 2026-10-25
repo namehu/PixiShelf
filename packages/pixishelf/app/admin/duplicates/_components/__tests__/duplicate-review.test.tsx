@@ -3,15 +3,34 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DuplicateReview } from '../duplicate-review'
-import { containmentGroup, group, member, operation } from './duplicate-maintenance-fixtures'
+import {
+  containmentGroup,
+  group,
+  member,
+  operation,
+  visualGroup,
+  visualSummary
+} from './duplicate-maintenance-fixtures'
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), save: vi.fn(), prepare: vi.fn(), onOperation: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  list: vi.fn(),
+  save: vi.fn(),
+  prepare: vi.fn(),
+  onOperation: vi.fn(),
+  comparisons: vi.fn()
+}))
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
     artworkDedup: {
       listGroups: {
         queryOptions: (input: unknown) => ({ queryKey: ['groups', input], queryFn: () => mocks.list(input) }),
         queryKey: () => ['groups']
+      },
+      listComparisons: {
+        queryOptions: (input: unknown) => ({
+          queryKey: ['comparisons', input],
+          queryFn: () => mocks.comparisons(input)
+        })
       },
       saveReview: { mutationOptions: () => ({ mutationFn: mocks.save }) },
       prepareCleanup: { mutationOptions: () => ({ mutationFn: mocks.prepare }) }
@@ -62,6 +81,135 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('duplicate review', () => {
+  it('separates visual results from bulk selection and requires a saved explicit keeper before single-pair prepare', async () => {
+    let reviewVersion = 0
+    let keeperId: number | null = null
+    const currentGroup = () =>
+      visualGroup({
+        reviewVersion,
+        eligibility: keeperId ? 'ELIGIBLE' : 'NEEDS_CHOICE',
+        savedReview: keeperId ? { groupId: 'visual-1', keeperArtworkId: keeperId, reviewVersion } : null
+      })
+    mocks.list.mockImplementation((input: { groupId?: string }) =>
+      input.groupId
+        ? {
+            kind: 'MEMBERS',
+            runId: 'run-1',
+            runVersion: 3,
+            reviewRevision: reviewVersion,
+            allowedActions: ['SAVE_REVIEW', 'PREPARE_CLEANUP'],
+            group: currentGroup(),
+            keeper: null,
+            items: [member(1), member(2)],
+            nextMemberCursor: null
+          }
+        : page({ items: [group(), currentGroup()], recommendedGroupCount: 1, reviewRevision: reviewVersion })
+    )
+    mocks.comparisons.mockResolvedValue({
+      runId: 'run-1',
+      groupId: 'visual-1',
+      visual: visualSummary,
+      items: [
+        {
+          id: 1,
+          kind: 'SIMILAR',
+          left: { artworkId: 1, imageId: 11, index: 0, thumbnailUrl: '/image/11' },
+          right: { artworkId: 2, imageId: 22, index: 1, thumbnailUrl: '/image/22' }
+        }
+      ],
+      nextCursor: null
+    })
+    mocks.save.mockImplementation((input: { keeperArtworkId: number }) => {
+      keeperId = input.keeperArtworkId
+      reviewVersion += 1
+      return {
+        review: { groupId: 'visual-1', keeperArtworkId: keeperId, reviewVersion },
+        reviewRevision: reviewVersion
+      }
+    })
+    mount()
+    const visual = within(await screen.findByRole('region', { name: '疑似版本结果' }))
+    expect(visual.queryByRole('checkbox')).toBeNull()
+    expect(visual.queryByRole('radio')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '按推荐全选（1 组）' }))
+    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
+    fireEvent.click(visual.getByRole('button', { name: '查看差异' }))
+    const dialog = within(await screen.findByRole('dialog', { name: '查看差异' }))
+    const left = await dialog.findByRole('button', { name: '保留此版本：作品 1' })
+    const right = dialog.getByRole('button', { name: '保留此版本：作品 2' })
+    expect(left.getAttribute('aria-pressed')).toBe('false')
+    expect(right.getAttribute('aria-pressed')).toBe('false')
+    expect((dialog.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(mocks.save).not.toHaveBeenCalled()
+    fireEvent.click(right)
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect((dialog.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(false)
+    )
+    fireEvent.click(dialog.getByRole('button', { name: '核对并删除' }))
+    await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1))
+    expect(mocks.prepare.mock.calls[0]![0]).toMatchObject({
+      expectedUserId: 'user-a',
+      expectedReviewRevision: 1,
+      selection: { kind: 'EXPLICIT', groupIds: ['visual-1'] }
+    })
+    expect(mocks.comparisons.mock.calls[0]![0]).toMatchObject({
+      filter: 'DIFFERENT',
+      expectedUserId: 'user-a',
+      limit: 1
+    })
+  })
+  it('clears visual keeper intent and ignores a late save when the account changes', async () => {
+    let resolveSave!: (value: unknown) => void
+    mocks.list.mockImplementation((input: { groupId?: string }) =>
+      input.groupId
+        ? {
+            kind: 'MEMBERS',
+            runId: 'run-1',
+            runVersion: 3,
+            reviewRevision: 0,
+            allowedActions: ['SAVE_REVIEW'],
+            group: visualGroup(),
+            keeper: null,
+            items: [member(1), member(2)],
+            nextMemberCursor: null
+          }
+        : page({ items: [visualGroup()], recommendedGroupCount: 0 })
+    )
+    mocks.comparisons.mockResolvedValue({
+      runId: 'run-1',
+      groupId: 'visual-1',
+      visual: visualSummary,
+      items: [],
+      nextCursor: null
+    })
+    mocks.save.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    const view = mount()
+    fireEvent.click(await screen.findByRole('button', { name: '查看差异' }))
+    fireEvent.click(await screen.findByRole('button', { name: '保留此版本：作品 2' }))
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1))
+    view.rerender(
+      <QueryClientProvider client={client}>
+        <DuplicateReview userId="user-b" runId="run-1" onOperation={mocks.onOperation} />
+      </QueryClientProvider>
+    )
+    expect(screen.queryByRole('dialog')).toBeNull()
+    await act(async () =>
+      resolveSave({ review: { groupId: 'visual-1', keeperArtworkId: 2, reviewVersion: 1 }, reviewRevision: 1 })
+    )
+    fireEvent.click(await screen.findByRole('button', { name: '查看差异' }))
+    await screen.findByRole('button', { name: '保留此版本：作品 2' })
+    expect(screen.getByRole('button', { name: '保留此版本：作品 2' }).getAttribute('aria-pressed')).toBe('false')
+    expect((screen.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(mocks.comparisons.mock.lastCall?.[0]).toMatchObject({ expectedUserId: 'user-b' })
+    expect(mocks.prepare).not.toHaveBeenCalled()
+    expect(mocks.onOperation).not.toHaveBeenCalled()
+  })
   it('shows full containment counts and only allows keeping the complete artwork', async () => {
     mocks.list.mockResolvedValue(page({ items: [containmentGroup()], recommendedGroupCount: 1 }))
     mount()

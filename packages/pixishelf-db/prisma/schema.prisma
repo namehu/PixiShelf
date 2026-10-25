@@ -418,6 +418,7 @@ model Image {
   summaryFeature      ArtworkSummaryFeature?
   contentSource       MediaContentSource?
   contentFingerprint  MediaContentFingerprint?
+  visualFingerprint MediaVisualFingerprint?
   chapterPreviews     MediaChapterPreview[]
   keyframeSets        MediaVideoKeyframeSet[]
 
@@ -2711,6 +2712,11 @@ model SystemJobDiagnosticItem {
 
 // Frozen detection evidence survives subsequent Artwork/Image removal.
 model ArtworkDedupRun {
+  includeSuspectedVersions Boolean @default(false)
+  visualStatus String @default("NOT_REQUESTED")
+  visualIncompleteReasons String[] @default([])
+  visualAfterImageId Int @default(0)
+  visualPairs ArtworkDedupVisualPair[]
   relationAfterArtworkId Int @default(0)
   relationAfterCandidateId Int @default(0)
   relations ArtworkDedupRelation[]
@@ -2784,6 +2790,8 @@ model ArtworkDedupItem {
 }
 
 model ArtworkDedupMedia {
+  visualStatus String @default("PENDING")
+  visualViews Json?
   runId String
   artworkId Int
   imageId Int
@@ -2956,6 +2964,7 @@ model ArtworkDedupOperation {
 }
 
 model ArtworkDedupOperationGroup {
+  visual Json?
   relationKind String @default("EXACT")
   containedArtworkId Int?
   containerArtworkId Int?
@@ -3114,4 +3123,38 @@ model ArtworkDedupFileReceipt {
   operation ArtworkDedupOperation @relation(fields: [operationId], references: [id], onDelete: Restrict)
   file ArtworkDedupOperationFile @relation(fields: [fileId], references: [fileId], onDelete: Restrict)
   @@unique([operationId, fileId, executionVersion, step])
+}
+
+// A cache is usable only with the same frozen original identity and complete view set.
+model MediaVisualFingerprint {
+  imageId Int @id
+  image Image @relation(fields: [imageId], references: [id], onDelete: Cascade)
+  identity String
+  algorithmVersion String
+  normalizationVersion String
+  views Json
+  updatedAt DateTime @updatedAt
+}
+model ArtworkDedupVisualPair {
+  id String @id
+  runId String
+  leftArtworkId Int
+  rightArtworkId Int
+  summary Json
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  pages ArtworkDedupVisualPage[]
+  @@unique([runId, leftArtworkId, rightArtworkId])
+  @@index([runId, id])
+}
+model ArtworkDedupVisualPage {
+  pairId String
+  ordinal Int
+  kind String
+  leftImageId Int?
+  rightImageId Int?
+  leftIndex Int?
+  rightIndex Int?
+  pair ArtworkDedupVisualPair @relation(fields: [pairId], references: [id], onDelete: Cascade)
+  @@id([pairId, ordinal])
+  @@index([pairId, kind, ordinal])
 }

@@ -27,8 +27,8 @@ export function isArtworkDedupPrepareRetryable(op: Operation, job: Job | null, n
   const purposeMatches =
     (op.preparePurpose === 'ISOLATION' && job?.definitionVersion === 1) ||
     (op.preparePurpose === 'DIRECT_DELETE' &&
-      (op.protocolVersion === 1 || op.protocolVersion === 2) &&
-      (job?.definitionVersion === 3 || op.protocolVersion === 1 && job?.definitionVersion === 2) &&
+      (op.protocolVersion === 1 || op.protocolVersion === 2 || op.protocolVersion === 3) &&
+      (job?.definitionVersion === 4 || op.protocolVersion !== 3 && (job?.definitionVersion === 3 || op.protocolVersion === 1 && job?.definitionVersion === 2)) &&
       payload?.purpose === 'DIRECT_DELETE' &&
       payload?.protocolVersion === op.protocolVersion)
   return (

@@ -126,6 +126,11 @@ async function inspectMedia(
       !sameContentFileState(observed.state, evidence)
     )
       return blocked(result, 'FILE_CHANGED')
+    const operation = await context.transaction(tx => assertArtworkDedupOperationExecution(tx, context.execution))
+    if (operation.protocolVersion === 3) {
+      const read = await context.reader.read(resolved)
+      if (read.sha256 !== evidence.sha256 || !sameContentFileState(read.state, evidence)) return blocked(result, 'CONTENT_CHANGED')
+    }
     return {
       ...result,
       sourceRevision: evidence.sourceRevision,
@@ -210,8 +215,10 @@ export async function prepareArtworkInventory(
   })
   const entries: ArtworkDedupOperationFileInput[] = []
   let afterImageId = item.afterImageId
-  for (const batch of chunks(page.images, 4)) {
-    entries.push(...(await mapBounded(batch, 4, context.signal, (image) => inspectMedia(context, item, image))))
+  const operation = await context.transaction(tx => assertArtworkDedupOperationExecution(tx, context.execution))
+  const concurrency = operation.protocolVersion === 3 ? 1 : 4
+  for (const batch of chunks(page.images, concurrency)) {
+    entries.push(...(await mapBounded(batch, concurrency, context.signal, (image) => inspectMedia(context, item, image))))
     for (const image of batch) if (image.chaptersPath) entries.push(await inspectChapter(context, item, image))
     afterImageId = batch.at(-1)!.id
     if (context.shouldYield()) break

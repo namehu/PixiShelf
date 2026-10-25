@@ -17,6 +17,7 @@ import {
   artworkDedupMaintenanceV1PayloadSchema,
   artworkDedupMaintenanceV2PayloadSchema,
   artworkDedupMaintenanceV3PayloadSchema,
+  artworkDedupMaintenanceV4PayloadSchema,
   ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION,
   assertArtworkDedupMaintenanceModeEnabled,
   type ArtworkDedupMaintenancePayload
@@ -57,7 +58,7 @@ export interface ArtworkDedupMaintenanceDependencies {
 }
 export function createArtworkDedupMaintenanceExecutor(
   dependencies: ArtworkDedupMaintenanceDependencies,
-  definitionVersion: 1 | 2 | typeof ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION = 1
+  definitionVersion: 1 | 2 | 3 | typeof ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION = 1
 ): ExecutorDefinition {
   const supervisor = dependencies.supervisor ?? new DedupReaderSupervisor(dependencies.readerOptions)
   return {
@@ -66,7 +67,7 @@ export function createArtworkDedupMaintenanceExecutor(
     executionLane: 'BACKGROUND_WRITER',
     progressPolicy: 'STANDARD',
     parsePayload: (value) =>
-      (definitionVersion === 1 ? artworkDedupMaintenanceV1PayloadSchema : definitionVersion === 2 ? artworkDedupMaintenanceV2PayloadSchema : artworkDedupMaintenanceV3PayloadSchema).parse(value),
+      (definitionVersion === 1 ? artworkDedupMaintenanceV1PayloadSchema : definitionVersion === 2 ? artworkDedupMaintenanceV2PayloadSchema : definitionVersion === 3 ? artworkDedupMaintenanceV3PayloadSchema : artworkDedupMaintenanceV4PayloadSchema).parse(value),
     execute: (context: ExecutionContext<ArtworkDedupMaintenancePayload, EnqueuedChildJob>) =>
       executeArtworkDedupMaintenance(context, { ...dependencies, supervisor })
   } as ExecutorDefinition

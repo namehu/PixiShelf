@@ -39,11 +39,18 @@ export async function mapArtworkDedupMaintenanceError<T>(body: () => Promise<T>)
     if (error instanceof ArtworkDedupOperationError) {
       throw new TRPCError({
         code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : error.code === 'ACCOUNT_CHANGED' ? 'FORBIDDEN' : 'CONFLICT',
-        message: error.code === 'NOT_FOUND' ? '未找到审核记录'
-          : error.code === 'CONFLICTING_SELECTION' ? '所选结果存在冲突：同一作品不能既保留又删除，也不能重复删除。请减少选择后重试'
-          : error.code === 'CONTAINMENT_DIRECTION_REQUIRED' ? '完整包含只能保留包含全部原文件的作品'
-          : error.code === 'EXPLICIT_CHOICE_REQUIRED' ? '所选结果需要先明确选择保留作品'
-          : '审核状态已变化，请刷新后重试'
+        message:
+          error.code === 'NOT_FOUND'
+            ? '未找到审核记录'
+            : error.code === 'CONFLICTING_SELECTION'
+              ? '所选结果存在冲突：同一作品不能既保留又删除，也不能重复删除。请减少选择后重试'
+              : error.code === 'CONTAINMENT_DIRECTION_REQUIRED'
+                ? '完整包含只能保留包含全部原文件的作品'
+                : error.code === 'VISUAL_SINGLE_PAIR_REQUIRED'
+                  ? '疑似版本每次只能处理一对，请在对照面板中单独核对'
+                  : error.code === 'EXPLICIT_CHOICE_REQUIRED'
+                    ? '所选结果需要先明确选择保留作品'
+                    : '审核状态已变化，请刷新后重试'
       })
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -141,17 +148,20 @@ function groupDto(
   return {
     groupId: choice.groupId,
     relationKind: choice.relationKind,
+    visual: choice.visual ? contract.artworkDedupVisualSummarySchema.parse(choice.visual) : null,
     containedArtworkId: choice.containedArtworkId,
     containerArtworkId: choice.containerArtworkId,
     containedFileCount: choice.containedFileCount?.toString() ?? null,
     containerFileCount: choice.containerFileCount?.toString() ?? null,
-    extraFileCount: choice.containerFileCount !== null && choice.containedFileCount !== null
-      ? (choice.containerFileCount - choice.containedFileCount).toString() : null,
+    extraFileCount:
+      choice.containerFileCount !== null && choice.containedFileCount !== null
+        ? (choice.containerFileCount - choice.containedFileCount).toString()
+        : null,
     memberCount: choice.memberCount,
     fileCount: choice.fileCount.toString(),
     previewMembers: members.slice(0, 3),
     keeper: members.find((member) => member.artworkId === choice.keeperArtworkId) ?? null,
-    recommendedKeeperArtworkId: choice.keeperArtworkId,
+    recommendedKeeperArtworkId: choice.relationKind === 'VISUAL' ? null : choice.keeperArtworkId,
     recommendationReason: choice.reason,
     savedReview:
       choice.saved && choice.keeperArtworkId
@@ -163,7 +173,13 @@ function groupDto(
     reasons: !choice.eligible
       ? ['CONTENT_OR_SCOPE_CHANGED']
       : choice.keeperArtworkId === null
-        ? [choice.relationKind === 'CONTAINS' ? 'CONTAINED_HAS_ORGANIZATION' : 'MULTIPLE_ORGANIZED_MEMBERS']
+        ? [
+            choice.relationKind === 'VISUAL'
+              ? 'EXPLICIT_CHOICE_REQUIRED'
+              : choice.relationKind === 'CONTAINS'
+                ? 'CONTAINED_HAS_ORGANIZATION'
+                : 'MULTIPLE_ORGANIZED_MEMBERS'
+          ]
         : []
   }
 }
@@ -245,7 +261,7 @@ export async function listArtworkDedupReviewGroups(
       ])
       const byId = new Map(members.map((row) => [row.artworkId, row]))
       const totals = await tx.$queryRaw<{ total: number; recommended: number }[]>(
-        Prisma.sql`SELECT count(*)::int total,count(*) FILTER(WHERE eligible AND "keeperArtworkId" IS NOT NULL)::int recommended FROM artwork_dedup_group_choices(${run.id},${userId})`
+        Prisma.sql`SELECT count(*)::int total,count(*) FILTER(WHERE eligible AND "keeperArtworkId" IS NOT NULL AND "relationKind"<>'VISUAL')::int recommended FROM artwork_dedup_group_choices(${run.id},${userId})`
       )
       return contract.artworkDedupListGroupsDtoSchema.parse({
         ...common,
@@ -265,6 +281,82 @@ export async function listArtworkDedupReviewGroups(
         nextCursor: choices.length > input.limit ? artworkDedupCursor(scope, page.at(-1)!.groupId) : null,
         totalGroups: totals[0]?.total ?? 0,
         recommendedGroupCount: totals[0]?.recommended ?? 0
+      })
+    })
+  )
+}
+export async function listArtworkDedupComparisons(
+  userId: string,
+  input: z.infer<typeof contract.artworkDedupListComparisonsInputSchema>,
+  database: Database = databaseDefault
+): Promise<contract.ArtworkDedupListComparisonsDto> {
+  assertArtworkDedupAccount(userId, input.expectedUserId)
+  return mapArtworkDedupMaintenanceError(() =>
+    database.$transaction(async (tx) => {
+      const run = await tx.artworkDedupRun.findUnique({
+        where: { id: input.runId },
+        select: { status: true, version: true }
+      })
+      if (!run || run.status !== 'COMPLETED') conflict('NOT_FOUND')
+      const pair = await tx.artworkDedupVisualPair.findUnique({ where: { id: input.groupId } })
+      if (!pair || pair.runId !== input.runId) conflict('NOT_FOUND')
+      const visual = contract.artworkDedupVisualSummarySchema.parse(pair.summary)
+      const scope = [userId, input.runId, run.version, input.groupId, visual.evidenceVersion, input.filter]
+      const after = readArtworkDedupCursor(input.cursor, scope)
+      if (after !== null && typeof after !== 'number') conflict('INVALID_CURSOR')
+      const rows = await tx.artworkDedupVisualPage.findMany({
+        where: {
+          pairId: pair.id,
+          ordinal: { gt: after ?? 0 },
+          ...(input.filter === 'DIFFERENT'
+            ? { kind: { not: 'EXACT' } }
+            : input.filter === 'PAIRED'
+              ? { kind: { in: ['EXACT', 'SIMILAR'] } }
+              : input.filter === 'UNMATCHED'
+                ? { kind: 'UNMATCHED' }
+                : {})
+        },
+        orderBy: { ordinal: 'asc' },
+        take: input.limit + 1
+      })
+      const page = rows.slice(0, input.limit)
+      const imageIds = page.flatMap((row) =>
+        [row.leftImageId, row.rightImageId].filter((id): id is number => id !== null)
+      )
+      const images = imageIds.length
+        ? await tx.image.findMany({
+            where: {
+              id: { in: imageIds },
+              artworkId: { in: [pair.leftArtworkId, pair.rightArtworkId] },
+              artwork: { deletedAt: null, archiveLifecycleState: 'ACTIVE' }
+            },
+            select: { id: true, artworkId: true }
+          })
+        : []
+      const byId = new Map(images.map((image) => [image.id, image.artworkId]))
+      const media = (artworkId: number, imageId: number | null, index: number | null) =>
+        imageId === null || index === null
+          ? null
+          : {
+              artworkId,
+              imageId,
+              index,
+              thumbnailUrl:
+                byId.get(imageId) === artworkId
+                  ? `/api/artwork-dedup/cover/${artworkId}?expectedUserId=${encodeURIComponent(userId)}&imageId=${imageId}`
+                  : null
+            }
+      return contract.artworkDedupListComparisonsDtoSchema.parse({
+        runId: input.runId,
+        groupId: pair.id,
+        visual,
+        items: page.map((row) => ({
+          id: row.ordinal,
+          kind: row.kind,
+          left: media(pair.leftArtworkId, row.leftImageId, row.leftIndex),
+          right: media(pair.rightArtworkId, row.rightImageId, row.rightIndex)
+        })),
+        nextCursor: rows.length > input.limit ? artworkDedupCursor(scope, page.at(-1)!.ordinal) : null
       })
     })
   )
@@ -305,7 +397,7 @@ function operationActions(
       }
       return op.cancelRequestedAt ? [] : [op.deleteStartedAt ? 'STOP' : 'CANCEL']
     }
-    if (![1, 2].includes(op.protocolVersion ?? 0)) return []
+    if (![1, 2, 3].includes(op.protocolVersion ?? 0)) return []
     if (op.status === 'BUILDING') return op.cancelRequestedAt ? [] : ['CANCEL']
     if (op.readerToken || op.readerState !== 'IDLE') return []
     if (op.status === 'READY' && op.scopeDigest) return ['DIRECT_DELETE']
@@ -651,12 +743,18 @@ export async function getArtworkDedupOperation(
             itemId: item.artworkId,
             groupId: item.groupId,
             relationKind: resultById.get(item.groupId)?.relationKind ?? 'EXACT',
+            visual: resultById.get(item.groupId)?.visual ?? null,
             containedArtworkId: resultById.get(item.groupId)?.containedArtworkId ?? null,
             containerArtworkId: resultById.get(item.groupId)?.containerArtworkId ?? null,
             containedFileCount: resultById.get(item.groupId)?.containedFileCount?.toString() ?? null,
             containerFileCount: resultById.get(item.groupId)?.containerFileCount?.toString() ?? null,
-            extraFileCount: resultById.get(item.groupId)?.relationKind === 'CONTAINS'
-              ? (resultById.get(item.groupId)!.containerFileCount! - resultById.get(item.groupId)!.containedFileCount!).toString() : null,
+            extraFileCount:
+              resultById.get(item.groupId)?.relationKind === 'CONTAINS'
+                ? (
+                    resultById.get(item.groupId)!.containerFileCount! -
+                    resultById.get(item.groupId)!.containedFileCount!
+                  ).toString()
+                : null,
             role: item.role,
             status:
               op.preparePurpose === 'DIRECT_DELETE' && op.status === 'CANCELLED' && item.role === 'COPY'

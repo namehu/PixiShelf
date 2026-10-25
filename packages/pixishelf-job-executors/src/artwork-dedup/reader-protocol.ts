@@ -1,3 +1,4 @@
+import type { VisualRead } from './visual-reader.ts'
 import type { MaintenanceSourceIdentity, MaintenanceSourceResult } from './maintenance-source.ts'
 import type {
   DirectDeleteFileReceipt,
@@ -13,7 +14,7 @@ export type DedupRoots = Awaited<ReturnType<typeof resolveMediaContentRoots>>
 export type DedupRead = ContentFileInspection & { sha256: string; hashedAt: Date; bytesRead: bigint }
 export type ReaderOperation =
   | { operation: 'roots'; sourceRoot: string; archiveRoot: string; expectedPixivRootIdentity: string | null }
-  | { operation: 'inspect' | 'read' | 'maintenance-inspect'; root: ResolvedMediaContentRoot; relativePath: string }
+  | { operation: 'inspect' | 'read' | 'visual' | 'maintenance-inspect'; root: ResolvedMediaContentRoot; relativePath: string }
   | {
       operation: 'maintenance-directory'
       root: ResolvedMediaContentRoot
@@ -41,6 +42,7 @@ export type ReaderResponse =
         | DedupRoots
         | ContentFileInspection
         | DedupRead
+        | VisualRead
         | MaintenanceSourceResult
         | MaintenanceInspection
         | MaintenanceDirectoryPage
@@ -51,6 +53,7 @@ export type ReaderResponse =
 
 export function isExclusiveReaderOperation(operation: ReaderOperation['operation']) {
   return (
+    operation === 'visual' ||
     operation === 'direct-delete' ||
     operation === 'roots' ||
     operation === 'maintenance-directory' ||

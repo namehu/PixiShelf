@@ -37,7 +37,7 @@ async function fixture() {
   }
 }
 describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
-  beforeAll(async () => { await db!.workerInstance.create({ data: { workerId: actor, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [2] }] } }) })
+  beforeAll(async () => { await db!.workerInstance.create({ data: { workerId: actor, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [3] }] } }) })
   afterEach(async () => {
     const runs = await db!.artworkDedupRun.findMany({
       where: { requestedBy: actor },
@@ -58,10 +58,10 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
     await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }] } })
     await expect(startArtworkDedup(actor, f.input, db!)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
     expect(await db!.artworkDedupRun.count({ where: { artistId: f.artist.id } })).toBe(0)
-    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }] } })
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3] }] } })
     const run = await startArtworkDedup(actor, f.input, db!)
     expect(run.includesContainment).toBe(true)
-    expect(await db!.systemJob.findUnique({ where: { id: run.jobId! } })).toMatchObject({ definitionVersion: 2 })
+    expect(await db!.systemJob.findUnique({ where: { id: run.jobId! } })).toMatchObject({ definitionVersion: 3 })
     await db!.systemJob.update({ where: { id: run.jobId! }, data: { definitionVersion: 1 } })
     expect((await getArtworkDedupRun(actor, { runId: run.runId, expectedUserId: actor }, db!))?.includesContainment).toBe(false)
   })

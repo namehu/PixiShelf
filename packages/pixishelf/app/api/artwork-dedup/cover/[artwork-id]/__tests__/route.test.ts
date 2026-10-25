@@ -34,10 +34,15 @@ function artwork(file = 'cover.png') {
     images: [{ path: file, mediaType: 'IMAGE', videoMetadata: null }]
   }
 }
-const request = (actor = 'actor', id = '1') =>
-  getCover(new Request(`http://localhost/api/artwork-dedup/cover/${id}?expectedUserId=${actor}`), {
-    params: Promise.resolve({ 'artwork-id': id })
-  })
+const request = (actor = 'actor', id = '1', imageId?: string) =>
+  getCover(
+    new Request(
+      `http://localhost/api/artwork-dedup/cover/${id}?expectedUserId=${actor}${imageId === undefined ? '' : `&imageId=${imageId}`}`
+    ),
+    {
+      params: Promise.resolve({ 'artwork-id': id })
+    }
+  )
 describe('authenticated artwork-ID cover route', () => {
   beforeAll(async () => {
     root = await mkdtemp(path.join(tmpdir(), 'dedup-cover-'))
@@ -100,6 +105,20 @@ describe('authenticated artwork-ID cover route', () => {
     expect(response.headers.get('vary')).toBe('Cookie')
     expect(response.headers.get('location')).toBeNull()
     expect(mocks.artwork.mock.calls[0]?.[0]).toMatchObject({ where: { id: 1 }, select: { images: { take: 1 } } })
+  })
+  it('scopes a comparison image to the artwork and rejects foreign or invalid image IDs', async () => {
+    expect((await request('actor', '1', '42')).status).toBe(200)
+    expect(mocks.artwork.mock.calls[0]?.[0]).toMatchObject({
+      where: { id: 1 },
+      select: { images: { where: { id: 42 }, take: 1 } }
+    })
+    mocks.artwork.mockResolvedValue({ ...artwork(), images: [] })
+    expect((await request('actor', '1', '99')).status).toBe(404)
+    for (const imageId of ['0', '-1', '1.5', '9007199254740992', '../1']) {
+      mocks.artwork.mockClear()
+      expect((await request('actor', '1', imageId)).status).toBe(400)
+      expect(mocks.artwork).not.toHaveBeenCalled()
+    }
   })
   it('uses an existing completed video poster and never sends the original video', async () => {
     mocks.artwork.mockResolvedValue({

@@ -80,7 +80,21 @@ describe('deduplication display facts', () => {
     expect(JSON.stringify(dto)).not.toContain('private-token')
   })
   it('projects durable titles and real receipt counts after business deletion without returning paths or private history', async () => {
-    const op = row({ status: 'DELETED', deleteStartedAt: date, deletedFiles: 3n })
+    const visual = {
+      evidenceVersion: 'visual-v1',
+      leftArtworkId: 1,
+      rightArtworkId: 2,
+      leftFileCount: '2',
+      rightFileCount: '3',
+      pairedCount: '2',
+      exactCount: '1',
+      similarCount: '1',
+      leftUnmatchedCount: '0',
+      rightUnmatchedCount: '1',
+      leftUncheckedCount: '0',
+      rightUncheckedCount: '0'
+    }
+    const op = row({ status: 'DELETED', protocolVersion: 3, deleteStartedAt: date, deletedFiles: 3n })
     const tx = {
       artworkDedupOperation: { findUnique: vi.fn(async () => op) },
       artworkDedupOperationArtwork: {
@@ -113,9 +127,7 @@ describe('deduplication display facts', () => {
       },
       artwork: {
         findMany: vi.fn<
-          (
-            input: unknown
-          ) => Promise<
+          (input: unknown) => Promise<
             {
               id: number
               title: string
@@ -133,6 +145,19 @@ describe('deduplication display facts', () => {
             createdAt: new Date('2026-01-01'),
             likes: [{ level: 3 }],
             readingSummaries: []
+          }
+        ])
+      },
+      artworkDedupOperationGroup: {
+        findMany: vi.fn(async () => [
+          {
+            groupId: 'g1',
+            relationKind: 'VISUAL',
+            visual,
+            containedArtworkId: null,
+            containerArtworkId: null,
+            containedFileCount: null,
+            containerFileCount: null
           }
         ])
       },
@@ -190,6 +215,8 @@ describe('deduplication display facts', () => {
     })
     expect(response.preview.items[1]).toMatchObject({
       title: '冻结副本',
+      relationKind: 'VISUAL',
+      visual,
       personalRecords: 'REMOVED',
       mediaCount: '2',
       fileCount: '3',

@@ -102,26 +102,83 @@ describe('ExecutorRegistry', () => {
     ).toBeNull()
   })
   it('isolates maintenance v2 while retaining the legacy PREPARE parser', () => {
-    const dependencies = { database: {} as PrismaClient, sourceRoot: '/fixture', archiveRoot: '/fixture', readerOptions: { entrypoint: '/fixture/reader.cjs' } }
+    const dependencies = {
+      database: {} as PrismaClient,
+      sourceRoot: '/fixture',
+      archiveRoot: '/fixture',
+      readerOptions: { entrypoint: '/fixture/reader.cjs' }
+    }
     const old = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies))
-    const modern = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies)).register(createArtworkDedupMaintenanceExecutor(dependencies, 2))
-    const job = { type: 'ARTWORK_DEDUP_MAINTENANCE', definitionVersion: 2, payload: { operationId: 'o', executionVersion: 1, mode: 'DIRECT_DELETE' } }
+    const modern = new ExecutorRegistry()
+      .register(createArtworkDedupMaintenanceExecutor(dependencies))
+      .register(createArtworkDedupMaintenanceExecutor(dependencies, 2))
+    const job = {
+      type: 'ARTWORK_DEDUP_MAINTENANCE',
+      definitionVersion: 2,
+      payload: { operationId: 'o', executionVersion: 1, mode: 'DIRECT_DELETE' }
+    }
     expect(old.resolve(job)).toBeNull()
     expect(modern.resolve(job)?.payload).toEqual(job.payload)
     expect(() => modern.resolve({ ...job, definitionVersion: 1 })).toThrow()
-    expect(modern.resolve({ ...job, definitionVersion: 1, payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE' } })?.payload).toMatchObject({ mode: 'PREPARE' })
-    expect(() => modern.resolve({ ...job, payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE' } })).toThrow()
-    expect(modern.resolve({ ...job, payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 1 } })?.payload).toMatchObject({ purpose: 'DIRECT_DELETE' })
+    expect(
+      modern.resolve({
+        ...job,
+        definitionVersion: 1,
+        payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE' }
+      })?.payload
+    ).toMatchObject({ mode: 'PREPARE' })
+    expect(() =>
+      modern.resolve({ ...job, payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE' } })
+    ).toThrow()
+    expect(
+      modern.resolve({
+        ...job,
+        payload: {
+          operationId: 'o',
+          executionVersion: 1,
+          mode: 'PREPARE',
+          purpose: 'DIRECT_DELETE',
+          protocolVersion: 1
+        }
+      })?.payload
+    ).toMatchObject({ purpose: 'DIRECT_DELETE' })
   })
 
   it('requires maintenance v3 for containment protocol2 while retaining exact v2', () => {
-    const dependencies = { database: {} as PrismaClient, sourceRoot: '/fixture', archiveRoot: '/fixture', readerOptions: { entrypoint: '/fixture/reader.cjs' } }
+    const dependencies = {
+      database: {} as PrismaClient,
+      sourceRoot: '/fixture',
+      archiveRoot: '/fixture',
+      readerOptions: { entrypoint: '/fixture/reader.cjs' }
+    }
     const old = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies, 2))
     const modern = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies, 3))
-    const job = { type: 'ARTWORK_DEDUP_MAINTENANCE', definitionVersion: 3, payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 2 } }
+    const job = {
+      type: 'ARTWORK_DEDUP_MAINTENANCE',
+      definitionVersion: 3,
+      payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 2 }
+    }
     expect(old.resolve(job)).toBeNull()
     expect(modern.resolve(job)?.payload).toEqual(job.payload)
     expect(() => old.resolve({ ...job, definitionVersion: 2 })).toThrow()
+  })
+  it('requires maintenance v4 for visual protocol3 and retains v3 payload semantics', () => {
+    const dependencies = {
+      database: {} as PrismaClient,
+      sourceRoot: '/fixture',
+      archiveRoot: '/fixture',
+      readerOptions: { entrypoint: '/fixture/reader.cjs' }
+    }
+    const old = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies, 3))
+    const modern = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies, 4))
+    const job = {
+      type: 'ARTWORK_DEDUP_MAINTENANCE',
+      definitionVersion: 4,
+      payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 3 }
+    }
+    expect(old.resolve(job)).toBeNull()
+    expect(modern.resolve(job)?.payload).toEqual(job.payload)
+    expect(() => old.resolve({ ...job, definitionVersion: 3 })).toThrow()
   })
   it('rejects duplicate registrations and future versions without an explicit payload parser', () => {
     const registry = new ExecutorRegistry().register({
@@ -157,7 +214,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to 39 job capabilities and 50 type/version combinations', () => {
+  it('locks the production Worker to 39 job capabilities and 52 type/version combinations', () => {
     const fetchImpl = vi.fn<typeof fetch>()
     const registry = createWorkerExecutorRegistry({
       fetchImpl,
@@ -193,10 +250,10 @@ describe('ExecutorRegistry', () => {
     expect(capabilities.find((row) => row.jobType === 'ARTWORK_DEDUP_MAINTENANCE')).toEqual({
       jobType: 'ARTWORK_DEDUP_MAINTENANCE',
       executionLane: 'BACKGROUND_WRITER',
-      definitionVersions: [1, 2, 3]
+      definitionVersions: [1, 2, 3, 4]
     })
     expect(capabilities).toHaveLength(39)
-    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(50)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(52)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
       [1, 2, 3, 4, 5]
     )
@@ -205,6 +262,9 @@ describe('ExecutorRegistry', () => {
       capabilities.find((capability) => capability.jobType === 'ARCHIVE_TITLE_RULE_PREVIEW')?.definitionVersions
     ).toEqual([1, 2])
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
+    expect(capabilities.find((capability) => capability.jobType === 'ARTWORK_DEDUP_SCAN')?.definitionVersions).toEqual([
+      1, 2, 3
+    ])
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_IMPORT')?.definitionVersions).toEqual([
       1, 2
     ])
@@ -227,9 +287,14 @@ describe('ExecutorRegistry', () => {
       capabilities
         .filter(
           (capability) =>
-            !['SCAN', 'ARCHIVE_IMPORT', 'ARCHIVE_SEARCH_SCAN', 'ARCHIVE_TITLE_RULE_PREVIEW', 'ARTWORK_DEDUP_MAINTENANCE', 'ARTWORK_DEDUP_SCAN'].includes(
-              capability.jobType
-            )
+            ![
+              'SCAN',
+              'ARCHIVE_IMPORT',
+              'ARCHIVE_SEARCH_SCAN',
+              'ARCHIVE_TITLE_RULE_PREVIEW',
+              'ARTWORK_DEDUP_MAINTENANCE',
+              'ARTWORK_DEDUP_SCAN'
+            ].includes(capability.jobType)
         )
         .every((capability) => capability.definitionVersions.length === 1 && capability.definitionVersions[0] === 1)
     ).toBe(true)

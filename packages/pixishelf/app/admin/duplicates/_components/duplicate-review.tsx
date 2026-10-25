@@ -9,6 +9,8 @@ import { Empty, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { useTRPC } from '@/lib/trpc'
 import { DuplicateGroupRow } from './duplicate-group-row'
 import { DuplicateMembersSheet } from './duplicate-members-sheet'
+import { DuplicateComparisonSheet } from './duplicate-comparison-sheet'
+import { DuplicateVisualRow } from './duplicate-visual-row'
 import { DuplicatePagination } from './duplicate-pagination'
 import { DuplicateLoading, DuplicateQueryError } from './duplicate-query-feedback'
 import {
@@ -21,7 +23,14 @@ import { useDuplicateIntent } from './use-duplicate-intent'
 import { canKeepDuplicateMember } from './duplicate-relation'
 
 type Draft = { group: ArtworkDedupGroupDto; keeperId: number }
-export function DuplicateReview({
+export function DuplicateReview(props: {
+  userId: string
+  runId: string
+  onOperation: (operation: ArtworkDedupOperationDto) => void
+}) {
+  return <AccountDuplicateReview key={`${props.userId}:${props.runId}`} {...props} />
+}
+function AccountDuplicateReview({
   userId,
   runId,
   onOperation
@@ -52,8 +61,8 @@ export function DuplicateReview({
   const summary = duplicateSelectionSummary(selection, page?.recommendedGroupCount ?? 0)
   const hasSelection = summary.groups === null || summary.groups > 0
   const preparing = intent.pending.has('prepare')
-  const unsettledSelection = Object.values(drafts).some((draft) =>
-    isDuplicateGroupSelected(selection, draft.group.groupId, true)
+  const unsettledSelection = Object.values(drafts).some(
+    (draft) => draft.group.relationKind !== 'VISUAL' && isDuplicateGroupSelected(selection, draft.group.groupId, true)
   )
   function refreshReview(groupId: string) {
     setCursors([undefined])
@@ -111,13 +120,15 @@ export function DuplicateReview({
       }
     )
   }
-  function prepareSelection() {
+  function prepareSelection(visualGroup?: ArtworkDedupGroupDto) {
+    const visual = visualGroup?.relationKind === 'VISUAL' ? effectiveGroup(visualGroup) : null
+    if (visual && (!visual.savedReview || drafts[visual.groupId])) return
     if (
       !page?.allowedActions.includes('PREPARE_CLEANUP') ||
       query.isError ||
       query.isFetching ||
-      unsettledSelection ||
-      summary.groups === 0 ||
+      (!visual && unsettledSelection) ||
+      (!visual && summary.groups === 0) ||
       preparing
     ) {
       return
@@ -128,7 +139,7 @@ export function DuplicateReview({
       protocolVersion: 1 as const,
       expectedRunVersion: page.runVersion,
       expectedReviewRevision: Math.max(page.reviewRevision, savedRevision),
-      selection: selection.input,
+      selection: visual ? { kind: 'EXPLICIT' as const, groupIds: [visual.groupId] } : selection.input,
       expectedUserId: userId
     }
     void intent.execute(
@@ -186,44 +197,67 @@ export function DuplicateReview({
               </EmptyHeader>
             </Empty>
           ) : (
-            page.items.map((raw) => {
-              const group = effectiveGroup(raw)
-              const keeperId =
-                drafts[group.groupId]?.keeperId ??
-                group.savedReview?.keeperArtworkId ??
-                group.recommendedKeeperArtworkId
-              const eligible =
-                group.eligibility === 'ELIGIBLE' || (group.eligibility === 'NEEDS_CHOICE' && Boolean(group.savedReview))
-              return (
-                <DuplicateGroupRow
-                  key={group.groupId}
-                  group={group}
-                  keeperId={keeperId}
-                  selected={isDuplicateGroupSelected(selection, group.groupId, eligible)}
-                  selectable={eligible && keeperId !== null && Boolean(page.allowedActions.includes('PREPARE_CLEANUP'))}
-                  saving={intent.pending.has(`review:${group.groupId}`)}
-                  failed={Boolean(drafts[group.groupId]) && intent.failed.has(`review:${group.groupId}`)}
-                  errorMessage={
-                    save.variables?.groupId === group.groupId && save.error?.data?.code === 'CONFLICT'
-                      ? save.error.message
-                      : undefined
-                  }
-                  disabled={!canSave || preparing}
-                  onSelect={(checked) => {
-                    try {
-                      setSelection(toggleDuplicateGroup(selection, group.groupId, checked, group.memberCount - 1))
-                      setSelectionError('')
-                    } catch (error) {
-                      setSelectionError((error as Error).message)
+            page.items
+              .filter((group) => group.relationKind !== 'VISUAL')
+              .map((raw) => {
+                const group = effectiveGroup(raw)
+                const keeperId =
+                  drafts[group.groupId]?.keeperId ??
+                  group.savedReview?.keeperArtworkId ??
+                  group.recommendedKeeperArtworkId
+                const eligible =
+                  group.eligibility === 'ELIGIBLE' ||
+                  (group.eligibility === 'NEEDS_CHOICE' && Boolean(group.savedReview))
+                return (
+                  <DuplicateGroupRow
+                    key={group.groupId}
+                    group={group}
+                    keeperId={keeperId}
+                    selected={isDuplicateGroupSelected(selection, group.groupId, eligible)}
+                    selectable={
+                      eligible && keeperId !== null && Boolean(page.allowedActions.includes('PREPARE_CLEANUP'))
                     }
-                  }}
-                  onKeep={(id) => chooseKeeper(group, id)}
-                  onDetails={() => setDetailGroup(group)}
-                  onRetry={() => retryGroup(group.groupId)}
-                />
-              )
-            })
+                    saving={intent.pending.has(`review:${group.groupId}`)}
+                    failed={Boolean(drafts[group.groupId]) && intent.failed.has(`review:${group.groupId}`)}
+                    errorMessage={
+                      save.variables?.groupId === group.groupId && save.error?.data?.code === 'CONFLICT'
+                        ? save.error.message
+                        : undefined
+                    }
+                    disabled={!canSave || preparing}
+                    onSelect={(checked) => {
+                      try {
+                        setSelection(toggleDuplicateGroup(selection, group.groupId, checked, group.memberCount - 1))
+                        setSelectionError('')
+                      } catch (error) {
+                        setSelectionError((error as Error).message)
+                      }
+                    }}
+                    onKeep={(id) => chooseKeeper(group, id)}
+                    onDetails={() => setDetailGroup(group)}
+                    onRetry={() => retryGroup(group.groupId)}
+                  />
+                )
+              })
           )}
+          {page.items.some((group) => group.relationKind === 'VISUAL') ? (
+            <section aria-label="疑似版本结果">
+              <h2 className="pt-3 text-sm font-medium">疑似版本</h2>
+              {page.items
+                .filter((group) => group.relationKind === 'VISUAL')
+                .map((raw) => {
+                  const group = effectiveGroup(raw)
+                  return (
+                    <DuplicateVisualRow
+                      key={group.groupId}
+                      group={group}
+                      disabled={preparing}
+                      onDetails={() => setDetailGroup(group)}
+                    />
+                  )
+                })}
+            </section>
+          ) : null}
           {cursors.length > 1 || page.nextCursor ? (
             <DuplicatePagination
               page={cursors.length - 1}
@@ -281,7 +315,7 @@ export function DuplicateReview({
                     type="button"
                     className="min-h-11"
                     disabled={preparing || unsettledSelection || query.isFetching || query.isError}
-                    onClick={prepareSelection}
+                    onClick={() => prepareSelection()}
                   >
                     {preparing ? '正在准备' : '核对并删除'}
                   </Button>
@@ -291,7 +325,38 @@ export function DuplicateReview({
           ) : null}
         </>
       ) : null}
-      {detailGroup ? (
+      {detailGroup?.relationKind === 'VISUAL' ? (
+        <DuplicateComparisonSheet
+          key={`${userId}:${runId}:${detailGroup.groupId}`}
+          userId={userId}
+          runId={runId}
+          group={effectiveGroup(detailGroup)}
+          keeperId={
+            drafts[detailGroup.groupId]?.keeperId ?? effectiveGroup(detailGroup).savedReview?.keeperArtworkId ?? null
+          }
+          savedKeeperId={effectiveGroup(detailGroup).savedReview?.keeperArtworkId ?? null}
+          saving={intent.pending.has(`review:${detailGroup.groupId}`)}
+          failed={Boolean(drafts[detailGroup.groupId]) && intent.failed.has(`review:${detailGroup.groupId}`)}
+          preparing={preparing}
+          canPrepare={Boolean(page?.allowedActions.includes('PREPARE_CLEANUP')) && !query.isError && !query.isFetching}
+          errorMessage={
+            save.variables?.groupId === detailGroup.groupId && save.error?.data?.code === 'CONFLICT'
+              ? save.error.message
+              : undefined
+          }
+          prepareError={
+            intent.failed.has('prepare')
+              ? prepare.error?.data?.code === 'CONFLICT'
+                ? prepare.error.message
+                : '预览尚未确认，请重试同一次处理。'
+              : undefined
+          }
+          onClose={() => setDetailGroup(null)}
+          onKeep={chooseKeeper}
+          onRetry={() => retryGroup(detailGroup.groupId)}
+          onPrepare={() => prepareSelection(effectiveGroup(detailGroup))}
+        />
+      ) : detailGroup ? (
         <DuplicateMembersSheet
           key={detailGroup.groupId}
           userId={userId}

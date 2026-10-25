@@ -6,6 +6,11 @@ import {
 } from './production-capabilities.js'
 
 const DEFAULT_FRESHNESS_MS = 60_000
+const EXPECTED_JOB_TYPES = PRODUCTION_WORKER_CAPABILITIES.length
+const EXPECTED_VERSIONS = PRODUCTION_WORKER_CAPABILITIES.reduce(
+  (total, capability) => total + capability.definitionVersions.length,
+  0
+)
 
 interface ReadyWorkerRecord {
   capabilities: unknown
@@ -50,7 +55,7 @@ export async function auditProductionWorkerCapabilities(
     assertProductionWorkerCapabilities(actual)
   } catch {
     throw new CapabilityAuditError(
-      'online READY Worker capability inventory does not match the 39-job/48-version three-lane release'
+      `online READY Worker capability inventory does not match the ${EXPECTED_JOB_TYPES}-job/${EXPECTED_VERSIONS}-version three-lane release`
     )
   }
   const expected = canonicalWorkerCapabilities(PRODUCTION_WORKER_CAPABILITIES)
@@ -90,7 +95,7 @@ export async function runCapabilityAudit(
     return 1
   }
   writeOutput(
-    `Worker capability audit passed: ${result.readyWorkers} READY Worker, ${result.capabilities} job types / 48 versions (SCAN v1/v2/v3, ARCHIVE_IMPORT v1/v2, ARCHIVE_SEARCH_SCAN v1/v2/v3/v4/v5, ARCHIVE_TITLE_RULE_PREVIEW v1/v2, ARTWORK_DEDUP_MAINTENANCE v1/v2)`
+    `Worker capability audit passed: ${result.readyWorkers} READY Worker, ${result.capabilities} job types / ${EXPECTED_VERSIONS} versions`
   )
   return 0
 }

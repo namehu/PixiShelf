@@ -47,6 +47,8 @@ function createRun(overrides: Partial<ArtworkDedupRunDto> = {}): ArtworkDedupRun
     stage: 'STAT',
     mode: 'INCREMENTAL',
     includesContainment: true,
+    visualStatus: 'NOT_REQUESTED',
+    visualIncompleteReasons: [],
     frozenAt: '2026-10-23T00:00:00.000Z',
     startedAt: '2026-10-23T00:00:01.000Z',
     finishedAt: null,
@@ -130,6 +132,36 @@ describe('duplicate check page', () => {
     expect(mocks.replace).toHaveBeenCalledWith('/admin/duplicates?artistId=7&runId=run-1', { scroll: false })
   })
 
+  it('keeps suspected-version checking optional and sends only an explicit opt-in', async () => {
+    mountPage()
+    await screen.findByText('找出重复的作品')
+    fireEvent.click(screen.getByRole('button', { name: '检查选项' }))
+    const option = screen.getByRole('checkbox', { name: '检查疑似版本' })
+    expect(option.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(option)
+    fireEvent.keyDown(option, { key: 'Escape' })
+    fireEvent.click(screen.getByRole('button', { name: '开始检查' }))
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(1))
+    expect(mocks.start.mock.calls[0]![0]).toMatchObject({ includeSuspectedVersions: true, expectedUserId: 'user-a' })
+  })
+  it('explains a bounded incomplete visual check while keeping exact results available', () => {
+    render(
+      <DuplicateRunStatus
+        run={createRun({
+          status: 'COMPLETED',
+          visualStatus: 'INCOMPLETE',
+          visualIncompleteReasons: ['VISUAL_FILE_BUDGET'],
+          allowedControls: []
+        })}
+        pending={null}
+        disabled={false}
+        onControl={() => {}}
+      />
+    )
+    expect(screen.getByText(/超过本次 10,000 张静态图片上限/)).toBeTruthy()
+    expect(screen.getByText(/精确和包含结果仍可核对/)).toBeTruthy()
+    expect(screen.queryByText('没有找到重复作品')).toBeNull()
+  })
   it('loads a persisted run and waits for server confirmation before exposing resume', async () => {
     mocks.getRun.mockResolvedValue(createRun())
     mountPage('run-1')

@@ -69,9 +69,13 @@ async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedup
           orderBy: [{ finishedAt: 'desc' }, { id: 'desc' }],
           select: { id: true, version: true, finishedAt: true, groupCount: true }
         })
-  const job = run.jobId ? await tx.systemJob.findUnique({ where: { id: run.jobId }, select: { definitionVersion: true } }) : null
+  const job = run.jobId
+    ? await tx.systemJob.findUnique({ where: { id: run.jobId }, select: { definitionVersion: true } })
+    : null
   return artworkDedupRunDtoSchema.parse({
-    includesContainment: job?.definitionVersion === ARTWORK_DEDUP_SCAN_DEFINITION_VERSION,
+    includesContainment: (job?.definitionVersion ?? 1) >= 2,
+    visualStatus: run.visualStatus,
+    visualIncompleteReasons: run.visualIncompleteReasons,
     lastCompletedRun: lastCompleted
       ? {
           runId: lastCompleted.id,
@@ -124,13 +128,27 @@ async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedup
 async function createJob(tx: Prisma.TransactionClient, run: Run) {
   const workers = await tx.workerInstance.findMany({
     where: { status: 'READY', heartbeatAt: { gte: new Date(Date.now() - WORKER_HEARTBEAT_STALE_AFTER_MS) } },
-    orderBy: { heartbeatAt: 'desc' }, take: 20, select: { capabilities: true }
+    orderBy: { heartbeatAt: 'desc' },
+    take: 20,
+    select: { capabilities: true }
   })
-  if (!workers.some(({ capabilities }) => Array.isArray(capabilities) && capabilities.some((entry) =>
-    entry !== null && typeof entry === 'object' && !Array.isArray(entry) && entry.jobType === 'ARTWORK_DEDUP_SCAN' &&
-    entry.executionLane === 'BACKGROUND_WRITER' && Array.isArray(entry.definitionVersions) &&
-    entry.definitionVersions.includes(ARTWORK_DEDUP_SCAN_DEFINITION_VERSION)))) {
-    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '需要升级并启动支持完整包含检查的 Worker 后再开始检查' })
+  if (
+    !workers.some(
+      ({ capabilities }) =>
+        Array.isArray(capabilities) &&
+        capabilities.some(
+          (entry) =>
+            entry !== null &&
+            typeof entry === 'object' &&
+            !Array.isArray(entry) &&
+            entry.jobType === 'ARTWORK_DEDUP_SCAN' &&
+            entry.executionLane === 'BACKGROUND_WRITER' &&
+            Array.isArray(entry.definitionVersions) &&
+            entry.definitionVersions.includes(ARTWORK_DEDUP_SCAN_DEFINITION_VERSION)
+        )
+    )
+  ) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '需要升级并启动支持本次检查的 Worker 后再开始检查' })
   }
   const job = await tx.systemJob.create({
     data: {
@@ -153,7 +171,13 @@ async function createJob(tx: Prisma.TransactionClient, run: Run) {
 }
 export async function startArtworkDedup(
   userId: string,
-  input: { artistId: number; expectedUserId: string; idempotencyKey: string; mode: 'INCREMENTAL' | 'FULL' },
+  input: {
+    artistId: number
+    expectedUserId: string
+    idempotencyKey: string
+    mode: 'INCREMENTAL' | 'FULL'
+    includeSuspectedVersions?: boolean
+  },
   database: Database = prisma as unknown as Database
 ) {
   assertArtworkDedupAccount(userId, input.expectedUserId)
@@ -166,7 +190,8 @@ export async function startArtworkDedup(
         artistId: input.artistId,
         requestedBy: userId,
         idempotencyKey: input.idempotencyKey,
-        mode: input.mode
+        mode: input.mode,
+        includeSuspectedVersions: input.includeSuspectedVersions ?? false
       })
       return dto(tx, result.created ? await createJob(tx, result.run) : result.run)
     })
@@ -250,6 +275,7 @@ export async function controlArtworkDedup(
         ) {
           conflict('该艺术家已有活动检查')
         }
+        await tx.artworkDedupVisualPair.deleteMany({ where: { runId: run.id } })
         await tx.artworkDedupRelation.deleteMany({ where: { runId: run.id } })
         await tx.artworkDedupGroup.deleteMany({ where: { runId: run.id } })
         await tx.artworkDedupMedia.deleteMany({ where: { runId: run.id } })
@@ -273,6 +299,9 @@ export async function controlArtworkDedup(
             executionVersion: { increment: 1 },
             version: { increment: 1 },
             stage: 'STAT',
+            visualStatus: run.includeSuspectedVersions ? 'PENDING' : 'NOT_REQUESTED',
+            visualIncompleteReasons: [],
+            visualAfterImageId: 0,
             relationAfterArtworkId: 0,
             relationAfterCandidateId: 0,
             finishedAt: null,
