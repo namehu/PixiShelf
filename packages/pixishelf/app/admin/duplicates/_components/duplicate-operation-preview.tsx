@@ -3,10 +3,11 @@
 import type { ArtworkDedupOperationDto } from '@pixishelf/job-contracts'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
+import { Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Badge } from '@/components/ui/badge'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useTRPC } from '@/lib/trpc'
 import { DuplicateMemberRow } from './duplicate-member-row'
 import { DuplicateOrganization } from './duplicate-organization'
@@ -60,27 +61,23 @@ export function DuplicateOperationPreview({
     onReady(ready ? operation.version : null)
   }, [ready, operation.version, onReady])
   return (
-    <section className="flex flex-col gap-3" aria-label="批次清单">
-      <h3 className="text-sm font-medium">服务器冻结的批次清单</h3>
-      <p className="text-xs leading-5 text-muted-foreground">
-        包含未加载页。作品、文件与来源均由服务器确定；不会仅删除当前页面的项目。
-      </p>
-      <Tabs
-        value={kind}
-        onValueChange={(value) => {
-          setKind(value as 'ARTWORKS' | 'FILES')
-          setCursors([undefined])
-        }}
-      >
-        <TabsList className="h-auto">
-          <TabsTrigger value="ARTWORKS" className="min-h-11">
-            保留者与副本
-          </TabsTrigger>
-          <TabsTrigger value="FILES" className="min-h-11">
-            原件与附属文件
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+    <section className="flex min-w-0 flex-col" aria-label="批次清单">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-medium">{kind === 'ARTWORKS' ? '作品' : '文件清单'}</h3>
+        <Button
+          variant="ghost"
+          className="min-h-11"
+          onClick={() => {
+            setKind(kind === 'ARTWORKS' ? 'FILES' : 'ARTWORKS')
+            setCursors([undefined])
+          }}
+        >
+          {kind === 'ARTWORKS' ? '查看文件清单' : '返回作品'}
+        </Button>
+      </div>
+      {operation.mode === 'PREPARE' && operation.counts.selectedGroups > 1 ? (
+        <p className="text-xs text-muted-foreground">将处理全部已选作品，包括其他页的选择。</p>
+      ) : null}
       {query.isError ? (
         <DuplicateQueryError
           busy={query.isFetching}
@@ -101,69 +98,96 @@ export function DuplicateOperationPreview({
           ) : null}
           {preview.kind === 'ARTWORKS'
             ? preview.items.map((item) => (
-                <div key={item.itemId} className="border-b py-2">
-                  <DuplicateMemberRow member={item} keeper={item.role === 'KEEPER'} />
-                  <p className="px-3 pb-2 text-xs text-muted-foreground">
-                    {item.role === 'KEEPER'
-                      ? '保留作品，不删除、不合并整理记录'
-                      : `删除副本 · ${duplicateFileStatus(item.status)}`}
-                    <br />
-                    {BigInt(item.mediaCount).toLocaleString()} 个登记原媒体 · {BigInt(item.fileCount).toLocaleString()}{' '}
-                    个清单文件 · 创建于 {new Date(item.createdAt).toLocaleDateString('zh-CN')}
-                  </p>
+                <div key={item.itemId} className="border-b py-1 last:border-b-0">
+                  <DuplicateMemberRow
+                    member={item}
+                    keeper={item.role === 'KEEPER'}
+                    metadata={`${BigInt(item.mediaCount).toLocaleString()} 项媒体`}
+                    unavailable={item.status === 'DELETED' || item.status === 'PURGED'}
+                    statusLabel={
+                      item.role === 'KEEPER'
+                        ? '保留'
+                        : item.status === 'DELETED' || item.status === 'PURGED'
+                          ? '已删除'
+                          : operation.mode === 'PREPARE' && item.status !== 'BLOCKED'
+                            ? '待删除'
+                            : duplicateFileStatus(item.status)
+                    }
+                    actions={
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="size-11 shrink-0"
+                            aria-label={`查看${item.title}的详情`}
+                          >
+                            <Info className="text-muted-foreground" aria-hidden="true" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          align="end"
+                          aria-label={`${item.title}的详情`}
+                          className="max-h-[min(70dvh,480px)] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto"
+                        >
+                          <PrivacySensitiveText as="p" className="mb-2 text-sm font-medium break-words">
+                            {item.title}
+                          </PrivacySensitiveText>
+                          {item.personalRecords === 'CURRENT' ? (
+                            <>
+                              <p className="pb-2 text-xs text-muted-foreground">
+                                {operation.mode === 'PREPARE' && item.role === 'COPY'
+                                  ? '删除副本时，这些整理记录也会删除，不会转移到保留作品。'
+                                  : '我的整理记录'}
+                              </p>
+                              <DuplicateOrganization member={item} />
+                            </>
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              {item.personalRecords === 'REMOVED'
+                                ? '整理记录已随副本删除，未保留历史个人明细。'
+                                : '当前无法读取整理记录。'}
+                            </p>
+                          )}
+                          <div
+                            className="mt-3 flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground"
+                            aria-label={`${item.title}的来源保护`}
+                          >
+                            {item.sources.length > 0 ? (
+                              item.sources.map((source) => (
+                                <p key={source.sourceId} className="flex flex-wrap items-center gap-2 break-all">
+                                  <PrivacySensitiveText>{source.displayName}</PrivacySensitiveText>
+                                  <Badge variant="secondary">
+                                    {source.status === 'TOMBSTONE'
+                                      ? '防止重复导入'
+                                      : source.status === 'HOLD'
+                                        ? '正在处理'
+                                        : item.role === 'KEEPER'
+                                          ? '保留来源'
+                                          : item.status === 'DELETED'
+                                            ? '允许重新导入'
+                                            : '删除后防止重复导入'}
+                                  </Badge>
+                                </p>
+                              ))
+                            ) : (
+                              <p>无可重新导入的来源。</p>
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    }
+                  />
                   {item.reasons.length > 0 ? (
-                    <p className="px-3 pb-2 text-sm text-warning">
+                    <p className="pb-2 pl-14 text-sm text-warning">
                       {item.reasons.map(duplicateBlockReason).join('；')}
                     </p>
                   ) : null}
-                  <details className="px-3">
-                    <summary className="flex min-h-11 cursor-pointer items-center text-sm text-primary">
-                      我的整理记录
-                    </summary>
-                    {item.personalRecords === 'CURRENT' ? (
-                      <>
-                        <p className="pb-2 text-xs text-muted-foreground">
-                          当前账户的实时记录，执行前会再次复核。副本记录随删除清理，不合并。
-                        </p>
-                        <DuplicateOrganization member={item} />
-                      </>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        {item.personalRecords === 'REMOVED'
-                          ? '整理记录已随副本删除，未保留历史个人明细。'
-                          : '当前无法读取整理记录。'}
-                      </p>
-                    )}
-                  </details>
-                  <div
-                    className="flex flex-col gap-2 px-3 py-2 text-xs text-muted-foreground"
-                    aria-label={`${item.title}的来源保护`}
-                  >
-                    {item.sources.length > 0 ? (
-                      item.sources.map((source) => (
-                        <p key={source.sourceId} className="flex flex-wrap items-center gap-2 break-all">
-                          <PrivacySensitiveText>{source.displayName}</PrivacySensitiveText>
-                          <Badge variant="secondary">
-                            {source.status === 'TOMBSTONE'
-                              ? '已抑制重新导入'
-                              : source.status === 'HOLD'
-                                ? '处理中，来源受保护'
-                                : item.role === 'KEEPER'
-                                  ? '保留来源'
-                                  : item.status === 'DELETED'
-                                    ? '已允许新输入'
-                                    : '删除后保留来源抑制'}
-                          </Badge>
-                        </p>
-                      ))
-                    ) : (
-                      <p>未登记可重新发现的来源，不生成额外来源。</p>
-                    )}
-                  </div>
                 </div>
               ))
             : preview.items.map((file) => (
-                <div key={file.fileId} className="border-b py-4">
+                <div key={file.fileId} className="border-b py-4 last:border-b-0">
                   <PrivacySensitiveText as="p" className="break-all text-sm">
                     {file.relativeName}
                   </PrivacySensitiveText>
@@ -198,19 +222,28 @@ export function DuplicateOperationPreview({
                   ) : null}
                 </div>
               ))}
-          <DuplicatePagination
-            page={cursors.length - 1}
-            hasNext={Boolean(preview.nextCursor)}
-            busy={query.isFetching}
-            onPrevious={() => setCursors((value) => value.slice(0, -1))}
-            onNext={() => {
-              if (preview.nextCursor) setCursors((value) => [...value, preview.nextCursor!])
-            }}
-          />
+          {cursors.length > 1 || preview.nextCursor ? (
+            <DuplicatePagination
+              page={cursors.length - 1}
+              hasNext={Boolean(preview.nextCursor)}
+              busy={query.isFetching}
+              onPrevious={() => setCursors((value) => value.slice(0, -1))}
+              onNext={() => {
+                if (preview.nextCursor) setCursors((value) => [...value, preview.nextCursor!])
+              }}
+            />
+          ) : null}
         </>
       ) : !query.isError && !query.isFetching ? (
-        <Button variant="outline" className="min-h-11" onClick={onRefresh}>
-          清单已更新，刷新批次状态
+        <Button
+          variant="outline"
+          className="min-h-11"
+          onClick={() => {
+            onRefresh()
+            void query.refetch()
+          }}
+        >
+          清单已更新，点击刷新
         </Button>
       ) : null}
       <DuplicateReimport

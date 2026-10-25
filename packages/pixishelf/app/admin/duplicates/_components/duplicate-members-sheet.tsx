@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Button } from '@/components/ui/button'
 import { useTRPC } from '@/lib/trpc'
+import { duplicateBlockReason } from './duplicate-operation-state'
 import { DuplicateMemberRow } from './duplicate-member-row'
 import { DuplicateOrganization } from './duplicate-organization'
 import { DuplicatePagination } from './duplicate-pagination'
@@ -72,8 +73,8 @@ export function DuplicateMembersSheet({
         }}
       >
         <SheetHeader className="pr-14">
-          <SheetTitle>作品差异</SheetTitle>
-          <SheetDescription>选择保留作品，整理记录不会自动合并。</SheetDescription>
+          <SheetTitle>保留哪一部？</SheetTitle>
+          <SheetDescription>图片内容相同，可以根据评分、书签和阅读进度选择。</SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           {query.isError ? (
@@ -90,7 +91,7 @@ export function DuplicateMembersSheet({
           ) : page ? (
             <>
               {page.group.reasons.length > 0 ? (
-                <p className="py-3 text-sm text-warning">{page.group.reasons.join('；')}</p>
+                <p className="py-3 text-sm text-warning">{page.group.reasons.map(duplicateBlockReason).join('；')}</p>
               ) : null}
               {page.keeper && !page.items.some((item) => item.artworkId === page.keeper!.artworkId) ? (
                 <section className="border-b pb-4">
@@ -100,7 +101,7 @@ export function DuplicateMembersSheet({
                   </DuplicateMemberRow>
                 </section>
               ) : null}
-              <fieldset disabled={!canSave} aria-label="选择本组保留作品" className="divide-y divide-border">
+              <fieldset disabled={!canSave} aria-label="选择本组保留作品" className="min-w-0 divide-y divide-border">
                 {page.items.map((member) => (
                   <DuplicateMemberRow
                     key={member.artworkId}

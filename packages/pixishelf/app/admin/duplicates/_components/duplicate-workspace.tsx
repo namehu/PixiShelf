@@ -33,7 +33,7 @@ export function DuplicateWorkspace({
   if (!artistId) return children
   return (
     <>
-      <Tabs value={tab} onValueChange={setTab} className="mt-4">
+      <Tabs value={tab} onValueChange={setTab} className="mt-3 gap-0">
         <TabsList className="h-auto p-1">
           <TabsTrigger value="results" className="min-h-11 px-5">
             检查结果

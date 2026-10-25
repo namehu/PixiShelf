@@ -65,12 +65,12 @@ describe('duplicate review', () => {
   it('keeps a failed keeper choice visible and blocks selected groups from preparing', async () => {
     mocks.save.mockRejectedValue(new Error('conflict'))
     mount()
-    await screen.findByText('25 组内容相同')
+    await screen.findByText('选择保留作品')
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('radio', { name: '保留 作品 2' }))
     await screen.findByText('未保存，暂不能预览本组')
     expect((screen.getByRole('radio', { name: '保留 作品 2' }) as HTMLInputElement).checked).toBe(true)
-    expect((screen.getByRole('button', { name: '预览删除' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(true)
     expect(mocks.prepare).not.toHaveBeenCalled()
     expect(mocks.save.mock.calls[0]![0]).toMatchObject({
       expectedUserId: 'user-a',
@@ -85,13 +85,13 @@ describe('duplicate review', () => {
       reviewRevision: 1
     })
     mount()
-    await screen.findByText('25 组内容相同')
+    await screen.findByText('选择保留作品')
     fireEvent.click(screen.getByRole('radio', { name: '保留 作品 2' }))
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(screen.queryByText('正在保存保留选择…')).toBeNull())
-    expect(screen.queryByRole('button', { name: '预览删除' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '核对并删除' })).toBeNull()
     fireEvent.click(screen.getByRole('checkbox'))
-    fireEvent.click(screen.getByRole('button', { name: '预览删除' }))
+    fireEvent.click(screen.getByRole('button', { name: '核对并删除' }))
     await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1))
     expect(mocks.prepare.mock.calls[0]![0]).toMatchObject({
       purpose: 'DIRECT_DELETE',
@@ -109,10 +109,10 @@ describe('duplicate review', () => {
         })
     )
     mount()
-    await screen.findByText('25 组内容相同')
-    fireEvent.click(screen.getByRole('button', { name: '选择全部推荐（25 组）' }))
-    expect(screen.getByText(/包含未加载页/)).toBeTruthy()
-    const prepare = screen.getByRole('button', { name: '预览删除' })
+    await screen.findByText('选择保留作品')
+    fireEvent.click(screen.getByRole('button', { name: '按推荐全选（25 组）' }))
+    expect(screen.getByText(/包括其他页的推荐组/)).toBeTruthy()
+    const prepare = screen.getByRole('button', { name: '核对并删除' })
     fireEvent.click(prepare)
     fireEvent.click(prepare)
     await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1))
@@ -127,7 +127,7 @@ describe('duplicate review', () => {
   it('retains prepare and clear after an excluded group loses recommendation eligibility', async () => {
     mocks.list.mockResolvedValue(page({ items: [group('A')], recommendedGroupCount: 2 }))
     mount()
-    fireEvent.click(await screen.findByRole('button', { name: '选择全部推荐（2 组）' }))
+    fireEvent.click(await screen.findByRole('button', { name: '按推荐全选（2 组）' }))
     fireEvent.click(screen.getByRole('checkbox'))
     mocks.list.mockResolvedValue(page({ items: [group('B')], recommendedGroupCount: 1 }))
     await act(async () => {
@@ -135,7 +135,7 @@ describe('duplicate review', () => {
     })
     await screen.findByText('全部推荐 · 当前 1 组推荐，已排除 1 组')
     expect(screen.getByRole('checkbox').getAttribute('aria-checked')).toBe('true')
-    const prepare = screen.getByRole('button', { name: '预览删除' }) as HTMLButtonElement
+    const prepare = screen.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement
     expect(prepare.disabled).toBe(false)
     fireEvent.click(prepare)
     await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1))
@@ -143,17 +143,18 @@ describe('duplicate review', () => {
       selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: ['A'] }
     })
     await waitFor(() =>
-      expect((screen.getByRole('button', { name: '清除选择' }) as HTMLButtonElement).disabled).toBe(false)
+      expect((screen.getByRole('button', { name: '取消选择' }) as HTMLButtonElement).disabled).toBe(false)
     )
-    fireEvent.click(screen.getByRole('button', { name: '清除选择' }))
+    fireEvent.click(screen.getByRole('button', { name: '取消选择' }))
     expect(screen.queryByLabelText('跨页选择范围')).toBeNull()
   })
   it.each([320, 390])(
     'keeps the wrapping selection bar above navigation at the %dpx mobile layout boundary',
     async (width) => {
       vi.stubGlobal('innerWidth', width)
+      mocks.list.mockResolvedValue(page({ nextCursor: 'page-2' }))
       mount()
-      await screen.findByText('25 组内容相同')
+      await screen.findByText('选择保留作品')
       fireEvent.click(screen.getByRole('checkbox'))
       const bar = screen.getByLabelText('跨页选择范围')
       const pagination = screen.getByRole('navigation', { name: '结果分页' })
@@ -163,16 +164,16 @@ describe('duplicate review', () => {
       expect(bar.classList.contains('flex-wrap')).toBe(true)
       expect(bar.parentElement?.classList.contains('pb-[calc(var(--app-mobile-navigation-offset)+1.5rem)]')).toBe(true)
       expect(pagination.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-      expect(screen.getByRole('button', { name: '预览删除' }).classList.contains('min-h-11')).toBe(true)
-      expect(screen.getByRole('button', { name: '清除选择' }).classList.contains('min-h-11')).toBe(true)
+      expect(screen.getByRole('button', { name: '核对并删除' }).classList.contains('min-h-11')).toBe(true)
+      expect(screen.getByRole('button', { name: '取消选择' }).classList.contains('min-h-11')).toBe(true)
     }
   )
   it('shows no executable selection controls before server actions open', async () => {
     mocks.list.mockResolvedValue(page({ allowedActions: [] }))
     mount()
-    await screen.findByText('25 组内容相同')
-    expect(screen.queryByRole('button', { name: /选择全部推荐/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: '预览删除' })).toBeNull()
+    await screen.findByText('选择保留作品')
+    expect(screen.queryByRole('button', { name: /按推荐全选/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: '核对并删除' })).toBeNull()
     expect((screen.getByRole('checkbox') as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('radio', { name: '保留 作品 2' }) as HTMLInputElement).disabled).toBe(true)
   })
@@ -212,7 +213,7 @@ describe('review revision cursor recovery', () => {
       }
     })
     mount()
-    await screen.findByText('25 组内容相同')
+    await screen.findByText('选择保留作品')
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
     await screen.findByRole('radio', { name: '保留 作品 42' })
@@ -221,7 +222,7 @@ describe('review revision cursor recovery', () => {
     fireEvent.click(screen.getByRole('radio', { name: '保留 作品 42' }))
     await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1))
     await screen.findByRole('radio', { name: '保留 作品 1' })
-    expect(screen.getByText('已选 2 组 · 2 部副本')).toBeTruthy()
+    expect(screen.getByText('已选 2 组 · 2 部待删除')).toBeTruthy()
     expect(mocks.list.mock.calls.slice(queryCountBeforeSave).every(([input]) => input.cursor === undefined)).toBe(true)
     expect(invalidCursors).toEqual([])
     fireEvent.click(screen.getByRole('button', { name: '下一页' }))
@@ -229,7 +230,7 @@ describe('review revision cursor recovery', () => {
     expect((selected as HTMLInputElement).checked).toBe(true)
     expect(screen.getByRole('checkbox').getAttribute('aria-checked')).toBe('true')
     expect(mocks.list.mock.lastCall![0].cursor).toBe('groups-r1-page2')
-    fireEvent.click(screen.getByRole('button', { name: '预览删除' }))
+    fireEvent.click(screen.getByRole('button', { name: '核对并删除' }))
     await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1))
     expect(mocks.prepare.mock.calls[0]![0]).toMatchObject({
       expectedReviewRevision: 1,
@@ -277,10 +278,10 @@ describe('review revision cursor recovery', () => {
       return { review: { groupId: 'long', keeperArtworkId: keeper, reviewVersion: revision }, reviewRevision: revision }
     })
     mount()
-    await screen.findByText('1 组内容相同')
+    await screen.findByText('选择保留作品')
     fireEvent.click(screen.getByRole('checkbox'))
-    fireEvent.click(screen.getByRole('button', { name: '查看差异' }))
-    const dialog = within(await screen.findByRole('dialog', { name: '作品差异' }))
+    fireEvent.click(screen.getByRole('button', { name: '比较全部 21 部' }))
+    const dialog = within(await screen.findByRole('dialog', { name: '保留哪一部？' }))
     await dialog.findByRole('radio', { name: '保留 作品 20' })
     fireEvent.click(dialog.getByRole('button', { name: '下一页' }))
     await dialog.findByRole('radio', { name: '保留 作品 21' })
@@ -305,6 +306,6 @@ describe('review revision cursor recovery', () => {
     )
     expect(mocks.save.mock.calls[1]![0]).toMatchObject({ expectedReviewVersion: 1, keeperArtworkId: 20 })
     expect(invalidCursors).toEqual([])
-    expect(screen.getByText('已选 1 组 · 20 部副本')).toBeTruthy()
+    expect(screen.getByText('已选 1 组 · 20 部待删除')).toBeTruthy()
   })
 })

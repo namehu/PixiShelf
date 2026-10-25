@@ -49,7 +49,7 @@ function mount(value: ArtworkDedupOperationDto, ready = true) {
 }
 function confirm() {
   fireEvent.click(screen.getByRole('checkbox', { name: /我理解永久删除/ }))
-  fireEvent.click(screen.getByRole('checkbox', { name: /已暂停相关目录/ }))
+  fireEvent.click(screen.getByRole('checkbox', { name: /已暂停这些文件/ }))
 }
 beforeEach(() => {
   vi.clearAllMocks()
@@ -125,6 +125,17 @@ describe('direct delete actions', () => {
     confirm()
     view.change(operation({ version: 2, allowedActions: ['DIRECT_DELETE'] }), 'user-b', true)
     expect(screen.getAllByRole('checkbox').every((check) => check.getAttribute('aria-checked') === 'false')).toBe(true)
+  })
+
+  it('keeps cancellation available beside disabled delete consent while the preview loads', async () => {
+    mount(operation({ allowedActions: ['DIRECT_DELETE', 'CANCEL'] }), false)
+    expect((screen.getByRole('button', { name: '永久删除 1 部副本' }) as HTMLButtonElement).disabled).toBe(true)
+    const cancel = screen.getByRole('button', { name: '取消本次处理' }) as HTMLButtonElement
+    expect(cancel.disabled).toBe(false)
+    expect(screen.getAllByRole('button', { name: '取消本次处理' })).toHaveLength(1)
+    fireEvent.click(cancel)
+    await waitFor(() => expect(mocks.cancelOperation).toHaveBeenCalledTimes(1))
+    expect(mocks.directDelete).not.toHaveBeenCalled()
   })
   it('queries the same operation after an unknown response and reuses the same delete intent', async () => {
     mocks.directDelete

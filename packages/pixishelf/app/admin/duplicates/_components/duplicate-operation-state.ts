@@ -2,12 +2,12 @@ import type { ArtworkDedupOperationDto } from '@pixishelf/job-contracts'
 
 export const duplicateOperationLabels: Record<ArtworkDedupOperationDto['status'], string> = {
   BUILDING: '正在准备预览',
-  READY: '预览已就绪',
-  DRAINING: '正在等待相关写入退出',
+  READY: '确认删除',
+  DRAINING: '正在准备删除',
   VERIFYING: '正在重新核对原件',
   DELETING: '正在永久删除',
-  DELETED: '已永久删除',
-  STOPPED: '已停止，保留未完成范围',
+  DELETED: '删除完成',
+  STOPPED: '删除已停止',
   STALE: '预览已过期',
   FAILED: '处理失败',
   ISOLATING: '旧流程记录',
@@ -85,6 +85,7 @@ export function duplicateSourceLabel(source: string) {
 }
 export function duplicateBlockReason(code: string) {
   const reasons: Record<string, string> = {
+    CONTENT_OR_SCOPE_CHANGED: '作品已被修改或删除，请重新检查。',
     SNAPSHOT_CHANGED: '作品、来源或整理依据已变化，请重新预览。',
     UNKNOWN_ATTACHMENT: '发现未登记附件，不能自动删除。',
     UNVERIFIED_ARCHIVE_REVISION: '归档历史原件未通过本次一致性验证。',

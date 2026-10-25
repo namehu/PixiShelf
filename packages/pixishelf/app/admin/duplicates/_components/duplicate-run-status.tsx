@@ -1,5 +1,5 @@
 import type { ArtworkDedupControlAction, ArtworkDedupRunDto } from '@pixishelf/job-contracts'
-import { MoreHorizontal, Pause, Play, RotateCcw, X } from 'lucide-react'
+import { CircleAlert, CircleCheck, Info, MoreHorizontal, Pause, Play, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -9,30 +9,17 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
 import { Progress } from '@/components/ui/progress'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
-import { AdminStatusBadge } from '../../_components/admin-status-badge'
 
 export function isDuplicateRunActive(run: ArtworkDedupRunDto) {
   return ['PENDING', 'RETRY_WAIT', 'RUNNING', 'PAUSING', 'PAUSED', 'CANCELLING'].includes(run.status)
 }
 
-const statusLabels = {
-  PENDING: '排队中',
-  RETRY_WAIT: '等待重试',
-  RUNNING: '检查中',
-  PAUSING: '暂停中',
-  PAUSED: '已暂停',
-  CANCELLING: '取消中',
-  CANCELLED: '已取消',
-  FAILED: '已中断',
-  COMPLETED: '已完成',
-  SKIPPED: '未执行'
-}
-
 const stageLabels = {
   STAT: '正在核对作品',
-  CANDIDATES: '正在筛选候选作品',
-  HASH: '正在检查候选内容',
+  CANDIDATES: '正在比对作品',
+  HASH: '正在比对文件内容',
   GROUP: '正在整理结果',
   DONE: '检查完成'
 }
@@ -81,7 +68,14 @@ function runDescription(run: ArtworkDedupRunDto) {
     case 'FAILED':
       return run.failure?.message ?? '暂时无法完成检查，请稍后重试。'
     case 'COMPLETED':
-      return run.counts.artworks === 0 ? '该艺术家当前没有可检查的作品。' : '本次检测结果已保存。'
+      if (run.counts.failedArtworks + run.counts.changedArtworks + run.counts.skippedArtworks > 0) {
+        return `${run.counts.failedArtworks + run.counts.changedArtworks + run.counts.skippedArtworks} 部作品未完成检查，重新检查后再处理。`
+      }
+      return run.counts.artworks === 0
+        ? '该艺术家当前没有可检查的作品。'
+        : run.counts.groups > 0
+          ? '每组选一部保留，再勾选要处理的组。'
+          : '可以继续浏览，新增作品后再来检查。'
     case 'SKIPPED':
       return '本次检查没有执行。'
     default:
@@ -109,16 +103,25 @@ export function DuplicateRunStatus({
   const heading = runHeading(run)
 
   return (
-    <section aria-labelledby="duplicate-run-title" className="flex flex-col gap-6 py-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0" aria-live="polite" aria-atomic="true">
-          <AdminStatusBadge status={run.status}>{statusLabels[run.status]}</AdminStatusBadge>
-          <h2 id="duplicate-run-title" className="mt-3 text-lg font-semibold">
-            {heading}
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">{runDescription(run)}</p>
+    <section
+      aria-labelledby="duplicate-run-title"
+      className="my-3 rounded-lg border border-border bg-muted/30 px-3 py-2 sm:px-4"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="flex min-w-0 flex-1 basis-52 items-start gap-2.5 py-1.5" aria-live="polite" aria-atomic="true">
+          {unchecked > 0 || run.failure ? (
+            <CircleAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
+          ) : run.status === 'COMPLETED' ? (
+            <CircleCheck className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
+          ) : null}
+          <div className="min-w-0">
+            <h2 id="duplicate-run-title" className="text-sm leading-5 font-medium">
+              {heading}
+            </h2>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">{runDescription(run)}</p>
+          </div>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2" aria-busy={Boolean(pending)}>
+        <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1" aria-busy={Boolean(pending)}>
           {(['pause', 'resume', 'retry'] as const)
             .filter((action) => run.allowedControls.includes(action))
             .map((action) => {
@@ -165,11 +168,29 @@ export function DuplicateRunStatus({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : null}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="size-11" aria-label="检查详情">
+                <Info className="text-muted-foreground" aria-hidden="true" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent aria-label="检查详情" align="end" className="w-72 max-w-[calc(100vw-2rem)] text-sm">
+              <p className="font-medium">检查详情</p>
+              <p className="mt-2 text-muted-foreground">
+                本次检查 {counts.artworks.toLocaleString('zh-CN')} 部作品 ·{' '}
+                {run.mode === 'FULL' ? '逐一重查' : '快速检查'}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                开始于 {new Date(run.frozenAt).toLocaleString('zh-CN')}
+              </p>
+              {run.failure ? <p className="mt-3 font-mono text-xs break-all">{run.failure.code}</p> : null}
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
-      {counts.artworks > 0 ? (
-        <div className="flex max-w-2xl flex-col gap-3">
-          <p className="text-sm tabular-nums">
+      {counts.artworks > 0 && run.status !== 'COMPLETED' ? (
+        <div className="flex flex-col gap-2 pt-1 pb-2">
+          <p className="text-xs text-muted-foreground tabular-nums">
             已处理 {counts.processedArtworks.toLocaleString('zh-CN')} / {counts.artworks.toLocaleString('zh-CN')} 部作品
           </p>
           <Progress
@@ -179,46 +200,9 @@ export function DuplicateRunStatus({
             className="h-1.5"
           />
           {unchecked > 0 ? (
-            <p className="text-sm text-muted-foreground">
-              其中 {unchecked.toLocaleString('zh-CN')} 部未完成检查
-              {run.status === 'COMPLETED' && counts.groups > 0
-                ? `；已找到 ${counts.groups.toLocaleString('zh-CN')} 组内容相同的作品`
-                : ''}
-              。
-            </p>
+            <p className="text-xs text-muted-foreground">其中 {unchecked.toLocaleString('zh-CN')} 部未完成检查。</p>
           ) : null}
         </div>
-      ) : null}
-      <dl className="flex flex-wrap gap-x-8 gap-y-4 text-sm">
-        <div className="flex flex-col gap-1">
-          <dt className="text-muted-foreground">检查范围</dt>
-          <dd className="tabular-nums">开始时的 {counts.artworks.toLocaleString('zh-CN')} 部作品</dd>
-        </div>
-        <div className="flex flex-col gap-1">
-          <dt className="text-muted-foreground">检查方式</dt>
-          <dd>{run.mode === 'FULL' ? '完整检查' : '增量检查'}</dd>
-        </div>
-        <div className="flex flex-col gap-1">
-          <dt className="text-muted-foreground">范围确定于</dt>
-          <dd>
-            {new Date(run.frozenAt).toLocaleString('zh-CN', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false
-            })}
-          </dd>
-        </div>
-      </dl>
-      {run.failure ? (
-        <details className="text-sm">
-          <summary className="w-fit min-h-11 cursor-pointer py-3 text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            查看诊断
-          </summary>
-          <p className="py-2 font-mono text-xs break-all">{run.failure.code}</p>
-        </details>
       ) : null}
     </section>
   )

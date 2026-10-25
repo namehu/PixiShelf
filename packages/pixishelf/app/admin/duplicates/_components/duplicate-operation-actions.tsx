@@ -68,6 +68,7 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
       </Alert>
     )
   }
+  if (operation.status === 'DELETED') return null
   const canDelete =
     can('DIRECT_DELETE') &&
     operation.mode === 'PREPARE' &&
@@ -75,8 +76,31 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
     Boolean(operation.scopeDigest) &&
     operation.counts.blockedGroups === 0 &&
     operation.counts.copies > 0
+  const stopButton =
+    can('CANCEL') || can('STOP') ? (
+      <Button
+        variant="outline"
+        className="min-h-11"
+        disabled={disabled || busy || operation.stopRequested}
+        onClick={() => submit('stop', (key) => cancel.mutateAsync({ ...command, idempotencyKey: key }))}
+      >
+        {operation.deleteStartedAt ? '请求停止' : '取消本次处理'}
+      </Button>
+    ) : null
+  if (
+    !canDelete &&
+    !stopButton &&
+    !can('REPREPARE') &&
+    !can('RETRY_PREPARE') &&
+    !can('RETRY_OPERATION') &&
+    intent.failed.size === 0 &&
+    !operation.stopRequested &&
+    !['STALE', 'RECOVERY_REQUIRED', 'STOPPED', 'READY'].includes(operation.status)
+  ) {
+    return null
+  }
   return (
-    <section className="flex flex-col gap-4 border-t pt-5" aria-label="批次操作">
+    <section className="flex flex-col gap-3 border-t pt-3" aria-label="批次操作">
       {intent.failed.size > 0 ? (
         <Alert>
           <AlertTitle>提交结果尚未确认</AlertTitle>
@@ -99,9 +123,7 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
       ) : null}
       {operation.stopRequested && !['CANCELLED', 'STOPPED', 'DELETED'].includes(operation.status) ? (
         <p role="status" className="text-sm text-muted-foreground">
-          {operation.deleteStartedAt
-            ? '已请求停止，正在等待安全文件边界和执行退出；已删除文件无法撤销。'
-            : '已请求取消，正在核实执行退出与删除意图。结果确认前请继续保持外部停写。'}
+          {operation.deleteStartedAt ? '正在停止，已删除的文件无法恢复。' : '正在取消，结果确认前请勿修改相关文件。'}
         </p>
       ) : null}
       {canDelete ? (
@@ -109,6 +131,7 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
           copyCount={operation.counts.copies}
           busy={busy}
           disabled={disabled || !previewReady}
+          secondaryAction={stopButton}
           onConfirm={() => {
             if (!previewReady || !operation.scopeDigest) return
             submit('direct-delete', (key) =>
@@ -126,7 +149,7 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
           }}
         />
       ) : null}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-2 empty:hidden">
         {can('REPREPARE') && operation.mode === 'PREPARE' ? (
           <Button
             className="min-h-11"
@@ -159,16 +182,7 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
             {operation.mode === 'DIRECT_DELETE' ? '复核并继续原删除' : '重试原范围预览'}
           </Button>
         ) : null}
-        {can('CANCEL') || can('STOP') ? (
-          <Button
-            variant="outline"
-            className="min-h-11"
-            disabled={disabled || busy || operation.stopRequested}
-            onClick={() => submit('stop', (key) => cancel.mutateAsync({ ...command, idempotencyKey: key }))}
-          >
-            {operation.deleteStartedAt ? '请求停止' : '取消本次处理'}
-          </Button>
-        ) : null}
+        {!canDelete ? stopButton : null}
       </div>
       {operation.status === 'READY' && operation.mode === 'PREPARE' && !can('DIRECT_DELETE') ? (
         <p role="status" className="text-sm text-muted-foreground">

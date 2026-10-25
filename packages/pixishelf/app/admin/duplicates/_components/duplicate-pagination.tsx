@@ -16,6 +16,7 @@ export function DuplicatePagination({
   onNext: () => void
   label?: string
 }) {
+  if (page === 0 && !hasNext) return null
   return (
     <nav aria-label={label} className="flex items-center justify-end gap-2 py-4">
       <Button type="button" className="min-h-11" variant="ghost" disabled={page === 0 || busy} onClick={onPrevious}>

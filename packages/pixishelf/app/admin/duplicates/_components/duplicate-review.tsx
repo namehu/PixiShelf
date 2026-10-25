@@ -155,8 +155,8 @@ export function DuplicateReview({
         <DuplicateLoading />
       ) : page ? (
         <>
-          <header className="flex flex-wrap items-center justify-between gap-3 py-5">
-            <h2 className="text-base font-semibold">{page.totalGroups} 组内容相同</h2>
+          <header className="flex flex-wrap items-center justify-between gap-2 py-2">
+            <h2 className="text-sm font-medium">选择保留作品</h2>
             {page.allowedActions.includes('PREPARE_CLEANUP') && page.recommendedGroupCount > 0 ? (
               <Button
                 type="button"
@@ -168,7 +168,7 @@ export function DuplicateReview({
                   setSelectionError('')
                 }}
               >
-                选择全部推荐（{page.recommendedGroupCount} 组）
+                按推荐全选（{page.recommendedGroupCount} 组）
               </Button>
             ) : null}
           </header>
@@ -180,7 +180,7 @@ export function DuplicateReview({
           {page.items.length === 0 ? (
             <Empty>
               <EmptyHeader>
-                <EmptyTitle>没有可审核的重复组</EmptyTitle>
+                <EmptyTitle>没有需要处理的重复作品</EmptyTitle>
               </EmptyHeader>
             </Empty>
           ) : (
@@ -217,15 +217,17 @@ export function DuplicateReview({
               )
             })
           )}
-          <DuplicatePagination
-            page={cursors.length - 1}
-            hasNext={Boolean(page.nextCursor)}
-            busy={query.isFetching || preparing}
-            onPrevious={() => setCursors((value) => value.slice(0, -1))}
-            onNext={() => {
-              if (page.nextCursor) setCursors((value) => [...value, page.nextCursor!])
-            }}
-          />
+          {cursors.length > 1 || page.nextCursor ? (
+            <DuplicatePagination
+              page={cursors.length - 1}
+              hasNext={Boolean(page.nextCursor)}
+              busy={query.isFetching || preparing}
+              onPrevious={() => setCursors((value) => value.slice(0, -1))}
+              onNext={() => {
+                if (page.nextCursor) setCursors((value) => [...value, page.nextCursor!])
+              }}
+            />
+          ) : null}
           {selectionError ? (
             <p role="alert" className="py-2 text-sm text-destructive">
               {selectionError}
@@ -234,7 +236,7 @@ export function DuplicateReview({
           {intent.failed.has('prepare') ? (
             <Alert>
               <AlertTitle>预览尚未确认</AlertTitle>
-              <AlertDescription>请再次预览，重复请求会找回同一批次。</AlertDescription>
+              <AlertDescription>请重试，已提交的操作不会重复创建。</AlertDescription>
             </Alert>
           ) : null}
           {hasSelection ? (
@@ -246,10 +248,10 @@ export function DuplicateReview({
                 <p>
                   {summary.groups === null
                     ? `全部推荐 · 当前 ${summary.recommendedGroups} 组推荐，已排除 ${summary.excludedGroups} 组`
-                    : `已选 ${summary.groups} 组 · ${summary.copies} 部副本`}
+                    : `已选 ${summary.groups} 组 · ${summary.copies} 部待删除`}
                 </p>
                 {summary.groups === null ? (
-                  <p className="mt-1 text-xs text-muted-foreground">包含未加载页，实际范围以预览为准。</p>
+                  <p className="mt-1 text-xs text-muted-foreground">包括其他页的推荐组，下一步核对要删除的作品。</p>
                 ) : null}
                 {unsettledSelection ? <p className="mt-1 text-xs text-warning">请先保存所选组的保留作品。</p> : null}
               </div>
@@ -261,7 +263,7 @@ export function DuplicateReview({
                   disabled={preparing}
                   onClick={() => setSelection(emptyDuplicateSelection())}
                 >
-                  清除选择
+                  取消选择
                 </Button>
                 {page.allowedActions.includes('PREPARE_CLEANUP') ? (
                   <Button
@@ -270,7 +272,7 @@ export function DuplicateReview({
                     disabled={preparing || unsettledSelection || query.isFetching || query.isError}
                     onClick={prepareSelection}
                   >
-                    {preparing ? '正在准备' : '预览删除'}
+                    {preparing ? '正在准备' : '核对并删除'}
                   </Button>
                 ) : null}
               </div>

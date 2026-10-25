@@ -10,12 +10,10 @@ import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-tex
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSession } from '@/lib/auth/client'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { useTRPC } from '@/lib/trpc'
-import { AdminWorkbench } from '../../_components/admin-workbench'
 import { DuplicateCheckStart } from './duplicate-check-start'
 import { DuplicateWorkspace } from './duplicate-workspace'
 import { DuplicateQueryError } from './duplicate-query-feedback'
@@ -26,29 +24,31 @@ type CheckLocation = { artistId: number | null; runId: string | null; operationI
 function CheckShell({
   children,
   artistId,
-  artistName
+  artistName,
+  actions
 }: {
   children: ReactNode
   artistId?: number | null
   artistName?: string
+  actions?: ReactNode
 }) {
   return (
-    <AdminWorkbench
-      title="检查重复"
-      eyebrow={null}
-      description={
+    <div className="mx-auto w-full max-w-[1040px] px-4 pt-4 pb-[calc(2rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-5 lg:px-8">
+      <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3">
+        <h1 className="col-start-1 row-start-1 text-[22px] leading-8 font-semibold tracking-tight">检查重复</h1>
         <Link
           href={artistId ? `/artists/${artistId}` : '/artists'}
-          className="inline-flex min-h-11 items-center gap-2 text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+          className="col-span-2 col-start-1 row-start-2 inline-flex min-h-11 max-w-full items-center gap-2 text-sm text-muted-foreground outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-ring sm:col-span-1"
         >
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          {artistName ? <PrivacySensitiveText>{artistName}</PrivacySensitiveText> : '返回艺术家'}
+          <ArrowLeft className="size-4 shrink-0" aria-hidden="true" />
+          <span className="truncate">
+            {artistName ? <PrivacySensitiveText>{artistName}</PrivacySensitiveText> : '返回艺术家'}
+          </span>
         </Link>
-      }
-      className="mx-auto w-full max-w-[1040px] pb-[calc(2rem+env(safe-area-inset-bottom))]"
-    >
+        {actions ? <div className="col-start-2 row-start-1 sm:row-span-2">{actions}</div> : null}
+      </header>
       {children}
-    </AdminWorkbench>
+    </div>
   )
 }
 
@@ -70,7 +70,7 @@ export function DuplicateCheckPage({ artistId, runId, operationId }: CheckLocati
       <CheckShell>
         <Empty>
           <EmptyHeader>
-            <EmptyTitle>选择要检查的艺术家</EmptyTitle>
+            <EmptyTitle>先选择一位艺术家</EmptyTitle>
             <EmptyDescription>从艺术家详情页进入，可以检查该艺术家作品中的相同内容。</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
@@ -256,7 +256,11 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
   )
 
   return (
-    <CheckShell artistId={selectedArtistId} artistName={run?.artistName ?? artistQuery.data?.name}>
+    <CheckShell
+      artistId={selectedArtistId}
+      artistName={run?.artistName ?? artistQuery.data?.name}
+      actions={!loading && canStart && (!runId || run) && (!run || !isDuplicateRunActive(run)) ? startForm : null}
+    >
       <DuplicateWorkspace userId={userId} artistId={selectedArtistId} run={run}>
         {runQuery.isError || artistQuery.isError ? (
           <Alert className="mt-6">
@@ -288,29 +292,12 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
         {loading ? (
           <LoadingCheck />
         ) : run ? (
-          <>
-            <DuplicateRunStatus
-              run={run}
-              pending={pending}
-              disabled={Boolean(pending) || runQuery.isError}
-              onControl={(action) => void submit(action)}
-            />
-            {!isDuplicateRunActive(run) ? (
-              <>
-                <Separator />
-                <details className="max-w-md py-4">
-                  <summary className="flex min-h-11 cursor-pointer items-center text-sm text-primary">重新检查</summary>
-                  <section aria-label="重新检查" className="py-4">
-                    {canStart ? (
-                      startForm
-                    ) : !artistQuery.isPending && !artistQuery.isError ? (
-                      <p className="text-sm text-muted-foreground">该艺术家当前没有可检查的作品。</p>
-                    ) : null}
-                  </section>
-                </details>
-              </>
-            ) : null}
-          </>
+          <DuplicateRunStatus
+            run={run}
+            pending={pending}
+            disabled={Boolean(pending) || runQuery.isError}
+            onControl={(action) => void submit(action)}
+          />
         ) : !runQuery.isError && !artistQuery.isError ? (
           <Empty className="py-12">
             <EmptyHeader>
@@ -321,7 +308,7 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
                     ? '找不到这位艺术家'
                     : artistQuery.data.artworksCount === 0
                       ? '没有可检查的作品'
-                      : '还未检查'}
+                      : '找出重复的作品'}
               </EmptyTitle>
               <EmptyDescription>
                 {runId
@@ -330,10 +317,9 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
                     ? '该艺术家可能已被合并或移除。'
                     : artistQuery.data.artworksCount === 0
                       ? '添加作品后，可以回来检查相同内容。'
-                      : '检查这位艺术家作品中的相同内容，原媒体会保持不变。'}
+                      : '找出内容完全相同的作品，由你决定保留哪一部。'}
               </EmptyDescription>
             </EmptyHeader>
-            {!runId && canStart ? <EmptyContent>{startForm}</EmptyContent> : null}
           </Empty>
         ) : null}
       </DuplicateWorkspace>
