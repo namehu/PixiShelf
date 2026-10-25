@@ -138,7 +138,7 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
               directDelete.mutateAsync({
                 ...command,
                 purpose: 'DIRECT_DELETE',
-                protocolVersion: 1,
+                protocolVersion: operation.protocolVersion,
                 scopeDigest: operation.scopeDigest!,
                 permanentDeleteConfirmed: true,
                 organizationImpactConfirmed: true,

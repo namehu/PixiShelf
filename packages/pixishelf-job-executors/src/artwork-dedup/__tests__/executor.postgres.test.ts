@@ -104,7 +104,29 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
-  it('filters by reliable multiset sizes, then reuses durable hashes; FULL rereads only candidates', async () => {
+  it('finds 80/100 containment despite order and names, excludes partial overlap and preserves multiplicity', async () => {
+    const eighty = Array.from({ length: 80 }, (_, i) => i + 1)
+    const hundred = [...eighty, ...Array.from({ length: 20 }, (_, i) => i + 101)]
+    const otherHundred = [...eighty, ...Array.from({ length: 20 }, (_, i) => i + 151)]
+    const artistId = await fixture([[...eighty].reverse(), hundred, otherHundred, [1, 1, 2]])
+    const ids = (await db!.artwork.findMany({ where: { creators: { some: { artistId } } }, orderBy: { id: 'asc' } })).map((a) => a.id)
+    const run = await start(artistId)
+    await finish(run.jobId)
+    const relations = await db!.artworkDedupRelation.findMany({ where: { runId: run.runId }, orderBy: { containerArtworkId: 'asc' } })
+    expect(relations.map((r) => [r.containedArtworkId, r.containerArtworkId, r.containedFileCount, r.containerFileCount]))
+      .toEqual([[ids[0], ids[1], 80n, 100n], [ids[0], ids[2], 80n, 100n]])
+    expect(await db!.artworkDedupGroup.count({ where: { runId: run.runId } })).toBe(0)
+    const hot = await start(artistId)
+    await finish(hot.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({ hashedMedia: 0, cacheHitMedia: 283, statMedia: 283 })
+    const first = await db!.image.findFirstOrThrow({ where: { artworkId: ids[0]! }, orderBy: { id: 'asc' } })
+    await fs.writeFile(path.join(root, first.path), Buffer.alloc(80, 250))
+    const changed = await start(artistId)
+    await finish(changed.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: changed.runId } })).toMatchObject({ hashedMedia: 1, groupCount: 0 })
+    expect(await db!.artworkDedupRelation.count({ where: { runId: changed.runId } })).toBe(0)
+  }, 60_000)
+  it('hashes every complete inventory for inclusion and reuses hot hashes with one stat pass', async () => {
     const artistId = await fixture([
       [11, 12, 11],
       [12, 11, 11],
@@ -117,11 +139,11 @@ suite('durable detection executor with real isolated media', () => {
     expect(first).toMatchObject({
       status: 'COMPLETED',
       stage: 'DONE',
-      groupCount: 1,
-      duplicateArtworks: 1,
-      hashedMedia: 6,
+      groupCount: 2,
+      duplicateArtworks: 2,
+      hashedMedia: 11,
       cacheHitMedia: 0,
-      readBytes: 68n,
+      readBytes: 144n,
       readerState: 'IDLE',
       readerToken: null
     })
@@ -130,18 +152,18 @@ suite('durable detection executor with real isolated media', () => {
     await finish(hot.jobId)
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({
       hashedMedia: 0,
-      cacheHitMedia: 6,
+      cacheHitMedia: 11,
       readBytes: 0n,
-      groupCount: 1,
-      statMedia: 17
+      groupCount: 2,
+      statMedia: 11
     })
     const full = await start(artistId, 'FULL')
     await finish(full.jobId)
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: full.runId } })).toMatchObject({
-      hashedMedia: 6,
+      hashedMedia: 11,
       cacheHitMedia: 0,
-      readBytes: 68n,
-      groupCount: 1
+      readBytes: 144n,
+      groupCount: 2
     })
   }, 30_000)
   it('persists file cursors at the byte budget, releases the lane for three seconds and preserves attempt', async () => {
@@ -265,7 +287,7 @@ suite('durable detection executor with real isolated media', () => {
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({
       status: 'COMPLETED',
       statMedia: 501,
-      hashedMedia: 0
+      hashedMedia: 501
     })
   }, 30_000)
   it('keeps 501-media HASH batches complete across a 100-file checkpoint and a hot run', async () => {
@@ -304,7 +326,7 @@ suite('durable detection executor with real isolated media', () => {
       cacheHitMedia: 0,
       readBytes: 2004n
     })
-    expect({ reads, inspections }).toEqual({ reads: 1002, inspections: 2004 })
+    expect({ reads, inspections }).toEqual({ reads: 1002, inspections: 1002 })
     const hot = await start(artistId)
     reads = 0
     inspections = 0
@@ -316,7 +338,7 @@ suite('durable detection executor with real isolated media', () => {
       cacheHitMedia: 1002,
       readBytes: 0n
     })
-    expect({ reads, inspections }).toEqual({ reads: 0, inspections: 2004 })
+    expect({ reads, inspections }).toEqual({ reads: 0, inspections: 1002 })
   }, 60_000)
 
   it.each(['insert', 'delete', 'source write', 'directory write'] as const)(
@@ -344,8 +366,8 @@ suite('durable detection executor with real isolated media', () => {
           inspect = reader.inspect.bind(reader)
         reader.inspect = async (input) => {
           const result = await inspect(input)
-          // Six STAT inspections precede this first hot HASH inspection.
-          if (++inspections === 7) {
+          // Mutate after the first hot STAT observation; publication must still reject it.
+          if (++inspections === 1) {
             if (change === 'insert')
               await db!.image.create({ data: { artworkId: changedArtworkId, path: `${changedArtworkId}/new.bin` } })
             if (change === 'delete') await db!.image.delete({ where: { id: images[2]!.id } })

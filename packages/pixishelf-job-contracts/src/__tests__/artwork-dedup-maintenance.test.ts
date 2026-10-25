@@ -5,6 +5,7 @@ import {
   artworkDedupAllowReimportInputSchema,
   artworkDedupMaintenanceV1PayloadSchema,
   artworkDedupMaintenanceV2PayloadSchema,
+  artworkDedupMaintenanceV3PayloadSchema,
   artworkDedupDirectDeleteInputSchema,
   artworkDedupDirectDeleteRetryInputSchema,
   artworkDedupPrepareDirectDeleteInputSchema,
@@ -48,6 +49,9 @@ describe('maintenance contract', () => {
     expect(artworkDedupMaintenanceV1PayloadSchema.safeParse({ ...identity, mode: 'PREPARE' }).success).toBe(true)
     expect(artworkDedupMaintenanceV2PayloadSchema.safeParse(direct).success).toBe(true)
     expect(artworkDedupMaintenanceV2PayloadSchema.safeParse(prepare).success).toBe(true)
+    expect(artworkDedupMaintenanceV2PayloadSchema.safeParse({ ...prepare, protocolVersion: 2 }).success).toBe(false)
+    expect(artworkDedupMaintenanceV3PayloadSchema.safeParse({ ...prepare, protocolVersion: 2 }).success).toBe(true)
+    expect(artworkDedupMaintenanceV3PayloadSchema.safeParse(prepare).success).toBe(true)
     expect(artworkDedupMaintenanceV2PayloadSchema.safeParse({ ...identity, mode: 'PREPARE' }).success).toBe(false)
     const command = { expectedUserId: 'u', operationId: 'o', expectedVersion: 1, idempotencyKey: 'k' }
     const confirm = {

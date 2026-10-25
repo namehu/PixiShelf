@@ -7,7 +7,7 @@ if (url) {
   if (
     target.hostname !== '127.0.0.1' ||
     target.port !== '55432' ||
-    !['/dedup_b2_empty_20261024', '/dedup_b2_restore_20261024'].includes(target.pathname)
+    !['/dedup_b2_empty_20261024', '/dedup_b2_restore_20261024', '/dedup_containment_test'].includes(target.pathname)
   )
     {throw new Error('Use the two authorized migration fixture databases')}
 }
@@ -40,17 +40,18 @@ describe.skipIf(!db)('formal maintenance v2 and direct protocol constraints', ()
       data({ ...identity, mode: 'PREPARE' }, 1),
       data({ runId: 'fixture-run', executionVersion: 1 }, 1, 'ARTWORK_DEDUP_SCAN'),
       data(prepare),
-      data({ ...identity, mode: 'DIRECT_DELETE' })
+      data({ ...identity, mode: 'DIRECT_DELETE' }),
+      data({ ...prepare, protocolVersion: 2 }, 3)
     ]) {
       await db!.systemJob.create({ data: input })
     }
     for (const invalid of [
-      data(prepare, 2, 'ARTWORK_DEDUP_SCAN'),
+      data(prepare, 3, 'ARTWORK_DEDUP_SCAN'),
       { ...data(prepare), queuePriority: 899 },
       { ...data(prepare), effectivePriority: 899 },
       { ...data(prepare), triggerSource: 'MANUAL' as const },
       { ...data(prepare), deadlineAt: new Date() },
-      data(prepare, 3)
+      data(prepare, 4)
     ]) {
       await expect(db!.systemJob.create({ data: invalid })).rejects.toThrow('system_jobs_dedup_policy')
     }

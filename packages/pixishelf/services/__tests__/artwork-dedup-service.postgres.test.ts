@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { PrismaClient, type Prisma } from '@pixishelf/db'
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import {
   controlArtworkDedup,
   getArtworkDedupRun,
@@ -37,6 +37,7 @@ async function fixture() {
   }
 }
 describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
+  beforeAll(async () => { await db!.workerInstance.create({ data: { workerId: actor, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [2] }] } }) })
   afterEach(async () => {
     const runs = await db!.artworkDedupRun.findMany({
       where: { requestedBy: actor },
@@ -49,7 +50,20 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
     await db!.artist.deleteMany({ where: { id: { in: artists.splice(0) } } })
   })
   afterAll(async () => {
+    if (db) await db.workerInstance.delete({ where: { workerId: actor } })
     await db?.$disconnect()
+  })
+  it('requires upgraded scan capability, preserves replay and marks legacy results exact-only', async () => {
+    const f = await fixture()
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }] } })
+    await expect(startArtworkDedup(actor, f.input, db!)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
+    expect(await db!.artworkDedupRun.count({ where: { artistId: f.artist.id } })).toBe(0)
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }] } })
+    const run = await startArtworkDedup(actor, f.input, db!)
+    expect(run.includesContainment).toBe(true)
+    expect(await db!.systemJob.findUnique({ where: { id: run.jobId! } })).toMatchObject({ definitionVersion: 2 })
+    await db!.systemJob.update({ where: { id: run.jobId! }, data: { definitionVersion: 1 } })
+    expect((await getArtworkDedupRun(actor, { runId: run.runId, expectedUserId: actor }, db!))?.includesContainment).toBe(false)
   })
   it('concurrent same-key start replays one stable run; different keys retain one active artist', async () => {
     const f = await fixture()

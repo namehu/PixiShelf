@@ -20,6 +20,7 @@ const stageLabels = {
   STAT: '正在核对作品',
   CANDIDATES: '正在比对作品',
   HASH: '正在比对文件内容',
+  MATCH: '正在检查包含关系',
   GROUP: '正在整理结果',
   DONE: '检查完成'
 }
@@ -50,7 +51,7 @@ function runHeading(run: ArtworkDedupRunDto) {
         return '检查完成，有未检查项'
       }
       return run.counts.groups > 0
-        ? `找到 ${run.counts.groups.toLocaleString('zh-CN')} 组内容相同的作品`
+        ? `找到 ${run.counts.groups.toLocaleString('zh-CN')} 组待处理作品`
         : '没有找到重复作品'
   }
 }
@@ -119,6 +120,11 @@ export function DuplicateRunStatus({
               {heading}
             </h2>
             <p className="mt-1 text-sm leading-5 text-muted-foreground">{runDescription(run)}</p>
+            {!run.includesContainment ? (
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                此记录只检查了完全相同的作品，重新检查可查完整包含
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="ml-auto flex shrink-0 flex-wrap items-center gap-1" aria-busy={Boolean(pending)}>

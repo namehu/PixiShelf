@@ -46,6 +46,7 @@ function createRun(overrides: Partial<ArtworkDedupRunDto> = {}): ArtworkDedupRun
     status: 'RUNNING',
     stage: 'STAT',
     mode: 'INCREMENTAL',
+    includesContainment: true,
     frozenAt: '2026-10-23T00:00:00.000Z',
     startedAt: '2026-10-23T00:00:01.000Z',
     finishedAt: null,
@@ -409,6 +410,31 @@ describe('duplicate check page', () => {
     expect(screen.getByText('检查完成，有未检查项')).toBeTruthy()
     expect(screen.queryByText('没有找到重复作品')).toBeNull()
     expect(screen.getByText('2 部作品未完成检查，重新检查后再处理。')).toBeTruthy()
+  })
+
+  it('labels the containment stage and keeps completed result wording broad enough for containment', () => {
+    const view = render(
+      <DuplicateRunStatus run={createRun({ stage: 'MATCH' })} pending={null} disabled={false} onControl={vi.fn()} />
+    )
+    expect(screen.getByText('正在检查包含关系')).toBeTruthy()
+    const run = createRun({ status: 'COMPLETED', allowedControls: [] })
+    run.counts.groups = 2
+    view.rerender(<DuplicateRunStatus run={run} pending={null} disabled={false} onControl={vi.fn()} />)
+    expect(screen.getByText('找到 2 组待处理作品')).toBeTruthy()
+    expect(screen.queryByText(/组内容相同的作品/)).toBeNull()
+    expect(screen.queryByText(/此记录只检查了完全相同/)).toBeNull()
+  })
+
+  it('makes the scope of an older exact-only scan explicit', () => {
+    render(
+      <DuplicateRunStatus
+        run={createRun({ status: 'COMPLETED', includesContainment: false, allowedControls: [] })}
+        pending={null}
+        disabled={false}
+        onControl={vi.fn()}
+      />
+    )
+    expect(screen.getByText('此记录只检查了完全相同的作品，重新检查可查完整包含')).toBeTruthy()
   })
 
   it.each([

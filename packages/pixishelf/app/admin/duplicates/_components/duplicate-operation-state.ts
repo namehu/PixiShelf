@@ -67,8 +67,12 @@ export function duplicateBytes(value: string | null) {
   return `${bytes} B`
 }
 
-export function isDirectDeletePreview(operation: ArtworkDedupOperationDto) {
-  return operation.preparePurpose === 'DIRECT_DELETE' && operation.protocolVersion === 1
+export function isDirectDeletePreview(
+  operation: ArtworkDedupOperationDto
+): operation is ArtworkDedupOperationDto & { protocolVersion: 1 | 2 } {
+  return (
+    operation.preparePurpose === 'DIRECT_DELETE' && (operation.protocolVersion === 1 || operation.protocolVersion === 2)
+  )
 }
 export function duplicateSourceLabel(source: string) {
   return (
@@ -94,7 +98,11 @@ export function duplicateBlockReason(code: string) {
     SYMBOLIC_LINK: '发现符号链接，不能自动删除。',
     OWNERSHIP_UNCONFIRMED: '文件归属尚未确认。',
     SOURCE_HELD: '来源正被其他操作保护。',
-    EXPLICIT_CHOICE_REQUIRED: '请先明确选择保留作品。'
+    EXPLICIT_CHOICE_REQUIRED: '请先明确选择保留作品。',
+    MULTIPLE_ORGANIZED_MEMBERS: '有多份整理记录，请先选择保留作品。',
+    CONTAINED_HAS_ORGANIZATION: '被包含的作品有整理记录，请明确选择保留完整作品；整理记录不会转移。',
+    CONTAINMENT_DIRECTION_REQUIRED: '完整包含只能保留包含全部原媒体的作品。',
+    CONFLICTING_SELECTION: '所选结果有冲突：同一作品不能既保留又删除，也不能重复删除。请减少选择后重试。'
   }
   return reasons[code] ?? '本项无法安全处理，请重新检查作品、来源及附属文件。'
 }

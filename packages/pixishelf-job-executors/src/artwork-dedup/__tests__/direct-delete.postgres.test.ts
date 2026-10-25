@@ -77,7 +77,7 @@ const command = (op: Op) => ({
 const confirmation = (op: Op) => ({
   ...command(op),
   purpose: 'DIRECT_DELETE' as const,
-  protocolVersion: 1 as const,
+  protocolVersion: op.protocolVersion as 1 | 2,
   scopeDigest: op.scopeDigest!,
   externalWritesStopped: true as const,
   permanentDeleteConfirmed: true as const,
@@ -151,6 +151,54 @@ async function animationOriginals(ids: number[]) {
 }
 const current = (op: Pick<Op, 'id'>) => db!.artworkDedupOperation.findUniqueOrThrow({ where: { id: op.id } })
 describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
+  it.each<Kind>(['MANUAL_CREATE', 'LOCAL_DIRECTORY', 'PIXIV_SCAN', 'URL_ARCHIVE'])(
+    'deletes contained %s originals only, retaining the larger mixed-source work', async (smallKind) => {
+      const op = await prepared([smallKind, 'LOCAL_DIRECTORY'], 1, 1, async (ids) => {
+        const image = await db!.image.findFirstOrThrow({ where: { artworkId: ids[1]! } })
+        const relative = `${path.posix.dirname(image.path)}/extra.bin`
+        await fs.writeFile(path.join(root, relative), 'unique-extra-original')
+        await db!.image.create({ data: { artworkId: ids[1]!, path: relative, sortOrder: 9 } })
+      })
+      expect(op.protocolVersion).toBe(2)
+      const items = await db!.artworkDedupOperationArtwork.findMany({ where: { operationId: op.id } })
+      const small = items.find((i) => i.role === 'COPY')!, large = items.find((i) => i.role === 'KEEPER')!
+      expect([small.memberCount, large.memberCount]).toEqual([1n, 2n])
+      const keepFiles = await db!.artworkDedupOperationFile.findMany({ where: { operationId: op.id, artworkId: large.artworkId } })
+      const job = await start(op)
+      await executeArtworkDedupDirectDelete(executionContext<ArtworkDedupMaintenancePayload>(job), deps())
+      expect(await current(op)).toMatchObject({ status: 'DELETED', errorCode: null })
+      expect(await db!.artwork.findUnique({ where: { id: small.artworkId } })).toBeNull()
+      expect(await db!.image.count({ where: { artworkId: large.artworkId } })).toBe(2)
+      for (const file of keepFiles) expect((await fs.stat(path.join(root, file.canonicalPath))).isFile()).toBe(true)
+    }, 30_000)
+  it('includes every physical animation/video original in containment deletion', async () => {
+    const op = await prepared(['MANUAL_CREATE', 'MANUAL_CREATE'], 3, 1, async (ids) => {
+      await animationOriginals(ids)
+      const image = await db!.image.findFirstOrThrow({ where: { artworkId: ids[1]! } })
+      const relative = `${path.posix.dirname(image.path)}/extra.bin`
+      await fs.writeFile(path.join(root, relative), 'extra')
+      await db!.image.create({ data: { artworkId: ids[1]!, path: relative } })
+    })
+    const job = await start(op)
+    await executeArtworkDedupDirectDelete(executionContext<ArtworkDedupMaintenancePayload>(job), deps())
+    expect(await current(op)).toMatchObject({ status: 'DELETED', deletedFiles: 3n })
+  }, 30_000)
+  it.each(['modified', 'missing'] as const)('rejects %s contained original before first deletion', async (change) => {
+    const op = await prepared(['LOCAL_DIRECTORY', 'LOCAL_DIRECTORY'], 1, 1, async (ids) => {
+      const image = await db!.image.findFirstOrThrow({ where: { artworkId: ids[1]! } })
+      const relative = `${path.posix.dirname(image.path)}/extra.bin`
+      await fs.writeFile(path.join(root, relative), 'extra')
+      await db!.image.create({ data: { artworkId: ids[1]!, path: relative } })
+    })
+    const copy = await db!.artworkDedupOperationFile.findFirstOrThrow({ where: { operationId: op.id, role: 'MEDIA', artwork: { role: 'COPY' } } })
+    if (change === 'missing') await fs.unlink(path.join(root, copy.canonicalPath))
+    else await fs.writeFile(path.join(root, copy.canonicalPath), 'changed!')
+    const job = await start(op)
+    await executeArtworkDedupDirectDelete(executionContext<ArtworkDedupMaintenancePayload>(job), deps())
+    expect(await current(op)).toMatchObject({ status: 'RECOVERY_REQUIRED', deletedFiles: 0n })
+    expect(await db!.artworkDedupFileReceipt.count({ where: { operationId: op.id } })).toBe(0)
+    expect(await db!.artwork.findUnique({ where: { id: copy.artworkId } })).toMatchObject({ deletedAt: null })
+  }, 30_000)
   it('keeps independent API and task capability closed', async () => {
     expect(isArtworkDedupMaintenanceModeEnabled('DIRECT_DELETE', 'DIRECT_DELETE')).toBe(false)
     expect(isArtworkDedupMaintenanceModeEnabled('PREPARE', 'DIRECT_DELETE')).toBe(false)
@@ -211,7 +259,7 @@ describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
     expect(await db!.artworkDedupFileReceipt.count({ where: { operationId: op.id, status: 'COMPLETED', step: 'DELETE' } })).toBe(3)
     for (const file of files) await expect(fs.stat(path.join(root, file.canonicalPath))).rejects.toMatchObject({ code: 'ENOENT' })
   })
-  it('a registered duplicate occurrence difference prevents a new duplicate group even for animation companions', async () => {
+  it('a registered duplicate occurrence difference creates containment, never an exact animation group', async () => {
     const f = await fixture(3, 'MANUAL_CREATE', { purpose: 'DIRECT_DELETE', beforeScan: animationOriginals })
     await f.close()
     const original = await current({ id: f.context.execution.operationId })
@@ -230,7 +278,10 @@ describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
     const claimed = await repository!.claim('animation-count', [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }])
     expect(claimed?.id).toBe(job.id)
     await executeArtworkDedup(executionContext<ArtworkDedupScanPayload>(claimed!), deps())
-    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { jobId: job.id } })).toMatchObject({ status: 'COMPLETED', groupCount: 0 })
+    const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { jobId: job.id } })
+    expect(run).toMatchObject({ status: 'COMPLETED', groupCount: 1 })
+    expect(await db!.artworkDedupGroup.count({ where: { runId: run.id } })).toBe(0)
+    expect(await db!.artworkDedupRelation.findFirst({ where: { runId: run.id } })).toMatchObject({ containedArtworkId: f.ids[0], containerArtworkId: f.ids[1], containedFileCount: 3n, containerFileCount: 4n })
   })
   it.each(['INTENT', 'UNLINKED', 'RECEIPTED'] as const)(
     'retains intent/hidden/claims after %s failure and resumes only original scope',

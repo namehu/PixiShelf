@@ -4,6 +4,11 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import { duplicateBlockReason } from './duplicate-operation-state'
 import { DuplicateMemberRow } from './duplicate-member-row'
+import {
+  duplicateContainmentCounts,
+  duplicateKeeperRestriction,
+  duplicateRelationMemberMetadata
+} from './duplicate-relation'
 
 export function DuplicateGroupRow({
   group,
@@ -12,6 +17,7 @@ export function DuplicateGroupRow({
   selectable,
   saving,
   failed,
+  errorMessage,
   disabled,
   onSelect,
   onKeep,
@@ -24,13 +30,15 @@ export function DuplicateGroupRow({
   selectable: boolean
   saving: boolean
   failed: boolean
+  errorMessage?: string
   disabled: boolean
   onSelect: (selected: boolean) => void
   onKeep: (artworkId: number) => void
   onDetails: () => void
   onRetry: () => void
 }) {
-  const title = group.previewMembers[0]?.title ?? '内容相同的作品'
+  const contains = group.relationKind === 'CONTAINS'
+  const title = group.previewMembers[0]?.title ?? '待比较的作品'
   return (
     <section className={cn('border-b border-border py-3 sm:px-2', selected && 'bg-accent/50')} aria-label={title}>
       <header className="flex min-w-0 items-center justify-between gap-2">
@@ -44,8 +52,10 @@ export function DuplicateGroupRow({
             />
           </span>
           <span className="min-w-0">
-            <span className="block text-sm font-medium">处理这一组</span>
-            <span className="text-xs text-muted-foreground">{group.memberCount} 部内容相同 · 保留 1 部</span>
+            <span className="block text-sm font-medium">{contains ? '完整包含' : '处理这一组'}</span>
+            <span className="text-xs text-muted-foreground">
+              {contains ? duplicateContainmentCounts(group) : `${group.memberCount} 部内容相同 · 保留 1 部`}
+            </span>
           </span>
         </label>
         <Button
@@ -58,7 +68,7 @@ export function DuplicateGroupRow({
           {group.memberCount > 3 ? `比较全部 ${group.memberCount} 部` : '比较作品'}
         </Button>
       </header>
-      {group.needsExplicitChoice && !group.savedReview ? (
+      {group.needsExplicitChoice && !group.savedReview && group.reasons.length === 0 ? (
         <p className="px-3 py-2 text-sm text-warning">有多份整理记录，请先选择保留作品。</p>
       ) : null}
       {group.reasons[0] ? (
@@ -73,6 +83,8 @@ export function DuplicateGroupRow({
             keeper={keeperId === member.artworkId}
             recommended={!group.savedReview && group.recommendedKeeperArtworkId === member.artworkId}
             statusLabel={keeperId !== member.artworkId && selected ? '待删除' : undefined}
+            metadata={duplicateRelationMemberMetadata(group, member.artworkId)}
+            keeperRestriction={duplicateKeeperRestriction(group, member.artworkId)}
             disabled={disabled || saving}
             onKeep={() => onKeep(member.artworkId)}
           />
@@ -91,7 +103,7 @@ export function DuplicateGroupRow({
           <span>正在保存保留选择…</span>
         ) : failed ? (
           <>
-            <span className="text-destructive">未保存，暂不能预览本组</span>
+            <span className="text-destructive">{errorMessage ?? '未保存，暂不能预览本组'}</span>
             <Button type="button" variant="ghost" className="min-h-11" onClick={onRetry}>
               重试保存
             </Button>

@@ -2711,6 +2711,9 @@ model SystemJobDiagnosticItem {
 
 // Frozen detection evidence survives subsequent Artwork/Image removal.
 model ArtworkDedupRun {
+  relationAfterArtworkId Int @default(0)
+  relationAfterCandidateId Int @default(0)
+  relations ArtworkDedupRelation[]
   rootBindings Json?
   lastProgressAt DateTime?
   retryReadBytes BigInt @default(0)
@@ -2772,6 +2775,8 @@ model ArtworkDedupItem {
   run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   media ArtworkDedupMedia[]
   groupMember ArtworkDedupGroupMember?
+  containedRelations ArtworkDedupRelation[] @relation("DedupContained")
+  containerRelations ArtworkDedupRelation[] @relation("DedupContainer")
   @@id([runId, artworkId])
   @@index([runId, status, artworkId])
   @@index([runId, memberCount, sizeDigest])
@@ -2800,6 +2805,7 @@ model ArtworkDedupMedia {
   @@id([runId, artworkId, imageId])
   @@index([runId, artworkId, size, imageId])
   @@index([runId, artworkId, size, sha256, imageId])
+  @@index([runId, size, sha256, artworkId])
 }
 
 model ArtworkDedupGroup {
@@ -2811,6 +2817,21 @@ model ArtworkDedupGroup {
   run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
   members ArtworkDedupGroupMember[]
   @@unique([runId, id])
+  @@index([runId, id])
+}
+
+// Directed strict multiset inclusion; never participates in exact-group membership.
+model ArtworkDedupRelation {
+  id String @id
+  runId String
+  containedArtworkId Int
+  containerArtworkId Int
+  containedFileCount BigInt
+  containerFileCount BigInt
+  containedItem ArtworkDedupItem @relation("DedupContained", fields: [runId, containedArtworkId], references: [runId, artworkId], onDelete: Cascade)
+  containerItem ArtworkDedupItem @relation("DedupContainer", fields: [runId, containerArtworkId], references: [runId, artworkId], onDelete: Cascade)
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@unique([runId, containedArtworkId, containerArtworkId])
   @@index([runId, id])
 }
 
@@ -2935,6 +2956,11 @@ model ArtworkDedupOperation {
 }
 
 model ArtworkDedupOperationGroup {
+  relationKind String @default("EXACT")
+  containedArtworkId Int?
+  containerArtworkId Int?
+  containedFileCount BigInt?
+  containerFileCount BigInt?
   operationId String
   groupId String
   keeperArtworkId Int?

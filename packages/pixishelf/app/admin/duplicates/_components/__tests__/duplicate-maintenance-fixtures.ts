@@ -1,5 +1,23 @@
 import type { ArtworkDedupGroupDto, ArtworkDedupMemberDto, ArtworkDedupOperationDto } from '@pixishelf/job-contracts'
 
+export const exactRelation = {
+  relationKind: 'EXACT' as const,
+  containedArtworkId: null,
+  containerArtworkId: null,
+  containedFileCount: null,
+  containerFileCount: null,
+  extraFileCount: null
+}
+
+export const containmentRelation = {
+  relationKind: 'CONTAINS' as const,
+  containedArtworkId: 1,
+  containerArtworkId: 2,
+  containedFileCount: '80',
+  containerFileCount: '100',
+  extraFileCount: '20'
+}
+
 export function member(artworkId = 1): ArtworkDedupMemberDto {
   return {
     artworkId,
@@ -18,6 +36,7 @@ export function member(artworkId = 1): ArtworkDedupMemberDto {
 }
 export function group(groupId = 'group-1', overrides: Partial<ArtworkDedupGroupDto> = {}): ArtworkDedupGroupDto {
   return {
+    ...exactRelation,
     groupId,
     memberCount: 2,
     fileCount: '12',
@@ -32,6 +51,14 @@ export function group(groupId = 'group-1', overrides: Partial<ArtworkDedupGroupD
     reasons: [],
     ...overrides
   }
+}
+export function containmentGroup(overrides: Partial<ArtworkDedupGroupDto> = {}): ArtworkDedupGroupDto {
+  return group('contains-1', {
+    ...containmentRelation,
+    keeper: member(2),
+    recommendedKeeperArtworkId: 2,
+    ...overrides
+  })
 }
 export function operation(overrides: Partial<ArtworkDedupOperationDto> = {}): ArtworkDedupOperationDto {
   return {

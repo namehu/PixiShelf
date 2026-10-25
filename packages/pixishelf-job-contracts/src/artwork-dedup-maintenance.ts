@@ -22,7 +22,7 @@ export const ARTWORK_DEDUP_RELEASE_STAGE: number = 3
 /** Independent release decision; never inferred from the legacy stage or client input. */
 export const ARTWORK_DEDUP_DIRECT_DELETE_ENABLED: boolean = true
 export const ARTWORK_DEDUP_DIRECT_DELETE_PROTOCOL = 1 as const
-export const ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION = 2 as const
+export const ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION = 3 as const
 export const artworkDedupMaintenanceModeSchema = z.enum(['PREPARE', 'ISOLATE', 'RESTORE', 'PURGE', 'DIRECT_DELETE'])
 export type ArtworkDedupMaintenanceMode = z.infer<typeof artworkDedupMaintenanceModeSchema>
 export function isArtworkDedupMaintenanceModeEnabled(
@@ -53,9 +53,15 @@ export const artworkDedupMaintenanceV2PayloadSchema = z.discriminatedUnion('mode
     .strict(),
   z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
 ])
+export const artworkDedupMaintenanceV3PayloadSchema = z.discriminatedUnion('mode', [
+  z.object({ ...maintenanceIdentity, mode: z.literal('PREPARE'), purpose: z.literal('DIRECT_DELETE'),
+    protocolVersion: z.union([z.literal(1), z.literal(2)]) }).strict(),
+  z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
+])
 export const artworkDedupMaintenancePayloadSchema = z.union([
   artworkDedupMaintenanceV1PayloadSchema,
-  artworkDedupMaintenanceV2PayloadSchema
+  artworkDedupMaintenanceV2PayloadSchema,
+  artworkDedupMaintenanceV3PayloadSchema
 ])
 export type ArtworkDedupMaintenancePayload = z.infer<typeof artworkDedupMaintenancePayloadSchema>
 export const artworkDedupOperationStatusSchema = z.enum([
@@ -109,6 +115,12 @@ export const artworkDedupMemberDtoSchema = z.object({
 })
 export type ArtworkDedupMemberDto = z.infer<typeof artworkDedupMemberDtoSchema>
 export const artworkDedupGroupDtoSchema = z.object({
+  relationKind: z.enum(['EXACT', 'CONTAINS']).default('EXACT'),
+  containedArtworkId: positive.nullable().default(null),
+  containerArtworkId: positive.nullable().default(null),
+  containedFileCount: bytes.nullable().default(null),
+  containerFileCount: bytes.nullable().default(null),
+  extraFileCount: bytes.nullable().default(null),
   groupId: id,
   memberCount: count,
   fileCount: bytes,
@@ -217,7 +229,7 @@ export const artworkDedupDirectDeleteInputSchema = z
   .object({
     ...command,
     purpose: z.literal('DIRECT_DELETE'),
-    protocolVersion: z.literal(1),
+    protocolVersion: z.union([z.literal(1), z.literal(2)]),
     scopeDigest: z.string().regex(/^[a-f0-9]{64}$/),
     externalWritesStopped: z.literal(true),
     permanentDeleteConfirmed: z.literal(true),
@@ -289,7 +301,7 @@ export const artworkDedupOperationDtoSchema = z.object({
   mode: artworkDedupMaintenanceModeSchema,
   originalAction: artworkDedupMaintenanceModeSchema,
   preparePurpose: z.enum(['ISOLATION', 'PURGE', 'DIRECT_DELETE']),
-  protocolVersion: z.literal(1).nullable().default(null),
+  protocolVersion: z.union([z.literal(1), z.literal(2)]).nullable().default(null),
   scopeDigest: z
     .string()
     .regex(/^[a-f0-9]{64}$/)
@@ -330,6 +342,8 @@ export const artworkDedupOperationDtoSchema = z.object({
 })
 export type ArtworkDedupOperationDto = z.infer<typeof artworkDedupOperationDtoSchema>
 export const artworkDedupArtworkPreviewDtoSchema = artworkDedupMemberDtoSchema.extend({
+  ...artworkDedupGroupDtoSchema.pick({ relationKind: true, containedArtworkId: true, containerArtworkId: true,
+    containedFileCount: true, containerFileCount: true, extraFileCount: true }).shape,
   itemId: positive,
   groupId: id,
   role: z.enum(['KEEPER', 'COPY']),

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DuplicateMembersSheet } from '../duplicate-members-sheet'
-import { group, member } from './duplicate-maintenance-fixtures'
+import { containmentGroup, group, member } from './duplicate-maintenance-fixtures'
 
 const mocks = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('@/lib/trpc', () => ({
@@ -16,6 +16,50 @@ vi.mock('@/lib/trpc', () => ({
 }))
 afterEach(cleanup)
 describe('duplicate member pagination', () => {
+  it('explains containment and keeps the smaller artwork unavailable without making an automatic choice', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const value = containmentGroup({
+      keeper: null,
+      recommendedKeeperArtworkId: null,
+      needsExplicitChoice: true,
+      reasons: ['CONTAINED_HAS_ORGANIZATION']
+    })
+    mocks.list.mockResolvedValue({
+      kind: 'MEMBERS',
+      group: value,
+      keeper: null,
+      items: value.previewMembers,
+      allowedActions: ['SAVE_REVIEW'],
+      nextMemberCursor: null
+    })
+    const onKeep = vi.fn()
+    render(
+      <QueryClientProvider client={client}>
+        <DuplicateMembersSheet
+          userId="user-a"
+          runId="run-1"
+          groupId="contains-1"
+          keeperId={null}
+          saving={false}
+          failed={false}
+          onClose={vi.fn()}
+          onKeep={onKeep}
+          onRetry={vi.fn()}
+        />
+      </QueryClientProvider>
+    )
+    await screen.findByRole('dialog', { name: '完整包含' })
+    expect(screen.getByText(/80 \/ 100 项原媒体 · 多出 20 项。仅可保留/)).toBeTruthy()
+    expect(screen.queryByText(/图片内容相同/)).toBeNull()
+    expect((screen.getByRole('radio', { name: '保留 作品 1' }) as HTMLInputElement).disabled).toBe(true)
+    expect(screen.getAllByRole('radio').every((radio) => !(radio as HTMLInputElement).checked)).toBe(true)
+    expect(onKeep).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('radio', { name: '保留 作品 2' }))
+    expect(onKeep).toHaveBeenCalledWith(value, 2)
+    client.clear()
+    mocks.list.mockClear()
+  })
+
   it('loads only twenty members, retains a keeper outside the page, and sends an independent member cursor', async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     mocks.list.mockImplementation((input: { memberCursor?: string }) => ({

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DuplicateReview } from '../duplicate-review'
-import { group, member, operation } from './duplicate-maintenance-fixtures'
+import { containmentGroup, group, member, operation } from './duplicate-maintenance-fixtures'
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), save: vi.fn(), prepare: vi.fn(), onOperation: vi.fn() }))
 vi.mock('@/lib/trpc', () => ({
@@ -62,6 +62,81 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('duplicate review', () => {
+  it('shows full containment counts and only allows keeping the complete artwork', async () => {
+    mocks.list.mockResolvedValue(page({ items: [containmentGroup()], recommendedGroupCount: 1 }))
+    mount()
+    await screen.findByText('完整包含')
+    expect(screen.getByText('80 / 100 项原媒体 · 多出 20 项')).toBeTruthy()
+    expect(screen.queryByText('2 部内容相同 · 保留 1 部')).toBeNull()
+    const contained = screen.getByRole('radio', { name: '保留 作品 1' }) as HTMLInputElement
+    const container = screen.getByRole('radio', { name: '保留 作品 2' }) as HTMLInputElement
+    expect(contained.disabled).toBe(true)
+    expect(document.getElementById(contained.getAttribute('aria-describedby')!)?.textContent).toBe(
+      '已被完整包含，需保留完整作品。'
+    )
+    expect(container.disabled).toBe(false)
+    expect(container.checked).toBe(true)
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
+  it('requires an explicit complete-artwork choice when the contained artwork has organization records', async () => {
+    mocks.list.mockResolvedValue(
+      page({
+        items: [
+          containmentGroup({
+            keeper: null,
+            recommendedKeeperArtworkId: null,
+            needsExplicitChoice: true,
+            eligibility: 'NEEDS_CHOICE',
+            recommendationReason: 'NEEDS_CHOICE',
+            reasons: ['CONTAINED_HAS_ORGANIZATION'],
+            previewMembers: [{ ...member(1), otherAccountHasOrganization: true }, member(2)]
+          })
+        ],
+        recommendedGroupCount: 0
+      })
+    )
+    mocks.save.mockResolvedValue({
+      review: { groupId: 'contains-1', keeperArtworkId: 2, reviewVersion: 1 },
+      reviewRevision: 1
+    })
+    mount()
+    await screen.findByText('被包含的作品有整理记录，请明确选择保留完整作品；整理记录不会转移。')
+    expect(screen.getByText('还有其他账户整理记录')).toBeTruthy()
+    expect(screen.getAllByRole('radio').every((radio) => !(radio as HTMLInputElement).checked)).toBe(true)
+    expect((screen.getByRole('checkbox') as HTMLButtonElement).disabled).toBe(true)
+    expect(mocks.save).not.toHaveBeenCalled()
+    expect(mocks.prepare).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('radio', { name: '保留 作品 2' }))
+    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect((screen.getByRole('checkbox') as HTMLButtonElement).disabled).toBe(false))
+    expect(screen.queryByLabelText('跨页选择范围')).toBeNull()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: '核对并删除' }))
+    await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1))
+    expect(mocks.prepare.mock.calls[0]![0]).toMatchObject({
+      protocolVersion: 1,
+      expectedReviewRevision: 1,
+      selection: { kind: 'EXPLICIT', groupIds: ['contains-1'] }
+    })
+  })
+
+  it('shows the server conflict message and retains the selected range for correction', async () => {
+    const message = '所选结果存在冲突：同一作品不能既保留又删除，也不能重复删除。请减少选择后重试'
+    mocks.list.mockResolvedValue(page({ items: [group('exact-1'), containmentGroup()] }))
+    mocks.prepare.mockRejectedValue(Object.assign(new Error(message), { data: { code: 'CONFLICT' } }))
+    mount()
+    await screen.findByText('选择保留作品')
+    screen.getAllByRole('checkbox').forEach((checkbox) => fireEvent.click(checkbox))
+    fireEvent.click(screen.getByRole('button', { name: '核对并删除' }))
+    await screen.findByText(message)
+    expect(screen.getByText('已选 2 组 · 2 部待删除')).toBeTruthy()
+    expect(screen.getAllByRole('checkbox').every((checkbox) => checkbox.getAttribute('aria-checked') === 'true')).toBe(
+      true
+    )
+    expect(mocks.onOperation).not.toHaveBeenCalled()
+  })
+
   it('keeps a failed keeper choice visible and blocks selected groups from preparing', async () => {
     mocks.save.mockRejectedValue(new Error('conflict'))
     mount()

@@ -3,6 +3,7 @@ import {
   assertArtworkDedupExecution,
   buildArtworkDedupCandidates,
   buildArtworkDedupGroups,
+  buildArtworkDedupRelationsPage,
   claimArtworkDedupReader,
   readArtworkDedupItemsPage,
   recordArtworkDedupReaderOwner,
@@ -42,11 +43,11 @@ export interface ArtworkDedupDependencies {
   sliceBytes?: bigint
   onMeasurement?: (value: ReaderMetrics & { runId: string; elapsedMs: number; transactions: number }) => void
 }
-export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies): ExecutorDefinition {
+export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 = 1): ExecutorDefinition {
   const supervisor = dependencies.supervisor ?? new DedupReaderSupervisor(dependencies.readerOptions)
   return {
     jobType: 'ARTWORK_DEDUP_SCAN',
-    definitionVersion: 1,
+    definitionVersion,
     executionLane: 'BACKGROUND_WRITER',
     progressPolicy: 'STANDARD',
     parsePayload: (value) => artworkDedupScanPayloadSchema.parse(value),
@@ -200,7 +201,15 @@ export async function executeArtworkDedup(
         await transaction((tx) => buildArtworkDedupCandidates(tx, { execution }))
         stage = 'HASH'
       }
-      if (stage === 'GROUP' || stage === 'DONE') {
+      if (stage === 'GROUP') {
+        await transaction((tx) => buildArtworkDedupGroups(tx, { execution, prepareRelations: true }))
+        stage = 'MATCH'
+      }
+      if (stage === 'MATCH') {
+        if (!(await transaction((tx) => buildArtworkDedupRelationsPage(tx, { execution })))) continue
+        stage = 'DONE'
+      }
+      if (stage === 'DONE') {
         done = true
         break
       }
@@ -285,6 +294,9 @@ export async function executeArtworkDedup(
       return
     }
     if (failure) {
+      await scope.transaction.artworkDedupRelation.deleteMany({ where: { runId: execution.runId } })
+      await scope.transaction.artworkDedupGroup.deleteMany({ where: { runId: execution.runId } })
+      await updateArtworkDedupRun(scope.transaction, { execution, data: { groupCount: 0, duplicateArtworks: 0 } })
       const code =
         failure instanceof MediaContentFileError
           ? failure.code

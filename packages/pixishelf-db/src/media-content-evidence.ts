@@ -240,7 +240,7 @@ export async function bindMediaContentDirectories(
         throw new MediaContentConflictError('ROOT_CHANGED')
     }
     await tx.$executeRaw(
-      Prisma.sql`INSERT INTO "MediaContentSource" ("imageId",revision,"directoryStateId","updatedAt") VALUES ${Prisma.join(input.bindings.map((entry) => Prisma.sql`(${entry.imageId},${entry.expectedSourceRevision},${entry.directory.directoryId},CURRENT_TIMESTAMP)`))} ON CONFLICT ("imageId") DO UPDATE SET "directoryStateId" = EXCLUDED."directoryStateId", "updatedAt" = CURRENT_TIMESTAMP`
+      Prisma.sql`INSERT INTO "MediaContentSource" ("imageId",revision,"directoryStateId","updatedAt") VALUES ${Prisma.join(input.bindings.map((entry) => Prisma.sql`(${entry.imageId},${entry.expectedSourceRevision},${entry.directory.directoryId},CURRENT_TIMESTAMP)`))} ON CONFLICT ("imageId") DO UPDATE SET "directoryStateId" = EXCLUDED."directoryStateId", "updatedAt" = CURRENT_TIMESTAMP WHERE "MediaContentSource"."directoryStateId" IS DISTINCT FROM EXCLUDED."directoryStateId"`
     )
     return input.snapshot
   })

@@ -229,17 +229,17 @@ export async function buildArtworkDedupCandidates(
   input: { execution: ArtworkDedupExecution }
 ) {
   await assertArtworkDedupExecution(tx, input.execution)
-  // Canonical lists exist only inside this database statement; no pairwise graph or
-  // unbounded list is materialized in the Worker or persisted in a payload.
+  // Inclusion can cross file-count and size buckets. Every complete nonempty inventory
+  // needs SHA evidence; cached complete items already bypass this stage.
   await tx.$executeRaw(Prisma.sql`
     WITH lists AS (
       SELECT m."artworkId", string_agg(m.size::text,',' ORDER BY m.size) canonical,count(*) n
       FROM "ArtworkDedupMedia" m JOIN "ArtworkDedupItem" i ON i."runId"=m."runId" AND i."artworkId"=m."artworkId"
       WHERE m."runId"=${input.execution.runId} AND i.status='SIZED' GROUP BY m."artworkId"
-    ), candidates AS (SELECT *,count(*) OVER (PARTITION BY canonical) bucket_count FROM lists)
+    )
     UPDATE "ArtworkDedupItem" i SET "sizeDigest"=md5(c.canonical),status=CASE
-      WHEN c.n<>i."memberCount" THEN 'FAILED' WHEN c.bucket_count>1 THEN 'HASHING' ELSE 'UNIQUE' END,
-      "afterImageId"=0,"updatedAt"=CURRENT_TIMESTAMP FROM candidates c
+      WHEN c.n<>i."memberCount" THEN 'FAILED' ELSE 'HASHING' END,
+      "afterImageId"=0,"updatedAt"=CURRENT_TIMESTAMP FROM lists c
     WHERE i."runId"=${input.execution.runId} AND i."artworkId"=c."artworkId" AND i.status='SIZED'
   `)
   await tx.artworkDedupItem.updateMany({
@@ -265,7 +265,7 @@ export async function refreshArtworkDedupCounts(
 }
 export async function buildArtworkDedupGroups(
   tx: Prisma.TransactionClient,
-  input: { execution: ArtworkDedupExecution }
+  input: { execution: ArtworkDedupExecution; prepareRelations?: boolean }
 ) {
   const run = await assertArtworkDedupExecution(tx, input.execution)
   // Match creator publication's catalog -> Artwork order. Content writers and
@@ -308,11 +308,55 @@ export async function buildArtworkDedupGroups(
     INSERT INTO "ArtworkDedupGroupMember" ("runId","groupId","artworkId")
       SELECT ${run.id},md5(${run.id} || ':' || representative::text),"artworkId" FROM partitioned WHERE n>1
   `)
+  await tx.$executeRaw(Prisma.sql`DELETE FROM "ArtworkDedupRelation" r WHERE r."runId"=${run.id} AND
+    EXISTS(SELECT 1 FROM "ArtworkDedupItem" i WHERE i."runId"=r."runId" AND i."artworkId" IN(r."containedArtworkId",r."containerArtworkId") AND i.status<>'COMPLETE')`)
   await tx.$executeRaw(Prisma.sql`
-    UPDATE "ArtworkDedupRun" SET "groupCount"=(SELECT count(*)::int FROM "ArtworkDedupGroup" WHERE "runId"=${run.id}),
-      "duplicateArtworks"=(SELECT coalesce(sum("memberCount"-1),0)::int FROM "ArtworkDedupGroup" WHERE "runId"=${run.id}),stage='DONE',"updatedAt"=CURRENT_TIMESTAMP WHERE id=${run.id}
+    UPDATE "ArtworkDedupRun" SET "groupCount"=(SELECT count(*)::int FROM "ArtworkDedupResult" WHERE "runId"=${run.id}),
+      "duplicateArtworks"=(SELECT count(DISTINCT "artworkId")::int FROM (
+        SELECT m."artworkId" FROM "ArtworkDedupGroupMember" m WHERE m."runId"=${run.id} AND m."artworkId"> (SELECT min(x."artworkId") FROM "ArtworkDedupGroupMember" x WHERE x."groupId"=m."groupId")
+        UNION SELECT "containedArtworkId" FROM "ArtworkDedupRelation" WHERE "runId"=${run.id}) copies),stage=${input.prepareRelations ? 'MATCH' : 'DONE'},"updatedAt"=CURRENT_TIMESTAMP WHERE id=${run.id}
   `)
   return refreshArtworkDedupCounts(tx, input)
+}
+
+/** A rare tuple seeds at most 100 candidate artworks per fenced checkpoint.
+ * Exact-group representatives avoid rediscovering the same content relation for every copy.
+ */
+export async function buildArtworkDedupRelationsPage(
+  tx: Prisma.TransactionClient,
+  input: { execution: ArtworkDedupExecution; limit?: number }
+) {
+  const run = await assertArtworkDedupExecution(tx, input.execution)
+  const take = limit(input.limit, 100)
+  const [item] = await tx.$queryRaw<{ artworkId: number; memberCount: bigint }[]>(Prisma.sql`
+    SELECT i."artworkId",i."memberCount" FROM "ArtworkDedupItem" i
+    WHERE i."runId"=${run.id} AND i.status='COMPLETE' AND i."artworkId">=${run.relationAfterArtworkId}
+      AND NOT EXISTS(SELECT 1 FROM "ArtworkDedupGroupMember" m JOIN "ArtworkDedupGroupMember" earlier ON earlier."groupId"=m."groupId" AND earlier."artworkId"<m."artworkId" WHERE m."runId"=i."runId" AND m."artworkId"=i."artworkId")
+    ORDER BY i."artworkId" LIMIT 1`)
+  if (!item) return true
+  const after = item.artworkId === run.relationAfterArtworkId ? run.relationAfterCandidateId : 0
+  const candidates = await tx.$queryRaw<{ artworkId: number; memberCount: bigint; included: boolean }[]>(Prisma.sql`
+    WITH required AS MATERIALIZED (
+      SELECT size,sha256,count(*) n FROM "ArtworkDedupMedia" WHERE "runId"=${run.id} AND "artworkId"=${item.artworkId} GROUP BY size,sha256
+    ), pivot AS (
+      SELECT q.* FROM required q ORDER BY (SELECT count(DISTINCT p."artworkId") FROM "ArtworkDedupMedia" p WHERE p."runId"=${run.id} AND p.size=q.size AND p.sha256=q.sha256),q.size,q.sha256 LIMIT 1
+    ), candidates AS MATERIALIZED (
+      SELECT i."artworkId",i."memberCount" FROM pivot q JOIN "ArtworkDedupMedia" p ON p."runId"=${run.id} AND p.size=q.size AND p.sha256=q.sha256
+      JOIN "ArtworkDedupItem" i ON i."runId"=p."runId" AND i."artworkId"=p."artworkId"
+      WHERE i.status='COMPLETE' AND i."memberCount">${item.memberCount} AND i."artworkId">${after}
+      AND NOT EXISTS(SELECT 1 FROM "ArtworkDedupGroupMember" m JOIN "ArtworkDedupGroupMember" earlier ON earlier."groupId"=m."groupId" AND earlier."artworkId"<m."artworkId" WHERE m."runId"=i."runId" AND m."artworkId"=i."artworkId")
+      GROUP BY i."artworkId",i."memberCount",q.n HAVING count(*)>=q.n ORDER BY i."artworkId" LIMIT ${take}
+    ) SELECT c.*,NOT EXISTS(SELECT 1 FROM required q WHERE q.n>(SELECT count(*) FROM "ArtworkDedupMedia" p WHERE p."runId"=${run.id} AND p."artworkId"=c."artworkId" AND p.size=q.size AND p.sha256=q.sha256)) included FROM candidates c ORDER BY c."artworkId"`)
+  const matches = candidates.filter((c) => c.included)
+  if (matches.length) await tx.artworkDedupRelation.createMany({
+    data: matches.map((c) => ({ id: `contains:${run.id}:${item.artworkId}:${c.artworkId}`, runId: run.id,
+      containedArtworkId: item.artworkId, containerArtworkId: c.artworkId,
+      containedFileCount: item.memberCount, containerFileCount: c.memberCount })), skipDuplicates: true
+  })
+  await tx.artworkDedupRun.update({ where: { id: run.id }, data: candidates.length === take
+    ? { relationAfterArtworkId: item.artworkId, relationAfterCandidateId: candidates.at(-1)!.artworkId }
+    : { relationAfterArtworkId: item.artworkId + 1, relationAfterCandidateId: 0 } })
+  return false
 }
 
 export interface ArtworkDedupReaderOwner {

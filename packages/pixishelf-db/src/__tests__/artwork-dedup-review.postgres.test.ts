@@ -96,6 +96,19 @@ async function seed(tx: Prisma.TransactionClient, groups = 1) {
   }
   return { actor, other, artist, run, members, groupIds }
 }
+async function relation(tx: Prisma.TransactionClient, f: Awaited<ReturnType<typeof seed>>, contained: number, container: number) {
+  const fingerprint = await tx.artworkContentFingerprint.findUniqueOrThrow({ where: { artworkId: container } })
+  await tx.image.create({ data: { artworkId: container, path: `${prefix}/${container}-${randomUUID()}.jpg`, size: 20n } })
+  const snap = await captureArtworkContentSnapshot(tx, { artworkId: container })
+  if (snap.status !== 'READY') throw new Error(snap.status)
+  const evidence = { ...fingerprint, sourceRevision: snap.value.revision, mediaEpoch: snap.value.mediaEpoch, fileCount: snap.value.memberCount }
+  await tx.artworkContentFingerprint.upsert({ where: { artworkId: container }, create: evidence, update: evidence })
+  await tx.artworkDedupItem.update({ where: { runId_artworkId: { runId: f.run.id, artworkId: container } }, data: {
+    snapshotRevision: snap.value.revision, mediaEpoch: snap.value.mediaEpoch, memberCount: snap.value.memberCount
+  } })
+  return tx.artworkDedupRelation.create({ data: { id: randomUUID(), runId: f.run.id,
+    containedArtworkId: contained, containerArtworkId: container, containedFileCount: 1n, containerFileCount: snap.value.memberCount } })
+}
 async function prepared(tx: Prisma.TransactionClient, f: Awaited<ReturnType<typeof seed>>) {
   const { operation } = await freezeArtworkDedupOperation(tx, {
     userId: f.actor.id,
@@ -228,6 +241,45 @@ describe.skipIf(!db)('maintenance review durable scope and publication locks', (
       )
     ).rejects.toMatchObject({ code: 'IDEMPOTENCY_CONFLICT' })
   })
+  it('requires an explicit forward choice for another account’s organized contained work', async () => {
+    const f = await db!.$transaction((tx) => seed(tx))
+    const [small, large] = f.members[0]!
+    const r = await db!.$transaction((tx) => relation(tx, f, small!, large!))
+    await db!.artworkLike.create({ data: { artworkId: small!, userId: f.other.id, level: 2 } })
+    const choice = (await db!.$transaction((tx) => readArtworkDedupGroupChoices(tx, {
+      runId: f.run.id, userId: f.actor.id, groupId: r.id
+    })))[0]!
+    expect(choice).toMatchObject({ relationKind: 'CONTAINS', keeperArtworkId: null, reason: 'NEEDS_CHOICE', protectedCount: 1 })
+    const review = { userId: f.actor.id, runId: f.run.id, groupId: r.id, keeperArtworkId: small!, expectedRunVersion: 1, expectedReviewVersion: 0, idempotencyKey: randomUUID() }
+    await expect(db!.$transaction((tx) => saveArtworkDedupReview(tx, review))).rejects.toMatchObject({ code: 'CONTAINMENT_DIRECTION_REQUIRED' })
+    await db!.$transaction((tx) => saveArtworkDedupReview(tx, { ...review, keeperArtworkId: large! }))
+    const frozen = await db!.$transaction((tx) => freezeArtworkDedupOperation(tx, {
+      userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1, expectedReviewRevision: 1,
+      preparePurpose: 'DIRECT_DELETE', idempotencyKey: randomUUID(), selection: { kind: 'EXPLICIT', groupIds: [r.id] }
+    }))
+    expect(frozen.operation).toMatchObject({ protocolVersion: 2, keepers: 1, copies: 1, requiresOrganizationConfirmation: true })
+    expect(await db!.artworkDedupOperationGroup.findFirst({ where: { operationId: frozen.operation.id } })).toMatchObject({
+      relationKind: 'CONTAINS', containedArtworkId: small, containerArtworkId: large, containedFileCount: 1n, containerFileCount: 2n
+    })
+  })
+  it('deduplicates shared keepers and rejects repeated copies or retain/delete chains before freezing', async () => {
+    const f = await db!.$transaction((tx) => seed(tx, 2))
+    const [a, b, c, d] = f.members.flat()
+    const ab = await db!.$transaction((tx) => relation(tx, f, a!, b!))
+    const cb = await db!.artworkDedupRelation.create({ data: { id: randomUUID(), runId: f.run.id, containedArtworkId: c!, containerArtworkId: b!, containedFileCount: 1n, containerFileCount: 2n } })
+    const ad = await db!.$transaction((tx) => relation(tx, f, a!, d!))
+    const freeze = (ids: string[]) => db!.$transaction((tx) => freezeArtworkDedupOperation(tx, {
+      userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1, expectedReviewRevision: 0,
+      preparePurpose: 'DIRECT_DELETE', idempotencyKey: randomUUID(), selection: { kind: 'EXPLICIT', groupIds: ids }
+    }))
+    expect((await freeze([ab.id, cb.id])).operation).toMatchObject({ selectedGroups: 2, keepers: 1, copies: 2 })
+    await expect(freeze([ab.id, ad.id])).rejects.toMatchObject({ code: 'CONFLICTING_SELECTION' })
+    // The existing exact group retains a while the containment result deletes it.
+    await expect(freeze([f.groupIds[0]!, ab.id])).rejects.toMatchObject({ code: 'CONFLICTING_SELECTION' })
+    const firstPage = await db!.$transaction((tx) => readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, limit: 1 }))
+    const nextPage = await db!.$transaction((tx) => readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, limit: 100, afterGroupId: firstPage[0]!.groupId }))
+    expect([firstPage[0]!.groupId, ...nextPage.map((r) => r.groupId)].sort()).toEqual([...f.groupIds, ab.id, cb.id, ad.id].sort())
+  })
   it.each(['PENDING', 'BLOCKED'])('cannot publish READY with %s file inspection', async (inspectionStatus) => {
     const f = await db!.$transaction((tx) => seed(tx))
     const execution = await db!.$transaction((tx) => prepared(tx, f))
@@ -266,7 +318,10 @@ describe.skipIf(!db)('maintenance review durable scope and publication locks', (
     await ready.promise
     try {
       await expect(
-        db!.$transaction((tx) => deleteUserWithArtworkDedupProtection(tx, f.other.id))
+        db!.$transaction(async (tx) => {
+          await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '1s'")
+          return deleteUserWithArtworkDedupProtection(tx, f.other.id)
+        })
       ).rejects.toMatchObject({ code: 'P2010', meta: { code: '55P03' } })
       expect(await db!.artworkLike.count({ where: { artworkId: art, userId: f.other.id } })).toBe(1)
     } finally {
@@ -305,6 +360,7 @@ describe.skipIf(!db)('maintenance review durable scope and publication locks', (
     await held.promise
     await expect(
       db!.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL lock_timeout = '1s'")
         await tx.$queryRaw(Prisma.sql`SELECT id FROM "UserBA" WHERE id=${f.other.id} FOR UPDATE`)
         insert.release()
         await deleteUserWithArtworkDedupProtection(tx, f.other.id)

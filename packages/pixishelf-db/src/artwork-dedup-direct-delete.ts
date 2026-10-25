@@ -27,7 +27,7 @@ export interface ArtworkDedupDirectDeleteCommand {
   idempotencyKey: string
 }
 function protocol(op: Operation) {
-  if (op.preparePurpose !== 'DIRECT_DELETE' || op.protocolVersion !== 1 || !op.scopeDigest) {
+  if (op.preparePurpose !== 'DIRECT_DELETE' || ![1, 2].includes(op.protocolVersion ?? 0) || !op.scopeDigest) {
     throw new ArtworkDedupOperationError('DIRECT_DELETE_PROTOCOL_REQUIRED')
   }
 }
@@ -36,7 +36,7 @@ export async function artworkDedupDirectDeleteScopeDigest(tx: Prisma.Transaction
   const [row] = await tx.$queryRaw<{ digest: string }[]>(Prisma.sql`
     WITH facts AS (
       SELECT 'operation' kind,o.id key,jsonb_build_array(o.id,o."runId",o."runVersion",o."requestedBy",o."frozenReviewRevision",o."preparePurpose",o."protocolVersion",o."rootBindings",o."selectedGroups",o.keepers,o.copies)::text v FROM "ArtworkDedupOperation" o WHERE o.id=${operationId}
-      UNION ALL SELECT 'group',g."groupId",to_jsonb(g)::text FROM "ArtworkDedupOperationGroup" g WHERE g."operationId"=${operationId}
+      UNION ALL SELECT 'group',g."groupId",(CASE WHEN g."relationKind"='EXACT' THEN to_jsonb(g)-ARRAY['relationKind','containedArtworkId','containerArtworkId','containedFileCount','containerFileCount'] ELSE to_jsonb(g) END)::text FROM "ArtworkDedupOperationGroup" g WHERE g."operationId"=${operationId}
       UNION ALL SELECT 'artwork',a."artworkId"::text,jsonb_build_array(a."artworkId",a."groupId",a.role,a."frozenMediaRevision",a."snapshotRevision",a."mediaEpoch",a."membersSignature",a."contentSha256",a."memberCount",a."organizationSignature",a."impactSignature",a."sourceSignature",a."creatorSignature",a."selectedForAction")::text FROM "ArtworkDedupOperationArtwork" a WHERE a."operationId"=${operationId}
       UNION ALL SELECT 'file',f."fileId",jsonb_build_array(f."fileId",f."artworkId",f."referenceKey",f.role,f."rootIdentity",f."logicalRoot",f."canonicalPath",f.size,f."mtimeNs",f."ctimeNs",f."deviceId",f.inode,f."linkCount",f.sha256,f."sourceRevision")::text FROM "ArtworkDedupOperationFile" f WHERE f."operationId"=${operationId}
       UNION ALL SELECT 'source',b."artworkId"::text||':'||b."sourceId",to_jsonb(b)::text FROM "ArtworkDedupOperationSource" b WHERE b."operationId"=${operationId}
@@ -92,7 +92,7 @@ export async function authorizeArtworkDedupDirectDelete(
   tx: Prisma.TransactionClient,
   input: ArtworkDedupDirectDeleteCommand & {
     purpose: 'DIRECT_DELETE'
-    protocolVersion: 1
+    protocolVersion: 1 | 2
     scopeDigest: string
     externalWritesStopped: true
     permanentDeleteConfirmed: true
@@ -103,7 +103,7 @@ export async function authorizeArtworkDedupDirectDelete(
   if (prior) return { operation: op, created: false }
   if (
     input.purpose !== 'DIRECT_DELETE' ||
-    input.protocolVersion !== 1 ||
+    input.protocolVersion !== op.protocolVersion ||
     !input.externalWritesStopped ||
     !input.permanentDeleteConfirmed ||
     !input.organizationImpactConfirmed
@@ -225,7 +225,16 @@ export async function beginArtworkDedupDirectDeleteFiles(
   if (ownership.changedFiles) throw new ArtworkDedupOperationError('OWNERSHIP_CHANGED')
   const [bad] = await tx.$queryRaw<{ bad: boolean }[]>(Prisma.sql`SELECT EXISTS(
     SELECT 1 FROM "ArtworkDedupOperationArtwork" a WHERE a."operationId"=${op.id} AND (a."freshVerifiedExecutionVersion" IS DISTINCT FROM ${op.executionVersion} OR a."freshContentSha256" IS DISTINCT FROM a."contentSha256" OR a."freshMembersSignature" IS DISTINCT FROM a."membersSignature"))
-    OR EXISTS(SELECT 1 FROM "ArtworkDedupOperationGroup" g JOIN "ArtworkDedupOperationArtwork" a ON a."operationId"=g."operationId" AND a."groupId"=g."groupId" JOIN "ArtworkDedupOperationArtwork" k ON k."operationId"=g."operationId" AND k."artworkId"=g."keeperArtworkId" WHERE g."operationId"=${op.id} AND(a."contentSha256"<>k."contentSha256" OR a."memberCount"<>k."memberCount")) bad`)
+    OR EXISTS(SELECT 1 FROM "ArtworkDedupOperationGroup" g JOIN "ArtworkDedupOperationArtwork" a ON a."operationId"=g."operationId" AND a."groupId"=g."groupId" JOIN "ArtworkDedupOperationArtwork" k ON k."operationId"=g."operationId" AND k."artworkId"=g."keeperArtworkId" WHERE g."operationId"=${op.id} AND g."relationKind"='EXACT' AND(a."contentSha256"<>k."contentSha256" OR a."memberCount"<>k."memberCount"))
+    OR EXISTS(SELECT 1 FROM "ArtworkDedupOperationGroup" g
+      LEFT JOIN "ArtworkDedupOperationArtwork" a ON a."operationId"=g."operationId" AND a."artworkId"=g."containedArtworkId"
+      LEFT JOIN "ArtworkDedupOperationArtwork" k ON k."operationId"=g."operationId" AND k."artworkId"=g."containerArtworkId"
+      WHERE g."operationId"=${op.id} AND g.status='SELECTED' AND g."relationKind"='CONTAINS' AND (
+        NOT coalesce(${op.protocolVersion}=2 AND a.role='COPY' AND k.role='KEEPER' AND g."keeperArtworkId"=g."containerArtworkId"
+          AND a."memberCount"=g."containedFileCount" AND k."memberCount"=g."containerFileCount" AND a."memberCount"<k."memberCount",false)
+        OR EXISTS(SELECT 1 FROM "ArtworkDedupOperationFile" f WHERE f."operationId"=g."operationId" AND f."artworkId"=g."containedArtworkId" AND f.role='MEDIA'
+          GROUP BY f.size,f.sha256 HAVING count(*)>(SELECT count(*) FROM "ArtworkDedupOperationFile" kept WHERE kept."operationId"=g."operationId" AND kept."artworkId"=g."containerArtworkId" AND kept.role='MEDIA' AND kept.size=f.size AND kept.sha256=f.sha256))
+      )) bad`)
   if (bad?.bad) throw new ArtworkDedupOperationError('INCOMPLETE_EVIDENCE')
   await tx.$executeRaw(
     Prisma.sql`UPDATE "Artwork" SET "deletedAt"=coalesce("deletedAt",CURRENT_TIMESTAMP) WHERE id IN(SELECT "artworkId" FROM "ArtworkDedupOperationArtwork" WHERE "operationId"=${op.id} AND role='COPY')`

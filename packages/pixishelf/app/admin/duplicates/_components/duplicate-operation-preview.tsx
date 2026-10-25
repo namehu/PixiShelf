@@ -20,6 +20,7 @@ import {
   duplicateFileStatus
 } from './duplicate-operation-state'
 import { DuplicateReimport } from './duplicate-reimport'
+import { duplicateContainmentCounts } from './duplicate-relation'
 
 const roleLabels = {
   MEDIA: '原媒体',
@@ -179,6 +180,28 @@ export function DuplicateOperationPreview({
                       </Popover>
                     }
                   />
+                  {item.relationKind === 'CONTAINS' && item.role === 'COPY' ? (
+                    <p className="pb-2 text-xs leading-6 text-muted-foreground">
+                      已完整包含于保留作品{' '}
+                      {item.containerArtworkId !== null ? (
+                        <a
+                          href={`/artworks/${item.containerArtworkId}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+                        >
+                          <PrivacySensitiveText>
+                            {preview.items.find((member) => member.artworkId === item.containerArtworkId)?.title ??
+                              `#${item.containerArtworkId}`}
+                          </PrivacySensitiveText>
+                          <span className="sr-only">（新标签页）</span>
+                        </a>
+                      ) : (
+                        '（信息暂不可用）'
+                      )}
+                      <span className="block">{duplicateContainmentCounts(item)}</span>
+                    </p>
+                  ) : null}
                   {item.reasons.length > 0 ? (
                     <p className="pb-2 pl-14 text-sm text-warning">
                       {item.reasons.map(duplicateBlockReason).join('；')}

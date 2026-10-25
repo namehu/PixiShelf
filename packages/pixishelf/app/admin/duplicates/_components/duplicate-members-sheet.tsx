@@ -11,6 +11,11 @@ import { DuplicateMemberRow } from './duplicate-member-row'
 import { DuplicateOrganization } from './duplicate-organization'
 import { DuplicatePagination } from './duplicate-pagination'
 import { DuplicateLoading, DuplicateQueryError } from './duplicate-query-feedback'
+import {
+  duplicateContainmentCounts,
+  duplicateKeeperRestriction,
+  duplicateRelationMemberMetadata
+} from './duplicate-relation'
 
 export function DuplicateMembersSheet({
   userId,
@@ -20,6 +25,7 @@ export function DuplicateMembersSheet({
   keeperId,
   saving,
   failed,
+  errorMessage,
   onClose,
   onKeep,
   onRetry
@@ -31,6 +37,7 @@ export function DuplicateMembersSheet({
   keeperId: number | null
   saving: boolean
   failed: boolean
+  errorMessage?: string
   onClose: () => void
   onKeep: (group: ArtworkDedupGroupDto, artworkId: number) => void
   onRetry: () => void
@@ -73,8 +80,12 @@ export function DuplicateMembersSheet({
         }}
       >
         <SheetHeader className="pr-14">
-          <SheetTitle>保留哪一部？</SheetTitle>
-          <SheetDescription>图片内容相同，可以根据评分、书签和阅读进度选择。</SheetDescription>
+          <SheetTitle>{page?.group.relationKind === 'CONTAINS' ? '完整包含' : '保留哪一部？'}</SheetTitle>
+          <SheetDescription>
+            {page?.group.relationKind === 'CONTAINS'
+              ? `${duplicateContainmentCounts(page.group)}。仅可保留包含全部原媒体的完整作品。`
+              : '图片内容相同，可以根据评分、书签和阅读进度选择。'}
+          </SheetDescription>
         </SheetHeader>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           {query.isError ? (
@@ -109,6 +120,8 @@ export function DuplicateMembersSheet({
                     name={`detail-${groupId}`}
                     keeper={(keeperId ?? page.keeper?.artworkId) === member.artworkId}
                     disabled={!canSave}
+                    metadata={duplicateRelationMemberMetadata(page.group, member.artworkId)}
+                    keeperRestriction={duplicateKeeperRestriction(page.group, member.artworkId)}
                     onKeep={() => onKeep(page.group, member.artworkId)}
                   >
                     <DuplicateOrganization member={member} />
@@ -120,7 +133,7 @@ export function DuplicateMembersSheet({
                   '正在保存…'
                 ) : failed ? (
                   <>
-                    <span className="text-destructive">未保存</span>
+                    <span className="text-destructive">{errorMessage ?? '未保存'}</span>
                     <Button className="min-h-11" variant="ghost" onClick={onRetry}>
                       重试保存
                     </Button>

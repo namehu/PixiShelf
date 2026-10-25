@@ -6,6 +6,7 @@ import {
   assertArtworkDedupItemCurrent,
   buildArtworkDedupCandidates,
   buildArtworkDedupGroups,
+  buildArtworkDedupRelationsPage,
   claimArtworkDedupReader,
   freezeArtworkDedupRun,
   readArtworkDedupItemsPage,
@@ -170,7 +171,7 @@ describe.skipIf(!db)('artwork detection durable evidence', () => {
         false
       )
     }))
-  it('candidate grouping preserves size multiplicity and does not trust a digest', () =>
+  it('candidate inventory no longer excludes different size multisets before SHA inclusion', () =>
     isolated(async (tx) => {
       const f = await seed(tx, [
         [1, 2],
@@ -186,8 +187,25 @@ describe.skipIf(!db)('artwork detection durable evidence', () => {
       }
       await buildArtworkDedupCandidates(tx, { execution: f.execution })
       const rows = await tx.artworkDedupItem.findMany({ where: { runId: f.run.id }, orderBy: { artworkId: 'asc' } })
-      expect(rows.map((i) => i.status)).toEqual(['HASHING', 'HASHING', 'UNIQUE'])
+      expect(rows.map((i) => i.status)).toEqual(['HASHING', 'HASHING', 'HASHING'])
     }))
+  it('checkpoints high-frequency containment candidates at 100 without truncating or pairing images', () =>
+    isolated(async (tx) => {
+      const f = await seed(tx, [[1], ...Array.from({ length: 105 }, (_, i) => [1, i + 2])])
+      for (const artwork of f.artworks) await complete(tx, f.execution, artwork.id, 'c'.repeat(64))
+      await buildArtworkDedupGroups(tx, { execution: f.execution, prepareRelations: true })
+      expect(await buildArtworkDedupRelationsPage(tx, { execution: f.execution })).toBe(false)
+      expect(await tx.artworkDedupRelation.count({ where: { runId: f.run.id } })).toBe(100)
+      expect(await tx.artworkDedupRun.findUniqueOrThrow({ where: { id: f.run.id } })).toMatchObject({
+        stage: 'MATCH', relationAfterArtworkId: f.artworks[0]!.id,
+        relationAfterCandidateId: f.artworks[100]!.id
+      })
+      expect(await buildArtworkDedupRelationsPage(tx, { execution: f.execution })).toBe(false)
+      expect(await tx.artworkDedupRelation.count({ where: { runId: f.run.id } })).toBe(105)
+      expect(await tx.artworkDedupRun.findUniqueOrThrow({ where: { id: f.run.id } })).toMatchObject({
+        relationAfterArtworkId: f.artworks[0]!.id + 1, relationAfterCandidateId: 0
+      })
+    }), 30_000)
   it('partitions identical fingerprint collisions by exact canonical media tuples', () =>
     isolated(async (tx) => {
       const f = await seed(tx, [

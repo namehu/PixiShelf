@@ -1,5 +1,6 @@
 import type { ArtworkDedupMemberDto } from '@pixishelf/job-contracts'
 import { ExternalLink, ImageIcon } from 'lucide-react'
+import { useId } from 'react'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -12,6 +13,7 @@ export function DuplicateMemberRow({
   unavailable = false,
   statusLabel,
   metadata,
+  keeperRestriction,
   disabled,
   name,
   onKeep,
@@ -24,23 +26,27 @@ export function DuplicateMemberRow({
   unavailable?: boolean
   statusLabel?: string
   metadata?: string
+  keeperRestriction?: string
   disabled?: boolean
   name?: string
   onKeep?: () => void
   actions?: React.ReactNode
   children?: React.ReactNode
 }) {
+  const restrictionId = useId()
+  const keepDisabled = disabled || Boolean(keeperRestriction)
   const Title = unavailable ? 'div' : 'a'
   return (
     <div className="flex min-w-0 flex-col gap-2 py-2">
       <div className="flex min-h-11 min-w-0 items-center gap-3">
         {onKeep ? (
-          <label className={cn('flex size-11 shrink-0 items-center justify-center', !disabled && 'cursor-pointer')}>
+          <label className={cn('flex size-11 shrink-0 items-center justify-center', !keepDisabled && 'cursor-pointer')}>
             <input
               type="radio"
               name={name}
               checked={keeper}
-              disabled={disabled}
+              disabled={keepDisabled}
+              aria-describedby={keeperRestriction ? restrictionId : undefined}
               onChange={onKeep}
               aria-label={`保留 ${member.title}`}
               className="size-4 accent-primary focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
@@ -77,6 +83,11 @@ export function DuplicateMemberRow({
                 <ExternalLink className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
               ) : null}
             </span>
+            {keeperRestriction ? (
+              <span id={restrictionId} className="text-xs text-muted-foreground">
+                {keeperRestriction}
+              </span>
+            ) : null}
             <span className="text-xs text-muted-foreground">
               {duplicateSourceLabel(member.sourceLabel)}
               {metadata ? ` · ${metadata}` : ''}

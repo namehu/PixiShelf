@@ -216,7 +216,18 @@ export async function statArtwork(context: DedupPipelineContext, item: ArtworkDe
           })
         )
         const changed = new Map(observed.changedSources.map((row) => [row.imageId, row.sourceRevision]))
-        for (const row of entries) row.sourceRevision = changed.get(row.imageId) ?? row.sourceRevision
+        const byId = new Map(members.map((member) => [member.imageId, member]))
+        for (const row of entries) {
+          row.sourceRevision = changed.get(row.imageId) ?? row.sourceRevision
+          const cached = byId.get(row.imageId)?.fingerprint
+          if (!context.forceRead && cached && !changed.has(row.imageId) &&
+            cached.algorithmVersion === MEDIA_CONTENT_ALGORITHM_VERSION &&
+            cached.sourceRevision === row.sourceRevision && cached.artworkMediaEpoch === observed.snapshot.mediaEpoch &&
+            cached.sourcePath === row.sourcePath && cached.rootIdentity === row.rootIdentity &&
+            cached.canonicalPath === row.canonicalPath && sameContentFileState(cached, state(row))) {
+            row.sha256 = cached.sha256
+          }
+        }
         await saveArtworkDedupMediaPage(tx, { execution: context.execution, artworkId: item.artworkId, entries })
         await saveArtworkDedupItem(tx, {
           execution: context.execution,
@@ -237,7 +248,7 @@ export async function statArtwork(context: DedupPipelineContext, item: ArtworkDe
     }
     if (page.nextCursor === null) break
   }
-  await context.transaction(async (tx) => {
+  const cachedComplete = await context.transaction(async (tx) => {
     await current(context, tx, item.artworkId)
     if (ready(await captureArtworkContentSnapshot(tx, { artworkId: item.artworkId })).revision !== snapshot.revision)
       throw new DedupItemError('STALE')
@@ -250,7 +261,18 @@ export async function statArtwork(context: DedupPipelineContext, item: ArtworkDe
       artworkId: item.artworkId,
       data: { status: 'SIZED', afterImageId: 0 }
     })
+    return BigInt(await tx.artworkDedupMedia.count({ where: {
+      runId: context.execution.runId, artworkId: item.artworkId, sha256: { not: null }
+    } })) === snapshot.memberCount
   })
+  if (cachedComplete) {
+    // Attribute evidence was checked once in this inventory, in bounded batches.
+    // Publication still revalidates source, directory generations and the complete snapshot.
+    await completeArtwork(context, item.artworkId, snapshot)
+    await context.transaction((tx) => updateArtworkDedupRun(tx, {
+      execution: context.execution, data: { cacheHitMedia: { increment: Number(snapshot.memberCount) } }
+    }))
+  }
   return true
 }
 
@@ -290,9 +312,6 @@ export async function hashArtwork(context: DedupPipelineContext, item: ArtworkDe
         row.logicalRoot === 'source-media:v1' ? context.roots.source : context.roots.archive
       if (root.rootIdentity !== row.rootIdentity || root.logicalRoot !== row.logicalRoot)
         throw new MediaContentFileError('ROOT_CHANGED', 'ROOT_CHANGED')
-      const inspection = await context.reader.inspect({ root, relativePath: row.canonicalPath, signal: context.signal })
-      inspected++
-      if (!sameContentFileState(inspection.state, row)) throw new DedupItemError('FILE_CHANGED')
       const cached = member.fingerprint
       if (
         !context.forceRead &&
@@ -305,6 +324,9 @@ export async function hashArtwork(context: DedupPipelineContext, item: ArtworkDe
         cached.canonicalPath === row.canonicalPath &&
         sameContentFileState(cached, row)
       ) {
+        const inspection = await context.reader.inspect({ root, relativePath: row.canonicalPath, signal: context.signal })
+        inspected++
+        if (!sameContentFileState(inspection.state, row)) throw new DedupItemError('FILE_CHANGED')
         entries.push({ ...row, sha256: cached.sha256 })
         hits++
       } else {
@@ -363,14 +385,18 @@ export async function hashArtwork(context: DedupPipelineContext, item: ArtworkDe
     cursor = entries.at(-1)!.imageId
     if (context.shouldYield()) return false
   }
+  await completeArtwork(context, item.artworkId, snapshot)
+  return true
+}
+async function completeArtwork(context: DedupPipelineContext, artworkId: number, snapshot: ArtworkContentSnapshot) {
   const published = ready(
     await publishCompleteArtworkFingerprint({ transaction: context.transaction, signal: context.signal, snapshot })
   )
   await context.transaction(async (tx) => {
-    await current(context, tx, item.artworkId)
+    await current(context, tx, artworkId)
     await saveArtworkDedupItem(tx, {
       execution: context.execution,
-      artworkId: item.artworkId,
+      artworkId: artworkId,
       data: {
         status: 'COMPLETE',
         snapshotRevision: published.snapshot.revision,
@@ -379,8 +405,8 @@ export async function hashArtwork(context: DedupPipelineContext, item: ArtworkDe
       }
     })
   })
-  return true
 }
+
 function state(row: ArtworkDedupMediaEntry) {
   return {
     size: BigInt(row.size),

@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DuplicateOperationActions } from '../duplicate-operation-actions'
 import { DuplicateReimport } from '../duplicate-reimport'
-import { member, operation } from './duplicate-maintenance-fixtures'
+import { exactRelation, member, operation } from './duplicate-maintenance-fixtures'
 
 const mocks = vi.hoisted(() => ({
   directDelete: vi.fn(),
@@ -90,28 +90,46 @@ describe('direct delete actions', () => {
     expect(screen.queryByRole('button', { name: /永久删除/ })).toBeNull()
     expect(screen.getByRole('link', { name: '返回检查结果' }).getAttribute('href')).not.toContain('operationId')
   })
-  it('confirms once in the existing panel and binds all three true literals to the server scope', async () => {
-    mount(operation({ allowedActions: ['DIRECT_DELETE'] }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(screen.queryByRole('textbox')).toBeNull()
-    const submit = screen.getByRole('button', { name: '永久删除 1 部副本' }) as HTMLButtonElement
-    expect(submit.disabled).toBe(true)
-    confirm()
-    fireEvent.click(submit)
-    fireEvent.click(submit)
-    await waitFor(() => expect(mocks.directDelete).toHaveBeenCalledTimes(1))
-    expect(mocks.directDelete.mock.calls[0]![0]).toEqual({
-      operationId: 'op-1',
-      expectedVersion: 1,
-      expectedUserId: 'user-a',
-      purpose: 'DIRECT_DELETE',
-      protocolVersion: 1,
-      scopeDigest: 'a'.repeat(64),
-      permanentDeleteConfirmed: true,
-      organizationImpactConfirmed: true,
-      externalWritesStopped: true,
-      idempotencyKey: expect.any(String)
-    })
+  it.each([1, 2] as const)(
+    'confirms once using server protocol %d and binds the server scope',
+    async (protocolVersion) => {
+      mount(operation({ protocolVersion, allowedActions: ['DIRECT_DELETE'] }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.queryByRole('textbox')).toBeNull()
+      const submit = screen.getByRole('button', { name: '永久删除 1 部副本' }) as HTMLButtonElement
+      expect(submit.disabled).toBe(true)
+      expect(screen.getAllByRole('checkbox')).toHaveLength(2)
+      expect(
+        screen.getAllByRole('checkbox').every((checkbox) => checkbox.getAttribute('aria-checked') === 'false')
+      ).toBe(true)
+      confirm()
+      fireEvent.click(submit)
+      fireEvent.click(submit)
+      await waitFor(() => expect(mocks.directDelete).toHaveBeenCalledTimes(1))
+      expect(mocks.directDelete.mock.calls[0]![0]).toEqual({
+        operationId: 'op-1',
+        expectedVersion: 1,
+        expectedUserId: 'user-a',
+        purpose: 'DIRECT_DELETE',
+        protocolVersion,
+        scopeDigest: 'a'.repeat(64),
+        permanentDeleteConfirmed: true,
+        organizationImpactConfirmed: true,
+        externalWritesStopped: true,
+        idempotencyKey: expect.any(String)
+      })
+    }
+  )
+  it.each([null, 3])('does not authorize deletion with unsupported protocol %s', (protocolVersion) => {
+    mount(
+      operation({
+        protocolVersion: protocolVersion as ArtworkDedupOperationDto['protocolVersion'],
+        allowedActions: ['DIRECT_DELETE']
+      })
+    )
+    expect(screen.getByText('此预览不能用于直接删除')).toBeTruthy()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(mocks.directDelete).not.toHaveBeenCalled()
   })
   it('requires a loaded frozen preview and resets confirmation for a new version or account', () => {
     const value = operation({ allowedActions: ['DIRECT_DELETE'] })
@@ -239,6 +257,7 @@ describe('direct delete actions', () => {
 function reimportItems(): ArtworkDedupArtworkPreviewDto[] {
   return [
     {
+      ...exactRelation,
       ...member(),
       itemId: 1,
       groupId: 'group-1',

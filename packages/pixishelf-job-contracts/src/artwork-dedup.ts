@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { jobStatusSchema } from './job-types.ts'
 
-export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 1 as const
+export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 2 as const
 export const ARTWORK_DEDUP_PRIORITY = 900 as const
 export const ARTWORK_DEDUP_DEFAULTS = Object.freeze({
   mediaPageSize: 500,
@@ -46,6 +46,7 @@ export const artworkDedupListGroupsInputSchema = z
   .strict()
 const count = z.number().int().nonnegative()
 export const artworkDedupRunDtoSchema = z.object({
+  includesContainment: z.boolean().default(false),
   runId: id,
   artistId: version,
   artistName: z.string(),
@@ -53,7 +54,7 @@ export const artworkDedupRunDtoSchema = z.object({
   version,
   executionVersion: version,
   status: jobStatusSchema,
-  stage: z.enum(['STAT', 'CANDIDATES', 'HASH', 'GROUP', 'DONE']),
+  stage: z.enum(['STAT', 'CANDIDATES', 'HASH', 'GROUP', 'MATCH', 'DONE']),
   mode: artworkDedupModeSchema,
   frozenAt: z.string(),
   startedAt: z.string().nullable(),

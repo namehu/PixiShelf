@@ -9,11 +9,13 @@ import {
 } from '@pixishelf/db'
 import {
   artworkDedupRunDtoSchema,
+  ARTWORK_DEDUP_SCAN_DEFINITION_VERSION,
   type ArtworkDedupControlAction,
   type ArtworkDedupRunDto
 } from '@pixishelf/job-contracts'
 import { prisma } from '@/lib/prisma'
 import { writeJobEvent } from './background-task/job-event-service'
+import { WORKER_HEARTBEAT_STALE_AFTER_MS } from './background-task/worker-heartbeat'
 
 interface Database {
   $transaction<T>(body: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T>
@@ -67,7 +69,9 @@ async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedup
           orderBy: [{ finishedAt: 'desc' }, { id: 'desc' }],
           select: { id: true, version: true, finishedAt: true, groupCount: true }
         })
+  const job = run.jobId ? await tx.systemJob.findUnique({ where: { id: run.jobId }, select: { definitionVersion: true } }) : null
   return artworkDedupRunDtoSchema.parse({
+    includesContainment: job?.definitionVersion === ARTWORK_DEDUP_SCAN_DEFINITION_VERSION,
     lastCompletedRun: lastCompleted
       ? {
           runId: lastCompleted.id,
@@ -118,12 +122,22 @@ async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedup
   })
 }
 async function createJob(tx: Prisma.TransactionClient, run: Run) {
+  const workers = await tx.workerInstance.findMany({
+    where: { status: 'READY', heartbeatAt: { gte: new Date(Date.now() - WORKER_HEARTBEAT_STALE_AFTER_MS) } },
+    orderBy: { heartbeatAt: 'desc' }, take: 20, select: { capabilities: true }
+  })
+  if (!workers.some(({ capabilities }) => Array.isArray(capabilities) && capabilities.some((entry) =>
+    entry !== null && typeof entry === 'object' && !Array.isArray(entry) && entry.jobType === 'ARTWORK_DEDUP_SCAN' &&
+    entry.executionLane === 'BACKGROUND_WRITER' && Array.isArray(entry.definitionVersions) &&
+    entry.definitionVersions.includes(ARTWORK_DEDUP_SCAN_DEFINITION_VERSION)))) {
+    throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '需要升级并启动支持完整包含检查的 Worker 后再开始检查' })
+  }
   const job = await tx.systemJob.create({
     data: {
       id: randomUUID(),
       type: 'ARTWORK_DEDUP_SCAN',
       executionLane: 'BACKGROUND_WRITER',
-      definitionVersion: 1,
+      definitionVersion: ARTWORK_DEDUP_SCAN_DEFINITION_VERSION,
       triggerSource: 'SYSTEM',
       queuePriority: 900,
       effectivePriority: 900,
@@ -236,6 +250,7 @@ export async function controlArtworkDedup(
         ) {
           conflict('该艺术家已有活动检查')
         }
+        await tx.artworkDedupRelation.deleteMany({ where: { runId: run.id } })
         await tx.artworkDedupGroup.deleteMany({ where: { runId: run.id } })
         await tx.artworkDedupMedia.deleteMany({ where: { runId: run.id } })
         await tx.artworkDedupItem.updateMany({
@@ -258,6 +273,8 @@ export async function controlArtworkDedup(
             executionVersion: { increment: 1 },
             version: { increment: 1 },
             stage: 'STAT',
+            relationAfterArtworkId: 0,
+            relationAfterCandidateId: 0,
             finishedAt: null,
             errorCode: null,
             processedArtworks: 0,

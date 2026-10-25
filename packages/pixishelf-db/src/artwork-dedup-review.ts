@@ -14,6 +14,11 @@ import {
 
 export interface ArtworkDedupGroupChoice {
   groupId: string
+  relationKind: 'EXACT' | 'CONTAINS'
+  containedArtworkId: number | null
+  containerArtworkId: number | null
+  containedFileCount: bigint | null
+  containerFileCount: bigint | null
   memberCount: number
   fileCount: bigint
   keeperArtworkId: number | null
@@ -92,15 +97,16 @@ export async function saveArtworkDedupReview(
   if ((review?.reviewVersion ?? 0) !== input.expectedReviewVersion) throw new ArtworkDedupOperationError('STALE')
   await lockCreatorCatalog(tx)
   await tx.$queryRaw(
-    Prisma.sql`SELECT count(*) FROM (SELECT a.id FROM "Artwork" a JOIN "ArtworkDedupGroupMember" m ON m."artworkId"=a.id WHERE m."runId"=${run.id} AND m."groupId"=${input.groupId} ORDER BY a.id FOR UPDATE OF a) locked`
+    Prisma.sql`SELECT count(*) FROM (SELECT a.id FROM "Artwork" a JOIN "ArtworkDedupResultMember" m ON m."artworkId"=a.id WHERE m."runId"=${run.id} AND m."groupId"=${input.groupId} ORDER BY a.id FOR UPDATE OF a) locked`
   )
   const choice = (
     await readArtworkDedupGroupChoices(tx, { runId: run.id, userId: input.userId, groupId: input.groupId })
   )[0]
-  const member = await tx.artworkDedupGroupMember.findUnique({
-    where: { runId_artworkId: { runId: run.id, artworkId: input.keeperArtworkId } }
-  })
-  if (!choice?.eligible || member?.groupId !== input.groupId) throw new ArtworkDedupOperationError('STALE')
+  const [member] = await tx.$queryRaw<{ artworkId: number }[]>(Prisma.sql`
+    SELECT "artworkId" FROM "ArtworkDedupResultMember" WHERE "runId"=${run.id} AND "groupId"=${input.groupId} AND "artworkId"=${input.keeperArtworkId}`)
+  if (!choice?.eligible || !member) throw new ArtworkDedupOperationError('STALE')
+  if (choice.relationKind === 'CONTAINS' && choice.containerArtworkId !== input.keeperArtworkId)
+    throw new ArtworkDedupOperationError('CONTAINMENT_DIRECTION_REQUIRED')
   const saved = await tx.artworkDedupReview.upsert({
     where: { runId_userId_groupId: key },
     create: { ...key, keeperArtworkId: input.keeperArtworkId },
@@ -189,22 +195,14 @@ export async function freezeArtworkDedupOperation(
     selection?.kind === 'ALL_RECOMMENDED' && selection.excludedGroupIds.length
       ? Prisma.sql`c."groupId" IN(${Prisma.join(selection.excludedGroupIds)})`
       : Prisma.sql`false`
-  if (
-    selection?.kind === 'EXPLICIT' &&
-    (await tx.artworkDedupGroup.count({ where: { runId: run.id, id: { in: selection.groupIds } } })) !==
-      selection.groupIds.length
-  )
-    throw new ArtworkDedupOperationError('SCOPE_MISMATCH')
-  if (
-    selection?.kind === 'ALL_RECOMMENDED' &&
-    selection.excludedGroupIds.length &&
-    (await tx.artworkDedupGroup.count({ where: { runId: run.id, id: { in: selection.excludedGroupIds } } })) !==
-      selection.excludedGroupIds.length
-  )
-    throw new ArtworkDedupOperationError('SCOPE_MISMATCH')
+  const idsToValidate = selection?.kind === 'EXPLICIT' ? selection.groupIds : selection?.excludedGroupIds ?? []
+  if (idsToValidate.length) {
+    const [count] = await tx.$queryRaw<{ n: bigint }[]>(Prisma.sql`SELECT count(*) n FROM "ArtworkDedupResult" WHERE "runId"=${run.id} AND id IN(${Prisma.join(idsToValidate)})`)
+    if (Number(count?.n) !== idsToValidate.length) throw new ArtworkDedupOperationError('SCOPE_MISMATCH')
+  }
   await lockCreatorCatalog(tx)
   await tx.$queryRaw(
-    Prisma.sql`SELECT count(*) FROM(SELECT a.id FROM "Artwork" a JOIN "ArtworkDedupGroupMember" m ON m."artworkId"=a.id JOIN "ArtworkDedupGroup" c ON c.id=m."groupId" WHERE m."runId"=${run.id} AND ${source ? Prisma.sql`c.id IN(SELECT "groupId" FROM "ArtworkDedupOperationGroup" WHERE "operationId"=${source.id} AND status='SELECTED')` : selection?.kind === 'EXPLICIT' ? Prisma.sql`c.id IN(${Prisma.join(selection.groupIds)})` : Prisma.sql`true`} ORDER BY a.id FOR UPDATE OF a)locked`
+    Prisma.sql`SELECT count(*) FROM(SELECT a.id FROM "Artwork" a JOIN "ArtworkDedupResultMember" m ON m."artworkId"=a.id JOIN "ArtworkDedupResult" c ON c.id=m."groupId" WHERE m."runId"=${run.id} AND ${source ? Prisma.sql`c.id IN(SELECT "groupId" FROM "ArtworkDedupOperationGroup" WHERE "operationId"=${source.id} AND status='SELECTED')` : selection?.kind === 'EXPLICIT' ? Prisma.sql`c.id IN(${Prisma.join(selection.groupIds)})` : Prisma.sql`true`} ORDER BY a.id FOR UPDATE OF a)locked`
   )
   if (selection?.kind === 'EXPLICIT') {
     const bad = await tx.$queryRaw<{ n: bigint }[]>(
@@ -228,12 +226,24 @@ export async function freezeArtworkDedupOperation(
       rootBindings: run.rootBindings ?? Prisma.DbNull
     }
   })
-  await tx.$executeRaw(Prisma.sql`INSERT INTO "ArtworkDedupOperationGroup"("operationId","groupId","keeperArtworkId","reviewVersion","selectionBasis",status,reason)
-    SELECT ${operation.id},c."groupId",c."keeperArtworkId",c."reviewVersion",CASE WHEN saved THEN 'SAVED' ELSE 'RECOMMENDED' END,CASE WHEN NOT(${userExcluded}) AND eligible AND "keeperArtworkId" IS NOT NULL THEN 'SELECTED' ELSE 'EXCLUDED' END,CASE WHEN ${userExcluded} THEN 'USER_EXCLUDED' WHEN eligible AND "keeperArtworkId" IS NOT NULL THEN NULL ELSE reason END
+  await tx.$executeRaw(Prisma.sql`INSERT INTO "ArtworkDedupOperationGroup"("operationId","groupId","keeperArtworkId","reviewVersion","selectionBasis",status,reason,"relationKind","containedArtworkId","containerArtworkId","containedFileCount","containerFileCount")
+    SELECT ${operation.id},c."groupId",c."keeperArtworkId",c."reviewVersion",CASE WHEN saved THEN 'SAVED' ELSE 'RECOMMENDED' END,CASE WHEN NOT(${userExcluded}) AND eligible AND "keeperArtworkId" IS NOT NULL THEN 'SELECTED' ELSE 'EXCLUDED' END,CASE WHEN ${userExcluded} THEN 'USER_EXCLUDED' WHEN eligible AND "keeperArtworkId" IS NOT NULL THEN NULL ELSE reason END,c."relationKind",c."containedArtworkId",c."containerArtworkId",c."containedFileCount",c."containerFileCount"
     FROM artwork_dedup_group_choices(${run.id},${input.userId}) c WHERE ${filter}`)
+  // A result may share artworks with another result. Reject competing copies and
+  // retain/delete conflicts before the unique operation-artwork rows are materialized.
+  const [conflicts] = await tx.$queryRaw<{ bad: boolean; contains: boolean }[]>(Prisma.sql`
+    SELECT EXISTS(SELECT 1 FROM "ArtworkDedupOperationGroup" g JOIN "ArtworkDedupResultMember" m ON m."runId"=${run.id} AND m."groupId"=g."groupId"
+      WHERE g."operationId"=${operation.id} AND g.status='SELECTED' GROUP BY m."artworkId"
+      HAVING count(*) FILTER(WHERE m."artworkId"<>g."keeperArtworkId")>1
+        OR (bool_or(m."artworkId"=g."keeperArtworkId") AND bool_or(m."artworkId"<>g."keeperArtworkId"))) bad,
+      EXISTS(SELECT 1 FROM "ArtworkDedupOperationGroup" WHERE "operationId"=${operation.id} AND status='SELECTED' AND "relationKind"='CONTAINS') contains`)
+  if (conflicts?.bad) throw new ArtworkDedupOperationError('CONFLICTING_SELECTION')
+  if (conflicts?.contains && input.preparePurpose !== 'DIRECT_DELETE')
+    throw new ArtworkDedupOperationError('DIRECT_DELETE_REQUIRED')
+  if (conflicts?.contains) await tx.artworkDedupOperation.update({ where: { id: operation.id }, data: { protocolVersion: 2 } })
   await tx.$executeRaw(Prisma.sql`INSERT INTO "ArtworkDedupOperationArtwork"("operationId","artworkId","groupId",role,title,"sourceLabel","artworkCreatedAt","isUrl","frozenMediaRevision","snapshotRevision","mediaEpoch","membersSignature","contentSha256","algorithmVersion","memberCount","organizationSignature","sourceSignature","creatorSignature","storagePath","storageKey","metaSource","externalId","updatedAt")
-    SELECT ${operation.id},a.id,g."groupId",CASE WHEN a.id=g."keeperArtworkId" THEN 'KEEPER' ELSE 'COPY' END,a.title,a.source::text,a."createdAt",a."createdVia"='URL_ARCHIVE',i."frozenMediaRevision",i."snapshotRevision",i."mediaEpoch",i."membersSignature",i."contentSha256",${run.algorithmVersion},i."memberCount",artwork_dedup_organization_signature(a.id),artwork_dedup_source_signature(a.id),artwork_dedup_creator_signature(a.id),a."storagePath",a."storageKey",a."metaSource",a."externalId",CURRENT_TIMESTAMP
-    FROM "ArtworkDedupOperationGroup" g JOIN "ArtworkDedupGroupMember" m ON m."groupId"=g."groupId" AND m."runId"=${run.id} JOIN "Artwork" a ON a.id=m."artworkId" JOIN "ArtworkDedupItem" i ON i."runId"=m."runId" AND i."artworkId"=a.id WHERE g."operationId"=${operation.id} AND g.status='SELECTED'`)
+    SELECT DISTINCT ON (a.id) ${operation.id},a.id,g."groupId",CASE WHEN a.id=g."keeperArtworkId" THEN 'KEEPER' ELSE 'COPY' END,a.title,a.source::text,a."createdAt",a."createdVia"='URL_ARCHIVE',i."frozenMediaRevision",i."snapshotRevision",i."mediaEpoch",i."membersSignature",i."contentSha256",${run.algorithmVersion},i."memberCount",artwork_dedup_organization_signature(a.id),artwork_dedup_source_signature(a.id),artwork_dedup_creator_signature(a.id),a."storagePath",a."storageKey",a."metaSource",a."externalId",CURRENT_TIMESTAMP
+    FROM "ArtworkDedupOperationGroup" g JOIN "ArtworkDedupResultMember" m ON m."groupId"=g."groupId" AND m."runId"=${run.id} JOIN "Artwork" a ON a.id=m."artworkId" JOIN "ArtworkDedupItem" i ON i."runId"=m."runId" AND i."artworkId"=a.id WHERE g."operationId"=${operation.id} AND g.status='SELECTED' ORDER BY a.id,g."groupId"`)
   await tx.$executeRaw(
     Prisma.sql`UPDATE "ArtworkDedupOperation" SET "selectedGroups"=(SELECT count(*) FROM "ArtworkDedupOperationGroup" WHERE "operationId"=${operation.id} AND status='SELECTED'),"excludedGroups"=(SELECT count(*) FROM "ArtworkDedupOperationGroup" WHERE "operationId"=${operation.id} AND status='EXCLUDED'),keepers=(SELECT count(*) FROM "ArtworkDedupOperationArtwork" WHERE "operationId"=${operation.id} AND role='KEEPER'),copies=(SELECT count(*) FROM "ArtworkDedupOperationArtwork" WHERE "operationId"=${operation.id} AND role='COPY'),"requiresOrganizationConfirmation"=EXISTS(SELECT 1 FROM "ArtworkDedupOperationArtwork" a WHERE a."operationId"=${operation.id} AND a.role='COPY' AND(EXISTS(SELECT 1 FROM "ArtworkLike" l WHERE l."artworkId"=a."artworkId") OR EXISTS(SELECT 1 FROM "MediaMark" m WHERE m."artworkId"=a."artworkId" AND(m."bookmarkedAt" IS NOT NULL OR m."likedAt" IS NOT NULL)))) WHERE id=${operation.id}`
   )

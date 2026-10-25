@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DuplicateOperationPreview } from '../duplicate-operation-preview'
 import { DuplicateGroupRow } from '../duplicate-group-row'
-import { group, member, operation } from './duplicate-maintenance-fixtures'
+import { containmentRelation, exactRelation, group, member, operation } from './duplicate-maintenance-fixtures'
 const mocks = vi.hoisted(() => ({ get: vi.fn(), ready: vi.fn() }))
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
@@ -19,6 +19,7 @@ vi.mock('@/lib/trpc', () => ({
 let client: QueryClient
 function item(id: number, overrides: Partial<ArtworkDedupArtworkPreviewDto> = {}): ArtworkDedupArtworkPreviewDto {
   return {
+    ...exactRelation,
     ...member(id),
     itemId: id,
     groupId: 'group-1',
@@ -56,6 +57,41 @@ afterEach(() => {
   client.clear()
 })
 describe('frozen direct delete preview', () => {
+  it.each([false, true])(
+    'shows frozen containment evidence before and after deletion (deleted: %s)',
+    async (deleted) => {
+      const value = operation({
+        protocolVersion: 2,
+        mode: deleted ? 'DIRECT_DELETE' : 'PREPARE',
+        status: deleted ? 'DELETED' : 'READY'
+      })
+      const copy = item(1, {
+        ...containmentRelation,
+        role: 'COPY',
+        mediaCount: '80',
+        status: deleted ? 'DELETED' : 'VERIFIED',
+        personalRecords: deleted ? 'REMOVED' : 'CURRENT'
+      })
+      mocks.get.mockResolvedValue({
+        operation: value,
+        preview: {
+          kind: 'ARTWORKS',
+          items: deleted ? [copy] : [copy, item(2, { ...containmentRelation, role: 'KEEPER', mediaCount: '100' })],
+          nextCursor: null
+        }
+      })
+      mount(value)
+      await screen.findByText('80 / 100 项原媒体 · 多出 20 项')
+      expect(screen.getByText(/已完整包含于保留作品/)).toBeTruthy()
+      const keeperLink = screen.getByRole('link', { name: deleted ? /#2.*新标签页/ : /^作品 2.*新标签页/ })
+      expect(keeperLink.getAttribute('href')).toBe('/artworks/2')
+      expect(keeperLink.querySelector('[data-privacy-sensitive]')).not.toBeNull()
+      expect(screen.queryByText(/内容相同/)).toBeNull()
+      expect(mocks.get.mock.calls[0]![0]).toMatchObject({ operationId: value.operationId })
+      expect(mocks.ready).toHaveBeenLastCalledWith(value.version)
+    }
+  )
+
   it('paginates server artwork and file manifests independently without exposing a raw failure path', async () => {
     mocks.get.mockImplementation((input: { preview: { kind: string; cursor?: string } }) => ({
       operation: operation(),

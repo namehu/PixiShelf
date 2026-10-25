@@ -420,7 +420,7 @@ export async function beginArtworkDedupFileStep(
   const op = await assertArtworkDedupOperationExecution(tx, input.execution)
   const mode = { MOVE: 'ISOLATE', RESTORE: 'RESTORE', DELETE: 'PURGE' }[input.step]
   const direct = input.step === 'DELETE' && op.mode === 'DIRECT_DELETE'
-  if (direct && (op.preparePurpose !== 'DIRECT_DELETE' || op.protocolVersion !== 1 || !op.directDeleteConfirmedAt || !op.authorizationDigest || op.status !== 'DELETING' || op.freshVerifiedExecutionVersion !== op.executionVersion)) throw new ArtworkDedupOperationError('DIRECT_DELETE_NOT_AUTHORIZED')
+  if (direct && (op.preparePurpose !== 'DIRECT_DELETE' || ![1, 2].includes(op.protocolVersion ?? 0) || !op.directDeleteConfirmedAt || !op.authorizationDigest || op.status !== 'DELETING' || op.freshVerifiedExecutionVersion !== op.executionVersion)) throw new ArtworkDedupOperationError('DIRECT_DELETE_NOT_AUTHORIZED')
   if (op.mode !== mode && !direct) throw new ArtworkDedupOperationError('INVALID_STATE')
   const file = await tx.artworkDedupOperationFile.findUnique({ where: { fileId: input.fileId } })
   if (!file || file.operationId !== op.id || file.version !== input.expectedFileVersion)

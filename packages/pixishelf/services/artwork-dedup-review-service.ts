@@ -39,7 +39,11 @@ export async function mapArtworkDedupMaintenanceError<T>(body: () => Promise<T>)
     if (error instanceof ArtworkDedupOperationError) {
       throw new TRPCError({
         code: error.code === 'NOT_FOUND' ? 'NOT_FOUND' : error.code === 'ACCOUNT_CHANGED' ? 'FORBIDDEN' : 'CONFLICT',
-        message: error.code === 'NOT_FOUND' ? '未找到审核记录' : '审核状态已变化，请刷新后重试'
+        message: error.code === 'NOT_FOUND' ? '未找到审核记录'
+          : error.code === 'CONFLICTING_SELECTION' ? '所选结果存在冲突：同一作品不能既保留又删除，也不能重复删除。请减少选择后重试'
+          : error.code === 'CONTAINMENT_DIRECTION_REQUIRED' ? '完整包含只能保留包含全部原文件的作品'
+          : error.code === 'EXPLICIT_CHOICE_REQUIRED' ? '所选结果需要先明确选择保留作品'
+          : '审核状态已变化，请刷新后重试'
       })
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -136,6 +140,13 @@ function groupDto(
 ): contract.ArtworkDedupGroupDto {
   return {
     groupId: choice.groupId,
+    relationKind: choice.relationKind,
+    containedArtworkId: choice.containedArtworkId,
+    containerArtworkId: choice.containerArtworkId,
+    containedFileCount: choice.containedFileCount?.toString() ?? null,
+    containerFileCount: choice.containerFileCount?.toString() ?? null,
+    extraFileCount: choice.containerFileCount !== null && choice.containedFileCount !== null
+      ? (choice.containerFileCount - choice.containedFileCount).toString() : null,
     memberCount: choice.memberCount,
     fileCount: choice.fileCount.toString(),
     previewMembers: members.slice(0, 3),
@@ -152,7 +163,7 @@ function groupDto(
     reasons: !choice.eligible
       ? ['CONTENT_OR_SCOPE_CHANGED']
       : choice.keeperArtworkId === null
-        ? ['MULTIPLE_ORGANIZED_MEMBERS']
+        ? [choice.relationKind === 'CONTAINS' ? 'CONTAINED_HAS_ORGANIZATION' : 'MULTIPLE_ORGANIZED_MEMBERS']
         : []
   }
 }
@@ -191,11 +202,9 @@ export async function listArtworkDedupReviewGroups(
         if (after !== null && typeof after !== 'number') conflict('INVALID_CURSOR')
         const choice = (await readArtworkDedupGroupChoices(tx, { runId: run.id, userId, groupId: input.groupId }))[0]
         if (!choice) conflict('NOT_FOUND')
-        const rows = await tx.artworkDedupGroupMember.findMany({
-          where: { runId: run.id, groupId: input.groupId, artworkId: { gt: after ?? 0 } },
-          orderBy: { artworkId: 'asc' },
-          take: input.limit + 1
-        })
+        const rows = await tx.$queryRaw<{ artworkId: number }[]>(Prisma.sql`
+          SELECT "artworkId" FROM "ArtworkDedupResultMember" WHERE "runId"=${run.id} AND "groupId"=${input.groupId} AND "artworkId">${after ?? 0}
+          ORDER BY "artworkId" LIMIT ${input.limit + 1}`)
         const page = rows.slice(0, input.limit),
           ids = page.map((row) => row.artworkId)
         const members = await artworkDedupMembers(tx, userId, [
@@ -227,7 +236,7 @@ export async function listArtworkDedupReviewGroups(
       const page = choices.slice(0, input.limit)
       const previews = page.length
         ? await tx.$queryRaw<{ groupId: string; artworkId: number }[]>(
-            Prisma.sql`SELECT g.id "groupId",m."artworkId" FROM "ArtworkDedupGroup" g CROSS JOIN LATERAL(SELECT "artworkId" FROM "ArtworkDedupGroupMember" WHERE "groupId"=g.id ORDER BY "artworkId" LIMIT 3)m WHERE g.id IN(${Prisma.join(page.map((c) => c.groupId))})`
+            Prisma.sql`SELECT g.id "groupId",m."artworkId" FROM "ArtworkDedupResult" g CROSS JOIN LATERAL(SELECT "artworkId" FROM "ArtworkDedupResultMember" WHERE "groupId"=g.id ORDER BY "artworkId" LIMIT 3)m WHERE g.id IN(${Prisma.join(page.map((c) => c.groupId))})`
           )
         : []
       const members = await artworkDedupMembers(tx, userId, [
@@ -296,7 +305,7 @@ function operationActions(
       }
       return op.cancelRequestedAt ? [] : [op.deleteStartedAt ? 'STOP' : 'CANCEL']
     }
-    if (op.protocolVersion !== 1) return []
+    if (![1, 2].includes(op.protocolVersion ?? 0)) return []
     if (op.status === 'BUILDING') return op.cancelRequestedAt ? [] : ['CANCEL']
     if (op.readerToken || op.readerState !== 'IDLE') return []
     if (op.status === 'READY' && op.scopeDigest) return ['DIRECT_DELETE']
@@ -487,7 +496,7 @@ async function enqueueOperation(tx: Prisma.TransactionClient, op: Operation) {
         operationId: op.id,
         executionVersion: op.executionVersion,
         mode: op.mode,
-        ...(direct && op.mode === 'PREPARE' ? { purpose: 'DIRECT_DELETE', protocolVersion: 1 } : {})
+        ...(direct && op.mode === 'PREPARE' ? { purpose: 'DIRECT_DELETE', protocolVersion: op.protocolVersion } : {})
       }),
       idempotencyKey: `artwork-dedup-maintenance:${op.id}:${op.executionVersion}`
     }
@@ -604,6 +613,10 @@ export async function getArtworkDedupOperation(
         page.map((item) => item.artworkId)
       )
       const byId = new Map(members.map((row) => [row.artworkId, row]))
+      const resultEvidence = await tx.artworkDedupOperationGroup.findMany({
+        where: { operationId: op.id, groupId: { in: page.map((item) => item.groupId) } }
+      })
+      const resultById = new Map(resultEvidence.map((result) => [result.groupId, result]))
       const bindings = await tx.artworkDedupOperationSource.findMany({
         where: { operationId: op.id, artworkId: { in: page.map((item) => item.artworkId) } },
         include: { source: true }
@@ -637,6 +650,13 @@ export async function getArtworkDedupOperation(
             fileCount: item.fileCount.toString(),
             itemId: item.artworkId,
             groupId: item.groupId,
+            relationKind: resultById.get(item.groupId)?.relationKind ?? 'EXACT',
+            containedArtworkId: resultById.get(item.groupId)?.containedArtworkId ?? null,
+            containerArtworkId: resultById.get(item.groupId)?.containerArtworkId ?? null,
+            containedFileCount: resultById.get(item.groupId)?.containedFileCount?.toString() ?? null,
+            containerFileCount: resultById.get(item.groupId)?.containerFileCount?.toString() ?? null,
+            extraFileCount: resultById.get(item.groupId)?.relationKind === 'CONTAINS'
+              ? (resultById.get(item.groupId)!.containerFileCount! - resultById.get(item.groupId)!.containedFileCount!).toString() : null,
             role: item.role,
             status:
               op.preparePurpose === 'DIRECT_DELETE' && op.status === 'CANCELLED' && item.role === 'COPY'

@@ -18,6 +18,7 @@ import {
   toggleDuplicateGroup
 } from './duplicate-selection'
 import { useDuplicateIntent } from './use-duplicate-intent'
+import { canKeepDuplicateMember } from './duplicate-relation'
 
 type Draft = { group: ArtworkDedupGroupDto; keeperId: number }
 export function DuplicateReview({
@@ -77,6 +78,7 @@ export function DuplicateReview({
   function chooseKeeper(rawGroup: ArtworkDedupGroupDto, keeperId: number) {
     if (!page || !canSave || preparing) return
     const group = effectiveGroup(rawGroup)
+    if (!canKeepDuplicateMember(group, keeperId)) return
     const input = {
       runId,
       groupId: group.groupId,
@@ -201,6 +203,11 @@ export function DuplicateReview({
                   selectable={eligible && keeperId !== null && Boolean(page.allowedActions.includes('PREPARE_CLEANUP'))}
                   saving={intent.pending.has(`review:${group.groupId}`)}
                   failed={Boolean(drafts[group.groupId]) && intent.failed.has(`review:${group.groupId}`)}
+                  errorMessage={
+                    save.variables?.groupId === group.groupId && save.error?.data?.code === 'CONFLICT'
+                      ? save.error.message
+                      : undefined
+                  }
                   disabled={!canSave || preparing}
                   onSelect={(checked) => {
                     try {
@@ -236,7 +243,11 @@ export function DuplicateReview({
           {intent.failed.has('prepare') ? (
             <Alert>
               <AlertTitle>预览尚未确认</AlertTitle>
-              <AlertDescription>请重试，已提交的操作不会重复创建。</AlertDescription>
+              <AlertDescription>
+                {prepare.error?.data?.code === 'CONFLICT'
+                  ? prepare.error.message
+                  : '请重试，已提交的操作不会重复创建。'}
+              </AlertDescription>
             </Alert>
           ) : null}
           {hasSelection ? (
@@ -294,6 +305,11 @@ export function DuplicateReview({
           }
           saving={intent.pending.has(`review:${detailGroup.groupId}`)}
           failed={Boolean(drafts[detailGroup.groupId]) && intent.failed.has(`review:${detailGroup.groupId}`)}
+          errorMessage={
+            save.variables?.groupId === detailGroup.groupId && save.error?.data?.code === 'CONFLICT'
+              ? save.error.message
+              : undefined
+          }
           onClose={() => setDetailGroup(null)}
           onKeep={chooseKeeper}
           onRetry={() => retryGroup(detailGroup.groupId)}
