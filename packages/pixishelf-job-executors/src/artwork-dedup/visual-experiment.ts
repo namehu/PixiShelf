@@ -1,6 +1,118 @@
 /** Offline pilot only. Deliberately not exported by the executor package. */
 export const VISUAL_EXPERIMENT_VERSION = 'dct63-grid3-v1'
 export const VISUAL_NORMALIZATION_VERSION = 'exif-srgb-white-gray96-lanczos3-v1'
+export const VISUAL_REFINEMENT_VERSION = 'white245-995-edge20-crop5-10-v1'
+
+export interface VisualView {
+  name: string
+  feature: VisualFeature
+}
+export interface VisualRectangle {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/** Fixed pilot rule, not semantic border detection. Over-wide white edges are retained. */
+export function whiteBorderRectangle(rgb: Uint8Array, width: number, height: number): VisualRectangle {
+  if (
+    !Number.isInteger(width) ||
+    !Number.isInteger(height) ||
+    width < 1 ||
+    height < 1 ||
+    rgb.length !== width * height * 3
+  )
+    throw new Error('Invalid RGB preview')
+  const white = (x: number, y: number) => {
+    const i = (y * width + x) * 3
+    return rgb[i]! >= 245 && rgb[i + 1]! >= 245 && rgb[i + 2]! >= 245
+  }
+  const row = (y: number) => {
+    let count = 0
+    for (let x = 0; x < width; x++) count += Number(white(x, y))
+    return count / width >= 0.995
+  }
+  const column = (x: number) => {
+    let count = 0
+    for (let y = 0; y < height; y++) count += Number(white(x, y))
+    return count / height >= 0.995
+  }
+  function extent(size: number, test: (i: number) => boolean, reverse: boolean) {
+    let count = 0
+    while (count < size && test(reverse ? size - 1 - count : count)) count++
+    return count <= Math.floor(size * 0.2) ? count : 0
+  }
+  const left = extent(width, column, false),
+    right = extent(width, column, true)
+  const top = extent(height, row, false),
+    bottom = extent(height, row, true)
+  return { left, top, width: width - left - right, height: height - top - bottom }
+}
+
+export function insetRectangle(rectangle: VisualRectangle, fraction: 0.05 | 0.1): VisualRectangle {
+  const x = Math.floor(rectangle.width * fraction),
+    y = Math.floor(rectangle.height * fraction)
+  return {
+    left: rectangle.left + x,
+    top: rectangle.top + y,
+    width: rectangle.width - x * 2,
+    height: rectangle.height - y * 2
+  }
+}
+
+export function compareVisualViews(a: readonly VisualView[], b: readonly VisualView[], p: VisualParameters) {
+  if (!a.length || !b.length || a.length > 4 || b.length > 4) throw new Error('Expected one to four complete views')
+  const matches = []
+  for (const left of a)
+    for (const right of b) {
+      const result = compareVisual(left.feature, right.feature, p, true)
+      if (result.matched) matches.push({ left: left.name, right: right.name, ...result })
+    }
+  return { matched: matches.length > 0, comparisons: a.length * b.length, matches }
+}
+
+/** Same-region bands, shared across view names. Both budgets count before accepting work. */
+export class VisualViewIndex {
+  private readonly buckets = new Map<string, number[]>()
+  constructor(private readonly minimumInformation = 8) {}
+  private keys(views: readonly VisualView[]): string[] {
+    const keys: string[] = []
+    for (const view of views)
+      for (let region = 0; region < 10; region++) {
+        if (view.feature.information[region]! < this.minimumInformation) continue
+        for (let band = 0; band < 4; band++)
+          keys.push(`${region}:${band}:${view.feature.hashes[region]!.slice(band * 4, band * 4 + 4)}`)
+      }
+    return keys
+  }
+  add(page: number, views: readonly VisualView[]) {
+    for (const key of this.keys(views)) {
+      const bucket = this.buckets.get(key)
+      if (bucket) bucket.push(page)
+      else this.buckets.set(key, [page])
+    }
+  }
+  query(views: readonly VisualView[], postingBudget = 20_000, candidateBudget = 20_000) {
+    const candidates = new Set<number>()
+    let postingVisits = 0
+    for (const key of new Set(this.keys(views)))
+      for (const page of this.buckets.get(key) ?? []) {
+        if (postingVisits >= postingBudget)
+          return { status: 'incomplete' as const, reason: 'posting-budget', postingVisits, candidates: [...candidates] }
+        postingVisits++
+        if (!candidates.has(page) && candidates.size >= candidateBudget)
+          return {
+            status: 'incomplete' as const,
+            reason: 'candidate-budget',
+            postingVisits,
+            candidates: [...candidates]
+          }
+        candidates.add(page)
+      }
+    return { status: 'complete' as const, reason: null, postingVisits, candidates: [...candidates] }
+  }
+}
 
 export interface VisualFeature {
   width: number

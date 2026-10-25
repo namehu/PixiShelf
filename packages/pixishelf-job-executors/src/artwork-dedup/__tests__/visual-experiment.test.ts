@@ -5,6 +5,10 @@ import {
   featureFromGray96,
   hamming,
   pairPages,
+  whiteBorderRectangle,
+  insetRectangle,
+  compareVisualViews,
+  VisualViewIndex,
   VISUAL_PARAMETER_PRESETS
 } from '../visual-experiment.ts'
 
@@ -58,5 +62,84 @@ describe('offline visual experiment', () => {
     expect(() => featureFromGray96(new Uint8Array(10), 10, 1)).toThrow()
     expect(() => dctHash(new Uint8Array(10))).toThrow()
     expect(() => pairPages([[2]], 2)).toThrow()
+  })
+
+  it('trims qualifying edges but retains flat images and over-wide white margins', () => {
+    const image = new Uint8Array(100 * 100 * 3).fill(250)
+    for (let y = 10; y < 90; y++) for (let x = 10; x < 90; x++) image.fill(30, (y * 100 + x) * 3, (y * 100 + x) * 3 + 3)
+    expect(whiteBorderRectangle(image, 100, 100)).toEqual({ left: 10, top: 10, width: 80, height: 80 })
+    expect(insetRectangle({ left: 10, top: 10, width: 80, height: 80 }, 0.05)).toEqual({
+      left: 14,
+      top: 14,
+      width: 72,
+      height: 72
+    })
+    expect(whiteBorderRectangle(new Uint8Array(30000).fill(255), 100, 100)).toEqual({
+      left: 0,
+      top: 0,
+      width: 100,
+      height: 100
+    })
+    const broad = new Uint8Array(30000).fill(0)
+    for (let y = 0; y < 100; y++) broad.fill(255, y * 300, y * 300 + 21 * 3)
+    expect(whiteBorderRectangle(broad, 100, 100).left).toBe(0)
+    expect(() => whiteBorderRectangle(new Uint8Array(1), 1, 1)).toThrow()
+  })
+
+  it('requires 99.5 percent white pixels and all three channels at least 245', () => {
+    const image = new Uint8Array(100 * 100 * 3)
+    image.fill(255, 0, 300)
+    image[0] = 244
+    expect(whiteBorderRectangle(image, 100, 100).top).toBe(0)
+    image[0] = 245
+    expect(whiteBorderRectangle(image, 100, 100).top).toBe(1)
+  })
+
+  it('retrieves across view names and does not use flat regions as candidates', () => {
+    const feature = {
+      width: 96,
+      height: 96,
+      hashes: Array<string>(10).fill('0000000000000000'),
+      information: Array<number>(10).fill(30)
+    }
+    const index = new VisualViewIndex()
+    index.add(7, [{ name: 'white-trim', feature }])
+    const query = index.query([{ name: 'original', feature }])
+    expect(query.status).toBe('complete')
+    expect(query.candidates).toEqual([7])
+    expect(
+      compareVisualViews(
+        [{ name: 'original', feature }],
+        [{ name: 'white-trim', feature }],
+        VISUAL_PARAMETER_PRESETS[1]!
+      ).matched
+    ).toBe(true)
+    expect(
+      index.query([{ name: 'original', feature: { ...feature, information: Array<number>(10).fill(0) } }]).candidates
+    ).toEqual([])
+  })
+
+  it('reports both posting exhaustion with duplicate pages and unique-candidate exhaustion', () => {
+    const feature = {
+      width: 96,
+      height: 96,
+      hashes: Array<string>(10).fill('0000000000000000'),
+      information: Array<number>(10).fill(30)
+    }
+    const views = [{ name: 'original', feature }]
+    const repeated = new VisualViewIndex()
+    repeated.add(1, views)
+    const posting = repeated.query(views, 2, 20_000)
+    expect(posting).toMatchObject({ status: 'incomplete', reason: 'posting-budget', postingVisits: 2, candidates: [1] })
+    const unique = new VisualViewIndex()
+    unique.add(1, views)
+    unique.add(2, views)
+    expect(unique.query(views, 20_000, 1)).toMatchObject({
+      status: 'incomplete',
+      reason: 'candidate-budget',
+      candidates: [1]
+    })
+    expect(() => compareVisualViews([], views, VISUAL_PARAMETER_PRESETS[1]!)).toThrow()
+    expect(() => compareVisualViews(Array(5).fill(views[0]), views, VISUAL_PARAMETER_PRESETS[1]!)).toThrow()
   })
 })
