@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import { afterAll, describe, expect, it } from 'vitest'
+import { lockCreatorCatalog } from '../creators'
 import { assertMediaContentDirectorySnapshot, captureMediaContentDirectory } from '../media-content-directory'
 import {
   bindMediaContentDirectories,
@@ -74,6 +75,8 @@ async function directoryKey(tx: MediaContentTransaction): Promise<MediaContentDi
   }
 }
 async function fixture(tx: MediaContentTransaction, count = 2) {
+  // Artwork DML takes the catalog lock; production writers acquire it before media root locks.
+  await lockCreatorCatalog(tx)
   const directory = ready(await captureMediaContentDirectory(tx, { directory: await directoryKey(tx) }))
   const artwork = await tx.artwork.create({ data: { title: 'content fixture' } })
   await tx.image.createMany({
@@ -352,6 +355,8 @@ describe.skipIf(!database)('media content source and publication contracts', () 
 
   it('keeps a READY upload gated, replays a lost response, and atomically publishes the Image', async () =>
     isolated(async (tx) => {
+      // Image DML also acquires the catalog lock, including uploads without an Artwork.
+      await lockCreatorCatalog(tx)
       const directory = await directoryKey(tx)
       const old = ready(await captureMediaContentDirectory(tx, { directory }))
       const handle = ready(
@@ -719,8 +724,10 @@ describe.skipIf(!database)('media content source and publication contracts', () 
     const title = `owner-cas-${randomUUID()}`
     try {
       await expect(
-        database!.$transaction((tx) =>
-          withMediaContentOwnerPublication(
+        database!.$transaction(async (tx) => {
+          // The publication callback creates an Artwork after the owner gate locks the media root.
+          await lockCreatorCatalog(tx)
+          return withMediaContentOwnerPublication(
             tx,
             { owner, handles: [setup.handle], outcome: 'committed', now },
             async (active) => {
@@ -731,7 +738,7 @@ describe.skipIf(!database)('media content source and publication contracts', () 
               })
             }
           )
-        )
+        })
       ).rejects.toMatchObject({ status: 'STALE' })
       expect(await database!.artwork.count({ where: { title } })).toBe(0)
       expect(await database!.mediaContentPathWrite.findUnique({ where: { id: setup.handle.writeId } })).toMatchObject({

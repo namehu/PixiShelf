@@ -32,7 +32,7 @@ describePostgres('archived discovery cancellation PostgreSQL regression', () => 
     async ({ origin, artworkState }) => {
       const seeded = await seedCatalog()
       const cancelledAt = new Date('2026-09-03T00:00:00Z')
-      const canonicalUrl = `https://e-hentai.org/g/${sharedExternalId}/private-token/`
+      const canonicalUrl = `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`
       if (artworkState !== 'unarchived') {
         const artwork = await db().artwork.create({
           data: {
@@ -172,7 +172,7 @@ describePostgres('archived discovery cancellation PostgreSQL regression', () => 
         artworkId: artwork.id,
         providerKey: 'e-hentai',
         externalId: sharedExternalId,
-        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
+        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
         locator: {},
         status: 'SUCCESS'
       }
@@ -224,7 +224,7 @@ async function seedCatalog() {
       sourceId,
       providerKey: 'e-hentai',
       externalId: sharedExternalId,
-      canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
+      canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
       title: prefix,
       relationships: {},
       classification: 'NEW',

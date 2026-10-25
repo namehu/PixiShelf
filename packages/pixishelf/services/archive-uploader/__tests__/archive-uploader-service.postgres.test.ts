@@ -209,8 +209,8 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
         artworkId: artwork.id,
         providerKey: 'e-hentai',
         externalId: sharedExternalId,
-        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
-        locator: { gid: sharedExternalId, token: 'private-token' },
+        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
+        locator: { gid: sharedExternalId, token: 'privatetoken' },
         status: 'SUCCESS',
         lastSuccessAt: archivedAt
       }
@@ -245,7 +245,7 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
 
   it('ignores an old terminal intake superseded by a newer archive when submitting an update', async () => {
     const seeded = await seedCompletedScan('superseded-terminal', '3005')
-    const canonicalUrl = `https://e-hentai.org/g/${sharedExternalId}/private-token/`
+    const canonicalUrl = `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`
     const failedAt = new Date('2026-09-01T00:00:00.000Z')
     const archivedAt = new Date('2026-09-02T00:00:00.000Z')
     const oldSubmission = await db().archiveIntakeSubmission.create({
@@ -284,7 +284,7 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
         providerKey: 'e-hentai',
         externalId: sharedExternalId,
         canonicalUrl,
-        locator: { gid: sharedExternalId, token: 'private-token' },
+        locator: { gid: sharedExternalId, token: 'privatetoken' },
         status: 'SUCCESS',
         lastSuccessAt: archivedAt
       }
@@ -316,7 +316,7 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
 
   it('records a duplicate created after the actionable check as an attention state', async () => {
     const seeded = await seedCompletedScan('duplicate-race', '3003')
-    const canonicalUrl = `https://e-hentai.org/g/${sharedExternalId}/private-token/`
+    const canonicalUrl = `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`
     let competingSubmissionId: string | null = null
     const submission = await addArchiveUploaderScanItems(
       { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId: randomUUID() },
@@ -393,7 +393,7 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
         sourceId: scan.sourceId,
         providerKey: 'e-hentai',
         externalId: secondExternalId,
-        canonicalUrl: `https://e-hentai.org/g/${secondExternalId}/private-token/`,
+        canonicalUrl: `https://e-hentai.org/g/${secondExternalId}/privatetoken/`,
         title: 'Ignored batch gallery',
         relationships: {},
         classification: 'NEW',
@@ -450,7 +450,7 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
           sourceId: seeded.sourceId,
           providerKey: 'e-hentai',
           externalId: actionableExternalId,
-          canonicalUrl: `https://e-hentai.org/g/${actionableExternalId}/private-token/`,
+          canonicalUrl: `https://e-hentai.org/g/${actionableExternalId}/privatetoken/`,
           title: 'Actionable gallery',
           relationships: {},
           classification: 'NEW',
@@ -463,7 +463,7 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
           sourceId: seeded.sourceId,
           providerKey: 'e-hentai',
           externalId: archivedExternalId,
-          canonicalUrl: `https://e-hentai.org/g/${archivedExternalId}/private-token/`,
+          canonicalUrl: `https://e-hentai.org/g/${archivedExternalId}/privatetoken/`,
           title: 'Archived gallery',
           relationships: {},
           classification: 'ARCHIVED',
@@ -478,7 +478,7 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
           sourceId: seeded.sourceId,
           providerKey: 'e-hentai',
           externalId: failedExternalId,
-          canonicalUrl: `https://e-hentai.org/g/${failedExternalId}/private-token/`,
+          canonicalUrl: `https://e-hentai.org/g/${failedExternalId}/privatetoken/`,
           title: 'Failed gallery',
           relationships: {},
           classification: 'NEW',
@@ -500,8 +500,8 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
         artworkId: artwork.id,
         providerKey: 'e-hentai',
         externalId: archivedExternalId,
-        canonicalUrl: `https://e-hentai.org/g/${archivedExternalId}/private-token/`,
-        locator: { gid: archivedExternalId, token: 'private-token' },
+        canonicalUrl: `https://e-hentai.org/g/${archivedExternalId}/privatetoken/`,
+        locator: { gid: archivedExternalId, token: 'privatetoken' },
         status: 'SUCCESS'
       }
     })
@@ -563,8 +563,8 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
         artworkId: artwork.id,
         providerKey: 'e-hentai',
         externalId: sharedExternalId,
-        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
-        locator: { gid: sharedExternalId, token: 'private-token' },
+        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
+        locator: { gid: sharedExternalId, token: 'privatetoken' },
         status: 'SUCCESS'
       }
     })
@@ -635,12 +635,12 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
       data: {
         id: `${prefix}-historical-terminal-intake`,
         submissionId: historicalSubmission.id,
-        submittedUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
+        submittedUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
         normalizedUrlHash: 'f'.repeat(64),
         status: 'FAILED',
         providerKey: 'e-hentai',
         externalId: sharedExternalId,
-        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
+        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
         finishedAt: historicalAt,
         errorCode: 'OLD_FAILURE',
         errorMessage: 'older retained failure',
@@ -690,8 +690,8 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
         artworkId: artwork.id,
         providerKey: 'e-hentai',
         externalId: sharedExternalId,
-        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
-        locator: { gid: sharedExternalId, token: 'private-token' },
+        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
+        locator: { gid: sharedExternalId, token: 'privatetoken' },
         status: 'SUCCESS'
       }
     })
@@ -803,9 +803,9 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
         systemJobId: importJobId,
         providerKey: 'e-hentai',
         externalId: sharedExternalId,
-        submittedUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
-        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
-        locator: { gid: sharedExternalId, token: 'private-token' },
+        submittedUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
+        canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
+        locator: { gid: sharedExternalId, token: 'privatetoken' },
         status: 'PENDING',
         normalizedMetadata: uploaderMetadata(24),
         rawMetadata: uploaderMetadata(24),
@@ -909,7 +909,7 @@ function uploaderProviderRegistry(metadata: ReturnType<typeof uploaderMetadata>)
           {
             providerKey: 'e-hentai',
             externalId: sharedExternalId,
-            canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
+            canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
             title: 'Shared gallery',
             thumbnailUrl: metadata.thumbnailUrl,
             uploaderName: metadata.uploader,
@@ -1038,7 +1038,7 @@ async function seedCompletedScan(suffix: string, uploaderUid: string) {
       runId,
       providerKey: 'e-hentai',
       externalId: sharedExternalId,
-      canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
+      canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
       title: 'Shared gallery',
       thumbnailUrl: 'https://ehgt.org/thumb.jpg?secret=1',
       uploaderName: `Uploader ${suffix}`,
@@ -1054,7 +1054,7 @@ async function seedCompletedScan(suffix: string, uploaderUid: string) {
       sourceId,
       providerKey: 'e-hentai',
       externalId: sharedExternalId,
-      canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/private-token/`,
+      canonicalUrl: `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`,
       title: 'Shared gallery',
       thumbnailUrl: 'https://ehgt.org/thumb.jpg?secret=1',
       uploaderName: `Uploader ${suffix}`,
