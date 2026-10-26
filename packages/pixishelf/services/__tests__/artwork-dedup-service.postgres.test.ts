@@ -138,7 +138,8 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
       },
       db!
     )
-    await db!.artworkDedupRun.update({ where: { id: run.runId }, data: { partialAfterArtworkId: f.artwork.id, partialAfterCandidateId: f.artwork.id } })
+    await db!.artworkDedupRun.update({ where: { id: run.runId }, data: { partialAfterArtworkId: f.artwork.id, partialAfterCandidateId: f.artwork.id, relationCacheVersion: 'cached-version', visualCandidatePairs: ['1:2'], originalReusedPairs: 7, originalComparedPairs: 3, visualReusedComparisons: 5, visualComparedComparisons: 2 } })
+    await db!.artworkDedupItem.updateMany({ where: { runId: run.runId }, data: { visualSignature: 'cached-visual-signature' } })
     await db!.artwork.create({
       data: {
         title: actor,
@@ -160,6 +161,8 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
     )
     expect(retried.runId).toBe(run.runId)
     expect(retried.executionVersion).toBe(2)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ relationCacheVersion: null, visualCandidatePairs: [], originalReusedPairs: 0, originalComparedPairs: 0, visualReusedComparisons: 0, visualComparedComparisons: 0 })
+    expect(await db!.artworkDedupItem.findMany({ where: { runId: run.runId } })).toEqual([expect.objectContaining({ visualSignature: null })])
     expect(await db!.artworkDedupRun.findUnique({ where: { id: run.runId } })).toMatchObject({ partialAfterArtworkId: 0, partialAfterCandidateId: 0 })
     expect(retried.jobId).not.toBe(run.jobId)
     expect(await db!.artworkDedupItem.count({ where: { runId: run.runId } })).toBe(1)

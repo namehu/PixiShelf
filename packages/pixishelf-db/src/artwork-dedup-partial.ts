@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { lockArtworkDedupRelationCache, artworkDedupOriginalReusableSql } from './artwork-dedup-relation-cache'
 import { assertArtworkDedupExecution, type ArtworkDedupExecution } from './artwork-dedup'
 import { ArtworkDedupOperationError } from './artwork-dedup-operation'
 
@@ -58,7 +59,9 @@ export async function buildArtworkDedupPartialPage(tx: Prisma.TransactionClient,
         WHERE m."runId"=i."runId" AND m."artworkId"=i."artworkId") ORDER BY i."artworkId" LIMIT 1`)
   if (!item) return true
   const after = item.artworkId === run.partialAfterArtworkId ? run.partialAfterCandidateId : 0
-  const [candidate] = await tx.$queryRaw<{ artworkId: number; memberCount: bigint; paired: bigint }[]>(Prisma.sql`
+  const baseId = await lockArtworkDedupRelationCache(tx, run)
+  const reusable = artworkDedupOriginalReusableSql(baseId, run.id, Prisma.sql`${item.artworkId}`, Prisma.sql`c."artworkId"`)
+  const [candidate] = await tx.$queryRaw<{ artworkId: number; memberCount: bigint; paired: bigint; reused: boolean }[]>(Prisma.sql`
     WITH required AS MATERIALIZED (
       SELECT size,sha256,count(*) n FROM "ArtworkDedupMedia" WHERE "runId"=${run.id} AND "artworkId"=${item.artworkId} GROUP BY size,sha256
     ), frequencies AS (
@@ -76,9 +79,15 @@ export async function buildArtworkDedupPartialPage(tx: Prisma.TransactionClient,
         AND NOT EXISTS(SELECT 1 FROM "ArtworkDedupGroupMember" m JOIN "ArtworkDedupGroupMember" earlier ON earlier."groupId"=m."groupId" AND earlier."artworkId"<m."artworkId"
           WHERE m."runId"=i."runId" AND m."artworkId"=i."artworkId")
       GROUP BY i."artworkId",i."memberCount" ORDER BY i."artworkId" LIMIT 1
-    ) SELECT c.*,coalesce((SELECT sum(least(q.n,p.n)) FROM required q JOIN (
+    ), eligible AS MATERIALIZED (SELECT c.*,${reusable} reused FROM candidate c)
+    SELECT c.*,CASE WHEN c.reused THEN coalesce((SELECT (old.summary->>'pairedCount')::bigint FROM "ArtworkDedupVisualPair" old
+      WHERE old."runId"=${baseId} AND old."relationKind"='PARTIAL'
+      AND old."leftArtworkId"=least(${item.artworkId},c."artworkId") AND old."rightArtworkId"=greatest(${item.artworkId},c."artworkId")),0)
+    ELSE coalesce((SELECT sum(least(q.n,p.n)) FROM required q JOIN (
       SELECT size,sha256,count(*) n FROM "ArtworkDedupMedia" WHERE "runId"=${run.id} AND "artworkId"=c."artworkId" GROUP BY size,sha256
-    ) p ON q.size=p.size AND q.sha256=p.sha256),0)::bigint paired FROM candidate c`)
+    ) p ON q.size=p.size AND q.sha256=p.sha256),0)::bigint END paired FROM eligible c`)
+  if (candidate) await tx.artworkDedupRun.update({ where: { id: run.id }, data: candidate.reused
+    ? { originalReusedPairs: { increment: 1 } } : { originalComparedPairs: { increment: 1 } } })
   if (candidate && candidate.paired * 5n >= item.memberCount * 4n && candidate.paired < item.memberCount && candidate.paired < candidate.memberCount) {
     const left = Math.min(item.artworkId, candidate.artworkId), right = Math.max(item.artworkId, candidate.artworkId)
     const leftCount = left === item.artworkId ? item.memberCount : candidate.memberCount

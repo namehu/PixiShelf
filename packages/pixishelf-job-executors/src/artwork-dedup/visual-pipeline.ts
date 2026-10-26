@@ -1,4 +1,5 @@
 import { setImmediate } from 'node:timers/promises'
+import { readVisualRelationReuse, visualRelationSignature } from './relation-cache.ts'
 import {
   Prisma, assertArtworkDedupExecution, assertArtworkDedupItemCurrent, assertArtworkContentSnapshot,
   assertArtworkDedupVisualDirectories, type MediaContentDirectorySnapshot
@@ -142,21 +143,36 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
     if (!excluded.has(row.artworkId) && row.sha256 && validVisualViews(row.visualViews)) pages.push({ imageId: row.imageId, artworkId: row.artworkId, index: pageIndex, size: row.size, sha256: row.sha256, views: row.visualViews })
     pageIndex++
   }
-  const result = await matchVisualPages(pages, async () => { throwIfAborted(context.signal); await setImmediate(); await context.transaction(tx => assertArtworkDedupExecution(tx, context.execution)) })
+  const byArtwork = new Map<number, VisualPage[]>()
+  for (const page of pages) { const list = byArtwork.get(page.artworkId) ?? []; list.push(page); byArtwork.set(page.artworkId, list) }
+  const signatures = new Map([...byArtwork].map(([id, list]) => [id, visualRelationSignature(list)]))
+  const reuse = await context.transaction(async tx => {
+    const latest = await assertArtworkDedupExecution(tx, context.execution)
+    return context.forceRead ? undefined : readVisualRelationReuse(tx, latest, pages, signatures)
+  })
+  const result = await matchVisualPages(pages, async () => { throwIfAborted(context.signal); await setImmediate(); await context.transaction(tx => assertArtworkDedupExecution(tx, context.execution)) }, reuse)
   if (result.reason) return incomplete(context, result.reason)
   await context.transaction(async tx => {
     const latest = await assertArtworkDedupExecution(tx, context.execution)
     await tx.artworkDedupVisualPair.deleteMany({ where: { runId: run.id, relationKind: 'VISUAL' } })
-    // Validate each participating original's source/directory snapshot again at publication.
-    const participating = new Set(result.pairs.flatMap(p => [p.leftArtworkId, p.rightArtworkId]))
-    const directories = [...new Map(bounded.filter(row => participating.has(row.artworkId)).map(row => [row.directoryId, directory(row)])).values()]
+    // Complete negative evidence is about every checked original, not only matches.
+    const directories = [...new Map(bounded.map(row => [row.directoryId, directory(row)])).values()]
     if (!(await assertArtworkDedupVisualDirectories(tx, directories))) throw new MediaContentFileError('ROOT_CHANGED', 'Visual directory changed')
     const checked = new Set<string>()
-    for (const row of bounded) if (participating.has(row.artworkId)) {
+    for (const row of bounded) {
       const key = `${row.artworkId}:${row.directoryId}:${row.directoryGeneration}`
       if (!checked.has(key)) { await current(tx, context, row, true); checked.add(key) }
     }
+    // Projection uses current display order. The old run's page indexes and
+    // ordinals are never copied, including repeated byte-identical occurrences.
+    const currentOrder = await tx.image.findMany({ where: { id: { in: pages.map(p => p.imageId) } }, select: { id: true, sortOrder: true } })
+    const currentById = new Map(currentOrder.map(i => [i.id, i.sortOrder]))
+    for (const list of byArtwork.values()) {
+      list.sort((a, b) => (currentById.get(a.imageId) ?? 0) - (currentById.get(b.imageId) ?? 0) || a.imageId - b.imageId)
+      list.forEach((page, index) => { page.index = index })
+    }
     for (const pair of result.pairs) {
+      pair.pages.sort((a, b) => (a.left?.index ?? Infinity) - (b.left?.index ?? Infinity) || (a.right?.index ?? Infinity) - (b.right?.index ?? Infinity))
       // Original equality/containment always takes precedence over a visual suggestion.
       const original = await tx.artworkDedupRelation.findFirst({ where: { runId: run.id, OR: [
         { containedArtworkId: pair.leftArtworkId, containerArtworkId: pair.rightArtworkId }, { containedArtworkId: pair.rightArtworkId, containerArtworkId: pair.leftArtworkId }
@@ -173,7 +189,14 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
     }
     const failed = await tx.artworkDedupItem.count({ where: { runId: run.id, status: { not: 'COMPLETE' } } })
     const reasons = [...new Set([...latest.visualIncompleteReasons, ...(excluded.size ? ['UNSUPPORTED_MEDIA'] : []), ...(failed ? ['INCOMPLETE_ORIGINALS'] : [])])]
-    await tx.artworkDedupRun.update({ where: { id: run.id }, data: { stage: 'DONE', visualStatus: reasons.length ? 'INCOMPLETE' : 'COMPLETE', visualIncompleteReasons: reasons } })
+    const entries = [...signatures]
+    for (let start = 0; start < entries.length; start += 100) await tx.$executeRaw(Prisma.sql`
+      UPDATE "ArtworkDedupItem" i SET "visualSignature"=v.signature
+      FROM (VALUES ${Prisma.join(entries.slice(start, start + 100).map(([id, signature]) => Prisma.sql`(${id}::integer,${signature}::text)`))}) AS v(id,signature)
+      WHERE i."runId"=${run.id} AND i."artworkId"=v.id`)
+    throwIfAborted(context.signal)
+    await tx.artworkDedupRun.update({ where: { id: run.id }, data: { stage: 'DONE', visualStatus: reasons.length ? 'INCOMPLETE' : 'COMPLETE', visualIncompleteReasons: reasons,
+      visualCandidatePairs: result.candidatePairs ?? [], visualReusedComparisons: result.reusedComparisons ?? 0, visualComparedComparisons: result.comparedComparisons ?? 0 } })
   })
   return true
 }

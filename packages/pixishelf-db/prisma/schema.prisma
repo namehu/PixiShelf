@@ -2712,6 +2712,12 @@ model SystemJobDiagnosticItem {
 
 // Frozen detection evidence survives subsequent Artwork/Image removal.
 model ArtworkDedupRun {
+  relationCacheVersion String?
+  visualCandidatePairs String[] @default([])
+  originalReusedPairs Int @default(0)
+  originalComparedPairs Int @default(0)
+  visualReusedComparisons Int @default(0)
+  visualComparedComparisons Int @default(0)
   includeSuspectedVersions Boolean @default(false)
   visualStatus String @default("NOT_REQUESTED")
   visualIncompleteReasons String[] @default([])
@@ -2767,6 +2773,7 @@ model ArtworkDedupRun {
 }
 
 model ArtworkDedupItem {
+  visualSignature String?
   runId String
   artworkId Int
   frozenMediaRevision Int

@@ -32,8 +32,10 @@ export function validVisualViews(value: unknown): value is VisualView[] {
 }
 export interface VisualPage { imageId: number; artworkId: number; index: number; size: bigint; sha256: string; views: VisualView[] }
 export interface VisualPairEvidence { leftArtworkId: number; rightArtworkId: number; pages: { kind: 'EXACT' | 'SIMILAR' | 'UNMATCHED'; left: VisualPage | null; right: VisualPage | null }[] }
+export interface VisualRelationReuse { artworks: Set<number>; candidatePairs: string[]; pairs: VisualPairEvidence[] }
+export interface VisualMatchingResult { pairs: VisualPairEvidence[]; reason: string | null; candidatePairs?: string[]; reusedComparisons?: number; comparedComparisons?: number }
 /** Finite run-wide sparse matching. Never returns a truncated subset on budget exhaustion. */
-export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Promise<void>): Promise<{ pairs: VisualPairEvidence[]; reason: string | null }> {
+export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Promise<void>, reuse?: VisualRelationReuse): Promise<VisualMatchingResult> {
   const fail = (reason: string) => ({ pairs: [], reason })
   if (pages.length > VISUAL_LIMITS.files) return fail('VISUAL_FILE_BUDGET')
   const byArtwork = new Map<number, VisualPage[]>()
@@ -50,7 +52,15 @@ export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Pr
     if (i % 100 === 0) await checkpoint()
   }
   const candidates = new Map<string, { left: number; right: number; edges: Map<number, Set<number>> }>()
-  let comparisons = 0
+  // Old candidates include below-threshold pairs. They still consume the current
+  // pair budget, although unchanged inputs need no distance or assignment work.
+  for (const key of reuse?.candidatePairs ?? []) {
+    const [left, right] = key.split(':').map(Number)
+    if (!left || !right || left >= right || !byArtwork.has(left) || !byArtwork.has(right) || !reuse!.artworks.has(left) || !reuse!.artworks.has(right)) continue
+    if (!candidates.has(key) && candidates.size >= VISUAL_LIMITS.artworkPairs) return fail('VISUAL_PAIR_BUDGET')
+    candidates.set(key, { left, right, edges: new Map() })
+  }
+  let comparisons = 0, reusedComparisons = 0, comparedComparisons = 0
   for (let i = 0; i < pages.length; i++) {
     const a = pages[i]!
     const query = index.query(a.views, VISUAL_LIMITS.queryPostings, VISUAL_LIMITS.queryCandidates)
@@ -59,6 +69,10 @@ export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Pr
       const b = pages[j]!
       if (a.artworkId >= b.artworkId) continue
       if (++comparisons > VISUAL_LIMITS.comparisons) return fail('VISUAL_COMPARISON_BUDGET')
+      // All current queries/budgets still run: new dense buckets cannot turn an
+      // old complete negative into permission to publish a truncated new scan.
+      if (reuse?.artworks.has(a.artworkId) && reuse.artworks.has(b.artworkId)) { reusedComparisons++; continue }
+      comparedComparisons++
       if (!compareProductionVisual(a.views, b.views).matched) continue
       const key = `${a.artworkId}:${b.artworkId}`
       if (!candidates.has(key)) {
@@ -70,8 +84,9 @@ export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Pr
     }
     if (i % 20 === 0) await checkpoint()
   }
-  const pairs: VisualPairEvidence[] = []
+  const pairs: VisualPairEvidence[] = [...(reuse?.pairs ?? [])]
   for (const candidate of candidates.values()) {
+    if (reuse?.artworks.has(candidate.left) && reuse.artworks.has(candidate.right)) continue
     const left = byArtwork.get(candidate.left)!, right = byArtwork.get(candidate.right)!
     const used = new Set<number>(), paired = new Map<number, VisualPage>()
     const exact = new Map<string, VisualPage[]>()
@@ -97,5 +112,5 @@ export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Pr
     pairs.push({ leftArtworkId: candidate.left, rightArtworkId: candidate.right, pages: evidence })
     await checkpoint()
   }
-  return { pairs, reason: null }
+  return { pairs, reason: null, candidatePairs: [...candidates.keys()], reusedComparisons, comparedComparisons }
 }

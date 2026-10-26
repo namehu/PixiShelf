@@ -2,6 +2,8 @@ import { scanVisualVersions } from './visual-pipeline.ts'
 import { randomUUID } from 'node:crypto'
 import {
   assertArtworkDedupExecution,
+  assertArtworkDedupCacheDirectories,
+  ARTWORK_DEDUP_RELATION_CACHE_VERSION,
   buildArtworkDedupCandidates,
   buildArtworkDedupGroups,
   buildArtworkDedupRelationsPage,
@@ -310,6 +312,8 @@ export async function executeArtworkDedup(
       } })
       failure = undefined
     }
+    if (done && !failure && !(await assertArtworkDedupCacheDirectories(scope.transaction, execution.runId)))
+      failure = new MediaContentFileError('ROOT_CHANGED', 'Relation cache directory changed')
     if (failure) {
       await scope.transaction.artworkDedupVisualPair.deleteMany({ where: { runId: execution.runId } })
       await scope.transaction.artworkDedupRelation.deleteMany({ where: { runId: execution.runId } })
@@ -331,6 +335,8 @@ export async function executeArtworkDedup(
     }
     if (done) {
       const result = await buildArtworkDedupGroups(scope.transaction, { execution })
+      if (context.job.definitionVersion >= 4 && result.completeArtworks === result.artworkCount)
+        await scope.transaction.artworkDedupRun.update({ where: { id: result.id }, data: { relationCacheVersion: ARTWORK_DEDUP_RELATION_CACHE_VERSION } })
       await scope.complete({
         result: { runId: execution.runId, groups: result.groupCount, checked: result.processedArtworks },
         message: '检测完成'

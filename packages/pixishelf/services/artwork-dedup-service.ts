@@ -291,6 +291,7 @@ export async function controlArtworkDedup(
             sizeDigest: null,
             contentSha256: null,
             membersSignature: null,
+            visualSignature: null,
             errorCode: null
           }
         })
@@ -303,6 +304,12 @@ export async function controlArtworkDedup(
             visualStatus: run.includeSuspectedVersions ? 'PENDING' : 'NOT_REQUESTED',
             visualIncompleteReasons: [],
             visualAfterImageId: 0,
+            relationCacheVersion: null,
+            visualCandidatePairs: [],
+            originalReusedPairs: 0,
+            originalComparedPairs: 0,
+            visualReusedComparisons: 0,
+            visualComparedComparisons: 0,
             relationAfterArtworkId: 0,
             relationAfterCandidateId: 0,
             partialAfterArtworkId: 0,

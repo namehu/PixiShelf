@@ -313,3 +313,5 @@ export * from './artwork-dedup-direct-delete'
 export * from './artwork-dedup-visual'
 
 export * from './artwork-dedup-partial'
+
+export * from './artwork-dedup-relation-cache'

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { lockArtworkDedupRelationCache, artworkDedupOriginalReusableSql } from './artwork-dedup-relation-cache'
 import { Prisma } from '@prisma/client'
 import { activeCreatorMembership, lockCreatorCatalog, visibleCreatorArtwork } from './creators'
 
@@ -337,7 +338,9 @@ export async function buildArtworkDedupRelationsPage(
     ORDER BY i."artworkId" LIMIT 1`)
   if (!item) return true
   const after = item.artworkId === run.relationAfterArtworkId ? run.relationAfterCandidateId : 0
-  const candidates = await tx.$queryRaw<{ artworkId: number; memberCount: bigint; included: boolean }[]>(Prisma.sql`
+  const baseId = await lockArtworkDedupRelationCache(tx, run)
+  const reusable = artworkDedupOriginalReusableSql(baseId, run.id, Prisma.sql`${item.artworkId}`, Prisma.sql`c."artworkId"`)
+  const candidates = await tx.$queryRaw<{ artworkId: number; memberCount: bigint; included: boolean; reused: boolean }[]>(Prisma.sql`
     WITH required AS MATERIALIZED (
       SELECT size,sha256,count(*) n FROM "ArtworkDedupMedia" WHERE "runId"=${run.id} AND "artworkId"=${item.artworkId} GROUP BY size,sha256
     ), pivot AS (
@@ -348,7 +351,15 @@ export async function buildArtworkDedupRelationsPage(
       WHERE i.status='COMPLETE' AND i."memberCount">${item.memberCount} AND i."artworkId">${after}
       AND NOT EXISTS(SELECT 1 FROM "ArtworkDedupGroupMember" m JOIN "ArtworkDedupGroupMember" earlier ON earlier."groupId"=m."groupId" AND earlier."artworkId"<m."artworkId" WHERE m."runId"=i."runId" AND m."artworkId"=i."artworkId")
       GROUP BY i."artworkId",i."memberCount",q.n HAVING count(*)>=q.n ORDER BY i."artworkId" LIMIT ${take}
-    ) SELECT c.*,NOT EXISTS(SELECT 1 FROM required q WHERE q.n>(SELECT count(*) FROM "ArtworkDedupMedia" p WHERE p."runId"=${run.id} AND p."artworkId"=c."artworkId" AND p.size=q.size AND p.sha256=q.sha256)) included FROM candidates c ORDER BY c."artworkId"`)
+    ), eligible AS MATERIALIZED (SELECT c.*,${reusable} reused FROM candidates c)
+    SELECT c.*,CASE WHEN c.reused THEN EXISTS(SELECT 1 FROM "ArtworkDedupRelation" old WHERE old."runId"=${baseId}
+      AND old."containedArtworkId"=${item.artworkId} AND old."containerArtworkId"=c."artworkId")
+      ELSE NOT EXISTS(SELECT 1 FROM required q WHERE q.n>(SELECT count(*) FROM "ArtworkDedupMedia" p WHERE p."runId"=${run.id} AND p."artworkId"=c."artworkId" AND p.size=q.size AND p.sha256=q.sha256)) END included
+    FROM eligible c ORDER BY c."artworkId"`)
+  if (candidates.length) await tx.artworkDedupRun.update({ where: { id: run.id }, data: {
+    originalReusedPairs: { increment: candidates.filter(c => c.reused).length },
+    originalComparedPairs: { increment: candidates.filter(c => !c.reused).length }
+  } })
   const matches = candidates.filter((c) => c.included)
   if (matches.length) await tx.artworkDedupRelation.createMany({
     data: matches.map((c) => ({ id: `contains:${run.id}:${item.artworkId}:${c.artworkId}`, runId: run.id,

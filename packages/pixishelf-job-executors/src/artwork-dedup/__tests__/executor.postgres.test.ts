@@ -10,6 +10,8 @@ import {
   Prisma,
   PrismaClient,
   freezeArtworkDedupRun,
+  lockArtworkDedupRelationCache,
+  ARTWORK_DEDUP_RELATION_CACHE_VERSION,
   beginMediaContentPathWrite,
   beginMediaContentSourceWrite,
   finishMediaContentSourceWrite
@@ -115,6 +117,189 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
+  it('F02 relation byte cache reuses negatives, updates affected pairs and reprojects current order without reviews', async () => {
+    const artistId = await fixture([[1, 2, 3, 4, 5], [1, 2, 3, 4, 6], [1, 2, 3, 4, 6], [1, 2, 3, 4, 6, 7], [10, 11, 12, 13, 14]])
+    const ids = (await db!.artwork.findMany({ where: { creators: { some: { artistId } } }, orderBy: { id: 'asc' } })).map(a => a.id)
+    const measurements: unknown[] = []
+    const scan = async (phase: string, mode: 'INCREMENTAL' | 'FULL' = 'INCREMENTAL') => {
+      const created = await start(artistId, mode, false, 4)
+      await finish(created.jobId)
+      const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: created.runId } })
+      measurements.push({ phase, reused: run.originalReusedPairs, compared: run.originalComparedPairs, bytes: String(run.readBytes) })
+      expect(run).toMatchObject({ status: 'COMPLETED', relationCacheVersion: ARTWORK_DEDUP_RELATION_CACHE_VERSION })
+      return run
+    }
+    const cold = await scan('cold')
+    expect(cold.originalComparedPairs).toBeGreaterThan(0)
+    const reviewed = await db!.artworkDedupVisualPair.findFirstOrThrow({ where: { runId: cold.id, relationKind: 'PARTIAL' } })
+    await db!.artworkDedupReviewState.create({ data: { runId: cold.id, userId: prefix, reviews: { create: { groupId: reviewed.id, keeperArtworkId: reviewed.leftArtworkId } } } })
+    const hot = await scan('hot')
+    expect(hot).toMatchObject({ originalComparedPairs: 0, readBytes: 0n, groupCount: cold.groupCount })
+    expect(hot.originalReusedPairs).toBe(cold.originalComparedPairs)
+    expect(await db!.artworkDedupReview.count({ where: { runId: hot.id } })).toBe(0)
+    expect(await db!.artworkDedupOperation.count({ where: { runId: hot.id } })).toBe(0)
+    const changedImage = await db!.image.findFirstOrThrow({ where: { artworkId: ids[0]! }, orderBy: { id: 'desc' } })
+    await fs.writeFile(path.join(root, changedImage.path), Buffer.alloc(8, 8))
+    const changed = await scan('change-one')
+    expect(changed.originalComparedPairs).toBeGreaterThan(0)
+    expect(changed.originalReusedPairs).toBeGreaterThan(0)
+    const newArtist = await fixture([[10, 11, 12, 13, 15]])
+    const newArt = await db!.artwork.findFirstOrThrow({ where: { creators: { some: { artistId: newArtist } } } })
+    await db!.artworkArtist.updateMany({ where: { artworkId: newArt.id }, data: { artistId } })
+    const added = await scan('new-on-old-negative')
+    expect(await db!.artworkDedupVisualPair.findUnique({ where: { runId_leftArtworkId_rightArtworkId: { runId: added.id, leftArtworkId: ids[4]!, rightArtworkId: newArt.id } } })).not.toBeNull()
+    expect(added.originalComparedPairs).toBeGreaterThan(0)
+    expect(added.originalReusedPairs).toBeGreaterThan(0)
+    await db!.artwork.update({ where: { id: ids[0]! }, data: { title: 'Updated title' } })
+    const ordered = await db!.image.findMany({ where: { artworkId: ids[0]! }, orderBy: { id: 'asc' } })
+    for (const [i, image] of ordered.entries()) await db!.image.update({ where: { id: image.id }, data: { sortOrder: ordered.length - i } })
+    const reordered = await scan('title-and-sort')
+    expect(reordered.originalComparedPairs).toBe(0)
+    const pair = await db!.artworkDedupVisualPair.findFirstOrThrow({ where: { runId: reordered.id, leftArtworkId: ids[0]!, relationKind: 'PARTIAL' }, include: { pages: true } })
+    expect(pair.pages.find(p => p.leftImageId === changedImage.id)?.leftIndex).toBe(0)
+    await db!.artwork.delete({ where: { id: ids[1]! } })
+    const deleted = await scan('delete-representative')
+    expect(deleted.originalComparedPairs).toBeGreaterThan(0)
+    expect(deleted.originalReusedPairs).toBeGreaterThan(0)
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: deleted.id, OR: [{ leftArtworkId: ids[1]! }, { rightArtworkId: ids[1]! }] } })).toBe(0)
+    await db!.artworkArtist.updateMany({ where: { artworkId: ids[2]! }, data: { artistId: newArtist } })
+    const moved = await scan('artist-changed')
+    expect(moved.originalComparedPairs).toBe(0)
+    expect(await db!.artworkDedupItem.count({ where: { runId: moved.id, artworkId: ids[2]! } })).toBe(0)
+    await db!.artworkDedupRun.updateMany({ where: { artistId }, data: { relationCacheVersion: 'obsolete-algorithm' } })
+    const algorithm = await scan('algorithm-version')
+    expect(algorithm.originalReusedPairs).toBe(0)
+    const full = await scan('full', 'FULL')
+    expect(full.originalReusedPairs).toBe(0)
+    expect(full.originalComparedPairs).toBe(algorithm.originalComparedPairs)
+    expect(full.groupCount).toBe(algorithm.groupCount)
+    console.info('F02_RELATION_BYTE ' + JSON.stringify(measurements))
+  }, 120_000)
+
+  it('F02 relation visual cache measures cold hot modify-one and FULL while preserving current indexes', async () => {
+    const artistId = await fixture([[1], [2], [3]])
+    const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+    const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71) % 255))
+    const original = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
+    for (const [i, image] of images.entries()) await fs.writeFile(path.join(root, image.path), i === 0 ? original : await sharp(original).extend({ top: i * 10, bottom: i * 10, left: i * 10, right: i * 10, background: 'white' }).png().toBuffer())
+    const measurements = [], summaries = []
+    for (const phase of ['cold', 'hot', 'modify-one', 'full'] as const) {
+      if (phase === 'modify-one') {
+        const file = path.join(root, images[0]!.path)
+        await fs.writeFile(file, await sharp(await fs.readFile(file)).png({ compressionLevel: 1 }).toBuffer())
+      }
+      const run = await start(artistId, phase === 'full' ? 'FULL' : 'INCREMENTAL', true, 4)
+      const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+      let visualCalls = 0
+      supervisor.create = () => { const reader = create(), visual = reader.visual.bind(reader); reader.visual = async input => { visualCalls++; return visual(input) }; return reader }
+      queryMeasurement = { queries: 0, transactions: 0, cacheReads: 0, cacheWrites: 0 }
+      try { await executeArtworkDedup(context(await claim(run.jobId)), dependencies({ supervisor })) } finally {
+        measurements.push({ phase, ...queryMeasurement, visualCalls, reused: 0, compared: 0, bytes: '0' }); queryMeasurement = undefined
+      }
+      const stored = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
+      expect(stored).toMatchObject({ status: 'COMPLETED', visualStatus: 'COMPLETE', relationCacheVersion: ARTWORK_DEDUP_RELATION_CACHE_VERSION })
+      Object.assign(measurements.at(-1)!, { reused: stored.visualReusedComparisons, compared: stored.visualComparedComparisons, bytes: String(stored.readBytes) })
+      summaries.push((await db!.artworkDedupVisualPair.findMany({ where: { runId: run.runId }, orderBy: { leftArtworkId: 'asc' }, select: { summary: true } })).map(p => p.summary))
+      if (phase === 'hot') expect(stored).toMatchObject({ visualComparedComparisons: 0, readBytes: 0n })
+      if (phase === 'modify-one') { expect(stored.visualComparedComparisons).toBe(2); expect(stored.visualReusedComparisons).toBe(1) }
+      if (phase === 'full') expect(stored.visualReusedComparisons).toBe(0)
+    }
+    expect(summaries[0]).toHaveLength(3)
+    expect(summaries[1]).toEqual(summaries[0]); expect(summaries[2]).toEqual(summaries[0]); expect(summaries[3]).toEqual(summaries[0])
+    expect(measurements.map(m => m.visualCalls)).toEqual([3, 0, 1, 3])
+    console.info('F02_RELATION_VISUAL ' + JSON.stringify(measurements))
+  }, 60_000)
+
+  it('F02 relation representative demotion restores a formerly PARTIAL-suppressed visual result', async () => {
+    const artistId = await fixture([Array(5).fill(1), Array(5).fill(1), Array(5).fill(2)])
+    const ids = (await db!.artwork.findMany({ where: { creators: { some: { artistId } } }, orderBy: { id: 'asc' } })).map(a => a.id)
+    const images = await db!.image.findMany({ where: { artworkId: { in: ids } }, orderBy: [{ artworkId: 'asc' }, { sortOrder: 'asc' }] })
+    for (const [index, image] of images.entries()) {
+      const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71 + (index % 5) * 3) % 255))
+      const original = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
+      await fs.writeFile(path.join(root, image.path), index === 14 ? await sharp(original).extend({ top: 20, bottom: 20, left: 20, right: 20, background: 'white' }).png().toBuffer() : original)
+    }
+    await db!.artworkArtistEvidence.updateMany({ where: { membership: { artworkId: ids[0]! } }, data: { present: false } })
+    const cold = await start(artistId, 'INCREMENTAL', true, 4); await finish(cold.jobId)
+    expect(await db!.artworkDedupVisualPair.findFirst({ where: { runId: cold.runId, leftArtworkId: ids[1]!, rightArtworkId: ids[2]! } })).toMatchObject({ relationKind: 'PARTIAL' })
+    await db!.artworkArtistEvidence.updateMany({ where: { membership: { artworkId: ids[0]! } }, data: { present: true } })
+    const changed = await start(artistId, 'INCREMENTAL', true, 4); await finish(changed.jobId)
+    expect(await db!.artworkDedupVisualPair.findFirst({ where: { runId: changed.runId, leftArtworkId: ids[1]!, rightArtworkId: ids[2]! } })).toMatchObject({ relationKind: 'VISUAL' })
+    expect(await db!.artworkDedupVisualPair.findFirst({ where: { runId: changed.runId, leftArtworkId: ids[0]!, rightArtworkId: ids[2]! } })).toMatchObject({ relationKind: 'PARTIAL' })
+    const reorder = images.filter(i => i.artworkId === ids[1]!)
+    for (const [i, image] of reorder.entries()) await db!.image.update({ where: { id: image.id }, data: { sortOrder: 10 - i } })
+    const hot = await start(artistId, 'INCREMENTAL', true, 4); await finish(hot.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({ visualComparedComparisons: 0, originalComparedPairs: 0 })
+    const pair = await db!.artworkDedupVisualPair.findFirstOrThrow({ where: { runId: hot.runId, leftArtworkId: ids[1]!, relationKind: 'VISUAL' }, include: { pages: { orderBy: { ordinal: 'asc' } } } })
+    expect(pair.pages[0]).toMatchObject({ leftImageId: reorder.at(-1)!.id, leftIndex: 0 })
+  }, 60_000)
+
+  it('F02 relation historical GC waits for the checkpoint lock and completed projections survive source deletion', async () => {
+    const artistId = await fixture([[1, 2, 3, 4, 5], [1, 2, 3, 4, 6]])
+    const cold = await start(artistId, 'INCREMENTAL', false, 4); await finish(cold.jobId)
+    const hot = await start(artistId, 'INCREMENTAL', false, 4); await finish(hot.jobId)
+    const current = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })
+    await db!.$transaction(async tx => {
+      expect(await lockArtworkDedupRelationCache(tx, current)).toBe(cold.runId)
+      await expect(db!.$transaction(async deleting => {
+        await deleting.$executeRawUnsafe("SET LOCAL lock_timeout = '50ms'")
+        await deleting.artworkDedupRun.delete({ where: { id: cold.runId } })
+      })).rejects.toThrow()
+    })
+    await db!.artworkDedupRun.delete({ where: { id: cold.runId } })
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: hot.runId } })).toBe(1)
+    await db!.artworkDedupRun.delete({ where: { id: hot.runId } })
+    const miss = await start(artistId, 'INCREMENTAL', false, 4); await finish(miss.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: miss.runId } })).toMatchObject({ originalReusedPairs: 0, originalComparedPairs: 1 })
+  }, 30_000)
+
+  it.each(['cancel', 'lease', 'source', 'directory'] as const)('F02 relation final publication rejects %s after cached evidence was materialized', async change => {
+    const artistId = await visualFixture(2)
+    const cold = await start(artistId, 'INCREMENTAL', true, 4); await finish(cold.jobId)
+    const run = await start(artistId, 'INCREMENTAL', true, 4), job = await claim(run.jobId)
+    const controller = new AbortController(), supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+    const image = await db!.image.findFirstOrThrow({ where: { artwork: { creators: { some: { artistId } } } } })
+    let changed = false, sourceWrite: Awaited<ReturnType<typeof beginMediaContentSourceWrite>> | undefined
+    supervisor.create = () => {
+      const reader = create(), close = reader.close.bind(reader)
+      reader.close = async (...args) => {
+        await close(...args)
+        if (changed) return
+        changed = true
+        expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ stage: 'DONE', visualComparedComparisons: 0, relationCacheVersion: null })
+        if (change === 'cancel') {
+          await db!.systemJob.update({ where: { id: job.id }, data: { status: 'CANCELLING', cancelRequestedAt: clock.now() } })
+          await db!.artworkDedupRun.update({ where: { id: run.runId }, data: { status: 'CANCELLING' } })
+          controller.abort(new Error('Fixture cancellation'))
+        }
+        if (change === 'lease') await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: randomUUID() } })
+        if (change === 'source') sourceWrite = await db!.$transaction(tx => beginMediaContentSourceWrite(tx, { artworkIds: [image.artworkId!], imageIds: [image.id], writeToken: randomUUID(), now: clock.now() }))
+        if (change === 'directory') {
+          const media = await db!.artworkDedupMedia.findFirstOrThrow({ where: { runId: run.runId, imageId: image.id } })
+          await db!.mediaContentDirectoryState.update({ where: { id: media.directoryId }, data: { generation: { increment: 1 } } })
+        }
+      }
+      return reader
+    }
+    try {
+      const execution = executeArtworkDedup(context(job, controller), dependencies({ supervisor }))
+      if (change === 'lease') await expect(execution).rejects.toThrow()
+      else await execution
+      expect(changed).toBe(true)
+      const stored = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
+      expect(stored.relationCacheVersion).toBeNull()
+      if (change === 'cancel') expect(stored.status).toBe('CANCELLED')
+      if (change === 'source') { expect(stored.changedArtworks).toBe(1); expect(stored.groupCount).toBe(0) }
+      if (change === 'directory') expect(stored).toMatchObject({ status: 'FAILED', groupCount: 0 })
+    } finally {
+      if (sourceWrite) await db!.$transaction(tx => finishMediaContentSourceWrite(tx, { token: sourceWrite!, outcome: 'verified-rollback' }))
+      if (change === 'lease') {
+        await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: job.leaseToken } })
+        await repository!.fail({ jobId: job.id, workerId: job.workerId, executionToken: job.executionToken, attempt: job.attempt, errorCode: 'INTERNAL_ERROR', error: 'Fixture complete' })
+      }
+    }
+  }, 30_000)
+
   it('F01 finds 100/100 shared80 despite rare unmatched pages, preserves containment and hot zero-read evidence', async () => {
     const shared = Array.from({ length: 80 }, (_, i) => i + 1)
     const artistId = await fixture([[...shared, ...Array.from({ length: 20 }, (_, i) => i + 101)].reverse(),
