@@ -1,3 +1,4 @@
+import { assertArtworkDedupPartialSummary, assertArtworkDedupPartialFileEvidence } from './artwork-dedup-partial'
 import { assertArtworkDedupVisualSummary } from './artwork-dedup-visual'
 import { Prisma } from '@prisma/client'
 import {
@@ -28,7 +29,7 @@ export interface ArtworkDedupDirectDeleteCommand {
   idempotencyKey: string
 }
 function protocol(op: Operation) {
-  if (op.preparePurpose !== 'DIRECT_DELETE' || ![1, 2, 3].includes(op.protocolVersion ?? 0) || !op.scopeDigest) {
+  if (op.preparePurpose !== 'DIRECT_DELETE' || ![1, 2, 3, 4].includes(op.protocolVersion ?? 0) || !op.scopeDigest) {
     throw new ArtworkDedupOperationError('DIRECT_DELETE_PROTOCOL_REQUIRED')
   }
 }
@@ -93,7 +94,7 @@ export async function authorizeArtworkDedupDirectDelete(
   tx: Prisma.TransactionClient,
   input: ArtworkDedupDirectDeleteCommand & {
     purpose: 'DIRECT_DELETE'
-    protocolVersion: 1 | 2 | 3
+    protocolVersion: 1 | 2 | 3 | 4
     differentContentLossConfirmed?: true
     scopeDigest: string
     externalWritesStopped: true
@@ -109,7 +110,7 @@ export async function authorizeArtworkDedupDirectDelete(
     !input.externalWritesStopped ||
     !input.permanentDeleteConfirmed ||
     !input.organizationImpactConfirmed ||
-    (op.protocolVersion === 3 && input.differentContentLossConfirmed !== true)
+    ([3, 4].includes(op.protocolVersion ?? 0) && input.differentContentLossConfirmed !== true)
   ) {
     throw new ArtworkDedupOperationError('CONFIRMATION_REQUIRED')
   }
@@ -205,16 +206,16 @@ export async function assertArtworkDedupDirectDeleteClaims(
 ) {
   const op = await assertArtworkDedupDirectDeleteExecution(tx, execution)
   await lockSources(tx, op)
-  if (op.protocolVersion === 3) {
+  if (op.protocolVersion === 3 || op.protocolVersion === 4) {
     const groups = await tx.artworkDedupOperationGroup.findMany({ where: { operationId: op.id }, take: 2 })
     const group = groups[0]
-    if (groups.length !== 1 || group?.relationKind !== 'VISUAL' || group.selectionBasis !== 'SAVED' ||
+    if (groups.length !== 1 || group?.relationKind !== (op.protocolVersion === 4 ? 'PARTIAL' : 'VISUAL') || group.selectionBasis !== 'SAVED' ||
       op.keepers !== 1 || op.copies !== 1 || !group.visual) throw new ArtworkDedupOperationError('INCOMPLETE_EVIDENCE')
-    const summary = assertArtworkDedupVisualSummary(group.visual)
+    const summary = group.relationKind === 'PARTIAL' ? assertArtworkDedupPartialSummary(group.visual) : assertArtworkDedupVisualSummary(group.visual)
     const members = await tx.artworkDedupOperationArtwork.findMany({ where: { operationId: op.id }, take: 3 })
     if (members.length !== 2 || !members.some(a => a.artworkId === summary.leftArtworkId && a.memberCount === summary.leftFileCount) ||
       !members.some(a => a.artworkId === summary.rightArtworkId && a.memberCount === summary.rightFileCount)) throw new ArtworkDedupOperationError('INCOMPLETE_EVIDENCE')
-  } else if (await tx.artworkDedupOperationGroup.findFirst({ where: { operationId: op.id, relationKind: 'VISUAL' } })) {
+  } else if (await tx.artworkDedupOperationGroup.findFirst({ where: { operationId: op.id, relationKind: { in: ['VISUAL', 'PARTIAL'] } } })) {
     throw new ArtworkDedupOperationError('DIRECT_DELETE_PROTOCOL_REQUIRED')
   }
   const [bad] = await tx.$queryRaw<{ bad: boolean }[]>(Prisma.sql`SELECT
@@ -251,6 +252,10 @@ export async function beginArtworkDedupDirectDeleteFiles(
           GROUP BY f.size,f.sha256 HAVING count(*)>(SELECT count(*) FROM "ArtworkDedupOperationFile" kept WHERE kept."operationId"=g."operationId" AND kept."artworkId"=g."containerArtworkId" AND kept.role='MEDIA' AND kept.size=f.size AND kept.sha256=f.sha256))
       )) bad`)
   if (bad?.bad) throw new ArtworkDedupOperationError('INCOMPLETE_EVIDENCE')
+  if (op.protocolVersion === 4) {
+    const group = await tx.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: op.id, relationKind: 'PARTIAL' } })
+    await assertArtworkDedupPartialFileEvidence(tx, op.id, group.visual)
+  }
   await tx.$executeRaw(
     Prisma.sql`UPDATE "Artwork" SET "deletedAt"=coalesce("deletedAt",CURRENT_TIMESTAMP) WHERE id IN(SELECT "artworkId" FROM "ArtworkDedupOperationArtwork" WHERE "operationId"=${op.id} AND role='COPY')`
   )

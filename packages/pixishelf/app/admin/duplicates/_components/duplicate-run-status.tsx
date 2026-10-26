@@ -20,7 +20,7 @@ const stageLabels = {
   STAT: '正在核对作品',
   CANDIDATES: '正在比对作品',
   HASH: '正在比对文件内容',
-  MATCH: '正在检查包含关系',
+  MATCH: '正在检查作品关系',
   VISUAL: '正在检查疑似版本',
   GROUP: '正在整理结果',
   DONE: '检查完成'
@@ -154,12 +154,15 @@ export function DuplicateRunStatus({
                 疑似版本未全部检查：
                 {run.visualIncompleteReasons.map(duplicateVisualIncompleteReason).join('；') ||
                   '部分图片不支持或达到本次检查上限'}
-                。精确和包含结果仍可核对。
+                。其他重复结果仍可核对。
               </p>
             ) : run.visualStatus === 'COMPLETE' ? (
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 疑似版本检查已完成，仍可能有遗漏，请逐张核对。
               </p>
+            ) : null}
+            {!run.includesPartial ? (
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">此记录未检查部分重复。</p>
             ) : null}
             {!run.includesContainment ? (
               <p className="mt-1 text-xs leading-5 text-muted-foreground">

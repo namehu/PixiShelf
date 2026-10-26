@@ -36,3 +36,22 @@ export function duplicateKeeperRestriction(relation: Relation, artworkId: number
 export function duplicateVisualCounts(visual: ArtworkDedupVisualSummary) {
   return `已配对 ${count(visual.pairedCount)} 张 · 左侧未配对 ${count(visual.leftUnmatchedCount)} 张 · 右侧未配对 ${count(visual.rightUnmatchedCount)} 张`
 }
+
+export function isDuplicateManualPair(relation: Pick<ArtworkDedupGroupDto, 'relationKind'>) {
+  return relation.relationKind === 'PARTIAL' || relation.relationKind === 'VISUAL'
+}
+
+export function duplicatePairLabel(relation: Pick<ArtworkDedupGroupDto, 'relationKind'>) {
+  return relation.relationKind === 'PARTIAL' ? '部分重复' : '疑似版本'
+}
+
+export function duplicatePairCounts(relation: Pick<ArtworkDedupGroupDto, 'relationKind' | 'visual'>) {
+  const summary = relation.visual
+  if (!summary) return ''
+  if (relation.relationKind !== 'PARTIAL') return duplicateVisualCounts(summary)
+  const unmatched =
+    summary.leftUnmatchedCount === summary.rightUnmatchedCount
+      ? `双方各 ${count(summary.leftUnmatchedCount)} 张未配对`
+      : `左侧 ${count(summary.leftUnmatchedCount)} 张未配对 · 右侧 ${count(summary.rightUnmatchedCount)} 张未配对`
+  return `${count(summary.exactCount)} 张相同 · ${unmatched}`
+}

@@ -9,7 +9,9 @@ import {
   member,
   operation,
   visualGroup,
-  visualSummary
+  visualSummary,
+  partialGroup,
+  partialSummary
 } from './duplicate-maintenance-fixtures'
 
 const mocks = vi.hoisted(() => ({
@@ -81,84 +83,95 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('duplicate review', () => {
-  it('separates visual results from bulk selection and requires a saved explicit keeper before single-pair prepare', async () => {
-    let reviewVersion = 0
-    let keeperId: number | null = null
-    const currentGroup = () =>
-      visualGroup({
-        reviewVersion,
-        eligibility: keeperId ? 'ELIGIBLE' : 'NEEDS_CHOICE',
-        savedReview: keeperId ? { groupId: 'visual-1', keeperArtworkId: keeperId, reviewVersion } : null
-      })
-    mocks.list.mockImplementation((input: { groupId?: string }) =>
-      input.groupId
-        ? {
-            kind: 'MEMBERS',
-            runId: 'run-1',
-            runVersion: 3,
-            reviewRevision: reviewVersion,
-            allowedActions: ['SAVE_REVIEW', 'PREPARE_CLEANUP'],
-            group: currentGroup(),
-            keeper: null,
-            items: [member(1), member(2)],
-            nextMemberCursor: null
+  it.each([
+    ['VISUAL', 2],
+    ['PARTIAL', 1],
+    ['PARTIAL', 2]
+  ] as const)(
+    'keeps %s outside bulk selection and saves keeper %s before single-pair prepare',
+    async (relationKind, targetKeeperId) => {
+      const partial = relationKind === 'PARTIAL'
+      const groupId = partial ? 'partial-1' : 'visual-1'
+      const createGroup = partial ? partialGroup : visualGroup
+      let reviewVersion = 0
+      let keeperId: number | null = null
+      const currentGroup = () =>
+        createGroup({
+          reviewVersion,
+          eligibility: keeperId ? 'ELIGIBLE' : 'NEEDS_CHOICE',
+          savedReview: keeperId ? { groupId, keeperArtworkId: keeperId, reviewVersion } : null
+        })
+      mocks.list.mockImplementation((input: { groupId?: string }) =>
+        input.groupId
+          ? {
+              kind: 'MEMBERS',
+              runId: 'run-1',
+              runVersion: 3,
+              reviewRevision: reviewVersion,
+              allowedActions: ['SAVE_REVIEW', 'PREPARE_CLEANUP'],
+              group: currentGroup(),
+              keeper: null,
+              items: [member(1), member(2)],
+              nextMemberCursor: null
+            }
+          : page({ items: [group(), currentGroup()], recommendedGroupCount: 1, reviewRevision: reviewVersion })
+      )
+      mocks.comparisons.mockResolvedValue({
+        runId: 'run-1',
+        groupId,
+        visual: partial ? partialSummary : visualSummary,
+        items: [
+          {
+            id: 1,
+            kind: partial ? 'UNMATCHED' : 'SIMILAR',
+            left: { artworkId: 1, imageId: 11, index: 0, thumbnailUrl: '/image/11' },
+            right: { artworkId: 2, imageId: 22, index: 1, thumbnailUrl: '/image/22' }
           }
-        : page({ items: [group(), currentGroup()], recommendedGroupCount: 1, reviewRevision: reviewVersion })
-    )
-    mocks.comparisons.mockResolvedValue({
-      runId: 'run-1',
-      groupId: 'visual-1',
-      visual: visualSummary,
-      items: [
-        {
-          id: 1,
-          kind: 'SIMILAR',
-          left: { artworkId: 1, imageId: 11, index: 0, thumbnailUrl: '/image/11' },
-          right: { artworkId: 2, imageId: 22, index: 1, thumbnailUrl: '/image/22' }
+        ],
+        nextCursor: null
+      })
+      mocks.save.mockImplementation((input: { keeperArtworkId: number }) => {
+        keeperId = input.keeperArtworkId
+        reviewVersion += 1
+        return {
+          review: { groupId, keeperArtworkId: keeperId, reviewVersion },
+          reviewRevision: reviewVersion
         }
-      ],
-      nextCursor: null
-    })
-    mocks.save.mockImplementation((input: { keeperArtworkId: number }) => {
-      keeperId = input.keeperArtworkId
-      reviewVersion += 1
-      return {
-        review: { groupId: 'visual-1', keeperArtworkId: keeperId, reviewVersion },
-        reviewRevision: reviewVersion
-      }
-    })
-    mount()
-    const visual = within(await screen.findByRole('region', { name: '疑似版本结果' }))
-    expect(visual.queryByRole('checkbox')).toBeNull()
-    expect(visual.queryByRole('radio')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: '按推荐全选（1 组）' }))
-    expect(screen.getAllByRole('checkbox')).toHaveLength(1)
-    fireEvent.click(visual.getByRole('button', { name: '查看差异' }))
-    const dialog = within(await screen.findByRole('dialog', { name: '查看差异' }))
-    const left = await dialog.findByRole('button', { name: '保留此版本：作品 1' })
-    const right = dialog.getByRole('button', { name: '保留此版本：作品 2' })
-    expect(left.getAttribute('aria-pressed')).toBe('false')
-    expect(right.getAttribute('aria-pressed')).toBe('false')
-    expect((dialog.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(mocks.save).not.toHaveBeenCalled()
-    fireEvent.click(right)
-    await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1))
-    await waitFor(() =>
-      expect((dialog.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(false)
-    )
-    fireEvent.click(dialog.getByRole('button', { name: '核对并删除' }))
-    await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1))
-    expect(mocks.prepare.mock.calls[0]![0]).toMatchObject({
-      expectedUserId: 'user-a',
-      expectedReviewRevision: 1,
-      selection: { kind: 'EXPLICIT', groupIds: ['visual-1'] }
-    })
-    expect(mocks.comparisons.mock.calls[0]![0]).toMatchObject({
-      filter: 'DIFFERENT',
-      expectedUserId: 'user-a',
-      limit: 1
-    })
-  })
+      })
+      mount()
+      const visual = within(await screen.findByRole('region', { name: partial ? '部分重复结果' : '疑似版本结果' }))
+      expect(visual.queryByRole('checkbox')).toBeNull()
+      expect(visual.queryByRole('radio')).toBeNull()
+      fireEvent.click(screen.getByRole('button', { name: '按推荐全选（1 组）' }))
+      expect(screen.getAllByRole('checkbox')).toHaveLength(1)
+      fireEvent.click(visual.getByRole('button', { name: partial ? '图片对照' : '查看差异' }))
+      const dialog = within(await screen.findByRole('dialog', { name: partial ? '部分重复 · 图片对照' : '查看差异' }))
+      const left = await dialog.findByRole('button', { name: '保留此版本：作品 1' })
+      const right = dialog.getByRole('button', { name: '保留此版本：作品 2' })
+      expect(left.getAttribute('aria-pressed')).toBe('false')
+      expect(right.getAttribute('aria-pressed')).toBe('false')
+      expect((dialog.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(true)
+      expect(mocks.save).not.toHaveBeenCalled()
+      if (partial) expect(dialog.getByText('80 张相同 · 双方各 20 张未配对')).toBeTruthy()
+      fireEvent.click(targetKeeperId === 1 ? left : right)
+      await waitFor(() => expect(mocks.save).toHaveBeenCalledTimes(1))
+      await waitFor(() =>
+        expect((dialog.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(false)
+      )
+      fireEvent.click(dialog.getByRole('button', { name: '核对并删除' }))
+      await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1))
+      expect(mocks.prepare.mock.calls[0]![0]).toMatchObject({
+        expectedUserId: 'user-a',
+        expectedReviewRevision: 1,
+        selection: { kind: 'EXPLICIT', groupIds: [groupId] }
+      })
+      expect(mocks.comparisons.mock.calls[0]![0]).toMatchObject({
+        filter: partial ? 'UNMATCHED' : 'DIFFERENT',
+        expectedUserId: 'user-a',
+        limit: 1
+      })
+    }
+  )
   it('clears visual keeper intent and ignores a late save when the account changes', async () => {
     let resolveSave!: (value: unknown) => void
     mocks.list.mockImplementation((input: { groupId?: string }) =>

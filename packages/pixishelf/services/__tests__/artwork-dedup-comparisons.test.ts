@@ -51,6 +51,51 @@ function fixture() {
   return { tx, database, input }
 }
 describe('visual comparison service', () => {
+  it('reads partial exact and unmatched evidence through the same bounded, account-bound media projection', async () => {
+    const { tx, database, input } = fixture()
+    const partial = {
+      ...summary,
+      evidenceVersion: 'sha256-multiset-overlap-v1',
+      leftFileCount: '5',
+      rightFileCount: '5',
+      pairedCount: '4',
+      exactCount: '4',
+      similarCount: '0',
+      leftUnmatchedCount: '1',
+      rightUnmatchedCount: '1'
+    }
+    tx.artworkDedupVisualPair.findUnique.mockResolvedValue({
+      id: 'partial-1',
+      runId: 'run-1',
+      leftArtworkId: 1,
+      rightArtworkId: 2,
+      summary: partial
+    })
+    tx.artworkDedupVisualPage.findMany.mockResolvedValue([
+      { ordinal: 1, kind: 'EXACT', leftImageId: 11, rightImageId: 21, leftIndex: 0, rightIndex: 0 },
+      { ordinal: 5, kind: 'UNMATCHED', leftImageId: null, rightImageId: 22, leftIndex: null, rightIndex: 4 }
+    ])
+    const page = await listArtworkDedupComparisons(
+      'user-a',
+      { ...input, groupId: 'partial-1', filter: 'ALL', limit: 2 },
+      database
+    )
+    expect(page.visual).toEqual(partial)
+    expect(page.items.map((item) => item.kind)).toEqual(['EXACT', 'UNMATCHED'])
+    expect(page.items[0]?.right?.thumbnailUrl).toBeNull()
+    expect(page.items[1]).toMatchObject({
+      left: null,
+      right: { artworkId: 2, imageId: 22, index: 4, thumbnailUrl: null }
+    })
+    expect(page.nextCursor).toBeNull()
+    expect(tx.artworkDedupVisualPage.findMany).toHaveBeenCalledWith({
+      where: { pairId: 'partial-1', ordinal: { gt: 0 } },
+      orderBy: { ordinal: 'asc' },
+      take: 3
+    })
+    expect(JSON.stringify(page)).not.toMatch(/path|lease|otherAccount|[a-f0-9]{64}/)
+  })
+
   it('returns bounded image IDs and account-bound URLs, with unavailable references left visible', async () => {
     const { tx, database, input } = fixture()
     const page = await listArtworkDedupComparisons('user-a', input, database)
@@ -79,7 +124,7 @@ describe('visual comparison service', () => {
         where: expect.objectContaining({ artwork: { deletedAt: null, archiveLifecycleState: 'ACTIVE' } })
       })
     )
-    expect(JSON.stringify(page)).not.toMatch(/path|sha256|lease|otherAccount/)
+    expect(JSON.stringify(page)).not.toMatch(/path|lease|otherAccount|[a-f0-9]{64}/)
     await expect(
       listArtworkDedupComparisons('user-a', { ...input, cursor: page.nextCursor!, filter: 'ALL' }, database)
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })

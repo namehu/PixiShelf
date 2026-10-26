@@ -6,6 +6,8 @@
 
 ## 功能与用户流程
 
+去重 F01：[2026-10-26 部分重复验收](./artwork-deduplication-partial-overlap-f01-2026-10-26.md)。
+
 完整清单见[功能记录索引](./features/README.md)。下表提供跨领域常用入口。
 
 | 主题               | 记录                                                                                                                                                                                     |

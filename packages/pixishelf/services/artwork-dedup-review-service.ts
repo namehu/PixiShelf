@@ -47,7 +47,7 @@ export async function mapArtworkDedupMaintenanceError<T>(body: () => Promise<T>)
               : error.code === 'CONTAINMENT_DIRECTION_REQUIRED'
                 ? '完整包含只能保留包含全部原文件的作品'
                 : error.code === 'VISUAL_SINGLE_PAIR_REQUIRED'
-                  ? '疑似版本每次只能处理一对，请在对照面板中单独核对'
+                  ? '部分重复和疑似版本每次只能处理一对，请在对照面板中单独核对'
                   : error.code === 'EXPLICIT_CHOICE_REQUIRED'
                     ? '所选结果需要先明确选择保留作品'
                     : '审核状态已变化，请刷新后重试'
@@ -161,7 +161,7 @@ function groupDto(
     fileCount: choice.fileCount.toString(),
     previewMembers: members.slice(0, 3),
     keeper: members.find((member) => member.artworkId === choice.keeperArtworkId) ?? null,
-    recommendedKeeperArtworkId: choice.relationKind === 'VISUAL' ? null : choice.keeperArtworkId,
+    recommendedKeeperArtworkId: ['VISUAL', 'PARTIAL'].includes(choice.relationKind) ? null : choice.keeperArtworkId,
     recommendationReason: choice.reason,
     savedReview:
       choice.saved && choice.keeperArtworkId
@@ -174,7 +174,7 @@ function groupDto(
       ? ['CONTENT_OR_SCOPE_CHANGED']
       : choice.keeperArtworkId === null
         ? [
-            choice.relationKind === 'VISUAL'
+            ['VISUAL', 'PARTIAL'].includes(choice.relationKind)
               ? 'EXPLICIT_CHOICE_REQUIRED'
               : choice.relationKind === 'CONTAINS'
                 ? 'CONTAINED_HAS_ORGANIZATION'
@@ -261,7 +261,7 @@ export async function listArtworkDedupReviewGroups(
       ])
       const byId = new Map(members.map((row) => [row.artworkId, row]))
       const totals = await tx.$queryRaw<{ total: number; recommended: number }[]>(
-        Prisma.sql`SELECT count(*)::int total,count(*) FILTER(WHERE eligible AND "keeperArtworkId" IS NOT NULL AND "relationKind"<>'VISUAL')::int recommended FROM artwork_dedup_group_choices(${run.id},${userId})`
+        Prisma.sql`SELECT count(*)::int total,count(*) FILTER(WHERE eligible AND "keeperArtworkId" IS NOT NULL AND "relationKind" NOT IN ('VISUAL','PARTIAL'))::int recommended FROM artwork_dedup_group_choices(${run.id},${userId})`
       )
       return contract.artworkDedupListGroupsDtoSchema.parse({
         ...common,
@@ -397,7 +397,7 @@ function operationActions(
       }
       return op.cancelRequestedAt ? [] : [op.deleteStartedAt ? 'STOP' : 'CANCEL']
     }
-    if (![1, 2, 3].includes(op.protocolVersion ?? 0)) return []
+    if (![1, 2, 3, 4].includes(op.protocolVersion ?? 0)) return []
     if (op.status === 'BUILDING') return op.cancelRequestedAt ? [] : ['CANCEL']
     if (op.readerToken || op.readerState !== 'IDLE') return []
     if (op.status === 'READY' && op.scopeDigest) return ['DIRECT_DELETE']

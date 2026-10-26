@@ -8,7 +8,7 @@ import { getArtworkDedupOperation, listArtworkDedupReviewGroups } from '../artwo
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
 if (url) {
   const target = new URL(url)
-  if (target.hostname !== '127.0.0.1' || target.port !== '55432' || target.pathname !== '/dedup_executor_next') throw new Error('Use the authorized synthetic executor database')
+  if (target.hostname !== '127.0.0.1' || target.port !== '55432' || !['/dedup_executor_next', '/dedup_partial_core'].includes(target.pathname)) throw new Error('Use the authorized synthetic executor database')
 }
 const operations: string[] = [], sources: string[] = []
 const rootIdentity = `${prefix}-display-root`

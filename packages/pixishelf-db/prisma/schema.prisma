@@ -2717,6 +2717,8 @@ model ArtworkDedupRun {
   visualIncompleteReasons String[] @default([])
   visualAfterImageId Int @default(0)
   visualPairs ArtworkDedupVisualPair[]
+  partialAfterArtworkId Int @default(0)
+  partialAfterCandidateId Int @default(0)
   relationAfterArtworkId Int @default(0)
   relationAfterCandidateId Int @default(0)
   relations ArtworkDedupRelation[]
@@ -3136,6 +3138,7 @@ model MediaVisualFingerprint {
   updatedAt DateTime @updatedAt
 }
 model ArtworkDedupVisualPair {
+  relationKind String @default("VISUAL")
   id String @id
   runId String
   leftArtworkId Int

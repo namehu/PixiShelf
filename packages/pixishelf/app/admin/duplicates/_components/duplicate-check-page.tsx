@@ -321,7 +321,7 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
                     ? '该艺术家可能已被合并或移除。'
                     : artistQuery.data.artworksCount === 0
                       ? '添加作品后，可以回来检查相同内容。'
-                      : '找出内容完全相同的作品，由你决定保留哪一部。'}
+                      : '找出内容相同或部分重复的作品，由你决定保留哪一部。'}
               </EmptyDescription>
             </EmptyHeader>
           </Empty>

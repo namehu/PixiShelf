@@ -137,3 +137,27 @@ export function visualGroup(overrides: Partial<ArtworkDedupGroupDto> = {}): Artw
     ...overrides
   })
 }
+
+export const partialSummary = {
+  evidenceVersion: 'sha256-multiset-overlap-v1',
+  leftArtworkId: 1,
+  rightArtworkId: 2,
+  leftFileCount: '100',
+  rightFileCount: '100',
+  pairedCount: '80',
+  exactCount: '80',
+  similarCount: '0',
+  leftUnmatchedCount: '20',
+  rightUnmatchedCount: '20',
+  leftUncheckedCount: '0',
+  rightUncheckedCount: '0'
+}
+export function partialGroup(overrides: Partial<ArtworkDedupGroupDto> = {}): ArtworkDedupGroupDto {
+  return visualGroup({
+    groupId: 'partial-1',
+    relationKind: 'PARTIAL',
+    visual: partialSummary,
+    fileCount: '100',
+    ...overrides
+  })
+}

@@ -129,7 +129,8 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
       {canDelete ? (
         <DuplicateDeleteConsent
           copyCount={operation.counts.copies}
-          differentContent={operation.protocolVersion === 3}
+          differentContent={operation.protocolVersion === 3 || operation.protocolVersion === 4}
+          partialContent={operation.protocolVersion === 4}
           busy={busy}
           disabled={disabled || !previewReady}
           secondaryAction={stopButton}
@@ -144,7 +145,9 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
                 permanentDeleteConfirmed: true,
                 organizationImpactConfirmed: true,
                 externalWritesStopped: true,
-                ...(operation.protocolVersion === 3 ? { differentContentLossConfirmed: true } : {}),
+                ...(operation.protocolVersion === 3 || operation.protocolVersion === 4
+                  ? { differentContentLossConfirmed: true }
+                  : {}),
                 idempotencyKey: key
               })
             )

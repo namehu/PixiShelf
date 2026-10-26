@@ -29,7 +29,7 @@ async function current(tx: Prisma.TransactionClient, context: DedupPipelineConte
 async function incomplete(context: DedupPipelineContext, reason: string) {
   await context.transaction(async tx => {
     const run = await assertArtworkDedupExecution(tx, context.execution)
-    await tx.artworkDedupVisualPair.deleteMany({ where: { runId: run.id } })
+    await tx.artworkDedupVisualPair.deleteMany({ where: { runId: run.id, relationKind: 'VISUAL' } })
     await tx.artworkDedupRun.update({ where: { id: run.id }, data: { stage: 'DONE', visualStatus: 'INCOMPLETE',
       visualIncompleteReasons: [...new Set([...run.visualIncompleteReasons, reason])] } })
   })
@@ -105,7 +105,7 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
   if (result.reason) return incomplete(context, result.reason)
   await context.transaction(async tx => {
     const latest = await assertArtworkDedupExecution(tx, context.execution)
-    await tx.artworkDedupVisualPair.deleteMany({ where: { runId: run.id } })
+    await tx.artworkDedupVisualPair.deleteMany({ where: { runId: run.id, relationKind: 'VISUAL' } })
     // Validate each participating original's source/directory snapshot again at publication.
     const participating = new Set(result.pairs.flatMap(p => [p.leftArtworkId, p.rightArtworkId]))
     const directories = [...new Map(bounded.filter(row => participating.has(row.artworkId)).map(row => [row.directoryId, directory(row)])).values()]
@@ -120,7 +120,7 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
       const original = await tx.artworkDedupRelation.findFirst({ where: { runId: run.id, OR: [
         { containedArtworkId: pair.leftArtworkId, containerArtworkId: pair.rightArtworkId }, { containedArtworkId: pair.rightArtworkId, containerArtworkId: pair.leftArtworkId }
       ] }, select: { id: true } })
-      if (original) continue
+      if (original || await tx.artworkDedupVisualPair.findUnique({ where: { runId_leftArtworkId_rightArtworkId: { runId: run.id, leftArtworkId: pair.leftArtworkId, rightArtworkId: pair.rightArtworkId } } })) continue
       const id = `visual:${run.id}:${pair.leftArtworkId}:${pair.rightArtworkId}`
       const left = pair.pages.filter(p => p.left).length, right = pair.pages.filter(p => p.right).length
       const exact = pair.pages.filter(p => p.kind === 'EXACT').length, similar = pair.pages.filter(p => p.kind === 'SIMILAR').length

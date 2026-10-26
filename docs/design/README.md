@@ -4,7 +4,7 @@
 
 ## 仍需逐页核验的方案
 
-- [同艺术家作品去重方案](./artwork-deduplication.md)：精确去重与直接删除的原实施基线、契约、页面原型与五张图；[版本收口与后续计划](./artwork-deduplication/matching-extension.md)登记部分重叠、缓存增量、50 万规模及真实版本验证的剩余工作。当前行为见功能规格，实例部署及验收另见 records。
+- [同艺术家作品去重方案](./artwork-deduplication.md)：精确去重与直接删除的原实施基线、契约、页面原型与五张图；[版本收口与后续计划](./artwork-deduplication/matching-extension.md)登记部分重叠、缓存增量、50 万规模及真实版本验证的剩余工作；当前批准的下一批见 [F01 部分重复契约](./artwork-deduplication/partial-overlap-contract.md)。当前行为见功能规格，实例部署及验收另见 records。
 - [界面设计升级计划](../pixishelf-design-upgrade-plan.md)：保留视觉方向和分阶段候选，不能据旧阶段清单推定页面尚未改造。
 
 ## 已整合去向

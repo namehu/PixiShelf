@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DuplicateComparisonSheet } from '../duplicate-comparison-sheet'
-import { member, visualGroup, visualSummary } from './duplicate-maintenance-fixtures'
+import { member, partialGroup, partialSummary, visualGroup, visualSummary } from './duplicate-maintenance-fixtures'
 
 const mocks = vi.hoisted(() => ({ comparisons: vi.fn(), members: vi.fn(), keep: vi.fn(), prepare: vi.fn() }))
 vi.mock('@/lib/trpc', () => ({
@@ -36,13 +36,13 @@ const result = (overrides = {}) => ({
   nextCursor: 'next-page',
   ...overrides
 })
-function mount() {
+function mount(group = visualGroup()) {
   return render(
     <QueryClientProvider client={client}>
       <DuplicateComparisonSheet
         userId="user-a"
         runId="run-1"
-        group={visualGroup()}
+        group={group}
         keeperId={null}
         savedKeeperId={null}
         saving={false}
@@ -82,6 +82,51 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 describe('visual image comparison', () => {
+  it('starts partial comparisons at unmatched originals with explicit choices and exact-only paired evidence', async () => {
+    mocks.members.mockResolvedValue({
+      kind: 'MEMBERS',
+      group: partialGroup(),
+      items: [member(1), member(2)],
+      allowedActions: ['SAVE_REVIEW']
+    })
+    mocks.comparisons.mockResolvedValue(
+      result({
+        groupId: 'partial-1',
+        visual: partialSummary,
+        items: [
+          {
+            id: 81,
+            kind: 'UNMATCHED',
+            left: { artworkId: 1, imageId: 81, index: 80, thumbnailUrl: '/media/81' },
+            right: null
+          }
+        ],
+        nextCursor: null
+      })
+    )
+    mount(partialGroup())
+    await screen.findByAltText('作品 1，第 81 张')
+    expect(mocks.comparisons.mock.calls[0]![0]).toMatchObject({ filter: 'UNMATCHED' })
+    expect(screen.getByText('80 张相同 · 双方各 20 张未配对')).toBeTruthy()
+    expect(screen.getByText(/未配对不代表内容独有/)).toBeTruthy()
+    expect(screen.queryByText(/图片相似/)).toBeNull()
+    expect(screen.queryByRole('radio', { name: '不同图片' })).toBeNull()
+    expect(screen.getByText('此版本没有对应图片')).toBeTruthy()
+    const left = screen.getByRole('button', { name: '保留此版本：作品 1' })
+    const right = screen.getByRole('button', { name: '保留此版本：作品 2' })
+    expect(left.getAttribute('aria-pressed')).toBe('false')
+    expect(right.getAttribute('aria-pressed')).toBe('false')
+    expect((screen.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(left)
+    expect(mocks.keep).toHaveBeenLastCalledWith(partialGroup(), 1)
+    fireEvent.click(right)
+    expect(mocks.keep).toHaveBeenLastCalledWith(partialGroup(), 2)
+    fireEvent.click(screen.getByRole('radio', { name: '相同图片' }))
+    await waitFor(() =>
+      expect(mocks.comparisons.mock.lastCall?.[0]).toMatchObject({ filter: 'PAIRED', cursor: undefined })
+    )
+  })
+
   it('keeps both artwork identities and same-pair side controls, then resets pagination when filtering', async () => {
     mount()
     await screen.findByAltText('作品 1，第 1 张')

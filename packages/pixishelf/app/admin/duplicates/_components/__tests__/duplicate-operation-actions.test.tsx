@@ -120,7 +120,7 @@ describe('direct delete actions', () => {
       })
     }
   )
-  it.each([null, 4])('does not authorize deletion with unsupported protocol %s', (protocolVersion) => {
+  it.each([null, 5])('does not authorize deletion with unsupported protocol %s', (protocolVersion) => {
     mount(
       operation({
         protocolVersion: protocolVersion as ArtworkDedupOperationDto['protocolVersion'],
@@ -131,24 +131,31 @@ describe('direct delete actions', () => {
     expect(screen.queryByRole('checkbox')).toBeNull()
     expect(mocks.directDelete).not.toHaveBeenCalled()
   })
-  it('requires the extra different-content assertion for visual protocol3 in the same confirmation panel', async () => {
-    mount(operation({ protocolVersion: 3, allowedActions: ['DIRECT_DELETE'] }))
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(screen.getAllByRole('checkbox')).toHaveLength(3)
-    confirm()
-    const submit = screen.getByRole('button', { name: '永久删除 1 部副本' }) as HTMLButtonElement
-    expect(submit.disabled).toBe(true)
-    fireEvent.click(submit)
-    expect(mocks.directDelete).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('checkbox', { name: /两个版本内容不同/ }))
-    fireEvent.click(submit)
-    await waitFor(() => expect(mocks.directDelete).toHaveBeenCalledTimes(1))
-    expect(mocks.directDelete.mock.calls[0]![0]).toMatchObject({
-      protocolVersion: 3,
-      differentContentLossConfirmed: true,
-      expectedUserId: 'user-a'
-    })
-  })
+  it.each([3, 4] as const)(
+    'requires the extra content-loss assertion for protocol %s in the same panel',
+    async (protocolVersion) => {
+      mount(operation({ protocolVersion, allowedActions: ['DIRECT_DELETE'] }))
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(screen.getAllByRole('checkbox')).toHaveLength(3)
+      confirm()
+      const submit = screen.getByRole('button', { name: '永久删除 1 部副本' }) as HTMLButtonElement
+      expect(submit.disabled).toBe(true)
+      fireEvent.click(submit)
+      expect(mocks.directDelete).not.toHaveBeenCalled()
+      fireEvent.click(
+        screen.getByRole('checkbox', {
+          name: protocolVersion === 4 ? /部分重复作品仍有未配对原件/ : /两个版本内容不同/
+        })
+      )
+      fireEvent.click(submit)
+      await waitFor(() => expect(mocks.directDelete).toHaveBeenCalledTimes(1))
+      expect(mocks.directDelete.mock.calls[0]![0]).toMatchObject({
+        protocolVersion,
+        differentContentLossConfirmed: true,
+        expectedUserId: 'user-a'
+      })
+    }
+  )
   it('requires a loaded frozen preview and resets confirmation for a new version or account', () => {
     const value = operation({ allowedActions: ['DIRECT_DELETE'] })
     const view = mount(value, false)

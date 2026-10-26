@@ -69,8 +69,8 @@ export function duplicateBytes(value: string | null) {
 
 export function isDirectDeletePreview(
   operation: ArtworkDedupOperationDto
-): operation is ArtworkDedupOperationDto & { protocolVersion: 1 | 2 | 3 } {
-  return operation.preparePurpose === 'DIRECT_DELETE' && [1, 2, 3].includes(operation.protocolVersion ?? 0)
+): operation is ArtworkDedupOperationDto & { protocolVersion: 1 | 2 | 3 | 4 } {
+  return operation.preparePurpose === 'DIRECT_DELETE' && [1, 2, 3, 4].includes(operation.protocolVersion ?? 0)
 }
 export function duplicateSourceLabel(source: string) {
   return (

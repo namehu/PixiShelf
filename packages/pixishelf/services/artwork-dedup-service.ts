@@ -74,6 +74,7 @@ async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedup
     : null
   return artworkDedupRunDtoSchema.parse({
     includesContainment: (job?.definitionVersion ?? 1) >= 2,
+    includesPartial: (job?.definitionVersion ?? 1) >= 4,
     visualStatus: run.visualStatus,
     visualIncompleteReasons: run.visualIncompleteReasons,
     lastCompletedRun: lastCompleted
@@ -304,6 +305,8 @@ export async function controlArtworkDedup(
             visualAfterImageId: 0,
             relationAfterArtworkId: 0,
             relationAfterCandidateId: 0,
+            partialAfterArtworkId: 0,
+            partialAfterCandidateId: 0,
             finishedAt: null,
             errorCode: null,
             processedArtworks: 0,

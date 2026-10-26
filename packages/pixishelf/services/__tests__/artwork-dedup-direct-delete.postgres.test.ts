@@ -48,7 +48,7 @@ import {
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
 if (url) {
   const target = new URL(url)
-  if (target.hostname !== '127.0.0.1' || target.port !== '55432' || !['/dedup_executor_next', '/dedup_containment_test'].includes(target.pathname))
+  if (target.hostname !== '127.0.0.1' || target.port !== '55432' || !['/dedup_executor_next', '/dedup_containment_test', '/dedup_partial_core'].includes(target.pathname))
     {throw new Error('Use the authorized synthetic executor database')}
 }
 const dependencies = () => ({
@@ -85,13 +85,13 @@ function callerFor(userId: string) {
 async function claim(jobId: string) {
   clock.advance(Math.max(0, Date.now() + 1000 - clock.now().getTime()))
   const job = await repository!.claim('dedup-b2-app', [
-    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [4] }
+    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5] }
   ])
   expect(job?.id).toBe(jobId)
   return job!
 }
 describe.skipIf(!db)('direct-delete App transaction and projection', () => {
-  it('projects containment through the existing router and freezes v4/protocol2 before deleting only the subset', async () => {
+  it('projects containment through the existing router and freezes v5/protocol2 before deleting only the subset', async () => {
     const f = await fixture(2, 'LOCAL_DIRECTORY', { purpose: 'DIRECT_DELETE', beforeScan: async (ids) => {
       const image = await db!.image.findFirstOrThrow({ where: { artworkId: ids[1] } })
       const extra = `${path.posix.dirname(image.path)}/extra.bin`
@@ -114,7 +114,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
     expect(next.items).toHaveLength(1)
     await expect(caller.saveReview({ expectedUserId: original.requestedBy, runId: original.runId, groupId: result.groupId, keeperArtworkId: f.ids[0]!, expectedRunVersion: page.runVersion, expectedReviewVersion: 0, idempotencyKey: randomUUID() })).rejects.toThrow()
     const workerId = `containment-app-${randomUUID()}`
-    await db!.workerInstance.create({ data: { workerId, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [4] }] } })
+    await db!.workerInstance.create({ data: { workerId, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5] }] } })
     try {
       const building = await caller.prepareCleanup({ expectedUserId: original.requestedBy, purpose: 'DIRECT_DELETE', protocolVersion: 1, runId: original.runId, expectedRunVersion: page.runVersion, expectedReviewRevision: 0, selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] }, idempotencyKey: randomUUID() })
       trackMaintenanceJob(building.jobId!)
@@ -146,7 +146,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         hostname: 'fixture',
         processId: process.pid,
         serviceVersion: 'fixture',
-        capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [4] }]
+        capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5] }]
       }
     })
     try {
@@ -204,6 +204,11 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
       await expect(caller.cancelOperation(retry)).rejects.toMatchObject({ code: 'CONFLICT' })
       expect(await counts()).toEqual(beforeAdvancedReplay)
       expect(await db!.artworkDedupOperation.findUniqueOrThrow({ where: { id: started.operationId } })).toMatchObject({ executionVersion: started.executionVersion, version: started.version, jobId: started.jobId })
+      // Retire the queued deletion through its own domain control before the next fixture claims the lane.
+      await db!.workerInstance.update({ where: { workerId }, data: { status: 'READY' } })
+      await caller.cancelOperation(command(started, legacy.requestedBy))
+      await executeArtworkDedupDirectDelete(executionContext<ArtworkDedupMaintenancePayload>(await claim(started.jobId!)), dependencies())
+      expect((await caller.getOperation({ operationId: started.operationId, expectedUserId: legacy.requestedBy })).operation.status).toBe('CANCELLED')
     } finally {
       await db!.workerInstance.deleteMany({ where: { workerId } })
     }
@@ -229,7 +234,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         processId: process.pid,
         serviceVersion: 'fixture',
         capabilities: [
-          { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [4] }
+          { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5] }
         ]
       }
     })
@@ -294,7 +299,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
       await db!.workerInstance.deleteMany({ where: { workerId } })
     }
   }, 30000)
-  it('freezes unloaded groups, binds v3 and Session, stops partial work and keeps deleted snapshots and current generations', async () => {
+  it('freezes unloaded groups, binds v5 and Session, stops partial work and keeps deleted snapshots and current generations', async () => {
     const f = await fixture(2, 'LOCAL_DIRECTORY', { purpose: 'DIRECT_DELETE', groups: 3 })
     await f.close()
     const original = await db!.artworkDedupOperation.findUniqueOrThrow({
@@ -342,7 +347,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         where: { workerId },
         data: {
           capabilities: [
-            { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4] }
+            { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5] }
           ]
         }
       })
@@ -358,7 +363,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
       expect(frozen).toHaveLength(2)
       expect(frozen.every((group) => group.groupId !== excluded)).toBe(true)
       expect(await db!.systemJob.findUnique({ where: { id: building.jobId! } })).toMatchObject({
-        definitionVersion: 4,
+        definitionVersion: 5,
         payload: { purpose: 'DIRECT_DELETE', protocolVersion: 1 }
       })
       expect(

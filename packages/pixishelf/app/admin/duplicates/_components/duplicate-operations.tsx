@@ -63,6 +63,11 @@ export function DuplicateOperations({
                         : `保留 ${operation.counts.keepers} 部，待删除 ${operation.counts.copies} 部`}
                   </span>
                   <span className="mt-1 block text-xs text-muted-foreground">
+                    {operation.protocolVersion === 4
+                      ? '部分重复 · '
+                      : operation.protocolVersion === 3
+                        ? '疑似版本 · '
+                        : ''}
                     {new Date(operation.createdAt).toLocaleString('zh-CN')}
                   </span>
                 </span>

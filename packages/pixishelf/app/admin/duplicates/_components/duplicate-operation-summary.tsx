@@ -11,7 +11,7 @@ import {
 
 export function DuplicateOperationSummary({ operation }: { operation: ArtworkDedupOperationDto }) {
   const { counts, status } = operation
-  const visual = operation.protocolVersion === 3
+  const manualPair = operation.protocolVersion === 3 || operation.protocolVersion === 4
   const completed = status === 'DELETED'
   const deleting = isDirectDeletePreview(operation) && operation.mode === 'DIRECT_DELETE'
   return (
@@ -25,12 +25,12 @@ export function DuplicateOperationSummary({ operation }: { operation: ArtworkDed
         {status !== 'READY' ? <p className="text-sm font-medium">{duplicateOperationLabels[status]}</p> : null}
         <p role="status" aria-live="polite" className="text-sm leading-5">
           {completed
-            ? visual
+            ? manualPair
               ? '已删除所选版本，另一个版本已保留。'
               : `已删除 ${counts.completedCopies} 部重复作品，保留 ${counts.keepers} 部。`
             : deleting
               ? `已删除 ${counts.completedCopies} 部，尚有 ${counts.remainingCopies} 部未完成。`
-              : visual
+              : manualPair
                 ? '保留所选版本，删除另一个版本。'
                 : `保留 ${counts.keepers} 部，删除 ${counts.copies} 部重复作品。`}
         </p>

@@ -180,6 +180,16 @@ describe('ExecutorRegistry', () => {
     expect(modern.resolve(job)?.payload).toEqual(job.payload)
     expect(() => old.resolve({ ...job, definitionVersion: 3 })).toThrow()
   })
+  it('requires maintenance v5 for partial protocol4 without broadening old parsers', () => {
+    const dependencies = { database: {} as PrismaClient, sourceRoot: '/fixture', archiveRoot: '/fixture', readerOptions: { entrypoint: '/fixture/reader.cjs' } }
+    const old = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies, 4))
+    const modern = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies, 5))
+    const job = { type: 'ARTWORK_DEDUP_MAINTENANCE', definitionVersion: 5,
+      payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 4 } }
+    expect(old.resolve(job)).toBeNull()
+    expect(modern.resolve(job)?.payload).toEqual(job.payload)
+    expect(() => old.resolve({ ...job, definitionVersion: 4 })).toThrow()
+  })
   it('rejects duplicate registrations and future versions without an explicit payload parser', () => {
     const registry = new ExecutorRegistry().register({
       jobType: 'SCAN',
@@ -250,10 +260,10 @@ describe('ExecutorRegistry', () => {
     expect(capabilities.find((row) => row.jobType === 'ARTWORK_DEDUP_MAINTENANCE')).toEqual({
       jobType: 'ARTWORK_DEDUP_MAINTENANCE',
       executionLane: 'BACKGROUND_WRITER',
-      definitionVersions: [1, 2, 3, 4]
+      definitionVersions: [1, 2, 3, 4, 5]
     })
     expect(capabilities).toHaveLength(39)
-    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(52)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(54)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
       [1, 2, 3, 4, 5]
     )
@@ -263,7 +273,7 @@ describe('ExecutorRegistry', () => {
     ).toEqual([1, 2])
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
     expect(capabilities.find((capability) => capability.jobType === 'ARTWORK_DEDUP_SCAN')?.definitionVersions).toEqual([
-      1, 2, 3
+      1, 2, 3, 4
     ])
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_IMPORT')?.definitionVersions).toEqual([
       1, 2

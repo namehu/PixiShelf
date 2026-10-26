@@ -34,7 +34,7 @@ const suite = url ? describe.sequential : describe.skip
 const prefix = `dedup-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-10-23T00:00:00Z'))
 const capabilities = [
-  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3] }
+  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3, 4] }
 ]
 const repository = db
   ? new PostgresQueueRepository(db as unknown as QueueDatabase, { clock, transactionTimeoutMs: 20_000 })
@@ -105,6 +105,53 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
+  it('F01 finds 100/100 shared80 despite rare unmatched pages, preserves containment and hot zero-read evidence', async () => {
+    const shared = Array.from({ length: 80 }, (_, i) => i + 1)
+    const artistId = await fixture([[...shared, ...Array.from({ length: 20 }, (_, i) => i + 101)].reverse(),
+      [...shared, ...Array.from({ length: 20 }, (_, i) => i + 151)], shared, [201, 202]])
+    const ids = (await db!.artwork.findMany({ where: { creators: { some: { artistId } } }, orderBy: { id: 'asc' } })).map(a => a.id)
+    await db!.image.updateMany({ where: { artworkId: ids[0]! }, data: { mediaType: 'ANIMATION' } })
+    await db!.image.updateMany({ where: { artworkId: ids[1]! }, data: { mediaType: 'VIDEO' } })
+    const legacy = await start(artistId, 'INCREMENTAL', false, 3)
+    await finish(legacy.jobId)
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: legacy.runId } })).toBe(0)
+    for (let n = 0; n < 2; n++) {
+      const scan = await start(artistId, 'INCREMENTAL', false, 4)
+      await finish(scan.jobId)
+      expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: scan.runId } })).toMatchObject({ readBytes: 0n, hashedMedia: 0, groupCount: 3, visualStatus: 'NOT_REQUESTED' })
+      const pair = await db!.artworkDedupVisualPair.findFirstOrThrow({ where: { runId: scan.runId } })
+      expect(pair).toMatchObject({ relationKind: 'PARTIAL', leftArtworkId: ids[0], rightArtworkId: ids[1], summary: {
+        exactCount: '80', pairedCount: '80', similarCount: '0', leftUnmatchedCount: '20', rightUnmatchedCount: '20', leftUncheckedCount: '0', rightUncheckedCount: '0' } })
+      expect(await db!.artworkDedupVisualPage.count({ where: { pairId: pair.id, kind: 'EXACT' } })).toBe(80)
+      expect(await db!.artworkDedupVisualPage.count({ where: { pairId: pair.id, kind: 'UNMATCHED' } })).toBe(40)
+      expect(await db!.artworkDedupRelation.count({ where: { runId: scan.runId } })).toBe(2)
+    }
+    const first = await db!.image.findFirstOrThrow({ where: { artworkId: ids[0]! } })
+    await fs.unlink(path.join(root, first.path))
+    const missing = await start(artistId, 'INCREMENTAL', false, 4)
+    await finish(missing.jobId)
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: missing.runId } })).toBe(0)
+  }, 60_000)
+  it('F01 preserves occurrence counts and the integer threshold for short works', async () => {
+    for (const [left, right, expected] of [
+      [[1, 1, 1, 2, 3], [1, 1, 1, 2, 4], 1],
+      [[1, 1, 1, 2, 3], [1, 1, 2, 2, 4], 0],
+      [[1, 2, 3, 4], [1, 2, 3, 5], 0],
+      [[1], [2], 0], [[1, 2], [2, 1], 0]
+    ] as const) {
+      const artistId = await fixture([[...left], [...right]])
+      const scan = await start(artistId, 'INCREMENTAL', false, 4)
+      await finish(scan.jobId)
+      expect(await db!.artworkDedupVisualPair.count({ where: { runId: scan.runId } })).toBe(expected)
+    }
+  }, 60_000)
+  it('F01 keeps partial evidence when optional visual input is unsupported', async () => {
+    const artistId = await fixture([[1, 2, 3, 4, 5], [1, 2, 3, 4, 6]])
+    const scan = await start(artistId, 'INCREMENTAL', true, 4)
+    await finish(scan.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: scan.runId } })).toMatchObject({ visualStatus: 'INCOMPLETE', groupCount: 1 })
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: scan.runId, relationKind: 'PARTIAL' } })).toBe(1)
+  }, 30_000)
   it('persists visual features, reuses hot cache without content reads, and invalidates changed originals', async () => {
     const artistId = await fixture([[1], [2]])
     const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
@@ -840,7 +887,7 @@ async function fixture(
   }
   return artist.id
 }
-async function start(artistId: number, mode: 'INCREMENTAL' | 'FULL' = 'INCREMENTAL', includeSuspectedVersions = false) {
+async function start(artistId: number, mode: 'INCREMENTAL' | 'FULL' = 'INCREMENTAL', includeSuspectedVersions = false, definitionVersion?: number) {
   const value = await db!.$transaction(async (tx) => {
     const { run } = await freezeArtworkDedupRun(tx, {
       artistId,
@@ -853,7 +900,7 @@ async function start(artistId: number, mode: 'INCREMENTAL' | 'FULL' = 'INCREMENT
         id: `${prefix}-${jobs.length}`,
         type: 'ARTWORK_DEDUP_SCAN',
         executionLane: 'BACKGROUND_WRITER',
-        definitionVersion: includeSuspectedVersions ? 3 : 1,
+        definitionVersion: definitionVersion ?? (includeSuspectedVersions ? 3 : 1),
         status: 'PENDING',
         triggerSource: 'SYSTEM',
         queuePriority: 900,

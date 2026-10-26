@@ -4,7 +4,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DuplicateOperationPreview } from '../duplicate-operation-preview'
 import { DuplicateGroupRow } from '../duplicate-group-row'
-import { containmentRelation, exactRelation, group, member, operation } from './duplicate-maintenance-fixtures'
+import {
+  containmentRelation,
+  exactRelation,
+  group,
+  member,
+  operation,
+  partialSummary
+} from './duplicate-maintenance-fixtures'
 const mocks = vi.hoisted(() => ({ get: vi.fn(), ready: vi.fn() }))
 vi.mock('@/lib/trpc', () => ({
   useTRPC: () => ({
@@ -57,6 +64,67 @@ afterEach(() => {
   client.clear()
 })
 describe('frozen direct delete preview', () => {
+  it.each([
+    [false, 1],
+    [false, 2],
+    [true, 1],
+    [true, 2]
+  ] as const)(
+    'keeps partial labels and both unmatched counts in the frozen preview (deleted: %s, copy: %s)',
+    async (deleted, copyId) => {
+      const summary = { ...partialSummary, rightFileCount: '110', rightUnmatchedCount: '30' }
+      const relation = { relationKind: 'PARTIAL' as const, visual: summary }
+      const value = operation({
+        protocolVersion: 4,
+        mode: deleted ? 'DIRECT_DELETE' : 'PREPARE',
+        status: deleted ? 'DELETED' : 'READY'
+      })
+      const copy = item(copyId, {
+        ...relation,
+        artworkId: copyId,
+        itemId: copyId,
+        title: `作品 ${copyId}`,
+        role: 'COPY',
+        status: deleted ? 'DELETED' : 'VERIFIED',
+        personalRecords: deleted ? 'REMOVED' : 'CURRENT'
+      })
+      const keeperId = copyId === 1 ? 2 : 1
+      mocks.get.mockResolvedValue({
+        operation: value,
+        preview: {
+          kind: 'ARTWORKS',
+          items: deleted
+            ? [copy]
+            : [
+                copy,
+                item(keeperId, {
+                  ...relation,
+                  artworkId: keeperId,
+                  itemId: keeperId,
+                  title: `作品 ${keeperId}`,
+                  role: 'KEEPER'
+                })
+              ],
+          nextCursor: null
+        }
+      })
+      mount(value)
+      await screen.findByText('部分重复 · 80 张相同 · 左侧 20 张未配对 · 右侧 30 张未配对')
+      expect(screen.getByText('100 / 110 项原媒体')).toBeTruthy()
+      expect(
+        screen.getByText(
+          new RegExp(
+            `保留版本未配对 ${copyId === 1 ? '30' : '20'} 项原媒体；删除版本未配对 ${copyId === 1 ? '20' : '30'} 项原媒体`
+          )
+        )
+      ).toBeTruthy()
+      expect(screen.getByText(deleted ? /已随该版本删除/ : /将随该版本删除/)).toBeTruthy()
+      expect(screen.queryByText(/已完整包含/)).toBeNull()
+      expect(screen.queryByText(/疑似版本/)).toBeNull()
+      expect(screen.queryByText(/内容相同/)).toBeNull()
+    }
+  )
+
   it.each([false, true])(
     'shows frozen containment evidence before and after deletion (deleted: %s)',
     async (deleted) => {

@@ -276,6 +276,44 @@ describe.skipIf(!db)('maintenance review durable scope and publication locks', (
       expectedReviewRevision: 2, idempotencyKey: randomUUID(), preparePurpose: 'DIRECT_DELETE', selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] } }))
     expect(await db!.artworkDedupOperationGroup.count({ where: { operationId: bulk.operation.id, relationKind: 'VISUAL' } })).toBe(0)
   })
+  it('F01 partial choices are manual, excluded from bulk and freeze one pair with either keeper and unchanged per-side SHA', async () => {
+    const f = await db!.$transaction(tx => seed(tx, 2))
+    const [left, right] = f.members[0]!
+    await db!.$transaction(async tx => {
+      const r = await relation(tx, f, left!, right!)
+      await tx.artworkDedupRelation.delete({ where: { id: r.id } })
+    })
+    const summary = { evidenceVersion: 'sha256-multiset-overlap-v1', leftArtworkId: left!, rightArtworkId: right!,
+      leftFileCount: '5', rightFileCount: '5', pairedCount: '4', exactCount: '4', similarCount: '0',
+      leftUnmatchedCount: '1', rightUnmatchedCount: '1', leftUncheckedCount: '0', rightUncheckedCount: '0' }
+    const pair = await db!.artworkDedupVisualPair.create({ data: { id: randomUUID(), runId: f.run.id, relationKind: 'PARTIAL', leftArtworkId: left!, rightArtworkId: right!, summary } })
+    await db!.artworkDedupGroup.delete({ where: { id: f.groupIds[0]! } })
+    await db!.artworkContentFingerprint.update({ where: { artworkId: right! }, data: { contentSha256: 'c'.repeat(64) } })
+    await db!.artworkDedupItem.update({ where: { runId_artworkId: { runId: f.run.id, artworkId: right! } }, data: { contentSha256: 'c'.repeat(64) } })
+    const choice = (await db!.$transaction(tx => readArtworkDedupGroupChoices(tx, { runId: f.run.id, userId: f.actor.id, groupId: pair.id })))[0]!
+    expect(choice).toMatchObject({ relationKind: 'PARTIAL', keeperArtworkId: null, saved: false, reason: 'NEEDS_CHOICE' })
+    const freeze = (ids: string[], revision: number) => db!.$transaction(tx => freezeArtworkDedupOperation(tx, { userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1,
+      expectedReviewRevision: revision, idempotencyKey: randomUUID(), preparePurpose: 'DIRECT_DELETE', selection: { kind: 'EXPLICIT', groupIds: ids } }))
+    await expect(freeze([pair.id], 0)).rejects.toMatchObject({ code: 'EXPLICIT_CHOICE_REQUIRED' })
+    for (const [i, keeperArtworkId] of [left!, right!].entries()) {
+      await db!.$transaction(tx => saveArtworkDedupReview(tx, { userId: f.actor.id, runId: f.run.id, groupId: pair.id, keeperArtworkId,
+        expectedRunVersion: 1, expectedReviewVersion: i, idempotencyKey: randomUUID() }))
+      await expect(freeze([pair.id, f.groupIds[1]!], i + 1)).rejects.toMatchObject({ code: 'VISUAL_SINGLE_PAIR_REQUIRED' })
+      const { operation } = await freeze([pair.id], i + 1)
+      expect(operation).toMatchObject({ protocolVersion: 4, selectedGroups: 1, keepers: 1, copies: 1 })
+      const group = await db!.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: operation.id } })
+      expect(group).toMatchObject({ keeperArtworkId, selectionBasis: 'SAVED', visual: summary })
+      expect(await db!.$transaction(tx => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(true)
+      if (i === 1) {
+        await db!.artworkContentFingerprint.update({ where: { artworkId: right! }, data: { contentSha256: 'd'.repeat(64) } })
+        expect(await db!.$transaction(tx => validateArtworkDedupOperationSnapshot(tx, operation.id))).toBe(false)
+        await db!.artworkContentFingerprint.update({ where: { artworkId: right! }, data: { contentSha256: 'c'.repeat(64) } })
+      }
+    }
+    const bulk = await db!.$transaction(tx => freezeArtworkDedupOperation(tx, { userId: f.actor.id, runId: f.run.id, expectedRunVersion: 1,
+      expectedReviewRevision: 2, idempotencyKey: randomUUID(), preparePurpose: 'DIRECT_DELETE', selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] } }))
+    expect(await db!.artworkDedupOperationGroup.count({ where: { operationId: bulk.operation.id, relationKind: 'PARTIAL' } })).toBe(0)
+  })
   it('freezes all recommended groups in SQL; personal reviews remain separate and input retries retain scope', async () => {
     const f = await db!.$transaction((tx) => seed(tx, 3))
     const a = f.members[0]!

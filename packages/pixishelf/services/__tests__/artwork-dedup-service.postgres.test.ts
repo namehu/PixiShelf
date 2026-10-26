@@ -37,7 +37,7 @@ async function fixture() {
   }
 }
 describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
-  beforeAll(async () => { await db!.workerInstance.create({ data: { workerId: actor, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [3] }] } }) })
+  beforeAll(async () => { await db!.workerInstance.create({ data: { workerId: actor, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [4] }] } }) })
   afterEach(async () => {
     const runs = await db!.artworkDedupRun.findMany({
       where: { requestedBy: actor },
@@ -58,10 +58,13 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
     await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }] } })
     await expect(startArtworkDedup(actor, f.input, db!)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
     expect(await db!.artworkDedupRun.count({ where: { artistId: f.artist.id } })).toBe(0)
-    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3] }] } })
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4] }] } })
     const run = await startArtworkDedup(actor, f.input, db!)
     expect(run.includesContainment).toBe(true)
-    expect(await db!.systemJob.findUnique({ where: { id: run.jobId! } })).toMatchObject({ definitionVersion: 3 })
+    expect(run.includesPartial).toBe(true)
+    expect(await db!.systemJob.findUnique({ where: { id: run.jobId! } })).toMatchObject({ definitionVersion: 4 })
+    await db!.systemJob.update({ where: { id: run.jobId! }, data: { definitionVersion: 3 } })
+    expect(await getArtworkDedupRun(actor, { runId: run.runId, expectedUserId: actor }, db!)).toMatchObject({ includesContainment: true, includesPartial: false })
     await db!.systemJob.update({ where: { id: run.jobId! }, data: { definitionVersion: 1 } })
     expect((await getArtworkDedupRun(actor, { runId: run.runId, expectedUserId: actor }, db!))?.includesContainment).toBe(false)
   })
@@ -135,6 +138,7 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
       },
       db!
     )
+    await db!.artworkDedupRun.update({ where: { id: run.runId }, data: { partialAfterArtworkId: f.artwork.id, partialAfterCandidateId: f.artwork.id } })
     await db!.artwork.create({
       data: {
         title: actor,
@@ -156,12 +160,33 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
     )
     expect(retried.runId).toBe(run.runId)
     expect(retried.executionVersion).toBe(2)
+    expect(await db!.artworkDedupRun.findUnique({ where: { id: run.runId } })).toMatchObject({ partialAfterArtworkId: 0, partialAfterCandidateId: 0 })
     expect(retried.jobId).not.toBe(run.jobId)
     expect(await db!.artworkDedupItem.count({ where: { runId: run.runId } })).toBe(1)
     expect(await listArtworkDedupGroups(actor, { runId: run.runId, expectedUserId: actor, limit: 20 }, db!)).toEqual({
       items: [],
       nextCursor: null
     })
+  })
+  it.each([['MATCH', 'CANCELLED'], ['VISUAL', 'FAILED']] as const)('rebuilds partial evidence from the start after %s / %s', async (stage, status) => {
+    const f = await fixture()
+    const second = await db!.artwork.create({ data: { title: actor, creators: { create: { artistId: f.artist.id, evidence: { create: { evidenceKey: 'manual', provenance: 'MANUAL' } } } } } })
+    const run = await startArtworkDedup(actor, { ...f.input, includeSuspectedVersions: true }, db!)
+    const pairId = `retry-partial-${randomUUID()}`
+    const [leftArtworkId, rightArtworkId] = [f.artwork.id, second.id].sort((a, b) => a - b)
+    await db!.$transaction(async (tx) => {
+      await tx.systemJob.update({ where: { id: run.jobId! }, data: { status } })
+      await tx.artworkDedupRun.update({ where: { id: run.runId }, data: { status, stage, partialAfterArtworkId: leftArtworkId, partialAfterCandidateId: rightArtworkId } })
+      const image = await tx.image.create({ data: { artworkId: leftArtworkId, path: `${actor}/retry.png` } })
+      await tx.artworkDedupVisualPair.create({ data: { id: pairId, runId: run.runId, relationKind: 'PARTIAL', leftArtworkId, rightArtworkId, summary: { evidenceVersion: 'sha256-multiset-overlap-v1', leftArtworkId, rightArtworkId, leftFileCount: '5', rightFileCount: '5', pairedCount: '4', exactCount: '4', similarCount: '0', leftUnmatchedCount: '1', rightUnmatchedCount: '1', leftUncheckedCount: '0', rightUncheckedCount: '0' }, pages: { create: { ordinal: 1, kind: 'UNMATCHED', leftImageId: image.id, leftIndex: 0 } } } })
+    })
+    const persisted = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
+    const retried = await controlArtworkDedup(actor, { runId: run.runId, expectedUserId: actor, expectedVersion: persisted.version, idempotencyKey: randomUUID(), action: 'retry' }, db!)
+    expect(retried).toMatchObject({ stage: 'STAT', includesPartial: true, executionVersion: 2 })
+    expect(await db!.artworkDedupRun.findUnique({ where: { id: run.runId } })).toMatchObject({ partialAfterArtworkId: 0, partialAfterCandidateId: 0 })
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: run.runId } })).toBe(0)
+    expect(await db!.artworkDedupVisualPage.count({ where: { pairId } })).toBe(0)
+    expect(await db!.artworkDedupItem.count({ where: { runId: run.runId } })).toBe(2)
   })
   it('rejects every generic control and SQL priority promotion without side effects', async () => {
     const f = await fixture()

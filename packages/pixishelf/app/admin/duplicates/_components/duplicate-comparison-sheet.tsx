@@ -15,7 +15,7 @@ import { DuplicateOrganization } from './duplicate-organization'
 import { DuplicatePagination } from './duplicate-pagination'
 import { DuplicateLoading, DuplicateQueryError } from './duplicate-query-feedback'
 import { duplicateBlockReason } from './duplicate-operation-state'
-import { duplicateVisualCounts } from './duplicate-relation'
+import { duplicatePairCounts } from './duplicate-relation'
 
 type Comparison = ArtworkDedupListComparisonsDto['items'][number]
 type Filter = 'ALL' | 'DIFFERENT' | 'PAIRED' | 'UNMATCHED'
@@ -89,7 +89,8 @@ export function DuplicateComparisonSheet({
   const trpc = useTRPC()
   const queryClient = useQueryClient()
   const returnFocus = useRef(typeof document !== 'undefined' ? (document.activeElement as HTMLElement) : null)
-  const [filter, setFilter] = useState<Filter>('DIFFERENT')
+  const partial = group.relationKind === 'PARTIAL'
+  const [filter, setFilter] = useState<Filter>(partial ? 'UNMATCHED' : 'DIFFERENT')
   const [side, setSide] = useState<'left' | 'right'>('left')
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
   const options = trpc.artworkDedup.listComparisons.queryOptions({
@@ -154,9 +155,9 @@ export function DuplicateComparisonSheet({
         }}
       >
         <SheetHeader className="shrink-0 gap-1 border-b px-4 py-3 pr-14">
-          <SheetTitle className="text-lg">查看差异</SheetTitle>
+          <SheetTitle className="text-lg">{partial ? '部分重复 · 图片对照' : '查看差异'}</SheetTitle>
           <SheetDescription className="text-xs">
-            {visual ? duplicateVisualCounts(visual) : '疑似版本需要逐张核对后选择保留作品。'}
+            {visual ? duplicatePairCounts({ relationKind: group.relationKind, visual }) : '请核对原件后选择保留作品。'}
           </SheetDescription>
         </SheetHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 pt-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">
@@ -174,11 +175,13 @@ export function DuplicateComparisonSheet({
               }
             }}
           >
-            <ToggleGroupItem value="DIFFERENT" className="min-h-11 px-3">
-              不同图片
-            </ToggleGroupItem>
+            {!partial ? (
+              <ToggleGroupItem value="DIFFERENT" className="min-h-11 px-3">
+                不同图片
+              </ToggleGroupItem>
+            ) : null}
             <ToggleGroupItem value="PAIRED" className="min-h-11 px-3">
-              已配对
+              {partial ? '相同图片' : '已配对'}
             </ToggleGroupItem>
             <ToggleGroupItem value="UNMATCHED" className="min-h-11 px-3">
               未配对
@@ -187,6 +190,11 @@ export function DuplicateComparisonSheet({
               全部
             </ToggleGroupItem>
           </ToggleGroup>
+          {partial ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              未配对不代表内容独有。动画和视频请打开作品核对完整原件。
+            </p>
+          ) : null}
           {comparisons.isError || members.isError ? (
             <DuplicateQueryError busy={comparisons.isFetching || members.isFetching} onRetry={refresh} />
           ) : null}
@@ -238,6 +246,9 @@ export function DuplicateComparisonSheet({
                           </a>
                           <p className="text-xs text-muted-foreground">
                             {currentSide === 'left' ? '左侧版本' : '右侧版本'} ·{' '}
+                            {partial
+                              ? `${BigInt(currentSide === 'left' ? visual.leftFileCount : visual.rightFileCount).toLocaleString('zh-CN')} 项原媒体 · `
+                              : ''}
                             {media ? `第 ${media.index + 1} 张` : pair ? '无对应图片' : '本筛选无图片'}
                           </p>
                         </div>

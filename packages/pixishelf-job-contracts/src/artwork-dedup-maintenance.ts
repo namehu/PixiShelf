@@ -22,7 +22,7 @@ export const ARTWORK_DEDUP_RELEASE_STAGE: number = 3
 /** Independent release decision; never inferred from the legacy stage or client input. */
 export const ARTWORK_DEDUP_DIRECT_DELETE_ENABLED: boolean = true
 export const ARTWORK_DEDUP_DIRECT_DELETE_PROTOCOL = 1 as const
-export const ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION = 4 as const
+export const ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION = 5 as const
 export const artworkDedupMaintenanceModeSchema = z.enum(['PREPARE', 'ISOLATE', 'RESTORE', 'PURGE', 'DIRECT_DELETE'])
 export type ArtworkDedupMaintenanceMode = z.infer<typeof artworkDedupMaintenanceModeSchema>
 export function isArtworkDedupMaintenanceModeEnabled(
@@ -63,11 +63,17 @@ export const artworkDedupMaintenanceV4PayloadSchema = z.discriminatedUnion('mode
     protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]) }).strict(),
   z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
 ])
+export const artworkDedupMaintenanceV5PayloadSchema = z.discriminatedUnion('mode', [
+  z.object({ ...maintenanceIdentity, mode: z.literal('PREPARE'), purpose: z.literal('DIRECT_DELETE'),
+    protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }).strict(),
+  z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
+])
 export const artworkDedupMaintenancePayloadSchema = z.union([
   artworkDedupMaintenanceV1PayloadSchema,
   artworkDedupMaintenanceV2PayloadSchema,
   artworkDedupMaintenanceV3PayloadSchema,
-  artworkDedupMaintenanceV4PayloadSchema
+  artworkDedupMaintenanceV4PayloadSchema,
+  artworkDedupMaintenanceV5PayloadSchema
 ])
 export type ArtworkDedupMaintenancePayload = z.infer<typeof artworkDedupMaintenancePayloadSchema>
 export const artworkDedupOperationStatusSchema = z.enum([
@@ -138,7 +144,7 @@ export const artworkDedupListComparisonsDtoSchema = z.object({
 })
 export type ArtworkDedupListComparisonsDto = z.infer<typeof artworkDedupListComparisonsDtoSchema>
 export const artworkDedupGroupDtoSchema = z.object({
-  relationKind: z.enum(['EXACT', 'CONTAINS', 'VISUAL']).default('EXACT'),
+  relationKind: z.enum(['EXACT', 'CONTAINS', 'VISUAL', 'PARTIAL']).default('EXACT'),
   visual: artworkDedupVisualSummarySchema.nullable().default(null),
   containedArtworkId: positive.nullable().default(null),
   containerArtworkId: positive.nullable().default(null),
@@ -253,7 +259,7 @@ export const artworkDedupDirectDeleteInputSchema = z
   .object({
     ...command,
     purpose: z.literal('DIRECT_DELETE'),
-    protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
     differentContentLossConfirmed: z.literal(true).optional(),
     scopeDigest: z.string().regex(/^[a-f0-9]{64}$/),
     externalWritesStopped: z.literal(true),
@@ -261,7 +267,7 @@ export const artworkDedupDirectDeleteInputSchema = z
     organizationImpactConfirmed: z.literal(true)
   })
   .strict()
-  .refine(value => value.protocolVersion !== 3 || value.differentContentLossConfirmed === true, 'Different content loss confirmation required')
+  .refine(value => ![3, 4].includes(value.protocolVersion) || value.differentContentLossConfirmed === true, 'Different content loss confirmation required')
 export type ArtworkDedupDirectDeleteInput = z.infer<typeof artworkDedupDirectDeleteInputSchema>
 export const artworkDedupDirectDeleteRetryInputSchema = z.object(command).strict()
 export const artworkDedupIsolateInputSchema = z
@@ -327,7 +333,7 @@ export const artworkDedupOperationDtoSchema = z.object({
   mode: artworkDedupMaintenanceModeSchema,
   originalAction: artworkDedupMaintenanceModeSchema,
   preparePurpose: z.enum(['ISOLATION', 'PURGE', 'DIRECT_DELETE']),
-  protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).nullable().default(null),
+  protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]).nullable().default(null),
   scopeDigest: z
     .string()
     .regex(/^[a-f0-9]{64}$/)

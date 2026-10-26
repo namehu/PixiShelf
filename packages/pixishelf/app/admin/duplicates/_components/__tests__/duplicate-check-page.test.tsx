@@ -47,6 +47,7 @@ function createRun(overrides: Partial<ArtworkDedupRunDto> = {}): ArtworkDedupRun
     stage: 'STAT',
     mode: 'INCREMENTAL',
     includesContainment: true,
+    includesPartial: true,
     visualStatus: 'NOT_REQUESTED',
     visualIncompleteReasons: [],
     frozenAt: '2026-10-23T00:00:00.000Z',
@@ -102,6 +103,18 @@ afterEach(() => {
 })
 
 describe('duplicate check page', () => {
+  it('identifies older scans that did not check partial duplicates without adding another restart button', () => {
+    render(
+      <DuplicateRunStatus
+        run={createRun({ status: 'COMPLETED', includesPartial: false, allowedControls: [] })}
+        pending={null}
+        disabled={false}
+        onControl={vi.fn()}
+      />
+    )
+    expect(screen.getByText('此记录未检查部分重复。')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '重新检查' })).toBeNull()
+  })
   it('starts the chosen mode once on rapid clicks and keeps the returned run in the URL', async () => {
     let resolveStart!: (run: ArtworkDedupRunDto) => void
     mocks.start.mockImplementation(
@@ -159,7 +172,7 @@ describe('duplicate check page', () => {
       />
     )
     expect(screen.getByText(/超过本次 10,000 张静态图片上限/)).toBeTruthy()
-    expect(screen.getByText(/精确和包含结果仍可核对/)).toBeTruthy()
+    expect(screen.getByText(/其他重复结果仍可核对/)).toBeTruthy()
     expect(screen.queryByText('没有找到重复作品')).toBeNull()
   })
   it('loads a persisted run and waits for server confirmation before exposing resume', async () => {
@@ -444,11 +457,11 @@ describe('duplicate check page', () => {
     expect(screen.getByText('2 部作品未完成检查，重新检查后再处理。')).toBeTruthy()
   })
 
-  it('labels the containment stage and keeps completed result wording broad enough for containment', () => {
+  it('labels the relation stage and keeps completed wording broad enough for all duplicate kinds', () => {
     const view = render(
       <DuplicateRunStatus run={createRun({ stage: 'MATCH' })} pending={null} disabled={false} onControl={vi.fn()} />
     )
-    expect(screen.getByText('正在检查包含关系')).toBeTruthy()
+    expect(screen.getByText('正在检查作品关系')).toBeTruthy()
     const run = createRun({ status: 'COMPLETED', allowedControls: [] })
     run.counts.groups = 2
     view.rerender(<DuplicateRunStatus run={run} pending={null} disabled={false} onControl={vi.fn()} />)

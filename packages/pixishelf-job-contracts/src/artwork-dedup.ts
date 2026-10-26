@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { jobStatusSchema } from './job-types.ts'
 
-export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 3 as const
+export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 4 as const
 export const ARTWORK_DEDUP_PRIORITY = 900 as const
 export const ARTWORK_DEDUP_DEFAULTS = Object.freeze({
   mediaPageSize: 500,
@@ -47,6 +47,7 @@ export const artworkDedupListGroupsInputSchema = z
   .strict()
 const count = z.number().int().nonnegative()
 export const artworkDedupRunDtoSchema = z.object({
+  includesPartial: z.boolean().default(false),
   includesContainment: z.boolean().default(false),
   visualStatus: z.enum(['NOT_REQUESTED', 'PENDING', 'COMPLETE', 'INCOMPLETE']).default('NOT_REQUESTED'),
   visualIncompleteReasons: z.array(z.string()).default([]),

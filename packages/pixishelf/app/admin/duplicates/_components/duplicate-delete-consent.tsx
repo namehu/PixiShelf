@@ -8,6 +8,7 @@ import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/componen
 export function DuplicateDeleteConsent({
   copyCount,
   differentContent = false,
+  partialContent = false,
   busy,
   disabled,
   secondaryAction,
@@ -15,6 +16,7 @@ export function DuplicateDeleteConsent({
 }: {
   copyCount: number
   differentContent?: boolean
+  partialContent?: boolean
   busy: boolean
   disabled: boolean
   secondaryAction?: ReactNode
@@ -62,7 +64,9 @@ export function DuplicateDeleteConsent({
                 htmlFor={`${id}-different-content`}
                 className="min-h-11 flex-1 py-2 text-sm leading-5 font-normal"
               >
-                两个版本内容不同，我确认删除方的未配对图片和整理记录也会删除
+                {partialContent
+                  ? '部分重复作品仍有未配对原件，我确认删除方的未配对原件和整理记录也会删除'
+                  : '两个版本内容不同，我确认删除方的未配对图片和整理记录也会删除'}
               </FieldLabel>
             </Field>
           ) : null}

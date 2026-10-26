@@ -5,6 +5,7 @@ import {
   buildArtworkDedupCandidates,
   buildArtworkDedupGroups,
   buildArtworkDedupRelationsPage,
+  buildArtworkDedupPartialPage,
   claimArtworkDedupReader,
   readArtworkDedupItemsPage,
   recordArtworkDedupReaderOwner,
@@ -44,7 +45,7 @@ export interface ArtworkDedupDependencies {
   sliceBytes?: bigint
   onMeasurement?: (value: ReaderMetrics & { runId: string; elapsedMs: number; transactions: number }) => void
 }
-export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 = 1): ExecutorDefinition {
+export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 | 4 = 1): ExecutorDefinition {
   const supervisor = dependencies.supervisor ?? new DedupReaderSupervisor(dependencies.readerOptions)
   return {
     jobType: 'ARTWORK_DEDUP_SCAN',
@@ -208,6 +209,7 @@ export async function executeArtworkDedup(
       }
       if (stage === 'MATCH') {
         if (!(await transaction((tx) => buildArtworkDedupRelationsPage(tx, { execution })))) continue
+        if (context.job.definitionVersion >= 4 && !(await transaction(tx => buildArtworkDedupPartialPage(tx, { execution })))) continue
         stage = initial.includeSuspectedVersions ? 'VISUAL' : 'DONE'
         await transaction(tx => updateArtworkDedupRun(tx, { execution, data: { stage } }))
       }
@@ -302,7 +304,7 @@ export async function executeArtworkDedup(
     if (failure instanceof DedupReaderError && failure.code === 'VISUAL_TIMEOUT') {
       // This error is delivered only after confirmed child exit. Preserve original
       // results, then yield: a new reader must revalidate root bindings before DONE.
-      await scope.transaction.artworkDedupVisualPair.deleteMany({ where: { runId: execution.runId } })
+      await scope.transaction.artworkDedupVisualPair.deleteMany({ where: { runId: execution.runId, relationKind: 'VISUAL' } })
       await scope.transaction.artworkDedupRun.update({ where: { id: run.id }, data: {
         stage: 'DONE', visualStatus: 'INCOMPLETE', visualIncompleteReasons: [...new Set([...run.visualIncompleteReasons, 'VISUAL_TIME_BUDGET'])]
       } })

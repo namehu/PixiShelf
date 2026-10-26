@@ -311,3 +311,5 @@ export { assertNoArtworkDedupArchiveSourceHold } from './artwork-dedup-claims'
 export * from './artwork-dedup-direct-delete'
 
 export * from './artwork-dedup-visual'
+
+export * from './artwork-dedup-partial'

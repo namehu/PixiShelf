@@ -83,10 +83,12 @@ export function createWorkerExecutorRegistry(input: {
   }
   registry.register(createArtworkDedupExecutor(dedupDependencies))
   registry.register(createArtworkDedupExecutor(dedupDependencies, 2))
+  registry.register(createArtworkDedupExecutor(dedupDependencies, 3))
   registry.register(createArtworkDedupExecutor(dedupDependencies, ARTWORK_DEDUP_SCAN_DEFINITION_VERSION))
   registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies))
   registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies, 2))
   registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies, 3))
+  registry.register(createArtworkDedupMaintenanceExecutor(dedupDependencies, 4))
   registry.register(
     createArtworkDedupMaintenanceExecutor(dedupDependencies, ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION)
   )

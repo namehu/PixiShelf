@@ -1,3 +1,4 @@
+import { assertArtworkDedupPartialSummary, assertArtworkDedupPartialFileEvidence } from './artwork-dedup-partial'
 import { assertArtworkDedupVisualSummary } from './artwork-dedup-visual'
 import { freezeArtworkDedupOperationSources } from './artwork-dedup-claims'
 import { artworkDedupDirectDeleteScopeDigest } from './artwork-dedup-direct-delete'
@@ -15,7 +16,7 @@ import {
 
 export interface ArtworkDedupGroupChoice {
   groupId: string
-  relationKind: 'EXACT' | 'CONTAINS' | 'VISUAL'
+  relationKind: 'EXACT' | 'CONTAINS' | 'VISUAL' | 'PARTIAL'
   visual: Prisma.JsonValue | null
   containedArtworkId: number | null
   containerArtworkId: number | null
@@ -192,7 +193,7 @@ export async function freezeArtworkDedupOperation(
     ? Prisma.sql`c."groupId" IN(SELECT "groupId" FROM "ArtworkDedupOperationGroup" WHERE "operationId"=${source.id} AND status='SELECTED')`
     : selection?.kind === 'EXPLICIT'
       ? Prisma.sql`c."groupId" IN(${Prisma.join(selection.groupIds)})`
-      : Prisma.sql`c."relationKind"<>'VISUAL'`
+      : Prisma.sql`c."relationKind" NOT IN ('VISUAL','PARTIAL')`
   const userExcluded =
     selection?.kind === 'ALL_RECOMMENDED' && selection.excludedGroupIds.length
       ? Prisma.sql`c."groupId" IN(${Prisma.join(selection.excludedGroupIds)})`
@@ -213,8 +214,8 @@ export async function freezeArtworkDedupOperation(
     if (bad[0]?.n) throw new ArtworkDedupOperationError('EXPLICIT_CHOICE_REQUIRED')
   }
   const selectedChoices = await tx.$queryRaw<{ total: bigint; visual: bigint; unsaved: bigint }[]>(Prisma.sql`
-    SELECT count(*) total,count(*) FILTER(WHERE "relationKind"='VISUAL') visual,
-      count(*) FILTER(WHERE "relationKind"='VISUAL' AND NOT saved) unsaved
+    SELECT count(*) total,count(*) FILTER(WHERE "relationKind" IN ('VISUAL','PARTIAL')) visual,
+      count(*) FILTER(WHERE "relationKind" IN ('VISUAL','PARTIAL') AND NOT saved) unsaved
     FROM artwork_dedup_group_choices(${run.id},${input.userId}) c WHERE ${filter}`)
   const visualChoice = selectedChoices[0]!
   if (visualChoice.visual && (visualChoice.total !== 1n || visualChoice.unsaved || (!source && selection?.kind !== 'EXPLICIT')))
@@ -252,9 +253,10 @@ export async function freezeArtworkDedupOperation(
     throw new ArtworkDedupOperationError('DIRECT_DELETE_REQUIRED')
   if (conflicts?.contains) await tx.artworkDedupOperation.update({ where: { id: operation.id }, data: { protocolVersion: 2 } })
   if (visualChoice.visual) {
-    const group = await tx.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: operation.id, relationKind: 'VISUAL' } })
-    assertArtworkDedupVisualSummary(group.visual)
-    await tx.artworkDedupOperation.update({ where: { id: operation.id }, data: { protocolVersion: 3 } })
+    const group = await tx.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: operation.id, relationKind: { in: ['VISUAL', 'PARTIAL'] } } })
+    if (group.relationKind === 'PARTIAL') assertArtworkDedupPartialSummary(group.visual)
+    else assertArtworkDedupVisualSummary(group.visual)
+    await tx.artworkDedupOperation.update({ where: { id: operation.id }, data: { protocolVersion: group.relationKind === 'PARTIAL' ? 4 : 3 } })
   }
   await tx.$executeRaw(Prisma.sql`INSERT INTO "ArtworkDedupOperationArtwork"("operationId","artworkId","groupId",role,title,"sourceLabel","artworkCreatedAt","isUrl","frozenMediaRevision","snapshotRevision","mediaEpoch","membersSignature","contentSha256","algorithmVersion","memberCount","organizationSignature","sourceSignature","creatorSignature","storagePath","storageKey","metaSource","externalId","updatedAt")
     SELECT DISTINCT ON (a.id) ${operation.id},a.id,g."groupId",CASE WHEN a.id=g."keeperArtworkId" THEN 'KEEPER' ELSE 'COPY' END,a.title,a.source::text,a."createdAt",a."createdVia"='URL_ARCHIVE',i."frozenMediaRevision",i."snapshotRevision",i."mediaEpoch",i."membersSignature",i."contentSha256",${run.algorithmVersion},i."memberCount",artwork_dedup_organization_signature(a.id),artwork_dedup_source_signature(a.id),artwork_dedup_creator_signature(a.id),a."storagePath",a."storageKey",a."metaSource",a."externalId",CURRENT_TIMESTAMP
@@ -354,6 +356,10 @@ export async function completeArtworkDedupPrepare(
   const totals = await tx.$queryRaw<{ fileCount: bigint; logicalBytes: bigint | null }[]>(
     Prisma.sql`WITH copies AS(SELECT f.* FROM "ArtworkDedupOperationFile" f JOIN "ArtworkDedupOperationArtwork" a ON a."operationId"=f."operationId" AND a."artworkId"=f."artworkId" WHERE f."operationId"=${op.id} AND a.role='COPY'), paths AS(SELECT "rootIdentity","canonicalPath",min(size) size FROM copies GROUP BY "rootIdentity","canonicalPath") SELECT (SELECT count(*) FROM "ArtworkDedupOperationFile" WHERE "operationId"=${op.id}) "fileCount",CASE WHEN EXISTS(SELECT 1 FROM copies WHERE size IS NULL OR "requiresReview" OR "blockReason" IS NOT NULL OR status<>'VERIFIED' OR "ownershipStatus"<>'VERIFIED' OR "inspectionStatus"<>'VERIFIED') OR EXISTS(SELECT 1 FROM "ArtworkDedupOperationArtwork" WHERE "operationId"=${op.id} AND role='COPY' AND "errorCode" IS NOT NULL) THEN NULL ELSE coalesce((SELECT sum(size) FROM paths),0)::bigint END "logicalBytes"`
   )
+  if (op.protocolVersion === 4 && !blocked && !itemErrors) {
+    const group = await tx.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: op.id, relationKind: 'PARTIAL' } })
+    await assertArtworkDedupPartialFileEvidence(tx, op.id, group.visual)
+  }
   return tx.artworkDedupOperation.update({
     where: { id: op.id },
     data: {

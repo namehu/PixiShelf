@@ -20,7 +20,12 @@ import {
   duplicateFileStatus
 } from './duplicate-operation-state'
 import { DuplicateReimport } from './duplicate-reimport'
-import { duplicateContainmentCounts } from './duplicate-relation'
+import {
+  duplicateContainmentCounts,
+  duplicatePairCounts,
+  duplicatePairLabel,
+  isDuplicateManualPair
+} from './duplicate-relation'
 
 const roleLabels = {
   MEDIA: '原媒体',
@@ -202,17 +207,25 @@ export function DuplicateOperationPreview({
                       <span className="block">{duplicateContainmentCounts(item)}</span>
                     </p>
                   ) : null}
-                  {item.relationKind === 'VISUAL' && item.visual && item.role === 'COPY' ? (
+                  {isDuplicateManualPair(item) && item.visual && item.role === 'COPY' ? (
                     <p className="pb-2 text-xs leading-5 text-muted-foreground">
+                      <span className="block">
+                        {duplicatePairLabel(item)} · {duplicatePairCounts(item)}
+                      </span>
+                      <span className="block">
+                        {BigInt(item.visual.leftFileCount).toLocaleString('zh-CN')} /{' '}
+                        {BigInt(item.visual.rightFileCount).toLocaleString('zh-CN')} 项原媒体
+                      </span>
                       保留版本未配对{' '}
                       {item.artworkId === item.visual.leftArtworkId
                         ? item.visual.rightUnmatchedCount
                         : item.visual.leftUnmatchedCount}{' '}
-                      张；删除版本未配对{' '}
+                      {item.relationKind === 'PARTIAL' ? '项原媒体' : '张'}；删除版本未配对{' '}
                       {item.artworkId === item.visual.leftArtworkId
                         ? item.visual.leftUnmatchedCount
                         : item.visual.rightUnmatchedCount}{' '}
-                      张，{item.status === 'DELETED' ? '已随该版本删除' : '将随该版本删除'}。
+                      {item.relationKind === 'PARTIAL' ? '项原媒体' : '张'}，
+                      {item.status === 'DELETED' ? '已随该版本删除' : '将随该版本删除'}。
                     </p>
                   ) : null}
                   {item.reasons.length > 0 ? (

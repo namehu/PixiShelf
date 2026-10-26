@@ -20,7 +20,7 @@ import {
   toggleDuplicateGroup
 } from './duplicate-selection'
 import { useDuplicateIntent } from './use-duplicate-intent'
-import { canKeepDuplicateMember } from './duplicate-relation'
+import { canKeepDuplicateMember, duplicatePairLabel, isDuplicateManualPair } from './duplicate-relation'
 
 type Draft = { group: ArtworkDedupGroupDto; keeperId: number }
 export function DuplicateReview(props: {
@@ -62,7 +62,7 @@ function AccountDuplicateReview({
   const hasSelection = summary.groups === null || summary.groups > 0
   const preparing = intent.pending.has('prepare')
   const unsettledSelection = Object.values(drafts).some(
-    (draft) => draft.group.relationKind !== 'VISUAL' && isDuplicateGroupSelected(selection, draft.group.groupId, true)
+    (draft) => !isDuplicateManualPair(draft.group) && isDuplicateGroupSelected(selection, draft.group.groupId, true)
   )
   function refreshReview(groupId: string) {
     setCursors([undefined])
@@ -120,15 +120,15 @@ function AccountDuplicateReview({
       }
     )
   }
-  function prepareSelection(visualGroup?: ArtworkDedupGroupDto) {
-    const visual = visualGroup?.relationKind === 'VISUAL' ? effectiveGroup(visualGroup) : null
-    if (visual && (!visual.savedReview || drafts[visual.groupId])) return
+  function prepareSelection(pairGroup?: ArtworkDedupGroupDto) {
+    const pair = pairGroup && isDuplicateManualPair(pairGroup) ? effectiveGroup(pairGroup) : null
+    if (pair && (!pair.savedReview || drafts[pair.groupId])) return
     if (
       !page?.allowedActions.includes('PREPARE_CLEANUP') ||
       query.isError ||
       query.isFetching ||
-      (!visual && unsettledSelection) ||
-      (!visual && summary.groups === 0) ||
+      (!pair && unsettledSelection) ||
+      (!pair && summary.groups === 0) ||
       preparing
     ) {
       return
@@ -139,7 +139,7 @@ function AccountDuplicateReview({
       protocolVersion: 1 as const,
       expectedRunVersion: page.runVersion,
       expectedReviewRevision: Math.max(page.reviewRevision, savedRevision),
-      selection: visual ? { kind: 'EXPLICIT' as const, groupIds: [visual.groupId] } : selection.input,
+      selection: pair ? { kind: 'EXPLICIT' as const, groupIds: [pair.groupId] } : selection.input,
       expectedUserId: userId
     }
     void intent.execute(
@@ -198,7 +198,7 @@ function AccountDuplicateReview({
             </Empty>
           ) : (
             page.items
-              .filter((group) => group.relationKind !== 'VISUAL')
+              .filter((group) => !isDuplicateManualPair(group))
               .map((raw) => {
                 const group = effectiveGroup(raw)
                 const keeperId =
@@ -240,12 +240,13 @@ function AccountDuplicateReview({
                 )
               })
           )}
-          {page.items.some((group) => group.relationKind === 'VISUAL') ? (
-            <section aria-label="疑似版本结果">
-              <h2 className="pt-3 text-sm font-medium">疑似版本</h2>
-              {page.items
-                .filter((group) => group.relationKind === 'VISUAL')
-                .map((raw) => {
+          {(['PARTIAL', 'VISUAL'] as const).map((relationKind) => {
+            const pairs = page.items.filter((group) => group.relationKind === relationKind)
+            const label = duplicatePairLabel({ relationKind })
+            return pairs.length > 0 ? (
+              <section key={relationKind} aria-label={`${label}结果`}>
+                <h2 className="pt-3 text-sm font-medium">{label}</h2>
+                {pairs.map((raw) => {
                   const group = effectiveGroup(raw)
                   return (
                     <DuplicateVisualRow
@@ -256,8 +257,9 @@ function AccountDuplicateReview({
                     />
                   )
                 })}
-            </section>
-          ) : null}
+              </section>
+            ) : null
+          })}
           {cursors.length > 1 || page.nextCursor ? (
             <DuplicatePagination
               page={cursors.length - 1}
@@ -325,7 +327,7 @@ function AccountDuplicateReview({
           ) : null}
         </>
       ) : null}
-      {detailGroup?.relationKind === 'VISUAL' ? (
+      {detailGroup && isDuplicateManualPair(detailGroup) ? (
         <DuplicateComparisonSheet
           key={`${userId}:${runId}:${detailGroup.groupId}`}
           userId={userId}

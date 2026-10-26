@@ -71,7 +71,10 @@ export function DuplicateOperationSheet({
         }}
       >
         <SheetHeader className="shrink-0 gap-1 border-b px-4 py-3 pr-14">
-          <SheetTitle className="text-lg">{operation?.mode === 'PREPARE' ? '确认删除' : '删除记录'}</SheetTitle>
+          <SheetTitle className="text-lg">
+            {operation?.mode === 'PREPARE' ? '确认删除' : '删除记录'}
+            {operation?.protocolVersion === 4 ? ' · 部分重复' : operation?.protocolVersion === 3 ? ' · 疑似版本' : ''}
+          </SheetTitle>
           <SheetDescription className="text-xs">
             {operation ? new Date(operation.createdAt).toLocaleString('zh-CN') : '正在读取批次'}
           </SheetDescription>
