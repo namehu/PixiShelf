@@ -53,6 +53,6 @@
 
 当前版先上线观察，下列项仅登记，等待逐批授权。详细范围、依赖和验收统一见[去重后续计划](./docs/design/artwork-deduplication/matching-extension.md)。
 
-- [ ] DEDUP-F02：视觉缓存批量化、同内容特征复用及跨次关系增量更新。
+- [ ] DEDUP-F02（剩余）：同内容特征复用及跨次关系增量更新；视觉缓存批量读写见[第一批记录](./docs/records/artwork-deduplication-cache-batch-f02-2026-10-26.md)。
 - [ ] DEDUP-F03：有界跨批检索与 50 万规模完整性能验证；依赖 F02。
 - [ ] DEDUP-F04：收集真实版本人工真值，记录漏检/误配后再安排小改进。

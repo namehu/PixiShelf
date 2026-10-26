@@ -44,46 +44,87 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
   if (counts > VISUAL_LIMITS.files) return incomplete(context, 'VISUAL_FILE_BUDGET')
   for (;;) {
     throwIfAborted(context.signal)
-    const rows = await context.transaction(async tx => {
+    const page = await context.transaction(async tx => {
       const latest = await assertArtworkDedupExecution(tx, context.execution)
-      return tx.artworkDedupMedia.findMany({ where: { runId: run.id, imageId: { gt: latest.visualAfterImageId }, item: { status: 'COMPLETE' } }, orderBy: { imageId: 'asc' }, take: 50 })
+      const rows = await tx.artworkDedupMedia.findMany({ where: { runId: run.id, imageId: { gt: latest.visualAfterImageId }, item: { status: 'COMPLETE' } }, orderBy: { imageId: 'asc' }, take: 50 })
+      const ids = rows.map(row => row.imageId)
+      const images = ids.length ? await tx.image.findMany({ where: { id: { in: ids } },
+        select: { id: true, artworkId: true, path: true, mediaType: true, contentSource: true } }) : []
+      const cached = ids.length && !context.forceRead
+        ? await tx.mediaVisualFingerprint.findMany({ where: { imageId: { in: ids } } }) : []
+      return { rows, images: new Map(images.map(image => [image.id, image])), cached: new Map(cached.map(cache => [cache.imageId, cache])) }
     })
-    if (!rows.length) break
-    for (const row of rows) {
-      const image = await context.transaction(tx => tx.image.findUnique({ where: { id: row.imageId }, select: { artworkId: true, mediaType: true } }))
-      let views: Prisma.InputJsonValue | undefined, unchecked = false, bytes = 0n
+    if (!page.rows.length) break
+    const completed: Array<{ row: Media; views: Prisma.InputJsonValue | undefined; unchecked: boolean; bytes: bigint; dirty: boolean }> = []
+    let yielding = false
+    for (const row of page.rows) {
+      throwIfAborted(context.signal)
+      const image = page.images.get(row.imageId)
+      let views: Prisma.InputJsonValue | undefined, unchecked = false, bytes = 0n, dirty = false
       const identity = visualIdentity(row)
-      if (!image || image.artworkId !== row.artworkId) throw new MediaContentFileError('FILE_CHANGED', 'Visual image changed')
+      if (!image || image.artworkId !== row.artworkId || image.path !== row.sourcePath ||
+        (image.contentSource?.revision ?? 0n) !== row.sourceRevision || image.contentSource?.writeToken ||
+        image.contentSource?.directoryStateId !== row.directoryId)
+        throw new MediaContentFileError('FILE_CHANGED', 'Visual image changed')
+      const root = row.logicalRoot === 'source-media:v1' ? context.roots.source : context.roots.archive
+      if (root.rootIdentity !== row.rootIdentity || root.logicalRoot !== row.logicalRoot)
+        throw new MediaContentFileError('ROOT_CHANGED', 'Visual root changed')
       if (image.mediaType === 'VIDEO' || image.mediaType === 'ANIMATION' || row.size > BigInt(VISUAL_LIMITS.bytes)) unchecked = true
       else {
-        const cached = context.forceRead ? null : await context.transaction(tx => tx.mediaVisualFingerprint.findUnique({ where: { imageId: row.imageId } }))
+        const cached = page.cached.get(row.imageId)
         if (cached?.identity === identity && cached.algorithmVersion === VISUAL_ALGORITHM_VERSION && cached.normalizationVersion === VISUAL_NORMALIZATION_VERSION && validVisualViews(cached.views)) views = cached.views as unknown as Prisma.InputJsonValue
         else {
-          const root = row.logicalRoot === 'source-media:v1' ? context.roots.source : context.roots.archive
-          if (root.rootIdentity !== row.rootIdentity || root.logicalRoot !== row.logicalRoot) throw new MediaContentFileError('ROOT_CHANGED', 'Visual root changed')
           try {
             const read = await context.reader.visual({ root, relativePath: row.canonicalPath, signal: context.signal })
             if (read.sha256 !== row.sha256 || !sameContentFileState(read.state, row)) throw new MediaContentFileError('FILE_CHANGED', 'Visual content changed')
-            views = read.views as unknown as Prisma.InputJsonValue; bytes = read.bytesRead
+            views = read.views as unknown as Prisma.InputJsonValue; bytes = read.bytesRead; dirty = true
           } catch (error) {
             if (error instanceof MediaContentFileError && ['INVALID_FILE', 'NOT_READABLE'].includes(error.code)) unchecked = true
             else throw error
           }
         }
       }
-      await context.transaction(async tx => {
-        await current(tx, context, row)
-        if (views) await tx.mediaVisualFingerprint.upsert({ where: { imageId: row.imageId },
-          create: { imageId: row.imageId, identity, algorithmVersion: VISUAL_ALGORITHM_VERSION, normalizationVersion: VISUAL_NORMALIZATION_VERSION, views },
-          update: { identity, algorithmVersion: VISUAL_ALGORITHM_VERSION, normalizationVersion: VISUAL_NORMALIZATION_VERSION, views } })
-        await tx.artworkDedupMedia.update({ where: { runId_artworkId_imageId: { runId: run.id, artworkId: row.artworkId, imageId: row.imageId } },
-          data: { visualStatus: unchecked ? 'UNCHECKED' : 'READY', visualViews: views ?? Prisma.DbNull } })
-        const latest = await assertArtworkDedupExecution(tx, context.execution)
-        await tx.artworkDedupRun.update({ where: { id: run.id }, data: { visualAfterImageId: row.imageId, readBytes: { increment: bytes },
-          ...(unchecked ? { visualIncompleteReasons: [...new Set([...latest.visualIncompleteReasons, 'UNSUPPORTED_MEDIA'])] } : {}) } })
-      })
-      if (context.shouldYield()) return false
+      completed.push({ row, views, unchecked, bytes, dirty })
+      if (context.shouldYield()) { yielding = true; break }
     }
+    throwIfAborted(context.signal)
+    await context.transaction(async tx => {
+      const latest = await assertArtworkDedupExecution(tx, context.execution)
+      // Lock every directory before any artwork; reuse guards only within this commit.
+      const directories = completed.map(({ row }) => directory(row))
+      if (!(await assertArtworkDedupVisualDirectories(tx, directories))) throw new MediaContentFileError('ROOT_CHANGED', 'Visual directory changed')
+      const artworks = [...new Map(completed.map(({ row }) => [row.artworkId, row])).values()].sort((a, b) => a.artworkId - b.artworkId)
+      for (const row of artworks) await current(tx, context, row, true)
+      const images = await tx.image.findMany({ where: { id: { in: completed.map(({ row }) => row.imageId) } },
+        select: { id: true, artworkId: true, path: true, mediaType: true, contentSource: true } })
+      const byId = new Map(images.map(image => [image.id, image]))
+      for (const { row } of completed) {
+        const image = byId.get(row.imageId)
+        if (!image || image.artworkId !== row.artworkId || image.path !== row.sourcePath ||
+          image.mediaType !== page.images.get(row.imageId)!.mediaType ||
+          (image.contentSource?.revision ?? 0n) !== row.sourceRevision || image.contentSource?.writeToken ||
+          image.contentSource?.directoryStateId !== row.directoryId)
+          throw new MediaContentFileError('FILE_CHANGED', 'Visual image changed')
+      }
+      throwIfAborted(context.signal)
+      const dirty = completed.filter(entry => entry.dirty)
+      if (dirty.length) await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "MediaVisualFingerprint" ("imageId",identity,"algorithmVersion","normalizationVersion",views,"updatedAt")
+        VALUES ${Prisma.join(dirty.map(({ row, views }) => Prisma.sql`(${row.imageId},${visualIdentity(row)},${VISUAL_ALGORITHM_VERSION},${VISUAL_NORMALIZATION_VERSION},${JSON.stringify(views)}::jsonb,CURRENT_TIMESTAMP)`))}
+        ON CONFLICT ("imageId") DO UPDATE SET identity=EXCLUDED.identity,"algorithmVersion"=EXCLUDED."algorithmVersion",
+          "normalizationVersion"=EXCLUDED."normalizationVersion",views=EXCLUDED.views,"updatedAt"=EXCLUDED."updatedAt"`)
+      // Task-local results and cursor are durable together, including a short yield prefix.
+      const updated = await tx.$executeRaw(Prisma.sql`
+        UPDATE "ArtworkDedupMedia" m SET "visualStatus"=v.status,"visualViews"=v.views
+        FROM (VALUES ${Prisma.join(completed.map(({ row, unchecked, views }) => Prisma.sql`(${row.artworkId}::integer,${row.imageId}::integer,${unchecked ? 'UNCHECKED' : 'READY'}::text,${views ? JSON.stringify(views) : null}::jsonb)`))}) AS v("artworkId","imageId",status,views)
+        WHERE m."runId"=${run.id} AND m."artworkId"=v."artworkId" AND m."imageId"=v."imageId"`)
+      if (updated !== completed.length) throw new MediaContentFileError('FILE_CHANGED', 'Visual media changed')
+      throwIfAborted(context.signal)
+      await tx.artworkDedupRun.update({ where: { id: run.id }, data: { visualAfterImageId: completed.at(-1)!.row.imageId,
+        readBytes: { increment: completed.reduce((total, entry) => total + entry.bytes, 0n) },
+        ...(completed.some(entry => entry.unchecked) ? { visualIncompleteReasons: [...new Set([...latest.visualIncompleteReasons, 'UNSUPPORTED_MEDIA'])] } : {}) } })
+    })
+    if (yielding || context.shouldYield()) return false
   }
   const bounded = await context.transaction(async tx => {
     await assertArtworkDedupExecution(tx, context.execution)

@@ -29,7 +29,17 @@ import { executeArtworkDedup, type ArtworkDedupDependencies } from '../executor.
 import { DedupReaderSupervisor, DedupReaderError } from '../reader.ts'
 
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
-const db = url ? new PrismaClient({ datasourceUrl: url }) : null
+const db = url ? new PrismaClient({ datasourceUrl: url, log: [{ emit: 'event', level: 'query' }] }) : null
+let queryMeasurement: { queries: number; transactions: number; cacheReads: number; cacheWrites: number } | undefined
+db?.$on('query', event => {
+  if (!queryMeasurement) return
+  queryMeasurement.queries++
+  if (event.query === 'BEGIN') queryMeasurement.transactions++
+  if (event.query.includes('MediaVisualFingerprint')) {
+    if (/^SELECT/i.test(event.query.trim())) queryMeasurement.cacheReads++
+    if (/^(INSERT|UPDATE)/i.test(event.query.trim())) queryMeasurement.cacheWrites++
+  }
+})
 const suite = url ? describe.sequential : describe.skip
 const prefix = `dedup-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-10-23T00:00:00Z'))
@@ -182,6 +192,161 @@ suite('durable detection executor with real isolated media', () => {
     await finish(mixed.jobId)
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: mixed.runId } })).toMatchObject({ visualStatus: 'INCOMPLETE', visualIncompleteReasons: ['UNSUPPORTED_MEDIA'] })
   }, 60_000)
+  it('F02 measures actual cold/hot/modify-one/full work across a 50-row page and preserves results', async () => {
+    const artistId = await visualFixture(26)
+    const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+    const measurements = []
+    const results = []
+    for (const phase of ['cold', 'hot', 'modify-one', 'full'] as const) {
+      if (phase === 'modify-one') {
+        const file = path.join(root, images.at(-1)!.path)
+        await fs.writeFile(file, await sharp(await fs.readFile(file)).png({ compressionLevel: 1 }).toBuffer())
+      }
+      const cacheBefore = new Map((await db!.mediaVisualFingerprint.findMany({ where: { imageId: { in: images.map(image => image.id) } } })).map(cache => [cache.imageId, cache.updatedAt.getTime()]))
+      const run = await start(artistId, phase === 'full' ? 'FULL' : 'INCREMENTAL', true)
+      const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+      let visualCalls = 0, visualBytes = 0n
+      supervisor.create = () => {
+        const reader = create(), visual = reader.visual.bind(reader)
+        reader.visual = async input => { visualCalls++; const result = await visual(input); visualBytes += result.bytesRead; return result }
+        return reader
+      }
+      const job = await claim(run.jobId)
+      queryMeasurement = { queries: 0, transactions: 0, cacheReads: 0, cacheWrites: 0 }
+      let metrics: Parameters<NonNullable<ArtworkDedupDependencies['onMeasurement']>>[0] | undefined
+      const measurementStarted = performance.now()
+      try {
+        await executeArtworkDedup(context(job), dependencies({ supervisor, sliceMs: 120_000, onMeasurement: value => { metrics = value } }))
+      } finally {
+        measurements.push({ phase, elapsedMs: Math.round(performance.now() - measurementStarted), ...queryMeasurement, cacheWriteRows: 0, visualCalls, visualBytes: String(visualBytes),
+          contentBytes: String(metrics?.bytesRead), contentReads: metrics?.reads, pipelineTransactions: metrics?.transactions })
+        queryMeasurement = undefined
+      }
+      const cacheAfter = await db!.mediaVisualFingerprint.findMany({ where: { imageId: { in: images.map(image => image.id) } } })
+      measurements.at(-1)!.cacheWriteRows = cacheAfter.filter(cache => cacheBefore.get(cache.imageId) !== cache.updatedAt.getTime()).length
+      const stored = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
+      expect(stored).toMatchObject({ status: 'COMPLETED', visualStatus: 'COMPLETE', visualAfterImageId: images.at(-1)!.id })
+      expect(await db!.artworkDedupMedia.count({ where: { runId: run.runId, visualStatus: 'READY' } })).toBe(52)
+      const pairs = await db!.artworkDedupVisualPair.findMany({ where: { runId: run.runId }, select: { summary: true, pages: { select: { kind: true, leftImageId: true, rightImageId: true }, orderBy: { ordinal: 'asc' } } } })
+      results.push(pairs)
+      expect(visualCalls).toBe(phase === 'hot' ? 0 : phase === 'modify-one' ? 1 : 52)
+      if (phase === 'hot') expect(stored.readBytes).toBe(0n)
+    }
+    console.info('F02_MEASUREMENT ' + JSON.stringify(measurements))
+    expect(results[0]).toEqual(results[1])
+    expect(results[1]).toEqual(results[2])
+    expect(results[2]).toEqual(results[3])
+    expect(results[0]).toHaveLength(1)
+    expect(measurements.map(m => [m.cacheReads, m.cacheWrites, m.cacheWriteRows])).toEqual([[2, 2, 52], [2, 0, 0], [2, 1, 1], [0, 2, 52]])
+  }, 120_000)
+
+  it('F02 commits only a short completed prefix on yield and resumes without decoding that prefix', async () => {
+    const artistId = await visualFixture(3)
+    const run = await start(artistId, 'INCREMENTAL', true)
+    const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+    let visualCalls = 0
+    supervisor.create = () => {
+      const reader = create(), visual = reader.visual.bind(reader)
+      reader.visual = async input => { const result = await visual(input); visualCalls++; return result }
+      return reader
+    }
+    const started = clock.now().getTime()
+    await executeArtworkDedup(context(await claim(run.jobId)), dependencies({ supervisor, now: () => started + (visualCalls >= 2 ? 10_000 : 0) }))
+    const rows = await db!.artworkDedupMedia.findMany({ where: { runId: run.runId }, orderBy: { imageId: 'asc' } })
+    expect(rows.map(row => row.visualStatus)).toEqual(['READY', 'READY', 'PENDING', 'PENDING', 'PENDING', 'PENDING'])
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ status: 'RETRY_WAIT', visualAfterImageId: rows[1]!.imageId })
+    clock.advance(13_001)
+    await executeArtworkDedup(context(await claim(run.jobId)), dependencies({ supervisor }))
+    expect(visualCalls).toBe(6)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ status: 'COMPLETED', visualStatus: 'COMPLETE' })
+  }, 30_000)
+
+  it('F02 revalidates every prefetched hot identity before publishing without a decode', async () => {
+    const artistId = await visualFixture(2)
+    await finish((await start(artistId, 'INCREMENTAL', true)).jobId)
+    const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+    const before = await db!.mediaVisualFingerprint.findMany({ where: { imageId: { in: images.map(image => image.id) } }, orderBy: { imageId: 'asc' } })
+    const run = await start(artistId, 'INCREMENTAL', true), execution = context(await claim(run.jobId))
+    const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+    let visualCalls = 0, changed = false
+    supervisor.create = () => {
+      const reader = create(), visual = reader.visual.bind(reader)
+      reader.visual = async input => { visualCalls++; return visual(input) }
+      return reader
+    }
+    const mutate = execution.mutateInTransaction.bind(execution)
+    queryMeasurement = { queries: 0, transactions: 0, cacheReads: 0, cacheWrites: 0 }
+    execution.mutateInTransaction = async <TTransaction extends QueueSqlExecutor, TResult>(operation: (tx: TTransaction) => Promise<TResult>) => {
+      const result = await mutate<TTransaction, TResult>(operation)
+      // The cache query has completed and released its transaction; mutate the last
+      // identity before the next commit, with no mock of the PostgreSQL guards.
+      if (queryMeasurement!.cacheReads && !changed) {
+        changed = true
+        await db!.image.update({ where: { id: images.at(-1)!.id }, data: { mediaType: 'ANIMATION' } })
+      }
+      return result
+    }
+    try {
+      await executeArtworkDedup(execution, dependencies({ supervisor }))
+      expect(changed).toBe(true)
+      expect(visualCalls).toBe(0)
+      expect(queryMeasurement.cacheWrites).toBe(0)
+    } finally { queryMeasurement = undefined }
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ status: 'FAILED', errorCode: 'FILE_CHANGED', visualAfterImageId: 0, readerToken: null })
+    expect(await db!.artworkDedupMedia.count({ where: { runId: run.runId, visualStatus: { not: 'PENDING' } } })).toBe(0)
+    expect(await db!.mediaVisualFingerprint.findMany({ where: { imageId: { in: images.map(image => image.id) } }, orderBy: { imageId: 'asc' } })).toEqual(before)
+  }, 30_000)
+
+  it.each(['cancel', 'lease', 'source', 'directory', 'transaction'] as const)('F02 rejects an uncommitted prefix after %s changes', async change => {
+    const artistId = await visualFixture(2)
+    const run = await start(artistId, 'INCREMENTAL', true)
+    const job = await claim(run.jobId), controller = new AbortController(), execution = context(job, controller)
+    const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+    let calls = 0, rollbackCommit = false
+    let sourceWrite: Awaited<ReturnType<typeof beginMediaContentSourceWrite>> | undefined
+    const image = await db!.image.findFirstOrThrow({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+    supervisor.create = () => {
+      const reader = create(), visual = reader.visual.bind(reader)
+      reader.visual = async input => {
+        const result = await visual(input)
+        if (++calls === 2) {
+          if (change === 'cancel') {
+            await db!.systemJob.update({ where: { id: job.id }, data: { status: 'CANCELLING', cancelRequestedAt: clock.now() } })
+            await db!.artworkDedupRun.update({ where: { id: run.runId }, data: { status: 'CANCELLING' } })
+            controller.abort(new Error('Fixture cancellation'))
+          }
+          if (change === 'lease') await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: randomUUID() } })
+          if (change === 'source') sourceWrite = await db!.$transaction(tx => beginMediaContentSourceWrite(tx, { artworkIds: [image.artworkId!], imageIds: [image.id], writeToken: randomUUID(), now: clock.now() }))
+          if (change === 'directory') {
+            const source = await db!.mediaContentSource.findUniqueOrThrow({ where: { imageId: image.id } })
+            await db!.mediaContentDirectoryState.update({ where: { id: source.directoryStateId! }, data: { generation: { increment: 1 } } })
+          }
+          if (change === 'transaction') rollbackCommit = true
+        }
+        return result
+      }
+      return reader
+    }
+    const mutate = execution.mutateInTransaction.bind(execution)
+    execution.mutateInTransaction = <TTransaction extends QueueSqlExecutor, TResult>(operation: (tx: TTransaction) => Promise<TResult>) =>
+      mutate<TTransaction, TResult>(async tx => { const result = await operation(tx); if (rollbackCommit) throw new Error('Fixture rollback'); return result })
+    try {
+      const pending = executeArtworkDedup(execution, dependencies({ supervisor }))
+      if (change === 'lease') await expect(pending).rejects.toThrow()
+      else await pending
+      expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ visualAfterImageId: 0, readerToken: null })
+      if (change === 'cancel') expect((await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).status).toBe('CANCELLED')
+      if (change === 'source' || change === 'directory') expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ status: 'FAILED', errorCode: change === 'source' ? 'FILE_CHANGED' : 'ROOT_CHANGED' })
+      expect(await db!.artworkDedupMedia.count({ where: { runId: run.runId, visualStatus: { not: 'PENDING' } } })).toBe(0)
+      expect(await db!.mediaVisualFingerprint.count({ where: { image: { artwork: { creators: { some: { artistId } } } } } })).toBe(0)
+    } finally {
+      if (sourceWrite) await db!.$transaction(tx => finishMediaContentSourceWrite(tx, { token: sourceWrite!, outcome: 'verified-rollback' }))
+      if (change === 'lease') {
+        await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: job.leaseToken } })
+        await repository!.fail({ jobId: job.id, workerId: job.workerId, executionToken: job.executionToken, attempt: job.attempt, errorCode: 'INTERNAL_ERROR', error: 'Fixture complete' })
+      }
+    }
+  }, 30_000)
   it('keeps exact results after a visual deadline and confirms roots with a new reader before completion', async () => {
     const artistId = await fixture([[4], [4]])
     const run = await start(artistId, 'INCREMENTAL', true)
@@ -886,6 +1051,17 @@ async function fixture(
     }
   }
   return artist.id
+}
+async function visualFixture(count: number) {
+  const artistId = await fixture([Array<number>(count).fill(1), Array<number>(count).fill(2)])
+  const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+  for (const [index, image] of images.entries()) {
+    const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71 + (index % count) * 3) % 255))
+    const original = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
+    const content = index < images.length - 1 ? original : await sharp(original).extend({ top: 20, bottom: 20, left: 20, right: 20, background: 'white' }).png().toBuffer()
+    await fs.writeFile(path.join(root, image.path), content)
+  }
+  return artistId
 }
 async function start(artistId: number, mode: 'INCREMENTAL' | 'FULL' = 'INCREMENTAL', includeSuspectedVersions = false, definitionVersion?: number) {
   const value = await db!.$transaction(async (tx) => {
