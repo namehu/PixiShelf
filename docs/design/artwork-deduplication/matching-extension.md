@@ -14,7 +14,7 @@ sources:
 
 用户决定先发布已验收版本观察实际效果，未完成项留待后续逐批推进。本页替代原扩展草案的执行清单；原方案和实验过程保留在 Git 历史及下方验收记录中。登记待办不代表授权立即开始下一批。
 
-当前行为唯一依据为[功能规格](../../features/artwork-deduplication.md)，最小疑似版本接口见[闭环契约](./suspected-versions-contract.md)。前一版发布收口见 `v0.54.10` 的发布记录。F01 在独立分支实现及验收，尚未合回主目录或发布；镜像发布与线上部署须分别登记，不以本地验收代替上线成功。
+当前行为唯一依据为[功能规格](../../features/artwork-deduplication.md)，最小疑似版本接口见[闭环契约](./suspected-versions-contract.md)。前一版发布收口见 `v0.54.10` 的发布记录。F01 已验收并合回主目录，开发升级见[F01 本地升级记录](../../records/operations/artwork-deduplication-f01-local-upgrade-2026-10-26.md)；镜像发布与线上部署须分别登记，不以本地验收代替上线成功。
 
 ## 本版交付与明确缺口
 
@@ -77,7 +77,7 @@ sources:
 
 - 下一次推进时从根 [TODO](../../../TODO.md) 选择一个编号，先固定该批契约，再实施；遇到线上安全缺陷优先修复。
 - 复杂匹配、缓存一致性及删除证据逻辑：GPT-6 Astra / high；普通实现、文档及独立代码审查：GPT-6.1 Sol / xhigh；浏览器：GPT-6.1 Sol / medium。
-- 实现者不自审。只跑受影响的测试与必要构建；浏览器验收覆盖本批改变的流程，不反复运行全量 App 验证。每批交付后暂停。
+- 实现者不自审。只跑受影响的测试与必要构建；浏览器验收以桌面覆盖本批改变的流程，终端范围遵循功能规格，不反复运行全量 App 验证。每批交付后暂停。
 - 沿用现有 App、数据库和三条 Worker lane，不增加向量数据库、GPU 服务、恢复系统或新管理向导。
 
 证据：[完整包含验收](../../records/artwork-deduplication-containment-batch1-2026-10-25.md)、[视觉初次实验](../../records/artwork-deduplication-visual-pilot-2026-10-25.md)、[白边/裁剪实验](../../records/artwork-deduplication-visual-refinement-2026-10-25.md)、[疑似版本闭环验收](../../records/artwork-deduplication-suspected-versions-2026-10-25.md)、[本版收口与发布准备](../../records/operations/artwork-deduplication-release-2026-10-25.md)。
