@@ -44,7 +44,6 @@
 
 ## 性能与接口技术债
 
-- [ ] 修复 `app/api/jobs/events/route.ts` 导出测试辅助函数导致的 Next 路由类型检查错误；在 F03 类型检查中复现，基线已存在，不与去重分批检索混改。
 - [ ] 排查批处理 artist、tag、image、raw metadata 数据库写入热点；记录是否值得改及证据，避免重复调查。
 - [ ] 逐对整理 API response 类型：Webhook GET 状态 DTO 先规划外部版本兼容，上传/分块、替换、scheduler 保留现有消费者对 `{ error }` 的依赖。目标是明确类型和稳定 `message`，不顺带改变接口行为。
 

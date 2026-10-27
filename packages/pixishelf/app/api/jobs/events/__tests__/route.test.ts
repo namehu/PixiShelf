@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({ requireAdminRequest: vi.fn() }))
 vi.mock('@/services/background-task/request-auth', () => ({ requireAdminRequest: mocks.requireAdminRequest }))
 
-import { GET as getJobEvents, createJobEventStreamResponse } from '../route'
+import { GET as getJobEvents } from '../route'
+import { createJobEventStreamResponse } from '../stream-response'
 
 describe('job event SSE response', () => {
   beforeEach(() => mocks.requireAdminRequest.mockResolvedValue({ userId: 'admin-1' }))
