@@ -2,7 +2,7 @@ import { setImmediate } from 'node:timers/promises'
 import { readVisualRelationReuse, visualRelationSignature } from './relation-cache.ts'
 import {
   Prisma, assertArtworkDedupExecution, assertArtworkDedupItemCurrent, assertArtworkContentSnapshot,
-  assertArtworkDedupVisualDirectories, type MediaContentDirectorySnapshot
+  assertArtworkDedupVisualDirectories, readArtworkDedupSharedVisualFingerprints, type MediaContentDirectorySnapshot
 } from '@pixishelf/db'
 import { MediaContentFileError } from '../media-content/roots.ts'
 import { sameContentFileState } from '../media-content/file-reader.ts'
@@ -13,6 +13,14 @@ import {
   validVisualViews, visualIdentity, matchVisualPages, type VisualPage
 } from './visual-matching.ts'
 type Media = Prisma.ArtworkDedupMediaGetPayload<Record<string, never>>
+function contentKey(row: { sha256: string | null; size: bigint }) {
+  return row.sha256 && /^[a-f0-9]{64}$/.test(row.sha256)
+    ? `${row.sha256}:${row.size}:${VISUAL_ALGORITHM_VERSION}:${VISUAL_NORMALIZATION_VERSION}` : undefined
+}
+function ownCacheValid(row: Media, cache: Prisma.MediaVisualFingerprintGetPayload<Record<string, never>> | undefined) {
+  return cache?.identity === visualIdentity(row) && cache.algorithmVersion === VISUAL_ALGORITHM_VERSION &&
+    cache.normalizationVersion === VISUAL_NORMALIZATION_VERSION && validVisualViews(cache.views)
+}
 function directory(row: Media): MediaContentDirectorySnapshot {
   if (row.logicalRoot !== 'source-media:v1' && row.logicalRoot !== 'archive-media:v1') throw new MediaContentFileError('ROOT_CHANGED', 'Visual root changed')
   return { logicalRoot: row.logicalRoot, rootIdentity: row.rootIdentity, relativeDirectory: row.relativeDirectory, directoryId: row.directoryId, generation: row.directoryGeneration }
@@ -53,7 +61,17 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
         select: { id: true, artworkId: true, path: true, mediaType: true, contentSource: true } }) : []
       const cached = ids.length && !context.forceRead
         ? await tx.mediaVisualFingerprint.findMany({ where: { imageId: { in: ids } } }) : []
-      return { rows, images: new Map(images.map(image => [image.id, image])), cached: new Map(cached.map(cache => [cache.imageId, cache])) }
+      const byId = new Map(cached.map(cache => [cache.imageId, cache]))
+      const shared = new Map<string, Prisma.InputJsonValue>()
+      if (!context.forceRead) {
+        const missing = new Map(rows.filter(row => !ownCacheValid(row, byId.get(row.imageId)) && contentKey(row))
+          .map(row => [contentKey(row)!, { contentSha256: row.sha256!, contentSize: row.size,
+            algorithmVersion: VISUAL_ALGORITHM_VERSION, normalizationVersion: VISUAL_NORMALIZATION_VERSION }]))
+        for (const cache of await readArtworkDedupSharedVisualFingerprints(tx, [...missing.values()])) {
+          if (validVisualViews(cache.views)) shared.set(contentKey({ sha256: cache.contentSha256, size: cache.contentSize })!, cache.views as unknown as Prisma.InputJsonValue)
+        }
+      }
+      return { rows, images: new Map(images.map(image => [image.id, image])), cached: byId, shared }
     })
     if (!page.rows.length) break
     const completed: Array<{ row: Media; views: Prisma.InputJsonValue | undefined; unchecked: boolean; bytes: bigint; dirty: boolean }> = []
@@ -62,7 +80,6 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
       throwIfAborted(context.signal)
       const image = page.images.get(row.imageId)
       let views: Prisma.InputJsonValue | undefined, unchecked = false, bytes = 0n, dirty = false
-      const identity = visualIdentity(row)
       if (!image || image.artworkId !== row.artworkId || image.path !== row.sourcePath ||
         (image.contentSource?.revision ?? 0n) !== row.sourceRevision || image.contentSource?.writeToken ||
         image.contentSource?.directoryStateId !== row.directoryId)
@@ -73,12 +90,15 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
       if (image.mediaType === 'VIDEO' || image.mediaType === 'ANIMATION' || row.size > BigInt(VISUAL_LIMITS.bytes)) unchecked = true
       else {
         const cached = page.cached.get(row.imageId)
-        if (cached?.identity === identity && cached.algorithmVersion === VISUAL_ALGORITHM_VERSION && cached.normalizationVersion === VISUAL_NORMALIZATION_VERSION && validVisualViews(cached.views)) views = cached.views as unknown as Prisma.InputJsonValue
+        const key = context.forceRead ? undefined : contentKey(row)
+        if (ownCacheValid(row, cached)) views = cached!.views as unknown as Prisma.InputJsonValue
+        else if (key && page.shared.has(key)) { views = page.shared.get(key)!; dirty = true }
         else {
           try {
             const read = await context.reader.visual({ root, relativePath: row.canonicalPath, signal: context.signal })
             if (read.sha256 !== row.sha256 || !sameContentFileState(read.state, row)) throw new MediaContentFileError('FILE_CHANGED', 'Visual content changed')
             views = read.views as unknown as Prisma.InputJsonValue; bytes = read.bytesRead; dirty = true
+            if (key && validVisualViews(read.views)) page.shared.set(key, views)
           } catch (error) {
             if (error instanceof MediaContentFileError && ['INVALID_FILE', 'NOT_READABLE'].includes(error.code)) unchecked = true
             else throw error
@@ -110,10 +130,11 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
       throwIfAborted(context.signal)
       const dirty = completed.filter(entry => entry.dirty)
       if (dirty.length) await tx.$executeRaw(Prisma.sql`
-        INSERT INTO "MediaVisualFingerprint" ("imageId",identity,"algorithmVersion","normalizationVersion",views,"updatedAt")
-        VALUES ${Prisma.join(dirty.map(({ row, views }) => Prisma.sql`(${row.imageId},${visualIdentity(row)},${VISUAL_ALGORITHM_VERSION},${VISUAL_NORMALIZATION_VERSION},${JSON.stringify(views)}::jsonb,CURRENT_TIMESTAMP)`))}
+        INSERT INTO "MediaVisualFingerprint" ("imageId",identity,"algorithmVersion","normalizationVersion","contentSha256","contentSize",views,"updatedAt")
+        VALUES ${Prisma.join(dirty.map(({ row, views }) => Prisma.sql`(${row.imageId},${visualIdentity(row)},${VISUAL_ALGORITHM_VERSION},${VISUAL_NORMALIZATION_VERSION},${row.sha256},${row.size},${JSON.stringify(views)}::jsonb,CURRENT_TIMESTAMP)`))}
         ON CONFLICT ("imageId") DO UPDATE SET identity=EXCLUDED.identity,"algorithmVersion"=EXCLUDED."algorithmVersion",
-          "normalizationVersion"=EXCLUDED."normalizationVersion",views=EXCLUDED.views,"updatedAt"=EXCLUDED."updatedAt"`)
+          "normalizationVersion"=EXCLUDED."normalizationVersion","contentSha256"=EXCLUDED."contentSha256","contentSize"=EXCLUDED."contentSize",
+          views=EXCLUDED.views,"updatedAt"=EXCLUDED."updatedAt"`)
       // Task-local results and cursor are durable together, including a short yield prefix.
       const updated = await tx.$executeRaw(Prisma.sql`
         UPDATE "ArtworkDedupMedia" m SET "visualStatus"=v.status,"visualViews"=v.views

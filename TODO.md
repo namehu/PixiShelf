@@ -53,6 +53,5 @@
 
 当前版先上线观察，下列项仅登记，等待逐批授权。详细范围、依赖和验收统一见[去重后续计划](./docs/design/artwork-deduplication/matching-extension.md)。
 
-- [ ] DEDUP-F02（剩余）：同 SHA 跨媒体特征复用；批量缓存读写见[第一批记录](./docs/records/artwork-deduplication-cache-batch-f02-2026-10-26.md)，跨次关系复用与交付状态见[第二批记录](./docs/records/artwork-deduplication-relations-f02-2026-10-26.md)。
-- [ ] DEDUP-F03：有界跨批检索与 50 万规模完整性能验证；依赖 F02。
+- [ ] DEDUP-F03：有界跨批检索与 50 万规模完整性能验证；F02 三批缓存优化已实现，最后一批交付／部署边界见[验收记录](./docs/records/artwork-deduplication-shared-visual-cache-f02-2026-10-27.md)。
 - [ ] DEDUP-F04：收集真实版本人工真值，记录漏检/误配后再安排小改进。

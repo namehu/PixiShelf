@@ -59,6 +59,7 @@ const readerOptions = {
 let root: string
 const artists: number[] = []
 const artworks: number[] = []
+const mediaIds: number[] = []
 const runs: string[] = []
 const jobs: string[] = []
 const externalMediaRoots: string[] = []
@@ -108,6 +109,7 @@ afterAll(async () => {
   ).map((r) => r.rootIdentity)
   await db.artworkDedupRun.deleteMany({ where: { id: { in: runs } } })
   await db.systemJob.deleteMany({ where: { id: { in: jobs } } })
+  await db.image.deleteMany({ where: { OR: [{ id: { in: mediaIds } }, { artworkId: { in: artworks } }] } })
   await db.artwork.deleteMany({ where: { id: { in: artworks } } })
   await db.artist.deleteMany({ where: { id: { in: artists } } })
   await db.mediaContentDirectoryState.deleteMany({ where: { rootIdentity: { in: roots } } })
@@ -117,6 +119,149 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
+  it('F02 shared content processes 120 of 200 originals cold, zero hot, and all 200 in FULL', async () => {
+    const values = [Array.from({ length: 100 }, (_, i) => i), Array.from({ length: 100 }, (_, i) => i < 80 ? i : i + 20)]
+    const { artistId, images, contents } = await sharedVisualFixture(values)
+    const measurements = [], relations = []
+    for (const phase of ['cold', 'hot', 'full', 'modify-one', 'new-copy'] as const) {
+      if (phase === 'modify-one') await fs.writeFile(path.join(root, images[99]!.path), await sharp(contents.get(99)!).withMetadata({ exif: { IFD0: { ImageDescription: randomUUID() } } }).png({ compressionLevel: 1 }).toBuffer())
+      if (phase === 'new-copy') {
+        const other = await fixture([[1, 1]])
+        const copied = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId: other } } } } })
+        for (const [i, image] of copied.entries()) await fs.writeFile(path.join(root, image.path), contents.get(i)!)
+        await db!.artworkArtist.updateMany({ where: { artistId: other }, data: { artistId } })
+      }
+      const measured = await measureSharedScan(artistId, phase === 'full' ? 'FULL' : 'INCREMENTAL')
+      measurements.push({ phase, ...measured.metrics, statMedia: measured.run.statMedia, hashedMedia: measured.run.hashedMedia })
+      expect(measured.metrics.visualCalls).toBe(phase === 'cold' ? 120 : phase === 'full' ? 200 : phase === 'modify-one' ? 1 : 0)
+      expect(measured.run.hashedMedia).toBe(phase === 'cold' || phase === 'full' ? 200 : phase === 'modify-one' ? 1 : phase === 'new-copy' ? 2 : 0)
+      expect(measured.run.statMedia).toBeGreaterThanOrEqual(phase === 'new-copy' ? 202 : 200)
+      expect(measured.metrics.contentReads).toBe(measured.run.hashedMedia)
+      expect(measured.run.readBytes).toBe(BigInt(measured.metrics.visualBytes) + BigInt(measured.metrics.contentBytes))
+      const rows = await db!.artworkDedupMedia.findMany({ where: { runId: measured.run.id } })
+      expect(rows.every(row => row.visualStatus === 'READY')).toBe(true)
+      const cache = await db!.mediaVisualFingerprint.findMany({ where: { imageId: { in: rows.map(row => row.imageId) } } })
+      expect(cache).toHaveLength(rows.length)
+      for (const row of rows) expect(cache.find(entry => entry.imageId === row.imageId)).toMatchObject({ contentSha256: row.sha256, contentSize: row.size })
+      if (phase === 'cold' || phase === 'hot' || phase === 'full') relations.push(await db!.artworkDedupVisualPair.findMany({ where: { runId: measured.run.id }, select: { summary: true, pages: { select: { kind: true, leftImageId: true, rightImageId: true }, orderBy: { ordinal: 'asc' } } } }))
+    }
+    expect(relations[0]).toHaveLength(1)
+    expect(relations[1]).toEqual(relations[0]); expect(relations[2]).toEqual(relations[0])
+    expect(measurements.slice(0, 3).map(m => [m.cacheReads, m.cacheWrites])).toEqual([[8, 4], [4, 0], [0, 4]])
+    console.info('F02_SHARED_CONTENT ' + JSON.stringify(measurements))
+  }, 120_000)
+
+  it('F02 shared content reuses same-page views and a committed prefix after reader restart', async () => {
+    const { artistId, images } = await sharedVisualFixture([[0, 0], [0, 1]])
+    const created = await start(artistId, 'INCREMENTAL', true, 4)
+    const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+    let visualCalls = 0
+    supervisor.create = () => {
+      const reader = create(), visual = reader.visual.bind(reader)
+      reader.visual = async input => { visualCalls++; return visual(input) }
+      return reader
+    }
+    const started = clock.now().getTime()
+    await executeArtworkDedup(context(await claim(created.jobId)), dependencies({ supervisor, now: () => started + (visualCalls ? 10_000 : 0) }))
+    expect(visualCalls).toBe(1)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: created.runId } })).toMatchObject({ status: 'RETRY_WAIT', visualAfterImageId: images[0]!.id })
+    clock.advance(13_001)
+    const restarted = await measureSharedScan(artistId, 'INCREMENTAL', created)
+    expect(restarted.metrics.visualCalls).toBe(1)
+    const target = await db!.mediaVisualFingerprint.findUniqueOrThrow({ where: { imageId: images[1]!.id } })
+    const donor = await db!.mediaVisualFingerprint.findUniqueOrThrow({ where: { imageId: images[0]!.id } })
+    expect(target.views).toEqual(donor.views)
+    expect(target.identity).not.toBe(donor.identity)
+    expect(target.imageId).not.toBe(donor.imageId)
+    await db!.image.delete({ where: { id: images[0]!.id } })
+    expect(await db!.mediaVisualFingerprint.findUniqueOrThrow({ where: { imageId: images[1]!.id } })).toEqual(target)
+    expect((await measureSharedScan(artistId)).metrics.visualCalls).toBe(0)
+  }, 30_000)
+
+  it.each(['algorithm', 'normalization', 'size', 'invalid', 'legacy', 'deleted'] as const)('F02 shared content treats %s donor as a miss and preserves legacy own hits', async mismatch => {
+    const { artistId, images, contents } = await sharedVisualFixture([[0]])
+    await measureSharedScan(artistId)
+    const donor = images[0]!
+    if (mismatch === 'deleted') await db!.image.delete({ where: { id: donor.id } })
+    else await db!.mediaVisualFingerprint.update({ where: { imageId: donor.id }, data:
+      mismatch === 'algorithm' ? { algorithmVersion: 'old' } : mismatch === 'normalization' ? { normalizationVersion: 'old' } :
+      mismatch === 'size' ? { contentSize: 1n } : mismatch === 'invalid' ? { views: [{ broken: true }] } : { contentSha256: null, contentSize: null } })
+    if (mismatch !== 'deleted') {
+      const own = await db!.mediaVisualFingerprint.findUniqueOrThrow({ where: { imageId: donor.id } })
+      if (mismatch === 'legacy') {
+        expect((await measureSharedScan(artistId)).metrics.visualCalls).toBe(0)
+        expect(await db!.mediaVisualFingerprint.findUniqueOrThrow({ where: { imageId: donor.id } })).toEqual(own)
+      }
+      // Donor remains a cache source but is outside the new run's artist scope.
+      await db!.artworkArtistEvidence.updateMany({ where: { membership: { artworkId: donor.artworkId! } }, data: { present: false } })
+    }
+    const other = await fixture([[1, 1]])
+    const copies = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId: other } } } } })
+    for (const image of copies) await fs.writeFile(path.join(root, image.path), contents.get(0)!)
+    const measured = await measureSharedScan(other)
+    expect(measured.metrics.visualCalls).toBe(1)
+    expect(measured.run.hashedMedia).toBe(2)
+    expect(await db!.mediaVisualFingerprint.count({ where: { imageId: { in: copies.map(image => image.id) } } })).toBe(2)
+  }, 30_000)
+
+  it.each(['cancel', 'lease', 'source', 'directory', 'transaction'] as const)('F02 shared content rolls back copied targets after %s changes', async change => {
+    const donor = await sharedVisualFixture([[0]])
+    await measureSharedScan(donor.artistId)
+    const artistId = await fixture([[1, 1]])
+    const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+    for (const image of images) await fs.writeFile(path.join(root, image.path), donor.contents.get(0)!)
+    const run = await start(artistId, 'INCREMENTAL', true, 4), job = await claim(run.jobId)
+    const controller = new AbortController(), execution = context(job, controller)
+    const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+    let visualCalls = 0, changed = false, rollbackCommit = false
+    let sourceWrite: Awaited<ReturnType<typeof beginMediaContentSourceWrite>> | undefined
+    supervisor.create = () => {
+      const reader = create(), visual = reader.visual.bind(reader)
+      reader.visual = async input => { visualCalls++; return visual(input) }
+      return reader
+    }
+    const mutate = execution.mutateInTransaction.bind(execution)
+    queryMeasurement = { queries: 0, transactions: 0, cacheReads: 0, cacheWrites: 0 }
+    execution.mutateInTransaction = async <TTransaction extends QueueSqlExecutor, TResult>(operation: (tx: TTransaction) => Promise<TResult>) => {
+      const result = await mutate<TTransaction, TResult>(async tx => { const result = await operation(tx); if (rollbackCommit) throw new Error('Fixture shared commit rollback'); return result })
+      // Shared donor JSON has been loaded. The next transaction is still required
+      // to authorize each target, even though no target needs a visual read.
+      if (!changed && queryMeasurement!.cacheReads >= 2) {
+        changed = true
+        if (change === 'cancel') {
+          await db!.systemJob.update({ where: { id: job.id }, data: { status: 'CANCELLING', cancelRequestedAt: clock.now() } })
+          await db!.artworkDedupRun.update({ where: { id: run.runId }, data: { status: 'CANCELLING' } })
+          controller.abort(new Error('Fixture shared cancellation'))
+        }
+        if (change === 'lease') await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: randomUUID() } })
+        if (change === 'source') sourceWrite = await db!.$transaction(tx => beginMediaContentSourceWrite(tx, { artworkIds: [images[0]!.artworkId!], imageIds: [images[0]!.id], writeToken: randomUUID(), now: clock.now() }))
+        if (change === 'directory') {
+          const source = await db!.mediaContentSource.findUniqueOrThrow({ where: { imageId: images[0]!.id } })
+          await db!.mediaContentDirectoryState.update({ where: { id: source.directoryStateId! }, data: { generation: { increment: 1 } } })
+        }
+        if (change === 'transaction') rollbackCommit = true
+      }
+      return result
+    }
+    try {
+      const pending = executeArtworkDedup(execution, dependencies({ supervisor }))
+      if (change === 'lease') await expect(pending).rejects.toThrow()
+      else await pending
+      expect(changed).toBe(true)
+      expect(visualCalls).toBe(0)
+      expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ visualAfterImageId: 0, readerToken: null })
+      expect(await db!.artworkDedupMedia.count({ where: { runId: run.runId, visualStatus: { not: 'PENDING' } } })).toBe(0)
+      expect(await db!.mediaVisualFingerprint.count({ where: { imageId: { in: images.map(image => image.id) } } })).toBe(0)
+    } finally {
+      queryMeasurement = undefined
+      if (sourceWrite) await db!.$transaction(tx => finishMediaContentSourceWrite(tx, { token: sourceWrite!, outcome: 'verified-rollback' }))
+      if (change === 'lease') {
+        await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: job.leaseToken } })
+        await repository!.fail({ jobId: job.id, workerId: job.workerId, executionToken: job.executionToken, attempt: job.attempt, errorCode: 'INTERNAL_ERROR', error: 'Fixture complete' })
+      }
+    }
+  }, 30_000)
+
   it('F02 relation byte cache reuses negatives, updates affected pairs and reprojects current order without reviews', async () => {
     const artistId = await fixture([[1, 2, 3, 4, 5], [1, 2, 3, 4, 6], [1, 2, 3, 4, 6], [1, 2, 3, 4, 6, 7], [10, 11, 12, 13, 14]])
     const ids = (await db!.artwork.findMany({ where: { creators: { some: { artistId } } }, orderBy: { id: 'asc' } })).map(a => a.id)
@@ -180,13 +325,13 @@ suite('durable detection executor with real isolated media', () => {
     const artistId = await fixture([[1], [2], [3]])
     const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
     const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71) % 255))
-    const original = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
-    for (const [i, image] of images.entries()) await fs.writeFile(path.join(root, image.path), i === 0 ? original : await sharp(original).extend({ top: i * 10, bottom: i * 10, left: i * 10, right: i * 10, background: 'white' }).png().toBuffer())
+    const original = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).withMetadata({ exif: { IFD0: { ImageDescription: randomUUID() } } }).png().toBuffer()
+    for (const [i, image] of images.entries()) await fs.writeFile(path.join(root, image.path), i === 0 ? original : await sharp(original).extend({ top: i * 10, bottom: i * 10, left: i * 10, right: i * 10, background: 'white' }).withMetadata().png().toBuffer())
     const measurements = [], summaries = []
     for (const phase of ['cold', 'hot', 'modify-one', 'full'] as const) {
       if (phase === 'modify-one') {
         const file = path.join(root, images[0]!.path)
-        await fs.writeFile(file, await sharp(await fs.readFile(file)).png({ compressionLevel: 1 }).toBuffer())
+        await fs.writeFile(file, await sharp(await fs.readFile(file)).withMetadata().png({ compressionLevel: 1 }).toBuffer())
       }
       const run = await start(artistId, phase === 'full' ? 'FULL' : 'INCREMENTAL', true, 4)
       const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
@@ -385,7 +530,7 @@ suite('durable detection executor with real isolated media', () => {
     for (const phase of ['cold', 'hot', 'modify-one', 'full'] as const) {
       if (phase === 'modify-one') {
         const file = path.join(root, images.at(-1)!.path)
-        await fs.writeFile(file, await sharp(await fs.readFile(file)).png({ compressionLevel: 1 }).toBuffer())
+        await fs.writeFile(file, await sharp(await fs.readFile(file)).withMetadata().png({ compressionLevel: 1 }).toBuffer())
       }
       const cacheBefore = new Map((await db!.mediaVisualFingerprint.findMany({ where: { imageId: { in: images.map(image => image.id) } } })).map(cache => [cache.imageId, cache.updatedAt.getTime()]))
       const run = await start(artistId, phase === 'full' ? 'FULL' : 'INCREMENTAL', true)
@@ -404,7 +549,7 @@ suite('durable detection executor with real isolated media', () => {
         await executeArtworkDedup(context(job), dependencies({ supervisor, sliceMs: 120_000, onMeasurement: value => { metrics = value } }))
       } finally {
         measurements.push({ phase, elapsedMs: Math.round(performance.now() - measurementStarted), ...queryMeasurement, cacheWriteRows: 0, visualCalls, visualBytes: String(visualBytes),
-          contentBytes: String(metrics?.bytesRead), contentReads: metrics?.reads, pipelineTransactions: metrics?.transactions })
+          readerBytes: String(metrics?.bytesRead), readerCalls: metrics?.reads, pipelineTransactions: metrics?.transactions })
         queryMeasurement = undefined
       }
       const cacheAfter = await db!.mediaVisualFingerprint.findMany({ where: { imageId: { in: images.map(image => image.id) } } })
@@ -414,7 +559,7 @@ suite('durable detection executor with real isolated media', () => {
       expect(await db!.artworkDedupMedia.count({ where: { runId: run.runId, visualStatus: 'READY' } })).toBe(52)
       const pairs = await db!.artworkDedupVisualPair.findMany({ where: { runId: run.runId }, select: { summary: true, pages: { select: { kind: true, leftImageId: true, rightImageId: true }, orderBy: { ordinal: 'asc' } } } })
       results.push(pairs)
-      expect(visualCalls).toBe(phase === 'hot' ? 0 : phase === 'modify-one' ? 1 : 52)
+      expect(visualCalls).toBe(phase === 'hot' ? 0 : phase === 'modify-one' ? 1 : phase === 'full' ? 52 : 27)
       if (phase === 'hot') expect(stored.readBytes).toBe(0n)
     }
     console.info('F02_MEASUREMENT ' + JSON.stringify(measurements))
@@ -422,7 +567,7 @@ suite('durable detection executor with real isolated media', () => {
     expect(results[1]).toEqual(results[2])
     expect(results[2]).toEqual(results[3])
     expect(results[0]).toHaveLength(1)
-    expect(measurements.map(m => [m.cacheReads, m.cacheWrites, m.cacheWriteRows])).toEqual([[2, 2, 52], [2, 0, 0], [2, 1, 1], [0, 2, 52]])
+    expect(measurements.map(m => [m.cacheReads, m.cacheWrites, m.cacheWriteRows])).toEqual([[4, 2, 52], [2, 0, 0], [3, 1, 1], [0, 2, 52]])
   }, 120_000)
 
   it('F02 commits only a short completed prefix on yield and resumes without decoding that prefix', async () => {
@@ -442,7 +587,7 @@ suite('durable detection executor with real isolated media', () => {
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ status: 'RETRY_WAIT', visualAfterImageId: rows[1]!.imageId })
     clock.advance(13_001)
     await executeArtworkDedup(context(await claim(run.jobId)), dependencies({ supervisor }))
-    expect(visualCalls).toBe(6)
+    expect(visualCalls).toBe(4)
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ status: 'COMPLETED', visualStatus: 'COMPLETE' })
   }, 30_000)
 
@@ -1232,21 +1377,56 @@ async function fixture(
     for (let i = 0; i < sizes.length; i++) {
       const relative = `${artwork.id}/${i}.bin`
       await fs.writeFile(path.join(options.mediaRoot ?? root, relative), Buffer.alloc(sizes[i]!, sizes[i]))
-      await db!.image.create({ data: { artworkId: artwork.id, path: relative, sortOrder: i } })
+      mediaIds.push((await db!.image.create({ data: { artworkId: artwork.id, path: relative, sortOrder: i } })).id)
     }
   }
   return artist.id
 }
 async function visualFixture(count: number) {
+  const nonce = randomUUID()
   const artistId = await fixture([Array<number>(count).fill(1), Array<number>(count).fill(2)])
   const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
   for (const [index, image] of images.entries()) {
     const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71 + (index % count) * 3) % 255))
-    const original = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
-    const content = index < images.length - 1 ? original : await sharp(original).extend({ top: 20, bottom: 20, left: 20, right: 20, background: 'white' }).png().toBuffer()
+    const original = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).withMetadata({ exif: { IFD0: { ImageDescription: nonce } } }).png().toBuffer()
+    const content = index < images.length - 1 ? original : await sharp(original).extend({ top: 20, bottom: 20, left: 20, right: 20, background: 'white' }).withMetadata().png().toBuffer()
     await fs.writeFile(path.join(root, image.path), content)
   }
   return artistId
+}
+async function sharedVisualFixture(values: number[][]) {
+  const artistId = await fixture(values.map(work => work.map(() => 1)))
+  const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+  const contents = new Map<number, Buffer>(), nonce = randomUUID()
+  for (const value of new Set(values.flat())) {
+    let seed = value + 1
+    const pixels = Buffer.from(Array.from({ length: 64 * 64 * 3 }, () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return seed >>> 24 }))
+    contents.set(value, await sharp(pixels, { raw: { width: 64, height: 64, channels: 3 } }).withMetadata({ exif: { IFD0: { ImageDescription: nonce } } }).png().toBuffer())
+  }
+  for (const [i, value] of values.flat().entries()) await fs.writeFile(path.join(root, images[i]!.path), contents.get(value)!)
+  return { artistId, images, contents }
+}
+async function measureSharedScan(artistId: number, mode: 'INCREMENTAL' | 'FULL' = 'INCREMENTAL', resume?: { runId: string; jobId: string }) {
+  const created = resume ?? await start(artistId, mode, true, 4)
+  const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
+  let visualCalls = 0, visualBytes = 0n, contentReads = 0, contentBytes = 0n
+  supervisor.create = () => {
+    const reader = create(), visual = reader.visual.bind(reader), read = reader.read.bind(reader)
+    reader.visual = async input => { visualCalls++; const result = await visual(input); visualBytes += result.bytesRead; return result }
+    reader.read = async input => { contentReads++; const result = await read(input); contentBytes += result.bytesRead; return result }
+    return reader
+  }
+  let measurement: Parameters<NonNullable<ArtworkDedupDependencies['onMeasurement']>>[0] | undefined
+  const job = await claim(created.jobId)
+  queryMeasurement = { queries: 0, transactions: 0, cacheReads: 0, cacheWrites: 0 }
+  try {
+    await executeArtworkDedup(context(job), dependencies({ supervisor, sliceMs: 120_000, onMeasurement: value => { measurement = value } }))
+    const metrics = { ...queryMeasurement, visualCalls, visualBytes: String(visualBytes), contentReads, contentBytes: String(contentBytes), readerBytes: String(measurement?.bytesRead ?? 0) }
+    queryMeasurement = undefined
+    const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: created.runId } })
+    expect(run).toMatchObject({ status: 'COMPLETED', visualStatus: 'COMPLETE' })
+    return { run, metrics }
+  } finally { queryMeasurement = undefined }
 }
 async function start(artistId: number, mode: 'INCREMENTAL' | 'FULL' = 'INCREMENTAL', includeSuspectedVersions = false, definitionVersion?: number) {
   const value = await db!.$transaction(async (tx) => {

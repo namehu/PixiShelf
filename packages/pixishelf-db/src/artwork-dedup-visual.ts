@@ -4,6 +4,32 @@ import type { MediaContentDirectorySnapshot } from './media-content-types'
 import { Prisma } from '@prisma/client'
 import { ArtworkDedupOperationError } from './artwork-dedup-operation'
 export const ARTWORK_DEDUP_VISUAL_EVIDENCE_VERSION = 'dct63-grid3-crop-local1-v1'
+
+export interface ArtworkDedupVisualContentKey {
+  contentSha256: string
+  contentSize: bigint
+  algorithmVersion: string
+  normalizationVersion: string
+}
+
+/** One indexed donor per key, even when a popular file has many cached copies. */
+export async function readArtworkDedupSharedVisualFingerprints(tx: Prisma.TransactionClient, keys: readonly ArtworkDedupVisualContentKey[]) {
+  if (keys.length > 50) throw new RangeError('Visual shared cache page budget')
+  if (keys.some(key => !/^[a-f0-9]{64}$/.test(key.contentSha256) || key.contentSize < 0n || !key.algorithmVersion || !key.normalizationVersion))
+    throw new TypeError('Invalid visual content key')
+  if (!keys.length) return []
+  return tx.$queryRaw<Array<ArtworkDedupVisualContentKey & { views: Prisma.JsonValue }>>(Prisma.sql`
+    SELECT k.*, donor.views FROM
+      (VALUES ${Prisma.join(keys.map(key => Prisma.sql`(${key.contentSha256}::text,${key.contentSize}::bigint,${key.algorithmVersion}::text,${key.normalizationVersion}::text)`))})
+      AS k("contentSha256","contentSize","algorithmVersion","normalizationVersion")
+    CROSS JOIN LATERAL (
+      SELECT f.views FROM "MediaVisualFingerprint" f
+      WHERE f."contentSha256"=k."contentSha256" AND f."contentSize"=k."contentSize"
+        AND f."algorithmVersion"=k."algorithmVersion" AND f."normalizationVersion"=k."normalizationVersion"
+      LIMIT 1
+    ) donor`)
+}
+
 export function assertArtworkDedupVisualSummary(value: Prisma.JsonValue | null) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ArtworkDedupOperationError('VISUAL_EVIDENCE_REQUIRED')
   const v = value as Record<string, Prisma.JsonValue>

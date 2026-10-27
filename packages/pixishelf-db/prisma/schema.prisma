@@ -3141,8 +3141,11 @@ model MediaVisualFingerprint {
   identity String
   algorithmVersion String
   normalizationVersion String
+  contentSha256 String?
+  contentSize BigInt?
   views Json
   updatedAt DateTime @updatedAt
+  @@index([contentSha256, contentSize, algorithmVersion, normalizationVersion], map: "MediaVisualFingerprint_content_key_idx")
 }
 model ArtworkDedupVisualPair {
   relationKind String @default("VISUAL")
