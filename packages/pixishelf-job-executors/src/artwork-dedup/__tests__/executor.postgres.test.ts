@@ -588,6 +588,10 @@ suite('durable detection executor with real isolated media', () => {
     const mixed = await start(artistId, 'INCREMENTAL', true)
     await finish(mixed.jobId)
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: mixed.runId } })).toMatchObject({ visualStatus: 'INCOMPLETE', visualIncompleteReasons: ['UNSUPPORTED_MEDIA'] })
+    expect(await db!.systemJob.findUniqueOrThrow({ where: { id: mixed.jobId } })).toMatchObject({
+      status: 'COMPLETED', message: '原件检查完成，疑似版本检查未完成',
+      result: { checked: 2, processed: 2, changed: 0, failed: 0, skipped: 0 }
+    })
   }, 60_000)
   it('F02 measures actual cold/hot/modify-one/full work across a 50-row page and preserves results', async () => {
     const artistId = await visualFixture(26)
@@ -805,6 +809,10 @@ suite('durable detection executor with real isolated media', () => {
       readerToken: null
     })
     expect(await db!.artworkDedupGroupMember.count({ where: { runId: cold.runId } })).toBe(2)
+    expect(await db!.systemJob.findUniqueOrThrow({ where: { id: cold.jobId } })).toMatchObject({
+      status: 'COMPLETED', message: '检测完成',
+      result: { checked: 4, processed: 4, changed: 0, failed: 0, skipped: 0 }
+    })
     const hot = await start(artistId)
     await finish(hot.jobId)
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: hot.runId } })).toMatchObject({
@@ -901,6 +909,10 @@ suite('durable detection executor with real isolated media', () => {
       status: 'COMPLETED',
       groupCount: 0,
       failedArtworks: 1
+    })
+    expect(await db!.systemJob.findUniqueOrThrow({ where: { id: run.jobId } })).toMatchObject({
+      status: 'COMPLETED', message: '检查结束，2 部完成，1 部未完成检查',
+      result: { checked: 2, processed: 3, changed: 0, failed: 1, skipped: 0 }
     })
     const outage = await start(artistId)
     await executeArtworkDedup(
