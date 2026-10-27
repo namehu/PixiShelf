@@ -1,6 +1,7 @@
 import { PauseIcon, PlayIcon, SquareIcon } from 'lucide-react'
 
 interface AnimationPlaybackCapsuleProps {
+  compact?: boolean
   playing: boolean
   playOnce?: boolean
   label: string
@@ -29,6 +30,7 @@ export function animationPlaybackLabel(
 
 /** Shared visible control; its parent supplies the 44px pointer and keyboard target. */
 export function AnimationPlaybackCapsule({
+  compact = false,
   playing,
   playOnce = false,
   label,
@@ -47,12 +49,16 @@ export function AnimationPlaybackCapsule({
       )}
       <span className="relative z-10 flex items-center gap-1">
         {playing ? (
-          playOnce ? <SquareIcon className="size-3 fill-current" /> : <PauseIcon className="size-3 fill-current" />
+          playOnce ? (
+            <SquareIcon className="size-3 fill-current" />
+          ) : (
+            <PauseIcon className="size-3 fill-current" />
+          )
         ) : (
           <PlayIcon className="size-3 fill-current" />
         )}
-        <span>{label}</span>
-        {fileSize && <span>{fileSize}</span>}
+        <span className={compact ? 'hidden sm:inline' : undefined}>{label}</span>
+        {fileSize && <span className={compact ? 'hidden sm:inline' : undefined}>{fileSize}</span>}
       </span>
     </span>
   )

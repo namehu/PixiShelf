@@ -9,6 +9,8 @@ import ArtworkPreviewPage from '../../../preview/page'
 
 const previewState = vi.hoisted(() => ({ reading: null as unknown, images: [] as unknown[] }))
 
+vi.mock('@/hooks/use-media-mark', () => ({ usePrefetchMediaMarks: vi.fn() }))
+
 vi.mock('@/components/media-mark/media-mark-actions', () => ({
   MediaMarkActions: ({ mediaId }: { mediaId: number | null }) => <div data-testid="media-mark-actions" data-media-id={mediaId} />
 }))

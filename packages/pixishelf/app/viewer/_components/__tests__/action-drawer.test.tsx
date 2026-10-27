@@ -6,8 +6,22 @@ import type { RandomImageItem } from '@/types/images'
 import { MediaType } from '@/types'
 
 vi.mock('@/components/media-mark/media-mark-actions', () => ({
-  MediaMarkActions: ({ artworkId, mediaId, showBookmark }: { artworkId: number; mediaId: number | null; showBookmark?: boolean }) =>
-    <div data-testid="media-mark-actions" data-artwork-id={artworkId} data-media-id={mediaId} data-bookmark={String(showBookmark)} />
+  MediaMarkActions: ({
+    artworkId,
+    mediaId,
+    showBookmark
+  }: {
+    artworkId: number
+    mediaId: number | null
+    showBookmark?: boolean
+  }) => (
+    <div
+      data-testid="media-mark-actions"
+      data-artwork-id={artworkId}
+      data-media-id={mediaId}
+      data-bookmark={String(showBookmark)}
+    />
+  )
 }))
 
 vi.mock('@/components/ui/drawer', () => ({
@@ -50,6 +64,19 @@ describe('ActionDrawer', () => {
     rerender(<ActionDrawer open onOpenChange={vi.fn()} image={image} />)
     expect(screen.getByTestId('media-mark-actions').hasAttribute('data-media-id')).toBe(false)
     expect(screen.getByText('当前仅展示作品封面，暂无可标记的图片。')).toBeTruthy()
+  })
+  it('closes the drawer before opening the shared artwork rating picker', () => {
+    const calls: string[] = []
+    render(
+      <ActionDrawer
+        open
+        image={image}
+        onOpenChange={() => calls.push('close')}
+        onOpenRating={() => calls.push('rating')}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: '作品评分' }))
+    expect(calls).toEqual(['close', 'rating'])
   })
   it('offers four persisted intervals and requests start only after closing the menu', () => {
     const close = vi.fn()

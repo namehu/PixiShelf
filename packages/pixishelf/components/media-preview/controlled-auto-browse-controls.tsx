@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { ChevronRightIcon, PauseIcon, PlayIcon, RotateCcwIcon, Settings2Icon, XIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -27,6 +28,7 @@ export interface ControlledAutoBrowseControlsProps {
   current: number
   total: number
   state: ControlledAutoBrowseState
+  compact?: boolean
   navigation?: ReactNode
   trailingControl?: ReactNode
   onStart: (mode: AutoBrowseMode) => void
@@ -49,6 +51,7 @@ export function ControlledAutoBrowseControls({
   current,
   total,
   state,
+  compact = false,
   navigation,
   trailingControl,
   onStart,
@@ -115,7 +118,7 @@ export function ControlledAutoBrowseControls({
   }, [collapsed, onSetControlsCollapsed, playing, settingsOpen])
 
   const value = mode === 'scroll' ? state.scrollSpeed : state.slideSeconds
-  const presets = mode === 'scroll' ? [50, 100, 200] : [3, 1.5, 0.5]
+  const presets = mode === 'scroll' ? [50, 100, 200] : [3, 1.5, 0.2]
   const setValue = (next: number) =>
     onSetPreferences(mode === 'scroll' ? { scrollSpeed: next } : { slideSeconds: next })
   const description = !selected
@@ -147,7 +150,7 @@ export function ControlledAutoBrowseControls({
       data-auto-browse-controls
       data-auto-browse-mode={mode}
       data-collapsed={collapsed}
-      className="pointer-events-auto flex h-12 max-w-[calc(100vw-2rem)] items-center rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md"
+      className="pointer-events-auto flex h-12 max-w-full items-center rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md"
     >
       <div className="min-w-0">
         {collapsed ? (
@@ -170,11 +173,11 @@ export function ControlledAutoBrowseControls({
           </Button>
         ) : (
           <>
-            <div className="flex items-center justify-center gap-1">
+            <div className={cn('flex items-center justify-center gap-1', compact && 'gap-0 sm:gap-1')}>
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-11 rounded-full"
+                className={cn('size-11 rounded-full', compact && 'flex-col gap-0')}
                 disabled={blocked || (error && !playing)}
                 aria-label={playing ? '暂停自动浏览' : ended ? '重新开始自动浏览' : '开始或继续自动浏览'}
                 title={playing ? `${description} · 暂停` : ended ? '重新开始' : selected ? '继续' : '自动轮播'}
@@ -192,12 +195,19 @@ export function ControlledAutoBrowseControls({
                 ) : (
                   <PlayIcon data-icon="inline-start" />
                 )}
+                {compact && (
+                  <span aria-hidden="true" className="text-[10px] leading-3 tabular-nums sm:hidden">
+                    {current}/{total}
+                  </span>
+                )}
               </Button>
-              {navigation ?? (
-                <span className="px-2 text-sm tabular-nums" aria-label={`当前第 ${current} 张，共 ${total} 张`}>
-                  {current} / {total}
-                </span>
-              )}
+              <div className={cn(compact && 'hidden sm:contents')}>
+                {navigation ?? (
+                  <span className="px-2 text-sm tabular-nums" aria-label={`当前第 ${current} 张，共 ${total} 张`}>
+                    {current} / {total}
+                  </span>
+                )}
+              </div>
               <Popover
                 open={settingsOpen}
                 onOpenChange={(open) => {
@@ -267,9 +277,9 @@ export function ControlledAutoBrowseControls({
                       <Slider
                         aria-label={mode === 'scroll' ? '滚动速度' : '每张停留秒数'}
                         value={[value]}
-                        min={mode === 'scroll' ? 50 : 0.5}
+                        min={mode === 'scroll' ? 50 : 0.2}
                         max={mode === 'scroll' ? 800 : 3}
-                        step={mode === 'scroll' ? 50 : 0.5}
+                        step={mode === 'scroll' ? 50 : 0.1}
                         onValueChange={([next]) => {
                           if (next !== undefined) setValue(next)
                         }}
@@ -295,7 +305,7 @@ export function ControlledAutoBrowseControls({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-11 rounded-full"
+                  className={cn('size-11 rounded-full', compact && 'hidden sm:inline-flex')}
                   aria-label="收起自动浏览控制"
                   onClick={() => onSetControlsCollapsed(true)}
                 >
@@ -310,7 +320,11 @@ export function ControlledAutoBrowseControls({
         )}
       </div>
       {trailingControl && (
-        <div className="flex h-11 shrink-0 items-center border-l border-border/40 px-2">{trailingControl}</div>
+        <div
+          className={cn('flex h-11 shrink-0 items-center border-l border-border/40 px-2', compact && 'px-0 sm:px-2')}
+        >
+          {trailingControl}
+        </div>
       )}
     </motion.div>
   )

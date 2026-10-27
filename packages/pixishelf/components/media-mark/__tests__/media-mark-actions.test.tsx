@@ -3,12 +3,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MediaMarkActions } from '../media-mark-actions'
 
 const mocks = vi.hoisted(() => ({
-  set: vi.fn(), retry: vi.fn(), useMediaMark: vi.fn()
+  set: vi.fn(),
+  retry: vi.fn(),
+  useMediaMark: vi.fn()
 }))
 vi.mock('@/hooks/use-media-mark', () => ({ useMediaMark: mocks.useMediaMark }))
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.useMediaMark.mockReturnValue({ bookmarkedAt: 'saved', likedAt: null, available: true, isLoading: false, isSaving: false, error: null, set: mocks.set, retry: mocks.retry })
+  mocks.useMediaMark.mockReturnValue({
+    bookmarkedAt: 'saved',
+    likedAt: null,
+    available: true,
+    isLoading: false,
+    isSaving: false,
+    error: null,
+    set: mocks.set,
+    retry: mocks.retry
+  })
 })
 afterEach(cleanup)
 
@@ -28,8 +39,39 @@ describe('media mark actions', () => {
     expect(bookmark.className).toContain('min-h-11')
     fireEvent.click(bookmark)
     fireEvent.click(like)
-    expect(mocks.set.mock.calls).toEqual([['bookmark', false], ['like', true]])
+    expect(mocks.set.mock.calls).toEqual([
+      ['bookmark', false],
+      ['like', true]
+    ])
     expect(mocks.useMediaMark).toHaveBeenCalledWith(7, 42)
+  })
+  it('keeps button nodes and their order while switching media and showing a read failure', () => {
+    const view = render(
+      <MediaMarkActions artworkId={7} mediaId={42} overlay>
+        <button>轮播</button>
+      </MediaMarkActions>
+    )
+    const bookmark = screen.getByRole('button', { name: '取消图片书签' })
+    const like = screen.getByRole('button', { name: '喜欢这张图片' })
+    expect(screen.getAllByRole('button')).toEqual([bookmark, screen.getByText('轮播'), like])
+    mocks.useMediaMark.mockReturnValue({ available: false, isLoading: true, error: null })
+    view.rerender(
+      <MediaMarkActions artworkId={7} mediaId={43} overlay>
+        <button>轮播</button>
+      </MediaMarkActions>
+    )
+    expect(screen.getByRole('button', { name: '添加图片书签' })).toBe(bookmark)
+    expect(screen.getByRole('button', { name: '喜欢这张图片' })).toBe(like)
+    expect(bookmark.getAttribute('aria-pressed')).toBe('false')
+    expect(bookmark.className).toContain('disabled:opacity-100')
+    mocks.useMediaMark.mockReturnValue({ available: false, error: new Error('offline'), retry: mocks.retry })
+    view.rerender(
+      <MediaMarkActions artworkId={7} mediaId={43} overlay>
+        <button>轮播</button>
+      </MediaMarkActions>
+    )
+    expect(screen.getByRole('button', { name: '添加图片书签' })).toBe(bookmark)
+    expect(screen.getByRole('button', { name: '重试图片标记' })).toBeTruthy()
   })
   it('disables unavailable media and retries failed initial reads', () => {
     mocks.useMediaMark.mockReturnValue({ available: false, isLoading: false, error: null })

@@ -9,6 +9,7 @@ interface AutoBrowseControlsProps {
   mode: AutoBrowseMode
   current: number
   total: number
+  compact?: boolean
   navigation?: ReactNode
   trailingControl?: ReactNode
   onRestart: () => void
@@ -23,6 +24,7 @@ export function AutoBrowseControls({
   mode,
   current,
   total,
+  compact,
   navigation,
   trailingControl,
   onRestart,
@@ -32,27 +34,30 @@ export function AutoBrowseControls({
   blocked,
   container
 }: AutoBrowseControlsProps) {
-  const state = useArtworkAutoBrowseStore(useShallow((state) => ({
-    mode: state.mode,
-    status: state.status,
-    reason: state.reason,
-    controlsCollapsed: state.controlsCollapsed,
-    scrollSpeed: state.scrollSpeed,
-    slideSeconds: state.slideSeconds,
-    loop: state.loop,
-    animationPhase: state.animationPhase,
-    start: state.start,
-    pause: state.pause,
-    resume: state.resume,
-    setControlsCollapsed: state.setControlsCollapsed,
-    setPreferences: state.setPreferences
-  })))
+  const state = useArtworkAutoBrowseStore(
+    useShallow((state) => ({
+      mode: state.mode,
+      status: state.status,
+      reason: state.reason,
+      controlsCollapsed: state.controlsCollapsed,
+      scrollSpeed: state.scrollSpeed,
+      slideSeconds: state.slideSeconds,
+      loop: state.loop,
+      animationPhase: state.animationPhase,
+      start: state.start,
+      pause: state.pause,
+      resume: state.resume,
+      setControlsCollapsed: state.setControlsCollapsed,
+      setPreferences: state.setPreferences
+    }))
+  )
   return (
     <ControlledAutoBrowseControls
       mode={mode}
       current={current}
       total={total}
       state={state}
+      compact={compact}
       navigation={navigation}
       trailingControl={trailingControl}
       onStart={state.start}

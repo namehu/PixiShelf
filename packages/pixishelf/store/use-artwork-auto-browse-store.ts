@@ -30,7 +30,7 @@ function preferences(value: unknown): AutoBrowsePreferences {
   const saved = value && typeof value === 'object' ? (value as Partial<AutoBrowsePreferences>) : {}
   return {
     scrollSpeed: Math.round(bounded(saved.scrollSpeed, 50, 50, 800) / 50) * 50,
-    slideSeconds: Math.round(bounded(saved.slideSeconds, 1.5, 0.5, 3) * 2) / 2,
+    slideSeconds: Math.round(bounded(saved.slideSeconds, 1.5, 0.2, 3) * 10) / 10,
     loop: saved.loop === true
   }
 }

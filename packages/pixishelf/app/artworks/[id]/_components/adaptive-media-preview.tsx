@@ -29,6 +29,7 @@ import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkSlideshow } from './use-artwork-slideshow'
 import { readingMediaPosition } from './reading-media-status'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
+import { usePrefetchMediaMarks } from '@/hooks/use-media-mark'
 import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
 
 const ADAPTIVE_PREVIEW_HISTORY_KEY = '__pixishelf_adaptive_media_preview__'
@@ -121,9 +122,20 @@ function AdaptiveMediaPreviewContent({
     }
   }, [images.length, initialIndex, open])
 
-  useReaderMediaWindow('adaptive', images.slice(Math.max(0, currentIndex - 1), currentIndex + 3).map((media) => media.id), open)
+  useReaderMediaWindow(
+    'adaptive',
+    images.slice(Math.max(0, currentIndex - 1), currentIndex + 3).map((media) => media.id),
+    open
+  )
   const activeMedia = images[currentIndex]
-  const originalIndex = activeMedia ? readingMediaPosition(reading, activeMedia.id)?.index ?? currentIndex : currentIndex
+  usePrefetchMediaMarks(
+    activeMedia?.artworkId ?? 0,
+    images.slice(Math.max(0, currentIndex - 1), currentIndex + 3).map((media) => media.id),
+    open
+  )
+  const originalIndex = activeMedia
+    ? (readingMediaPosition(reading, activeMedia.id)?.index ?? currentIndex)
+    : currentIndex
   const originalTotal = reading?.context?.media.length ?? images.length
   const activeMediaId = activeMedia?.id
   const activeMediaKey = previewResourceKey(activeMedia)
@@ -276,6 +288,7 @@ function AdaptiveMediaPreviewContent({
       }}
     >
       <AnimationPlaybackCapsule
+        compact
         playing={isWebpPlaying}
         playOnce={animation.playOnce}
         label="WEBP"
@@ -398,23 +411,21 @@ function AdaptiveMediaPreviewContent({
       }}
       bottomChrome={({ portalContainer: container }) => (
         <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 h-12">
-          {activeMedia && (
-            <div className={cn(
-              'pointer-events-auto absolute right-0 bottom-0',
-              !diagnosticRunning && (images.length > 1 || activePlayableWebp) && 'bottom-16 sm:bottom-0'
-            )}>
-              <MediaMarkActions artworkId={activeMedia.artworkId ?? 0} mediaId={activeMedia.id} overlay />
-            </div>
-          )}
           {reading && (reading.invalidated || reading.markError) && (
             <div className="pointer-events-auto absolute inset-x-0 bottom-28 mx-auto w-fit max-w-full rounded-lg bg-background text-foreground sm:bottom-14">
               {reading.invalidated ? (
                 <div className="flex flex-wrap items-center gap-2 p-3 text-sm" role="status">
                   <span>作品媒体已更新，请重新打开阅读。</span>
-                  <Button size="sm" variant="outline" onClick={reading.reopen}>重新打开</Button>
+                  <Button size="sm" variant="outline" onClick={reading.reopen}>
+                    重新打开
+                  </Button>
                 </div>
               ) : null}
-              {reading.markError && <p role="alert" className="px-3 pb-2 text-sm text-destructive">{reading.markError}</p>}
+              {reading.markError && (
+                <p role="alert" className="px-3 pb-2 text-sm text-destructive">
+                  {reading.markError}
+                </p>
+              )}
             </div>
           )}
           {diagnosticsEnabled && open && activePlayableWebp && activeMedia && (
@@ -433,35 +444,39 @@ function AdaptiveMediaPreviewContent({
               }}
             />
           )}
-          {!diagnosticRunning && (images.length > 1 || activePlayableWebp) && (
-            <div className="pointer-events-none absolute bottom-0 left-1/2 max-w-full -translate-x-1/2">
-              {images.length > 1 ? (
-                <AutoBrowseControls
-                  mode="slideshow"
-                  trailingControl={activePlayableWebp ? webpControl : undefined}
-                  current={originalIndex + 1}
-                  total={originalTotal}
-                  navigation={
-                    <span className="px-2 text-sm tabular-nums">
-                      {originalIndex + 1}/{originalTotal}
-                    </span>
-                  }
-                  blocked={zoomScale > 1.01}
-                  container={container}
-                  onRestart={() => {
-                    firstSlide()
-                    useArtworkAutoBrowseStore.getState().start('slideshow')
-                  }}
-                  onRetry={retryCurrent}
-                  onSkip={() => {
-                    useArtworkAutoBrowseStore.getState().pause()
-                    useArtworkAutoBrowseStore.getState().clearPauseReason()
-                    if (activeMedia) useArtworkAutoBrowseStore.getState().skip(activeMedia.id)
-                  }}
-                />
-              ) : (
-                webpControl
-              )}
+          {activeMedia && (
+            <div className="pointer-events-auto mx-auto flex h-12 w-fit max-w-full items-center">
+              <MediaMarkActions artworkId={activeMedia.artworkId ?? 0} mediaId={activeMedia.id} overlay>
+                {!diagnosticRunning &&
+                  (images.length > 1 ? (
+                    <AutoBrowseControls
+                      compact
+                      mode="slideshow"
+                      trailingControl={activePlayableWebp ? webpControl : undefined}
+                      current={originalIndex + 1}
+                      total={originalTotal}
+                      navigation={
+                        <span className="px-2 text-sm tabular-nums">
+                          {originalIndex + 1}/{originalTotal}
+                        </span>
+                      }
+                      blocked={zoomScale > 1.01}
+                      container={container}
+                      onRestart={() => {
+                        firstSlide()
+                        useArtworkAutoBrowseStore.getState().start('slideshow')
+                      }}
+                      onRetry={retryCurrent}
+                      onSkip={() => {
+                        useArtworkAutoBrowseStore.getState().pause()
+                        useArtworkAutoBrowseStore.getState().clearPauseReason()
+                        if (activeMedia) useArtworkAutoBrowseStore.getState().skip(activeMedia.id)
+                      }}
+                    />
+                  ) : activePlayableWebp ? (
+                    webpControl
+                  ) : null)}
+              </MediaMarkActions>
             </div>
           )}
         </div>

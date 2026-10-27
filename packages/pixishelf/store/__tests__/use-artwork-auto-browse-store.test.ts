@@ -116,11 +116,19 @@ describe('artwork auto browse store', () => {
     expect(typeof store.getState().start).toBe('function')
   })
 
+  it('persists 200ms and preserves existing half-second choices', async () => {
+    for (const slideSeconds of [0.2, 0.5, 1, 1.5, 2, 2.5, 3]) {
+      store.getState().setPreferences({ slideSeconds })
+      await store.persist.rehydrate()
+      expect(store.getState().slideSeconds).toBe(slideSeconds)
+    }
+  })
+
   it('bounds invalid settings and falls back after malformed storage', async () => {
     store.getState().setPreferences({ scrollSpeed: Infinity, slideSeconds: -5 })
-    expect(store.getState()).toMatchObject({ scrollSpeed: 50, slideSeconds: 0.5 })
+    expect(store.getState()).toMatchObject({ scrollSpeed: 50, slideSeconds: 0.2 })
     store.getState().setPreferences({ slideSeconds: 1.7 })
-    expect(store.getState().slideSeconds).toBe(1.5)
+    expect(store.getState().slideSeconds).toBe(1.7)
     localStorage.setItem(AUTO_BROWSE_STORAGE_KEY, '{broken')
     await store.persist.rehydrate()
     store.getState().start('scroll')

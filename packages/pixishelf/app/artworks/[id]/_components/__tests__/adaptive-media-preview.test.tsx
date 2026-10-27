@@ -6,8 +6,14 @@ import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-me
 import { useArtworkAutoBrowseStore as autoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 import { webpFixture } from '@/lib/__tests__/webp-fixture'
 
+vi.mock('@/hooks/use-media-mark', () => ({ usePrefetchMediaMarks: vi.fn() }))
+
 vi.mock('@/components/media-mark/media-mark-actions', () => ({
-  MediaMarkActions: ({ mediaId }: { mediaId: number | null }) => <div data-testid="media-mark-actions" data-media-id={mediaId} />
+  MediaMarkActions: ({ mediaId, children }: { mediaId: number | null; children?: React.ReactNode }) => (
+    <div data-testid="media-mark-actions" data-media-id={mediaId}>
+      {children}
+    </div>
+  )
 }))
 
 // Keep legacy image timing covered explicitly; WASM lifecycle has its own integration suite.
@@ -159,7 +165,14 @@ function createMedia(index: number, path = `/media-${index + 1}.jpg`): ArtworkIm
 
 describe('AdaptiveMediaPreview', () => {
   beforeEach(() => {
-    vi.stubGlobal('ResizeObserver', class { observe() {}; unobserve() {}; disconnect() {} })
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      }
+    )
     swiperMocks.instance.activeIndex = 0
     swiperMocks.instance.allowSlideNext = true
     swiperMocks.instance.allowSlidePrev = true
@@ -178,11 +191,15 @@ describe('AdaptiveMediaPreview', () => {
 
   it('only exposes diagnostics for the current WebP with an explicit URL flag', () => {
     const media = { ...createMedia(0, '/diagnostic.webp'), webpAnimationStatus: 2, isAnimated: true }
-    const view = render(<AdaptiveMediaPreview images={[media, createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)
+    const view = render(
+      <AdaptiveMediaPreview images={[media, createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />
+    )
     expect(screen.queryByRole('button', { name: 'WebP 性能诊断' })).toBeNull()
     view.unmount()
     history.replaceState({}, '', '?webpDiagnostics=1')
-    const enabled = render(<AdaptiveMediaPreview images={[media, createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)
+    const enabled = render(
+      <AdaptiveMediaPreview images={[media, createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />
+    )
     expect(screen.getByRole('button', { name: 'WebP 性能诊断' })).toBeTruthy()
     enabled.unmount()
     render(<AdaptiveMediaPreview images={[createMedia(1)]} initialIndex={0} open onClose={vi.fn()} />)

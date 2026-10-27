@@ -3,10 +3,11 @@
 import { RandomImageItem } from '@/types/images'
 import { MoreHorizontal } from 'lucide-react'
 import Link from 'next/link'
-import { useState, useEffect, useCallback, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { ArtistAvatar } from '@/components/artwork/artist-avatar'
 import TagsPanel from './tags-panel'
 import { LikeButton } from './like-button/inex'
+import { ViewerRatingDialog } from './viewer-rating-dialog'
 import { ActionDrawer } from './action-drawer'
 import { useViewerStore } from '@/store/viewer-store'
 import dayjs from 'dayjs'
@@ -49,7 +50,9 @@ export default function ImageOverlay({
   const rating = useArtworkRating(id, image.ratingLevel)
   const isLiked = isArtworkLiked(rating.level)
   const ratingLabel = rating.level === null ? '未评分' : ARTWORK_RATING_LABELS[rating.level]
-  const likeActionLabel = isLiked ? `当前评分：${ratingLabel}；取消喜欢并清除评分` : `当前评分：${ratingLabel}；喜欢作品`
+  const likeActionLabel = isLiked
+    ? `当前评分：${ratingLabel}；取消喜欢并清除评分`
+    : `当前评分：${ratingLabel}；喜欢作品`
   useEffect(() => {
     if (rating.error && isActive) {
       toast.error('评分未保存，请重试。', {
@@ -61,9 +64,21 @@ export default function ImageOverlay({
 
   const [showActionDrawer, setShowActionDrawer] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
+  const [ratingOpen, setRatingOpen] = useState(false)
+  const likeButtonRef = useRef<HTMLButtonElement>(null)
+  const openRating = useCallback(() => {
+    if (!ownerUserId || !isActive) return
+    useViewerStore.getState().pauseAutoBrowse('panel')
+    setShowActionDrawer(false)
+    setRatingOpen(true)
+  }, [ownerUserId, isActive])
   useEffect(() => {
-    if (isActive) onPanelOpenChange?.(showActionDrawer || tagsOpen)
-  }, [isActive, onPanelOpenChange, showActionDrawer, tagsOpen])
+    setRatingOpen(false)
+    setShowActionDrawer(false)
+  }, [id, ownerUserId, isActive])
+  useEffect(() => {
+    if (isActive) onPanelOpenChange?.(showActionDrawer || tagsOpen || ratingOpen)
+  }, [isActive, onPanelOpenChange, showActionDrawer, tagsOpen, ratingOpen])
   useEffect(() => {
     if (!isActive) return
     return () => onPanelOpenChange?.(false)
@@ -148,6 +163,10 @@ export default function ImageOverlay({
 
                 <div className="flex shrink-0 items-center gap-1" role="group" aria-label="作品快捷操作">
                   <LikeButton
+                    key={`${ownerUserId}-${id}`}
+                    buttonRef={likeButtonRef}
+                    onOpenRating={openRating}
+                    ratingLabel={rating.level === 3 || rating.level === 4 ? ratingLabel : undefined}
                     liked={isLiked}
                     disabled={rating.isLoading || !ownerUserId}
                     saving={rating.isSaving}
@@ -226,6 +245,14 @@ export default function ImageOverlay({
         onOpenChange={handleActionDrawerOpenChange}
         image={image}
         currentMediaId={currentMediaId}
+        onOpenRating={ownerUserId ? openRating : undefined}
+      />
+      <ViewerRatingDialog
+        open={isActive && ratingOpen}
+        onOpenChange={setRatingOpen}
+        rating={rating}
+        disabled={!ownerUserId}
+        returnFocusRef={likeButtonRef}
       />
     </div>
   )

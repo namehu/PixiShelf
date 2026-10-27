@@ -38,6 +38,26 @@ describe('slideshow clock', () => {
     const hook = renderHook((options) => useArtworkSlideshow(options), { initialProps: props })
     return { ...hook, props, onNext, onFirst }
   }
+  it('waits for readiness and transitions before the full 200ms dwell, and cancels on pause', () => {
+    store.getState().setPreferences({ slideSeconds: 0.2 })
+    const { rerender, props, onNext } = setup()
+    act(() => vi.advanceTimersByTime(1000))
+    rerender({ ...props, ready: true, transitioning: true })
+    act(() => vi.advanceTimersByTime(1000))
+    expect(onNext).not.toHaveBeenCalled()
+    rerender({ ...props, ready: true })
+    act(() => vi.advanceTimersByTime(199))
+    expect(onNext).not.toHaveBeenCalled()
+    act(() => store.getState().pause())
+    act(() => vi.advanceTimersByTime(1000))
+    expect(onNext).not.toHaveBeenCalled()
+    act(() => store.getState().resume())
+    act(() => vi.advanceTimersByTime(199))
+    expect(onNext).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(1))
+    expect(onNext).toHaveBeenCalledOnce()
+  })
+
   it('waits for decoding and transitions, then gives the image a full interval', () => {
     const { rerender, props, onNext } = setup()
     act(() => vi.advanceTimersByTime(10000))
@@ -177,7 +197,7 @@ describe('scroll driver', () => {
     measure.mockClear()
     let previous = 0
     for (let frame = 0; frame <= 60; frame++) {
-      advance(frame * 1000 / 60)
+      advance((frame * 1000) / 60)
       if (frame > 0) expect(getY() - previous).toBeGreaterThanOrEqual(8)
       previous = getY()
     }
@@ -349,9 +369,13 @@ describe('scroll driver', () => {
       const node = document.createElement('div')
       node.dataset.index = String(index)
       node.innerHTML = `<div data-preview-status="${row.status ?? 'ready'}"></div>`
-      node.getBoundingClientRect = () => ({
-        top: start - result.getY(), bottom: start + row.height - result.getY(), height: row.height, width: 600
-      }) as DOMRect
+      node.getBoundingClientRect = () =>
+        ({
+          top: start - result.getY(),
+          bottom: start + row.height - result.getY(),
+          height: row.height,
+          width: 600
+        }) as DOMRect
       result.container.append(node)
       return { id: index + 1, path: `/${index + 1}.jpg`, mediaType: 'image' } as ArtworkImageResponseDto
     })
@@ -370,7 +394,9 @@ describe('scroll driver', () => {
 
   it('cannot step over an unloaded short image even on a long frame', () => {
     const { advance, getY, container } = setupRows([
-      { height: 410 }, { height: 1, status: 'loading' }, { height: 2000 }
+      { height: 410 },
+      { height: 1, status: 'loading' },
+      { height: 2000 }
     ])
     act(() => store.getState().setPreferences({ scrollSpeed: 800 }))
     advance(0)

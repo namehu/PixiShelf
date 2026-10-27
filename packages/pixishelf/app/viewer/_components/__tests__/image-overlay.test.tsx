@@ -51,7 +51,36 @@ describe('viewer image overlay', () => {
     useViewerStore.setState({ artworkRatingMap: new Map([[artwork.id, null]]), isChromeHidden: false })
   })
 
-  afterEach(() => cleanup())
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('opens the long-press picker, pauses auto browse and clears it on artwork change', () => {
+    vi.useFakeTimers()
+    class Pointer extends MouseEvent {
+      pointerId = 1
+      isPrimary = true
+    }
+    vi.stubGlobal('PointerEvent', Pointer)
+    const onPanelOpenChange = vi.fn()
+    useViewerStore.setState({ autoBrowseStatus: 'running' })
+    const view = render(<ImageOverlay isActive image={artwork} onPanelOpenChange={onPanelOpenChange} />)
+    const heart = screen.getByRole('button', { name: /喜欢作品/ })
+    fireEvent.pointerDown(heart, { button: 0 })
+    act(() => vi.advanceTimersByTime(500))
+    expect(screen.getByRole('dialog', { name: '作品评分' })).toBeTruthy()
+    expect(rating.setLevel).not.toHaveBeenCalled()
+    expect(useViewerStore.getState().autoBrowseStatus).toBe('paused')
+    expect(onPanelOpenChange).toHaveBeenLastCalledWith(true)
+    view.rerender(<ImageOverlay isActive image={{ ...artwork, id: 2 }} onPanelOpenChange={onPanelOpenChange} />)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(onPanelOpenChange).toHaveBeenLastCalledWith(false)
+    expect(useViewerStore.getState().autoBrowseStatus).toBe('paused')
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
 
   it('keeps progress accessible while hiding information without unmounting controls', () => {
     render(<ImageOverlay isActive image={artwork} mediaControls={<button>播放器</button>} />)
@@ -68,9 +97,7 @@ describe('viewer image overlay', () => {
 
   it('reports open artwork actions to block parent gestures', () => {
     const onPanelOpenChange = vi.fn()
-    const view = render(
-      <ImageOverlay isActive image={artwork} onPanelOpenChange={onPanelOpenChange} />
-    )
+    const view = render(<ImageOverlay isActive image={artwork} onPanelOpenChange={onPanelOpenChange} />)
     fireEvent.click(screen.getByRole('button', { name: '更多操作' }))
     expect(onPanelOpenChange).toHaveBeenLastCalledWith(true)
     view.unmount()
