@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { beforeAll, afterAll, describe, expect, it } from 'vitest'
 import { PrismaClient, Prisma, captureArtworkContentSnapshot, captureMediaContentDirectory, resetArtworkDedupVisualWork, ARTWORK_DEDUP_RELATION_CACHE_VERSION } from '@pixishelf/db'
 import { scanBatchedVisualVersions } from '../visual-batches.ts'
@@ -70,8 +71,10 @@ async function fixture(count: number, groupSize = 1000, dense = false) {
     sourcePath: `${prefix}/${p.artworkId}/${p.index}.png`, sourceRevision: 0n, logicalRoot: 'source-media:v1', rootIdentity, relativeDirectory: prefix,
     directoryId: directory.value.directoryId, directoryGeneration: directory.value.generation, canonicalPath: `${prefix}/${p.artworkId}/${p.index}.png`, size: p.size, sha256: p.sha256,
     visualStatus: 'READY', visualViews: p.views as unknown as Prisma.InputJsonValue })) })
+  let candidateReads = 0
   const measuredDb = db!.$extends({ query: { artworkDedupMedia: { async findMany({ args, query }) {
     const result = await query(args)
+    if (args.include?.item && args.where?.imageId && typeof args.where.imageId === 'object' && 'in' in args.where.imageId) candidateReads++
     if (metrics) metrics.maxMediaTake = Math.max(metrics.maxMediaTake, result.length)
     return result
   } } } })
@@ -85,7 +88,7 @@ async function fixture(count: number, groupSize = 1000, dense = false) {
       return result
     }, { timeout: 120_000 })
   }
-  return { context, pages, runId: run.id, artistId: artist.id }
+  return { context, pages, runId: run.id, artistId: artist.id, candidateReads: () => candidateReads }
 }
 async function results(runId: string) {
   return (await db!.artworkDedupVisualPair.findMany({ where: { runId }, orderBy: [{ leftArtworkId: 'asc' }, { rightArtworkId: 'asc' }], include: { pages: { orderBy: { ordinal: 'asc' } } } })).map(p => ({ left: p.leftArtworkId, right: p.rightArtworkId, pages: p.pages.map(row => [row.kind, row.leftImageId, row.rightImageId]) }))
@@ -187,6 +190,103 @@ suite('F03 persistent visual batches', () => {
     expect(after.visualComparedComparisons).toBe(0)
     expect(await db!.artworkDedupVisualPair.count({ where: { runId: test.runId } })).toBe(0)
   })
+
+  it.each(['after-read', 'before-commit'] as const)('keeps query guards %s when inputs or execution change', async boundary => {
+    for (const fault of ['cancel', 'execution', 'source', 'directory', 'root', 'write-token'] as const) {
+      const test = await fixture(2, 1)
+      const before = await advanceTo(test.context, 'QUERY')
+      const controller = new AbortController()
+      const directory = await db!.mediaContentDirectoryState.findUniqueOrThrow({ where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: prefix } } })
+      const root = await db!.mediaContentDirectoryState.findUniqueOrThrow({ where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } } })
+      let read = false, injected = false
+      const inject = async () => {
+        injected = true
+        if (fault === 'cancel') controller.abort()
+        if (fault === 'execution') await db!.artworkDedupRun.update({ where: { id: test.runId }, data: { executionVersion: { increment: 1 } } })
+        if (fault === 'source') await db!.image.update({ where: { id: test.pages[0]!.imageId }, data: { path: `${prefix}/changed.png` } })
+        if (fault === 'directory') await db!.mediaContentDirectoryState.update({ where: { id: directory.id }, data: { generation: { increment: 1 } } })
+        if (fault === 'root') await db!.mediaContentDirectoryState.update({ where: { id: root.id }, data: { rootIdentity: `${prefix}-changed` } })
+        if (fault === 'write-token') await db!.artworkContentSource.update({ where: { artworkId: test.pages[0]!.artworkId }, data: { writeToken: randomUUID() } })
+      }
+      const context: DedupPipelineContext = { ...test.context, signal: controller.signal, transaction: async operation => {
+        if (boundary === 'before-commit' && read && !injected) await inject()
+        const priorReads = test.candidateReads()
+        const result = await test.context.transaction(operation)
+        if (test.candidateReads() > priorReads) {
+          read = true
+          if (boundary === 'after-read' && !injected) await inject()
+        }
+        return result
+      } }
+      try {
+        await expect(scanBatchedVisualVersions(context)).rejects.toThrow()
+        expect(injected).toBe(true)
+        const after = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+        expect(after.visualCheckpoint).toEqual(before.visualCheckpoint)
+        expect([after.visualComparedComparisons, after.visualReusedComparisons]).toEqual([0, 0])
+        expect(await db!.artworkDedupVisualCandidate.count({ where: { runId: test.runId } })).toBe(0)
+        expect(await db!.artworkDedupVisualPair.count({ where: { runId: test.runId } })).toBe(0)
+      } finally {
+        if (fault === 'directory') await db!.mediaContentDirectoryState.update({ where: { id: directory.id }, data: { generation: directory.generation } })
+        if (fault === 'root') await db!.mediaContentDirectoryState.update({ where: { id: root.id }, data: { rootIdentity: root.rootIdentity } })
+      }
+    }
+  }, 120_000)
+
+  // Explicit single-fixture A/B: the saved baseline module is supplied by the
+  // reproduction script, and neither version can access original media.
+  it.skipIf(process.env.ARTWORK_DEDUP_VISUAL_AB_EXCLUSIVE !== '1')('compares the same prepared fixture before and after roundtrip consolidation', async () => {
+    const baselinePath = process.env.ARTWORK_DEDUP_VISUAL_AB_BASELINE
+    if (!baselinePath) throw new Error('A saved baseline module is required')
+    const count = Number(process.env.ARTWORK_DEDUP_VISUAL_AB_COUNT ?? 120)
+    if (![120, 10_001].includes(count)) throw new Error('Only the bounded smoke and representative fixtures are supported')
+    const baseline = await import(/* @vite-ignore */ baselinePath) as { scanBatchedVisualVersions: typeof scanBatchedVisualVersions }
+    const test = await fixture(count)
+    const initial = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+    const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v)).digest('hex')
+    const inputDigest = async () => digest({
+      media: await db!.artworkDedupMedia.findMany({ where: { runId: test.runId }, orderBy: { imageId: 'asc' } }),
+      items: await db!.artworkDedupItem.findMany({ where: { runId: test.runId }, orderBy: { artworkId: 'asc' }, select: { artworkId: true, frozenMediaRevision: true, snapshotRevision: true, mediaEpoch: true, memberCount: true, status: true } }),
+      directories: await db!.mediaContentDirectoryState.findMany({ where: { logicalRoot: 'source-media:v1', relativeDirectory: { in: ['', prefix] } }, orderBy: { relativeDirectory: 'asc' } })
+    })
+    const fixtureSha256 = await inputDigest()
+    const observations: Array<Record<string, unknown>> = []
+    let baselineResult: unknown
+    for (const [label, scan] of [['baseline', baseline.scanBatchedVisualVersions], ['optimized', scanBatchedVisualVersions]] as const) {
+      expect(await inputDigest()).toBe(fixtureSha256)
+      metrics = { queries: 0, writes: 0, transactions: 0, maxMediaTake: 0 }
+      const started = performance.now(), heapStart = process.memoryUsage().heapUsed
+      measurementStarted = started; measurementCount = count
+      let peakHeap = heapStart
+      const sample = setInterval(() => { peakHeap = Math.max(peakHeap, process.memoryUsage().heapUsed) }, 20)
+      let measured: { elapsedMs: number; heapStart: number; peakHeap: number; maxRssBytes: number; queries: number; writes: number; transactions: number; maxMediaTake: number }
+      try {
+        expect(await scan(test.context, count)).toBe(true)
+        measured = { elapsedMs: Math.round(performance.now() - started), heapStart, peakHeap, maxRssBytes: process.resourceUsage().maxRSS * 1024, ...metrics }
+      } finally { clearInterval(sample); metrics = undefined }
+      expect(await inputDigest()).toBe(fixtureSha256)
+      const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+      const outcome = { status: run.visualStatus, reasons: run.visualIncompleteReasons, compared: run.visualComparedComparisons, reused: run.visualReusedComparisons, candidates: run.visualCandidatePairs, results: await results(test.runId), postings: await db!.artworkDedupVisualPosting.count({ where: { runId: test.runId } }) }
+      expect(outcome.status).toBe('COMPLETE')
+      expect(outcome.postings).toBe(count * 40)
+      expect(measured.maxMediaTake).toBeLessThanOrEqual(2000)
+      if (count === 10_001) { expect(outcome.results).toHaveLength(1); expect(outcome.compared).toBe(27_536) }
+      if (label === 'baseline') baselineResult = outcome
+      else expect(outcome).toEqual(baselineResult)
+      const observation = { label, count, fixtureSha256, resultSha256: digest(outcome), ...measured, compared: outcome.compared, reused: outcome.reused, candidates: outcome.candidates.length, postings: outcome.postings, originalBytes: 0, visualCalls: 0 }
+      observations.push(observation)
+      console.info('F03_ROUNDTRIP_AB ' + JSON.stringify(observation))
+      if (label === 'baseline') await db!.$transaction(async tx => {
+        await resetArtworkDedupVisualWork(tx, test.runId)
+        await tx.artworkDedupVisualPair.deleteMany({ where: { runId: test.runId } })
+        await tx.artworkDedupItem.updateMany({ where: { runId: test.runId }, data: { visualSignature: null } })
+        await tx.artworkDedupRun.update({ where: { id: test.runId }, data: { stage: initial.stage, visualStatus: initial.visualStatus, visualIncompleteReasons: initial.visualIncompleteReasons, visualCandidatePairs: initial.visualCandidatePairs, visualComparedComparisons: initial.visualComparedComparisons, visualReusedComparisons: initial.visualReusedComparisons } })
+      })
+    }
+    expect(Number(observations[1]!.transactions)).toBeLessThan(Number(observations[0]!.transactions))
+    expect(Number(observations[1]!.queries)).toBeLessThan(Number(observations[0]!.queries))
+    console.info('F03_ROUNDTRIP_FIXTURE ' + JSON.stringify({ count, fixtureSha256, baselineModuleSha256: createHash('sha256').update(await readFile(baselinePath)).digest('hex'), seed: 'sha256(`${seed}:${region}`), last artwork first page seed=0', groupSize: 1000, views: 1, regions: 10, postingsPerPage: 40, observations }))
+  }, 1_200_000)
 
   // Run alone: these prepared-feature measurements must not silently join ordinary PG suites.
   it.skipIf(process.env.ARTWORK_DEDUP_VISUAL_SCALE_EXCLUSIVE !== '1').each([10_000, 10_001])('indexes and compares %i synthetic pages across artwork batches with bounded loads', async count => {

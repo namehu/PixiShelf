@@ -54,5 +54,5 @@
 
 当前版先上线观察，下列项仅登记，等待逐批授权。详细范围、依赖和验收统一见[去重后续计划](./docs/design/artwork-deduplication/matching-extension.md)。
 
-- [ ] DEDUP-F03：继续压缩分段检索的数据库往返，再推进 10 万／50 万、密集模板、真实解码和并发业务测量。第一批 1 万／10,001 预制特征已验证有界及跨批续跑，但每档仍约 8 分钟／50 万 SQL，公开上限不提高；交付边界见[本批记录](./docs/records/artwork-deduplication-visual-batches-f03-2026-10-27.md)。
+- [ ] DEDUP-F03：继续降低分段检索剩余数据库成本，再推进 10 万／50 万、密集模板、真实解码和并发业务测量。第二批同一 10,001 预制特征减少约 24% SQL／60% 事务，但仍约 38 万 SQL，单次耗时约 7 分 20 秒，公开上限不提高；交付边界见[第二批记录](./docs/records/artwork-deduplication-roundtrips-f03-2026-10-27.md)。
 - [ ] DEDUP-F04：收集真实版本人工真值，记录漏检/误配后再安排小改进。

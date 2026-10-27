@@ -153,33 +153,36 @@ async function snapshotReuse(context: DedupPipelineContext, run: Run, checkpoint
   })
 }
 
-async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint) {
-  const query = await context.transaction(async tx => {
-    await assertArtworkDedupExecution(tx, context.execution)
-    const page = await tx.artworkDedupMedia.findFirst({ where: { runId: run.id, imageId: checkpoint.queryImageId ? checkpoint.queryImageId : { gt: checkpoint.queryAfter }, item: { visualSignature: { not: null } } }, orderBy: { imageId: 'asc' }, include: { item: { select: { visualReuseSignature: true } } } })
-    if (!page) return null
-    if (!validVisualViews(page.visualViews)) return changed()
-    if (checkpoint.queryImageId) return { page, ids: checkpoint.queryCandidates.filter(id => id > checkpoint.candidateAfter) }
+/** The dispatch transaction already holds the validated run fence. Read one
+ * bounded candidate block here, then release it before visual comparison. */
+async function readQuery(tx: Tx, run: Run, checkpoint: Checkpoint) {
+  const page = await tx.artworkDedupMedia.findFirst({ where: { runId: run.id, imageId: checkpoint.queryImageId ? checkpoint.queryImageId : { gt: checkpoint.queryAfter }, item: { visualSignature: { not: null } } }, orderBy: { imageId: 'asc' }, include: { item: { select: { visualReuseSignature: true } } } })
+  if (!page) return null
+  if (!validVisualViews(page.visualViews)) return changed()
+  let ids: number[]
+  if (checkpoint.queryImageId) ids = checkpoint.queryCandidates.filter(id => id > checkpoint.candidateAfter)
+  else {
     const keys = [...new Set(keyIndex.keys(page.visualViews))]
     const postings = keys.length ? await tx.artworkDedupVisualPosting.findMany({ where: { runId: run.id, key: { in: keys } }, take: VISUAL_LIMITS.queryPostings + 1 }) : []
     if (postings.reduce((total, row) => total + row.multiplicity, 0) > VISUAL_LIMITS.queryPostings) fail('VISUAL_POSTING_BUDGET')
-    const ids = [...new Set(postings.map(p => p.imageId))].sort((a, b) => a - b)
+    ids = [...new Set(postings.map(p => p.imageId))].sort((a, b) => a - b)
     if (ids.length > VISUAL_LIMITS.queryCandidates) fail('VISUAL_CANDIDATE_BUDGET')
     checkpoint.queryImageId = page.imageId; checkpoint.queryCandidates = ids
-    return { page, ids }
-  })
+  }
+  const blockIds = ids.slice(0, 50)
+  const candidates = blockIds.length ? await tx.artworkDedupMedia.findMany({ where: { runId: run.id, imageId: { in: blockIds } }, orderBy: { imageId: 'asc' }, include: { item: { select: { visualReuseSignature: true } } } }) : []
+  if (candidates.length !== blockIds.length) changed()
+  return { page, ids, blockIds, candidates }
+}
+
+async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint, query: Awaited<ReturnType<typeof readQuery>>) {
   if (!query) {
     checkpoint.phase = 'PAIR'
     await context.transaction(async tx => { await assertArtworkDedupExecution(tx, context.execution); await save(tx, run.id, checkpoint) })
     return
   }
   // A short prefix commits edges, budget counters and the candidate cursor together.
-  const ids = query.ids.slice(0, 50)
-  const candidates = await context.transaction(async tx => {
-    await assertArtworkDedupExecution(tx, context.execution)
-    return ids.length ? tx.artworkDedupMedia.findMany({ where: { runId: run.id, imageId: { in: ids } }, orderBy: { imageId: 'asc' }, include: { item: { select: { visualReuseSignature: true } } } }) : []
-  })
-  if (candidates.length !== ids.length) changed()
+  const { blockIds: ids, candidates } = query
   const additions = new Map<number, Array<[number, number]>>()
   let reused = 0, compared = 0
   for (const b of candidates) {
@@ -193,7 +196,11 @@ async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Ch
     const edges = additions.get(b.artworkId) ?? []
     edges.push([query.page.imageId, b.imageId]); additions.set(b.artworkId, edges)
   }
-  await yieldCheck(context)
+  throwIfAborted(context.signal)
+  await setImmediate()
+  throwIfAborted(context.signal)
+  // Revalidate execution after the event-loop yield inside the commit fence;
+  // all directory/source guards remain held until edges and cursor commit.
   await context.transaction(async tx => {
     const latest = await assertArtworkDedupExecution(tx, context.execution)
     await guardArtworks(tx, context, [query.page.artworkId, ...candidates.map(c => c.artworkId)])
@@ -312,12 +319,17 @@ export async function scanBatchedVisualVersions(context: DedupPipelineContext, f
   try {
     for (;;) {
       throwIfAborted(context.signal)
-      const run = await context.transaction(tx => assertArtworkDedupExecution(tx, context.execution))
-      if (!run.includeSuspectedVersions || run.visualStatus === 'COMPLETE' || run.visualStatus === 'INCOMPLETE' && run.stage === 'DONE') return true
-      const checkpoint = run.visualCheckpoint === null ? { ...initialCheckpoint } : checkpointSchema.parse(run.visualCheckpoint)
+      const work = await context.transaction(async tx => {
+        const run = await assertArtworkDedupExecution(tx, context.execution)
+        if (!run.includeSuspectedVersions || run.visualStatus === 'COMPLETE' || run.visualStatus === 'INCOMPLETE' && run.stage === 'DONE') return null
+        const checkpoint = run.visualCheckpoint === null ? { ...initialCheckpoint } : checkpointSchema.parse(run.visualCheckpoint)
+        return { run, checkpoint, query: checkpoint.phase === 'QUERY' ? await readQuery(tx, run, checkpoint) : null }
+      })
+      if (!work) return true
+      const { run, checkpoint, query } = work
       if (checkpoint.phase === 'INDEX') await indexArtwork(context, run, checkpoint)
       else if (checkpoint.phase === 'REUSE') await snapshotReuse(context, run, checkpoint)
-      else if (checkpoint.phase === 'QUERY') await queryPage(context, run, checkpoint)
+      else if (checkpoint.phase === 'QUERY') await queryPage(context, run, checkpoint, query)
       else if (checkpoint.phase === 'PAIR') await pairCandidate(context, run, checkpoint)
       else { await publish(context, run); return true }
       if (context.shouldYield()) return false
