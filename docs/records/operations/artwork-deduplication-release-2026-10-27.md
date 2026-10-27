@@ -11,7 +11,7 @@ sources:
 
 # 去重 F01–F03 发布交接
 
-本轮准备发布 `v0.54.11`，上一正式版本为 `v0.54.10`。用户负责更新 NAS；本轮不访问生产数据库或媒体，不继续 F03 大规模扩展。
+本轮发布 `v0.54.11`，上一正式版本为 `v0.54.10`。用户负责更新 NAS；本轮不访问生产数据库或媒体，不继续 F03 大规模扩展。
 
 ## 发布范围
 
@@ -39,11 +39,22 @@ sources:
 
 ## 发布状态
 
-准备中。最终标签提交、CI、两份镜像及 GitHub Release 的结果以本节后续实际证据为准；当前不声明镜像已发布。
+标签 `v0.54.11` 随主线原子推送，指向 `f875ac7a9e0980c6c8b931625540bd759c69a4b9`。[Build and Deploy](https://github.com/namehu/PixiShelf/actions/runs/40481374760) 的验证、两份镜像构建与发布、Release、安全扫描及计时作业全部成功。[GitHub Release](https://github.com/namehu/PixiShelf/releases/tag/v0.54.11) 于 2026-10-27 17:40:00（Asia/Shanghai）发布，附 `docker-compose.deploy.yml`、`default.env.example`、`init.sql` 和 `DEPLOYMENT.md`。安全扫描作业成功不等于没有已报告漏洞。
+
+远端在 Ubuntu、Node 20、PostgreSQL 15 完成全部 125 项正式迁移及状态核验。发布 validate 的 contracts 171、DB 283、runtime 109、executors 1,095、Worker 126 项测试通过，条件跳过合计 392 项；这些跳过项不计为通过，相关隔离专项证据沿用前述各批记录。独立 [CI](https://github.com/namehu/PixiShelf/actions/runs/40481374806) 的 Web、Worker、WebP 及总门禁全部成功：Web lint、typecheck、3,364 项测试及生产构建通过，261 项按既有条件跳过。两个工作流的最终状态均为 `completed/success`，提交均为上述标签提交；未因结果失败重发标签或重新运行工作流。
+
+直接读取两仓库版本清单，确认下列 OCI index digest 一致；不以 `latest` 或镜像构建成功代替发布核验：
+
+| 镜像               | GHCR 与 Docker Hub 共同的 `v0.54.11` index digest                         |
+| ------------------ | ------------------------------------------------------------------------- |
+| `pixishelf`        | `sha256:6183ab4b7967a67d12fef4d5bd7126728552183b9ea6266db73d42a11863460a` |
+| `pixishelf-worker` | `sha256:98356c887eb1935c210d19981e741d1050219f16018d0007f784fb431f1efa3b` |
+
+两份镜像的运行平台均为 `linux/amd64`；index 还含构建证明，不代表提供额外运行架构。
 
 ## NAS 升级
 
-发布成功后将实际 Compose 使用的 `IMAGE_TAG` 统一设为 `v0.54.11`。标准 Compose 使用 `dockernamehu/pixishelf` 和 `dockernamehu/pixishelf-worker`；也可使用 GHCR 的 `namehu/pixishelf`、`namehu/pixishelf-worker` 同版本镜像。发布平台为 `linux/amd64`，App 和 Worker 必须成对更新。
+将实际 Compose 使用的 `IMAGE_TAG` 统一设为 `v0.54.11`。标准 Compose 使用 `dockernamehu/pixishelf` 和 `dockernamehu/pixishelf-worker`；也可使用 GHCR 的 `namehu/pixishelf`、`namehu/pixishelf-worker` 同版本镜像。发布平台为 `linux/amd64`，App 和 Worker 必须成对更新。
 
 从 `v0.54.10` 升级新增四项正式迁移，不在迁移时读取媒体：
 
