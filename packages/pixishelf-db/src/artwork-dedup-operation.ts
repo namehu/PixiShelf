@@ -230,8 +230,8 @@ export async function readArtworkDedupInventoryPage(
     artwork.deletedAt ||
     artwork.archiveLifecycleState !== 'ACTIVE' ||
     artwork.mediaRevision !== frozen.frozenMediaRevision ||
-    artwork.contentSource?.revision !== frozen.snapshotRevision ||
-    artwork.contentSource?.mediaEpoch !== frozen.mediaEpoch ||
+    (artwork.contentSource?.revision ?? 0n) !== frozen.snapshotRevision ||
+    (artwork.contentSource?.mediaEpoch ?? 0n) !== frozen.mediaEpoch ||
     artwork.contentSource?.writeToken
   )
     throw new ArtworkDedupOperationError('STALE')

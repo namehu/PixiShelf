@@ -23,6 +23,8 @@ sources:
 
 三路 CI 的环境与未覆盖项见[测试策略](../docs/development/testing-strategy.md#ci-当前覆盖与缺口)。CI 和镜像发布是独立工作流：发布构建成功不能代替同提交 CI 汇总成功。
 
+去重初始版本回归另在 CI Worker 与镜像发布 validate 中显式设置 `QUEUE_KERNEL_TEST_DATABASE_URL`，运行检测／审核 PostgreSQL 套件，以及从检查、预览、授权到原件删除的初始版本用例。这些用例不依赖 `DATABASE_URL` 的隐式回退；其他仅接受专用连接变量的测试未因此全部启用。
+
 ## 镜像发布链
 
 1. `validate`：Prisma generate/validate、PostgreSQL 全迁移及 status、Worker 依赖链 typecheck/test/build。执行文件操作测试前，单独运行 `node packages/pixishelf-worker/scripts/build-dedup-native.mjs` 准备原生模块；不通过提前构建全部共享包来满足测试。

@@ -156,6 +156,32 @@ async function animationOriginals(ids: number[]) {
 }
 const current = (op: Pick<Op, 'id'>) => db!.artworkDedupOperation.findUniqueOrThrow({ where: { id: op.id } })
 describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
+  it.each((['EXACT', 'CONTAINS'] as const).flatMap(kind =>
+    (['MANUAL_CREATE', 'LOCAL_DIRECTORY', 'PIXIV_SCAN', 'URL_ARCHIVE'] as const).map(source => ({ kind, source }))
+  ))('deletes legacy zero-version $kind / $source copies through scan, preview, authorization and execution', async ({ kind, source }) => {
+    const op = await prepared([source, kind === 'EXACT' ? source : 'LOCAL_DIRECTORY'], 1, 1, async ids => {
+      if (kind === 'CONTAINS') {
+        const image = await db!.image.findFirstOrThrow({ where: { artworkId: ids[1]! } })
+        const relative = `${path.posix.dirname(image.path)}/extra.bin`
+        await fs.writeFile(path.join(root, relative), 'legacy-extra-original')
+        await db!.image.create({ data: { artworkId: ids[1]!, path: relative, sortOrder: 9 } })
+      }
+      await db!.artworkContentSource.deleteMany({ where: { artworkId: { in: ids } } })
+    })
+    const items = await db!.artworkDedupOperationArtwork.findMany({ where: { operationId: op.id } })
+    expect(items).toHaveLength(2)
+    expect(items.every(item => item.snapshotRevision === 0n && item.mediaEpoch === 0n)).toBe(true)
+    expect(await db!.artworkContentSource.count({ where: { artworkId: { in: items.map(item => item.artworkId) } } })).toBe(0)
+    const keeper = items.find(item => item.role === 'KEEPER')!, copy = items.find(item => item.role === 'COPY')!
+    const keptFiles = await db!.artworkDedupOperationFile.findMany({ where: { operationId: op.id, artworkId: keeper.artworkId, role: 'MEDIA' } })
+    const bytes = await Promise.all(keptFiles.map(file => fs.readFile(path.join(root, file.canonicalPath))))
+    const job = await start(op)
+    await executeArtworkDedupDirectDelete(executionContext<ArtworkDedupMaintenancePayload>(job), deps())
+    expect(await current(op)).toMatchObject({ status: 'DELETED', errorCode: null })
+    expect(await db!.artwork.findUnique({ where: { id: copy.artworkId } })).toBeNull()
+    expect(await db!.artwork.findUnique({ where: { id: keeper.artworkId } })).not.toBeNull()
+    for (const [index, file] of keptFiles.entries()) expect(await fs.readFile(path.join(root, file.canonicalPath))).toEqual(bytes[index])
+  }, 30_000)
   it.each([0, 1])('F01 deletes only the discarded partial side with keeper index %i', async keeperIndex => {
     const op = await prepared(['MANUAL_CREATE', 'MANUAL_CREATE'], 5, 1, async ids => {
       const image = await db!.image.findFirstOrThrow({ where: { artworkId: ids[1]! }, orderBy: { sortOrder: 'desc' } })
