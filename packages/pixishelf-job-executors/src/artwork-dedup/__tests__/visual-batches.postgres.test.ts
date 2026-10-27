@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { beforeAll, afterAll, describe, expect, it } from 'vitest'
 import { PrismaClient, Prisma, captureArtworkContentSnapshot, captureMediaContentDirectory, resetArtworkDedupVisualWork, ARTWORK_DEDUP_RELATION_CACHE_VERSION } from '@pixishelf/db'
 import { scanBatchedVisualVersions } from '../visual-batches.ts'
 import { matchVisualPages, type VisualPage } from '../visual-matching.ts'
 import type { DedupPipelineContext } from '../pipeline.ts'
+import { VisualSqlProfile } from './visual-sql-profile.ts'
 
 // Synthetic features exercise the real persisted index/query path, not image decoding.
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
@@ -12,6 +13,9 @@ const db = url ? new PrismaClient({ datasourceUrl: url, log: [{ emit: 'event', l
 const suite = url ? describe.sequential : describe.skip
 const prefix = `visual-batches-${randomUUID()}`
 const artistIds: number[] = [], runIds: string[] = [], jobIds: string[] = []
+const directoryPrefixes = [prefix]
+let preserveFixture = false
+let sqlProfile: VisualSqlProfile | undefined
 let metrics: { queries: number; writes: number; transactions: number; maxMediaTake: number } | undefined
 let rootIdentity = prefix
 beforeAll(async () => { if (db) rootIdentity = (await db.mediaContentDirectoryState.findUnique({ where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } } }))?.rootIdentity ?? prefix })
@@ -20,6 +24,7 @@ let checkpointWrites = 0
 let failCommit = false
 
 db?.$on('query', event => {
+  sqlProfile?.event(event.query, event.duration)
   if (metrics) {
     metrics.queries++
     if (/^(INSERT|UPDATE|DELETE)/.test(event.query.trim())) metrics.writes++
@@ -32,11 +37,12 @@ db?.$on('query', event => {
 })
 afterAll(async () => {
   if (!db) return
+  if (preserveFixture) { await db.$disconnect(); return }
   await db.artworkDedupRun.deleteMany({ where: { id: { in: runIds } } })
   await db.systemJob.deleteMany({ where: { id: { in: jobIds } } })
   await db.artwork.deleteMany({ where: { creators: { some: { artistId: { in: artistIds } } } } })
   await db.artist.deleteMany({ where: { id: { in: artistIds } } })
-  await db.mediaContentDirectoryState.deleteMany({ where: { OR: [{ relativeDirectory: prefix }, ...(rootIdentity === prefix ? [{ rootIdentity: prefix }] : [])] } })
+  await db.mediaContentDirectoryState.deleteMany({ where: { OR: [{ relativeDirectory: { in: directoryPrefixes } }, ...(rootIdentity === prefix ? [{ rootIdentity: prefix }] : [])] } })
   await db.$disconnect()
 }, 120_000)
 function views(seed: number) {
@@ -71,24 +77,43 @@ async function fixture(count: number, groupSize = 1000, dense = false) {
     sourcePath: `${prefix}/${p.artworkId}/${p.index}.png`, sourceRevision: 0n, logicalRoot: 'source-media:v1', rootIdentity, relativeDirectory: prefix,
     directoryId: directory.value.directoryId, directoryGeneration: directory.value.generation, canonicalPath: `${prefix}/${p.artworkId}/${p.index}.png`, size: p.size, sha256: p.sha256,
     visualStatus: 'READY', visualViews: p.views as unknown as Prisma.InputJsonValue })) })
+  return { ...fixtureContext(run.id, jobId), pages, runId: run.id, artistId: artist.id }
+}
+function fixtureContext(runId: string, jobId: string) {
   let candidateReads = 0
-  const measuredDb = db!.$extends({ query: { artworkDedupMedia: { async findMany({ args, query }) {
+  const measuredDb = db!.$extends({ query: { artworkDedupRun: { async findUnique({ args, query }) {
     const result = await query(args)
-    if (args.include?.item && args.where?.imageId && typeof args.where.imageId === 'object' && 'in' in args.where.imageId) candidateReads++
+    if (result) sqlProfile?.readRun(result.visualCheckpoint)
+    return result
+  } }, artwork: { async findMany({ args, query }) {
+    const ids = args.where?.id
+    if (ids && typeof ids === 'object' && Array.isArray(ids.in)) sqlProfile?.guardArtworks(ids.in.length)
+    return query(args)
+  } }, artworkDedupMedia: { async findFirst({ args, query }) {
+    const result = await query(args)
+    if (args.include?.item && result) sqlProfile?.features('queryRows', 1)
+    return result
+  }, async findMany({ args, query }) {
+    const result = await query(args)
+    if (args.include?.item && args.where?.imageId && typeof args.where.imageId === 'object' && 'in' in args.where.imageId) { candidateReads++; sqlProfile?.features('candidateRows', result.length) }
+    else if (args.include?.item) sqlProfile?.features('queryRows', result.length)
     if (metrics) metrics.maxMediaTake = Math.max(metrics.maxMediaTake, result.length)
     return result
   } } } })
   const context: DedupPipelineContext = {
-    execution: { runId: run.id, jobId, executionVersion: 1 }, signal: new AbortController().signal, forceRead: true,
+    execution: { runId, jobId, executionVersion: 1 }, signal: new AbortController().signal, forceRead: true,
     roots: {} as DedupPipelineContext['roots'], reader: { visual() { throw new Error('Synthetic features must never decode') } } as unknown as DedupPipelineContext['reader'], shouldYield: () => false,
-    transaction: operation => measuredDb.$transaction(async tx => {
+    transaction: async operation => {
+      sqlProfile?.begin()
+      try { return await measuredDb.$transaction(async tx => {
       const before = checkpointWrites
       const result = await operation(tx as unknown as Prisma.TransactionClient)
       if (failCommit && checkpointWrites > before) { failCommit = false; throw new Error('Injected transaction rollback') }
       return result
-    }, { timeout: 120_000 })
+      }, { timeout: 120_000 }) } finally { sqlProfile?.end() }
+    }
   }
-  return { context, pages, runId: run.id, artistId: artist.id, candidateReads: () => candidateReads }
+  return { context, candidateReads: () => candidateReads }
 }
 async function results(runId: string) {
   return (await db!.artworkDedupVisualPair.findMany({ where: { runId }, orderBy: [{ leftArtworkId: 'asc' }, { rightArtworkId: 'asc' }], include: { pages: { orderBy: { ordinal: 'asc' } } } })).map(p => ({ left: p.leftArtworkId, right: p.rightArtworkId, pages: p.pages.map(row => [row.kind, row.leftImageId, row.rightImageId]) }))
@@ -232,6 +257,177 @@ suite('F03 persistent visual batches', () => {
       }
     }
   }, 120_000)
+
+  it('groups query prefixes, rolls the group back, and honors an immediate yield without candidate counts', async () => {
+    const test = await fixture(24)
+    await advanceTo(test.context, 'QUERY')
+    await scanBatchedVisualVersions({ ...test.context, shouldYield: () => true })
+    const first = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+    expect(first.visualCheckpoint).toMatchObject({ queryAfter: test.pages[0]!.imageId, queryImageId: 0 })
+    failCommit = true
+    await expect(scanBatchedVisualVersions(test.context)).rejects.toThrow('Injected transaction rollback')
+    expect((await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })).visualCheckpoint).toEqual(first.visualCheckpoint)
+    const profile = new VisualSqlProfile(), beforeWrites = checkpointWrites
+    sqlProfile = profile
+    try { await scanBatchedVisualVersions({ ...test.context, shouldYield: () => checkpointWrites > beforeWrites }) } finally { sqlProfile = undefined }
+    const next = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+    expect(next.visualCheckpoint).toMatchObject({ queryAfter: test.pages[8]!.imageId, queryImageId: 0 })
+    expect(profile.result().bounds).toMatchObject({ queryRows: 8 })
+    expect(profile.result().statements.filter(row => row.tables.includes('ArtworkDedupVisualCandidate'))).toHaveLength(0)
+    expect(await scanBatchedVisualVersions(test.context)).toBe(true)
+  })
+
+  it('merges new and existing pair edges once while retaining the old partial-query cursor', async () => {
+    const test = await fixture(24, 12, true)
+    await advanceTo(test.context, 'QUERY')
+    for (let iteration = 0; iteration < 2; iteration++) {
+      const beforeWrites = checkpointWrites, profile = new VisualSqlProfile()
+      sqlProfile = profile
+      try { await scanBatchedVisualVersions({ ...test.context, shouldYield: () => checkpointWrites > beforeWrites }) } finally { sqlProfile = undefined }
+      const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+      const pair = await db!.artworkDedupVisualCandidate.findFirstOrThrow({ where: { runId: test.runId } })
+      expect(run.visualComparedComparisons).toBe((iteration + 1) * 24)
+      expect(pair.edges).toHaveLength((iteration + 1) * 24)
+      expect(run.visualCheckpoint).toMatchObject({ version: 1, queryImageId: test.pages[iteration ? 4 : 2]!.imageId, candidateAfter: test.pages[iteration ? 3 : 1]!.imageId })
+      const candidateSql = profile.result().statements.filter(row => row.tables.includes('ArtworkDedupVisualCandidate'))
+      expect(candidateSql.filter(row => row.sql.includes('COUNT(*)')).reduce((sum, row) => sum + row.count, 0)).toBe(iteration ? 0 : 1)
+      expect(candidateSql.filter(row => row.operation === (iteration ? 'UPDATE' : 'INSERT')).reduce((sum, row) => sum + row.count, 0)).toBe(1)
+    }
+    const legacy = await matchVisualPages(test.pages, async () => {})
+    expect(await scanBatchedVisualVersions({ ...test.context })).toBe(true)
+    expect(await results(test.runId)).toEqual(expected(legacy.pairs))
+    expect((await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })).visualComparedComparisons).toBe(legacy.comparedComparisons)
+  })
+
+  it('stops at 51 guarded artworks without skipping the unaccepted candidate suffix', async () => {
+    const test = await fixture(55, 1, true)
+    for (const page of test.pages.slice(0, 7)) await db!.artworkDedupMedia.update({ where: { runId_artworkId_imageId: { runId: test.runId, artworkId: page.artworkId, imageId: page.imageId } }, data: { visualViews: views(0).map(view => ({ ...view, feature: { ...view.feature, information: Array<number>(10).fill(0) } })) } })
+    await advanceTo(test.context, 'QUERY')
+    const beforeWrites = checkpointWrites, profile = new VisualSqlProfile()
+    sqlProfile = profile
+    try { await scanBatchedVisualVersions({ ...test.context, shouldYield: () => checkpointWrites > beforeWrites }) } finally { sqlProfile = undefined }
+    const first = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+    expect(first.visualCheckpoint).toMatchObject({ queryAfter: test.pages[6]!.imageId, queryImageId: test.pages[7]!.imageId, candidateAfter: test.pages[50]!.imageId })
+    expect(first.visualComparedComparisons).toBe(43)
+    expect(profile.result().bounds).toEqual({ queryRows: 8, candidateRows: 48, queryAndCandidateRows: 56, guardArtworks: 51 })
+    await scanBatchedVisualVersions({ ...test.context, shouldYield: () => true })
+    const next = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+    expect(next.visualCheckpoint).toMatchObject({ queryAfter: test.pages[7]!.imageId, queryImageId: 0, candidateAfter: 0 })
+    expect(next.visualComparedComparisons).toBe(47)
+  }, 60_000)
+
+  it.each(['posting', 'candidate', 'comparison', 'pair'] as const)('commits an earlier valid query before a later %s budget failure', async budget => {
+    const test = await fixture(4, 1)
+    for (const [index, page] of test.pages.entries()) await db!.artworkDedupMedia.update({ where: { runId_artworkId_imageId: { runId: test.runId, artworkId: page.artworkId, imageId: page.imageId } }, data: { visualViews: views(index % 2) } })
+    await advanceTo(test.context, 'QUERY')
+    if (budget === 'posting' || budget === 'candidate') {
+      const own = await db!.artworkDedupVisualPosting.findMany({ where: { runId: test.runId, imageId: test.pages[0]!.imageId } })
+      const second = await db!.artworkDedupVisualPosting.findMany({ where: { runId: test.runId, imageId: test.pages[1]!.imageId } })
+      const key = second.find(row => !own.some(first => first.key === row.key))!.key
+      await db!.artworkDedupVisualPosting.createMany({ data: Array.from({ length: budget === 'posting' ? 5001 : 2001 }, (_, i) => ({ runId: test.runId, key, imageId: 1_000_000_000 + i, multiplicity: budget === 'posting' ? 4 : 1 })) })
+    }
+    if (budget === 'comparison') await db!.artworkDedupRun.update({ where: { id: test.runId }, data: { visualComparedComparisons: 199_999 } })
+    if (budget === 'pair') await db!.artworkDedupVisualCandidate.createMany({ data: Array.from({ length: 999 }, (_, i) => ({ runId: test.runId, leftArtworkId: 1_000_000_000 + i, rightArtworkId: 1_000_001_000 + i })) })
+    const beforeWrites = checkpointWrites
+    expect(await scanBatchedVisualVersions({ ...test.context, shouldYield: () => checkpointWrites > beforeWrites })).toBe(false)
+    const prefix = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+    expect(prefix.visualCheckpoint).toMatchObject({ queryAfter: test.pages[0]!.imageId, queryImageId: 0 })
+    expect(prefix.visualComparedComparisons).toBe(budget === 'comparison' ? 200_000 : 1)
+    const edges = await db!.artworkDedupVisualCandidate.findUniqueOrThrow({ where: { runId_leftArtworkId_rightArtworkId: { runId: test.runId, leftArtworkId: test.pages[0]!.artworkId, rightArtworkId: test.pages[2]!.artworkId } } })
+    expect(edges.edges).toEqual([[test.pages[0]!.imageId, test.pages[2]!.imageId]])
+    expect(await scanBatchedVisualVersions(test.context)).toBe(true)
+    const failed = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+    expect(failed.visualCheckpoint).toEqual(prefix.visualCheckpoint)
+    expect(failed.visualIncompleteReasons).toEqual([`VISUAL_${budget.toUpperCase()}_BUDGET`])
+    expect(failed.visualComparedComparisons).toBe(prefix.visualComparedComparisons)
+  }, 30_000)
+
+  it.skipIf(process.env.ARTWORK_DEDUP_VISUAL_PROFILE_EXCLUSIVE !== '1')('profiles bounded SQL phases and preserves one representative fixture for A/B', async () => {
+    const mode = process.env.ARTWORK_DEDUP_VISUAL_PROFILE_MODE ?? 'probe'
+    const output = process.env.ARTWORK_DEDUP_VISUAL_PROFILE_OUTPUT
+    const baselinePath = process.env.ARTWORK_DEDUP_VISUAL_PROFILE_BASELINE
+    if (!output || !['probe', 'baseline', 'optimized'].includes(mode)) throw new Error('Explicit profiling output and mode are required')
+    const count = mode === 'probe' ? 120 : 10_001
+    const sourceSha256 = createHash('sha256').update(await readFile(new URL('../visual-batches.ts', import.meta.url))).digest('hex')
+    const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v)).digest('hex')
+    type Initial = Pick<Prisma.ArtworkDedupRunGetPayload<Record<string, never>>, 'stage' | 'visualStatus' | 'visualIncompleteReasons' | 'visualCandidatePairs' | 'visualComparedComparisons' | 'visualReusedComparisons'>
+    type Manifest = { runId: string; jobId: string; artistId: number; prefix: string; count: number; fixtureSha256: string; initial: Initial; resultSha256: string }
+    let baseline: Manifest | undefined
+    let runId: string, jobId: string, artistId: number, fixturePrefix: string, initial: Initial
+    let context: DedupPipelineContext
+    if (mode === 'optimized') {
+      if (!baselinePath) throw new Error('The completed baseline manifest is required')
+      baseline = JSON.parse(await readFile(baselinePath, 'utf8')) as Manifest
+      const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: baseline.runId } })
+      if (baseline.count !== count || !baseline.prefix.startsWith('visual-batches-') || run.requestedBy !== baseline.prefix || run.jobId !== baseline.jobId || run.artistId !== baseline.artistId || run.stage !== 'DONE' || run.visualStatus !== 'COMPLETE') throw new Error('Saved fixture identity/status mismatch')
+      ;({ runId, jobId, artistId, prefix: fixturePrefix, initial } = baseline)
+      preserveFixture = true
+      runIds.push(runId); jobIds.push(jobId); artistIds.push(artistId); directoryPrefixes.push(fixturePrefix)
+      context = fixtureContext(runId, jobId).context
+    } else {
+      if (mode === 'baseline') {
+        try { await readFile(output); throw new Error('Refusing to replace an existing baseline manifest') } catch (error) {
+          if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+        }
+      }
+      const test = await fixture(count, mode === 'probe' ? 60 : 1000)
+      ;({ runId, artistId, context } = test)
+      jobId = context.execution.jobId; fixturePrefix = prefix
+      const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: runId } })
+      initial = { stage: run.stage, visualStatus: run.visualStatus, visualIncompleteReasons: run.visualIncompleteReasons, visualCandidatePairs: run.visualCandidatePairs, visualComparedComparisons: run.visualComparedComparisons, visualReusedComparisons: run.visualReusedComparisons }
+    }
+    const inputDigest = async () => {
+      const items = await db!.artworkDedupItem.findMany({ where: { runId }, orderBy: { artworkId: 'asc' }, select: { artworkId: true, status: true, frozenMediaRevision: true, snapshotRevision: true, mediaEpoch: true, memberCount: true } })
+      const ids = items.map(item => item.artworkId)
+      return digest({ items,
+        media: await db!.artworkDedupMedia.findMany({ where: { runId }, orderBy: { imageId: 'asc' } }),
+        images: await db!.image.findMany({ where: { artworkId: { in: ids } }, orderBy: { id: 'asc' }, include: { contentSource: true } }),
+        artworks: await db!.artwork.findMany({ where: { id: { in: ids } }, orderBy: { id: 'asc' }, include: { contentSource: true } }),
+        directories: await db!.mediaContentDirectoryState.findMany({ where: { logicalRoot: 'source-media:v1', relativeDirectory: { in: ['', fixturePrefix] } }, orderBy: { relativeDirectory: 'asc' } })
+      })
+    }
+    const fixtureSha256 = await inputDigest()
+    if (baseline) {
+      expect(fixtureSha256).toBe(baseline.fixtureSha256)
+      await db!.$transaction(async tx => {
+        await resetArtworkDedupVisualWork(tx, runId)
+        await tx.artworkDedupVisualPair.deleteMany({ where: { runId } })
+        await tx.artworkDedupItem.updateMany({ where: { runId }, data: { visualSignature: null } })
+        await tx.artworkDedupRun.update({ where: { id: runId }, data: initial })
+      })
+      expect(await inputDigest()).toBe(fixtureSha256)
+    }
+    const profile = new VisualSqlProfile()
+    sqlProfile = profile
+    metrics = { queries: 0, writes: 0, transactions: 0, maxMediaTake: 0 }
+    const started = performance.now(), heapStart = process.memoryUsage().heapUsed
+    measurementStarted = started; measurementCount = count
+    let peakHeap = heapStart
+    const sample = setInterval(() => { peakHeap = Math.max(peakHeap, process.memoryUsage().heapUsed) }, 20)
+    let measured: { elapsedMs: number; heapStart: number; peakHeap: number; maxRssBytes: number; queries: number; writes: number; transactions: number; maxMediaTake: number }
+    try {
+      expect(await scanBatchedVisualVersions(context, count)).toBe(true)
+      measured = { elapsedMs: Math.round(performance.now() - started), heapStart, peakHeap, maxRssBytes: process.resourceUsage().maxRSS * 1024, ...metrics }
+    } finally { clearInterval(sample); metrics = undefined; sqlProfile = undefined }
+    expect(await inputDigest()).toBe(fixtureSha256)
+    const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: runId } })
+    const outcome = { status: run.visualStatus, reasons: run.visualIncompleteReasons, compared: run.visualComparedComparisons, reused: run.visualReusedComparisons, candidates: run.visualCandidatePairs, results: await results(runId), postings: await db!.artworkDedupVisualPosting.count({ where: { runId } }) }
+    expect(outcome.status).toBe('COMPLETE')
+    expect(outcome.postings).toBe(count * 40)
+    if (count === 10_001) { expect(outcome.results).toHaveLength(1); expect(outcome.compared).toBe(27_536) }
+    const resultSha256 = digest(outcome)
+    if (baseline) expect(resultSha256).toBe(baseline.resultSha256)
+    expect(profile.result().bounds.queryRows).toBeLessThanOrEqual(8)
+    expect(profile.result().bounds.candidateRows).toBeLessThanOrEqual(50)
+    expect(profile.result().bounds.queryAndCandidateRows).toBeLessThanOrEqual(58)
+    expect(profile.result().bounds.guardArtworks).toBeLessThanOrEqual(51)
+    const summary = { mode, runId, jobId, artistId, prefix: fixturePrefix, count, initial, fixtureSha256, resultSha256,
+      sourceSha256,
+      measured, outcome, profile: profile.result() }
+    await writeFile(output, JSON.stringify(summary, null, 2) + '\n')
+    preserveFixture = mode === 'baseline'
+    console.info('F03_SQL_PROFILE ' + JSON.stringify({ mode, count, fixtureSha256, resultSha256, measured, output }))
+  }, 900_000)
 
   // Explicit single-fixture A/B: the saved baseline module is supplied by the
   // reproduction script, and neither version can access original media.

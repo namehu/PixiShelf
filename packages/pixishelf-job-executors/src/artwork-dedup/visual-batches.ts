@@ -153,75 +153,155 @@ async function snapshotReuse(context: DedupPipelineContext, run: Run, checkpoint
   })
 }
 
-/** The dispatch transaction already holds the validated run fence. Read one
- * bounded candidate block here, then release it before visual comparison. */
-async function readQuery(tx: Tx, run: Run, checkpoint: Checkpoint) {
-  const page = await tx.artworkDedupMedia.findFirst({ where: { runId: run.id, imageId: checkpoint.queryImageId ? checkpoint.queryImageId : { gt: checkpoint.queryAfter }, item: { visualSignature: { not: null } } }, orderBy: { imageId: 'asc' }, include: { item: { select: { visualReuseSignature: true } } } })
-  if (!page) return null
-  if (!validVisualViews(page.visualViews)) return changed()
-  let ids: number[]
-  if (checkpoint.queryImageId) ids = checkpoint.queryCandidates.filter(id => id > checkpoint.candidateAfter)
-  else {
-    const keys = [...new Set(keyIndex.keys(page.visualViews))]
-    const postings = keys.length ? await tx.artworkDedupVisualPosting.findMany({ where: { runId: run.id, key: { in: keys } }, take: VISUAL_LIMITS.queryPostings + 1 }) : []
-    if (postings.reduce((total, row) => total + row.multiplicity, 0) > VISUAL_LIMITS.queryPostings) fail('VISUAL_POSTING_BUDGET')
-    ids = [...new Set(postings.map(p => p.imageId))].sort((a, b) => a - b)
-    if (ids.length > VISUAL_LIMITS.queryCandidates) fail('VISUAL_CANDIDATE_BUDGET')
-    checkpoint.queryImageId = page.imageId; checkpoint.queryCandidates = ids
+const QUERY_GROUP_QUERIES = 8
+const QUERY_GROUP_CANDIDATES = 50
+const QUERY_GROUP_ARTWORKS = 51
+const QUERY_GROUP_ASSEMBLY_MS = 100
+
+/** Only run-local reads share this fence. Comparison remains outside it, and
+ * the commit independently guards every accepted query/candidate artwork. */
+async function readQuery(tx: Tx, context: DedupPipelineContext, run: Run, checkpoint: Checkpoint) {
+  const started = performance.now()
+  const pages = await tx.artworkDedupMedia.findMany({ where: { runId: run.id, imageId: checkpoint.queryImageId ? { gte: checkpoint.queryImageId } : { gt: checkpoint.queryAfter }, item: { visualSignature: { not: null } } }, orderBy: { imageId: 'asc' }, take: QUERY_GROUP_QUERIES, include: { item: { select: { visualReuseSignature: true } } } })
+  if (checkpoint.queryImageId && pages[0]?.imageId !== checkpoint.queryImageId) changed()
+  if (!pages.length) return null
+  type Page = (typeof pages)[number]
+  const plans: Array<{ page: Page; allIds: number[]; ids: number[]; blockIds: number[] }> = []
+  let remaining = QUERY_GROUP_CANDIDATES
+  for (const page of pages) {
+    throwIfAborted(context.signal)
+    if (plans.length && (performance.now() - started >= QUERY_GROUP_ASSEMBLY_MS || context.shouldYield())) break
+    if (!validVisualViews(page.visualViews)) return changed()
+    let allIds: number[]
+    if (page.imageId === checkpoint.queryImageId) allIds = checkpoint.queryCandidates
+    else {
+      const keys = [...new Set(keyIndex.keys(page.visualViews))]
+      const postings = keys.length ? await tx.artworkDedupVisualPosting.findMany({ where: { runId: run.id, key: { in: keys } }, take: VISUAL_LIMITS.queryPostings + 1 }) : []
+      const reason = postings.reduce((total, row) => total + row.multiplicity, 0) > VISUAL_LIMITS.queryPostings ? 'VISUAL_POSTING_BUDGET' : null
+      allIds = [...new Set(postings.map(p => p.imageId))].sort((a, b) => a - b)
+      const budget = reason ?? (allIds.length > VISUAL_LIMITS.queryCandidates ? 'VISUAL_CANDIDATE_BUDGET' : null)
+      if (budget) {
+        // Commit the earlier valid queries first. This page is read again and
+        // reports its intrinsic budget failure without losing that prefix.
+        if (plans.length) break
+        fail(budget)
+      }
+    }
+    const ids = page.imageId === checkpoint.queryImageId ? allIds.filter(id => id > checkpoint.candidateAfter) : allIds
+    const blockIds = ids.slice(0, remaining)
+    plans.push({ page, allIds, ids, blockIds })
+    remaining -= blockIds.length
+    if (!remaining) break
   }
-  const blockIds = ids.slice(0, 50)
-  const candidates = blockIds.length ? await tx.artworkDedupMedia.findMany({ where: { runId: run.id, imageId: { in: blockIds } }, orderBy: { imageId: 'asc' }, include: { item: { select: { visualReuseSignature: true } } } }) : []
-  if (candidates.length !== blockIds.length) changed()
-  return { page, ids, blockIds, candidates }
+  const ids = [...new Set(plans.flatMap(plan => plan.blockIds))]
+  const candidates = ids.length ? await tx.artworkDedupMedia.findMany({ where: { runId: run.id, imageId: { in: ids } }, orderBy: { imageId: 'asc' }, include: { item: { select: { visualReuseSignature: true } } } }) : []
+  if (candidates.length !== ids.length) changed()
+  const byId = new Map(candidates.map(candidate => [candidate.imageId, candidate]))
+  const artworks = new Set<number>()
+  const blocks: Array<{ page: Page; candidates: Page[]; checkpoint: Checkpoint }> = []
+  let cursor = { ...checkpoint }
+  for (const plan of plans) {
+    if (!artworks.has(plan.page.artworkId) && artworks.size === QUERY_GROUP_ARTWORKS) break
+    artworks.add(plan.page.artworkId)
+    const accepted: Page[] = []
+    for (const id of plan.blockIds) {
+      const candidate = byId.get(id)!
+      if (!artworks.has(candidate.artworkId) && artworks.size === QUERY_GROUP_ARTWORKS) break
+      artworks.add(candidate.artworkId)
+      accepted.push(candidate)
+    }
+    if (accepted.length === plan.ids.length) cursor = { ...cursor, queryAfter: plan.page.imageId, candidateAfter: 0, queryImageId: 0, queryCandidates: [] }
+    else cursor = { ...cursor, queryImageId: plan.page.imageId, queryCandidates: plan.allIds, candidateAfter: accepted.at(-1)?.imageId ?? (plan.page.imageId === checkpoint.queryImageId ? checkpoint.candidateAfter : 0) }
+    blocks.push({ page: plan.page, candidates: accepted, checkpoint: cursor })
+    if (cursor.queryImageId) break
+  }
+  return blocks
 }
 
-async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint, query: Awaited<ReturnType<typeof readQuery>>) {
-  if (!query) {
+async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint, queries: Awaited<ReturnType<typeof readQuery>>) {
+  if (!queries) {
     checkpoint.phase = 'PAIR'
     await context.transaction(async tx => { await assertArtworkDedupExecution(tx, context.execution); await save(tx, run.id, checkpoint) })
     return
   }
-  // A short prefix commits edges, budget counters and the candidate cursor together.
-  const { blockIds: ids, candidates } = query
-  const additions = new Map<number, Array<[number, number]>>()
+  type Addition = { leftArtworkId: number; rightArtworkId: number; edges: Array<[number, number]> }
+  const processed: Array<{ query: NonNullable<typeof queries>[number]; additions: Map<string, Addition>; reused: number; compared: number }> = []
   let reused = 0, compared = 0
-  for (const b of candidates) {
-    throwIfAborted(context.signal)
-    if (query.page.artworkId >= b.artworkId) continue
-    if (run.visualReusedComparisons + run.visualComparedComparisons + reused + compared >= VISUAL_LIMITS.comparisons) fail('VISUAL_COMPARISON_BUDGET')
-    if (query.page.item.visualReuseSignature && b.item.visualReuseSignature) { reused++; continue }
-    compared++
-    if (!validVisualViews(b.visualViews)) changed()
-    if (!compareProductionVisual(query.page.visualViews as unknown as VisualPage['views'], b.visualViews as unknown as VisualPage['views']).matched) continue
-    const edges = additions.get(b.artworkId) ?? []
-    edges.push([query.page.imageId, b.imageId]); additions.set(b.artworkId, edges)
+  for (const query of queries) {
+    if (processed.length && context.shouldYield()) break
+    const blockAdditions = new Map<string, Addition>()
+    let blockReused = 0, blockCompared = 0
+    try {
+      for (const b of query.candidates) {
+        throwIfAborted(context.signal)
+        if (query.page.artworkId >= b.artworkId) continue
+        if (run.visualReusedComparisons + run.visualComparedComparisons + reused + compared + blockReused + blockCompared >= VISUAL_LIMITS.comparisons) fail('VISUAL_COMPARISON_BUDGET')
+        if (query.page.item.visualReuseSignature && b.item.visualReuseSignature) { blockReused++; continue }
+        blockCompared++
+        if (!validVisualViews(b.visualViews)) changed()
+        if (!compareProductionVisual(query.page.visualViews as unknown as VisualPage['views'], b.visualViews as unknown as VisualPage['views']).matched) continue
+        const key = `${query.page.artworkId}:${b.artworkId}`
+        const entry = blockAdditions.get(key) ?? { leftArtworkId: query.page.artworkId, rightArtworkId: b.artworkId, edges: [] }
+        entry.edges.push([query.page.imageId, b.imageId]); blockAdditions.set(key, entry)
+      }
+    } catch (error) {
+      if (error instanceof VisualBudget && processed.length) break
+      throw error
+    }
+    compared += blockCompared; reused += blockReused
+    processed.push({ query, additions: blockAdditions, compared: blockCompared, reused: blockReused })
+  }
+  const combine = (blocks: typeof processed) => {
+    const additions = new Map<string, Addition>(), artworkIds = new Set<number>()
+    let compared = 0, reused = 0
+    for (const block of blocks) {
+      for (const [key, entry] of block.additions) {
+        const existing = additions.get(key)
+        if (existing) existing.edges.push(...entry.edges)
+        else additions.set(key, { ...entry, edges: [...entry.edges] })
+      }
+      compared += block.compared; reused += block.reused
+      artworkIds.add(block.query.page.artworkId)
+      for (const candidate of block.query.candidates) artworkIds.add(candidate.artworkId)
+    }
+    return { additions, artworkIds: [...artworkIds], compared, reused, checkpoint: blocks.at(-1)!.query.checkpoint }
   }
   throwIfAborted(context.signal)
   await setImmediate()
   throwIfAborted(context.signal)
-  // Revalidate execution after the event-loop yield inside the commit fence;
-  // all directory/source guards remain held until edges and cursor commit.
   await context.transaction(async tx => {
     const latest = await assertArtworkDedupExecution(tx, context.execution)
-    await guardArtworks(tx, context, [query.page.artworkId, ...candidates.map(c => c.artworkId)])
-    let count = await tx.artworkDedupVisualCandidate.count({ where: { runId: run.id } })
-    for (const [rightArtworkId, edges] of additions) {
-      const where = { runId_leftArtworkId_rightArtworkId: { runId: run.id, leftArtworkId: query.page.artworkId, rightArtworkId } }
-      const existing = await tx.artworkDedupVisualCandidate.findUnique({ where })
-      if (!existing) {
-        if (++count > VISUAL_LIMITS.artworkPairs) fail('VISUAL_PAIR_BUDGET')
-        await tx.artworkDedupVisualCandidate.create({ data: { ...where.runId_leftArtworkId_rightArtworkId, edges } })
-      } else {
-        const previous = edgeSchema.parse(existing.edges)
-        if (previous.length + edges.length > VISUAL_LIMITS.comparisons) fail('VISUAL_COMPARISON_BUDGET')
-        await tx.artworkDedupVisualCandidate.update({ where, data: { edges: [...previous, ...edges] } })
+    let work = combine(processed)
+    const existing = work.additions.size ? await tx.artworkDedupVisualCandidate.findMany({ where: { runId: run.id, OR: [...work.additions.values()].map(({ leftArtworkId, rightArtworkId }) => ({ leftArtworkId, rightArtworkId })) } }) : []
+    const byPair = new Map(existing.map(candidate => [`${candidate.leftArtworkId}:${candidate.rightArtworkId}`, candidate]))
+    if ([...work.additions.keys()].some(key => !byPair.has(key))) {
+      const count = await tx.artworkDedupVisualCandidate.count({ where: { runId: run.id } })
+      const newPairs = new Set<string>()
+      let accepted = 0
+      for (const block of processed) {
+        for (const key of block.additions.keys()) if (!byPair.has(key)) newPairs.add(key)
+        if (count + newPairs.size > VISUAL_LIMITS.artworkPairs) {
+          if (!accepted) fail('VISUAL_PAIR_BUDGET')
+          break
+        }
+        accepted++
       }
+      if (accepted < processed.length) work = combine(processed.slice(0, accepted))
     }
-    if (query.ids.length <= ids.length) { checkpoint.queryAfter = query.page.imageId; checkpoint.candidateAfter = 0; checkpoint.queryImageId = 0; checkpoint.queryCandidates = [] }
-    else checkpoint.candidateAfter = ids.at(-1)!
+    await guardArtworks(tx, context, work.artworkIds)
+    const missing = [...work.additions].filter(([key]) => !byPair.has(key)).map(([, entry]) => ({ runId: run.id, ...entry }))
+    if (missing.length) await tx.artworkDedupVisualCandidate.createMany({ data: missing })
+    for (const candidate of existing) {
+      const entry = work.additions.get(`${candidate.leftArtworkId}:${candidate.rightArtworkId}`)
+      if (!entry) continue
+      const previous = edgeSchema.parse(candidate.edges)
+      if (previous.length + entry.edges.length > VISUAL_LIMITS.comparisons) fail('VISUAL_COMPARISON_BUDGET')
+      await tx.artworkDedupVisualCandidate.update({ where: { runId_leftArtworkId_rightArtworkId: { runId: run.id, leftArtworkId: candidate.leftArtworkId, rightArtworkId: candidate.rightArtworkId } }, data: { edges: [...previous, ...entry.edges] } })
+    }
+    Object.assign(checkpoint, work.checkpoint)
     throwIfAborted(context.signal)
     await tx.artworkDedupRun.update({ where: { id: run.id }, data: { visualCheckpoint: checkpoint,
-      visualReusedComparisons: latest.visualReusedComparisons + reused, visualComparedComparisons: latest.visualComparedComparisons + compared } })
+      visualReusedComparisons: latest.visualReusedComparisons + work.reused, visualComparedComparisons: latest.visualComparedComparisons + work.compared } })
   })
 }
 
@@ -323,7 +403,7 @@ export async function scanBatchedVisualVersions(context: DedupPipelineContext, f
         const run = await assertArtworkDedupExecution(tx, context.execution)
         if (!run.includeSuspectedVersions || run.visualStatus === 'COMPLETE' || run.visualStatus === 'INCOMPLETE' && run.stage === 'DONE') return null
         const checkpoint = run.visualCheckpoint === null ? { ...initialCheckpoint } : checkpointSchema.parse(run.visualCheckpoint)
-        return { run, checkpoint, query: checkpoint.phase === 'QUERY' ? await readQuery(tx, run, checkpoint) : null }
+        return { run, checkpoint, query: checkpoint.phase === 'QUERY' ? await readQuery(tx, context, run, checkpoint) : null }
       })
       if (!work) return true
       const { run, checkpoint, query } = work

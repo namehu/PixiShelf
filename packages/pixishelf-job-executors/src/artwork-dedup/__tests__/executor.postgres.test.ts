@@ -446,6 +446,35 @@ suite('durable detection executor with real isolated media', () => {
     }
   }, 30_000)
 
+  it('F03 v5 QUERY rejects a changed real lease after reading the group without committing it', async () => {
+    const artistId = await visualFixture(1)
+    const run = await start(artistId, 'INCREMENTAL', true, 5), job = await claim(run.jobId)
+    const execution = context(job), mutate = execution.mutateInTransaction.bind(execution)
+    let checkpoint: Prisma.JsonValue | undefined, changed = false
+    execution.mutateInTransaction = async <TTransaction extends QueueSqlExecutor, TResult>(operation: (tx: TTransaction) => Promise<TResult>) => {
+      const before = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
+      const result = await mutate<TTransaction, TResult>(operation)
+      if (!changed && (before.visualCheckpoint as { phase?: string } | null)?.phase === 'QUERY') {
+        checkpoint = before.visualCheckpoint
+        changed = true
+        await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: randomUUID() } })
+      }
+      return result
+    }
+    try {
+      await expect(executeArtworkDedup(execution, dependencies())).rejects.toThrow()
+      expect(changed).toBe(true)
+      const stored = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
+      expect(stored.visualCheckpoint).toEqual(checkpoint)
+      expect([stored.visualComparedComparisons, stored.visualReusedComparisons]).toEqual([0, 0])
+      expect(await db!.artworkDedupVisualCandidate.count({ where: { runId: run.runId } })).toBe(0)
+      expect(await db!.artworkDedupVisualPair.count({ where: { runId: run.runId, relationKind: 'VISUAL' } })).toBe(0)
+    } finally {
+      await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: job.leaseToken } })
+      await repository!.fail({ jobId: job.id, workerId: job.workerId, executionToken: job.executionToken, attempt: job.attempt, errorCode: 'INTERNAL_ERROR', error: 'Fixture complete' })
+    }
+  }, 30_000)
+
   it.each(['lease-expired', 'directory'] as const)('F03 v5 PUBLISH rejects %s before publishing staged evidence', async change => {
     const artistId = await visualFixture(1)
     const run = await start(artistId, 'INCREMENTAL', true, 5), job = await claim(run.jobId)
