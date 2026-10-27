@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { jobStatusSchema } from './job-types.ts'
 
-export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 4 as const
+export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 5 as const
 export const ARTWORK_DEDUP_PRIORITY = 900 as const
 export const ARTWORK_DEDUP_DEFAULTS = Object.freeze({
   mediaPageSize: 500,

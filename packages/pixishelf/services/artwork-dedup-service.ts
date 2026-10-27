@@ -5,7 +5,8 @@ import {
   ArtworkDedupConflictError,
   artworkDedupActiveStatuses,
   freezeArtworkDedupRun,
-  lockArtworkDedupRun
+  lockArtworkDedupRun,
+  resetArtworkDedupVisualWork
 } from '@pixishelf/db'
 import {
   artworkDedupRunDtoSchema,
@@ -279,6 +280,7 @@ export async function controlArtworkDedup(
         await tx.artworkDedupVisualPair.deleteMany({ where: { runId: run.id } })
         await tx.artworkDedupRelation.deleteMany({ where: { runId: run.id } })
         await tx.artworkDedupGroup.deleteMany({ where: { runId: run.id } })
+        await resetArtworkDedupVisualWork(tx, run.id)
         await tx.artworkDedupMedia.deleteMany({ where: { runId: run.id } })
         await tx.artworkDedupItem.updateMany({
           where: { runId: run.id },

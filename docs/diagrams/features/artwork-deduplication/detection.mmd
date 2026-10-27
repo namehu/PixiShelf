@@ -77,11 +77,27 @@ sequenceDiagram
         end
         Worker->>DB: 每个目标独立复核围栏和源状态，提交自身缓存与检查点
       end
-      Worker->>Worker: 重建当前索引和全部候选，含复用项重判预算
-      alt 增量检查且两端视觉摘要、代表资格及历史阶段兼容
-        Worker->>DB: 读取完整旧候选与关系，按当前图片排序投影页证据
-      else 输入／版本变化或完整检查
-        Worker->>Worker: 局部证据约束与一对一页配对
+      Note over Worker,DB: 扫描 v5 持久分段；旧 v3/v4 保持既有有界匹配路径
+      loop 按完整作品构建索引，单作品受限
+        Worker->>DB: 保存当前全局 posting、作品摘要与索引检查点
+      end
+      opt 增量检查且历史完整、版本兼容
+        Worker->>DB: 共享锁核验历史签名及代表资格，物化本次独立复用证据
+      end
+      loop 全局索引完成后，逐图查询并按候选小批提交
+        Worker->>DB: 有界读取 posting／特征；复用项仍参与当前预算
+        Worker->>DB: 原子提交候选边、累计计数和查询内部游标
+        opt 时间片到期或请求暂停
+          Worker->>DB: 安全让行；恢复只处理未提交后缀
+        end
+      end
+      loop 逐作品对加载及配对
+        alt 增量检查且两端证据兼容
+          Worker->>DB: 使用本次物化的旧配对，按当前图片顺序投影
+        else 输入／版本变化或完整检查
+          Worker->>Worker: 局部证据约束与一对一页配对
+        end
+        Worker->>DB: 配对结果与配对游标共同提交
       end
       alt 视觉阶段完整且未超预算
         Worker->>DB: 持久疑似作品对、页证据和双方未配对数量

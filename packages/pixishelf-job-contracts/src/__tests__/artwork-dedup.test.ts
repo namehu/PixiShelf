@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ARTWORK_DEDUP_DEFAULTS,
   ARTWORK_DEDUP_PRIORITY,
+  ARTWORK_DEDUP_SCAN_DEFINITION_VERSION,
   artworkDedupGetRunInputSchema,
   artworkDedupScanPayloadSchema,
   artworkDedupStartInputSchema
@@ -21,6 +22,7 @@ describe('artwork detection contract', () => {
       stallTimeoutMs: 30000
     })
     expect(ARTWORK_DEDUP_PRIORITY).toBe(900)
+    expect(ARTWORK_DEDUP_SCAN_DEFINITION_VERSION).toBe(5)
     expect(executionLaneForJobType('ARTWORK_DEDUP_SCAN')).toBe('BACKGROUND_WRITER')
     expect(parseJobPayload('ARTWORK_DEDUP_SCAN', { runId: 'run', executionVersion: 1 })).toEqual({
       runId: 'run',

@@ -1,3 +1,4 @@
+import { scanBatchedVisualVersions } from './visual-batches.ts'
 import { scanVisualVersions } from './visual-pipeline.ts'
 import { randomUUID } from 'node:crypto'
 import {
@@ -47,7 +48,7 @@ export interface ArtworkDedupDependencies {
   sliceBytes?: bigint
   onMeasurement?: (value: ReaderMetrics & { runId: string; elapsedMs: number; transactions: number }) => void
 }
-export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 | 4 = 1): ExecutorDefinition {
+export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 | 4 | 5 = 1): ExecutorDefinition {
   const supervisor = dependencies.supervisor ?? new DedupReaderSupervisor(dependencies.readerOptions)
   return {
     jobType: 'ARTWORK_DEDUP_SCAN',
@@ -216,7 +217,7 @@ export async function executeArtworkDedup(
         await transaction(tx => updateArtworkDedupRun(tx, { execution, data: { stage } }))
       }
       if (stage === 'VISUAL') {
-        if (!(await scanVisualVersions(pipeline))) break
+        if (!(await (context.job.definitionVersion >= 5 ? scanBatchedVisualVersions(pipeline) : scanVisualVersions(pipeline)))) break
         stage = 'DONE'
       }
       if (stage === 'DONE') {

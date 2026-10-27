@@ -46,7 +46,7 @@ const suite = url ? describe.sequential : describe.skip
 const prefix = `dedup-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-10-23T00:00:00Z'))
 const capabilities = [
-  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3, 4] }
+  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3, 4, 5] }
 ]
 const repository = db
   ? new PostgresQueueRepository(db as unknown as QueueDatabase, { clock, transactionTimeoutMs: 20_000 })
@@ -321,7 +321,7 @@ suite('durable detection executor with real isolated media', () => {
     console.info('F02_RELATION_BYTE ' + JSON.stringify(measurements))
   }, 120_000)
 
-  it('F02 relation visual cache measures cold hot modify-one and FULL while preserving current indexes', async () => {
+  it.each([4, 5])('F02 relation visual v%i cache measures cold hot modify-one and FULL while preserving current indexes', async (definitionVersion) => {
     const artistId = await fixture([[1], [2], [3]])
     const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
     const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71) % 255))
@@ -333,17 +333,18 @@ suite('durable detection executor with real isolated media', () => {
         const file = path.join(root, images[0]!.path)
         await fs.writeFile(file, await sharp(await fs.readFile(file)).withMetadata().png({ compressionLevel: 1 }).toBuffer())
       }
-      const run = await start(artistId, phase === 'full' ? 'FULL' : 'INCREMENTAL', true, 4)
+      const run = await start(artistId, phase === 'full' ? 'FULL' : 'INCREMENTAL', true, definitionVersion)
       const supervisor = new DedupReaderSupervisor(readerOptions), create = supervisor.create.bind(supervisor)
       let visualCalls = 0
       supervisor.create = () => { const reader = create(), visual = reader.visual.bind(reader); reader.visual = async input => { visualCalls++; return visual(input) }; return reader }
+      const started = performance.now()
       queryMeasurement = { queries: 0, transactions: 0, cacheReads: 0, cacheWrites: 0 }
       try { await executeArtworkDedup(context(await claim(run.jobId)), dependencies({ supervisor })) } finally {
-        measurements.push({ phase, ...queryMeasurement, visualCalls, reused: 0, compared: 0, bytes: '0' }); queryMeasurement = undefined
+        measurements.push({ phase, elapsedMs: Math.round(performance.now() - started), ...queryMeasurement, visualCalls, reused: 0, compared: 0, bytes: '0' }); queryMeasurement = undefined
       }
       const stored = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
       expect(stored).toMatchObject({ status: 'COMPLETED', visualStatus: 'COMPLETE', relationCacheVersion: ARTWORK_DEDUP_RELATION_CACHE_VERSION })
-      Object.assign(measurements.at(-1)!, { reused: stored.visualReusedComparisons, compared: stored.visualComparedComparisons, bytes: String(stored.readBytes) })
+      Object.assign(measurements.at(-1)!, { reused: stored.visualReusedComparisons, compared: stored.visualComparedComparisons, bytes: String(stored.readBytes), events: await db!.systemJobEvent.count({ where: { jobId: run.jobId } }), candidates: stored.visualCandidatePairs.length, postings: await db!.artworkDedupVisualPosting.count({ where: { runId: run.runId } }) })
       summaries.push((await db!.artworkDedupVisualPair.findMany({ where: { runId: run.runId }, orderBy: { leftArtworkId: 'asc' }, select: { summary: true } })).map(p => p.summary))
       if (phase === 'hot') expect(stored).toMatchObject({ visualComparedComparisons: 0, readBytes: 0n })
       if (phase === 'modify-one') { expect(stored.visualComparedComparisons).toBe(2); expect(stored.visualReusedComparisons).toBe(1) }
@@ -440,6 +441,43 @@ suite('durable detection executor with real isolated media', () => {
       if (sourceWrite) await db!.$transaction(tx => finishMediaContentSourceWrite(tx, { token: sourceWrite!, outcome: 'verified-rollback' }))
       if (change === 'lease') {
         await db!.systemJob.update({ where: { id: job.id }, data: { leaseToken: job.leaseToken } })
+        await repository!.fail({ jobId: job.id, workerId: job.workerId, executionToken: job.executionToken, attempt: job.attempt, errorCode: 'INTERNAL_ERROR', error: 'Fixture complete' })
+      }
+    }
+  }, 30_000)
+
+  it.each(['lease-expired', 'directory'] as const)('F03 v5 PUBLISH rejects %s before publishing staged evidence', async change => {
+    const artistId = await visualFixture(1)
+    const run = await start(artistId, 'INCREMENTAL', true, 5), job = await claim(run.jobId)
+    const execution = context(job), mutate = execution.mutateInTransaction.bind(execution)
+    let changed = false
+    execution.mutateInTransaction = async <TTransaction extends QueueSqlExecutor, TResult>(operation: (tx: TTransaction) => Promise<TResult>) => {
+      const stored = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
+      if (!changed && (stored.visualCheckpoint as { phase?: string } | null)?.phase === 'PUBLISH') {
+        changed = true
+        expect(await db!.artworkDedupVisualPair.count({ where: { runId: run.runId, relationKind: 'VISUAL' } })).toBe(0)
+        if (change === 'lease-expired') await db!.systemJob.update({ where: { id: job.id }, data: { leaseExpiresAt: clock.now() } })
+        else {
+          const row = await db!.artworkDedupMedia.findFirstOrThrow({ where: { runId: run.runId } })
+          await db!.mediaContentDirectoryState.update({ where: { id: row.directoryId }, data: { generation: { increment: 1 } } })
+        }
+      }
+      return mutate<TTransaction, TResult>(operation)
+    }
+    try {
+      const pending = executeArtworkDedup(execution, dependencies())
+      if (change === 'lease-expired') await expect(pending).rejects.toThrow()
+      else await pending
+      expect(changed).toBe(true)
+      const stored = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
+      expect(stored.status).not.toBe('COMPLETED')
+      expect(stored.visualStatus).not.toBe('COMPLETE')
+      expect(stored.relationCacheVersion).toBeNull()
+      expect(await db!.artworkDedupVisualPair.count({ where: { runId: run.runId, relationKind: 'VISUAL' } })).toBe(0)
+      if (change === 'directory') expect(stored).toMatchObject({ status: 'FAILED', errorCode: 'ROOT_CHANGED' })
+    } finally {
+      if (change === 'lease-expired') {
+        await db!.systemJob.update({ where: { id: job.id }, data: { leaseExpiresAt: job.leaseExpiresAt } })
         await repository!.fail({ jobId: job.id, workerId: job.workerId, executionToken: job.executionToken, attempt: job.attempt, errorCode: 'INTERNAL_ERROR', error: 'Fixture complete' })
       }
     }

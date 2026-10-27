@@ -45,12 +45,12 @@ async function incomplete(context: DedupPipelineContext, reason: string) {
   return true
 }
 /** Feature cursor commits only complete decoder output under the same scan fence. */
-export async function scanVisualVersions(context: DedupPipelineContext): Promise<boolean> {
+export async function prepareVisualVersions(context: DedupPipelineContext, fileLimit: number = VISUAL_LIMITS.files): Promise<boolean> {
   const run = await context.transaction(tx => assertArtworkDedupExecution(tx, context.execution))
   if (!run.includeSuspectedVersions) return true
   if (run.visualStatus === 'COMPLETE' || run.visualStatus === 'INCOMPLETE' && run.stage === 'DONE') return true
   const counts = await context.transaction(tx => tx.artworkDedupMedia.count({ where: { runId: run.id, item: { status: 'COMPLETE' } } }))
-  if (counts > VISUAL_LIMITS.files) return incomplete(context, 'VISUAL_FILE_BUDGET')
+  if (counts > fileLimit) return incomplete(context, 'VISUAL_FILE_BUDGET')
   for (;;) {
     throwIfAborted(context.signal)
     const page = await context.transaction(async tx => {
@@ -148,6 +148,14 @@ export async function scanVisualVersions(context: DedupPipelineContext): Promise
     })
     if (yielding || context.shouldYield()) return false
   }
+  return true
+}
+
+/** Compatibility path for scan definitions 1–4. */
+export async function scanVisualVersions(context: DedupPipelineContext): Promise<boolean> {
+  if (!(await prepareVisualVersions(context))) return false
+  const run = await context.transaction(tx => assertArtworkDedupExecution(tx, context.execution))
+  if (!run.includeSuspectedVersions || run.visualStatus === 'COMPLETE' || run.visualStatus === 'INCOMPLETE' && run.stage === 'DONE') return true
   const bounded = await context.transaction(async tx => {
     await assertArtworkDedupExecution(tx, context.execution)
     return tx.artworkDedupMedia.findMany({ where: { runId: run.id, item: { status: 'COMPLETE' } }, orderBy: [{ artworkId: 'asc' }, { imageId: 'asc' }], take: VISUAL_LIMITS.files + 1 })

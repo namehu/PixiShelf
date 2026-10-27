@@ -2712,6 +2712,9 @@ model SystemJobDiagnosticItem {
 
 // Frozen detection evidence survives subsequent Artwork/Image removal.
 model ArtworkDedupRun {
+  visualCheckpoint Json?
+  visualPostings ArtworkDedupVisualPosting[]
+  visualCandidates ArtworkDedupVisualCandidate[]
   relationCacheVersion String?
   visualCandidatePairs String[] @default([])
   originalReusedPairs Int @default(0)
@@ -2773,6 +2776,7 @@ model ArtworkDedupRun {
 }
 
 model ArtworkDedupItem {
+  visualReuseSignature String?
   visualSignature String?
   runId String
   artworkId Int
@@ -2820,6 +2824,7 @@ model ArtworkDedupMedia {
   sha256 String?
   item ArtworkDedupItem @relation(fields: [runId, artworkId], references: [runId, artworkId], onDelete: Cascade)
   @@id([runId, artworkId, imageId])
+  @@index([runId, imageId])
   @@index([runId, artworkId, size, imageId])
   @@index([runId, artworkId, size, sha256, imageId])
   @@index([runId, size, sha256, artworkId])
@@ -3170,4 +3175,25 @@ model ArtworkDedupVisualPage {
   pair ArtworkDedupVisualPair @relation(fields: [pairId], references: [id], onDelete: Cascade)
   @@id([pairId, ordinal])
   @@index([pairId, kind, ordinal])
+}
+
+// Run-local, replayable visual work. No dependency on a historical run or live Image.
+model ArtworkDedupVisualPosting {
+  runId String
+  key String
+  imageId Int
+  multiplicity Int
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@id([runId, key, imageId])
+}
+
+model ArtworkDedupVisualCandidate {
+  runId String
+  leftArtworkId Int
+  rightArtworkId Int
+  edges Json @default("[]")
+  evidence Json?
+  reused Boolean @default(false)
+  run ArtworkDedupRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  @@id([runId, leftArtworkId, rightArtworkId])
 }

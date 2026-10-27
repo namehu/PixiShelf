@@ -44,6 +44,7 @@
 
 ## 性能与接口技术债
 
+- [ ] 修复 `app/api/jobs/events/route.ts` 导出测试辅助函数导致的 Next 路由类型检查错误；在 F03 类型检查中复现，基线已存在，不与去重分批检索混改。
 - [ ] 排查批处理 artist、tag、image、raw metadata 数据库写入热点；记录是否值得改及证据，避免重复调查。
 - [ ] 逐对整理 API response 类型：Webhook GET 状态 DTO 先规划外部版本兼容，上传/分块、替换、scheduler 保留现有消费者对 `{ error }` 的依赖。目标是明确类型和稳定 `message`，不顺带改变接口行为。
 
@@ -53,5 +54,5 @@
 
 当前版先上线观察，下列项仅登记，等待逐批授权。详细范围、依赖和验收统一见[去重后续计划](./docs/design/artwork-deduplication/matching-extension.md)。
 
-- [ ] DEDUP-F03：有界跨批检索与 50 万规模完整性能验证；F02 三批缓存优化已实现，最后一批交付／部署边界见[验收记录](./docs/records/artwork-deduplication-shared-visual-cache-f02-2026-10-27.md)。
+- [ ] DEDUP-F03：继续压缩分段检索的数据库往返，再推进 10 万／50 万、密集模板、真实解码和并发业务测量。第一批 1 万／10,001 预制特征已验证有界及跨批续跑，但每档仍约 8 分钟／50 万 SQL，公开上限不提高；交付边界见[本批记录](./docs/records/artwork-deduplication-visual-batches-f03-2026-10-27.md)。
 - [ ] DEDUP-F04：收集真实版本人工真值，记录漏检/误配后再安排小改进。

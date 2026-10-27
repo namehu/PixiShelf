@@ -76,7 +76,7 @@ export function compareVisualViews(a: readonly VisualView[], b: readonly VisualV
 export class VisualViewIndex {
   private readonly buckets = new Map<string, number[]>()
   constructor(private readonly minimumInformation = 8) {}
-  private keys(views: readonly VisualView[]): string[] {
+  keys(views: readonly VisualView[]): string[] {
     const keys: string[] = []
     for (const view of views)
       for (let region = 0; region < 10; region++) {

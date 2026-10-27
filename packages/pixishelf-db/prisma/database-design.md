@@ -49,6 +49,8 @@ Image 的增删及内容相关路径/大小/归属更新通过语句级触发器
 
 readerToken 是跨暂停、失败、租约回收和进程重启保留的操作状态，不是可随缓存清除的字段。根绑定保存逻辑根、物理身份与有效归档映射；离线 reader 恢复只能在全局停写、原 token/版本/摘要一致时释放遗留占用，不能授权新根、修改文件或清除写入声明。具体协议见[第二阶段契约](../../../docs/design/artwork-deduplication/phase-2-contracts.md)，检查结果见[阶段记录](../../../docs/records/artwork-deduplication-phase-2-2026-10-23.md)。
 
+F03 局部核验日期：2026-10-27。`20261027000200_artwork_dedup_visual_batches` 新增 `ArtworkDedupVisualPosting` 与 `ArtworkDedupVisualCandidate`，只通过 run 外键级联，不依赖活跃 Image 或历史 run 继续存在。posting 的重复次数约束为 1–4，候选作品 ID 必须严格左小右大；工作数据在 run 的执行／控制围栏下写入。可空 `visualCheckpoint` 保存分段游标，item 的 `visualReuseSignature` 保存本次物化的兼容复用资格；旧 run 不回填，新字段保持空值。领域重试只清本 run 的工作表、检查点及复用资格，保留长期文件／视觉指纹缓存；正常历史清理级联工作表，不涉及独立删除证据。扫描 v5 数据库任务策略及升级边界见[去重运维](../../../docs/operations/runbooks/artwork-deduplication.md)，完整分段与失败语义见[F03 契约](../../../docs/design/artwork-deduplication/visual-batches-f03-contract.md)。
+
 ## Image 的 WebP 动画时长关系
 
 `20260924120000_add_image_animation_duration_metadata` 新增 `ImageAnimationMetadata`，`imageId` 是 Image 的一对一主键和外键，`ON DELETE CASCADE`。这是加法迁移，不回填历史 Image；缺少关系行且已被确认动画（webpAnimationStatus=2）的 WebP 才进入时长候选。`durationMs` 和源文件 size/mtime/ctime/device/inode 使用 BIGINT；前端仅在 `READY`、当前时长策略、源路径匹配且 duration 能安全转成 number 时得到时长。`status,nextRetryAt,imageId` 索引用于有界候选和失败重试，不扫描原媒体来填列表。

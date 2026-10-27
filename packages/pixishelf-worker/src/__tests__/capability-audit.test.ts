@@ -42,6 +42,16 @@ describe('production Worker capability audit', () => {
     }
   )
 
+  it('rejects a previous scan inventory that cannot execute persisted visual batches', async () => {
+    const previousInventory = PRODUCTION_WORKER_CAPABILITIES.map((capability) =>
+      capability.jobType === 'ARTWORK_DEDUP_SCAN' ? { ...capability, definitionVersions: [1, 2, 3, 4] } : capability
+    )
+
+    await expect(
+      auditProductionWorkerCapabilities(database(vi.fn().mockResolvedValue([{ capabilities: previousInventory }])))
+    ).rejects.toThrow(`${expectedJobTypes}-job/${expectedVersions}-version three-lane release`)
+  })
+
   it('rejects missing, duplicate, or mismatched online inventories', async () => {
     const invalidInventories: Array<Array<{ capabilities: unknown }>> = [
       [],

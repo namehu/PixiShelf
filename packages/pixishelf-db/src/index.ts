@@ -315,3 +315,5 @@ export * from './artwork-dedup-visual'
 export * from './artwork-dedup-partial'
 
 export * from './artwork-dedup-relation-cache'
+
+export * from './artwork-dedup-visual-work'

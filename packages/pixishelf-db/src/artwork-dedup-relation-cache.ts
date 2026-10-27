@@ -46,12 +46,14 @@ export function artworkDedupOriginalReusableSql(baseId: string | null, runId: st
  * Lock both roots before paging: directory-ID order is not logical-root order.
  * Negative evidence needs the same guards as published positive relationships.
  */
-export async function assertArtworkDedupCacheDirectories(tx: Prisma.TransactionClient, runId: string) {
+export async function assertArtworkDedupCacheDirectories(tx: Prisma.TransactionClient, runId: string, artworkIds?: readonly number[]) {
+  if (artworkIds && (artworkIds.length === 0 || artworkIds.length > 51)) throw new RangeError('Visual guard batch')
+  const scope = artworkIds ? Prisma.sql`AND m."artworkId" IN (${Prisma.join(artworkIds)})` : Prisma.empty
   await lockCreatorCatalog(tx)
   const roots = await tx.$queryRaw<{ logicalRoot: 'source-media:v1' | 'archive-media:v1'; rootIdentity: string }[]>(Prisma.sql`
     SELECT DISTINCT m."logicalRoot",m."rootIdentity" FROM "ArtworkDedupMedia" m
     JOIN "ArtworkDedupItem" i ON i."runId"=m."runId" AND i."artworkId"=m."artworkId"
-    WHERE m."runId"=${runId} AND i.status='COMPLETE' LIMIT 3`)
+    WHERE m."runId"=${runId} AND i.status='COMPLETE' ${scope} LIMIT 3`)
   if (roots.length > 2 || new Set(roots.map(r => r.logicalRoot)).size !== roots.length ||
     roots.some(r => !['source-media:v1', 'archive-media:v1'].includes(r.logicalRoot))) return false
   await lockContentDirectories(tx, roots.map(root => ({ ...root, relativeDirectory: '' })))
@@ -60,7 +62,7 @@ export async function assertArtworkDedupCacheDirectories(tx: Prisma.TransactionC
     const rows = await tx.$queryRaw<{ logicalRoot: 'source-media:v1' | 'archive-media:v1'; rootIdentity: string; relativeDirectory: string; directoryId: string; generation: bigint }[]>(Prisma.sql`
       SELECT DISTINCT m."logicalRoot",m."rootIdentity",m."relativeDirectory",m."directoryId",m."directoryGeneration" generation
       FROM "ArtworkDedupMedia" m JOIN "ArtworkDedupItem" i ON i."runId"=m."runId" AND i."artworkId"=m."artworkId"
-      WHERE m."runId"=${runId} AND i.status='COMPLETE' AND m."directoryId">${after}
+      WHERE m."runId"=${runId} AND i.status='COMPLETE' ${scope} AND m."directoryId">${after}
       ORDER BY m."directoryId" LIMIT 100`)
     if (!rows.length) return true
     if (!(await assertArtworkDedupVisualDirectories(tx, rows))) return false

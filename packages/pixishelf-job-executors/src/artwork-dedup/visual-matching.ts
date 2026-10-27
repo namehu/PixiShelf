@@ -88,6 +88,15 @@ export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Pr
   for (const candidate of candidates.values()) {
     if (reuse?.artworks.has(candidate.left) && reuse.artworks.has(candidate.right)) continue
     const left = byArtwork.get(candidate.left)!, right = byArtwork.get(candidate.right)!
+    const evidence = assignVisualPair(left, right, candidate.edges)
+    if (evidence) pairs.push(evidence)
+    await checkpoint()
+  }
+  return { pairs, reason: null, candidatePairs: [...candidates.keys()], reusedComparisons, comparedComparisons }
+}
+
+/** One complete pair only; both engines share the exact occurrence/unique-edge rules. */
+export function assignVisualPair(left: VisualPage[], right: VisualPage[], candidateEdges: Map<number, Set<number>>): VisualPairEvidence | null {
     const used = new Set<number>(), paired = new Map<number, VisualPage>()
     const exact = new Map<string, VisualPage[]>()
     for (const page of right) { const key = `${page.size}:${page.sha256}`; const list = exact.get(key) ?? []; list.push(page); exact.set(key, list) }
@@ -100,17 +109,14 @@ export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Pr
     const edges = new Map<number, VisualPage[]>()
     const rightById = new Map(right.map(p => [p.imageId, p]))
     for (const page of remaining) {
-      const possible = [...(candidate.edges.get(page.imageId) ?? [])].filter(id => !used.has(id)).map(id => rightById.get(id)!)
+      const possible = [...(candidateEdges.get(page.imageId) ?? [])].filter(id => !used.has(id)).map(id => rightById.get(id)!)
       edges.set(page.imageId, possible)
       for (const p of possible) inbound.set(p.imageId, (inbound.get(p.imageId) ?? 0) + 1)
     }
     for (const page of remaining) { const possible = edges.get(page.imageId)!; if (possible.length === 1 && inbound.get(possible[0]!.imageId) === 1) { paired.set(page.imageId, possible[0]!); used.add(possible[0]!.imageId) } }
-    if (paired.size / Math.min(left.length, right.length) < 0.8 || paired.size === originalExact.size) continue
+    if (paired.size / Math.min(left.length, right.length) < 0.8 || paired.size === originalExact.size) return null
     const evidence: VisualPairEvidence['pages'] = left.map(page => ({ left: page, right: paired.get(page.imageId) ?? null,
       kind: originalExact.has(page.imageId) ? 'EXACT' : paired.has(page.imageId) ? 'SIMILAR' : 'UNMATCHED' }))
     evidence.push(...right.filter(p => !used.has(p.imageId)).map(page => ({ left: null, right: page, kind: 'UNMATCHED' as const })))
-    pairs.push({ leftArtworkId: candidate.left, rightArtworkId: candidate.right, pages: evidence })
-    await checkpoint()
-  }
-  return { pairs, reason: null, candidatePairs: [...candidates.keys()], reusedComparisons, comparedComparisons }
+    return { leftArtworkId: left[0]!.artworkId, rightArtworkId: right[0]!.artworkId, pages: evidence }
 }
