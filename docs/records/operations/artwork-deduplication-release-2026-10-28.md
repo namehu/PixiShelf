@@ -11,7 +11,7 @@ sources:
 
 # 去重 F03 第七批发布交接
 
-目标版本为 `v0.54.17`，基于已发布的 `v0.54.15`（`2ad7b40a`）。用户自行更新 NAS；本轮只整理主线、发布标签及镜像，不连接生产，也不更新主目录的开发数据库或服务。
+已发布版本为 `v0.54.17`，基于已发布的 `v0.54.15`（`2ad7b40a`）。用户自行更新 NAS；本轮只整理主线、发布标签及镜像，不连接生产，也不更新主目录的开发数据库或服务。
 
 ## 发布范围与分支隔离
 
@@ -33,7 +33,29 @@ sources:
 
 首个标签 `v0.54.16` 指向 `8e38740d2c9517035dc6b7ec1b208e91fb6706e7`。[该标签 CI](https://github.com/namehu/PixiShelf/actions/runs/40658029140) 的 WebP job 在安装浏览器时失败：`ubuntu-latest` 实际使用 Ubuntu 26.04，当前 Playwright 1.56.1 不支持该系统；此前 WebP 类型检查、49 项测试、6 项预编译测试及构建均已通过。此标签不作为交付部署版本，即使独立镜像工作流生成了 Release，也不能代替 CI 成功。
 
-最小修复只将 CI 的 WebP job 固定到兼容的 Ubuntu 24.04，不移除验证步骤，不更改产品代码或依赖。GPT-6.1 Sol / xhigh 实施与另一独立 Sol / xhigh 审查已确认：锁定依赖明确支持该系统，CI 逐字差异只有 runner 值，全部测试及汇总门禁保留；YAML 静态检查与 308 篇文档检查通过，无阻塞项，未重复本地全量验证。为保留标签不可变性，改发 `v0.54.17`；此版本的标签、工作流结果和双仓库镜像 digest 待最终核验。
+最小修复只将 CI 的 WebP job 固定到兼容的 Ubuntu 24.04，不移除验证步骤，不更改产品代码或依赖。GPT-6.1 Sol / xhigh 实施与另一独立 Sol / xhigh 审查已确认：锁定依赖明确支持该系统，CI 逐字差异只有 runner 值，全部测试及汇总门禁保留；YAML 静态检查与 308 篇文档检查通过，无阻塞项，未重复本地全量验证。为保留标签不可变性，改发 `v0.54.17`；此版本已完成下述最终核验。
+
+标签 `v0.54.17` 指向 `efc20243214d098e85cf3fe54bbc932ad3bded84`。同提交的 [CI](https://github.com/namehu/PixiShelf/actions/runs/40658979746) 和 [Build and Deploy](https://github.com/namehu/PixiShelf/actions/runs/40658979791) 均在首次运行完成并返回 `success`，没有跳过门禁或重跑全量工作流。对比 `721927c8`，本次发布收口未改变任何产品、构建资源或依赖锁文件；只有 CI runner 及发布说明变化。
+
+[GitHub Release](https://github.com/namehu/PixiShelf/releases/tag/v0.54.17) 于 2026-10-28 16:52:20（Asia/Shanghai）生成，附 `docker-compose.deploy.yml`、`default.env.example`、`init.sql`、`DEPLOYMENT.md`。验证结果：
+
+- 正式迁移 127 项全部成功，数据库状态为最新；Worker 依赖链类型检查、测试和构建成功，初始版本检测／审核 60 项及删除 8 项专项通过。
+- Web lint、typecheck、3,392 项测试及生产构建成功，263 项按既有条件跳过。WebP 类型检查、49 项单测、6 项预编译测试、70 项实际浏览器测试和构建成功。
+- 发布门禁的 contracts 172、DB 284、runtime 109、executors 1,095、Worker 126 项测试通过；条件跳过不计为通过，隔离专项升级与分轮证据仍以前述第七批记录为准。
+- 镜像发布、安全扫描及计时作业成功。安全扫描作业成功不代表没有已报告漏洞。
+
+只读读取两个仓库的版本 manifest，校验响应 digest 与实际字节 SHA-256，并确认两仓库一致：
+
+| 镜像 | GHCR 与 Docker Hub 共同的 `v0.54.17` OCI index digest |
+| --- | --- |
+| `pixishelf` | `sha256:f9132a62dac4f3547e869a3faf967d2ca524b4633240a66335178fd51100f4c8` |
+| `pixishelf-worker` | `sha256:b0085ecb2c4da6cbdb6139a7d5c0ce75b4b1bf4c12ada148f4e61f058865d7a3` |
+
+两份镜像的运行架构均为 `linux/amd64`，index 另含构建证明。原始核验摘要保存于本机 `/private/tmp/pixishelf-dedup-release-20261028/image-digests.json`；以上工作流链接与 digest 为持久证据。
+
+发布期间 Android 分支自行从 `64494e4c` 推进至 `f5c4cc1f`，主目录当前干净。这是并行开发产生的变化：本次没有在主目录切分支、暂存、提交、重置或覆盖文件；发布准备前后的分支、index 和差异摘要保留于同一临时证据目录。没有把并行变化误写为工作区字节完全未变。
+
+发布交接的 `docs:check` 通过（308 篇），主应用路径大小写检查与差异空白检查通过。图源和 SVG 相对已验收的 `721927c8` 无差异，沿用第七批的 34 个图源／23 个嵌入块检查证据，没有重新渲染。
 
 ## NAS 升级交接
 
