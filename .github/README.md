@@ -23,6 +23,8 @@ sources:
 
 三路 CI 的环境与未覆盖项见[测试策略](../docs/development/testing-strategy.md#ci-当前覆盖与缺口)。CI 和镜像发布是独立工作流：发布构建成功不能代替同提交 CI 汇总成功。
 
+CI 的 `webp` job 固定使用 `ubuntu-24.04`（2026-10-28 局部核验）：当前锁定的 Playwright 1.56.1 支持 Ubuntu 24.04，固定 runner 可避免 `ubuntu-latest` 升级至不兼容系统时阻断 Chromium 依赖安装。更新 runner 前应核对锁定 Playwright 的操作系统支持范围。
+
 去重初始版本回归另在 CI Worker 与镜像发布 validate 中显式设置 `QUEUE_KERNEL_TEST_DATABASE_URL`，运行检测／审核 PostgreSQL 套件，以及从检查、预览、授权到原件删除的初始版本用例。这些用例不依赖 `DATABASE_URL` 的隐式回退；其他仅接受专用连接变量的测试未因此全部启用。
 
 ## 镜像发布链

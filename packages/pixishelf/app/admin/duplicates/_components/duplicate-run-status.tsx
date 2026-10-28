@@ -65,7 +65,10 @@ function runDescription(run: ArtworkDedupRunDto) {
     case 'PAUSING':
       return '正在保存进度，等待后台确认暂停。'
     case 'PAUSED':
-      return '继续后会接着检查本次范围内未完成的作品。'
+      if (run.failure) return run.failure.message
+      return run.pauseReason === 'VISUAL_COMPARISON_BUDGET'
+        ? '本轮疑似版本比较已达上限，继续后会接着检查。'
+        : '继续后会接着检查本次范围内未完成的作品。'
     case 'CANCELLING':
       return '正在停止后续检查，等待后台确认。'
     case 'CANCELLED':
@@ -90,15 +93,16 @@ function runDescription(run: ArtworkDedupRunDto) {
 
 export function duplicateVisualIncompleteReason(reason: string) {
   const labels: Record<string, string> = {
-    VISUAL_FILE_BUDGET: '超过本次 10,000 张静态图片上限',
+    VISUAL_FILE_BUDGET: '超过本次 10,000 个登记原件上限',
     VISUAL_ARTWORK_BUDGET: '部分作品超过 2,000 张图片上限',
     VISUAL_INDEX_BUDGET: '达到本次检索索引上限',
     VISUAL_POSTING_BUDGET: '达到本次检索上限',
     VISUAL_CANDIDATE_BUDGET: '达到本次候选上限',
     VISUAL_COMPARISON_BUDGET: '达到本次比较上限',
     VISUAL_PAIR_BUDGET: '达到本次作品对上限',
+    VISUAL_EDGE_BUDGET: '部分作品对达到图片配对上限',
     INCOMPLETE_ORIGINALS: '部分作品原件未完成检查',
-    RUN_FILE_LIMIT: '超过本次 10,000 张静态图片上限',
+    RUN_FILE_LIMIT: '超过本次 10,000 个登记原件上限',
     ARTWORK_FILE_LIMIT: '部分作品超过 2,000 张图片上限',
     UNSUPPORTED_MEDIA: '部分作品含动画、视频或不支持的图片',
     INPUT_UNSUPPORTED: '部分作品含不支持的图片',

@@ -15,3 +15,15 @@ describe('F03 durable visual work migration', () => {
     expect(migration).not.toMatch(/UPDATE\s+"(?:ArtworkDedup|MediaVisual)/)
   })
 })
+
+const rounds = readFileSync(new URL('../migrations/20261028000100_artwork_dedup_visual_rounds/migration.sql', import.meta.url), 'utf8')
+describe('F03 visual round migration', () => {
+  it('admits scan v6 while preserving maintenance policy and initializes no historical round', () => {
+    const marker = 'ALTER TABLE "system_jobs" DROP CONSTRAINT "system_jobs_dedup_policy";'
+    expect(rounds.slice(rounds.indexOf(marker))).toBe(migration.slice(migration.indexOf(marker)).replace("type='ARTWORK_DEDUP_SCAN' AND \"definitionVersion\" IN(2,3,4,5)", "type='ARTWORK_DEDUP_SCAN' AND \"definitionVersion\" IN(2,3,4,5,6)"))
+    expect(rounds).toContain('ADD COLUMN "visualComparisonRound" INTEGER NOT NULL DEFAULT 0')
+    expect(rounds).not.toMatch(/UPDATE\s+"(?:ArtworkDedupMedia|MediaVisualFingerprint)"/)
+    expect(rounds).toContain("NEW.status IN ('FAILED','SKIPPED','CANCELLED')")
+    expect(rounds).not.toContain("NEW.status IN ('COMPLETED','FAILED'")
+  })
+})

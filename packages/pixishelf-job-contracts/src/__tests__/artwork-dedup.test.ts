@@ -4,6 +4,7 @@ import {
   ARTWORK_DEDUP_PRIORITY,
   ARTWORK_DEDUP_SCAN_DEFINITION_VERSION,
   artworkDedupGetRunInputSchema,
+  artworkDedupRunDtoSchema,
   artworkDedupScanPayloadSchema,
   artworkDedupStartInputSchema
 } from '../artwork-dedup.ts'
@@ -22,7 +23,7 @@ describe('artwork detection contract', () => {
       stallTimeoutMs: 30000
     })
     expect(ARTWORK_DEDUP_PRIORITY).toBe(900)
-    expect(ARTWORK_DEDUP_SCAN_DEFINITION_VERSION).toBe(5)
+    expect(ARTWORK_DEDUP_SCAN_DEFINITION_VERSION).toBe(6)
     expect(executionLaneForJobType('ARTWORK_DEDUP_SCAN')).toBe('BACKGROUND_WRITER')
     expect(parseJobPayload('ARTWORK_DEDUP_SCAN', { runId: 'run', executionVersion: 1 })).toEqual({
       runId: 'run',
@@ -49,4 +50,11 @@ describe('artwork detection contract', () => {
       }).success
     ).toBe(false)
   })
+  it('defaults legacy pause reasons without exposing mutable budget inputs', () => {
+    const pauseReason = artworkDedupRunDtoSchema.shape.pauseReason
+    expect(pauseReason.parse(undefined)).toBeNull()
+    expect(pauseReason.parse('VISUAL_COMPARISON_BUDGET')).toBe('VISUAL_COMPARISON_BUDGET')
+    expect(pauseReason.safeParse('VISUAL_EDGE_BUDGET').success).toBe(false)
+  })
+
 })

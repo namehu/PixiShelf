@@ -8,6 +8,8 @@
 
 Android：[2026-10-28 核心阅读页面迁移](./features/android-core-parity-2026-10-28.md)。
 
+去重文档：[2026-10-28 当前入口与六张图整理](./artwork-deduplication-current-docs-2026-10-28.md)。
+
 去重 F01：[2026-10-26 部分重复验收](./artwork-deduplication-partial-overlap-f01-2026-10-26.md)。
 
 去重 F03：[2026-10-27—28 规模与密集续跑验证](./artwork-deduplication-scale-f03-2026-10-27.md) · [独立审查](./artwork-deduplication-scale-f03-review-2026-10-27.md)。
@@ -15,6 +17,8 @@ Android：[2026-10-28 核心阅读页面迁移](./features/android-core-parity-2
 目录查询优化：[2026-10-28 第五批记录](./artwork-deduplication-root-scope-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-root-scope-f03-review-2026-10-28.md)。
 
 候选查询计划：[2026-10-28 第六批记录](./artwork-deduplication-posting-plan-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-posting-plan-f03-review-2026-10-28.md) · [第五、六批本地升级](./operations/artwork-deduplication-f03-b56-local-upgrade-2026-10-28.md) · [升级后桌面回归](./operations/artwork-deduplication-f03-b56-desktop-regression-2026-10-28.md)。
+
+比较分轮继续：[2026-10-28 第七批验收](./artwork-deduplication-budget-continue-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-budget-continue-f03-review-2026-10-28.md) · [桌面验收](./artwork-deduplication-budget-continue-f03-browser-2026-10-28.md)。
 
 完整清单见[功能记录索引](./features/README.md)。下表提供跨领域常用入口。
 
@@ -41,7 +45,7 @@ Android：[2026-10-28 核心阅读页面迁移](./features/android-core-parity-2
 
 Android：[2026-10-28 主工作区与 USB 本地联调准备](./operations/android-local-validation-2026-10-28.md)。
 
-去重发布：[2026-10-27 F01–F03 发布交接](./operations/artwork-deduplication-release-2026-10-27.md)；前版见[2026-10-25 版本收口](./operations/artwork-deduplication-release-2026-10-25.md)，附[疑似版本本地升级](./operations/artwork-deduplication-visual-local-upgrade-2026-10-25.md)。
+去重发布：[2026-10-28 F03 第七批发布交接](./operations/artwork-deduplication-release-2026-10-28.md) · [2026-10-27 F01–F03 发布交接](./operations/artwork-deduplication-release-2026-10-27.md)；前版见[2026-10-25 版本收口](./operations/artwork-deduplication-release-2026-10-25.md)，附[疑似版本本地升级](./operations/artwork-deduplication-visual-local-upgrade-2026-10-25.md)。
 
 后续开发升级：[2026-10-26 F01 合并与本地升级](./operations/artwork-deduplication-f01-local-upgrade-2026-10-26.md)。
 

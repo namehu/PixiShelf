@@ -46,7 +46,7 @@ const suite = url ? describe.sequential : describe.skip
 const prefix = `dedup-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-10-23T00:00:00Z'))
 const capabilities = [
-  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3, 4, 5] }
+  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3, 4, 5, 6] }
 ]
 const repository = db
   ? new PostgresQueueRepository(db as unknown as QueueDatabase, { clock, transactionTimeoutMs: 20_000 })
@@ -119,6 +119,42 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
+  it.each(['pause', 'crash', 'cancel'] as const)('F03 v6 persisted budget waiting closes the reader before %s finalization', async scenario => {
+    const artistId = await visualFixture(2)
+    const created = await start(artistId, 'FULL', true, 6), claimed = await claim(created.jobId)
+    const execution = context(claimed), mutate = execution.mutateInTransaction.bind(execution)
+    let injected = false
+    execution.mutateInTransaction = async <TTransaction extends QueueSqlExecutor, TResult>(operation: (tx: TTransaction) => Promise<TResult>) => {
+      const result = await mutate<TTransaction, TResult>(operation)
+      const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: created.runId } })
+      if (!injected && (run.visualCheckpoint as { phase?: string } | null)?.phase === 'QUERY') {
+        injected = true
+        await db!.artworkDedupRun.update({ where: { id: created.runId }, data: { visualComparedComparisons: 200000, visualBudgetWaiting: true } })
+      }
+      return result
+    }
+    const finalize = execution.finalizeInTransaction.bind(execution)
+    execution.finalizeInTransaction = async operation => {
+      const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: created.runId } })
+      expect(run).toMatchObject({ readerToken: null, readerState: 'IDLE', visualBudgetWaiting: true })
+      if (scenario === 'crash') throw new Error('Fixture crash after reader exit, before queue pause')
+      if (scenario === 'cancel') await db!.systemJob.update({ where: { id: created.jobId }, data: { status: 'CANCELLING' } })
+      return finalize(operation)
+    }
+    if (scenario === 'crash') {
+      await expect(executeArtworkDedup(execution, dependencies())).rejects.toThrow('Fixture crash')
+      clock.advance(120000)
+      expect(await repository!.recoverExpiredExecution()).toMatchObject({ jobId: created.jobId, status: 'RETRY_WAIT' })
+      await executeArtworkDedup(context(await claim(created.jobId)), dependencies())
+    } else await executeArtworkDedup(execution, dependencies())
+    const after = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: created.runId } })
+    expect(after).toMatchObject({ status: scenario === 'cancel' ? 'CANCELLED' : 'PAUSED', visualComparisonRound: 1,
+      visualRoundStartComparisons: 0, visualComparedComparisons: 200000, visualBudgetWaiting: scenario !== 'cancel', visualStatus: 'PENDING', readerToken: null })
+    expect(await repository!.claim(prefix, capabilities)).toBeNull()
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: created.runId, relationKind: 'VISUAL' } })).toBe(0)
+    if (scenario !== 'cancel') expect(await db!.systemJobEvent.findFirst({ where: { jobId: created.jobId, type: 'job.paused' } })).toMatchObject({ data: { reason: 'ACTION_REQUIRED' } })
+  }, 30_000)
+
   it('F02 shared content processes 120 of 200 originals cold, zero hot, and all 200 in FULL', async () => {
     const values = [Array.from({ length: 100 }, (_, i) => i), Array.from({ length: 100 }, (_, i) => i < 80 ? i : i + 20)]
     const { artistId, images, contents } = await sharedVisualFixture(values)

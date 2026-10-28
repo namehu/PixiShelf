@@ -1,53 +1,48 @@
 ---
 config:
+  theme: base
   htmlLabels: false
+  themeVariables:
+    fontFamily: 'Arial, PingFang SC, Microsoft YaHei, sans-serif'
+    fontSize: 18px
+    background: '#ffffff'
+    primaryColor: '#eff6ff'
+    primaryTextColor: '#172033'
+    primaryBorderColor: '#64748b'
+    lineColor: '#64748b'
+    secondaryColor: '#f0fdf4'
+    tertiaryColor: '#fff7ed'
   flowchart:
     htmlLabels: false
-title: 同艺术家作品去重 · 直接删除目标边界（未开放）
+    curve: linear
+    nodeSpacing: 28
+    rankSpacing: 42
+    wrappingWidth: 340
+title: 同艺术家作品去重 · 系统职责与边界
 ---
 flowchart TB
-  subgraph Browser[浏览器]
-    A01[检查结果与删除记录<br/>冻结预览 一次不可恢复确认]
+  A01[浏览器<br/>开始检查 · 对照作品 · 确认删除]
+  A02[App · 短请求<br/>校验账户和版本 · 保存命令]
+  A03[(数据库 · 持久状态<br/>任务／检查点 · 三层缓存／结果<br/>冻结清单 · 删除意图／回执)]
+  A05[Worker 调度<br/>异步领取 · 让行后继续]
+  subgraph Worker[三条执行通道]
+    A06[解析通道<br/>ARCHIVE_RESOLVE]
+    A07[下载通道<br/>ARCHIVE_DOWNLOAD]
+    A08[写入通道 · BACKGROUND_WRITER<br/>去重／预览／删除 · 正式发布]
   end
-  subgraph App[Next.js App 控制面]
-    A02[Session expectedUserId 版本 幂等<br/>独立 DIRECT_DELETE 门禁 默认关闭]
-    A03[上传 替换 章节 删除 标签 创作者<br/>扫描 来源 归档 普通回收维护]
-    A04[复用 Claim 来源证明与根协调<br/>含隐式 creator catalog 锁序]
-  end
-  subgraph DB[PostgreSQL · 短事务 不包含文件动作]
-    A05[源代次 文件缓存 完整成员快照]
-    A06[检测 审核 PREPARE 新目的与版本<br/>旧 ISOLATION 不授权删除]
-    A07[keeper/copy Claim 来源 HOLD<br/>逐文件 intent/receipt 与独立墓碑]
-    A08[既有队列 fence token 与 reader 占用]
-  end
-  subgraph Worker[Worker · 三条既有 lane]
-    A09[Dispatcher · 让行与能力核验]
-    A10[ARCHIVE_RESOLVE]
-    A11[ARCHIVE_DOWNLOAD<br/>原来源证明与真实 drain]
-    A12[BACKGROUND_WRITER<br/>检测 PREPARE DIRECT_DELETE<br/>等待 drain 持久状态并让槽]
-  end
-  subgraph Reader[唯一受控 reader]
-    A13[有界检查与 fresh 全组读取<br/>精确 unlink 同步与实际退出]
-  end
-  subgraph FS[文件系统 · 独立于 DB]
-    A14[登记原媒体与明确冻结文件<br/>不移动 不整目录清空 不删空目录]
-    A15[归档 staging<br/>非检测输入 需确认相关执行停止]
-  end
-  A01 --> A02 --> A06
-  A02 --> A07
-  A02 --> A08
-  A03 --> A04
-  A04 --> A05
-  A04 --> A07
-  A08 --> A09
-  A09 --> A10 --> A11
-  A09 --> A11
-  A09 --> A12
-  A11 --> A15
-  A11 -->|原 token 停止回执不要求 OPEN| A07
-  A11 -->|最终发布复验原证明| A12
-  A12 -->|全范围版本与 fence| A05
-  A12 --> A06
-  A12 -->|认领 意图 回执 终结| A07
-  A12 --> A13 -->|只按持久精确清单| A14
-  A13 -.->|close 未证实 禁止替代进程| A08
+  A09[受控子进程<br/>属性／SHA／视觉解码 · 逐文件动作]
+  A10[下载暂存目录 · staging<br/>下载通道不直接发布原件]
+  A11[媒体目录<br/>只操作冻结文件 · 不清空目录]
+  A01 <-->|提交命令／读取状态| A02
+  A02 <-->|短事务| A03
+  A03 -->|领取持久任务| A05
+  A05 --> A06 & A07 & A08
+  A07 --> A10
+  A08 -->|受控读取与删除| A09 --> A11
+  A08 -.->|校验执行权 · 保存进度与结果| A03
+  classDef store fill:#f0fdf4,stroke:#779489
+  classDef disk fill:#f8fafc,stroke:#94a3b8
+  classDef writer fill:#dbeafe,stroke:#2563eb,stroke-width:2px
+  class A03 store
+  class A10,A11 disk
+  class A08 writer

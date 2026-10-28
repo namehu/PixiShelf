@@ -1,0 +1,38 @@
+---
+config:
+  theme: base
+  htmlLabels: false
+  themeVariables:
+    fontFamily: 'Arial, PingFang SC, Microsoft YaHei, sans-serif'
+    fontSize: 18px
+    background: '#ffffff'
+    primaryColor: '#eff6ff'
+    primaryTextColor: '#172033'
+    primaryBorderColor: '#64748b'
+    lineColor: '#64748b'
+    secondaryColor: '#f0fdf4'
+    tertiaryColor: '#fff7ed'
+  flowchart:
+    htmlLabels: false
+    curve: linear
+    nodeSpacing: 28
+    rankSpacing: 42
+    wrappingWidth: 340
+title: 同艺术家作品去重 · 处理上限与继续执行
+---
+flowchart TB
+  P01[按批处理并保存检查点<br/>累计比较次数不清零]
+  P02[正常短批／时间片让行]
+  P03[让出执行槽后自动继续]
+  P04[用户暂停／Worker 重启]
+  P05[从检查点接续<br/>不会增加本轮比较额度]
+  P06[v6 本轮已比较 20 万次<br/>且还有待检查内容]
+  P07[检查已暂停 · 等待用户<br/>当前未完成结果不能用于删除]
+  P08[用户点击「继续检查」<br/>开启下一轮固定 20 万次]
+  P09[作品／单图／索引等结构性上限<br/>或旧 v5 比较上限]
+  P10[视觉检查未完成<br/>不发布截断的疑似版本结果]
+  P11[已核验的字节关系仍可使用<br/>原样重试不保证完成]
+  P01 --> P02 --> P03 --> P01
+  P01 --> P04 --> P05 --> P01
+  P01 --> P06 --> P07 --> P08 --> P01
+  P01 --> P09 --> P10 --> P11

@@ -34,9 +34,18 @@
 | 发布各阶段由谁负责？                       | [发布泳道](./operations/standard-release.svg) · [源](./operations/standard-release.mmd)                                                                                                          | [部署基线](../operations/deployment.md)                       |
 | 故障应该重启、前向修复还是整体恢复？       | [恢复决策](./operations/recovery-decision.svg) · [源](./operations/recovery-decision.mmd)                                                                                                        | [备份与恢复](../operations/backup-and-recovery.md)            |
 
-## 拟实施设计
+## 同艺术家作品去重
 
-- [同艺术家作品去重](../design/artwork-deduplication.md#业务流程与架构图)：一次确认删除流程、三 lane 架构、保留的检测时序、删除状态与逐文件故障续行；直接删除仍为目标设计，能力门禁关闭。
+当前行为和全部图的阅读顺序见[功能规格](../features/artwork-deduplication.md)，历史总计划保留在[设计记录](../design/artwork-deduplication.md)。图描述已实现流程，不证明某个实例已经部署。
+
+| 要回答的问题                                      | 图与源                                                                                                                            |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 用户怎样从检查走到确认删除？                      | [完整业务流程](./features/artwork-deduplication/business-flow.svg) · [源](./features/artwork-deduplication/business-flow.mmd)     |
+| App、数据库、三条 Worker 通道与子进程分别做什么？ | [系统职责](./features/artwork-deduplication/architecture.svg) · [源](./features/artwork-deduplication/architecture.mmd)           |
+| 三层缓存命中后还要做什么？                        | [检测与缓存](./features/artwork-deduplication/detection.svg) · [源](./features/artwork-deduplication/detection.mmd)               |
+| 正常让行、暂停和硬上限有什么区别？                | [处理上限](./features/artwork-deduplication/processing-limits.svg) · [源](./features/artwork-deduplication/processing-limits.mmd) |
+| 删除前后何时可以取消或停止？                      | [业务状态](./features/artwork-deduplication/lifecycle.svg) · [源](./features/artwork-deduplication/lifecycle.mmd)                 |
+| 删除中断后怎样只续原范围？                        | [故障续行](./features/artwork-deduplication/recovery.svg) · [源](./features/artwork-deduplication/recovery.mmd)                   |
 
 ## 更新与检查
 

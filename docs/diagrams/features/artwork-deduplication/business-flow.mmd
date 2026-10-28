@@ -1,41 +1,48 @@
 ---
 config:
+  theme: base
   htmlLabels: false
+  themeVariables:
+    fontFamily: 'Arial, PingFang SC, Microsoft YaHei, sans-serif'
+    fontSize: 18px
+    background: '#ffffff'
+    primaryColor: '#eff6ff'
+    primaryTextColor: '#172033'
+    primaryBorderColor: '#64748b'
+    lineColor: '#64748b'
+    secondaryColor: '#f0fdf4'
+    tertiaryColor: '#fff7ed'
   flowchart:
     htmlLabels: false
-title: 同艺术家作品去重 · 直接删除目标流程（未开放）
+    curve: linear
+    nodeSpacing: 28
+    rankSpacing: 42
+    wrappingWidth: 340
+title: 同艺术家作品去重 · 用户完整流程
 ---
 flowchart TB
-  subgraph Human[用户审核与唯一删除确认]
-    B01[艺术家页启动检查]
-    B07[分页审核并选择 keeper<br/>四来源与混合组]
-    B10[一次确认具体永久删除范围与整理影响<br/>声明外部同步及编辑已停写]
-    B14[查看删除记录<br/>已删与未完成 无撤销]
-    B15[显式允许所选来源重新导入<br/>不恢复文件]
-  end
-  subgraph App[App 控制面与持久冻结计划]
-    B02[Session 幂等与范围校验]
-    B06[完整重复组与保留建议<br/>他人仅保护资格提示]
-    B08[冻结选中组 keeper copy 与审核版本]
-    B09[异步 PREPARE<br/>DIRECT_DELETE 新目的与版本]
-    B22[精确文件与影响预览 READY<br/>未知附件或未验证历史原件阻断作品]
-  end
-  subgraph Background[Worker · 既有 Writer lane]
-    B03[有界属性检查与候选筛选]
-    B04[有效缓存或 SHA-256 读取]
-    B05[成员与源代次 fenced 完整发布]
-    B11[认领全部 keeper 与 copy 及来源 HOLD<br/>终止相关执行并确认实际退出]
-    B12[所有所选组绕缓存完整重读<br/>全部成功才允许首删]
-    B13[持久清单 隐藏 copy<br/>逐文件意图 → unlink → 回执<br/>完成后业务删除与独立来源墓碑]
-    B16[保留原范围 隐藏与声明<br/>安全边界停止或部分失败]
-    B17[旧 reader 已退出 重新 fresh 核验 keeper<br/>只续原授权未完成文件]
-  end
-  B01 --> B02 --> B03 --> B04 --> B05 --> B06 --> B07 --> B08 --> B09 --> B22
-  B22 -->|阻断 过期 重新准备| B07
-  B22 -->|独立能力门禁验收后才开放| B10 --> B11 --> B12
-  B12 -->|全范围成功| B13 --> B14 --> B15
-  B11 -.->|无法证明退出 零删| B16
-  B12 -.->|任一组不通过 零删| B16
-  B13 -.->|失败或停止请求| B16 --> B14
-  B16 -->|原范围重试| B17 --> B13
-  B10 -.->|首个删除意图前可取消| B14
+  B01[从艺术家页开始检查<br/>支持四种来源及混合组]
+  B02[后台固定本次作品范围<br/>默认快速检查 · 疑似版本可选]
+  B03[完全相同<br/>所有原件内容与重复次数相同]
+  B04[完整包含<br/>较少方全部原件在另一部中]
+  B05[部分重复<br/>至少覆盖较短方的 80%<br/>两边都有未配对原件]
+  B06[疑似版本 · 可选<br/>至少 80% 页可对应<br/>有画面相近但文件不同的页]
+  B07[选择保留作品<br/>相同可批量选组 · 包含只保留完整者]
+  B08[对照图片后选整部版本<br/>每次只处理一对作品]
+  B09[核对并删除<br/>后台生成保留与待删清单]
+  B10[查看清单与整理记录影响<br/>此时还不会删文件]
+  B11[确认永久删除<br/>并确认外部同步／编辑持续停写]
+  B12[后台重新读取所选全部原件<br/>全部通过后逐文件删除]
+  B13[查看删除记录<br/>阻止旧来源重新导入 · 删除不可撤销]
+  B14[可选：允许指定来源重新导入<br/>不会恢复文件]
+  B01 --> B02
+  B02 --> B03 & B04 & B05
+  B02 -->|已开启| B06
+  B03 & B04 --> B07
+  B05 & B06 --> B08
+  B07 & B08 --> B09 --> B10 --> B11 --> B12 --> B13
+  B13 -.-> B14
+  classDef review fill:#f0fdf4,stroke:#779489
+  classDef danger fill:#fff7ed,stroke:#c28b54
+  class B07,B08,B10 review
+  class B11,B12 danger

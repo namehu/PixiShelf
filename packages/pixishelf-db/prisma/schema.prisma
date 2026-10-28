@@ -2712,6 +2712,9 @@ model SystemJobDiagnosticItem {
 
 // Frozen detection evidence survives subsequent Artwork/Image removal.
 model ArtworkDedupRun {
+  visualComparisonRound Int @default(0)
+  visualRoundStartComparisons Int @default(0)
+  visualBudgetWaiting Boolean @default(false)
   visualCheckpoint Json?
   visualPostings ArtworkDedupVisualPosting[]
   visualCandidates ArtworkDedupVisualCandidate[]

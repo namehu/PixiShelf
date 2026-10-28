@@ -12,7 +12,7 @@ sources:
 
 # 同艺术家作品去重：总计划
 
-本文保留 2026-10-24 的实施基线。当前行为以[功能规格](../features/artwork-deduplication.md)为准；[完整包含与相似版本识别扩展](./artwork-deduplication/matching-extension.md)中的第一批完整包含已经进入实施与验收，第二批视觉版本识别仍为草案。下文的精确重复边界和三批推进安排是历史记录，不作为新批次的续接指令。
+本文保留 **2026-10-24 的精确去重与直接删除实施基线**。当前四类关系、缓存、处理上限及六张图统一见[功能规格](../features/artwork-deduplication.md)；包含、部分重复、疑似版本和缓存优化已经实施，F03 已到第七批，剩余工作见[后续计划](./artwork-deduplication/matching-extension.md)。下文的功能范围、开关、模型分工和推进安排只代表当时，不作为当前能力或新批次的续接指令。
 
 本文是用户于 2026-10-24 批准并按三批实施完成的开发分支方案；当前行为见[功能规格](../features/artwork-deduplication.md)，隔离验收不等于真实实例部署。新流程为：**检查 → 选择保留者 → 服务端冻结删除预览 → 一次不可恢复删除确认（含外部停写声明）→ Worker 原地逐文件永久删除 → 删除记录**。取消原隔离、移动、恢复和到期清理方案。普通 URL 归档删除继续使用现有回收行为；只有去重专用删除绕过回收。
 
@@ -64,37 +64,14 @@ sources:
 
 ## 业务流程与架构图
 
-以下五张图描述系统流程，不表示某个实例已经部署。SVG 由 Mermaid 图源生成；检测与缓存时序图已同步完整包含扩展，其余图继续适用于现行删除流程。数据库和文件系统没有共同原子事务。
+当前图已经迁到[功能规格](../features/artwork-deduplication.md)，由当前行为维护，不继续作为本历史计划的插图：
 
-### 完整业务流程
+- [完整业务流程](../features/artwork-deduplication.md#用户完整流程)：四类关系、人工选择、预览、一次确认和删除记录。
+- [系统职责与边界](../features/artwork-deduplication.md#系统职责与持久边界)：App 短请求、数据库任务、三条 Worker 通道和受控子进程。
+- [检测与三层缓存](../features/artwork-deduplication.md#三层持久缓存)、[处理上限](../features/artwork-deduplication.md#处理上限与继续执行)。
+- [删除状态与故障续行](../features/artwork-deduplication.md#删除停止失败与原范围续行)。
 
-![检查、冻结预览、一次确认与永久删除](../diagrams/features/artwork-deduplication/business-flow.svg)
-
-[图源](../diagrams/features/artwork-deduplication/business-flow.mmd)。确认后 Worker 必须先完成所选全范围复核，才开始首个文件动作。
-
-### 系统职责与边界
-
-![三 lane、写保护与原地删除边界](../diagrams/features/artwork-deduplication/architecture.svg)
-
-[图源](../diagrams/features/artwork-deduplication/architecture.mmd)。下载有独立 lane，Writer 等待 drain 时让出执行槽。
-
-### 检测与缓存时序
-
-![属性、缓存和有围栏的检测发布](../diagrams/features/artwork-deduplication/detection.svg)
-
-[图源](../diagrams/features/artwork-deduplication/detection.mmd)。继续沿用已验证的只读检测协议。
-
-### 删除状态机
-
-![删除前取消与删除后安全边界停止](../diagrams/features/artwork-deduplication/lifecycle.svg)
-
-[图源](../diagrams/features/artwork-deduplication/lifecycle.mmd)。状态名是目标契约，最终以同步更新后的 Zod/Schema 为准。
-
-### 逐文件删除与故障续行
-
-![持久意图、unlink、回执与原范围续行](../diagrams/features/artwork-deduplication/recovery.svg)
-
-[图源](../diagrams/features/artwork-deduplication/recovery.mmd)。此处“恢复”仅指故障恢复执行，不包含文件撤销或归位。
+下表的 B／A／D／L／R 节点对应 **2026-10-24 历史图**，与今日重组的图不再一一对应。复核历史证据时使用 Git 提交 `5dec7b58` 中的 `docs/diagrams/features/artwork-deduplication/*.mmd`（例如 `git show 5dec7b58:docs/diagrams/features/artwork-deduplication/business-flow.mmd`），不要拿当前节点编号解释旧测试。
 
 ## 需求 → 节点 → 批次 → 测试 → 证据
 

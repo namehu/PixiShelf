@@ -102,7 +102,7 @@ describe('ExecutorRegistry', () => {
     ).toBeNull()
   })
 
-  it('requires scan v5 for persisted visual batches while retaining v1 through v4', () => {
+  it('requires scan v6 for explicit visual rounds while retaining v1 through v5', () => {
     const dependencies = {
       database: {} as PrismaClient,
       sourceRoot: '/fixture',
@@ -111,22 +111,22 @@ describe('ExecutorRegistry', () => {
     }
     const old = new ExecutorRegistry()
     const modern = new ExecutorRegistry()
-    for (const version of [1, 2, 3, 4] as const) {
+    for (const version of [1, 2, 3, 4, 5] as const) {
       old.register(createArtworkDedupExecutor(dependencies, version))
       modern.register(createArtworkDedupExecutor(dependencies, version))
     }
-    modern.register(createArtworkDedupExecutor(dependencies, 5))
+    modern.register(createArtworkDedupExecutor(dependencies, 6))
     const job = {
       type: 'ARTWORK_DEDUP_SCAN',
-      definitionVersion: 5,
+      definitionVersion: 6,
       payload: { runId: 'run', executionVersion: 1 }
     }
 
     expect(old.resolve(job)).toBeNull()
     expect(old.capabilities()).toEqual([
-      { jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4] }
+      { jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5] }
     ])
-    for (const definitionVersion of [1, 2, 3, 4, 5]) {
+    for (const definitionVersion of [1, 2, 3, 4, 5, 6]) {
       expect(modern.resolve({ ...job, definitionVersion })?.payload).toEqual(job.payload)
     }
   })
@@ -254,7 +254,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to 39 job capabilities and 55 type/version combinations', () => {
+  it('locks the production Worker to 39 job capabilities and 56 type/version combinations', () => {
     const fetchImpl = vi.fn<typeof fetch>()
     const registry = createWorkerExecutorRegistry({
       fetchImpl,
@@ -293,7 +293,7 @@ describe('ExecutorRegistry', () => {
       definitionVersions: [1, 2, 3, 4, 5]
     })
     expect(capabilities).toHaveLength(39)
-    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(55)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(56)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
       [1, 2, 3, 4, 5]
     )
@@ -303,7 +303,7 @@ describe('ExecutorRegistry', () => {
     ).toEqual([1, 2])
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
     expect(capabilities.find((capability) => capability.jobType === 'ARTWORK_DEDUP_SCAN')?.definitionVersions).toEqual([
-      1, 2, 3, 4, 5
+      1, 2, 3, 4, 5, 6
     ])
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_IMPORT')?.definitionVersions).toEqual([
       1, 2

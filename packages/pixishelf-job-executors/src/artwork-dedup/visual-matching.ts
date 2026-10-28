@@ -4,7 +4,7 @@ import { ARTWORK_DEDUP_VISUAL_EVIDENCE_VERSION } from '@pixishelf/db'
 export const VISUAL_ALGORITHM_VERSION = ARTWORK_DEDUP_VISUAL_EVIDENCE_VERSION
 export const VISUAL_NORMALIZATION_VERSION = 'exif-srgb-white-gray96-white245-995-edge20-crop5-10-v1'
 export const VISUAL_LIMITS = Object.freeze({ files: 10_000, artworkFiles: 2_000, postings: 1_600_000,
-  queryPostings: 20_000, queryCandidates: 2_000, comparisons: 200_000, artworkPairs: 1_000,
+  queryPostings: 20_000, queryCandidates: 2_000, comparisons: 200_000, edgesPerPair: 200_000, artworkPairs: 1_000,
   bytes: 32 * 1024 * 1024, pixels: 40_000_000, readMs: 10_000 })
 export function compareProductionVisual(a: readonly VisualView[], b: readonly VisualView[]) {
   const result = compareVisualViews(a, b, VISUAL_PARAMETER_PRESETS[1]!)

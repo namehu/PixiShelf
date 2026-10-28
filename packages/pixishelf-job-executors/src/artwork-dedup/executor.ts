@@ -48,7 +48,7 @@ export interface ArtworkDedupDependencies {
   sliceBytes?: bigint
   onMeasurement?: (value: ReaderMetrics & { runId: string; elapsedMs: number; transactions: number }) => void
 }
-export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 | 4 | 5 = 1): ExecutorDefinition {
+export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 | 4 | 5 | 6 = 1): ExecutorDefinition {
   const supervisor = dependencies.supervisor ?? new DedupReaderSupervisor(dependencies.readerOptions)
   return {
     jobType: 'ARTWORK_DEDUP_SCAN',
@@ -217,7 +217,7 @@ export async function executeArtworkDedup(
         await transaction(tx => updateArtworkDedupRun(tx, { execution, data: { stage } }))
       }
       if (stage === 'VISUAL') {
-        if (!(await (context.job.definitionVersion >= 5 ? scanBatchedVisualVersions(pipeline) : scanVisualVersions(pipeline)))) break
+        if (!(await (context.job.definitionVersion >= 5 ? scanBatchedVisualVersions(pipeline, undefined, context.job.definitionVersion >= 6) : scanVisualVersions(pipeline)))) break
         stage = 'DONE'
       }
       if (stage === 'DONE') {
@@ -309,7 +309,7 @@ export async function executeArtworkDedup(
       // results, then yield: a new reader must revalidate root bindings before DONE.
       await scope.transaction.artworkDedupVisualPair.deleteMany({ where: { runId: execution.runId, relationKind: 'VISUAL' } })
       await scope.transaction.artworkDedupRun.update({ where: { id: run.id }, data: {
-        stage: 'DONE', visualStatus: 'INCOMPLETE', visualIncompleteReasons: [...new Set([...run.visualIncompleteReasons, 'VISUAL_TIME_BUDGET'])]
+        stage: 'DONE', visualStatus: 'INCOMPLETE', visualBudgetWaiting: false, visualIncompleteReasons: [...new Set([...run.visualIncompleteReasons, 'VISUAL_TIME_BUDGET'])]
       } })
       failure = undefined
     }
@@ -332,6 +332,10 @@ export async function executeArtworkDedup(
         error: code,
         message: '检测因存储或执行环境异常停止，请检查后重试'
       })
+      return
+    }
+    if (run.visualBudgetWaiting) {
+      await scope.pause({ reason: 'ACTION_REQUIRED', message: '本轮疑似版本比较已达上限，继续后会接着检查。' })
       return
     }
     if (done) {
