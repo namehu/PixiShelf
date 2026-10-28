@@ -338,9 +338,22 @@ export async function executeArtworkDedup(
       const result = await buildArtworkDedupGroups(scope.transaction, { execution })
       if (context.job.definitionVersion >= 4 && result.completeArtworks === result.artworkCount)
         await scope.transaction.artworkDedupRun.update({ where: { id: result.id }, data: { relationCacheVersion: ARTWORK_DEDUP_RELATION_CACHE_VERSION } })
+      const unchecked = result.changedArtworks + result.failedArtworks + result.skippedArtworks
       await scope.complete({
-        result: { runId: execution.runId, groups: result.groupCount, checked: result.processedArtworks },
-        message: '检测完成'
+        result: {
+          runId: execution.runId,
+          groups: result.groupCount,
+          checked: result.completeArtworks,
+          processed: result.processedArtworks,
+          changed: result.changedArtworks,
+          failed: result.failedArtworks,
+          skipped: result.skippedArtworks
+        },
+        message: unchecked > 0
+          ? `检查结束，${result.completeArtworks} 部完成，${unchecked} 部未完成检查`
+          : result.visualStatus === 'INCOMPLETE'
+            ? '原件检查完成，疑似版本检查未完成'
+            : '检测完成'
       })
       return
     }

@@ -280,14 +280,15 @@ export async function buildArtworkDedupGroups(
     ) locked
   `)
   // Recheck both frozen catalog membership and the published, complete content evidence.
+  // A missing content source is revision/epoch zero, as in captureArtworkContentSnapshot.
   await tx.$executeRaw(Prisma.sql`
     UPDATE "ArtworkDedupItem" i SET status='CHANGED',"errorCode"='CONTENT_CHANGED',"updatedAt"=CURRENT_TIMESTAMP
     WHERE i."runId"=${run.id} AND i.status='COMPLETE' AND NOT EXISTS (
       SELECT 1 FROM "Artwork" a JOIN "ArtworkContentFingerprint" f ON f."artworkId"=a.id
-      JOIN "ArtworkContentSource" s ON s."artworkId"=a.id
+      LEFT JOIN "ArtworkContentSource" s ON s."artworkId"=a.id
       WHERE a.id=i."artworkId" AND a."mediaRevision"=i."frozenMediaRevision" AND a."deletedAt" IS NULL AND a."archiveLifecycleState"='ACTIVE'
-        AND s."writeToken" IS NULL AND s.revision=i."snapshotRevision" AND s."mediaEpoch"=i."mediaEpoch"
-        AND f."sourceRevision"=s.revision AND f."mediaEpoch"=s."mediaEpoch" AND f."contentSha256"=i."contentSha256"
+        AND s."writeToken" IS NULL AND COALESCE(s.revision,0)=i."snapshotRevision" AND COALESCE(s."mediaEpoch",0)=i."mediaEpoch"
+        AND f."sourceRevision"=COALESCE(s.revision,0) AND f."mediaEpoch"=COALESCE(s."mediaEpoch",0) AND f."contentSha256"=i."contentSha256"
         AND f."fileCount"=i."memberCount" AND f."membersSignature"=i."membersSignature" AND f."algorithmVersion"=${run.algorithmVersion}
         AND EXISTS (SELECT 1 FROM artwork_artists m JOIN artwork_artist_evidence e ON e."membershipId"=m.id JOIN "Artist" ar ON ar.id=m."artistId"
           WHERE m."artworkId"=a.id AND m."artistId"=${run.artistId} AND ar."mergedIntoId" IS NULL AND e.present AND e."excludedAt" IS NULL)

@@ -249,6 +249,68 @@ describe.skipIf(!db)('artwork detection durable evidence', () => {
       })
       await expect(buildArtworkDedupGroups(tx, { execution: f.execution })).rejects.toMatchObject({ code: 'CONFLICT' })
     }))
+  it('groups legacy zero-version evidence without source rows alongside tracked artworks', () =>
+    isolated(async (tx) => {
+      const f = await seed(tx, [[1], [1], [1]])
+      const legacyIds = f.artworks.slice(0, 2).map((a) => a.id)
+      // Imported before source tracking: absence is the valid initial revision/epoch.
+      await tx.artworkContentSource.deleteMany({ where: { artworkId: { in: legacyIds } } })
+      for (const a of f.artworks) await complete(tx, f.execution, a.id, 'c'.repeat(64))
+      for (const prepareRelations of [true, false]) {
+        const result = await buildArtworkDedupGroups(tx, { execution: f.execution, prepareRelations })
+        expect(result).toMatchObject({ completeArtworks: 3, changedArtworks: 0, groupCount: 1, duplicateArtworks: 2 })
+        expect(await tx.artworkDedupGroupMember.count({ where: { runId: f.run.id } })).toBe(3)
+      }
+      expect(await tx.artworkContentSource.count({ where: { artworkId: { in: legacyIds } } })).toBe(0)
+    }))
+  it.each([
+    'snapshot-revision', 'snapshot-epoch', 'fingerprint-revision', 'fingerprint-epoch',
+    'missing-fingerprint', 'missing-media-hash', 'membership', 'writer', 'source-revision', 'source-epoch'
+  ] as const)('still rejects %s mismatches for legacy zero-version evidence', (change) =>
+    isolated(async (tx) => {
+      const f = await seed(tx, [[1], [1]])
+      await tx.artworkContentSource.deleteMany({ where: { artworkId: { in: f.artworks.map((a) => a.id) } } })
+      for (const a of f.artworks) await complete(tx, f.execution, a.id, 'c'.repeat(64))
+      const artworkId = f.artworks[0]!.id
+      const itemWhere = { runId_artworkId: { runId: f.run.id, artworkId } }
+      switch (change) {
+        case 'snapshot-revision':
+          await tx.artworkDedupItem.update({ where: itemWhere, data: { snapshotRevision: 1n } })
+          break
+        case 'snapshot-epoch':
+          await tx.artworkDedupItem.update({ where: itemWhere, data: { mediaEpoch: 1n } })
+          break
+        case 'fingerprint-revision':
+          await tx.artworkContentFingerprint.update({ where: { artworkId }, data: { sourceRevision: 1n } })
+          break
+        case 'fingerprint-epoch':
+          await tx.artworkContentFingerprint.update({ where: { artworkId }, data: { mediaEpoch: 1n } })
+          break
+        case 'missing-fingerprint':
+          await tx.artworkContentFingerprint.delete({ where: { artworkId } })
+          break
+        case 'missing-media-hash':
+          await tx.artworkDedupMedia.updateMany({ where: { runId: f.run.id, artworkId }, data: { sha256: null } })
+          break
+        case 'membership':
+          await tx.artworkArtistEvidence.updateMany({ where: { membership: { artworkId } }, data: { present: false } })
+          break
+        case 'writer':
+          await tx.artworkContentSource.create({ data: { artworkId, writeToken: randomUUID(), writeStartedAt: new Date() } })
+          break
+        case 'source-revision':
+          await tx.artworkContentSource.create({ data: { artworkId, revision: 1n } })
+          break
+        case 'source-epoch':
+          await tx.artworkContentSource.create({ data: { artworkId, mediaEpoch: 1n } })
+          break
+      }
+      const result = await buildArtworkDedupGroups(tx, { execution: f.execution })
+      expect(result).toMatchObject({ completeArtworks: 1, changedArtworks: 1, groupCount: 0 })
+      expect(await tx.artworkDedupItem.findUniqueOrThrow({ where: itemWhere })).toMatchObject({
+        status: 'CHANGED', errorCode: 'CONTENT_CHANGED'
+      })
+    }))
   it('keeps global reader occupancy through lease loss and requires exact actual-close token', () =>
     isolated(async (tx) => {
       const f = await seed(tx, [[1]])
