@@ -148,8 +148,10 @@ class MobileApi {
       _cache[url] = hit;
       return Future.value(hit);
     }
-    return _pending[url] ??=
-        _download(url).whenComplete(() => _pending.remove(url));
+    return _pending[url] ??= _download(url).whenComplete(() {
+      // A Map.remove expression returns this same Future and would await itself.
+      _pending.remove(url);
+    });
   }
 
   Future<Uint8List> _download(String url) async {

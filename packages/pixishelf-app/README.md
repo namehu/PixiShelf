@@ -53,6 +53,12 @@ flutter drive --driver=test_driver/gallery.dart --target=integration_test/galler
 
 ## 原生媒体自动验证
 
+静态媒体的首次响应、图片解码、缩放与连续切换使用独立模拟器测试，覆盖 JPEG／PNG／WebP；修复背景见[图片加载记录](../../docs/records/features/android-media-loading-2026-10-28.md)：
+
+```sh
+flutter drive --driver=test_driver/gallery.dart --target=integration_test/static_media_test.dart -d <emulator-id> --no-enable-impeller
+```
+
 测试只使用生成图形和临时视频，不读取收藏目录。运行前使用本机 FFmpeg 生成 8 秒 H.264 测试图，并将它作为编译常量传给仅测试入口；该视频不进入正常 APK：
 
 ```sh

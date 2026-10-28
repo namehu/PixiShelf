@@ -90,17 +90,17 @@ class _MediaCanvasState extends State<MediaCanvas> {
         return;
       }
       final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-      final descriptor = await ui.ImageDescriptor.encoded(buffer);
       final limit = widget.highQuality && !widget.item.animated ? 4096 : 2048;
-      final ratio = min(
-          1.0,
-          min(limit / max(descriptor.width, descriptor.height),
-              sqrt(16000000 / (descriptor.width * descriptor.height))));
-      final codec = await descriptor.instantiateCodec(
-          targetWidth: max(1, (descriptor.width * ratio).round()),
-          targetHeight: max(1, (descriptor.height * ratio).round()));
-      descriptor.dispose();
-      buffer.dispose();
+      // The engine still needs the descriptor during asynchronous frame decode.
+      // Let Flutter own it instead of disposing it before getNextFrame finishes.
+      final codec = await ui.instantiateImageCodecWithSize(buffer,
+          getTargetSize: (width, height) {
+        final ratio = min(1.0,
+            min(limit / max(width, height), sqrt(16000000 / (width * height))));
+        return ui.TargetImageSize(
+            width: max(1, (width * ratio).round()),
+            height: max(1, (height * ratio).round()));
+      });
       if (!mounted || epoch != _epoch) {
         codec.dispose();
         return;

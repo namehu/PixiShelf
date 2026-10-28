@@ -36,3 +36,4 @@ sources:
 [Android 验证版 2026-10-28](./android-app-2026-10-28.md)：独立工作区、Flutter 与原网页回归、模拟器及未覆盖项。
 
 - [Android 图库与作品内选图验证（2026-10-28）](./android-gallery-2026-10-28.md)
+- [Android 图片加载与崩溃修复（2026-10-28）](./android-media-loading-2026-10-28.md)
