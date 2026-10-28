@@ -6,13 +6,14 @@ import { scanBatchedVisualVersions } from '../visual-batches.ts'
 import { matchVisualPages, type VisualPage } from '../visual-matching.ts'
 import type { DedupPipelineContext } from '../pipeline.ts'
 import { VisualSqlProfile } from './visual-sql-profile.ts'
+import { MutableQueueClock, PostgresQueueRepository, type ClaimedJob, type QueueDatabase } from '@pixishelf/job-runtime'
 
 // Synthetic features exercise the real persisted index/query path, not image decoding.
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
 const db = url ? new PrismaClient({ datasourceUrl: url, log: [{ emit: 'event', level: 'query' }] }) : null
 const suite = url ? describe.sequential : describe.skip
 const prefix = `visual-batches-${randomUUID()}`
-const artistIds: number[] = [], runIds: string[] = [], jobIds: string[] = []
+const artistIds: number[] = [], imageIds: number[] = [], runIds: string[] = [], jobIds: string[] = []
 const directoryPrefixes = [prefix]
 let preserveFixture = false
 let sqlProfile: VisualSqlProfile | undefined
@@ -21,9 +22,11 @@ let rootIdentity = prefix
 beforeAll(async () => { if (db) rootIdentity = (await db.mediaContentDirectoryState.findUnique({ where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } } }))?.rootIdentity ?? prefix })
 let measurementStarted = 0, measurementCount = 0
 let checkpointWrites = 0
+let scopeDerivations = 0
 let failCommit = false
 
 db?.$on('query', event => {
+  if (/SELECT DISTINCT m\."artworkId",m\."logicalRoot"/.test(event.query)) scopeDerivations++
   sqlProfile?.event(event.query, event.duration)
   if (metrics) {
     metrics.queries++
@@ -40,6 +43,7 @@ afterAll(async () => {
   if (preserveFixture) { await db.$disconnect(); return }
   await db.artworkDedupRun.deleteMany({ where: { id: { in: runIds } } })
   await db.systemJob.deleteMany({ where: { id: { in: jobIds } } })
+  await db.image.deleteMany({ where: { id: { in: imageIds } } })
   await db.artwork.deleteMany({ where: { creators: { some: { artistId: { in: artistIds } } } } })
   await db.artist.deleteMany({ where: { id: { in: artistIds } } })
   await db.mediaContentDirectoryState.deleteMany({ where: { OR: [{ relativeDirectory: { in: directoryPrefixes } }, ...(rootIdentity === prefix ? [{ rootIdentity: prefix }] : [])] } })
@@ -58,6 +62,7 @@ async function fixture(count: number, groupSize = 1000, dense = false) {
     const length = Math.min(groupSize, count - start)
     await db!.image.createMany({ data: Array.from({ length }, (_, i) => ({ artworkId: artwork.id, path: `${prefix}/${artwork.id}/${i}.png`, sortOrder: i })) })
     const images = await db!.image.findMany({ where: { artworkId: artwork.id }, orderBy: { id: 'asc' } })
+    imageIds.push(...images.map(image => image.id))
     const snapshot = await db!.$transaction(tx => captureArtworkContentSnapshot(tx, { artworkId: artwork.id }))
     if (snapshot.status !== 'READY') throw new Error('Synthetic snapshot unavailable')
     artworks.push({ id: artwork.id, revision: (await db!.artwork.findUniqueOrThrow({ where: { id: artwork.id } })).mediaRevision, snapshot: snapshot.value })
@@ -67,7 +72,7 @@ async function fixture(count: number, groupSize = 1000, dense = false) {
     }
   }
   const jobId = randomUUID(); jobIds.push(jobId)
-  await db!.systemJob.create({ data: { id: jobId, type: 'ARTWORK_DEDUP_SCAN', definitionVersion: 5, executionLane: 'BACKGROUND_WRITER', status: 'PENDING', triggerSource: 'SYSTEM', queuePriority: 900, effectivePriority: 900, payload: {} } })
+  await db!.systemJob.create({ data: { id: jobId, type: 'ARTWORK_DEDUP_SCAN', definitionVersion: 5, executionLane: 'BACKGROUND_WRITER', status: 'PENDING', triggerSource: 'SYSTEM', queuePriority: 900, effectivePriority: 900, availableAt: new Date('2100-01-01'), payload: {} } })
   const run = await db!.artworkDedupRun.create({ data: { artistId: artist.id, requestedBy: prefix, idempotencyKey: randomUUID(), mode: 'FULL', jobId, status: 'RUNNING', stage: 'VISUAL', includeSuspectedVersions: true, visualStatus: 'PENDING', visualAfterImageId: pages.at(-1)!.imageId } })
   runIds.push(run.id)
   const directory = await db!.$transaction(tx => captureMediaContentDirectory(tx, { directory: { logicalRoot: 'source-media:v1', rootIdentity, relativeDirectory: prefix } }))
@@ -133,7 +138,7 @@ async function cloneIncremental(context: DedupPipelineContext) {
   const old = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: context.execution.runId } })
   await db!.artworkDedupRun.update({ where: { id: old.id }, data: { status: 'COMPLETED', relationCacheVersion: ARTWORK_DEDUP_RELATION_CACHE_VERSION } })
   const jobId = randomUUID(); jobIds.push(jobId)
-  await db!.systemJob.create({ data: { id: jobId, type: 'ARTWORK_DEDUP_SCAN', definitionVersion: 5, executionLane: 'BACKGROUND_WRITER', status: 'PENDING', triggerSource: 'SYSTEM', queuePriority: 900, effectivePriority: 900, payload: {} } })
+  await db!.systemJob.create({ data: { id: jobId, type: 'ARTWORK_DEDUP_SCAN', definitionVersion: 5, executionLane: 'BACKGROUND_WRITER', status: 'PENDING', triggerSource: 'SYSTEM', queuePriority: 900, effectivePriority: 900, availableAt: new Date('2100-01-01'), payload: {} } })
   const run = await db!.artworkDedupRun.create({ data: { artistId: old.artistId, requestedBy: prefix, idempotencyKey: randomUUID(), mode: 'INCREMENTAL', jobId, status: 'RUNNING', stage: 'VISUAL', includeSuspectedVersions: true, visualStatus: 'PENDING', visualAfterImageId: old.visualAfterImageId } })
   runIds.push(run.id)
   const items = await db!.artworkDedupItem.findMany({ where: { runId: old.id } })
@@ -143,6 +148,113 @@ async function cloneIncremental(context: DedupPipelineContext) {
   return { ...context, forceRead: false, execution: { runId: run.id, jobId, executionVersion: 1 } }
 }
 suite('F03 persistent visual batches', () => {
+  it('rebuilds bounded directory scopes after normal yields with identical edges and query results', async () => {
+    const test = await fixture(20, 10, true)
+    const initial = await advanceTo(test.context, 'QUERY')
+    const outcome = async () => {
+      const row = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+      return { checkpoint: row.visualCheckpoint, status: row.visualStatus, compared: row.visualComparedComparisons, reused: row.visualReusedComparisons,
+        candidates: await db!.artworkDedupVisualCandidate.findMany({ where: { runId: test.runId }, orderBy: [{ leftArtworkId: 'asc' }, { rightArtworkId: 'asc' }], select: { leftArtworkId: true, rightArtworkId: true, edges: true, evidence: true } }), results: await results(test.runId) }
+    }
+    let before = scopeDerivations
+    expect(await scanBatchedVisualVersions(test.context)).toBe(true)
+    const continuous = await outcome(), continuousDerivations = scopeDerivations - before
+    expect(continuousDerivations).toBe(1)
+    await db!.$transaction(async tx => {
+      await tx.artworkDedupVisualPair.deleteMany({ where: { runId: test.runId } })
+      await tx.artworkDedupVisualCandidate.deleteMany({ where: { runId: test.runId } })
+      await tx.artworkDedupRun.update({ where: { id: test.runId }, data: { stage: initial.stage, visualStatus: initial.visualStatus,
+        visualCheckpoint: initial.visualCheckpoint as Prisma.InputJsonValue, visualComparedComparisons: 0, visualReusedComparisons: 0, visualCandidatePairs: [] } })
+    })
+    before = scopeDerivations
+    let slices = 0, nonemptySlices = 0
+    for (;;) {
+      const writes = checkpointWrites, derivations = scopeDerivations
+      // A fresh context models the runtime's time slice; each call discards its
+      // scope even though multiple QUERY commits inside the call can reuse it.
+      const fresh = fixtureContext(test.runId, test.context.execution.jobId).context
+      const done = await scanBatchedVisualVersions({ ...fresh, shouldYield: () => checkpointWrites - writes >= 3 })
+      expect(scopeDerivations - derivations).toBeLessThanOrEqual(1)
+      if (scopeDerivations > derivations) nonemptySlices++
+      if (done) break
+      if (++slices > 30) throw new Error('Sliced scope fixture stalled')
+    }
+    expect(slices).toBeGreaterThan(2)
+    expect(scopeDerivations - before).toBe(nonemptySlices)
+    expect(nonemptySlices).toBeGreaterThan(continuousDerivations)
+    expect(await outcome()).toEqual(continuous)
+    console.info('F03_SCOPE_SLICES ' + JSON.stringify({ pages: 20, continuousDerivations, slicedDerivations: nonemptySlices, slices: slices + 1, commitsPerSlice: 3 }))
+  }, 60_000)
+
+  it.each(['cancel', 'execution', 'source', 'member', 'media-epoch', 'snapshot-null', 'directory', 'root', 'write-token', 'directory-writer', 'lease', 'rollback'] as const)('rejects %s after directory scope reuse without advancing the committed prefix', async fault => {
+    const test = await fixture(20, 10, true)
+    await advanceTo(test.context, 'QUERY')
+    const controller = new AbortController()
+    const directory = await db!.mediaContentDirectoryState.findUniqueOrThrow({ where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: prefix } } })
+    const root = await db!.mediaContentDirectoryState.findUniqueOrThrow({ where: { logicalRoot_relativeDirectory: { logicalRoot: 'source-media:v1', relativeDirectory: '' } } })
+    const clock = new MutableQueueClock(new Date('2030-01-01'))
+    const repository = new PostgresQueueRepository(db! as unknown as QueueDatabase, { clock, transactionTimeoutMs: 20_000 })
+    const capabilities = [{ jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [5] }]
+    let claim: ClaimedJob | null = null
+    if (fault === 'lease') {
+      await db!.systemJob.update({ where: { id: test.context.execution.jobId }, data: { availableAt: clock.now(), payload: { runId: test.runId, executionVersion: 1 } } })
+      claim = await repository.claim(`${prefix}-scope`, capabilities)
+      expect(claim?.id).toBe(test.context.execution.jobId)
+    }
+    const mutate = claim ? <T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) => repository.withFencedMutationTransaction({ jobId: claim!.id, workerId: claim!.workerId, executionToken: claim!.executionToken, attempt: claim!.attempt }, operation) : test.context.transaction
+    const state = async () => {
+      const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
+      return { checkpoint: run.visualCheckpoint, compared: run.visualComparedComparisons, reused: run.visualReusedComparisons,
+        candidates: await db!.artworkDedupVisualCandidate.findMany({ where: { runId: test.runId }, orderBy: [{ leftArtworkId: 'asc' }, { rightArtworkId: 'asc' }] }), results: await results(test.runId) }
+    }
+    let committed = 0, saved: Awaited<ReturnType<typeof state>> | undefined, writerId: string | undefined
+    const derivations = scopeDerivations
+    const context: DedupPipelineContext = { ...test.context, signal: controller.signal, transaction: async operation => {
+      const writes = checkpointWrites
+      const result = await mutate(async tx => {
+        const value = await operation(tx)
+        if (fault === 'rollback' && committed === 2 && checkpointWrites > writes) throw new Error('Injected cached-scope rollback')
+        return value
+      })
+      if (checkpointWrites > writes && ++committed === 2) {
+        saved = await state()
+        expect(scopeDerivations - derivations).toBe(1)
+        if (fault === 'cancel') controller.abort()
+        if (fault === 'execution') await db!.artworkDedupRun.update({ where: { id: test.runId }, data: { executionVersion: { increment: 1 } } })
+        if (fault === 'source') await db!.image.update({ where: { id: test.pages[0]!.imageId }, data: { path: `${prefix}/changed.png` } })
+        if (fault === 'member') {
+          const image = await db!.image.create({ data: { artworkId: test.pages[0]!.artworkId, path: `${prefix}/new-member.png` } }); imageIds.push(image.id)
+        }
+        if (fault === 'media-epoch') await db!.artworkContentSource.update({ where: { artworkId: test.pages[0]!.artworkId }, data: { mediaEpoch: { increment: 1 } } })
+        if (fault === 'snapshot-null') await db!.artworkDedupItem.update({ where: { runId_artworkId: { runId: test.runId, artworkId: test.pages[0]!.artworkId } }, data: { snapshotRevision: null } })
+        if (fault === 'directory') await db!.mediaContentDirectoryState.update({ where: { id: directory.id }, data: { generation: { increment: 1 } } })
+        if (fault === 'root') await db!.mediaContentDirectoryState.update({ where: { id: root.id }, data: { rootIdentity: `${prefix}-changed` } })
+        if (fault === 'write-token') await db!.artworkContentSource.update({ where: { artworkId: test.pages[0]!.artworkId }, data: { writeToken: randomUUID() } })
+        if (fault === 'directory-writer') {
+          const writer = await db!.mediaContentPathWrite.create({ data: { directoryId: root.id, scope: 'DIRECTORY', sessionId: prefix, sessionVersion: 1n, writeToken: randomUUID(), startedAt: new Date() } }); writerId = writer.id
+        }
+        if (fault === 'lease') clock.advance(60_001)
+      }
+      return result
+    } }
+    try {
+      await expect(scanBatchedVisualVersions(context)).rejects.toThrow()
+      expect(committed).toBe(2)
+      expect(saved).toBeDefined()
+      expect(await state()).toEqual(saved)
+      expect(scopeDerivations - derivations).toBe(fault === 'snapshot-null' ? 2 : 1)
+      if (fault === 'execution') {
+        const restarted = { ...test.context, execution: { ...test.context.execution, executionVersion: 2 } }
+        expect(await scanBatchedVisualVersions(restarted)).toBe(true)
+        expect(scopeDerivations - derivations).toBe(2)
+      }
+    } finally {
+      if (writerId) await db!.mediaContentPathWrite.delete({ where: { id: writerId } })
+      if (fault === 'directory') await db!.mediaContentDirectoryState.update({ where: { id: directory.id }, data: { generation: directory.generation } })
+      if (fault === 'root') await db!.mediaContentDirectoryState.update({ where: { id: root.id }, data: { rootIdentity: root.rootIdentity } })
+    }
+  }, 60_000)
+
   it('restarts every phase, preserves query prefixes after rollback, and matches the legacy engine', async () => {
     const test = await fixture(120, 60, true)
     for (let i = 0; i < 59; i++) test.pages[i + 60]!.sha256 = test.pages[i]!.sha256

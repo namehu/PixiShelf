@@ -10,6 +10,8 @@
 
 去重 F03：[2026-10-27—28 规模与密集续跑验证](./artwork-deduplication-scale-f03-2026-10-27.md) · [独立审查](./artwork-deduplication-scale-f03-review-2026-10-27.md)。
 
+目录查询优化：[2026-10-28 第五批记录](./artwork-deduplication-root-scope-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-root-scope-f03-review-2026-10-28.md)。
+
 完整清单见[功能记录索引](./features/README.md)。下表提供跨领域常用入口。
 
 | 主题               | 记录                                                                                                                                                                                     |

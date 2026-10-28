@@ -16,6 +16,7 @@ import { scanBatchedVisualVersions } from '../visual-batches.ts'
 
 interface Manifest extends ScaleIdentity {
   version: string; prefix: string; runId: string; jobId: string; artistId: number; fixtureSha256: string; oracle: ScaleOracle; sources: Record<string, string>; prepareMs: number
+  baselineDirectory?: string; sourceFreezePending?: boolean
 }
 type Checkpoint = { phase?: string; queryAfter?: number; queryImageId?: number; candidateAfter?: number; [key: string]: unknown }
 const exclusive = process.env.ARTWORK_DEDUP_VISUAL_SCALE_HARNESS === '1'
@@ -23,7 +24,7 @@ const outputDirectory = process.env.ARTWORK_DEDUP_VISUAL_SCALE_OUTPUT
 const stage = process.env.ARTWORK_DEDUP_VISUAL_SCALE_STAGE
 const count = Number(process.env.ARTWORK_DEDUP_VISUAL_SCALE_COUNT)
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
-const sourceNames = ['visual-batches.ts', 'visual-pipeline.ts', 'visual-matching.ts', 'visual-experiment.ts', '__tests__/visual-scale-fixture.ts', '__tests__/visual-scale.postgres.test.ts', '__tests__/visual-sql-profile.ts']
+const sourceNames = ['visual-batches.ts', 'root-directory-scope.ts', 'visual-pipeline.ts', 'visual-matching.ts', 'visual-experiment.ts', '__tests__/visual-scale-fixture.ts', '__tests__/visual-scale.postgres.test.ts', '__tests__/visual-sql-profile.ts']
 async function sources() {
   return Object.fromEntries(await Promise.all(sourceNames.map(async name => [name, createHash('sha256').update(await readFile(new URL(`../${name}`, import.meta.url))).digest('hex')])) ) as Record<string, string>
 }
@@ -116,6 +117,7 @@ async function outcome(db: PrismaClient, runId: string, manifest: Manifest, hot:
   expect(postings).toBe(manifest.oracle.postings)
   expect(run.visualComparedComparisons).toBe(hot ? 0 : manifest.oracle.comparisons)
   expect(run.visualReusedComparisons).toBe(hot ? manifest.oracle.comparisons : 0)
+  expect((run.visualCheckpoint as Checkpoint | null)?.reuseBaseId ?? null).toBe(hot ? manifest.runId : null)
   expect(run.visualCandidatePairs).toEqual(manifest.oracle.candidates.map(candidate => `${candidate.left}:${candidate.right}`))
   expect(pairs.map(({ left, right, pages }) => ({ left, right, pages }))).toEqual(manifest.oracle.pairs)
   const expectedPairs = new Map(manifest.oracle.pairs.map(pair => [`${pair.left}:${pair.right}`, pair]))
@@ -135,6 +137,14 @@ async function outcome(db: PrismaClient, runId: string, manifest: Manifest, hot:
     const cold = JSON.parse(await readFile(resolve(outputDirectory!, 'cold-resume.json'), 'utf8')) as { outcome: { publishedSha256: string } }
     expect(result.publishedSha256).toBe(cold.outcome.publishedSha256)
   }
+  if (manifest.baselineDirectory) {
+    const baseline = JSON.parse(await readFile(resolve(manifest.baselineDirectory, hot ? 'hot.json' : 'cold-resume.json'), 'utf8')) as {
+      outcome: { published: unknown; candidates: unknown; completeSha256: string }
+    }
+    expect(result.published).toEqual(baseline.outcome.published)
+    expect(result.candidates).toEqual(baseline.outcome.candidates)
+    expect(result.completeSha256).toBe(baseline.outcome.completeSha256)
+  }
   return result
 }
 
@@ -152,6 +162,7 @@ it.skipIf(!exclusive)('measures the isolated prepared-feature scale run with a p
     const reuseFixture = process.env.ARTWORK_DEDUP_VISUAL_SCALE_REUSE_FIXTURE === '1'
     const manifest = stage === 'cold-start' && !reuseFixture ? await createFixture(db) : JSON.parse(await readFile(resolve(outputDirectory, 'manifest.json'), 'utf8')) as Manifest
     expect(manifest.version).toBe(SCALE_FIXTURE_VERSION); expect(manifest.shape.count).toBe(count)
+    expect(manifest.sourceFreezePending).not.toBe(true)
     expect(await sources()).toEqual(manifest.sources)
     expect(await inputDigest(db, manifest.runId)).toBe(manifest.fixtureSha256)
     const identity = stage === 'hot' ? await cloneHot(db, manifest) : { runId: manifest.runId, jobId: manifest.jobId }

@@ -10,6 +10,7 @@ import type { DedupPipelineContext } from './pipeline.ts'
 import { prepareVisualVersions } from './visual-pipeline.ts'
 import { visualRelationSignature } from './relation-cache.ts'
 import { VisualViewIndex } from './visual-experiment.ts'
+import { QueryDirectoryScope } from './root-directory-scope.ts'
 import { VISUAL_LIMITS, VISUAL_ALGORITHM_VERSION, validVisualViews, compareProductionVisual, assignVisualPair, type VisualPage, type VisualPairEvidence } from './visual-matching.ts'
 
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
@@ -26,9 +27,9 @@ class VisualBudget extends Error { constructor(readonly reason: string) { super(
 const fail = (reason: string): never => { throw new VisualBudget(reason) }
 const changed = (): never => { throw new MediaContentFileError('FILE_CHANGED', 'Visual work input changed') }
 
-async function guardArtworks(tx: Tx, context: DedupPipelineContext, artworkIds: number[]) {
+async function guardArtworks(tx: Tx, context: DedupPipelineContext, artworkIds: number[], directories?: QueryDirectoryScope) {
   const ids = [...new Set(artworkIds)].sort((a, b) => a - b)
-  if (!(await assertArtworkDedupCacheDirectories(tx, context.execution.runId, ids))) throw new MediaContentFileError('ROOT_CHANGED', 'Visual directory changed')
+  if (!(await (directories ? directories.assert(tx, ids) : assertArtworkDedupCacheDirectories(tx, context.execution.runId, ids)))) throw new MediaContentFileError('ROOT_CHANGED', 'Visual directory changed')
   if (!(await assertArtworkDedupVisualItems(tx, context.execution, ids))) changed()
 }
 
@@ -218,7 +219,7 @@ async function readQuery(tx: Tx, context: DedupPipelineContext, run: Run, checkp
   return blocks
 }
 
-async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint, queries: Awaited<ReturnType<typeof readQuery>>) {
+async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint, queries: Awaited<ReturnType<typeof readQuery>>, directories: QueryDirectoryScope) {
   if (!queries) {
     checkpoint.phase = 'PAIR'
     await context.transaction(async tx => { await assertArtworkDedupExecution(tx, context.execution); await save(tx, run.id, checkpoint) })
@@ -288,7 +289,7 @@ async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Ch
       }
       if (accepted < processed.length) work = combine(processed.slice(0, accepted))
     }
-    await guardArtworks(tx, context, work.artworkIds)
+    await guardArtworks(tx, context, work.artworkIds, directories)
     const missing = [...work.additions].filter(([key]) => !byPair.has(key)).map(([, entry]) => ({ runId: run.id, ...entry }))
     if (missing.length) await tx.artworkDedupVisualCandidate.createMany({ data: missing })
     for (const candidate of existing) {
@@ -396,6 +397,7 @@ async function publish(context: DedupPipelineContext, run: Run) {
 /** Version 5 only. The optional limit is an internal fixture seam, never an App input. */
 export async function scanBatchedVisualVersions(context: DedupPipelineContext, fileLimit: number = VISUAL_LIMITS.files): Promise<boolean> {
   if (!(await prepareVisualVersions(context, fileLimit))) return false
+  const queryDirectories = new QueryDirectoryScope(context.execution)
   try {
     for (;;) {
       throwIfAborted(context.signal)
@@ -409,7 +411,7 @@ export async function scanBatchedVisualVersions(context: DedupPipelineContext, f
       const { run, checkpoint, query } = work
       if (checkpoint.phase === 'INDEX') await indexArtwork(context, run, checkpoint)
       else if (checkpoint.phase === 'REUSE') await snapshotReuse(context, run, checkpoint)
-      else if (checkpoint.phase === 'QUERY') await queryPage(context, run, checkpoint, query)
+      else if (checkpoint.phase === 'QUERY') await queryPage(context, run, checkpoint, query, queryDirectories)
       else if (checkpoint.phase === 'PAIR') await pairCandidate(context, run, checkpoint)
       else { await publish(context, run); return true }
       if (context.shouldYield()) return false

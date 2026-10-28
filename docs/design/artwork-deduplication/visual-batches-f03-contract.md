@@ -1,9 +1,10 @@
 ---
 status: current
 scope: F03 有界视觉检索、SQL 批处理与中断续跑契约；不代表 50 万规模能力已交付
-last-verified: 2026-10-27
+last-verified: 2026-10-28
 sources:
   - packages/pixishelf-job-executors/src/artwork-dedup/visual-batches.ts
+  - packages/pixishelf-job-executors/src/artwork-dedup/root-directory-scope.ts
   - packages/pixishelf-job-executors/src/artwork-dedup/visual-pipeline.ts
   - packages/pixishelf-job-executors/src/artwork-dedup/visual-matching.ts
   - packages/pixishelf-db/prisma/schema.prisma
@@ -13,6 +14,20 @@ sources:
 # F03：视觉检索分批与续跑
 
 本批将特征准备之后的一次性内存匹配改成持久分段处理。沿用原算法、F02 缓存、现有检查页面和人工删除流程；不增加新服务、管理向导或移动适配。基线为 `261993af`，仅在独立 worktree 开发，真实开发库和用户 Worker 不在本批变更范围。
+
+## 第五批：根身份与目录清单查询优化
+
+第四批基线为 `682fe3fd`，第五批实施前先经独立审查合入 main 的 `73ebb3b7`／`46eacb5b`（合并提交 `2af6ff4a`）。保留第四批固定 100,000 条特征、媒体 ID、输入摘要和独立 oracle。只优化视觉检索中反复从媒体推导根身份／目录清单的数据库成本，不修改匹配规则、公开预算、删除确认、缓存含义或任务版本。主目录、开发库及用户服务不参与。main 修复只对齐历史零版本证据，不改变视觉内核路径；合并后另做历史数据定向验证。
+
+- 可以复用有界的范围描述或改进查询方式；**不能复用“上一次已经校验成功”的结论**。提交仍核对当前执行权／租约、根身份、目录代次、作品源及完整成员快照、写入声明，沿用 catalog → roots → directories → Artwork 锁序。
+- 范围描述必须绑定当前 run 的冻结成员及执行上下文；中断／重启能从持久数据重建，旧任务或不同 run 不得错用。根变更、目录变化、成员／来源变化、取消／失租约和事务回滚不能推进过期结果。
+- 内存和查询保持有界，不将全部媒体读入内存、不加无界全局缓存；生产每次 10,000 原件及 8 查询／50 候选槽等保护不变。若最小方案需要数据库迁移或跨包协议调整，先修订本节，不临时扩散改动。
+- **选定实现**：仅 QUERY 使用执行器内的目录范围 helper，在同一次视觉扫描调用中以 LRU 保存“作品 → 冻结目录快照”描述，最多 128 部作品、2,000 条目录快照及 1 MiB 序列化元数据。键绑定 run、job、executionVersion 和当前 item 的完整冻结身份；零版本是合法值，不能与 null 混淆。miss 有界查询最多 2,001 条目录快照，由同一清单推导根，避免单独根 DISTINCT 与空尾页。任何超限回退原有分页校验，不截断目录。
+- 每次提交继续调用现有 `assertArtworkDedupVisualDirectories` 和 `assertArtworkDedupVisualItems`，核对完整当下状态；全体根须先锁，再分段锁目录／祖先，之后锁作品。INDEX／REUSE／PAIR／PUBLISH 保持原路径，最终发布仍完整复核。调用让行或进程重启丢弃内存清单、重新推导，不增加持久缓存或迁移。测量须说明缓存寿命与测试让行方式，不能把一次长调用内的热命中当作真实 Worker 全链吞吐。
+- 安全定向用例覆盖正常冷热结果、复用范围后根／目录／源变化、写入声明、取消／失租约、回滚及新执行上下文续跑。只在新的专属测试库操作，正式迁移；保留的规模库由测量负责人独占。
+- 性能复用第四批已完成基线，不再重跑旧版长测；优化版在同一输入上各完成一次冷轮和热轮，按原 oracle 核对所有候选／负证据及发布结果。先做有界探针，生产源码冻结且独立审查后再启动长测；不与其他压测争用数据库。
+- 记录 SQL 总量、根／目录查询成本、事务、写语句、内核耗时、驻留内存、比较／复用和结果摘要。旧基线的单条 COMMIT 归因缺口继续明确；预制特征测量不冒充原图解码、NAS 或严格受控多轮性能实验。
+- Astra / high 负责复杂实现，Sol 6.1 / xhigh 负责测量与独立审查，Sol 6.1 / medium 仅做必要桌面冒烟；只跑相关测试、受影响包 typecheck 和一次必要 Worker 构建，不重复全量应用验证。通过后提交并暂停，不自动合并或发布。用户已取消额度监控。
 
 ## 第四批验证范围
 
