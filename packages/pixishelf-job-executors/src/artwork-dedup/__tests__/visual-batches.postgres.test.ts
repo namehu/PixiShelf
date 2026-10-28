@@ -401,6 +401,11 @@ suite('F03 persistent visual batches', () => {
       expect(run.visualComparedComparisons).toBe((iteration + 1) * 24)
       expect(pair.edges).toHaveLength((iteration + 1) * 24)
       expect(run.visualCheckpoint).toMatchObject({ version: 1, queryImageId: test.pages[iteration ? 4 : 2]!.imageId, candidateAfter: test.pages[iteration ? 3 : 1]!.imageId })
+      expect((run.visualCheckpoint as { queryCandidates: number[] }).queryCandidates).toEqual(test.pages.map(page => page.imageId))
+      const postingReads = profile.result().statements.filter(row => row.operation === 'SELECT' && row.tables.includes('ArtworkDedupVisualPosting'))
+      // The resumed query uses its already sorted persistent candidates; only
+      // the following two new queries perform another posting lookup.
+      expect(postingReads.reduce((sum, row) => sum + row.count, 0)).toBe(iteration ? 2 : 3)
       const candidateSql = profile.result().statements.filter(row => row.tables.includes('ArtworkDedupVisualCandidate'))
       expect(candidateSql.filter(row => row.sql.includes('COUNT(*)')).reduce((sum, row) => sum + row.count, 0)).toBe(iteration ? 0 : 1)
       expect(candidateSql.filter(row => row.operation === (iteration ? 'UPDATE' : 'INSERT')).reduce((sum, row) => sum + row.count, 0)).toBe(1)
@@ -422,6 +427,7 @@ suite('F03 persistent visual batches', () => {
     expect(first.visualCheckpoint).toMatchObject({ queryAfter: test.pages[6]!.imageId, queryImageId: test.pages[7]!.imageId, candidateAfter: test.pages[50]!.imageId })
     expect(first.visualComparedComparisons).toBe(43)
     expect(profile.result().bounds).toEqual({ queryRows: 8, candidateRows: 48, queryAndCandidateRows: 56, guardArtworks: 51 })
+    expect(profile.result().statements.filter(row => row.operation === 'SELECT' && row.tables.includes('ArtworkDedupVisualPosting')).reduce((sum, row) => sum + row.count, 0)).toBe(1)
     await scanBatchedVisualVersions({ ...test.context, shouldYield: () => true })
     const next = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })
     expect(next.visualCheckpoint).toMatchObject({ queryAfter: test.pages[7]!.imageId, queryImageId: 0, candidateAfter: 0 })

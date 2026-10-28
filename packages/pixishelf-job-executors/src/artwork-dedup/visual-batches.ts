@@ -11,6 +11,7 @@ import { prepareVisualVersions } from './visual-pipeline.ts'
 import { visualRelationSignature } from './relation-cache.ts'
 import { VisualViewIndex } from './visual-experiment.ts'
 import { QueryDirectoryScope } from './root-directory-scope.ts'
+import { readCandidatePostings } from './candidate-postings.ts'
 import { VISUAL_LIMITS, VISUAL_ALGORITHM_VERSION, validVisualViews, compareProductionVisual, assignVisualPair, type VisualPage, type VisualPairEvidence } from './visual-matching.ts'
 
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
@@ -177,7 +178,7 @@ async function readQuery(tx: Tx, context: DedupPipelineContext, run: Run, checkp
     if (page.imageId === checkpoint.queryImageId) allIds = checkpoint.queryCandidates
     else {
       const keys = [...new Set(keyIndex.keys(page.visualViews))]
-      const postings = keys.length ? await tx.artworkDedupVisualPosting.findMany({ where: { runId: run.id, key: { in: keys } }, take: VISUAL_LIMITS.queryPostings + 1 }) : []
+      const postings = await readCandidatePostings(tx, run.id, keys)
       const reason = postings.reduce((total, row) => total + row.multiplicity, 0) > VISUAL_LIMITS.queryPostings ? 'VISUAL_POSTING_BUDGET' : null
       allIds = [...new Set(postings.map(p => p.imageId))].sort((a, b) => a - b)
       const budget = reason ?? (allIds.length > VISUAL_LIMITS.queryCandidates ? 'VISUAL_CANDIDATE_BUDGET' : null)

@@ -12,6 +12,8 @@
 
 目录查询优化：[2026-10-28 第五批记录](./artwork-deduplication-root-scope-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-root-scope-f03-review-2026-10-28.md)。
 
+候选查询计划：[2026-10-28 第六批记录](./artwork-deduplication-posting-plan-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-posting-plan-f03-review-2026-10-28.md)。
+
 完整清单见[功能记录索引](./features/README.md)。下表提供跨领域常用入口。
 
 | 主题               | 记录                                                                                                                                                                                     |

@@ -5,6 +5,7 @@ last-verified: 2026-10-28
 sources:
   - packages/pixishelf-job-executors/src/artwork-dedup/visual-batches.ts
   - packages/pixishelf-job-executors/src/artwork-dedup/root-directory-scope.ts
+  - packages/pixishelf-job-executors/src/artwork-dedup/candidate-postings.ts
   - packages/pixishelf-job-executors/src/artwork-dedup/visual-pipeline.ts
   - packages/pixishelf-job-executors/src/artwork-dedup/visual-matching.ts
   - packages/pixishelf-db/prisma/schema.prisma
@@ -14,6 +15,16 @@ sources:
 # F03：视觉检索分批与续跑
 
 本批将特征准备之后的一次性内存匹配改成持久分段处理。沿用原算法、F02 缓存、现有检查页面和人工删除流程；不增加新服务、管理向导或移动适配。基线为 `261993af`，仅在独立 worktree 开发，真实开发库和用户 Worker 不在本批变更范围。
+
+## 第六批：新任务候选查询计划稳定性
+
+基线为 `7ccd4948`。本批只处理历史 posting 很多、新 run 尚未进入数据库统计时的候选读取退化。改进查询形状以利用已有 `(runId, key, imageId)` 主键；不把人工 `ANALYZE`、关闭自动维护或全局 planner 设置作为产品修复，不新增搜索服务。
+
+- 同一查询必须保留完整候选、posting 的重复次数及原预算加一哨兵；超预算仍为 `INCOMPLETE`，不能通过提前截断来获得更快的“完成”。查询顺序变化不得影响最终排序后的图片 ID、候选计数、配对证据或续跑游标。
+- 最小方案为去重 key 输入与 `LATERAL` 标量等值查询，使用已有主键同时定位 run 与 key。每个子查询及最外层均保留原行数上限加一；外层不加排序，避免为排序先物化所有 key 的结果。未超限时必须返回完整集合；超额集合只用于报预算耗尽，不要求维持旧 ORM 隐含的 posting 顺序。业务使用的候选图片 ID 数值排序保留。须用执行计划证明数据库实际按需读取、没有扩大为 key 数乘以预算的完整物化。
+- 查询仍在原读取围栏事务内；比较与提交边界、取消／租约、根／目录／作品源／成员及写入声明校验均不动。生产 10,000 原件及全部现有预算不变。
+- 复用第五批保留的历史库及小型预制特征，先记录新 run 的统计与旧查询计划，再在相同输入上比较旧／新查询的完整返回及资源成本。完整小任务按独立 oracle 核对结果，保留冷／热缓存和续跑证据；本批不重跑 100,000 长测，更不以特征测量宣称真实图片或 NAS 吞吐。
+- 实施为 Astra / high，测量和独立审查为 Sol 6.1 / xhigh。只运行相关 PostgreSQL 用例、受影响包检查及必要构建；桌面冒烟如有需要由 Sol 6.1 / medium 执行。不重复全量应用验证，验收、提交后暂停，不自动合入主目录。
 
 ## 第五批：根身份与目录清单查询优化
 

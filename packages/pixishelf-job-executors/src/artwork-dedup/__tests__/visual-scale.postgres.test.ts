@@ -13,6 +13,7 @@ vi.mock('../visual-matching.ts', async importOriginal => {
   return { ...actual, VISUAL_LIMITS: Object.freeze({ ...actual.VISUAL_LIMITS, files: 100_000, postings: 4_000_000, comparisons: 10_000_000 }) }
 })
 import { scanBatchedVisualVersions } from '../visual-batches.ts'
+import { readCandidatePostings } from '../candidate-postings.ts'
 
 interface Manifest extends ScaleIdentity {
   version: string; prefix: string; runId: string; jobId: string; artistId: number; fixtureSha256: string; oracle: ScaleOracle; sources: Record<string, string>; prepareMs: number
@@ -24,12 +25,17 @@ const outputDirectory = process.env.ARTWORK_DEDUP_VISUAL_SCALE_OUTPUT
 const stage = process.env.ARTWORK_DEDUP_VISUAL_SCALE_STAGE
 const count = Number(process.env.ARTWORK_DEDUP_VISUAL_SCALE_COUNT)
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
-const sourceNames = ['visual-batches.ts', 'root-directory-scope.ts', 'visual-pipeline.ts', 'visual-matching.ts', 'visual-experiment.ts', '__tests__/visual-scale-fixture.ts', '__tests__/visual-scale.postgres.test.ts', '__tests__/visual-sql-profile.ts']
+const sourceNames = ['visual-batches.ts', 'candidate-postings.ts', 'root-directory-scope.ts', 'visual-pipeline.ts', 'visual-matching.ts', 'visual-experiment.ts', '__tests__/visual-scale-fixture.ts', '__tests__/visual-scale.postgres.test.ts', '__tests__/visual-sql-profile.ts']
 async function sources() {
   return Object.fromEntries(await Promise.all(sourceNames.map(async name => [name, createHash('sha256').update(await readFile(new URL(`../${name}`, import.meta.url))).digest('hex')])) ) as Record<string, string>
 }
 async function writeNew(name: string, value: unknown) {
   await writeFile(resolve(outputDirectory!, name), JSON.stringify(value, null, 2) + '\n', { flag: 'wx' })
+}
+async function postingStatistics(db: PrismaClient, runId: string) {
+  const table = await db.$queryRaw<Array<Record<string, unknown>>>`SELECT c.reltuples,s.n_live_tup::text,s.n_mod_since_analyze::text,s.last_analyze,s.last_autoanalyze,s.analyze_count::text,s.autoanalyze_count::text FROM pg_class c JOIN pg_stat_user_tables s ON s.relid=c.oid WHERE c.oid='"ArtworkDedupVisualPosting"'::regclass`
+  const distribution = await db.$queryRaw<Array<{ n_distinct: number; most_common_vals: string | null; most_common_freqs: number[] | null }>>`SELECT n_distinct,most_common_vals::text AS most_common_vals,most_common_freqs FROM pg_stats WHERE schemaname='public' AND tablename='ArtworkDedupVisualPosting' AND attname='runId'`
+  return { observedAt: new Date().toISOString(), table, distribution, runInMostCommonValues: distribution.some(row => row.most_common_vals?.includes(runId)) }
 }
 async function inputDigest(db: PrismaClient, runId: string) {
   const hash = createHash('sha256')
@@ -168,6 +174,7 @@ it.skipIf(!exclusive)('measures the isolated prepared-feature scale run with a p
     const identity = stage === 'hot' ? await cloneHot(db, manifest) : { runId: manifest.runId, jobId: manifest.jobId }
     const { runId, jobId } = identity
     const beforeRun = await db.artworkDedupRun.findUniqueOrThrow({ where: { id: runId } })
+    const postingStatsBefore = await postingStatistics(db, runId)
     const initialCheckpoint = beforeRun.visualCheckpoint as Checkpoint | null
     if (stage === 'cold-start' && reuseFixture) {
       expect([beforeRun.stage, beforeRun.mode, beforeRun.visualStatus, beforeRun.visualComparedComparisons, beforeRun.visualReusedComparisons, beforeRun.visualCheckpoint]).toEqual(['VISUAL', 'FULL', 'PENDING', 0, 0, null])
@@ -223,6 +230,7 @@ it.skipIf(!exclusive)('measures the isolated prepared-feature scale run with a p
     await writeNew(`${stage}-kernel.json`, { stage, count, pid: process.pid, runId, jobId, sources: manifest.sources, fixtureSha256: manifest.fixtureSha256,
       complete, initialCheckpoint, checkpoint: run.visualCheckpoint, compared: run.visualComparedComparisons, reused: run.visualReusedComparisons, measured, profile: profile.result() })
     expect(await inputDigest(db, runId)).toBe(manifest.fixtureSha256)
+    const postingStatsAfter = await postingStatistics(db, runId)
     const bounds = profile.result().bounds
     expect(bounds.queryRows).toBeLessThanOrEqual(8); expect(bounds.candidateRows).toBeLessThanOrEqual(50)
     expect(bounds.queryAndCandidateRows).toBeLessThanOrEqual(58); expect(bounds.guardArtworks).toBeLessThanOrEqual(51)
@@ -230,8 +238,105 @@ it.skipIf(!exclusive)('measures the isolated prepared-feature scale run with a p
     expect(complete).toBe(stage !== 'cold-start')
     const result = complete ? await outcome(db, runId, manifest, stage === 'hot') : null
     const databaseSize = await db.$queryRaw<Array<{ bytes: bigint }>>`SELECT pg_database_size(current_database()) AS bytes`
-    const summary = { stage, count, pid: process.pid, runId, jobId, fixtureSha256: manifest.fixtureSha256, sources: manifest.sources, privateLimits: { files: 100_000, postings: 4_000_000, comparisons: 10_000_000 }, originalBytes: 0, visualCalls: 0, complete, initialCheckpoint, checkpoint: run.visualCheckpoint, compared: run.visualComparedComparisons, reused: run.visualReusedComparisons, measured, databaseBytes: databaseSize[0]!.bytes.toString(), outcome: result, profile: profile.result() }
+    const summary = { stage, count, pid: process.pid, runId, jobId, fixtureSha256: manifest.fixtureSha256, sources: manifest.sources, privateLimits: { files: 100_000, postings: 4_000_000, comparisons: 10_000_000 }, originalBytes: 0, visualCalls: 0, complete, initialCheckpoint, checkpoint: run.visualCheckpoint, compared: run.visualComparedComparisons, reused: run.visualReusedComparisons, measured, postingStatsBefore, postingStatsAfter, databaseBytes: databaseSize[0]!.bytes.toString(), outcome: result, profile: profile.result() }
     await writeNew(`${stage}.json`, summary)
     console.info('F03_SCALE_MEASURED ' + JSON.stringify({ stage, count, complete, fixtureSha256: manifest.fixtureSha256, measured, databaseBytes: summary.databaseBytes, compared: summary.compared, reused: summary.reused, publishedSha256: result?.publishedSha256 }))
   } finally { await db.$disconnect() }
 }, 5_400_000)
+
+const postingMode = process.env.ARTWORK_DEDUP_VISUAL_POSTING_COMPARE
+it.skipIf(!exclusive || !['old', 'new'].includes(postingMode ?? ''))('compares the isolated fresh-run posting seeks', async () => {
+  if (!url || !outputDirectory) throw new Error('Explicit isolated database and output required')
+  const target = new URL(url)
+  expect([target.hostname, target.port, target.pathname]).toEqual(['127.0.0.1', '55432', '/dedup_f03_scale_kernel_20261027'])
+  const manifest = JSON.parse(await readFile(resolve(outputDirectory, 'manifest.json'), 'utf8')) as Manifest & { role: string }
+  expect([manifest.shape.count, manifest.role, manifest.sourceFreezePending]).toEqual([5_000, 'query-carrier', false])
+  expect(await sources()).toEqual(manifest.sources)
+  const db = new PrismaClient({ datasourceUrl: url, log: [{ emit: 'event', level: 'query' }] })
+  type Posting = { imageId: number; multiplicity: number }
+  const canonical = (rows: readonly Posting[]) => rows.map(row => [row.imageId, row.multiplicity] as const).sort((left, right) => left[0] - right[0] || left[1] - right[1])
+  try {
+    expect(await inputDigest(db, manifest.runId)).toBe(manifest.fixtureSha256)
+    const carrier = await db.artworkDedupRun.findUniqueOrThrow({ where: { id: manifest.runId } })
+    expect([carrier.status, carrier.stage, carrier.visualStatus]).toEqual(['CANCELLED', 'VISUAL', 'PENDING'])
+    const queries: Array<{ imageId: number; keys: string[] }> = []
+    // Only this fixed 5k corpus is indexed by the independent audit. The map
+    // has exactly 200k posting entries, rather than all historical postings.
+    let index: Map<string, Map<number, number>> | undefined = new Map()
+    for (let after = 0;;) {
+      const media = await db.artworkDedupMedia.findMany({ where: { runId: manifest.runId, imageId: { gt: after } }, orderBy: { imageId: 'asc' }, take: 500, select: { imageId: true, visualViews: true } })
+      if (!media.length) break
+      for (const row of media) {
+        const views = row.visualViews as Array<{ feature: { hashes: string[] } }>
+        const keys = views.flatMap(view => view.feature.hashes.flatMap((hash, region) => Array.from({ length: 4 }, (_, band) => `${region}:${band}:${hash.slice(band * 4, band * 4 + 4)}`)))
+        for (const key of keys) { const bucket = index.get(key) ?? new Map<number, number>(); bucket.set(row.imageId, (bucket.get(row.imageId) ?? 0) + 1); index.set(key, bucket) }
+        queries.push({ imageId: row.imageId, keys: [...new Set(keys)] })
+      }
+      after = media.at(-1)!.imageId
+    }
+    expect(queries.map(row => row.imageId)).toEqual(manifest.imageIds)
+    expect([...index.values()].reduce((sum, bucket) => sum + bucket.size, 0)).toBe(200_000)
+    const expected = queries.map(query => {
+      const rows = query.keys.flatMap(key => [...index!.get(key)!.entries()].map(([imageId, multiplicity]) => ({ imageId, multiplicity })))
+      return { queryImageId: query.imageId, rowCount: rows.length, totalMultiplicity: rows.reduce((sum, row) => sum + row.multiplicity, 0), postingsSha256: digest(canonical(rows)), candidateIds: [...new Set(rows.map(row => row.imageId))].sort((left, right) => left - right) }
+    })
+    index = undefined
+    expect(expected.reduce((sum, row) => sum + row.candidateIds.length, 0)).toBe(manifest.oracle.candidateSlots)
+    expect(Math.max(...expected.map(row => row.totalMultiplicity))).toBe(manifest.oracle.maxPostingVisits)
+    const beforeStats = await postingStatistics(db, manifest.runId)
+    await writeNew(`posting-${postingMode}-initial-stats.json`, beforeStats)
+    expect(beforeStats.runInMostCommonValues).toBe(false)
+    const events = { count: 0, durationMs: 0, first: undefined as Prisma.QueryEvent | undefined }
+    let measurementOpen = false, queryActive = false
+    db.$on('query', event => {
+      if (measurementOpen && /^SELECT\b/.test(event.query.trim()) && event.query.includes('"ArtworkDedupVisualPosting"')) { events.count++; events.durationMs += event.duration; events.first ??= event }
+    })
+    const memoryStart = process.memoryUsage()
+    let peakHeap = memoryStart.heapUsed, peakRss = memoryStart.rss, selectWallMs = 0, checked = 0
+    const sample = setInterval(() => { if (queryActive) { const memory = process.memoryUsage(); peakHeap = Math.max(peakHeap, memory.heapUsed); peakRss = Math.max(peakRss, memory.rss) } }, 25)
+    const progress = setInterval(() => console.info('F03_POSTING_PROGRESS ' + JSON.stringify({ mode: postingMode, checked, count: queries.length, selectWallMs: Math.round(selectWallMs), queries: events.count })), 10_000)
+    const loopStarted = performance.now()
+    measurementOpen = true
+    try {
+      await db.$transaction(async tx => {
+        await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY')
+        await tx.$executeRawUnsafe("SET LOCAL statement_timeout='10000ms'")
+        for (let ordinal = 0; ordinal < queries.length; ordinal++) {
+          const query = queries[ordinal]!
+          queryActive = true
+          const started = performance.now()
+          let rows: Posting[]
+          try { rows = postingMode === 'old' ? await tx.artworkDedupVisualPosting.findMany({ where: { runId: manifest.runId, key: { in: query.keys } }, take: 20_001 }) : await readCandidatePostings(tx, manifest.runId, query.keys) }
+          finally { selectWallMs += performance.now() - started; queryActive = false }
+          const actual = { queryImageId: query.imageId, rowCount: rows.length, totalMultiplicity: rows.reduce((sum, row) => sum + row.multiplicity, 0), postingsSha256: digest(canonical(rows)), candidateIds: [...new Set(rows.map(row => row.imageId))].sort((left, right) => left - right) }
+          expect(actual).toEqual(expected[ordinal])
+          checked++
+        }
+      }, { timeout: 840_000 })
+      await new Promise<void>(resolve => setImmediate(resolve))
+    } finally { measurementOpen = false; clearInterval(sample); clearInterval(progress) }
+    const loopWallMs = performance.now() - loopStarted
+    const afterStats = await postingStatistics(db, manifest.runId)
+    await writeNew(`posting-${postingMode}-final-stats.json`, afterStats)
+    expect(checked).toBe(5_000); expect(events.count).toBe(5_000)
+    expect(events.first).toBeDefined()
+    const first = events.first!, parameters = JSON.parse(first.params) as unknown[]
+    expect(first.query.trim()).toMatch(/^SELECT\b/)
+    const explainStarted = performance.now()
+    const explain = await db.$transaction(async tx => {
+      await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY')
+      await tx.$executeRawUnsafe("SET LOCAL statement_timeout='10000ms'")
+      return tx.$queryRawUnsafe(`EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${first.query}`, ...parameters)
+    }, { timeout: 15_000 })
+    const explainWallMs = performance.now() - explainStarted
+    const normalizedSql = first.query.replace(/\$\d+/g, '?').replace(/\s+/g, ' ').trim()
+    const cleanPlan = JSON.parse(JSON.stringify(explain).replace(/'(?:''|[^'])*'/g, "'?'").replace(new RegExp(manifest.runId, 'g'), '[runId]')) as unknown
+    const summary = { observedAt: new Date().toISOString(), mode: postingMode, pid: process.pid, runId: manifest.runId, count: checked, fixtureSha256: manifest.fixtureSha256, sources: manifest.sources,
+      beforeStats, afterStats, queryMetrics: { selectWallMs, loopWallMs, prismaQueryEvents: events.count, prismaDurationMs: events.durationMs, heapStart: memoryStart.heapUsed, peakHeap, rssStart: memoryStart.rss, peakSampledRss: peakRss, processMaxRssBytes: process.resourceUsage().maxRSS * 1024 },
+      normalizedSql, parameterCount: parameters.length, parametersSha256: digest(parameters), bindParametersRecorded: false, explainWallMs, explain: cleanPlan,
+      candidateSlots: expected.reduce((sum, row) => sum + row.candidateIds.length, 0), fullResultsSha256: digest(expected), results: expected,
+      measurementMeaning: 'selectWallMs sums only awaited posting SELECT/helper calls; independent feature-index/oracle, per-page canonicalization/assertions, transaction setup and EXPLAIN are excluded. loopWallMs includes per-page audit and one read-only transaction. Heap/RSS sampled every 25ms while a SELECT is awaited includes preloaded queries/oracle and earlier audit allocations. Process maxRSS includes all setup/oracle/EXPLAIN. Old ORM returns unused runId/key columns; new production helper returns only imageId/multiplicity. Canonical comparison preserves duplicate imageId/multiplicity rows and independently sorts candidate IDs.', originalBytes: 0, visualCalls: 0 }
+    await writeNew(`posting-${postingMode}.json`, summary)
+    console.info('F03_POSTING_MEASURED ' + JSON.stringify({ mode: postingMode, count: checked, selectWallMs, prismaQueryEvents: events.count, prismaDurationMs: events.durationMs, fullResultsSha256: summary.fullResultsSha256, explainWallMs, peakHeap, peakRss }))
+  } finally { await db.$disconnect() }
+}, 900_000)

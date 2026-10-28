@@ -53,6 +53,5 @@
 
 当前版先上线观察，下列项仅登记，等待逐批授权。详细范围、依赖和验收统一见[去重后续计划](./docs/design/artwork-deduplication/matching-extension.md)。
 
-- [ ] DEDUP-F03 查询计划稳定性：历史 posting 较多时，小型新 run 不足以触发自动统计，可能按 runId 扫描全部 posting 再过滤 key。评估最小稳定查询方案，用新 run 的冷统计验证，不依靠每轮人工 ANALYZE；诊断见[第五批记录](./docs/records/artwork-deduplication-root-scope-f03-2026-10-28.md#5k-探针与数据库计划异常)。
 - [ ] DEDUP-F03 规模后续：补硬预算续行、50 万、真实解码、NAS 与并发业务测量，再评估公开上限。生产视觉 10,000 上限不变；目录查询优化的同一 10 万特征冷热对比见[第五批记录](./docs/records/artwork-deduplication-root-scope-f03-2026-10-28.md)，密集候选和续跑边界见[第四批记录](./docs/records/artwork-deduplication-scale-f03-2026-10-27.md)。
 - [ ] DEDUP-F04：收集真实版本人工真值，记录漏检/误配后再安排小改进。
