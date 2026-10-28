@@ -50,6 +50,7 @@ function createRun(overrides: Partial<ArtworkDedupRunDto> = {}): ArtworkDedupRun
     includesPartial: true,
     visualStatus: 'NOT_REQUESTED',
     visualIncompleteReasons: [],
+    pauseReason: null,
     frozenAt: '2026-10-23T00:00:00.000Z',
     startedAt: '2026-10-23T00:00:01.000Z',
     finishedAt: null,
@@ -157,13 +158,18 @@ describe('duplicate check page', () => {
     await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(1))
     expect(mocks.start.mock.calls[0]![0]).toMatchObject({ includeSuspectedVersions: true, expectedUserId: 'user-a' })
   })
-  it('explains a bounded incomplete visual check while keeping exact results available', () => {
+  it.each([
+    ['VISUAL_FILE_BUDGET', '超过本次 10,000 个登记原件上限'],
+    ['RUN_FILE_LIMIT', '超过本次 10,000 个登记原件上限'],
+    ['VISUAL_EDGE_BUDGET', '部分作品对达到图片配对上限'],
+    ['VISUAL_COMPARISON_BUDGET', '达到本次比较上限']
+  ])('explains a noncontinuable %s while keeping exact results available', (reason, description) => {
     render(
       <DuplicateRunStatus
         run={createRun({
           status: 'COMPLETED',
           visualStatus: 'INCOMPLETE',
-          visualIncompleteReasons: ['VISUAL_FILE_BUDGET'],
+          visualIncompleteReasons: [reason],
           allowedControls: []
         })}
         pending={null}
@@ -171,9 +177,82 @@ describe('duplicate check page', () => {
         onControl={() => {}}
       />
     )
-    expect(screen.getByText(/超过本次 10,000 张静态图片上限/)).toBeTruthy()
+    expect(screen.getByText(new RegExp(description))).toBeTruthy()
     expect(screen.getByText(/其他重复结果仍可核对/)).toBeTruthy()
     expect(screen.queryByText('没有找到重复作品')).toBeNull()
+    expect(screen.queryByRole('button', { name: '继续检查' })).toBeNull()
+    expect(screen.queryByText('本轮疑似版本比较已达上限，继续后会接着检查。')).toBeNull()
+  })
+  it('continues a persisted comparison-budget pause only after an explicit request', async () => {
+    let resolveControl!: (run: ArtworkDedupRunDto) => void
+    mocks.getRun.mockResolvedValue(
+      createRun({
+        status: 'PAUSED',
+        stage: 'VISUAL',
+        pauseReason: 'VISUAL_COMPARISON_BUDGET',
+        visualStatus: 'PENDING',
+        allowedControls: ['resume', 'cancel']
+      })
+    )
+    mocks.control.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveControl = resolve
+        })
+    )
+    mountPage('run-1')
+    await screen.findByText('本轮疑似版本比较已达上限，继续后会接着检查。')
+    expect(screen.getByText('检查已暂停')).toBeTruthy()
+    expect(screen.queryByText(/疑似版本未全部检查/)).toBeNull()
+    expect(screen.queryByRole('button', { name: '重新检查' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '重试检查' })).toBeNull()
+    expect(mocks.control).not.toHaveBeenCalled()
+
+    const resume = screen.getByRole('button', { name: '继续检查' })
+    fireEvent.click(resume)
+    fireEvent.click(resume)
+    await waitFor(() => expect(mocks.control).toHaveBeenCalledTimes(1))
+    expect((resume as HTMLButtonElement).disabled).toBe(true)
+    expect(mocks.control.mock.calls[0]![0]).toEqual({
+      runId: 'run-1',
+      expectedUserId: 'user-a',
+      expectedVersion: 3,
+      idempotencyKey: expect.any(String),
+      action: 'resume'
+    })
+    expect(mocks.start).not.toHaveBeenCalled()
+
+    await act(async () =>
+      resolveControl(createRun({ status: 'PENDING', stage: 'VISUAL', visualStatus: 'PENDING', version: 4 }))
+    )
+    await screen.findByText('等待开始检查')
+    expect(screen.queryByText('本轮疑似版本比较已达上限，继续后会接着检查。')).toBeNull()
+  })
+  it.each([false, true])('requires server permission to continue and prioritizes a real failure (%s)', (hasFailure) => {
+    render(
+      <DuplicateRunStatus
+        run={createRun({
+          status: 'PAUSED',
+          stage: 'VISUAL',
+          pauseReason: 'VISUAL_COMPARISON_BUDGET',
+          visualStatus: 'PENDING',
+          allowedControls: [],
+          failure: hasFailure
+            ? { code: 'READER_RECOVERY_REQUIRED', message: '读取进程尚未确认退出，需要离线恢复处理' }
+            : null
+        })}
+        pending={null}
+        disabled={false}
+        onControl={vi.fn()}
+      />
+    )
+    expect(screen.queryByRole('button', { name: '继续检查' })).toBeNull()
+    if (hasFailure) {
+      expect(screen.getByText('读取进程尚未确认退出，需要离线恢复处理')).toBeTruthy()
+      expect(screen.queryByText('本轮疑似版本比较已达上限，继续后会接着检查。')).toBeNull()
+    } else {
+      expect(screen.getByText('本轮疑似版本比较已达上限，继续后会接着检查。')).toBeTruthy()
+    }
   })
   it('loads a persisted run and waits for server confirmation before exposing resume', async () => {
     mocks.getRun.mockResolvedValue(createRun())
@@ -194,6 +273,8 @@ describe('duplicate check page', () => {
       await queryClient.invalidateQueries({ queryKey: ['artwork-dedup'] })
     })
     await screen.findByText('检查已暂停')
+    expect(screen.getByText('继续后会接着检查本次范围内未完成的作品。')).toBeTruthy()
+    expect(screen.queryByText('本轮疑似版本比较已达上限，继续后会接着检查。')).toBeNull()
     mocks.control.mockResolvedValue(createRun({ status: 'PENDING', version: 6 }))
     fireEvent.click(screen.getByRole('button', { name: '继续检查' }))
     await screen.findByText('等待开始检查')

@@ -16,6 +16,8 @@
 
 候选查询计划：[2026-10-28 第六批记录](./artwork-deduplication-posting-plan-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-posting-plan-f03-review-2026-10-28.md) · [第五、六批本地升级](./operations/artwork-deduplication-f03-b56-local-upgrade-2026-10-28.md) · [升级后桌面回归](./operations/artwork-deduplication-f03-b56-desktop-regression-2026-10-28.md)。
 
+比较分轮继续：[2026-10-28 第七批验收](./artwork-deduplication-budget-continue-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-budget-continue-f03-review-2026-10-28.md) · [桌面验收](./artwork-deduplication-budget-continue-f03-browser-2026-10-28.md)。
+
 完整清单见[功能记录索引](./features/README.md)。下表提供跨领域常用入口。
 
 | 主题               | 记录                                                                                                                                                                                     |

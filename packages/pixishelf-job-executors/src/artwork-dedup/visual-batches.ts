@@ -19,7 +19,7 @@ const checkpointSchema = z.object({ version: z.literal(1), phase: z.enum(['INDEX
   indexAfter: integer, queryAfter: integer, candidateAfter: integer, queryImageId: integer, queryCandidates: z.array(integer).max(VISUAL_LIMITS.queryCandidates), pairLeft: integer, pairRight: integer, postings: integer, reuseInitialized: z.boolean(), reuseBaseId: z.string().nullable(), reuseAfter: integer })
 type Checkpoint = z.infer<typeof checkpointSchema>
 const initialCheckpoint: Checkpoint = { version: 1, phase: 'INDEX', indexAfter: 0, queryAfter: 0, candidateAfter: 0, queryImageId: 0, queryCandidates: [], pairLeft: 0, pairRight: 0, postings: 0, reuseInitialized: false, reuseBaseId: null, reuseAfter: 0 }
-const edgeSchema = z.array(z.tuple([integer, integer])).max(VISUAL_LIMITS.comparisons)
+const edgeSchema = z.array(z.tuple([integer, integer])).max(VISUAL_LIMITS.edgesPerPair)
 const evidenceSchema = z.array(z.object({ kind: z.enum(['EXACT', 'SIMILAR', 'UNMATCHED']), left: integer.nullable(), right: integer.nullable() })).max(VISUAL_LIMITS.artworkFiles * 2)
 const keyIndex = new VisualViewIndex()
 type Tx = Prisma.TransactionClient
@@ -200,7 +200,7 @@ async function readQuery(tx: Tx, context: DedupPipelineContext, run: Run, checkp
   if (candidates.length !== ids.length) changed()
   const byId = new Map(candidates.map(candidate => [candidate.imageId, candidate]))
   const artworks = new Set<number>()
-  const blocks: Array<{ page: Page; candidates: Page[]; checkpoint: Checkpoint }> = []
+  const blocks: Array<{ page: Page; candidates: Page[]; allIds: number[]; before: Checkpoint; checkpoint: Checkpoint }> = []
   let cursor = { ...checkpoint }
   for (const plan of plans) {
     if (!artworks.has(plan.page.artworkId) && artworks.size === QUERY_GROUP_ARTWORKS) break
@@ -212,9 +212,10 @@ async function readQuery(tx: Tx, context: DedupPipelineContext, run: Run, checkp
       artworks.add(candidate.artworkId)
       accepted.push(candidate)
     }
+    const before = cursor
     if (accepted.length === plan.ids.length) cursor = { ...cursor, queryAfter: plan.page.imageId, candidateAfter: 0, queryImageId: 0, queryCandidates: [] }
     else cursor = { ...cursor, queryImageId: plan.page.imageId, queryCandidates: plan.allIds, candidateAfter: accepted.at(-1)?.imageId ?? (plan.page.imageId === checkpoint.queryImageId ? checkpoint.candidateAfter : 0) }
-    blocks.push({ page: plan.page, candidates: accepted, checkpoint: cursor })
+    blocks.push({ page: plan.page, candidates: accepted, allIds: plan.allIds, before, checkpoint: cursor })
     if (cursor.queryImageId) break
   }
   return blocks
@@ -227,17 +228,23 @@ async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Ch
     return
   }
   type Addition = { leftArtworkId: number; rightArtworkId: number; edges: Array<[number, number]> }
-  const processed: Array<{ query: NonNullable<typeof queries>[number]; additions: Map<string, Addition>; reused: number; compared: number }> = []
+  const processed: Array<{ query: NonNullable<typeof queries>[number]; additions: Map<string, Addition>; reused: number; compared: number; budgetWaiting: boolean }> = []
   let reused = 0, compared = 0
   for (const query of queries) {
     if (processed.length && context.shouldYield()) break
     const blockAdditions = new Map<string, Addition>()
-    let blockReused = 0, blockCompared = 0
+    let blockReused = 0, blockCompared = 0, accepted = 0
+    let budgetWaiting = false
     try {
       for (const b of query.candidates) {
         throwIfAborted(context.signal)
-        if (query.page.artworkId >= b.artworkId) continue
-        if (run.visualReusedComparisons + run.visualComparedComparisons + reused + compared + blockReused + blockCompared >= VISUAL_LIMITS.comparisons) fail('VISUAL_COMPARISON_BUDGET')
+        if (query.page.artworkId >= b.artworkId) { accepted++; continue }
+        if (run.visualReusedComparisons + run.visualComparedComparisons - run.visualRoundStartComparisons + reused + compared + blockReused + blockCompared >= VISUAL_LIMITS.comparisons) {
+          if (!run.visualComparisonRound) fail('VISUAL_COMPARISON_BUDGET')
+          budgetWaiting = true
+          break
+        }
+        accepted++
         if (query.page.item.visualReuseSignature && b.item.visualReuseSignature) { blockReused++; continue }
         blockCompared++
         if (!validVisualViews(b.visualViews)) changed()
@@ -251,7 +258,12 @@ async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Ch
       throw error
     }
     compared += blockCompared; reused += blockReused
-    processed.push({ query, additions: blockAdditions, compared: blockCompared, reused: blockReused })
+    const prefix = budgetWaiting ? { ...query, candidates: query.candidates.slice(0, accepted), checkpoint: {
+      ...query.before, queryImageId: query.page.imageId, queryCandidates: query.allIds,
+      candidateAfter: query.candidates[accepted - 1]?.imageId ?? (query.before.queryImageId === query.page.imageId ? query.before.candidateAfter : 0)
+    } } : query
+    processed.push({ query: prefix, additions: blockAdditions, compared: blockCompared, reused: blockReused, budgetWaiting })
+    if (budgetWaiting) break
   }
   const combine = (blocks: typeof processed) => {
     const additions = new Map<string, Addition>(), artworkIds = new Set<number>()
@@ -266,7 +278,7 @@ async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Ch
       artworkIds.add(block.query.page.artworkId)
       for (const candidate of block.query.candidates) artworkIds.add(candidate.artworkId)
     }
-    return { additions, artworkIds: [...artworkIds], compared, reused, checkpoint: blocks.at(-1)!.query.checkpoint }
+    return { additions, artworkIds: [...artworkIds], compared, reused, checkpoint: blocks.at(-1)!.query.checkpoint, budgetWaiting: blocks.at(-1)!.budgetWaiting }
   }
   throwIfAborted(context.signal)
   await setImmediate()
@@ -297,12 +309,12 @@ async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Ch
       const entry = work.additions.get(`${candidate.leftArtworkId}:${candidate.rightArtworkId}`)
       if (!entry) continue
       const previous = edgeSchema.parse(candidate.edges)
-      if (previous.length + entry.edges.length > VISUAL_LIMITS.comparisons) fail('VISUAL_COMPARISON_BUDGET')
+      if (previous.length + entry.edges.length > VISUAL_LIMITS.edgesPerPair) fail(run.visualComparisonRound ? 'VISUAL_EDGE_BUDGET' : 'VISUAL_COMPARISON_BUDGET')
       await tx.artworkDedupVisualCandidate.update({ where: { runId_leftArtworkId_rightArtworkId: { runId: run.id, leftArtworkId: candidate.leftArtworkId, rightArtworkId: candidate.rightArtworkId } }, data: { edges: [...previous, ...entry.edges] } })
     }
     Object.assign(checkpoint, work.checkpoint)
     throwIfAborted(context.signal)
-    await tx.artworkDedupRun.update({ where: { id: run.id }, data: { visualCheckpoint: checkpoint,
+    await tx.artworkDedupRun.update({ where: { id: run.id }, data: { visualCheckpoint: checkpoint, visualBudgetWaiting: work.budgetWaiting,
       visualReusedComparisons: latest.visualReusedComparisons + work.reused, visualComparedComparisons: latest.visualComparedComparisons + work.compared } })
   })
 }
@@ -395,20 +407,26 @@ async function publish(context: DedupPipelineContext, run: Run) {
   })
 }
 
-/** Version 5 only. The optional limit is an internal fixture seam, never an App input. */
-export async function scanBatchedVisualVersions(context: DedupPipelineContext, fileLimit: number = VISUAL_LIMITS.files): Promise<boolean> {
+/** v5 retains terminal budgets; v6 persists explicit per-round permission.
+ * The optional file limit is an internal fixture seam, never an App input. */
+export async function scanBatchedVisualVersions(context: DedupPipelineContext, fileLimit: number = VISUAL_LIMITS.files, comparisonRounds = false): Promise<boolean> {
   if (!(await prepareVisualVersions(context, fileLimit))) return false
   const queryDirectories = new QueryDirectoryScope(context.execution)
   try {
     for (;;) {
       throwIfAborted(context.signal)
       const work = await context.transaction(async tx => {
-        const run = await assertArtworkDedupExecution(tx, context.execution)
+        let run = await assertArtworkDedupExecution(tx, context.execution)
         if (!run.includeSuspectedVersions || run.visualStatus === 'COMPLETE' || run.visualStatus === 'INCOMPLETE' && run.stage === 'DONE') return null
+        if (run.visualBudgetWaiting) return 'WAITING' as const
+        if (comparisonRounds && !run.visualComparisonRound) {
+          run = await tx.artworkDedupRun.update({ where: { id: run.id }, data: { visualComparisonRound: 1 } })
+        }
         const checkpoint = run.visualCheckpoint === null ? { ...initialCheckpoint } : checkpointSchema.parse(run.visualCheckpoint)
         return { run, checkpoint, query: checkpoint.phase === 'QUERY' ? await readQuery(tx, context, run, checkpoint) : null }
       })
       if (!work) return true
+      if (work === 'WAITING') return false
       const { run, checkpoint, query } = work
       if (checkpoint.phase === 'INDEX') await indexArtwork(context, run, checkpoint)
       else if (checkpoint.phase === 'REUSE') await snapshotReuse(context, run, checkpoint)
@@ -422,7 +440,7 @@ export async function scanBatchedVisualVersions(context: DedupPipelineContext, f
     await context.transaction(async tx => {
       const run = await assertArtworkDedupExecution(tx, context.execution)
       await tx.artworkDedupVisualPair.deleteMany({ where: { runId: run.id, relationKind: 'VISUAL' } })
-      await tx.artworkDedupRun.update({ where: { id: run.id }, data: { stage: 'DONE', visualStatus: 'INCOMPLETE', visualIncompleteReasons: [...new Set([...run.visualIncompleteReasons, error.reason])] } })
+      await tx.artworkDedupRun.update({ where: { id: run.id }, data: { stage: 'DONE', visualStatus: 'INCOMPLETE', visualBudgetWaiting: false, visualIncompleteReasons: [...new Set([...run.visualIncompleteReasons, error.reason])] } })
     })
     return true
   }

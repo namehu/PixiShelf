@@ -4,7 +4,7 @@
 
 ## 仍需逐页核验的方案
 
-- [同艺术家作品去重历史方案](./artwork-deduplication.md)：保留 2026-10-24 精确去重与直接删除的原实施基线、契约和页面原型。当前四类关系、缓存与六张图见[功能规格](../features/artwork-deduplication.md)；F01／F02 已实现，F03 已到第六批，[后续计划](./artwork-deduplication/matching-extension.md)只列剩余规模、超硬上限续行和真实版本效果工作。实例部署与验收分别记录，不据旧计划安排自动续接。
+- [同艺术家作品去重历史方案](./artwork-deduplication.md)：保留 2026-10-24 精确去重与直接删除的原实施基线、契约和页面原型。当前四类关系、缓存与六张图见[功能规格](../features/artwork-deduplication.md)；F01／F02 已实现，F03 已到第七批，[后续计划](./artwork-deduplication/matching-extension.md)只列剩余规模、结构性上限扩展和真实版本效果工作。实例部署与验收分别记录，不据旧计划安排自动续接。
 - [界面设计升级计划](../pixishelf-design-upgrade-plan.md)：保留视觉方向和分阶段候选，不能据旧阶段清单推定页面尚未改造。
 
 ## 已整合去向

@@ -77,6 +77,7 @@ async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedup
     includesContainment: (job?.definitionVersion ?? 1) >= 2,
     includesPartial: (job?.definitionVersion ?? 1) >= 4,
     visualStatus: run.visualStatus,
+    pauseReason: run.status === 'PAUSED' && run.visualBudgetWaiting ? 'VISUAL_COMPARISON_BUDGET' : null,
     visualIncompleteReasons: run.visualIncompleteReasons,
     lastCompletedRun: lastCompleted
       ? {
@@ -310,6 +311,9 @@ export async function controlArtworkDedup(
             visualCandidatePairs: [],
             originalReusedPairs: 0,
             originalComparedPairs: 0,
+            visualComparisonRound: 0,
+            visualRoundStartComparisons: 0,
+            visualBudgetWaiting: false,
             visualReusedComparisons: 0,
             visualComparedComparisons: 0,
             relationAfterArtworkId: 0,
@@ -329,6 +333,14 @@ export async function controlArtworkDedup(
         })
         run = await createJob(tx, run)
       } else {
+        if (input.action === 'resume' && run.visualBudgetWaiting) {
+          if (job.definitionVersion !== 6 || run.visualComparisonRound < 1) conflict()
+          run = await tx.artworkDedupRun.update({ where: { id: run.id }, data: {
+            visualComparisonRound: { increment: 1 },
+            visualRoundStartComparisons: run.visualReusedComparisons + run.visualComparedComparisons,
+            visualBudgetWaiting: false
+          } })
+        }
         const direct = ['PENDING', 'RETRY_WAIT', 'PAUSED'].includes(job.status)
         const status =
           input.action === 'resume'
