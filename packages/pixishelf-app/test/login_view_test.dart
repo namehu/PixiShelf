@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pixishelf_app/api.dart';
 import 'package:pixishelf_app/app_theme.dart';
 import 'package:pixishelf_app/main.dart';
 
@@ -22,6 +23,10 @@ void main() {
           onLogin: (_) async => fail('Invalid server must not log in')),
     ));
     expect(tester.takeException(), isNull);
+    final server = find.byType(TextField).first;
+    expect(tester.widget<TextField>(server).controller!.text,
+        usbDevEnabled ? 'http://127.0.0.1:5430' : '');
+    await tester.enterText(server, 'http://192.168.1.2:5430');
     final password = find.byType(TextField).at(2);
     await tester.ensureVisible(password);
     await tester.enterText(password, 'synthetic-password');
@@ -39,7 +44,11 @@ void main() {
     await tester.ensureVisible(find.byType(FilledButton));
     await tester.tap(find.byType(FilledButton));
     await tester.pumpAndSettle();
-    expect(find.text('请输入有效的 HTTPS 服务器地址'), findsOneWidget);
+    expect(
+        find.text(usbDevEnabled
+            ? '请输入 HTTPS 地址，或 USB 调试地址 http://127.0.0.1:5430'
+            : '请输入有效的 HTTPS 服务器地址'),
+        findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

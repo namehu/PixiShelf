@@ -57,11 +57,12 @@ class _AppShellState extends ConsumerState<AppShell> {
           _booting = false;
         });
       }
-    } catch (_) {
+    } catch (e) {
       if (mounted) {
         setState(() {
           _booting = false;
-          _message = '安全存储不可用，请重新登录';
+          _message =
+              e is ApiFailure ? '当前构建不支持已保存的服务器地址，请重新登录' : '安全存储不可用，请重新登录';
         });
       }
     }
@@ -135,7 +136,8 @@ class LoginView extends StatefulWidget {
 }
 
 class _LoginViewState extends State<LoginView> {
-  final _server = TextEditingController(),
+  final _server =
+          TextEditingController(text: usbDevEnabled ? usbDevServer : ''),
       _username = TextEditingController(),
       _password = TextEditingController();
   bool _busy = false, _showPassword = false;
@@ -208,6 +210,11 @@ class _LoginViewState extends State<LoginView> {
                       Text('连接你的图库，继续发现喜欢的作品。',
                           style: theme.textTheme.bodyMedium
                               ?.copyWith(color: AppTheme.muted)),
+                      if (usbDevEnabled)
+                        Padding(
+                            padding: const EdgeInsets.only(top: 12),
+                            child: Text('USB 本地调试 · 请保持手机与电脑连接',
+                                style: theme.textTheme.bodySmall)),
                       const SizedBox(height: 32),
                       _field('服务器地址',
                           child: TextField(

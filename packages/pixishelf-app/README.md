@@ -25,6 +25,20 @@ flutter build apk --release --split-per-abi
 
 此版本沿用 Flutter 开发签名，仅作自用验证，不是商店分发配置。Release 使用优化编译，但目前仍用开发签名；正式分发前配置自己的签名与更新策略。需要调试时可运行 `flutter build apk --debug`。构建、设备配置和凭据不要提交。
 
+## USB 本地联调
+
+在已合入移动接口的主工作区，用原 F5 配置启动 Next.js。手机打开 USB 调试并授权电脑，在本包目录构建和安装正常登录入口：
+
+```sh
+flutter build apk --debug --split-per-abi --target-platform android-arm64 --dart-define=PIXISHELF_USB_DEV=true
+adb -s <device-id> install -r build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
+adb -s <device-id> reverse tcp:5430 tcp:5430
+```
+
+该构建会预填服务器 `http://127.0.0.1:5430` 并标注 USB 本地调试；使用原 PixiShelf 用户名和密码。无需给手机复制收藏文件，仍由电脑读取本地媒体。请保持 USB 连接；重连后必要时重跑 `adb reverse`，结束后可执行 `adb -s <device-id> reverse --remove tcp:5430`。Debug 包用于功能联调，性能和发热结论应使用优化构建另测。
+
+普通构建和 Release 继续只接受 HTTPS，具体限制见[移动接口安全边界](../../docs/security/access-control.md#移动客户端接口)。本地例外测试分别运行 `flutter test` 和 `flutter test --dart-define=PIXISHELF_USB_DEV=true`；不使用免登录模式。
+
 ## 图库与选图验证
 
 登录后进入作品网格；布局和已支持筛选的语义对齐 H5，封面进入阅读器，页码打开作品内选图。功能范围与未移植项统一见[Android 规格](../../docs/features/android-app.md)。正常 APK 没有免登录或演示入口。

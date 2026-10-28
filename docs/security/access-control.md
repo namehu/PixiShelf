@@ -75,7 +75,9 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 
 读取与写入按 Session 确定账户；`expectedUserId` 只是并发前置条件。路由复核账户、媒体版本、活动状态及现有领域规则。只读原件仍检查登记路径、隐藏目录、真实根内路径、符号链接与文件类型；视频 Range 读取也不跳过鉴权。预览只在内存压缩，不写原件或派生存储。图库封面与选图复用同一媒体 ID 路由的 `thumbnail` 变体，最长边 512px；仍校验账户、媒体版本、作品可见性和路径，不新增公开封面入口。响应采用 private/no-store、Vary Authorization、no-referrer；业务错误仅返回受控 code，不返回路径、上游错误或凭据。proxy 层拒绝也可能使用现有通用错误格式，客户端按 HTTP 状态处理。
 
-Flutter 仅接受可信 HTTPS 根地址，普通 HTTP 请求拒绝重定向；原生播放器只接收本实例媒体 ID 路由，服务器不发重定向。Token 存在 Android 安全存储，关闭系统备份；内存媒体缓存随账户销毁。位置信息存本地偏好，不保存密码或离线媒体。没有新增 Cookie/CORS 放行、公开文件目录、监听端口或 Compose 挂载。反向代理需保留 Authorization 与 Range；已有实例应按部署流程先运行含移动接口的服务版本，再连接 APK。
+Flutter 默认仅接受可信 HTTPS 根地址，API 请求拒绝重定向；原生播放器只接收本实例媒体 ID 路由，服务器不发重定向。Token 存在 Android 安全存储，关闭系统备份；内存媒体缓存随账户销毁。位置信息存本地偏好，不保存密码或离线媒体。没有新增 Cookie/CORS 放行、公开文件目录、服务端监听端口或 Compose 挂载。反向代理需保留 Authorization 与 Range；已有实例应按部署流程先运行含移动接口的服务版本，再连接 APK。
+
+本地 USB 联调的唯一 HTTP 例外是 Debug 构建且显式编译 `PIXISHELF_USB_DEV=true`，仅允许 `http://127.0.0.1:5430`，通过 ADB reverse 连接宿主机 F5 服务。普通 Debug、Profile 和 Release 均不启用此例外；地址校验也覆盖安全存储恢复的会话。拒绝局域网 HTTP、其他端口、路径、URL 凭据及 query/hash，仍需正常账户登录。Android 明文例外资源只位于 `src/debug`，仅针对 `127.0.0.1`，不扩大系统证书信任、不关闭 TLS 校验；这不是远程或局域网部署方案。机制参考 [Android Network Security Configuration](https://developer.android.com/privacy-and-security/security-config)，操作见 [Flutter 包说明](../../packages/pixishelf-app/README.md#usb-本地联调)。
 
 登录限流复用已有每 IP 5 次窗口，移动已登录请求额外按账户限流；这些仍是单进程内存限制。失效会话需重新登录；退出尝试撤销 Session，离线退出无法证明远端已撤销。契约与产品范围见[移动规格](../features/android-app.md)。
 

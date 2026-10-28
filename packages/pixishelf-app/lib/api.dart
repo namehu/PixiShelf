@@ -1,8 +1,13 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'models.dart';
+
+// USB forwarding is an explicit debug-build exception, never a release setting.
+const usbDevEnabled = kDebugMode && bool.fromEnvironment('PIXISHELF_USB_DEV');
+const usbDevServer = 'http://127.0.0.1:5430';
 
 class ApiFailure implements Exception {
   final int? status;
@@ -16,7 +21,9 @@ class ApiFailure implements Exception {
         413 => '媒体过大，本版暂无法打开',
         429 => '请求较多，请稍后重试',
         _ => code == 'INVALID_SERVER'
-            ? '请输入有效的 HTTPS 服务器地址'
+            ? (usbDevEnabled
+                ? '请输入 HTTPS 地址，或 USB 调试地址 $usbDevServer'
+                : '请输入有效的 HTTPS 服务器地址')
             : code == 'API_VERSION'
                 ? '服务器版本不兼容，请更新服务端'
                 : '连接或加载失败，请重试',
@@ -25,8 +32,12 @@ class ApiFailure implements Exception {
 
 String normalizeServer(String value) {
   final uri = Uri.tryParse(value.trim());
+  final usbLoopback = usbDevEnabled &&
+      uri?.scheme == 'http' &&
+      uri?.host == '127.0.0.1' &&
+      uri?.port == 5430;
   if (uri == null ||
-      uri.scheme != 'https' ||
+      (uri.scheme != 'https' && !usbLoopback) ||
       uri.host.isEmpty ||
       uri.userInfo.isNotEmpty ||
       uri.hasQuery ||
@@ -53,7 +64,10 @@ class MobileApi {
               receiveTimeout: const Duration(seconds: 40),
               followRedirects: false,
               headers: {'Authorization': 'Bearer ${session.token}'},
-            ));
+            )) {
+    // Recheck stored sessions too, before they can send credentials.
+    normalizeServer(session.server);
+  }
   static Future<Session> login(
       String server, String username, String password) async {
     server = normalizeServer(server);
