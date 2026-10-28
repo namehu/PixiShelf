@@ -2,7 +2,7 @@ import { setImmediate } from 'node:timers/promises'
 import { z } from 'zod'
 import {
   Prisma, assertArtworkDedupExecution, assertArtworkDedupItemCurrent, assertArtworkContentSnapshot,
-  assertArtworkDedupCacheDirectories, assertArtworkDedupVisualItems, artworkDedupRepresentativeSql, lockArtworkDedupRelationCache
+  assertArtworkDedupCacheDirectories, assertArtworkDedupVisualItems, artworkDedupRepresentativeSql, lockArtworkDedupRelationCache, artworkDedupVisualReusableRunSql
 } from '@pixishelf/db'
 import { MediaContentFileError } from '../media-content/roots.ts'
 import { throwIfAborted } from '../scan/bounded.ts'
@@ -128,7 +128,7 @@ async function snapshotReuse(context: DedupPipelineContext, run: Run, checkpoint
     }
     const baseId = checkpoint.reuseBaseId
     if (!baseId) { await miss(); return }
-    const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT id FROM "ArtworkDedupRun" WHERE id=${baseId} AND status='COMPLETED' AND "visualStatus"='COMPLETE' FOR SHARE`)
+    const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT r.id FROM "ArtworkDedupRun" r WHERE r.id=${baseId} AND r.status='COMPLETED' AND r.stage='DONE' AND ${artworkDedupVisualReusableRunSql()} FOR SHARE OF r`)
     if (!locked.length) { await miss(); return }
     const old = await tx.artworkDedupRun.findUniqueOrThrow({ where: { id: baseId }, select: { visualCandidatePairs: true } })
     const keys = old.visualCandidatePairs

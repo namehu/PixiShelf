@@ -2,7 +2,7 @@ import sharp from 'sharp'
 import { readMediaContentFile } from '../media-content/file-reader.ts'
 import { MediaContentFileError } from '../media-content/roots.ts'
 import { featureFromGray96, whiteBorderRectangle, insetRectangle, type VisualView } from './visual-experiment.ts'
-import { VISUAL_LIMITS } from './visual-matching.ts'
+import { VISUAL_LIMITS, type VisualExclusion } from './visual-matching.ts'
 export async function readVisualMedia(input: Parameters<typeof readMediaContentFile>[0]) {
   const { content, ...read } = await readMediaContentFile({ ...input, captureBytesLimit: VISUAL_LIMITS.bytes })
   if (!content) throw new MediaContentFileError('INVALID_FILE', 'Missing bounded visual input')
@@ -10,7 +10,11 @@ export async function readVisualMedia(input: Parameters<typeof readMediaContentF
   const options = { limitInputPixels: VISUAL_LIMITS.pixels, failOn: 'error' as const }
   try {
     const metadata = await sharp(content, options).metadata()
-    if ((metadata.pages ?? 1) !== 1 || !['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff'].includes(metadata.format ?? ''))
+    if ((metadata.pages ?? 1) > 1) {
+      const exclusion: VisualExclusion = { kind: 'visual-exclusion', version: 1, reason: 'MULTI_FRAME' }
+      return { ...read, views: [] as VisualView[], exclusion }
+    }
+    if (!['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff'].includes(metadata.format ?? ''))
       throw new Error('Not a supported single-frame raster')
     const rotated = [5, 6, 7, 8].includes(metadata.orientation ?? 1)
     const width = (rotated ? metadata.height : metadata.width)!, height = (rotated ? metadata.width : metadata.height)!
@@ -31,7 +35,7 @@ export async function readVisualMedia(input: Parameters<typeof readMediaContentF
         .extract(rectangle).resize(96, 96, { fit: 'fill', kernel: 'lanczos3' }).greyscale().raw().toBuffer()
       views.push({ name, feature: featureFromGray96(pixels, rectangle.width, rectangle.height) })
     }
-    return { ...read, views }
+    return { ...read, views, exclusion: undefined }
   } catch {
     throw new MediaContentFileError('INVALID_FILE', 'Unsupported visual input')
   }

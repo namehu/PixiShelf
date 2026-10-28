@@ -30,6 +30,13 @@ export function validVisualViews(value: unknown): value is VisualView[] {
     Array.isArray(v.feature.information) && v.feature.information.length === 10 &&
     v.feature.information.every((n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0))
 }
+/** Only deterministic, content-verified exclusions are reusable; I/O and decoder failures are not. */
+export interface VisualExclusion { kind: 'visual-exclusion'; version: 1; reason: 'MULTI_FRAME' }
+export function validVisualExclusion(value: unknown): value is VisualExclusion {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const v = value as Record<string, unknown>
+  return Object.keys(v).length === 3 && v.kind === 'visual-exclusion' && v.version === 1 && v.reason === 'MULTI_FRAME'
+}
 export interface VisualPage { imageId: number; artworkId: number; index: number; size: bigint; sha256: string; views: VisualView[] }
 export interface VisualPairEvidence { leftArtworkId: number; rightArtworkId: number; pages: { kind: 'EXACT' | 'SIMILAR' | 'UNMATCHED'; left: VisualPage | null; right: VisualPage | null }[] }
 export interface VisualRelationReuse { artworks: Set<number>; candidatePairs: string[]; pairs: VisualPairEvidence[] }

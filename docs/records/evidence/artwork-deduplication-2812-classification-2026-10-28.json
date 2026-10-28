@@ -1,0 +1,135 @@
+{
+    "read_only": "on",
+    "unchecked_hints": [
+        {
+            "runId": "ab0b1843-f804-467e-a513-d182871af9e7",
+            "media_count": 1955,
+            "artwork_count": 37,
+            "current_metadata_hint": "CURRENT_TYPE_ANIMATION",
+            "registered_size_bytes": 8739127653
+        },
+        {
+            "runId": "ab0b1843-f804-467e-a513-d182871af9e7",
+            "media_count": 2,
+            "artwork_count": 2,
+            "current_metadata_hint": "CURRENT_TYPE_VIDEO",
+            "registered_size_bytes": 1586479
+        },
+        {
+            "runId": "ab0b1843-f804-467e-a513-d182871af9e7",
+            "media_count": 324,
+            "artwork_count": 10,
+            "current_metadata_hint": "READ_OR_DECODE_REASON_NOT_PERSISTED",
+            "registered_size_bytes": 1207977628
+        },
+        {
+            "runId": "cd1b0e88-ab0b-4156-a657-13fb4e89de62",
+            "media_count": 1955,
+            "artwork_count": 37,
+            "current_metadata_hint": "CURRENT_TYPE_ANIMATION",
+            "registered_size_bytes": 8739127653
+        },
+        {
+            "runId": "cd1b0e88-ab0b-4156-a657-13fb4e89de62",
+            "media_count": 2,
+            "artwork_count": 2,
+            "current_metadata_hint": "CURRENT_TYPE_VIDEO",
+            "registered_size_bytes": 1586479
+        },
+        {
+            "runId": "cd1b0e88-ab0b-4156-a657-13fb4e89de62",
+            "media_count": 324,
+            "artwork_count": 10,
+            "current_metadata_hint": "READ_OR_DECODE_REASON_NOT_PERSISTED",
+            "registered_size_bytes": 1207977628
+        }
+    ],
+    "worker_evidence": [
+        {
+            "jobId": "5b147351-1602-4be0-9205-d6c66a0a8ccc",
+            "event_shanghai": "2026-10-28T22:45:06.463",
+            "serviceVersion": "latest",
+            "last_worker_event": "job.completed",
+            "current_worker_status": "READY",
+            "worker_started_shanghai": "2026-10-28T18:10:48.995",
+            "worker_heartbeat_shanghai": "2026-10-28T23:27:48.465"
+        },
+        {
+            "jobId": "63acbc4b-8674-4b62-9bf9-d30faf00b817",
+            "event_shanghai": "2026-10-28T22:58:06.81",
+            "serviceVersion": "latest",
+            "last_worker_event": "job.completed",
+            "current_worker_status": "READY",
+            "worker_started_shanghai": "2026-10-28T18:10:48.995",
+            "worker_heartbeat_shanghai": "2026-10-28T23:27:48.465"
+        },
+        {
+            "jobId": "e90967c3-bf5d-4327-b02b-cc3f26918fbd",
+            "event_shanghai": "2026-10-28T22:53:20.368",
+            "serviceVersion": "latest",
+            "last_worker_event": "job.completed",
+            "current_worker_status": "READY",
+            "worker_started_shanghai": "2026-10-28T18:10:48.995",
+            "worker_heartbeat_shanghai": "2026-10-28T23:27:48.465"
+        }
+    ],
+    "observed_shanghai": "2026-10-28T23:28:05.462549",
+    "blocked_source_files": [
+        {
+            "fileId": "b11943f7-526f-4318-97b4-3daa29075ae4",
+            "artworkId": 16831,
+            "blockReason": "FILE_CHANGED",
+            "source_kind": "ARCHIVE_REVISION_REFERENCE",
+            "artwork_role": "KEEPER",
+            "has_saved_sha": false,
+            "has_saved_ctime": true,
+            "has_saved_inode": true,
+            "has_saved_mtime": true,
+            "has_saved_device": true,
+            "updated_shanghai": "2026-10-28T22:57:48.345",
+            "registered_size_bytes": 126720
+        },
+        {
+            "fileId": "66b0c282-c81d-46ea-b6f6-d3ae3c97616f",
+            "artworkId": 16835,
+            "blockReason": "FILE_CHANGED",
+            "source_kind": "ARCHIVE_REVISION_REFERENCE",
+            "artwork_role": "KEEPER",
+            "has_saved_sha": false,
+            "has_saved_ctime": true,
+            "has_saved_inode": true,
+            "has_saved_mtime": true,
+            "has_saved_device": true,
+            "updated_shanghai": "2026-10-28T22:57:51.905",
+            "registered_size_bytes": 147358
+        },
+        {
+            "fileId": "b8137ee5-3dd1-4cd0-9be9-017256049f44",
+            "artworkId": 18462,
+            "blockReason": "FILE_CHANGED",
+            "source_kind": "ARCHIVE_REVISION_REFERENCE",
+            "artwork_role": "COPY",
+            "has_saved_sha": false,
+            "has_saved_ctime": true,
+            "has_saved_inode": true,
+            "has_saved_mtime": true,
+            "has_saved_device": true,
+            "updated_shanghai": "2026-10-28T22:57:55.54",
+            "registered_size_bytes": 126393
+        },
+        {
+            "fileId": "329df85b-bcd7-4670-9989-e2c95fc146ff",
+            "artworkId": 18465,
+            "blockReason": "FILE_CHANGED",
+            "source_kind": "ARCHIVE_REVISION_REFERENCE",
+            "artwork_role": "COPY",
+            "has_saved_sha": false,
+            "has_saved_ctime": true,
+            "has_saved_inode": true,
+            "has_saved_mtime": true,
+            "has_saved_device": true,
+            "updated_shanghai": "2026-10-28T22:58:03.34",
+            "registered_size_bytes": 146301
+        }
+    ]
+}

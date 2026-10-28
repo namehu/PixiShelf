@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { refreshArtworkDedupFileOwnership } from './artwork-dedup-ownership'
 import { Prisma } from '@prisma/client'
 import { ArtworkDedupConflictError, type ArtworkDedupReaderOwner } from './artwork-dedup'
@@ -561,10 +561,10 @@ export async function recordArtworkDedupManifest(
   })
 }
 
-/** A sealed publication proves the entire manifest; do not reread/deserialize it for each media page. */
+/** Sealed publications use their byte hash. Legacy publications require the complete manifest mapping. */
 export async function readArtworkDedupArchiveManifestEvidence(
   tx: Prisma.TransactionClient,
-  input: { execution: ArtworkDedupOperationExecution; artworkId: number }
+  input: { execution: ArtworkDedupOperationExecution; artworkId: number; allowLegacyManifestMapping?: boolean }
 ) {
   const op = await assertArtworkDedupOperationExecution(tx, input.execution)
   const item = await tx.artworkDedupOperationArtwork.findUnique({
@@ -572,15 +572,17 @@ export async function readArtworkDedupArchiveManifestEvidence(
   })
   if (!item?.isUrl) throw new ArtworkDedupOperationError('SCOPE_MISMATCH')
   const rows = await tx.$queryRaw<
-    { revisionId: string; providerKey: string; externalId: string; sealedManifestSha256: string; memberCount: bigint }[]
+    { revisionId: string; archiveImportId: string; providerKey: string; externalId: string; sealedManifestSha256: string | null; memberCount: bigint }[]
   >(Prisma.sql`
     WITH candidate AS MATERIALIZED (
       SELECT r.id "revisionId",r."archivePath",a.id "archiveImportId",a."providerKey",a."externalId",a."sealedManifestSha256"
       FROM archive_revisions r JOIN archive_imports a ON a.id=r."archiveImportId"
-      JOIN archive_staging_generations g ON g.token=a."generationToken" JOIN artwork_external_refs x ON x.id=r."externalRefId"
+      LEFT JOIN archive_staging_generations g ON g.token=a."generationToken" JOIN artwork_external_refs x ON x.id=r."externalRefId"
       WHERE r."artworkId"=${item.artworkId} AND r."isCurrent" AND r."trashPath" IS NULL
         AND a."publishedArtworkId"=${item.artworkId} AND a.status='COMPLETED' AND a."externalRefId"=x.id AND a."providerKey"=x."providerKey" AND a."externalId"=x."externalId"
-        AND a."sealedManifestSha256" ~ '^[a-f0-9]{64}$' AND g."archiveImportId"=a.id AND g."manifestSha256"=a."sealedManifestSha256" AND g."sealedAt" IS NOT NULL AND g."drainedAt" IS NOT NULL
+        AND ((a."sealedManifestSha256" ~ '^[a-f0-9]{64}$' AND g."archiveImportId"=a.id AND g."manifestSha256"=a."sealedManifestSha256" AND g."sealedAt" IS NOT NULL AND g."drainedAt" IS NOT NULL)
+          OR (${input.allowLegacyManifestMapping === true} AND a."sealedManifestSha256" IS NULL AND a."generationToken" IS NULL
+            AND NOT EXISTS (SELECT 1 FROM archive_staging_generations legacy_g WHERE legacy_g."archiveImportId"=a.id)))
         AND (SELECT count(*) FROM archive_revisions q WHERE q."artworkId"=${item.artworkId})=1
     ), mapping AS MATERIALIZED (
       SELECT q.id "itemId",i.id "imageId",q.status='COMPLETED' AND q."sha256" IS NOT NULL AND q."byteCount" IS NOT NULL
@@ -589,10 +591,32 @@ export async function readArtworkDedupArchiveManifestEvidence(
       LEFT JOIN "Image" i ON i."artworkId"=${item.artworkId} AND ltrim(replace(i.path,chr(92),'/'),'/')=ltrim(replace(c."archivePath"||'/'||q."stagedPath",chr(92),'/'),'/')
       LEFT JOIN "ArtworkDedupMedia" d ON d."runId"=${op.runId} AND d."artworkId"=i."artworkId" AND d."imageId"=i.id
     )
-    SELECT c."revisionId",c."providerKey",c."externalId",c."sealedManifestSha256",${item.memberCount}::bigint "memberCount" FROM candidate c
+    SELECT c."revisionId",c."archiveImportId",c."providerKey",c."externalId",c."sealedManifestSha256",${item.memberCount}::bigint "memberCount" FROM candidate c
     WHERE (SELECT count(*) FROM "Image" i WHERE i."artworkId"=${item.artworkId})=${item.memberCount}
       AND (SELECT count(*)=${item.memberCount} AND count(DISTINCT "itemId")=${item.memberCount} AND count(DISTINCT "imageId")=${item.memberCount} AND bool_and(coalesce(valid,false)) FROM mapping)
     LIMIT 2`)
   if (rows.length !== 1) throw new ArtworkDedupOperationError('ARCHIVE_MANIFEST_UNVERIFIED')
-  return rows[0]!
+  const { archiveImportId, ...evidence } = rows[0]!
+  if (evidence.sealedManifestSha256 !== null) return { ...evidence, manifestMediaSignature: undefined }
+  // The SQL above proves the complete item-image-scan bijection. Hash every publication
+  // member in bounded pages, including its real index and path, for comparison with the file.
+  const signature = createHash('sha256').update('pixishelf-archive-manifest-media-v1\n')
+  let afterIndex: number | undefined, count = 0n
+  for (;;) {
+    const page = await tx.archiveImportItem.findMany({
+      where: { archiveImportId, ...(afterIndex === undefined ? {} : { pageIndex: { gt: afterIndex } }) },
+      select: { pageIndex: true, stagedPath: true, sha256: true, byteCount: true },
+      orderBy: { pageIndex: 'asc' }, take: 100
+    })
+    for (const row of page) {
+      if (!row.stagedPath || !row.sha256 || row.byteCount === null)
+        throw new ArtworkDedupOperationError('ARCHIVE_MANIFEST_UNVERIFIED')
+      signature.update(JSON.stringify([row.pageIndex, row.stagedPath, row.sha256, row.byteCount.toString()]) + '\n')
+      count++
+    }
+    if (page.length < 100) break
+    afterIndex = page.at(-1)!.pageIndex
+  }
+  if (count !== evidence.memberCount) throw new ArtworkDedupOperationError('ARCHIVE_MANIFEST_UNVERIFIED')
+  return { ...evidence, manifestMediaSignature: signature.digest('hex') }
 }

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { afterAll, describe, expect, it } from 'vitest'
 import { db, seed, prepared, prefix, cleanupFixture } from './artwork-dedup-maintenance-fixture'
 import { captureArtworkContentSnapshot } from '../media-content-evidence'
@@ -6,7 +6,7 @@ import { readArtworkDedupArchiveManifestEvidence, readArtworkDedupInventoryPage 
 
 describe.skipIf(!db)('sealed archive database evidence', () => {
   afterAll(cleanupFixture)
-  it('requires sealed/drained identity and an exact item-image bijection; inventory exposes real page indexes', async () => {
+  it.each([2, 201])('requires exact sealed or legacy mapping across %i members with real page indexes', async memberCount => {
     const rollback = new Error('fixture rollback')
     try {
       await db!.$transaction(
@@ -45,8 +45,8 @@ describe.skipIf(!db)('sealed archive database evidence', () => {
               publishedArtworkId: target,
               generationToken: token,
               sealedManifestSha256: seal,
-              totalItems: 2,
-              completedItems: 2
+              totalItems: memberCount,
+              completedItems: memberCount
             }
           })
           await tx.archiveStagingGeneration.create({
@@ -73,7 +73,7 @@ describe.skipIf(!db)('sealed archive database evidence', () => {
             }
           })
           for (const artworkId of f.members[0]!) {
-            await tx.image.create({ data: { artworkId, path: `${prefix}/${artworkId}-second.jpg`, size: 10n } })
+            await tx.image.createMany({ data: Array.from({ length: memberCount - 1 }, (_, i) => ({ artworkId, path: `${prefix}/${artworkId}-${i}-extra.jpg`, size: 10n })) })
             const snap = await captureArtworkContentSnapshot(tx, { artworkId })
             if (snap.status !== 'READY') throw new Error(snap.status)
             await tx.artworkContentFingerprint.create({
@@ -82,7 +82,7 @@ describe.skipIf(!db)('sealed archive database evidence', () => {
                 algorithmVersion: 1,
                 sourceRevision: snap.value.revision,
                 mediaEpoch: snap.value.mediaEpoch,
-                fileCount: 2n,
+                fileCount: BigInt(memberCount),
                 membersSignature: 'b'.repeat(64),
                 contentSha256: 'a'.repeat(64),
                 completedAt: new Date()
@@ -90,10 +90,10 @@ describe.skipIf(!db)('sealed archive database evidence', () => {
             })
             await tx.artworkDedupItem.update({
               where: { runId_artworkId: { runId: f.run.id, artworkId } },
-              data: { snapshotRevision: snap.value.revision, mediaEpoch: snap.value.mediaEpoch, memberCount: 2n }
+              data: { snapshotRevision: snap.value.revision, mediaEpoch: snap.value.mediaEpoch, memberCount: BigInt(memberCount) }
             })
           }
-          await tx.artworkDedupGroup.update({ where: { id: f.groupIds[0]! }, data: { fileCount: 2n } })
+          await tx.artworkDedupGroup.update({ where: { id: f.groupIds[0]! }, data: { fileCount: BigInt(memberCount) } })
           const images = await tx.image.findMany({ where: { artworkId: target }, orderBy: { id: 'asc' } })
           const items = []
           for (let n = 0; n < images.length; n++) {
@@ -102,7 +102,7 @@ describe.skipIf(!db)('sealed archive database evidence', () => {
               await tx.archiveImportItem.create({
                 data: {
                   archiveImportId: archive.id,
-                  pageIndex: 1 - n,
+                  pageIndex: memberCount - n,
                   sourcePageUrl: 'https://example.invalid/page',
                   locator: {},
                   expectedFilename: `${image.id}.jpg`,
@@ -138,12 +138,12 @@ describe.skipIf(!db)('sealed archive database evidence', () => {
             providerKey: ref.providerKey,
             externalId: ref.externalId,
             sealedManifestSha256: seal,
-            memberCount: 2n
+            memberCount: BigInt(memberCount)
           })
           const page = await readArtworkDedupInventoryPage(tx, { ...input, limit: 1 })
           expect(page.images).toHaveLength(1)
           expect(page.images[0]?.archiveItem).toMatchObject({
-            pageIndex: 1,
+            pageIndex: memberCount,
             stagedPath: items[0]!.stagedPath,
             sha256: 'a'.repeat(64),
             byteCount: 10n
@@ -176,12 +176,25 @@ describe.skipIf(!db)('sealed archive database evidence', () => {
           await expect(readArtworkDedupArchiveManifestEvidence(tx, input)).rejects.toMatchObject({
             code: 'ARCHIVE_MANIFEST_UNVERIFIED'
           })
+          await tx.image.update({ where: { id: images[0]!.id }, data: { size: 10n } })
+          await tx.archiveStagingGeneration.delete({ where: { token } })
+          await tx.archiveImport.update({ where: { id: archive.id }, data: { generationToken: null, sealedManifestSha256: null } })
+          await expect(readArtworkDedupArchiveManifestEvidence(tx, input)).rejects.toMatchObject({ code: 'ARCHIVE_MANIFEST_UNVERIFIED' })
+          const signature = createHash('sha256').update('pixishelf-archive-manifest-media-v1\n')
+          for (const row of [...items].sort((a, b) => a.pageIndex - b.pageIndex))
+            signature.update(JSON.stringify([row.pageIndex, row.stagedPath, row.sha256, row.byteCount!.toString()]) + '\n')
+          const legacyInput = { ...input, allowLegacyManifestMapping: true }
+          expect(await readArtworkDedupArchiveManifestEvidence(tx, legacyInput)).toMatchObject({
+            sealedManifestSha256: null, memberCount: BigInt(memberCount), manifestMediaSignature: signature.digest('hex')
+          })
+          await tx.archiveImportItem.update({ where: { id: items.at(-1)!.id }, data: { sha256: 'f'.repeat(64) } })
+          await expect(readArtworkDedupArchiveManifestEvidence(tx, legacyInput)).rejects.toMatchObject({ code: 'ARCHIVE_MANIFEST_UNVERIFIED' })
           throw rollback
         },
-        { timeout: 15000 }
+        { timeout: 30000 }
       )
     } catch (error) {
       if (error !== rollback) throw error
     }
-  })
+  }, 30000)
 })

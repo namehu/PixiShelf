@@ -119,6 +119,51 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
+  it('reuses verified multi-frame exclusions and completed visual pairs without treating incomplete coverage as complete', async () => {
+    const artistId = await fixture([[1], [2], [3], [4]])
+    const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })
+    const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71) % 255))
+    const still = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
+    const variant = await sharp(still).extend({ top: 20, bottom: 20, left: 20, right: 20, background: 'white' }).png().toBuffer()
+    const animated = Buffer.from('UklGRpQAAABXRUJQVlA4WAoAAAACAAAAAAAAAAAAQU5JTQYAAAD/////AABBTk1GMAAAAAAAAAAAAAAAAAAAAGQAAAJWUDggGAAAADABAJ0BKgEAAQABQCYlpAADcAD+/TZoAEFOTUYwAAAAAAAAAAAAAAAAAAAAZAAAAFZQOCAYAAAANAEAnQEqAQABAAAAJiWkAANwAP789AAA', 'base64')
+    for (const [index, image] of images.entries()) await fs.writeFile(path.join(root, image.path), index === 0 ? still : index === 1 ? variant : animated)
+    for (const phase of ['cold', 'hot', 'full'] as const) {
+      const run = await start(artistId, phase === 'full' ? 'FULL' : 'INCREMENTAL', true, 6)
+      await finish(run.jobId)
+      const result = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })
+      expect(result).toMatchObject({ status: 'COMPLETED', visualStatus: 'INCOMPLETE', visualIncompleteReasons: ['UNSUPPORTED_MEDIA'], retryReadBytes: 0n })
+      if (phase === 'cold') {
+        // A fully published eligible subset is reusable, but budget/error or unfinished evidence is not.
+        await db!.$transaction(async tx => {
+          const target = { ...result, id: randomUUID() }
+          expect(await lockArtworkDedupRelationCache(tx, target, true)).toBe(result.id)
+          for (const reasons of [['VISUAL_TIME_BUDGET'], ['UNSUPPORTED_MEDIA', 'VISUAL_CANDIDATE_BUDGET'], ['INCOMPLETE_ORIGINALS']]) {
+            await tx.artworkDedupRun.update({ where: { id: result.id }, data: { visualIncompleteReasons: reasons } })
+            expect(await lockArtworkDedupRelationCache(tx, target, true)).toBeNull()
+          }
+          await tx.artworkDedupRun.update({ where: { id: result.id }, data: { visualIncompleteReasons: result.visualIncompleteReasons, visualCheckpoint: { phase: 'PAIR' } } })
+          expect(await lockArtworkDedupRelationCache(tx, target, true)).toBeNull()
+          await tx.artworkDedupRun.update({ where: { id: result.id }, data: { visualCheckpoint: result.visualCheckpoint as Prisma.InputJsonValue } })
+        })
+      }
+      if (phase === 'hot') {
+        expect(result.readBytes).toBe(0n)
+        expect(result.visualComparedComparisons).toBe(0)
+        expect(result.visualReusedComparisons).toBeGreaterThan(0)
+      } else expect(result.readBytes).toBeGreaterThan(0n)
+      for (const image of images.slice(2)) {
+        expect((await db!.mediaVisualFingerprint.findUniqueOrThrow({ where: { imageId: image.id } })).views)
+          .toEqual({ kind: 'visual-exclusion', version: 1, reason: 'MULTI_FRAME' })
+        expect(await db!.artworkDedupMedia.findUniqueOrThrow({ where: { runId_artworkId_imageId: { runId: run.runId, artworkId: image.artworkId!, imageId: image.id } } }))
+          .toMatchObject({ visualStatus: 'UNCHECKED', visualViews: null })
+      }
+    }
+    for (const image of images.slice(2)) await fs.writeFile(path.join(root, image.path), still)
+    const changed = await start(artistId, 'INCREMENTAL', true, 6)
+    await finish(changed.jobId)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: changed.runId } })).toMatchObject({ visualStatus: 'COMPLETE' })
+    for (const image of images.slice(2)) expect(Array.isArray((await db!.mediaVisualFingerprint.findUniqueOrThrow({ where: { imageId: image.id } })).views)).toBe(true)
+  }, 60000)
   it.each(['pause', 'crash', 'cancel'] as const)('F03 v6 persisted budget waiting closes the reader before %s finalization', async scenario => {
     const artistId = await visualFixture(2)
     const created = await start(artistId, 'FULL', true, 6), claimed = await claim(created.jobId)

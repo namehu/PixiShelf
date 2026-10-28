@@ -8,6 +8,13 @@ import { lockContentDirectories } from './media-content-common'
 export const ARTWORK_DEDUP_RELATION_CACHE_VERSION = 'original-multiset-v1:partial80-v1:visual-local1-v1'
 type Run = Prisma.ArtworkDedupRunGetPayload<Record<string, never>>
 
+/** Excluded media do not invalidate fully compared artwork signatures. Budget/error gaps do. */
+export function artworkDedupVisualReusableRunSql() {
+  return Prisma.sql`(r."visualStatus"='COMPLETE'
+    OR (r."visualStatus"='INCOMPLETE' AND r."visualIncompleteReasons"=ARRAY['UNSUPPORTED_MEDIA']::text[]
+      AND r."visualCheckpoint"->>'phase'='PUBLISH'))`
+}
+
 /** No cross-checkpoint reference: hold the historical run while copying this
  * checkpoint's evidence, then the current cursor/results are self-contained.
  */
@@ -17,7 +24,7 @@ export async function lockArtworkDedupRelationCache(tx: Prisma.TransactionClient
     SELECT r.id FROM "ArtworkDedupRun" r
     WHERE r."artistId"=${run.artistId} AND r.id<>${run.id} AND r.status='COMPLETED' AND r.stage='DONE'
       AND r."algorithmVersion"=${run.algorithmVersion} AND r."relationCacheVersion"=${ARTWORK_DEDUP_RELATION_CACHE_VERSION}
-      AND (${!visual} OR r."visualStatus"='COMPLETE')
+      AND (${!visual} OR ${artworkDedupVisualReusableRunSql()})
       AND NOT EXISTS(SELECT 1 FROM "ArtworkDedupItem" i WHERE i."runId"=r.id AND i.status<>'COMPLETE')
     ORDER BY r."frozenAt" DESC,r.id DESC LIMIT 1 FOR SHARE OF r`)
   return base?.id ?? null
