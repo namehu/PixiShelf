@@ -12,7 +12,7 @@
 
 目录查询优化：[2026-10-28 第五批记录](./artwork-deduplication-root-scope-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-root-scope-f03-review-2026-10-28.md)。
 
-候选查询计划：[2026-10-28 第六批记录](./artwork-deduplication-posting-plan-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-posting-plan-f03-review-2026-10-28.md) · [第五、六批本地升级](./operations/artwork-deduplication-f03-b56-local-upgrade-2026-10-28.md)。
+候选查询计划：[2026-10-28 第六批记录](./artwork-deduplication-posting-plan-f03-2026-10-28.md) · [独立审查](./artwork-deduplication-posting-plan-f03-review-2026-10-28.md) · [第五、六批本地升级](./operations/artwork-deduplication-f03-b56-local-upgrade-2026-10-28.md) · [升级后桌面回归](./operations/artwork-deduplication-f03-b56-desktop-regression-2026-10-28.md)。
 
 完整清单见[功能记录索引](./features/README.md)。下表提供跨领域常用入口。
 
