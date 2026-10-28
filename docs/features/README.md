@@ -49,6 +49,8 @@ sources:
 
 ## 浏览与阅读
 
+[Android Flutter 验证版](./android-app.md)：独立 APK 的沉浸阅读、视频与 APNG、最小接口及验收边界。
+
 视频缩放与全屏兼容见[视频画面显示](./video-display.md)，同时适用于沉浸浏览和作品详情。
 
 | 规格                                                    | 负责内容                                   |

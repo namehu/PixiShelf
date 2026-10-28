@@ -2,13 +2,15 @@ import { betterAuth } from 'better-auth'
 import { prismaAdapter } from 'better-auth/adapters/prisma'
 import { prisma } from '@/lib/prisma'
 import { nextCookies } from 'better-auth/next-js'
+import { bearer } from 'better-auth/plugins'
 import type { Prisma } from '@pixishelf/db'
 
 export function createAuth(
   database:
     | Prisma.TransactionClient
     | Omit<typeof prisma, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'> = prisma,
-  useNextCookies = true
+  useNextCookies = true,
+  mobile = false
 ) {
   return betterAuth({
     debug: process.env.NODE_ENV !== 'production',
@@ -17,7 +19,7 @@ export function createAuth(
       // A supplied transaction client already owns the complete registration transaction.
       transaction: false
     }),
-    plugins: useNextCookies ? [nextCookies()] : [],
+    plugins: mobile ? [bearer({ requireSignature: true })] : useNextCookies ? [nextCookies()] : [],
     trustedOrigins: process.env.BETTER_AUTH_TRUSTED_ORIGINS ? process.env.BETTER_AUTH_TRUSTED_ORIGINS.split(',') : [],
     user: {
       modelName: 'UserBA'

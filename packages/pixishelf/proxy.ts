@@ -5,6 +5,7 @@ import logger from './lib/logger'
 import { responseUnauthorized } from './lib/api-handler'
 import { headers } from 'next/headers'
 import { rateLimiter } from './lib/rate-limit'
+import { isMobileApiPath, isMobileLoginRequest } from './lib/mobile/path'
 
 /**
  * 公开访问的路径模式（不需要认证）
@@ -33,6 +34,21 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const ip = request.headers.get('x-forwarded-for') || 'unknown'
   if (!rateLimiter.check(1000, `mw:${ip}`)) {
     return new NextResponse('Too Many Requests', { status: 429 })
+  }
+
+  // The mobile transport is deliberately separate from browser Cookie authentication.
+  if (isMobileApiPath(pathname)) {
+    if (isMobileLoginRequest(pathname, request.method)) return NextResponse.next()
+    try {
+      const { getMobileSession } = await import('./lib/mobile/auth')
+      if (!(await getMobileSession(request.headers))) return handleUnauthenticated(request, pathname)
+      const cleanHeaders = new Headers(request.headers)
+      cleanHeaders.delete('x-user-session')
+      cleanHeaders.delete('x-pathname')
+      return NextResponse.next({ request: { headers: cleanHeaders } })
+    } catch {
+      return handleUnauthenticated(request, pathname)
+    }
   }
 
   // 1. 特殊处理：如果用户访问登录页且已持有有效令牌，重定向到仪表盘

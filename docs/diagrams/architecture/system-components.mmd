@@ -4,6 +4,7 @@ flowchart LR
     Decode[WebP 浏览器 Worker / WASM]
     UI --> Decode
   end
+  Mobile[Android Flutter 验证版] -->|HTTPS / Bearer / mobile v1| App
   Scheduler[scheduler] -->|内部 Token / tick| App
   Hook[扫描 Webhook] -->|扫描 Token| App
   App[Next.js Web / API 控制面] <-->|领域与任务事务| DB[(PostgreSQL)]

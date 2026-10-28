@@ -116,6 +116,8 @@ docker compose --env-file build/.env.example -f build/docker-compose.deploy.yml 
 
 原生相关变更另由 [webp-native.yml](../../.github/workflows/webp-native.yml) 复现原生构建、sanitizer/产物及浏览器校验。发布镜像流程独立验证并构建，不意味着同提交 CI 已通过；交付须核对同提交三路和汇总最终结果。具体发布 artifact、重试与并行边界见[工作流说明](../../.github/README.md)。
 
+Android Flutter 包使用独立工具链，未加入上述 pnpm CI lane；本地 analyze、单元／组件、Android 原生媒体与 APK 构建命令见[包说明](../../packages/pixishelf-app/README.md)。模拟器通过不代替真实 HTTPS、实体手机和生产后端联调。
+
 CI 尚未明确执行主应用 `test:integration`、jsdom e2e 命名套件、Compose/镜像运行冒烟或真实业务登录/代理/媒体链路。WebP 浏览器测试不填补这些缺口，空库 migration 不替代非空升级与生产恢复演练。
 
 完成报告写清实际命令/结果、环境、跳过及原因、未覆盖项对发布的影响；历史数字放带日期的 records。不能通过删断言、扩大 mock 或跳过高风险路径掩盖失败；既有失败也要可复现并说明影响。涉及数据/部署恢复依据见[备份基线](../operations/backup-and-recovery.md)。

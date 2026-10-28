@@ -47,6 +47,8 @@
 
 ## 开发与维护入口
 
+- [Android 验证版](./features/android-app.md)与[Flutter 包用法](../packages/pixishelf-app/README.md)。
+
 - [文档维护规则](./development/documentation.md)：内容归属、模板、状态与图示检查。
 - [当前待办](../TODO.md)：未完成的实施或验证行动。
 - [构建资产](../build/README.md)、[CI 与镜像发布](../.github/README.md)、[辅助工具](../scripts/README.md)。

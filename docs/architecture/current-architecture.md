@@ -35,6 +35,8 @@ PixiShelf 围绕个人收藏的发现、导入、整理、阅读和恢复构建�
 
 当前是单实例、单信任域部署：可有多个账户，但已登录账户均有实例管理能力。浏览器会话、Webhook、内部 scheduler 和媒体网络入口的门禁分别由[安全基线](../security/access-control.md)定义；隐私遮罩不构成访问控制。
 
+Android Flutter 验证包通过 `/api/mobile/v1` 调用 Next.js；不直接访问数据库、Worker 或 ImgProxy，也不参与 pnpm 任务链。静态图和 GIF/WebP 使用 Flutter 解码，APNG 使用独立 isolate，视频使用 Android 原生播放器。API 适配与安全边界见[移动规格](../features/android-app.md)和[权限基线](../security/access-control.md#移动客户端接口)。此段于 2026-10-28 局部核验。
+
 ## Workspace 与请求流
 
 ![包依赖](../diagrams/architecture/package-dependencies.svg)

@@ -67,6 +67,18 @@ PixiShelf 当前是**单一管理员信任域**。可以创建多个账户，但
 
 去重成员封面 `GET /api/artwork-dedup/cover/:artworkId` 独立核验 Session 与 expectedUserId，并按当前活动、未删除及非维护 COPY 声明的作品可见性读取第一登记图片或已有视频封面。DTO仅返回作品ID路由，不暴露原路径；隐藏目录和解析后隐藏路径均拒绝，响应为 private/no-store、Vary Cookie，不重定向原媒体、不现场重编码。
 
+## 移动客户端接口
+
+2026-10-28 局部核验：`/api/mobile/v1` 是 Android 验证版新增的独立 transport。只有精确 `POST /api/mobile/v1/session` 公开登录；GET、DELETE 及其他子路由均由 proxy 和 Route 双重验证。相似前缀不豁免网页鉴权。
+
+移动认证实例启用 Better Auth `bearer({ requireSignature: true })`，共用已有 Session 存储与 Secret；默认网页实例不启用 Bearer。请求只传 Authorization、User-Agent 和可信代理重写的 X-Forwarded-For，忽略客户端 Cookie 与身份头，禁止 Cookie cache。签名 Token 只出现在登录 JSON 和后续 Authorization，不能放 URL；同源 ID 媒体接口不重定向，避免 Token 转发到 ImgProxy 或第三方。此实例分离是 transport 边界，不是新的租户或权限模型。
+
+读取与写入按 Session 确定账户；`expectedUserId` 只是并发前置条件。路由复核账户、媒体版本、活动状态及现有领域规则。只读原件仍检查登记路径、隐藏目录、真实根内路径、符号链接与文件类型；视频 Range 读取也不跳过鉴权。预览只在内存压缩，不写原件或派生存储。图库封面与选图复用同一媒体 ID 路由的 `thumbnail` 变体，最长边 512px；仍校验账户、媒体版本、作品可见性和路径，不新增公开封面入口。响应采用 private/no-store、Vary Authorization、no-referrer；业务错误仅返回受控 code，不返回路径、上游错误或凭据。proxy 层拒绝也可能使用现有通用错误格式，客户端按 HTTP 状态处理。
+
+Flutter 仅接受可信 HTTPS 根地址，普通 HTTP 请求拒绝重定向；原生播放器只接收本实例媒体 ID 路由，服务器不发重定向。Token 存在 Android 安全存储，关闭系统备份；内存媒体缓存随账户销毁。位置信息存本地偏好，不保存密码或离线媒体。没有新增 Cookie/CORS 放行、公开文件目录、监听端口或 Compose 挂载。反向代理需保留 Authorization 与 Range；已有实例应按部署流程先运行含移动接口的服务版本，再连接 APK。
+
+登录限流复用已有每 IP 5 次窗口，移动已登录请求额外按账户限流；这些仍是单进程内存限制。失效会话需重新登录；退出尝试撤销 Session，离线退出无法证明远端已撤销。契约与产品范围见[移动规格](../features/android-app.md)。
+
 ## 服务网络和存储矩阵
 
 | 组件       | 网络                            | 数据库        | 原媒体             | 派生媒体 | Pixiv data |
