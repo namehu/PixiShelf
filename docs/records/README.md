@@ -6,6 +6,8 @@
 
 ## 功能与用户流程
 
+去重文档：[2026-10-28 当前入口与六张图整理](./artwork-deduplication-current-docs-2026-10-28.md)。
+
 去重 F01：[2026-10-26 部分重复验收](./artwork-deduplication-partial-overlap-f01-2026-10-26.md)。
 
 去重 F03：[2026-10-27—28 规模与密集续跑验证](./artwork-deduplication-scale-f03-2026-10-27.md) · [独立审查](./artwork-deduplication-scale-f03-review-2026-10-27.md)。

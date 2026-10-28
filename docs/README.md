@@ -8,6 +8,7 @@
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | 理解项目         | [产品基线](./product/product-baseline.md) → [领域术语与关系](../CONTEXT.md) → [当前架构](./architecture/current-architecture.md)         |
 | 修改一个功能     | [功能目录](./features/README.md) → 对应领域规格 → 规格链接的架构、代码和验收条件                                                         |
+| 理解同艺术家去重 | [当前功能与六张图](./features/artwork-deduplication.md) → 所需契约或验收记录；首屏区分已实现、待完成与不做的范围                         |
 | 理解复杂设计     | [架构总览](./architecture/current-architecture.md) → [图示导航](./diagrams/README.md) → 对应子系统说明                                   |
 | 启动本地环境     | [根 README](../README.md) → [主应用包说明](../packages/pixishelf/readme.md)                                                              |
 | 修改代码并验证   | [工程规则](../AGENTS.md) → [测试策略](./development/testing-strategy.md)；认证或媒体访问变更先读[权限边界](./security/access-control.md) |

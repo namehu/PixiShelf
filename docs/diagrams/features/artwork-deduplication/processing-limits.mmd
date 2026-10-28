@@ -1,0 +1,38 @@
+---
+config:
+  theme: base
+  htmlLabels: false
+  themeVariables:
+    fontFamily: 'Arial, PingFang SC, Microsoft YaHei, sans-serif'
+    fontSize: 18px
+    background: '#ffffff'
+    primaryColor: '#eff6ff'
+    primaryTextColor: '#172033'
+    primaryBorderColor: '#64748b'
+    lineColor: '#64748b'
+    secondaryColor: '#f0fdf4'
+    tertiaryColor: '#fff7ed'
+  flowchart:
+    htmlLabels: false
+    curve: linear
+    nodeSpacing: 28
+    rankSpacing: 42
+    wrappingWidth: 340
+title: 同艺术家作品去重 · 处理上限与继续执行
+---
+flowchart TB
+  P01[后台按有界批次处理<br/>检查点和累计计数落库]
+  P02[正常短批／时间片让行]
+  P03[保存已完成前缀并让出执行槽<br/>随后自动继续]
+  P04[用户暂停／Worker 正常退出]
+  P05[用户继续／兼容 Worker 重启<br/>接续未提交部分]
+  P06[视觉硬上限耗尽]
+  P07[视觉未完成 INCOMPLETE<br/>本轮不发布截断的疑似版本结果]
+  P08[有效字节关系仍可使用<br/>未完成不等于没有重复]
+  P09[原样重试不保证完成<br/>不自动升额 · 超硬上限续行待实现]
+  P10[部分作品不支持／原件未完成]
+  P11[明确标出局部缺口<br/>其他完整合格视觉作品对仍可发布]
+  P01 --> P02 --> P03 --> P01
+  P01 --> P04 --> P05 --> P01
+  P01 --> P06 --> P07 --> P08 --> P09
+  P01 --> P10 --> P11
