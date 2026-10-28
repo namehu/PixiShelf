@@ -1,7 +1,7 @@
 name: pixishelf_app
 description: PixiShelf Android immersive reader prototype.
 publish_to: none
-version: 0.2.3+5
+version: 0.3.1+7
 environment:
   sdk: '>=3.6.0 <4.0.0'
 dependencies:
@@ -13,6 +13,10 @@ dependencies:
   image: 4.5.2
   flutter_secure_storage: 9.2.4
   shared_preferences: 2.3.5
+  animations: 2.0.11
+  scrollable_positioned_list: 0.3.8
+  visibility_detector: 0.4.0+2
+  url_launcher: 6.3.1
 dev_dependencies:
   integration_test:
     sdk: flutter

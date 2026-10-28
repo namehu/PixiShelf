@@ -9,6 +9,19 @@ import 'gallery_query.dart';
 class ReaderController extends ChangeNotifier {
   final MobileApi api;
   final AppStorage storage;
+  final bool sameWorkOnly;
+  final Set<int>? allowedMediaIds;
+  final Map<int, ArtworkDetailData> details = {};
+  final Map<String, bool> mediaLikes = {};
+  final Map<String, Duration> videoPositions = {};
+  final Map<String, bool> _markTargets = {};
+  bool _savingMark = false;
+  bool autoEnabled = false, autoPaused = false, transitioning = false;
+  int autoSeconds = 5;
+  double videoSpeed = 1;
+  int longPressSpeed = 2;
+  Timer? _autoTimer;
+  String? _animationCycleKey, _completedCycleKey;
   final List<FeedItem> feed = [];
   final Map<int, ReaderData> readers = {};
   final Map<int, int> positions = {};
@@ -32,7 +45,9 @@ class ReaderController extends ChangeNotifier {
   int? failureStatus;
   final List<_Observation> _events = [];
   Timer? _flushTimer, _heartbeat;
-  ReaderController(this.api, this.storage) {
+  ReaderController(this.api, this.storage,
+      {this.sameWorkOnly = false, List<int>? mediaIds})
+      : allowedMediaIds = mediaIds?.toSet() {
     _flushTimer = Timer.periodic(const Duration(seconds: 3), (_) => flush());
     _heartbeat = Timer.periodic(
         const Duration(seconds: 60), (_) => observe(heartbeat: true));
@@ -44,11 +59,24 @@ class ReaderController extends ChangeNotifier {
       : current!.media[mediaIndex];
   MediaSource? get source => media == null ? null : current!.sources[media!.id];
   String get selectionKey => '${current?.id}:${current?.revision}:${media?.id}';
+  ArtworkDetailData? get detail => details[current?.id];
+  List<int> get mediaIndices => [
+        for (var i = 0; i < (current?.media.length ?? 0); i++)
+          if (allowedMediaIds == null ||
+              allowedMediaIds!.contains(current!.media[i].id) ||
+              current!.media[i].members.any(allowedMediaIds!.contains))
+            i
+      ];
+  int get candidateIndex => mediaIndices.indexOf(mediaIndex);
+  String get markKey => '${current?.id}:${media?.id}';
+  bool get mediaLiked => mediaLikes[markKey] ?? false;
+  bool get autoRunning => autoEnabled && !autoPaused;
   void emit() {
     if (!_disposed) notifyListeners();
   }
 
   void fail(Object exception) {
+    pauseAuto();
     failureStatus = exception is ApiFailure ? exception.status : null;
     error = exception is ApiFailure ? exception.message : '加载失败，请重试';
     loading = false;
@@ -56,6 +84,7 @@ class ReaderController extends ChangeNotifier {
   }
 
   Future<void> start({bool restore = true, ReaderEntry? entry}) async {
+    stopAuto(notify: false);
     final generation = ++_generation;
     ++_selection;
     ready = false;
@@ -64,6 +93,7 @@ class ReaderController extends ChangeNotifier {
     failureStatus = null;
     feed.clear();
     readers.clear();
+    details.clear();
     positions.clear();
     artworkIndex = 0;
     mediaIndex = 0;
@@ -180,6 +210,7 @@ class ReaderController extends ChangeNotifier {
   Future<void> selectArtwork(int index) async {
     if (index < 0 || index >= feed.length) return;
     final selection = ++_selection;
+    _cancelAutoTimer();
     ready = false;
     loading = true;
     error = null;
@@ -194,16 +225,22 @@ class ReaderController extends ChangeNotifier {
       readers[id] = data;
       mediaIndex = positions[id] ?? data.resolvePosition(data.resumeId);
       if (mediaIndex >= data.media.length) mediaIndex = 0;
+      if (allowedMediaIds != null && !mediaIndices.contains(mediaIndex)) {
+        mediaIndex = mediaIndices.firstOrNull ?? 0;
+      }
       await _loadCurrentPage(data);
       if (_disposed || selection != _selection) return;
       loading = false;
       emit();
       _save();
       _preload();
+      unawaited(_loadDetails(data.id));
+      unawaited(_loadMark());
       // Keep only nearby reader metadata; positions remain lightweight.
       final nearby =
           feed.skip(max(0, index - 1)).take(3).map((item) => item.id).toSet();
       readers.removeWhere((id, _) => !nearby.contains(id));
+      details.removeWhere((id, _) => !nearby.contains(id));
     } catch (e) {
       if (selection == _selection && !_disposed) fail(e);
     }
@@ -212,20 +249,27 @@ class ReaderController extends ChangeNotifier {
   Future<void> _loadCurrentPage(ReaderData data) async {
     if (data.media.isNotEmpty &&
         !data.sources.containsKey(data.media[mediaIndex].id)) {
-      await api.mediaPage(data, mediaIndex ~/ 24);
+      await api.mediaPage(data, data.media[mediaIndex].index ~/ 24);
     }
   }
 
-  Future<void> horizontal(int delta) async {
+  Future<void> horizontal(int delta, {bool manual = true}) async {
     final data = current;
     if (loading || data == null) return;
-    await selectMedia(mediaIndex + delta);
+    if (manual) pauseAuto();
+    final candidates = mediaIndices;
+    final target = candidates.indexOf(mediaIndex) + delta;
+    if (target < 0 || target >= candidates.length) return;
+    await selectMedia(candidates[target], manual: manual);
   }
 
-  Future<void> selectMedia(int target) async {
+  Future<void> selectMedia(int target, {bool manual = true}) async {
     final data = current;
     if (loading || data == null) return;
     if (target < 0 || target >= data.media.length) return;
+    if (!mediaIndices.contains(target)) return;
+    if (manual) pauseAuto();
+    _cancelAutoTimer();
     final selection = ++_selection;
     ready = false;
     mediaIndex = target;
@@ -240,13 +284,15 @@ class ReaderController extends ChangeNotifier {
       emit();
       _save();
       _preload();
+      unawaited(_loadMark());
     } catch (e) {
       if (selection == _selection && !_disposed) fail(e);
     }
   }
 
-  Future<void> vertical(int delta) async {
-    if (loading) return;
+  Future<void> vertical(int delta, {bool manual = true}) async {
+    if (loading || sameWorkOnly) return;
+    if (manual) pauseAuto();
     final target = artworkIndex + delta;
     if (target < 0) return;
     try {
@@ -311,6 +357,7 @@ class ReaderController extends ChangeNotifier {
     // A single next-artwork preview, without playback or a reading observation.
     if (_disposed ||
         selection != _selection ||
+        sameWorkOnly ||
         artworkIndex + 1 >= feed.length) {
       return;
     }
@@ -332,6 +379,7 @@ class ReaderController extends ChangeNotifier {
   void setVisible(bool value) {
     foreground = value;
     if (!value) {
+      pauseAuto();
       ready = false;
       unawaited(flush());
     }
@@ -340,7 +388,10 @@ class ReaderController extends ChangeNotifier {
 
   void setCovered(bool value) {
     covered = value;
-    if (value) ready = false;
+    if (value) {
+      pauseAuto();
+      ready = false;
+    }
     emit();
   }
 
@@ -348,6 +399,7 @@ class ReaderController extends ChangeNotifier {
     if (_disposed ||
         key != selectionKey ||
         loading ||
+        transitioning ||
         !foreground ||
         covered ||
         media?.video != false) {
@@ -356,7 +408,9 @@ class ReaderController extends ChangeNotifier {
     if (!ready) {
       ready = true;
       observe();
+      emit();
     }
+    _scheduleAuto();
   }
 
   Map<String, double>? _playback;
@@ -368,6 +422,7 @@ class ReaderController extends ChangeNotifier {
         !foreground ||
         covered ||
         loading ||
+        transitioning ||
         media?.video != true ||
         duration <= 0 ||
         position <= 0) {
@@ -382,7 +437,12 @@ class ReaderController extends ChangeNotifier {
   }
 
   void observe({bool heartbeat = false}) {
-    if (!ready || !foreground || covered || current == null || media == null) {
+    if (!ready ||
+        !foreground ||
+        covered ||
+        transitioning ||
+        current == null ||
+        media == null) {
       return;
     }
     _events.add(_Observation(current!.id, current!.revision, {
@@ -390,7 +450,7 @@ class ReaderController extends ChangeNotifier {
       'mediaId': media!.id,
       'observedAt': DateTime.now().toUtc().toIso8601String(),
       if (media!.video && _playbackKey == selectionKey && _playback != null)
-        'playback': _playback
+        'playback': _playback,
     }));
   }
 
@@ -437,6 +497,10 @@ class ReaderController extends ChangeNotifier {
           }
           final summary = response['summary'];
           if (summary is Map && summary['status'] is String) {
+            if (data?.revision == first.revision) {
+              data!.summary =
+                  ReadingSummary.fromJson(Map<String, dynamic>.from(summary));
+            }
             readingUpdates[first.artwork] = summary['status'] as String;
             emit();
           }
@@ -477,8 +541,14 @@ class ReaderController extends ChangeNotifier {
   Future<void> toggleLike() async {
     final data = current;
     if (data == null || loading) return;
+    await setRating(data.liked ? null : 2);
+  }
+
+  Future<void> setRating(int? level) async {
+    final data = current;
+    if (data == null || loading) return;
     _knownRatings.putIfAbsent(data.id, () => data.rating);
-    data.rating = data.liked ? null : 2;
+    data.rating = level;
     _ratingTargets[data.id] = data.rating;
     emit();
     if (savingRating) return;
@@ -497,16 +567,19 @@ class ReaderController extends ChangeNotifier {
           _knownRatings[id] = level;
         } catch (e) {
           if (_disposed) return;
-          _ratingTargets.remove(id);
           try {
             final fresh = await api.reader(id);
             if (_disposed) return;
-            readers[id]?.rating = fresh.rating;
+            if (!_ratingTargets.containsKey(id)) {
+              readers[id]?.rating = fresh.rating;
+            }
             _knownRatings[id] = fresh.rating;
           } catch (_) {
-            readers[id]?.rating = _knownRatings[id];
+            if (!_ratingTargets.containsKey(id)) {
+              readers[id]?.rating = _knownRatings[id];
+            }
           }
-          notice = '喜欢未能保存，请重试';
+          notice = '评分未能保存，请重试';
           if (e is ApiFailure && (e.status == 401 || e.status == 403)) fail(e);
         }
       }
@@ -516,6 +589,240 @@ class ReaderController extends ChangeNotifier {
     }
   }
 
+  Future<void> _loadDetails(int id) async {
+    if (details.containsKey(id)) return;
+    final generation = _generation;
+    try {
+      final data = await api.detail(id);
+      if (_disposed || generation != _generation || !readers.containsKey(id)) {
+        return;
+      }
+      details[id] = data;
+      emit();
+    } on ApiFailure catch (e) {
+      if (!_disposed &&
+          generation == _generation &&
+          (e.status == 401 || e.status == 403)) {
+        fail(e);
+      }
+    } catch (_) {/* Metadata failure never interrupts a visible image. */}
+  }
+
+  Future<void> _loadMark() async {
+    final artwork = current?.id, mediaId = media?.id;
+    final generation = _generation;
+    if (artwork == null || mediaId == null) return;
+    final key = '$artwork:$mediaId';
+    try {
+      final states = await api.mediaMarks(artwork, [mediaId]);
+      if (_disposed ||
+          generation != _generation ||
+          _markTargets.containsKey(key) ||
+          _savingMark) {
+        return;
+      }
+      mediaLikes[key] =
+          states.any((state) => state.mediaId == mediaId && state.liked);
+      emit();
+    } on ApiFailure catch (e) {
+      if (!_disposed &&
+          generation == _generation &&
+          (e.status == 401 || e.status == 403)) {
+        fail(e);
+      }
+    } catch (_) {/* Missing optional mark metadata remains retryable. */}
+  }
+
+  Future<void> toggleMediaLike() async {
+    if (current == null || media == null || loading) return;
+    final key = markKey;
+    _markTargets[key] = !mediaLiked;
+    mediaLikes[key] = !mediaLiked;
+    emit();
+    if (_savingMark) return;
+    _savingMark = true;
+    try {
+      while (_markTargets.isNotEmpty && !_disposed) {
+        final targetKey = _markTargets.keys.first;
+        final target = _markTargets.remove(targetKey)!;
+        final ids = targetKey.split(':').map(int.parse).toList();
+        try {
+          final state = await api.setMediaMark(ids[0], ids[1], 'like', target);
+          if (_disposed) return;
+          if (!_markTargets.containsKey(targetKey)) {
+            mediaLikes[targetKey] = state.liked;
+          }
+        } catch (e) {
+          if (_disposed) return;
+          if (!_markTargets.containsKey(targetKey)) {
+            mediaLikes[targetKey] = !target;
+          }
+          notice = '单图喜欢未能保存，请重试';
+          if (e is ApiFailure && (e.status == 401 || e.status == 403)) fail(e);
+        }
+        emit();
+      }
+    } finally {
+      _savingMark = false;
+    }
+  }
+
+  Future<void> refreshOrganization() async {
+    final id = current?.id;
+    if (id == null) return;
+    try {
+      final fresh = await api.reader(id);
+      if (_disposed || current?.id != id) return;
+      if (current!.revision != fresh.revision ||
+          current!.fingerprint != fresh.fingerprint) {
+        fail(const ApiFailure('MEDIA_CHANGED', 409));
+        return;
+      }
+      current!.rating = fresh.rating;
+      current!.seen.addAll(fresh.seen);
+      current!.summary = fresh.summary;
+      readingUpdates[id] = fresh.summary.status;
+      await _loadMark();
+      emit();
+    } on ApiFailure catch (e) {
+      if (e.status == 401 || e.status == 403 || e.status == 409) fail(e);
+    }
+  }
+
+  void _cancelAutoTimer() {
+    _autoTimer?.cancel();
+    _autoTimer = null;
+  }
+
+  void startAuto({int? seconds}) {
+    if (seconds != null) autoSeconds = seconds;
+    autoEnabled = true;
+    autoPaused = false;
+    _completedCycleKey = null;
+    _scheduleAuto();
+    emit();
+  }
+
+  void pauseAuto() {
+    _cancelAutoTimer();
+    if (autoEnabled && !autoPaused) {
+      autoPaused = true;
+      emit();
+    }
+  }
+
+  void stopAuto({bool notify = true}) {
+    _cancelAutoTimer();
+    autoEnabled = false;
+    autoPaused = false;
+    if (notify) emit();
+  }
+
+  void setTransitioning(bool value) {
+    transitioning = value;
+    if (value) {
+      _cancelAutoTimer();
+    } else {
+      _scheduleAuto();
+    }
+  }
+
+  void setAnimationCycleMode(String key, bool useCycle) {
+    if (key != selectionKey) return;
+    _animationCycleKey = useCycle ? key : null;
+  }
+
+  void animationCycleComplete(String key) {
+    if (key != selectionKey || key != _animationCycleKey) return;
+    _completedCycleKey = key;
+    if (autoRunning && ready && foreground && !covered && !transitioning) {
+      unawaited(_advanceAuto());
+    }
+  }
+
+  void _scheduleAuto() {
+    if (!autoRunning ||
+        !ready ||
+        media?.video != false ||
+        !foreground ||
+        covered ||
+        loading ||
+        transitioning ||
+        _autoTimer != null) {
+      return;
+    }
+    if (_animationCycleKey == selectionKey &&
+        _completedCycleKey != selectionKey) {
+      return;
+    }
+    final key = selectionKey;
+    _autoTimer = Timer(Duration(seconds: autoSeconds), () {
+      _autoTimer = null;
+      if (key == selectionKey &&
+          autoRunning &&
+          ready &&
+          foreground &&
+          !covered &&
+          !transitioning) {
+        unawaited(_advanceAuto());
+      }
+    });
+  }
+
+  void videoEnded(String key) {
+    if (key == selectionKey &&
+        autoRunning &&
+        foreground &&
+        !covered &&
+        !loading) {
+      unawaited(_advanceAuto());
+    }
+  }
+
+  bool _autoAdvancing = false;
+  Future<void> _advanceAuto() async {
+    if (_autoAdvancing || !autoRunning || loading) return;
+    _autoAdvancing = true;
+    final generation = _generation;
+    _cancelAutoTimer();
+    try {
+      final candidates = mediaIndices;
+      final next = candidates.indexOf(mediaIndex) + 1;
+      if (next < candidates.length) {
+        await selectMedia(candidates[next], manual: false);
+      } else if (!sameWorkOnly) {
+        if (artworkIndex + 1 >= feed.length && nextPage != null) {
+          await loadMore();
+        }
+        if (_disposed || generation != _generation || !autoRunning) return;
+        if (artworkIndex + 1 < feed.length) {
+          // An automatically entered work starts at its first media.
+          positions[feed[artworkIndex + 1].id] = 0;
+          await selectArtwork(artworkIndex + 1);
+        } else {
+          stopAuto();
+          notice = '本轮自动浏览已完成';
+        }
+      } else {
+        stopAuto();
+        notice = '当前作品已浏览完毕';
+      }
+    } catch (e) {
+      fail(e);
+    } finally {
+      _autoAdvancing = false;
+      emit();
+    }
+  }
+
+  Future<void> skipAutoError() async {
+    loading = false;
+    error = null;
+    autoEnabled = true;
+    autoPaused = false;
+    await _advanceAuto();
+  }
+
   @override
   void dispose() {
     _disposed = true;
@@ -523,6 +830,7 @@ class ReaderController extends ChangeNotifier {
     ++_selection;
     _flushTimer?.cancel();
     _heartbeat?.cancel();
+    _autoTimer?.cancel();
     _events.clear();
     super.dispose();
   }

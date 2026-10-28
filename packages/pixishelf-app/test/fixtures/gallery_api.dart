@@ -10,6 +10,9 @@ class GalleryApiFixture extends MobileApi {
   final List<String> imageRequests = [];
   final Map<int, Uint8List> _images = {};
   bool closed = false;
+  final Map<int, Set<int>> seen = {};
+  final Map<int, int?> ratings = {};
+  final Map<int, MediaMark> marks = {};
   GalleryApiFixture()
       : super(const Session('https://fixture.invalid', 'synthetic', 'owner'));
   @override
@@ -48,9 +51,19 @@ class GalleryApiFixture extends MobileApi {
     if (path == 'reading') {
       final report = Map<String, dynamic>.from(body as Map);
       reports.add(report);
+      final id = report['artworkId'] as int;
+      final read = seen.putIfAbsent(id, () => {});
+      read.addAll(
+          (report['events'] as List).map((event) => event['mediaId'] as int));
       return {
-        'seenMediaIds': [(report['events'] as List).first['mediaId']],
-        'summary': {'status': 'IN_PROGRESS'}
+        'mediaRevision': 1,
+        'seenMediaIds': read.toList(),
+        'summary': {
+          'status': 'IN_PROGRESS',
+          'seenCount': read.length,
+          'totalCount': 60,
+          'viewCount': 1
+        }
       };
     }
     return {};
@@ -73,8 +86,75 @@ class GalleryApiFixture extends MobileApi {
               members: [id * 1000 + i + 1])
       ],
       resumeId: null,
-      rating: null,
-      seen: {});
+      rating: ratings[id],
+      seen: Set.of(seen[id] ?? {}),
+      summary: ReadingSummary(
+          totalCount: 60,
+          seenCount: seen[id]?.length ?? 0,
+          status: seen[id]?.isNotEmpty == true ? 'IN_PROGRESS' : 'UNREAD'),
+      stackFingerprint: 'fixture-stack-$id',
+      stacks: [
+        for (var i = 0; i < 60; i += 4)
+          ArtworkStackGroup(
+              id: 'stack-v1-${id * 1000 + i + 1}-${id * 1000 + i + 4}',
+              mediaIds: [for (var j = i; j < i + 4; j++) id * 1000 + j + 1],
+              representativeMediaId: id * 1000 + i + 1,
+              startIndex: i,
+              endIndex: i + 3)
+      ]);
+
+  @override
+  Future<ArtworkDetailData> detail(int id) async => ArtworkDetailData(
+      id: id,
+      title: '作品 $id',
+      mediaCount: 60,
+      createdAt: '2026-10-28T00:00:00Z',
+      description: '用于验证作品详情与沉浸浏览的合成图片。',
+      creators: const [ArtworkCreator(1, '测试艺术家')],
+      tags: const [ArtworkTag(1, '色彩练习'), ArtworkTag(2, '测试图库')]);
+  @override
+  Future<List<FeedItem>> neighbors(int artworkId, int artistId,
+          {String direction = 'both',
+          String dateMode = 'source',
+          int limit = 8}) async =>
+      [];
+  @override
+  Future<List<MediaMark>> mediaMarks(int artworkId, List<int> mediaIds) async =>
+      mediaIds
+          .map(
+              (id) => marks[id] ?? MediaMark(artworkId: artworkId, mediaId: id))
+          .toList();
+  @override
+  Future<MediaMark> setMediaMark(
+      int artworkId, int mediaId, String kind, bool value) async {
+    final old = marks[mediaId];
+    return marks[mediaId] = MediaMark(
+        artworkId: artworkId,
+        mediaId: mediaId,
+        bookmarkedAt: kind == 'bookmark'
+            ? (value ? '2026-10-28T00:00:00Z' : null)
+            : old?.bookmarkedAt,
+        likedAt: kind == 'like'
+            ? (value ? '2026-10-28T00:00:00Z' : null)
+            : old?.likedAt);
+  }
+
+  @override
+  Future<int?> setRating(int artworkId, int? level) async =>
+      ratings[artworkId] = level;
+  @override
+  Future<ReadingResult> markRead(ReaderData data, {int? mediaId}) async {
+    final read = seen.putIfAbsent(data.id, () => {});
+    read.addAll(mediaId == null ? data.media.map((v) => v.id) : [mediaId]);
+    return ReadingResult(
+        data.revision,
+        Set.of(read),
+        ReadingSummary(
+            totalCount: 60,
+            seenCount: read.length,
+            status: read.length == 60 ? 'COMPLETED' : 'IN_PROGRESS'));
+  }
+
   @override
   Future<void> mediaPage(ReaderData reader, int page) async {
     mediaPages.add(page);

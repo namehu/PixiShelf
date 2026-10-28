@@ -10,6 +10,9 @@ import 'package:pixishelf_app/models.dart';
 import 'package:pixishelf_app/storage.dart';
 import 'package:pixishelf_app/main.dart';
 import 'package:pixishelf_app/reader_view.dart';
+import 'package:pixishelf_app/media_canvas.dart';
+import 'package:pixishelf_app/media_grid_sheet.dart';
+import 'package:pixishelf_app/reader_progress.dart';
 
 class GalleryFixture extends MobileApi {
   GalleryFixture()
@@ -83,6 +86,39 @@ Future<void> render(WidgetTester tester) async {
 
 void main() {
   testWidgets(
+      'visual frame readiness is distinct from the stable reading observation',
+      (tester) async {
+    final api = GalleryFixture();
+    final data = await api.reader(1);
+    await api.mediaPage(data, 0);
+    var frames = 0, observations = 0;
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: MediaCanvas(
+                api: api,
+                reader: data,
+                item: data.media.first,
+                source: data.sources[data.media.first.id]!,
+                active: true,
+                highQuality: false,
+                onFrameReady: () => frames++,
+                onReady: () => observations++,
+                onFailure: (error) => fail(error.message)))));
+    for (var attempt = 0; attempt < 50 && frames == 0; attempt++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(frames, 1);
+    expect(observations, 0);
+    await tester.pump(const Duration(milliseconds: 140));
+    expect(observations, 0);
+    await tester.pump(const Duration(milliseconds: 60));
+    expect(observations, 1);
+    await tester.pumpWidget(const SizedBox());
+    api.close();
+  });
+  testWidgets(
       'reader pages on separate axes, locks paging while zoomed, and hides its HUD',
       (tester) async {
     tester.view.physicalSize = const Size(400, 800);
@@ -107,12 +143,47 @@ void main() {
     expect(find.text('1 / 2'), findsOneWidget);
     expect(Theme.of(tester.element(find.text('First artwork'))).brightness,
         Brightness.dark);
-    await tester.tap(find.byTooltip('设置'));
+    // Match H5: corner buttons, page badge and compact horizontal artwork actions.
+    expect(find.text('沉浸浏览'), findsNothing);
+    expect(find.byTooltip('设置'), findsNothing);
+    expect(tester.widget<Text>(find.text('First artwork')).style?.fontSize, 14);
+    final backRect = tester.getRect(find.byTooltip('返回'));
+    final filterRect = tester.getRect(find.byTooltip('筛选'));
+    expect(backRect.size, const Size(44, 44));
+    expect(filterRect.size, const Size(44, 44));
+    final initialBadge = tester.getRect(find.ancestor(
+        of: find.text('1 / 2'), matching: find.byType(TextButton)));
+    expect(initialBadge.top, greaterThanOrEqualTo(filterRect.bottom + 8));
+    final likeRect = tester.getRect(find.byTooltip('喜欢作品'));
+    final moreInitial = tester.getRect(find.byTooltip('更多操作'));
+    expect(likeRect.center.dy, moreInitial.center.dy);
+    expect(likeRect.size, const Size(44, 44));
+    await tester.tap(find.byTooltip('更多操作'));
+    await render(tester);
+    await tester.tap(find.text('浏览设置'));
     await render(tester);
     expect(Theme.of(tester.element(find.text('浏览设置'))).brightness,
         Brightness.light);
     Navigator.of(tester.element(find.text('浏览设置'))).pop();
     await render(tester);
+    // The scrubber must not intercept the lower edge of the adjacent actions.
+    final moreRect = tester.getRect(find.byTooltip('更多操作'));
+    final progressRect = tester.getRect(find.byType(ReaderProgress));
+    expect(moreRect.bottom, lessThanOrEqualTo(progressRect.top - 8));
+    await tester.tapAt(Offset(moreRect.center.dx, moreRect.bottom - 2));
+    await render(tester);
+    expect(find.text('作品评分'), findsOneWidget);
+    Navigator.of(tester.element(find.text('作品评分'))).pop();
+    await render(tester);
+    final pickerButton = find.ancestor(
+        of: find.text('1 / 2'), matching: find.byType(TextButton));
+    final pickerRect = tester.getRect(pickerButton);
+    await tester.tapAt(Offset(pickerRect.center.dx, pickerRect.bottom - 2));
+    await render(tester);
+    expect(find.byType(MediaGridSheet), findsOneWidget);
+    Navigator.of(tester.element(find.byType(MediaGridSheet))).pop();
+    await render(tester);
+    expect(find.text('1 / 2'), findsOneWidget);
     await tester.dragFrom(const Offset(200, 400), const Offset(-100, 0));
     await render(tester);
     expect(find.text('2 / 2'), findsOneWidget);

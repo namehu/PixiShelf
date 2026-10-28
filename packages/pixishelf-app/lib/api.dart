@@ -110,6 +110,68 @@ class MobileApi {
 
   Future<ReaderData> reader(int id) async =>
       ReaderData.fromJson(id, await request('artworks/$id/reader'));
+
+  Future<ArtworkDetailData> detail(int id) async =>
+      ArtworkDetailData.fromJson(await request('artworks/$id/detail'));
+
+  Future<VideoNavigationData> videoNavigation(
+          int mediaId, int revision) async =>
+      VideoNavigationData.fromJson(await request('media/$mediaId/navigation',
+          query: {'revision': revision}));
+
+  Future<List<FeedItem>> neighbors(int artworkId, int artistId,
+      {String direction = 'both',
+      String dateMode = 'source',
+      int limit = 6}) async {
+    final result = await request('artworks/$artworkId/neighbors', query: {
+      'artistId': artistId,
+      'direction': direction,
+      'dateMode': dateMode,
+      'limit': limit
+    });
+    return (result['items'] as List)
+        .map((item) => FeedItem.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<List<MediaMark>> mediaMarks(int artworkId, List<int> mediaIds) async {
+    if (mediaIds.isEmpty) return [];
+    final result = await request('media-marks',
+        query: {'artworkId': artworkId, 'mediaIds': mediaIds.join(',')});
+    return (result['items'] as List? ?? [])
+        .map((item) => MediaMark.fromJson(Map<String, dynamic>.from(item)))
+        .toList();
+  }
+
+  Future<MediaMark> setMediaMark(
+          int artworkId, int mediaId, String kind, bool value) async =>
+      MediaMark.fromJson(await request('media-marks', method: 'PUT', body: {
+        'expectedUserId': session.userId,
+        'artworkId': artworkId,
+        'mediaId': mediaId,
+        'kind': kind,
+        'value': value
+      }));
+
+  Future<int?> setRating(int artworkId, int? level) async {
+    final result = await request('rating', method: 'PUT', body: {
+      'expectedUserId': session.userId,
+      'artworkId': artworkId,
+      'level': level
+    });
+    return result['level'] as int?;
+  }
+
+  Future<ReadingResult> markRead(ReaderData reader, {int? mediaId}) async =>
+      ReadingResult.fromJson(
+          await request('reading/mark-read', method: 'PUT', body: {
+        'expectedUserId': session.userId,
+        'artworkId': reader.id,
+        'mediaRevision': reader.revision,
+        'target': mediaId == null
+            ? {'kind': 'ALL'}
+            : {'kind': 'MEDIA', 'mediaId': mediaId}
+      }));
   final Map<String, Future<Map<String, dynamic>>> _mediaPages = {};
   Future<void> mediaPage(ReaderData reader, int page) async {
     final key = '${reader.id}:${reader.revision}:${reader.fingerprint}:$page';

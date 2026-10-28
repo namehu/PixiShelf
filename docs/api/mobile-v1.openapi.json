@@ -253,6 +253,25 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "artistId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "tagIds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 2400,
+              "description": "Comma-separated positive tag IDs, at most 200 before deduplication; existing H5 tag query semantics."
+            }
           }
         ]
       }
@@ -539,6 +558,334 @@
           }
         }
       }
+    },
+    "/artworks/{id}/detail": {
+      "get": {
+        "operationId": "artworkDetail",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtworkDetail"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid input; 401 unauthenticated; 403 account changed; 404 unavailable; 409 stale revision/fingerprint; 413 too large; 429 rate limited; 500 sanitized error. Proxy failures may use the existing generic response format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "expectedUserId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        ]
+      }
+    },
+    "/artworks/{id}/neighbors": {
+      "get": {
+        "operationId": "artworkNeighbors",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Neighbors"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid input; 401 unauthenticated; 403 account changed; 404 unavailable; 409 stale revision/fingerprint; 413 too large; 429 rate limited; 500 sanitized error. Proxy failures may use the existing generic response format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "expectedUserId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "artistId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 24,
+              "default": 6
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "both",
+                "older",
+                "newer"
+              ],
+              "default": "both"
+            }
+          },
+          {
+            "name": "dateMode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "source",
+                "created"
+              ],
+              "default": "source"
+            }
+          }
+        ]
+      }
+    },
+    "/media-marks": {
+      "get": {
+        "operationId": "mediaMarks",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaMarks"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid input; 401 unauthenticated; 403 account changed; 404 unavailable; 409 stale revision/fingerprint; 413 too large; 429 rate limited; 500 sanitized error. Proxy failures may use the existing generic response format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "expectedUserId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "artworkId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "mediaIds",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 2400,
+              "description": "Comma-separated positive media IDs, at most 200 before deduplication. Empty string yields no items."
+            }
+          }
+        ]
+      },
+      "put": {
+        "operationId": "setMediaMark",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaMark"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid input; 401 unauthenticated; 403 account changed; 404 unavailable; 409 stale revision/fingerprint; 413 too large; 429 rate limited; 500 sanitized error. Proxy failures may use the existing generic response format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetMediaMark"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reading/mark-read": {
+      "put": {
+        "operationId": "markRead",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid input; 401 unauthenticated; 403 account changed; 404 unavailable; 409 stale revision/fingerprint; 413 too large; 429 rate limited; 500 sanitized error. Proxy failures may use the existing generic response format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkRead"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/media/{id}/navigation": {
+      "get": {
+        "operationId": "videoNavigation",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VideoNavigation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "400 invalid input; 401 unauthenticated; 403 account changed; 404 unavailable; 409 stale revision/fingerprint; 413 too large; 429 rate limited; 500 sanitized error. Proxy failures may use the existing generic response format.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "expectedUserId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -644,12 +991,16 @@
           },
           "mediaPageSize": {
             "const": 24
+          },
+          "galleryPreferences": {
+            "$ref": "#/components/schemas/GalleryPreferences"
           }
         },
         "required": [
           "apiVersion",
           "user",
-          "mediaPageSize"
+          "mediaPageSize",
+          "galleryPreferences"
         ]
       },
       "Feed": {
@@ -699,6 +1050,19 @@
                     "IN_PROGRESS",
                     "COMPLETED"
                   ]
+                },
+                "totalMediaSize": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Same size field as the H5 artwork card DTO, safely represented as a JSON number."
+                },
+                "preferredTag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "First exact name match in the current account preferred_tags order, using the H5 preferred-tag algorithm; null when unmatched."
                 }
               },
               "required": [
@@ -709,7 +1073,9 @@
                 "mediaType",
                 "mediaRevision",
                 "coverUrl",
-                "readingStatus"
+                "readingStatus",
+                "totalMediaSize",
+                "preferredTag"
               ]
             }
           },
@@ -1026,6 +1392,9 @@
               "mediaRevision",
               "items"
             ]
+          },
+          "stack": {
+            "$ref": "#/components/schemas/Stack"
           }
         },
         "required": [
@@ -1033,7 +1402,8 @@
           "author",
           "rating",
           "reading",
-          "index"
+          "index",
+          "stack"
         ]
       },
       "MediaPage": {
@@ -1126,46 +1496,109 @@
           "events": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "type": {
-                  "enum": [
-                    "VIEW",
-                    "HEARTBEAT"
-                  ]
-                },
-                "mediaId": {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                "observedAt": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "playback": {
+              "oneOf": [
+                {
                   "type": "object",
                   "properties": {
-                    "currentTime": {
-                      "type": "number",
-                      "minimum": 0
+                    "type": {
+                      "const": "VIEW"
                     },
-                    "duration": {
-                      "type": "number",
-                      "minimum": 0
+                    "mediaId": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "observedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "playback": {
+                      "type": "object",
+                      "properties": {
+                        "currentTime": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "duration": {
+                          "type": "number",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "currentTime",
+                        "duration"
+                      ]
+                    },
+                    "stack": {
+                      "type": "object",
+                      "properties": {
+                        "ruleVersion": {
+                          "const": 1
+                        },
+                        "fingerprint": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        },
+                        "groupId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 100
+                        }
+                      },
+                      "required": [
+                        "ruleVersion",
+                        "fingerprint",
+                        "groupId"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
-                    "currentTime",
-                    "duration"
-                  ]
+                    "type",
+                    "mediaId",
+                    "observedAt"
+                  ],
+                  "description": "Observations must be at most 60 seconds old. Video completion uses real playback position >= 90% of duration. Stack evidence is accepted only on VIEW and verified against the current complete logical index."
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "const": "HEARTBEAT"
+                    },
+                    "mediaId": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "observedAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "playback": {
+                      "type": "object",
+                      "properties": {
+                        "currentTime": {
+                          "type": "number",
+                          "minimum": 0
+                        },
+                        "duration": {
+                          "type": "number",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "currentTime",
+                        "duration"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "mediaId",
+                    "observedAt"
+                  ],
+                  "description": "Observations must be at most 60 seconds old. Video completion uses real playback position >= 90% of duration. Stack evidence is accepted only on VIEW and verified against the current complete logical index."
                 }
-              },
-              "required": [
-                "type",
-                "mediaId",
-                "observedAt"
-              ],
-              "description": "Client subset of shared ReadingReportInputSchema; observations must be at most 60 seconds old. Video completion uses real playback position >= 90% of duration. Summary/stack input is reserved for web workflows."
+              ]
             },
             "minItems": 1,
             "maxItems": 100
@@ -1237,6 +1670,584 @@
         },
         "required": [
           "ok"
+        ]
+      },
+      "ArtworkReference": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title"
+        ]
+      },
+      "ArtworkDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sourceDate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mediaCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalMediaSize": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "creators": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "enum": [
+                    "PERSON",
+                    "GROUP"
+                  ]
+                },
+                "pixivUserId": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "kind",
+                "pixivUserId"
+              ]
+            }
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "name": {
+                  "type": "string"
+                },
+                "nameZh": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "nameZh"
+              ]
+            }
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "title": {
+                  "type": "string"
+                },
+                "order": {
+                  "type": "number"
+                },
+                "prev": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ArtworkReference"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "next": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ArtworkReference"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "order",
+                "prev",
+                "next"
+              ]
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "Validated HTTPS source identity. Open externally without Authorization, Cookie or mobile credentials."
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "url"
+              ]
+            }
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "createdAt",
+          "sourceDate",
+          "mediaCount",
+          "totalMediaSize",
+          "creators",
+          "tags",
+          "series",
+          "sources"
+        ],
+        "description": "Safe projection of the bounded H5 artwork reader query. Description is plain text; no local paths, management diagnostics, remote embeds or raw HTML. Pair with Reader for reading state and logical media."
+      },
+      "Stack": {
+        "type": "object",
+        "properties": {
+          "ruleVersion": {
+            "const": 1
+          },
+          "fingerprint": {
+            "type": "string",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "mediaIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "representativeMediaId": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "startIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "endIndex": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "mediaIds",
+                "representativeMediaId",
+                "startIndex",
+                "endIndex"
+              ]
+            }
+          }
+        },
+        "required": [
+          "ruleVersion",
+          "fingerprint",
+          "groups"
+        ],
+        "description": "Partition of the complete Reader.index before unread filtering. Only a genuinely displayed stack representative may report its matching ruleVersion/fingerprint/groupId evidence; thumbnails and prefetch never report reading."
+      },
+      "MediaMark": {
+        "type": "object",
+        "properties": {
+          "markId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "artworkId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "mediaId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bookmarkedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "likedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "markId",
+          "artworkId",
+          "mediaId",
+          "bookmarkedAt",
+          "likedAt",
+          "available"
+        ]
+      },
+      "MediaMarks": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaMark"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "SetMediaMark": {
+        "type": "object",
+        "properties": {
+          "expectedUserId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "artworkId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "mediaId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "enum": [
+              "bookmark",
+              "like"
+            ]
+          },
+          "value": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "expectedUserId",
+          "artworkId",
+          "mediaId",
+          "kind",
+          "value"
+        ],
+        "description": "Uses the existing account-scoped logical-media mark service. Artwork ownership, activity and file-write locks are rechecked. A single-media like does not change artwork rating."
+      },
+      "MarkRead": {
+        "type": "object",
+        "properties": {
+          "expectedUserId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "artworkId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "mediaRevision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "target": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "ALL"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "MEDIA"
+                  },
+                  "mediaId": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "kind",
+                  "mediaId"
+                ]
+              }
+            ]
+          }
+        },
+        "required": [
+          "expectedUserId",
+          "artworkId",
+          "mediaRevision",
+          "target"
+        ],
+        "description": "Positive-only manual completion, identical to H5. Does not change visit count, access timestamps or resume position. No reset or unread mutation."
+      },
+      "Neighbors": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "title": {
+                  "type": "string"
+                },
+                "author": {
+                  "type": "string"
+                },
+                "imageCount": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "mediaType": {
+                  "type": "string",
+                  "enum": [
+                    "image",
+                    "video"
+                  ]
+                },
+                "mediaRevision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "coverUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Protected same-origin media ID URL; fetch with mediaRevision as revision. Never a filesystem path."
+                },
+                "readingStatus": {
+                  "type": "string",
+                  "enum": [
+                    "UNREAD",
+                    "IN_PROGRESS",
+                    "COMPLETED"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "author",
+                "imageCount",
+                "mediaType",
+                "mediaRevision",
+                "coverUrl",
+                "readingStatus"
+              ]
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "VideoNavigation": {
+        "type": "object",
+        "properties": {
+          "chapters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "index": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "title": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "end": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
+              },
+              "required": [
+                "index",
+                "title",
+                "start",
+                "end"
+              ]
+            }
+          },
+          "frames": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "captureTime": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "selectedOrder": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "id",
+                "captureTime",
+                "selectedOrder"
+              ]
+            }
+          }
+        },
+        "required": [
+          "chapters",
+          "frames"
+        ],
+        "description": "Bounded registered chapter manifest and published/current-source keyframe timestamps only. Empty arrays when optional data is absent. Does not return source/derived paths or navigation thumbnail URLs."
+      },
+      "GalleryPreferences": {
+        "type": "object",
+        "properties": {
+          "displayMode": {
+            "enum": [
+              "card",
+              "minimal"
+            ],
+            "description": "Existing account artwork_display_mode; card when unset."
+          },
+          "showReadingStatus": {
+            "type": "boolean",
+            "const": true,
+            "description": "H5 gallery cards always enable reading status markers; this is not a persisted user setting."
+          }
+        },
+        "required": [
+          "displayMode",
+          "showReadingStatus"
         ]
       }
     }

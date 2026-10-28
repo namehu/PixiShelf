@@ -18,8 +18,9 @@ class ReaderGestureState {
       _pinched || _edge || _baseScale > 1.01 || _axis == null
           ? Offset.zero
           : _axis == TurnAxis.horizontal
-              ? Offset(_travel.dx * 0.16, 0)
-              : Offset(0, _travel.dy * 0.16);
+              ? Offset(_travel.dx * 0.82, 0)
+              : Offset(0, _travel.dy * 0.82);
+  TurnAxis? get axis => _axis;
   void finish() {
     _travel = Offset.zero;
     _axis = null;
@@ -85,5 +86,9 @@ class ReaderGestureState {
     }
     scale = 2.5;
     offset = (viewport.center(Offset.zero) - point) * (scale - 1);
+    final limitX = viewport.width * (scale - 1) / 2;
+    final limitY = viewport.height * (scale - 1) / 2;
+    offset = Offset(
+        offset.dx.clamp(-limitX, limitX), offset.dy.clamp(-limitY, limitY));
   }
 }

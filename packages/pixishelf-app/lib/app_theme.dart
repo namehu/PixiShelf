@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 abstract final class AppTheme {
-  static const canvas = Color(0xfff8f9f7);
+  static const canvas = Color(0xffffffff);
   static const blue = Color(0xff006fbe);
-  static const ink = Color(0xff24323c);
-  static const muted = Color(0xff62717b);
+  static const ink = Color(0xff333333);
+  static const muted = Color(0xff66727d);
   static const lightBars = SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.dark,
@@ -33,9 +33,10 @@ abstract final class AppTheme {
       surface: canvas,
       onSurface: ink,
       onSurfaceVariant: muted,
-      surfaceContainerHighest: const Color(0xffedf2f5),
-      outline: const Color(0xff89969f),
-      outlineVariant: const Color(0xffdce3e7),
+      surfaceContainerHighest: const Color(0xfff4f7f9),
+      outline: const Color(0xffd4dce2),
+      outlineVariant: const Color(0xffe4e9ed),
+      error: const Color(0xffc8323c),
     ),
     textTheme: const TextTheme(
       headlineMedium: TextStyle(

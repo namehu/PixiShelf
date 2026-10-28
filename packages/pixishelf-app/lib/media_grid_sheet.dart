@@ -9,24 +9,29 @@ class MediaGridSheet extends StatefulWidget {
   final int current;
   final bool privacy;
   final ValueChanged<ApiFailure> onFailure;
+  final List<int>? indices;
   const MediaGridSheet(
       {super.key,
       required this.api,
       required this.reader,
       required this.current,
       required this.privacy,
-      required this.onFailure});
+      required this.onFailure,
+      this.indices});
   @override
   State<MediaGridSheet> createState() => _MediaGridSheetState();
 }
 
 class _MediaGridSheetState extends State<MediaGridSheet> {
+  List<int> get indices =>
+      widget.indices ??
+      List.generate(widget.reader.media.length, (index) => index);
   ScrollController? _scroll;
   final Map<int, Future<void>> _pages = {};
   Future<MediaSource?> _source(int index) async {
     final item = widget.reader.media[index];
     if (!widget.reader.sources.containsKey(item.id)) {
-      final page = index ~/ 24;
+      final page = item.index ~/ 24;
       await _pages.putIfAbsent(
           page,
           () =>
@@ -73,10 +78,12 @@ class _MediaGridSheetState extends State<MediaGridSheet> {
             final width =
                 (constraints.maxWidth - 40 - (columns - 1) * 8) / columns;
             final extent = width * 4 / 3 + 8;
-            final target = (widget.current ~/ columns) * extent;
+            final target =
+                (indices.indexOf(widget.current).clamp(0, indices.length) ~/
+                        columns) *
+                    extent;
             final maximum =
-                (((widget.reader.media.length + columns - 1) ~/ columns) *
-                            extent -
+                (((indices.length + columns - 1) ~/ columns) * extent -
                         constraints.maxHeight +
                         MediaQuery.paddingOf(context).bottom +
                         16)
@@ -92,8 +99,9 @@ class _MediaGridSheetState extends State<MediaGridSheet> {
                   crossAxisSpacing: 8,
                   mainAxisSpacing: 8,
                   childAspectRatio: 3 / 4),
-              itemCount: widget.reader.media.length,
-              itemBuilder: (context, index) {
+              itemCount: indices.length,
+              itemBuilder: (context, position) {
+                final index = indices[position];
                 final item = widget.reader.media[index];
                 final selected = index == widget.current;
                 final seen = widget.reader.seen.contains(item.id) ||

@@ -14,6 +14,8 @@ class GalleryController extends ChangeNotifier {
   int? nextPage = 1, failureStatus;
   String? cursor, error, pageError;
   bool loading = true, paging = false, _disposed = false;
+  String displayMode = 'card';
+  bool showReadingStatus = true;
   int _epoch = 0;
   GalleryController(this.api, this.storage) {
     query = storage.galleryQuery(api.session.scope);
@@ -41,6 +43,12 @@ class GalleryController extends ChangeNotifier {
       if (session['apiVersion'] != 1 ||
           (session['user'] as Map)['id'] != api.session.userId) {
         throw const ApiFailure('API_VERSION');
+      }
+      final preferences = session['galleryPreferences'];
+      if (preferences is Map) {
+        displayMode =
+            preferences['displayMode'] == 'minimal' ? 'minimal' : 'card';
+        showReadingStatus = preferences['showReadingStatus'] != false;
       }
       await loadMore();
       if (_disposed || epoch != _epoch) return;

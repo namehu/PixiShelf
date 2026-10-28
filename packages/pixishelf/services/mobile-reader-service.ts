@@ -8,6 +8,10 @@ import { getArtworkRating } from '@/services/artwork-rating-service'
 import { ArtworksInfiniteQuerySchema } from '@/schemas/artwork.dto'
 import { MobileFeedQuery } from '@/schemas/mobile.dto'
 import type { z } from 'zod'
+import { ARTWORK_STACK_RULE_VERSION, buildArtworkStacks } from '@/lib/reading/artwork-stacks'
+import { getUserSettings } from '@/services/user-setting-service'
+import { getPreferredTagName } from '@/components/artwork/preferred-tag'
+import { toApiImageSize } from '@/utils/image-size'
 export async function mobileFeed(userId: string, input: z.infer<typeof MobileFeedQuery>) {
   const sortBy = input.sortBy ?? (input.mode === 'random' ? 'random' : 'created_at_desc')
   if (input.cursor && sortBy !== 'random' && !input.readingStatus && !input.likedOnly) {
@@ -18,6 +22,8 @@ export async function mobileFeed(userId: string, input: z.infer<typeof MobileFee
       pageSize: 20,
       cursor: input.page,
       search: input.search,
+      artistId: input.artistId,
+      tagIds: input.tagIds,
       sortBy,
       mediaType: input.mediaType,
       readingStatus: input.readingStatus,
@@ -30,16 +36,18 @@ export async function mobileFeed(userId: string, input: z.infer<typeof MobileFee
     userId
   )
   const ids = page.items.map((item) => item.id)
-  const [versions, reading] = ids.length ? await Promise.all([
+  const [versions, reading, settings] = await Promise.all([
+    ids.length ?
     prisma.artwork.findMany({
       where: { id: { in: ids }, deletedAt: null, archiveLifecycleState: 'ACTIVE' },
       select: { id: true, mediaRevision: true, images: {
         orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }], take: 1,
         select: { id: true }
       } }
-    }),
-    getReadingSummaries(userId, ids)
-  ]) : [[], { summaries: [] }]
+    }) : [],
+    ids.length ? getReadingSummaries(userId, ids) : { summaries: [] },
+    getUserSettings(userId)
+  ])
   const byId = new Map(versions.map((row) => [row.id, row]))
   const summaries = new Map(reading.summaries.map((row) => [row.artworkId, row]))
   return {
@@ -50,6 +58,8 @@ export async function mobileFeed(userId: string, input: z.infer<typeof MobileFee
       return [{
         id: item.id, title: item.title, author: item.artist?.name ?? '',
         imageCount: item.imageCount, mediaType: item.images[0]?.mediaType ?? 'image',
+        totalMediaSize: toApiImageSize(item.totalMediaSize) ?? 0,
+        preferredTag: getPreferredTagName(settings.preferred_tags ?? [], item.tags) || null,
         mediaRevision: version.mediaRevision,
         coverUrl: cover ? `/api/mobile/v1/media/${cover.id}?expectedUserId=${encodeURIComponent(userId)}&variant=thumbnail` : null,
         readingStatus: summaries.get(item.id)?.status ?? 'UNREAD'
@@ -70,7 +80,9 @@ export async function mobileReader(userId: string, artworkId: number) {
     })
   ])
   if (!artwork) throw new MobileError(404, 'NOT_FOUND')
-  return { ...reader, author: artwork.artist?.name ?? '', rating }
+  return { ...reader, author: artwork.artist?.name ?? '', rating,
+    stack: { ruleVersion: ARTWORK_STACK_RULE_VERSION, fingerprint: reader.index.fingerprint,
+      groups: buildArtworkStacks(reader.index.items) } }
 }
 export async function mobileMediaPage(artworkId: number, fingerprint: string, page: number, userId: string) {
   const result = await getReaderMediaPage(artworkId, fingerprint, page)

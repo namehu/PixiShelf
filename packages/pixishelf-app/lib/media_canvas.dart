@@ -13,7 +13,10 @@ class MediaCanvas extends StatefulWidget {
   final MediaSource source;
   final bool active, highQuality;
   final VoidCallback onReady;
+  final VoidCallback? onFrameReady;
   final ValueChanged<ApiFailure> onFailure;
+  final ValueChanged<bool>? onCycleMode;
+  final VoidCallback? onCycleComplete;
   const MediaCanvas(
       {super.key,
       required this.api,
@@ -23,7 +26,10 @@ class MediaCanvas extends StatefulWidget {
       required this.active,
       required this.highQuality,
       required this.onReady,
-      required this.onFailure});
+      this.onFrameReady,
+      required this.onFailure,
+      this.onCycleMode,
+      this.onCycleComplete});
   @override
   State<MediaCanvas> createState() => _MediaCanvasState();
 }
@@ -32,10 +38,13 @@ class _MediaCanvasState extends State<MediaCanvas> {
   ui.Codec? _codec;
   ApngDecoder? _apng;
   ui.Image? _image;
-  Timer? _timer, _readyTimer;
+  Timer? _timer, _readyTimer, _cycleTimer;
   String? _error;
   bool _decoding = false;
   int _epoch = 0;
+  int _framesShown = 0;
+  bool _webpCycle = false;
+  bool _announcedFrame = false;
   @override
   void initState() {
     super.initState();
@@ -56,6 +65,7 @@ class _MediaCanvasState extends State<MediaCanvas> {
     if (!widget.active) {
       _timer?.cancel();
       _readyTimer?.cancel();
+      _cycleTimer?.cancel();
     } else if (!old.active) {
       _schedule();
       _notifyReady();
@@ -66,12 +76,15 @@ class _MediaCanvasState extends State<MediaCanvas> {
     final epoch = ++_epoch;
     _timer?.cancel();
     _readyTimer?.cancel();
+    _cycleTimer?.cancel();
     _codec?.dispose();
     _codec = null;
     _apng?.dispose();
     _apng = null;
     _error = null;
     _decoding = false;
+    _framesShown = 0;
+    _announcedFrame = false;
     try {
       final original =
           widget.source.apng || widget.item.animated || widget.highQuality;
@@ -79,6 +92,17 @@ class _MediaCanvasState extends State<MediaCanvas> {
           original ? widget.source.original : widget.source.preview,
           widget.reader.revision);
       if (!mounted || epoch != _epoch) return;
+      _webpCycle = bytes.length > 12 &&
+          bytes[0] == 82 &&
+          bytes[1] == 73 &&
+          bytes[2] == 70 &&
+          bytes[3] == 70 &&
+          bytes[8] == 87 &&
+          bytes[9] == 69 &&
+          bytes[10] == 66 &&
+          bytes[11] == 80 &&
+          widget.item.animated;
+      widget.onCycleMode?.call(_webpCycle);
       if (widget.source.apng || ApngDecoder.isAnimatedPng(bytes)) {
         final apng = await ApngDecoder.open(bytes);
         if (!mounted || epoch != _epoch) {
@@ -144,7 +168,28 @@ class _MediaCanvasState extends State<MediaCanvas> {
       });
       // The old frame can still be referenced by the render tree until this frame ends.
       WidgetsBinding.instance.addPostFrameCallback((_) => previous?.dispose());
+      if (!_announcedFrame) {
+        _announcedFrame = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && epoch == _epoch && widget.active) {
+            widget.onFrameReady?.call();
+          }
+        });
+      }
       _notifyReady();
+      _framesShown++;
+      if (_webpCycle &&
+          (_codec?.frameCount ?? 0) > 1 &&
+          _framesShown % _codec!.frameCount == 0) {
+        // Wait for this final frame's duration before reporting a displayed loop.
+        final cycleEpoch = _epoch;
+        _cycleTimer?.cancel();
+        _cycleTimer = Timer(duration, () {
+          if (mounted && cycleEpoch == _epoch && widget.active) {
+            widget.onCycleComplete?.call();
+          }
+        });
+      }
       _schedule(duration);
     } catch (_) {
       if (mounted && epoch == _epoch) {
@@ -184,6 +229,7 @@ class _MediaCanvasState extends State<MediaCanvas> {
     ++_epoch;
     _timer?.cancel();
     _readyTimer?.cancel();
+    _cycleTimer?.cancel();
     _codec?.dispose();
     _apng?.dispose();
     _image?.dispose();

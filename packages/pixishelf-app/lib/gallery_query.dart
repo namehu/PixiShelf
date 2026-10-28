@@ -29,12 +29,20 @@ const galleryReadingStates = <String, String>{
 class GalleryQuery {
   final String search, sortBy, mediaType, readingStatus;
   final bool likedOnly;
+  final int? artistId;
+  final String? artistName;
+  final List<int> tagIds;
+  final List<String> tagLabels;
   const GalleryQuery(
       {this.search = '',
       this.sortBy = 'source_date_desc',
       this.mediaType = 'all',
       this.readingStatus = 'all',
-      this.likedOnly = false});
+      this.likedOnly = false,
+      this.artistId,
+      this.artistName,
+      this.tagIds = const [],
+      this.tagLabels = const []});
   factory GalleryQuery.fromJson(Map<String, dynamic> json) {
     final value = json['search'];
     final search = value is String ? value.trim() : '';
@@ -49,40 +57,70 @@ class GalleryQuery {
         readingStatus: galleryReadingStates.containsKey(json['readingStatus'])
             ? json['readingStatus'] as String
             : 'all',
-        likedOnly: json['likedOnly'] == true);
+        likedOnly: json['likedOnly'] == true,
+        artistId: json['artistId'] is int && (json['artistId'] as int) > 0
+            ? json['artistId'] as int
+            : null,
+        artistName: json['artistName'] as String?,
+        tagIds: (json['tagIds'] as List? ?? [])
+            .whereType<int>()
+            .where((id) => id > 0)
+            .take(100)
+            .toList(),
+        tagLabels: (json['tagLabels'] as List? ?? [])
+            .whereType<String>()
+            .take(100)
+            .toList());
   }
   GalleryQuery copyWith(
           {String? search,
           String? sortBy,
           String? mediaType,
           String? readingStatus,
-          bool? likedOnly}) =>
+          bool? likedOnly,
+          int? artistId,
+          String? artistName,
+          bool clearArtist = false,
+          List<int>? tagIds,
+          List<String>? tagLabels}) =>
       GalleryQuery(
           search: search ?? this.search,
           sortBy: sortBy ?? this.sortBy,
           mediaType: mediaType ?? this.mediaType,
           readingStatus: readingStatus ?? this.readingStatus,
-          likedOnly: likedOnly ?? this.likedOnly);
+          likedOnly: likedOnly ?? this.likedOnly,
+          artistId: clearArtist ? null : artistId ?? this.artistId,
+          artistName: clearArtist ? null : artistName ?? this.artistName,
+          tagIds: tagIds ?? this.tagIds,
+          tagLabels: tagLabels ?? this.tagLabels);
   Map<String, dynamic> toJson() => {
         'search': search,
         'sortBy': sortBy,
         'mediaType': mediaType,
         'readingStatus': readingStatus,
-        'likedOnly': likedOnly
+        'likedOnly': likedOnly,
+        if (artistId != null) 'artistId': artistId,
+        if (artistName != null) 'artistName': artistName,
+        'tagIds': tagIds,
+        'tagLabels': tagLabels
       };
   Map<String, dynamic> get parameters => {
         'search': search,
         'sortBy': sortBy,
         'mediaType': mediaType,
         if (readingStatus != 'all') 'readingStatus': readingStatus,
-        'likedOnly': '$likedOnly'
+        'likedOnly': '$likedOnly',
+        if (artistId != null) 'artistId': artistId,
+        if (tagIds.isNotEmpty) 'tagIds': tagIds.join(',')
       };
   bool get active =>
       search.isNotEmpty ||
       sortBy != 'source_date_desc' ||
       mediaType != 'all' ||
       readingStatus != 'all' ||
-      likedOnly;
+      likedOnly ||
+      artistId != null ||
+      tagIds.isNotEmpty;
 }
 
 class ReaderEntry {

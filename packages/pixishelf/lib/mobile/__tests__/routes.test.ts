@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   feed: vi.fn(),
   media: vi.fn(),
   signIn: vi.fn(),
-  signOut: vi.fn()
+  signOut: vi.fn(),
+  settings: vi.fn()
 }))
 vi.mock('@/lib/mobile/auth', () => ({
   getMobileSession: mocks.session,
@@ -20,11 +21,12 @@ vi.mock('@/services/reading-service', () => ({ reportReading: mocks.report }))
 vi.mock('@/services/artwork-rating-service', () => ({ setArtworkRating: mocks.rating }))
 vi.mock('@/services/mobile-reader-service', () => ({ mobileFeed: mocks.feed }))
 vi.mock('@/services/mobile-media-service', () => ({ openMobileMedia: mocks.media }))
+vi.mock('@/services/user-setting-service', () => ({ getUserSettings: mocks.settings }))
 import { POST as report } from '@/app/api/mobile/v1/reading/route'
 import { PUT as rating } from '@/app/api/mobile/v1/rating/route'
 import { GET as feed } from '@/app/api/mobile/v1/feed/route'
 import { GET as media } from '@/app/api/mobile/v1/media/[id]/route'
-import { POST as login, DELETE as logout } from '@/app/api/mobile/v1/session/route'
+import { POST as login, DELETE as logout, GET as session } from '@/app/api/mobile/v1/session/route'
 import { mobileBody, mobileError } from '../http'
 import { isMobileApiPath, isMobileLoginRequest } from '../path'
 const request = (path: string, method = 'GET', body?: unknown) =>
@@ -50,6 +52,7 @@ beforeEach(() => {
   mocks.report.mockResolvedValue({ seenMediaIds: [8] })
   mocks.rating.mockResolvedValue({ level: 2 })
   mocks.feed.mockResolvedValue({ items: [] })
+  mocks.settings.mockResolvedValue({})
 })
 describe('mobile transport', () => {
   it('matches only the mobile path segment and exact login method/path', () => {
@@ -127,6 +130,23 @@ describe('mobile transport', () => {
   it('revokes the current mobile session on logout', async () => {
     expect((await logout(request('session', 'DELETE'))).status).toBe(200)
     expect(mocks.signOut).toHaveBeenCalledOnce()
+  })
+  it('returns only gallery appearance for the authenticated account, with H5 defaults', async () => {
+    let response = await session(request('session?expectedUserId=other'))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ apiVersion: 1, user: { id: 'owner' }, mediaPageSize: 24,
+      galleryPreferences: { displayMode: 'card', showReadingStatus: true } })
+    expect(mocks.settings).toHaveBeenCalledWith('owner')
+    mocks.settings.mockResolvedValue({ artwork_display_mode: 'minimal', preferred_tags: ['private-preference'] })
+    response = await session(request('session'))
+    const body = await response.json()
+    expect(body.galleryPreferences).toEqual({ displayMode: 'minimal', showReadingStatus: true })
+    expect(JSON.stringify(body)).not.toContain('private-preference')
+  })
+  it('never reads account preferences without mobile authentication', async () => {
+    mocks.session.mockResolvedValue(null)
+    expect((await session(request('session'))).status).toBe(401)
+    expect(mocks.settings).not.toHaveBeenCalled()
   })
   it('uses safe error envelopes', async () => {
     expect(await mobileError(new Error('secret')).json()).toEqual({ error: { code: 'INTERNAL_ERROR' } })

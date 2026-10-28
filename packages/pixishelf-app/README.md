@@ -39,9 +39,11 @@ adb -s <device-id> reverse tcp:5430 tcp:5430
 
 普通构建和 Release 继续只接受 HTTPS，具体限制见[移动接口安全边界](../../docs/security/access-control.md#移动客户端接口)。本地例外测试分别运行 `flutter test` 和 `flutter test --dart-define=PIXISHELF_USB_DEV=true`；不使用免登录模式。
 
-## 图库与选图验证
+## 详情与沉浸浏览验证
 
-登录后进入作品网格；布局和已支持筛选的语义对齐 H5，封面进入阅读器，页码打开作品内选图。功能范围与未移植项统一见[Android 规格](../../docs/features/android-app.md)。正常 APK 没有免登录或演示入口。
+登录后进入作品网格；封面直接进入跨作品阅读器，上下切作品、左右切媒体，标题进入纵向作品详情。详情点图进入当前作品预览。列表读取与 H5 相同的卡片／简约展示偏好。作品评分、单图标记、未读筛选和阅读记录沿用 H5 语义，入口取舍、功能范围与未移植项统一见[Android 规格](../../docs/features/android-app.md)。正常 APK 没有免登录或演示入口。
+
+原生转场使用 Flutter 官方 `animations`；详情定位使用 `scrollable_positioned_list`，实际可见性由 `visibility_detector` 配合页面覆盖／前后台状态判断。来源链接通过 `url_launcher` 交给外部浏览器。版本固定在 `pubspec.yaml` 和 lockfile，以兼容当前 SDK；不为引入动效升级 Flutter、改换解码器或添加磁盘媒体缓存。
 
 新流程原生验证只在专用模拟器执行，使用测试目录的合成身份／媒体，不连接业务实例。截图默认保存到 `build/gallery-screenshots`：
 
@@ -70,7 +72,7 @@ Path('/tmp/pixishelf-smoke-defines.json').write_text(json.dumps({
     'SMOKE_VIDEO_BASE64': base64.b64encode(Path('/tmp/pixishelf-smoke.mp4').read_bytes()).decode()
 }))
 PYTHON
-flutter test integration_test/native_media_test.dart -d <android-device-id> --dart-define-from-file=/tmp/pixishelf-smoke-defines.json
+flutter test integration_test/native_media_test.dart -d <emulator-id> --dart-define-from-file=/tmp/pixishelf-smoke-defines.json
 ```
 
 软件渲染的 Android 模拟器如遇 Impeller 驱动断连，可在测试命令加 `--no-enable-impeller`。测试验证 Android 系统栏隐藏／恢复、真实 APNG 渲染、暂停、缩放不重载，以及原生视频初始化、播放、音量、seek、覆盖暂停／恢复与释放。视频 fixture 使用本地临时文件，不替代真实 HTTPS Range、账户登录和真机编码兼容验收；服务端 Range 另有文件流与安全测试。

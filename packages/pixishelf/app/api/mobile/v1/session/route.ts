@@ -2,6 +2,7 @@ import { mobileAuth, mobileAuthHeaders, getMobileSession } from '@/lib/mobile/au
 import { mobileBody, mobileError, MobileError, mobileJson, mobileRoute } from '@/lib/mobile/http'
 import { authLoginSchema } from '@/schemas/auth.dto'
 import { rateLimiter } from '@/lib/rate-limit'
+import { getUserSettings } from '@/services/user-setting-service'
 import { z } from 'zod'
 export async function POST(request: Request) {
   try {
@@ -34,7 +35,11 @@ export async function POST(request: Request) {
   }
 }
 export async function GET(request: Request) {
-  return mobileRoute(request, async (id) => mobileJson({ apiVersion: 1, user: { id }, mediaPageSize: 24 }))
+  return mobileRoute(request, async (id) => {
+    const settings = await getUserSettings(id)
+    return mobileJson({ apiVersion: 1, user: { id }, mediaPageSize: 24,
+      galleryPreferences: { displayMode: settings.artwork_display_mode ?? 'card', showReadingStatus: true } })
+  })
 }
 export async function DELETE(request: Request) {
   return mobileRoute(request, async () => {

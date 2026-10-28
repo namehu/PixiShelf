@@ -51,6 +51,35 @@ class _GalleryFiltersState extends State<GalleryFilters> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (_draft.artistId != null || _draft.tagIds.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Wrap(spacing: 8, runSpacing: 8, children: [
+                            if (_draft.artistId != null)
+                              InputChip(
+                                  label: Text(_draft.artistName ??
+                                      '艺术家 ${_draft.artistId}'),
+                                  onDeleted: () => setState(() => _draft =
+                                      _draft.copyWith(clearArtist: true))),
+                            for (var i = 0; i < _draft.tagIds.length; i++)
+                              InputChip(
+                                  label: Text(i < _draft.tagLabels.length
+                                      ? _draft.tagLabels[i]
+                                      : '标签 ${_draft.tagIds[i]}'),
+                                  onDeleted: () => setState(
+                                      () => _draft = _draft.copyWith(tagIds: [
+                                            for (var j = 0;
+                                                j < _draft.tagIds.length;
+                                                j++)
+                                              if (j != i) _draft.tagIds[j]
+                                          ], tagLabels: [
+                                            for (var j = 0;
+                                                j < _draft.tagLabels.length;
+                                                j++)
+                                              if (j != i) _draft.tagLabels[j]
+                                          ]))),
+                          ]),
+                        ),
                       TextField(
                           controller: _search,
                           maxLength: 200,
