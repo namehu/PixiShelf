@@ -85,6 +85,48 @@ Future<void> render(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('retained media handle survives the canvas that decoded it',
+      (tester) async {
+    final api = GalleryFixture();
+    final data = await api.reader(1);
+    await api.mediaPage(data, 0);
+    final key = GlobalKey<MediaCanvasState>();
+    var frames = 0, observations = 0;
+    await tester.pumpWidget(MaterialApp(
+        home: MediaCanvas(
+            key: key,
+            api: api,
+            reader: data,
+            item: data.media.first,
+            source: data.sources[data.media.first.id]!,
+            active: true,
+            highQuality: false,
+            onFrameReady: () => frames++,
+            onReady: () => observations++,
+            onFailure: (error) => fail(error.message))));
+    for (var attempt = 0; attempt < 50 && frames == 0; attempt++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
+      await tester.pump(const Duration(milliseconds: 10));
+    }
+    expect(frames, 1);
+    final canvas = key.currentState!;
+    final retained = canvas.retainImage()!;
+    expect(observations, 0);
+    await tester.pumpWidget(const SizedBox());
+    expect(canvas.retainImage(), isNull);
+    expect(retained.width, 10);
+    expect(retained.height, 10);
+    final pixels = await tester.runAsync(() => retained.toByteData());
+    expect(pixels?.lengthInBytes, 10 * 10 * 4);
+    await tester.pumpWidget(MaterialApp(home: RawImage(image: retained)));
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+    retained.dispose();
+    expect(observations, 0);
+    api.close();
+  });
+
   testWidgets(
       'visual frame readiness is distinct from the stable reading observation',
       (tester) async {

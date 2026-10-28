@@ -37,6 +37,16 @@ adb -s <device-id> reverse tcp:5430 tcp:5430
 
 该构建会预填服务器 `http://127.0.0.1:5430` 并标注 USB 本地调试；使用原 PixiShelf 用户名和密码。无需给手机复制收藏文件，仍由电脑读取本地媒体。请保持 USB 连接；重连后必要时重跑 `adb reverse`，结束后可执行 `adb -s <device-id> reverse --remove tcp:5430`。Debug 包用于功能联调，性能和发热结论应使用优化构建另测。
 
+同一手机与本地服务进行流畅度对比时使用 Profile（AOT 优化编译，保留性能诊断）：
+
+```sh
+flutter build apk --profile --split-per-abi --target-platform android-arm64 --dart-define=PIXISHELF_USB_DEV=true --dart-define=PIXISHELF_FRAME_METRICS=true
+adb -s <device-id> install -r build/app/outputs/flutter-apk/app-arm64-v8a-profile.apk
+adb -s <device-id> reverse tcp:5430 tcp:5430
+```
+
+可选 `PIXISHELF_FRAME_METRICS` 仅在 Profile 生效，每 5 秒输出最多 600 帧的 UI／raster P95、当前屏幕刷新率对应预算及超 16.7ms／33.3ms 数量，不包含媒体、地址或账户信息。启动、导航、等待加载与滚动须分段理解，不能把短样本或 Debug 结果当作长期流畅度结论。正式 HTTPS Release 不包含该采样和 USB HTTP 例外。
+
 普通构建和 Release 继续只接受 HTTPS，具体限制见[移动接口安全边界](../../docs/security/access-control.md#移动客户端接口)。本地例外测试分别运行 `flutter test` 和 `flutter test --dart-define=PIXISHELF_USB_DEV=true`；不使用免登录模式。
 
 ## 详情与沉浸浏览验证

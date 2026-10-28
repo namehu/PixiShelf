@@ -5,8 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'models.dart';
 
-// USB forwarding is an explicit debug-build exception, never a release setting.
-const usbDevEnabled = kDebugMode && bool.fromEnvironment('PIXISHELF_USB_DEV');
+// USB forwarding is opt-in for local debug/profile builds, never release.
+const usbDevEnabled =
+    !kReleaseMode && bool.fromEnvironment('PIXISHELF_USB_DEV');
 const usbDevServer = 'http://127.0.0.1:5430';
 
 class ApiFailure implements Exception {

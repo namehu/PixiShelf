@@ -8,11 +8,13 @@ import 'api.dart';
 import 'models.dart';
 import 'storage.dart';
 import 'gallery_view.dart';
+import 'frame_metrics.dart';
 
 final storageProvider =
     Provider<AppStorage>((ref) => throw UnimplementedError());
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  startFrameMetrics();
   PaintingBinding.instance.imageCache.maximumSizeBytes = 64 * 1024 * 1024;
   final storage = AppStorage(await SharedPreferences.getInstance());
   runApp(ProviderScope(

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'api.dart';
@@ -52,7 +51,7 @@ class ReaderView extends ConsumerStatefulWidget {
 class ReaderViewState extends ConsumerState<ReaderView>
     with WidgetsBindingObserver, TickerProviderStateMixin {
   final gestures = ReaderGestureState();
-  final _mediaBoundary = GlobalKey();
+  GlobalKey<MediaCanvasState> _mediaKey = GlobalKey();
   GlobalKey<VideoCanvasState> _videoKey = GlobalKey();
   late final AnimationController _motion, _zoomMotion;
   ReaderController? _localController;
@@ -522,22 +521,9 @@ class ReaderViewState extends ConsumerState<ReaderView>
     final before = c.selectionKey;
     _turnBusy = true;
     c.setTransitioning(true);
-    ui.Image? snapshot;
-    if (!_reduceMotion && c.media?.video == false) {
-      try {
-        final boundary = _mediaBoundary.currentContext?.findRenderObject()
-            as RenderRepaintBoundary?;
-        if (boundary != null && !boundary.debugNeedsPaint) {
-          snapshot = await boundary.toImage(pixelRatio: 1.25);
-        }
-      } catch (_) {
-        /* The new image remains usable if a surface cannot be captured. */
-      }
-    }
-    if (!mounted) {
-      snapshot?.dispose();
-      return;
-    }
+    final snapshot = !_reduceMotion && c.media?.video == false
+        ? _mediaKey.currentState?.retainImage()
+        : null;
     setState(() {
       _snapshot?.dispose();
       _snapshot = snapshot;
@@ -608,6 +594,7 @@ class ReaderViewState extends ConsumerState<ReaderView>
       _highQuality = widget.initialHighQuality;
       _paused = false;
       _zoomMotion.stop();
+      _mediaKey = GlobalKey();
       _videoKey = GlobalKey();
       final mediaId = c.media?.id;
       if (mediaId != null) {
@@ -725,7 +712,7 @@ class ReaderViewState extends ConsumerState<ReaderView>
                                   c.fail(failure);
                                 })
                             : MediaCanvas(
-                                key: ValueKey(key),
+                                key: _mediaKey,
                                 api: widget.api,
                                 reader: data,
                                 item: item,
@@ -748,6 +735,21 @@ class ReaderViewState extends ConsumerState<ReaderView>
                                   ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
                               child: content);
                         }
+                      }
+                      Widget? retainedFrame;
+                      if (_snapshot != null) {
+                        retainedFrame = RawImage(
+                            image: _snapshot,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.medium);
+                        if (_privacy) {
+                          retainedFrame = ImageFiltered(
+                              imageFilter:
+                                  ui.ImageFilter.blur(sigmaX: 28, sigmaY: 28),
+                              child: retainedFrame);
+                        }
+                        retainedFrame = ColoredBox(
+                            color: Colors.black, child: retainedFrame);
                       }
                       final progress =
                           Curves.easeOutCubic.transform(_motion.value);
@@ -831,16 +833,13 @@ class ReaderViewState extends ConsumerState<ReaderView>
                                                 incoming.dy +
                                                 settling.dy)
                                         ..scale(gestures.scale),
-                                      child: RepaintBoundary(
-                                          key: _mediaBoundary, child: content)),
-                                  if (_snapshot != null)
+                                      child: RepaintBoundary(child: content)),
+                                  if (retainedFrame != null)
                                     IgnorePointer(
                                         child: Transform.translate(
                                             offset: Offset.lerp(
                                                 _settleFrom, -shift, progress)!,
-                                            child: RawImage(
-                                                image: _snapshot,
-                                                fit: BoxFit.fill))),
+                                            child: retainedFrame)),
                                 ]))),
                         if (_hud) ...[
                           Positioned(

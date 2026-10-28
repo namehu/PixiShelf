@@ -63,3 +63,13 @@ sources:
 用户解锁后，Android 12 实体手机完成本轮核心复核：列表封面直接进入跨作品沉浸，作品 B 从第 2 项横向切到第 3 项，上滑进入作品 A、下滑返回 B 的第 3 项；系统返回保持原列表滚动位置。点击标题进入详情，相邻两图满宽直接拼接，没有每图序号栏或额外外边距；长按菜单正常打开，仅查看并取消，未修改评分、标记或手动已读。实机截图保存在 `/private/tmp/pixishelf-031-phone-*.png`；其中 `detail-seam` 是接缝、`detail-menu` 是长按菜单，`list` 与 `list-return` 是往返位置。本次检查证明这些具体操作，不代表所有内容或长期稳定性已经验收。
 
 临时日志位于 `/private/tmp/pixishelf-parity-*`，包括网页完整回归、隔离构建、Flutter 双模式测试、原生详情和媒体测试。可重跑命令在[包说明](../../../packages/pixishelf-app/README.md)；临时日志和合成截图不是长期生产发布凭据。
+
+## 0.3.2 性能验证模式与翻页等待
+
+用户报告操作卡顿后，确认手机安装的是 0.3.1 Debug，当前屏幕运行于 90Hz。功能通过不能证明流畅；Flutter 官方建议在实体设备使用 Profile 检查帧耗时，Debug 帧耗时不能代表正式性能。此次改用正常入口 Profile AOT 构建，并加入显式开关控制的匿名帧耗时采样；同一 USB 回环地址、账号与 F5 服务保留。Profile 的本地 HTTP 例外与当前限制见[权限边界](../../security/access-control.md#移动客户端接口)。
+
+代码复核还发现翻页会等待 `RenderRepaintBoundary.toImage` 截图，其 `debugNeedsPaint` 前置检查在关闭 assert 的 Profile／Release 中不可依赖。改为同步 clone 当前已解码图片的共享句柄，不复制像素、不做额外解码或 GPU 截图；旧帧维持比例、黑底和隐私遮蔽，动画结束后释放独立句柄。新增回归验证原 Canvas 销毁后持有句柄仍可绘制且不制造阅读事件。Flutter 51 项测试通过；USB 地址边界另有 3 项通过。
+
+Profile APK `0.3.2+8`：36,794,339 bytes，SHA-256 `82c780ef71f17ed6dbdac510ed372f40615eff31fde35b435ba0e626a5a5b971`，包含 arm64 AOT `libapp.so`。Debug 与本次 Profile 同时包含代码变化，未采集同场景 Debug 基线，不能据此宣称提速百分比或把所有卡顿归因于 Debug。
+
+静态检查与文档检查通过，0.3.2／versionCode 2008 已成功覆盖安装。安装后手机处于 Asleep／锁屏状态、MainActivity 暂停，未操作手势、尚无帧样本；黑色截图来自设备休眠，不据此推定应用黑屏。等待用户解锁后再确认会话恢复与采样，当前不宣称性能改善已经实测通过。

@@ -31,10 +31,10 @@ class MediaCanvas extends StatefulWidget {
       this.onCycleMode,
       this.onCycleComplete});
   @override
-  State<MediaCanvas> createState() => _MediaCanvasState();
+  State<MediaCanvas> createState() => MediaCanvasState();
 }
 
-class _MediaCanvasState extends State<MediaCanvas> {
+class MediaCanvasState extends State<MediaCanvas> {
   ui.Codec? _codec;
   ApngDecoder? _apng;
   ui.Image? _image;
@@ -45,6 +45,11 @@ class _MediaCanvasState extends State<MediaCanvas> {
   int _framesShown = 0;
   bool _webpCycle = false;
   bool _announcedFrame = false;
+
+  /// Shares the displayed pixels without decoding or capturing the render tree.
+  /// The caller owns this handle and must dispose it after its last painted frame.
+  ui.Image? retainImage() => mounted && _error == null ? _image?.clone() : null;
+
   @override
   void initState() {
     super.initState();
@@ -52,11 +57,11 @@ class _MediaCanvasState extends State<MediaCanvas> {
   }
 
   @override
-  void didUpdateWidget(MediaCanvas old) {
-    super.didUpdateWidget(old);
-    if (old.item.id != widget.item.id ||
-        old.reader.revision != widget.reader.revision ||
-        (old.highQuality != widget.highQuality &&
+  void didUpdateWidget(MediaCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.item.id != widget.item.id ||
+        oldWidget.reader.revision != widget.reader.revision ||
+        (oldWidget.highQuality != widget.highQuality &&
             !widget.item.animated &&
             !widget.source.apng)) {
       _load();
@@ -66,7 +71,7 @@ class _MediaCanvasState extends State<MediaCanvas> {
       _timer?.cancel();
       _readyTimer?.cancel();
       _cycleTimer?.cancel();
-    } else if (!old.active) {
+    } else if (!oldWidget.active) {
       _schedule();
       _notifyReady();
     }
