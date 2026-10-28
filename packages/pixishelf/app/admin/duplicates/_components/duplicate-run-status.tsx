@@ -31,7 +31,7 @@ function runHeading(run: ArtworkDedupRunDto) {
     case 'PENDING':
       return '等待开始检查'
     case 'RETRY_WAIT':
-      return '等待重新尝试'
+      return '等待继续检查'
     case 'RUNNING':
       return stageLabels[run.stage]
     case 'PAUSING':

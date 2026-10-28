@@ -260,10 +260,24 @@ export async function controlArtworkDedup(
       let run = await lockArtworkDedupRun(tx, input.runId)
       if (
         run.jobId !== before.jobId ||
-        run.version !== input.expectedVersion ||
         !controls(run).includes(input.action)
       ) {
         conflict()
+      }
+      if (run.version !== input.expectedVersion) {
+        // Queue claim/yield transitions advance the run version too. Stop intents
+        // may cross those transitions, but never a newer user command (including
+        // retry, which replaces the job while retaining the run ID).
+        if (
+          !['pause', 'cancel'].includes(input.action) ||
+          input.expectedVersion > run.version ||
+          (await tx.artworkDedupCommand.findFirst({
+            where: { runId: run.id, resultingVersion: { gt: input.expectedVersion } },
+            select: { runId: true }
+          }))
+        ) {
+          conflict()
+        }
       }
       const job = await tx.systemJob.findUniqueOrThrow({ where: { id: run.jobId! } })
       if (job.status !== run.status) conflict()

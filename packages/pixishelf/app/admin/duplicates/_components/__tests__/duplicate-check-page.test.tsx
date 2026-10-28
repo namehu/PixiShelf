@@ -1,5 +1,6 @@
 import type { ArtworkDedupRunDto } from '@pixishelf/job-contracts'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { TRPCClientError } from '@trpc/client'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -431,6 +432,26 @@ describe('duplicate check page', () => {
     await screen.findByText('正在取消检查')
     expect(mocks.control.mock.calls[0]![0]).toMatchObject({ runId: 'run-1', expectedVersion: 3, action: 'cancel' })
     expect(screen.queryByRole('button', { name: '暂停' })).toBeNull()
+  })
+
+  it.each([
+    ['CONFLICT', '检查已结束或控制状态已变化，请查看最新状态后再操作。'],
+    ['UNAUTHORIZED', '登录状态或账户已变化，请刷新页面并确认登录后再试。'],
+    ['FORBIDDEN', '登录状态或账户已变化，请刷新页面并确认登录后再试。'],
+    ['INTERNAL_SERVER_ERROR', '未收到明确的操作结果，请查看最新状态后再试。']
+  ])('explains %s without exposing raw errors or automatically resubmitting', async (code, message) => {
+    mocks.getRun.mockResolvedValue(createRun({ status: 'RETRY_WAIT' }))
+    mocks.control.mockRejectedValue(new TRPCClientError('/private/media/secret.png', {
+      result: { error: { message: '/private/media/secret.png', code: -32009, data: { code } } }
+    }))
+    mountPage('run-1')
+    await screen.findByText('等待继续检查')
+    fireEvent.keyDown(screen.getByRole('button', { name: '更多检查操作' }), { key: 'ArrowDown' })
+    fireEvent.click(await screen.findByRole('menuitem', { name: '取消检查' }))
+    await screen.findByText(message)
+    await waitFor(() => expect(mocks.getRun).toHaveBeenCalledTimes(2))
+    expect(mocks.control).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('/private/media/secret.png')).toBeNull()
   })
 
   it('uses only allowed server controls and real processed counts', async () => {

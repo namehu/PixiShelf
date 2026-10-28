@@ -2,6 +2,7 @@
 
 import type { ArtworkDedupControlAction, ArtworkDedupRunDto } from '@pixishelf/job-contracts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { TRPCClientError } from '@trpc/client'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -20,6 +21,23 @@ import { DuplicateQueryError } from './duplicate-query-feedback'
 import { DuplicateRunStatus, isDuplicateRunActive } from './duplicate-run-status'
 
 type CheckLocation = { artistId: number | null; runId: string | null; operationId?: string | null }
+
+function operationFeedback(error: unknown) {
+  if (error instanceof TRPCClientError) {
+    switch (error.data?.code) {
+      case 'CONFLICT':
+        return { title: '操作未执行', message: '检查已结束或控制状态已变化，请查看最新状态后再操作。' }
+      case 'UNAUTHORIZED':
+      case 'FORBIDDEN':
+        return { title: '操作未执行', message: '登录状态或账户已变化，请刷新页面并确认登录后再试。' }
+      case 'PRECONDITION_FAILED':
+        return { title: '检查暂不能开始', message: '需要启动支持本次检查的后台 Worker，请检查服务状态。' }
+      case 'NOT_FOUND':
+        return { title: '操作未执行', message: '找不到这次检查，请返回艺术家页面查看最新记录。' }
+    }
+  }
+  return { title: '操作尚未确认', message: '未收到明确的操作结果，请查看最新状态后再试。' }
+}
 
 function CheckShell({
   children,
@@ -137,7 +155,7 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
   const [mode, setMode] = useState<ArtworkDedupRunDto['mode']>('INCREMENTAL')
   const [includeSuspectedVersions, setIncludeSuspectedVersions] = useState(false)
   const [pending, setPending] = useState<ArtworkDedupControlAction | 'start' | null>(null)
-  const [operationError, setOperationError] = useState(false)
+  const [operationError, setOperationError] = useState<ReturnType<typeof operationFeedback> | null>(null)
   const active = useRef(true)
   const locked = useRef(false)
   const intent = useRef<{ signature: string; key: string } | null>(null)
@@ -191,7 +209,7 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
     if (action !== 'start' && (!run || !run.allowedControls.includes(action))) return
     locked.current = true
     setPending(action)
-    setOperationError(false)
+    setOperationError(null)
     try {
       const signature =
         action === 'start'
@@ -232,9 +250,9 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
           scroll: false
         })
       }
-    } catch {
+    } catch (error) {
       if (!active.current) return
-      setOperationError(true)
+      setOperationError(operationFeedback(error))
       await runQuery.refetch()
     } finally {
       if (active.current) {
@@ -289,8 +307,8 @@ function AccountCheck({ userId, artistId, runId }: CheckLocation & { userId: str
         ) : null}
         {operationError ? (
           <Alert className="mt-6">
-            <AlertTitle>操作尚未确认</AlertTitle>
-            <AlertDescription>已重新读取检查状态，请确认当前状态后再试。</AlertDescription>
+            <AlertTitle>{operationError.title}</AlertTitle>
+            <AlertDescription>{operationError.message}</AlertDescription>
           </Alert>
         ) : null}
         {loading ? (

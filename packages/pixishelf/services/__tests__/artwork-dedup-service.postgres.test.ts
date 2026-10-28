@@ -132,6 +132,86 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
       })
     ).toEqual({ triggerSource: 'SYSTEM', queuePriority: 900, effectivePriority: 900 })
   })
+  it.each([
+    ['pause', false, 'PAUSED'],
+    ['cancel', false, 'CANCELLED'],
+    ['pause', true, 'PAUSING'],
+    ['cancel', true, 'CANCELLING']
+  ] as const)('accepts stale %s after scheduling yield (reclaimed=%s)', async (action, reclaim, status) => {
+    const f = await fixture()
+    const started = await startArtworkDedup(actor, f.input, db!)
+    let now = new Date(Date.now() + 1000)
+    const repository = new PostgresQueueRepository(db! as unknown as QueueDatabase, { clock: { now: () => now } })
+    const capabilities = [{ jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [6] }]
+    const claimed = (await repository.claim(actor, capabilities))!
+    expect(claimed.id).toBe(started.jobId)
+    const fence = { jobId: claimed.id, workerId: actor, executionToken: claimed.executionToken, attempt: claimed.attempt }
+    await repository.withFencedExecutionTransaction(fence, scope => scope.retry({
+      availableAt: new Date(now.getTime() + 3000), errorCode: 'SCHEDULING_YIELD', error: 'checkpoint saved',
+      preserveAttempt: true, schedulingYield: true
+    }))
+    if (reclaim) {
+      now = new Date(now.getTime() + 3000)
+      expect((await repository.claim(actor, capabilities))?.id).toBe(started.jobId)
+    }
+    const request = { runId: started.runId, expectedUserId: actor, expectedVersion: started.version, idempotencyKey: randomUUID(), action }
+    const [accepted, replay] = await Promise.all([
+      controlArtworkDedup(actor, request, db!), controlArtworkDedup(actor, request, db!)
+    ])
+    expect(accepted).toEqual(replay)
+    expect(accepted).toMatchObject({ status, executionVersion: started.executionVersion, jobId: started.jobId })
+    expect(accepted.version).toBeGreaterThan(started.version)
+    expect(await db!.systemJob.findUniqueOrThrow({ where: { id: started.jobId! } })).toMatchObject({ status })
+    expect(await db!.artworkDedupCommand.count({ where: { runId: started.runId } })).toBe(1)
+    expect(await db!.systemJobEvent.count({ where: { jobId: started.jobId!, type: action === 'cancel' ? (reclaim ? 'job.cancel_requested' : 'job.cancelled') : (reclaim ? 'job.pause_requested' : 'job.paused') } })).toBe(1)
+  })
+
+  it.each(['resume', 'retry'] as const)('rejects stale stop intents across another account’s %s', async nextAction => {
+    const f = await fixture()
+    const started = await startArtworkDedup(actor, f.input, db!)
+    const base = { runId: started.runId, expectedUserId: 'another-admin', expectedVersion: started.version, idempotencyKey: randomUUID() }
+    const stopped = await controlArtworkDedup('another-admin', { ...base, action: nextAction === 'resume' ? 'pause' : 'cancel' }, db!)
+    const current = await controlArtworkDedup('another-admin', { ...base, expectedVersion: stopped.version, idempotencyKey: randomUUID(), action: nextAction }, db!)
+    for (const action of ['pause', 'cancel'] as const) {
+      await expect(controlArtworkDedup(actor, { ...base, expectedUserId: actor, idempotencyKey: randomUUID(), action }, db!)).rejects.toMatchObject({ code: 'CONFLICT' })
+    }
+    expect(await getArtworkDedupRun(actor, { runId: started.runId, expectedUserId: actor }, db!)).toEqual(current)
+    expect(await db!.artworkDedupCommand.count({ where: { runId: started.runId } })).toBe(2)
+  })
+
+  it('rejects future versions, account changes, blocked readers and completed runs without recording a command', async () => {
+    const f = await fixture()
+    const started = await startArtworkDedup(actor, f.input, db!)
+    const request = { runId: started.runId, expectedUserId: actor, expectedVersion: started.version, idempotencyKey: randomUUID(), action: 'cancel' as const }
+    await expect(controlArtworkDedup(actor, { ...request, expectedVersion: started.version + 1 }, db!)).rejects.toMatchObject({ code: 'CONFLICT' })
+    await expect(controlArtworkDedup('another-admin', request, db!)).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await db!.artworkDedupRun.update({ where: { id: started.runId }, data: { readerState: 'BLOCKED', readerToken: randomUUID() } })
+    await expect(controlArtworkDedup(actor, request, db!)).rejects.toMatchObject({ code: 'CONFLICT' })
+    await db!.artworkDedupRun.update({ where: { id: started.runId }, data: { readerState: 'IDLE', readerToken: null } })
+    await db!.systemJob.update({ where: { id: started.jobId! }, data: { status: 'PAUSED' } })
+    await expect(controlArtworkDedup(actor, { ...request, action: 'resume' }, db!)).rejects.toMatchObject({ code: 'CONFLICT' })
+    await db!.systemJob.update({ where: { id: started.jobId! }, data: { status: 'FAILED' } })
+    await expect(controlArtworkDedup(actor, { ...request, action: 'retry' }, db!)).rejects.toMatchObject({ code: 'CONFLICT' })
+    await db!.systemJob.update({ where: { id: started.jobId! }, data: { status: 'COMPLETED' } })
+    await expect(controlArtworkDedup(actor, request, db!)).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(await db!.artworkDedupCommand.count({ where: { runId: started.runId } })).toBe(0)
+  })
+
+  it('serializes competing stale stop intents without crossing the accepted command', async () => {
+    const f = await fixture()
+    const started = await startArtworkDedup(actor, f.input, db!)
+    await db!.systemJob.update({ where: { id: started.jobId! }, data: { status: 'RETRY_WAIT' } })
+    const outcomes = await Promise.allSettled((['pause', 'cancel'] as const).map(action => controlArtworkDedup(actor, {
+      runId: started.runId, expectedUserId: actor, expectedVersion: started.version,
+      idempotencyKey: randomUUID(), action
+    }, db!)))
+    expect(outcomes.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+    expect(outcomes.filter(result => result.status === 'rejected')).toEqual([
+      expect.objectContaining({ reason: expect.objectContaining({ code: 'CONFLICT' }) })
+    ])
+    expect(await db!.artworkDedupCommand.count({ where: { runId: started.runId } })).toBe(1)
+  })
+
   it('retry retains frozen IDs and stable runId while rejecting changed input or another active run', async () => {
     const f = await fixture()
     const run = await startArtworkDedup(actor, f.input, db!)
