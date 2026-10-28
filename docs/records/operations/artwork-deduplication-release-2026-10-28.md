@@ -1,6 +1,6 @@
 ---
 status: historical
-scope: 去重 F03 第七批的 v0.54.16 镜像发布与 NAS 交接，不代表生产已升级
+scope: 去重 F03 第七批的 v0.54.17 镜像发布与 NAS 交接，不代表生产已升级
 last-verified: 2026-10-28
 sources:
   - docs/features/artwork-deduplication.md
@@ -11,7 +11,7 @@ sources:
 
 # 去重 F03 第七批发布交接
 
-目标版本为 `v0.54.16`，基于已发布的 `v0.54.15`（`2ad7b40a`）。用户自行更新 NAS；本轮只整理主线、发布标签及镜像，不连接生产，也不更新主目录的开发数据库或服务。
+目标版本为 `v0.54.17`，基于已发布的 `v0.54.15`（`2ad7b40a`）。用户自行更新 NAS；本轮只整理主线、发布标签及镜像，不连接生产，也不更新主目录的开发数据库或服务。
 
 ## 发布范围与分支隔离
 
@@ -31,18 +31,20 @@ sources:
 
 ## 发布状态
 
-发布准备完成，标签、工作流结果及双仓库镜像 digest 尚待核验。此处不将准备完成表述为已经发布。
+首个标签 `v0.54.16` 指向 `8e38740d2c9517035dc6b7ec1b208e91fb6706e7`。[该标签 CI](https://github.com/namehu/PixiShelf/actions/runs/40658029140) 的 WebP job 在安装浏览器时失败：`ubuntu-latest` 实际使用 Ubuntu 26.04，当前 Playwright 1.56.1 不支持该系统；此前 WebP 类型检查、49 项测试、6 项预编译测试及构建均已通过。此标签不作为交付部署版本，即使独立镜像工作流生成了 Release，也不能代替 CI 成功。
+
+最小修复只将 CI 的 WebP job 固定到兼容的 Ubuntu 24.04，不移除验证步骤，不更改产品代码或依赖。GPT-6.1 Sol / xhigh 实施与另一独立 Sol / xhigh 审查已确认：锁定依赖明确支持该系统，CI 逐字差异只有 runner 值，全部测试及汇总门禁保留；YAML 静态检查与 308 篇文档检查通过，无阻塞项，未重复本地全量验证。为保留标签不可变性，改发 `v0.54.17`；此版本的标签、工作流结果和双仓库镜像 digest 待最终核验。
 
 ## NAS 升级交接
 
-App 与 Worker 统一使用 `v0.54.16`，运行平台为 `linux/amd64`。标准 Compose 镜像为 `dockernamehu/pixishelf:v0.54.16`、`dockernamehu/pixishelf-worker:v0.54.16`；GHCR 对应 `ghcr.io/namehu/pixishelf:v0.54.16` 和 `ghcr.io/namehu/pixishelf-worker:v0.54.16`。
+App 与 Worker 统一使用 `v0.54.17`，运行平台为 `linux/amd64`。标准 Compose 镜像为 `dockernamehu/pixishelf:v0.54.17`、`dockernamehu/pixishelf-worker:v0.54.17`；GHCR 对应 `ghcr.io/namehu/pixishelf:v0.54.17` 和 `ghcr.io/namehu/pixishelf-worker:v0.54.17`。
 
 从 `v0.54.15` 升级新增 **`20261028000100_artwork_dedup_visual_rounds`**：添加轮次、轮次起点和等待继续三个字段，默认 `0/0/false`。迁移不读取媒体，也不改写旧检测结论。新扫描使用 v6，维护仍使用 v5，旧扫描 v5 继续兼容。
 
 按[标准发布步骤](../../operations/deployment.md#标准发布)和[去重升级手册](../../operations/runbooks/artwork-deduplication.md)操作：
 
 1. 停止调度和外部写入，等待活动任务收口；停旧 App/Worker，按[备份基线](../../operations/backup-and-recovery.md#发布前一致性检查点)核对一致性检查点。
-2. 将实际 Compose 使用的 `IMAGE_TAG` 设为 `v0.54.16`，拉取配套 App/Worker 镜像。使用目标 App 镜像执行正式 `prisma migrate deploy`，不得使用 `db:push`。
+2. 将实际 Compose 使用的 `IMAGE_TAG` 设为 `v0.54.17`，拉取配套 App/Worker 镜像。使用目标 App 镜像执行正式 `prisma migrate deploy`，不得使用 `db:push`。
 3. 先启动 Worker，核对 READY 和 capability 支持扫描 v6；再启动 App，恢复原本启用的调度及外部写入。
 4. 先选小艺术家检查、刷新和暂停/继续，观察是否仍可浏览作品。达到单轮比较上限后应显示等待继续；继续前后保持同一任务。
 
