@@ -46,11 +46,14 @@ describe('production Next authorization and error transport', () => {
       await symlink(join(appRoot, 'node_modules'), join(directory, 'node_modules'), 'dir')
       for (const path of [
         'proxy.ts',
+        'lib/mobile/path.ts',
+        'lib/mobile/http.ts',
         'lib/logger.ts',
         'lib/api-handler.ts',
         'lib/constants.ts',
         'lib/rate-limit.ts',
         'types/http-response.ts',
+        'schemas/artwork-delete.dto.ts',
         'services/background-task/request-auth.ts',
         'app/api/artwork/media-chapters/[image-id]/route.ts',
         'server/trpc.ts',
@@ -60,6 +63,18 @@ describe('production Next authorization and error transport', () => {
         await mkdir(dirname(join(directory, path)), { recursive: true })
         await copyFile(join(appRoot, path), join(directory, path))
       }
+      await put(
+        'lib/mobile/auth.js',
+        `export async function getMobileSession(headers) {
+        if (headers.get('authorization') === 'Bearer fixture-mobile') return { user: { id: 'fixture-owner' } };
+        return null;
+      }`
+      )
+      await put(
+        'app/api/mobile/v1/probe/route.ts',
+        `import { mobileRoute, mobileJson } from '@/lib/mobile/http';
+        export async function GET(request) { return mobileRoute(request, async (id) => mobileJson({ id })); }`
+      )
       await put('package.json', JSON.stringify({ private: true }))
       await put(
         'tsconfig.json',
@@ -147,6 +162,22 @@ describe('production Next authorization and error transport', () => {
       expect(recheck.status).toBe(500)
       expect(await recheck.json()).toEqual({ error: 'Internal Server Error' })
       expect(output).not.toContain('FIXTURE_BUSINESS_CALLED')
+      const mobileDenied = await request('', '/api/mobile/v1/probe', 'GET')
+      expect(mobileDenied.status).toBe(401)
+      expect((await request('fixture-valid', '/api/mobile/v1/probe', 'GET')).status).toBe(401)
+      const mobileAllowed = await fetch(`${base}/api/mobile/v1/probe`, {
+        headers: { authorization: 'Bearer fixture-mobile', 'x-user-session': 'forged' }
+      })
+      expect(mobileAllowed.status).toBe(200)
+      expect(mobileAllowed.headers.get('cache-control')).toBe('private, no-store')
+      expect(
+        (
+          await fetch(`${base}/api/artwork/media-chapters/1`, {
+            method: 'DELETE',
+            headers: { authorization: 'Bearer fixture-mobile' }
+          })
+        ).status
+      ).toBe(401)
       const authorized = await request('fixture-valid')
       expect(authorized.status).toBe(500)
       expect(await authorized.json()).toEqual({ error: 'Internal Server Error' })

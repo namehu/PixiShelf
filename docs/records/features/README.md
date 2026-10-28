@@ -32,3 +32,7 @@ sources:
 | [Pixiv 扫描根身份验证与发布记录](./pixiv-root-identity.md)           | 扫描根首次升级、标记绑定与恢复验证           |
 | [系列管理验证与发布记录](./series-management.md)                     | 原子成员编辑、并发、虚拟排序及浏览器验证     |
 | [创作者关系验证记录](./creator-relations.md)                         | 关系、来源证据、维护任务与浏览器验证         |
+
+[Android 验证版 2026-10-28](./android-app-2026-10-28.md)：独立工作区、Flutter 与原网页回归、模拟器及未覆盖项。
+
+- [Android 图库与作品内选图验证（2026-10-28）](./android-gallery-2026-10-28.md)

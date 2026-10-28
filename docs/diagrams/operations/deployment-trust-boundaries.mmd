@@ -3,6 +3,7 @@ flowchart TB
   E[外部扫描调用方]
   RP[受控 HTTPS 反向代理<br/>清理可信头与配置认证入口]
   B --> RP
+  Mobile[Android Flutter / 签名 Bearer] -->|HTTPS / mobile v1| RP
   subgraph HOST[单实例宿主机 / Compose 网络]
     A[App :5430<br/>Session / Route / procedure<br/>任务控制与数据库迁移]
     I[ImgProxy :5431<br/>URL 未签名，无 App 会话校验]

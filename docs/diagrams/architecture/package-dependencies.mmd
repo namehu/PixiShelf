@@ -3,6 +3,7 @@ flowchart TD
   Web --> Contracts["@pixishelf/job-contracts"]
   Web --> Executors["@pixishelf/job-executors"]
   Web --> Player["@pixishelf/webp-player / 浏览器包"]
+  Mobile["pixishelf-app / Flutter 独立工具链"] -.->|HTTP mobile v1| Web
   Worker["@pixishelf/worker / 独立服务端进程"] --> DB
   Worker --> Contracts
   Worker --> Runtime["@pixishelf/job-runtime"]

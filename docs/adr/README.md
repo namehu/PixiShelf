@@ -14,4 +14,6 @@ ADR 保存作出选择时的上下文、备选方案与代价。正文中的当�
 
 | [0008 下载与发布分阶段](./0008-separate-archive-download-and-publication.md) | 独立下载 lane、generation 隔离与 fenced 原子交接 | [归档生命周期](../features/archive-lifecycle.md)。 |
 
+[0009 Android Flutter 阅读客户端](./0009-android-flutter-reader.md)：独立移动包、服务端复用、最小 HTTP transport 与成本取舍。
+
 后台切换开关、旧任务列和计划时间字段的退役属于已记录决策的后续实施，见[退役规格](../features/background-task-retirement.md)及正式 migrations。不要因历史 ADR 仍描述兼容期而重新引入旧执行分支。
