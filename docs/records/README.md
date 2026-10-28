@@ -41,7 +41,7 @@
 
 ## 发布、迁移与事故
 
-去重发布：[2026-10-27 F01–F03 发布交接](./operations/artwork-deduplication-release-2026-10-27.md)；前版见[2026-10-25 版本收口](./operations/artwork-deduplication-release-2026-10-25.md)，附[疑似版本本地升级](./operations/artwork-deduplication-visual-local-upgrade-2026-10-25.md)。
+去重发布：[2026-10-28 F03 第七批发布交接](./operations/artwork-deduplication-release-2026-10-28.md) · [2026-10-27 F01–F03 发布交接](./operations/artwork-deduplication-release-2026-10-27.md)；前版见[2026-10-25 版本收口](./operations/artwork-deduplication-release-2026-10-25.md)，附[疑似版本本地升级](./operations/artwork-deduplication-visual-local-upgrade-2026-10-25.md)。
 
 后续开发升级：[2026-10-26 F01 合并与本地升级](./operations/artwork-deduplication-f01-local-upgrade-2026-10-26.md)。
 
