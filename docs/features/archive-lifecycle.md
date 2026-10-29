@@ -21,9 +21,11 @@ sources:
 
 [Mermaid 源文件](../diagrams/features/archive-flow.mmd)。依据：archive-intake 服务，以及 Worker 的 resolver、executor、publisher 与 storage。泳道按责任区分，三个执行通道仍处于同一个 Worker。
 
-`ArchiveImport.id` 贯穿整项归档，`systemJobId` 指向当前执行，`phase` 区分 LEGACY、DOWNLOAD、PUBLISH；阶段关联保留每次执行和重试。`ARCHIVE_DOWNLOAD@1` 在下载通道批量保存逐图结果、执行全部媒体长度/SHA-256/尺寸校验并生成 manifest。流和 reporter 停止、所有句柄关闭后，同一个 fenced finalizer 复核当前任务、generation、控制和清理意图，保存封存摘要，创建幂等 `ARCHIVE_PUBLISH@1`，CAS 切换当前阶段并完成下载任务。
+`ArchiveImport.id` 贯穿整项归档，`systemJobId` 指向当前执行，`phase` 区分 LEGACY、DOWNLOAD、PUBLISH；阶段关联保留每次执行和重试。`ARCHIVE_DOWNLOAD` 在下载通道批量保存逐图结果、执行全部媒体长度/SHA-256/尺寸校验并生成 manifest。流和 reporter 停止、所有句柄关闭后，同一个 fenced finalizer 复核当前任务、generation、控制和清理意图，保存封存摘要，创建幂等 `ARCHIVE_PUBLISH`，CAS 切换当前阶段并完成下载任务。
 
-`ARCHIVE_PUBLISH@1` 在 writer 中只读取封存清单和检查点，核对绑定、来源删除意图与作品 ACTIVE 状态，再 rename 到正式 revision。它不发网络请求或再次全量读取/hash 媒体。发布短事务沿用创作者/归档发布锁，更新 Artwork、来源、标签、阅读版本、Image 和当前 revision，最后完成整项归档。rename 成功而事务失败时保留目录，重试同发布阶段；身份未知目录不得覆盖。正常读取只采用已提交的发布指针。
+`ARCHIVE_PUBLISH` 在 writer 中只读取封存清单和检查点，核对绑定、来源删除意图与作品 ACTIVE 状态，再 rename 到正式 revision。它不发网络请求或再次全量读取/hash 媒体。发布短事务沿用创作者/归档发布锁，更新 Artwork、来源、标签、阅读版本、Image 和当前 revision，最后完成整项归档。rename 成功而事务失败时保留目录，重试同发布阶段；身份未知目录不得覆盖。正常读取只采用已提交的发布指针。
+
+2026-10-29 局部核验：新归档使用覆盖协议 version 2，配套 Worker 保留 version 1 处理历史任务。下载范围、显式补全保留阅读／媒体身份和旧部分修订退休的规则见[部分归档与补全](./archive-partial-coverage.md)，版本门槛见[专项升级与恢复](../operations/runbooks/archive-partial-coverage.md)。以下“全部媒体”指冻结下载计划的全部项，部分计划不宣称已下载原站全部内容。
 
 ### 下载期间的保存方式
 
@@ -53,7 +55,7 @@ sources:
 
 `cleanupRequestedAt` 是领取、控制与交接门禁。清理先 CAS 保存意图，确认没有当前执行，再只删除登记且明确 `drainedAt` 的代。lease 过期不代表旧 I/O 停止；没有 drain 证据的旧代保留为隔离 orphan，不能在线按超时盲删。旧版本已 rename 未发布的目录必须核对 manifest 来源/导入身份和持久检查点后才能复用或清理；未知身份保留原样并报冲突。普通扫描无论环境排除列表如何配置，均硬排除 `sources`、`.archive-staging`、`.trash`。
 
-这不是跨数据库和文件系统的分布式事务。文件准备后事务失败可能留下未发布目录；重试复用已验证文件并重新完成发布，取消或清理由持久维护任务收口，不把孤立文件直接暴露。更新同一来源身份仍保留人工标题／描述覆盖、受保护标签和创作者关系；重建媒体使旧阅读状态失效。不同 E-Hentai 版本身份保留独立作品，见[版本关系](./archive-intake.md#e-hentai-版本关系与归档身份)。
+这不是跨数据库和文件系统的分布式事务。文件准备后事务失败可能留下未发布目录；重试复用已验证文件并重新完成发布，取消或清理由持久维护任务收口，不把孤立文件直接暴露。更新同一来源身份仍保留人工标题／描述覆盖、受保护标签和创作者关系；普通重建媒体使旧阅读状态失效；显式补全按[部分归档规则](./archive-partial-coverage.md#详情与阅读)保留已验证的媒体身份和阅读。不同 E-Hentai 版本身份保留独立作品，见[版本关系](./archive-intake.md#e-hentai-版本关系与归档身份)。
 
 本次批量保存不变更 schema。升级或回退 Worker 前停止调度并等待活动任务退出，保留数据库及暂存媒体；旧版只能复用已入库的结果，最后未保存的一批可能重新下载。恢复单位沿用[备份基线](../operations/backup-and-recovery.md)，验证范围见[批量下载验证记录](../records/features/archive-download-batches-2026-10-29.md)。
 
@@ -67,13 +69,14 @@ URL 解析、来源扫描、发现批次及标题预览使用 `ARCHIVE_RESOLVE`�
 
 归档文件生命周期统一由 `ARCHIVE_MAINTENANCE` 在 writer lane 执行：
 
-| Action            | 责任                                             |
-| ----------------- | ------------------------------------------------ |
-| `CLEAN_STAGING`   | 清理已持久化的归档 staging intent                |
-| `TRASH_ARCHIVE`   | 将已发布归档移入回收区并推进领域状态             |
-| `RESTORE_ARCHIVE` | 在保留期限内恢复回收区归档                       |
-| `RECONCILE`       | 发现孤立/到期 intent，并为每个目标幂等创建子任务 |
-| `PURGE_ARCHIVE`   | 到期后受根目录约束地删除归档文件和对应领域记录   |
+| Action                    | 责任                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `CLEAN_STAGING`           | 清理已持久化的归档 staging intent                                                                      |
+| `TRASH_ARCHIVE`           | 将已发布归档移入回收区并推进领域状态                                                                   |
+| `RESTORE_ARCHIVE`         | 在保留期限内恢复回收区归档                                                                             |
+| `RECONCILE`               | 发现孤立/到期 intent，并为每个目标幂等创建子任务                                                       |
+| `PURGE_ARCHIVE`           | 到期后受根目录约束地删除归档文件和对应领域记录                                                         |
+| `RETIRE_PARTIAL_REVISION` | 补全发布后清理有完整替代证据的旧部分实体；[专用规则](./archive-partial-coverage.md#补全后的旧副本退休) |
 
 默认启用的 `archive_maintenance_reconcile` 由中央计划在上海时间 `00:00-08:00` 窗口内物化当天任务，按优先级执行；当前不提供单项执行时间编辑。`RECONCILE` 父任务只发现和创建按目标隔离的维护子任务，不在发现事务中做文件 I/O；子任务继续经过 writer lane、路径边界、发布互斥和 fenced 终态检查。正常作品删除与归档任务操作也写入同一中央维护流程，不依赖 Next.js 进程内队列。
 

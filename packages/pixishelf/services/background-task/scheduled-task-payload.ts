@@ -1,4 +1,10 @@
-import { jobTypeSchema, parseJobPayload, type JobType, type JsonValue } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  jobTypeSchema,
+  parseJobPayload,
+  type JobType,
+  type JsonValue
+} from '@pixishelf/job-contracts'
 
 interface ScheduledTaskPayloadOptions {
   trigger: 'manual' | 'schedule'
@@ -11,6 +17,7 @@ interface ScheduledTaskPayloadOptions {
 export interface ScheduledTaskJobDefinition {
   type: JobType
   payload: JsonValue
+  definitionVersion?: typeof ARCHIVE_COVERAGE_DEFINITION_VERSION
 }
 
 export function buildScheduledTaskJobDefinition(
@@ -65,6 +72,7 @@ export function buildScheduledTaskJobDefinition(
 
   return {
     type,
+    ...(type === 'ARCHIVE_MAINTENANCE' ? { definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION } : {}),
     payload: parseJobPayload(type, candidate) as JsonValue
   }
 }

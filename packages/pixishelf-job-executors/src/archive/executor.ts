@@ -1,3 +1,4 @@
+import { assertArchiveCompletionBase } from './completion-proof.ts'
 import {
   assertArchiveSourceSnapshot,
   assertArchiveDownloadGeneration,
@@ -25,6 +26,7 @@ import {
   ARCHIVE_MEDIA_CONCURRENCY_DEFAULT,
   ARCHIVE_MEDIA_CONCURRENCY_SETTING_KEY,
   ARCHIVE_IMPORT_DEFINITION_VERSION,
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
   archiveImportPayloadSchema,
   archiveMediaConcurrencySchema,
   archiveImportV2PayloadSchema,
@@ -118,6 +120,21 @@ export function createArchiveExecutorRegistrations(
       jobType: 'ARCHIVE_PUBLISH',
       executionLane: 'BACKGROUND_WRITER',
       definitionVersion: 1,
+      parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
+      execute: (context) => executeArchivePublish(context, dependencies)
+    },
+    {
+      jobType: 'ARCHIVE_DOWNLOAD',
+      executionLane: 'ARCHIVE_DOWNLOAD',
+      definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
+      progressPolicy: 'REALTIME',
+      parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
+      execute: (context) => executeArchiveImport(context, dependencies)
+    },
+    {
+      jobType: 'ARCHIVE_PUBLISH',
+      executionLane: 'BACKGROUND_WRITER',
+      definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
       parsePayload: (payload) => archiveImportV2PayloadSchema.parse(payload),
       execute: (context) => executeArchivePublish(context, dependencies)
     }
@@ -311,8 +328,9 @@ async function startArchiveImport(
     if (!archiveImport || archiveImport.systemJobId !== context.job.id) {
       throw new ArchiveExecutorError('STATE_CONFLICT', '归档导入载荷未绑定到当前任务')
     }
-    if (archiveImport.phase !== (context.job.type === 'ARCHIVE_PUBLISH' ? 'PUBLISH' : 'DOWNLOAD'))
-      {throw new ArchiveExecutorError('STATE_CONFLICT', '归档阶段与执行任务不匹配')}
+    if (archiveImport.phase !== (context.job.type === 'ARCHIVE_PUBLISH' ? 'PUBLISH' : 'DOWNLOAD')) {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档阶段与执行任务不匹配')
+    }
     await assertArchiveSourceSnapshot(transaction, archiveImport)
     await assertArchiveImportNotDeleted(transaction, archiveImport)
     // 优先尊重 cleanupRequestedAt 门禁：清理未完成前不得再次启动下载流程，否则状态与文件会互相覆盖。
@@ -441,10 +459,17 @@ async function downloadArchiveItem(input: {
   throwIfAborted(input.signal)
   const attempt = input.item.attempts + 1
   input.checkpoints.set(input.item.id, {
-    status: 'DOWNLOADING', attempts: attempt,
-    lastDownloadUrl: null, lastDownloadAt: null, lastDownloadAttempt: null,
-    startedAt: input.now(), finishedAt: null,
-    errorCode: null, errorMessage: null, errorStage: null, remoteHost: null
+    status: 'DOWNLOADING',
+    attempts: attempt,
+    lastDownloadUrl: null,
+    lastDownloadAt: null,
+    lastDownloadAttempt: null,
+    startedAt: input.now(),
+    finishedAt: null,
+    errorCode: null,
+    errorMessage: null,
+    errorStage: null,
+    remoteHost: null
   })
   input.transferMeter.startItem({
     itemId: input.item.id,
@@ -484,7 +509,9 @@ async function downloadArchiveItem(input: {
       const downloadUrl = observedDownloadUrl(remote.downloadUrl)
       if (downloadUrl !== null) {
         input.checkpoints.set(input.item.id, {
-          lastDownloadUrl: downloadUrl, lastDownloadAt: input.now(), lastDownloadAttempt: attempt
+          lastDownloadUrl: downloadUrl,
+          lastDownloadAt: input.now(),
+          lastDownloadAttempt: attempt
         })
       }
       throwIfAborted(input.signal)
@@ -515,11 +542,19 @@ async function downloadArchiveItem(input: {
     }
     mediaStored = true
     input.checkpoints.set(input.item.id, {
-      status: 'COMPLETED', stagedPath: stored.relativePath,
+      status: 'COMPLETED',
+      stagedPath: stored.relativePath,
       stagedGenerationPath: input.archiveImport.stagingPath,
-      byteCount: stored.byteCount, mimeType: stored.mimeType, quality: remote.quality,
-      width: stored.width, height: stored.height, sha256: stored.sha256,
-      errorCode: null, errorMessage: null, errorStage: null, remoteHost: null,
+      byteCount: stored.byteCount,
+      mimeType: stored.mimeType,
+      quality: remote.quality,
+      width: stored.width,
+      height: stored.height,
+      sha256: stored.sha256,
+      errorCode: null,
+      errorMessage: null,
+      errorStage: null,
+      remoteHost: null,
       finishedAt: input.now()
     })
     input.transferMeter.complete(input.item.id, stored.byteCount)
@@ -534,17 +569,33 @@ async function downloadArchiveItem(input: {
     const retry = isRetryableItemFailure(classified) && attempt < input.maxMediaAttempts
     const terminalItemFailure = !retry && !classified.pause
     input.transferMeter.fail(input.item.id, terminalItemFailure)
-    input.checkpoints.set(input.item.id, {
-      status: terminalItemFailure ? 'FAILED' : 'PENDING',
-      errorCode: classified.code, errorMessage: classified.message,
-      errorStage: classified.stage, remoteHost: classified.remoteHost,
-      finishedAt: terminalItemFailure ? input.now() : null
-    }, terminalItemFailure ? {
-      key: `archive-item:${input.item.id}`, scope: 'ITEM', targetType: 'ARCHIVE_MEDIA',
-      targetId: input.item.id, targetLabel: `第 ${input.item.pageIndex + 1} 页 · ${input.item.expectedFilename}`,
-      stage: classified.stage ?? 'DOWNLOADING', code: classified.code, message: classified.message,
-      error: classified, remoteHost: classified.remoteHost, httpStatus: classified.httpStatus, itemAttempt: attempt
-    } : undefined)
+    input.checkpoints.set(
+      input.item.id,
+      {
+        status: terminalItemFailure ? 'FAILED' : 'PENDING',
+        errorCode: classified.code,
+        errorMessage: classified.message,
+        errorStage: classified.stage,
+        remoteHost: classified.remoteHost,
+        finishedAt: terminalItemFailure ? input.now() : null
+      },
+      terminalItemFailure
+        ? {
+            key: `archive-item:${input.item.id}`,
+            scope: 'ITEM',
+            targetType: 'ARCHIVE_MEDIA',
+            targetId: input.item.id,
+            targetLabel: `第 ${input.item.pageIndex + 1} 页 · ${input.item.expectedFilename}`,
+            stage: classified.stage ?? 'DOWNLOADING',
+            code: classified.code,
+            message: classified.message,
+            error: classified,
+            remoteHost: classified.remoteHost,
+            httpStatus: classified.httpStatus,
+            itemAttempt: attempt
+          }
+        : undefined
+    )
     await input.checkpoints.saveIfFull(input.progressUpdate)
     if (classified.pause || isTaskStoppingFailure(classified)) throw classified
     return retry ? { kind: 'RETRY', item: { ...input.item, attempts: attempt } } : { kind: 'FAILED' }
@@ -1086,8 +1137,9 @@ async function executeArchivePublish(
   try {
     throwIfAborted(context.signal)
     const { archiveImport } = await startArchiveImport(context, dependencies, now())
-    if (!archiveImport.generationToken || !archiveImport.sealedManifestSha256)
-      {throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布缺少封存代')}
+    if (!archiveImport.generationToken || !archiveImport.sealedManifestSha256) {
+      throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布缺少封存代')
+    }
     const paths = buildArchiveStoragePaths({
       scanRoot: dependencies.config.scanRoot,
       archiveImportId: archiveImport.id,
@@ -1122,15 +1174,18 @@ async function executeArchivePublish(
           !generation.drainedAt ||
           generation.cleanedAt ||
           generation.manifestSha256 !== archiveImport.sealedManifestSha256
-        )
-          {throw new ArchiveExecutorError('STATE_CONFLICT', '封存代不允许发布')}
+        ) {
+          throw new ArchiveExecutorError('STATE_CONFLICT', '封存代不允许发布')
+        }
         await assertArchiveImportNotDeleted(transaction, current)
         const source = await transaction.artworkExternalRef.findUnique({
           where: { providerKey_externalId: { providerKey: current.providerKey, externalId: current.externalId } },
           include: { artwork: true }
         })
-        if (source && (source.artwork.deletedAt || source.artwork.archiveLifecycleState !== 'ACTIVE'))
-          {throw new ArchiveExecutorError('STATE_CONFLICT', '归档作品已不再活动')}
+        if (source && (source.artwork.deletedAt || source.artwork.archiveLifecycleState !== 'ACTIVE')) {
+          throw new ArchiveExecutorError('STATE_CONFLICT', '归档作品已不再活动')
+        }
+        await assertArchiveCompletionBase(transaction, current)
         return source?.artworkId ?? null
       }
     )
@@ -1167,8 +1222,10 @@ async function executeArchivePublish(
                 current.phase !== 'PUBLISH' ||
                 current.cleanupRequestedAt ||
                 current.generationToken !== archiveImport.generationToken
-              )
-                {throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布绑定在声明建立前已变化')}
+              ) {
+                throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布绑定在声明建立前已变化')
+              }
+              await assertArchiveCompletionBase(transaction, current)
               return operation(transaction as unknown as TTransaction)
             })
         },
@@ -1195,8 +1252,9 @@ async function executeArchivePublish(
         current.phase !== 'PUBLISH' ||
         current.cleanupRequestedAt ||
         current.generationToken !== archiveImport.generationToken
-      )
-        {throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布绑定已变化')}
+      ) {
+        throw new ArchiveExecutorError('STATE_CONFLICT', '归档发布绑定已变化')
+      }
       const result = await publishExecutorMediaWrite(scope.transaction, mediaWrite, 'committed', (transaction) =>
         publishArchiveImportInTransaction(
           transaction,
@@ -1226,8 +1284,9 @@ async function executeArchivePublish(
         })
       })
     }
-    if (error instanceof ArchiveCleanupRequestedError)
-      {return releaseArchiveImportForCleanup(context, context.payload.archiveImportId)}
+    if (error instanceof ArchiveCleanupRequestedError) {
+      return releaseArchiveImportForCleanup(context, context.payload.archiveImportId)
+    }
     return handleArchiveExecutionFailure(context, context.payload.archiveImportId, error, dependencies, now())
   }
 }

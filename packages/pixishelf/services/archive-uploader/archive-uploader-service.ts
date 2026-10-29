@@ -1,4 +1,5 @@
 import { queryArchiveUploaderIgnoredItems, type IgnoredItemWire } from './archive-uploader-ignored-query'
+import { archiveDownloadScopeSchema } from '@pixishelf/job-contracts'
 import { assertCatalogItemsActionable } from './archive-uploader-catalog-actions'
 import { sourceWireSelect, serializeSource, type SourceWire } from './archive-source-wire'
 import { linkIntakeCatalogItems } from './archive-uploader-intake-link'
@@ -143,7 +144,8 @@ export const createArchiveUploaderSubmissionAttemptSchema = z
     sourceId: sourceIdSchema,
     itemIds: scanItemIdsSchema,
     downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
-    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL')
+    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL'),
+    downloadScope: archiveDownloadScopeSchema.default('ALL')
   })
   .strict()
 
@@ -841,7 +843,8 @@ export async function addArchiveUploaderScanItems(
             idempotencyKey,
             urls: items.map(({ canonicalUrl }) => canonicalUrl),
             downloadMode: deletions.length ? 'MANUAL' : parsed.downloadMode,
-            quality: parsed.quality
+            quality: parsed.quality,
+            downloadScope: parsed.downloadScope
           },
           requestedByUserId,
           transaction,

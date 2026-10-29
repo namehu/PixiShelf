@@ -78,6 +78,29 @@ export function ArchiveIntakeItemActions({
           </SelectContent>
         </Select>
       ) : null}
+      {canEnqueue ? (
+        <Select
+          value={selection.downloadScopeById?.get(item.id) ?? item.downloadScope ?? 'ALL'}
+          disabled={actionPending}
+          onValueChange={(value) => {
+            if (value === 'ALL' || value === 'FIRST_20')
+              {onSelectionChange((current) => ({
+                ...current,
+                downloadScopeById: new Map(current.downloadScopeById).set(item.id, value)
+              }))}
+          }}
+        >
+          <SelectTrigger size="sm" aria-label={`队列项目 ${item.queueOrder} 的下载范围`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="ALL">全部</SelectItem>
+              <SelectItem value="FIRST_20">前20张</SelectItem>
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      ) : null}
       {relatedTaskId ? (
         <Button variant="link" size="sm" asChild>
           <Link href={archiveTaskHref(relatedTaskId)}>
@@ -110,11 +133,14 @@ export function ArchiveIntakeRetryActions({
       {sourceUrl ? (
         <Button asChild variant="outline" size="sm">
           <a href={sourceUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">
-            <ExternalLinkIcon data-icon="inline-start" aria-hidden="true" />打开原站
+            <ExternalLinkIcon data-icon="inline-start" aria-hidden="true" />
+            打开原站
           </a>
         </Button>
       ) : (
-        <Button variant="outline" size="sm" disabled title="来源地址不可用">打开原站</Button>
+        <Button variant="outline" size="sm" disabled title="来源地址不可用">
+          打开原站
+        </Button>
       )}
       {isRetryableIntakeItem(item) ? (
         <Button

@@ -1,3 +1,4 @@
+import { ARCHIVE_COVERAGE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import { lockCreatorCatalog } from '@pixishelf/db'
 import { retryUnresolvedArchivePublication } from './archive-publication-retry'
 import {
@@ -196,6 +197,8 @@ export class ArchiveModule {
       })
     }
     if (action === 'USE_DISPLAY_QUALITY') {
+      if (task.completionBaseRevisionId)
+        {throw stateConflict('补全必须沿用原归档画质；需要更换画质时请通过完整更新重新确认。')}
       if (task.phase === 'PUBLISH') throw stateConflict('归档文件已经封存，发布重试不能更改画质')
       assertActionStatus(action, task.status, ['PAUSED', 'FAILED'])
       if (task.status === 'FAILED') {
@@ -252,8 +255,9 @@ export class ArchiveModule {
           message: options.message,
           changesFiles: Boolean(options.retryItemId || options.useDisplayQuality)
         })
-      )
-        {return}
+      ) {
+        return
+      }
       if (options.retryItemId) {
         const item = await tx.archiveImportItem.updateMany({
           where: { id: options.retryItemId, archiveImportId: current.id, status: 'FAILED' },
@@ -275,7 +279,7 @@ export class ArchiveModule {
           id: nextJobId,
           type: phase === 'PUBLISH' ? 'ARCHIVE_PUBLISH' : 'ARCHIVE_DOWNLOAD',
           executionLane: phase === 'PUBLISH' ? 'BACKGROUND_WRITER' : 'ARCHIVE_DOWNLOAD',
-          definitionVersion: 1,
+          definitionVersion: current.sourceTotalItems == null ? 1 : ARCHIVE_COVERAGE_DEFINITION_VERSION,
           status: 'PENDING',
           triggerSource:
             current.origin === 'AUTO'

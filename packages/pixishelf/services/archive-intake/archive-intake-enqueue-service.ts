@@ -1,3 +1,4 @@
+import { archiveDownloadScopeSchema } from '@pixishelf/job-contracts'
 import { randomUUID } from 'node:crypto'
 import {
   ArchiveExecutorError,
@@ -20,7 +21,8 @@ export const enqueueArchiveIntakeManySchema = z
         z
           .object({
             itemId: z.string().trim().min(1).max(128),
-            quality: z.enum(['ORIGINAL', 'DISPLAY'])
+            quality: z.enum(['ORIGINAL', 'DISPLAY']),
+            downloadScope: archiveDownloadScopeSchema.optional()
           })
           .strict()
       )
@@ -48,9 +50,10 @@ export async function enqueueArchiveIntakeMany(
   const database = dependencies.database ?? (prisma as unknown as PrismaClient)
   const now = dependencies.now ?? (() => new Date())
   const uuid = dependencies.uuid ?? randomUUID
+  const optionsByItemId = new Map(parsed.items.map((item) => [item.itemId, item]))
   const qualityByItemId = new Map(parsed.items.map((item) => [item.itemId, item.quality]))
   const requestOptions = parsed.items
-    .map((item) => ({ itemId: item.itemId, quality: item.quality }))
+    .map((item) => ({ itemId: item.itemId, quality: item.quality, downloadScope: item.downloadScope }))
     .sort((left, right) => left.itemId.localeCompare(right.itemId))
   const settings = dependencies.systemSettings ?? (await getSystemSettings())
   const defaultTagIds = [...new Set(settings.archive_default_tag_ids)].sort((left, right) => left - right)
@@ -67,6 +70,7 @@ export async function enqueueArchiveIntakeMany(
     (transaction, itemId) =>
       enqueueArchiveIntakeItemInTransaction(transaction, itemId, {
         quality: qualityByItemId.get(itemId) ?? 'ORIGINAL',
+        downloadScope: optionsByItemId.get(itemId)?.downloadScope,
         requestedByUserId,
         timestamp: now(),
         uuid,

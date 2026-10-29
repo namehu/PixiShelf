@@ -1,7 +1,11 @@
 import { lockCreatorCatalog } from '@pixishelf/db'
 import { assertArchiveSourceSnapshot } from './dedup-source-snapshot.ts'
 import { randomUUID } from 'node:crypto'
-import { archiveImportV2PayloadSchema, type ArchiveImportV2Payload } from '@pixishelf/job-contracts'
+import {
+  archiveImportV2PayloadSchema,
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  type ArchiveImportV2Payload
+} from '@pixishelf/job-contracts'
 import type { ExecutionContext, FencedExecutionTransaction } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError } from './errors.ts'
 import type { ArchiveTransaction } from './types.ts'
@@ -48,7 +52,7 @@ export async function handoffArchivePhase(
       id,
       type: phase === 'DOWNLOAD' ? 'ARCHIVE_DOWNLOAD' : 'ARCHIVE_PUBLISH',
       executionLane: phase === 'DOWNLOAD' ? 'ARCHIVE_DOWNLOAD' : 'BACKGROUND_WRITER',
-      definitionVersion: 1,
+      definitionVersion: current.sourceTotalItems === null ? 1 : ARCHIVE_COVERAGE_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource,
       requestedByUserId: predecessor.requestedByUserId,

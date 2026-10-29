@@ -123,6 +123,8 @@ ImgProxy 仅允许 `local:///media/` 和 `local:///derived-media/`，Compose 没
 - 任务、目录和作品来源跳转从服务器读取 canonical URL，作品引用还须属于 ACTIVE、未删除作品；响应 `private, no-store`、`no-referrer`，不接受客户端目的 URL、不访问远端、不泄漏错误中的 locator。旧站内原站预览已退役；见[来源导航](../features/source-preview.md)。
 - 发现列表缩略图仅返回校验后 HTTPS、允许主机/子域、无凭据/非标准端口的 URL，去 query/hash；浏览器按需懒加载且 no-referrer。完整目录 canonical token 不返回列表。
 
+2026-10-29 局部核验：部分归档的 `archive.getCoverage` 使用会话读取，`archive.completeArtwork` 使用管理 mutation。客户端只提交作品 ID、期望修订 ID 和幂等键，来源地址、文件路径、哈希及补全基线由服务器冻结并复核；页脚原站入口复用已有受保护作品来源跳转。没有新增公开路由或远端阅读器，详见[部分归档规格](../features/archive-partial-coverage.md)。
+
 归档媒体诊断只允许校验过的 MIME、长度、前 32 字节十六进制头、SHA-1 和完整性标记，不收集任意响应正文。E-Hentai 换节点只解析固定 loadfail 中有界 nl，不执行网页脚本或接受任意目标 URL。
 
 ## 隐私与浏览器媒体

@@ -1,7 +1,10 @@
+import { executePartialRetirement } from './retire-partial-executor.ts'
 import { mkdir, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import {
   archiveMaintenancePayloadSchema,
+  archiveMaintenanceV1PayloadSchema,
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
   JOB_DEFINITION_VERSION,
   type ArchiveMaintenancePayload
 } from '@pixishelf/job-contracts'
@@ -29,7 +32,7 @@ import type {
   ExecutorDefinition,
   JobExecutionOutcome
 } from '@pixishelf/job-runtime'
-import { ArchiveExecutorError } from './errors.ts'
+import { ArchiveExecutorError, ArchiveMediaRecoveryRequired } from './errors.ts'
 import { ScanExecutorError } from '../scan/errors.ts'
 import {
   stagingCleanupIntentDigest,
@@ -39,7 +42,6 @@ import {
   assertStagingCleanupPaths
 } from './staging-cleanup-recovery.ts'
 
-class ArchiveMediaRecoveryRequired extends Error {}
 import {
   buildArchiveStoragePaths,
   pathExists,
@@ -53,6 +55,7 @@ const ARCHIVE_PUBLISH_ADVISORY_LOCK_ID = 7_341_902_117
 
 type ArchiveMaintenanceContext = ExecutionContext<ArchiveMaintenancePayload, EnqueuedChildJob>
 type ArchiveMaintenanceResult =
+  | { action: 'RETIRE_PARTIAL_REVISION'; revisionId: string; replacementRevisionId: string }
   | { action: 'CLEAN_STAGING'; archiveImportId: string }
   | { action: 'TRASH_ARCHIVE' | 'RESTORE_ARCHIVE'; artworkId: number }
   | { action: 'PURGE_ARCHIVE'; artworkId: number }
@@ -71,16 +74,15 @@ export function createArchiveMaintenanceExecutorRegistrations(
   dependencies: ArchiveMaintenanceExecutorDependencies
 ): ExecutorDefinition<ArchiveMaintenancePayload, ArchiveMaintenanceResult>[] {
   if (!dependencies.config.scanRoot.trim()) throw new Error('归档维护需要配置扫描根目录')
-  return [
-    {
-      jobType: 'ARCHIVE_MAINTENANCE',
-      executionLane: 'BACKGROUND_WRITER',
-      definitionVersion: JOB_DEFINITION_VERSION,
-      progressPolicy: 'STANDARD',
-      parsePayload: (payload) => archiveMaintenancePayloadSchema.parse(payload),
-      execute: (context) => executeArchiveMaintenance(context, dependencies)
-    }
-  ]
+  return [JOB_DEFINITION_VERSION, ARCHIVE_COVERAGE_DEFINITION_VERSION].map((definitionVersion) => ({
+    jobType: 'ARCHIVE_MAINTENANCE',
+    executionLane: 'BACKGROUND_WRITER',
+    definitionVersion,
+    progressPolicy: 'STANDARD',
+    parsePayload: (payload) =>
+      (definitionVersion === 1 ? archiveMaintenanceV1PayloadSchema : archiveMaintenancePayloadSchema).parse(payload),
+    execute: (context) => executeArchiveMaintenance(context, dependencies)
+  }))
 }
 
 export async function executeArchiveMaintenance(
@@ -93,6 +95,8 @@ export async function executeArchiveMaintenance(
     return executeArchiveReconcile(context, dependencies)
   }
   try {
+    if (context.payload.action === 'RETIRE_PARTIAL_REVISION')
+      return await executePartialRetirement(context, context.payload, dependencies)
     if (context.payload.action === 'CLEAN_STAGING') {
       return await executeStagingCleanup(context, context.payload, dependencies)
     }
@@ -269,7 +273,7 @@ async function prepareArtworkReconcileChild(
     await lockArchivePublication(transaction)
     const artwork = await transaction.artwork.findUnique({
       where: { id: artworkId },
-      include: { archiveRevisions: true }
+      include: { archiveRevisions: { where: { retiredAt: null } } }
     })
     if (
       !artwork ||
@@ -339,6 +343,7 @@ async function applyReconcileDecision(
   const child = await context.enqueueChild({
     type: 'ARCHIVE_MAINTENANCE',
     payload: decision.payload,
+    definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
     queuePriority: 100,
     idempotencyKey: decision.idempotencyKey
   })
@@ -367,7 +372,7 @@ async function executeArchivePurge(
     await lockArchivePublication(transaction)
     const artwork = await transaction.artwork.findUnique({
       where: { id: payload.artworkId },
-      include: { archiveRevisions: true }
+      include: { archiveRevisions: { where: { retiredAt: null } } }
     })
     if (
       !artwork ||
@@ -408,7 +413,7 @@ async function executeArchivePurge(
       await lockArchivePublication(scope.transaction)
       const artwork = await scope.transaction.artwork.findUnique({
         where: { id: payload.artworkId },
-        include: { archiveRevisions: true }
+        include: { archiveRevisions: { where: { retiredAt: null } } }
       })
       if (
         !artwork ||
@@ -716,7 +721,7 @@ async function executeArtworkMaintenance(
   >(async (transaction) => {
     const artwork = await transaction.artwork.findUnique({
       where: { id: payload.artworkId },
-      include: { archiveRevisions: true }
+      include: { archiveRevisions: { where: { retiredAt: null } } }
     })
     if (!artwork || artwork.createdVia !== 'URL_ARCHIVE' || artwork.archiveLifecycleState !== expectedState) {
       throw stateChanged('归档作品不处于待维护状态')
@@ -757,7 +762,7 @@ async function executeArtworkMaintenance(
       await lockArchivePublication(scope.transaction)
       const artwork = await scope.transaction.artwork.findUnique({
         where: { id: payload.artworkId },
-        include: { archiveRevisions: true }
+        include: { archiveRevisions: { where: { retiredAt: null } } }
       })
       if (!artwork || artwork.archiveLifecycleState !== expectedState || !artwork.deletedAt) {
         throw stateChanged('归档生命周期在完成前发生变化')

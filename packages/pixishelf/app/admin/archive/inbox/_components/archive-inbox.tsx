@@ -1,5 +1,6 @@
 'use client'
 
+import { InboxLoading } from './archive-inbox-loading'
 import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import { ArchiveSubmittedSourceLink } from './archive-submitted-source-link'
 import Link from 'next/link'
@@ -266,7 +267,8 @@ export function ArchiveInbox() {
       .slice(0, 100)
       .map((item) => ({
         itemId: item.id,
-        quality: selection.qualityById.get(item.id) ?? item.selectedQuality ?? 'ORIGINAL'
+        quality: selection.qualityById.get(item.id) ?? item.selectedQuality ?? 'ORIGINAL',
+        downloadScope: selection.downloadScopeById?.get(item.id) ?? item.downloadScope ?? 'ALL'
       }))
     if (!selected.length) return
     enqueueMutation.mutate({ idempotencyKey: idempotencyKeyFor('ENQUEUE', selected), items: selected })
@@ -446,6 +448,28 @@ export function ArchiveInbox() {
                         <SelectItem value="KEEP">统一质量</SelectItem>
                         <SelectItem value="ORIGINAL">原图</SelectItem>
                         <SelectItem value="DISPLAY">展示图</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value="KEEP"
+                    onValueChange={(value) => {
+                      if (value !== 'ALL' && value !== 'FIRST_20') return
+                      setSelection((current) => {
+                        const downloadScopeById = new Map(current.downloadScopeById)
+                        for (const id of current.selectedIds) downloadScopeById.set(id, value)
+                        return { ...current, downloadScopeById }
+                      })
+                    }}
+                  >
+                    <SelectTrigger size="sm" aria-label="统一下载范围">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="KEEP">统一下载范围</SelectItem>
+                        <SelectItem value="ALL">全部</SelectItem>
+                        <SelectItem value="FIRST_20">前20张</SelectItem>
                       </SelectGroup>
                     </SelectContent>
                   </Select>
@@ -677,6 +701,7 @@ function LocatedIntakeItemDialog({
               <QueueDatum label="更新时间" value={formatTimestamp(item.updatedAt)} />
               <QueueDatum label="解析尝试" value={item.attempts} />
               <QueueDatum label="页面数" value={item.pageCount ?? '—'} />
+              <QueueDatum label="下载范围" value={item.downloadScope === 'FIRST_20' ? '前20张' : '全部'} />
               <QueueDatum label="加入后" value={item.downloadMode === 'AUTO' ? '自动下载' : '仅解析'} />
               <QueueDatum label="下载画质" value={item.selectedQuality === 'DISPLAY' ? '展示图' : '原图'} />
             </dl>
@@ -1132,26 +1157,6 @@ function LaneBadge({ status }: { status: 'RUNNING' | 'READY' | 'DRAINING' | 'ERR
     status === 'ERROR' ? 'destructive' : status === 'DRAINING' ? 'warning' : status === 'RUNNING' ? 'info' : 'success'
   const label = { RUNNING: '运行中', READY: '就绪', DRAINING: '停止领取', ERROR: '异常' }[status]
   return <Badge variant={variant}>{label}</Badge>
-}
-
-function InboxLoading() {
-  return (
-    <div className="flex flex-col gap-3 rounded-lg border p-4">
-      {Array.from({ length: 5 }, (_, index) => (
-        <div
-          key={index}
-          className="grid grid-cols-[5rem_1fr_7rem] items-center gap-4 border-b pb-3 last:border-b-0 last:pb-0"
-        >
-          <Skeleton className="h-4 w-14" />
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-4 w-2/3" />
-            <Skeleton className="h-3 w-1/2" />
-          </div>
-          <Skeleton className="h-6 w-20" />
-        </div>
-      ))}
-    </div>
-  )
 }
 
 function formatDuration(item: IntakeItem) {

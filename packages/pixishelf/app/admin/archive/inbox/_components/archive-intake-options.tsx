@@ -18,15 +18,17 @@ import type { ArchiveDownloadMode, ArchiveQuality } from '../../_components/arch
 export interface ArchiveIntakeOptionsValue {
   downloadMode: ArchiveDownloadMode
   quality: ArchiveQuality
+  downloadScope?: 'ALL' | 'FIRST_20'
 }
 
 export const DEFAULT_ARCHIVE_INTAKE_OPTIONS: ArchiveIntakeOptionsValue = {
   downloadMode: 'AUTO',
-  quality: 'ORIGINAL'
+  quality: 'ORIGINAL',
+  downloadScope: 'ALL'
 }
 
 export function archiveIntakeOptionsSummary(value: ArchiveIntakeOptionsValue) {
-  return `${value.downloadMode === 'AUTO' ? '自动下载' : '仅解析'} · ${value.quality === 'ORIGINAL' ? '原图' : '展示图'}`
+  return `${value.downloadMode === 'AUTO' ? '自动下载' : '仅解析'} · ${value.quality === 'ORIGINAL' ? '原图' : '展示图'} · ${value.downloadScope === 'FIRST_20' ? '前20张' : '全部'}`
 }
 
 export function ArchiveIntakeOptionsDialog({
@@ -59,7 +61,7 @@ export function ArchiveIntakeOptionsDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>加入收件箱设置</DialogTitle>
-          <DialogDescription>这里的模式与画质会用于当前勾选和单项加入操作。</DialogDescription>
+          <DialogDescription>这里的模式、画质和下载范围会用于当前勾选和单项加入操作。</DialogDescription>
         </DialogHeader>
         <ArchiveIntakeOptions value={value} onChange={onChange} disabled={disabled} />
         <DialogFooter>
@@ -128,6 +130,23 @@ export function ArchiveIntakeOptions({
           </ToggleGroup>
         </Field>
       </FieldGroup>
+      <Field data-disabled={disabled || undefined}>
+        <FieldLabel id={`${id}-scope`}>下载范围</FieldLabel>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          value={value.downloadScope ?? 'ALL'}
+          onValueChange={(downloadScope) => {
+            if (downloadScope === 'ALL' || downloadScope === 'FIRST_20') onChange({ ...value, downloadScope })
+          }}
+          disabled={disabled}
+          aria-labelledby={`${id}-scope`}
+        >
+          <ToggleGroupItem value="ALL">全部</ToggleGroupItem>
+          <ToggleGroupItem value="FIRST_20">前20张</ToggleGroupItem>
+        </ToggleGroup>
+        <FieldDescription>按原站顺序下载；少于20张时全部下载。之后可以在作品详情补全。</FieldDescription>
+      </Field>
       <FieldDescription id={`${id}-description`}>
         {value.downloadMode === 'AUTO'
           ? '新作品解析后自动下载；已有作品有变化时等待确认，未变化则跳过。'

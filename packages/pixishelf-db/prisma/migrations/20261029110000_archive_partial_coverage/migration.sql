@@ -1,0 +1,4 @@
+CREATE TYPE "ArchiveDownloadScope" AS ENUM ('ALL', 'FIRST_20');
+ALTER TABLE "archive_intake_items" ADD COLUMN "downloadScope" "ArchiveDownloadScope" NOT NULL DEFAULT 'ALL', ADD COLUMN "completionBaseRevisionId" TEXT, ADD COLUMN "completionSnapshot" JSONB;
+ALTER TABLE "archive_imports" ADD COLUMN "downloadScope" "ArchiveDownloadScope" NOT NULL DEFAULT 'ALL', ADD COLUMN "sourceTotalItems" INTEGER, ADD COLUMN "sourcePlanDigest" VARCHAR(64), ADD COLUMN "completionBaseRevisionId" TEXT, ADD COLUMN "completionSnapshot" JSONB;
+ALTER TABLE "archive_revisions" ADD COLUMN "downloadScope" "ArchiveDownloadScope" NOT NULL DEFAULT 'ALL', ADD COLUMN "sourceTotalItems" INTEGER, ADD COLUMN "sourcePlanDigest" VARCHAR(64), ADD COLUMN "retirementRequestedAt" TIMESTAMP(3), ADD COLUMN "retirementStartedAt" TIMESTAMP(3), ADD COLUMN "retirementSnapshot" JSONB, ADD COLUMN "retiredAt" TIMESTAMP(3), ADD COLUMN "replacedByRevisionId" TEXT;

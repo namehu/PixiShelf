@@ -8,7 +8,7 @@ import {
   type Prisma
 } from '@pixishelf/db'
 import { randomUUID } from 'node:crypto'
-import { archiveMaintenancePayloadSchema, JOB_DEFINITION_VERSION } from '@pixishelf/job-contracts'
+import { archiveMaintenancePayloadSchema, ARCHIVE_COVERAGE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import type { PrismaClientSingleton } from '@/lib/prisma'
 import { prisma } from '@/lib/prisma'
 import { writeJobEvent } from '@/services/background-task/job-event-service'
@@ -114,6 +114,7 @@ export async function requestArchiveArtworkMaintenanceInTransaction(
     where: { id: input.artworkId },
     include: {
       archiveRevisions: {
+        where: { retiredAt: null },
         include: {
           externalRef: true,
           archiveImport: { select: { systemJobId: true } }
@@ -236,7 +237,7 @@ export async function requestArchiveArtworkMaintenanceInTransaction(
       id: jobId,
       type: 'ARCHIVE_MAINTENANCE',
       executionLane: 'BACKGROUND_WRITER',
-      definitionVersion: JOB_DEFINITION_VERSION,
+      definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource: input.requestedByUserId === null ? 'SYSTEM' : 'MANUAL',
       requestedByUserId: input.requestedByUserId,
@@ -307,8 +308,14 @@ export async function requestArchiveStagingCleanup(
     })
     if (publicationClaim) throw stateConflict('归档发布仍有未解决的媒体写入，请先恢复原发布任务，再清理暂存文件')
 
-    const cleanupClaim = await findUnresolvedArchiveStagingCleanup(tx as unknown as Prisma.TransactionClient, archiveImport.id)
-    if (cleanupClaim) throw stateConflict(`原暂存清理仍有未解决声明，请通过原任务恢复入口续行（${cleanupClaim.jobId ?? cleanupClaim.sessionId}）`)
+    const cleanupClaim = await findUnresolvedArchiveStagingCleanup(
+      tx as unknown as Prisma.TransactionClient,
+      archiveImport.id
+    )
+    if (cleanupClaim)
+      {throw stateConflict(
+        `原暂存清理仍有未解决声明，请通过原任务恢复入口续行（${cleanupClaim.jobId ?? cleanupClaim.sessionId}）`
+      )}
 
     const activeJob = await findActiveStagingCleanupJob(tx, archiveImport.id)
     if (activeJob) return { archiveImportId: archiveImport.id, jobId: activeJob.id, reused: true }
@@ -337,7 +344,7 @@ export async function requestArchiveStagingCleanup(
         id: jobId,
         type: 'ARCHIVE_MAINTENANCE',
         executionLane: 'BACKGROUND_WRITER',
-        definitionVersion: JOB_DEFINITION_VERSION,
+        definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
         status: 'PENDING',
         triggerSource: input.requestedByUserId === null ? 'SYSTEM' : 'MANUAL',
         requestedByUserId: input.requestedByUserId,
@@ -391,7 +398,7 @@ export async function requestArchivePurgeMaintenance(
     const artwork = await tx.artwork.findUnique({
       where: { id: input.artworkId },
       include: {
-        archiveRevisions: { include: { archiveImport: { select: { systemJobId: true } } } }
+        archiveRevisions: { where: { retiredAt: null }, include: { archiveImport: { select: { systemJobId: true } } } }
       }
     })
     if (!artwork || artwork.createdVia !== 'URL_ARCHIVE') {
@@ -434,7 +441,7 @@ export async function requestArchivePurgeMaintenance(
         id: jobId,
         type: 'ARCHIVE_MAINTENANCE',
         executionLane: 'BACKGROUND_WRITER',
-        definitionVersion: JOB_DEFINITION_VERSION,
+        definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
         status: 'PENDING',
         triggerSource: input.requestedByUserId === null ? 'SYSTEM' : 'MANUAL',
         requestedByUserId: input.requestedByUserId,

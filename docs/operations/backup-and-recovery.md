@@ -107,6 +107,8 @@ pg_restore --verbose --no-owner --no-privileges \
 | 替换/上传中断    | 保留 `.replace-write-lock`、`.bak_session` 与 manifest；按[领域恢复](./runbooks/domain-recovery.md#上传与替换中断)核实，禁止按 mtime/超时盲清 |
 | 纯数据库关系补全 | 仅在专用手册明确文件零变化且没有其他并发写入时，才可使用该操作的数据库检查点恢复                                                              |
 
+2026-10-29 局部核验：部分归档补全后的退休标记、替代关系、媒体写入声明和删除检查点须随数据库保存。已退休旧修订的目录可以合法缺失，旧程序的“全部 revision 目录存在”假设不再成立；不能只换旧镜像或清除标记。成组回退与故障保全见[部分归档升级与恢复](./runbooks/archive-partial-coverage.md)。
+
 具体删除、创作者合并、根标记、来源同步、阅读与批次恢复见[领域恢复手册](./runbooks/domain-recovery.md)。破坏性升级前的附加条件见[专项升级门禁](./runbooks/schema-and-capability-upgrades.md)。
 
 - 下一套备份验证成功前不得删除最后一套已验证备份；发布检查点至少保留到版本稳定、回退窗口关闭及下一次恢复演练通过。

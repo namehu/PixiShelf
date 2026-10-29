@@ -6,7 +6,8 @@ import {
   archiveResolveItemPayloadSchema,
   archiveUploaderIdentityLockKey,
   archiveUploaderUrlLockKey,
-  JOB_DEFINITION_VERSION
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  archiveDownloadScopeSchema
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient, lockCreatorCatalog } from '@pixishelf/db'
 import { z } from 'zod'
@@ -53,7 +54,8 @@ export const createArchiveIntakeSchema = z
     idempotencyKey: z.string().trim().min(1).max(180),
     urls: z.array(z.string().max(2_048)).min(1).max(INTAKE_CREATE_LIMIT),
     downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
-    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL')
+    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL'),
+    downloadScope: archiveDownloadScopeSchema.default('ALL')
   })
   .strict()
 
@@ -133,7 +135,8 @@ export async function createArchiveIntakeSubmissionInTransaction(
   const requestHash = archiveRequestFingerprint({
     urls: rawUrls,
     downloadMode: parsed.downloadMode,
-    quality: parsed.quality
+    quality: parsed.quality,
+    downloadScope: parsed.downloadScope
   })
 
   const identities = new Map<string, { providerKey: string; externalId: string }>()
@@ -259,6 +262,7 @@ export async function createArchiveIntakeSubmissionInTransaction(
         duplicateOfItemId: duplicate.id,
         downloadMode: parsed.downloadMode,
         selectedQuality: parsed.quality,
+        downloadScope: parsed.downloadScope,
         status: 'DUPLICATE',
         retryable: false,
         finishedAt: timestamp,
@@ -287,7 +291,8 @@ export async function createArchiveIntakeSubmissionInTransaction(
       timestamp,
       triggerSource: 'MANUAL',
       downloadMode: parsed.downloadMode,
-      quality: parsed.quality
+      quality: parsed.quality,
+      downloadScope: parsed.downloadScope
     })
     jobs.push(records.job)
     intakeItems.push(records.item)
@@ -378,7 +383,14 @@ export async function replaceArchiveIntakeItem(
 
     const original = await transaction.archiveIntakeItem.findUnique({
       where: { id: parsed.itemId },
-      select: { id: true, status: true, submittedUrl: true, downloadMode: true, selectedQuality: true }
+      select: {
+        id: true,
+        status: true,
+        submittedUrl: true,
+        downloadMode: true,
+        selectedQuality: true,
+        downloadScope: true
+      }
     })
     if (!original) throw new ArchiveError('STATE_CONFLICT', '原失败收件项目不存在')
     if (original.status !== 'FAILED') {
@@ -420,6 +432,7 @@ export async function replaceArchiveIntakeItem(
         supersedesItemId: original.id,
         downloadMode: original.downloadMode,
         quality: original.selectedQuality,
+        downloadScope: original.downloadScope,
         timestamp
       })
     } else if (hasCapacity) {
@@ -434,6 +447,7 @@ export async function replaceArchiveIntakeItem(
         supersedesItemId: original.id,
         downloadMode: original.downloadMode,
         quality: original.selectedQuality,
+        downloadScope: original.downloadScope,
         timestamp,
         triggerSource: 'RETRY'
       })
@@ -450,6 +464,7 @@ export async function replaceArchiveIntakeItem(
         supersedesItemId: original.id,
         downloadMode: original.downloadMode,
         quality: original.selectedQuality,
+        downloadScope: original.downloadScope,
         timestamp
       })
     }
@@ -481,6 +496,7 @@ async function createDuplicateAuditItem(
     supersedesItemId?: string
     downloadMode: 'AUTO' | 'MANUAL'
     quality: 'ORIGINAL' | 'DISPLAY'
+    downloadScope: 'ALL' | 'FIRST_20'
     timestamp: Date
   }
 ) {
@@ -492,6 +508,7 @@ async function createDuplicateAuditItem(
       normalizedUrlHash: input.normalizedUrlHash,
       downloadMode: input.downloadMode,
       selectedQuality: input.quality,
+      downloadScope: input.downloadScope,
       status: 'DUPLICATE',
       duplicateOfItemId: input.duplicateOfItemId,
       supersedesItemId: input.supersedesItemId,
@@ -513,6 +530,7 @@ async function createCapacityRejectedAuditItem(
     supersedesItemId: string
     downloadMode: 'AUTO' | 'MANUAL'
     quality: 'ORIGINAL' | 'DISPLAY'
+    downloadScope: 'ALL' | 'FIRST_20'
     timestamp: Date
   }
 ) {
@@ -524,6 +542,7 @@ async function createCapacityRejectedAuditItem(
       normalizedUrlHash: input.normalizedUrlHash,
       downloadMode: input.downloadMode,
       selectedQuality: input.quality,
+      downloadScope: input.downloadScope,
       status: 'FAILED',
       supersedesItemId: input.supersedesItemId,
       finishedAt: input.timestamp,
@@ -546,6 +565,7 @@ function prepareQueuedIntakeItem(input: {
   supersedesItemId?: string
   downloadMode: 'AUTO' | 'MANUAL'
   quality: 'ORIGINAL' | 'DISPLAY'
+  downloadScope: 'ALL' | 'FIRST_20'
   timestamp: Date
   triggerSource: 'MANUAL' | 'RETRY'
 }) {
@@ -553,7 +573,7 @@ function prepareQueuedIntakeItem(input: {
     id: input.jobId,
     type: 'ARCHIVE_RESOLVE_ITEM',
     executionLane: 'ARCHIVE_RESOLVE',
-    definitionVersion: JOB_DEFINITION_VERSION,
+    definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
     status: 'PENDING',
     triggerSource: input.triggerSource,
     requestedByUserId: input.requestedByUserId,
@@ -573,6 +593,7 @@ function prepareQueuedIntakeItem(input: {
     normalizedUrlHash: input.normalizedUrlHash,
     downloadMode: input.downloadMode,
     selectedQuality: input.quality,
+    downloadScope: input.downloadScope,
     status: 'QUEUED',
     currentSystemJobId: input.jobId,
     supersedesItemId: input.supersedesItemId,
@@ -929,7 +950,7 @@ async function retryIntakeItem(
       id: jobId,
       type: 'ARCHIVE_RESOLVE_ITEM',
       executionLane: 'ARCHIVE_RESOLVE',
-      definitionVersion: JOB_DEFINITION_VERSION,
+      definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource: 'RETRY',
       requestedByUserId,
@@ -1055,6 +1076,7 @@ const intakeItemWireSelect = {
   activeArchiveImportId: true,
   selectedQuality: true,
   downloadMode: true,
+  downloadScope: true,
   resolvedAt: true,
   expiresAt: true,
   archiveImportId: true,

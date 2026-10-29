@@ -52,3 +52,41 @@ export const archiveTransferTelemetrySchema = z.object({
 export type ArchiveTransferTelemetry = z.infer<typeof archiveTransferTelemetrySchema>
 export type ArchiveTransferItem = z.infer<typeof archiveTransferItemSchema>
 export type ArchiveTransferItemPhase = z.infer<typeof archiveTransferItemPhaseSchema>
+
+export const ARCHIVE_COVERAGE_DEFINITION_VERSION = 2 as const
+export const archiveDownloadScopeSchema = z.enum(['ALL', 'FIRST_20'])
+export type ArchiveDownloadScope = z.infer<typeof archiveDownloadScopeSchema>
+
+// Frozen at the authenticated completion request; paths and media identities never come from the client.
+export const archiveCompletionSnapshotSchema = z
+  .object({
+    artworkId: z.number().int().positive(),
+    revisionId: z.string().min(1),
+    archivePath: z.string().min(1),
+    metadataHash: z.string().min(1),
+    sourcePlanDigest: z.string().length(64),
+    sourceTotalItems: z.number().int().positive(),
+    mediaRevision: z.number().int().nonnegative(),
+    quality: z.enum(['ORIGINAL', 'DISPLAY']),
+    media: z
+      .array(
+        z
+          .object({
+            imageId: z.number().int().positive(),
+            index: z.number().int().nonnegative(),
+            path: z.string().min(1),
+            imagePath: z.string().min(1),
+            contentRevision: z.string().regex(/^\d+$/),
+            sha256: z.string().length(64),
+            size: z.string().regex(/^\d+$/),
+            width: z.number().int().nullable(),
+            height: z.number().int().nullable(),
+            mimeType: z.string().nullable()
+          })
+          .strict()
+      )
+      .min(1)
+      .max(20)
+  })
+  .strict()
+export type ArchiveCompletionSnapshot = z.infer<typeof archiveCompletionSnapshotSchema>

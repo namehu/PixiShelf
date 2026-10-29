@@ -1124,6 +1124,11 @@ model DerivedMediaGcEntry {
 }
 
 model ArchiveImport {
+  downloadScope ArchiveDownloadScope @default(ALL)
+  sourceTotalItems Int?
+  sourcePlanDigest String? @db.VarChar(64)
+  completionBaseRevisionId String?
+  completionSnapshot Json?
   /// Server-frozen dedup source proof; null is legacy/unproven, never generation zero.
   dedupSourceSnapshot Json?
   id                 String              @id @default(cuid())
@@ -1236,6 +1241,9 @@ model ArchiveIntakeSubmission {
 }
 
 model ArchiveIntakeItem {
+  downloadScope ArchiveDownloadScope @default(ALL)
+  completionBaseRevisionId String?
+  completionSnapshot Json?
   /// Server-frozen dedup source proof; null is legacy/unproven, never generation zero.
   dedupSourceSnapshot Json?
   id                    String                       @id @default(cuid())
@@ -1694,6 +1702,14 @@ model ArchiveDeletedIdentity {
 }
 
 model ArchiveRevision {
+  downloadScope ArchiveDownloadScope @default(ALL)
+  sourceTotalItems Int?
+  sourcePlanDigest String? @db.VarChar(64)
+  retirementRequestedAt DateTime?
+  retirementStartedAt DateTime?
+  retirementSnapshot Json?
+  retiredAt DateTime?
+  replacedByRevisionId String?
   id              String             @id @default(cuid())
   artworkId       Int
   externalRefId   String
@@ -2504,6 +2520,11 @@ enum ArchiveImportItemStatus {
   DOWNLOADING
   COMPLETED
   FAILED
+}
+
+enum ArchiveDownloadScope {
+  ALL
+  FIRST_20
 }
 
 enum ArchiveQuality {

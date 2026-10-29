@@ -216,6 +216,7 @@ export async function triggerScheduledTaskNow(
     const job = await enqueueSingletonManualJob(
       {
         type: definition.type,
+        definitionVersion: definition.definitionVersion,
         triggerSource: 'MANUAL',
         requestedByUserId: options.requestedByUserId,
         payload: definition.payload,

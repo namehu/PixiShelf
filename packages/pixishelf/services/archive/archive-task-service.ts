@@ -1,3 +1,4 @@
+import { ARCHIVE_COVERAGE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import { lockCreatorCatalog } from '@pixishelf/db'
 import { retryUnresolvedArchivePublication } from './archive-publication-retry'
 import {
@@ -250,7 +251,7 @@ async function applyTaskAction(
         id: nextJobId,
         type: phase === 'PUBLISH' ? 'ARCHIVE_PUBLISH' : 'ARCHIVE_DOWNLOAD',
         executionLane: phase === 'PUBLISH' ? 'BACKGROUND_WRITER' : 'ARCHIVE_DOWNLOAD',
-        definitionVersion: 1,
+        definitionVersion: task.sourceTotalItems == null ? 1 : ARCHIVE_COVERAGE_DEFINITION_VERSION,
         status: 'PENDING',
         triggerSource:
           task.origin === 'AUTO' ? 'SYSTEM' : task.origin === 'MANUAL' ? 'MANUAL' : task.systemJob.triggerSource,
