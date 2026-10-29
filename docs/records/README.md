@@ -6,6 +6,10 @@
 
 ## 功能与用户流程
 
+归档下载：[2026-10-29 批量保存、暂停取消与重启续传](./features/archive-download-batches-2026-10-29.md)。
+
+对应环境：[2026-10-29 本地开发环境启用](./operations/archive-download-batches-local-upgrade-2026-10-29.md)。
+
 Android：[2026-10-28 核心阅读页面迁移](./features/android-core-parity-2026-10-28.md)。
 
 去重文档：[2026-10-28 当前入口与六张图整理](./artwork-deduplication-current-docs-2026-10-28.md)。

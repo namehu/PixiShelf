@@ -35,6 +35,7 @@ import { Prisma } from '@pixishelf/db'
 import type {
   EnqueuedChildJob,
   ExecutionContext,
+  ExecutionProgressUpdate,
   ExecutorDefinition,
   FencedExecutionTransaction,
   QueueSqlExecutor,
@@ -42,6 +43,7 @@ import type {
 } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
 import { ArchiveTransferMeter, startArchiveTransferReporter } from './transfer-meter.ts'
+import { ArchiveDownloadCheckpoints, DOWNLOAD_SAVE_INTERVAL_MS } from './download-checkpoints.ts'
 import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts'
 import { publishArchiveImportInTransaction } from './publisher.ts'
 import {
@@ -133,6 +135,7 @@ export async function executeArchiveImport(
   let finalizationStarted = false
   let inheritedDiagnosticsComplete = true
   const archiveImportId = context.payload.archiveImportId
+  let checkpoints: ArchiveDownloadCheckpoints | undefined
 
   try {
     throwIfAborted(context.signal)
@@ -154,25 +157,26 @@ export async function executeArchiveImport(
       completedItems: archiveImport.completedItems,
       failedItems: archiveImport.failedItems
     })
+    const saves = new ArchiveDownloadCheckpoints(context, archiveImport)
+    checkpoints = saves
+    const progressUpdate = () => {
+      const telemetry = transferMeter.sample(now())
+      return {
+        progress: archiveProgress(telemetry.completedItems, telemetry.totalItems),
+        stage: 'DOWNLOADING',
+        message: `已下载 ${telemetry.completedItems}/${telemetry.totalItems}`,
+        data: telemetry,
+        persistenceMode: 'REALTIME' as const,
+        forcePersistence: true
+      }
+    }
     const transferReporter = startArchiveTransferReporter({
       meter: transferMeter,
       controller,
       now,
-      report: (telemetry) =>
-        context.progress({
-          progress: archiveProgress(telemetry.completedItems, telemetry.totalItems),
-          message: `已下载 ${telemetry.completedItems}/${telemetry.totalItems}`,
-          data: telemetry,
-          persistenceMode: 'REALTIME'
-        }),
-      flush: (telemetry) =>
-        context.progress({
-          progress: archiveProgress(telemetry.completedItems, telemetry.totalItems),
-          message: `已下载 ${telemetry.completedItems}/${telemetry.totalItems}`,
-          data: telemetry,
-          persistenceMode: 'REALTIME',
-          forcePersistence: true
-        })
+      intervalMs: DOWNLOAD_SAVE_INTERVAL_MS,
+      report: () => saves.save(progressUpdate),
+      flush: () => saves.save(progressUpdate)
     })
 
     try {
@@ -186,7 +190,8 @@ export async function executeArchiveImport(
         const results = await runConcurrentRound(roundItems, mediaConcurrency, async (item) => {
           try {
             return await downloadArchiveItem({
-              context,
+              checkpoints: saves,
+              progressUpdate,
               dependencies,
               archiveImport,
               item,
@@ -196,6 +201,7 @@ export async function executeArchiveImport(
               mediaConcurrency,
               transferMeter,
               maxMediaAttempts,
+              executionToken: context.job.executionToken,
               now
             })
           } catch (error) {
@@ -209,13 +215,6 @@ export async function executeArchiveImport(
         const primaryError = selectPrimaryError(controller.signal.reason, results.rejected)
         if (primaryError) throw primaryError
 
-        const counts = await synchronizeArchiveCounts(context, archiveImportId)
-        await context.progress({
-          progress: archiveProgress(counts.completed, archiveImport.totalItems),
-          stage: 'DOWNLOADING',
-          message: `归档下载第 ${round}/${maxMediaAttempts} 轮：${counts.completed}/${archiveImport.totalItems}`,
-          data: { completed: counts.completed, failed: counts.failed, retrying: retryItems.length }
-        })
         if (retryItems.length === 0 || round >= maxMediaAttempts) break
         await sleep(backoffWithJitter(round, random), controller.signal)
         roundItems = retryItems.sort((left, right) => left.pageIndex - right.pageIndex)
@@ -289,7 +288,8 @@ export async function executeArchiveImport(
       error,
       dependencies,
       now(),
-      inheritedDiagnosticsComplete
+      inheritedDiagnosticsComplete,
+      checkpoints
     )
   }
 }
@@ -424,7 +424,9 @@ class ArchiveCleanupRequestedError extends ArchiveExecutorError {
 }
 
 async function downloadArchiveItem(input: {
-  context: ArchiveExecutorContext
+  checkpoints: ArchiveDownloadCheckpoints
+  progressUpdate: () => ExecutionProgressUpdate
+  executionToken: string
   dependencies: ArchiveExecutorDependencies
   archiveImport: LoadedArchiveImport
   item: ArchiveMediaItem
@@ -438,34 +440,11 @@ async function downloadArchiveItem(input: {
 }): Promise<ItemAttemptResult> {
   throwIfAborted(input.signal)
   const attempt = input.item.attempts + 1
-  await input.context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
-    await assertArchiveDownloadGeneration(transaction, {
-      archiveImport: input.archiveImport,
-      jobId: input.context.job.id,
-      token: input.context.job.executionToken
-    })
-    const claimed = await transaction.archiveImportItem.updateMany({
-      where: {
-        id: input.item.id,
-        archiveImportId: input.archiveImport.id,
-        status: 'PENDING',
-        attempts: input.item.attempts
-      },
-      data: {
-        status: 'DOWNLOADING',
-        attempts: { increment: 1 },
-        lastDownloadUrl: null,
-        lastDownloadAt: null,
-        lastDownloadAttempt: null,
-        startedAt: input.now(),
-        finishedAt: null,
-        errorCode: null,
-        errorMessage: null,
-        errorStage: null,
-        remoteHost: null
-      }
-    })
-    if (claimed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档媒体检查点已变化')
+  input.checkpoints.set(input.item.id, {
+    status: 'DOWNLOADING', attempts: attempt,
+    lastDownloadUrl: null, lastDownloadAt: null, lastDownloadAttempt: null,
+    startedAt: input.now(), finishedAt: null,
+    errorCode: null, errorMessage: null, errorStage: null, remoteHost: null
   })
   input.transferMeter.startItem({
     itemId: input.item.id,
@@ -504,22 +483,8 @@ async function downloadArchiveItem(input: {
     try {
       const downloadUrl = observedDownloadUrl(remote.downloadUrl)
       if (downloadUrl !== null) {
-        await input.context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
-          await assertArchiveDownloadGeneration(transaction, {
-            archiveImport: input.archiveImport,
-            jobId: input.context.job.id,
-            token: input.context.job.executionToken
-          })
-          const observed = await transaction.archiveImportItem.updateMany({
-            where: {
-              id: input.item.id,
-              archiveImportId: input.archiveImport.id,
-              status: 'DOWNLOADING',
-              attempts: attempt
-            },
-            data: { lastDownloadUrl: downloadUrl, lastDownloadAt: input.now(), lastDownloadAttempt: attempt }
-          })
-          if (observed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档媒体下载响应检查点已变化')
+        input.checkpoints.set(input.item.id, {
+          lastDownloadUrl: downloadUrl, lastDownloadAt: input.now(), lastDownloadAttempt: attempt
         })
       }
       throwIfAborted(input.signal)
@@ -540,7 +505,7 @@ async function downloadArchiveItem(input: {
         ...(input.dependencies.config.maxMediaBytes === undefined
           ? {}
           : { maxBytes: input.dependencies.config.maxMediaBytes }),
-        partialKey: input.context.job.executionToken,
+        partialKey: input.executionToken,
         onChunk: (byteLength) => input.transferMeter.addChunk(input.item.id, byteLength),
         onStreamComplete: () => input.transferMeter.markVerifying(input.item.id)
       })
@@ -549,50 +514,16 @@ async function downloadArchiveItem(input: {
       if (!remote.stream.destroyed) remote.stream.destroy()
     }
     mediaStored = true
-    const completedItems = await input.context.mutateInTransaction<ArchiveTransaction, number>(async (transaction) => {
-      await assertArchiveDownloadGeneration(transaction, {
-        archiveImport: input.archiveImport,
-        jobId: input.context.job.id,
-        token: input.context.job.executionToken
-      })
-      const completed = await transaction.archiveImportItem.updateMany({
-        where: {
-          id: input.item.id,
-          archiveImportId: input.archiveImport.id,
-          status: 'DOWNLOADING',
-          attempts: attempt
-        },
-        data: {
-          status: 'COMPLETED',
-          stagedPath: stored.relativePath,
-          stagedGenerationPath: input.archiveImport.stagingPath,
-          byteCount: stored.byteCount,
-          mimeType: stored.mimeType,
-          quality: remote.quality,
-          width: stored.width,
-          height: stored.height,
-          sha256: stored.sha256,
-          errorCode: null,
-          errorMessage: null,
-          errorStage: null,
-          remoteHost: null,
-          finishedAt: input.now()
-        }
-      })
-      if (completed.count !== 1) throw new ArchiveExecutorError('STATE_CONFLICT', '归档媒体完成状态已变化')
-      const aggregate = await transaction.archiveImport.update({
-        where: { id: input.archiveImport.id },
-        data: { completedItems: { increment: 1 } },
-        select: { completedItems: true }
-      })
-      return aggregate.completedItems
+    input.checkpoints.set(input.item.id, {
+      status: 'COMPLETED', stagedPath: stored.relativePath,
+      stagedGenerationPath: input.archiveImport.stagingPath,
+      byteCount: stored.byteCount, mimeType: stored.mimeType, quality: remote.quality,
+      width: stored.width, height: stored.height, sha256: stored.sha256,
+      errorCode: null, errorMessage: null, errorStage: null, remoteHost: null,
+      finishedAt: input.now()
     })
     input.transferMeter.complete(input.item.id, stored.byteCount)
-    await input.context.progress({
-      progress: archiveProgress(completedItems, input.archiveImport.totalItems),
-      stage: 'DOWNLOADING',
-      message: `已下载 ${completedItems}/${input.archiveImport.totalItems}`
-    })
+    await input.checkpoints.saveIfFull(input.progressUpdate)
     return { kind: 'COMPLETED' }
   } catch (error) {
     const classified = toArchiveExecutorError(error)
@@ -603,48 +534,18 @@ async function downloadArchiveItem(input: {
     const retry = isRetryableItemFailure(classified) && attempt < input.maxMediaAttempts
     const terminalItemFailure = !retry && !classified.pause
     input.transferMeter.fail(input.item.id, terminalItemFailure)
-    await input.context.mutateInTransaction<ArchiveTransaction>(async (transaction) => {
-      const updated = await transaction.archiveImportItem.updateMany({
-        where: {
-          id: input.item.id,
-          archiveImportId: input.archiveImport.id,
-          status: 'DOWNLOADING',
-          attempts: attempt
-        },
-        data: {
-          status: terminalItemFailure ? 'FAILED' : 'PENDING',
-          errorCode: classified.code,
-          errorMessage: classified.message,
-          errorStage: classified.stage,
-          remoteHost: classified.remoteHost,
-          finishedAt: terminalItemFailure ? input.now() : null
-        }
-      })
-      if (updated.count !== 1) {
-        throw new ArchiveExecutorError('STATE_CONFLICT', '归档媒体失败检查点已变化')
-      }
-      if (terminalItemFailure) {
-        await input.context.recordDiagnostic?.(transaction, {
-          key: `archive-item:${input.item.id}`,
-          scope: 'ITEM',
-          targetType: 'ARCHIVE_MEDIA',
-          targetId: input.item.id,
-          targetLabel: `第 ${input.item.pageIndex + 1} 页 · ${input.item.expectedFilename}`,
-          stage: classified.stage ?? 'DOWNLOADING',
-          code: classified.code,
-          message: classified.message,
-          error: classified,
-          remoteHost: classified.remoteHost,
-          httpStatus: classified.httpStatus,
-          itemAttempt: attempt
-        })
-        await transaction.archiveImport.update({
-          where: { id: input.archiveImport.id },
-          data: { failedItems: { increment: 1 } },
-          select: { failedItems: true }
-        })
-      }
-    })
+    input.checkpoints.set(input.item.id, {
+      status: terminalItemFailure ? 'FAILED' : 'PENDING',
+      errorCode: classified.code, errorMessage: classified.message,
+      errorStage: classified.stage, remoteHost: classified.remoteHost,
+      finishedAt: terminalItemFailure ? input.now() : null
+    }, terminalItemFailure ? {
+      key: `archive-item:${input.item.id}`, scope: 'ITEM', targetType: 'ARCHIVE_MEDIA',
+      targetId: input.item.id, targetLabel: `第 ${input.item.pageIndex + 1} 页 · ${input.item.expectedFilename}`,
+      stage: classified.stage ?? 'DOWNLOADING', code: classified.code, message: classified.message,
+      error: classified, remoteHost: classified.remoteHost, httpStatus: classified.httpStatus, itemAttempt: attempt
+    } : undefined)
+    await input.checkpoints.saveIfFull(input.progressUpdate)
     if (classified.pause || isTaskStoppingFailure(classified)) throw classified
     return retry ? { kind: 'RETRY', item: { ...input.item, attempts: attempt } } : { kind: 'FAILED' }
   }
@@ -675,8 +576,22 @@ async function handleArchiveExecutionFailure(
   error: unknown,
   dependencies: ArchiveExecutorDependencies,
   now: Date,
-  diagnosticComplete = true
+  diagnosticComplete = true,
+  checkpoints?: ArchiveDownloadCheckpoints
 ): Promise<JobExecutionOutcome<ArchiveExecutionResult>> {
+  if (checkpoints) {
+    const finalize = context.finalizeInTransaction
+    context = {
+      ...context,
+      finalizeInTransaction: <TTransaction extends QueueSqlExecutor>(
+        operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<void>
+      ) =>
+        finalize<TTransaction>(async (scope) => {
+          await checkpoints.saveOnStop(scope.transaction as unknown as ArchiveTransaction)
+          return operation(scope)
+        })
+    }
+  }
   const interruption = interruptionReason(context.signal.reason)
   if (context.signal.aborted && interruption === 'CANCEL_REQUESTED') {
     return context.finalizeInTransaction<ArchiveTransaction>(async (scope) => {

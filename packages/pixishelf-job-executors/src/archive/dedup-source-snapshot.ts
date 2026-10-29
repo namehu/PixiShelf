@@ -80,6 +80,7 @@ export async function assertArchiveDownloadGeneration(
     archiveImport: ArchiveSourceProofOwner & { id: string }
     jobId: string
     token: string
+    stopping?: boolean
   }
 ) {
   await assertArchiveSourceSnapshot(transaction, input.archiveImport)
@@ -89,13 +90,13 @@ export async function assertArchiveDownloadGeneration(
     !current ||
     current.systemJobId !== input.jobId ||
     current.phase !== 'DOWNLOAD' ||
-    current.status !== 'RUNNING' ||
+    !(input.stopping ? ['RUNNING', 'CANCELLING'] : ['RUNNING']).includes(current.status) ||
     current.generationToken !== input.token ||
     current.cleanupRequestedAt ||
     !generation ||
     generation.jobId !== input.jobId ||
     generation.archiveImportId !== current.id ||
-    generation.drainedAt ||
+    (!input.stopping && generation.drainedAt) ||
     generation.sealedAt ||
     generation.cleanedAt ||
     JSON.stringify(parseArchiveSourceSnapshot(current)) !==

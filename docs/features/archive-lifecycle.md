@@ -20,17 +20,33 @@ sources:
 
 [Mermaid 源文件](../diagrams/features/archive-flow.mmd)。依据：archive-intake 服务，以及 Worker 的 resolver、executor、publisher 与 storage。泳道按责任区分，三个执行通道仍处于同一个 Worker。
 
-`ArchiveImport.id` 贯穿整项归档，`systemJobId` 指向当前执行，`phase` 区分 LEGACY、DOWNLOAD、PUBLISH；阶段关联保留每次执行和重试。`ARCHIVE_DOWNLOAD@1` 在下载通道形成逐图检查点、执行全部媒体长度/SHA-256/尺寸校验并生成 manifest。流和 reporter 停止、所有句柄关闭后，同一个 fenced finalizer 复核当前任务、generation、控制和清理意图，保存封存摘要，创建幂等 `ARCHIVE_PUBLISH@1`，CAS 切换当前阶段并完成下载任务。
+`ArchiveImport.id` 贯穿整项归档，`systemJobId` 指向当前执行，`phase` 区分 LEGACY、DOWNLOAD、PUBLISH；阶段关联保留每次执行和重试。`ARCHIVE_DOWNLOAD@1` 在下载通道批量保存逐图结果、执行全部媒体长度/SHA-256/尺寸校验并生成 manifest。流和 reporter 停止、所有句柄关闭后，同一个 fenced finalizer 复核当前任务、generation、控制和清理意图，保存封存摘要，创建幂等 `ARCHIVE_PUBLISH@1`，CAS 切换当前阶段并完成下载任务。
 
 `ARCHIVE_PUBLISH@1` 在 writer 中只读取封存清单和检查点，核对绑定、来源删除意图与作品 ACTIVE 状态，再 rename 到正式 revision。它不发网络请求或再次全量读取/hash 媒体。发布短事务沿用创作者/归档发布锁，更新 Artwork、来源、标签、阅读版本、Image 和当前 revision，最后完成整项归档。rename 成功而事务失败时保留目录，重试同发布阶段；身份未知目录不得覆盖。正常读取只采用已提交的发布指针。
 
+### 下载期间的保存方式
+
+2026-10-29 局部核验：下载流程为读取已有清单 → 按配置并发下载 → 更新内存进度 → 批量保存 → 完成后交接发布。不引入 Redis 或新队列。阈值依据 [download-checkpoints.ts](../../packages/pixishelf-job-executors/src/archive/download-checkpoints.ts)。
+
+| 数据                                                 | 保存时机                                                                      |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 当前图片、已接收字节、速度、当前尝试与响应地址       | 下载期间先放内存；数据块到达不写数据库                                        |
+| 逐图成功／失败结果、最近响应地址、汇总计数与进度事件 | 每 5 秒或累计完成／失败 10 张时，在同一短事务中保存；没有图片变化时仅更新进度 |
+| 任务开始、暂停、取消、正常停机、下载结束与发布交接   | 立即保存；停止时先结束流，再将最后一批结果放进原有状态结算事务                |
+
+正常暂停后继续、Worker 正常停机后重启均复用已经保存的图片。突然退出时，最后一批结果可能尚未写库；下次执行复用数据库已有结果指向的完整文件；最后尚未写库的一批图片重新下载，不额外维护文件恢复索引。页面的速度、逐图状态与下载地址随批次刷新，不保证逐秒更新；当前下载面板超过 15 秒未收到新采样才提示数据中断，为提交及 SSE 送达留出余量。
+
+下载和文件校验不占用数据库事务；不再为每张图的开始、拿到响应地址、完成分别开启事务。原站限速仍由既有 PostgreSQL governor 协调 Web 与 Worker：初始化只在每进程首次使用时执行，过期许可按分钟清理，非下载请求不查询下载占用。数据库已明确回滚或尚未启动的短暂事务错误最多尝试三次；持续故障仍停止任务并保留文件。
+
 ### Generation 与清理
 
-每次未封存执行接管都登记 `.archive-staging/<importId>--<executionToken>`，媒体最终文件也携带 token，且不覆盖已有文件。文件关闭/fsync 后才提交 fenced checkpoint。恢复将各 checkpoint 指向的已完成文件复制到新代，核验长度与 SHA-256；有效文件不走网络，缺失或损坏文件才补下载。全部完成后不再写封存代。
+每次未封存执行接管都登记 `.archive-staging/<importId>--<executionToken>`，媒体最终文件也携带 token，且不覆盖已有文件。文件通过原有校验、关闭/fsync 后按批次保存结果。恢复将已保存结果指向的文件复制到新代，并核验长度与 SHA-256；有效文件不走网络，缺失、损坏或尚未保存结果的图片补下载。全部完成后不再写封存代。
 
 `cleanupRequestedAt` 是领取、控制与交接门禁。清理先 CAS 保存意图，确认没有当前执行，再只删除登记且明确 `drainedAt` 的代。lease 过期不代表旧 I/O 停止；没有 drain 证据的旧代保留为隔离 orphan，不能在线按超时盲删。旧版本已 rename 未发布的目录必须核对 manifest 来源/导入身份和持久检查点后才能复用或清理；未知身份保留原样并报冲突。普通扫描无论环境排除列表如何配置，均硬排除 `sources`、`.archive-staging`、`.trash`。
 
 这不是跨数据库和文件系统的分布式事务。文件准备后事务失败可能留下未发布目录；重试复用已验证文件并重新完成发布，取消或清理由持久维护任务收口，不把孤立文件直接暴露。更新同一来源身份仍保留人工标题／描述覆盖、受保护标签和创作者关系；重建媒体使旧阅读状态失效。不同 E-Hentai 版本身份保留独立作品，见[版本关系](./archive-intake.md#e-hentai-版本关系与归档身份)。
+
+本次批量保存不变更 schema。升级或回退 Worker 前停止调度并等待活动任务退出，保留数据库及暂存媒体；旧版只能复用已入库的结果，最后未保存的一批可能重新下载。恢复单位沿用[备份基线](../operations/backup-and-recovery.md)，验证范围见[批量下载验证记录](../records/features/archive-download-batches-2026-10-29.md)。
 
 ## 执行责任
 

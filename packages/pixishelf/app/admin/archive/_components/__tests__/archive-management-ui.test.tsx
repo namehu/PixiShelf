@@ -388,6 +388,8 @@ describe('archive management UI', () => {
     expect(onCancel).toHaveBeenCalledOnce()
     // SSE 不再送达时，面板仍自行识别过期遥测，不依赖父级整页刷新。
     act(() => vi.advanceTimersByTime(5_000))
+    expect(screen.queryByText('实时数据中断')).toBeNull()
+    act(() => vi.advanceTimersByTime(10_000))
     expect(screen.getByText('实时数据中断')).toBeTruthy()
     expect(screen.queryByText(/12.4 MB\/s/)).toBeNull()
     expect(screen.queryByText(/2.96 MB\/s/)).toBeNull()

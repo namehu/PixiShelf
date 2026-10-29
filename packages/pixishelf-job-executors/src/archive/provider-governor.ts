@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Readable } from 'node:stream'
 import type { PrismaClient } from '@pixishelf/db'
-import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
+import { ArchiveExecutorError, toArchiveExecutorError, isRetryableArchiveTransaction } from './errors.ts'
 import type {
   ArchiveMediaProvider,
   ArchiveProvider,
@@ -46,6 +46,8 @@ export interface PostgresArchiveProviderGovernorOptions {
 }
 
 export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor {
+  private readonly initialized = new Set<string>()
+  private readonly cleanupAfter = new Map<string, number>()
   private readonly minimumIntervalMs: number
   private readonly searchMinimumIntervalMs: number
   private readonly leaseDurationMs: number
@@ -80,20 +82,23 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
     assertPositiveInteger('maxConcurrentDownloads', maxConcurrentDownloads)
     // The throttle row is locked inside a serializable transaction so separate
     // workers cannot observe the same interval/capacity and both issue a request.
+    let transactionFailures = 0
     while (true) {
       throwIfAborted(signal)
-      const now = this.now()
+      let now = this.now()
       let decision:
         | { permit: ArchiveProviderPermit }
         | { waitUntil: Date; reason: 'PENALTY' | 'INTERVAL' | 'DOWNLOAD_CAPACITY' }
       try {
         decision = await this.database.$transaction(
           async (transaction) => {
-            await transaction.archiveProviderThrottle.upsert({
-              where: { providerKey },
-              create: { providerKey },
-              update: {}
-            })
+            if (!this.initialized.has(providerKey)) {
+              await transaction.archiveProviderThrottle.upsert({
+                where: { providerKey },
+                create: { providerKey },
+                update: {}
+              })
+            }
             const states = await transaction.$queryRawUnsafe<Array<{ nextRequestAt: Date; penaltyUntil: Date | null }>>(
               `SELECT "nextRequestAt", "penaltyUntil"
              FROM "archive_provider_throttles"
@@ -101,22 +106,27 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
              FOR UPDATE`,
               providerKey
             )
-            await transaction.archiveProviderRequestLease.deleteMany({
-              where: { providerKey, expiresAt: { lte: now } }
-            })
+            now = this.now()
+            if ((this.cleanupAfter.get(providerKey) ?? 0) <= now.getTime()) {
+              await transaction.archiveProviderRequestLease.deleteMany({
+                where: { providerKey, expiresAt: { lte: now } }
+              })
+            }
             const state = states[0]
             if (!state) throw new Error(`来源站点 ${providerKey} 的限流记录已不存在`)
-            const activeDownloads = await transaction.archiveProviderRequestLease.findMany({
-              where: { providerKey, requestClass: 'DOWNLOAD', expiresAt: { gt: now } },
-              select: { expiresAt: true },
-              orderBy: { expiresAt: 'asc' }
-            })
             if (state.penaltyUntil && state.penaltyUntil.getTime() > now.getTime()) {
               return { waitUntil: state.penaltyUntil, reason: 'PENALTY' as const }
             }
             if (state.nextRequestAt.getTime() > now.getTime()) {
               return { waitUntil: state.nextRequestAt, reason: 'INTERVAL' as const }
             }
+            const activeDownloads = requestClass === 'DOWNLOAD'
+              ? await transaction.archiveProviderRequestLease.findMany({
+                  where: { providerKey, requestClass: 'DOWNLOAD', expiresAt: { gt: now } },
+                  select: { expiresAt: true },
+                  orderBy: { expiresAt: 'asc' }
+                })
+              : []
             // Read requests share the provider interval and penalty, but active
             // media streams only consume DOWNLOAD capacity.
             if (requestClass === 'DOWNLOAD' && activeDownloads.length >= maxConcurrentDownloads) {
@@ -148,12 +158,19 @@ export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor 
             })
             return { permit }
           },
-          { isolationLevel: 'Serializable' }
+          { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 }
         )
       } catch (error) {
-        if (!isSerializationConflict(error)) throw error
-        await this.sleep(25, signal)
+        if ((!isSerializationConflict(error) && !isRetryableArchiveTransaction(error)) || ++transactionFailures >= 3) {
+          throw error
+        }
+        await this.sleep(25 * transactionFailures, signal)
         continue
+      }
+      transactionFailures = 0
+      this.initialized.add(providerKey)
+      if ((this.cleanupAfter.get(providerKey) ?? 0) <= now.getTime()) {
+        this.cleanupAfter.set(providerKey, now.getTime() + 60_000)
       }
       if ('permit' in decision) return decision.permit
       if (

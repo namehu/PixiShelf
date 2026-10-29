@@ -425,7 +425,7 @@ describe('archive executor', () => {
     )
   })
 
-  it('increments the live aggregate in the same transaction as an item completion', async () => {
+  it('saves the aggregate with the final batch of item results', async () => {
     const transaction = createTransaction()
     transaction.archiveImport.findUnique.mockResolvedValue({
       ...archiveImport,
@@ -433,7 +433,7 @@ describe('archive executor', () => {
       items: [archiveItem]
     })
     transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
-    transaction.archiveImportItem.groupBy.mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 1 } }])
+    transaction.archiveImportItem.groupBy.mockResolvedValueOnce([{ status: 'PENDING', _count: { _all: 1 } }]).mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 1 } }])
     transaction.archiveImportItem.findMany.mockResolvedValue([completedArchiveItem])
     transaction.archiveImport.update.mockResolvedValueOnce({ completedItems: 1 }).mockResolvedValue(undefined)
     storageMocks.storeArchiveRemoteMedia.mockResolvedValueOnce({
@@ -467,8 +467,7 @@ describe('archive executor', () => {
 
     expect(transaction.archiveImport.update).toHaveBeenCalledWith({
       where: { id: 'import-1' },
-      data: { completedItems: { increment: 1 } },
-      select: { completedItems: true }
+      data: { completedItems: 1, failedItems: 0 }
     })
     expect(context.progress).toHaveBeenCalledWith(expect.objectContaining({ message: '已下载 1/1', progress: 95 }))
   })
@@ -702,21 +701,16 @@ describe('archive executor', () => {
       const writes = transaction.archiveImportItem.updateMany.mock.calls.map(
         ([call]) => call as { data: Record<string, unknown> }
       )
-      expect(writes.find((call) => call.data.status === 'DOWNLOADING')?.data).toMatchObject({
-        lastDownloadUrl: null,
-        lastDownloadAt: null,
-        lastDownloadAttempt: null
-      })
       const observations = writes.filter((call) => typeof call.data.lastDownloadUrl === 'string')
       expect(observations).toHaveLength(valid ? 1 : 0)
       if (valid) {
-        expect(observations[0]?.data).toEqual({
+        expect(observations[0]?.data).toMatchObject({
           lastDownloadUrl: downloadUrl,
           lastDownloadAt: new Date('2026-08-14T01:00:00.000Z'),
           lastDownloadAttempt: 1
         })
       }
-      expect(writes.find((call) => call.data.status === 'FAILED')?.data).not.toHaveProperty('lastDownloadUrl')
+      expect(writes.find((call) => call.data.status === 'FAILED')?.data.lastDownloadUrl).toBe(valid ? downloadUrl : null)
       expect(stream.destroyed).toBe(true)
       expect(
         JSON.stringify([
@@ -728,7 +722,7 @@ describe('archive executor', () => {
     }
   )
 
-  it('destroys the response stream and never stores media when its response checkpoint loses ownership', async () => {
+  it('does not hand off a download when its batch cannot save the observed result', async () => {
     const transaction = createTransaction()
     transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [archiveItem] })
     transaction.archiveImportItem.updateMany.mockImplementation(
@@ -736,6 +730,14 @@ describe('archive executor', () => {
         count: typeof data.lastDownloadUrl === 'string' ? 0 : 1
       })
     )
+    storageMocks.storeArchiveRemoteMedia.mockResolvedValueOnce({
+      relativePath: completedArchiveItem.stagedPath,
+      byteCount: completedArchiveItem.byteCount,
+      mimeType: completedArchiveItem.mimeType,
+      width: completedArchiveItem.width,
+      height: completedArchiveItem.height,
+      sha256: completedArchiveItem.sha256
+    })
     const stream = new PassThrough()
     const base = dependencies(transaction)
     const providers = new DefaultArchiveMediaProviderRegistry([
@@ -757,25 +759,23 @@ describe('archive executor', () => {
       providers,
       config: { ...base.config, maxMediaAttempts: 1 }
     }).catch(() => undefined)
-    expect(storageMocks.storeArchiveRemoteMedia).not.toHaveBeenCalled()
+    expect(storageMocks.storeArchiveRemoteMedia).toHaveBeenCalledOnce()
+    expect(handoffMock).not.toHaveBeenCalled()
     expect(stream.destroyed).toBe(true)
-    expect(transaction.archiveImportItem.updateMany).not.toHaveBeenCalledWith(
+    expect(transaction.archiveImportItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'COMPLETED' }) })
     )
   })
 
-  it('captures a stream error during the response database checkpoint without losing the observed URL', async () => {
+  it('saves the observed URL together with a subsequent stream failure', async () => {
     const transaction = createTransaction()
     transaction.archiveImport.findUnique.mockResolvedValue({ ...archiveImport, totalItems: 1, items: [archiveItem] })
     const stream = new PassThrough()
     const reset = Object.assign(new Error('connection reset'), { code: 'ECONNRESET' })
-    transaction.archiveImportItem.updateMany.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => {
-      if (typeof data.lastDownloadUrl === 'string') {
-        stream.destroy(reset)
-        await new Promise<void>((resolve) => setImmediate(resolve))
-      }
-      return { count: 1 }
-    })
+    transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
+    storageMocks.storeArchiveRemoteMedia.mockRejectedValueOnce(new ArchiveExecutorError(
+      'REMOTE_RESPONSE_INVALID', 'stream reset', { stage: 'MEDIA_STREAM', cause: reset }
+    ))
     const context = createContext(transaction)
     const recordDiagnostic = vi.fn(async () => undefined)
     context.recordDiagnostic = recordDiagnostic
@@ -798,7 +798,7 @@ describe('archive executor', () => {
     await executeArchiveImport(context, { ...base, providers, config: { ...base.config, maxMediaAttempts: 1 } }).catch(
       () => undefined
     )
-    expect(storageMocks.storeArchiveRemoteMedia).not.toHaveBeenCalled()
+    expect(storageMocks.storeArchiveRemoteMedia).toHaveBeenCalledOnce()
     expect(transaction.archiveImportItem.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ lastDownloadUrl: downloadUrl, lastDownloadAttempt: 1 })
@@ -808,6 +808,7 @@ describe('archive executor', () => {
       transaction,
       expect.objectContaining({ stage: 'MEDIA_STREAM', error: expect.objectContaining({ cause: reset }) })
     )
+    await new Promise<void>((resolve) => setImmediate(resolve))
     expect(stream.listenerCount('error')).toBe(0)
   })
 
@@ -847,7 +848,7 @@ describe('archive executor', () => {
     const writes = transaction.archiveImportItem.updateMany.mock.calls.map(
       ([call]) => call as { data: Record<string, unknown> }
     )
-    expect(writes.find((call) => call.data.status === 'DOWNLOADING')?.data).toMatchObject({
+    expect(writes.find((call) => call.data.status === 'FAILED')?.data).toMatchObject({
       lastDownloadUrl: null,
       lastDownloadAt: null,
       lastDownloadAttempt: null
@@ -930,11 +931,9 @@ describe('archive executor', () => {
     await executeArchiveImport(context, executorDependencies).catch(() => undefined)
 
     expect(stream.destroyed).toBe(true)
-    expect(transaction.archiveImport.update).toHaveBeenCalledWith({
-      where: { id: 'import-1' },
-      data: { failedItems: { increment: 1 } },
-      select: { failedItems: true }
-    })
+    expect(transaction.archiveImportItem.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'FAILED', errorCode: 'STORAGE_FULL' })
+    }))
     await vi.waitFor(() => expect(governor.release).toHaveBeenCalledWith(permit))
   })
 
@@ -977,7 +976,7 @@ describe('archive executor', () => {
 
     const execution = executeArchiveImport(context, executorDependencies)
     await vi.waitFor(() => expect(storageMocks.storeArchiveRemoteMedia).toHaveBeenCalledOnce())
-    await vi.advanceTimersByTimeAsync(1_000)
+    await vi.advanceTimersByTimeAsync(5_000)
     await execution.catch(() => undefined)
 
     expect(stream.destroyed).toBe(true)

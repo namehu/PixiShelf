@@ -17,7 +17,7 @@ export interface ExecutionProgressMutationResult<TResult> {
   // together with the caller's domain writes and the matching job event.
   // Executors must therefore not publish the same checkpoint again afterward.
   result: TResult
-  update: ExecutionProgressUpdate & { progressData: JobProgressData }
+  update: ExecutionProgressUpdate & { progressData: JobProgressData | null }
 }
 
 export interface ChildJobRequest<TPayload = unknown> {

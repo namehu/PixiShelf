@@ -87,7 +87,8 @@ export class ArchiveTransferMeter {
   sample(now: Date): ArchiveTransferTelemetry {
     const timestamp = now.getTime()
     this.samples.push({ at: timestamp, transferredBytes: this.transferredBytes })
-    while (this.samples.length > 1 && this.samples[0]!.at < timestamp - SPEED_WINDOW_MS) this.samples.shift()
+    // Keep the sample at the window boundary, including when a delayed timer crosses it.
+    while (this.samples.length > 2 && this.samples[1]!.at <= timestamp - SPEED_WINDOW_MS) this.samples.shift()
     const oldest = this.samples[0]
     const elapsedMs = oldest ? timestamp - oldest.at : 0
     const transferred = oldest ? this.transferredBytes - oldest.transferredBytes : 0n
@@ -188,7 +189,7 @@ function telemetrySignature(telemetry: ArchiveTransferTelemetry): string {
 
 function sampleActiveItem(item: ActiveTransferItem, timestamp: number): ArchiveTransferItem {
   item.samples.push({ at: timestamp, transferredBytes: item.downloadedBytes })
-  while (item.samples.length > 1 && item.samples[0]!.at < timestamp - SPEED_WINDOW_MS) item.samples.shift()
+  while (item.samples.length > 2 && item.samples[1]!.at <= timestamp - SPEED_WINDOW_MS) item.samples.shift()
   const oldest = item.samples[0]
   const elapsedMs = oldest ? timestamp - oldest.at : 0
   const transferred = oldest ? item.downloadedBytes - oldest.transferredBytes : 0n

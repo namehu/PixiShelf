@@ -4,6 +4,18 @@ import { ArchiveTransferMeter, startArchiveTransferReporter } from '../transfer-
 afterEach(() => vi.useRealTimers())
 
 describe('ArchiveTransferMeter', () => {
+  it('keeps measuring speed when a five-second report is slightly delayed', () => {
+    const meter = new ArchiveTransferMeter('delayed', 1, 1, { completedBytes: 0n, completedItems: 0, failedItems: 0 })
+    meter.startItem({ itemId: 'image', pageIndex: 0, expectedFilename: '0001', attempt: 1 })
+    meter.beginDownload('image', null)
+    meter.sample(new Date(0))
+    meter.addChunk('image', 5_100)
+    expect(meter.sample(new Date(5_100))).toMatchObject({
+      bytesPerSecond: 1_000, activeItems: [expect.objectContaining({ bytesPerSecond: 1_000 })]
+    })
+    expect(meter.sample(new Date(10_200))).toMatchObject({ bytesPerSecond: 0 })
+  })
+
   it('aggregates active streams without retaining chunks and removes a failed partial stream', () => {
     const meter = new ArchiveTransferMeter('archive-1', 4, 3, {
       completedBytes: 100n,

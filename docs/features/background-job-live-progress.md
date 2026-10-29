@@ -20,6 +20,7 @@ sources:
 
 - `SystemJob.progressData` 是可空、版本化 JSON。旧任务保持 `null`。
 - Worker 在同一个 fenced transaction 中更新 `progress/progressData` 并插入事件；失去 lease/fence 时两者都不写。动画识别的领域微批次把图片状态、任务行聚合检查点和对应的持久游标事件放进同一事务，因此崩溃恢复与已连接 SSE 都不会落在领域状态之后。
+- 归档下载将逐图结果、汇总和进度事件一并保存，刷新节奏见[下载期间的保存方式](./archive-lifecycle.md#下载期间的保存方式)。
 - `REALTIME` 普通快照最多每 2 秒持久化一次；`STANDARD` 在变化至少 5%且距离上次写入至少 5 秒时写入，并以 30 秒作为最长静默兜底。
 - 阶段真实变化、WARN/ERROR、取消相关状态、强制快照和终态不受普通限频影响。被合并的最后快照在结算前刷新。
 - SSE envelope、事件名和游标版本保持 v1；实时摘要新增 `progressData`，仍不返回 payload、result、error 或 lease token。

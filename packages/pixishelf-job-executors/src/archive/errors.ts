@@ -132,3 +132,12 @@ function sanitizeRemoteHost(value: string | null | undefined): string | null {
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')
 }
+
+export function isRetryableArchiveTransaction(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message } = error as { code?: string; message?: string }
+  return (
+    code === 'P2034' ||
+    (code === 'P2028' && typeof message === 'string' && /Unable to start a transaction|expired transaction/i.test(message))
+  )
+}

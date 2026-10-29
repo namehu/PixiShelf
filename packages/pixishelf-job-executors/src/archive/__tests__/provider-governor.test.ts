@@ -18,6 +18,18 @@ afterEach(() => {
 })
 
 describe('PostgresArchiveProviderGovernor', () => {
+  it.each(['Unable to start a transaction in the given time.', 'A commit cannot be executed on an expired transaction.'])(
+    'stops after three transaction timeout attempts: %s', async (message) => {
+      const error = Object.assign(new Error(message), { code: 'P2028' })
+      const transaction = vi.fn().mockRejectedValue(error)
+      const sleep = vi.fn(async () => undefined)
+      const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, { sleep })
+      await expect(governor.acquire('test', 'DOWNLOAD', new AbortController().signal)).rejects.toBe(error)
+      expect(transaction).toHaveBeenCalledTimes(3)
+      expect(sleep).toHaveBeenCalledTimes(2)
+    }
+  )
+
   it('retries a serializable transaction conflict inside acquire', async () => {
     const permit = {
       id: '6c50812b-fbaf-43b7-9235-f7f0c8842c6c',
@@ -131,6 +143,7 @@ describe('PostgresArchiveProviderGovernor', () => {
       expect(requestLeaseCreate).toHaveBeenCalledWith({
         data: expect.objectContaining({ providerKey: 'e-hentai', requestClass })
       })
+      expect(transactionClient.archiveProviderRequestLease.findMany).not.toHaveBeenCalled()
       expect(sleep).not.toHaveBeenCalled()
     }
   )

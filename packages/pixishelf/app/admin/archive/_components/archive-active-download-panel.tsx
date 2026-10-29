@@ -53,7 +53,8 @@ export function ActiveArchiveDownloadPanel({
   }, [hasTelemetry])
   const activeItems = telemetry?.activeItems ?? []
   const activeWorkers = telemetry?.activeWorkers ?? (activeItems.length || telemetry?.activeDownloads || 0)
-  const stale = telemetry ? now - new Date(telemetry.sampledAt).getTime() > 5_000 : false
+  // 下载每 5 秒保存一批进度，为提交和 SSE 送达留出余量。
+  const stale = telemetry ? now - new Date(telemetry.sampledAt).getTime() > 15_000 : false
   const completedItems = telemetry?.completedItems ?? task.completedItems
   const failedItems = telemetry?.failedItems ?? task.failedItems
   const totalItems = telemetry?.totalItems ?? task.totalItems

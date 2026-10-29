@@ -371,6 +371,124 @@ suite('archive download lane real database and filesystem', () => {
     }
   )
 
+  it.each(['PAUSE_REQUESTED', 'CANCEL_REQUESTED', 'SHUTDOWN'] as const)(
+    'saves the unsaved final batch on %s and resumes without downloading completed media again',
+    async (reason) => {
+      const a = await seed(`batch-stop-${reason}`)
+      await addPages(a.id, 2)
+      const job = await claim('ARCHIVE_DOWNLOAD')
+      const controller = new AbortController()
+      const ctx = { ...context(job), signal: controller.signal }
+      const slow = new PassThrough()
+      const open = vi.fn(async () => remote(open.mock.calls.length === 1 ? Readable.from([png]) : slow))
+      const deps = dependencies(a.root, open)
+      deps.config.mediaConcurrency = 1
+      const running = execute(job, deps, ctx)
+      void running.catch(() => undefined)
+      await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(2))
+      // The first file exists, but the sub-ten batch has not been written yet.
+      expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(0)
+      if (reason !== 'SHUTDOWN') {
+        await db!.systemJob.update({ where: { id: job.id }, data: {
+          status: reason === 'PAUSE_REQUESTED' ? 'PAUSING' : 'CANCELLING'
+        } })
+        if (reason === 'CANCEL_REQUESTED') await db!.archiveImport.update({ where: { id: a.id }, data: { status: 'CANCELLING' } })
+      }
+      controller.abort({ reason })
+      await running
+      const stopped = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { items: true, generations: true } })
+      expect(stopped.status).toBe(reason === 'PAUSE_REQUESTED' ? 'PAUSED' : reason === 'CANCEL_REQUESTED' ? 'CANCELLED' : 'PENDING')
+      expect(stopped.completedItems).toBe(1)
+      expect(stopped.items.filter((item) => item.status === 'COMPLETED')).toHaveLength(1)
+      expect(stopped.generations[0]!.drainedAt).not.toBeNull()
+      expect(slow.destroyed).toBe(true)
+      expect(await db!.systemJob.count({ where: { parentJobId: job.id, type: 'ARCHIVE_PUBLISH' } })).toBe(0)
+      if (reason === 'CANCEL_REQUESTED') return
+      await db!.systemJob.update({ where: { id: job.id }, data: { status: 'PENDING', availableAt: clock.now() } })
+      await db!.archiveImport.update({ where: { id: a.id }, data: { status: 'PENDING' } })
+      const resumed = await claim('ARCHIVE_DOWNLOAD')
+      const reopen = vi.fn(async () => remote(Readable.from([png])))
+      await execute(resumed, dependencies(a.root, reopen))
+      expect(reopen).toHaveBeenCalledOnce()
+      expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(2)
+    }
+  )
+
+  it('saves a small batch after five seconds while the next image is still streaming', async () => {
+    const a = await seed('batch-timer')
+    await addPages(a.id, 2)
+    const slow = new PassThrough()
+    const open = vi.fn(async () => remote(open.mock.calls.length === 1 ? Readable.from([png]) : slow))
+    const job = await claim('ARCHIVE_DOWNLOAD')
+    const deps = dependencies(a.root, open)
+    deps.config.mediaConcurrency = 1
+    const running = execute(job, deps)
+    void running.catch(() => undefined)
+    try {
+      await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(2))
+      expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(0)
+      await vi.waitFor(async () => {
+        expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(1)
+      }, { timeout: 8_000, interval: 100 })
+      expect((await db!.systemJob.findUniqueOrThrow({ where: { id: job.id } })).message).toBe('已下载 1/2')
+    } finally {
+      slow.end(png)
+      await running
+    }
+    expect((await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).phase).toBe('PUBLISH')
+  }, 15_000)
+
+  it('commits ten completed files together, then flushes the remaining two with progress', async () => {
+    const a = await seed('batch-ten')
+    await addPages(a.id, 12)
+    const job = await claim('ARCHIVE_DOWNLOAD')
+    const ctx = context(job)
+    const commit = ctx.checkpointInTransaction!
+    const checkpoint = vi.fn()
+    ctx.checkpointInTransaction = (operation) => { checkpoint(); return commit(operation) }
+    const open = vi.fn(async () => {
+      if (open.mock.calls.length === 10) {
+        expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(0)
+      }
+      if (open.mock.calls.length === 11) {
+        expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(10)
+        expect((await db!.systemJob.findUniqueOrThrow({ where: { id: job.id } })).message).toBe('已下载 10/12')
+      }
+      return remote(Readable.from([png]))
+    })
+    const deps = dependencies(a.root, open)
+    deps.config.mediaConcurrency = 1
+    await execute(job, deps, ctx)
+    expect(checkpoint).toHaveBeenCalledTimes(2)
+    expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(12)
+    const events = await db!.systemJobEvent.findMany({ where: { jobId: job.id, type: 'job.progress' } })
+    expect(events.some((event) => (event.data as { data?: { completedItems: number } })?.data?.completedItems === 12)).toBe(true)
+  })
+
+  it('downloads the unsaved final batch again after an abrupt restart', async () => {
+    const a = await seed('batch-crash')
+    const job = await claim('ARCHIVE_DOWNLOAD')
+    const ctx = context(job)
+    ctx.checkpointInTransaction = async () => { throw new Error('simulated process exit before batch commit') }
+    ctx.finalizeInTransaction = async () => { throw new Error('simulated process exit before batch commit') }
+    await expect(execute(job, dependencies(a.root), ctx)).rejects.toThrow('simulated process exit')
+    const old = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { items: true } })
+    expect(old.items[0]!.status).toBe('PENDING')
+    const files = await readdir(path.join(a.root, old.stagingPath, 'media'))
+    expect(files).toHaveLength(1)
+    clock.advance(61_000)
+    await repo!.recoverExpiredExecution('ARCHIVE_DOWNLOAD')
+    clock.advance(600_000)
+    const next = await claim('ARCHIVE_DOWNLOAD')
+    const open = vi.fn(async () => remote(Readable.from([png])))
+    await execute(next, dependencies(a.root, open))
+    expect(open).toHaveBeenCalledOnce()
+    const result = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { items: true } })
+    expect(result.items[0]!.status).toBe('COMPLETED')
+    expect(result.phase).toBe('PUBLISH')
+    expect(await readFile(path.join(a.root, result.stagingPath, result.items[0]!.stagedPath!))).toEqual(png)
+  })
+
   it('reuses checked completed media in a fresh generation and isolates an expired writer late file', async () => {
     const a = await seed('takeover')
     const job = await claim('ARCHIVE_DOWNLOAD')
@@ -740,6 +858,11 @@ suite('archive download lane real database and filesystem', () => {
       where: { id: a.id },
       data: { status: 'FAILED', cleanupRequestedAt: clock.now(), completedItems: 1 }
     })
+    await db!.archiveStagingGeneration.create({ data: {
+      token: randomUUID(), archiveImportId: a.id, jobId: a.jobId,
+      path: finalPath, drainedAt: clock.now(),
+      manifestSha256: await storage.readArchiveManifestDigest(path.join(a.root, finalPath))
+    } })
     await seedJob('ARCHIVE_MAINTENANCE', 'legacy-cleanup', { action: 'CLEAN_STAGING', archiveImportId: a.id })
     const maintenance = await claim('ARCHIVE_MAINTENANCE')
     await executeArchiveMaintenance(context(maintenance) as never, {
@@ -883,6 +1006,13 @@ async function seed(label: string, options: { origin?: 'MANUAL' | 'AUTO'; tags?:
   })
   return { id, jobId, root }
 }
+async function addPages(archiveImportId: string, total: number) {
+  await db!.archiveImport.update({ where: { id: archiveImportId }, data: { totalItems: total } })
+  await db!.archiveImportItem.createMany({ data: Array.from({ length: total - 1 }, (_, index) => ({
+    archiveImportId, pageIndex: index + 1, sourcePageUrl: `https://example.test/${index + 1}`,
+    locator: {}, expectedFilename: `${index + 1}.png`
+  })) })
+}
 async function seedJob(
   type: JobType,
   label: string,
@@ -945,6 +1075,7 @@ function context(job: ClaimedJob): ExecutionContext<ArchiveImportV2Payload, Enqu
       throw new Error('not used')
     },
     mutateInTransaction: (operation) => repo!.withFencedMutationTransaction(fence(job), operation),
+    checkpointInTransaction: async (operation) => (await repo!.withFencedProgressTransaction(fence(job), operation)).result,
     finalizeInTransaction: async (operation) => {
       await repo!.withFencedExecutionTransaction(fence(job), operation)
       return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
