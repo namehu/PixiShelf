@@ -69,16 +69,40 @@ export function ControlledAutoBrowseControls({
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [recoveryWhenOpened, setRecoveryWhenOpened] = useState<'waiting' | 'error' | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const swipe = useRef<{ id: number; x: number; y: number } | null>(null)
+  const suppressClick = useRef(false)
   const reducedMotion = useReducedMotion()
   const selected = state.mode === mode
   const playing = selected && (state.status === 'running' || state.status === 'waiting')
   const ended = selected && state.status === 'ended'
   const error = selected && state.reason === 'error'
-  const collapsed = playing && state.controlsCollapsed && !settingsOpen
+  const collapsed = !compact && playing && state.controlsCollapsed && !settingsOpen
+  const clearHover = () => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
+    hoverTimer.current = null
+  }
+  const changeSettings = (open: boolean) => {
+    clearHover()
+    setRecoveryWhenOpened(open && selected ? (error ? 'error' : state.status === 'waiting' ? 'waiting' : null) : null)
+    if (open) onPause('overlay')
+    setSettingsOpen(open)
+  }
+
+  useEffect(() => {
+    const cancel = () => { clearHover(); swipe.current = null }
+    window.addEventListener('blur', cancel)
+    document.addEventListener('visibilitychange', cancel)
+    return () => {
+      cancel()
+      window.removeEventListener('blur', cancel)
+      document.removeEventListener('visibilitychange', cancel)
+    }
+  }, [])
 
   useEffect(() => {
     const root = rootRef.current
-    if (!root || !playing || collapsed || settingsOpen) return
+    if (!root || compact || !playing || collapsed || settingsOpen) return
     let timer: ReturnType<typeof setTimeout>
     let keyboardInput = false
     const schedule = () => {
@@ -115,7 +139,7 @@ export function ControlledAutoBrowseControls({
       root.removeEventListener('focusin', schedule)
       root.removeEventListener('keydown', schedule)
     }
-  }, [collapsed, onSetControlsCollapsed, playing, settingsOpen])
+  }, [collapsed, compact, onSetControlsCollapsed, playing, settingsOpen])
 
   const value = mode === 'scroll' ? state.scrollSpeed : state.slideSeconds
   const presets = mode === 'scroll' ? [50, 100, 200] : [3, 1.5, 0.2]
@@ -150,9 +174,53 @@ export function ControlledAutoBrowseControls({
       data-auto-browse-controls
       data-auto-browse-mode={mode}
       data-collapsed={collapsed}
-      className="pointer-events-auto flex h-12 max-w-full items-center rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md"
+      className={cn('pointer-events-auto flex h-12 max-w-full items-center rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md', compact && 'preview-playback-controls')}
     >
-      <div className="min-w-0">
+      <div
+        className={cn('min-w-0', compact && 'touch-none')}
+        onPointerEnter={(event) => {
+          if (!compact || event.pointerType !== 'mouse' || settingsOpen) return
+          clearHover()
+          hoverTimer.current = setTimeout(() => changeSettings(true), 1000)
+        }}
+        onPointerLeave={clearHover}
+        onPointerDown={(event) => {
+          if (!compact) return
+          event.stopPropagation()
+          clearHover()
+          suppressClick.current = false
+          if (event.isPrimary === false || event.button !== 0 || event.pointerType === 'mouse') return
+          swipe.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
+          ;(event.target as Element).closest('button')?.setPointerCapture?.(event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          const start = swipe.current
+          if (!start || start.id !== event.pointerId) return
+          event.stopPropagation()
+          if (start.y - event.clientY >= 24 && Math.abs(start.x - event.clientX) < 40) {
+            swipe.current = null
+            suppressClick.current = true
+            changeSettings(true)
+          }
+        }}
+        onPointerUp={() => { swipe.current = null }}
+        onPointerCancel={() => { swipe.current = null; clearHover() }}
+        onTouchStart={compact ? (event) => event.stopPropagation() : undefined}
+        onTouchMove={compact ? (event) => event.stopPropagation() : undefined}
+        onClickCapture={(event) => {
+          if (!suppressClick.current) return
+          suppressClick.current = false
+          event.preventDefault()
+          event.stopPropagation()
+        }}
+        onKeyDown={(event) => {
+          if (compact && event.key === 'ArrowUp') {
+            event.preventDefault()
+            event.stopPropagation()
+            changeSettings(true)
+          }
+        }}
+      >
         {collapsed ? (
           <Button
             variant="ghost"
@@ -177,7 +245,7 @@ export function ControlledAutoBrowseControls({
               <Button
                 variant="ghost"
                 size="icon"
-                className={cn('size-11 rounded-full', compact && 'flex-col gap-0')}
+                className="size-11 rounded-full"
                 disabled={blocked || (error && !playing)}
                 aria-label={playing ? '暂停自动浏览' : ended ? '重新开始自动浏览' : '开始或继续自动浏览'}
                 title={playing ? `${description} · 暂停` : ended ? '重新开始' : selected ? '继续' : '自动轮播'}
@@ -195,37 +263,32 @@ export function ControlledAutoBrowseControls({
                 ) : (
                   <PlayIcon data-icon="inline-start" />
                 )}
-                {compact && (
-                  <span aria-hidden="true" className="text-[10px] leading-3 tabular-nums sm:hidden">
-                    {current}/{total}
-                  </span>
-                )}
               </Button>
-              <div className={cn(compact && 'hidden sm:contents')}>
+              {!compact && <div>
                 {navigation ?? (
                   <span className="px-2 text-sm tabular-nums" aria-label={`当前第 ${current} 张，共 ${total} 张`}>
                     {current} / {total}
                   </span>
                 )}
-              </div>
+              </div>}
               <Popover
                 open={settingsOpen}
-                onOpenChange={(open) => {
-                  setRecoveryWhenOpened(
-                    open && selected ? (error ? 'error' : state.status === 'waiting' ? 'waiting' : null) : null
-                  )
-                  if (open) onPause('overlay')
-                  setSettingsOpen(open)
-                }}
+                onOpenChange={changeSettings}
               >
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" size="icon" className="size-11" aria-label="自动浏览设置">
-                    <Settings2Icon />
+                  <Button variant="ghost" size={compact ? 'default' : 'icon'}
+                    className={compact ? 'h-11 min-w-11 rounded-full px-2 text-xs tabular-nums' : 'size-11'}
+                    aria-label="自动浏览设置"
+                    aria-description={compact ? `当前第 ${current} 张，共 ${total} 张。上滑、悬浮一秒或按向上键打开切换设置` : undefined}>
+                    {compact ? <span>{current}/{total}</span> : <Settings2Icon />}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent
+                  className={compact ? 'dark' : undefined}
                   container={container}
                   side="top"
+                  sideOffset={compact ? 12 : 4}
+                  collisionPadding={compact ? 16 : 0}
                   align="center"
                   data-auto-browse-controls
                   data-auto-browse-settings
@@ -301,7 +364,7 @@ export function ControlledAutoBrowseControls({
                   <XIcon />
                 </Button>
               )}
-              {playing && (
+              {playing && !compact && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -321,7 +384,7 @@ export function ControlledAutoBrowseControls({
       </div>
       {trailingControl && (
         <div
-          className={cn('flex h-11 shrink-0 items-center border-l border-border/40 px-2', compact && 'px-0 sm:px-2')}
+          className={cn('flex h-11 shrink-0 items-center border-l border-border/40 px-2', compact && 'preview-playback-trailing')}
         >
           {trailingControl}
         </div>

@@ -166,7 +166,7 @@ export default function ImageOverlay({
                     key={`${ownerUserId}-${id}`}
                     buttonRef={likeButtonRef}
                     onOpenRating={openRating}
-                    ratingLabel={rating.level === 3 || rating.level === 4 ? ratingLabel : undefined}
+                    ratingLevel={rating.level}
                     liked={isLiked}
                     disabled={rating.isLoading || !ownerUserId}
                     saving={rating.isSaving}
@@ -174,7 +174,7 @@ export default function ImageOverlay({
                     onToggleLike={() => {
                       if (ownerUserId) rating.setLevel(isLiked ? null : 2)
                     }}
-                    className="size-11 bg-transparent p-0 shadow-none backdrop-blur-none hover:bg-white/10 [&_svg]:size-[18px]"
+                    className="size-11 bg-transparent p-0 shadow-none backdrop-blur-none hover:bg-white/10"
                   />
                   <Button
                     type="button"

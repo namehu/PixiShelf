@@ -1,6 +1,7 @@
 import { PauseIcon, PlayIcon, SquareIcon } from 'lucide-react'
 
 interface AnimationPlaybackCapsuleProps {
+  appearance?: 'badge' | 'segment'
   compact?: boolean
   playing: boolean
   playOnce?: boolean
@@ -30,6 +31,7 @@ export function animationPlaybackLabel(
 
 /** Shared visible control; its parent supplies the 44px pointer and keyboard target. */
 export function AnimationPlaybackCapsule({
+  appearance = 'badge',
   compact = false,
   playing,
   playOnce = false,
@@ -38,7 +40,7 @@ export function AnimationPlaybackCapsule({
   progressPercent
 }: AnimationPlaybackCapsuleProps) {
   return (
-    <span className="relative flex h-[22px] items-center justify-center gap-1 overflow-hidden rounded-full bg-[#ff2f4d] px-2 text-xs font-semibold leading-none tabular-nums text-white shadow-sm">
+    <span className={appearance === 'segment' ? 'preview-animation-segment' : 'relative flex h-[22px] items-center justify-center gap-1 overflow-hidden rounded-full bg-[#ff2f4d] px-2 text-xs font-semibold leading-none tabular-nums text-white shadow-sm'}>
       {progressPercent !== null && progressPercent !== undefined && (
         <span
           aria-hidden="true"
@@ -57,8 +59,8 @@ export function AnimationPlaybackCapsule({
         ) : (
           <PlayIcon className="size-3 fill-current" />
         )}
-        <span className={compact ? 'hidden sm:inline' : undefined}>{label}</span>
-        {fileSize && <span className={compact ? 'hidden sm:inline' : undefined}>{fileSize}</span>}
+        <span className={compact || appearance === 'segment' ? 'hidden sm:inline' : undefined}>{label}</span>
+        {fileSize && <span className={compact && appearance !== 'segment' ? 'hidden sm:inline' : undefined}>{fileSize}</span>}
       </span>
     </span>
   )

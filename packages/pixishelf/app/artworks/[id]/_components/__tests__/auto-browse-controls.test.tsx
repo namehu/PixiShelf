@@ -29,6 +29,16 @@ function Controls() {
 
 beforeEach(() => {
   vi.useFakeTimers()
+  vi.stubGlobal('PointerEvent', class extends MouseEvent {
+    pointerId: number
+    pointerType: string
+    isPrimary = true
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init)
+      this.pointerId = init.pointerId ?? 1
+      this.pointerType = init.pointerType ?? 'mouse'
+    }
+  })
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -46,6 +56,68 @@ afterEach(() => {
 })
 
 describe('auto browse control docking', () => {
+  function compactControls() {
+    store.getState().initialize(1)
+    return render(<AutoBrowseControls compact mode="slideshow" current={12} total={75}
+      onRestart={vi.fn()} onRetry={vi.fn()} onSkip={vi.fn()} />)
+  }
+
+  it('keeps only playback and count visible, with settings after one second of mouse hover', () => {
+    compactControls()
+    const play = screen.getByRole('button', { name: '开始或继续自动浏览' })
+    expect(screen.getAllByRole('button')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: '自动浏览设置' }).textContent).toBe('12/75')
+    fireEvent.click(play)
+    fireEvent.pointerEnter(play, { pointerType: 'mouse' })
+    act(() => vi.advanceTimersByTime(999))
+    expect(screen.queryByText(/每张停留：/)).toBeNull()
+    act(() => vi.advanceTimersByTime(1))
+    expect(screen.getByText(/每张停留：/)).toBeTruthy()
+    expect(store.getState().status).toBe('paused')
+    fireEvent.keyDown(screen.getByRole('slider'), { key: 'Escape' })
+    expect(store.getState().status).toBe('paused')
+  })
+
+  it('cancels a short hover and clears the timer on unmount', () => {
+    const view = compactControls()
+    const play = screen.getByRole('button', { name: '开始或继续自动浏览' })
+    fireEvent.pointerEnter(play, { pointerType: 'mouse' })
+    act(() => vi.advanceTimersByTime(500))
+    fireEvent.pointerLeave(play, { pointerType: 'mouse' })
+    act(() => vi.advanceTimersByTime(1000))
+    expect(screen.queryByText(/每张停留：/)).toBeNull()
+    fireEvent.pointerEnter(play, { pointerType: 'mouse' })
+    view.unmount()
+    act(() => vi.advanceTimersByTime(1000))
+    expect(store.getState().status).toBe('idle')
+  })
+
+  it('opens on upward swipe without toggling playback on release, and keeps recovery accessible', () => {
+    compactControls()
+    act(() => { store.getState().start('slideshow'); store.getState().pause('error') })
+    const count = screen.getByRole('button', { name: '自动浏览设置' })
+    fireEvent.pointerDown(count, { pointerType: 'touch', clientX: 100, clientY: 100, button: 0 })
+    fireEvent.pointerMove(count, { pointerType: 'touch', clientX: 103, clientY: 70 })
+    fireEvent.pointerUp(count, { pointerType: 'touch' })
+    fireEvent.click(count)
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '跳过' })).toBeTruthy()
+    expect(store.getState().status).toBe('paused')
+  })
+
+  it('offers count-click and keyboard access while compact playback never docks away', () => {
+    compactControls()
+    fireEvent.click(screen.getByRole('button', { name: '自动浏览设置' }))
+    expect(screen.getByText(/每张停留：/)).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('slider'), { key: 'Escape' })
+    const play = screen.getByRole('button', { name: '开始或继续自动浏览' })
+    fireEvent.click(play)
+    act(() => vi.advanceTimersByTime(5000))
+    expect(screen.getByRole('button', { name: '暂停自动浏览' })).toBeTruthy()
+    fireEvent.keyDown(play, { key: 'ArrowUp' })
+    expect(screen.getByText(/每张停留：/)).toBeTruthy()
+  })
+
   it('ignores unrelated media updates but renders waiting and preference changes', () => {
     store.getState().initialize(1)
     store.getState().start('scroll')

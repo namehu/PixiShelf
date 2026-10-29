@@ -280,7 +280,7 @@ function AdaptiveMediaPreviewContent({
   const webpControl = (
     <button
       type="button"
-      className="pointer-events-auto flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-ring"
+      className="preview-webp-control pointer-events-auto min-h-11 min-w-11 shrink-0"
       aria-label={animationPlaybackLabel(isWebpPlaying, animation.playOnce, 'WEBP', activeProgress)}
       data-auto-browse-controls
       aria-pressed={isWebpPlaying}
@@ -289,7 +289,7 @@ function AdaptiveMediaPreviewContent({
       }}
     >
       <AnimationPlaybackCapsule
-        compact
+        appearance="segment"
         playing={isWebpPlaying}
         playOnce={animation.playOnce}
         label="WEBP"
@@ -483,11 +483,11 @@ function AdaptiveMediaPreviewContent({
                       }}
                     />
                   ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm tabular-nums" aria-live="polite">
+                    <div className="preview-playback-controls flex h-12 items-center rounded-full p-0.5">
+                      <span className="px-3 text-xs tabular-nums" aria-live="polite">
                         {originalIndex + 1}/{originalTotal}
                       </span>
-                      {activePlayableWebp ? webpControl : null}
+                      {activePlayableWebp ? <div className="preview-playback-trailing border-l">{webpControl}</div> : null}
                     </div>
                   ))}
               </MediaMarkActions>

@@ -1,10 +1,11 @@
 'use client'
 
 import React, { memo, useCallback, useEffect, useRef } from 'react'
-import { Heart } from 'lucide-react'
+import { Heart, Sparkle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import type { ArtworkRatingLevel } from '@/schemas/artwork-rating.dto'
 
 export interface LikeButtonProps {
   liked: boolean
@@ -13,7 +14,7 @@ export interface LikeButtonProps {
   disabled?: boolean
   saving?: boolean
   label?: string
-  ratingLabel?: string
+  ratingLevel?: ArtworkRatingLevel
   buttonRef?: React.Ref<HTMLButtonElement>
   className?: string
 }
@@ -27,7 +28,7 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
   disabled,
   saving,
   label,
-  ratingLabel,
+  ratingLevel,
   buttonRef
 }) => {
   const press = useRef<{ id: number; x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null)
@@ -63,10 +64,11 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
       aria-description={onOpenRating ? '长按选择作品评分，也可从更多操作打开' : undefined}
       aria-pressed={liked}
       aria-busy={saving || undefined}
+      data-rating-level={liked ? ratingLevel ?? 2 : undefined}
       className={cn(
         'relative flex size-12 touch-none select-none items-center justify-center rounded-full bg-black/20 text-white shadow-floating backdrop-blur-sm transition-[color,background-color,transform] hover:scale-105 hover:bg-black/30 hover:text-white active:scale-95 motion-reduce:transform-none',
         'focus-visible:ring-2 focus-visible:ring-white/70',
-        liked && 'text-destructive hover:text-destructive',
+        'viewer-rating-heart',
         className
       )}
       onPointerDown={(event) => {
@@ -120,16 +122,12 @@ export const LikeButton: React.FC<LikeButtonProps> = ({
       }}
       disabled={disabled}
     >
-      <Heart
-        aria-hidden="true"
-        className={cn('size-6 transition-[color,fill] duration-(--motion-fast)', liked && 'fill-current')}
-      />
+      <span className="viewer-rating-glyph" aria-hidden="true">
+        <Heart className={cn('viewer-rating-main size-6', liked && 'fill-current')} />
+        {liked && ratingLevel === 3 && <Heart className="viewer-rating-echo fill-current" />}
+        {liked && ratingLevel === 4 && <Sparkle className="viewer-rating-spark fill-current" />}
+      </span>
       {saving && <Spinner className="absolute right-0 top-0 size-3" aria-label="正在保存评分" />}
-      {ratingLabel && (
-        <span className="pointer-events-none absolute -bottom-1 rounded-full bg-background px-1 text-[10px] leading-4 text-foreground">
-          {ratingLabel}
-        </span>
-      )}
     </Button>
   )
 }

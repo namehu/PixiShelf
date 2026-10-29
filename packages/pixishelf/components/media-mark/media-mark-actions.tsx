@@ -43,7 +43,7 @@ export function MediaMarkActions({
       className={cn(
         'relative flex gap-1',
         layout === 'menu' && 'flex-col',
-        overlay && 'max-w-full items-center justify-center gap-3 sm:gap-6'
+        overlay && 'max-w-full items-center justify-center gap-1 sm:gap-6'
       )}
     >
       {(
@@ -67,13 +67,14 @@ export function MediaMarkActions({
               variant={layout === 'menu' ? 'ghost' : 'secondary'}
               aria-label={active ? remove : add}
               aria-pressed={active}
+              data-media-mark={kind}
               aria-busy={mark.isLoading || mark.isSaving}
               disabled={mark.isLoading || !mark.available}
               title={active ? remove : add}
               className={cn(
                 'min-h-11 min-w-11',
                 layout === 'icons' ? 'size-11 shrink-0 rounded-full p-0' : 'w-full justify-start',
-                overlay && 'media-mark-overlay size-12 disabled:opacity-100 [&_svg]:size-6'
+                overlay && 'media-mark-overlay size-11 sm:size-12 disabled:opacity-100 [&_svg]:size-6'
               )}
               onClick={(event) => {
                 event.stopPropagation()
