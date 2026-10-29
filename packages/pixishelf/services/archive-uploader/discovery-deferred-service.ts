@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import { Prisma, bindDiscoveryCreators, lockCreatorCatalog, type PrismaClient } from '@pixishelf/db'
-import { ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE, archiveUploaderIdentityLockKey } from '@pixishelf/job-contracts'
+import {
+  ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+  archiveUploaderIdentityLockKey,
+  archiveDownloadScopeSchema
+} from '@pixishelf/job-contracts'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { runArchiveBulkOperation } from '@/services/archive/archive-bulk-operation'
@@ -21,7 +25,8 @@ export const deferDiscoveryItemsSchema = z.object({ sourceId: id, itemIds: ids, 
 export const deferredItemsCommandSchema = z.object({ deferredItemIds: ids, requestId }).strict()
 export const downloadDeferredItemsSchema = deferredItemsCommandSchema.extend({
   downloadMode: z.enum(['AUTO', 'MANUAL']).default('AUTO'),
-  quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL')
+  quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL'),
+  downloadScope: archiveDownloadScopeSchema.default('ALL')
 })
 export const listDeferredItemsSchema = z
   .object({
@@ -225,7 +230,11 @@ export async function downloadDeferredItems(
       commandType: 'DOWNLOAD_DEFERRED',
       targetType: 'DEFERRED_DISCOVERY_ITEM',
       targetIds: parsed.deferredItemIds,
-      requestOptions: { downloadMode: parsed.downloadMode, quality: parsed.quality }
+      requestOptions: {
+        downloadMode: parsed.downloadMode,
+        quality: parsed.quality,
+        downloadScope: parsed.downloadScope
+      }
     },
     async (transaction, targetId) => {
       const candidate = await transaction.archiveDiscoveryDeferredItem.findUnique({ where: { id: targetId } })
@@ -244,7 +253,8 @@ export async function downloadDeferredItems(
           idempotencyKey: `deferred:${createHash('sha256').update(`${parsed.requestId}:${targetId}`).digest('hex')}`,
           urls: [decision.canonicalUrl],
           downloadMode: parsed.downloadMode,
-          quality: parsed.quality
+          quality: parsed.quality,
+          downloadScope: parsed.downloadScope
         },
         userId,
         transaction

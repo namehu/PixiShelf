@@ -39,7 +39,7 @@ export async function completeArchiveArtwork(
     ) {
       throw new ArchiveError('STATE_CONFLICT', '当前归档缺少可安全补全的来源记录，请通过完整更新重新确认。')
     }
-    // Submission owns the established capacity -> creator -> source lock order. No worker sees it before this transaction commits.
+    // Submission owns the established creator -> identity -> capacity lock order. No worker sees it before this transaction commits.
     const submission = await createArchiveIntakeSubmissionInTransaction(
       {
         idempotencyKey: `archive-complete:${input.idempotencyKey}`,
@@ -54,12 +54,14 @@ export async function completeArchiveArtwork(
     const intake = await tx.archiveIntakeItem.findFirst({ where: { submissionId: submission.id } })
     if (!intake) throw new ArchiveError('STATE_CONFLICT', '收件箱容量不足，暂时不能补全。')
     if (intake.completionBaseRevisionId) {
-      if (intake.completionBaseRevisionId !== base.id)
-        {throw new ArchiveError('STATE_CONFLICT', '该补全请求已绑定其他归档版本。')}
+      if (intake.completionBaseRevisionId !== base.id) {
+        throw new ArchiveError('STATE_CONFLICT', '该补全请求已绑定其他归档版本。')
+      }
       return { intakeItemId: intake.id, archiveImportId: intake.archiveImportId }
     }
-    if (intake.status !== 'QUEUED')
-      {throw new ArchiveError('STATE_CONFLICT', '该作品已有收件或下载任务，请等待完成后再补全。')}
+    if (intake.status !== 'QUEUED') {
+      throw new ArchiveError('STATE_CONFLICT', '该作品已有收件或下载任务，请等待完成后再补全。')
+    }
     await lockCreatorCatalog(tx)
     await tx.$queryRawUnsafe('SELECT pg_advisory_xact_lock($1)::text', ARCHIVE_PUBLISH_ADVISORY_LOCK_ID)
     await lockArtworkForReading(tx, input.artworkId)
@@ -87,8 +89,9 @@ export async function completeArchiveArtwork(
           status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] }
         }
       })
-    )
-      {throw new ArchiveError('STATE_CONFLICT', '作品已有下载任务，请等待完成后再补全。')}
+    ) {
+      throw new ArchiveError('STATE_CONFLICT', '作品已有下载任务，请等待完成后再补全。')
+    }
     const mediaResult = mediaSnapshotSchema.array().min(1).max(20).safeParse(base.mediaSnapshot)
     if (!mediaResult.success || mediaResult.data.length !== artwork.images.length) {
       throw new ArchiveError('STATE_CONFLICT', '本地媒体记录已改变，不能安全补全；请通过完整更新重新确认。')

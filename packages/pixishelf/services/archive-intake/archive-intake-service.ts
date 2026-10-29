@@ -1,3 +1,4 @@
+import { intakeItemWireSelect, type IntakeItemWire } from './archive-intake-wire'
 import { hashSubmittedUrl, validateSubmittedUrl, safeThumbnailUrl } from './archive-intake-url'
 export { hashSubmittedUrl } from './archive-intake-url'
 import { randomUUID } from 'node:crypto'
@@ -1054,44 +1055,6 @@ function findActiveRetryDuplicate(
     select: { id: true }
   })
 }
-
-const intakeItemWireSelect = {
-  id: true,
-  submissionId: true,
-  submittedUrl: true,
-  queueOrder: true,
-  status: true,
-  attempts: true,
-  availableAt: true,
-  startedAt: true,
-  finishedAt: true,
-  providerKey: true,
-  externalId: true,
-  canonicalUrl: true,
-  resolvedTitle: true,
-  thumbnailUrl: true,
-  pageCount: true,
-  resolutionKind: true,
-  duplicateOfItemId: true,
-  activeArchiveImportId: true,
-  selectedQuality: true,
-  downloadMode: true,
-  downloadScope: true,
-  resolvedAt: true,
-  expiresAt: true,
-  archiveImportId: true,
-  errorCode: true,
-  errorMessage: true,
-  errorStage: true,
-  retryable: true,
-  supersedesItemId: true,
-  currentSystemJobId: true,
-  dedupSourceSnapshot: true,
-  createdAt: true,
-  updatedAt: true
-} satisfies Prisma.ArchiveIntakeItemSelect
-
-type IntakeItemWire = Prisma.ArchiveIntakeItemGetPayload<{ select: typeof intakeItemWireSelect }>
 
 function serializeIntakeItem(item: IntakeItemWire, now: Date) {
   const { dedupSourceSnapshot, ...wire } = item

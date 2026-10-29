@@ -11,8 +11,14 @@ import {
 const isolatedUrl = process.env.DISCOVERY_IGNORED_DATABASE_URL
 if (isolatedUrl) {
   const target = new URL(isolatedUrl)
-  if (target.hostname !== '127.0.0.1' || target.port !== '5442' || target.pathname !== '/pixishelf_ignore_dev') {
-    throw new Error('Requires isolated 127.0.0.1:5442/pixishelf_ignore_dev database')
+  if (
+    target.hostname !== '127.0.0.1' ||
+    !(
+      (target.port === '5442' && target.pathname === '/pixishelf_ignore_dev') ||
+      (target.port === '5472' && target.pathname === '/pixishelf_integration_dev')
+    )
+  ) {
+    throw new Error('Requires the isolated ignore or integration database')
   }
 }
 const database = isolatedUrl ? new PrismaClient({ datasourceUrl: isolatedUrl }) : null

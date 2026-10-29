@@ -27,7 +27,8 @@ describe('deferred discovery input boundary', () => {
       deferredItemIds: ['one'],
       requestId: 'one',
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL'
+      quality: 'ORIGINAL',
+      downloadScope: 'ALL'
     })
     expect(listDeferredItemsSchema.safeParse({ limit: 101 }).success).toBe(false)
   })

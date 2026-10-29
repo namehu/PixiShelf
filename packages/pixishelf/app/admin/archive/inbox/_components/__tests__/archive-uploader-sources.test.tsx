@@ -1,7 +1,7 @@
 import { registerDiscoveryIgnoredCases } from './archive-discovery-ignored-cases'
 import { registerDiscoveryRowCases } from './archive-discovery-row-cases'
 import { registerDiscoveryNavigationCases } from './archive-discovery-navigation-cases'
-import { source, activeRun, completedRun } from './archive-uploader-sources-fixtures'
+import { source, activeRun, completedRun, ignoredItemsData } from './archive-uploader-sources-fixtures'
 import { useState, type ReactNode } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -129,27 +129,6 @@ const itemsData = {
           pendingCreators: [] as { id: number; name: string }[],
           recoverable: false,
           sortAt: new Date('2026-09-02T10:30:00.000Z')
-        }
-      ],
-      nextCursor: null
-    }
-  ]
-}
-const ignoredItemsData = {
-  pages: [
-    {
-      totalCount: 101,
-      items: [
-        {
-          id: 'ignored-item-1',
-          providerKey: 'e-hentai',
-          externalId: '301',
-          sourceDisplayName: 'UID 123',
-          title: 'Ignored Gallery 301',
-          thumbnailUrl: 'https://ehgt.org/thumb-301.jpg',
-          uploaderName: 'Uploader',
-          postedAt: new Date('2026-09-01T10:30:00.000Z'),
-          ignoredAt: new Date('2026-09-02T11:20:00.000Z')
         }
       ],
       nextCursor: null
@@ -936,13 +915,15 @@ describe('ArchiveUploaderSources', () => {
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL'
+      quality: 'ORIGINAL',
+      downloadScope: 'ALL'
     })
     expect(mocks.addToInbox).toHaveBeenCalledWith({
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
       quality: 'ORIGINAL',
+      downloadScope: 'ALL',
       submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
   })
@@ -982,13 +963,15 @@ describe('ArchiveUploaderSources', () => {
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL'
+      quality: 'ORIGINAL',
+      downloadScope: 'ALL'
     })
     expect(mocks.addToInbox).toHaveBeenCalledWith({
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
       quality: 'ORIGINAL',
+      downloadScope: 'ALL',
       submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
   })
@@ -1079,9 +1062,10 @@ describe('ArchiveUploaderSources', () => {
       currentDetailData = { source: selectedSource, runs: [completedRun] }
       renderSources()
       expect(screen.queryByRole('button', { name: '加入收件箱' })).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图' }))
+      fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图 · 全部' }))
       fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
       fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
+      fireEvent.click(screen.getByRole('radio', { name: '前20张' }))
       fireEvent.click(screen.getByRole('button', { name: '完成' }))
       expect(mocks.createSubmissionAttempt).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
@@ -1090,13 +1074,15 @@ describe('ArchiveUploaderSources', () => {
         sourceId: 'source-1',
         itemIds: ['catalog-item-1'],
         downloadMode: 'MANUAL',
-        quality: 'DISPLAY'
+        quality: 'DISPLAY',
+        downloadScope: 'FIRST_20'
       })
       expect(mocks.addToInbox).toHaveBeenCalledWith({
         sourceId: 'source-1',
         itemIds: ['catalog-item-1'],
         downloadMode: 'MANUAL',
         quality: 'DISPLAY',
+        downloadScope: 'FIRST_20',
         submissionAttemptId: '00000000-0000-4000-8000-000000000001'
       })
     }

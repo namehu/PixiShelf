@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, PrismaClient } from '@pixishelf/db'
+import { enqueueArchiveIntakeItemInTransaction } from '@pixishelf/job-executors'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 import {
@@ -116,6 +117,7 @@ async function cleanup() {
   await db().archiveUploaderIgnoredItem.deleteMany({ where: { ignoredByUserId: prefix } })
   await db().archiveUploaderSource.deleteMany({ where: { id: { startsWith: prefix } } })
   await db().archiveBulkOperation.deleteMany({ where: { requestedByUserId: prefix } })
+  await db().archiveImport.deleteMany({ where: { id: { startsWith: prefix } } })
   await db().archiveIntakeSubmission.deleteMany({ where: { requestedByUserId: prefix } })
   await db().systemJob.deleteMany({ where: { requestedByUserId: prefix } })
   await db().artwork.deleteMany({ where: { title: prefix } })
@@ -153,20 +155,59 @@ suite('persistent discovery deferred decisions', () => {
     })
   })
 
-  it('keeps decisions after source deletion and permits download, ignore and restore by row identity', async () => {
+  it.each(['ALL', 'FIRST_20'] as const)(
+    'downloads %s after source deletion and binds the receipt to the scope',
+    async (downloadScope) => {
+      const first = await seed('orphan')
+      const decision = await defer(first)
+      await db().archiveUploaderSource.delete({ where: { id: first.sourceId } })
+      const page = await listDeferredItems({}, deps())
+      expect(page.items).toContainEqual(expect.objectContaining({ id: decision.id, sourceDeleted: true }))
+      expect(JSON.stringify(page)).not.toContain('aabbccdd11')
+      const input = { deferredItemIds: [decision.id], requestId: request(), downloadScope }
+      const downloaded = await downloadDeferredItems(input, prefix, deps())
+      expect(downloaded?.counts.created).toBe(1)
+      expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: decision.id } })).toBeNull()
+      const intake = await db().archiveIntakeItem.findFirstOrThrow({
+        where: { submissionId: downloaded!.items[0]!.relatedId! }
+      })
+      expect(intake.downloadScope).toBe(downloadScope)
+      expect(
+        (await db().systemJob.findUniqueOrThrow({ where: { id: intake.currentSystemJobId! } })).definitionVersion
+      ).toBe(2)
+      const replay = await downloadDeferredItems(input, prefix, deps())
+      expect(replay?.id).toBe(downloaded?.id)
+      await expect(
+        downloadDeferredItems({ ...input, downloadScope: downloadScope === 'ALL' ? 'FIRST_20' : 'ALL' }, prefix, deps())
+      ).rejects.toMatchObject({ code: 'STATE_CONFLICT' })
+      expect(await db().archiveIntakeItem.count({ where: { submissionId: downloaded!.items[0]!.relatedId! } })).toBe(1)
+      await assertDeferredDownloadPlan(intake, downloadScope)
+    }
+  )
+
+  it('uses one download scope for a batch containing a deleted source and a live source', async () => {
     const first = await seed('orphan')
-    const decision = await defer(first)
+    const second = await seed('live', (BigInt(externalId) + 1n).toString())
+    const decisions = [await defer(first), await defer(second)]
     await db().archiveUploaderSource.delete({ where: { id: first.sourceId } })
-    const page = await listDeferredItems({}, deps())
-    expect(page.items).toContainEqual(expect.objectContaining({ id: decision.id, sourceDeleted: true }))
-    expect(JSON.stringify(page)).not.toContain('aabbccdd11')
-    const downloaded = await downloadDeferredItems(
-      { deferredItemIds: [decision.id], requestId: request() },
+    const result = await downloadDeferredItems(
+      {
+        deferredItemIds: decisions.map(({ id }) => id),
+        requestId: request(),
+        downloadScope: 'FIRST_20',
+        downloadMode: 'MANUAL',
+        quality: 'DISPLAY'
+      },
       prefix,
       deps()
     )
-    expect(downloaded?.counts.created).toBe(1)
-    expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: decision.id } })).toBeNull()
+    expect(result?.counts.created).toBe(2)
+    for (const item of result!.items) {
+      const intake = await db().archiveIntakeItem.findFirstOrThrow({ where: { submissionId: item.relatedId! } })
+      expect(intake).toMatchObject({ downloadScope: 'FIRST_20', downloadMode: 'MANUAL', selectedQuality: 'DISPLAY' })
+      await assertDeferredDownloadPlan(intake, 'FIRST_20')
+    }
+    expect(await db().archiveDiscoveryDeferredItem.count({ where: { deferredByUserId: prefix } })).toBe(0)
   })
 
   it('makes ignore win and never revives deferred when ignore is restored', async () => {
@@ -299,3 +340,62 @@ suite('persistent discovery deferred decisions', () => {
     expect(secondPage.nextCursor).toBeNull()
   })
 })
+
+async function assertDeferredDownloadPlan(
+  intake: Prisma.ArchiveIntakeItemGetPayload<object>,
+  scope: 'ALL' | 'FIRST_20'
+) {
+  const gid = new URL(intake.submittedUrl).pathname.split('/')[2]!
+  const resolved = {
+    providerKey: 'e-hentai',
+    externalId: gid,
+    canonicalUrl: intake.submittedUrl,
+    locator: {},
+    title: prefix,
+    titleAliases: [],
+    description: null,
+    category: null,
+    uploader: null,
+    thumbnailUrl: null,
+    postedAt: null,
+    tags: [],
+    relationships: [],
+    normalizedMetadata: { titles: { display: prefix } },
+    rawMetadata: {},
+    warnings: [],
+    creatorBucket: 'integration',
+    media: Array.from({ length: 30 }, (_, index) => ({
+      index,
+      sourcePageUrl: `https://e-hentai.org/s/page/${gid}-${index + 1}`,
+      locator: { index },
+      expectedFilename: `${index}.jpg`
+    }))
+  }
+  await db().systemJob.update({ where: { id: intake.currentSystemJobId! }, data: { status: 'COMPLETED' } })
+  await db().archiveIntakeItem.update({
+    where: { id: intake.id },
+    data: {
+      status: 'READY',
+      providerKey: 'e-hentai',
+      externalId: gid,
+      resolvedSnapshot: resolved,
+      metadataHash: 'a'.repeat(64),
+      expiresAt: new Date(Date.now() + 3_600_000)
+    }
+  })
+  const result = await db().$transaction((tx) =>
+    enqueueArchiveIntakeItemInTransaction(tx, intake.id, {
+      quality: intake.selectedQuality,
+      requestedByUserId: prefix,
+      timestamp: new Date(),
+      uuid: request,
+      defaultTagIds: []
+    })
+  )
+  expect(result.result).toBe('CREATED')
+  expect(await db().archiveImport.findUniqueOrThrow({ where: { id: result.relatedId! } })).toMatchObject({
+    downloadScope: scope,
+    sourceTotalItems: 30,
+    totalItems: scope === 'ALL' ? 30 : 20
+  })
+}

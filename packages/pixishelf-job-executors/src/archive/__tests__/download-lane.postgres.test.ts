@@ -79,7 +79,7 @@ suite('archive download lane real database and filesystem', () => {
     await db?.$disconnect()
   })
 
-  it.each(['normal', 'crash', 'crash-corrupt', 'local-change', 'unknown-file', 'active-job'] as const)(
+  it.each(['normal', 'purge', 'crash', 'crash-corrupt', 'local-change', 'unknown-file', 'active-job'] as const)(
     'partial coverage protects original media and retires safely: %s',
     async (mode) => {
       const root = await mkdtemp(path.join(tmpdir(), 'archive-partial-'))
@@ -319,6 +319,38 @@ suite('archive download lane real database and filesystem', () => {
       )
       expect(await storage.pathExists(path.join(root, full.archivePath))).toBe(true)
       expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(false)
+      if (mode === 'purge') {
+        await db!.archiveRevision.update({
+          where: { id: full.id },
+          data: { trashPath, trashedAt: clock.now(), purgeAfter: clock.now() }
+        })
+        await db!.artwork.update({
+          where: { id: base.artworkId },
+          data: { deletedAt: clock.now(), archiveLifecycleState: 'TRASHING' }
+        })
+        await seedJob(
+          'ARCHIVE_MAINTENANCE',
+          'partial-trash-again',
+          { action: 'TRASH_ARCHIVE', artworkId: base.artworkId },
+          2
+        )
+        const trashAgain = await claim('ARCHIVE_MAINTENANCE', 'fixture', [2])
+        await executeArchiveMaintenance(
+          { ...context(trashAgain), payload: trashAgain.payload as never },
+          { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+        )
+        await seedJob('ARCHIVE_MAINTENANCE', 'partial-purge', { action: 'PURGE_ARCHIVE', artworkId: base.artworkId }, 2)
+        const purge = await claim('ARCHIVE_MAINTENANCE', 'fixture', [2])
+        await executeArchiveMaintenance(
+          { ...context(purge), payload: purge.payload as never },
+          { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+        )
+        expect((await db!.systemJob.findUniqueOrThrow({ where: { id: purge.id } })).status).toBe('COMPLETED')
+        expect(await db!.artwork.findUnique({ where: { id: base.artworkId } })).toBeNull()
+        expect(await storage.pathExists(path.join(root, trashPath))).toBe(false)
+        expect(await storage.pathExists(path.join(root, full.archivePath))).toBe(false)
+        expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(false)
+      }
     },
     30_000
   )
