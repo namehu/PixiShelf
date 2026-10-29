@@ -733,7 +733,11 @@ export function ArchiveUploaderSources({
               <BanIcon data-icon="inline-start" aria-hidden="true" />
               查看本来源已忽略
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setDeferredView({ sourceId: source.id, sourceName: source.displayName })}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setDeferredView({ sourceId: source.id, sourceName: source.displayName })}
+            >
               <ClockIcon data-icon="inline-start" aria-hidden="true" />
               查看本来源稍后决定
             </Button>
