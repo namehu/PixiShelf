@@ -49,7 +49,8 @@ const trpc = {
     catalogCounts: { queryKey: () => ['counts'] },
     listSources: { queryKey: () => ['sources'] },
     getSource: { queryKey: () => ['source'] },
-    listItems: { infiniteQueryKey: () => ['items'] }
+    listItems: { infiniteQueryKey: () => ['items'] },
+    listIgnoredItems: { infiniteQueryKey: () => ['ignored'] }
   }
 }
 vi.mock('@/lib/trpc', () => ({ useTRPC: () => trpc }))
@@ -184,6 +185,31 @@ describe('discovery batch source selection', () => {
     fireEvent.click(screen.getByRole('button', { name: '取消批次' }))
     expect(mocks.control).toHaveBeenCalledWith({ batchId: 'batch', command: 'CANCEL' })
   })
+  it('invalidates cached ignored memberships when a batch finishes discovering sources', () => {
+    const active = {
+      id: 'batch',
+      active: true,
+      status: 'RUNNING',
+      total: 1,
+      processed: 0,
+      sources: [{ id: 'a', name: 'Alice' }],
+      results: [],
+      currentSourceId: 'a',
+      phase: 'HISTORY',
+      checkedCount: 1,
+      error: null
+    }
+    mocks.batch = active
+    const rendered = render(<ArchiveDiscoveryBatchSources {...props} />)
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalled()
+    mocks.batch = { ...active, active: false, status: 'COMPLETED', processed: 1, currentSourceId: null }
+    rendered.rerender(<ArchiveDiscoveryBatchSources {...props} />)
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['ignored'] })
+    queryClient.invalidateQueries.mockClear()
+    rendered.rerender(<ArchiveDiscoveryBatchSources {...props} />)
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalled()
+  })
+
   it('offers failed-source retry only after completion', () => {
     mocks.batch = {
       id: 'batch',

@@ -35,3 +35,9 @@ PostgreSQL 15 空库通过 `pnpm --filter @pixishelf/db db:generate` 与 `db:dep
 启动后的入口为 `http://127.0.0.1:5440/admin/archive/inbox?entry=direct`，全新隔离库需在登录页初始化独立测试账户。验证同一画廊被两个来源发现、在其中一处忽略后，两个来源的“查看本来源已忽略”均能找到它；从任一视图恢复后全局解除忽略。另测过滤结果、翻页、返回来源、浏览器深链、来源删除后全局恢复。
 
 本地运行日志与 PID 文件位于 `packages/pixishelf/.local-data/runtime/`，Web 采用 `pnpm exec next dev --hostname 127.0.0.1 --port 5440`，Worker 采用自己的 `dist/main.cjs` 并显式加载同 worktree 的 `.env.local`。停止时只向这两个 PID 发送 SIGTERM，并停止 `pixishelf-ignore-postgres`、`pixishelf-ignore-imgproxy` 两个容器；保留命名卷，不删除数据库。
+
+## 独立审查修复
+
+独立审查指出：来源扫描新发现一个已在别处全局忽略的画廊后，停留在本来源忽略视图的缓存不会失效，列表及总数可能延迟更新。修复把已忽略查询加入实际观察到的扫描完成刷新；同类批量扫描进度与完成刷新也同步失效该缓存。首次加载历史已完成任务、重复渲染相同完成状态不额外刷新。
+
+新增组件回归覆盖：停留在来源忽略页观察 RUNNING → COMPLETED，以及批量扫描完成后已有忽略缓存刷新。修复后两套组件测试共 53 项通过，typecheck、定向 lint、docs:check、差异及命名检查通过。未执行额外全量 build。本节只记录修复内容与开发验证，复审结论由独立审查者给出。

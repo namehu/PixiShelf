@@ -308,6 +308,7 @@ export function ArchiveUploaderSources({
       return
     }
     void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
+    void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listIgnoredItems.infiniteQueryKey() })
     void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.catalogCounts.queryKey() })
   }, [
     selectedSourceId,
@@ -315,6 +316,7 @@ export function ArchiveUploaderSources({
     latestRun?.status,
     queryClient,
     trpc.archiveSearch.listItems,
+    trpc.archiveSearch.listIgnoredItems,
     trpc.archiveSearch.catalogCounts
   ])
 

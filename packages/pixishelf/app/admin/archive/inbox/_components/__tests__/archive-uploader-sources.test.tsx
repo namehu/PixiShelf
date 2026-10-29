@@ -456,7 +456,8 @@ function renderSources(options?: {
   initialIgnored?: boolean
   showTestControls?: boolean
 }) {
-  return render(<SourcesHarness {...options} />)
+  const rendered = render(<SourcesHarness {...options} />)
+  return { ...rendered, refresh: () => rendered.rerender(<SourcesHarness {...options} />) }
 }
 
 afterEach(cleanup)
@@ -596,7 +597,13 @@ describe('ArchiveUploaderSources', () => {
     expect(uidLabels.every((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
   })
 
-  registerDiscoveryIgnoredCases({ renderSources, mocks })
+  registerDiscoveryIgnoredCases({
+    renderSources,
+    mocks,
+    completeScan: () => {
+      currentDetailData = { source, runs: [{ ...activeRun, status: 'COMPLETED' }] }
+    }
+  })
 
   it('keeps global ignores accessible and restorable with no saved sources', async () => {
     currentSourcesData = []
