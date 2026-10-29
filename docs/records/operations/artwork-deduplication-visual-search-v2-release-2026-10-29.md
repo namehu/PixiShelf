@@ -31,9 +31,9 @@ sources:
 
 主线合并提交 `a7f2eedb`。独立 GPT‑6.1 Sol / xhigh 复审核对：两方交集仅 Schema、Worker capabilities、registry 测试三个文件；其余 101 个主线变更文件与合并前逐字节一致。Schema 相对主线只新增去重四字段；主线的执行上下文仅新增可选的子任务版本，未改 finalizer 语义；去重调度让行修复与原功能提交逐字节一致。无新增 P0/P1/P2。
 
-隔离合成库完成主线三条追加迁移、Prisma generate，合并后的必要 Worker 依赖链构建通过（存在已有 CJS import.meta 提示），registry 专项 13/13 通过。未重复 typecheck、全量应用验证或全部测试。本轮实际 Node 进程重启与计数证据见[补充验收记录](../artwork-deduplication-visual-search-v2-release-validation-2026-10-29.md)。真实终止仅发生在新增合成样本，旧租约自然到期后同一 run/job 自动续跑；浏览器观察到特征 127/2,000、刷新后 1,211/2,000、视觉 1,792/2,000，最终 25 组，无需点继续，无整体 99%。[恢复截图](../evidence/visual-search-v2/release-restart-resumed.jpg)、[视觉阶段](../evidence/visual-search-v2/release-restart-visual.jpg)、[完成截图](../evidence/visual-search-v2/release-restart-completed.jpg)。
+隔离合成库完成主线三条追加迁移、Prisma generate，合并后的必要 Worker 依赖链构建通过（存在已有 CJS import.meta 提示），registry 专项 13/13 通过。未重复 typecheck、全量应用验证或全部测试。本轮实际 Node 进程重启与计数证据见[补充验收记录](../artwork-deduplication-visual-search-v2-release-validation-2026-10-29.md)。真实终止仅发生在新增合成样本，旧租约自然到期后同一 run/job 自动续跑；浏览器观察到特征 127/2,000、刷新后 1,211/2,000、视觉 1,792/2,000，最终 25 组，无需点继续，无整体 99%。[恢复截图](../evidence/visual-search-v2/release-restart-resumed.jpg)采集时已推进到 627/2,000；[完成截图](../evidence/visual-search-v2/release-restart-completed.jpg)显示 25 组。阶段数值来自浏览器状态读取，截图与状态读取不是同一时刻；名为 visual 的原始截图采集时也已完成。
 
-桌面并发浏览只部分形成可用证据：扫描期间艺术家列表可打开，导航 API 返回 1.822 秒；点击作品详情后浏览器 URL 等待与状态工具超时，随后完整 40 张详情正常显示。服务日志该详情 HTTP 200 / 1.824 秒，不能据此替代端到端交互耗时或排除浏览器问题。[详情恢复截图](../evidence/visual-search-v2/release-detail-blocked.jpg)。检查结束后展开图片与结果翻页正常。此次未建立生产浏览性能达标结论，留给用户 NAS 实测；没有把工具超时隐藏为通过。
+桌面并发浏览只部分形成可用证据：扫描期间艺术家列表可打开，导航 API 返回 1.822 秒；点击作品详情后浏览器 URL 等待与状态工具超时，随后完整 40 张详情正常显示。服务日志该详情 HTTP 200 / 1.824 秒，不能据此替代端到端交互耗时或排除浏览器问题。[超时期间的空白截图](../evidence/visual-search-v2/release-detail-blocked.jpg)、[随后正常展开图片](../evidence/visual-search-v2/release-detail-expanded.jpg)。检查结束后展开图片与结果翻页正常。此次未建立生产浏览性能达标结论，留给用户 NAS 实测；没有把工具超时隐藏为通过。
 
 首轮 2,000 张检查先自然完成，未赶上进程终止，作为并发浏览证据保留；第二轮通过原领域 start 入口发 FULL，仅补一次真实 SIGKILL，未修改租约或任务状态。实际 kill 位于原件阶段，纯视觉计算中 kill 的 OS 级覆盖仍未增加；先前真实 PG 的执行器续跑专项保留原有范围。文档链接检查通过；图示检查首轮因缺少 Playwright 内置 Chromium 未执行，按仓库说明用已安装 Chrome 完成 34 张图源及 23 个内嵌 Mermaid 的检查，未重新生成图或安装浏览器。
 
