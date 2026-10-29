@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Readable } from 'node:stream'
 import type { PrismaClient } from '@pixishelf/db'
-import { ArchiveExecutorError, toArchiveExecutorError, isRetryableArchiveTransaction } from './errors.ts'
+import { ArchiveExecutorError, toArchiveExecutorError } from './errors.ts'
 import type {
   ArchiveMediaProvider,
   ArchiveProvider,
@@ -16,7 +16,6 @@ export interface ArchiveProviderPermit {
   id: string
   providerKey: string
   requestClass: ArchiveProviderRequestClass
-  renewAfterMs: number
 }
 
 export interface ArchiveProviderAcquireOptions {
@@ -31,193 +30,140 @@ export interface ArchiveProviderGovernor {
     signal: AbortSignal,
     options?: ArchiveProviderAcquireOptions
   ): Promise<ArchiveProviderPermit>
-  renew(permit: ArchiveProviderPermit): Promise<void>
-  release(permit: ArchiveProviderPermit): Promise<void>
+  release(permit: ArchiveProviderPermit): void
   penalize(providerKey: string, code: string, until: Date): Promise<void>
 }
 
-export interface PostgresArchiveProviderGovernorOptions {
+export interface InMemoryArchiveProviderGovernorOptions {
   minimumIntervalMs?: number
+  maximumIntervalMs?: number
   searchMinimumIntervalMs?: number
-  leaseDurationMs?: number
   maxConcurrentDownloads?: number
   now?: () => Date
   sleep?: (milliseconds: number, signal: AbortSignal) => Promise<void>
+  random?: () => number
 }
 
-export class PostgresArchiveProviderGovernor implements ArchiveProviderGovernor {
-  private readonly initialized = new Set<string>()
-  private readonly cleanupAfter = new Map<string, number>()
+type ProviderState = {
+  nextRequestAt: number
+  penaltyUntil: number
+  downloads: Set<string>
+}
+
+const governors = new WeakMap<PrismaClient, InMemoryArchiveProviderGovernor>()
+
+export function getArchiveProviderGovernor(database: PrismaClient) {
+  let governor = governors.get(database)
+  if (!governor) {
+    governor = new InMemoryArchiveProviderGovernor(database)
+    governors.set(database, governor)
+  }
+  return governor
+}
+
+export class InMemoryArchiveProviderGovernor implements ArchiveProviderGovernor {
+  private readonly states = new Map<string, ProviderState>()
+  private penaltiesLoaded = false
+  private loadingPenalties: Promise<void> | undefined
   private readonly minimumIntervalMs: number
+  private readonly maximumIntervalMs: number
   private readonly searchMinimumIntervalMs: number
-  private readonly leaseDurationMs: number
   private readonly maxConcurrentDownloads: number
   private readonly now: () => Date
   private readonly sleep: (milliseconds: number, signal: AbortSignal) => Promise<void>
+  private readonly random: () => number
 
   constructor(
     private readonly database: PrismaClient,
-    options: PostgresArchiveProviderGovernorOptions = {}
+    options: InMemoryArchiveProviderGovernorOptions = {}
   ) {
     this.minimumIntervalMs = options.minimumIntervalMs ?? 250
+    this.maximumIntervalMs = options.maximumIntervalMs ?? 500
     this.searchMinimumIntervalMs = options.searchMinimumIntervalMs ?? 3_000
-    this.leaseDurationMs = options.leaseDurationMs ?? 5 * 60_000
     this.maxConcurrentDownloads = options.maxConcurrentDownloads ?? 2
     this.now = options.now ?? (() => new Date())
     this.sleep = options.sleep ?? abortableDelay
-    assertPositiveInteger('minimumIntervalMs', this.minimumIntervalMs)
-    assertPositiveInteger('searchMinimumIntervalMs', this.searchMinimumIntervalMs)
-    assertPositiveInteger('leaseDurationMs', this.leaseDurationMs)
-    assertPositiveInteger('maxConcurrentDownloads', this.maxConcurrentDownloads)
+    this.random = options.random ?? Math.random
   }
 
   async acquire(
-    providerKeyInput: string,
+    providerKey: string,
     requestClass: ArchiveProviderRequestClass,
     signal: AbortSignal,
     options: ArchiveProviderAcquireOptions = {}
   ): Promise<ArchiveProviderPermit> {
-    const providerKey = normalizeProviderKey(providerKeyInput)
-    const maxConcurrentDownloads = options.maxConcurrentDownloads ?? this.maxConcurrentDownloads
-    assertPositiveInteger('maxConcurrentDownloads', maxConcurrentDownloads)
-    // The throttle row is locked inside a serializable transaction so separate
-    // workers cannot observe the same interval/capacity and both issue a request.
-    let transactionFailures = 0
+    throwIfAborted(signal)
+    await this.loadPenalties()
+    const state = this.stateFor(providerKey)
+    const capacity = options.maxConcurrentDownloads ?? this.maxConcurrentDownloads
     while (true) {
       throwIfAborted(signal)
-      let now = this.now()
-      let decision:
-        | { permit: ArchiveProviderPermit }
-        | { waitUntil: Date; reason: 'PENALTY' | 'INTERVAL' | 'DOWNLOAD_CAPACITY' }
-      try {
-        decision = await this.database.$transaction(
-          async (transaction) => {
-            if (!this.initialized.has(providerKey)) {
-              await transaction.archiveProviderThrottle.upsert({
-                where: { providerKey },
-                create: { providerKey },
-                update: {}
-              })
-            }
-            const states = await transaction.$queryRawUnsafe<Array<{ nextRequestAt: Date; penaltyUntil: Date | null }>>(
-              `SELECT "nextRequestAt", "penaltyUntil"
-             FROM "archive_provider_throttles"
-             WHERE "providerKey" = $1
-             FOR UPDATE`,
-              providerKey
-            )
-            now = this.now()
-            if ((this.cleanupAfter.get(providerKey) ?? 0) <= now.getTime()) {
-              await transaction.archiveProviderRequestLease.deleteMany({
-                where: { providerKey, expiresAt: { lte: now } }
-              })
-            }
-            const state = states[0]
-            if (!state) throw new Error(`来源站点 ${providerKey} 的限流记录已不存在`)
-            if (state.penaltyUntil && state.penaltyUntil.getTime() > now.getTime()) {
-              return { waitUntil: state.penaltyUntil, reason: 'PENALTY' as const }
-            }
-            if (state.nextRequestAt.getTime() > now.getTime()) {
-              return { waitUntil: state.nextRequestAt, reason: 'INTERVAL' as const }
-            }
-            const activeDownloads = requestClass === 'DOWNLOAD'
-              ? await transaction.archiveProviderRequestLease.findMany({
-                  where: { providerKey, requestClass: 'DOWNLOAD', expiresAt: { gt: now } },
-                  select: { expiresAt: true },
-                  orderBy: { expiresAt: 'asc' }
-                })
-              : []
-            // Read requests share the provider interval and penalty, but active
-            // media streams only consume DOWNLOAD capacity.
-            if (requestClass === 'DOWNLOAD' && activeDownloads.length >= maxConcurrentDownloads) {
-              return { waitUntil: activeDownloads[0]!.expiresAt, reason: 'DOWNLOAD_CAPACITY' as const }
-            }
-
-            const permit: ArchiveProviderPermit = {
-              id: randomUUID(),
-              providerKey,
-              requestClass,
-              renewAfterMs: Math.max(100, Math.floor(this.leaseDurationMs / 3))
-            }
-            await transaction.archiveProviderRequestLease.create({
-              data: {
-                id: permit.id,
-                providerKey,
-                requestClass,
-                expiresAt: new Date(now.getTime() + this.leaseDurationMs)
-              }
-            })
-            await transaction.archiveProviderThrottle.update({
-              where: { providerKey },
-              data: {
-                nextRequestAt: new Date(
-                  now.getTime() + (requestClass === 'SEARCH' ? this.searchMinimumIntervalMs : this.minimumIntervalMs)
-                ),
-                version: { increment: 1 }
-              }
-            })
-            return { permit }
-          },
-          { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 }
-        )
-      } catch (error) {
-        if ((!isSerializationConflict(error) && !isRetryableArchiveTransaction(error)) || ++transactionFailures >= 3) {
-          throw error
+      const now = this.now().getTime()
+      if (state.penaltyUntil > now) {
+        if (requestClass !== 'DOWNLOAD' && options.yieldOnPenalty) {
+          throw new ArchiveExecutorError('REMOTE_RATE_LIMITED', '来源站点仍处于请求限流等待期', {
+            recoverable: true,
+            retryAfterMs: Math.max(1_000, state.penaltyUntil - now)
+          })
         }
-        await this.sleep(25 * transactionFailures, signal)
-        continue
+        // Longer delays overflow Node's timer and become a 1ms busy loop.
+        await this.sleep(Math.min(state.penaltyUntil - now, 2_147_483_647), signal)
+      } else if (state.nextRequestAt > now) {
+        await this.sleep(state.nextRequestAt - now, signal)
+      } else if (requestClass === 'DOWNLOAD' && state.downloads.size >= capacity) {
+        await this.sleep(100, signal)
+      } else {
+        // No await between checking capacity and reserving the next request.
+        // All callers in this process share this state, including resolver requests.
+        state.nextRequestAt =
+          now +
+          (requestClass === 'SEARCH'
+            ? this.searchMinimumIntervalMs
+            : this.minimumIntervalMs +
+              Math.floor(this.random() * (this.maximumIntervalMs - this.minimumIntervalMs + 1)))
+        const permit = { id: randomUUID(), providerKey, requestClass }
+        if (requestClass === 'DOWNLOAD') state.downloads.add(permit.id)
+        return permit
       }
-      transactionFailures = 0
-      this.initialized.add(providerKey)
-      if ((this.cleanupAfter.get(providerKey) ?? 0) <= now.getTime()) {
-        this.cleanupAfter.set(providerKey, now.getTime() + 60_000)
-      }
-      if ('permit' in decision) return decision.permit
-      if (
-        (requestClass === 'RESOLVE' || requestClass === 'SEARCH') &&
-        options.yieldOnPenalty &&
-        decision.reason === 'PENALTY'
-      ) {
-        // Return a real provider cooldown to the queue instead of occupying
-        // the read lane while sleeping through the penalty.
-        const blockedMs = Math.max(1_000, decision.waitUntil.getTime() - this.now().getTime())
-        throw new ArchiveExecutorError('REMOTE_RATE_LIMITED', '来源站点仍处于请求限流等待期', {
-          recoverable: true,
-          retryAfterMs: blockedMs
-        })
-      }
-      const maximumWaitMs = decision.reason === 'DOWNLOAD_CAPACITY' ? 100 : 5_000
-      const waitMs = Math.max(25, Math.min(maximumWaitMs, decision.waitUntil.getTime() - this.now().getTime()))
-      await this.sleep(waitMs, signal)
     }
   }
 
-  async renew(permit: ArchiveProviderPermit): Promise<void> {
-    const now = this.now()
-    const renewed = await this.database.archiveProviderRequestLease.updateMany({
-      where: {
-        id: permit.id,
-        providerKey: permit.providerKey,
-        requestClass: permit.requestClass,
-        expiresAt: { gt: now }
-      },
-      data: { expiresAt: new Date(now.getTime() + this.leaseDurationMs) }
-    })
-    if (renewed.count !== 1) {
-      throw new ArchiveExecutorError('STATE_CONFLICT', '来源站点请求许可在续期前已过期', {
-        recoverable: true
+  release(permit: ArchiveProviderPermit): void {
+    this.states.get(permit.providerKey)?.downloads.delete(permit.id)
+  }
+
+  private stateFor(providerKey: string) {
+    let state = this.states.get(providerKey)
+    if (!state) {
+      state = { nextRequestAt: 0, penaltyUntil: 0, downloads: new Set() }
+      this.states.set(providerKey, state)
+    }
+    return state
+  }
+
+  private async loadPenalties() {
+    if (this.penaltiesLoaded) return
+    this.loadingPenalties ??= this.database.archiveProviderThrottle
+      .findMany({
+        where: { penaltyUntil: { gt: this.now() } },
+        select: { providerKey: true, penaltyUntil: true }
       })
-    }
+      .then((rows) => {
+        for (const row of rows) {
+          const state = this.stateFor(row.providerKey)
+          state.penaltyUntil = Math.max(state.penaltyUntil, row.penaltyUntil?.getTime() ?? 0)
+        }
+        this.penaltiesLoaded = true
+      })
+      .finally(() => {
+        this.loadingPenalties = undefined
+      })
+    await this.loadingPenalties
   }
 
-  async release(permit: ArchiveProviderPermit): Promise<void> {
-    await this.database.archiveProviderRequestLease.deleteMany({
-      where: { id: permit.id, providerKey: permit.providerKey, requestClass: permit.requestClass }
-    })
-  }
-
-  async penalize(providerKeyInput: string, code: string, until: Date): Promise<void> {
-    const providerKey = normalizeProviderKey(providerKeyInput)
+  async penalize(providerKey: string, code: string, until: Date): Promise<void> {
+    const state = this.stateFor(providerKey)
+    state.penaltyUntil = Math.max(state.penaltyUntil, until.getTime())
     await this.database.$executeRawUnsafe(
       `INSERT INTO "archive_provider_throttles" (
          "providerKey", "nextRequestAt", "penaltyUntil", "penaltyCode", "version", "updatedAt"
@@ -371,7 +317,7 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
         throw new ArchiveExecutorError('STATE_CONFLICT', `归档来源站点 ${this.key} 返回了未按请求进行流量管控的媒体流`)
       }
       // The download permit follows the returned stream, not just openMedia;
-      // releasing here would allow another worker to exceed the provider cap
+      // releasing here would allow another download to exceed the provider cap
       // while bytes from this response are still being consumed.
       return remote
     } catch (error) {
@@ -388,7 +334,6 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
     options?: ArchiveProviderAcquireOptions
   ): Promise<T> {
     const permit = await this.governor.acquire(this.key, requestClass, controller.signal, options)
-    const stopRenewal = startPermitRenewal(this.governor, permit, (error) => controller.abort(error))
     try {
       throwIfAborted(controller.signal)
       return await operation()
@@ -396,8 +341,7 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
       await this.applyPenalty(error)
       throw error
     } finally {
-      await stopRenewal()
-      await this.governor.release(permit)
+      this.governor.release(permit)
     }
   }
 
@@ -408,27 +352,21 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
     options: ArchiveProviderAcquireOptions
   ): Promise<T> {
     const permit = await this.governor.acquire(this.key, 'DOWNLOAD', controller.signal, options)
-    let response: T | null = null
-    const stopRenewal = startPermitRenewal(this.governor, permit, (error) => {
-      controller.abort(error)
-      response?.stream.destroy(error)
-    })
     try {
-      response = await operation()
-      releaseOnStreamSettlement(response, async () => {
-        await stopRenewal()
+      throwIfAborted(controller.signal)
+      const response = await operation()
+      releaseOnStreamSettlement(response, () => {
         onSettlement()
-        await this.governor.release(permit)
+        this.governor.release(permit)
       })
       return response
     } catch (error) {
-      await stopRenewal()
       try {
         await this.applyPenalty(error)
       } finally {
         // The provider may recover this request. Keep parent cancellation linked
         // until openMedia fails or the final successful stream settles.
-        await this.governor.release(permit)
+        this.governor.release(permit)
       }
       throw error
     }
@@ -442,41 +380,12 @@ class GovernedArchiveProvider implements ArchiveUploaderProvider {
   }
 }
 
-function startPermitRenewal(
-  governor: ArchiveProviderGovernor,
-  permit: ArchiveProviderPermit,
-  onError: (error: Error) => void
-) {
-  let stopped = false
-  let renewal: Promise<void> | null = null
-  const timer = setInterval(() => {
-    if (stopped || renewal) return
-    renewal = governor
-      .renew(permit)
-      .catch((error) => {
-        if (stopped) return
-        stopped = true
-        clearInterval(timer)
-        onError(error instanceof Error ? error : new Error(String(error)))
-      })
-      .finally(() => {
-        renewal = null
-      })
-  }, permit.renewAfterMs)
-  timer.unref()
-  return async () => {
-    stopped = true
-    clearInterval(timer)
-    await renewal
-  }
-}
-
-function releaseOnStreamSettlement(remote: { stream: Readable }, release: () => Promise<void>) {
+function releaseOnStreamSettlement(remote: { stream: Readable }, release: () => void) {
   let released = false
   const once = () => {
     if (released) return
     released = true
-    void release().catch(() => undefined)
+    release()
   }
   remote.stream.once('end', once)
   remote.stream.once('close', once)
@@ -527,18 +436,6 @@ function isArchiveUploaderProvider(provider: ArchiveMediaProvider): provider is 
   )
 }
 
-function normalizeProviderKey(value: string) {
-  const normalized = value.trim().toLowerCase()
-  if (!normalized || normalized.length > 50 || !/^[a-z0-9][a-z0-9-]*$/.test(normalized)) {
-    throw new Error('来源站点标识无效')
-  }
-  return normalized
-}
-
-function assertPositiveInteger(name: string, value: number) {
-  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} 必须是正安全整数`)
-}
-
 function throwIfAborted(signal: AbortSignal) {
   if (signal.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError')
 }
@@ -557,20 +454,4 @@ function abortableDelay(milliseconds: number, signal: AbortSignal) {
     timer.unref()
     signal.addEventListener('abort', onAbort, { once: true })
   })
-}
-
-function isSerializationConflict(error: unknown) {
-  const record = typeof error === 'object' && error !== null ? (error as { code?: unknown; meta?: unknown }) : null
-  const code = record?.code === undefined ? '' : String(record.code)
-  const meta =
-    record?.meta && typeof record.meta === 'object' ? (record.meta as { code?: unknown; message?: unknown }) : null
-  const databaseCode = meta?.code === undefined ? '' : String(meta.code)
-  const message = error instanceof Error ? error.message : String(error)
-  const databaseMessage = meta?.message === undefined ? '' : String(meta.message)
-  return (
-    code === 'P2034' ||
-    code === '40001' ||
-    databaseCode === '40001' ||
-    /serializ(?:ation|e)|write conflict/i.test(`${message} ${databaseMessage}`)
-  )
 }

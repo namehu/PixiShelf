@@ -6,7 +6,8 @@ import { ArchiveExecutorError } from '../errors.js'
 import { DefaultArchiveMediaProviderRegistry } from '../provider-registry.js'
 import {
   GovernedArchiveProviderRegistry,
-  PostgresArchiveProviderGovernor,
+  InMemoryArchiveProviderGovernor,
+  getArchiveProviderGovernor,
   type ArchiveProviderGovernor,
   type ArchiveProviderPermit
 } from '../provider-governor.js'
@@ -17,154 +18,186 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('PostgresArchiveProviderGovernor', () => {
-  it.each(['Unable to start a transaction in the given time.', 'A commit cannot be executed on an expired transaction.'])(
-    'stops after three transaction timeout attempts: %s', async (message) => {
-      const error = Object.assign(new Error(message), { code: 'P2028' })
-      const transaction = vi.fn().mockRejectedValue(error)
-      const sleep = vi.fn(async () => undefined)
-      const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, { sleep })
-      await expect(governor.acquire('test', 'DOWNLOAD', new AbortController().signal)).rejects.toBe(error)
-      expect(transaction).toHaveBeenCalledTimes(3)
-      expect(sleep).toHaveBeenCalledTimes(2)
+describe('InMemoryArchiveProviderGovernor', () => {
+  function database() {
+    return {
+      archiveProviderThrottle: { findMany: vi.fn(async () => []) },
+      $executeRawUnsafe: vi.fn(async () => 1),
+      $transaction: vi.fn(() => {
+        throw new Error('requests must not start a transaction')
+      })
+    }
+  }
+
+  it('shares one governor across callers using the same process database client', () => {
+    const db = database() as unknown as PrismaClient
+    expect(getArchiveProviderGovernor(db)).toBe(getArchiveProviderGovernor(db))
+  })
+
+  it('spaces four concurrent requests by the shared random interval without database writes', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const db = database()
+    const random = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(0.5).mockReturnValue(0.999)
+    const governor = new InMemoryArchiveProviderGovernor(db as unknown as PrismaClient, { random })
+    const starts: number[] = []
+    const attempts = Array.from({ length: 4 }, async () => {
+      const permit = await governor.acquire('test', 'DOWNLOAD', new AbortController().signal, {
+        maxConcurrentDownloads: 4
+      })
+      starts.push(Date.now())
+      return permit
+    })
+    await vi.advanceTimersByTimeAsync(1_125)
+    const permits = await Promise.all(attempts)
+    expect(starts).toEqual([0, 250, 625, 1_125])
+    permits.forEach((permit) => governor.release(permit))
+    expect(db.archiveProviderThrottle.findMany).toHaveBeenCalledOnce()
+    expect(db.$executeRawUnsafe).not.toHaveBeenCalled()
+    expect(db.$transaction).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps capacity until release while allowing resolver and search requests', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const governor = new InMemoryArchiveProviderGovernor(database() as unknown as PrismaClient, {
+      minimumIntervalMs: 1,
+      maximumIntervalMs: 1,
+      searchMinimumIntervalMs: 3,
+      maxConcurrentDownloads: 1
+    })
+    const signal = new AbortController().signal
+    const first = await governor.acquire('test', 'DOWNLOAD', signal)
+    let acquired = false
+    const waiting = governor.acquire('test', 'DOWNLOAD', signal).then((permit) => {
+      acquired = true
+      return permit
+    })
+    const reads = Promise.all(
+      ['RESOLVE', 'SEARCH'].map((requestClass) =>
+        governor.acquire('test', requestClass as 'RESOLVE' | 'SEARCH', signal)
+      )
+    )
+    await vi.advanceTimersByTimeAsync(500)
+    await reads
+    expect(acquired).toBe(false)
+    governor.release(first)
+    governor.release(first)
+    await vi.advanceTimersByTimeAsync(100)
+    governor.release(await waiting)
+    expect(acquired).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(['interval', 'capacity', 'cooldown'])(
+    'cancels a request waiting for %s without leaving a slot or timer',
+    async (reason) => {
+      vi.useFakeTimers()
+      vi.setSystemTime(0)
+      const governor = new InMemoryArchiveProviderGovernor(database() as unknown as PrismaClient, {
+        random: () => 0,
+        maxConcurrentDownloads: 1
+      })
+      const controller = new AbortController()
+      const first = await governor.acquire('test', 'DOWNLOAD', controller.signal)
+      if (reason === 'interval') governor.release(first)
+      if (reason === 'capacity') await vi.advanceTimersByTimeAsync(250)
+      if (reason === 'cooldown') await governor.penalize('test', 'REMOTE_RATE_LIMITED', new Date(1_000))
+      const cancelled = new Error('paused or cancelled')
+      const waiting = governor.acquire('test', 'DOWNLOAD', controller.signal).catch((error: unknown) => error)
+      await vi.advanceTimersByTimeAsync(0)
+      controller.abort(cancelled)
+      expect(await waiting).toBe(cancelled)
+      expect(vi.getTimerCount()).toBe(0)
+      expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+      governor.release(first)
+      await vi.advanceTimersByTimeAsync(1_000)
+      const resumed = await governor.acquire('test', 'DOWNLOAD', new AbortController().signal)
+      governor.release(resumed)
     }
   )
 
-  it('retries a serializable transaction conflict inside acquire', async () => {
-    const permit = {
-      id: '6c50812b-fbaf-43b7-9235-f7f0c8842c6c',
-      providerKey: 'test',
-      requestClass: 'DOWNLOAD' as const,
-      renewAfterMs: 1_000
-    }
-    const conflict = Object.assign(new Error('Transaction failed due to a write conflict'), { code: 'P2034' })
-    const transaction = vi.fn().mockRejectedValueOnce(conflict).mockResolvedValueOnce({ permit })
-    const sleep = vi.fn(async () => undefined)
-    const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, {
-      sleep
+  it('applies a newly received cooldown to requests already waiting for their interval', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const db = database()
+    const governor = new InMemoryArchiveProviderGovernor(db as unknown as PrismaClient, { random: () => 0 })
+    const signal = new AbortController().signal
+    governor.release(await governor.acquire('test', 'DOWNLOAD', signal))
+    let startedAt: number | undefined
+    const waiting = governor.acquire('test', 'DOWNLOAD', signal).then((permit) => {
+      startedAt = Date.now()
+      return permit
     })
-
-    await expect(governor.acquire('test', 'DOWNLOAD', new AbortController().signal)).resolves.toEqual(permit)
-    expect(transaction).toHaveBeenCalledTimes(2)
-    expect(sleep).toHaveBeenCalledWith(25, expect.any(AbortSignal))
+    await vi.advanceTimersByTimeAsync(100)
+    await governor.penalize('test', 'REMOTE_RATE_LIMITED', new Date(1_000))
+    await vi.advanceTimersByTimeAsync(899)
+    expect(startedAt).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    governor.release(await waiting)
+    expect(startedAt).toBe(1_000)
+    expect(db.$executeRawUnsafe).toHaveBeenCalledOnce()
   })
 
-  it('retries PostgreSQL 40001 when Prisma wraps it as a raw-query error', async () => {
-    const permit = createPermit('DOWNLOAD')
-    const conflict = Object.assign(new Error('Raw query failed: could not serialize access due to concurrent update'), {
-      code: 'P2010',
-      meta: { code: '40001', message: 'could not serialize access due to concurrent update' }
-    })
-    const transaction = vi.fn().mockRejectedValueOnce(conflict).mockResolvedValueOnce({ permit })
-    const sleep = vi.fn(async () => undefined)
-    const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, {
-      sleep
-    })
+  it('splits a long cooldown at the timer limit and can cancel the remaining wait', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const schedule = vi.spyOn(globalThis, 'setTimeout')
+    const governor = new InMemoryArchiveProviderGovernor(database() as unknown as PrismaClient)
+    const controller = new AbortController()
+    const until = 30 * 24 * 60 * 60 * 1_000
+    await governor.penalize('test', 'REMOTE_RATE_LIMITED', new Date(until))
+    let granted = false
+    const waiting = governor
+      .acquire('test', 'DOWNLOAD', controller.signal)
+      .then(() => {
+        granted = true
+      })
+      .catch((error: unknown) => error)
 
-    await expect(governor.acquire('test', 'DOWNLOAD', new AbortController().signal)).resolves.toEqual(permit)
-    expect(transaction).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(schedule).toHaveBeenLastCalledWith(expect.any(Function), 2_147_483_647)
+    await vi.advanceTimersByTimeAsync(2_147_483_647)
+    expect(granted).toBe(false)
+    expect(schedule).toHaveBeenLastCalledWith(expect.any(Function), until - 2_147_483_647)
+    expect(schedule).toHaveBeenCalledTimes(2)
+
+    const cancelled = new Error('cancelled during long cooldown')
+    controller.abort(cancelled)
+    expect(await waiting).toBe(cancelled)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
+    schedule.mockRestore()
   })
 
-  it('does not retry a non-serialization database failure', async () => {
-    const failure = Object.assign(new Error('permission denied'), { code: '42501' })
-    const transaction = vi.fn().mockRejectedValue(failure)
-    const sleep = vi.fn(async () => undefined)
-    const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, {
-      sleep
+  it('keeps the existing three-second spacing after a search request', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const governor = new InMemoryArchiveProviderGovernor(database() as unknown as PrismaClient)
+    const signal = new AbortController().signal
+    governor.release(await governor.acquire('test', 'SEARCH', signal))
+    let started = false
+    const waiting = governor.acquire('test', 'RESOLVE', signal).then((permit) => {
+      started = true
+      return permit
     })
-
-    await expect(governor.acquire('test', 'RESOLVE', new AbortController().signal)).rejects.toBe(failure)
-    expect(transaction).toHaveBeenCalledOnce()
-    expect(sleep).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(2_999)
+    expect(started).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    governor.release(await waiting)
+    expect(started).toBe(true)
   })
 
-  it.each(['RESOLVE', 'SEARCH'] as const)(
-    'yields %s acquisition during a real provider penalty instead of polling while RUNNING',
-    async (requestClass) => {
-      const transaction = vi.fn().mockResolvedValue({
-        reason: 'PENALTY',
-        waitUntil: new Date('2026-08-18T10:10:00.000Z')
-      })
-      const sleep = vi.fn(async () => undefined)
-      const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, {
-        now: () => new Date('2026-08-18T10:00:00.000Z'),
-        sleep
-      })
-
-      await expect(
-        governor.acquire('test', requestClass, new AbortController().signal, { yieldOnPenalty: true })
-      ).rejects.toMatchObject({
-        code: 'REMOTE_RATE_LIMITED',
-        message: '来源站点仍处于请求限流等待期',
-        recoverable: true,
-        decisionCode: null,
-        retryAfterMs: 600_000
-      })
-      expect(sleep).not.toHaveBeenCalled()
-    }
-  )
-
-  it.each(['RESOLVE', 'SEARCH'] as const)(
-    'grants a %s permit while download capacity is full',
-    async (requestClass) => {
-      const now = new Date('2026-08-18T10:00:00.000Z')
-      const requestLeaseCreate = vi.fn(async () => ({}))
-      const transactionClient = {
-        archiveProviderThrottle: {
-          upsert: vi.fn(async () => ({})),
-          update: vi.fn(async () => ({}))
-        },
-        archiveProviderRequestLease: {
-          deleteMany: vi.fn(async () => ({ count: 0 })),
-          findMany: vi.fn(async () =>
-            Array.from({ length: 2 }, () => ({ expiresAt: new Date('2026-08-18T10:05:00.000Z') }))
-          ),
-          create: requestLeaseCreate
-        },
-        $queryRawUnsafe: vi.fn(async () => [{ nextRequestAt: now, penaltyUntil: null }])
-      }
-      const database = {
-        $transaction: vi.fn(async (operation: (transaction: typeof transactionClient) => Promise<unknown>) =>
-          operation(transactionClient)
-        )
-      }
-      const sleep = vi.fn(async () => undefined)
-      const governor = new PostgresArchiveProviderGovernor(database as unknown as PrismaClient, {
-        now: () => now,
-        sleep
-      })
-
-      await expect(
-        governor.acquire('e-hentai', requestClass, new AbortController().signal, { yieldOnPenalty: true })
-      ).resolves.toMatchObject({
-        providerKey: 'e-hentai',
-        requestClass
-      })
-      expect(requestLeaseCreate).toHaveBeenCalledWith({
-        data: expect.objectContaining({ providerKey: 'e-hentai', requestClass })
-      })
-      expect(transactionClient.archiveProviderRequestLease.findMany).not.toHaveBeenCalled()
-      expect(sleep).not.toHaveBeenCalled()
-    }
-  )
-
-  it('checks download capacity again quickly while an ended stream permit is being released', async () => {
-    const permit = createPermit('DOWNLOAD')
-    const transaction = vi
-      .fn()
-      .mockResolvedValueOnce({
-        reason: 'DOWNLOAD_CAPACITY',
-        waitUntil: new Date('2026-08-18T10:01:00.000Z')
-      })
-      .mockResolvedValueOnce({ permit })
-    const sleep = vi.fn(async () => undefined)
-    const governor = new PostgresArchiveProviderGovernor({ $transaction: transaction } as unknown as PrismaClient, {
-      now: () => new Date('2026-08-18T10:00:00.000Z'),
-      sleep
-    })
-
-    await expect(governor.acquire('test', 'DOWNLOAD', new AbortController().signal)).resolves.toEqual(permit)
-    expect(sleep).toHaveBeenCalledWith(100, expect.any(AbortSignal))
+  it('allows a later task to load cooldowns after an initial database read fails', async () => {
+    const db = database()
+    const failure = new Error('database unavailable')
+    db.archiveProviderThrottle.findMany.mockRejectedValueOnce(failure)
+    const governor = new InMemoryArchiveProviderGovernor(db as unknown as PrismaClient)
+    const signal = new AbortController().signal
+    await expect(governor.acquire('test', 'DOWNLOAD', signal)).rejects.toBe(failure)
+    governor.release(await governor.acquire('test', 'DOWNLOAD', signal))
+    expect(db.archiveProviderThrottle.findMany).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -301,14 +334,14 @@ describe('GovernedArchiveProviderRegistry', () => {
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
   })
 
-  it('renews a long media stream lease and removes the parent abort listener after settlement', async () => {
+  it('holds a long stream without renewal timers and removes the parent abort listener after settlement', async () => {
     vi.useFakeTimers()
     const stream = new PassThrough()
     const remote = remoteMedia(stream)
     const delegate = createProvider({
       openMedia: vi.fn(async (_item, context) => context.runDownloadStreamRequest!(() => Promise.resolve(remote)))
     })
-    const governor = createGovernor({ renewAfterMs: 1_000 })
+    const governor = createGovernor()
     const provider = new GovernedArchiveProviderRegistry(
       new DefaultArchiveMediaProviderRegistry([delegate]),
       governor
@@ -319,7 +352,8 @@ describe('GovernedArchiveProviderRegistry', () => {
     expect(getEventListeners(controller.signal, 'abort')).toHaveLength(1)
 
     await vi.advanceTimersByTimeAsync(1_001)
-    expect(governor.renew).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(0)
+    expect(governor.release).not.toHaveBeenCalled()
     opened.stream.resume()
     stream.end()
     await new Promise<void>((resolve) => opened.stream.once('end', () => resolve()))
@@ -402,16 +436,15 @@ describe('GovernedArchiveProviderRegistry', () => {
   })
 })
 
-function createPermit(requestClass: 'SEARCH' | 'RESOLVE' | 'DOWNLOAD', renewAfterMs = 1_000): ArchiveProviderPermit {
+function createPermit(requestClass: 'SEARCH' | 'RESOLVE' | 'DOWNLOAD'): ArchiveProviderPermit {
   return {
     id: `${requestClass.toLowerCase()}-${Math.random()}`,
     providerKey: 'test',
-    requestClass,
-    renewAfterMs
+    requestClass
   }
 }
 
-function createGovernor(options: { renewAfterMs?: number } = {}) {
+function createGovernor() {
   return {
     acquire: vi.fn(
       async (
@@ -419,10 +452,9 @@ function createGovernor(options: { renewAfterMs?: number } = {}) {
         requestClass: 'SEARCH' | 'RESOLVE' | 'DOWNLOAD',
         _signal: AbortSignal,
         _options?: { yieldOnPenalty?: boolean; maxConcurrentDownloads?: number }
-      ) => createPermit(requestClass, options.renewAfterMs)
+      ) => createPermit(requestClass)
     ),
-    renew: vi.fn(async (_permit: ArchiveProviderPermit) => undefined),
-    release: vi.fn(async (_permit: ArchiveProviderPermit) => undefined),
+    release: vi.fn((_permit: ArchiveProviderPermit) => undefined),
     penalize: vi.fn(async (_providerKey: string, _code: string, _until: Date) => undefined)
   } satisfies ArchiveProviderGovernor
 }
@@ -431,7 +463,11 @@ function createProvider(overrides: Partial<ArchiveProvider> = {}): ArchiveProvid
   return {
     key: 'test',
     accepts: () => true,
-    identifySource: (input: string) => ({ kind: 'PROVIDER', providerKey: 'test', externalId: new URL(input).pathname.split('/')[2] ?? '1' }),
+    identifySource: (input: string) => ({
+      kind: 'PROVIDER',
+      providerKey: 'test',
+      externalId: new URL(input).pathname.split('/')[2] ?? '1'
+    }),
     resolve: vi.fn(async () => ({}) as never),
     openMedia: vi.fn(async () => remoteMedia(new PassThrough())),
     ...overrides,

@@ -4,7 +4,7 @@ import type { PrismaClient } from '@pixishelf/db'
 import {
   createDefaultArchiveMediaProviderRegistry,
   GovernedArchiveProviderRegistry,
-  PostgresArchiveProviderGovernor,
+  getArchiveProviderGovernor,
   type ArchiveUploaderProviderRegistry
 } from '@pixishelf/job-executors'
 import { prisma } from '@/lib/prisma'
@@ -57,7 +57,7 @@ export async function resolveArchiveUploaderIdentity(
         dependencies.uploaderProviders ??
         new GovernedArchiveProviderRegistry(
           createDefaultArchiveMediaProviderRegistry(),
-          new PostgresArchiveProviderGovernor(database)
+          getArchiveProviderGovernor(database)
         )
       const result = await providers.getUploaderScanner('e-hentai').scanUploader(
         {

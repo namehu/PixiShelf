@@ -26,7 +26,7 @@ sources:
 
 ## 执行与提交
 
-来源扫描、标题扫描和规则预览进入解析 lane，与 writer 下载共享 Provider 请求间隔、penalty 和请求租约。SEARCH 允许与下载重叠，普通 RESOLVE 在活动下载预算下按 governor 让行。Provider 只处理受控 HTTPS URL 和有界响应，权限/SSRF 规则由[安全基线](../security/access-control.md)维护。
+来源扫描、标题扫描和规则预览进入解析 lane，与归档下载 lane 共用 Worker 进程内的 Provider 限速。SEARCH／RESOLVE 可与下载重叠，下载名额占满不阻止解析；具体请求间隔和冷却持久化规则见[归档生命周期](../features/archive-lifecycle.md#原站请求的内存限速)。Provider 只处理受控 HTTPS URL 和有界响应，权限/SSRF 规则由[安全基线](../security/access-control.md)维护。
 
 每次运行持久化扫描进度和候选，只有 fenced 完成才推进来源游标。中断、取消或失败不能把未完成页面标成已完成；重试沿冻结查询与已提交检查点恢复。批量父任务冻结来源顺序，每轮让出解析 lane 等待子扫描，不能持有执行槽等待同 lane 子任务结束。
 

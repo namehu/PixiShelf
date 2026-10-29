@@ -33,7 +33,7 @@ import {
   createVideoProcessingExecutorRegistrations,
   createVideoKeyframeExecutorRegistrations,
   GovernedArchiveProviderRegistry,
-  PostgresArchiveProviderGovernor
+  getArchiveProviderGovernor
 } from '@pixishelf/job-executors'
 import type { WorkerConfig } from './config.js'
 import { ExecutorRegistry } from './executor-registry.js'
@@ -98,7 +98,7 @@ export function createWorkerExecutorRegistry(input: {
   )
   const archiveProviders = new GovernedArchiveProviderRegistry(
     createDefaultArchiveMediaProviderRegistry(),
-    new PostgresArchiveProviderGovernor(input.database)
+    getArchiveProviderGovernor(input.database)
   )
   for (const definition of createArchiveResolverExecutorRegistrations({
     database: input.database,

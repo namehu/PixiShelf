@@ -892,13 +892,11 @@ describe('archive executor', () => {
     const permit: ArchiveProviderPermit = {
       id: 'download-permit-1',
       providerKey: 'test',
-      requestClass: 'DOWNLOAD',
-      renewAfterMs: 60_000
+      requestClass: 'DOWNLOAD'
     }
     const governor = {
       acquire: vi.fn(async () => permit),
-      renew: vi.fn(async () => undefined),
-      release: vi.fn(async () => undefined),
+      release: vi.fn(() => undefined),
       penalize: vi.fn(async () => undefined)
     } satisfies ArchiveProviderGovernor
     const provider: ArchiveProvider = {

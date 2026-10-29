@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { PassThrough } from 'node:stream'
 import { PrismaClient } from '@pixishelf/db'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GovernedArchiveProviderRegistry, PostgresArchiveProviderGovernor } from '../provider-governor.js'
+import { GovernedArchiveProviderRegistry, InMemoryArchiveProviderGovernor } from '../provider-governor.js'
 import { DefaultArchiveMediaProviderRegistry } from '../provider-registry.js'
 import { EHentaiProvider } from '../providers/e-hentai.js'
 import type { ArchiveProvider } from '../types.js'
@@ -10,14 +10,18 @@ import type { ArchiveProvider } from '../types.js'
 const databaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
 const describePostgres = databaseUrl ? describe.sequential : describe.skip
-const prisma = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
-const competingPrisma = databaseUrl ? new PrismaClient({ datasourceUrl: databaseUrl }) : null
+const prisma = databaseUrl
+  ? new PrismaClient({ datasourceUrl: databaseUrl, log: [{ emit: 'event', level: 'query' }] })
+  : null
+const queries: string[] = []
+prisma?.$on('query', (event) => queries.push(event.query))
 const providerKey = `test-${randomUUID()}`
 
-describePostgres('Postgres archive provider governor', () => {
+describePostgres('Archive provider cooldown persistence', () => {
   beforeEach(async () => {
     await prisma!.archiveProviderRequestLease.deleteMany({ where: { providerKey } })
     await prisma!.archiveProviderThrottle.deleteMany({ where: { providerKey } })
+    queries.length = 0
   })
 
   afterAll(async () => {
@@ -25,93 +29,77 @@ describePostgres('Postgres archive provider governor', () => {
     await prisma.archiveProviderRequestLease.deleteMany({ where: { providerKey } })
     await prisma.archiveProviderThrottle.deleteMany({ where: { providerKey } })
     await prisma.$disconnect()
-    await competingPrisma?.$disconnect()
   })
 
-  it('keeps download capacity bounded across clients while allowing resolver requests at full capacity', async () => {
-    const governors = [prisma!, competingPrisma!].map(
-      (database) =>
-        new PostgresArchiveProviderGovernor(database, {
-          minimumIntervalMs: 1,
-          leaseDurationMs: 60_000,
-          maxConcurrentDownloads: 2
-        })
-    )
-    const controllers = Array.from({ length: 8 }, () => new AbortController())
-    const attempts = controllers.map((controller, index) =>
-      governors[index % governors.length]!.acquire(providerKey, 'DOWNLOAD', controller.signal)
-    )
-    const settledAttempts = Promise.allSettled(attempts)
-    let capacityObservationError: unknown
-    try {
-      await vi.waitFor(
-        async () => {
-          expect(
-            await prisma!.archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })
-          ).toBe(2)
-        },
-        { timeout: 5_000, interval: 25 }
-      )
-    } catch (error) {
-      capacityObservationError = error
-    } finally {
-      for (const controller of controllers) controller.abort(new Error('bounded concurrency probe finished'))
-    }
-    const results = await settledAttempts
-    const permits = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
-    const failures = results.flatMap((result) =>
-      result.status === 'rejected'
-        ? [result.reason instanceof Error ? `${result.reason.name}:${result.reason.message}` : String(result.reason)]
-        : []
-    )
-
-    expect(permits, failures.join('\n')).toHaveLength(2)
-    if (capacityObservationError) throw capacityObservationError
-    expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })).toBe(
-      2
-    )
-
-    try {
-      const resolverPermit = await governors[1]!.acquire(providerKey, 'RESOLVE', new AbortController().signal, {
-        yieldOnPenalty: true
+  it('runs four lanes and 240 requests with one cooldown read and no database writes', async () => {
+    const governor = new InMemoryArchiveProviderGovernor(prisma!, {
+      minimumIntervalMs: 1,
+      maximumIntervalMs: 1,
+      maxConcurrentDownloads: 4
+    })
+    const signal = AbortSignal.timeout(15_000)
+    const results = await Promise.allSettled(
+      Array.from({ length: 4 }, async () => {
+        for (let image = 0; image < 30; image++) {
+          for (const requestClass of ['RESOLVE', 'DOWNLOAD'] as const) {
+            const permit = await governor.acquire(providerKey, requestClass, signal)
+            governor.release(permit)
+          }
+        }
+        return 30
       })
-      expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'RESOLVE' } })).toBe(
-        1
-      )
-      expect(
-        await prisma!.archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })
-      ).toBe(2)
-      await governors[1]!.release(resolverPermit)
-    } finally {
-      await Promise.all(permits.map((permit, index) => governors[index % governors.length]!.release(permit)))
-    }
-  }, 10_000)
+    )
+    expect(results).toEqual(Array.from({ length: 4 }, () => ({ status: 'fulfilled', value: 30 })))
+    expect(queries).toHaveLength(1)
+    expect(queries[0]).toMatch(/^SELECT .*archive_provider_throttles/)
+    expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey } })).toBe(0)
+    expect(await prisma!.archiveProviderThrottle.count({ where: { providerKey } })).toBe(0)
+  }, 20_000)
 
-  it.each(['RESOLVE', 'SEARCH'] as const)(
-    'shares request intervals across clients for %s and downloads',
-    async (requestClass) => {
-      let now = new Date('2026-09-09T10:00:00.000Z')
-      await prisma!.archiveProviderThrottle.create({ data: { providerKey, nextRequestAt: now } })
-      const sleep = vi.fn(async (milliseconds: number) => {
-        now = new Date(now.getTime() + milliseconds)
-      })
-      const governors = [prisma!, competingPrisma!].map(
-        (database) => new PostgresArchiveProviderGovernor(database, { now: () => now, sleep })
-      )
-      const signal = new AbortController().signal
-      const download = await governors[0]!.acquire(providerKey, 'DOWNLOAD', signal)
-      const read = await governors[1]!.acquire(providerKey, requestClass, signal, { yieldOnPenalty: true })
-      expect(sleep.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([250])
-      await governors[1]!.release(read)
-      const nextDownload = await governors[0]!.acquire(providerKey, 'DOWNLOAD', signal)
-      expect(sleep.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([
-        250,
-        requestClass === 'SEARCH' ? 3_000 : 250
-      ])
-      await governors[0]!.release(download)
-      await governors[0]!.release(nextDownload)
+  it('restores a persisted cooldown after restart and never shortens it', async () => {
+    let now = new Date('2026-10-29T10:00:00.000Z')
+    const until = new Date(now.getTime() + 60_000)
+    const first = new InMemoryArchiveProviderGovernor(prisma!, { now: () => now })
+    await first.penalize(providerKey, 'REMOTE_RATE_LIMITED', until)
+    await first.penalize(providerKey, 'REMOTE_RATE_LIMITED', new Date(now.getTime() + 10_000))
+    expect((await prisma!.archiveProviderThrottle.findUniqueOrThrow({ where: { providerKey } })).penaltyUntil).toEqual(
+      until
+    )
+    const sleep = vi.fn(async (milliseconds: number) => {
+      now = new Date(now.getTime() + milliseconds)
+    })
+    const restarted = new InMemoryArchiveProviderGovernor(prisma!, { now: () => now, sleep })
+    const signal = new AbortController().signal
+    for (const requestClass of ['RESOLVE', 'SEARCH'] as const) {
+      await expect(
+        restarted.acquire(providerKey, requestClass, signal, { yieldOnPenalty: true })
+      ).rejects.toMatchObject({ code: 'REMOTE_RATE_LIMITED', retryAfterMs: 60_000 })
     }
-  )
+    const permit = await restarted.acquire(providerKey, 'DOWNLOAD', signal)
+    expect(sleep.mock.calls.map(([milliseconds]) => milliseconds)).toEqual([60_000])
+    restarted.release(permit)
+    expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey } })).toBe(0)
+  })
+
+  it('ignores old request timestamps and leases while preserving the stored records', async () => {
+    const now = new Date()
+    await prisma!.archiveProviderThrottle.create({
+      data: { providerKey, nextRequestAt: new Date(now.getTime() + 60_000) }
+    })
+    await prisma!.archiveProviderRequestLease.create({
+      data: {
+        id: randomUUID(),
+        providerKey,
+        requestClass: 'DOWNLOAD',
+        expiresAt: new Date(now.getTime() + 60_000)
+      }
+    })
+    const sleep = vi.fn(async () => undefined)
+    const governor = new InMemoryArchiveProviderGovernor(prisma!, { now: () => now, sleep, maxConcurrentDownloads: 1 })
+    governor.release(await governor.acquire(providerKey, 'DOWNLOAD', new AbortController().signal))
+    expect(sleep).not.toHaveBeenCalled()
+    expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey } })).toBe(1)
+  })
 
   it('resolves every gallery page once while a governed media stream remains open', async () => {
     const stream = new PassThrough()
@@ -120,9 +108,10 @@ describePostgres('Postgres archive provider governor', () => {
     const sleep = vi.fn(async (milliseconds: number) => {
       now = new Date(now.getTime() + milliseconds)
     })
-    const governor = new PostgresArchiveProviderGovernor(prisma!, {
+    const governor = new InMemoryArchiveProviderGovernor(prisma!, {
       now: () => now,
       sleep,
+      random: () => 0,
       maxConcurrentDownloads: 1
     })
     const http = {
@@ -177,7 +166,7 @@ describePostgres('Postgres archive provider governor', () => {
       expect(stream.readableEnded).toBe(false)
       expect(
         await prisma!.archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })
-      ).toBe(1)
+      ).toBe(0)
       expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'RESOLVE' } })).toBe(
         0
       )
@@ -188,31 +177,5 @@ describePostgres('Postgres archive provider governor', () => {
         expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey } })).toBe(0)
       })
     }
-  })
-
-  it('persists a penalty so another client cannot immediately acquire the provider budget', async () => {
-    const blocked = new Error('penalty-wait')
-    const governor = new PostgresArchiveProviderGovernor(prisma!, {
-      minimumIntervalMs: 1,
-      sleep: async () => {
-        throw blocked
-      }
-    })
-    await governor.penalize(providerKey, 'REMOTE_RATE_LIMITED', new Date(Date.now() + 60_000))
-    const competitor = new PostgresArchiveProviderGovernor(competingPrisma!, {
-      minimumIntervalMs: 1,
-      sleep: async () => {
-        throw blocked
-      }
-    })
-    await expect(competitor.acquire(providerKey, 'DOWNLOAD', new AbortController().signal)).rejects.toBe(blocked)
-    for (const requestClass of ['RESOLVE', 'SEARCH'] as const) {
-      await expect(
-        competitor.acquire(providerKey, requestClass, new AbortController().signal, {
-          yieldOnPenalty: true
-        })
-      ).rejects.toMatchObject({ code: 'REMOTE_RATE_LIMITED', decisionCode: null, recoverable: true })
-    }
-    expect(await prisma!.archiveProviderRequestLease.count({ where: { providerKey } })).toBe(0)
   })
 })

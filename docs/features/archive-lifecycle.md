@@ -4,6 +4,7 @@ scope: URL 归档的文件准备、数据库发布、维护保留及版本恢复
 last-verified: 2026-10-22
 sources:
   - packages/pixishelf-job-executors/src/archive/executor.ts
+  - packages/pixishelf-job-executors/src/archive/provider-governor.ts
   - packages/pixishelf-job-executors/src/archive/publisher.ts
   - packages/pixishelf-job-executors/src/archive/storage.ts
   - packages/pixishelf-job-executors/src/archive/maintenance-executor.ts
@@ -36,7 +37,15 @@ sources:
 
 正常暂停后继续、Worker 正常停机后重启均复用已经保存的图片。突然退出时，最后一批结果可能尚未写库；下次执行复用数据库已有结果指向的完整文件；最后尚未写库的一批图片重新下载，不额外维护文件恢复索引。页面的速度、逐图状态与下载地址随批次刷新，不保证逐秒更新；当前下载面板超过 15 秒未收到新采样才提示数据中断，为提交及 SSE 送达留出余量。
 
-下载和文件校验不占用数据库事务；不再为每张图的开始、拿到响应地址、完成分别开启事务。原站限速仍由既有 PostgreSQL governor 协调 Web 与 Worker：初始化只在每进程首次使用时执行，过期许可按分钟清理，非下载请求不查询下载占用。数据库已明确回滚或尚未启动的短暂事务错误最多尝试三次；持续故障仍停止任务并保留文件。
+下载和文件校验不占用数据库事务；不再为每张图的开始、拿到响应地址、完成分别开启事务。批次保存的已知回滚或未启动错误最多尝试三次，持续故障仍停止任务并保留文件。
+
+### 原站请求的内存限速
+
+2026-10-29 局部核验：依据 [provider-governor.ts](../../packages/pixishelf-job-executors/src/archive/provider-governor.ts)，单 Worker 内的下载、解析、来源扫描和标题搜索共用按 Provider 分组的内存状态。普通请求开始之间随机间隔 250～500ms，SEARCH 获准后保留 3 秒间隔；控制的是请求开始时间，已开始的图片仍按下载设置并发传输。当前名额占满只阻止新的下载请求，解析和搜索可以继续；请求机会不承诺严格轮转。
+
+放行检查、当前下载名额与释放全部在内存中完成，没有逐请求数据库事务、许可行、续期或过期回收。等待响应暂停、取消和正常停机；请求失败或媒体流结束／销毁时释放名额。Web 的上传者识别在 Web 进程内复用自己的控制器，与 Worker 不再共享精确间隔或并发名额；本设计面向单 Worker，不提供多 Worker 的全局限速。
+
+数据库仅保留原站明确返回的冷却截止时间：控制器首次使用时读取一次，收到限流／配额响应时更新内存并持久化，重启后仍尊重未到期的冷却。正在运行的不同进程不实时同步彼此新收到的冷却。普通请求不再读写限速表。现有 `archive_provider_throttles` 的 `nextRequestAt` 和 `archive_provider_request_leases` 中的旧许可不参与放行判断；保留表结构及旧行，不做清表或迁移。升级／回退时正常停止旧 Worker 后启动目标版本，已有下载检查点及文件复用规则不变。
 
 ### Generation 与清理
 

@@ -17,7 +17,7 @@ import {
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { executeArchiveResolveItem } from '../resolver-executor.js'
 import { hashResolvedMetadata } from '../providers/e-hentai.js'
-import { GovernedArchiveProviderRegistry, PostgresArchiveProviderGovernor } from '../provider-governor.js'
+import { GovernedArchiveProviderRegistry, InMemoryArchiveProviderGovernor } from '../provider-governor.js'
 import { DefaultArchiveMediaProviderRegistry } from '../provider-registry.js'
 import type { ArchiveProvider, ResolvedArchive } from '../types.js'
 
@@ -313,7 +313,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
     const claim = (await repository.claim('auto-during-download', capabilities))!
     const context = executionContext(repository, claim)
     await db().archiveProviderThrottle.create({ data: { providerKey, nextRequestAt: clock.now() } })
-    const governor = new PostgresArchiveProviderGovernor(db(), {
+    const governor = new InMemoryArchiveProviderGovernor(db(), {
       now: () => clock.now(),
       sleep: async (milliseconds) => {
         clock.advance(milliseconds)
@@ -364,7 +364,7 @@ describePostgres('archive resolver PostgreSQL integration', () => {
         triggerSource: 'SYSTEM',
         queuePriority: 900
       })
-      expect(await db().archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })).toBe(1)
+      expect(await db().archiveProviderRequestLease.count({ where: { providerKey, requestClass: 'DOWNLOAD' } })).toBe(0)
       await expect(executeArchiveResolveItem(context, dependencies)).rejects.toBeInstanceOf(JobExecutionFenceError)
       expect(await db().archiveImport.count({ where: { providerKey } })).toBe(1)
       expect(await db().systemJobEvent.count({ where: { jobId: download.systemJobId!, type: 'job.queued' } })).toBe(1)
