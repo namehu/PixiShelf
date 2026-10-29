@@ -87,11 +87,11 @@ export function ArchiveInboxWorkspace() {
               onNavigateSourceList={(history) => {
                 void setQuery({ tab: 'uploaders', sourceId: null, discoveryView: null, itemId: null }, { history })
               }}
-              onNavigateIgnored={(ignored, history) => {
+              onNavigateIgnored={(ignored, history, sourceId) => {
                 void setQuery(
                   {
                     tab: 'uploaders',
-                    sourceId: null,
+                    sourceId: sourceId ?? null,
                     discoveryView: ignored ? 'ignored' : null,
                     itemId: null
                   },

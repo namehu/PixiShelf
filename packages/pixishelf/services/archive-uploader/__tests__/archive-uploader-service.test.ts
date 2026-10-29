@@ -693,6 +693,7 @@ describe('archive uploader service', () => {
         ])
       },
       archiveUploaderIgnoredItem: {
+        count: vi.fn(async () => 2),
         findMany: vi.fn(async () => [
           {
             id: 'ignored-2',
@@ -731,6 +732,7 @@ describe('archive uploader service', () => {
       catalogItemId: 'catalog-302'
     })
     expect(result.nextCursor).toEqual({ ignoredAt, id: 'ignored-2' })
+    expect(result.totalCount).toBe(2)
 
     await expect(
       restoreArchiveUploaderIgnoredItems({ ignoredItemIds: ['ignored-2'] }, { database: database as never })

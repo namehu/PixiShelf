@@ -1,3 +1,4 @@
+import { registerDiscoveryIgnoredCases } from './archive-discovery-ignored-cases'
 import { registerDiscoveryRowCases } from './archive-discovery-row-cases'
 import { registerDiscoveryNavigationCases } from './archive-discovery-navigation-cases'
 import { source, activeRun, completedRun } from './archive-uploader-sources-fixtures'
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   setUploaderUid: vi.fn(),
   writeClipboard: vi.fn(),
   infiniteQueryOptions: vi.fn(() => ({ kind: 'items' })),
+  ignoredQueryOptions: vi.fn(() => ({ kind: 'ignored' })),
   invalidateQueries: vi.fn(),
   setQueriesData: vi.fn(),
   cancelQueries: vi.fn(),
@@ -135,6 +137,7 @@ const itemsData = {
 const ignoredItemsData = {
   pages: [
     {
+      totalCount: 101,
       items: [
         {
           id: 'ignored-item-1',
@@ -324,7 +327,7 @@ vi.mock('@/lib/trpc', () => ({
         infiniteQueryKey: () => ['items-infinite']
       },
       listIgnoredItems: {
-        infiniteQueryOptions: () => ({ kind: 'ignored' }),
+        infiniteQueryOptions: mocks.ignoredQueryOptions,
         infiniteQueryKey: () => ['ignored-items-infinite']
       },
       triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
@@ -351,7 +354,7 @@ vi.mock('@/lib/trpc', () => ({
         infiniteQueryKey: () => ['items-infinite']
       },
       listIgnoredItems: {
-        infiniteQueryOptions: () => ({ kind: 'ignored' }),
+        infiniteQueryOptions: mocks.ignoredQueryOptions,
         infiniteQueryKey: () => ['ignored-items-infinite']
       },
       triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
@@ -432,9 +435,9 @@ function SourcesHarness({
           setIgnored(false)
           setSourceId(null)
         }}
-        onNavigateIgnored={(nextIgnored, history) => {
-          mocks.navigateIgnored(nextIgnored, history)
-          setSourceId(null)
+        onNavigateIgnored={(nextIgnored, history, nextSourceId) => {
+          mocks.navigateIgnored(nextIgnored, history, nextSourceId)
+          setSourceId(nextSourceId ?? null)
           setIgnored(nextIgnored)
         }}
         onNavigateInboxItem={mocks.navigateInboxItem}
@@ -592,6 +595,8 @@ describe('ArchiveUploaderSources', () => {
     expect(uidLabels.some((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
     expect(uidLabels.every((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
   })
+
+  registerDiscoveryIgnoredCases({ renderSources, mocks })
 
   it('keeps global ignores accessible and restorable with no saved sources', async () => {
     currentSourcesData = []

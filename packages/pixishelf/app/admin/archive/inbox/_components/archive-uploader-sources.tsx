@@ -84,7 +84,7 @@ export function ArchiveUploaderSources({
   onNavigatePendingCreators?: () => void
   onNavigateSource: (sourceId: string, history: NavigationHistory) => void
   onNavigateSourceList: (history: NavigationHistory) => void
-  onNavigateIgnored: (ignored: boolean, history: NavigationHistory) => void
+  onNavigateIgnored: (ignored: boolean, history: NavigationHistory, sourceId?: string) => void
   onNavigateInboxItem: (itemId: string) => void
 }) {
   const trpc = useTRPC()
@@ -166,6 +166,11 @@ export function ArchiveUploaderSources({
   const sourceBrowseKey = JSON.stringify([sourceFilters, sourceSort])
   const sources = useDiscoverySourceOrder(filteredSources, sourceSort, JSON.stringify(sourceFilters), sourceListReady)
   const selectedSourceId = locatedSourceId
+  const ignoredPositionKey = selectedSourceId ? `ignored:${selectedSourceId}` : 'ignored'
+
+  useEffect(() => {
+    setSelectedIgnoredItemIds(new Set())
+  }, [ignoredPositionKey, ignored])
 
   useEffect(() => {
     setSelectedSourceIds(new Set())
@@ -173,7 +178,7 @@ export function ArchiveUploaderSources({
 
   useLayoutEffect(() => {
     if (!active || !layoutReady || sourcesQuery.isPending) return
-    const view = pendingCreators ? 'pending-creators' : ignored ? 'ignored' : (locatedSourceId ?? 'list')
+    const view = pendingCreators ? 'pending-creators' : ignored ? ignoredPositionKey : (locatedSourceId ?? 'list')
     const previous = previousViewRef.current
     previousViewRef.current = view
     if (previous && previous !== view) {
@@ -198,6 +203,7 @@ export function ArchiveUploaderSources({
   }, [
     active,
     ignored,
+    ignoredPositionKey,
     pendingCreators,
     isDesktop,
     layoutReady,
@@ -268,15 +274,15 @@ export function ArchiveUploaderSources({
       {
         initialCursor: null,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
-        enabled: active && Boolean(selectedSourceId),
-        refetchInterval: active && catalogPolling ? 3_000 : false
+        enabled: active && Boolean(selectedSourceId) && !ignored,
+        refetchInterval: active && !ignored && catalogPolling ? 3_000 : false
       }
     )
   )
   const items = useMemo(() => itemsQuery.data?.pages.flatMap((page) => page.items) ?? [], [itemsQuery.data])
   const ignoredItemsQuery = useInfiniteQuery(
     trpc.archiveSearch.listIgnoredItems.infiniteQueryOptions(
-      { limit: SCAN_RESULT_PAGE_SIZE },
+      { sourceId: selectedSourceId ?? undefined, limit: SCAN_RESULT_PAGE_SIZE },
       {
         initialCursor: null,
         getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -490,13 +496,14 @@ export function ArchiveUploaderSources({
     else onNavigateSourceList('replace')
   }, [onNavigateSourceList])
 
-  const enterIgnored = () => {
+  const enterIgnored = (sourceId?: string) => {
     ignoredEnteredFromListRef.current = true
     setSelectedIgnoredItemIds(new Set())
-    onNavigateIgnored(true, 'push')
+    onNavigateIgnored(true, 'push', sourceId)
   }
   const returnFromIgnored = () => {
     if (ignoredEnteredFromListRef.current && window.history.length > 1) window.history.back()
+    else if (selectedSourceId) onNavigateSource(selectedSourceId, 'replace')
     else onNavigateIgnored(false, 'replace')
   }
 
@@ -570,7 +577,7 @@ export function ArchiveUploaderSources({
               variant="ghost"
               className="h-11 sm:h-9"
               aria-label={ignored ? '返回发现来源' : '查看全局已忽略'}
-              onClick={ignored ? returnFromIgnored : enterIgnored}
+              onClick={ignored ? returnFromIgnored : () => enterIgnored()}
             >
               {ignored ? (
                 <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
@@ -687,6 +694,13 @@ export function ArchiveUploaderSources({
             onDelete={() => setDeleteSourceId(source.id)}
             onCopyUid={() => source.uploaderUid && void copyArchiveUploaderUid(source.uploaderUid)}
           />
+
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => enterIgnored(source.id)}>
+              <BanIcon data-icon="inline-start" aria-hidden="true" />
+              查看本来源已忽略
+            </Button>
+          </div>
 
           {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
             <Alert variant="info">
@@ -932,12 +946,25 @@ export function ArchiveUploaderSources({
               onClick={returnFromIgnored}
             >
               <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
-              返回来源列表
+              {selectedSourceId ? '返回来源详情' : '返回来源列表'}
             </Button>
           ) : null}
           <AdminSectionHeader
-            title="全局已忽略"
-            description={`跨所有来源永久忽略的画廊；已加载 ${ignoredItems.length} 条。`}
+            title={selectedSourceId ? '本来源已忽略' : '全局已忽略'}
+            description={
+              <>
+                {selectedSourceId ? (
+                  <>
+                    <PrivacySensitiveText>{detail?.source.displayName ?? '当前来源'}</PrivacySensitiveText>
+                    发现过的全局已忽略画廊（含规则过滤结果）；
+                  </>
+                ) : (
+                  '跨所有来源永久忽略的画廊；'
+                )}
+                共 {ignoredItemsQuery.data?.pages[0]?.totalCount ?? '…'} 条，已加载 {ignoredItems.length}{' '}
+                条。恢复会对所有来源生效。
+              </>
+            }
             actions={<ArchiveUploaderResultViewToggle value={resultView} onChange={setResultView} />}
           />
           <IgnoredResults
@@ -961,8 +988,10 @@ export function ArchiveUploaderSources({
             }
             isDesktop={isDesktop}
             layoutReady={layoutReady}
-            position={resultPositionsRef.current.get('ignored')}
-            onPositionChange={(position) => saveResultPosition('ignored', position)}
+            scoped={Boolean(selectedSourceId)}
+            positionKey={ignoredPositionKey}
+            position={resultPositionsRef.current.get(ignoredPositionKey)}
+            onPositionChange={(position) => saveResultPosition(ignoredPositionKey, position)}
           />
           <ArchiveDiscoveryBulkBar
             selectedCount={selectedIgnoredItemIds.size}

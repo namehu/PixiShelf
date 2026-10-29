@@ -174,7 +174,7 @@ export const archiveSearchRouter = router({
 
   listIgnoredItems: authProcedure
     .input(listArchiveUploaderIgnoredItemsSchema)
-    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderIgnoredItems(input))),
+    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderIgnoredItems(input, discovery))),
 
   setArchived: adminProcedure
     .input(setArchiveUploaderSourceArchivedSchema)
