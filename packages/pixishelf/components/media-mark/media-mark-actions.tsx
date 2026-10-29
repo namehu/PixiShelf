@@ -43,7 +43,7 @@ export function MediaMarkActions({
       className={cn(
         'relative flex gap-1',
         layout === 'menu' && 'flex-col',
-        overlay && 'max-w-full items-center justify-center sm:gap-2'
+        overlay && 'max-w-full items-center justify-center gap-3 sm:gap-6'
       )}
     >
       {(

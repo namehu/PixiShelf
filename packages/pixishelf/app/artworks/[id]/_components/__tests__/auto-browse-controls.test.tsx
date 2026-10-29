@@ -29,7 +29,14 @@ function Controls() {
 
 beforeEach(() => {
   vi.useFakeTimers()
-  vi.stubGlobal('ResizeObserver', class { observe() {}; unobserve() {}; disconnect() {} })
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+  )
   localStorage.clear()
 })
 afterEach(() => {
@@ -45,7 +52,14 @@ describe('auto browse control docking', () => {
     const committed = vi.fn()
     render(
       <Profiler id="controls" onRender={committed}>
-        <AutoBrowseControls mode="scroll" current={1} total={75} onRestart={vi.fn()} onRetry={vi.fn()} onSkip={vi.fn()} />
+        <AutoBrowseControls
+          mode="scroll"
+          current={1}
+          total={75}
+          onRestart={vi.fn()}
+          onRetry={vi.fn()}
+          onSkip={vi.fn()}
+        />
       </Profiler>
     )
     committed.mockClear()
@@ -116,6 +130,19 @@ describe('auto browse control docking', () => {
     fireEvent.click(dock)
     expect(store.getState().status).toBe('running')
     expect(screen.getByRole('button', { name: '暂停自动浏览' })).toBeTruthy()
+  })
+
+  it('leaves Space inside the image preview to the like shortcut', () => {
+    render(<Controls />)
+    act(() => store.getState().start('scroll'))
+    const preview = document.createElement('div')
+    preview.dataset.previewLikeShortcut = ''
+    document.body.append(preview)
+    fireEvent.keyDown(preview, { code: 'Space', key: ' ' })
+    expect(store.getState().status).toBe('running')
+    preview.remove()
+    fireEvent.keyDown(document.body, { code: 'Space', key: ' ' })
+    expect(store.getState().status).toBe('paused')
   })
 
   it('automatically reveals controls on manual takeover and on load failure', () => {

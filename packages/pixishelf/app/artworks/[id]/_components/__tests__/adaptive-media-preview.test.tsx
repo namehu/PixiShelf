@@ -6,7 +6,13 @@ import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-me
 import { useArtworkAutoBrowseStore as autoBrowseStore } from '@/store/use-artwork-auto-browse-store'
 import { webpFixture } from '@/lib/__tests__/webp-fixture'
 
-vi.mock('@/hooks/use-media-mark', () => ({ usePrefetchMediaMarks: vi.fn() }))
+const mediaMark = vi.hoisted(() => ({
+  available: true,
+  isLoading: false,
+  likedAt: null as string | null,
+  set: vi.fn()
+}))
+vi.mock('@/hooks/use-media-mark', () => ({ usePrefetchMediaMarks: vi.fn(), useMediaMark: () => mediaMark }))
 
 vi.mock('@/components/media-mark/media-mark-actions', () => ({
   MediaMarkActions: ({ mediaId, children }: { mediaId: number | null; children?: React.ReactNode }) => (
@@ -90,7 +96,14 @@ vi.mock('next/image', () => ({
 
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) => (open ? children : null),
-  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogContent: ({ children, onKeyDown, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+    <div
+      onKeyDown={onKeyDown}
+      data-preview-like-shortcut={props['data-preview-like-shortcut' as keyof typeof props] as string}
+    >
+      {children}
+    </div>
+  ),
   DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
   DialogDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>
 }))
@@ -102,11 +115,13 @@ vi.mock('swiper/react', () => ({
     onSwiper: (swiper: typeof swiperMocks.instance) => void
     onSlideChange: (swiper: typeof swiperMocks.instance) => void
     onZoomChange: (swiper: typeof swiperMocks.instance, scale: number) => void
+    onDoubleTap: (swiper: typeof swiperMocks.instance, event: React.MouseEvent) => void
+    zoom?: { toggle: boolean }
+    mousewheel?: { enabled: boolean }
     modules?: unknown[]
     direction?: string
     keyboard?: unknown
     virtual?: unknown
-    zoom?: unknown
     resistanceRatio?: number
     spaceBetween?: number
     onBeforeDestroy?: () => void
@@ -117,7 +132,14 @@ vi.mock('swiper/react', () => ({
     props.onSwiper(swiperMocks.instance)
 
     return (
-      <div className={props.className} data-testid={props['data-testid']} data-direction={props.direction}>
+      <div
+        className={props.className}
+        data-testid={props['data-testid']}
+        data-direction={props.direction}
+        data-double-tap-zoom={String(props.zoom?.toggle)}
+        data-mousewheel={String(props.mousewheel?.enabled)}
+        onDoubleClick={(event) => props.onDoubleTap(swiperMocks.instance, event)}
+      >
         {props.children}
         <button
           type="button"
@@ -173,6 +195,9 @@ describe('AdaptiveMediaPreview', () => {
         disconnect() {}
       }
     )
+    mediaMark.set.mockClear()
+    mediaMark.likedAt = null
+    mediaMark.available = true
     swiperMocks.instance.activeIndex = 0
     swiperMocks.instance.allowSlideNext = true
     swiperMocks.instance.allowSlidePrev = true
@@ -187,6 +212,34 @@ describe('AdaptiveMediaPreview', () => {
     vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
+  })
+
+  it('uses Space to toggle likes and double tap to like without enabling double-tap zoom', () => {
+    const view = render(<AdaptiveMediaPreview images={[createMedia(0)]} initialIndex={0} open onClose={vi.fn()} />)
+    const image = screen.getByAltText('作品媒体 1')
+    const swiper = screen.getByTestId('adaptive-media-preview-swiper')
+    expect(swiper.getAttribute('data-double-tap-zoom')).toBe('false')
+    expect(swiper.getAttribute('data-mousewheel')).toBe('true')
+    expect(screen.queryByText('1 / 1')).toBeNull()
+    expect(screen.getByText('1/1')).toBeTruthy()
+    fireEvent.keyDown(image, { code: 'Space', key: ' ' })
+    expect(mediaMark.set).toHaveBeenLastCalledWith('like', true)
+    mediaMark.likedAt = '2026-10-29'
+    view.rerender(<AdaptiveMediaPreview images={[createMedia(0)]} initialIndex={0} open onClose={vi.fn()} />)
+    fireEvent.keyDown(image, { code: 'Space', key: ' ' })
+    expect(mediaMark.set).toHaveBeenLastCalledWith('like', false)
+    fireEvent.doubleClick(image)
+    expect(mediaMark.set).toHaveBeenLastCalledWith('like', true)
+    const calls = mediaMark.set.mock.calls.length
+    fireEvent.keyDown(image, { code: 'Space', repeat: true })
+    fireEvent.keyDown(image, { code: 'Space', ctrlKey: true })
+    fireEvent.keyDown(screen.getByRole('button', { name: '关闭适配尺寸预览' }), { code: 'Space' })
+    expect(mediaMark.set).toHaveBeenCalledTimes(calls)
+    mediaMark.available = false
+    view.rerender(<AdaptiveMediaPreview images={[createMedia(0)]} initialIndex={0} open onClose={vi.fn()} />)
+    fireEvent.doubleClick(image)
+    fireEvent.keyDown(image, { code: 'Space' })
+    expect(mediaMark.set).toHaveBeenCalledTimes(calls)
   })
 
   it('only exposes diagnostics for the current WebP with an explicit URL flag', () => {
@@ -249,7 +302,8 @@ describe('AdaptiveMediaPreview', () => {
       />
     )
 
-    expect(screen.getByText('2 / 3')).toBeTruthy()
+    expect(screen.queryByText('2 / 3')).toBeNull()
+    expect(screen.getAllByText('2/3').length).toBeGreaterThan(0)
     const images = screen.getAllByRole('img')
     expect(images[1]!.getAttribute('src')).toBe('/media-2.jpg?v=2026-01-01%2000%3A00%3A00')
     expect(images[1]!.getAttribute('src')).not.toContain('/api/image')
@@ -487,7 +541,8 @@ describe('AdaptiveMediaPreview', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
 
-    expect(screen.getByText('3 / 3')).toBeTruthy()
+    expect(screen.queryByText('3 / 3')).toBeNull()
+    expect(screen.getAllByText('3/3').length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: '播放 WEBP 动图' }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.queryAllByAltText('作品 WEBP 动图 1')).toHaveLength(1)
     expect(screen.getAllByAltText('作品 WEBP 动图 3')).toHaveLength(1)
@@ -521,7 +576,8 @@ describe('AdaptiveMediaPreview', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
-    expect(screen.getByText('3 / 3')).toBeTruthy()
+    expect(screen.queryByText('3 / 3')).toBeNull()
+    expect(screen.getAllByText('3/3').length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole('button', { name: '模拟缩放' }))
     expect(swiperMocks.instance.allowSlideNext).toBe(false)

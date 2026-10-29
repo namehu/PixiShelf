@@ -29,7 +29,7 @@ import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkSlideshow } from './use-artwork-slideshow'
 import { readingMediaPosition } from './reading-media-status'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
-import { usePrefetchMediaMarks } from '@/hooks/use-media-mark'
+import { useMediaMark, usePrefetchMediaMarks } from '@/hooks/use-media-mark'
 import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
 
 const ADAPTIVE_PREVIEW_HISTORY_KEY = '__pixishelf_adaptive_media_preview__'
@@ -128,6 +128,7 @@ function AdaptiveMediaPreviewContent({
     open
   )
   const activeMedia = images[currentIndex]
+  const mark = useMediaMark(activeMedia?.artworkId ?? 0, open ? (activeMedia?.id ?? null) : null)
   usePrefetchMediaMarks(
     activeMedia?.artworkId ?? 0,
     images.slice(Math.max(0, currentIndex - 1), currentIndex + 3).map((media) => media.id),
@@ -305,6 +306,14 @@ function AdaptiveMediaPreviewContent({
       initialIndex={safeInitialIndex}
       counterIndex={originalIndex}
       counterTotal={originalTotal}
+      showTopCounter={false}
+      enableMousewheel
+      onLike={() => {
+        if (mark.available && !mark.isLoading && !activeMedia?.detailsPending) mark.set('like', true)
+      }}
+      onToggleLike={() => {
+        if (mark.available && !mark.isLoading && !activeMedia?.detailsPending) mark.set('like', !mark.likedAt)
+      }}
       transitionEffect="fade"
       open={open}
       onClose={(finalIndex) => {
@@ -313,7 +322,7 @@ function AdaptiveMediaPreviewContent({
       }}
       historyKey={ADAPTIVE_PREVIEW_HISTORY_KEY}
       title="适配尺寸媒体预览"
-      description="上下滑动切换媒体，双指或双击缩放图片；WebP 动图可通过底部按钮播放或暂停。"
+      description="上下滑动或滚动鼠标滚轮切换媒体，空格切换当前图片喜欢，双击喜欢当前图片，双指缩放；WebP 动图可通过底部按钮播放或暂停。"
       closeLabel="关闭适配尺寸预览"
       testId="adaptive-media-preview-swiper"
       onControllerChange={(controller) => {
@@ -473,9 +482,14 @@ function AdaptiveMediaPreviewContent({
                         if (activeMedia) useArtworkAutoBrowseStore.getState().skip(activeMedia.id)
                       }}
                     />
-                  ) : activePlayableWebp ? (
-                    webpControl
-                  ) : null)}
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm tabular-nums" aria-live="polite">
+                        {originalIndex + 1}/{originalTotal}
+                      </span>
+                      {activePlayableWebp ? webpControl : null}
+                    </div>
+                  ))}
               </MediaMarkActions>
             </div>
           )}

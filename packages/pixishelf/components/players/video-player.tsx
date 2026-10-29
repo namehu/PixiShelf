@@ -434,10 +434,10 @@ export function VideoPlayer({
 
       let readingStarted = false
       let readingPlaying = false
-      const publishReading = () => {
+      const publishReading = (completed = false) => {
         if (!active) return
         onReadingProgressRef.current?.({
-          currentTime: art.currentTime,
+          currentTime: completed ? art.duration : art.currentTime,
           duration: art.duration,
           started: readingStarted,
           playing: readingPlaying
@@ -493,9 +493,11 @@ export function VideoPlayer({
         }
       })
 
-      art.on('ended', () => {
+      art.on('video:ended', () => {
+        if (!active) return
         readingPlaying = false
-        publishReading()
+        // Artplayer's loop listener may already have reset currentTime to zero.
+        publishReading(true)
         wasPlayingBeforeErrorRef.current = false
         setIsPlaying(false)
         controlsVisibleRef.current = true
@@ -549,8 +551,8 @@ export function VideoPlayer({
       art.on('video:error', () => {
         showVideoError()
       })
-      art.on('video:seeked', publishReading)
-      art.on('video:durationchange', publishReading)
+      art.on('video:seeked', () => publishReading())
+      art.on('video:durationchange', () => publishReading())
     }
 
     initPlayer().catch(() => {

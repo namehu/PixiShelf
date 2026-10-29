@@ -14,7 +14,7 @@ const swiper = {
 }
 
 vi.mock('framer-motion', () => ({ useReducedMotion: () => motionPreference.reduced }))
-vi.mock('swiper/modules', () => ({ EffectFade: {}, Keyboard: {}, Virtual: {}, Zoom: {} }))
+vi.mock('swiper/modules', () => ({ EffectFade: {}, Keyboard: {}, Mousewheel: {}, Virtual: {}, Zoom: {} }))
 vi.mock('swiper/react', () => ({
   Swiper: (props: {
     children: ReactNode

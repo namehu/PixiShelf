@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDownIcon, ChevronUpIcon, XIcon } from 'lucide-react'
 import { useReducedMotion } from 'framer-motion'
-import { EffectFade, Keyboard, Virtual, Zoom } from 'swiper/modules'
+import { EffectFade, Keyboard, Mousewheel, Virtual, Zoom } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import type { Swiper as SwiperType } from 'swiper'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
@@ -47,6 +47,10 @@ interface VerticalMediaPreviewCoreProps<T> {
   counterTotal?: number | null
   /** Optional zero-based position in the full source when items is a filtered sequence. */
   counterIndex?: number
+  showTopCounter?: boolean
+  enableMousewheel?: boolean
+  onLike?: () => void
+  onToggleLike?: () => void
   topChrome?: (context: VerticalMediaPreviewChromeContext) => ReactNode
   bottomChrome?: (context: VerticalMediaPreviewChromeContext) => ReactNode
   onActiveIndexChange?: (index: number) => void
@@ -87,6 +91,10 @@ export function VerticalMediaPreviewCore<T>({
   testId = 'vertical-media-preview-swiper',
   counterTotal,
   counterIndex,
+  showTopCounter = true,
+  enableMousewheel = false,
+  onLike,
+  onToggleLike,
   topChrome,
   bottomChrome,
   onActiveIndexChange,
@@ -210,18 +218,54 @@ export function VerticalMediaPreviewCore<T>({
         showCloseButton={false}
         className="fixed inset-0 left-0 top-0 z-[100] block h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 bg-black p-0 text-white shadow-none sm:max-w-none"
         onPointerDownOutside={(event) => event.preventDefault()}
+        data-preview-like-shortcut={onToggleLike ? '' : undefined}
+        onOpenAutoFocus={
+          onToggleLike
+            ? (event) => {
+                event.preventDefault()
+                if (event.target instanceof HTMLElement) event.target.focus()
+              }
+            : undefined
+        }
+        onKeyDown={(event) => {
+          if (
+            !onToggleLike ||
+            event.code !== 'Space' ||
+            event.defaultPrevented ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.shiftKey ||
+            document.querySelector('[data-auto-browse-settings]')
+          ) {
+            return
+          }
+          if (
+            event.target instanceof Element &&
+            event.target.closest(
+              'button, a, input, textarea, select, [role="slider"], [role="button"], [contenteditable]:not([contenteditable="false"])'
+            )
+          ) {
+            return
+          }
+          event.preventDefault()
+          event.stopPropagation()
+          if (!event.repeat) onToggleLike()
+        }}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
         <DialogDescription className="sr-only">{description}</DialogDescription>
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-black/75 via-black/35 to-transparent px-3 pb-8 pt-[calc(0.75rem+env(safe-area-inset-top))] sm:px-5">
-          <div
-            className="rounded-full bg-black/35 px-3 py-1.5 text-sm font-medium tabular-nums backdrop-blur-md"
-            aria-live="polite"
-          >
-            {(counterIndex ?? activeIndex) + 1} / {displayTotal}
-          </div>
-          <div className="pointer-events-auto flex items-center gap-1">
+          {showTopCounter && (
+            <div
+              className="rounded-full bg-black/35 px-3 py-1.5 text-sm font-medium tabular-nums backdrop-blur-md"
+              aria-live="polite"
+            >
+              {(counterIndex ?? activeIndex) + 1} / {displayTotal}
+            </div>
+          )}
+          <div className="pointer-events-auto ml-auto flex items-center gap-1">
             {topChrome?.({ activeIndex, portalContainer, transitioning, zoomScale })}
             <button
               type="button"
@@ -235,15 +279,27 @@ export function VerticalMediaPreviewCore<T>({
         </div>
 
         <Swiper
-          modules={fade ? [Keyboard, Virtual, Zoom, EffectFade] : [Keyboard, Virtual, Zoom]}
+          modules={fade ? [Keyboard, Mousewheel, Virtual, Zoom, EffectFade] : [Keyboard, Mousewheel, Virtual, Zoom]}
           initialSlide={safeInitialIndex}
           direction="vertical"
           effect={transitionEffect}
           fadeEffect={fade ? { crossFade: true } : undefined}
           speed={fade ? (reducedMotion ? 0 : 300) : undefined}
           keyboard={{ enabled: true, onlyInViewport: false, pageUpDown: true }}
+          mousewheel={{ enabled: enableMousewheel, forceToAxis: true, thresholdDelta: 10, thresholdTime: 350 }}
+          onScroll={() => onManualNavigation?.()}
           virtual={{ addSlidesBefore: 1, addSlidesAfter: 1 }}
-          zoom={{ minRatio: 1, maxRatio: 3, toggle: true }}
+          zoom={{ minRatio: 1, maxRatio: 3, toggle: !onLike }}
+          onDoubleTap={(_swiper, event) => {
+            const target = event.target
+            if (
+              target instanceof Element &&
+              target.closest('.swiper-zoom-container') &&
+              !target.closest('button, a, input, textarea, select, [role="button"]')
+            ) {
+              onLike?.()
+            }
+          }}
           resistanceRatio={0.65}
           spaceBetween={fade ? 0 : 12}
           onSwiper={(swiper) => {

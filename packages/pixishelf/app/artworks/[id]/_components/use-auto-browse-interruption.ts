@@ -25,6 +25,7 @@ export function useAutoBrowseInterruption(artworkId: number) {
         return
       }
       const target = event.target
+      if (event.code === 'Space' && target instanceof Element && target.closest('[data-preview-like-shortcut]')) return
       if (
         target instanceof Element &&
         target.closest(

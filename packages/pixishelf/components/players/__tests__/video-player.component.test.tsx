@@ -273,6 +273,52 @@ describe('VideoPlayer component behavior', () => {
     }
   }
 
+  it.each([0.3, 4.8, 5, 5.2])(
+    'reports completion for a %ss video even after Artplayer resets the loop',
+    async (duration) => {
+      const art = setupArtplayerMock()
+      art.duration = duration
+      const onReadingProgress = vi.fn()
+      const { unmount } = render(<VideoPlayer src="/short.mp4" onReadingProgress={onReadingProgress} />)
+      await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+
+      act(() => emitArtplayerEvent('video:playing'))
+      art.currentTime = duration * 0.8
+      act(() => emitArtplayerEvent('video:timeupdate'))
+      expect(onReadingProgress).toHaveBeenLastCalledWith({
+        currentTime: duration * 0.8,
+        duration,
+        started: true,
+        playing: true
+      })
+      art.currentTime = 0
+      act(() => emitArtplayerEvent('video:ended'))
+      expect(onReadingProgress).toHaveBeenLastCalledWith({
+        currentTime: duration,
+        duration,
+        started: true,
+        playing: false
+      })
+
+      onReadingProgress.mockClear()
+      unmount()
+      act(() => emitArtplayerEvent('video:ended'))
+      expect(onReadingProgress).not.toHaveBeenCalled()
+    }
+  )
+
+  it('does not treat seek and duration event objects as completed playback', async () => {
+    const art = setupArtplayerMock()
+    const onReadingProgress = vi.fn()
+    render(<VideoPlayer src="/video.mp4" onReadingProgress={onReadingProgress} />)
+    await waitFor(() => expect(artplayerMock.constructor).toHaveBeenCalled())
+    act(() => emitArtplayerEvent('video:playing'))
+    art.currentTime = 2
+    act(() => emitArtplayerEvent('video:seeked', new Event('seeked')))
+    act(() => emitArtplayerEvent('video:durationchange', new Event('durationchange')))
+    expect(onReadingProgress).toHaveBeenLastCalledWith({ currentTime: 2, duration: 60, started: true, playing: true })
+  })
+
   it('disables Artplayer mobile video gestures so page scroll does not seek the video', async () => {
     setupArtplayerMock()
 
