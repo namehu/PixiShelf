@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { Prisma } from '@prisma/client'
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import { db, seed, prepared, cleanupFixture, cleanupJobs } from './artwork-dedup-maintenance-fixture'
 import { completeArtworkDedupPrepare, validateArtworkDedupOperationSnapshot } from '../artwork-dedup-review'
@@ -100,7 +101,14 @@ describe.skipIf(!db)('maintenance narrow SQL and reader recovery boundaries', ()
     await db!.$transaction((tx) =>
       saveArtworkDedupOperationFilesPage(tx, {
         execution,
-        entries: [{ ...entry, referenceKey: `${entry.referenceKey}:duplicate`, ownershipStatus: 'VERIFIED' }]
+        entries: [
+          {
+            ...entry,
+            verificationSpec: entry.verificationSpec ?? Prisma.DbNull,
+            referenceKey: `${entry.referenceKey}:duplicate`,
+            ownershipStatus: 'VERIFIED'
+          }
+        ]
       })
     )
     const result = await db!.$transaction((tx) => completeArtworkDedupPrepare(tx, { execution }))

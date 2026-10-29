@@ -1,6 +1,6 @@
 ---
 status: historical
-scope: v0.54.19 动图混合媒体修复与删除优化的发布准备及 NAS 交接，不代表镜像已发布或 NAS 已升级
+scope: v0.54.19 发布交接与 v0.54.20 测试类型修复补丁，不代表镜像已发布或 NAS 已升级
 last-verified: 2026-10-29
 sources:
   - docs/records/artwork-deduplication-mixed-media-2026-10-29.md
@@ -10,6 +10,8 @@ sources:
 ---
 
 # v0.54.19 发布交接
+
+后续发现的发布门禁失败与替代补丁见文末 [v0.54.20 补丁](#v05420-补丁)。
 
 本轮准备 `v0.54.19` patch tag，并随 main 一起推送。用户自行查看 GitHub 工作流和更新 NAS；按明确要求，不查询 CI、镜像构建或 Release 状态，不记录未经核验的镜像 digest，也不把标签推送等同生产部署完成。
 
@@ -56,3 +58,13 @@ GHCR 对应 `ghcr.io/namehu/pixishelf:v0.54.19` 与 `ghcr.io/namehu/pixishelf-wo
 按[标准发布](../../operations/deployment.md#标准发布)与[去重升级手册](../../operations/runbooks/artwork-deduplication.md)操作：停写并保留数据库和媒体同点备份；拉取配套目标镜像，用目标 App 镜像正式执行 migrate deploy；先启动 Worker 并核对 READY、扫描 v7／维护 v6 能力，再开放 App。不要使用 db:push。含动图的旧检查需重新检查才获得新的静图覆盖；旧删除操作仍维持旧准备流程，新建操作才使用快速确认。
 
 存在活动新任务／删除操作时，不得直接降级到不理解该协议的旧 Worker，也不要手改任务版本或删除证据。保留原 App/Worker 镜像及[一致性恢复依据](../../operations/backup-and-recovery.md#发布前一致性检查点)。本次没有替用户创建生产备份；实际生产镜像、迁移与使用结果由 NAS 更新后另行登记。
+
+## v0.54.20 补丁
+
+2026-10-29 用户报告失败后，检查 [v0.54.19 发布日志](https://github.com/namehu/PixiShelf/actions/runs/40812326949/job/123245319562)：两份 OCI 镜像构建成功，但 validate 在数据库包类型检查处失败，发布步骤跳过。CI Worker 同样失败，Web 与 WebP 检查成功；不能将 v0.54.19 作为已完成发布的版本。
+
+根因是维护边界测试直接将 Prisma 查询结果展开成创建输入；新增 `verificationSpec` 为可空 JSON，查询返回的普通 `null` 不符合写入类型。补丁仅在该测试构造数据时将空值转换为 `Prisma.DbNull`，保留非空 JSON，不修改业务逻辑、Schema、迁移或流水线门禁。
+
+本地验证：先重新生成当前 Schema 的 Prisma Client，再执行 `pnpm --filter @pixishelf/worker... typecheck`，数据库、contracts、runtime、executors、Worker 五包全部通过；仅在既有合成隔离库 `dedup_confirm_core_20261029` 执行 `artwork-dedup-maintenance-boundaries.postgres.test.ts`，6 项通过。未运行全量应用测试或构建，未迁移开发库，未操作 NAS。
+
+发布目标改为 `v0.54.20`，App 和 Worker 配套采用此标签；沿用上文相对 v0.54.18 的两个迁移与升级步骤，本补丁没有新增迁移。不覆盖 v0.54.19 标签。按用户要求，提交并推送新标签后不跟踪构建状态，镜像发布结果由用户查看。
