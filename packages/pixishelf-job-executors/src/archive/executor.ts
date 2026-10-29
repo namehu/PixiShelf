@@ -17,7 +17,7 @@ import {
 } from '../scan/media-content-write.ts'
 import { recoverCompletedArchivePublicationWrite } from './media-content-publication.ts'
 import path from 'node:path'
-import { handoffArchivePhase } from './phase-handoff.ts'
+import { finalizeArchivePublication, handoffArchivePhase } from './phase-handoff.ts'
 import { assertArchiveImportNotDeleted } from './deletion-policy.ts'
 import { setTimeout as delay } from 'node:timers/promises'
 import {
@@ -1265,7 +1265,7 @@ async function executeArchivePublish(
           replacedArtworkId
         )
       )
-      await scope.complete({ result, message: '归档导入已发布' })
+      await finalizeArchivePublication(scope, context.job.id, result, now())
     })
   } catch (error) {
     if (finalizationStarted) throw error

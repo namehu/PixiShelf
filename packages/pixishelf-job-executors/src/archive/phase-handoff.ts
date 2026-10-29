@@ -9,6 +9,7 @@ import {
 import type { ExecutionContext, FencedExecutionTransaction } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError } from './errors.ts'
 import type { ArchiveTransaction } from './types.ts'
+import type { ArchivePublishResult } from './publisher.ts'
 
 export const ARCHIVE_PUBLICATION_LOCK = 7_341_902_117
 
@@ -100,4 +101,43 @@ export async function handoffArchivePhase(
     result: { outcome: 'HANDOFF', archiveImportId: current.id, successorJobId: successor.id, phase },
     message: successor.message ?? '归档阶段已交接'
   })
+}
+
+/** Shares the publication finalizer so the durable intent, child job and parent completion commit together. */
+export async function finalizeArchivePublication(
+  scope: FencedExecutionTransaction<ArchiveTransaction>,
+  parentJobId: string,
+  publication: ArchivePublishResult,
+  now: Date
+) {
+  const { retirementRevisionId, ...result } = publication
+  if (retirementRevisionId) {
+    const retirementJobId = randomUUID()
+    await scope.transaction.systemJob.create({
+      data: {
+        id: retirementJobId,
+        type: 'ARCHIVE_MAINTENANCE',
+        executionLane: 'BACKGROUND_WRITER',
+        definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
+        status: 'PENDING',
+        triggerSource: 'SYSTEM',
+        parentJobId,
+        idempotencyKey: `archive-retire:${result.revisionId}`,
+        payload: {
+          action: 'RETIRE_PARTIAL_REVISION',
+          revisionId: retirementRevisionId,
+          replacementRevisionId: result.revisionId
+        },
+        queuePriority: 100,
+        effectivePriority: 100,
+        availableAt: now,
+        maxAttempts: 3,
+        message: '清理补全后的旧部分归档副本'
+      }
+    })
+    await scope.transaction.systemJobEvent.create({
+      data: { jobId: retirementJobId, type: 'job.queued', attempt: 0, message: '清理补全后的旧部分归档副本' }
+    })
+  }
+  await scope.complete({ result, message: '归档导入已发布' })
 }

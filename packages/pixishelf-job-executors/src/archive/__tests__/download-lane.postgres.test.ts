@@ -79,7 +79,16 @@ suite('archive download lane real database and filesystem', () => {
     await db?.$disconnect()
   })
 
-  it.each(['normal', 'purge', 'crash', 'crash-corrupt', 'local-change', 'unknown-file', 'active-job'] as const)(
+  it.each([
+    'normal',
+    'purge',
+    'publish-rollback',
+    'crash',
+    'crash-corrupt',
+    'local-change',
+    'unknown-file',
+    'active-job'
+  ] as const)(
     'partial coverage protects original media and retires safely: %s',
     async (mode) => {
       const root = await mkdtemp(path.join(tmpdir(), 'archive-partial-'))
@@ -160,7 +169,51 @@ suite('archive download lane real database and filesystem', () => {
         expect(await db!.image.count({ where: { artworkId: base.artworkId } })).toBe(20)
         return
       }
-      await execute(await claim('ARCHIVE_PUBLISH', 'fixture', [2]), dependencies(root, network))
+      const publish = await claim('ARCHIVE_PUBLISH', 'fixture', [2])
+      if (mode === 'publish-rollback') {
+        const interrupted = context(publish)
+        interrupted.finalizeInTransaction = async <TTransaction extends QueueSqlExecutor>(
+          operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<void>
+        ) => {
+          await repo!.withFencedExecutionTransaction<TTransaction>(fence(publish), async (scope) =>
+            operation({
+              ...scope,
+              complete: async () => {
+                throw new Error('completion commit failed')
+              }
+            })
+          )
+          return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+        }
+        await expect(execute(publish, dependencies(root, network), interrupted)).rejects.toThrow(
+          'completion commit failed'
+        )
+        expect(await db!.archiveRevision.findUnique({ where: { id: completedId } })).toBeNull()
+        expect(await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).toMatchObject({
+          isCurrent: true,
+          retirementRequestedAt: null,
+          replacedByRevisionId: null,
+          retirementSnapshot: null
+        })
+        expect(await db!.systemJob.count({ where: { parentJobId: publish.id } })).toBe(0)
+        expect(await db!.systemJobEvent.count({ where: { jobId: publish.id, type: 'job.completed' } })).toBe(0)
+        expect((await db!.systemJob.findUniqueOrThrow({ where: { id: publish.id } })).status).toBe('RUNNING')
+        expect(await db!.image.count({ where: { artworkId: base.artworkId } })).toBe(20)
+        expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(true)
+      }
+      await execute(publish, dependencies(root, network))
+      const retirementJob = await db!.systemJob.findUniqueOrThrow({
+        where: { idempotencyKey: `archive-retire:${completedId}` }
+      })
+      expect(retirementJob).toMatchObject({
+        type: 'ARCHIVE_MAINTENANCE',
+        definitionVersion: 2,
+        status: 'PENDING',
+        parentJobId: publish.id,
+        payload: { action: 'RETIRE_PARTIAL_REVISION', revisionId: base.id, replacementRevisionId: completedId }
+      })
+      expect(await db!.systemJobEvent.count({ where: { jobId: retirementJob.id, type: 'job.queued' } })).toBe(1)
+      expect((await db!.systemJob.findUniqueOrThrow({ where: { id: publish.id } })).status).toBe('COMPLETED')
       const all = await db!.image.findMany({ where: { artworkId: base.artworkId }, orderBy: { sortOrder: 'asc' } })
       expect(all).toHaveLength(30)
       expect(all.slice(0, 20).map((image) => image.id)).toEqual(images.map((image) => image.id))

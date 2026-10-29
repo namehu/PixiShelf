@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto'
-import { ARCHIVE_COVERAGE_DEFINITION_VERSION } from '@pixishelf/job-contracts'
 import { assertArchiveCompletionBase } from './completion-proof.ts'
 import { lockArchiveSourcePublication } from './dedup-source-snapshot.ts'
 import { assertArchiveImportNotDeleted } from './deletion-policy.ts'
@@ -25,6 +23,7 @@ export interface ArchivePublishResult {
   artworkId: number
   revisionId: string
   archivePath: string
+  retirementRevisionId?: string
 }
 
 /**
@@ -264,32 +263,6 @@ export async function publishArchiveImportInTransaction(
         retirementSnapshot: toInputJson(completion as unknown as Prisma.JsonValue)
       }
     })
-    const retirementJobId = randomUUID()
-    await transaction.systemJob.create({
-      data: {
-        id: retirementJobId,
-        type: 'ARCHIVE_MAINTENANCE',
-        executionLane: 'BACKGROUND_WRITER',
-        definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
-        status: 'PENDING',
-        triggerSource: 'SYSTEM',
-        parentJobId: archiveImport.systemJobId,
-        idempotencyKey: `archive-retire:${revision.id}`,
-        payload: {
-          action: 'RETIRE_PARTIAL_REVISION',
-          revisionId: completion.revisionId,
-          replacementRevisionId: revision.id
-        },
-        queuePriority: 100,
-        effectivePriority: 100,
-        availableAt: now,
-        maxAttempts: 3,
-        message: '清理补全后的旧部分归档副本'
-      }
-    })
-    await transaction.systemJobEvent.create({
-      data: { jobId: retirementJobId, type: 'job.queued', attempt: 0, message: '清理补全后的旧部分归档副本' }
-    })
   }
   const updated = await transaction.archiveImport.updateMany({
     where: { id: archiveImport.id, systemJobId: archiveImport.systemJobId, status: 'RUNNING' },
@@ -322,7 +295,12 @@ export async function publishArchiveImportInTransaction(
       lastErrorMessage: null
     }
   })
-  return { artworkId: artwork.id, revisionId: revision.id, archivePath: paths.finalRelativePath }
+  return {
+    artworkId: artwork.id,
+    revisionId: revision.id,
+    archivePath: paths.finalRelativePath,
+    ...(completion ? { retirementRevisionId: completion.revisionId } : {})
+  }
 }
 
 export async function appendArchiveDefaultTags(
