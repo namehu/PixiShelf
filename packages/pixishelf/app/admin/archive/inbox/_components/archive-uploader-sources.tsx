@@ -1,13 +1,14 @@
 'use client'
 
 import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
+import { ArchiveDiscoveryDeferred } from './archive-discovery-deferred'
 import { ScanResults } from './archive-discovery-scan-results'
 import { ArchiveTitleSourcePanel, ArchiveTitleReviewBulkActions } from './archive-title-source-panel'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { type InfiniteData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { inferRouterOutputs } from '@trpc/server'
-import { ArrowLeftIcon, BanIcon, InfoIcon, PlusIcon } from 'lucide-react'
+import { ArrowLeftIcon, BanIcon, ClockIcon, InfoIcon, PlusIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppRouter } from '@/server'
 import { useTRPC } from '@/lib/trpc'
@@ -91,6 +92,8 @@ export function ArchiveUploaderSources({
   const queryClient = useQueryClient()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const [layoutReady, setLayoutReady] = useState(false)
+  const [deferredView, setDeferredView] = useState<{ sourceId?: string; sourceName?: string } | null>(null)
+  const deferAttempts = useRef(new Map<string, string>())
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteSourceId, setDeleteSourceId] = useState<string | null>(null)
   const [searchDialog, setSearchDialog] = useState<ArchiveSearchDialogState | null>(null)
@@ -356,6 +359,7 @@ export function ArchiveUploaderSources({
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.getSource.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listIgnoredItems.infiniteQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listDeferredItems.infiniteQueryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveInbox.list.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveInbox.summary.queryKey() })
     ])
@@ -461,6 +465,26 @@ export function ArchiveUploaderSources({
     })
   )
 
+  const deferMutation = useMutation(
+    trpc.archiveSearch.deferItems.mutationOptions({
+      onSuccess: async (result) => {
+        deferAttempts.current.clear()
+        setSelectedItemIds(new Set())
+        const failures = result?.items.filter((item) => item.result === 'FAILED' || item.result === 'CONFLICT') ?? []
+        if (failures.length) toast.error('部分画廊未暂缓', { description: failures[0]?.message ?? '请刷新后重试' })
+        else toast.success('已放入稍后决定，不会自动下载')
+        await refresh()
+      },
+      onError: (error) => toast.error(archiveClientErrorMessage(error))
+    })
+  )
+  const deferItems = (sourceId: string, itemIds: string[]) => {
+    const key = JSON.stringify([sourceId, [...itemIds].sort()])
+    const requestId = deferAttempts.current.get(key) ?? crypto.randomUUID()
+    deferAttempts.current.set(key, requestId)
+    deferMutation.mutate({ sourceId, itemIds, requestId })
+  }
+
   const loadMoreItems = useCallback(() => void itemsQuery.fetchNextPage(), [itemsQuery.fetchNextPage])
   const retryItems = useCallback(() => void itemsQuery.refetch(), [itemsQuery.refetch])
   const loadMoreIgnoredItems = useCallback(
@@ -534,6 +558,7 @@ export function ArchiveUploaderSources({
     bulkSelectableIgnoredItems.length > 0 &&
     bulkSelectableIgnoredItems.every((item) => selectedIgnoredItemIds.has(item.id))
   const mutationPending =
+    deferMutation.isPending ||
     scanMutation.isPending ||
     cancelMutation.isPending ||
     archiveMutation.isPending ||
@@ -570,6 +595,10 @@ export function ArchiveUploaderSources({
         onChange={setSourceFilters}
         actions={
           <>
+            <Button variant="ghost" className="h-11 sm:h-9" onClick={() => setDeferredView({})}>
+              <ClockIcon data-icon="inline-start" aria-hidden="true" />
+              全局稍后决定
+            </Button>
             {onNavigatePendingCreators ? (
               <Button variant="ghost" className="h-11 sm:h-9" onClick={onNavigatePendingCreators}>
                 待生效绑定
@@ -702,6 +731,10 @@ export function ArchiveUploaderSources({
               <BanIcon data-icon="inline-start" aria-hidden="true" />
               查看本来源已忽略
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setDeferredView({ sourceId: source.id, sourceName: source.displayName })}>
+              <ClockIcon data-icon="inline-start" aria-hidden="true" />
+              查看本来源稍后决定
+            </Button>
           </div>
 
           {source.uidBindingState === 'REVALIDATION_REQUIRED' ? (
@@ -816,6 +849,7 @@ export function ArchiveUploaderSources({
               isFetchingNextPage={itemsQuery.isFetchingNextPage}
               onLoadMore={loadMoreItems}
               onRetry={retryItems}
+              onDefer={(itemId) => deferItems(source.id, [itemId])}
               onIgnore={(itemId) =>
                 setIgnoreSelection({
                   sourceId: source.id,
@@ -865,6 +899,15 @@ export function ArchiveUploaderSources({
               kind="catalog"
               pending={mutationPending}
               ignoreDisabled={selectedIgnorable.length === 0}
+              onDefer={
+                selectedIgnorable.length
+                  ? () =>
+                      deferItems(
+                        source.id,
+                        selectedIgnorable.map((item) => item.id)
+                      )
+                  : undefined
+              }
               addCount={selectedSubmittable.length}
               onBind={() => openCreators('bind')}
               onCancelPending={
@@ -895,6 +938,7 @@ export function ArchiveUploaderSources({
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {globalHeader}
+      {deferredView ? <ArchiveDiscoveryDeferred {...deferredView} onClose={() => setDeferredView(null)} /> : null}
       {countsQuery.isError || (contentFiltered && filteredCountsQuery.isError) ? (
         <Alert variant="destructive">
           <AlertTitle>统计刷新失败</AlertTitle>

@@ -47,7 +47,17 @@ export async function cleanupArchiveIntakeHistory(
     const batch = await input.database.archiveBulkOperation.findMany({
       where: {
         completedAt: { lt: cutoff },
-        commandType: { notIn: ['BIND_CREATORS', 'CANCEL_PENDING_CREATORS', 'REVIEW_TITLE_MATCH'] }
+        commandType: {
+          notIn: [
+            'BIND_CREATORS',
+            'CANCEL_PENDING_CREATORS',
+            'REVIEW_TITLE_MATCH',
+            'DEFER_DISCOVERY',
+            'RESTORE_DEFERRED',
+            'IGNORE_DEFERRED',
+            'DOWNLOAD_DEFERRED'
+          ]
+        }
       },
       orderBy: [{ completedAt: 'asc' }, { id: 'asc' }],
       take: ARCHIVE_INTAKE_RETENTION_DELETE_BATCH_SIZE,
@@ -60,7 +70,17 @@ export async function cleanupArchiveIntakeHistory(
       transaction.archiveBulkOperation.deleteMany({
         where: {
           id: { in: batch.map(({ id }) => id) },
-          commandType: { notIn: ['BIND_CREATORS', 'CANCEL_PENDING_CREATORS', 'REVIEW_TITLE_MATCH'] },
+          commandType: {
+            notIn: [
+              'BIND_CREATORS',
+              'CANCEL_PENDING_CREATORS',
+              'REVIEW_TITLE_MATCH',
+              'DEFER_DISCOVERY',
+              'RESTORE_DEFERRED',
+              'IGNORE_DEFERRED',
+              'DOWNLOAD_DEFERRED'
+            ]
+          },
           completedAt: { lt: cutoff }
         }
       })

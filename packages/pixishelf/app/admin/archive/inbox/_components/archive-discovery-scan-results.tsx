@@ -2,7 +2,15 @@
 
 import { ArchiveDeleteFailedDialog } from './archive-delete-failed-dialog'
 import type { inferRouterOutputs } from '@trpc/server'
-import { ExternalLinkIcon, ArrowUpRightIcon, BanIcon, BookOpenIcon, RotateCcwIcon, ListFilterIcon } from 'lucide-react'
+import {
+  ExternalLinkIcon,
+  ArrowUpRightIcon,
+  BanIcon,
+  BookOpenIcon,
+  RotateCcwIcon,
+  ListFilterIcon,
+  ClockIcon
+} from 'lucide-react'
 import type { AppRouter } from '@/server'
 import { DISCOVERY_LANGUAGES } from '@/lib/archive-discovery-filters'
 import { cn } from '@/lib/utils'
@@ -49,6 +57,7 @@ export function ScanResults({
   onLoadMore,
   onRetry,
   onIgnore,
+  onDefer,
   onAdd,
   onNavigateInboxItem,
   mutationPending,
@@ -79,6 +88,7 @@ export function ScanResults({
   onLoadMore: () => void
   onRetry: () => void
   onIgnore: (itemId: string) => void
+  onDefer?: (itemId: string) => void
   onAdd: (itemId: string) => void
   onNavigateInboxItem: (itemId: string) => void
   mutationPending: boolean
@@ -299,6 +309,18 @@ export function ScanResults({
                   disabled={mutationPending}
                   compact="always"
                 />
+              ) : null}
+              {item.actionable && onDefer ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={mutationPending}
+                  onClick={() => onDefer(item.id)}
+                  aria-label={`稍后决定 ${item.title}`}
+                  title="稍后决定"
+                >
+                  <ClockIcon aria-hidden="true" />
+                </Button>
               ) : null}
               {item.canRearchive ? (
                 <Button

@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { BanIcon, CheckIcon, RotateCcwIcon, UnlinkIcon, UserRoundPlusIcon, XIcon } from 'lucide-react'
+import { BanIcon, ClockIcon, CheckIcon, RotateCcwIcon, UnlinkIcon, UserRoundPlusIcon, XIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -15,6 +15,7 @@ export function ArchiveDiscoveryBulkBar({
   addLabel = '加入收件箱',
   onClear,
   onIgnore,
+  onDefer,
   onAdd,
   onRestore,
   onBind,
@@ -30,6 +31,7 @@ export function ArchiveDiscoveryBulkBar({
   addLabel?: string
   onClear: () => void
   onIgnore?: () => void
+  onDefer?: () => void
   onAdd?: () => void
   onRestore?: () => void
   onBind?: () => void
@@ -82,6 +84,12 @@ export function ArchiveDiscoveryBulkBar({
           </Button>
         ) : (
           <>
+            {onDefer ? (
+              <Button variant="outline" disabled={pending} onClick={onDefer} aria-label="稍后决定" title="稍后决定">
+                <ClockIcon data-icon="inline-start" aria-hidden="true" />
+                <span className="hidden sm:inline">稍后决定</span>
+              </Button>
+            ) : null}
             {reviewActions}
             {deleteAction}
             {onBind ? (

@@ -742,6 +742,9 @@ export async function ignoreArchiveUploaderScanItems(
       orderBy: { id: 'asc' },
       select: { id: true }
     })
+    await transaction.archiveDiscoveryDeferredItem.deleteMany({
+      where: { OR: uniqueItems.map(({ providerKey, externalId }) => ({ providerKey, externalId })) }
+    })
     return {
       ignoredItemIds: ignoredItems.map(({ id }) => id),
       ignoredCount: uniqueItems.length,
@@ -787,8 +790,8 @@ export async function addArchiveUploaderScanItems(
           select: dispositionCatalogItemSelect
         })
         assertAllDispositionItemsFound(candidates, parsed.itemIds)
+        await lockCreatorCatalog(transaction)
         if (candidates.some((item) => item.source?.sourceKind === 'TITLE_QUERY')) {
-          await lockCreatorCatalog(transaction)
           await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock(7341902117)::text')
         }
         trace.phase('identityLocks')

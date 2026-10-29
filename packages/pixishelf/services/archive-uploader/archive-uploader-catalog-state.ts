@@ -436,6 +436,10 @@ function catalogStateCte(scope: Prisma.Sql, accepted = true) {
           AND (stage."archiveImportStatus" IS NULL OR stage."archiveImportStatus" NOT IN ('PENDING', 'RUNNING', 'PAUSED', 'CANCELLING', 'FAILED'))
         ) AS "deletableFailure"
       FROM "catalogResolvedStages" AS stage
+      WHERE stage."workflowStage" NOT IN ('NEW', 'UPDATE_AVAILABLE', 'REPLACEMENT') OR NOT EXISTS (
+        SELECT 1 FROM "archive_discovery_deferred_items" deferred
+        WHERE deferred."providerKey" = stage."providerKey" AND deferred."externalId" = stage."externalId"
+      )
     )
   `
 }

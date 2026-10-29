@@ -314,39 +314,38 @@ describePostgres('archive uploader ignored gallery PostgreSQL integration', () =
     ).resolves.toMatchObject({ acceptedCount: 1, duplicateCount: 0, rejectedCount: 0 })
   })
 
-  it('records a duplicate created after the actionable check as an attention state', async () => {
+  it('serializes a competing direct URL submission behind the catalog intake identity', async () => {
     const seeded = await seedCompletedScan('duplicate-race', '3003')
     const canonicalUrl = `https://e-hentai.org/g/${sharedExternalId}/privatetoken/`
-    let competingSubmissionId: string | null = null
+    let competingSubmission: ReturnType<typeof createArchiveIntakeSubmission> | null = null
     const submission = await addArchiveUploaderScanItems(
       { sourceId: seeded.sourceId, itemIds: [seeded.catalogItemId], submissionAttemptId: randomUUID() },
       `${prefix}-duplicate-uploader`,
       {
         database: databaseWithAfterIgnoredCheckHook(async () => {
-          const competing = await createArchiveIntakeSubmission(
+          competingSubmission = createArchiveIntakeSubmission(
             { idempotencyKey: `${prefix}-duplicate-competing`, urls: [canonicalUrl] },
             `${prefix}-duplicate-competing`,
             { database: db(), uuid: prefixedUuidFactory('duplicate-competing') }
           )
-          competingSubmissionId = competing.id
         }),
         uuid: prefixedUuidFactory('duplicate-uploader')
       }
     )
 
-    expect(submission).toMatchObject({ acceptedCount: 0, duplicateCount: 1 })
+    expect(submission).toMatchObject({ acceptedCount: 1, duplicateCount: 0 })
+    expect(await competingSubmission).toMatchObject({ acceptedCount: 0, duplicateCount: 1 })
     await expect(
       db().archiveUploaderCatalogItem.findUniqueOrThrow({ where: { id: seeded.catalogItemId } })
-    ).resolves.toMatchObject({ lastOutcome: 'DUPLICATE', lastErrorCode: 'ACTIVE_DUPLICATE' })
+    ).resolves.toMatchObject({ lastOutcome: 'SUBMITTED', lastErrorCode: null })
     await expect(
-      listArchiveUploaderScanItems({ sourceId: seeded.sourceId, view: 'ATTENTION', limit: 50 }, { database: db() })
+      listArchiveUploaderScanItems({ sourceId: seeded.sourceId, view: 'PROCESSING', limit: 50 }, { database: db() })
     ).resolves.toMatchObject({
-      items: [expect.objectContaining({ id: seeded.catalogItemId, workflowStage: 'DUPLICATE' })]
+      items: [expect.objectContaining({ id: seeded.catalogItemId, workflowStage: 'INBOX' })]
     })
-    expect(competingSubmissionId).toEqual(expect.any(String))
 
     const authoritativeIntake = await db().archiveIntakeItem.findFirstOrThrow({
-      where: { submissionId: competingSubmissionId! }
+      where: { submissionId: submission.id }
     })
     const progressedAt = new Date('2026-09-04T00:00:00.000Z')
     await db().$transaction([

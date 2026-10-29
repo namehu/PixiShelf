@@ -1031,6 +1031,7 @@ describe('archive uploader service', () => {
 
 function transactionalDatabase<T extends object>(delegates: T) {
   const defaults = {
+    archiveDiscoveryDeferredItem: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     archiveDeletedIdentity: { findMany: vi.fn(async () => []) },
     artworkExternalRef: { findMany: vi.fn(async () => []) },
     archiveIntakeItem: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
@@ -1048,7 +1049,8 @@ function transactionalDatabase<T extends object>(delegates: T) {
       ...defaults.archiveUploaderCatalogItem,
       ...provided.archiveUploaderCatalogItem
     },
-    $queryRaw: vi.fn(async () => [{ lock: '' }])
+    $queryRaw: vi.fn(async () => [{ lock: '' }]),
+    $queryRawUnsafe: vi.fn(async () => [{ lock: '' }])
   }
   const database = transaction as typeof transaction & {
     $transaction: (operation: (tx: typeof transaction) => Promise<unknown>) => Promise<unknown>

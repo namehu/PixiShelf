@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   createSubmissionAttempt: vi.fn(),
   cancelScan: vi.fn(),
   ignoreItems: vi.fn(),
+  deferItems: vi.fn(),
   ignoreFail: false,
   ignoreHold: false,
   restoreIgnoredItems: vi.fn(),
@@ -227,59 +228,61 @@ vi.mock('@tanstack/react-query', () => ({
   }) => ({
     isPending: false,
     mutate:
-      options.kind === 'cancel'
-        ? mocks.cancelScan
-        : options.kind === 'prepare'
-          ? (variables: { sourceId: string; itemIds: string[] }) => {
-              mocks.createSubmissionAttempt(variables)
-              void options.onSuccess?.({ submissionAttemptId: '00000000-0000-4000-8000-000000000001' }, variables)
-            }
-          : options.kind === 'add'
-            ? mocks.addToInbox
-            : options.kind === 'ignore'
-              ? (variables: { sourceId: string; itemIds: string[] }) => {
-                  mocks.ignoreItems(variables)
-                  if (mocks.ignoreHold) return
-                  if (mocks.ignoreFail) {
-                    options.onError?.(new Error('temporary failure'))
-                    options.onSettled?.()
-                    return
-                  }
-                  void options.onSuccess?.(
-                    {
-                      ignoredItemIds: ['ignored-item-new'],
-                      ignoredCount: variables.itemIds.length,
-                      createdCount: variables.itemIds.length,
-                      reusedCount: 0
-                    },
-                    variables
-                  )
-                }
-              : options.kind === 'restore'
-                ? (variables: { ignoredItemIds: string[] }) => {
-                    mocks.restoreIgnoredItems(variables)
-                    void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
-                  }
-                : options.kind === 'uid'
-                  ? (variables: { sourceId: string; uploaderUid: string }) => {
-                      mocks.setUploaderUid(variables)
-                      void options.onSuccess?.(currentUidMutationResult, variables)
+      options.kind === 'defer'
+        ? mocks.deferItems
+        : options.kind === 'cancel'
+          ? mocks.cancelScan
+          : options.kind === 'prepare'
+            ? (variables: { sourceId: string; itemIds: string[] }) => {
+                mocks.createSubmissionAttempt(variables)
+                void options.onSuccess?.({ submissionAttemptId: '00000000-0000-4000-8000-000000000001' }, variables)
+              }
+            : options.kind === 'add'
+              ? mocks.addToInbox
+              : options.kind === 'ignore'
+                ? (variables: { sourceId: string; itemIds: string[] }) => {
+                    mocks.ignoreItems(variables)
+                    if (mocks.ignoreHold) return
+                    if (mocks.ignoreFail) {
+                      options.onError?.(new Error('temporary failure'))
+                      options.onSettled?.()
+                      return
                     }
-                  : options.kind === 'match-uid'
-                    ? (variables: { sourceId: string }) => {
-                        mocks.matchUploaderUid(variables)
-                        void options.onSuccess?.(
-                          {
-                            outcome: 'MATCHED',
-                            sourceId: 'source-1',
-                            uploaderUid: '456',
-                            uploaderName: 'alice',
-                            evidenceExternalId: '302'
-                          },
-                          variables
-                        )
+                    void options.onSuccess?.(
+                      {
+                        ignoredItemIds: ['ignored-item-new'],
+                        ignoredCount: variables.itemIds.length,
+                        createdCount: variables.itemIds.length,
+                        reusedCount: 0
+                      },
+                      variables
+                    )
+                  }
+                : options.kind === 'restore'
+                  ? (variables: { ignoredItemIds: string[] }) => {
+                      mocks.restoreIgnoredItems(variables)
+                      void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
+                    }
+                  : options.kind === 'uid'
+                    ? (variables: { sourceId: string; uploaderUid: string }) => {
+                        mocks.setUploaderUid(variables)
+                        void options.onSuccess?.(currentUidMutationResult, variables)
                       }
-                    : vi.fn()
+                    : options.kind === 'match-uid'
+                      ? (variables: { sourceId: string }) => {
+                          mocks.matchUploaderUid(variables)
+                          void options.onSuccess?.(
+                            {
+                              outcome: 'MATCHED',
+                              sourceId: 'source-1',
+                              uploaderUid: '456',
+                              uploaderName: 'alice',
+                              evidenceExternalId: '302'
+                            },
+                            variables
+                          )
+                        }
+                      : vi.fn()
   })
 }))
 
@@ -342,6 +345,8 @@ vi.mock('@/lib/trpc', () => ({
       createSource: { mutationOptions: () => ({ kind: 'create' }) }
     },
     archiveSearch: {
+      deferItems: { mutationOptions: (options: object) => ({ kind: 'defer', ...options }) },
+      listDeferredItems: { infiniteQueryKey: () => ['deferred-items-infinite'] },
       catalogCounts: { queryOptions: mocks.countsOptions, queryKey: () => ['counts'] },
       activeBatchScan: { queryOptions: () => ({ kind: 'batch' }), queryKey: () => ['batch'] },
       startBatchScan: { mutationOptions: () => ({ kind: 'batch-start' }) },
@@ -1020,6 +1025,8 @@ describe('ArchiveUploaderSources', () => {
   })
 
   registerDiscoveryRowCases({
+    deferItems: mocks.deferItems,
+    addToInbox: mocks.addToInbox,
     renderSources,
     getItem: () => itemsData.pages[0]!.items[0]!,
     setItems: (items) => {
