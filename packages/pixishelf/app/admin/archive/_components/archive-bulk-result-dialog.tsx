@@ -128,6 +128,10 @@ function ResultBadge({ result }: { result: keyof typeof resultLabel }) {
 function commandLabel(command: ArchiveBulkOperationView['commandType']) {
   return (
     {
+      DEFER_DISCOVERY: '稍后决定',
+      RESTORE_DEFERRED: '恢复待办',
+      IGNORE_DEFERRED: '忽略暂缓画廊',
+      DOWNLOAD_DEFERRED: '暂缓画廊加入收件箱',
       RESTORE_ARCHIVE: '恢复归档作品',
       DELETE_FAILED_RECORDS: '删除失败记录',
       ENQUEUE: '归档入队',

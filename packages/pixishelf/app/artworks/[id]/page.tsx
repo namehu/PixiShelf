@@ -1,3 +1,6 @@
+import { getArchiveCoverage } from '@/services/archive/archive-coverage-service'
+import { ArchiveCoverageFooter } from './_components/archive-coverage-footer'
+import { Badge } from '@/components/ui/badge'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ExternalLinkIcon, UserRoundIcon } from 'lucide-react'
@@ -22,7 +25,12 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
   const { id } = await params
   const query = await searchParams
   const resumeOnEntry = query?.resume === '1'
-  const mediaId = z.string().regex(/^[1-9]\d*$/).transform(Number).pipe(z.number().int().safe().positive()).safeParse(query?.mediaId)
+  const mediaId = z
+    .string()
+    .regex(/^[1-9]\d*$/)
+    .transform(Number)
+    .pipe(z.number().int().safe().positive())
+    .safeParse(query?.mediaId)
   const mediaIdOnEntry = query?.mediaId === undefined ? undefined : mediaId.success ? mediaId.data : null
   const initial = await getArtworkReaderInitial(z.coerce.number().parse(id))
   const data = initial?.artwork
@@ -31,7 +39,7 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
     notFound()
   }
 
-  const sourceLinks = await getArtworkSourceLinks(data.id)
+  const [sourceLinks, coverage] = await Promise.all([getArtworkSourceLinks(data.id), getArchiveCoverage(data.id)])
   const creators = data.creators ?? []
 
   return (
@@ -53,6 +61,11 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
                         {data.title}
                       </PrivacySensitiveText>
 
+                      {coverage?.partial ? (
+                        <Badge variant="secondary">
+                          部分归档 · {coverage.localCount}/{coverage.sourceTotal} 张
+                        </Badge>
+                      ) : null}
                       <div className="flex flex-wrap items-center gap-3">
                         {creators.map(({ id: artistId, name: artistName, avatar: artistAvatar, kind, pixivUserId }) => (
                           <div key={artistId} className="flex min-w-0 max-w-full items-center gap-1">
@@ -120,8 +133,16 @@ export default async function ArtworkDetailPage({ params, searchParams }: PagePr
                   </PageContainer>
 
                   <div id={`artwork-media-start-${data.id}`} aria-hidden="true" className="h-px" />
-                  <ArtworkMediaSection images={data.images} artworkId={data.id} resumeOnEntry={resumeOnEntry} mediaIdOnEntry={mediaIdOnEntry} />
+                  <ArtworkMediaSection
+                    images={data.images}
+                    artworkId={data.id}
+                    resumeOnEntry={resumeOnEntry}
+                    mediaIdOnEntry={mediaIdOnEntry}
+                  />
                   <PageContainer size="reading" className="[&>:first-child]:mt-2">
+                    {coverage?.partial ? (
+                      <ArchiveCoverageFooter artworkId={data.id} initial={coverage} sourceLinks={sourceLinks} />
+                    ) : null}
                     <ArtworkDes description={data.description} className="mt-8" />
                     {data.series.map((series) => (
                       <SeriesNav key={series.id} series={series} />

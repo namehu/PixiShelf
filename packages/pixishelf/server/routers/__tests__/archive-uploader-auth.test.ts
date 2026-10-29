@@ -124,7 +124,8 @@ describe('archive uploader authorization boundary', () => {
           itemIds: ['item-1'],
           submissionAttemptId: '00000000-0000-4000-8000-000000000001',
           downloadMode: 'MANUAL',
-          quality: 'ORIGINAL'
+          quality: 'ORIGINAL',
+          downloadScope: 'ALL'
         }),
       service: mocks.addToInbox
     },
@@ -210,7 +211,8 @@ describe('archive uploader authorization boundary', () => {
       sourceId: 'source-1',
       itemIds: ['item-1'],
       downloadMode: 'MANUAL',
-      quality: 'ORIGINAL'
+      quality: 'ORIGINAL',
+      downloadScope: 'ALL'
     })
     expect(mocks.addToInbox).toHaveBeenCalledWith(
       {
@@ -218,7 +220,8 @@ describe('archive uploader authorization boundary', () => {
         itemIds: ['item-1'],
         submissionAttemptId: '00000000-0000-4000-8000-000000000001',
         downloadMode: 'MANUAL',
-        quality: 'ORIGINAL'
+        quality: 'ORIGINAL',
+        downloadScope: 'ALL'
       },
       'admin-1'
     )

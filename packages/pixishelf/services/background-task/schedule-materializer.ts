@@ -87,11 +87,11 @@ async function materializeTask(
   const job = await enqueueJob(
     {
       type: definition.type,
-      definitionVersion: JOB_DEFINITION_VERSION,
+      definitionVersion: definition.definitionVersion ?? JOB_DEFINITION_VERSION,
       triggerSource: 'SCHEDULE',
       scheduledTaskId: task.id,
       scheduledForDate: window.scheduledForDate,
-      idempotencyKey: `scheduled-task:${task.id}:${window.scheduledForDate}:v${JOB_DEFINITION_VERSION}`,
+      idempotencyKey: `scheduled-task:${task.id}:${window.scheduledForDate}:v${definition.definitionVersion ?? JOB_DEFINITION_VERSION}`,
       payload: definition.payload,
       priority: toScheduledQueuePriority(task.priority),
       availableAt: window.availableAt,

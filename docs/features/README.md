@@ -41,6 +41,7 @@ sources:
 | [来源发现](./archive-discovery.md)                        | 人工扫描、候选接纳、绑定与来源删除                                     |
 | [标题来源规则与人工复核](./archive-title-rules.md)        | 本地组合规则、全量预览、原子应用与人工决定                             |
 | [归档收件箱](./archive-intake.md)                         | 持久 URL 解析、下载意图、批量控制与诊断                                |
+| [部分归档与补全](./archive-partial-coverage.md)           | 下载范围、覆盖事实、显式补全与旧副本退休                               |
 | [归档生命周期](./archive-lifecycle.md)                    | 文件准备、原子数据库发布、维护与保留                                   |
 | [历史归档默认标签补全](./archive-default-tag-backfill.md) | 冻结预览、追加所有权、分批与取消                                       |
 | [归档回收站](./archive-trash.md)                          | 恢复资格、永久清理及持久删除意图                                       |

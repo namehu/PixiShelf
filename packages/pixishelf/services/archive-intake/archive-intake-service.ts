@@ -1,23 +1,26 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { intakeItemWireSelect, type IntakeItemWire } from './archive-intake-wire'
+import { hashSubmittedUrl, validateSubmittedUrl, safeThumbnailUrl } from './archive-intake-url'
+export { hashSubmittedUrl } from './archive-intake-url'
+import { randomUUID } from 'node:crypto'
 import {
   ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
   archiveResolveItemPayloadSchema,
   archiveUploaderIdentityLockKey,
   archiveUploaderUrlLockKey,
-  JOB_DEFINITION_VERSION
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
+  archiveDownloadScopeSchema
 } from '@pixishelf/job-contracts'
 import { Prisma, type PrismaClient, lockCreatorCatalog } from '@pixishelf/db'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { archiveProviderRegistry } from '@/services/archive/provider-registry'
 import {
   archiveRequestFingerprint,
   runArchiveBulkOperation,
   type ArchiveBulkTargetResult
 } from '@/services/archive/archive-bulk-operation'
 import { ArchiveError } from '@/services/archive/errors'
+import { archiveProviderRegistry } from '@/services/archive/provider-registry'
 import { archiveWireErrorMessage } from '@/services/archive/archive-redaction'
-import { validateArchiveUrl } from '@/services/archive/safe-http'
 import { writeJobEvent, writeJobEvents, type JobEventWriteInput } from '@/services/background-task/job-event-service'
 import {
   assertArchiveIntakeSourceProof,
@@ -52,7 +55,8 @@ export const createArchiveIntakeSchema = z
     idempotencyKey: z.string().trim().min(1).max(180),
     urls: z.array(z.string().max(2_048)).min(1).max(INTAKE_CREATE_LIMIT),
     downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
-    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL')
+    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL'),
+    downloadScope: archiveDownloadScopeSchema.default('ALL')
   })
   .strict()
 
@@ -132,8 +136,31 @@ export async function createArchiveIntakeSubmissionInTransaction(
   const requestHash = archiveRequestFingerprint({
     urls: rawUrls,
     downloadMode: parsed.downloadMode,
-    quality: parsed.quality
+    quality: parsed.quality,
+    downloadScope: parsed.downloadScope
   })
+
+  const identities = new Map<string, { providerKey: string; externalId: string }>()
+  for (const url of new Set(rawUrls)) {
+    try {
+      const { providerKey, externalId } = validateSubmittedUrl(url, dependencies.validateUrl)
+      identities.set(url, { providerKey, externalId })
+    } catch {
+      // Invalid entries are counted below, without creating an intake or changing a decision.
+    }
+  }
+  // Discovery intake already holds this lock before gallery locks. Direct URL intake uses
+  // the same order, so a successful explicit submission and a defer decision are atomic.
+  await lockCreatorCatalog(transaction)
+  for (const key of [
+    ...new Set(
+      [...identities.values()].map(({ providerKey, externalId }) =>
+        archiveUploaderIdentityLockKey(providerKey, externalId)
+      )
+    )
+  ].sort()) {
+    await lockKey(transaction, ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE, key)
+  }
 
   // 并发场景下先锁幂等键，再锁容量队列，避免重复重放和容量竞争带来的“双重可见项目”。
   dependencies.trace?.phase('idempotencyLock')
@@ -214,9 +241,7 @@ export async function createArchiveIntakeSubmissionInTransaction(
     }
     firstSeen.set(submittedUrl, null)
 
-    try {
-      validateSubmittedUrl(submittedUrl, dependencies.validateUrl)
-    } catch {
+    if (!identities.has(submittedUrl)) {
       invalidCount += 1
       continue
     }
@@ -238,6 +263,7 @@ export async function createArchiveIntakeSubmissionInTransaction(
         duplicateOfItemId: duplicate.id,
         downloadMode: parsed.downloadMode,
         selectedQuality: parsed.quality,
+        downloadScope: parsed.downloadScope,
         status: 'DUPLICATE',
         retryable: false,
         finishedAt: timestamp,
@@ -266,7 +292,8 @@ export async function createArchiveIntakeSubmissionInTransaction(
       timestamp,
       triggerSource: 'MANUAL',
       downloadMode: parsed.downloadMode,
-      quality: parsed.quality
+      quality: parsed.quality,
+      downloadScope: parsed.downloadScope
     })
     jobs.push(records.job)
     intakeItems.push(records.item)
@@ -307,6 +334,12 @@ export async function createArchiveIntakeSubmissionInTransaction(
       await transaction.systemJob.createMany({ data: jobs })
     }
     await transaction.archiveIntakeItem.createMany({ data: intakeItems })
+    const acceptedIdentities = intakeItems
+      .filter((item) => item.status === 'QUEUED')
+      .map((item) => identities.get(item.submittedUrl)!)
+    if (acceptedIdentities.length) {
+      await transaction.archiveDiscoveryDeferredItem.deleteMany({ where: { OR: acceptedIdentities } })
+    }
     await writeJobEvents(transaction, events)
   }
   await transaction.archiveIntakeSubmission.update({
@@ -327,10 +360,17 @@ export async function replaceArchiveIntakeItem(
   const now = dependencies.now ?? (() => new Date())
   const uuid = dependencies.uuid ?? randomUUID
   const submittedUrl = parsed.url.trim()
+  const replacementIdentity = validateSubmittedUrl(submittedUrl, dependencies.validateUrl)
   const requestHash = archiveRequestFingerprint({ command: 'REPLACE', itemId: parsed.itemId, url: submittedUrl })
 
   return database.$transaction(async (transaction) => {
     // 替换只对失败态原项目生效，并要求 URL 改变；这是“修正后重试”而非创建额外并行归档。
+    await lockCreatorCatalog(transaction)
+    await lockKey(
+      transaction,
+      ARCHIVE_UPLOADER_IDENTITY_LOCK_NAMESPACE,
+      archiveUploaderIdentityLockKey(replacementIdentity.providerKey, replacementIdentity.externalId)
+    )
     await lockKey(transaction, INTAKE_IDEMPOTENCY_LOCK_NAMESPACE, parsed.idempotencyKey)
     const existing = await transaction.archiveIntakeSubmission.findUnique({
       where: { idempotencyKey: parsed.idempotencyKey }
@@ -344,7 +384,14 @@ export async function replaceArchiveIntakeItem(
 
     const original = await transaction.archiveIntakeItem.findUnique({
       where: { id: parsed.itemId },
-      select: { id: true, status: true, submittedUrl: true, downloadMode: true, selectedQuality: true }
+      select: {
+        id: true,
+        status: true,
+        submittedUrl: true,
+        downloadMode: true,
+        selectedQuality: true,
+        downloadScope: true
+      }
     })
     if (!original) throw new ArchiveError('STATE_CONFLICT', '原失败收件项目不存在')
     if (original.status !== 'FAILED') {
@@ -353,8 +400,6 @@ export async function replaceArchiveIntakeItem(
     if (original.submittedUrl === submittedUrl) {
       throw new ArchiveError('INVALID_URL', '请修改失败链接后再重试；原链接不能再次入列')
     }
-    validateSubmittedUrl(submittedUrl, dependencies.validateUrl)
-
     await lockKey(transaction, INTAKE_CAPACITY_LOCK_NAMESPACE, RESOLVE_QUEUE_ID)
     const timestamp = now()
     const normalizedUrlHash = hashSubmittedUrl(submittedUrl)
@@ -388,6 +433,7 @@ export async function replaceArchiveIntakeItem(
         supersedesItemId: original.id,
         downloadMode: original.downloadMode,
         quality: original.selectedQuality,
+        downloadScope: original.downloadScope,
         timestamp
       })
     } else if (hasCapacity) {
@@ -402,8 +448,12 @@ export async function replaceArchiveIntakeItem(
         supersedesItemId: original.id,
         downloadMode: original.downloadMode,
         quality: original.selectedQuality,
+        downloadScope: original.downloadScope,
         timestamp,
         triggerSource: 'RETRY'
+      })
+      await transaction.archiveDiscoveryDeferredItem.deleteMany({
+        where: { providerKey: replacementIdentity.providerKey, externalId: replacementIdentity.externalId }
       })
     } else {
       // 容量失败只保留审计；没有可执行来源证明，后续须明确新提交。
@@ -415,6 +465,7 @@ export async function replaceArchiveIntakeItem(
         supersedesItemId: original.id,
         downloadMode: original.downloadMode,
         quality: original.selectedQuality,
+        downloadScope: original.downloadScope,
         timestamp
       })
     }
@@ -446,6 +497,7 @@ async function createDuplicateAuditItem(
     supersedesItemId?: string
     downloadMode: 'AUTO' | 'MANUAL'
     quality: 'ORIGINAL' | 'DISPLAY'
+    downloadScope: 'ALL' | 'FIRST_20'
     timestamp: Date
   }
 ) {
@@ -457,6 +509,7 @@ async function createDuplicateAuditItem(
       normalizedUrlHash: input.normalizedUrlHash,
       downloadMode: input.downloadMode,
       selectedQuality: input.quality,
+      downloadScope: input.downloadScope,
       status: 'DUPLICATE',
       duplicateOfItemId: input.duplicateOfItemId,
       supersedesItemId: input.supersedesItemId,
@@ -478,6 +531,7 @@ async function createCapacityRejectedAuditItem(
     supersedesItemId: string
     downloadMode: 'AUTO' | 'MANUAL'
     quality: 'ORIGINAL' | 'DISPLAY'
+    downloadScope: 'ALL' | 'FIRST_20'
     timestamp: Date
   }
 ) {
@@ -489,6 +543,7 @@ async function createCapacityRejectedAuditItem(
       normalizedUrlHash: input.normalizedUrlHash,
       downloadMode: input.downloadMode,
       selectedQuality: input.quality,
+      downloadScope: input.downloadScope,
       status: 'FAILED',
       supersedesItemId: input.supersedesItemId,
       finishedAt: input.timestamp,
@@ -511,6 +566,7 @@ function prepareQueuedIntakeItem(input: {
   supersedesItemId?: string
   downloadMode: 'AUTO' | 'MANUAL'
   quality: 'ORIGINAL' | 'DISPLAY'
+  downloadScope: 'ALL' | 'FIRST_20'
   timestamp: Date
   triggerSource: 'MANUAL' | 'RETRY'
 }) {
@@ -518,7 +574,7 @@ function prepareQueuedIntakeItem(input: {
     id: input.jobId,
     type: 'ARCHIVE_RESOLVE_ITEM',
     executionLane: 'ARCHIVE_RESOLVE',
-    definitionVersion: JOB_DEFINITION_VERSION,
+    definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
     status: 'PENDING',
     triggerSource: input.triggerSource,
     requestedByUserId: input.requestedByUserId,
@@ -538,6 +594,7 @@ function prepareQueuedIntakeItem(input: {
     normalizedUrlHash: input.normalizedUrlHash,
     downloadMode: input.downloadMode,
     selectedQuality: input.quality,
+    downloadScope: input.downloadScope,
     status: 'QUEUED',
     currentSystemJobId: input.jobId,
     supersedesItemId: input.supersedesItemId,
@@ -760,6 +817,7 @@ async function cancelIntakeItem(
     include: { currentSystemJob: true }
   })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
+  await lockCreatorCatalog(transaction)
   await lockUploaderCatalogItem(transaction, item)
   if (item.status === 'CANCELLED') return { result: 'REUSED', relatedId: item.id, message: '收件项目已取消' }
   if (!['QUEUED', 'RESOLVING', 'RETRY_WAIT', 'READY', 'STALE'].includes(item.status)) {
@@ -848,7 +906,11 @@ async function retryIntakeItem(
     include: { currentSystemJob: true }
   })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
-  await lockUploaderCatalogItem(transaction, item)
+  const { providerKey, externalId } = archiveProviderRegistry
+    .getForUrl(item.submittedUrl)
+    .identifySource(item.submittedUrl)
+  await lockCreatorCatalog(transaction)
+  await lockUploaderCatalogItem(transaction, { ...item, providerKey, externalId })
   const retryStatus = effectiveStatus(item, timestamp)
   // READY 的过期快照在查询层已被映射为 STALE，所以重试分支需要基于快照状态判断。
   if (!['FAILED', 'CANCELLED', 'STALE'].includes(retryStatus)) {
@@ -882,7 +944,6 @@ async function retryIntakeItem(
     }
   }
 
-  await lockCreatorCatalog(transaction)
   await assertArchiveIntakeSourceProof(transaction, item.dedupSourceSnapshot, item.submittedUrl)
   const jobId = uuid()
   await transaction.systemJob.create({
@@ -890,7 +951,7 @@ async function retryIntakeItem(
       id: jobId,
       type: 'ARCHIVE_RESOLVE_ITEM',
       executionLane: 'ARCHIVE_RESOLVE',
-      definitionVersion: JOB_DEFINITION_VERSION,
+      definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource: 'RETRY',
       requestedByUserId,
@@ -926,6 +987,7 @@ async function retryIntakeItem(
     RETURNING "id"
   `)
   if (changed.length !== 1) throw new ArchiveError('STATE_CONFLICT', '收件项目状态已改变')
+  await transaction.archiveDiscoveryDeferredItem.deleteMany({ where: { providerKey, externalId } })
   const identityFilters: Prisma.ArchiveUploaderCatalogItemWhereInput[] = []
   if (item.providerKey && item.externalId) {
     identityFilters.push({ providerKey: item.providerKey, externalId: item.externalId })
@@ -994,43 +1056,6 @@ function findActiveRetryDuplicate(
   })
 }
 
-const intakeItemWireSelect = {
-  id: true,
-  submissionId: true,
-  submittedUrl: true,
-  queueOrder: true,
-  status: true,
-  attempts: true,
-  availableAt: true,
-  startedAt: true,
-  finishedAt: true,
-  providerKey: true,
-  externalId: true,
-  canonicalUrl: true,
-  resolvedTitle: true,
-  thumbnailUrl: true,
-  pageCount: true,
-  resolutionKind: true,
-  duplicateOfItemId: true,
-  activeArchiveImportId: true,
-  selectedQuality: true,
-  downloadMode: true,
-  resolvedAt: true,
-  expiresAt: true,
-  archiveImportId: true,
-  errorCode: true,
-  errorMessage: true,
-  errorStage: true,
-  retryable: true,
-  supersedesItemId: true,
-  currentSystemJobId: true,
-  dedupSourceSnapshot: true,
-  createdAt: true,
-  updatedAt: true
-} satisfies Prisma.ArchiveIntakeItemSelect
-
-type IntakeItemWire = Prisma.ArchiveIntakeItemGetPayload<{ select: typeof intakeItemWireSelect }>
-
 function serializeIntakeItem(item: IntakeItemWire, now: Date) {
   const { dedupSourceSnapshot, ...wire } = item
   return {
@@ -1058,42 +1083,6 @@ async function serializeSubmission(transaction: Prisma.TransactionClient, submis
     rejectedCount: submission.rejectedCount,
     createdAt: submission.createdAt,
     items: submission.items.map((item) => serializeIntakeItem(item, now))
-  }
-}
-
-function validateSubmittedUrl(url: string, customValidator?: (url: string) => void) {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch (error) {
-    throw new ArchiveError('INVALID_URL', '作品链接格式无效', { cause: error })
-  }
-  if (parsed.protocol !== 'https:' || parsed.username || parsed.password) {
-    throw new ArchiveError('INVALID_URL', '归档链接必须使用不含用户凭据的 HTTPS URL')
-  }
-  archiveProviderRegistry.getForUrl(url).identifySource(url)
-  if (customValidator) customValidator(url)
-  else {
-    // Provider 先确认其可接收的入口；Safe HTTP 再以该入口主机为精确 allowlist 拒绝凭据和非标准端口。
-    validateArchiveUrl(url, [parsed.hostname])
-  }
-}
-
-export function hashSubmittedUrl(url: string) {
-  return createHash('sha256').update(url.trim()).digest('hex')
-}
-
-// 对外展示前去掉搜索参数和片段，减少敏感参数在日志/消息中外泄风险；展示层统一走这个函数。
-function safeThumbnailUrl(input: string | null): string | null {
-  if (!input) return null
-  try {
-    const url = new URL(input)
-    if (url.protocol !== 'https:' || url.username || url.password) return null
-    url.search = ''
-    url.hash = ''
-    return url.toString()
-  } catch {
-    return null
   }
 }
 

@@ -1,3 +1,4 @@
+import { assertArchiveCompletionBase } from './completion-proof.ts'
 import { lockArchiveSourcePublication } from './dedup-source-snapshot.ts'
 import { assertArchiveImportNotDeleted } from './deletion-policy.ts'
 import path from 'node:path'
@@ -8,6 +9,7 @@ import {
   syncSourceCreators,
   consumeDiscoveryCreators,
   assertArtworkDedupWritable,
+  invalidateAnimationDurationSource,
   invalidateArtworkReadingForRebuild
 } from '@pixishelf/db'
 import { ArchiveExecutorError } from './errors.ts'
@@ -21,6 +23,7 @@ export interface ArchivePublishResult {
   artworkId: number
   revisionId: string
   archivePath: string
+  retirementRevisionId?: string
 }
 
 /**
@@ -87,7 +90,21 @@ export async function publishArchiveImportInTransaction(
   const postedAtText = nullableString(metadata.postedAt)
   const postedAt = postedAtText ? new Date(postedAtText) : null
   if (existingRef) await assertArtworkDedupWritable(transaction, { artworkId: existingRef.artworkId, kind: 'CONTENT' })
-  if (existingRef) await invalidateArtworkReadingForRebuild(transaction, existingRef.artworkId)
+  const completion = await assertArchiveCompletionBase(transaction, archiveImport)
+  if (
+    completion &&
+    completion.media.some((media) => {
+      const downloaded = archiveImport.items.find((item) => item.pageIndex === media.index)
+      return (
+        !downloaded ||
+        downloaded.sha256 !== media.sha256 ||
+        downloaded.byteCount?.toString() !== media.size ||
+        downloaded.quality !== completion.quality
+      )
+    })
+  )
+    throw new ArchiveExecutorError('MEDIA_INVALID', '来源的已有页面内容已变化，补全已停止；请通过完整更新重新确认。')
+  if (existingRef && !completion) await invalidateArtworkReadingForRebuild(transaction, existingRef.artworkId)
   const artwork = existingRef
     ? await transaction.artwork.update({
         where: { id: existingRef.artworkId },
@@ -175,19 +192,39 @@ export async function publishArchiveImportInTransaction(
     artwork.id
   )
   await syncArtworkRelationships(transaction, artwork.id, archiveImport.providerKey, metadata.relationships)
-  await transaction.image.deleteMany({ where: { artworkId: artwork.id } })
+  if (completion) {
+    for (const media of completion.media) {
+      const item = archiveImport.items.find((item) => item.pageIndex === media.index)!
+      const imagePath = normalizeRelativePath(path.join(paths.finalRelativePath, item.stagedPath!))
+      await transaction.image.update({ where: { id: media.imageId }, data: { path: imagePath } })
+      if (/\.webp$/i.test(imagePath))
+        await invalidateAnimationDurationSource(transaction, { imageId: media.imageId, sourcePath: imagePath })
+    }
+  } else await transaction.image.deleteMany({ where: { artworkId: artwork.id } })
   await transaction.image.createMany({
-    data: archiveImport.items.map((item) => ({
-      artworkId: artwork.id,
-      path: normalizeRelativePath(path.join(paths.finalRelativePath, item.stagedPath!)),
-      width: item.width,
-      height: item.height,
-      size: item.byteCount,
-      sortOrder: item.pageIndex,
-      mediaType: 'IMAGE' as const
-    }))
+    data: archiveImport.items
+      .filter((item) => !completion?.media.some((media) => media.index === item.pageIndex))
+      .map((item) => ({
+        artworkId: artwork.id,
+        path: normalizeRelativePath(path.join(paths.finalRelativePath, item.stagedPath!)),
+        width: item.width,
+        height: item.height,
+        size: item.byteCount,
+        sortOrder: item.pageIndex,
+        mediaType: 'IMAGE' as const
+      }))
   })
 
+  if (completion)
+    await transaction.artworkReadingSummary.updateMany({
+      where: { artworkId: artwork.id },
+      data: { totalCount: archiveImport.items.length, stateVersion: { increment: 1 } }
+    })
+  const publishedImages = await transaction.image.findMany({
+    where: { artworkId: artwork.id },
+    select: { id: true, sortOrder: true }
+  })
+  const imageIds = new Map(publishedImages.map((image) => [image.sortOrder, image.id]))
   const previousRevision = existingRef?.archiveRevisions[0]
   if (previousRevision) {
     await transaction.archiveRevision.update({ where: { id: previousRevision.id }, data: { isCurrent: false } })
@@ -200,7 +237,11 @@ export async function publishArchiveImportInTransaction(
       archiveImportId: archiveImport.id,
       archivePath: paths.finalRelativePath,
       manifestPath: normalizeRelativePath(path.join(paths.finalRelativePath, 'manifest.json')),
+      downloadScope: archiveImport.downloadScope,
+      sourceTotalItems: archiveImport.sourceTotalItems,
+      sourcePlanDigest: archiveImport.sourcePlanDigest,
       mediaSnapshot: archiveImport.items.map((item) => ({
+        imageId: imageIds.get(item.pageIndex),
         index: item.pageIndex,
         path: item.stagedPath,
         size: item.byteCount?.toString() ?? null,
@@ -213,6 +254,16 @@ export async function publishArchiveImportInTransaction(
       isCurrent: true
     }
   })
+  if (completion) {
+    await transaction.archiveRevision.update({
+      where: { id: completion.revisionId },
+      data: {
+        retirementRequestedAt: now,
+        replacedByRevisionId: revision.id,
+        retirementSnapshot: toInputJson(completion as unknown as Prisma.JsonValue)
+      }
+    })
+  }
   const updated = await transaction.archiveImport.updateMany({
     where: { id: archiveImport.id, systemJobId: archiveImport.systemJobId, status: 'RUNNING' },
     data: {
@@ -244,7 +295,12 @@ export async function publishArchiveImportInTransaction(
       lastErrorMessage: null
     }
   })
-  return { artworkId: artwork.id, revisionId: revision.id, archivePath: paths.finalRelativePath }
+  return {
+    artworkId: artwork.id,
+    revisionId: revision.id,
+    archivePath: paths.finalRelativePath,
+    ...(completion ? { retirementRevisionId: completion.revisionId } : {})
+  }
 }
 
 export async function appendArchiveDefaultTags(

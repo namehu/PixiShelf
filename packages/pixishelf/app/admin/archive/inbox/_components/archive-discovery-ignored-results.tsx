@@ -35,6 +35,8 @@ export function IgnoredResults({
   isDesktop,
   layoutReady,
   position,
+  positionKey = 'ignored',
+  scoped = false,
   onPositionChange
 }: {
   items: IgnoredItem[]
@@ -54,6 +56,8 @@ export function IgnoredResults({
   isDesktop: boolean
   layoutReady: boolean
   position?: ArchiveDiscoveryListPosition
+  positionKey?: string
+  scoped?: boolean
   onPositionChange: (position: ArchiveDiscoveryListPosition) => void
 }) {
   return (
@@ -70,7 +74,7 @@ export function IgnoredResults({
       isFetchingNextPage={isFetchingNextPage}
       onLoadMore={onLoadMore}
       onRetry={onRetry}
-      positionKey="ignored"
+      positionKey={positionKey}
       position={position}
       onPositionChange={onPositionChange}
       emptyState={
@@ -79,8 +83,12 @@ export function IgnoredResults({
             <EmptyMedia variant="icon">
               <ArchiveRestoreIcon aria-hidden="true" />
             </EmptyMedia>
-            <EmptyTitle>还没有忽略画廊</EmptyTitle>
-            <EmptyDescription>从发现结果中忽略的画廊会集中显示在这里，并可随时恢复。</EmptyDescription>
+            <EmptyTitle>{scoped ? '本来源没有已忽略画廊' : '还没有忽略画廊'}</EmptyTitle>
+            <EmptyDescription>
+              {scoped
+                ? '这里显示本来源发现过的全局已忽略画廊，包括被本地规则过滤的结果。'
+                : '从发现结果中忽略的画廊会集中显示在这里，并可随时恢复。'}
+            </EmptyDescription>
           </EmptyHeader>
         </Empty>
       }

@@ -5,6 +5,7 @@ describe('scheduled task payload mapping', () => {
   it('maps archive maintenance scheduling to the strict reconcile action', () => {
     expect(buildScheduledTaskJobDefinition('ARCHIVE_MAINTENANCE', { trigger: 'schedule' })).toEqual({
       type: 'ARCHIVE_MAINTENANCE',
+      definitionVersion: 2,
       payload: { action: 'RECONCILE' }
     })
   })

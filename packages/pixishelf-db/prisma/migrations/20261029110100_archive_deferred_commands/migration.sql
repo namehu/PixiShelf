@@ -1,0 +1,5 @@
+ALTER TYPE "ArchiveBulkOperationCommand" ADD VALUE 'DEFER_DISCOVERY';
+ALTER TYPE "ArchiveBulkOperationCommand" ADD VALUE 'RESTORE_DEFERRED';
+ALTER TYPE "ArchiveBulkOperationCommand" ADD VALUE 'IGNORE_DEFERRED';
+ALTER TYPE "ArchiveBulkOperationCommand" ADD VALUE 'DOWNLOAD_DEFERRED';
+ALTER TYPE "ArchiveBulkOperationTarget" ADD VALUE 'DEFERRED_DISCOVERY_ITEM';

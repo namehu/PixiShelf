@@ -1,6 +1,7 @@
+import { registerDiscoveryIgnoredCases } from './archive-discovery-ignored-cases'
 import { registerDiscoveryRowCases } from './archive-discovery-row-cases'
 import { registerDiscoveryNavigationCases } from './archive-discovery-navigation-cases'
-import { source, activeRun, completedRun } from './archive-uploader-sources-fixtures'
+import { source, activeRun, completedRun, ignoredItemsData } from './archive-uploader-sources-fixtures'
 import { useState, type ReactNode } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   createSubmissionAttempt: vi.fn(),
   cancelScan: vi.fn(),
   ignoreItems: vi.fn(),
+  deferItems: vi.fn(),
   ignoreFail: false,
   ignoreHold: false,
   restoreIgnoredItems: vi.fn(),
@@ -17,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   setUploaderUid: vi.fn(),
   writeClipboard: vi.fn(),
   infiniteQueryOptions: vi.fn(() => ({ kind: 'items' })),
+  ignoredQueryOptions: vi.fn(() => ({ kind: 'ignored' })),
   invalidateQueries: vi.fn(),
   setQueriesData: vi.fn(),
   cancelQueries: vi.fn(),
@@ -132,26 +135,6 @@ const itemsData = {
     }
   ]
 }
-const ignoredItemsData = {
-  pages: [
-    {
-      items: [
-        {
-          id: 'ignored-item-1',
-          providerKey: 'e-hentai',
-          externalId: '301',
-          sourceDisplayName: 'UID 123',
-          title: 'Ignored Gallery 301',
-          thumbnailUrl: 'https://ehgt.org/thumb-301.jpg',
-          uploaderName: 'Uploader',
-          postedAt: new Date('2026-09-01T10:30:00.000Z'),
-          ignoredAt: new Date('2026-09-02T11:20:00.000Z')
-        }
-      ],
-      nextCursor: null
-    }
-  ]
-}
 let currentCountsData = { 'source-1': source.catalogCounts }
 let currentDetailData: unknown = detailData
 let currentItemsData = itemsData
@@ -224,59 +207,61 @@ vi.mock('@tanstack/react-query', () => ({
   }) => ({
     isPending: false,
     mutate:
-      options.kind === 'cancel'
-        ? mocks.cancelScan
-        : options.kind === 'prepare'
-          ? (variables: { sourceId: string; itemIds: string[] }) => {
-              mocks.createSubmissionAttempt(variables)
-              void options.onSuccess?.({ submissionAttemptId: '00000000-0000-4000-8000-000000000001' }, variables)
-            }
-          : options.kind === 'add'
-            ? mocks.addToInbox
-            : options.kind === 'ignore'
-              ? (variables: { sourceId: string; itemIds: string[] }) => {
-                  mocks.ignoreItems(variables)
-                  if (mocks.ignoreHold) return
-                  if (mocks.ignoreFail) {
-                    options.onError?.(new Error('temporary failure'))
-                    options.onSettled?.()
-                    return
-                  }
-                  void options.onSuccess?.(
-                    {
-                      ignoredItemIds: ['ignored-item-new'],
-                      ignoredCount: variables.itemIds.length,
-                      createdCount: variables.itemIds.length,
-                      reusedCount: 0
-                    },
-                    variables
-                  )
-                }
-              : options.kind === 'restore'
-                ? (variables: { ignoredItemIds: string[] }) => {
-                    mocks.restoreIgnoredItems(variables)
-                    void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
-                  }
-                : options.kind === 'uid'
-                  ? (variables: { sourceId: string; uploaderUid: string }) => {
-                      mocks.setUploaderUid(variables)
-                      void options.onSuccess?.(currentUidMutationResult, variables)
+      options.kind === 'defer'
+        ? mocks.deferItems
+        : options.kind === 'cancel'
+          ? mocks.cancelScan
+          : options.kind === 'prepare'
+            ? (variables: { sourceId: string; itemIds: string[] }) => {
+                mocks.createSubmissionAttempt(variables)
+                void options.onSuccess?.({ submissionAttemptId: '00000000-0000-4000-8000-000000000001' }, variables)
+              }
+            : options.kind === 'add'
+              ? mocks.addToInbox
+              : options.kind === 'ignore'
+                ? (variables: { sourceId: string; itemIds: string[] }) => {
+                    mocks.ignoreItems(variables)
+                    if (mocks.ignoreHold) return
+                    if (mocks.ignoreFail) {
+                      options.onError?.(new Error('temporary failure'))
+                      options.onSettled?.()
+                      return
                     }
-                  : options.kind === 'match-uid'
-                    ? (variables: { sourceId: string }) => {
-                        mocks.matchUploaderUid(variables)
-                        void options.onSuccess?.(
-                          {
-                            outcome: 'MATCHED',
-                            sourceId: 'source-1',
-                            uploaderUid: '456',
-                            uploaderName: 'alice',
-                            evidenceExternalId: '302'
-                          },
-                          variables
-                        )
+                    void options.onSuccess?.(
+                      {
+                        ignoredItemIds: ['ignored-item-new'],
+                        ignoredCount: variables.itemIds.length,
+                        createdCount: variables.itemIds.length,
+                        reusedCount: 0
+                      },
+                      variables
+                    )
+                  }
+                : options.kind === 'restore'
+                  ? (variables: { ignoredItemIds: string[] }) => {
+                      mocks.restoreIgnoredItems(variables)
+                      void options.onSuccess?.({ restoredCount: variables.ignoredItemIds.length }, variables)
+                    }
+                  : options.kind === 'uid'
+                    ? (variables: { sourceId: string; uploaderUid: string }) => {
+                        mocks.setUploaderUid(variables)
+                        void options.onSuccess?.(currentUidMutationResult, variables)
                       }
-                    : vi.fn()
+                    : options.kind === 'match-uid'
+                      ? (variables: { sourceId: string }) => {
+                          mocks.matchUploaderUid(variables)
+                          void options.onSuccess?.(
+                            {
+                              outcome: 'MATCHED',
+                              sourceId: 'source-1',
+                              uploaderUid: '456',
+                              uploaderName: 'alice',
+                              evidenceExternalId: '302'
+                            },
+                            variables
+                          )
+                        }
+                      : vi.fn()
   })
 }))
 
@@ -324,7 +309,7 @@ vi.mock('@/lib/trpc', () => ({
         infiniteQueryKey: () => ['items-infinite']
       },
       listIgnoredItems: {
-        infiniteQueryOptions: () => ({ kind: 'ignored' }),
+        infiniteQueryOptions: mocks.ignoredQueryOptions,
         infiniteQueryKey: () => ['ignored-items-infinite']
       },
       triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
@@ -339,6 +324,8 @@ vi.mock('@/lib/trpc', () => ({
       createSource: { mutationOptions: () => ({ kind: 'create' }) }
     },
     archiveSearch: {
+      deferItems: { mutationOptions: (options: object) => ({ kind: 'defer', ...options }) },
+      listDeferredItems: { infiniteQueryKey: () => ['deferred-items-infinite'] },
       catalogCounts: { queryOptions: mocks.countsOptions, queryKey: () => ['counts'] },
       activeBatchScan: { queryOptions: () => ({ kind: 'batch' }), queryKey: () => ['batch'] },
       startBatchScan: { mutationOptions: () => ({ kind: 'batch-start' }) },
@@ -351,7 +338,7 @@ vi.mock('@/lib/trpc', () => ({
         infiniteQueryKey: () => ['items-infinite']
       },
       listIgnoredItems: {
-        infiniteQueryOptions: () => ({ kind: 'ignored' }),
+        infiniteQueryOptions: mocks.ignoredQueryOptions,
         infiniteQueryKey: () => ['ignored-items-infinite']
       },
       triggerScan: { mutationOptions: () => ({ kind: 'scan' }) },
@@ -432,9 +419,9 @@ function SourcesHarness({
           setIgnored(false)
           setSourceId(null)
         }}
-        onNavigateIgnored={(nextIgnored, history) => {
-          mocks.navigateIgnored(nextIgnored, history)
-          setSourceId(null)
+        onNavigateIgnored={(nextIgnored, history, nextSourceId) => {
+          mocks.navigateIgnored(nextIgnored, history, nextSourceId)
+          setSourceId(nextSourceId ?? null)
           setIgnored(nextIgnored)
         }}
         onNavigateInboxItem={mocks.navigateInboxItem}
@@ -453,7 +440,8 @@ function renderSources(options?: {
   initialIgnored?: boolean
   showTestControls?: boolean
 }) {
-  return render(<SourcesHarness {...options} />)
+  const rendered = render(<SourcesHarness {...options} />)
+  return { ...rendered, refresh: () => rendered.rerender(<SourcesHarness {...options} />) }
 }
 
 afterEach(cleanup)
@@ -591,6 +579,14 @@ describe('ArchiveUploaderSources', () => {
     const uidLabels = screen.getAllByText('UID 123')
     expect(uidLabels.some((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
     expect(uidLabels.every((element) => element.hasAttribute('data-privacy-sensitive'))).toBe(true)
+  })
+
+  registerDiscoveryIgnoredCases({
+    renderSources,
+    mocks,
+    completeScan: () => {
+      currentDetailData = { source, runs: [{ ...activeRun, status: 'COMPLETED' }] }
+    }
   })
 
   it('keeps global ignores accessible and restorable with no saved sources', async () => {
@@ -846,15 +842,17 @@ describe('ArchiveUploaderSources', () => {
     currentDetailData = { source, runs: [completedRun] }
     renderSources()
     expect(mocks.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+    expect(mocks.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ['deferred-items-infinite'] })
   })
 
-  it('refreshes items and independent counts on a real run completion', async () => {
+  it('refreshes items, deferred membership and independent counts on a real run completion', async () => {
     currentDetailData = { source, runs: [activeRun] }
     const rendered = renderSources()
     currentDetailData = { source, runs: [{ ...activeRun, status: 'COMPLETED' }] }
     rendered.rerender(<SourcesHarness />)
     await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['counts'] }))
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['deferred-items-infinite'] })
   })
   it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
     renderSources()
@@ -917,13 +915,15 @@ describe('ArchiveUploaderSources', () => {
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL'
+      quality: 'ORIGINAL',
+      downloadScope: 'ALL'
     })
     expect(mocks.addToInbox).toHaveBeenCalledWith({
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
       quality: 'ORIGINAL',
+      downloadScope: 'ALL',
       submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
   })
@@ -963,13 +963,15 @@ describe('ArchiveUploaderSources', () => {
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
-      quality: 'ORIGINAL'
+      quality: 'ORIGINAL',
+      downloadScope: 'ALL'
     })
     expect(mocks.addToInbox).toHaveBeenCalledWith({
       sourceId: 'source-1',
       itemIds: ['catalog-item-1'],
       downloadMode: 'AUTO',
       quality: 'ORIGINAL',
+      downloadScope: 'ALL',
       submissionAttemptId: '00000000-0000-4000-8000-000000000001'
     })
   })
@@ -1008,6 +1010,8 @@ describe('ArchiveUploaderSources', () => {
   })
 
   registerDiscoveryRowCases({
+    deferItems: mocks.deferItems,
+    addToInbox: mocks.addToInbox,
     renderSources,
     getItem: () => itemsData.pages[0]!.items[0]!,
     setItems: (items) => {
@@ -1058,9 +1062,10 @@ describe('ArchiveUploaderSources', () => {
       currentDetailData = { source: selectedSource, runs: [completedRun] }
       renderSources()
       expect(screen.queryByRole('button', { name: '加入收件箱' })).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图' }))
+      fireEvent.click(screen.getByRole('button', { name: '自动下载 · 原图 · 全部' }))
       fireEvent.click(screen.getByRole('radio', { name: '仅解析' }))
       fireEvent.click(screen.getByRole('radio', { name: '展示图' }))
+      fireEvent.click(screen.getByRole('radio', { name: '前20张' }))
       fireEvent.click(screen.getByRole('button', { name: '完成' }))
       expect(mocks.createSubmissionAttempt).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
@@ -1069,13 +1074,15 @@ describe('ArchiveUploaderSources', () => {
         sourceId: 'source-1',
         itemIds: ['catalog-item-1'],
         downloadMode: 'MANUAL',
-        quality: 'DISPLAY'
+        quality: 'DISPLAY',
+        downloadScope: 'FIRST_20'
       })
       expect(mocks.addToInbox).toHaveBeenCalledWith({
         sourceId: 'source-1',
         itemIds: ['catalog-item-1'],
         downloadMode: 'MANUAL',
         quality: 'DISPLAY',
+        downloadScope: 'FIRST_20',
         submissionAttemptId: '00000000-0000-4000-8000-000000000001'
       })
     }

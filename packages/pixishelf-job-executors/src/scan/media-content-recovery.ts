@@ -1,3 +1,4 @@
+import { readPartialRetirementSnapshot } from '../archive/retire-partial-proof.ts'
 import { createHash } from 'node:crypto'
 import type { Prisma } from '@pixishelf/db'
 import {
@@ -193,6 +194,18 @@ export async function readExecutorMediaRecoveryDomainSnapshot(
         })
       })
     }
+    if (payload.action === 'RETIRE_PARTIAL_REVISION') {
+      if (input.sessionId !== `archive-retire:${job.id}`) throw unavailable()
+      const snapshot = await readPartialRetirementSnapshot(tx, payload)
+      return json({
+        ...binding,
+        revisionId: snapshot.old.id,
+        replacementRevisionId: snapshot.replacement.id,
+        archivePath: snapshot.old.archivePath,
+        retirementStartedAt: snapshot.old.retirementStartedAt,
+        retirementSnapshot: snapshot.old.retirementSnapshot
+      })
+    }
     if (payload.action === 'RECONCILE' || input.sessionId !== `archive-maintenance:${job.id}`) throw unavailable()
     const artwork = await artworkIdentity(tx, payload.artworkId)
     const expected =
@@ -213,7 +226,7 @@ async function archiveMaintenanceRevisionsSnapshot(tx: Prisma.TransactionClient,
   let afterId: string | undefined
   while (true) {
     const page = await tx.archiveRevision.findMany({
-      where: { artworkId, ...(afterId === undefined ? {} : { id: { gt: afterId } }) },
+      where: { artworkId, retiredAt: null, ...(afterId === undefined ? {} : { id: { gt: afterId } }) },
       orderBy: { id: 'asc' },
       take: 100,
       select: { id: true, archivePath: true, trashPath: true, trashedAt: true, purgeAfter: true }

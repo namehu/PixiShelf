@@ -1,7 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import {
   ACTIVE_JOB_STATUSES,
-  JOB_DEFINITION_VERSION,
   SINGLETON_JOB_ADVISORY_LOCK_NAMESPACE,
   parseJobPayload,
   type JobDto,
@@ -59,7 +58,7 @@ function hasSameSingletonSemantics(
   payload: JsonValue
 ): boolean {
   return (
-    existing.definitionVersion === JOB_DEFINITION_VERSION &&
+    existing.definitionVersion === input.definitionVersion &&
     existing.triggerSource === input.triggerSource &&
     existing.idempotencyKey === (input.idempotencyKey ?? null) &&
     existing.parentJobId === (input.parentJobId ?? null) &&

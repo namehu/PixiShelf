@@ -21,6 +21,7 @@ export interface ExecutionProgressMutationResult<TResult> {
 }
 
 export interface ChildJobRequest<TPayload = unknown> {
+  definitionVersion?: number
   type: string
   payload: TPayload
   queuePriority?: number

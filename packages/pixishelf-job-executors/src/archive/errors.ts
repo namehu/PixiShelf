@@ -138,6 +138,10 @@ export function isRetryableArchiveTransaction(error: unknown): boolean {
   const { code, message } = error as { code?: string; message?: string }
   return (
     code === 'P2034' ||
-    (code === 'P2028' && typeof message === 'string' && /Unable to start a transaction|expired transaction/i.test(message))
+    (code === 'P2028' &&
+      typeof message === 'string' &&
+      /Unable to start a transaction|expired transaction/i.test(message))
   )
 }
+
+export class ArchiveMediaRecoveryRequired extends Error {}

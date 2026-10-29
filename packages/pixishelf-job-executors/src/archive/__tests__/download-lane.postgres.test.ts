@@ -1,3 +1,9 @@
+import {
+  enqueueArchiveIntakeItemInTransaction,
+  recoverArchiveIntakeEnqueueRace,
+  hashArchiveMediaPlan
+} from '../intake-enqueue.ts'
+import { archiveCompletionSnapshotSchema } from '@pixishelf/job-contracts'
 import { archiveCatalogProbe } from './catalog-order-probe.ts'
 import { captureArchiveFixtureSource } from './dedup-source-fixture.ts'
 import { cleanupFixtureContentDirectories } from '../../scan/__tests__/content-directory-cleanup.ts'
@@ -73,6 +79,421 @@ suite('archive download lane real database and filesystem', () => {
     await db?.$disconnect()
   })
 
+  it.each([
+    'normal',
+    'purge',
+    'publish-rollback',
+    'crash',
+    'crash-corrupt',
+    'local-change',
+    'unknown-file',
+    'active-job'
+  ] as const)(
+    'partial coverage protects original media and retires safely: %s',
+    async (mode) => {
+      const root = await mkdtemp(path.join(tmpdir(), 'archive-partial-'))
+      roots.push(root)
+      const externalId = `${prefix}-partial`
+      const first = await enqueueCoverage(externalId, 30, 'FIRST_20')
+      const network = vi.fn(async () => remote(Readable.from([png])))
+      await execute(await claim('ARCHIVE_DOWNLOAD', 'fixture', [2]), dependencies(root, network))
+      expect(network).toHaveBeenCalledTimes(20)
+      await execute(await claim('ARCHIVE_PUBLISH', 'fixture', [2]), dependencies(root, network))
+      const base = await db!.archiveRevision.findUniqueOrThrow({
+        where: { id: first },
+        include: { artwork: true, archiveImport: true }
+      })
+      expect(base).toMatchObject({ downloadScope: 'FIRST_20', sourceTotalItems: 30, isCurrent: true })
+      const images = await db!.image.findMany({
+        where: { artworkId: base.artworkId },
+        orderBy: { sortOrder: 'asc' },
+        include: { contentSource: true }
+      })
+      expect(images).toHaveLength(20)
+      await db!.userBA.create({ data: { id: prefix } })
+      await db!.artworkReadMedia.createMany({
+        data: images.map((image) => ({ userId: prefix, artworkId: base.artworkId, mediaId: image.id }))
+      })
+      await db!.artworkReadingSummary.create({
+        data: {
+          userId: prefix,
+          artworkId: base.artworkId,
+          totalCount: 20,
+          seenCount: 20,
+          viewCount: 4,
+          lastMediaId: images[19]!.id,
+          lastMediaIndex: 19
+        }
+      })
+      await db!.mediaMark.create({
+        data: {
+          userId: prefix,
+          artworkId: base.artworkId,
+          mediaId: images[0]!.id,
+          bookmarkedAt: clock.now(),
+          likedAt: clock.now(),
+          artworkTitle: prefix,
+          mediaPosition: 1,
+          mediaType: 'image'
+        }
+      })
+      await db!.artworkLike.create({ data: { userId: prefix, artworkId: base.artworkId, level: 4 } })
+      const snapshot = archiveCompletionSnapshotSchema.parse({
+        artworkId: base.artworkId,
+        revisionId: base.id,
+        archivePath: base.archivePath,
+        metadataHash: base.metadataHash,
+        sourcePlanDigest: base.sourcePlanDigest,
+        sourceTotalItems: 30,
+        mediaRevision: base.artwork.mediaRevision,
+        quality: 'ORIGINAL',
+        media: (base.mediaSnapshot as Prisma.JsonArray).map((raw) => {
+          const item = raw as Prisma.JsonObject
+          const image = images.find((image) => image.id === item.imageId)!
+          return { ...item, imagePath: image.path, contentRevision: (image.contentSource?.revision ?? 0n).toString() }
+        })
+      })
+      await enqueueCoverage(externalId, 31, 'ALL', snapshot, 'CONFLICT')
+      expect(await db!.archiveImport.count({ where: { externalId, status: { in: ['PENDING', 'RUNNING'] } } })).toBe(0)
+      const completedId = await enqueueCoverage(externalId, 30, 'ALL', snapshot)
+      network.mockClear()
+      await execute(await claim('ARCHIVE_DOWNLOAD', 'fixture', [2]), dependencies(root, network))
+      expect(network).toHaveBeenCalledTimes(10)
+      expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(true)
+      if (mode === 'local-change') {
+        await db!.image.update({ where: { id: images[0]!.id }, data: { path: `${base.archivePath}/changed.png` } })
+        await execute(await claim('ARCHIVE_PUBLISH', 'fixture', [2]), dependencies(root, network))
+        expect((await db!.archiveImport.findUniqueOrThrow({ where: { id: completedId } })).status).toBe('FAILED')
+        expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).isCurrent).toBe(true)
+        expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(true)
+        expect(await db!.image.count({ where: { artworkId: base.artworkId } })).toBe(20)
+        return
+      }
+      const publish = await claim('ARCHIVE_PUBLISH', 'fixture', [2])
+      if (mode === 'publish-rollback') {
+        const interrupted = context(publish)
+        interrupted.finalizeInTransaction = async <TTransaction extends QueueSqlExecutor>(
+          operation: (scope: FencedExecutionTransaction<TTransaction>) => Promise<void>
+        ) => {
+          await repo!.withFencedExecutionTransaction<TTransaction>(fence(publish), async (scope) =>
+            operation({
+              ...scope,
+              complete: async () => {
+                throw new Error('completion commit failed')
+              }
+            })
+          )
+          return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
+        }
+        await expect(execute(publish, dependencies(root, network), interrupted)).rejects.toThrow(
+          'completion commit failed'
+        )
+        expect(await db!.archiveRevision.findUnique({ where: { id: completedId } })).toBeNull()
+        expect(await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).toMatchObject({
+          isCurrent: true,
+          retirementRequestedAt: null,
+          replacedByRevisionId: null,
+          retirementSnapshot: null
+        })
+        expect(await db!.systemJob.count({ where: { parentJobId: publish.id } })).toBe(0)
+        expect(await db!.systemJobEvent.count({ where: { jobId: publish.id, type: 'job.completed' } })).toBe(0)
+        expect((await db!.systemJob.findUniqueOrThrow({ where: { id: publish.id } })).status).toBe('RUNNING')
+        expect(await db!.image.count({ where: { artworkId: base.artworkId } })).toBe(20)
+        expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(true)
+      }
+      await execute(publish, dependencies(root, network))
+      const retirementJob = await db!.systemJob.findUniqueOrThrow({
+        where: { idempotencyKey: `archive-retire:${completedId}` }
+      })
+      expect(retirementJob).toMatchObject({
+        type: 'ARCHIVE_MAINTENANCE',
+        definitionVersion: 2,
+        status: 'PENDING',
+        parentJobId: publish.id,
+        payload: { action: 'RETIRE_PARTIAL_REVISION', revisionId: base.id, replacementRevisionId: completedId }
+      })
+      expect(await db!.systemJobEvent.count({ where: { jobId: retirementJob.id, type: 'job.queued' } })).toBe(1)
+      expect((await db!.systemJob.findUniqueOrThrow({ where: { id: publish.id } })).status).toBe('COMPLETED')
+      const all = await db!.image.findMany({ where: { artworkId: base.artworkId }, orderBy: { sortOrder: 'asc' } })
+      expect(all).toHaveLength(30)
+      expect(all.slice(0, 20).map((image) => image.id)).toEqual(images.map((image) => image.id))
+      expect(await db!.artworkReadMedia.count({ where: { artworkId: base.artworkId } })).toBe(20)
+      expect(await db!.mediaMark.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({
+        mediaId: images[0]!.id
+      })
+      expect(await db!.artworkLike.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({ level: 4 })
+      expect(await db!.artworkReadingSummary.findFirst({ where: { artworkId: base.artworkId } })).toMatchObject({
+        viewCount: 4,
+        totalCount: 30,
+        seenCount: 20,
+        lastMediaId: images[19]!.id
+      })
+      expect((await db!.artwork.findUniqueOrThrow({ where: { id: base.artworkId } })).mediaRevision).toBe(
+        base.artwork.mediaRevision
+      )
+      const retireJob = await claim('ARCHIVE_MAINTENANCE', 'fixture', [2])
+      extraJobs.add(retireJob.id)
+      if (mode === 'active-job') {
+        await seedJob('VIDEO_STREAMING_OPTIMIZATION', 'partial-path-reference', {
+          imageId: images[0]!.id,
+          relativePath: images[0]!.path
+        })
+        await expect(
+          executeArchiveMaintenance(
+            { ...context(retireJob), payload: retireJob.payload as never },
+            { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+          )
+        ).rejects.toThrow('活动任务引用')
+        expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(true)
+        expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).retirementStartedAt).toBeNull()
+        return
+      }
+      let retirement = retireJob
+      if (mode === 'unknown-file') {
+        await writeFile(path.join(root, base.archivePath, 'unregistered.txt'), 'retain me')
+        await expect(
+          executeArchiveMaintenance(
+            { ...context(retireJob), payload: retireJob.payload as never },
+            { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+          )
+        ).rejects.toThrow('未登记内容')
+        expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: completedId } })).isCurrent).toBe(true)
+        expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).retiredAt).toBeNull()
+        expect(await readFile(path.join(root, base.archivePath, 'unregistered.txt'), 'utf8')).toBe('retain me')
+        return
+      }
+      if (mode === 'crash' || mode === 'crash-corrupt') {
+        const interrupted = { ...context(retireJob), payload: retireJob.payload as never }
+        interrupted.finalizeInTransaction = async () => {
+          throw new Error('retirement process stopped after deletion')
+        }
+        await expect(
+          executeArchiveMaintenance(interrupted, { database: db!, config: { scanRoot: root }, now: () => clock.now() })
+        ).rejects.toThrow('process stopped')
+        expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(false)
+        expect(
+          (await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).retirementStartedAt
+        ).not.toBeNull()
+        expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).retiredAt).toBeNull()
+        clock.advance(61_000)
+        await repo!.recoverExpiredExecution('BACKGROUND_WRITER')
+        clock.advance(600_000)
+        const ordinaryRetry = await claim('ARCHIVE_MAINTENANCE', 'fixture', [2])
+        await executeArchiveMaintenance(
+          { ...context(ordinaryRetry), payload: ordinaryRetry.payload as never },
+          { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+        )
+        expect((await db!.systemJob.findUniqueOrThrow({ where: { id: retireJob.id } })).status).toBe('PAUSED')
+        const inspection = await db!.$transaction((tx) =>
+          inspectMediaContentRecovery(tx, {
+            jobId: retireJob.id,
+            sessionId: `archive-retire:${retireJob.id}`,
+            now: clock.now(),
+            readDomainSnapshot: readExecutorMediaRecoveryDomainSnapshot
+          })
+        )
+        if (inspection.status !== 'READY') throw new Error(`retire inspection ${inspection.status}`)
+        const grant = await db!.$transaction((tx) =>
+          grantMediaContentRecovery(tx, {
+            snapshot: inspection.value.snapshot,
+            expectedDigest: inspection.value.digest,
+            backupCheckpointRef: 'fixture://partial-retire',
+            operator: 'fixture',
+            confirmAllWritersStopped: true,
+            now: clock.now(),
+            readDomainSnapshot: readExecutorMediaRecoveryDomainSnapshot
+          })
+        )
+        if (grant.status !== 'READY') throw new Error(`retire grant ${grant.status}`)
+        const resume = await db!.$transaction((tx) =>
+          resumeGrantedMediaContentRecovery(tx, {
+            grantId: grant.value.grantId,
+            operator: 'fixture',
+            confirmAllWritersStopped: true,
+            now: clock.now(),
+            readDomainSnapshot: readExecutorMediaRecoveryDomainSnapshot
+          })
+        )
+        expect(resume.status).toBe('READY')
+        retirement = await claim('ARCHIVE_MAINTENANCE', 'fixture', [2])
+      }
+      if (mode === 'crash-corrupt') {
+        const retained = path.join(root, base.archivePath, snapshot.media[0]!.path)
+        await mkdir(path.dirname(retained), { recursive: true })
+        await writeFile(retained, 'changed since checkpoint')
+        await expect(
+          executeArchiveMaintenance(
+            { ...context(retirement), payload: retirement.payload as never },
+            { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+          )
+        ).rejects.toThrow()
+        expect(await readFile(retained, 'utf8')).toBe('changed since checkpoint')
+        expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).retiredAt).toBeNull()
+        expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: completedId } })).isCurrent).toBe(true)
+        return
+      }
+      await executeArchiveMaintenance(
+        { ...context(retirement), payload: retirement.payload as never },
+        { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+      )
+      expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(false)
+      expect(
+        await db!.systemJob.findUniqueOrThrow({ where: { id: retireJob.id }, select: { status: true, message: true } })
+      ).toMatchObject({ status: 'COMPLETED' })
+      expect((await db!.archiveRevision.findUniqueOrThrow({ where: { id: base.id } })).retiredAt).not.toBeNull()
+      const full = await db!.archiveRevision.findUniqueOrThrow({ where: { id: completedId } })
+      expect(await storage.pathExists(path.join(root, full.archivePath))).toBe(true)
+      const trashPath = `.trash/archive/${base.artworkId}/${full.id}`
+      await db!.archiveRevision.update({
+        where: { id: full.id },
+        data: { trashPath, trashedAt: clock.now(), purgeAfter: new Date(clock.now().getTime() + 86_400_000) }
+      })
+      await db!.artwork.update({
+        where: { id: base.artworkId },
+        data: { deletedAt: clock.now(), archiveLifecycleState: 'TRASHING' }
+      })
+      await seedJob('ARCHIVE_MAINTENANCE', 'partial-trash', { action: 'TRASH_ARCHIVE', artworkId: base.artworkId }, 2)
+      const trash = await claim('ARCHIVE_MAINTENANCE', 'fixture', [2])
+      await executeArchiveMaintenance(
+        { ...context(trash), payload: trash.payload as never },
+        { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+      )
+      await db!.artwork.update({ where: { id: base.artworkId }, data: { archiveLifecycleState: 'RESTORING' } })
+      await seedJob(
+        'ARCHIVE_MAINTENANCE',
+        'partial-restore',
+        { action: 'RESTORE_ARCHIVE', artworkId: base.artworkId },
+        2
+      )
+      const restore = await claim('ARCHIVE_MAINTENANCE', 'fixture', [2])
+      await executeArchiveMaintenance(
+        { ...context(restore), payload: restore.payload as never },
+        { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+      )
+      expect(await storage.pathExists(path.join(root, full.archivePath))).toBe(true)
+      expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(false)
+      if (mode === 'purge') {
+        await db!.archiveRevision.update({
+          where: { id: full.id },
+          data: { trashPath, trashedAt: clock.now(), purgeAfter: clock.now() }
+        })
+        await db!.artwork.update({
+          where: { id: base.artworkId },
+          data: { deletedAt: clock.now(), archiveLifecycleState: 'TRASHING' }
+        })
+        await seedJob(
+          'ARCHIVE_MAINTENANCE',
+          'partial-trash-again',
+          { action: 'TRASH_ARCHIVE', artworkId: base.artworkId },
+          2
+        )
+        const trashAgain = await claim('ARCHIVE_MAINTENANCE', 'fixture', [2])
+        await executeArchiveMaintenance(
+          { ...context(trashAgain), payload: trashAgain.payload as never },
+          { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+        )
+        await seedJob('ARCHIVE_MAINTENANCE', 'partial-purge', { action: 'PURGE_ARCHIVE', artworkId: base.artworkId }, 2)
+        const purge = await claim('ARCHIVE_MAINTENANCE', 'fixture', [2])
+        await executeArchiveMaintenance(
+          { ...context(purge), payload: purge.payload as never },
+          { database: db!, config: { scanRoot: root }, now: () => clock.now() }
+        )
+        expect((await db!.systemJob.findUniqueOrThrow({ where: { id: purge.id } })).status).toBe('COMPLETED')
+        expect(await db!.artwork.findUnique({ where: { id: base.artworkId } })).toBeNull()
+        expect(await storage.pathExists(path.join(root, trashPath))).toBe(false)
+        expect(await storage.pathExists(path.join(root, full.archivePath))).toBe(false)
+        expect(await storage.pathExists(path.join(root, base.archivePath))).toBe(false)
+      }
+    },
+    30_000
+  )
+
+  it.each(['ALL', 'FIRST_20'] as const)(
+    'manual coverage choice persists actual %s scope on intake',
+    async (requestedScope) => {
+      const initialScope = requestedScope === 'ALL' ? 'FIRST_20' : 'ALL'
+      const id = await enqueueCoverage(
+        `${prefix}-manual-${requestedScope}`,
+        30,
+        initialScope,
+        undefined,
+        'CREATED',
+        requestedScope
+      )
+      const task = await db!.archiveImport.findUniqueOrThrow({ where: { id } })
+      const intake = await db!.archiveIntakeItem.findFirstOrThrow({ where: { archiveImportId: id } })
+      expect(task.downloadScope).toBe(requestedScope)
+      expect(task.totalItems).toBe(requestedScope === 'ALL' ? 30 : 20)
+      expect(intake.downloadScope).toBe(requestedScope)
+    }
+  )
+
+  it.each([
+    ['enqueue', 'READY'],
+    ['enqueue', 'ENQUEUED'],
+    ['race', 'READY'],
+    ['race', 'ENQUEUED']
+  ] as const)('reused coverage %s from %s reflects the existing import scope', async (method, status) => {
+    const id = await enqueueCoverage(`${prefix}-reuse-${method}-${status}`, 30, 'FIRST_20')
+    const intake = await db!.archiveIntakeItem.findFirstOrThrow({ where: { archiveImportId: id } })
+    await db!.archiveIntakeItem.update({
+      where: { id: intake.id },
+      data: {
+        status,
+        downloadScope: 'ALL',
+        ...(status === 'READY' ? { archiveImportId: null, activeArchiveImportId: null } : {})
+      }
+    })
+    const result = await db!.$transaction((tx) =>
+      method === 'race'
+        ? recoverArchiveIntakeEnqueueRace(tx, intake.id, 'ORIGINAL', { code: 'P2002' }, clock.now())
+        : enqueueArchiveIntakeItemInTransaction(tx, intake.id, {
+            quality: 'ORIGINAL',
+            downloadScope: 'ALL',
+            requestedByUserId: null,
+            timestamp: clock.now(),
+            uuid: randomUUID,
+            defaultTagIds: []
+          })
+    )
+    expect(result).toMatchObject({ result: 'REUSED', relatedId: id })
+    expect(await db!.archiveIntakeItem.findUniqueOrThrow({ where: { id: intake.id } })).toMatchObject({
+      status: 'ENQUEUED',
+      downloadScope: 'FIRST_20',
+      archiveImportId: id
+    })
+    expect(await db!.archiveImport.count({ where: { externalId: intake.externalId! } })).toBe(1)
+  })
+
+  it.each(['ALL', 'FIRST_20'] as const)(
+    'partial coverage resubmission preserves published %s coverage',
+    async (scope) => {
+      const root = await mkdtemp(path.join(tmpdir(), 'archive-partial-repeat-'))
+      roots.push(root)
+      const externalId = `${prefix}-repeat-${scope}`
+      await enqueueCoverage(externalId, 25, scope)
+      await execute(await claim('ARCHIVE_DOWNLOAD', 'fixture', [2]), dependencies(root))
+      await execute(await claim('ARCHIVE_PUBLISH', 'fixture', [2]), dependencies(root))
+      const id = await enqueueCoverage(externalId, 25, scope === 'ALL' ? 'FIRST_20' : 'ALL')
+      const task = await db!.archiveImport.findUniqueOrThrow({ where: { id } })
+      expect(task.downloadScope).toBe(scope)
+      expect((await db!.archiveIntakeItem.findFirstOrThrow({ where: { archiveImportId: id } })).downloadScope).toBe(
+        scope
+      )
+      expect(task.totalItems).toBe(scope === 'ALL' ? 25 : 20)
+    }
+  )
+
+  it.each([1, 19, 20, 21, 200])('partial coverage plans min(20, %s) files and freezes source total', async (total) => {
+    const id = await enqueueCoverage(`${prefix}-count-${total}`, total, 'FIRST_20')
+    const task = await db!.archiveImport.findUniqueOrThrow({ where: { id }, include: { items: true } })
+    expect(task.totalItems).toBe(Math.min(20, total))
+    expect(task.sourceTotalItems).toBe(total)
+    expect(task.items.map((item) => item.pageIndex).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: Math.min(20, total) }, (_, index) => index)
+    )
+  })
+
   it.each(['NULL', 'HOLD', 'REOPEN'] as const)(
     'rejects original source %s before staging or network',
     async (fault) => {
@@ -82,7 +503,10 @@ suite('archive download lane real database and filesystem', () => {
       if (fault === 'NULL')
         await db!.archiveImport.update({ where: { id: a.id }, data: { dedupSourceSnapshot: Prisma.DbNull } })
       else {
-        await db!.artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
+        await db!.artworkDedupSourceIdentity.update({
+          where: { id: sourceId },
+          data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' }
+        })
         if (fault === 'REOPEN')
           await db!.artworkDedupSourceIdentity.update({
             where: { id: sourceId },
@@ -144,7 +568,10 @@ suite('archive download lane real database and filesystem', () => {
       try {
         await opening
         stream.write(png.subarray(0, 8))
-        await db!.artworkDedupSourceIdentity.update({ where: { id: sourceId }, data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' } })
+        await db!.artworkDedupSourceIdentity.update({
+          where: { id: sourceId },
+          data: { status: 'HOLD', ownerOperationId: 'synthetic-source-proof-hold' }
+        })
         if (fault === 'REOPEN')
           await db!.artworkDedupSourceIdentity.update({
             where: { id: sourceId },
@@ -298,8 +725,12 @@ suite('archive download lane real database and filesystem', () => {
     const job = await claim('ARCHIVE_DOWNLOAD')
     const originalProof = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
     const probe = archiveCatalogProbe(db!, parseArtworkDedupSourceSnapshot(originalProof).sources[0]!.sourceId)
-    const ctx = context(job), finalize = ctx.finalizeInTransaction
-    ctx.finalizeInTransaction = (operation) => finalize<Parameters<typeof operation>[0]['transaction']>((scope) => operation({ ...scope, transaction: probe.wrap(scope.transaction) }))
+    const ctx = context(job),
+      finalize = ctx.finalizeInTransaction
+    ctx.finalizeInTransaction = (operation) =>
+      finalize<Parameters<typeof operation>[0]['transaction']>((scope) =>
+        operation({ ...scope, transaction: probe.wrap(scope.transaction) })
+      )
     await execute(job, dependencies(a.root), ctx)
     expect(probe.hits()).toBe(1)
     await expect(execute(job, dependencies(a.root))).rejects.toThrow()
@@ -389,15 +820,24 @@ suite('archive download lane real database and filesystem', () => {
       // The first file exists, but the sub-ten batch has not been written yet.
       expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(0)
       if (reason !== 'SHUTDOWN') {
-        await db!.systemJob.update({ where: { id: job.id }, data: {
-          status: reason === 'PAUSE_REQUESTED' ? 'PAUSING' : 'CANCELLING'
-        } })
-        if (reason === 'CANCEL_REQUESTED') await db!.archiveImport.update({ where: { id: a.id }, data: { status: 'CANCELLING' } })
+        await db!.systemJob.update({
+          where: { id: job.id },
+          data: {
+            status: reason === 'PAUSE_REQUESTED' ? 'PAUSING' : 'CANCELLING'
+          }
+        })
+        if (reason === 'CANCEL_REQUESTED')
+          await db!.archiveImport.update({ where: { id: a.id }, data: { status: 'CANCELLING' } })
       }
       controller.abort({ reason })
       await running
-      const stopped = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { items: true, generations: true } })
-      expect(stopped.status).toBe(reason === 'PAUSE_REQUESTED' ? 'PAUSED' : reason === 'CANCEL_REQUESTED' ? 'CANCELLED' : 'PENDING')
+      const stopped = await db!.archiveImport.findUniqueOrThrow({
+        where: { id: a.id },
+        include: { items: true, generations: true }
+      })
+      expect(stopped.status).toBe(
+        reason === 'PAUSE_REQUESTED' ? 'PAUSED' : reason === 'CANCEL_REQUESTED' ? 'CANCELLED' : 'PENDING'
+      )
       expect(stopped.completedItems).toBe(1)
       expect(stopped.items.filter((item) => item.status === 'COMPLETED')).toHaveLength(1)
       expect(stopped.generations[0]!.drainedAt).not.toBeNull()
@@ -427,9 +867,12 @@ suite('archive download lane real database and filesystem', () => {
     try {
       await vi.waitFor(() => expect(open).toHaveBeenCalledTimes(2))
       expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(0)
-      await vi.waitFor(async () => {
-        expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(1)
-      }, { timeout: 8_000, interval: 100 })
+      await vi.waitFor(
+        async () => {
+          expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(1)
+        },
+        { timeout: 8_000, interval: 100 }
+      )
       expect((await db!.systemJob.findUniqueOrThrow({ where: { id: job.id } })).message).toBe('已下载 1/2')
     } finally {
       slow.end(png)
@@ -445,7 +888,10 @@ suite('archive download lane real database and filesystem', () => {
     const ctx = context(job)
     const commit = ctx.checkpointInTransaction!
     const checkpoint = vi.fn()
-    ctx.checkpointInTransaction = (operation) => { checkpoint(); return commit(operation) }
+    ctx.checkpointInTransaction = (operation) => {
+      checkpoint()
+      return commit(operation)
+    }
     const open = vi.fn(async () => {
       if (open.mock.calls.length === 10) {
         expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(0)
@@ -462,15 +908,21 @@ suite('archive download lane real database and filesystem', () => {
     expect(checkpoint).toHaveBeenCalledTimes(2)
     expect(await db!.archiveImportItem.count({ where: { archiveImportId: a.id, status: 'COMPLETED' } })).toBe(12)
     const events = await db!.systemJobEvent.findMany({ where: { jobId: job.id, type: 'job.progress' } })
-    expect(events.some((event) => (event.data as { data?: { completedItems: number } })?.data?.completedItems === 12)).toBe(true)
+    expect(
+      events.some((event) => (event.data as { data?: { completedItems: number } })?.data?.completedItems === 12)
+    ).toBe(true)
   })
 
   it('downloads the unsaved final batch again after an abrupt restart', async () => {
     const a = await seed('batch-crash')
     const job = await claim('ARCHIVE_DOWNLOAD')
     const ctx = context(job)
-    ctx.checkpointInTransaction = async () => { throw new Error('simulated process exit before batch commit') }
-    ctx.finalizeInTransaction = async () => { throw new Error('simulated process exit before batch commit') }
+    ctx.checkpointInTransaction = async () => {
+      throw new Error('simulated process exit before batch commit')
+    }
+    ctx.finalizeInTransaction = async () => {
+      throw new Error('simulated process exit before batch commit')
+    }
     await expect(execute(job, dependencies(a.root), ctx)).rejects.toThrow('simulated process exit')
     const old = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { items: true } })
     expect(old.items[0]!.status).toBe('PENDING')
@@ -812,8 +1264,12 @@ suite('archive download lane real database and filesystem', () => {
       })
       const originalProof = (await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id } })).dedupSourceSnapshot
       const probe = archiveCatalogProbe(db!, parseArtworkDedupSourceSnapshot(originalProof).sources[0]!.sourceId)
-      const ctx = context(legacy), finalize = ctx.finalizeInTransaction
-      ctx.finalizeInTransaction = (operation) => finalize<Parameters<typeof operation>[0]['transaction']>((scope) => operation({ ...scope, transaction: probe.wrap(scope.transaction) }))
+      const ctx = context(legacy),
+        finalize = ctx.finalizeInTransaction
+      ctx.finalizeInTransaction = (operation) =>
+        finalize<Parameters<typeof operation>[0]['transaction']>((scope) =>
+          operation({ ...scope, transaction: probe.wrap(scope.transaction) })
+        )
       await execute(legacy, dependencies(a.root, network), ctx)
       expect(probe.hits()).toBe(1)
       const state = await db!.archiveImport.findUniqueOrThrow({ where: { id: a.id }, include: { systemJob: true } })
@@ -858,11 +1314,16 @@ suite('archive download lane real database and filesystem', () => {
       where: { id: a.id },
       data: { status: 'FAILED', cleanupRequestedAt: clock.now(), completedItems: 1 }
     })
-    await db!.archiveStagingGeneration.create({ data: {
-      token: randomUUID(), archiveImportId: a.id, jobId: a.jobId,
-      path: finalPath, drainedAt: clock.now(),
-      manifestSha256: await storage.readArchiveManifestDigest(path.join(a.root, finalPath))
-    } })
+    await db!.archiveStagingGeneration.create({
+      data: {
+        token: randomUUID(),
+        archiveImportId: a.id,
+        jobId: a.jobId,
+        path: finalPath,
+        drainedAt: clock.now(),
+        manifestSha256: await storage.readArchiveManifestDigest(path.join(a.root, finalPath))
+      }
+    })
     await seedJob('ARCHIVE_MAINTENANCE', 'legacy-cleanup', { action: 'CLEAN_STAGING', archiveImportId: a.id })
     const maintenance = await claim('ARCHIVE_MAINTENANCE')
     await executeArchiveMaintenance(context(maintenance) as never, {
@@ -1008,10 +1469,15 @@ async function seed(label: string, options: { origin?: 'MANUAL' | 'AUTO'; tags?:
 }
 async function addPages(archiveImportId: string, total: number) {
   await db!.archiveImport.update({ where: { id: archiveImportId }, data: { totalItems: total } })
-  await db!.archiveImportItem.createMany({ data: Array.from({ length: total - 1 }, (_, index) => ({
-    archiveImportId, pageIndex: index + 1, sourcePageUrl: `https://example.test/${index + 1}`,
-    locator: {}, expectedFilename: `${index + 1}.png`
-  })) })
+  await db!.archiveImportItem.createMany({
+    data: Array.from({ length: total - 1 }, (_, index) => ({
+      archiveImportId,
+      pageIndex: index + 1,
+      sourcePageUrl: `https://example.test/${index + 1}`,
+      locator: {},
+      expectedFilename: `${index + 1}.png`
+    }))
+  })
 }
 async function seedJob(
   type: JobType,
@@ -1075,7 +1541,8 @@ function context(job: ClaimedJob): ExecutionContext<ArchiveImportV2Payload, Enqu
       throw new Error('not used')
     },
     mutateInTransaction: (operation) => repo!.withFencedMutationTransaction(fence(job), operation),
-    checkpointInTransaction: async (operation) => (await repo!.withFencedProgressTransaction(fence(job), operation)).result,
+    checkpointInTransaction: async (operation) =>
+      (await repo!.withFencedProgressTransaction(fence(job), operation)).result,
     finalizeInTransaction: async (operation) => {
       await repo!.withFencedExecutionTransaction(fence(job), operation)
       return TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME
@@ -1092,7 +1559,12 @@ function execute(job: ClaimedJob, deps: ArchiveExecutorDependencies, ctx = conte
 async function cleanup() {
   if (!db) return
   await db.mediaContentRecoveryGrant.deleteMany({
-    where: { job: { archiveExecutions: { some: { archiveImportId: { startsWith: prefix } } } } }
+    where: {
+      OR: [
+        { job: { archiveExecutions: { some: { archiveImportId: { startsWith: prefix } } } } },
+        { jobId: { in: [...extraJobs] } }
+      ]
+    }
   })
   await cleanupFixtureContentDirectories(db, roots)
   const executions = await db.archiveImportExecution.findMany({
@@ -1100,6 +1572,9 @@ async function cleanup() {
     select: { jobId: true }
   })
   for (const item of executions) extraJobs.add(item.jobId)
+  await db.userBA.deleteMany({ where: { id: prefix } })
+  await db.archiveIntakeItem.deleteMany({ where: { id: { startsWith: prefix } } })
+  await db.archiveIntakeSubmission.deleteMany({ where: { id: { startsWith: prefix } } })
   await db.artwork.deleteMany({ where: { title: prefix } })
   await db.archiveImport.deleteMany({ where: { id: { startsWith: prefix } } })
   await db.artworkDedupSourceIdentity.deleteMany({ where: { providerKey: 'test', externalId: { startsWith: prefix } } })
@@ -1129,4 +1604,80 @@ async function createLegacyFinal(a: { root: string; id: string }) {
   })
   await db!.archiveImport.update({ where: { id: a.id }, data: { completedItems: 1 } })
   return finalPath
+}
+
+async function enqueueCoverage(
+  externalId: string,
+  total: number,
+  downloadScope: 'ALL' | 'FIRST_20',
+  completion?: ReturnType<typeof archiveCompletionSnapshotSchema.parse>,
+  expectedResult = 'CREATED',
+  requestedScope?: 'ALL' | 'FIRST_20'
+) {
+  const id = `${prefix}-${randomUUID()}`
+  const resolved = {
+    providerKey: 'test',
+    externalId,
+    canonicalUrl: `https://example.test/${externalId}`,
+    locator: {},
+    title: prefix,
+    titleAliases: [],
+    description: null,
+    category: null,
+    uploader: null,
+    thumbnailUrl: null,
+    postedAt: null,
+    tags: [],
+    relationships: [],
+    normalizedMetadata: { titles: { display: prefix } },
+    rawMetadata: {},
+    warnings: [],
+    creatorBucket: 'bucket',
+    media: Array.from({ length: total }, (_, index) => ({
+      index,
+      sourcePageUrl: `https://example.test/${externalId}/${index}`,
+      locator: { index },
+      expectedFilename: `${index}.png`
+    }))
+  }
+  await db!.archiveIntakeSubmission.create({
+    data: { id, idempotencyKey: id, requestHash: 'a'.repeat(64), rawCount: 1, acceptedCount: 1 }
+  })
+  await db!.archiveIntakeItem.create({
+    data: {
+      id,
+      submissionId: id,
+      submittedUrl: resolved.canonicalUrl,
+      normalizedUrlHash: 'a'.repeat(64),
+      status: 'READY',
+      downloadMode: 'MANUAL',
+      downloadScope,
+      selectedQuality: 'ORIGINAL',
+      providerKey: 'test',
+      externalId,
+      canonicalUrl: resolved.canonicalUrl,
+      resolvedSnapshot: resolved,
+      metadataHash: 'a'.repeat(64),
+      expiresAt: new Date(clock.now().getTime() + 3_600_000),
+      dedupSourceSnapshot: await captureArchiveFixtureSource(db!, 'test', externalId),
+      ...(completion ? { completionBaseRevisionId: completion.revisionId, completionSnapshot: completion } : {})
+    }
+  })
+  expect(hashArchiveMediaPlan(resolved.media)).toHaveLength(64)
+  const result = await db!.$transaction((tx) =>
+    enqueueArchiveIntakeItemInTransaction(tx, id, {
+      quality: 'ORIGINAL',
+      ...(requestedScope ? { downloadScope: requestedScope } : {}),
+      requestedByUserId: null,
+      timestamp: clock.now(),
+      uuid: () => `${prefix}-${randomUUID()}`,
+      defaultTagIds: []
+    })
+  )
+  expect(result.result).toBe(expectedResult)
+  if (expectedResult === 'CONFLICT') {
+    expect(result.code).toBe('SOURCE_CHANGED')
+    await db!.archiveIntakeItem.update({ where: { id }, data: { status: 'FAILED' } })
+  }
+  return result.relatedId!
 }

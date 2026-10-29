@@ -58,3 +58,25 @@ export const completedRun = {
   createdAt: new Date('2026-09-02T11:09:00.000Z'),
   updatedAt: new Date('2026-09-02T11:10:00.000Z')
 }
+
+export const ignoredItemsData = {
+  pages: [
+    {
+      totalCount: 101,
+      items: [
+        {
+          id: 'ignored-item-1',
+          providerKey: 'e-hentai',
+          externalId: '301',
+          sourceDisplayName: 'UID 123',
+          title: 'Ignored Gallery 301',
+          thumbnailUrl: 'https://ehgt.org/thumb-301.jpg',
+          uploaderName: 'Uploader',
+          postedAt: new Date('2026-09-01T10:30:00.000Z'),
+          ignoredAt: new Date('2026-09-02T11:20:00.000Z')
+        }
+      ],
+      nextCursor: null
+    }
+  ]
+}

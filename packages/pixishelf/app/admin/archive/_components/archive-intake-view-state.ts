@@ -40,6 +40,7 @@ export interface ArchiveIntakeSelectionItem {
   errorCode?: string | null
   retryable?: boolean | null
   sourceIntentValid?: boolean
+  downloadScope?: 'ALL' | 'FIRST_20'
   downloadMode?: ArchiveDownloadMode
   selectedQuality?: ArchiveQuality | null
 }
@@ -48,6 +49,7 @@ export interface ArchiveIntakeSelectionState {
   selectedIds: Set<string>
   manuallyDeselectedIds: Set<string>
   qualityById: Map<string, ArchiveQuality>
+  downloadScopeById?: Map<string, 'ALL' | 'FIRST_20'>
 }
 
 export interface ArchiveIntakeActionCounts {
@@ -162,7 +164,7 @@ export function reconcileArchiveIntakeSelection(
     if (!qualityById.has(item.id)) qualityById.set(item.id, item.selectedQuality ?? 'ORIGINAL')
     if (isDefaultSelectedIntakeItem(item) && !manuallyDeselectedIds.has(item.id)) selectedIds.add(item.id)
   }
-  return { selectedIds, manuallyDeselectedIds, qualityById }
+  return { ...state, selectedIds, manuallyDeselectedIds, qualityById }
 }
 
 export function updateArchiveIntakeSelection(

@@ -1,3 +1,5 @@
+import { queryArchiveUploaderIgnoredItems, type IgnoredItemWire } from './archive-uploader-ignored-query'
+import { archiveDownloadScopeSchema } from '@pixishelf/job-contracts'
 import { assertCatalogItemsActionable } from './archive-uploader-catalog-actions'
 import { sourceWireSelect, serializeSource, type SourceWire } from './archive-source-wire'
 import { linkIntakeCatalogItems } from './archive-uploader-intake-link'
@@ -114,6 +116,7 @@ export const listArchiveUploaderScanItemsSchema = z
 
 export const listArchiveUploaderIgnoredItemsSchema = z
   .object({
+    sourceId: sourceIdSchema.optional(),
     cursor: ignoredItemCursorSchema.nullish(),
     limit: z.number().int().min(1).max(SCAN_RESULT_LIMIT).default(50),
     direction: z.literal('forward').optional()
@@ -141,7 +144,8 @@ export const createArchiveUploaderSubmissionAttemptSchema = z
     sourceId: sourceIdSchema,
     itemIds: scanItemIdsSchema,
     downloadMode: z.enum(['AUTO', 'MANUAL']).default('MANUAL'),
-    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL')
+    quality: z.enum(['ORIGINAL', 'DISPLAY']).default('ORIGINAL'),
+    downloadScope: archiveDownloadScopeSchema.default('ALL')
   })
   .strict()
 
@@ -350,25 +354,24 @@ export async function listArchiveUploaderIgnoredItems(
   dependencies: ArchiveUploaderServiceDependencies = {}
 ) {
   const parsed = listArchiveUploaderIgnoredItemsSchema.parse(input)
-  const rows = await getDatabase(dependencies).archiveUploaderIgnoredItem.findMany({
-    where: parsed.cursor
-      ? {
-          OR: [
-            { ignoredAt: { lt: parsed.cursor.ignoredAt } },
-            { ignoredAt: parsed.cursor.ignoredAt, id: { lt: parsed.cursor.id } }
-          ]
-        }
-      : undefined,
-    orderBy: [{ ignoredAt: 'desc' }, { id: 'desc' }],
-    take: parsed.limit + 1,
-    select: ignoredItemWireSelect
-  })
+  const database = getDatabase(dependencies)
+  if (parsed.sourceId) {
+    const source = await database.archiveUploaderSource.findUnique({
+      where: { id: parsed.sourceId, ...sourceScope(dependencies) },
+      select: { id: true }
+    })
+    if (!source) throw new ArchiveError('STATE_CONFLICT', '发现来源不存在')
+  }
+  const { rows, totalCount } = await queryArchiveUploaderIgnoredItems(database, parsed)
   const hasMore = rows.length > parsed.limit
   const visible = hasMore ? rows.slice(0, parsed.limit) : rows
   const last = visible.at(-1)
   const candidates = visible.length
-    ? await getDatabase(dependencies).archiveUploaderCatalogItem.findMany({
-        where: { matchesQuery: true, OR: visible.map(({ providerKey, externalId }) => ({ providerKey, externalId })) },
+    ? await database.archiveUploaderCatalogItem.findMany({
+        where: {
+          ...(parsed.sourceId ? { sourceId: parsed.sourceId } : {}),
+          OR: visible.map(({ providerKey, externalId }) => ({ providerKey, externalId }))
+        },
         select: { id: true, providerKey: true, externalId: true, canonicalUrl: true },
         orderBy: { id: 'asc' }
       })
@@ -384,6 +387,7 @@ export async function listArchiveUploaderIgnoredItems(
             archiveTaskSourceUrl(candidate)
         )?.id ?? null
     })),
+    totalCount,
     nextCursor: hasMore && last ? { ignoredAt: last.ignoredAt, id: last.id } : null
   }
 }
@@ -740,6 +744,9 @@ export async function ignoreArchiveUploaderScanItems(
       orderBy: { id: 'asc' },
       select: { id: true }
     })
+    await transaction.archiveDiscoveryDeferredItem.deleteMany({
+      where: { OR: uniqueItems.map(({ providerKey, externalId }) => ({ providerKey, externalId })) }
+    })
     return {
       ignoredItemIds: ignoredItems.map(({ id }) => id),
       ignoredCount: uniqueItems.length,
@@ -785,8 +792,8 @@ export async function addArchiveUploaderScanItems(
           select: dispositionCatalogItemSelect
         })
         assertAllDispositionItemsFound(candidates, parsed.itemIds)
+        await lockCreatorCatalog(transaction)
         if (candidates.some((item) => item.source?.sourceKind === 'TITLE_QUERY')) {
-          await lockCreatorCatalog(transaction)
           await transaction.$queryRawUnsafe('SELECT pg_advisory_xact_lock(7341902117)::text')
         }
         trace.phase('identityLocks')
@@ -836,7 +843,8 @@ export async function addArchiveUploaderScanItems(
             idempotencyKey,
             urls: items.map(({ canonicalUrl }) => canonicalUrl),
             downloadMode: deletions.length ? 'MANUAL' : parsed.downloadMode,
-            quality: parsed.quality
+            quality: parsed.quality,
+            downloadScope: parsed.downloadScope
           },
           requestedByUserId,
           transaction,
@@ -953,22 +961,9 @@ const dispositionCatalogItemSelect = {
   lastOutcomeAt: true
 } satisfies Prisma.ArchiveUploaderCatalogItemSelect
 
-const ignoredItemWireSelect = {
-  id: true,
-  providerKey: true,
-  externalId: true,
-  sourceDisplayName: true,
-  title: true,
-  thumbnailUrl: true,
-  uploaderName: true,
-  postedAt: true,
-  ignoredAt: true
-} satisfies Prisma.ArchiveUploaderIgnoredItemSelect
-
 type DispositionCatalogItem = Prisma.ArchiveUploaderCatalogItemGetPayload<{
   select: typeof dispositionCatalogItemSelect
 }>
-type IgnoredItemWire = Prisma.ArchiveUploaderIgnoredItemGetPayload<{ select: typeof ignoredItemWireSelect }>
 type RunSummaryWire = Prisma.ArchiveUploaderScanRunGetPayload<{ select: typeof runSummarySelect }>
 
 function serializeCatalogItem(item: ArchiveUploaderCatalogStateRow) {

@@ -1,25 +1,43 @@
-vi.mock('../_components/artwork-summary-context', () => ({ ArtworkSummaryProvider: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock('../_components/artwork-summary-context', () => ({
+  ArtworkSummaryProvider: ({ children }: { children: React.ReactNode }) => children
+}))
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import artworkDetailPage from '../page'
+import { getArchiveCoverage } from '@/services/archive/archive-coverage-service'
 
-vi.mock('@/services/artwork-service/reader', () => ({
-  getArtworkReaderInitial: vi.fn(async () => ({ total: 1, fingerprint: 'test', artwork: {
-    id: 146,
-    title: '测试作品',
-    description: '作品描述',
-    externalId: 'legacy-storage-identity',
-    pixivArtworkId: '12345',
-    artist: { id: 13, name: '测试艺术家', avatar: null },
-    creators: [{ id: 13, name: '测试艺术家', avatar: null, kind: 'PERSON', pixivUserId: '67890' }],
-    images: [{ id: 1, path: '/media.jpg' }],
-    tags: [{ id: 1, name: '测试标签' }],
-    series: []
-  } }))
+vi.mock('@/services/archive/archive-coverage-service', () => ({ getArchiveCoverage: vi.fn(async () => null) }))
+vi.mock('../_components/archive-coverage-footer', () => ({
+  ArchiveCoverageFooter: ({ artworkId, initial }: { artworkId: number; initial: { revisionId: string } }) => (
+    <div data-testid="archive-coverage-footer" data-artwork-id={artworkId} data-revision-id={initial.revisionId} />
+  )
 }))
 
-vi.mock('@/lib/reading/artwork-reader-provider', () => ({ ArtworkReaderProvider: ({ children }: { children: React.ReactNode }) => children }))
-vi.mock('../_components/artwork-detail-controls', () => ({ ArtworkDetailControlsProvider: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock('@/services/artwork-service/reader', () => ({
+  getArtworkReaderInitial: vi.fn(async () => ({
+    total: 1,
+    fingerprint: 'test',
+    artwork: {
+      id: 146,
+      title: '测试作品',
+      description: '作品描述',
+      externalId: 'legacy-storage-identity',
+      pixivArtworkId: '12345',
+      artist: { id: 13, name: '测试艺术家', avatar: null },
+      creators: [{ id: 13, name: '测试艺术家', avatar: null, kind: 'PERSON', pixivUserId: '67890' }],
+      images: [{ id: 1, path: '/media.jpg' }],
+      tags: [{ id: 1, name: '测试标签' }],
+      series: []
+    }
+  }))
+}))
+
+vi.mock('@/lib/reading/artwork-reader-provider', () => ({
+  ArtworkReaderProvider: ({ children }: { children: React.ReactNode }) => children
+}))
+vi.mock('../_components/artwork-detail-controls', () => ({
+  ArtworkDetailControlsProvider: ({ children }: { children: React.ReactNode }) => children
+}))
 
 vi.mock('@/services/artwork/source-links', () => ({
   getArtworkSourceLinks: vi.fn(async () => [
@@ -30,7 +48,19 @@ vi.mock('@/services/artwork/source-links', () => ({
 
 vi.mock('../_components/nav-head', () => ({ default: () => null }))
 vi.mock('../_components/artwork-media-section', () => ({
-  ArtworkMediaSection: ({ resumeOnEntry, mediaIdOnEntry }: { resumeOnEntry?: boolean; mediaIdOnEntry?: number | null }) => <div data-testid="artwork-images" data-resume-on-entry={String(Boolean(resumeOnEntry))} data-entry-media={String(mediaIdOnEntry)} />
+  ArtworkMediaSection: ({
+    resumeOnEntry,
+    mediaIdOnEntry
+  }: {
+    resumeOnEntry?: boolean
+    mediaIdOnEntry?: number | null
+  }) => (
+    <div
+      data-testid="artwork-images"
+      data-resume-on-entry={String(Boolean(resumeOnEntry))}
+      data-entry-media={String(mediaIdOnEntry)}
+    />
+  )
 }))
 vi.mock('../_components/artwork-des', () => ({
   default: () => <div data-testid="artwork-description" />
@@ -43,24 +73,71 @@ vi.mock('@/components/artwork/artist-avatar', () => ({ ArtistAvatar: () => <div 
 afterEach(cleanup)
 
 describe('ArtworkDetailPage layout', () => {
+  it('renders partial coverage from the current revision below the local media', async () => {
+    vi.mocked(getArchiveCoverage).mockResolvedValueOnce({
+      revisionId: 'partial-revision',
+      localCount: 20,
+      sourceTotal: 200,
+      partial: true,
+      canComplete: true,
+      active: false,
+      taskId: null,
+      intakeItemId: null,
+      error: null
+    })
+    render(
+      await artworkDetailPage({ params: Promise.resolve({ id: '146' }) } as Parameters<typeof artworkDetailPage>[0])
+    )
+    expect(getArchiveCoverage).toHaveBeenLastCalledWith(146)
+    expect(screen.getByText('部分归档 · 20/200 张')).toBeTruthy()
+    const footer = screen.getByTestId('archive-coverage-footer')
+    expect(footer.getAttribute('data-artwork-id')).toBe('146')
+    expect(footer.getAttribute('data-revision-id')).toBe('partial-revision')
+    expect(
+      screen.getByTestId('artwork-images').compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it.each([
-    ['12', '12'], [undefined, 'undefined'], ['0', 'null'], ['-1', 'null'], ['1.5', 'null'],
-    ['1e2', 'null'], [' 12', 'null'], ['12tail', 'null'], ['', 'null'], ['9007199254740992', 'null'], [['12', '13'], 'null']
+    ['12', '12'],
+    [undefined, 'undefined'],
+    ['0', 'null'],
+    ['-1', 'null'],
+    ['1.5', 'null'],
+    ['1e2', 'null'],
+    [' 12', 'null'],
+    ['12tail', 'null'],
+    ['', 'null'],
+    ['9007199254740992', 'null'],
+    [['12', '13'], 'null']
   ] as const)('accepts only one positive safe integer mediaId: %s', async (mediaId, expected) => {
-    render(await artworkDetailPage({
-      params: Promise.resolve({ id: '146' }), searchParams: Promise.resolve({ mediaId })
-    } as Parameters<typeof artworkDetailPage>[0]))
+    render(
+      await artworkDetailPage({
+        params: Promise.resolve({ id: '146' }),
+        searchParams: Promise.resolve({ mediaId })
+      } as Parameters<typeof artworkDetailPage>[0])
+    )
     expect(screen.getByTestId('artwork-images').getAttribute('data-entry-media')).toBe(expected)
   })
-  it.each([['1', true], ['true', false], [undefined, false], [['1', '1'], false]] as const)('accepts only a single explicit resume=1 value: %s', async (resume, expected) => {
-    render(await artworkDetailPage({
-      params: Promise.resolve({ id: '146' }), searchParams: Promise.resolve({ resume })
-    } as Parameters<typeof artworkDetailPage>[0]))
+  it.each([
+    ['1', true],
+    ['true', false],
+    [undefined, false],
+    [['1', '1'], false]
+  ] as const)('accepts only a single explicit resume=1 value: %s', async (resume, expected) => {
+    render(
+      await artworkDetailPage({
+        params: Promise.resolve({ id: '146' }),
+        searchParams: Promise.resolve({ resume })
+      } as Parameters<typeof artworkDetailPage>[0])
+    )
     expect(screen.getByTestId('artwork-images').getAttribute('data-resume-on-entry')).toBe(String(expected))
   })
 
   it('renders distinct icon-only Pixiv links with accessible names and safe new tabs', async () => {
-    render(await artworkDetailPage({ params: Promise.resolve({ id: '146' }) } as Parameters<typeof artworkDetailPage>[0]))
+    render(
+      await artworkDetailPage({ params: Promise.resolve({ id: '146' }) } as Parameters<typeof artworkDetailPage>[0])
+    )
 
     const author = screen.getByRole('link', { name: '在 Pixiv 查看该作者主页（新标签页）' })
     const original = screen.getByRole('link', { name: '在 Pixiv 查看该作品（新标签页）' })
@@ -76,8 +153,13 @@ describe('ArtworkDetailPage layout', () => {
   })
 
   it('renders every source as a separate safe external link in the information area', async () => {
-    render(await artworkDetailPage({ params: Promise.resolve({ id: '146' }) } as Parameters<typeof artworkDetailPage>[0]))
-    for (const [label, id] of [['E-Hentai #101', 'source-one'], ['E-Hentai #102', 'source-two']]) {
+    render(
+      await artworkDetailPage({ params: Promise.resolve({ id: '146' }) } as Parameters<typeof artworkDetailPage>[0])
+    )
+    for (const [label, id] of [
+      ['E-Hentai #101', 'source-one'],
+      ['E-Hentai #102', 'source-two']
+    ]) {
       const link = screen.getByRole('link', { name: label })
       expect(link.getAttribute('href')).toBe(`/api/artworks/146/sources/${id}`)
       expect(link.getAttribute('target')).toBe('_blank')
@@ -95,6 +177,7 @@ describe('ArtworkDetailPage layout', () => {
 
     render(await artworkDetailPage(props))
 
+    expect(screen.queryByTestId('archive-coverage-footer')).toBeNull()
     const main = screen.getByRole('main')
     const images = screen.getByTestId('artwork-images')
 

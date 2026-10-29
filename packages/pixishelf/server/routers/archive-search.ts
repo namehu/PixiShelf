@@ -1,5 +1,16 @@
 import { z } from 'zod'
 import {
+  deferDiscoveryItems,
+  deferDiscoveryItemsSchema,
+  listDeferredItems,
+  listDeferredItemsSchema,
+  restoreDeferredItems,
+  ignoreDeferredItems,
+  deferredItemsCommandSchema,
+  downloadDeferredItems,
+  downloadDeferredItemsSchema
+} from '@/services/archive-uploader/discovery-deferred-service'
+import {
   previewTitleRulesSchema,
   previewTitleRules,
   titleRuleRevisionSchema,
@@ -79,6 +90,21 @@ import {
 const discovery = { sourceKind: 'ALL' as const }
 
 export const archiveSearchRouter = router({
+  listDeferredItems: authProcedure
+    .input(listDeferredItemsSchema)
+    .query(({ input }) => runArchiveOperation(() => listDeferredItems(input))),
+  deferItems: adminProcedure
+    .input(deferDiscoveryItemsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => deferDiscoveryItems(input, ctx.userId))),
+  restoreDeferredItems: adminProcedure
+    .input(deferredItemsCommandSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => restoreDeferredItems(input, ctx.userId))),
+  ignoreDeferredItems: adminProcedure
+    .input(deferredItemsCommandSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => ignoreDeferredItems(input, ctx.userId))),
+  downloadDeferredItems: adminProcedure
+    .input(downloadDeferredItemsSchema)
+    .mutation(({ input, ctx }) => runArchiveOperation(() => downloadDeferredItems(input, ctx.userId))),
   appendDefaultCreators: adminProcedure
     .input(appendDiscoveryCreatorsSchema)
     .mutation(({ input }) => runArchiveOperation(() => appendDiscoveryCreators(input))),
@@ -174,7 +200,7 @@ export const archiveSearchRouter = router({
 
   listIgnoredItems: authProcedure
     .input(listArchiveUploaderIgnoredItemsSchema)
-    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderIgnoredItems(input))),
+    .query(({ input }) => runArchiveOperation(() => listArchiveUploaderIgnoredItems(input, discovery))),
 
   setArchived: adminProcedure
     .input(setArchiveUploaderSourceArchivedSchema)

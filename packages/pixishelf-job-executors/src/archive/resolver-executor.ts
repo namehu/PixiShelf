@@ -8,6 +8,7 @@ import {
 import {
   archiveResolveItemPayloadSchema,
   JOB_DEFINITION_VERSION,
+  ARCHIVE_COVERAGE_DEFINITION_VERSION,
   type ArchiveResolveItemPayload,
   type JobErrorCode
 } from '@pixishelf/job-contracts'
@@ -44,16 +45,14 @@ export interface ArchiveResolverExecutorDependencies {
 export function createArchiveResolverExecutorRegistrations(
   dependencies: ArchiveResolverExecutorDependencies
 ): ExecutorDefinition<ArchiveResolveItemPayload>[] {
-  return [
-    {
-      jobType: 'ARCHIVE_RESOLVE_ITEM',
-      executionLane: 'ARCHIVE_RESOLVE',
-      definitionVersion: JOB_DEFINITION_VERSION,
-      progressPolicy: 'REALTIME',
-      parsePayload: (payload) => archiveResolveItemPayloadSchema.parse(payload),
-      execute: (context) => executeArchiveResolveItem(context, dependencies)
-    }
-  ]
+  return [JOB_DEFINITION_VERSION, ARCHIVE_COVERAGE_DEFINITION_VERSION].map((definitionVersion) => ({
+    jobType: 'ARCHIVE_RESOLVE_ITEM',
+    executionLane: 'ARCHIVE_RESOLVE',
+    definitionVersion,
+    progressPolicy: 'REALTIME',
+    parsePayload: (payload) => archiveResolveItemPayloadSchema.parse(payload),
+    execute: (context) => executeArchiveResolveItem(context, dependencies)
+  }))
 }
 
 export async function executeArchiveResolveItem(
@@ -237,9 +236,10 @@ async function finalizeResolved(
         dedupSourceSnapshot: intake.dedupSourceSnapshot
       })
     )
-  )
-    {throw new ArchiveExecutorError('STATE_CONFLICT', '归档解析的原来源证明已改变')}
-  const automatic = intake.downloadMode === 'AUTO'
+  ) {
+    throw new ArchiveExecutorError('STATE_CONFLICT', '归档解析的原来源证明已改变')
+  }
+  const automatic = intake.downloadMode === 'AUTO' || Boolean(intake.completionBaseRevisionId)
   const deletion = await scope.transaction.archiveDeletedIdentity.findUnique({
     where: { providerKey_externalId: { providerKey: resolved.providerKey, externalId: resolved.externalId } }
   })
@@ -325,7 +325,7 @@ async function finalizeResolved(
   }
 
   const unchanged =
-    !activeImport && existingReference
+    !intake.completionBaseRevisionId && !activeImport && existingReference
       ? await isPublishedArchiveUnchanged(scope.transaction, existingReference, resolved, metadataHash)
       : false
   const resolutionKind = activeImport ? 'ACTIVE_TASK' : !existingReference ? 'NEW' : unchanged ? 'UNCHANGED' : 'UPDATE'
@@ -372,7 +372,7 @@ async function finalizeResolved(
     { providerKey: resolved.providerKey, externalId: resolved.externalId }
   )
   let enqueueResult
-  if (automatic && (resolutionKind === 'NEW' || resolutionKind === 'ACTIVE_TASK')) {
+  if (automatic && (intake.completionBaseRevisionId || resolutionKind === 'NEW' || resolutionKind === 'ACTIVE_TASK')) {
     let defaultTagIds: number[] = []
     if (resolutionKind === 'NEW') {
       const setting = await scope.transaction.setting.findUnique({ where: { key: 'archive_default_tag_ids' } })

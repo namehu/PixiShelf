@@ -1,7 +1,12 @@
+import { createHash } from 'node:crypto'
 import { assertArchiveSourceSnapshot } from './dedup-source-snapshot.ts'
 import { lockArchiveUploaderCatalogIdentities } from './uploader-catalog-lock.ts'
 import { z } from 'zod'
-import { archiveImportV2PayloadSchema } from '@pixishelf/job-contracts'
+import {
+  archiveImportV2PayloadSchema,
+  archiveCompletionSnapshotSchema,
+  ARCHIVE_COVERAGE_DEFINITION_VERSION
+} from '@pixishelf/job-contracts'
 import { Prisma, lockCreatorCatalog } from '@pixishelf/db'
 import { redactSensitiveText } from '@pixishelf/job-runtime'
 import { ArchiveExecutorError } from './errors.ts'
@@ -24,6 +29,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
   itemId: string,
   options: {
     quality: 'ORIGINAL' | 'DISPLAY'
+    downloadScope?: 'ALL' | 'FIRST_20'
     requestedByUserId: string | null
     timestamp: Date
     uuid: () => string
@@ -34,8 +40,9 @@ export async function enqueueArchiveIntakeItemInTransaction(
   const { quality, requestedByUserId, timestamp, uuid, defaultTagIds } = options
   const item = await transaction.archiveIntakeItem.findUnique({ where: { id: itemId } })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
-  if (!['READY', 'ENQUEUED'].includes(item.status) || item.cancelRequestedAt)
-    {return { result: 'SKIPPED', code: 'INVALID_STATE' }}
+  if (!['READY', 'ENQUEUED'].includes(item.status) || item.cancelRequestedAt) {
+    return { result: 'SKIPPED', code: 'INVALID_STATE' }
+  }
   await lockCreatorCatalog(transaction)
   await lockIntakeSource(transaction, item)
   const dedupSourceSnapshot = await assertArchiveSourceSnapshot(transaction, {
@@ -47,7 +54,14 @@ export async function enqueueArchiveIntakeItemInTransaction(
     // ENQUEUED 且已有 import 时，直接回写当前归档引用，保证页面多次点击不会重复创建新任务。
     const reusedImport = await transaction.archiveImport.findUnique({
       where: { id: item.archiveImportId },
-      select: { id: true, selectedQuality: true, providerKey: true, externalId: true, dedupSourceSnapshot: true }
+      select: {
+        id: true,
+        selectedQuality: true,
+        downloadScope: true,
+        providerKey: true,
+        externalId: true,
+        dedupSourceSnapshot: true
+      }
     })
     if (!reusedImport) {
       return { result: 'CONFLICT', code: 'ARCHIVE_IMPORT_MISSING', message: '已入队的归档任务不存在' }
@@ -62,7 +76,8 @@ export async function enqueueArchiveIntakeItemInTransaction(
       data: {
         archiveImportId: reusedImport.id,
         activeArchiveImportId: reusedImport.id,
-        selectedQuality: reusedImport.selectedQuality
+        selectedQuality: reusedImport.selectedQuality,
+        downloadScope: reusedImport.downloadScope
       }
     })
     await linkCatalogToArchiveImport(transaction, item, reusedImport.id, timestamp)
@@ -106,6 +121,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
         archiveImportId: active.id,
         activeArchiveImportId: active.id,
         selectedQuality: active.selectedQuality,
+        downloadScope: active.downloadScope,
         finishedAt: timestamp
       }
     })
@@ -120,13 +136,17 @@ export async function enqueueArchiveIntakeItemInTransaction(
     where: { providerKey_externalId: { providerKey: item.providerKey, externalId: item.externalId } },
     include: {
       artwork: { select: { deletedAt: true, archiveLifecycleState: true } },
-      archiveRevisions: { where: { isCurrent: true }, select: { metadataHash: true }, take: 1 }
+      archiveRevisions: {
+        where: { isCurrent: true },
+        select: { id: true, metadataHash: true, downloadScope: true, sourceTotalItems: true, sourcePlanDigest: true },
+        take: 1
+      }
     }
   })
   if (existingRef && (existingRef.artwork.deletedAt || existingRef.artwork.archiveLifecycleState !== 'ACTIVE')) {
     return { result: 'CONFLICT', code: 'ARCHIVE_TRASHED', message: '该作品在归档回收站中，请先恢复' }
   }
-  if (options.autoOnly && existingRef) {
+  if (options.autoOnly && existingRef && !item.completionBaseRevisionId) {
     const unchanged = await isPublishedArchiveUnchanged(transaction, existingRef, resolved, item.metadataHash)
     await transaction.archiveIntakeItem.update({
       where: { id: item.id },
@@ -134,6 +154,30 @@ export async function enqueueArchiveIntakeItemInTransaction(
     })
     return { result: 'SKIPPED', code: unchanged ? 'UNCHANGED' : 'UPDATE_REQUIRES_CONFIRMATION' }
   }
+  const previousRevision = existingRef?.archiveRevisions[0]
+  const sourcePlanDigest = hashArchiveMediaPlan(resolved.media)
+  const completion = item.completionBaseRevisionId
+    ? archiveCompletionSnapshotSchema.parse(item.completionSnapshot)
+    : null
+  if (
+    completion &&
+    (previousRevision?.id !== completion.revisionId ||
+      item.completionBaseRevisionId !== completion.revisionId ||
+      existingRef?.artworkId !== completion.artworkId ||
+      sourcePlanDigest !== completion.sourcePlanDigest ||
+      resolved.media.length !== completion.sourceTotalItems ||
+      quality !== completion.quality)
+  )
+    return {
+      result: 'CONFLICT',
+      code: 'SOURCE_CHANGED',
+      message: '来源内容或本地归档已变化，补全已停止；请通过完整更新重新确认。'
+    }
+  // An ordinary resubmission preserves existing coverage; only the completion command expands a partial archive.
+  const downloadScope = completion
+    ? 'ALL'
+    : (previousRevision?.downloadScope ?? options.downloadScope ?? item.downloadScope ?? 'ALL')
+  const mediaPlan = downloadScope === 'FIRST_20' ? resolved.media.slice(0, 20) : resolved.media
   const importId = uuid()
   const jobId = uuid()
   const paths = buildArchiveStoragePaths({
@@ -150,7 +194,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
       id: jobId,
       type: 'ARCHIVE_DOWNLOAD',
       executionLane: 'ARCHIVE_DOWNLOAD',
-      definitionVersion: 1,
+      definitionVersion: ARCHIVE_COVERAGE_DEFINITION_VERSION,
       status: 'PENDING',
       triggerSource: origin === 'AUTO' ? 'SYSTEM' : 'MANUAL',
       requestedByUserId,
@@ -183,15 +227,37 @@ export async function enqueueArchiveIntakeItemInTransaction(
       metadataHash: item.metadataHash,
       creatorBucket: resolved.creatorBucket,
       stagingPath: paths.stagingRelativePath,
-      totalItems: resolved.media.length,
+      downloadScope,
+      sourceTotalItems: resolved.media.length,
+      sourcePlanDigest,
+      completionBaseRevisionId: completion?.revisionId ?? null,
+      completionSnapshot: completion ? toJsonValue(completion) : Prisma.DbNull,
+      totalItems: mediaPlan.length,
       warning: redactArchiveText(resolved.warnings.join('\n') || null),
       items: {
-        create: resolved.media.map((media) => ({
-          pageIndex: media.index,
-          sourcePageUrl: media.sourcePageUrl,
-          locator: toJsonValue(media.locator),
-          expectedFilename: media.expectedFilename
-        }))
+        create: mediaPlan.map((media) => {
+          const reused = completion?.media.find((entry) => entry.index === media.index)
+          return {
+            pageIndex: media.index,
+            sourcePageUrl: media.sourcePageUrl,
+            locator: toJsonValue(media.locator),
+            expectedFilename: media.expectedFilename,
+            ...(reused
+              ? {
+                  status: 'COMPLETED' as const,
+                  stagedGenerationPath: completion!.archivePath,
+                  stagedPath: reused.path,
+                  byteCount: BigInt(reused.size),
+                  sha256: reused.sha256,
+                  width: reused.width,
+                  height: reused.height,
+                  mimeType: reused.mimeType,
+                  quality: completion!.quality,
+                  finishedAt: timestamp
+                }
+              : {})
+          }
+        })
       }
     }
   })
@@ -202,6 +268,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
       archiveImportId: importId,
       activeArchiveImportId: importId,
       selectedQuality: quality,
+      downloadScope,
       finishedAt: timestamp
     }
   })
@@ -239,7 +306,14 @@ export async function recoverArchiveIntakeEnqueueRace(
   if (item.status === 'ENQUEUED' && item.archiveImportId) {
     const reusedImport = await transaction.archiveImport.findUnique({
       where: { id: item.archiveImportId },
-      select: { id: true, selectedQuality: true, providerKey: true, externalId: true, dedupSourceSnapshot: true }
+      select: {
+        id: true,
+        selectedQuality: true,
+        downloadScope: true,
+        providerKey: true,
+        externalId: true,
+        dedupSourceSnapshot: true
+      }
     })
     if (!reusedImport) return null
     await assertArchiveSourceSnapshot(transaction, {
@@ -252,7 +326,8 @@ export async function recoverArchiveIntakeEnqueueRace(
       data: {
         archiveImportId: reusedImport.id,
         activeArchiveImportId: reusedImport.id,
-        selectedQuality: reusedImport.selectedQuality
+        selectedQuality: reusedImport.selectedQuality,
+        downloadScope: reusedImport.downloadScope
       }
     })
     await linkCatalogToArchiveImport(transaction, item, reusedImport.id, timestamp)
@@ -269,6 +344,7 @@ export async function recoverArchiveIntakeEnqueueRace(
       archiveImportId: active.id,
       activeArchiveImportId: active.id,
       selectedQuality: active.selectedQuality,
+      downloadScope: active.downloadScope,
       finishedAt: timestamp
     }
   })
@@ -313,7 +389,14 @@ function linkCatalogToArchiveImport(
 function findActiveImport(transaction: Prisma.TransactionClient, providerKey: string, externalId: string) {
   return transaction.archiveImport.findFirst({
     where: { providerKey, externalId, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] } },
-    select: { id: true, selectedQuality: true, providerKey: true, externalId: true, dedupSourceSnapshot: true }
+    select: {
+      id: true,
+      selectedQuality: true,
+      downloadScope: true,
+      providerKey: true,
+      externalId: true,
+      dedupSourceSnapshot: true
+    }
   })
 }
 
@@ -377,4 +460,10 @@ async function lockIntakeSource(
       canonicalUrls: [item.submittedUrl, item.canonicalUrl]
     }
   ])
+}
+
+export function hashArchiveMediaPlan(media: ResolvedArchive['media']) {
+  return createHash('sha256')
+    .update(JSON.stringify(media.map(({ index, sourcePageUrl, locator }) => ({ index, sourcePageUrl, locator }))))
+    .digest('hex')
 }

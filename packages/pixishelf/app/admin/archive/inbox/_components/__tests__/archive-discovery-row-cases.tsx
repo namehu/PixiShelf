@@ -1,13 +1,17 @@
 import { fireEvent, screen, within } from '@testing-library/react'
-import { expect, it } from 'vitest'
+import { expect, it, type Mock } from 'vitest'
 
 export function registerDiscoveryRowCases<
   T extends { id: string; title: string; artworkId: number | null; workflowStage: string }
 >({
+  deferItems,
+  addToInbox,
   renderSources,
   getItem,
   setItems
 }: {
+  deferItems: Mock
+  addToInbox: Mock
   renderSources: () => unknown
   getItem: () => T
   setItems: (items: T[]) => void
@@ -60,5 +64,21 @@ export function registerDiscoveryRowCases<
     expect(extraSurface.disabled).toBe(false)
     fireEvent.click(extraSurface)
     expect(extra.getAttribute('aria-checked')).toBe('true')
+  })
+  it('defers only actionable selected galleries and reuses an unanswered request identity', () => {
+    const item = getItem()
+    setItems([item, { ...item, id: 'archived', title: 'Archived', actionable: false, workflowStage: 'ARCHIVED' }])
+    renderSources()
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Gallery 302' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: '选择 Archived' }))
+    fireEvent.click(screen.getByRole('button', { name: '稍后决定' }))
+    expect(deferItems).toHaveBeenCalledWith({
+      sourceId: 'source-1',
+      itemIds: ['catalog-item-1'],
+      requestId: expect.any(String)
+    })
+    fireEvent.click(screen.getByRole('button', { name: '稍后决定' }))
+    expect(deferItems.mock.calls[1]).toEqual(deferItems.mock.calls[0])
+    expect(addToInbox).not.toHaveBeenCalled()
   })
 }

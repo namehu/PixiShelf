@@ -211,11 +211,19 @@ describe('ExecutorRegistry', () => {
     expect(() => old.resolve({ ...job, definitionVersion: 3 })).toThrow()
   })
   it('requires maintenance v5 for partial protocol4 without broadening old parsers', () => {
-    const dependencies = { database: {} as PrismaClient, sourceRoot: '/fixture', archiveRoot: '/fixture', readerOptions: { entrypoint: '/fixture/reader.cjs' } }
+    const dependencies = {
+      database: {} as PrismaClient,
+      sourceRoot: '/fixture',
+      archiveRoot: '/fixture',
+      readerOptions: { entrypoint: '/fixture/reader.cjs' }
+    }
     const old = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies, 4))
     const modern = new ExecutorRegistry().register(createArtworkDedupMaintenanceExecutor(dependencies, 5))
-    const job = { type: 'ARTWORK_DEDUP_MAINTENANCE', definitionVersion: 5,
-      payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 4 } }
+    const job = {
+      type: 'ARTWORK_DEDUP_MAINTENANCE',
+      definitionVersion: 5,
+      payload: { operationId: 'o', executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 4 }
+    }
     expect(old.resolve(job)).toBeNull()
     expect(modern.resolve(job)?.payload).toEqual(job.payload)
     expect(() => old.resolve({ ...job, definitionVersion: 4 })).toThrow()
@@ -254,7 +262,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to 39 job capabilities and 58 type/version combinations', () => {
+  it('locks the production Worker to 39 job capabilities and 62 type/version combinations', () => {
     const fetchImpl = vi.fn<typeof fetch>()
     const registry = createWorkerExecutorRegistry({
       fetchImpl,
@@ -293,7 +301,7 @@ describe('ExecutorRegistry', () => {
       definitionVersions: [1, 2, 3, 4, 5, 6]
     })
     expect(capabilities).toHaveLength(39)
-    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(59)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(63)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
       [1, 2, 3, 4, 5]
     )
@@ -330,6 +338,10 @@ describe('ExecutorRegistry', () => {
             ![
               'SCAN',
               'ARCHIVE_IMPORT',
+              'ARCHIVE_DOWNLOAD',
+              'ARCHIVE_PUBLISH',
+              'ARCHIVE_RESOLVE_ITEM',
+              'ARCHIVE_MAINTENANCE',
               'ARCHIVE_SEARCH_SCAN',
               'ARCHIVE_TITLE_RULE_PREVIEW',
               'ARTWORK_DEDUP_MAINTENANCE',

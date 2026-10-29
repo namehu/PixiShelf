@@ -353,11 +353,22 @@ const purgeArchivePayloadSchema = z
 
 const reconcileArchiveMaintenancePayloadSchema = z.object({ action: z.literal('RECONCILE') }).strict()
 
-export const archiveMaintenancePayloadSchema = z.discriminatedUnion('action', [
+export const archiveMaintenanceV1PayloadSchema = z.discriminatedUnion('action', [
   cleanArchiveStagingPayloadSchema,
   archiveArtworkMaintenancePayloadSchema,
   purgeArchivePayloadSchema,
   reconcileArchiveMaintenancePayloadSchema
+])
+export const archiveRetirePartialPayloadSchema = z
+  .object({
+    action: z.literal('RETIRE_PARTIAL_REVISION'),
+    revisionId: boundedIdSchema,
+    replacementRevisionId: boundedIdSchema
+  })
+  .strict()
+export const archiveMaintenancePayloadSchema = z.discriminatedUnion('action', [
+  ...archiveMaintenanceV1PayloadSchema.options,
+  archiveRetirePartialPayloadSchema
 ])
 export type ArchiveMaintenancePayload = z.infer<typeof archiveMaintenancePayloadSchema>
 

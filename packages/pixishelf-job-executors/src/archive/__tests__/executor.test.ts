@@ -323,7 +323,7 @@ describe('archive executor', () => {
 
   it('registers backward-compatible ARCHIVE_IMPORT v1 and frozen-default-tag v2 executors', () => {
     const registrations = createArchiveExecutorRegistrations(dependencies(createTransaction()))
-    expect(registrations).toHaveLength(4)
+    expect(registrations).toHaveLength(6)
     expect(registrations[0]).toMatchObject({ jobType: 'ARCHIVE_IMPORT', definitionVersion: 1 })
     expect(registrations[0]!.parsePayload?.({ archiveImportId: 'import-1' })).toEqual({
       archiveImportId: 'import-1',
@@ -334,6 +334,16 @@ describe('archive executor', () => {
       archiveImportId: 'import-1',
       defaultTagIds: [2, 5]
     })
+    expect(
+      registrations
+        .filter((entry) => ['ARCHIVE_DOWNLOAD', 'ARCHIVE_PUBLISH'].includes(entry.jobType))
+        .map(({ jobType, definitionVersion }) => [jobType, definitionVersion])
+    ).toEqual([
+      ['ARCHIVE_DOWNLOAD', 1],
+      ['ARCHIVE_PUBLISH', 1],
+      ['ARCHIVE_DOWNLOAD', 2],
+      ['ARCHIVE_PUBLISH', 2]
+    ])
     expect(() => registrations[0]!.parsePayload?.({ archiveImportId: '' })).toThrow()
   })
 
@@ -433,7 +443,9 @@ describe('archive executor', () => {
       items: [archiveItem]
     })
     transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
-    transaction.archiveImportItem.groupBy.mockResolvedValueOnce([{ status: 'PENDING', _count: { _all: 1 } }]).mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 1 } }])
+    transaction.archiveImportItem.groupBy
+      .mockResolvedValueOnce([{ status: 'PENDING', _count: { _all: 1 } }])
+      .mockResolvedValue([{ status: 'COMPLETED', _count: { _all: 1 } }])
     transaction.archiveImportItem.findMany.mockResolvedValue([completedArchiveItem])
     transaction.archiveImport.update.mockResolvedValueOnce({ completedItems: 1 }).mockResolvedValue(undefined)
     storageMocks.storeArchiveRemoteMedia.mockResolvedValueOnce({
@@ -710,7 +722,9 @@ describe('archive executor', () => {
           lastDownloadAttempt: 1
         })
       }
-      expect(writes.find((call) => call.data.status === 'FAILED')?.data.lastDownloadUrl).toBe(valid ? downloadUrl : null)
+      expect(writes.find((call) => call.data.status === 'FAILED')?.data.lastDownloadUrl).toBe(
+        valid ? downloadUrl : null
+      )
       expect(stream.destroyed).toBe(true)
       expect(
         JSON.stringify([
@@ -773,9 +787,9 @@ describe('archive executor', () => {
     const stream = new PassThrough()
     const reset = Object.assign(new Error('connection reset'), { code: 'ECONNRESET' })
     transaction.archiveImportItem.updateMany.mockResolvedValue({ count: 1 })
-    storageMocks.storeArchiveRemoteMedia.mockRejectedValueOnce(new ArchiveExecutorError(
-      'REMOTE_RESPONSE_INVALID', 'stream reset', { stage: 'MEDIA_STREAM', cause: reset }
-    ))
+    storageMocks.storeArchiveRemoteMedia.mockRejectedValueOnce(
+      new ArchiveExecutorError('REMOTE_RESPONSE_INVALID', 'stream reset', { stage: 'MEDIA_STREAM', cause: reset })
+    )
     const context = createContext(transaction)
     const recordDiagnostic = vi.fn(async () => undefined)
     context.recordDiagnostic = recordDiagnostic
@@ -903,7 +917,11 @@ describe('archive executor', () => {
       key: 'test',
       requestGovernance: 'PER_REQUEST',
       accepts: () => true,
-    identifySource: (input: string) => ({ kind: 'PROVIDER', providerKey: 'test', externalId: new URL(input).pathname.split('/')[2] ?? '1' }),
+      identifySource: (input: string) => ({
+        kind: 'PROVIDER',
+        providerKey: 'test',
+        externalId: new URL(input).pathname.split('/')[2] ?? '1'
+      }),
       resolve: vi.fn(),
       openMedia: vi.fn(async (_item, downloadContext) =>
         downloadContext.runDownloadStreamRequest!(async () => ({
@@ -929,9 +947,11 @@ describe('archive executor', () => {
     await executeArchiveImport(context, executorDependencies).catch(() => undefined)
 
     expect(stream.destroyed).toBe(true)
-    expect(transaction.archiveImportItem.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'FAILED', errorCode: 'STORAGE_FULL' })
-    }))
+    expect(transaction.archiveImportItem.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'FAILED', errorCode: 'STORAGE_FULL' })
+      })
+    )
     await vi.waitFor(() => expect(governor.release).toHaveBeenCalledWith(permit))
   })
 
@@ -1026,9 +1046,17 @@ function createTransaction() {
     },
     archiveStagingGeneration: {
       findUnique: vi.fn(async ({ where }: { where: { token: string } }) => generations.get(where.token) ?? null),
-      create: vi.fn(async ({ data }: { data: { token: string } & Record<string, unknown> }) => { generations.set(data.token, { ...data }); return data }),
-      update: vi.fn(async ({ where, data }: { where: { token: string }; data: Record<string, unknown> }) => Object.assign(generations.get(where.token)!, data)),
-      updateMany: vi.fn(async ({ where, data }: { where: { token?: string }; data: Record<string, unknown> }) => { for (const row of generations.values()) if (!where.token || row.token === where.token) Object.assign(row, data); return { count: 1 } })
+      create: vi.fn(async ({ data }: { data: { token: string } & Record<string, unknown> }) => {
+        generations.set(data.token, { ...data })
+        return data
+      }),
+      update: vi.fn(async ({ where, data }: { where: { token: string }; data: Record<string, unknown> }) =>
+        Object.assign(generations.get(where.token)!, data)
+      ),
+      updateMany: vi.fn(async ({ where, data }: { where: { token?: string }; data: Record<string, unknown> }) => {
+        for (const row of generations.values()) if (!where.token || row.token === where.token) Object.assign(row, data)
+        return { count: 1 }
+      })
     },
     archiveDeletedIdentity: { findUnique: vi.fn(async () => null) },
     archiveImport: {

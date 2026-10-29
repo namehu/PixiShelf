@@ -13,7 +13,7 @@ export function archiveImportDefaultTagIdsForRetry(
   let parsed: { archiveImportId: string; defaultTagIds: number[] } | null = null
   try {
     parsed =
-      (job.type === 'ARCHIVE_DOWNLOAD' || job.type === 'ARCHIVE_PUBLISH') && job.definitionVersion === 1
+      (job.type === 'ARCHIVE_DOWNLOAD' || job.type === 'ARCHIVE_PUBLISH') && [1, 2].includes(job.definitionVersion)
         ? archiveImportV2PayloadSchema.parse(job.payload)
         : job.definitionVersion === JOB_DEFINITION_VERSION
           ? { ...archiveImportPayloadSchema.parse(job.payload), defaultTagIds: [] }

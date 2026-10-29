@@ -23,7 +23,7 @@ export function ArchiveDiscoveryIgnoreDialog({
   onClose,
   onConfirm
 }: {
-  selection: DiscoveryIgnoreSelection | null
+  selection: Pick<DiscoveryIgnoreSelection, 'items'> | null
   pending: boolean
   onClose: () => void
   onConfirm: () => void

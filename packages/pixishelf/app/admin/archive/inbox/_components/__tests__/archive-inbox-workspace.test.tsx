@@ -14,12 +14,14 @@ vi.mock('../archive-uploader-sources', () => ({
     sourceSort,
     onSourceSortChange,
     onNavigateSource,
+    onNavigateIgnored,
     onNavigateSourceList
   }: {
     active: boolean
     sourceSort: SourceListSort
     onSourceSortChange: (sort: SourceListSort) => void
     onNavigateSource: (id: string, history: 'push') => void
+    onNavigateIgnored: (ignored: boolean, history: 'push', sourceId?: string) => void
     onNavigateSourceList: (history: 'push') => void
   }) =>
     active ? (
@@ -37,6 +39,8 @@ vi.mock('../archive-uploader-sources', () => ({
           ))}
         </select>
         <button onClick={() => onNavigateSource('source-1', 'push')}>查看来源</button>
+        <button onClick={() => onNavigateIgnored(true, 'push', 'source-1')}>查看本来源已忽略</button>
+        <button onClick={() => onNavigateIgnored(true, 'push')}>查看全局已忽略</button>
         <button onClick={() => onNavigateSourceList('push')}>返回来源列表</button>
       </div>
     ) : null
@@ -64,6 +68,21 @@ describe('archive workspace tab navigation', () => {
     expect(onUrlUpdate.mock.calls.at(-1)?.[0].searchParams.get('sourceSort')).toBe('actionable-desc')
     fireEvent.change(screen.getByRole('combobox', { name: '来源排序' }), { target: { value: 'created-desc' } })
     await waitFor(() => expect(onUrlUpdate.mock.calls.at(-1)?.[0].searchParams.has('sourceSort')).toBe(false))
+  })
+
+  it('preserves the source scope in ignored deep links and clears it for the global view', async () => {
+    const onUrlUpdate = vi.fn()
+    render(
+      <NuqsTestingAdapter hasMemory searchParams="?sourceId=source-1" onUrlUpdate={onUrlUpdate}>
+        <ArchiveInboxWorkspace />
+      </NuqsTestingAdapter>
+    )
+    fireEvent.click(screen.getByRole('button', { name: '查看本来源已忽略' }))
+    await waitFor(() => expect(onUrlUpdate.mock.calls.at(-1)?.[0].searchParams.get('discoveryView')).toBe('ignored'))
+    expect(onUrlUpdate.mock.calls.at(-1)?.[0].searchParams.get('sourceId')).toBe('source-1')
+    fireEvent.click(screen.getByRole('button', { name: '查看全局已忽略' }))
+    await waitFor(() => expect(onUrlUpdate.mock.calls.at(-1)?.[0].searchParams.has('sourceId')).toBe(false))
+    expect(onUrlUpdate.mock.calls.at(-1)?.[0].searchParams.get('discoveryView')).toBe('ignored')
   })
 
   it('falls back to newest creation for an invalid sort in the URL', () => {

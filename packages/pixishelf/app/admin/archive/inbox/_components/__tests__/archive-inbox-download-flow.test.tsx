@@ -107,7 +107,7 @@ describe('archive inbox download flow', () => {
     fireEvent.click(checkbox)
     fireEvent.click(screen.getByRole('button', { name: '确认下载 1' }))
     expect(mocks.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ items: [{ itemId: 'item-1', quality: 'DISPLAY' }] })
+      expect.objectContaining({ items: [{ itemId: 'item-1', quality: 'DISPLAY', downloadScope: 'ALL' }] })
     )
     await waitFor(() =>
       expect(screen.getAllByRole('combobox', { name: '队列项目 1 的归档质量' })[0]!.textContent).toBe('展示图')

@@ -35,6 +35,11 @@ vi.mock('@/services/archive-uploader/archive-uploader-service', async (original)
   listArchiveUploaderScanItems: writes,
   listArchiveUploaderIgnoredItems: writes
 }))
+vi.mock('@/services/archive-uploader/discovery-deferred-service', async (original) => ({
+  ...(await original<typeof import('@/services/archive-uploader/discovery-deferred-service')>()),
+  listDeferredItems: writes, deferDiscoveryItems: writes, restoreDeferredItems: writes,
+  ignoreDeferredItems: writes, downloadDeferredItems: writes
+}))
 import { archiveSearchRouter } from '../archive-search'
 vi.mock('@/services/archive-uploader/discovery-creator-service', async (original) => ({
   ...(await original<typeof import('@/services/archive-uploader/discovery-creator-service')>()),
@@ -50,6 +55,11 @@ beforeEach(() => writes.mockReset())
 
 describe('archiveSearch authentication boundary', () => {
   it.each([
+    () => caller.listDeferredItems({}),
+    () => caller.deferItems({ sourceId: 'one', itemIds: ['item'], requestId: 'request' }),
+    () => caller.restoreDeferredItems({ deferredItemIds: ['item'], requestId: 'request' }),
+    () => caller.ignoreDeferredItems({ deferredItemIds: ['item'], requestId: 'request' }),
+    () => caller.downloadDeferredItems({ deferredItemIds: ['item'], requestId: 'request' }),
     () => caller.latestRulePreview({ sourceId: 'one' }),
     () =>
       caller.previewRules({
