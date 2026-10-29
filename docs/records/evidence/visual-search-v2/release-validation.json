@@ -1,0 +1,180 @@
+{
+  "date": "2026-10-29",
+  "candidate": "a7f2eedb (4ade7b44 + 8ea4d57c)",
+  "environment": "isolated local PostgreSQL fixture; no development or production data",
+  "scope": "one real Node Worker SIGKILL during original hashing, natural lease recovery, desktop sampling",
+  "artistId": 7,
+  "runId": "4610351e-5064-4ff5-a370-f32438bed0b5",
+  "jobId": "957799b0-eec6-4b29-93a4-06cbbc8245cc",
+  "startEntry": "existing startArtworkDedup service, FULL + includeSuspectedVersions",
+  "workerRestart": {
+    "signal": "SIGKILL",
+    "oldPid": 93370,
+    "oldReaderPid": 93629,
+    "lastObservedHashCheckpoint": 120,
+    "stableHashCheckpointAfterExit": 160,
+    "killObservedAt": "2026-10-29T15:39:52.573Z",
+    "leaseExpiresAt": "2026-10-29T15:40:45.495Z",
+    "recoveredAt": "2026-10-29T15:40:46.740Z",
+    "recoveredAttempt": 2,
+    "sameRunAndJob": true,
+    "leaseOrClockModified": false,
+    "oldWorkerAbsentAfter1500ms": true,
+    "oldReaderAbsentAfter1500ms": true,
+    "finalOwnedProcesses": [
+      {
+        "pid": 93370,
+        "aliveAtFinalAudit": false
+      },
+      {
+        "pid": 93629,
+        "aliveAtFinalAudit": false
+      },
+      {
+        "pid": 93678,
+        "aliveAtFinalAudit": false
+      },
+      {
+        "pid": 94109,
+        "aliveAtFinalAudit": false
+      },
+      {
+        "pid": 94221,
+        "aliveAtFinalAudit": false
+      },
+      {
+        "pid": 94306,
+        "aliveAtFinalAudit": false
+      }
+    ]
+  },
+  "result": {
+    "status": "COMPLETED",
+    "jobStatus": "COMPLETED",
+    "statMedia": 2000,
+    "hashedMedia": 2000,
+    "cacheHitMedia": 0,
+    "readBytes": "7240740",
+    "retryReadBytes": "0",
+    "mediaRows": 2000,
+    "hashedRows": 2000,
+    "artworks": 50,
+    "completeArtworks": 50,
+    "groups": 25,
+    "duplicateArtworks": 25,
+    "expectedPairMatches": true,
+    "filesChecked": 2000,
+    "allFilesMatch": true,
+    "originalBaselineUnchanged": true,
+    "progressSamples": 198,
+    "progressRegressions": []
+  },
+  "expected": {
+    "artworks": 50,
+    "files": 2000,
+    "exactGroups": 25,
+    "duplicateArtworks": 25,
+    "originalBytes": 3620370,
+    "fullCommittedReadBytes": 7240740
+  },
+  "performance": {
+    "kind": "artwork-dedup-performance",
+    "batch": 141,
+    "jobId": "957799b0-eec6-4b29-93a4-06cbbc8245cc",
+    "phase": "COMPLETED",
+    "runId": "4610351e-5064-4ff5-a370-f32438bed0b5",
+    "version": 1,
+    "complete": true,
+    "counters": {
+      "readBytes": 7240740,
+      "dbLoadCalls": 559,
+      "compareCalls": 1088,
+      "dbWriteCalls": 2465,
+      "transactions": 968,
+      "decodedImages": 2000,
+      "indexRebuilds": 1,
+      "candidatePairs": 1088,
+      "ownFeatureHits": 0,
+      "indexNodeVisits": 143702740,
+      "replayedQueries": null,
+      "localChannelHits": 3000,
+      "wholeChannelHits": 5828,
+      "dbValidationCalls": 8542,
+      "contentFeatureHits": 0,
+      "relationReusedPairs": 0,
+      "replayedComparisons": null,
+      "relationInvalidatedPairs": null
+    },
+    "progress": {
+      "originals": 2000,
+      "queryTotal": 2000,
+      "staticImages": 2000,
+      "queryCompleted": 2000,
+      "uncheckedMedia": 0
+    },
+    "updatedAt": "2026-10-29T15:41:28.426Z",
+    "durationsMs": {
+      "pair": 2075.059165000013,
+      "index": 34.5767499999929,
+      "pause": null,
+      "query": 2610.961708999996,
+      "queue": 1309,
+      "active": 42232.07129200002,
+      "dbLoad": 1316.330250000007,
+      "compare": 1.502407999767456,
+      "dbWrite": 4878.348852999823,
+      "feature": 19509.24095600009,
+      "cooldown": 6011,
+      "dbValidation": 9427.984120000252,
+      "transactionWall": 18880.37802599991
+    },
+    "inputDigest": "2344417211402206d8d3ac79e6449b656ec1457f07a41d185cefaf5bac228bd2",
+    "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+    "memoryPeakBytes": 188874752,
+    "protocolVersion": 8,
+    "cacheInvalidationReasons": [
+      "FULL"
+    ]
+  },
+  "originalSamples": {
+    "retainedArtworkIds": [
+      1,
+      3
+    ],
+    "retainedFiles": 10,
+    "unchanged": true,
+    "previouslyDeletedArtworkId": 2,
+    "previousDeletionUnchanged": true
+  },
+  "browser": {
+    "initialRun": "8cb854d4-9b16-4e9d-ab39-3d252b84da98",
+    "initialRunNaturallyCompleted": true,
+    "initialDesktopListOpenedWhileActive": true,
+    "detailAutomationTimedOut": true,
+    "restartRunObserved": "4610351e-5064-4ff5-a370-f32438bed0b5",
+    "refreshFeatures": [
+      127,
+      1211
+    ],
+    "visualObserved": 1792,
+    "finalGroups": 25,
+    "finalObservedAt": "2026-10-29T15:41:53.686Z",
+    "manualContinueOrDeletion": false
+  },
+  "limitations": [
+    "The first browser-triggered run completed before the kill window and is not counted as a restart test.",
+    "The actual restart covered original hashing; a visual-compute-phase process restart was not tested.",
+    "Committed hashes, rows, features and bytes were checked for duplicate accounting. Physical reads in an uncommitted in-flight tail at SIGKILL were not traced; retryReadBytes=0 does not prove zero such physical reads.",
+    "Desktop detail automation timed out; this acceptance does not claim complete desktop interaction coverage."
+  ],
+  "focusedValidation": {
+    "prismaGenerate": "passed",
+    "isolatedMainMigrations": 3,
+    "workerDependencyBuild": "passed",
+    "executorRegistryTests": "13 passed",
+    "readyWorkers": 1,
+    "capabilityJobTypes": 39,
+    "capabilityVersions": 63,
+    "fullValidationRepeated": false
+  }
+}

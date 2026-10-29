@@ -262,7 +262,7 @@ describe('ExecutorRegistry', () => {
     ).toThrow('must register in ARCHIVE_RESOLVE')
   })
 
-  it('locks the production Worker to 39 job capabilities and 62 type/version combinations', () => {
+  it('locks the production Worker to 39 job capabilities and 63 type/version combinations', () => {
     const fetchImpl = vi.fn<typeof fetch>()
     const registry = createWorkerExecutorRegistry({
       fetchImpl,
