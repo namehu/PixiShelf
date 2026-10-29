@@ -45,6 +45,8 @@ Android：[2026-10-28 核心阅读页面迁移](./features/android-core-parity-2
 
 ## 发布、迁移与事故
 
+去重修复与删除优化：[2026-10-29 v0.54.19 发布交接](./operations/artwork-deduplication-release-2026-10-29.md)。
+
 Android 发布：[2026-10-28 v0.54.18 发布交接](./operations/android-release-2026-10-28.md)。
 
 Android：[2026-10-28 主工作区与 USB 本地联调准备](./operations/android-local-validation-2026-10-28.md)。
