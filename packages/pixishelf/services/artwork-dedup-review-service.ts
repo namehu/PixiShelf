@@ -7,6 +7,7 @@ import {
   isArtworkDedupPrepareRetryable,
   artworkDedupRequestDigest,
   freezeArtworkDedupOperation,
+  prepareArtworkDedupQuickConfirmation,
   saveArtworkDedupReview,
   readArtworkDedupGroupChoices,
   lockArtworkDedupActor,
@@ -25,7 +26,7 @@ import { assertArtworkDedupAccount } from './artwork-dedup-service'
 import { writeJobEvent } from './background-task/job-event-service'
 import { WORKER_HEARTBEAT_STALE_AFTER_MS } from './background-task/worker-heartbeat'
 interface Database {
-  $transaction<T>(body: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T>
+  $transaction<T>(body: (tx: Prisma.TransactionClient) => Promise<T>, options?: { timeout?: number }): Promise<T>
 }
 type Operation = Prisma.ArtworkDedupOperationGetPayload<Record<string, never>>
 const databaseDefault = prisma as unknown as Database
@@ -462,6 +463,7 @@ export function artworkDedupOperationDto(
     scopeDigest: op.scopeDigest ?? null,
     status: op.status,
     stage: op.stage,
+    preparationVersion: op.preparationVersion,
     createdAt: op.createdAt.toISOString(),
     updatedAt: op.updatedAt.toISOString(),
     validatedAt: op.validatedAt?.toISOString() ?? null,
@@ -475,6 +477,7 @@ export function artworkDedupOperationDto(
       copies: op.copies,
       preparedArtworks: op.preparedArtworks,
       preparedFiles: op.preparedFiles.toString(),
+      verifiedFiles: (op.verifiedFiles ?? 0n).toString(),
       logicalBytes: op.logicalBytes?.toString() ?? null,
       movedFiles: op.movedFiles.toString(),
       restoredFiles: op.restoredFiles.toString(),
@@ -578,7 +581,7 @@ async function enqueueOperation(tx: Prisma.TransactionClient, op: Operation) {
       id: randomUUID(),
       type: 'ARTWORK_DEDUP_MAINTENANCE',
       executionLane: 'BACKGROUND_WRITER',
-      definitionVersion: direct ? contract.ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION : 1,
+      definitionVersion: direct ? op.preparationVersion === 2 ? 6 : 5 : 1,
       triggerSource: 'SYSTEM',
       queuePriority: 900,
       effectivePriority: 900,
@@ -622,8 +625,10 @@ export async function prepareArtworkDedupCleanup(
         if (source?.requestedBy !== userId || source.preparePurpose !== purpose) conflict('SCOPE_MISMATCH')
       }
       const result = await freezeArtworkDedupOperation(tx, { ...input, userId, preparePurpose: purpose })
-      return artworkDedupOperationDto(result.created ? await enqueueOperation(tx, result.operation) : result.operation)
-    })
+      return artworkDedupOperationDto(result.created
+        ? purpose === 'DIRECT_DELETE' ? await prepareArtworkDedupQuickConfirmation(tx, result.operation.id) : await enqueueOperation(tx, result.operation)
+        : result.operation)
+    }, { timeout: 30000 })
   )
 }
 export async function getArtworkDedupOperation(

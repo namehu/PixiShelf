@@ -14,6 +14,7 @@ export function DuplicateOperationSummary({ operation }: { operation: ArtworkDed
   const manualPair = operation.protocolVersion === 3 || operation.protocolVersion === 4
   const completed = status === 'DELETED'
   const deleting = isDirectDeletePreview(operation) && operation.mode === 'DIRECT_DELETE'
+  const quickConfirmation = operation.preparationVersion === 2
   return (
     <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
       {completed ? (
@@ -21,7 +22,7 @@ export function DuplicateOperationSummary({ operation }: { operation: ArtworkDed
       ) : operation.failure || counts.blockedGroups > 0 ? (
         <CircleAlert className="mt-1.5 size-4 shrink-0 text-warning" aria-hidden="true" />
       ) : null}
-      <div className="min-w-0 flex-1 space-y-1 py-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-1 py-1">
         {status !== 'READY' ? <p className="text-sm font-medium">{duplicateOperationLabels[status]}</p> : null}
         <p role="status" aria-live="polite" className="text-sm leading-5">
           {completed
@@ -34,16 +35,23 @@ export function DuplicateOperationSummary({ operation }: { operation: ArtworkDed
                 ? '保留所选版本，删除另一个版本。'
                 : `保留 ${counts.keepers} 部，删除 ${counts.copies} 部重复作品。`}
         </p>
+        {quickConfirmation && operation.mode === 'PREPARE' && status === 'READY' ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            确认后在后台完整核对保留方和删除方的文件，通过后才开始删除。
+          </p>
+        ) : null}
         {status === 'BUILDING' ? (
           <p className="text-xs text-muted-foreground">正在检查文件，完成后可确认删除。</p>
         ) : null}
         {deleting && !completed ? (
           <p className="text-xs text-muted-foreground">
-            {operation.deleteStartedAt
-              ? '已删除的文件无法恢复。'
-              : status === 'CANCELLED'
-                ? '已取消，未删除文件。'
-                : '尚未删除文件，正在核对作品。'}
+            {duplicateExecutionStatus(operation)}
+          </p>
+        ) : null}
+        {quickConfirmation && deleting && !completed && (status === 'DELETING' || operation.deleteStartedAt) ? (
+          <p className="text-xs text-muted-foreground">
+            已删除 {BigInt(counts.deletedFiles).toLocaleString('zh-CN')} /{' '}
+            {(BigInt(counts.deletedFiles) + BigInt(counts.remainingFiles)).toLocaleString('zh-CN')} 个待删除文件。
           </p>
         ) : null}
         {counts.excludedGroups > 0 || counts.blockedGroups > 0 ? (
@@ -61,6 +69,7 @@ export function DuplicateOperationDiagnostics({ operation }: { operation: Artwor
   const { counts, status } = operation
   const completed = status === 'DELETED'
   const deleting = isDirectDeletePreview(operation) && operation.mode === 'DIRECT_DELETE'
+  const quickConfirmation = operation.preparationVersion === 2
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -77,10 +86,16 @@ export function DuplicateOperationDiagnostics({ operation }: { operation: Artwor
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 pb-2">
           <dt>重复组</dt>
           <dd>{counts.selectedGroups} 组</dd>
-          <dt>检查文件</dt>
+          <dt>{quickConfirmation ? '已登记文件' : '检查文件'}</dt>
           <dd>{BigInt(counts.preparedFiles).toLocaleString()} 个</dd>
+          {quickConfirmation && deleting ? (
+            <>
+              <dt>已完成核验</dt>
+              <dd>{BigInt(counts.verifiedFiles ?? '0').toLocaleString()} 个</dd>
+            </>
+          ) : null}
           <dt>删除文件总大小</dt>
-          <dd>{duplicateBytes(counts.logicalBytes)}</dd>
+          <dd>{quickConfirmation && counts.logicalBytes === null ? '待核验' : duplicateBytes(counts.logicalBytes)}</dd>
           {deleting ? (
             <>
               <dt>已删除文件</dt>
@@ -95,7 +110,7 @@ export function DuplicateOperationDiagnostics({ operation }: { operation: Artwor
           ) : null}
           {operation.validatedAt ? (
             <>
-              <dt>上次核对</dt>
+              <dt>{quickConfirmation ? '范围确认时间' : '上次核对'}</dt>
               <dd>{new Date(operation.validatedAt).toLocaleString('zh-CN')}</dd>
             </>
           ) : null}
@@ -109,4 +124,19 @@ export function DuplicateOperationDiagnostics({ operation }: { operation: Artwor
       </PopoverContent>
     </Popover>
   )
+}
+
+function duplicateExecutionStatus(operation: ArtworkDedupOperationDto) {
+  const { counts, status } = operation
+  if (operation.deleteStartedAt) return '已删除的文件无法恢复。'
+  if (status === 'CANCELLED') return '已取消，未删除文件。'
+  if (operation.preparationVersion === 2) {
+    if (status === 'DRAINING') return '任务已提交，正在等待后台核对文件，尚未删除文件。'
+    if (status === 'VERIFYING') {
+      return `已核验 ${BigInt(counts.verifiedFiles ?? '0').toLocaleString('zh-CN')} / ${BigInt(counts.preparedFiles).toLocaleString('zh-CN')} 个已登记文件，尚未删除文件。`
+    }
+    if (status === 'DELETING') return '文件核验已通过，正在开始删除。'
+    if (['FAILED', 'STALE', 'RECOVERY_REQUIRED', 'STOPPED'].includes(status)) return '处理已停止，尚未删除文件。'
+  }
+  return '尚未删除文件，正在核对作品。'
 }

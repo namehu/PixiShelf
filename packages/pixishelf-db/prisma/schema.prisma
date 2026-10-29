@@ -2911,6 +2911,9 @@ model ArtworkDedupReview {
 
 // Durable intent and evidence outlive the referenced Artwork/Image rows.
 model ArtworkDedupOperation {
+  preparationVersion Int @default(1)
+  verificationResume Json?
+  verifiedFiles BigInt @default(0)
   id String @id @default(uuid())
   runId String
   artistId Int
@@ -3046,6 +3049,7 @@ model ArtworkDedupOperationArtwork {
 }
 
 model ArtworkDedupOperationFile {
+  verificationSpec Json?
   fileId String @id @default(uuid())
   operationId String
   artworkId Int

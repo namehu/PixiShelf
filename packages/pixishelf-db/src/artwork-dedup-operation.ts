@@ -42,8 +42,9 @@ export async function assertArtworkDedupOperationExecution(
   const payload = job?.payload as Record<string, unknown> | undefined
   if (
     job?.type !== 'ARTWORK_DEDUP_MAINTENANCE' ||
-    (op.protocolVersion === 3 && ![4, 5].includes(job.definitionVersion)) ||
-    (op.protocolVersion === 4 && (job.definitionVersion !== 5 || op.mode === 'PREPARE' && payload?.protocolVersion !== 4)) ||
+    (op.preparationVersion === 2 && job.definitionVersion !== 6) ||
+    (op.protocolVersion === 3 && ![4, 5, 6].includes(job.definitionVersion)) ||
+    (op.protocolVersion === 4 && (![5, 6].includes(job.definitionVersion) || op.mode === 'PREPARE' && payload?.protocolVersion !== 4)) ||
     !(options.allowControl ? ['RUNNING', 'PAUSING', 'CANCELLING'] : ['RUNNING']).includes(job.status) ||
     payload?.operationId !== op.id ||
     payload?.executionVersion !== op.executionVersion ||
@@ -207,6 +208,14 @@ export async function readArtworkDedupInventoryPage(
   input: { execution: ArtworkDedupOperationExecution; artworkId: number; afterImageId?: number; limit?: number }
 ) {
   const op = await assertArtworkDedupOperationExecution(tx, input.execution)
+  return readArtworkDedupInventorySnapshot(tx, { ...input, operationId: op.id })
+}
+/** Database-only scope read; callers own the operation/run and snapshot locks. */
+export async function readArtworkDedupInventorySnapshot(
+  tx: Prisma.TransactionClient,
+  input: { operationId: string; artworkId: number; afterImageId?: number; limit?: number }
+) {
+  const op = await tx.artworkDedupOperation.findUniqueOrThrow({ where: { id: input.operationId } })
   const frozen = await tx.artworkDedupOperationArtwork.findUnique({
     where: { operationId_artworkId: { operationId: op.id, artworkId: input.artworkId } }
   })
@@ -567,6 +576,13 @@ export async function readArtworkDedupArchiveManifestEvidence(
   input: { execution: ArtworkDedupOperationExecution; artworkId: number; allowLegacyManifestMapping?: boolean }
 ) {
   const op = await assertArtworkDedupOperationExecution(tx, input.execution)
+  return readArtworkDedupArchiveManifestSnapshot(tx, { ...input, operationId: op.id })
+}
+export async function readArtworkDedupArchiveManifestSnapshot(
+  tx: Prisma.TransactionClient,
+  input: { operationId: string; artworkId: number; allowLegacyManifestMapping?: boolean }
+) {
+  const op = await tx.artworkDedupOperation.findUniqueOrThrow({ where: { id: input.operationId } })
   const item = await tx.artworkDedupOperationArtwork.findUnique({
     where: { operationId_artworkId: { operationId: op.id, artworkId: input.artworkId } }
   })

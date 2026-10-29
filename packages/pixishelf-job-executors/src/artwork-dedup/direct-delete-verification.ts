@@ -39,9 +39,10 @@ export function state(file: File): MaintenanceFileState {
   }
 }
 /** Repeat the bounded exclusive-directory inventory: new attachments cannot join an old confirmation. */
-async function verifyDirectory(
+export async function verifyDirectory(
   context: DedupPrepareContext,
-  item: Prisma.ArtworkDedupOperationArtworkGetPayload<Record<string, never>>
+  item: Prisma.ArtworkDedupOperationArtworkGetPayload<Record<string, never>>,
+  knownFiles?: Array<{ canonicalPath: string; status: string }>
 ) {
   const { transaction: tx, execution, reader, roots, signal } = context
   let directory: string | null = null
@@ -64,10 +65,32 @@ async function verifyDirectory(
     directory = item.storagePath.replace(/^\/+|\/+$/g, '')
   }
   if (!directory) return
+  const known = knownFiles ?? []
+  if (!knownFiles) {
+    let after: string | undefined
+    for (;;) {
+      const page = await tx(async t => {
+        await assertArtworkDedupDirectDeleteExecution(t, execution)
+        return t.artworkDedupOperationFile.findMany({ where: { operationId: execution.operationId, artworkId: item.artworkId,
+          rootIdentity: root.rootIdentity, ...(after ? { fileId: { gt: after } } : {}) },
+          select: { fileId: true, canonicalPath: true, status: true }, orderBy: { fileId: 'asc' }, take: 500 })
+      })
+      known.push(...page)
+      if (page.length < 500) break
+      after = page.at(-1)!.fileId
+    }
+  }
+  const byPath = new Map(known.map(file => [file.canonicalPath, file]))
+  const descendants = new Set<string>()
+  for (const file of known) {
+    const pieces = file.canonicalPath.split('/')
+    for (let length = 1; length < pieces.length; length++) descendants.add(pieces.slice(0, length).join('/'))
+  }
   const stack = [{ path: directory, after: null as string | null, state: null as MaintenanceFileState | null }]
   let visited = 0
   while (stack.length) {
     const frame = stack.at(-1)!
+    await tx(t => assertArtworkDedupDirectDeleteExecution(t, execution))
     const page = await reader.inspectDirectory({
       root,
       relativePath: frame.path,
@@ -76,20 +99,6 @@ async function verifyDirectory(
       signal
     })
     frame.state = page.state
-    const paths = page.entries.map((child) => `${frame.path}/${child.name}`)
-    const known = await tx((t) =>
-      t.artworkDedupOperationFile.findMany({
-        where: {
-          operationId: execution.operationId,
-          artworkId: item.artworkId,
-          rootIdentity: root.rootIdentity,
-          canonicalPath: { in: paths }
-        },
-        select: { canonicalPath: true, status: true },
-        take: 100
-      })
-    )
-    const byPath = new Map(known.map((file) => [file.canonicalPath, file]))
     let descended = false
     for (const child of page.entries) {
       if (++visited > 10000 || stack.length > 12) throw new ArtworkDedupOperationError('DIRECTORY_BUDGET_EXCEEDED')
@@ -99,20 +108,7 @@ async function verifyDirectory(
         if (byPath.get(childPath)!.status === 'DELETED') throw new ArtworkDedupOperationError('FILE_CHANGED')
         continue
       }
-      if (
-        child.kind === 'DIRECTORY' &&
-        (await tx((t) =>
-          t.artworkDedupOperationFile.findFirst({
-            where: {
-              operationId: execution.operationId,
-              artworkId: item.artworkId,
-              rootIdentity: root.rootIdentity,
-              canonicalPath: { startsWith: `${childPath}/` }
-            },
-            select: { fileId: true }
-          })
-        ))
-      ) {
+      if (child.kind === 'DIRECTORY' && descendants.has(childPath)) {
         stack.push({ path: childPath, after: null, state: null })
         descended = true
         break

@@ -22,7 +22,7 @@ export const ARTWORK_DEDUP_RELEASE_STAGE: number = 3
 /** Independent release decision; never inferred from the legacy stage or client input. */
 export const ARTWORK_DEDUP_DIRECT_DELETE_ENABLED: boolean = true
 export const ARTWORK_DEDUP_DIRECT_DELETE_PROTOCOL = 1 as const
-export const ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION = 5 as const
+export const ARTWORK_DEDUP_DIRECT_DELETE_DEFINITION_VERSION = 6 as const
 export const artworkDedupMaintenanceModeSchema = z.enum(['PREPARE', 'ISOLATE', 'RESTORE', 'PURGE', 'DIRECT_DELETE'])
 export type ArtworkDedupMaintenanceMode = z.infer<typeof artworkDedupMaintenanceModeSchema>
 export function isArtworkDedupMaintenanceModeEnabled(
@@ -68,12 +68,14 @@ export const artworkDedupMaintenanceV5PayloadSchema = z.discriminatedUnion('mode
     protocolVersion: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]) }).strict(),
   z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
 ])
+export const artworkDedupMaintenanceV6PayloadSchema = z.object({ ...maintenanceIdentity, mode: z.literal('DIRECT_DELETE') }).strict()
 export const artworkDedupMaintenancePayloadSchema = z.union([
   artworkDedupMaintenanceV1PayloadSchema,
   artworkDedupMaintenanceV2PayloadSchema,
   artworkDedupMaintenanceV3PayloadSchema,
   artworkDedupMaintenanceV4PayloadSchema,
-  artworkDedupMaintenanceV5PayloadSchema
+  artworkDedupMaintenanceV5PayloadSchema,
+  artworkDedupMaintenanceV6PayloadSchema
 ])
 export type ArtworkDedupMaintenancePayload = z.infer<typeof artworkDedupMaintenancePayloadSchema>
 export const artworkDedupOperationStatusSchema = z.enum([
@@ -341,6 +343,7 @@ export const artworkDedupOperationDtoSchema = z.object({
     .default(null),
   status: artworkDedupOperationStatusSchema,
   stage: z.string(),
+  preparationVersion: z.union([z.literal(1), z.literal(2)]).default(1),
   createdAt: z.string(),
   updatedAt: z.string(),
   validatedAt: date,
@@ -354,6 +357,7 @@ export const artworkDedupOperationDtoSchema = z.object({
     copies: count,
     preparedArtworks: count,
     preparedFiles: bytes,
+    verifiedFiles: bytes.default('0'),
     logicalBytes: bytes.nullable(),
     movedFiles: bytes,
     restoredFiles: bytes,

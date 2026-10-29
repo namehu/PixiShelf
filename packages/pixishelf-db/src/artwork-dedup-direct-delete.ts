@@ -40,7 +40,8 @@ export async function artworkDedupDirectDeleteScopeDigest(tx: Prisma.Transaction
       SELECT 'operation' kind,o.id key,jsonb_build_array(o.id,o."runId",o."runVersion",o."requestedBy",o."frozenReviewRevision",o."preparePurpose",o."protocolVersion",o."rootBindings",o."selectedGroups",o.keepers,o.copies)::text v FROM "ArtworkDedupOperation" o WHERE o.id=${operationId}
       UNION ALL SELECT 'group',g."groupId",(CASE WHEN g."relationKind"='EXACT' THEN to_jsonb(g)-ARRAY['relationKind','containedArtworkId','containerArtworkId','containedFileCount','containerFileCount','visual'] WHEN g."relationKind"='CONTAINS' THEN to_jsonb(g)-'visual' ELSE to_jsonb(g) END)::text FROM "ArtworkDedupOperationGroup" g WHERE g."operationId"=${operationId}
       UNION ALL SELECT 'artwork',a."artworkId"::text,jsonb_build_array(a."artworkId",a."groupId",a.role,a."frozenMediaRevision",a."snapshotRevision",a."mediaEpoch",a."membersSignature",a."contentSha256",a."memberCount",a."organizationSignature",a."impactSignature",a."sourceSignature",a."creatorSignature",a."selectedForAction")::text FROM "ArtworkDedupOperationArtwork" a WHERE a."operationId"=${operationId}
-      UNION ALL SELECT 'file',f."fileId",jsonb_build_array(f."fileId",f."artworkId",f."referenceKey",f.role,f."rootIdentity",f."logicalRoot",f."canonicalPath",f.size,f."mtimeNs",f."ctimeNs",f."deviceId",f.inode,f."linkCount",f.sha256,f."sourceRevision")::text FROM "ArtworkDedupOperationFile" f WHERE f."operationId"=${operationId}
+      UNION ALL SELECT 'preparation','version',o."preparationVersion"::text FROM "ArtworkDedupOperation" o WHERE o.id=${operationId} AND o."preparationVersion"=2
+      UNION ALL SELECT 'file',f."fileId",(CASE WHEN o."preparationVersion"=2 THEN jsonb_build_array(f."fileId",f."artworkId",f."referenceKey",f.role,f."rootIdentity",f."logicalRoot",f."canonicalPath",f."sourceRevision",f."verificationSpec") ELSE jsonb_build_array(f."fileId",f."artworkId",f."referenceKey",f.role,f."rootIdentity",f."logicalRoot",f."canonicalPath",f.size,f."mtimeNs",f."ctimeNs",f."deviceId",f.inode,f."linkCount",f.sha256,f."sourceRevision") END)::text FROM "ArtworkDedupOperationFile" f JOIN "ArtworkDedupOperation" o ON o.id=f."operationId" WHERE f."operationId"=${operationId}
       UNION ALL SELECT 'source',b."artworkId"::text||':'||b."sourceId",to_jsonb(b)::text FROM "ArtworkDedupOperationSource" b WHERE b."operationId"=${operationId}
     ) SELECT encode(sha256(convert_to(string_agg(encode(sha256(convert_to(v,'UTF8')),'hex'),'' ORDER BY kind,key),'UTF8')),'hex') digest FROM facts`)
   if (!row?.digest) throw new ArtworkDedupOperationError('EMPTY_SELECTION')
@@ -252,6 +253,11 @@ export async function beginArtworkDedupDirectDeleteFiles(
           GROUP BY f.size,f.sha256 HAVING count(*)>(SELECT count(*) FROM "ArtworkDedupOperationFile" kept WHERE kept."operationId"=g."operationId" AND kept."artworkId"=g."containerArtworkId" AND kept.role='MEDIA' AND kept.size=f.size AND kept.sha256=f.sha256))
       )) bad`)
   if (bad?.bad) throw new ArtworkDedupOperationError('INCOMPLETE_EVIDENCE')
+  if (op.preparationVersion === 2 && (op.verifiedFiles !== op.preparedFiles ||
+    await tx.artworkDedupOperationArtwork.count({ where: { operationId: op.id, inspectionComplete: false } }) ||
+    await tx.artworkDedupOperationFile.count({ where: { operationId: op.id, OR: [{ inspectionStatus: { not: 'VERIFIED' } }, { status: { notIn: ['VERIFIED', 'DELETE_INTENT', 'DELETED'] } }] } }))) {
+    throw new ArtworkDedupOperationError('INCOMPLETE_EVIDENCE')
+  }
   if (op.protocolVersion === 4) {
     const group = await tx.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: op.id, relationKind: 'PARTIAL' } })
     await assertArtworkDedupPartialFileEvidence(tx, op.id, group.visual)
@@ -263,9 +269,12 @@ export async function beginArtworkDedupDirectDeleteFiles(
     where: { operationId: op.id, role: 'COPY' },
     data: { status: 'DELETING', manifestDigest: op.scopeDigest, manifestPersistedAt: new Date() }
   })
+  const observedBytes = op.preparationVersion === 2
+    ? (await tx.artworkDedupOperationFile.aggregate({ where: { operationId: op.id, artwork: { role: 'COPY' } }, _sum: { size: true } }))._sum.size
+    : op.logicalBytes
   return tx.artworkDedupOperation.update({
     where: { id: op.id },
-    data: { status: 'DELETING', stage: 'DELETE_FILES', freshVerifiedExecutionVersion: op.executionVersion }
+    data: { status: 'DELETING', stage: 'DELETE_FILES', freshVerifiedExecutionVersion: op.executionVersion, logicalBytes: observedBytes }
   })
 }
 export async function retryArtworkDedupDirectDelete(

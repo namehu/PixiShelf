@@ -8,6 +8,7 @@ import {
   artworkDedupMaintenanceV3PayloadSchema,
   artworkDedupMaintenanceV4PayloadSchema,
   artworkDedupMaintenanceV5PayloadSchema,
+  artworkDedupMaintenanceV6PayloadSchema,
   artworkDedupDirectDeleteInputSchema,
   artworkDedupDirectDeleteRetryInputSchema,
   artworkDedupPrepareDirectDeleteInputSchema,
@@ -17,6 +18,13 @@ import {
 import { parseJobPayload } from '../payloads'
 import { executionLaneForJobType } from '../job-types'
 describe('maintenance contract', () => {
+  it('v6 accepts only confirmed direct deletion and keeps legacy PREPARE schemas intact', () => {
+    const payload = { operationId: 'o', executionVersion: 1, mode: 'DIRECT_DELETE' }
+    expect(artworkDedupMaintenanceV6PayloadSchema.parse(payload)).toEqual(payload)
+    expect(artworkDedupMaintenanceV6PayloadSchema.safeParse({ ...payload, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 4 }).success).toBe(false)
+    expect(artworkDedupMaintenanceV5PayloadSchema.safeParse({ ...payload, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 4 }).success).toBe(true)
+  })
+
   it('registers strict stable identity in the writer lane and keeps all unreleased modes closed', () => {
     const payload = { operationId: 'operation', executionVersion: 1, mode: 'PREPARE' }
     expect(parseJobPayload('ARTWORK_DEDUP_MAINTENANCE', payload)).toEqual(payload)

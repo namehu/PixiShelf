@@ -117,7 +117,7 @@ describe('visual image comparison', () => {
     const right = screen.getByRole('button', { name: '保留此版本：作品 2' })
     expect(left.getAttribute('aria-pressed')).toBe('false')
     expect(right.getAttribute('aria-pressed')).toBe('false')
-    expect((screen.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '确认删除' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(left)
     expect(mocks.keep).toHaveBeenLastCalledWith(partialGroup(), 1)
     fireEvent.click(right)
@@ -192,7 +192,7 @@ describe('visual image comparison', () => {
       expect(view.container.querySelector('img[src="/unsafe-animation.gif"]')).toBeNull()
       expect(screen.getByRole('button', { name: `保留此版本：作品 ${keeperId}` }).getAttribute('aria-pressed')).toBe('true')
       await waitFor(() =>
-        expect((screen.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(false)
+        expect((screen.getByRole('button', { name: '确认删除' }) as HTMLButtonElement).disabled).toBe(false)
       )
       fireEvent.click(screen.getByRole('radio', { name: '未核对' }))
       await waitFor(() =>
@@ -221,6 +221,6 @@ describe('visual image comparison', () => {
       await client.invalidateQueries({ queryKey: ['comparisons'] })
     })
     await screen.findByText('此筛选没有图片')
-    expect((screen.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '确认删除' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

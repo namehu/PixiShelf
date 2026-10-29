@@ -1,3 +1,4 @@
+import { freshQuickScope, verifyQuickScopeState } from './direct-delete-quick-verification.ts'
 import { rootFor, state, freshScope } from './direct-delete-verification.ts'
 import { randomUUID } from 'node:crypto'
 import {
@@ -14,7 +15,7 @@ import {
   finishArtworkDedupFileStep,
   finalizeArtworkDedupDirectDelete,
   finishArtworkDedupDirectDeleteStop,
-  type Prisma
+  Prisma
 } from '@pixishelf/db'
 import {
   PostgresQueueRepository,
@@ -30,6 +31,16 @@ import { rootBindings, sameRootBindings } from './root-bindings.ts'
 import type { ArtworkDedupMaintenanceDependencies } from './maintenance-executor.ts'
 import { throwIfAborted } from '../scan/bounded.ts'
 
+// Clean yields may retain verification only in this process and the unchanged queue/domain attempt.
+const verificationProcessSession = randomUUID()
+export function matchesVerificationResume(
+  value: unknown,
+  expected: { jobId: string; executionVersion: number; attempt: number; processSession: string }
+) {
+  if (!value || typeof value !== 'object') return false
+  const marker = value as Record<string, unknown>
+  return Object.entries(expected).every(([key, field]) => marker[key] === field)
+}
 type Tx = Prisma.TransactionClient & QueueSqlExecutor
 type Transaction = <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) => Promise<T>
 /** Gate is enforced by the registered maintenance dispatcher. Internal export permits isolated core tests. */
@@ -54,7 +65,15 @@ export async function executeArtworkDedupDirectDelete(
     waiting = false,
     stopping = false
   try {
-    const op = await tx((t) => assertArtworkDedupDirectDeleteExecution(t, execution, true))
+    const resumeIdentity = { ...execution, attempt: context.job.attempt, processSession: verificationProcessSession }
+    const { op, resume } = await tx(async (t) => {
+      const op = await assertArtworkDedupDirectDeleteExecution(t, execution, true)
+      const resume = op.preparationVersion === 2 && matchesVerificationResume(op.verificationResume, resumeIdentity)
+      // Consume before any I/O. A crash cannot leave a reusable grant for this execution.
+      if (op.preparationVersion === 2)
+        await t.artworkDedupOperation.update({ where: { id: op.id }, data: { verificationResume: Prisma.DbNull } })
+      return { op, resume }
+    })
     stopping = !!op.cancelRequestedAt
     const claims = await tx((t) => t.artworkDedupClaim.count({ where: { operationId: op.id } }))
     if (!stopping) {
@@ -102,21 +121,7 @@ export async function executeArtworkDedupDirectDelete(
       }
       const roots = await reader.resolveRoots(request, context.signal)
       if (!sameRootBindings(op.rootBindings, rootBindings(roots))) throw new ArtworkDedupOperationError('ROOT_CHANGED')
-      if (op.stage !== 'FRESH') {
-        await tx(async (t) => {
-          await assertArtworkDedupDirectDeleteExecution(t, execution)
-          await t.artworkDedupOperation.update({
-            where: { id: op.id },
-            data: { status: 'VERIFYING', stage: 'FRESH', afterArtworkId: 0, afterFileId: null }
-          })
-          // A new verification cycle clears evidence; normal FRESH scheduling yields resume the same frozen cursor.
-          await t.artworkDedupOperationArtwork.updateMany({
-            where: { operationId: op.id },
-            data: { freshVerifiedExecutionVersion: null }
-          })
-        })
-      }
-      const freshComplete = await freshScope({
+      const verificationContext = {
         transaction: tx,
         execution,
         reader,
@@ -125,7 +130,51 @@ export async function executeArtworkDedupDirectDelete(
         shouldYield: () =>
           (deps.now ?? Date.now)() - started >= (deps.sliceMs ?? 10000) ||
           reader!.metrics.bytesRead >= (deps.sliceBytes ?? 268435456n)
-      })
+      }
+      let freshComplete: boolean
+      if (op.preparationVersion === 2) {
+        let stage = resume ? op.stage : 'FRESH'
+        if (!resume || !['FRESH', 'VERIFY_STATE', 'DELETE_FILES'].includes(stage)) {
+          stage = 'FRESH'
+          await tx(async (t) => {
+            await assertArtworkDedupDirectDeleteExecution(t, execution)
+            await t.artworkDedupOperation.update({
+              where: { id: op.id },
+              data: { status: 'VERIFYING', stage, afterArtworkId: 0, afterFileId: null, verifiedFiles: 0n }
+            })
+            await t.artworkDedupOperationArtwork.updateMany({
+              where: { operationId: op.id },
+              data: { freshVerifiedExecutionVersion: null, inspectionComplete: false }
+            })
+          })
+        }
+        freshComplete = stage === 'FRESH' ? await freshQuickScope(verificationContext) : true
+        if (freshComplete) {
+          if (stage !== 'VERIFY_STATE')
+            await tx(async (t) => {
+              await assertArtworkDedupDirectDeleteExecution(t, execution)
+              await t.artworkDedupOperation.update({
+                where: { id: op.id },
+                data: { status: 'VERIFYING', stage: 'VERIFY_STATE', afterArtworkId: 0, afterFileId: null }
+              })
+            })
+          freshComplete = await verifyQuickScopeState(verificationContext)
+        }
+      } else {
+        if (op.stage !== 'FRESH')
+          await tx(async (t) => {
+            await assertArtworkDedupDirectDeleteExecution(t, execution)
+            await t.artworkDedupOperation.update({
+              where: { id: op.id },
+              data: { status: 'VERIFYING', stage: 'FRESH', afterArtworkId: 0, afterFileId: null }
+            })
+            await t.artworkDedupOperationArtwork.updateMany({
+              where: { operationId: op.id },
+              data: { freshVerifiedExecutionVersion: null }
+            })
+          })
+        freshComplete = await freshScope(verificationContext)
+      }
       if (!sameRootBindings(op.rootBindings, rootBindings(await reader.resolveRoots(request, context.signal)))) {
         throw new ArtworkDedupOperationError('ROOT_CHANGED')
       }
@@ -257,6 +306,19 @@ export async function executeArtworkDedupDirectDelete(
     } else if (context.signal.aborted) {
       await scope.release('删除等待原执行恢复，范围保持锁定')
     } else {
+      if (op.preparationVersion === 2)
+        await scope.transaction.artworkDedupOperation.update({
+          where: { id: op.id },
+          data: {
+            verificationResume: {
+              ...execution,
+              attempt: context.job.attempt,
+              processSession: verificationProcessSession
+            }
+          }
+        })
+      // This transaction both grants continuation and decrements the preserved queue attempt.
+      // Expired leases do not decrement it; a restart also changes processSession.
       await scope.retry({
         availableAt: new Date((deps.now ?? Date.now)() + 3000),
         errorCode: 'RESOURCE_BUSY',

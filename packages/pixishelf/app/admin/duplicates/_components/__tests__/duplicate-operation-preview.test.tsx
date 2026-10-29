@@ -65,6 +65,78 @@ afterEach(() => {
   client.clear()
 })
 describe('frozen direct delete preview', () => {
+  it.each([1, 2])('shows quick-confirmation scope without file inspection or a file wall (copy %s)', async (copyId) => {
+    const value = operation({ preparationVersion: 2, protocolVersion: 3, jobId: null, stage: 'CONFIRM' })
+    const visual = {
+      ...visualSummary, leftFileCount: '12', rightFileCount: '16', leftUncheckedCount: '2', rightUncheckedCount: '4'
+    }
+    const keeperId = copyId === 1 ? 2 : 1
+    const mediaCount = (id: number) => id === 1 ? '12' : '16'
+    const makeItem = (id: number, role: 'KEEPER' | 'COPY') => item(id, {
+      relationKind: 'VISUAL', visual, role, status: 'SELECTED', mediaCount: mediaCount(id),
+      ownOrganization: { rating: 4, bookmarks: { available: 2, unavailable: 0 }, likes: { available: 0, unavailable: 0 } }
+    })
+    mocks.get.mockResolvedValue({
+      operation: value,
+      preview: { kind: 'ARTWORKS', items: [makeItem(keeperId, 'KEEPER'), makeItem(copyId, 'COPY')], nextCursor: null }
+    })
+    mount(value)
+    await screen.findByText('处理范围')
+    await screen.findByText(/已登记 12 项原媒体 · 未配对 1 项 · 未核对 2 项/)
+    expect(screen.getByText(/已登记 16 项原媒体 · 未配对 3 项 · 未核对 4 项/)).toBeTruthy()
+    expect(screen.getAllByText('评分 4 · 2 个书签')).toHaveLength(2)
+    expect(screen.getByText('保留')).toBeTruthy()
+    expect(screen.getByText('待删除')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '查看文件清单' })).toBeNull()
+    expect(screen.queryByText('已核对')).toBeNull()
+    expect(mocks.get.mock.calls[0]![0]).toMatchObject({ preview: { kind: 'ARTWORKS' } })
+    expect(mocks.ready).toHaveBeenLastCalledWith(value.version)
+  })
+
+  it.each(['DELETED', 'RECOVERY_REQUIRED'] as const)(
+    'keeps frozen file and source details collapsed but available for v2 %s records', async (status) => {
+      const value = operation({ preparationVersion: 2, mode: 'DIRECT_DELETE', status })
+      mocks.get.mockImplementation((input: { preview: { kind: string } }) => ({
+        operation: value,
+        preview: input.preview.kind === 'FILES' ? {
+          kind: 'FILES',
+          items: [{
+            fileId: 'file-2', artworkId: 2, role: 'MEDIA', artworkRole: 'COPY', artworkTitle: '作品 2',
+            relativeName: 'frozen-original.jpg', sizeBytes: '2048', inspectionStatus: 'VERIFIED',
+            ownershipStatus: 'VERIFIED', requiresReview: false, blockReason: null, status
+          }], nextCursor: null
+        } : {
+          kind: 'ARTWORKS',
+          items: [item(2, {
+            status, personalRecords: status === 'DELETED' ? 'REMOVED' : 'CURRENT',
+            sources: [{ sourceId: 'source-2', displayName: '原件来源', generation: '2', status: status === 'DELETED' ? 'TOMBSTONE' : 'HOLD' }]
+          })], nextCursor: null
+        }
+      }))
+      mount(value)
+      await screen.findByText('作品 2')
+      const disclosure = screen.getByRole('button', { name: '文件详情与来源' })
+      expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+      expect(screen.queryByRole('button', { name: '查看文件清单' })).toBeNull()
+      expect(screen.queryByRole('button', { name: '查看作品 2的详情' })).toBeNull()
+      expect(screen.queryByText('frozen-original.jpg')).toBeNull()
+      fireEvent.click(disclosure)
+      expect(screen.getByRole('button', { name: '收起文件详情与来源' }).getAttribute('aria-expanded')).toBe('true')
+      fireEvent.click(await screen.findByRole('button', { name: '查看作品 2的详情' }))
+      expect(screen.getByText('原件来源')).toBeTruthy()
+      expect(screen.getByText(status === 'DELETED' ? '防止重复导入' : '正在处理')).toBeTruthy()
+      fireEvent.keyDown(screen.getByRole('dialog', { name: '作品 2的详情' }), { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: '作品 2的详情' })).toBeNull())
+      fireEvent.click(screen.getByRole('button', { name: '查看文件清单' }))
+      await screen.findByText('frozen-original.jpg')
+      expect(screen.getByText(`原媒体 · 2 KB · ${status === 'DELETED' ? '已删除' : '需要继续处理'}`)).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: '收起文件详情与来源' }))
+      await screen.findByText('作品 2')
+      expect(screen.queryByText('frozen-original.jpg')).toBeNull()
+      expect(screen.queryByRole('button', { name: '查看文件清单' })).toBeNull()
+    }
+  )
+
   it.each([
     [false, 1],
     [false, 2],

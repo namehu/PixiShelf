@@ -1,0 +1,20 @@
+{
+  "baselineCommit": "a659594248e1770a9bb01c5f4fd7792c096a1cc8",
+  "finalAfter": "after_r2 with explicit 30-second fast-prepare transaction, 500-artwork scope pages, COPY-size aggregate verification barrier",
+  "artifacts": {
+    "baseline/benchmark.cjs": "2ec85adf4ba8ff562ec124c09b27c0d351c0c0d669053c20c860338fb00e17d0",
+    "baseline/reader.cjs": "23d79d32880b939fdc55e10c7291bcee05039096d403d042c98125644058345e",
+    "baseline/artwork-dedup-native.node": "d39ed09bdd2c5247e34c8ba6e4ac6d6cae09bbc4da7b842dde37cfb354423f51",
+    "baseline/client-schema.prisma": "33e92c0dcfda2108ec01a5d3145cdb54488dce0fdea6ade0597588e3fb1b2216",
+    "after_r2/benchmark.cjs": "23ffdd07802354eec593e6dbd38ec91ee820da58e73f4ad80973d50019ea5621",
+    "after_r2/reader.cjs": "6e78c8a352f496e16b5963cbf1eaedf08f950fbbf7d95921421ad396c4ff3022",
+    "after_r2/artwork-dedup-native.node": "d39ed09bdd2c5247e34c8ba6e4ac6d6cae09bbc4da7b842dde37cfb354423f51",
+    "after_r2/client-schema.prisma": "20fcf090d2dae23a0ccc772b67427b92bf54719825ce4eb1fc74f9cb41555038",
+    "benchmark.ts": "99e41697d2f7e43a02de45cf7fbb90d97721cbd09f5b24b21446fa63da88d854",
+    "fs-counter.cjs": "01757276c015536097a4735fc6794a8cc4cb4428f8837cd1a89bc5e0100d5c98",
+    "setup.cjs": "c6bc17b29b877283bc4e547e2710fc5d2dcc0bc83c98f46857a3d2181bcd8e26",
+    "create-db.cjs": "f28d05bb1f102ab296609c089a0528a38008299c9246d2b6cd8af3cf05e156b5",
+    "summarize.cjs": "aa83597d7eb3655b55071e85fbae829a6d086a16fc40a2919e37bd03e575d3ef",
+    "compare.cjs": "b6e79e43b2768fcb3f2309b82a7629046cfd7f6156c908ba5d1bb788edadbafa"
+  }
+}

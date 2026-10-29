@@ -51,6 +51,10 @@ export function DuplicateOperationPreview({
   onReady: (version: number | null) => void
 }) {
   const trpc = useTRPC()
+  const quickConfirmation = operation.preparationVersion === 2 && operation.mode === 'PREPARE' && operation.status === 'READY'
+  const modernRecord = operation.preparationVersion === 2 && !quickConfirmation
+  const [recordDetails, setRecordDetails] = useState(false)
+  const compactArtwork = quickConfirmation || (modernRecord && !recordDetails)
   const [kind, setKind] = useState<'ARTWORKS' | 'FILES'>('ARTWORKS')
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
   const query = useQuery({
@@ -70,17 +74,33 @@ export function DuplicateOperationPreview({
   return (
     <section className="flex min-w-0 flex-col" aria-label="批次清单">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">{kind === 'ARTWORKS' ? '作品' : '文件清单'}</h3>
-        <Button
-          variant="ghost"
-          className="min-h-11"
-          onClick={() => {
-            setKind(kind === 'ARTWORKS' ? 'FILES' : 'ARTWORKS')
-            setCursors([undefined])
-          }}
-        >
-          {kind === 'ARTWORKS' ? '查看文件清单' : '返回作品'}
-        </Button>
+        <h3 className="text-sm font-medium">{compactArtwork ? '处理范围' : kind === 'ARTWORKS' ? '作品' : '文件清单'}</h3>
+        {modernRecord ? (
+          <Button
+            variant="ghost"
+            className="min-h-11"
+            aria-expanded={recordDetails}
+            onClick={() => {
+              setRecordDetails(!recordDetails)
+              setKind('ARTWORKS')
+              setCursors([undefined])
+            }}
+          >
+            {recordDetails ? '收起文件详情与来源' : '文件详情与来源'}
+          </Button>
+        ) : null}
+        {!compactArtwork ? (
+          <Button
+            variant="ghost"
+            className="min-h-11"
+            onClick={() => {
+              setKind(kind === 'ARTWORKS' ? 'FILES' : 'ARTWORKS')
+              setCursors([undefined])
+            }}
+          >
+            {kind === 'ARTWORKS' ? '查看文件清单' : '返回作品'}
+          </Button>
+        ) : null}
       </div>
       {operation.mode === 'PREPARE' && operation.counts.selectedGroups > 1 ? (
         <p className="text-xs text-muted-foreground">将处理全部已选作品，包括其他页的选择。</p>
@@ -104,7 +124,9 @@ export function DuplicateOperationPreview({
             </p>
           ) : null}
           {preview.kind === 'ARTWORKS'
-            ? preview.items.map((item) => (
+            ? preview.items.map((item) => compactArtwork ? (
+                <DuplicateConfirmationArtwork key={item.itemId} item={item} />
+              ) : (
                 <div key={item.itemId} className="border-b py-1 last:border-b-0">
                   <DuplicateMemberRow
                     member={item}
@@ -319,5 +341,40 @@ function DuplicatePairDeletionImpact({ item }: { item: ArtworkDedupArtworkPrevie
         </span>
       ) : null}
     </p>
+  )
+}
+
+function DuplicateConfirmationArtwork({ item }: { item: ArtworkDedupArtworkPreviewDto }) {
+  const coverage = item.visual ? duplicateVisualSideCounts(item.visual, item.artworkId) : null
+  const metadata = [
+    `已登记 ${BigInt(item.mediaCount).toLocaleString('zh-CN')} 项原媒体`,
+    coverage && coverage.unmatched > 0n ? `未配对 ${coverage.unmatched.toLocaleString('zh-CN')} 项` : null,
+    coverage && coverage.unchecked > 0n ? `未核对 ${coverage.unchecked.toLocaleString('zh-CN')} 项` : null
+  ].filter(Boolean).join(' · ')
+  const removed = item.status === 'DELETED' || item.status === 'PURGED'
+  return (
+    <div className="border-b py-1 last:border-b-0">
+      <DuplicateMemberRow
+        member={item}
+        keeper={item.role === 'KEEPER'}
+        metadata={metadata}
+        unavailable={removed}
+        statusLabel={item.role === 'KEEPER' ? '保留' : removed ? '已删除' : item.status === 'BLOCKED' ? '无法处理' : '待删除'}
+      >
+        {item.personalRecords === 'CURRENT' ? (
+          <DuplicateOrganization member={item} />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {item.personalRecords === 'REMOVED' ? '整理记录已随作品删除，未保留历史个人明细。' : '当前无法读取整理记录。'}
+          </p>
+        )}
+      </DuplicateMemberRow>
+      {item.relationKind === 'CONTAINS' && item.role === 'COPY' ? (
+        <p className="pb-2 text-xs text-muted-foreground">完整包含 · {duplicateContainmentCounts(item)}</p>
+      ) : null}
+      {item.reasons.length > 0 ? (
+        <p className="pb-2 text-sm text-warning">{item.reasons.map(duplicateBlockReason).join('；')}</p>
+      ) : null}
+    </div>
   )
 }

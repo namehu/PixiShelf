@@ -2,7 +2,7 @@
 import * as fs from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { isArtworkDedupPrepareRetryable } from '@pixishelf/db'
+import { isArtworkDedupPrepareRetryable, freezeArtworkDedupOperation } from '@pixishelf/db'
 import { describe, expect, it, vi } from 'vitest'
 // Only this trusted fixture module enables the unreleased branch; production constants stay closed.
 vi.mock('@pixishelf/job-contracts', async (original) => {
@@ -48,7 +48,7 @@ import {
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
 if (url) {
   const target = new URL(url)
-  if (target.hostname !== '127.0.0.1' || target.port !== '55432' || !['/dedup_executor_next', '/dedup_containment_test', '/dedup_partial_core'].includes(target.pathname))
+  if (target.hostname !== '127.0.0.1' || target.port !== '55432' || !['/dedup_executor_next', '/dedup_containment_test', '/dedup_partial_core', '/dedup_confirm_core_20261029'].includes(target.pathname))
     {throw new Error('Use the authorized synthetic executor database')}
 }
 const dependencies = () => ({
@@ -85,13 +85,13 @@ function callerFor(userId: string) {
 async function claim(jobId: string) {
   clock.advance(Math.max(0, Date.now() + 1000 - clock.now().getTime()))
   const job = await repository!.claim('dedup-b2-app', [
-    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5] }
+    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5, 6] }
   ])
   expect(job?.id).toBe(jobId)
   return job!
 }
 describe.skipIf(!db)('direct-delete App transaction and projection', () => {
-  it('projects containment through the existing router and freezes v5/protocol2 before deleting only the subset', async () => {
+  it('projects containment through the existing router and freezes preparation v2/protocol2 before deleting only the subset', async () => {
     const f = await fixture(2, 'LOCAL_DIRECTORY', { purpose: 'DIRECT_DELETE', beforeScan: async (ids) => {
       const image = await db!.image.findFirstOrThrow({ where: { artworkId: ids[1] } })
       const extra = `${path.posix.dirname(image.path)}/extra.bin`
@@ -114,14 +114,12 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
     expect(next.items).toHaveLength(1)
     await expect(caller.saveReview({ expectedUserId: original.requestedBy, runId: original.runId, groupId: result.groupId, keeperArtworkId: f.ids[0]!, expectedRunVersion: page.runVersion, expectedReviewVersion: 0, idempotencyKey: randomUUID() })).rejects.toThrow()
     const workerId = `containment-app-${randomUUID()}`
-    await db!.workerInstance.create({ data: { workerId, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5] }] } })
+    await db!.workerInstance.create({ data: { workerId, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5, 6] }] } })
     try {
       const building = await caller.prepareCleanup({ expectedUserId: original.requestedBy, purpose: 'DIRECT_DELETE', protocolVersion: 1, runId: original.runId, expectedRunVersion: page.runVersion, expectedReviewRevision: 0, selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] }, idempotencyKey: randomUUID() })
-      trackMaintenanceJob(building.jobId!)
+      expect(building).toMatchObject({ preparationVersion: 2, status: 'READY', jobId: null })
       expect(building.protocolVersion).toBe(2)
       expect(await repository!.claim('old-exact-worker', [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2] }])).toBeNull()
-      const prepareJob = await claim(building.jobId!)
-      await executeArtworkDedupMaintenance(executionContext<ArtworkDedupMaintenancePayload>(prepareJob), dependencies())
       const ready = (await caller.getOperation({ expectedUserId: original.requestedBy, operationId: building.operationId })).operation
       expect(ready).toMatchObject({ status: 'READY', protocolVersion: 2 })
       await expect(caller.directDelete({ ...confirmation(ready, original.requestedBy), protocolVersion: 1 })).rejects.toThrow()
@@ -146,21 +144,18 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         hostname: 'fixture',
         processId: process.pid,
         serviceVersion: 'fixture',
-        capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5] }]
+        capabilities: [{ jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5, 6] }]
       }
     })
     try {
       expect(isArtworkDedupPrepareRetryable(legacy, await db!.systemJob.findUniqueOrThrow({ where: { id: legacy.jobId! } }), new Date())).toBe(true)
-      const building = await caller.prepareCleanup({
-        expectedUserId: legacy.requestedBy,
-        purpose: 'DIRECT_DELETE',
-        protocolVersion: 1,
-        runId: legacy.runId,
-        expectedRunVersion: legacy.runVersion,
-        expectedReviewRevision: 0,
-        selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] },
-        idempotencyKey: randomUUID()
+      const legacyId = await db!.$transaction(async tx => {
+        const { operation } = await freezeArtworkDedupOperation(tx, { userId: legacy.requestedBy, preparePurpose: 'DIRECT_DELETE', runId: legacy.runId, expectedRunVersion: legacy.runVersion, expectedReviewRevision: 0, selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] }, idempotencyKey: randomUUID() })
+        const job = await tx.systemJob.create({ data: { type: 'ARTWORK_DEDUP_MAINTENANCE', definitionVersion: 5, executionLane: 'BACKGROUND_WRITER', triggerSource: 'SYSTEM', queuePriority: 900, effectivePriority: 900, availableAt: clock.now(), payload: { operationId: operation.id, executionVersion: 1, mode: 'PREPARE', purpose: 'DIRECT_DELETE', protocolVersion: 1 } } })
+        await tx.artworkDedupOperation.update({ where: { id: operation.id }, data: { jobId: job.id } })
+        return operation.id
       })
+      const building = (await caller.getOperation({ expectedUserId: legacy.requestedBy, operationId: legacyId })).operation
       trackMaintenanceJob(building.jobId!)
       const firstJob = await claim(building.jobId!)
       await repository!.fail({ ...fence(firstJob), errorCode: 'INTERNAL_ERROR', error: 'synthetic PREPARE failure' })
@@ -234,7 +229,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         processId: process.pid,
         serviceVersion: 'fixture',
         capabilities: [
-          { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5] }
+          { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [5, 6] }
         ]
       }
     })
@@ -266,11 +261,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         selection: { kind: 'ALL_RECOMMENDED', excludedGroupIds: [] },
         idempotencyKey: randomUUID()
       })
-      trackMaintenanceJob(preparing.jobId!)
-      await executeArtworkDedupMaintenance(
-        executionContext<ArtworkDedupMaintenancePayload>(await claim(preparing.jobId!)),
-        dependencies()
-      )
+      expect(preparing).toMatchObject({ preparationVersion: 2, status: 'READY', jobId: null })
       const ready = (await caller.getOperation({ operationId: preparing.operationId, expectedUserId: op.requestedBy }))
         .operation
       const started = await caller.directDelete(confirmation(ready, op.requestedBy))
@@ -299,7 +290,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
       await db!.workerInstance.deleteMany({ where: { workerId } })
     }
   }, 30000)
-  it('freezes unloaded groups, binds v5 and Session, stops partial work and keeps deleted snapshots and current generations', async () => {
+  it('freezes unloaded groups, binds v6 and Session, stops partial work and keeps deleted snapshots and current generations', async () => {
     const f = await fixture(2, 'LOCAL_DIRECTORY', { purpose: 'DIRECT_DELETE', groups: 3 })
     await f.close()
     const original = await db!.artworkDedupOperation.findUniqueOrThrow({
@@ -347,7 +338,7 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         where: { workerId },
         data: {
           capabilities: [
-            { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5] }
+            { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5, 6] }
           ]
         }
       })
@@ -355,24 +346,19 @@ describe.skipIf(!db)('direct-delete App transaction and projection', () => {
         code: 'FORBIDDEN'
       })
       const building = await caller.prepareCleanup(input)
-      trackMaintenanceJob(building.jobId!)
+      expect(building).toMatchObject({ preparationVersion: 2, status: 'READY', jobId: null })
       expect((await caller.prepareCleanup(input)).jobId).toBe(building.jobId)
       const frozen = await db!.artworkDedupOperationGroup.findMany({
         where: { operationId: building.operationId, status: 'SELECTED' }
       })
       expect(frozen).toHaveLength(2)
       expect(frozen.every((group) => group.groupId !== excluded)).toBe(true)
-      expect(await db!.systemJob.findUnique({ where: { id: building.jobId! } })).toMatchObject({
-        definitionVersion: 5,
-        payload: { purpose: 'DIRECT_DELETE', protocolVersion: 1 }
-      })
+      expect(await db!.systemJob.count({ where: { payload: { path: ['operationId'], equals: building.operationId } } })).toBe(0)
       expect(
         await repository!.claim('old-worker', [
           { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1] }
         ])
       ).toBeNull()
-      const prepareJob = await claim(building.jobId!)
-      await executeArtworkDedupMaintenance(executionContext<ArtworkDedupMaintenancePayload>(prepareJob), dependencies())
       let response = await caller.getOperation({
         expectedUserId: original.requestedBy,
         operationId: building.operationId,

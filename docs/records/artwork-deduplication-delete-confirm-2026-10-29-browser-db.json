@@ -1,0 +1,156 @@
+{
+  "checkedAt": "2026-10-29T03:10:57.214Z",
+  "database": "dedup_confirm_browser_20261029",
+  "ops": [
+    {
+      "id": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "mode": "DIRECT_DELETE",
+      "status": "DELETED",
+      "stage": "DONE",
+      "preparationVersion": 2,
+      "protocolVersion": 3,
+      "preparedFiles": "11",
+      "verifiedFiles": "11",
+      "scopeDigest": "af80086bf0b32b0759a39638765e8286b47dd2e198d3ac08245ddf48a4f9fc31",
+      "jobId": "a061d0aa-3139-4c01-af6c-e349f6b5c664",
+      "errorCode": null,
+      "deleteStartedAt": "2026-10-29T03:07:59.840Z"
+    }
+  ],
+  "arts": [
+    {
+      "id": 1,
+      "title": "A · 4 张静图 + 1 张动图",
+      "deletedAt": null
+    },
+    {
+      "id": 3,
+      "title": "C · 不重复静图 5 张",
+      "deletedAt": null
+    }
+  ],
+  "jobs": [
+    {
+      "id": "75ff1d8b-8b5d-4903-b0f4-b3400caac42b",
+      "type": "ARTWORK_DEDUP_SCAN",
+      "status": "COMPLETED",
+      "definitionVersion": 7,
+      "payload": {
+        "runId": "1a384b3f-a102-4a3f-b2b4-6ed3266474c4",
+        "executionVersion": 1
+      }
+    },
+    {
+      "id": "a061d0aa-3139-4c01-af6c-e349f6b5c664",
+      "type": "ARTWORK_DEDUP_MAINTENANCE",
+      "status": "COMPLETED",
+      "definitionVersion": 6,
+      "payload": {
+        "mode": "DIRECT_DELETE",
+        "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+        "executionVersion": 2
+      }
+    }
+  ],
+  "files": [
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 2,
+      "role": "MEDIA",
+      "status": "DELETED",
+      "inspectionStatus": "VERIFIED",
+      "size": "1175",
+      "canonicalPath": "visual-b/04.png"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 1,
+      "role": "MEDIA",
+      "status": "VERIFIED",
+      "inspectionStatus": "VERIFIED",
+      "size": "1179",
+      "canonicalPath": "visual-a/05.png"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 2,
+      "role": "MEDIA",
+      "status": "DELETED",
+      "inspectionStatus": "VERIFIED",
+      "size": "177",
+      "canonicalPath": "visual-b/01.webp"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 1,
+      "role": "MEDIA",
+      "status": "VERIFIED",
+      "inspectionStatus": "VERIFIED",
+      "size": "1175",
+      "canonicalPath": "visual-a/04.png"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 2,
+      "role": "MEDIA",
+      "status": "DELETED",
+      "inspectionStatus": "VERIFIED",
+      "size": "6660",
+      "canonicalPath": "visual-b/06.png"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 1,
+      "role": "MEDIA",
+      "status": "VERIFIED",
+      "inspectionStatus": "VERIFIED",
+      "size": "1180",
+      "canonicalPath": "visual-a/03.png"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 1,
+      "role": "MEDIA",
+      "status": "VERIFIED",
+      "inspectionStatus": "VERIFIED",
+      "size": "156",
+      "canonicalPath": "visual-a/01.webp"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 1,
+      "role": "MEDIA",
+      "status": "VERIFIED",
+      "inspectionStatus": "VERIFIED",
+      "size": "1167",
+      "canonicalPath": "visual-a/02.png"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 2,
+      "role": "MEDIA",
+      "status": "DELETED",
+      "inspectionStatus": "VERIFIED",
+      "size": "1359",
+      "canonicalPath": "visual-b/05.png"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 2,
+      "role": "MEDIA",
+      "status": "DELETED",
+      "inspectionStatus": "VERIFIED",
+      "size": "1167",
+      "canonicalPath": "visual-b/02.png"
+    },
+    {
+      "operationId": "d0e4cdfe-04a5-461b-8f98-be89d9c71a63",
+      "artworkId": 2,
+      "role": "MEDIA",
+      "status": "DELETED",
+      "inspectionStatus": "VERIFIED",
+      "size": "1180",
+      "canonicalPath": "visual-b/03.png"
+    }
+  ]
+}

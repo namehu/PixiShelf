@@ -196,7 +196,7 @@ function OperationActions({ operation, userId, disabled, previewReady, onUpdate,
       ) : null}
       {canDelete && !previewReady ? (
         <p role="status" className="text-sm text-muted-foreground">
-          请先载入并核对批次清单，才能确认删除。
+          {operation.preparationVersion === 2 ? '请先载入并核对作品范围，才能确认删除。' : '请先载入并核对批次清单，才能确认删除。'}
         </p>
       ) : null}
     </section>

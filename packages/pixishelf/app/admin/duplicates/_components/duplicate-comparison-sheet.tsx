@@ -367,13 +367,13 @@ export function DuplicateComparisonSheet({
                   </Button>
                 </>
               ) : keeperId ? (
-                '将只处理这一对，下一步核对删除影响。'
+                '将只处理这一对，下一步确认删除范围。'
               ) : (
                 '请明确选择保留哪一个版本。'
               )}
             </div>
             <Button className="min-h-11" disabled={!canDelete} onClick={onPrepare}>
-              {preparing ? '正在准备' : '核对并删除'}
+              {preparing ? '正在打开确认' : '确认删除'}
             </Button>
           </div>
         </div>
