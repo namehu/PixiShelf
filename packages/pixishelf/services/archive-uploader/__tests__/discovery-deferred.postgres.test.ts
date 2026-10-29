@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { PrismaClient } from '@pixishelf/db'
+import { Prisma, PrismaClient } from '@pixishelf/db'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('server-only', () => ({}))
 import {
@@ -14,7 +14,11 @@ import {
   listArchiveUploaderScanItems,
   restoreArchiveUploaderIgnoredItems
 } from '../archive-uploader-service'
-import { createArchiveIntakeSubmission } from '@/services/archive-intake/archive-intake-service'
+import {
+  cancelArchiveIntakeMany,
+  createArchiveIntakeSubmission,
+  retryArchiveIntakeMany
+} from '@/services/archive-intake/archive-intake-service'
 
 const databaseUrl =
   process.env.QUEUE_KERNEL_TEST_DATABASE_URL ?? (process.env.CI === 'true' ? process.env.DATABASE_URL : undefined)
@@ -64,6 +68,49 @@ async function defer(item: Awaited<ReturnType<typeof seed>>, requestId = request
     where: { providerKey_externalId: { providerKey: item.providerKey, externalId: item.externalId } }
   })
 }
+async function cancelledUpdate() {
+  const item = await seed()
+  const artwork = await db().artwork.create({ data: { title: prefix } })
+  await db().artworkExternalRef.create({
+    data: {
+      artworkId: artwork.id,
+      providerKey: 'e-hentai',
+      externalId,
+      canonicalUrl: url,
+      locator: { gid: externalId, token: 'aabbccdd11' },
+      status: 'SUCCESS'
+    }
+  })
+  await db().archiveUploaderCatalogItem.update({
+    where: { id: item.id },
+    data: { classification: 'POSSIBLE_UPDATE', lastOutcome: 'ARCHIVED' }
+  })
+  const submission = await createArchiveIntakeSubmission({ idempotencyKey: request(), urls: [url] }, prefix, deps())
+  const intake = await db().archiveIntakeItem.findFirstOrThrow({ where: { submissionId: submission.id } })
+  expect(intake.providerKey).toBeNull()
+  const cancelled = await cancelArchiveIntakeMany({ idempotencyKey: request(), itemIds: [intake.id] }, prefix, deps())
+  expect(cancelled?.counts.applied).toBe(1)
+  return { item, intake }
+}
+async function fillCapacity() {
+  const submission = await db().archiveIntakeSubmission.create({
+    data: {
+      idempotencyKey: request(),
+      requestHash: 'a'.repeat(64),
+      requestedByUserId: prefix,
+      rawCount: 1000,
+      acceptedCount: 1000
+    }
+  })
+  await db().archiveIntakeItem.createMany({
+    data: Array.from({ length: 1000 }, (_, index) => ({
+      submissionId: submission.id,
+      submittedUrl: `https://e-hentai.org/g/${1000000 + index}/feed123456/`,
+      normalizedUrlHash: String(index)
+    }))
+  })
+  return submission
+}
 async function cleanup() {
   await db().archiveDiscoveryDeferredItem.deleteMany({ where: { deferredByUserId: prefix } })
   await db().archiveUploaderIgnoredItem.deleteMany({ where: { ignoredByUserId: prefix } })
@@ -71,6 +118,7 @@ async function cleanup() {
   await db().archiveBulkOperation.deleteMany({ where: { requestedByUserId: prefix } })
   await db().archiveIntakeSubmission.deleteMany({ where: { requestedByUserId: prefix } })
   await db().systemJob.deleteMany({ where: { requestedByUserId: prefix } })
+  await db().artwork.deleteMany({ where: { title: prefix } })
 }
 
 suite('persistent discovery deferred decisions', () => {
@@ -181,24 +229,46 @@ suite('persistent discovery deferred decisions', () => {
   it('keeps deferred entries when the intake capacity is full', async () => {
     const item = await seed()
     const decision = await defer(item)
-    const submission = await db().archiveIntakeSubmission.create({
-      data: {
-        idempotencyKey: request(),
-        requestHash: 'a'.repeat(64),
-        requestedByUserId: prefix,
-        rawCount: 1000,
-        acceptedCount: 1000
-      }
-    })
-    await db().archiveIntakeItem.createMany({
-      data: Array.from({ length: 1000 }, (_, index) => ({
-        submissionId: submission.id,
-        submittedUrl: `https://e-hentai.org/g/${1000000 + index}/feed123456/`,
-        normalizedUrlHash: String(index)
-      }))
-    })
+    await fillCapacity()
     const result = await downloadDeferredItems({ deferredItemIds: [decision.id], requestId: request() }, prefix, deps())
     expect(result?.counts.conflict).toBe(1)
+    expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: decision.id } })).not.toBeNull()
+  })
+
+  it('clears a deferred cancelled update on retry, but preserves a later decision on old retry replay', async () => {
+    const { item, intake } = await cancelledUpdate()
+    const first = await defer(item)
+    const retryInput = { idempotencyKey: request(), itemIds: [intake.id] }
+    expect((await retryArchiveIntakeMany(retryInput, prefix, deps()))?.counts.applied).toBe(1)
+    expect((await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe('QUEUED')
+    expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: first.id } })).toBeNull()
+    await cancelArchiveIntakeMany({ idempotencyKey: request(), itemIds: [intake.id] }, prefix, deps())
+    const later = await defer(item)
+    expect((await retryArchiveIntakeMany(retryInput, prefix, deps()))?.counts.applied).toBe(1)
+    expect((await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe('CANCELLED')
+    expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: later.id } })).not.toBeNull()
+  })
+
+  it('preserves deferred updates on capacity rejection and replay of that rejected retry', async () => {
+    const { item, intake } = await cancelledUpdate()
+    const decision = await defer(item)
+    const capacity = await fillCapacity()
+    const input = { idempotencyKey: request(), itemIds: [intake.id] }
+    const retry = await retryArchiveIntakeMany(input, prefix, deps())
+    expect(retry?.items[0]).toMatchObject({ result: 'SKIPPED', code: 'CAPACITY_EXCEEDED' })
+    await db().archiveIntakeSubmission.delete({ where: { id: capacity.id } })
+    expect((await retryArchiveIntakeMany(input, prefix, deps()))?.items[0]?.code).toBe('CAPACITY_EXCEEDED')
+    expect((await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe('CANCELLED')
+    expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: decision.id } })).not.toBeNull()
+  })
+
+  it('preserves deferred updates when retry source proof validation fails', async () => {
+    const { item, intake } = await cancelledUpdate()
+    const decision = await defer(item)
+    await db().archiveIntakeItem.update({ where: { id: intake.id }, data: { dedupSourceSnapshot: Prisma.JsonNull } })
+    const retry = await retryArchiveIntakeMany({ idempotencyKey: request(), itemIds: [intake.id] }, prefix, deps())
+    expect(retry?.counts.conflict).toBe(1)
+    expect((await db().archiveIntakeItem.findUniqueOrThrow({ where: { id: intake.id } })).status).toBe('CANCELLED')
     expect(await db().archiveDiscoveryDeferredItem.findUnique({ where: { id: decision.id } })).not.toBeNull()
   })
 

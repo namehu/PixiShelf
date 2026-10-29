@@ -17,6 +17,7 @@ import {
   type ArchiveBulkTargetResult
 } from '@/services/archive/archive-bulk-operation'
 import { ArchiveError } from '@/services/archive/errors'
+import { archiveProviderRegistry } from '@/services/archive/provider-registry'
 import { archiveWireErrorMessage } from '@/services/archive/archive-redaction'
 import { writeJobEvent, writeJobEvents, type JobEventWriteInput } from '@/services/background-task/job-event-service'
 import {
@@ -883,8 +884,11 @@ async function retryIntakeItem(
     include: { currentSystemJob: true }
   })
   if (!item) return { result: 'SKIPPED', code: 'NOT_FOUND', message: '收件项目不存在' }
+  const { providerKey, externalId } = archiveProviderRegistry
+    .getForUrl(item.submittedUrl)
+    .identifySource(item.submittedUrl)
   await lockCreatorCatalog(transaction)
-  await lockUploaderCatalogItem(transaction, item)
+  await lockUploaderCatalogItem(transaction, { ...item, providerKey, externalId })
   const retryStatus = effectiveStatus(item, timestamp)
   // READY 的过期快照在查询层已被映射为 STALE，所以重试分支需要基于快照状态判断。
   if (!['FAILED', 'CANCELLED', 'STALE'].includes(retryStatus)) {
@@ -918,7 +922,6 @@ async function retryIntakeItem(
     }
   }
 
-  await lockCreatorCatalog(transaction)
   await assertArchiveIntakeSourceProof(transaction, item.dedupSourceSnapshot, item.submittedUrl)
   const jobId = uuid()
   await transaction.systemJob.create({
@@ -962,6 +965,7 @@ async function retryIntakeItem(
     RETURNING "id"
   `)
   if (changed.length !== 1) throw new ArchiveError('STATE_CONFLICT', '收件项目状态已改变')
+  await transaction.archiveDiscoveryDeferredItem.deleteMany({ where: { providerKey, externalId } })
   const identityFilters: Prisma.ArchiveUploaderCatalogItemWhereInput[] = []
   if (item.providerKey && item.externalId) {
     identityFilters.push({ providerKey: item.providerKey, externalId: item.externalId })

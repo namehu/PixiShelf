@@ -50,7 +50,8 @@ const trpc = {
     listSources: { queryKey: () => ['sources'] },
     getSource: { queryKey: () => ['source'] },
     listItems: { infiniteQueryKey: () => ['items'] },
-    listIgnoredItems: { infiniteQueryKey: () => ['ignored'] }
+    listIgnoredItems: { infiniteQueryKey: () => ['ignored'] },
+    listDeferredItems: { infiniteQueryKey: () => ['deferred'] }
   }
 }
 vi.mock('@/lib/trpc', () => ({ useTRPC: () => trpc }))
@@ -104,6 +105,16 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('discovery batch source selection', () => {
+  it('refreshes deferred membership when a running batch completes', () => {
+    const batch = { id: 'batch', active: true, status: 'RUNNING', total: 1, processed: 0, sources: [], results: [] }
+    mocks.batch = batch
+    const view = render(<ArchiveDiscoveryBatchSources {...props} />)
+    expect(queryClient.invalidateQueries).not.toHaveBeenCalled()
+    mocks.batch = { ...batch, active: false, status: 'COMPLETED', processed: 1 }
+    view.rerender(<ArchiveDiscoveryBatchSources {...props} />)
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items'] })
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['deferred'] })
+  })
   it('selects the complete filtered collection beyond the former 50-source page', () => {
     const collection = Array.from({ length: 65 }, (_, index) => ({
       ...sources[0]!,

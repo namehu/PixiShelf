@@ -88,7 +88,8 @@ export function ArchiveDiscoveryBatchSources({
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.catalogCounts.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.getSource.queryKey() }),
       queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() }),
-      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listIgnoredItems.infiniteQueryKey() })
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listIgnoredItems.infiniteQueryKey() }),
+      queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listDeferredItems.infiniteQueryKey() })
     ])
   }
   const previousProgress = useRef<string | null>(null)
@@ -101,6 +102,7 @@ export function ArchiveDiscoveryBatchSources({
       void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.getSource.queryKey() })
       void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listItems.infiniteQueryKey() })
       void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listIgnoredItems.infiniteQueryKey() })
+      void queryClient.invalidateQueries({ queryKey: trpc.archiveSearch.listDeferredItems.infiniteQueryKey() })
     }
     previousProgress.current = key
   }, [batch, queryClient, trpc])

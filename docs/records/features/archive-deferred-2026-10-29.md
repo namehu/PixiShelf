@@ -35,3 +35,9 @@ Web 地址为 `http://127.0.0.1:5450/admin/archive/inbox?entry=direct`；HTTP �
 Web 从 `packages/pixishelf` 执行 `pnpm prepare:webp` 后运行 `pnpm exec next dev --hostname 127.0.0.1 --port 5450`；Worker 从 `packages/pixishelf-worker` 执行 `node --env-file=../pixishelf/.env.local dist/main.cjs`。启动时 Web 父进程 PID 80907，Worker 恢复后的 PID 83721。当前 PID 与日志保存在 `.local-data/runtime/{web,worker}.{pid,log}`；停止时对对应 PID 发送 `TERM`，重启按以上命令。数据库和 ImgProxy 用各自容器名执行 `docker stop` / `docker start`，不删除卷。环境文件和数据库口令只在本机忽略目录保存，不纳入提交。
 
 进程已保留供人工回归。自动数据库测试期间暂停 Worker，完成并确认无合成待执行任务后再恢复，避免测试样本触发真实源站请求。没有执行浏览器验证。
+
+## 独立审查修复
+
+首版提交 `049828a5` 经独立 reviewer 检查，发现旧收件项重试成功未清除暂缓，以及扫描完成未刷新暂缓列表两处问题。修复将重试的身份锁覆盖尚未解析出 Provider 字段的旧收件项，仅在事务成功改为 QUEUED 后删除对应暂缓；单来源扫描完成及批次进度变化使列表缓存失效。
+
+修复后 4 个相关文件共 76 项通过，其中 12 项为实际 PostgreSQL 测试，新增“已有作品更新入箱→取消→暂缓→重试成功清除”的完整路径，并核对再次取消后的新暂缓不受旧成功收据重放影响、容量失败及其重放保留决定、来源证明失败保留决定。单来源及批量扫描测试验证列表失效，初次加载已完成扫描不重复刷新。`pnpm typecheck` 和 6 个变更代码文件 lint 通过，无全量构建。日志保存在 `.local-data/runtime/deferred-review-fixes.log`。测试只暂挂此工作区 Worker，并在 `finally` 恢复；修复仍须独立复审后关闭问题。

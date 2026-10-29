@@ -863,15 +863,17 @@ describe('ArchiveUploaderSources', () => {
     currentDetailData = { source, runs: [completedRun] }
     renderSources()
     expect(mocks.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+    expect(mocks.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ['deferred-items-infinite'] })
   })
 
-  it('refreshes items and independent counts on a real run completion', async () => {
+  it('refreshes items, deferred membership and independent counts on a real run completion', async () => {
     currentDetailData = { source, runs: [activeRun] }
     const rendered = renderSources()
     currentDetailData = { source, runs: [{ ...activeRun, status: 'COMPLETED' }] }
     rendered.rerender(<SourcesHarness />)
     await waitFor(() => expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['counts'] }))
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['items-infinite'] })
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['deferred-items-infinite'] })
   })
   it('defaults to a pure list and loads the stored thumbnail only after switching view modes', () => {
     renderSources()
