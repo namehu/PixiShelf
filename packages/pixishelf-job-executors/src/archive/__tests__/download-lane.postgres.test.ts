@@ -1,4 +1,8 @@
-import { enqueueArchiveIntakeItemInTransaction, hashArchiveMediaPlan } from '../intake-enqueue.ts'
+import {
+  enqueueArchiveIntakeItemInTransaction,
+  recoverArchiveIntakeEnqueueRace,
+  hashArchiveMediaPlan
+} from '../intake-enqueue.ts'
 import { archiveCompletionSnapshotSchema } from '@pixishelf/job-contracts'
 import { archiveCatalogProbe } from './catalog-order-probe.ts'
 import { captureArchiveFixtureSource } from './dedup-source-fixture.ts'
@@ -320,6 +324,63 @@ suite('archive download lane real database and filesystem', () => {
   )
 
   it.each(['ALL', 'FIRST_20'] as const)(
+    'manual coverage choice persists actual %s scope on intake',
+    async (requestedScope) => {
+      const initialScope = requestedScope === 'ALL' ? 'FIRST_20' : 'ALL'
+      const id = await enqueueCoverage(
+        `${prefix}-manual-${requestedScope}`,
+        30,
+        initialScope,
+        undefined,
+        'CREATED',
+        requestedScope
+      )
+      const task = await db!.archiveImport.findUniqueOrThrow({ where: { id } })
+      const intake = await db!.archiveIntakeItem.findFirstOrThrow({ where: { archiveImportId: id } })
+      expect(task.downloadScope).toBe(requestedScope)
+      expect(task.totalItems).toBe(requestedScope === 'ALL' ? 30 : 20)
+      expect(intake.downloadScope).toBe(requestedScope)
+    }
+  )
+
+  it.each([
+    ['enqueue', 'READY'],
+    ['enqueue', 'ENQUEUED'],
+    ['race', 'READY'],
+    ['race', 'ENQUEUED']
+  ] as const)('reused coverage %s from %s reflects the existing import scope', async (method, status) => {
+    const id = await enqueueCoverage(`${prefix}-reuse-${method}-${status}`, 30, 'FIRST_20')
+    const intake = await db!.archiveIntakeItem.findFirstOrThrow({ where: { archiveImportId: id } })
+    await db!.archiveIntakeItem.update({
+      where: { id: intake.id },
+      data: {
+        status,
+        downloadScope: 'ALL',
+        ...(status === 'READY' ? { archiveImportId: null, activeArchiveImportId: null } : {})
+      }
+    })
+    const result = await db!.$transaction((tx) =>
+      method === 'race'
+        ? recoverArchiveIntakeEnqueueRace(tx, intake.id, 'ORIGINAL', { code: 'P2002' }, clock.now())
+        : enqueueArchiveIntakeItemInTransaction(tx, intake.id, {
+            quality: 'ORIGINAL',
+            downloadScope: 'ALL',
+            requestedByUserId: null,
+            timestamp: clock.now(),
+            uuid: randomUUID,
+            defaultTagIds: []
+          })
+    )
+    expect(result).toMatchObject({ result: 'REUSED', relatedId: id })
+    expect(await db!.archiveIntakeItem.findUniqueOrThrow({ where: { id: intake.id } })).toMatchObject({
+      status: 'ENQUEUED',
+      downloadScope: 'FIRST_20',
+      archiveImportId: id
+    })
+    expect(await db!.archiveImport.count({ where: { externalId: intake.externalId! } })).toBe(1)
+  })
+
+  it.each(['ALL', 'FIRST_20'] as const)(
     'partial coverage resubmission preserves published %s coverage',
     async (scope) => {
       const root = await mkdtemp(path.join(tmpdir(), 'archive-partial-repeat-'))
@@ -331,6 +392,9 @@ suite('archive download lane real database and filesystem', () => {
       const id = await enqueueCoverage(externalId, 25, scope === 'ALL' ? 'FIRST_20' : 'ALL')
       const task = await db!.archiveImport.findUniqueOrThrow({ where: { id } })
       expect(task.downloadScope).toBe(scope)
+      expect((await db!.archiveIntakeItem.findFirstOrThrow({ where: { archiveImportId: id } })).downloadScope).toBe(
+        scope
+      )
       expect(task.totalItems).toBe(scope === 'ALL' ? 25 : 20)
     }
   )
@@ -1462,7 +1526,8 @@ async function enqueueCoverage(
   total: number,
   downloadScope: 'ALL' | 'FIRST_20',
   completion?: ReturnType<typeof archiveCompletionSnapshotSchema.parse>,
-  expectedResult = 'CREATED'
+  expectedResult = 'CREATED',
+  requestedScope?: 'ALL' | 'FIRST_20'
 ) {
   const id = `${prefix}-${randomUUID()}`
   const resolved = {
@@ -1517,6 +1582,7 @@ async function enqueueCoverage(
   const result = await db!.$transaction((tx) =>
     enqueueArchiveIntakeItemInTransaction(tx, id, {
       quality: 'ORIGINAL',
+      ...(requestedScope ? { downloadScope: requestedScope } : {}),
       requestedByUserId: null,
       timestamp: clock.now(),
       uuid: () => `${prefix}-${randomUUID()}`,

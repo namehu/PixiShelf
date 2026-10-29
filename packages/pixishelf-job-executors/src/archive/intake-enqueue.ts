@@ -54,7 +54,14 @@ export async function enqueueArchiveIntakeItemInTransaction(
     // ENQUEUED 且已有 import 时，直接回写当前归档引用，保证页面多次点击不会重复创建新任务。
     const reusedImport = await transaction.archiveImport.findUnique({
       where: { id: item.archiveImportId },
-      select: { id: true, selectedQuality: true, providerKey: true, externalId: true, dedupSourceSnapshot: true }
+      select: {
+        id: true,
+        selectedQuality: true,
+        downloadScope: true,
+        providerKey: true,
+        externalId: true,
+        dedupSourceSnapshot: true
+      }
     })
     if (!reusedImport) {
       return { result: 'CONFLICT', code: 'ARCHIVE_IMPORT_MISSING', message: '已入队的归档任务不存在' }
@@ -69,7 +76,8 @@ export async function enqueueArchiveIntakeItemInTransaction(
       data: {
         archiveImportId: reusedImport.id,
         activeArchiveImportId: reusedImport.id,
-        selectedQuality: reusedImport.selectedQuality
+        selectedQuality: reusedImport.selectedQuality,
+        downloadScope: reusedImport.downloadScope
       }
     })
     await linkCatalogToArchiveImport(transaction, item, reusedImport.id, timestamp)
@@ -113,6 +121,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
         archiveImportId: active.id,
         activeArchiveImportId: active.id,
         selectedQuality: active.selectedQuality,
+        downloadScope: active.downloadScope,
         finishedAt: timestamp
       }
     })
@@ -259,6 +268,7 @@ export async function enqueueArchiveIntakeItemInTransaction(
       archiveImportId: importId,
       activeArchiveImportId: importId,
       selectedQuality: quality,
+      downloadScope,
       finishedAt: timestamp
     }
   })
@@ -296,7 +306,14 @@ export async function recoverArchiveIntakeEnqueueRace(
   if (item.status === 'ENQUEUED' && item.archiveImportId) {
     const reusedImport = await transaction.archiveImport.findUnique({
       where: { id: item.archiveImportId },
-      select: { id: true, selectedQuality: true, providerKey: true, externalId: true, dedupSourceSnapshot: true }
+      select: {
+        id: true,
+        selectedQuality: true,
+        downloadScope: true,
+        providerKey: true,
+        externalId: true,
+        dedupSourceSnapshot: true
+      }
     })
     if (!reusedImport) return null
     await assertArchiveSourceSnapshot(transaction, {
@@ -309,7 +326,8 @@ export async function recoverArchiveIntakeEnqueueRace(
       data: {
         archiveImportId: reusedImport.id,
         activeArchiveImportId: reusedImport.id,
-        selectedQuality: reusedImport.selectedQuality
+        selectedQuality: reusedImport.selectedQuality,
+        downloadScope: reusedImport.downloadScope
       }
     })
     await linkCatalogToArchiveImport(transaction, item, reusedImport.id, timestamp)
@@ -326,6 +344,7 @@ export async function recoverArchiveIntakeEnqueueRace(
       archiveImportId: active.id,
       activeArchiveImportId: active.id,
       selectedQuality: active.selectedQuality,
+      downloadScope: active.downloadScope,
       finishedAt: timestamp
     }
   })
@@ -370,7 +389,14 @@ function linkCatalogToArchiveImport(
 function findActiveImport(transaction: Prisma.TransactionClient, providerKey: string, externalId: string) {
   return transaction.archiveImport.findFirst({
     where: { providerKey, externalId, status: { in: ['PENDING', 'RUNNING', 'PAUSED', 'CANCELLING'] } },
-    select: { id: true, selectedQuality: true, providerKey: true, externalId: true, dedupSourceSnapshot: true }
+    select: {
+      id: true,
+      selectedQuality: true,
+      downloadScope: true,
+      providerKey: true,
+      externalId: true,
+      dedupSourceSnapshot: true
+    }
   })
 }
 

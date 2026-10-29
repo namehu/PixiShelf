@@ -55,7 +55,7 @@ sources:
 | Worker 能力注册                        | 13 项通过                                                                                                       |
 | 类型检查                               | 主应用、job-contracts、job-runtime、job-executors、Worker 通过                                                  |
 | 主应用 lint                            | 0 警告、0 错误                                                                                                  |
-| Worker 构建与运行                      | 构建通过，PID 88022；ready healthcheck 通过；能力审计 1 READY Worker、39 类型／62 版本                          |
+| Worker 构建与运行                      | 构建通过，PID 89518；ready healthcheck 通过；能力审计 1 READY Worker、39 类型／62 版本                          |
 | Web 开发服务                           | PID 87153，`/login?entry=direct` HTTP 200，响应包含首次管理员初始化文案                                         |
 
 通过的新增数据库用例覆盖前 20 张数量边界、重复提交范围不扩不缩、来源变化拒绝、本地媒体变更拒绝发布、保留旧 Image ID／阅读／标记／评分、新图未读、未登记文件与活动旧路径任务保护、删除后中断的原任务离线授权恢复，以及旧副本退休后的回收和恢复。没有进行浏览器或真实原站验证；永久清理退休修订的执行路径已适配，但本轮新增数据库用例未单独执行 purge。
@@ -78,3 +78,9 @@ node --env-file=../pixishelf/.env.local dist/capability-audit.cjs
 ```
 
 文档检查：`pnpm docs:check` 通过，检查 328 个 Markdown；`WEBP_BROWSER_CHANNEL=chrome pnpm docs:diagrams:check` 通过，检查 34 个图源与 23 个内嵌 Mermaid 块。`git diff --check -- docs` 通过，主应用路径大写扫描无匹配。本次不改 Mermaid 图源、不重生成图，也未运行应用 build。完整验收项目见[功能规格](../../features/archive-partial-coverage.md#验收入口)。
+
+## 独立审查修复
+
+独立审查确认唯一 P2：MANUAL 解析后改变下载范围，创建的 Import 已使用新范围，但 Intake 仍显示旧范围。修复将创建、已入队重放、活动 Import 复用及两条并发恢复路径统一写回实际 Import 范围。新增 6 项数据库回归，并连同原有“不扩大部分／不缩小全量”2 项定向复验，共 8 项通过；执行器类型检查通过。
+
+审查阶段原 48 项真实 PostgreSQL 套件已由独立 reviewer 全部通过。补丁提交后仍需独立复审，不以作者验证替代审查。补丁只重建受影响 Worker 运行包以更新独立环境，未执行主应用全量构建。
