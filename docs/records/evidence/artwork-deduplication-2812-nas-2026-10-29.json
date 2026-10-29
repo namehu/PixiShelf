@@ -1,0 +1,89 @@
+{
+  "kind": "sanitized_read_only_diagnostic_aggregates",
+  "production_mutations": false,
+  "diagnostic_date_shanghai": "2026-10-29",
+  "artist_id": 2812,
+  "running_images": {
+    "version": "v0.54.18",
+    "revision": "c75e3a572e44b2540dbce63c02c74e5f473b6c2c",
+    "worker_image_id": "sha256:505e40566c4f135797d786d063620651695f88d8e93e078c2deffe9c474ac07d",
+    "app_image_id": "sha256:e22b0979ae89e1c8f6ee65de0533c32e3fcadbe3716672cfde15d4ab51acc58b",
+    "worker_digest": "dockernamehu/pixishelf-worker@sha256:56f5a5cb4c904fb5b7fde4bcab0dbea633143a07c22dc791d29766fc0828c53b",
+    "app_digest": "dockernamehu/pixishelf@sha256:d305495454c461a8d0ff0622222ce8e86d0411e45de780742f692fe2e4162bae",
+    "worker_started_utc": "2026-10-28T10:10:47.736Z",
+    "app_started_utc": "2026-10-28T10:10:29.046Z",
+    "worker_restart_count": 0,
+    "app_restart_count": 0
+  },
+  "sql_limits": {
+    "transaction_read_only": true,
+    "isolation": "repeatable read",
+    "statement_timeout": "10s",
+    "lock_timeout": "1s",
+    "idle_in_transaction_session_timeout": "15s"
+  },
+  "image_header_probe": {
+    "files": 324,
+    "animatedWebp": 324,
+    "other": 0,
+    "failed": 0,
+    "changed": 0,
+    "bytesRead": 10368,
+    "registeredAnimatedBytes": 1207977628
+  },
+  "image_metadata_samples": {
+    "sample_count": 3,
+    "all_format": "webp",
+    "all_pages": 81,
+    "all_stable_readable": true
+  },
+  "source_manifests": [
+    {
+      "artworkId": 16831,
+      "deployed_reader_ok": true,
+      "bytes": 126720,
+      "mediaCount": 174,
+      "fullManifestMappingMatches": true
+    },
+    {
+      "artworkId": 16835,
+      "deployed_reader_ok": true,
+      "bytes": 147358,
+      "mediaCount": 203,
+      "fullManifestMappingMatches": true
+    },
+    {
+      "artworkId": 18462,
+      "deployed_reader_ok": true,
+      "bytes": 126393,
+      "mediaCount": 170,
+      "fullManifestMappingMatches": true
+    },
+    {
+      "artworkId": 18465,
+      "deployed_reader_ok": true,
+      "bytes": 146301,
+      "mediaCount": 200,
+      "fullManifestMappingMatches": true
+    }
+  ],
+  "all_source_archive_evidence": {
+    "current_sole_revision": true,
+    "completed_import": true,
+    "identity_matches": true,
+    "seal_is_null": true,
+    "generation_token_is_null": true,
+    "generation_records": 0,
+    "import_item_image_scan_hash_size_bijection": true
+  },
+  "filesystem_timing_samples": [
+    { "kind": "scan", "files": 3, "wall_ms": 12.773, "lstat_calls": 36, "realpath_calls": 15, "open_calls": 3 },
+    { "kind": "prepare", "files": 4, "wall_ms": 50.752, "lstat_calls": 80, "realpath_calls": 28, "open_calls": 8 }
+  ],
+  "limitations": [
+    "Aggregate evidence, not per-file timing from the original runs",
+    "Filesystem sample timings cannot be extrapolated to original run durations",
+    "No production deployment or repaired-run performance measurement",
+    "CPU, physical I/O, original SQL timings, background load and browsing latency not collected"
+  ]
+}

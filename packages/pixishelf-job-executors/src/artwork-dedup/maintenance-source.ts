@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { readStableFileContent } from '../scan/content-reader.ts'
 import { ScanExecutorError } from '../scan/errors.ts'
@@ -55,6 +56,7 @@ export interface MaintenanceSourceResult extends MaintenanceInspection {
   bytesRead: bigint
   media: Array<z.infer<typeof manifestMedia>>
   mediaCount: number
+  mediaSignature: string | null
   nextOffset: number | null
 }
 export async function inspectMaintenanceSource(input: {
@@ -114,6 +116,7 @@ export async function inspectMaintenanceSource(input: {
     bytesRead: BigInt(content.size),
     media: [],
     mediaCount: 0,
+    mediaSignature: null,
     nextOffset: null
   }
   try {
@@ -145,6 +148,11 @@ export async function inspectMaintenanceSource(input: {
         paths.add(row.path)
       }
       result.mediaCount = manifest.media.length
+      // Same canonical tuple stream as the legacy publication mapping in the DB package.
+      const signature = createHash('sha256').update('pixishelf-archive-manifest-media-v1\n')
+      for (const row of [...manifest.media].sort((a, b) => a.index - b.index))
+        signature.update(JSON.stringify([row.index, row.path, row.sha256, BigInt(row.bytes).toString()]) + '\n')
+      result.mediaSignature = signature.digest('hex')
       result.media = manifest.media.slice(input.offset, input.offset + 100)
       result.nextOffset =
         input.offset + result.media.length < manifest.media.length ? input.offset + result.media.length : null

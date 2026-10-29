@@ -172,30 +172,35 @@ async function inspectSource(
     ...baseEntry(item, reference.referenceKey, 'SOURCE_FILE', resolved),
     revisionId: reference.revisionId
   }
+  let result: ArtworkDedupOperationFileInput = entry
   try {
     const observed = await context.reader.inspectSource({
       ...resolved,
       expectedIdentity: reference.expectedIdentity,
       offset: 0
     })
-    const result = { ...inspected(entry, observed), sha256: observed.sha256 }
+    result = { ...inspected(entry, observed), sha256: observed.sha256 }
     if (reference.expectedIdentity.kind === 'ARCHIVE_MANIFEST') {
       const seal = await context.transaction(async (tx) => {
         await current(context, tx, item.artworkId)
-        return readArtworkDedupArchiveManifestEvidence(tx, { execution: context.execution, artworkId: item.artworkId })
+        return readArtworkDedupArchiveManifestEvidence(tx, {
+          execution: context.execution, artworkId: item.artworkId, allowLegacyManifestMapping: true
+        })
       })
       if (
         seal.revisionId !== reference.expectedIdentity.revisionId ||
         seal.providerKey !== reference.expectedIdentity.providerKey ||
         seal.externalId !== reference.expectedIdentity.externalId ||
-        seal.sealedManifestSha256 !== observed.sha256 ||
+        (seal.sealedManifestSha256 !== null
+          ? seal.sealedManifestSha256 !== observed.sha256
+          : !observed.mediaSignature || seal.manifestMediaSignature !== observed.mediaSignature) ||
         seal.memberCount !== BigInt(observed.mediaCount)
       )
         return blocked(result, 'ARCHIVE_MANIFEST_UNVERIFIED')
     }
     return result
   } catch (error) {
-    return blocked(entry, localError(error))
+    return blocked(result, localError(error))
   }
 }
 /** At most fifty image references produce one hundred rows; their cursor commits with those exact rows. */
@@ -336,6 +341,8 @@ export async function prepareArtworkDirectory(
         canonicalPath: true,
         referenceKey: true,
         role: true,
+        status: true,
+        blockReason: true,
         size: true,
         mtimeNs: true,
         ctimeNs: true,
@@ -383,11 +390,13 @@ export async function prepareArtworkDirectory(
         (['size', 'mtimeNs', 'ctimeNs', 'deviceId', 'inode', 'linkCount'] as const).every(
           (key) => observed.state![key] === known[key]
         )
+      // A failed source read has no baseline to compare. Retain the original blocking
+      // reason instead of replacing it with FILE_CHANGED when its attributes are null.
       if (!unchanged)
         entries.push(
           blocked(
             inspected(baseEntry(item, known.referenceKey, known.role, { ...directory, relativePath }), observed),
-            'FILE_CHANGED'
+            known.status === 'BLOCKED' && known.blockReason ? known.blockReason : 'FILE_CHANGED'
           )
         )
     } else {

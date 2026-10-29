@@ -1,0 +1,68 @@
+[
+  {
+    "sample": "mixed",
+    "sameSampleDigest": "660f34fe26ffe7ac7cb9a581be1a71886d487be9f6e3658b5b338d78fb190063",
+    "before": {
+      "implementation": "baseline a6595942",
+      "prepareMs": 766.7713329999997,
+      "deleteMs": 1046.947083,
+      "totalMs": 1813.7184159999997,
+      "sql": 1883,
+      "readCalls": 22,
+      "readBytes": 33150,
+      "nodeLstat": 915,
+      "nodeHandleStat": 44,
+      "nodeRealpath": 489,
+      "directoryRequests": 4,
+      "yields": 0
+    },
+    "after": {
+      "implementation": "final after_r2",
+      "prepareMs": 99.36033300000008,
+      "deleteMs": 1288.9812499999998,
+      "totalMs": 1388.341583,
+      "sql": 1154,
+      "readCalls": 11,
+      "readBytes": 16575,
+      "nodeLstat": 553,
+      "nodeHandleStat": 22,
+      "nodeRealpath": 294,
+      "directoryRequests": 2,
+      "yields": 0
+    },
+    "localSingleRunTotalReductionPercent": 23.453300647303998
+  },
+  {
+    "sample": "medium",
+    "sameSampleDigest": "43f0db7c83fb21dfe48084ec8c0a0cc5c861481515e27a225176a3b1b56e755f",
+    "before": {
+      "implementation": "baseline a6595942",
+      "prepareMs": 4871.801459,
+      "deleteMs": 11824.453875,
+      "totalMs": 16696.255334,
+      "sql": 26429,
+      "readCalls": 400,
+      "readBytes": 2589108,
+      "nodeLstat": 24144,
+      "nodeHandleStat": 800,
+      "nodeRealpath": 12880,
+      "directoryRequests": 8,
+      "yields": 0
+    },
+    "after": {
+      "implementation": "final after_r2",
+      "prepareMs": 364.04820799999993,
+      "deleteMs": 9103.429750000001,
+      "totalMs": 9467.477958000001,
+      "sql": 14476,
+      "readCalls": 400,
+      "readBytes": 2589108,
+      "nodeLstat": 18848,
+      "nodeHandleStat": 800,
+      "nodeRealpath": 10026,
+      "directoryRequests": 4,
+      "yields": 0
+    },
+    "localSingleRunTotalReductionPercent": 43.29580035398373
+  }
+]

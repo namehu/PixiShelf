@@ -67,7 +67,8 @@ function createRun(overrides: Partial<ArtworkDedupRunDto> = {}): ArtworkDedupRun
       statMedia: 40,
       hashedMedia: 0,
       cacheHitMedia: 0,
-      readBytes: '0'
+      readBytes: '0',
+      visualUncheckedMedia: 0
     },
     allowedControls: ['pause', 'cancel'],
     failure: null,
@@ -184,6 +185,26 @@ describe('duplicate check page', () => {
     expect(screen.queryByRole('button', { name: '继续检查' })).toBeNull()
     expect(screen.queryByText('本轮疑似版本比较已达上限，继续后会接着检查。')).toBeNull()
   })
+  it.each([0, 7])('explains mixed-media coverage without adding a zero count (%s)', (unchecked) => {
+    const run = createRun()
+    render(
+      <DuplicateRunStatus
+        run={createRun({
+          status: 'COMPLETED', visualStatus: 'INCOMPLETE', visualIncompleteReasons: ['UNSUPPORTED_MEDIA'],
+          counts: { ...run.counts, visualUncheckedMedia: unchecked }, allowedControls: []
+        })}
+        pending={null} disabled={false} onControl={() => {}}
+      />
+    )
+    expect(screen.getByText(/动画、视频或不支持的图片未核对/)).toBeTruthy()
+    if (unchecked > 0) {
+      expect(screen.getByText(/7 项媒体未核对，已支持的图片仍参与比较/)).toBeTruthy()
+    } else {
+      expect(screen.queryByText(/0 项媒体未核对/)).toBeNull()
+    }
+    expect(screen.getByText(/其他重复结果仍可核对/)).toBeTruthy()
+  })
+
   it('continues a persisted comparison-budget pause only after an explicit request', async () => {
     let resolveControl!: (run: ArtworkDedupRunDto) => void
     mocks.getRun.mockResolvedValue(

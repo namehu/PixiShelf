@@ -1,0 +1,61 @@
+{
+  "database": "dedup_confirm_upgrade_20261029",
+  "sourceClone": "dedup_confirm_bench_baseline_mixed_20261029_r4",
+  "before": {
+    "Artwork": {
+      "count": 2,
+      "digest": "4474644e4f1207e132823859318987b7"
+    },
+    "Image": {
+      "count": 10,
+      "digest": "b68586873f791957ef2f0db4d1768b8a"
+    },
+    "ArtworkDedupOperation": {
+      "count": 1,
+      "digest": "0df2bdf9d4cd1f7170770c13b499094b"
+    },
+    "ArtworkDedupOperationArtwork": {
+      "count": 2,
+      "digest": "ead678e011ff6c23debaf6be64a43353"
+    },
+    "ArtworkDedupOperationFile": {
+      "count": 11,
+      "digest": "159d87113951b5b9316ff6676be49197"
+    },
+    "system_jobs": {
+      "count": 3,
+      "digest": "6719aa34e835167d522385ffad2e9313"
+    }
+  },
+  "after": {
+    "Artwork": {
+      "count": 2,
+      "digest": "4474644e4f1207e132823859318987b7"
+    },
+    "Image": {
+      "count": 10,
+      "digest": "b68586873f791957ef2f0db4d1768b8a"
+    },
+    "ArtworkDedupOperation": {
+      "count": 1,
+      "digest": "0df2bdf9d4cd1f7170770c13b499094b"
+    },
+    "ArtworkDedupOperationArtwork": {
+      "count": 2,
+      "digest": "ead678e011ff6c23debaf6be64a43353"
+    },
+    "ArtworkDedupOperationFile": {
+      "count": 11,
+      "digest": "159d87113951b5b9316ff6676be49197"
+    },
+    "system_jobs": {
+      "count": 3,
+      "digest": "6719aa34e835167d522385ffad2e9313"
+    }
+  },
+  "existingDataUnchanged": true,
+  "legacyDefaults": {
+    "operations": 1,
+    "legacy": 1
+  }
+}

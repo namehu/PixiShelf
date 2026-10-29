@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { Check, ImageOff } from 'lucide-react'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -15,15 +16,28 @@ import { DuplicateOrganization } from './duplicate-organization'
 import { DuplicatePagination } from './duplicate-pagination'
 import { DuplicateLoading, DuplicateQueryError } from './duplicate-query-feedback'
 import { duplicateBlockReason } from './duplicate-operation-state'
-import { duplicatePairCounts } from './duplicate-relation'
+import { duplicatePairCounts, duplicateVisualSideCounts } from './duplicate-relation'
 
 type Comparison = ArtworkDedupListComparisonsDto['items'][number]
-type Filter = 'ALL' | 'DIFFERENT' | 'PAIRED' | 'UNMATCHED'
+type Filter = 'ALL' | 'DIFFERENT' | 'PAIRED' | 'UNMATCHED' | 'UNCHECKED'
 
-function ComparisonImage({ media, title }: { media: Comparison['left']; title: string }) {
+function ComparisonImage({ media, title, unchecked }: { media: Comparison['left']; title: string; unchecked: boolean }) {
   const [failed, setFailed] = useState(false)
   if (!media) {
-    return <p className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">此版本没有对应图片</p>
+    return (
+      <p className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
+        {unchecked ? '本行未列出此版本的对应项' : '此版本没有对应图片'}
+      </p>
+    )
+  }
+  if (unchecked) {
+    return (
+      <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground">
+        <ImageOff className="size-5" aria-hidden="true" />
+        <Badge variant="outline">未核对</Badge>
+        <p>此项未参与图片比较，请打开作品核对原件。</p>
+      </div>
+    )
   }
   if (!media.thumbnailUrl || failed) {
     return (
@@ -169,7 +183,7 @@ export function DuplicateComparisonSheet({
             className="flex-wrap justify-start"
             disabled={comparisons.isFetching || preparing}
             onValueChange={(value) => {
-              if (['ALL', 'DIFFERENT', 'PAIRED', 'UNMATCHED'].includes(value)) {
+              if (['ALL', 'DIFFERENT', 'PAIRED', 'UNMATCHED', 'UNCHECKED'].includes(value)) {
                 setFilter(value as Filter)
                 setCursors([undefined])
               }
@@ -177,7 +191,7 @@ export function DuplicateComparisonSheet({
           >
             {!partial ? (
               <ToggleGroupItem value="DIFFERENT" className="min-h-11 px-3">
-                不同图片
+                差异与未核对
               </ToggleGroupItem>
             ) : null}
             <ToggleGroupItem value="PAIRED" className="min-h-11 px-3">
@@ -186,6 +200,11 @@ export function DuplicateComparisonSheet({
             <ToggleGroupItem value="UNMATCHED" className="min-h-11 px-3">
               未配对
             </ToggleGroupItem>
+            {!partial ? (
+              <ToggleGroupItem value="UNCHECKED" className="min-h-11 px-3">
+                未核对
+              </ToggleGroupItem>
+            ) : null}
             <ToggleGroupItem value="ALL" className="min-h-11 px-3">
               全部
             </ToggleGroupItem>
@@ -227,6 +246,13 @@ export function DuplicateComparisonSheet({
                     group.previewMembers.find((item) => item.artworkId === artworkId)
                   const media = pair?.[currentSide] ?? null
                   const title = member?.title ?? `作品 #${artworkId}`
+                  const coverage = duplicateVisualSideCounts(visual, artworkId)
+                  const unchecked = pair?.kind === 'UNCHECKED'
+                  const mediaLabel = media
+                    ? `第 ${media.index + 1} ${unchecked ? '项' : '张'}`
+                    : pair
+                      ? unchecked ? '本行未列出对应项' : '无对应图片'
+                      : '本筛选无图片'
                   return (
                     <section
                       key={currentSide}
@@ -246,10 +272,10 @@ export function DuplicateComparisonSheet({
                           </a>
                           <p className="text-xs text-muted-foreground">
                             {currentSide === 'left' ? '左侧版本' : '右侧版本'} ·{' '}
-                            {partial
-                              ? `${BigInt(currentSide === 'left' ? visual.leftFileCount : visual.rightFileCount).toLocaleString('zh-CN')} 项原媒体 · `
-                              : ''}
-                            {media ? `第 ${media.index + 1} 张` : pair ? '无对应图片' : '本筛选无图片'}
+                            {coverage.total.toLocaleString('zh-CN')} 项原媒体
+                            {!partial ? `（已核对 ${coverage.checked.toLocaleString('zh-CN')} · 未核对 ${coverage.unchecked.toLocaleString('zh-CN')}）` : ''}
+                            {' · '}
+                            {mediaLabel}
                           </p>
                         </div>
                         <Button
@@ -269,6 +295,7 @@ export function DuplicateComparisonSheet({
                           key={`${pair.id}:${currentSide}:${media?.imageId}:${media?.thumbnailUrl}`}
                           media={media}
                           title={title}
+                          unchecked={unchecked}
                         />
                       ) : null}
                       {member ? (
@@ -297,7 +324,9 @@ export function DuplicateComparisonSheet({
                     ? '原文件相同'
                     : pair.kind === 'SIMILAR'
                       ? '图片相似，请核对差异'
-                      : '未配对图片'}
+                      : pair.kind === 'UNCHECKED'
+                        ? '未核对项目，不能据此判断两个版本的内容是否相同'
+                        : '未配对图片'}
                 </p>
               ) : null}
               {cursors.length > 1 || page.nextCursor ? (
@@ -338,13 +367,13 @@ export function DuplicateComparisonSheet({
                   </Button>
                 </>
               ) : keeperId ? (
-                '将只处理这一对，下一步核对删除影响。'
+                '将只处理这一对，下一步确认删除范围。'
               ) : (
                 '请明确选择保留哪一个版本。'
               )}
             </div>
             <Button className="min-h-11" disabled={!canDelete} onClick={onPrepare}>
-              {preparing ? '正在准备' : '核对并删除'}
+              {preparing ? '正在打开确认' : '确认删除'}
             </Button>
           </div>
         </div>

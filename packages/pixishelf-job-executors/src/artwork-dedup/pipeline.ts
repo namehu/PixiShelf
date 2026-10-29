@@ -49,6 +49,7 @@ export interface DedupPipelineContext {
   reader: ControlledDedupReader
   signal: AbortSignal
   forceRead: boolean
+  mixedVisualMedia?: boolean
   shouldYield: () => boolean
 }
 const ready = <T>(result: MediaContentResult<T>): T => {

@@ -18,6 +18,9 @@ const summary = {
   leftUncheckedCount: '0',
   rightUncheckedCount: '0'
 }
+type ComparisonRow = Pick<Prisma.ArtworkDedupVisualPageGetPayload<Record<string, never>>,
+  'ordinal' | 'kind' | 'leftImageId' | 'rightImageId' | 'leftIndex' | 'rightIndex'>
+
 function fixture() {
   const tx = {
     artworkDedupRun: { findUnique: vi.fn(async () => ({ status: 'COMPLETED', version: 4 })) },
@@ -25,7 +28,7 @@ function fixture() {
       findUnique: vi.fn(async () => ({ id: 'visual-1', runId: 'run-1', leftArtworkId: 1, rightArtworkId: 2, summary }))
     },
     artworkDedupVisualPage: {
-      findMany: vi.fn(async () => [
+      findMany: vi.fn(async (): Promise<ComparisonRow[]> => [
         { ordinal: 1, kind: 'SIMILAR', leftImageId: 11, rightImageId: 21, leftIndex: 0, rightIndex: 1 },
         { ordinal: 2, kind: 'UNMATCHED', leftImageId: null, rightImageId: 22, leftIndex: null, rightIndex: 2 }
       ])
@@ -51,6 +54,17 @@ function fixture() {
   return { tx, database, input }
 }
 describe('visual comparison service', () => {
+  it('filters unchecked originals independently and never supplies their thumbnail URL', async () => {
+    const { tx, database, input } = fixture()
+    tx.artworkDedupVisualPage.findMany.mockResolvedValue([
+      { ordinal: 3, kind: 'UNCHECKED', leftImageId: 11, rightImageId: null, leftIndex: 4, rightIndex: null }
+    ])
+    const page = await listArtworkDedupComparisons('user-a', { ...input, filter: 'UNCHECKED' }, database)
+    expect(page.items).toEqual([{ id: 3, kind: 'UNCHECKED', left: { artworkId: 1, imageId: 11, index: 4, thumbnailUrl: null }, right: null }])
+    expect(tx.artworkDedupVisualPage.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { pairId: 'visual-1', ordinal: { gt: 0 }, kind: 'UNCHECKED' }
+    }))
+  })
   it('reads partial exact and unmatched evidence through the same bounded, account-bound media projection', async () => {
     const { tx, database, input } = fixture()
     const partial = {

@@ -1,0 +1,65 @@
+{
+  "survivors": [
+    {
+      "artworkId": 1,
+      "path": "visual-a/01.webp",
+      "sha256": "22e912d44c2b4070760f8a5a0282d77bc7f8afa089123368ddaee20c85e69ef0"
+    },
+    {
+      "artworkId": 1,
+      "path": "visual-a/02.png",
+      "sha256": "66fd430f6019f5baa2cfd91f0050fc07ccf8c32f09b752c6bdc564b349ef759b"
+    },
+    {
+      "artworkId": 1,
+      "path": "visual-a/03.png",
+      "sha256": "fa9b42b067d600d7f4a0d21a24934d8c40a9ceca0a8d13de951331aeeb837d4c"
+    },
+    {
+      "artworkId": 1,
+      "path": "visual-a/04.png",
+      "sha256": "0d052b0e74600d7b375d95368ad7e96bc7344434a64118d55b516cbe1cc2c328"
+    },
+    {
+      "artworkId": 1,
+      "path": "visual-a/05.png",
+      "sha256": "f4247d04aec97edad7573a59370c534b316bcd572189470e9734eef04e039303"
+    },
+    {
+      "artworkId": 3,
+      "path": "visual-c/01.png",
+      "sha256": "2360aee95d42e8c9f8aed876485f99cb4710cc1260bc6c89dcd681457f990fd9"
+    },
+    {
+      "artworkId": 3,
+      "path": "visual-c/02.png",
+      "sha256": "7751ef4d24ce71f90e0e5cbd171c868e4f752029e146ff4c253a62cb2ca649b2"
+    },
+    {
+      "artworkId": 3,
+      "path": "visual-c/03.png",
+      "sha256": "8e3d61639bead8528aa4b3e161ec4e14760c96eda7234ec2689391ca000b8ead"
+    },
+    {
+      "artworkId": 3,
+      "path": "visual-c/04.png",
+      "sha256": "b5467fc48468b50d8b7c9f6054909f7f1c436968e8cb4f1cb432b9ef1e2c0a68"
+    },
+    {
+      "artworkId": 3,
+      "path": "visual-c/05.png",
+      "sha256": "9c1faecb1e576102d047d819ead6910d60e8bb9453cb246bff006852ebd41995"
+    }
+  ],
+  "deleted": [
+    "visual-b/01.webp",
+    "visual-b/02.png",
+    "visual-b/03.png",
+    "visual-b/04.png",
+    "visual-b/05.png",
+    "visual-b/06.png"
+  ],
+  "deletedCount": 6,
+  "survivorCount": 10,
+  "allSurvivorHashesUnchanged": true
+}

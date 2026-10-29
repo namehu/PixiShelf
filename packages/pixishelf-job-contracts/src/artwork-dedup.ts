@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { jobStatusSchema } from './job-types.ts'
 
-export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 6 as const
+export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 7 as const
 export const ARTWORK_DEDUP_PRIORITY = 900 as const
 export const ARTWORK_DEDUP_DEFAULTS = Object.freeze({
   mediaPageSize: 500,
@@ -80,6 +80,7 @@ export const artworkDedupRunDtoSchema = z.object({
     statMedia: count,
     hashedMedia: count,
     cacheHitMedia: count,
+    visualUncheckedMedia: count.default(0),
     readBytes: z.string().regex(/^\d+$/)
   }),
   allowedControls: z.array(artworkDedupControlActionSchema),

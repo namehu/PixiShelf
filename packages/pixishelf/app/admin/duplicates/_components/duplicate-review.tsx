@@ -278,7 +278,7 @@ function AccountDuplicateReview({
           ) : null}
           {intent.failed.has('prepare') ? (
             <Alert>
-              <AlertTitle>预览尚未确认</AlertTitle>
+              <AlertTitle>未能打开确认</AlertTitle>
               <AlertDescription>
                 {prepare.error?.data?.code === 'CONFLICT'
                   ? prepare.error.message
@@ -319,7 +319,7 @@ function AccountDuplicateReview({
                     disabled={preparing || unsettledSelection || query.isFetching || query.isError}
                     onClick={() => prepareSelection()}
                   >
-                    {preparing ? '正在准备' : '核对并删除'}
+                    {preparing ? '正在打开确认' : '确认删除'}
                   </Button>
                 ) : null}
               </div>

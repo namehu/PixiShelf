@@ -10,7 +10,7 @@ import { throwIfAborted } from '../scan/bounded.ts'
 import type { DedupPipelineContext } from './pipeline.ts'
 import {
   VISUAL_ALGORITHM_VERSION, VISUAL_NORMALIZATION_VERSION, VISUAL_LIMITS,
-  validVisualViews, visualIdentity, matchVisualPages, type VisualPage
+  validVisualViews, validVisualExclusion, visualIdentity, matchVisualPages, type VisualPage
 } from './visual-matching.ts'
 type Media = Prisma.ArtworkDedupMediaGetPayload<Record<string, never>>
 function contentKey(row: { sha256: string | null; size: bigint }) {
@@ -19,7 +19,7 @@ function contentKey(row: { sha256: string | null; size: bigint }) {
 }
 function ownCacheValid(row: Media, cache: Prisma.MediaVisualFingerprintGetPayload<Record<string, never>> | undefined) {
   return cache?.identity === visualIdentity(row) && cache.algorithmVersion === VISUAL_ALGORITHM_VERSION &&
-    cache.normalizationVersion === VISUAL_NORMALIZATION_VERSION && validVisualViews(cache.views)
+    cache.normalizationVersion === VISUAL_NORMALIZATION_VERSION && (validVisualViews(cache.views) || validVisualExclusion(cache.views))
 }
 function directory(row: Media): MediaContentDirectorySnapshot {
   if (row.logicalRoot !== 'source-media:v1' && row.logicalRoot !== 'archive-media:v1') throw new MediaContentFileError('ROOT_CHANGED', 'Visual root changed')
@@ -44,7 +44,7 @@ async function incomplete(context: DedupPipelineContext, reason: string) {
   })
   return true
 }
-/** Feature cursor commits only complete decoder output under the same scan fence. */
+/** Commit verified features or deterministic exclusions and their cursor under the same scan fence. */
 export async function prepareVisualVersions(context: DedupPipelineContext, fileLimit: number = VISUAL_LIMITS.files): Promise<boolean> {
   const run = await context.transaction(tx => assertArtworkDedupExecution(tx, context.execution))
   if (!run.includeSuspectedVersions) return true
@@ -68,7 +68,7 @@ export async function prepareVisualVersions(context: DedupPipelineContext, fileL
           .map(row => [contentKey(row)!, { contentSha256: row.sha256!, contentSize: row.size,
             algorithmVersion: VISUAL_ALGORITHM_VERSION, normalizationVersion: VISUAL_NORMALIZATION_VERSION }]))
         for (const cache of await readArtworkDedupSharedVisualFingerprints(tx, [...missing.values()])) {
-          if (validVisualViews(cache.views)) shared.set(contentKey({ sha256: cache.contentSha256, size: cache.contentSize })!, cache.views as unknown as Prisma.InputJsonValue)
+          if (validVisualViews(cache.views) || validVisualExclusion(cache.views)) shared.set(contentKey({ sha256: cache.contentSha256, size: cache.contentSize })!, cache.views as unknown as Prisma.InputJsonValue)
         }
       }
       return { rows, images: new Map(images.map(image => [image.id, image])), cached: byId, shared }
@@ -97,13 +97,14 @@ export async function prepareVisualVersions(context: DedupPipelineContext, fileL
           try {
             const read = await context.reader.visual({ root, relativePath: row.canonicalPath, signal: context.signal })
             if (read.sha256 !== row.sha256 || !sameContentFileState(read.state, row)) throw new MediaContentFileError('FILE_CHANGED', 'Visual content changed')
-            views = read.views as unknown as Prisma.InputJsonValue; bytes = read.bytesRead; dirty = true
-            if (key && validVisualViews(read.views)) page.shared.set(key, views)
+            views = (read.exclusion ?? read.views) as unknown as Prisma.InputJsonValue; bytes = read.bytesRead; dirty = true
+            if (key && (validVisualViews(views) || validVisualExclusion(views))) page.shared.set(key, views)
           } catch (error) {
             if (error instanceof MediaContentFileError && ['INVALID_FILE', 'NOT_READABLE'].includes(error.code)) unchecked = true
             else throw error
           }
         }
+        if (validVisualExclusion(views)) unchecked = true
       }
       completed.push({ row, views, unchecked, bytes, dirty })
       if (context.shouldYield()) { yielding = true; break }
@@ -138,7 +139,7 @@ export async function prepareVisualVersions(context: DedupPipelineContext, fileL
       // Task-local results and cursor are durable together, including a short yield prefix.
       const updated = await tx.$executeRaw(Prisma.sql`
         UPDATE "ArtworkDedupMedia" m SET "visualStatus"=v.status,"visualViews"=v.views
-        FROM (VALUES ${Prisma.join(completed.map(({ row, unchecked, views }) => Prisma.sql`(${row.artworkId}::integer,${row.imageId}::integer,${unchecked ? 'UNCHECKED' : 'READY'}::text,${views ? JSON.stringify(views) : null}::jsonb)`))}) AS v("artworkId","imageId",status,views)
+        FROM (VALUES ${Prisma.join(completed.map(({ row, unchecked, views }) => Prisma.sql`(${row.artworkId}::integer,${row.imageId}::integer,${unchecked ? 'UNCHECKED' : 'READY'}::text,${!unchecked && views ? JSON.stringify(views) : null}::jsonb)`))}) AS v("artworkId","imageId",status,views)
         WHERE m."runId"=${run.id} AND m."artworkId"=v."artworkId" AND m."imageId"=v."imageId"`)
       if (updated !== completed.length) throw new MediaContentFileError('FILE_CHANGED', 'Visual media changed')
       throwIfAborted(context.signal)

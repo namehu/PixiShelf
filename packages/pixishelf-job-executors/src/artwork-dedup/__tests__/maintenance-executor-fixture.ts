@@ -114,7 +114,7 @@ afterAll(async () => {
   await db.$disconnect()
   await fs.rm(root, { recursive: true, force: true })
 })
-export async function fixture(count = 1, kind: 'LOCAL_DIRECTORY' | 'PIXIV_SCAN' | 'URL_ARCHIVE' | 'MANUAL_CREATE' = 'LOCAL_DIRECTORY', options: {partialKeeperIndex?: number; visualKeeperIndex?: number; purpose?: 'ISOLATION'|'DIRECT_DELETE'; kinds?: ('LOCAL_DIRECTORY'|'PIXIV_SCAN'|'URL_ARCHIVE'|'MANUAL_CREATE')[]; archiveBytes?:boolean; groups?:number; beforeScan?: (ids: number[]) => Promise<void>} = {}) {
+export async function fixture(count = 1, kind: 'LOCAL_DIRECTORY' | 'PIXIV_SCAN' | 'URL_ARCHIVE' | 'MANUAL_CREATE' = 'LOCAL_DIRECTORY', options: {mixedVisualMedia?: boolean; partialKeeperIndex?: number; visualKeeperIndex?: number; purpose?: 'ISOLATION'|'DIRECT_DELETE'; kinds?: ('LOCAL_DIRECTORY'|'PIXIV_SCAN'|'URL_ARCHIVE'|'MANUAL_CREATE')[]; archiveBytes?:boolean; groups?:number; beforeScan?: (ids: number[]) => Promise<void>} = {}) {
   const artist = await db!.artist.create({ data: { name: prefix } })
   artists.push(artist.id)
   const ids: number[] = []
@@ -172,7 +172,7 @@ export async function fixture(count = 1, kind: 'LOCAL_DIRECTORY' | 'PIXIV_SCAN' 
     const job = await tx.systemJob.create({
       data: {
         type: 'ARTWORK_DEDUP_SCAN',
-        definitionVersion: options.partialKeeperIndex !== undefined ? 4 : options.visualKeeperIndex !== undefined ? 3 : 1,
+        definitionVersion: options.mixedVisualMedia ? 7 : options.partialKeeperIndex !== undefined ? 4 : options.visualKeeperIndex !== undefined ? 3 : 1,
         executionLane: 'BACKGROUND_WRITER',
         status: 'PENDING',
         triggerSource: 'SYSTEM',
@@ -187,7 +187,7 @@ export async function fixture(count = 1, kind: 'LOCAL_DIRECTORY' | 'PIXIV_SCAN' 
     return job
   })
   const scanJob = await repository!.claim(prefix, [
-    { jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 3, 4, 5] }
+    { jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 3, 4, 5, 7] }
   ])
   expect(scanJob?.id).toBe(scan.id)
   await executeArtworkDedup(executionContext<ArtworkDedupScanPayload>(scanJob!), {
@@ -230,7 +230,7 @@ export async function fixture(count = 1, kind: 'LOCAL_DIRECTORY' | 'PIXIV_SCAN' 
     return { id: operation.id, jobId: job.id }
   })
   const job = await repository!.claim(prefix, [
-    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 3, 4, 5] }
+    { jobType: 'ARTWORK_DEDUP_MAINTENANCE', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 3, 4, 5, 7] }
   ])
   expect(job?.id).toBe(op.jobId)
   const execution = { operationId: op.id, jobId: op.jobId, executionVersion: 1 }

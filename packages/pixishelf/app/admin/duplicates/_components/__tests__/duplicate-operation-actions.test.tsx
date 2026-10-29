@@ -144,7 +144,7 @@ describe('direct delete actions', () => {
       expect(mocks.directDelete).not.toHaveBeenCalled()
       fireEvent.click(
         screen.getByRole('checkbox', {
-          name: protocolVersion === 4 ? /部分重复作品仍有未配对原件/ : /两个版本内容不同/
+          name: protocolVersion === 4 ? /部分重复作品仍有未配对原件/ : /我确认删除整部作品，包含未配对、未核对的原媒体及全部整理记录/
         })
       )
       fireEvent.click(submit)
@@ -156,6 +156,28 @@ describe('direct delete actions', () => {
       })
     }
   )
+  it.each([1, 3, 4] as const)('confirms quick scope once with every existing protection (protocol %s)', async (protocolVersion) => {
+    mount(operation({ preparationVersion: 2, protocolVersion, jobId: null, stage: 'CONFIRM', allowedActions: ['DIRECT_DELETE'] }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getAllByRole('checkbox')).toHaveLength(protocolVersion === 1 ? 2 : 3)
+    expect(screen.getByRole('checkbox', { name: /全部文件及整理记录，无法恢复，也不会合并到保留作品/ })).toBeTruthy()
+    expect(screen.getByRole('checkbox', { name: /已暂停这些文件的同步和编辑/ })).toBeTruthy()
+    confirm()
+    if (protocolVersion !== 1) {
+      fireEvent.click(screen.getByRole('checkbox', {
+        name: protocolVersion === 4 ? /部分重复作品仍有未配对原件/ : /包含未配对、未核对的原媒体及全部整理记录/
+      }))
+    }
+    const submit = screen.getByRole('button', { name: '永久删除 1 部副本' })
+    fireEvent.click(submit)
+    fireEvent.click(submit)
+    await waitFor(() => expect(mocks.directDelete).toHaveBeenCalledTimes(1))
+    expect(mocks.directDelete.mock.calls[0]![0]).toMatchObject({
+      protocolVersion, permanentDeleteConfirmed: true, organizationImpactConfirmed: true, externalWritesStopped: true,
+      scopeDigest: 'a'.repeat(64), expectedVersion: 1
+    })
+  })
+
   it('requires a loaded frozen preview and resets confirmation for a new version or account', () => {
     const value = operation({ allowedActions: ['DIRECT_DELETE'] })
     const view = mount(value, false)

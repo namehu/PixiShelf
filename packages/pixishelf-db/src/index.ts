@@ -317,3 +317,5 @@ export * from './artwork-dedup-partial'
 export * from './artwork-dedup-relation-cache'
 
 export * from './artwork-dedup-visual-work'
+
+export * from './artwork-dedup-quick-confirmation'

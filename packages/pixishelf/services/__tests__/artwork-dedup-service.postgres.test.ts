@@ -38,9 +38,9 @@ async function fixture() {
   }
 }
 describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
-  beforeAll(async () => { await db!.workerInstance.create({ data: { workerId: actor, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [6] }] } }) })
+  beforeAll(async () => { await db!.workerInstance.create({ data: { workerId: actor, status: 'READY', heartbeatAt: new Date(), hostname: 'fixture', processId: process.pid, serviceVersion: 'fixture', capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [7] }] } }) })
   afterEach(async () => {
-    await db!.workerInstance.update({ where: { workerId: actor }, data: { heartbeatAt: new Date(), capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [6] }] } })
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { heartbeatAt: new Date(), capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [7] }] } })
     const runs = await db!.artworkDedupRun.findMany({
       where: { requestedBy: actor },
       select: { id: true, jobId: true }
@@ -57,17 +57,17 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
   })
   it('requires upgraded scan capability, preserves replay and marks legacy results exact-only', async () => {
     const f = await fixture()
-    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5] }] } })
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5, 6] }] } })
     await expect(startArtworkDedup(actor, f.input, db!)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
     expect(await db!.artworkDedupRun.count({ where: { artistId: f.artist.id } })).toBe(0)
-    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5, 6] }] } })
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5, 6, 7] }] } })
     const run = await startArtworkDedup(actor, f.input, db!)
     expect(run.includesContainment).toBe(true)
     expect(run.includesPartial).toBe(true)
-    expect(await db!.systemJob.findUnique({ where: { id: run.jobId! } })).toMatchObject({ definitionVersion: 6 })
+    expect(await db!.systemJob.findUnique({ where: { id: run.jobId! } })).toMatchObject({ definitionVersion: 7 })
     const repository = new PostgresQueueRepository(db! as unknown as QueueDatabase)
-    expect(await repository.claim(actor, [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5] }])).toBeNull()
-    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5] }] } })
+    expect(await repository.claim(actor, [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5, 6] }])).toBeNull()
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5, 6] }] } })
     expect(await startArtworkDedup(actor, f.input, db!)).toMatchObject({ runId: run.runId, jobId: run.jobId })
     await db!.systemJob.update({ where: { id: run.jobId! }, data: { definitionVersion: 4 } })
     expect(await getArtworkDedupRun(actor, { runId: run.runId, expectedUserId: actor }, db!)).toMatchObject({ includesContainment: true, includesPartial: true })
@@ -142,7 +142,7 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
     const started = await startArtworkDedup(actor, f.input, db!)
     let now = new Date(Date.now() + 1000)
     const repository = new PostgresQueueRepository(db! as unknown as QueueDatabase, { clock: { now: () => now } })
-    const capabilities = [{ jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [6] }]
+    const capabilities = [{ jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [7] }]
     const claimed = (await repository.claim(actor, capabilities))!
     expect(claimed.id).toBe(started.jobId)
     const fence = { jobId: claimed.id, workerId: actor, executionToken: claimed.executionToken, attempt: claimed.attempt }
@@ -262,14 +262,14 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
       runId: run.runId, expectedUserId: actor, expectedVersion: cancelled.version,
       idempotencyKey: randomUUID(), action: 'retry' as const
     }
-    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5] }] } })
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [1, 2, 3, 4, 5, 6] }] } })
     await expect(controlArtworkDedup(actor, retryRequest, db!)).rejects.toMatchObject({ code: 'PRECONDITION_FAILED' })
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: run.runId } })).toMatchObject({ visualCheckpoint: checkpoint, executionVersion: 1, jobId: run.jobId })
     expect(await db!.artworkDedupVisualPosting.count({ where: { runId: run.runId } })).toBe(1)
     expect(await db!.artworkDedupVisualCandidate.count({ where: { runId: run.runId } })).toBe(1)
     expect(await db!.artworkDedupMedia.count({ where: { runId: run.runId } })).toBe(1)
     expect(await db!.artworkDedupItem.findMany({ where: { runId: run.runId } })).toEqual([expect.objectContaining({ visualReuseSignature: 'cached-visual-reuse-signature' })])
-    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [6] }] } })
+    await db!.workerInstance.update({ where: { workerId: actor }, data: { capabilities: [{ jobType: 'ARTWORK_DEDUP_SCAN', executionLane: 'BACKGROUND_WRITER', definitionVersions: [7] }] } })
     const retried = await controlArtworkDedup(
       actor,
       retryRequest,
@@ -286,7 +286,7 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
     expect(await db!.mediaVisualFingerprint.findUnique({ where: { imageId: image.id } })).toEqual(visualCache)
     expect(await db!.artworkDedupRun.findUnique({ where: { id: run.runId } })).toMatchObject({ partialAfterArtworkId: 0, partialAfterCandidateId: 0 })
     expect(retried.jobId).not.toBe(run.jobId)
-    expect(await db!.systemJob.findUnique({ where: { id: retried.jobId! } })).toMatchObject({ definitionVersion: 6 })
+    expect(await db!.systemJob.findUnique({ where: { id: retried.jobId! } })).toMatchObject({ definitionVersion: 7 })
     expect(await db!.artworkDedupItem.count({ where: { runId: run.runId } })).toBe(1)
     expect(await listArtworkDedupGroups(actor, { runId: run.runId, expectedUserId: actor, limit: 20 }, db!)).toEqual({
       items: [],
@@ -354,13 +354,14 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
     expect(await db!.artworkDedupRun.count({ where: { requestedBy: actor } })).toBe(0)
     expect(await db!.systemJob.count({ where: { requestedByUserId: actor } })).toBe(0)
   })
-  it('opens one visual round through concurrent RESUME, replays without replenishing and retains frozen work', async () => {
+  it.each([6, 7])('v%i opens one visual round through concurrent RESUME, replays without replenishing and retains frozen work', async definitionVersion => {
     const f = await fixture()
     const started = await startArtworkDedup(actor, { ...f.input, includeSuspectedVersions: true }, db!)
+    await db!.systemJob.update({ where: { id: started.jobId! }, data: { definitionVersion } })
     await db!.artworkDedupRun.update({ where: { id: started.runId }, data: {
       stage: 'VISUAL', visualComparisonRound: 1, visualBudgetWaiting: true,
       visualComparedComparisons: 125000, visualReusedComparisons: 75000,
-      visualCheckpoint: { version: 1, phase: 'QUERY', fixture: 'preserved' }
+      visualCheckpoint: { version: definitionVersion === 7 ? 2 : 1, phase: 'QUERY', fixture: 'preserved' }
     } })
     await db!.systemJob.update({ where: { id: started.jobId! }, data: { status: 'PAUSED' } })
     const paused = (await getArtworkDedupRun(actor, { runId: started.runId, expectedUserId: actor }, db!))!
@@ -374,7 +375,7 @@ describe.skipIf(!db)('artwork detection API PostgreSQL', () => {
     expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: paused.runId } })).toMatchObject({
       visualComparisonRound: 2, visualRoundStartComparisons: 200000, visualComparedComparisons: 125000,
       visualReusedComparisons: 75000, visualBudgetWaiting: false, executionVersion: paused.executionVersion,
-      visualCheckpoint: { version: 1, phase: 'QUERY', fixture: 'preserved' }
+      visualCheckpoint: { version: definitionVersion === 7 ? 2 : 1, phase: 'QUERY', fixture: 'preserved' }
     })
     expect(await db!.artworkDedupItem.findMany({ where: { runId: paused.runId } })).toEqual(frozen)
     // An old idempotent request must not authorize another round after a later pause.

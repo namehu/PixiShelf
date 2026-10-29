@@ -30,8 +30,15 @@ export function validVisualViews(value: unknown): value is VisualView[] {
     Array.isArray(v.feature.information) && v.feature.information.length === 10 &&
     v.feature.information.every((n: unknown) => typeof n === 'number' && Number.isFinite(n) && n >= 0))
 }
-export interface VisualPage { imageId: number; artworkId: number; index: number; size: bigint; sha256: string; views: VisualView[] }
-export interface VisualPairEvidence { leftArtworkId: number; rightArtworkId: number; pages: { kind: 'EXACT' | 'SIMILAR' | 'UNMATCHED'; left: VisualPage | null; right: VisualPage | null }[] }
+/** Only deterministic, content-verified exclusions are reusable; I/O and decoder failures are not. */
+export interface VisualExclusion { kind: 'visual-exclusion'; version: 1; reason: 'MULTI_FRAME' }
+export function validVisualExclusion(value: unknown): value is VisualExclusion {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const v = value as Record<string, unknown>
+  return Object.keys(v).length === 3 && v.kind === 'visual-exclusion' && v.version === 1 && v.reason === 'MULTI_FRAME'
+}
+export interface VisualPage { imageId: number; artworkId: number; index: number; size: bigint; sha256: string; views: VisualView[]; unchecked?: boolean }
+export interface VisualPairEvidence { leftArtworkId: number; rightArtworkId: number; pages: { kind: 'EXACT' | 'SIMILAR' | 'UNMATCHED' | 'UNCHECKED'; left: VisualPage | null; right: VisualPage | null }[] }
 export interface VisualRelationReuse { artworks: Set<number>; candidatePairs: string[]; pairs: VisualPairEvidence[] }
 export interface VisualMatchingResult { pairs: VisualPairEvidence[]; reason: string | null; candidatePairs?: string[]; reusedComparisons?: number; comparedComparisons?: number }
 /** Finite run-wide sparse matching. Never returns a truncated subset on budget exhaustion. */
@@ -46,9 +53,9 @@ export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Pr
     const group = byArtwork.get(page.artworkId) ?? []
     group.push(page); byArtwork.set(page.artworkId, group)
     if (group.length > VISUAL_LIMITS.artworkFiles) return fail('VISUAL_ARTWORK_BUDGET')
-    postings += page.views.reduce((sum, view) => sum + view.feature.information.filter(n => n >= 8).length * 4, 0)
+    postings += (page.unchecked ? [] : page.views).reduce((sum, view) => sum + view.feature.information.filter(n => n >= 8).length * 4, 0)
     if (postings > VISUAL_LIMITS.postings) return fail('VISUAL_INDEX_BUDGET')
-    index.add(i, page.views)
+    if (!page.unchecked) index.add(i, page.views)
     if (i % 100 === 0) await checkpoint()
   }
   const candidates = new Map<string, { left: number; right: number; edges: Map<number, Set<number>> }>()
@@ -63,6 +70,7 @@ export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Pr
   let comparisons = 0, reusedComparisons = 0, comparedComparisons = 0
   for (let i = 0; i < pages.length; i++) {
     const a = pages[i]!
+    if (a.unchecked) continue
     const query = index.query(a.views, VISUAL_LIMITS.queryPostings, VISUAL_LIMITS.queryCandidates)
     if (query.status === 'incomplete') return fail(`VISUAL_${query.reason === 'posting-budget' ? 'POSTING' : 'CANDIDATE'}_BUDGET`)
     for (const j of query.candidates) {
@@ -99,24 +107,24 @@ export async function matchVisualPages(pages: VisualPage[], checkpoint: () => Pr
 export function assignVisualPair(left: VisualPage[], right: VisualPage[], candidateEdges: Map<number, Set<number>>): VisualPairEvidence | null {
     const used = new Set<number>(), paired = new Map<number, VisualPage>()
     const exact = new Map<string, VisualPage[]>()
-    for (const page of right) { const key = `${page.size}:${page.sha256}`; const list = exact.get(key) ?? []; list.push(page); exact.set(key, list) }
+    for (const page of right.filter(p => !p.unchecked)) { const key = `${page.size}:${page.sha256}`; const list = exact.get(key) ?? []; list.push(page); exact.set(key, list) }
     // Byte-identical originals take precedence and consume one occurrence each.
-    for (const page of left) { const match = exact.get(`${page.size}:${page.sha256}`)?.shift(); if (match) { paired.set(page.imageId, match); used.add(match.imageId) } }
+    for (const page of left.filter(p => !p.unchecked)) { const match = exact.get(`${page.size}:${page.sha256}`)?.shift(); if (match) { paired.set(page.imageId, match); used.add(match.imageId) } }
     const originalExact = new Set(paired.keys())
     // Conservative unique visual edges avoid silently resolving ambiguous repeated pages.
-    const remaining = left.filter(p => !paired.has(p.imageId))
+    const remaining = left.filter(p => !p.unchecked && !paired.has(p.imageId))
     const inbound = new Map<number, number>()
     const edges = new Map<number, VisualPage[]>()
-    const rightById = new Map(right.map(p => [p.imageId, p]))
+    const rightById = new Map(right.filter(p => !p.unchecked).map(p => [p.imageId, p]))
     for (const page of remaining) {
-      const possible = [...(candidateEdges.get(page.imageId) ?? [])].filter(id => !used.has(id)).map(id => rightById.get(id)!)
+      const possible = [...(candidateEdges.get(page.imageId) ?? [])].filter(id => !used.has(id) && rightById.has(id)).map(id => rightById.get(id)!)
       edges.set(page.imageId, possible)
       for (const p of possible) inbound.set(p.imageId, (inbound.get(p.imageId) ?? 0) + 1)
     }
     for (const page of remaining) { const possible = edges.get(page.imageId)!; if (possible.length === 1 && inbound.get(possible[0]!.imageId) === 1) { paired.set(page.imageId, possible[0]!); used.add(possible[0]!.imageId) } }
     if (paired.size / Math.min(left.length, right.length) < 0.8 || paired.size === originalExact.size) return null
     const evidence: VisualPairEvidence['pages'] = left.map(page => ({ left: page, right: paired.get(page.imageId) ?? null,
-      kind: originalExact.has(page.imageId) ? 'EXACT' : paired.has(page.imageId) ? 'SIMILAR' : 'UNMATCHED' }))
-    evidence.push(...right.filter(p => !used.has(p.imageId)).map(page => ({ left: null, right: page, kind: 'UNMATCHED' as const })))
+      kind: page.unchecked ? 'UNCHECKED' : originalExact.has(page.imageId) ? 'EXACT' : paired.has(page.imageId) ? 'SIMILAR' : 'UNMATCHED' }))
+    evidence.push(...right.filter(p => !used.has(p.imageId)).map(page => ({ left: null, right: page, kind: page.unchecked ? 'UNCHECKED' as const : 'UNMATCHED' as const })))
     return { leftArtworkId: left[0]!.artworkId, rightArtworkId: right[0]!.artworkId, pages: evidence }
 }

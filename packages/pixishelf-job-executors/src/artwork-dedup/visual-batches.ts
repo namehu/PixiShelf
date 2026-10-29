@@ -1,8 +1,8 @@
 import { setImmediate } from 'node:timers/promises'
 import { z } from 'zod'
 import {
-  Prisma, assertArtworkDedupExecution, assertArtworkDedupItemCurrent, assertArtworkContentSnapshot,
-  assertArtworkDedupCacheDirectories, assertArtworkDedupVisualItems, artworkDedupRepresentativeSql, lockArtworkDedupRelationCache
+  Prisma, ARTWORK_DEDUP_MIXED_VISUAL_EVIDENCE_VERSION, assertArtworkDedupExecution, assertArtworkDedupItemCurrent, assertArtworkContentSnapshot,
+  assertArtworkDedupCacheDirectories, assertArtworkDedupVisualItems, artworkDedupRepresentativeSql, lockArtworkDedupRelationCache, artworkDedupVisualReusableRunSql
 } from '@pixishelf/db'
 import { MediaContentFileError } from '../media-content/roots.ts'
 import { throwIfAborted } from '../scan/bounded.ts'
@@ -15,12 +15,12 @@ import { readCandidatePostings } from './candidate-postings.ts'
 import { VISUAL_LIMITS, VISUAL_ALGORITHM_VERSION, validVisualViews, compareProductionVisual, assignVisualPair, type VisualPage, type VisualPairEvidence } from './visual-matching.ts'
 
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
-const checkpointSchema = z.object({ version: z.literal(1), phase: z.enum(['INDEX', 'REUSE', 'QUERY', 'PAIR', 'PUBLISH']),
+const checkpointSchema = z.object({ version: z.union([z.literal(1), z.literal(2)]), phase: z.enum(['INDEX', 'REUSE', 'QUERY', 'PAIR', 'PUBLISH']),
   indexAfter: integer, queryAfter: integer, candidateAfter: integer, queryImageId: integer, queryCandidates: z.array(integer).max(VISUAL_LIMITS.queryCandidates), pairLeft: integer, pairRight: integer, postings: integer, reuseInitialized: z.boolean(), reuseBaseId: z.string().nullable(), reuseAfter: integer })
 type Checkpoint = z.infer<typeof checkpointSchema>
 const initialCheckpoint: Checkpoint = { version: 1, phase: 'INDEX', indexAfter: 0, queryAfter: 0, candidateAfter: 0, queryImageId: 0, queryCandidates: [], pairLeft: 0, pairRight: 0, postings: 0, reuseInitialized: false, reuseBaseId: null, reuseAfter: 0 }
 const edgeSchema = z.array(z.tuple([integer, integer])).max(VISUAL_LIMITS.edgesPerPair)
-const evidenceSchema = z.array(z.object({ kind: z.enum(['EXACT', 'SIMILAR', 'UNMATCHED']), left: integer.nullable(), right: integer.nullable() })).max(VISUAL_LIMITS.artworkFiles * 2)
+const evidenceSchema = z.array(z.object({ kind: z.enum(['EXACT', 'SIMILAR', 'UNMATCHED', 'UNCHECKED']), left: integer.nullable(), right: integer.nullable() })).max(VISUAL_LIMITS.artworkFiles * 2)
 const keyIndex = new VisualViewIndex()
 type Tx = Prisma.TransactionClient
 type Run = Prisma.ArtworkDedupRunGetPayload<Record<string, never>>
@@ -37,15 +37,15 @@ async function guardArtworks(tx: Tx, context: DedupPipelineContext, artworkIds: 
 async function save(tx: Tx, runId: string, checkpoint: Checkpoint) {
   await tx.artworkDedupRun.update({ where: { id: runId }, data: { visualCheckpoint: checkpoint } })
 }
-async function artworkPages(tx: Tx, runId: string, artworkId: number): Promise<VisualPage[]> {
+async function artworkPages(tx: Tx, runId: string, artworkId: number, mixed = false): Promise<VisualPage[]> {
   const rows = await tx.artworkDedupMedia.findMany({ where: { runId, artworkId }, orderBy: { imageId: 'asc' }, take: VISUAL_LIMITS.artworkFiles + 1 })
   if (rows.length > VISUAL_LIMITS.artworkFiles) return fail('VISUAL_ARTWORK_BUDGET')
-  if (rows.some(r => r.visualStatus !== 'READY' || !r.sha256 || !validVisualViews(r.visualViews))) return []
+  if (rows.some(r => !r.sha256 || (r.visualStatus === 'READY' ? !validVisualViews(r.visualViews) : !mixed || r.visualStatus !== 'UNCHECKED'))) return []
   const images = await tx.image.findMany({ where: { id: { in: rows.map(r => r.imageId) } }, select: { id: true, sortOrder: true } })
   if (images.length !== rows.length) changed()
   const order = new Map(images.map(i => [i.id, i.sortOrder]))
   rows.sort((a, b) => order.get(a.imageId)! - order.get(b.imageId)! || a.imageId - b.imageId)
-  return rows.map((r, index) => ({ imageId: r.imageId, artworkId, index, size: r.size, sha256: r.sha256!, views: r.visualViews as unknown as VisualPage['views'] }))
+  return rows.map((r, index) => ({ imageId: r.imageId, artworkId, index, size: r.size, sha256: r.sha256!, views: r.visualStatus === 'READY' ? r.visualViews as unknown as VisualPage['views'] : [], unchecked: r.visualStatus === 'UNCHECKED' }))
 }
 function encodeEvidence(pair: VisualPairEvidence): Prisma.InputJsonValue {
   return pair.pages.map(p => ({ kind: p.kind, left: p.left?.imageId ?? null, right: p.right?.imageId ?? null }))
@@ -58,12 +58,13 @@ function decodeEvidence(value: unknown, left: VisualPage[], right: VisualPage[])
   for (const row of parsed.data) {
     const l = row.left === null ? null : a.get(row.left), r = row.right === null ? null : b.get(row.right)
     if (l === undefined || r === undefined || !l && !r || l && seenA.has(l.imageId) || r && seenB.has(r.imageId) ||
-      (row.kind === 'UNMATCHED' ? !!l === !!r : !l || !r) || row.kind === 'EXACT' && (l!.size !== r!.size || l!.sha256 !== r!.sha256)) return null
+      (['UNMATCHED', 'UNCHECKED'].includes(row.kind) ? !!l === !!r : !l || !r) ||
+      (row.kind === 'UNCHECKED' ? !(l ?? r)?.unchecked : !!l?.unchecked || !!r?.unchecked) || row.kind === 'EXACT' && (l!.size !== r!.size || l!.sha256 !== r!.sha256)) return null
     if (l) seenA.add(l.imageId)
     if (r) seenB.add(r.imageId)
     pages.push({ kind: row.kind, left: l, right: r })
   }
-  const paired = pages.filter(p => p.kind !== 'UNMATCHED').length
+  const paired = pages.filter(p => p.kind === 'EXACT' || p.kind === 'SIMILAR').length
   if (seenA.size !== left.length || seenB.size !== right.length || paired / Math.min(left.length, right.length) < 0.8 || !pages.some(p => p.kind === 'SIMILAR')) return null
   return { leftArtworkId: left[0]!.artworkId, rightArtworkId: right[0]!.artworkId, pages }
 }
@@ -79,8 +80,8 @@ async function indexArtwork(context: DedupPipelineContext, run: Run, checkpoint:
     const item = await tx.artworkDedupItem.findFirst({ where: { runId: run.id, status: 'COMPLETE', artworkId: { gt: checkpoint.indexAfter } }, orderBy: { artworkId: 'asc' } })
     if (!item) { checkpoint.phase = 'REUSE'; await save(tx, run.id, checkpoint); return }
     await guardArtworks(tx, context, [item.artworkId])
-    const unchecked = await tx.artworkDedupMedia.count({ where: { runId: run.id, artworkId: item.artworkId, visualStatus: { not: 'READY' } } })
-    const pages = unchecked ? [] : await artworkPages(tx, run.id, item.artworkId)
+    const legacyExcluded = !context.mixedVisualMedia && await tx.artworkDedupMedia.count({ where: { runId: run.id, artworkId: item.artworkId, visualStatus: { not: 'READY' } } })
+    const pages = legacyExcluded ? [] : await artworkPages(tx, run.id, item.artworkId, context.mixedVisualMedia)
     if (pages.length) {
       const rows = pages.flatMap(page => {
         const keys = new Map<string, number>()
@@ -128,7 +129,7 @@ async function snapshotReuse(context: DedupPipelineContext, run: Run, checkpoint
     }
     const baseId = checkpoint.reuseBaseId
     if (!baseId) { await miss(); return }
-    const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT id FROM "ArtworkDedupRun" WHERE id=${baseId} AND status='COMPLETED' AND "visualStatus"='COMPLETE' FOR SHARE`)
+    const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT r.id FROM "ArtworkDedupRun" r WHERE r.id=${baseId} AND r.status='COMPLETED' AND r.stage='DONE' AND ${artworkDedupVisualReusableRunSql()} FOR SHARE OF r`)
     if (!locked.length) { await miss(); return }
     const old = await tx.artworkDedupRun.findUniqueOrThrow({ where: { id: baseId }, select: { visualCandidatePairs: true } })
     const keys = old.visualCandidatePairs
@@ -142,7 +143,7 @@ async function snapshotReuse(context: DedupPipelineContext, run: Run, checkpoint
       const oldPair = await tx.artworkDedupVisualPair.findFirst({ where: { runId: baseId, relationKind: 'VISUAL', leftArtworkId, rightArtworkId }, include: { pages: { orderBy: { ordinal: 'asc' }, take: VISUAL_LIMITS.artworkFiles * 2 + 1 } } })
       let evidence: Prisma.InputJsonValue | undefined
       if (oldPair) {
-        const left = await artworkPages(tx, run.id, leftArtworkId), right = await artworkPages(tx, run.id, rightArtworkId)
+        const left = await artworkPages(tx, run.id, leftArtworkId, context.mixedVisualMedia), right = await artworkPages(tx, run.id, rightArtworkId, context.mixedVisualMedia)
         const decoded = decodeEvidence(oldPair.pages.map(p => ({ kind: p.kind, left: p.leftImageId, right: p.rightImageId })), left, right)
         if (!decoded) { await miss(); return }
         evidence = encodeEvidence(decoded)
@@ -164,7 +165,7 @@ const QUERY_GROUP_ASSEMBLY_MS = 100
  * the commit independently guards every accepted query/candidate artwork. */
 async function readQuery(tx: Tx, context: DedupPipelineContext, run: Run, checkpoint: Checkpoint) {
   const started = performance.now()
-  const pages = await tx.artworkDedupMedia.findMany({ where: { runId: run.id, imageId: checkpoint.queryImageId ? { gte: checkpoint.queryImageId } : { gt: checkpoint.queryAfter }, item: { visualSignature: { not: null } } }, orderBy: { imageId: 'asc' }, take: QUERY_GROUP_QUERIES, include: { item: { select: { visualReuseSignature: true } } } })
+  const pages = await tx.artworkDedupMedia.findMany({ where: { runId: run.id, visualStatus: 'READY', imageId: checkpoint.queryImageId ? { gte: checkpoint.queryImageId } : { gt: checkpoint.queryAfter }, item: { visualSignature: { not: null } } }, orderBy: { imageId: 'asc' }, take: QUERY_GROUP_QUERIES, include: { item: { select: { visualReuseSignature: true } } } })
   if (checkpoint.queryImageId && pages[0]?.imageId !== checkpoint.queryImageId) changed()
   if (!pages.length) return null
   type Page = (typeof pages)[number]
@@ -326,7 +327,7 @@ async function pairCandidate(context: DedupPipelineContext, run: Run, checkpoint
       { leftArtworkId: { gt: checkpoint.pairLeft } }, { leftArtworkId: checkpoint.pairLeft, rightArtworkId: { gt: checkpoint.pairRight } }
     ] }, orderBy: [{ leftArtworkId: 'asc' }, { rightArtworkId: 'asc' }] })
     if (!candidate) return null
-    const left = await artworkPages(tx, run.id, candidate.leftArtworkId), right = await artworkPages(tx, run.id, candidate.rightArtworkId)
+    const left = await artworkPages(tx, run.id, candidate.leftArtworkId, context.mixedVisualMedia), right = await artworkPages(tx, run.id, candidate.rightArtworkId, context.mixedVisualMedia)
     if (!left.length || !right.length) changed()
     return { candidate, left, right }
   })
@@ -351,7 +352,7 @@ async function pairCandidate(context: DedupPipelineContext, run: Run, checkpoint
   await context.transaction(async tx => { await assertArtworkDedupExecution(tx, context.execution); await save(tx, run.id, checkpoint) })
 }
 
-async function publishPair(tx: Tx, runId: string, pair: VisualPairEvidence) {
+async function publishPair(tx: Tx, runId: string, pair: VisualPairEvidence, mixed: boolean) {
   const { leftArtworkId, rightArtworkId } = pair
   const original = await tx.artworkDedupRelation.findFirst({ where: { runId, OR: [
     { containedArtworkId: leftArtworkId, containerArtworkId: rightArtworkId }, { containedArtworkId: rightArtworkId, containerArtworkId: leftArtworkId }
@@ -361,9 +362,11 @@ async function publishPair(tx: Tx, runId: string, pair: VisualPairEvidence) {
   const left = pair.pages.filter(p => p.left).length, right = pair.pages.filter(p => p.right).length
   const exact = pair.pages.filter(p => p.kind === 'EXACT').length, similar = pair.pages.filter(p => p.kind === 'SIMILAR').length
   const id = `visual:${runId}:${leftArtworkId}:${rightArtworkId}`
-  const summary = { evidenceVersion: VISUAL_ALGORITHM_VERSION, leftArtworkId, rightArtworkId,
+  const leftUnchecked = pair.pages.filter(p => p.kind === 'UNCHECKED' && p.left).length
+  const rightUnchecked = pair.pages.filter(p => p.kind === 'UNCHECKED' && p.right).length
+  const summary = { evidenceVersion: mixed ? ARTWORK_DEDUP_MIXED_VISUAL_EVIDENCE_VERSION : VISUAL_ALGORITHM_VERSION, leftArtworkId, rightArtworkId,
     leftFileCount: String(left), rightFileCount: String(right), pairedCount: String(exact + similar), exactCount: String(exact), similarCount: String(similar),
-    leftUnmatchedCount: String(left - exact - similar), rightUnmatchedCount: String(right - exact - similar), leftUncheckedCount: '0', rightUncheckedCount: '0' }
+    leftUnmatchedCount: String(left - exact - similar - leftUnchecked), rightUnmatchedCount: String(right - exact - similar - rightUnchecked), leftUncheckedCount: String(leftUnchecked), rightUncheckedCount: String(rightUnchecked) }
   await tx.artworkDedupVisualPair.create({ data: { id, runId, leftArtworkId, rightArtworkId, summary } })
   for (let start = 0; start < pair.pages.length; start += 100) await tx.artworkDedupVisualPage.createMany({ data: pair.pages.slice(start, start + 100).map((p, i) => ({ pairId: id, ordinal: start + i + 1, kind: p.kind, leftImageId: p.left?.imageId ?? null, rightImageId: p.right?.imageId ?? null, leftIndex: p.left?.index ?? null, rightIndex: p.right?.index ?? null })) })
 }
@@ -391,17 +394,18 @@ async function publish(context: DedupPipelineContext, run: Run) {
       if (keys.length >= VISUAL_LIMITS.artworkPairs) fail('VISUAL_PAIR_BUDGET')
       keys.push(`${candidate.leftArtworkId}:${candidate.rightArtworkId}`)
       if (candidate.evidence !== null) {
-        const a = await artworkPages(tx, run.id, candidate.leftArtworkId), b = await artworkPages(tx, run.id, candidate.rightArtworkId)
+        const a = await artworkPages(tx, run.id, candidate.leftArtworkId, context.mixedVisualMedia), b = await artworkPages(tx, run.id, candidate.rightArtworkId, context.mixedVisualMedia)
         const pair = decodeEvidence(candidate.evidence, a, b)
         if (!pair) changed()
-        await publishPair(tx, run.id, pair!)
+        await publishPair(tx, run.id, pair!, !!context.mixedVisualMedia)
       }
       left = candidate.leftArtworkId; right = candidate.rightArtworkId
       throwIfAborted(context.signal)
     }
     const failed = await tx.artworkDedupItem.count({ where: { runId: run.id, status: { not: 'COMPLETE' } } })
     const excluded = await tx.artworkDedupItem.count({ where: { runId: run.id, status: 'COMPLETE', visualSignature: null } })
-    const reasons = [...new Set([...latest.visualIncompleteReasons, ...(excluded ? ['UNSUPPORTED_MEDIA'] : []), ...(failed ? ['INCOMPLETE_ORIGINALS'] : [])])]
+    const unchecked = context.mixedVisualMedia && await tx.artworkDedupMedia.count({ where: { runId: run.id, item: { status: 'COMPLETE' }, visualStatus: 'UNCHECKED' } })
+    const reasons = [...new Set([...latest.visualIncompleteReasons, ...(excluded || unchecked ? ['UNSUPPORTED_MEDIA'] : []), ...(failed ? ['INCOMPLETE_ORIGINALS'] : [])])]
     throwIfAborted(context.signal)
     await tx.artworkDedupRun.update({ where: { id: run.id }, data: { stage: 'DONE', visualStatus: reasons.length ? 'INCOMPLETE' : 'COMPLETE', visualIncompleteReasons: reasons, visualCandidatePairs: keys } })
   })
@@ -422,7 +426,9 @@ export async function scanBatchedVisualVersions(context: DedupPipelineContext, f
         if (comparisonRounds && !run.visualComparisonRound) {
           run = await tx.artworkDedupRun.update({ where: { id: run.id }, data: { visualComparisonRound: 1 } })
         }
-        const checkpoint = run.visualCheckpoint === null ? { ...initialCheckpoint } : checkpointSchema.parse(run.visualCheckpoint)
+        const expectedCheckpointVersion = context.mixedVisualMedia ? 2 : 1
+        const checkpoint = run.visualCheckpoint === null ? { ...initialCheckpoint, version: expectedCheckpointVersion as 1 | 2 } : checkpointSchema.parse(run.visualCheckpoint)
+        if (checkpoint.version !== expectedCheckpointVersion) changed()
         return { run, checkpoint, query: checkpoint.phase === 'QUERY' ? await readQuery(tx, context, run, checkpoint) : null }
       })
       if (!work) return true

@@ -40,7 +40,7 @@ export function DuplicateDeleteConsent({
               onCheckedChange={(value) => setConsequences(value === true)}
             />
             <FieldLabel htmlFor={`${id}-consequences`} className="min-h-11 flex-1 py-2 text-sm leading-5 font-normal">
-              我理解永久删除这 {copyCount} 部副本及其整理记录，无法恢复，也不会合并到保留作品
+              我理解永久删除这 {copyCount} 部作品的全部文件及整理记录，无法恢复，也不会合并到保留作品
             </FieldLabel>
           </Field>
           <Field orientation="horizontal" data-disabled={busy || disabled}>
@@ -66,7 +66,7 @@ export function DuplicateDeleteConsent({
               >
                 {partialContent
                   ? '部分重复作品仍有未配对原件，我确认删除方的未配对原件和整理记录也会删除'
-                  : '两个版本内容不同，我确认删除方的未配对图片和整理记录也会删除'}
+                  : '我确认删除整部作品，包含未配对、未核对的原媒体及全部整理记录'}
               </FieldLabel>
             </Field>
           ) : null}
