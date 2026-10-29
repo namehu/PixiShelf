@@ -27,7 +27,7 @@ import {
   type QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import type { ArtworkDedupScanPayload } from '@pixishelf/job-contracts'
-import { executeArtworkDedup, type ArtworkDedupDependencies } from '../executor.ts'
+import { createArtworkDedupExecutor, executeArtworkDedup, type ArtworkDedupDependencies } from '../executor.ts'
 import { DedupReaderSupervisor, DedupReaderError } from '../reader.ts'
 
 const url = process.env.QUEUE_KERNEL_TEST_DATABASE_URL
@@ -46,7 +46,7 @@ const suite = url ? describe.sequential : describe.skip
 const prefix = `dedup-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-10-23T00:00:00Z'))
 const capabilities = [
-  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3, 4, 5, 6, 7] }
+  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3, 4, 5, 6, 7, 8] }
 ]
 const repository = db
   ? new PostgresQueueRepository(db as unknown as QueueDatabase, { clock, transactionTimeoutMs: 20_000 })
@@ -119,6 +119,29 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
+  it('v8 new executor instance resumes a PostgreSQL file checkpoint without recounting committed media', async () => {
+    const artistId = await fixture([[32, 32, 32], [32, 32, 32]])
+    const started = await start(artistId, 'FULL', false, 8)
+    const first = createArtworkDedupExecutor(dependencies({ sliceBytes: 32n }), 8)
+    await first.execute(context(await claim(started.jobId)))
+    const saved = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: started.runId } })
+    const cursor = await db!.artworkDedupItem.findFirstOrThrow({ where: { runId: started.runId, status: 'HASHING', afterImageId: { gt: 0 } } })
+    const pending = await db!.systemJob.findUniqueOrThrow({ where: { id: started.jobId } })
+    expect(saved.hashedMedia).toBeGreaterThan(0)
+    expect(saved.hashedMedia).toBeLessThan(6)
+    expect(cursor.afterImageId).toBeGreaterThan(0)
+    expect(pending.status).toBe('RETRY_WAIT')
+    expect(pending.progressData).toMatchObject({ kind: 'artwork-dedup', phase: 'ORIGINALS', completed: saved.hashedMedia, waitReason: 'SCHEDULER' })
+    clock.advance(3000)
+    const replacement = createArtworkDedupExecutor(dependencies(), 8)
+    await replacement.execute(context(await claim(started.jobId)))
+    const completed = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: started.runId } })
+    expect(completed).toMatchObject({ status: 'COMPLETED', hashedMedia: 6, readBytes: 192n })
+    expect(await db!.artworkDedupMedia.count({ where: { runId: started.runId } })).toBe(6)
+    expect(completed.performanceSummary).toMatchObject({ complete: true, counters: { readBytes: 192 } })
+    expect((await db!.systemJob.findUniqueOrThrow({ where: { id: started.jobId } })).progressData).toMatchObject({ phase: 'COMPLETED' })
+  }, 30_000)
+
   it('v7 preserves mixed original members, invalidates old exclusion evidence, and reuses only unchanged full signatures', async () => {
     const artistId = await fixture([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11]])
     const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: [{ artworkId: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }] })

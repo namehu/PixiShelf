@@ -2,7 +2,7 @@ import { setImmediate } from 'node:timers/promises'
 import { z } from 'zod'
 import {
   Prisma, ARTWORK_DEDUP_MIXED_VISUAL_EVIDENCE_VERSION, assertArtworkDedupExecution, assertArtworkDedupItemCurrent, assertArtworkContentSnapshot,
-  assertArtworkDedupCacheDirectories, assertArtworkDedupVisualItems, artworkDedupRepresentativeSql, lockArtworkDedupRelationCache, artworkDedupVisualReusableRunSql
+  assertArtworkDedupCacheDirectories, assertArtworkDedupVisualItems, assertArtworkDedupVisualItemsFenced, artworkDedupRepresentativeSql, lockArtworkDedupRelationCache, artworkDedupVisualReusableRunSql
 } from '@pixishelf/db'
 import { MediaContentFileError } from '../media-content/roots.ts'
 import { throwIfAborted } from '../scan/bounded.ts'
@@ -15,29 +15,29 @@ import { readCandidatePostings } from './candidate-postings.ts'
 import { VISUAL_LIMITS, VISUAL_ALGORITHM_VERSION, validVisualViews, compareProductionVisual, assignVisualPair, type VisualPage, type VisualPairEvidence } from './visual-matching.ts'
 
 const integer = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
-const checkpointSchema = z.object({ version: z.union([z.literal(1), z.literal(2)]), phase: z.enum(['INDEX', 'REUSE', 'QUERY', 'PAIR', 'PUBLISH']),
-  indexAfter: integer, queryAfter: integer, candidateAfter: integer, queryImageId: integer, queryCandidates: z.array(integer).max(VISUAL_LIMITS.queryCandidates), pairLeft: integer, pairRight: integer, postings: integer, reuseInitialized: z.boolean(), reuseBaseId: z.string().nullable(), reuseAfter: integer })
-type Checkpoint = z.infer<typeof checkpointSchema>
-const initialCheckpoint: Checkpoint = { version: 1, phase: 'INDEX', indexAfter: 0, queryAfter: 0, candidateAfter: 0, queryImageId: 0, queryCandidates: [], pairLeft: 0, pairRight: 0, postings: 0, reuseInitialized: false, reuseBaseId: null, reuseAfter: 0 }
+export const checkpointSchema = z.object({ version: z.union([z.literal(1), z.literal(2), z.literal(3)]), phase: z.enum(['INDEX', 'REUSE', 'QUERY', 'PAIR', 'PUBLISH']),
+  indexAfter: integer, queryAfter: integer, candidateAfter: integer, queryImageId: integer, queryCandidates: z.array(integer).max(VISUAL_LIMITS.queryCandidates), pairLeft: integer, pairRight: integer, postings: integer, reuseInitialized: z.boolean(), reuseBaseId: z.string().nullable(), reuseAfter: integer, queryCompleted: integer.optional(), queryTotal: integer.optional(), uncheckedMedia: integer.optional() })
+export type Checkpoint = z.infer<typeof checkpointSchema>
+export const initialCheckpoint: Checkpoint = { version: 1, phase: 'INDEX', indexAfter: 0, queryAfter: 0, candidateAfter: 0, queryImageId: 0, queryCandidates: [], pairLeft: 0, pairRight: 0, postings: 0, reuseInitialized: false, reuseBaseId: null, reuseAfter: 0 }
 const edgeSchema = z.array(z.tuple([integer, integer])).max(VISUAL_LIMITS.edgesPerPair)
 const evidenceSchema = z.array(z.object({ kind: z.enum(['EXACT', 'SIMILAR', 'UNMATCHED', 'UNCHECKED']), left: integer.nullable(), right: integer.nullable() })).max(VISUAL_LIMITS.artworkFiles * 2)
 const keyIndex = new VisualViewIndex()
 type Tx = Prisma.TransactionClient
 type Run = Prisma.ArtworkDedupRunGetPayload<Record<string, never>>
-class VisualBudget extends Error { constructor(readonly reason: string) { super(reason) } }
+export class VisualBudget extends Error { constructor(readonly reason: string) { super(reason) } }
 const fail = (reason: string): never => { throw new VisualBudget(reason) }
 const changed = (): never => { throw new MediaContentFileError('FILE_CHANGED', 'Visual work input changed') }
 
-async function guardArtworks(tx: Tx, context: DedupPipelineContext, artworkIds: number[], directories?: QueryDirectoryScope) {
+async function guardArtworks(tx: Tx, context: DedupPipelineContext, artworkIds: number[], directories?: QueryDirectoryScope, fencedRun?: Run) {
   const ids = [...new Set(artworkIds)].sort((a, b) => a - b)
   if (!(await (directories ? directories.assert(tx, ids) : assertArtworkDedupCacheDirectories(tx, context.execution.runId, ids)))) throw new MediaContentFileError('ROOT_CHANGED', 'Visual directory changed')
-  if (!(await assertArtworkDedupVisualItems(tx, context.execution, ids))) changed()
+  if (!(await (fencedRun ? assertArtworkDedupVisualItemsFenced(tx, fencedRun, ids) : assertArtworkDedupVisualItems(tx, context.execution, ids)))) changed()
 }
 
 async function save(tx: Tx, runId: string, checkpoint: Checkpoint) {
   await tx.artworkDedupRun.update({ where: { id: runId }, data: { visualCheckpoint: checkpoint } })
 }
-async function artworkPages(tx: Tx, runId: string, artworkId: number, mixed = false): Promise<VisualPage[]> {
+export async function artworkPages(tx: Tx, runId: string, artworkId: number, mixed = false): Promise<VisualPage[]> {
   const rows = await tx.artworkDedupMedia.findMany({ where: { runId, artworkId }, orderBy: { imageId: 'asc' }, take: VISUAL_LIMITS.artworkFiles + 1 })
   if (rows.length > VISUAL_LIMITS.artworkFiles) return fail('VISUAL_ARTWORK_BUDGET')
   if (rows.some(r => !r.sha256 || (r.visualStatus === 'READY' ? !validVisualViews(r.visualViews) : !mixed || r.visualStatus !== 'UNCHECKED'))) return []
@@ -104,14 +104,14 @@ async function indexArtwork(context: DedupPipelineContext, run: Run, checkpoint:
 
 /** A fixed historical parent is locked per copied pair. Negative reuse is enabled
  * only after every candidate is materialized; history loss falls back to this run's index. */
-async function snapshotReuse(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint) {
+export async function snapshotReuse(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint, onCheckpoint?: (tx: Tx) => Promise<void>) {
   await context.transaction(async tx => {
     await assertArtworkDedupExecution(tx, context.execution)
     const miss = async () => {
       await tx.artworkDedupVisualCandidate.deleteMany({ where: { runId: run.id } })
       await tx.artworkDedupItem.updateMany({ where: { runId: run.id }, data: { visualReuseSignature: null } })
       checkpoint.phase = 'QUERY'; checkpoint.reuseBaseId = null
-      await save(tx, run.id, checkpoint)
+      await save(tx, run.id, checkpoint); await onCheckpoint?.(tx)
     }
     if (!checkpoint.reuseInitialized) {
       checkpoint.reuseInitialized = true
@@ -124,22 +124,22 @@ async function snapshotReuse(context: DedupPipelineContext, run: Run, checkpoint
           AND current."artworkId"=old."artworkId" AND current."visualSignature"=old."visualSignature"
           AND (${artworkDedupRepresentativeSql(baseId, Prisma.sql`old."artworkId"`)} = ${artworkDedupRepresentativeSql(run.id, Prisma.sql`current."artworkId"`)})`)
       throwIfAborted(context.signal)
-      await save(tx, run.id, checkpoint)
+      await save(tx, run.id, checkpoint); await onCheckpoint?.(tx)
       return
     }
     const baseId = checkpoint.reuseBaseId
     if (!baseId) { await miss(); return }
-    const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT r.id FROM "ArtworkDedupRun" r WHERE r.id=${baseId} AND r.status='COMPLETED' AND r.stage='DONE' AND ${artworkDedupVisualReusableRunSql()} FOR SHARE OF r`)
+    const locked = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT r.id FROM "ArtworkDedupRun" r WHERE r.id=${baseId} AND r.status='COMPLETED' AND r.stage='DONE' AND ${artworkDedupVisualReusableRunSql(run.visualSearchVersion)} FOR SHARE OF r`)
     if (!locked.length) { await miss(); return }
     const old = await tx.artworkDedupRun.findUniqueOrThrow({ where: { id: baseId }, select: { visualCandidatePairs: true } })
     const keys = old.visualCandidatePairs
     if (keys.length > VISUAL_LIMITS.artworkPairs || keys.some(key => !/^[1-9]\d*:[1-9]\d*$/.test(key)) || new Set(keys).size !== keys.length) { await miss(); return }
     const key = keys[checkpoint.reuseAfter]
-    if (key === undefined) { checkpoint.phase = 'QUERY'; await save(tx, run.id, checkpoint); return }
+    if (key === undefined) { checkpoint.phase = 'QUERY'; await save(tx, run.id, checkpoint); await onCheckpoint?.(tx); return }
     const [leftArtworkId, rightArtworkId] = key.split(':').map(Number) as [number, number]
     if (!Number.isSafeInteger(leftArtworkId) || !Number.isSafeInteger(rightArtworkId) || leftArtworkId >= rightArtworkId) { await miss(); return }
     if (await tx.artworkDedupItem.count({ where: { runId: run.id, artworkId: { in: [leftArtworkId, rightArtworkId] }, visualReuseSignature: { not: null } } }) === 2) {
-      await guardArtworks(tx, context, [leftArtworkId, rightArtworkId])
+      await guardArtworks(tx, context, [leftArtworkId, rightArtworkId], undefined, context.visualSearchV2 ? run : undefined)
       const oldPair = await tx.artworkDedupVisualPair.findFirst({ where: { runId: baseId, relationKind: 'VISUAL', leftArtworkId, rightArtworkId }, include: { pages: { orderBy: { ordinal: 'asc' }, take: VISUAL_LIMITS.artworkFiles * 2 + 1 } } })
       let evidence: Prisma.InputJsonValue | undefined
       if (oldPair) {
@@ -152,7 +152,7 @@ async function snapshotReuse(context: DedupPipelineContext, run: Run, checkpoint
     }
     checkpoint.reuseAfter++
     throwIfAborted(context.signal)
-    await save(tx, run.id, checkpoint)
+    await save(tx, run.id, checkpoint); await onCheckpoint?.(tx)
   })
 }
 
@@ -320,9 +320,9 @@ async function queryPage(context: DedupPipelineContext, run: Run, checkpoint: Ch
   })
 }
 
-async function pairCandidate(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint) {
-  const work = await context.transaction(async tx => {
-    await assertArtworkDedupExecution(tx, context.execution)
+export async function pairCandidate(context: DedupPipelineContext, run: Run, checkpoint: Checkpoint, onCheckpoint?: (tx: Tx) => Promise<void>) {
+  const work = await (context.visualSearchV2 ? context.read ?? context.transaction : context.transaction)(async tx => {
+    if (!context.visualSearchV2) await assertArtworkDedupExecution(tx, context.execution)
     const candidate = await tx.artworkDedupVisualCandidate.findFirst({ where: { runId: run.id, OR: [
       { leftArtworkId: { gt: checkpoint.pairLeft } }, { leftArtworkId: checkpoint.pairLeft, rightArtworkId: { gt: checkpoint.pairRight } }
     ] }, orderBy: [{ leftArtworkId: 'asc' }, { rightArtworkId: 'asc' }] })
@@ -338,18 +338,18 @@ async function pairCandidate(context: DedupPipelineContext, run: Run, checkpoint
     for (const [a, b] of edgeSchema.parse(candidate.edges)) { const ids = edges.get(a) ?? new Set<number>(); ids.add(b); edges.set(a, ids) }
     const pair = candidate.reused ? candidate.evidence === null ? null : decodeEvidence(candidate.evidence, left, right) : assignVisualPair(left, right, edges)
     if (candidate.reused && candidate.evidence !== null && !pair) changed()
-    await yieldCheck(context)
+    if (!context.visualSearchV2) await yieldCheck(context)
     await context.transaction(async tx => {
       await assertArtworkDedupExecution(tx, context.execution)
-      await guardArtworks(tx, context, [candidate.leftArtworkId, candidate.rightArtworkId])
+      await guardArtworks(tx, context, [candidate.leftArtworkId, candidate.rightArtworkId], undefined, context.visualSearchV2 ? run : undefined)
       await tx.artworkDedupVisualCandidate.update({ where: { runId_leftArtworkId_rightArtworkId: { runId: run.id, leftArtworkId: candidate.leftArtworkId, rightArtworkId: candidate.rightArtworkId } }, data: { evidence: pair ? encodeEvidence(pair) : Prisma.DbNull } })
       checkpoint.pairLeft = candidate.leftArtworkId; checkpoint.pairRight = candidate.rightArtworkId
       throwIfAborted(context.signal)
-      await save(tx, run.id, checkpoint)
+      await save(tx, run.id, checkpoint); await onCheckpoint?.(tx)
     })
     return
   }
-  await context.transaction(async tx => { await assertArtworkDedupExecution(tx, context.execution); await save(tx, run.id, checkpoint) })
+  await context.transaction(async tx => { await assertArtworkDedupExecution(tx, context.execution); await save(tx, run.id, checkpoint); await onCheckpoint?.(tx) })
 }
 
 async function publishPair(tx: Tx, runId: string, pair: VisualPairEvidence, mixed: boolean) {
@@ -370,7 +370,7 @@ async function publishPair(tx: Tx, runId: string, pair: VisualPairEvidence, mixe
   await tx.artworkDedupVisualPair.create({ data: { id, runId, leftArtworkId, rightArtworkId, summary } })
   for (let start = 0; start < pair.pages.length; start += 100) await tx.artworkDedupVisualPage.createMany({ data: pair.pages.slice(start, start + 100).map((p, i) => ({ pairId: id, ordinal: start + i + 1, kind: p.kind, leftImageId: p.left?.imageId ?? null, rightImageId: p.right?.imageId ?? null, leftIndex: p.left?.index ?? null, rightIndex: p.right?.index ?? null })) })
 }
-async function publish(context: DedupPipelineContext, run: Run) {
+export async function publish(context: DedupPipelineContext, run: Run) {
   await context.transaction(async tx => {
     const latest = await assertArtworkDedupExecution(tx, context.execution)
     if (!(await assertArtworkDedupCacheDirectories(tx, run.id))) throw new MediaContentFileError('ROOT_CHANGED', 'Visual directory changed')
@@ -407,7 +407,7 @@ async function publish(context: DedupPipelineContext, run: Run) {
     const unchecked = context.mixedVisualMedia && await tx.artworkDedupMedia.count({ where: { runId: run.id, item: { status: 'COMPLETE' }, visualStatus: 'UNCHECKED' } })
     const reasons = [...new Set([...latest.visualIncompleteReasons, ...(excluded || unchecked ? ['UNSUPPORTED_MEDIA'] : []), ...(failed ? ['INCOMPLETE_ORIGINALS'] : [])])]
     throwIfAborted(context.signal)
-    await tx.artworkDedupRun.update({ where: { id: run.id }, data: { stage: 'DONE', visualStatus: reasons.length ? 'INCOMPLETE' : 'COMPLETE', visualIncompleteReasons: reasons, visualCandidatePairs: keys } })
+    await tx.artworkDedupRun.update({ where: { id: run.id }, data: { stage: 'DONE', visualStatus: reasons.length ? 'INCOMPLETE' : 'COMPLETE', visualIncompleteReasons: reasons, visualCandidatePairs: keys, ...(context.visualSearchV2 ? { visualSearchComplete: !failed && !excluded && reasons.every(reason => reason === 'UNSUPPORTED_MEDIA') } : {}) } })
   })
 }
 

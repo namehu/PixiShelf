@@ -1,4 +1,5 @@
 import path from 'node:path'
+import type { ArtworkDedupPerformanceSummary } from '@pixishelf/job-contracts'
 import {
   assertArtworkContentSnapshot,
   assertArtworkDedupItemCurrent,
@@ -45,6 +46,22 @@ export class DedupItemError extends Error {
 export interface DedupPipelineContext {
   execution: ArtworkDedupExecution
   transaction: DedupTransaction
+  read?: DedupTransaction
+  visualSearchV2?: boolean
+  searchWorker?: import('./visual-search-worker.ts').VisualSearchWorker | undefined
+  searchCache?: { built?: boolean }
+  onFeatureBatch?: ((tx: Prisma.TransactionClient, delta: {
+    decodedImages: number
+    ownFeatureHits: number
+    contentFeatureHits: number
+    readBytes: number
+    featureMs: number
+    completed: number
+    total: number
+    uncheckedMedia: number
+  }) => Promise<void>) | undefined
+  onPerformance?: ((summary: ArtworkDedupPerformanceSummary) => void) | undefined
+  onPerformanceSnapshot?: ((tx: Prisma.TransactionClient, summary: ArtworkDedupPerformanceSummary) => Promise<void>) | undefined
   roots: DedupRoots
   reader: ControlledDedupReader
   signal: AbortSignal

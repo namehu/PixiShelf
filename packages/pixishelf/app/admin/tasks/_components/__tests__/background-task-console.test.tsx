@@ -696,6 +696,57 @@ describe('background task console', () => {
     expect(view.container.querySelector('[data-privacy-sensitive]')).not.toBeNull()
   })
 
+  it.each([false, true])('uses durable image progress in task detail=%s', (detail) => {
+    const job: JobDto = {
+      ...createJob('RUNNING'), type: 'ARTWORK_DEDUP_SCAN', progress: 99, stage: 'VISUAL',
+      progressData: {
+        version: 1, kind: 'artwork-dedup', phase: 'VISUAL', completed: 2_702, total: 5_624,
+        unit: 'images', waitReason: null, uncheckedMedia: 2, updatedAt: '2026-10-29T00:00:00.000Z'
+      }
+    }
+    render(<BackgroundTaskConsoleView dashboard={createDashboard({ runningJob: job, recentJobs: [job] })} selectedJob={detail ? job : null} selectedJobLoading={false} onSelectJob={vi.fn()} onRefresh={vi.fn()} refreshing={false} controls={createControls()} />)
+    expect(screen.getByText('正在比较图片 · 2,702 / 5,624')).toBeTruthy()
+    expect(screen.queryByText('99%')).toBeNull()
+    expect(Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeCloseTo(48.04, 1)
+  })
+
+  it.each([false, true])('hides legacy dedup percentages in task detail=%s', (detail) => {
+    const job: JobDto = { ...createJob('RUNNING'), type: 'ARTWORK_DEDUP_SCAN', progress: 99, stage: 'VISUAL' }
+    render(<BackgroundTaskConsoleView dashboard={createDashboard({ runningJob: job, recentJobs: [job] })} selectedJob={detail ? job : null} selectedJobLoading={false} onSelectJob={vi.fn()} onRefresh={vi.fn()} refreshing={false} controls={createControls()} />)
+    expect(screen.getByText('正在检查疑似版本')).toBeTruthy()
+    expect(screen.queryByText('99%')).toBeNull()
+    expect(screen.queryByRole('progressbar')).toBeNull()
+  })
+
+  it.each([
+    ['RUNNING', 'SCHEDULER', '等待后台调度，将自动继续'],
+    ['RETRY_WAIT', 'SCHEDULER', '等待后台调度，将自动继续'],
+    ['RETRY_WAIT', 'RETRY', '等待后台重试，将自动继续'],
+    ['PAUSED', 'USER_PAUSED', '检查已暂停，需手动继续'],
+    ['PAUSED', 'VISUAL_COMPARISON_BUDGET', '本轮比较已达上限，需继续检查'],
+    ['PAUSING', 'SCHEDULER', '正在保存进度，等待后台确认暂停']
+  ] as const)('distinguishes %s/%s from user action', (status, waitReason, label) => {
+    const job: JobDto = {
+      ...createJob(status), type: 'ARTWORK_DEDUP_SCAN', progress: 99,
+      progressData: { version: 1, kind: 'artwork-dedup', phase: 'VISUAL', completed: 2, total: 4, unit: 'images', waitReason, uncheckedMedia: null, updatedAt: '2026-10-29T00:00:00.000Z' }
+    }
+    render(<BackgroundTaskConsoleView dashboard={createDashboard({ recentJobs: [job] })} selectedJob={job} selectedJobLoading={false} onSelectJob={vi.fn()} onRefresh={vi.fn()} refreshing={false} controls={createControls()} />)
+    expect(screen.getByText(label)).toBeTruthy()
+    expect(screen.queryByText('99%')).toBeNull()
+  })
+
+  it('keeps unchecked media explicit after final publication', () => {
+    const job: JobDto = {
+      ...createJob('COMPLETED'), type: 'ARTWORK_DEDUP_SCAN',
+      progressData: { version: 1, kind: 'artwork-dedup', phase: 'COMPLETED', completed: null, total: null, unit: 'artworks', waitReason: null, uncheckedMedia: 2, updatedAt: '2026-10-29T00:00:00.000Z' }
+    }
+    render(<BackgroundTaskConsoleView dashboard={createDashboard({ recentJobs: [job] })} selectedJob={job} selectedJobLoading={false} onSelectJob={vi.fn()} onRefresh={vi.fn()} refreshing={false} controls={createControls()} />)
+    expect(screen.getByText('检查已完成')).toBeTruthy()
+    expect(screen.getByText('2 项媒体未核对，已支持的图片仍参与比较。')).toBeTruthy()
+    expect(screen.queryByText('100%')).toBeNull()
+    expect(screen.queryByRole('progressbar')).toBeNull()
+  })
+
   it('segments event DOM above 50 while keeping earlier events available on demand', () => {
     const job = createJob('COMPLETED', 'job-long-events')
     mocks.eventQuery.events = Array.from(

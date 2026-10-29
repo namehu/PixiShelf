@@ -293,7 +293,7 @@ describe('ExecutorRegistry', () => {
       definitionVersions: [1, 2, 3, 4, 5, 6]
     })
     expect(capabilities).toHaveLength(39)
-    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(58)
+    expect(capabilities.reduce((count, capability) => count + capability.definitionVersions.length, 0)).toBe(59)
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_SEARCH_SCAN')?.definitionVersions).toEqual(
       [1, 2, 3, 4, 5]
     )
@@ -303,7 +303,7 @@ describe('ExecutorRegistry', () => {
     ).toEqual([1, 2])
     expect(capabilities.find((capability) => capability.jobType === 'SCAN')?.definitionVersions).toEqual([1, 2, 3])
     expect(capabilities.find((capability) => capability.jobType === 'ARTWORK_DEDUP_SCAN')?.definitionVersions).toEqual([
-      1, 2, 3, 4, 5, 6, 7
+      1, 2, 3, 4, 5, 6, 7, 8
     ])
     expect(capabilities.find((capability) => capability.jobType === 'ARCHIVE_IMPORT')?.definitionVersions).toEqual([
       1, 2

@@ -35,7 +35,9 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '
 import { Spinner } from '@/components/ui/spinner'
 import { useMediaQuery } from '@/hooks/use-media-query'
 import { cn } from '@/lib/utils'
+import { artworkDedupProgressPresentation } from '@/lib/job-progress'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
+import { ArtworkDedupProgress } from '../../_components/artwork-dedup-progress'
 import { confirm } from '@/components/shared/global-confirm'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { AnimationScanLiveFeedback } from './animation-scan-live-feedback'
@@ -321,6 +323,9 @@ function BackgroundTaskDock({
       ? formatBackgroundJobType(running.type, running.payload)
       : null
   const progress = activeBatch?.progress ?? running?.progress
+  const dedupProgress = !activeBatch && running?.type === 'ARTWORK_DEDUP_SCAN'
+    ? artworkDedupProgressPresentation(running)
+    : null
   const dockPosition =
     'fixed inset-x-4 bottom-[calc(var(--app-mobile-navigation-offset)+0.75rem)] z-40 lg:inset-x-auto lg:right-6 lg:bottom-6'
 
@@ -357,7 +362,9 @@ function BackgroundTaskDock({
         >
           <Activity data-icon="inline-start" className="animate-pulse motion-reduce:animate-none" aria-hidden="true" />
           <span className="min-w-0 truncate">{activeLabel ?? `${queuedCount} 项等待`}</span>
-          {progress !== undefined ? <span className="font-semibold tabular-nums">{progress}%</span> : null}
+          {dedupProgress ? (
+            <span className="truncate text-xs tabular-nums">{dedupProgress.waitLabel ?? dedupProgress.label}</span>
+          ) : progress !== undefined ? <span className="font-semibold tabular-nums">{progress}%</span> : null}
           {activeBatch ? (
             <span className="opacity-80">
               {activeBatch.completedCount}/{activeBatch.totalCount}
@@ -770,7 +777,9 @@ function JobDetail({
         </div>
       ) : null}
 
-      {job.status === 'RUNNING' || job.status === 'PAUSING' || job.status === 'CANCELLING' ? (
+      {job.type === 'ARTWORK_DEDUP_SCAN' ? (
+        <ArtworkDedupProgress status={job.status} stage={job.stage} progressData={job.progressData} className="mt-4" />
+      ) : job.status === 'RUNNING' || job.status === 'PAUSING' || job.status === 'CANCELLING' ? (
         <div className="mt-4 flex items-center gap-3">
           <Progress value={job.progress} className="h-2 flex-1" aria-label={`任务进度 ${job.progress}%`} />
           <span className="text-xs font-semibold tabular-nums">{job.progress}%</span>
@@ -779,7 +788,7 @@ function JobDetail({
       {job.progressData?.kind === 'animation-scan' ? (
         <AnimationScanLiveFeedback job={job} className="mt-3 rounded-lg border bg-muted/10 p-3" />
       ) : null}
-      {job.message && job.message !== job.error ? (
+      {job.type !== 'ARTWORK_DEDUP_SCAN' && job.message && job.message !== job.error ? (
         <PrivacySensitiveText as="p" className="mt-3 select-text break-words text-sm text-muted-foreground">
           {job.message}
         </PrivacySensitiveText>
@@ -977,7 +986,7 @@ function EventTimeline({
           ) : null}
           <ol className="relative mt-4 flex min-w-0 flex-col gap-0 border-l border-primary/20 pl-4">
             {visibleEvents.map((event) => (
-              <EventItem key={event.id} event={event} />
+              <EventItem key={event.id} event={event} showPercentage={job.type !== 'ARTWORK_DEDUP_SCAN'} />
             ))}
           </ol>
         </>
@@ -986,7 +995,7 @@ function EventTimeline({
   )
 }
 
-function EventItem({ event }: { event: JobEventDto }) {
+function EventItem({ event, showPercentage }: { event: JobEventDto; showPercentage: boolean }) {
   const dataText = event.data === null ? null : JSON.stringify(event.data, null, 2)
   return (
     <li className="relative min-w-0 pb-4 last:pb-0">
@@ -1006,7 +1015,7 @@ function EventItem({ event }: { event: JobEventDto }) {
       </div>
       <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-muted-foreground">
         {event.stage ? <span>阶段 {event.stage}</span> : null}
-        {event.progress !== null ? <span>进度 {event.progress}%</span> : null}
+        {showPercentage && event.progress !== null ? <span>进度 {event.progress}%</span> : null}
         <span>尝试 {event.attempt}</span>
         {event.workerId ? <span className="select-text break-all font-mono">Worker {event.workerId}</span> : null}
       </div>

@@ -21,5 +21,6 @@ export * from './job-diagnostics.ts'
 export * from './archive-discovery-batch.ts'
 
 export * from './artwork-dedup.ts'
+export * from './artwork-dedup-performance.ts'
 export * from './artwork-dedup-maintenance.ts'
 export * from './artwork-dedup-source-snapshot.ts'

@@ -8,6 +8,7 @@ await build({
     main: 'src/main.ts',
     'artwork-dedup-reader-recovery': 'src/artwork-dedup-reader-recovery.ts',
     'artwork-dedup-reader': '../pixishelf-job-executors/src/artwork-dedup/reader-child.ts',
+    'artwork-dedup-visual-search': '../pixishelf-job-executors/src/artwork-dedup/visual-search-thread.ts',
     healthcheck: 'src/healthcheck.ts',
     'pixiv-root-identity': 'src/pixiv-root-identity.ts',
     'media-content-recovery': 'src/media-content-recovery.ts',

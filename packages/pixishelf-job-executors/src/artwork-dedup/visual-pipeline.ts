@@ -1,7 +1,7 @@
 import { setImmediate } from 'node:timers/promises'
 import { readVisualRelationReuse, visualRelationSignature } from './relation-cache.ts'
 import {
-  Prisma, assertArtworkDedupExecution, assertArtworkDedupItemCurrent, assertArtworkContentSnapshot,
+  Prisma, assertArtworkDedupVisualItemsFenced, assertArtworkDedupExecution, assertArtworkDedupItemCurrent, assertArtworkContentSnapshot,
   assertArtworkDedupVisualDirectories, readArtworkDedupSharedVisualFingerprints, type MediaContentDirectorySnapshot
 } from '@pixishelf/db'
 import { MediaContentFileError } from '../media-content/roots.ts'
@@ -49,12 +49,18 @@ export async function prepareVisualVersions(context: DedupPipelineContext, fileL
   const run = await context.transaction(tx => assertArtworkDedupExecution(tx, context.execution))
   if (!run.includeSuspectedVersions) return true
   if (run.visualStatus === 'COMPLETE' || run.visualStatus === 'INCOMPLETE' && run.stage === 'DONE') return true
-  const counts = await context.transaction(tx => tx.artworkDedupMedia.count({ where: { runId: run.id, item: { status: 'COMPLETE' } } }))
+  const read = context.visualSearchV2 ? context.read ?? context.transaction : context.transaction
+  const counts = await read(tx => tx.artworkDedupMedia.count({ where: { runId: run.id, item: { status: 'COMPLETE' } } }))
   if (counts > fileLimit) return incomplete(context, 'VISUAL_FILE_BUDGET')
+  const prepared = context.visualSearchV2 ? await read(tx => tx.artworkDedupMedia.groupBy({ by: ['visualStatus'], where: { runId: run.id, item: { status: 'COMPLETE' }, visualStatus: { in: ['READY', 'UNCHECKED'] } }, _count: true })) : []
+  let featureCompleted = prepared.reduce((sum, row) => sum + row._count, 0)
+  let featureUnchecked = prepared.find(row => row.visualStatus === 'UNCHECKED')?._count ?? 0
   for (;;) {
+    const featureStarted = performance.now()
+    let decodedImages = 0, ownFeatureHits = 0, contentFeatureHits = 0
     throwIfAborted(context.signal)
-    const page = await context.transaction(async tx => {
-      const latest = await assertArtworkDedupExecution(tx, context.execution)
+    const page = await read(async tx => {
+      const latest = context.visualSearchV2 ? await tx.artworkDedupRun.findUniqueOrThrow({ where: { id: run.id } }) : await assertArtworkDedupExecution(tx, context.execution)
       const rows = await tx.artworkDedupMedia.findMany({ where: { runId: run.id, imageId: { gt: latest.visualAfterImageId }, item: { status: 'COMPLETE' } }, orderBy: { imageId: 'asc' }, take: 50 })
       const ids = rows.map(row => row.imageId)
       const images = ids.length ? await tx.image.findMany({ where: { id: { in: ids } },
@@ -74,12 +80,12 @@ export async function prepareVisualVersions(context: DedupPipelineContext, fileL
       return { rows, images: new Map(images.map(image => [image.id, image])), cached: byId, shared }
     })
     if (!page.rows.length) break
-    const completed: Array<{ row: Media; views: Prisma.InputJsonValue | undefined; unchecked: boolean; bytes: bigint; dirty: boolean }> = []
+    const completed: Array<{ row: Media; views: Prisma.InputJsonValue | undefined; unchecked: boolean; bytes: bigint; dirty: boolean; failure: boolean }> = []
     let yielding = false
     for (const row of page.rows) {
       throwIfAborted(context.signal)
       const image = page.images.get(row.imageId)
-      let views: Prisma.InputJsonValue | undefined, unchecked = false, bytes = 0n, dirty = false
+      let views: Prisma.InputJsonValue | undefined, unchecked = false, bytes = 0n, dirty = false, failure = false
       if (!image || image.artworkId !== row.artworkId || image.path !== row.sourcePath ||
         (image.contentSource?.revision ?? 0n) !== row.sourceRevision || image.contentSource?.writeToken ||
         image.contentSource?.directoryStateId !== row.directoryId)
@@ -91,22 +97,23 @@ export async function prepareVisualVersions(context: DedupPipelineContext, fileL
       else {
         const cached = page.cached.get(row.imageId)
         const key = context.forceRead ? undefined : contentKey(row)
-        if (ownCacheValid(row, cached)) views = cached!.views as unknown as Prisma.InputJsonValue
-        else if (key && page.shared.has(key)) { views = page.shared.get(key)!; dirty = true }
+        if (ownCacheValid(row, cached)) { views = cached!.views as unknown as Prisma.InputJsonValue; ownFeatureHits++ }
+        else if (key && page.shared.has(key)) { views = page.shared.get(key)!; dirty = true; contentFeatureHits++ }
         else {
           try {
+            decodedImages++
             const read = await context.reader.visual({ root, relativePath: row.canonicalPath, signal: context.signal })
             if (read.sha256 !== row.sha256 || !sameContentFileState(read.state, row)) throw new MediaContentFileError('FILE_CHANGED', 'Visual content changed')
             views = (read.exclusion ?? read.views) as unknown as Prisma.InputJsonValue; bytes = read.bytesRead; dirty = true
             if (key && (validVisualViews(views) || validVisualExclusion(views))) page.shared.set(key, views)
           } catch (error) {
-            if (error instanceof MediaContentFileError && ['INVALID_FILE', 'NOT_READABLE'].includes(error.code)) unchecked = true
+            if (error instanceof MediaContentFileError && ['INVALID_FILE', 'NOT_READABLE'].includes(error.code)) { unchecked = true; failure = true }
             else throw error
           }
         }
         if (validVisualExclusion(views)) unchecked = true
       }
-      completed.push({ row, views, unchecked, bytes, dirty })
+      completed.push({ row, views, unchecked, bytes, dirty, failure })
       if (context.shouldYield()) { yielding = true; break }
     }
     throwIfAborted(context.signal)
@@ -116,7 +123,9 @@ export async function prepareVisualVersions(context: DedupPipelineContext, fileL
       const directories = completed.map(({ row }) => directory(row))
       if (!(await assertArtworkDedupVisualDirectories(tx, directories))) throw new MediaContentFileError('ROOT_CHANGED', 'Visual directory changed')
       const artworks = [...new Map(completed.map(({ row }) => [row.artworkId, row])).values()].sort((a, b) => a.artworkId - b.artworkId)
-      for (const row of artworks) await current(tx, context, row, true)
+      if (context.visualSearchV2) {
+        if (!(await assertArtworkDedupVisualItemsFenced(tx, latest, artworks.map(row => row.artworkId)))) throw new MediaContentFileError('FILE_CHANGED', 'Visual snapshot changed')
+      } else for (const row of artworks) await current(tx, context, row, true)
       const images = await tx.image.findMany({ where: { id: { in: completed.map(({ row }) => row.imageId) } },
         select: { id: true, artworkId: true, path: true, mediaType: true, contentSource: true } })
       const byId = new Map(images.map(image => [image.id, image]))
@@ -145,8 +154,11 @@ export async function prepareVisualVersions(context: DedupPipelineContext, fileL
       throwIfAborted(context.signal)
       await tx.artworkDedupRun.update({ where: { id: run.id }, data: { visualAfterImageId: completed.at(-1)!.row.imageId,
         readBytes: { increment: completed.reduce((total, entry) => total + entry.bytes, 0n) },
-        ...(completed.some(entry => entry.unchecked) ? { visualIncompleteReasons: [...new Set([...latest.visualIncompleteReasons, 'UNSUPPORTED_MEDIA'])] } : {}) } })
+        ...(completed.some(entry => entry.unchecked) ? { visualIncompleteReasons: [...new Set([...latest.visualIncompleteReasons, 'UNSUPPORTED_MEDIA', ...(context.visualSearchV2 && completed.some(entry => entry.failure) ? ['VISUAL_FEATURE_FAILURE'] : [])])] } : {}) } })
+      await context.onFeatureBatch?.(tx, { decodedImages, ownFeatureHits, contentFeatureHits, readBytes: Number(completed.reduce((total, entry) => total + entry.bytes, 0n)), featureMs: performance.now() - featureStarted, completed: featureCompleted + completed.length, total: counts, uncheckedMedia: featureUnchecked + completed.filter(entry => entry.unchecked).length })
     })
+    featureCompleted += completed.length
+    featureUnchecked += completed.filter(entry => entry.unchecked).length
     if (yielding || context.shouldYield()) return false
   }
   return true

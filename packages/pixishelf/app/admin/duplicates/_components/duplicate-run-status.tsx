@@ -8,9 +8,10 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
-import { Progress } from '@/components/ui/progress'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Spinner } from '@/components/ui/spinner'
+import { artworkDedupProgressPresentation } from '@/lib/job-progress'
+import { ArtworkDedupProgress } from '../../_components/artwork-dedup-progress'
 
 export function isDuplicateRunActive(run: ArtworkDedupRunDto) {
   return ['PENDING', 'RETRY_WAIT', 'RUNNING', 'PAUSING', 'PAUSED', 'CANCELLING'].includes(run.status)
@@ -32,8 +33,11 @@ function runHeading(run: ArtworkDedupRunDto) {
       return '等待开始检查'
     case 'RETRY_WAIT':
       return '等待继续检查'
-    case 'RUNNING':
-      return stageLabels[run.stage]
+    case 'RUNNING': {
+      if (!run.progressData) return stageLabels[run.stage]
+      const progress = artworkDedupProgressPresentation(run)
+      return progress.waitLabel ? '等待继续检查' : progress.phaseLabel
+    }
     case 'PAUSING':
       return '正在暂停检查'
     case 'PAUSED':
@@ -62,6 +66,13 @@ function runHeading(run: ArtworkDedupRunDto) {
 
 function runDescription(run: ArtworkDedupRunDto) {
   switch (run.status) {
+    case 'PENDING':
+    case 'RETRY_WAIT':
+      return `${artworkDedupProgressPresentation(run).waitLabel}。`
+    case 'RUNNING': {
+      const waiting = artworkDedupProgressPresentation(run).waitLabel
+      return waiting ? `${waiting}。` : '离开页面后，检查仍会在后台进行。'
+    }
     case 'PAUSING':
       return '正在保存进度，等待后台确认暂停。'
     case 'PAUSED':
@@ -133,7 +144,6 @@ export function DuplicateRunStatus({
 }) {
   const { counts } = run
   const unchecked = counts.changedArtworks + counts.failedArtworks + counts.skippedArtworks
-  const progress = counts.artworks > 0 ? Math.min(100, (counts.processedArtworks / counts.artworks) * 100) : null
   const heading = runHeading(run)
 
   return (
@@ -158,7 +168,7 @@ export function DuplicateRunStatus({
                 疑似版本未全部检查：
                 {run.visualIncompleteReasons.map(duplicateVisualIncompleteReason).join('；') ||
                   '部分图片不支持或达到本次检查上限'}
-                。{(counts.visualUncheckedMedia ?? 0) > 0 ? `${counts.visualUncheckedMedia.toLocaleString('zh-CN')} 项媒体未核对，已支持的图片仍参与比较。` : ''}其他重复结果仍可核对。
+                。{counts.visualUncheckedMedia === null ? '未核对媒体数量未知，已支持的图片仍参与比较。' : counts.visualUncheckedMedia > 0 ? `${counts.visualUncheckedMedia.toLocaleString('zh-CN')} 项媒体未核对，已支持的图片仍参与比较。` : ''}其他重复结果仍可核对。
               </p>
             ) : run.visualStatus === 'COMPLETE' ? (
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -242,16 +252,14 @@ export function DuplicateRunStatus({
           </Popover>
         </div>
       </div>
-      {counts.artworks > 0 && run.status !== 'COMPLETED' ? (
+      {run.status !== 'COMPLETED' ? (
         <div className="flex flex-col gap-2 pt-1 pb-2">
-          <p className="text-xs text-muted-foreground tabular-nums">
-            已处理 {counts.processedArtworks.toLocaleString('zh-CN')} / {counts.artworks.toLocaleString('zh-CN')} 部作品
-          </p>
-          <Progress
-            value={progress}
-            aria-label="作品检查进度"
-            aria-valuetext={`已处理 ${counts.processedArtworks} / ${counts.artworks} 部作品`}
-            className="h-1.5"
+          <ArtworkDedupProgress
+            status={run.status}
+            stage={run.stage}
+            progressData={run.progressData}
+            showPhase={run.status !== 'RUNNING' || Boolean(artworkDedupProgressPresentation(run).waitLabel)}
+            showWait={false}
           />
           {unchecked > 0 ? (
             <p className="text-xs text-muted-foreground">其中 {unchecked.toLocaleString('zh-CN')} 部未完成检查。</p>

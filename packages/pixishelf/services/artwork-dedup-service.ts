@@ -10,6 +10,8 @@ import {
 } from '@pixishelf/db'
 import {
   artworkDedupRunDtoSchema,
+  artworkDedupProgressDataSchema,
+  artworkDedupPerformanceSummarySchema,
   ARTWORK_DEDUP_SCAN_DEFINITION_VERSION,
   type ArtworkDedupControlAction,
   type ArtworkDedupRunDto
@@ -71,9 +73,12 @@ async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedup
           select: { id: true, version: true, finishedAt: true, groupCount: true }
         })
   const job = run.jobId
-    ? await tx.systemJob.findUnique({ where: { id: run.jobId }, select: { definitionVersion: true } })
+    ? await tx.systemJob.findUnique({ where: { id: run.jobId }, select: { definitionVersion: true, progressData: true } })
     : null
+  const progressData = artworkDedupProgressDataSchema.safeParse(job?.progressData).data ?? null
+  const performance = artworkDedupPerformanceSummarySchema.safeParse(run.performanceSummary).data
   return artworkDedupRunDtoSchema.parse({
+    progressData,
     includesContainment: (job?.definitionVersion ?? 1) >= 2,
     includesPartial: (job?.definitionVersion ?? 1) >= 4,
     visualStatus: run.visualStatus,
@@ -112,7 +117,7 @@ async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedup
       hashedMedia: run.hashedMedia,
       cacheHitMedia: run.cacheHitMedia,
       visualUncheckedMedia: run.includeSuspectedVersions
-        ? await tx.artworkDedupMedia.count({ where: { runId: run.id, visualStatus: 'UNCHECKED' } })
+        ? progressData?.uncheckedMedia ?? performance?.progress.uncheckedMedia ?? null
         : 0,
       readBytes: run.readBytes.toString()
     },
@@ -345,13 +350,14 @@ export async function controlArtworkDedup(
             failedArtworks: 0,
             skippedArtworks: 0,
             groupCount: 0,
-            duplicateArtworks: 0
+            duplicateArtworks: 0,
+            performanceSummary: Prisma.DbNull
           }
         })
         run = await createJob(tx, run)
       } else {
         if (input.action === 'resume' && run.visualBudgetWaiting) {
-          if (![6, 7].includes(job.definitionVersion) || run.visualComparisonRound < 1) conflict()
+          if (![6, 7, ARTWORK_DEDUP_SCAN_DEFINITION_VERSION].includes(job.definitionVersion) || run.visualComparisonRound < 1) conflict()
           run = await tx.artworkDedupRun.update({ where: { id: run.id }, data: {
             visualComparisonRound: { increment: 1 },
             visualRoundStartComparisons: run.visualReusedComparisons + run.visualComparedComparisons,
@@ -369,10 +375,34 @@ export async function controlArtworkDedup(
               : direct
                 ? 'CANCELLED'
                 : 'CANCELLING'
+        const progressData = artworkDedupProgressDataSchema.safeParse(job.progressData).data
+        if (input.action === 'resume' && progressData &&
+          (progressData.waitReason === 'USER_PAUSED' || progressData.waitReason === 'VISUAL_COMPARISON_BUDGET')) {
+          const performance = artworkDedupPerformanceSummarySchema.safeParse(run.performanceSummary).data
+          if (performance) {
+            await tx.artworkDedupRun.update({ where: { id: run.id }, data: {
+              performanceSummary: {
+                ...performance,
+                updatedAt: now.toISOString(),
+                durationsMs: {
+                  ...performance.durationsMs,
+                  pause: (performance.durationsMs.pause ?? 0) + Math.max(0, now.getTime() - Date.parse(progressData.updatedAt))
+                }
+              }
+            } })
+          }
+        }
         await tx.systemJob.update({
           where: { id: job.id },
           data: {
             status,
+            ...(progressData ? {
+              progressData: {
+                ...progressData,
+                waitReason: input.action === 'pause' ? 'USER_PAUSED' : input.action === 'resume' ? 'SCHEDULER' : null,
+                updatedAt: now.toISOString()
+              }
+            } : {}),
             ...(input.action === 'pause' ? { pauseRequestedAt: now } : {}),
             ...(input.action === 'cancel' ? { cancelRequestedAt: now } : {}),
             ...(input.action === 'resume'

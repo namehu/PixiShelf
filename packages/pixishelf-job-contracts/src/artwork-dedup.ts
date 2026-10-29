@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import { jobStatusSchema } from './job-types.ts'
+import { artworkDedupProgressDataSchema } from './job-progress-data.ts'
 
-export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 7 as const
+export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 8 as const
 export const ARTWORK_DEDUP_PRIORITY = 900 as const
 export const ARTWORK_DEDUP_DEFAULTS = Object.freeze({
   mediaPageSize: 500,
@@ -47,6 +48,7 @@ export const artworkDedupListGroupsInputSchema = z
   .strict()
 const count = z.number().int().nonnegative()
 export const artworkDedupRunDtoSchema = z.object({
+  progressData: artworkDedupProgressDataSchema.nullable().default(null),
   includesPartial: z.boolean().default(false),
   includesContainment: z.boolean().default(false),
   visualStatus: z.enum(['NOT_REQUESTED', 'PENDING', 'COMPLETE', 'INCOMPLETE']).default('NOT_REQUESTED'),
@@ -80,7 +82,7 @@ export const artworkDedupRunDtoSchema = z.object({
     statMedia: count,
     hashedMedia: count,
     cacheHitMedia: count,
-    visualUncheckedMedia: count.default(0),
+    visualUncheckedMedia: count.nullable().default(null),
     readBytes: z.string().regex(/^\d+$/)
   }),
   allowedControls: z.array(artworkDedupControlActionSchema),

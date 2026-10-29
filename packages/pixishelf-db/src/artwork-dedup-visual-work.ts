@@ -17,10 +17,15 @@ export async function assertArtworkDedupVisualItems(tx: Prisma.TransactionClient
   if (!artworkIds.length || artworkIds.length > 51 || artworkIds.some(id => !Number.isSafeInteger(id) || id <= 0)) throw new RangeError('Visual item guard batch')
   const ids = [...new Set(artworkIds)].sort((a, b) => a - b)
   const run = await assertArtworkDedupExecution(tx, execution)
+  return assertArtworkDedupVisualItemsFenced(tx, run, ids)
+}
+
+/** Execution and root/directory guards are held by this same transaction. */
+export async function assertArtworkDedupVisualItemsFenced(tx: Prisma.TransactionClient, run: Prisma.ArtworkDedupRunGetPayload<Record<string, never>>, ids: readonly number[]) {
   await lockContentArtworks(tx, ids)
-  const items = await tx.artworkDedupItem.findMany({ where: { runId: run.id, artworkId: { in: ids } },
+  const items = await tx.artworkDedupItem.findMany({ where: { runId: run.id, artworkId: { in: [...ids] } },
     select: { artworkId: true, status: true, frozenMediaRevision: true, snapshotRevision: true, mediaEpoch: true, memberCount: true } })
-  const artworks = await tx.artwork.findMany({ where: { id: { in: ids }, ...visibleCreatorArtwork,
+  const artworks = await tx.artwork.findMany({ where: { id: { in: [...ids] }, ...visibleCreatorArtwork,
     creators: { some: { artistId: run.artistId, ...activeCreatorMembership, artist: { mergedIntoId: null } } } },
     select: { id: true, mediaRevision: true, contentSource: { select: { revision: true, mediaEpoch: true, writeToken: true } } } })
   if (items.length !== ids.length || artworks.length !== ids.length) return false

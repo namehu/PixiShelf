@@ -7,6 +7,7 @@ import { Activity, Clock3 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
+import { ArtworkDedupProgress } from '../../_components/artwork-dedup-progress'
 import { AdminStatusBadge } from '../../_components/admin-status-badge'
 import { formatBackgroundJobStatus, formatBackgroundJobType, getArtworkDedupHref } from './background-task-format'
 import type { BackgroundBatchView } from './background-task-console'
@@ -76,10 +77,14 @@ export function BackgroundExecutionRow({
             ) : null}
           </div>
           <p className="select-text break-all font-mono text-[11px] text-muted-foreground">{visibleJob.id}</p>
-          <div className="flex items-center gap-3">
-            <Progress value={progress} className="h-2 flex-1" aria-label={`任务进度 ${progress}%`} />
-            <span className="text-xs font-semibold tabular-nums">{progress}%</span>
-          </div>
+          {visibleJob.type === 'ARTWORK_DEDUP_SCAN' ? (
+            <ArtworkDedupProgress status={visibleJob.status} stage={visibleJob.stage} progressData={visibleJob.progressData} />
+          ) : (
+            <div className="flex items-center gap-3">
+              <Progress value={progress} className="h-2 flex-1" aria-label={`任务进度 ${progress}%`} />
+              <span className="text-xs font-semibold tabular-nums">{progress}%</span>
+            </div>
+          )}
           {batch ? (
             <div className="flex flex-col gap-1 text-xs text-muted-foreground">
               <p>
@@ -96,7 +101,7 @@ export function BackgroundExecutionRow({
                 )}
               </p>
             </div>
-          ) : visibleJob.message ? (
+          ) : visibleJob.type !== 'ARTWORK_DEDUP_SCAN' && visibleJob.message ? (
             <PrivacySensitiveText as="p" className="select-text break-words text-xs text-muted-foreground">
               {visibleJob.message}
             </PrivacySensitiveText>

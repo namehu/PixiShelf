@@ -2,6 +2,21 @@ import { z } from 'zod'
 
 const aggregateCountSchema = z.number().int().nonnegative().safe()
 
+export const artworkDedupProgressPhaseSchema = z.enum([
+  'ORIGINALS', 'FEATURES', 'INDEX', 'VISUAL', 'PAIR', 'PUBLISH', 'COMPLETED'
+])
+export const artworkDedupProgressDataSchema = z.object({
+  version: z.literal(1),
+  kind: z.literal('artwork-dedup'),
+  phase: artworkDedupProgressPhaseSchema,
+  completed: aggregateCountSchema.nullable(),
+  total: aggregateCountSchema.nullable(),
+  unit: z.enum(['media', 'images', 'artworks', 'pairs', 'batches']),
+  waitReason: z.enum(['SCHEDULER', 'USER_PAUSED', 'VISUAL_COMPARISON_BUDGET', 'SOURCE_WRITE', 'RETRY']).nullable(),
+  uncheckedMedia: aggregateCountSchema.nullable().default(null),
+  updatedAt: z.string().datetime({ offset: true })
+}).strict()
+
 export const ANIMATION_SCAN_PROGRESS_STAGE_VALUES = ['INITIALIZING', 'SCANNING', 'COMPLETED'] as const
 export const animationScanProgressStageSchema = z.enum(ANIMATION_SCAN_PROGRESS_STAGE_VALUES)
 
@@ -52,9 +67,11 @@ export const animationDurationProgressDataSchema = z.object({
  * A plain union keeps decoding additive: old rows may remain null, while a
  * future version can be added beside v1 without changing the SSE envelope.
  */
-export const jobProgressDataSchema = z.union([animationScanProgressDataSchema, animationDurationProgressDataSchema])
+export const jobProgressDataSchema = z.union([animationScanProgressDataSchema, animationDurationProgressDataSchema, artworkDedupProgressDataSchema])
 
 export type AnimationScanProgressStage = z.infer<typeof animationScanProgressStageSchema>
 export type AnimationScanProgressData = z.infer<typeof animationScanProgressDataSchema>
 export type AnimationDurationProgressData = z.infer<typeof animationDurationProgressDataSchema>
+export type ArtworkDedupProgressPhase = z.infer<typeof artworkDedupProgressPhaseSchema>
+export type ArtworkDedupProgressData = z.infer<typeof artworkDedupProgressDataSchema>
 export type JobProgressData = z.infer<typeof jobProgressDataSchema>

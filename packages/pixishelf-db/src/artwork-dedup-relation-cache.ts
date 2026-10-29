@@ -9,7 +9,8 @@ export const ARTWORK_DEDUP_RELATION_CACHE_VERSION = 'original-multiset-v1:partia
 type Run = Prisma.ArtworkDedupRunGetPayload<Record<string, never>>
 
 /** Excluded media do not invalidate fully compared artwork signatures. Budget/error gaps do. */
-export function artworkDedupVisualReusableRunSql() {
+export function artworkDedupVisualReusableRunSql(searchVersion?: string | null) {
+  if (searchVersion) return Prisma.sql`(r."visualSearchVersion"=${searchVersion} AND r."visualSearchComplete"=true)`
   return Prisma.sql`(r."visualStatus"='COMPLETE'
     OR (r."visualStatus"='INCOMPLETE' AND r."visualIncompleteReasons"=ARRAY['UNSUPPORTED_MEDIA']::text[]
       AND r."visualCheckpoint"->>'phase'='PUBLISH'))`
@@ -24,7 +25,7 @@ export async function lockArtworkDedupRelationCache(tx: Prisma.TransactionClient
     SELECT r.id FROM "ArtworkDedupRun" r
     WHERE r."artistId"=${run.artistId} AND r.id<>${run.id} AND r.status='COMPLETED' AND r.stage='DONE'
       AND r."algorithmVersion"=${run.algorithmVersion} AND r."relationCacheVersion"=${ARTWORK_DEDUP_RELATION_CACHE_VERSION}
-      AND (${!visual} OR ${artworkDedupVisualReusableRunSql()})
+      AND (${!visual} OR ${artworkDedupVisualReusableRunSql(run.visualSearchVersion)})
       AND NOT EXISTS(SELECT 1 FROM "ArtworkDedupItem" i WHERE i."runId"=r.id AND i.status<>'COMPLETE')
     ORDER BY r."frozenAt" DESC,r.id DESC LIMIT 1 FOR SHARE OF r`)
   return base?.id ?? null
@@ -54,7 +55,7 @@ export function artworkDedupOriginalReusableSql(baseId: string | null, runId: st
  * Negative evidence needs the same guards as published positive relationships.
  */
 export async function assertArtworkDedupCacheDirectories(tx: Prisma.TransactionClient, runId: string, artworkIds?: readonly number[]) {
-  if (artworkIds && (artworkIds.length === 0 || artworkIds.length > 51)) throw new RangeError('Visual guard batch')
+  if (artworkIds && (artworkIds.length === 0 || artworkIds.length > 10_000)) throw new RangeError('Visual guard batch')
   const scope = artworkIds ? Prisma.sql`AND m."artworkId" IN (${Prisma.join(artworkIds)})` : Prisma.empty
   await lockCreatorCatalog(tx)
   const roots = await tx.$queryRaw<{ logicalRoot: 'source-media:v1' | 'archive-media:v1'; rootIdentity: string }[]>(Prisma.sql`

@@ -205,6 +205,7 @@ export interface TransactionBoundFailInput {
 export interface TransactionBoundRetryInput extends TransactionBoundFailInput {
   availableAt: Date
   preserveAttempt?: boolean
+  /** Treat availableAt as the earliest eligibility time, clamped to finalization time. */
   schedulingYield?: boolean
 }
 
@@ -261,7 +262,8 @@ interface OwnedJobTransition {
   assignments: string
   values: unknown[]
   extraPredicate?: string
-  eventData?: unknown
+  eventData?: Record<string, unknown>
+  schedulingYield?: boolean | undefined
 }
 
 export class JobExecutionFenceError extends Error {
@@ -1072,7 +1074,7 @@ export class PostgresQueueRepository {
             extraPredicate: `AND "status" = 'RUNNING'`
           }),
         retry: (input) => {
-          if (input.availableAt.getTime() < this.clock.now().getTime()) {
+          if (!input.schedulingYield && input.availableAt.getTime() < this.clock.now().getTime()) {
             throw new Error('Retry availableAt cannot be earlier than the current queue clock')
           }
           if (input.schedulingYield && !input.preserveAttempt) {
@@ -1080,6 +1082,7 @@ export class PostgresQueueRepository {
           }
           return finalize({
             status: 'RETRY_WAIT',
+            schedulingYield: input.schedulingYield,
             diagnostic: input.schedulingYield
               ? undefined
               : (input.diagnostic ?? extractJobDiagnostic(input.error, { code: input.errorCode })),
@@ -1171,7 +1174,13 @@ export class PostgresQueueRepository {
         terminalIntent.values[0] instanceof Date &&
         terminalIntent.values[0].getTime() < finalizedAt.getTime()
       ) {
-        throw new Error('Retry availableAt cannot be earlier than the current queue clock')
+        if (!terminalIntent.schedulingYield) {
+          throw new Error('Retry availableAt cannot be earlier than the current queue clock')
+        }
+        // Immediate yields remain eligible even when domain work advances the
+        // clock after the executor chooses availableAt. Add no retry cooldown.
+        terminalIntent.values[0] = finalizedAt
+        terminalIntent.eventData = { ...terminalIntent.eventData, availableAt: finalizedAt.toISOString() }
       }
       // Recheck at the actual commit boundary. A stale or controlled execution
       // rolls back both the preceding domain mutations and the terminal intent.

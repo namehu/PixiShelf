@@ -1,0 +1,95 @@
+{
+  "fixtureDigest": "9aa3f1be99ebdc9368d0b5af5e7232aa43274ac5c5ce3a1f44e379db109532ed",
+  "explanations": [
+    {
+      "artworks": [
+        13,
+        32
+      ],
+      "oracleComparisons": 62500,
+      "oldMatchedEdges": 250,
+      "newMatchedEdges": 252,
+      "missedByOld": [
+        {
+          "leftImageId": 204,
+          "rightImageId": 5097,
+          "leftIndex": 83,
+          "rightIndex": 226,
+          "regionDistances": [
+            10,
+            24,
+            28,
+            15,
+            25,
+            26,
+            21,
+            27,
+            23,
+            17
+          ],
+          "sameFixtureSourcePage": false,
+          "matches": [
+            {
+              "left": "original",
+              "right": "original",
+              "matched": true,
+              "globalDistance": 10,
+              "agreeingRegions": 0
+            }
+          ]
+        },
+        {
+          "leftImageId": 347,
+          "rightImageId": 4954,
+          "leftIndex": 226,
+          "rightIndex": 83,
+          "regionDistances": [
+            10,
+            24,
+            28,
+            15,
+            25,
+            26,
+            21,
+            27,
+            23,
+            17
+          ],
+          "sameFixtureSourcePage": false,
+          "matches": [
+            {
+              "left": "original",
+              "right": "original",
+              "matched": true,
+              "globalDistance": 10,
+              "agreeingRegions": 0
+            }
+          ]
+        }
+      ],
+      "changedPages": [
+        [
+          "UNMATCHED",
+          204,
+          null
+        ],
+        [
+          "UNMATCHED",
+          347,
+          null
+        ],
+        [
+          "UNMATCHED",
+          null,
+          4954
+        ],
+        [
+          "UNMATCHED",
+          null,
+          5097
+        ]
+      ],
+      "classification": "Complete search exposes threshold collisions between distinct synthetic source pages; conservative unique-edge assignment leaves the affected true counterparts unmatched instead of publishing the ambiguous cross-pairs."
+    }
+  ]
+}

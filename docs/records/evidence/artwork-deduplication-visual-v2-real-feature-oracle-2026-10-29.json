@@ -1,0 +1,977 @@
+{
+  "images": 90,
+  "sourceInputs": 9,
+  "sourceGroups": 3,
+  "independentArtworkFamilies": false,
+  "exhaustiveComparisons": 4005,
+  "oracleMatches": 301,
+  "indexMatches": 301,
+  "missedOracleEdges": 0,
+  "extraOracleEdges": 0,
+  "nodeVisits": 289866,
+  "positives": {
+    "jpeg-resize": {
+      "cases": 9,
+      "matched": 9
+    },
+    "local-black": {
+      "cases": 9,
+      "matched": 8
+    },
+    "local-white": {
+      "cases": 9,
+      "matched": 9
+    },
+    "border10": {
+      "cases": 9,
+      "matched": 9
+    },
+    "crop2.5": {
+      "cases": 9,
+      "matched": 9
+    },
+    "crop5": {
+      "cases": 9,
+      "matched": 9
+    }
+  },
+  "failedKnownTransformations": [
+    {
+      "left": "fresh-01:original",
+      "right": "fresh-01:local-black"
+    }
+  ],
+  "templateNegatives": [
+    {
+      "family": "fresh-01",
+      "matched": false
+    },
+    {
+      "family": "fresh-02",
+      "matched": false
+    },
+    {
+      "family": "fresh-03",
+      "matched": false
+    },
+    {
+      "family": "fresh-04",
+      "matched": false
+    },
+    {
+      "family": "fresh-05",
+      "matched": false
+    },
+    {
+      "family": "fresh-06",
+      "matched": false
+    },
+    {
+      "family": "fresh-07",
+      "matched": false
+    },
+    {
+      "family": "fresh-08",
+      "matched": false
+    },
+    {
+      "family": "fresh-09",
+      "matched": false
+    }
+  ],
+  "realTemplateNegatives": [
+    {
+      "left": "fresh-02:original",
+      "right": "fresh-04:original",
+      "label": "different text and different illustration on a common postcard layout",
+      "matched": true,
+      "oldIndexRetrieved": true,
+      "matches": [
+        {
+          "left": "trim-crop5",
+          "right": "trim-crop5",
+          "matched": true,
+          "globalDistance": 12,
+          "agreeingRegions": 1
+        }
+      ]
+    },
+    {
+      "left": "fresh-01:original",
+      "right": "fresh-03:border10",
+      "label": "different text and different illustration on a common postcard layout",
+      "matched": true,
+      "oldIndexRetrieved": true,
+      "matches": [
+        {
+          "left": "original",
+          "right": "white-trim",
+          "matched": true,
+          "globalDistance": 12,
+          "agreeingRegions": 4
+        }
+      ]
+    }
+  ],
+  "crossInputMatches": [
+    {
+      "left": "fresh-01:original",
+      "right": "fresh-03:border10"
+    },
+    {
+      "left": "fresh-01:jpeg-resize",
+      "right": "fresh-03:original"
+    },
+    {
+      "left": "fresh-01:jpeg-resize",
+      "right": "fresh-03:jpeg-resize"
+    },
+    {
+      "left": "fresh-01:jpeg-resize",
+      "right": "fresh-03:border10"
+    },
+    {
+      "left": "fresh-01:border10",
+      "right": "fresh-03:border10"
+    },
+    {
+      "left": "fresh-02:original",
+      "right": "fresh-04:original"
+    },
+    {
+      "left": "fresh-02:original",
+      "right": "fresh-04:border10"
+    },
+    {
+      "left": "fresh-02:original",
+      "right": "fresh-04:crop5"
+    },
+    {
+      "left": "fresh-02:local-black",
+      "right": "fresh-03:local-black"
+    },
+    {
+      "left": "fresh-02:local-black",
+      "right": "fresh-04:local-black"
+    },
+    {
+      "left": "fresh-02:crop2.5",
+      "right": "fresh-04:crop2.5"
+    },
+    {
+      "left": "fresh-02:crop2.5",
+      "right": "fresh-04:crop5"
+    },
+    {
+      "left": "fresh-02:crop5",
+      "right": "fresh-04:original"
+    },
+    {
+      "left": "fresh-02:crop5",
+      "right": "fresh-04:border10"
+    },
+    {
+      "left": "fresh-02:crop5",
+      "right": "fresh-04:crop5"
+    },
+    {
+      "left": "fresh-03:local-black",
+      "right": "fresh-04:local-black"
+    },
+    {
+      "left": "fresh-05:original",
+      "right": "fresh-07:original"
+    },
+    {
+      "left": "fresh-05:original",
+      "right": "fresh-07:jpeg-resize"
+    },
+    {
+      "left": "fresh-05:original",
+      "right": "fresh-07:local-white"
+    },
+    {
+      "left": "fresh-05:original",
+      "right": "fresh-07:border10"
+    },
+    {
+      "left": "fresh-05:original",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-05:original",
+      "right": "fresh-09:jpeg-resize"
+    },
+    {
+      "left": "fresh-05:original",
+      "right": "fresh-09:local-white"
+    },
+    {
+      "left": "fresh-05:original",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-05:original",
+      "right": "fresh-09:crop5"
+    },
+    {
+      "left": "fresh-05:jpeg-resize",
+      "right": "fresh-07:original"
+    },
+    {
+      "left": "fresh-05:jpeg-resize",
+      "right": "fresh-07:jpeg-resize"
+    },
+    {
+      "left": "fresh-05:jpeg-resize",
+      "right": "fresh-07:local-white"
+    },
+    {
+      "left": "fresh-05:jpeg-resize",
+      "right": "fresh-07:border10"
+    },
+    {
+      "left": "fresh-05:jpeg-resize",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-05:jpeg-resize",
+      "right": "fresh-09:jpeg-resize"
+    },
+    {
+      "left": "fresh-05:jpeg-resize",
+      "right": "fresh-09:local-white"
+    },
+    {
+      "left": "fresh-05:jpeg-resize",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-05:jpeg-resize",
+      "right": "fresh-09:crop5"
+    },
+    {
+      "left": "fresh-05:local-black",
+      "right": "fresh-07:local-black"
+    },
+    {
+      "left": "fresh-05:local-black",
+      "right": "fresh-09:local-black"
+    },
+    {
+      "left": "fresh-05:local-white",
+      "right": "fresh-07:original"
+    },
+    {
+      "left": "fresh-05:local-white",
+      "right": "fresh-07:jpeg-resize"
+    },
+    {
+      "left": "fresh-05:local-white",
+      "right": "fresh-07:local-white"
+    },
+    {
+      "left": "fresh-05:local-white",
+      "right": "fresh-07:border10"
+    },
+    {
+      "left": "fresh-05:local-white",
+      "right": "fresh-09:local-white"
+    },
+    {
+      "left": "fresh-05:border10",
+      "right": "fresh-07:original"
+    },
+    {
+      "left": "fresh-05:border10",
+      "right": "fresh-07:jpeg-resize"
+    },
+    {
+      "left": "fresh-05:border10",
+      "right": "fresh-07:local-white"
+    },
+    {
+      "left": "fresh-05:border10",
+      "right": "fresh-07:border10"
+    },
+    {
+      "left": "fresh-05:border10",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-05:border10",
+      "right": "fresh-09:jpeg-resize"
+    },
+    {
+      "left": "fresh-05:border10",
+      "right": "fresh-09:local-white"
+    },
+    {
+      "left": "fresh-05:border10",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-05:border10",
+      "right": "fresh-09:crop5"
+    },
+    {
+      "left": "fresh-05:crop2.5",
+      "right": "fresh-07:crop2.5"
+    },
+    {
+      "left": "fresh-05:crop2.5",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-05:crop2.5",
+      "right": "fresh-09:jpeg-resize"
+    },
+    {
+      "left": "fresh-05:crop2.5",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-05:crop2.5",
+      "right": "fresh-09:crop2.5"
+    },
+    {
+      "left": "fresh-05:crop2.5",
+      "right": "fresh-09:crop5"
+    },
+    {
+      "left": "fresh-05:crop5",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-05:crop5",
+      "right": "fresh-09:jpeg-resize"
+    },
+    {
+      "left": "fresh-05:crop5",
+      "right": "fresh-09:local-white"
+    },
+    {
+      "left": "fresh-05:crop5",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-05:crop5",
+      "right": "fresh-09:crop5"
+    },
+    {
+      "left": "fresh-06:original",
+      "right": "fresh-08:original"
+    },
+    {
+      "left": "fresh-06:original",
+      "right": "fresh-08:jpeg-resize"
+    },
+    {
+      "left": "fresh-06:original",
+      "right": "fresh-08:local-black"
+    },
+    {
+      "left": "fresh-06:original",
+      "right": "fresh-08:border10"
+    },
+    {
+      "left": "fresh-06:original",
+      "right": "fresh-08:crop2.5"
+    },
+    {
+      "left": "fresh-06:original",
+      "right": "fresh-08:crop5"
+    },
+    {
+      "left": "fresh-06:jpeg-resize",
+      "right": "fresh-08:original"
+    },
+    {
+      "left": "fresh-06:jpeg-resize",
+      "right": "fresh-08:jpeg-resize"
+    },
+    {
+      "left": "fresh-06:jpeg-resize",
+      "right": "fresh-08:local-black"
+    },
+    {
+      "left": "fresh-06:jpeg-resize",
+      "right": "fresh-08:border10"
+    },
+    {
+      "left": "fresh-06:jpeg-resize",
+      "right": "fresh-08:crop2.5"
+    },
+    {
+      "left": "fresh-06:jpeg-resize",
+      "right": "fresh-08:crop5"
+    },
+    {
+      "left": "fresh-06:local-black",
+      "right": "fresh-08:original"
+    },
+    {
+      "left": "fresh-06:local-black",
+      "right": "fresh-08:jpeg-resize"
+    },
+    {
+      "left": "fresh-06:local-black",
+      "right": "fresh-08:local-black"
+    },
+    {
+      "left": "fresh-06:local-black",
+      "right": "fresh-08:border10"
+    },
+    {
+      "left": "fresh-06:local-black",
+      "right": "fresh-08:crop2.5"
+    },
+    {
+      "left": "fresh-06:local-black",
+      "right": "fresh-08:crop5"
+    },
+    {
+      "left": "fresh-06:local-white",
+      "right": "fresh-08:original"
+    },
+    {
+      "left": "fresh-06:local-white",
+      "right": "fresh-08:jpeg-resize"
+    },
+    {
+      "left": "fresh-06:local-white",
+      "right": "fresh-08:local-white"
+    },
+    {
+      "left": "fresh-06:local-white",
+      "right": "fresh-08:border10"
+    },
+    {
+      "left": "fresh-06:local-white",
+      "right": "fresh-08:crop2.5"
+    },
+    {
+      "left": "fresh-06:local-white",
+      "right": "fresh-08:crop5"
+    },
+    {
+      "left": "fresh-06:border10",
+      "right": "fresh-08:original"
+    },
+    {
+      "left": "fresh-06:border10",
+      "right": "fresh-08:jpeg-resize"
+    },
+    {
+      "left": "fresh-06:border10",
+      "right": "fresh-08:local-black"
+    },
+    {
+      "left": "fresh-06:border10",
+      "right": "fresh-08:border10"
+    },
+    {
+      "left": "fresh-06:border10",
+      "right": "fresh-08:crop2.5"
+    },
+    {
+      "left": "fresh-06:border10",
+      "right": "fresh-08:crop5"
+    },
+    {
+      "left": "fresh-06:crop2.5",
+      "right": "fresh-08:original"
+    },
+    {
+      "left": "fresh-06:crop2.5",
+      "right": "fresh-08:jpeg-resize"
+    },
+    {
+      "left": "fresh-06:crop2.5",
+      "right": "fresh-08:local-black"
+    },
+    {
+      "left": "fresh-06:crop2.5",
+      "right": "fresh-08:local-white"
+    },
+    {
+      "left": "fresh-06:crop2.5",
+      "right": "fresh-08:border10"
+    },
+    {
+      "left": "fresh-06:crop2.5",
+      "right": "fresh-08:crop2.5"
+    },
+    {
+      "left": "fresh-06:crop2.5",
+      "right": "fresh-08:crop5"
+    },
+    {
+      "left": "fresh-06:crop5",
+      "right": "fresh-08:original"
+    },
+    {
+      "left": "fresh-06:crop5",
+      "right": "fresh-08:jpeg-resize"
+    },
+    {
+      "left": "fresh-06:crop5",
+      "right": "fresh-08:local-black"
+    },
+    {
+      "left": "fresh-06:crop5",
+      "right": "fresh-08:border10"
+    },
+    {
+      "left": "fresh-06:crop5",
+      "right": "fresh-08:crop2.5"
+    },
+    {
+      "left": "fresh-06:crop5",
+      "right": "fresh-08:crop5"
+    },
+    {
+      "left": "fresh-07:original",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-07:original",
+      "right": "fresh-09:jpeg-resize"
+    },
+    {
+      "left": "fresh-07:original",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-07:jpeg-resize",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-07:jpeg-resize",
+      "right": "fresh-09:jpeg-resize"
+    },
+    {
+      "left": "fresh-07:jpeg-resize",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-07:local-black",
+      "right": "fresh-09:local-black"
+    },
+    {
+      "left": "fresh-07:local-white",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-07:local-white",
+      "right": "fresh-09:jpeg-resize"
+    },
+    {
+      "left": "fresh-07:local-white",
+      "right": "fresh-09:local-white"
+    },
+    {
+      "left": "fresh-07:local-white",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-07:local-white",
+      "right": "fresh-09:crop5"
+    },
+    {
+      "left": "fresh-07:border10",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-07:border10",
+      "right": "fresh-09:jpeg-resize"
+    },
+    {
+      "left": "fresh-07:border10",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-07:crop2.5",
+      "right": "fresh-09:crop2.5"
+    },
+    {
+      "left": "fresh-07:crop5",
+      "right": "fresh-09:original"
+    },
+    {
+      "left": "fresh-07:crop5",
+      "right": "fresh-09:local-white"
+    },
+    {
+      "left": "fresh-07:crop5",
+      "right": "fresh-09:border10"
+    },
+    {
+      "left": "fresh-07:crop5",
+      "right": "fresh-09:crop5"
+    }
+  ],
+  "inputs": [
+    {
+      "label": "fresh-01:original",
+      "sha256": "f0fd95fc94f5ea2f2e20b67f9f16461d3525922dfb22e97fbeeb50c0e8caa8e9"
+    },
+    {
+      "label": "fresh-01:jpeg-resize",
+      "sha256": "99ef81a8e5c39bf836b844d2c9beb9715aee6bc650228ac3735a362451db8408"
+    },
+    {
+      "label": "fresh-01:local-black",
+      "sha256": "a67e2fd1cde7fab9a89c09465a0fc7b0619890a4c492a0dd33ac25743d4fc556"
+    },
+    {
+      "label": "fresh-01:local-white",
+      "sha256": "45df43dcc6f57a023dcfcb3e9ab5d9aa722f29ebad1816ca038db3840295d552"
+    },
+    {
+      "label": "fresh-01:border10",
+      "sha256": "0ab165d7d285eefcaa38ce4e9d3b8dc36c02ea4538cc24877df67cef5436a055"
+    },
+    {
+      "label": "fresh-01:crop2.5",
+      "sha256": "198f01eb11adbe4afcac9d6c8e2a51e6c43d76a666b291a54c540f1e3652aad6"
+    },
+    {
+      "label": "fresh-01:crop5",
+      "sha256": "2164158e7bcd9805251d02464bc3a4d1191b2f3c9d1e801876c54b3cbdcf37c5"
+    },
+    {
+      "label": "fresh-01:template-0",
+      "sha256": "206e8d2d61d3c24a29ba5dfc5b4a25c9cd9fda9a4ca41e0e0a49cf8e9aaab699"
+    },
+    {
+      "label": "fresh-01:template-1",
+      "sha256": "c29b3c93077f42a90ee742557acce79e37924eb92820301397098c72b1535289"
+    },
+    {
+      "label": "fresh-01:flat",
+      "sha256": "690eb1579855de98d40ec32d057099c956805e190af3afcd6afc74647d9cff91"
+    },
+    {
+      "label": "fresh-02:original",
+      "sha256": "2f8454826917e1c00024ee7c1e3cee50bd8cfa72fa5b5ece0af0510fb37bd774"
+    },
+    {
+      "label": "fresh-02:jpeg-resize",
+      "sha256": "3f821652a89524d954f198c703818d91792c24678241f79c32bb60f4a6041943"
+    },
+    {
+      "label": "fresh-02:local-black",
+      "sha256": "9f4d9ad23e8df476e3da9a9b9a8b17db6c5da42e369b734dee2272055a0c3bab"
+    },
+    {
+      "label": "fresh-02:local-white",
+      "sha256": "b7dc48c29be15db5495727f955c249c779723e16965b75541f863910edaf17f4"
+    },
+    {
+      "label": "fresh-02:border10",
+      "sha256": "d24eef02f5601bd4e0191b737d9bfe77c29848bd545ddb593a5c1211dd0eaa0b"
+    },
+    {
+      "label": "fresh-02:crop2.5",
+      "sha256": "b2afcefce426afdf324103de150aeb26a4534744f5a35837c23c461c058f636f"
+    },
+    {
+      "label": "fresh-02:crop5",
+      "sha256": "638d32dd5e7d33a25ec884651e98d5b3c7c24c2225c7b458f50e9bafa404bf94"
+    },
+    {
+      "label": "fresh-02:template-0",
+      "sha256": "be8fd2ba4b052555c05b6bb4871eb5e8c0f414b92aa3b851b8968c7d3ffd40af"
+    },
+    {
+      "label": "fresh-02:template-1",
+      "sha256": "8ccbaeb386df6d0fd5fdd1ba80822c948501a897116bd531cae8b664942894fb"
+    },
+    {
+      "label": "fresh-02:flat",
+      "sha256": "690eb1579855de98d40ec32d057099c956805e190af3afcd6afc74647d9cff91"
+    },
+    {
+      "label": "fresh-03:original",
+      "sha256": "cb4b3a8283d1b2525181384252b025cf5faaffb38cf76416ec0ffc3bb6b05fef"
+    },
+    {
+      "label": "fresh-03:jpeg-resize",
+      "sha256": "3c4cbbb128aa441a8651c68b22e0f5b0bb78aa8027e21cce4dd7b764b4eec63a"
+    },
+    {
+      "label": "fresh-03:local-black",
+      "sha256": "dc2527f7f119258a234d810aee2f6ba0c7b60216026a2ca13c66d3dbd6575864"
+    },
+    {
+      "label": "fresh-03:local-white",
+      "sha256": "5f93f3fd5fd9149ff9c2b2d949e31e23d51f2a2bf943dd9a9c8a0bd7d055a44e"
+    },
+    {
+      "label": "fresh-03:border10",
+      "sha256": "eeca6a58972fcb73731caf618ecfca6350a05997a2644cad134d07b6ea6ffdab"
+    },
+    {
+      "label": "fresh-03:crop2.5",
+      "sha256": "3db73de6632e77091a018583ab5870de9bbf25b81da2d4e43a70bc36284aca53"
+    },
+    {
+      "label": "fresh-03:crop5",
+      "sha256": "fa9e1d5f5962237aa1bed3a70ccacd36b5f60225899dee19ae24bf0ee165d710"
+    },
+    {
+      "label": "fresh-03:template-0",
+      "sha256": "2b345ef671cecfe4c2261e80e176bfed7f0a457c57ed0a564f4ac22c600cb9d2"
+    },
+    {
+      "label": "fresh-03:template-1",
+      "sha256": "2201e23895d5c96f6d33c81ca72d8421e094cccf67a4c9cfeadd3d1969d23495"
+    },
+    {
+      "label": "fresh-03:flat",
+      "sha256": "690eb1579855de98d40ec32d057099c956805e190af3afcd6afc74647d9cff91"
+    },
+    {
+      "label": "fresh-04:original",
+      "sha256": "a28794a2804b01bedabd77d2231dfffcd57778cdf465067d04ec37f4c94b6ab2"
+    },
+    {
+      "label": "fresh-04:jpeg-resize",
+      "sha256": "fed889acccc5925ef2ce355876ed7cd562ddf68e1e88f50e859c97113237aaf9"
+    },
+    {
+      "label": "fresh-04:local-black",
+      "sha256": "b7bafd7e448cdcdecee4b0467b89b317c0a20b34c56422f49108837cae0484fe"
+    },
+    {
+      "label": "fresh-04:local-white",
+      "sha256": "8609f53111ebe1d47f7f32f71d998c1e88a296ca68b9ba20b43bd4eef6da7557"
+    },
+    {
+      "label": "fresh-04:border10",
+      "sha256": "452a43e32c9bf7366404bba42fe5a16d50c128fb27eda47ecbc631fe581acbb7"
+    },
+    {
+      "label": "fresh-04:crop2.5",
+      "sha256": "f33fca31cd2ff16b418a4f95c084777c173856377041a8e34d9a270f1d8ade0e"
+    },
+    {
+      "label": "fresh-04:crop5",
+      "sha256": "19b92933db2f7577e7e8eecb5655ebf205807f92a49b07493920e11ef700b823"
+    },
+    {
+      "label": "fresh-04:template-0",
+      "sha256": "52c53fb28f0dafe78c75b2370c27de2eeca46e3bc9267065ca876f633d8c7df6"
+    },
+    {
+      "label": "fresh-04:template-1",
+      "sha256": "0b11f2520ae3e0d9395662baf4da1d96a5962e5bb0990459117c2928cbd38646"
+    },
+    {
+      "label": "fresh-04:flat",
+      "sha256": "690eb1579855de98d40ec32d057099c956805e190af3afcd6afc74647d9cff91"
+    },
+    {
+      "label": "fresh-05:original",
+      "sha256": "c33d073f02d4ab5892c6f61fb48252426fa2456bd0f31a19762a8c682d053c17"
+    },
+    {
+      "label": "fresh-05:jpeg-resize",
+      "sha256": "78ca6e3ac33eb04aaa650f96db1cc3cf4d6f0f2b2432a509f8d9d8993a681313"
+    },
+    {
+      "label": "fresh-05:local-black",
+      "sha256": "61c1da45aeb5519c4ea9f0b751158cd39e6a646d1af5cb7f52a3981b20f3654d"
+    },
+    {
+      "label": "fresh-05:local-white",
+      "sha256": "4678a059551e6115ed0bd6c450e85deb1d07399214ea6afaec0c8415d6cc7b2a"
+    },
+    {
+      "label": "fresh-05:border10",
+      "sha256": "f2078151c0558ca9d1c4f3acf92317b907ce6551ac815cc4d54aa4978dd03567"
+    },
+    {
+      "label": "fresh-05:crop2.5",
+      "sha256": "4dae871ce5f5ed71ce655b4b9f8bc43bb7c904af9b5ec66ad39a62411978ffa5"
+    },
+    {
+      "label": "fresh-05:crop5",
+      "sha256": "5f59745a0fb7a6e8f0ad912a690b3c6228a2fee86bc56f07e0a0633475dab992"
+    },
+    {
+      "label": "fresh-05:template-0",
+      "sha256": "7cb3a70abc8f9329dda0314609212423987aedf5e8b4601860b3a047d78fc8e3"
+    },
+    {
+      "label": "fresh-05:template-1",
+      "sha256": "8cffdac95fc251d8e948508152294e2fc4cfc91ec0830a8217c5c587ca5b7fb5"
+    },
+    {
+      "label": "fresh-05:flat",
+      "sha256": "685a8b9b5d29faf7903d71ba8decd1b0d4aee980a91f3ccb820d24e279c65e4d"
+    },
+    {
+      "label": "fresh-06:original",
+      "sha256": "977374236909b1762a7c7a1587d774ec073db6c3386ba92075abae752b49d041"
+    },
+    {
+      "label": "fresh-06:jpeg-resize",
+      "sha256": "f6c2a32df64c1737f267f9c8457cd0ccb19a69a23a0ea6e44c0980fb3b4469e4"
+    },
+    {
+      "label": "fresh-06:local-black",
+      "sha256": "955a04856926b434c948f925ab5d56ba198ee771557bcfc71b9b104523ca8866"
+    },
+    {
+      "label": "fresh-06:local-white",
+      "sha256": "ee1c35142e9aa7e4cc1416f998df9ec51dded2c40671f0631a7baea3d40f64fb"
+    },
+    {
+      "label": "fresh-06:border10",
+      "sha256": "e897e3d484149725a38504423da3139124f639783d4ea580c703c4edd6acacce"
+    },
+    {
+      "label": "fresh-06:crop2.5",
+      "sha256": "4ec8f25f5b05ed68884318d4f676ac8d93fa105682b4cb88f4fbb147f6ff9e26"
+    },
+    {
+      "label": "fresh-06:crop5",
+      "sha256": "55460c95c59ff2f42b6648daeba75db36a361886d79005d1a95cf9e60e47be1c"
+    },
+    {
+      "label": "fresh-06:template-0",
+      "sha256": "75a368537abee2ae654ee5783e4ed128f67c158670f80cdfb5eb59629a3aeefb"
+    },
+    {
+      "label": "fresh-06:template-1",
+      "sha256": "52caa5db1db672347f577a772c5b2777902c9f811c77de8d8745eec6922b02f5"
+    },
+    {
+      "label": "fresh-06:flat",
+      "sha256": "685a8b9b5d29faf7903d71ba8decd1b0d4aee980a91f3ccb820d24e279c65e4d"
+    },
+    {
+      "label": "fresh-07:original",
+      "sha256": "ad7812c507a891401392e531226eef85dfaa9fba0c21b9f14f9f7265ca22ba79"
+    },
+    {
+      "label": "fresh-07:jpeg-resize",
+      "sha256": "67ea3278255da06db6241e8f6dfd187a2e717cf0a72674a65b49327014bf188a"
+    },
+    {
+      "label": "fresh-07:local-black",
+      "sha256": "0960b46f9a843ed7aa1a227d4324ec325faf5e78fa1938222bfdfe5dadb431ea"
+    },
+    {
+      "label": "fresh-07:local-white",
+      "sha256": "b278326d7a43bd63bfa93d8b81035d853fac2d50fca4c7f932e8507ab85e85bd"
+    },
+    {
+      "label": "fresh-07:border10",
+      "sha256": "bb3e999e6ced89a31d3c417436a95f197a44c6ef9a8b4a82104ee30498bf427b"
+    },
+    {
+      "label": "fresh-07:crop2.5",
+      "sha256": "20769c4d0b44caa0a8721e6c3c5102043815c4d1cc31d899c316d847ad74b0e6"
+    },
+    {
+      "label": "fresh-07:crop5",
+      "sha256": "e27b8a8fe248982a76f848b641ebc0ea52bca1b0f95930ecdb9229affb79bae7"
+    },
+    {
+      "label": "fresh-07:template-0",
+      "sha256": "57561b3bed47878a865f85892da0efb6f1db271f8ece6439a868f1658306d197"
+    },
+    {
+      "label": "fresh-07:template-1",
+      "sha256": "ac227d593c791ed0bdf4df1ef691895e7a4eec1ab5077a94c61a4c5bd87aa743"
+    },
+    {
+      "label": "fresh-07:flat",
+      "sha256": "685a8b9b5d29faf7903d71ba8decd1b0d4aee980a91f3ccb820d24e279c65e4d"
+    },
+    {
+      "label": "fresh-08:original",
+      "sha256": "3f6da9ee06f068ddc51ac2bc9610f16f1df868838b7abe2a776269f5554baeb3"
+    },
+    {
+      "label": "fresh-08:jpeg-resize",
+      "sha256": "4113919bc4e806784b370045eb540cdaf352ace181fd5fb89ad9d15385e6f150"
+    },
+    {
+      "label": "fresh-08:local-black",
+      "sha256": "f5d602e4abe8f0da8ee5f386d1e1429750e567ef6163088772b9bd93d19b9c79"
+    },
+    {
+      "label": "fresh-08:local-white",
+      "sha256": "9a1323c1b301d5f5c682b5cbdb4a5dc04e263125e8c366622017e176a51a6e01"
+    },
+    {
+      "label": "fresh-08:border10",
+      "sha256": "118251778445f6e4dc7d5451f93cace024791f931cfe10806ae9708141fc7453"
+    },
+    {
+      "label": "fresh-08:crop2.5",
+      "sha256": "05898273649f5e5699ae09da00976d885a9ae67b6fc385132a985f231a9db55d"
+    },
+    {
+      "label": "fresh-08:crop5",
+      "sha256": "5bf8fe5c5c1d0e469a2cac96c5626fbf99866bd43c2311bbf45f300a2767fdf0"
+    },
+    {
+      "label": "fresh-08:template-0",
+      "sha256": "fc5a6a96b5706ad0b6ae37ca472a49432b411663828e1f3fb4494dfc6c33d69c"
+    },
+    {
+      "label": "fresh-08:template-1",
+      "sha256": "f7c8a5e79b4fb14244eb4c62a786b3c2043d6b157c9817362e72ebc79cec26de"
+    },
+    {
+      "label": "fresh-08:flat",
+      "sha256": "685a8b9b5d29faf7903d71ba8decd1b0d4aee980a91f3ccb820d24e279c65e4d"
+    },
+    {
+      "label": "fresh-09:original",
+      "sha256": "58b9922b1c3c5d59ede9721bb98c44a54dcd68e74da1776811d145fc3cd1b2a0"
+    },
+    {
+      "label": "fresh-09:jpeg-resize",
+      "sha256": "519cc58536d20f94c7799306e3c19cb38ee9beb2ccfb93e5cef27a4378154983"
+    },
+    {
+      "label": "fresh-09:local-black",
+      "sha256": "46367a44667c100197007f8bb739cf8bbb48ba408a3877086a6f30aff5d4b514"
+    },
+    {
+      "label": "fresh-09:local-white",
+      "sha256": "d110388ad465f2e649a9c7e25c69f82da703e781464949f228519b555f25517a"
+    },
+    {
+      "label": "fresh-09:border10",
+      "sha256": "b26aba12e9f65a1733bc09e9ba8471d5a18e9635d5c91dde08aed70c90effff3"
+    },
+    {
+      "label": "fresh-09:crop2.5",
+      "sha256": "304dbddf491ae79f815b21d9e528bf63f9504f962daa0aa33afafe16bb49d3b1"
+    },
+    {
+      "label": "fresh-09:crop5",
+      "sha256": "8b0acefd8cff2c2dfef97368db0956a6016217c2309800ccd60bf2f769b86cd1"
+    },
+    {
+      "label": "fresh-09:template-0",
+      "sha256": "1a1ac119354ef39e0735d4f75e432b646800ffcbd89eb0555574e6b2c8c3e51b"
+    },
+    {
+      "label": "fresh-09:template-1",
+      "sha256": "518197062a2cf529662dd83334065941b2090b7851e6e0b42c0300a0ae5f1e61"
+    },
+    {
+      "label": "fresh-09:flat",
+      "sha256": "685a8b9b5d29faf7903d71ba8decd1b0d4aee980a91f3ccb820d24e279c65e4d"
+    }
+  ],
+  "limitation": "Nine source inputs come from three source groups and are not independent artwork families. Known transformations and synthetic template negatives have construction labels; the two real common-layout negatives were visually inspected after comparison, not blindly annotated. Cross-input matches include translations and edited variants, so they cannot all be classified as false positives. Search completeness is measured against the unchanged production comparator and is not semantic precision."
+}

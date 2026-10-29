@@ -1,4 +1,4 @@
-import type { ArtworkDedupRunDto } from '@pixishelf/job-contracts'
+import type { ArtworkDedupProgressData, ArtworkDedupRunDto } from '@pixishelf/job-contracts'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TRPCClientError } from '@trpc/client'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -52,6 +52,7 @@ function createRun(overrides: Partial<ArtworkDedupRunDto> = {}): ArtworkDedupRun
     visualStatus: 'NOT_REQUESTED',
     visualIncompleteReasons: [],
     pauseReason: null,
+    progressData: null,
     frozenAt: '2026-10-23T00:00:00.000Z',
     startedAt: '2026-10-23T00:00:01.000Z',
     finishedAt: null,
@@ -78,6 +79,55 @@ function createRun(overrides: Partial<ArtworkDedupRunDto> = {}): ArtworkDedupRun
 }
 
 let queryClient: QueryClient
+const visualProgress: ArtworkDedupProgressData = {
+  kind: 'artwork-dedup', version: 1, phase: 'VISUAL', completed: 2_702, total: 5_624,
+  unit: 'images', waitReason: null, uncheckedMedia: 2, updatedAt: '2026-10-29T00:00:00.000Z'
+}
+
+describe('durable duplicate stage progress', () => {
+  it('shows completed image queries even when every artwork has been processed', () => {
+    const run = createRun({ stage: 'VISUAL', progressData: visualProgress })
+    run.counts.processedArtworks = run.counts.artworks
+    render(<DuplicateRunStatus run={run} pending={null} disabled={false} onControl={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: '正在比较图片' })).toBeTruthy()
+    expect(screen.getByText('2,702 / 5,624')).toBeTruthy()
+    expect(Number(screen.getByRole('progressbar').getAttribute('aria-valuenow'))).toBeCloseTo(48.04, 1)
+    expect(screen.queryByText(/100%|99%|已处理 10 \/ 10/)).toBeNull()
+  })
+
+  it.each(['RUNNING', 'RETRY_WAIT'] as const)('shows automatic scheduling from the committed snapshot while the run is %s', status => {
+    render(<DuplicateRunStatus run={createRun({ status, stage: 'VISUAL', progressData: { ...visualProgress, waitReason: 'SCHEDULER' } })} pending={null} disabled={false} onControl={vi.fn()} />)
+    expect(screen.getByRole('heading', { name: '等待继续检查' })).toBeTruthy()
+    expect(screen.getByText('等待后台调度，将自动继续。')).toBeTruthy()
+    expect(screen.getByText('正在比较图片 · 2,702 / 5,624')).toBeTruthy()
+    expect(screen.queryByText('离开页面后，检查仍会在后台进行。')).toBeNull()
+    expect(screen.queryByText(/99%|100%/)).toBeNull()
+  })
+
+  it.each([null, 0])('does not invent a ratio for total %s', (total) => {
+    render(<DuplicateRunStatus run={createRun({ progressData: { ...visualProgress, completed: total, total } })} pending={null} disabled={false} onControl={vi.fn()} />)
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBeNull()
+    expect(screen.queryByText(/0 \/ 0|NaN|Infinity|%/)).toBeNull()
+  })
+
+  it('hides legacy artwork-based progress while retaining the known stage', () => {
+    const run = createRun({ stage: 'VISUAL' })
+    run.counts.processedArtworks = run.counts.artworks
+    render(<DuplicateRunStatus run={run} pending={null} disabled={false} onControl={vi.fn()} />)
+    expect(screen.getByText('正在检查疑似版本')).toBeTruthy()
+    expect(screen.queryByRole('progressbar')).toBeNull()
+    expect(screen.queryByText(/已处理|100%|99%/)).toBeNull()
+  })
+
+  it('does not turn missing legacy mixed-media counts into zero unchecked media', () => {
+    const run = createRun({ status: 'COMPLETED', visualStatus: 'INCOMPLETE', visualIncompleteReasons: ['UNSUPPORTED_MEDIA'], allowedControls: [] })
+    run.counts.visualUncheckedMedia = null
+    render(<DuplicateRunStatus run={run} pending={null} disabled={false} onControl={vi.fn()} />)
+    expect(screen.getByText(/未核对媒体数量未知/)).toBeTruthy()
+    expect(screen.queryByText(/0 项媒体未核对/)).toBeNull()
+  })
+})
+
 function mountPage(runId: string | null = null) {
   const renderPage = () => (
     <StrictMode>
@@ -475,13 +525,14 @@ describe('duplicate check page', () => {
     expect(screen.queryByText('/private/media/secret.png')).toBeNull()
   })
 
-  it('uses only allowed server controls and real processed counts', async () => {
-    mocks.getRun.mockResolvedValue(createRun({ allowedControls: [] }))
+  it('uses only allowed server controls and persisted stage counts', async () => {
+    mocks.getRun.mockResolvedValue(createRun({ allowedControls: [], progressData: { ...visualProgress, phase: 'ORIGINALS', completed: 6, total: 20, unit: 'media' } }))
     mountPage()
-    await screen.findByText('正在核对作品')
+    await screen.findByText('正在核对原件')
     expect(screen.queryByRole('button', { name: '暂停' })).toBeNull()
     expect(screen.queryByRole('button', { name: '更多检查操作' })).toBeNull()
-    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('40')
+    expect(screen.getByText('6 / 20')).toBeTruthy()
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('30')
     expect(mocks.getRun).toHaveBeenCalledWith({ artistId: 7, expectedUserId: 'user-a' })
   })
 

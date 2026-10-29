@@ -14,6 +14,8 @@ Android：[2026-10-28 核心阅读页面迁移](./features/android-core-parity-2
 
 去重文档：[2026-10-28 当前入口与六张图整理](./artwork-deduplication-current-docs-2026-10-28.md)。
 
+去重检索与进度改造：[2026-10-29 视觉检索 v2 实施和性能取证](./artwork-deduplication-visual-search-v2-2026-10-29.md) · [独立审查](./artwork-deduplication-visual-search-v2-review-2026-10-29.md) · [桌面完整流程](./artwork-deduplication-visual-search-v2-browser-2026-10-29.md)。
+
 真实图库观察：[2026-10-28 艺术家 2812 两次检查与删除预览失败](./artwork-deduplication-observation-2812-2026-10-28.md)（视觉未完成，非完整验收）。
 
 去重 F01：[2026-10-26 部分重复验收](./artwork-deduplication-partial-overlap-f01-2026-10-26.md)。

@@ -117,6 +117,100 @@ describePostgres('PostgresQueueRepository integration', () => {
     expect(await client().systemJobDiagnosticItem.count({ where: { reportId: report.id } })).toBe(1)
   })
 
+  it.each(['before retry', 'after retry'] as const)(
+    'commits an immediate scheduling yield when the queue clock advances %s',
+    async (advanceAt) => {
+      const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+      const repository = createRepository(clock)
+      const first = (await repository.claim('immediate-yield-worker', capabilities))!
+      const requestedAt = clock.now()
+      await repository.withFencedExecutionTransaction(fence(first), async (scope) => {
+        await scope.transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "progress" = 42 WHERE "id" = $1`, id
+        )
+        if (advanceAt === 'before retry') clock.advance(1)
+        await scope.retry({
+          availableAt: requestedAt,
+          errorCode: 'RESOURCE_BUSY',
+          error: 'yield',
+          preserveAttempt: true,
+          schedulingYield: true
+        })
+        if (advanceAt === 'after retry') clock.advance(1)
+      })
+      const finalizedAt = clock.now()
+      expect(await client().systemJob.findUniqueOrThrow({
+        where: { id }, select: { status: true, attempt: true, availableAt: true, progress: true }
+      })).toEqual({ status: 'RETRY_WAIT', attempt: 0, availableAt: finalizedAt, progress: 42 })
+      expect(await client().systemJobEvent.findFirstOrThrow({
+        where: { jobId: id, type: 'job.retry_scheduled' }
+      })).toMatchObject({
+        level: 'INFO',
+        data: { availableAt: finalizedAt.toISOString(), attemptPreserved: true, reason: 'SCHEDULING_YIELD' }
+      })
+      const second = (await repository.claim('immediate-yield-worker', capabilities))!
+      expect(second.id).toBe(id)
+      expect(second.attempt).toBe(first.attempt)
+      expect(second.executionToken).not.toBe(first.executionToken)
+      await repository.complete(fence(second))
+    }
+  )
+
+  it('preserves a future scheduling yield eligibility time', async () => {
+    const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+    const repository = createRepository(clock)
+    const first = (await repository.claim('future-yield-worker', capabilities))!
+    const requestedAt = new Date(clock.now().getTime() + 3_000)
+    await repository.withFencedExecutionTransaction(fence(first), async (scope) => {
+      await scope.retry({
+        availableAt: requestedAt,
+        errorCode: 'RESOURCE_BUSY',
+        error: 'yield',
+        preserveAttempt: true,
+        schedulingYield: true
+      })
+      clock.advance(1)
+    })
+    expect((await client().systemJob.findUniqueOrThrow({ where: { id } })).availableAt).toEqual(requestedAt)
+    expect(await client().systemJobEvent.findFirstOrThrow({
+      where: { jobId: id, type: 'job.retry_scheduled' }
+    })).toMatchObject({ data: { availableAt: requestedAt.toISOString() } })
+    expect(await repository.claim('future-yield-worker', capabilities)).toBeNull()
+    clock.set(requestedAt)
+    const second = (await repository.claim('future-yield-worker', capabilities))!
+    expect(second.id).toBe(id)
+    expect(second.attempt).toBe(first.attempt)
+    await repository.complete(fence(second))
+  })
+
+  it.each([
+    { advanceAt: 'before retry', preserveAttempt: false },
+    { advanceAt: 'after retry', preserveAttempt: false },
+    { advanceAt: 'before retry', preserveAttempt: true },
+    { advanceAt: 'after retry', preserveAttempt: true }
+  ] as const)(
+    'rejects an expired non-yield retry $advanceAt with preserveAttempt=$preserveAttempt',
+    async ({ advanceAt, preserveAttempt }) => {
+      const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
+      const repository = createRepository(clock)
+      const first = (await repository.claim('expired-retry-worker', capabilities))!
+      const requestedAt = clock.now()
+      await expect(repository.withFencedExecutionTransaction(fence(first), async (scope) => {
+        await scope.transaction.$executeRawUnsafe(
+          `UPDATE "system_jobs" SET "progress" = 42 WHERE "id" = $1`, id
+        )
+        if (advanceAt === 'before retry') clock.advance(1)
+        await scope.retry({ availableAt: requestedAt, errorCode: 'RESOURCE_BUSY', error: 'failure', preserveAttempt })
+        if (advanceAt === 'after retry') clock.advance(1)
+      })).rejects.toThrow('Retry availableAt cannot be earlier than the current queue clock')
+      expect(await client().systemJob.findUniqueOrThrow({
+        where: { id }, select: { status: true, attempt: true, progress: true, leaseToken: true }
+      })).toEqual({ status: 'RUNNING', attempt: first.attempt, progress: 0, leaseToken: first.executionToken })
+      expect(await client().systemJobEvent.count({ where: { jobId: id, type: 'job.retry_scheduled' } })).toBe(0)
+      await repository.complete(fence(first))
+    }
+  )
+
   it('records RESOURCE_BUSY when it is a real retry rather than explicit scheduling yield', async () => {
     const id = await seedJob({ type: 'SCAN', effectivePriority: 10 })
     const repository = createRepository(clock)
