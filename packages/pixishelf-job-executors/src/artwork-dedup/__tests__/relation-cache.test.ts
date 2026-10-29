@@ -34,6 +34,13 @@ describe('F02 relation complete-input reuse', () => {
       { artworks: new Set(pages.map(p => p.artworkId)), candidatePairs: cold.candidatePairs!, pairs: [] }))
       .toEqual({ pairs: [], reason: 'VISUAL_PAIR_BUDGET' })
   })
+  it('signs unchecked member content and classification as well as supported features', () => {
+    const still = page(1, 1), unchecked = { ...page(2, 1), views: [], unchecked: true }
+    const signature = visualRelationSignature([still, unchecked])
+    for (const change of [{ sha256: 'new animation' }, { size: 9n }, { unchecked: false }])
+      expect(visualRelationSignature([still, { ...unchecked, ...change }])).not.toBe(signature)
+    expect(visualRelationSignature([still])).not.toBe(signature)
+  })
   it('signs complete feature inputs and IDs while leaving display order out', () => {
     const pages = [page(1, 1), page(2, 1)]
     expect(visualRelationSignature(pages)).toBe(visualRelationSignature([...pages].reverse().map(p => ({ ...p, index: 99 }))))

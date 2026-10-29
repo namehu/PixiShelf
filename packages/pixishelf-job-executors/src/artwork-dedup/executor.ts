@@ -48,7 +48,7 @@ export interface ArtworkDedupDependencies {
   sliceBytes?: bigint
   onMeasurement?: (value: ReaderMetrics & { runId: string; elapsedMs: number; transactions: number }) => void
 }
-export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 | 4 | 5 | 6 = 1): ExecutorDefinition {
+export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 = 1): ExecutorDefinition {
   const supervisor = dependencies.supervisor ?? new DedupReaderSupervisor(dependencies.readerOptions)
   return {
     jobType: 'ARTWORK_DEDUP_SCAN',
@@ -163,6 +163,7 @@ export async function executeArtworkDedup(
       reader,
       signal: context.signal,
       forceRead: initial.mode === 'FULL',
+      mixedVisualMedia: context.job.definitionVersion >= 7,
       shouldYield
     }
     while (!shouldYield()) {

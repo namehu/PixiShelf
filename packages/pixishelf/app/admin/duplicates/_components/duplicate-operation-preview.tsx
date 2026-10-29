@@ -1,6 +1,6 @@
 'use client'
 
-import type { ArtworkDedupOperationDto } from '@pixishelf/job-contracts'
+import type { ArtworkDedupArtworkPreviewDto, ArtworkDedupOperationDto } from '@pixishelf/job-contracts'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { Info } from 'lucide-react'
@@ -24,6 +24,7 @@ import {
   duplicateContainmentCounts,
   duplicatePairCounts,
   duplicatePairLabel,
+  duplicateVisualSideCounts,
   isDuplicateManualPair
 } from './duplicate-relation'
 
@@ -208,25 +209,7 @@ export function DuplicateOperationPreview({
                     </p>
                   ) : null}
                   {isDuplicateManualPair(item) && item.visual && item.role === 'COPY' ? (
-                    <p className="pb-2 text-xs leading-5 text-muted-foreground">
-                      <span className="block">
-                        {duplicatePairLabel(item)} · {duplicatePairCounts(item)}
-                      </span>
-                      <span className="block">
-                        {BigInt(item.visual.leftFileCount).toLocaleString('zh-CN')} /{' '}
-                        {BigInt(item.visual.rightFileCount).toLocaleString('zh-CN')} 项原媒体
-                      </span>
-                      保留版本未配对{' '}
-                      {item.artworkId === item.visual.leftArtworkId
-                        ? item.visual.rightUnmatchedCount
-                        : item.visual.leftUnmatchedCount}{' '}
-                      {item.relationKind === 'PARTIAL' ? '项原媒体' : '张'}；删除版本未配对{' '}
-                      {item.artworkId === item.visual.leftArtworkId
-                        ? item.visual.leftUnmatchedCount
-                        : item.visual.rightUnmatchedCount}{' '}
-                      {item.relationKind === 'PARTIAL' ? '项原媒体' : '张'}，
-                      {item.status === 'DELETED' ? '已随该版本删除' : '将随该版本删除'}。
-                    </p>
+                    <DuplicatePairDeletionImpact item={item} />
                   ) : null}
                   {item.reasons.length > 0 ? (
                     <p className="pb-2 pl-14 text-sm text-warning">
@@ -304,5 +287,37 @@ export function DuplicateOperationPreview({
         onRefresh={onRefresh}
       />
     </section>
+  )
+}
+
+function DuplicatePairDeletionImpact({ item }: { item: ArtworkDedupArtworkPreviewDto }) {
+  const visual = item.visual
+  if (!visual) return null
+  const copy = duplicateVisualSideCounts(visual, item.artworkId)
+  const keeper = duplicateVisualSideCounts(
+    visual,
+    item.artworkId === visual.leftArtworkId ? visual.rightArtworkId : visual.leftArtworkId
+  )
+  const partial = item.relationKind === 'PARTIAL'
+  const deleted = item.status === 'DELETED'
+  const unit = partial ? '项原媒体' : '张'
+  const unmatched = `保留版本未配对 ${keeper.unmatched.toLocaleString('zh-CN')} ${unit}；删除版本未配对 ${copy.unmatched.toLocaleString('zh-CN')} ${unit}`
+  return (
+    <p className="pb-2 text-xs leading-5 text-muted-foreground">
+      <span className="block">{duplicatePairLabel(item)} · {duplicatePairCounts(item)}</span>
+      <span className="block">
+        {BigInt(visual.leftFileCount).toLocaleString('zh-CN')} /{' '}
+        {BigInt(visual.rightFileCount).toLocaleString('zh-CN')} 项原媒体
+      </span>
+      {unmatched}
+      {partial ? `，${deleted ? '已随该版本删除' : '将随该版本删除'}。` : '。'}
+      {!partial ? (
+        <span className="block">
+          整部作品的全部 {copy.total.toLocaleString('zh-CN')} 项原媒体
+          {copy.unchecked > 0n ? `（含 ${copy.unchecked.toLocaleString('zh-CN')} 项未核对）` : ''}
+          和整理记录{deleted ? '已随该版本删除' : '将随该版本删除'}。
+        </span>
+      ) : null}
+    </p>
   )
 }

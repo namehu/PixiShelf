@@ -144,7 +144,7 @@ describe('direct delete actions', () => {
       expect(mocks.directDelete).not.toHaveBeenCalled()
       fireEvent.click(
         screen.getByRole('checkbox', {
-          name: protocolVersion === 4 ? /部分重复作品仍有未配对原件/ : /两个版本内容不同/
+          name: protocolVersion === 4 ? /部分重复作品仍有未配对原件/ : /我确认删除整部作品，包含未配对、未核对的原媒体及全部整理记录/
         })
       )
       fireEvent.click(submit)

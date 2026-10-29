@@ -10,7 +10,8 @@ import {
   group,
   member,
   operation,
-  partialSummary
+  partialSummary,
+  visualSummary
 } from './duplicate-maintenance-fixtures'
 const mocks = vi.hoisted(() => ({ get: vi.fn(), ready: vi.fn() }))
 vi.mock('@/lib/trpc', () => ({
@@ -124,6 +125,36 @@ describe('frozen direct delete preview', () => {
       expect(screen.queryByText(/内容相同/)).toBeNull()
     }
   )
+
+  it.each([
+    [false, 1], [false, 2], [true, 1], [true, 2]
+  ] as const)('counts unchecked media on the actual deleted version (deleted: %s, copy: %s)', async (deleted, copyId) => {
+    const summary = {
+      ...visualSummary, leftFileCount: '12', rightFileCount: '16', leftUncheckedCount: '2', rightUncheckedCount: '4'
+    }
+    const value = operation({
+      protocolVersion: 3, mode: deleted ? 'DIRECT_DELETE' : 'PREPARE', status: deleted ? 'DELETED' : 'READY'
+    })
+    mocks.get.mockResolvedValue({
+      operation: value,
+      preview: {
+        kind: 'ARTWORKS',
+        items: [item(copyId, {
+          relationKind: 'VISUAL', visual: summary, role: 'COPY',
+          mediaCount: copyId === 1 ? '12' : '16',
+          status: deleted ? 'DELETED' : 'VERIFIED', personalRecords: deleted ? 'REMOVED' : 'CURRENT'
+        })],
+        nextCursor: null
+      }
+    })
+    mount(value)
+    const impact = await screen.findByText(new RegExp(
+      `整部作品的全部 ${copyId === 1 ? '12' : '16'} 项原媒体（含 ${copyId === 1 ? '2' : '4'} 项未核对）和整理记录${deleted ? '已' : '将'}随该版本删除`
+    ))
+    expect(impact).toBeTruthy()
+    expect(screen.getByText(/未核对：左 2 \/ 右 4 项/)).toBeTruthy()
+    expect(screen.queryByText(/两个版本内容不同|内容相同/)).toBeNull()
+  })
 
   it.each([false, true])(
     'shows frozen containment evidence before and after deletion (deleted: %s)',

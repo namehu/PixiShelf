@@ -5,7 +5,7 @@ import { lockContentDirectories } from './media-content-common'
 
 // Bump for candidate, threshold, precedence or assignment semantics changes.
 // Feature/normalization/parameter changes additionally change each visual signature.
-export const ARTWORK_DEDUP_RELATION_CACHE_VERSION = 'original-multiset-v1:partial80-v1:visual-local1-v1'
+export const ARTWORK_DEDUP_RELATION_CACHE_VERSION = 'original-multiset-v1:partial80-v1:visual-mixed-unchecked-v2'
 type Run = Prisma.ArtworkDedupRunGetPayload<Record<string, never>>
 
 /** Excluded media do not invalidate fully compared artwork signatures. Budget/error gaps do. */

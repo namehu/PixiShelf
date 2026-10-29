@@ -6,7 +6,7 @@ import { VISUAL_ALGORITHM_VERSION, VISUAL_NORMALIZATION_VERSION, VISUAL_LIMITS, 
 export function visualRelationSignature(pages: readonly VisualPage[]) {
   return createHash('sha256').update(JSON.stringify([
     ARTWORK_DEDUP_RELATION_CACHE_VERSION, VISUAL_ALGORITHM_VERSION, VISUAL_NORMALIZATION_VERSION, VISUAL_PARAMETER_PRESETS[1],
-    [...pages].sort((a, b) => a.imageId - b.imageId).map(p => [p.imageId, p.size.toString(), p.sha256, p.views])
+    [...pages].sort((a, b) => a.imageId - b.imageId).map(p => [p.imageId, p.size.toString(), p.sha256, !!p.unchecked, p.views])
   ])).digest('hex')
 }
 

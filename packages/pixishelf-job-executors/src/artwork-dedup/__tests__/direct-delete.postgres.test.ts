@@ -39,9 +39,10 @@ import {
 } from './maintenance-executor-fixture.ts'
 
 type Kind = 'MANUAL_CREATE' | 'LOCAL_DIRECTORY' | 'PIXIV_SCAN' | 'URL_ARCHIVE'
-async function prepared(kinds: Kind[] = ['LOCAL_DIRECTORY', 'LOCAL_DIRECTORY'], count = 1, groups = 1, beforeScan?: (ids: number[]) => Promise<void>, visualKeeperIndex?: number, partialKeeperIndex?: number) {
+async function prepared(kinds: Kind[] = ['LOCAL_DIRECTORY', 'LOCAL_DIRECTORY'], count = 1, groups = 1, beforeScan?: (ids: number[]) => Promise<void>, visualKeeperIndex?: number, partialKeeperIndex?: number, mixedVisualMedia = false) {
   const f = await fixture(count, kinds[0], {
     purpose: 'DIRECT_DELETE',
+    mixedVisualMedia,
     ...(partialKeeperIndex !== undefined ? { partialKeeperIndex } : {}),
     ...(visualKeeperIndex !== undefined ? { visualKeeperIndex } : {}),
     kinds,
@@ -259,6 +260,48 @@ describe.skipIf(!db).sequential('DIRECT_DELETE frozen exact files', () => {
       else await expect(fs.stat(path.join(root, file.canonicalPath))).rejects.toMatchObject({ code: 'ENOENT' })
     }
   }, 30_000)
+  it.each(['delete', 'changed-unchecked', 'identity-changed-unchecked'] as const)('mixed visual deletion retains whole-artwork original verification: %s', async mode => {
+    const op = await prepared(['MANUAL_CREATE', 'MANUAL_CREATE'], 5, 1, async ids => {
+      const images = await db!.image.findMany({ where: { artworkId: { in: ids } }, orderBy: [{ artworkId: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }] })
+      const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * 41 + Math.floor(Math.floor(i / 576) / 20) * 71) % 255))
+      const still = await sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
+      for (const [i, image] of images.entries()) {
+        const index = i % 5
+        const bytes = index === 0 ? Buffer.from(`unsupported animation ${i}`) : i === 9 ? await sharp(still).extend({ top: 20, bottom: 20, left: 20, right: 20, background: 'white' }).png().toBuffer() : still
+        await fs.writeFile(path.join(root, image.path), bytes)
+        await db!.image.update({ where: { id: image.id }, data: { mediaType: index === 0 ? 'ANIMATION' : 'IMAGE' } })
+      }
+    }, 0, undefined, true)
+    const group = await db!.artworkDedupOperationGroup.findFirstOrThrow({ where: { operationId: op.id } })
+    expect(group.visual).toMatchObject({ leftFileCount: '5', rightFileCount: '5', leftUncheckedCount: '1', rightUncheckedCount: '1' })
+    const files = await db!.artworkDedupOperationFile.findMany({ where: { operationId: op.id, role: 'MEDIA' }, include: { artwork: true } })
+    expect(files).toHaveLength(10)
+    expect(op.preparedFiles).toBe(10n)
+    if (mode !== 'delete') {
+      const image = await db!.image.findFirstOrThrow({ where: { artworkId: files.find(f => f.artwork.role === 'COPY')!.artwork.artworkId, mediaType: 'ANIMATION' } })
+      if (mode === 'identity-changed-unchecked') {
+        await db!.image.update({ where: { id: image.id }, data: { path: `${image.path}.changed` } })
+        await expect(db!.$transaction(tx => authorizeArtworkDedupDirectDelete(tx, confirmation(op)))).rejects.toThrow()
+        for (const file of files) expect((await fs.stat(path.join(root, file.canonicalPath))).isFile()).toBe(true)
+        return
+      }
+      await fs.writeFile(path.join(root, image.path), 'changed unchecked original')
+    }
+    const job = await start(op)
+    await executeArtworkDedupDirectDelete(executionContext<ArtworkDedupMaintenancePayload>(job), deps())
+    const result = await current(op)
+    if (mode === 'changed-unchecked') {
+      expect(result.deletedFiles).toBe(0n)
+      expect(result.status).not.toBe('DELETED')
+      for (const file of files) expect((await fs.stat(path.join(root, file.canonicalPath))).isFile()).toBe(true)
+    } else {
+      expect(result).toMatchObject({ status: 'DELETED', deletedFiles: 5n })
+      for (const file of files) {
+        if (file.artwork.role === 'KEEPER') expect((await fs.stat(path.join(root, file.canonicalPath))).isFile()).toBe(true)
+        else await expect(fs.stat(path.join(root, file.canonicalPath))).rejects.toMatchObject({ code: 'ENOENT' })
+      }
+    }
+  }, 60_000)
   it('includes every physical animation/video original in containment deletion', async () => {
     const op = await prepared(['MANUAL_CREATE', 'MANUAL_CREATE'], 3, 1, async (ids) => {
       await animationOriginals(ids)

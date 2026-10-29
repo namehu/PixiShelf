@@ -104,7 +104,7 @@ export function duplicateVisualIncompleteReason(reason: string) {
     INCOMPLETE_ORIGINALS: '部分作品原件未完成检查',
     RUN_FILE_LIMIT: '超过本次 10,000 个登记原件上限',
     ARTWORK_FILE_LIMIT: '部分作品超过 2,000 张图片上限',
-    UNSUPPORTED_MEDIA: '部分作品含动画、视频或不支持的图片',
+    UNSUPPORTED_MEDIA: '动画、视频或不支持的图片未核对',
     INPUT_UNSUPPORTED: '部分作品含不支持的图片',
     INPUT_LIMIT: '部分图片超过读取上限',
     READ_FAILED: '部分图片无法读取',
@@ -158,7 +158,7 @@ export function DuplicateRunStatus({
                 疑似版本未全部检查：
                 {run.visualIncompleteReasons.map(duplicateVisualIncompleteReason).join('；') ||
                   '部分图片不支持或达到本次检查上限'}
-                。其他重复结果仍可核对。
+                。{(counts.visualUncheckedMedia ?? 0) > 0 ? `${counts.visualUncheckedMedia.toLocaleString('zh-CN')} 项媒体未核对，已支持的图片仍参与比较。` : ''}其他重复结果仍可核对。
               </p>
             ) : run.visualStatus === 'COMPLETE' ? (
               <p className="mt-1 text-xs leading-5 text-muted-foreground">

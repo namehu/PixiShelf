@@ -46,7 +46,7 @@ const suite = url ? describe.sequential : describe.skip
 const prefix = `dedup-executor-${randomUUID()}`
 const clock = new MutableQueueClock(new Date('2026-10-23T00:00:00Z'))
 const capabilities = [
-  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3, 4, 5, 6] }
+  { jobType: 'ARTWORK_DEDUP_SCAN' as const, executionLane: 'BACKGROUND_WRITER' as const, definitionVersions: [1, 3, 4, 5, 6, 7] }
 ]
 const repository = db
   ? new PostgresQueueRepository(db as unknown as QueueDatabase, { clock, transactionTimeoutMs: 20_000 })
@@ -119,6 +119,52 @@ afterAll(async () => {
 })
 
 suite('durable detection executor with real isolated media', () => {
+  it('v7 preserves mixed original members, invalidates old exclusion evidence, and reuses only unchanged full signatures', async () => {
+    const artistId = await fixture([[1, 2, 3, 4, 5], [6, 7, 8, 9, 10, 11]])
+    const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: [{ artworkId: 'asc' }, { sortOrder: 'asc' }, { id: 'asc' }] })
+    const animated = Buffer.from('UklGRpQAAABXRUJQVlA4WAoAAAACAAAAAAAAAAAAQU5JTQYAAAD/////AABBTk1GMAAAAAAAAAAAAAAAAAAAAGQAAAJWUDggGAAAADABAJ0BKgEAAQABQCYlpAADcAD+/TZoAEFOTUYwAAAAAAAAAAAAAAAAAAAAZAAAAFZQOCAYAAAANAEAnQEqAQABAAAAJiWkAANwAP789AAA', 'base64')
+    const stills = await Promise.all(Array.from({ length: 4 }, async (_, n) => {
+      const pixels = Buffer.from(Array.from({ length: 192 * 192 * 3 }, (_, i) => (Math.floor((Math.floor(i / 3) % 192) / 16) * (41 + n * 7) + Math.floor(Math.floor(i / 576) / 20) * 71) % 255))
+      return sharp(pixels, { raw: { width: 192, height: 192, channels: 3 } }).png().toBuffer()
+    }))
+    for (const [i, image] of images.entries()) {
+      const index = i < 5 ? i : i - 5
+      const bytes = index === 0 ? (i < 5 ? animated : Buffer.concat([animated, Buffer.from('different animation')])) : index === 5 ? await sharp({ create: { width: 192, height: 192, channels: 3, background: 'white' } }).png().toBuffer()
+        : i === 9 ? await sharp(stills[3]!).extend({ top: 20, bottom: 20, left: 20, right: 20, background: 'white' }).png().toBuffer() : stills[index - 1]!
+      await fs.writeFile(path.join(root, image.path), bytes)
+      await db!.image.update({ where: { id: image.id }, data: { mediaType: 'IMAGE' } })
+    }
+    const old = await start(artistId, 'INCREMENTAL', true, 6)
+    await finish(old.jobId)
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: old.runId, relationKind: 'VISUAL' } })).toBe(0)
+    await db!.artworkDedupRun.update({ where: { id: old.runId }, data: { relationCacheVersion: 'original-multiset-v1:partial80-v1:visual-local1-v1' } })
+    let previousSignature: string | null = null
+    for (const phase of ['mixed', 'hot', 'full', 'declared', 'changed'] as const) {
+      if (phase === 'declared') {
+        await db!.image.update({ where: { id: images[0]!.id }, data: { mediaType: 'ANIMATION' } })
+        await db!.image.update({ where: { id: images[5]!.id }, data: { mediaType: 'VIDEO' } })
+      }
+      if (phase === 'changed') await fs.writeFile(path.join(root, images[0]!.path), Buffer.concat([animated, Buffer.from('changed original')]))
+      const scan = await start(artistId, phase === 'full' ? 'FULL' : 'INCREMENTAL', true, 7)
+      await finish(scan.jobId)
+      const run = await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: scan.runId } })
+      expect(run).toMatchObject({ status: 'COMPLETED', visualStatus: 'INCOMPLETE', visualIncompleteReasons: ['UNSUPPORTED_MEDIA'], visualCheckpoint: { version: 2 } })
+      const pair = await db!.artworkDedupVisualPair.findFirstOrThrow({ where: { runId: scan.runId, relationKind: 'VISUAL' }, include: { pages: { orderBy: { ordinal: 'asc' } } } })
+      expect(pair.summary).toMatchObject({ evidenceVersion: 'dct63-grid3-crop-local1-mixed-v2', leftFileCount: '5', rightFileCount: '6', pairedCount: '4', exactCount: '3', similarCount: '1', leftUnmatchedCount: '0', rightUnmatchedCount: '1', leftUncheckedCount: '1', rightUncheckedCount: '1' })
+      expect(pair.pages.filter(p => p.kind === 'UNCHECKED')).toMatchObject([
+        { leftImageId: images[0]!.id, rightImageId: null, leftIndex: 0 },
+        { leftImageId: null, rightImageId: images[5]!.id, rightIndex: 0 }
+      ])
+      expect(pair.pages.find(p => p.kind === 'SIMILAR')).toMatchObject({ leftIndex: 4, rightIndex: 4 })
+      const signature = (await db!.artworkDedupItem.findUniqueOrThrow({ where: { runId_artworkId: { runId: scan.runId, artworkId: images[0]!.artworkId! } } })).visualSignature
+      if (phase === 'hot') expect(run).toMatchObject({ readBytes: 0n, visualComparedComparisons: 0 })
+      if (phase === 'full' || phase === 'mixed' || phase === 'changed') expect(run.visualComparedComparisons).toBeGreaterThan(0)
+      if (phase === 'full' || phase === 'changed') expect(run.readBytes).toBeGreaterThan(0n)
+      if (phase === 'changed') expect(signature).not.toBe(previousSignature)
+      previousSignature = signature
+    }
+  }, 90_000)
+
   it('reuses verified multi-frame exclusions and completed visual pairs without treating incomplete coverage as complete', async () => {
     const artistId = await fixture([[1], [2], [3], [4]])
     const images = await db!.image.findMany({ where: { artwork: { creators: { some: { artistId } } } }, orderBy: { id: 'asc' } })

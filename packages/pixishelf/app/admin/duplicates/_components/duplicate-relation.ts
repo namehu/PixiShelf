@@ -33,8 +33,25 @@ export function duplicateKeeperRestriction(relation: Relation, artworkId: number
   return canKeepDuplicateMember(relation, artworkId) ? undefined : '已被完整包含，需保留完整作品。'
 }
 
+export function duplicateVisualSideCounts(visual: ArtworkDedupVisualSummary, artworkId: number) {
+  const left = artworkId === visual.leftArtworkId
+  const total = BigInt(left ? visual.leftFileCount : visual.rightFileCount)
+  const unchecked = BigInt((left ? visual.leftUncheckedCount : visual.rightUncheckedCount) ?? '0')
+  return {
+    total,
+    checked: total - unchecked,
+    unchecked,
+    unmatched: BigInt(left ? visual.leftUnmatchedCount : visual.rightUnmatchedCount)
+  }
+}
+
 export function duplicateVisualCounts(visual: ArtworkDedupVisualSummary) {
-  return `已配对 ${count(visual.pairedCount)} 张 · 左侧未配对 ${count(visual.leftUnmatchedCount)} 张 · 右侧未配对 ${count(visual.rightUnmatchedCount)} 张`
+  const left = duplicateVisualSideCounts(visual, visual.leftArtworkId)
+  const right = duplicateVisualSideCounts(visual, visual.rightArtworkId)
+  const unchecked = left.unchecked > 0n || right.unchecked > 0n
+    ? ` · 未核对：左 ${left.unchecked.toLocaleString('zh-CN')} / 右 ${right.unchecked.toLocaleString('zh-CN')} 项`
+    : ''
+  return `已配对 ${count(visual.pairedCount)} 张 · 左侧未配对 ${count(visual.leftUnmatchedCount)} 张 · 右侧未配对 ${count(visual.rightUnmatchedCount)} 张${unchecked}`
 }
 
 export function isDuplicateManualPair(relation: Pick<ArtworkDedupGroupDto, 'relationKind'>) {

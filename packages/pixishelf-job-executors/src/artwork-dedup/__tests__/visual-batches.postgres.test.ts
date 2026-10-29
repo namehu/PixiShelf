@@ -148,6 +148,21 @@ async function cloneIncremental(context: DedupPipelineContext) {
   return { ...context, forceRead: false, execution: { runId: run.id, jobId, executionVersion: 1 } }
 }
 suite('F03 persistent visual batches', () => {
+  it('rejects an old active checkpoint instead of silently applying mixed matching rules', async () => {
+    const test = await fixture(2, 1)
+    expect(await scanBatchedVisualVersions({ ...test.context, shouldYield: () => true })).toBe(false)
+    expect((await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })).visualCheckpoint).toMatchObject({ version: 1 })
+    await expect(scanBatchedVisualVersions({ ...test.context, mixedVisualMedia: true })).rejects.toMatchObject({ code: 'FILE_CHANGED' })
+  })
+  it('publishes explicit incomplete coverage without candidate postings for unchecked-only works', async () => {
+    const test = await fixture(2, 1)
+    await db!.artworkDedupMedia.updateMany({ where: { runId: test.runId }, data: { visualStatus: 'UNCHECKED', visualViews: Prisma.DbNull } })
+    while (!(await scanBatchedVisualVersions({ ...test.context, mixedVisualMedia: true }))) { /* resume bounded work */ }
+    expect(await db!.artworkDedupVisualPosting.count({ where: { runId: test.runId } })).toBe(0)
+    expect(await db!.artworkDedupVisualPair.count({ where: { runId: test.runId } })).toBe(0)
+    expect(await db!.artworkDedupRun.findUniqueOrThrow({ where: { id: test.runId } })).toMatchObject({ visualStatus: 'INCOMPLETE', visualIncompleteReasons: ['UNSUPPORTED_MEDIA'], visualCheckpoint: { version: 2 } })
+  })
+
   it('rebuilds bounded directory scopes after normal yields with identical edges and query results', async () => {
     const test = await fixture(20, 10, true)
     const initial = await advanceTo(test.context, 'QUERY')

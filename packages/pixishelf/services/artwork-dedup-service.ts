@@ -111,6 +111,9 @@ async function dto(tx: Prisma.TransactionClient, run: Run): Promise<ArtworkDedup
       statMedia: run.statMedia,
       hashedMedia: run.hashedMedia,
       cacheHitMedia: run.cacheHitMedia,
+      visualUncheckedMedia: run.includeSuspectedVersions
+        ? await tx.artworkDedupMedia.count({ where: { runId: run.id, visualStatus: 'UNCHECKED' } })
+        : 0,
       readBytes: run.readBytes.toString()
     },
     allowedControls: controls(run),
@@ -348,7 +351,7 @@ export async function controlArtworkDedup(
         run = await createJob(tx, run)
       } else {
         if (input.action === 'resume' && run.visualBudgetWaiting) {
-          if (job.definitionVersion !== 6 || run.visualComparisonRound < 1) conflict()
+          if (![6, 7].includes(job.definitionVersion) || run.visualComparisonRound < 1) conflict()
           run = await tx.artworkDedupRun.update({ where: { id: run.id }, data: {
             visualComparisonRound: { increment: 1 },
             visualRoundStartComparisons: run.visualReusedComparisons + run.visualComparedComparisons,

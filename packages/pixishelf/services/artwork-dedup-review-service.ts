@@ -312,8 +312,8 @@ export async function listArtworkDedupComparisons(
             ? { kind: { not: 'EXACT' } }
             : input.filter === 'PAIRED'
               ? { kind: { in: ['EXACT', 'SIMILAR'] } }
-              : input.filter === 'UNMATCHED'
-                ? { kind: 'UNMATCHED' }
+              : input.filter === 'UNMATCHED' || input.filter === 'UNCHECKED'
+                ? { kind: input.filter }
                 : {})
         },
         orderBy: { ordinal: 'asc' },
@@ -334,7 +334,7 @@ export async function listArtworkDedupComparisons(
           })
         : []
       const byId = new Map(images.map((image) => [image.id, image.artworkId]))
-      const media = (artworkId: number, imageId: number | null, index: number | null) =>
+      const media = (artworkId: number, imageId: number | null, index: number | null, unchecked: boolean) =>
         imageId === null || index === null
           ? null
           : {
@@ -342,7 +342,7 @@ export async function listArtworkDedupComparisons(
               imageId,
               index,
               thumbnailUrl:
-                byId.get(imageId) === artworkId
+                !unchecked && byId.get(imageId) === artworkId
                   ? `/api/artwork-dedup/cover/${artworkId}?expectedUserId=${encodeURIComponent(userId)}&imageId=${imageId}`
                   : null
             }
@@ -353,8 +353,8 @@ export async function listArtworkDedupComparisons(
         items: page.map((row) => ({
           id: row.ordinal,
           kind: row.kind,
-          left: media(pair.leftArtworkId, row.leftImageId, row.leftIndex),
-          right: media(pair.rightArtworkId, row.rightImageId, row.rightIndex)
+          left: media(pair.leftArtworkId, row.leftImageId, row.leftIndex, row.kind === 'UNCHECKED'),
+          right: media(pair.rightArtworkId, row.rightImageId, row.rightIndex, row.kind === 'UNCHECKED')
         })),
         nextCursor: rows.length > input.limit ? artworkDedupCursor(scope, page.at(-1)!.ordinal) : null
       })

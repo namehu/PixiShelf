@@ -133,13 +133,13 @@ export const artworkDedupVisualSummarySchema = z.object({
 })
 export type ArtworkDedupVisualSummary = z.infer<typeof artworkDedupVisualSummarySchema>
 export const artworkDedupListComparisonsInputSchema = z.object({
-  ...identity, runId: id, groupId: id, filter: z.enum(['ALL', 'DIFFERENT', 'PAIRED', 'UNMATCHED']).default('DIFFERENT'),
+  ...identity, runId: id, groupId: id, filter: z.enum(['ALL', 'DIFFERENT', 'PAIRED', 'UNMATCHED', 'UNCHECKED']).default('DIFFERENT'),
   cursor: cursor.optional(), limit: z.number().int().min(1).max(50).default(20)
 }).strict()
 const comparisonMedia = z.object({ artworkId: positive, imageId: positive, index: count, thumbnailUrl: z.string().nullable() })
 export const artworkDedupListComparisonsDtoSchema = z.object({
   runId: id, groupId: id, visual: artworkDedupVisualSummarySchema,
-  items: z.array(z.object({ id: positive, kind: z.enum(['EXACT', 'SIMILAR', 'UNMATCHED']), left: comparisonMedia.nullable(), right: comparisonMedia.nullable() })),
+  items: z.array(z.object({ id: positive, kind: z.enum(['EXACT', 'SIMILAR', 'UNMATCHED', 'UNCHECKED']), left: comparisonMedia.nullable(), right: comparisonMedia.nullable() })),
   nextCursor: z.string().nullable()
 })
 export type ArtworkDedupListComparisonsDto = z.infer<typeof artworkDedupListComparisonsDtoSchema>

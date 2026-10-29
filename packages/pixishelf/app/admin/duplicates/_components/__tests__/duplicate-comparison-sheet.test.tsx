@@ -36,15 +36,15 @@ const result = (overrides = {}) => ({
   nextCursor: 'next-page',
   ...overrides
 })
-function mount(group = visualGroup()) {
+function mount(group = visualGroup(), keeperId: number | null = null, savedKeeperId: number | null = null) {
   return render(
     <QueryClientProvider client={client}>
       <DuplicateComparisonSheet
         userId="user-a"
         runId="run-1"
         group={group}
-        keeperId={null}
-        savedKeeperId={null}
+        keeperId={keeperId}
+        savedKeeperId={savedKeeperId}
         saving={false}
         failed={false}
         preparing={false}
@@ -110,7 +110,8 @@ describe('visual image comparison', () => {
     expect(screen.getByText('80 张相同 · 双方各 20 张未配对')).toBeTruthy()
     expect(screen.getByText(/未配对不代表内容独有/)).toBeTruthy()
     expect(screen.queryByText(/图片相似/)).toBeNull()
-    expect(screen.queryByRole('radio', { name: '不同图片' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: '差异与未核对' })).toBeNull()
+    expect(screen.queryByRole('radio', { name: '未核对' })).toBeNull()
     expect(screen.getByText('此版本没有对应图片')).toBeTruthy()
     const left = screen.getByRole('button', { name: '保留此版本：作品 1' })
     const right = screen.getByRole('button', { name: '保留此版本：作品 2' })
@@ -153,6 +154,55 @@ describe('visual image comparison', () => {
     expect(mocks.keep).not.toHaveBeenCalled()
     expect(mocks.prepare).not.toHaveBeenCalled()
   })
+  it.each(['left', 'right'] as const)(
+    'keeps unchecked %s media visible with original numbering and either keeper choice',
+    async (side) => {
+      const summary = {
+        ...visualSummary,
+        leftFileCount: '12',
+        rightFileCount: '16',
+        leftUncheckedCount: '2',
+        rightUncheckedCount: '4'
+      }
+      const group = visualGroup({ visual: summary, eligibility: 'ELIGIBLE', reasons: [] })
+      const keeperId = side === 'left' ? 1 : 2
+      mocks.members.mockResolvedValue({
+        kind: 'MEMBERS', group, items: [member(1), member(2)], allowedActions: ['SAVE_REVIEW']
+      })
+      mocks.comparisons.mockResolvedValue(result({
+        visual: summary,
+        items: [{
+          id: 51,
+          kind: 'UNCHECKED',
+          left: side === 'left' ? { artworkId: 1, imageId: 11, index: 4, thumbnailUrl: '/unsafe-animation.gif' } : null,
+          right: side === 'right' ? { artworkId: 2, imageId: 22, index: 12, thumbnailUrl: '/unsafe-animation.gif' } : null
+        }],
+        nextCursor: null
+      }))
+      const view = mount(group, keeperId, keeperId)
+      await screen.findByText('此项未参与图片比较，请打开作品核对原件。')
+      expect(mocks.comparisons.mock.calls[0]![0]).toMatchObject({ filter: 'DIFFERENT' })
+      expect(screen.getByText(/未核对：左 2 \/ 右 4 项/)).toBeTruthy()
+      expect(screen.getByText(/左侧版本 · 12 项原媒体（已核对 10 · 未核对 2）/)).toBeTruthy()
+      expect(screen.getByText(/右侧版本 · 16 项原媒体（已核对 12 · 未核对 4）/)).toBeTruthy()
+      expect(screen.getByText(new RegExp(`第 ${side === 'left' ? '5' : '13'} 项`))).toBeTruthy()
+      expect(screen.getByText('本行未列出此版本的对应项')).toBeTruthy()
+      expect(screen.queryByText('图片暂不可用')).toBeNull()
+      expect(screen.queryByText('未配对图片')).toBeNull()
+      expect(view.container.querySelector('img[src="/unsafe-animation.gif"]')).toBeNull()
+      expect(screen.getByRole('button', { name: `保留此版本：作品 ${keeperId}` }).getAttribute('aria-pressed')).toBe('true')
+      await waitFor(() =>
+        expect((screen.getByRole('button', { name: '核对并删除' }) as HTMLButtonElement).disabled).toBe(false)
+      )
+      fireEvent.click(screen.getByRole('radio', { name: '未核对' }))
+      await waitFor(() =>
+        expect(mocks.comparisons.mock.lastCall?.[0]).toMatchObject({ filter: 'UNCHECKED', cursor: undefined })
+      )
+      fireEvent.click(await screen.findByRole('button', { name: `保留此版本：作品 ${keeperId === 1 ? 2 : 1}` }))
+      expect(mocks.keep).toHaveBeenLastCalledWith(group, keeperId === 1 ? 2 : 1)
+    }
+  )
+
   it('handles image failure and retry without changing the keeper', async () => {
     mount()
     fireEvent.error(await screen.findByAltText('作品 1，第 1 张'))

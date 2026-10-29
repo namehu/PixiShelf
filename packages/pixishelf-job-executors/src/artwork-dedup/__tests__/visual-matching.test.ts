@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import fixture from './visual-template-regression.json'
-import { compareProductionVisual, matchVisualPages, validVisualViews, visualIdentity } from '../visual-matching.ts'
+import { assignVisualPair, compareProductionVisual, matchVisualPages, validVisualViews, visualIdentity } from '../visual-matching.ts'
 import { compareVisualViews, VISUAL_PARAMETER_PRESETS, type VisualView } from '../visual-experiment.ts'
 describe('production suspected versions', () => {
   it('rejects the observed cropped global12/local0 template false pair without changing the historical experiment', () => {
@@ -32,5 +32,27 @@ describe('production suspected versions', () => {
       canonicalPath: 'a.png', sha256: 'a', size: 1n, mtimeNs: 1n, ctimeNs: 1n, deviceId: 1n, inode: 1n }
     for (const change of [{ sourceRevision: 2n }, { sha256: 'b' }, { mtimeNs: 2n }, { directoryGeneration: 2n }, { rootIdentity: 'new' }])
       expect(visualIdentity({ ...row, ...change })).not.toBe(visualIdentity(row))
+  })
+})
+
+
+describe('mixed originals in visual matching', () => {
+  const page = (imageId: number, artworkId: number, unchecked = false) => ({ imageId, artworkId, index: imageId % 10,
+    size: 5n, sha256: String(imageId), views: unchecked ? [] : fixture['fresh-03-template-0'] as VisualView[], unchecked })
+  it('retains real indices and accounts for unchecked originals separately, even when their bytes match', () => {
+    const left = Array.from({ length: 5 }, (_, i) => page(i + 1, 1, i === 0))
+    const right = Array.from({ length: 6 }, (_, i) => page(i + 11, 2, i === 0))
+    right[0]!.sha256 = left[0]!.sha256
+    const edges = new Map(left.slice(1).map((p, i) => [p.imageId, new Set([right[i + 1]!.imageId])]))
+    const pair = assignVisualPair(left, right, edges)!
+    expect(pair.pages.map(p => p.kind)).toEqual(['UNCHECKED', 'SIMILAR', 'SIMILAR', 'SIMILAR', 'SIMILAR', 'UNCHECKED', 'UNMATCHED'])
+    expect(pair.pages[0]).toMatchObject({ left: { imageId: 1, index: 1 }, right: null })
+    expect(pair.pages[5]).toMatchObject({ left: null, right: { imageId: 11, index: 1 } })
+  })
+  it('keeps the 80% denominator over all originals and never visual-matches animation-only works', async () => {
+    const left = Array.from({ length: 5 }, (_, i) => page(i + 1, 1, i !== 0))
+    const right = Array.from({ length: 5 }, (_, i) => page(i + 11, 2, i !== 0))
+    expect(assignVisualPair(left, right, new Map([[1, new Set([11])]]))).toBeNull()
+    expect((await matchVisualPages([page(1, 1, true), page(11, 2, true)], async () => {})).pairs).toEqual([])
   })
 })
