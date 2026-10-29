@@ -1,7 +1,7 @@
 ---
 status: current
 scope: 阅读初始化、媒体分页、观察队列、服务端合并与重建失效
-last-verified: 2026-10-23
+last-verified: 2026-10-29
 sources:
   - packages/pixishelf-db/src/reading-contract.ts
   - packages/pixishelf/services/reading-service.ts
@@ -14,7 +14,7 @@ sources:
 
 阅读系统将真实展示观察、短期客户端预测和账户级持久进度分开。用户看到什么、哪些操作算已读，以[阅读规格](../features/artwork-reading.md)和[堆叠浏览](../features/artwork-summary.md)为准；本页解释实现与一致性。`current` 不代表生产验收完成。
 
-2026-10-23 局部核验范围为共享完成判定与详情顶部、底部手动进度的一致性。
+2026-10-29 局部核验范围为详情完整模式图片区域观察与分页占位接入。
 
 ## 初始化与媒体分页
 
@@ -30,7 +30,7 @@ sources:
 
 [Mermaid 源文件](../diagrams/architecture/reading-events.mmd)
 
-长图、自适应预览、原图预览与沉浸浏览都接入同一 `ReadingCollector`。适配层只提供当前项、ready、真实可见、前后台及播放状态；被弹层遮挡的底层入口和预加载项不能重复报观看。视频播放观察与图片 ready 观察按共享契约判定，客户端不提交最终次数或任意已读总数。
+长图、自适应预览、原图预览与沉浸浏览都接入同一 `ReadingCollector`。适配层只提供当前项、ready、真实可见、前后台及播放状态；被弹层遮挡的底层入口和预加载项不能重复报观看。详情完整模式的 `LazyMedia` 为图片及动图区域直接提供 `ready`，包括媒体 DTO 尚未取得的 `MediaDetailsPlaceholder`；下载、解码和失败状态仅继续控制展示与自动浏览。堆叠画框、其他预览入口仍保留加载门槛，视频仍依赖播放证据。客户端不提交最终次数或任意已读总数。
 
 队列按账户与作品媒体版本隔离。同一作品每 3 秒合并、每批最多 100 个事件并串行发送；间隔与事件 60 秒总寿命由[共享常量](../../packages/pixishelf-db/src/reading-contract.ts)定义，重试不延长寿命。切作品、离页与 pagehide 尝试刷新；网络恢复重新观察，不复活过期事件。有效前台展示每 60 秒心跳，心跳只延长既有活动，不创建新访问或改写最后位置。
 

@@ -19,6 +19,7 @@ import { useArtworkAnimation } from './use-artwork-animation'
 import { useArtworkVideoOptimization } from './artwork-video-optimization-context'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 import { useVideoReading } from '@/lib/reading/use-video-reading'
+import { MediaDetailsPlaceholder } from '@/lib/reading/artwork-reader-provider'
 import { cn } from '@/lib/utils'
 
 interface LazyMediaProps {
@@ -50,19 +51,21 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
   const observationEpoch = reading?.observationEpoch
   const videoReading = useVideoReading(`${reading?.ownerUserId}:${media.id}:${media.updatedAt}`, visible && trackingActive && !suspendPlayback)
   const playback = videoReading.playback
-  const video = isVideoFile(media.path)
+  const video = media.mediaType === 'video' || isVideoFile(media.path)
   useEffect(() => {
     if (!observe || !clearSurface) return
     observe(surfaceId, {
       mediaId: media.id,
-      ready: previewStatus === 'ready' && !suspendPlayback && (!video || playback !== null),
+      // Full-detail image regions count even before fetching/decoding. Stack grants
+      // still require a loaded frame; videos still require actual playback.
+      ready: (!video && !fill) || (previewStatus === 'ready' && !suspendPlayback && (!video || playback !== null)),
       visible,
       automatic,
       active: trackingActive,
       priority: 0,
       ...(video && playback ? { playback } : {})
     })
-  }, [automatic, clearSurface, media.id, observationEpoch, observe, previewStatus, surfaceId,
+  }, [automatic, clearSurface, fill, media.id, observationEpoch, observe, previewStatus, surfaceId,
     suspendPlayback, trackingActive, visible, video, playback])
   useEffect(() => () => clearSurface?.(surfaceId), [clearSurface, surfaceId])
   const live = useRef(true)
@@ -157,6 +160,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
 
   // 主渲染逻辑
   const renderContent = () => {
+    if (media.detailsPending) return <MediaDetailsPlaceholder media={media} index={index} />
     if (isVideoFile(src)) {
       if (suspendPlayback) {
         const pending = job?.status === 'PENDING'
@@ -287,9 +291,9 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
       ref={mediaRef}
       className={cn('relative flex w-full items-center justify-center overflow-hidden', fill ? 'h-full' : 'bg-muted')}
       style={fill ? undefined : { aspectRatio }}
-      data-auto-media-id={media.id}
+      data-auto-media-id={media.detailsPending ? undefined : media.id}
       data-video-media={isVideoFile(src) ? 'true' : undefined}
-      data-preview-status={previewStatus}
+      data-preview-status={media.detailsPending ? undefined : previewStatus}
     >
       {renderContent()}
     </div>

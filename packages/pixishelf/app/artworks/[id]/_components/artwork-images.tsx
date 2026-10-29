@@ -1,6 +1,6 @@
 'use client'
 
-import { MediaDetailsPlaceholder, useReaderMediaWindow, useArtworkReader } from '@/lib/reading/artwork-reader-provider'
+import { useReaderMediaWindow, useArtworkReader } from '@/lib/reading/artwork-reader-provider'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import {
@@ -400,7 +400,7 @@ const ArtworkMediaItem = memo(function ArtworkMediaItem({
     (event: React.MouseEvent | React.TouchEvent, itemIndex: number) => onOpenPreviewMenu(event, itemIndex, loadFailed),
     [onOpenPreviewMenu, loadFailed]
   )
-  if (media.detailsPending) return <MediaDetailsPlaceholder media={media} index={index} />
+  if (media.detailsPending) return <LazyMedia media={media} index={index} autoMode={autoMode} reading={reading} trackingActive={trackingActive} />
   return (
     <div
       className={cn(
@@ -984,7 +984,9 @@ function ArtworkImagesSession({
   useReaderMediaWindow('single-video', images.length === 1 ? [images[0]!.id] : [])
   const mediaContent =
     images.length === 1 && images[0]?.detailsPending ? (
-      <MediaDetailsPlaceholder media={images[0]} index={0} />
+      <div data-summary-anchor={images[0].id}>
+        <LazyMedia media={images[0]} index={0} reading={reading} trackingActive={trackingActive && !previewState && !contextMenu} />
+      </div>
     ) : isSingleVideoArtwork(images) ? (
       <SingleVideoArtworkMedia
         media={images[0]!}

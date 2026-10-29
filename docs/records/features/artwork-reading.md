@@ -1,7 +1,7 @@
 ---
 status: historical
 scope: artwork-reading 的已有验证与发布证据
-last-verified: 2026-10-23
+last-verified: 2026-10-29
 sources:
   - docs/features/artwork-reading.md
 ---
@@ -16,6 +16,17 @@ sources:
 - 当前行为：[功能规格](../../features/artwork-reading.md)。恢复前仍须核对当前状态与记录适用条件。
 
 ## 阅读分页与即时反馈验证
+
+### 2026-10-29 详情完整模式图片区域记读
+
+适用版本为 `3622bee9` 后的本地工作区；验证环境为 macOS、Vitest/jsdom 与 Next.js 生产构建。实现与回归入口为 `lazy-media.tsx`、`artwork-images.tsx` 及邻近 `__tests__/lazy-media.test.tsx`；当前规则见[阅读规格](../../features/artwork-reading.md)。本次没有数据库迁移、历史回填或生产部署。
+
+- 聚焦 4 个套件共 87 项通过，覆盖普通图片、WebP/APNG、媒体详情占位的加载前短暂入屏、加载失败、离屏／遮挡门禁，以及堆叠和视频加载门槛保留。
+- 主应用 `pnpm lint`（零警告）、`pnpm typecheck`、提升权限的 `pnpm build` 通过。
+- 主应用 `pnpm test` 初跑 3429 项通过、337 项按套件环境条件跳过、8 项失败：5 项因沙箱阻止本地端口／tsx IPC，3 项管理页面用例在并发检查时超时。构建结束后，在沙箱外使用 `vitest run --maxWorkers=1` 复跑四个失败套件及本次 LazyMedia 回归，5 个套件共 102 项全部通过；未改动失败套件或放宽断言／超时。未将分批复跑记作全量一次通过。
+- `pnpm docs:check`、`git diff --check` 和主应用路径大小写检查通过。默认图示检查缺少 Playwright 浏览器，改用已安装 Chrome 执行 `WEBP_BROWSER_CHANNEL=chrome pnpm docs:diagrams:check` 通过，未修改图源或生成图。
+- 尚未执行真实浏览器慢网络／快速滚动及生产实例验收；jsdom 的可见性回调测试不能证明浏览器能观察到瞬间跳过且从未渲染的区域，跳页仍不补记经过的索引。
+
 
 ### 2026-10-23 整体完成阈值与底部补齐入口
 

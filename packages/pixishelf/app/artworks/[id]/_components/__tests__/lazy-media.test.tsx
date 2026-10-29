@@ -2,6 +2,9 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { useArtworkAutoBrowseStore as autoBrowse } from '@/store/use-artwork-auto-browse-store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import LazyMedia from '../lazy-media'
+import { ReadingCollector } from '@/lib/reading/reading-collector'
+import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
+import type { ReadingContextDto, ReadingReportInput } from '@pixishelf/db/reading-contract'
 
 const playerMocks = vi.hoisted(() => ({ props: vi.fn(), animatedProps: vi.fn(), imageProps: vi.fn(), apngProps: vi.fn() }))
 const intersectionCallback = vi.hoisted(() => ({ current: null as null | ((inView: boolean) => void), threshold: 0 }))
@@ -76,6 +79,69 @@ describe('LazyMedia video cache version', () => {
     playerMocks.animatedProps.mockReset()
     playerMocks.imageProps.mockReset()
     playerMocks.apngProps.mockReset()
+  })
+
+  it.each([
+    { path: '/image.jpg' },
+    { path: '/animation.webp', isAnimated: true, webpAnimationStatus: 2 },
+    { path: '/animation.png', isAnimated: true },
+    { path: '', detailsPending: true, reliableDimensions: true }
+  ])('records a brief visible image region before loading: $path', async (image) => {
+    const context: ReadingContextDto = {
+      artworkId: 1, mediaRevision: 1, seenMediaIds: [], resume: null,
+      media: [{ mediaId: media.id, memberMediaIds: [media.id], index: 0 }],
+      summary: { artworkId: 1, mediaRevision: 1, stateVersion: 0, viewCount: 0, seenCount: 0,
+        totalCount: 1, status: 'UNREAD', lastViewedAt: null, lastActiveAt: null, lastMediaId: null, lastMediaIndex: null }
+    }
+    const report = vi.fn(async (input: ReadingReportInput) => {
+      expect(input.expectedUserId).toBe('reader')
+      return { mediaRevision: 1, seenMediaIds: [media.id], summary: context.summary }
+    })
+    const collector = new ReadingCollector({ report })
+    collector.setAccount('reader')
+    collector.setContext(context, 'reader')
+    const reading = {
+      observe: (surface: string, observation: Parameters<ArtworkReadingHandle['observe']>[1]) =>
+        collector.observe(surface, { ...observation, artworkId: 1 }),
+      clearSurface: (surface: string) => collector.clearSurface(surface)
+    } as ArtworkReadingHandle
+    const view = render(<LazyMedia media={{ ...media, ...image, mediaType: 'image' }} index={0} reading={reading} />)
+    try {
+      await collector.flush()
+      expect(report).not.toHaveBeenCalled()
+      act(() => intersectionCallback.current?.(true))
+      act(() => intersectionCallback.current?.(false))
+      view.unmount()
+      await collector.flush()
+      expect(report).toHaveBeenCalledTimes(1)
+      expect(report.mock.calls[0]?.[0].events).toMatchObject([{ type: 'VIEW', mediaId: media.id }])
+    } finally {
+      collector.dispose()
+    }
+  })
+
+  it('keeps loading errors eligible but preserves the active and visibility gates', () => {
+    const observe = vi.fn()
+    const reading = { observe, clearSurface: vi.fn() } as unknown as ArtworkReadingHandle
+    const image = { ...media, path: '/image.jpg', mediaType: 'image' }
+    const view = render(<LazyMedia media={image} index={0} reading={reading} trackingActive={false} />)
+    act(() => intersectionCallback.current?.(true))
+    act(() => playerMocks.imageProps.mock.lastCall?.[0].onError())
+    expect(observe.mock.lastCall?.[1]).toMatchObject({ ready: true, visible: true, active: false })
+    view.rerender(<LazyMedia media={image} index={0} reading={reading} />)
+    expect(observe.mock.lastCall?.[1]).toMatchObject({ ready: true, visible: true, active: true })
+    act(() => intersectionCallback.current?.(false))
+    expect(observe.mock.lastCall?.[1]).toMatchObject({ ready: true, visible: false })
+  })
+
+  it('still waits for a stack frame to load and excludes pending video regions', () => {
+    const observe = vi.fn()
+    const reading = { observe, clearSurface: vi.fn() } as unknown as ArtworkReadingHandle
+    const view = render(<LazyMedia media={{ ...media, path: '/image.jpg', mediaType: 'image' }} index={0} reading={reading} fill />)
+    act(() => intersectionCallback.current?.(true))
+    expect(observe.mock.lastCall?.[1]).toMatchObject({ ready: false, visible: true })
+    view.rerender(<LazyMedia media={{ ...media, path: '', detailsPending: true }} index={0} reading={reading} />)
+    expect(observe.mock.lastCall?.[1]).toMatchObject({ ready: false, visible: true })
   })
 
   it('keeps mounted images eager at reading width across start, pause and exit', () => {
