@@ -68,19 +68,25 @@ afterEach(cleanup)
 describe('FilterSheet artwork sources', () => {
   it('keeps favorites in the draft, discards on reopen, and clears them with reset', () => {
     const onApply = vi.fn()
-    const props = { currentMediaType: 'all' as const, currentSortBy: 'source_date_desc' as const, currentLikedOnly: false, onApply, onOpenChange: vi.fn() }
+    const props = {
+      currentMediaType: 'all' as const,
+      currentSortBy: 'source_date_desc' as const,
+      currentLikedOnly: false,
+      onApply,
+      onOpenChange: vi.fn()
+    }
     const view = render(<FilterSheet {...props} open />)
-    fireEvent.click(screen.getByRole('checkbox', { name: '只看我的喜欢' }))
+    fireEvent.click(screen.getByRole('button', { name: '喜欢' }))
     expect(onApply).not.toHaveBeenCalled()
     view.rerender(<FilterSheet {...props} open={false} />)
     view.rerender(<FilterSheet {...props} open />)
-    expect(screen.getByRole('checkbox', { name: '只看我的喜欢' }).getAttribute('aria-checked')).toBe('false')
-    fireEvent.click(screen.getByRole('checkbox', { name: '只看我的喜欢' }))
+    expect(screen.getByRole('button', { name: '喜欢' }).getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: '喜欢' }))
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
-    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ likedOnly: true }))
+    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ ratingLevels: [2] }))
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
-    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ likedOnly: false }))
+    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ ratingLevels: [] }))
   })
   it('preserves a zero random seed when applying the current filters', () => {
     const onApply = vi.fn()

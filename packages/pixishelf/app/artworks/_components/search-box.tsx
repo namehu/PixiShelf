@@ -23,6 +23,7 @@ export interface SearchBoxProps {
   onSuggestionClick?: (suggestion: SearchSuggestion) => void
   /** 搜索模式 */
   mode?: 'normal' | 'tag'
+  hideArtistSuggestions?: boolean
   /** 自定义样式 */
   className?: string
   /** 是否禁用 */
@@ -45,6 +46,7 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
   onValueChange,
   onSuggestionClick,
   mode = 'normal',
+  hideArtistSuggestions = false,
   className,
   disabled = false,
   inputId,
@@ -80,7 +82,9 @@ export const SearchBox: React.FC<SearchBoxProps> = ({
     enabled: canQuery && isFocused && !disabled
   })
 
-  const suggestions = canQuery ? data?.suggestions || [] : []
+  const suggestions = canQuery
+    ? (data?.suggestions || []).filter((item) => !hideArtistSuggestions || item.type !== 'artist')
+    : []
   const tagHint = !trimmedInput.replace(/^#/, '').trim()
     ? '输入标签原名、中文或英文，选择建议后筛选。'
     : !isQueryCurrent || isLoading

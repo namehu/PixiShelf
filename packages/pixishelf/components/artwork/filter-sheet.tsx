@@ -5,7 +5,12 @@ import { ChevronDown } from 'lucide-react'
 import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
+import {
+  likedRatingLevels,
+  likedRatingLabels,
+  resolveRatingLevels,
+  type LikedRatingLevel
+} from '@/schemas/artwork-filter.dto'
 import { SSheet } from '@/components/shared/s-sheet'
 import { SortControl } from '@/components/ui/sort-control'
 import { MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui/media-type-filter'
@@ -21,6 +26,7 @@ import {
 } from '@/schemas/artwork-quick-filter.dto'
 import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import { SearchBox } from '@/app/artworks/_components/search-box'
 import { Field, FieldGroup, FieldLabel, FieldTitle } from '@/components/ui/field'
 import { useMediaQuery } from '@/hooks/use-media-query'
@@ -32,6 +38,9 @@ export interface FilterSheetProps {
   currentMediaType: MediaTypeFilter
   currentSortBy: SortOption
   currentArtist?: Option[]
+  fixedArtist?: Option
+  currentExcludedArtists?: Option[]
+  currentRatingLevels?: LikedRatingLevel[]
   currentTags?: Option[]
   currentSources?: ArtworkSource[]
   currentHasAudio?: AudioFilter
@@ -52,6 +61,8 @@ export interface FilterSheetProps {
     mediaType: MediaTypeFilter
     sortBy: SortOption
     artist?: Option[]
+    excludedArtists?: Option[]
+    ratingLevels?: LikedRatingLevel[]
     tags?: Option[]
     sources: ArtworkSource[]
     hasAudio: AudioFilter
@@ -78,6 +89,9 @@ export function FilterSheet(props: FilterSheetProps) {
     currentMediaType,
     currentSortBy,
     currentArtist = EMPTY_OPTIONS,
+    fixedArtist,
+    currentExcludedArtists = EMPTY_OPTIONS,
+    currentRatingLevels,
     currentTags = EMPTY_OPTIONS,
     currentSources = EMPTY_SOURCES,
     currentHasAudio = 'all',
@@ -104,7 +118,8 @@ export function FilterSheet(props: FilterSheetProps) {
   const [localSources, setLocalSources] = useState<Option[]>([])
   const [localHasAudio, setLocalHasAudio] = useState<AudioFilter>('all')
   const [localReadingStatus, setLocalReadingStatus] = useState<ReadingStatus | 'all'>('all')
-  const [localLikedOnly, setLocalLikedOnly] = useState(false)
+  const [localRatingLevels, setLocalRatingLevels] = useState<LikedRatingLevel[]>([])
+  const [localExcludedArtists, setLocalExcludedArtists] = useState<Option[]>([])
   const [localSearch, setLocalSearch] = useState('')
   const [localMaxMediaCount, setLocalMaxMediaCount] = useState(8)
   const [localRandomSeed, setLocalRandomSeed] = useState<number | undefined>(undefined)
@@ -128,7 +143,8 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalSources(OSource.filter((option) => currentSources.includes(option.value)))
     setLocalHasAudio(currentHasAudio)
     setLocalReadingStatus(currentReadingStatus ?? 'all')
-    setLocalLikedOnly(currentLikedOnly ?? false)
+    setLocalRatingLevels(resolveRatingLevels({ ratingLevels: currentRatingLevels, likedOnly: currentLikedOnly }))
+    setLocalExcludedArtists(currentExcludedArtists)
     setLocalSearch(currentSearch ?? '')
     setLocalMaxMediaCount(currentMaxMediaCount ?? 8)
     setLocalRandomSeed(randomSeed)
@@ -150,6 +166,8 @@ export function FilterSheet(props: FilterSheetProps) {
     currentHasAudio,
     currentReadingStatus,
     currentLikedOnly,
+    currentRatingLevels,
+    currentExcludedArtists,
     currentSearch,
     currentMaxMediaCount,
     randomSeed,
@@ -172,12 +190,14 @@ export function FilterSheet(props: FilterSheetProps) {
     onApply({
       mediaType: localMediaType,
       sortBy: localSortBy,
-      artist: localArtist,
+      artist: fixedArtist ? [] : localArtist,
+      excludedArtists: localExcludedArtists,
+      ratingLevels: localRatingLevels,
       tags: localTags,
       sources: localSources.map((option) => option.value as ArtworkSource),
       hasAudio: localHasAudio,
       readingStatus: currentReadingStatus === undefined ? undefined : localReadingStatus,
-      likedOnly: currentLikedOnly === undefined ? undefined : localLikedOnly,
+      likedOnly: undefined,
       search: localSearch.trim() || undefined,
       maxMediaCount: currentMaxMediaCount === undefined ? undefined : localMaxMediaCount,
       randomSeed: seed,
@@ -197,7 +217,8 @@ export function FilterSheet(props: FilterSheetProps) {
     setLocalSources([])
     setLocalHasAudio('all')
     setLocalReadingStatus('all')
-    setLocalLikedOnly(false)
+    setLocalRatingLevels([])
+    setLocalExcludedArtists([])
     setLocalSearch('')
     setLocalMaxMediaCount(8)
     setLocalRandomSeed(undefined)
@@ -207,7 +228,7 @@ export function FilterSheet(props: FilterSheetProps) {
 
   const handleSuggestionClick = (suggestion: SearchSuggestion) => {
     const id = suggestion.metadata?.id
-    if (suggestion.type === 'artist' && id) {
+    if (suggestion.type === 'artist' && id && !fixedArtist) {
       setLocalSearch('')
       setLocalArtist([{ value: String(id), label: suggestion.label }])
       return
@@ -237,12 +258,14 @@ export function FilterSheet(props: FilterSheetProps) {
       search: localSearch,
       mediaType: localMediaType,
       sortBy: localSortBy,
-      artist: localArtist,
+      artist: fixedArtist ? [] : localArtist,
+      excludedArtists: localExcludedArtists,
+      ratingLevels: localRatingLevels,
       tags: localTags,
       sources: localSources.map((s) => s.value),
       hasAudio: localHasAudio,
       readingStatus: localReadingStatus,
-      likedOnly: localLikedOnly,
+
       startDate: localDateRange[0] ? dayjs(localDateRange[0]).format('YYYY-MM-DD') : '',
       endDate: localDateRange[1] ? dayjs(localDateRange[1]).format('YYYY-MM-DD') : '',
       createdStartDate: localCreatedDateRange[0] ? dayjs(localCreatedDateRange[0]).format('YYYY-MM-DD') : '',
@@ -260,14 +283,26 @@ export function FilterSheet(props: FilterSheetProps) {
   )
   const content = (
     <FieldGroup className="gap-5 pb-4">
-      {currentLikedOnly !== undefined && (
-        <Field orientation="horizontal" className="min-h-11">
-          <Checkbox
-            id="filter-liked-only"
-            checked={localLikedOnly}
-            onCheckedChange={(checked) => setLocalLikedOnly(checked === true)}
-          />
-          <FieldLabel htmlFor="filter-liked-only">只看我的喜欢</FieldLabel>
+      {(currentRatingLevels !== undefined || currentLikedOnly !== undefined) && (
+        <Field className="gap-3">
+          <FieldTitle>喜欢等级</FieldTitle>
+          <ToggleGroup
+            type="multiple"
+            variant="outline"
+            aria-label="喜欢等级筛选"
+            value={localRatingLevels.map(String)}
+            onValueChange={(values) =>
+              setLocalRatingLevels(likedRatingLevels.filter((level) => values.includes(String(level))))
+            }
+            className="grid w-full grid-cols-3"
+          >
+            {likedRatingLevels.map((level) => (
+              <ToggleGroupItem key={level} value={String(level)} className="min-h-11">
+                {likedRatingLabels[level]}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <p className="text-xs text-muted-foreground">可多选，不选表示不限评分。</p>
         </Field>
       )}
       {currentReadingStatus !== undefined && (
@@ -321,19 +356,26 @@ export function FilterSheet(props: FilterSheetProps) {
           <SearchBox
             inputId="filter-search"
             inputName="filter-search"
-            ariaLabel="搜索作品、艺术家或标签"
             value={localSearch}
             onValueChange={setLocalSearch}
             onSearch={setLocalSearch}
             onSuggestionClick={handleSuggestionClick}
-            placeholder="搜索作品、艺术家或标签"
+            hideArtistSuggestions={Boolean(fixedArtist)}
+            ariaLabel={fixedArtist ? '搜索作品或标签' : '搜索作品、艺术家或标签'}
+            placeholder={fixedArtist ? '搜索作品或标签' : '搜索作品、艺术家或标签'}
             className="w-full"
           />
         </Field>
       )}
 
       {/* 艺术家 */}
-      {onSearchArtist && (
+      {fixedArtist && (
+        <Field className="gap-3">
+          <FieldTitle>艺术家范围</FieldTitle>
+          <PrivacySensitiveText className="text-sm">{fixedArtist.label}</PrivacySensitiveText>
+        </Field>
+      )}
+      {onSearchArtist && !fixedArtist && (
         <Field className="gap-3">
           <FieldLabel htmlFor="filter-artist">艺术家</FieldLabel>
           <MultipleSelector
@@ -353,6 +395,30 @@ export function FilterSheet(props: FilterSheetProps) {
             emptyIndicator="没有找到艺术家"
             className="min-h-10"
           />
+        </Field>
+      )}
+
+      {onSearchArtist && (
+        <Field className="gap-3">
+          <FieldLabel htmlFor="filter-excluded-artists">排除艺术家</FieldLabel>
+          <MultipleSelector
+            showOptionValue
+            inputProps={{
+              id: 'filter-excluded-artists',
+              name: 'filter-excluded-artists',
+              autoComplete: 'off',
+              'aria-label': '搜索并排除艺术家'
+            }}
+            value={localExcludedArtists}
+            defaultOptions={localExcludedArtists}
+            onChange={setLocalExcludedArtists}
+            onSearch={onSearchArtist}
+            maxSelected={100}
+            placeholder="搜索并排除艺术家"
+            emptyIndicator="没有找到艺术家"
+            className="min-h-10"
+          />
+          <p className="text-xs text-muted-foreground">关联任意被排除艺术家的作品均不显示，包含合作作品。</p>
         </Field>
       )}
 

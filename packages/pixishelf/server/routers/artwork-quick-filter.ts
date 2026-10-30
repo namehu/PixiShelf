@@ -21,7 +21,7 @@ const accountProcedure = authProcedure.input(quickFilterAccountSchema).use(({ ct
   return next()
 })
 export const artworkQuickFilterRouter = router({
-  list: accountProcedure.query(({ ctx }) => listQuickFilters(ctx.userId)),
+  list: accountProcedure.query(({ ctx, input }) => listQuickFilters(ctx.userId, input.scope)),
   create: accountProcedure
     .input(quickFilterCreateSchema)
     .mutation(({ ctx, input }) => createQuickFilter(ctx.userId, input)),
@@ -33,5 +33,5 @@ export const artworkQuickFilterRouter = router({
     .mutation(({ ctx, input }) => deleteQuickFilter(ctx.userId, input)),
   setNavigation: accountProcedure
     .input(quickFilterSetNavigationSchema)
-    .mutation(({ ctx, input }) => setQuickFilterNavigation(ctx.userId, input.navigation))
+    .mutation(({ ctx, input }) => setQuickFilterNavigation(ctx.userId, input.navigation, input.scope))
 })

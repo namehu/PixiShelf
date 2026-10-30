@@ -27,20 +27,25 @@ import {
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
 import {
   quickFilterNameSchema,
+  type QuickFilterScope,
   type ArtworkQuerySnapshot,
   type ArtworkQuickFilter
 } from '@/schemas/artwork-quick-filter.dto'
 
 type Props = FilterSheetProps & {
+  scope?: QuickFilterScope
   initialTab?: 'conditions' | 'saved'
   onApplySnapshot: (query: ArtworkQuerySnapshot) => void
 }
 export function GalleryFilterSheet(props: Props) {
   const userId = useAuthUser()?.id
-  return props.open && userId ? <Content key={userId} {...props} /> : null
+  return props.open && userId ? (
+    <Content key={`${userId}:${props.scope?.kind === 'artist' ? props.scope.artistId : 'global'}`} {...props} />
+  ) : null
 }
 function Content(props: Props) {
-  const api = useArtworkQuickFilters(true)
+  const api = useArtworkQuickFilters(true, props.scope)
+  const navigationEnabled = props.scope?.kind !== 'artist'
   const desktop = useMediaQuery('(min-width: 640px)')
   const [tab, setTab] = useState(props.initialTab ?? 'conditions')
   const [ordinary, setOrdinary] = useState<ArtworkQuerySnapshot | null>(null)
@@ -101,7 +106,7 @@ function Content(props: Props) {
     setError('')
     const ok = editing
       ? await api.update({ id: editing.id, revision: editing.revision, name: validated.data, query })
-      : await api.create({ name: validated.data, query, pin })
+      : await api.create({ name: validated.data, query, pin: navigationEnabled && pin })
     if (ok) {
       toast.success(editing ? '快捷筛选已更新' : '快捷筛选已保存')
       setSaving(false)
@@ -121,7 +126,8 @@ function Content(props: Props) {
             currentSources: input.sources,
             currentHasAudio: input.hasAudio,
             currentReadingStatus: input.readingStatus,
-            currentLikedOnly: input.likedOnly,
+            currentRatingLevels: input.ratingLevels,
+            currentExcludedArtists: input.excludedArtists,
             startDate: input.startDate,
             endDate: input.endDate,
             createdStartDate: input.createdStartDate,
@@ -157,7 +163,11 @@ function Content(props: Props) {
                 )
               }
               description={
-                editing ? '保存修改只更新快捷筛选，不改变当前作品列表。' : '组合常用条件，保存为自己的浏览入口。'
+                editing
+                  ? '保存修改只更新快捷筛选，不改变当前作品列表。'
+                  : navigationEnabled
+                    ? '组合常用条件，保存为自己的浏览入口。'
+                    : '快捷筛选仅在当前艺术家详情页中使用。'
               }
               headerExtra={
                 <div className="px-4 pb-3">
@@ -242,7 +252,7 @@ function Content(props: Props) {
                         disabled={api.busy}
                       />
                     </Field>
-                    {!editing && (
+                    {!editing && navigationEnabled && (
                       <Field orientation="horizontal">
                         <FieldLabel htmlFor="quick-filter-pin">
                           加入导航{api.navigation.ids.length >= 10 ? '（已满 10 项）' : ''}
@@ -280,6 +290,7 @@ function Content(props: Props) {
                   </div>
                 ) : (
                   <QuickFilterList
+                    navigationEnabled={navigationEnabled}
                     items={api.items}
                     ids={api.navigation.ids}
                     busy={api.busy}
@@ -299,7 +310,9 @@ function Content(props: Props) {
                     onDelete={(item) =>
                       setConfirmation({
                         title: '删除快捷筛选？',
-                        description: '删除后会同时移出导航，当前作品列表不受影响。',
+                        description: navigationEnabled
+                          ? '删除后会同时移出导航，当前作品列表不受影响。'
+                          : '删除后无法恢复，当前作品列表不受影响。',
                         action: () => {
                           void api.remove(item.id, item.revision)
                         }

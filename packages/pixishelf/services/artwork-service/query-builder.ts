@@ -1,3 +1,4 @@
+import { resolveRatingLevels } from '@/schemas/artwork-filter.dto'
 import 'server-only'
 import { TRPCError } from '@trpc/server'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
@@ -12,7 +13,7 @@ export function buildArtworkWhereClause(
   tagStrategy: 'grouped' | 'exists' = 'grouped',
   userId?: string
 ) {
-  if (params.readingCursor && !params.readingStatus && !params.likedOnly) {
+  if (params.readingCursor && !params.readingStatus && !resolveRatingLevels(params).length) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid reading cursor' })
   }
   const {
@@ -43,10 +44,17 @@ export function buildArtworkWhereClause(
   const sqlParams: any[] = []
   let paramIndex = initialParamIndex
 
-  if (params.likedOnly) {
+  const ratingLevels = resolveRatingLevels(params)
+  if (ratingLevels.length) {
     if (!userId) throw new Error('Authenticated user required for liked filter')
-    whereSQL += ` AND EXISTS (SELECT 1 FROM "ArtworkLike" al WHERE al."artworkId" = a.id AND al."userId" = $${paramIndex} AND al."level" >= 2)`
-    sqlParams.push(userId)
+    whereSQL += ` AND EXISTS (SELECT 1 FROM "ArtworkLike" al WHERE al."artworkId" = a.id AND al."userId" = $${paramIndex} AND al."level" = ANY($${paramIndex + 1}::int[]))`
+    sqlParams.push(userId, ratingLevels)
+    paramIndex += 2
+  }
+
+  if (params.excludeArtistIds?.length) {
+    whereSQL += ` AND NOT EXISTS (SELECT 1 FROM effective_artwork_creators excluded WHERE excluded."artworkId" = a.id AND excluded."artistId" = ANY($${paramIndex}::int[]))`
+    sqlParams.push(params.excludeArtistIds)
     paramIndex++
   }
 

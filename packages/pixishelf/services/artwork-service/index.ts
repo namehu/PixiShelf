@@ -1,3 +1,4 @@
+import { resolveRatingLevels } from '@/schemas/artwork-filter.dto'
 import type { ArtistResponseDto } from '@/schemas/artist.dto'
 import { creatorInclude, editArtworkCreators, lockCreatorCatalog } from '@pixishelf/db'
 import 'server-only'
@@ -57,7 +58,7 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema, userI
   const { cursor } = params
   const page = cursor ?? 1
   const pageSize = params.pageSize
-  const { whereSQL, sqlParams } = (params.readingStatus || params.likedOnly)
+  const { whereSQL, sqlParams } = (params.readingStatus || resolveRatingLevels(params).length > 0)
     ? readingCountClause(params, requireReadingUserId(userId))
     : buildArtworkWhereClause(params)
 
@@ -83,7 +84,7 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema, userI
 }
 
 async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfetch = false, userId?: string) {
-  if (params.readingStatus || params.likedOnly) return queryReadingArtworkRowsPage(params, requireReadingUserId(userId))
+  if (params.readingStatus || resolveRatingLevels(params).length > 0) return queryReadingArtworkRowsPage(params, requireReadingUserId(userId))
   const page = params.cursor ?? 1
   const skip = (page - 1) * params.pageSize
   const { whereSQL, sqlParams, paramIndex: initialParamIndex } = buildArtworkWhereClause(params)
@@ -350,7 +351,7 @@ export async function getArtworkCardsPage(
       nextRandomCursor: result.nextRandomCursor
     }
   }
-  if (params.readingStatus || params.likedOnly) {
+  if (params.readingStatus || resolveRatingLevels(params).length > 0) {
     const result = await queryReadingArtworkIdsPage(params, requireReadingUserId(userId))
     return {
       items: await getArtworkCardsByIds(result.ids),
@@ -797,6 +798,8 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     randomSeed,
     readingStatus,
     likedOnly,
+    ratingLevels: selectedRatingLevels,
+    excludeArtistIds,
     readingCursor,
     randomCursor,
     search,
@@ -834,6 +837,8 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     randomSeed: mode === 'random' ? randomSeed : undefined,
     readingStatus,
     likedOnly,
+    ratingLevels: selectedRatingLevels,
+    excludeArtistIds,
     readingCursor,
     randomCursor,
     expectedUserId: input.expectedUserId
@@ -861,7 +866,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     items,
     page,
     pageSize,
-    nextPage: readingStatus || likedOnly || randomPage ? null : hasNextPage ? page + 1 : null,
+    nextPage: readingStatus || resolveRatingLevels(input).length > 0 || randomPage ? null : hasNextPage ? page + 1 : null,
     nextRandomCursor: randomPage?.nextRandomCursor,
     nextReadingCursor
   }

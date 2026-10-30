@@ -1,5 +1,6 @@
 'use client'
 
+import { resolveRatingLevels, type LikedRatingLevel } from '@/schemas/artwork-filter.dto'
 import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 import { FilterIcon } from 'lucide-react'
@@ -62,10 +63,13 @@ interface InfiniteArtworkListProps {
   onClearFilters?: () => void
   /** 自定义空状态文案 (默认: "没有找到相关作品") */
   emptyMessage?: string
+  emptyDescription?: string
   /** 随机种子，用于随机排序时的稳定性 */
   randomSeed?: number
   readingStatus?: ReadingStatus
   likedOnly?: boolean
+  ratingLevels?: LikedRatingLevel[]
+  excludeArtistIds?: number[]
 }
 
 export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
@@ -84,9 +88,12 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     createdEndDate,
     onClearFilters,
     emptyMessage,
+    emptyDescription,
     randomSeed,
     readingStatus,
-    likedOnly
+    likedOnly,
+    ratingLevels,
+    excludeArtistIds
   } = props
 
   const trpcClient = useTRPCClient()
@@ -106,27 +113,57 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   const isRequesting = useRef(false)
   const prevInView = useRef(false)
 
-  const filterInput = useMemo(() => ({
-        search: searchQuery || undefined,
-        sortBy,
-        randomSeed: sortBy === 'random' ? effectiveSeed : undefined,
-        mediaType,
-        tagId,
-        tagIds,
-        artistId: artistId ? Number(artistId) : undefined,
-        sources,
-        hasAudio,
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
-        createdStartDate: createdStartDate || undefined,
-        createdEndDate: createdEndDate || undefined,
-        readingStatus,
-        likedOnly,
-        expectedUserId: ownerUserId ?? undefined
-  }), [artistId, createdEndDate, createdStartDate, endDate, hasAudio, mediaType, ownerUserId,
-    effectiveSeed, readingStatus, likedOnly, searchQuery, sortBy, sources, startDate, tagId, tagIds])
+  const filterInput = useMemo(
+    () => ({
+      search: searchQuery || undefined,
+      sortBy,
+      randomSeed: sortBy === 'random' ? effectiveSeed : undefined,
+      mediaType,
+      tagId,
+      tagIds,
+      artistId: artistId ? Number(artistId) : undefined,
+      sources,
+      hasAudio,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      createdStartDate: createdStartDate || undefined,
+      createdEndDate: createdEndDate || undefined,
+      readingStatus,
+      likedOnly,
+      ratingLevels,
+      excludeArtistIds,
+      expectedUserId: ownerUserId ?? undefined
+    }),
+    [
+      artistId,
+      createdEndDate,
+      createdStartDate,
+      endDate,
+      hasAudio,
+      mediaType,
+      ownerUserId,
+      effectiveSeed,
+      readingStatus,
+      likedOnly,
+      ratingLevels,
+      excludeArtistIds,
+      searchQuery,
+      sortBy,
+      sources,
+      startDate,
+      tagId,
+      tagIds
+    ]
+  )
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading, isError, error } = useInfiniteQuery({
-    queryKey: ['artwork', 'cardList', 'random-v1', ownerUserId, filterInput, ...(queryGeneration ? [queryGeneration] : [])],
+    queryKey: [
+      'artwork',
+      'cardList',
+      'random-v1',
+      ownerUserId,
+      filterInput,
+      ...(queryGeneration ? [queryGeneration] : [])
+    ],
     initialPageParam: 1 as number | string,
     enabled: Boolean(ownerUserId),
     // Reading changes card badges, not this round's membership. Keep loaded
@@ -135,13 +172,22 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     refetchOnMount: readingStatus ? false : undefined,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    queryFn: ({ pageParam, signal }) => trpcClient.artwork.cardList.query({
-      ...filterInput,
-      cursor: typeof pageParam === 'number' ? pageParam : undefined,
-      readingCursor: sortBy !== 'random' && typeof pageParam === 'string' ? pageParam : undefined,
-      randomCursor: sortBy === 'random' && typeof pageParam === 'string' ? pageParam : undefined
-    }, { signal }),
-    getNextPageParam: (lastPage) => sortBy === 'random' ? lastPage.nextRandomCursor : readingStatus || likedOnly ? lastPage.nextReadingCursor : lastPage.nextCursor,
+    queryFn: ({ pageParam, signal }) =>
+      trpcClient.artwork.cardList.query(
+        {
+          ...filterInput,
+          cursor: typeof pageParam === 'number' ? pageParam : undefined,
+          readingCursor: sortBy !== 'random' && typeof pageParam === 'string' ? pageParam : undefined,
+          randomCursor: sortBy === 'random' && typeof pageParam === 'string' ? pageParam : undefined
+        },
+        { signal }
+      ),
+    getNextPageParam: (lastPage) =>
+      sortBy === 'random'
+        ? lastPage.nextRandomCursor
+        : readingStatus || resolveRatingLevels(props).length > 0
+          ? lastPage.nextReadingCursor
+          : lastPage.nextCursor,
     retry: (attempt, failure) => !failure.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') && attempt < 3
   })
 
@@ -150,7 +196,17 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   useEffect(() => {
     if (!error?.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') || recoveredContext.current === resetContext) return
     recoveredContext.current = resetContext
-    void queryClient.resetQueries({ queryKey: ['artwork', 'cardList', 'random-v1', ownerUserId, filterInput, ...(queryGeneration ? [queryGeneration] : [])], exact: true })
+    void queryClient.resetQueries({
+      queryKey: [
+        'artwork',
+        'cardList',
+        'random-v1',
+        ownerUserId,
+        filterInput,
+        ...(queryGeneration ? [queryGeneration] : [])
+      ],
+      exact: true
+    })
   }, [error, filterInput, ownerUserId, queryClient, queryGeneration, resetContext])
 
   const allItems = useMemo(() => data?.pages.flatMap((page) => page.items) || [], [data])
@@ -202,9 +258,9 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     rowVirtualizer.measure()
   }, [containerWidth, columns, displayMode, rowVirtualizer])
 
-  const visibleArtworkIds = rowVirtualizer.getVirtualItems().flatMap((row) =>
-    allItems.slice(row.index * columns, (row.index + 1) * columns).map((item) => item.id)
-  )
+  const visibleArtworkIds = rowVirtualizer
+    .getVirtualItems()
+    .flatMap((row) => allItems.slice(row.index * columns, (row.index + 1) * columns).map((item) => item.id))
   const readingSummaries = useReadingSummaries(visibleArtworkIds)
 
   const { ref: loadMoreRef, inView } = useInView({
@@ -212,7 +268,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${ownerUserId}-${searchQuery}-${sortBy}-${mediaType}-${readingStatus ?? ''}-${likedOnly ?? false}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}-${queryGeneration}`
+  const storageKey = `artworks-scroll-${ownerUserId}-${searchQuery}-${sortBy}-${mediaType}-${readingStatus ?? ''}-${likedOnly ?? false}-${ratingLevels?.join(',') || ''}-${excludeArtistIds?.join(',') || ''}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}-${queryGeneration}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {
@@ -288,7 +344,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       <PageState
         variant="empty"
         title={emptyMessage || '没有找到相关作品'}
-        description="可以调整关键词、标签或媒体类型后再试。"
+        description={emptyDescription || '可以调整关键词、标签或媒体类型后再试。'}
         icon={<FilterIcon aria-hidden="true" />}
         action={
           onClearFilters ? (
@@ -334,7 +390,10 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
                   key={virtualRow.key}
                   ref={rowVirtualizer.measureElement}
                   data-index={virtualRow.index}
-                  className={cn('absolute top-0 left-0 grid w-full', displayMode === 'minimal' ? 'gap-[2px] pb-[2px]' : 'gap-3 pb-3')}
+                  className={cn(
+                    'absolute top-0 left-0 grid w-full',
+                    displayMode === 'minimal' ? 'gap-[2px] pb-[2px]' : 'gap-3 pb-3'
+                  )}
                   style={{
                     transform: `translateY(${virtualRow.start - rowVirtualizer.options.scrollMargin}px)`,
                     gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`

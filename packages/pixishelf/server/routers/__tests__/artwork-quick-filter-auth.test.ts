@@ -34,6 +34,6 @@ describe('quick filter ownership', () => {
   })
   it('takes identity from the authenticated session', async () => {
     await artworkQuickFilterRouter.createCaller(context as never).list({ expectedUserId: 'owner' })
-    expect(service.listQuickFilters).toHaveBeenCalledWith('owner')
+    expect(service.listQuickFilters).toHaveBeenCalledWith('owner', { kind: 'global' })
   })
 })

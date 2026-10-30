@@ -1,3 +1,4 @@
+import { excludeArtistIdsSchema, ratingLevelsFilterSchema } from './artwork-filter.dto'
 import { MediaUploadReceiptSchema } from './media-content.dto'
 import z from 'zod'
 import { MediaTypeFilter, SortOption } from '@/types'
@@ -107,6 +108,8 @@ export const ArtworksInfiniteQuerySchema = z.object({
   randomSeed: z.number().int().optional(),
   readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
   likedOnly: z.boolean().optional(),
+  ratingLevels: ratingLevelsFilterSchema.optional(),
+  excludeArtistIds: excludeArtistIdsSchema.optional(),
   readingCursor: z.string().min(1).max(4096).optional(),
   randomCursor: z.string().min(1).max(4096).optional(),
   expectedUserId: z.string().min(1).optional(),
@@ -193,6 +196,8 @@ export const ViewerFeedQuerySchema = z.object({
   randomSeed: z.coerce.number().int().optional(),
   readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
   likedOnly: z.boolean().optional(),
+  ratingLevels: ratingLevelsFilterSchema.optional(),
+  excludeArtistIds: excludeArtistIdsSchema.optional(),
   readingCursor: z.string().min(1).max(4096).optional(),
   randomCursor: z.string().min(1).max(4096).optional(),
   expectedUserId: z.string().min(1).optional(),

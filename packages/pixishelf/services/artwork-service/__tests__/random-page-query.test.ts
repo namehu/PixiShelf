@@ -38,7 +38,12 @@ describe('indexed random ring', () => {
   it('binds cursors to user, seed and normalized filters and rejects old cursors', async () => {
     const raw = vi.fn().mockResolvedValue([1, 2, 3].map((id) => ({ id, random_key: 'f'.repeat(32) })))
     const result = await queryRandomArtworkIdsPage(params, 'a', { $queryRawUnsafe: raw })
-    for (const changed of [{ randomSeed: 1 }, { search: 'different' }, { readingStatus: 'COMPLETED' as const }, { likedOnly: false }]) {
+    for (const changed of [
+      { randomSeed: 1 },
+      { search: 'different' },
+      { readingStatus: 'COMPLETED' as const },
+      { likedOnly: false }
+    ]) {
       expect(() => randomPageContext({ ...params, ...changed, randomCursor: result.nextRandomCursor }, 'a')).toThrow(
         'ARTWORK_RANDOM_CURSOR_INVALID'
       )
@@ -54,7 +59,7 @@ describe('indexed random ring', () => {
     expect(query.sql).toContain('a.id) > (')
     expect(query.sql).toContain('NOT EXISTS')
     expect(query.sql).toContain('FROM "ArtworkLike"')
-    expect(query.sql).toContain('al."level" >= 2')
+    expect(query.sql).toContain('al."level" = ANY(')
     expect(query.values.filter((value) => value === 'a')).toHaveLength(2)
     expect(query.sql).not.toMatch(/OFFSET|COUNT\(\*\)|LEFT JOIN/)
   })
@@ -62,7 +67,7 @@ describe('indexed random ring', () => {
   it('checks every selected tag without a full candidate aggregate', () => {
     const query = buildRandomRangeQuery({ ...params, tagIds: [3, 5] }, 'a', 0, 25)
     expect(query.sql.match(/FROM "ArtworkTag" at_required/g)).toHaveLength(2)
-    expect(query.values.slice(0, 3)).toEqual(['a', 3, 5])
+    expect(query.values.slice(0, 4)).toEqual(['a', [2, 3, 4], 3, 5])
     expect(query.sql).not.toContain('GROUP BY')
   })
 

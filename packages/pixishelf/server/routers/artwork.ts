@@ -1,3 +1,4 @@
+import { resolveRatingLevels } from '@/schemas/artwork-filter.dto'
 import { MediaUploadReceiptSchema } from '@/schemas/media-content.dto'
 import { ReaderInputSchema, MediaPageInputSchema } from '@/schemas/artwork-reader.dto'
 import { SummaryGenerateInputSchema } from '@/schemas/artwork-summary.dto'
@@ -107,13 +108,22 @@ export const artworkRouter = router({
    * 获取作品列表 (无限加载)
    */
   list: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input, ctx }) => {
-    assertArtworkListAccount(ctx.userId, input.expectedUserId, input.readingStatus || input.likedOnly)
+    assertArtworkListAccount(
+      ctx.userId,
+      input.expectedUserId,
+      input.readingStatus || resolveRatingLevels(input).length > 0
+    )
     const page = input.cursor ?? 1
     const result = await getArtworksList(input, ctx.userId)
     const totalPages = Math.ceil(result.total / result.pageSize)
     return {
       items: result.items,
-      nextCursor: input.readingStatus || input.likedOnly ? undefined : page < totalPages ? page + 1 : undefined,
+      nextCursor:
+        input.readingStatus || resolveRatingLevels(input).length > 0
+          ? undefined
+          : page < totalPages
+            ? page + 1
+            : undefined,
       nextReadingCursor: result.nextReadingCursor,
       total: result.total
     }
@@ -122,13 +132,17 @@ export const artworkRouter = router({
    * 获取作品卡片列表；不计算总数，通过多取一条判断是否还有下一页。
    */
   cardList: authProcedure.input(ArtworksInfiniteQuerySchema).query(async ({ input, ctx }) => {
-    assertArtworkListAccount(ctx.userId, input.expectedUserId, input.readingStatus || input.likedOnly)
+    assertArtworkListAccount(
+      ctx.userId,
+      input.expectedUserId,
+      input.readingStatus || resolveRatingLevels(input).length > 0
+    )
     const page = input.cursor ?? 1
     const result = await getArtworkCardsPage(input, ctx.userId)
     return {
       items: result.items,
       nextCursor:
-        input.readingStatus || input.likedOnly || input.sortBy === 'random'
+        input.readingStatus || resolveRatingLevels(input).length > 0 || input.sortBy === 'random'
           ? undefined
           : result.hasNextPage
             ? page + 1
@@ -398,7 +412,11 @@ export const artworkRouter = router({
    * 获取沉浸浏览 Feed
    */
   viewerFeed: authProcedure.input(ViewerFeedQuerySchema).query(async ({ input, ctx }) => {
-    assertArtworkListAccount(ctx.userId, input.expectedUserId, input.readingStatus || input.likedOnly)
+    assertArtworkListAccount(
+      ctx.userId,
+      input.expectedUserId,
+      input.readingStatus || resolveRatingLevels(input).length > 0
+    )
     try {
       return getViewerFeed({
         ...input,

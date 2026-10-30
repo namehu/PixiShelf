@@ -5,13 +5,21 @@ import { Button } from '@/components/ui/button'
 import { useSafeBack } from '@/hooks/use-safe-back'
 
 interface PageNoDataProps {
+  reason?: string
+  fallbackHref?: string
   hasActiveFilters?: boolean
   onAdjustFilters?: () => void
   onClearFilters?: () => void
 }
 
-export default function PageNoData({ hasActiveFilters, onAdjustFilters, onClearFilters }: PageNoDataProps) {
-  const safeBack = useSafeBack()
+export default function PageNoData({
+  reason,
+  fallbackHref,
+  hasActiveFilters,
+  onAdjustFilters,
+  onClearFilters
+}: PageNoDataProps) {
+  const safeBack = useSafeBack(fallbackHref)
 
   return (
     <div className="flex h-full w-full items-center justify-center bg-black px-6 text-white">
@@ -19,7 +27,7 @@ export default function PageNoData({ hasActiveFilters, onAdjustFilters, onClearF
         <ImageOffIcon className="mx-auto mb-4 size-10 opacity-60" aria-hidden="true" />
         <h2 className="text-xl font-semibold">暂无可浏览作品</h2>
         <p className="mt-2 text-sm leading-6 text-white/60">
-          {hasActiveFilters ? '没有作品符合当前筛选条件。' : '当前收藏中没有可用于沉浸浏览的媒体。'}
+          {reason || (hasActiveFilters ? '没有作品符合当前筛选条件。' : '当前收藏中没有可用于沉浸浏览的媒体。')}
         </p>
         <div className="mt-5 flex flex-wrap justify-center gap-2">
           {onAdjustFilters && (

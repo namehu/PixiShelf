@@ -28,6 +28,7 @@ const other = `${prefix}-b`
 const empty = `${prefix}-empty`
 const activeCount = 18
 let artistId: number
+let coauthorIds: number[] = []
 let tagIds: number[] = []
 let artworkIds: number[] = []
 
@@ -41,10 +42,11 @@ const ids = (items: Array<{ id: number }>) => items.map((item) => item.id)
 
 async function walkCards(params: ArtworksInfiniteQuerySchema, userId: string) {
   const collected: number[] = []
+  let cursor = 1
   let readingCursor: string | undefined
   let randomCursor: string | undefined
   for (let pageNumber = 0; pageNumber <= activeCount; pageNumber++) {
-    const page = await getArtworkCardsPage({ ...params, readingCursor, randomCursor }, userId)
+    const page = await getArtworkCardsPage({ ...params, cursor, readingCursor, randomCursor }, userId)
     expect(page.items.length).toBeLessThanOrEqual(params.pageSize)
     expect(page).not.toHaveProperty('total')
     for (const item of page.items) {
@@ -55,7 +57,13 @@ async function walkCards(params: ArtworksInfiniteQuerySchema, userId: string) {
     if (!page.hasNextPage) return collected
     readingCursor = page.nextReadingCursor
     randomCursor = page.nextRandomCursor
-    expect(readingCursor ?? randomCursor).toBeTruthy()
+    cursor = readingCursor || randomCursor ? 1 : page.page + 1
+    if (
+      params.sortBy === 'random' ||
+      params.readingStatus ||
+      (params.ratingLevels ?? (params.likedOnly ? [2, 3, 4] : [])).length
+    )
+      {expect(readingCursor ?? randomCursor).toBeTruthy()}
   }
   throw new Error('Favorites pagination did not terminate')
 }
@@ -65,6 +73,8 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
     context.db = db
     await db!.userBA.createMany({ data: [user, other, empty].map((id) => ({ id })) })
     artistId = (await db!.artist.create({ data: { name: prefix } })).id
+    for (const suffix of ['coauthor-a', 'coauthor-b'])
+      {coauthorIds.push((await db!.artist.create({ data: { name: `${prefix}-${suffix}` } })).id)}
     for (const suffix of ['first', 'second']) {
       tagIds.push((await db!.tag.create({ data: { name: `${prefix}-${suffix}` } })).id)
     }
@@ -88,6 +98,17 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
         }
       })
       artworkIds.push(artwork.id)
+      for (const [position, coauthorId] of coauthorIds.entries()) {
+        if (index % (position + 4) === 0) {
+          await db!.artworkArtist.create({
+            data: {
+              artworkId: artwork.id,
+              artistId: coauthorId,
+              evidence: { create: { evidenceKey: 'manual', provenance: 'MANUAL' } }
+            }
+          })
+        }
+      }
       if (index % 2 === 0 || index >= activeCount) {
         await db!.artworkLike.create({ data: { userId: user, artworkId: artwork.id, level: 2 + (index % 3) } })
       } else {
@@ -117,7 +138,7 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
     try {
       await db.image.deleteMany({ where: { artwork: { storageKey: { startsWith: prefix } } } })
       await db.artwork.deleteMany({ where: { storageKey: { startsWith: prefix } } })
-      await db.artist.deleteMany({ where: { name: prefix } })
+      await db.artist.deleteMany({ where: { name: { startsWith: prefix } } })
       await db.tag.deleteMany({ where: { name: { startsWith: prefix } } })
       await db.userBA.deleteMany({ where: { id: { in: [user, other, empty] } } })
     } finally {
@@ -177,6 +198,38 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
     }
   })
 
+  it('matches exact rating unions, unrestricted unrated/normal works, and any excluded effective coauthor', async () => {
+    for (const sortBy of ['source_date_asc', 'random']) {
+      for (const ratingLevels of [[], [2], [3], [4], [2, 4], [2, 3, 4]]) {
+        const params = input({ ratingLevels, sortBy, randomSeed: sortBy === 'random' ? 73476 : undefined, pageSize: 2 })
+        const matches = (index: number) =>
+          !ratingLevels.length || (index % 2 === 0 && ratingLevels.includes(2 + (index % 3)))
+        expect(new Set(await walkCards(params, user))).toEqual(new Set(selectedIds(matches)))
+        expect(new Set(await walkCards(params, empty))).toEqual(
+          new Set(ratingLevels.length ? [] : selectedIds(() => true))
+        )
+        for (const excluded of [[coauthorIds[0]!], coauthorIds]) {
+          const included = (index: number) =>
+            matches(index) && index % 4 !== 0 && (excluded.length === 1 || index % 5 !== 0)
+          expect(new Set(await walkCards({ ...params, excludeArtistIds: excluded }, user))).toEqual(
+            new Set(selectedIds(included))
+          )
+        }
+        expect(await walkCards({ ...params, excludeArtistIds: [artistId] }, user)).toEqual([])
+      }
+    }
+    const params = input({ ratingLevels: [4], excludeArtistIds: coauthorIds, pageSize: 30 })
+    const expected = selectedIds((index) => index % 2 === 0 && index % 3 === 2 && index % 4 !== 0 && index % 5 !== 0)
+    expect(ids((await getArtworksList(params, user)).items)).toEqual(expected)
+    for (const mode of ['ordered', 'random'] as const) {
+      const result = await getViewerFeed({
+        ...ViewerFeedQuerySchema.parse({ ...params, mode, randomSeed: 42 }),
+        userId: user
+      })
+      expect(new Set(ids(result.items))).toEqual(new Set(expected))
+    }
+  })
+
   it('continues after the boundary and a future work are rated normal without duplicates or omissions', async () => {
     for (const sortBy of ['source_date_asc', 'random']) {
       const params = input({ sortBy, randomSeed: sortBy === 'random' ? 73476 : undefined, pageSize: 2 })
@@ -210,7 +263,13 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
       const cursor = { readingCursor: first.nextReadingCursor, randomCursor: first.nextRandomCursor }
       const error = sortBy === 'random' ? 'ARTWORK_RANDOM_CURSOR_INVALID' : 'Invalid reading cursor'
       await expect(getArtworkCardsPage({ ...params, ...cursor }, other)).rejects.toThrow(error)
-      for (const changes of [{ tagIds: [tagIds[0]!] }, { readingStatus: 'UNREAD' as const }, { likedOnly: false }]) {
+      for (const changes of [
+        { tagIds: [tagIds[0]!] },
+        { readingStatus: 'UNREAD' as const },
+        { likedOnly: false },
+        { ratingLevels: [4 as const] },
+        { excludeArtistIds: coauthorIds }
+      ]) {
         await expect(getArtworkCardsPage({ ...params, ...changes, ...cursor }, user)).rejects.toThrow(error)
       }
     }
@@ -239,7 +298,9 @@ describe.skipIf(!url).sequential('account favorites with isolated PostgreSQL', (
       do {
         const page = await getViewerFeed({ ...viewerInput, userId: user, readingCursor, randomCursor })
         expect(page.items.length).toBeLessThanOrEqual(viewerInput.pageSize)
-        expect(page.items.every((item) => item.isLike && item.ratingLevel !== null && item.ratingLevel! >= 2)).toBe(true)
+        expect(page.items.every((item) => item.isLike && item.ratingLevel !== null && item.ratingLevel! >= 2)).toBe(
+          true
+        )
         viewerIds.push(...ids(page.items))
         readingCursor = page.nextReadingCursor
         randomCursor = page.nextRandomCursor

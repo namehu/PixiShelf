@@ -1,3 +1,9 @@
+import {
+  excludeArtistIdsSchema,
+  likedRatingLabels,
+  ratingLevelsFilterSchema,
+  resolveRatingLevels
+} from '@/schemas/artwork-filter.dto'
 import { createSerializer, parseAsBoolean, parseAsInteger, parseAsString } from 'nuqs'
 import {
   artworkQuerySnapshotSchema,
@@ -24,6 +30,9 @@ export const artworkQueryParsers = {
   sources: string(),
   hasAudio: string('all'),
   readingStatus: string('all'),
+  ratingLevels: parseAsString.withOptions({ history: 'replace', clearOnDefault: true }),
+  excludeArtistIds: string(),
+  excludeArtistLabels: string(),
   likedOnly: parseAsBoolean.withDefault(false).withOptions({ history: 'replace', clearOnDefault: true })
 }
 export function snapshotToQuery(input: ArtworkQuerySnapshot, seed?: number) {
@@ -40,7 +49,10 @@ export function snapshotToQuery(input: ArtworkQuerySnapshot, seed?: number) {
     sources: q.sources.join(',') || null,
     hasAudio: q.hasAudio,
     readingStatus: q.readingStatus,
-    likedOnly: q.likedOnly || null,
+    likedOnly: null,
+    ratingLevels: q.ratingLevels.join(',') || null,
+    excludeArtistIds: q.excludedArtists.map((a) => a.value).join(',') || null,
+    excludeArtistLabels: q.excludedArtists.map((a) => encodeURIComponent(a.label)).join(',') || null,
     startDate: q.startDate || null,
     endDate: q.endDate || null,
     createdStartDate: q.createdStartDate || null,
@@ -62,6 +74,16 @@ export function queryToSnapshot(params: URLSearchParams): ArtworkQuerySnapshot {
   return artworkQuerySnapshotSchema.parse({
     ...Object.fromEntries(params),
     likedOnly: params.get('likedOnly') === 'true',
+    ratingLevels: params.has('ratingLevels') ? params.get('ratingLevels') : undefined,
+    excludedArtists: csv('excludeArtistIds').map((value, i) => {
+      let label = csv('excludeArtistLabels')[i] || `#${value}`
+      try {
+        label = decodeURIComponent(label)
+      } catch {
+        /* Keep the supplied label. */
+      }
+      return { value, label }
+    }),
     artist: params.get('artistId')
       ? [{ value: params.get('artistId'), label: params.get('artistLabel') || `#${params.get('artistId')}` }]
       : [],
@@ -86,7 +108,8 @@ export function describeSnapshot(q: ArtworkQuerySnapshot) {
   return [
     q.search && `关键词：${q.search}`,
     q.readingStatus !== 'all' && readingFilterLabels[q.readingStatus],
-    q.likedOnly && '我的喜欢',
+    q.ratingLevels.length > 0 && q.ratingLevels.map((level) => likedRatingLabels[level]).join('、'),
+    ...q.excludedArtists.map((a) => `排除艺术家：${a.label}`),
     q.mediaType !== 'all' && { image: '图片', animation: '动图', video: '视频' }[q.mediaType],
     ...q.artist.map((a) => a.label),
     ...q.tags.map((t) => `#${t.label}`),
@@ -98,4 +121,24 @@ export function describeSnapshot(q: ArtworkQuerySnapshot) {
   ]
     .filter(Boolean)
     .join(' · ')
+}
+
+export function queryRatingLevels(value: string | null | undefined, likedOnly = false) {
+  return resolveRatingLevels({
+    ratingLevels: value == null ? undefined : ratingLevelsFilterSchema.parse(value),
+    likedOnly
+  })
+}
+export function queryArtistOptions(ids: string, labels: string) {
+  const names = labels.split(',')
+  const labelsById = new Map(ids.split(',').map((value, index) => [Number(value), names[index]]))
+  return excludeArtistIdsSchema.parse(ids).map((id) => {
+    let label = labelsById.get(id) || `艺术家 #${id}`
+    try {
+      label = decodeURIComponent(label)
+    } catch {
+      /* Preserve a malformed display label. */
+    }
+    return { value: String(id), label }
+  })
 }

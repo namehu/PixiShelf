@@ -12,7 +12,11 @@ describe('saved artwork queries', () => {
     const query = artworkQuerySnapshotSchema.parse({
       search: '100% & 漫画',
       readingStatus: 'IN_PROGRESS',
-      likedOnly: true,
+      ratingLevels: [4, 2],
+      excludedArtists: [
+        { value: '7', label: '合作者,A%中文' },
+        { value: '8', label: '另一位' }
+      ],
       artist: [{ value: '42', label: '艺术家' }],
       tags: [{ value: '9', label: 'A,B% 中文' }],
       sources: ['LOCAL_IMPORT'],
@@ -41,7 +45,7 @@ describe('saved artwork queries', () => {
     expect(snapshotHref(legacy)).not.toContain('likedOnly')
     expect(queryToSnapshot(new URLSearchParams('likedOnly=false')).likedOnly).toBe(false)
     expect(queryToSnapshot(new URLSearchParams('likedOnly=invalid')).likedOnly).toBe(false)
-    expect(describeSnapshot(artworkQuerySnapshotSchema.parse({ likedOnly: true }))).toContain('我的喜欢')
+    expect(describeSnapshot(artworkQuerySnapshotSchema.parse({ likedOnly: true }))).toContain('喜欢、超爱、夯爆了')
     expect(artworkQuerySnapshotSchema.safeParse({ likedOnly: 'false' }).success).toBe(false)
   })
   it('saves sorting but generates a new seed on each application and preserves a supplied browsing seed', () => {

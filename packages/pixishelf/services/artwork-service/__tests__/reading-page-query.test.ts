@@ -9,17 +9,29 @@ import { queryReadingArtworkIdsPage, queryReadingArtworkRowsPage } from '../read
 import { buildArtworkWhereClause } from '../query-builder'
 
 describe('reading page SQL', () => {
-  beforeEach(() => { queryRawMock.mockReset() })
+  beforeEach(() => {
+    queryRawMock.mockReset()
+  })
 
   it('combines favorites with ordinary filters and rejects cursors from another account or collection', async () => {
-    const params = ArtworksInfiniteQuerySchema.parse({ likedOnly: true, pageSize: 1, sortBy: 'title_asc', search: 'cat', tagIds: [1, 2], sources: ['LOCAL_IMPORT'] })
+    const params = ArtworksInfiniteQuerySchema.parse({
+      likedOnly: true,
+      pageSize: 1,
+      sortBy: 'title_asc',
+      search: 'cat',
+      tagIds: [1, 2],
+      sources: ['LOCAL_IMPORT']
+    })
     expect(() => buildArtworkWhereClause(params)).toThrow('Authenticated user required')
-    queryRawMock.mockResolvedValue([{ id: 1, reading_sort_value: 'A' }, { id: 2, reading_sort_value: 'B' }])
+    queryRawMock.mockResolvedValue([
+      { id: 1, reading_sort_value: 'A' },
+      { id: 2, reading_sort_value: 'B' }
+    ])
     const first = await queryReadingArtworkIdsPage(params, 'alice')
     const [sql, ...values] = queryRawMock.mock.calls[0]!
     expect(sql).toContain('FROM "ArtworkLike"')
     expect(sql).toContain('al."userId" = $1')
-    expect(sql).toContain('al."level" >= 2')
+    expect(sql).toContain('al."level" = ANY(')
     expect(sql).toContain('a.title ILIKE')
     expect(sql).toContain('GROUP BY')
     expect(sql).not.toMatch(/artwork_reading_summaries|OFFSET/)
@@ -27,17 +39,38 @@ describe('reading page SQL', () => {
     queryRawMock.mockReset().mockResolvedValue([{ id: 2, reading_sort_value: 'B' }])
     await queryReadingArtworkIdsPage({ ...params, readingCursor: first.nextReadingCursor }, 'alice')
     expect(queryRawMock.mock.calls[0]?.[0]).toContain('a.title >')
-    await expect(queryReadingArtworkIdsPage({ ...params, readingCursor: first.nextReadingCursor }, 'bob')).rejects.toThrow('Invalid reading cursor')
-    await expect(queryReadingArtworkIdsPage({ ...params, likedOnly: false, readingCursor: first.nextReadingCursor }, 'alice')).rejects.toThrow('Invalid reading cursor')
-    expect(buildArtworkWhereClause(ArtworksInfiniteQuerySchema.parse({ likedOnly: false })).whereSQL).not.toContain('ArtworkLike')
-    expect(() => buildArtworkWhereClause({ ...params, likedOnly: false, readingCursor: first.nextReadingCursor })).toThrow('Invalid reading cursor')
+    await expect(
+      queryReadingArtworkIdsPage({ ...params, readingCursor: first.nextReadingCursor }, 'bob')
+    ).rejects.toThrow('Invalid reading cursor')
+    await expect(
+      queryReadingArtworkIdsPage({ ...params, likedOnly: false, readingCursor: first.nextReadingCursor }, 'alice')
+    ).rejects.toThrow('Invalid reading cursor')
+    expect(buildArtworkWhereClause(ArtworksInfiniteQuerySchema.parse({ likedOnly: false })).whereSQL).not.toContain(
+      'ArtworkLike'
+    )
+    expect(() =>
+      buildArtworkWhereClause({ ...params, likedOnly: false, readingCursor: first.nextReadingCursor })
+    ).toThrow('Invalid reading cursor')
   })
 
   it('filters by authenticated account, overfetches IDs and uses no offset', async () => {
-    queryRawMock.mockImplementation((sql: string) => Promise.resolve(sql.includes('COUNT(*)')
-      ? [{ count: 3n }]
-      : [{ id: 1, reading_sort_value: 10 }, { id: 2, reading_sort_value: 9 }, { id: 3, reading_sort_value: 8 }]))
-    const params = ArtworksInfiniteQuerySchema.parse({ readingStatus: 'IN_PROGRESS', sortBy: 'images_desc', pageSize: 2, search: 'cat' })
+    queryRawMock.mockImplementation((sql: string) =>
+      Promise.resolve(
+        sql.includes('COUNT(*)')
+          ? [{ count: 3n }]
+          : [
+              { id: 1, reading_sort_value: 10 },
+              { id: 2, reading_sort_value: 9 },
+              { id: 3, reading_sort_value: 8 }
+            ]
+      )
+    )
+    const params = ArtworksInfiniteQuerySchema.parse({
+      readingStatus: 'IN_PROGRESS',
+      sortBy: 'images_desc',
+      pageSize: 2,
+      search: 'cat'
+    })
     const first = await queryReadingArtworkIdsPage(params, 'user-1')
     expect(first).toMatchObject({ ids: [1, 2], hasNextPage: true })
     expect(first).not.toHaveProperty('total')

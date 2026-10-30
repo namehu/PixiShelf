@@ -24,6 +24,7 @@ import { describeSnapshot } from '@/lib/artwork-query-snapshot'
 import type { ArtworkQuickFilter } from '@/schemas/artwork-quick-filter.dto'
 
 type Props = {
+  navigationEnabled?: boolean
   items: ArtworkQuickFilter[]
   ids: string[]
   busy: boolean
@@ -89,15 +90,17 @@ function Row({ item, pinned, index, ...props }: Props & { item: ArtworkQuickFilt
               <Type />
               重命名
             </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!pinned && props.ids.length >= 10}
-              onSelect={() =>
-                props.onOrder(pinned ? props.ids.filter((id) => id !== item.id) : [...props.ids, item.id])
-              }
-            >
-              {pinned ? <PinOff /> : <Pin />}
-              {pinned ? '移出导航' : props.ids.length >= 10 ? '导航已满（10/10）' : '加入导航'}
-            </DropdownMenuItem>
+            {props.navigationEnabled !== false && (
+              <DropdownMenuItem
+                disabled={!pinned && props.ids.length >= 10}
+                onSelect={() =>
+                  props.onOrder(pinned ? props.ids.filter((id) => id !== item.id) : [...props.ids, item.id])
+                }
+              >
+                {pinned ? <PinOff /> : <Pin />}
+                {pinned ? '移出导航' : props.ids.length >= 10 ? '导航已满（10/10）' : '加入导航'}
+              </DropdownMenuItem>
+            )}
             {pinned && (
               <>
                 <DropdownMenuItem disabled={index === 0} onSelect={() => move(-1)}>
@@ -140,34 +143,40 @@ export function QuickFilterList(props: Props) {
   }
   return (
     <div className="pb-4">
-      <h3 className="pb-2 pt-1 text-sm font-medium">
-        导航中 <span className="text-muted-foreground">· {pinned.length}/10</span>
-      </h3>
-      {!pinned.length && (
-        <p className="py-3 text-sm text-muted-foreground">从下方菜单选择「加入导航」，即可快速访问。</p>
+      {props.navigationEnabled !== false && (
+        <>
+          <h3 className="pb-2 pt-1 text-sm font-medium">
+            导航中 <span className="text-muted-foreground">· {pinned.length}/10</span>
+          </h3>
+          {!pinned.length && (
+            <p className="py-3 text-sm text-muted-foreground">从下方菜单选择「加入导航」，即可快速访问。</p>
+          )}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={({ active, over }) => {
+              if (over && active.id !== over.id && !props.busy) {
+                props.onOrder(
+                  arrayMove(props.ids, props.ids.indexOf(String(active.id)), props.ids.indexOf(String(over.id)))
+                )
+              }
+            }}
+          >
+            <SortableContext items={props.ids} strategy={verticalListSortingStrategy}>
+              {pinned.map((item, index) => (
+                <Row key={item.id} {...props} item={item} pinned index={index} />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </>
       )}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={({ active, over }) => {
-          if (over && active.id !== over.id && !props.busy) {
-            props.onOrder(
-              arrayMove(props.ids, props.ids.indexOf(String(active.id)), props.ids.indexOf(String(over.id)))
-            )
-          }
-        }}
-      >
-        <SortableContext items={props.ids} strategy={verticalListSortingStrategy}>
-          {pinned.map((item, index) => (
-            <Row key={item.id} {...props} item={item} pinned index={index} />
-          ))}
-        </SortableContext>
-      </DndContext>
       {others.length > 0 && (
         <>
-          <h3 className="pb-2 pt-7 text-sm font-medium">
-            其他快捷筛选 <span className="text-muted-foreground">· {others.length}</span>
-          </h3>
+          {props.navigationEnabled !== false && (
+            <h3 className="pb-2 pt-7 text-sm font-medium">
+              其他快捷筛选 <span className="text-muted-foreground">· {others.length}</span>
+            </h3>
+          )}
           {others.map((item) => (
             <Row key={item.id} {...props} item={item} pinned={false} index={-1} />
           ))}

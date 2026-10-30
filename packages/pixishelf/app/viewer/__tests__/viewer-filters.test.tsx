@@ -143,7 +143,13 @@ describe('immersive viewer filter persistence', () => {
   })
 
   it('starts at the first item on a fresh navigation, even with the same filters and query client', async () => {
-    mocks.feed.mockResolvedValue({ items: [{ id: 1, key: 'one', images: [] }, { id: 2, key: 'two', images: [] }], nextPage: null })
+    mocks.feed.mockResolvedValue({
+      items: [
+        { id: 1, key: 'one', images: [] },
+        { id: 2, key: 'two', images: [] }
+      ],
+      nextPage: null
+    })
     const view = mount('mode=ordered')
     const client = clients[0]!
     await screen.findByRole('button', { name: '加载更多' })
@@ -159,7 +165,13 @@ describe('immersive viewer filter persistence', () => {
   })
 
   it.each(['filters', 'account'])('resets both swiper positions when %s change', async (change) => {
-    mocks.feed.mockResolvedValue({ items: [{ id: 1, key: 'one', images: [] }, { id: 2, key: 'two', images: [] }], nextPage: null })
+    mocks.feed.mockResolvedValue({
+      items: [
+        { id: 1, key: 'one', images: [] },
+        { id: 2, key: 'two', images: [] }
+      ],
+      nextPage: null
+    })
     const view = mount('mode=ordered')
     await screen.findByRole('button', { name: '加载更多' })
     act(() => {
@@ -190,7 +202,7 @@ describe('immersive viewer filter persistence', () => {
     fireEvent.click(await screen.findByRole('button', { name: '加载更多' }))
     await waitFor(() => expect(mocks.feed).toHaveBeenCalledTimes(2))
     expect(mocks.feed.mock.calls[1]?.[0]).toMatchObject({
-      likedOnly: true,
+      ratingLevels: [2, 3, 4],
       expectedUserId: 'viewer-user',
       cursor: undefined,
       readingCursor: mode === 'ordered' ? 'ordered-next' : undefined,
@@ -228,7 +240,7 @@ describe('immersive viewer filter persistence', () => {
       sources: ['LOCAL_IMPORT'],
       hasAudio: 'no',
       readingStatus: 'UNREAD',
-      likedOnly: true,
+      ratingLevels: [2, 3, 4],
       mediaCountMax: 24,
       startDate: '2026-01-01',
       endDate: '2026-02-01',
@@ -252,7 +264,7 @@ describe('immersive viewer filter persistence', () => {
         tagIds: [],
         sources: [],
         readingStatus: undefined,
-        likedOnly: false
+        ratingLevels: []
       })
       if (search.startsWith('source=')) {
         expect(mocks.feed.mock.calls[0]?.[0]).toMatchObject({ source: 'artist', artistId: 99 })
@@ -278,7 +290,7 @@ describe('immersive viewer filter persistence', () => {
       currentMediaType: 'all',
       currentSortBy: 'random',
       currentReadingStatus: 'all',
-      currentLikedOnly: false,
+      currentRatingLevels: [],
       currentArtist: [],
       currentTags: [],
       currentSources: [],
@@ -301,11 +313,56 @@ describe('immersive viewer filter persistence', () => {
         mode: 'random',
         randomSeed: 456000,
         readingStatus: 'UNREAD',
-        likedOnly: true
+        ratingLevels: [2, 3, 4]
       })
     } finally {
       random.mockRestore()
     }
+  })
+
+  it('requeries when the same ordered filters are explicitly reapplied', async () => {
+    mount('mode=ordered')
+    await applyFilters()
+    await waitFor(() => expect(mocks.params.get('listRevision')).toBe('1'))
+    const calls = mocks.feed.mock.calls.length
+    await applyFilters()
+    await waitFor(() => expect(mocks.params.get('listRevision')).toBe('2'))
+    await waitFor(() => expect(mocks.feed.mock.calls.length).toBeGreaterThan(calls))
+  })
+
+  it('locks artist-detail scope through apply and clear without overwriting global preferences', async () => {
+    const initial = mount()
+    await applyFilters()
+    initial.unmount()
+    const preferences = localStorage.getItem('pixishelf-viewer-settings')
+    mount('source=artist&sourceId=99&scopeArtistId=99&artistLabel=Fixed&excludeArtistIds=99&ratingLevels=4')
+    await screen.findByText('当前艺术家已被排除，因此没有符合条件的作品。可调整排除艺术家条件。')
+    expect(mocks.sheet?.fixedArtist).toEqual({ value: '99', label: 'Fixed' })
+    await applyFilters({ ...applied, ratingLevels: [2, 4], excludedArtists: [{ value: '7', label: 'Other' }] })
+    await waitFor(() => expect(mocks.params.get('excludeArtistIds')).toBe('7'))
+    expect(mocks.params.get('artistId')).toBe('99')
+    expect(mocks.params.get('scopeArtistId')).toBe('99')
+    expect(mocks.feed.mock.calls.at(-1)?.[0]).toMatchObject({
+      artistId: 99,
+      ratingLevels: [2, 4],
+      excludeArtistIds: [7]
+    })
+    expect(localStorage.getItem('pixishelf-viewer-settings')).toBe(preferences)
+    fireEvent.click(await screen.findByRole('button', { name: '清空筛选' }))
+    await waitFor(() => expect(mocks.params.get('excludeArtistIds')).toBeNull())
+    expect(mocks.params.get('artistId')).toBe('99')
+    expect(mocks.sheet?.fixedArtist?.value).toBe('99')
+    expect(localStorage.getItem('pixishelf-viewer-settings')).toBe(preferences)
+  })
+
+  it('allows a global artist-filtered entry to switch artist and clear its scope', async () => {
+    mount('source=artist&sourceId=99')
+    expect(mocks.sheet?.fixedArtist).toBeUndefined()
+    await applyFilters()
+    expect(mocks.params.get('artistId')).toBe('12')
+    fireEvent.click(await screen.findByRole('button', { name: '清空筛选' }))
+    await waitFor(() => expect(mocks.params.get('artistId')).toBeNull())
+    expect(mocks.params.get('scopeArtistId')).toBeNull()
   })
 
   it.each([undefined, { readingStatus: 'invalid' }])(

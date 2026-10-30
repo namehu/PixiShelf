@@ -1,6 +1,8 @@
 'use client'
 
 import Link from 'next/link'
+import { queryRatingLevels, queryArtistOptions } from '@/lib/artwork-query-snapshot'
+import { likedRatingLabels, type LikedRatingLevel } from '@/schemas/artwork-filter.dto'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImageUpIcon, SlidersHorizontal, X } from 'lucide-react'
@@ -45,6 +47,9 @@ const viewerQueryParsers = {
   hasAudio: parseAsString,
   readingStatus: parseAsString,
   likedOnly: parseAsBoolean,
+  ratingLevels: parseAsString,
+  excludeArtistIds: parseAsString,
+  excludeArtistLabels: parseAsString,
   mediaType: parseAsString,
   startDate: parseAsString,
   endDate: parseAsString,
@@ -141,8 +146,17 @@ export default function GalleryPage() {
     hasAudio: hasAudioParam,
     readingStatus: readingStatusParam,
     likedOnly,
+    ratingLevels: ratingLevelsParam,
+    excludeArtistIds,
+    excludeArtistLabels,
     listRevision
   } = queryStates
+  const ratingLevels = useMemo(() => queryRatingLevels(ratingLevelsParam, likedOnly), [ratingLevelsParam, likedOnly])
+  const excludedArtists = useMemo(
+    () => queryArtistOptions(excludeArtistIds, excludeArtistLabels),
+    [excludeArtistIds, excludeArtistLabels]
+  )
+  const excludedIds = useMemo(() => excludedArtists.map((artist) => Number(artist.value)), [excludedArtists])
   const hasAudio = normalizeAudioFilter(hasAudioParam)
   const readingStatus = normalizeReadingStatus(readingStatusParam)
   const effectiveRandomSeed = randomSeed != null ? Number(randomSeed) : defaultRandomSeedRef.current
@@ -191,7 +205,8 @@ export default function GalleryPage() {
     selectedSources.length > 0 ||
     hasAudio !== 'all' ||
     readingStatus !== 'all' ||
-    likedOnly ||
+    ratingLevels.length > 0 ||
+    excludedArtists.length > 0 ||
     mediaType !== 'all' ||
     !!startDate ||
     !!endDate ||
@@ -219,7 +234,9 @@ export default function GalleryPage() {
       sources: selectedSources.join(',') || null,
       hasAudio: hasAudio === 'all' ? null : hasAudio,
       readingStatus: readingStatus === 'all' ? null : readingStatus,
-      likedOnly: likedOnly || null,
+      ratingLevels: ratingLevels.join(',') || null,
+      excludeArtistIds: excludeArtistIds || null,
+      excludeArtistLabels: excludeArtistLabels || null,
       mediaType: mediaType || 'all',
       startDate: startDate || null,
       endDate: endDate || null,
@@ -234,7 +251,9 @@ export default function GalleryPage() {
     endDate,
     hasAudio,
     readingStatus,
-    likedOnly,
+    ratingLevels,
+    excludeArtistIds,
+    excludeArtistLabels,
     mediaType,
     effectiveRandomSeed,
     searchQuery,
@@ -334,6 +353,8 @@ export default function GalleryPage() {
     hasAudio: AudioFilter
     readingStatus?: ReadingStatus | 'all'
     likedOnly?: boolean
+    ratingLevels?: LikedRatingLevel[]
+    excludedArtists?: Option[]
     search?: string
   }) => {
     if (!filters) {
@@ -372,7 +393,10 @@ export default function GalleryPage() {
       sources: null,
       hasAudio: null,
       readingStatus: null,
-      likedOnly: null
+      likedOnly: null,
+      ratingLevels: null,
+      excludeArtistIds: null,
+      excludeArtistLabels: null
     })
   }
 
@@ -448,7 +472,31 @@ export default function GalleryPage() {
                   onRemove={() => setQueryStates({ hasAudio: null })}
                 />
               )}
-              {likedOnly && <FilterChip label="我的喜欢" onRemove={() => setQueryStates({ likedOnly: null })} />}
+              {ratingLevels.map((level) => (
+                <FilterChip
+                  key={level}
+                  label={likedRatingLabels[level]}
+                  onRemove={() =>
+                    setQueryStates({
+                      likedOnly: null,
+                      ratingLevels: ratingLevels.filter((value) => value !== level).join(',') || null
+                    })
+                  }
+                />
+              ))}
+              {excludedArtists.map((artist) => (
+                <FilterChip
+                  key={`exclude-${artist.value}`}
+                  label={`排除：${artist.label}`}
+                  onRemove={() => {
+                    const remaining = excludedArtists.filter((item) => item.value !== artist.value)
+                    void setQueryStates({
+                      excludeArtistIds: remaining.map((item) => item.value).join(',') || null,
+                      excludeArtistLabels: encodeLabels(remaining) || null
+                    })
+                  }}
+                />
+              ))}
               {readingStatus !== 'all' && (
                 <FilterChip
                   label={`阅读状态：${readingStatus === 'UNREAD' ? '未读' : readingStatus === 'IN_PROGRESS' ? '阅读中' : '已读完'}`}
@@ -508,7 +556,8 @@ export default function GalleryPage() {
         currentSources={selectedSources}
         currentHasAudio={hasAudio}
         currentReadingStatus={readingStatus}
-        currentLikedOnly={likedOnly}
+        currentRatingLevels={ratingLevels}
+        currentExcludedArtists={excludedArtists}
         randomSeed={sortBy === 'random' ? effectiveRandomSeed : undefined}
         startDate={startDate}
         endDate={endDate}
@@ -531,7 +580,8 @@ export default function GalleryPage() {
           sources={selectedSources}
           hasAudio={hasAudio === 'all' ? undefined : hasAudio}
           readingStatus={readingStatus === 'all' ? undefined : readingStatus}
-          likedOnly={likedOnly}
+          ratingLevels={ratingLevels}
+          excludeArtistIds={excludedIds}
           randomSeed={sortBy === 'random' ? effectiveRandomSeed : undefined}
           startDate={startDate || undefined}
           endDate={endDate || undefined}

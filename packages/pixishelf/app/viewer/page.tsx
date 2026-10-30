@@ -25,6 +25,8 @@ import { Button } from '@/components/ui/button'
 import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 import { useAuthUser } from '@/components/auth'
 import { cn } from '@/lib/utils'
+import { queryRatingLevels, queryArtistOptions } from '@/lib/artwork-query-snapshot'
+import { resolveRatingLevels, type LikedRatingLevel } from '@/schemas/artwork-filter.dto'
 import { artworkQuerySnapshotSchema } from '@/schemas/artwork-quick-filter.dto'
 import { readViewerNavigation, saveViewerNavigation, type ViewerNavigation } from './viewer-navigation'
 
@@ -34,6 +36,8 @@ type ViewerMode = 'ordered' | 'random'
 const viewerQueryParsers = {
   source: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
   sourceId: parseAsInteger,
+  scopeArtistId: parseAsInteger,
+  listRevision: parseAsInteger.withDefault(0),
   mode: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   sortBy: parseAsString.withDefault('source_date_desc').withOptions({ history: 'replace', clearOnDefault: true }),
   randomSeed: parseAsInteger,
@@ -47,6 +51,9 @@ const viewerQueryParsers = {
   mediaType: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   readingStatus: parseAsString.withDefault('all').withOptions({ history: 'replace', clearOnDefault: true }),
   likedOnly: parseAsBoolean.withDefault(false).withOptions({ history: 'replace', clearOnDefault: true }),
+  ratingLevels: parseAsString,
+  excludeArtistIds: parseAsString.withDefault(''),
+  excludeArtistLabels: parseAsString.withDefault(''),
   startDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   endDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
   createdStartDate: parseAsString.withDefault('').withOptions({ history: 'replace', clearOnDefault: true }),
@@ -110,8 +117,11 @@ export default function ViewerPage() {
 }
 
 function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
-  const safeBack = useSafeBack()
   const [urlQuery, setViewerQuery] = useQueryStates(viewerQueryParsers)
+  const scopeArtistId = urlQuery.scopeArtistId
+  const queryRevision = urlQuery.listRevision
+  const safeBack = useSafeBack(scopeArtistId ? `/artists/${scopeArtistId}?entry=direct` : '/dashboard')
+  const [scopedMaxMediaCount, setScopedMaxMediaCount] = useState<number | null>(null)
   const searchParams = useSearchParams()
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [playbackRate, setPlaybackRate] = useState<ViewerPlaybackRate>(1)
@@ -165,10 +175,22 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
       artistLabel: artist?.label ?? '',
       tags: savedFilters.tags.map((tag) => tag.value).join(','),
       tagLabels: encodeLabels(savedFilters.tags),
-      sources: savedFilters.sources.join(',')
+      sources: savedFilters.sources.join(','),
+      ratingLevels: savedFilters.ratingLevels.join(','),
+      excludeArtistIds: savedFilters.excludedArtists.map((artist) => artist.value).join(','),
+      excludeArtistLabels: encodeLabels(savedFilters.excludedArtists)
     }
   }, [hasUrlFilters, hasHydrated, savedFilters, urlQuery])
   const readingStatus = normalizeReadingStatus(viewerQuery.readingStatus)
+  const ratingLevels = useMemo(
+    () => queryRatingLevels(viewerQuery.ratingLevels, viewerQuery.likedOnly),
+    [viewerQuery.ratingLevels, viewerQuery.likedOnly]
+  )
+  const excludedArtists = useMemo(
+    () => queryArtistOptions(viewerQuery.excludeArtistIds, viewerQuery.excludeArtistLabels),
+    [viewerQuery.excludeArtistIds, viewerQuery.excludeArtistLabels]
+  )
+  const effectiveMaxMediaCount = scopeArtistId ? (scopedMaxMediaCount ?? maxImageCount) : maxImageCount
 
   const sourceContext = useMemo(() => {
     const sourceId = viewerQuery.sourceId ?? undefined
@@ -183,9 +205,10 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
   }, [viewerQuery.source, viewerQuery.sourceId])
 
   const selectedArtist = useMemo<Option[]>(() => {
-    const artistId = viewerQuery.artistId ?? (sourceContext.source === 'artist' ? sourceContext.sourceId : undefined)
+    const artistId =
+      scopeArtistId ?? viewerQuery.artistId ?? (sourceContext.source === 'artist' ? sourceContext.sourceId : undefined)
     return artistId ? [{ value: String(artistId), label: viewerQuery.artistLabel || `艺术家 #${artistId}` }] : []
-  }, [sourceContext, viewerQuery.artistId, viewerQuery.artistLabel])
+  }, [scopeArtistId, sourceContext, viewerQuery.artistId, viewerQuery.artistLabel])
 
   const selectedTags = useMemo<Option[]>(() => {
     const explicit = toTagOptions(viewerQuery.tags, viewerQuery.tagLabels)
@@ -224,18 +247,21 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
       hasAudio: hasAudio === 'all' ? undefined : hasAudio,
       mediaType: effectiveMediaType,
       readingStatus: readingStatus === 'all' ? undefined : readingStatus,
-      likedOnly: viewerQuery.likedOnly,
+      ratingLevels,
+      excludeArtistIds: excludedArtists.map((artist) => Number(artist.value)),
       expectedUserId: ownerUserId ?? undefined,
       startDate: viewerQuery.startDate || undefined,
       endDate: viewerQuery.endDate || undefined,
       createdStartDate: viewerQuery.createdStartDate || undefined,
       createdEndDate: viewerQuery.createdEndDate || undefined,
-      mediaCountMax: maxImageCount,
+      mediaCountMax: effectiveMaxMediaCount,
       pageSize: 20
     }
   }, [
     hasAudio,
-    maxImageCount,
+    effectiveMaxMediaCount,
+    ratingLevels,
+    excludedArtists,
     mediaType,
     navigation,
     ownerUserId,
@@ -247,10 +273,10 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
     viewerQuery
   ])
 
-  const feedKey = useMemo(() => JSON.stringify(feedInput), [feedInput])
+  const feedKey = useMemo(() => JSON.stringify([feedInput, queryRevision]), [feedInput, queryRevision])
   const { data, fetchNextPage, hasNextPage, isLoading, isFetchingNextPage, isFetchNextPageError, isError, error } =
     useInfiniteQuery({
-      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput, navigation.id],
+      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput, navigation.id, queryRevision],
       initialPageParam: 1 as number | string,
       queryFn: ({ pageParam, signal }) =>
         trpcClient.artwork.viewerFeed.query(
@@ -265,7 +291,7 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
       getNextPageParam: (lastPage) =>
         feedInput.mode === 'random'
           ? lastPage.nextRandomCursor
-          : feedInput.readingStatus || feedInput.likedOnly
+          : feedInput.readingStatus || feedInput.ratingLevels.length > 0
             ? lastPage.nextReadingCursor
             : (lastPage.nextPage ?? undefined),
       // Keep this history entry's list reusable for the whole browser session.
@@ -289,10 +315,10 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
     recoveredFeed.current = feedKey
     resetViewerState()
     void queryClient.resetQueries({
-      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput, navigation.id],
+      queryKey: ['artwork', 'viewerFeed', 'random-v1', ownerUserId, feedInput, navigation.id, queryRevision],
       exact: true
     })
-  }, [error, feedInput, feedKey, navigation.id, ownerUserId, queryClient, resetViewerState])
+  }, [error, feedInput, feedKey, navigation.id, ownerUserId, queryClient, queryRevision, resetViewerState])
 
   useEffect(() => {
     if (!hasHydrated || !ownerUserId || !data) return
@@ -339,7 +365,8 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
     Number(hasAudio !== 'all') +
     Number(feedInput.mediaType !== EMediaType.all) +
     Number(readingStatus !== 'all') +
-    Number(viewerQuery.likedOnly) +
+    ratingLevels.length +
+    excludedArtists.length +
     Number(Boolean(viewerQuery.startDate || viewerQuery.endDate)) +
     Number(Boolean(viewerQuery.createdStartDate || viewerQuery.createdEndDate))
 
@@ -363,18 +390,22 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
 
   const clearAllFilters = useCallback(() => {
     const randomSeed = Math.floor(Math.random() * 1000000)
-    setMaxImageCount(8)
-    setMediaType(EMediaType.all)
-    setFilters(artworkQuerySnapshotSchema.parse({ sortBy: 'random' }))
+    if (scopeArtistId) setScopedMaxMediaCount(8)
+    else {
+      setMaxImageCount(8)
+      setMediaType(EMediaType.all)
+      setFilters(artworkQuerySnapshotSchema.parse({ sortBy: 'random' }))
+    }
     setViewerQuery({
-      source: 'all',
-      sourceId: null,
+      listRevision: queryRevision + 1,
+      source: scopeArtistId ? 'artist' : 'all',
+      sourceId: scopeArtistId ?? null,
       mode: 'random',
       sortBy: null,
       randomSeed,
       search: null,
-      artistId: null,
-      artistLabel: null,
+      artistId: scopeArtistId ?? null,
+      artistLabel: scopeArtistId ? viewerQuery.artistLabel : null,
       tags: null,
       tagLabels: null,
       sources: null,
@@ -382,17 +413,30 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
       mediaType: EMediaType.all,
       readingStatus: null,
       likedOnly: null,
+      ratingLevels: null,
+      excludeArtistIds: null,
+      excludeArtistLabels: null,
       startDate: null,
       endDate: null,
       createdStartDate: null,
       createdEndDate: null
     })
-  }, [setMaxImageCount, setMediaType, setFilters, setViewerQuery])
+  }, [
+    scopeArtistId,
+    queryRevision,
+    viewerQuery.artistLabel,
+    setMaxImageCount,
+    setMediaType,
+    setFilters,
+    setViewerQuery
+  ])
 
   const handleApplyFilters = (filters: {
     mediaType: MediaTypeFilter
     readingStatus?: ReadingStatus | 'all'
     likedOnly?: boolean
+    ratingLevels?: LikedRatingLevel[]
+    excludedArtists?: Option[]
     sortBy: SortOption
     artist?: Option[]
     tags?: Option[]
@@ -406,29 +450,37 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
     createdStartTime?: string
     createdEndTime?: string
   }) => {
-    const artist = filters.artist?.[0]
+    const artist = scopeArtistId ? selectedArtist[0] : filters.artist?.[0]
     const tags = filters.tags ?? []
     const isRandom = filters.sortBy === 'random'
-    setMaxImageCount(filters.maxMediaCount ?? 8)
-    setMediaType(filters.mediaType as EMediaType)
-    setFilters({
-      search: filters.search || '',
-      mediaType: filters.mediaType,
-      sortBy: filters.sortBy,
-      artist: filters.artist ?? [],
-      tags,
-      sources: filters.sources,
-      hasAudio: filters.hasAudio,
-      readingStatus: filters.readingStatus ?? 'all',
-      likedOnly: filters.likedOnly ?? false,
-      startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : '',
-      endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : '',
-      createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : '',
-      createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : ''
-    })
+    if (scopeArtistId) setScopedMaxMediaCount(filters.maxMediaCount ?? 8)
+    else {
+      setMaxImageCount(filters.maxMediaCount ?? 8)
+      setMediaType(filters.mediaType as EMediaType)
+      setFilters(
+        artworkQuerySnapshotSchema.parse({
+          search: filters.search || '',
+          mediaType: filters.mediaType,
+          sortBy: filters.sortBy,
+          artist: filters.artist ?? [],
+          tags,
+          sources: filters.sources,
+          hasAudio: filters.hasAudio,
+          readingStatus: filters.readingStatus ?? 'all',
+          ratingLevels: filters.ratingLevels,
+          excludedArtists: filters.excludedArtists,
+          likedOnly: filters.likedOnly ?? false,
+          startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : '',
+          endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : '',
+          createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : '',
+          createdEndDate: filters.createdEndTime ? dayjs(filters.createdEndTime).format('YYYY-MM-DD') : ''
+        })
+      )
+    }
     setViewerQuery({
-      source: 'all',
-      sourceId: null,
+      listRevision: queryRevision + 1,
+      source: scopeArtistId ? 'artist' : 'all',
+      sourceId: scopeArtistId ?? null,
       mode: isRandom ? 'random' : 'ordered',
       sortBy: isRandom ? null : filters.sortBy,
       randomSeed: isRandom ? (filters.randomSeed ?? Math.floor(Math.random() * 1000000)) : null,
@@ -441,7 +493,10 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
       hasAudio: filters.hasAudio === 'all' ? null : filters.hasAudio,
       mediaType: filters.mediaType,
       readingStatus: filters.readingStatus === 'all' ? null : filters.readingStatus,
-      likedOnly: filters.likedOnly || null,
+      likedOnly: null,
+      ratingLevels: resolveRatingLevels(filters).join(',') || null,
+      excludeArtistIds: filters.excludedArtists?.map((artist) => artist.value).join(',') || null,
+      excludeArtistLabels: encodeLabels(filters.excludedArtists ?? []) || null,
       startDate: filters.startTime ? dayjs(filters.startTime).format('YYYY-MM-DD') : null,
       endDate: filters.endTime ? dayjs(filters.endTime).format('YYYY-MM-DD') : null,
       createdStartDate: filters.createdStartTime ? dayjs(filters.createdStartTime).format('YYYY-MM-DD') : null,
@@ -494,6 +549,12 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
       ) : !images.length ? (
         <PageNoData
           hasActiveFilters={activeFilterCount > 0}
+          fallbackHref={scopeArtistId ? `/artists/${scopeArtistId}?entry=direct` : undefined}
+          reason={
+            selectedArtist.some((artist) => excludedArtists.some((excluded) => excluded.value === artist.value))
+              ? '当前艺术家已被排除，因此没有符合条件的作品。可调整排除艺术家条件。'
+              : undefined
+          }
           onAdjustFilters={() => setIsFilterOpen(true)}
           onClearFilters={clearAllFilters}
         />
@@ -517,13 +578,15 @@ function ViewerPageContent({ navigation }: { navigation: ViewerNavigation }) {
         currentSearch={viewerQuery.search}
         currentMediaType={feedInput.mediaType as MediaTypeFilter}
         currentReadingStatus={readingStatus}
-        currentLikedOnly={viewerQuery.likedOnly}
+        currentRatingLevels={ratingLevels}
+        currentExcludedArtists={excludedArtists}
+        fixedArtist={scopeArtistId ? selectedArtist[0] : undefined}
         currentSortBy={(feedInput.mode === 'random' ? 'random' : feedInput.sortBy) as SortOption}
         currentArtist={selectedArtist}
         currentTags={selectedTags}
         currentSources={selectedSources}
         currentHasAudio={hasAudio}
-        currentMaxMediaCount={maxImageCount}
+        currentMaxMediaCount={effectiveMaxMediaCount}
         resetSortBy="random"
         randomSeed={feedInput.randomSeed}
         startDate={viewerQuery.startDate}

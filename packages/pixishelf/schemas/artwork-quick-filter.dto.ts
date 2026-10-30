@@ -1,6 +1,14 @@
 import { z } from 'zod'
+import { ratingLevelsFilterSchema, resolveRatingLevels } from './artwork-filter.dto'
 
 export const QUICK_FILTER_PREFIX = 'artwork_quick_filter:'
+export const QUICK_FILTER_ARTIST_PREFIX = `${QUICK_FILTER_PREFIX}artist:`
+export const quickFilterScopeSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('global') }),
+  z.object({ kind: z.literal('artist'), artistId: z.number().int().positive().safe() })
+])
+export type QuickFilterScope = z.infer<typeof quickFilterScopeSchema>
+export const GLOBAL_QUICK_FILTER_SCOPE: QuickFilterScope = { kind: 'global' }
 export const QUICK_FILTER_NAV_KEY = `${QUICK_FILTER_PREFIX}navigation`
 export const readingFilterLabels = { all: '全部', UNREAD: '未读', IN_PROGRESS: '阅读中', COMPLETED: '已读完' } as const
 export const quickFilterNameSchema = z.string().trim().min(1, '请输入名称').max(40, '名称最多 40 字')
@@ -32,6 +40,15 @@ export const artworkQuerySnapshotSchema = z
       ])
       .default('source_date_desc'),
     artist: z.array(option).max(1).default([]),
+    excludedArtists: z
+      .array(option)
+      .max(100)
+      .default([])
+      .transform((artists) =>
+        [...new Map(artists.map((artist) => [artist.value, artist])).values()].sort(
+          (a, b) => Number(a.value) - Number(b.value)
+        )
+      ),
     tags: z.array(option).max(100).default([]),
     sources: z
       .array(z.enum(['PIXIV_IMPORTED', 'LOCAL_IMPORT', 'LOCAL_CREATED', 'URL_ARCHIVE']))
@@ -40,6 +57,7 @@ export const artworkQuerySnapshotSchema = z
     hasAudio: z.enum(['all', 'yes', 'no']).default('all'),
     readingStatus: z.enum(['all', 'UNREAD', 'IN_PROGRESS', 'COMPLETED']).default('all'),
     likedOnly: z.boolean().default(false),
+    ratingLevels: ratingLevelsFilterSchema.optional(),
     startDate: date,
     endDate: date,
     createdStartDate: date,
@@ -47,6 +65,11 @@ export const artworkQuerySnapshotSchema = z
   })
   .refine((v) => !v.startDate || !v.endDate || v.startDate <= v.endDate, '原始时间范围无效')
   .refine((v) => !v.createdStartDate || !v.createdEndDate || v.createdStartDate <= v.createdEndDate, '入库时间范围无效')
+  .transform((query) => ({
+    ...query,
+    ratingLevels: resolveRatingLevels(query),
+    likedOnly: resolveRatingLevels(query).length > 0
+  }))
 export type ArtworkQuerySnapshot = z.infer<typeof artworkQuerySnapshotSchema>
 export const quickFilterSchema = z.object({
   id: z.string().uuid(),
@@ -63,7 +86,10 @@ export const quickFilterNavigationSchema = z
     ids: z.array(z.string().uuid()).max(10)
   })
   .refine((v) => new Set(v.ids).size === v.ids.length, '导航项不能重复')
-export const quickFilterAccountSchema = z.object({ expectedUserId: z.string().min(1) })
+export const quickFilterAccountSchema = z.object({
+  expectedUserId: z.string().min(1),
+  scope: quickFilterScopeSchema.default(GLOBAL_QUICK_FILTER_SCOPE)
+})
 export const quickFilterCreateSchema = quickFilterAccountSchema.extend({
   name: quickFilterNameSchema,
   query: artworkQuerySnapshotSchema,

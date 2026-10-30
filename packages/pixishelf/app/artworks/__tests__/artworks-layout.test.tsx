@@ -21,6 +21,9 @@ const { queryState } = vi.hoisted(() => ({
     hasAudio: 'all',
     readingStatus: 'all',
     likedOnly: false,
+    ratingLevels: null as string | null,
+    excludeArtistIds: '',
+    excludeArtistLabels: '',
     listRevision: 0
   }
 }))
@@ -92,9 +95,9 @@ describe('GalleryPage layout', () => {
     queryState.likedOnly = true
     render(<GalleryPage />)
     const href = screen.getByRole('link', { name: '沉浸浏览' }).getAttribute('href')!
-    expect(new URL(href, 'http://localhost').searchParams.get('likedOnly')).toBe('true')
-    fireEvent.click(screen.getByRole('button', { name: '移除筛选：我的喜欢' }))
-    expect(navigation.setQuery).toHaveBeenLastCalledWith({ likedOnly: null })
+    expect(new URL(href, 'http://localhost').searchParams.get('ratingLevels')).toBe('2,3,4')
+    fireEvent.click(screen.getByRole('button', { name: '移除筛选：喜欢' }))
+    expect(navigation.setQuery).toHaveBeenLastCalledWith({ likedOnly: null, ratingLevels: '3,4' })
     fireEvent.click(screen.getByRole('button', { name: '清空全部' }))
     expect(navigation.setQuery).toHaveBeenLastCalledWith(expect.objectContaining({ likedOnly: null }))
   })

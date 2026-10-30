@@ -72,7 +72,7 @@ describe('gallery filter drafts', () => {
   it('preserves drafts across tabs and saves without applying', async () => {
     render(<GalleryFilterSheet {...props} />)
     fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: 'draft' } })
-    fireEvent.click(screen.getByRole('checkbox', { name: '只看我的喜欢' }))
+    fireEvent.click(screen.getByRole('button', { name: '喜欢' }))
     tab('快捷筛选')
     tab('筛选条件')
     expect((screen.getByRole('textbox', { name: '关键词' }) as HTMLInputElement).value).toBe('draft')
@@ -81,7 +81,11 @@ describe('gallery filter drafts', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存快捷筛选' }))
     await waitFor(() =>
       expect(api.create).toHaveBeenCalledWith(
-        expect.objectContaining({ name: '我的筛选', pin: true, query: expect.objectContaining({ search: 'draft', likedOnly: true }) })
+        expect.objectContaining({
+          name: '我的筛选',
+          pin: true,
+          query: expect.objectContaining({ search: 'draft', likedOnly: true })
+        })
       )
     )
     expect(props.onApply).not.toHaveBeenCalled()
@@ -111,7 +115,7 @@ describe('gallery filter drafts', () => {
     tab('快捷筛选')
     fireEvent.keyDown(screen.getByRole('button', { name: '管理：已保存' }), { key: 'ArrowDown' })
     fireEvent.click(screen.getByRole('menuitem', { name: '编辑条件' }))
-    expect(screen.getByRole('checkbox', { name: '只看我的喜欢' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('button', { name: '喜欢' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: 'edited' } })
     fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
     await waitFor(() =>
@@ -124,7 +128,45 @@ describe('gallery filter drafts', () => {
     )
     tab('筛选条件')
     expect((screen.getByRole('textbox', { name: '关键词' }) as HTMLInputElement).value).toBe('ordinary draft')
-    expect(screen.getByRole('checkbox', { name: '只看我的喜欢' }).getAttribute('aria-checked')).toBe('false')
+    expect(screen.getByRole('button', { name: '喜欢' }).getAttribute('aria-pressed')).toBe('false')
     expect(props.onApply).not.toHaveBeenCalled()
+  })
+  it('saves only artist additions with navigation disabled and discards another artist draft/editor', async () => {
+    const view = render(
+      <GalleryFilterSheet
+        {...props}
+        scope={{ kind: 'artist', artistId: 12 }}
+        fixedArtist={{ value: '12', label: 'A' }}
+      />
+    )
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: 'A draft' } })
+    fireEvent.click(screen.getByRole('button', { name: '喜欢' }))
+    fireEvent.click(screen.getByRole('button', { name: '夯爆了' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存为快捷筛选' }))
+    expect(screen.queryByRole('switch', { name: /导航/ })).toBeNull()
+    fireEvent.change(screen.getByRole('textbox', { name: '快捷筛选名称' }), { target: { value: 'A preset' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存快捷筛选' }))
+    await waitFor(() =>
+      expect(api.create).toHaveBeenCalledWith(
+        expect.objectContaining({ pin: false, query: expect.objectContaining({ artist: [], ratingLevels: [2, 4] }) })
+      )
+    )
+    expect(props.onApplySnapshot).not.toHaveBeenCalled()
+    tab('快捷筛选')
+    expect(screen.queryByText(/导航中/)).toBeNull()
+    fireEvent.keyDown(screen.getByRole('button', { name: '管理：已保存' }), { key: 'ArrowDown' })
+    expect(screen.queryByRole('menuitem', { name: '加入导航' })).toBeNull()
+    fireEvent.click(screen.getByRole('menuitem', { name: '编辑条件' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '关键词' }), { target: { value: 'A edit' } })
+    view.rerender(
+      <GalleryFilterSheet
+        {...props}
+        scope={{ kind: 'artist', artistId: 13 }}
+        fixedArtist={{ value: '13', label: 'B' }}
+      />
+    )
+    expect(screen.queryByRole('button', { name: '保存修改' })).toBeNull()
+    expect((screen.getByRole('textbox', { name: '关键词' }) as HTMLInputElement).value).toBe('original')
+    expect(screen.getByRole('button', { name: '喜欢' }).getAttribute('aria-pressed')).toBe('false')
   })
 })
