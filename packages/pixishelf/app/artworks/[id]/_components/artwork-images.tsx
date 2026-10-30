@@ -525,7 +525,7 @@ function SingleVideoArtworkMedia({
   onOpenMenu: (event: React.MouseEvent | React.TouchEvent, index: number) => void
 }) {
   return (
-    <div className="relative w-full" data-testid="artwork-video-container"
+    <div className="relative w-full" data-testid="artwork-video-container" data-summary-anchor={media.id}
       onContextMenu={(event) => { event.preventDefault(); onOpenMenu(event, 0) }}>
       <LazyMedia media={media} index={0} reading={reading} trackingActive={trackingActive} />
       <VideoMediaMenuButton onOpenMenu={(event) => onOpenMenu(event, 0)} />
