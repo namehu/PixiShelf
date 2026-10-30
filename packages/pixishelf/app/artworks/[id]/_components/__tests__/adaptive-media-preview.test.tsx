@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useEffect } from 'react'
+import { useEffect, type Ref } from 'react'
+import { usePreviewControlsPreferences } from '@/store/use-preview-controls-preferences'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
 import AdaptiveMediaPreview, { canPreloadAdaptiveNeighbor } from '../adaptive-media-preview'
 import { useArtworkAutoBrowseStore as autoBrowseStore } from '@/store/use-artwork-auto-browse-store'
@@ -96,8 +97,15 @@ vi.mock('next/image', () => ({
 
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) => (open ? children : null),
-  DialogContent: ({ children, onKeyDown, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+  DialogContent: ({
+    children,
+    onKeyDown,
+    ref,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement> & { ref?: Ref<HTMLDivElement> }) => (
     <div
+      ref={ref}
+      data-testid="preview-dialog"
       onKeyDown={onKeyDown}
       data-preview-like-shortcut={props['data-preview-like-shortcut' as keyof typeof props] as string}
     >
@@ -187,6 +195,18 @@ function createMedia(index: number, path = `/media-${index + 1}.jpg`): ArtworkIm
 
 describe('AdaptiveMediaPreview', () => {
   beforeEach(() => {
+    localStorage.clear()
+    usePreviewControlsPreferences.setState({ mobile: 'bottom', desktop: 'bottom' })
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        matches: false,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      }))
+    )
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -198,6 +218,7 @@ describe('AdaptiveMediaPreview', () => {
     mediaMark.set.mockClear()
     mediaMark.likedAt = null
     mediaMark.available = true
+    mediaMark.isLoading = false
     swiperMocks.instance.activeIndex = 0
     swiperMocks.instance.allowSlideNext = true
     swiperMocks.instance.allowSlidePrev = true
@@ -228,8 +249,10 @@ describe('AdaptiveMediaPreview', () => {
     view.rerender(<AdaptiveMediaPreview images={[createMedia(0)]} initialIndex={0} open onClose={vi.fn()} />)
     fireEvent.keyDown(image, { code: 'Space', key: ' ' })
     expect(mediaMark.set).toHaveBeenLastCalledWith('like', false)
+    const beforeDouble = mediaMark.set.mock.calls.length
     fireEvent.doubleClick(image)
-    expect(mediaMark.set).toHaveBeenLastCalledWith('like', true)
+    expect(mediaMark.set).toHaveBeenCalledTimes(beforeDouble)
+    expect(document.querySelectorAll('[data-floating-like-heart]')).toHaveLength(1)
     const calls = mediaMark.set.mock.calls.length
     fireEvent.keyDown(image, { code: 'Space', repeat: true })
     fireEvent.keyDown(image, { code: 'Space', ctrlKey: true })
@@ -462,7 +485,13 @@ describe('AdaptiveMediaPreview', () => {
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
     vi.stubGlobal(
       'matchMedia',
-      vi.fn(() => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn() }))
+      vi.fn(() => ({
+        matches: false,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      }))
     )
     autoBrowseStore.getState().initialize(1)
     autoBrowseStore.getState().start('slideshow')
@@ -499,7 +528,13 @@ describe('AdaptiveMediaPreview', () => {
     vi.useFakeTimers()
     vi.stubGlobal(
       'matchMedia',
-      vi.fn(() => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn() }))
+      vi.fn(() => ({
+        matches: false,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn()
+      }))
     )
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => webpFixture([1200]) })
     vi.stubGlobal('fetch', fetchMock)
@@ -589,5 +624,76 @@ describe('AdaptiveMediaPreview', () => {
 
     act(() => window.dispatchEvent(new PopStateEvent('popstate', { state: {} })))
     expect(onClose).toHaveBeenCalledWith(2)
+  })
+
+  it('renders one shared floating layer in dialog coordinates, repeats feedback without rewriting and clears on media changes', () => {
+    const view = render(
+      <AdaptiveMediaPreview
+        images={[createMedia(0), createMedia(1), createMedia(2)]}
+        initialIndex={0}
+        open
+        onClose={vi.fn()}
+      />
+    )
+    vi.spyOn(screen.getByTestId('preview-dialog'), 'getBoundingClientRect').mockReturnValue({
+      left: 20,
+      top: 30
+    } as DOMRect)
+    const image = screen.getByAltText('作品媒体 1')
+    fireEvent.doubleClick(image, { clientX: 150, clientY: 180 })
+    expect(mediaMark.set).toHaveBeenCalledExactlyOnceWith('like', true)
+    expect(document.querySelectorAll('[data-floating-like-hearts]')).toHaveLength(1)
+    expect(
+      document.querySelector('[data-floating-like-hearts]')?.closest('[data-testid="adaptive-media-preview-swiper"]')
+    ).toBeNull()
+    const heart = document.querySelector('[data-floating-like-heart]') as HTMLElement
+    expect(heart.style.left).toBe('130px')
+    expect(heart.style.top).toBe('150px')
+    mediaMark.likedAt = '2026-10-31'
+    view.rerender(
+      <AdaptiveMediaPreview
+        images={[createMedia(0), createMedia(1), createMedia(2)]}
+        initialIndex={0}
+        open
+        onClose={vi.fn()}
+      />
+    )
+    fireEvent.doubleClick(image)
+    fireEvent.doubleClick(screen.getByRole('button', { name: '拖动阅读工具栏' }))
+    expect(document.querySelectorAll('[data-floating-like-heart]')).toHaveLength(2)
+    expect(mediaMark.set).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: '模拟切换' }))
+    expect(document.querySelectorAll('[data-floating-like-heart]')).toHaveLength(0)
+  })
+
+  it('does not show success for loading or unavailable marks', () => {
+    mediaMark.isLoading = true
+    const view = render(<AdaptiveMediaPreview images={[createMedia(0)]} initialIndex={0} open onClose={vi.fn()} />)
+    fireEvent.doubleClick(screen.getByAltText('作品媒体 1'))
+    expect(document.querySelectorAll('[data-floating-like-heart]')).toHaveLength(0)
+    mediaMark.isLoading = false
+    mediaMark.available = false
+    view.rerender(<AdaptiveMediaPreview images={[createMedia(0)]} initialIndex={0} open onClose={vi.fn()} />)
+    fireEvent.doubleClick(screen.getByAltText('作品媒体 1'))
+    expect(document.querySelectorAll('[data-floating-like-heart]')).toHaveLength(0)
+    expect(mediaMark.set).not.toHaveBeenCalled()
+  })
+
+  it('keeps a single WebP player and its manual playback alive when the toolbar changes orientation', async () => {
+    const media = { ...createMedia(0, '/manual-dock.webp'), webpAnimationStatus: 2, isAnimated: true }
+    render(<AdaptiveMediaPreview images={[media]} initialIndex={0} open onClose={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: '播放 WEBP 动图' }))
+    const frames = screen.getAllByAltText('作品 WEBP 动图 1')
+    const poster = frames[0]!,
+      playback = frames[1]!
+    fireEvent.load(playback)
+    const handle = screen.getByRole('button', { name: '拖动阅读工具栏' })
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(document.querySelector('[data-preview-controls-dock]')?.getAttribute('data-orientation')).toBe('vertical')
+    expect(screen.getByRole('button', { name: '暂停 WEBP 动图' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getAllByAltText('作品 WEBP 动图 1')).toEqual([poster, playback])
+    fireEvent.keyDown(handle, { key: 'Home' })
+    expect(document.querySelector('[data-preview-controls-dock]')?.getAttribute('data-orientation')).toBe('horizontal')
+    expect(screen.getAllByAltText('作品 WEBP 动图 1')).toEqual([poster, playback])
   })
 })

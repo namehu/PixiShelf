@@ -112,6 +112,7 @@ function createReading() {
 }
 
 beforeEach(() => {
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() })))
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-09-24T00:00:00.000Z'))
   previewState.images = images
@@ -121,6 +122,7 @@ afterEach(() => {
   cleanup()
   previewState.reading = null
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 async function assertNeighborDoesNotDuplicateView(

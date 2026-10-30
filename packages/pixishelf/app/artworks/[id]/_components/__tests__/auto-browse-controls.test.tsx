@@ -261,3 +261,33 @@ describe('auto browse control docking', () => {
     expect(store.getState().controlsCollapsed).toBe(false)
   })
 })
+
+it('adapts compact playback, count, trailing control and inward settings without remounting controls', () => {
+  store.getState().initialize(1)
+  store.getState().start('slideshow')
+  const container = document.createElement('div')
+  document.body.append(container)
+  const props = { compact: true, mode: 'slideshow' as const, current: 2, total: 7,
+    onRestart: vi.fn(), onRetry: vi.fn(), onSkip: vi.fn(), container,
+    trailingControl: <button>WebP 播放</button> }
+  const view = render(<AutoBrowseControls {...props} />)
+  const play = screen.getByRole('button', { name: '暂停自动浏览' })
+  const count = screen.getByRole('button', { name: '自动浏览设置' })
+  const webp = screen.getByRole('button', { name: 'WebP 播放' })
+  view.rerender(<AutoBrowseControls {...props} orientation="vertical" settingsSide="left" />)
+  expect(screen.getByRole('button', { name: '暂停自动浏览' })).toBe(play)
+  expect(screen.getByRole('button', { name: '自动浏览设置' })).toBe(count)
+  expect(screen.getByRole('button', { name: 'WebP 播放' })).toBe(webp)
+  expect(store.getState().status).toBe('running')
+  const root = play.closest('[data-auto-browse-mode]')!
+  expect(root.getAttribute('data-orientation')).toBe('vertical')
+  expect(root.className).toContain('h-auto')
+  expect(webp.parentElement?.className).toContain('border-t')
+  expect(webp.parentElement?.className).toContain('border-l-0')
+  fireEvent.click(count)
+  const settings = document.querySelector('[data-auto-browse-settings]')!
+  expect(container.contains(settings)).toBe(true)
+  expect(settings.getAttribute('data-side')).toBe('left')
+  expect(store.getState().status).toBe('paused')
+  view.unmount(); container.remove()
+})

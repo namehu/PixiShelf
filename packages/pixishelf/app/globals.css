@@ -221,6 +221,18 @@
   font-variant-numeric: tabular-nums;
 }
 .preview-animation-segment > span:last-child { gap: 6px; }
+.preview-controls-stage {
+  padding: calc(4rem + env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) calc(0.75rem + env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
+}
+.preview-dock-controls {
+  max-width: calc(100% - max(0.75rem, env(safe-area-inset-left)) - max(0.75rem, env(safe-area-inset-right)));
+  max-height: calc(100% - 4.75rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+[data-orientation='vertical'] .preview-webp-control {
+  width: 100%;
+  justify-content: center;
+  border-radius: 0 0 24px 24px;
+}
 @media (prefers-reduced-motion: reduce) {
   .media-mark-overlay {
     transition: none;

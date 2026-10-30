@@ -71,7 +71,7 @@ describe('InfiniteArtworkList artwork sources', () => {
   })
 
   it('uses the random cursor ahead of reading pagination and preserves seed zero', async () => {
-    render(<InfiniteArtworkList likedOnly readingStatus="UNREAD" sortBy="random" randomSeed={0} />)
+    render(<InfiniteArtworkList likedOnly readingStatuses={['UNREAD']} sortBy="random" randomSeed={0} />)
     const options = (useInfiniteQueryMock.mock.calls.at(-1) as unknown[])[0] as {
       queryFn: (ctx: { pageParam: string; signal: AbortSignal }) => Promise<unknown>
       getNextPageParam: (page: object) => string
@@ -93,7 +93,7 @@ describe('InfiniteArtworkList artwork sources', () => {
     useInfiniteQueryMock.mockReturnValue(normal)
   })
 
-  it.each([{ readingStatus: 'UNREAD' as const }, { likedOnly: true }])('uses keyset cursor and account precondition for filtered continuation: %o', async (filter) => {
+  it.each([{ readingStatuses: ['UNREAD' as const] }, { likedOnly: true }])('uses keyset cursor and account precondition for filtered continuation: %o', async (filter) => {
     render(<InfiniteArtworkList {...filter} />)
     const options = (useInfiniteQueryMock.mock.calls.at(-1) as unknown as [{
       queryFn: (args: { pageParam: string; signal: AbortSignal }) => Promise<unknown>

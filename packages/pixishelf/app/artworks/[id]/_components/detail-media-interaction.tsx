@@ -4,7 +4,7 @@ import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
 import { useMediaMark } from '@/hooks/use-media-mark'
 import { useArtworkAutoBrowseStore } from '@/store/use-artwork-auto-browse-store'
-import { FloatingLikeHearts, type FloatingLikeHeartsHandle } from './floating-like-hearts'
+import { FloatingLikeHearts, type FloatingLikeHeartsHandle } from '@/components/media-mark/floating-like-hearts'
 import { useDetailMediaGestures, type DetailMediaMenuEvent } from './use-detail-media-gestures'
 import { cn } from '@/lib/utils'
 
@@ -58,18 +58,20 @@ export function DetailMediaInteraction({
       >
         {children}
       </div>
-      <div className="absolute bottom-2 left-2" data-long-press-ignore>
-        <MediaMarkActions
-          artworkId={artworkId}
-          mediaId={mediaId}
-          showBookmark={false}
-          overlay
-          onAction={() => {
-            cancel()
-            useArtworkAutoBrowseStore.getState().pause('manual')
-          }}
-        />
-      </div>
+      {mark.likedAt && (
+        <div className="absolute bottom-2 left-2" data-long-press-ignore>
+          <MediaMarkActions
+            artworkId={artworkId}
+            mediaId={mediaId}
+            showBookmark={false}
+            overlay
+            onAction={() => {
+              cancel()
+              useArtworkAutoBrowseStore.getState().pause('manual')
+            }}
+          />
+        </div>
+      )}
       <FloatingLikeHearts key={mediaId} ref={hearts} />
     </div>
   )

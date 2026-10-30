@@ -69,7 +69,7 @@ describe('FilterSheet artwork sources', () => {
   it('keeps favorites in the draft, discards on reopen, and clears them with reset', () => {
     const onApply = vi.fn()
     const props = {
-      currentMediaType: 'all' as const,
+      currentMediaKinds: [],
       currentSortBy: 'source_date_desc' as const,
       currentLikedOnly: false,
       onApply,
@@ -94,7 +94,7 @@ describe('FilterSheet artwork sources', () => {
     render(
       <FilterSheet
         open
-        currentMediaType="all"
+        currentMediaKinds={[]}
         currentSortBy="random"
         randomSeed={0}
         onApply={onApply}
@@ -111,34 +111,82 @@ describe('FilterSheet artwork sources', () => {
     const onApply = vi.fn()
     const onOpenChange = vi.fn()
     const props = {
-      currentMediaType: 'all' as const,
+      currentMediaKinds: [],
       currentSortBy: 'source_date_desc' as const,
       onApply,
       onOpenChange
     }
     const view = render(<FilterSheet {...props} open />)
 
-    fireEvent.click(screen.getByRole('radio', { name: '动图' }))
+    fireEvent.click(screen.getByRole('button', { name: '动图' }))
     expect(onApply).not.toHaveBeenCalled()
     view.rerender(<FilterSheet {...props} open={false} />)
     view.rerender(<FilterSheet {...props} open />)
-    expect(screen.getByRole('radio', { name: '全部' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('button', { name: '动图' }).getAttribute('aria-pressed')).toBe('false')
 
-    fireEvent.click(screen.getByRole('radio', { name: '动图' }))
+    fireEvent.click(screen.getByRole('button', { name: '动图' }))
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
-    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ mediaType: 'animation' }))
+    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ mediaKinds: ['animation'] }))
     expect(onOpenChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('keeps both multi-select groups in the draft and supports all, none, reset and discard', () => {
+    const onApply = vi.fn()
+    const props = {
+      currentMediaKinds: [],
+      currentReadingStatuses: [],
+      currentSortBy: 'source_date_desc' as const,
+      onApply,
+      onOpenChange: vi.fn()
+    }
+    const view = render(<FilterSheet {...props} open />)
+    for (const label of ['未读', '阅读中', '已读完', '图片', '动图', '视频']) {
+      fireEvent.click(screen.getByRole('button', { name: new RegExp('^' + label + '$') }))
+    }
+    expect(onApply).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mediaKinds: ['image', 'animation', 'video'],
+        readingStatuses: ['UNREAD', 'IN_PROGRESS', 'COMPLETED']
+      })
+    )
+    fireEvent.click(screen.getByRole('button', { name: /^阅读中$/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^图片$/ }))
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+    expect(onApply).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        mediaKinds: ['animation', 'video'],
+        readingStatuses: ['UNREAD', 'COMPLETED']
+      })
+    )
+    for (const label of ['未读', '已读完', '动图', '视频']) {
+      fireEvent.click(screen.getByRole('button', { name: new RegExp('^' + label + '$') }))
+    }
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ mediaKinds: [], readingStatuses: [] }))
+    fireEvent.click(screen.getByRole('button', { name: /^未读$/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^视频$/ }))
+    view.rerender(<FilterSheet {...props} open={false} />)
+    view.rerender(<FilterSheet {...props} open />)
+    expect(screen.getByRole('button', { name: /^未读$/ }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: /^视频$/ }).getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(screen.getByRole('button', { name: /^已读完$/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^动图$/ }))
+    fireEvent.click(screen.getByRole('button', { name: '重置' }))
+    fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
+    expect(onApply).toHaveBeenLastCalledWith(expect.objectContaining({ mediaKinds: [], readingStatuses: [] }))
   })
 
   it('reveals active advanced filters on open and counts them', () => {
     render(
       <FilterSheet
         open
-        currentMediaType="animation"
+        currentMediaKinds={['animation']}
         currentSortBy="source_date_desc"
         currentHasAudio="yes"
         currentSources={[ESource.LOCAL_IMPORT]}
-        currentReadingStatus="UNREAD"
+        currentReadingStatuses={['UNREAD']}
         startDate="2026-09-01"
         onApply={vi.fn()}
         onOpenChange={vi.fn()}
@@ -159,7 +207,7 @@ describe('FilterSheet artwork sources', () => {
       <FilterSheet
         open
         onOpenChange={vi.fn()}
-        currentMediaType="all"
+        currentMediaKinds={[]}
         currentSortBy="source_date_desc"
         currentSources={[]}
         onApply={onApply}
@@ -185,7 +233,7 @@ describe('FilterSheet artwork sources', () => {
       <FilterSheet
         open
         onOpenChange={vi.fn()}
-        currentMediaType="all"
+        currentMediaKinds={[]}
         currentSortBy="source_date_desc"
         currentHasAudio="all"
         onApply={onApply}
@@ -207,7 +255,7 @@ describe('FilterSheet artwork sources', () => {
         open
         onOpenChange={vi.fn()}
         currentSearch="old"
-        currentMediaType="video"
+        currentMediaKinds={['video']}
         currentSortBy="source_date_desc"
         currentMaxMediaCount={8}
         resetSortBy="random"
@@ -219,13 +267,13 @@ describe('FilterSheet artwork sources', () => {
     fireEvent.click(screen.getByTestId('max-media-slider'))
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
     expect(onApply).toHaveBeenLastCalledWith(
-      expect.objectContaining({ search: 'miku', maxMediaCount: 42, mediaType: 'video' })
+      expect.objectContaining({ search: 'miku', maxMediaCount: 42, mediaKinds: ['video'] })
     )
 
     fireEvent.click(screen.getByRole('button', { name: '重置' }))
     fireEvent.click(screen.getByRole('button', { name: '应用筛选' }))
     expect(onApply).toHaveBeenLastCalledWith(
-      expect.objectContaining({ search: undefined, maxMediaCount: 8, sortBy: 'random', mediaType: 'all' })
+      expect.objectContaining({ search: undefined, maxMediaCount: 8, sortBy: 'random', mediaKinds: [] })
     )
   })
 })

@@ -48,7 +48,8 @@ describe('ViewerFeedQuerySchema filters', () => {
       tagIds: [3, 4],
       sources: [ESource.PIXIV_IMPORTED, ESource.LOCAL_IMPORT],
       hasAudio: 'yes',
-      mediaType: 'video',
+      mediaKinds: ['video'],
+      readingStatuses: [],
       createdStartDate: '2026-01-01',
       createdEndDate: '2026-08-12'
     })

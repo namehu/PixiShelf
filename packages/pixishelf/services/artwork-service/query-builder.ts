@@ -13,7 +13,7 @@ export function buildArtworkWhereClause(
   tagStrategy: 'grouped' | 'exists' = 'grouped',
   userId?: string
 ) {
-  if (params.readingCursor && !params.readingStatus && !resolveRatingLevels(params).length) {
+  if (params.readingCursor && !params.readingStatuses.length && !resolveRatingLevels(params).length) {
     throw new TRPCError({ code: 'BAD_REQUEST', message: 'Invalid reading cursor' })
   }
   const {
@@ -25,7 +25,7 @@ export function buildArtworkWhereClause(
     sources,
     tagId,
     tagIds,
-    mediaType,
+    mediaKinds,
     mediaTypes,
     hasAudio,
     startDate,
@@ -201,31 +201,23 @@ export function buildArtworkWhereClause(
     )`
   }
 
-  // 1.5.5 粗粒度媒体类型筛选
-  if (mediaType === 'video' || mediaType === 'image') {
-    const videoCheckSQL = `
-      EXISTS (
-        SELECT 1 FROM "Image" i
-        WHERE i."artworkId" = a.id AND i."mediaType" = 'VIDEO'
-      )
-    `
-
-    if (mediaType === 'video') {
-      whereSQL += ` AND ${videoCheckSQL}`
-    } else {
-      whereSQL += ` AND NOT ${videoCheckSQL}`
-    }
-  }
-
-  // 动图沿用展示层的持久化类型与内容探测结果。
-  if (mediaType === 'animation') {
-    whereSQL += ` AND EXISTS (
-      SELECT 1 FROM "Image" i
-      WHERE i."artworkId" = a.id
-        AND (i."mediaType" = 'ANIMATION' OR i."webpAnimationStatus" = $${paramIndex})
+  // Each kind retains its existing predicate; selections within this group are ORed.
+  if (mediaKinds.length) {
+    const videoCheckSQL = `EXISTS (
+      SELECT 1 FROM "Image" i WHERE i."artworkId" = a.id AND i."mediaType" = 'VIDEO'
     )`
-    sqlParams.push(EMediaAnimationStatus.animated)
-    paramIndex++
+    const predicates = mediaKinds.map((kind) => {
+      if (kind === 'image') return `NOT ${videoCheckSQL}`
+      if (kind === 'video') return videoCheckSQL
+      const animation = `EXISTS (
+        SELECT 1 FROM "Image" i WHERE i."artworkId" = a.id
+          AND (i."mediaType" = 'ANIMATION' OR i."webpAnimationStatus" = $${paramIndex})
+      )`
+      sqlParams.push(EMediaAnimationStatus.animated)
+      paramIndex++
+      return animation
+    })
+    whereSQL += ` AND (${predicates.join(' OR ')})`
   }
 
   // 1.6 时间范围筛选

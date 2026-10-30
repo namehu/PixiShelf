@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DetailMediaInteraction } from '../detail-media-interaction'
+import { useMediaMark } from '@/hooks/use-media-mark'
 import { useArtworkAutoBrowseStore as auto } from '@/store/use-artwork-auto-browse-store'
 import type { MediaMarkStateDto } from '@/schemas/media-mark.dto'
 
@@ -37,9 +38,16 @@ const state = (id = 42, liked = false): MediaMarkStateDto => ({
   available: true
 })
 let client: QueryClient
+function MarkStatus({ id }: { id: number }) {
+  const mark = useMediaMark(7, id)
+  return (
+    <output data-testid="mark-status">{mark.isLoading ? 'loading' : mark.available ? 'ready' : 'unavailable'}</output>
+  )
+}
 function content(id = 42) {
   return (
     <QueryClientProvider client={client}>
+      <MarkStatus id={id} />
       <DetailMediaInteraction artworkId={7} mediaId={id} label={`图片 ${id}`} onMenu={mocks.menu}>
         <img alt="合成媒体" />
       </DetailMediaInteraction>
@@ -74,9 +82,7 @@ afterEach(() => {
   auto.getState().stop()
 })
 async function ready() {
-  await waitFor(() =>
-    expect((screen.getByRole('button', { name: '喜欢这张图片' }) as HTMLButtonElement).disabled).toBe(false)
-  )
+  await waitFor(() => expect(screen.getByTestId('mark-status').textContent).toBe('ready'))
 }
 
 describe('detail likes use the shared media mark session', () => {
@@ -90,7 +96,7 @@ describe('detail likes use the shared media mark session', () => {
     await waitFor(() => expect(mocks.set).toHaveBeenCalledTimes(1))
     expect(mocks.set.mock.calls[0]![0].value).toBe(false)
     expect(hearts()).toHaveLength(0)
-    expect(screen.getByRole('button', { name: '喜欢这张图片' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByRole('button', { name: '喜欢这张图片' })).toBeNull()
   })
 
   it('adds once, layers feedback for an already liked media, and pauses automatic browsing', async () => {
@@ -112,16 +118,18 @@ describe('detail likes use the shared media mark session', () => {
     expect(mocks.set).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: '取消图片喜欢' }).getAttribute('aria-pressed')).toBe('true')
   })
-  it('uses the existing button toggle without floating hearts, including keyboard activation', async () => {
+  it('hides the unliked control, reveals it after a double tap and hides it after keyboard cancellation', async () => {
     render(content())
     await ready()
     auto.getState().start('slideshow')
-    fireEvent.click(screen.getByRole('button', { name: '喜欢这张图片' }), { detail: 0 })
+    expect(screen.queryByRole('button', { name: '喜欢这张图片' })).toBeNull()
+    doubleTap()
     expect(auto.getState().status).toBe('paused')
     await waitFor(() => expect(mocks.set).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: '取消图片喜欢' }), { detail: 0 })
     await waitFor(() => expect(mocks.set).toHaveBeenCalledTimes(2))
-    expect(hearts()).toHaveLength(0)
+    expect(hearts()).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: '取消图片喜欢' })).toBeNull()
   })
   it('does not show success before mark readiness or when unavailable', async () => {
     let finish!: (data: { items: MediaMarkStateDto[] }) => void
@@ -146,7 +154,7 @@ describe('detail likes use the shared media mark session', () => {
     await ready()
     doubleTap()
     await waitFor(() => expect(mocks.toast).toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: '喜欢这张图片' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByRole('button', { name: '喜欢这张图片' })).toBeNull()
   })
   it('cleans feedback after 800ms and on identity change, and reduces spatial motion', async () => {
     mocks.reduced = true
@@ -176,6 +184,6 @@ describe('detail likes use the shared media mark session', () => {
     mocks.owner = 'detail-bob'
     reopened.rerender(content())
     await ready()
-    expect(screen.getByRole('button', { name: '喜欢这张图片' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.queryByRole('button', { name: '喜欢这张图片' })).toBeNull()
   })
 })

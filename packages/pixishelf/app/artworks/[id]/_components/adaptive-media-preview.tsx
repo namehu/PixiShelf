@@ -31,6 +31,9 @@ import { readingMediaPosition } from './reading-media-status'
 import type { ArtworkReadingHandle } from '@/lib/reading/reading-provider'
 import { useMediaMark, usePrefetchMediaMarks } from '@/hooks/use-media-mark'
 import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
+import { FloatingLikeHearts, type FloatingLikeHeartsHandle } from '@/components/media-mark/floating-like-hearts'
+import { usePreviewControlsDock } from './use-preview-controls-dock'
+import { DockablePreviewControls } from './dockable-preview-controls'
 
 const ADAPTIVE_PREVIEW_HISTORY_KEY = '__pixishelf_adaptive_media_preview__'
 export type AdaptivePreloadEnvironment = MediaPreloadEnvironment
@@ -75,6 +78,8 @@ function AdaptiveMediaPreviewContent({
   onClose,
   reading
 }: AdaptiveMediaPreviewProps) {
+  const dock = usePreviewControlsDock(open)
+  const hearts = useRef<FloatingLikeHeartsHandle>(null)
   const safeInitialIndex = clampIndex(initialIndex, images.length)
   const [currentIndex, setCurrentIndex] = useState(safeInitialIndex)
   const [zoomScale, setZoomScale] = useState(1)
@@ -308,11 +313,19 @@ function AdaptiveMediaPreviewContent({
       counterTotal={originalTotal}
       showTopCounter={false}
       enableMousewheel
-      onLike={() => {
-        if (mark.available && !mark.isLoading && !activeMedia?.detailsPending) mark.set('like', true)
+      navigationSide={dock.dock === 'right' ? 'left' : 'right'}
+      onEscapeKeyDown={dock.onEscapeKeyDown}
+      onLike={(point) => {
+        if (!mark.available || mark.isLoading || activeMedia?.detailsPending) return
+        useArtworkAutoBrowseStore.getState().pause('manual')
+        if (!mark.likedAt) mark.set('like', true)
+        hearts.current?.show(point)
       }}
       onToggleLike={() => {
-        if (mark.available && !mark.isLoading && !activeMedia?.detailsPending) mark.set('like', !mark.likedAt)
+        if (mark.available && !mark.isLoading && !activeMedia?.detailsPending) {
+          useArtworkAutoBrowseStore.getState().pause('manual')
+          mark.set('like', !mark.likedAt)
+        }
       }}
       transitionEffect="fade"
       open={open}
@@ -419,47 +432,58 @@ function AdaptiveMediaPreviewContent({
         )
       }}
       bottomChrome={({ portalContainer: container }) => (
-        <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 h-12">
-          {reading && (reading.invalidated || reading.markError) && (
-            <div className="pointer-events-auto absolute inset-x-0 bottom-28 mx-auto w-fit max-w-full rounded-lg bg-background text-foreground sm:bottom-14">
-              {reading.invalidated ? (
-                <div className="flex flex-wrap items-center gap-2 p-3 text-sm" role="status">
-                  <span>作品媒体已更新，请重新打开阅读。</span>
-                  <Button size="sm" variant="outline" onClick={reading.reopen}>
-                    重新打开
-                  </Button>
-                </div>
-              ) : null}
-              {reading.markError && (
-                <p role="alert" className="px-3 pb-2 text-sm text-destructive">
-                  {reading.markError}
-                </p>
-              )}
-            </div>
-          )}
-          {diagnosticsEnabled && open && activePlayableWebp && activeMedia && (
-            <WebpDiagnosticsPanel
-              src={withMediaVersion(combinationApiResource(activeMedia.path), activeMedia.updatedAt)}
-              size={activeMedia.size}
-              canvas={diagnosticCanvas}
-              results={diagnosticResults}
-              onResult={(result) => setDiagnosticResults((current) => [...current, result].slice(-10))}
-              onRunning={setDiagnosticRunning}
-              onVisible={setDiagnosticVisible}
-              onStart={() => {
-                useArtworkAutoBrowseStore.getState().pause('manual')
-                useArtworkAutoBrowseStore.getState().setActiveAnimation(null)
-                animation.stopManual()
-              }}
-            />
-          )}
+        <>
+          <FloatingLikeHearts key={activeMedia?.id} ref={hearts} className="z-20" />
+          <div className="pointer-events-none absolute inset-x-4 bottom-[calc(0.75rem+env(safe-area-inset-bottom))] z-20 h-12">
+            {reading && (reading.invalidated || reading.markError) && (
+              <div className="pointer-events-auto absolute inset-x-0 bottom-28 mx-auto w-fit max-w-full rounded-lg bg-background text-foreground sm:bottom-14">
+                {reading.invalidated ? (
+                  <div className="flex flex-wrap items-center gap-2 p-3 text-sm" role="status">
+                    <span>作品媒体已更新，请重新打开阅读。</span>
+                    <Button size="sm" variant="outline" onClick={reading.reopen}>
+                      重新打开
+                    </Button>
+                  </div>
+                ) : null}
+                {reading.markError && (
+                  <p role="alert" className="px-3 pb-2 text-sm text-destructive">
+                    {reading.markError}
+                  </p>
+                )}
+              </div>
+            )}
+            {diagnosticsEnabled && open && activePlayableWebp && activeMedia && (
+              <WebpDiagnosticsPanel
+                src={withMediaVersion(combinationApiResource(activeMedia.path), activeMedia.updatedAt)}
+                size={activeMedia.size}
+                canvas={diagnosticCanvas}
+                results={diagnosticResults}
+                onResult={(result) => setDiagnosticResults((current) => [...current, result].slice(-10))}
+                onRunning={setDiagnosticRunning}
+                onVisible={setDiagnosticVisible}
+                onStart={() => {
+                  useArtworkAutoBrowseStore.getState().pause('manual')
+                  useArtworkAutoBrowseStore.getState().setActiveAnimation(null)
+                  animation.stopManual()
+                }}
+              />
+            )}
+          </div>
           {activeMedia && (
-            <div className="pointer-events-auto mx-auto flex h-12 w-fit max-w-full items-center">
-              <MediaMarkActions artworkId={activeMedia.artworkId ?? 0} mediaId={activeMedia.id} overlay>
+            <DockablePreviewControls dock={dock}>
+              <MediaMarkActions
+                artworkId={activeMedia.artworkId ?? 0}
+                mediaId={activeMedia.id}
+                overlay
+                orientation={dock.orientation}
+                onAction={() => useArtworkAutoBrowseStore.getState().pause('manual')}
+              >
                 {!diagnosticRunning &&
                   (images.length > 1 ? (
                     <AutoBrowseControls
                       compact
+                      orientation={dock.orientation}
+                      settingsSide={dock.settingsSide}
                       mode="slideshow"
                       trailingControl={activePlayableWebp ? webpControl : undefined}
                       current={originalIndex + 1}
@@ -483,17 +507,35 @@ function AdaptiveMediaPreviewContent({
                       }}
                     />
                   ) : (
-                    <div className="preview-playback-controls flex h-12 items-center rounded-full p-0.5">
-                      <span className="px-3 text-xs tabular-nums" aria-live="polite">
+                    <div
+                      data-orientation={dock.orientation}
+                      className={cn(
+                        'preview-playback-controls flex items-center rounded-full p-0.5',
+                        dock.orientation === 'vertical' ? 'flex-col' : 'h-12'
+                      )}
+                    >
+                      <span
+                        className="flex min-h-11 min-w-11 items-center justify-center px-3 text-xs tabular-nums"
+                        aria-live="polite"
+                      >
                         {originalIndex + 1}/{originalTotal}
                       </span>
-                      {activePlayableWebp ? <div className="preview-playback-trailing border-l">{webpControl}</div> : null}
+                      {activePlayableWebp ? (
+                        <div
+                          className={cn(
+                            'preview-playback-trailing',
+                            dock.orientation === 'vertical' ? 'border-t' : 'border-l'
+                          )}
+                        >
+                          {webpControl}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
               </MediaMarkActions>
-            </div>
+            </DockablePreviewControls>
           )}
-        </div>
+        </>
       )}
     />
   )

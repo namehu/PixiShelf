@@ -29,6 +29,8 @@ export interface ControlledAutoBrowseControlsProps {
   total: number
   state: ControlledAutoBrowseState
   compact?: boolean
+  orientation?: 'horizontal' | 'vertical'
+  settingsSide?: 'top' | 'left' | 'right'
   navigation?: ReactNode
   trailingControl?: ReactNode
   onStart: (mode: AutoBrowseMode) => void
@@ -52,6 +54,8 @@ export function ControlledAutoBrowseControls({
   total,
   state,
   compact = false,
+  orientation = 'horizontal',
+  settingsSide = 'top',
   navigation,
   trailingControl,
   onStart,
@@ -173,8 +177,9 @@ export function ControlledAutoBrowseControls({
       transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
       data-auto-browse-controls
       data-auto-browse-mode={mode}
+      data-orientation={orientation}
       data-collapsed={collapsed}
-      className={cn('pointer-events-auto flex h-12 max-w-full items-center rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md', compact && 'preview-playback-controls')}
+      className={cn('pointer-events-auto flex h-12 max-w-full items-center rounded-3xl border border-border/40 bg-background/55 p-0.5 text-foreground shadow-sm backdrop-blur-md', compact && 'preview-playback-controls', orientation === 'vertical' && 'h-auto flex-col')}
     >
       <div
         className={cn('min-w-0', compact && 'touch-none')}
@@ -241,7 +246,7 @@ export function ControlledAutoBrowseControls({
           </Button>
         ) : (
           <>
-            <div className={cn('flex items-center justify-center gap-1', compact && 'gap-0 sm:gap-1')}>
+            <div className={cn('flex items-center justify-center gap-1', compact && 'gap-0 sm:gap-1', orientation === 'vertical' && 'flex-col')}>
               <Button
                 variant="ghost"
                 size="icon"
@@ -286,7 +291,7 @@ export function ControlledAutoBrowseControls({
                 <PopoverContent
                   className={compact ? 'dark' : undefined}
                   container={container}
-                  side="top"
+                  side={settingsSide}
                   sideOffset={compact ? 12 : 4}
                   collisionPadding={compact ? 16 : 0}
                   align="center"
@@ -384,7 +389,7 @@ export function ControlledAutoBrowseControls({
       </div>
       {trailingControl && (
         <div
-          className={cn('flex h-11 shrink-0 items-center border-l border-border/40 px-2', compact && 'preview-playback-trailing')}
+          className={cn('flex h-11 shrink-0 items-center border-l border-border/40 px-2', compact && 'preview-playback-trailing', orientation === 'vertical' && 'h-auto border-l-0 border-t px-0')}
         >
           {trailingControl}
         </div>

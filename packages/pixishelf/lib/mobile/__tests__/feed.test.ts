@@ -21,7 +21,7 @@ beforeEach(() => {
 })
 it('reuses H5 filters under the session owner and returns only protected cover IDs', async () => {
   const result = await mobileFeed('owner', input({ sortBy: 'random', mediaType: 'animation', likedOnly: 'true', readingStatus: 'UNREAD', cursor: 'random-before', search: 'summer' }))
-  expect(mocks.cards).toHaveBeenCalledWith(expect.objectContaining({ sortBy: 'random', mediaType: 'animation', likedOnly: true, readingStatus: 'UNREAD', randomCursor: 'random-before', expectedUserId: 'owner', search: 'summer' }), 'owner')
+  expect(mocks.cards).toHaveBeenCalledWith(expect.objectContaining({ sortBy: 'random', mediaKinds: ['animation'], likedOnly: true, readingStatuses: ['UNREAD'], randomCursor: 'random-before', expectedUserId: 'owner', search: 'summer' }), 'owner')
   expect(mocks.summaries).toHaveBeenCalledWith('owner', [4])
   expect(result.items[0]).toEqual({ id: 4, title: 'Title', author: 'Artist', imageCount: 40, mediaType: 'image', totalMediaSize: 0, preferredTag: null, mediaRevision: 3, coverUrl: '/api/mobile/v1/media/8?expectedUserId=owner&variant=thumbnail', readingStatus: 'IN_PROGRESS' })
   expect(JSON.stringify(result)).not.toContain('private/file.png')

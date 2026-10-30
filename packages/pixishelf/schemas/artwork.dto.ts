@@ -1,7 +1,7 @@
-import { excludeArtistIdsSchema, ratingLevelsFilterSchema } from './artwork-filter.dto'
+import { excludeArtistIdsSchema, ratingLevelsFilterSchema, mediaKindsFilterSchema, readingStatusesFilterSchema, normalizeArtworkSelections } from './artwork-filter.dto'
 import { MediaUploadReceiptSchema } from './media-content.dto'
 import z from 'zod'
-import { MediaTypeFilter, SortOption } from '@/types'
+import { SortOption } from '@/types'
 import { ArtworkModel, ArtworkSourceEnum, ImageModel, MediaProbeStatusEnum, TagModel } from './models'
 import { dateToString, nullableDateToString } from './utils'
 import { ArtistResponseDto } from './artist.dto'
@@ -107,17 +107,15 @@ export const ArtworksInfiniteQuerySchema = z.object({
     }),
   randomSeed: z.number().int().optional(),
   readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
+  readingStatuses: readingStatusesFilterSchema.optional(),
   likedOnly: z.boolean().optional(),
   ratingLevels: ratingLevelsFilterSchema.optional(),
   excludeArtistIds: excludeArtistIdsSchema.optional(),
   readingCursor: z.string().min(1).max(4096).optional(),
   randomCursor: z.string().min(1).max(4096).optional(),
   expectedUserId: z.string().min(1).optional(),
-  mediaType: z
-    .string()
-    .optional()
-    .default('all')
-    .transform((val) => (val as MediaTypeFilter) || 'all'),
+  mediaType: z.enum(['all', 'image', 'animation', 'video']).optional(),
+  mediaKinds: mediaKindsFilterSchema.optional(),
   mediaTypes: z
     .union([z.string(), z.array(z.string())])
     .nullish()
@@ -148,7 +146,7 @@ export const ArtworksInfiniteQuerySchema = z.object({
   mediaCountMin: z.coerce.number().int().min(0).nullish(),
   mediaCountMax: z.coerce.number().int().min(0).nullish(),
   pixivStatus: ArtworkPixivStatusFilterSchema.nullish()
-})
+}).transform(normalizeArtworkSelections)
 
 export type ArtworksInfiniteQuerySchema = z.infer<typeof ArtworksInfiniteQuerySchema>
 
@@ -172,8 +170,9 @@ export const RandomArtworksGetSchema = z.object({
   cursor: z.number().nullish(), // page number
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   count: z.coerce.number().int().min(1).max(100).default(8),
-  mediaType: z.enum(EMediaType).default(EMediaType.all)
-})
+  mediaType: z.enum(EMediaType).optional(),
+  mediaKinds: mediaKindsFilterSchema.optional()
+}).transform(normalizeArtworkSelections)
 
 export type RandomArtworksGetSchema = z.infer<typeof RandomArtworksGetSchema>
 
@@ -195,6 +194,7 @@ export const ViewerFeedQuerySchema = z.object({
     }),
   randomSeed: z.coerce.number().int().optional(),
   readingStatus: z.enum(['UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
+  readingStatuses: readingStatusesFilterSchema.optional(),
   likedOnly: z.boolean().optional(),
   ratingLevels: ratingLevelsFilterSchema.optional(),
   excludeArtistIds: excludeArtistIdsSchema.optional(),
@@ -224,11 +224,8 @@ export const ViewerFeedQuerySchema = z.object({
     })
     .pipe(z.array(ArtworkSourceEnum)),
   hasAudio: z.enum(['all', 'yes', 'no']).optional().default('all'),
-  mediaType: z
-    .string()
-    .optional()
-    .default('all')
-    .transform((val) => (val as MediaTypeFilter) || 'all'),
+  mediaType: z.enum(['all', 'image', 'animation', 'video']).optional(),
+  mediaKinds: mediaKindsFilterSchema.optional(),
   startDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)')
@@ -250,7 +247,7 @@ export const ViewerFeedQuerySchema = z.object({
     .optional()
     .nullish(),
   mediaCountMax: z.coerce.number().int().min(1).max(100).optional()
-})
+}).transform(normalizeArtworkSelections)
 
 export type ViewerFeedQuerySchema = z.infer<typeof ViewerFeedQuerySchema>
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 
 const service = vi.hoisted(() => ({
   getReadingContext: vi.fn(),
@@ -137,6 +138,19 @@ describe('reading router session ownership', () => {
       expect.objectContaining({ expectedUserId: 'user-1' }),
       'user-1'
     )
+  })
+  it('requires Session ownership for multi-select reading requests before services run', async () => {
+    const caller = artworkRouter.createCaller(authorized as never)
+    for (const method of ['list', 'cardList', 'viewerFeed'] as const) {
+      for (const readingStatuses of [['UNREAD', 'COMPLETED'], ['UNREAD', 'IN_PROGRESS', 'COMPLETED']] satisfies ReadingStatus[][]) {
+        await expect(caller[method]({ readingStatuses })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+        await expect(caller[method]({ readingStatuses, expectedUserId: 'user-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      }
+    }
+    expect(Object.values(listService).every((mock) => mock.mock.calls.length === 0)).toBe(true)
+    listService.getArtworkCardsPage.mockResolvedValue({ items: [], hasNextPage: false, pageSize: 24 })
+    await caller.cardList({ readingStatuses: ['COMPLETED', 'UNREAD'], expectedUserId: 'user-1' })
+    expect(listService.getArtworkCardsPage).toHaveBeenCalledWith(expect.objectContaining({ readingStatuses: ['UNREAD', 'COMPLETED'] }), 'user-1')
   })
   it('protects favorites with the session account and returns keyset continuation', async () => {
     const caller = artworkRouter.createCaller(authorized as never)

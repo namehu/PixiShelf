@@ -11,16 +11,20 @@ export function MediaMarkActions({
   artworkId,
   mediaId,
   layout = 'icons',
+  orientation = 'horizontal',
   overlay = false,
   showBookmark = true,
+  hideInactiveLike = false,
   onAction,
   children
 }: {
   artworkId: number
   mediaId: number | null
   layout?: 'icons' | 'menu'
+  orientation?: 'horizontal' | 'vertical'
   overlay?: boolean
   showBookmark?: boolean
+  hideInactiveLike?: boolean
   onAction?: (kind: 'bookmark' | 'like', value: boolean) => void
   /** Preview controls between the stable bookmark and like buttons. */
   children?: ReactNode
@@ -44,7 +48,7 @@ export function MediaMarkActions({
       aria-label="当前图片标记"
       className={cn(
         'relative flex gap-1',
-        layout === 'menu' && 'flex-col',
+        (layout === 'menu' || orientation === 'vertical') && 'flex-col',
         overlay && 'max-w-full items-center justify-center gap-1 sm:gap-6'
       )}
     >
@@ -60,7 +64,7 @@ export function MediaMarkActions({
           { kind: 'like', active: Boolean(mark.likedAt), Icon: HeartIcon, add: '喜欢这张图片', remove: '取消图片喜欢' }
         ] as const
       )
-        .filter(({ kind }) => showBookmark || kind !== 'bookmark')
+        .filter(({ kind, active }) => (showBookmark || kind !== 'bookmark') && !(hideInactiveLike && kind === 'like' && !active))
         .map(({ kind, active, Icon, add, remove }) => (
           <Fragment key={kind}>
             {kind === 'like' && children ? <div className="min-w-0">{children}</div> : null}
@@ -104,13 +108,14 @@ export function MediaMarkActions({
             </Button>
           </Fragment>
         ))}
-      {mark.error && !mark.available && (
+      {!hideInactiveLike && mark.error && !mark.available && (
         <Button
           type="button"
           variant="secondary"
           className={cn(
             'min-h-11',
-            overlay && 'media-mark-overlay absolute bottom-full left-1/2 mb-2 -translate-x-1/2'
+            overlay && 'media-mark-overlay',
+            overlay && orientation === 'horizontal' && 'absolute bottom-full left-1/2 mb-2 -translate-x-1/2'
           )}
           onClick={(event) => {
             event.stopPropagation()

@@ -1,12 +1,23 @@
 'use client'
 
 import Link from 'next/link'
-import { queryRatingLevels, queryArtistOptions } from '@/lib/artwork-query-snapshot'
-import { likedRatingLabels, type LikedRatingLevel } from '@/schemas/artwork-filter.dto'
+import {
+  queryRatingLevels,
+  queryArtistOptions,
+  queryMediaKinds,
+  queryReadingStatuses
+} from '@/lib/artwork-query-snapshot'
+import {
+  likedRatingLabels,
+  mediaKindLabels,
+  readingStatusLabels,
+  type MediaKind,
+  type LikedRatingLevel
+} from '@/schemas/artwork-filter.dto'
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ImageUpIcon, SlidersHorizontal, X } from 'lucide-react'
-import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
+import { SortOption, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
 import { SearchBox } from './_components/search-box'
 import { GalleryFilterSheet } from '@/components/artwork/gallery-filter-sheet'
@@ -46,11 +57,13 @@ const viewerQueryParsers = {
   sources: parseAsString,
   hasAudio: parseAsString,
   readingStatus: parseAsString,
+  readingStatuses: parseAsString,
   likedOnly: parseAsBoolean,
   ratingLevels: parseAsString,
   excludeArtistIds: parseAsString,
   excludeArtistLabels: parseAsString,
   mediaType: parseAsString,
+  mediaKinds: parseAsString,
   startDate: parseAsString,
   endDate: parseAsString,
   createdStartDate: parseAsString,
@@ -58,13 +71,6 @@ const viewerQueryParsers = {
 }
 
 const serializeViewerQuery = createSerializer(viewerQueryParsers)
-
-const MEDIA_TYPE_LABELS: Record<MediaTypeFilter, string> = {
-  all: '全部类型',
-  image: '仅图片',
-  animation: '包含动图',
-  video: '仅视频'
-}
 
 const SORT_LABELS: Record<SortOption, string> = {
   source_date_desc: '原始时间 ↓',
@@ -112,10 +118,6 @@ function normalizeAudioFilter(value?: string | null): AudioFilter {
   return value === 'yes' || value === 'no' ? value : 'all'
 }
 
-function normalizeReadingStatus(value: string): ReadingStatus | 'all' {
-  return value === 'UNREAD' || value === 'IN_PROGRESS' || value === 'COMPLETED' ? value : 'all'
-}
-
 function toTagOptions(tags: string, tagLabels: string): Option[] {
   const ids = splitCsv(tags)
   const labels = decodeLabels(tagLabels)
@@ -133,7 +135,8 @@ export default function GalleryPage() {
     search: searchQuery,
     sortBy,
     randomSeed,
-    mediaType,
+    mediaType: mediaTypeParam,
+    mediaKinds: mediaKindsParam,
     startDate,
     endDate,
     createdStartDate,
@@ -145,6 +148,7 @@ export default function GalleryPage() {
     sources,
     hasAudio: hasAudioParam,
     readingStatus: readingStatusParam,
+    readingStatuses: readingStatusesParam,
     likedOnly,
     ratingLevels: ratingLevelsParam,
     excludeArtistIds,
@@ -158,7 +162,11 @@ export default function GalleryPage() {
   )
   const excludedIds = useMemo(() => excludedArtists.map((artist) => Number(artist.value)), [excludedArtists])
   const hasAudio = normalizeAudioFilter(hasAudioParam)
-  const readingStatus = normalizeReadingStatus(readingStatusParam)
+  const readingStatuses = useMemo(
+    () => queryReadingStatuses(readingStatusesParam, readingStatusParam),
+    [readingStatusesParam, readingStatusParam]
+  )
+  const mediaKinds = useMemo(() => queryMediaKinds(mediaKindsParam, mediaTypeParam), [mediaKindsParam, mediaTypeParam])
   const effectiveRandomSeed = randomSeed != null ? Number(randomSeed) : defaultRandomSeedRef.current
 
   // 控制筛选抽屉的开关
@@ -204,10 +212,10 @@ export default function GalleryPage() {
     selectedTags.length > 0 ||
     selectedSources.length > 0 ||
     hasAudio !== 'all' ||
-    readingStatus !== 'all' ||
+    readingStatuses.length > 0 ||
     ratingLevels.length > 0 ||
     excludedArtists.length > 0 ||
-    mediaType !== 'all' ||
+    mediaKinds.length > 0 ||
     !!startDate ||
     !!endDate ||
     !!createdStartDate ||
@@ -233,11 +241,11 @@ export default function GalleryPage() {
       tagLabels: selectedTags.length > 0 ? encodeLabels(selectedTags) : null,
       sources: selectedSources.join(',') || null,
       hasAudio: hasAudio === 'all' ? null : hasAudio,
-      readingStatus: readingStatus === 'all' ? null : readingStatus,
+      readingStatuses: readingStatuses.join(','),
       ratingLevels: ratingLevels.join(',') || null,
       excludeArtistIds: excludeArtistIds || null,
       excludeArtistLabels: excludeArtistLabels || null,
-      mediaType: mediaType || 'all',
+      mediaKinds: mediaKinds.join(','),
       startDate: startDate || null,
       endDate: endDate || null,
       createdStartDate: createdStartDate || null,
@@ -250,11 +258,11 @@ export default function GalleryPage() {
     createdStartDate,
     endDate,
     hasAudio,
-    readingStatus,
+    readingStatuses,
     ratingLevels,
     excludeArtistIds,
     excludeArtistLabels,
-    mediaType,
+    mediaKinds,
     effectiveRandomSeed,
     searchQuery,
     selectedSources,
@@ -340,7 +348,7 @@ export default function GalleryPage() {
   }
 
   const handleApplyFilters = (filters?: {
-    mediaType: MediaTypeFilter
+    mediaKinds: MediaKind[]
     sortBy: SortOption
     artist?: Option[]
     tags?: Option[]
@@ -351,7 +359,7 @@ export default function GalleryPage() {
     createdEndTime?: string
     sources: ArtworkSource[]
     hasAudio: AudioFilter
-    readingStatus?: ReadingStatus | 'all'
+    readingStatuses?: ReadingStatus[]
     likedOnly?: boolean
     ratingLevels?: LikedRatingLevel[]
     excludedArtists?: Option[]
@@ -382,6 +390,7 @@ export default function GalleryPage() {
       sortBy: null,
       randomSeed: null,
       mediaType: null,
+      mediaKinds: '',
       startDate: null,
       endDate: null,
       createdStartDate: null,
@@ -393,6 +402,7 @@ export default function GalleryPage() {
       sources: null,
       hasAudio: null,
       readingStatus: null,
+      readingStatuses: '',
       likedOnly: null,
       ratingLevels: null,
       excludeArtistIds: null,
@@ -497,18 +507,30 @@ export default function GalleryPage() {
                   }}
                 />
               ))}
-              {readingStatus !== 'all' && (
+              {readingStatuses.map((status) => (
                 <FilterChip
-                  label={`阅读状态：${readingStatus === 'UNREAD' ? '未读' : readingStatus === 'IN_PROGRESS' ? '阅读中' : '已读完'}`}
-                  onRemove={() => setQueryStates({ readingStatus: null })}
+                  key={status}
+                  label={`阅读状态：${readingStatusLabels[status]}`}
+                  onRemove={() =>
+                    setQueryStates({
+                      readingStatus: null,
+                      readingStatuses: readingStatuses.filter((value) => value !== status).join(',')
+                    })
+                  }
                 />
-              )}
-              {mediaType !== 'all' && (
+              ))}
+              {mediaKinds.map((kind) => (
                 <FilterChip
-                  label={MEDIA_TYPE_LABELS[mediaType as MediaTypeFilter]}
-                  onRemove={() => setQueryStates({ mediaType: null })}
+                  key={kind}
+                  label={mediaKindLabels[kind]}
+                  onRemove={() =>
+                    setQueryStates({
+                      mediaType: null,
+                      mediaKinds: mediaKinds.filter((value) => value !== kind).join(',')
+                    })
+                  }
                 />
-              )}
+              ))}
               {(startDate || endDate) && (
                 <FilterChip
                   label={`原始时间：${startDate || '不限'} - ${endDate || '不限'}`}
@@ -549,13 +571,13 @@ export default function GalleryPage() {
           setIsFilterOpen(open)
           if (!open) setFilterTab('conditions')
         }}
-        currentMediaType={mediaType as MediaTypeFilter}
+        currentMediaKinds={mediaKinds}
         currentSortBy={sortBy as SortOption}
         currentArtist={selectedArtist}
         currentTags={selectedTags}
         currentSources={selectedSources}
         currentHasAudio={hasAudio}
-        currentReadingStatus={readingStatus}
+        currentReadingStatuses={readingStatuses}
         currentRatingLevels={ratingLevels}
         currentExcludedArtists={excludedArtists}
         randomSeed={sortBy === 'random' ? effectiveRandomSeed : undefined}
@@ -574,12 +596,12 @@ export default function GalleryPage() {
           queryGeneration={listRevision}
           searchQuery={searchQuery}
           sortBy={sortBy as SortOption}
-          mediaType={mediaType as MediaTypeFilter}
+          mediaKinds={mediaKinds}
           tagIds={tagIds}
           artistId={artistId || undefined}
           sources={selectedSources}
           hasAudio={hasAudio === 'all' ? undefined : hasAudio}
-          readingStatus={readingStatus === 'all' ? undefined : readingStatus}
+          readingStatuses={readingStatuses}
           ratingLevels={ratingLevels}
           excludeArtistIds={excludedIds}
           randomSeed={sortBy === 'random' ? effectiveRandomSeed : undefined}

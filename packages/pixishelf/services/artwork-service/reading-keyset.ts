@@ -73,8 +73,8 @@ export function appendReadingFilterAndCursor(
   base: { whereSQL: string; sqlParams: unknown[]; paramIndex: number }
 ) {
   let { whereSQL, sqlParams, paramIndex } = base
-  if (params.readingStatus) {
-    const reading = appendReadingPredicate(params.readingStatus, userId, { whereSQL, sqlParams, paramIndex })
+  if (params.readingStatuses.length) {
+    const reading = appendReadingPredicate(params.readingStatuses, userId, { whereSQL, sqlParams, paramIndex })
     ;({ whereSQL, sqlParams, paramIndex } = reading)
   }
 
@@ -116,15 +116,17 @@ export function appendReadingFilterAndCursor(
 
 /** Shared account predicate; deliberately independent of pagination and sorting. */
 export function appendReadingPredicate(
-  status: ArtworksInfiniteQuerySchema['readingStatus'], userId: string,
+  statuses: ArtworksInfiniteQuerySchema['readingStatuses'], userId: string,
   base: { whereSQL: string; sqlParams: unknown[]; paramIndex: number }
 ) {
   let { whereSQL, sqlParams, paramIndex } = base
-  if (!status) throw new Error('Reading status required')
   const summary = `SELECT 1 FROM artwork_reading_summaries rs WHERE rs."artworkId" = a.id AND rs."userId" = $${paramIndex} AND (rs."seenCount" > 0 OR rs."viewCount" > 0)`
-  if (status === 'UNREAD') whereSQL += ` AND NOT EXISTS (${summary})`
-  else if (status === 'IN_PROGRESS') whereSQL += ` AND EXISTS (${summary} AND (rs."totalCount" = 0 OR rs."seenCount"::bigint * 100 < rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT}))`
-  else whereSQL += ` AND EXISTS (${summary} AND rs."totalCount" > 0 AND rs."seenCount"::bigint * 100 >= rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT})`
+  const predicates = statuses.map((status) => {
+    if (status === 'UNREAD') return `NOT EXISTS (${summary})`
+    if (status === 'IN_PROGRESS') return `EXISTS (${summary} AND (rs."totalCount" = 0 OR rs."seenCount"::bigint * 100 < rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT}))`
+    return `EXISTS (${summary} AND rs."totalCount" > 0 AND rs."seenCount"::bigint * 100 >= rs."totalCount"::bigint * ${READING_COMPLETION_PERCENT})`
+  })
+  whereSQL += ` AND (${predicates.join(' OR ')})`
   sqlParams = [...sqlParams, userId]
   paramIndex++
 

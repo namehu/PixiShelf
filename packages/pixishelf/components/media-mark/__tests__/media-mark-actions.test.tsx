@@ -30,6 +30,35 @@ describe('media mark actions', () => {
     fireEvent.click(screen.getByRole('button', { name: '喜欢这张图片' }))
     expect(mocks.set).toHaveBeenCalledExactlyOnceWith('like', true)
   })
+  it('hides only inactive detail likes while full-screen and menu actions retain bookmarks and retry', () => {
+    const view = render(<MediaMarkActions artworkId={7} mediaId={42} overlay showBookmark={false} hideInactiveLike />)
+    expect(screen.queryByRole('button', { name: '喜欢这张图片' })).toBeNull()
+    mocks.useMediaMark.mockReturnValue({ available: true, likedAt: 'saved', set: mocks.set })
+    view.rerender(<MediaMarkActions artworkId={7} mediaId={42} overlay showBookmark={false} hideInactiveLike />)
+    const like = screen.getByRole('button', { name: '取消图片喜欢' })
+    expect(like.className).toContain('sm:size-12')
+    expect(like.className).toContain('[&_svg]:size-6')
+    mocks.useMediaMark.mockReturnValue({ available: false, error: new Error('offline'), retry: mocks.retry })
+    view.rerender(<MediaMarkActions artworkId={7} mediaId={42} layout="menu" />)
+    expect(screen.getByRole('button', { name: '喜欢这张图片' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '添加图片书签' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '重试图片标记' })).toBeTruthy()
+  })
+  it('keeps mark and playback button nodes when changing to vertical orientation', () => {
+    const view = render(
+      <MediaMarkActions artworkId={7} mediaId={42} overlay>
+        <button>播放</button>
+      </MediaMarkActions>
+    )
+    const buttons = screen.getAllByRole('button')
+    view.rerender(
+      <MediaMarkActions artworkId={7} mediaId={42} overlay orientation="vertical">
+        <button>播放</button>
+      </MediaMarkActions>
+    )
+    expect(screen.getAllByRole('button')).toEqual(buttons)
+    expect(screen.getByRole('group', { name: '当前图片标记' }).className).toContain('flex-col')
+  })
   it('exposes independent pressed states and accessible 44px actions', () => {
     render(<MediaMarkActions artworkId={7} mediaId={42} />)
     const bookmark = screen.getByRole('button', { name: '取消图片书签' })
@@ -81,5 +110,15 @@ describe('media mark actions', () => {
     rerender(<MediaMarkActions artworkId={7} mediaId={42} layout="menu" />)
     fireEvent.click(screen.getByRole('button', { name: '重试图片标记' }))
     expect(mocks.retry).toHaveBeenCalledOnce()
+  })
+  it('keeps retry in the vertical toolbar flow so its scrolling container cannot clip an absolute popup', () => {
+    mocks.useMediaMark.mockReturnValue({ available: false, error: new Error('offline'), retry: mocks.retry })
+    const view = render(<MediaMarkActions artworkId={7} mediaId={42} overlay />)
+    expect(screen.getByRole('button', { name: '重试图片标记' }).className).toContain('absolute')
+    view.rerender(<MediaMarkActions artworkId={7} mediaId={42} overlay orientation="vertical" />)
+    const retry = screen.getByRole('button', { name: '重试图片标记' })
+    expect(retry.className).not.toContain('absolute')
+    fireEvent.click(retry)
+    expect(mocks.retry).toHaveBeenCalledExactlyOnceWith()
   })
 })

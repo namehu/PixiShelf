@@ -23,7 +23,6 @@ import { getUserArtworkRatingLevels } from '@/services/artwork-rating-service'
 import { isArtworkLiked, type ArtworkRatingLevel } from '@/schemas/artwork-rating.dto'
 import logger from '@/lib/logger'
 import { EMediaAnimationStatus } from '@/enums/e-media-animation-status'
-import { EMediaType } from '@/enums/e-media-type'
 import { shuffleArray, transformImages, transformSingleArtwork } from './utils'
 import { assignManualArtworkStorage } from './manual-storage'
 import { fetchRandomIds } from './dao'
@@ -58,7 +57,7 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema, userI
   const { cursor } = params
   const page = cursor ?? 1
   const pageSize = params.pageSize
-  const { whereSQL, sqlParams } = (params.readingStatus || resolveRatingLevels(params).length > 0)
+  const { whereSQL, sqlParams } = (params.readingStatuses.length || resolveRatingLevels(params).length > 0)
     ? readingCountClause(params, requireReadingUserId(userId))
     : buildArtworkWhereClause(params)
 
@@ -84,7 +83,7 @@ export async function getArtworksList(params: ArtworksInfiniteQuerySchema, userI
 }
 
 async function queryArtworkRowsPage(params: ArtworksInfiniteQuerySchema, overfetch = false, userId?: string) {
-  if (params.readingStatus || resolveRatingLevels(params).length > 0) return queryReadingArtworkRowsPage(params, requireReadingUserId(userId))
+  if (params.readingStatuses.length || resolveRatingLevels(params).length > 0) return queryReadingArtworkRowsPage(params, requireReadingUserId(userId))
   const page = params.cursor ?? 1
   const skip = (page - 1) * params.pageSize
   const { whereSQL, sqlParams, paramIndex: initialParamIndex } = buildArtworkWhereClause(params)
@@ -351,7 +350,7 @@ export async function getArtworkCardsPage(
       nextRandomCursor: result.nextRandomCursor
     }
   }
-  if (params.readingStatus || resolveRatingLevels(params).length > 0) {
+  if (params.readingStatuses.length || resolveRatingLevels(params).length > 0) {
     const result = await queryReadingArtworkIdsPage(params, requireReadingUserId(userId))
     return {
       items: await getArtworkCardsByIds(result.ids),
@@ -674,31 +673,30 @@ export const getDashboardRecentArtworks = async (
 export async function getRandomArtworks(
   input: RandomArtworksGetSchema & { userId: string }
 ): Promise<RandomImagesResponse> {
-  const { cursor, pageSize, count: maxImageCount, mediaType: mediaTypeParam, userId } = input
+  const { cursor, pageSize, count: maxImageCount, mediaKinds, userId } = input
   const page = cursor ?? 1
   const skip = (page - 1) * pageSize
 
   // 粗粒度图片/视频筛选只读取持久化的媒体类型。
-  const buildMediaFilter = (type: EMediaType) => {
-    if (type === EMediaType.all) {
-      return {}
-    }
-    if (type === EMediaType.animation) {
-      return {
-        images: {
-          some: {
-            OR: [{ mediaType: 'ANIMATION' as const }, { webpAnimationStatus: EMediaAnimationStatus.animated }]
-          }
+  const buildMediaFilter = (kinds: typeof mediaKinds): Prisma.ArtworkWhereInput => {
+    return kinds.length
+      ? {
+          OR: kinds.map((kind) => {
+            if (kind === 'animation') {
+              return {
+                images: {
+                  some: {
+                    OR: [{ mediaType: 'ANIMATION' }, { webpAnimationStatus: EMediaAnimationStatus.animated }]
+                  }
+                }
+              }
+            }
+            return {
+              images: kind === 'video' ? { some: { mediaType: 'VIDEO' } } : { none: { mediaType: 'VIDEO' } }
+            }
+          })
         }
-      }
-    }
-    return {
-      images: {
-        ...(type === EMediaType.video
-          ? { some: { mediaType: 'VIDEO' as const } }
-          : { none: { mediaType: 'VIDEO' as const } })
-      }
-    }
+      : {}
   }
 
   // 1. 查询所有符合条件的 Artwork 的 ID
@@ -706,7 +704,7 @@ export async function getRandomArtworks(
     where: {
       deletedAt: null,
       imageCount: { lte: maxImageCount },
-      ...buildMediaFilter(mediaTypeParam)
+      ...buildMediaFilter(mediaKinds)
     },
     select: { id: true },
     orderBy: {
@@ -747,7 +745,7 @@ export async function getRandomArtworks(
     where: {
       deletedAt: null,
       id: { in: paginatedIds },
-      ...buildMediaFilter(mediaTypeParam)
+      ...buildMediaFilter(mediaKinds)
     },
     include: {
       images: {
@@ -796,7 +794,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     mode,
     sortBy,
     randomSeed,
-    readingStatus,
+    readingStatuses,
     likedOnly,
     ratingLevels: selectedRatingLevels,
     excludeArtistIds,
@@ -807,7 +805,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     tagIds,
     sources,
     hasAudio,
-    mediaType,
+    mediaKinds,
     startDate,
     endDate,
     createdStartDate,
@@ -827,7 +825,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     sources,
     hasAudio,
     search,
-    mediaType,
+    mediaKinds,
     startDate,
     endDate,
     createdStartDate,
@@ -835,7 +833,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     mediaCountMax,
     sortBy: mode === 'random' ? 'random' : sortBy || 'source_date_desc',
     randomSeed: mode === 'random' ? randomSeed : undefined,
-    readingStatus,
+    readingStatuses,
     likedOnly,
     ratingLevels: selectedRatingLevels,
     excludeArtistIds,
@@ -866,7 +864,7 @@ export async function getViewerFeed(input: ViewerFeedQuerySchema & { userId: str
     items,
     page,
     pageSize,
-    nextPage: readingStatus || resolveRatingLevels(input).length > 0 || randomPage ? null : hasNextPage ? page + 1 : null,
+    nextPage: readingStatuses.length || resolveRatingLevels(input).length > 0 || randomPage ? null : hasNextPage ? page + 1 : null,
     nextRandomCursor: randomPage?.nextRandomCursor,
     nextReadingCursor
   }

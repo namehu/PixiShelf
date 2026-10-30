@@ -60,7 +60,7 @@ async function walkCards(params: ArtworksInfiniteQuerySchema, userId: string) {
     cursor = readingCursor || randomCursor ? 1 : page.page + 1
     if (
       params.sortBy === 'random' ||
-      params.readingStatus ||
+      params.readingStatuses.length ||
       (params.ratingLevels ?? (params.likedOnly ? [2, 3, 4] : [])).length
     )
       {expect(readingCursor ?? randomCursor).toBeTruthy()}

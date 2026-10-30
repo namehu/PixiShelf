@@ -219,7 +219,8 @@ describe('stack touch arbitration', () => {
     start(child); end(child, 200)
     start(child); end(child, 200)
     expect(mocks.like).toHaveBeenCalledExactlyOnceWith(2, 'like', true)
-    expect(screen.getByTestId('mark-control').getAttribute('data-media-id')).toBe('2')
+    // This gesture-only mock does not publish optimistic mark state; the session integration covers its reveal.
+    expect(screen.queryByTestId('mark-control')).toBeNull()
     expect(mocks.onMenu).not.toHaveBeenCalled()
     expect(mocks.selectMedia).not.toHaveBeenCalled()
   })

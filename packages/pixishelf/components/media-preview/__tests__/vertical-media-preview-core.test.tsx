@@ -1,4 +1,4 @@
-import { StrictMode, type ReactNode } from 'react'
+import { StrictMode, type ReactNode, type Ref } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VerticalMediaPreviewCore } from '../vertical-media-preview-core'
@@ -27,6 +27,7 @@ vi.mock('swiper/react', () => ({
     onSwiper: (value: typeof swiper) => void
     onSlideChange: (value: typeof swiper) => void
     onZoomChange: (value: typeof swiper, scale: number) => void
+    onDoubleTap?: (value: typeof swiper, event: MouseEvent | TouchEvent) => void
     'data-testid'?: string
   }) => {
     swiper.activeIndex = props.initialSlide
@@ -35,6 +36,7 @@ vi.mock('swiper/react', () => ({
       <div
         data-testid={props['data-testid']}
         data-page-keys={String(props.keyboard.pageUpDown)}
+        onDoubleClick={(event) => props.onDoubleTap?.(swiper, event.nativeEvent)}
         data-effect={props.effect}
         data-cross-fade={String(props.fadeEffect?.crossFade ?? false)}
         data-speed={props.speed}
@@ -69,7 +71,11 @@ vi.mock('swiper/react', () => ({
 }))
 vi.mock('@/components/ui/dialog', () => ({
   Dialog: ({ children, open }: { children: ReactNode; open: boolean }) => (open ? children : null),
-  DialogContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  DialogContent: ({ children, ref }: { children: ReactNode; ref?: Ref<HTMLDivElement> }) => (
+    <div ref={ref} data-testid="preview-dialog">
+      {children}
+    </div>
+  ),
   DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
   DialogDescription: ({ children }: { children: ReactNode }) => <p>{children}</p>
 }))
@@ -192,15 +198,75 @@ describe('VerticalMediaPreviewCore', () => {
     expect(back).toHaveBeenCalledTimes(1)
   })
   it('displays original page numbers while navigation stays inside the filtered sequence', () => {
-    render(<VerticalMediaPreviewCore
-      items={[237, 599]} itemKey={(item) => item} initialIndex={1} open
-      counterIndex={598} counterTotal={600} onClose={vi.fn()}
-      historyKey="__filtered_preview__" title="预览" description="未读图片" closeLabel="关闭预览"
-      renderSlide={(item) => <span>图片 {item}</span>}
-    />)
+    render(
+      <VerticalMediaPreviewCore
+        items={[237, 599]}
+        itemKey={(item) => item}
+        initialIndex={1}
+        open
+        counterIndex={598}
+        counterTotal={600}
+        onClose={vi.fn()}
+        historyKey="__filtered_preview__"
+        title="预览"
+        description="未读图片"
+        closeLabel="关闭预览"
+        renderSlide={(item) => <span>图片 {item}</span>}
+      />
+    )
     expect(screen.getByText('599 / 600')).toBeTruthy()
     expect(screen.getByRole('button', { name: '下一张媒体' }).hasAttribute('disabled')).toBe(true)
     expect(screen.getByRole('button', { name: '上一张媒体' }).hasAttribute('disabled')).toBe(false)
   })
+})
 
+it('reports double-tap coordinates in the dialog, excludes controls and moves navigation away from right docking', () => {
+  const onLike = vi.fn()
+  const view = render(
+    <VerticalMediaPreviewCore
+      items={[1, 2]}
+      itemKey={(item) => item}
+      initialIndex={0}
+      open
+      onClose={vi.fn()}
+      historyKey="point-preview"
+      title="预览"
+      description="说明"
+      closeLabel="关闭"
+      onLike={onLike}
+      navigationSide="right"
+      renderSlide={(item) => (
+        <div className="swiper-zoom-container">
+          <img alt={`图${item}`} />
+          <button>图内控件{item}</button>
+        </div>
+      )}
+    />
+  )
+  vi.spyOn(screen.getByTestId('preview-dialog'), 'getBoundingClientRect').mockReturnValue({
+    left: 20,
+    top: 30
+  } as DOMRect)
+  fireEvent.doubleClick(screen.getByAltText('图1'), { clientX: 120, clientY: 160 })
+  expect(onLike).toHaveBeenCalledExactlyOnceWith({ x: 100, y: 130 })
+  fireEvent.doubleClick(screen.getByRole('button', { name: '图内控件1' }))
+  expect(onLike).toHaveBeenCalledTimes(1)
+  view.rerender(
+    <VerticalMediaPreviewCore
+      items={[1, 2]}
+      itemKey={(item) => item}
+      initialIndex={0}
+      open
+      onClose={vi.fn()}
+      historyKey="point-preview"
+      title="预览"
+      description="说明"
+      closeLabel="关闭"
+      navigationSide="left"
+      renderSlide={(item) => <span>{item}</span>}
+    />
+  )
+  expect(
+    screen.getByRole('button', { name: '下一张媒体' }).parentElement?.getAttribute('data-preview-navigation')
+  ).toBe('left')
 })

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useLongPress } from '@/hooks/use-long-press'
 
 export type DetailMediaMenuEvent = React.MouseEvent | React.TouchEvent | React.KeyboardEvent
-export type LikePoint = { x: number; y: number }
+import type { LikePoint } from '@/components/media-mark/floating-like-hearts'
 
 export function isDetailMediaControl(target: EventTarget | null, surface: EventTarget | null) {
   return (

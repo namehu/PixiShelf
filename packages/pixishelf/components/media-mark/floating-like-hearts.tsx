@@ -3,11 +3,13 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
 import { HeartIcon } from 'lucide-react'
 import { motion, useReducedMotion } from 'framer-motion'
-import type { LikePoint } from './use-detail-media-gestures'
+import { cn } from '@/lib/utils'
+
+export type LikePoint = { x: number; y: number }
 
 export type FloatingLikeHeartsHandle = { show: (point: LikePoint) => void }
 
-export function FloatingLikeHearts({ ref }: { ref: Ref<FloatingLikeHeartsHandle> }) {
+export function FloatingLikeHearts({ ref, className }: { ref: Ref<FloatingLikeHeartsHandle>; className?: string }) {
   const reducedMotion = useReducedMotion()
   const [hearts, setHearts] = useState<(LikePoint & { id: number })[]>([])
   const sequence = useRef(0)
@@ -35,7 +37,11 @@ export function FloatingLikeHearts({ ref }: { ref: Ref<FloatingLikeHeartsHandle>
     }
   }, [])
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true" data-floating-like-hearts>
+    <div
+      className={cn('pointer-events-none absolute inset-0 overflow-hidden', className)}
+      aria-hidden="true"
+      data-floating-like-hearts
+    >
       {hearts.map((heart) => (
         <motion.span
           key={heart.id}

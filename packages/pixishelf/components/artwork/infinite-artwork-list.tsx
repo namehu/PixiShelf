@@ -1,6 +1,6 @@
 'use client'
 
-import { resolveRatingLevels, type LikedRatingLevel } from '@/schemas/artwork-filter.dto'
+import { resolveRatingLevels, type MediaKind, type LikedRatingLevel } from '@/schemas/artwork-filter.dto'
 import { useEffect, useRef, useState, useMemo, useCallback, useLayoutEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 import { FilterIcon } from 'lucide-react'
@@ -9,7 +9,7 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useTRPCClient } from '@/lib/trpc'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { useColumns } from '@/hooks/use-columns'
-import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
+import { SortOption, AudioFilter } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
@@ -40,7 +40,7 @@ interface InfiniteArtworkListProps {
   /** 排序方式 (如：最新发布、最旧发布、最多浏览等) */
   sortBy?: SortOption
   /** 媒体类型筛选 (全部、图片、视频) */
-  mediaType?: MediaTypeFilter
+  mediaKinds?: MediaKind[]
   /** 标签 ID 筛选 */
   tagId?: number
   /** 多标签 ID 筛选，作品必须同时包含全部标签 */
@@ -66,7 +66,7 @@ interface InfiniteArtworkListProps {
   emptyDescription?: string
   /** 随机种子，用于随机排序时的稳定性 */
   randomSeed?: number
-  readingStatus?: ReadingStatus
+  readingStatuses?: ReadingStatus[]
   likedOnly?: boolean
   ratingLevels?: LikedRatingLevel[]
   excludeArtistIds?: number[]
@@ -76,7 +76,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   const {
     searchQuery = '',
     sortBy = 'source_date_desc',
-    mediaType = 'all',
+    mediaKinds,
     tagId,
     tagIds,
     artistId,
@@ -90,7 +90,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     emptyMessage,
     emptyDescription,
     randomSeed,
-    readingStatus,
+    readingStatuses,
     likedOnly,
     ratingLevels,
     excludeArtistIds
@@ -118,7 +118,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       search: searchQuery || undefined,
       sortBy,
       randomSeed: sortBy === 'random' ? effectiveSeed : undefined,
-      mediaType,
+      mediaKinds,
       tagId,
       tagIds,
       artistId: artistId ? Number(artistId) : undefined,
@@ -128,7 +128,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       endDate: endDate || undefined,
       createdStartDate: createdStartDate || undefined,
       createdEndDate: createdEndDate || undefined,
-      readingStatus,
+      readingStatuses,
       likedOnly,
       ratingLevels,
       excludeArtistIds,
@@ -140,10 +140,10 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
       createdStartDate,
       endDate,
       hasAudio,
-      mediaType,
+      mediaKinds,
       ownerUserId,
       effectiveSeed,
-      readingStatus,
+      readingStatuses,
       likedOnly,
       ratingLevels,
       excludeArtistIds,
@@ -168,8 +168,8 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     enabled: Boolean(ownerUserId),
     // Reading changes card badges, not this round's membership. Keep loaded
     // pages through long reads; a new generation or full reload reruns filters.
-    gcTime: readingStatus ? Infinity : undefined,
-    refetchOnMount: readingStatus ? false : undefined,
+    gcTime: readingStatuses?.length ? Infinity : undefined,
+    refetchOnMount: readingStatuses?.length ? false : undefined,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     queryFn: ({ pageParam, signal }) =>
@@ -185,7 +185,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
     getNextPageParam: (lastPage) =>
       sortBy === 'random'
         ? lastPage.nextRandomCursor
-        : readingStatus || resolveRatingLevels(props).length > 0
+        : readingStatuses?.length || resolveRatingLevels(props).length > 0
           ? lastPage.nextReadingCursor
           : lastPage.nextCursor,
     retry: (attempt, failure) => !failure.message.includes('ARTWORK_RANDOM_CURSOR_INVALID') && attempt < 3
@@ -268,7 +268,7 @@ export default function InfiniteArtworkList(props: InfiniteArtworkListProps) {
   })
 
   // 生成唯一的存储 key，基于当前的筛选条件
-  const storageKey = `artworks-scroll-${ownerUserId}-${searchQuery}-${sortBy}-${mediaType}-${readingStatus ?? ''}-${likedOnly ?? false}-${ratingLevels?.join(',') || ''}-${excludeArtistIds?.join(',') || ''}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}-${queryGeneration}`
+  const storageKey = `artworks-scroll-${ownerUserId}-${searchQuery}-${sortBy}-${mediaKinds?.join(',') ?? ''}-${readingStatuses?.join(',') ?? ''}-${likedOnly ?? false}-${ratingLevels?.join(',') || ''}-${excludeArtistIds?.join(',') || ''}-${tagId}-${tagIds?.join(',') || ''}-${artistId}-${sources?.join(',') || ''}-${hasAudio || ''}-${startDate}-${endDate}-${createdStartDate}-${createdEndDate}-${sortBy === 'random' ? randomSeed : ''}-${queryGeneration}`
 
   // 1. 处理滚动恢复
   useLayoutEffect(() => {

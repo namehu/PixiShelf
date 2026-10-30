@@ -1,7 +1,7 @@
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { create } from 'zustand'
 import { RandomImageItem } from '@/types/images'
-import { EMediaType } from '@/enums/e-media-type'
+import { mediaKindsFilterSchema, type MediaKind } from '@/schemas/artwork-filter.dto'
 import { artworkQuerySnapshotSchema, type ArtworkQuerySnapshot } from '@/schemas/artwork-quick-filter.dto'
 import { isArtworkLiked, type ArtworkRatingLevel } from '@/schemas/artwork-rating.dto'
 
@@ -43,7 +43,7 @@ export interface ViewerState {
 
   // 最大图片数量配置
   maxImageCount: number
-  mediaType: EMediaType
+  mediaKinds: MediaKind[]
   filters: ArtworkQuerySnapshot | null
   setFilters: (filters: ArtworkQuerySnapshot) => void
 
@@ -55,7 +55,7 @@ export interface ViewerState {
   setChromeHidden: (isChromeHidden: boolean) => void
   toggleChromeHidden: () => void
   setMaxImageCount: (count: number) => void
-  setMediaType: (mediaType: EMediaType) => void
+  setMediaKinds: (mediaKinds: MediaKind[]) => void
   setHasHydrated: (value: boolean) => void
 
   // 批量更新方法
@@ -135,7 +135,7 @@ export const useViewerStore = create<ViewerState>()(
       horizontalIndexes: {},
       isChromeHidden: false,
       maxImageCount: 8, // 默认最大图片数量
-      mediaType: EMediaType.all,
+      mediaKinds: [],
       filters: null,
       setFilters: (filters) => set({ filters }),
       // 设置图片列表数据
@@ -171,7 +171,7 @@ export const useViewerStore = create<ViewerState>()(
       },
 
       // 设置媒体类型
-      setMediaType: (mediaType: EMediaType) => set({ mediaType }),
+      setMediaKinds: (mediaKinds: MediaKind[]) => set({ mediaKinds }),
 
       // 标记持久化数据已复原
       setHasHydrated: (value: boolean) => set({ hasHydrated: value }),
@@ -241,17 +241,18 @@ export const useViewerStore = create<ViewerState>()(
       partialize: (state) => ({
         autoBrowseInterval: state.autoBrowseInterval,
         maxImageCount: state.maxImageCount,
-        mediaType: state.mediaType,
+        mediaKinds: state.mediaKinds,
         filters: state.filters
       }),
       merge: (persisted, current) => {
-        const saved = persisted as Partial<ViewerState> | undefined
+        const saved = persisted as (Partial<ViewerState> & { mediaType?: string }) | undefined
         const filters = artworkQuerySnapshotSchema.safeParse(saved?.filters)
+        const mediaKinds = mediaKindsFilterSchema.safeParse(saved?.mediaKinds ?? (saved?.mediaType && saved.mediaType !== 'all' ? [saved.mediaType] : []))
         return {
           ...current,
           filters: filters.success ? filters.data : null,
           ...(saved?.maxImageCount !== undefined ? { maxImageCount: saved.maxImageCount } : {}),
-          ...(saved?.mediaType !== undefined ? { mediaType: saved.mediaType } : {}),
+          mediaKinds: mediaKinds.success ? mediaKinds.data : [],
           autoBrowseInterval: VIEWER_AUTO_INTERVALS.some((value) => value === saved?.autoBrowseInterval)
             ? saved!.autoBrowseInterval!
             : 5

@@ -41,7 +41,7 @@ describe('indexed random ring', () => {
     for (const changed of [
       { randomSeed: 1 },
       { search: 'different' },
-      { readingStatus: 'COMPLETED' as const },
+      { readingStatuses: ['COMPLETED' as const] },
       { likedOnly: false }
     ]) {
       expect(() => randomPageContext({ ...params, ...changed, randomCursor: result.nextRandomCursor }, 'a')).toThrow(

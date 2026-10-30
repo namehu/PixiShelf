@@ -7,6 +7,8 @@ import { EffectFade, Keyboard, Mousewheel, Virtual, Zoom } from 'swiper/modules'
 import { Swiper, SwiperSlide } from 'swiper/react'
 import type { Swiper as SwiperType } from 'swiper'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import type { LikePoint } from '@/components/media-mark/floating-like-hearts'
+import { cn } from '@/lib/utils'
 
 import 'swiper/css'
 import 'swiper/css/virtual'
@@ -49,7 +51,9 @@ interface VerticalMediaPreviewCoreProps<T> {
   counterIndex?: number
   showTopCounter?: boolean
   enableMousewheel?: boolean
-  onLike?: () => void
+  onLike?: (point: LikePoint) => void
+  navigationSide?: 'left' | 'right'
+  onEscapeKeyDown?: (event: KeyboardEvent) => void
   onToggleLike?: () => void
   topChrome?: (context: VerticalMediaPreviewChromeContext) => ReactNode
   bottomChrome?: (context: VerticalMediaPreviewChromeContext) => ReactNode
@@ -95,6 +99,8 @@ export function VerticalMediaPreviewCore<T>({
   enableMousewheel = false,
   onLike,
   onToggleLike,
+  navigationSide = 'right',
+  onEscapeKeyDown,
   topChrome,
   bottomChrome,
   onActiveIndexChange,
@@ -218,6 +224,7 @@ export function VerticalMediaPreviewCore<T>({
         showCloseButton={false}
         className="fixed inset-0 left-0 top-0 z-[100] block h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 bg-black p-0 text-white shadow-none sm:max-w-none"
         onPointerDownOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={onEscapeKeyDown}
         data-preview-like-shortcut={onToggleLike ? '' : undefined}
         onOpenAutoFocus={
           onToggleLike
@@ -297,7 +304,10 @@ export function VerticalMediaPreviewCore<T>({
               target.closest('.swiper-zoom-container') &&
               !target.closest('button, a, input, textarea, select, [role="button"]')
             ) {
-              onLike?.()
+              const pointer = 'changedTouches' in event ? event.changedTouches[0] : event
+              if (!pointer || !portalContainer) return
+              const rect = portalContainer.getBoundingClientRect()
+              onLike?.({ x: pointer.clientX - rect.left, y: pointer.clientY - rect.top })
             }
           }}
           resistanceRatio={0.65}
@@ -358,7 +368,8 @@ export function VerticalMediaPreviewCore<T>({
         </Swiper>
 
         {items.length > 1 && (
-          <div className="pointer-events-none absolute right-4 top-1/2 z-20 hidden -translate-y-1/2 flex-col gap-2 sm:flex">
+          <div data-preview-navigation={navigationSide}
+            className={cn('pointer-events-none absolute top-1/2 z-20 hidden -translate-y-1/2 flex-col gap-2 sm:flex', navigationSide === 'left' ? 'left-4' : 'right-4')}>
             <button
               type="button"
               onClick={() => {

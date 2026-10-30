@@ -2,28 +2,28 @@
 
 import { useState, useEffect, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
-import { SortOption, MediaTypeFilter, AudioFilter } from '@/types'
+import { SortOption, AudioFilter } from '@/types'
 import type { SearchSuggestion } from '@/schemas/search.dto'
 import { Button } from '@/components/ui/button'
 import {
   likedRatingLevels,
+  mediaKinds,
+  mediaKindLabels,
+  readingStatuses,
+  readingStatusLabels,
+  type MediaKind,
   likedRatingLabels,
   resolveRatingLevels,
   type LikedRatingLevel
 } from '@/schemas/artwork-filter.dto'
 import { SSheet } from '@/components/shared/s-sheet'
 import { SortControl } from '@/components/ui/sort-control'
-import { MediaTypeFilter as MediaTypeFilterComponent } from '@/components/ui/media-type-filter'
 import { DatePickerRange } from '@/components/shared/date-range-picker'
 import MultipleSelector, { Option } from '@/components/shared/multiple-selector'
 import dayjs from 'dayjs'
 import { OSource } from '@/enums/e-source'
 import type { ArtworkSource } from '@/schemas/models'
-import {
-  artworkQuerySnapshotSchema,
-  readingFilterLabels,
-  type ArtworkQuerySnapshot
-} from '@/schemas/artwork-quick-filter.dto'
+import { artworkQuerySnapshotSchema, type ArtworkQuerySnapshot } from '@/schemas/artwork-quick-filter.dto'
 import { Slider } from '@/components/ui/slider'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { PrivacySensitiveText } from '@/components/privacy/privacy-sensitive-text'
@@ -35,7 +35,7 @@ import type { ReadingStatus } from '@pixishelf/db/reading-contract'
 export interface FilterSheetProps {
   renderFrame?: (parts: { content: ReactNode; footer: ReactNode; getSnapshot: () => ArtworkQuerySnapshot }) => ReactNode
   open: boolean
-  currentMediaType: MediaTypeFilter
+  currentMediaKinds: MediaKind[]
   currentSortBy: SortOption
   currentArtist?: Option[]
   fixedArtist?: Option
@@ -44,7 +44,7 @@ export interface FilterSheetProps {
   currentTags?: Option[]
   currentSources?: ArtworkSource[]
   currentHasAudio?: AudioFilter
-  currentReadingStatus?: ReadingStatus | 'all'
+  currentReadingStatuses?: ReadingStatus[]
   currentLikedOnly?: boolean
   currentSearch?: string
   currentMaxMediaCount?: number
@@ -58,7 +58,7 @@ export interface FilterSheetProps {
   onSearchArtist?: (value: string) => Promise<Option[]>
   onSearchTag?: (value: string) => Promise<Option[]>
   onApply: (filters: {
-    mediaType: MediaTypeFilter
+    mediaKinds: MediaKind[]
     sortBy: SortOption
     artist?: Option[]
     excludedArtists?: Option[]
@@ -66,7 +66,7 @@ export interface FilterSheetProps {
     tags?: Option[]
     sources: ArtworkSource[]
     hasAudio: AudioFilter
-    readingStatus?: ReadingStatus | 'all'
+    readingStatuses?: ReadingStatus[]
     likedOnly?: boolean
     search?: string
     maxMediaCount?: number
@@ -86,7 +86,7 @@ export function FilterSheet(props: FilterSheetProps) {
   const {
     open,
     onOpenChange,
-    currentMediaType,
+    currentMediaKinds,
     currentSortBy,
     currentArtist = EMPTY_OPTIONS,
     fixedArtist,
@@ -95,7 +95,7 @@ export function FilterSheet(props: FilterSheetProps) {
     currentTags = EMPTY_OPTIONS,
     currentSources = EMPTY_SOURCES,
     currentHasAudio = 'all',
-    currentReadingStatus,
+    currentReadingStatuses,
     currentLikedOnly,
     currentSearch,
     currentMaxMediaCount,
@@ -111,13 +111,13 @@ export function FilterSheet(props: FilterSheetProps) {
   } = props
 
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [localMediaType, setLocalMediaType] = useState<MediaTypeFilter>('all')
+  const [localMediaKinds, setLocalMediaKinds] = useState<MediaKind[]>([])
   const [localSortBy, setLocalSortBy] = useState<SortOption>('source_date_desc')
   const [localArtist, setLocalArtist] = useState<Option[]>([])
   const [localTags, setLocalTags] = useState<Option[]>([])
   const [localSources, setLocalSources] = useState<Option[]>([])
   const [localHasAudio, setLocalHasAudio] = useState<AudioFilter>('all')
-  const [localReadingStatus, setLocalReadingStatus] = useState<ReadingStatus | 'all'>('all')
+  const [localReadingStatuses, setLocalReadingStatuses] = useState<ReadingStatus[]>([])
   const [localRatingLevels, setLocalRatingLevels] = useState<LikedRatingLevel[]>([])
   const [localExcludedArtists, setLocalExcludedArtists] = useState<Option[]>([])
   const [localSearch, setLocalSearch] = useState('')
@@ -136,13 +136,13 @@ export function FilterSheet(props: FilterSheetProps) {
     }
 
     setAdvancedOpen(Boolean(startDate || endDate || createdStartDate || createdEndDate))
-    setLocalMediaType(currentMediaType)
+    setLocalMediaKinds(currentMediaKinds)
     setLocalSortBy(currentSortBy)
     setLocalArtist(currentArtist)
     setLocalTags(currentTags)
     setLocalSources(OSource.filter((option) => currentSources.includes(option.value)))
     setLocalHasAudio(currentHasAudio)
-    setLocalReadingStatus(currentReadingStatus ?? 'all')
+    setLocalReadingStatuses(currentReadingStatuses ?? [])
     setLocalRatingLevels(resolveRatingLevels({ ratingLevels: currentRatingLevels, likedOnly: currentLikedOnly }))
     setLocalExcludedArtists(currentExcludedArtists)
     setLocalSearch(currentSearch ?? '')
@@ -158,13 +158,13 @@ export function FilterSheet(props: FilterSheetProps) {
     ])
   }, [
     open,
-    currentMediaType,
+    currentMediaKinds,
     currentSortBy,
     currentArtist,
     currentTags,
     currentSources,
     currentHasAudio,
-    currentReadingStatus,
+    currentReadingStatuses,
     currentLikedOnly,
     currentRatingLevels,
     currentExcludedArtists,
@@ -188,7 +188,7 @@ export function FilterSheet(props: FilterSheetProps) {
     }
 
     onApply({
-      mediaType: localMediaType,
+      mediaKinds: localMediaKinds,
       sortBy: localSortBy,
       artist: fixedArtist ? [] : localArtist,
       excludedArtists: localExcludedArtists,
@@ -196,7 +196,7 @@ export function FilterSheet(props: FilterSheetProps) {
       tags: localTags,
       sources: localSources.map((option) => option.value as ArtworkSource),
       hasAudio: localHasAudio,
-      readingStatus: currentReadingStatus === undefined ? undefined : localReadingStatus,
+      readingStatuses: currentReadingStatuses === undefined ? undefined : localReadingStatuses,
       likedOnly: undefined,
       search: localSearch.trim() || undefined,
       maxMediaCount: currentMaxMediaCount === undefined ? undefined : localMaxMediaCount,
@@ -210,13 +210,13 @@ export function FilterSheet(props: FilterSheetProps) {
   }
 
   function handleReset() {
-    setLocalMediaType('all')
+    setLocalMediaKinds([])
     setLocalSortBy(resetSortBy)
     setLocalArtist([])
     setLocalTags([])
     setLocalSources([])
     setLocalHasAudio('all')
-    setLocalReadingStatus('all')
+    setLocalReadingStatuses([])
     setLocalRatingLevels([])
     setLocalExcludedArtists([])
     setLocalSearch('')
@@ -256,7 +256,7 @@ export function FilterSheet(props: FilterSheetProps) {
   const getSnapshot = () =>
     artworkQuerySnapshotSchema.parse({
       search: localSearch,
-      mediaType: localMediaType,
+      mediaKinds: localMediaKinds,
       sortBy: localSortBy,
       artist: fixedArtist ? [] : localArtist,
       excludedArtists: localExcludedArtists,
@@ -264,7 +264,7 @@ export function FilterSheet(props: FilterSheetProps) {
       tags: localTags,
       sources: localSources.map((s) => s.value),
       hasAudio: localHasAudio,
-      readingStatus: localReadingStatus,
+      readingStatuses: localReadingStatuses,
 
       startDate: localDateRange[0] ? dayjs(localDateRange[0]).format('YYYY-MM-DD') : '',
       endDate: localDateRange[1] ? dayjs(localDateRange[1]).format('YYYY-MM-DD') : '',
@@ -305,20 +305,20 @@ export function FilterSheet(props: FilterSheetProps) {
           <p className="text-xs text-muted-foreground">可多选，不选表示不限评分。</p>
         </Field>
       )}
-      {currentReadingStatus !== undefined && (
+      {currentReadingStatuses !== undefined && (
         <Field className="gap-3">
           <FieldTitle>阅读状态</FieldTitle>
           <ToggleGroup
-            type="single"
+            type="multiple"
             variant="outline"
             aria-label="阅读状态筛选"
-            value={localReadingStatus}
-            onValueChange={(value) => {
-              if (value in readingFilterLabels) setLocalReadingStatus(value as ReadingStatus | 'all')
-            }}
-            className="grid w-full grid-cols-4"
+            value={localReadingStatuses}
+            onValueChange={(values) =>
+              setLocalReadingStatuses(readingStatuses.filter((status) => values.includes(status)))
+            }
+            className="grid w-full grid-cols-3"
           >
-            {Object.entries(readingFilterLabels).map(([value, label]) => (
+            {Object.entries(readingStatusLabels).map(([value, label]) => (
               <ToggleGroupItem key={value} value={value} className="min-h-11">
                 {label}
               </ToggleGroupItem>
@@ -329,14 +329,23 @@ export function FilterSheet(props: FilterSheetProps) {
 
       <Field className="gap-3">
         <FieldTitle>媒体类型</FieldTitle>
-        <MediaTypeFilterComponent
-          id="filter-media-type"
+        <ToggleGroup
+          type="multiple"
+          variant="outline"
           aria-label="媒体类型"
-          value={localMediaType}
-          onChange={setLocalMediaType}
-          className="w-full"
-        />
-        <p className="text-xs text-muted-foreground">图片包含动图；选择动图可单独查找已识别的动画作品。</p>
+          value={localMediaKinds}
+          onValueChange={(values) => setLocalMediaKinds(mediaKinds.filter((kind) => values.includes(kind)))}
+          className="grid w-full grid-cols-3"
+        >
+          {mediaKinds.map((kind) => (
+            <ToggleGroupItem key={kind} value={kind} className="min-h-11">
+              {mediaKindLabels[kind]}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <p className="text-xs text-muted-foreground">
+          同组可多选，不选则不限。图片包含动图；动图筛选已识别的动画作品。
+        </p>
       </Field>
       {/* 排序控制 */}
       <Field className="gap-3">

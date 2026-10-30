@@ -34,7 +34,10 @@ describe('saved artwork queries', () => {
       tags: null,
       startDate: null,
       hasAudio: 'all',
-      readingStatus: 'all',
+      readingStatus: null,
+      readingStatuses: '',
+      mediaType: null,
+      mediaKinds: '',
       randomSeed: null
     })
   })

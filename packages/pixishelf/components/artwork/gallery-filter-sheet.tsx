@@ -119,13 +119,13 @@ function Content(props: Props) {
       {...(input
         ? {
             currentSearch: input.search,
-            currentMediaType: input.mediaType,
+            currentMediaKinds: input.mediaKinds,
             currentSortBy: input.sortBy,
             currentArtist: input.artist,
             currentTags: input.tags,
             currentSources: input.sources,
             currentHasAudio: input.hasAudio,
-            currentReadingStatus: input.readingStatus,
+            currentReadingStatuses: input.readingStatuses,
             currentRatingLevels: input.ratingLevels,
             currentExcludedArtists: input.excludedArtists,
             startDate: input.startDate,

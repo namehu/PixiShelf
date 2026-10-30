@@ -118,9 +118,9 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
         scope={scope}
         fixedArtist={fixedArtist}
         currentSearch={query.search}
-        currentMediaType={query.mediaType}
+        currentMediaKinds={query.mediaKinds}
         currentSortBy={query.sortBy}
-        currentReadingStatus={query.readingStatus}
+        currentReadingStatuses={query.readingStatuses}
         currentRatingLevels={query.ratingLevels}
         currentExcludedArtists={query.excludedArtists}
         currentTags={query.tags}
@@ -168,8 +168,8 @@ export default function ArtistDetailPage({ artist, id }: { artist: ArtistRespons
           searchQuery={query.search}
           sortBy={query.sortBy}
           randomSeed={randomSeed}
-          mediaType={query.mediaType}
-          readingStatus={query.readingStatus === 'all' ? undefined : query.readingStatus}
+          mediaKinds={query.mediaKinds}
+          readingStatuses={query.readingStatuses}
           ratingLevels={query.ratingLevels}
           excludeArtistIds={excludeArtistIds}
           tagIds={tagIds}

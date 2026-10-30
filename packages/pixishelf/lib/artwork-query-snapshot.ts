@@ -1,15 +1,15 @@
 import {
   excludeArtistIdsSchema,
+  mediaKindsFilterSchema,
+  readingStatusesFilterSchema,
+  mediaKindLabels,
+  readingStatusLabels,
   likedRatingLabels,
   ratingLevelsFilterSchema,
   resolveRatingLevels
 } from '@/schemas/artwork-filter.dto'
 import { createSerializer, parseAsBoolean, parseAsInteger, parseAsString } from 'nuqs'
-import {
-  artworkQuerySnapshotSchema,
-  readingFilterLabels,
-  type ArtworkQuerySnapshot
-} from '@/schemas/artwork-quick-filter.dto'
+import { artworkQuerySnapshotSchema, type ArtworkQuerySnapshot } from '@/schemas/artwork-quick-filter.dto'
 import { MSource } from '@/enums/e-source'
 
 const string = (value = '') =>
@@ -19,6 +19,7 @@ export const artworkQueryParsers = {
   sortBy: string('source_date_desc'),
   randomSeed: string(),
   mediaType: string('all'),
+  mediaKinds: parseAsString.withOptions({ history: 'replace' }),
   startDate: string(),
   endDate: string(),
   createdStartDate: string(),
@@ -30,6 +31,7 @@ export const artworkQueryParsers = {
   sources: string(),
   hasAudio: string('all'),
   readingStatus: string('all'),
+  readingStatuses: parseAsString.withOptions({ history: 'replace' }),
   ratingLevels: parseAsString.withOptions({ history: 'replace', clearOnDefault: true }),
   excludeArtistIds: string(),
   excludeArtistLabels: string(),
@@ -39,7 +41,8 @@ export function snapshotToQuery(input: ArtworkQuerySnapshot, seed?: number) {
   const q = artworkQuerySnapshotSchema.parse(input)
   return {
     search: q.search || null,
-    mediaType: q.mediaType,
+    mediaType: null,
+    mediaKinds: q.mediaKinds.join(','),
     sortBy: q.sortBy,
     randomSeed: q.sortBy === 'random' ? String(seed ?? Math.floor(Math.random() * 2147483646) + 1) : null,
     artistId: q.artist[0] ? Number(q.artist[0].value) : null,
@@ -48,7 +51,8 @@ export function snapshotToQuery(input: ArtworkQuerySnapshot, seed?: number) {
     tagLabels: q.tags.map((t) => encodeURIComponent(t.label)).join(',') || null,
     sources: q.sources.join(',') || null,
     hasAudio: q.hasAudio,
-    readingStatus: q.readingStatus,
+    readingStatus: null,
+    readingStatuses: q.readingStatuses.join(','),
     likedOnly: null,
     ratingLevels: q.ratingLevels.join(',') || null,
     excludeArtistIds: q.excludedArtists.map((a) => a.value).join(',') || null,
@@ -107,10 +111,10 @@ export function describeSnapshot(q: ArtworkQuerySnapshot) {
   }
   return [
     q.search && `关键词：${q.search}`,
-    q.readingStatus !== 'all' && readingFilterLabels[q.readingStatus],
+    q.readingStatuses.map((status) => readingStatusLabels[status]).join('、'),
     q.ratingLevels.length > 0 && q.ratingLevels.map((level) => likedRatingLabels[level]).join('、'),
     ...q.excludedArtists.map((a) => `排除艺术家：${a.label}`),
-    q.mediaType !== 'all' && { image: '图片', animation: '动图', video: '视频' }[q.mediaType],
+    q.mediaKinds.map((kind) => mediaKindLabels[kind]).join('、'),
     ...q.artist.map((a) => a.label),
     ...q.tags.map((t) => `#${t.label}`),
     ...q.sources.map((s) => MSource[s]),
@@ -141,4 +145,11 @@ export function queryArtistOptions(ids: string, labels: string) {
     }
     return { value: String(id), label }
   })
+}
+
+export function queryMediaKinds(value: string | null | undefined, legacy?: string | null) {
+  return mediaKindsFilterSchema.parse(value ?? (legacy && legacy !== 'all' ? legacy : ''))
+}
+export function queryReadingStatuses(value: string | null | undefined, legacy?: string | null) {
+  return readingStatusesFilterSchema.parse(value ?? (legacy && legacy !== 'all' ? legacy : ''))
 }

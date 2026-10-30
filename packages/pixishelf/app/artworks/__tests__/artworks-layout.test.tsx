@@ -2,6 +2,7 @@ import React from 'react'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import GalleryPage from '../page'
+import type { FilterSheetProps } from '@/components/artwork/filter-sheet'
 
 const { queryState } = vi.hoisted(() => ({
   queryState: {
@@ -9,6 +10,7 @@ const { queryState } = vi.hoisted(() => ({
     sortBy: 'source_date_desc',
     randomSeed: '',
     mediaType: 'all',
+    mediaKinds: null as string | null,
     startDate: '',
     endDate: '',
     createdStartDate: '',
@@ -20,6 +22,7 @@ const { queryState } = vi.hoisted(() => ({
     sources: '',
     hasAudio: 'all',
     readingStatus: 'all',
+    readingStatuses: null as string | null,
     likedOnly: false,
     ratingLevels: null as string | null,
     excludeArtistIds: '',
@@ -28,7 +31,11 @@ const { queryState } = vi.hoisted(() => ({
   }
 }))
 
-const navigation = vi.hoisted(() => ({ params: new URLSearchParams(), setQuery: vi.fn() }))
+const navigation = vi.hoisted(() => ({
+  params: new URLSearchParams(),
+  setQuery: vi.fn(),
+  sheet: null as FilterSheetProps | null
+}))
 vi.mock('next/navigation', () => ({ useSearchParams: () => navigation.params }))
 
 vi.mock('nuqs', async (importOriginal) => {
@@ -51,8 +58,10 @@ vi.mock('../_components/search-box', () => ({
 }))
 
 vi.mock('@/components/artwork/gallery-filter-sheet', () => ({
-  GalleryFilterSheet: ({ open, initialTab }: { open: boolean; initialTab: string }) =>
-    open ? <div data-testid="filter-sheet">{initialTab}</div> : null
+  GalleryFilterSheet: (props: FilterSheetProps & { initialTab: string }) => {
+    navigation.sheet = props
+    return props.open ? <div data-testid="filter-sheet">{props.initialTab}</div> : null
+  }
 }))
 
 vi.mock('@/components/artwork/infinite-artwork-list', () => ({
@@ -64,6 +73,10 @@ vi.mock('@/components/artwork/infinite-artwork-list', () => ({
 }))
 
 beforeEach(() => {
+  queryState.mediaType = 'all'
+  queryState.mediaKinds = null
+  queryState.readingStatus = 'all'
+  queryState.readingStatuses = null
   queryState.search = ''
   queryState.likedOnly = false
   queryState.listRevision = 0
@@ -100,6 +113,43 @@ describe('GalleryPage layout', () => {
     expect(navigation.setQuery).toHaveBeenLastCalledWith({ likedOnly: null, ratingLevels: '3,4' })
     fireEvent.click(screen.getByRole('button', { name: '清空全部' }))
     expect(navigation.setQuery).toHaveBeenLastCalledWith(expect.objectContaining({ likedOnly: null }))
+  })
+
+  it('passes normalized multi-selections into the shared sheet and immersive link and clears each legacy field', () => {
+    queryState.mediaType = 'image'
+    queryState.mediaKinds = 'video,animation,video'
+    queryState.readingStatus = 'IN_PROGRESS'
+    queryState.readingStatuses = 'COMPLETED,UNREAD,UNREAD'
+    render(<GalleryPage />)
+    expect(navigation.sheet).toMatchObject({
+      currentMediaKinds: ['animation', 'video'],
+      currentReadingStatuses: ['UNREAD', 'COMPLETED']
+    })
+    const href = new URL(screen.getByRole('link', { name: '沉浸浏览' }).getAttribute('href')!, 'http://localhost')
+    expect(href.searchParams.get('mediaKinds')).toBe('animation,video')
+    expect(href.searchParams.get('readingStatuses')).toBe('UNREAD,COMPLETED')
+    expect(href.searchParams.has('mediaType')).toBe(false)
+    expect(href.searchParams.has('readingStatus')).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: '移除筛选：阅读状态：未读' }))
+    expect(navigation.setQuery).toHaveBeenLastCalledWith({ readingStatus: null, readingStatuses: 'COMPLETED' })
+    fireEvent.click(screen.getByRole('button', { name: '移除筛选：动图' }))
+    expect(navigation.setQuery).toHaveBeenLastCalledWith({ mediaType: null, mediaKinds: 'video' })
+    fireEvent.click(screen.getByRole('button', { name: '清空全部' }))
+    expect(navigation.setQuery).toHaveBeenLastCalledWith(
+      expect.objectContaining({ mediaType: null, mediaKinds: '', readingStatus: null, readingStatuses: '' })
+    )
+  })
+  it('keeps explicit empty URL selections ahead of legacy single filters', () => {
+    queryState.mediaType = 'video'
+    queryState.mediaKinds = ''
+    queryState.readingStatus = 'COMPLETED'
+    queryState.readingStatuses = ''
+    render(<GalleryPage />)
+    expect(navigation.sheet).toMatchObject({ currentMediaKinds: [], currentReadingStatuses: [] })
+    expect(screen.queryByText('当前筛选')).toBeNull()
+    const href = new URL(screen.getByRole('link', { name: '沉浸浏览' }).getAttribute('href')!, 'http://localhost')
+    expect(href.searchParams.get('mediaKinds')).toBe('')
+    expect(href.searchParams.get('readingStatuses')).toBe('')
   })
 
   it('adds an aligned filter rail when a filter is active', () => {

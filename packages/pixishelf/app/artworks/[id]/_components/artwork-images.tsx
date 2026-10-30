@@ -509,6 +509,8 @@ function VideoMediaMenuButton({ media, onOpenMenu }: {
         artworkId={media.artworkId ?? 0}
         mediaId={media.id}
         showBookmark={false}
+        hideInactiveLike
+        overlay
         onAction={() => useArtworkAutoBrowseStore.getState().pause('manual')}
       />
       <Button type="button" variant="ghost" className="min-h-11" onClick={onOpenMenu}>

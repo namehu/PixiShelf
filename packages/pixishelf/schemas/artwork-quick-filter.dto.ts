@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import { ratingLevelsFilterSchema, resolveRatingLevels } from './artwork-filter.dto'
+import {
+  ratingLevelsFilterSchema,
+  resolveRatingLevels,
+  mediaKindsFilterSchema,
+  readingStatusesFilterSchema,
+  normalizeArtworkSelections
+} from './artwork-filter.dto'
 
 export const QUICK_FILTER_PREFIX = 'artwork_quick_filter:'
 export const QUICK_FILTER_ARTIST_PREFIX = `${QUICK_FILTER_PREFIX}artist:`
@@ -10,7 +16,6 @@ export const quickFilterScopeSchema = z.discriminatedUnion('kind', [
 export type QuickFilterScope = z.infer<typeof quickFilterScopeSchema>
 export const GLOBAL_QUICK_FILTER_SCOPE: QuickFilterScope = { kind: 'global' }
 export const QUICK_FILTER_NAV_KEY = `${QUICK_FILTER_PREFIX}navigation`
-export const readingFilterLabels = { all: '全部', UNREAD: '未读', IN_PROGRESS: '阅读中', COMPLETED: '已读完' } as const
 export const quickFilterNameSchema = z.string().trim().min(1, '请输入名称').max(40, '名称最多 40 字')
 const option = z.object({
   value: z
@@ -23,7 +28,8 @@ const date = z.string().date().or(z.literal('')).default('')
 export const artworkQuerySnapshotSchema = z
   .object({
     search: z.string().trim().max(1000).default(''),
-    mediaType: z.enum(['all', 'image', 'animation', 'video']).default('all'),
+    mediaType: z.enum(['all', 'image', 'animation', 'video']).optional(),
+    mediaKinds: mediaKindsFilterSchema.optional(),
     sortBy: z
       .enum([
         'source_date_desc',
@@ -55,7 +61,8 @@ export const artworkQuerySnapshotSchema = z
       .max(4)
       .default([]),
     hasAudio: z.enum(['all', 'yes', 'no']).default('all'),
-    readingStatus: z.enum(['all', 'UNREAD', 'IN_PROGRESS', 'COMPLETED']).default('all'),
+    readingStatus: z.enum(['all', 'UNREAD', 'IN_PROGRESS', 'COMPLETED']).optional(),
+    readingStatuses: readingStatusesFilterSchema.optional(),
     likedOnly: z.boolean().default(false),
     ratingLevels: ratingLevelsFilterSchema.optional(),
     startDate: date,
@@ -66,7 +73,7 @@ export const artworkQuerySnapshotSchema = z
   .refine((v) => !v.startDate || !v.endDate || v.startDate <= v.endDate, '原始时间范围无效')
   .refine((v) => !v.createdStartDate || !v.createdEndDate || v.createdStartDate <= v.createdEndDate, '入库时间范围无效')
   .transform((query) => ({
-    ...query,
+    ...normalizeArtworkSelections(query),
     ratingLevels: resolveRatingLevels(query),
     likedOnly: resolveRatingLevels(query).length > 0
   }))

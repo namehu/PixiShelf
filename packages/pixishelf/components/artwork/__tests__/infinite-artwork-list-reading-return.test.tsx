@@ -53,7 +53,7 @@ afterEach(() => {
 
 function list(generation = 123) {
   return <QueryClientProvider client={client}>
-    <InfiniteArtworkList readingStatus="UNREAD" queryGeneration={generation} />
+    <InfiniteArtworkList readingStatuses={['UNREAD']} queryGeneration={generation} />
   </QueryClientProvider>
 }
 const cards = () => screen.queryAllByTestId('card').map((card) => card.textContent)
@@ -99,8 +99,8 @@ describe('reading-filter list return', () => {
   })
 
   it('does not reuse another account or filter result and reloads with a fresh client', async () => {
-    state.query.mockImplementation(async ({ expectedUserId, readingStatus }) => ({
-      items: [{ id: expectedUserId === 'bob' ? 20 : readingStatus === 'COMPLETED' ? 30 : 7 }], nextReadingCursor: null
+    state.query.mockImplementation(async ({ expectedUserId, readingStatuses }) => ({
+      items: [{ id: expectedUserId === 'bob' ? 20 : readingStatuses?.includes('COMPLETED') ? 30 : 7 }], nextReadingCursor: null
     }))
     const view = render(list())
     await waitFor(() => expect(cards()).toEqual(['7:UNREAD']))
@@ -109,7 +109,7 @@ describe('reading-filter list return', () => {
     await waitFor(() => expect(cards()).toEqual(['20:UNREAD']))
     state.owner = 'alice'
     view.rerender(<QueryClientProvider client={client}>
-      <InfiniteArtworkList readingStatus="COMPLETED" queryGeneration={123} />
+      <InfiniteArtworkList readingStatuses={['COMPLETED']} queryGeneration={123} />
     </QueryClientProvider>)
     await waitFor(() => expect(cards()).toEqual(['30:UNREAD']))
     view.unmount()

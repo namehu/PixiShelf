@@ -43,13 +43,13 @@ vi.mock('@/components/artwork/filter-sheet', () => ({
 
 const applied: Parameters<FilterSheetProps['onApply']>[0] = {
   search: 'saved search',
-  mediaType: 'animation',
+  mediaKinds: ['animation'],
   sortBy: 'created_at_asc',
   artist: [{ value: '12', label: 'Artist' }],
   tags: [{ value: '34', label: 'Tag, with comma' }],
   sources: ['LOCAL_IMPORT'],
   hasAudio: 'no',
-  readingStatus: 'UNREAD',
+  readingStatuses: ['UNREAD'],
   likedOnly: true,
   maxMediaCount: 24,
   startTime: '2026-01-01',
@@ -232,14 +232,14 @@ describe('immersive viewer filter persistence', () => {
     await waitFor(() => expect(mocks.feed).toHaveBeenCalled())
     expect(mocks.feed.mock.calls[0]?.[0]).toMatchObject({
       search: applied.search,
-      mediaType: 'animation',
+      mediaKinds: ['animation'],
       mode: 'ordered',
       sortBy: 'created_at_asc',
       artistId: 12,
       tagIds: [34],
       sources: ['LOCAL_IMPORT'],
       hasAudio: 'no',
-      readingStatus: 'UNREAD',
+      readingStatuses: ['UNREAD'],
       ratingLevels: [2, 3, 4],
       mediaCountMax: 24,
       startDate: '2026-01-01',
@@ -263,18 +263,56 @@ describe('immersive viewer filter persistence', () => {
         search: undefined,
         tagIds: [],
         sources: [],
-        readingStatus: undefined,
+        readingStatuses: [],
         ratingLevels: []
       })
       if (search.startsWith('source=')) {
         expect(mocks.feed.mock.calls[0]?.[0]).toMatchObject({ source: 'artist', artistId: 99 })
       }
-      if (search.startsWith('mediaType=')) expect(mocks.feed.mock.calls[0]?.[0]).toMatchObject({ mediaType: 'all' })
+      if (search.startsWith('mediaType=')) expect(mocks.feed.mock.calls[0]?.[0]).toMatchObject({ mediaKinds: [] })
       linked.unmount()
       mount()
       expect(mocks.sheet?.currentSearch).toBe(applied.search)
     }
   )
+
+  it('restores every multi-selection and lets explicit empty arrays override legacy links and global preferences', async () => {
+    const view = mount()
+    const selected = {
+      ...applied,
+      mediaKinds: ['animation', 'video'] as const,
+      readingStatuses: ['UNREAD', 'COMPLETED'] as const
+    }
+    await applyFilters({
+      ...selected,
+      mediaKinds: [...selected.mediaKinds],
+      readingStatuses: [...selected.readingStatuses]
+    })
+    view.unmount()
+    await reloadStore()
+    const restored = mount()
+    expect(mocks.sheet).toMatchObject({
+      currentMediaKinds: ['animation', 'video'],
+      currentReadingStatuses: ['UNREAD', 'COMPLETED']
+    })
+    restored.unmount()
+    const preferences = localStorage.getItem('pixishelf-viewer-settings')
+    mocks.feed.mockClear()
+    mount(
+      'source=artist&sourceId=99&scopeArtistId=99&mediaType=video&mediaKinds=&readingStatus=COMPLETED&readingStatuses='
+    )
+    await waitFor(() => expect(mocks.feed).toHaveBeenCalled())
+    expect(mocks.feed.mock.calls[0]?.[0]).toMatchObject({ artistId: 99, mediaKinds: [], readingStatuses: [] })
+    expect(mocks.sheet).toMatchObject({ currentMediaKinds: [], currentReadingStatuses: [] })
+    expect(localStorage.getItem('pixishelf-viewer-settings')).toBe(preferences)
+  })
+  it('migrates a legacy global media preference while keeping a new empty selection', async () => {
+    for (const state of [{ mediaType: 'video' }, { mediaType: 'video', mediaKinds: [] }]) {
+      localStorage.setItem('pixishelf-viewer-settings', JSON.stringify({ state, version: 0 }))
+      await useViewerStore.persist.rehydrate()
+      expect(useViewerStore.getState().mediaKinds).toEqual('mediaKinds' in state ? [] : ['video'])
+    }
+  })
 
   it('persists clearing filters instead of reviving the previous selection', async () => {
     const view = mount()
@@ -287,9 +325,9 @@ describe('immersive viewer filter persistence', () => {
     mount()
     expect(mocks.sheet).toMatchObject({
       currentSearch: '',
-      currentMediaType: 'all',
+      currentMediaKinds: [],
       currentSortBy: 'random',
-      currentReadingStatus: 'all',
+      currentReadingStatuses: [],
       currentRatingLevels: [],
       currentArtist: [],
       currentTags: [],
@@ -312,7 +350,7 @@ describe('immersive viewer filter persistence', () => {
       expect(mocks.feed.mock.calls[0]?.[0]).toMatchObject({
         mode: 'random',
         randomSeed: 456000,
-        readingStatus: 'UNREAD',
+        readingStatuses: ['UNREAD'],
         ratingLevels: [2, 3, 4]
       })
     } finally {
@@ -375,9 +413,9 @@ describe('immersive viewer filter persistence', () => {
       await useViewerStore.persist.rehydrate()
       mount()
       expect(mocks.sheet).toMatchObject({
-        currentMediaType: 'video',
+        currentMediaKinds: ['video'],
         currentMaxMediaCount: 16,
-        currentReadingStatus: 'all',
+        currentReadingStatuses: [],
         currentSortBy: 'random'
       })
     }

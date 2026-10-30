@@ -281,7 +281,7 @@ suite('artwork browse correctness and performance', () => {
         const page = await getArtworkCardsPage(variantInput, user)
         const ms = performance.now() - start
         let base = buildArtworkWhereClause(variantInput)
-        if (variantInput.readingStatus) base = appendReadingPredicate(variantInput.readingStatus, user, base)
+        if (variantInput.readingStatuses.length) base = appendReadingPredicate(variantInput.readingStatuses, user, base)
         const oldStart = performance.now()
         await db!.$queryRawUnsafe(
           `SELECT a.id FROM "Artwork" a ${base.whereSQL}

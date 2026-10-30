@@ -212,7 +212,7 @@ function canonicalMigrationFilters(filters?: MigrationFilters) {
     ...(filters?.startDate ? { startDate: filters.startDate } : {}),
     ...(filters?.endDate ? { endDate: filters.endDate } : {}),
     ...(filters?.externalId ? { externalId: filters.externalId } : {}),
-    mediaTypes: ArtworksInfiniteQuerySchema.shape.mediaTypes.parse(filters?.mediaTypes),
+    mediaTypes: ArtworksInfiniteQuerySchema.parse({ mediaTypes: filters?.mediaTypes }).mediaTypes,
     exactMatch: filters?.exactMatch ?? false
   })
 }

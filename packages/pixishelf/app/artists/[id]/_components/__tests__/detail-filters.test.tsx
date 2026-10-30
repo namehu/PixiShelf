@@ -56,7 +56,7 @@ describe('artist detail additional filters', () => {
     expect(state.search?.hideArtistSuggestions).toBe(true)
     const href = new URL((screen.getByRole('link', { name: '沉浸浏览' }) as HTMLAnchorElement).href)
     expect(href.searchParams.get('scopeArtistId')).toBe('12')
-    expect(href.searchParams.get('mediaType')).toBe('all')
+    expect(href.searchParams.get('mediaKinds')).toBe('')
     expect(href.searchParams.get('excludeArtistIds')).toBe('12')
     act(() =>
       state.sheet!.onApplySnapshot(
@@ -65,7 +65,7 @@ describe('artist detail additional filters', () => {
           artist: [{ value: '99', label: 'Other' }],
           tags: [{ value: '7', label: 'Tag' }],
           ratingLevels: [2, 4],
-          readingStatus: 'UNREAD',
+          readingStatuses: ['UNREAD'],
           hasAudio: 'yes',
           createdStartDate: '2026-01-01'
         })
@@ -77,7 +77,7 @@ describe('artist detail additional filters', () => {
         artistId: '12',
         tagIds: [7],
         ratingLevels: [2, 4],
-        readingStatus: 'UNREAD',
+        readingStatuses: ['UNREAD'],
         hasAudio: 'yes',
         createdStartDate: '2026-01-01'
       })

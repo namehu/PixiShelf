@@ -205,7 +205,7 @@ describe('buildArtworkWhereClause', () => {
     const params = ArtworksInfiniteQuerySchema.parse({ mediaType: 'image' })
     const { whereSQL, sqlParams } = buildArtworkWhereClause(params)
 
-    expect(whereSQL).toContain('AND NOT')
+    expect(whereSQL).toContain('AND (NOT EXISTS')
     expect(whereSQL).toContain('i."mediaType" = \'VIDEO\'')
     expect(whereSQL).not.toContain('LOWER(i.path)')
     expect(sqlParams).toHaveLength(0)

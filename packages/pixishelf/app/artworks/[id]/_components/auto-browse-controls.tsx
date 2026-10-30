@@ -10,6 +10,8 @@ interface AutoBrowseControlsProps {
   current: number
   total: number
   compact?: boolean
+  orientation?: 'horizontal' | 'vertical'
+  settingsSide?: 'top' | 'left' | 'right'
   navigation?: ReactNode
   trailingControl?: ReactNode
   onRestart: () => void
@@ -25,6 +27,8 @@ export function AutoBrowseControls({
   current,
   total,
   compact,
+  orientation,
+  settingsSide,
   navigation,
   trailingControl,
   onRestart,
@@ -58,6 +62,8 @@ export function AutoBrowseControls({
       total={total}
       state={state}
       compact={compact}
+      orientation={orientation}
+      settingsSide={settingsSide}
       navigation={navigation}
       trailingControl={trailingControl}
       onStart={state.start}

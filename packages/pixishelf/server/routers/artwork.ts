@@ -111,7 +111,7 @@ export const artworkRouter = router({
     assertArtworkListAccount(
       ctx.userId,
       input.expectedUserId,
-      input.readingStatus || resolveRatingLevels(input).length > 0
+      input.readingStatuses.length > 0 || resolveRatingLevels(input).length > 0
     )
     const page = input.cursor ?? 1
     const result = await getArtworksList(input, ctx.userId)
@@ -119,7 +119,7 @@ export const artworkRouter = router({
     return {
       items: result.items,
       nextCursor:
-        input.readingStatus || resolveRatingLevels(input).length > 0
+        input.readingStatuses.length > 0 || resolveRatingLevels(input).length > 0
           ? undefined
           : page < totalPages
             ? page + 1
@@ -135,14 +135,14 @@ export const artworkRouter = router({
     assertArtworkListAccount(
       ctx.userId,
       input.expectedUserId,
-      input.readingStatus || resolveRatingLevels(input).length > 0
+      input.readingStatuses.length > 0 || resolveRatingLevels(input).length > 0
     )
     const page = input.cursor ?? 1
     const result = await getArtworkCardsPage(input, ctx.userId)
     return {
       items: result.items,
       nextCursor:
-        input.readingStatus || resolveRatingLevels(input).length > 0 || input.sortBy === 'random'
+        input.readingStatuses.length > 0 || resolveRatingLevels(input).length > 0 || input.sortBy === 'random'
           ? undefined
           : result.hasNextPage
             ? page + 1
@@ -415,7 +415,7 @@ export const artworkRouter = router({
     assertArtworkListAccount(
       ctx.userId,
       input.expectedUserId,
-      input.readingStatus || resolveRatingLevels(input).length > 0
+      input.readingStatuses.length > 0 || resolveRatingLevels(input).length > 0
     )
     try {
       return getViewerFeed({
