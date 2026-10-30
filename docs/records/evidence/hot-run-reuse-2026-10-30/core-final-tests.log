@@ -1,0 +1,37 @@
+
+ RUN  v4.0.18 /private/tmp/pixishelf-dedup-hot-run-reuse/PixiShelf/packages/pixishelf-job-executors
+
+ ✓ src/artwork-dedup/__tests__/hot-run.postgres.test.ts (28 tests) 55508ms
+     ✓ v9 hot batch saves no media, cursor or count after cancel  863ms
+     ✓ v9 hot batch saves no media, cursor or count after lease  726ms
+     ✓ v9 hot batch saves no media, cursor or count after rollback  758ms
+     ✓ copies exact, contains and partial graphs with current order, without review authority or historical dependencies  1856ms
+     ✓ reuses completed visual evidence without feature decoding, original reads or candidate work  1599ms
+     ✓ reuses complete mixed-media coverage with declared exclusions  1599ms
+     ✓ reuses complete mixed-media coverage with decoded exclusions  1574ms
+     ✓ does not whole-run reuse after feature-cache changes  1677ms
+     ✓ does not whole-run reuse after identity changes  1661ms
+     ✓ does not whole-run reuse after feature-version changes  1640ms
+     ✓ does not whole-run reuse after search-version changes  1646ms
+     ✓ does not whole-run reuse after incomplete changes  1696ms
+     ✓ does not whole-run reuse after options changes  1538ms
+     ✓ uses the existing changed-input path for modify  1321ms
+     ✓ uses the existing changed-input path for insert  1344ms
+     ✓ uses the existing changed-input path for delete  1296ms
+     ✓ uses the existing changed-input path for missing  1326ms
+     ✓ uses the existing changed-input path for full  1376ms
+     ✓ commits a 500-original prefix and resumes in a new executor without recounting  3702ms
+     ✓ resumes a durable copy checkpoint, source loss=false  1514ms
+     ✓ resumes a durable copy checkpoint, source loss=true  1520ms
+     ✓ restarts bounded evidence copying when order changes after the first 1000 pages  14713ms
+     ✓ retries only projection when order changes immediately before publication  1726ms
+     ✓ revalidates media classification changed after the final copy  2219ms
+     ✓ rechecks final publication after source changes following result copy  1247ms
+     ✓ rechecks final publication after directory changes following result copy  1230ms
+     ✓ reuses a complete empty artist scope  654ms
+     ✓ reuses an unchanged complete negative result  1229ms
+
+ Test Files  1 passed (1)
+      Tests  28 passed (28)
+   Start at  12:20:56
+   Duration  56.27s (transform 466ms, setup 0ms, import 678ms, tests 55.51s, environment 0ms)

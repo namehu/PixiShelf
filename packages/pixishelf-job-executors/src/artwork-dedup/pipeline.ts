@@ -52,6 +52,12 @@ export interface DedupPipelineContext {
   visualSearchV2?: boolean
   searchWorker?: import('./visual-search-worker.ts').VisualSearchWorker | undefined
   searchCache?: { built?: boolean }
+  onHotRunBatch?: ((tx: Prisma.TransactionClient, delta: {
+    statMs: number; fingerprintReuseMs: number; relationReuseMs: number; resultCopyMs: number
+    hotBatches: number; reusedArtworks: number; reusedRelations: number; copiedRows: number; metadataBytes: number; rssBytes: number
+    metadataFallbacks?: number; wholeRunReused?: boolean; uncheckedMedia?: number
+    discardedCopyRows?: number; discardedReusedRelations?: number
+  }) => Promise<void>) | undefined
   onFeatureBatch?: ((tx: Prisma.TransactionClient, delta: {
     decodedImages: number
     ownFeatureHits: number

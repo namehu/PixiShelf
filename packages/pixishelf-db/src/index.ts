@@ -320,3 +320,6 @@ export * from './artwork-dedup-relation-cache'
 export * from './artwork-dedup-visual-work'
 
 export * from './artwork-dedup-quick-confirmation'
+
+export * from './artwork-dedup-hot-run'
+export * from './artwork-dedup-hot-run-reuse'

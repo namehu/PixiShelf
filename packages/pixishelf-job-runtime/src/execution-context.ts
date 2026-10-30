@@ -1,5 +1,5 @@
 import type { JobDiagnosticInput, JobEventLevel, JobProgressData } from '@pixishelf/job-contracts'
-import type { ClaimedJob, FencedExecutionTransaction, QueueSqlExecutor } from './queue-repository.ts'
+import type { ClaimedJob, FencedExecutionTransaction, FencedMutationTransactionObserver, QueueSqlExecutor } from './queue-repository.ts'
 
 export interface ExecutionProgressUpdate {
   progress: number
@@ -48,7 +48,8 @@ export type FencedExecutionFinalizer = <TTransaction extends QueueSqlExecutor = 
 ) => Promise<TransactionallyFinalizedExecutionOutcome>
 
 export type FencedExecutionMutator = <TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
-  operation: (transaction: TTransaction) => Promise<TResult>
+  operation: (transaction: TTransaction) => Promise<TResult>,
+  observeTiming?: FencedMutationTransactionObserver
 ) => Promise<TResult>
 
 export type FencedExecutionProgressMutator = <TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(

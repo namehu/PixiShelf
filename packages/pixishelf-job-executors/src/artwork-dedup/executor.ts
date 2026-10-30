@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { statArtworkDedupHotRun, reuseArtworkDedupHotRun } from './hot-run.ts'
 import { scanVisualSearch } from './visual-search.ts'
 import { VisualSearchWorker } from './visual-search-worker.ts'
 import { scanBatchedVisualVersions } from './visual-batches.ts'
@@ -6,6 +7,8 @@ import { scanVisualVersions } from './visual-pipeline.ts'
 import { randomUUID } from 'node:crypto'
 import {
   assertArtworkDedupExecution,
+  artworkDedupHotReuseCheckpoint,
+  finalizeArtworkDedupHotRunReuse,
   assertArtworkDedupCacheDirectories,
   ARTWORK_DEDUP_RELATION_CACHE_VERSION,
   buildArtworkDedupCandidates,
@@ -53,7 +56,7 @@ import {
   type ArtworkDedupPerformanceDelta,
   type ArtworkDedupPerformanceLogReason
 } from './telemetry.ts'
-import { addDedupDatabaseMeasurement, emptyDedupDatabaseMeasurement, measureDedupDatabase } from './executor-telemetry.ts'
+import { addDedupDatabaseMeasurement, addDedupTransactionTiming, emptyDedupDatabaseMeasurement, measureDedupDatabase } from './executor-telemetry.ts'
 
 type Tx = Prisma.TransactionClient & QueueSqlExecutor
 type Run = Prisma.ArtworkDedupRunGetPayload<Record<string, never>>
@@ -74,7 +77,7 @@ export interface ArtworkDedupDependencies {
   }
   onMeasurement?: (value: ReaderMetrics & { runId: string; elapsedMs: number; transactions: number }) => void
 }
-export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 = 1): ExecutorDefinition {
+export function createArtworkDedupExecutor(dependencies: ArtworkDedupDependencies, definitionVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 = 1): ExecutorDefinition {
   const supervisor = dependencies.supervisor ?? new DedupReaderSupervisor(dependencies.readerOptions)
   const searchCache = dependencies.searchCache ?? {}
   return {
@@ -102,6 +105,7 @@ export async function executeArtworkDedup(
   let pendingReads = emptyDedupDatabaseMeasurement()
   let savedMeasurement = emptyDedupDatabaseMeasurement()
   let savedActiveMs = 0
+  let transactionTimingCutoff: string | null = null
   let schedulingAccounted = false
   type PendingTelemetry = { summary: ArtworkDedupPerformanceSummary; measurement: typeof measured; progress: ArtworkDedupProgressData; activeMs: number }
   let pendingTelemetry: PendingTelemetry | undefined
@@ -156,10 +160,15 @@ export async function executeArtworkDedup(
       counters: {
         ...delta?.counters,
         readBytes: Number(run.readBytes) - (base.counters.readBytes ?? 0),
+        ...(context.job.definitionVersion >= 9 ? {
+          originalCacheHits: run.cacheHitMedia - (base.counters.originalCacheHits ?? 0),
+          hashedOriginals: run.hashedMedia - (base.counters.hashedOriginals ?? 0)
+        } : {}),
         dbLoadCalls: measured.dbLoadCalls - savedMeasurement.dbLoadCalls,
         dbValidationCalls: measured.dbValidationCalls - savedMeasurement.dbValidationCalls,
         dbWriteCalls: measured.dbWriteCalls - savedMeasurement.dbWriteCalls,
-        transactions: measured.transactions - savedMeasurement.transactions
+        transactions: measured.transactions - savedMeasurement.transactions,
+        ...(measured.timedTransactions > 0 ? { dbFenceCalls: measured.dbFenceCalls - savedMeasurement.dbFenceCalls } : {})
       },
       durationsMs: {
         ...delta?.durationsMs,
@@ -168,8 +177,22 @@ export async function executeArtworkDedup(
         dbValidation: measured.dbValidationMs - savedMeasurement.dbValidationMs,
         dbWrite: measured.dbWriteMs - savedMeasurement.dbWriteMs,
         transactionWall: measured.transactionWallMs - savedMeasurement.transactionWallMs,
+        ...(measured.timedTransactions > 0 ? {
+          transactionAcquisition: measured.transactionAcquisitionMs - savedMeasurement.transactionAcquisitionMs,
+          transactionPreFence: measured.transactionPreFenceMs - savedMeasurement.transactionPreFenceMs,
+          transactionBody: measured.transactionBodyMs - savedMeasurement.transactionBodyMs,
+          transactionPostFence: measured.transactionPostFenceMs - savedMeasurement.transactionPostFenceMs,
+          transactionCommitFinalization: measured.transactionCommitFinalizationMs - savedMeasurement.transactionCommitFinalizationMs
+        } : {}),
         active: activeMs - savedActiveMs
-      }
+      },
+      ...(context.job.definitionVersion >= 9 ? { transactionTiming: {
+        sampledTransactions: (base.transactionTiming?.sampledTransactions ?? 0) + measured.timedTransactions - savedMeasurement.timedTransactions,
+        cutoff: transactionTimingCutoff ?? base.transactionTiming?.cutoff ?? null,
+        // This write precedes the enclosing commit; the finalizer and reader
+        // cleanup also have no mutation observer. Their timing stays unknown.
+        complete: false
+      } } : {})
     })
     const progress = artworkDedupProgress({
       phase,
@@ -195,7 +218,13 @@ export async function executeArtworkDedup(
     const began = performance.now()
     pendingTelemetry = undefined
     try {
-      const result = await context.mutateInTransaction<Tx, T>((tx) => operation(v2 ? measureDedupDatabase(tx, current, 'validation') : tx))
+      const result = await context.mutateInTransaction<Tx, T>(
+        (tx) => operation(v2 ? measureDedupDatabase(tx, current, 'validation') : tx),
+        context.job.definitionVersion >= 9 ? (timing) => {
+          addDedupTransactionTiming(current, timing)
+          transactionTimingCutoff = new Date(now()).toISOString()
+        } : undefined
+      )
       if (v2) {
         current.transactions = 1
         current.transactionWallMs = performance.now() - began
@@ -346,6 +375,42 @@ export async function executeArtworkDedup(
             durationsMs: { feature: delta.featureMs } }
         })
       } : undefined,
+      onHotRunBatch: context.job.definitionVersion >= 9 ? async (tx: Prisma.TransactionClient, delta: {
+        statMs: number; fingerprintReuseMs: number; relationReuseMs: number; resultCopyMs: number;
+        hotBatches: number; reusedArtworks: number; reusedRelations: number; copiedRows: number;
+        metadataBytes: number; rssBytes: number
+        metadataFallbacks?: number; wholeRunReused?: boolean; uncheckedMedia?: number
+    discardedCopyRows?: number; discardedReusedRelations?: number
+      }) => {
+        const run = await tx.artworkDedupRun.findUniqueOrThrow({ where: { id: execution.runId } })
+        const reuse = artworkDedupHotReuseCheckpoint(run.visualCheckpoint)
+        await saveTelemetry(tx, run, {
+          delta: {
+            updatedAt: new Date(now()).toISOString(),
+            ...(reuse ? { inputDigest: reuse.inputDigest, searchVersion: reuse.searchVersion } : {}),
+            progress: delta.uncheckedMedia === undefined ? {} : { uncheckedMedia: delta.uncheckedMedia },
+            counters: {
+              hotBatches: delta.hotBatches, reusedArtworks: delta.reusedArtworks,
+              reusedRelations: delta.reusedRelations, copiedRows: delta.copiedRows,
+              ...(delta.metadataFallbacks === undefined ? {} : { metadataFallbacks: delta.metadataFallbacks }),
+              ...(delta.discardedCopyRows === undefined ? {} : { discardedCopyRows: delta.discardedCopyRows }),
+              ...(delta.discardedReusedRelations === undefined ? {} : { discardedReusedRelations: delta.discardedReusedRelations }),
+              ...(delta.wholeRunReused ? {
+                decodedImages: 0, ownFeatureHits: 0, contentFeatureHits: 0,
+                indexRebuilds: 0, indexNodeVisits: 0, wholeChannelHits: 0, localChannelHits: 0,
+                candidatePairs: 0, compareCalls: 0, replayedQueries: 0, replayedComparisons: 0
+              } : {})
+            },
+            durationsMs: {
+              propertyInspection: delta.statMs, fingerprintReuse: delta.fingerprintReuseMs,
+              relationReuse: delta.relationReuseMs, resultCopy: delta.resultCopyMs,
+              ...(delta.wholeRunReused ? { feature: 0, index: 0, query: 0, compare: 0, pair: 0 } : {})
+            },
+            metadataPeakBytes: delta.metadataBytes,
+            memoryPeakBytes: delta.rssBytes
+          }
+        })
+      } : undefined,
       visualSearchV2: context.job.definitionVersion >= 8,
       searchWorker: searchCache.worker,
       searchCache,
@@ -354,8 +419,22 @@ export async function executeArtworkDedup(
       mixedVisualMedia: context.job.definitionVersion >= 7,
       shouldYield
     }
+    let tryHotStats = context.job.definitionVersion >= 9
+    let tryHotReuse = context.job.definitionVersion >= 9
     while (!shouldYield()) {
       throwIfAborted(context.signal)
+      if (stage === 'STAT' && tryHotStats) {
+        const result = await statArtworkDedupHotRun(pipeline)
+        if (result === 'YIELD') break
+        tryHotStats = false
+        if (result === 'DONE') {
+          stage = 'CANDIDATES'
+          await transaction(async tx => {
+            const run = await updateArtworkDedupRun(tx, { execution, data: { stage } })
+            await saveTelemetry(tx, run)
+          })
+        }
+      }
       if (stage === 'STAT' || stage === 'HASH') {
         const items = await transaction((tx) =>
           readArtworkDedupItemsPage(tx, {
@@ -393,6 +472,12 @@ export async function executeArtworkDedup(
           const run = await updateArtworkDedupRun(tx, { execution, data: { stage } })
           await saveTelemetry(tx, run)
         })
+      }
+      if (stage === 'CANDIDATES' && tryHotReuse) {
+        const result = await reuseArtworkDedupHotRun(pipeline)
+        if (result === 'YIELD') break
+        tryHotReuse = false
+        if (result === 'DONE') stage = 'DONE'
       }
       if (stage === 'CANDIDATES') {
         await transaction(async (tx) => {
@@ -545,8 +630,21 @@ export async function executeArtworkDedup(
       } })
       failure = undefined
     }
-    if (done && !failure && !(await assertArtworkDedupCacheDirectories(scope.transaction, execution.runId)))
-      failure = new MediaContentFileError('ROOT_CHANGED', 'Relation cache directory changed')
+    let reusedResult: Run | null = null
+    let discardedHotCopy: ReturnType<typeof artworkDedupHotReuseCheckpoint> = null
+    if (done && !failure) {
+      if (context.job.definitionVersion >= 9 && artworkDedupHotReuseCheckpoint(run.visualCheckpoint)?.stage === 'done') {
+        reusedResult = await finalizeArtworkDedupHotRunReuse(scope.transaction, execution)
+        if (!reusedResult) failure = new MediaContentFileError('FILE_CHANGED', 'Reused input changed before publication')
+        else if (reusedResult.stage !== 'DONE') {
+          discardedHotCopy = artworkDedupHotReuseCheckpoint(run.visualCheckpoint)!
+          done = false
+          reusedResult = null
+        }
+      } else if (!(await assertArtworkDedupCacheDirectories(scope.transaction, execution.runId))) {
+        failure = new MediaContentFileError('ROOT_CHANGED', 'Relation cache directory changed')
+      }
+    }
     if (failure) {
       await closeSearch()
       await scope.transaction.artworkDedupVisualPair.deleteMany({ where: { runId: execution.runId } })
@@ -575,7 +673,7 @@ export async function executeArtworkDedup(
       return
     }
     if (done) {
-      const result = await buildArtworkDedupGroups(scope.transaction, { execution })
+      const result = reusedResult ?? await buildArtworkDedupGroups(scope.transaction, { execution })
       if (context.job.definitionVersion >= 4 && result.completeArtworks === result.artworkCount)
         await scope.transaction.artworkDedupRun.update({ where: { id: result.id }, data: { relationCacheVersion: ARTWORK_DEDUP_RELATION_CACHE_VERSION } })
       const unchecked = result.changedArtworks + result.failedArtworks + result.skippedArtworks
@@ -601,7 +699,13 @@ export async function executeArtworkDedup(
     const progress = await refreshArtworkDedupCounts(scope.transaction, { execution })
     const shouldPublish = !progress.lastProgressAt || now() - progress.lastProgressAt.getTime() >= limits.progressMs
     if (v2) {
-      await saveTelemetry(scope.transaction, progress, { waitReason: 'SCHEDULER' })
+      await saveTelemetry(scope.transaction, progress, {
+        waitReason: 'SCHEDULER',
+        ...(discardedHotCopy ? { delta: { updatedAt: new Date(now()).toISOString(), counters: {
+          copiedRows: -discardedHotCopy.copiedRows, reusedRelations: -discardedHotCopy.reusedRelations,
+          discardedCopyRows: discardedHotCopy.copiedRows, discardedReusedRelations: discardedHotCopy.reusedRelations
+        } } } : {})
+      })
     } else if (shouldPublish) {
       await updateArtworkDedupRun(scope.transaction, { execution, data: { lastProgressAt: new Date(now()) } })
       await scope.transaction.systemJob.update({

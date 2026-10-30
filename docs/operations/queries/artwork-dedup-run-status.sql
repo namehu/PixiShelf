@@ -1,5 +1,8 @@
 -- complete means successful publication, not that every metric is measured.
--- updatedAt is the snapshot cutoff. API calls exclude runtime fence internals,
+-- updatedAt is the snapshot cutoff. Historical API counters exclude runtime fence internals;
+-- v9 reports those separately as dbFenceCalls and transactionTiming.
+-- transactionTiming.complete=false means the current final commit is not sampled.
+-- API counters still exclude
 -- subsequent snapshot writes/settlement; transactionWall excludes the current
 -- finalizer commit, although its known transaction count is included.
 -- DBX read-only template. Replace only the run id literal in the first CTE.
@@ -23,6 +26,8 @@ SELECT id AS run_id, "jobId" AS job_id, status, stage,
   p->'cacheInvalidationReasons' AS cache_invalidation_reasons,
   p->'counters' AS counters, p->'durationsMs' AS durations_ms,
   (p->>'memoryPeakBytes')::numeric AS memory_peak_bytes,
+  (p->>'metadataPeakBytes')::numeric AS metadata_peak_bytes,
+  p->'transactionTiming' AS transaction_timing_coverage,
   (SELECT jsonb_object_agg(key,value) FROM jsonb_each(p->'counters') WHERE value='null'::jsonb) AS unknown_counters,
   (SELECT jsonb_object_agg(key,value) FROM jsonb_each(p->'durationsMs') WHERE value='null'::jsonb) AS unknown_durations,
   CASE WHEN p IS NULL THEN 'No performance snapshot; bottleneck unknown'

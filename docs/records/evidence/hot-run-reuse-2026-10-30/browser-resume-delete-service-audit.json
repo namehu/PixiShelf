@@ -1,0 +1,20 @@
+{
+  "at": "2026-10-30T05:34:52.043Z",
+  "ownedPids": [
+    78373,
+    78374
+  ],
+  "allOwnedProcessGroupsStopped": true,
+  "listeners": [
+    {
+      "port": 5502,
+      "listening": false
+    },
+    {
+      "port": 55842,
+      "listening": false
+    }
+  ],
+  "originalStopEvidencePreserved": true,
+  "databaseAndRemainingMediaPreserved": true
+}

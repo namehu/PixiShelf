@@ -1,0 +1,66 @@
+{
+  "at": "2026-10-30T04:41:17.791Z",
+  "completed": false,
+  "remainingGate": "Final UI irreversible-delete confirmation for synthetic artwork52 only, retaining51; automatic approval review rejected the click and a fresh explicit user confirmation is still pending. No deletion or cancellation performed.",
+  "operation": {
+    "id": "a705515b-9ea3-487b-bbe0-293565711fa9",
+    "status": "READY",
+    "stage": "CONFIRM",
+    "keepers": 1,
+    "copies": 1,
+    "deletedFiles": "0",
+    "directDeleteConfirmedAt": null,
+    "artworks": [
+      {
+        "artworkId": 51,
+        "role": "KEEPER",
+        "status": "SELECTED",
+        "fileCount": "2"
+      },
+      {
+        "artworkId": 52,
+        "role": "COPY",
+        "status": "SELECTED",
+        "fileCount": "2"
+      }
+    ]
+  },
+  "media": [
+    {
+      "artworkId": 51,
+      "path": "hot-reuse-browser-exact-a/01.png",
+      "exists": true,
+      "sha256": "3ce2765261d602776bac2ae347e3e0f36d87d758ea67132500dd35b2ffa3e5d7",
+      "unchanged": true
+    },
+    {
+      "artworkId": 51,
+      "path": "hot-reuse-browser-exact-a/02.png",
+      "exists": true,
+      "sha256": "9e65a07cacbf64f324ddf0ebbaed16434da6319addf32732cd3b250a578cddad",
+      "unchanged": true
+    },
+    {
+      "artworkId": 52,
+      "path": "hot-reuse-browser-exact-b/01.png",
+      "exists": true,
+      "sha256": "3ce2765261d602776bac2ae347e3e0f36d87d758ea67132500dd35b2ffa3e5d7",
+      "unchanged": true
+    },
+    {
+      "artworkId": 52,
+      "path": "hot-reuse-browser-exact-b/02.png",
+      "exists": true,
+      "sha256": "9e65a07cacbf64f324ddf0ebbaed16434da6319addf32732cd3b250a578cddad",
+      "unchanged": true
+    }
+  ],
+  "servicesStopped": true,
+  "preserved": [
+    "Isolated browser database",
+    "Copied synthetic browser media",
+    "READY operation",
+    "Private env/account manifest",
+    "Original warm checkpoint and physical comparison files"
+  ]
+}

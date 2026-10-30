@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { jobStatusSchema } from './job-types.ts'
 import { artworkDedupProgressDataSchema } from './job-progress-data.ts'
 
-export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 8 as const
+export const ARTWORK_DEDUP_SCAN_DEFINITION_VERSION = 9 as const
 export const ARTWORK_DEDUP_PRIORITY = 900 as const
 export const ARTWORK_DEDUP_DEFAULTS = Object.freeze({
   mediaPageSize: 500,

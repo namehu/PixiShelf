@@ -23,7 +23,7 @@ describe('artwork detection contract', () => {
       stallTimeoutMs: 30000
     })
     expect(ARTWORK_DEDUP_PRIORITY).toBe(900)
-    expect(ARTWORK_DEDUP_SCAN_DEFINITION_VERSION).toBe(8)
+    expect(ARTWORK_DEDUP_SCAN_DEFINITION_VERSION).toBe(9)
     expect(executionLaneForJobType('ARTWORK_DEDUP_SCAN')).toBe('BACKGROUND_WRITER')
     expect(parseJobPayload('ARTWORK_DEDUP_SCAN', { runId: 'run', executionVersion: 1 })).toEqual({
       runId: 'run',

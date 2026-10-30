@@ -1,0 +1,40 @@
+{
+  "at": "2026-10-30T04:06:25.793Z",
+  "database": "dedup_hot_reuse_after_20261030",
+  "migration": "20261030000100_artwork_dedup_hot_run_reuse",
+  "migrationCount": 134,
+  "existingRowsPreserved": true,
+  "verificationOnly": false,
+  "rowFingerprints": {
+    "Artwork": {
+      "count": 50,
+      "digest": "9a8331ec6ce99947c918da9a27f2355a"
+    },
+    "Image": {
+      "count": 2000,
+      "digest": "21ec37bfd5e3a6a08a1ead4aff170448"
+    },
+    "MediaContentFingerprint": {
+      "count": 2000,
+      "digest": "7223b1ae97a70c64f44a259e3d0ae4d9"
+    },
+    "MediaVisualFingerprint": {
+      "count": 2000,
+      "digest": "48efb25d5504d85b8cc6f765a478c46a"
+    },
+    "ArtworkDedupRun": {
+      "count": 1,
+      "digest": "e7156c4d5e954c113332ce01a7e0c2ba"
+    },
+    "system_jobs": {
+      "count": 1,
+      "digest": "1548745e797cf648fe2f2a3d0138563e"
+    }
+  },
+  "checks": {
+    "scanV9Accepted": true,
+    "scanV10Rejected": true,
+    "invalidPriorityRejected": true,
+    "probesLeaveNoRows": true
+  }
+}

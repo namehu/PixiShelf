@@ -1,0 +1,14 @@
+{
+  "at": "2026-10-30T04:28:59.426Z",
+  "database": "dedup_hot_reuse_browser_20261030",
+  "root": "/private/tmp/pixishelf-hot-run-reuse-20261030/browser-media",
+  "before": {
+    "contentFingerprints": 2000,
+    "visualFingerprints": 2000,
+    "artworkFingerprints": 50,
+    "directoryStates": 51
+  },
+  "reason": "Independent copied fixture root has a new filesystem/root identity; discard only rebuildable clone-local cache/directory namespace before first cold run. Historical results and media bytes retained.",
+  "preservedMeasurementInputsModified": false,
+  "historicalRunsRetained": 1
+}

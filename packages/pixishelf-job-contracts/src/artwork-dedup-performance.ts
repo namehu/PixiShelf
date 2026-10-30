@@ -17,9 +17,22 @@ export const artworkDedupPerformanceCountersSchema = z.object({
   candidatePairs: count,
   compareCalls: count,
   dbLoadCalls: count,
+  // Historical name: all executor-body transaction reads, not only validation.
   dbValidationCalls: count,
   dbWriteCalls: count,
+  // Queue execution-fence API calls are outside the executor-body proxy.
+  dbFenceCalls: count.optional(),
   transactions: count,
+  hotBatches: count.optional(),
+  originalCacheHits: count.optional(),
+  hashedOriginals: count.optional(),
+  metadataFallbacks: count.optional(),
+  reusedArtworks: count.optional(),
+  reusedRelations: count.optional(),
+  copiedRows: count.optional(),
+  // Successfully committed copy work later discarded after source/projection changes.
+  discardedCopyRows: count.optional(),
+  discardedReusedRelations: count.optional(),
   indexRebuilds: count,
   replayedQueries: count,
   replayedComparisons: count
@@ -35,6 +48,15 @@ export const artworkDedupPerformanceDurationsSchema = z.object({
   dbValidation: duration,
   dbWrite: duration,
   transactionWall: duration,
+  propertyInspection: duration.optional(),
+  fingerprintReuse: duration.optional(),
+  relationReuse: duration.optional(),
+  resultCopy: duration.optional(),
+  transactionAcquisition: duration.optional(),
+  transactionPreFence: duration.optional(),
+  transactionBody: duration.optional(),
+  transactionPostFence: duration.optional(),
+  transactionCommitFinalization: duration.optional(),
   active: duration,
   queue: duration,
   cooldown: duration,
@@ -66,6 +88,14 @@ export const artworkDedupPerformanceSummarySchema = z.object({
   counters: artworkDedupPerformanceCountersSchema,
   durationsMs: artworkDedupPerformanceDurationsSchema,
   memoryPeakBytes: count,
+  metadataPeakBytes: count.optional(),
+  // A snapshot written inside a transaction cannot include that transaction's
+  // post-fence/commit duration. No extra write is made just to close this gap.
+  transactionTiming: z.object({
+    sampledTransactions: z.number().int().nonnegative().safe(),
+    cutoff: z.string().datetime({ offset: true }).nullable(),
+    complete: z.boolean()
+  }).strict().optional(),
   cacheInvalidationReasons: z.array(z.enum(['FULL', 'SEARCH_VERSION', 'INPUT_CHANGED', 'INCOMPLETE', 'MISSING']))
 }).strict()
 

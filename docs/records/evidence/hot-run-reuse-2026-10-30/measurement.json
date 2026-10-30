@@ -1,0 +1,1552 @@
+{
+  "before": {
+    "observedAt": "2026-10-30T04:23:37.662Z",
+    "definitionVersion": 8,
+    "node": "v20.19.4",
+    "input": {
+      "artistId": 1,
+      "artworks": 50,
+      "media": 2000,
+      "fileStateDigest": "8680a87f640a4e625c6443d49fa8582c6252b49759f6c5d7ffbdd82c0a92977a"
+    },
+    "elapsedMs": 12447.587333,
+    "schedulingWaitMs": 0,
+    "memory": {
+      "baselineRssBytes": 111460352,
+      "sampledPeakRssBytes": 171786240,
+      "sampleIntervalMs": 20,
+      "processLifetimeMaxRssBytes": 171786240
+    },
+    "contextTransactions": 659,
+    "contextMutationTransactions": 657,
+    "contextFinalizationTransactions": 2,
+    "contextTransactionWallMs": 11026.965169000006,
+    "contextWrapperBoundaries": {
+      "mutation": {
+        "count": 657,
+        "beforeBodyMs": 1093.312766000002,
+        "bodyMs": 8843.610613999988,
+        "afterBodyMs": 1003.5591650000152,
+        "wallMs": 10940.482545000006
+      },
+      "finalization": {
+        "count": 2,
+        "beforeBodyMs": 5.175916000001962,
+        "bodyMs": 68.51570899999933,
+        "afterBodyMs": 12.79099899999892,
+        "wallMs": 86.48262400000021
+      }
+    },
+    "runtimeCommittedMutationSplit": null,
+    "runtimeTimingCoverage": {
+      "supported": false,
+      "samples": 0,
+      "finalizerSplitAvailable": false
+    },
+    "sqlStatements": 12741,
+    "sqlBeginTransactions": 666,
+    "sqlDurationMs": 3232,
+    "instrumentedApiCalls": 9811,
+    "apiGroups": {
+      "SystemJob.findUniqueOrThrow": 4,
+      "$raw.$queryRawUnsafe": 2731,
+      "$raw.$executeRawUnsafe": 15,
+      "$raw.$queryRaw": 2747,
+      "ArtworkDedupRun.findUnique": 713,
+      "ArtworkDedupRun.update": 323,
+      "SystemJob.update": 53,
+      "SystemJobEvent.create": 7,
+      "ArtworkDedupRun.findFirst": 4,
+      "ArtworkDedupOperation.findFirst": 4,
+      "PixivMetadataInventoryState.findUnique": 2,
+      "ArtworkDedupItem.findFirst": 1,
+      "ArtworkDedupMedia.findFirst": 1,
+      "ArtworkDedupItem.findMany": 160,
+      "ArtworkDedupItem.findUnique": 200,
+      "Artwork.findFirst": 250,
+      "Artwork.findUnique": 300,
+      "MediaContentSource.count": 100,
+      "ArtworkDedupItem.update": 200,
+      "Artwork.findUniqueOrThrow": 50,
+      "Image.findMany": 230,
+      "MediaContentDirectoryState.createMany": 668,
+      "ArtworkDedupItem.findUniqueOrThrow": 50,
+      "ArtworkDedupMedia.deleteMany": 50,
+      "ArtworkDedupMedia.createMany": 50,
+      "ArtworkDedupMedia.count": 103,
+      "ArtworkContentFingerprint.upsert": 50,
+      "$raw.$executeRaw": 56,
+      "ArtworkDedupItem.updateMany": 1,
+      "ArtworkDedupGroup.deleteMany": 2,
+      "ArtworkDedupRun.findUniqueOrThrow": 224,
+      "ArtworkDedupMedia.groupBy": 2,
+      "ArtworkDedupMedia.findMany": 46,
+      "MediaVisualFingerprint.findMany": 40,
+      "Artwork.findMany": 106,
+      "ArtworkDedupItem.count": 69,
+      "ArtworkDedupVisualPair.findFirst": 65,
+      "ArtworkDedupVisualCandidate.create": 65,
+      "ArtworkDedupVisualCandidate.count": 1,
+      "ArtworkDedupVisualPair.count": 1,
+      "ArtworkDedupVisualPair.deleteMany": 1,
+      "ArtworkDedupVisualCandidate.findFirst": 66
+    },
+    "readerMeasurements": [
+      {
+        "inspections": 2000,
+        "reads": 0,
+        "bytesRead": "0",
+        "statLatencyMs": 997,
+        "parentPeakRss": 152666112,
+        "childPeakRss": 90996736,
+        "ipcMessages": 2002,
+        "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+        "elapsedMs": 10023,
+        "transactions": 578
+      },
+      {
+        "inspections": 0,
+        "reads": 0,
+        "bytesRead": "0",
+        "statLatencyMs": 0,
+        "parentPeakRss": 168329216,
+        "childPeakRss": 74104832,
+        "ipcMessages": 2,
+        "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+        "elapsedMs": 2280,
+        "transactions": 79
+      }
+    ],
+    "slices": [
+      {
+        "stage": "VISUAL",
+        "wallMs": 10045.624833,
+        "elapsedMs": 10077.815458000001,
+        "transactions": 579,
+        "sqlStatements": 9563,
+        "status": "RETRY_WAIT",
+        "availableAt": "2026-10-30T04:23:35.277Z",
+        "schedulingRemainingMs": 0,
+        "statMedia": 2000,
+        "cacheHitMedia": 2000
+      },
+      {
+        "stage": "DONE",
+        "wallMs": 2351.0252090000013,
+        "elapsedMs": 12447.489792,
+        "transactions": 80,
+        "sqlStatements": 3146,
+        "status": "COMPLETED",
+        "availableAt": "2026-10-30T04:23:35.277Z",
+        "schedulingRemainingMs": 0,
+        "statMedia": 2000,
+        "cacheHitMedia": 2000
+      }
+    ],
+    "phaseObservations": [
+      {
+        "atMs": 57.476,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "CHECKPOINT",
+          "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+          "jobId": "d0008b04-eaa3-45c9-827f-fc745645a8f7",
+          "protocolVersion": 8,
+          "searchVersion": null,
+          "inputDigest": null,
+          "phase": "ORIGINALS",
+          "updatedAt": "2026-10-30T04:23:25.250Z",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "batch": 1,
+          "complete": false,
+          "progress": {
+            "originals": 0,
+            "staticImages": null,
+            "uncheckedMedia": null,
+            "queryCompleted": null,
+            "queryTotal": null
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": null,
+            "ownFeatureHits": null,
+            "contentFeatureHits": null,
+            "relationReusedPairs": null,
+            "relationInvalidatedPairs": null,
+            "indexNodeVisits": null,
+            "wholeChannelHits": null,
+            "localChannelHits": null,
+            "candidatePairs": null,
+            "compareCalls": null,
+            "dbLoadCalls": 0,
+            "dbValidationCalls": 0,
+            "dbWriteCalls": 0,
+            "transactions": 0,
+            "indexRebuilds": null,
+            "replayedQueries": null,
+            "replayedComparisons": null
+          },
+          "durationsMs": {
+            "feature": null,
+            "index": null,
+            "query": null,
+            "compare": null,
+            "pair": null,
+            "dbLoad": 0,
+            "dbValidation": 0,
+            "dbWrite": 0,
+            "transactionWall": 0,
+            "active": 7.646999999999991,
+            "queue": 44,
+            "cooldown": null,
+            "pause": null
+          },
+          "memoryPeakBytes": null,
+          "cacheInvalidationReasons": []
+        }
+      },
+      {
+        "atMs": 5323.499958,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "CHECKPOINT",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+          "jobId": "d0008b04-eaa3-45c9-827f-fc745645a8f7",
+          "protocolVersion": 8,
+          "searchVersion": null,
+          "inputDigest": null,
+          "phase": "PAIR",
+          "batch": 4,
+          "updatedAt": "2026-10-30T04:23:30.526Z",
+          "complete": false,
+          "progress": {
+            "originals": 2000,
+            "staticImages": null,
+            "uncheckedMedia": null,
+            "queryCompleted": null,
+            "queryTotal": null
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": null,
+            "ownFeatureHits": null,
+            "contentFeatureHits": null,
+            "relationReusedPairs": null,
+            "relationInvalidatedPairs": null,
+            "indexNodeVisits": null,
+            "wholeChannelHits": null,
+            "localChannelHits": null,
+            "candidatePairs": null,
+            "compareCalls": null,
+            "dbLoadCalls": 100,
+            "dbValidationCalls": 2674,
+            "dbWriteCalls": 564,
+            "transactions": 459,
+            "indexRebuilds": null,
+            "replayedQueries": null,
+            "replayedComparisons": null
+          },
+          "durationsMs": {
+            "feature": null,
+            "index": null,
+            "query": null,
+            "compare": null,
+            "pair": null,
+            "dbLoad": 213.0187520000009,
+            "dbValidation": 2301.2187480000102,
+            "dbWrite": 811.244834000005,
+            "transactionWall": 4649.053276999999,
+            "active": 5284.107042,
+            "queue": 44,
+            "cooldown": null,
+            "pause": null
+          },
+          "memoryPeakBytes": null,
+          "cacheInvalidationReasons": []
+        }
+      },
+      {
+        "atMs": 8438.066208,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "CHECKPOINT",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+          "jobId": "d0008b04-eaa3-45c9-827f-fc745645a8f7",
+          "protocolVersion": 8,
+          "searchVersion": null,
+          "inputDigest": null,
+          "phase": "FEATURES",
+          "batch": 6,
+          "updatedAt": "2026-10-30T04:23:33.641Z",
+          "complete": false,
+          "progress": {
+            "originals": 2000,
+            "staticImages": null,
+            "uncheckedMedia": null,
+            "queryCompleted": null,
+            "queryTotal": null
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": null,
+            "ownFeatureHits": null,
+            "contentFeatureHits": null,
+            "relationReusedPairs": null,
+            "relationInvalidatedPairs": null,
+            "indexNodeVisits": null,
+            "wholeChannelHits": null,
+            "localChannelHits": null,
+            "candidatePairs": null,
+            "compareCalls": null,
+            "dbLoadCalls": 100,
+            "dbValidationCalls": 3014,
+            "dbWriteCalls": 627,
+            "transactions": 538,
+            "indexRebuilds": null,
+            "replayedQueries": null,
+            "replayedComparisons": null
+          },
+          "durationsMs": {
+            "feature": null,
+            "index": null,
+            "query": null,
+            "compare": null,
+            "pair": null,
+            "dbLoad": 213.0187520000009,
+            "dbValidation": 4892.396954000018,
+            "dbWrite": 1050.07379000001,
+            "transactionWall": 7762.185364000002,
+            "active": 8399.072375,
+            "queue": 44,
+            "cooldown": null,
+            "pause": null
+          },
+          "memoryPeakBytes": null,
+          "cacheInvalidationReasons": []
+        }
+      },
+      {
+        "atMs": 10519.200708,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "CHECKPOINT",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+          "jobId": "d0008b04-eaa3-45c9-827f-fc745645a8f7",
+          "protocolVersion": 8,
+          "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+          "inputDigest": "913092ac33facfee1db020c54855c9560f5bff7be2e4d8e2ea3c8581ef3c262e",
+          "phase": "INDEX",
+          "batch": 49,
+          "updatedAt": "2026-10-30T04:23:35.682Z",
+          "complete": false,
+          "progress": {
+            "originals": 2000,
+            "staticImages": 2000,
+            "uncheckedMedia": 0,
+            "queryCompleted": 0,
+            "queryTotal": 2000
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": 0,
+            "ownFeatureHits": 2000,
+            "contentFeatureHits": 0,
+            "relationReusedPairs": null,
+            "relationInvalidatedPairs": null,
+            "indexNodeVisits": 0,
+            "wholeChannelHits": 0,
+            "localChannelHits": 0,
+            "candidatePairs": 0,
+            "compareCalls": 0,
+            "dbLoadCalls": 262,
+            "dbValidationCalls": 3507,
+            "dbWriteCalls": 949,
+            "transactions": 587,
+            "indexRebuilds": 0,
+            "replayedQueries": null,
+            "replayedComparisons": null
+          },
+          "durationsMs": {
+            "feature": 1408.318917999992,
+            "index": null,
+            "query": null,
+            "compare": 0,
+            "pair": null,
+            "dbLoad": 552.5688780000069,
+            "dbValidation": 5440.794161000024,
+            "dbWrite": 1603.980211000008,
+            "transactionWall": 9097.766279000009,
+            "active": 10265.520166,
+            "queue": 72,
+            "cooldown": 3,
+            "pause": null
+          },
+          "memoryPeakBytes": null,
+          "cacheInvalidationReasons": []
+        }
+      },
+      {
+        "atMs": 12012.738292,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "CHECKPOINT",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+          "jobId": "d0008b04-eaa3-45c9-827f-fc745645a8f7",
+          "protocolVersion": 8,
+          "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+          "inputDigest": "913092ac33facfee1db020c54855c9560f5bff7be2e4d8e2ea3c8581ef3c262e",
+          "phase": "VISUAL",
+          "batch": 50,
+          "updatedAt": "2026-10-30T04:23:37.215Z",
+          "complete": false,
+          "progress": {
+            "originals": 2000,
+            "staticImages": 2000,
+            "uncheckedMedia": 0,
+            "queryCompleted": 0,
+            "queryTotal": 2000
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": 0,
+            "ownFeatureHits": 2000,
+            "contentFeatureHits": 0,
+            "relationReusedPairs": 0,
+            "relationInvalidatedPairs": 0,
+            "indexNodeVisits": 0,
+            "wholeChannelHits": 0,
+            "localChannelHits": 0,
+            "candidatePairs": 0,
+            "compareCalls": 0,
+            "dbLoadCalls": 262,
+            "dbValidationCalls": 3507,
+            "dbWriteCalls": 949,
+            "transactions": 587,
+            "indexRebuilds": 0,
+            "replayedQueries": null,
+            "replayedComparisons": null
+          },
+          "durationsMs": {
+            "feature": 1408.318917999992,
+            "index": null,
+            "query": null,
+            "compare": 0,
+            "pair": null,
+            "dbLoad": 552.5688780000069,
+            "dbValidation": 5440.794161000024,
+            "dbWrite": 1603.980211000008,
+            "transactionWall": 9097.766279000009,
+            "active": 10265.520166,
+            "queue": 72,
+            "cooldown": 3,
+            "pause": null
+          },
+          "memoryPeakBytes": null,
+          "cacheInvalidationReasons": []
+        }
+      },
+      {
+        "atMs": 12022.244958000001,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "CHECKPOINT",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+          "jobId": "d0008b04-eaa3-45c9-827f-fc745645a8f7",
+          "protocolVersion": 8,
+          "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+          "inputDigest": "913092ac33facfee1db020c54855c9560f5bff7be2e4d8e2ea3c8581ef3c262e",
+          "phase": "PUBLISH",
+          "batch": 51,
+          "updatedAt": "2026-10-30T04:23:37.222Z",
+          "complete": false,
+          "progress": {
+            "originals": 2000,
+            "staticImages": 2000,
+            "uncheckedMedia": 0,
+            "queryCompleted": 2000,
+            "queryTotal": 2000
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": 0,
+            "ownFeatureHits": 2000,
+            "contentFeatureHits": 0,
+            "relationReusedPairs": 0,
+            "relationInvalidatedPairs": 0,
+            "indexNodeVisits": 0,
+            "wholeChannelHits": 0,
+            "localChannelHits": 0,
+            "candidatePairs": 0,
+            "compareCalls": 0,
+            "dbLoadCalls": 262,
+            "dbValidationCalls": 3507,
+            "dbWriteCalls": 949,
+            "transactions": 587,
+            "indexRebuilds": 0,
+            "replayedQueries": null,
+            "replayedComparisons": null
+          },
+          "durationsMs": {
+            "feature": 1408.318917999992,
+            "index": null,
+            "query": null,
+            "compare": 0,
+            "pair": null,
+            "dbLoad": 552.5688780000069,
+            "dbValidation": 5440.794161000024,
+            "dbWrite": 1603.980211000008,
+            "transactionWall": 9097.766279000009,
+            "active": 10265.520166,
+            "queue": 72,
+            "cooldown": 3,
+            "pause": null
+          },
+          "memoryPeakBytes": null,
+          "cacheInvalidationReasons": []
+        }
+      },
+      {
+        "atMs": 12444.338708000001,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "COMPLETED",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+          "jobId": "d0008b04-eaa3-45c9-827f-fc745645a8f7",
+          "protocolVersion": 8,
+          "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+          "inputDigest": "913092ac33facfee1db020c54855c9560f5bff7be2e4d8e2ea3c8581ef3c262e",
+          "phase": "COMPLETED",
+          "batch": 53,
+          "updatedAt": "2026-10-30T04:23:37.642Z",
+          "complete": true,
+          "progress": {
+            "originals": 2000,
+            "staticImages": 2000,
+            "uncheckedMedia": 0,
+            "queryCompleted": 2000,
+            "queryTotal": 2000
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": 0,
+            "ownFeatureHits": 2000,
+            "contentFeatureHits": 0,
+            "relationReusedPairs": 0,
+            "relationInvalidatedPairs": 0,
+            "indexNodeVisits": 0,
+            "wholeChannelHits": 0,
+            "localChannelHits": 0,
+            "candidatePairs": 0,
+            "compareCalls": 0,
+            "dbLoadCalls": 344,
+            "dbValidationCalls": 5255,
+            "dbWriteCalls": 1521,
+            "transactions": 661,
+            "indexRebuilds": 0,
+            "replayedQueries": null,
+            "replayedComparisons": null
+          },
+          "durationsMs": {
+            "feature": 1408.318917999992,
+            "index": null,
+            "query": null,
+            "compare": 0,
+            "pair": null,
+            "dbLoad": 750.147459000003,
+            "dbValidation": 6542.793212000027,
+            "dbWrite": 2121.878374000001,
+            "transactionWall": 10951.597524000013,
+            "active": 12369.351083,
+            "queue": 72,
+            "cooldown": 3,
+            "pause": null
+          },
+          "memoryPeakBytes": null,
+          "cacheInvalidationReasons": []
+        }
+      }
+    ],
+    "performanceSummary": {
+      "kind": "artwork-dedup-performance",
+      "batch": 53,
+      "jobId": "d0008b04-eaa3-45c9-827f-fc745645a8f7",
+      "phase": "COMPLETED",
+      "runId": "bd66389b-48d0-4c5d-8b80-e8f923fd65a5",
+      "version": 1,
+      "complete": true,
+      "counters": {
+        "readBytes": 0,
+        "dbLoadCalls": 344,
+        "compareCalls": 0,
+        "dbWriteCalls": 1521,
+        "transactions": 661,
+        "decodedImages": 0,
+        "indexRebuilds": 0,
+        "candidatePairs": 0,
+        "ownFeatureHits": 2000,
+        "indexNodeVisits": 0,
+        "replayedQueries": null,
+        "localChannelHits": 0,
+        "wholeChannelHits": 0,
+        "dbValidationCalls": 5255,
+        "contentFeatureHits": 0,
+        "relationReusedPairs": 0,
+        "replayedComparisons": null,
+        "relationInvalidatedPairs": 0
+      },
+      "progress": {
+        "originals": 2000,
+        "queryTotal": 2000,
+        "staticImages": 2000,
+        "queryCompleted": 2000,
+        "uncheckedMedia": 0
+      },
+      "updatedAt": "2026-10-30T04:23:37.642Z",
+      "durationsMs": {
+        "pair": null,
+        "index": null,
+        "pause": null,
+        "query": null,
+        "queue": 72,
+        "active": 12369.351083,
+        "dbLoad": 750.147459000003,
+        "compare": 0,
+        "dbWrite": 2121.878374000001,
+        "feature": 1408.318917999992,
+        "cooldown": 3,
+        "dbValidation": 6542.793212000027,
+        "transactionWall": 10951.59752400001
+      },
+      "inputDigest": "913092ac33facfee1db020c54855c9560f5bff7be2e4d8e2ea3c8581ef3c262e",
+      "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+      "memoryPeakBytes": null,
+      "protocolVersion": 8,
+      "cacheInvalidationReasons": []
+    },
+    "resultSummary": {
+      "status": "COMPLETED",
+      "stage": "DONE",
+      "statMedia": 2000,
+      "hashedMedia": 0,
+      "cacheHitMedia": 2000,
+      "readBytes": "0",
+      "groupCount": 25,
+      "duplicateArtworks": 25,
+      "failedArtworks": 0,
+      "changedArtworks": 0,
+      "visualStatus": "COMPLETE",
+      "visualIncompleteReasons": [],
+      "visualSearchComplete": true,
+      "visualSearchVersion": "bktree-global12-region7of9-10-global28-v2",
+      "groups": [
+        {
+          "contentSha256": "991d717d145b6cf670a994f631343f0d5dbb1ff1ca3281ea2869c6438cd6ab0c",
+          "fileCount": "40",
+          "members": [
+            1,
+            2
+          ]
+        },
+        {
+          "contentSha256": "11c87e9d72581823c06096092ab65bef0c0e495f2fa2a96d967896123809b5c8",
+          "fileCount": "40",
+          "members": [
+            3,
+            4
+          ]
+        },
+        {
+          "contentSha256": "278ee422b94848202f1eb6971463861830a13caeeda28d5a46056282bf2427d1",
+          "fileCount": "40",
+          "members": [
+            5,
+            6
+          ]
+        },
+        {
+          "contentSha256": "cb794f073a579f696365b7c1838882f24383af336fb5e82eeeaffcb27a7b5de6",
+          "fileCount": "40",
+          "members": [
+            7,
+            8
+          ]
+        },
+        {
+          "contentSha256": "07cb02f4e8e1a4367f911069ba8607d48ed96be324b3dd6231510067945c402c",
+          "fileCount": "40",
+          "members": [
+            9,
+            10
+          ]
+        },
+        {
+          "contentSha256": "8518efb54c24e2c4d6dd0907e937ce6599c242d662e8105acac488e66c8ee18d",
+          "fileCount": "40",
+          "members": [
+            11,
+            12
+          ]
+        },
+        {
+          "contentSha256": "55cec9bf6b4fa2083b9ed8734df04b5dcd1fe4a1862db28b9ec469d4cd212c12",
+          "fileCount": "40",
+          "members": [
+            13,
+            14
+          ]
+        },
+        {
+          "contentSha256": "e76bc20fd70edc1f6c3592f9291e622131a26da6f45e3bc41bdfdd8f76e658e5",
+          "fileCount": "40",
+          "members": [
+            15,
+            16
+          ]
+        },
+        {
+          "contentSha256": "77e853b73ce5500964b315724da4cfa3c1873b732d45cf5edbca4e30d20109ae",
+          "fileCount": "40",
+          "members": [
+            17,
+            18
+          ]
+        },
+        {
+          "contentSha256": "93ddd3894bf9af7d96b23420a1d053163408f47e8bf474c930aa98de0d81237e",
+          "fileCount": "40",
+          "members": [
+            19,
+            20
+          ]
+        },
+        {
+          "contentSha256": "68cfa495cf64c896f7cafa52a24678a82e4b033748ecce8a5830cdddc9dd9b54",
+          "fileCount": "40",
+          "members": [
+            21,
+            22
+          ]
+        },
+        {
+          "contentSha256": "7a95b3a315def7be66e0ff29c735e977dd20a5a1f545dc65cb30c9086adf0715",
+          "fileCount": "40",
+          "members": [
+            23,
+            24
+          ]
+        },
+        {
+          "contentSha256": "5d9b64825207a476fc479c0fe5f88761eb8131c0b22c7b7a14c17466e1c3b85f",
+          "fileCount": "40",
+          "members": [
+            25,
+            26
+          ]
+        },
+        {
+          "contentSha256": "92fabf532d789dcf7927230172c29a2663b91b995934035811907b889bdda24e",
+          "fileCount": "40",
+          "members": [
+            27,
+            28
+          ]
+        },
+        {
+          "contentSha256": "caecd47a8626cf35518c8f94754ea9d6ab6615e6dca0a20769f33ca5f22d4801",
+          "fileCount": "40",
+          "members": [
+            29,
+            30
+          ]
+        },
+        {
+          "contentSha256": "8f5408062c6b98f6f6750208227a053c8a49f035072888075de8d461cd6c1c41",
+          "fileCount": "40",
+          "members": [
+            31,
+            32
+          ]
+        },
+        {
+          "contentSha256": "484eca3ada6ea68df97f916c064839e16bb3e0166290adc655aa748097c23098",
+          "fileCount": "40",
+          "members": [
+            33,
+            34
+          ]
+        },
+        {
+          "contentSha256": "88fde92977a34bc5083ce092d3e528f12006d53bb4113b1fce8ec08d5df3b63a",
+          "fileCount": "40",
+          "members": [
+            35,
+            36
+          ]
+        },
+        {
+          "contentSha256": "d0f64e3c95196717132d6dbd1404a2b6d8f74e0d1d8f3d08387d827042fe33ab",
+          "fileCount": "40",
+          "members": [
+            37,
+            38
+          ]
+        },
+        {
+          "contentSha256": "cc3af845abdbb77e83d2fd7a913a27604840eaa1c6b2f1661af952a98815c3e5",
+          "fileCount": "40",
+          "members": [
+            39,
+            40
+          ]
+        },
+        {
+          "contentSha256": "46d10774572258e2194e60edf72828dd5bffaa6223722c37f81e6897dc572946",
+          "fileCount": "40",
+          "members": [
+            41,
+            42
+          ]
+        },
+        {
+          "contentSha256": "665041df32a89acf93f19c9f8aa3ef8eb168b220673d52b5dd30aa5a17ea690c",
+          "fileCount": "40",
+          "members": [
+            43,
+            44
+          ]
+        },
+        {
+          "contentSha256": "e7ca9da31d43e23e7542625f188b5acb8628cfa23de471b899b797b0fce5faaa",
+          "fileCount": "40",
+          "members": [
+            45,
+            46
+          ]
+        },
+        {
+          "contentSha256": "f0de4686f907e392899f50e3510985d0f2dc958ecc14e28f2469196772a762c6",
+          "fileCount": "40",
+          "members": [
+            47,
+            48
+          ]
+        },
+        {
+          "contentSha256": "d954edc26640e0c02a3dccf0120533c3d309bc05619f1452bc6793c8f6c5ff29",
+          "fileCount": "40",
+          "members": [
+            49,
+            50
+          ]
+        }
+      ],
+      "relations": [],
+      "pairs": []
+    },
+    "resultDigest": "9c8c620c96e92375cf1ed94477297d09527affbf2697bbf774d1c0be912a6bb0",
+    "privateRawSha256": "c13980c5fbaf2f11bb3ccc9098df455e7fdac465084901e6d37a0fc5b72b4178",
+    "metricMeaning": "Full executor and queue wall from first queue read to terminal settlement reads, including real availableAt waits. Fixture freeze/result audit excluded. Real Prisma SQL events include controls/queue/heartbeat, no parameters. No SQL phase inference. Observations are timestamps at persisted-run reads or telemetry callbacks, not exact phase wall. Wrapper beforeBody combines acquisition+pre-fence; afterBody combines post-fence+commit. Runtime observer splits committed mutations only; unsupported baseline and unobserved finalizers remain null/explicitly incomplete. RSS sampled for whole process during run; lifetime peak separately named. One warm input observation per revision."
+  },
+  "after": {
+    "observedAt": "2026-10-30T04:23:48.502Z",
+    "definitionVersion": 9,
+    "node": "v20.19.4",
+    "input": {
+      "artistId": 1,
+      "artworks": 50,
+      "media": 2000,
+      "fileStateDigest": "8680a87f640a4e625c6443d49fa8582c6252b49759f6c5d7ffbdd82c0a92977a"
+    },
+    "elapsedMs": 3474.7770840000003,
+    "schedulingWaitMs": 0,
+    "memory": {
+      "baselineRssBytes": 112836608,
+      "sampledPeakRssBytes": 169459712,
+      "sampleIntervalMs": 20,
+      "processLifetimeMaxRssBytes": 169459712
+    },
+    "contextTransactions": 21,
+    "contextMutationTransactions": 20,
+    "contextFinalizationTransactions": 1,
+    "contextTransactionWallMs": 2884.2975400000005,
+    "contextWrapperBoundaries": {
+      "mutation": {
+        "count": 20,
+        "beforeBodyMs": 51.199706999999734,
+        "bodyMs": 2646.8385850000004,
+        "afterBodyMs": 52.43166500000015,
+        "wallMs": 2750.4699570000002
+      },
+      "finalization": {
+        "count": 1,
+        "beforeBodyMs": 3.266958000000159,
+        "bodyMs": 121.15095799999972,
+        "afterBodyMs": 9.409667000000354,
+        "wallMs": 133.82758300000023
+      }
+    },
+    "runtimeCommittedMutationSplit": {
+      "acquisitionMs": 23.7320840000003,
+      "preFenceMs": 27.0595399999996,
+      "bodyMs": 2647.017835,
+      "postFenceMs": 22.801038999999605,
+      "commitFinalizationMs": 29.10625100000081,
+      "wallMs": 2749.716749,
+      "fenceReadCalls": 80
+    },
+    "runtimeTimingCoverage": {
+      "supported": true,
+      "samples": 20,
+      "finalizerSplitAvailable": false
+    },
+    "sqlStatements": 704,
+    "sqlBeginTransactions": 24,
+    "sqlDurationMs": 1937,
+    "instrumentedApiCalls": 593,
+    "apiGroups": {
+      "SystemJob.findUniqueOrThrow": 2,
+      "$raw.$queryRawUnsafe": 110,
+      "$raw.$executeRawUnsafe": 7,
+      "$raw.$queryRaw": 224,
+      "ArtworkDedupRun.findUnique": 22,
+      "ArtworkDedupRun.update": 36,
+      "SystemJob.update": 16,
+      "SystemJobEvent.create": 3,
+      "ArtworkDedupRun.findFirst": 2,
+      "ArtworkDedupOperation.findFirst": 2,
+      "PixivMetadataInventoryState.findUnique": 1,
+      "ArtworkDedupItem.findFirst": 1,
+      "ArtworkDedupMedia.findFirst": 1,
+      "ArtworkDedupItem.findMany": 28,
+      "Artwork.findMany": 16,
+      "Image.findMany": 9,
+      "MediaContentDirectoryState.createMany": 82,
+      "ArtworkDedupMedia.groupBy": 4,
+      "ArtworkDedupMedia.createMany": 4,
+      "$raw.$executeRaw": 6,
+      "ArtworkDedupRun.findUniqueOrThrow": 15,
+      "ArtworkDedupRun.findMany": 1,
+      "ArtworkDedupMedia.count": 1
+    },
+    "readerMeasurements": [
+      {
+        "inspections": 2000,
+        "reads": 0,
+        "bytesRead": "0",
+        "statLatencyMs": 1115,
+        "parentPeakRss": 169295872,
+        "childPeakRss": 92618752,
+        "ipcMessages": 2002,
+        "runId": "e31ed587-f1cf-4335-b0f1-c476d4115228",
+        "elapsedMs": 3306,
+        "transactions": 20
+      }
+    ],
+    "slices": [
+      {
+        "stage": "DONE",
+        "wallMs": 3444.532083,
+        "elapsedMs": 3474.190125,
+        "transactions": 21,
+        "sqlStatements": 688,
+        "status": "COMPLETED",
+        "availableAt": "2026-10-30T04:23:45.008Z",
+        "schedulingRemainingMs": 0,
+        "statMedia": 2000,
+        "cacheHitMedia": 2000
+      }
+    ],
+    "phaseObservations": [
+      {
+        "atMs": 54.208584,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "CHECKPOINT",
+          "runId": "e31ed587-f1cf-4335-b0f1-c476d4115228",
+          "jobId": "4d591e3e-1680-4936-8737-6e42b9841fe0",
+          "protocolVersion": 9,
+          "searchVersion": null,
+          "inputDigest": null,
+          "phase": "ORIGINALS",
+          "updatedAt": "2026-10-30T04:23:45.062Z",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "batch": 1,
+          "complete": false,
+          "progress": {
+            "originals": 0,
+            "staticImages": null,
+            "uncheckedMedia": null,
+            "queryCompleted": null,
+            "queryTotal": null
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": null,
+            "ownFeatureHits": null,
+            "contentFeatureHits": null,
+            "relationReusedPairs": null,
+            "relationInvalidatedPairs": null,
+            "indexNodeVisits": null,
+            "wholeChannelHits": null,
+            "localChannelHits": null,
+            "candidatePairs": null,
+            "compareCalls": null,
+            "dbLoadCalls": 0,
+            "dbValidationCalls": 0,
+            "dbWriteCalls": 0,
+            "transactions": 0,
+            "dbFenceCalls": null,
+            "hotBatches": null,
+            "reusedArtworks": null,
+            "reusedRelations": null,
+            "copiedRows": null,
+            "originalCacheHits": 0,
+            "hashedOriginals": 0,
+            "metadataFallbacks": null,
+            "discardedCopyRows": null,
+            "discardedReusedRelations": null,
+            "indexRebuilds": null,
+            "replayedQueries": null,
+            "replayedComparisons": null
+          },
+          "durationsMs": {
+            "feature": null,
+            "index": null,
+            "query": null,
+            "compare": null,
+            "pair": null,
+            "dbLoad": 0,
+            "dbValidation": 0,
+            "dbWrite": 0,
+            "transactionWall": 0,
+            "active": 12.939332999999976,
+            "queue": 41,
+            "cooldown": null,
+            "pause": null,
+            "propertyInspection": null,
+            "fingerprintReuse": null,
+            "relationReuse": null,
+            "resultCopy": null,
+            "transactionAcquisition": null,
+            "transactionPreFence": null,
+            "transactionBody": null,
+            "transactionPostFence": null,
+            "transactionCommitFinalization": null
+          },
+          "memoryPeakBytes": null,
+          "metadataPeakBytes": null,
+          "cacheInvalidationReasons": [],
+          "transactionTiming": {
+            "sampledTransactions": 0,
+            "cutoff": null,
+            "complete": false
+          }
+        }
+      },
+      {
+        "atMs": 3327.8963750000003,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "CHECKPOINT",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "runId": "e31ed587-f1cf-4335-b0f1-c476d4115228",
+          "jobId": "4d591e3e-1680-4936-8737-6e42b9841fe0",
+          "protocolVersion": 9,
+          "searchVersion": null,
+          "inputDigest": null,
+          "phase": "PUBLISH",
+          "batch": 15,
+          "updatedAt": "2026-10-30T04:23:48.336Z",
+          "complete": false,
+          "progress": {
+            "originals": 2000,
+            "staticImages": null,
+            "uncheckedMedia": 0,
+            "queryCompleted": null,
+            "queryTotal": null
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": 0,
+            "ownFeatureHits": 0,
+            "contentFeatureHits": 0,
+            "relationReusedPairs": null,
+            "relationInvalidatedPairs": null,
+            "indexNodeVisits": 0,
+            "wholeChannelHits": 0,
+            "localChannelHits": 0,
+            "candidatePairs": 0,
+            "compareCalls": 0,
+            "dbLoadCalls": 8,
+            "dbValidationCalls": 282,
+            "dbWriteCalls": 124,
+            "dbFenceCalls": 76,
+            "transactions": 19,
+            "hotBatches": 4,
+            "originalCacheHits": 2000,
+            "hashedOriginals": 0,
+            "metadataFallbacks": null,
+            "reusedArtworks": 50,
+            "reusedRelations": 25,
+            "copiedRows": 2125,
+            "discardedCopyRows": 0,
+            "discardedReusedRelations": 0,
+            "indexRebuilds": 0,
+            "replayedQueries": 0,
+            "replayedComparisons": 0
+          },
+          "durationsMs": {
+            "feature": 0,
+            "index": 0,
+            "query": 0,
+            "compare": 0,
+            "pair": 0,
+            "dbLoad": 108.9567079999999,
+            "dbValidation": 2000.217463999998,
+            "dbWrite": 475.4706289999991,
+            "transactionWall": 2601.0222089999997,
+            "propertyInspection": 306.7697959999996,
+            "fingerprintReuse": 445.1694589999999,
+            "relationReuse": 156.1867500000001,
+            "resultCopy": 1898.511667,
+            "transactionAcquisition": 22.947166999999894,
+            "transactionPreFence": 26.073789999999782,
+            "transactionBody": 2501.8188349999996,
+            "transactionPostFence": 21.803497999999877,
+            "transactionCommitFinalization": 27.41837600000073,
+            "active": 3287.527041999999,
+            "queue": 41,
+            "cooldown": null,
+            "pause": null
+          },
+          "memoryPeakBytes": 169295872,
+          "metadataPeakBytes": 7015540,
+          "transactionTiming": {
+            "sampledTransactions": 19,
+            "cutoff": "2026-10-30T04:23:48.196Z",
+            "complete": false
+          },
+          "cacheInvalidationReasons": []
+        }
+      },
+      {
+        "atMs": 3471.0747920000003,
+        "source": "artwork-dedup.performance",
+        "data": {
+          "reason": "COMPLETED",
+          "version": 1,
+          "kind": "artwork-dedup-performance",
+          "runId": "e31ed587-f1cf-4335-b0f1-c476d4115228",
+          "jobId": "4d591e3e-1680-4936-8737-6e42b9841fe0",
+          "protocolVersion": 9,
+          "searchVersion": null,
+          "inputDigest": null,
+          "phase": "COMPLETED",
+          "batch": 16,
+          "updatedAt": "2026-10-30T04:23:48.472Z",
+          "complete": true,
+          "progress": {
+            "originals": 2000,
+            "staticImages": null,
+            "uncheckedMedia": 0,
+            "queryCompleted": null,
+            "queryTotal": null
+          },
+          "counters": {
+            "readBytes": 0,
+            "decodedImages": 0,
+            "ownFeatureHits": 0,
+            "contentFeatureHits": 0,
+            "relationReusedPairs": null,
+            "relationInvalidatedPairs": null,
+            "indexNodeVisits": 0,
+            "wholeChannelHits": 0,
+            "localChannelHits": 0,
+            "candidatePairs": 0,
+            "compareCalls": 0,
+            "dbLoadCalls": 8,
+            "dbValidationCalls": 331,
+            "dbWriteCalls": 144,
+            "dbFenceCalls": 80,
+            "transactions": 22,
+            "hotBatches": 4,
+            "originalCacheHits": 2000,
+            "hashedOriginals": 0,
+            "metadataFallbacks": null,
+            "reusedArtworks": 50,
+            "reusedRelations": 25,
+            "copiedRows": 2125,
+            "discardedCopyRows": 0,
+            "discardedReusedRelations": 0,
+            "indexRebuilds": 0,
+            "replayedQueries": 0,
+            "replayedComparisons": 0
+          },
+          "durationsMs": {
+            "feature": 0,
+            "index": 0,
+            "query": 0,
+            "compare": 0,
+            "pair": 0,
+            "dbLoad": 108.9567079999999,
+            "dbValidation": 2211.8042559999967,
+            "dbWrite": 520.2978769999986,
+            "transactionWall": 2756.7962100000004,
+            "propertyInspection": 306.7697959999996,
+            "fingerprintReuse": 445.1694589999999,
+            "relationReuse": 156.1867500000001,
+            "resultCopy": 1898.511667,
+            "transactionAcquisition": 23.732084000000295,
+            "transactionPreFence": 27.059539999999604,
+            "transactionBody": 2647.017835,
+            "transactionPostFence": 22.80103899999961,
+            "transactionCommitFinalization": 29.106251000000807,
+            "active": 3423.467749999999,
+            "queue": 41,
+            "cooldown": null,
+            "pause": null
+          },
+          "memoryPeakBytes": 169295872,
+          "metadataPeakBytes": 7015540,
+          "transactionTiming": {
+            "sampledTransactions": 20,
+            "cutoff": "2026-10-30T04:23:48.346Z",
+            "complete": false
+          },
+          "cacheInvalidationReasons": []
+        }
+      }
+    ],
+    "performanceSummary": {
+      "kind": "artwork-dedup-performance",
+      "batch": 16,
+      "jobId": "4d591e3e-1680-4936-8737-6e42b9841fe0",
+      "phase": "COMPLETED",
+      "runId": "e31ed587-f1cf-4335-b0f1-c476d4115228",
+      "version": 1,
+      "complete": true,
+      "counters": {
+        "readBytes": 0,
+        "copiedRows": 2125,
+        "hotBatches": 4,
+        "dbLoadCalls": 8,
+        "compareCalls": 0,
+        "dbFenceCalls": 80,
+        "dbWriteCalls": 144,
+        "transactions": 22,
+        "decodedImages": 0,
+        "indexRebuilds": 0,
+        "candidatePairs": 0,
+        "ownFeatureHits": 0,
+        "reusedArtworks": 50,
+        "hashedOriginals": 0,
+        "indexNodeVisits": 0,
+        "replayedQueries": 0,
+        "reusedRelations": 25,
+        "localChannelHits": 0,
+        "wholeChannelHits": 0,
+        "dbValidationCalls": 331,
+        "discardedCopyRows": 0,
+        "metadataFallbacks": null,
+        "originalCacheHits": 2000,
+        "contentFeatureHits": 0,
+        "relationReusedPairs": null,
+        "replayedComparisons": 0,
+        "discardedReusedRelations": 0,
+        "relationInvalidatedPairs": null
+      },
+      "progress": {
+        "originals": 2000,
+        "queryTotal": null,
+        "staticImages": null,
+        "queryCompleted": null,
+        "uncheckedMedia": 0
+      },
+      "updatedAt": "2026-10-30T04:23:48.472Z",
+      "durationsMs": {
+        "pair": 0,
+        "index": 0,
+        "pause": null,
+        "query": 0,
+        "queue": 41,
+        "active": 3423.467749999999,
+        "dbLoad": 108.9567079999999,
+        "compare": 0,
+        "dbWrite": 520.2978769999986,
+        "feature": 0,
+        "cooldown": null,
+        "resultCopy": 1898.511667,
+        "dbValidation": 2211.804255999997,
+        "relationReuse": 156.1867500000001,
+        "transactionBody": 2647.017835,
+        "transactionWall": 2756.79621,
+        "fingerprintReuse": 445.1694589999999,
+        "propertyInspection": 306.7697959999996,
+        "transactionPreFence": 27.0595399999996,
+        "transactionPostFence": 22.80103899999961,
+        "transactionAcquisition": 23.7320840000003,
+        "transactionCommitFinalization": 29.10625100000081
+      },
+      "inputDigest": null,
+      "searchVersion": null,
+      "memoryPeakBytes": 169295872,
+      "protocolVersion": 9,
+      "metadataPeakBytes": 7015540,
+      "transactionTiming": {
+        "cutoff": "2026-10-30T04:23:48.346Z",
+        "complete": false,
+        "sampledTransactions": 20
+      },
+      "cacheInvalidationReasons": []
+    },
+    "resultSummary": {
+      "status": "COMPLETED",
+      "stage": "DONE",
+      "statMedia": 2000,
+      "hashedMedia": 0,
+      "cacheHitMedia": 2000,
+      "readBytes": "0",
+      "groupCount": 25,
+      "duplicateArtworks": 25,
+      "failedArtworks": 0,
+      "changedArtworks": 0,
+      "visualStatus": "COMPLETE",
+      "visualIncompleteReasons": [],
+      "visualSearchComplete": true,
+      "visualSearchVersion": "bktree-global12-region7of9-10-global28-v2",
+      "groups": [
+        {
+          "contentSha256": "991d717d145b6cf670a994f631343f0d5dbb1ff1ca3281ea2869c6438cd6ab0c",
+          "fileCount": "40",
+          "members": [
+            1,
+            2
+          ]
+        },
+        {
+          "contentSha256": "11c87e9d72581823c06096092ab65bef0c0e495f2fa2a96d967896123809b5c8",
+          "fileCount": "40",
+          "members": [
+            3,
+            4
+          ]
+        },
+        {
+          "contentSha256": "278ee422b94848202f1eb6971463861830a13caeeda28d5a46056282bf2427d1",
+          "fileCount": "40",
+          "members": [
+            5,
+            6
+          ]
+        },
+        {
+          "contentSha256": "cb794f073a579f696365b7c1838882f24383af336fb5e82eeeaffcb27a7b5de6",
+          "fileCount": "40",
+          "members": [
+            7,
+            8
+          ]
+        },
+        {
+          "contentSha256": "07cb02f4e8e1a4367f911069ba8607d48ed96be324b3dd6231510067945c402c",
+          "fileCount": "40",
+          "members": [
+            9,
+            10
+          ]
+        },
+        {
+          "contentSha256": "8518efb54c24e2c4d6dd0907e937ce6599c242d662e8105acac488e66c8ee18d",
+          "fileCount": "40",
+          "members": [
+            11,
+            12
+          ]
+        },
+        {
+          "contentSha256": "55cec9bf6b4fa2083b9ed8734df04b5dcd1fe4a1862db28b9ec469d4cd212c12",
+          "fileCount": "40",
+          "members": [
+            13,
+            14
+          ]
+        },
+        {
+          "contentSha256": "e76bc20fd70edc1f6c3592f9291e622131a26da6f45e3bc41bdfdd8f76e658e5",
+          "fileCount": "40",
+          "members": [
+            15,
+            16
+          ]
+        },
+        {
+          "contentSha256": "77e853b73ce5500964b315724da4cfa3c1873b732d45cf5edbca4e30d20109ae",
+          "fileCount": "40",
+          "members": [
+            17,
+            18
+          ]
+        },
+        {
+          "contentSha256": "93ddd3894bf9af7d96b23420a1d053163408f47e8bf474c930aa98de0d81237e",
+          "fileCount": "40",
+          "members": [
+            19,
+            20
+          ]
+        },
+        {
+          "contentSha256": "68cfa495cf64c896f7cafa52a24678a82e4b033748ecce8a5830cdddc9dd9b54",
+          "fileCount": "40",
+          "members": [
+            21,
+            22
+          ]
+        },
+        {
+          "contentSha256": "7a95b3a315def7be66e0ff29c735e977dd20a5a1f545dc65cb30c9086adf0715",
+          "fileCount": "40",
+          "members": [
+            23,
+            24
+          ]
+        },
+        {
+          "contentSha256": "5d9b64825207a476fc479c0fe5f88761eb8131c0b22c7b7a14c17466e1c3b85f",
+          "fileCount": "40",
+          "members": [
+            25,
+            26
+          ]
+        },
+        {
+          "contentSha256": "92fabf532d789dcf7927230172c29a2663b91b995934035811907b889bdda24e",
+          "fileCount": "40",
+          "members": [
+            27,
+            28
+          ]
+        },
+        {
+          "contentSha256": "caecd47a8626cf35518c8f94754ea9d6ab6615e6dca0a20769f33ca5f22d4801",
+          "fileCount": "40",
+          "members": [
+            29,
+            30
+          ]
+        },
+        {
+          "contentSha256": "8f5408062c6b98f6f6750208227a053c8a49f035072888075de8d461cd6c1c41",
+          "fileCount": "40",
+          "members": [
+            31,
+            32
+          ]
+        },
+        {
+          "contentSha256": "484eca3ada6ea68df97f916c064839e16bb3e0166290adc655aa748097c23098",
+          "fileCount": "40",
+          "members": [
+            33,
+            34
+          ]
+        },
+        {
+          "contentSha256": "88fde92977a34bc5083ce092d3e528f12006d53bb4113b1fce8ec08d5df3b63a",
+          "fileCount": "40",
+          "members": [
+            35,
+            36
+          ]
+        },
+        {
+          "contentSha256": "d0f64e3c95196717132d6dbd1404a2b6d8f74e0d1d8f3d08387d827042fe33ab",
+          "fileCount": "40",
+          "members": [
+            37,
+            38
+          ]
+        },
+        {
+          "contentSha256": "cc3af845abdbb77e83d2fd7a913a27604840eaa1c6b2f1661af952a98815c3e5",
+          "fileCount": "40",
+          "members": [
+            39,
+            40
+          ]
+        },
+        {
+          "contentSha256": "46d10774572258e2194e60edf72828dd5bffaa6223722c37f81e6897dc572946",
+          "fileCount": "40",
+          "members": [
+            41,
+            42
+          ]
+        },
+        {
+          "contentSha256": "665041df32a89acf93f19c9f8aa3ef8eb168b220673d52b5dd30aa5a17ea690c",
+          "fileCount": "40",
+          "members": [
+            43,
+            44
+          ]
+        },
+        {
+          "contentSha256": "e7ca9da31d43e23e7542625f188b5acb8628cfa23de471b899b797b0fce5faaa",
+          "fileCount": "40",
+          "members": [
+            45,
+            46
+          ]
+        },
+        {
+          "contentSha256": "f0de4686f907e392899f50e3510985d0f2dc958ecc14e28f2469196772a762c6",
+          "fileCount": "40",
+          "members": [
+            47,
+            48
+          ]
+        },
+        {
+          "contentSha256": "d954edc26640e0c02a3dccf0120533c3d309bc05619f1452bc6793c8f6c5ff29",
+          "fileCount": "40",
+          "members": [
+            49,
+            50
+          ]
+        }
+      ],
+      "relations": [],
+      "pairs": []
+    },
+    "resultDigest": "9c8c620c96e92375cf1ed94477297d09527affbf2697bbf774d1c0be912a6bb0",
+    "privateRawSha256": "3b68bd7e1b46db7cd8a0090dbdc0101b7b5b7c579f388a5de0ab8a077d8e1626",
+    "metricMeaning": "Full executor and queue wall from first queue read to terminal settlement reads, including real availableAt waits. Fixture freeze/result audit excluded. Real Prisma SQL events include controls/queue/heartbeat, no parameters. No SQL phase inference. Observations are timestamps at persisted-run reads or telemetry callbacks, not exact phase wall. Wrapper beforeBody combines acquisition+pre-fence; afterBody combines post-fence+commit. Runtime observer splits committed mutations only; unsupported baseline and unobserved finalizers remain null/explicitly incomplete. RSS sampled for whole process during run; lifetime peak separately named. One warm input observation per revision."
+  },
+  "comparison": {
+    "wallReductionPercent": 72.08473424574446,
+    "contextTransactionReductionPercent": 96.81335356600911,
+    "sqlTransactionReductionPercent": 96.3963963963964,
+    "semanticResultEqual": true,
+    "observationsPerRevision": 1,
+    "targets": {
+      "wallReductionPercent": 60,
+      "contextTransactionReductionPercent": 80
+    }
+  }
+}

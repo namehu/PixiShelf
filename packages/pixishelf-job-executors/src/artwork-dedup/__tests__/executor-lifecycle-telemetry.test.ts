@@ -1,6 +1,6 @@
 import type { Prisma } from '@pixishelf/db'
 import type { ArtworkDedupPerformanceSummary, ArtworkDedupProgressData } from '@pixishelf/job-contracts'
-import type { EnqueuedChildJob, ExecutionContext } from '@pixishelf/job-runtime'
+import type { EnqueuedChildJob, ExecutionContext, FencedMutationTransactionObserver } from '@pixishelf/job-runtime'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createArtworkDedupPerformance } from '../telemetry.ts'
 import type { DedupPipelineContext } from '../pipeline.ts'
@@ -32,7 +32,7 @@ import { createArtworkDedupExecutor, executeArtworkDedup } from '../executor.ts'
 
 type Run = Prisma.ArtworkDedupRunGetPayload<Record<string, never>>
 
-function fixture(options: { rollbackFeature?: number; rejectFinalizer?: boolean; status?: string; releaseFailure?: boolean; contentStage?: boolean } = {}) {
+function fixture(options: { rollbackFeature?: number; rollbackHot?: number; protocolVersion?: 8 | 9; rejectFinalizer?: boolean; status?: string; releaseFailure?: boolean; contentStage?: boolean } = {}) {
   let clock = 0
   vi.spyOn(performance, 'now').mockImplementation(() => clock)
   let run = {
@@ -42,10 +42,11 @@ function fixture(options: { rollbackFeature?: number; rejectFinalizer?: boolean;
     visualBudgetWaiting: false, includeSuspectedVersions: true,
     changedArtworks: 0, failedArtworks: 0, skippedArtworks: 0, completeArtworks: 2,
     artworkCount: 2, groupCount: 0, processedArtworks: 2, visualStatus: 'COMPLETE',
-    performanceSummary: { ...createArtworkDedupPerformance({ runId: 'run', jobId: 'job', protocolVersion: 8, searchVersion: 'visual-search-v2', inputDigest: null, phase: 'INDEX', updatedAt: new Date(0).toISOString() }), durationsMs: { ...createArtworkDedupPerformance({ runId: 'run', jobId: 'job', protocolVersion: 8, searchVersion: null, inputDigest: null, phase: 'INDEX', updatedAt: new Date(0).toISOString() }).durationsMs, active: 5_000 } }
+    performanceSummary: { ...createArtworkDedupPerformance({ runId: 'run', jobId: 'job', protocolVersion: options.protocolVersion ?? 8, searchVersion: 'visual-search-v2', inputDigest: null, phase: 'INDEX', updatedAt: new Date(0).toISOString() }), durationsMs: { ...createArtworkDedupPerformance({ runId: 'run', jobId: 'job', protocolVersion: options.protocolVersion ?? 8, searchVersion: null, inputDigest: null, phase: 'INDEX', updatedAt: new Date(0).toISOString() }).durationsMs, active: 5_000 } }
   } as unknown as Run
   let progressData: ArtworkDedupProgressData | null = null
   let featureCommits = 0
+  let hotCommits = 0
   let mutationCount = 0
   const tx = {
     $transaction: async (body: (transaction: unknown) => Promise<unknown>) => body(tx),
@@ -69,9 +70,9 @@ function fixture(options: { rollbackFeature?: number; rejectFinalizer?: boolean;
   const scope = { transaction: tx, executionStatus: options.status ?? 'RUNNING', complete: vi.fn(), fail: vi.fn(), pause: vi.fn(), cancel: vi.fn(), retry: vi.fn(), release: vi.fn() }
   const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
   const context = {
-    job: { id: 'job', definitionVersion: 8, availableAt: new Date(0) }, payload: { runId: 'run', executionVersion: 1 },
+    job: { id: 'job', definitionVersion: options.protocolVersion ?? 8, availableAt: new Date(0) }, payload: { runId: 'run', executionVersion: 1 },
     signal: new AbortController().signal, progress: vi.fn(), logger,
-    mutateInTransaction: async (body: (transaction: typeof tx) => Promise<unknown>) => {
+    mutateInTransaction: async (body: (transaction: typeof tx) => Promise<unknown>, observeTiming?: FencedMutationTransactionObserver) => {
       mutationCount++
       const before = structuredClone(run), beforeProgress = progressData
       clock += 1_000
@@ -82,6 +83,11 @@ function fixture(options: { rollbackFeature?: number; rejectFinalizer?: boolean;
           featureCommits++
           if (featureCommits === options.rollbackFeature) throw new Error('fixture rollback')
         }
+        if (current.counters.hotBatches !== (before.performanceSummary as unknown as ArtworkDedupPerformanceSummary).counters.hotBatches) {
+          hotCommits++
+          if (hotCommits === options.rollbackHot) throw new Error('fixture hot rollback')
+        }
+        observeTiming?.({ acquisitionMs: 2, preFenceMs: 3, bodyMs: 5, postFenceMs: 7, commitFinalizationMs: 11, wallMs: 28, fenceReadCalls: 4 })
         return result
       } catch (error) { run = before; progressData = beforeProgress; throw error }
     },
@@ -100,6 +106,75 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => vi.restoreAllMocks())
 
 describe('committed artwork detection lifecycle telemetry', () => {
+  it('persists hot-run aggregates with measured fence timing and an explicit incomplete commit cutoff', async () => {
+    const f = fixture({ protocolVersion: 9 })
+    ;(f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary).searchVersion = null
+    mocks.scan.mockImplementation(async (pipeline: DedupPipelineContext) => {
+      for (let batch = 1; batch <= 2; batch++) await pipeline.transaction(async tx => {
+        await tx.artworkDedupRun.update({ where: { id: 'run' }, data: { visualCheckpoint: {
+          version: 4, kind: 'hot-run-reuse', sourceRunId: 'prior', inputDigest: 'a'.repeat(64),
+          projectionDigest: 'b'.repeat(64), stage: 'pages', cursor: '', ordinal: 0,
+          searchVersion: 'visual-search-v2', featureVersion: 'feature', normalizationVersion: 'normalization',
+          visualByteLimit: 33554432, copiedRows: 0, reusedRelations: 0
+        } } })
+        await pipeline.onHotRunBatch!(tx, {
+          statMs: 2, fingerprintReuseMs: 3, relationReuseMs: 5, resultCopyMs: 7,
+          hotBatches: 1, reusedArtworks: 2, reusedRelations: 3, copiedRows: 4,
+          metadataBytes: batch * 100, rssBytes: batch * 300,
+          metadataFallbacks: batch === 1 ? 1 : 0, wholeRunReused: batch === 2,
+          ...(batch === 2 ? { uncheckedMedia: 1 } : {})
+        })
+        if (batch === 1) {
+          const current = await tx.artworkDedupRun.findUniqueOrThrow({ where: { id: 'run' } })
+          expect((current.performanceSummary as unknown as ArtworkDedupPerformanceSummary).counters.decodedImages).toBeNull()
+        }
+      })
+      await pipeline.transaction(async tx => {
+        await tx.artworkDedupRun.update({ where: { id: 'run' }, data: { stage: 'DONE' } })
+      })
+      return true
+    })
+    await executeArtworkDedup(f.context, f.dependencies)
+    const summary = f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary
+    expect(summary.counters).toMatchObject({ hotBatches: 2, reusedArtworks: 4, reusedRelations: 6, copiedRows: 8, dbFenceCalls: 4 * f.mutations(),
+      originalCacheHits: 0, hashedOriginals: 0, metadataFallbacks: 1, decodedImages: 0, indexRebuilds: 0,
+      indexNodeVisits: 0, candidatePairs: 0, compareCalls: 0
+    })
+    expect(summary.progress.uncheckedMedia).toBe(1)
+    expect(summary.durationsMs).toMatchObject({
+      propertyInspection: 4, fingerprintReuse: 6, relationReuse: 10, resultCopy: 14,
+      transactionAcquisition: 2 * f.mutations(), transactionPreFence: 3 * f.mutations(),
+      transactionBody: 5 * f.mutations(), transactionPostFence: 7 * f.mutations(),
+      transactionCommitFinalization: 11 * f.mutations()
+    })
+    expect(summary).toMatchObject({ complete: true, inputDigest: 'a'.repeat(64), searchVersion: 'visual-search-v2', metadataPeakBytes: 200, memoryPeakBytes: 600,
+      transactionTiming: { sampledTransactions: f.mutations(), cutoff: new Date(f.elapsed()).toISOString(), complete: false }
+    })
+    expect(f.logger.info.mock.calls.at(-1)?.[1]).toMatchObject({ reason: 'COMPLETED', transactionTiming: { complete: false } })
+  })
+
+  it('discards the failed hot batch and its fence timing before persisting failure', async () => {
+    const f = fixture({ protocolVersion: 9, rollbackHot: 2 })
+    mocks.scan.mockImplementation(async (pipeline: DedupPipelineContext) => {
+      for (let batch = 1; batch <= 2; batch++) await pipeline.transaction(async tx => {
+        await pipeline.onHotRunBatch!(tx, {
+          statMs: 2, fingerprintReuseMs: 3, relationReuseMs: 0, resultCopyMs: 0,
+          hotBatches: 1, reusedArtworks: 2, reusedRelations: 0, copiedRows: 0,
+          metadataBytes: 100, rssBytes: 300, wholeRunReused: batch === 2
+        })
+      })
+      return true
+    })
+    await executeArtworkDedup(f.context, f.dependencies)
+    const summary = f.getRun().performanceSummary as unknown as ArtworkDedupPerformanceSummary
+    expect(summary.counters).toMatchObject({ hotBatches: 1, reusedArtworks: 2, dbFenceCalls: 4 * (f.mutations() - 1) })
+    expect(summary.durationsMs).toMatchObject({ propertyInspection: 2, fingerprintReuse: 3 })
+    expect(summary.counters.decodedImages).toBeNull()
+    expect(summary.transactionTiming).toMatchObject({ sampledTransactions: f.mutations() - 1, complete: false })
+    expect(summary.complete).toBe(false)
+    expect(f.scope.fail).toHaveBeenCalledOnce()
+  })
+
   it('adds active elapsed time once across feature checkpoints and preserves query counters', async () => {
     const f = fixture()
     mocks.scan.mockImplementation(async (pipeline: DedupPipelineContext) => {

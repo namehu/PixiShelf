@@ -1,0 +1,26 @@
+[
+  {
+    "kind": "app",
+    "label": "resume-delete",
+    "pid": 78373,
+    "processGroup": 78373,
+    "script": "/private/tmp/pixishelf-hot-run-reuse-20261030/start-app.sh",
+    "startedAt": "2026-10-30T05:31:55.925Z",
+    "log": "/private/tmp/pixishelf-hot-run-reuse-20261030/evidence/browser-app-resume-delete.log",
+    "stoppedAt": "2026-10-30T05:34:40.271Z",
+    "alive": false,
+    "processGroupAlive": false
+  },
+  {
+    "kind": "worker",
+    "label": "resume-delete",
+    "pid": 78374,
+    "processGroup": 78374,
+    "script": "/private/tmp/pixishelf-hot-run-reuse-20261030/start-worker.sh",
+    "startedAt": "2026-10-30T05:31:55.927Z",
+    "log": "/private/tmp/pixishelf-hot-run-reuse-20261030/evidence/browser-worker-resume-delete.log",
+    "stoppedAt": "2026-10-30T05:34:40.272Z",
+    "alive": false,
+    "processGroupAlive": false
+  }
+]

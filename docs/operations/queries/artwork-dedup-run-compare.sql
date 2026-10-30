@@ -1,5 +1,8 @@
 -- complete means successful publication, not that every metric is measured.
--- updatedAt is the snapshot cutoff. API calls exclude runtime fence internals,
+-- updatedAt is the snapshot cutoff. Historical API counters exclude runtime fence internals;
+-- v9 reports those separately as dbFenceCalls and transactionTiming.
+-- transactionTiming.complete=false means the current final commit is not sampled.
+-- API counters still exclude
 -- subsequent snapshot writes/settlement; transactionWall excludes the current
 -- finalizer commit, although its known transaction count is included.
 -- DBX read-only template. Replace only the two run id literals below.
@@ -34,6 +37,8 @@ SELECT baseline_id,comparison_id,same_input,baseline_mode,comparison_mode,
   baseline_protocol,comparison_protocol,baseline_search,comparison_search,
   baseline_status,comparison_status,
   baseline->>'complete' AS baseline_lifecycle_complete,comparison->>'complete' AS comparison_lifecycle_complete,
+  baseline->'transactionTiming' AS baseline_transaction_timing_coverage,
+  comparison->'transactionTiming' AS comparison_transaction_timing_coverage,
   baseline->'cacheInvalidationReasons' AS baseline_cache_conditions,
   comparison->'cacheInvalidationReasons' AS comparison_cache_conditions,
   group_name,key,baseline_value,comparison_value,

@@ -8,6 +8,7 @@ import type {
   ExecutionProgressMutationResult,
   ExecutionProgressUpdate,
   FencedExecutionTransaction,
+  FencedMutationTransactionTiming,
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import type { DispatcherQueuePort, DispatcherSettlement } from './dispatcher.js'
@@ -24,7 +25,8 @@ export interface QueueRepositoryPort {
   readExecutionControl(fence: ExecutionFence): Promise<ExecutionControlState>
   withFencedMutationTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
     fence: ExecutionFence,
-    operation: (transaction: TTransaction) => Promise<TResult>
+    operation: (transaction: TTransaction) => Promise<TResult>,
+    observeTiming?: (timing: FencedMutationTransactionTiming) => void
   ): Promise<TResult>
   withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
     fence: ExecutionFence,
@@ -78,9 +80,10 @@ export class RuntimeDispatcherQueue implements DispatcherQueuePort {
 
   withFencedMutationTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
     fence: ExecutionFence,
-    operation: (transaction: TTransaction) => Promise<TResult>
+    operation: (transaction: TTransaction) => Promise<TResult>,
+    observeTiming?: (timing: FencedMutationTransactionTiming) => void
   ) {
-    return this.repository.withFencedMutationTransaction<TTransaction, TResult>(fence, operation)
+    return this.repository.withFencedMutationTransaction<TTransaction, TResult>(fence, operation, observeTiming)
   }
 
   withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(

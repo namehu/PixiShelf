@@ -1,0 +1,12 @@
+{
+  "at": "2026-10-30T04:38:52.157Z",
+  "activeJobs": [],
+  "operations": [
+    {
+      "id": "a705515b-9ea3-487b-bbe0-293565711fa9",
+      "status": "READY",
+      "stage": "CONFIRM"
+    }
+  ],
+  "scope": "Bounded read-only readiness check before stopping only owned browser services; preserve READY operation and all media."
+}

@@ -1,3 +1,5 @@
+import type { FencedMutationTransactionTiming } from '@pixishelf/job-runtime'
+
 export interface DedupDatabaseMeasurement {
   dbLoadCalls: number
   dbValidationCalls: number
@@ -7,19 +9,42 @@ export interface DedupDatabaseMeasurement {
   dbWriteMs: number
   transactions: number
   transactionWallMs: number
+  timedTransactions: number
+  dbFenceCalls: number
+  transactionAcquisitionMs: number
+  transactionPreFenceMs: number
+  transactionBodyMs: number
+  transactionPostFenceMs: number
+  transactionCommitFinalizationMs: number
 }
 
 export function emptyDedupDatabaseMeasurement(): DedupDatabaseMeasurement {
   return {
     dbLoadCalls: 0, dbValidationCalls: 0, dbWriteCalls: 0,
-    dbLoadMs: 0, dbValidationMs: 0, dbWriteMs: 0, transactions: 0, transactionWallMs: 0
+    dbLoadMs: 0, dbValidationMs: 0, dbWriteMs: 0, transactions: 0, transactionWallMs: 0,
+    timedTransactions: 0, dbFenceCalls: 0, transactionAcquisitionMs: 0,
+    transactionPreFenceMs: 0, transactionBodyMs: 0, transactionPostFenceMs: 0,
+    transactionCommitFinalizationMs: 0
   }
+}
+
+export function addDedupTransactionTiming(
+  measurement: DedupDatabaseMeasurement,
+  timing: FencedMutationTransactionTiming
+): void {
+  measurement.timedTransactions++
+  measurement.dbFenceCalls += timing.fenceReadCalls
+  measurement.transactionAcquisitionMs += timing.acquisitionMs
+  measurement.transactionPreFenceMs += timing.preFenceMs
+  measurement.transactionBodyMs += timing.bodyMs
+  measurement.transactionPostFenceMs += timing.postFenceMs
+  measurement.transactionCommitFinalizationMs += timing.commitFinalizationMs
 }
 
 const readMethods = new Set(['findUnique', 'findUniqueOrThrow', 'findFirst', 'findFirstOrThrow', 'findMany', 'count', 'aggregate', 'groupBy', '$queryRaw', '$queryRawUnsafe'])
 const writeMethods = new Set(['create', 'createMany', 'createManyAndReturn', 'update', 'updateMany', 'updateManyAndReturn', 'upsert', 'delete', 'deleteMany', '$executeRaw', '$executeRawUnsafe'])
 
-/** Counts Prisma calls, never SQL statements; fenced reads include input validation and loading. */
+/** Counts Prisma calls, never SQL statements; "validation" includes every executor-body read. */
 export function measureDedupDatabase<T extends object>(
   database: T,
   measurement: DedupDatabaseMeasurement,

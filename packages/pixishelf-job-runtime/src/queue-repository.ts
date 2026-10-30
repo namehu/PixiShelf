@@ -116,6 +116,20 @@ export interface ExecutionFence {
   attempt: number
 }
 
+/** Monotonic wall time; API calls are not SQL statement counts. */
+export interface FencedMutationTransactionTiming {
+  acquisitionMs: number
+  preFenceMs: number
+  bodyMs: number
+  postFenceMs: number
+  commitFinalizationMs: number
+  wallMs: number
+  fenceReadCalls: 4
+}
+
+/** Emitted once after a successful commit; rolled-back attempts are excluded. */
+export type FencedMutationTransactionObserver = (timing: FencedMutationTransactionTiming) => void
+
 export interface RecoveredExecution {
   jobId: string
   previousWorkerId: string | null
@@ -1192,17 +1206,45 @@ export class PostgresQueueRepository {
 
   async withFencedMutationTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
     fence: ExecutionFence,
-    operation: (transaction: TTransaction) => Promise<TResult>
+    operation: (transaction: TTransaction) => Promise<TResult>,
+    observeTiming?: FencedMutationTransactionObserver
   ): Promise<TResult> {
     assertFence(fence)
-    return this.runTransaction(async (transaction) => {
+    const started = observeTiming ? performance.now() : 0
+    let acquired = 0
+    let preFenceCompleted = 0
+    let bodyCompleted = 0
+    let postFenceCompleted = 0
+    const result = await this.runTransaction(async (transaction) => {
+      if (observeTiming) acquired = performance.now()
       await this.lockRunningExecution(transaction, fence, this.clock.now())
+      if (observeTiming) preFenceCompleted = performance.now()
       const result = await operation(transaction as TTransaction)
+      if (observeTiming) bodyCompleted = performance.now()
       // Recheck at the commit boundary so a transaction that accidentally runs
       // beyond its lease cannot publish a stale checkpoint.
       await this.lockRunningExecution(transaction, fence, this.clock.now())
+      if (observeTiming) postFenceCompleted = performance.now()
       return result
     })
+    if (observeTiming) {
+      const committed = performance.now()
+      try {
+        observeTiming({
+          acquisitionMs: acquired - started,
+          preFenceMs: preFenceCompleted - acquired,
+          bodyMs: bodyCompleted - preFenceCompleted,
+          postFenceMs: postFenceCompleted - bodyCompleted,
+          commitFinalizationMs: committed - postFenceCompleted,
+          wallMs: committed - started,
+          fenceReadCalls: 4
+        })
+      } catch {
+        // A telemetry callback cannot make an already committed mutation appear
+        // rolled back and cause its caller to replay domain effects.
+      }
+    }
+    return result
   }
 
   async withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(

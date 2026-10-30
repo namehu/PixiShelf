@@ -1,0 +1,36 @@
+{
+  "at": "2026-10-30T03:52:30.044Z",
+  "dumpSha256": "27f56230021955550eae72292d8db06e02894177ced3008653e1a2fe46835b0a",
+  "fileStateDigest": "8680a87f640a4e625c6443d49fa8582c6252b49759f6c5d7ffbdd82c0a92977a",
+  "files": 2000,
+  "artworks": 50,
+  "preservedSourceModified": false,
+  "compatibility": "Only SET transaction_timeout = 0 removed from private SQL restore for PostgreSQL server compatibility.",
+  "clones": [
+    {
+      "database": "dedup_hot_reuse_baseline_20261030",
+      "counts": "50|2000|2000|2000|133",
+      "restore": "same verified warm dump"
+    },
+    {
+      "database": "dedup_hot_reuse_after_20261030",
+      "counts": "50|2000|2000|2000|133",
+      "restore": "same verified warm dump"
+    },
+    {
+      "database": "dedup_hot_reuse_browser_20261030",
+      "counts": "50|2000|2000|2000|133",
+      "restore": "same verified warm dump"
+    },
+    {
+      "database": "dedup_hot_reuse_restart_20261030",
+      "counts": "50|2000|2000|2000|133",
+      "restore": "same verified warm dump"
+    },
+    {
+      "database": "dedup_hot_reuse_core_20261030",
+      "counts": "0|0|0|0|133",
+      "restore": "empty migrated test database"
+    }
+  ]
+}

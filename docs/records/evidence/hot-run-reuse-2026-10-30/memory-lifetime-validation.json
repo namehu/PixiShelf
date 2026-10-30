@@ -1,0 +1,15 @@
+{
+  "at": "2026-10-30T04:00:17+00:00",
+  "command": "pnpm --filter @pixishelf/job-executors test src/artwork-dedup/__tests__/hot-run.test.ts",
+  "passed": 5,
+  "failed": 0,
+  "fileSha256": "a48853cb8da22ea09cf681a407ad178a91b5c66598515d08b6cb3c9f342e9d6a",
+  "scope": [
+    "Inventory preload budget fallback before member reads",
+    "Member preload cutoff without partial commit",
+    "800MiB cutoff with1GiB budget headroom",
+    "Readonly snapshot discarded after yield/new context",
+    "Aborted preload stops before inspection and later work rereads"
+  ],
+  "limit": "Small mocked metadata budget/lifetime checks; no assertion of a1GiB allocation or forced-GC behavior."
+}

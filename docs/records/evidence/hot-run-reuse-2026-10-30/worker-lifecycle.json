@@ -1,0 +1,388 @@
+{
+  "passed": true,
+  "fixture": {
+    "artistId": 3,
+    "artworks": [
+      53,
+      54
+    ],
+    "originals": 502,
+    "bytesPerFile": "21–23"
+  },
+  "scope": "Actual Worker SIGKILL/restart on small synthetic fixture; deterministic database barrier holds only the uncommitted next batch. No measurement database or preserved file mutation.",
+  "cases": [
+    {
+      "kind": "originals",
+      "identity": {
+        "runId": "3dabaaa8-2c63-4373-9f21-87cf6905bc95",
+        "jobId": "e50bb8f0-befd-4e48-92d5-fddf8103af26"
+      },
+      "killedPid": 73293,
+      "committedPrefix": {
+        "statMedia": 500,
+        "media": 500,
+        "groups": 0,
+        "members": 0,
+        "copyStage": null
+      },
+      "restartAttempt": 2,
+      "resultDigest": "c52a1c6dcf4f47634111e93302c6542fadbefd777f52970e929ed062a21ccbe3",
+      "completed": {
+        "at": "2026-10-30T04:29:39.742Z",
+        "run": {
+          "id": "3dabaaa8-2c63-4373-9f21-87cf6905bc95",
+          "status": "COMPLETED",
+          "stage": "DONE",
+          "statMedia": 502,
+          "cacheHitMedia": 502,
+          "hashedMedia": 0,
+          "readBytes": "0",
+          "changedArtworks": 0,
+          "failedArtworks": 0,
+          "groupCount": 1,
+          "visualCheckpoint": {
+            "kind": "hot-run-reuse",
+            "stage": "done",
+            "cursor": "",
+            "ordinal": 0,
+            "version": 4,
+            "copiedRows": 507,
+            "inputDigest": "8e9c85b7c05219350577e18d6652c77cdb51777aa40d5638a33d3df98ba0794e",
+            "sourceRunId": "0a27405e-a2ab-4f50-90c0-380f43834268",
+            "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+            "featureVersion": "dct63-grid3-crop-local1-v1",
+            "reusedRelations": 1,
+            "visualByteLimit": 33554432,
+            "projectionDigest": "afdece05608db01c22a6ff475ae58e12fb6f42a8ebd4e14ba12841dae5ca6166",
+            "normalizationVersion": "exif-srgb-white-gray96-white245-995-edge20-crop5-10-v1"
+          },
+          "performanceSummary": {
+            "kind": "artwork-dedup-performance",
+            "batch": 13,
+            "jobId": "e50bb8f0-befd-4e48-92d5-fddf8103af26",
+            "phase": "COMPLETED",
+            "runId": "3dabaaa8-2c63-4373-9f21-87cf6905bc95",
+            "version": 1,
+            "complete": true,
+            "counters": {
+              "readBytes": 0,
+              "copiedRows": 507,
+              "hotBatches": 2,
+              "dbLoadCalls": 5,
+              "compareCalls": 0,
+              "dbFenceCalls": 80,
+              "dbWriteCalls": 104,
+              "transactions": 22,
+              "decodedImages": 0,
+              "indexRebuilds": 0,
+              "candidatePairs": 0,
+              "ownFeatureHits": 0,
+              "reusedArtworks": 2,
+              "hashedOriginals": 0,
+              "indexNodeVisits": 0,
+              "replayedQueries": 0,
+              "reusedRelations": 1,
+              "localChannelHits": 0,
+              "wholeChannelHits": 0,
+              "dbValidationCalls": 252,
+              "discardedCopyRows": 0,
+              "metadataFallbacks": null,
+              "originalCacheHits": 502,
+              "contentFeatureHits": 0,
+              "relationReusedPairs": null,
+              "replayedComparisons": 0,
+              "discardedReusedRelations": 0,
+              "relationInvalidatedPairs": null
+            },
+            "progress": {
+              "originals": 502,
+              "queryTotal": null,
+              "staticImages": null,
+              "queryCompleted": null,
+              "uncheckedMedia": 0
+            },
+            "updatedAt": "2026-10-30T04:29:39.717Z",
+            "durationsMs": {
+              "pair": 0,
+              "index": 0,
+              "pause": null,
+              "query": 0,
+              "queue": 564,
+              "active": 1316.076708999999,
+              "dbLoad": 19.34141699999964,
+              "compare": 0,
+              "dbWrite": 141.8108699999954,
+              "feature": 0,
+              "cooldown": null,
+              "resultCopy": 348.0117089999968,
+              "dbValidation": 422.9347120000005,
+              "relationReuse": 50.64249999999993,
+              "transactionBody": 548.4780000000044,
+              "transactionWall": 635.5902940000037,
+              "fingerprintReuse": 146.6419999999994,
+              "propertyInspection": 94.6311270000009,
+              "transactionPreFence": 26.35658399999766,
+              "transactionPostFence": 22.42370699999568,
+              "transactionAcquisition": 17.75945700000439,
+              "transactionCommitFinalization": 14.66929000000285
+            },
+            "inputDigest": "8e9c85b7c05219350577e18d6652c77cdb51777aa40d5638a33d3df98ba0794e",
+            "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+            "memoryPeakBytes": 158711808,
+            "protocolVersion": 9,
+            "metadataPeakBytes": 1689268,
+            "transactionTiming": {
+              "cutoff": "2026-10-30T04:29:39.675Z",
+              "complete": false,
+              "sampledTransactions": 20
+            },
+            "cacheInvalidationReasons": []
+          }
+        },
+        "readerPid": null,
+        "readerAlive": null,
+        "job": {
+          "id": "e50bb8f0-befd-4e48-92d5-fddf8103af26",
+          "status": "COMPLETED",
+          "stage": "DONE",
+          "progress": 100,
+          "attempt": 2
+        },
+        "media": 502,
+        "groups": 1,
+        "members": 2
+      }
+    },
+    {
+      "kind": "copy",
+      "identity": {
+        "runId": "ec680f45-75a4-44ce-85d9-f6aeb591e151",
+        "jobId": "a7a3bae9-bbf3-4c2d-bc8f-4680b6732974"
+      },
+      "killedPid": 73414,
+      "committedPrefix": {
+        "statMedia": 502,
+        "media": 502,
+        "groups": 1,
+        "members": 0,
+        "copyStage": "members"
+      },
+      "restartAttempt": 2,
+      "resultDigest": "c52a1c6dcf4f47634111e93302c6542fadbefd777f52970e929ed062a21ccbe3",
+      "completed": {
+        "at": "2026-10-30T04:29:53.005Z",
+        "run": {
+          "id": "ec680f45-75a4-44ce-85d9-f6aeb591e151",
+          "status": "COMPLETED",
+          "stage": "DONE",
+          "statMedia": 502,
+          "cacheHitMedia": 502,
+          "hashedMedia": 0,
+          "readBytes": "0",
+          "changedArtworks": 0,
+          "failedArtworks": 0,
+          "groupCount": 1,
+          "visualCheckpoint": {
+            "kind": "hot-run-reuse",
+            "stage": "done",
+            "cursor": "",
+            "ordinal": 0,
+            "version": 4,
+            "copiedRows": 507,
+            "inputDigest": "8e9c85b7c05219350577e18d6652c77cdb51777aa40d5638a33d3df98ba0794e",
+            "sourceRunId": "3dabaaa8-2c63-4373-9f21-87cf6905bc95",
+            "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+            "featureVersion": "dct63-grid3-crop-local1-v1",
+            "reusedRelations": 1,
+            "visualByteLimit": 33554432,
+            "projectionDigest": "afdece05608db01c22a6ff475ae58e12fb6f42a8ebd4e14ba12841dae5ca6166",
+            "normalizationVersion": "exif-srgb-white-gray96-white245-995-edge20-crop5-10-v1"
+          },
+          "performanceSummary": {
+            "kind": "artwork-dedup-performance",
+            "batch": 13,
+            "jobId": "a7a3bae9-bbf3-4c2d-bc8f-4680b6732974",
+            "phase": "COMPLETED",
+            "runId": "ec680f45-75a4-44ce-85d9-f6aeb591e151",
+            "version": 1,
+            "complete": true,
+            "counters": {
+              "readBytes": 0,
+              "copiedRows": 507,
+              "hotBatches": 2,
+              "dbLoadCalls": 6,
+              "compareCalls": 0,
+              "dbFenceCalls": 84,
+              "dbWriteCalls": 104,
+              "transactions": 23,
+              "decodedImages": 0,
+              "indexRebuilds": 0,
+              "candidatePairs": 0,
+              "ownFeatureHits": 0,
+              "reusedArtworks": 2,
+              "hashedOriginals": 0,
+              "indexNodeVisits": 0,
+              "replayedQueries": 0,
+              "reusedRelations": 1,
+              "localChannelHits": 0,
+              "wholeChannelHits": 0,
+              "dbValidationCalls": 246,
+              "discardedCopyRows": 0,
+              "metadataFallbacks": null,
+              "originalCacheHits": 502,
+              "contentFeatureHits": 0,
+              "relationReusedPairs": null,
+              "replayedComparisons": 0,
+              "discardedReusedRelations": 0,
+              "relationInvalidatedPairs": null
+            },
+            "progress": {
+              "originals": 502,
+              "queryTotal": null,
+              "staticImages": null,
+              "queryCompleted": null,
+              "uncheckedMedia": 0
+            },
+            "updatedAt": "2026-10-30T04:29:52.960Z",
+            "durationsMs": {
+              "pair": 0,
+              "index": 0,
+              "pause": null,
+              "query": 0,
+              "queue": 559,
+              "active": 1201.091499000001,
+              "dbLoad": 35.99562500000013,
+              "compare": 0,
+              "dbWrite": 193.2422499999997,
+              "feature": 0,
+              "cooldown": null,
+              "resultCopy": 265.4442069999996,
+              "dbValidation": 359.0647889999859,
+              "relationReuse": 44.32654199999843,
+              "transactionBody": 528.0972489999986,
+              "transactionWall": 616.4913769999978,
+              "fingerprintReuse": 134.562709,
+              "propertyInspection": 97.23291499999891,
+              "transactionPreFence": 26.19204000000037,
+              "transactionPostFence": 22.86041800000605,
+              "transactionAcquisition": 17.44270900000049,
+              "transactionCommitFinalization": 15.11125099999669
+            },
+            "inputDigest": "8e9c85b7c05219350577e18d6652c77cdb51777aa40d5638a33d3df98ba0794e",
+            "searchVersion": "bktree-global12-region7of9-10-global28-v2",
+            "memoryPeakBytes": 177684480,
+            "protocolVersion": 9,
+            "metadataPeakBytes": 1689268,
+            "transactionTiming": {
+              "cutoff": "2026-10-30T04:29:52.910Z",
+              "complete": false,
+              "sampledTransactions": 21
+            },
+            "cacheInvalidationReasons": []
+          }
+        },
+        "readerPid": null,
+        "readerAlive": null,
+        "job": {
+          "id": "a7a3bae9-bbf3-4c2d-bc8f-4680b6732974",
+          "status": "COMPLETED",
+          "stage": "DONE",
+          "progress": 100,
+          "attempt": 2
+        },
+        "media": 502,
+        "groups": 1,
+        "members": 2
+      }
+    }
+  ],
+  "processes": [
+    {
+      "label": "warm",
+      "pid": 73245,
+      "workerId": "hot-run-reuse-restart-20261030",
+      "at": "2026-10-30T04:29:23.627Z",
+      "exitAt": "2026-10-30T04:29:26.213Z",
+      "code": 0,
+      "signal": null
+    },
+    {
+      "label": "originals-before-kill",
+      "pid": 73293,
+      "workerId": "hot-run-reuse-restart-20261030",
+      "at": "2026-10-30T04:29:26.276Z",
+      "exitAt": "2026-10-30T04:29:27.252Z",
+      "code": null,
+      "signal": "SIGKILL"
+    },
+    {
+      "label": "originals-after-restart",
+      "pid": 73340,
+      "workerId": "hot-run-reuse-restart-20261030",
+      "at": "2026-10-30T04:29:27.313Z",
+      "exitAt": "2026-10-30T04:29:39.762Z",
+      "code": 0,
+      "signal": null
+    },
+    {
+      "label": "copy-before-kill",
+      "pid": 73414,
+      "workerId": "hot-run-reuse-restart-20261030",
+      "at": "2026-10-30T04:29:39.818Z",
+      "exitAt": "2026-10-30T04:29:41.036Z",
+      "code": null,
+      "signal": "SIGKILL"
+    },
+    {
+      "label": "copy-after-restart",
+      "pid": 73460,
+      "workerId": "hot-run-reuse-restart-20261030",
+      "at": "2026-10-30T04:29:41.098Z",
+      "exitAt": "2026-10-30T04:29:53.026Z",
+      "code": 0,
+      "signal": null
+    }
+  ],
+  "source": {
+    "mainBundleSha256": "18f3b285b336885d8a0cfee7255567b207f203753a1c9011aa6a22953a1fc506",
+    "measuredVsRuntime": "runtime-variance.json"
+  },
+  "privateSetupFailures": {
+    "preserved": true,
+    "configuration": "Initial private timeout20s was >=lease12s; corrected timeout6s before any job ran.",
+    "copiedRoot": "Warm clone namespace remained bound to preserved root; cleared only rebuildable browser/restart caches and directory bindings before first successful cold fixture run."
+  },
+  "allOwnedWorkersStopped": true,
+  "runtimeOptions": {
+    "jobLeaseMs": 12000,
+    "transactionTimeoutMs": 6000,
+    "heartbeatMs": 2000
+  },
+  "cleanup": {
+    "leasesForRestartJobs": 0,
+    "barrierTriggers": 0,
+    "barrierFunctions": 0,
+    "ownedProcessAlive": [
+      {
+        "pid": 73245,
+        "alive": false
+      },
+      {
+        "pid": 73293,
+        "alive": false
+      },
+      {
+        "pid": 73340,
+        "alive": false
+      },
+      {
+        "pid": 73414,
+        "alive": false
+      },
+      {
+        "pid": 73460,
+        "alive": false
+      }
+    ]
+  }
+}

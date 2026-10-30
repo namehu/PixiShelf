@@ -1,0 +1,24 @@
+[
+  {
+    "kind": "app",
+    "pid": 73596,
+    "processGroup": 73596,
+    "script": "/private/tmp/pixishelf-hot-run-reuse-20261030/start-app.sh",
+    "startedAt": "2026-10-30T04:31:05.425Z",
+    "log": "/private/tmp/pixishelf-hot-run-reuse-20261030/evidence/browser-app.log",
+    "stoppedAt": "2026-10-30T04:39:01.898Z",
+    "alive": false,
+    "processGroupAlive": false
+  },
+  {
+    "kind": "worker",
+    "pid": 73597,
+    "processGroup": 73597,
+    "script": "/private/tmp/pixishelf-hot-run-reuse-20261030/start-worker.sh",
+    "startedAt": "2026-10-30T04:31:05.427Z",
+    "log": "/private/tmp/pixishelf-hot-run-reuse-20261030/evidence/browser-worker.log",
+    "stoppedAt": "2026-10-30T04:39:01.901Z",
+    "alive": false,
+    "processGroupAlive": false
+  }
+]

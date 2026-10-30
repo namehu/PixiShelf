@@ -1,0 +1,12 @@
+
+ RUN  v4.0.18 /private/tmp/pixishelf-dedup-hot-run-reuse/PixiShelf/packages/pixishelf-job-executors
+
+ ✓ src/artwork-dedup/__tests__/hot-run.postgres.test.ts (28 tests | 25 skipped) 17333ms
+     ✓ restarts bounded evidence copying when order changes after the first 1000 pages  13188ms
+     ✓ retries only projection when order changes immediately before publication  1732ms
+     ✓ revalidates media classification changed after the final copy  2225ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed | 25 skipped (28)
+   Start at  12:19:35
+   Duration  18.15s (transform 466ms, setup 0ms, import 712ms, tests 17.33s, environment 0ms)

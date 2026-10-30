@@ -1,0 +1,22 @@
+{
+  "at": "2026-10-30T04:32:32.284Z",
+  "measuredSnapshotRetained": true,
+  "benchmarkRerun": false,
+  "differences": [
+    {
+      "file": "packages/pixishelf-job-executors/src/artwork-dedup/executor.ts",
+      "measuredSha256": "d48404d9661d53e81b8ee81f0b4daba50edc3cc0c7bea53eb0363102b4042b00",
+      "runtimeSha256": "2661f0c1782cd7b1ff4f37e690a6a06cd7ffbbe305570ee07651243ada0c6989"
+    }
+  ],
+  "patchSha256": "8f2dc4a4abf1139f97a62eb69410e6de1306b368c292bebb1dc5d0cd0b9eca4b",
+  "patch": "diff --git a/private/tmp/pixishelf-hot-run-reuse-20261030/after-source/packages/pixishelf-job-executors/src/artwork-dedup/executor.ts b/private/tmp/pixishelf-hot-run-reuse-20261030/runtime-source/packages/pixishelf-job-executors/src/artwork-dedup/executor.ts\nindex ba9cec02..37246492 100644\n--- a/private/tmp/pixishelf-hot-run-reuse-20261030/after-source/packages/pixishelf-job-executors/src/artwork-dedup/executor.ts\n+++ b/private/tmp/pixishelf-hot-run-reuse-20261030/runtime-source/packages/pixishelf-job-executors/src/artwork-dedup/executor.ts\n@@ -383,9 +383,11 @@ export async function executeArtworkDedup(\n     discardedCopyRows?: number; discardedReusedRelations?: number\n       }) => {\n         const run = await tx.artworkDedupRun.findUniqueOrThrow({ where: { id: execution.runId } })\n+        const reuse = artworkDedupHotReuseCheckpoint(run.visualCheckpoint)\n         await saveTelemetry(tx, run, {\n           delta: {\n             updatedAt: new Date(now()).toISOString(),\n+            ...(reuse ? { inputDigest: reuse.inputDigest, searchVersion: reuse.searchVersion } : {}),\n             progress: delta.uncheckedMedia === undefined ? {} : { uncheckedMedia: delta.uncheckedMedia },\n             counters: {\n               hotBatches: delta.hotBatches, reusedArtworks: delta.reusedArtworks,\n",
+  "reason": "Final telemetry-only patch fills performance inputDigest/searchVersion from durable hot checkpoint. Measured null fields remain unknown and unchanged in published measurement. No algorithm or SQL path changes.",
+  "testChanges": [
+    {
+      "file": "packages/pixishelf-job-executors/src/artwork-dedup/__tests__/executor-lifecycle-telemetry.test.ts",
+      "measuredSha256": "a622c26aa8db287c56af64f2df6138a6731bc1525b8c6a8e4fb48379a79a4550",
+      "runtimeSha256": "c16c7b04d0206459f4419df3fd84bfeb6651991e3e886ed1689b3acb25fe3961"
+    }
+  ]
+}

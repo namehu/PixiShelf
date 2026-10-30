@@ -22,14 +22,21 @@ export function createArtworkDedupPerformance(input: PerformanceIdentity): Artwo
       relationReusedPairs: null, relationInvalidatedPairs: null, indexNodeVisits: null,
       wholeChannelHits: null, localChannelHits: null, candidatePairs: null, compareCalls: null,
       dbLoadCalls: null, dbValidationCalls: null, dbWriteCalls: null, transactions: null,
+      dbFenceCalls: null, hotBatches: null, reusedArtworks: null, reusedRelations: null, copiedRows: null,
+      originalCacheHits: null, hashedOriginals: null,
+      metadataFallbacks: null, discardedCopyRows: null, discardedReusedRelations: null,
       indexRebuilds: null, replayedQueries: null, replayedComparisons: null
     },
     durationsMs: {
       feature: null, index: null, query: null, compare: null, pair: null, dbLoad: null,
       dbValidation: null, dbWrite: null, transactionWall: null, active: null, queue: null,
-      cooldown: null, pause: null
+      cooldown: null, pause: null, propertyInspection: null, fingerprintReuse: null,
+      relationReuse: null, resultCopy: null, transactionAcquisition: null,
+      transactionPreFence: null, transactionBody: null, transactionPostFence: null,
+      transactionCommitFinalization: null
     },
     memoryPeakBytes: null,
+    metadataPeakBytes: null,
     cacheInvalidationReasons: []
   }
 }
@@ -44,6 +51,8 @@ export interface ArtworkDedupPerformanceDelta {
   counters?: MeasuredDelta<ArtworkDedupPerformanceCounters>
   durationsMs?: MeasuredDelta<ArtworkDedupPerformanceDurations>
   memoryPeakBytes?: number
+  metadataPeakBytes?: number
+  transactionTiming?: ArtworkDedupPerformanceSummary['transactionTiming']
   cacheInvalidationReasons?: ArtworkDedupPerformanceSummary['cacheInvalidationReasons']
 }
 
@@ -73,6 +82,10 @@ export function advanceArtworkDedupPerformance(
     durationsMs,
     memoryPeakBytes: delta.memoryPeakBytes === undefined ? previous.memoryPeakBytes
       : Math.max(previous.memoryPeakBytes ?? 0, delta.memoryPeakBytes),
+    ...(delta.metadataPeakBytes === undefined ? {} : {
+      metadataPeakBytes: Math.max(previous.metadataPeakBytes ?? 0, delta.metadataPeakBytes)
+    }),
+    ...(delta.transactionTiming === undefined ? {} : { transactionTiming: delta.transactionTiming }),
     cacheInvalidationReasons: [...new Set([...previous.cacheInvalidationReasons, ...delta.cacheInvalidationReasons ?? []])]
   }
 }

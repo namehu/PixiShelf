@@ -10,6 +10,7 @@ import type {
   ExecutionProgressMutationResult,
   ExecutionProgressUpdate,
   FencedExecutionTransaction,
+  FencedMutationTransactionTiming,
   QueueSqlExecutor
 } from '@pixishelf/job-runtime'
 import { JobExecutionFenceError, TRANSACTIONALLY_FINALIZED_EXECUTION_OUTCOME } from '@pixishelf/job-runtime'
@@ -34,7 +35,8 @@ export interface DispatcherQueuePort {
   readExecutionControl(fence: ExecutionFence): Promise<ExecutionControl | null>
   withFencedMutationTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
     fence: ExecutionFence,
-    operation: (transaction: TTransaction) => Promise<TResult>
+    operation: (transaction: TTransaction) => Promise<TResult>,
+    observeTiming?: (timing: FencedMutationTransactionTiming) => void
   ): Promise<TResult>
   withFencedProgressTransaction<TTransaction extends QueueSqlExecutor = QueueSqlExecutor, TResult = void>(
     fence: ExecutionFence,
@@ -313,7 +315,7 @@ export class CentralDispatcher {
       signal: controller.signal,
       progress: progressReporter.report,
       enqueueChild: (request) => this.options.queue.enqueueChild(fence, request),
-      mutateInTransaction: (operation) => this.options.queue.withFencedMutationTransaction(fence, operation),
+      mutateInTransaction: (operation, observeTiming) => this.options.queue.withFencedMutationTransaction(fence, operation, observeTiming),
       checkpointInTransaction: progressReporter.checkpoint,
       finalizeInTransaction: async (operation) => {
         if (fencedFinalizationStarted) {

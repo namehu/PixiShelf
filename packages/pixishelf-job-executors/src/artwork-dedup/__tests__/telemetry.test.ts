@@ -34,6 +34,27 @@ describe('artwork detection aggregate telemetry', () => {
     expect(committed.memoryPeakBytes).toBe(500)
     expect(committed.cacheInvalidationReasons).toEqual(['INPUT_CHANGED'])
   })
+  it('separates discarded committed copies from the current result when projection copying restarts', () => {
+    const base = createArtworkDedupPerformance({ ...identity, protocolVersion: 9 })
+    const copied = advanceArtworkDedupPerformance(base, {
+      updatedAt: identity.updatedAt, counters: { copiedRows: 1000, reusedRelations: 1 }
+    })
+    const reset = advanceArtworkDedupPerformance(copied, {
+      updatedAt: identity.updatedAt, counters: {
+        copiedRows: -1000, reusedRelations: -1, discardedCopyRows: 1000, discardedReusedRelations: 1
+      }
+    })
+    expect(artworkDedupPerformanceSummarySchema.parse(reset).counters).toMatchObject({
+      copiedRows: 0, reusedRelations: 0, discardedCopyRows: 1000, discardedReusedRelations: 1
+    })
+    const finished = advanceArtworkDedupPerformance(reset, {
+      updatedAt: identity.updatedAt, counters: { copiedRows: 1001, reusedRelations: 1 }
+    })
+    expect(finished.counters).toMatchObject({
+      copiedRows: 1001, reusedRelations: 1, discardedCopyRows: 1000, discardedReusedRelations: 1
+    })
+    expect(copied.counters.copiedRows).toBe(1000)
+  })
   it('emits only on the 30-second interval, phase changes and lifecycle boundaries', () => {
     const first = createArtworkDedupPerformance(identity)
     const at = (seconds: number) => ({ ...first, updatedAt: new Date(Date.parse(first.updatedAt) + seconds * 1000).toISOString() })
@@ -52,5 +73,27 @@ describe('artwork detection aggregate telemetry', () => {
   it('builds versioned phase progress with explicit unknown unchecked coverage', () => {
     expect(artworkDedupProgress({ phase: 'PAIR', completed: null, total: null, unit: 'pairs', waitReason: null, updatedAt: identity.updatedAt }))
       .toEqual({ kind: 'artwork-dedup', version: 1, phase: 'PAIR', completed: null, total: null, unit: 'pairs', waitReason: null, uncheckedMedia: null, updatedAt: identity.updatedAt })
+  })
+  it('keeps hot-run timings and memory estimates transactional and marks the timing cutoff', () => {
+    const base = createArtworkDedupPerformance({ ...identity, protocolVersion: 9 })
+    const delta = {
+      updatedAt: identity.updatedAt,
+      counters: { hotBatches: 1, reusedArtworks: 2, reusedRelations: 3, copiedRows: 4, dbFenceCalls: 4 },
+      durationsMs: { propertyInspection: 5, fingerprintReuse: 6, relationReuse: 7, resultCopy: 8, transactionCommitFinalization: 2 },
+      metadataPeakBytes: 100, memoryPeakBytes: 500,
+      transactionTiming: { sampledTransactions: 1, cutoff: identity.updatedAt, complete: false }
+    }
+    const uncommitted = advanceArtworkDedupPerformance(base, delta)
+    const replayed = advanceArtworkDedupPerformance(base, delta)
+    expect(replayed).toEqual(uncommitted)
+    expect(base.counters.hotBatches).toBeNull()
+    expect(base.durationsMs.transactionAcquisition).toBeNull()
+    const next = advanceArtworkDedupPerformance(replayed, {
+      updatedAt: identity.updatedAt, counters: { hotBatches: 1, reusedArtworks: 1 }, metadataPeakBytes: 80, memoryPeakBytes: 600
+    })
+    expect(artworkDedupPerformanceSummarySchema.parse(next)).toEqual(next)
+    expect(next.counters).toMatchObject({ hotBatches: 2, reusedArtworks: 3, reusedRelations: 3, copiedRows: 4 })
+    expect(next).toMatchObject({ metadataPeakBytes: 100, memoryPeakBytes: 600, transactionTiming: delta.transactionTiming })
+    expect(next.durationsMs.transactionAcquisition).toBeNull()
   })
 })

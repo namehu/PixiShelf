@@ -1,0 +1,11 @@
+{
+  "at": "2026-10-30T05:34:38.222Z",
+  "activeJobs": [],
+  "operation": {
+    "id": "a705515b-9ea3-487b-bbe0-293565711fa9",
+    "status": "DELETED",
+    "stage": "DONE",
+    "deletedFiles": "2"
+  },
+  "scope": "Read-only stop readiness after the specifically approved synthetic delete; stop only resumed owned process groups78373/78374."
+}

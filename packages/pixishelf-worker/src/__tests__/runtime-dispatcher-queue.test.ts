@@ -74,7 +74,10 @@ describe('RuntimeDispatcherQueue', () => {
       result: 'progress-checkpoint'
     })
     await expect(queue.withFencedExecutionTransaction(fence, finalization)).resolves.toBeUndefined()
-    expect(repository.withFencedMutationTransaction).toHaveBeenCalledWith(fence, mutation)
+    expect(repository.withFencedMutationTransaction).toHaveBeenCalledWith(fence, mutation, undefined)
+    const observeTiming = vi.fn()
+    await queue.withFencedMutationTransaction(fence, mutation, observeTiming)
+    expect(repository.withFencedMutationTransaction).toHaveBeenLastCalledWith(fence, mutation, observeTiming)
     expect(repository.withFencedProgressTransaction).toHaveBeenCalledWith(fence, progressMutation)
     expect(repository.withFencedExecutionTransaction).toHaveBeenCalledWith(fence, finalization)
     expect(() => queue.settle(fence, { kind: 'transactionally-finalized' })).toThrow('must not be settled')

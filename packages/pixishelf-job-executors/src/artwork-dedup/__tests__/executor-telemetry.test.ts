@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { addDedupDatabaseMeasurement, emptyDedupDatabaseMeasurement, measureDedupDatabase } from '../executor-telemetry.ts'
+import { addDedupDatabaseMeasurement, addDedupTransactionTiming, emptyDedupDatabaseMeasurement, measureDedupDatabase } from '../executor-telemetry.ts'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -36,5 +36,22 @@ describe('artwork detection database measurement', () => {
     expect(committed.dbWriteCalls).toBe(0)
     addDedupDatabaseMeasurement(committed, attempt)
     expect(committed.dbWriteCalls).toBe(1)
+  })
+
+  it('separates the queue fence from legacy body reads and adds each committed timing sample once', () => {
+    const committed = emptyDedupDatabaseMeasurement()
+    const attempt = emptyDedupDatabaseMeasurement()
+    attempt.dbValidationCalls = 3
+    addDedupTransactionTiming(attempt, {
+      acquisitionMs: 2, preFenceMs: 3, bodyMs: 5, postFenceMs: 7,
+      commitFinalizationMs: 11, wallMs: 28, fenceReadCalls: 4
+    })
+    expect(committed.timedTransactions).toBe(0)
+    addDedupDatabaseMeasurement(committed, attempt)
+    expect(committed).toMatchObject({
+      dbValidationCalls: 3, dbFenceCalls: 4, timedTransactions: 1,
+      transactionAcquisitionMs: 2, transactionPreFenceMs: 3, transactionBodyMs: 5,
+      transactionPostFenceMs: 7, transactionCommitFinalizationMs: 11
+    })
   })
 })

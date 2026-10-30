@@ -1,0 +1,9 @@
+{
+  "at": "2026-10-30T04:19:01.588Z",
+  "database": "dedup_hot_reuse_core_20261030",
+  "reason": "Isolated core test reset after cancelled timed-out reorder fixture; old failed synthetic state privately dumped before reset.",
+  "privateRecoveryDumpSha256": "05da6475b4b528f0cd71dba9eaf4ca84d9b1ac61d55209b5a6524998d70f1b68",
+  "activeQueriesBeforeReset": 0,
+  "counts": "0|0|0|134",
+  "otherDatabasesModified": false
+}
