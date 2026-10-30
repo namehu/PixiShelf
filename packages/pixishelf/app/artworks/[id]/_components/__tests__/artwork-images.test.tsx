@@ -1,3 +1,4 @@
+vi.mock('@/hooks/use-media-mark', () => ({ useMediaMark: () => ({ available: true, isLoading: false, likedAt: null, set: vi.fn() }) }))
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React from 'react'
@@ -388,9 +389,9 @@ describe('ArtworkImages', () => {
     fireEvent.mouseDown(screen.getByTestId('lazy-media'))
     act(() => vi.advanceTimersByTime(500))
 
-    expect(screen.getByText('适配尺寸预览')).toBeTruthy()
+    expect(screen.getByText('进入全屏阅读')).toBeTruthy()
     expect(screen.getByText('查看原始文件')).toBeTruthy()
-    expect(screen.getByTestId('media-mark-actions').getAttribute('data-media-id')).toBe('1')
+    expect(screen.getAllByTestId('media-mark-actions').at(-1)!.getAttribute('data-media-id')).toBe('1')
     expect(screen.queryByText('自动轮播')).toBeNull()
     vi.useRealTimers()
     fireEvent.click(screen.getByRole('button', { name: '自动滚动' }))
@@ -454,17 +455,17 @@ describe('ArtworkImages', () => {
     fireEvent.mouseDown(screen.getByTestId('lazy-media'))
     act(() => vi.advanceTimersByTime(500))
 
-    expect(screen.queryByText('适配尺寸预览')).toBeNull()
+    expect(screen.queryByText('进入全屏阅读')).toBeNull()
     expect(screen.queryByText('查看原始文件')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '图片操作' }))
-    expect(screen.getByTestId('media-mark-actions').getAttribute('data-media-id')).toBe('1')
-    expect(screen.queryByText('适配尺寸预览')).toBeNull()
+    expect(screen.getAllByTestId('media-mark-actions').at(-1)!.getAttribute('data-media-id')).toBe('1')
+    expect(screen.queryByText('进入全屏阅读')).toBeNull()
   })
 
   it('opens the mark menu on a right click without triggering preview', () => {
     render(<ArtworkImages images={generateImages(1)} artworkId={1} />)
     fireEvent.contextMenu(screen.getByTestId('lazy-media'), { clientX: 40, clientY: 60 })
-    expect(screen.getByTestId('media-mark-actions').getAttribute('data-media-id')).toBe('1')
+    expect(screen.getAllByTestId('media-mark-actions').at(-1)!.getAttribute('data-media-id')).toBe('1')
     expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
   })
 
@@ -475,25 +476,22 @@ describe('ArtworkImages', () => {
     render(<ArtworkImages images={images} artworkId={1} />)
 
     const thirdMedia = screen.getAllByTestId('lazy-media')[2]!
-    fireEvent.mouseDown(thirdMedia)
-    fireEvent.mouseUp(thirdMedia)
+    fireEvent.contextMenu(thirdMedia)
+    fireEvent.click(screen.getByRole('button', { name: '进入全屏阅读' }))
 
     expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-media-count')).toBe('2')
     expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('1')
   })
 
-  it('opens adaptive preview on a regular image click without opening the long-press menu', () => {
+  it('keeps a regular image single click inactive and opens reading through the menu', () => {
     render(<ArtworkImages images={generateImages(2)} artworkId={1} />)
-
     const firstMedia = screen.getAllByTestId('lazy-media')[0]!
     fireEvent.mouseDown(firstMedia)
     fireEvent.mouseUp(firstMedia)
-
+    expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
+    fireEvent.contextMenu(firstMedia)
+    fireEvent.click(screen.getByRole('button', { name: '进入全屏阅读' }))
     expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
-    expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-preview-src')).toContain(
-      '/path/to/image-1.jpg'
-    )
-    expect(screen.queryByText('查看原始文件')).toBeNull()
   })
 
   it('opens adaptive preview for WebP media even when animation metadata is pending', () => {
@@ -506,8 +504,8 @@ describe('ArtworkImages', () => {
     render(<ArtworkImages images={images} artworkId={1} />)
 
     const webpMedia = screen.getByTestId('lazy-media')
-    fireEvent.mouseDown(webpMedia)
-    fireEvent.mouseUp(webpMedia)
+    fireEvent.contextMenu(webpMedia)
+    fireEvent.click(screen.getByRole('button', { name: '进入全屏阅读' }))
 
     expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
   })
@@ -522,8 +520,8 @@ describe('ArtworkImages', () => {
     render(<ArtworkImages images={images} artworkId={1} />)
 
     const webpMedia = screen.getByTestId('lazy-media')
-    fireEvent.mouseDown(webpMedia)
-    fireEvent.mouseUp(webpMedia)
+    fireEvent.contextMenu(webpMedia)
+    fireEvent.click(screen.getByRole('button', { name: '进入全屏阅读' }))
 
     expect(screen.getByTestId('adaptive-media-preview').getAttribute('data-initial-index')).toBe('0')
   })
@@ -539,15 +537,15 @@ describe('ArtworkImages', () => {
     fireEvent.touchEnd(firstMedia)
 
     expect(screen.queryByTestId('adaptive-media-preview')).toBeNull()
-    expect(screen.queryByText('适配尺寸预览')).toBeNull()
+    expect(screen.queryByText('进入全屏阅读')).toBeNull()
   })
 
   it('expands and restores the virtual list to the final previewed media', async () => {
     render(<ArtworkImages images={generateImages(25)} artworkId={1} />)
 
     const firstMedia = screen.getAllByTestId('lazy-media')[0]!
-    fireEvent.mouseDown(firstMedia)
-    fireEvent.mouseUp(firstMedia)
+    fireEvent.contextMenu(firstMedia)
+    fireEvent.click(screen.getByRole('button', { name: '进入全屏阅读' }))
     fireEvent.click(screen.getByRole('button', { name: '关闭并返回第 25 张' }))
 
     await waitFor(() => {

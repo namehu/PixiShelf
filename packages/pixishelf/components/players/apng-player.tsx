@@ -5,6 +5,7 @@ import { Loader2, Pause, Play } from 'lucide-react'
 import Image from 'next/image'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { AnimationPlaybackCapsule } from './animation-playback-capsule'
 
 // -----------------------------------------------------------------------------
 // 子组件：APNG 播放器
@@ -16,13 +17,14 @@ interface ApngPlayerProps {
   alt?: string
   className?: string
   posterSizes?: string
+  controlMode?: 'surface' | 'badge'
   onPosterLoad?: () => void
   onPosterError?: () => void
   onPlayingChange?: (playing: boolean) => void
 }
 
 const ApngPlayer = (props: ApngPlayerProps) => {
-  const { src, alt = src, className, posterSizes = '100vw', onPosterLoad, onPosterError, onPlayingChange } = props
+  const { src, alt = src, className, posterSizes = '100vw', controlMode = 'surface', onPosterLoad, onPosterError, onPlayingChange } = props
 
   const [player, setPlayer] = useState<any>(null)
   const [status, setStatus] = useState<'idle' | 'loading' | 'playing' | 'paused'>('idle')
@@ -39,7 +41,7 @@ const ApngPlayer = (props: ApngPlayerProps) => {
     }
   }, [player])
 
-  const handleToggle = async (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleToggle = async (e: React.MouseEvent<HTMLElement>) => {
     e.stopPropagation()
 
     // 1. 如果处于空闲状态，开始加载并初始化
@@ -99,17 +101,19 @@ const ApngPlayer = (props: ApngPlayerProps) => {
   const isReady = status === 'playing' || status === 'paused'
   const controlLabel = `播放或暂停动画：${alt}`
 
+  const Surface = controlMode === 'surface' ? 'button' : 'div'
   return (
-    <button
-      type="button"
+    <Surface
+      type={controlMode === 'surface' ? 'button' : undefined}
       className={cn(
-        'group relative block w-full cursor-pointer overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        'group relative block w-full overflow-hidden rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+        controlMode === 'surface' && 'cursor-pointer',
         className
       )}
-      onClick={handleToggle}
-      disabled={status === 'loading'}
-      aria-label={controlLabel}
-      aria-pressed={status === 'playing'}
+      onClick={controlMode === 'surface' ? handleToggle : undefined}
+      disabled={controlMode === 'surface' ? status === 'loading' : undefined}
+      aria-label={controlMode === 'surface' ? controlLabel : undefined}
+      aria-pressed={controlMode === 'surface' ? status === 'playing' : undefined}
       aria-busy={status === 'loading'}
     >
       {/* 1. 封面图 (Next/Image)
@@ -145,7 +149,18 @@ const ApngPlayer = (props: ApngPlayerProps) => {
         - Loading: 显示加载中
         - Playing: 默认隐藏，Hover 时显示
       */}
-      <div
+      {controlMode === 'badge' ? <button
+        type="button"
+        data-long-press-ignore
+        aria-label={controlLabel}
+        aria-pressed={status === 'playing'}
+        aria-busy={status === 'loading'}
+        disabled={status === 'loading'}
+        className="absolute bottom-2 right-2 flex min-h-11 min-w-11 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        onClick={handleToggle}
+      >
+        <AnimationPlaybackCapsule playing={status === 'playing'} label={status === 'loading' ? '加载中' : 'APNG'} />
+      </button> : <div
         className={cn(
           'absolute inset-0 flex items-center justify-center transition-opacity duration-300',
           status === 'playing' ? 'bg-black/10 opacity-0 group-hover:opacity-100' : 'bg-black/20 opacity-100'
@@ -157,8 +172,8 @@ const ApngPlayer = (props: ApngPlayerProps) => {
           {status === 'paused' && <Play className="w-8 h-8 ml-1" />}
           {status === 'playing' && <Pause className="w-8 h-8" />}
         </div>
-      </div>
-    </button>
+      </div>}
+    </Surface>
   )
 }
 

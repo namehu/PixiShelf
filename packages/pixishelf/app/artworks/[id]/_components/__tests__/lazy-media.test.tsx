@@ -178,6 +178,12 @@ describe('LazyMedia video cache version', () => {
   it('sizes APNG posters for the reading column', () => {
     render(<LazyMedia media={{ ...media, path: '/next.png', mediaType: 'image', isAnimated: true }} index={12} />)
     expect(playerMocks.apngProps.mock.calls.at(-1)?.[0].posterSizes).toBe('(max-width: 45rem) 100vw, 45rem')
+    expect(playerMocks.apngProps.mock.calls.at(-1)?.[0].controlMode).toBe('badge')
+  })
+
+  it('keeps GIF playback on its independent badge beside the detail like action', () => {
+    render(<LazyMedia media={{ ...media, path: '/next.gif', mediaType: 'image', isAnimated: true }} index={12} />)
+    expect(playerMocks.animatedProps.mock.calls.at(-1)?.[0]).toMatchObject({ formatLabel: 'GIF', controlMode: 'badge', avoidBottomActions: true })
   })
 
   it('uses image updatedAt to version the immutable video URL', () => {

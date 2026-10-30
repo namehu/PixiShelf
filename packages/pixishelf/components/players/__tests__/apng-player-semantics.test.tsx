@@ -1,5 +1,5 @@
 import React from 'react'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ApngPlayer from '../apng-player'
 
@@ -28,5 +28,17 @@ describe('ApngPlayer semantics', () => {
     expect(button.getAttribute('type')).toBe('button')
     expect(button.getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByRole('img', { name: '示例动画' })).toBeTruthy()
+  })
+
+  it('keeps badge playback independent from the poster without nesting buttons', () => {
+    const playing = vi.fn()
+    const { container } = render(<ApngPlayer src="/sample.png" alt="示例动画" controlMode="badge" onPlayingChange={playing} />)
+    fireEvent.click(screen.getByRole('img'))
+    expect(playing).not.toHaveBeenCalled()
+    expect(container.querySelector('button button')).toBeNull()
+    const button = screen.getByRole('button', { name: '播放或暂停动画：示例动画' })
+    expect(button.hasAttribute('data-long-press-ignore')).toBe(true)
+    expect(button.className).toContain('min-h-11')
+    expect(button.className).toContain('right-2')
   })
 })

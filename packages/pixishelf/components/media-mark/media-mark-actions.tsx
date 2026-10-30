@@ -13,6 +13,7 @@ export function MediaMarkActions({
   layout = 'icons',
   overlay = false,
   showBookmark = true,
+  onAction,
   children
 }: {
   artworkId: number
@@ -20,6 +21,7 @@ export function MediaMarkActions({
   layout?: 'icons' | 'menu'
   overlay?: boolean
   showBookmark?: boolean
+  onAction?: (kind: 'bookmark' | 'like', value: boolean) => void
   /** Preview controls between the stable bookmark and like buttons. */
   children?: ReactNode
 }) {
@@ -78,6 +80,7 @@ export function MediaMarkActions({
               )}
               onClick={(event) => {
                 event.stopPropagation()
+                onAction?.(kind, !active)
                 mark.set(kind, !active)
                 if (overlay && !active && !reducedMotion) {
                   const controls = kind === 'bookmark' ? bookmarkAnimation : likeAnimation

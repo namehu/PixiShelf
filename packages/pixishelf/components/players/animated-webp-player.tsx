@@ -35,6 +35,7 @@ interface AnimatedWebpPlayerProps {
   playbackKey?: string | number
   autoBrowseControl?: boolean
   controlMode?: AnimatedWebpPlayerControlMode
+  avoidBottomActions?: boolean
   playing?: boolean
   playOnce?: boolean
   playbackPaused?: boolean
@@ -85,6 +86,7 @@ export default function AnimatedWebpPlayer({
   playbackKey,
   autoBrowseControl = false,
   controlMode = 'surface',
+  avoidBottomActions = false,
   playing,
   playOnce = false,
   playbackPaused = false,
@@ -500,7 +502,7 @@ export default function AnimatedWebpPlayer({
       )}
 
       {isAnimated && animationFailed && (
-        <div className="pointer-events-none absolute inset-x-3 bottom-3 flex items-center gap-2 rounded bg-black/55 px-3 py-2 text-xs text-white">
+        <div className={cn("pointer-events-none absolute inset-x-3 flex items-center gap-2 rounded bg-black/55 px-3 py-2 text-xs text-white", avoidBottomActions ? "bottom-16" : "bottom-3")}>
           <InfoIcon className="h-4 w-4 shrink-0" />
           <span>动图加载失败，已保留静态预览</span>
         </div>

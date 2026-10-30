@@ -134,6 +134,7 @@
 .artwork-rating-overlay {
   background: rgb(0 0 0 / 0.18);
 }
+:root { --media-like-color: #ff647c; }
 .media-mark-overlay {
   background: rgb(0 0 0 / 0.65);
   color: white;
@@ -155,7 +156,7 @@
 .media-mark-overlay[data-media-mark='like']:hover,
 .media-mark-overlay[data-media-mark='like'][aria-pressed='true'] {
   background: rgb(0 0 0 / 0.65);
-  color: #ff647c;
+  color: var(--media-like-color);
 }
 .viewer-rating-heart[data-rating-level='2'] { color: #ff7b88; }
 .viewer-rating-heart[data-rating-level='3'] { color: #ff5490; }

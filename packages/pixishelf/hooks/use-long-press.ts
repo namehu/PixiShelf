@@ -4,9 +4,10 @@ interface UseLongPressOptions {
   onLongPress: (event: React.MouseEvent | React.TouchEvent) => void
   onClick?: (event: React.MouseEvent | React.TouchEvent) => void
   threshold?: number
+  cancelRef?: React.RefObject<(() => void) | null>
 }
 
-export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongPressOptions) {
+export function useLongPress({ onLongPress, onClick, threshold = 500, cancelRef }: UseLongPressOptions) {
   const timeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startPos = useRef<{ x: number; y: number } | null>(null)
   const ignoreMouseUntil = useRef(0)
@@ -82,6 +83,10 @@ export function useLongPress({ onLongPress, onClick, threshold = 500 }: UseLongP
   }, [cancel])
 
   useEffect(() => cancel, [cancel])
+  useEffect(() => {
+    if (cancelRef) cancelRef.current = cancel
+    return () => { if (cancelRef) cancelRef.current = null }
+  }, [cancelRef, cancel])
 
   return {
     onMouseDown: start,

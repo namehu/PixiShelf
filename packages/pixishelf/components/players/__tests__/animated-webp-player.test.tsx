@@ -336,4 +336,12 @@ describe('AnimatedWebpPlayer compatibility fallback', () => {
     expect(onPlayingChange).toHaveBeenCalledWith(false)
     expect(screen.getAllByRole('img')).toHaveLength(1)
   })
+
+  it('only raises failure copy above bottom controls when the detail layout requests it', () => {
+    const view = render(<AnimatedWebpPlayer src="/sample.gif" playing controlMode="badge" />)
+    fireEvent.error(screen.getAllByRole('img')[1]!)
+    expect(screen.getByText('动图加载失败，已保留静态预览').parentElement?.className).toContain('bottom-3')
+    view.rerender(<AnimatedWebpPlayer src="/sample.gif" playing controlMode="badge" avoidBottomActions />)
+    expect(screen.getByText('动图加载失败，已保留静态预览').parentElement?.className).toContain('bottom-16')
+  })
 })

@@ -22,6 +22,7 @@ vi.mock('@/lib/reading/artwork-reader-provider', () => ({
   useReaderMediaWindow: () => {}
 }))
 vi.mock('../artwork-summary-context', () => ({ useArtworkSummary: () => null }))
+vi.mock('@/components/media-mark/media-mark-actions', () => ({ MediaMarkActions: () => null }))
 vi.mock('../artwork-detail-controls', () => ({ useArtworkDetailControls: () => null }))
 vi.mock('../artwork-video-optimization-context', () => ({
   ArtworkVideoOptimizationProvider: ({ children }: { children: ReactNode }) => children,

@@ -1,7 +1,7 @@
 'use client'
 
 import { useReaderMediaWindow, useArtworkReader } from '@/lib/reading/artwork-reader-provider'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import {
   getArtworkDisplayPolicy,
@@ -11,13 +11,12 @@ import {
 import { Button } from '@/components/ui/button'
 import LazyMedia from './lazy-media'
 import { ReadingMediaStatus, readingMediaPosition } from './reading-media-status'
-import { useLongPress } from '@/hooks/use-long-press'
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover'
 import { useRouter } from 'next/navigation'
 import { useArtworkStore } from '@/store/use-artwork-store'
 import { useArtworkMediaAnchorInterval } from '@/components/user-setting'
 import type { ArtworkImageResponseDto } from '@/schemas/artwork.dto'
-import { isApngFile, isGifFile, isVideoFile, isWebpFile } from '@/lib/media'
+import { isVideoFile } from '@/lib/media'
 import { hasReliableSingleFrameDimensions } from '@/lib/media-animation'
 import { cn } from '@/lib/utils'
 import { MediaAnchorNavigation } from './media-anchor-navigation'
@@ -37,6 +36,8 @@ import type { StackDecoration } from './artwork-stack-projection'
 import { getArtworkMediaRange } from './artwork-media-range'
 import { MediaMarkActions } from '@/components/media-mark/media-mark-actions'
 import { MoreHorizontalIcon } from 'lucide-react'
+import { DetailMediaInteraction } from './detail-media-interaction'
+import type { DetailMediaMenuEvent } from './use-detail-media-gestures'
 
 interface ArtworkImagesProps {
   images: ArtworkImageResponseDto[]
@@ -94,25 +95,19 @@ function isVideoMedia(media: ArtworkImageResponseDto) {
   return media.mediaType === 'video' || isVideoFile(media.path)
 }
 
-function keepsSurfacePlaybackControl(media: ArtworkImageResponseDto) {
-  if (isVideoMedia(media)) return true
-  if (isWebpFile(media.path)) return false
-  if (!media.isAnimated) return false
-
-  return isApngFile(media.path) || isGifFile(media.path) || /\.png$/i.test(media.path)
-}
-
 function isSingleVideoArtwork(images: ArtworkImageResponseDto[]) {
   return images.length === 1 && isVideoMedia(images[0]!)
 }
 
-function getPointerPosition(event: React.MouseEvent | React.TouchEvent) {
+function getPointerPosition(event: DetailMediaMenuEvent) {
   if ('touches' in event) {
     const touch = event.touches[0]
     return touch ? { x: touch.clientX, y: touch.clientY } : null
   }
 
-  return { x: event.clientX, y: event.clientY }
+  if ('clientX' in event) return { x: event.clientX, y: event.clientY }
+  const rect = event.currentTarget.getBoundingClientRect()
+  return { x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 80) }
 }
 
 // Section spacing, paper edges and the compact navigation below the image.
@@ -275,7 +270,7 @@ function usePreviewContextMenu(
   const setStoreImages = useArtworkStore((state) => state.setImages)
 
   const openContextMenu = useCallback(
-    (event: React.MouseEvent | React.TouchEvent, index: number, loadFailed = false) => {
+    (event: DetailMediaMenuEvent, index: number, loadFailed = false) => {
       const position = getPointerPosition(event)
       if (!position) return
       useArtworkAutoBrowseStore.getState().pause('overlay')
@@ -329,54 +324,10 @@ function usePreviewContextMenu(
   }
 }
 
-function PreviewableMedia({
-  children,
-  index,
-  enabled,
-  tapPreviewEnabled,
-  onOpenMenu,
-  onPreview
-}: {
-  children: ReactNode
-  index: number
-  enabled: boolean
-  tapPreviewEnabled: boolean
-  onOpenMenu: (e: React.MouseEvent | React.TouchEvent, index: number) => void
-  onPreview: (index: number, initialPreviewSrc?: string) => void
-}) {
-  const { ...longPressProps } = useLongPress({
-    onLongPress: (e) => onOpenMenu(e, index),
-    onClick: tapPreviewEnabled
-      ? (event) => {
-          const image = event.currentTarget.querySelector('img')
-          const initialPreviewSrc = image?.currentSrc || image?.src || undefined
-          onPreview(index, initialPreviewSrc)
-        }
-      : undefined,
-    threshold: 500
-  })
-
-  if (!enabled) return children
-
-  return (
-    <div
-      {...longPressProps}
-      onContextMenu={(event) => { event.preventDefault(); onOpenMenu(event, index) }}
-      className="select-none [&_img]:pointer-events-none [&_img]:[-webkit-touch-callout:none]"
-      draggable={false}
-      onDragStart={(event) => event.preventDefault()}
-      style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
-    >
-      {children}
-    </div>
-  )
-}
-
 const ArtworkMediaItem = memo(function ArtworkMediaItem({
   media,
   index,
   onOpenPreviewMenu,
-  onOpenAdaptivePreview,
   highlighted,
   autoMode = 'scroll',
   reading,
@@ -384,8 +335,7 @@ const ArtworkMediaItem = memo(function ArtworkMediaItem({
 }: {
   media: ArtworkImageResponseDto
   index: number
-  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number, loadFailed?: boolean) => void
-  onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
+  onOpenPreviewMenu: (e: DetailMediaMenuEvent, index: number, loadFailed?: boolean) => void
   highlighted: boolean
   autoMode?: 'scroll' | 'slideshow'
   reading?: ArtworkReadingHandle
@@ -397,7 +347,7 @@ const ArtworkMediaItem = memo(function ArtworkMediaItem({
     []
   )
   const onOpenMenu = useCallback(
-    (event: React.MouseEvent | React.TouchEvent, itemIndex: number) => onOpenPreviewMenu(event, itemIndex, loadFailed),
+    (event: DetailMediaMenuEvent, itemIndex: number) => onOpenPreviewMenu(event, itemIndex, loadFailed),
     [onOpenPreviewMenu, loadFailed]
   )
   if (media.detailsPending) return <LazyMedia media={media} index={index} autoMode={autoMode} reading={reading} trackingActive={trackingActive} />
@@ -410,13 +360,7 @@ const ArtworkMediaItem = memo(function ArtworkMediaItem({
       data-preview-highlighted={highlighted ? 'true' : undefined}
       onContextMenu={isVideoMedia(media) ? (event) => { event.preventDefault(); onOpenMenu(event, index) } : undefined}
     >
-      <PreviewableMedia
-        index={index}
-        enabled={!isVideoMedia(media)}
-        tapPreviewEnabled={canPreviewFullSize(media) && !keepsSurfacePlaybackControl(media)}
-        onOpenMenu={onOpenMenu}
-        onPreview={onOpenAdaptivePreview}
-      >
+      {isVideoMedia(media) ? (
         <LazyMedia
           autoMode={autoMode}
           onPreviewStatusChange={onPreviewStatusChange}
@@ -425,8 +369,24 @@ const ArtworkMediaItem = memo(function ArtworkMediaItem({
           reading={reading}
           trackingActive={trackingActive}
         />
-      </PreviewableMedia>
-      {isVideoMedia(media) ? <VideoMediaMenuButton onOpenMenu={(event) => onOpenMenu(event, index)} /> : null}
+      ) : (
+        <DetailMediaInteraction
+          artworkId={media.artworkId ?? 0}
+          mediaId={media.id}
+          label={`第 ${media.sortOrder + 1} 张图片`}
+          onMenu={(event) => onOpenMenu(event, index)}
+        >
+          <LazyMedia
+            autoMode={autoMode}
+            onPreviewStatusChange={onPreviewStatusChange}
+            media={media}
+            index={index}
+            reading={reading}
+            trackingActive={trackingActive}
+          />
+        </DetailMediaInteraction>
+      )}
+      {isVideoMedia(media) ? <VideoMediaMenuButton media={media} onOpenMenu={(event) => onOpenMenu(event, index)} /> : null}
     </div>
   )
 })
@@ -486,27 +446,33 @@ function PreviewContextMenu({
         {selectedMedia && (
           <ReadingMediaStatus reading={reading} mediaId={selectedMedia.id} loadFailed={contextMenu?.loadFailed} />
         )}
-        {selectedMedia ? <MediaMarkActions artworkId={selectedMedia.artworkId ?? 0} mediaId={selectedMedia.id} layout="menu" /> : null}
+        {selectedMedia ? (
+          <MediaMarkActions
+            artworkId={selectedMedia.artworkId ?? 0}
+            mediaId={selectedMedia.id}
+            layout="menu"
+            onAction={() => useArtworkAutoBrowseStore.getState().pause('manual')}
+          />
+        ) : null}
         {selectedMedia && !isVideoMedia(selectedMedia) && (
           <Button variant="ghost" className="min-h-11 w-full justify-start" onClick={onAutoScroll}>
             {stackMode ? '自动翻阅' : '自动滚动'}
           </Button>
         )}
-        {selectedMedia && !isVideoMedia(selectedMedia) && <button
-          type="button"
-          onClick={onPreview}
-          className="block min-h-10 w-full cursor-pointer select-none rounded-sm px-4 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
-        >
-          适配尺寸预览
-        </button>}
+        {selectedMedia && !isVideoMedia(selectedMedia) && (
+          <Button type="button" variant="ghost" onClick={onPreview} className="min-h-11 w-full justify-start">
+            进入全屏阅读
+          </Button>
+        )}
         {selectedMedia && canPreviewFullSize(selectedMedia) && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={onViewOriginal}
-            className="block min-h-10 w-full cursor-pointer select-none rounded-sm px-4 py-2 text-left text-sm text-foreground outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
+            className="min-h-11 w-full justify-start"
           >
             查看原始文件
-          </button>
+          </Button>
         )}
       </PopoverContent>
     </Popover>
@@ -522,23 +488,34 @@ function SingleVideoArtworkMedia({
   media: ArtworkImageResponseDto
   reading?: ArtworkReadingHandle
   trackingActive: boolean
-  onOpenMenu: (event: React.MouseEvent | React.TouchEvent, index: number) => void
+  onOpenMenu: (event: DetailMediaMenuEvent, index: number) => void
 }) {
   return (
     <div className="relative w-full" data-testid="artwork-video-container" data-summary-anchor={media.id}
       onContextMenu={(event) => { event.preventDefault(); onOpenMenu(event, 0) }}>
       <LazyMedia media={media} index={0} reading={reading} trackingActive={trackingActive} />
-      <VideoMediaMenuButton onOpenMenu={(event) => onOpenMenu(event, 0)} />
+      <VideoMediaMenuButton media={media} onOpenMenu={(event) => onOpenMenu(event, 0)} />
     </div>
   )
 }
 
-function VideoMediaMenuButton({ onOpenMenu }: { onOpenMenu: (event: React.MouseEvent) => void }) {
-  return <div className="flex justify-end py-1">
-    <Button type="button" variant="ghost" className="min-h-11" onClick={onOpenMenu}>
-      <MoreHorizontalIcon data-icon="inline-start" aria-hidden="true" />图片操作
-    </Button>
-  </div>
+function VideoMediaMenuButton({ media, onOpenMenu }: {
+  media: ArtworkImageResponseDto
+  onOpenMenu: (event: React.MouseEvent) => void
+}) {
+  return (
+    <div className="flex items-center justify-between py-1">
+      <MediaMarkActions
+        artworkId={media.artworkId ?? 0}
+        mediaId={media.id}
+        showBookmark={false}
+        onAction={() => useArtworkAutoBrowseStore.getState().pause('manual')}
+      />
+      <Button type="button" variant="ghost" className="min-h-11" onClick={onOpenMenu}>
+        <MoreHorizontalIcon data-icon="inline-start" aria-hidden="true" />图片操作
+      </Button>
+    </div>
+  )
 }
 
 function VirtualizedArtworkMediaList({
@@ -547,7 +524,6 @@ function VirtualizedArtworkMediaList({
   returnIndex,
   onReturnHandled,
   onOpenPreviewMenu,
-  onOpenAdaptivePreview,
   reading,
   trackingActive,
   summaryMode = false,
@@ -559,8 +535,7 @@ function VirtualizedArtworkMediaList({
   images: ArtworkImageResponseDto[]
   returnIndex: number | null
   onReturnHandled: () => void
-  onOpenPreviewMenu: (e: React.MouseEvent | React.TouchEvent, index: number, loadFailed?: boolean) => void
-  onOpenAdaptivePreview: (index: number, initialPreviewSrc?: string) => void
+  onOpenPreviewMenu: (e: DetailMediaMenuEvent, index: number, loadFailed?: boolean) => void
   reading?: ArtworkReadingHandle
   trackingActive: boolean
 }) {
@@ -771,7 +746,6 @@ function VirtualizedArtworkMediaList({
                   reading={reading}
                   trackingActive={trackingActive}
                   onMenu={onOpenPreviewMenu}
-                  onPreview={onOpenAdaptivePreview}
                 />
               ) : (
                 <ArtworkMediaItem
@@ -780,7 +754,6 @@ function VirtualizedArtworkMediaList({
                   index={index}
                   autoMode={driverMode}
                   onOpenPreviewMenu={onOpenPreviewMenu}
-                  onOpenAdaptivePreview={onOpenAdaptivePreview}
                   highlighted={highlightedIndex === index}
                   reading={reading}
                   trackingActive={trackingActive}
@@ -1003,7 +976,6 @@ function ArtworkImagesSession({
         returnIndex={returnIndex}
         onReturnHandled={handleReturnHandled}
         onOpenPreviewMenu={openContextMenu}
-        onOpenAdaptivePreview={openAdaptivePreview}
         reading={reading}
         trackingActive={trackingActive && !previewState && !contextMenu}
       />

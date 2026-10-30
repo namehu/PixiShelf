@@ -1,3 +1,5 @@
+vi.mock('@/components/media-mark/media-mark-actions', () => ({ MediaMarkActions: () => null }))
+vi.mock('@/hooks/use-media-mark', () => ({ useMediaMark: () => ({ available: true, isLoading: false, likedAt: null, set: vi.fn() }) }))
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import React from 'react'

@@ -239,6 +239,7 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
       return (
         <ApngPlayer
           src={src}
+          controlMode="badge"
           posterSizes={READING_IMAGE_SIZES}
           alt={`Artwork animation ${displayIndex + 1}`}
           onPosterLoad={() => report('ready')}
@@ -258,7 +259,8 @@ const LazyMedia = memo(({ media, index, onPreviewStatusChange, reading, tracking
           animationMetadata={media.animationMetadata}
           isAnimated={Boolean(media.isAnimated)}
           formatLabel={formatLabel}
-          controlMode={isWebpFile(src) ? 'badge' : 'surface'}
+          avoidBottomActions
+          controlMode="badge"
           {...(isWebpFile(src) ? animation : {})}
           updatedAt={media.updatedAt}
           posterLoading="eager"
